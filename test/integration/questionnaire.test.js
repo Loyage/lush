@@ -5,6 +5,7 @@ import { temp, env, repo, until } from '../helpers.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
 import { cli, idle } from './harness.js';
+import { bindMockPiSource } from './pi-runtime-fixture.js';
 
 // A real process that intentionally never exits after posting: runtime, not model compliance, must stop it.
 test('pi CLI questionnaire stops process group, survives daemon restart, and resumes via answers-file', async () => {
@@ -27,6 +28,7 @@ if (context.task.calls === 1) {
   try {
     await repo(root);
     await cli(root, ['start'], { LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake });
+    await bindMockPiSource(root);
     const { task } = await cli(root, ['order', 'choose a layout']);
     let client = new UIClient(Config.fromEnv(env(), root));
     let waiting;

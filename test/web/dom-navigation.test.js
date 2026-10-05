@@ -55,7 +55,7 @@ test('右侧固定返回按钮在没有原生 history.back 的宿主里安全回
 });
 
 const navEntries = () => [
-  ...['overview', 'task-graph', 'agent-status', 'settings', 'docs'].map(id => [id, dom.node(`${id}-open`)]),
+  ...['overview', 'task-graph', 'agent-status', 'model-sources', 'settings', 'docs'].map(id => [id, dom.node(`${id}-open`)]),
   ...[...ui.navButtons.entries()],
 ];
 const routeHash = id => id === 'overview' ? '' : `#${id === 'tasks' ? 'workers' : id === 'task-graph' ? 'worker-graph' : id}`;
@@ -82,7 +82,7 @@ test('所有页面平级、唯一选中；重复点击、hash 后退与轮询保
       if (ui.indexOpen) expect(dom.node(`side-${id}`).hidden).toBe(false);
       else expect(dom.node('detail').dataset.view).toBe(id);
     }
-    for (const id of ['task-graph', 'agent-status', 'settings', 'notices', 'tasks', 'docs', 'overview']) {
+    for (const id of ['task-graph', 'agent-status', 'model-sources', 'settings', 'notices', 'tasks', 'docs', 'overview']) {
       dom.location.hash = routeHash(id);
       await dom.fire('hashchange');
       expectSelected(id);
@@ -90,6 +90,28 @@ test('所有页面平级、唯一选中；重复点击、hash 后退与轮询保
     await detail(1);
     expectSelected('tasks');
   } finally { intercept = null; }
+});
+
+test('来源UUID深链接选择正确详情，来源只读请求迟到不覆盖新页面', async () => {
+  const connectionId = '12345678-1234-1234-1234-123456789abc';
+  const previous = world.state.agentConnections;
+  world.state.agentConnections = { ...previous, connections: [{ id: connectionId, label: '指定 API', provider: 'deepseek',
+    auth_type: 'api_key', endpoint: 'https://api.deepseek.com', enabled: true, models: ['flash'],
+    credential: { status: 'configured' }, consumers: [] }] };
+  try {
+    await dom.node('home').onclick(); dom.location.hash = `#model-source-${connectionId}`; await dom.fire('hashchange');
+    expectSelected('model-sources'); expect(dom.node('view-title').textContent).toBe('模型来源');
+    const cards = dom.node('detail').querySelectorAll('.agent-connection-card').filter(node => !node.hidden);
+    expect(cards.map(node => node.dataset.connectionId)).toEqual([connectionId]);
+    expect(dom.location.hash).toBe(`#model-source-${connectionId}`);
+    await dom.intervalFor(1500)(); expectSelected('model-sources');
+    await dom.node('home').onclick();
+    const pending = deferred(), started = deferred();
+    intercept = url => url === '/api/agent/connections' ? (started.resolve(), pending.promise) : null;
+    const opening = dom.node('model-sources-open').onclick(); await started.promise;
+    await dom.node('settings-open').onclick(); pending.resolve(json(world.state.agentConnections)); await opening;
+    expectSelected('settings'); expect(dom.node('detail').querySelector('.model-source-layout')).toBeNull();
+  } finally { intercept = null; world.state.agentConnections = previous; }
 });
 
 test('概览切换不依赖 revision 变化，轮询忙或断网时也立即显示缓存', async () => {

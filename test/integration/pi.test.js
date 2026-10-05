@@ -5,6 +5,7 @@ import { temp, repo, env } from '../helpers.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
 import { cli, idle } from './harness.js';
+import { bindMockPiSource } from './pi-runtime-fixture.js';
 
 test('pi subprocess receives project/task capability, pinned CLI, persistent session path and performs delegation', async () => {
   const root = temp();
@@ -30,6 +31,7 @@ console.log('fake pi completed');
     const agentDir = path.join(root, '.lush', 'agent'); fs.mkdirSync(agentDir, { recursive: true });
     fs.writeFileSync(path.join(agentDir, 'agent.env'), 'TEST_SHARED=common\n');
     await cli(root,['start'], { LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
+    await bindMockPiSource(root);
     const input = await cli(root,['order','run']);
     const client = new UIClient(Config.fromEnv(env(),root));
     const order = await idle(client,input.task.id);

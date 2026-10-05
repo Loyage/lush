@@ -83,9 +83,9 @@ HTTP GET `/api/agent/connections`、GET `/api/agent/connections/history?id=&days
 
 ## Web
 
-Agent 管理页新增“账号连接” tab，`render-agent-connections.js` 导出 `createAgentConnections({ownsPage})` -> `{node,load()}`。本地列表、显式刷新单项/全部、添加/编辑/删除连接、密钥 password 输入（更换时才写，提交后清空）、采样设置、Codex 打开授权链接与粘贴回调、认证诊断、独立现金/Key预算/套餐窗口、旧值/来源/时间、历史和实际消费者。高级旧 HTTP 映射保留在旧状态页，不能成为首选流程。删除需确认，说明不删除历史。登录会联网但不调用 Agent，使用 help，不标 agent-call。
+用户决定 #152/#154：托管账号集中在独立「模型来源」页面（`#model-sources`），不再是 Agent 管理 tab；Agent 配置保留 `#agent-status`。`render-model-sources.js` 导出 `openModelSources({connectionId?})`；`render-agent-connections.js` 导出 `createAgentConnections({ownsPage,connectionId?})`，保留 `{node,load()}` 并增加来源选择与清理接口。本地列表、显式刷新单项/全部、添加/编辑/删除连接、密钥 password 输入（更换时才写，提交后清空）、采样设置、Codex 打开授权链接与粘贴回调、认证诊断、独立现金/Key预算/套餐窗口、旧值/来源/时间、历史和实际消费者。高级旧 HTTP 映射保留在旧状态页，不能成为首选流程。删除需确认，说明不删除历史。登录会联网但不调用 Agent，使用 help，不标 agent-call。
 
-配置页 profile 可选 `connection_id`（空代表旧 CLI 认证）；由 parent 实现后端校验与执行绑定。Web可从 list API加载可用连接选项；首版只支持 Pi绑定（Codex执行后端仍走原凭证），明确提示固定物理 provider/model且模型限制必须匹配。配置保存不改变正在运行的 invocation。
+配置页 profile 的 `connection_id` 为后续 Pi 调用必需来源（空不会恢复外部 Pi 认证）；由 parent 实现后端校验与执行绑定。Web可从 list API加载可用连接选项；首版只支持 Pi绑定（Codex执行后端仍走原凭证），明确提示固定物理 provider/model且模型限制必须匹配。配置保存不改变正在运行的 invocation。
 
 ## Codex 设备码登录追加
 
@@ -93,7 +93,7 @@ Agent 管理页新增“账号连接” tab，`render-agent-connections.js` 导�
 
 ## Pi 显式绑定与被动观测（parent）
 
-在 Agent profile 加可选 connection_id，仅 Pi允许。每次 invocation 用 prepareRuntime 冻结连接与账号，验证模型 provider/id、models范围。使用受控 invocation 私有 Pi认证目录把秘密提供给子进程，不放 argv/上下文/日志，不更改外部 Pi配置。明确指定物理模型；没有连接时旧行为不变。临时 Pi 认证只携带 access token，不复制可轮换的 refresh token；若长调用期间 access token 过期，当前调用安全失败，下一次由 Lush 协调刷新，不允许多个 Worker 竞争刷新。保留原全局 Pi 的受控行为设置与上下文文件，但不继承外部凭证、模型端点/请求头和自动资源发现；传 `--no-approve` 禁用 trust-gated 项目 `.pi` 配置，避免覆盖托管端点，显式扩展/Skills仍保留。本轮不实现虚拟模型、自动降级或付费切换。
+Agent profile 的 connection_id 仅 Pi 允许，所有后续 Pi invocation 必须绑定，未绑定明确失败、不回退外部认证。prepareRuntime 冻结连接与账号并验证物理 provider/model、模型范围。`<home>/pi/` 为 Lush 项目独立基础配置，每次调用使用私有快照经 `PI_CODING_AGENT_DIR` 提供，不复制用户默认 Pi 的设置、模型覆盖、全局 Prompt 或凭证，不改写外部 Pi。秘密不放 argv/上下文/日志。临时 OAuth 认证只携带 access token，不复制 refresh token；长调用过期可能失败，下一次由 Lush 协调刷新，不能让多个 Worker 竞争刷新。`--no-approve` 防项目 `.pi` 重定向端点，项目 AGENTS 和显式扩展/Skills 保留。旧历史不迁移删除；不实现虚拟模型、自动降级或付费切换。Worker 窄更新与安全选择摘要见[共享模型选择](managed-model-selection.md)。
 
 正常响应只采集指定套餐头，匹配运行 provider，写入受限临时安全观测文件；daemon 在 invocation退出时吸收观测（不是实时轮询），失败退出也处理。文件不含原始 headers/token；记录后清理。本轮空闲时仍通过专用接口查询。需要跨账号绑定和实际模型请求的真实验证，由用户显式提供测试账号另行进行，不在自动测试中操作真实凭证。
 

@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { env, fixture, git, repo } from '../helpers.js';
 import { forkCheckpoint } from '../../src/agent/fork.js';
 import { PiProvider } from '../../src/agent/provider.js';
+import { managedPiRun } from './managed-runtime-fixture.js';
 
 const gitAdapter = path.resolve(import.meta.dir, '../../bin/git');
 
@@ -47,9 +48,9 @@ test('commit adapter records a Pi entry and a child forks from that exact commit
     const argvFile = path.join(f.root, 'pi-args.json');
     fs.writeFileSync(command, '#!/usr/bin/env bun\nimport fs from "node:fs"; fs.writeFileSync(process.env.PI_ARGS_FILE, JSON.stringify(process.argv.slice(2))); console.log("ok");\n', { mode: 0o700 });
     const provider = new PiProvider({ ...f.config, env: { ...f.config.env, LUSH_PI_COMMAND: command, PI_ARGS_FILE: argvFile } });
-    const invoke = () => provider.run({ task: child, context: { invocation: { run_id: 12 } },
+    const invoke = () => provider.run(managedPiRun({ task: child, context: { invocation: { run_id: 12 } },
       messages: [], cwd: child.workspace, token: 'test', signal: new AbortController().signal,
-      onSpawn() {}, agent: { agent: 'pi', extensions: [], skills: [], soft_budget: {} }, forkPointer: pointer });
+      onSpawn() {}, agent: { agent: 'pi', extensions: [], skills: [], soft_budget: {} }, forkPointer: pointer }));
     expect(await invoke()).toBe('ok');
     const args = JSON.parse(fs.readFileSync(argvFile, 'utf8'));
     expect(args.slice(args.indexOf('--fork'), args.indexOf('--fork') + 2)).toEqual(['--fork', checkpoint]);

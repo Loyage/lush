@@ -4,6 +4,8 @@
 
 本章增补[账号连接契约](agent-connections.md)。连接仍是项目技术附属配置，不是 Host 的整机账号池。不迁移外部客户端登录，不修改旧观测历史。
 
+用户决定 #152/#154：界面分为「Agent 配置」与「模型来源」；所有 Pi 调用必须绑定 Lush 来源，使用项目独立基础配置与每次调用快照，不再回退或继承用户默认 Pi。配置隔离及窄更新规则见[页面与运行设计](../design/agent-model-settings.md)。这些决定优先于原 #142 的未绑定兼容边界。
+
 ## 共享连接
 
 - 新 provider `openai-compatible`，auth_type=`api_key`；用户必须显式填写 HTTPS 模型端点和非空物理模型 ID 列表。不同端点/密钥各自保存为不同连接。
@@ -16,8 +18,18 @@
 
 - 项目默认/角色配置保留现有 connection_id + model 字段。Web 从本地连接列表展示匹配模型供选择；可填写内置服务商未限定的模型。
 - 单 Worker 的暂停配置、继续与失败重试复用既有 profile 接口，补全显式连接选择和匹配模型。保存配置不调用 Agent；继续/重试才调用，必须沿用 agent-call 标识。不切换进行中的 invocation。
-- 无连接、无策略时不能为启动普通 Worker 读取托管凭证文件或联网，原 provider.resolve/profile 行为不变。
+- Pi 未绑定来源时明确失败并提示选择来源，不读取外部凭证、不隐式联网或回退外部 Pi。Codex CLI 仍保留自己的认证。独立 Pi 基础设置在 `<home>/pi/`，运行快照通过 `PI_CODING_AGENT_DIR` 注入，项目 `.pi` 不能重定向托管端点；显式资源与项目上下文保留。
+- `worker.configure {id,model_selection:{connection_id,model}}` 与 `profile` 互斥，仅切换 Pi 来源/模型，后台保留其他完整覆盖，无覆盖时基于有效角色默认建立覆盖。不扩大暂停/请求中断准入，不自动继续、不联网刷新。`worker.inspect.model_selection` 为 `{agent,connection_id,model,thinking,explicit}` 无秘密下次选择摘要，不能当作当前实际绑定。
 - 明确设置的 Worker retry_profile 优先，不被自动策略覆盖；项目默认是策略的基线。策略返回空表示保留原配置，不能自动降级或换执行后端。
+
+## Lush Pi 配置与诊断边界
+
+- `pi-config.js` 原子初始化 `<home>/pi/settings.json`，要求 owner-only 目录与文件，拒绝链接、权限不安全或损坏配置，不自动修复/迁移用户已有文件。本轮没有新增基础文件的 CRUD UI/API。
+- 每次调用只复制 `PI_RUNTIME_SETTINGS` 白名单：thinkingBudgets/modelThinkingLevels/defaultTools/compaction/branchSummary/transport/httpIdleTimeoutMs/websocketConnectTimeoutMs/retry/shellPath/shellCommandPrefix/images/warnings；项目信任固定 never，install telemetry/analytics 关闭、cacheWarming off。后端、来源、模型与思考深度由当前 Lush Profile 明确指定。
+- `<home>/pi/models.json` 仅可为已选 provider/model 补充安全元数据，不复制 apiKey/headers 或其他账号配置；通用兼容端点维持上述保守定义。基础目录的 packages/扩展/Skills/Prompt 不自动带入调用，只发现已安装资源，运行时仅加载显式选择的扩展/Skills 与 Lush 内置 runtime。
+- Pi 模型目录使用 auth-free、禁网络的 SDK 元数据进程；未声明独立元数据或 SDK 不可用时明确显示未验证 presets，不执行 Pi `--list-models`，不猜账号。配置页的 Pi 模型选择只使用已选来源，不显示这些预设。
+- 高级诊断只读 Lush 独立目录；该目录未配置诊断凭证时列表为空，不从托管来源或用户默认 Pi 猜测。托管来源及其余额/套餐在「模型来源」查询。显式自定义 HTTP 额度模板仍可引用用户指定的环境变量，内置账号发现不使用 ambient provider keys。
+- OAuth refresh 始终由 Lush 连接管理器协调，调用快照只有 access（refresh 为空）；长调用 access 到期仍可能失败，下一次 invocation 再准备/刷新，不自动重试或换账号。独立目录不是 OS 沙箱，受信扩展/工具仍拥有进程权限。
 
 ## 运行时扩展接口
 

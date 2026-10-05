@@ -4,6 +4,7 @@ import path from 'node:path';
 import { Config } from '../src/config.js';
 import { PiProvider, CodexProvider } from '../src/agent/provider.js';
 import { temp, env } from './helpers.js';
+import { managedPiRun } from './agent/managed-runtime-fixture.js';
 
 test('butler uses isolated Pi with no credentials, tools, extensions, skills or context discovery', async () => {
   const root = temp(), fake = path.join(root, 'fake-pi');
@@ -13,7 +14,7 @@ test('butler uses isolated Pi with no credentials, tools, extensions, skills or 
   const options = { task: { id: 1, role: 'butler', goal: '选择' }, context: { butler: { notice: { title: '问题' } } }, messages: [], cwd: root,
     token: 'secret', signal: new AbortController().signal, onSpawn() {}, agent };
   try {
-    const result = JSON.parse(await new PiProvider(config).run(options));
+    const result = JSON.parse(await new PiProvider(config).run(managedPiRun(options)));
     for (const flag of ['--no-tools','--no-context-files','--no-extensions','--no-skills','--no-approve','--system-prompt']) expect(result.args).toContain(flag);
     expect(result.args).not.toContain('--extension'); expect(result.args).not.toContain('--skill'); expect(result.token).toBe('');
     await expect(new CodexProvider(config).run(options)).rejects.toThrow('Pi');

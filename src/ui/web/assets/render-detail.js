@@ -3,6 +3,7 @@ import { workerKind } from './worker-kind.js';
 import { action } from './api.js';
 import { confirmDialog, formDialog } from './dialog.js';
 import { configureTask } from './retry-dialog.js';
+import { modelSourceControl, modelSourceSummary } from './worker-model-source.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, runWorkMs, statusOf, interruptReason, taskTitle, worktreeLabel, isHistoricalDelivery } from './format.js';
 import { agentHelp } from './help.js';
 import { freezeBlocker } from './merge-select.js';
@@ -226,10 +227,13 @@ export function renderDetail(task, history, diff, usage) {
   if (task.divergence_resolution) {
     actions.append(button(`查看源指令 #${task.parent_id}`, () => detail(task.parent_id), 'link'));
   }
+  const sourceControl = modelSourceControl(task, () => detail(task.id));
+  if (sourceControl) actions.append(sourceControl);
   const deletion = workerDeleteControl(task);
   if (deletion) actions.append(deletion);
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
   panel.append(actions);
+  if (['order', 'child'].includes(workerKind(task))) panel.append(modelSourceSummary(task, history));
   const interruptHint = interruptReason(task);
   if (interruptHint) panel.append(el('p', interruptHint, 'hint interrupt-reason'));
   if (task.divergence_resolution && TERMINAL_STATUS.has(task.status) && task.integration !== 'merged') {

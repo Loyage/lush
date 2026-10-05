@@ -4,6 +4,7 @@ import path from 'node:path';
 import { Config } from '../../src/config.js';
 import { AgentSettings } from '../../src/agent/settings.js';
 import { PiProvider } from '../../src/agent/provider.js';
+import { ensurePiConfiguration } from '../../src/agent/pi-config.js';
 import { createRuntimeConnection, validateRuntimeConnection, readRuntimeObservations, parseConnectionHeaders } from '../../src/agent/connection-runtime.js';
 import lushRuntime from '../../src/agent/pi-runtime.js';
 import { run as agentCommand } from '../../src/cli/commands/agent.js';
@@ -54,7 +55,7 @@ test('connection validation rejects disabled, wrong provider/model scope, comman
   expect(() => validateRuntimeConnection({ ...profile, model: 'openai-codex/fake' }, oauth)).toThrow('expired');
 });
 
-test('runtime copies only selected auth, endpoint, safe model metadata/settings and context, never external secrets/resources', () => {
+test('runtime copies selected auth and Lush-owned metadata/settings, never external configuration or global context', () => {
   const f = setup(); const globalDir = path.join(f.root, 'external-pi'); fs.mkdirSync(globalDir);
   const globalAuth = JSON.stringify({ deepseek: { type: 'api_key', key: 'EXTERNAL-KEY' }, openrouter: { type: 'api_key', key: 'OTHER-KEY' } });
   fs.writeFileSync(path.join(globalDir, 'auth.json'), globalAuth, { mode: 0o600 });
@@ -64,16 +65,25 @@ test('runtime copies only selected auth, endpoint, safe model metadata/settings 
   fs.writeFileSync(path.join(globalDir, 'models.json'), JSON.stringify({ providers: { deepseek: { apiKey: 'EXTERNAL-MODEL-KEY',
     baseUrl: 'https://proxy.invalid', headers: { Authorization: 'EXTERNAL-HEADER' }, models: [{ id: 'deepseek-chat', api: 'openai-completions',
       contextWindow: 12345, baseUrl: 'https://another.invalid', headers: { Secret: 'MODEL-HEADER' } }] } } }));
+  const baseline = ensurePiConfiguration(f.config);
+  fs.writeFileSync(path.join(baseline.dir, 'settings.json'), JSON.stringify({ transport: 'sse', compaction: { enabled: false },
+    defaultProjectTrust: 'always', extensions: ['must-not-load'], packages: ['must-not-load'] }), { mode: 0o600 });
+  fs.writeFileSync(path.join(baseline.dir, 'models.json'), JSON.stringify({ providers: { deepseek: { api: 'openai-completions',
+    apiKey: 'BASELINE-SECRET-NOT-COPIED', headers: { Authorization: 'BASELINE-SECRET-NOT-COPIED' },
+    models: [{ id: 'deepseek-chat', contextWindow: 6789, headers: { Secret: 'BASELINE-SECRET-NOT-COPIED' } }] } } }), { mode: 0o600 });
+  f.config.env.PI_CODING_AGENT_DIR = globalDir;
   try {
     const managed = createRuntimeConnection(f.config, profile, snapshot(), { PI_CODING_AGENT_DIR: globalDir });
     const auth = JSON.parse(fs.readFileSync(path.join(managed.dir, 'auth.json')));
     expect(auth).toEqual({ deepseek: { type: 'api_key', key: snapshot().credential.key } });
     const models = JSON.parse(fs.readFileSync(path.join(managed.dir, 'models.json')));
-    expect(models.providers.deepseek).toEqual({ baseUrl: 'https://api.deepseek.com', models: [{ id: 'deepseek-chat', api: 'openai-completions', contextWindow: 12345 }] });
+    expect(models.providers.deepseek).toEqual({ api: 'openai-completions', baseUrl: 'https://api.deepseek.com', models: [{ id: 'deepseek-chat', contextWindow: 6789 }] });
+    expect(JSON.stringify(models)).not.toContain('SECRET');
     const settings = JSON.parse(fs.readFileSync(path.join(managed.dir, 'settings.json')));
     expect(settings).toMatchObject({ transport: 'sse', compaction: { enabled: false }, defaultProjectTrust: 'never' });
     expect(settings.extensions).toBeUndefined(); expect(settings.packages).toBeUndefined();
-    expect(fs.readFileSync(path.join(managed.dir, 'AGENTS.md'), 'utf8')).toBe('Global user instructions.');
+    expect(fs.existsSync(path.join(managed.dir, 'AGENTS.md'))).toBe(false);
+    expect(fs.existsSync(path.join(managed.dir, 'SYSTEM.md'))).toBe(false);
     expect(fs.readFileSync(path.join(globalDir, 'auth.json'), 'utf8')).toBe(globalAuth);
     expect(fs.statSync(managed.dir).mode & 0o777).toBe(0o700);
     expect(fs.statSync(path.join(managed.dir, 'auth.json')).mode & 0o777).toBe(0o600);

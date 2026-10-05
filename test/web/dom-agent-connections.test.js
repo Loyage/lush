@@ -58,7 +58,7 @@ dom.document.createElementNS = (_ns, tag) => dom.document.createElement(tag);
 const { createAgentConnections, renderConnectionResources } = await import('../../src/ui/web/assets/render-agent-connections.js');
 const { renderAgentSettings } = await import('../../src/ui/web/assets/render-settings.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
-const { openAgentStatus } = await import('../../src/ui/web/assets/render-agent-status.js');
+const { openModelSources } = await import('../../src/ui/web/assets/render-model-sources.js');
 const { boot } = await import('../../src/ui/web/assets/app.js');
 await boot();
 afterAll(() => dom.restore());
@@ -94,6 +94,21 @@ test('连接页进入只读本地列表，多账号不按服务商合并，资�
   expect(refresh.parentNode.classList.contains('help-host')).toBe(true);
 });
 
+test('窄屏选择来源将焦点移到可见详情，返回恢复列表搜索焦点', async () => {
+  const previous = globalThis.matchMedia;
+  globalThis.matchMedia = () => ({ matches: true });
+  try {
+    const p = await panel();
+    p.selectConnection(data.connections[1].id);
+    const heading = card(p, data.connections[1].id).querySelector('h3');
+    expect(dom.document.activeElement).toBe(heading); expect(heading.tabIndex).toBe(-1);
+    expect(p.node.dataset.sourceView).toBe('detail');
+    await btn(p.node, '返回来源列表').onclick();
+    expect(p.node.dataset.sourceView).toBe('list');
+    expect(dom.document.activeElement).toBe(p.node.querySelector('.model-source-filters').querySelector('input'));
+  } finally { globalThis.matchMedia = previous; }
+});
+
 test('添加和更换密钥只写password请求，提交立即清空，不回显秘密或持久化浏览器', async () => {
   const p = await panel(), secret = 'TEST-PRIVATE-API-KEY';
   const key = field(p.node, 'api_key'); expect(key.type).toBe('password'); expect(key.getAttribute('value')).toBeNull();
@@ -120,6 +135,16 @@ test('刷新与保存迟到响应保留未保存连接编辑及采样草稿', as
   const saving = btn(p.node, '保存连接').onclick(); change(editor, '保存中继续编辑');
   pending.resolve(json(connection())); await saving;
   expect(field(p.node, 'label')).toBe(editor); expect(editor.value).toBe('保存中继续编辑'); expect(field(p.node, 'retention_days').value).toBe('365');
+});
+
+test('保存迟到完成不覆盖用户在请求期间新选中的来源', async () => {
+  const p = await panel(); await btn(card(p), '编辑').onclick();
+  const pending = deferred(); intercept = (url, opts) => url === '/api/action' && JSON.parse(opts.body).method === 'agent.connections.save' ? pending.promise : undefined;
+  const saving = btn(p.node, '保存连接').onclick();
+  p.selectConnection(data.connections[1].id);
+  pending.resolve(json(data.connections[0])); await saving;
+  expect(p.selectedConnection()).toBe(data.connections[1].id);
+  expect(card(p, data.connections[1].id).hidden).toBe(false); expect(card(p).hidden).toBe(true);
 });
 
 test('表单校验HTTPS端点、空名称和重复模型，不提交无效配置', async () => {
@@ -433,13 +458,13 @@ test('设备码可复制，剪贴板失败提供手动选码，不浏览器持�
   } finally { if (descriptor) Object.defineProperty(globalThis, 'navigator', descriptor); else delete globalThis.navigator; }
 });
 
-test('Agent管理接入独立tab，切换保留草稿且只在首次进入读取本地连接', async () => {
-  ui.agentStatusPage = null; await openAgentStatus(); requests.length = 0;
-  const detail = dom.node('detail'), tab = id => detail.querySelector(`button[data-agent-tab="${id}"]`);
-  expect(detail.querySelector('.agent-management-connections').hidden).toBe(true);
-  await tab('connections').onclick(); expect(requests.map(entry => entry.url)).toEqual(['/api/agent/connections']);
-  expect(tab('connections').getAttribute('aria-selected')).toBe('true'); expect(detail.querySelector('.agent-management-connections').hidden).toBe(false);
-  const input = field(detail, 'label'); change(input, '切页未保存'); await tab('status').onclick(); await tab('connections').onclick();
+test('模型来源为独立页面，重复打开保留草稿且只读取本地连接', async () => {
+  ui.modelSourcesPage = null; await openModelSources();
+  const detail = dom.node('detail'); expect(ui.view.id).toBe('model-sources');
+  expect(dom.location.hash).toBe('#model-sources');
+  expect(requests.map(entry => entry.url)).toEqual(['/api/agent/connections']);
+  await btn(detail, '添加连接').onclick();
+  const input = field(detail, 'label'); change(input, '切页未保存'); await openModelSources();
   expect(field(detail, 'label')).toBe(input); expect(input.value).toBe('切页未保存'); expect(requests).toHaveLength(1);
 });
 
@@ -512,20 +537,25 @@ test('默认和角色profile只呈现连接匹配模型，切换不覆盖草稿�
     const saved = world.state.actions.at(-1).params.config;
     expect(target === 'default' ? saved.default : saved.roles.agent).toMatchObject({ connection_id: custom.id, model: 'openai-compatible/vendor/my-model' });
     choice.value = ''; choice.onchange(); expect(model.value).toBe('openai-compatible/vendor/my-model');
+    const beforeUnbind = world.state.actions.length;
     await btn(profile, '保存配置').onclick();
-    const unbound = world.state.actions.at(-1).params.config;
-    expect(target === 'default' ? unbound.default : unbound.roles.agent).not.toHaveProperty('connection_id');
+    expect(world.state.actions).toHaveLength(beforeUnbind);
+    expect(choice.value).toBe(''); expect(model.value).toBe('openai-compatible/vendor/my-model');
+    const savedProfile = target === 'default' ? world.state.agentConfig.default : world.state.agentConfig.roles.agent;
+    expect(savedProfile.connection_id).toBe(custom.id);
   }
   expect(requests.some(row => row.url.startsWith('/api/agent/models'))).toBe(false);
   expect(actions.some(row => row.method === 'agent.connections.query')).toBe(false);
 });
 
 test('连接读取单飞且在读取期间保留最新连接选择和模型草稿，停用连接无法保存', async () => {
-  const settings = structuredClone(world.state.agentConfig); settings.default.agent = 'pi';
-  const root = renderAgentSettings(settings, () => {}, { ownsPage: () => current });
-  const profile = root.querySelector('[data-agent-target="default"]'), pending = deferred();
-  const choice = profile.querySelector('[data-agent-field="connection_id"]'), model = profile.querySelector('[data-agent-field="model"]');
+  const settings = structuredClone(world.state.agentConfig); settings.default.agent = 'pi'; settings.roles = {};
+  const pending = deferred();
+  // Agent配置会自动读取本地来源；拦截先于构造，手动重复读取复用同一请求。
   intercept = url => url === '/api/agent/connections' ? pending.promise : undefined;
+  const root = renderAgentSettings(settings, () => {}, { ownsPage: () => current });
+  const profile = root.querySelector('[data-agent-target="default"]');
+  const choice = profile.querySelector('[data-agent-field="connection_id"]'), model = profile.querySelector('[data-agent-field="model"]');
   const a = btn(profile, '读取项目连接').onclick(), b = btn(profile, '读取项目连接').onclick();
   expect(requests).toHaveLength(1);
   choice.value = data.connections[1].id; model.value = 'draft/value';

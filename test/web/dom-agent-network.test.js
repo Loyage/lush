@@ -31,14 +31,17 @@ const choose = (root, key, value) => { const node = field(root, key); node.value
 const config = () => JSON.parse(requests.filter(entry => entry.options?.method === 'POST').at(-1).options.body).params.config;
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 
-test('项目Agent设置按需接入独立网络面板，不读取凭证或发起测试调用', () => {
-  const root = renderAgentSettings(world.state.agentConfig, () => {}, { ownsPage: () => current });
-  expect(root.querySelector('.agent-network-block')).toBeTruthy(); expect(requests).toHaveLength(0);
+test('Agent配置不再承载网络设置，独立网络面板仍按需读取且不发起测试调用', () => {
+  const agent = renderAgentSettings(world.state.agentConfig, () => {}, { ownsPage: () => current });
+  expect(agent.querySelector('.agent-network-block')).toBeNull();
+  expect(agent.querySelector('.agent-env-block')).toBeTruthy();
+  const root = panel();
+  expect(root.classList.contains('agent-network-block')).toBe(true);
+  expect(requests.filter(entry => entry.url.endsWith('/api/agent/network'))).toHaveLength(0);
   expect(deepText(root)).toContain('不是模型端点'); expect(deepText(root)).toContain('SSH 远端'); expect(deepText(root)).toContain('不支持 SOCKS-only');
-  expect(root.querySelector('.agent-network-block').querySelectorAll('.agent-call')).toHaveLength(0);
+  expect(root.querySelectorAll('.agent-call')).toHaveLength(0);
   expect(button(root, '读取网络设置').getAttribute('data-help')).toContain('不联网测试');
   expect(button(root, '读取网络设置').parentNode.classList.contains('help-host')).toBe(true);
-  expect(button(root, '读取变量')).toBeTruthy();
 });
 
 test('三种模式写完整安全配置，代理NO_PROXY分行/逗号解析，继承不读取启动环境', async () => {
@@ -92,8 +95,8 @@ test('嵌入认证、SOCKS和非origin地址在提交前拒绝，不修改旧配
 });
 
 test('旧Host或daemon不支持只影响网络面板，读取可重试，其他草稿不重画', async () => {
-  const root = renderAgentSettings(world.state.agentConfig, () => {});
-  const existing = root.querySelector('[data-agent-field="model"]'); existing.value = 'unsaved-model';
+  const root = dom.document.createElement('div');
+  const existing = dom.document.createElement('input'); existing.dataset.agentField = 'model'; existing.value = 'unsaved-model'; root.append(existing, panel());
   intercept = () => failure('unknown method: agent.network');
   await load(root); expect(deepText(root)).toContain('分别重启两者'); expect(existing.value).toBe('unsaved-model'); expect(root.querySelector('[data-agent-field="model"]')).toBe(existing);
   intercept = null; await load(root); choose(root, 'mode', 'direct'); await button(root, '保存网络设置').onclick();

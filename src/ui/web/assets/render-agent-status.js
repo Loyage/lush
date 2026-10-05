@@ -3,11 +3,10 @@ import { api } from './api.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { createAgentUsage } from './render-agent-usage.js';
-import { createAgentConnections } from './render-agent-connections.js';
 import { renderAgentSettings } from './render-settings.js';
 import { usageWindow, usageErrorLabels } from './usage-window.js';
 
-const REFRESH_HELP = '重新读取当前项目 Pi 的安装、模型、账号及可查询余额；可能访问服务商账户接口，并在已选官方 Codex 凭证过期时刷新登录，不启动 Agent 或模型调用。';
+const REFRESH_HELP = '重新读取本项目 Lush 独立 Pi 环境的安装、模型、账号及可查询余额；可能访问服务商账户接口，并在已选官方 Codex 凭证过期时刷新登录，不读取用户全局 Pi 配置，不启动 Agent 或模型调用。';
 const list = value => Array.isArray(value) ? value : [];
 const text = (value, fallback = '未知') => typeof value === 'string' && value ? value : fallback;
 const amount = value => typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: 8 }) : '未知';
@@ -20,13 +19,13 @@ function note(parent, value, warning = false) {
 }
 
 function runtimeSection(data) {
-  const section = block('Pi 安装与运行配置');
+  const section = block('Lush 独立 Pi 安装与运行配置');
   const runtime = data.runtime || {}, grid = el('div', undefined, 'grid');
   for (const [label, value] of [
     ['Pi 版本', runtime.version], ['Pi 命令', runtime.command], ['可执行文件', runtime.executable],
     ['实际文件地址', runtime.real_path], ['Pi 配置目录', runtime.config_dir],
     ['当前项目 Agent 后端', runtime.backend], ['当前项目 Agent 模型', runtime.model],
-  ]) grid.append(kv(label, text(value, label.endsWith('模型') ? '未指定（由 Pi 选择）' : '未知')));
+  ]) grid.append(kv(label, text(value, label.endsWith('模型') ? (runtime.backend === 'codex' ? 'Codex CLI 默认模型' : '未选择来源内模型') : '未知')));
   section.append(grid);
   note(section, runtime.warning, true);
   return section;
@@ -63,7 +62,7 @@ function balanceSection(balance = {}) {
 
 function accountsSection(data) {
   const accounts = list(data.accounts), section = block('账号与余额 / 额度', accounts.length);
-  note(section, '仅展示当前项目环境可读取的账号与凭证状态，不代表已向服务商验证登录。账号身份已脱敏；密钥和 token 不在页面中展示。');
+  note(section, '仅展示 Lush 独立 Pi 环境可读取的账号与凭证状态，不读取用户全局 Pi 认证，不代表已向服务商验证登录。账号身份已脱敏；密钥和 token 不在页面中展示。');
   if (!accounts.length) note(section, '未发现账号信息；这不代表你没有账号或余额为零。');
   const cards = el('div', undefined, 'agent-status-accounts');
   for (const account of accounts) {
@@ -91,7 +90,7 @@ function accountsSection(data) {
 
 function resourcesSection(data) {
   const resources = data.resources || {}, section = block('安装包与发现的资源');
-  note(section, '以下是安装 / 发现目录，不代表扩展已在某个运行中的 Worker 加载。实际加载还受 Pi 设置、项目信任及 Worker 配置影响。');
+  note(section, '以下来自 Lush 独立 Pi 的安装 / 发现目录，不继承用户全局 Pi 设置或 Prompt；不代表扩展已在运行中的 Worker 加载。项目 AGENTS 与显式选择的资源保留，扩展仍拥有当前用户权限。');
   note(section, resources.warning, true);
   for (const [key, label] of [['packages', '包配置 / 安装目录'], ['extensions', '扩展 / 插件'], ['skills', 'Skills']]) {
     const rows = list(resources[key]), details = el('details', undefined, 'agent-status-resources');
@@ -166,30 +165,28 @@ export function renderAgentStatus(data) {
   const root = el('div', undefined, 'agent-status-results');
   note(root, `数据更新时间：${text(data.checked_at)}`);
   note(root, `查询项目：${text(data.scope?.project)} · 角色：${text(data.scope?.role, 'agent')}`);
-  note(root, data.scope?.note || '来自项目 daemon 的 Pi 环境，不是浏览器本机，也不是某个运行中调用的快照。');
+  note(root, data.scope?.note || '来自项目 daemon 的 Lush 独立 Pi 环境，不是用户全局 Pi 配置、浏览器本机或某个运行中调用的快照。');
   for (const warning of list(data.warnings)) note(root, warning, true);
   root.append(runtimeSection(data), accountsSection(data), modelsSection(data), resourcesSection(data));
   return root;
 }
 
-/** Query only on entering the page and explicit refresh; overview polling owns no status data. */
+/** Configuration on entry; independent Pi status is queried only on explicit diagnosis/refresh, never overview polling. */
 export function openAgentStatus() {
   const view = activateDetailView({ view: 'agent-status' });
-  if (ui.agentStatusPage?.view === view) return ui.agentStatusPage.pending || Promise.resolve();
+  if (ui.agentStatusPage?.view === view) return ui.agentStatusPage.configPending || ui.agentStatusPage.pending || Promise.resolve();
   const page = el('div', undefined, 'agent-status-page');
   const header = el('header', undefined, 'agent-status-head'), copy = el('div');
-  copy.append(el('h1', 'Agent 管理'), el('p', '管理项目 Agent 配置和多个账号连接，并查看 Pi 安装、模型、余额与额度历史。连接页只读本地配置，资源显式刷新；旧状态页在进入页面和手动刷新时查询。页面不自动轮询，可显式启用后台采样。查询与保存配置均不启动 Agent 或模型调用。', 'hint'));
+  copy.append(el('h1', 'Agent 配置'), el('p', '决定 Agent 如何工作、默认使用哪个模型来源。保存只影响后续调用，不改变正在运行的调用。账号、API、登录和额度请到“模型来源”；Lush 独立 Pi 环境仅在显式打开诊断时查询。', 'hint'));
+  const sourcesLink = el('a', '管理模型来源', 'agent-sources-link'); sourcesLink.href = '#model-sources'; copy.append(sourcesLink);
   const feedback = el('p', undefined, 'hint agent-status-feedback'); feedback.setAttribute('role', 'status');
   const result = el('div');
-  const state = { view, pending: null, data: null, tab: 'status', config: ui.lastSnapshot?.status?.agent_config, configPending: null }; ui.agentStatusPage = state;
+  const state = { view, pending: null, data: null, tab: 'settings', config: ui.lastSnapshot?.status?.agent_config, configPending: null }; ui.agentStatusPage = state;
   const ownsPage = () => ui.view === view && ui.agentStatusPage === state;
   const usage = createAgentUsage({ ownsPage }); usage.node.hidden = true;
-  const connections = createAgentConnections({ ownsPage }); let connectionsLoaded = false;
-  const connectionsPanel = el('div', undefined, 'agent-management-connections'); connectionsPanel.id = 'agent-management-connections';
-  connectionsPanel.append(connections.node);
   const statusPanel = el('div', undefined, 'agent-management-status'); statusPanel.id = 'agent-management-status';
   const settingsPanel = el('div', undefined, 'agent-management-settings'); settingsPanel.id = 'agent-management-settings';
-  for (const [panel, tab] of [[statusPanel, 'status'], [connectionsPanel, 'connections'], [settingsPanel, 'settings']]) {
+  for (const [panel, tab] of [[statusPanel, 'status'], [settingsPanel, 'settings']]) {
     panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', `agent-management-tab-${tab}`);
   }
   const repaintSettings = config => {
@@ -220,7 +217,7 @@ export function openAgentStatus() {
     })();
     return state.configPending;
   };
-  const tabs = el('div', undefined, 'settings-tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Agent 管理');
+  const tabs = el('div', undefined, 'settings-tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Agent 配置');
   const tabButtons = new Map();
   const selectTab = id => {
     if (!ownsPage()) return Promise.resolve();
@@ -228,12 +225,12 @@ export function openAgentStatus() {
     for (const [key, node] of tabButtons) {
       node.classList.toggle('active', key === id); node.setAttribute('aria-selected', String(key === id));
     }
-    statusPanel.hidden = id !== 'status'; connectionsPanel.hidden = id !== 'connections'; settingsPanel.hidden = id !== 'settings'; refreshHost.hidden = id !== 'status';
-    if (id === 'connections' && !connectionsLoaded) { connectionsLoaded = true; return connections.load(); }
+    statusPanel.hidden = id !== 'status'; settingsPanel.hidden = id !== 'settings'; refreshHost.hidden = id !== 'status';
+    if (id === 'status' && !state.data && !state.diagnosisLoaded) { state.diagnosisLoaded = true; return load(); }
     if (id === 'settings' && !settingsPanel.childNodes.length) return loadConfig();
     return Promise.resolve();
   };
-  for (const [id, label, detail] of [['status', '状态', '旧环境、安装与额度'], ['connections', '账号连接', '多账号、登录与资源'], ['settings', '设置', 'Worker 行为与模型']]) {
+  for (const [id, label, detail] of [['settings', '模型与工作方式', '项目默认、Prompt 与资源'], ['status', '高级与诊断', '显式查询 Lush 独立 Pi 环境']]) {
     const node = button('', () => selectTab(id), 'settings-tab'); node.dataset.agentTab = id; node.id = `agent-management-tab-${id}`;
     node.setAttribute('role', 'tab'); node.setAttribute('aria-controls', `agent-management-${id}`);
     node.append(el('strong', label), el('span', detail)); tabButtons.set(id, node); tabs.append(node);
@@ -270,7 +267,8 @@ export function openAgentStatus() {
   const refreshHost = el('span', undefined, 'help-host'); refreshHost.setAttribute('data-help', REFRESH_HELP);
   const refresh = button('刷新状态', load, 'agent-status-refresh', { help: REFRESH_HELP });
   refreshHost.append(refresh); header.append(copy, refreshHost); statusPanel.append(feedback, result, usage.node);
-  page.append(header, tabs, statusPanel, connectionsPanel, settingsPanel); $('detail').replaceChildren(page);
-  selectTab('status');
-  return load();
+  const legacyNote = el('p', '独立 Pi 诊断：以下数据来自本项目 Lush Pi 环境，不读取用户全局 Pi 配置，也不是当前 Worker 实际绑定的快照。诊断失败不影响配置编辑；旧额度历史保留，不迁移、不与新账号合并。', 'agent-status-warning');
+  statusPanel.prepend(legacyNote);
+  page.append(header, tabs, settingsPanel, statusPanel); $('detail').replaceChildren(page);
+  return selectTab('settings');
 }

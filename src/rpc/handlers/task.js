@@ -92,7 +92,12 @@ export const handlers = {
   'worker.cancel'(p, params, actor) { return p.cancel(params.id); },
   'worker.interrupt'(p, params, actor) { return p.interrupt(id(params.id)); },
   'worker.resume'(p, params, actor) { return p.resumeTask(id(params.id), params.profile ?? null); },
-  'worker.configure'(p, params, actor) { return p.configureTask(id(params.id), params.profile ?? null); },
+  'worker.configure'(p, params, actor) {
+    check(!(Object.hasOwn(params, 'profile') && Object.hasOwn(params, 'model_selection')), 'profile and model_selection are mutually exclusive');
+    return Object.hasOwn(params, 'model_selection')
+      ? p.configureTaskModelSelection(id(params.id), params.model_selection)
+      : p.configureTask(id(params.id), params.profile ?? null);
+  },
   'worker.retry'(p, params, actor) { return p.retry(params.id, params.profile ?? null); },
   'worker.merge'(p, params, actor) { return p.approveMerge(id(params.id)); },
   'worker.merge_many'(p, params, actor) { return p.approveMergeMany(params.ids); },

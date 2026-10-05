@@ -5,6 +5,7 @@ import runtime from '../src/agent/pi-runtime.js';
 import { projectRecord } from '../src/core/transcript.js';
 import { AgentSettings, normalizeSoftBudget } from '../src/agent/settings.js';
 import { PiProvider, CodexProvider } from '../src/agent/provider.js';
+import { managedPiRun } from './agent/managed-runtime-fixture.js';
 import { run as agentCommand } from '../src/cli/commands/agent.js';
 import { fixture, temp, env } from './helpers.js';
 import { Config } from '../src/config.js';
@@ -82,7 +83,7 @@ test('Pi receives pretty task data inline, no credential hash or repeated prompt
     const options = { task: { id: 3, role: 'worker', goal: 'hello', agent_token_hash: 'DO-NOT-INJECT' },
       context: { invocation: { run_id: 5 } }, messages: [], cwd: root, token: 'secret', signal: new AbortController().signal, onSpawn() {},
       agent: { agent: 'pi', model: '', thinking: '', append_prompt: 'already in system', soft_budget: { responses: 5 } } };
-    const result = JSON.parse(await new PiProvider(config).run(options));
+    const result = JSON.parse(await new PiProvider(config).run(managedPiRun(options)));
     const file = path.join(config.home, 'sessions/task-3-input.md'), body = fs.readFileSync(file, 'utf8');
     expect(body.split('\n').length).toBeGreaterThan(5);
     expect(body).not.toContain('DO-NOT-INJECT'); expect(body).not.toContain('already in system');
@@ -90,6 +91,6 @@ test('Pi receives pretty task data inline, no credential hash or repeated prompt
     expect(result.args.some(arg => arg.endsWith('/pi-runtime.js'))).toBe(true);
     expect(result.runtime).toMatchObject({ run_id: 5, task_id: 3, role: 'worker', soft_budget: { responses: 5 } });
     await expect(new CodexProvider(config).run(options)).rejects.toThrow('only by Pi');
-    await expect(new PiProvider(config).run({ ...options, task: { ...options.task, role: 'explainer' } })).rejects.toThrow('explainer');
+    await expect(new PiProvider(config).run(managedPiRun({ ...options, task: { ...options.task, role: 'explainer' } }))).rejects.toThrow('explainer');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

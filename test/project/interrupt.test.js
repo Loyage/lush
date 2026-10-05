@@ -258,7 +258,7 @@ test('interrupt/resume/configure retain target guards and user-only RPC authoriz
     expect(() => f.project.resumeTask(task.id)).toThrow('only paused workers');
     expect(PARAMS['worker.interrupt']).toEqual(['id']);
     expect(PARAMS['worker.resume']).toEqual(['id', 'profile']);
-    expect(PARAMS['worker.configure']).toEqual(['id', 'profile']);
+    expect(PARAMS['worker.configure']).toEqual(['id', 'profile', 'model_selection']);
     for (const method of ['worker.interrupt', 'worker.resume', 'worker.configure']) {
       expect(USER_ONLY.has(method)).toBe(true);
       expect(() => assertAllowed(method, { id: 5 }, 5)).toThrow('requires user approval');

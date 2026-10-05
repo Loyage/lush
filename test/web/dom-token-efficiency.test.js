@@ -80,6 +80,9 @@ test('settings saves optional Pi soft budgets and preserves blank as disabled', 
   const detail = dom.node('detail');
   await detail.querySelector('button[data-agent-tab="settings"]').onclick();
   const profile = detail.querySelector('[data-agent-target="default"]');
+  await findByText(profile, '读取项目连接').onclick();
+  const choice = profile.querySelector('[data-agent-field="connection_id"]'); choice.value = world.state.agentConnections.connections[0].id; choice.onchange();
+  profile.querySelector('[data-agent-field="model"]').value = 'openai-compatible/fixture-model';
   const responses = profile.querySelector('[data-agent-field="budget_responses"]');
   const tokens = profile.querySelector('[data-agent-field="budget_tokens"]');
   expect(responses.value).toBe('');

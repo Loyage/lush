@@ -42,7 +42,7 @@ test('device, callback, token refresh and quota paths all use fixed login or new
 });
 
 test('legacy quota and OAuth refresh use project network, and changed network invalidates query single-flight', async () => {
-  const f = world(), configDir = path.join(f.root, 'pi'); fs.mkdirSync(configDir, { mode: 0o700 });
+  const f = world(), configDir = path.join(f.home, 'pi'); fs.mkdirSync(configDir, { mode: 0o700 });
   const config = { ...f, project: f.root, env: { PI_CODING_AGENT_DIR: configDir } }, profile = { agent: 'pi', model: 'openai-codex/test' };
   const file = path.join(configDir, 'auth.json');
   fs.writeFileSync(file, JSON.stringify({ 'openai-codex': { type: 'oauth', access, refresh: 'private-refresh', expires: Date.now() - 1000, accountId: 'private-account' } }), { mode: 0o600 });

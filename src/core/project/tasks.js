@@ -1,7 +1,7 @@
 import { check, id, text, TERMINAL, bounded, isPlainObject } from '../types.js';
 import { taskSlug } from '../naming.js';
 import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
-import { agentView } from './internal.js';
+import { agentView, workerModelSelection } from './internal.js';
 import fs from 'node:fs';
 import { saveInputRule, snapshotPath } from '../task-input-rule.js';
 import { forkCheckpoint } from '../../agent/fork.js';
@@ -224,7 +224,8 @@ export default {
     const runs = bounded(progressRuns.length > RUN_WINDOW ? progressRuns.slice(-RUN_WINDOW) : progressRuns, 200000);
     const artifactsRead = this.store.artifactsPage(task.id, { limit: RUN_WINDOW });
     const artifacts = bounded(artifactsRead.items, 200000);
-    return { ...task, auto_merge: this.autoMergeView(storedTask), merge_readiness: this.mergeReadiness(storedTask),
+    return { ...task, model_selection: workerModelSelection(this, this.store.task(taskId)),
+      auto_merge: this.autoMergeView(storedTask), merge_readiness: this.mergeReadiness(storedTask),
       parent_task_kind: task.parent_id ? this.store.task(task.parent_id).task_kind : null,
       ...(resolution ? { divergence_resolution: { ...JSON.parse(resolution.data),
         branch_status: task.branch ? this.store.branch(task.branch)?.status ?? null : null } } : {}),

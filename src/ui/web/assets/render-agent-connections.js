@@ -95,16 +95,29 @@ export function renderConnectionResources(observation = {}) {
 }
 
 /** Local list reads and explicit remote queries; retain editor drafts and reject late page responses. */
-export function createAgentConnections({ ownsPage, setTimeout: setTimer = globalThis.setTimeout,
+export function createAgentConnections({ ownsPage, connectionId = '', setTimeout: setTimer = globalThis.setTimeout,
   clearTimeout: clearTimer = globalThis.clearTimeout, now = Date.now }) {
   const node = el('div', undefined, 'agent-connections-panel');
-  const intro = block('项目账号连接');
+  const intro = block('项目模型来源');
   note(intro, '连接区分服务商、端点和账号。密钥由本项目 Lush 管理，存放在严格权限的私有文件中，不提供静态加密；系统当前用户仍可读取。');
-  note(intro, '进入此页只读取本地配置和缓存。查询、登录和采样均不调用 Agent 或模型；本轮不自动切换模型，也不自动转用付费资源。');
+  note(intro, '进入此页只读取本地配置和缓存。查询、登录和采样均不调用 Agent 或模型；不自动切换模型，也不自动转用付费资源。');
+  note(intro, '托管来源目前可供 Pi 使用；Codex CLI 仍沿用自身认证。托管 Codex 订阅登录不代表 Codex CLI 已支持绑定。');
   const toolbar = el('div', undefined, 'agent-connection-actions');
   const feedback = el('p', '尚未读取本地连接。', 'hint agent-connections-feedback'); feedback.setAttribute('role', 'status');
+  const layout = el('div', undefined, 'model-source-layout');
+  const listPane = el('section', undefined, 'model-source-list'); listPane.setAttribute('aria-label', '模型来源列表');
+  const filters = el('div', undefined, 'model-source-filters');
+  const search = field(filters, '搜索来源', 'source-search', 'search', '', '按名称、服务商或模型端点搜索。');
+  const providerFilter = select(filters, '服务商', 'source-provider', [['', '全部服务商'], ...PROVIDERS]);
+  const enabledFilter = select(filters, '连接状态', 'source-enabled', [['', '全部状态'], ['enabled', '启用'], ['disabled', '停用']]);
+  const listFeedback = el('p', undefined, 'hint'); listFeedback.setAttribute('role', 'status');
+  const sourceRows = el('div', undefined, 'model-source-rows');
+  listPane.append(filters, listFeedback, sourceRows);
+  const detailPane = el('section', undefined, 'model-source-detail'); detailPane.setAttribute('aria-label', '模型来源详情');
+  const back = button('返回来源列表', () => { closeEditor(); historySequence++; node.dataset.sourceView = 'list'; search.focus(); }, 'ghost model-source-back');
   const cards = el('div', undefined, 'agent-connection-cards');
-  const editor = block('添加连接'), editorHost = el('div'); editor.append(editorHost);
+  const selectionFeedback = el('p', undefined, 'hint model-source-selection-feedback'); selectionFeedback.setAttribute('role', 'status');
+  const editor = block('添加连接'), editorHost = el('div'); editor.append(editorHost); editor.hidden = true;
   const samplingHost = block('后台采样'), samplingFeedback = el('p', undefined, 'hint'); samplingFeedback.setAttribute('role', 'status');
   const samplingForm = el('div', undefined, 'agent-connection-form');
   const samplingEnabled = field(samplingForm, '启用后台采样', 'sampling-enabled', 'checkbox', false);
@@ -119,6 +132,9 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
   const historyFeedback = el('p', '选择连接后读取本地历史，不访问服务商。', 'hint agent-connection-history-feedback'); historyFeedback.setAttribute('role', 'status');
   const historyContent = el('div', undefined, 'agent-connection-history-content');
   historyHost.append(historyControls, historyFeedback, historyContent);
+  samplingHost.hidden = historyHost.hidden = true;
+  let selectedId = connectionId, explicitSelection = Boolean(connectionId), selectionRevision = 0;
+  node.dataset.sourceView = connectionId ? 'detail' : 'list';
   let data = null, listFlight = null, version = 0, editorRevision = 0, saving = false, samplingDirty = false, samplingRevision = 0, samplingSaving = false;
   let historySequence = 0, historyFlight = null, historyKey = '', activeHistoryKey = '', editId = null, loginSequence = 0;
   const queries = new Map(), historyChoices = new Map();
@@ -158,7 +174,9 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
   function apply(value, stamp) {
     if (!current() || stamp !== version) return false;
     if (value?.version !== 1 || !Array.isArray(value.connections)) throw new Error('连接数据格式不兼容。');
-    data = value; paintCards(); paintHistoryChoices();
+    data = value;
+    if (!explicitSelection && !array(data.connections).some(row => row.id === selectedId)) selectedId = data.connections[0]?.id || '';
+    paintCards(); paintHistoryChoices(); paintRows(); paintSelection();
     if (!samplingDirty && !samplingSaving) {
       samplingEnabled.checked = Boolean(value.sampling?.enabled);
       interval.value = String(value.sampling?.interval_minutes ?? 5); retention.value = String(value.sampling?.retention_days ?? 90);
@@ -188,28 +206,78 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
     })();
     queries.set(key, pending); return pending;
   }
+  function closeEditor() {
+    invalidateLogin();
+    // Clear secrets even in detached controls; never retain an abandoned login or key.
+    for (const input of editorHost.querySelectorAll('input')) if (input.type === 'password') input.value = '';
+    editor.hidden = true;
+  }
+  function paintSelection() {
+    const found = array(data?.connections).some(row => row.id === selectedId);
+    selectionFeedback.textContent = found ? '' : selectedId ? '所选来源不存在或已删除；请选择其他来源。' : '选择来源查看详情，或添加一个模型来源。';
+    for (const card of cards.children) card.hidden = card.dataset.connectionId !== selectedId;
+    for (const row of sourceRows.children) {
+      const selected = row.dataset.sourceId === selectedId;
+      row.classList.toggle('selected', selected); row.setAttribute('aria-current', selected ? 'true' : 'false');
+    }
+  }
+  function selectConnection(id) {
+    if (!current()) return false;
+    if (id !== selectedId) {
+      selectionRevision++; invalidateLogin();
+      if (fieldInEditor('user_code') || fieldInEditor('redirect_url')) closeEditor();
+      historyHost.hidden = true; historySequence++; historyContent.replaceChildren();
+    }
+    selectedId = id; explicitSelection = true; node.dataset.sourceView = 'detail'; paintSelection();
+    // Narrow screens hide the source button: move keyboard focus into the visible detail.
+    if (globalThis.matchMedia?.('(max-width:640px)')?.matches) {
+      const card = [...cards.children].find(row => row.dataset.connectionId === id);
+      const heading = card?.querySelector('h3');
+      if (heading) { heading.tabIndex = -1; heading.focus(); }
+    }
+    return array(data?.connections).some(row => row.id === id);
+  }
+  const fieldInEditor = key => editorHost.querySelector(`[data-connection-field="${key}"]`);
+  function paintRows() {
+    const query = search.value.trim().toLocaleLowerCase();
+    const rows = array(data?.connections).filter(row => (!providerFilter.value || row.provider === providerFilter.value)
+      && (!enabledFilter.value || Boolean(row.enabled) === (enabledFilter.value === 'enabled'))
+      && (!query || [row.label, row.provider, row.endpoint].join(' ').toLocaleLowerCase().includes(query)));
+    sourceRows.replaceChildren(...rows.map(connection => {
+      const row = button('', () => selectConnection(connection.id), 'model-source-row'); row.dataset.sourceId = connection.id;
+      row.append(el('strong', text(connection.label, '未命名来源')),
+        el('span', `${PROVIDERS.find(([id]) => id === connection.provider)?.[1] || connection.provider} · ${connection.auth_type === 'oauth' ? '订阅登录' : 'API Key'} · ${connection.enabled ? '启用' : '停用'}`, 'model-source-meta'),
+        el('span', text(connection.endpoint), 'model-source-endpoint'),
+        el('small', CREDENTIALS[connection.credential?.status] || '凭证状态未知'));
+      return row;
+    }));
+    listFeedback.textContent = `显示 ${rows.length} / ${array(data?.connections).length} 个来源${rows.length ? '' : '；暂无匹配来源'}`;
+    paintSelection();
+  }
+  search.oninput = paintRows; providerFilter.onchange = enabledFilter.onchange = paintRows;
   function paintCards() {
     const nodes = [];
     for (const connection of array(data?.connections)) {
       const card = el('article', undefined, 'agent-connection-card'); card.dataset.connectionId = connection.id;
       card.append(el('h3', text(connection.label, '未命名连接')));
+      const connectionSection = block('连接与模型'), resourceSection = block('余额与额度'), consumerSection = block('使用情况');
       const grid = el('div', undefined, 'grid');
       grid.append(kv('服务商', text(connection.provider)), kv('模型端点', text(connection.endpoint)), kv('连接 ID', connection.id),
         kv('认证', connection.auth_type === 'oauth' ? 'OAuth 登录' : 'API Key'), kv('本地凭证', CREDENTIALS[connection.credential?.status] || '未知'),
         kv('连接状态', connection.enabled ? '启用' : '停用'));
       if (connection.credential?.identity) grid.append(kv('账号身份（脱敏）', connection.credential.identity));
       if (connection.credential?.expires_at) grid.append(kv('凭证到期', time(connection.credential.expires_at)));
-      card.append(grid); note(card, `模型范围：${array(connection.models).length ? connection.models.join('、') : '未限定（不代表已验证模型可用）'}`);
-      if (connection.provider === 'openai-compatible') note(card, '自定义 OpenAI Chat Completions 兼容 API；余额查询尚不支持，不代表余额为零。运行时仅供 Pi 显式绑定，不自动切换账号。当前适配按文本/工具调用配置；32K 上下文、4K 输出是本地运行预算，不是已验证的上游限额或价格。');
-      note(card, '以下为缓存观测，不保证当前仍有额度；窗口到期或账号变化后需重新查询。');
-      card.append(renderConnectionResources(connection.observation));
+      connectionSection.append(grid); note(connectionSection, `模型范围：${array(connection.models).length ? connection.models.join('、') : '未限定（不代表已验证模型可用）'}`);
+      if (connection.provider === 'openai-compatible') note(connectionSection, '自定义 OpenAI Chat Completions 兼容 API；余额查询尚不支持，不代表余额为零。运行时仅供 Pi 显式绑定，不自动切换账号。当前适配按文本/工具调用配置；32K 上下文、4K 输出是本地运行预算，不是已验证的上游限额或价格。');
+      note(resourceSection, '以下为缓存观测，不保证当前仍有额度；窗口到期或账号变化后需重新查询。');
+      resourceSection.append(renderConnectionResources(connection.observation));
       const previous = connection.last_success;
       if (!successful(connection.observation) && previous) {
         const old = previous.observation || previous;
         if (successful(old)) {
           const stale = el('div', undefined, 'agent-connection-last-success');
           note(stale, `上次成功：${time(previous.checked_at || old.checked_at)}。以下为缓存旧值，不是当前资源状态。`, true);
-          stale.append(renderConnectionResources(old)); card.append(stale);
+          stale.append(renderConnectionResources(old)); resourceSection.append(stale);
         }
       }
       const consumers = el('div', undefined, 'agent-connection-consumers');
@@ -220,12 +288,12 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
         consumers.append(link, el('span', ` · ${text(consumer.model)} `));
       }
       if (!array(connection.consumers).length) note(consumers, '暂无运行中的显式绑定；不猜测其他客户端消耗。');
-      card.append(consumers);
+      consumerSection.append(consumers);
       const actions = el('div', undefined, 'agent-connection-actions');
       const refresh = helped('刷新此连接', () => query(connection.id), '访问此连接的专用资源接口，可能刷新本项目 OAuth 凭证；不会调用 Agent 或模型。');
       refresh.children[0].disabled = !connection.enabled; actions.append(refresh);
       actions.append(button('编辑', () => { if (current()) paintEditor(connection); }, 'ghost'),
-        helped('查看历史', () => { historyConnection.value = connection.id; historyId.value = ''; return loadHistory(); }, '只读取此连接本地历史，不访问服务商；不同账号与指标分开显示。'));
+        helped('查看历史', () => { selectConnection(connection.id); historyHost.hidden = false; historyConnection.value = connection.id; historyId.value = ''; return loadHistory(); }, '只读取此连接本地历史，不访问服务商；不同账号与指标分开显示。'));
       if (connection.auth_type === 'oauth') actions.append(
         helped('登录 / 重新登录', () => beginDeviceLogin(connection), '显示设备码和 OpenAI 官方授权链接，自动检查授权并保存本项目登录；不改外部客户端凭证，不调用 Agent 或模型。'),
         helped('备用：回调 URL 登录', () => beginLogin(connection), '设备码不可用时可显式使用浏览器回调登录，需要手动粘贴回调 URL；不自动切换，不调用 Agent 或模型。'));
@@ -238,19 +306,21 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
         ++version; if (deviceSession?.login.id === connection.id) invalidateLogin();
         try {
           await post('agent.connections.remove', { id: connection.id }); if (!current()) return;
-          if (editId === connection.id) paintEditor();
+          if (editId === connection.id) { paintEditor(); closeEditor(); }
+          if (selectedId === connection.id) { selectedId = ''; explicitSelection = false; }
           await load(true); message('连接已删除，历史保留，可按原连接 ID 读取。');
         } catch { message('删除未完成；请重新读取本地连接确认状态。', true); }
       }, '删除本项目连接和凭证，需确认；不会删除观测历史或外部客户端凭证。', 'ghost danger'));
-      card.append(actions); nodes.push(card);
+      card.append(connectionSection, resourceSection, consumerSection, actions); nodes.push(card);
     }
     if (!nodes.length) nodes.push(el('p', '暂无项目账号连接。添加连接不会自动迁移或替换原 CLI 登录。', 'hint'));
     cards.replaceChildren(...nodes);
   }
   function paintEditor(connection = null) {
     invalidateLogin();
-    editId = connection?.id || null; editorRevision++;
-    editor.querySelector('h2').textContent = connection ? '编辑连接' : '添加连接';
+    for (const input of editorHost.querySelectorAll('input')) if (input.type === 'password') input.value = '';
+    editId = connection?.id || null; editorRevision++; editor.hidden = false; node.dataset.sourceView = 'detail';
+    editor.querySelector('h2').textContent = connection ? `编辑连接 · ${connection.label}` : '添加连接';
     const form = el('div', undefined, 'agent-connection-form');
     const label = field(form, '连接名称', 'label', 'text', connection?.label || ''); label.maxLength = 120;
     const provider = select(form, '服务商', 'provider', PROVIDERS, connection?.provider || 'deepseek');
@@ -290,20 +360,20 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
         params = { connection: value, ...(value.auth_type === 'api_key' && key.value.trim() ? { credential: { api_key: key.value.trim() } } : {}) };
       } catch (error) { localFeedback.textContent = error instanceof TypeError ? '模型端点不是有效 HTTPS 地址。' : error.message; localFeedback.setAttribute('role', 'alert'); return; }
       // Only the request body briefly contains the secret. Clear the live input even when the write fails.
-      key.value = ''; saving = true; ++version; const revision = editorRevision;
+      key.value = ''; saving = true; ++version; const revision = editorRevision, selectionStamp = selectionRevision;
       localFeedback.textContent = '正在保存连接…';
       try {
-        await post('agent.connections.save', params); if (!current()) return;
-        if (revision === editorRevision) paintEditor();
+        const saved = await post('agent.connections.save', params); if (!current()) return;
+        if (revision === editorRevision) { paintEditor(); closeEditor(); if (saved?.id && selectionStamp === selectionRevision) { selectedId = saved.id; explicitSelection = true; } }
         await load(true); message('连接已保存；不会自动改变运行中的 Worker 或原 CLI 登录。');
       } catch { if (current()) { localFeedback.textContent = '保存连接失败；密钥输入已清空，请确认配置后重新提交。'; localFeedback.setAttribute('role', 'alert'); } }
       finally { saving = false; }
-    }), button('取消编辑', () => { if (current()) paintEditor(); }, 'ghost'));
+    }), button('取消编辑', () => { if (current()) { paintEditor(); closeEditor(); } }, 'ghost'));
     editorHost.replaceChildren(form, localFeedback, actions);
   }
   async function beginDeviceLogin(connection) {
     if (!loginVisible()) return;
-    invalidateLogin(); ++version;
+    selectConnection(connection.id); invalidateLogin(); ++version;
     const revision = editorRevision, loginStamp = loginSequence;
     message('正在获取 Codex 设备码…');
     let login;
@@ -322,6 +392,7 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
         message(`无法获取设备码：${deviceFailureReason(error)} 未改变已有凭证。`, true);
       return;
     }
+    editor.hidden = false;
     editId = connection.id; editorRevision++;
     editor.querySelector('h2').textContent = 'Codex 设备码登录';
     const form = el('div', undefined, 'agent-connection-form'), link = el('a', '打开 OpenAI 设备码授权页面');
@@ -355,7 +426,7 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
         if (!active()) { if (deviceSession === session) stopDevice(); return; }
         if (result?.id !== login.id || result.login_id !== login.login_id) throw new Error('invalid device response');
         if (result.status === 'complete' && result.connection?.id === login.id) {
-          stopDevice(false); paintEditor(); const completedStamp = loginSequence;
+          stopDevice(false); paintEditor(); closeEditor(); const completedStamp = loginSequence;
           await load(true);
           if (current() && completedStamp === loginSequence) message('本项目设备码登录已保存，外部客户端登录未改动。');
           return;
@@ -377,7 +448,7 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
       } catch { if (active()) { code.focus(); code.select?.(); loginFeedback.textContent = '无法自动复制；请手动选中上方设备码复制。'; } }
     }, '仅复制当前短期设备码到系统剪贴板，不保存到浏览器；请只在 OpenAI 官方页面输入，不分享。');
     session.copy = copyHost.children[0];
-    actions.append(copyHost, helped('取消登录', () => { if (active()) { stopDevice(); paintEditor(); message('设备码登录已取消；已有凭证不变。'); } }, '停止自动检查并取消本次设备码登录，不删除已有账号凭证。'));
+    actions.append(copyHost, helped('取消登录', () => { if (active()) { stopDevice(); paintEditor(); closeEditor(); message('设备码登录已取消；已有凭证不变。'); } }, '停止自动检查并取消本次设备码登录，不删除已有账号凭证。'));
     editorHost.replaceChildren(form, loginFeedback, actions);
     globalThis.addEventListener?.('pagehide', session.leave);
     if (typeof globalThis.MutationObserver === 'function') {
@@ -389,7 +460,7 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
   }
   async function beginLogin(connection) {
     if (!current()) return;
-    invalidateLogin(); ++version; const revision = editorRevision, loginStamp = loginSequence; message('正在创建独立 OAuth 登录请求…');
+    selectConnection(connection.id); invalidateLogin(); ++version; const revision = editorRevision, loginStamp = loginSequence; message('正在创建独立 OAuth 登录请求…');
     let login;
     try {
       login = await post('agent.connections.login.start', { id: connection.id }); if (!current() || revision !== editorRevision || loginStamp !== loginSequence) return;
@@ -398,6 +469,7 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
         || !['localhost', '127.0.0.1'].includes(callback.hostname) || callback.pathname !== '/auth/callback' || !['http:', 'https:'].includes(callback.protocol)
         || !login.login_id || !Number.isFinite(Date.parse(login.expires_at)) || Date.parse(login.expires_at) <= Date.now()) throw new Error('invalid OAuth response');
     } catch { if (revision === editorRevision && loginStamp === loginSequence) message('无法创建安全登录请求，请重试；未改变已有凭证。', true); return; }
+    editor.hidden = false;
     editId = connection.id; editorRevision++;
     editor.querySelector('h2').textContent = 'Codex 独立账号登录';
     const form = el('div', undefined, 'agent-connection-form'), link = el('a', '打开 Codex 授权页面');
@@ -421,12 +493,12 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
       try {
         await post('agent.connections.login.finish', { id: connection.id, login_id: login.login_id, redirect_url });
         if (!current() || finishRevision !== editorRevision || loginStamp !== loginSequence) return;
-        paintEditor(); const completedStamp = loginSequence;
+        paintEditor(); closeEditor(); const completedStamp = loginSequence;
         await load(true); if (completedStamp === loginSequence) message('本项目登录已保存，外部客户端登录未改动。');
       } catch { if (current() && finishRevision === editorRevision && loginStamp === loginSequence) { loginFeedback.textContent = '登录未完成；回调输入已清空，请重新发起登录。不会回显授权码或上游错误。'; loginFeedback.setAttribute('role', 'alert'); } }
       finally { finishing = false; }
     }, '仅兑换本次授权码并保存本项目 OAuth 凭证；不会修改外部客户端登录，也不会调用模型。'),
-    button('取消登录', () => { if (current()) { callback.value = ''; paintEditor(); } }, 'ghost'));
+    button('取消登录', () => { if (current()) { callback.value = ''; paintEditor(); closeEditor(); } }, 'ghost'));
     editorHost.replaceChildren(form, loginFeedback, actions); message('授权请求已创建；请打开官方授权页面并粘贴回调地址。');
   }
   function loadHistory() {
@@ -482,7 +554,10 @@ export function createAgentConnections({ ownsPage, setTimeout: setTimer = global
   historyControls.append(helped('读取历史', loadHistory, '只读取所选连接的项目 SQLite 历史，不联网查询服务商。'));
   toolbar.append(helped('重新读取本地连接', () => load(true), '重新读取项目连接配置和缓存，不访问服务商，不覆盖未保存编辑。'),
     helped('刷新全部资源', () => query(), '只查询启用连接的专用资源接口，可能刷新本项目 OAuth；不调用 Agent 或模型，不自动切换模型。'),
-    button('添加连接', () => { if (current()) paintEditor(); }, 'ghost'));
-  intro.append(toolbar, feedback); node.append(intro, cards, editor, samplingHost, historyHost); paintEditor();
-  return { node, load, loadHistory };
+    button('添加连接', () => { if (current()) paintEditor(); }, 'ghost'),
+    button('后台采样设置', () => { if (current()) { samplingHost.hidden = !samplingHost.hidden; node.dataset.sourceView = 'detail'; } }, 'ghost', { help: '展开本项目全部托管来源的采样设置；开启后关页仍采样，不是某个来源单独的开关。' }),
+    button('历史与已删除来源', () => { if (current()) { historyHost.hidden = !historyHost.hidden; node.dataset.sourceView = 'detail'; } }, 'ghost', { help: '展开本地观测历史入口，可按原连接 ID 查看已删除来源的历史；不访问服务商。' }));
+  intro.append(toolbar, feedback); detailPane.append(back, selectionFeedback, cards, editor, samplingHost, historyHost);
+  layout.append(listPane, detailPane); node.append(intro, layout); paintEditor(); closeEditor(); node.dataset.sourceView = connectionId ? 'detail' : 'list';
+  return { node, load, loadHistory, selectConnection, selectedConnection: () => selectedId, dispose: closeEditor };
 }

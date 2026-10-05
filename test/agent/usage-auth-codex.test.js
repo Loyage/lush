@@ -12,12 +12,15 @@ const expired = () => ({ type: 'oauth', access: access(id, 'old'), refresh: 'MOC
 const reply = (patch = {}) => new Response(JSON.stringify({ access_token: access(), refresh_token: 'MOCK_PRIVATE_ROTATED', expires_in: 3600, ...patch }));
 const quota = () => new Response(JSON.stringify({ rate_limit: { primary_window: { used_percent: 10 } } }));
 const gate = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
-function world() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-codex-auth-test-')), file = path.join(root, 'auth.json');
+function world({ projectPi = false } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-codex-auth-test-'));
+  const configDir = projectPi ? path.join(root, '.lush', 'pi') : root;
+  if (projectPi) fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
+  const file = path.join(configDir, 'auth.json');
   const credential = expired();
   const data = { 'openai-codex': credential, deepseek: { type: 'api_key', key: 'MOCK_OTHER_PRIVATE' }, unknown: { nested: ['preserve'] } };
   fs.writeFileSync(file, JSON.stringify(data), { mode: 0o600 });
-  return { root, file, credential, data, read: () => JSON.parse(fs.readFileSync(file, 'utf8')), close: () => fs.rmSync(root, { recursive: true, force: true }) };
+  return { root, configDir, file, credential, data, read: () => JSON.parse(fs.readFileSync(file, 'utf8')), close: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
 test('independent Codex refresh uses fixed public-client wire format and atomically preserves unrelated auth data', async () => {
@@ -185,8 +188,8 @@ test('unsafe file permissions/symlink/hardlink and aliased parent paths reject w
   }
 });
 
-test('selected official Codex refreshes once then uses new bearer without exposing refresh metadata in discovery', async () => {
-  const f = world(); let authCalls = 0, usageCalls = 0;
+test('selected Lush-owned Codex refreshes once then uses new bearer without exposing refresh metadata in discovery', async () => {
+  const f = world({ projectPi: true }); let authCalls = 0, usageCalls = 0;
   const config = { project: f.root, home: path.join(f.root, '.lush'), env: { PI_CODING_AGENT_DIR: f.root } }, profile = { model:'openai-codex/test', agent:'pi' };
   try {
     const value = await discoverAgentUsage(config, profile, { authFetch: async () => { authCalls++; return reply(); }, fetch: async (url, init) => {
@@ -202,11 +205,11 @@ test('selected official Codex refreshes once then uses new bearer without exposi
 
 test('unselected/proxy/custom/API-key accounts never trigger Codex OAuth refresh', async () => {
   for (const mode of ['unselected','proxy','custom','api-key']) {
-    const f = world(); let authCalls = 0, usageCalls = 0;
+    const f = world({ projectPi: true }); let authCalls = 0, usageCalls = 0;
     const config = { project:f.root, home:path.join(f.root,'.lush'), env:{ PI_CODING_AGENT_DIR:f.root } }, profile = { model:'openai-codex/test', agent:'pi' };
     try {
       const usageConfig = { providers:mode === 'unselected' ? ['unknown'] : ['openai-codex'], custom:[] };
-      if (mode === 'proxy') fs.writeFileSync(path.join(f.root,'models.json'),JSON.stringify({providers:{'openai-codex':{baseUrl:'https://proxy.invalid/'}}}));
+      if (mode === 'proxy') fs.writeFileSync(path.join(f.configDir,'models.json'),JSON.stringify({providers:{'openai-codex':{baseUrl:'https://proxy.invalid/'}}}));
       if (mode === 'api-key') fs.writeFileSync(f.file,JSON.stringify({'openai-codex':{type:'api_key',key:'MOCK_PRIVATE_KEY'}}));
       if (mode === 'custom') usageConfig.custom.push({provider:'openai-codex',label:'Custom',url:'https://custom.invalid/',method:'GET',headers:{},body:null,kind:'quota',items:[{id:'remaining',label:'Remaining',unit:'credits',remaining:'remaining'}]});
       const before = fs.readFileSync(f.file,'utf8');
@@ -218,7 +221,7 @@ test('unselected/proxy/custom/API-key accounts never trigger Codex OAuth refresh
 });
 
 test('explicit read-only discovery neither refreshes expired credentials nor shares an automatic-refresh request', async () => {
-  const f = world(); let authCalls = 0, usageCalls = 0;
+  const f = world({ projectPi: true }); let authCalls = 0, usageCalls = 0;
   const config = {project:f.root,home:path.join(f.root,'.lush'),env:{PI_CODING_AGENT_DIR:f.root}}, profile = {model:'openai-codex/test',agent:'pi'};
   const options = { authFetch:async()=>{authCalls++;return reply();}, fetch:async()=>{usageCalls++;return quota();} };
   try {
@@ -238,7 +241,7 @@ test('explicit read-only discovery neither refreshes expired credentials nor sha
 });
 
 test('OAuth unauthorized usage does not trigger a second refresh or retry', async () => {
-  const f = world(); let authCalls = 0, usageCalls = 0;
+  const f = world({ projectPi: true }); let authCalls = 0, usageCalls = 0;
   try {
     const config = {project:f.root,home:path.join(f.root,'.lush'),env:{PI_CODING_AGENT_DIR:f.root}};
     const value = await discoverAgentUsage(config,{model:'openai-codex/test',agent:'pi'}, {authFetch:async()=>{authCalls++;return reply();},fetch:async()=>{usageCalls++;return new Response('MOCK_PRIVATE',{status:403});}});
@@ -248,7 +251,8 @@ test('OAuth unauthorized usage does not trigger a second refresh or retry', asyn
 
 test('project shutdown drains an in-flight independent refresh and its sanitized observation', async () => {
   const f = fixture(), hold = gate(), entered = gate();
-  const authFile = path.join(f.root, 'auth.json'); fs.writeFileSync(authFile,JSON.stringify({'openai-codex':expired()}),{mode:0o600});
+  const configDir = path.join(f.config.home, 'pi'); fs.mkdirSync(configDir, { mode: 0o700 });
+  const authFile = path.join(configDir, 'auth.json'); fs.writeFileSync(authFile,JSON.stringify({'openai-codex':expired()}),{mode:0o600});
   f.config.env.PI_CODING_AGENT_DIR = f.root;
   f.project.agentUsage.discoverUsage = (config,profile,options) => discoverAgentUsage(config,{...profile,model:'openai-codex/test'}, {...options,
     authFetch:async()=>{entered.resolve();await hold.promise;return reply();},fetch:async()=>quota()});

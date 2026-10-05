@@ -8,6 +8,7 @@
 - [Agent 执行过程](agent-process.md)：让用户更好使用、更好理解、更好查找 Agent 的执行过程。
 - [上下文引用与定位](references.md)：把用户当下所见（选区、语义节点）低成本带进下一步，并就地获得只读解释。
 - [按钮帮助与 Agent 触发标识](ui-guidance.md)：让按钮含义与“会调用 Agent”的代价一眼可见。
+- [Agent 配置与模型来源](agent-model-settings.md)：分离工作方式和调用资源，支持项目默认与单 Worker 的明确来源选择。
 - [账号资源连接器](account-resources.md)：区分账号、端点、现金/Key预算/套餐窗口，托管凭证且显式选择，不把查询失败当耗尽。
 - [通知与告知](notices.md)：按客户端、类别与渠道控制打扰，逐条已知但不替用户做决定。
 - [历史输入与缓冲区](input-history.md)：先持久记录想法、显式发射，并准确检索原始指令与Worker状态。

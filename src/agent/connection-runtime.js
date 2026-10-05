@@ -1,24 +1,11 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { check } from '../core/types.js';
+import { ensurePiConfiguration } from './pi-config.js';
 
-const MAX_FILE = 256 * 1024;
 const MODEL_FIELDS = ['id', 'name', 'api', 'reasoning', 'input', 'cost', 'contextWindow', 'maxTokens', 'compat', 'inputLimits', 'promptCache'];
-const SETTINGS = ['defaultProjectTrust', 'thinkingBudgets', 'modelThinkingLevels', 'defaultTools', 'compaction', 'branchSummary',
-  'transport', 'httpProxy', 'httpIdleTimeoutMs', 'websocketConnectTimeoutMs', 'retry', 'shellPath', 'shellCommandPrefix',
-  'images', 'warnings', 'cacheWarming'];
-const CONTEXT_FILES = ['AGENTS.override.md', 'AGENTS.md', 'AGENTS.MD', 'CLAUDE.md', 'CLAUDE.MD', 'SYSTEM.md', 'APPEND_SYSTEM.md'];
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const select = (value, keys) => Object.fromEntries(keys.filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
-function readLocal(file) {
-  try {
-    const stat = fs.lstatSync(file);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_FILE) return null;
-    return fs.readFileSync(file, 'utf8');
-  } catch { return null; }
-}
-function readJson(file) { try { return JSON.parse(readLocal(file)); } catch { return null; } }
 function privateDir(dir) {
   try { fs.mkdirSync(dir, { mode: 0o700 }); } catch (error) { if (error.code !== 'EEXIST') throw new Error('managed Pi directory unavailable'); }
   const stat = fs.lstatSync(dir);
@@ -58,25 +45,20 @@ export function validateRuntimeConnection(agent, runtime) {
 }
 
 /** Disposable per-invocation auth, no refresh token, no argv secrets and no modification of the caller's Pi directory. */
-export function createRuntimeConnection(config, agent, runtime, environment = {}) {
+export function createRuntimeConnection(config, agent, runtime) {
   const { connection, modelId } = validateRuntimeConnection(agent, runtime);
+  const baseline = ensurePiConfiguration(config);
   const parent = path.join(config.home, 'agent-runtime');
   privateDir(parent);
   const dir = fs.mkdtempSync(path.join(parent, 'connection-'));
   fs.chmodSync(dir, 0o700);
   const write = (name, value) => fs.writeFileSync(path.join(dir, name), JSON.stringify(value) + '\n', { mode: 0o600, flag: 'wx' });
   try {
-    const original = environment.PI_CODING_AGENT_DIR || config.env.PI_CODING_AGENT_DIR || path.join(config.env.HOME || os.homedir(), '.pi', 'agent');
-    const originalDir = path.resolve(config.project, original);
-    const settings = readJson(path.join(originalDir, 'settings.json'));
-    if (object(settings)) write('settings.json', { ...select(settings, SETTINGS), enableInstallTelemetry: false, enableAnalytics: false });
-    for (const name of CONTEXT_FILES) {
-      const text = readLocal(path.join(originalDir, name));
-      if (text !== null) fs.writeFileSync(path.join(dir, name), text, { mode: 0o600, flag: 'wx' });
-    }
+    write('settings.json', baseline.settings);
     const compatible = connection.provider === 'openai-compatible';
+    // Only Lush-owned model metadata can supplement this connection; never user Pi configuration.
     // A generic endpoint must not inherit another endpoint's protocol, capabilities or compatibility flags.
-    const source = compatible ? null : readJson(path.join(originalDir, 'models.json'))?.providers?.[connection.provider];
+    const source = compatible ? null : baseline.models?.providers?.[connection.provider];
     const provider = compatible ? {
       baseUrl: connection.endpoint, api: 'openai-completions',
       // These are conservative local operating budgets, NOT discovered upstream limits or prices.

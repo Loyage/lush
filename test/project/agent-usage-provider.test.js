@@ -6,19 +6,24 @@ import { discoverAgentUsage } from '../../src/agent/status.js';
 
 for (const changedSource of ['environment','agent.env','auth.json']) test(`in-flight usage does not hide changed ${changedSource} credentials`, async () => {
   const f = fixture(), oldResponse = gate(), started = gate(), requests = [];
-  const piHome = path.join(f.root, 'isolated-pi'); fs.mkdirSync(piHome);
-  f.config.env.HOME = f.root; f.config.env.PI_CODING_AGENT_DIR = piHome;
+  const piHome = path.join(f.config.home, 'pi'); fs.mkdirSync(piHome, { mode: 0o700 });
+  f.config.env.HOME = f.root;
   f.config.env.LUSH_PI_COMMAND = path.join(f.root, 'must-not-execute-pi');
   delete f.config.env.DEEPSEEK_API_KEY;
-  fs.writeFileSync(path.join(piHome, 'models.json'), '{}');
+  fs.writeFileSync(path.join(piHome, 'models.json'), '{}', { mode: 0o600 });
   fs.writeFileSync(path.join(piHome, 'auth.json'), '{}', { mode: 0o600 });
   const updateKey = key => {
-    if (changedSource === 'environment') f.config.env.DEEPSEEK_API_KEY = key;
+    if (changedSource === 'environment') f.config.env.USAGE_TEST_TOKEN = key;
     else if (changedSource === 'auth.json') fs.writeFileSync(path.join(piHome, 'auth.json'), JSON.stringify({ deepseek: { type: 'api_key', key } }), { mode: 0o600 });
-    else f.project.configureAgentEnvironment('common', { DEEPSEEK_API_KEY: key });
+    else f.project.configureAgentEnvironment('common', { USAGE_TEST_TOKEN: key });
   };
   updateKey('old-test-token');
-  f.project.configureAgentUsage({ providers: ['deepseek'] });
+  f.project.configureAgentUsage({ providers: ['deepseek'], ...(changedSource === 'auth.json' ? {} : {
+    // Environment credentials are allowed only through an explicitly authorized custom HTTP mapping.
+    custom: [{ provider: 'deepseek', label: 'Explicit fixture balance', url: 'https://quota.example.test/status', method: 'GET',
+      headers: { Authorization: 'Bearer ${USAGE_TEST_TOKEN}' }, body: null, kind: 'balance',
+      items: [{ id: 'balance-CNY', label: '账户余额', unit: 'CNY', remaining: 'balance_infos.0.total_balance', total: null, used: null }] }],
+  }) });
   f.project.agentUsage.discoverUsage = (config, profile, options) => discoverAgentUsage(config, profile, { ...options, fetch: async (_url, init) => {
     const key = init.headers.Authorization; requests.push(key);
     if (key === 'Bearer old-test-token') { started.resolve(); await oldResponse.promise; }
@@ -43,11 +48,11 @@ for (const changedSource of ['environment','agent.env','auth.json']) test(`in-fl
 // Real discovery/mapping/store composition, with only HTTPS transport mocked and an isolated Pi home.
 test('configured HTTP usage queries compose with lightweight discovery, history and stale success caching', async () => {
   const f = fixture(undefined, { USAGE_TEST_TOKEN: 'test-private-token' });
-  const piHome = path.join(f.root, 'isolated-pi'); fs.mkdirSync(piHome);
-  f.config.env.HOME = f.root; f.config.env.PI_CODING_AGENT_DIR = piHome;
+  const piHome = path.join(f.config.home, 'pi'); fs.mkdirSync(piHome, { mode: 0o700 });
+  f.config.env.HOME = f.root;
   f.config.env.LUSH_PI_COMMAND = path.join(f.root, 'must-not-execute-pi');
   fs.writeFileSync(path.join(piHome, 'auth.json'), '{}', { mode: 0o600 });
-  fs.writeFileSync(path.join(piHome, 'models.json'), '{}');
+  fs.writeFileSync(path.join(piHome, 'models.json'), '{}', { mode: 0o600 });
   let requests = 0, fail = false;
   f.project.agentUsage.discoverUsage = (config, profile, options) => discoverAgentUsage(config, profile, { ...options, fetch: async (url, init) => {
     requests++; expect(url).toBe('https://quota.example.test/status');

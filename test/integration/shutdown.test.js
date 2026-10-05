@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { temp, repo, until } from '../helpers.js';
 import { cli } from './harness.js';
+import { bindMockPiSource } from './pi-runtime-fixture.js';
 
 test('shutdown kills pi process group, preserves task as failed, and restart does not replay it', async () => {
   const root = temp(), fake = path.join(root,'fake-pi');
@@ -16,6 +17,7 @@ setInterval(() => {}, 1000);
 `, {mode:0o755});
   try {
     await cli(root,['start'],{LUSH_PROVIDER:'pi',LUSH_PI_COMMAND:fake});
+    await bindMockPiSource(root);
     const input = await cli(root,['order','long']);
     await until(() => fs.existsSync(path.join(root,'.lush','grandchild.pid')));
     const pid = Number(fs.readFileSync(path.join(root,'.lush','child.pid'),'utf8'));

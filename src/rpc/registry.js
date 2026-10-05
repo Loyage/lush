@@ -35,7 +35,7 @@ export const PARAMS = {
   'worker.approve_merge': ['id','commit','baseline'], 'worker.message': ['id','body'],
   'worker.cancel': ['id'], 'worker.retry': ['id','profile'], 'worker.cleanup': ['id','keep_branch'],
   'worker.delete_preview': ['id'], 'worker.delete': ['id','revision','confirm'],
-  'worker.interrupt': ['id'], 'worker.resume': ['id','profile'], 'worker.configure': ['id','profile'],
+  'worker.interrupt': ['id'], 'worker.resume': ['id','profile'], 'worker.configure': ['id','profile','model_selection'],
   'progress.plan': ['steps'], 'progress.complete': ['step'],
   'notice.list': [], 'notice.page': ['status','before','limit'],
   'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'], 'notice.read': ['id'],

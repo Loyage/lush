@@ -20,7 +20,7 @@ const writes = {
   reopen: ['id'], sync_parent: ['id'], resolve_sync: ['id'], resolve_child_divergence: ['id'],
   unreserve: ['id'], approve_merge: ['id','commit','baseline'], message: ['id','body'],
   cancel: ['id'], retry: ['id','profile'], cleanup: ['id','keep_branch'], interrupt: ['id'],
-  resume: ['id','profile'], configure: ['id','profile'], delete: ['id','revision','confirm'],
+  resume: ['id','profile'], configure: ['id','profile','model_selection'], delete: ['id','revision','confirm'],
 };
 const userOnly = new Set(['code_state','code_tree','code_file','transcript_latest','transcript_page','transcript_step',
   'transcript_search','runs_page','artifacts_page','artifact',
@@ -79,6 +79,9 @@ test('worker lifecycle RPC forwards existing internal methods, actors and persis
     ['resolve_sync', 'resolveTaskSync', { id: 7 }, [7]],
     ['auto_merge', 'setTaskAutoMerge', { id: 7, enabled: true }, [7, true]],
     ['retry', 'retry', { id: 7, profile: { agent: 'pi', model: 'deepseek/chat' } }, [7, { agent: 'pi', model: 'deepseek/chat' }]],
+    ['configure', 'configureTask', { id: 7, profile: { agent: 'pi', model: 'deepseek/chat' } }, [7, { agent: 'pi', model: 'deepseek/chat' }]],
+    ['configure', 'configureTaskModelSelection', { id: 7, model_selection: { connection_id: '11111111-1111-4111-8111-111111111111', model: 'deepseek/chat' } },
+      [7, { connection_id: '11111111-1111-4111-8111-111111111111', model: 'deepseek/chat' }]],
     ['message', 'message', { id: 7, body: 'follow up' }, [7, 'follow up', null]],
     ['reserve', 'reserveTask', { id: 7, kind: 'merge' }, [7, 'merge']],
   ];

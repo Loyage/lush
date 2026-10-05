@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fixture, repo, temp, until } from '../helpers.js';
 import { PiProvider } from '../../src/agent/provider.js';
+import { managedPiRun } from './managed-runtime-fixture.js';
 
 const GUARD = path.resolve(import.meta.dir, '../../bin/lush-agent-guard');
 
@@ -139,9 +140,9 @@ function profile() {
     extensions: [], skills: [], soft_budget: {} };
 }
 function runOptions(f, overrides = {}) {
-  return { task: { id: 7, role: 'worker', goal: 'guard test', input_id: null },
+  return managedPiRun({ task: { id: 7, role: 'worker', goal: 'guard test', input_id: null },
     context: { invocation: { run_id: 21 } }, messages: [], messagesPage: null, cwd: f.root, token: 't',
-    signal: new AbortController().signal, onSpawn: () => {}, agent: profile(), ...overrides };
+    signal: new AbortController().signal, onSpawn: () => {}, agent: profile(), ...overrides });
 }
 
 test('guarded invocations preserve stdout, stderr and the exit code for success and failure', async () => {
@@ -157,7 +158,7 @@ test('guarded invocations preserve stdout, stderr and the exit code for success 
     await until(() => !groupAlive(spawned), 3000);
     expect(groupAlive(spawned)).toBe(false);
     f.config.env.LUSH_PI_COMMAND = bad;
-    await expect(provider.run(runOptions(f))).rejects.toThrow('exited 7: boom-detail');
+    await expect(provider.run(runOptions(f))).rejects.toThrow('managed Pi invocation failed');
   } finally { await f.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

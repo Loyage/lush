@@ -12,6 +12,7 @@ import { discoverAgentResources } from '../src/agent/resources.js';
 import { GUIDE } from '../src/agent/guide.js';
 import { run as runAgentCommand } from '../src/cli/commands/agent.js';
 import { env } from './helpers.js';
+import { managedPiRun } from './agent/managed-runtime-fixture.js';
 // Profile/provider tests reuse the isolated environment without constructing a Project fixture.
 function temp() { return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lush-agent-settings-'))); }
 
@@ -118,7 +119,7 @@ test('agent CLI exposes the selected backend model catalog', async () => {
   expect(calls).toEqual([{ method: 'agent.models', params: { agent: 'codex' } }]);
 });
 
-test('model discovery returns only the current CLI catalog shape', async () => {
+test('Pi model discovery rejects unsafe CLI listing without SDK, Codex keeps its CLI catalog' , async () => {
   const root = temp();
   const pi = path.join(root, 'fake-pi');
   const codex = path.join(root, 'fake-codex-models');
@@ -137,8 +138,9 @@ console.log(JSON.stringify({ models: [
   config.prepare();
   try {
     const piResult = await discoverAgentModels(config, 'pi');
-    expect(piResult.source).toBe('cli');
-    expect(piResult.models.map(model => model.id)).toEqual(['openai-codex/gpt-current', 'deepseek/flash-now']);
+    expect(piResult.source).toBe('presets');
+    expect(piResult.warning).toContain('无法读取');
+    expect(piResult.models.map(model => model.id)).not.toContain('deepseek/flash-now');
     const codexResult = await discoverAgentModels(config, 'codex');
     expect(codexResult.models).toEqual([{ id: 'gpt-current', label: 'GPT Current', description: 'Current model',
       default_thinking: 'medium', thinking: ['low', 'high'] }]);
@@ -146,7 +148,7 @@ console.log(JSON.stringify({ models: [
 });
 
 test('Pi resource discovery lists installed extensions and skills without loading them', async () => {
-  const root = temp(), piHome = path.join(root, 'pi-home'), pkg = path.join(root, 'installed-package');
+  const root = temp(), piHome = path.join(root, '.lush', 'pi'), pkg = path.join(root, 'installed-package');
   fs.mkdirSync(path.join(piHome, 'extensions'), { recursive: true });
   fs.mkdirSync(path.join(piHome, 'skills', 'local-skill'), { recursive: true });
   fs.mkdirSync(path.join(pkg, 'tools'), { recursive: true });
@@ -177,9 +179,9 @@ test('Pi provider disables discovery and explicitly loads only the selected exte
   config.prepare();
   try {
     const provider = new PiProvider(config);
-    expect(await provider.run({ task: { id: 8, parent_id: 3, role: 'worker', goal: 'test' }, context: {}, messages: [], cwd: root, token: 'secret',
+    expect(await provider.run(managedPiRun({ task: { id: 8, parent_id: 3, role: 'worker', goal: 'test' }, context: {}, messages: [], cwd: root, token: 'secret',
       signal: new AbortController().signal, onSpawn() {}, agent: { agent: 'pi', model: '', thinking: '', default_prompt: '', append_prompt: '',
-        extensions: ['/tmp/selected-extension.ts'], skills: ['/tmp/selected-skill/SKILL.md'] } })).toBe('pi finished');
+        extensions: ['/tmp/selected-extension.ts'], skills: ['/tmp/selected-skill/SKILL.md'] } }))).toBe('pi finished');
     const args = JSON.parse(fs.readFileSync(path.join(root, '.lush', 'pi-args.json'), 'utf8'));
     expect(args).toContain('--no-extensions'); expect(args).toContain('--no-skills');
     expect(args.slice(args.indexOf('--extension'), args.indexOf('--extension') + 2)).toEqual(['--extension', '/tmp/selected-extension.ts']);

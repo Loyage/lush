@@ -12,7 +12,8 @@ const PAGES = {
   inputs: ['历史输入', '工作', '暂存想法 · 全库原始输入检索与发射'],
   statistics: ['用量统计', '交付与用量', 'Token 用量与预计花费 · 非实际账单'],
   settings: ['系统设置', '其他', '界面偏好、运行参数与系统状态'],
-  'agent-status': ['Agent 管理', '其他', 'Agent 配置 · Pi 安装、模型、账号与额度'],
+  'agent-status': ['Agent 配置', '其他', '执行后端、模型来源、Prompt 与工作方式'],
+  'model-sources': ['模型来源', '其他', '项目 API、账号登录、模型范围与余额额度'],
   docs: ['帮助文档', '其他', '使用流程、架构与接口参考'],
 };
 function node(id) { return globalThis.document?.getElementById?.(id) ?? null; }

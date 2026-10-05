@@ -7,7 +7,8 @@ const environmentReads = [];
 let environmentError = null;
 const commonValues = { API_BASE: 'https://common.invalid', COMMON_ONLY: 'shared' };
 const roleValues = { API_BASE: 'https://agent.invalid', TOKEN: 'abc', EMPTY: '', MULTILINE: 'first\nsecond', SPACED: ' padded ', QUOTED: '"literal"', PATH_VALUE: 'C:\\tools' };
-const profile = { agent: 'pi', model: 'openai-codex/gpt-5.4', thinking: 'medium', default_prompt: '', append_prompt: '',
+const connectionId = '55555555-5555-4555-8555-555555555555';
+const profile = { agent: 'pi', connection_id: connectionId, model: 'openai-codex/gpt-5.4', thinking: 'medium', default_prompt: '', append_prompt: '',
   extensions: [], skills: [], soft_budget: {} };
 const settings = {
   version: 1, default: profile, roles: {}, resolved: { agent: profile },
@@ -20,6 +21,10 @@ const settings = {
 const response = value => ({ ok: true, status: 200, json: async () => value });
 const dom = installDom({ fetch: async (url, options = {}) => {
   if (url === '/api/agent/config') return response(settings);
+  if (url === '/api/agent/connections') return response({ version: 1, connections: [
+    { id: connectionId, label: 'Lush Codex OAuth', provider: 'openai-codex', auth_type: 'oauth', enabled: true,
+      models: ['gpt-5.4'], credential: { status: 'configured' } },
+  ] });
   if (url.startsWith('/api/agent/environment?target=')) {
     const target = new URL(url, 'http://localhost').searchParams.get('target');
     environmentReads.push(target);
@@ -50,11 +55,12 @@ test('configureTask 保存 paused 任务的本轮运行设置，并把按任务�
   expect(parseEnvLines(env.value)).toEqual({ ...commonValues, ...roleValues });
   model.value = 'openai-codex/gpt-5.4';
   env.value = 'API_BASE=https://example.invalid\n# 注释\nTOKEN=abc';
+  await dialogButton(dom, '读取项目连接').onclick();
   await dialogButton(dom, '保存设置').onclick();
   expect(await pending).toBe(true);
   expect(actions).toHaveLength(1);
   expect(actions[0]).toEqual({ method: 'worker.configure', params: { id: 43, profile: {
-    agent: 'pi', model: 'openai-codex/gpt-5.4', thinking: 'medium', default_prompt: '',
+    agent: 'pi', connection_id: connectionId, model: 'openai-codex/gpt-5.4', thinking: 'medium', default_prompt: '',
     append_prompt: '', extensions: [], skills: [], soft_budget: {}, env: { API_BASE: 'https://example.invalid', TOKEN: 'abc' },
   } } });
 });
@@ -84,6 +90,7 @@ test('待开始任务可加载全部默认参数，含公共与角色环境变�
   expect(get('budget-tokens').value).toBe('');
   expect(get('budget-tokens').disabled).toBe(false);
   expect(parseEnvLines(get('env').value)).toEqual({ ...commonValues, ...roleValues });
+  await dialogButton(dom, '读取项目连接').onclick();
   await dialogButton(dom, '保存设置').onclick();
   expect(await pending).toBe(true);
   expect(actions).toEqual([{ method: 'worker.configure', params: { id: 44, profile: {

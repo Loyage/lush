@@ -5,12 +5,15 @@ import { until } from '../helpers.js';
 const actions = [];
 const environmentReads = [];
 const id = '44444444-4444-4444-8444-444444444444';
+const codexId = '55555555-5555-4555-8555-555555555555';
 const managedConnections = [{ id, label: '兼容服务', provider: 'openai-compatible', endpoint: 'https://models.example/v1',
-  enabled: true, auth_type: 'api_key', models: ['custom-model'], credential: { status: 'configured' } }];
+  enabled: true, auth_type: 'api_key', models: ['custom-model'], credential: { status: 'configured' } },
+  { id: codexId, label: 'Lush Codex OAuth', provider: 'openai-codex', auth_type: 'oauth', enabled: true,
+    models: ['gpt-5.4', 'gpt-5.4-mini'], credential: { status: 'configured' } }];
 let connectionResponse = null;
 const commonEnv = { SHARED: 'common', COMMON: 'only-common' };
 const roleEnv = { SHARED: 'role', ROLE: 'only-role' };
-const profile = { agent: 'pi', model: 'openai-codex/gpt-5.4', thinking: 'medium', default_prompt: '', append_prompt: '',
+const profile = { agent: 'pi', connection_id: codexId, model: 'openai-codex/gpt-5.4', thinking: 'medium', default_prompt: '', append_prompt: '',
   extensions: [], skills: [], soft_budget: {} };
 const settings = {
   version: 1, default: profile, roles: {}, resolved: { worker: profile },
@@ -59,11 +62,12 @@ test('检查后重试编辑完整 Profile，并只把覆盖参数提交给 worke
   const extension = modal.querySelector('[data-retry-resource="extensions"]');
   extension.checked = true; extension.onchange();
 
+  await dialogButton(dom, '读取项目连接').onclick();
   await dialogButton(dom, '使用这些设置重试').onclick();
   expect(await pending).toBe(true);
   expect(actions).toHaveLength(1);
   expect(actions[0]).toEqual({ method: 'worker.retry', params: { id: 42, profile: {
-    agent: 'pi', model: 'openai-codex/gpt-5.4-mini', thinking: 'high', default_prompt: '',
+    agent: 'pi', connection_id: codexId, model: 'openai-codex/gpt-5.4-mini', thinking: 'high', default_prompt: '',
     append_prompt: '先复盘错误，再做最小修复', extensions: ['/tmp/review.js'], skills: [], soft_budget: {}, env: { ...commonEnv, ...roleEnv },
   } } });
 });
@@ -74,6 +78,7 @@ test('暂停中的「调整运行设置」只保存 Profile，不启动 Agent', 
   await until(() => dialogButton(dom, '保存设置'));
   const modal = dom.node('modal');
   expect(deepText(modal)).toContain('下一次 Agent 调用');
+  await dialogButton(dom, '读取项目连接').onclick();
   await dialogButton(dom, '保存设置').onclick();
   expect(await pending).toBe(true);
   expect(actions).toHaveLength(1);
@@ -90,6 +95,7 @@ test('请求中断但仍在运行时可以保存设置，不冒充已暂停或�
   expect(deepText(modal)).toContain('不改变仍在运行的调用');
   expect(deepText(modal)).not.toContain('Worker 已暂停');
   expect(dialogButton(dom, '保存设置').classList.contains('agent-call')).toBe(false);
+  await dialogButton(dom, '读取项目连接').onclick();
   await dialogButton(dom, '保存设置').onclick();
   expect(await pending).toBe(true);
   expect(actions).toHaveLength(1);
@@ -138,7 +144,7 @@ test('Worker连接模型越界不提交，Codex切换不携带托管连接，加
     expect(dom.node('modal').querySelector('[data-retry-field="connection_id"]').disabled).toBe(true);
     await dialogButton(dom, '保存设置').onclick(); expect(await switching).toBe(true);
     expect(actions[0].params.profile).not.toHaveProperty('connection_id');
-  } finally { delete profile.connection_id; profile.model = originalModel; }
+  } finally { profile.connection_id = codexId; profile.model = originalModel; }
 });
 
 test('取消Worker配置后连接列表迟到不改变其他页面，也不发起重试', async () => {
@@ -177,6 +183,7 @@ test('加载默认参数恢复角色的 Prompt、资源与软预算，并正确�
     expect(get('budget-tokens').value).toBe('1000');
     expect(modal.querySelector('[data-retry-resource="extensions"]').checked).toBe(true);
     expect(modal.querySelector('[data-retry-resource="skills"]').checked).toBe(true);
+    await dialogButton(dom, '读取项目连接').onclick();
     await dialogButton(dom, '保存设置').onclick();
     expect(await pending).toBe(true);
     expect(actions).toEqual([{ method: 'worker.configure', params: { id: 46, profile: {

@@ -9,7 +9,7 @@ const dom = installDom({ fetch: world.fetchImpl });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const prefs = await import('../../src/ui/web/assets/prefs.js');
 const state = await import('../../src/ui/web/assets/state.js');
-const { renderSettings } = await import('../../src/ui/web/assets/render-settings.js');
+const { renderSettings, renderAgentSettings } = await import('../../src/ui/web/assets/render-settings.js');
 dom.node('side-nav').replaceChildren();
 await boot();
 
@@ -277,7 +277,7 @@ test('Agent 页：模型目录、双 Prompt、角色覆盖与替换警告都可�
   await dom.intervalFor(1500)();
   await openAgent();
   expect(dom.location.hash).toBe('#agent-status');
-  expect(dom.node('view-title').textContent).toBe('Agent 管理');
+  expect(dom.node('view-title').textContent).toBe('Agent 配置');
   expect(state.ui.settingsOpen).toBe(false);
   let card = panel().querySelector('[data-agent-target="default"]');
   expect(deepText(card)).toContain('修改会替换内置 Prompt');
@@ -296,7 +296,7 @@ test('Agent 页：模型目录、双 Prompt、角色覆盖与替换警告都可�
   backend.value = 'codex';
   await backend.listeners.change[0]();
   await findByText(card, '读取 CLI 模型').onclick();
-  const catalog = card.querySelector('select.model-catalog');
+  const catalog = card.querySelector('.model-choices').querySelector('select.model-catalog');
   expect(catalog.children).toHaveLength(3);
   catalog.value = 'gpt-5.4-mini'; await catalog.listeners.change[0]();
   expect(model.value).toBe('gpt-5.4-mini');
@@ -305,7 +305,7 @@ test('Agent 页：模型目录、双 Prompt、角色覆盖与替换警告都可�
   await findByText(card, '保存配置').onclick();
   expect(world.state.actions.at(-1).method).toBe('agent.configure');
   expect(world.state.agentConfig.default).toMatchObject({ agent: 'codex', model: 'gpt-5.4-mini', thinking: 'high', append_prompt: '保持改动可审阅。',
-    extensions: ['/tmp/pi/extensions/review.ts'], skills: ['/tmp/pi/skills/browser/SKILL.md'] });
+    extensions: ['/tmp/demo/.lush/pi/extensions/review.ts'], skills: ['/tmp/demo/.lush/pi/skills/browser/SKILL.md'] });
 
   openAgent();
   card = panel().querySelector('[data-agent-target="default"]');
@@ -331,6 +331,33 @@ test('Agent 页：模型目录、双 Prompt、角色覆盖与替换警告都可�
   const prompt = card.querySelector('textarea[data-agent-field="append_prompt"]'); prompt.value = '先列风险。';
   await findByText(card, '保存配置').onclick();
   expect(world.state.agentConfig.roles.agent.append_prompt).toBe('先列风险。');
+});
+
+test('Pi配置缺来源/模型或凭证时不保存，不显示CLI默认目录且保留草稿', async () => {
+  const settings = structuredClone(world.state.agentConfig); settings.roles = {};
+  settings.default = { ...settings.default, agent: 'pi', connection_id: '', model: '', default_prompt: '' };
+  const root = renderAgentSettings(settings, () => {}), card = root.querySelector('[data-agent-target="default"]');
+  const choice = card.querySelector('[data-agent-field="connection_id"]'), model = card.querySelector('[data-agent-field="model"]');
+  const prompt = card.querySelector('[data-agent-field="append_prompt"]'); prompt.value = '未保存工作方式';
+  const before = world.state.actions.length;
+  const cli = findByText(card, '读取 CLI 模型'); expect(cli.hidden).toBe(true); expect(cli.disabled).toBe(true);
+  expect(card.querySelectorAll('.model-preset')).toHaveLength(0); expect(model.placeholder).toContain('请选择来源内模型');
+  await cli.onclick(); expect(card.querySelector('.model-choices').querySelector('.model-catalog')).toBeNull();
+  await findByText(card, '保存配置').onclick(); expect(world.state.actions).toHaveLength(before);
+  expect(dom.node('error').textContent).toContain('请选择 Lush 模型来源');
+  await findByText(card, '读取项目连接').onclick(); choice.value = world.state.agentConnections.connections[0].id; choice.onchange();
+  await findByText(card, '保存配置').onclick(); expect(world.state.actions).toHaveLength(before);
+  expect(dom.node('error').textContent).toContain('请选择来源内模型');
+  model.value = 'wrong/model'; await findByText(card, '保存配置').onclick(); expect(world.state.actions).toHaveLength(before);
+  model.value = 'openai-compatible/fixture-model';
+  const source = world.state.agentConnections.connections[0], credential = source.credential;
+  try {
+    source.credential = { status: 'unconfigured' }; await findByText(card, '读取项目连接').onclick();
+    await findByText(card, '保存配置').onclick(); expect(world.state.actions).toHaveLength(before);
+    expect(dom.node('error').textContent).toContain('凭证不可用'); expect(prompt.value).toBe('未保存工作方式');
+  } finally { source.credential = credential; }
+  await findByText(card, '读取项目连接').onclick(); await findByText(card, '保存配置').onclick();
+  expect(world.state.actions.at(-1).params.config.default).toMatchObject({ connection_id: source.id, model: 'openai-compatible/fixture-model', append_prompt: '未保存工作方式' });
 });
 
 test('Agent 页：环境变量按公共/角色文件读取，默认遮罩并可用键值表保存', async () => {
@@ -396,6 +423,8 @@ test('系统页：只读展示 daemon 状态与项目路径，运行设置改为
   expect(block.querySelector('[data-system-field="call_timeout"]')).toBeNull();
   expect(block.querySelector('[data-system-field="concurrency"]')).toBeNull();
   expect(deepText(block)).not.toContain('daemon 启动时从环境变量读取');
+  expect(panel().querySelector('.agent-network-block')).toBeTruthy();
+  expect(deepText(panel())).toContain('不是模型端点');
 
   const runtime = runtimeBlock();
   expect(runtime).toBeTruthy();

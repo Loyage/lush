@@ -59,6 +59,16 @@ const linked = taskId => /^#worker-(\d+)$/.test(taskId) ? Number(taskId.slice(8)
 /** 打开文档：点左栏「文档」与 #docs / #doc-<id> 共用；同样只报错，不中断轮询。 */
 function openDocsView(id = null) { return openDocs(id).catch(error => { show(error.message, 'error'); }); }
 
+// 模型来源是独立、按需加载的页面；延迟模块加载不能抢回用户已离开的视图。
+async function openSources(connectionId = '') {
+  const previous = ui.view;
+  try {
+    const { openModelSources } = await import('./render-model-sources.js');
+    if (ui.view !== previous) return;
+    return openModelSources({ connectionId });
+  } catch (error) { if (ui.view === previous) show(error.message, 'error'); }
+}
+
 // 地址栏是唯一的路由源：设置 / Agent 状态 / Task 图 / 文档 / Task；其余回概览。
 // 每个分支都把 promise 返回出去：浏览器不看返回值，但测试能 await 到「画完」为止。
 function noProjectView() {
@@ -87,6 +97,9 @@ function onHashChange() {
     return noProjectView();
   }
   if (location.hash === '#agent-status') return ui.view?.id === 'agent-status' ? undefined : openAgentStatus();
+  if (location.hash === '#model-sources') return ui.view?.id === 'model-sources' ? undefined : openSources();
+  const sourceMatch = /^#model-source-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.exec(location.hash);
+  if (sourceMatch) return openSources(sourceMatch[1]);
   if (location.hash === '#versions') return ui.view?.id === 'versions' ? undefined : openVersions();
   if (location.hash === '#inputs') return openInputs({ push: false });
   const inputMatch = /^#input-(draft|input)-([1-9]\d*)$/.exec(location.hash);
@@ -165,7 +178,7 @@ export async function boot() {
   $('environments-open').onclick = () => openEnvironments();
   $('settings-open').onclick = () => openSettings();
   $('docs-open').onclick = () => openDocsView();
-  const projectOnly = ['overview-open','task-graph-open','inputs-open','versions-open','agent-status-open'];
+  const projectOnly = ['overview-open','task-graph-open','inputs-open','versions-open','agent-status-open','model-sources-open'];
   for (const id of projectOnly) { const target = $(id); target.disabled = !projectReady; target.setAttribute('aria-disabled', String(!projectReady)); }
   const composerShell = $('composer-shell'); if (composerShell) composerShell.hidden = !projectReady;
   const composerReady = projectReady ? initComposer() : Promise.resolve();
@@ -179,6 +192,7 @@ export async function boot() {
     }
   }
   if ($('agent-status-open')) $('agent-status-open').onclick = () => projectReady ? openAgentStatus() : noProjectView();
+  if ($('model-sources-open')) $('model-sources-open').onclick = () => projectReady ? openSources() : noProjectView();
   if ($('versions-open')) $('versions-open').onclick = () => projectReady ? openVersions() : noProjectView();
   if ($('inputs-open')) $('inputs-open').onclick = () => projectReady ? openInputs() : noProjectView();
   if ($('input-history')) $('input-history').onclick = () => projectReady ? openInputs() : noProjectView();

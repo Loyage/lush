@@ -6,6 +6,7 @@ import { discoverAgentStatus as queryStatus } from '../../src/agent/status.js';
 // Never send fixture OAuth/API credentials over the network, even in discovery-only tests.
 const discoverAgentStatus = (config, profile, options = {}) => queryStatus(config, profile, { fetch: async () => new Response('', { status: 401 }), ...options });
 import { queryAccountBalance } from '../../src/agent/status-accounts.js';
+import { discoverAgentModels } from '../../src/agent/models.js';
 
 function json(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -13,8 +14,8 @@ function json(file, value) {
 }
 function world({ sdk = true } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-agent-status-test-'));
-  const piDir = path.join(root, 'pi'), configDir = path.join(root, 'config'), home = path.join(root, '.lush');
-  fs.mkdirSync(path.join(piDir, 'dist', 'core'), { recursive: true }); fs.mkdirSync(configDir); fs.mkdirSync(home);
+  const piDir = path.join(root, 'pi'), home = path.join(root, '.lush'), configDir = path.join(home, 'pi');
+  fs.mkdirSync(path.join(piDir, 'dist', 'core'), { recursive: true }); fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
   json(path.join(piDir, 'package.json'), { name: '@earendil-works/pi-coding-agent', version: '9.1.2' });
   const command = path.join(piDir, 'pi');
   fs.writeFileSync(command, `#!${process.execPath}
@@ -63,7 +64,7 @@ test('status reads the configured Pi installation, SDK metadata and resources wi
     json(path.join(pkg, 'package.json'), { pi: { extensions: ['./extensions'], skills: ['./skills'] } });
     json(path.join(f.configDir, 'settings.json'), { packages: [pkg], extensions: ['!touch dangerous'] });
     json(path.join(f.configDir, 'auth.json'), { 'openai-codex': oauth(), anthropic: oauth(1000),
-      'custom-proxy': { type: 'api_key', key: '!touch SECRET' } });
+      deepseek: { type: 'api_key', key: 'DEEPSEEK_SECRET' }, 'custom-proxy': { type: 'api_key', key: '!touch SECRET' } });
     json(path.join(f.configDir, 'models.json'), { providers: { 'custom-proxy': { apiKey: '!touch SECRET', baseUrl: 'https://proxy.invalid/SECRET',
       headers: { Authorization: 'SECRET' }, models: [{ id: 'custom-model', name: 'Custom Model', headers: { secret: 'SECRET' } }] } } });
     f.config.env.DEEPSEEK_API_KEY = 'DEEPSEEK_SECRET';
@@ -100,26 +101,30 @@ test('configured packages without an existing installation do not report an inst
   } finally { f.close(); }
 });
 
-test('public and agent role environment are hot-read and profile env wins without invocation identity', async () => {
+test('role/profile directory overrides and ambient keys cannot redirect Lush diagnosis to external Pi', async () => {
   const f = world();
   try {
     const alternate = path.join(f.root, 'alternate'); fs.mkdirSync(alternate);
     json(path.join(alternate, 'auth.json'), { 'openai-codex': oauth() });
+    const before = fs.readFileSync(path.join(alternate, 'auth.json'), 'utf8');
     fs.mkdirSync(path.join(f.config.home, 'agent'));
     fs.writeFileSync(path.join(f.config.home, 'agent', 'agent.env'), 'PI_CODING_AGENT_DIR="wrong"\nDEEPSEEK_API_KEY="COMMON_SECRET"\n');
-    // Reuse the runtime's environment assembly; profile overrides are the innermost layer.
     f.profile.env = { PI_CODING_AGENT_DIR: alternate };
-    const value = await discoverAgentStatus(f.config, f.profile);
-    expect(value.runtime.config_dir).toBe(alternate);
-    expect(value.accounts.some(account => account.provider === 'deepseek' && account.source === 'environment')).toBe(true);
+    let queries = 0;
+    const value = await discoverAgentStatus(f.config, f.profile, { fetch() { queries++; throw new Error('unexpected query'); } });
+    expect(value.runtime.config_dir).toBe(f.configDir);
+    expect(value.accounts.some(account => account.source === 'environment')).toBe(false);
+    expect(value.accounts[0].status).toBe('unconfigured'); expect(queries).toBe(0);
+    expect(value.models.models).toEqual([]); expect(value.models.warning).toContain('未配置');
     expect(JSON.stringify(value)).not.toContain('COMMON_SECRET');
-    json(path.join(alternate, 'auth.json'), { 'openai-codex': oauth(1000) });
-    const next = await discoverAgentStatus(f.config, f.profile);
+    expect(fs.readFileSync(path.join(alternate, 'auth.json'), 'utf8')).toBe(before);
+    json(path.join(f.configDir, 'auth.json'), { 'openai-codex': oauth(1000) });
+    const next = await discoverAgentStatus(f.config, f.profile, { refreshCodex: false });
     expect(next.accounts.find(account => account.provider === 'openai-codex').status).toBe('expired');
   } finally { f.close(); }
 });
 
-test('Pi default config directory follows the resolved role HOME, not the invoking process HOME', async () => {
+test('Pi diagnosis uses project-owned configuration even when profile HOME points at another user', async () => {
   const f = world();
   try {
     const roleHome = path.join(f.root, 'role-home');
@@ -127,7 +132,7 @@ test('Pi default config directory follows the resolved role HOME, not the invoki
     const expected = path.join(roleHome, '.pi', 'agent');
     json(path.join(expected, 'auth.json'), { 'openai-codex': oauth() });
     const value = await discoverAgentStatus(f.config, f.profile);
-    expect(value.runtime.config_dir).toBe(expected); expect(value.accounts[0].status).toBe('configured');
+    expect(value.runtime.config_dir).toBe(f.configDir); expect(value.accounts[0].status).toBe('unconfigured');
   } finally { f.close(); }
 });
 
@@ -164,7 +169,8 @@ test('missing and malformed or symlinked credential files remain distinguishable
 test('only the current provider is queried, official DeepSeek response returns true zero without exposing keys', async () => {
   const f = world();
   try {
-    f.profile.model = 'deepseek/v4'; f.config.env.DEEPSEEK_API_KEY = 'DEEPSEEK_SECRET'; f.config.env.OPENROUTER_API_KEY = 'OTHER_SECRET';
+    f.profile.model = 'deepseek/v4'; f.config.env.DEEPSEEK_API_KEY = 'IGNORED-AMBIENT'; f.config.env.OPENROUTER_API_KEY = 'IGNORED-OTHER';
+    json(path.join(f.configDir, 'auth.json'), { deepseek: { type: 'api_key', key: 'DEEPSEEK_SECRET' }, openrouter: { type: 'api_key', key: 'OTHER_SECRET' } });
     let queries = 0;
     const value = await discoverAgentStatus(f.config, f.profile, { fetch: async (url, options) => {
       queries++; expect(url).toBe('https://api.deepseek.com/user/balance');
@@ -182,7 +188,8 @@ test('only the current provider is queried, official DeepSeek response returns t
 test('custom endpoints and unknown model configuration never send a proxy key to the official provider', async () => {
   const f = world();
   try {
-    f.profile.model = 'deepseek/v4'; f.config.env.DEEPSEEK_API_KEY = 'PROXY_SECRET';
+    f.profile.model = 'deepseek/v4'; f.config.env.DEEPSEEK_API_KEY = 'IGNORED-AMBIENT';
+    json(path.join(f.configDir, 'auth.json'), { deepseek: { type: 'api_key', key: 'PROXY_SECRET' } });
     json(path.join(f.configDir, 'models.json'), { providers: { deepseek: { baseUrl: 'https://proxy.invalid/v1', apiKey: 'PROXY_SECRET' } } });
     const options = { fetch() { throw new Error('Credential should not be sent'); } };
     let value = await discoverAgentStatus(f.config, f.profile, options);
@@ -251,6 +258,46 @@ test('large UTF-8 model and resource catalogs are explicitly truncated below the
     expect(result.models.truncated).toBe(true); expect(result.models.warning).toContain('已截断');
     expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(1024 * 1024 - 1000);
     expect(JSON.stringify(result)).not.toContain('SECRET');
+  } finally { f.close(); }
+});
+
+test('Pi model catalog uses sanitized Lush SDK metadata and never CLI auth discovery or external configuration', async () => {
+  const f = world();
+  try {
+    const external = path.join(f.root, 'external-config'); fs.mkdirSync(external);
+    json(path.join(external, 'auth.json'), { deepseek: { type: 'api_key', key: '!touch NEVER-EXECUTE' } });
+    json(path.join(external, 'models.json'), { providers: { external: { apiKey: 'EXTERNAL_SECRET', models: [{ id: 'outside' }] } } });
+    f.config.env.PI_CODING_AGENT_DIR = external;
+    json(path.join(f.configDir, 'models.json'), { providers: { local: { apiKey: '!touch SECRET', headers: { Authorization: 'SECRET' },
+      models: [{ id: 'inside', name: 'Lush local model' }] } } });
+    const catalog = await discoverAgentModels(f.config, 'pi');
+    expect(catalog.source).toBe('local'); expect(catalog.warning).toContain('不读取用户 Pi');
+    expect(catalog.models.map(row => row.id)).toEqual(['local/inside']);
+    expect(catalog.models.map(row => row.id)).not.toContain('external/outside');
+    expect(JSON.stringify(catalog)).not.toContain('SECRET');
+    // The fake executable only allows --version: a --list-models execution would fail this path.
+    expect(fs.readdirSync(external).sort()).toEqual(['auth.json', 'models.json']);
+  } finally { f.close(); }
+});
+
+test('absent Lush model metadata explicitly returns unconfigured presets without probing the SDK or CLI', async () => {
+  const f = world();
+  try {
+    const external = path.join(f.root, 'external'); fs.mkdirSync(external);
+    json(path.join(external, 'auth.json'), { deepseek: { type: 'api_key', key: 'SECRET' } });
+    json(path.join(external, 'models.json'), { providers: { deepseek: { models: [{ id: 'external' }] } } });
+    f.config.env.PI_CODING_AGENT_DIR = external;
+    fs.writeFileSync(path.join(f.piDir, 'dist', 'core', 'model-runtime.js'), 'throw new Error("Should not probe SDK");');
+    for (const models of [null, { providers: {} }]) {
+      if (models) json(path.join(f.configDir, 'models.json'), models);
+      const catalog = await discoverAgentModels(f.config, 'pi');
+      expect(catalog.source).toBe('presets'); expect(catalog.warning).toContain('尚未配置');
+      expect(catalog.warning).toContain('不代表实际可用');
+      expect(catalog.models.map(row => row.id)).not.toContain('deepseek/external');
+      expect(JSON.stringify(catalog)).not.toContain('SECRET');
+    }
+    expect(fs.readdirSync(external).sort()).toEqual(['auth.json', 'models.json']);
+    expect(fs.readdirSync(f.configDir)).toEqual(['models.json']);
   } finally { f.close(); }
 });
 

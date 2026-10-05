@@ -87,6 +87,10 @@ export function makeWorld() {
     transcriptLatest: [],
     actions: [],
     resolveOutcome: null,
+    agentConnections: { version: 1, sampling: { enabled: false, interval_minutes: 5, retention_days: 90 }, connections: [
+      { id: '11111111-1111-4111-8111-111111111111', label: '测试 Lush API', provider: 'openai-compatible', auth_type: 'api_key',
+        endpoint: 'https://models.invalid/v1', enabled: true, models: ['fixture-model', 'second-model'], credential: { status: 'configured' }, consumers: [] },
+    ] },
     agentUsageConfig: { version: 1, enabled: false, interval_minutes: 5, retention_days: 90, providers: [], custom: [] },
     agentUsageHistory: { version: 1, from: iso(NOW - 7 * 86400000), to: iso(NOW), retention_days: 90, series: [], truncated: false },
     agentEnvironments: {
@@ -207,6 +211,7 @@ export function makeWorld() {
     const json = data => ({ ok: true, status: 200, json: async () => data });
     if (path === '/api/snapshot') return json(snapshot());
     if (path === '/api/input-parents') return json({ items: state.inputParents });
+    if (path === '/api/agent/connections') return json(state.agentConnections);
     if (path === '/api/agent/usage/config') return json(state.agentUsageConfig);
     if (path.startsWith('/api/agent/usage/history?')) return json(state.agentUsageHistory);
     if (path === '/api/agent/status') return json({ version: 1, agent: 'pi', checked_at: iso(NOW), usage_config: state.agentUsageConfig,
@@ -219,8 +224,8 @@ export function makeWorld() {
         : [{ id: 'gpt-5.4', label: 'GPT-5.4' }, { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini' }] });
     }
     if (path === '/api/agent/resources') return json({ agent: 'pi', warning: null,
-      extensions: [{ id: '/tmp/pi/extensions/review.ts', label: 'review.ts', source: '用户扩展' }],
-      skills: [{ id: '/tmp/pi/skills/browser/SKILL.md', label: 'browser', description: '浏览器自动化', source: '用户 Skills' }],
+      extensions: [{ id: '/tmp/demo/.lush/pi/extensions/review.ts', label: 'review.ts', source: 'Lush 独立 Pi 扩展' }],
+      skills: [{ id: '/tmp/demo/.lush/pi/skills/browser/SKILL.md', label: 'browser', description: '浏览器自动化', source: 'Lush 独立 Pi Skills' }],
     });
     if (path.startsWith('/api/agent/environment?target=')) {
       const target = decodeURIComponent(path.split('=').at(-1));

@@ -11,11 +11,12 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
   const models = el('select'); models.className = 'model-catalog'; models.dataset.connectionModel = 'choice';
   models.setAttribute('aria-label', '连接内的模型');
   const note = el('span', undefined, 'settings-note');
+  const detailsLink = el('a', '管理模型来源', 'agent-sources-link'); detailsLink.href = '#model-sources';
   const entries = new Map(); let loading = null;
   const value = () => backend.value === 'pi' ? connection.value : '';
   const entry = () => entries.get(value());
   function paint(selected = connection.value || '') {
-    connection.replaceChildren(option('', '原 CLI 认证（不绑定项目连接）'));
+    connection.replaceChildren(option('', '请选择 Lush 模型来源'));
     for (const row of entries.values()) {
       connection.append(option(row.id, `${row.label} · ${row.provider}${row.enabled ? '' : '（停用）'}`));
     }
@@ -25,14 +26,21 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
   function sync() {
     const pi = backend.value === 'pi', row = entry();
     connection.disabled = !pi; loadButton.disabled = !pi || !!loading;
+    connection.children[0].textContent = pi ? '请选择 Lush 模型来源' : 'Codex CLI 自身认证';
     models.replaceChildren(option('', '选择此连接已保存的模型…'));
     for (const id of row?.models || []) models.append(option(`${row.provider}/${id}`, id));
     models.value = ''; models.hidden = !value() || !row?.models?.length;
     models.disabled = !pi || row?.enabled === false;
+    detailsLink.href = value() ? `#model-source-${encodeURIComponent(value())}` : '#model-sources';
+    detailsLink.textContent = value() ? '查看来源详情' : '管理模型来源';
     note.textContent = !pi ? '托管连接仅支持 Pi；Codex CLI 沿用原认证，切回 Pi 后保留连接选择。'
-      : !value() ? '未绑定连接时保持原 Agent / CLI 模型与认证方式；不自动切换账号。'
+      : !value() ? 'Pi 必须选择 Lush 模型来源与明确模型才能启动；不会回退到用户 Pi 认证或默认模型。'
       : !row ? '请读取项目连接以查看模型范围；当前连接与未保存模型保持不变。'
       : `${row.label} · ${row.endpoint}。${row.models?.length ? '选择已保存模型或填写范围内的 provider/model。' : `填写 ${row.provider}/模型 ID（范围未限定）。`}此列表未联网验证模型；停用或凭证不可用时不能启动。${row.provider === 'openai-compatible' ? '自定义兼容 API 的余额尚不支持查询，不代表余额为零。' : ''}`;
+    if (row && model.value.trim() && (!model.value.trim().startsWith(`${row.provider}/`)
+      || (row.models?.length && !row.models.includes(model.value.trim().slice(row.provider.length + 1))))) {
+      note.textContent += ' 当前模型与此来源不匹配，请显式选择或填写匹配模型；不会自动替换。';
+    }
     onChange();
   }
   const help = '只读取当前项目的连接配置和本地凭证状态，不查询上游、不调用 Agent；不会覆盖当前模型或未保存的连接选择。';
@@ -48,24 +56,33 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
         if (data?.version !== 1 || !Array.isArray(data.connections)) throw new Error('invalid connections');
         entries.clear(); for (const row of data.connections) entries.set(row.id, row);
         paint();
-      } catch { if (ownsPage()) note.textContent = '连接列表读取失败；当前选择保留，请到账号连接页检查。'; }
+      } catch { if (ownsPage()) note.textContent = '连接列表读取失败；当前选择保留，请到模型来源页检查。'; }
       finally { loading = null; if (ownsPage()) loadButton.disabled = backend.value !== 'pi'; }
     })();
     loadButton.disabled = true; return loading;
   }
   connection.onchange = () => { if (ownsPage()) sync(); };
-  models.onchange = () => { if (ownsPage() && value() && models.value) model.value = models.value; };
-  node.append(connection, host, models, note);
+  models.onchange = () => { if (ownsPage() && value() && models.value) { model.value = models.value; sync(); } };
+  node.append(connection, host, models, detailsLink, note);
   // Initial rendering must not invoke a caller callback before it has received the picker.
-  connection.append(option('', '原 CLI 认证（不绑定项目连接）'));
+  connection.append(option('', '请选择 Lush 模型来源'));
   if (connectionId) connection.append(option(connectionId, `已配置连接 ${connectionId}（未读取 / 不可用）`));
   connection.value = connectionId;
   const validate = () => {
-    const id = value(); if (!id) return null;
+    if (backend.value !== 'pi') return null;
+    const fail = message => { note.textContent = message; return message; };
+    const id = value();
+    if (!id) return fail('请选择 Lush 模型来源；Pi 未选择来源时无法启动，不会回退用户 Pi 认证。');
     const row = entry(), selected = model.value.trim();
-    if (!/^[a-z][a-z0-9_-]*\/.+$/i.test(selected) || (row && (!row.enabled || row.credential?.status === 'unconfigured'
-      || !selected.startsWith(`${row.provider}/`) || (row.models?.length && !row.models.includes(selected.slice(row.provider.length + 1)))))) {
-      note.textContent = MODEL_ERROR; return MODEL_ERROR;
+    if (!selected) return fail('请选择来源内模型；Pi 不能使用 CLI 默认模型。');
+    if (!row) return fail('请先读取项目连接，确认所选来源存在且凭证可用；当前草稿保留。');
+    // Expired managed Codex OAuth can be refreshed by the trusted runtime; unknown/missing keys cannot.
+    const credentialReady = row.credential?.status === 'configured'
+      || (row.provider === 'openai-codex' && row.auth_type === 'oauth' && row.credential?.status === 'expired');
+    if (!credentialReady) return fail('所选来源凭证不可用或状态未知，请在模型来源页配置密钥或登录。');
+    if (!/^[a-z][a-z0-9_-]*\/.+$/i.test(selected) || !row.enabled
+      || !selected.startsWith(`${row.provider}/`) || (row.models?.length && !row.models.includes(selected.slice(row.provider.length + 1)))) {
+      return fail(MODEL_ERROR);
     }
     return null;
   };

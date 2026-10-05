@@ -1,7 +1,7 @@
 import cp from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
+import { piConfigDirectory, isolatedPiEnvironment } from './pi-config.js';
 
 const MAX_OUTPUT = 2 * 1024 * 1024;
 const MAX_FILE_BYTES = 64 * 1024;
@@ -30,7 +30,7 @@ function commandOutput(command, args, env, cwd) {
     });
     child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-4000); });
     child.on('error', error => finish(error));
-    child.on('close', code => finish(code === 0 ? null : new Error(`${path.basename(command)} exited ${code}: ${stderr.trim()}`), stdout));
+    child.on('close', code => finish(code === 0 ? null : new Error(`${path.basename(command)} exited ${code}; check Lush Pi configuration`), stdout));
   });
 }
 
@@ -149,11 +149,9 @@ function installedPackages(output) {
 /** Discover installed Pi extensions and skills without loading or executing them. */
 export async function discoverAgentResources(config, options = {}) {
   const extensions = new Map(), skills = new Map();
-  const userHome = config.env.HOME || os.homedir();
-  const configDir = config.env.PI_CODING_AGENT_DIR || path.join(userHome, '.pi', 'agent');
-  extensionEntries(extensions, path.join(configDir, 'extensions'), '用户扩展');
-  skillEntries(skills, path.join(configDir, 'skills'), '用户 Skills');
-  skillEntries(skills, path.join(userHome, '.agents', 'skills'), '用户 Skills');
+  const configDir = piConfigDirectory(config);
+  extensionEntries(extensions, path.join(configDir, 'extensions'), 'Lush Pi 扩展');
+  skillEntries(skills, path.join(configDir, 'skills'), 'Lush Pi Skills');
   extensionEntries(extensions, path.join(config.project, '.pi', 'extensions'), '项目扩展');
   skillEntries(skills, path.join(config.project, '.pi', 'skills'), '项目 Skills');
   skillEntries(skills, path.join(config.project, '.agents', 'skills'), '项目 Skills');
@@ -169,7 +167,7 @@ export async function discoverAgentResources(config, options = {}) {
   if (!Array.isArray(packages)) {
     try {
       const command = config.env.LUSH_PI_COMMAND || 'pi';
-      const output = await commandOutput(command, ['list'], config.env, config.project);
+      const output = await commandOutput(command, ['list', '--no-approve'], isolatedPiEnvironment(config), config.project);
       packages = installedPackages(output);
     } catch (error) {
       warning = `无法读取 Pi 已安装包，仅显示本地目录资源：${String(error?.message || error).slice(0, 500)}`;

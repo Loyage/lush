@@ -147,13 +147,16 @@ function field(label, control, note = '', extraClass = '') {
 const modelCatalogs = new Map();
 let resourceCatalog = null;
 
-function profileEditor(settings, profile, target, title, subtitle, repaint, ownsPage) {
+function profileEditor(settings, profile, target, title, subtitle, repaint, ownsPage, savedSummary = null) {
   const card = el('section', undefined, 'agent-profile'); card.dataset.agentTarget = target;
   const head = el('div', undefined, 'agent-profile-head');
   const copy = el('div'); copy.append(el('h3', title), el('p', subtitle, 'settings-note'));
   head.append(copy, el('span', target === 'default' ? '项目默认' : '独立覆盖', 'badge b-neutral')); card.append(head);
 
   const form = el('div', undefined, 'agent-form-grid');
+  const runtime = el('section', undefined, 'agent-config-section'); runtime.append(el('h4', '模型与运行'));
+  const workstyle = el('details', undefined, 'agent-config-section'); workstyle.append(el('summary', '工作方式：Prompt、扩展与 Skills'));
+  const advanced = el('details', undefined, 'agent-config-section'); advanced.append(el('summary', '高级设置：替换内置 Prompt'));
   const backend = el('select'); backend.className = 'agent-select'; backend.dataset.agentField = 'agent';
   selectOptions(backend, settings.options.agents, profile.agent, value => value === 'pi' ? 'Pi' : 'Codex');
   const model = el('input'); model.className = 'agent-model'; model.dataset.agentField = 'model'; model.value = profile.model || '';
@@ -177,8 +180,17 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
 
   const paintModels = () => {
     const agent = backend.value;
-    if (connectionPicker.value()) {
-      choices.replaceChildren(el('span', '使用下方账号连接内的模型选项，或填写匹配的 provider/model；不混入其他账号的 CLI 预设。', 'settings-note'));
+    if (savedSummary) {
+      const saved = settings.default, row = connectionPicker.entry();
+      const source = saved.agent === 'pi' ? (saved.connection_id
+        ? (row?.id === saved.connection_id ? row.label : `托管来源 ${saved.connection_id}`) : '未选择来源') : 'Codex CLI 自身认证';
+      savedSummary.textContent = `${saved.agent === 'pi' ? 'Pi' : 'Codex'} → ${source} → ${saved.model || (saved.agent === 'pi' ? '请选择来源内模型' : 'CLI 默认模型')} · 项目默认（已保存），下一次调用生效`;
+    }
+    loadModels.hidden = agent === 'pi';
+    if (agent === 'pi') {
+      choices.replaceChildren(el('span', connectionPicker.value()
+        ? '使用所选来源内的模型选项，或填写匹配的 provider/model；不读取用户 Pi 的 CLI 模型目录。'
+        : '请选择 Lush 模型来源，再选择明确模型；未绑定来源不能启动 Pi，不读取用户 Pi 的模型目录。', 'settings-note'));
       loadModels.disabled = true; return;
     }
     loadModels.disabled = false;
@@ -239,7 +251,7 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
     if (!pi) {
       resourcesNote.textContent = 'Pi 扩展与 Skills 不会传给 Codex；选择会保留，切回 Pi 后生效。';
     } else if (resourceCatalog?.warning) resourcesNote.textContent = resourceCatalog.warning;
-    else resourcesNote.textContent = resourceCatalog ? '只会加载勾选项；扩展拥有当前用户的完整系统权限。' : '按需读取本机 Pi 已安装资源。';
+    else resourcesNote.textContent = resourceCatalog ? '目录来自本项目 Lush 独立 Pi 配置；只加载显式勾选项，扩展拥有当前用户的完整系统权限。' : '按需读取本项目 Lush 独立 Pi 目录中的已安装资源。';
     resourceChoices.replaceChildren(...(resourceCatalog ? [
       paintResourceGroup('扩展', resourceCatalog.extensions || [], selectedExtensions, 'extensions'),
       paintResourceGroup('Skills', resourceCatalog.skills || [], selectedSkills, 'skills'),
@@ -255,14 +267,14 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
   const syncBackend = clear => {
     const agent = backend.value;
     if (clear) { model.value = ''; thinking.value = ''; }
-    model.placeholder = `${agent} CLI 默认模型`;
+    model.placeholder = agent === 'pi' ? '请选择来源内模型（provider/model）' : 'Codex CLI 默认模型';
     connectionPicker.sync();
     selectOptions(thinking, settings.options.thinking[agent] || [''], clear ? '' : profile.thinking, thinkingLabel);
     paintModels(); paintResources();
   };
   backend.addEventListener('change', () => syncBackend(true));
   loadModels.onclick = async () => {
-    if (!ownsPage() || connectionPicker.value()) return;
+    if (!ownsPage() || backend.value === 'pi' || connectionPicker.value()) return;
     const agent = backend.value;
     loadModels.disabled = true; loadModels.textContent = '读取中…';
     try {
@@ -273,13 +285,12 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
     finally { if (ownsPage()) { paintModels(); loadModels.textContent = '重新读取'; } }
   };
 
-  form.append(field('Agent', backend, '执行该类 Worker 的 CLI。'),
-    field('模型', modelBox, '留空使用所选 CLI 的默认模型；也可以读取 CLI 当前目录或直接填写模型 ID。'),
-    field('账号连接', connectionPicker.node, 'API Key 与登录统一保存，按后端能力使用；显式绑定仅在下一次 invocation 生效。'),
+  runtime.append(field('执行后端', backend, '执行该类 Worker 的 CLI；托管模型来源当前仅支持 Pi。'),
+    field('模型来源', connectionPicker.node, '先选来源，再选匹配模型。API Key 与登录由项目统一托管，下一次调用生效。'),
+    field('模型', modelBox, 'Pi 必须选择托管来源内的明确模型；仅 Codex CLI 可留空使用自身默认模型。'),
     field('思考深度', thinking, '可用等级随 Agent 变化。'),
     field('软预算：模型响应数', budgetControls.responses, '每次 invocation 单独计数；达到阈值提醒收尾，不强制终止。仅 Pi；解释角色不继承。'),
-    field('软预算：累计 token', budgetControls.tokens, '包含缓存读取，非上下文长度；留空关闭。Codex 不支持，切换前需清空。'),
-    field('插件与 Skills', resourcesBox, '从当前用户已安装的 Pi 资源中选择；每个 Agent 配置独立保存。', 'resource-field'));
+    field('软预算：累计 token', budgetControls.tokens, '包含缓存读取，非上下文长度；留空关闭。Codex 不支持，切换前需清空。'));
 
   const roleDefaults = settings.options.default_prompts || null;
   const builtInPrompt = target === 'default' && roleDefaults ? '' : (roleDefaults?.[target] || settings.options.default_prompt || '');
@@ -304,19 +315,24 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
   const risk = el('div', undefined, 'prompt-risk');
   risk.append(el('strong', '修改会替换内置 Prompt'), el('span', 'Agent 可能失去 Lush 的 Worker 协议、权限边界、协作方式和交付要求，导致调用失败或错误操作。需要撤销修改时可恢复默认。'));
   const defaultPromptBox = el('div', undefined, 'prompt-field-box'); defaultPromptBox.append(defaultPrompt, promptTools, risk);
-  form.append(field('默认 Prompt', defaultPromptBox, target === 'default' && roleDefaults
+  advanced.append(field('默认 Prompt', defaultPromptBox, target === 'default' && roleDefaults
     ? '留空时每个角色使用自己的内置组合；填写后会用同一内容替换所有继承角色。'
     : '这里显示该角色实际生效的基础 Prompt；保存内置内容时仍以默认配置存储。', 'prompt-field'));
 
   const appendPrompt = el('textarea'); appendPrompt.className = 'agent-prompt'; appendPrompt.dataset.agentField = 'append_prompt'; appendPrompt.rows = 4;
   appendPrompt.maxLength = 32768; appendPrompt.value = profile.append_prompt ?? profile.prompt ?? '';
   appendPrompt.placeholder = '例如：优先保持改动小而可审阅；完成后运行移动端 UI 检查。';
-  form.append(field('追加 Prompt', appendPrompt, '追加在最终默认 Prompt 之后，适合补充项目约定。', 'prompt-field'));
+  workstyle.append(field('追加 Prompt', appendPrompt, '追加在最终默认 Prompt 之后，适合补充项目约定。', 'prompt-field'),
+    field('插件与 Skills', resourcesBox, '从 Lush 独立 Pi 目录发现资源；保留显式配置的资源路径，每个 Agent 配置独立保存。', 'resource-field'));
+  form.append(runtime, workstyle, advanced);
   card.append(form); syncBackend(false);
+  void connectionPicker.load();
 
   const actions = el('div', undefined, 'agent-profile-actions');
   actions.append(button('保存配置', async () => {
     if (!ownsPage()) return;
+    const connectionError = connectionPicker.validate();
+    if (connectionError) { show(connectionError, 'error'); return; }
     const enteredDefaultPrompt = defaultPrompt.value.trim();
     const nextDefaultPrompt = enteredDefaultPrompt === builtInPrompt.trim() ? '' : enteredDefaultPrompt;
     if (nextDefaultPrompt && nextDefaultPrompt !== (profile.default_prompt || '')) {
@@ -324,11 +340,9 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
         message: '保存后，下一次 Agent 调用将不再收到 Lush 内置 Worker 规则。',
         detail: '可能影响：Worker API 使用、权限边界、子 Worker 协作、工作区安全和交付流程。\n请确认你的 Prompt 已完整覆盖这些要求。',
         confirmLabel: '仍然替换并保存', danger: true });
-      if (!confirmed) return;
+      if (!confirmed || !ownsPage()) return;
     }
     const chosenConnection = backend.value === 'pi' ? connection.value : '';
-    const connectionError = connectionPicker.validate();
-    if (connectionError) { show(connectionError, 'error'); return; }
     const next = {
       agent: backend.value, model: model.value.trim(), thinking: thinking.value,
       ...(chosenConnection ? { connection_id: chosenConnection } : {}),
@@ -361,7 +375,8 @@ function inheritedRole(settings, role, repaint) {
   const resolved = settings.resolved[role];
   const card = el('section', undefined, 'agent-role-summary'); card.dataset.agentTarget = role;
   const copy = el('div', undefined, 'agent-role-copy');
-  copy.append(el('h3', meta.label), el('p', `${resolved.agent} · ${resolved.model || '默认模型'} · ${thinkingLabel(resolved.thinking)}`, 'settings-note'));
+  const source = resolved.agent === 'pi' ? (resolved.connection_id ? `来源 ${resolved.connection_id}` : '未选择来源') : 'Codex CLI 自身认证';
+  copy.append(el('h3', meta.label), el('p', `${resolved.agent} · ${source} · ${resolved.model || (resolved.agent === 'pi' ? '请选择来源内模型' : 'CLI 默认模型')} · ${thinkingLabel(resolved.thinking)}`, 'settings-note'));
   card.append(copy, el('span', '继承默认', 'badge b-neutral'), button('单独配置', async () => {
     const saved = await action('agent.configure', { config: { version: 1, default: settings.default,
       roles: { ...settings.roles, [role]: { ...resolved } } } });
@@ -470,9 +485,10 @@ export function renderAgentSettings(settings, repaint, { ownsPage = () => true }
     content.append(waiting); return content;
   }
   const intro = el('div', undefined, 'agent-callout');
-  intro.append(el('strong', '项目级 · 动态生效'), el('p', `配置保存在 ${settings.file}。正在运行的调用保持不变，排队 Worker 与后续唤醒会读取最新配置。`, 'settings-note'));
-  content.append(intro);
-  content.append(profileEditor(settings, settings.default, 'default', '默认 Agent', '所有未单独配置的 Worker 行为都继承这里。', repaint, ownsPage));
+  intro.append(el('strong', '项目级 · 独立 Pi 配置'), el('p', `配置保存在 ${settings.file}。Pi 使用 Lush 独立配置，不继承用户全局 Pi 设置或 Prompt；项目 AGENTS 与显式资源保留。所有 Pi 调用必须选择 Lush 模型来源与明确模型。正在运行的调用保持不变，后续调用读取最新配置。`, 'settings-note'));
+  const summary = el('p', undefined, 'agent-default-summary'); summary.setAttribute('role', 'status');
+  content.append(intro, summary);
+  content.append(profileEditor(settings, settings.default, 'default', '默认 Agent', '所有未单独配置的 Worker 行为都继承这里。', repaint, ownsPage, summary));
 
   const roles = block('按 Worker 行为覆盖'); roles.classList.add('agent-roles-block');
   roles.append(el('p', '只为需要不同模型、思考深度或工作方式的行为建立覆盖；其余保持继承，后续调整默认值时会一起更新。', 'settings-note settings-section-note'));
@@ -481,7 +497,9 @@ export function renderAgentSettings(settings, repaint, { ownsPage = () => true }
     if (settings.roles[item.id]) list.append(profileEditor(settings, settings.roles[item.id], item.id, item.label, `仅用于 ${item.id} 角色。`, repaint, ownsPage));
     else list.append(inheritedRole(settings, item.id, repaint));
   }
-  roles.append(list); content.append(roles, renderNetworkSettings({ ownsPage }), environmentEditor(settings, repaint));
+  const advanced = el('details', undefined, 'agent-config-advanced');
+  advanced.append(el('summary', '高级配置：Agent 环境变量'), environmentEditor(settings, repaint));
+  roles.append(list); content.append(roles, advanced);
   return content;
 }
 
@@ -741,7 +759,7 @@ function systemTab() {
   paths.append(line('project', '项目', 'daemon 绑定的 canonical 项目目录。', plain(snapshot.project)));
   paths.append(line('home', '状态目录', '项目数据库、会话、配置与工作区。', plain(snapshot.home)));
   paths.append(line('agent_config_file', 'Agent 配置', '项目级 Agent 配置文件。', plain(snapshot.agent_config?.file)));
-  content.append(paths);
+  content.append(paths, renderNetworkSettings({ ownsPage: () => ui.settingsOpen && activeTab === 'system' }));
   return content;
 }
 
@@ -763,7 +781,7 @@ export function renderSettings() {
   const view = el('div', undefined, 'settings-view');
   const head = el('div', undefined, 'settings-head');
   const intro = el('div'); intro.append(el('span', 'SYSTEM SETTINGS', 'eyebrow'), el('h1', '系统设置'),
-    el('p', workbenchStatus().projectUsable ? '管理当前浏览器的界面偏好与项目系统运行参数；Agent 配置请前往“Agent 管理”。' : '管理当前浏览器的界面偏好；打开项目后可查看项目运行参数。', 'hint'));
+    el('p', workbenchStatus().projectUsable ? '管理当前浏览器的界面偏好与项目系统运行参数；Agent 配置与模型来源有独立页面。' : '管理当前浏览器的界面偏好；打开项目后可查看项目运行参数。', 'hint'));
   head.append(intro); view.append(head, tabBar());
   view.append(activeTab === 'interface' ? interfaceTab() : systemTab());
   panel.replaceChildren(view);

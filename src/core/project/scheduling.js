@@ -1,9 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { check, TERMINAL, LushError, isSettled } from '../types.js';
+import { check, TERMINAL, LushError, isSettled, isPlainObject } from '../types.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, resumeTaskDelivery, taskDeliveryState, taskSyncDeliveryPaused } from './iteration.js';
-import { tokenHash } from './internal.js';
+import { tokenHash, workerRunProfile, workerModelSelection } from './internal.js';
 import { AgentPreempted } from '../../agent/provider.js';
 import { validateRuntimeConnection } from '../../agent/connection-runtime.js';
 
@@ -253,6 +253,40 @@ export default {
       this.store.event(task.id, 'task.configured', retryProfile ? profileEvent(retryProfile) : { profile_override: false });
     });
     return this.store.task(task.id);
+  },
+
+  /** User-only narrow choice update: preserve all other run overrides, with no refresh or model call. */
+  configureTaskModelSelection(taskId, selection) {
+    this.assertWritable('configure a worker');
+    const task = this.store.task(taskId);
+    assertTaskNotSyncing(this, task.id);
+    if (task.branch) this.assertBranchWritable(task.branch, 'configure a worker on it');
+    check(task.status === 'paused' || task.interrupt_state === 'requested', 'only paused workers can adjust run settings');
+    check(['order','child'].includes(task.task_kind), 'only order/child Workers can adjust run settings');
+    check(isPlainObject(selection) && Object.keys(selection).length === 2
+      && Object.keys(selection).every(key => ['connection_id','model'].includes(key)), 'invalid model_selection fields');
+    check(typeof selection.connection_id === 'string'
+      && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(selection.connection_id),
+    'model_selection requires a connection UUID');
+    check(typeof selection.model === 'string' && Buffer.byteLength(selection.model) <= 256
+      && selection.model.trim() === selection.model && !/[\x00-\x1f\x7f]/.test(selection.model), 'invalid model_selection model');
+    return this.store.transaction(() => {
+      const current = this.store.task(task.id), base = workerRunProfile(this, current);
+      check(base.agent === 'pi', 'managed connections support only Pi');
+      // config() is a local public projection. Do not query, refresh OAuth, or read private runtime credentials.
+      const connection = this.agentConnections.config().connections.find(item => item.id === selection.connection_id);
+      check(connection && connection.enabled, 'model_selection connection is unavailable');
+      check(connection.credential.status === 'configured'
+        || (connection.auth_type === 'oauth' && connection.credential.status === 'expired'),
+      'model_selection connection has no usable credential');
+      const prefix = `${connection.provider}/`, modelId = selection.model.slice(prefix.length);
+      check(selection.model.startsWith(prefix) && modelId.length > 0
+        && (!connection.models.length || connection.models.includes(modelId)), 'model_selection model is outside connection scope');
+      const profile = this.agentSettings.retryProfile(task.role, { ...base, ...selection });
+      this.store.update(task.id, { retry_profile: JSON.stringify(profile) });
+      this.store.event(task.id, 'task.configured', profileEvent(profile));
+      return { id: task.id, model_selection: workerModelSelection(this, { ...current, retry_profile: JSON.stringify(profile) }, profile) };
+    });
   },
 
   /** 继续立即接受：未认领则撤销请求；已认领则排队，内部等待旧 invocation 真实退出。 */

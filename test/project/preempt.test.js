@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fixture, repo, temp, until, gate } from '../helpers.js';
 import { PiProvider, AgentPreempted } from '../../src/agent/provider.js';
+import { piRuntimeFixture, configurePiFixture } from './pi-runtime-fixture.js';
 import lushRuntime from '../../src/agent/pi-runtime.js';
 
 // 安全抢占的桩「pi」：第一轮等 daemon 的请求并在安全边界写 stop 标记后正常退出；之后直接交付。
@@ -68,11 +69,10 @@ test('a boundary marker turns a finished process into AgentPreempted instead of 
   await repo(f.root);
   try {
     const provider = new PiProvider(f.config);
-    const agent = { agent: 'pi', model: '', thinking: '', default_prompt: '', append_prompt: '',
-      extensions: [], skills: [], soft_budget: {} };
+    const { agent, connectionRuntime } = piRuntimeFixture();
     const options = { task: { id: 7, role: 'worker', goal: 'stub work', input_id: null },
       context: { invocation: { run_id: 11 } }, messages: [], cwd: f.root, token: 't',
-      signal: new AbortController().signal, onSpawn: () => {}, agent };
+      signal: new AbortController().signal, onSpawn: () => {}, agent, connectionRuntime };
     expect(await provider.run(options)).toContain('stub worker #7 done');
     const dir = path.join(f.config.home, 'preempt');
     fs.mkdirSync(dir, { recursive: true });
@@ -99,7 +99,7 @@ test('provider only accepts its own claimed stop and latches it before deleting 
       context: { invocation: { run_id: 11 } }, messages: [], cwd: f.root, token: 't',
       signal: new AbortController().signal, onSpawn: () => {},
       onPreempt: () => { latched++; },
-      agent: { agent: 'pi', model: '', thinking: '', extensions: [], skills: [], soft_budget: {} } };
+      ...piRuntimeFixture() };
     for (const stale of [{ task_id: 8, run_id: 11 }, { task_id: 7, run_id: 10 }]) {
       fs.writeFileSync(stop, JSON.stringify(stale));
       expect(await provider.run(options)).toContain('done');
@@ -116,6 +116,7 @@ test('a user message stops the running turn at the safe boundary without failing
   const f = fixture(null, { LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: stub(), STUB_WAIT_MS: '8000' });
   await repo(f.root);
   try {
+    configurePiFixture(f);
     const order = await f.project.order('long running work');
     const dir = path.join(f.config.home, 'preempt');
     await until(() => fs.existsSync(dir) && fs.readdirSync(dir).some(name => name.startsWith('started-')));

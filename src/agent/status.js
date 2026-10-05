@@ -9,6 +9,7 @@ import { discoverAgentResources } from './resources.js';
 import { resolvePiInstallation, statusCommand } from './status-command.js';
 import { readStatusJson, readPiAccounts, usageDigest } from './status-accounts.js';
 import { runUsageQueries } from './usage-query-run.js';
+import { piConfigDirectory, isolatedPiEnvironment } from './pi-config.js';
 
 const flights = new WeakMap(), usageFlights = new WeakMap();
 const helper = fileURLToPath(new URL('./status-pi.js', import.meta.url));
@@ -99,18 +100,17 @@ function statusContext(config, profile) {
   for (const key of Object.keys(env)) if (key === 'LUSH_AGENT_TOKEN' || key === 'LUSH_TASK_ID' || key.startsWith('PI_SESSION')
     || ['PI_PROVIDER', 'PI_MODEL', 'PI_REASONING_LEVEL', 'LUSH_RUNTIME_CONTEXT'].includes(key)) delete env[key];
   env.PI_OFFLINE = '1'; env.PI_SKIP_VERSION_CHECK = '1';
-  const queryConfig = { ...config, env };
-  const homeDir = env.HOME || os.homedir();
-  const config_dir = projectPath(env.PI_CODING_AGENT_DIR || path.join(homeDir, '.pi', 'agent'), config.project, homeDir);
+  const config_dir = piConfigDirectory(config);
   env.PI_CODING_AGENT_DIR = config_dir;
-  const modelsConfig = readStatusJson(path.join(config_dir, 'models.json'), warnings, 'Pi 模型配置');
-  const globalSettings = readStatusJson(path.join(config_dir, 'settings.json'), warnings, 'Pi 用户设置');
-  const projectSettings = readStatusJson(path.join(config.project, '.pi', 'settings.json'), warnings, 'Pi 项目设置');
-  const model = text(profile.model || (profile.agent === 'pi' ? env.LUSH_PI_MODEL : '')
-    || projectSettings?.defaultModel || globalSettings?.defaultModel, 256);
-  const currentProvider = env.LUSH_PI_PROVIDER || (model?.includes('/') ? model.split('/')[0] : null)
-    || projectSettings?.defaultProvider || globalSettings?.defaultProvider;
-  const { accounts, keys, codexAuth } = readPiAccounts(config_dir, env, modelsConfig, warnings, currentProvider, checked_at);
+  const queryConfig = { ...config, env: isolatedPiEnvironment(config, env, config_dir) };
+  const homeDir = env.HOME || os.homedir();
+  const modelsConfig = readStatusJson(path.join(config_dir, 'models.json'), warnings, 'Lush Pi 模型配置', { privateFile: true });
+  const globalSettings = readStatusJson(path.join(config_dir, 'settings.json'), warnings, 'Lush Pi 设置', { privateFile: true });
+  // Invocation snapshots decline project .pi settings; diagnostics must describe that same boundary.
+  const projectSettings = {};
+  const model = text(profile.model || '', 256);
+  const currentProvider = model?.includes('/') ? model.split('/')[0] : null;
+  const { accounts, keys, codexAuth } = readPiAccounts(config_dir, queryConfig.env, modelsConfig, warnings, currentProvider, checked_at);
   return { warnings, checked_at, env, network, queryConfig, config_dir, modelsConfig, globalSettings, projectSettings, model, currentProvider, accounts, keys, codexAuth, homeDir };
 }
 async function status(config, profile, options, context) {
@@ -122,7 +122,7 @@ async function status(config, profile, options, context) {
   const versionPromise = (async () => {
     try {
       if (!installation.executable) throw new Error();
-      const output = (await statusCommand(installation.executable, ['--version'], env, config.project, { maxBytes: 1024 })).trim();
+      const output = (await statusCommand(installation.executable, ['--version'], queryConfig.env, config.project, { maxBytes: 1024 })).trim();
       if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(output)) throw new Error();
       version = output;
     } catch { runtimeWarning = '无法查询当前配置的 Pi 命令版本；程序未安装、命令不可用或输出无效。'; }
@@ -132,7 +132,9 @@ async function status(config, profile, options, context) {
   const eligible = new Set(accounts.filter(account => account.status === 'configured').map(account => account.provider));
   let models;
   if (Array.isArray(metadata?.models)) {
-    models = { agent: 'pi', source: 'local', warning: '本地 Pi 模型目录，按已配置且未过期的凭证筛选；未联网验证可用性，不加载扩展提供的动态模型。',
+    models = { agent: 'pi', source: 'local', warning: eligible.size
+      ? '本地 Pi 模型目录，按已配置且未过期的凭证筛选；未联网验证可用性，不加载扩展提供的动态模型。'
+      : 'Lush Pi 独立诊断目录未配置可用凭证，当前列表为空；托管来源的模型请在模型来源页查看。',
       models: metadata.models.filter(item => object(item) && eligible.has(item.provider) && text(item.id, 256)).slice(0, 500).map(item => ({
         id: `${text(item.provider, 80)}/${text(item.id, 256)}`, provider: text(item.provider, 80), label: text(item.label, 256) || text(item.id, 256),
         context: Number.isFinite(item.context) ? String(item.context) : '', max_output: Number.isFinite(item.max_output) ? String(item.max_output) : '',
@@ -172,7 +174,7 @@ async function status(config, profile, options, context) {
   models.models = safeModels;
   await versionPromise;
   return { version: 1, agent: 'pi', query_id: usage.query_id, checked_at: usage.checked_at, current_provider: currentProvider,
-    scope: { project: config.project, role: 'agent', note: '当前项目 daemon 的 Pi 安装与公共/agent 角色配置；不是浏览器本机，也不是某次 invocation 的实况。账号状态是本地凭证信息，未联网验证登录。' },
+    scope: { project: config.project, role: 'agent', note: '当前项目 daemon 的 Pi 安装与 Lush 独立配置；不读取用户默认 Pi 配置，不是浏览器本机或某次 invocation 的实况。托管来源的账号和额度请在模型来源页查看。' },
     runtime: { command: installation.command, executable: installation.executable, real_path: installation.real_path, version, config_dir,
       backend: profile.agent || config.provider || null, model, warning: runtimeWarning },
     models, resources, accounts, warnings };
@@ -194,6 +196,24 @@ function usageFlight(config, profile, options, context) {
     fetch: (url, init) => context.network.fetch(url, init, options.fetch),
     authFetch: (url, init) => context.network.fetch(url, init, options.authFetch || options.fetch) }));
 }
+/** Optional SDK catalog from sanitized Lush metadata, without auth, dynamic extensions or requests. */
+export async function discoverPiModelMetadata(config) {
+  const directory = piConfigDirectory(config), warnings = [];
+  const models = readStatusJson(path.join(directory, 'models.json'), warnings, 'Lush Pi 模型配置', { privateFile: true });
+  if (models === null) throw new Error('Lush Pi model metadata unavailable');
+  const providers = new Set(Object.keys(metadataConfig(models).providers));
+  if (!providers.size) throw new Error('Lush Pi 独立模型元数据尚未配置；预设不代表实际可用模型');
+  const queryConfig = { ...config, env: isolatedPiEnvironment(config) };
+  const metadata = await localPiMetadata(resolvePiInstallation(queryConfig), queryConfig, directory, models, {}, {});
+  if (!Array.isArray(metadata.models)) throw new Error('Pi SDK model metadata unavailable');
+  return { agent: 'pi', source: 'local', warning: 'Lush 独立配置的本地模型目录，不读取用户 Pi 认证或运行扩展；目录未联网验证，实际调用必须选择匹配的 Lush 模型来源。',
+    models: metadata.models.filter(item => object(item) && providers.has(item.provider) && text(item.id, 256)).slice(0, 500).map(item => ({
+      id: `${text(item.provider, 80)}/${text(item.id, 256)}`, provider: text(item.provider, 80), label: text(item.label, 256) || text(item.id, 256),
+      context: Number.isFinite(item.context) ? String(item.context) : '', max_output: Number.isFinite(item.max_output) ? String(item.max_output) : '',
+      thinking: Boolean(item.thinking), images: Boolean(item.images),
+    })) };
+}
+
 /** Lightweight account-only query; independent Codex refresh, no Pi executable, SDK, plugins or model calls. */
 export function discoverAgentUsage(config, profile, options = {}) {
   return usageFlight(config, profile, options, statusContext(config, profile));

@@ -9,8 +9,8 @@ const at = '2026-01-01T00:00:00.000Z';
 const response = value => new Response(JSON.stringify(value));
 function world() {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-usage-query-'));
-  const configDir = path.join(project, 'pi'), home = path.join(project, '.lush');
-  fs.mkdirSync(configDir); fs.mkdirSync(home);
+  const home = path.join(project, '.lush'), configDir = path.join(home, 'pi');
+  fs.mkdirSync(configDir, { recursive: true, mode: 0o700 });
   const config = { project, home, env: { PI_CODING_AGENT_DIR: configDir, LUSH_PI_COMMAND: '/never-execute-for-usage', PATH: process.env.PATH } };
   const profile = { agent: 'pi', model: 'openai-codex/test' };
   const auth = value => fs.writeFileSync(path.join(configDir, 'auth.json'), JSON.stringify(value), { mode: 0o600 });

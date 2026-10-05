@@ -5,6 +5,7 @@ import { fixture, gate, repo, until, temp, env } from '../helpers.js';
 import { Dispatcher } from '../../src/rpc/protocol.js';
 import { createSignal } from '../../src/signal.js';
 import { PiProvider } from '../../src/agent/provider.js';
+import { piRuntimeFixture } from './pi-runtime-fixture.js';
 import { Config } from '../../src/config.js';
 
 test('idle pump and leaf inspect do not load unrelated historical dependencies or task summaries', async () => {
@@ -254,7 +255,7 @@ test('the startup prompt carries a bounded batch and explicit messages_page, nev
     await new PiProvider(config).run({ task: { id: 9, role: 'worker', goal: 'bounded' },
       context: { invocation: { run_id: 1 } }, messages: [{ id: 1, body: 'a' }, { id: 2, body: 'b' }], messagesPage: page,
       cwd: root, token: 'secret', signal: new AbortController().signal, onSpawn() {},
-      agent: { agent: 'pi', model: '', thinking: '', soft_budget: undefined } });
+      ...piRuntimeFixture({ soft_budget: undefined }) });
     const body = JSON.parse(fs.readFileSync(path.join(config.home, 'sessions/task-9-input.md'), 'utf8'));
     expect(body.messages_page).toEqual(page);
     expect(body.messages.map(row => row.id)).toEqual([1, 2]);

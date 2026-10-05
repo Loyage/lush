@@ -52,8 +52,9 @@ test('web saves project Agent profiles through the narrow mutation whitelist', a
     fs.writeFileSync(fakePi, `#!/usr/bin/env bun\nconsole.log('provider  model  context  max-out  thinking  images');\nconsole.log('demo      current  100K     10K      yes       no');\n`, { mode: 0o755 });
     f.config.env.LUSH_PI_COMMAND = fakePi;
     const catalog = await (await fetch(f.url + '/api/agent/models?agent=pi')).json();
-    expect(catalog.source).toBe('cli');
-    expect(catalog.models[0].id).toBe('demo/current');
+    expect(catalog.source).toBe('presets');
+    expect(catalog.warning).toContain('尚未配置');
+    expect(catalog.models.map(row => row.id)).not.toContain('demo/current');
     const resources = await (await fetch(f.url + '/api/agent/resources')).json();
     expect(resources.agent).toBe('pi');
     expect(Array.isArray(resources.extensions)).toBe(true);

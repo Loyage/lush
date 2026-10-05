@@ -4,6 +4,8 @@
 
 ## 目标与边界
 
+用户决定 #152/#154 的当前边界优先于本文旧实现记录：额度主入口为独立「模型来源」，Agent 高级诊断与旧查询配置/历史保留；默认打开配置页不查询账号。运行配置发现只用 Lush 项目独立 Pi 目录，不读取/复制用户默认 Pi 配置，诊断或采样不得刷新写回用户默认 Pi 认证。下文旧外部 auth.json 刷新机制为历史实现说明，不代表允许在当前页面触发外部认证写入。托管 OAuth 由连接管理器协调刷新，规则见[页面与运行设计](../design/agent-model-settings.md)。
+
 - 内置 DeepSeek 余额、OpenRouter Key 消费额度，新增 Codex、Z.AI、Kimi 额度查询；参考 pi-usage 请求，不把缺失值当零，不把短窗口武断称为每日额度。
 - Codex 使用 ChatGPT 网页后端接口，明确其不是稳定公开 API；必须使用 OAuth access token，不使用普通 OpenAI API Key。允许过期时通过独立 `usage-auth-codex.js` 刷新并安全写回原凭证存储，不调用 Pi SDK/插件/模型注册表；自定义模型端点的现有凭证隔离规则仍保留。
 - 凭证、环境变量值、上游原始响应与错误原文不进入 RPC/历史。自定义查询仅发向用户显式配置的 HTTPS 地址，无重定向、无 shell/脚本，无自动转发 Pi 凭证；配置人必须信任目标，环境引用是对目标的显式授权。拒绝引用 LUSH_*、PI_SESSION* 等 invocation 凭证。

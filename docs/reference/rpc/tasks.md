@@ -42,7 +42,7 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 | `worker retry ID` | `worker.retry` | `{id}` |
 | `worker interrupt ID` | `worker.interrupt` | `{id}`；用户专属，请求安全点暂停（静息时直接 `paused`） |
 | `worker resume ID` | `worker.resume` | `{id, profile?}`；用户专属，撤销尚未触发的暂停，或立即接受排队继续 |
-| —（Web 调整设置） | `worker.configure` | `{id, profile}`；用户专属，`paused` 或暂停请求期间可保存下一次调用的 Profile |
+| —（Web 调整设置 / 切换模型来源） | `worker.configure` | `{id, profile}` 或 `{id, model_selection:{connection_id,model}}`，两者互斥；用户专属，`paused` 或暂停请求期间保存下一次配置，窄更新保留其他覆盖 |
 | `worker cleanup ID [--keep-branch]` | `worker.cleanup` | `{id, keep_branch?}`；见[维护](maintenance.md) |
 
 `worker.activity` / `worker.page` 的 `scope='work'|'all'` 省略时保留旧 work 口径；Web overview 与历史分页显式请求 `all`，继续有界读取，不改Worker实体或存储层级。`GET /api/workers` 透传 scope。
@@ -119,6 +119,6 @@ Artifact 窗口为了有界响应只投影 `payload`：完整 payload 正常解�
 
 `worker.cancel` 取消整棵子树（不可恢复的终态）；`worker.retry` 是用户显式重试。`worker.interrupt` 表达希望暂停的信号，只针对当前 Worker，不级联子Worker，保留工作区 / 提交 / Pi 会话 / 消息 / `calls`。运行中读面为 `interrupt_state='requested'`，实际状态仍是 `running`，当前 Agent 的工具与 RPC 可安全收尾；静息时直接进入非终态 `paused`。Pi 在本轮工具全部结束的 `turn_end` 原子认领并停止后续模型轮次；没有可验证安全点的后端等本次调用自然结束。不再因中断等待超时强杀，但调用总超时与显式放弃仍有效。
 
-`worker.resume` 不要求旧调用已退出：未认领时撤销暂停，继续原调用；已认领或正在收尾时立即接受，读面为 `queued` / `interrupt_state='resuming'`，内部等旧 invocation 真正退出后重新准入，不会重叠调用。重复中断 / 继续幂等；继续不撤销独立的用户消息抢占。真实暂停或恢复准入后 `interrupt_state` 清为 null。暂停意愿期间也可追加说明或 `worker.configure` 保存下一次调用的设置；不会暗中改变当前调用。重启仍不自动重放未知副作用的调用。已发出的冻结合并请求仍拒绝暂停。
+`worker.resume` 不要求旧调用已退出：未认领时撤销暂停，继续原调用；已认领或正在收尾时立即接受，读面为 `queued` / `interrupt_state='resuming'`，内部等旧 invocation 真正退出后重新准入，不会重叠调用。重复中断 / 继续幂等；继续不撤销独立的用户消息抢占。真实暂停或恢复准入后 `interrupt_state` 清为 null。暂停意愿期间也可追加说明或 `worker.configure` 保存下一次调用的设置；不会暗中改变当前调用。来源/模型窄更新仅限 Pi 托管连接，后台保留完整已有覆盖；`worker.inspect.model_selection` 为无秘密的下次选择摘要，不代表当前实际绑定。字段和隔离规则见[Agent 配置与模型来源](agents.md)。重启仍不自动重放未知副作用的调用。已发出的冻结合并请求仍拒绝暂停。
 
 相关：[审阅与过程读模型](inspect.md) · [分支合并](../../engineering/merge.md) · [维护与回收](maintenance.md) · [Worker 中心输入](../../engineering/task-centered-input-design.md)
