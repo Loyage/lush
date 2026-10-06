@@ -2,7 +2,7 @@ import { $, badge, block, button, el, kv, roleBadge, routeBadge, statusBadge } f
 import { workerKind } from './worker-kind.js';
 import { action } from './api.js';
 import { confirmDialog, formDialog } from './dialog.js';
-import { configureTask } from './retry-dialog.js';
+import { configureTask, retryTask } from './retry-dialog.js';
 import { clearOverrideControl, modelSourceControl, modelSourceSummary } from './worker-model-source.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, runWorkMs, statusOf, interruptReason, taskTitle, worktreeLabel, isHistoricalDelivery } from './format.js';
 import { agentHelp } from './help.js';
@@ -162,12 +162,8 @@ export function renderDetail(task, history, diff, usage, connections = null) {
   }
   if (!readOnly && ['failed', 'cancelled'].includes(task.status) && ['order','child'].includes(workerKind(task))
     && !task.divergence_resolution) actions.append(button('检查后重试', async () => {
-    const confirmed = await confirmDialog({ title: `重试 Worker #${task.id}？`,
-      message: '先检查失败工作区与提交。重试不会回滚此前 Agent 的文件副作用。', confirmLabel: '重试',
-      agent: true, confirmHelp: agentHelp('重新启动这条 Worker 的 Agent；已有工作区和历史保留。') });
-    if (!confirmed) return;
-    await action('worker.retry', { id: task.id }); await detail(task.id);
-  }, 'ghost', { agent: true, help: agentHelp('检查失败现场后再启动一次 Agent，不清理历史或用户改动。') }));
+    if (await retryTask(task)) await detail(task.id);
+  }, 'ghost', { agent: true, help: agentHelp('检查失败现场并调整本轮 Agent、模型来源、模型与 Prompt 后再启动一次；不会回滚此前 Agent 的文件副作用。') }));
   // 归档与 Task 图同源（`branch.archive`）：删这条 Task 的分支与后代分支的 worktree/ref，Task 记录与历史保留。
   if (!readOnly && task.branch_archive?.archivable && task.status !== 'awaiting_acceptance') actions.append(button('归档', () => runBranchArchive(
     { name: task.branch, subtreeBranches: task.branch_archive.subtree_branches }, { refresh: () => detail(task.id) }), 'ghost',

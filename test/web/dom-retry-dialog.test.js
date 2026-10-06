@@ -43,6 +43,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
 const restoreNavigation = registerNavigation({ refresh: async () => {}, detail: async () => {}, overview: async () => {}, graph: async () => {} });
 const { retryTask, configureTask } = await import('../../src/ui/web/assets/retry-dialog.js');
+const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
 
 afterAll(() => { restoreNavigation(); dom.restore(); });
 
@@ -70,6 +71,24 @@ test('检查后重试编辑完整 Profile，并只把覆盖参数提交给 worke
     agent: 'pi', config_mode: 'lush', connection_id: codexId, model: 'openai-codex/gpt-5.4-mini', thinking: 'high', default_prompt: '',
     append_prompt: '先复盘错误，再做最小修复', extensions: ['/tmp/review.js'], skills: [], soft_budget: {}, env: { ...commonEnv, ...roleEnv },
   } } });
+});
+
+test('详情页的「检查后重试」打开完整 Profile，可切换模型来源再重试', async () => {
+  actions.length = 0;
+  const task = { id: 71, role: 'worker', task_kind: 'order', status: 'failed',
+    deps: [], dependents: [], children: [], messages: [], notices: [], reservation: null,
+    auto_merge: { enabled: false, locked: false, editable: false } };
+  renderDetail(task, null, null, null);
+  const reopen = [...dom.node('detail').querySelectorAll('button')].find(node => node.textContent === '检查后重试');
+  expect(reopen).toBeTruthy();
+  const pending = reopen.onclick();
+  await until(() => dialogButton(dom, '使用这些设置重试'));
+  const modal = dom.node('modal');
+  expect(deepText(modal)).toContain('账号连接');
+  expect(modal.querySelector('[data-retry-field="connection_id"]')).toBeTruthy();
+  await dialogButton(dom, '暂不重试').onclick();
+  expect(await pending).toBeUndefined();
+  expect(actions).toHaveLength(0);
 });
 
 test('暂停中的「调整运行设置」只保存 Profile，不启动 Agent', async () => {
