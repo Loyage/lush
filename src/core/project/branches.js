@@ -263,7 +263,7 @@ export default {
     return [...users];
   },
 
-  async archiveBranch(branch, { discard_worktree = false, continue: continueArchive = false } = {}) {
+  async archiveBranch(branch, { discard_worktree = false, continue: continueArchive = false, completion = null } = {}) {
     const name = String(branch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
     const record = this.store.branch(name);
@@ -300,7 +300,20 @@ export default {
       .filter(row => { try { const value = JSON.parse(row.reservation); return value?.kind === 'merge' && value.status === 'requested'; } catch { return false; } });
     check(requested.length === 0,
       `branch ${requested[0]?.branch} still has an outstanding merge request from order #${requested[0]?.id}; integrate or withdraw it before archiving`);
+    const guard = completion ? () => {
+      const task = this.assertCompletionClaim(record.task_id, completion, 'archive');
+      check(task.status === 'completed' && !discard_worktree && !continueArchive, 'automatic archive requires accepted clean work');
+      for (const target of targets) this.assertBranchWritable(target, 'automatically archive it');
+      check([name, ...descendantsOf(this.store.branches(), name)].filter(target => this.store.branch(target)?.status === 'active')
+        .every(target => targets.includes(target)), 'archive subtree changed while checking Git');
+      check(this.branchResourceUsers(targets).every(taskId => {
+        const row = this.store.task(taskId);
+        return TERMINAL.has(row.status) && !this.running.has(row.id) && !this.workspaces.busy.has(row.id);
+      }), 'archive users changed while checking Git');
+    } : null;
+    if (guard) guard();
     const state = await gitState(this.workspaces, this.config.project);
+    if (guard) guard();
     check(!targets.includes(state.current_branch), `cannot archive the branch currently checked out: ${state.current_branch}`);
     // 整棵子树上的任务都必须已终态：归档把这条分支的工作收起来，活还没完的状态不该被藏掉。
     const placeholders = targets.map(() => '?').join(',');
@@ -342,7 +355,12 @@ export default {
         }
       });
     };
-    const { outcomes, failed, remaining } = await this.workspaces.archiveBranches(targets, { discard_worktree, onOutcome });
+    const expectedTips = completion ? new Map(targets.map(target => {
+      const owner = this.store.get('SELECT head_commit FROM tasks WHERE branch=? ORDER BY id DESC LIMIT 1', target);
+      check(owner?.head_commit, 'automatic archive needs a reviewed commit for every subtree branch');
+      return [target, owner.head_commit];
+    })) : null;
+    const { outcomes, failed, remaining } = await this.workspaces.archiveBranches(targets, { discard_worktree, onOutcome, guard, expectedTips });
     // pi 会话文件在 <home>/sessions 下，不随 worktree 消失；把位置写进事件，将来 task 行被 clear 掉也能查回。
     const sessions = [];
     for (const outcome of outcomes) {
@@ -364,7 +382,8 @@ export default {
       // 一次归档一份总账：目标、已成、失败与未处理，便于事后诊断与续办。
       if (host !== null) this.store.event(host, 'branch.archive', { branch: name, continued: continueArchive, targets,
         completed: outcomes.map(outcome => outcome.branch), failed: failed.map(outcome => ({ branch: outcome.branch, reason: outcome.reason })),
-        remaining: remaining.map(outcome => outcome.branch) });
+        remaining: remaining.map(outcome => outcome.branch),
+        ...(completion ? { completion_execution: completion.id, authorization: completion.authorization, round: completion.round } : {}) });
     });
     const root = outcomes.find(outcome => outcome.branch === name) ?? failedByBranch.get(name) ?? {};
     // 顶层 worktree / ref / tip / discarded 描述的是子树根（调用方问的那条）；整棵子树看 branches。

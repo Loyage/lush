@@ -22,6 +22,8 @@ export const HOOK_TRIGGERS = Object.freeze([
 ].map(([id, label, description]) => Object.freeze({ id, label, description })));
 const TRIGGERS = new Set(HOOK_TRIGGERS.map(t => t.id));
 export const HOOK_ACTIONS = Object.freeze([
+  { type: 'accept_worker', label: '自动验收', description: '内置串行阶段：复用安全校验后代替用户确认，不调用质量评审 Agent。', triggers: ['delivery.integrated'], modes: ['persistent'], agent_call: false, builtin_only: true },
+  { type: 'archive_worker', label: '自动归档', description: '内置串行阶段：已验收后受检归档子树，不丢弃未提交修改。', triggers: ['worker.accepted'], modes: ['persistent'], agent_call: false, builtin_only: true },
   { type: 'request_merge', label: '请求合并', description: '经现有安全检查向直接父队列请求合并。', triggers: ['worker.delivery_ready'], modes: ['once','persistent'], agent_call: true },
   { type: 'create_worker', label: '预约创建 Worker', description: '在所挂载父 Worker 下创建独立工作区，按保存参数启动。', triggers: ['worker.parent_ready'], modes: ['once'], agent_call: true },
   { type: 'notify', label: '发送告知', description: '只保存纯告知，不启动 Agent。', triggers: [...TRIGGERS], modes: ['once','persistent'], agent_call: false },
@@ -51,7 +53,7 @@ export function normalizeHook(value) {
   check(Array.isArray(value.actions) && value.actions.length >= 1 && value.actions.length <= HOOK_LIMITS.actions, 'hook requires 1-4 actions');
   normalized.actions = value.actions.map(action => {
     const entry = HOOK_ACTIONS.find(a => a.type === action?.type);
-    check(entry && entry.triggers.includes(value.trigger), 'hook action is not allowed at this trigger');
+    check(entry && !entry.builtin_only && entry.triggers.includes(value.trigger), 'hook action is not allowed at this trigger or is built-in only');
     check(entry.modes.includes(value.mode), `${entry.type} hooks must be once to prevent repeated side effects`);
     if (action.type === 'request_merge') { hookObject(action, ['type'], 'merge action'); return { type: action.type }; }
     if (action.type === 'create_worker') {

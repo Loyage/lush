@@ -16,7 +16,7 @@ const reads = {
 };
 const writes = {
   spawn: ['parent','goal','name'], integrate: ['id','commit'], reserve: ['id','kind'], reserve_all: ['branch'],
-  auto_merge: ['id','enabled'], hook_attach: ['id','hook','expected_revision'],
+  auto_merge: ['id','enabled'], completion: ['id','level','expected_revision'], hook_attach: ['id','hook','expected_revision'],
   hook_update: ['id','hook_id','enabled','expected_revision'], hook_remove: ['id','hook_id','expected_revision'],
   resolve: ['id'], resolve_divergence: ['id'], accept: ['id'],
   reopen: ['id'], sync_parent: ['id'], resolve_sync: ['id'], resolve_child_divergence: ['id'],
@@ -26,7 +26,7 @@ const writes = {
 };
 const userOnly = new Set(['code_state','code_tree','code_file','transcript_latest','transcript_page','transcript_step',
   'transcript_search','runs_page','artifacts_page','artifact','hooks','hook_attach','hook_update','hook_remove',
-  'reserve','reserve_all','auto_merge','resolve','resolve_divergence','unreserve','approve_merge',
+  'reserve','reserve_all','auto_merge','completion','resolve','resolve_divergence','unreserve','approve_merge',
   'cancel','retry','clear_override','cleanup','interrupt','resume','configure','reopen','sync_parent','resolve_sync','delete_preview','delete']);
 const agentOnly = new Set(['integrate','resolve_child_divergence']);
 const contract = { ...reads, ...writes };
@@ -81,6 +81,7 @@ test('worker lifecycle RPC forwards existing internal methods, actors and persis
     ['resolve_sync', 'resolveTaskSync', { id: 7 }, [7]],
     ['clear_override', 'clearTaskProfile', { id: 7 }, [7]],
     ['auto_merge', 'setTaskAutoMerge', { id: 7, enabled: true }, [7, true]],
+    ['completion', 'setTaskCompletion', { id: 7, level: 'accept', expected_revision: 'hooks-revision' }, [7, 'accept', 'hooks-revision']],
     ['retry', 'retry', { id: 7, profile: { agent: 'pi', model: 'deepseek/chat' } }, [7, { agent: 'pi', model: 'deepseek/chat' }]],
     ['configure', 'configureTask', { id: 7, profile: { agent: 'pi', model: 'deepseek/chat' } }, [7, { agent: 'pi', model: 'deepseek/chat' }]],
     ['configure', 'configureTaskModelSelection', { id: 7, model_selection: { connection_id: '11111111-1111-4111-8111-111111111111', model: 'deepseek/chat' } },

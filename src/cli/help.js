@@ -12,7 +12,9 @@ lush [--project PATH] [--json] <command>
   worker message ID '说明'            给现有 Worker 追加消息
   worker transcript ID [--follow]     查看执行记录
   worker history ID                  查看事件
-  worker hooks ID                    查看已挂载 Hook 与修改版本
+  worker hooks ID                    查看已挂载 Hook、自动级别与修改版本
+  worker completion ID off|merge|accept|archive --revision REV  设置最高自动级别（用 worker hooks 的版本，不继承）
+                                      验收不调用评审 Agent；自动归档不丢弃未提交改动
   worker hook attach ID --file PATH --revision REV  从私有 JSON 挂载规则
   worker hook enable|disable|remove ID HOOK_ID --revision REV  启停或撤销未来动作（不撤回已执行动作）
   hooks list                        查看项目触发目录、动作和模板及修改版本

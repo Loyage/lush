@@ -409,6 +409,7 @@ export default {
       }
     }
     this.recoverTaskHooks();
+    this.recoverTaskCompletion();
     this.kick();
     // Re-arm only persisted hooks; NULL historical settings never acquire new intent.
     for (const task of this.store.tasks()) if (task.status === 'waiting') this.armTaskAutoMerge(task.id);
@@ -420,7 +421,7 @@ export default {
       if (pendingMerge) {
         const booking = JSON.parse(task.reservation);
         void (booking.version === 2 ? this.settleQueuedMerge(task.id) : this.settleReservedMerge(task.id)).catch(error =>
-          this.noteReservationBlocked(task.id, error.message));
+          booking.version === 2 ? this.noteCompletionMergeFailure(task.id) : this.noteReservationBlocked(task.id, error.message));
       }
     }
     // 已发出的请求也要复查：重启期间父分支可能被推进、源分支可能被外部改动，而 pending 复查不覆盖它。
@@ -480,6 +481,7 @@ export default {
     await Promise.allSettled([...this.introRunning.values()].map(entry => entry.promise));
     await Promise.allSettled([...this.running.values()].map(run => run.promise));
     await this.hookQueue;
+    await this.completionQueue;
     await this.workspaces.queue;
     await usageStopped;
     await connectionsStopped;

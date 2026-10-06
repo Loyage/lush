@@ -5,14 +5,17 @@ import { Dispatcher } from '../src/rpc/dispatcher.js';
 const privateProfile = JSON.stringify({ env: { API_KEY: 'private-worker-env' }, append_prompt: 'private-worker-prompt' });
 const privateHooks = JSON.stringify({ version: 1, mounts: [{ actions: [{ profile: { env: { TOKEN: 'private-hook-env' } } }] }] });
 const publicHooks = { version: 1, worker_id: 7, revision: 'public-revision', mounts: [] };
-function row(hooks = privateHooks) { return { id: 7, status: 'paused', task_kind: 'order', goal: 'goal', retry_profile: privateProfile, hooks }; }
+const privateAutoMerge = JSON.stringify({ version: 1, enabled: true, level: 'archive', completion: { authorization: 'private-completion-receipt' } });
+const publicAutoMerge = { enabled: true, locked: false, editable: true, reason: null };
+const publicCompletion = { level: 'archive', min_level: 'off', phase: 'accept', state: 'waiting', last_execution: null };
+function row(hooks = privateHooks) { return { id: 7, status: 'paused', task_kind: 'order', goal: 'goal', retry_profile: privateProfile, hooks, auto_merge: privateAutoMerge }; }
 function freezeTree(value) {
   if (value && typeof value === 'object') { for (const child of Object.values(value)) freezeTree(child); Object.freeze(value); }
   return value;
 }
 function assertPrivateAbsent(value) {
   const json = JSON.stringify(value);
-  for (const secret of ['private-worker-env','private-worker-prompt','private-hook-env','retry_profile']) expect(json).not.toContain(secret);
+  for (const secret of ['private-worker-env','private-worker-prompt','private-hook-env','private-completion-receipt','retry_profile']) expect(json).not.toContain(secret);
 }
 
 test('RPC output projection recursively strips private columns through task/child/arrays without mutating the source', () => {
@@ -27,11 +30,11 @@ test('RPC output projection recursively strips private columns through task/chil
   expect(result.values.child).toBe(result.task); expect(result.env.child).toBe(result.child);
   expect(result.preserved).toBe(source.preserved);
   assertPrivateAbsent(result); expect(JSON.stringify(source)).toBe(before);
-  expect(raw.retry_profile).toBe(privateProfile); expect(raw.hooks).toBe(privateHooks);
+  expect(raw.retry_profile).toBe(privateProfile); expect(raw.hooks).toBe(privateHooks); expect(raw.auto_merge).toBe(privateAutoMerge);
 });
 
 test('safe read objects and authorized Agent profiles/env dictionaries retain their exact fields', () => {
-  const env = { API_KEY: 'authorized-config-value', hooks: 'legitimate-variable', retry_profile: 'another-variable' };
+  const env = { API_KEY: 'authorized-config-value', hooks: 'legitimate-variable', auto_merge: 'legitimate-completion-variable', retry_profile: 'another-variable' };
   const profile = { agent: 'pi', config_mode: 'lush', append_prompt: 'authorized prompt', default_prompt: 'authorized default', env };
   const config = freezeTree({ version: 1, default: profile, roles: { agent: profile }, resolved: { agent: profile } });
   expect(publicResult(config, 'agent.config')).toBe(config);
@@ -43,6 +46,11 @@ test('safe read objects and authorized Agent profiles/env dictionaries retain th
   });
   expect(publicResult(publicHooks)).toBe(publicHooks);
   expect(publicResult({ hooks: publicHooks })).toEqual({ hooks: publicHooks });
+  const safe = { auto_merge: publicAutoMerge, completion: publicCompletion, hooks: publicHooks };
+  expect(publicResult(safe, 'worker.auto_merge')).toBe(safe);
+  expect(publicResult({ task: { ...row(publicHooks), auto_merge: publicAutoMerge, completion: publicCompletion } }).task)
+    .toEqual({ id: 7, status: 'paused', task_kind: 'order', goal: 'goal', hooks: publicHooks, auto_merge: publicAutoMerge, completion: publicCompletion });
+  expect(publicResult({ auto_merge: null })).toEqual({ auto_merge: null });
   expect(publicResult({ hooks: null })).toEqual({ hooks: null });
   expect(publicResult(null)).toBeNull(); expect(publicResult('text')).toBe('text');
   const date = new Date('2026-01-01'); expect(publicResult(date)).toBe(date);
@@ -63,6 +71,7 @@ const mutations = [
   ['worker.configure', { id: 7 }, 'configureTask'], ['worker.clear_override', { id: 7 }, 'clearTaskProfile'],
   ['worker.accept', { id: 7 }, 'acceptTask'], ['worker.reopen', { id: 7 }, 'reopenTask'],
   ['worker.auto_merge', { id: 7, enabled: true }, 'setTaskAutoMerge'],
+  ['worker.completion', { id: 7, level: 'archive', expected_revision: 'revision' }, 'setTaskCompletion'],
   ['worker.reserve', { id: 7, kind: 'merge' }, 'reserveTask'],
   ['worker.hook_attach', { id: 7, hook: { template_id: 'template-1' }, expected_revision: 'revision' }, 'attachTaskHook'],
 ];
@@ -72,7 +81,7 @@ for (const [method, params, target] of mutations) {
     const p = { actor: () => null, [target]: async () => raw };
     const result = await new Dispatcher(p).dispatch(method, params);
     assertPrivateAbsent(result); expect(result.child.hooks).toEqual(publicHooks);
-    expect(raw.task.retry_profile).toBe(privateProfile); expect(raw.task.hooks).toBe(privateHooks);
+    expect(raw.task.retry_profile).toBe(privateProfile); expect(raw.task.hooks).toBe(privateHooks); expect(raw.task.auto_merge).toBe(privateAutoMerge);
   });
 }
 
@@ -89,7 +98,7 @@ test('order.submit and worker.inspect use the same final output boundary', async
 });
 
 test('user Agent config and environment RPCs retain authorized Prompt/env values and collisions', async () => {
-  const env = { API_KEY: 'authorized env', hooks: 'env-value', retry_profile: 'env-value-2' };
+  const env = { API_KEY: 'authorized env', hooks: 'env-value', auto_merge: 'env-completion', retry_profile: 'env-value-2' };
   const profile = { agent: 'pi', config_mode: 'lush', append_prompt: 'prompt', default_prompt: 'default', env };
   const config = { version: 1, default: profile, roles: {}, resolved: { agent: profile } };
   const environment = { target: 'common', values: env };

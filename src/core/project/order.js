@@ -239,6 +239,7 @@ export default {
         ...(code ? { blocked_code: code } : {}) }) });
       this.store.event(task.id, 'task.reservation_blocked', { reason: blocked_reason, code });
     });
+    this.scheduleTaskCompletion(taskId);
   },
 
   /** 清掉过期的诊断：请求重新可以快进时，旧原因不能留着误导用户。 */

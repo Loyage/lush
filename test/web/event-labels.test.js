@@ -27,10 +27,21 @@ test('所有源码中直接写入的事件类型都有中文名称，避免新�
 test('动态结算与批量合并状态事件也有中文名称', () => {
   for (const type of ['completed', 'failed', 'cancelled', ...['merge.run', 'merge.orchestrate'].flatMap(prefix =>
     ['started', 'paused', 'completed', 'failed', 'cancelled'].map(status => `${prefix}.${status}`)),
-    ...['succeeded', 'failed', 'unknown'].map(status => `hook.execution_${status}`)]) {
+    ...['hook', 'completion'].flatMap(prefix => ['succeeded', 'failed', 'unknown'].map(status => `${prefix}.execution_${status}`))]) {
     expect(Object.hasOwn(EVENTS, type)).toBe(true);
     expect(eventLabel({ type })).toMatch(/[\u4e00-\u9fff]/);
   }
+});
+
+test('自动链配置、下一人工环节和过期执行有独立中文名称且不改写来源', () => {
+  for (const type of ['task.completion_changed', 'completion.reminder', 'completion.execution_started', 'completion.execution_superseded']) {
+    const source = Object.freeze({ type });
+    expect(Object.hasOwn(EVENTS, type)).toBe(true);
+    expect(eventLabel(source)).toMatch(/[\u4e00-\u9fff]/);
+    expect(source.type).toBe(type);
+  }
+  expect(eventLabel({ type: 'completion.execution_failed' })).toContain('失败');
+  expect(eventLabel({ type: 'completion.execution_unknown' })).toContain('待核验');
 });
 
 test('提醒与待决问题的名称不同；未知类型不猜测语义、不读取原型属性', () => {

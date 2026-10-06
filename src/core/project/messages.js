@@ -114,6 +114,8 @@ export default {
     const idle = event.type === 'task.idle' && ['waiting','awaiting_acceptance'].includes(task.status);
     const analyzed = task.task_kind === 'analysis' && task.status === 'completed' && event.type === 'completed';
     if (!failed && !idle && !analyzed) return null;
+    // A configured automatic stage records success, but only its next manual stage reminds.
+    if (idle && this.autoCompletionView(task)?.level !== 'off' && this.autoCompletionView(task)) return null;
     if (!failed && (this.hasActionableMessages(task.id)
       || this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", task.id)
       || this.store.children(task.id).some(child => !isSettled(child)))) return null;

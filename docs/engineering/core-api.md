@@ -38,6 +38,7 @@ Input（原始输入）、历史输入、Draft（暂存）仍是各自的实体�
 - `order.submit`：一条用户输入创建一个有独立分支/worktree 的指令 Worker；显式 `defer:true` 且父冻结时则先保存父可创建安全点的一次性 Hook，返回预约而非 task，真正创建时才固定基线；父可写时仍直接创建。`start:false`（Web 主发送默认）只创建为 `paused`（Web 显示「待开始」）且不调用 Agent；`start:true`（缺省）立即排队运行。main 自动确立静息 owner；其它现有本地分支须先 `branch.bind` 固定 HEAD。
 - `input.history` / `input.get` / `input.parents` 与 `draft.add` / `draft.update` / `draft.remove`：用户专属历史输入与持久缓冲区；草稿通过 `order.submit {draft_id,expected_revision,start?}` 发射，不恢复旧 planner 或批量提交。字段、版本检查与分页见[历史输入接口](input-history.md)。
 - `hooks.list/save/remove`、`worker.hooks/hook_attach/hook_update/hook_remove`：用户专属受控模板与挂载；自动合并是内置 Hook，执行收据与私有定义持久化，未知副作用不自动重放。见 [Hooks 工程契约](hooks.md)及 [接口参考](../reference/rpc/hooks.md)。
+- `worker.completion {id,level,expected_revision}`：用户专属的最高自动级别 off/merge/accept/archive，按合并 → 安全验收 → 子树归档串行推进；高级别不继承，child 至少合并，交付后可显式提高补办。成功自动环节不告知，只提示下一人工环节；失败/unknown 不重放。见[自动链接缝](completion-hooks.md)。
 - `worker.spawn`：只可在活动 指令/child 下派 agent 子 Worker；不再接受 role、deps 或 spec。
 - `worker.message` / `notice.post` / `notice.answer` / `notice.dismiss`：继续沟通和决策。普通消息仍受目标生命周期、直接父子权限与合并冻结限制，main/owner 不是普通收件箱；发送失败不自动重投，见[消息准入与失败处理](../reference/rpc/tasks.md#追加消息的准入与失败处理)。
 - `branch.history {cursor?,limit?}`：用户专属只读 main 第一父链历史与精确交付 Worker / 原始指令追溯；Web `GET /api/versions`，不新增 CLI 写入口，见 [版本迭代](version-history.md)。

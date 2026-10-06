@@ -26,6 +26,17 @@ export async function run(command, args, { client }) {
   return client.request('hooks.remove', { id: args[0], expected_revision });
 }
 
+/** Highest automatic stage; uses the current worker.hooks read revision. */
+export async function runWorkerCompletion(args, client) {
+  check(!client.token, 'Hooks configuration is user only, not an agent operation');
+  const expected_revision = readRevision(args);
+  exact(args, 2);
+  check(['off','merge','accept','archive'].includes(args[1]), 'completion expects off|merge|accept|archive');
+  return client.request('worker.completion', {
+    id: await resolveWorkerId(client, args[0]), level: args[1], expected_revision,
+  });
+}
+
 /** worker hook attach ID --file PATH; enable|disable|remove ID HOOK_ID. */
 export async function runWorkerHook(args, client) {
   check(!client.token, 'Hooks configuration is user only, not an agent operation');

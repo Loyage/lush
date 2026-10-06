@@ -10,7 +10,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 浏览器的 Worker 详情使用 `#worker-ID`，执行详情仍在详情页显式点击打开，不提供独立 hash；平铺列表使用 `#workers`，父子树使用 `#worker-graph`。HTTP 与 Web 写动作同步使用下文的 `/api/worker/**`、`/api/workers`、`/api/worker-graph` 和 `worker.*`。旧 Task 路由与动作不保留别名；数据字段与历史事件仍可保留 `task`，完整边界见[核心 API 更名说明](../engineering/core-api.md#worker-更名与兼容边界)。
 
-项目的 `#hooks` 页面管理受控生命周期模板，Worker 详情按触发节点显示挂载与内置自动合并；挂载不是新业务实体。使用见 [Worker Hooks 与预约发射](../hooks.md)。
+项目的 `#hooks` 页面管理受控生命周期模板，Worker 详情按触发节点显示挂载与合并／验收／归档串行内置 Hook，并用最高自动级别统一授权；挂载不是新业务实体。使用见 [Worker Hooks 与预约发射](../hooks.md)。
 
 ## 宿主级路由
 
@@ -92,7 +92,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 ## 用户动作
 
-`POST /api/action` 接受 JSON `{method, params}`，只放行 `MUTATIONS`：`agent.configure`、`agent.environment.configure`、`agent.network.configure`、`agent.usage.configure`、`system.configure`、`order.submit`、`draft.add`、`draft.update`、`draft.remove`、`worker.spawn`、`worker.message`、`worker.auto_merge`、`worker.reserve`、`worker.reserve_all`、`worker.accept`、`worker.reopen`、`worker.sync_parent`、`worker.resolve_sync`、`worker.resolve`、`worker.resolve_divergence`、`worker.unreserve`、`worker.approve_merge`、`worker.cancel`、`worker.retry`、`worker.interrupt`、`worker.resume`、`worker.configure`、`worker.cleanup`、`worker.delete`、`notice.answer`、`notice.dismiss`、`notice.read`、`branch.bind`、`branch.archive`。请求不接受 `_token`，agent 不能借 Web 通道写库。
+`POST /api/action` 接受 JSON `{method, params}`，只放行 `MUTATIONS`：`agent.configure`、`agent.environment.configure`、`agent.network.configure`、`agent.usage.configure`、`system.configure`、`order.submit`、`draft.add`、`draft.update`、`draft.remove`、`worker.spawn`、`worker.message`、`worker.auto_merge`、`worker.completion`、`worker.reserve`、`worker.reserve_all`、`worker.accept`、`worker.reopen`、`worker.sync_parent`、`worker.resolve_sync`、`worker.resolve`、`worker.resolve_divergence`、`worker.unreserve`、`worker.approve_merge`、`worker.cancel`、`worker.retry`、`worker.interrupt`、`worker.resume`、`worker.configure`、`worker.cleanup`、`worker.delete`、`notice.answer`、`notice.dismiss`、`notice.read`、`branch.bind`、`branch.archive`。请求不接受 `_token`，agent 不能借 Web 通道写库。
 
 账号连接另开放 `agent.connections.save/remove/sampling/query/login.start/login.finish/device.start/device.poll/device.cancel`，均经项目的 `POST /api/action`、登录与 Origin 校验；设备码检查也是显式 action，不新增读取路由。设备授权 ID、OAuth token、回调授权码均不返回读面，不进审计事件或错误。参数和操作见[Agent 账号连接](rpc/agents.md#托管账号连接)。
 

@@ -232,7 +232,7 @@ export default {
     const artifactsRead = this.store.artifactsPage(task.id, { limit: RUN_WINDOW });
     const artifacts = bounded(artifactsRead.items, 200000);
     return { ...task, model_selection: workerModelSelection(this, this.store.task(taskId)),
-      auto_merge: this.autoMergeView(storedTask), merge_readiness: this.mergeReadiness(storedTask),
+      auto_merge: this.autoMergeView(storedTask), completion: this.autoCompletionView(storedTask), merge_readiness: this.mergeReadiness(storedTask),
       hooks: this.taskHooks(taskId),
       parent_task_kind: task.parent_id ? this.store.task(task.parent_id).task_kind : null,
       parent_worker_number: task.parent_id ? this.store.task(task.parent_id).worker_number : null,

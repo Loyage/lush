@@ -9,11 +9,10 @@ import { agentHelp } from './help.js';
 import { workerKind } from './worker-kind.js';
 import { isHistoricalDelivery, absolute } from './format.js';
 import { createHookForm } from './hook-form.js';
-import { autoMergeControl } from './hook-controls.js';
+import { autoMergeControl, autoCompletionControl, COMPLETION_LEVELS, HOOK_STATES as STATES } from './hook-controls.js';
 import { workerLabel } from './worker-label.js';
 
 const pending = new Set();
-const STATES = { idle: '已挂载', waiting: '等待条件', running: '动作执行中', succeeded: '已执行', failed: '执行失败', unknown: '结果未知·需检查' };
 const callsAgent = mount => (mount.actions || []).some(a => a.type === 'message' || a.type === 'request_merge' || (a.type === 'create_worker' && a.start !== false));
 function guarded(node, reason) {
   if (!reason) return node;
@@ -23,7 +22,9 @@ function guarded(node, reason) {
 function summary(actionItem) {
   return actionItem.type === 'create_worker' ? `预约创建 Worker${actionItem.start !== false ? '并开始 Agent' : '（待开始）'}：${actionItem.content || ''}`
     : actionItem.type === 'notify' ? `发送告知：${actionItem.title || ''}`
-      : actionItem.type === 'message' ? `追加消息到 ${workerLabel(actionItem.target_id, actionItem.target_worker_number)}：${actionItem.body || ''}` : actionItem.type === 'request_merge' ? '冻结源提交并向直接父 Worker 请求合并' : actionItem.type;
+      : actionItem.type === 'message' ? `追加消息到 ${workerLabel(actionItem.target_id, actionItem.target_worker_number)}：${actionItem.body || ''}` : actionItem.type === 'request_merge' ? '冻结源提交并向直接父 Worker 请求合并'
+        : actionItem.type === 'accept_worker' ? '安全条件通过后自动验收；不调用质量评审 Agent，不保证业务质量'
+          : actionItem.type === 'archive_worker' ? '验收后归档分支及后代，清理 worktree/ref；保留 Worker、会话和历史，不丢弃未提交改动' : actionItem.type;
 }
 function parameters(mount) {
   const content = el('details', undefined, 'hook-parameters'); content.append(el('summary', '参数与最近执行'));
@@ -43,13 +44,23 @@ function parameters(mount) {
   } else content.append(el('p', '还没有执行记录。', 'hint'));
   return content;
 }
-function mountCard(task, mount, model, refresh, ownsPage) {
+const BUILTIN_STEPS = {
+  'auto-merge': { number: 1, help: '第 1 步：交付就绪后尝试合并，沿用父队列和 Git 门禁。不是任意一轮 Agent 返回。' },
+  'auto-accept': { number: 2, help: '第 2 步：先合并（或经安全校验确认无需合并），再检查调用退出、后代、消息、待决和交付条件，代替用户确认。不是质量评审。' },
+  'auto-archive': { number: 3, help: '第 3 步：先验收，再检查子树终态、冻结、当前检出和清洁度，归档分支及后代；失败不撤销验收，不丢弃未提交改动。' },
+};
+function mountCard(task, mount, model, refresh, ownsPage, completion) {
   const row = el('article', undefined, 'hook-mount'); row.dataset.hookId = mount.id;
   const head = el('div', undefined, 'hook-mount-head');
+  const step = BUILTIN_STEPS[mount.id];
+  if (step) head.append(badge(`第 ${step.number} 步`));
   head.append(el('strong', mount.name), badge(mount.mode === 'persistent' ? '持续' : '一次性'), badge(mount.enabled ? '启用' : '停用'), badge(STATES[mount.state] || mount.state || '已挂载'));
   if (mount.locked) head.append(badge('锁定')); row.append(head);
-  if (mount.builtin || mount.id === 'auto-merge') row.append(autoMergeControl(task, refresh, ownsPage));
-  else {
+  if (mount.id === 'auto-merge' && !completion) row.append(autoMergeControl(task, refresh, ownsPage));
+  else if (mount.builtin || step) {
+    row.append(el('p', step?.help || '此动作由内置安全边界授权。', 'hint hook-builtin-step'),
+      el('p', completion ? '由上方最高自动级别统一配置；内置 Hook 不可移除。' : '最高自动级别暂不可用；请刷新或更新服务，不能单独调整此内置 Hook。', 'hint'));
+  } else {
     const actions = el('div', undefined, 'actions hook-actions');
     const key = `${task.id}:${mount.id}`, busy = pending.has(key);
     const update = async remove => {
@@ -87,6 +98,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   if (!['order', 'child', 'main', 'owner'].includes(workerKind(task)) || isHistoricalDelivery(task)) return null;
   const identity = ui.view, ownsPage = () => ui.view === identity;
   const model = task.hooks;
+  const completion = model && Object.hasOwn(model, 'completion') ? model.completion : task.completion;
   const mounts = Array.isArray(model?.mounts) ? model.mounts : [];
   const fallback = ['order', 'child'].includes(workerKind(task)) ? [{ id: 'auto-merge', name: '自动合并', trigger: 'worker.delivery_ready', mode: 'persistent',
     enabled: task.auto_merge?.enabled === true, builtin: true, locked: task.auto_merge?.locked === true, state: 'idle', reason: task.auto_merge?.reason, actions: [{ type: 'request_merge' }] }] : [];
@@ -95,21 +107,27 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
     const row = el('div', undefined, 'hook-compact');
     row.append(button(`Hooks${model ? ` · ${items.filter(item => item.enabled).length} 已启用` : ''}`, () => detail(task.id), 'ghost hook-button',
       { help: '打开此 Worker 详情中的已挂载 Hooks；只查看，不启动 Agent。' }));
-    if (['order', 'child'].includes(workerKind(task))) row.append(el('span', task.auto_merge ? `自动合并 ${task.auto_merge.enabled ? '已启用' : '未启用'}` : '自动合并状态未知', 'hint'));
+    if (['order', 'child'].includes(workerKind(task))) row.append(el('span', completion ? `自动链：${COMPLETION_LEVELS[completion.level] || '级别未知'} · ${STATES[completion.state] || completion.state || '状态未知'}`
+      : task.auto_merge ? `自动合并 ${task.auto_merge.enabled ? '已启用' : '未启用'}` : '自动合并状态未知', 'hint'));
     return row;
   }
   const section = block('Hooks · 已挂载'); section.classList.add('worker-hooks');
-  section.append(el('p', '预约是一次性 Hook，自动合并是持续 Hook。节点触发后仍须复核权限、消息、待决、后代和 Git 安全条件。', 'hint'));
+  section.append(el('p', completion ? '预约是一次性 Hook；自动链按合并 → 验收 → 归档串行推进，用最高自动级别统一授权。节点触发后仍须复核权限、消息、待决、后代和 Git 安全条件。'
+    : '预约是一次性 Hook，自动合并是持续 Hook。节点触发后仍须复核权限、消息、待决、后代和 Git 安全条件。', 'hint'));
+  if (completion) section.append(autoCompletionControl(task, { ...model, completion }, refresh, ownsPage,
+    editing => { section.dataset.completionEditing = String(editing); }));
   if (!model) section.append(el('p', '完整挂载列表暂不可用；下方仅显示已有自动合并设置，请更新服务或刷新。', 'hint'));
   if (!items.length) section.append(el('p', '此 Worker 尚未挂载 Hook。', 'hint'));
   const groups = new Map(); for (const mount of items) { const group = groups.get(mount.trigger) || []; group.push(mount); groups.set(mount.trigger, group); }
   const descriptions = [];
-  for (const [trigger, group] of groups) {
+  const phaseOrder = ['worker.delivery_ready', 'delivery.integrated', 'worker.accepted'];
+  for (const [trigger, group] of [...groups].sort(([a], [b]) => (phaseOrder.includes(a) ? phaseOrder.indexOf(a) : 3) - (phaseOrder.includes(b) ? phaseOrder.indexOf(b) : 3))) {
     const part = el('section', undefined, 'hook-trigger-group');
-    const heading = el('h3', trigger === 'worker.delivery_ready' ? 'Agent 完成工作后 · 交付就绪' : trigger);
-    const explanation = el('p', trigger === 'worker.delivery_ready' ? '不是任意一轮返回：实际退出且子 Worker、消息与待决均已处理后才尝试触发。' : '节点说明以项目 Hooks 目录为准。', 'hint');
+    const heading = el('h3', trigger === 'worker.delivery_ready' ? 'Agent 完成工作后 · 交付就绪' : trigger === 'delivery.integrated' ? '合并完成后 · 已集成' : trigger === 'worker.accepted' ? '验收完成后' : trigger);
+    const explanation = el('p', trigger === 'worker.delivery_ready' ? '不是任意一轮返回：实际退出且子 Worker、消息与待决均已处理后才尝试触发。'
+      : trigger === 'delivery.integrated' ? '成果落地后才尝试验收，仍须通过原有安全条件。' : trigger === 'worker.accepted' ? '验收后才尝试归档，代码现场清理仍受 Git 与子树安全门保护。' : '节点说明以项目 Hooks 目录为准。', 'hint');
     descriptions.push({ trigger, heading, explanation }); part.append(heading, explanation);
-    for (const mount of group) part.append(mountCard(task, mount, model, refresh, ownsPage));
+    for (const mount of group) part.append(mountCard(task, mount, model, refresh, ownsPage, completion));
     section.append(part);
   }
   const paintDescriptions = catalogue => {
@@ -238,7 +256,7 @@ export async function openHooks() {
     const nodes = block('允许的触发节点');
     for (const trigger of catalogue.triggers || []) { const row = el('article', undefined, 'hook-catalogue-row'); row.append(el('strong', trigger.label), el('code', trigger.id), el('p', trigger.description, 'hint')); nodes.append(row); }
     const actions = block('受控动作与代价');
-    for (const item of catalogue.actions || []) { const row = el('article', undefined, 'hook-catalogue-row'); row.append(el('strong', item.label), badge(item.agent_call ? '可能安排 Agent' : '不调用 Agent'), el('p', item.agent_call ? agentHelp(item.description) : item.description, 'hint'), el('p', `允许节点：${item.triggers?.length ? item.triggers.join(' / ') : '目录中的允许节点'}`, 'hint')); actions.append(row); }
+    for (const item of catalogue.actions || []) { const row = el('article', undefined, 'hook-catalogue-row'); row.append(el('strong', item.label), badge(item.agent_call ? '可能安排 Agent' : '不调用 Agent'), ...(item.builtin_only ? [badge('仅内置自动链 · 不可自定义安装')] : []), el('p', item.agent_call ? agentHelp(item.description) : item.description, 'hint'), el('p', `允许节点：${item.triggers?.length ? item.triggers.join(' / ') : '目录中的允许节点'}`, 'hint')); actions.append(row); }
     root.append(nodes, actions);
   }
   state.pending = load(); return state.pending;

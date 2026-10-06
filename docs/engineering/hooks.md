@@ -1,6 +1,6 @@
 # Worker Hooks 工程接缝
 
-本文记录用户决定 #197 对应的首期实现接口与模块边界；设计目标见[Worker Hooks](../design/hooks.md)，使用流程见[Hooks 与预约发射](../hooks.md)。触发目录不是测试证明，验证入口和实际验收限制见末节。
+本文记录用户决定 #197 对应的首期实现接口与模块边界；设计目标见[Worker Hooks](../design/hooks.md)，使用流程见[Hooks 与预约发射](../hooks.md)。用户决定 #202 的追加实现以[合并—验收—归档自动链](completion-hooks.md)为准，覆盖最高级别、串行门禁与成功静默告知。触发目录不是测试证明，验证入口和实际验收限制见末节。
 
 ## 触发目录
 
@@ -85,7 +85,7 @@ CLI 的挂载 Worker 身份遵循父侧编号接缝：允许整数或 `Wn(-n)*`�
 - 重启只恢复明确尚未执行的等待项；running 动作有精确成功关联可收口，否则标 unknown 留诊断，不自动重放。历史 hook 开关、合并请求和旧人工确认保持原义。
 - 规则数量、定义字节、执行记录和每轮处理数有硬上限；动作触发链有硬边界，禁止递归无限调度。读取不泄漏 env、Prompt、凭证或原始异常。
 
-公开 RPC 出口通过 `src/rpc/public-result.js` 递归去除 `retry_profile` 与字符串私有 `hooks`，保留对象形式安全 Hooks 投影；仅在授权 Agent 配置/环境路径保留合法同名字符串键，普通 Worker mutation 不例外。
+公开 RPC 出口通过 `src/rpc/public-result.js` 递归去除 `retry_profile` 与字符串私有 `hooks` / `auto_merge`（后者可含自动链收据），保留对象形式安全 Hooks、自动合并和 completion 投影；仅在授权 Agent 配置/环境路径保留合法同名字符串键，普通 Worker mutation 不例外。
 
 ## 模块职责
 

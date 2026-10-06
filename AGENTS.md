@@ -42,7 +42,7 @@ bun run stop
 ## 安全与持久化
 
 - Git 操作通过 `src/core/workspaces.js`，无 shell 插值，所有 Lush Git 变更串行。
-- 每个 worker 独立 worktree / 分支；历史 worker 的合并仍由用户批准。新式 指令/child 的 version 2 交付由父 Worker 自有队列的 runtime 串行 Squash（含 main），不额外调用父 Agent。指令默认关闭自动合并，由用户开启 hook 或显式请求；新 child 默认开启且锁定。分歧由原 Worker 在源侧吸收固定父基线，修复期间保留父执行位；挂起释放，恢复重新排队并固定新基线。落地后待验收，分支/worktree 保留，验收与显式归档分开。
+- 每个 worker 独立 worktree / 分支；历史 worker 的合并仍由用户批准。新式 指令/child 的 version 2 交付由父 Worker 自有队列的 runtime 串行 Squash（含 main），不额外调用父 Agent。指令默认关闭自动合并，由用户开启 hook 或显式请求；新 child 默认开启且锁定。分歧由原 Worker 在源侧吸收固定父基线，修复期间保留父执行位；挂起释放，恢复重新排队并固定新基线。落地后默认待验收，分支/worktree 保留，验收与显式归档分开。用户可为单个 Worker 选择最高自动级别，串行执行合并→安全验收→归档；不继承给后代，默认 child 的父 Agent 验收不变。自动验收不调用质量评审 Agent，归档不丢弃脏现场；自动成功只留审计，下一人工环节、失败和待决仍提醒。Agent 不得修改最高级别。
 - 不强制 reset / clean / 删除工作区，不自动提交用户已有改动。失败工作区也有价值。
 - `completed` 不等于 `merged`。保留独立的Worker状态与 integration 状态。
 - 新 Worker 父子关系创建后始终保持委派关系；当前 version 2 交付不创建 merge Worker、不改源 Worker 的 `parent_id`。持久预约是交付事实，Message/Event 仅通知；按入队顺序、代码依赖优先，取得父执行位后才固定尝试基线。旧 version 1 语义不改；旧 version 2 merge 身份和在途重挂只凭明确预约/审计恢复原父，不猜身份、不删历史。终态 Worker 不允许活动后代。依赖边（`task_deps`）只在 spawn 时写入，之后不可变。
@@ -59,7 +59,7 @@ bun run stop
 
 修改模块前必须先读 `docs/design/README.md` 中的对应设计理念；执行记录、工具渲染、检索与选区解释必须先读 `docs/design/agent-process.md`；引用、选区引用、引用卡片定位与快照/现状取舍必须先读 `docs/design/references.md`；改 Web 按钮文案、图标、样式，或新增会调用 Agent 的按钮前，必须先读 `docs/design/ui-guidance.md`——所有会调用 Agent 的按钮必须带 `agent-call` 紫色标识与 `agentHelp` 提示，含义不直观的按钮必须带 `data-help`，禁用按钮用外层 `.help-host` 承载。修改输入框、暂存、历史输入检索与状态投影前，必须先读 `docs/design/input-history.md`。修改通知、告知设置、已读与滑动消除交互前，必须先读 `docs/design/notices.md`。理念指导取舍，模块地图规定职责与接口，不得只看功能清单而忽略用户目标。
 
-修改 Hook、自动合并开关、预约发射、生命周期触发或挂载/模板界面前，先读 `docs/design/hooks.md` 与 `docs/engineering/hooks.md`。Hook 是 Worker 附属能力，不能绕过既有冻结、权限、Git 和调用边界；未知副作用不得因重启自动重放。
+修改 Hook、自动合并开关、预约发射、生命周期触发或挂载/模板界面前，先读 `docs/design/hooks.md` 与 `docs/engineering/hooks.md`，合并／验收／归档最高级别另读 `docs/engineering/completion-hooks.md`。Hook 是 Worker 附属能力，不能绕过既有冻结、权限、Git 和调用边界；未知副作用不得因重启自动重放。
 
 修改账号连接、凭证托管、余额/套餐观测、显式连接绑定与被动响应反馈前，先读 `docs/design/account-resources.md`；字段与模块边界见 `docs/engineering/agent-connections.md`，旧状态/历史兼容见 `docs/engineering/agent-usage.md`。私有权限不是沙箱，不得把凭证或原始认证响应放进读 API、会话或错误。
 

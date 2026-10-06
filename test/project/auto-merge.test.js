@@ -278,7 +278,8 @@ test('persistent order hook automatically delivers multiple rounds and settles n
     expect(booking(f, task.id)).toMatchObject({ status: 'pending', auto_merge: true });
     await until(() => f.store.history(task.id).filter(row => row.type === 'task.merge_integrated').length === 2, 10000);
     await until(() => !f.project.running.has(task.id));
-    expect(settings(f, task.id)).toEqual({ version: 1, enabled: true, locked: false });
+    expect(settings(f, task.id)).toMatchObject({ version: 1, enabled: true, locked: false });
+    expect(settings(f, task.id).completion.executions.merge.status).toBe('succeeded');
     expect(await git(f.root, 'show', 'main:round-2.txt')).toBe('round-2');
     f.project.message(task.id, 'explain only');
     await until(() => rounds === 3 && f.store.task(task.id).status === 'awaiting_acceptance' && !f.project.running.has(task.id), 10000);

@@ -12,7 +12,7 @@ const hook = { name: '通知', trigger: 'agent.returned', mode: 'once', enabled:
   actions: [{ type: 'notify', title: '结果', body: '查看 Worker' }] };
 const projectView = { version: 1, revision, triggers: [], actions: [], templates: [] };
 const workerView = { version: 1, worker_id: 7, revision, mounts: [] };
-const targets = ['hooksList','saveHookTemplate','removeHookTemplate','taskHooks','attachTaskHook','updateTaskHook','removeTaskHook'];
+const targets = ['hooksList','saveHookTemplate','removeHookTemplate','taskHooks','attachTaskHook','updateTaskHook','removeTaskHook','setTaskCompletion'];
 function mocks(project) {
   const calls = [];
   for (const method of targets) project[method] = (...args) => {
@@ -31,9 +31,10 @@ const mutations = [
   ['worker.hook_attach', { id: 7, hook, expected_revision: revision }, 'attachTaskHook', [7, hook, revision], workerView],
   ['worker.hook_update', { id: 7, hook_id: 'hook-1', enabled: false, expected_revision: revision }, 'updateTaskHook', [7, 'hook-1', false, revision], workerView],
   ['worker.hook_remove', { id: 7, hook_id: 'hook-1', expected_revision: revision }, 'removeTaskHook', [7, 'hook-1', revision], workerView],
+  ['worker.completion', { id: 7, level: 'accept', expected_revision: revision }, 'setTaskCompletion', [7, 'accept', revision], workerView],
 ];
 
-test('Hooks HTTP reads and all five mutations reach user RPC with exact revisions and no implicit actions', async () => {
+test('Hooks HTTP reads and all mutations reach user RPC with exact revisions and no implicit actions', async () => {
   const f = await setup(), calls = mocks(f.project);
   try {
     expect(await (await fetch(f.url + '/api/hooks')).json()).toEqual(projectView);
@@ -44,13 +45,13 @@ test('Hooks HTTP reads and all five mutations reach user RPC with exact revision
       expect(response.status).toBe(200); expect(await response.json()).toEqual(view);
       expect(calls.at(-1)).toEqual({ method: target, args });
     }
-    expect(calls).toHaveLength(7);
+    expect(calls).toHaveLength(2 + mutations.length);
     for (const route of ['/api/hooks?force=true','/api/hooks?_token=agent','/api/worker/7/hooks?revision=forged',
       '/api/worker/7/hooks?id=8','/api/worker/7/hooks?enabled=true']) {
       expect((await fetch(f.url + route)).status).toBe(400);
     }
     for (const route of ['/api/hooks/save','/api/worker/7/hook_attach','/api/worker/0/hooks']) expect((await fetch(f.url + route)).status).toBe(404);
-    expect(calls).toHaveLength(7);
+    expect(calls).toHaveLength(2 + mutations.length);
   } finally { await f.close(); }
 });
 

@@ -17,6 +17,7 @@ const cases = [
   ['hooks.save', ['template','expected_revision'], { template: definition, expected_revision: revision }, 'saveHookTemplate', [definition, revision]],
   ['hooks.remove', ['id','expected_revision'], { id: 'template-1', expected_revision: revision }, 'removeHookTemplate', ['template-1', revision]],
   ['worker.hooks', ['id'], { id: 7 }, 'taskHooks', [7]],
+  ['worker.completion', ['id','level','expected_revision'], { id: 7, level: 'archive', expected_revision: revision }, 'setTaskCompletion', [7, 'archive', revision]],
   ['worker.hook_attach', ['id','hook','expected_revision'], { id: 7, hook: definition, expected_revision: revision }, 'attachTaskHook', [7, definition, revision]],
   ['worker.hook_update', ['id','hook_id','enabled','expected_revision'], { id: 7, hook_id: 'hook-1', enabled: false, expected_revision: revision }, 'updateTaskHook', [7, 'hook-1', false, revision]],
   ['worker.hook_remove', ['id','hook_id','expected_revision'], { id: 7, hook_id: 'hook-1', expected_revision: revision }, 'removeTaskHook', [7, 'hook-1', revision]],

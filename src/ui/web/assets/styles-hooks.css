@@ -6,6 +6,13 @@
 .hook-mount-head { margin-bottom: .6rem; }
 .hook-button::before { content: '⌁'; margin-right: .35em; opacity: .75; }
 .hook-toggle { display: inline-flex; align-items: center; gap: .45rem; }
+.hook-completion-control { display: flex; gap: .7rem; flex-wrap: wrap; align-items: end; padding: .8rem; border: 1px solid var(--line); border-radius: 10px; margin-block: .7rem; }
+.hook-completion-field { min-width: 180px; }
+.hook-completion-select { width: 100%; padding: .5rem .7rem; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); }
+.hook-completion-field.agent-call { color: var(--violet-ink); }
+.hook-completion-field.agent-call select { color: var(--violet-ink); border-color: var(--violet-ink); background: var(--violet-soft); }
+.hook-completion-explanation { flex-basis: 100%; margin: 0; overflow-wrap: anywhere; }
+.hook-completion-control:has(select:disabled) .hook-completion-field { opacity: .75; }
 .hook-parameters { margin-top: .6rem; }
 .hook-parameters summary { cursor: pointer; }
 .hook-action-preview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 16rem; overflow-y: auto; }

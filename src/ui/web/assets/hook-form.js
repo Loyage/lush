@@ -41,7 +41,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
   const rows = [], actionsNode = el('div', undefined, 'hook-action-list'); node.append(el('h3', '按顺序执行的动作'), actionsNode);
   const error = el('p', undefined, 'error'); error.setAttribute('role', 'alert'); node.append(error);
   let pending = false;
-  const allowed = () => (catalogue.actions || []).filter(a => !a.triggers?.length || a.triggers.includes(trigger.input.value));
+  const allowed = () => (catalogue.actions || []).filter(a => !a.builtin_only && (!a.triggers?.length || a.triggers.includes(trigger.input.value)));
   const agentCall = () => rows.some(row => row.type.input.value === 'message' || (row.type.input.value === 'create_worker' && row.start.input.checked) || row.type.input.value === 'request_merge');
   function addRow(initialAction = {}) {
     if (rows.length >= 4) return;

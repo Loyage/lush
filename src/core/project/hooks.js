@@ -17,7 +17,7 @@ function writeDefinitions(project, state) {
   check(Buffer.byteLength(JSON.stringify(state)) <= 4 * HOOK_LIMITS.bytes, 'Hook template library exceeds 512 KiB');
   project.store.run("INSERT INTO meta(key,value) VALUES ('hook_templates',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", JSON.stringify(state));
 }
-function revision(project, task) { return hookRevision({ hooks: task.hooks ?? null, automatic: project.autoMergeView(task) }); }
+function revision(project, task) { return hookRevision({ hooks: task.hooks ?? null, automatic: project.autoMergeView(task), completion: task.auto_merge ?? null }); }
 function readDefinition(project, value) {
   const view = publicHookDefinition(value);
   view.actions = view.actions.map(action => action.type === 'message' ? { ...action,
@@ -138,7 +138,23 @@ export default {
         last_execution: booking?.delivery_id ? { id: booking.delivery_id, trigger: 'worker.delivery_ready', status: booking.status,
           created_at: booking.requested_at ?? booking.created_at, finished_at: booking.integrated_at ?? null } : null });
     }
-    return { version: 1, worker_id: task.id, revision: revision(this, task), mounts };
+    const completion = this.autoCompletionView(task);
+    if (completion && mounts[0]?.id === 'auto-merge') {
+      const receipt = this.completionMountState(task, 'merge');
+      if (receipt.last_execution) Object.assign(mounts[0], receipt);
+    }
+    if (completion) for (const [phase, name, trigger, type, threshold] of [
+      ['accept', '自动验收', 'delivery.integrated', 'accept_worker', 2],
+      ['archive', '自动归档', 'worker.accepted', 'archive_worker', 3],
+    ]) {
+      const status = this.completionMountState(task, phase);
+      mounts.splice(threshold - 1, 0, { id: `auto-${phase}`, name, trigger, mode: 'persistent',
+        enabled: ['off','merge','accept','archive'].indexOf(completion.level) >= threshold,
+        builtin: true, locked: false, editable: false, removable: false,
+        conditions: {}, actions: [{ type }], ...status,
+        reason: status.reason ?? '通过最高自动级别统一设置，仍需前一步与现有安全检查通过' });
+    }
+    return { version: 1, worker_id: task.id, revision: revision(this, task), completion, mounts };
   },
 
   attachTaskHook(taskId, raw, expectedRevision) {

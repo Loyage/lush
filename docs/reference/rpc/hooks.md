@@ -10,19 +10,30 @@
 | `hooks.save` | `{template,expected_revision}` | `hooks save --file PATH --revision REV` |
 | `hooks.remove` | `{id,expected_revision}` | `hooks remove TEMPLATE_ID --revision REV` |
 | `worker.hooks` | `{id}` | `worker hooks ID` |
+| `worker.completion` | `{id,level,expected_revision}` | `worker completion ID off\|merge\|accept\|archive --revision REV` |
 | `worker.hook_attach` | `{id,hook,expected_revision}` | `worker hook attach ID --file PATH --revision REV` |
 | `worker.hook_update` | `{id,hook_id,enabled,expected_revision}` | `worker hook enable\|disable ID HOOK_ID --revision REV` |
 | `worker.hook_remove` | `{id,hook_id,expected_revision}` | `worker hook remove ID HOOK_ID --revision REV` |
 
 读取 HTTP：`GET /api/hooks`、`GET /api/worker/ID/hooks`，不接受查询参数。写入通过已登录、同源的 `POST /api/action {method,params}`，不是通用 RPC 代理。
 
-目录返回 `{version:1,revision,triggers,actions,templates}`；Worker 返回 `{version:1,worker_id,revision,mounts}`。CLI 的 Worker 参数接受内部整数或 `Wn(-n)*`，先经 `worker.lookup` 解析；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
+目录返回 `{version:1,revision,triggers,actions,templates}`；Worker 返回 `{version:1,worker_id,revision,completion,mounts}`。CLI 的 Worker 参数接受内部整数或 `Wn(-n)*`，先经 `worker.lookup` 解析；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
 
 `revision` 是不透明字符串，必须先读并随写请求携带；过期返回错误，不覆盖并发修改。模板 `id` 与挂载 `hook_id` 是不同身份。
 
 `hook` 可为新规则定义，或仅 `{template_id:'UUID'}`；后者让后台复制模板的完整私有覆盖。不得用脱敏列表重建原模板挂载。创建动作读取只有安全 `model_selection` 摘要；模板同位置创建动作省略 `profile` 表示编辑时保留原私有覆盖。
 
-挂载含 `trigger`、`mode`、`enabled`、`conditions`、安全动作摘要、`state`、`last_execution`、`editable` 与 `removable`。`removable` 与可启用状态不同：结束的 Worker 可移除未来授权，不能重新启用。`id:'auto-merge'` 是不可移除的内置挂载；开关仍通过 `worker.auto_merge` 调整并复用原准入。
+挂载含 `trigger`、`mode`、`enabled`、`conditions`、安全动作摘要、`state`、`last_execution`、`editable` 与 `removable`。`removable` 与可启用状态不同：结束的 Worker 可移除未来授权，不能重新启用。`auto-merge`、`auto-accept`、`auto-archive` 是不可移除的内置挂载，通过一份最高级别授权配置；旧 `worker.auto_merge` 开关保留原准入。
+
+## 最高自动级别
+
+`worker.completion` 严格接受 `off|merge|accept|archive`，高档包含之前的步骤，返回更新后的 Worker Hooks。读取当前 revision 后显式保存，不隐式继承给后代。child 的 min_level 为 merge，不能关闭，但可由用户单独提高级别。
+
+`completion` 为 `{level,min_level,locked,editable,reason,phase,state,last_execution}`；locked 只表示最低合并级别受保护，不禁止所有高级别。phase 是 merge/accept/archive 或 null，state 沿用 idle/waiting/running/succeeded/failed/unknown。inspect、graph、Hooks 为同源安全投影，不含私有执行／提醒收据。普通 Worker 出口去除字符串 hooks、auto_merge 和完整 retry_profile，保留安全对象和授权配置/env 字典。
+
+已冻结请求、挂起、执行中、同步或 unknown 不能改级别；已合并／验收时只允许显式提高，补办仍复用原安全门。验收不做模型质量评审；归档不授权丢弃脏工作区。归档高级别失败不会重放或反向撤销验收。历史 completed 没有 task.accepted 事实时不能冒充验收。
+
+动作目录中的 `accept_worker` / `archive_worker` 标 `builtin_only:true`，用于说明内置步骤，不能安装为自定义规则。配置和恢复细节见[自动链接缝](../../engineering/completion-hooks.md)。
 
 ## JSON 规则示例
 

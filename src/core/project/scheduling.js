@@ -85,6 +85,7 @@ export default {
   pump() {
     if (this.stopping || this.workerDeleteIds?.size) return;
     this.observeTaskHooks();
+    this.scheduleTaskCompletion();
     for (const taskId of this.taskSyncWakePending ?? []) if (!this.taskSyncBusy?.has(taskId)) {
       this.taskSyncWakePending.delete(taskId);
       if (this.hasActionableMessages(taskId)) this.wake(taskId);
@@ -186,9 +187,11 @@ export default {
           catch { /* invalid state stays visible for inspection */ }
           if (settled.status === 'waiting' && reservation?.kind === 'merge' && !taskSyncDeliveryPaused(this, task.id)) {
             const settle = reservation.version === 2 ? this.settleQueuedMerge(task.id) : this.settleReservedMerge(task.id);
-            await settle.catch(error => this.noteReservationBlocked(task.id, error.message));
+            await settle.catch(error => reservation.version === 2 ? this.noteCompletionMergeFailure(task.id)
+              : this.noteReservationBlocked(task.id, error.message));
           }
         }
+        this.scheduleTaskCompletion(task.id);
         this.kick();
       });
     }

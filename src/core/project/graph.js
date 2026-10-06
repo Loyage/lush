@@ -295,6 +295,7 @@ export default {
         freeze: freeze ? { kind: freeze.kind, task_id: freeze.task_id ?? null, reason: freeze.reason } : null,
         resolves_task_id: row.resolves_task_id ?? resolutions.get(row.id) ?? null,
         auto_merge: this.autoMergeView({ ...row, reservation }),
+        completion: this.autoCompletionView({ ...row, reservation }),
         merge_readiness: this.mergeReadiness({ ...row, reservation }),
         reservation: delivery, delivery: delivery ? { kind: delivery.kind, status: delivery.status,
           blocked_reason: delivery.blocked_reason ?? null } : null,

@@ -129,10 +129,11 @@ export function iterationViews(store, tasks) {
 
 export default {
   /** Users accept their goals; a live delegator may confirm only its delivered direct child. */
-  async acceptTask(taskId, actor = null) {
+  async acceptTask(taskId, actor = null, options = {}) {
     this.assertWritable('accept a worker');
     const invocation = actor === null ? null : this.running.get(id(actor));
     const authorize = task => {
+      if (options.completion) this.assertCompletionClaim(task.id, options.completion, 'accept');
       if (actor === null) return;
       const parent = this.store.task(id(actor));
       const run = this.running.get(parent.id);
@@ -199,9 +200,12 @@ export default {
           ...(booking?.status === 'pending' ? { reservation: null } : {}) });
         this.store.armAgent(task.id, null);
         this.store.event(task.id, 'task.accepted', { head_commit: task.head_commit, integration: task.integration,
-          accepted_by: actor === null ? 'user' : 'parent', parent_id: actor });
+          accepted_by: actor === null ? 'user' : 'parent', parent_id: actor,
+          ...(options.completion ? { via: 'completion_hook', completion_execution: options.completion.id,
+            authorization: options.completion.authorization, round: options.completion.round } : {}) });
       });
       this.emitTaskHook(task.id, 'worker.accepted');
+      this.scheduleTaskCompletion(task.id);
       return this.store.task(task.id);
     });
   },

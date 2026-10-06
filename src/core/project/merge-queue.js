@@ -49,7 +49,9 @@ export default {
     check(before.editable, before.reason);
     assertTaskAncestorsOpen(this, task);
     this.store.transaction(() => {
-      this.store.update(task.id, { auto_merge: JSON.stringify({ version: 1, enabled, locked: false }) });
+      const config = task.auto_merge ? JSON.parse(task.auto_merge) : {};
+      this.store.update(task.id, { auto_merge: JSON.stringify({ ...config, version: 1, enabled, locked: false,
+        ...(config.level !== undefined ? { level: enabled ? config.level === 'off' ? 'merge' : config.level : 'off' } : {}) }) });
       this.store.event(task.id, 'task.auto_merge_changed', { enabled, previous: before.enabled });
       const booking = reservationOf(task);
       if (!enabled && booking?.status === 'pending' && booking.auto_merge === true) {
@@ -58,7 +60,7 @@ export default {
       }
       if (enabled) this.armTaskAutoMerge(task.id);
     });
-    if (enabled) await this.settleQueuedMerge(task.id).catch(error => this.noteReservationBlocked(task.id, error.message));
+    if (enabled) await this.settleQueuedMerge(task.id).catch(() => this.noteCompletionMergeFailure(task.id));
     return { task_id: task.id, changed: true, auto_merge: this.autoMergeView(this.store.task(task.id)) };
   },
 
@@ -160,8 +162,7 @@ export default {
       await this.workspaces.assertCleanBranches([task.branch]);
       check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`) === state.child_head,
         'source ref moved during safe-point inspection');
-      if (delivery !== 'pending' && (task.task_kind === 'child'
-        || (prior.auto_merge && task.iteration_base_commit))) {
+      if (delivery !== 'pending' && (task.task_kind === 'child' || prior.auto_merge)) {
         // No-change children and automatic follow-ups deliver a result, not an
         // empty Squash. Recheck after Git awaits so new input/disabled hooks win.
         const delivered = this.store.transaction(() => {
@@ -171,6 +172,7 @@ export default {
           this.store.update(task.id, { reservation: null, status: 'awaiting_acceptance', integration: delivery });
           const settled = this.store.event(task.id, 'task.delivered', { result: task.result, commit: task.head_commit, no_changes: true });
           this.store.event(task.id, 'task.unreserved', { reservation: prior, reason: 'no changes' });
+          this.recordCompletionDelivery(task.id, settled, true);
           if (task.task_kind === 'child') {
             const key = `child:${task.id}:delivery:${settled}`;
             const receipt = this.store.signal(originalParent.id, task.id, 'child.completed', key,
@@ -435,8 +437,9 @@ export default {
         reservation: JSON.stringify({ ...request, status: 'integrated', landed_commit: landedCommit,
           integrated_at: new Date().toISOString() }) });
       this.store.update(parent.id, { head_commit: parentHead });
-      this.store.event(task.id, 'task.merge_integrated', { source_commit: request.commit, commit: landedCommit,
+      const integratedEvent = this.store.event(task.id, 'task.merge_integrated', { source_commit: request.commit, commit: landedCommit,
         parent_head: parentHead, parent_id: parent.id, delivery_id: request.delivery_id, attempt_id: attemptId, squash: true });
+      this.recordCompletionDelivery(task.id, integratedEvent);
       const key = `merge-v2-completed:${task.id}:${request.delivery_id}:${attemptId}`;
       const receipt = this.store.signal(parent.id, task.id, 'merge.completed', key,
         JSON.stringify({ version: 1, signal: 'merge.completed', key, source_task_id: task.id,
@@ -595,6 +598,7 @@ export default {
       try {
         if (!this.stopping && !this.activeTaskMerge(parentId)) await this.runParentReadyHooks(parentId);
       } finally { this.taskMergeBusy.delete(parentId); }
+      if (taskId) this.scheduleTaskCompletion(taskId);
       if (landed && this.hasActionableMessages(parentId)) this.wake(parentId);
       const pendingWake = this.taskMergeWakePending?.delete(parentId);
       if (landed || pendingWake) this.scheduleTaskMerge(parentId); // drain a busy-time signal at the item boundary

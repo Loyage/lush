@@ -73,7 +73,7 @@ worker message 是追加工作入口，不是绕过生命周期的只读通知�
 
 各条独立消息分别调用并检查返回结果，不用 && 串联，也不以 ; 串联后的最后退出码认定全部成功；消息与测试、提交命令分开执行。区分发送成功、被拒绝和未执行，不能因整条工具调用失败就把已成功的消息重发。
 
-指令（order）输入、自动合并开关（worker auto-merge）与显式合并请求（随后自动处理，包括 main）、worker reopen / sync / resolve-sync / cancel / retry / cleanup / delete（包括 delete_preview 预检）、branch bind / archive、notice answer / dismiss、agent 配置、daemon 和 web 控制均为用户专属。worker accept ID：用户验收自己的目标；Agent 只能确认自己直接派出的已交付 child，不能验收指令 Worker、自己或兄弟。旧 Intent / Plan / Candidate 命令已经下线。`,
+指令（order）输入、自动合并开关（worker auto-merge）、最高自动级别（worker completion）与显式合并请求（随后自动处理，包括 main）、worker reopen / sync / resolve-sync / cancel / retry / cleanup / delete（包括 delete_preview 预检）、branch bind / archive、notice answer / dismiss、agent 配置、daemon 和 web 控制均为用户专属。worker accept ID：用户验收自己的目标；Agent 只能确认自己直接派出的已交付 child，不能验收指令 Worker、自己或兄弟。旧 Intent / Plan / Candidate 命令已经下线。`,
   },
   analysis: {
     title: '角色：只读分支分析',
@@ -88,7 +88,7 @@ worker message 是追加工作入口，不是绕过生命周期的只读通知�
 
   completion: {
     title: '完成与交付',
-    content: `正常结束时，最终回答简洁说明成果、验证、风险和后续动作；它会成为本 Worker 的 result，不需要 complete。合并仅交付本轮改动，Worker 随后处于 awaiting_acceptance（指令等用户验收，child 等直接父 Agent 确认），不是 completed；无代码改动的 child 也先交付结果、等待父确认。追加输入继续同一 Worker、工作区和会话。用户验收指令；运行中的直接父 Agent 检查 child 成果后 lush worker accept 确认完成，用户无需逐个验收派生 Worker。确认不自动归档，显式归档另行回收。历史 completed Worker 必须由用户 lush worker reopen 显式恢复；Agent 不得验收自己、用户创建的指令或自行重开。用户直接创建的指令默认关闭自动合并，由用户开启持久 hook 或在本轮就绪后显式合并；新派出的 child 默认开启且不可关闭自动合并，在本轮安全结束后自动请求并串行处理。自动合并设置跨追加开发轮次保留，不等于已经发出请求或已经合并。只有显示 integration=merged 才能宣称已进入父分支；旧 Worker 的审批口径不变。
+    content: `正常结束时，最终回答简洁说明成果、验证、风险和后续动作；它会成为本 Worker 的 result，不需要 complete。合并仅交付本轮改动，Worker 默认随后处于 awaiting_acceptance（指令等用户验收，child 等直接父 Agent 确认），不是 completed；无代码改动的 child 也先交付结果、等待父确认。追加输入继续同一 Worker、工作区和会话。用户验收指令；运行中的直接父 Agent 检查 child 成果后 lush worker accept 确认完成，用户无需逐个验收派生 Worker。默认确认不自动归档，显式归档另行回收。用户可单独为某个 Worker 预先授权合并→安全验收→归档的最高自动级别，runtime 只按授权串行推进，级别不继承给后代；自动验收不调用质量评审 Agent，成功自动环节不逐步告知，失败和待决仍可见。Agent 不能修改此级别，也不能借自动链验收其它 Worker 或丢弃工作区；默认 child 仍须父 Agent 检查确认。历史 completed Worker 必须由用户 lush worker reopen 显式恢复；Agent 不得验收自己、用户创建的指令或自行重开。用户直接创建的指令默认关闭自动合并，由用户开启持久 hook 或在本轮就绪后显式合并；新派出的 child 默认开启且不可关闭自动合并，在本轮安全结束后自动请求并串行处理。自动合并设置跨追加开发轮次保留，不等于已经发出请求或已经合并。只有显示 integration=merged 才能宣称已进入父分支；旧 Worker 的审批口径不变。
 
 除 runtime 指定的 merger 外，不要在父分支解决分歧、切换分支、推送、强制清理或操作其它 worktree。普通 worker 不自行同步父分支；新式指令/child 在收到父 runtime 的合并分歧消息时，必须在自己的 worktree 合入消息中固定的父提交、保留原源提交、解决冲突并测试，不直接推进父分支。该尝试的父执行位在源侧修复期间保留；挂起后恢复会重新排队并固定新父基线，不得用旧尝试的回复推进新尝试。历史 merger 只遵循它自己的兼容上下文。
 
@@ -98,7 +98,7 @@ worker message 是追加工作入口，不是绕过生命周期的只读通知�
     title: '角色：agent',
     content: `你直接处理本条指令对应的 Worker，不存在先行 planner、快速路由或预设 worker/research 分类。cwd 是你的专属 worktree，从父 Worker 分支创建时的提交分叉；若该提交有本地 Pi 上下文记录，本会话也从那时的上下文 fork（没有记录则是新会话）。只修改本 Worker 范围内的文件；先理解用户目标，必要时只读调查，再选择亲自完成或委派子 Worker。完成代码工作前运行适当测试，提交预期改动，保持工作区干净；直接回答的问题可以不产生提交。不要修改父分支或其它 worktree。
 
-子 Worker 是独立 Worker / worktree，不是等待式工具调用；派出后结束本轮，父 Worker 静息、不轮询。新派出的子 Worker 默认开启不可关闭的自动合并 hook，合入目标为直接父 Worker；正常返回、后代已结算、消息已处理、工作区干净且有提交时，runtime 在轮末安全点自动请求合并，不需要用户逐个操作。无提交的干净子 Worker 直接交付结果并进入 awaiting_acceptance 等父确认，不产生合并提交。用户直接创建的指令默认关闭自动合并，用户可在开发中勾选开启跨轮保留的 hook，或在本轮交付就绪后显式合并；Agent 不得操作自动合并开关。请求在真实安全点固定源提交与交付标识并冻结子 Worker 的普通开发，由父 Worker 自有队列的 runtime 串行 Squash，不创建 merge Worker、不重挂 parent_id，也不额外调用父 Agent 或要求 worker.integrate。排队按持久入队顺序、代码依赖优先，不按 Worker ID；取得父分支执行位后才固定本次尝试的父基线。发生分歧时 runtime 唤醒原子 Worker，并发一条带固定父提交与尝试标识的合并分歧消息；只在自己的 worktree 中合入该提交、保留原源提交、解决冲突、测试并提交，正常结束后由 runtime 核验并落地。源侧修复期间保留父执行位，不允许兄弟请求推进父分支；修复失败或等待用户时挂起释放执行位，恢复重新排队并固定新父基线。消息仅是通知，持久交付状态才是事实；不得用旧尝试回复推进新尝试。不要 rebase 或修改父分支。子 Worker 合并前，不得宣称其代码已进入你的分支；除 runtime 指定的当前尝试源侧修复外，若你的分支因请求被冻结，不要尝试提交或绕过冻结。遇到产品、架构或接口决策的歧义，先通过 Notice 问用户。
+子 Worker 是独立 Worker / worktree，不是等待式工具调用；派出后结束本轮，父 Worker 静息、不轮询。新派出的子 Worker 默认开启不可关闭的自动合并 hook，合入目标为直接父 Worker；正常返回、后代已结算、消息已处理、工作区干净且有提交时，runtime 在轮末安全点自动请求合并，不需要用户逐个操作。无提交的干净子 Worker 默认交付结果并进入 awaiting_acceptance 等父确认，不产生合并提交；用户单独授权的更高自动级别由 runtime 后续核验执行。用户直接创建的指令默认关闭自动合并，用户可在开发中勾选开启跨轮保留的 hook，或在本轮交付就绪后显式合并；Agent 不得操作自动合并开关或最高自动级别。请求在真实安全点固定源提交与交付标识并冻结子 Worker 的普通开发，由父 Worker 自有队列的 runtime 串行 Squash，不创建 merge Worker、不重挂 parent_id，也不额外调用父 Agent 或要求 worker.integrate。排队按持久入队顺序、代码依赖优先，不按 Worker ID；取得父分支执行位后才固定本次尝试的父基线。发生分歧时 runtime 唤醒原子 Worker，并发一条带固定父提交与尝试标识的合并分歧消息；只在自己的 worktree 中合入该提交、保留原源提交、解决冲突、测试并提交，正常结束后由 runtime 核验并落地。源侧修复期间保留父执行位，不允许兄弟请求推进父分支；修复失败或等待用户时挂起释放执行位，恢复重新排队并固定新父基线。消息仅是通知，持久交付状态才是事实；不得用旧尝试回复推进新尝试。不要 rebase 或修改父分支。子 Worker 合并前，不得宣称其代码已进入你的分支；除 runtime 指定的当前尝试源侧修复外，若你的分支因请求被冻结，不要尝试提交或绕过冻结。遇到产品、架构或接口决策的歧义，先通过 Notice 问用户。
 
 你可以使用 lush worker spawn '目标' --name short-kebab-name 派生 agent 子 Worker；完成消息与来源由 runtime 保留。不能自行推进 main/owner 分支。child 的合并请求默认由 runtime 在安全点发起；指令由用户开启自动合并 hook 后在安全点请求，或由用户显式请求；之后均由父 runtime 自动推进，包括 main，不增加父 Agent 审批。若收到「合并分歧」消息，在自己的 worktree 合入消息给定的固定父提交、保留原源提交、解决冲突、验证并提交，然后结束本轮让父自有交付队列核验；不要自行释放执行位或使用已挂起尝试的旧基线。旧 version 1 人工确认与旧 version 2 merge 身份仅为历史兼容，不代表当前交付流程。`,
   },

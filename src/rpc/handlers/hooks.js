@@ -21,6 +21,12 @@ export const handlers = {
   },
   'hooks.remove'(p, params) { return p.removeHookTemplate(hookId(params.id), revision(params.expected_revision)); },
   'worker.hooks'(p, params) { return p.taskHooks(id(params.id)); },
+  'worker.completion'(p, params) {
+    const expected = revision(params.expected_revision);
+    check(typeof params.level === 'string' && ['off','merge','accept','archive'].includes(params.level),
+      'level must be off|merge|accept|archive');
+    return p.setTaskCompletion(id(params.id), params.level, expected);
+  },
   'worker.hook_attach'(p, params) {
     const expected = revision(params.expected_revision);
     check(isPlainObject(params.hook), 'hook must be an object');

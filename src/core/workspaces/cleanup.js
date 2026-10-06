@@ -45,8 +45,9 @@ export const methods = {
    * `remaining`。调用方（`Project#archiveBranch`）据此让库与磁盘一致，而不是抛错后留下「库说还在、
    * 磁盘已经没了」的半棵树。
    */
-  archiveBranches(branches, { discard_worktree = false, onOutcome = null } = {}) {
+  archiveBranches(branches, { discard_worktree = false, onOutcome = null, guard = null, expectedTips = null } = {}) {
     return this.exclusive(async () => {
+      if (guard) guard();
       const project = this.config.project;
       const names = [...new Set(branches.map(branch => String(branch ?? '').trim()))];
       for (const branch of names) check(branch.length > 0 && branch.length <= 512, 'branch name must be non-empty text');
@@ -72,6 +73,7 @@ export const methods = {
         // 先把 tip 记下来：后面 update-ref -d 用它做 compare-and-delete，检查之后被谁动过就拒绝。
         let tip = null;
         try { tip = await this.git(project, 'rev-parse', `refs/heads/${branch}`); } catch { /* ref 本就不在 */ }
+        if (expectedTips) check(tip === expectedTips.get(branch), `automatic archive source moved after acceptance: ${branch}`);
         const metadata = records.find(fields => fields.includes(`branch refs/heads/${branch}`));
         const workspace = metadata?.find(field => field.startsWith('worktree '))?.slice('worktree '.length) ?? null;
         check(!metadata?.some(field => field === 'locked' || field.startsWith('locked ')), `worktree is locked: ${workspace}`);
@@ -98,12 +100,16 @@ export const methods = {
         plan.push({ branch, tip, workspace, present, worktree: 'absent', ref: tip === null ? 'absent' : 'kept', discarded: false });
       }
 
+      if (guard) guard();
       const outcomes = [];
       const failed = [];
       const remaining = [];
       for (let index = 0; index < plan.length; index += 1) {
         const entry = plan[index];
         try {
+          if (expectedTips) check(await this.git(project, 'rev-parse', `refs/heads/${entry.branch}`) === entry.tip,
+            `automatic archive source moved during inspection: ${entry.branch}`);
+          if (guard) guard();
           if (entry.present) {
             if (discard_worktree) entry.discarded = (await this.porcelain(entry.workspace)) !== '';
             await this.git(project, 'worktree', 'remove', ...(discard_worktree ? ['--force'] : []), entry.workspace);
@@ -112,6 +118,7 @@ export const methods = {
           if (entry.tip !== null) {
             // 走到这里通常已经被上面的 remove 解除了检出；分支被别处检出时不能删，否则那个 HEAD 会失效。
             check(!(await this.checkedOut(entry.branch)), `branch ${entry.branch} is still checked out in a worktree`);
+            if (guard) guard();
             await this.git(project, 'update-ref', '-d', `refs/heads/${entry.branch}`, entry.tip);
             entry.ref = 'deleted';
           }
