@@ -214,6 +214,32 @@ test('web accepts a configured public origin behind a Host-rewriting proxy', asy
   } finally { await f.close(); }
 });
 
+test('login lock is shared by the socket source, ignores forwarding headers and preserves existing sessions', async () => {
+  const password = 'test-only-password';
+  const f = await setup({ auth: { username: 'owner', password, origin: 'https://lush.example.com' } });
+  const headers = { 'Content-Type': 'application/x-www-form-urlencoded', Origin: 'https://lush.example.com' };
+  const form = value => new URLSearchParams({ username: 'owner', password: value }).toString();
+  try {
+    const login = await fetch(f.url + '/login', { method: 'POST', headers, body: form(password) });
+    expect(login.status).toBe(303);
+    const cookie = login.headers.get('set-cookie').split(';')[0];
+    // Real loopback socket, simulated proxy metadata only. Changing client-IP
+    // claims must not change the bucket or bypass the five-failure lock.
+    for (let index = 0; index < 5; index++) {
+      const rejected = await fetch(f.url + '/login', { method: 'POST',
+        headers: { ...headers, 'X-Forwarded-For': `192.0.2.${index + 1}` }, body: form('wrong-password') });
+      expect(rejected.status).toBe(401);
+    }
+    const blocked = await fetch(f.url + '/login', { method: 'POST', headers: { ...headers,
+      'X-Forwarded-For': '198.51.100.1', 'Forwarded': 'for=198.51.100.1;proto=https', 'X-Real-IP': '198.51.100.1' },
+      body: form(password) });
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get('set-cookie')).toBeNull();
+    expect(await blocked.text()).toContain('登录尝试过多，请一分钟后再试。');
+    expect((await fetch(f.url + '/api/snapshot', { headers: { Cookie: cookie } })).status).toBe(200);
+  } finally { await f.close(); }
+});
+
 test('explicit Origin cannot be overridden by same-site metadata and denied logout preserves the session', async () => {
   const password = 'test-only-password';
   const f = await setup({ auth: { username: 'owner', password, origin: 'https://lush.example.com' } });

@@ -116,6 +116,24 @@ test('package and ops expose workers without a tasks shortcut', async () => {
   expect(err).toContain('unknown command: tasks');
 });
 
+test('package and ops no longer advertise or dispatch retired shortcuts', async () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const retired = ['draft', 'drafts', 'intent', 'intents', 'ladder', 'timeline', 'usage', 'merge', 'clear',
+    'specs', 'approve', 'reject', 'propose'];
+  for (const command of retired) {
+    expect(pkg.scripts[command]).toBeUndefined();
+    // No --help: it bypasses dispatch and would hide stale aliases. Each retired
+    // name must fail before Config construction or any project RPC.
+    const proc = Bun.spawn(['bun', path.join(root, 'scripts/ops.js'), command], {
+      env: env(), stdout: 'pipe', stderr: 'pipe' });
+    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+    expect({ out, code }).toEqual({ out: '', code: 1 });
+    expect(err).toContain(`unknown command: ${command}; run lush help`);
+  }
+  // wait is still a supported user-only command, not part of the retirement.
+  expect(pkg.scripts.wait).toBe('bun ./scripts/ops.js wait');
+});
+
 test('human-readable CLI renders Worker identity and child wait labels', () => {
   const logs = [], original = console.log;
   console.log = (...args) => logs.push(args.join(' '));

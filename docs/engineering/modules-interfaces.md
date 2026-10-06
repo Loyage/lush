@@ -32,7 +32,7 @@
 
 Worker 身份参数（含 `spawn --parent`、`notice post --worker`）接受原整数及严格 `Wn(-n)*`。新编号只解析一次，经只读 `worker.lookup {number}` 核验 `{id,worker_number}` 后，既有 RPC 的 id/parent/task 参数仍发送整数；wait/follow 后续读取复用固定整数。分页游标、Notice ID 不接受 Worker 编号，整数调用不产生额外 lookup。列表 `--brief` 同时保留整数 `id` 与可空 `worker_number`，分页仍按整数。原始输入提交的人类输出显示 `O<id>` 与关联 Worker 编号，JSON 不改写身份字段。历史树、分支展示的回退标识保持不变。测试在 `test/worker-number-cli.test.js`。
 
-历史命令模块（`draft.js` / `plan.js` / `spec.js` / `candidate.js` / `sleep.js`）仍在源码里，但 `COMMANDS` 不再挂载它们；`lush help` 也不列出，执行会报 `unknown command`。
+历史命令模块（`draft.js` / `plan.js` / `spec.js` / `candidate.js` / `sleep.js`）仍在源码里，但 `COMMANDS` 不再挂载它们；`lush help` 也不列出，执行会报 `unknown command`。`package.json` 与 `scripts/ops.js` 同样不保留退休快捷入口：draft / drafts、intent / intents、ladder、timeline、usage、merge、clear，以及旧 plan/spec 的 specs / approve / reject / propose 映射。移除快捷入口不删除历史数据；`worker.usage` RPC 等仍按各自白名单提供，不以旧快捷命令存在与否判断。
 
 展示专用 CLI/RPC 模块与预览子进程已删除；`showcase.*` 不再有 handler 或命令实现。历史 DB 列／行不迁移、不重写，旧 `agent.json.roles.showcase` 仅在读取时忽略，不出现在配置选项或 Prompt 中，写入该角色会被拒绝。历史展示 worktree 不走普通 checkout 清理：cleanup 拒绝；关联目录仍存在（或快照损坏而无法确认归属）时 archive 在任何删除前拒绝，即使显式 discard 也不绕过。
 
@@ -61,6 +61,7 @@ Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 
 
 | 文件 | 职责 | 导出 / 命令 |
 |---|---|---|
+| `scripts/ops.js` | `package.json` 便捷命令分派到现行 CLI；只保留可用别名，不恢复退休命令 | 命令行入口，无导出；其余命令透传 `main` 校验 |
 | `scripts/measure-read-performance.js` | 临时 fixture 的同进程读面 / DOM stub / 事件循环重复采样，逐样本保留既有预算，代码及 OS / Bun / Git 身份与显式 JSON 输出；无 CI / 生产改动 | `parseOptions(args)`、`summarize(values)`、`collectEnvironment(root?,env?)`、`buildReport(samples,environment,startedAt,finishedAt)`、`writeReport(report,output)`、`THRESHOLDS`；`bun run measure:read-performance [--samples N] [--output PATH]`，契约见[本地读取性能报告](../contributing/read-performance.md) |
 
 根 `.gitattributes` 固定 `src/`、`bin/`、`package.json` 的 LF 检出，避免 autocrlf 改变代码身份。Lush 不提供客户端安装包或远端部署产物。
