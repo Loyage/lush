@@ -4,7 +4,7 @@ import { check, isPlainObject, LushError } from './types.js';
 import { DEFAULT_INPUT_ROUTES, normalizeInputRoutes } from './input-routes.js';
 
 /**
- * 项目级「运行设置」：两条并发上限、三条调用 / 拆解限额 + 快速路由前缀表。
+ * 项目级「运行设置」：并发、调用 / 拆解限额、进度汇报开关与历史快速路由前缀表。
  *
  * 与 AgentSettings 同风格：值存在 <home>/settings.json，0600，临时文件加 rename 原子替换，
  * 读时校验 uid / symlink / 大小 / 字段。区别是运行设置是**热更新**的——写盘成功后调用方
@@ -12,9 +12,9 @@ import { DEFAULT_INPUT_ROUTES, normalizeInputRoutes } from './input-routes.js';
  *
  * 有效值 = 存储值 ?? 环境默认值（LUSH_CONCURRENCY / LUSH_CONTROL_CONCURRENCY /
  * LUSH_CALL_TIMEOUT / LUSH_TASK_CALLS / LUSH_MAX_DEPTH 的启动值）；
- * 未被覆盖的键不写进文件，也不用假值填充。
+ * progress_reporting 为布尔开关，默认 true；未被覆盖的键不写进文件，也不用假值填充。
  */
-export const RUNTIME_SETTINGS_KEYS = ['concurrency', 'control_concurrency', 'call_timeout', 'task_call_limit', 'max_depth', 'input_routes'];
+export const RUNTIME_SETTINGS_KEYS = ['concurrency', 'control_concurrency', 'call_timeout', 'task_call_limit', 'max_depth', 'progress_reporting', 'input_routes'];
 export const RUNTIME_SETTINGS_LIMITS = {
   concurrency: { env: 'LUSH_CONCURRENCY', fallback: 8, max: 64 },
   control_concurrency: { env: 'LUSH_CONTROL_CONCURRENCY', fallback: 2, max: 16 },
@@ -46,6 +46,10 @@ export function normalizeRuntimeSettings(value, file = 'runtime settings') {
   for (const key of RUNTIME_SETTINGS_KEYS) {
     const entry = value[key];
     if (entry === undefined || entry === null) continue;
+    if (key === 'progress_reporting') {
+      check(typeof entry === 'boolean', `${key} in ${file} must be a boolean`);
+      stored[key] = entry; continue;
+    }
     if (STRUCTURED_KEYS.has(key)) { stored[key] = normalizeInputRoutes(entry, `${file}.${key}`); continue; }
     check(Number.isInteger(entry) && entry >= 1 && entry <= RUNTIME_SETTINGS_LIMITS[key].max, integerLimit(key, file));
     stored[key] = entry;
@@ -64,6 +68,7 @@ export class RuntimeSettings {
       call_timeout: config.timeoutDefault,
       task_call_limit: config.maxCallsDefault,
       max_depth: config.maxDepthDefault,
+      progress_reporting: true,
       input_routes: DEFAULT_INPUT_ROUTES.map(route => ({ ...route })),
     };
   }

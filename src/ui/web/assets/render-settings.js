@@ -977,6 +977,27 @@ function systemTab() {
   limits.append(runtimeFieldsEditor(runtime, LIMIT_FIELDS, plain, '调用与拆解限额'));
   content.append(limits);
 
+  const reporting = block('进度汇报');
+  const enabled = runtime.progress_reporting?.value !== false;
+  const control = el('label', undefined, 'settings-toggle');
+  const input = el('input'); input.type = 'checkbox'; input.checked = enabled;
+  input.dataset.runtimeInput = 'progress_reporting'; input.setAttribute('aria-label', '启用进度汇报');
+  const error = el('p', undefined, 'settings-error'); error.hidden = true;
+  control.append(input, el('span', enabled ? '开启' : '关闭'));
+  input.onchange = async () => {
+    const value = input.checked; input.disabled = true; error.hidden = true;
+    try {
+      const saved = await action('system.configure', { settings: { progress_reporting: value } });
+      applyRuntimeSettings(saved);
+      show(value ? '进度汇报已开启，后续 Agent 调用生效。' : '进度汇报已关闭，进度区块已隐藏，后续 Agent 调用不再注入进度指引。');
+      renderSettings();
+    } catch (failure) {
+      input.checked = enabled; error.textContent = failure.message; error.hidden = false;
+      show(failure.message, 'error');
+    } finally { input.disabled = false; }
+  };
+  reporting.append(row('启用进度汇报', '默认开启，作用于当前项目。关闭后隐藏所有 Worker 进度区块，后续调用的内置 Prompt 不再包含进度指引与命令示例。正在运行的调用、自定义 Prompt 和已有记录不改写。', control), error);
+  content.append(reporting);
 
   const paths = block('项目路径');
   paths.append(line('project', '项目', 'daemon 绑定的 canonical 项目目录。', plain(snapshot.project)));

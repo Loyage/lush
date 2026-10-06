@@ -54,6 +54,7 @@ export class Config {
     this.timeout = runtime.call_timeout.value;
     this.maxCalls = runtime.task_call_limit.value;
     this.maxDepth = runtime.max_depth.value;
+    this.progressReporting = runtime.progress_reporting.value;
     // 快速路由前缀：提交输入时按这份生效值做匹配，不需要重启 daemon。
     this.inputRoutes = runtime.input_routes.value.map(route => ({ ...route }));
     // 宿主（Project）注册的回调：运行设置写盘后重新 pump，让调高的并发立即对排队任务生效。
@@ -82,6 +83,7 @@ export class Config {
     this.timeout = model.call_timeout.value;
     this.maxCalls = model.task_call_limit.value;
     this.maxDepth = model.max_depth.value;
+    this.progressReporting = model.progress_reporting.value;
     this.inputRoutes = model.input_routes.value.map(route => ({ ...route }));
     this.kick();
     return model;

@@ -16,7 +16,7 @@ import { captureGraph, restoreGraph, graphMotionRunning } from './task-graph-mot
 import { branchDiagnostics, decisionRow } from './task-graph-parts.js';
 import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
 import { workerDeleteControl } from './worker-delete.js';
-import { progressStats, renderGraphProgress } from './render-progress.js';
+import { progressReportingEnabled, progressStats, renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
 import { guardedAction, iterationBlocker, iterationControls } from './render-iteration.js';
 
@@ -277,11 +277,12 @@ function appendTaskActions(row, node, mergeAllByBranch) {
 
 function minimalSummary(node, queueNote, folded = new Set()) {
   const line = el('div', undefined, 'task-graph-minimal-summary');
-  const stats = progressStats(node.progress);
+  const reporting = progressReportingEnabled();
+  const stats = progressStats(reporting ? node.progress : null);
   const count = stats.total ? `${stats.completed}/${stats.total}` : '';
   const stopped = { failed: '失败时中止', cancelled: '取消时中止', completed: '结束时未完成' }[node.status];
   const step = stats.current ? `${stats.current.label}${stopped ? ` · ${stopped}` : ''}`
-    : stats.total ? '计划已全部完成' : node.status === 'running' ? '等待 Agent 汇报计划' : '';
+    : stats.total ? '计划已全部完成' : reporting && node.status === 'running' ? '等待 Agent 汇报计划' : '';
   const waiting = ['waiting', 'awaiting', 'awaiting_acceptance', 'paused', 'queued'].includes(node.status);
   const interruptHint = interruptReason(node);
   const note = interruptHint || (node.integration_error ? `集成受阻：${node.integration_error}`

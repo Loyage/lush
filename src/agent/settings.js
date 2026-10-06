@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { check, isPlainObject } from '../core/types.js';
-import { GUIDE } from './guide.js';
 import { AGENT_ROLES as PROMPT_ROLES, builtInPrompt } from './prompts.js';
 import { normalizeAgentEnv } from './environment.js';
 
@@ -163,8 +162,8 @@ export class AgentSettings {
         thinking: Object.fromEntries(Object.entries(THINKING_LEVELS).map(([key, values]) => [key, [...values]])),
         models: Object.fromEntries(Object.entries(MODEL_PRESETS).map(([key, values]) => [key, [...values]])),
         // Compatibility field for older clients; role-aware clients use default_prompts.
-        default_prompt: GUIDE,
-        default_prompts: Object.fromEntries(AGENT_ROLES.map(role => [role, builtInPrompt(role)])),
+        default_prompt: builtInPrompt('planner', { progressReporting: this.config.progressReporting !== false }),
+        default_prompts: Object.fromEntries(AGENT_ROLES.map(role => [role, builtInPrompt(role, { progressReporting: this.config.progressReporting !== false })])),
       },
     };
   }

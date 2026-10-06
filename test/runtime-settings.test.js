@@ -60,6 +60,7 @@ test('runtime settings file is atomic, owner-only, and falls back to env default
       call_timeout: { value: 10800, default: 10800, overridden: false },
       task_call_limit: { value: 24, default: 24, overridden: false },
       max_depth: { value: 8, default: 8, overridden: false },
+      progress_reporting: { value: true, default: true, overridden: false },
       input_routes: { value: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }],
         default: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }], overridden: false } });
     expect(fs.existsSync(file)).toBe(false);

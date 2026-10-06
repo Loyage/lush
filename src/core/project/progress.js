@@ -183,7 +183,7 @@ export default {
   /** Hide serialized storage columns and expose structured task read models. */
   progressView(task, runs) {
     const { progress_plan, reservation, ...row } = task;
-    const progress = decode(progress_plan);
+    const progress = this.config.progressReporting === false ? null : decode(progress_plan);
     return { ...row,
       progress: Array.isArray(runs) ? projectProgress(progress, runs, task.status, Date.now(), task.task_kind) : progress,
       reservation: decodeReservation(reservation) };

@@ -1,4 +1,10 @@
 import { block, el } from './dom.js';
+import { ui } from './state.js';
+
+/** Project-wide switch; older daemon snapshots retain the default enabled behavior. */
+export function progressReportingEnabled() {
+  return ui.lastSnapshot?.status?.settings?.progress_reporting?.value !== false;
+}
 
 export function progressStats(progress) {
   const items = Array.isArray(progress?.items) ? progress.items.filter(item => item && typeof item.key === 'string' && typeof item.label === 'string') : [];
@@ -102,6 +108,7 @@ export function refreshProgressDurations(root = globalThis.document) {
 }
 
 export function renderCompactProgress(progress) {
+  if (!progressReportingEnabled()) return null;
   const stats = progressStats(progress);
   if (!stats.total) return null;
   const node = el('div', undefined, 'task-progress-compact');
@@ -115,6 +122,7 @@ export function renderCompactProgress(progress) {
 }
 
 export function renderGraphProgress(progress, { running = false, status = null } = {}) {
+  if (!progressReportingEnabled()) return null;
   const stats = progressStats(progress);
   if (!stats.total && !running) return null;
   const terminal = TERMINAL.has(status);
@@ -137,6 +145,7 @@ export function renderGraphProgress(progress, { running = false, status = null }
 }
 
 export function renderTaskProgress(progress, { status = null, endedAt = null } = {}) {
+  if (!progressReportingEnabled()) return null;
   const stats = progressStats(progress);
   if (!stats.total) return null;
   const terminal = TERMINAL.has(status);

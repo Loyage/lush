@@ -110,6 +110,12 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 前端 `task-graph-merge.js` 统一新协议阶段/排序及关系 DOM，子卡片目标只用真实 `parent_id` 与 `target_branch`，不把布局祖先当交付目标。`taskForest` 保留根 ID 降序，只在同一真实父的兄弟槽位按 executing/resolving、requested、其它分组，组内 ID 降序；该顺序不是 runtime 执行次序。`task-graph-motion.js` 为整树刷新记录可见卡片位置，仅同一视图结构下真实兄弟换序播放 250ms FLIP（不移动连线），保留阅读锚点、滚动和焦点；首次加载、筛选、折叠、模式/窗口尺寸变化不播放，编辑、选区、弹层、未结束动效期间暂缓刷新，遵循系统/应用减少动效设置。无后台计时器或全局监听。
 
+## 可选进度汇报
+
+项目级运行设置 `progress_reporting` 为布尔值，默认 `true`，由系统设置经用户专属 `system.configure` 保存，`null` 恢复默认。`Config.progressReporting` 随启动与热更新同步；概览 revision 纳入开关，确保其他页面/客户端及时刷新。关闭时 Runtime 的 `progressView` 投影 `progress:null`，不删除已有计划；后续 invocation 与 Agent 配置预览不再包含内置进度片段或 CLI 示例（包括 analysis 与 Pi 默认模式）。自定义 Prompt / 项目补充和既有会话原文不改写，正在运行的调用不打断，进度 RPC 保留以兼容在途调用。
+
+`builtInPrompt(role,{progressReporting=true}={})` 按开关组合内置片段。Web `render-progress.js` 新增 `progressReportingEnabled()`，从项目快照读取开关，统一隐藏详情、紧凑摘要与完整图进度（含未汇报占位）；极简图也不再显示计划摘要或等待汇报文案。
+
 ## 进展漏报的计时接缝
 
 `progress plan` / `complete` 命令与 RPC 不增加入口。version 1 计划条目可附加 `unconfirmed:true`（被越序跳过、仍 pending，不占完成数也不作为当前执行步骤）与 `timing_unknown:true`（无法分配真实耗时，`duration_ms/work_ms` 为 null，不挂 live tick）。越序完成推进到后续未跳过待办；补报旧步骤只更新完成度，不打断当前计时。Runtime 投影、两种图摘要与 Web 详情必须采用一致的当前步骤选择，旧记录不迁移。具体行为见[Agent 环境](../reference/agent-environment.md)。
