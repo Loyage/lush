@@ -57,6 +57,7 @@ const dom = installDom({ fetch: async (url, options) => {
 dom.document.createElementNS = (_ns, tag) => dom.document.createElement(tag);
 const { createAgentConnections, renderConnectionResources } = await import('../../src/ui/web/assets/render-agent-connections.js');
 const { renderAgentSettings } = await import('../../src/ui/web/assets/render-settings.js');
+const { createProfileForm } = await import('../../src/ui/web/assets/agent-profile-form.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
 const { openModelSources } = await import('../../src/ui/web/assets/render-model-sources.js');
 const { boot } = await import('../../src/ui/web/assets/app.js');
@@ -205,6 +206,31 @@ test('模型来源详情可设置默认模型与思考深度，保存后供运�
   const before = actions.length;
   await btn(p.node, '保存连接').onclick();
   expect(actions).toHaveLength(before); expect(deepText(p.node)).toContain('默认模型必须在上方的模型 ID 范围内');
+});
+
+test('在模型来源页填写Codex列表，Worker运行设置直接选择保存的模型', async () => {
+  const codex = data.connections[2], p = await panel();
+  expect(deepText(card(p, codex.id))).toContain('尚未填写');
+  await btn(card(p, codex.id), '编辑').onclick();
+  expect(field(p.node, 'models').getAttribute('aria-label')).toBe('模型列表（模型 ID，逗号分隔）');
+  expect(deepText(p.node)).toContain('无需重复输入');
+  change(field(p.node, 'models'), 'codex-model-a，codex-model-b');
+  await btn(p.node, '保存连接').onclick();
+  expect(actions.at(-1).params.connection).toMatchObject({ id: codex.id, provider: 'openai-codex', models: ['codex-model-a', 'codex-model-b'] });
+  expect(actions.at(-1).params).not.toHaveProperty('credential');
+  expect(deepText(card(p, codex.id))).toContain('codex-model-a、codex-model-b');
+  intercept = url => url.startsWith('/api/agent/connections/models?')
+    ? json({ version: 1, id: codex.id, status: 'unsupported', models: [] }) : undefined;
+  const form = createProfileForm({ settings: world.state.agentConfig, role: 'agent',
+    profile: { agent: 'pi', config_mode: 'lush', connection_id: codex.id, model: '', thinking: 'high' }, ownsPage: () => current });
+  await form.ready; await form.picker.load();
+  const choices = form.picker.models;
+  expect(choices.children.map(option => option.value)).toEqual(['', 'openai-codex/codex-model-a', 'openai-codex/codex-model-b']);
+  expect(form.collect().model).toBe('');
+  choices.value = 'openai-codex/codex-model-b'; choices.onchange();
+  expect(form.collect()).toMatchObject({ connection_id: codex.id, model: 'openai-codex/codex-model-b', thinking: 'high' });
+  expect(form.validate()).toBeNull();
+  expect(actions.map(action => action.method)).toEqual(['agent.connections.save']);
 });
 
 test('资源查询失败展示旧成功时间，旧值不伪装成最新；响应数据仅文本渲染', async () => {

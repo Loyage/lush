@@ -309,7 +309,8 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       if (defaults) grid.append(kv('默认设定（运行设置快速填入）', defaults));
       if (connection.credential?.identity) grid.append(kv('账号身份（脱敏）', connection.credential.identity));
       if (connection.credential?.expires_at) grid.append(kv('凭证到期', time(connection.credential.expires_at)));
-      connectionSection.append(grid); note(connectionSection, `模型范围：${array(connection.models).length ? connection.models.join('、') : '未限定（不代表已验证模型可用）'}`);
+      connectionSection.append(grid); note(connectionSection, `模型列表：${array(connection.models).length ? connection.models.join('、') : '尚未填写；点击“编辑”添加，发射 Worker 时即可从列表选择（留空不限制模型范围）'}`);
+      if (array(connection.models).length) note(connectionSection, '由用户填写，供 Worker 运行设置选择；同时限制此来源的模型范围，不代表已联网验证可用。');
       if (connection.provider === 'openai-compatible') note(connectionSection, '自定义 OpenAI Chat Completions 兼容 API；余额查询尚不支持，不代表余额为零。运行时仅供 Pi 显式绑定，不自动切换账号。当前适配按文本/工具调用配置；32K 上下文、4K 输出是本地运行预算，不是已验证的上游限额或价格。');
       note(resourceSection, '以下为缓存观测，不保证当前仍有额度；窗口到期或账号变化后需重新查询。');
       resourceSection.append(renderConnectionResources(connection.observation));
@@ -367,7 +368,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     const label = field(form, '连接名称', 'label', 'text', connection?.label || ''); label.maxLength = 120;
     const provider = select(form, '服务商', 'provider', PROVIDERS, connection?.provider || 'deepseek');
     const endpoint = field(form, '模型端点（HTTPS，可留空）', 'endpoint', 'url', connection?.endpoint || '', '留空采用该服务商官方模型端点；代理密钥不能发往官方余额接口。'); endpoint.maxLength = 2048;
-    const models = field(form, '模型 ID 范围（逗号分隔，可留空）', 'models', 'text', array(connection?.models).join(', '), '填写物理模型 ID，不额外添加服务商前缀。这里只是限制，不进行付费可用性探测。'); models.maxLength = 8192;
+    const models = field(form, '模型列表（模型 ID，逗号分隔）', 'models', 'text', array(connection?.models).join(', '), '在此填写一次，保存后发射 Worker 即可从所选来源的列表选择，无需重复输入。填写物理模型 ID，不加服务商前缀；非空时也限制模型范围，留空不限制，不进行付费可用性探测。'); models.maxLength = 8192;
     const defaultModel = field(form, '默认模型（可选）', 'default_model', 'text', connection?.default_model || '', '填写物理模型 ID（可留空）；填写了模型 ID 范围时须在范围内。用于「运行设置」一键填入，不代表已验证可用。');
     defaultModel.maxLength = 256;
     const defaultModelList = el('datalist'); defaultModelList.id = 'connection-default-model-options';

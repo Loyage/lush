@@ -9,7 +9,8 @@ const CATALOG_STATES = { fresh: '缓存目录已更新', cached: '缓存目录�
  * 项目 Profile 与单 Worker 编辑器共用的后端→来源→匹配模型选择。
  *
  * 模型选项来自 Lush 缓存的连接模型目录（GET /api/agent/connections/models?id=…，只读本地、不联网刷新、不调用模型）；
- * 目录缺失或读取失败时退回已保存的模型范围，并明确说明可以手填，不默默替换用户已选来源或模型。
+ * 用户在模型来源页填写的列表优先且完整展示；目录仅补充其元数据，未填写列表时才展示目录候选。
+ * 目录缺失或读取失败不影响手动列表；两者皆空时引导到来源页填写，不默默替换用户已选来源或模型。
  * 思考等级只按目录里确有证据的元数据返回；未知一律返回 null，由调用方保留原选项。
  */
 export function createAgentConnectionPicker({ backend, model, connectionId = '', ownsPage = () => true, onChange = () => {} }) {
@@ -43,27 +44,28 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
   function paintModels(row) {
     const seen = new Set();
     const list = catalogModels(row);
-    models.replaceChildren(option('', list ? '选择此来源缓存目录内的模型…' : '选择此连接已保存的模型…'));
+    const saved = row?.models || [];
+    // A partial/stale catalog must not hide models the user explicitly saved.
+    // Only use matching catalog entries to enrich the manual list, never to expand it.
+    const metadata = new Map((list || []).map(item => [item.id, item]));
+    const choices = saved.length ? saved.map(rawId => {
+      const id = `${row.provider}/${rawId}`;
+      return metadata.get(id) || { id, name: rawId };
+    }) : list || [];
+    models.replaceChildren(option('', saved.length ? '选择此来源已填写的模型…' : choices.length
+      ? '选择此来源缓存目录内的模型…' : '请先在来源页填写模型列表'));
     let count = 0;
-    if (list) {
-      // The manual `connection.models` range is the user's explicit restriction: only offer the
-      // intersection, so a catalog entry outside the range can never become an invalid choice.
-      const allowed = new Set(row?.models || []);
-      const provider = row?.provider || '';
-      for (const item of list) {
-        const id = String(item?.id || '').trim(); if (!id || seen.has(id)) continue;
-        if (allowed.size && provider && id.startsWith(`${provider}/`) && !allowed.has(id.slice(provider.length + 1))) continue;
-        seen.add(id); count++;
-        const name = String(item?.name || '').trim();
-        const levels = Array.isArray(item?.thinking_levels) && item.thinking_levels.length ? ` · 思考 ${item.thinking_levels.join('/')}` : '';
-        models.append(option(id, name && name !== id ? `${name} · ${id}${levels}` : `${id}${levels}`));
-      }
+    for (const item of choices) {
+      const id = String(item?.id || '').trim();
+      if (!id || seen.has(id) || !id.startsWith(`${row?.provider}/`)) continue;
+      seen.add(id); count++;
+      const name = String(item?.name || '').trim();
+      const levels = Array.isArray(item?.thinking_levels) && item.thinking_levels.length ? ` · 思考 ${item.thinking_levels.join('/')}` : '';
+      models.append(option(id, name && name !== id ? `${name} · ${id}${levels}` : `${id}${levels}`));
     }
-    // No usable catalog (or nothing inside the range): fall back to the saved range itself.
-    if (!count) for (const id of row?.models || []) { if (seen.has(id)) continue; seen.add(id); count++; models.append(option(`${row.provider}/${id}`, id)); }
     models.value = '';
-    models.hidden = !value() || count === 0;
-    models.disabled = !backend.value || row?.enabled === false;
+    models.hidden = !value();
+    models.disabled = !backend.value || row?.enabled === false || count === 0;
   }
   function catalogNote(row) {
     const cached = catalogs.get(row?.id);
@@ -80,12 +82,14 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
     connection.children[0].textContent = pi ? '请选择 Lush 模型来源' : 'Codex CLI 自身认证';
     paintModels(row);
     detailsLink.href = value() ? `#model-source-${encodeURIComponent(value())}` : '#model-sources';
-    detailsLink.textContent = value() ? '查看来源详情' : '管理模型来源';
+    const emptyModels = row && models.children.length === 1;
+    detailsLink.textContent = emptyModels ? '填写来源模型列表' : value() ? '查看来源详情' : '管理模型来源';
     const details = catalogNote(row);
+    const manualNote = row?.models?.length ? '候选模型来自你在模型来源页填写的列表；未联网验证可用性。' : '';
     note.textContent = !pi ? '托管连接仅支持 Pi；Codex CLI 沿用原认证，切回 Pi 后保留连接选择。'
       : !value() ? 'Pi 必须选择 Lush 模型来源与明确模型才能启动；不会回退到用户 Pi 认证或默认模型。'
       : !row ? '请读取项目连接以查看模型范围；当前连接与未保存模型保持不变。'
-      : `${row.label} · ${row.endpoint}。${details || (row.models?.length ? '选择已保存模型或填写范围内的 provider/model。' : `填写 ${row.provider}/模型 ID（范围未限定）。`)}${details ? '' : '此列表未联网验证模型；'}停用或凭证不可用时不能启动。${row.provider === 'openai-compatible' ? '自定义兼容 API 的余额尚不支持查询，不代表余额为零。' : ''}`;
+      : `${row.label} · ${row.endpoint}。${manualNote}${emptyModels ? '暂无可选模型；请到此来源详情点击“编辑”，填写并保存“模型列表”，再读取项目连接；也可手填 provider/model。' : ''}${details || (row.models?.length ? '选择已保存模型或填写范围内的 provider/model。' : `填写 ${row.provider}/模型 ID（范围未限定）。`)}${details ? '' : '此列表未联网验证模型；'}停用或凭证不可用时不能启动。${row.provider === 'openai-compatible' ? '自定义兼容 API 的余额尚不支持查询，不代表余额为零。' : ''}`;
     if (row && model.value.trim() && (!model.value.trim().startsWith(`${row.provider}/`)
       || (row.models?.length && !row.models.includes(model.value.trim().slice(row.provider.length + 1))))) {
       note.textContent += ' 当前模型与此来源不匹配，请显式选择或填写匹配模型；不会自动替换。';
