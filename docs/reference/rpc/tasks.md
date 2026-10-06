@@ -51,6 +51,20 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 
 `worker.activity` / `worker.page` 的 `scope='work'|'all'` 省略时保留旧 work 口径；Web overview 与历史分页显式请求 `all`，继续有界读取，不改Worker实体或存储层级。`GET /api/workers` 透传 scope。
 
+## 追加消息的准入与失败处理
+
+`worker.message {id,body}` 是追加工作入口，不是冻结期间的只读通知通道。Agent 仅可给直接父子 Worker 发送消息；main/owner 不接收普通消息，即使是直接父 Worker。指令 Agent 的完成报告写本轮结果，交付由 runtime 按已有协议处理。
+
+发送前可用 `worker.inspect` 核对目标的 `task_kind`、`status`、`reservation` 及归档/同步状态，但读取只是快照，实际准入仍以发送时检查为准：
+
+- version 2 的 `reservation.status='requested'|'executing'|'blocked'` 拒绝普通消息，报 `Worker is frozen for merge; wait for integration or divergence repair before messaging it`。消息**未入箱**，不会自动在解冻后重投。
+- `pending` 或仅开启自动合并不等于已冻结，也不保证其它准入条件满足；新 child 完成后可能自动从 pending 进入 requested，发送前检查无法消除这段竞态。
+- 终态、祖先已结束、分支已归档、同步中、非直接父子等也可能拒绝。Agent 不得自行 reopen/retry、撤销预约、关闭自动合并或绕过检查。
+
+遇到冻结，Agent 必须把目标、未发送正文与后续动作留在当前 Worker 的可续读记录或本轮结果中，不确认仍需修改的 child；结束本轮等交付/修复事件，下轮重新检查后再决定是否发送，不轮询、不后台重试，也不承诺 runtime 会自动重投。收到当前尝试的修复通知仍须遵守固定提交/尝试边界，不借追加消息推进旧尝试。其它拒绝按相应生命周期边界处理，不无条件重发。
+
+独立消息必须分别调用并逐条确认，不用 `&&` 连发：中途拒绝会使后续命令根本未执行。改成 `;` 也不能只看最后一个退出码来认定全部成功。消息发送与测试、提交命令分开执行；区分“发送成功”“被拒绝”“未执行”，不能因为后续测试失败就把已经成功的消息重发。
+
 ## 执行详情代码只读接口
 
 `worker.code_state {id,scope?,after?,limit?}`、`worker.code_tree {id,scope?,path?,query?,changed?,after?,limit?,revision?}`、`worker.code_file {id,scope?,path,view?,side?,offset?,limit?,context?,revision?}` 均为用户专属；不接受 Agent 凭证、任意 cwd 或 ref，不执行 Git 写入/仓库程序，也不新增快照。完整字段和基线语义见[代码阅读器契约](../../engineering/code-reader.md)。

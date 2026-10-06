@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { fixture, repo, until, gate } from '../helpers.js';
+import { fixture, repo, git, until, gate } from '../helpers.js';
 import { Dispatcher } from '../../src/rpc/protocol.js';
 import { createSignal } from '../../src/signal.js';
 
@@ -74,6 +74,45 @@ test('a notice parks only its task, answer wakes it, duplicate answers fail', as
     expect(() => f.project.answer(notice.id, 'B')).toThrow('not open');
     await until(() => f.store.task(task.id).status === 'waiting');
     expect(f.store.task(task.id).calls).toBe(2);
+  } finally { await f.close(); }
+});
+
+test('message admission rejects frozen deliveries and owners without enqueueing or changing delivery', async () => {
+  const f = fixture({ async run() { throw new Error('diagnosis must not invoke an Agent'); } });
+  f.project.stopping = true;
+  try {
+    await repo(f.root);
+    const { task: parent } = await f.project.order('message admission');
+    f.store.update(parent.id, { status: 'waiting' });
+    const child = await f.project.spawn(parent.id, 'message target', undefined, [], 'message-target');
+    f.store.update(child.id, { status: 'waiting' });
+    for (const status of ['requested', 'executing', 'blocked']) {
+      const reservation = JSON.stringify({ version: 2, kind: 'merge', status, parent_id: parent.id });
+      f.store.update(child.id, { reservation });
+      const inbox = f.store.unread(child.id), history = f.store.history(child.id);
+      for (const sender of [null, parent.id]) {
+        expect(() => f.project.message(child.id, 'must remain unsent', sender)).toThrow('Worker is frozen for merge');
+        expect(f.store.unread(child.id)).toEqual(inbox);
+        expect(f.store.history(child.id)).toEqual(history);
+        expect(f.store.task(child.id).reservation).toBe(reservation);
+      }
+    }
+    f.store.update(child.id, { reservation: JSON.stringify({ version: 2, kind: 'merge', status: 'pending' }) });
+    const before = f.store.unread(child.id).length;
+    f.project.message(child.id, 'pending is not frozen', parent.id);
+    expect(f.store.unread(child.id)).toHaveLength(before + 1);
+    expect(f.store.unread(child.id).at(-1)).toMatchObject({ body: 'pending is not frozen', sender_id: parent.id });
+    await git(f.root, 'branch', 'message-owner');
+    const boundOwner = await f.project.bindBranch('message-owner', await git(f.root, 'rev-parse', 'message-owner'));
+    const { task: ownedOrder } = await f.project.order('bound owner child', 'message-owner');
+    for (const [owner, directChild] of [[f.store.task(parent.parent_id), parent], [boundOwner, ownedOrder]]) {
+      const inbox = f.store.unread(owner.id);
+      expect(directChild.parent_id).toBe(owner.id);
+      for (const sender of [null, directChild.id]) {
+        expect(() => f.project.message(owner.id, 'ordinary completion report', sender)).toThrow('branch owner Worker is not an unrestricted Agent inbox');
+        expect(f.store.unread(owner.id)).toEqual(inbox);
+      }
+    }
   } finally { await f.close(); }
 });
 

@@ -16,7 +16,7 @@
 
 | 文件 | 职责 | 导出 |
 |---|---|---|
-| `agent/prompts.js` | 命名内置 Prompt 片段、按角色组合，并叠加可提交、本机与 `agent.json` 补充 | `AGENT_ROLES`、`PROMPT_PARTS`、`ROLE_PROMPT_PARTS`、`builtInPrompt(role,{progressReporting=true}={})`、`agentPrompt(config,role,profile,taskKind?)` |
+| `agent/prompts.js` | 命名内置 Prompt 片段、按角色组合，并叠加可提交、本机与 `agent.json` 补充；通用 CLI 片段说明消息准入、冻结/main 例外与逐条确认，委派片段不要求向冻结 child 强发修改；规则见[消息准入](../reference/rpc/tasks.md#追加消息的准入与失败处理) | `AGENT_ROLES`、`PROMPT_PARTS`、`ROLE_PROMPT_PARTS`、`builtInPrompt(role,{progressReporting=true}={})`、`agentPrompt(config,role,profile,taskKind?)` |
 | `agent/connections*.js` | 项目多账号凭证的私有文件、安全 OAuth 登录/刷新和结构化资源查询；固定审查 MIT 来源，认证私密结果不返回 RPC。`catalog(id)` 只读本地模型目录，`catalogRefresh(id)` 走经审核列表接口或 Pi 本地元数据并丢弃迟到结果 | `ConnectionManager`（字段/接口见[连接器契约](agent-connections.md)） |
 | `agent/connections-catalog.js` | 清单适配器、限定模型投影、owner-only 原子目录缓存（`<home>/credentials/agent-connection-catalog.json`）；按 provider/端点/限制/账号隔离，手动范围与 Pi auth-free 本地回退，不发模型探测 | `LISTINGS`、`ConnectionCatalogFile`、`catalogKey()`、`manualModels()`、`localModels()`、`normalizeCatalog()`（[目录契约](agent-model-catalog.md)） |
 | `core/agent-connections.js` / `store/agent-connections.js` | 项目连接观测服务与附属采样持久化；身份/端点隔离、迟到保护、旧值、有界历史和显式后台采样；服务层核验设备码登录的安全投影，`deviceStart/devicePoll/deviceCancel` 经项目准入转发 Manager，不持久化未完成设备登录。模型目录读面 `models(id)` / `modelsRefresh(id?)` 单飞、身份隔离、后台低频调度并随关闭取消 | `AgentConnectionsService`、Store mixin；[设备码契约](codex-device-login.md)、[目录契约](agent-model-catalog.md) |
