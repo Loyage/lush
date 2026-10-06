@@ -424,12 +424,12 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       if (parent.parentNode === sourceRows) focusId = parent.dataset.sourceId;
     }
     const focusLabel = focused?.textContent, focusField = focused?.dataset?.connectionField;
-    const query = search.value.trim().toLocaleLowerCase();
+    const term = search.value.trim().toLocaleLowerCase();
     const all = array(data?.connections);
     filtered = all.filter(row => (!providerFilter.value || row.provider === providerFilter.value)
       && (!enabledFilter.value || Boolean(row.enabled) === (enabledFilter.value === 'enabled'))
       && (!stateFilter.value || (stateFilter.value === 'attention' ? attention(row) : row.credential?.status === stateFilter.value || row.observation?.status === stateFilter.value))
-      && (!query || [row.label, row.provider, PROVIDERS.find(([id]) => id === row.provider)?.[1], row.endpoint, ...array(row.models), row.default_model].join(' ').toLocaleLowerCase().includes(query)));
+      && (!term || [row.label, row.provider, PROVIDERS.find(([id]) => id === row.provider)?.[1], row.endpoint, ...array(row.models), row.default_model].join(' ').toLocaleLowerCase().includes(term)));
     sourceRows.replaceChildren(...filtered.map(connection => {
       const row = el('article', undefined, 'model-source-row'); row.dataset.sourceId = connection.id;
       const identity = el('div', undefined, 'model-source-identity');

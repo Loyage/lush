@@ -285,7 +285,7 @@ test('reset countdown only ticks locally, pauses hidden, expires honestly and cl
 test('late query after returning to the page releases busy controls without applying its old snapshot or losing edits', async () => {
   const p = await panel(), wait = deferred();
   intercept = (_url, action) => action?.method === 'agent.connections.query' ? wait.promise : null;
-  const querying = button(row(p.node, 'a'), '刷新').onclick();
+  const querying = button(row(p.node, 'a'), '刷新').onclick(); expect(actions('query').map(action => action.params.id)).toEqual(['a']);
   current = false; p.dispose(); current = true; p.resume();
   data.connections[0].label = '返回后新状态'; await p.load(true);
   await button(row(p.node, 'a'), '编辑').onclick(); change(field(p.node, 'default_model'), 'org/model');
