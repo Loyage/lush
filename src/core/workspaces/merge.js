@@ -46,6 +46,7 @@ async function applyTaskSquashTransaction(workspaces, receipt, guard, action) {
     await response('prepare: ok\n');
     await action();
     taskSquashGuard(guard); // No await between runtime cancellation/new-input guard and this write.
+    workspaces.noteRefWrite(); // 自定义 ref 事务：把这次父分支写入计入 daemon 打点，避免被越界检测误判。
     proc.stdin.write('commit\n');
     await proc.stdin.flush();
     await response('commit: ok\n');

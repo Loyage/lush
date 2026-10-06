@@ -461,6 +461,17 @@ export default {
           account_key: connectionRuntime.account_key, model: agent.model });
       }
       if (run.controller.signal.aborted) throw new Error(abortMessage());
+      // 目标分支只能由 daemon 的交付推进。记录调用前的稳定快照，结束后对照 daemon 侧 ref 写入打点：
+      // agent 越过自己的 worktree 直接提交、或外部 Git 手动推进，都会在这里被如实拦下。
+      const targetBranch = task.target_branch && task.target_branch !== task.branch ? task.target_branch : null;
+      let targetBaseline = null, refWritesBaseline = 0;
+      if (targetBranch) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          refWritesBaseline = this.workspaces.gitRefWrites ?? 0;
+          targetBaseline = await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${targetBranch}`).catch(() => null);
+          if ((this.workspaces.gitRefWrites ?? 0) === refWritesBaseline) break;
+        }
+      }
       const result = await this.provider.run({ task: providerTask, cwd, token: run.token, signal: run.controller.signal, agent,
         connectionRuntime, onConnectionObservation: connectionRuntime ? observation => this.agentConnections.observe(
           agent.connection_id, connectionRuntime.account_key, connectionRuntime.source_key, observation) : null,
@@ -472,6 +483,25 @@ export default {
       if (TERMINAL.has(this.store.task(taskId).status) || run.parked) return;
       if (run.controller.signal.aborted) throw new Error(timedOut ? timeoutMessage : abortMessage());
       check(typeof result === 'string' && Buffer.byteLength(result) <= 256000, 'agent result exceeds 256000 bytes');
+      // 目标分支被本次调用越过交付直接推进时，不把它当成功：保留现场、记录事件、按失败处理。
+      if (targetBranch && targetBaseline) {
+        let targetNow = targetBaseline, refWritesNow = this.workspaces.gitRefWrites ?? 0;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          refWritesNow = this.workspaces.gitRefWrites ?? 0;
+          targetNow = await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${targetBranch}`).catch(() => targetBaseline);
+          if ((this.workspaces.gitRefWrites ?? 0) === refWritesNow) break;
+        }
+        const ownerRunning = [...this.running.keys()].some(id => this.store.task(id)?.branch === targetBranch);
+        if (targetNow !== targetBaseline && refWritesNow === refWritesBaseline && !ownerRunning) {
+          const moved = (await this.workspaces.git(this.config.project, 'log', '--oneline',
+            `${targetBaseline}..${targetNow}`).catch(() => '')).split('\n').filter(Boolean);
+          this.store.event(taskId, 'invocation.target_branch_moved', { branch: targetBranch, before: targetBaseline,
+            after: targetNow, commits: moved.slice(0, 20) });
+          throw new Error(`目标分支 ${targetBranch} 在本次调用期间被直接推进，而不是经 daemon 交付：`
+            + `${moved.slice(0, 3).join('；') || targetNow.slice(0, 12)}。本次调用按失败处理并保留现场；`
+            + '请检查这次提交是否应当显式交付，或改为在自己的 worktree 内提交后再继续。');
+        }
+      }
       // G-02: re-check the pinned tree after the invocation. Drift or dirt means the evidence no longer
       // describes the frozen commit, so the invocation fails instead of being recorded as a pass.
       if (task.role === 'verifier' && task.review_candidate_id) {
