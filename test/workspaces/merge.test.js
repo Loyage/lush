@@ -82,6 +82,8 @@ test('review diff is read-only and reports commits, files and dirty worktrees', 
     const diff = await f.project.workspaces.diff(f.store.task(f.task.id));
     expect(diff.committed).toBe(true);
     expect(diff.files).toEqual([{ path: 'file.txt', added: 1, deleted: 1 }]);
+    // 概览的整体 +/- 行数在列表截断前汇总，供详情页默认收起明细时使用。
+    expect(diff).toMatchObject({ added: 1, deleted: 1, pending_added: 0, pending_deleted: 0 });
     expect(diff.pending).toEqual([]);
     expect(diff.commits).toHaveLength(1);
     expect(diff.base_behind).toBe(0);
@@ -94,6 +96,7 @@ test('review diff is read-only and reports commits, files and dirty worktrees', 
       { path: 'untracked.txt', code: '??', added: null, deleted: null },
     ]);
     expect(dirty.files).toEqual([{ path: 'file.txt', added: 1, deleted: 1 }]);
+    expect(dirty).toMatchObject({ added: 1, deleted: 1, pending_added: 1, pending_deleted: 1 });
     expect(f.store.task(f.task.id).integration).toBe('pending');
     // 主树可以在 worker 干活期间继续前进：审阅要能看出 base 已经落后。
     fs.writeFileSync(path.join(f.root, 'main.txt'), 'main\n');

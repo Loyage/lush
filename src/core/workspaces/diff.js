@@ -147,10 +147,18 @@ export const methods = {
       const counted = numbers.get(path) || { added: null, deleted: null };
       return { path, code: match[1].trim(), added: counted.added, deleted: counted.deleted };
     }).filter(Boolean);
+    // 行数汇总要在截断之前算：列表最多展示 500 条，概览的「总体 +/-」必须覆盖全部文件。
+    const lineTotals = rows => rows.reduce((total, row) => {
+      if (row.added !== null && row.deleted !== null) { total.added += row.added; total.deleted += row.deleted; }
+      return total;
+    }, { added: 0, deleted: 0 });
+    const committedLines = lineTotals(files), pendingLines = lineTotals(pending);
     return {
       branch: task.branch, target_branch: task.target_branch,
       base_commit: task.base_commit, head_commit: task.head_commit, committed: Boolean(range),
       base_behind: baseBehind === '' ? null : Number(baseBehind),
+      added: committedLines.added, deleted: committedLines.deleted,
+      pending_added: pendingLines.added, pending_deleted: pendingLines.deleted,
       files: files.slice(0, 500), files_total: files.length,
       pending: pending.slice(0, 500), pending_total: pending.length,
       commits: lines(commits).slice(0, 100),
