@@ -11,6 +11,7 @@ const { ui } = await import('../../src/ui/web/assets/state.js');
 const { showHelp, hideHelp } = await import('../../src/ui/web/assets/help.js');
 const { renderTaskGraph, loadTaskGraph } = await import('../../src/ui/web/assets/render-task-graph.js');
 const { readPref, setPref, resetPrefs } = await import('../../src/ui/web/assets/prefs.js');
+const { resourceSummary } = await import('../../src/ui/web/assets/task-graph-usage.js');
 const card = id => dom.node('detail').querySelector(`[data-task-id="${id}"]`);
 const mode = () => dom.node('detail').querySelector('[data-graph-focus="detail-mode"]');
 const enable = () => { mode().checked = false; mode().onchange(); };
@@ -42,7 +43,7 @@ test('资源消耗在两种模式显示自身，折叠显示后端完整子树�
   renderTaskGraph(graph);
   let summary = card(1).querySelector('.task-graph-usage');
   expect(summary.children[0].className).toContain('task-graph-usage-runtime');
-  expect(summary.children[0].textContent).toContain('运行 1 小时 1 分');
+  expect(summary.children[0].textContent).toBe('1h1m');
   expect(deepText(summary)).toContain('↑121.0k');
   expect(deepText(summary)).toContain('↓18.0k');
   expect(deepText(summary)).toContain('$2.24');
@@ -54,13 +55,13 @@ test('资源消耗在两种模式显示自身，折叠显示后端完整子树�
   expect(siblings[siblings.indexOf(placed) + 1].textContent).toContain('待合并');
   expect(card(2).querySelector('.task-graph-head').querySelector('.task-graph-usage')).toBeNull();
   expect(card(2).querySelector('.task-graph-usage').classList.contains('is-live')).toBe(true);
-  expect(deepText(card(3).querySelector('.task-graph-usage'))).toContain('运行 —');
+  expect(card(3).querySelector('.task-graph-usage-runtime').textContent).toBe('—');
   expect(deepText(card(3).querySelector('.task-graph-usage'))).toContain('↑—');
   await card(1).querySelector('button').onclick();
   summary = card(1).querySelector('.task-graph-usage');
   expect(summary.classList.contains('is-aggregate')).toBe(true);
   expect(summary.classList.contains('is-live')).toBe(true);
-  expect(deepText(summary)).toContain('运行 2 小时 2 分');
+  expect(summary.querySelector('.task-graph-usage-runtime').textContent).toBe('2h2m');
   expect(deepText(summary)).toContain('$4.48');
   expect(summary.getAttribute('data-help')).toContain('图外节点');
   enableDetails();
@@ -76,6 +77,23 @@ test('资源消耗在两种模式显示自身，折叠显示后端完整子树�
   renderTaskGraph(graph);
   expect(card(2).querySelector('.task-graph-usage-cost').textContent).toBe('—');
   expect(card(2).querySelector('.task-graph-usage').classList.contains('is-live')).toBe(false);
+});
+
+test('Worker 树时长不带运行前缀，使用至多两段相邻单位并截断更小单位', () => {
+  const cases = [
+    [0, '0s'], [-1000, '0s'], [999, '0s'], [1000, '1s'], [59999, '59s'],
+    [60000, '1m0s'], [61000, '1m1s'], [3599999, '59m59s'],
+    [3600000, '1h0m'], [3661000, '1h1m'], [86399999, '23h59m'],
+    [86400000, '1d0h'], [93784000, '1d2h'], [900000000, '10d10h'],
+    [NaN, '—'], [Infinity, '—'], [undefined, '—'],
+  ];
+  for (const [run_ms, expected] of cases) {
+    const own = { run_ms, input: 0, output: 0, cost: 0 };
+    const summary = resourceSummary({ resources: { own } }, false);
+    expect(summary.querySelector('.task-graph-usage-runtime').textContent).toBe(expected);
+    expect(summary.getAttribute('aria-label')).toContain(`运行 ${expected}`);
+    expect(summary.getAttribute('data-help')).toContain('不含等待');
+  }
 });
 
 test('默认极简且详情开关未勾选；主动开启详情，取消后回到双行摘要，不发业务请求', async () => {

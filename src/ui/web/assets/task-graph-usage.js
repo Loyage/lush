@@ -1,6 +1,14 @@
 import { el } from './dom.js';
 import { tokens } from './format.js';
-import { formatProgressDuration } from './render-progress.js';
+
+/** Show the two largest adjacent units, truncating smaller units. */
+function compactRuntime(milliseconds) {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  if (seconds >= 86400) return `${Math.floor(seconds / 86400)}d${Math.floor(seconds % 86400 / 3600)}h`;
+  if (seconds >= 3600) return `${Math.floor(seconds / 3600)}h${Math.floor(seconds % 3600 / 60)}m`;
+  if (seconds >= 60) return `${Math.floor(seconds / 60)}m${seconds % 60}s`;
+  return `${seconds}s`;
+}
 
 /** Only backend lifetime summaries are authoritative, never the visible forest. */
 export function resourceSummary(node, folded) {
@@ -9,13 +17,13 @@ export function resourceSummary(node, folded) {
   const box = el('span', undefined, 'task-graph-usage');
   if (aggregate) box.classList.add('is-aggregate');
   if (value?.running) box.classList.add('is-live');
-  const runtime = value && Number.isFinite(value.run_ms) ? formatProgressDuration(value.run_ms) : '—';
+  const runtime = value && Number.isFinite(value.run_ms) ? compactRuntime(value.run_ms) : '—';
   const unknownTokens = !value || value.incomplete || value.unknown_tokens > 0;
   const unknownCost = !value || value.incomplete || value.unknown_cost > 0;
   const input = unknownTokens ? '—' : tokens(value.input);
   const output = unknownTokens ? '—' : tokens(value.output);
   const cost = unknownCost ? '—' : `$${value.cost.toFixed(2)}`;
-  box.append(el('span', `运行 ${runtime}`, 'task-graph-usage-runtime'),
+  box.append(el('span', runtime, 'task-graph-usage-runtime'),
     el('span', `↑${input}`, 'task-graph-usage-input'),
     el('span', `↓${output}`, 'task-graph-usage-output'),
     el('span', cost, 'task-graph-usage-cost'));
