@@ -59,7 +59,7 @@ export function openInputs({ item = null, push = true } = {}) {
   }
   const hash = item ? `#input-${item.kind}-${item.id}` : '#inputs';
   const view = activateDetailView({ view: 'inputs', hash, push });
-  const state = { view, request: 0, pending: null, cursor: null, detailRequest: 0, editor: null, activeItem: null, listScroll: 0, items: new Map(), query: {} };
+  const state = { view, request: 0, pending: null, cursor: null, detailRequest: 0, editor: null, activeItem: null, listScroll: 0, items: new Map(), query: { status: 'draft' } };
   ui.inputsPage = state;
   const ownsPage = () => ui.view === view && ui.inputsPage === state;
   const root = el('div', undefined, 'inputs-page resource-page');
@@ -71,6 +71,7 @@ export function openInputs({ item = null, push = true } = {}) {
   const search = el('input'); search.type = 'search'; search.placeholder = '搜索全库输入正文'; search.setAttribute('aria-label', '搜索全库输入正文');
   searchLabel.append(search);
   const status = selectField('Worker 状态', INPUT_STATUS), merge = selectField('合并状态', INPUT_MERGE);
+  status.select.value = state.query.status;
   const searchButton = el('button', '搜索'); searchButton.type = 'submit';
   const feedback = el('p', undefined, 'inputs-feedback hint'); feedback.setAttribute('role', 'status');
   const list = el('ol', undefined, 'inputs-list'); list.setAttribute('aria-label', '输入记录');

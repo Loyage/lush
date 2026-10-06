@@ -36,6 +36,24 @@ test('真实 API：详情页 Enter 给暂停 Worker 追加消息，不创建 Inp
   } finally { restore(); await fixture.close(); }
 });
 
+test('真实 API：默认只读暂存，手动切换才显示已提交历史', async () => {
+  fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
+  try {
+    resetUiState();
+    const draft = await fixture.project.addBufferedDraft('待执行想法', [], 'main');
+    await fixture.project.order('已提交指令', 'main', [], null, false);
+    await openInputs();
+    expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual([`draft:${draft.id}`]);
+    const status = root().querySelector('.inputs-filters').querySelector('select');
+    expect(status.value).toBe('draft');
+    status.value = 'created'; await status.onchange();
+    expect(root().querySelectorAll('.input-record')).toHaveLength(1);
+    expect(root().querySelector('.input-record').dataset.input).toMatch(/^input:/);
+    status.value = ''; await status.onchange();
+    expect(root().querySelectorAll('.input-record')).toHaveLength(2);
+  } finally { await fixture.close(); }
+});
+
 test('真实 API 串联：Enter 暂存、空筛选/正文检索、保存修订与仅创建、原文引用只读', async () => {
   fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
   const restore = registerNavigation({ refresh: async () => {} });
@@ -49,7 +67,8 @@ test('真实 API 串联：Enter 暂存、空筛选/正文检索、保存修订�
     expect(fixture.store.all("SELECT * FROM tasks WHERE task_kind='order'")).toHaveLength(0);
     await openInputs(); expect(root().querySelectorAll('.input-record')).toHaveLength(1);
     const form = root().querySelector('.inputs-filters');
-    // Both selects default to empty: send no enum restriction, not invalid status='' / integration=''.
+    // Default to drafts; choosing all sends no enum restriction, not invalid status='' / integration=''.
+    expect(form.querySelector('select').value).toBe('draft');
     await form.onsubmit({ preventDefault() {} });
     expect(deepText(root())).not.toContain('读取失败');
     form.querySelector('input').value = '第二行'; await form.onsubmit({ preventDefault() {} });
