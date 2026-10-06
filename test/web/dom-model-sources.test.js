@@ -30,7 +30,7 @@ const visibleCards = root => root.querySelectorAll('.agent-connection-card').fil
 async function panel(options = {}) { const p = createAgentConnections({ ownsPage: () => current, ...options }); await p.load(); return p; }
 const row = (root, id) => root.querySelector(`[data-source-id="${id}"]`);
 
-test('来源列表包含身份、端点与凭证，默认仅一个详情；表单、历史、采样按需展开', async () => {
+test('全宽总览包含所有来源身份、端点与凭证；详情、表单、历史、采样按需展开', async () => {
   const p = await panel();
   expect(requests.map(entry => entry.url)).toEqual(['/api/agent/connections']);
   expect(p.node.querySelectorAll('.model-source-row')).toHaveLength(2);
@@ -61,7 +61,7 @@ test('名称/端点搜索与服务商、启用状态筛选只过滤本地列表�
 });
 
 test('选择来源更新独立详情与窄屏前后导航，不产生配置或联网查询', async () => {
-  const p = await panel(); await row(p.node, 'source-b').onclick();
+  const p = await panel(); await button(row(p.node, 'source-b'), '详情').onclick();
   expect(p.selectedConnection()).toBe('source-b'); expect(p.node.dataset.sourceView).toBe('detail');
   expect(visibleCards(p.node).map(card => card.dataset.connectionId)).toEqual(['source-b']);
   expect(row(p.node, 'source-b').getAttribute('aria-current')).toBe('true');
@@ -77,7 +77,7 @@ test('刷新列表保留筛选和未保存表单，选择其他来源不悄悄�
   const label = field(p.node, 'label'); label.value = '未保存草稿'; label.oninput();
   const search = field(p.node, 'source-search'); search.value = '中转'; search.oninput();
   await p.load(true); expect(field(p.node, 'label')).toBe(label); expect(label.value).toBe('未保存草稿');
-  expect(search.value).toBe('中转'); await row(p.node, 'source-b').onclick();
+  expect(search.value).toBe('中转'); await button(row(p.node, 'source-b'), '详情').onclick();
   expect(label.value).toBe('未保存草稿'); expect(p.selectedConnection()).toBe('source-b');
 });
 
@@ -120,7 +120,7 @@ test('切换来源立即取消设备码登录，清除短码与定时器，不�
   const p = await panel({ setTimeout: (fn, ms) => { timers.set(++next, { fn, ms }); return next; }, clearTimeout: id => timers.delete(id) });
   await button(visibleCards(p.node)[0], '登录 / 重新登录').onclick();
   const code = field(p.node, 'user_code'); expect(code.value).toBe('SAFE-CODE'); expect(timers.size).toBe(1);
-  await row(p.node, 'source-b').onclick();
+  await button(row(p.node, 'source-b'), '详情').onclick();
   expect(code.value).toBe(''); expect(timers.size).toBe(0);
   const actions = requests.filter(entry => entry.url === '/api/action').map(entry => JSON.parse(entry.options.body));
   expect(actions.map(entry => entry.method)).toEqual(['agent.connections.device.start', 'agent.connections.device.cancel']);
@@ -134,9 +134,9 @@ test('取消来源编辑清除password，不保留密钥草稿', async () => {
   expect(field(p.node, 'api_key').value).toBe(''); expect(requests).toHaveLength(1);
 });
 
-test('来源 CSS 有双栏、窄屏列表详情切换、隐藏语义与主题 token，不用内联样式', () => {
+test('来源 CSS 有全宽总览、侧面板和窄屏卡片、隐藏语义与主题 token', () => {
   const css = fs.readFileSync(new URL('../../src/ui/web/assets/styles-agent-connections.css', import.meta.url), 'utf8');
-  expect(css).toContain('grid-template-columns:minmax(230px,310px) minmax(0,1fr)');
-  expect(css).toContain('data-source-view="list"'); expect(css).toContain('data-source-view="detail"');
+  expect(css).toContain('.model-source-layout{display:grid;grid-template-columns:minmax(0,1fr)');
+  expect(css).toContain('.model-source-detail{position:fixed'); expect(css).toContain('data-source-view="detail"');
   expect(css).toContain('[hidden]{display:none!important}'); expect(css).toContain('var(--bg)'); expect(css).toContain(':focus-visible');
 });

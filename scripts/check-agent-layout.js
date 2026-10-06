@@ -14,9 +14,20 @@ const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-22
 world.state.agentConnections.connections = ids.map((id, index) => ({ id,
   label: index ? '自定义 API · 长名称用于检验布局 '.repeat(4) : '我的 DeepSeek 账号',
   provider: index ? 'openai-compatible' : 'deepseek', endpoint: index ? `https://api.example.com/${'long-endpoint-'.repeat(12)}/v1` : 'https://api.deepseek.com',
-  auth_type: 'api_key', enabled: !index, models: index ? ['vendor/chat'] : ['deepseek-chat'], credential: { status: 'configured' },
+  auth_type: 'api_key', enabled: !index, models: index ? ['vendor/chat'] : ['deepseek-chat'],
+  default_model: index ? 'vendor/chat' : 'deepseek-chat', default_thinking: 'high', credential: { status: 'configured' },
   observation: { status: index ? 'unsupported' : 'available', source: 'usage_api', checked_at: '2026-10-05T12:00:00Z',
     resources: index ? [] : [{ id: 'cash', kind: 'balance', scope: 'account', label: '现金余额', unit: 'USD', remaining: 12.3 }] }, consumers: [] }));
+const codexId = '33333333-3333-4333-8333-333333333333';
+world.state.agentConnections.connections.push({ id: codexId, label: '我的 Codex 订阅', provider: 'openai-codex',
+  endpoint: 'https://chatgpt.com/backend-api/codex', auth_type: 'oauth', enabled: true, models: ['gpt-6.1-sol'],
+  default_model: 'gpt-6.1-sol', default_thinking: 'xhigh', credential: { status: 'configured' }, consumers: [],
+  observation: { status: 'available', source: 'usage_api', checked_at: new Date().toISOString(), resources: [
+    { id: 'short', kind: 'quota', scope: 'account', label: '短窗口', unit: '%', remaining: 75, total: 100, used_percent: 25,
+      window_seconds: 18000, reset_at: new Date(Date.now() + 2 * 3600000).toISOString() },
+    { id: 'week', kind: 'quota', scope: 'account', label: '周窗口', unit: '%', remaining: 10, total: 100, used_percent: 90,
+      window_seconds: 604800, reset_at: new Date(Date.now() + 3 * 86400000).toISOString() },
+  ] } });
 Object.assign(world.state.agentConfig.default, { agent: 'pi', connection_id: ids[0], model: 'deepseek/deepseek-chat' });
 for (const role of Object.keys(world.state.agentConfig.resolved)) world.state.agentConfig.resolved[role] = { ...world.state.agentConfig.default };
 const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -88,25 +99,32 @@ try {
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` }); await waitFor('window.ready');
-  assert(await execute(`return document.querySelectorAll('.model-source-row').length===2 && [...document.querySelectorAll('.agent-connection-card')].filter(n=>!n.hidden).length===1`), 'Source list/selection missing');
-  await click('.model-source-row:last-child');
+  assert(await execute(`return document.querySelectorAll('.model-source-row').length===3 && document.querySelector('.model-source-detail').hidden`), 'Full overview or closed initial panel missing');
+  assert(await execute(`const row=document.querySelector('[data-source-id="${codexId}"]');return row.textContent.includes('gpt-6.1-sol') && row.textContent.includes('xhigh') && row.querySelectorAll('[role="progressbar"]').length===2 && [...row.querySelectorAll('.agent-reset-remaining')].every(n=>n.textContent.includes('后重置'));`), 'Codex settings, quota windows or reset countdown missing');
+  await click('.model-source-row:nth-child(2) .model-source-row-actions > button:last-child');
   assert(await execute(`return document.querySelector('.agent-connections-panel').textContent.includes('不支持') && !document.querySelector('[data-connection-field="api_key"]')?.getClientRects().length`), 'Unknown quota or write-only editor wrong');
   for (const theme of ['light', 'dark']) for (const [width, height] of [[1440,900], [900,700], [390,844]]) {
     await rpc(`/session/${session}/window/rect`, { width, height });
     await execute(`document.documentElement.dataset.theme='${theme}';window.scrollTo(0,0)`);
-    if (width < 640 && await execute(`return getComputedStyle(document.querySelector('.model-source-detail')).display==='none'`)) await click('.model-source-row:last-child');
+    if (await execute(`return !document.querySelector('.model-source-detail').hidden`)) await click('.model-source-back');
+    await layout(`overview-${theme}-${width}`);
+    await click('.model-source-row:nth-child(2) .model-source-row-actions > button:last-child');
     await layout(`sources-${theme}-${width}`);
-    if (width < 640) {
-      await click('.model-source-back');
-      assert(await execute(`return getComputedStyle(document.querySelector('.model-source-list')).display!=='none' && getComputedStyle(document.querySelector('.model-source-detail')).display==='none'`), 'Mobile return did not show list');
-    }
-    await click('.model-source-row:first-child');
-    assert(await execute(`return document.activeElement.matches('${width < 640 ? '.agent-connection-card h3' : '.model-source-row'}') && document.querySelector('.model-source-row:first-child').getAttribute('aria-current')==='true'`), 'Source selection lost keyboard focus');
-    if (width < 640) await click('.model-source-back');
+    await click('.model-source-back');
+    assert(await execute(`return getComputedStyle(document.querySelector('.model-source-list')).display!=='none' && getComputedStyle(document.querySelector('.model-source-detail')).display==='none'`), 'Return did not show overview');
+    await click('.model-source-row:first-child .model-source-row-actions > button:last-child');
+    assert(await execute(`return document.activeElement.matches('.agent-connection-card h3') && document.querySelector('.model-source-row:first-child').getAttribute('aria-current')==='true'`), 'Source selection lost keyboard focus');
+    await click('.model-source-back');
+    assert(await execute(`return document.activeElement.matches('.model-source-row:first-child button:last-child')`), 'Focus not returned to detail trigger');
+    await click('.model-source-intro .agent-connection-actions > .primary');
+    assert(await execute(`return document.activeElement.matches('[data-connection-field="label"]') && document.querySelector('.model-source-detail').getAttribute('aria-modal')===null`), 'Editor focus/nonmodal semantics missing');
+    await layout(`editor-${theme}-${width}`);
+    await execute(`document.querySelector('.model-source-detail').dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));`);
+    assert(await execute(`return document.activeElement.textContent==='添加连接'`), 'Escape not returned to add trigger');
     await execute(`const s=document.querySelector('.model-source-filters input');s.value='自定义';s.dispatchEvent(new Event('input'));`);
     assert(await execute(`return document.querySelectorAll('.model-source-row').length===1`), 'Local source search failed');
     await execute(`const s=document.querySelector('.model-source-filters input');s.value='';s.dispatchEvent(new Event('input'));`);
-    await click('.model-source-row:last-child');
+    await click('.model-source-row:nth-child(2) .model-source-row-actions > button:last-child');
     await execute('window.openConfig()'); await waitFor('document.querySelector("[data-agent-target=default]")');
     await layout(`config-${theme}-${width}`);
     await waitFor('document.querySelector(".agent-default-summary")?.textContent.includes("我的 DeepSeek")');
@@ -115,14 +133,14 @@ try {
     await waitFor('document.querySelector(".agent-status-feedback")?.textContent.includes("查询失败")');
     await click('[data-agent-tab="settings"]');
     assert(await execute(`return document.querySelector('[data-agent-field="model"]').value==='unsaved-model'`), 'Diagnostic failure lost configuration draft');
-    await execute('window.openSources()'); await waitFor('document.querySelectorAll(".model-source-row").length===2');
-    if (width < 640) await click('.model-source-row:last-child');
+    await execute('window.openSources()'); await waitFor('document.querySelectorAll(".model-source-row").length===3');
+    if (await execute(`return !document.querySelector('.model-source-detail').hidden`)) await click('.model-source-back');
     console.log(`PASS Agent/source layout and interaction ${theme}/${width}`);
   }
   assert(calls.every(route => ['/api/agent/connections', '/api/agent/connections/models', '/api/agent/packages',
     '/api/agent/config', '/api/agent/status', '/api/agent/usage/config', '/api/agent/usage/history'].includes(route)), `Unexpected API: ${calls.join(',')}`);
   assert(await execute('return window.browserErrors.length===0'), 'Browser emitted errors');
-  passed = true; console.log(`PASS mock-only two-page layouts, narrow screen navigation, local search, focus and draft preservation. Screenshots: ${output}`);
+  passed = true; console.log(`PASS mock-only overview/detail/editor layouts, Codex windows/countdown, narrow screen navigation, local search, focus/Escape and draft preservation. Screenshots: ${output}`);
 } catch (error) {
   if (session) await screenshot('failure').catch(() => {});
   console.error(`Agent browser failure; full logs: ${logs}`); throw error;

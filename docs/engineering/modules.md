@@ -116,6 +116,8 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 ## Agent 管理与状态查询接缝
 
+用户决定 #186 将「模型来源」升级为全宽多连接总览、逐行侧边编辑与勾选批量刷新 / 启用停用，取代下文旧双栏布局。页面保存 / 登录后会独立查询该连接额度，底层保存接口仍不隐式联网；默认模型与思考深度必须完整保留在后端公开投影及全量保存中。设计与边界以[模型来源](../design/agent-model-settings.md#模型来源)、[连接 Web 契约](agent-connections.md#web)和[Web 文件表](modules-web.md)为准。
+
 用户决定 #152 的两页拆分优先于下文旧「Agent 管理」布局，理念见[Agent 配置与模型来源](../design/agent-model-settings.md)。此次仅重组既有前端能力，不增补认证/模型路由后端：
 
 - `render-agent-status.js` 保留 `openAgentStatus()` / `renderAgentStatus(data)` 导出及 `#agent-status` 地址，页面改为「Agent 配置」，默认加载配置，诊断按需显式查询；不再承载托管来源管理。

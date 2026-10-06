@@ -125,7 +125,9 @@ test('添加和更换密钥只写password请求，提交立即清空，不回显
   intercept = null; await btn(card(p), '编辑').onclick();
   expect(field(p.node, 'api_key').value).toBe(''); change(field(p.node, 'label'), '改名');
   await btn(p.node, '保存连接').onclick();
-  expect(actions.at(-1).params).not.toHaveProperty('credential'); expect(actions.at(-1).params.connection.id).toBe(data.connections[0].id);
+  const saved = actions.findLast(action => action.method === 'agent.connections.save');
+  expect(saved.params).not.toHaveProperty('credential'); expect(saved.params.connection.id).toBe(data.connections[0].id);
+  expect(actions.at(-1).method).toBe('agent.connections.query');
 });
 
 test('刷新与保存迟到响应保留未保存连接编辑及采样草稿', async () => {
@@ -197,7 +199,7 @@ test('模型来源详情可设置默认模型与思考深度，保存后供运�
   defaultModel.value = 'deepseek-chat';
   field(p.node, 'default_thinking').value = 'high';
   await btn(p.node, '保存连接').onclick();
-  expect(actions.at(-1).params.connection).toMatchObject({ default_model: 'deepseek-chat', default_thinking: 'high' });
+  expect(actions.findLast(action => action.method === 'agent.connections.save').params.connection).toMatchObject({ default_model: 'deepseek-chat', default_thinking: 'high' });
   expect(deepText(card(p))).toContain('deepseek-chat · high');
   // 默认模型超出声明范围时客户端拒绝提交，不交给服务端猜测。
   await btn(card(p), '编辑').onclick();
@@ -216,8 +218,9 @@ test('在模型来源页填写Codex列表，Worker运行设置直接选择保存
   expect(deepText(p.node)).toContain('无需重复输入');
   change(field(p.node, 'models'), 'codex-model-a，codex-model-b');
   await btn(p.node, '保存连接').onclick();
-  expect(actions.at(-1).params.connection).toMatchObject({ id: codex.id, provider: 'openai-codex', models: ['codex-model-a', 'codex-model-b'] });
-  expect(actions.at(-1).params).not.toHaveProperty('credential');
+  const saved = actions.findLast(action => action.method === 'agent.connections.save');
+  expect(saved.params.connection).toMatchObject({ id: codex.id, provider: 'openai-codex', models: ['codex-model-a', 'codex-model-b'] });
+  expect(saved.params).not.toHaveProperty('credential');
   expect(deepText(card(p, codex.id))).toContain('codex-model-a、codex-model-b');
   intercept = url => url.startsWith('/api/agent/connections/models?')
     ? json({ version: 1, id: codex.id, status: 'unsupported', models: [] }) : undefined;
@@ -230,14 +233,14 @@ test('在模型来源页填写Codex列表，Worker运行设置直接选择保存
   choices.value = 'openai-codex/codex-model-b'; choices.onchange();
   expect(form.collect()).toMatchObject({ connection_id: codex.id, model: 'openai-codex/codex-model-b', thinking: 'high' });
   expect(form.validate()).toBeNull();
-  expect(actions.map(action => action.method)).toEqual(['agent.connections.save']);
+  expect(actions.map(action => action.method)).toEqual(['agent.connections.save', 'agent.connections.query']);
 });
 
 test('资源查询失败展示旧成功时间，旧值不伪装成最新；响应数据仅文本渲染', async () => {
   data.connections[0] = connection({ label: '<img onerror="evil()">', observation: observation({ status: 'error', error_code: 'rate_limited', resources: [] }),
     last_success: { checked_at: at, observation: observation() } });
   const p = await panel(), root = card(p); expect(root.querySelectorAll('.agent-connection-last-success')).toHaveLength(1);
-  expect(deepText(root)).toContain('缓存旧值，不是当前资源状态'); expect(deepText(root)).toContain(at); expect(root.querySelectorAll('img')).toHaveLength(0);
+  expect(deepText(root)).toContain('缓存旧值，不是当前资源状态'); expect(deepText(root)).toContain(new Date(at).toLocaleString()); expect(root.querySelectorAll('img')).toHaveLength(0);
   expect(deepText(root)).toContain('HTTP 429');
   await btn(root, '刷新此连接').onclick(); expect(actions.at(-1)).toEqual({ method: 'agent.connections.query', params: { id: data.connections[0].id } });
 });
@@ -250,7 +253,8 @@ test('列表和查询单飞，保存后的新列表不能被旧读取结果覆�
   pending.resolve(json(fixture())); await Promise.all([first, second]); expect(deepText(p.node)).toContain('较新列表');
   const delayed = deferred(); intercept = (url, opts) => url === '/api/action' && JSON.parse(opts.body).method === 'agent.connections.query' ? delayed.promise : undefined;
   const a = btn(p.node, '刷新全部资源').onclick(), b = btn(p.node, '刷新全部资源').onclick();
-  expect(requests.filter(entry => entry.url === '/api/action')).toHaveLength(1);
+  // Configured accounts and expired OAuth (which can refresh) are queried once each.
+  expect(requests.filter(entry => entry.url === '/api/action')).toHaveLength(3);
   current = false; const before = deepText(p.node); delayed.resolve(json(fixture())); await Promise.all([a, b]); expect(deepText(p.node)).toBe(before);
 });
 
@@ -339,7 +343,8 @@ test('设备码默认入口只展示官方链接与短码，按间隔自动等�
   expect(deepText(p.node)).toContain('每 10 秒'); await clock.tick();
   expect(code.value).toBe(''); expect(field(p.node, 'user_code')).toBeNull(); expect(clock.timers.size).toBe(0);
   expect(deviceRequests('cancel')).toHaveLength(0); expect(deepText(p.node)).toContain('设备码登录已保存');
-  expect(requests.filter(entry => entry.url === '/api/agent/connections')).toHaveLength(2);
+  expect(requests.map(actionOf).filter(action => action?.method === 'agent.connections.query').map(action => action.params.id)).toEqual([codex.id]);
+  expect(requests.filter(entry => entry.url === '/api/agent/connections')).toHaveLength(3);
 });
 
 test('取消设备码清空短码与定时器，备用回调仍需显式选择', async () => {
@@ -351,6 +356,13 @@ test('取消设备码清空短码与定时器，备用回调仍需显式选择',
   await btn(card(p, codex.id), '备用：回调 URL 登录').onclick();
   expect(clock.timers.size).toBe(0); expect(field(p.node, 'user_code')).toBeNull(); expect(field(p.node, 'redirect_url')).not.toBeNull();
   expect(deviceRequests('cancel')).toHaveLength(2);
+});
+
+test('返回同一来源详情也停止隐藏的设备码检查', async () => {
+  const clock = deviceClock(), p = await panel(clock), codex = data.connections[2];
+  await btn(card(p, codex.id), '登录 / 重新登录').onclick(); const code = field(p.node, 'user_code');
+  p.selectConnection(codex.id);
+  expect(code.value).toBe(''); expect(clock.timers.size).toBe(0); expect(deviceRequests('cancel')).toHaveLength(1);
 });
 
 test('编辑变更与迟到设备码开始响应取消旧会话，不覆盖草稿', async () => {

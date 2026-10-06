@@ -3,6 +3,8 @@ import { createRequire } from 'node:module';
 import { networkSnapshot } from '../agent/network.js';
 import { check, LushError } from './types.js';
 import { normalizeCatalog } from '../agent/connections-catalog.js';
+import { safeText as connectionText } from '../agent/connections-utils.js';
+import { THINKING_LEVELS } from '../agent/settings.js';
 import { connectionErrorCode, normalizeConnectionObservation, validConnectionHash, validConnectionId } from '../persistence/store/agent-connections.js';
 
 const require = createRequire(import.meta.url);
@@ -36,9 +38,17 @@ function publicConnection(connection) {
   check(['api_key','oauth'].includes(connection.auth_type), 'invalid connection authentication type');
   const status = ['configured','unconfigured','expired','unknown'].includes(connection.credential?.status) ? connection.credential.status : 'unknown';
   const expires = connection.credential?.expires_at;
+  const models = [...new Set((Array.isArray(connection.models) ? connection.models : []).slice(0, 100).map(model => safeText(model)).filter(Boolean))];
+  const optionalText = (value, label, max) => value === undefined || value === null || value === ''
+    ? '' : connectionText(value, label, max);
+  const default_model = optionalText(connection.default_model, 'connection default model', 256);
+  const default_thinking = optionalText(connection.default_thinking, 'connection default thinking', 32);
+  check(THINKING_LEVELS.pi.includes(default_thinking), 'invalid connection default thinking');
+  check(!default_model || !models.length || models.includes(default_model), 'invalid connection default model');
+  // Defaults are editing hints, not part of the account/cache fingerprint above.
   return { id: connection.id, label: safeText(connection.label, 256) || connection.provider, provider: connection.provider,
     endpoint: url.href, auth_type: connection.auth_type, enabled: connection.enabled === true,
-    models: [...new Set((Array.isArray(connection.models) ? connection.models : []).slice(0, 100).map(model => safeText(model)).filter(Boolean))],
+    models, default_model, default_thinking,
     credential: { status, identity: safeText(connection.credential?.identity, 120),
       expires_at: typeof expires === 'string' && Number.isFinite(Date.parse(expires)) ? new Date(expires).toISOString() : null } };
 }

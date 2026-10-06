@@ -2,6 +2,7 @@ import { test, expect } from 'bun:test';
 import { fixture, gate } from '../helpers.js';
 import { AgentConnectionsService } from '../../src/core/agent-connections.js';
 import { parseConnectionHeaders } from '../../src/agent/connection-runtime.js';
+import { ConnectionManager } from '../../src/agent/connections.js';
 
 const START = Date.parse('2026-01-10T12:00:00.000Z');
 const configuration = (provider = 'deepseek', extra = {}) => ({ label: '测试账号', provider,
@@ -36,6 +37,50 @@ test('real Manager loads lazily; project list preserves all allowed models and l
     expect(f.service.list().connections[0].observation.status).toBe('unknown');
     expect(f.service.list().sampling.enabled).toBe(false); expect(requests).toBe(0);
     noSecrets(f.service.list());
+  } finally { await f.close(); }
+});
+
+test('real Manager defaults survive service save/list/config and full-config label/enabled edits', async () => {
+  let requests = 0;
+  const f = setup(async () => { requests++; throw new Error('must not fetch'); });
+  let reader;
+  try {
+    const defaults = { default_model: 'gpt-6.1-sol', default_thinking: 'xhigh' };
+    const row = await f.service.save(configuration('openai-codex', { models: ['gpt-6.1-sol'], ...defaults }));
+    expect(row).toMatchObject(defaults);
+    expect(f.service.config().connections[0]).toMatchObject(defaults);
+    expect(f.service.list().connections[0]).toMatchObject(defaults);
+    // As in the editor/bulk save, send only the public configuration fields.
+    const { credential, observation, last_success, consumers, ...editable } = f.service.list().connections[0];
+    expect(await f.service.save({ ...editable, label: '重命名账号', enabled: false })).toMatchObject({ ...defaults, label: '重命名账号', enabled: false });
+    expect(await f.service.save({ ...editable, label: '再次启用', enabled: true })).toMatchObject(defaults);
+    reader = new ConnectionManager(f.project.config, { now: f.now });
+    expect(reader.config().connections[0]).toMatchObject({ ...defaults, label: '再次启用', enabled: true });
+    const reread = new AgentConnectionsService(f.project, { manager: reader, now: f.now });
+    expect(reread.list().connections[0]).toMatchObject(defaults);
+    expect(requests).toBe(0); noSecrets(f.service.list());
+    expect(f.store.get('SELECT COUNT(*) AS n FROM events').n).toBe(0);
+  } finally { await reader?.stop(); await f.close(); }
+});
+
+test('real Manager default-only edits preserve account/source identity and a single observation history', async () => {
+  const f = setup(async () => balance(20));
+  try {
+    const row = await f.service.save(configuration('deepseek', { models: ['deepseek-chat', 'deepseek-reasoner'],
+      default_model: 'deepseek-chat', default_thinking: 'low' }), { api_key: 'private-key' });
+    await f.service.query(row.id);
+    const before = f.service.manager.identity(row.id);
+    const { credential, ...editable } = f.service.config().connections[0];
+    expect(await f.service.save({ ...editable, default_model: 'deepseek-reasoner', default_thinking: 'high' })).toMatchObject({
+      default_model: 'deepseek-reasoner', default_thinking: 'high' });
+    const after = f.service.manager.identity(row.id);
+    expect(after.account_key).toBe(before.account_key); expect(after.source_key).toBe(before.source_key);
+    f.advance(1000); await f.service.query(row.id);
+    const history = f.service.history(row.id);
+    expect(history.series).toHaveLength(1); expect(history.series[0].sample_count).toBe(2);
+    expect(count(f)).toBe(2); noSecrets(history); noSecrets(f.service.list());
+    expect(await f.service.save({ ...editable, default_model: '', default_thinking: '' })).toMatchObject({ default_model: '', default_thinking: '' });
+    expect(f.service.manager.config().connections[0]).toMatchObject({ default_model: '', default_thinking: '' });
   } finally { await f.close(); }
 });
 

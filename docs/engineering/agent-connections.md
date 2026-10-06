@@ -86,6 +86,10 @@ HTTP GET `/api/agent/connections`、GET `/api/agent/connections/history?id=&days
 
 用户决定 #152/#154：托管账号集中在独立「模型来源」页面（`#model-sources`），不再是 Agent 管理 tab；Agent 配置保留 `#agent-status`。`render-model-sources.js` 导出 `openModelSources({connectionId?})`；`render-agent-connections.js` 导出 `createAgentConnections({ownsPage,connectionId?})`，保留 `{node,load()}` 并增加来源选择与清理接口。本地列表、显式刷新单项/全部、添加/编辑/删除连接、密钥 password 输入（更换时才写，提交后清空）、采样设置、Codex 打开授权链接与粘贴回调、认证诊断、独立现金/Key预算/套餐窗口、旧值/来源/时间、历史和实际消费者。套餐额度用进度条表达已用比例并标出窗口（如 5 小时 / 7 天）与重置时间，详细口径、适用范围与原始读数收进折叠区；现金余额仍显金额，不用无总数的进度条。详情编辑器可设置 `default_model` / `default_thinking`。高级旧 HTTP 映射保留在旧状态页，不能成为首选流程。删除需确认，说明不删除历史。登录会联网但不调用 Agent，使用 help，不标 agent-call。
 
+用户决定 #186 的管理台改造优先于旧列表 / 详情布局：全宽总览同时展示多连接设定、认证、观测与实际消费者；添加在顶部，逐行编辑走侧边面板，窄屏可读卡片与独立面板。勾选支持批量刷新、启用 / 停用，配置变更先确认具体范围、逐项报告失败；继续使用既有 `save` / `query` RPC，不新增批量接口。全量保存必须保留公开配置中的模型范围、默认模型 / 思考深度及端点，不提交未知读面字段或凭证状态。
+
+页面保存或完成登录后，通过独立 `query {id}` 刷新支持查询且已启用、有凭证的连接，提前说明联网但不调用模型；`save` / 登录 RPC 本身不因此查询额度。保存成功与查询失败分开反馈，迟到结果仍遵守页面身份与账号隔离。主显示用本地重置倒计时，绝对时间留在详情；到期提示待刷新，不修改观测状态或额度。模型输入提供物理 ID 示例与限定调用名预览；合法 `vendor/model` 物理 ID 不得按斜杠机械截断。设计取舍见[模型来源](../design/agent-model-settings.md#模型来源)。
+
 「运行设置」共用表单（`agent-profile-form.js`）在已选托管来源时可一键填入该来源的默认模型（限定为 `provider/model`）与思考深度；只改这两项，未读来源或无默认时给就地提示，不调用 Agent，保存前仍可修改。来源选择本身不自动改模型或思考深度。
 
 配置页 profile 的 `connection_id` 为后续 Pi 调用必需来源（空不会恢复外部 Pi 认证）；由 parent 实现后端校验与执行绑定。Web可从 list API加载可用连接选项；首版只支持 Pi绑定（Codex执行后端仍走原凭证），明确提示固定物理 provider/model且模型限制必须匹配。配置保存不改变正在运行的 invocation。

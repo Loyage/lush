@@ -1,6 +1,7 @@
 import { test, expect } from 'bun:test';
 import { fixture, gate } from '../helpers.js';
 import { AgentConnectionsService } from '../../src/core/agent-connections.js';
+import { THINKING_LEVELS } from '../../src/agent/settings.js';
 import { install, ManagerStub, connection, observation, resource, digest, timers, iso } from './agent-connection-fixture.js';
 
 const count = f => f.store.get('SELECT COUNT(*) AS n FROM agent_connection_queries').n;
@@ -22,6 +23,50 @@ test('managed list is local-only, whitelisted, unknown not zero; consumers requi
     expect(JSON.stringify(list)).not.toContain('MUST_NOT_RETURN'); expect(reads).toBe(0); expect(count(f)).toBe(0);
     expect(() => service.history('conn-one',2)).toThrow(); expect(() => service.history('../private',7)).toThrow();
   } finally { f.project.running.clear(); await f.close(); }
+});
+
+test('default projection is a bounded whitelist and uses the Provider Pi thinking levels', async () => {
+  const f = fixture(), { manager, service } = install(f);
+  try {
+    const raw = manager.connections[0];
+    Object.assign(raw, { models: ['vendor/model'], default_model: ' vendor/model ', api_key: 'MUST_NOT_RETURN',
+      revision: 'MUST_NOT_RETURN', arbitrary: { token: 'MUST_NOT_RETURN' } });
+    raw.credential.access_token = 'MUST_NOT_RETURN';
+    for (const level of THINKING_LEVELS.pi) {
+      manager.connections = [raw];
+      raw.default_thinking = level;
+      const view = service.config().connections[0];
+      expect(view.default_model).toBe('vendor/model'); expect(view.default_thinking).toBe(level);
+      expect(Object.keys(view).sort()).toEqual(['id','label','provider','endpoint','auth_type','enabled','models','default_model','default_thinking','credential'].sort());
+      expect(JSON.stringify(service.list())).not.toContain('MUST_NOT_RETURN');
+      const saved = await service.save({ ...raw, default_model: 'vendor/model' });
+      expect(saved).toMatchObject({ default_model: 'vendor/model', default_thinking: level });
+      expect(JSON.stringify(saved)).not.toContain('MUST_NOT_RETURN');
+    }
+    for (const empty of [undefined, null, '']) {
+      manager.connections[0].default_model = empty; manager.connections[0].default_thinking = empty;
+      expect(service.config().connections[0]).toMatchObject({ default_model: '', default_thinking: '' });
+    }
+  } finally { await f.close(); }
+});
+
+test('malformed defaults fail safely rather than exposing or silently changing untrusted values', async () => {
+  const f = fixture(), { manager, service } = install(f);
+  try {
+    const invalid = [
+      { default_thinking: 'MUST_NOT_RETURN' }, { default_thinking: { token: 'MUST_NOT_RETURN' } },
+      { default_model: { api_key: 'MUST_NOT_RETURN' } }, { default_model: 'MUST_NOT_RETURN\n' },
+      { default_model: 'MUST_NOT_RETURN\u202e' }, { default_model: 'x'.repeat(257) },
+      { default_model: '中'.repeat(86) }, { models: ['allowed'], default_model: 'MUST_NOT_RETURN' },
+    ];
+    for (const patch of invalid) {
+      manager.connections = [connection(patch)];
+      expect(() => service.config()).toThrow('连接操作失败');
+      expect(() => service.list()).toThrow('连接操作失败');
+      const result = await service.save(connection(patch)).then(() => null, error => error);
+      expect(result.message).toContain('连接操作失败'); expect(result.message).not.toContain('MUST_NOT_RETURN');
+    }
+  } finally { await f.close(); }
 });
 
 test('query is single-flight, persists each real observation once, and returns old success separately after failure', async () => {

@@ -14,7 +14,21 @@ const array = value => Array.isArray(value) ? value : [];
 const text = (value, fallback = '未知') => typeof value === 'string' && value ? value : fallback;
 const finite = value => typeof value === 'number' && Number.isFinite(value);
 const amount = value => finite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: 8 }) : '未知';
-const time = value => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : '时间未知';
+const time = value => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString() : '时间未知';
+export function resetRemaining(value, now = Date.now()) {
+  const remaining = Date.parse(value) - now;
+  if (!Number.isFinite(remaining)) return '重置时间未知';
+  if (remaining <= 0) return '已到重置时间，待刷新';
+  const minutes = Math.ceil(remaining / 60000);
+  if (minutes < 60) return `约 ${minutes} 分钟后重置`;
+  const hours = Math.floor(minutes / 60), rest = minutes % 60;
+  if (hours < 24) return `约 ${hours} 小时${rest ? ` ${rest} 分钟` : ''}后重置`;
+  return `约 ${Math.floor(hours / 24)} 天${hours % 24 ? ` ${hours % 24} 小时` : ''}后重置`;
+}
+const canQuery = connection => connection?.enabled && connection.provider !== 'openai-compatible'
+  && (connection.credential?.status === 'configured' || connection.auth_type === 'oauth' && connection.credential?.status === 'expired');
+const publicConfig = connection => Object.fromEntries(['id', 'label', 'provider', 'endpoint', 'auth_type', 'enabled', 'models', 'default_model', 'default_thinking']
+  .filter(key => connection[key] !== undefined).map(key => [key, connection[key]]));
 const successful = value => ['available', 'partial'].includes(value?.status);
 const DEVICE_FAILURE_REASONS = {
   network: '项目后台无法连接 OpenAI，请检查后台机器的网络或代理。',
@@ -87,7 +101,7 @@ function quotaBar(resource, percent) {
 }
 
 /** Render only structured public resources, never parse terminal output or infer quota from RPM headers. */
-export function renderConnectionResources(observation = {}) {
+export function renderConnectionResources(observation = {}, { now = Date.now } = {}) {
   observation ||= {};
   const root = el('div', undefined, 'agent-connection-resources');
   note(root, STATUSES[observation.status] || '观测状态未知', !successful(observation));
@@ -111,11 +125,13 @@ export function renderConnectionResources(observation = {}) {
       entry.append(row);
       const summary = [];
       if (finite(resource.remaining)) summary.push(`剩余 ${amount(resource.remaining)} ${text(resource.unit, '单位未知')}`);
-      if (resource.reset_at) summary.push(`重置 ${time(resource.reset_at)}`);
       if (summary.length) note(entry, summary.join(' · '));
     } else {
       entry.append(el('p', `剩余 ${amount(resource.remaining)} ${text(resource.unit, '单位未知')}`, 'agent-status-amount'));
-      if (resource.reset_at) note(entry, `重置时间：${time(resource.reset_at)}`);
+    }
+    if (resource.reset_at) {
+      const reset = el('p', resetRemaining(resource.reset_at, now()), 'hint agent-reset-remaining');
+      reset.dataset.resetAt = resource.reset_at; entry.append(reset);
     }
     // 详细口径收进折叠区，主视图只留进度与关键时间，事实仍完整可读。
     const details = el('details', undefined, 'agent-connection-resource-details');
@@ -136,9 +152,10 @@ export function renderConnectionResources(observation = {}) {
 
 /** Local list reads and explicit remote queries; retain editor drafts and reject late page responses. */
 export function createAgentConnections({ ownsPage, connectionId = '', setTimeout: setTimer = globalThis.setTimeout,
-  clearTimeout: clearTimer = globalThis.clearTimeout, now = Date.now }) {
+  clearTimeout: clearTimer = globalThis.clearTimeout, now = Date.now,
+  resetSetTimeout = globalThis.setTimeout, resetClearTimeout = globalThis.clearTimeout }) {
   const node = el('div', undefined, 'agent-connections-panel');
-  const intro = block('项目模型来源');
+  const intro = block('项目模型来源'); intro.classList.add('model-source-intro');
   note(intro, '连接区分服务商、端点和账号。密钥由本项目 Lush 管理，存放在严格权限的私有文件中，不提供静态加密；系统当前用户仍可读取。');
   note(intro, '进入此页只读取本地配置和缓存。查询、登录和采样均不调用 Agent 或模型；不自动切换模型，也不自动转用付费资源。');
   note(intro, '托管来源目前可供 Pi 使用；Codex CLI 仍沿用自身认证。托管 Codex 订阅登录不代表 Codex CLI 已支持绑定。');
@@ -147,14 +164,45 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   const layout = el('div', undefined, 'model-source-layout');
   const listPane = el('section', undefined, 'model-source-list'); listPane.setAttribute('aria-label', '模型来源列表');
   const filters = el('div', undefined, 'model-source-filters');
-  const search = field(filters, '搜索来源', 'source-search', 'search', '', '按名称、服务商或模型端点搜索。');
+  const search = field(filters, '搜索来源', 'source-search', 'search', '', '按名称、端点、服务商或模型搜索。');
   const providerFilter = select(filters, '服务商', 'source-provider', [['', '全部服务商'], ...PROVIDERS]);
   const enabledFilter = select(filters, '连接状态', 'source-enabled', [['', '全部状态'], ['enabled', '启用'], ['disabled', '停用']]);
+  const stateFilter = select(filters, '认证 / 观测', 'source-state', [['', '全部认证与观测'], ['attention', '需处理'], ['configured', '凭证已配置（未验证）'], ['unconfigured', '凭证未配置'], ['expired', '凭证已过期'], ['error', '查询失败'], ['unknown', '观测未知'], ['available', '观测成功'], ['partial', '部分可用'], ['unsupported', '不支持查询']]);
+  const statistics = el('p', undefined, 'model-source-statistics');
+  const batchToolbar = el('div', undefined, 'agent-connection-actions');
+  const batchFeedback = el('div', undefined, 'model-source-batch-feedback'); batchFeedback.setAttribute('role', 'status');
+  const selectionCount = el('strong', '已选 0 个连接');
   const listFeedback = el('p', undefined, 'hint'); listFeedback.setAttribute('role', 'status');
   const sourceRows = el('div', undefined, 'model-source-rows');
-  listPane.append(filters, listFeedback, sourceRows);
-  const detailPane = el('section', undefined, 'model-source-detail'); detailPane.setAttribute('aria-label', '模型来源详情');
-  const back = button('返回来源列表', () => { closeEditor(); historySequence++; node.dataset.sourceView = 'list'; search.focus(); }, 'ghost model-source-back');
+  listPane.append(statistics, filters, listFeedback, batchToolbar, batchFeedback, sourceRows);
+  const detailPane = el('aside', undefined, 'model-source-detail'); detailPane.setAttribute('aria-label', '模型来源操作面板'); detailPane.hidden = !connectionId;
+  // Non-modal: the overview stays operable; do not claim aria-modal or trap focus.
+  let panelTrigger = null, triggerSource = '', triggerLabel = '', panelKind = connectionId ? 'detail' : '', dirty = false;
+  const drafts = new Map();
+  const back = button('返回来源列表', () => { closeEditor(); detailPane.hidden = true; panelKind = ''; historySequence++; node.dataset.sourceView = 'list'; paintSelection(); returnFocus(); }, 'ghost model-source-back');
+  function returnFocus() {
+    let target = panelTrigger, within = false;
+    for (let parent = target; parent; parent = parent.parentNode) if (parent === node) within = true;
+    if (!within) target = null;
+    if (!within && triggerSource) {
+      const row = [...sourceRows.children].find(row => row.dataset.sourceId === triggerSource);
+      target = [...(row?.querySelectorAll('button') || [])].find(control => control.textContent === triggerLabel);
+    }
+    (within ? panelTrigger : target || search)?.focus();
+  }
+  function openPanel(kind, trigger = document.activeElement) {
+    let inside = false;
+    for (let parent = trigger; parent; parent = parent.parentNode) if (parent === detailPane) inside = true;
+    if (!inside || detailPane.hidden) {
+      panelTrigger = trigger; triggerSource = ''; triggerLabel = trigger?.textContent || '';
+      for (let parent = trigger; parent; parent = parent.parentNode) if (parent.dataset?.sourceId) triggerSource = parent.dataset.sourceId;
+    }
+    panelKind = kind; detailPane.hidden = false;
+    editor.hidden = kind !== 'editor'; cards.hidden = selectionFeedback.hidden = kind !== 'detail';
+    samplingHost.hidden = kind !== 'sampling'; historyHost.hidden = kind !== 'history';
+    node.dataset.sourceView = 'detail'; paintSelection();
+  }
+  detailPane.onkeydown = event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); back.onclick(); } };
   const cards = el('div', undefined, 'agent-connection-cards');
   const selectionFeedback = el('p', undefined, 'hint model-source-selection-feedback'); selectionFeedback.setAttribute('role', 'status');
   const editor = block('添加连接'), editorHost = el('div'); editor.append(editorHost); editor.hidden = true;
@@ -173,11 +221,25 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   const historyContent = el('div', undefined, 'agent-connection-history-content');
   historyHost.append(historyControls, historyFeedback, historyContent);
   samplingHost.hidden = historyHost.hidden = true;
-  let selectedId = connectionId, explicitSelection = Boolean(connectionId), selectionRevision = 0;
+  let selectedId = connectionId, explicitSelection = Boolean(connectionId), selectionRevision = 0, initialDetail = Boolean(connectionId);
   node.dataset.sourceView = connectionId ? 'detail' : 'list';
   let data = null, listFlight = null, version = 0, editorRevision = 0, saving = false, samplingDirty = false, samplingRevision = 0, samplingSaving = false;
   let historySequence = 0, historyFlight = null, historyKey = '', activeHistoryKey = '', editId = null, loginSequence = 0;
-  const queries = new Map(), historyChoices = new Map();
+  const queries = new Map(), historyChoices = new Map(), selected = new Set(), operationState = new Map(), configBusy = new Set();
+  let batchBusy = false, filtered = [], resetTimer = null, disposed = false, sessionRevision = 0;
+  const queryVersions = new Map();
+  const attention = connection => ['expired', 'unconfigured', 'unknown'].includes(connection.credential?.status || 'unknown') || ['error', 'unconfigured', 'unknown'].includes(connection.observation?.status || 'unknown');
+  function updateResets() {
+    resetClearTimeout(resetTimer); resetTimer = null;
+    if (disposed || !current() || document.hidden) return;
+    const resets = node.querySelectorAll('.agent-reset-remaining');
+    for (const reset of resets) reset.textContent = resetRemaining(reset.dataset.resetAt, now());
+    if ([...resets].some(reset => Date.parse(reset.dataset.resetAt) > now())) {
+      resetTimer = resetSetTimeout(updateResets, 60000); resetTimer?.unref?.();
+    }
+  }
+  const visibilityChanged = () => updateResets();
+  document.addEventListener?.('visibilitychange', visibilityChanged);
   let deviceSession = null;
   const current = () => ownsPage();
   const loginVisible = () => {
@@ -216,7 +278,9 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     if (value?.version !== 1 || !Array.isArray(value.connections)) throw new Error('连接数据格式不兼容。');
     data = value;
     if (!explicitSelection && !array(data.connections).some(row => row.id === selectedId)) selectedId = data.connections[0]?.id || '';
-    paintCards(); paintHistoryChoices(); paintRows(); paintSelection();
+    for (const id of selected) if (!data.connections.some(row => row.id === id)) selected.delete(id);
+    paintCards(); paintHistoryChoices(); paintRows(); paintSelection(); updateResets();
+    if (initialDetail) { initialDetail = false; if (panelKind === 'detail') selectConnection(selectedId); }
     if (!samplingDirty && !samplingSaving) {
       samplingEnabled.checked = Boolean(value.sampling?.enabled);
       interval.value = String(value.sampling?.interval_minutes ?? 5); retention.value = String(value.sampling?.retention_days ?? 90);
@@ -229,72 +293,197 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     const stamp = ++version;
     message('正在读取本地连接和缓存…'); node.setAttribute('aria-busy', 'true');
     const pending = (async () => {
-      try { const value = await api('/api/agent/connections'); if (apply(value, stamp)) message('本地连接已读取；额度可显式刷新，旧配置和历史保持不迁移。'); }
-      catch { if (stamp === version) message('读取连接失败；已有编辑和缓存保留，请重试。', true); }
+      try {
+        const value = await api('/api/agent/connections');
+        if (!apply(value, stamp)) return false;
+        message('本地连接已读取；额度可显式刷新，旧配置和历史保持不迁移。'); return true;
+      }
+      catch { if (stamp === version) message('读取连接失败；已有编辑和缓存保留，请重试。', true); return false; }
       finally { if (listFlight === pending) listFlight = null; if (current() && stamp === version) node.setAttribute('aria-busy', 'false'); }
     })();
     listFlight = pending; return pending;
   }
-  function query(id = null) {
-    if (!current()) return Promise.resolve();
-    const key = id || '*'; if (queries.has(key)) return queries.get(key);
-    const stamp = ++version; message('正在查询资源；失败不会被解释为余额为零…');
+  async function query(id = null) {
+    if (!current()) return false;
+    if (!id) return runBatch('refresh', array(data?.connections).filter(canQuery).map(row => row.id), false);
+    if (queries.has(id)) return queries.get(id);
+    const connection = array(data?.connections).find(row => row.id === id);
+    if (!canQuery(connection)) { message('此连接未启用、无可用本地凭证或不支持资源查询；未访问服务商。'); return false; }
+    const generation = sessionRevision, queryRevision = queryVersions.get(id) || 0;
+    operationState.set(id, '刷新中…'); paintRows(); paintCards();
     const pending = (async () => {
-      try { const value = await post('agent.connections.query', id ? { id } : {}); if (apply(value, stamp)) message('资源查询完成；请以各连接的来源、时间和状态为准。'); }
-      catch { if (stamp === version) message('资源查询失败；不能据此判断资源耗尽，旧值仅供参考。', true); }
-      finally { queries.delete(key); if (current() && stamp === version) node.setAttribute('aria-busy', 'false'); }
+      let ok = false;
+      try {
+        // query returns a whole list. Never apply these independent snapshots: concurrent
+        // responses can omit siblings' newer results. Re-read the local authority at the end.
+        const value = await post('agent.connections.query', { id });
+        if (generation !== sessionRevision || queryRevision !== (queryVersions.get(id) || 0)) return false;
+        ok = successful(value?.connections?.find(row => row.id === id)?.observation);
+        operationState.set(id, ok ? '刷新完成' : '查询未取得完整数据（非零余额）');
+      } catch { if (generation === sessionRevision && queryRevision === (queryVersions.get(id) || 0)) operationState.set(id, '查询失败；旧值仅供参考（非零余额）'); }
+      finally {
+        queries.delete(id);
+        if (current() && generation === sessionRevision) { await load(true); message(ok ? '资源查询完成；数值只代表观测时刻。' : '资源查询失败或未知；旧值仅供参考，不代表耗尽。', !ok); }
+        else if (current()) { operationState.delete(id); paintRows(); paintCards(); paintSelection(); }
+      }
+      return ok;
     })();
-    queries.set(key, pending); return pending;
+    queries.set(id, pending); paintRows(); paintCards(); return pending;
+  }
+  function retainDraft() {
+    if (dirty && fieldInEditor('label')) {
+      const draft = {};
+      for (const input of [...editorHost.querySelectorAll('input'), ...editorHost.querySelectorAll('select')]) {
+        if (input.type !== 'password') draft[input.dataset.connectionField] = input.type === 'checkbox' ? input.checked : input.value;
+      }
+      drafts.set(editId || '', draft);
+    }
   }
   function closeEditor() {
-    invalidateLogin();
-    // Clear secrets even in detached controls; never retain an abandoned login or key.
+    retainDraft(); invalidateLogin();
+    // Public drafts survive navigation, secrets never do (including detached inputs).
     for (const input of editorHost.querySelectorAll('input')) if (input.type === 'password') input.value = '';
     editor.hidden = true;
+  }
+  async function runBatch(kind, ids = [...selected], confirm = true) {
+    if (!current() || batchBusy || !ids.length) return;
+    const generation = sessionRevision;
+    const targets = ids.map(id => array(data?.connections).find(row => row.id === id)).filter(Boolean);
+    if (confirm && !await confirmDialog({ title: kind === 'refresh' ? '批量刷新资源？' : kind === 'enable' ? '批量启用连接？' : '批量停用连接？',
+      message: `仅处理以下 ${targets.length} 个连接：`, detail: targets.map(row => `${row.label} · ${row.provider} · ${row.endpoint} · ${row.id}`).join('\n')
+        + (kind === 'enable' ? '\n启用保存后，有凭证且支持查询的连接会自动联网刷新资源；不调用模型，查询失败不撤销启用成功。' : ''),
+      confirmLabel: '确认执行', confirmHelp: '逐项执行并显示成功或失败；保留全部其他公开设置，不批量更换凭证或删除连接。' })) return;
+    if (!current() || generation !== sessionRevision || batchBusy) return;
+    if (kind !== 'refresh' && targets.some(row => configBusy.has(row.id))) { message('所选连接正在保存配置，请待保存结束后重试；未批量写入。', true); return; }
+    batchBusy = true;
+    if (kind !== 'refresh') for (const row of targets) configBusy.add(row.id);
+    paintRows(); let index = 0;
+    async function work() {
+      while (index < targets.length && current() && generation === sessionRevision) {
+        const row = targets[index++];
+        if (kind === 'refresh') {
+          if (canQuery(row)) await query(row.id);
+          else operationState.set(row.id, '跳过：未启用 / 无凭证 / 不支持查询');
+        } else {
+          queryVersions.set(row.id, (queryVersions.get(row.id) || 0) + 1);
+          operationState.set(row.id, '配置保存中…'); paintRows();
+          try {
+            // Always send the complete public config; do not reset defaults, models or auth.
+            await post('agent.connections.save', { connection: { ...publicConfig(row), enabled: kind === 'enable' } });
+            operationState.set(row.id, kind === 'enable' ? '启用成功' : '停用成功');
+            if (kind === 'enable' && current() && generation === sessionRevision) {
+              await load(true); const refreshed = await autoRefresh(row.id);
+              operationState.set(row.id, refreshed === false ? '启用成功；自动查询失败或未知（非零余额）' : refreshed === true ? '启用成功，资源已刷新' : '启用成功；无自动查询');
+            }
+          } catch { operationState.set(row.id, '配置保存失败；请核对本地状态'); }
+        }
+        if (current() && generation === sessionRevision) paintRows();
+      }
+    }
+    try { await Promise.all(Array.from({ length: Math.min(3, targets.length) }, work)); }
+    finally {
+      for (const row of targets) configBusy.delete(row.id);
+      batchBusy = false;
+      if (current() && generation === sessionRevision) {
+        const read = await load(true); paintRows();
+        message(read ? '批量操作结束；逐项结果见各行，本地状态已重新读取。' : '批量操作结束，但本地重读失败；显示的配置 / 观测可能是旧值，请重新读取。', !read);
+      } else if (current()) paintRows(); // Release busy controls, without applying an old page snapshot.
+    }
   }
   function paintSelection() {
     const found = array(data?.connections).some(row => row.id === selectedId);
     selectionFeedback.textContent = found ? '' : selectedId ? '所选来源不存在或已删除；请选择其他来源。' : '选择来源查看详情，或添加一个模型来源。';
     for (const card of cards.children) card.hidden = card.dataset.connectionId !== selectedId;
     for (const row of sourceRows.children) {
-      const selected = row.dataset.sourceId === selectedId;
-      row.classList.toggle('selected', selected); row.setAttribute('aria-current', selected ? 'true' : 'false');
+      const active = panelKind === 'detail' && row.dataset.sourceId === selectedId;
+      row.classList.toggle('selected', active); row.setAttribute('aria-current', active ? 'true' : 'false');
     }
   }
   function selectConnection(id) {
     if (!current()) return false;
+    closeEditor();
     if (id !== selectedId) {
-      selectionRevision++; invalidateLogin();
-      if (fieldInEditor('user_code') || fieldInEditor('redirect_url')) closeEditor();
+      selectionRevision++;
       historyHost.hidden = true; historySequence++; historyContent.replaceChildren();
     }
-    selectedId = id; explicitSelection = true; node.dataset.sourceView = 'detail'; paintSelection();
-    // Narrow screens hide the source button: move keyboard focus into the visible detail.
-    if (globalThis.matchMedia?.('(max-width:640px)')?.matches) {
+    selectedId = id; explicitSelection = true; openPanel('detail'); paintSelection();
+    // Detail is an independent non-modal side view on all screen widths.
+    {
       const card = [...cards.children].find(row => row.dataset.connectionId === id);
       const heading = card?.querySelector('h3');
-      if (heading) { heading.tabIndex = -1; heading.focus(); }
+      const target = heading || selectionFeedback;
+      target.tabIndex = -1; target.focus();
     }
     return array(data?.connections).some(row => row.id === id);
   }
   const fieldInEditor = key => editorHost.querySelector(`[data-connection-field="${key}"]`);
   function paintRows() {
+    const focused = document.activeElement;
+    let focusId = '';
+    for (let parent = focused; parent; parent = parent.parentNode) {
+      if (parent.parentNode === sourceRows) focusId = parent.dataset.sourceId;
+    }
+    const focusLabel = focused?.textContent, focusField = focused?.dataset?.connectionField;
     const query = search.value.trim().toLocaleLowerCase();
-    const rows = array(data?.connections).filter(row => (!providerFilter.value || row.provider === providerFilter.value)
+    const all = array(data?.connections);
+    filtered = all.filter(row => (!providerFilter.value || row.provider === providerFilter.value)
       && (!enabledFilter.value || Boolean(row.enabled) === (enabledFilter.value === 'enabled'))
-      && (!query || [row.label, row.provider, row.endpoint].join(' ').toLocaleLowerCase().includes(query)));
-    sourceRows.replaceChildren(...rows.map(connection => {
-      const row = button('', () => selectConnection(connection.id), 'model-source-row'); row.dataset.sourceId = connection.id;
-      row.append(el('strong', text(connection.label, '未命名来源')),
-        el('span', `${PROVIDERS.find(([id]) => id === connection.provider)?.[1] || connection.provider} · ${connection.auth_type === 'oauth' ? '订阅登录' : 'API Key'} · ${connection.enabled ? '启用' : '停用'}`, 'model-source-meta'),
-        el('span', text(connection.endpoint), 'model-source-endpoint'),
-        el('small', CREDENTIALS[connection.credential?.status] || '凭证状态未知'));
-      return row;
+      && (!stateFilter.value || (stateFilter.value === 'attention' ? attention(row) : row.credential?.status === stateFilter.value || row.observation?.status === stateFilter.value))
+      && (!query || [row.label, row.provider, PROVIDERS.find(([id]) => id === row.provider)?.[1], row.endpoint, ...array(row.models), row.default_model].join(' ').toLocaleLowerCase().includes(query)));
+    sourceRows.replaceChildren(...filtered.map(connection => {
+      const row = el('article', undefined, 'model-source-row'); row.dataset.sourceId = connection.id;
+      const identity = el('div', undefined, 'model-source-identity');
+      const check = field(identity, '选择', 'select-source', 'checkbox', selected.has(connection.id));
+      check.setAttribute('aria-label', `选择 ${connection.label}`);
+      check.onchange = () => { check.checked ? selected.add(connection.id) : selected.delete(connection.id); updateBatchControls(); };
+      identity.append(el('strong', text(connection.label, '未命名来源')), el('span', `${PROVIDERS.find(([id]) => id === connection.provider)?.[1] || connection.provider} · ${connection.enabled ? '启用' : '停用'}`, 'model-source-meta'));
+      const settings = el('div', undefined, 'model-source-settings');
+      settings.append(el('p', text(connection.endpoint), 'model-source-endpoint'));
+      note(settings, `模型范围：${array(connection.models).join('、') || '未限制（未验证）'}`);
+      note(settings, `默认：${connection.default_model || '未设置'} · 思考：${connection.default_thinking || '未设置'}`);
+      note(settings, `${connection.auth_type === 'oauth' ? 'OAuth 登录' : 'API Key'} · ${CREDENTIALS[connection.credential?.status] || '凭证未知'}`);
+      const resources = renderConnectionResources(connection.observation, { now });
+      note(resources, '缓存观测；不保证当前额度。');
+      if (!successful(connection.observation) && successful(connection.last_success?.observation || connection.last_success)) {
+        const stale = el('div', undefined, 'agent-connection-last-success');
+        note(stale, '缓存旧值，不是当前资源状态。', true);
+        stale.append(renderConnectionResources(connection.last_success.observation || connection.last_success, { now })); resources.append(stale);
+      }
+      const actions = el('div', undefined, 'model-source-row-actions');
+      note(actions, `使用中：${array(connection.consumers).length} 个实际绑定 Worker`);
+      for (const consumer of array(connection.consumers)) {
+        if (!Number.isSafeInteger(consumer.task_id) || consumer.task_id <= 0) continue;
+        const link = el('a', `Worker #${consumer.task_id} · ${text(consumer.model)}`); link.href = `#worker-${consumer.task_id}`; actions.append(link);
+      }
+      const status = el('p', operationState.get(connection.id) || '', 'hint model-source-operation'); status.setAttribute('role', 'status'); actions.append(status);
+      const refresh = helped(queries.has(connection.id) ? '刷新中…' : '刷新', () => query(connection.id), '联网查询专用余额 / 套餐接口，不调用模型；失败不等于零余额。');
+      refresh.children[0].disabled = !canQuery(connection) || queries.has(connection.id); actions.append(refresh);
+      actions.append(button('编辑', () => paintEditor(array(data?.connections).find(row => row.id === connection.id)), 'ghost'), button('详情', () => selectConnection(connection.id), 'ghost'));
+      row.append(identity, settings, resources, actions); return row;
     }));
-    listFeedback.textContent = `显示 ${rows.length} / ${array(data?.connections).length} 个来源${rows.length ? '' : '；暂无匹配来源'}`;
-    paintSelection();
+    statistics.textContent = `总数 ${all.length} · 启用 ${all.filter(row => row.enabled).length} · 需处理 ${all.filter(attention).length} · 使用中 ${all.filter(row => array(row.consumers).length).length}（不合计不同币种或套餐）`;
+    listFeedback.textContent = `显示 ${filtered.length} / ${all.length} 个来源${filtered.length ? '' : '；暂无匹配来源'}`;
+    batchFeedback.replaceChildren(...all.filter(row => selected.has(row.id) && operationState.has(row.id)).map(row => el('p', `${row.label}：${operationState.get(row.id)}`, 'hint')));
+    updateBatchControls(); paintSelection(); updateResets();
+    if (focusId) {
+      const row = [...sourceRows.children].find(row => row.dataset.sourceId === focusId);
+      const control = focusField ? row?.querySelector(`[data-connection-field="${focusField}"]`)
+        : [...(row?.querySelectorAll('button') || [])].find(control => control.textContent === focusLabel);
+      if (control && !control.disabled) control.focus();
+      else if (row) { row.tabIndex = -1; row.focus(); }
+    }
   }
-  search.oninput = paintRows; providerFilter.onchange = enabledFilter.onchange = paintRows;
+  function updateBatchControls() {
+    selectionCount.textContent = `已选 ${selected.size} 个连接`;
+    for (const control of batchToolbar.querySelectorAll('button')) if (control.dataset.batchAction) control.disabled = batchBusy || !selected.size;
+  }
+  batchToolbar.append(selectionCount, button('选择当前筛选结果', () => { for (const row of filtered) selected.add(row.id); paintRows(); }, 'ghost'),
+    button('清空选择', () => { selected.clear(); paintRows(); }, 'ghost'));
+  for (const [kind, label] of [['refresh', '批量刷新'], ['enable', '批量启用'], ['disable', '批量停用']]) {
+    const control = helped(label, () => runBatch(kind), kind === 'refresh' ? '确认连接范围后联网刷新所选支持查询的连接；不调用模型。' : '先确认连接范围，再逐项保存启用状态；不更换秘密、不删除，保留端点、模型和默认设定。');
+    control.children[0].dataset.batchAction = kind; batchToolbar.append(control);
+  }
+  search.oninput = paintRows; providerFilter.onchange = enabledFilter.onchange = stateFilter.onchange = paintRows;
   function paintCards() {
     const nodes = [];
     for (const connection of array(data?.connections)) {
@@ -313,14 +502,14 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       if (array(connection.models).length) note(connectionSection, '由用户填写，供 Worker 运行设置选择；同时限制此来源的模型范围，不代表已联网验证可用。');
       if (connection.provider === 'openai-compatible') note(connectionSection, '自定义 OpenAI Chat Completions 兼容 API；余额查询尚不支持，不代表余额为零。运行时仅供 Pi 显式绑定，不自动切换账号。当前适配按文本/工具调用配置；32K 上下文、4K 输出是本地运行预算，不是已验证的上游限额或价格。');
       note(resourceSection, '以下为缓存观测，不保证当前仍有额度；窗口到期或账号变化后需重新查询。');
-      resourceSection.append(renderConnectionResources(connection.observation));
+      resourceSection.append(renderConnectionResources(connection.observation, { now }));
       const previous = connection.last_success;
       if (!successful(connection.observation) && previous) {
         const old = previous.observation || previous;
         if (successful(old)) {
           const stale = el('div', undefined, 'agent-connection-last-success');
           note(stale, `上次成功：${time(previous.checked_at || old.checked_at)}。以下为缓存旧值，不是当前资源状态。`, true);
-          stale.append(renderConnectionResources(old)); resourceSection.append(stale);
+          stale.append(renderConnectionResources(old, { now })); resourceSection.append(stale);
         }
       }
       const consumers = el('div', undefined, 'agent-connection-consumers');
@@ -334,9 +523,10 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       consumerSection.append(consumers);
       const actions = el('div', undefined, 'agent-connection-actions');
       const refresh = helped('刷新此连接', () => query(connection.id), '访问此连接的专用资源接口，可能刷新本项目 OAuth 凭证；不会调用 Agent 或模型。');
-      refresh.children[0].disabled = !connection.enabled; actions.append(refresh);
+      refresh.children[0].disabled = !canQuery(connection) || queries.has(connection.id); actions.append(refresh);
+      note(actions, operationState.get(connection.id) || '');
       actions.append(button('编辑', () => { if (current()) paintEditor(connection); }, 'ghost'),
-        helped('查看历史', () => { selectConnection(connection.id); historyHost.hidden = false; historyConnection.value = connection.id; historyId.value = ''; return loadHistory(); }, '只读取此连接本地历史，不访问服务商；不同账号与指标分开显示。'));
+        helped('查看历史', () => { selectConnection(connection.id); openPanel('history'); historyConnection.value = connection.id; historyId.value = ''; return loadHistory(); }, '只读取此连接本地历史，不访问服务商；不同账号与指标分开显示。'));
       if (connection.auth_type === 'oauth') actions.append(
         helped('登录 / 重新登录', () => beginDeviceLogin(connection), '显示设备码和 OpenAI 官方授权链接，自动检查授权并保存本项目登录；不改外部客户端凭证，不调用 Agent 或模型。'),
         helped('备用：回调 URL 登录', () => beginLogin(connection), '设备码不可用时可显式使用浏览器回调登录，需要手动粘贴回调 URL；不自动切换，不调用 Agent 或模型。'));
@@ -359,10 +549,11 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     if (!nodes.length) nodes.push(el('p', '暂无项目账号连接。添加连接不会自动迁移或替换原 CLI 登录。', 'hint'));
     cards.replaceChildren(...nodes);
   }
-  function paintEditor(connection = null) {
-    invalidateLogin();
+  function paintEditor(connection = null, trigger = document.activeElement) {
+    retainDraft(); invalidateLogin();
     for (const input of editorHost.querySelectorAll('input')) if (input.type === 'password') input.value = '';
-    editId = connection?.id || null; editorRevision++; editor.hidden = false; node.dataset.sourceView = 'detail';
+    editId = connection?.id || null; editorRevision++; dirty = false;
+    openPanel('editor', trigger);
     editor.querySelector('h2').textContent = connection ? `编辑连接 · ${connection.label}` : '添加连接';
     const form = el('div', undefined, 'agent-connection-form');
     const label = field(form, '连接名称', 'label', 'text', connection?.label || ''); label.maxLength = 120;
@@ -383,7 +574,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     const compatibleNote = el('p', '自定义 API 必须填写 HTTPS 模型端点（通常含 /v1）和至少一个物理模型 ID；仅支持 OpenAI Chat Completions 协议，未联网验证可用性。当前按文本/工具调用配置，32K 上下文、4K 输出为本地运行预算，不代表上游实际限额。余额查询尚不支持，不代表余额为零。', 'hint');
     form.append(credentialWrap, oauthNote, compatibleNote);
     const localFeedback = el('p', undefined, 'hint agent-connection-editor-feedback'); localFeedback.setAttribute('role', 'status');
-    const changed = () => { editorRevision++; invalidateLogin(); };
+    const changed = () => { dirty = true; editorRevision++; invalidateLogin(); };
     const rebuildDefaultModels = () => {
       const ids = models.value.split(/[,，\n]/).map(value => value.trim()).filter(Boolean);
       defaultModelList.replaceChildren(...ids.map(id => { const option = el('option'); option.value = id; return option; }));
@@ -391,16 +582,44 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     rebuildDefaultModels();
     for (const input of [label, endpoint, models, key]) input.oninput = changed;
     models.oninput = () => { changed(); rebuildDefaultModels(); };
-    enabled.onchange = changed;
+    enabled.onchange = defaultThinking.onchange = changed;
+    defaultModel.oninput = changed;
     const syncAuth = () => {
       const oauth = provider.value === 'openai-codex', compatible = provider.value === 'openai-compatible';
       credentialWrap.hidden = oauth; oauthNote.hidden = !oauth; compatibleNote.hidden = !compatible;
       endpoint.required = models.required = compatible; key.value = '';
     };
-    provider.onchange = () => { endpoint.value = ''; changed(); syncAuth(); }; syncAuth();
+    provider.onchange = () => { endpoint.value = ''; changed(); syncAuth(); updatePreview(); }; syncAuth();
+    const preview = el('p', undefined, 'model-source-call-preview');
+    note(form, '模型 ID 示例：gpt-6.1-sol（无需服务商前缀）。org/model 也可以是合法物理 ID，不会自动截断。');
+    form.append(preview);
+    const prefixHelp = helped('修正当前服务商前缀', () => {
+      const prefix = `${provider.value}/`;
+      models.value = models.value.split(/[,，\n]/).map(id => id.trim().startsWith(prefix) ? id.trim().slice(prefix.length) : id.trim()).join(', ');
+      if (defaultModel.value.startsWith(prefix)) defaultModel.value = defaultModel.value.slice(prefix.length);
+      changed(); rebuildDefaultModels(); updatePreview();
+    }, '仅在你确认误输入当前服务商前缀时，移除该前缀一次；其他 slash 物理 ID 保留。'); form.append(prefixHelp);
+    function updatePreview() {
+      const ids = models.value.split(/[,，\n]/).map(id => id.trim()).filter(Boolean), model = defaultModel.value.trim() || ids[0] || 'gpt-6.1-sol';
+      preview.textContent = `最终调用名预览：${provider.value}/${model}`;
+      prefixHelp.hidden = ![...ids, defaultModel.value].some(id => id.startsWith(`${provider.value}/`));
+    }
+    models.oninput = () => { changed(); rebuildDefaultModels(); updatePreview(); };
+    defaultModel.oninput = () => { changed(); updatePreview(); };
+    const draft = drafts.get(editId || '');
+    if (draft) {
+      for (const input of [...form.querySelectorAll('input'), ...form.querySelectorAll('select')]) {
+        const value = draft[input.dataset.connectionField];
+        if (value !== undefined && input.type !== 'password') input.type === 'checkbox' ? input.checked = value : input.value = value;
+      }
+      dirty = true; syncAuth(); rebuildDefaultModels(); localFeedback.textContent = '已恢复本次会话的未保存公开草稿；秘密不保留。';
+    }
+    updatePreview();
+    note(form, '保存 / 登录成功后：已启用且有本地凭证的受支持连接会自动联网刷新余额 / 套餐；不调用模型。保存成功与查询失败分别报告。自定义兼容 API 不查询。');
     const actions = el('div', undefined, 'agent-connection-actions');
     actions.append(button('保存连接', async () => {
       if (!current() || saving) return;
+      if (configBusy.has(editId)) { localFeedback.textContent = '此连接正在批量配置，草稿保留；请待批量结束后再保存。'; return; }
       let params;
       try {
         const name = label.value.trim(); if (!name) throw new Error('请填写连接名称。');
@@ -410,27 +629,44 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
         const ids = models.value.split(/[,，\n]/).map(value => value.trim()).filter(Boolean);
         if (provider.value === 'openai-compatible' && !ids.length) throw new Error('自定义兼容 API 必须填写至少一个物理模型 ID。');
         if (ids.length > 50 || new Set(ids).size !== ids.length || ids.some(id => id.length > 256)) throw new Error('模型 ID 不可重复，最多 50 个，每个最长 256 字符。');
-        if (defaultModel.value && ids.length && !ids.includes(defaultModel.value)) throw new Error('默认模型必须在上方的模型列表内。');
+        if (defaultModel.value.trim() && ids.length && !ids.includes(defaultModel.value.trim())) throw new Error('默认模型必须在上方的模型列表内。');
         const value = { ...(connection ? { id: connection.id } : {}), label: name, provider: provider.value, auth_type: provider.value === 'openai-codex' ? 'oauth' : 'api_key',
           enabled: enabled.checked, models: ids, default_model: defaultModel.value.trim(), default_thinking: defaultThinking.value,
           ...(url ? { endpoint: url } : {}) };
         params = { connection: value, ...(value.auth_type === 'api_key' && key.value.trim() ? { credential: { api_key: key.value.trim() } } : {}) };
       } catch (error) { localFeedback.textContent = error instanceof TypeError ? '模型端点不是有效 HTTPS 地址。' : error.message; localFeedback.setAttribute('role', 'alert'); return; }
       // Only the request body briefly contains the secret. Clear the live input even when the write fails.
-      key.value = ''; saving = true; ++version; const revision = editorRevision, selectionStamp = selectionRevision;
+      key.value = ''; saving = true; ++version; const revision = editorRevision, selectionStamp = selectionRevision, generation = sessionRevision;
+      const savedEditId = editId;
+      if (savedEditId) { configBusy.add(savedEditId); queryVersions.set(savedEditId, (queryVersions.get(savedEditId) || 0) + 1); operationState.delete(savedEditId); }
       localFeedback.textContent = '正在保存连接…';
       try {
-        const saved = await post('agent.connections.save', params); if (!current()) return;
-        if (revision === editorRevision) { paintEditor(); closeEditor(); if (saved?.id && selectionStamp === selectionRevision) { selectedId = saved.id; explicitSelection = true; } }
+        const writing = post('agent.connections.save', params); delete params.credential;
+        const saved = await writing; if (!current() || generation !== sessionRevision) return;
+        if (revision === editorRevision) {
+          dirty = false; drafts.delete(editId || ''); closeEditor();
+          if (saved?.id && selectionStamp === selectionRevision) { selectedId = saved.id; explicitSelection = true; }
+          if (panelKind === 'editor') back.onclick();
+        }
         await load(true); message('连接已保存；不会自动改变运行中的 Worker 或原 CLI 登录。');
-      } catch { if (current()) { localFeedback.textContent = '保存连接失败；密钥输入已清空，请确认配置后重新提交。'; localFeedback.setAttribute('role', 'alert'); } }
-      finally { saving = false; }
-    }), button('取消编辑', () => { if (current()) { paintEditor(); closeEditor(); } }, 'ghost'));
+        const refreshed = await autoRefresh(saved?.id);
+        if (current()) message(refreshed === false ? '连接已保存；自动查询失败或未知，旧值仅供参考（非零余额）。' : refreshed === true ? '连接已保存，资源已自动刷新。' : '连接已保存；此连接不触发自动资源查询。', refreshed === false);
+      } catch { if (current() && generation === sessionRevision) { localFeedback.textContent = '保存连接失败；密钥输入已清空，请确认配置后重新提交。'; localFeedback.setAttribute('role', 'alert'); } }
+      finally { saving = false; configBusy.delete(savedEditId); }
+    }), button('取消编辑', () => {
+      if (current()) { dirty = false; drafts.delete(editId || ''); closeEditor(); back.onclick(); }
+    }, 'ghost'));
     editorHost.replaceChildren(form, localFeedback, actions);
+    if (trigger !== null) label.focus();
+  }
+  async function autoRefresh(id) {
+    if (queries.has(id)) await queries.get(id);
+    const connection = array(data?.connections).find(row => row.id === id);
+    return current() && canQuery(connection) ? query(id) : null;
   }
   async function beginDeviceLogin(connection) {
     if (!loginVisible()) return;
-    selectConnection(connection.id); invalidateLogin(); ++version;
+    selectConnection(connection.id); closeEditor(); invalidateLogin(); ++version;
     const revision = editorRevision, loginStamp = loginSequence;
     message('正在获取 Codex 设备码…');
     let login;
@@ -449,7 +685,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
         message(`无法获取设备码：${deviceFailureReason(error)} 未改变已有凭证。`, true);
       return;
     }
-    editor.hidden = false;
+    openPanel('editor'); dirty = false;
     editId = connection.id; editorRevision++;
     editor.querySelector('h2').textContent = 'Codex 设备码登录';
     const form = el('div', undefined, 'agent-connection-form'), link = el('a', '打开 OpenAI 设备码授权页面');
@@ -483,9 +719,10 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
         if (!active()) { if (deviceSession === session) stopDevice(); return; }
         if (result?.id !== login.id || result.login_id !== login.login_id) throw new Error('invalid device response');
         if (result.status === 'complete' && result.connection?.id === login.id) {
-          stopDevice(false); paintEditor(); closeEditor(); const completedStamp = loginSequence;
+          stopDevice(false); closeEditor(); editorHost.replaceChildren(); back.onclick(); const completedStamp = loginSequence;
           await load(true);
-          if (current() && completedStamp === loginSequence) message('本项目设备码登录已保存，外部客户端登录未改动。');
+          const refreshed = await autoRefresh(login.id);
+          if (current() && completedStamp === loginSequence) message(refreshed === false ? '设备码登录已保存；自动查询失败或未知（非零余额）。' : '本项目设备码登录已保存，外部客户端登录未改动。');
           return;
         }
         if (result.status !== 'pending' || !finite(result.interval_seconds) || result.interval_seconds < 1 || result.interval_seconds > 900
@@ -505,8 +742,9 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       } catch { if (active()) { code.focus(); code.select?.(); loginFeedback.textContent = '无法自动复制；请手动选中上方设备码复制。'; } }
     }, '仅复制当前短期设备码到系统剪贴板，不保存到浏览器；请只在 OpenAI 官方页面输入，不分享。');
     session.copy = copyHost.children[0];
-    actions.append(copyHost, helped('取消登录', () => { if (active()) { stopDevice(); paintEditor(); closeEditor(); message('设备码登录已取消；已有凭证不变。'); } }, '停止自动检查并取消本次设备码登录，不删除已有账号凭证。'));
-    editorHost.replaceChildren(form, loginFeedback, actions);
+    actions.append(copyHost, helped('取消登录', () => { if (active()) { stopDevice(); closeEditor(); back.onclick(); message('设备码登录已取消；已有凭证不变。'); } }, '停止自动检查并取消本次设备码登录，不删除已有账号凭证。'));
+    note(form, '登录成功后会自动联网查询此连接的余额 / 套餐，不调用模型；查询失败不撤销登录成功。');
+    editorHost.replaceChildren(form, loginFeedback, actions); code.focus();
     globalThis.addEventListener?.('pagehide', session.leave);
     if (typeof globalThis.MutationObserver === 'function') {
       session.observer = new globalThis.MutationObserver(() => { if (!loginVisible()) stopDevice(); });
@@ -517,7 +755,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   }
   async function beginLogin(connection) {
     if (!current()) return;
-    selectConnection(connection.id); invalidateLogin(); ++version; const revision = editorRevision, loginStamp = loginSequence; message('正在创建独立 OAuth 登录请求…');
+    selectConnection(connection.id); closeEditor(); invalidateLogin(); ++version; const revision = editorRevision, loginStamp = loginSequence; message('正在创建独立 OAuth 登录请求…');
     let login;
     try {
       login = await post('agent.connections.login.start', { id: connection.id }); if (!current() || revision !== editorRevision || loginStamp !== loginSequence) return;
@@ -526,7 +764,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
         || !['localhost', '127.0.0.1'].includes(callback.hostname) || callback.pathname !== '/auth/callback' || !['http:', 'https:'].includes(callback.protocol)
         || !login.login_id || !Number.isFinite(Date.parse(login.expires_at)) || Date.parse(login.expires_at) <= Date.now()) throw new Error('invalid OAuth response');
     } catch { if (revision === editorRevision && loginStamp === loginSequence) message('无法创建安全登录请求，请重试；未改变已有凭证。', true); return; }
-    editor.hidden = false;
+    openPanel('editor'); dirty = false;
     editId = connection.id; editorRevision++;
     editor.querySelector('h2').textContent = 'Codex 独立账号登录';
     const form = el('div', undefined, 'agent-connection-form'), link = el('a', '打开 Codex 授权页面');
@@ -550,13 +788,15 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       try {
         await post('agent.connections.login.finish', { id: connection.id, login_id: login.login_id, redirect_url });
         if (!current() || finishRevision !== editorRevision || loginStamp !== loginSequence) return;
-        paintEditor(); closeEditor(); const completedStamp = loginSequence;
-        await load(true); if (completedStamp === loginSequence) message('本项目登录已保存，外部客户端登录未改动。');
+        closeEditor(); editorHost.replaceChildren(); back.onclick(); const completedStamp = loginSequence;
+        await load(true); const refreshed = await autoRefresh(connection.id);
+        if (completedStamp === loginSequence) message(refreshed === false ? '本项目登录已保存；自动查询失败或未知（非零余额）。' : '本项目登录已保存，外部客户端登录未改动。');
       } catch { if (current() && finishRevision === editorRevision && loginStamp === loginSequence) { loginFeedback.textContent = '登录未完成；回调输入已清空，请重新发起登录。不会回显授权码或上游错误。'; loginFeedback.setAttribute('role', 'alert'); } }
       finally { finishing = false; }
     }, '仅兑换本次授权码并保存本项目 OAuth 凭证；不会修改外部客户端登录，也不会调用模型。'),
-    button('取消登录', () => { if (current()) { callback.value = ''; paintEditor(); closeEditor(); } }, 'ghost'));
-    editorHost.replaceChildren(form, loginFeedback, actions); message('授权请求已创建；请打开官方授权页面并粘贴回调地址。');
+    button('取消登录', () => { if (current()) { callback.value = ''; closeEditor(); back.onclick(); } }, 'ghost'));
+    note(form, '登录成功后会自动联网查询此连接的余额 / 套餐，不调用模型；查询失败不撤销登录成功。');
+    editorHost.replaceChildren(form, loginFeedback, actions); callback.focus(); message('授权请求已创建；请打开官方授权页面并粘贴回调地址。');
   }
   function loadHistory() {
     if (!current()) return Promise.resolve();
@@ -609,12 +849,37 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   historyConnection.onchange = () => { historyId.value = ''; return loadHistory(); };
   days.onchange = loadHistory;
   historyControls.append(helped('读取历史', loadHistory, '只读取所选连接的项目 SQLite 历史，不联网查询服务商。'));
-  toolbar.append(helped('重新读取本地连接', () => load(true), '重新读取项目连接配置和缓存，不访问服务商，不覆盖未保存编辑。'),
-    helped('刷新全部资源', () => query(), '只查询启用连接的专用资源接口，可能刷新本项目 OAuth；不调用 Agent 或模型，不自动切换模型。'),
-    button('添加连接', () => { if (current()) paintEditor(); }, 'ghost'),
-    button('后台采样设置', () => { if (current()) { samplingHost.hidden = !samplingHost.hidden; node.dataset.sourceView = 'detail'; } }, 'ghost', { help: '展开本项目全部托管来源的采样设置；开启后关页仍采样，不是某个来源单独的开关。' }),
-    button('历史与已删除来源', () => { if (current()) { historyHost.hidden = !historyHost.hidden; node.dataset.sourceView = 'detail'; } }, 'ghost', { help: '展开本地观测历史入口，可按原连接 ID 查看已删除来源的历史；不访问服务商。' }));
-  intro.append(toolbar, feedback); detailPane.append(back, selectionFeedback, cards, editor, samplingHost, historyHost);
-  layout.append(listPane, detailPane); node.append(intro, layout); paintEditor(); closeEditor(); node.dataset.sourceView = connectionId ? 'detail' : 'list';
-  return { node, load, loadHistory, selectConnection, selectedConnection: () => selectedId, dispose: closeEditor };
+  const addConnection = button('添加连接', () => { if (current()) paintEditor(null, addConnection); }, 'primary');
+  toolbar.append(addConnection,
+    helped('刷新全部资源', () => query(), '只查询启用且有凭证的受支持连接；可能刷新本项目 OAuth，不调用 Agent 或模型，不自动切换模型。'),
+    helped('重新读取本地连接', () => load(true), '重新读取项目连接配置和缓存，不访问服务商，不覆盖未保存编辑。'),
+    button('后台采样设置', () => { if (current()) { closeEditor(); openPanel('sampling'); samplingEnabled.focus(); } }, 'ghost', { help: '展开本项目全部托管来源的采样设置；开启后关页仍采样，不是某个来源单独的开关。' }),
+    button('历史与已删除来源', () => { if (current()) { closeEditor(); openPanel('history'); historyConnection.focus(); } }, 'ghost', { help: '展开本地观测历史入口，可按原连接 ID 查看已删除来源的历史；不访问服务商。' }));
+  intro.append(toolbar); detailPane.append(back, selectionFeedback, cards, editor, samplingHost, historyHost);
+  layout.append(listPane, detailPane); node.append(intro, feedback, layout);
+  // Construct the initial empty form for old callers, but keep it out of the visual/focus flow.
+  const initialFocus = document.activeElement;
+  paintEditor(null, null); closeEditor(); initialFocus?.focus(); detailPane.hidden = !connectionId; panelKind = connectionId ? 'detail' : '';
+  cards.hidden = selectionFeedback.hidden = !connectionId;
+  node.dataset.sourceView = connectionId ? 'detail' : 'list';
+  let observer = null;
+  function dispose() {
+    disposed = true; sessionRevision++; version++; editorRevision++; historySequence++;
+    closeEditor(); resetClearTimeout(resetTimer); resetTimer = null;
+    observer?.disconnect(); observer = null;
+    document.removeEventListener?.('visibilitychange', visibilityChanged);
+    globalThis.removeEventListener?.('pagehide', dispose);
+  }
+  function resume() {
+    disposed = false;
+    document.addEventListener?.('visibilitychange', visibilityChanged);
+    globalThis.addEventListener?.('pagehide', dispose);
+    if (!observer && typeof globalThis.MutationObserver === 'function') {
+      observer = new globalThis.MutationObserver(() => { if (!current()) dispose(); });
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+    updateResets();
+  }
+  resume();
+  return { node, load, loadHistory, selectConnection, selectedConnection: () => selectedId, dispose, resume };
 }

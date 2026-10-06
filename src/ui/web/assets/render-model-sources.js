@@ -15,11 +15,16 @@ export function openModelSources({ connectionId = '' } = {}) {
   const page = el('div', undefined, 'model-sources-page');
   const head = el('header', undefined, 'model-sources-head');
   head.append(el('h1', '模型来源'), el('p', '管理当前项目的 API 与订阅账号。选择来源只查看详情，不改变项目默认；到 Agent 配置或 Worker 运行设置中选择来源与模型。', 'hint'));
-  const state = { view, pending: null, connections: null };
-  ui.modelSourcesPage = state;
-  const ownsPage = () => ui.view === view && ui.modelSourcesPage === state;
-  state.connections = createAgentConnections({ ownsPage, connectionId: id });
+  // Retain this project's public drafts only in memory; panel teardown clears secrets.
+  const reused = Boolean(ui.modelSourcesPage?.connections);
+  const state = ui.modelSourcesPage || { view, pending: null, connections: null };
+  if (reused) state.connections.dispose();
+  state.view = view; ui.modelSourcesPage = state;
+  const ownsPage = () => ui.view === state.view && ui.modelSourcesPage === state;
+  if (!state.connections) state.connections = createAgentConnections({ ownsPage, connectionId: id });
+  else { state.connections.resume(); if (id) state.connections.selectConnection(id); }
   page.append(head, state.connections.node); $('detail').replaceChildren(page);
-  state.pending = state.connections.load().finally(() => { state.pending = null; });
-  return state.pending;
+  const pending = state.connections.load(reused).finally(() => { if (state.pending === pending) state.pending = null; });
+  state.pending = pending;
+  return pending;
 }
