@@ -48,6 +48,6 @@ Git 身份只读、固定为脚本代码目录，清除继承的 `GIT_*`、禁�
 
 比较两份报告时，先确认代码提交与 dirty、OS / Bun / Git、样本数、数据规模和 measurement scope，再看中位数、p95 / 最大值以及原样本。不在不同机器之间把单次差异直接判为生产退化。
 
-现有 `legacy_ms` 是 snapshot alias 的同进程读取，不是旧版本基线；stub 没有 CSS 布局 / 真实帧率，timer delay 没有并发 socket 客户端。真实 RPC / 浏览器、10 万行历史、内存分配和跨平台生产延迟仍需独立测量。自动归档 / CI / 新门禁属于后续裁决，不用本报告冒充已完成。
+现有 `legacy_ms` 是 snapshot alias 的同进程读取，不是旧版本基线；stub 没有 CSS 布局 / 真实帧率，timer delay 没有并发 socket 客户端。真实 RPC / 浏览器、10 万行历史、内存分配和跨平台生产延迟仍需独立测量。自动归档 / CI / 新门禁不在本报告范围，不用本报告冒充已完成。
 
-[返回贡献指南](README.md) · [剩余工程候选](../todo/05-testing-maintainability.md#e-06--将现有性能脚本变为可比较分层的回归证据)
+[返回贡献指南](README.md)
