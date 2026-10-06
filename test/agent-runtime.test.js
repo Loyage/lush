@@ -57,6 +57,20 @@ test('agent prompt distinguishes persistent auto-merge hooks from delivery and a
   expect(prompt).not.toContain('收到 merge Task 的分歧消息');
 });
 
+test('agent prompt pins writes to the worktree and forbids direct commits on the target branch', () => {
+  for (const role of ['agent', 'worker', 'merger', 'planner']) {
+    const prompt = builtInPrompt(role);
+    expect(prompt).toContain('唯一可写的代码副本');
+    expect(prompt).toContain('不要 cd 到 canonical 项目目录');
+    expect(prompt).toContain('LUSH_PROJECT');
+    expect(prompt).toContain('git rev-parse --abbrev-ref HEAD');
+    expect(prompt).toContain('禁止在 main/父分支上 commit、merge、push、reset、cherry-pick');
+    expect(prompt).toContain('越过 worktree 直接把提交写进目标分支');
+  }
+  // 隔离的只读角色不注入共享 runtime 片段，不受这条提交边界提示影响。
+  expect(builtInPrompt('explainer')).not.toContain('唯一可写的代码副本');
+});
+
 test('message guidance survives role/mode composition and separates admission from delivery', () => {
   const root = temp();
   try {

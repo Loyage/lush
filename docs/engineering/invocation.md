@@ -20,7 +20,7 @@ Worker 的累计 calls / wakes 继续用于兼容读模型，Run 保存每次调
 1. Dispatcher 按Worker就绪状态与相应 lane 的容量选择 queued Worker。
 2. `running` Map 占位，签发本次 invocation token，创建 `agent_runs` 行。
 3. 准备 cwd：指令 / child 使用独立 worktree；解分歧 Worker 使用从固定提交拉起的独立 worktree；旧记录里可能还有输入 worktree 或对照检出。
-4. 读取启动时未消费消息、相关工作与 Artifact 上下文；对带 Input 的普通Worker读取其引用快照并按稳定目标解析本轮最新状态，组成 `referenced_context`。provider 按 role 组合命名 Prompt 片段，叠加 `agent.json`、项目/本机补充并热加载公共/角色 env 后启动 Pi 或 Codex。
+4. 读取启动时未消费消息、相关工作与 Artifact 上下文；对带 Input 的普通Worker读取其引用快照并按稳定目标解析本轮最新状态，组成 `referenced_context`。provider 按 role 组合命名 Prompt 片段，叠加 `agent.json`、项目/本机补充并热加载公共/角色 env 后启动 Pi 或 Codex。共享 runtime 片段明确 cwd（专属 worktree）是唯一可写副本：禁止 `cd` 到 canonical 项目目录或在 main/父分支上直接提交，并在提交前核对当前分支；越界提交仍由调度器的目标分支防护事后判失败（见[模块](modules.md)）。
 5. 成功返回后消费启动时消息，保存 Worker 兼容 result、结束 Run、写 Artifact。
 6. 判定未读消息、Decision、活动子Worker与工作区提交，进入 queued / awaiting / waiting / completed。
 7. 释放 token 和槽，再检查一次收件箱避免 lost wake-up。
