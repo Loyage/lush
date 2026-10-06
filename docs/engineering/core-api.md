@@ -29,7 +29,7 @@ Worker 是原 Task 的整体更名，含义仍是持久的 Agent + Process；父
 
 新记录使用 `task_kind='order'`。历史数据库中的 `task_kind='say'` 仅在读取、类型判定及生命周期准入边界兼容为指令 Worker，展示统一为「指令」；这不是新增旧入口，也不是迁移。既有行、分支名、工作区、会话、Event 与引用快照保持原样，不批量回写。源码中的相关函数、变量、类名和测试 fixture 改用 order / Order / ORDER；模块路径为 `src/core/project/order.js`，职责见[Runtime 地图](modules-runtime.md)。
 
-读取实现由 `src/core/order-kind.js` 的 `normalizeOrderRecord(row)` 与 Store `get` / `all` 行投影负责，SQL 类型筛选兼容两种值；新默认名称为 `order-ID`，旧名称不回写。当前子指令数读面使用 `subtree_order`，历史 `say.integrated` Event 仅兼容读取，原始审计不改写。具体职责见[Runtime 地图](modules-runtime.md#指令类型的只读兼容接缝)。
+读取实现由 `src/core/order-kind.js` 的 `normalizeOrderRecord(row)` 与 Store `get` / `all` 行投影负责，SQL 类型筛选兼容两种值；新默认名称为 `order-ID`，旧名称不回写。新建 指令/child 另带不可变、可空的 `worker_number`：指令为 `W<Input id>`，已编号父下的 child 为父编号加持久同父序号，历史 Worker 与其新派生后代保持 NULL；数字内部 ID 仍是唯一的存储、鉴权、引用 target、路径与合并身份。当前子指令数读面使用 `subtree_order`，历史 `say.integrated` Event 仅兼容读取，原始审计不改写。具体职责见[Runtime 地图](modules-runtime.md#指令类型的只读兼容接缝)。
 
 Input（原始输入）、历史输入、Draft（暂存）仍是各自的实体与界面名称；「指令」只替代原 say 概念，不把它们一并更名。上述兼容的历史指令 Worker 继续按原交付协议受检；下文关于退休 Intent / Plan 等记录的限制不表示历史指令被退休。
 
@@ -40,7 +40,7 @@ Input（原始输入）、历史输入、Draft（暂存）仍是各自的实体�
 - `worker.spawn`：只可在活动 指令/child 下派 agent 子 Worker；不再接受 role、deps 或 spec。
 - `worker.message` / `notice.post` / `notice.answer` / `notice.dismiss`：继续沟通和决策。
 - `branch.history {cursor?,limit?}`：用户专属只读 main 第一父链历史与精确交付 Worker / 原始指令追溯；Web `GET /api/versions`，不新增 CLI 写入口，见 [版本迭代](version-history.md)。
-- `worker.inspect` / `worker.page` / `worker.graph` / `worker.diff` / `worker.history*` / `worker.transcript*` / `worker.runs_page` / `worker.artifacts_page` / `worker.artifact`：按需只读审阅；支持 CLI 与 Web。
+- `worker.inspect` / `worker.page` / `worker.graph` / `worker.diff` / `worker.history*` / `worker.transcript*` / `worker.runs_page` / `worker.artifacts_page` / `worker.artifact`：按需只读审阅；支持 CLI 与 Web。另有只读 `worker.lookup {number}`：把用户编号（`W5` / `W5-1`）严格解析成 `{id,worker_number}`，供 CLI/Web 转调原整数身份接口；它不改写任何状态，也不让原 RPC/HTTP 的 `id`（含 Artifact 产物 ID）接受编号。
 - `worker.integrate`：运行中的直接父 Agent 核对固定子提交并快进；`worker.resolve_child_divergence` 为父侧分歧派隔离Worker。
 - `worker.auto_merge {id,enabled}`：用户专属的持久自动合并开关；新指令默认关闭，新 child 默认开启且不可关闭，开发就绪后不能调整。与单次请求分离，语义见 [Worker RPC](../reference/rpc/tasks.md#自动合并开关与本轮合并)。
 - `worker.reserve {kind:'merge'}` / `worker.reserve_all {branch}` / `worker.unreserve` / `worker.resolve_divergence` / `worker.approve_merge`：冻结、复查、解分歧和由用户批准固定 commit + baseline；`reserve_all` 把一条分支下所有已静息待合并的 Worker 逐条按同一套准入放入 v2 merge 队列，当前 version 2 请求由父 Worker 自有队列的 runtime 串行 Squash（含 main），不创建 merge Worker、不改父子关系、不额外调用父 Agent；旧 version 1 仍需固定提交批准，旧 version 2 merge 身份／在途重挂只作历史兼容。

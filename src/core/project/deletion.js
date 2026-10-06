@@ -131,7 +131,7 @@ async function deletionPlan(project, rootId) {
   const uniqueBlockers = [...new Set(blockers)];
   const snapshot = { data: db.data, git, files:filePlan };
   const preview = { id:rootId, revision:deletionHash(snapshot), can_delete:uniqueBlockers.length === 0, blockers:uniqueBlockers,
-    workers:db.tasks.map(task => ({ id:task.id, goal:task.goal.slice(0,400), status:task.status })),
+    workers:db.tasks.map(task => ({ id:task.id, worker_number:task.worker_number, goal:task.goal.slice(0,400), status:task.status })),
     inputs:db.inputs.map(input => ({id:input.id})), resources:{ worktrees:git.worktrees.map(tree => tree.path),
       branches:git.branches.map(entry => entry.branch), files:filePlan.map(file => file.path) }, warnings };
   check(Buffer.byteLength(JSON.stringify(preview)) < 192000, 'deletion preview is too large; delete smaller subtrees first');

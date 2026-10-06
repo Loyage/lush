@@ -13,7 +13,7 @@ export default {
         json_type(${safeData},'$.parent') AS event_target_type,
         json_extract(${safeData},'$.parent') AS event_parent,
         json_extract(${safeData},'$.legacy') AS event_legacy,
-        t.id, substr(t.goal,1,16385) AS goal, t.task_kind, t.target_branch,
+        t.id, t.worker_number, substr(t.goal,1,16385) AS goal, t.task_kind, t.target_branch,
         i.id AS input_id, substr(i.content,1,131073) AS input_content, p.branch AS parent_branch
       FROM events e JOIN tasks t ON t.id=e.task_id
       LEFT JOIN inputs i ON i.id=t.input_id
@@ -32,7 +32,7 @@ export default {
         'version history Worker or order text exceeds safe size');
       const tasks = byCommit.get(row.landed_commit);
       if (!tasks || tasks.has(row.id)) continue;
-      tasks.set(row.id, { id: row.id, goal: row.goal, task_kind: row.task_kind ?? 'legacy',
+      tasks.set(row.id, { id: row.id, worker_number: row.worker_number, goal: row.goal, task_kind: row.task_kind ?? 'legacy',
         input: row.input_id === null ? null : { id: row.input_id, content: row.input_content }, evidence: row.type });
     }
     page.commits = page.commits.map(row => {

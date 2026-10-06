@@ -56,10 +56,10 @@ test('详情头部显示对应意图编号，能点开那条意图，input_id �
   const head = () => detail.querySelector('.head');
   dom.location.hash = '#worker-1';
   await dom.fire('hashchange');
-  await until(() => head() && findByText(head(), '意图 #1'), 2000);
+  await until(() => head() && findByText(head(), '输入 O1'), 2000);
 
-  // 头部写着「意图 #1」而不是「输入 #1」，hover 能看到意图原文，并且是可点的。
-  const intent = findByText(head(), '意图 #1');
+  // 头部写着「输入 O1」（Input 用 O 编号），hover 能看到意图原文，并且是可点的。
+  const intent = findByText(head(), '输入 O1');
   expect(intent.title).toContain('demo');
   expect(intent.classList.contains('intent-link')).toBe(true);
 
@@ -67,11 +67,11 @@ test('详情头部显示对应意图编号，能点开那条意图，input_id �
   await intent.onclick();
   expect(dom.location.hash).toBe('#worker-9');
 
-  // scheduler #4 的 input_id 是 null：头部不该出现「意图 #null」。
+  // scheduler #4 的 input_id 是 null：头部不该出现「输入 O null」。
   dom.location.hash = '#worker-4';
   await dom.fire('hashchange');
   await until(() => head() && deepText(head()).includes('#4'), 2000);
-  expect(deepText(head())).not.toContain('意图 #');
+  expect(deepText(head())).not.toContain('输入 O');
 });
 
 test('运行中 task 在任务树和详情显示计划完成度与当前步骤', async () => {

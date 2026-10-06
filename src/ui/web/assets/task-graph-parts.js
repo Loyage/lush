@@ -4,6 +4,7 @@ import { promptDialog } from './dialog.js';
 import { show } from './messages.js';
 import { ui } from './state.js';
 import { agentHelp } from './help.js';
+import { workerLabel } from './worker-label.js';
 
 /** Committed changes and uncommitted work are independent; unknown is never zero. */
 export function branchDiagnostics(branch) {
@@ -74,15 +75,15 @@ export function decisionRow(node, refresh) {
   if (notice.kind === 'plan') {
     actions.append(button('批准并开发', async () => {
       await action('plan.approve', { id: node.id });
-      await done(`已批准 #${node.id} 的拆解，交给 scheduler 编排`);
+      await done(`已批准 ${workerLabel(node)} 的拆解，交给 scheduler 编排`);
     }, 'primary', { agent: true, help: agentHelp('批准这份拆解并交给 scheduler 编排成真实 Worker，随后会启动开发 Agent 执行。') }));
     actions.append(button('驳回', async () => {
-      const reason = await promptDialog({ title: `驳回 #${node.id} 的拆解？`,
+      const reason = await promptDialog({ title: `驳回 ${workerLabel(node)} 的拆解？`,
         message: '理由会送给 planner，让它据此重拆。', label: '驳回理由',
         placeholder: '例如：别动架构，先加个开关', confirmLabel: '驳回并重拆' });
       if (!reason?.trim()) return;
       await action('plan.reject', { id: node.id, reason: reason.trim() });
-      await done(`已驳回 #${node.id} 的拆解：${reason.trim()}`);
+      await done(`已驳回 ${workerLabel(node)} 的拆解：${reason.trim()}`);
     }, undefined, { agent: true, help: agentHelp('把驳回理由送给 planner，让它据此重新拆解计划。') }));
     decision.append(actions); return decision;
   }
@@ -91,7 +92,7 @@ export function decisionRow(node, refresh) {
   const release = () => { input.value = ''; if (globalThis.document?.activeElement === input) input.blur?.(); };
   const reply = button('回复并继续 Worker', async () => {
     await action('notice.answer', { id: notice.id, answer: input.value });
-    release(); await done(`已把答复发给 Worker #${node.id}，它会继续跑`);
+    release(); await done(`已把答复发给 Worker ${workerLabel(node)}，它会继续跑`);
   }, undefined, { agent: true, help: agentHelp('把你的答复发给该 Worker 的 Agent，它会继续当前工作。') });
   input.addEventListener('keydown', async event => {
     if (event.key !== 'Enter' || event.isComposing || event.shiftKey || (!event.metaKey && !event.ctrlKey)) return;
@@ -99,7 +100,7 @@ export function decisionRow(node, refresh) {
   });
   actions.append(reply, button('忽略', async () => {
     await action('notice.dismiss', { id: notice.id });
-    release(); await done(`已忽略 Worker #${node.id} 的这条待决事项`);
+    release(); await done(`已忽略 Worker ${workerLabel(node)} 的这条待决事项`);
   }, 'ghost', { help: '忽略这条待决事项，不代表批准；Worker 不会继续处理它。' }));
   decision.append(input, actions); return decision;
 }

@@ -83,6 +83,13 @@ export function eventLabel(event) {
 export const HOT = new Set(['running', 'awaiting', 'awaiting_acceptance', 'waiting', 'queued', 'paused']);
 export const TERMINAL_STATUS = new Set(['completed', 'failed', 'cancelled']);
 export const short = value => (typeof value === 'string' ? value.slice(0, 7) : '');
+/** 用户编号只是标签；不从 Input 或父子关系推算，也不改变内部整数身份。 */
+export function workerNumber(task) {
+  return typeof task?.worker_number === 'string' && /^W[1-9]\d*(?:-[1-9]\d*)*$/.test(task.worker_number)
+    ? task.worker_number : `#${task?.id ?? '?'}`;
+}
+/** 只有已经发射的原始 Input 使用 O 编号，Draft 仍是独立暂存身份。 */
+export const inputNumber = id => `O${id ?? '?'}`;
 /** 中断意图与实际状态分开：颜色/筛选仍使用 status，不把请求冒充为已暂停。 */
 export function interruptReason(task) {
   if (TERMINAL_STATUS.has(task.status)) return null;
@@ -166,7 +173,7 @@ export function summarizeGoal(goal) {
   return line.length > GOAL_TITLE_LIMIT ? `${line.slice(0, GOAL_TITLE_LIMIT)}…` : line;
 }
 /** 详情页 hero 的短标题：goal 的摘要；goal 为空时退回 `任务 #id`，标题区永不留空。 */
-export const taskTitle = task => summarizeGoal(task?.goal) ?? `Worker #${task?.id ?? '?'}`;
+export const taskTitle = task => summarizeGoal(task?.goal) ?? `Worker ${workerNumber(task)}`;
 /** 一条 spec 的完整可读文本，放进 title，让人 hover 就能看全文与丢弃原因。 */
 export function specTitle(spec) {
   const info = specStatus(spec);
@@ -174,7 +181,7 @@ export function specTitle(spec) {
 }
 export const MERGE_STATUS = { merged: '✓ 已合并', conflict: '⚠ 冲突', failed: '✗ 失败', skipped: '⊘ 跳过' };
 export const CHANGE = { '??': '未跟踪', M: '修改', A: '新增', D: '删除', R: '重命名', C: '复制', UU: '冲突', AA: '冲突', T: '类型变更' };
-export const edgeLabel = edge => `#${edge.id}（${edge.kind === 'code' ? '代码基线' : '仅顺序'} · ${statusOf(edge).label}）`;
+export const edgeLabel = edge => `${workerNumber(edge)}（${edge.kind === 'code' ? '代码基线' : '仅顺序'} · ${statusOf(edge).label}）`;
 export const STEP = { input: '输入', text: '回答', thinking: '思考', tool: '工具调用', result: '工具输出', meta: '运行时' };
 export const MD_STEP = new Set(['text', 'result', 'thinking']);   // 这几类步骤正文按 markdown 渲染
 /** 一步占多少上下文（读 src/core/transcript.js 给的 tokens 字段，前端不再自己算差值）：

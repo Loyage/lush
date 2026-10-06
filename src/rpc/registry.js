@@ -19,7 +19,7 @@ export const PARAMS = {
   'input.history': ['cursor','limit','q','status','integration'], 'input.get': ['kind','id'], 'input.parents': [],
   'draft.add': ['content','references','branch'], 'draft.update': ['id','content','references','branch','expected_revision'],
   'draft.remove': ['id','expected_revision'],
-  'worker.graph': [], 'worker.list': ['after','limit'], 'worker.activity': ['limit','scope'],
+  'worker.lookup': ['number'], 'worker.graph': [], 'worker.list': ['after','limit'], 'worker.activity': ['limit','scope'],
   'worker.page': ['before','limit','scope'], 'worker.tree': ['id'], 'worker.inspect': ['id'],
   'worker.history': ['id','after'], 'worker.history_page': ['id','before','limit'], 'worker.diff': ['id'], 'worker.usage': ['id'],
   'worker.code_state': ['id','scope','after','limit'],

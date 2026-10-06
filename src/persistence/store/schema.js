@@ -94,6 +94,8 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         layer TEXT NOT NULL DEFAULT 'work',
         -- NULL/legacy=旧任务；main/owner 是静息根；order 直接管理输入；历史专用节点只保留记录。
         task_kind TEXT,
+        -- Immutable public number; historical Workers retain NULL and their integer identity.
+        worker_number TEXT,
         -- order/child 的合并预约；versioned JSON，NULL 表示未预约，历史其它预约只保留记录。
         reservation TEXT,
         auto_merge TEXT,

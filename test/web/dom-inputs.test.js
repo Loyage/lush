@@ -142,7 +142,7 @@ test('独立详情与返回保留筛选、分页、滚动和未保存编辑，�
 
 test('详情深链接、浏览器后退与迟到读取，切换草稿取消时恢复原路由和编辑', async () => {
   dom.location.hash = '#input-input-2'; await dom.fire('hashchange');
-  expect(deepText(panel())).toContain('原始输入 #2'); expect(panel().hidden).toBe(false);
+  expect(deepText(panel())).toContain('原始输入 O2'); expect(panel().hidden).toBe(false);
   dom.location.hash = '#inputs'; await dom.fire('hashchange'); expect(panel().hidden).toBe(true);
   const late = deferred(); intercept = path => path === '/api/input/draft/1' ? late.promise : null;
   const opening = openDraft(); await btn('← 返回历史输入').onclick();
@@ -153,7 +153,7 @@ test('详情深链接、浏览器后退与迟到读取，切换草稿取消时�
   expect(dom.location.hash).toBe('#input-draft-1'); expect(editor().value).toBe('不丢弃'); expect(dom.node('view-title').textContent).toBe('暂存输入 #1');
   dom.location.hash = '#input-input-2'; const confirmed = dom.fire('hashchange');
   await dialogButton(dom, '放弃编辑').onclick(); await confirmed;
-  expect(dom.location.hash).toBe('#input-input-2'); expect(editor()).toBe(null); expect(deepText(panel())).toContain('原始输入 #2');
+  expect(dom.location.hash).toBe('#input-input-2'); expect(editor()).toBe(null); expect(deepText(panel())).toContain('原始输入 O2');
 });
 
 test('正文全库搜索与状态/合并筛选发到服务端，游标分页与失败重试', async () => {
@@ -273,7 +273,7 @@ test('列表查询/详情迟到响应与离页返回身份保护；编辑期间�
   intercept = null; await openInputs(); await selectStatus('');
   const late = deferred(); intercept = path => path === '/api/input/draft/1' ? late.promise : null;
   const opening = openDraft(); await btn('查看原文').onclick(); late.resolve(json(fixture())); await opening;
-  expect(deepText(panel())).toContain('原始输入 #2'); expect(editor()).toBe(null);
+  expect(deepText(panel())).toContain('原始输入 O2'); expect(editor()).toBe(null);
   intercept = null; await openDraft();
   const reread = deferred(); intercept = path => path === '/api/input/draft/1' ? reread.promise : null;
   const loading = btn('重新读取详情', panel()).onclick(); editor().value = '请求期间的新编辑';

@@ -3,11 +3,12 @@ import { agentText, markdownEnabled } from './text.js';
 import { absolute } from './format.js';
 import { loadHistory } from './api.js';
 import { referenceable } from './context-references.js';
+import { workerLabel } from './worker-label.js';
 
 /** Only explicit user message events are follow-ups; inbox rows also contain runtime/Notice messages. */
 export function renderGoal(task, history = {}, previous = null) {
   history ||= {};
-  const signature = JSON.stringify([task.id, task.goal, markdownEnabled()]);
+  const signature = JSON.stringify([task.id, workerLabel(task), task.goal, markdownEnabled()]);
   if (previous?.goalSignature === signature) {
     previous.updateGoalHistory(history);
     return previous;
@@ -45,7 +46,7 @@ export function renderGoal(task, history = {}, previous = null) {
           item.append(agentText(event.data.body, { className: 'goal-text', plain: 'div' }));
         });
         referenceable(item, { kind: 'history_event', target: { task_id: task.id, event_id: event.id },
-          label: `Worker #${task.id} 的追加输入`, quote: event.data.body,
+          label: `Worker ${workerLabel(task)} 的追加输入`, quote: event.data.body,
           location: { view: 'task-detail', task_id: task.id, section: 'history' } });
         rendered.set(event.id, item);
       }

@@ -4,6 +4,8 @@
 
 `worker.graph {}` 是用户与 Agent 均可读的 Worker 父子读面，Web GET `/api/worker-graph` 对应：`{nodes,edges,truncated,total}`。最多 200 条节点，优先保留分支所有者与活动Worker；节点含 `goal_preview`（最多 600 字）、`result_preview`（最多 320 字）、`waiting_reason`、`progress`（有界完成数和当前步骤；当前步骤可能是 runtime 生成的等待条目，等待不计入 Agent 工作用时也不占完成度）、`notice`（最新一条 open 待决，正文最多 1000 字）、`notice_count`、`children_total/active`、`reservation`、`has_result`、`branch` / `workspace`、`branch_info`（实时 ref、与 `graph.get` 同源的 Git 诊断，以及合并运行投影：`subtree_order` 是这条分支下属还有多少条指令子分支、`merge_run` 是这条分支上仍在跑的合并运行 `{mode,status,done,total,task_id}`，没有则 null）、`freeze`（写冻结原因）与 `resolves_task_id`（被修复的源 Worker；父子边仍只表示负责集成的归属），以及 `has_rule`（仅表示存在固定输入规则），边是 `{from:parentId,to:childId}`。完整分支谱系仍由 `graph.get` 提供；`worker.graph` 不依赖它，全程只读，不写运行态或事件。
 
+Worker 读面统一携带可空 `worker_number`（历史 Worker 与其历史父下新派生的后代为 `null`，此时展示回退到整数 `#id`）；`merge_queue.items`、Input 父候选对象的 `worker_number`、Input 历史的 `task_worker_number` / `parent_worker_number`、Notice 与消息投影的 `task_worker_number` / `sender_worker_number` 也按同一口径给出。编号是显示身份，不参与 `id`、引用 target、外键、排序、鉴权或合并凭据。
+
 节点另带 `merge_queue:{counts,total,items,truncated,limit_per_status:3}`。只统计完整 tasks 表中真实直接子Worker的 `version=2,kind=merge,queue_protocol=1` 持久预约（预约 parent_id 必须等于 Worker parent_id）；`counts` 分别给 executing/resolving/requested/suspended/blocked 的精确数量，`total` 为总数，`items:[{id,status}]` 每阶段最多 3 条、ID 降序，未列完置 `truncated:true`。pending、仅开启自动合并、历史协议与 integrated 不算当前队列。无请求返回零计数和空 items；旧服务缺字段时不能以页面节点计数冒充完整摘要。不受节点截断/前端筛选影响，不写库、不改调度；展示顺序不表示 runtime 的队列执行次序。
 
 节点的 `archived:boolean` 只读投影归档事实：自己的分支已归档，或无独立分支的历史 version 2 `task_kind='merge'` 队列的直接父 Worker 分支已归档。父 Worker 不在这页也能判断，兼容历史归档，不改写 Worker 状态、父子关系或事件；其它子 Worker 不继承父归档，`target_branch` 不作为归档依据。Web 默认隐藏这些节点，「显示已归档」可查看，内部队列标注「随父 Worker 归档」；没有分支的队列仍为 `branch_info:null`。
@@ -21,6 +23,7 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 |---|---|---|
 | `worker list [--after N] [--limit N] [--brief]` | `worker.list` | `{after?: 0, limit?: 200}`，limit 最大 1000；CLI `--brief` 默认 30 条、最多 200 条短摘要及 `has_more/next_after` |
 | `worker tree [ID]` | `worker.tree` | `{id?}` |
+| `worker lookup NUMBER` | `worker.lookup` | `{number}`；只读 `{id,worker_number}`，把 `W5` / `W5-1` 严格解析成整数身份；用户与 Agent 均可调用。各段必须是正安全整数，`W0`/`W01`/小写/超长一律拒绝；找不到报 not found，不改任何状态，也不让原 `id` 参数接受编号 |
 | —（Web 轮询） | `worker.activity` | `{limit?: 50, scope?: 'work'|'all'}` |
 | —（Web 分页） | `worker.page` | `{before?: null, limit?: 50, scope?: 'work'|'all'}` |
 | `worker spawn 'goal' --parent ID [--name NAME]` | `worker.spawn` | `{parent, goal, name?}`；父必须是 指令/child Worker |

@@ -7,7 +7,7 @@
  *
  * 默认（空查询、无折叠）必须与改造前完全一致：三个 filter* 在没有任何条件时原样返回入参数组。
  */
-import { ROLE } from './format.js';
+import { ROLE, workerNumber } from './format.js';
 
 /**
  * 左栏的四个区块：导航条、折叠状态都按这个顺序走，DOM 顺序也必须是同一个顺序。
@@ -135,7 +135,7 @@ export function matchTask(task, query = {}) {
   }
   const needle = keyword(query.text);
   if (needle) {
-    const hay = `#${task.id}\n${task.id}\n${task.goal ?? ''}`.toLowerCase();
+    const hay = `${workerNumber(task)}\n#${task.id}\n${task.id}\n${task.goal ?? ''}`.toLowerCase();
     if (!hay.includes(needle)) return false;
   }
   return true;

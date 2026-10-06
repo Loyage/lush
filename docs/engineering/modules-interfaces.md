@@ -15,18 +15,21 @@
 | 文件 | 命令 | 导出 |
 |---|---|---|
 | `cli/help.js` | 帮助文本 | `HELP` |
-| `cli/args.js` | 参数解析与两种输出 | `option`、`exact`、`print` |
+| `cli/args.js` | 参数解析与两种输出；数组的人类摘要优先展示持久 Worker 编号，JSON 保留整数身份 | `option`、`exact`、`print` |
+| `cli/worker-number.js` | 仅 CLI 的严格 Worker 编号解析，经 `worker.lookup` 获取真实整数 ID；格式化保留历史回退，不修改通用 `id()` | `resolveWorkerId(client,value)`、`workerLabel(task,fallback?)`、`inputNumber(inputId)` |
 | `cli/print.js` | 树 / 会话 / 用量 / 分支谱系的渲染 | `printTree`、`printTranscript`、`transcriptStepText`、`printUsage`、`printBranchTree`、`printBranchShow`、`printBranchArchive` |
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `host start|stop|restart|status`；无 `--project` 时使用全局项目启动器，显式项目时保持单项目模式；`doctor` / `host status` 分列磁盘、daemon、Web 身份并只给显式更新提示 | `run` |
 | `cli/commands/intent.js` | `order`（新输入的唯一入口），`--profile-file PATH` 从 owner-only 普通 JSON 文件读取完整运行覆盖 | `run` |
 | `cli/commands/task.js` | `worker`（list / tree / inspect / spawn / message / transcript [--follow] / history / wait / integrate / auto-merge ID on\|off / reserve / accept / reopen / sync-parent / resolve-sync / resolve / resolve-divergence / resolve-child-divergence / unreserve / approve-merge / cancel / retry / cleanup / delete ID [--confirm --revision REV]） | `run`、`followTranscript`、`FOLLOW_INTERVAL_MS` |
 | `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 Agent 的 Worker） | `run` |
-| `cli/commands/notice.js` | `notice list/post/answer/dismiss/read`（read 为用户专属，只将 info 告知标已读） | `run` |
+| `cli/commands/notice.js` | `notice list/post/answer/dismiss/read`（read 为用户专属，只将 info 告知标已读）；`post --worker` 接受整数或稳定 Worker 编号，Notice 本身的 ID 仍只接受整数 | `run` |
 | `cli/commands/branch.js` | `branch tree / show / bind / archive` | `run` |
 | `cli/commands/agent.js` | `agent show/models/set/reset` 配置 profile；`prompt/env` 查看最终组合和环境来源，`network show/set --file PATH/reset` 管理出站代理（[契约](outbound-network.md)），`init` 创建共享/本机补充；`--prompt` 只作旧版 `--append-prompt` 别名；`--config-mode lush|pi` 显式选择运行配置模式，`sources` / `resources` 分派到 `agent-sources.js`，`packages` 分派到 `agent-packages.js` | `run` |
 | `cli/commands/agent-sources.js` | `agent sources list/show/models ID [--refresh]/refresh [ID]/save --file PATH/remove ID/login ID`（设备码 start/poll/cancel 与备用回调私密文件）与只读 `agent resources`；用户专属，凭证不进 argv/输出 | `runSources(args,client,{json?})`、`runResources(args,client,{json?})`（[目录契约](agent-model-catalog.md)） |
 | `cli/commands/agent-packages.js` | `agent packages list/install SOURCE/remove ID/update ID`；用户专属，安装与启用分离 | `runPackages(args,client)`（兼容 context） |
 | `cli/commands/config.js` | `config show / set / reset`：读 `system.status.settings`、写 `system.configure`；用户专属，agent 调用被拒 | `run` |
+
+Worker 身份参数（含 `spawn --parent`、`notice post --worker`）接受原整数及严格 `Wn(-n)*`。新编号只解析一次，经只读 `worker.lookup {number}` 核验 `{id,worker_number}` 后，既有 RPC 的 id/parent/task 参数仍发送整数；wait/follow 后续读取复用固定整数。分页游标、Notice ID 不接受 Worker 编号，整数调用不产生额外 lookup。列表 `--brief` 同时保留整数 `id` 与可空 `worker_number`，分页仍按整数。原始输入提交的人类输出显示 `O<id>` 与关联 Worker 编号，JSON 不改写身份字段。历史树、分支展示的回退标识保持不变。测试在 `test/worker-number-cli.test.js`。
 
 历史命令模块（`draft.js` / `plan.js` / `spec.js` / `candidate.js` / `sleep.js`）仍在源码里，但 `COMMANDS` 不再挂载它们；`lush help` 也不列出，执行会报 `unknown command`。
 
@@ -41,7 +44,7 @@
 | `rpc/protocol.js` | framing（编码、解析、帧上限）；并 re-export `Dispatcher` 保持旧 import 可用 | `MAX_FRAME`、`encode`、`errorResponse`、`parseRequest`、`Dispatcher` |
 | `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验。**唯一公开面**：未列入 `PARAMS` 的方法一律 `unknown method`。含用户专属连接模型目录 `agent.connections.models(.refresh)` 与资源安装 `agent.packages.*`，`order.submit` 预置可选 `profile` 覆盖参数 | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
 | `rpc/handlers/system.js` | 用户专属 `system.configure`、`system.stop_if_idle`（同步 idle 准入并关闭调度，见[服务重启](../reference/web-routes.md#服务重启)）；只读 `system.status`（兼容完整状态）与 `system.summary`（首页用持久 revision/索引聚合的无 Agent 全配置摘要）；`graph.get`；`agent.*`（含用户专属配置与环境文件，以及按需读取脱敏 Pi 账号/安装状态的 `agent.status`，不纳入快照）；历史 `sleep.*` / `system.usage` 仍可被内部调用，但不在白名单 | `handlers` |
-| `rpc/handlers/task.js` | `worker.*`：`graph` / `list` / `activity` / `page` / `tree` / `inspect` / `history` / `history_page` / `diff` / 用户专属 `code_state` / `code_tree` / `code_file` / `usage` / `transcript*`、`spawn`、agent-only 的 `integrate` / `resolve_child_divergence` / `progress.*`，共享但按身份校验的 `accept`（用户验收指令 / 直接父 Agent 确认 child），以及用户专属的 `auto_merge` / `reserve` / `unreserve` / `reopen` / `sync_parent` / `resolve_sync` / `resolve` / `resolve_divergence` / `approve_merge` / `cancel` / `retry` / `cleanup` / `delete_preview` / `delete`（确认与 revision 必填） | `handlers` |
+| `rpc/handlers/task.js` | `worker.*`：只读 `lookup {number}`（把界面编号解析为 `{id,worker_number}`，不改变原整数入口）/ `graph` / `list` / `activity` / `page` / `tree` / `inspect` / `history` / `history_page` / `diff` / 用户专属 `code_state` / `code_tree` / `code_file` / `usage` / `transcript*`、`spawn`、agent-only 的 `integrate` / `resolve_child_divergence` / `progress.*`，共享但按身份校验的 `accept`（用户验收指令 / 直接父 Agent 确认 child），以及用户专属的 `auto_merge` / `reserve` / `unreserve` / `reopen` / `sync_parent` / `resolve_sync` / `resolve` / `resolve_divergence` / `approve_merge` / `cancel` / `retry` / `cleanup` / `delete_preview` / `delete`（确认与 revision 必填） | `handlers` |
 | `rpc/handlers/notice.js` | `notice.list/page/post/answer/dismiss/read`；list 待决优先、其次未读生命周期 info；page 的 `unread` 仅筛新生命周期告知；read 幂等、不答复也不唤醒 | `handlers` |
 | `rpc/handlers/branch.js` | `branch.history/tree/show/bind/archive`（`branch.history` / `branch.bind` / `branch.archive` 在 `USER_ONLY`）；history 只读 main 第一父链 | `handlers` |
 | `rpc/handlers/input.js` | 历史 `input.*` / `draft.*`：源码保留，不在白名单 | `handlers` |

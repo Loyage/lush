@@ -50,6 +50,10 @@ lush [--project PATH] [--json] <command>
   agent set TARGET --connection UUID|off --model PROVIDER/MODEL  显式选择 Pi 账号连接（不自动路由）
   config show|set|reset              设置并发和调用限额（worker-call-limit 为单 Worker 调用上限）
 
+Worker ID 可用原整数或稳定编号 W5 / W5-1；编号由 daemon 解析，不是整数 ID。
+新输入按现有序列显示 O5，对应新指令 W5；派生子 Worker 为 W5-1，历史 Worker 编号不改。
+输入与子 Worker 编号允许跳号且不复用；分页游标、Notice ID 仍为整数。
+
 新指令只走 order；旧 Intent/Plan/Candidate、展示、介绍、托管、草稿和批量合并不再提供 API。
 旧数据不迁移；仅用户明确确认 worker delete 时清除所选 Worker 的专属历史与资源。
 `;

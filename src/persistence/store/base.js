@@ -10,7 +10,7 @@ const ADDED_COLUMNS = {
   inputs: ['anchor_branch', 'anchor_commit', 'anchor_workspace', 'anchor_target_branch'],
   branches: ['summary', 'showcase_reservation', 'merge_run'],
   messages: ['signal_type', 'signal_key'],
-  tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile', 'task_kind', 'reservation', 'iteration_base_commit', 'auto_merge', 'interrupt_state'],
+  tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile', 'task_kind', 'reservation', 'iteration_base_commit', 'auto_merge', 'interrupt_state', 'worker_number'],
   agent_runs: ['model', 'thinking'],
   notices: ['read_at'],
 };
@@ -19,6 +19,8 @@ function addMissingColumns(db) {
     const present = new Set(db.query(`PRAGMA table_info(${table})`).all().map(row => row.name));
     for (const column of columns) if (!present.has(column)) db.query(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`).run();
   }
+  db.query(`CREATE UNIQUE INDEX IF NOT EXISTS tasks_worker_number ON tasks(worker_number)
+    WHERE worker_number IS NOT NULL`).run();
   // Draft ownership/version are optional on historical rows; never infer or backfill them.
   const draftColumns = new Set(db.query('PRAGMA table_info(drafts)').all().map(row => row.name));
   for (const column of ['parent_id', 'revision']) {

@@ -2,7 +2,8 @@
 // Missing original Tasks intentionally survive the LEFT JOIN.
 const taskStatuses = "'queued','running','waiting','awaiting','paused','awaiting_acceptance','completed','failed','cancelled'";
 const history = `WITH source AS (
-  SELECT 'input' AS kind,i.id,i.content,i.created_at,t.id AS task_id,t.parent_id,
+  SELECT 'input' AS kind,i.id,i.content,i.created_at,t.id AS task_id,t.parent_id,t.worker_number AS task_worker_number,
+    (SELECT p.worker_number FROM tasks p WHERE p.id=t.parent_id) AS parent_worker_number,
     coalesce(t.branch,i.anchor_branch) AS branch,
     CASE WHEN t.status='paused' AND t.calls=0 AND coalesce(t.agent_wakes,0)=0
       AND NOT EXISTS (SELECT 1 FROM agent_runs r WHERE r.task_id=t.id) THEN 'created'
@@ -12,7 +13,7 @@ const history = `WITH source AS (
     t.id AS original_task_id
   FROM inputs i LEFT JOIN tasks t ON t.id=i.task_id
   UNION ALL
-  SELECT 'draft',d.id,d.content,d.created_at,NULL,d.parent_id,p.branch,'draft','none',d.revision,'{}',NULL
+  SELECT 'draft',d.id,d.content,d.created_at,NULL,d.parent_id,NULL,p.worker_number,p.branch,'draft','none',d.revision,'{}',NULL
   FROM drafts d LEFT JOIN tasks p ON p.id=d.parent_id WHERE d.input_id IS NULL
 ), projected AS (
   SELECT *,CASE
@@ -36,7 +37,7 @@ const history = `WITH source AS (
     ELSE 'none' END AS merge_status
   FROM source
 )`;
-const fields = 'kind,id,created_at,task_id,parent_id,branch,status,integration,merge_status,revision';
+const fields = 'kind,id,created_at,task_id,parent_id,task_worker_number,parent_worker_number,branch,status,integration,merge_status,revision';
 
 export const inputHistory = {
   inputHistoryRows({ q, status, integration, cursor, limit }) {

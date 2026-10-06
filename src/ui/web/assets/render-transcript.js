@@ -7,6 +7,7 @@ import { transcriptBody } from './transcript-body.js';
 import { referenceable } from './context-references.js';
 import { callKey, groupSteps, stepSummary } from './transcript-model.js';
 import { transcriptReader, openTranscriptStep } from './transcript-reader.js';
+import { workerLabel } from './worker-label.js';
 
 /* ---------- agent 执行过程：只读投影 pi 会话记录 ---------- */
 /** Reading defaults: meaningful content is visible; only runtime metadata starts collapsed. */
@@ -44,7 +45,7 @@ function sourceBody(taskId, step) {
   });
   body.append(source);
   if (/…（已截断 \d+ 字符）$/.test(step.body || '')) body.append(button('本段已截断 · 读取完整原文', openOriginal, 'ghost'));
-  referenceable(body, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq }, label: `执行步骤 #${taskId}:${step.seq}`,
+  referenceable(body, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq }, label: `执行步骤 ${workerLabel(taskId)}:${step.seq}`,
     quote: step.body, location: { task_id: taskId, section: 'transcript' } });
   return body;
 }
@@ -84,7 +85,7 @@ function stepNode(taskId, step) {
   // 没有正文的步骤（运行时元数据）保持一行，也不做可点的样子。
   if (!step.body && step.kind !== 'tool') {
     head.classList.add('static'); head.tabIndex = -1;
-    referenceable(item, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq }, label: `执行步骤 #${taskId}:${step.seq}`,
+    referenceable(item, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq }, label: `执行步骤 ${workerLabel(taskId)}:${step.seq}`,
       quote: `${STEP[step.kind] || step.kind} · ${step.title}`, location: { view: 'task-detail', task_id: taskId, section: 'transcript' } });
     return item;
   }
@@ -105,7 +106,7 @@ function stepNode(taskId, step) {
   paint(stepExpanded(taskId, step));
   item.append(body);
   for (const result of step.results || []) attachResult(taskId, item, result);
-  referenceable(item, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq }, label: `执行步骤 #${taskId}:${step.seq}`,
+  referenceable(item, { kind: 'transcript_step', target: { task_id: taskId, seq: step.seq }, label: `执行步骤 ${workerLabel(taskId)}:${step.seq}`,
     quote: `${STEP[step.kind] || step.kind} · ${step.title}\n${step.body}`, location: { view: 'task-detail', task_id: taskId, section: 'transcript' } });
   return item;
 }

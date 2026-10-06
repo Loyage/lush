@@ -11,6 +11,7 @@ import { agentHelp } from './help.js';
 import { confirmDialog, closeDialog, formDialog } from './dialog.js';
 import { createProfileForm } from './agent-profile-form.js';
 import { normalizeConfigMode } from './agent-config-mode.js';
+import { workerLabel } from './worker-label.js';
 
 // 本条指令可选的运行设置：只打开设置，不调用 Agent；派生 Worker 由后端自动继承。
 export const RUN_SETTINGS_HELP = '打开本条指令的运行设置：先选由 Lush 掌握配置，还是交给执行机器上用户自己的 Pi 默认配置。只打开设置，不调用 Agent；派生 Worker 自动继承本次选择，不逐个确认。';
@@ -147,8 +148,8 @@ export function renderParentOptions() {
   const previous = select.value;
   const placeholder = el('option', 'main（默认父 Worker）'); placeholder.value = '';
   const options = tasks.map(task => {
-    const option = el('option', `#${task.id} ${taskTitle(task)} · ${task.branch}`);
-    option.value = task.branch; option.dataset.label = `#${task.id} ${taskTitle(task)}`;
+    const option = el('option', `${workerLabel(task)} ${taskTitle(task)} · ${task.branch}`);
+    option.value = task.branch; option.dataset.label = `${workerLabel(task)} ${taskTitle(task)}`;
     return option;
   });
   if (previous && !tasks.some(task => task.branch === previous)) {
@@ -182,8 +183,8 @@ export function syncComposer() {
   renderParentOptions();
   const target = destination(), followup = target.id != null;
   const input = $('input');
-  const label = followup ? `Worker #${target.id}` : target.task
-    ? `Worker #${target.task.id} · ${target.branch}` : selectedParentLabel() || 'main';
+  const label = followup ? `Worker ${workerLabel(target.task || target.id)}` : target.task
+    ? `Worker ${workerLabel(target.task)} · ${target.branch}` : selectedParentLabel() || 'main';
   $('input-form').dataset.mode = followup ? 'append' : 'create';
   $('input-form').dataset.blocked = String(Boolean(target.reason));
   const modeText = {
@@ -247,7 +248,7 @@ async function submitInput(mode) {
       && ui.composerReferenceRevision === referenceRevision && JSON.stringify(composerReferences()) === signature;
     if (untouched) { input.value = ''; setComposerReferences([]); }
     if (target.id != null) {
-      show(`已追加给 Worker #${target.id}${target.task.status === 'paused' ? '；开始 / 继续后处理' : ''}。`);
+      show(`已追加给 Worker ${workerLabel(target.task)}${target.task.status === 'paused' ? '；开始 / 继续后处理' : ''}。`);
       if (ui.view === view) await detail(target.id);
     } else if (mode === 'buffer') {
       show(`已暂存输入 #${result.id}，可到「历史输入」编辑或发射；未创建 Worker、未调用 Agent。`);
@@ -255,7 +256,7 @@ async function submitInput(mode) {
     } else {
       // 运行设置只绑定这一条指令；创建成功后回到项目默认，避免下一条指令悄悄沿用。
       ui.composerProfile = null; paintRunSettings();
-      show(mode === 'start' ? `已创建并开始 Worker #${result.task.id}` : `已创建 Worker #${result.task.id}（待开始），可配置后开始`);
+      show(mode === 'start' ? `已创建并开始 Worker ${workerLabel(result.task)}` : `已创建 Worker ${workerLabel(result.task)}（待开始），可配置后开始`);
       await refresh();
       if (ui.composerIdentity === identity && ui.view === view) await detail(result.task.id);
     }

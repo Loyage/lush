@@ -66,7 +66,7 @@ export default {
     const rows = tasks.map(task => {
       const deps = edges.filter(edge => edge.task_id === task.id)
         .map(edge => ({ id: edge.depends_on, kind: edge.kind, terminal_at: terminalAt(edge.depends_on) }));
-      return { id: task.id, parent_id: task.parent_id, input_id: task.input_id, role: task.role, name: task.name,
+      return { id: task.id, worker_number: task.worker_number, parent_id: task.parent_id, input_id: task.input_id, role: task.role, name: task.name,
         status: task.status, integration: task.integration, created_at: task.created_at, updated_at: task.updated_at,
         terminal_at: terminalAt(task.id), deps, segments: timelineSegments(task, byTask.get(task.id) || [], deps, children.get(task.id) || [], now) };
     });

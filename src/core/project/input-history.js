@@ -69,7 +69,7 @@ export default {
   },
 
   async inputParents() {
-    const rows = this.store.all(`SELECT id,branch,substr(goal,1,1000) AS goal FROM tasks
+    const rows = this.store.all(`SELECT id,worker_number,branch,substr(goal,1,1000) AS goal FROM tasks
       WHERE task_kind IN ('main','owner','order','say') AND branch IS NOT NULL
         AND status NOT IN ('completed','failed','cancelled') ORDER BY id DESC LIMIT ?`, MAX_PARENTS + 1);
     check(rows.length <= MAX_PARENTS, `too many parent Worker candidates (limit ${MAX_PARENTS}); narrow the active parent set before selecting a parent`);

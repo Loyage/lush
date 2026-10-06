@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import { iterationViews } from './iteration.js';
 import { branchFreeze } from '../branch-freeze.js';
 import { readWorkerResources } from '../usage-statistics.js';
+import { workerLabel } from '../worker-number.js';
 
 /** 分支图的规模上限：只读视图不该为了画全图把 daemon 拖垮，超限截断并在结果里说明。 */
 export const GRAPH_NODE_LIMIT = 200;
@@ -16,7 +17,7 @@ function mergeQueueSummaries(store, ids) {
     total: 0, items: [], truncated: false, limit_per_status: MERGE_SUMMARY_LIMIT }]));
   if (!ids.length) return summaries;
   const rows = store.all(`WITH requests AS (
-    SELECT id, parent_id, json_extract(reservation, '$.status') AS status FROM tasks
+    SELECT id, worker_number, parent_id, json_extract(reservation, '$.status') AS status FROM tasks
     WHERE parent_id IN (${ids.map(() => '?').join(',')})
       AND CASE WHEN json_valid(reservation) THEN
         json_extract(reservation, '$.version')=2 AND json_extract(reservation, '$.kind')='merge'
@@ -27,12 +28,12 @@ function mergeQueueSummaries(store, ids) {
   ), ranked AS (
     SELECT *, count(*) OVER (PARTITION BY parent_id,status) AS total,
       row_number() OVER (PARTITION BY parent_id,status ORDER BY id DESC) AS rank FROM requests
-  ) SELECT id,parent_id,status,total FROM ranked WHERE rank<=? ORDER BY parent_id,status,id DESC`,
+  ) SELECT id,worker_number,parent_id,status,total FROM ranked WHERE rank<=? ORDER BY parent_id,status,id DESC`,
   ...ids, MERGE_SUMMARY_LIMIT);
   for (const row of rows) {
     const summary = summaries.get(row.parent_id);
     summary.counts[row.status] = row.total;
-    summary.items.push({ id: row.id, status: row.status });
+    summary.items.push({ id: row.id, worker_number: row.worker_number, status: row.status });
   }
   for (const summary of summaries.values()) {
     summary.total = Object.values(summary.counts).reduce((a, b) => a + b, 0);
@@ -131,11 +132,12 @@ export default {
    */
   async taskGraph() {
     const limit = GRAPH_NODE_LIMIT;
-    const rows = this.store.all(`SELECT id, parent_id, input_id, task_kind, role, name, goal, status,
+    const rows = this.store.all(`SELECT id, worker_number, parent_id, input_id, task_kind, role, name, goal, status,
       integration, integration_error, branch, workspace, target_branch, base_commit, iteration_base_commit, head_commit, resolves_task_id,
       reservation, auto_merge, interrupt_state, progress_plan, created_at, updated_at, calls, agent_wakes,
       (SELECT p.task_kind FROM tasks p WHERE p.id=tasks.parent_id) AS parent_task_kind,
       (SELECT p.branch FROM tasks p WHERE p.id=tasks.parent_id) AS parent_branch,
+      (SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
       CASE WHEN result IS NULL THEN 0 ELSE 1 END AS has_result,
       substr(result, 1, 320) AS result_preview
       FROM tasks ORDER BY CASE WHEN task_kind IN ('main','owner') THEN 0
@@ -271,10 +273,10 @@ export default {
         ? `冻结 · ${freeze.reason}`
         : row.status === 'awaiting' && notice.count ? `${notice.count} 条待你处理`
         : row.status === 'waiting' && child.active ? `等待 ${child.active} 个子Worker`
-        : row.status === 'queued' && blockers.length ? `等待依赖 Worker #${blockers.map(edge => edge.id).join('、#')}`
+        : row.status === 'queued' && blockers.length ? `等待依赖 Worker ${blockers.map(workerLabel).join('、')}`
         : row.status === 'queued' ? '等待 Agent 调用槽'
         : row.status === 'awaiting_acceptance' ? (row.task_kind === 'child'
-          ? `本轮已交付 · 等待父Worker #${row.parent_id} 确认` : '本轮已交付 · 等待你验收或追加输入')
+          ? `本轮已交付 · 等待父Worker ${workerLabel({ id: row.parent_id, worker_number: row.parent_worker_number })} 确认` : '本轮已交付 · 等待你验收或追加输入')
         : row.status === 'waiting' ? '静息 · 等待新输入或子Worker信号' : null;
       const branch = row.branch ? records.get(row.branch) : null;
       // 内部 merge 队列没有自己的分支，归档跟随直接父 Task；从库里读父分支，父节点被截断也不漏掉。
@@ -284,7 +286,7 @@ export default {
       // 这条分支下还有多少个 order 子分支：决定卡片上「编排合并全部子 Task」入口是否有意义。
       const subtree_order = row.branch ? countOrderDescendants(row.branch) : 0;
       const mergeRun = row.branch ? activeRuns.get(row.branch) ?? null : null;
-      return { ...row, ...iterations.get(row.id), kind: 'task', archived, title: summarize(goal) || row.name || `Worker #${row.id}`,
+      return { ...row, ...iterations.get(row.id), kind: 'task', archived, title: summarize(goal) || row.name || `Worker ${workerLabel(row)}`,
         goal_preview: String(goal ?? '').slice(0, 600),
         progress: plan, notice: notice.notice, notice_count: notice.count,
         children_total: child.total, children_active: child.active, waiting_reason,
@@ -333,7 +335,7 @@ export default {
         if (at > 0) refs.set(line.slice(0, at), line.slice(at + 1).trim());
       }
 
-      const rows = this.store.all(`SELECT id, role, name, goal, status, integration, input_id,
+      const rows = this.store.all(`SELECT id, worker_number, role, name, goal, status, integration, input_id,
         ${taskBranchSql('tasks')} AS branch, workspace, parent_id, task_kind, reservation,
         (SELECT p.task_kind FROM tasks p WHERE p.id=tasks.parent_id) AS parent_task_kind,
         base_commit, head_commit, target_branch, baseline_workspace, resolves_task_id, verifies_task_id, progress_plan
@@ -405,7 +407,7 @@ export default {
         if (!spec) return null;
         return anchorByInput.get(spec.input_id) ?? anchorByInput.get(plannerInput.get(spec.planner_task_id)) ?? null;
       };
-      const intentRows = this.store.all(`SELECT id, role, name, goal, status, integration, input_id, progress_plan
+      const intentRows = this.store.all(`SELECT id, worker_number, role, name, goal, status, integration, input_id, progress_plan
         FROM tasks WHERE role IN ('planner','scheduler') ORDER BY id DESC`)
         .map(row => ({ ...row, branch: (row.role === 'planner' ? anchorByInput.get(row.input_id) : schedulerAnchor(row.id)) ?? null }));
       // 同一次读模型里的任务节点共用一次批量查询：紧凑进度横条的当前步骤时长也要排除等待。
@@ -563,7 +565,7 @@ export default {
         }
         const pending = pendingFor(row.id);
         const node = {
-          kind: 'task', id: row.id, role: row.role, name: row.name ?? null,
+          kind: 'task', id: row.id, worker_number: row.worker_number, role: row.role, name: row.name ?? null,
           task_kind: row.task_kind ?? null, parent_id: row.parent_id ?? null,
           parent_task_kind: row.parent_task_kind ?? null,
           reservation: row.task_kind === 'order' ? this.progressView(row).reservation : null,
@@ -587,7 +589,7 @@ export default {
       for (const row of intentRows) {
         const pending = pendingFor(row.id);
         nodes.push({
-          kind: 'task', id: row.id, role: row.role, name: row.name ?? null,
+          kind: 'task', id: row.id, worker_number: row.worker_number, role: row.role, name: row.name ?? null,
           goal: String(row.goal ?? '').slice(0, 120),
           status: row.status, integration: row.integration, route: isRouted(row.input_id),
           branch: row.branch,

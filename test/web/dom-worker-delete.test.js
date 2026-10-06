@@ -99,7 +99,7 @@ test('detail, full graph and minimal more menu share a non-Agent deletion with c
     expect(control.getAttribute('data-help')).toContain('无法恢复');
     const pending = control.onclick(); await flush();
     const text = dialogText(dom);
-    for (const part of ['#70', '#71', 'Input #57', '71-child', 'task-70-input.md', '未提交和未合并代码', '无法恢复', '不是归档', 'Git 提交历史']) expect(text).toContain(part);
+    for (const part of ['#70', '#71', 'Input O57', '71-child', 'task-70-input.md', '未提交和未合并代码', '无法恢复', '不是归档', 'Git 提交历史']) expect(text).toContain(part);
     expect(buttonOf(dom.node('modal'), '彻底删除').classList.contains('agent-call')).toBe(false);
     expect(dom.node('modal').querySelectorAll('input').length).toBe(0);
     await answerDialog(dom, '保留'); await pending;

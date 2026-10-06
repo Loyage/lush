@@ -3,11 +3,12 @@ import { agentText } from './text.js';
 import { absolute } from './format.js';
 import { loadHistory } from './api.js';
 import { referenceable } from './context-references.js';
+import { workerLabel } from './worker-label.js';
 
 /** Runs supply persisted results; event pagination reaches history beyond inspect's byte budget. */
 export function renderResults(task, history = {}, previous = null) {
   history ||= {};
-  const signature = JSON.stringify([task.result, (task.runs || []).filter(run => run.result).map(run => run.id),
+  const signature = JSON.stringify([workerLabel(task), task.result, (task.runs || []).filter(run => run.result).map(run => run.id),
     (history.events || []).filter(event => event.type === 'invocation.completed').map(event => event.id)]);
   if (previous?.resultSignature === signature) return previous;
   const entries = new Map();
@@ -25,7 +26,7 @@ export function renderResults(task, history = {}, previous = null) {
   const result = block('结果'); result.classList.add('result-panel'); result.resultSignature = signature;
   if (task.result) {
     const latest = agentText(task.result, { plain: 'pre' }); result.append(latest);
-    referenceable(latest, { kind: 'result', target: { task_id: task.id, section: 'result' }, label: `Worker 结果 #${task.id}`,
+    referenceable(latest, { kind: 'result', target: { task_id: task.id, section: 'result' }, label: `Worker 结果 ${workerLabel(task)}`,
       quote: task.result, location: { view: 'task-detail', task_id: task.id, section: 'result' } });
   } else result.append(el('p', '当前没有最新结果；此前调用的结果保留在下方。', 'hint'));
   const fold = el('details', undefined, 'result-history');
@@ -57,7 +58,7 @@ export function renderResults(task, history = {}, previous = null) {
       });
       // Historical results refer to their immutable event, never to the mutable latest result.
       if (entry.eventId) referenceable(item, { kind: 'history_event', target: { task_id: task.id, event_id: entry.eventId },
-        label: `历史结果 #${task.id} · 事件 #${entry.eventId}`, quote: entry.text,
+        label: `历史结果 ${workerLabel(task)} · 事件 #${entry.eventId}`, quote: entry.text,
         location: { view: 'task-detail', task_id: task.id, section: 'history' } });
       rendered.set(entry.key, item); list.append(item);
     }

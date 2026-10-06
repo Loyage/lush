@@ -81,6 +81,6 @@ test('historical order content stays verbatim while version summary and CSS use 
   const card = renderVersionCommit({ commit: 'a'.repeat(40), short_commit: 'aaaaaaa', parents: [],
     subject: 'retained commit', author: { name: 'developer' }, committed_at: '2026-10-02T09:00:00Z',
     association: 'verified', tasks: [{ ...record('say'), input }] });
-  expect(deepText(card)).toContain('原始指令 #9');
+  expect(deepText(card)).toContain('原始指令 O9');
   expect(card.querySelector('.version-order').textContent).toBe(input.content);
 });

@@ -1,5 +1,6 @@
 import { button, el } from './dom.js';
 import { detail } from './navigate.js';
+import { workerLabel } from './worker-label.js';
 
 export const MERGE_PHASES = {
   executing: { label: '合并中', active: true },
@@ -20,9 +21,11 @@ export function mergePriority(node) {
   const phase = mergePhase(node);
   return ['executing', 'resolving'].includes(phase) ? 0 : phase === 'requested' ? 1 : 2;
 }
-function taskLink(id, key) {
-  const link = button(`#${id}`, () => detail(id), 'ghost task-graph-merge-link',
-    { help: `打开 Worker #${id} 的已有详情，不调用 Agent。` });
+function taskLink(task, key, number = undefined) {
+  const id = typeof task === 'object' ? task.id : task;
+  const label = workerLabel(task, number);
+  const link = button(label, () => detail(id), 'ghost task-graph-merge-link',
+    { help: `打开 Worker ${label} 的已有详情，不调用 Agent。` });
   link.dataset.graphFocus = key;
   return link;
 }
@@ -43,7 +46,7 @@ export function mergeRelations(node) {
   const phase = mergePhase(node);
   if (phase) {
     const own = el('span', undefined, 'task-graph-merge-own');
-    own.append('→ ', taskLink(node.parent_id, `merge-parent-${node.id}`),
+    own.append('→ ', taskLink(node.parent_id, `merge-parent-${node.id}`, node.parent_worker_number),
       node.target_branch ? ` / ${node.target_branch} · ` : ' · ', phaseLabel(phase));
     own.setAttribute('data-help', phase === 'resolving'
       ? '源侧分歧处理阶段，保留父执行位；不代表 Agent 此刻正在运行。'
@@ -62,7 +65,7 @@ export function mergeRelations(node) {
       const group = el('span', undefined, 'task-graph-merge-group');
       group.append(phaseLabel(status), ` ${count} 条 `);
       const items = queue.items.filter(item => item.status === status);
-      for (const item of items) group.append(taskLink(item.id, `merge-child-${node.id}-${item.id}`));
+      for (const item of items) group.append(taskLink(item, `merge-child-${node.id}-${item.id}`));
       if (count > items.length) group.append(`（另 ${count - items.length} 条未列出）`);
       incoming.append(group);
     }

@@ -5,6 +5,7 @@ import { agentHelp } from './help.js';
 import { show } from './messages.js';
 import { createProfileForm, parseEnvLines } from './agent-profile-form.js';
 import { ui } from './state.js';
+import { workerLabel } from './worker-label.js';
 
 export { parseEnvLines };
 
@@ -51,7 +52,7 @@ async function profileDialog(task, options) {
     // Keep the same live form when the profile is invalid, so fixing it does not lose other edits.
     for (;;) {
       const confirmed = await formDialog({
-        title: configuring ? `调整 Worker #${task.id} 的运行设置` : `检查后重试 Worker #${task.id}`,
+        title: configuring ? `调整 Worker ${workerLabel(task)} 的运行设置` : `检查后重试 Worker ${workerLabel(task)}`,
         message: configuring
           ? '这些设置用于下一次 Agent 调用，不改变仍在运行的调用。尚未生效的中断可用「继续」撤销；Worker 结算后设置自动清除。'
           : `Worker 因“${task.status === 'cancelled' ? '已取消' : '失败'}”停止。请检查并调整 ${task.role} Agent；这些设置只用于本轮重试。`,
@@ -86,8 +87,8 @@ async function profileDialog(task, options) {
     const taskProfile = form.collect();
     await action(options.method, { id: task.id, profile: taskProfile });
     show(configuring
-      ? `Worker #${task.id} 的运行设置已保存，将在下一次 Agent 调用时生效。`
-      : `Worker #${task.id} 已按本轮 Agent 设置进入重试队列。`);
+      ? `Worker ${workerLabel(task)} 的运行设置已保存，将在下一次 Agent 调用时生效。`
+      : `Worker ${workerLabel(task)} 已按本轮 Agent 设置进入重试队列。`);
     return true;
   } catch (error) {
     show(configuring ? `无法保存运行设置：${error.message}` : `无法重试：${error.message}`, 'error');

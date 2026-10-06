@@ -1,4 +1,5 @@
-import { check, id, TERMINAL } from '../../core/types.js';
+import { check, TERMINAL } from '../../core/types.js';
+import { resolveWorkerId } from '../worker-number.js';
 import { option, exact } from '../args.js';
 import { printTree, printLadder, printTimeline, printMergeMany, printTranscript, transcriptStepText, printUsage } from '../print.js';
 
@@ -64,7 +65,7 @@ export async function run(command, args, ctx) {
       if (brief) check(Number.isInteger(limit) && limit > 0 && limit <= 200, '--brief limit must be 1..200');
       value = await client.request('worker.list', { after, limit: brief ? limit + 1 : limit });
       if (brief) {
-        const tasks = value.slice(0, limit).map(({ id, parent_id, role, status, integration, goal }) => ({ id, parent_id, role, status, integration,
+        const tasks = value.slice(0, limit).map(({ id, worker_number, parent_id, role, status, integration, goal }) => ({ id, worker_number: worker_number ?? null, parent_id, role, status, integration,
           goal: goal.replace(/\s+/g, ' ').slice(0, 160), goal_truncated: goal.length >= 160 }));
         value = { tasks, has_more: value.length > limit, next_after: tasks.at(-1)?.id ?? after,
           note: '短摘要；完整目标与结果用 lush worker inspect ID。' };
@@ -72,7 +73,7 @@ export async function run(command, args, ctx) {
     }
     else if (verb === 'tree') {
       check(args.length <= 1, 'tree accepts an optional ID');
-      const request = args.length ? { id: id(args[0]) } : {};
+      const request = args.length ? { id: await resolveWorkerId(client, args[0]) } : {};
       if (!json) {
         // 树本身看不出并发槽与排队，所以顺带问一句 status，让"为什么没在跑"也有答案。
         const [tree, status] = await Promise.all([client.request('worker.tree', request), client.request('system.status')]);
@@ -84,15 +85,17 @@ export async function run(command, args, ctx) {
       const parent = option(args, '--parent', process.env.LUSH_TASK_ID);
       const name = option(args, '--name');
       exact(args, 1);
-      value = await client.request('worker.spawn', { parent: id(parent), goal: args[0], ...(name ? { name } : {}) });
+      value = await client.request('worker.spawn', { parent: await resolveWorkerId(client, parent), goal: args[0], ...(name ? { name } : {}) });
     } else if (verb === 'transcript') {
       const follow = args.includes('--follow');
       if (follow) args.splice(args.indexOf('--follow'), 1);
       const after = Number(option(args, '--after', '0')); exact(args, 1);
-      const taskId = id(args[0]);
       if (follow) {
         check(!client.token, 'agents must end their invocation rather than follow; use `lush worker transcript ID`');
         check(!json, '--follow is a live human-readable stream; --json is not supported');
+      }
+      const taskId = await resolveWorkerId(client, args[0]);
+      if (follow) {
         const controller = new AbortController();
         const stop = () => controller.abort();
         process.once('SIGINT', stop);
@@ -102,46 +105,47 @@ export async function run(command, args, ctx) {
       }
       value = await client.request('worker.transcript', { id: taskId, after });
       if (!json) { printTranscript(value); return; }
-    } else if (verb === 'message') { exact(args, 2); value = await client.request('worker.message', { id: id(args[0]), body: args[1] }); }
+    } else if (verb === 'message') { exact(args, 2); value = await client.request('worker.message', { id: await resolveWorkerId(client, args[0]), body: args[1] }); }
     else if (verb === 'history') {
       const after = Number(option(args, '--after', '0')); exact(args, 1);
-      value = await client.request('worker.history', { id: id(args[0]), after });
+      value = await client.request('worker.history', { id: await resolveWorkerId(client, args[0]), after });
     } else if (verb === 'wait') {
       check(!client.token, 'agents must end their invocation rather than wait; Lush wakes the parent automatically');
       exact(args, 1);
-      do { value = await client.request('worker.inspect', { id: id(args[0]) }); if (!TERMINAL.has(value.status)) await Bun.sleep(300); }
+      const taskId = await resolveWorkerId(client, args[0]);
+      do { value = await client.request('worker.inspect', { id: taskId }); if (!TERMINAL.has(value.status)) await Bun.sleep(300); }
       while (!TERMINAL.has(value.status));
       if (value.status !== 'completed') process.exitCode = 1;
     } else {
       check(['inspect','cancel','retry','interrupt','resume','integrate','reserve','reserve-all','auto-merge','resolve','accept','reopen','sync-parent','resolve-sync','clear-override','resolve-divergence','resolve-child-divergence','unreserve','approve-merge','cleanup','delete'].includes(verb), 'unknown worker command');
       if (verb === 'integrate') {
         exact(args, 2);
-        value = await client.request('worker.integrate', { id: id(args[0]), commit: args[1] });
+        value = await client.request('worker.integrate', { id: await resolveWorkerId(client, args[0]), commit: args[1] });
       } else if (verb === 'reserve') {
         exact(args, 2);
-        value = await client.request('worker.reserve', { id: id(args[0]), kind: args[1] });
+        value = await client.request('worker.reserve', { id: await resolveWorkerId(client, args[0]), kind: args[1] });
       } else if (verb === 'auto-merge') {
         exact(args, 2);
         check(['on','off'].includes(args[1]), 'auto-merge expects on or off');
-        value = await client.request('worker.auto_merge', { id: id(args[0]), enabled: args[1] === 'on' });
+        value = await client.request('worker.auto_merge', { id: await resolveWorkerId(client, args[0]), enabled: args[1] === 'on' });
       } else if (verb === 'reserve-all') {
         exact(args, 1);
         value = await client.request('worker.reserve_all', { branch: args[0] });
       } else if (verb === 'resolve-child-divergence') {
         exact(args, 1);
-        value = await client.request('worker.resolve_child_divergence', { id: id(args[0]) });
+        value = await client.request('worker.resolve_child_divergence', { id: await resolveWorkerId(client, args[0]) });
       } else if (verb === 'resolve-divergence') {
         exact(args, 1);
-        value = await client.request('worker.resolve_divergence', { id: id(args[0]) });
+        value = await client.request('worker.resolve_divergence', { id: await resolveWorkerId(client, args[0]) });
       } else if (verb === 'sync-parent' || verb === 'resolve-sync' || verb === 'clear-override') {
         exact(args, 1);
-        value = await client.request(`worker.${verb.replaceAll('-', '_')}`, { id: id(args[0]) });
+        value = await client.request(`worker.${verb.replaceAll('-', '_')}`, { id: await resolveWorkerId(client, args[0]) });
       } else if (verb === 'unreserve') {
         exact(args, 1);
-        value = await client.request('worker.unreserve', { id: id(args[0]) });
+        value = await client.request('worker.unreserve', { id: await resolveWorkerId(client, args[0]) });
       } else if (verb === 'approve-merge') {
         exact(args, 3);
-        value = await client.request('worker.approve_merge', { id: id(args[0]), commit: args[1], baseline: args[2] });
+        value = await client.request('worker.approve_merge', { id: await resolveWorkerId(client, args[0]), commit: args[1], baseline: args[2] });
       } else if (verb === 'delete') {
         check(!client.token, 'Worker deletion is user only, not an agent operation');
         const confirm = args.includes('--confirm');
@@ -152,12 +156,12 @@ export async function run(command, args, ctx) {
         check(!confirm || (typeof revision === 'string' && revision.length > 0),
           'first run worker delete ID to inspect resources; then confirm with --confirm --revision REV');
         value = await client.request(confirm ? 'worker.delete' : 'worker.delete_preview',
-          { id: id(args[0]), ...(confirm ? { revision, confirm: true } : {}) });
+          { id: await resolveWorkerId(client, args[0]), ...(confirm ? { revision, confirm: true } : {}) });
       } else if (verb === 'cleanup') {
         const keepBranch = args.includes('--keep-branch');
         if (keepBranch) args.splice(args.indexOf('--keep-branch'), 1);
-        exact(args, 1); value = await client.request('worker.cleanup', { id: id(args[0]), keep_branch: keepBranch });
-      } else { exact(args, 1); value = await client.request(`worker.${verb}`, { id: id(args[0]) }); }
+        exact(args, 1); value = await client.request('worker.cleanup', { id: await resolveWorkerId(client, args[0]), keep_branch: keepBranch });
+      } else { exact(args, 1); value = await client.request(`worker.${verb}`, { id: await resolveWorkerId(client, args[0]) }); }
     }
   }
   return value;

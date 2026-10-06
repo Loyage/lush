@@ -14,6 +14,7 @@ import { referenceable } from './context-references.js';
 import { questionnairePanel } from './render-questionnaire.js';
 import { sleepChoiceCard } from './sleep-ui.js';
 import { lifecycleNotice, unreadNotice, noticeMatches, positiveId, noticeIdentity } from './notice-kind.js';
+import { workerLabel } from './worker-label.js';
 
 const STATUS = { open: '待处理', answered: '已回答', dismissed: '已忽略', sent: '已发送' };
 
@@ -163,7 +164,7 @@ function paintNoticeRows(rows) {
     node.replaceChildren();
     const row = el('span', undefined, 'row');
     row.append(badge(lifecycleNotice(notice) ? unreadNotice(notice) ? '未读告知' : '已读告知' : STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'),
-      el('span', `#${notice.task_id}`, 'tid'), el('span', relative(notice.created_at), 'when'));
+      el('span', workerLabel(notice.task_id, notice.task_worker_number), 'tid'), el('span', relative(notice.created_at), 'when'));
     node.append(row, el('span', notice.title, 'goal'));
     node.setAttribute('data-help', lifecycleNotice(notice) ? '打开对应 Worker；成功加载后自动已读，不会启动 Agent 或批准合并' : `${notice.title}；发布于 ${absolute(notice.created_at)}`);
     referenceable(node, { kind: 'notice', target: { notice_id: notice.id }, label: `事项记录 #${notice.id}`,
@@ -282,7 +283,7 @@ export function noticePanel(notice, task = null) {
   const section = el('section', undefined, 'notice focus');
   section.dataset.id = notice.id;
   const head = el('div', undefined, 'notice-head');
-  head.append(badge(STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'), el('span', `Worker #${notice.task_id}`, 'tid'),
+  head.append(badge(STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'), el('span', `Worker ${workerLabel(task || notice.task_id, notice.task_worker_number)}`, 'tid'),
     el('span', `${relative(notice.created_at)} · ${absolute(notice.created_at)}`, 'when'));
   section.append(head, el('h3', notice.title));
   if (notice.status !== 'open') {

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { check, isPlainObject } from '../../core/types.js';
 import { exact, option } from '../args.js';
+import { inputNumber, workerLabel } from '../worker-number.js';
 
 function readProfile(file) {
   let fd;
@@ -28,6 +29,7 @@ export async function run(command, args, ctx) {
     exact(args, 1);
     const profile = profileFile !== null ? readProfile(profileFile) : null;
     value = await client.request('order.submit', { content: args[0], ...(branch ? { branch } : {}), ...(profile ? { profile } : {}) });
+    if (!ctx.json && value?.id && value?.task) console.log(`输入 ${inputNumber(value.id)} → Worker ${workerLabel(value.task)}`);
   }
   return value;
 }

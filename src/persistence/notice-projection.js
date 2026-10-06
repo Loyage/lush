@@ -1,5 +1,5 @@
 /** Shared read projection; lifecycle classification belongs to the source Event, not current Worker state. */
-export const NOTICE_SELECT = `SELECT n.*,
+export const NOTICE_SELECT = `SELECT n.*, (SELECT t.worker_number FROM tasks t WHERE t.id=n.task_id) AS task_worker_number,
   CASE WHEN n.kind='info' AND n.source_event_id IS NOT NULL THEN (
     SELECT CASE e.type
       WHEN 'task.idle' THEN 'idle'

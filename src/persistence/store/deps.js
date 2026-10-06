@@ -6,11 +6,11 @@ export const deps = {
   deps(taskId) { return this.all('SELECT depends_on, kind FROM task_deps WHERE task_id=? ORDER BY depends_on', taskId); },
   dependents(taskId) { return this.all('SELECT task_id, kind FROM task_deps WHERE depends_on=? ORDER BY task_id', taskId); },
   depsDetail(taskId) {
-    return this.all(`SELECT d.depends_on AS id, d.kind, t.role, t.status, t.integration, substr(t.goal,1,200) AS goal
+    return this.all(`SELECT d.depends_on AS id, d.kind, t.worker_number, t.role, t.status, t.integration, substr(t.goal,1,200) AS goal
       FROM task_deps d JOIN tasks t ON t.id=d.depends_on WHERE d.task_id=? ORDER BY d.depends_on`, taskId);
   },
   dependentsDetail(taskId) {
-    return this.all(`SELECT d.task_id AS id, d.kind, t.role, t.status, substr(t.goal,1,200) AS goal
+    return this.all(`SELECT d.task_id AS id, d.kind, t.worker_number, t.role, t.status, substr(t.goal,1,200) AS goal
       FROM task_deps d JOIN tasks t ON t.id=d.task_id WHERE d.depends_on=? ORDER BY d.task_id`, taskId);
   },
   /** 这些任务的依赖边：时间轴画执行等待，交付队列只把其中的 code 边当合并约束。 */
@@ -24,10 +24,10 @@ export const deps = {
     if (Array.isArray(taskIds) && !taskIds.length) return new Map();
     const where = Array.isArray(taskIds) ? ` WHERE d.task_id IN (${taskIds.map(() => '?').join(',')})` : '';
     const map = new Map();
-    for (const row of this.all(`SELECT d.task_id, d.depends_on AS id, d.kind, t.status
+    for (const row of this.all(`SELECT d.task_id, d.depends_on AS id, d.kind, t.worker_number, t.status
       FROM task_deps d JOIN tasks t ON t.id=d.depends_on${where} ORDER BY d.task_id, d.depends_on`, ...(taskIds || []))) {
       if (!map.has(row.task_id)) map.set(row.task_id, []);
-      map.get(row.task_id).push({ id: row.id, kind: row.kind, status: row.status });
+      map.get(row.task_id).push({ id: row.id, worker_number: row.worker_number, kind: row.kind, status: row.status });
     }
     return map;
   },

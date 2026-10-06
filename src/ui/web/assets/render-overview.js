@@ -4,15 +4,17 @@ import { HOT, absolute, statusOf } from './format.js';
 import { detail } from './navigate.js';
 import { openNotice } from './render-notices.js';
 import { ui } from './state.js';
+import { workerLabel, rememberWorkers } from './worker-label.js';
 
 /** Worker-first homepage using the existing studio layout, without old Intent/Plan/Candidate controls. */
 export function renderOverview(data) {
+  rememberWorkers(data.tasks);
   const tasks = (data.tasks || []).filter(task => ['order','child','main','owner'].includes(workerKind(task)));
   const open = (data.notices || []).filter(notice => notice.status === 'open' && notice.kind !== 'info');
   const acceptance = tasks.filter(task => task.status === 'awaiting_acceptance' && workerKind(task) === 'order');
   const parentConfirmation = tasks.filter(task => task.status === 'awaiting_acceptance' && task.task_kind === 'child');
   const active = tasks.filter(task => HOT.has(task.status) && task.status !== 'awaiting_acceptance' && !['main','owner'].includes(task.task_kind));
-  const key = JSON.stringify([data.revision, tasks.map(task => `${task.id}:${task.updated_at}`), open.map(notice => notice.id)]);
+  const key = JSON.stringify([data.revision, tasks.map(task => `${task.id}:${task.worker_number ?? ''}:${task.updated_at}`), open.map(notice => notice.id)]);
   if (key === ui.overviewKey) return;
   ui.overviewKey = key;
   const panel = $('detail');
@@ -41,7 +43,7 @@ export function renderOverview(data) {
   if (!tasks.length) work.append(el('p', '还没有 Worker。在底部输入框描述目标即可开始。', 'empty-state compact'));
   for (const task of [...tasks].sort((a, b) => b.id - a.id).slice(0, 20)) {
     const row = el('div', undefined, 'branch-row');
-    row.append(el('span', `#${task.id}`, 'tid'), button(task.goal || workerKindLabel(task), () => detail(task.id), 'link'),
+    row.append(el('span', workerLabel(task), 'tid'), button(task.goal || workerKindLabel(task), () => detail(task.id), 'link'),
       el('span', statusOf(task).label, `chip c-${task.status}`));
     if (task.branch) row.append(el('span', task.branch, 'meta mono'));
     work.append(row);
@@ -54,7 +56,7 @@ export function renderOverview(data) {
   for (const notice of open) {
     const row = button('', () => openNotice(notice.id), 'attention-item');
     const text = el('span', undefined, 'attention-copy');
-    text.append(el('span', `Worker #${notice.task_id} · 等待答复`, 'eyebrow'), el('strong', notice.title));
+    text.append(el('span', `Worker ${workerLabel(notice.task_id, notice.task_worker_number)} · 等待答复`, 'eyebrow'), el('strong', notice.title));
     row.append(el('span', '?', 'attention-icon'), text, el('span', '去处理 →', 'attention-action'));
     decisions.append(row);
   }
@@ -63,7 +65,7 @@ export function renderOverview(data) {
   const agents = block('运行中的 Agent', `${data.status.agents?.length ?? 0} / ${data.status.concurrency ?? 1}`);
   for (const agent of data.status.agents || []) {
     const row = el('div', undefined, 'row');
-    row.append(el('span', '●', 'dot c-running'), button(`查看 Worker #${agent.task_id}`, () => detail(agent.task_id), 'link'),
+    row.append(el('span', '●', 'dot c-running'), button(`查看 Worker ${workerLabel(agent.task_id, agent.task_worker_number)}`, () => detail(agent.task_id), 'link'),
       el('span', agent.pid ? `pid ${agent.pid}` : 'pid 待上报', 'when'));
     agents.append(row);
   }

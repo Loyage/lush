@@ -7,6 +7,8 @@ import { refresh as refreshOverview, resource } from './navigate.js';
 import { mergeSelection, transcriptCache, transcriptOpen, ui } from './state.js';
 import { releaseTranscriptReader } from './transcript-reader.js';
 import { closeTranscriptView } from './transcript-view.js';
+import { inputNumber } from './format.js';
+import { workerLabel, forgetWorkerLabel } from './worker-label.js';
 
 export const WORKER_DELETE_HELP = '预检这条 Worker 及全部后代的资源，确认后彻底删除专属历史、原始输入、会话、worktree 与本地分支；未提交和未合并代码会丢弃，无法恢复。不会撤销已合并代码或改写 Git 历史。';
 const pending = new Set();
@@ -28,8 +30,8 @@ function validatePreview(preview, taskId) {
 function previewDetail(preview) {
   const list = (title, rows) => `${title}（${rows.length}）：\n${rows.length ? rows.join('\n') : '无'}`;
   return [
-    list('将彻底删除的 Worker（包含全部后代）', preview.workers.map(row => `#${row.id} [${row.status}] ${row.goal}`)),
-    list('将删除的原始输入及已发射暂存记录', preview.inputs.map(row => `Input #${row.id}`)),
+    list('将彻底删除的 Worker（包含全部后代）', preview.workers.map(row => `${workerLabel(row)} [${row.status}] ${row.goal}`)),
+    list('将删除的原始输入及已发射暂存记录', preview.inputs.map(row => `Input ${inputNumber(row.id)}`)),
     list('将清理的 worktree', preview.resources.worktrees),
     list('将删除的本地分支', preview.resources.branches),
     list('将删除的专属文件（会话、规则、报告等）', preview.resources.files),
@@ -65,7 +67,7 @@ function forgetWorkers(preview) {
     ui.detailTask = null; ui.selectedRevision = null;
   }
   for (const id of ids) {
-    ui.deletedWorkerIds.add(id);
+    ui.deletedWorkerIds.add(id); forgetWorkerLabel(id);
     transcriptCache.delete(id); transcriptOpen.delete(id); mergeSelection.delete(id);
     releaseTranscriptReader(id); ui.taskGraphIds.delete(id); ui.taskGraphFilesExpanded.delete(id);
   }
@@ -105,11 +107,11 @@ export async function runWorkerDelete(task, { refresh = () => {} } = {}) {
     if (!current()) return false;
     validatePreview(preview, task.id);
     if (!preview.can_delete || preview.blockers.length) {
-      show(`暂不能删除 Worker #${task.id}：${preview.blockers.join('\n') || '未通过资源安全检查。'}`, 'error');
+      show(`暂不能删除 Worker ${workerLabel(task)}：${preview.blockers.join('\n') || '未通过资源安全检查。'}`, 'error');
       return false;
     }
     const confirmed = await confirmDialog({
-      title: `彻底删除 Worker #${task.id} 及全部后代？`,
+      title: `彻底删除 Worker ${workerLabel(task)} 及全部后代？`,
       message: '这不是归档：Worker、消息、Notice、事件、执行记录及专属会话将永久删除；列出的原始输入也会从历史输入中消失。确认即授权丢弃这些资源中的全部未提交和未合并代码，无法恢复。已合并代码、Git 提交历史和其他记录中的引用快照不会被抹除。',
       detail: previewDetail(preview), confirmLabel: '彻底删除', cancelLabel: '保留', danger: true,
       confirmHelp: WORKER_DELETE_HELP,

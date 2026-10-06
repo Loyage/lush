@@ -2,6 +2,7 @@ import { check, id, bounded } from '../../core/types.js';
 
 /** worker.* (persistent Task data and internal methods keep their names). */
 export const handlers = {
+  'worker.lookup'(p, params) { return p.store.lookupWorker(params.number); },
   'worker.graph'(p) { return p.taskGraph(); },
   'worker.list'(p, params, actor) {
     const after = Number(params.after ?? 0), limit = Number(params.limit ?? 200);

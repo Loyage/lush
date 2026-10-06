@@ -1,6 +1,7 @@
 import { block, el, kv } from './dom.js';
 import { CHANGE, short } from './format.js';
 import { referenceable } from './context-references.js';
+import { workerLabel } from './worker-label.js';
 
 function fileList(rows, total) {
   const list = el('ul', undefined, 'difflist');
@@ -33,7 +34,7 @@ export function renderDiff(diff, taskId = null) {
   if (diff.pending?.length) {
     section.append(el('p', '未提交的改动（agent 未提交或失败时留下的）', 'hint'), fileList(diff.pending, diff.pending_total));
   }
-  if (taskId) referenceable(section, { kind: 'diff', target: { task_id: taskId }, label: `改动概览 #${taskId}`,
+  if (taskId) referenceable(section, { kind: 'diff', target: { task_id: taskId }, label: `改动概览 ${workerLabel(taskId)}`,
     quote: [...(diff.commits || []), ...(diff.files || []).map(file => `${file.path} +${file.added ?? '?'} -${file.deleted ?? '?'}`),
       ...(diff.pending || []).map(file => `${file.code || ''} ${file.path}`)].join('\n') || '尚无文件改动',
     location: { view: 'task-detail', task_id: taskId, section: 'diff' } });

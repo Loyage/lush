@@ -7,6 +7,7 @@ import { normalizeConfigMode } from './agent-config-mode.js';
 import { workerKind } from './worker-kind.js';
 import { ui } from './state.js';
 import { show } from './messages.js';
+import { workerLabel } from './worker-label.js';
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const SAVE_HELP = '仅保存本 Worker 下一次调用的模型来源与模型，后台保留其他运行覆盖；不启动 Agent，不自动继续，不改变当前调用。';
@@ -67,7 +68,7 @@ export function clearOverrideControl(task, onCleared = () => {}) {
   const help = '移除本 Worker 的独立运行覆盖（配置模式、模型来源、模型、Prompt、扩展、Skills、软预算与环境变量），下一次调用回到项目/角色默认；不启动 Agent，不改变当前调用。项目默认若是 Lush 模式且未绑定来源，会在启动前被拦截并提示配置。';
   return button('清除运行覆盖', async () => {
     const confirmed = await confirmDialog({
-      title: `清除 Worker #${task.id} 的运行覆盖？`,
+      title: `清除 Worker ${workerLabel(task)} 的运行覆盖？`,
       message: '本 Worker 的独立运行覆盖将被移除，下一次调用改用项目/角色默认。此操作不启动 Agent，也不改变当前调用；只有你显式清除或重新保存覆盖才会改变它。',
       confirmLabel: '清除覆盖', cancelLabel: '保留', danger: true,
     });
@@ -115,7 +116,7 @@ export async function configureModelSource(task) {
     const loading = picker.load();
     for (;;) {
       if (!ownsPage()) return false;
-      const confirmed = await formDialog({ title: `切换 Worker #${task.id} 的模型来源`,
+      const confirmed = await formDialog({ title: `切换 Worker ${workerLabel(task)} 的模型来源`,
         message: '下一次 Agent 调用生效，不改变仍在运行的调用。保存后如需开始或继续，请另行操作。',
         content: form, confirmLabel: '保存来源与模型', cancelLabel: '取消', confirmHelp: SAVE_HELP });
       if (!confirmed || !ownsPage()) return false;

@@ -2,7 +2,7 @@
 export const timeline = {
   /** 时间轴原料：最近 limit 个任务，按 id 升序（画图从左到右）。 */
   timelineTasks(limit) {
-    return this.all(`SELECT id,parent_id,input_id,role,name,status,integration,created_at,updated_at
+    return this.all(`SELECT id,worker_number,parent_id,input_id,role,name,status,integration,created_at,updated_at
       FROM (SELECT * FROM tasks WHERE layer='work' ORDER BY id DESC LIMIT ?) ORDER BY id`, limit);
   },
   /** 这些任务的生命周期事件：invocation.started→invocation.completed 就是"真的在跑"的区间。 */

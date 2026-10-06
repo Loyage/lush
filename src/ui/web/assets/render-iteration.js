@@ -8,6 +8,7 @@ import { ui } from './state.js';
 import { isHistoricalDelivery } from './format.js';
 import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
 import { refresh as refreshOverview } from './navigate.js';
+import { workerLabel } from './worker-label.js';
 
 export const isIterationTask = task => ['order', 'child'].includes(workerKind(task));
 export function iterationBlocker(task) {
@@ -50,7 +51,7 @@ export function iterationControls(task, { refresh = () => {}, events = [] } = {}
   };
   if (historical) {
     actions.append(guardedAction(button('继续开发', async () => {
-      if (!await confirmDialog({ title: `恢复 Worker #${task.id}？`,
+      if (!await confirmDialog({ title: `恢复 Worker ${workerLabel(task)}？`,
         message: '仅将保留分支与 worktree 的历史已合并 Worker 恢复为待验收。不会调用 Agent；恢复后追加输入才继续当前 Worker。已归档 Worker 不会重建。',
         confirmLabel: '恢复待验收', confirmHelp: '恢复原 Worker 身份、会话与工作区；不自动运行 Agent。' })) return;
       await update('worker.reopen', '已恢复待验收；追加输入可继续开发。');
@@ -60,7 +61,7 @@ export function iterationControls(task, { refresh = () => {}, events = [] } = {}
       const acceptanceReason = reason || ((task.children || []).some(child => !['completed', 'failed', 'cancelled'].includes(child.status))
         ? '后代尚未确认或结算；派生 Worker 由其直接父 Agent 检查并确认，无需你逐个验收。' : null);
       panel.append(el('p', task.task_kind === 'child'
-        ? `本轮已交付，等待父 Worker #${task.parent_id} 的 Agent 检查并确认；无需你验收。需要修改时可追加输入，分支与 worktree 保留。`
+        ? `本轮已交付，等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 的 Agent 检查并确认；无需你验收。需要修改时可追加输入，分支与 worktree 保留。`
         : '本轮已交付，等待你验收；追加输入可继续当前 Worker。派生 Worker 由父 Agent 检查并确认，无需你逐个验收。选择「仅验收」保留分支与 worktree，或点击「验收并归档」直接验收并删除本分支及后代的 worktree 与本地 ref，不再弹窗确认。', 'hint'));
       if (task.task_kind !== 'child') {
         let accepting = false, accepted = false;
@@ -112,7 +113,7 @@ export function iterationControls(task, { refresh = () => {}, events = [] } = {}
     if (conflict) {
       panel.append(el('p', `父同步冲突：${conflict.reason || '需要处理'}\n源 ${conflict.source_commit || '未知'} · 父 ${conflict.parent_commit || '未知'}`, 'hint mono'));
       actions.append(guardedAction(button('Agent 解决同步冲突', async () => {
-        if (!await confirmDialog({ title: `解决 Worker #${task.id} 的同步冲突？`,
+        if (!await confirmDialog({ title: `解决 Worker ${workerLabel(task)} 的同步冲突？`,
           message: 'Agent 在当前 Worker 工作区吸收已记录的固定父提交、解决冲突并测试；不推进父分支。两端提交漂移会拒绝，请重新同步。',
           confirmLabel: '调用 Agent', agent: true, confirmHelp: agentHelp('解决已记录的固定父同步冲突并测试。') })) return;
         await update('worker.resolve_sync', '已请求 Agent 解决同步冲突。');

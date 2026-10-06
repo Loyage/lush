@@ -1,4 +1,5 @@
 import { bounded } from '../../core/types.js';
+import { MESSAGE_SELECT } from './messages.js';
 
 /**
  * 事件里只存 message_id 时，把被引用的消息正文一并带上：时间线才看得到 Agent 之间说了什么。
@@ -8,7 +9,7 @@ function withMessages(store, rows) {
   const ids = [...new Set(rows.filter(row => !('body' in (row.data || {})) && Number.isSafeInteger(row.data?.message_id))
     .map(row => row.data.message_id))];
   if (!ids.length) return rows;
-  const byId = new Map(store.all(`SELECT id,task_id,sender_id,signal_type,body FROM messages WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids)
+  const byId = new Map(store.all(`${MESSAGE_SELECT} WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids)
     .map(row => [row.id, row]));
   return rows.map(row => (!('body' in (row.data || {})) && byId.has(row.data?.message_id))
     ? { ...row, message: byId.get(row.data.message_id) } : row);

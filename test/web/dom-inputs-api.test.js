@@ -26,7 +26,7 @@ test('真实 API：详情页 Enter 给暂停 Worker 追加消息，不创建 Inp
     const { task } = await fixture.project.order('初始要求', 'main', [], null, false);
     await loadDetail(task.id);
     const before = ['tasks', 'inputs', 'drafts'].map(table => fixture.store.all(`SELECT * FROM ${table}`).length);
-    const input = dom.node('input'); expect(input.placeholder).toContain(`追加给 Worker #${task.id}`);
+    const input = dom.node('input'); expect(input.placeholder).toContain(`追加给 Worker ${task.worker_number ?? `#${task.id}`}`);
     expect(input.placeholder).toContain('需开始 / 继续');
     input.value = '后续要求'; input.oninput(); await input.onkeydown({ key: 'Enter', preventDefault() {} });
     expect(input.value).toBe(''); expect(fixture.store.task(task.id).status).toBe('paused');

@@ -9,6 +9,7 @@ import { ui } from './state.js';
 import { orderTasks, treeParent } from './tree-order.js';
 import { referenceable } from './context-references.js';
 import { renderCompactProgress } from './render-progress.js';
+import { workerLabel, rememberWorkers } from './worker-label.js';
 
 /** 一行依赖标签：同名依赖合并成一个标签，词义放在 title 里，免得一行被标签挤爆。 */
 function depChips(task) {
@@ -16,9 +17,9 @@ function depChips(task) {
   return kinds.map(kind => {
     const deps = depsOf(task).filter(dep => dep.kind === kind);
     const waiting = deps.some(dep => !TERMINAL_STATUS.has(dep.status));
-    const chip = el('span', `${kind === 'code' ? '⛓' : '⏳'}#${deps.map(dep => dep.id).join(',')}${waiting ? '·等' : ''}`,
+    const chip = el('span', `${kind === 'code' ? '⛓' : '⏳'}${deps.map(dep => workerLabel(dep)).join(',')}${waiting ? '·等' : ''}`,
       `dep dep-${kind}${waiting ? ' dep-wait' : ''}`);
-    chip.title = `${kind === 'code' ? 'code 依赖（分支基线）' : 'order 依赖（只等结束）'}：${DEP_HELP[kind]}\n上游：${deps.map(dep => `#${dep.id} ${statusOf(dep).label}`).join('、')}`;
+    chip.title = `${kind === 'code' ? 'code 依赖（分支基线）' : 'order 依赖（只等结束）'}：${DEP_HELP[kind]}\n上游：${deps.map(dep => `${workerLabel(dep)} ${statusOf(dep).label}`).join('、')}`;
     return chip;
   });
 }
@@ -28,7 +29,7 @@ function whyLine(task, index) {
   if (interruptHint) return interruptHint;
   const waiting = waitingDeps(task);
   if (task.status === 'running') return `运行中 · 占 1 个并发槽`;
-  if (task.status === 'queued' && waiting.length) return `排队：等 ${waiting.map(dep => `#${dep.id}`).join('、')} 结束`;
+  if (task.status === 'queued' && waiting.length) return `排队：等 ${waiting.map(dep => workerLabel(dep)).join('、')} 结束`;
   if (task.status === 'queued') return `排队：没有依赖、但没有空槽（上限 ${index.concurrency}）`;
   if (task.status === 'waiting') {
     const kids = index.children(task.id);
@@ -36,7 +37,7 @@ function whyLine(task, index) {
     return `等子 Worker：${live} 个在跑 · ${kids.filter(child => !TERMINAL_STATUS.has(child.status)).length} 个未结束`;
   }
   if (task.status === 'awaiting_acceptance') return task.task_kind === 'child'
-    ? `本轮已交付，等待父 Worker #${task.parent_id} 确认；无需你验收` : '本轮已交付，待验收；可追加输入继续开发';
+    ? `本轮已交付，等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 确认；无需你验收` : '本轮已交付，待验收；可追加输入继续开发';
   if (task.status === 'awaiting') return '等你决定：有没答复的问题';
   if (task.status === 'paused') return '已暂停：可追加输入或调整运行设置，点「继续」恢复';
   if (task.status === 'completed' && task.integration === 'conflict') return '已完成，合并冲突等你决定';
@@ -45,6 +46,7 @@ function whyLine(task, index) {
 }
 /** 兼容旧入口名称；任务列表以平铺方式渲染，关系视图由 render-task-graph.js 负责。 */
 export function renderTree(data) {
+  rememberWorkers(data.tasks);
   const container = $('tasks');
   const known = new Map([...container.children].map(node => [Number(node.dataset.id), node]));
   const allIds = new Set(data.tasks.map(task => task.id));
@@ -73,7 +75,7 @@ export function renderTree(data) {
     node.className = `task s-${task.status}${ui.selected === task.id ? ' selected' : ''}${task.route ? ' route-flagged' : ''}`;
     node.replaceChildren();
     const row = el('span', undefined, 'row');
-    row.append(el('span', statusOf(task).icon, `dot c-${task.status}`), el('span', `#${task.id}`, 'tid'),
+    row.append(el('span', statusOf(task).icon, `dot c-${task.status}`), el('span', workerLabel(task), 'tid'),
       el('span', statusOf(task).label), ...(task.role === 'agent' ? [] : [roleBadge(task.role)]));
     if (task.route) row.append(routeBadge());
     for (const chip of depChips(task)) row.append(chip);
@@ -89,8 +91,8 @@ export function renderTree(data) {
     if (integration && integration !== '待合并') node.append(el('span', integration, 'meta'));
     node.title = `${task.goal}\n更新于 ${absolute(task.updated_at)}`;
     referenceable(node, [
-      { kind: 'task', target: { task_id: task.id }, label: `Worker #${task.id}`, quote: `${task.goal}\n状态：${statusOf(task).label} · ${ROLE[task.role] || task.role}`, location: { view: 'task-tree', task_id: task.id } },
-      { kind: 'task_subtree', target: { task_id: task.id }, label: `Worker 子树 #${task.id}`, quote: `${task.goal}\n从此 Worker 开始的分支`, location: { view: 'task-tree', task_id: task.id } },
+      { kind: 'task', target: { task_id: task.id }, label: `Worker ${workerLabel(task)}`, quote: `${task.goal}\n状态：${statusOf(task).label} · ${ROLE[task.role] || task.role}`, location: { view: 'task-tree', task_id: task.id } },
+      { kind: 'task_subtree', target: { task_id: task.id }, label: `Worker 子树 ${workerLabel(task)}`, quote: `${task.goal}\n从此 Worker 开始的分支`, location: { view: 'task-tree', task_id: task.id } },
     ]);
     ordered.push(node);
   }

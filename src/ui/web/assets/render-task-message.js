@@ -2,6 +2,7 @@ import { button, el } from './dom.js';
 import { absolute } from './format.js';
 import { agentText, markdownEnabled } from './text.js';
 import { structuredValue } from './structured-value.js';
+import { workerLabel } from './worker-label.js';
 
 const SIGNALS = {
   'child.completed': '子 Worker 完成', 'child.failed': '子 Worker 失败', 'child.cancelled': '子 Worker 已取消',
@@ -51,7 +52,7 @@ function signalView(parsed) {
   const status = { completed: '子 Worker 完成', failed: '子 Worker 失败', cancelled: '子 Worker 已取消' };
   if (!own(parsed, 'version') && Number.isSafeInteger(parsed.child) && typeof parsed.status === 'string' && own(status, parsed.status)) {
     const { child, status: _status, ...payload } = parsed;
-    return { title: `${status[parsed.status]} · #${child}`, payload, failed: parsed.status === 'failed' };
+    return { title: `${status[parsed.status]} · ${workerLabel(child)}`, payload, failed: parsed.status === 'failed' };
   }
   return null;
 }
@@ -104,12 +105,12 @@ function renderDecision(root, parsed) {
 /** Read-only presentation; it never infers current task state from a historical message. */
 export function renderTaskMessage(message, taskId, previous = null) {
   const text = String(message.body ?? '');
-  const signature = JSON.stringify([taskId, message.id, text, message.sender_id, message.created_at, message.signal_type, markdownEnabled()]);
+  const from = message.sender_id === taskId ? `发给 Worker ${workerLabel(message.task_id, message.task_worker_number)}`
+    : message.sender_id != null ? `来自 Worker ${workerLabel(message.sender_id, message.sender_worker_number)}` : '来自你';
+  const signature = JSON.stringify([taskId, message.id, text, from, message.created_at, message.signal_type, markdownEnabled()]);
   if (previous?.messageSignature === signature) return previous;
   const root = el('article', undefined, 'msg task-message');
   root.dataset.messageId = String(message.id); root.messageSignature = signature;
-  const from = message.sender_id === taskId ? `发给 Worker #${message.task_id}`
-    : message.sender_id != null ? `来自 Worker #${message.sender_id}` : '来自你';
   const meta = el('div', undefined, 'message-meta');
   meta.append(el('span', from));
   if (message.created_at) {

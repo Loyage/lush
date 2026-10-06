@@ -53,7 +53,7 @@ export default {
     // 任务可能已经被 clear 清空：谱系记录留着，任务那一半信息就显示成「已清空」而不是消失。
     const taskIds = new Set([...rows.map(row => row.task_id), ...owners.values()].filter(id => id !== null));
     const tasks = new Map([...taskIds].map(id => [id,
-      this.store.get('SELECT id, role, name, goal FROM tasks WHERE id=?', id) ?? null]));
+      this.store.get('SELECT id, worker_number, role, name, goal FROM tasks WHERE id=?', id) ?? null]));
     const nodes = [];
     const seen = new Set();
     const push = (row, tracked) => {
@@ -69,6 +69,7 @@ export default {
         created_from_commit: row.created_from_commit ?? null,
         task_id: row.task_id ?? null,
         task_role: task?.role ?? null,
+        task_worker_number: task?.worker_number ?? null,
         task_name: task?.name ?? null,
         task_goal: task ? String(task.goal).slice(0, 120) : null,
         worktree, worktree_exists: worktree ? fs.existsSync(worktree) : null,

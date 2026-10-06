@@ -3,6 +3,8 @@ import { api } from './api.js';
 import { detail } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
+import { inputNumber } from './format.js';
+import { workerLabel } from './worker-label.js';
 
 const REFRESH_HELP = '重新读取当前项目 main 的最新主线历史并从第一页开始；只读 Git，不启动 Agent。';
 const MORE_HELP = '沿首次读取时固定的 main 提交继续查看更早版本；不会混入刷新前后新增的提交。';
@@ -26,13 +28,13 @@ export function renderVersionCommit(commit) {
     card.append(el('p', '已核实 Worker 交付关联', 'version-associated'));
     for (const task of tasks) {
       const entry = el('section', undefined, 'version-task');
-      entry.append(button(`查看 Worker #${task.id}`, () => detail(task.id), 'version-task-link',
+      entry.append(button(`查看 Worker ${workerLabel(task)}`, () => detail(task.id), 'version-task-link',
         { help: '打开这次交付对应的 Worker 详情，查看开发过程与结果；不启动 Agent。' }),
       el('p', text(task.goal, '（无 Worker 目标）'), 'version-goal'));
       if (task.goal_truncated) entry.append(el('p', 'Worker 目标已截断，可在详情中查看完整内容。', 'hint'));
       if (task.input) {
         const input = el('details', undefined, 'version-input');
-        input.append(el('summary', `原始指令 #${task.input.id}`), el('p', text(task.input.content, '（空输入）'), 'version-order'));
+        input.append(el('summary', `原始指令 ${inputNumber(task.input.id)}`), el('p', text(task.input.content, '（空输入）'), 'version-order'));
         if (task.input.truncated || task.input.content_truncated) input.append(el('p', '原始指令内容已截断。', 'hint'));
         entry.append(input);
       }

@@ -119,7 +119,7 @@ export default {
     const existing = this.store.get(`${NOTICE_SELECT} WHERE source_event_id=?`, event.id);
     if (existing) return existing;
     const goal = String(task.goal ?? '').trim().split('\n')[0].slice(0, 100);
-    const title = `${task.task_kind === 'analysis' ? '分析' : 'Worker'} #${task.id} ${failed ? '异常停止' : analyzed ? '已完成' : '本轮已结束'}：${goal}`;
+    const title = `${task.task_kind === 'analysis' ? '分析' : 'Worker'} ${task.worker_number ?? `#${task.id}`} ${failed ? '异常停止' : analyzed ? '已完成' : '本轮已结束'}：${goal}`;
     const body = [
       failed ? `Worker 异常停止：${String(task.error ?? '没有记录到原因').slice(0, 1200)}`
         : analyzed ? '只读分析已完成，没有分支改动。'

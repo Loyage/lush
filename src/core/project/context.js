@@ -1,10 +1,10 @@
 const SUMMARY_LIMIT = 50;
 // Fetch one extra character to detect clipping without loading entire result blobs.
-const SUMMARY_COLUMNS = `t.id,t.parent_id,t.role,t.status,t.integration,t.branch,t.head_commit,
+const SUMMARY_COLUMNS = `t.id,t.worker_number,t.parent_id,t.role,t.status,t.integration,t.branch,t.head_commit,
   substr(t.goal,1,501) AS goal,substr(t.result,1,1501) AS result,substr(t.error,1,1001) AS error`;
 const summary = (row, includeResult = false) => {
-  const { id, parent_id, role, status, integration, branch, head_commit, goal, result, error } = row;
-  return { id, parent_id, role, status, integration, branch, head_commit,
+  const { id, worker_number, parent_id, role, status, integration, branch, head_commit, goal, result, error } = row;
+  return { id, worker_number, parent_id, role, status, integration, branch, head_commit,
     goal: goal?.slice(0, 500), ...(includeResult ? { result: result?.slice(0, 1500) } : {}), error: error?.slice(0, 1000),
     truncated: (goal?.length > 500) || (includeResult && result?.length > 1500) || (error?.length > 1000) };
 };

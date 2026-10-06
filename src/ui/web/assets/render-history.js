@@ -3,16 +3,17 @@ import { eventLabel, ROLE, absolute, relative, short } from './format.js';
 import { structuredValue } from './structured-value.js';
 import { agentText } from './text.js';
 import { referenceable } from './context-references.js';
+import { workerLabel } from './worker-label.js';
 
 /**
  * 事件引用的消息正文：直接看得到 Agent 之间说了什么，而不是只有 message_id。
  * 信号是 versioned JSON 信封，展开 payload 用结构化视图；普通消息按 Agent 输出渲染，原文由结构化视图保留。
  */
-function messageContent({ body, task_id: to, sender_id: from, signal_type: signalType } = {}, taskId = null) {
+function messageContent({ body, task_id: to, sender_id: from, signal_type: signalType, task_worker_number: toNumber, sender_worker_number: fromNumber } = {}, taskId = null) {
   const text = String(body ?? '');
   const wrap = el('div', undefined, 'timeline-message');
   const outgoing = from !== null && from !== undefined && from === taskId;
-  const who = outgoing ? `发给 Worker #${to}` : from ? `来自 Worker #${from}` : '来自你';
+  const who = outgoing ? `发给 Worker ${workerLabel(to, toNumber)}` : from ? `来自 Worker ${workerLabel(from, fromNumber)}` : '来自你';
   let parsed = null;
   try { parsed = JSON.parse(text); } catch { /* 普通文本消息 */ }
   const signal = typeof parsed?.signal === 'string' ? parsed.signal : signalType;
@@ -35,7 +36,7 @@ function eventItem(event, { hot = false, taskId = null } = {}) {
   let body = '', agent = false, rich = null;
   if (event.type === 'invocation.started') body = `第 ${data.call ?? '?'} 次调用${data.cwd ? ` · ${data.cwd}` : ''}`;
   else if (event.type === 'invocation.completed' || event.type === 'completed' || event.type === 'failed') { body = String(data.result || data.error || '').slice(0, 600); agent = true; }
-  else if (event.type === 'created') body = `${ROLE[data.role] || data.role}${data.parent_id ? ` ← #${data.parent_id}` : ' · 根 Worker'}`;
+  else if (event.type === 'created') body = `${ROLE[data.role] || data.role}${data.parent_id ? ` ← ${workerLabel(data.parent_id)}` : ' · 根 Worker'}`;
   else if (event.type === 'message') { rich = messageContent({ body: data.body, task_id: taskId, sender_id: data.sender }, taskId); body = String(data.body || ''); }
   else if (event.type === 'notice.opened') body = data.title || '';
   else if (event.type === 'notice.answered') body = data.dismiss ? '已忽略' : Array.isArray(data.answer?.answers)
@@ -44,7 +45,7 @@ function eventItem(event, { hot = false, taskId = null } = {}) {
     data.dirty_source ? `创建时主树有 ${data.dirty_source.files} 处未提交改动，worker 看不到` : null].filter(Boolean).join(' · ');
   else if (event.type === 'workspace.removed') body = data.branch || '';
   else if (event.type === 'branch.removed') body = data.branch || '';
-  else if (event.type === 'verify.requested') body = `检验 Worker #${data.verify_task} · 对照 ${data.baseline}`;
+  else if (event.type === 'verify.requested') body = `检验 Worker ${workerLabel(data.verify_task)} · 对照 ${data.baseline}`;
   else if (event.type === 'baseline.created') body = [data.target_branch, short(data.commit), data.workspace].filter(Boolean).join(' · ');
   else if (event.type === 'baseline.removed') body = data.workspace || '';
   else if (event.type === 'merged' || event.type === 'merge.approved') body = short(data.commit);

@@ -1,4 +1,5 @@
 import { check, id, layerOf } from '../../core/types.js';
+import { workerNumber } from '../../core/worker-number.js';
 
 /** tasks 表的读写与生命周期字段。 */
 export const tasks = {
@@ -8,9 +9,29 @@ export const tasks = {
     return task;
   },
   tasks() { return this.all('SELECT * FROM tasks ORDER BY id'); },
+  lookupWorker(number) {
+    const task = this.get('SELECT id,worker_number FROM tasks WHERE worker_number=?', workerNumber(number));
+    check(task, `worker ${number} not found`);
+    return task;
+  },
+  /** Called only inside create's transaction. Meta survives both targeted deletion and purge. */
+  allocateWorkerNumber(taskKind, parentId, inputId) {
+    if (taskKind === 'order') return inputId === null || inputId === undefined ? null : workerNumber(`W${id(inputId)}`);
+    if (taskKind !== 'child' || parentId === null) return null;
+    const parent = this.task(parentId);
+    if (parent.worker_number === null) return null;
+    workerNumber(parent.worker_number);
+    const key = `worker_child_high:${parent.id}`;
+    const high = Number(this.get('SELECT value FROM meta WHERE key=?', key)?.value ?? 0);
+    check(Number.isSafeInteger(high) && high >= 0 && high < Number.MAX_SAFE_INTEGER, 'Worker child number limit reached');
+    const next = high + 1;
+    this.run('INSERT INTO meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', key, String(next));
+    return workerNumber(`${parent.worker_number}-${next}`);
+  },
   /** layer 省略时给全部任务（内部用）；'work' 是任务树/任务链的读模型，'intent' 是 planner + scheduler。 */
   summaries(layer = null) {
-    return this.all(`SELECT id,parent_id,input_id,role,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
+    return this.all(`SELECT id,worker_number,parent_id,(SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
+      input_id,role,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
       agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,interrupt_state FROM tasks${layer ? ' WHERE layer=?' : ''} ORDER BY id`,
       ...(layer ? [layer] : []));
   },
@@ -32,7 +53,8 @@ export const tasks = {
     const index = active ? 'tasks_layer_status' : 'tasks_layer_id_status';
     // 每层先用已有索引取有界页，再归并；避免跨 layer 的全历史排序。
     const layers = scope === 'all' ? ['work', 'intent'] : ['work'];
-    return layers.flatMap(layer => this.all(`SELECT id,parent_id,input_id,role,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
+    return layers.flatMap(layer => this.all(`SELECT id,worker_number,parent_id,(SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
+      input_id,role,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
       agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,branch,interrupt_state FROM tasks INDEXED BY ${index}
       WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ?`, layer, ...params, limit))
       .sort((a, b) => b.id - a.id).slice(0, limit);
@@ -170,12 +192,15 @@ export const tasks = {
   /** name is the task's own short slug; it is written once at spawn and never edited, so a worktree keeps its name. */
   create({ parent_id = null, input_id, role, goal, name = null, verifies_task_id = null, resolves_task_id = null, review_candidate_id = null, task_kind = null }) {
     check(role !== 'showcase' && task_kind !== 'showcase', 'showcase tasks are no longer supported');
-    const taskId = this.nextTaskId();
-    const layer = layerOf(role);
-    this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name,verifies_task_id,resolves_task_id,review_candidate_id,layer,task_kind) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
-      taskId, parent_id, input_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer, task_kind);
-    const task = this.task(taskId);
-    this.event(task.id, 'created', { parent_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer });
-    return task;
+    return this.transaction(() => {
+      const taskId = this.nextTaskId();
+      const layer = layerOf(role);
+      const worker_number = this.allocateWorkerNumber(task_kind, parent_id, input_id);
+      this.run('INSERT INTO tasks(id,parent_id,input_id,role,goal,name,verifies_task_id,resolves_task_id,review_candidate_id,layer,task_kind,worker_number) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+        taskId, parent_id, input_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer, task_kind, worker_number);
+      const task = this.task(taskId);
+      this.event(task.id, 'created', { parent_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer, worker_number });
+      return task;
+    });
   },
 };

@@ -55,7 +55,7 @@ export function agentView(task, run = null, latestRun = null) {
   const selected = run?.agent || (latestRun ? {
     agent: latestRun.provider || null, model: latestRun.model || '', thinking: latestRun.thinking || '',
   } : null);
-  return { id: `${task.role}#${task.id}`, task_id: task.id, role: task.role, wakes: task.agent_wakes,
+  return { id: `${task.role}#${task.id}`, task_id: task.id, task_worker_number: task.worker_number ?? null, role: task.role, wakes: task.agent_wakes,
     created_at: task.created_at, last_seen_at: task.agent_last_seen_at, active: Boolean(run), pid: run?.pid ?? null,
     backend: selected?.agent || null, model: selected?.model || '', thinking: selected?.thinking || '',
     connection_id: !run?.invocationEnded && !run?.parked && !run?.controller?.signal?.aborted

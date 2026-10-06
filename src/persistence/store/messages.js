@@ -1,5 +1,10 @@
 import { check, id } from '../../core/types.js';
 
+export const MESSAGE_SELECT = `SELECT m.*,
+  (SELECT t.worker_number FROM tasks t WHERE t.id=m.task_id) AS task_worker_number,
+  (SELECT s.worker_number FROM tasks s WHERE s.id=m.sender_id) AS sender_worker_number
+  FROM messages m`;
+
 /** 收件箱。 */
 export const messages = {
   message(taskId, body, sender = null) { return Number(this.run('INSERT INTO messages(task_id,sender_id,body) VALUES (?,?,?)', taskId, sender, body).lastInsertRowid); },
@@ -11,7 +16,7 @@ export const messages = {
     if (!row || row.signal_type !== type || row.body !== body) throw new Error(`signal key ${key} already has different content`);
     return { id: row.id, inserted };
   },
-  unread(taskId) { return this.all('SELECT * FROM messages WHERE task_id=? AND consumed=0 ORDER BY id', taskId); },
+  unread(taskId) { return this.all(`${MESSAGE_SELECT} WHERE task_id=? AND consumed=0 ORDER BY id`, taskId); },
   /**
    * Bounded inbox read for one invocation. Row metadata is read without bodies so the
    * delivered batch, not the whole mailbox, defines the startup prompt size; complete
@@ -46,7 +51,7 @@ export const messages = {
     }
     // Preserve delivery order (user messages first, then FIFO); do not re-sort by id.
     const rows = chosen.length
-      ? this.all(`SELECT * FROM messages WHERE id IN (${chosen.map(() => '?').join(',')})`, ...chosen) : [];
+      ? this.all(`${MESSAGE_SELECT} WHERE id IN (${chosen.map(() => '?').join(',')})`, ...chosen) : [];
     const byId = new Map(rows.map(row => [row.id, row]));
     const messages = chosen.map(rowId => byId.get(rowId)).filter(Boolean);
     const delivered = new Set(messages.map(row => row.id));

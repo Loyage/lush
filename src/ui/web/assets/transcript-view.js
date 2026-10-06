@@ -7,6 +7,7 @@ import { createCodeView } from './code-view.js';
 import { setPref, onPrefChange, TRANSCRIPT_ORDER_MODES } from './prefs.js';
 import { closeExplanationPanel } from './explanations.js';
 import { statusOf } from './format.js';
+import { workerLabel } from './worker-label.js';
 
 let current = null;
 export function closeTranscriptView() {
@@ -29,7 +30,7 @@ export function closeTranscriptView() {
 export async function openTranscriptView(taskId, seq) {
   closeTranscriptView();
   const panel = el('dialog', undefined, 'transcript-dialog');
-  panel.setAttribute('aria-label', `Worker #${taskId} 执行详情`);
+  panel.setAttribute('aria-label', `Worker ${workerLabel(taskId)} 执行详情`);
   const holder = el('div', undefined, 'transcript');
   const state = { panel, holder, taskId, returnTarget: document.activeElement,
     returnScroll: $('detail').scrollTop, wasInert: $('project-app').inert,
@@ -43,12 +44,15 @@ export async function openTranscriptView(taskId, seq) {
   order.value = transcriptOrder(); order.onchange = () => setPref('transcriptOrder', order.value);
   state.order = order;
   const taskStatus = el('span', '状态未知', 'badge');
+  const heading = el('strong', `Worker ${workerLabel(taskId)} · 执行详情`);
   state.paintStatus = task => {
-    if (!task) return;
+    if (!task || task.id !== taskId) return;
     taskStatus.textContent = statusOf(task).label; taskStatus.className = `badge b-${task.status}`;
+    heading.textContent = `Worker ${workerLabel(task)} · 执行详情`;
+    panel.setAttribute('aria-label', `Worker ${workerLabel(task)} 执行详情`);
   };
   state.paintStatus(ui.lastSnapshot?.tasks?.find(task => task.id === taskId));
-  toolbar.append(back, el('strong', `Worker #${taskId} · 执行详情`), taskStatus, order);
+  toolbar.append(back, heading, taskStatus, order);
   const tabs = el('div', undefined, 'execution-tabs'); tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', '执行详情视图');
   const recordsTab = button('执行记录', () => switchMode('transcript'), 'ghost');
   const codeTab = button('代码与改动', () => switchMode('code'), 'ghost');

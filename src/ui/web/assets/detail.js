@@ -1,10 +1,11 @@
 import { $ } from './dom.js';
 import { api, loadHistory } from './api.js';
 import { renderDetail, renderDetailError } from './render-detail.js';
-import { activateDetailView } from './sidebar-ui.js';
+import { activateDetailView, setViewChrome } from './sidebar-ui.js';
 import { transcriptCache, transcriptOpen, ui } from './state.js';
 import { appendTranscriptSteps, fetchTranscriptAfter, loadTranscript } from './render-transcript.js';
 import { HOT } from './format.js';
+import { workerLabel } from './worker-label.js';
 
 let detailRequest = 0;
 /** 拉取并渲染一个任务详情。 */
@@ -12,7 +13,7 @@ export async function loadDetail(taskId) {
   if (ui.deletedWorkerIds.has(taskId)) return false;
   ui.selected = taskId;
   const view = activateDetailView({ view: 'task', key: `task-${taskId}`, hash: `#worker-${taskId}`,
-    title: `Worker #${taskId}`, context: 'Worker 列表', hint: '结果优先，过程与运行信息随后' });
+    title: `Worker ${workerLabel(taskId)}`, context: 'Worker 列表', hint: '结果优先，过程与运行信息随后' });
   const request = ++detailRequest;
   const current = () => ui.view === view && request === detailRequest && !ui.deletedWorkerIds.has(taskId);
   const navigated = ui.detailTask !== taskId;
@@ -34,6 +35,7 @@ export async function loadDetail(taskId) {
     throw error;
   }
   if (!current()) return;
+  setViewChrome(`Worker ${workerLabel(task)}`, 'Worker 列表', '结果优先，过程与运行信息随后');
   if (transcriptOpen.has(taskId) && !transcriptCache.has(taskId) && usage?.files?.length) {
     try { await loadTranscript(taskId); const loaded = transcriptCache.get(taskId); if (current() && loaded) loaded.settled = !HOT.has(task.status); }
     catch (error) { if (current()) transcriptCache.set(taskId, { steps: [], files: usage.files, error: error.message }); }

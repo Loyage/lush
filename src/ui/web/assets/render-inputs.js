@@ -2,7 +2,8 @@ import { $, el, button } from './dom.js';
 import { api, action } from './api.js';
 import { detail } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
-import { absolute } from './format.js';
+import { absolute, inputNumber } from './format.js';
+import { workerLabel, rememberWorkers } from './worker-label.js';
 import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { locatable, locateReference } from './context-references.js';
@@ -39,7 +40,7 @@ function recordTime(item) {
 }
 function statusLine(item) {
   const row = el('div', undefined, 'input-metadata');
-  row.append(el('span', `${item.kind === 'draft' ? '草稿' : '输入'} #${item.id}`), ...stateBadges(item), recordTime(item));
+  row.append(el('span', item.kind === 'draft' ? `草稿 #${item.id}` : `输入 ${inputNumber(item.id)}`), ...stateBadges(item), recordTime(item));
   return row;
 }
 function selectField(label, values) {
@@ -97,9 +98,9 @@ export function openInputs({ item = null, push = true } = {}) {
     const row = button('', () => openItem(item), 'input-row', { help: item.kind === 'draft'
       ? '打开完整草稿，编辑正文、引用和父 Worker；打开不会调用 Agent。' : '只读查看这条输入提交时的完整原文与引用。' });
     const preview = (item.content ?? '').replace(/\s+/g, ' ').trim() || '（无正文）';
-    row.setAttribute('aria-label', `${item.kind === 'draft' ? '草稿' : '输入'} #${item.id}，${preview.slice(0, 120)}，Worker 状态：${INPUT_STATUS[item.status] ?? INPUT_STATUS.unknown}，合并状态：${INPUT_MERGE[item.merge_status] ?? '状态未知'}：${label}`);
+    row.setAttribute('aria-label', `${item.kind === 'draft' ? `草稿 #${item.id}` : `输入 ${inputNumber(item.id)}`}，${preview.slice(0, 120)}，Worker 状态：${INPUT_STATUS[item.status] ?? INPUT_STATUS.unknown}，合并状态：${INPUT_MERGE[item.merge_status] ?? '状态未知'}：${label}`);
     const head = el('span', undefined, 'input-record-head');
-    head.append(el('span', `${item.kind === 'draft' ? '草稿' : '输入'} #${item.id}`, 'tid'), recordTime(item));
+    head.append(el('span', item.kind === 'draft' ? `草稿 #${item.id}` : `输入 ${inputNumber(item.id)}`, 'tid'), recordTime(item));
     const summary = el('span', undefined, 'input-summary');
     const openLabel = el('span', `${item.content_truncated ? '摘要已截断 · ' : ''}${label} →`, 'input-open-label');
     summary.append(...stateBadges(item, true), openLabel);
@@ -112,7 +113,7 @@ export function openInputs({ item = null, push = true } = {}) {
   function showDetail(item, push = true) {
     if (!state.activeItem) state.listScroll = $('detail').scrollTop;
     state.activeItem = item; browse.hidden = true; detailView.hidden = false; panel.hidden = false;
-    activateDetailView({ view: 'inputs', title: `${item.kind === 'draft' ? '暂存输入' : '原始输入'} #${item.id}`,
+    activateDetailView({ view: 'inputs', title: item.kind === 'draft' ? `暂存输入 #${item.id}` : `原始输入 ${inputNumber(item.id)}`,
       hint: '完整原文与引用 · 返回列表保留搜索和已加载记录', hash: `#input-${item.kind}-${item.id}`, push });
   }
   function showList() {
@@ -199,9 +200,10 @@ export function openInputs({ item = null, push = true } = {}) {
   function renderEditor(record, parents) {
     let saved = record, references = [...record.references];
     const editable = record.kind === 'draft';
+    rememberWorkers(parents);
     const editor = { busy: false, dirty: () => false, recordKey: keyOf(record) }; state.editor = editor;
     const current = () => ownsPage() && state.editor === editor;
-    panel.replaceChildren(el('h2', editable ? `暂存输入 #${record.id}` : `原始输入 #${record.id}`), statusLine(record));
+    panel.replaceChildren(el('h2', editable ? `暂存输入 #${record.id}` : `原始输入 ${inputNumber(record.id)}`), statusLine(record));
     const message = el('p', editable ? '编辑只保留在本页；保存后跨设备可见。发射会先保存，再创建 Worker。' : '已发送原文只读，不随 Worker 后续追加输入或目标变化。', 'hint');
     message.setAttribute('role', 'status'); panel.append(message);
     const content = editable ? el('textarea') : el('pre', record.content, 'input-original');
@@ -212,15 +214,15 @@ export function openInputs({ item = null, push = true } = {}) {
     if (editable) {
       const placeholder = el('option', '请选择父 Worker'); placeholder.value = ''; parent.append(placeholder);
       for (const task of parents) {
-        const option = el('option', `#${task.id} ${task.goal ?? ''} · ${task.branch}`); option.value = String(task.id); parent.append(option);
+        const option = el('option', `${workerLabel(task)} ${task.goal ?? ''} · ${task.branch}`); option.value = String(task.id); parent.append(option);
       }
       if (record.parent_id && !parents.some(task => task.id === record.parent_id && task.branch === record.branch)) {
         // An archived/missing/rebound parent must never silently fall back to main/current branch.
-        const missing = el('option', `#${record.parent_id} · ${record.branch ?? '未知分支'}（已不可选，请重选）`);
+        const missing = el('option', `${workerLabel(record.parent_id, record.parent_worker_number)} · ${record.branch ?? '未知分支'}（已不可选，请重选）`);
         missing.value = `missing:${record.parent_id}`; parent.append(missing); parent.value = missing.value;
       } else parent.value = record.parent_id ? String(record.parent_id) : '';
       const label = el('label', '父 Worker', 'input-parent-label'); label.append(parent); panel.append(label, parentHint);
-    } else panel.append(el('p', `父 Worker：${record.parent_id ? `#${record.parent_id}` : '未知'} · 输入分支：${record.branch ?? '未知'}`, 'hint'));
+    } else panel.append(el('p', `父 Worker：${record.parent_id ? workerLabel(record.parent_id, record.parent_worker_number) : '未知'} · 输入分支：${record.branch ?? '未知'}`, 'hint'));
     const refs = el('div', undefined, 'input-references'); panel.append(refs);
     const mutating = [], referenceControls = [];
     function paintReferences() {
@@ -288,7 +290,7 @@ export function openInputs({ item = null, push = true } = {}) {
           const result = await action('order.submit', { draft_id: saved.id, expected_revision: saved.revision, start: kind === 'start' });
           if (!current()) return;
           panel.replaceChildren(el('h2', kind === 'start' ? '已发射并开始' : '已创建·待开始'),
-            button(`查看 Worker #${result.task.id}`, () => detail(result.task.id)));
+            button(`查看 Worker ${workerLabel(result.task)}`, () => detail(result.task.id)));
         }
         if (!current()) return;
         state.editor = null; state.items.delete(keyOf(saved)); paintList();
@@ -308,7 +310,7 @@ export function openInputs({ item = null, push = true } = {}) {
         const control = controlsButton(label, () => mutate(kind), opts); mutating.push(control.node); actions.append(control.host);
       }
     }
-    if (record.task_id) actions.append(button(`查看 Worker #${record.task_id}`, () => detail(record.task_id)));
+    if (record.task_id) actions.append(button(`查看 Worker ${workerLabel(record.task_id, record.task_worker_number)}`, () => detail(record.task_id)));
     const reread = controlsButton('重新读取详情', () => openItem(record, { reread: true }), { help: '读取最新原文、版本号和父 Worker 候选；如有未保存编辑，会先确认是否放弃。' });
     mutating.push(reread.node); actions.append(reread.host);
   }

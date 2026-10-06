@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { id, check } from '../../core/types.js';
 import { option, exact } from '../args.js';
+import { resolveWorkerId } from '../worker-number.js';
 
 export async function run(command, args, ctx) {
   const { client } = ctx;
@@ -17,7 +18,7 @@ export async function run(command, args, ctx) {
         check(Array.isArray(value?.questions), 'questions file must contain {questions:[...]}');
         questions = value.questions;
       }
-      value = await client.request('notice.post', { task: id(task), title: args[0], body, ...(questions !== undefined ? { questions } : {}) });
+      value = await client.request('notice.post', { task: await resolveWorkerId(client, task), title: args[0], body, ...(questions !== undefined ? { questions } : {}) });
     } else if (verb === 'answer') {
       const file = option(args, '--answers-file'); exact(args, file === null ? 2 : 1);
       value = await client.request('notice.answer', { id: id(args[0]), answer: file === null ? args[1] : JSON.parse(fs.readFileSync(file, 'utf8')) });

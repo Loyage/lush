@@ -39,7 +39,7 @@ function boundResolved(value, limit) {
 }
 function safeTask(task, full = false) {
   if (!task) return null;
-  const value = { id: task.id, parent_id: task.parent_id, input_id: task.input_id, role: task.role, goal: task.goal,
+  const value = { id: task.id, worker_number: task.worker_number, parent_id: task.parent_id, input_id: task.input_id, role: task.role, goal: task.goal,
     status: task.status, integration: task.integration, target_branch: task.target_branch, branch: task.branch,
     updated_at: task.updated_at, verifies_task_id: task.verifies_task_id, resolves_task_id: task.resolves_task_id };
   if (full) Object.assign(value, { result: snippet(task.result, 8000), error: snippet(task.error, 3000), integration_error: snippet(task.integration_error, 3000) });

@@ -10,6 +10,21 @@
 
 公开实体入口统一为 `lush worker` / RPC `worker.*`，旧 Task 命令与方法不保留别名；`notice --worker` / `config worker-call-limit` 与保留的内部字段之间的映射见[更名边界](../engineering/core-api.md#worker-更名与兼容边界)。
 
+## 用户编号与 CLI 身份
+
+新原始输入沿用项目次序显示为 `O5`，其直接指令 Worker 为 `W5`；Agent 派生的后代按父级次序显示为 `W5-1`、`W5-1-1`。新指令即使提交到已有 Worker 分支，仍用自身输入编号。失败或删除可能留下空号，编号不复用。历史 Worker 不改编号；未编号的历史父 Worker 新派生后代继续使用旧整数编号。
+
+CLI 的 Worker 身份参数支持原整数或严格的新编号：
+
+```bash
+bun run lush worker inspect W5-1
+bun run lush worker message W5-1 '补充说明'
+bun run lush worker spawn '目标' --parent W5 --name child
+bun run lush notice post '问题' --worker W5-1 --body '背景'
+```
+
+CLI 通过只读 `worker.lookup {number}` 找到真实整数 ID 后，再调用原 Worker 操作；`W5` 不意味着内部 `id=5`。RPC/HTTP 的既有 `id`、引用目标、链接、环境变量和磁盘路径仍使用整数。`--json` 保留整数 `id` 和可空 `worker_number`；分页游标与 Notice ID 仍为整数，不接受 W 编号。
+
 ## 速查表
 
 | 命令 | 章节 |
