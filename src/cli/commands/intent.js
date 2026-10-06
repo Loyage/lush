@@ -26,9 +26,11 @@ export async function run(command, args, ctx) {
     check(!client.token, 'agents cannot submit orders');
     const branch = option(args, '--branch');
     const profileFile = option(args, '--profile-file');
+    const defer = args.includes('--defer');
+    if (defer) args.splice(args.indexOf('--defer'), 1);
     exact(args, 1);
     const profile = profileFile !== null ? readProfile(profileFile) : null;
-    value = await client.request('order.submit', { content: args[0], ...(branch ? { branch } : {}), ...(profile ? { profile } : {}) });
+    value = await client.request('order.submit', { content: args[0], ...(branch ? { branch } : {}), ...(profile ? { profile } : {}), ...(defer ? { defer: true } : {}) });
     if (!ctx.json && value?.id && value?.task) console.log(`输入 ${inputNumber(value.id)} → Worker ${workerLabel(value.task)}`);
   }
   return value;

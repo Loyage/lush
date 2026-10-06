@@ -10,6 +10,8 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 浏览器的 Worker 详情使用 `#worker-ID`，执行详情仍在详情页显式点击打开，不提供独立 hash；平铺列表使用 `#workers`，父子树使用 `#worker-graph`。HTTP 与 Web 写动作同步使用下文的 `/api/worker/**`、`/api/workers`、`/api/worker-graph` 和 `worker.*`。旧 Task 路由与动作不保留别名；数据字段与历史事件仍可保留 `task`，完整边界见[核心 API 更名说明](../engineering/core-api.md#worker-更名与兼容边界)。
 
+项目的 `#hooks` 页面管理受控生命周期模板，Worker 详情按触发节点显示挂载与内置自动合并；挂载不是新业务实体。使用见 [Worker Hooks 与预约发射](../hooks.md)。
+
 ## 宿主级路由
 
 - `GET /`、`/app.js`、`/styles.css`、`/assets/**`：Web 资源（无项目前缀）。全局模式下 `/` 是可在未选项目时使用的完整主体，`#projects` / `#environments` 管理项目与环境；`/p/<id>/` 是该项目的工作台。
@@ -61,6 +63,8 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 | `GET /api/agent/resources` | 不执行资源代码地读取当前用户和项目已安装的 Pi 扩展、Skills 与 package 资源 |
 | `GET /api/agent/network` | 用户专属 `agent.network {}`；项目网络安全投影，不返回代理用户名/密码，不联网，见[出站网络](../engineering/outbound-network.md) |
 | `GET /api/agent/environment?target=common\|ROLE` | 按需读取公共或单角色 env 文件，包含明文值；底层 `agent.environment` 为用户专属，公网模式必须先登录，页面默认遮罩 |
+| `GET /api/hooks` | 用户专属 `hooks.list`，节点／动作目录与安全模板投影，不接受查询参数 |
+| `GET /api/worker/ID/hooks` | 用户专属 `worker.hooks`，安全挂载、修订与最近收据，不接受查询参数 |
 | `GET /api/worker/ID` | `worker.inspect` |
 | `GET /api/worker/ID/delete-preview` | 用户专属 `worker.delete_preview {id}`，只读完整删除范围和资源清单，不接受查询参数 |
 | `GET /api/worker/ID/history?after=N` | `worker.history` |

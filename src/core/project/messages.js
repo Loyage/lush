@@ -86,6 +86,7 @@ export default {
     });
     // This is a deliberate suspension, not a timeout/failure. Persist before stopping the process.
     if (kind === 'questionnaire') this.running.get(task.id)?.controller.abort();
+    this.scheduleTaskHooks();
     return this.store.get(`${NOTICE_SELECT} WHERE id=?`, noticeId);
   },
 
@@ -169,6 +170,7 @@ export default {
     // 忽略它意味着这件事不要做了，唤醒 agent 只会让它去做用户刚拒绝的事，所以直接让它结束。
     if (dismiss && owner.agent_wakes === 0 && owner.resolves_task_id) this.cancel(owner.id, `user dismissed notice ${notice.id}: ${notice.title}`);
     else this.wake(notice.task_id);
+    this.scheduleTaskHooks();
     return this.store.get(`${NOTICE_SELECT} WHERE id=?`, notice.id);
   }
 };

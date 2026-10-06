@@ -99,6 +99,7 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         -- order/child 的合并预约；versioned JSON，NULL 表示未预约，历史其它预约只保留记录。
         reservation TEXT,
         auto_merge TEXT,
+        hooks TEXT,
         -- plan_gate: planner 这一轮拆解的审批闸门：NULL=没申请批准（直接编排）/ proposed=等你批准 / approved / rejected。
         plan_gate TEXT,
         -- verifier task: verifies_task_id 指向被检验的 worker；baseline_* 是目标分支的对照检出。

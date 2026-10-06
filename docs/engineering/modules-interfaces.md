@@ -21,6 +21,7 @@
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `host start|stop|restart|status`；无 `--project` 时使用全局项目启动器，显式项目时保持单项目模式；`doctor` / `host status` 分列磁盘、daemon、Web 身份并只给显式更新提示 | `run` |
 | `cli/commands/intent.js` | `order`（新输入的唯一入口），`--profile-file PATH` 从 owner-only 普通 JSON 文件读取完整运行覆盖 | `run` |
 | `cli/commands/task.js` | `worker`（list / tree / inspect / spawn / message / transcript [--follow] / history / wait / integrate / auto-merge ID on\|off / reserve / accept / reopen / sync-parent / resolve-sync / resolve / resolve-divergence / resolve-child-divergence / unreserve / approve-merge / cancel / retry / cleanup / delete ID [--confirm --revision REV]） | `run`、`followTranscript`、`FOLLOW_INTERVAL_MS` |
+| `cli/commands/hooks.js` | 项目 Hook 目录/模板与 Worker 挂载的用户专属 CLI，复用 `cli/private-json.js` 的有界、owner-only、no-follow 文件输入和 revision 校验；`order --defer` 由指令命令授权 | `run`、`runWorkerHook`（接口以 [Hooks 接缝](hooks.md) 为准） |
 | `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 Agent 的 Worker） | `run` |
 | `cli/commands/notice.js` | `notice list/post/answer/dismiss/read`（read 为用户专属，只将 info 告知标已读）；`post --worker` 接受整数或稳定 Worker 编号，Notice 本身的 ID 仍只接受整数 | `run` |
 | `cli/commands/branch.js` | `branch tree / show / bind / archive` | `run` |
@@ -50,7 +51,10 @@ Worker 身份参数（含 `spawn --parent`、`notice post --worker`）接受原�
 | `rpc/handlers/input.js` | 历史 `input.*` / `draft.*`：源码保留，不在白名单 | `handlers` |
 | `rpc/handlers/spec.js` | 历史 `spec.*` / `plan.*`：源码保留，不在白名单 | `handlers` |
 | `rpc/handlers/candidate.js` | 历史 `candidate.*`：源码保留，不在白名单 | `handlers` |
-| `rpc/dispatcher.js` | 合并 handler 表（查重名、查漏），校验后分派 | `class Dispatcher` |
+| `rpc/dispatcher.js` | 合并 handler 表（查重名、查漏），校验后分派，统一应用安全输出过滤 | `class Dispatcher` |
+| `rpc/public-result.js` | 递归隔离 Worker 私有 `retry_profile` 与字符串 Hook JSON；授权 Agent 配置/env 表面保留合法同名键，不对普通 mutation 开例外 | `publicResult()` |
+
+Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 接缝](hooks.md) 为准：`hooks.list/save/remove`、`worker.hooks/hook_attach/hook_update/hook_remove`，只读 GET `/api/hooks` 与 `/api/worker/ID/hooks`；`order.submit` 显式 `defer:boolean` 才可转为预约。
 
 ## 开发与构建脚本：`scripts/`
 

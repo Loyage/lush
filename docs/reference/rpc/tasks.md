@@ -73,11 +73,13 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 
 `worker.auto_merge {id,enabled}` 只接受布尔值，Agent 不得调用。新指令默认关闭，新派生 child 默认开启且锁定；锁定子Worker不能经 CLI/RPC 关闭，也不能用 `worker.unreserve` 绕过。开关跨 invocation、重启和追加开发轮次保留，历史 Worker 不批量回填或重置已有决定。
 
-`worker.inspect` 与 `worker.graph` 提供 `auto_merge:{enabled,locked,editable,reason}`，不适用的 Worker 为 null。Web 在开发阶段以「自动合并」勾选框呈现；锁定或不可编辑时显示只读状态及原因。Worker已交付就绪、已发请求、已终结或待验收时不能调整开关。关闭开关只移除尚未发出的自动意图，不撤回已发请求，也不取消独立的显式合并意图。旧 version 2 pending 仍保留单次意图，开关不由它推断为开启；Web 明示其仍有效。`worker reserve` 将当前 pending 确认为独立单次意图，后续关闭 hook 不撤销它；非锁定Worker可用 `worker unreserve` 撤销单次意图。开启 hook 的自动意图不能借该命令绕过开关的就绪门禁。
+`worker.inspect` 与 `worker.graph` 提供 `auto_merge:{enabled,locked,editable,reason}`，不适用的 Worker 为 null。Web 在 Worker 详情的 Hooks「本轮交付就绪」节点显示统一开关与帮助；Worker 图提供 Hooks 摘要入口，不另建一份开关状态。锁定或不可编辑时显示只读状态及原因。Worker已交付就绪、已发请求、已终结或待验收时不能调整开关。关闭开关只移除尚未发出的自动意图，不撤回已发请求，也不取消独立的显式合并意图。旧 version 2 pending 仍保留单次意图，开关不由它推断为开启；Web 明示其仍有效。`worker reserve` 将当前 pending 确认为独立单次意图，后续关闭 hook 不撤销它；非锁定Worker可用 `worker unreserve` 撤销单次意图。开启 hook 的自动意图不能借该命令绕过开关的就绪门禁。
 
 开启 hook 后，runtime 仍等本轮安全结束、后代结算、待决与消息处理完成，并复核工作区和提交，再复用 version 2 请求与父自有交付队列。包含 main 在内均按现有队列自动准入，不增加父 Agent 或用户审批；分歧仍回原 Worker 处理。显式「合并」调用 `worker.reserve`，只请求本轮交付，不修改持久开关。
 
-`merge_readiness:{ready,reason}` 是执行屏障与登记提交的只读投影，不承诺 Git 准入。ready 为真时 Web 显示「合并」而非可操作勾选框；已有请求或已合并则显示进度或结果，不能重复发起。缺少设置投影时保守只读，不假装可编辑。历史 version 1 预约继续原审批口径，不改造成自动合并。
+`merge_readiness:{ready,reason}` 是执行屏障与登记提交的只读投影，不承诺 Git 准入。ready 为真时 Web 提供显式「合并」，Hook 开关按原就绪门禁只读；已有请求或已合并则显示进度或结果，不能重复发起。缺少设置投影时保守只读，不假装可编辑。历史 version 1 预约继续原审批口径，不改造成自动合并。
+
+自定义受控规则与预约创建入口见 [Hooks 与预约接口](hooks.md)；内置自动合并与历史预约仍用本节原交付协议。
 
 ## 多轮交付、验收与父同步
 

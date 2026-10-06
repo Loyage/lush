@@ -42,6 +42,10 @@
 
 公开提交只使用 CLI `order` / RPC `order.submit` / `bun run order`，新 Worker 的 `task_kind='order'`。历史 `say` 仅在读/类型判定边界兼容，不迁移持久行、分支或工作区；Input / 历史输入 / 暂存名称不变。完整规则见[指令更名边界](core-api.md#指令更名与历史读取边界)。Runtime 主模块路径为 `project/order.js`（`order` / `sendOrder` / `resolveOrderDivergence`）；共享模块 `src/core/order-kind.js` 的纯函数 `normalizeOrderRecord(row)` 在 Store `get` / `all` 的只读行投影中统一历史类型，SQL 类型筛选仍兼容旧值；前端纯兼容模块为 `worker-kind.js`；浏览器发送只走 `order.submit`，类型标签统一为「指令」。
 
+## Worker Hooks 实施接缝
+
+用户决定 #197：以 Worker 挂载 Hook 统一预约和自动合并；项目模板集中在独立 Hooks 页面，首个可创建安全边界执行预约发射，自定义仅组合受控动作。[设计理念](../design/hooks.md)与[工程接口/并行职责](hooks.md)是本次实施权威接缝。Runtime、接口和前端分别遵循该契约；现有 auto_merge / reservation 保持兼容，不新增核心实体或 Host 调度。
+
 ## Worker 用户编号接缝
 
 用户决定 #190：保留整数内部身份，为升级后新建的指令 Worker 增加不可变、可空的 `tasks.worker_number`（如 `W5`）；Agent 在已编号父 Worker 下派生的 child 使用同父创建次序（`W5-1`、`W5-1-1`）。原始 Input 展示 `O<id>`，沿用项目现有 Input 序列，允许失败或删除留下空号；暂存与追加消息不占 O 编号。在已有指令分支上提交新的 O8 仍产生 W8，不使用父的 child 序号。历史 Worker 不回填，历史未编号父节点的新派生后代继续使用旧整数编号；main/owner 保留原标识。

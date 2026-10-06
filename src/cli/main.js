@@ -13,6 +13,7 @@ import * as notice from './commands/notice.js';
 import * as branch from './commands/branch.js';
 import * as agent from './commands/agent.js';
 import * as config from './commands/config.js';
+import * as hooks from './commands/hooks.js';
 
 export { HELP };
 
@@ -30,6 +31,7 @@ for (const [module, names] of [
   [branch, ['branch']],
   [agent, ['agent']],
   [config, ['config']],
+  [hooks, ['hooks']],
 ]) {
   for (const name of names) {
     check(!COMMANDS.has(name), `duplicate command handler: ${name}`);

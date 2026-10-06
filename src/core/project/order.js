@@ -863,11 +863,12 @@ export default {
 
   /**
    * Every new order is one Input and one branch-owning Task, regardless of whether it writes code.
-   * The trailing `profile` is the optional full run-settings override used by the `order.submit`
-   * RPC path; it is validated before the Git anchor is created and cleared at terminal settlement.
+   * `profile` is the optional full run-settings override, validated before creating a Git anchor.
+   * Explicit `defer` authorizes a frozen parent to hold a one-shot creation Hook instead.
    */
-  order(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined, profile = null) {
-    return this.write('send this order', () => this.sendOrder(content, branch, references, draftId, start, expectedRevision, profile));
+  order(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined, profile = null, defer = false) {
+    check(typeof defer === 'boolean', 'defer must be boolean');
+    return this.write('send this order', () => this.sendOrder(content, branch, references, draftId, start, expectedRevision, profile, defer));
   },
 
   /** Convenience wrapper for the same creation-time override without the legacy positional options. */
@@ -876,15 +877,16 @@ export default {
   },
 
   /** The body of order(); runs under the clear gate so an anchor created before a clear cannot commit after its purge. */
-  async sendOrder(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined, profile = null) {
-    // A buffered draft has no run-settings step of its own; reject the mix instead of silently dropping it.
-    check(draftId === null || draftId === undefined || profile === null || profile === undefined,
-      'a buffered draft cannot carry run settings; configure the Worker after sending it');
+  async sendOrder(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined, profile = null, defer = false, hookReceipt = null) {
+    // Only explicit deferred draft submission can carry a creation-time run-settings override.
+    check(defer || draftId === null || draftId === undefined || profile === null || profile === undefined,
+      'a buffered draft cannot carry run settings unless explicit deferred submission is authorized');
     let draft = null, draftReferences = null;
     const buffered = expectedRevision !== undefined;
     if (draftId !== null && draftId !== undefined) {
       check(content === undefined && references.length === 0, 'draft_id cannot be combined with content or references');
       draft = this.store.draft(id(draftId));
+      check(!this.draftHookMount(draft.id), 'draft is already mounted on a Hook; remove that mount before sending');
       check(draft.input_id === null, `draft ${draft.id} was already submitted as input ${draft.input_id}`);
       if (buffered) {
         checkDraftRevision(draft, expectedRevision);
@@ -903,7 +905,7 @@ export default {
     if (branch !== null && branch !== undefined) text(branch, 'branch');
     const target = branch ?? await this.workspaces.git(this.config.project, 'symbolic-ref', '--short', 'HEAD')
       .catch(() => { throw new Error('select a local parent branch before sending from detached HEAD'); });
-    this.assertBranchWritable(target, 'create a new worker on it');
+    if (!defer) this.assertBranchWritable(target, 'create a new worker on it');
     if (target === 'main') await this.ensureMainTask();
     const owner = this.store.all("SELECT * FROM tasks WHERE branch=? AND task_kind IN ('main','owner','order','say') ORDER BY id", target);
     check(owner.length === 1, `branch ${target} needs exactly one explicitly bound Worker before order`);
@@ -912,8 +914,16 @@ export default {
     assertTaskNotSyncing(this, parent.id);
     check(!TERMINAL.has(parent.status), `parent worker #${parent.id} has ended; select an active parent Worker`);
     assertTaskAncestorsOpen(this, parent);
-    // anchorInput always passes the chosen ref, never the possibly changed process HEAD.
-    const { inputId, anchor } = await this.anchorInput(target);
+    if (defer && this.branchFreeze(target))
+      return this.deferOrderHook(parent, content, normalized, runProfile, start, draft);
+    this.assertBranchWritable(target, 'create a new worker on it');
+    // Recheck inside the Git writer queue, not only before waiting to acquire it.
+    const { inputId, anchor } = await this.anchorInput(target, () => {
+      this.assertWritable('send this order');
+      this.assertInputParent(parent.id, target);
+      assertTaskNotSyncing(this, parent.id);
+      this.assertBranchWritable(target, 'create a new worker on it');
+    });
     let ruleTaskId = null;
     try {
       const pointer = this.store.get('SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', anchor.commit);
@@ -923,6 +933,7 @@ export default {
       this.assertWritable('send this order');
       const result = this.store.transaction(() => {
         const current = this.store.task(parent.id);
+        this.assertBranchWritable(target, 'create a new worker on it');
         if (buffered) this.assertInputParent(draft.parent_id, target);
         check(!TERMINAL.has(current.status) && current.branch === target, 'parent worker changed while creating the worktree');
         assertTaskAncestorsOpen(this, current);
@@ -963,6 +974,19 @@ export default {
         if (draft) {
           this.store.run('UPDATE drafts SET input_id=? WHERE id=?', inputId, draft.id);
           this.store.event(task.id, 'input.draft', { draft_ids: [draft.id] });
+        }
+        if (hookReceipt) {
+          const hookOwner = this.store.task(hookReceipt.task_id);
+          const mounted = JSON.parse(hookOwner.hooks).mounts.find(m => m.id === hookReceipt.hook_id);
+          check(mounted?.state === 'running' && mounted.last_execution?.id === hookReceipt.execution_id,
+            'Hook creation authorization changed');
+          if (mounted.draft_id) {
+            const source = this.store.draft(mounted.draft_id);
+            check(source.input_id === null && source.revision === mounted.draft_revision, 'mounted draft changed');
+            this.store.run('UPDATE drafts SET input_id=? WHERE id=?', inputId, source.id);
+            this.store.event(task.id, 'input.draft', { draft_ids: [source.id] });
+          }
+          this.store.event(hookOwner.id, 'hook.worker_created', { ...hookReceipt, worker_id: task.id, input_id: inputId });
         }
         this.store.event(task.id, 'input.anchor', { input_id: inputId, branch: anchor.branch, commit: anchor.commit,
           target_branch: target, workspace: anchor.workspace, dirty_source: anchor.dirty_source });

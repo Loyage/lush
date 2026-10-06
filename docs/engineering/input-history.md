@@ -14,13 +14,13 @@
 
 历史列表返回 `{items,next_cursor}`，默认每页 50 条、最多 100 条，正文预览最多 1000 字并带 `content_truncated`。搜索在服务端针对完整正文进行，不是搜索预览或首页 Worker 窗口。列表包含未发射 Draft 与全部 Input；已发射的草稿通过 `input_id` 保留审计联系，但不作为第二条历史记录列出。
 
-条目包含 `kind`、`id`、`content`、`content_truncated`、`created_at`、`task_id`、`parent_id`、`branch`、`status`、`integration`、`merge_status`、`revision`。详情另返回完整正文和 `references`；Input 原文只读。缺失 Worker 的旧输入保留，状态为 `unknown`。
+条目包含 `kind`、`id`、`content`、`content_truncated`、`created_at`、`task_id`、`parent_id`、`branch`、`status`、`integration`、`merge_status`、`revision`。详情另返回完整正文和 `references`，草稿还返回 `hook_mount:{parent_id,hook_id,state}|null`；Input 原文只读。缺失 Worker 的旧输入保留，状态为 `unknown`。
 
 `status` 是历史页的只读投影：`draft`、`created`、`queued`、`running`、`waiting`、`awaiting`、`paused`、`awaiting_acceptance`、`completed`、`failed`、`cancelled`、`unknown`。`created` 区分从未调用 Agent 的 paused Worker；同时检查本轮调用数、终身唤醒数与 Run 记录，避免重试清零 calls 后误报待开始。不会反写 Worker 状态。
 
 原始 `integration` 与展示用 `merge_status` 分开，后者为 `merging`、`blocked`、`merged`、`none`。列表查询参数 `integration` **按 `merge_status` 筛选**。当前有效交付预约优先于旧落地记录，不把上一轮合并解释成本轮已交付。Worker状态与合并状态可同时筛选。
 
-父候选返回 `{items:[{id,branch,goal}]}`，从完整项目查询而非 overview 取最近Worker。查询检查最多 2000 个候选父，超限明确报错而不是伪装成完整列表。读面不创建 Worker 或调用 Agent；最终可写性由发射路径再次校验。
+父候选返回 `{items:[{id,branch,goal,freeze}]}`，包括可预约的有效冻结父，`freeze` 为冻结投影或 null；，从完整项目查询而非 overview 取最近Worker。查询检查最多 2000 个候选父，超限明确报错而不是伪装成完整列表。读面不创建 Worker 或调用 Agent；最终可写性由发射路径再次校验。
 
 ## 写面与并发保护
 
@@ -29,7 +29,7 @@
 | `draft.add` | `{content,references?,branch?}`：保存并返回完整 draft 条目；省略 branch 时解析 canonical 项目当时检出的分支所有者 |
 | `draft.update` | `{id,content,references?,branch?,expected_revision}`：只更新未发射条目；省略 references 或 branch 保留原值 |
 | `draft.remove` | `{id,expected_revision}`：只删除未发射条目，不删除 Input |
-| `order.submit` 草稿路径 | `{draft_id,expected_revision,start?}`：从保存的父身份、正文与引用创建指令 Worker，不接受额外正文、引用或 branch |
+| `order.submit` 草稿路径 | `{draft_id,expected_revision,start?,defer?,profile?}`：正文、引用与父身份来自草稿；只在显式 `defer:true` 时允许 `profile`，不接受额外正文、引用或 branch |
 
 这些动作通过 `POST /api/action` 的窄白名单调用，不恢复 `input.submit` 或旧 `draft.commit`。`order.submit` 的直接正文路径和 `start` 语义不变；草稿 `start:true` 发射并开始，`start:false` 仅创建待开始 Worker。
 
@@ -38,6 +38,8 @@
 发射沿用当前指令协议，在创建 Git 锚点后的数据库事务内复核草稿版本、正文、引用和父身份，提交成功才回写 `input_id`。重复发射不能创建第二个 Worker；编辑/删除竞态导致旧提交失败而不是执行过期文字。Git 创建失败只清理本次自建锚点，保留用户草稿及已有工作区。
 
 缓冲区不新增Worker实体，不产生 Agent 调度信号，不为保存想法冻结提交；真正的工作区基线在发射时固定。
+
+显式预约先保存一次性创建 Hook，不创建 Input/Worker/worktree。挂载认领草稿版本并保护其正文与引用；占用中不可编辑、删除或重复发射。等待／明确失败挂载停用或移除可释放占用；unknown 须检查现场后移除，不自动重放。已结束父上的未执行自定义挂载仍可移除释放草稿。创建成功才回写 `input_id`。参数与恢复边界见 [Hooks](hooks.md)。
 
 ## 实现职责
 

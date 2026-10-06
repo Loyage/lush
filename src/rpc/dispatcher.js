@@ -1,5 +1,6 @@
 import { check } from '../core/types.js';
 import { PARAMS, assertAllowed } from './registry.js';
+import { publicResult } from './public-result.js';
 import { handlers as systemHandlers } from './handlers/system.js';
 import { handlers as inputHandlers } from './handlers/input.js';
 import { handlers as taskHandlers } from './handlers/task.js';
@@ -7,6 +8,7 @@ import { handlers as specHandlers } from './handlers/spec.js';
 import { handlers as noticeHandlers } from './handlers/notice.js';
 import { handlers as branchHandlers } from './handlers/branch.js';
 import { handlers as candidateHandlers } from './handlers/candidate.js';
+import { handlers as hookHandlers } from './handlers/hooks.js';
 
 /** 合并各 handler 表：重名说明两个分区认领了同一个方法，PARAMS 里没有对应 handler 说明拆漏了。 */
 function mergeHandlers(groups) {
@@ -19,7 +21,7 @@ function mergeHandlers(groups) {
   return Object.fromEntries(Object.keys(PARAMS).map(method => [method, table[method]]));
 }
 
-export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, taskHandlers, specHandlers, noticeHandlers, branchHandlers, candidateHandlers]);
+export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, taskHandlers, specHandlers, noticeHandlers, branchHandlers, candidateHandlers, hookHandlers]);
 
 export class Dispatcher {
   constructor(project, stopping, identity) { this.project = project; this.stopping = stopping; this.identity = identity; }
@@ -29,6 +31,6 @@ export class Dispatcher {
     const p = this.project;
     check(!this.stopping?.isRequested?.() || ['system.status', 'system.summary'].includes(method),
       '项目后台正在停止，请稍后再试');
-    return await HANDLERS[method].call(this, p, params, actor);
+    return publicResult(await HANDLERS[method].call(this, p, params, actor), method);
   }
 }

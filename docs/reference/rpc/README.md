@@ -6,5 +6,6 @@
 - [Agent 状态](agents.md)
 - [Inspect、history、diff 与 transcript](inspect.md)
 - [Notice](notices.md)
+- [Hooks 与预约](hooks.md)
 - [分支](branches.md)
 - [维护与回收](maintenance.md)

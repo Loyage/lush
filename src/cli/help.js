@@ -6,12 +6,18 @@ lush [--project PATH] [--json] <command>
   status                             项目与 Worker 状态
   host start|stop|restart|status [PORT]  整机 Lush Host（Web 工作台入口）
 
-  order '目标' [--branch NAME] [--profile-file PATH]  提交指令，可从私有 JSON 选择运行配置
+  order '目标' [--branch NAME] [--profile-file PATH] [--defer]  提交指令；--defer 授权父冻结时挂载预约发射
   worker list|tree|inspect ID         查看 Worker
   worker spawn '目标' --parent ID [--name NAME]  在指令/child 下派 agent 子 Worker
   worker message ID '说明'            给现有 Worker 追加消息
   worker transcript ID [--follow]     查看执行记录
   worker history ID                  查看事件
+  worker hooks ID                    查看已挂载 Hook 与修改版本
+  worker hook attach ID --file PATH --revision REV  从私有 JSON 挂载规则
+  worker hook enable|disable|remove ID HOOK_ID --revision REV  启停或撤销未来动作（不撤回已执行动作）
+  hooks list                        查看项目触发目录、动作和模板及修改版本
+  hooks save --file PATH --revision REV  保存模板（不自动挂载或调用 Agent）
+  hooks remove TEMPLATE_ID --revision REV  删除模板，不影响已有挂载实例
   worker auto-merge ID on|off         设置 Worker 持久自动合并 hook；派生子 Worker 不可关闭
   worker reserve ID merge            发起一次合并意图（不改变自动合并开关）
   worker reserve-all BRANCH          一次把该分支下所有已静息、待合并 Worker 放入 merge 队列
@@ -55,5 +61,7 @@ Worker ID 可用原整数或稳定编号 W5 / W5-1；编号由 daemon 解析，�
 输入与子 Worker 编号允许跳号且不复用；分页游标、Notice ID 仍为整数。
 
 新指令只走 order；旧 Intent/Plan/Candidate、展示、介绍、托管、草稿和批量合并不再提供 API。
+Hook 配置与读面为用户专属；JSON 文件须为 owner-only 普通文件。写入前先读取对应 revision，多标签过期版本拒绝。
+预约只保存授权参数，不创建 Worker / worktree；父可创建时才发射，按启动设置调用 Agent，可能耗时并消耗 token。
 旧数据不迁移；仅用户明确确认 worker delete 时清除所选 Worker 的专属历史与资源。
 `;

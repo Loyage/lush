@@ -28,7 +28,7 @@ export const methods = {
    * 先落库再动 git：谱系表示「这条分支确实被创建了」，崩溃重试不会重写它。
    * 失败一律抛错——锚不住就不接受输入。
    */
-  anchor(inputId, requestedBranch = null) {
+  anchor(inputId, requestedBranch = null, guard = undefined) {
     return this.exclusive(async () => {
       const project = this.config.project;
       // 不是仓库时 `rev-parse` 自己会抛错，但报错要说清「提交输入需要什么」，不甩一行 git 原始输出。
@@ -56,6 +56,7 @@ export const methods = {
       const targetWorkspace = await this.workspaceForBranch(target);
       const source = targetWorkspace ? await this.porcelain(targetWorkspace) : '';
       check(!fs.existsSync(workspace), `input workspace already exists: ${workspace}; inspect it before submitting`);
+      guard?.(); // Final synchronous admission inside the serialized Git writer boundary.
       this.store.recordBranch({ branch, parent: target, created_from_commit: commit, worktree: workspace });
       try {
         fs.mkdirSync(path.dirname(workspace), { recursive: true });

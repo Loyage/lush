@@ -26,7 +26,8 @@ test('所有源码中直接写入的事件类型都有中文名称，避免新�
 
 test('动态结算与批量合并状态事件也有中文名称', () => {
   for (const type of ['completed', 'failed', 'cancelled', ...['merge.run', 'merge.orchestrate'].flatMap(prefix =>
-    ['started', 'paused', 'completed', 'failed', 'cancelled'].map(status => `${prefix}.${status}`))]) {
+    ['started', 'paused', 'completed', 'failed', 'cancelled'].map(status => `${prefix}.${status}`)),
+    ...['succeeded', 'failed', 'unknown'].map(status => `hook.execution_${status}`)]) {
     expect(Object.hasOwn(EVENTS, type)).toBe(true);
     expect(eventLabel({ type })).toMatch(/[\u4e00-\u9fff]/);
   }

@@ -59,6 +59,8 @@ bun run stop
 
 修改模块前必须先读 `docs/design/README.md` 中的对应设计理念；执行记录、工具渲染、检索与选区解释必须先读 `docs/design/agent-process.md`；引用、选区引用、引用卡片定位与快照/现状取舍必须先读 `docs/design/references.md`；改 Web 按钮文案、图标、样式，或新增会调用 Agent 的按钮前，必须先读 `docs/design/ui-guidance.md`——所有会调用 Agent 的按钮必须带 `agent-call` 紫色标识与 `agentHelp` 提示，含义不直观的按钮必须带 `data-help`，禁用按钮用外层 `.help-host` 承载。修改输入框、暂存、历史输入检索与状态投影前，必须先读 `docs/design/input-history.md`。修改通知、告知设置、已读与滑动消除交互前，必须先读 `docs/design/notices.md`。理念指导取舍，模块地图规定职责与接口，不得只看功能清单而忽略用户目标。
 
+修改 Hook、自动合并开关、预约发射、生命周期触发或挂载/模板界面前，先读 `docs/design/hooks.md` 与 `docs/engineering/hooks.md`。Hook 是 Worker 附属能力，不能绕过既有冻结、权限、Git 和调用边界；未知副作用不得因重启自动重放。
+
 修改账号连接、凭证托管、余额/套餐观测、显式连接绑定与被动响应反馈前，先读 `docs/design/account-resources.md`；字段与模块边界见 `docs/engineering/agent-connections.md`，旧状态/历史兼容见 `docs/engineering/agent-usage.md`。私有权限不是沙箱，不得把凭证或原始认证响应放进读 API、会话或错误。
 
 修改启动、项目入口、环境管理前，先读 `docs/design/workbench.md` 与 `docs/engineering/workbench.md`：每项目独立窗口，Web SSH 在服务所在机器执行，关闭/断开不停止任务；项目 API 附着只读，不能由旧页轮询自动启动已停止后台。

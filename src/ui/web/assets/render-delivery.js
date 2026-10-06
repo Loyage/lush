@@ -9,51 +9,6 @@ import { isHistoricalDelivery } from './format.js';
 import { workerLabel } from './worker-label.js';
 
 const short = hash => String(hash || '').slice(0, 12);
-const updatingAutoMerge = new Set();
-
-/** A task setting, not a one-shot merge request. Missing projections stay read-only. */
-function autoMergeControl(task, refresh) {
-  let setting = task.auto_merge;
-  const ended = ['completed','failed','cancelled','awaiting_acceptance'].includes(task.status);
-  const editable = () => setting?.editable === true && !setting.locked && !ended;
-  const label = el('label', undefined, 'auto-merge-toggle agent-call');
-  const input = el('input'); input.type = 'checkbox';
-  input.setAttribute('aria-label', `Worker ${workerLabel(task)} 自动合并`);
-  let saved = setting?.enabled === true;
-  input.checked = saved;
-  const host = el('span', undefined, 'help-host auto-merge-help');
-  const updateState = () => {
-    input.disabled = !editable() || updatingAutoMerge.has(task.id);
-    const reason = setting?.reason || (setting?.locked ? '由父 Worker 派生，自动合并不可关闭。'
-      : !setting ? '自动合并设置暂不可用，请刷新或更新服务后查看。'
-        : ended ? '本轮已结束，当前不可修改自动合并设置。' : '');
-    host.setAttribute('data-help', agentHelp(`${reason ? `${reason} ` : ''}开启后跨轮保留：本轮工作、子 Worker 及消息处理完成且 Git 条件满足时自动请求合并，由父 Worker 自有队列的 runtime 串行处理，不额外调用父 Agent；分歧时唤醒原 Agent 处理。关闭仅停用尚未发出请求的 hook，不撤回已发请求。`));
-    // A disabled input cannot receive keyboard focus; its host must still explain why.
-    host.tabIndex = input.disabled ? 0 : -1;
-    if (input.disabled) host.setAttribute('aria-label', `Worker ${workerLabel(task)} 自动合并：${reason || '正在保存'}`);
-    else host.removeAttribute('aria-label');
-  };
-  updateState();
-  label.append(input, el('span', '自动合并')); host.append(label);
-  input.onchange = async () => {
-    if (!editable() || updatingAutoMerge.has(task.id)) { input.checked = saved; return; }
-    const enabled = input.checked;
-    updatingAutoMerge.add(task.id); updateState(); host.setAttribute('aria-busy', 'true');
-    try {
-      const result = await action('worker.auto_merge', { id: task.id, enabled });
-      setting = result.auto_merge ?? null;
-      saved = setting?.enabled === true; input.checked = saved;
-      show(setting ? `Worker ${workerLabel(task)} 已${saved ? '开启' : '关闭'}自动合并` : '设置已提交，请刷新查看自动合并状态');
-    } catch (error) {
-      input.checked = saved; show(error.message, 'error');
-    } finally {
-      updatingAutoMerge.delete(task.id); updateState(); host.removeAttribute('aria-busy');
-    }
-    try { await refresh(); } catch (error) { show(error.message, 'error'); }
-  };
-  return host;
-}
-
 /** 「已合并 · 待归档」承诺的是一次还能按的归档：分支记录已归档、或 Task 已经没有分支（回收工作区与分支、
  *  旧版落地即归档都会把 tasks.branch 清成 null）时，已经没有东西可归档，标签必须跟着真实状态落地。
  *  两个入口的数据形状不同——Task 详情是 inspect 的 branch_archive，Task 图是 branch_info，所以两个都看。 */
@@ -111,8 +66,6 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
         show(`Worker ${workerLabel(task)} ${booked.reservation?.status === 'requested' ? '已发起合并请求' : '已提交合并意图，请查看交付状态'}`);
         await refresh();
       }, 'ghost', { agent: true, help: agentHelp('尝试合并本轮成果；仍须复核 Git 与交付条件，不满足时保留请求意图并显示原因，分歧会唤醒原 Agent。') }));
-    } else if (canOffer && (active || state === 'pending')) {
-      controls.append(autoMergeControl(task, refresh));
     }
 
     const protectedAutomaticIntent = reservation?.auto_merge === true && task.auto_merge?.enabled === true;

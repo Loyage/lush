@@ -382,6 +382,8 @@ export default {
         attempt_id: booking.attempt_id, reason });
       this.store.run("UPDATE messages SET consumed=1 WHERE task_id=? AND signal_type='merge.repair'", task.id);
     });
+    this.emitTaskHook(task.id, 'delivery.suspended');
+    this.scheduleTaskHooks();
     this.scheduleTaskMerge(booking.parent_id);
     return true;
   },
@@ -444,6 +446,8 @@ export default {
         source_task_id: task.id, signal: 'merge.completed', key });
       this.store.run("UPDATE messages SET consumed=1 WHERE task_id=? AND sender_id=? AND signal_type='merge.requested'", parent.id, task.id);
     });
+    this.emitTaskHook(taskId, 'delivery.integrated');
+    this.scheduleTaskHooks();
   },
 
   async driveTaskMerge(parentId) {
@@ -489,6 +493,7 @@ export default {
           const attemptId = this.store.event(task.id, 'merge.attempt_started', { delivery_id: request.delivery_id, parent_id: parentId });
           request = { ...request, status: 'executing', attempt_id: attemptId, original_commit: request.commit };
           this.store.update(task.id, { reservation: JSON.stringify(request) });
+          this.observeTaskHooks(); // Capture the frozen edge even for a short, conflict-free attempt.
         }
         if (request.landing_receipt) {
           // Exact Git/DB recovery. Never replay an apply whose side effects are unknown.
@@ -579,12 +584,17 @@ export default {
             this.store.update(taskId, { reservation: JSON.stringify({ ...request, status: 'blocked', blocked_reason: error.message }),
               integration_error: error.message });
             this.store.event(taskId, 'merge.landing_blocked', { attempt_id: request.attempt_id, error: error.message });
+            this.emitTaskHook(taskId, 'delivery.blocked');
           } else this.suspendTaskMerge(taskId, error.message);
         }
       }
       this.store.event(parentId, 'merge.queue_failed', { task_id: taskId, error: error.message });
     } finally {
-      this.taskMergeBusy.delete(parentId);
+      // Retain the driver's in-memory gate through this boundary. Concurrent queue signals remain
+      // pending rather than letting a second driver seize the slot ahead of an already-mounted creation.
+      try {
+        if (!this.stopping && !this.activeTaskMerge(parentId)) await this.runParentReadyHooks(parentId);
+      } finally { this.taskMergeBusy.delete(parentId); }
       if (landed && this.hasActionableMessages(parentId)) this.wake(parentId);
       const pendingWake = this.taskMergeWakePending?.delete(parentId);
       if (landed || pendingWake) this.scheduleTaskMerge(parentId); // drain a busy-time signal at the item boundary

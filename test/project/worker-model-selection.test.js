@@ -87,7 +87,8 @@ test('RPC accepts only user-authorized mutually exclusive profile/model_selectio
     noSecrets(result); expect(result.model_selection).toMatchObject({ ...selection, explicit: true });
     // Legacy full-profile replacement and clearing keep their original semantics.
     const old = await f.dispatcher.dispatch('worker.configure', { id: f.task.id, profile: { agent: 'pi', model: 'legacy' } });
-    expect(JSON.parse(old.retry_profile).model).toBe('legacy');
+    expect(old.retry_profile).toBeUndefined();
+    expect(JSON.parse(f.store.task(f.task.id).retry_profile).model).toBe('legacy');
     await f.dispatcher.dispatch('worker.configure', { id: f.task.id, profile: null });
     expect(f.store.task(f.task.id).retry_profile).toBeNull();
     expect(f.project.inspect(f.task.id).model_selection.explicit).toBe(false);

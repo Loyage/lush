@@ -12,6 +12,7 @@ import { openSettings } from './render-settings.js';
 import { openAgentStatus } from './render-agent-status.js';
 import { openVersions } from './render-versions.js';
 import { openInputs } from './render-inputs.js';
+import { openHooks } from './render-hooks.js';
 import { initSidebar } from './sidebar-init.js';
 import { activateDetailView, openResource, paintCollapsed } from './sidebar-ui.js';
 import { resetUiState, ui } from './state.js';
@@ -100,6 +101,7 @@ function onHashChange() {
   if (location.hash === '#model-sources') return ui.view?.id === 'model-sources' ? undefined : openSources();
   const sourceMatch = /^#model-source-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.exec(location.hash);
   if (sourceMatch) return openSources(sourceMatch[1]);
+  if (location.hash === '#hooks') return ui.view?.id === 'hooks' ? undefined : openHooks();
   if (location.hash === '#versions') return ui.view?.id === 'versions' ? undefined : openVersions();
   if (location.hash === '#inputs') return openInputs({ push: false });
   const inputMatch = /^#input-(draft|input)-([1-9]\d*)$/.exec(location.hash);
@@ -178,7 +180,7 @@ export async function boot() {
   $('environments-open').onclick = () => openEnvironments();
   $('settings-open').onclick = () => openSettings();
   $('docs-open').onclick = () => openDocsView();
-  const projectOnly = ['overview-open','task-graph-open','inputs-open','versions-open','agent-status-open','model-sources-open'];
+  const projectOnly = ['overview-open','task-graph-open','inputs-open','versions-open','hooks-open','agent-status-open','model-sources-open'];
   for (const id of projectOnly) { const target = $(id); target.disabled = !projectReady; target.setAttribute('aria-disabled', String(!projectReady)); }
   const composerShell = $('composer-shell'); if (composerShell) composerShell.hidden = !projectReady;
   const composerReady = projectReady ? initComposer() : Promise.resolve();
@@ -193,6 +195,7 @@ export async function boot() {
   }
   if ($('agent-status-open')) $('agent-status-open').onclick = () => projectReady ? openAgentStatus() : noProjectView();
   if ($('model-sources-open')) $('model-sources-open').onclick = () => projectReady ? openSources() : noProjectView();
+  if ($('hooks-open')) $('hooks-open').onclick = () => projectReady ? openHooks() : noProjectView();
   if ($('versions-open')) $('versions-open').onclick = () => projectReady ? openVersions() : noProjectView();
   if ($('inputs-open')) $('inputs-open').onclick = () => projectReady ? openInputs() : noProjectView();
   if ($('input-history')) $('input-history').onclick = () => projectReady ? openInputs() : noProjectView();

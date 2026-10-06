@@ -84,6 +84,7 @@ export default {
 
   pump() {
     if (this.stopping || this.workerDeleteIds?.size) return;
+    this.observeTaskHooks();
     for (const taskId of this.taskSyncWakePending ?? []) if (!this.taskSyncBusy?.has(taskId)) {
       this.taskSyncWakePending.delete(taskId);
       if (this.hasActionableMessages(taskId)) this.wake(taskId);
@@ -146,6 +147,17 @@ export default {
           if (released.interrupt_state === 'requested') this.store.event(task.id, 'task.paused', { run_id: run.recordId });
         });
         this.running.delete(task.id);
+        if (!this.stopping && run.recordId) {
+          const closedRun = this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId);
+          if (!run.parked) {
+            if (closedRun?.status === 'completed') this.emitTaskHook(task.id, 'agent.returned');
+            else if (closedRun?.status === 'preempted' && this.store.task(task.id).status !== 'paused') this.emitTaskHook(task.id, 'agent.preempted');
+            else if (closedRun?.status === 'failed' || this.store.task(task.id).status === 'failed') this.emitTaskHook(task.id, 'agent.failed');
+          }
+          if (this.store.task(task.id).status === 'paused') this.emitTaskHook(task.id, 'agent.paused');
+          if (this.store.task(task.id).status === 'cancelled') this.emitTaskHook(task.id, 'worker.cancelled');
+        }
+        if (!this.stopping) this.observeTaskHooks(task.id); // Before the built-in delivery Hook freezes the source.
         if (!this.stopping && ['order','child'].includes(task.task_kind)) {
           const current = this.store.task(task.id);
           const booking = current.reservation ? JSON.parse(current.reservation) : null;
@@ -229,6 +241,7 @@ export default {
       this.store.event(task.id, 'task.interrupted', { run_id: run?.recordId ?? null, reason, pending: Boolean(active) });
     });
     this.suspendTaskMerge(task.id, reason);
+    if (!run) this.emitTaskHook(task.id, 'agent.paused');
     if (active) this.requestPreempt(task.id, reason, 'pause');
     return this.store.task(task.id);
   },
@@ -428,8 +441,9 @@ export default {
       }
       if (run.controller.signal.aborted) throw new Error('cancelled');
       task = this.store.task(taskId);
-      this.store.event(taskId, 'invocation.started', { call: task.calls, cwd, message_ids: messages.map(message => message.id),
+      const hookStart = this.store.event(taskId, 'invocation.started', { call: task.calls, cwd, message_ids: messages.map(message => message.id),
         agent: agent.agent, model: agent.model || null, thinking: agent.thinking || null });
+      this.emitTaskHook(taskId, 'agent.started', hookStart);
       if (!timer) armDeadline();
       run.messages = messages;
       const context = await this.invocationContext(task, run);

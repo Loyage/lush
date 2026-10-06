@@ -18,6 +18,7 @@ import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
 import { workerDeleteControl } from './worker-delete.js';
 import { progressReportingEnabled, progressStats, renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
+import { workerHooks } from './render-hooks.js';
 import { guardedAction, iterationBlocker, iterationControls } from './render-iteration.js';
 import { workerLabel, rememberWorkers } from './worker-label.js';
 
@@ -262,6 +263,8 @@ function appendTaskActions(row, node, mergeAllByBranch) {
   if (iteration) row.append(iteration);
   const controls = deliveryControls(node, { refresh: loadTaskGraph });
   if (controls) row.append(controls);
+  const hooks = workerHooks(node, { compact: true, refresh: loadTaskGraph });
+  if (hooks) row.append(hooks);
   const deletion = workerDeleteControl(node, { refresh: loadTaskGraph });
   if (deletion) row.append(deletion);
   if (['order', 'child'].includes(workerKind(node)) && !ENDED.has(node.status) && !isHistoricalDelivery(node)) {

@@ -35,14 +35,15 @@ Input（原始输入）、历史输入、Draft（暂存）仍是各自的实体�
 
 ## 核心工作流
 
-- `order.submit`：一条用户输入创建一个有独立分支/worktree 的指令 Worker。`start:false`（Web 主发送默认）只创建为 `paused`（Web 显示「待开始」）且不调用 Agent；`start:true`（缺省）立即排队运行。main 自动确立静息 owner；其它现有本地分支须先 `branch.bind` 固定 HEAD。
+- `order.submit`：一条用户输入创建一个有独立分支/worktree 的指令 Worker；显式 `defer:true` 且父冻结时则先保存父可创建安全点的一次性 Hook，返回预约而非 task，真正创建时才固定基线；父可写时仍直接创建。`start:false`（Web 主发送默认）只创建为 `paused`（Web 显示「待开始」）且不调用 Agent；`start:true`（缺省）立即排队运行。main 自动确立静息 owner；其它现有本地分支须先 `branch.bind` 固定 HEAD。
 - `input.history` / `input.get` / `input.parents` 与 `draft.add` / `draft.update` / `draft.remove`：用户专属历史输入与持久缓冲区；草稿通过 `order.submit {draft_id,expected_revision,start?}` 发射，不恢复旧 planner 或批量提交。字段、版本检查与分页见[历史输入接口](input-history.md)。
+- `hooks.list/save/remove`、`worker.hooks/hook_attach/hook_update/hook_remove`：用户专属受控模板与挂载；自动合并是内置 Hook，执行收据与私有定义持久化，未知副作用不自动重放。见 [Hooks 工程契约](hooks.md)及 [接口参考](../reference/rpc/hooks.md)。
 - `worker.spawn`：只可在活动 指令/child 下派 agent 子 Worker；不再接受 role、deps 或 spec。
 - `worker.message` / `notice.post` / `notice.answer` / `notice.dismiss`：继续沟通和决策。
 - `branch.history {cursor?,limit?}`：用户专属只读 main 第一父链历史与精确交付 Worker / 原始指令追溯；Web `GET /api/versions`，不新增 CLI 写入口，见 [版本迭代](version-history.md)。
 - `worker.inspect` / `worker.page` / `worker.graph` / `worker.diff` / `worker.history*` / `worker.transcript*` / `worker.runs_page` / `worker.artifacts_page` / `worker.artifact`：按需只读审阅；支持 CLI 与 Web。另有只读 `worker.lookup {number}`：把用户编号（`W5` / `W5-1`）严格解析成 `{id,worker_number}`，供 CLI/Web 转调原整数身份接口；它不改写任何状态，也不让原 RPC/HTTP 的 `id`（含 Artifact 产物 ID）接受编号。
 - `worker.integrate`：运行中的直接父 Agent 核对固定子提交并快进；`worker.resolve_child_divergence` 为父侧分歧派隔离Worker。
-- `worker.auto_merge {id,enabled}`：用户专属的持久自动合并开关；新指令默认关闭，新 child 默认开启且不可关闭，开发就绪后不能调整。与单次请求分离，语义见 [Worker RPC](../reference/rpc/tasks.md#自动合并开关与本轮合并)。
+- `worker.auto_merge {id,enabled}`：用户专属的持久自动合并开关，Web 位于 Worker 详情的「本轮交付就绪」Hooks 节点；新指令默认关闭，新 child 默认开启且不可关闭，开发就绪后不能调整。与单次请求分离，语义见 [Worker RPC](../reference/rpc/tasks.md#自动合并开关与本轮合并)。
 - `worker.reserve {kind:'merge'}` / `worker.reserve_all {branch}` / `worker.unreserve` / `worker.resolve_divergence` / `worker.approve_merge`：冻结、复查、解分歧和由用户批准固定 commit + baseline；`reserve_all` 把一条分支下所有已静息待合并的 Worker 逐条按同一套准入放入 v2 merge 队列，当前 version 2 请求由父 Worker 自有队列的 runtime 串行 Squash（含 main），不创建 merge Worker、不改父子关系、不额外调用父 Agent；旧 version 1 仍需固定提交批准，旧 version 2 merge 身份／在途重挂只作历史兼容。
 - `worker.accept` / `worker.reopen` / `worker.sync_parent` / `worker.resolve_sync`：[多轮交付](task-iteration.md)。`accept` 支持用户验收指令、运行中的直接父 Agent 确认已交付 child；其余入口仍用户专属。合并后待验收，可追加输入继续；验收/归档分开，父同步无冲突程序完成、冲突另点 Agent；历史Worker不批量迁移，归档不重建。
 - `worker.configure` 的 `model_selection:{connection_id,model}` 与旧 `profile` 输入互斥，仅用户可用，沿用暂停/请求中断准入。仅更新 Pi 的托管来源与模型，后台原子保留其余完整覆盖，不切换后端、不联网刷新、不启动 Agent；返回安全下次选择摘要。`worker.inspect.model_selection` 白名单 `{agent,connection_id,model,thinking,explicit}` 不暴露完整 `retry_profile`、Prompt、env 或资源路径，也不冒充当前调用绑定。用户决定 #154 同时要求所有 Pi 调用使用 Lush 独立配置、未绑定来源不回退外部 Pi；历史配置/会话/观测不迁移删除。

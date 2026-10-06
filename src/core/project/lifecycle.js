@@ -214,6 +214,7 @@ export default {
           mergeBooking.parent_id, task.id);
         this.store.run("UPDATE messages SET consumed=1 WHERE task_id=? AND signal_type='merge.repair'", task.id);
       });
+      if (status === 'failed') this.emitTaskHook(task.id, 'delivery.suspended');
       if (mergeBooking.parent_id) this.scheduleTaskMerge(mergeBooking.parent_id);
     }
     // 合并编排 Worker 直接经 worker.cancel 取消时，也要先清运行释放冻结、取消等待中的解分歧子任务，
@@ -233,7 +234,10 @@ export default {
     // Children first; the event loop cannot schedule their parents until this synchronous cascade ends.
     for (const child of this.store.children(task.id)) if (!TERMINAL.has(child.status)) this.cancel(child.id, reason);
     this.running.get(task.id)?.controller.abort(new Error(reason));
-    return this.finish(task.id, status, null, reason);
+    const result = this.finish(task.id, status, null, reason);
+    if (!this.running.has(task.id) && !(this.recoveringHooks && this.hookRecoveredWorkers?.has(task.id)))
+      this.emitTaskHook(task.id, status === 'failed' ? 'agent.failed' : 'worker.cancelled');
+    return result;
   },
 
   /**
@@ -353,6 +357,8 @@ export default {
   },
 
   recover() {
+    this.recoveringHooks = true;
+    this.hookRecoveredWorkers = new Set();
     this.agentUsage.start();
     this.agentConnections.start();
     // Legacy automation authorization is retained on disk but is not reactivated.
@@ -369,8 +375,10 @@ export default {
         const closed = this.store.finishRun(run.id, 'failed', {
           error: 'daemon interrupted; ended_at records recovery observation, not actual process exit',
         });
-        this.store.event(run.task_id, 'invocation.recovered', { run_id: run.id,
+        const recoveredEvent = this.store.event(run.task_id, 'invocation.recovered', { run_id: run.id,
           observed_at: closed.ended_at, actual_exit_at: null });
+        this.hookRecoveredWorkers.add(run.task_id);
+        this.emitTaskHook(run.task_id, 'agent.failed', recoveredEvent);
       }
       // Never replay an invocation with unknown filesystem side effects.
       for (const task of this.store.tasks()) if ((task.status === 'running' || task.interrupt_state === 'resuming')
@@ -398,6 +406,7 @@ export default {
         this.workspaces.removeBaseline(task.id).catch(error => console.error(`verification ${task.id}: baseline cleanup failed: ${error.message}`));
       }
     }
+    this.recoverTaskHooks();
     this.kick();
     // Re-arm only persisted hooks; NULL historical settings never acquire new intent.
     for (const task of this.store.tasks()) if (task.status === 'waiting') this.armTaskAutoMerge(task.id);
@@ -468,6 +477,7 @@ export default {
     for (const entry of this.introRunning.values()) entry.controller.abort(new Error('daemon stopped; retry the quick intro'));
     await Promise.allSettled([...this.introRunning.values()].map(entry => entry.promise));
     await Promise.allSettled([...this.running.values()].map(run => run.promise));
+    await this.hookQueue;
     await this.workspaces.queue;
     await usageStopped;
     await connectionsStopped;

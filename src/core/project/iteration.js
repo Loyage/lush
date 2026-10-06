@@ -201,6 +201,7 @@ export default {
         this.store.event(task.id, 'task.accepted', { head_commit: task.head_commit, integration: task.integration,
           accepted_by: actor === null ? 'user' : 'parent', parent_id: actor });
       });
+      this.emitTaskHook(task.id, 'worker.accepted');
       return this.store.task(task.id);
     });
   },

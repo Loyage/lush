@@ -8,9 +8,9 @@ export default {
    * 再由 Git 边界把「提交这一刻的代码」锚成一条分支加一个检出。
    * 这一步是异步的（要串行走 Git 队列），所以输入提交会短暂等正在进行的 Git 操作。
    */
-  async anchorInput(branch = null) {
+  async anchorInput(branch = null, guard = undefined) {
     const inputId = this.store.nextInputId();
-    const anchor = await this.workspaces.anchor(inputId, branch);
+    const anchor = await this.workspaces.anchor(inputId, branch, guard);
     return { inputId, anchor };
   },
 

@@ -231,11 +231,11 @@ test('Task 卡片同屏展示工作状态、进度、结果、Git 诊断、待�
   expect(deepText(dom.node('detail'))).toContain('未提交：3 个文件');
 
   // 缺少设置投影时保守只读，不能从 waiting 猜测完成或编辑权限。
-  const delivery = dom.node('detail').querySelector('[data-task-id="2"]').querySelector('.auto-merge-toggle');
-  expect(delivery).toBeTruthy();
-  expect(delivery.classList.contains('agent-call')).toBe(true);
-  expect(delivery.querySelector('input').disabled).toBe(true);
-  expect(delivery.parentNode.getAttribute('data-help')).toContain('暂不可用');
+  const hooks = dom.node('detail').querySelector('[data-task-id="2"]').querySelector('.hook-compact');
+  expect(hooks).toBeTruthy();
+  expect(hooks.querySelector('.auto-merge-toggle')).toBeNull();
+  expect(hooks.querySelector('button').classList.contains('agent-call')).toBe(false);
+  expect(hooks.querySelector('button').getAttribute('data-help')).toContain('不启动 Agent');
 });
 
 test('Task 图：卡片按真实状态配色，一键编排入口已下线', async () => {

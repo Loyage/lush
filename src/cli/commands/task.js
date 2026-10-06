@@ -1,6 +1,7 @@
 import { check, TERMINAL } from '../../core/types.js';
 import { resolveWorkerId } from '../worker-number.js';
 import { option, exact } from '../args.js';
+import { runWorkerHook } from './hooks.js';
 import { printTree, printLadder, printTimeline, printMergeMany, printTranscript, transcriptStepText, printUsage } from '../print.js';
 
 /** `worker transcript --follow` 的默认轮询间隔；一处定义，测试与体验都按它来。 */
@@ -71,6 +72,11 @@ export async function run(command, args, ctx) {
           note: '短摘要；完整目标与结果用 lush worker inspect ID。' };
       }
     }
+    else if (verb === 'hooks') {
+      check(!client.token, 'Hooks configuration is user only, not an agent operation');
+      exact(args, 1); value = await client.request('worker.hooks', { id: await resolveWorkerId(client, args[0]) });
+    }
+    else if (verb === 'hook') { value = await runWorkerHook(args, client); }
     else if (verb === 'tree') {
       check(args.length <= 1, 'tree accepts an optional ID');
       const request = args.length ? { id: await resolveWorkerId(client, args[0]) } : {};

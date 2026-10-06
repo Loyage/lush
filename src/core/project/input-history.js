@@ -33,7 +33,8 @@ export default {
     }
     const rows = this.store.inputHistoryRows({ q, status, integration, cursor: after, limit });
     const more = rows.length > limit, items = rows.slice(0, limit), last = items.at(-1);
-    return { items, next_cursor: more ? Buffer.from(JSON.stringify({ version: 1, created_at: last.created_at,
+    const mounts = items.some(item => item.kind === 'draft') ? this.draftHookMountMap() : new Map();
+    return { items: items.map(item => item.kind === 'draft' ? { ...item, hook_mount: mounts.get(item.id) ?? null } : item), next_cursor: more ? Buffer.from(JSON.stringify({ version: 1, created_at: last.created_at,
       kind: last.kind, id: last.id, filters })).toString('base64url') : null };
   },
 
@@ -41,7 +42,8 @@ export default {
     check(['input','draft'].includes(kind), 'kind must be input or draft');
     const item = this.store.inputHistoryItem(kind, id(itemId));
     check(item, `${kind} ${itemId} not found or already submitted`);
-    return { ...item, references: kind === 'draft' ? this.store.draftReferences(item.id) : this.store.inputReferences(item.id) };
+    return { ...item, ...(kind === 'draft' ? { hook_mount: this.draftHookMount(item.id) } : {}),
+      references: kind === 'draft' ? this.store.draftReferences(item.id) : this.store.inputReferences(item.id) };
   },
 
   /** Resolve identity when buffering, not the code baseline. No checkout is created here. */
@@ -78,7 +80,7 @@ export default {
       if (!refs.has(row.branch)) return false;
       try { this.assertInputParent(row.id, row.branch); return true; } catch { return false; }
     });
-    return { items };
+    return { items: items.map(item => ({ ...item, freeze: this.branchFreeze(item.branch) })) };
   },
 
   addBufferedDraft(content, references = [], branch = undefined) {
@@ -103,6 +105,7 @@ export default {
     return this.write('edit a draft', async () => {
       text(content, 'draft');
       const draft = this.store.draft(id(draftId));
+      check(!this.draftHookMount(draft.id), 'draft is mounted on a Hook; remove the mount before editing');
       checkDraftRevision(draft, revision);
       const normalized = references === undefined ? null : this.normalizeReferences(references);
       const parent = branch === undefined ? null : await this.inputParent(branch);
@@ -122,14 +125,15 @@ export default {
     this.assertWritable('remove a draft');
     return this.store.transaction(() => {
       const draft = this.store.draft(id(draftId));
+      check(!this.draftHookMount(draft.id), 'draft is mounted on a Hook; remove the mount before deleting');
       checkDraftRevision(draft, revision);
       this.store.run('DELETE FROM drafts WHERE id=?', draft.id);
       return { id: draft.id };
     });
   },
 
-  submitBufferedDraft(draftId, revision, start = true) {
+  submitBufferedDraft(draftId, revision, start = true, defer = false, profile = null) {
     expectedRevision(revision);
-    return this.order(undefined, null, [], id(draftId), start, revision);
+    return this.order(undefined, null, [], id(draftId), start, revision, profile, defer);
   },
 };

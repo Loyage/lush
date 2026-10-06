@@ -40,6 +40,9 @@ const dom = installDom({ fetch: async (url, options = {}) => {
     const [, kind, id] = /\/api\/input\/(draft|input)\/(\d+)/.exec(path);
     return json(rows.find(row => row.kind === kind && row.id === Number(id)));
   }
+  if (path === '/api/agent/config') return json(world.state.agentConfig);
+  if (/\/api\/worker\/\d+\/hooks$/.test(path)) return intercept?.(path, body, route) || json({ version: 1, revision: 'hooks-v1', mounts: [] });
+  if (body?.method === 'worker.hook_remove') { calls.push(body); return intercept?.(path, body, route) || json({ version: 1, revision: 'hooks-v2', mounts: [] }); }
   return world.fetchImpl(url, options);
 } });
 const { openInputs } = await import('../../src/ui/web/assets/render-inputs.js');
@@ -305,4 +308,54 @@ test('文本安全、Agent 标识和帮助宿主，静态导航与快捷键提�
   const html = readFileSync('src/ui/web/assets/index.html', 'utf8');
   expect(html.indexOf('id="inputs-open"')).toBeLessThan(html.indexOf('<span>其他</span>'));
   expect(html).toContain('<kbd>Enter</kbd> 暂存'); expect(html).toContain('<kbd>Shift+Enter</kbd> 换行'); expect(html).toContain('/styles-inputs.css');
+});
+
+test('冻结父 Worker 的草稿发射挂载一次性 Hook，保留修订与引用且不读取不存在的 task', async () => {
+  parents[0].freeze = { reason: '父队列执行中' };
+  try {
+    intercept = (_path, body) => body?.method === 'order.submit' ? json({ deferred: true, parent_id: 1, hook_id: 'draft-once' }) : null;
+    await openInputs(); await openDraft();
+    expect(btn('预约发射并开始').classList.contains('agent-call')).toBe(true);
+    expect(btn('预约仅创建').getAttribute('data-help')).toContain('不立即创建或调用 Agent');
+    await btn('预约发射并开始').onclick();
+    expect(calls.at(-1)).toEqual({ method: 'order.submit', params: { draft_id: 1, expected_revision: 3, start: true, defer: true } });
+    expect(deepText(panel())).toContain('尚未创建 Worker'); expect(btn('查看父 Worker #1 的 Hooks')).toBeTruthy();
+    expect(rows[0].references).toEqual([reference]); expect(rows[0].revision).toBe(3);
+  } finally { delete parents[0].freeze; }
+});
+
+test('草稿可以显式选择完整运行设置，父可写时也使用 defer 授权传入覆盖，普通保存不写私有参数', async () => {
+  await openInputs(); await openDraft();
+  const configuring = btn('运行设置：预约时冻结项目默认').onclick();
+  try { await until(() => dialogButton(dom, '使用这份设置')); }
+  catch (error) { throw new Error(`${error.message}; toast=${dom.node('error').textContent}; modal=${deepText(dom.node('modal'))}`); }
+  const mode = dom.node('modal').querySelector('[data-retry-field="config_mode"]'); mode.value = 'pi'; mode.onchange();
+  await dialogButton(dom, '使用这份设置').onclick(); await configuring;
+  expect(btn('运行设置：Pi 默认配置')).toBeTruthy(); expect(calls).toHaveLength(0);
+  await btn('保存').onclick(); expect(calls).toHaveLength(0); expect(deepText(panel())).toContain('发射或预约时才写入');
+  await btn('发射并开始').onclick();
+  expect(calls.at(-1)).toEqual({ method: 'order.submit', params: { draft_id: 1, expected_revision: 3, start: true, defer: true, profile: { agent: 'pi', config_mode: 'pi' } } });
+});
+
+test('已挂载草稿只读且禁止重复发射，取消等待挂载采用最新 Hook 修订并恢复编辑', async () => {
+  rows[0].hook_mount = { parent_id: 1, hook_id: 'draft-mount', state: 'waiting' };
+  intercept = (path, body) => {
+    if (path.endsWith('/hooks')) return json({ version: 1, revision: 'hooks-live', mounts: [{ id: 'draft-mount', state: 'waiting', editable: true, locked: false }] });
+    if (body?.method === 'worker.hook_remove') { rows[0].hook_mount = null; return json({ version: 1, revision: 'hooks-removed', mounts: [] }); }
+    return null;
+  };
+  await openInputs(); await openDraft(); await until(() => !btn('取消预约挂载').disabled);
+  expect(editor()).toBeNull(); expect(btn('发射并开始')).toBeUndefined(); expect(btn('删除草稿')).toBeUndefined();
+  expect(deepText(panel())).toContain('不可编辑、删除或重复发射');
+  const removing = btn('取消预约挂载').onclick(); await until(() => dialogButton(dom, '取消预约'));
+  expect(calls).toHaveLength(0); await dialogButton(dom, '取消预约').onclick(); await removing;
+  expect(calls.at(-1)).toEqual({ method: 'worker.hook_remove', params: { id: 1, hook_id: 'draft-mount', expected_revision: 'hooks-live' } });
+  expect(editor().value).toBe('尚未执行的想法'); expect(btn('发射并开始')).toBeTruthy();
+});
+
+test('正在执行的草稿预约保持不可取消；失败核验也不回退为可编辑或自动重放', async () => {
+  rows[0].hook_mount = { parent_id: 1, hook_id: 'started', state: 'running' };
+  intercept = path => path.endsWith('/hooks') ? json({ version: 1, revision: 'hooks-live', mounts: [{ id: 'started', state: 'running', editable: false, locked: false, reason: '动作已经开始' }] }) : null;
+  await openInputs(); await openDraft(); await until(() => deepText(panel()).includes('动作已经开始'));
+  expect(btn('取消预约挂载').disabled).toBe(true); await btn('取消预约挂载').onclick(); expect(calls).toHaveLength(0); expect(editor()).toBeNull();
 });

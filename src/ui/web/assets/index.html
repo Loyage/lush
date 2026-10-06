@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="/styles-agent-status.css">
 <link rel="stylesheet" href="/styles-versions.css">
 <link rel="stylesheet" href="/styles-inputs.css">
+<link rel="stylesheet" href="/styles-hooks.css">
 <link rel="stylesheet" href="/styles-agent-usage.css">
 <link rel="stylesheet" href="/styles-agent-connections.css">
 <link rel="stylesheet" href="/styles-workbench.css">
@@ -53,6 +54,9 @@
   <nav class="workspace-nav" aria-label="输入与代码演变">
     <button type="button" id="inputs-open" class="workspace-link" data-help="查看暂存想法与全部原始输入，搜索历史、编辑并发射草稿；打开页面不调用 Agent"><span class="nav-icon" aria-hidden="true">≡</span><span><strong>历史输入</strong><small>输入缓冲区与原文检索</small></span><span class="nav-arrow">→</span></button>
     <button type="button" id="versions-open" class="workspace-link" data-help="只读查看 main 主线提交历史，追溯对应 Worker 与原始指令；不启动 Agent"><span class="nav-icon" aria-hidden="true">↗</span><span><strong>版本迭代</strong><small>main 历史与功能交付</small></span><span class="nav-arrow">→</span></button>
+  </nav>
+  <nav class="workspace-nav" aria-label="自动动作">
+    <span class="help-host" data-help="打开可用项目后才能管理 Worker Hooks；模板不会自动安装或启动 Agent。"><button type="button" id="hooks-open" class="workspace-link" data-help="查看当前项目允许的生命周期节点、受控动作与可复用模板；实际挂载和执行结果在 Worker 详情中管理，打开不调用 Agent"><span class="nav-icon" aria-hidden="true">⌁</span><span><strong>Hooks</strong><small>自动动作与预约挂载</small></span><span class="nav-arrow">→</span></button></span>
   </nav>
   <div class="nav-divider"><span>其他</span></div>
   <nav class="support-nav" aria-label="状态、设置与帮助">

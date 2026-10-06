@@ -215,7 +215,7 @@ export default {
   inspect(taskId) {
     // retry_profile may contain a replacement system prompt and local resource paths. It is
     // runtime configuration, not part of the task read model (agents can call worker.inspect).
-    const { retry_profile: _retryProfile, ...storedTask } = this.store.task(taskId);
+    const { retry_profile: _retryProfile, hooks: _privateHooks, ...storedTask } = this.store.task(taskId);
     // 详情页要显示工作用时与等待行：先取这一轮的调用区间，计划时长才能只算真正运行的时间。
     // 有执行计划时读计划窗口内足够重建用时的有界调用记录；否则只取展示窗口。
     const runsRead = storedTask.progress_plan
@@ -233,6 +233,7 @@ export default {
     const artifacts = bounded(artifactsRead.items, 200000);
     return { ...task, model_selection: workerModelSelection(this, this.store.task(taskId)),
       auto_merge: this.autoMergeView(storedTask), merge_readiness: this.mergeReadiness(storedTask),
+      hooks: this.taskHooks(taskId),
       parent_task_kind: task.parent_id ? this.store.task(task.parent_id).task_kind : null,
       parent_worker_number: task.parent_id ? this.store.task(task.parent_id).worker_number : null,
       ...(resolution ? { divergence_resolution: { ...JSON.parse(resolution.data),

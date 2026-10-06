@@ -11,7 +11,7 @@ const { parentTasks, syncComposer } = await import('../../src/ui/web/assets/comp
 const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
 const { renderOverview } = await import('../../src/ui/web/assets/render-overview.js');
 const { renderTaskGraph } = await import('../../src/ui/web/assets/render-task-graph.js');
-const { deliveryControls } = await import('../../src/ui/web/assets/render-delivery.js');
+const { workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
 const { iterationControls, isIterationTask } = await import('../../src/ui/web/assets/render-iteration.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { renderVersionCommit } = await import('../../src/ui/web/assets/render-versions.js');
@@ -46,7 +46,7 @@ for (const task_kind of ['order', 'say']) {
     renderDetail(task, null, null, null);
     expect(buttonOf(dom.node('detail'), '追加输入')).toBeTruthy();
     expect(buttonOf(dom.node('detail'), '已解决')).toBeTruthy();
-    expect(deliveryControls(task).querySelector('.auto-merge-toggle')).toBeTruthy();
+    expect(workerHooks(task).querySelector('.auto-merge-toggle')).toBeTruthy();
     const accepted = { ...task, status: 'awaiting_acceptance', integration: 'merged' };
     expect(isIterationTask(accepted)).toBe(true);
     const controls = iterationControls(accepted, { refresh() {} });

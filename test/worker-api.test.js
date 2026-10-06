@@ -5,7 +5,7 @@ import { Dispatcher, HANDLERS } from '../src/rpc/dispatcher.js';
 // Strict public namespace; authority stays unchanged when optional profile selection is added.
 const reads = {
   lookup: ['number'], graph: [], list: ['after','limit'], activity: ['limit','scope'], page: ['before','limit','scope'],
-  tree: ['id'], inspect: ['id'], history: ['id','after'], history_page: ['id','before','limit'],
+  tree: ['id'], inspect: ['id'], hooks: ['id'], history: ['id','after'], history_page: ['id','before','limit'],
   delete_preview: ['id'], diff: ['id'], usage: ['id'], code_state: ['id','scope','after','limit'],
   code_tree: ['id','scope','path','query','changed','after','limit','revision'],
   code_file: ['id','scope','path','view','side','offset','limit','context','revision'],
@@ -16,14 +16,16 @@ const reads = {
 };
 const writes = {
   spawn: ['parent','goal','name'], integrate: ['id','commit'], reserve: ['id','kind'], reserve_all: ['branch'],
-  auto_merge: ['id','enabled'], resolve: ['id'], resolve_divergence: ['id'], accept: ['id'],
+  auto_merge: ['id','enabled'], hook_attach: ['id','hook','expected_revision'],
+  hook_update: ['id','hook_id','enabled','expected_revision'], hook_remove: ['id','hook_id','expected_revision'],
+  resolve: ['id'], resolve_divergence: ['id'], accept: ['id'],
   reopen: ['id'], sync_parent: ['id'], resolve_sync: ['id'], resolve_child_divergence: ['id'],
   unreserve: ['id'], approve_merge: ['id','commit','baseline'], message: ['id','body'],
   cancel: ['id'], retry: ['id','profile'], clear_override: ['id'], cleanup: ['id','keep_branch'], interrupt: ['id'],
   resume: ['id','profile'], configure: ['id','profile','model_selection'], delete: ['id','revision','confirm'],
 };
 const userOnly = new Set(['code_state','code_tree','code_file','transcript_latest','transcript_page','transcript_step',
-  'transcript_search','runs_page','artifacts_page','artifact',
+  'transcript_search','runs_page','artifacts_page','artifact','hooks','hook_attach','hook_update','hook_remove',
   'reserve','reserve_all','auto_merge','resolve','resolve_divergence','unreserve','approve_merge',
   'cancel','retry','clear_override','cleanup','interrupt','resume','configure','reopen','sync_parent','resolve_sync','delete_preview','delete']);
 const agentOnly = new Set(['integrate','resolve_child_divergence']);

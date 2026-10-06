@@ -206,7 +206,7 @@ test('parent choices enumerate beyond overview, omit ended/missing/archived ance
     f.store.transaction(() => {
       for (let i = 0; i < 260; i++) f.store.create({ role: 'agent', goal: 'newer unrelated Task' });
     });
-    expect((await f.call('input.parents')).items).toEqual([{ id: d.parent_id, worker_number: null, branch: 'main', goal: '管理 main 分支及子Worker合并请求' }]);
+    expect((await f.call('input.parents')).items).toEqual([{ id: d.parent_id, worker_number: null, branch: 'main', goal: '管理 main 分支及子Worker合并请求', freeze: null }]);
     const sent = await f.call('order.submit', { content: 'eligible order', start: false });
     expect((await f.call('input.parents')).items.map(item => item.id)).toContain(sent.task.id);
     const sub = await f.call('draft.add', { content: 'under order', branch: sent.task.branch });
