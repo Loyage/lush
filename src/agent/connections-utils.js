@@ -50,7 +50,7 @@ export function normalizeSampling(value) {
   return { enabled: value.enabled, interval_minutes: value.interval_minutes, retention_days: value.retention_days };
 }
 export function normalizeConnection(value, id) {
-  fields(value, ['id','label','provider','endpoint','auth_type','enabled','models','default_model','default_thinking'], 'connection');
+  fields(value, ['id','label','provider','endpoint','auth_type','enabled','models','default_model','default_thinking','notify_reset'], 'connection');
   check(validId(id), 'connection id is invalid');
   const compatible = value.provider === 'openai-compatible';
   check(compatible || Object.hasOwn(DEFAULT_ENDPOINTS, value.provider), 'connection provider is unsupported');
@@ -67,6 +67,8 @@ export function normalizeConnection(value, id) {
   const normalizedModels = models.map(model => safeText(model, 'model', 256));
   check(new Set(normalizedModels).size === normalizedModels.length, 'connection models must be unique');
   check(value.enabled === undefined || typeof value.enabled === 'boolean', 'connection enabled must be boolean');
+  // 额度刷新提醒只影响本地页面是否在缓存 reset_at 到达时提醒，不参与连接身份、凭证或额度缓存命名空间。
+  check(value.notify_reset === undefined || typeof value.notify_reset === 'boolean', 'connection notify_reset must be boolean');
   const optionalText = (input, label, max) => input === undefined || input === null || input === ''
     ? '' : safeText(input, label, max);
   // 默认设定只影响运行设置的一次「快速填入」，不参与连接身份、凭证或额度历史。
@@ -76,7 +78,7 @@ export function normalizeConnection(value, id) {
   if (default_model && normalizedModels.length) check(normalizedModels.includes(default_model), 'connection default model must be within the model range');
   return { id, label: safeText(value.label, 'connection label'), provider: value.provider,
     endpoint: url.href.replace(/\/$/, ''), auth_type, enabled: value.enabled ?? true, models: normalizedModels,
-    default_model, default_thinking };
+    default_model, default_thinking, notify_reset: value.notify_reset ?? false };
 }
 
 /** Bounded JSON request. Includes headers AND body in the deadline; no error response body is read. */

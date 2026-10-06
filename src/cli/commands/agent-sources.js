@@ -67,7 +67,7 @@ function sourceView(row) {
   const credential = record(row.credential) ?? {};
   return { id: text(row.id, 80), label: text(row.label), provider: text(row.provider, 80),
     endpoint: text(row.endpoint), auth_type: row.auth_type === 'oauth' ? 'oauth' : 'api_key',
-    enabled: row.enabled === true, models: list(row.models),
+    enabled: row.enabled === true, notify_reset: row.notify_reset === true, models: list(row.models),
     credential: { status: text(credential.status, 32) ?? 'unknown', identity: text(credential.identity, 120),
       expires_at: text(credential.expires_at, 40) },
     observation: observationView(row.observation) ?? observationView({}),

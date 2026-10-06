@@ -118,7 +118,7 @@ test('添加和更换密钥只写password请求，提交立即清空，不回显
   const saving = btn(p.node, '保存连接').onclick();
   expect(key.value).toBe(''); expect(deepText(p.node)).not.toContain(secret);
   const request = JSON.parse(requests.at(-1).options.body);
-  expect(request).toEqual({ method: 'agent.connections.save', params: { connection: { label: '新账号', provider: 'deepseek', auth_type: 'api_key', enabled: true, models: [], default_model: '', default_thinking: '' }, credential: { api_key: secret } } });
+  expect(request).toEqual({ method: 'agent.connections.save', params: { connection: { label: '新账号', provider: 'deepseek', auth_type: 'api_key', enabled: true, models: [], default_model: '', default_thinking: '', notify_reset: false }, credential: { api_key: secret } } });
   pending.resolve(fail(`SERVER ECHO ${secret}`)); await saving;
   expect(deepText(p.node)).not.toContain(secret); expect(deepText(p.node)).toContain('保存连接失败'); expect(key.value).toBe('');
   expect(globalThis.localStorage.getItem('api_key')).toBeNull();
@@ -588,7 +588,7 @@ test('自定义兼容API必须显式填写端点和模型，密钥只写且余�
   await btn(p.node, '保存连接').onclick();
   expect(actions[0]).toEqual({ method: 'agent.connections.save', params: { connection: {
     label: '兼容服务', provider: 'openai-compatible', endpoint: 'https://models.example/v1', models: ['my-model', 'vendor/second-model'],
-    auth_type: 'api_key', enabled: true, default_model: '', default_thinking: '',
+    auth_type: 'api_key', enabled: true, default_model: '', default_thinking: '', notify_reset: false,
   }, credential: { api_key: 'PRIVATE-COMPATIBLE-KEY' } } });
   expect(deepText(p.node)).not.toContain('PRIVATE-COMPATIBLE-KEY');
   const saved = data.connections.at(-1), actual = normalizeConnection(actions[0].params.connection, saved.id);

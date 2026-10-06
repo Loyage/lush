@@ -45,8 +45,9 @@
 .agent-quota-bar.is-mid .agent-quota-fill{background:var(--awaiting)}
 .agent-quota-bar.is-high .agent-quota-fill{background:var(--failed)}
 .agent-quota-percent{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);min-width:46px;text-align:right}
-.agent-connection-resource-details{margin-top:6px}
-.agent-connection-resource-details>summary{cursor:pointer;font-size:11px;color:var(--muted)}
+.agent-connection-resource-details,.agent-connection-observation-details{margin-top:6px}
+.agent-connection-resource-details>summary,.agent-connection-observation-details>summary{cursor:pointer;font-size:11px;color:var(--muted)}
+.agent-reset-remaining.is-due{color:var(--awaiting);font-weight:600}
 .profile-source-defaults{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px}
 .retry-connection-control{min-width:0}
 @media(prefers-reduced-motion:reduce){.agent-quota-fill{transition:none}}

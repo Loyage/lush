@@ -37,7 +37,8 @@ test('default projection is a bounded whitelist and uses the Provider Pi thinkin
       raw.default_thinking = level;
       const view = service.config().connections[0];
       expect(view.default_model).toBe('vendor/model'); expect(view.default_thinking).toBe(level);
-      expect(Object.keys(view).sort()).toEqual(['id','label','provider','endpoint','auth_type','enabled','models','default_model','default_thinking','credential'].sort());
+      expect(Object.keys(view).sort()).toEqual(['id','label','provider','endpoint','auth_type','enabled','models','default_model','default_thinking','notify_reset','credential'].sort());
+      expect(view.notify_reset).toBe(false);
       expect(JSON.stringify(service.list())).not.toContain('MUST_NOT_RETURN');
       const saved = await service.save({ ...raw, default_model: 'vendor/model' });
       expect(saved).toMatchObject({ default_model: 'vendor/model', default_thinking: level });

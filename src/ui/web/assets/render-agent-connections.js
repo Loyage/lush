@@ -1,6 +1,7 @@
 import { block, button, el, kv } from './dom.js';
 import { api } from './api.js';
 import { confirmDialog } from './dialog.js';
+import { readPref, readStored, scopedKey, writeStored } from './prefs.js';
 import { PI_THINKING_LEVELS } from './agent-config-mode.js';
 import { renderUsageSeries } from './render-agent-usage.js';
 import { usageErrorLabels, usageWindow } from './usage-window.js';
@@ -15,6 +16,21 @@ const text = (value, fallback = '未知') => typeof value === 'string' && value 
 const finite = value => typeof value === 'number' && Number.isFinite(value);
 const amount = value => finite(value) ? value.toLocaleString(undefined, { maximumFractionDigits: 8 }) : '未知';
 const time = value => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString() : '时间未知';
+/** 相对时长只是主显示，绝对时间保留在折叠详情；不把旧观测伪装成刚刚刷新。 */
+export function relativeTime(value, now = Date.now()) {
+  const at = Date.parse(value);
+  if (!Number.isFinite(at) || !Number.isFinite(now)) return '时间未知';
+  const delta = now - at;
+  if (delta < 0) return `约 ${Math.max(1, Math.ceil(-delta / 60000))} 分钟后`;
+  const minutes = Math.floor(delta / 60000);
+  if (minutes < 1) return '刚刚';
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} 天前`;
+  return `${Math.floor(days / 30)} 个月前`;
+}
 export function resetRemaining(value, now = Date.now()) {
   const remaining = Date.parse(value) - now;
   if (!Number.isFinite(remaining)) return '重置时间未知';
@@ -27,7 +43,7 @@ export function resetRemaining(value, now = Date.now()) {
 }
 const canQuery = connection => connection?.enabled && connection.provider !== 'openai-compatible'
   && (connection.credential?.status === 'configured' || connection.auth_type === 'oauth' && connection.credential?.status === 'expired');
-const publicConfig = connection => Object.fromEntries(['id', 'label', 'provider', 'endpoint', 'auth_type', 'enabled', 'models', 'default_model', 'default_thinking']
+const publicConfig = connection => Object.fromEntries(['id', 'label', 'provider', 'endpoint', 'auth_type', 'enabled', 'models', 'default_model', 'default_thinking', 'notify_reset']
   .filter(key => connection[key] !== undefined).map(key => [key, connection[key]]));
 const successful = value => ['available', 'partial'].includes(value?.status);
 const DEVICE_FAILURE_REASONS = {
@@ -101,11 +117,18 @@ function quotaBar(resource, percent) {
 }
 
 /** Render only structured public resources, never parse terminal output or infer quota from RPM headers. */
-export function renderConnectionResources(observation = {}, { now = Date.now } = {}) {
+export function renderConnectionResources(observation = {}, { now = Date.now, reminder = false } = {}) {
   observation ||= {};
   const root = el('div', undefined, 'agent-connection-resources');
   note(root, STATUSES[observation.status] || '观测状态未知', !successful(observation));
-  note(root, `来源：${SOURCES[observation.source] || '未知来源'} · 时间：${time(observation.checked_at)}`);
+  const refreshed = successful(observation);
+  note(root, `来源：${SOURCES[observation.source] || '未知来源'} · ${refreshed ? '上次刷新' : '观测时间'}：${relativeTime(observation.checked_at, now())}`);
+  // 主显示相对时长，绝对观测时间与来源收进折叠区，避免把旧值当成当前值。
+  const when = el('details', undefined, 'agent-connection-observation-details');
+  when.append(el('summary', '观测时间与来源'));
+  note(when, `${refreshed ? '上次刷新' : '观测时间'}：${time(observation.checked_at)}`);
+  note(when, `来源：${SOURCES[observation.source] || '未知来源'}`);
+  root.append(when);
   if (observation.error_code) note(root, usageErrorLabels[observation.error_code] || '本次未取得完整资源数据；不能据此判断余额为零。', true);
   if (observation.reason) note(root, observation.reason);
   if (!successful(observation)) return root;
@@ -131,7 +154,10 @@ export function renderConnectionResources(observation = {}, { now = Date.now } =
     }
     if (resource.reset_at) {
       const reset = el('p', resetRemaining(resource.reset_at, now()), 'hint agent-reset-remaining');
-      reset.dataset.resetAt = resource.reset_at; entry.append(reset);
+      reset.dataset.resetAt = resource.reset_at;
+      if (Date.parse(resource.reset_at) <= now()) reset.classList.add('is-due');
+      if (reminder) reset.dataset.reminder = '1';
+      entry.append(reset);
     }
     // 详细口径收进折叠区，主视图只留进度与关键时间，事实仍完整可读。
     const details = el('details', undefined, 'agent-connection-resource-details');
@@ -229,12 +255,68 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   let batchBusy = false, filtered = [], resetTimer = null, disposed = false, sessionRevision = 0;
   const queryVersions = new Map();
   const attention = connection => ['expired', 'unconfigured', 'unknown'].includes(connection.credential?.status || 'unknown') || ['error', 'unconfigured', 'unknown'].includes(connection.observation?.status || 'unknown');
+  // 额度刷新提醒是页面内的本地定时能力：只读缓存观测的 reset_at，不新增 daemon 调度，也不伪造新观测。
+  const reminderNotified = new Set();
+  let reminderSeeded = false;
+  function reminderEntries() {
+    const entries = [];
+    for (const connection of array(data?.connections)) {
+      if (connection.notify_reset !== true) continue;
+      const observation = successful(connection.observation) ? connection.observation
+        : successful(connection.last_success?.observation) ? connection.last_success.observation : null;
+      if (!observation) continue;
+      for (const resource of array(observation.resources)) {
+        const resetAt = Date.parse(resource.reset_at);
+        if (!Number.isFinite(resetAt)) continue;
+        entries.push({ connection, resource, resetAt });
+      }
+    }
+    return entries;
+  }
+  const reminderKey = entry => `${scopedKey('lush.quotaReminder')}:${entry.connection.id}:${entry.resource.id}:${entry.resetAt}`;
+  function sendReminder({ connection, resource, resetAt }) {
+    // 浏览器系统通知沿用既有总开关；关闭时只保留页面内标记，不主动申请授权。
+    if (!readPref('noticeNotifications') || !globalThis.Notification || globalThis.isSecureContext === false
+      || globalThis.Notification.permission !== 'granted') return;
+    try {
+      const notification = new globalThis.Notification(`Lush · 额度刷新：${text(connection.label, '模型来源')}`, {
+        body: `${text(resource.label, '额度')} 已到重置时间；这不代表额度已恢复，请刷新查看最新数值。`,
+        tag: reminderKey({ connection, resource, resetAt }) });
+      notification.onclick = () => {
+        globalThis.window?.focus?.();
+        const hash = `#model-source-${connection.id}`;
+        if (location.hash !== hash) location.hash = hash;
+        notification.close?.();
+      };
+    } catch { /* 发送失败不回退成伪观测，也不阻塞其他提醒 */ }
+  }
+  /** seed：首次载入只标记已到期项，不补发页面关闭期间积压的提醒。 */
+  function evaluateReminders(seed = false) {
+    if (disposed || !current()) return;
+    const currentTime = now();
+    for (const entry of reminderEntries()) {
+      if (currentTime < entry.resetAt) continue;
+      const key = reminderKey(entry);
+      if (reminderNotified.has(key)) continue;
+      reminderNotified.add(key);
+      if (seed) { writeStored(key, '1'); continue; }
+      if (readStored(key) === '1') continue;
+      writeStored(key, '1');
+      sendReminder(entry);
+    }
+  }
   function updateResets() {
     resetClearTimeout(resetTimer); resetTimer = null;
     if (disposed || !current() || document.hidden) return;
+    const currentTime = now();
     const resets = node.querySelectorAll('.agent-reset-remaining');
-    for (const reset of resets) reset.textContent = resetRemaining(reset.dataset.resetAt, now());
-    if ([...resets].some(reset => Date.parse(reset.dataset.resetAt) > now())) {
+    for (const reset of resets) {
+      const due = Date.parse(reset.dataset.resetAt) <= currentTime;
+      reset.classList.toggle('is-due', due);
+      reset.textContent = resetRemaining(reset.dataset.resetAt, currentTime) + (due && reset.dataset.reminder === '1' ? '（刷新提醒已开启）' : '');
+    }
+    if (reminderSeeded) evaluateReminders(false);
+    if ([...resets].some(reset => Date.parse(reset.dataset.resetAt) > currentTime)) {
       resetTimer = resetSetTimeout(updateResets, 60000); resetTimer?.unref?.();
     }
   }
@@ -277,6 +359,8 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     if (!current() || stamp !== version) return false;
     if (value?.version !== 1 || !Array.isArray(value.connections)) throw new Error('连接数据格式不兼容。');
     data = value;
+    // 首次应用先标记已到期项，确保随后绘制触发的 updateResets 不会补发旧提醒。
+    if (!reminderSeeded) { evaluateReminders(true); reminderSeeded = true; }
     if (!explicitSelection && !array(data.connections).some(row => row.id === selectedId)) selectedId = data.connections[0]?.id || '';
     for (const id of selected) if (!data.connections.some(row => row.id === id)) selected.delete(id);
     paintCards(); paintHistoryChoices(); paintRows(); paintSelection(); updateResets();
@@ -441,8 +525,9 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       settings.append(el('p', text(connection.endpoint), 'model-source-endpoint'));
       note(settings, `模型范围：${array(connection.models).join('、') || '未限制（未验证）'}`);
       note(settings, `默认：${connection.default_model || '未设置'} · 思考：${connection.default_thinking || '未设置'}`);
+      note(settings, `额度刷新提醒：${connection.notify_reset === true ? '开启（页面内）' : '关闭'}`);
       note(settings, `${connection.auth_type === 'oauth' ? 'OAuth 登录' : 'API Key'} · ${CREDENTIALS[connection.credential?.status] || '凭证未知'}`);
-      const resources = renderConnectionResources(connection.observation, { now });
+      const resources = renderConnectionResources(connection.observation, { now, reminder: connection.notify_reset === true });
       note(resources, '缓存观测；不保证当前额度。');
       if (!successful(connection.observation) && successful(connection.last_success?.observation || connection.last_success)) {
         const stale = el('div', undefined, 'agent-connection-last-success');
@@ -502,7 +587,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       if (array(connection.models).length) note(connectionSection, '由用户填写，供 Worker 运行设置选择；同时限制此来源的模型范围，不代表已联网验证可用。');
       if (connection.provider === 'openai-compatible') note(connectionSection, '自定义 OpenAI Chat Completions 兼容 API；余额查询尚不支持，不代表余额为零。运行时仅供 Pi 显式绑定，不自动切换账号。当前适配按文本/工具调用配置；32K 上下文、4K 输出是本地运行预算，不是已验证的上游限额或价格。');
       note(resourceSection, '以下为缓存观测，不保证当前仍有额度；窗口到期或账号变化后需重新查询。');
-      resourceSection.append(renderConnectionResources(connection.observation, { now }));
+      resourceSection.append(renderConnectionResources(connection.observation, { now, reminder: connection.notify_reset === true }));
       const previous = connection.last_success;
       if (!successful(connection.observation) && previous) {
         const old = previous.observation || previous;
@@ -567,6 +652,8 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     const defaultThinking = select(form, '默认思考深度（可选）', 'default_thinking',
       [['', '不设置'], ...PI_THINKING_LEVELS.map(level => [level, level])], connection?.default_thinking || '');
     const enabled = field(form, '启用连接', 'enabled', 'checkbox', connection?.enabled ?? true);
+    const notifyReset = field(form, '额度刷新提醒（页面内）', 'notify_reset', 'checkbox', connection?.notify_reset ?? false,
+      '开启后，页面在缓存观测的重置时间到达时标出该额度；系统通知开关已开启且已授权时另发浏览器通知。不新增后台调度，关闭页面不补发提醒。');
     const credentialWrap = el('div', undefined, 'agent-connection-secret');
     const key = field(credentialWrap, 'API Key（仅写入，更换时才填写）', 'api_key', 'password', '', '留空保留已有密钥。提交后立即清空，不回显、不保存到浏览器。');
     key.autocomplete = 'new-password'; key.maxLength = 8192; key.setAttribute('spellcheck', 'false');
@@ -582,7 +669,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     rebuildDefaultModels();
     for (const input of [label, endpoint, models, key]) input.oninput = changed;
     models.oninput = () => { changed(); rebuildDefaultModels(); };
-    enabled.onchange = defaultThinking.onchange = changed;
+    enabled.onchange = notifyReset.onchange = defaultThinking.onchange = changed;
     defaultModel.oninput = changed;
     const syncAuth = () => {
       const oauth = provider.value === 'openai-codex', compatible = provider.value === 'openai-compatible';
@@ -632,7 +719,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
         if (defaultModel.value.trim() && ids.length && !ids.includes(defaultModel.value.trim())) throw new Error('默认模型必须在上方的模型列表内。');
         const value = { ...(connection ? { id: connection.id } : {}), label: name, provider: provider.value, auth_type: provider.value === 'openai-codex' ? 'oauth' : 'api_key',
           enabled: enabled.checked, models: ids, default_model: defaultModel.value.trim(), default_thinking: defaultThinking.value,
-          ...(url ? { endpoint: url } : {}) };
+          notify_reset: notifyReset.checked, ...(url ? { endpoint: url } : {}) };
         params = { connection: value, ...(value.auth_type === 'api_key' && key.value.trim() ? { credential: { api_key: key.value.trim() } } : {}) };
       } catch (error) { localFeedback.textContent = error instanceof TypeError ? '模型端点不是有效 HTTPS 地址。' : error.message; localFeedback.setAttribute('role', 'alert'); return; }
       // Only the request body briefly contains the secret. Clear the live input even when the write fails.

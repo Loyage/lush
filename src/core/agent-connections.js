@@ -48,7 +48,7 @@ function publicConnection(connection) {
   // Defaults are editing hints, not part of the account/cache fingerprint above.
   return { id: connection.id, label: safeText(connection.label, 256) || connection.provider, provider: connection.provider,
     endpoint: url.href, auth_type: connection.auth_type, enabled: connection.enabled === true,
-    models, default_model, default_thinking,
+    models, default_model, default_thinking, notify_reset: connection.notify_reset === true,
     credential: { status, identity: safeText(connection.credential?.identity, 120),
       expires_at: typeof expires === 'string' && Number.isFinite(Date.parse(expires)) ? new Date(expires).toISOString() : null } };
 }

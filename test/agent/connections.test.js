@@ -449,3 +449,15 @@ test('connection default model and thinking persist within the declared range an
   expect((await manager.prepareRuntime(row.id)).credential.key).toBe('private-key');
   noSecrets(cleared);
 });
+
+// 额度刷新提醒是本地页面偏好：随连接保存但不参与身份/凭证/额度历史。
+test('connection notify_reset is a boolean preference that persists and can be cleared', async () => {
+  const { manager } = fixture();
+  const row = manager.save(config('deepseek', { notify_reset: true }), { api_key: 'private-key' });
+  expect(row.notify_reset).toBe(true);
+  expect(manager.config().connections[0]).toMatchObject({ notify_reset: true });
+  expect(() => manager.save(config('deepseek', { notify_reset: 'yes' }))).toThrow();
+  expect(() => manager.save(config('deepseek', { notify_reset: 1 }))).toThrow();
+  const cleared = manager.save(edit(row, { notify_reset: false }), { api_key: '' });
+  expect(cleared.notify_reset).toBe(false);
+});

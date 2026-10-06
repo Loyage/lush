@@ -132,6 +132,10 @@ export const PREF_NAMES = Object.keys(PREF_DEFS);
 const memory = new Map();
 function readRaw(key) { try { return localStorage.getItem(key) ?? memory.get(key) ?? null; } catch { return memory.get(key) ?? null; } }
 function removeRaw(key) { memory.delete(key); try { localStorage.removeItem(key); } catch { /* 隐私模式里忽略 */ } }
+
+/** 非偏好类的持久键（如提醒去重）也统一走这里，其它模块不直接拼 localStorage。 */
+export function readStored(key) { return readRaw(key); }
+export function writeStored(key, value) { try { localStorage.setItem(key, String(value)); memory.delete(key); } catch { memory.set(key, String(value)); } }
 function defaultValue(def) { return typeof def.default === 'function' ? def.default() : def.default; }
 
 /**

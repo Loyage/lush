@@ -10,7 +10,7 @@ const observation = (remaining = 70) => ({ status: 'available', checked_at: at, 
 ] });
 const source = (id, extra = {}) => ({ id, label: `账号 ${id}`, provider: 'openai-codex', endpoint: 'https://chatgpt.com/backend-api/codex',
   auth_type: 'oauth', enabled: true, models: ['gpt-6.1-sol', 'org/model'], default_model: 'gpt-6.1-sol', default_thinking: 'high',
-  credential: { status: 'configured' }, observation: observation(), last_success: null, consumers: [], ...extra });
+  notify_reset: false, credential: { status: 'configured' }, observation: observation(), last_success: null, consumers: [], ...extra });
 const fixture = () => ({ version: 1, sampling: { enabled: false, interval_minutes: 5, retention_days: 90 }, connections: [
   source('a', { consumers: [{ task_id: 42, model: 'openai-codex/gpt-6.1-sol' }] }), source('b'),
   source('c', { provider: 'deepseek', auth_type: 'api_key', endpoint: 'https://api.deepseek.com', models: ['deepseek-chat'], default_model: 'deepseek-chat' }),
@@ -39,7 +39,8 @@ const dom = installDom({ fetch: async (url, options) => {
   if (action?.method === 'agent.connections.login.finish') return json(data.connections.find(row => row.id === action.params.id));
   throw new Error(`unexpected mock request ${url}`);
 } });
-const { createAgentConnections, resetRemaining } = await import('../../src/ui/web/assets/render-agent-connections.js');
+const { createAgentConnections, renderConnectionResources, relativeTime, resetRemaining } = await import('../../src/ui/web/assets/render-agent-connections.js');
+const { setPref } = await import('../../src/ui/web/assets/prefs.js');
 const { openModelSources } = await import('../../src/ui/web/assets/render-model-sources.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
@@ -170,7 +171,7 @@ test('bulk scope confirmation, bounded writes, complete public settings, partial
     expect(action.params).not.toHaveProperty('credential');
     const old = before.find(row => row.id === action.params.connection.id);
     expect(action.params.connection).toEqual({ id: old.id, label: old.label, provider: old.provider, endpoint: old.endpoint,
-      auth_type: old.auth_type, models: old.models, default_model: old.default_model, default_thinking: old.default_thinking, enabled: false });
+      auth_type: old.auth_type, models: old.models, default_model: old.default_model, default_thinking: old.default_thinking, notify_reset: old.notify_reset, enabled: false });
   }
   expect(deepText(row(p.node, 'b'))).toContain('配置保存失败'); expect(deepText(row(p.node, 'a'))).toContain('停用成功');
   expect(requests.at(-1).url).toBe('/api/agent/connections'); expect(data.connections.find(row => row.id === 'b').enabled).toBe(true);
@@ -280,6 +281,64 @@ test('reset countdown only ticks locally, pauses hidden, expires honestly and cl
   p.dispose(); expect(visibility.has('visibilitychange')).toBe(false); expect(timer.timers.size).toBe(0);
   expect(resetRemaining('invalid', timer.now())).toBe('重置时间未知'); expect(resetRemaining('2026-10-09T11:00:00Z', Date.parse(at))).toContain('3 天');
   delete dom.document.addEventListener; delete dom.document.removeEventListener;
+});
+
+test('上次刷新时间以相对时长呈现，绝对时间与来源收进折叠详情', () => {
+  const root = renderConnectionResources({ status: 'available', checked_at: '2026-10-06T08:57:00.000Z', source: 'usage_api', resources: [
+    { id: 'week', kind: 'quota', scope: 'account', label: '周套餐', unit: '%', remaining: 70, total: 100, used_percent: 30, window_seconds: 604800, reset_at: '2026-10-06T11:00:00.000Z' },
+  ] }, { now: () => Date.parse(at), reminder: true });
+  expect(deepText(root)).toContain('上次刷新：3 分钟前');
+  const details = root.querySelector('.agent-connection-observation-details');
+  expect(deepText(details)).toContain(new Date('2026-10-06T08:57:00.000Z').toLocaleString());
+  expect(details.querySelectorAll('p').some(node => node.textContent.includes('专用余额'))).toBe(true);
+  expect(root.querySelector('.agent-reset-remaining').dataset.reminder).toBe('1');
+  expect(relativeTime('2026-10-05T08:00:00.000Z', Date.parse(at))).toContain('天前');
+  expect(relativeTime('invalid', Date.parse(at))).toBe('时间未知');
+});
+
+test('勾选额度刷新提醒后，reset_at 到达时提醒一次；reset_at 变化后按新时间重新计时', async () => {
+  const timer = clock(), sent = [];
+  const saved = { Notification: globalThis.Notification, secure: globalThis.isSecureContext };
+  globalThis.Notification = class { static permission = 'granted'; constructor(title, options) { sent.push({ title, options }); this.close = () => {}; } };
+  globalThis.isSecureContext = true; setPref('noticeNotifications', true);
+  try {
+    const quota = reset => ({ status: 'available', checked_at: at, source: 'usage_api', resources: [
+      { id: 'week', kind: 'quota', scope: 'account', label: '周套餐', unit: '%', remaining: 70, total: 100, used_percent: 30, window_seconds: 604800, reset_at: reset }] });
+    data.connections = [source('r', { notify_reset: true, observation: quota('2026-10-06T11:00:00.000Z') })];
+    const p = await panel(timer), reset = row(p.node, 'r').querySelector('.agent-reset-remaining');
+    expect(reset.dataset.reminder).toBe('1'); expect(sent).toHaveLength(0); // 首次载入只标记，不补发
+    timer.advance(2 * 3600000); await timer.tick();
+    expect(sent).toHaveLength(1); expect(sent[0].title).toContain('额度刷新'); expect(sent[0].options.body).toContain('已到重置时间');
+    expect(sent[0].options.body).toContain('不代表额度已恢复'); expect(reset.classList.contains('is-due')).toBe(true);
+    await p.load(true); expect(sent).toHaveLength(1); // 同一 reset_at 不重复提醒
+    data.connections[0].observation = quota('2026-10-06T13:00:00.000Z'); await p.load(true);
+    timer.advance(2 * 3600000); await timer.tick(); expect(sent).toHaveLength(2); // 新 reset_at 重新计时
+  } finally {
+    setPref('noticeNotifications', false);
+    if (saved.Notification === undefined) delete globalThis.Notification; else globalThis.Notification = saved.Notification;
+    if (saved.secure === undefined) delete globalThis.isSecureContext; else globalThis.isSecureContext = saved.secure;
+  }
+});
+
+test('未勾选提醒或系统通知关闭时只保留页面内到期标记，不发送系统提醒', async () => {
+  const sent = [];
+  const saved = { Notification: globalThis.Notification, secure: globalThis.isSecureContext };
+  globalThis.Notification = class { static permission = 'granted'; constructor() { sent.push(1); this.close = () => {}; } };
+  globalThis.isSecureContext = true; setPref('noticeNotifications', false);
+  try {
+    const quota = { status: 'available', checked_at: at, source: 'usage_api', resources: [
+      { id: 'week', kind: 'quota', scope: 'account', label: '周套餐', unit: '%', remaining: 70, reset_at: '2026-10-06T11:00:00.000Z' }] };
+    const timer = clock(); data.connections = [source('n', { notify_reset: true, observation: quota })];
+    const p = await panel(timer); timer.advance(2 * 3600000); await timer.tick();
+    expect(sent).toHaveLength(0); expect(row(p.node, 'n').querySelector('.agent-reset-remaining').classList.contains('is-due')).toBe(true);
+    const timer2 = clock(); data.connections = [source('x', { observation: quota })];
+    const q = await panel(timer2); expect(row(q.node, 'x').querySelector('.agent-reset-remaining').dataset.reminder).toBeUndefined();
+    timer2.advance(2 * 3600000); await timer2.tick(); expect(sent).toHaveLength(0);
+  } finally {
+    setPref('noticeNotifications', false);
+    if (saved.Notification === undefined) delete globalThis.Notification; else globalThis.Notification = saved.Notification;
+    if (saved.secure === undefined) delete globalThis.isSecureContext; else globalThis.isSecureContext = saved.secure;
+  }
 });
 
 test('late query after returning to the page releases busy controls without applying its old snapshot or losing edits', async () => {
