@@ -63,10 +63,15 @@ test('declarative editor constrains action compatibility, one-shot creation, con
   expect(form.node.querySelectorAll('.hook-action')).toHaveLength(4); expect(btn('添加动作', form.node).disabled).toBe(true);
 });
 
-test('Worker mounts are grouped by nodes; built-in merge is persistent, unknown/failed outcomes and parameters stay visible', async () => {
+test('Worker management is collapsed, groups actual mounts by node and keeps failure alerts visible outside it', async () => {
   activateDetailView({ view: 'task', key: 'task-20' });
   const section = workerHooks(task, { refresh() {} }); root().replaceChildren(section);
-  expect(deepText(section)).toContain('Agent 完成工作后'); expect(deepText(section)).toContain('不是任意一轮返回');
+  const management = section.querySelector('.hook-management');
+  expect(Boolean(management.open)).toBe(false);
+  expect(management.querySelectorAll('.hook-trigger-group')).toHaveLength(2);
+  expect(section.querySelector('.hook-mount-alert').textContent).toBe('异常告知：执行失败');
+  expect(section.querySelector('.hook-mount-alert').getAttribute('data-help')).toBe('动作未完成');
+  expect(deepText(section)).not.toContain('不是任意一轮返回');
   expect(section.querySelectorAll('.hook-trigger-group')).toHaveLength(2);
   expect(deepText(section)).toContain('持续'); expect(deepText(section)).toContain('动作未完成');
   expect(section.querySelector('script')).toBeNull(); expect(deepText(section)).toContain('<script>Title</script>');

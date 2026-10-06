@@ -73,6 +73,7 @@ export function renderDetail(task, history, diff, usage, connections = null) {
   const previousResult = sameTask ? panel.querySelector('.result-panel') : null;
   const previousGoal = sameTask ? panel.querySelector('.goal-panel') : null;
   const previousHooks = sameTask ? panel.querySelector('.worker-hooks[data-hook-editing="true"]') || panel.querySelector('.worker-hooks[data-completion-editing="true"]') : null;
+  const hookManagementOpen = sameTask && panel.querySelector('.hook-management')?.open === true;
   const previousMessages = new Map(sameTask ? [...panel.querySelectorAll('.task-message')].map(node => [node.dataset.messageId, node]) : []);
   panel.dataset.view = 'task'; panel.dataset.taskId = String(task.id); panel.replaceChildren();
   referenceable(panel, { kind: 'task', target: { task_id: task.id }, label: `Worker ${workerLabel(task)}`,
@@ -262,7 +263,10 @@ export function renderDetail(task, history, diff, usage, connections = null) {
   const delivery = deliveryControls(task, { refresh: () => detail(task.id) });
   if (delivery) panel.append(delivery);
   const hooks = previousHooks || workerHooks(task, { refresh: () => detail(task.id) });
-  if (hooks) panel.append(hooks);
+  if (hooks) {
+    if (hookManagementOpen) hooks.querySelector('.hook-management').open = true;
+    panel.append(hooks);
+  }
 
   // 结果与失败原因优先于调用次数、目录等底层元数据。完整目标（goal）以 Markdown 正文排在结果之前。
   const goal = renderGoal(task, history, previousGoal);

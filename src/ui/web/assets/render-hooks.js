@@ -44,23 +44,15 @@ function parameters(mount) {
   } else content.append(el('p', '还没有执行记录。', 'hint'));
   return content;
 }
-const BUILTIN_STEPS = {
-  'auto-merge': { number: 1, help: '第 1 步：交付就绪后尝试合并，沿用父队列和 Git 门禁。不是任意一轮 Agent 返回。' },
-  'auto-accept': { number: 2, help: '第 2 步：先合并（或经安全校验确认无需合并），再检查调用退出、后代、消息、待决和交付条件，代替用户确认。不是质量评审。' },
-  'auto-archive': { number: 3, help: '第 3 步：先验收，再检查子树终态、冻结、当前检出和清洁度，归档分支及后代；失败不撤销验收，不丢弃未提交改动。' },
-};
-function mountCard(task, mount, model, refresh, ownsPage, completion) {
+const BUILTIN_STEPS = { 'auto-merge': { number: 1 }, 'auto-accept': { number: 2 }, 'auto-archive': { number: 3 } };
+function mountCard(task, mount, model, refresh, ownsPage) {
   const row = el('article', undefined, 'hook-mount'); row.dataset.hookId = mount.id;
   const head = el('div', undefined, 'hook-mount-head');
   const step = BUILTIN_STEPS[mount.id];
   if (step) head.append(badge(`第 ${step.number} 步`));
   head.append(el('strong', mount.name), badge(mount.mode === 'persistent' ? '持续' : '一次性'), badge(mount.enabled ? '启用' : '停用'), badge(STATES[mount.state] || mount.state || '已挂载'));
   if (mount.locked) head.append(badge('锁定')); row.append(head);
-  if (mount.id === 'auto-merge' && !completion) row.append(autoMergeControl(task, refresh, ownsPage));
-  else if (mount.builtin || step) {
-    row.append(el('p', step?.help || '此动作由内置安全边界授权。', 'hint hook-builtin-step'),
-      el('p', completion ? '由上方最高自动级别统一配置；内置 Hook 不可移除。' : '最高自动级别暂不可用；请刷新或更新服务，不能单独调整此内置 Hook。', 'hint'));
-  } else {
+  if (!mount.builtin && !step) {
     const actions = el('div', undefined, 'actions hook-actions');
     const key = `${task.id}:${mount.id}`, busy = pending.has(key);
     const update = async remove => {
@@ -111,44 +103,40 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
       : task.auto_merge ? `自动合并 ${task.auto_merge.enabled ? '已启用' : '未启用'}` : '自动合并状态未知', 'hint'));
     return row;
   }
-  const section = block('Hooks · 已挂载'); section.classList.add('worker-hooks');
-  section.append(el('p', completion ? '预约是一次性 Hook；自动链按合并 → 验收 → 归档串行推进，用最高自动级别统一授权。节点触发后仍须复核权限、消息、待决、后代和 Git 安全条件。'
-    : '预约是一次性 Hook，自动合并是持续 Hook。节点触发后仍须复核权限、消息、待决、后代和 Git 安全条件。', 'hint'));
-  if (completion) section.append(autoCompletionControl(task, { ...model, completion }, refresh, ownsPage,
+  const section = el('section', undefined, 'block worker-hooks');
+  section.setAttribute('aria-label', 'Worker Hooks');
+  const row = el('div', undefined, 'worker-hooks-row');
+  row.append(el('strong', 'Hooks', 'worker-hooks-label'));
+  if (completion) row.append(autoCompletionControl(task, { ...model, completion }, refresh, ownsPage,
     editing => { section.dataset.completionEditing = String(editing); }));
-  if (!model) section.append(el('p', '完整挂载列表暂不可用；下方仅显示已有自动合并设置，请更新服务或刷新。', 'hint'));
-  if (!items.length) section.append(el('p', '此 Worker 尚未挂载 Hook。', 'hint'));
+  else if (['order', 'child'].includes(workerKind(task))) row.append(autoMergeControl(task, refresh, ownsPage));
+  const alerts = items.filter(item => !BUILTIN_STEPS[item.id] && ['running', 'failed', 'unknown'].includes(item.state));
+  for (const mount of alerts) {
+    const alert = el('span', `${mount.name}：${STATES[mount.state]}`, 'hint hook-mount-alert');
+    alert.setAttribute('data-help', mount.last_execution?.error || mount.reason || STATES[mount.state]); alert.tabIndex = 0;
+    if (['failed', 'unknown'].includes(mount.state)) alert.classList.add('error');
+    row.append(alert);
+  }
+  const management = el('details', undefined, 'hook-management');
+  const customCount = items.filter(item => !item.builtin && !BUILTIN_STEPS[item.id]).length;
+  management.append(el('summary', `管理${customCount ? ` · ${customCount}` : ''}`));
+  if (!model) management.append(el('p', '完整挂载列表暂不可用；请更新服务或刷新。', 'hint'));
+  if (!items.length) management.append(el('p', '此 Worker 尚未挂载 Hook。', 'hint'));
   const groups = new Map(); for (const mount of items) { const group = groups.get(mount.trigger) || []; group.push(mount); groups.set(mount.trigger, group); }
-  const descriptions = [];
   const phaseOrder = ['worker.delivery_ready', 'delivery.integrated', 'worker.accepted'];
+  const labels = { 'worker.delivery_ready': 'Agent 完成工作后 · 交付就绪', 'delivery.integrated': '合并完成后 · 已集成', 'worker.accepted': '验收完成后' };
   for (const [trigger, group] of [...groups].sort(([a], [b]) => (phaseOrder.includes(a) ? phaseOrder.indexOf(a) : 3) - (phaseOrder.includes(b) ? phaseOrder.indexOf(b) : 3))) {
     const part = el('section', undefined, 'hook-trigger-group');
-    const heading = el('h3', trigger === 'worker.delivery_ready' ? 'Agent 完成工作后 · 交付就绪' : trigger === 'delivery.integrated' ? '合并完成后 · 已集成' : trigger === 'worker.accepted' ? '验收完成后' : trigger);
-    const explanation = el('p', trigger === 'worker.delivery_ready' ? '不是任意一轮返回：实际退出且子 Worker、消息与待决均已处理后才尝试触发。'
-      : trigger === 'delivery.integrated' ? '成果落地后才尝试验收，仍须通过原有安全条件。' : trigger === 'worker.accepted' ? '验收后才尝试归档，代码现场清理仍受 Git 与子树安全门保护。' : '节点说明以项目 Hooks 目录为准。', 'hint');
-    descriptions.push({ trigger, heading, explanation }); part.append(heading, explanation);
-    for (const mount of group) part.append(mountCard(task, mount, model, refresh, ownsPage, completion));
-    section.append(part);
-  }
-  const paintDescriptions = catalogue => {
-    if (!ownsPage()) return;
-    for (const item of descriptions) {
-      const definition = catalogue.triggers?.find(trigger => trigger.id === item.trigger);
-      if (!definition || item.trigger === 'worker.delivery_ready') continue;
-      item.heading.textContent = definition.label; item.explanation.textContent = definition.description;
-    }
-  };
-  if (ui.hookCatalogue) paintDescriptions(ui.hookCatalogue);
-  else if (model) {
-    const request = ui.hookCataloguePending || api('/api/hooks'); ui.hookCataloguePending = request;
-    request.then(catalogue => { if (ui.hookCataloguePending === request) ui.hookCatalogue = catalogue; paintDescriptions(catalogue); })
-      .catch(() => {}).finally(() => { if (ui.hookCataloguePending === request) ui.hookCataloguePending = null; });
+    part.append(el('h3', ui.hookCatalogue?.triggers?.find(item => item.id === trigger)?.label || labels[trigger] || trigger));
+    for (const mount of group) part.append(mountCard(task, mount, model, refresh, ownsPage));
+    management.append(part);
   }
   const editor = el('div', undefined, 'hook-editor');
   const controls = el('div', undefined, 'actions hook-actions');
   const writable = model && !['completed', 'failed', 'cancelled'].includes(task.status) && !task.archived && !task.branch_archive?.archived;
   const attach = button('挂载 Hook', async () => {
     if (!ownsPage() || !writable || pending.has(`attach:${task.id}`)) return;
+    management.open = true;
     pending.add(`attach:${task.id}`); attach.disabled = true;
     try {
       const catalogue = await api('/api/hooks'); if (!ownsPage()) return;
@@ -194,7 +182,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   }, 'ghost hook-button', { help: '打开受控规则编辑器或选择项目模板；打开不调用 Agent，确认挂载前会说明动作代价。' });
   controls.append(guarded(attach, !writable ? '挂载列表不可用、Worker 已结束或分支已归档；请先处理后刷新。' : null),
     button('项目 Hooks 与模板', () => openHooks(), 'ghost hook-button', { help: '查看当前项目的节点、动作和模板；不会自动挂载到 Worker。' }));
-  section.append(controls, editor); return section;
+  management.append(controls, editor); row.append(management); section.append(row); return section;
 }
 async function promptRisk() {
   return confirmDialog({ title: '使用替换内置规则的 Prompt？', message: '这份自定义 Prompt 可能影响 Worker 权限、协作、工作区安全和交付协议；只影响新建 Worker 及其派生 Worker。',
@@ -253,6 +241,13 @@ export async function openHooks() {
         }, 'ghost hook-button', { help: '经确认删除模板，不撤销已挂载的规则或执行成果。' })); card.append(buttons); templates.append(card);
     }
     root.append(templates, editor);
+    const chain = block('自动合并 → 验收 → 归档');
+    chain.append(el('p', 'Worker 详情的一行按钮选择最高自动环节，点击即保存；高档包含前面的步骤。高亮的是已保存授权，不代表执行已完成。归档授权需确认，级别只作用于当前 Worker，不继承给后代。'));
+    chain.append(el('p', '合并：本轮交付就绪后由父队列处理，不是任意一轮 Agent 返回；实际退出且后代、消息、待决和 Git 条件通过后才触发。分歧时可能唤醒源 Agent。'));
+    chain.append(el('p', '验收：合并或确认无需合并后，仅核验安全条件并代替用户确认；不调用质量评审 Agent，也不保证业务质量。'));
+    chain.append(el('p', '归档：验收后清理分支及后代的 worktree/ref，保留 Worker、会话和历史，不丢弃未提交改动。失败不撤销前面已完成的环节，失败或未知结果不自动重试。'));
+    chain.append(el('p', 'child 至少自动合并，不能关闭。请求冻结或动作执行中不可修改；已交付成果只能提高级别补办，不重新合并已落地成果。自动成功只留记录，只提醒下一人工环节；失败、受阻和待决仍会提醒。', 'hint'));
+    root.append(chain);
     const nodes = block('允许的触发节点');
     for (const trigger of catalogue.triggers || []) { const row = el('article', undefined, 'hook-catalogue-row'); row.append(el('strong', trigger.label), el('code', trigger.id), el('p', trigger.description, 'hint')); nodes.append(row); }
     const actions = block('受控动作与代价');
