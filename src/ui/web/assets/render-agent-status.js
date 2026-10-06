@@ -181,7 +181,7 @@ export function openAgentStatus() {
   const sourcesLink = el('a', '管理模型来源', 'agent-sources-link'); sourcesLink.href = '#model-sources'; copy.append(sourcesLink);
   const feedback = el('p', undefined, 'hint agent-status-feedback'); feedback.setAttribute('role', 'status');
   const result = el('div');
-  const state = { view, pending: null, data: null, tab: 'settings', config: ui.lastSnapshot?.status?.agent_config, configPending: null }; ui.agentStatusPage = state;
+  const state = { view, pending: null, data: null, tab: 'settings', config: ui.lastSnapshot?.status?.agent_config, configPending: null, connections: undefined }; ui.agentStatusPage = state;
   const ownsPage = () => ui.view === view && ui.agentStatusPage === state;
   const usage = createAgentUsage({ ownsPage }); usage.node.hidden = true;
   const statusPanel = el('div', undefined, 'agent-management-status'); statusPanel.id = 'agent-management-status';
@@ -189,20 +189,30 @@ export function openAgentStatus() {
   for (const [panel, tab] of [[statusPanel, 'status'], [settingsPanel, 'settings']]) {
     panel.setAttribute('role', 'tabpanel'); panel.setAttribute('aria-labelledby', `agent-management-tab-${tab}`);
   }
+  const loadConnections = () => {
+    if (state.connections !== undefined) return Promise.resolve(state.connections);
+    return api('/api/agent/connections').then(value => { state.connections = value || null; return state.connections; })
+      .catch(() => { state.connections = null; return null; });
+  };
   const repaintSettings = config => {
     if (!ownsPage()) return;
     if (config) state.config = config;
-    settingsPanel.replaceChildren(renderAgentSettings(state.config, repaintSettings, { ownsPage }));
+    settingsPanel.replaceChildren(renderAgentSettings(state.config, repaintSettings, { ownsPage, connections: state.connections }));
   };
   const loadConfig = () => {
     if (!ownsPage()) return Promise.resolve();
     if (state.configPending) return state.configPending;
-    if (state.config) { repaintSettings(); return Promise.resolve(); }
+    if (state.config) {
+      if (state.connections !== undefined) { repaintSettings(); return Promise.resolve(); }
+      // 先取连接名称再首次绘制，避免稍后重画覆盖页面上未保存的编辑。
+      state.configPending = loadConnections().then(() => { if (ownsPage()) repaintSettings(); }).finally(() => { state.configPending = null; });
+      return state.configPending;
+    }
     settingsPanel.replaceChildren(el('p', '正在读取 Agent 配置…', 'hint'));
     settingsPanel.setAttribute('aria-busy', 'true');
     state.configPending = (async () => {
       try {
-        const config = await api('/api/agent/config');
+        const [config] = await Promise.all([api('/api/agent/config'), loadConnections()]);
         if (!ownsPage()) return;
         if (ui.lastSnapshot?.status) ui.lastSnapshot.status.agent_config = config;
         repaintSettings(config);

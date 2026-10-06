@@ -590,6 +590,18 @@ test('默认和角色profile只呈现连接匹配模型，切换不覆盖草稿�
   expect(actions.some(row => row.method === 'agent.connections.query')).toBe(false);
 });
 
+test('Agent 配置继承摘要显示连接名称而不是 UUID，缺少列表时回退连接 ID', () => {
+  const settings = structuredClone(world.state.agentConfig);
+  const id = data.connections[1].id, label = data.connections[1].label;
+  settings.default = { agent: 'pi', model: 'deepseek/x', connection_id: id, thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] };
+  settings.roles = {}; settings.resolved = { ...settings.resolved, agent: { ...settings.default } };
+  const named = renderAgentSettings(settings, () => {}, { ownsPage: () => current, connections: data.connections });
+  const summary = named.querySelector('[data-agent-target="agent"]');
+  expect(deepText(summary)).toContain(`来源 ${label}`); expect(deepText(summary)).not.toContain(id);
+  const fallback = renderAgentSettings(settings, () => {}, { ownsPage: () => current });
+  expect(deepText(fallback.querySelector('[data-agent-target="agent"]'))).toContain(`来源 ${id}`);
+});
+
 test('连接读取单飞且在读取期间保留最新连接选择和模型草稿，停用连接无法保存', async () => {
   const settings = structuredClone(world.state.agentConfig); settings.default.agent = 'pi'; settings.roles = {};
   const pending = deferred();

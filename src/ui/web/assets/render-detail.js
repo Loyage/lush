@@ -63,7 +63,7 @@ function intentBadge(task) {
   }
   return node;
 }
-export function renderDetail(task, history, diff, usage) {
+export function renderDetail(task, history, diff, usage, connections = null) {
   const panel = $('detail');
   const sameTask = panel.dataset.taskId === String(task.id);
   const previousResult = sameTask ? panel.querySelector('.result-panel') : null;
@@ -235,7 +235,7 @@ export function renderDetail(task, history, diff, usage) {
   if (deletion) actions.append(deletion);
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
   panel.append(actions);
-  if (['order', 'child'].includes(workerKind(task))) panel.append(modelSourceSummary(task, history));
+  if (['order', 'child'].includes(workerKind(task))) panel.append(modelSourceSummary(task, history, connections));
   const interruptHint = interruptReason(task);
   if (interruptHint) panel.append(el('p', interruptHint, 'hint interrupt-reason'));
   if (task.divergence_resolution && TERMINAL_STATUS.has(task.status) && task.integration !== 'merged') {

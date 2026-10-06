@@ -17,13 +17,15 @@ export async function loadDetail(taskId) {
   const current = () => ui.view === view && request === detailRequest && !ui.deletedWorkerIds.has(taskId);
   const navigated = ui.detailTask !== taskId;
   const scrolled = navigated ? 0 : $('detail').scrollTop;
-  let task, timeline, diff, usage;
+  let task, timeline, diff, usage, connections;
   try {
-    [task, timeline, diff, usage] = await Promise.all([
+    [task, timeline, diff, usage, connections] = await Promise.all([
       api(`/api/worker/${taskId}`), loadHistory(taskId).catch(() => ({ events: [], truncated: false })),
       api(`/api/worker/${taskId}/diff`).catch(() => null),
       // agent 用量（模型、上下文、花费）来自 pi 会话记录：读不到会话不影响详情其余部分。
       api(`/api/worker/${taskId}/usage`).catch(() => null),
+      // 连接名称用于把“当前调用来源”显示成用户自己命名的名字；本地读取，读不到就回退连接 ID。
+      api('/api/agent/connections').catch(() => null),
     ]);
   } catch (error) {
     if (!current()) return;
@@ -58,7 +60,7 @@ export async function loadDetail(taskId) {
   if (ui.transcriptView) return;
   timeline.onMore = before => loadHistory(taskId, before);
   ui.selectedRevision = task.updated_at; ui.detailTask = taskId; ui.detailRenderedAt = Date.now(); ui.detailDirty = false;
-  renderDetail(task, timeline, diff, usage);
+  renderDetail(task, timeline, diff, usage, connections);
   ui.composerTask = task; ui.composerError = null; ui.syncComposer?.();
   $('detail').scrollTop = scrolled;
   if (navigated && window.matchMedia?.('(max-width: 760px)')?.matches) {

@@ -206,7 +206,7 @@ function fixedSourceError(source) {
   return '不支持的来源；请使用固定版本的 npm:、固定 commit/tag 的 git:，或显式本地路径。';
 }
 
-function profileEditor(settings, profile, target, title, subtitle, repaint, ownsPage, savedSummary = null) {
+function profileEditor(settings, profile, target, title, subtitle, repaint, ownsPage, savedSummary = null, names = new Map()) {
   const card = el('section', undefined, 'agent-profile'); card.dataset.agentTarget = target;
   const head = el('div', undefined, 'agent-profile-head');
   const copy = el('div'); copy.append(el('h3', title), el('p', subtitle, 'settings-note'));
@@ -252,7 +252,7 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
     if (savedSummary) {
       const saved = settings.default, row = connectionPicker.entry();
       const source = saved.agent === 'pi' ? (saved.connection_id
-        ? (row?.id === saved.connection_id ? row.label : `托管来源 ${saved.connection_id}`) : '未选择来源') : 'Codex CLI 自身认证';
+        ? (row?.id === saved.connection_id ? row.label : names.get(saved.connection_id) || `托管来源 ${saved.connection_id}`) : '未选择来源') : 'Codex CLI 自身认证';
       savedSummary.textContent = normalizeConfigMode(saved.config_mode) === 'pi'
         ? 'Pi 默认配置（执行机器 Pi）· 项目默认（已保存），下一次调用生效'
         : `${saved.agent === 'pi' ? 'Pi' : 'Codex'} → ${source} → ${saved.model || (saved.agent === 'pi' ? '请选择来源内模型' : 'CLI 默认模型')} · 项目默认（已保存），下一次调用生效`;
@@ -492,12 +492,13 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
   return card;
 }
 
-function inheritedRole(settings, role, repaint) {
+function inheritedRole(settings, role, repaint, names = new Map()) {
   const meta = settings.options.roles.find(item => item.id === role) || { id: role, label: role };
   const resolved = settings.resolved[role];
   const card = el('section', undefined, 'agent-role-summary'); card.dataset.agentTarget = role;
   const copy = el('div', undefined, 'agent-role-copy');
-  const source = resolved.agent === 'pi' ? (resolved.connection_id ? `来源 ${resolved.connection_id}` : '未选择来源') : 'Codex CLI 自身认证';
+  const named = resolved.connection_id ? (names.get(resolved.connection_id) || resolved.connection_id) : '';
+  const source = resolved.agent === 'pi' ? (named ? `来源 ${named}` : '未选择来源') : 'Codex CLI 自身认证';
   const summary = normalizeConfigMode(resolved.config_mode) === 'pi' ? 'Pi 默认配置（执行机器 Pi）'
     : `${resolved.agent} · ${source} · ${resolved.model || (resolved.agent === 'pi' ? '请选择来源内模型' : 'CLI 默认模型')} · ${thinkingLabel(resolved.thinking)}`;
   copy.append(el('h3', meta.label), el('p', summary, 'settings-note'));
@@ -693,7 +694,11 @@ function packagesManager(ownsPage) {
 }
 
 /** Shared subpanel: its owner supplies configuration and an identity-guarded repaint callback. */
-export function renderAgentSettings(settings, repaint, { ownsPage = () => true } = {}) {
+export function renderAgentSettings(settings, repaint, { ownsPage = () => true, connections = null } = {}) {
+  const names = new Map();
+  for (const row of Array.isArray(connections) ? connections : []) {
+    if (typeof row?.id === 'string' && typeof row?.label === 'string' && row.label.trim()) names.set(row.id, row.label.trim());
+  }
   const content = el('div', undefined, 'settings-tab-panel agent-settings');
   if (!settings) {
     const waiting = block('Agent 配置');
@@ -705,14 +710,14 @@ export function renderAgentSettings(settings, repaint, { ownsPage = () => true }
   const summary = el('p', undefined, 'agent-default-summary'); summary.setAttribute('role', 'status');
   content.append(intro, summary);
   content.append(packagesManager(ownsPage));
-  content.append(profileEditor(settings, settings.default, 'default', '默认 Agent', '所有未单独配置的 Worker 行为都继承这里。', repaint, ownsPage, summary));
+  content.append(profileEditor(settings, settings.default, 'default', '默认 Agent', '所有未单独配置的 Worker 行为都继承这里。', repaint, ownsPage, summary, names));
 
   const roles = block('按 Worker 行为覆盖'); roles.classList.add('agent-roles-block');
   roles.append(el('p', '只为需要不同模型、思考深度或工作方式的行为建立覆盖；其余保持继承，后续调整默认值时会一起更新。', 'settings-note settings-section-note'));
   const list = el('div', undefined, 'agent-role-list');
   for (const item of settings.options.roles.filter(item => item.id === 'agent')) {
-    if (settings.roles[item.id]) list.append(profileEditor(settings, settings.roles[item.id], item.id, item.label, `仅用于 ${item.id} 角色。`, repaint, ownsPage));
-    else list.append(inheritedRole(settings, item.id, repaint));
+    if (settings.roles[item.id]) list.append(profileEditor(settings, settings.roles[item.id], item.id, item.label, `仅用于 ${item.id} 角色。`, repaint, ownsPage, null, names));
+    else list.append(inheritedRole(settings, item.id, repaint, names));
   }
   const advanced = el('details', undefined, 'agent-config-advanced');
   advanced.append(el('summary', '高级配置：Agent 环境变量'), environmentEditor(settings, repaint));

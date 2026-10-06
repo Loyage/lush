@@ -28,19 +28,25 @@ export function canClearOverride(task) {
 }
 
 /** Runtime binding is authoritative; old backends can fall back to a same-run connection event. */
-export function modelSourceSummary(task, history = []) {
+export function modelSourceSummary(task, history = [], connections = null) {
   const node = el('div', undefined, 'worker-model-source-summary');
+  // 来源只显示用户自己命名的名称；列表未提供或已删除时回退到连接 ID，不猜测。
+  const names = new Map();
+  for (const row of Array.isArray(connections) ? connections : []) {
+    if (typeof row?.id === 'string' && typeof row?.label === 'string' && row.label.trim()) names.set(row.id, row.label.trim());
+  }
+  const sourceName = id => names.get(id) || id;
   let current = task.agent?.active ? '未知（缺少当前调用的来源绑定证据）' : '无进行中的调用';
   if (task.agent?.active && Object.hasOwn(task.agent, 'connection_id')) {
     // An explicit null also matters: parked/aborted/ended invocations have no active binding.
-    if (UUID.test(task.agent.connection_id)) current = `${task.agent.connection_id} · ${task.agent.model || '模型未知'}`;
+    if (UUID.test(task.agent.connection_id)) current = `${sourceName(task.agent.connection_id)} · ${task.agent.model || '模型未知'}`;
   } else if (task.agent?.active) {
     const run = [...(task.runs || [])].filter(row => row.status === 'running').sort((a, b) => b.id - a.id)[0];
     for (const event of Array.isArray(history) ? history : []) {
       if (!run || event.type !== 'invocation.connection' || event.task_id !== task.id) continue;
       try {
         const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
-        if (data?.run_id === run.id && UUID.test(data.connection_id)) current = `${data.connection_id} · ${data.model || '模型未知'}`;
+        if (data?.run_id === run.id && UUID.test(data.connection_id)) current = `${sourceName(data.connection_id)} · ${data.model || '模型未知'}`;
       } catch { /* Missing or malformed history is not binding evidence. */ }
     }
   }
@@ -50,7 +56,7 @@ export function modelSourceSummary(task, history = []) {
   node.append(el('p', next && nextConfigMode(task) === 'pi'
     ? `下一次配置：Pi 默认配置（执行机器的 Pi 自行决定来源与模型）· ${next.explicit ? 'Worker 独立覆盖' : '继承项目 / 角色配置'}`
     : next
-      ? `下一次配置：${next.agent} → ${next.connection_id || (next.agent === 'pi' ? '未选择来源（不会回退外部 Pi）' : 'Codex CLI 自身认证')} → ${next.model || '未指定模型'} · ${next.explicit ? 'Worker 独立覆盖' : '继承项目 / 角色配置'}`
+      ? `下一次配置：${next.agent} → ${next.connection_id ? sourceName(next.connection_id) : (next.agent === 'pi' ? '未选择来源（不会回退外部 Pi）' : 'Codex CLI 自身认证')} → ${next.model || '未指定模型'} · ${next.explicit ? 'Worker 独立覆盖' : '继承项目 / 角色配置'}`
       : '下一次配置：未知（后台未提供安全模型选择摘要）', 'hint'));
   return node;
 }
