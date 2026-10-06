@@ -1,13 +1,17 @@
 import { el } from './dom.js';
 import { tokens } from './format.js';
 
-/** Show the two largest adjacent units, truncating smaller units. */
+/** Show every unit from the largest nonzero unit down to seconds. */
 function compactRuntime(milliseconds) {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
-  if (seconds >= 86400) return `${Math.floor(seconds / 86400)}d${Math.floor(seconds % 86400 / 3600)}h`;
-  if (seconds >= 3600) return `${Math.floor(seconds / 3600)}h${Math.floor(seconds % 3600 / 60)}m`;
-  if (seconds >= 60) return `${Math.floor(seconds / 60)}m${seconds % 60}s`;
-  return `${seconds}s`;
+  const parts = [
+    [Math.floor(seconds / 86400), 'd'],
+    [Math.floor(seconds % 86400 / 3600), 'h'],
+    [Math.floor(seconds % 3600 / 60), 'm'],
+    [seconds % 60, 's'],
+  ];
+  const first = parts.findIndex(([value]) => value > 0);
+  return parts.slice(first < 0 ? -1 : first).map(([value, unit]) => `${value} ${unit}`).join(' ');
 }
 
 /** Only backend lifetime summaries are authoritative, never the visible forest. */

@@ -43,7 +43,7 @@ test('资源消耗在两种模式显示自身，折叠显示后端完整子树�
   renderTaskGraph(graph);
   let summary = card(1).querySelector('.task-graph-usage');
   expect(summary.children[0].className).toContain('task-graph-usage-runtime');
-  expect(summary.children[0].textContent).toBe('1h1m');
+  expect(summary.children[0].textContent).toBe('1 h 1 m 1 s');
   expect(deepText(summary)).toContain('↑121.0k');
   expect(deepText(summary)).toContain('↓18.0k');
   expect(deepText(summary)).toContain('$2.24');
@@ -61,7 +61,7 @@ test('资源消耗在两种模式显示自身，折叠显示后端完整子树�
   summary = card(1).querySelector('.task-graph-usage');
   expect(summary.classList.contains('is-aggregate')).toBe(true);
   expect(summary.classList.contains('is-live')).toBe(true);
-  expect(summary.querySelector('.task-graph-usage-runtime').textContent).toBe('2h2m');
+  expect(summary.querySelector('.task-graph-usage-runtime').textContent).toBe('2 h 2 m 2 s');
   expect(deepText(summary)).toContain('$4.48');
   expect(summary.getAttribute('data-help')).toContain('图外节点');
   enableDetails();
@@ -79,12 +79,14 @@ test('资源消耗在两种模式显示自身，折叠显示后端完整子树�
   expect(card(2).querySelector('.task-graph-usage').classList.contains('is-live')).toBe(false);
 });
 
-test('Worker 树时长不带运行前缀，使用至多两段相邻单位并截断更小单位', () => {
+test('Worker 树时长省略前导零单位，最高单位以下全量显示且数字与单位间有空格', () => {
   const cases = [
-    [0, '0s'], [-1000, '0s'], [999, '0s'], [1000, '1s'], [59999, '59s'],
-    [60000, '1m0s'], [61000, '1m1s'], [3599999, '59m59s'],
-    [3600000, '1h0m'], [3661000, '1h1m'], [86399999, '23h59m'],
-    [86400000, '1d0h'], [93784000, '1d2h'], [900000000, '10d10h'],
+    [0, '0 s'], [-1000, '0 s'], [999, '0 s'], [1000, '1 s'], [59999, '59 s'],
+    [60000, '1 m 0 s'], [61000, '1 m 1 s'], [3599999, '59 m 59 s'],
+    [3600000, '1 h 0 m 0 s'], [3605000, '1 h 0 m 5 s'],
+    [3661000, '1 h 1 m 1 s'], [86399999, '23 h 59 m 59 s'],
+    [86400000, '1 d 0 h 0 m 0 s'], [86401000, '1 d 0 h 0 m 1 s'],
+    [93784000, '1 d 2 h 3 m 4 s'], [900000000, '10 d 10 h 0 m 0 s'],
     [NaN, '—'], [Infinity, '—'], [undefined, '—'],
   ];
   for (const [run_ms, expected] of cases) {

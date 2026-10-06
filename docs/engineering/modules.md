@@ -102,7 +102,7 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 `worker.graph` 每个节点新增 `resources:{own,subtree}`（读取失败为 null）；两个摘要均为 `{input,output,cost,run_ms,unknown_tokens,unknown_cost,incomplete,running}`。input 包含缓存读取与写入，output 不重复加 reasoning，cost 是会话报告的美元估算，run_ms 是各轮 `agent_runs` 的累计工作时长（未结束的 run 算到本次读取时刻，不含等待）；无请求为零，缺失费用/token 或不完整记录必须明示未知。完整会话扫描复用 `core/usage-statistics.js` 的签名缓存与单飞，不用 transcript 的 8 MiB 窗口或 attribution 的 100 组截断；显式属于其它 Worker 的 fork 上下文不重复计费。subtree 按完整 tasks 的真实 parent_id 累加（含归档、筛选及图外后代），running 为其范围内是否有 running Worker；Codex 只有线程元数据且无用量行时不可假造消耗。
 
-两种展示模式均由 `task-graph-usage.js` 渲染：展开显示 own，收拢有子树的节点显示加粗 subtree；顺序为运行时间、输入绿、输出红、费用主题正文色；运行时间不带“运行”前缀，按至多两段相邻单位简写（`1d2h` / `3h4m` / `5m6s`，不足一分钟为 `7s`），截断更小单位，整组排在合并状态标签之前（极简模式在第二行）。范围内 running 才闪烁，静息、排队、暂停、停止不闪烁，遵循系统与应用减少动效设置。无新 RPC、持久化或 Agent 调用。
+两种展示模式均由 `task-graph-usage.js` 渲染：展开显示 own，收拢有子树的节点显示加粗 subtree；顺序为运行时间、输入绿、输出红、费用主题正文色；运行时间不带“运行”前缀，从最高非零单位到秒全量显示，省略前导零单位，数字与 `d` / `h` / `m` / `s` 之间留空格（`1 d 2 h 3 m 4 s` / `3 h 0 m 5 s` / `5 m 6 s`，不足一分钟为 `7 s`，零时长为 `0 s`），整组排在合并状态标签之前（极简模式在第二行）。范围内 running 才闪烁，静息、排队、暂停、停止不闪烁，遵循系统与应用减少动效设置。无新 RPC、持久化或 Agent 调用。
 
 ### Worker 图合并关系读面接缝
 
