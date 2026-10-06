@@ -253,6 +253,7 @@ export default {
     check(!this.clearing, 'clear is already in progress');
     check(!this.sleepStatus().enabled && !this.sleepTickPromise, '请先关闭托管模式并等待管家操作结束，再清空项目');
     check(this.running.size === 0, 'an agent invocation is still unwinding; clear must wait');
+    check(this.introRunning.size === 0, 'a model explanation request is still running; clear must wait');
     check(this.store.activeBranchMergeRuns().length === 0, 'a one-click merge is in progress; finish or cancel it before clearing');
     check(this.workspaces.busy.size === 0, 'worktree cleanup is in progress; clear must wait');
     check(!this.taskSyncBusy?.size, 'Worker parent synchronization is in flight; clear must wait');
@@ -387,7 +388,8 @@ export default {
       for (const task of this.store.tasks()) if (task.interrupt_state === 'requested')
         this.store.update(task.id, { status: 'paused', interrupt_state: null });
     });
-    // Historical quick-intro rows are retained unchanged; the feature is no longer resumed.
+    // Never replay model requests. New-style interrupted explanations fail; historical rows remain unchanged.
+    this.store.quickExplanationFailRunning('项目后台曾中断，本次解释未完成，请重新发起');
     this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging' AND task_kind IN ('order','say','child')");
     this.recoverTaskDeliveries();
     // Older retries discarded a withdrawn booking while leaving the source under its queue.

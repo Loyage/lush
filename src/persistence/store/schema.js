@@ -194,7 +194,7 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
       CREATE TABLE IF NOT EXISTS introductions (
         id INTEGER PRIMARY KEY, task_id INTEGER, quote TEXT NOT NULL, location TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'running', result TEXT, error TEXT,
-        base_url TEXT, model TEXT,
+        base_url TEXT, model TEXT, source_snapshot TEXT,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS introductions_task ON introductions(task_id, id);

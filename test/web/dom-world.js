@@ -121,6 +121,9 @@ export function makeWorld() {
     // 快速介绍：/api/intro/config 与 /api/worker/:id/intros、/api/intro/:id。
     // Task 详情归档按钮的读模型投影：测试可设 state.branchArchive 让任务 #1 带 branch_archive。
     branchArchive: null,
+    quickExplanations: new Map(), quickExplanationSeq: 0,
+    quickExplanationConfig: { version: 1, connection_id: null, model: '', prompt: '请简洁解释所选文字。',
+      default_prompt: '请简洁解释所选文字。', ready: false, reason: '请选择解释的模型来源与模型。' },
     intros: new Map(), introSeq: 0,
     introConfig: { file: '/tmp/demo/.lush/quick-intro.json', base_url: '', model: '', has_key: false, key_hint: '', ready: false },
     // 一条已冻结、等待验收的 Review Candidate（挂到 Intent #2 上）。
@@ -357,6 +360,22 @@ export function makeWorld() {
         state.explanations.set(id, explanation);
         return json(explanation);
       }
+      if (body.method === 'quick_explain.configure') {
+        const patch = body.params.config || {};
+        const next = { ...state.quickExplanationConfig, ...patch };
+        next.prompt = patch.prompt || next.default_prompt;
+        next.ready = Boolean(next.connection_id && next.model); next.reason = next.ready ? null : '请选择解释的模型来源与模型。';
+        state.quickExplanationConfig = next; return json(next);
+      }
+      if (body.method === 'quick_explain.start') {
+        const id = ++state.quickExplanationSeq, config = state.quickExplanationConfig;
+        const source = state.agentConnections.connections.find(row => row.id === config.connection_id);
+        const record = { id, status: 'completed', result: '这是对所选文字的快捷解释示例。', error: null,
+          quote: body.params.quote, location: body.params.location, model: config.model, prompt: config.prompt,
+          source: source ? { connection_id: source.id, label: source.label, provider: source.provider, endpoint: source.endpoint } : null,
+          created_at: iso(NOW), updated_at: iso(NOW) };
+        state.quickExplanations.set(id, record); return json(record);
+      }
       if (body.method === 'intro.configure') {
         const patch = body.params.config || {};
         const next = { ...state.introConfig };
@@ -388,6 +407,19 @@ export function makeWorld() {
       return json({});
     }
     let match;
+    if (path === '/api/quick-explain/config') return json(state.quickExplanationConfig);
+    if (path.startsWith('/api/quick-explain/history')) {
+      const query = new URL(path, 'http://world.test').searchParams;
+      const before = Number(query.get('before') || '0'), limit = Number(query.get('limit') || '30');
+      const records = [...state.quickExplanations.values()].filter(row => !before || row.id < before).sort((a, b) => b.id - a.id);
+      const rows = records.slice(0, limit).map(({ result, prompt, error, source, ...row }) => ({ ...row, quote: row.quote.slice(0, 180) }));
+      return json({ explanations: rows, has_more: records.length > limit, next: rows.at(-1)?.id ?? null });
+    }
+    match = /^\/api\/quick-explain\/(\d+)$/.exec(path);
+    if (match) {
+      const record = state.quickExplanations.get(Number(match[1]));
+      return record ? json(record) : { ok: false, status: 404, json: async () => ({ error: 'explanation not found' }) };
+    }
     if (path === '/api/intro/config') return json(state.introConfig);
     match = /^\/api\/intro\/(\d+)$/.exec(path);
     if (match) {

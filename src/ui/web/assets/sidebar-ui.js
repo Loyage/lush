@@ -15,6 +15,7 @@ const PAGES = {
   settings: ['系统设置', '其他', '界面偏好、运行参数与系统状态'],
   'agent-status': ['Agent 配置', '其他', '执行后端、模型来源、Prompt 与工作方式'],
   'model-sources': ['模型来源', '其他', '项目 API、账号登录、模型范围与余额额度'],
+  'quick-explain': ['快捷解释', '其他', '选区解释 · 模型来源与 Prompt · 项目历史'],
   docs: ['帮助文档', '其他', '使用流程、架构与接口参考'],
 };
 function node(id) { return globalThis.document?.getElementById?.(id) ?? null; }
@@ -35,7 +36,7 @@ export function setViewChrome(title, context = '项目', hint = '', { root = fal
 /** 页面身份是唯一导航状态；旧读标记在此统一投影，面板不得各自设置。 */
 function activate(id, { key = id, title, context, hint, push = true, hash } = {}) {
   const changed = ui.view?.key !== key;
-  if (changed) { ui.view = { id, key }; ui.composerTask = null; ui.composerError = null; }
+  if (changed) { ui.closeQuickExplanationPanel?.(); ui.view = { id, key }; ui.composerTask = null; ui.composerError = null; }
   const resource = RESOURCE_META.get(id);
   ui.indexOpen = resource ? id : null;
   ui.docsOpen = id === 'docs';

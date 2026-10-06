@@ -2,8 +2,9 @@ import { $, button, el } from './dom.js';
 import { show } from './messages.js';
 import { detail, resource } from './navigate.js';
 import { transcriptOpen, ui } from './state.js';
-import { startExplanation, startIntro } from './explanations.js';
-import { agentHelp, modelHelp } from './help.js';
+import { startQuickExplanation } from './quick-explanation.js';
+import { modelHelp } from './help.js';
+import { workbenchStatus } from './project-picker.js';
 
 const MAX_REFERENCES = 12;
 const MAX_QUOTE = 8192;
@@ -18,7 +19,7 @@ const inside = (node, target) => { for (let at = node; at; at = parentOf(at)) if
 const excluded = node => {
   for (let at = node; at; at = parentOf(at)) {
     const tag = String(at.tagName || '').toLowerCase();
-    if (['textarea','input','select','option'].includes(tag)) return true;
+    if (['textarea','input','select','option'].includes(tag) || at.isContentEditable || at.getAttribute?.('contenteditable') === 'true') return true;
     if (at.id === 'project-gate' || at.id === 'context-menu' || hasClass(at, 'composer') || hasClass(at, 'context-menu')) return true;
   }
   return false;
@@ -28,9 +29,9 @@ const inPage = node => {
   const main = typeof document?.querySelector === 'function' ? document.querySelector('main') : null;
   return !main || inside(node, main);
 };
-const pageLocation = extra => ({ view: ui.view?.id === 'task-graph' ? 'task-graph' : ui.docsOpen ? 'docs' : ui.settingsOpen ? 'settings'
+const pageLocation = extra => ({ view: ui.view?.id || (ui.docsOpen ? 'docs' : ui.settingsOpen ? 'settings'
   : ui.statisticsOpen ? 'statistics'
-  : ui.indexOpen ? `${ui.indexOpen}-index` : ui.selected === null ? 'overview' : 'task-detail',
+  : ui.indexOpen ? `${ui.indexOpen}-index` : ui.selected === null ? 'overview' : 'task-detail'),
   ...(ui.selected === null ? {} : { task_id: ui.selected }), ...extra });
 const referenceKey = value => `${value.kind}:${JSON.stringify(value.target || {})}:${value.quote}`;
 
@@ -240,6 +241,8 @@ function showMenu(event, values, introduce = null) {
   const width = Number(globalThis.innerWidth || 0), height = Number(globalThis.innerHeight || 0);
   const left = width ? Math.min(event.clientX ?? 0, Math.max(8, width - 370)) : (event.clientX ?? 0);
   const top = height ? Math.min(event.clientY ?? 0, Math.max(8, height - 260)) : (event.clientY ?? 0);
+  // Keep the source selection intact when clicking an action with the mouse.
+  menu.onmousedown = event => event.preventDefault?.();
   menu.style.left = `${Math.max(8, left)}px`; menu.style.top = `${Math.max(8, top)}px`; menu.hidden = false;
   event.preventDefault?.();
 }
@@ -249,8 +252,13 @@ function onContextMenu(event) {
   const generic = genericReference(event.target);
   const values = selected ? [selected, ...semantic] : [...semantic];
   if (generic && !values.some(value => value.kind === 'text' && value.quote === generic.quote)) values.push(generic);
-  // Selection still supports Task references, but retired explanation actions are hidden.
-  if (values.length) showMenu(event, values); else hideMenu();
+  // Only an actual selection can trigger a model call. References retain their bounded snapshot,
+  // while explanation receives the full selected text and rejects oversize instead of truncating it.
+  const quote = selected ? String(window.getSelection()?.toString?.() || '').trim() : '';
+  const introduce = selected && workbenchStatus().projectUsable ? { label: '解释',
+    help: modelHelp('只将所选文字与页面位置发送给快捷解释配置中的 API，结果保存在当前项目历史；不创建 Worker'),
+    run: () => startQuickExplanation(quote, selected.location) } : null;
+  if (values.length) showMenu(event, values, introduce); else hideMenu();
 }
 function onClick(event) { if (!inside(event.target, $('context-menu'))) hideMenu(); }
 function onKeydown(event) { if (event.key === 'Escape') hideMenu(); }

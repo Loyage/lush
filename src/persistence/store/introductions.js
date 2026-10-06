@@ -2,6 +2,24 @@
 export const introductions = {
   intro(rowId) { return this.get('SELECT * FROM introductions WHERE id=?', rowId); },
 
+  quickExplanationCreate({ quote, location, model, source, prompt }) {
+    const id = Number(this.run(`INSERT INTO introductions(task_id,quote,location,status,base_url,model,source_snapshot)
+      VALUES (?,?,?,'running',?,?,?)`, location.task_id ?? null, quote, JSON.stringify(location), source.endpoint, model,
+    JSON.stringify({ version: 1, source, prompt })).lastInsertRowid);
+    return this.intro(id);
+  },
+
+  quickExplanationList(before = null, limit = 31) {
+    return this.all(`SELECT id,status,substr(quote,1,180) AS quote,model,location,created_at,updated_at
+      FROM introductions ${before === null ? '' : 'WHERE id<?'} ORDER BY id DESC LIMIT ?`,
+    ...(before === null ? [limit] : [before, limit]));
+  },
+
+  quickExplanationFailRunning(reason) {
+    return this.run(`UPDATE introductions SET status='failed',error=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE status='running' AND source_snapshot IS NOT NULL`, reason).changes;
+  },
+
   introCreate({ taskId = null, quote, location, baseUrl = '', model = '' }) {
     const id = Number(this.run(`INSERT INTO introductions(task_id,quote,location,status,base_url,model)
       VALUES (?,?,?,'running',?,?)`, taskId, quote, JSON.stringify(location), baseUrl, model).lastInsertRowid);

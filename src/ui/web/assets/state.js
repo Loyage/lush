@@ -28,6 +28,7 @@ export const ui = {
   statisticsOpen: false, statisticsFilters: null,
   agentStatusPage: null, // 页面与查询身份；仅进入 Agent 状态和手动刷新时取数。
   versionsPage: null, // main 历史固定 tip、分页与请求身份；仅显式读取。
+  quickExplanationPage: null, closeQuickExplanationPanel: null, // 项目解释页身份与阅读浮层清理接缝。
   inputsPage: null, // 全库输入搜索、分页与本地编辑；不受 overview 轮询影响。
   hooksPage: null, hookCatalogue: null, hookCataloguePending: null,
   composerParents: [], composerIdentity: null, composerTask: null, composerError: null, syncComposer: null, composerEditRevision: 0, composerReferenceRevision: 0,
@@ -82,6 +83,7 @@ export const mergeSelection = new Set();
  * 上一个文件留下的哨兵（signature）会让新 DOM 上的第一次轮询直接 return，什么都不画。
  */
 export function resetUiState() {
+  ui.quickExplanationPage = null;
   ui.view = null; ui.inputsPage = null; ui.hooksPage = null; ui.hookCatalogue = null; ui.hookCataloguePending = null; ui.deletedWorkerIds = new Set(); ui.workerNumbers = new Map();
   ui.composerParents = []; ui.composerIdentity = null; ui.composerTask = null; ui.composerError = null; ui.syncComposer = null; ui.composerEditRevision = 0; ui.composerReferenceRevision = 0;
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;

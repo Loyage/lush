@@ -23,6 +23,7 @@ import branchesMethods from './project/branches.js';
 import verifyMethods from './project/verify.js';
 import explanationMethods from './project/explanations.js';
 import introMethods from './project/intro.js';
+import quickExplanationMethods from './project/quick-explanation.js';
 import candidateMethods from './project/candidates.js';
 import integrationMethods from './project/integration.js';
 import transcriptMethods from './project/transcript.js';
@@ -50,7 +51,7 @@ const MIXINS = [
   ['sleep', sleepMethods], ['status', statusMethods], ['agents', agentMethods], ['deps', depsMethods], ['inputs', inputsMethods], ['order', orderMethods], ['drafts', draftsMethods], ['references', referencesMethods],
   ['specs', specsMethods], ['plans', plansMethods], ['tasks', tasksMethods], ['progress', progressMethods], ['tree', treeMethods],
   ['timeline', timelineMethods], ['messages', messagesMethods], ['merge', mergeMethods], ['mergeQueue', mergeQueueMethods], ['mergeAll', mergeAllMethods], ['orchestrate', orchestrateMethods], ['verify', verifyMethods],
-  ['explanations', explanationMethods], ['intro', introMethods], ['candidates', candidateMethods], ['integration', integrationMethods], ['graph', graphMethods], ['branches', branchesMethods],
+  ['explanations', explanationMethods], ['intro', introMethods], ['quickExplanation', quickExplanationMethods], ['candidates', candidateMethods], ['integration', integrationMethods], ['graph', graphMethods], ['branches', branchesMethods],
   ['hooks', hookMethods], ['deletion', deletionMethods], ['inputHistory', inputHistoryMethods], ['agentPackages', agentPackagesMethods], ['versionHistory', historyMethods], ['code', codeMethods], ['transcript', transcriptMethods], ['settings', settingMethods], ['context', contextMethods], ['scheduling', schedulingMethods], ['lifecycle', lifecycleMethods], ['taskSync', taskSyncMethods], ['iteration', iterationMethods],
 ];
 

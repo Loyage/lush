@@ -29,9 +29,10 @@ function assetFile(pathname) {
   if (!ASSET_NAME.test(name) || !ASSET_EXTENSIONS.has(path.extname(name))) return null;
   return path.join(ASSETS, name);
 }
-const MUTATIONS = new Set(['agent.network.configure','agent.configure','agent.environment.configure','agent.usage.configure','agent.connections.save','agent.connections.remove','agent.connections.sampling','agent.connections.query','agent.connections.models.refresh','agent.connections.login.start','agent.connections.login.finish','agent.connections.device.start','agent.connections.device.poll','agent.connections.device.cancel','agent.packages.install','agent.packages.remove','agent.packages.update','system.configure','hooks.save','hooks.remove','worker.hook_attach','worker.hook_update','worker.hook_remove','order.submit','draft.add','draft.update','draft.remove','worker.spawn','worker.message','worker.auto_merge','worker.reserve','worker.reserve_all','worker.resolve','worker.accept','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.resolve_divergence','worker.unreserve','worker.approve_merge','worker.cancel','worker.retry','worker.clear_override','worker.interrupt','worker.resume','worker.configure','worker.cleanup','worker.delete','notice.answer','notice.dismiss','notice.read','branch.archive']);
+const MUTATIONS = new Set(['quick_explain.configure','quick_explain.start','agent.network.configure','agent.configure','agent.environment.configure','agent.usage.configure','agent.connections.save','agent.connections.remove','agent.connections.sampling','agent.connections.query','agent.connections.models.refresh','agent.connections.login.start','agent.connections.login.finish','agent.connections.device.start','agent.connections.device.poll','agent.connections.device.cancel','agent.packages.install','agent.packages.remove','agent.packages.update','system.configure','hooks.save','hooks.remove','worker.hook_attach','worker.hook_update','worker.hook_remove','order.submit','draft.add','draft.update','draft.remove','worker.spawn','worker.message','worker.auto_merge','worker.reserve','worker.reserve_all','worker.resolve','worker.accept','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.resolve_divergence','worker.unreserve','worker.approve_merge','worker.cancel','worker.retry','worker.clear_override','worker.interrupt','worker.resume','worker.configure','worker.cleanup','worker.delete','notice.answer','notice.dismiss','notice.read','branch.archive']);
 const CORE_INPUT_READ = /^\/api\/input\/(draft|input)\/([1-9]\d*)$/;
-const CORE_READS = new Set(['/api/hooks','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/notices','/api/worker-graph','/api/versions','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
+const CORE_QUICK_EXPLAIN_READ = /^\/api\/quick-explain\/[1-9]\d*$/;
+const CORE_READS = new Set(['/api/quick-explain/config','/api/quick-explain/history','/api/hooks','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/notices','/api/worker-graph','/api/versions','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
 const CORE_WORKER_READ = /^\/api\/worker\/\d+(?:\/(?:hooks|history|history-page|delete-preview|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的 Worker 读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/worker\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
@@ -141,7 +142,7 @@ function remoteProjectGet(pathname) {
   return CORE_READS.has(pathname) && !pathname.startsWith('/api/docs')
     || CORE_WORKER_READ.test(pathname) && !pathname.endsWith('/report')
       && !CORE_NOTICE_PREVIEW.test(pathname)
-    || CORE_INPUT_READ.test(pathname);
+    || CORE_INPUT_READ.test(pathname) || CORE_QUICK_EXPLAIN_READ.test(pathname);
 }
 
 async function boundedRemoteJson(origin, pathname, request = null) {
@@ -451,7 +452,7 @@ export function startWeb(config, port = 4318, options = {}) {
           return json(await restartProjectDaemon(binding.config));
         }
         if (request.method === 'GET') {
-          if (url.pathname.startsWith('/api/') && !CORE_READS.has(url.pathname) && !CORE_WORKER_READ.test(url.pathname) && !CORE_INPUT_READ.test(url.pathname) && !CORE_NOTICE_PREVIEW.test(url.pathname) && !CORE_DOC_READ.test(url.pathname))
+          if (url.pathname.startsWith('/api/') && !CORE_READS.has(url.pathname) && !CORE_WORKER_READ.test(url.pathname) && !CORE_INPUT_READ.test(url.pathname) && !CORE_NOTICE_PREVIEW.test(url.pathname) && !CORE_DOC_READ.test(url.pathname) && !CORE_QUICK_EXPLAIN_READ.test(url.pathname))
             return json({ error: 'not found' }, 404);
           if (url.pathname === '/api/sleep') return json(await client.request('sleep.status'));
           if (url.pathname === '/api/sleep/choices') return json(await client.request('sleep.choices', {
@@ -478,6 +479,22 @@ export function startWeb(config, port = 4318, options = {}) {
               params[key] = key === 'limit' ? Number(value) : value;
             }
             return json(await client.request('input.history', params));
+          }
+          if (url.pathname === '/api/quick-explain/config') {
+            check(!url.search, 'explanation config accepts no query parameters');
+            return json(await client.request('quick_explain.config'));
+          }
+          if (url.pathname === '/api/quick-explain/history') {
+            const params = {};
+            for (const [key, value] of url.searchParams) {
+              check(['before','limit'].includes(key) && !(key in params), 'unknown or duplicate explanation history query parameter');
+              params[key] = id(value);
+            }
+            return json(await client.request('quick_explain.list', params));
+          }
+          if (CORE_QUICK_EXPLAIN_READ.test(url.pathname)) {
+            check(!url.search, 'explanation detail accepts no query parameters');
+            return json(await client.request('quick_explain.get', { id: id(url.pathname.split('/').at(-1)) }));
           }
           if (url.pathname === '/api/hooks') {
             check(!url.search, 'Hooks list accepts no query parameters');

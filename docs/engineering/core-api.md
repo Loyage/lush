@@ -55,10 +55,14 @@ Input（原始输入）、历史输入、Draft（暂存）仍是各自的实体�
 
 服务维护另有用户专属的 `system.stop_if_idle {}`：daemon 同步拒绝有活动调用或 Git/合并工作的重启请求，准入后封闭新调度并正常停止。Host 的项目重启入口负责等待退出、启动新进程；Host 自身重启独立进行，不停止项目。完整 HTTP 与返回字段见[服务重启](../reference/web-routes.md#服务重启)。
 
+## 快捷解释
+
+新增用户专属 `quick_explain.config/configure/start/get/list`，仅用于项目内所选文字的直连模型阅读辅助，不创建 Worker、Input、分支或 Agent invocation。来源复用现有受支持 Chat Completions API Key 连接；独立设置与全历史页为 `#quick-explain`。旧 `intro.*` / `explanation.*` 仍无公开入口，不恢复旧解释 Agent。配置、历史与安全边界见[快捷解释契约](quick-explanation.md)。
+
 ## 移除与磁盘边界
 
-Intent / Plan / Candidate、旧批量草稿提交、快速路由、展示、解释、托管、旧合并编排与旧Worker创建不再有公开 RPC、CLI 或 Web 操作入口。旧行、会话与工作区不迁移、不自动删除；仅用户明确确认 `worker.delete` 才按资源归属清除所选范围。旧排队Worker和预约不会自动启动或重放。已有历史记录可能不能由新版本继续收尾。内部旧实现及旧测试尚未全部移除，不能把公开白名单当作已完成的物理删码证明。
+Intent / Plan / Candidate、旧批量草稿提交、快速路由、展示、旧解释 Agent、托管、旧合并编排与旧Worker创建不再有公开 RPC、CLI 或 Web 操作入口。旧行、会话与工作区不迁移、不自动删除；仅用户明确确认 `worker.delete` 才按资源归属清除所选范围。旧排队Worker和预约不会自动启动或重放。已有历史记录可能不能由新版本继续收尾。内部旧实现及旧测试尚未全部移除，不能把公开白名单当作已完成的物理删码证明。
 
-Web 保留原 Studio 的项目选择、侧栏、Worker 图、Worker详情、执行过程、设置与文档布局；概览改按 Worker 展示。旧 Intent/Plan、批量草稿、展示、解释与托管入口不再显示；新的「历史输入」与缓冲区只接当前指令路径。`/api/overview` 与 `/api/snapshot` 返回同一份有界的 Worker 核心读模型；`/api/docs` 仍只读随代码发布的文档。
+Web 保留原 Studio 的项目选择、侧栏、Worker 图、Worker详情、执行过程、设置与文档布局；概览改按 Worker 展示。旧 Intent/Plan、批量草稿、展示、旧解释 Agent 与托管入口不再显示；新的「历史输入」与缓冲区只接当前指令路径。`/api/overview` 与 `/api/snapshot` 返回同一份有界的 Worker 核心读模型；`/api/docs` 仍只读随代码发布的文档。
 
 变更 API 时必须同步 RPC 参数与权限表、Web 写白名单和只读路由、CLI 帮助、Agent 提示词及新的 Worker 中心测试；不能仅隐藏 UI 按钮。

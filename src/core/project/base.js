@@ -2,6 +2,7 @@ import { Workspaces } from '../workspaces.js';
 import { AgentProvider, MockProvider } from '../../agent/provider.js';
 import { AgentSettings } from '../../agent/settings.js';
 import { QuickIntroSettings } from '../quick-intro.js';
+import { QuickExplanationSettings } from '../quick-explanation.js';
 import { AgentUsageService } from '../agent-usage.js';
 import { AgentConnectionsService } from '../agent-connections.js';
 import { AgentSelectionService } from '../agent-selection.js';
@@ -15,6 +16,8 @@ export class ProjectBase {
     this.config = config; this.store = store;
     this.agentSettings = new AgentSettings(config);
     this.quickIntro = new QuickIntroSettings(config);
+    this.quickExplanationSettings = new QuickExplanationSettings(config);
+    this.quickExplanationOptions = options.quickExplanation ?? {};
     this.provider = provider || (config.provider === 'mock' ? new MockProvider() : new AgentProvider(config, this.agentSettings));
     this.workspaces = new Workspaces(config, store);
     // 运行设置（并发上限）写盘后由 Config 回调这里重新 pump。

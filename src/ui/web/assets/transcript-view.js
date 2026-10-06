@@ -17,7 +17,7 @@ export function closeTranscriptView() {
   state.code?.dispose();
   releaseTranscriptReader(state.taskId);
   removeEventListener('hashchange', state.onNavigate);
-  if (state.panel.querySelector('.reading-panel')) closeExplanationPanel();
+  if (state.panel.querySelector('.reading-panel')) { closeExplanationPanel(); ui.closeQuickExplanationPanel?.(); }
   if (state.menu) { state.menu.hidden = true; (state.menuParent || document.body).append(state.menu); }
   state.panel.close?.(); state.panel.remove();
   $('project-app').inert = state.wasInert;

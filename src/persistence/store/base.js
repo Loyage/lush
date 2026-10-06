@@ -13,6 +13,7 @@ const ADDED_COLUMNS = {
   tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile', 'task_kind', 'reservation', 'iteration_base_commit', 'auto_merge', 'interrupt_state', 'hooks', 'worker_number'],
   agent_runs: ['model', 'thinking'],
   notices: ['read_at'],
+  introductions: ['source_snapshot'],
 };
 function addMissingColumns(db) {
   for (const [table, columns] of Object.entries(ADDED_COLUMNS)) {
