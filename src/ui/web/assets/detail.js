@@ -25,7 +25,7 @@ export async function loadDetail(taskId) {
       // agent 用量（模型、上下文、花费）来自 pi 会话记录：读不到会话不影响详情其余部分。
       api(`/api/worker/${taskId}/usage`).catch(() => null),
       // 连接名称用于把“当前调用来源”显示成用户自己命名的名字；本地读取，读不到就回退连接 ID。
-      api('/api/agent/connections').catch(() => null),
+      api('/api/agent/connections').then(value => value?.connections ?? null).catch(() => null),
     ]);
   } catch (error) {
     if (!current()) return;

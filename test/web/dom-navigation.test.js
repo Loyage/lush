@@ -307,3 +307,19 @@ test('前端 mock 只接受 worker HTTP/RPC，不保留 task 接口别名；响�
   const setting = await isolated.fetchImpl('/api/action', { body: JSON.stringify({ method: 'worker.auto_merge', params: { id: 1, enabled: true } }) });
   expect(await setting.json()).toMatchObject({ task_id: 1, auto_merge: { enabled: true } });
 });
+
+test('Worker 详情按本地连接列表显示来源名称，完整响应形状也能解开', async () => {
+  const original = world.state.agentConnections.connections;
+  const id = '44444444-4444-4444-8444-444444444444';
+  world.state.agentConnections.connections = [{ id, label: '我的订阅来源', provider: 'openai-compatible',
+    endpoint: 'https://models.example/v1', enabled: true, auth_type: 'api_key', models: [], credential: { status: 'configured' } }];
+  const base = await (await world.fetchImpl('/api/worker/1')).json();
+  intercept = (url, options) => url === '/api/worker/1' ? json({ ...base, task_kind: 'order',
+    model_selection: { agent: 'pi', connection_id: id, model: 'openai-compatible/model-1', thinking: '', explicit: true } }) : null;
+  try {
+    await detail(1);
+    const text = deepText(dom.node('detail'));
+    expect(text).toContain('下一次配置：pi → 我的订阅来源 → openai-compatible/model-1');
+    expect(text).not.toContain(id);
+  } finally { intercept = null; world.state.agentConnections.connections = original; }
+});

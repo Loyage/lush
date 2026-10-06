@@ -191,7 +191,7 @@ export function openAgentStatus() {
   }
   const loadConnections = () => {
     if (state.connections !== undefined) return Promise.resolve(state.connections);
-    return api('/api/agent/connections').then(value => { state.connections = value || null; return state.connections; })
+    return api('/api/agent/connections').then(value => { state.connections = Array.isArray(value?.connections) ? value.connections : null; return state.connections; })
       .catch(() => { state.connections = null; return null; });
   };
   const repaintSettings = config => {

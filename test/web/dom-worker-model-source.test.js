@@ -148,10 +148,10 @@ test('当前来源只取当前运行的绑定事件，不从下次选择或旧�
 
 test('调用来源显示用户命名的连接名称，未加载或已删除时回退连接 ID', () => {
   const worker = task({ agent: { active: true, connection_id: second, model: 'actual-model' } });
-  const named = deepText(modelSourceSummary(worker, [], connections));
+  const named = deepText(modelSourceSummary(worker, [], { version: 1, connections }));
   expect(named).toContain('当前调用来源：API 1 · actual-model');
   expect(named).not.toContain(second);
-  expect(deepText(modelSourceSummary(task(), [], connections))).toContain('下一次配置：pi → API 0');
+  expect(deepText(modelSourceSummary(task(), [], { version: 1, connections }))).toContain('下一次配置：pi → API 0');
   // 未提供或缺少名称时仍回退到连接 ID，不猜测另一个来源。
   expect(deepText(modelSourceSummary(worker, [], []))).toContain(`当前调用来源：${second} · actual-model`);
 });

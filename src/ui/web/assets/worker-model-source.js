@@ -32,7 +32,8 @@ export function modelSourceSummary(task, history = [], connections = null) {
   const node = el('div', undefined, 'worker-model-source-summary');
   // 来源只显示用户自己命名的名称；列表未提供或已删除时回退到连接 ID，不猜测。
   const names = new Map();
-  for (const row of Array.isArray(connections) ? connections : []) {
+  const rows = Array.isArray(connections) ? connections : (Array.isArray(connections?.connections) ? connections.connections : []);
+  for (const row of rows) {
     if (typeof row?.id === 'string' && typeof row?.label === 'string' && row.label.trim()) names.set(row.id, row.label.trim());
   }
   const sourceName = id => names.get(id) || id;

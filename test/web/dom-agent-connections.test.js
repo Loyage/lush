@@ -205,7 +205,7 @@ test('模型来源详情可设置默认模型与思考深度，保存后供运�
   field(p.node, 'default_model').value = 'deepseek-chat';
   const before = actions.length;
   await btn(p.node, '保存连接').onclick();
-  expect(actions).toHaveLength(before); expect(deepText(p.node)).toContain('默认模型必须在上方的模型 ID 范围内');
+  expect(actions).toHaveLength(before); expect(deepText(p.node)).toContain('默认模型必须在上方的模型列表内');
 });
 
 test('在模型来源页填写Codex列表，Worker运行设置直接选择保存的模型', async () => {
@@ -621,7 +621,7 @@ test('Agent 配置继承摘要显示连接名称而不是 UUID，缺少列表时
   const id = data.connections[1].id, label = data.connections[1].label;
   settings.default = { agent: 'pi', model: 'deepseek/x', connection_id: id, thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] };
   settings.roles = {}; settings.resolved = { ...settings.resolved, agent: { ...settings.default } };
-  const named = renderAgentSettings(settings, () => {}, { ownsPage: () => current, connections: data.connections });
+  const named = renderAgentSettings(settings, () => {}, { ownsPage: () => current, connections: { version: 1, connections: data.connections } });
   const summary = named.querySelector('[data-agent-target="agent"]');
   expect(deepText(summary)).toContain(`来源 ${label}`); expect(deepText(summary)).not.toContain(id);
   const fallback = renderAgentSettings(settings, () => {}, { ownsPage: () => current });

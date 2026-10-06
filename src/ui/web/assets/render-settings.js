@@ -696,7 +696,8 @@ function packagesManager(ownsPage) {
 /** Shared subpanel: its owner supplies configuration and an identity-guarded repaint callback. */
 export function renderAgentSettings(settings, repaint, { ownsPage = () => true, connections = null } = {}) {
   const names = new Map();
-  for (const row of Array.isArray(connections) ? connections : []) {
+  const rows = Array.isArray(connections) ? connections : (Array.isArray(connections?.connections) ? connections.connections : []);
+  for (const row of rows) {
     if (typeof row?.id === 'string' && typeof row?.label === 'string' && row.label.trim()) names.set(row.id, row.label.trim());
   }
   const content = el('div', undefined, 'settings-tab-panel agent-settings');

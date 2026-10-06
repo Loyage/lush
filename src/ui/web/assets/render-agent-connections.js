@@ -369,7 +369,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     const provider = select(form, '服务商', 'provider', PROVIDERS, connection?.provider || 'deepseek');
     const endpoint = field(form, '模型端点（HTTPS，可留空）', 'endpoint', 'url', connection?.endpoint || '', '留空采用该服务商官方模型端点；代理密钥不能发往官方余额接口。'); endpoint.maxLength = 2048;
     const models = field(form, '模型列表（模型 ID，逗号分隔）', 'models', 'text', array(connection?.models).join(', '), '在此填写一次，保存后发射 Worker 即可从所选来源的列表选择，无需重复输入。填写物理模型 ID，不加服务商前缀；非空时也限制模型范围，留空不限制，不进行付费可用性探测。'); models.maxLength = 8192;
-    const defaultModel = field(form, '默认模型（可选）', 'default_model', 'text', connection?.default_model || '', '填写物理模型 ID（可留空）；填写了模型 ID 范围时须在范围内。用于「运行设置」一键填入，不代表已验证可用。');
+    const defaultModel = field(form, '默认模型（可选）', 'default_model', 'text', connection?.default_model || '', '填写物理模型 ID（可留空）；填写了模型列表时须在列表内。用于「运行设置」一键填入，不代表已验证可用。');
     defaultModel.maxLength = 256;
     const defaultModelList = el('datalist'); defaultModelList.id = 'connection-default-model-options';
     defaultModel.setAttribute('list', defaultModelList.id); defaultModel.parentNode.append(defaultModelList);
@@ -410,7 +410,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
         const ids = models.value.split(/[,，\n]/).map(value => value.trim()).filter(Boolean);
         if (provider.value === 'openai-compatible' && !ids.length) throw new Error('自定义兼容 API 必须填写至少一个物理模型 ID。');
         if (ids.length > 50 || new Set(ids).size !== ids.length || ids.some(id => id.length > 256)) throw new Error('模型 ID 不可重复，最多 50 个，每个最长 256 字符。');
-        if (defaultModel.value && ids.length && !ids.includes(defaultModel.value)) throw new Error('默认模型必须在上方的模型 ID 范围内。');
+        if (defaultModel.value && ids.length && !ids.includes(defaultModel.value)) throw new Error('默认模型必须在上方的模型列表内。');
         const value = { ...(connection ? { id: connection.id } : {}), label: name, provider: provider.value, auth_type: provider.value === 'openai-codex' ? 'oauth' : 'api_key',
           enabled: enabled.checked, models: ids, default_model: defaultModel.value.trim(), default_thinking: defaultThinking.value,
           ...(url ? { endpoint: url } : {}) };
