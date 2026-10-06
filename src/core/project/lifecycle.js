@@ -390,6 +390,7 @@ export default {
     });
     // Never replay model requests. New-style interrupted explanations fail; historical rows remain unchanged.
     this.store.quickExplanationFailRunning('项目后台曾中断，本次解释未完成，请重新发起');
+    this.store.followupFailRunning('项目后台曾中断，本次追问未完成，请重新发起');
     this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging' AND task_kind IN ('order','say','child')");
     this.recoverTaskDeliveries();
     // Older retries discarded a withdrawn booking while leaving the source under its queue.

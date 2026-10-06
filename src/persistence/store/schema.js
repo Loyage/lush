@@ -198,6 +198,16 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS introductions_task ON introductions(task_id, id);
+      -- 快捷解释的追问轮次：同一条解释下的多轮问答，沿用原解释固定的来源与 Prompt 快照。
+      -- 每行是一次追问（question）与模型回答（answer）；status 与 introductions 一致。
+      -- context_truncated 记录本轮因上下文上限被截断掉了更早的追问，供界面如实提示。
+      CREATE TABLE IF NOT EXISTS explanation_followups (
+        id INTEGER PRIMARY KEY, introduction_id INTEGER NOT NULL,
+        question TEXT NOT NULL, answer TEXT, status TEXT NOT NULL DEFAULT 'running', error TEXT,
+        context_truncated INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+      CREATE INDEX IF NOT EXISTS explanation_followups_intro ON explanation_followups(introduction_id, id);
       CREATE INDEX IF NOT EXISTS sleep_choice_notice ON events(json_extract(data,'$.notice.id'),json_extract(data,'$.notice.task_id')) WHERE type='sleep.choice.started';
       CREATE INDEX IF NOT EXISTS sleep_choice_result ON events(json_extract(data,'$.choice_id')) WHERE type='sleep.choice.finished';
       CREATE INDEX IF NOT EXISTS tasks_agent_token ON tasks(agent_token_hash);

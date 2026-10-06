@@ -28,7 +28,7 @@ export async function openQuickExplanationPage() {
   let before = null, reading = false;
   const more = button('加载更早解释', () => loadHistory(true), 'ghost'); more.hidden = true;
   const reload = button('刷新历史', () => loadHistory(false), 'ghost');
-  history.append(el('h2', '历史解释'), el('p', '当前项目的所有页面记录；结果与来源保存当时快照，不随配置变化改写。', 'hint'), reload, historyNote, rows, more);
+  history.append(el('h2', '历史解释'), el('p', '当前项目的所有页面记录；结果、来源与追问问答按当时快照保存，不随配置变化改写。', 'hint'), reload, historyNote, rows, more);
   async function loadHistory(append) {
     if (!owns() || (append && reading)) return;
     const version = ++state.historyGeneration; reading = true; more.disabled = true;
@@ -41,7 +41,7 @@ export async function openQuickExplanationPage() {
         const row = el('article', undefined, 'quick-explanation-history-row');
         const status = { completed: '已完成', running: '解释中', failed: '失败' }[record.status] || record.status;
         row.append(button(`#${record.id} · ${status} · ${record.quote}`, () => openQuickExplanation(record.id), 'quick-explanation-history-open'),
-          el('p', `${record.source?.label || '来源快照见详情'} · ${record.model || '模型未知'} · ${explanationLocation(record.location)} · ${record.created_at || ''}`, 'hint'));
+          el('p', `${record.source?.label || '来源快照见详情'} · ${record.model || '模型未知'} · ${explanationLocation(record.location)}${record.followup_count ? ` · 追问 ${record.followup_count} 轮` : ''} · ${record.created_at || ''}`, 'hint'));
         if (record.status === 'running') {
           // 运行中的记录后端会拒绝删除：禁用按钮并把代价交给外层 help-host 承载。
           const blocked = button('删除', () => {}, 'ghost danger'); blocked.disabled = true;
@@ -62,12 +62,12 @@ export async function openQuickExplanationPage() {
   async function removeHistory(record, article) {
     const confirmed = await confirmDialog({
       title: `删除解释 #${record.id}？`,
-      message: '将永久删除这条解释历史记录；选区、结果和当时的来源与 Prompt 快照都无法恢复，解释设置和其他记录不受影响。',
+      message: '将永久删除这条解释历史记录及其全部追问问答；选区、结果和当时的来源与 Prompt 快照都无法恢复，解释设置和其他记录不受影响。',
       detail: record.quote,
       confirmLabel: '删除',
       cancelLabel: '保留',
       danger: true,
-      confirmHelp: '永久删除这条解释历史记录，不删除模型来源配置，也不取消正在进行的调用。',
+      confirmHelp: '永久删除这条解释历史记录及其追问，不删除模型来源配置，也不取消正在进行的调用。',
     });
     if (!confirmed || !owns()) return;
     try {

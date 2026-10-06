@@ -10,9 +10,41 @@ export const introductions = {
   },
 
   quickExplanationList(before = null, limit = 31) {
-    return this.all(`SELECT id,status,substr(quote,1,180) AS quote,model,location,created_at,updated_at
+    return this.all(`SELECT id,status,substr(quote,1,180) AS quote,model,location,created_at,updated_at,
+      (SELECT COUNT(*) FROM explanation_followups f WHERE f.introduction_id=introductions.id) AS followup_count
       FROM introductions ${before === null ? '' : 'WHERE id<?'} ORDER BY id DESC LIMIT ?`,
     ...(before === null ? [limit] : [before, limit]));
+  },
+
+  /** 创建一条追问（running）：问题与是否截断了更早上下文一起落库，回答稍后回写。 */
+  followupCreate({ introductionId, question, truncated = false }) {
+    const id = Number(this.run(`INSERT INTO explanation_followups(introduction_id,question,status,context_truncated)
+      VALUES (?,?,'running',?)`, introductionId, question, truncated ? 1 : 0).lastInsertRowid);
+    return this.followup(id);
+  },
+
+  followup(rowId) { return this.get('SELECT * FROM explanation_followups WHERE id=?', rowId); },
+
+  /** 某条解释下的追问轮次，按发生顺序（id 升序）返回。 */
+  followupList(introductionId) {
+    return this.all('SELECT * FROM explanation_followups WHERE introduction_id=? ORDER BY id', introductionId);
+  },
+
+  followupFinish(rowId, { status, answer = null, error = null }) {
+    this.run(`UPDATE explanation_followups SET status=?,answer=?,error=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE id=?`, status, answer, error, rowId);
+    return this.followup(rowId);
+  },
+
+  /** 删除一条解释时连同其追问一起移除；调用方负责确认没有在途轮次。 */
+  deleteFollowups(introductionId) {
+    return this.run('DELETE FROM explanation_followups WHERE introduction_id=?', introductionId).changes;
+  },
+
+  /** 进程中断后把遗留的 running 追问如实标成失败，不重放、不丢问题。 */
+  followupFailRunning(reason) {
+    return this.run(`UPDATE explanation_followups SET status='failed',error=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
+      WHERE status='running'`, reason).changes;
   },
 
   quickExplanationFailRunning(reason) {

@@ -39,8 +39,13 @@ function databasePlan(project, rootId) {
     if (project.workspaces.busy.has(task.id)) blockers.push(`#${task.id}: worktree cleanup is in progress`);
     if (project.taskSyncBusy?.has(task.id)) blockers.push(`#${task.id}: parent synchronization is in progress`);
     if (project.workerDeleteIds?.has(task.id) && project.deletionRoot !== rootId) blockers.push(`#${task.id}: deletion is in progress`);
-    if (project.introRunning && store.all('SELECT id FROM introductions WHERE task_id=?', task.id)
-      .some(row => project.introRunning.has(row.id))) blockers.push(`#${task.id}: a historical introduction request is still running`);
+    if (project.introRunning) {
+      const introductions = store.all('SELECT id FROM introductions WHERE task_id=?', task.id);
+      if (introductions.some(row => project.introRunning.has(row.id)))
+        blockers.push(`#${task.id}: a historical introduction request is still running`);
+      else if (introductions.some(row => store.followupList(row.id).some(item => project.introRunning.has(`followup:${item.id}`))))
+        blockers.push(`#${task.id}: a historical explanation follow-up is still running`);
+    }
     if (task.reservation) {
       try { const booking = JSON.parse(task.reservation);
         if (!['pending','integrated','withdrawn','completed','failed','cancelled','suspended'].includes(booking.status))

@@ -24,7 +24,7 @@
 
 ## 快捷解释接缝
 
-用户决定 #203 恢复项目级选区阅读辅助，但不恢复旧公开 `intro.*` / `explanation.*` 或解释 Agent。新增 `quick_explain.*` 用户专属接口、独立 `#quick-explain` 设置/历史页，来源复用现有 Chat Completions API Key 连接；契约与并行分工见[快捷解释](quick-explanation.md)。新调用不创建 Worker，附属历史复用 introductions；旧行不迁移或改写。该增补优先于下文历史服务无公开入口的描述（旧名字仍关闭）。
+用户决定 #203 恢复项目级选区阅读辅助，但不恢复旧公开 `intro.*` / `explanation.*` 或解释 Agent。新增 `quick_explain.*` 用户专属接口、独立 `#quick-explain` 设置/历史页，来源复用现有 Chat Completions API Key 连接；契约与并行分工见[快捷解释](quick-explanation.md)。新调用不创建 Worker，附属历史复用 introductions，追问轮次存于 explanation_followups 并随原解释一起删除；旧行不迁移或改写。该增补优先于下文历史服务无公开入口的描述（旧名字仍关闭）。
 
 ## 项目出站网络接缝
 

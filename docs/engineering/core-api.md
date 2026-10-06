@@ -58,7 +58,7 @@ Input（原始输入）、历史输入、Draft（暂存）仍是各自的实体�
 
 ## 快捷解释
 
-新增用户专属 `quick_explain.config/configure/start/get/list/delete`，仅用于项目内所选文字的直连模型阅读辅助，不创建 Worker、Input、分支或 Agent invocation。来源复用现有受支持 Chat Completions API Key 连接；独立设置与全历史页为 `#quick-explain`。旧 `intro.*` / `explanation.*` 仍无公开入口，不恢复旧解释 Agent。配置、历史与安全边界见[快捷解释契约](quick-explanation.md)。
+新增用户专属 `quick_explain.config/configure/start/followup/get/list/delete`，仅用于项目内所选文字的直连模型阅读辅助，不创建 Worker、Input、分支或 Agent invocation；`followup` 在同一条解释上追加多轮追问，沿用原来源/Prompt 快照。来源复用现有受支持 Chat Completions API Key 连接；独立设置与全历史页为 `#quick-explain`。旧 `intro.*` / `explanation.*` 仍无公开入口，不恢复旧解释 Agent。配置、历史与安全边界见[快捷解释契约](quick-explanation.md)。
 
 ## 移除与磁盘边界
 

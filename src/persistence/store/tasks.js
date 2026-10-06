@@ -153,6 +153,8 @@ export const tasks = {
         'Input is still shared with another Worker');
       this.setTaskIdHigh(Math.max(this.taskIdHigh(),...ids));
       if (inputs.length) this.setInputIdHigh(Math.max(this.inputIdHigh(),...inputs));
+      // Follow-up rows reference the introduction, so clear them before introductions disappear.
+      drop('explanation_followups',`introduction_id IN (SELECT id FROM introductions WHERE task_id IN (${marks}))`,ids);
       for (const table of ['artifacts','agent_runs','notices','events','introductions','commit_contexts']) drop(table,`task_id IN (${marks})`,ids);
       drop('messages',`task_id IN (${marks}) OR sender_id IN (${marks})`,[...ids,...ids]);
       drop('task_deps',`task_id IN (${marks}) OR depends_on IN (${marks})`,[...ids,...ids]);

@@ -373,8 +373,17 @@ export function makeWorld() {
         const record = { id, status: 'completed', result: '这是对所选文字的快捷解释示例。', error: null,
           quote: body.params.quote, location: body.params.location, model: config.model, prompt: config.prompt,
           source: source ? { connection_id: source.id, label: source.label, provider: source.provider, endpoint: source.endpoint } : null,
-          created_at: iso(NOW), updated_at: iso(NOW) };
+          followups: [], created_at: iso(NOW), updated_at: iso(NOW) };
         state.quickExplanations.set(id, record); return json(record);
+      }
+      if (body.method === 'quick_explain.followup') {
+        const record = state.quickExplanations.get(body.params.id);
+        if (!record || record.status !== 'completed' || !record.source)
+          return { ok: false, status: 400, json: async () => ({ error: '只能对已完成的解释追问' }) };
+        const turn = { id: (record.followups?.length || 0) + 1, question: body.params.question, answer: '这是对追问的示例回答。',
+          status: 'completed', error: null, truncated: false, created_at: iso(NOW), updated_at: iso(NOW) };
+        record.followups = [...(record.followups || []), turn]; record.updated_at = iso(NOW);
+        return json(record);
       }
       if (body.method === 'quick_explain.delete') {
         const removed = state.quickExplanations.delete(body.params.id);
@@ -416,7 +425,8 @@ export function makeWorld() {
       const query = new URL(path, 'http://world.test').searchParams;
       const before = Number(query.get('before') || '0'), limit = Number(query.get('limit') || '30');
       const records = [...state.quickExplanations.values()].filter(row => !before || row.id < before).sort((a, b) => b.id - a.id);
-      const rows = records.slice(0, limit).map(({ result, prompt, error, source, ...row }) => ({ ...row, quote: row.quote.slice(0, 180) }));
+      const rows = records.slice(0, limit).map(({ result, prompt, error, source, followups, ...row }) =>
+        ({ ...row, quote: row.quote.slice(0, 180), followup_count: followups?.length || 0 }));
       return json({ explanations: rows, has_more: records.length > limit, next: rows.at(-1)?.id ?? null });
     }
     match = /^\/api\/quick-explain\/(\d+)$/.exec(path);

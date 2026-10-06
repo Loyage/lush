@@ -9,15 +9,18 @@
 - `quick_explain.config {}` → `{version:1,connection_id:string|null,model:string,prompt:string,default_prompt:string,ready:boolean,reason:string|null}`。model 是物理模型 ID，不带 provider 前缀。ready 仅代表本地配置就绪，不代表联网可用。
 - `quick_explain.configure {config:{connection_id?,model?,prompt?}}` → 同一配置读面。部分更新，null 清除来源/模型，prompt null 或空恢复默认。校验来源存在、enabled、API Key、受支持 Chat Completions 协议及模型范围；不联网、不更改 Agent 默认。
 - `quick_explain.start {quote,location?}` → 一条解释记录。quote 1–8192 字，location 复用引用 location 白名单；只发送所选文字和页面位置，不读关联文件或步骤。
-- `quick_explain.get {id}` → `{id,status,quote,location,result,error,model,source:{connection_id,label,provider,endpoint}|null,prompt:string|null,created_at,updated_at}`。status running/completed/failed；历史来源不可用时显示未知。不返回密钥、原始请求/响应或私人网络设置。
+- `quick_explain.followup {id,question}` → 追加一轮追问后的完整解释详情（与 `get` 同形）。question 1–8192 字；仅对已 `completed` 且带 `source_snapshot` 的解释有效，运行中、失败或旧式无快照的解释拒绝且不落行。沿用原解释固定的来源、模型与 Prompt 快照，不静默切换。
+- `quick_explain.get {id}` → `{id,status,quote,location,result,error,model,source:{connection_id,label,provider,endpoint}|null,prompt:string|null,followups:[{id,question,answer,status,error,truncated,created_at,updated_at}],created_at,updated_at}`。status running/completed/failed；历史来源不可用时显示未知。不返回密钥、原始请求/响应或私人网络设置。
 - `quick_explain.list {before?,limit?}` → `{explanations:[记录摘要],has_more,next}`。项目全历史，默认 30、最多 50，按 id 降序；摘要 quote 最多 180 字、不返回结果正文和完整 prompt，用户点击 get 阅读。历史旧 introduction 可以只读展示，来源/prompt 未知，不改写旧记录。
-- `quick_explain.delete {id}` → `{removed:id}`。永久删除一条解释历史记录（含同页列出的旧式 introduction 行）；正在进行的调用拒绝删除，模型来源配置、Prompt 与其他记录不变。删除是用户确认后的破坏性动作，不随配置或重启自动发生。
+- `quick_explain.delete {id}` → `{removed:id}`。永久删除一条解释历史记录及其全部追问轮次（含同页列出的旧式 introduction 行）；解释或任一追问仍在进行时拒绝删除，模型来源配置、Prompt 与其他记录不变。删除是用户确认后的破坏性动作，不随配置或重启自动发生。
 
 HTTP GET `/api/quick-explain/config`、`/api/quick-explain/history?before=&limit=`、`/api/quick-explain/<id>`；configure/start/delete 统一 POST `/api/action`。全部沿用项目路由前缀、认证、Origin、no-store 和用户权限。不得恢复旧公开解释 Agent 入口。
 
 ## 后台与安全
 
-新增 `src/core/quick-explanation.js` 项目私有配置（0600 原子写）；新增 `src/core/project/quick-explanation.js` 方法对象，Project 方法 `quickExplanationConfig()`、`configureQuickExplanation(config)`、`startQuickExplanation(quote,location)`、`quickExplanation(id)`、`quickExplanations(before,limit)`。
+新增 `src/core/quick-explanation.js` 项目私有配置（0600 原子写）；新增 `src/core/project/quick-explanation.js` 方法对象，Project 方法 `quickExplanationConfig()`、`configureQuickExplanation(config)`、`startQuickExplanation(quote,location)`、`followUpQuickExplanation(id,question)`、`quickExplanation(id)`、`quickExplanations(before,limit)`。
+
+追问轮次存于新表 `explanation_followups`（`introduction_id`、`question`、`answer`、`status`、`error`、可空 `context_truncated`），随原解释一起删除；`recover` 把中断的在途追问如实标成失败，不重放、不丢问题。每次追问只带原选区、原解释、已完成的历史问答与新问题，按新到旧装入 128KB 字节预算，超出时从最早的追问开始丢弃并在该轮标记 `context_truncated`；在途追问与原解释共用最多 4 次并发与同一 `introRunning` 追踪。
 
 复用 `introductions` 附属历史表，加可空 `source_snapshot` JSON 列记录安全来源和实际 prompt；旧行保持不变。网络、配置、模型、Prompt、凭证在发起时固定，运行用 `introRunning` 统一追踪，受限并发（最多 4）、超时 120 秒、响应有界、无工具。停止 abort 并等待请求；重启仅把新式遗留 running 记录标失败，不重放、不改旧式行。使用项目网络快照，不自动回退直连或切换账号。拒绝重定向，错误只显示安全固定分类/HTTP 状态，不保存上游响应正文、密钥或任意异常字符串。原文和页面位置作为不可信资料，固定只读安全规则不随自定义 Prompt 被覆盖。
 
@@ -37,7 +40,7 @@ HTTP GET `/api/quick-explain/config`、`/api/quick-explain/history?before=&limit
 
 ## 验证
 
-配置与后台回归见 `test/quick-explanation-settings.test.js`、`test/project/quick-explanation.test.js`；HTTP→RPC→真实后台（模型传输 mock）、权限/登录/Origin/多项目/远端转发见 `test/web/quick-explanation-api.test.js`；菜单/配置/历史/dialog/选区/迟到响应与 Esc 清理见 `test/web/dom-quick-explanation.test.js`。
+配置与后台回归见 `test/quick-explanation-settings.test.js`、`test/project/quick-explanation.test.js`（含追问沿用固定快照、上下文截断、拒绝旧式/运行中/失败、共用并发与删除线程）；HTTP→RPC→真实后台（模型传输 mock）、权限/登录/Origin/多项目/远端转发见 `test/web/quick-explanation-api.test.js`；菜单/配置/历史/dialog/选区/迟到响应、追问表单/发送/轮询与截断提示见 `test/web/dom-quick-explanation.test.js`。
 
 交付验证：`bun run test --timeout 30000` 为 1995 pass、1 skip、0 fail（默认测试排除 packaging；真实回环 SSH/Electron 安装测试按既有条件跳过）。首次默认 5 秒阈值在并行负载下出现 4 个超时，其中 1 项为新配置测试；这四文件单独重跑 28 pass，增大单测超时后全量通过，未修改测试断言。完整日志 `/tmp/lush-w201-logs/full-test.log`、`retry-timeouts.log`、`full-test-30s.log`。文档检查通过，仅既有长度警告；未请求真实 API、未验证真实浏览器/Electron UI，未重启用户服务。
 

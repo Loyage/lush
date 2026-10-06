@@ -258,3 +258,71 @@ test('样式与主页面引用有双主题 token、窄屏布局与键盘焦点',
   expect(css).toContain('var(--panel)'); expect(css).toContain(':focus-visible'); expect(css).toContain('@media');
   expect(html).toContain('/styles-quick-explanation.css'); expect(html).toContain('id="quick-explain-open"');
 });
+
+test('完成的解释提供追问输入：发送 action 并渲染问答，空问题不发送', async () => {
+  world.state.quickExplanations.set(1, row(1));
+  await openQuickExplanation(1);
+  const form = panel().querySelector('.quick-explanation-followup-form');
+  expect(form).toBeTruthy();
+  const send = findByText(form, '发送追问');
+  expect(send.classList.contains('agent-call')).toBe(true);
+  expect(send.getAttribute('data-help')).toContain('会直连你配置的模型');
+  await form.onsubmit({ preventDefault() {} });
+  expect(world.state.actions).toHaveLength(0);
+  expect(deepText(panel())).toContain('请输入追问内容');
+  form.querySelector('textarea').value = '为什么会这样？';
+  await form.onsubmit({ preventDefault() {} });
+  expect(world.state.actions).toEqual([{ method: 'quick_explain.followup', params: { id: 1, question: '为什么会这样？' } }]);
+  expect(deepText(panel())).toContain('为什么会这样？');
+  expect(deepText(panel())).toContain('这是对追问的示例回答');
+});
+
+test('旧解释没有来源快照和未完成解释都不显示追问表单', async () => {
+  world.state.quickExplanations.set(1, row(1, { source: null, prompt: null }));
+  await openQuickExplanation(1);
+  expect(panel().querySelector('.quick-explanation-followup-form')).toBeNull();
+  expect(deepText(panel())).toContain('没有来源快照');
+  closeQuickExplanationPanel();
+  world.state.quickExplanations.set(2, row(2, { status: 'running', result: null }));
+  await openQuickExplanation(2);
+  expect(panel().querySelector('.quick-explanation-followup-form')).toBeNull();
+  closeQuickExplanationPanel();
+});
+
+test('追问轮次展示截断提示，运行中的追问禁用发送并持续轮询到完成', async () => {
+  world.state.quickExplanations.set(1, row(1, { followups: [
+    { id: 1, question: '早先的追问', answer: '旧回答', status: 'completed', error: null, truncated: true, created_at: 't1', updated_at: 't1' },
+  ] }));
+  await openQuickExplanation(1);
+  expect(deepText(panel())).toContain('早先的追问');
+  expect(deepText(panel())).toContain('更早的追问已超出上下文上限');
+  intercept = (url, options) => {
+    if (url !== '/api/action') return null;
+    const body = JSON.parse(options.body);
+    if (body.method !== 'quick_explain.followup') return null;
+    const turn = { id: 2, question: body.params.question, answer: null, status: 'running', error: null, truncated: false, created_at: 't2', updated_at: 't2' };
+    const record = row(1, { followups: [...world.state.quickExplanations.get(1).followups, turn] });
+    world.state.quickExplanations.set(1, record);
+    return json(record);
+  };
+  const form = panel().querySelector('.quick-explanation-followup-form');
+  form.querySelector('textarea').value = '新的追问';
+  await form.onsubmit({ preventDefault() {} });
+  expect(deepText(panel())).toContain('正在生成回答');
+  expect(panel().querySelector('.quick-explanation-followup-form').querySelector('textarea').disabled).toBe(true);
+  world.state.quickExplanations.set(1, row(1, { followups: [
+    { id: 1, question: '早先的追问', answer: '旧回答', status: 'completed', error: null, truncated: true, created_at: 't1', updated_at: 't1' },
+    { id: 2, question: '新的追问', answer: '完成回答', status: 'completed', error: null, truncated: false, created_at: 't2', updated_at: 't3' },
+  ] }));
+  intercept = null;
+  await until(() => deepText(panel()).includes('完成回答'));
+  expect(panel().querySelector('.quick-explanation-followup-form').querySelector('textarea').disabled).toBe(false);
+});
+
+test('历史摘要显示追问轮数', async () => {
+  world.state.quickExplanations.set(1, row(1, { followups: [
+    { id: 1, question: 'q', answer: 'a', status: 'completed', error: null, truncated: false, created_at: 't', updated_at: 't' },
+  ] }));
+  await openQuickExplanationPage();
+  expect(deepText(dom.node('detail'))).toContain('追问 1 轮');
+});

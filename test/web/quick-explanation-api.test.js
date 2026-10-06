@@ -17,7 +17,7 @@ const methods = Object.keys(PARAMS).filter(method => method.startsWith('quick_ex
 function mocks(project) {
   const calls = [];
   for (const [target, result] of [['quickExplanationConfig',config],['configureQuickExplanation',config],
-    ['startQuickExplanation',row],['quickExplanation',row],['quickExplanations',history],['deleteExplanation',{ removed: 7 }]]) {
+    ['startQuickExplanation',row],['followUpQuickExplanation',row],['quickExplanation',row],['quickExplanations',history],['deleteExplanation',{ removed: 7 }]]) {
     project[target] = (...args) => { calls.push({ target, args }); return result; };
   }
   return calls;
@@ -26,7 +26,7 @@ const post = (url, method, params, headers = {}) => fetch(url + '/api/action', {
   headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ method, params }) });
 
 test('quick explanation RPC is narrow, user-only and rejects historical aliases', async () => {
-  expect(methods).toHaveLength(6);
+  expect(methods).toHaveLength(7);
   for (const method of methods) {
     expect(USER_ONLY.has(method)).toBe(true);
     expect(() => assertAllowed(method, {}, 42)).toThrow('requires user approval');
@@ -53,11 +53,13 @@ test('quick explanation HTTP forwards exact inputs, provides no-store reads and 
     const patch = { connection_id: 'source-id', model: 'vendor/model', prompt: '新 prompt' }, location = { view: 'docs', path: 'readme' };
     expect((await post(f.url,'quick_explain.configure',{ config: patch })).status).toBe(200);
     expect((await post(f.url,'quick_explain.start',{ quote: row.quote, location })).status).toBe(200);
+    expect((await post(f.url,'quick_explain.followup',{ id: 7, question: '为什么？' })).status).toBe(200);
     expect((await post(f.url,'quick_explain.delete',{ id: 7 })).status).toBe(200);
     expect(calls).toEqual([
       { target: 'quickExplanationConfig', args: [] }, { target: 'quickExplanations', args: [9,2] },
       { target: 'quickExplanation', args: [7] }, { target: 'configureQuickExplanation', args: [patch] },
-      { target: 'startQuickExplanation', args: [row.quote,location] }, { target: 'deleteExplanation', args: [7] },
+      { target: 'startQuickExplanation', args: [row.quote,location] }, { target: 'followUpQuickExplanation', args: [7,'为什么？'] },
+      { target: 'deleteExplanation', args: [7] },
     ]);
     for (const route of ['/api/intro/config','/api/intro/7','/api/explanation/7','/api/quick-explain/0','/api/quick-explain/start'])
       expect((await fetch(f.url + route)).status).toBe(404);
@@ -65,9 +67,9 @@ test('quick explanation HTTP forwards exact inputs, provides no-store reads and 
       '/api/quick-explain/history?before=','/api/quick-explain/history?limit=51','/api/quick-explain/history?limit=2&limit=3',
       '/api/quick-explain/history?extra=true','/api/quick-explain/history?_token=x'])
       expect((await fetch(f.url + route)).status).toBe(400);
-    for (const method of ['quick_explain.get','quick_explain.list','quick_explain.config','intro.start','explanation.start'])
+    for (const method of ['quick_explain.get','quick_explain.list','quick_explain.config','quick_explain.followup','intro.start','explanation.start'])
       expect((await post(f.url,method,{})).status).toBe(400);
-    expect(calls).toHaveLength(6);
+    expect(calls).toHaveLength(7);
   } finally { await f.close(); }
 });
 
@@ -90,10 +92,16 @@ test('HTTP to RPC to real backend persists source, Prompt and result without cre
     const result = await (await fetch(f.url + `/api/quick-explain/${created.id}`)).json();
     expect(result).toMatchObject({ quote:'消息原文',status:'completed',result:'只读解释结果',prompt:'解释目的与含义',model:'physical-model',source:{ connection_id:'conn-one' } });
     expect(JSON.stringify(result)).not.toContain('test-secret');
+    const followed = await post(f.url,'quick_explain.followup',{ id: created.id, question:'再解释一下' });
+    expect(followed.status).toBe(200); expect((await followed.json()).followups).toHaveLength(1);
+    await Promise.all([...f.project.introRunning.values()].map(entry => entry.promise));
+    const threaded = await (await fetch(f.url + `/api/quick-explain/${created.id}`)).json();
+    expect(threaded.followups).toEqual([expect.objectContaining({ question:'再解释一下', answer:'只读解释结果', status:'completed', truncated:false })]);
     const page = await (await fetch(f.url + '/api/quick-explain/history?limit=1')).json();
-    expect(page.explanations).toHaveLength(1); expect(page.explanations[0].result).toBeUndefined();
-    expect(requests).toHaveLength(1); expect(requests[0].target).toBe('https://api.deepseek.com/v1/chat/completions');
+    expect(page.explanations).toHaveLength(1); expect(page.explanations[0].result).toBeUndefined(); expect(page.explanations[0].followup_count).toBe(1);
+    expect(requests).toHaveLength(2); expect(requests[0].target).toBe('https://api.deepseek.com/v1/chat/completions');
     expect(JSON.parse(requests[0].body.messages[1].content)).toEqual({ selected_text:'消息原文',page_location:{ view:'docs',path:'readme' } });
+    expect(requests[1].body.messages.at(-1)).toEqual({ role:'user', content:'再解释一下' });
     expect(counts()).toEqual(before);
   } finally { await f.close(); }
 });

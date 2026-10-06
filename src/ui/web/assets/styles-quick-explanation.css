@@ -9,6 +9,14 @@
 .quick-explanation-history-open{max-width:100%;text-align:left;white-space:normal;overflow-wrap:anywhere}
 .quick-explanation-history-row .hint{overflow-wrap:anywhere}
 .quick-explanation-panel blockquote,.quick-explanation-prompt-snapshot{white-space:pre-wrap;overflow-wrap:anywhere}
-.quick-explanation-panel:focus-visible,.quick-explanation-form :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.quick-explanation-panel:focus-visible,.quick-explanation-form :focus-visible,.quick-explanation-followup-form :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.quick-explanation-thread{display:grid;gap:12px;margin-top:16px}
+.quick-explanation-thread-title{margin:0;font-size:1rem}
+.quick-explanation-turn{display:grid;gap:6px;border-left:3px solid var(--line);padding:4px 0 4px 10px}
+.quick-explanation-question{font-weight:550;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
+.quick-explanation-answer{white-space:pre-wrap;overflow-wrap:anywhere;margin:0}
+.quick-explanation-followup-form{display:grid;gap:8px;margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
+.quick-explanation-followup-form textarea{width:100%;box-sizing:border-box;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:9px;font:inherit;resize:vertical}
+.quick-explanation-followup-form button{align-self:start}
 .quick-explanation-history [hidden]{display:none!important}
 @media(max-width:700px){.quick-explanation-page{padding:10px}.quick-explanation-settings,.quick-explanation-history{padding:12px}.quick-explanation-panel{width:calc(100% - 24px)}}

@@ -218,6 +218,115 @@ test('history is project-wide, bounded, newest first, summaries omit full conten
   } finally { await f.close(); }
 });
 
+test('follow-up reuses the original snapshot and sends selection, explanation and prior turns', async () => {
+  const requests = [];
+  const f = setup(async (url, init) => { requests.push(JSON.parse(init.body));
+    return Response.json({ choices: [{ message: { content: '追问回答' } }] }); });
+  try {
+    const root = f.project.startQuickExplanation('原始选区', { view: 'docs' }); await finish(f);
+    // Changing the live config must not rewrite the thread or affect the pinned follow-up source.
+    f.project.configureQuickExplanation({ model: 'another-model', prompt: 'changed' });
+    f.project.followUpQuickExplanation(root.id, '这是什么意思？'); await finish(f);
+    const detail = f.project.quickExplanation(root.id);
+    expect(detail.followups).toHaveLength(1);
+    expect(detail.followups[0]).toMatchObject({ question: '这是什么意思？', answer: '追问回答', status: 'completed', truncated: false });
+    expect(detail.model).toBe('physical-model'); expect(detail.prompt).not.toBe('changed');
+    expect(requests).toHaveLength(2);
+    expect(requests[1].model).toBe('physical-model');
+    expect(requests[1].messages[0]).toEqual(requests[0].messages[0]);
+    expect(requests[1].messages[1]).toEqual(requests[0].messages[1]);
+    // The fetch stub answers every call, so the root result is also the follow-up answer text.
+    expect(requests[1].messages[2]).toEqual({ role: 'assistant', content: '追问回答' });
+    expect(requests[1].messages.at(-1)).toEqual({ role: 'user', content: '这是什么意思？' });
+    f.project.followUpQuickExplanation(root.id, '再展开一点'); await finish(f);
+    const thread = requests.at(-1).messages;
+    expect(thread[3]).toEqual({ role: 'user', content: '这是什么意思？' });
+    expect(thread[4]).toEqual({ role: 'assistant', content: '追问回答' });
+    expect(thread.at(-1)).toEqual({ role: 'user', content: '再展开一点' });
+    const page = f.project.quickExplanations(null, 10);
+    expect(page.explanations[0]).toMatchObject({ id: root.id, followup_count: 2 });
+  } finally { await f.close(); }
+});
+
+test('follow-up keeps the newest turns and drops the oldest with a visible truncation mark', async () => {
+  const requests = [];
+  const f = setup(async (url, init) => { requests.push(JSON.parse(init.body));
+    return Response.json({ choices: [{ message: { content: 'ok' } }] }); });
+  try {
+    const root = f.project.startQuickExplanation('root'); await finish(f);
+    const older = f.store.followupCreate({ introductionId: root.id, question: 'old question' });
+    f.store.followupFinish(older.id, { status: 'completed', answer: 'a'.repeat(70000) });
+    const newer = f.store.followupCreate({ introductionId: root.id, question: 'new question' });
+    f.store.followupFinish(newer.id, { status: 'completed', answer: 'b'.repeat(70000) });
+    const detail = f.project.followUpQuickExplanation(root.id, 'third'); await finish(f);
+    const thread = requests.at(-1).messages;
+    expect(thread).toHaveLength(6);
+    expect(thread[3]).toEqual({ role: 'user', content: 'new question' });
+    expect(thread[5]).toEqual({ role: 'user', content: 'third' });
+    expect(JSON.stringify(thread)).not.toContain('old question');
+    expect(detail.followups.at(-1)).toMatchObject({ question: 'third', truncated: true });
+    expect(detail.followups[0]).toMatchObject({ question: 'old question', truncated: false });
+  } finally { await f.close(); }
+});
+
+test('follow-up refuses legacy, running, failed, invalid and over-limit calls without rows', async () => {
+  const pending = gate();
+  const f = setup(async () => { await pending.promise; return Response.json({ choices: [{ message: { content: 'done' } }] }); });
+  try {
+    const legacy = f.store.introCreate({ quote: 'legacy', location: { view: 'worker' } });
+    expect(() => f.project.followUpQuickExplanation(legacy.id, 'q')).toThrow('来源快照');
+    const running = f.project.startQuickExplanation('running');
+    expect(() => f.project.followUpQuickExplanation(running.id, 'q')).toThrow('已完成');
+    for (const bad of ['', '   ', 'x'.repeat(8193), 5]) expect(() => f.project.followUpQuickExplanation(running.id, bad)).toThrow('追问');
+    pending.resolve(); await finish(f);
+    const failed = f.store.quickExplanationCreate({ quote: 'f', location: { view: 'docs' }, model: 'm', source: running.source, prompt: 'p' });
+    f.store.introFinish(failed.id, { status: 'failed', error: 'x' });
+    expect(() => f.project.followUpQuickExplanation(failed.id, 'q')).toThrow('已完成');
+    expect(f.store.all('SELECT * FROM explanation_followups')).toHaveLength(0);
+  } finally { pending.resolve(); await f.close(); }
+});
+
+test('follow-up shares the in-flight cap and write gates with explanations', async () => {
+  const pending = gate();
+  const f = setup(async () => { await pending.promise; return Response.json({ choices: [{ message: { content: 'done' } }] }); });
+  try {
+    const root = f.project.startQuickExplanation('root'); pending.resolve(); await finish(f);
+    for (let i = 0; i < 4; i++) f.project.startQuickExplanation(`q${i}`);
+    expect(f.project.introRunning.size).toBe(4);
+    expect(() => f.project.followUpQuickExplanation(root.id, 'q')).toThrow('4');
+    f.project.clearing = true;
+    expect(() => f.project.followUpQuickExplanation(root.id, 'q')).toThrow('clear');
+    f.project.clearing = false; f.project.stopping = true;
+    expect(() => f.project.followUpQuickExplanation(root.id, 'q')).toThrow('stopping');
+  } finally { f.project.stopping = false; pending.resolve(); await f.close(); }
+});
+
+test('deleting an explanation removes its whole thread; a running follow-up blocks deletion', async () => {
+  const pending = gate();
+  const f = setup(async () => { await pending.promise; return Response.json({ choices: [{ message: { content: 'done' } }] }); });
+  try {
+    const root = f.project.startQuickExplanation('root'); pending.resolve(); await finish(f);
+    const detail = f.project.followUpQuickExplanation(root.id, 'running follow-up');
+    const turnId = detail.followups[0].id;
+    expect(() => f.project.deleteExplanation(root.id)).toThrow('追问');
+    await finish(f);
+    expect(f.store.followup(turnId).status).toBe('completed');
+    expect(f.project.deleteExplanation(root.id)).toEqual({ removed: root.id });
+    expect(f.store.intro(root.id)).toBeNull(); expect(f.store.followup(turnId)).toBeNull();
+  } finally { pending.resolve(); await f.close(); }
+});
+
+test('recovery marks interrupted follow-ups failed without replaying or losing the question', async () => {
+  const f = setup();
+  try {
+    const root = f.project.startQuickExplanation('root'); await finish(f);
+    const turn = f.store.followupCreate({ introductionId: root.id, question: '未完成的追问' });
+    f.project.recover();
+    expect(f.store.followup(turn.id)).toMatchObject({ status: 'failed', question: '未完成的追问', answer: null });
+    expect(f.store.followup(turn.id).error).toContain('中断');
+  } finally { await f.close(); }
+});
+
 test('existing databases gain nullable snapshot column without rewriting historical rows', async () => {
   const f = fixture(); let store;
   try {
