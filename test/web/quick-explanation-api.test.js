@@ -17,7 +17,7 @@ const methods = Object.keys(PARAMS).filter(method => method.startsWith('quick_ex
 function mocks(project) {
   const calls = [];
   for (const [target, result] of [['quickExplanationConfig',config],['configureQuickExplanation',config],
-    ['startQuickExplanation',row],['quickExplanation',row],['quickExplanations',history]]) {
+    ['startQuickExplanation',row],['quickExplanation',row],['quickExplanations',history],['deleteExplanation',{ removed: 7 }]]) {
     project[target] = (...args) => { calls.push({ target, args }); return result; };
   }
   return calls;
@@ -26,7 +26,7 @@ const post = (url, method, params, headers = {}) => fetch(url + '/api/action', {
   headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ method, params }) });
 
 test('quick explanation RPC is narrow, user-only and rejects historical aliases', async () => {
-  expect(methods).toHaveLength(5);
+  expect(methods).toHaveLength(6);
   for (const method of methods) {
     expect(USER_ONLY.has(method)).toBe(true);
     expect(() => assertAllowed(method, {}, 42)).toThrow('requires user approval');
@@ -53,10 +53,11 @@ test('quick explanation HTTP forwards exact inputs, provides no-store reads and 
     const patch = { connection_id: 'source-id', model: 'vendor/model', prompt: '新 prompt' }, location = { view: 'docs', path: 'readme' };
     expect((await post(f.url,'quick_explain.configure',{ config: patch })).status).toBe(200);
     expect((await post(f.url,'quick_explain.start',{ quote: row.quote, location })).status).toBe(200);
+    expect((await post(f.url,'quick_explain.delete',{ id: 7 })).status).toBe(200);
     expect(calls).toEqual([
       { target: 'quickExplanationConfig', args: [] }, { target: 'quickExplanations', args: [9,2] },
       { target: 'quickExplanation', args: [7] }, { target: 'configureQuickExplanation', args: [patch] },
-      { target: 'startQuickExplanation', args: [row.quote,location] },
+      { target: 'startQuickExplanation', args: [row.quote,location] }, { target: 'deleteExplanation', args: [7] },
     ]);
     for (const route of ['/api/intro/config','/api/intro/7','/api/explanation/7','/api/quick-explain/0','/api/quick-explain/start'])
       expect((await fetch(f.url + route)).status).toBe(404);
@@ -66,7 +67,7 @@ test('quick explanation HTTP forwards exact inputs, provides no-store reads and 
       expect((await fetch(f.url + route)).status).toBe(400);
     for (const method of ['quick_explain.get','quick_explain.list','quick_explain.config','intro.start','explanation.start'])
       expect((await post(f.url,method,{})).status).toBe(400);
-    expect(calls).toHaveLength(5);
+    expect(calls).toHaveLength(6);
   } finally { await f.close(); }
 });
 

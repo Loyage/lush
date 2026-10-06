@@ -2,6 +2,7 @@ import { $, el, button } from './dom.js';
 import { api } from './api.js';
 import { ui } from './state.js';
 import { activateDetailView } from './sidebar-ui.js';
+import { confirmDialog } from './dialog.js';
 import { openQuickExplanation, explanationLocation } from './quick-explanation.js';
 
 const PROVIDERS = new Set(['openai-compatible', 'deepseek', 'openrouter', 'zai']);
@@ -41,6 +42,16 @@ export async function openQuickExplanationPage() {
         const status = { completed: '已完成', running: '解释中', failed: '失败' }[record.status] || record.status;
         row.append(button(`#${record.id} · ${status} · ${record.quote}`, () => openQuickExplanation(record.id), 'quick-explanation-history-open'),
           el('p', `${record.source?.label || '来源快照见详情'} · ${record.model || '模型未知'} · ${explanationLocation(record.location)} · ${record.created_at || ''}`, 'hint'));
+        if (record.status === 'running') {
+          // 运行中的记录后端会拒绝删除：禁用按钮并把代价交给外层 help-host 承载。
+          const blocked = button('删除', () => {}, 'ghost danger'); blocked.disabled = true;
+          const host = el('span', undefined, 'help-host');
+          host.setAttribute('data-help', '这次解释仍在进行，结束后才能删除；删除只移除历史记录，不会取消调用。');
+          host.append(blocked); row.append(host);
+        } else {
+          row.append(button('删除', () => removeHistory(record, row), 'ghost danger',
+            { help: '永久删除这条解释历史记录；选区、结果和当时的来源与 Prompt 快照都无法恢复。' }));
+        }
         rows.append(row);
       }
       before = data.next; more.hidden = !data.has_more;
@@ -48,6 +59,26 @@ export async function openQuickExplanationPage() {
     } catch (error) { if (owns() && version === state.historyGeneration) historyNote.textContent = `历史读取失败：${error.message}；可刷新重试，已加载记录保留。`; }
     finally { if (owns() && version === state.historyGeneration) { reading = false; more.disabled = false; } }
   }
+  async function removeHistory(record, article) {
+    const confirmed = await confirmDialog({
+      title: `删除解释 #${record.id}？`,
+      message: '将永久删除这条解释历史记录；选区、结果和当时的来源与 Prompt 快照都无法恢复，解释设置和其他记录不受影响。',
+      detail: record.quote,
+      confirmLabel: '删除',
+      cancelLabel: '保留',
+      danger: true,
+      confirmHelp: '永久删除这条解释历史记录，不删除模型来源配置，也不取消正在进行的调用。',
+    });
+    if (!confirmed || !owns()) return;
+    try {
+      await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method: 'quick_explain.delete', params: { id: record.id } }) });
+      if (!owns()) return;
+      article.remove();
+      historyNote.textContent = rows.children.length ? `已删除解释 #${record.id}。` : '还没有解释记录。选中文字后右键选择“解释”。';
+    } catch (error) { if (owns()) historyNote.textContent = `删除失败：${error.message}；记录保留。`; }
+  }
+
   async function loadSettings() {
     try {
       const [config, data] = await Promise.all([api('/api/quick-explain/config'), api('/api/agent/connections')]);

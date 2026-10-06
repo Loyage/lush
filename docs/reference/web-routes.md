@@ -94,6 +94,6 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 
 账号连接另开放 `agent.connections.save/remove/sampling/query/login.start/login.finish/device.start/device.poll/device.cancel`，均经项目的 `POST /api/action`、登录与 Origin 校验；设备码检查也是显式 action，不新增读取路由。设备授权 ID、OAuth token、回调授权码均不返回读面，不进审计事件或错误。参数和操作见[Agent 账号连接](rpc/agents.md#托管账号连接)。
 
-快捷解释另开放 `quick_explain.configure` / `quick_explain.start`，均为用户专属 POST action；旧 `intro.*` / `explanation.*` 仍关闭。配置和历史按项目隔离，支持受管远端项目转发；未选项目不能发起解释。使用见[快捷解释](../quick-explanation.md)，字段见[实现契约](../engineering/quick-explanation.md)。
+快捷解释另开放 `quick_explain.configure` / `quick_explain.start` / `quick_explain.delete`，均为用户专属 POST action；旧 `intro.*` / `explanation.*` 仍关闭。配置和历史按项目隔离，支持受管远端项目转发；未选项目不能发起解释。使用见[快捷解释](../quick-explanation.md)，字段见[实现契约](../engineering/quick-explanation.md)。
 
 任何不在上述白名单的写入（含已下线的批量草稿提交、Candidate 验收、托管模式、展示、旧介绍与旧合并入口）都不再提供 Web 操作。

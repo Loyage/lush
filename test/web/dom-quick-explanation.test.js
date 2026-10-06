@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, expect, test } from 'bun:test';
 import fs from 'node:fs';
-import { installDom, deepText, findByText } from '../dom-stub.js';
+import { installDom, deepText, findByText, dialogButton } from '../dom-stub.js';
 import { until } from '../helpers.js';
 import { makeWorld } from './dom-world.js';
 import { openQuickExplanationPage } from '../../src/ui/web/assets/render-quick-explanation.js';
@@ -132,6 +132,28 @@ test('项目全历史有界分页，点击只读记录显示原文、结果及�
   expect(deepText(panel())).toContain('原文 35'); expect(deepText(panel())).toContain('解释 35');
   expect(deepText(panel())).toContain('当时的 Prompt'); expect(deepText(panel())).toContain('当时的 API');
   expect(world.state.actions).toHaveLength(0);
+});
+
+test('历史记录可删除：先确认再发送 delete，运行中的记录禁用删除', async () => {
+  world.state.quickExplanations.set(1, row(1));
+  world.state.quickExplanations.set(2, row(2, { status: 'running', result: null }));
+  await openQuickExplanationPage();
+  const articles = [...dom.node('detail').querySelectorAll('.quick-explanation-history-row')];
+  const running = articles.find(article => deepText(article).includes('解释中')).querySelector('button.danger');
+  expect(running.disabled).toBe(true);
+  expect(running.parentNode.getAttribute('data-help')).toContain('结束后才能删除');
+  const remove = articles.find(article => deepText(article).includes('已完成')).querySelector('button.danger');
+  expect(remove.getAttribute('data-help')).toContain('永久删除');
+  const cancelled = remove.onclick();
+  expect(deepText(dom.node('modal'))).toContain('删除解释 #1');
+  await dialogButton(dom, '保留').onclick(); await cancelled;
+  expect(world.state.actions).toHaveLength(0);
+  expect(dom.node('detail').querySelectorAll('.quick-explanation-history-row')).toHaveLength(2);
+  const confirmed = remove.onclick();
+  await dialogButton(dom, '删除').onclick(); await confirmed;
+  expect(world.state.actions).toEqual([{ method: 'quick_explain.delete', params: { id: 1 } }]);
+  expect(world.state.quickExplanations.has(1)).toBe(false);
+  expect(dom.node('detail').querySelectorAll('.quick-explanation-history-row')).toHaveLength(1);
 });
 
 test('配置与历史迟到响应不能覆盖别的页面；保存失败保留用户输入', async () => {

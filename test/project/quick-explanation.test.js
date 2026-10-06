@@ -118,6 +118,19 @@ test('four in-flight calls maximum; malformed selection and location never creat
   } finally { pending.resolve(); await f.close(); }
 });
 
+test('a provider default endpoint without a path is not mistaken for a changed source', async () => {
+  const f = setup();
+  try {
+    // The connection manager stores `https://api.deepseek.com` while the public read model
+    // renders `https://api.deepseek.com/`; that textual difference must not fail a call.
+    f.manager.connections[0].endpoint = 'https://api.deepseek.com';
+    const row = f.project.startQuickExplanation('text'); await finish(f);
+    const result = f.project.quickExplanation(row.id);
+    expect(result.status).toBe('completed'); expect(result.result).toBe('解释结果');
+    expect(result.source.endpoint).toBe('https://api.deepseek.com');
+  } finally { await f.close(); }
+});
+
 test('connection changed while preparing credentials fails safely instead of sending changed credentials', async () => {
   let calls = 0; const pending = gate(); const f = setup(async () => { calls++; return Response.json({}); });
   try {
@@ -164,6 +177,27 @@ test('deadline covers a hung response body and shutdown cancels without replay',
     await f.project.shutdown();
     expect(f.project.quickExplanation(second.id).error).toContain('停止'); expect(f.project.introRunning.size).toBe(0);
   } finally { await f.close(); }
+});
+
+test('explanation history can be deleted; running calls and write gates are protected', async () => {
+  const pending = gate();
+  const f = setup(async () => { await pending.promise; return Response.json({ choices: [{ message: { content: 'done' } }] }); });
+  try {
+    const row = f.project.startQuickExplanation('history text');
+    expect(() => f.project.deleteExplanation(row.id)).toThrow('进行');
+    expect(f.store.intro(row.id)).toBeTruthy();
+    pending.resolve(); await finish(f);
+    expect(f.project.deleteExplanation(row.id)).toEqual({ removed: row.id });
+    expect(f.store.intro(row.id)).toBeNull();
+    expect(() => f.project.deleteExplanation(row.id)).toThrow('not found');
+    // The page lists legacy quick intros too; they share the same history and are removable.
+    const legacy = f.store.introCreate({ quote: 'legacy', location: { view: 'worker' } });
+    expect(f.project.deleteExplanation(legacy.id)).toEqual({ removed: legacy.id });
+    const other = f.store.introCreate({ quote: 'kept', location: { view: 'worker' } });
+    f.project.clearing = true;
+    expect(() => f.project.deleteExplanation(other.id)).toThrow('clear');
+    expect(f.store.intro(other.id)).toBeTruthy();
+  } finally { f.project.clearing = false; pending.resolve(); await f.close(); }
 });
 
 test('history is project-wide, bounded, newest first, summaries omit full content; legacy untouched on recovery', async () => {

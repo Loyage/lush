@@ -11,8 +11,9 @@
 - `quick_explain.start {quote,location?}` → 一条解释记录。quote 1–8192 字，location 复用引用 location 白名单；只发送所选文字和页面位置，不读关联文件或步骤。
 - `quick_explain.get {id}` → `{id,status,quote,location,result,error,model,source:{connection_id,label,provider,endpoint}|null,prompt:string|null,created_at,updated_at}`。status running/completed/failed；历史来源不可用时显示未知。不返回密钥、原始请求/响应或私人网络设置。
 - `quick_explain.list {before?,limit?}` → `{explanations:[记录摘要],has_more,next}`。项目全历史，默认 30、最多 50，按 id 降序；摘要 quote 最多 180 字、不返回结果正文和完整 prompt，用户点击 get 阅读。历史旧 introduction 可以只读展示，来源/prompt 未知，不改写旧记录。
+- `quick_explain.delete {id}` → `{removed:id}`。永久删除一条解释历史记录（含同页列出的旧式 introduction 行）；正在进行的调用拒绝删除，模型来源配置、Prompt 与其他记录不变。删除是用户确认后的破坏性动作，不随配置或重启自动发生。
 
-HTTP GET `/api/quick-explain/config`、`/api/quick-explain/history?before=&limit=`、`/api/quick-explain/<id>`；configure/start 统一 POST `/api/action`。全部沿用项目路由前缀、认证、Origin、no-store 和用户权限。不得恢复旧公开解释 Agent 入口。
+HTTP GET `/api/quick-explain/config`、`/api/quick-explain/history?before=&limit=`、`/api/quick-explain/<id>`；configure/start/delete 统一 POST `/api/action`。全部沿用项目路由前缀、认证、Origin、no-store 和用户权限。不得恢复旧公开解释 Agent 入口。
 
 ## 后台与安全
 
@@ -25,6 +26,8 @@ HTTP GET `/api/quick-explain/config`、`/api/quick-explain/history?before=&limit
 独立 `#quick-explain` 页面，导航「快捷解释」，集中配置和项目历史；来源选择只展示适用 API Key 来源，模型来自其限制/本地目录，也允许合法物理 ID 手输（服务端验证），来源改变不偷偷挑模型。Prompt 默认可编辑/恢复。保存不发模型请求；刷新历史不调用模型。
 
 任意有效选区菜单「解释」使用 `agent-call` + `modelHelp()`，旁侧展示结果，保留原位置；全文执行 dialog 中挂到 dialog 内，关闭只停止客户端轮询、不取消后台。Esc/boot 清理，迟到响应和轮询不覆盖新页面/选区；未就绪给配置页入口。菜单的引用行为保持不变，无选区不自动把整块文字送模型。超长选区不得静默截断发起，应明确提示。
+
+历史页每条记录提供确认后删除；`running` 记录禁用删除并按[按钮帮助](../design/ui-guidance.md)用 `.help-host` 承载说明，删除请求不取消后台调用。
 
 ## 并行职责
 

@@ -376,6 +376,10 @@ export function makeWorld() {
           created_at: iso(NOW), updated_at: iso(NOW) };
         state.quickExplanations.set(id, record); return json(record);
       }
+      if (body.method === 'quick_explain.delete') {
+        const removed = state.quickExplanations.delete(body.params.id);
+        return removed ? json({ removed: body.params.id }) : { ok: false, status: 400, json: async () => ({ error: 'explanation not found' }) };
+      }
       if (body.method === 'intro.configure') {
         const patch = body.params.config || {};
         const next = { ...state.introConfig };

@@ -26,6 +26,11 @@ export const introductions = {
     return this.intro(id);
   },
 
+  /** Hard-delete one explanation history row; the caller decides whether the record is removable. */
+  deleteIntroduction(rowId) {
+    return this.run('DELETE FROM introductions WHERE id=?', rowId).changes;
+  },
+
   introFinish(rowId, { status, result = null, error = null }) {
     this.run(`UPDATE introductions SET status=?,result=?,error=?,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')
       WHERE id=?`, status, result, error, rowId);

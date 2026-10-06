@@ -6,6 +6,7 @@ export const handlers = {
   'quick_explain.configure'(p, params) { return p.configureQuickExplanation(params.config); },
   'quick_explain.start'(p, params) { return p.startQuickExplanation(params.quote, params.location); },
   'quick_explain.get'(p, params) { return p.quickExplanation(id(params.id)); },
+  'quick_explain.delete'(p, params) { return p.deleteExplanation(id(params.id)); },
   'quick_explain.list'(p, params) {
     const before = params.before ?? null, limit = params.limit ?? 30;
     check(before === null || Number.isSafeInteger(before) && before > 0, 'invalid explanation cursor');
