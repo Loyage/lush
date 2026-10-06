@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fixture, repo, git } from '../helpers.js';
 
 // 输入锚点：order 从指定父分支创建聚合分支与检出，Task 的基线不随开工时间漂移。
-// 这里只碰 Git 边界与输入落库的接缝；CLI / Web 的上层行为在 test/route-shortcut.test.js。
+// 这里只碰 Git 边界与输入落库的接缝；现行指令行为在 test/project/order.test.js。
 
 test('new order creates a real aggregate branch checkout and runs there', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);

@@ -4,7 +4,7 @@ Lush 是**项目级的多 agent 开发应用**。Bun / JavaScript / SQLite；dae
 
 ## 作用域
 
-- Lush UI（浏览器/桌面）↔ 整机入口 Lush Host（`bin/lush-host`）↔ 每项目一个 lushd（`bin/lushd`）。Host 只登记、鉴权、路由及转发，不持有Worker事实；一个 lushd 对应一个 canonical 项目目录，状态固定在 `<project>/.lush/`。
+- Lush UI（浏览器）↔ 整机入口 Lush Host（`bin/lush-host`）↔ 每项目一个 lushd（`bin/lushd`）。Host 只登记、鉴权、路由及转发，不持有Worker事实；一个 lushd 对应一个 canonical 项目目录，状态固定在 `<project>/.lush/`。
 - CLI 项目命令默认向上发现 `.lush/project.json` 或 `.git`；用 `--project PATH` 显式选择项目。Web 四条命令无 `--project` / `LUSH_PROJECT` 时进入全局工作台；未选择项目时管理、设置与帮助仍可用。
 - `LUSH_PROJECT` 会传入 agent 子进程，agent 在独立 worktree 中仍连接原项目。
 - `LUSH_HOME` 不许指向独立的全局目录；非空时必须等于 `<project>/.lush`。
@@ -25,8 +25,6 @@ bun run order '输入'              # 立即提交单条输入，不等开发完
 bun run tree
 bun run inspect 3
 bun run lush host start [--project PATH] # 后台启动 Web 工作台；显式打开项目才启动/连接 daemon
-bun run desktop                 # 源码 Electron；本地独立随机端口，SSH 缺包只给准备提示
-bun run desktop:prepare DIR     # 显式导入可信同检出 Linux 双架构 CI 包；替换旧生成物需 --replace
 bun run lush host status         # 在不在跑、跑的是不是这份代码、日志在哪
 bun run lush host restart        # 改完 src/ui/web/ 停掉那个后台 Web 再按当前代码起一个新的
 bun run lush host stop           # 停掉后台 Web（只停命令行确实是 Lush Web 的进程）
@@ -35,7 +33,7 @@ bun run stop
 
 任意入口可加 `--project PATH`；操作其他项目时必须显式指定。`bun run lush <command>` 也遵循同一套项目发现规则，没有默认全局 home 的例外。
 
-**lushd 与 Lush Host 是两个独立进程，改完两端代码两个都要重启。** 无 `--project` 的 Web/桌面启动器会在选定项目后自动启动或连接 daemon；显式 `--project` 的单项目 Web 不替用户启动 daemon。`bun run daemon-restart` 只管当前项目 daemon；`bun run lush host start` 后台起的 Web 进程自己活到被杀为止，不会跟着 daemon 换版本。只重启 daemon 就去刷新页面，会看到旧 Web 进程把**新的** `app.js` 发下来、却对自己不认识的 API 路由（例如后来才加的 `/api/docs`）回 404——页面直接「打开失败」。改 `src/ui/web/` 下任何东西之后，先 `bun run lush host restart` 再看页面：它停掉端口上那个后台 Web（只认命令行确实是 Lush Web 的进程）再按当前代码起一个新的；直接再跑 `bun run lush host start` 只会幂等报告「已在运行」。重启 Web 会清空登录会话，浏览器要重新登录一次；跑的是不是这份代码用 `bun run lush host status` 看（它比的是 Web 自己记下的代码指纹），不用靠猜。`bun run doctor` 只校验 daemon 的 fingerprint，报的是 daemon 的身份，不会告诉你 Web 是不是旧进程。
+**lushd 与 Lush Host 是两个独立进程，改完两端代码两个都要重启。** 无 `--project` 的 Web 工作台会在选定项目后自动启动或连接 daemon；显式 `--project` 的单项目 Web 不替用户启动 daemon。`bun run daemon-restart` 只管当前项目 daemon；`bun run lush host start` 后台起的 Web 进程自己活到被杀为止，不会跟着 daemon 换版本。只重启 daemon 就去刷新页面，会看到旧 Web 进程把**新的** `app.js` 发下来、却对自己不认识的 API 路由（例如后来才加的 `/api/docs`）回 404——页面直接「打开失败」。改 `src/ui/web/` 下任何东西之后，先 `bun run lush host restart` 再看页面：它停掉端口上那个后台 Web（只认命令行确实是 Lush Web 的进程）再按当前代码起一个新的；直接再跑 `bun run lush host start` 只会幂等报告「已在运行」。重启 Web 会清空登录会话，浏览器要重新登录一次；跑的是不是这份代码用 `bun run lush host status` 看（它比的是 Web 自己记下的代码指纹），不用靠猜。`bun run doctor` 只校验 daemon 的 fingerprint，报的是 daemon 的身份，不会告诉你 Web 是不是旧进程。
 
 跑测试时，若测试彼此独立且不会争用共享状态、端口或其他资源，尽量并行运行以缩短等待；有依赖或资源冲突时再串行执行。不要在开发测试时默认操纵用户正在开发的项目。测试用临时项目目录和 mock/可控子进程；测试结束停 daemon 并清理自己的临时文件。
 
@@ -63,9 +61,9 @@ bun run stop
 
 修改账号连接、凭证托管、余额/套餐观测、显式连接绑定与被动响应反馈前，先读 `docs/design/account-resources.md`；字段与模块边界见 `docs/engineering/agent-connections.md`，旧状态/历史兼容见 `docs/engineering/agent-usage.md`。私有权限不是沙箱，不得把凭证或原始认证响应放进读 API、会话或错误。
 
-修改启动、项目入口、环境管理前，先读 `docs/design/workbench.md` 与 `docs/engineering/workbench.md`：每项目独立窗口，Web SSH 在服务所在机器执行，关闭/断开不停止任务；项目 API 附着只读，不能由旧页轮询自动启动已停止后台。
+修改启动、项目入口、环境管理前，先读 `docs/design/workbench.md` 与 `docs/engineering/workbench.md`：每项目独立浏览器标签，关闭页面不停止任务；项目 API 附着只读，不能由旧页轮询自动启动已停止后台。
 
-桌面 SSH 接入、部署脚本和远端产物修改前，先读 `docs/design/remote-ssh.md`；使用与构建边界见 `docs/deployment/ssh-desktop.md`、`ssh-desktop-agent.md` 和 `desktop-build-agent.md`。Mac / Windows 发行携带双架构 Linux 包，源码开发显式导入，不在启动时静默下载；macOS 安装包另携带本机私有 Bun / 后台，Windows 不启动本机后台。真实回环 SSH 验证不等于跨机器、ARM64、Electron 或 Windows 发布验收。
+远程项目由用户自行在服务器运行 Lush Host；SSH、端口转发、IP/端口、域名、证书和防火墙均由用户配置，Lush 不部署远端或管理隧道。部署说明见 `docs/deployment/remote-host.md` 与 `remote-host-agent.md`。Host 允许 HTTP，但必须提示明文传输风险；推荐 HTTPS 或用户自建 SSH 隧道。
 
 - `src/config.js`：项目发现与不可变绑定。
 - `src/persistence/store.js`：SQLite 事实来源。

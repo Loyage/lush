@@ -8,7 +8,7 @@
 浏览器端 ES module，无打包器：`index.html` 先以 module 加载 `/appearance.js`（head 中定主题）再加载 `/app.js`，其余模块走 import 图，
 由 `server.js` 的扩展名白名单按 basename 服务。
 
-启动与环境管理的新边界见[工作台接入契约](workbench.md)，优先于历史连接页描述；界面资源、环境身份、项目后台控制与桌面兼容范围分别验收。
+启动与环境管理的新边界见[工作台接入契约](workbench.md)，优先于历史连接页描述；界面资源、项目身份与后台控制分别验收。
 
 **三个必须遵守的接缝：**
 
@@ -25,12 +25,12 @@
 
 | 文件 | 职责 | 导出 |
 |---|---|---|
-| `app.js` | 唯一入口：先装配主体，项目/环境管理、界面设置与帮助不依赖已选项目；仅项目上下文装配开发与轮询。经 `project-picker.js` 只读确认项目后，再装配左栏顶部身份区按钮（品牌回概览 / 切换项目 / 移动端导航 / 右侧返回）、`#worker-graph` / `#workers` / `#worker-ID`（执行详情仍显式点击打开） / `#versions` / `#settings` / `#agent-status` / `#model-sources` / `#model-source-UUID` / `#statistics` / 其它信息页 / `#notice-ID` 数字通知深链接 / 文档的 hash 路由与两个定时器；定时器按「轮询频率」偏好重建；全局模式下另按 20s 低频刷新左栏项目列表摘要 | `boot()` |
-| `route.js` | 地址固定环境与项目：本地 `/p/<pid>/`，SSH `/e/<eid>/p/<pid>/`；Host API 跟随环境，环境管理/文档保留入口根路径。空项目、未知/离线环境不得回落本地；偏好以环境+项目隔离。不 import 模块，`api.js` / `prefs.js` 均以它为准 | `routeContext()`、`environmentRoute()`、`projectRoute()`、`environmentBase()`、`projectBase()`、`projectApi()`、`environmentHref()`、`projectHref()`、`preferenceScope()` |
+| `app.js` | 唯一入口：先装配主体，项目管理、界面设置与帮助不依赖已选项目；仅项目上下文装配开发与轮询。经 `project-picker.js` 只读确认项目后，再装配左栏顶部身份区按钮（品牌回概览 / 切换项目 / 移动端导航 / 右侧返回）、`#worker-graph` / `#workers` / `#worker-ID`（执行详情仍显式点击打开） / `#versions` / `#settings` / `#agent-status` / `#model-sources` / `#model-source-UUID` / `#statistics` / 其它信息页 / `#notice-ID` 数字通知深链接 / 文档的 hash 路由与两个定时器；定时器按「轮询频率」偏好重建；全局模式下另按 20s 低频刷新左栏项目列表摘要 | `boot()` |
+| `route.js` | 固定 `/p/<pid>/` 项目身份；Host API 与文档保留根路径，未知项目不回落其他项目；偏好按项目隔离 | `routeContext()`、`projectRoute()`、`projectBase()`、`projectApi()`、`projectHref()`、`preferenceScope()` |
 | `project-picker.js` | 主体内项目管理：根路径不自动跳上次项目；独立窗口打开、登记/移除入口、显式后台启停，未选项目不启动快照轮询，不使主体 inert | `ensureProject()`、`openProjectManager()`、`openProjectPicker()`、`closeProjectPicker()`、`refreshProjectList()`、`workbenchStatus()` |
-| `environments.js` / `styles-workbench.css` | 主体内环境页与空态/布局；显示 SSH 执行机器，预检/一次性确认/连接/断开，已有 HTTPS Host 独立窗口，桌面可信管理页窄入口；不启动 Agent | `openEnvironments()`；CSS |
+| `styles-workbench.css` | 主体空态与项目管理布局 | CSS |
 | `appearance.js` | head 中初始化深浅主题，装配左栏顶部的主题切换按钮；偏好经 prefs.js 读写（`lush.theme`），`system` 跟随系统、显式值覆盖系统，存储不可用时保留会话内选择 | `systemThemeMedia()`、`resolveTheme()`、`effectiveTheme()`、`applyTheme()`、`createAppearance()`、`initAppearance()`、`refreshTheme()` |
-| `prefs.js` | 本地偏好中心：键名 / 默认值 / 解析与序列化、读写与变更通知都在这一份（`markdown` / `theme` / `sidebarSort` / `collapsed` / `filters` / `taskGraphStatuses` / `taskGraphMinimal` / `taskGraphCollapsed` / `reduceMotion` / `polling` / `toastDuration` / `transcriptOrder` / `noticeNotifications` / `noticeChannels`）；告知按三类 × 两渠道的客户端布尔偏好规范化；坏数据回落默认值，存储不可用不抛异常；老键（`lush.treeSort`、`lush.theme`、`lush.markdown`）继续生效；`collapsed` / `filters` / `sidebarSort` / `taskGraphStatuses` / `taskGraphMinimal` / `taskGraphCollapsed` 按项目隔离（键加 `:<project-id>` 后缀），主题等外观偏好共享；`resetPrefs()` 删除全部受管键（含历史键）并逐项通知回默认值 | `PREF_DEFS`、`PREF_NAMES`、`MARKDOWN_KEY`、`THEME_KEY`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`REDUCED_MOTION_KEY`、`POLLING_KEY`、`TOAST_DURATION_KEY`、`TRANSCRIPT_ORDER_KEY`、`THEME_VALUES`、`SORT_IDS`、`POLLING_MODES`、`TOAST_MODES`、`TRANSCRIPT_ORDER_MODES`、`pollingIntervals()`、`toastDurations()`、`readPref`、`writePref`、`setPref`、`onPrefChange`、`resetPrefs`、`prefsSnapshot`、`storageAvailable`、`scopedKey`、`normalizeNoticeChannels`、`initDesktopPreferences()`、`flushDesktopPreferences()`、`preferenceStorageStatus()`；本地受管存储 / 并发 / reset 见[桌面偏好](desktop-preferences.md) |
+| `prefs.js` | 本地偏好中心：键名 / 默认值 / 解析与序列化、读写与变更通知都在这一份（`markdown` / `theme` / `sidebarSort` / `collapsed` / `filters` / `taskGraphStatuses` / `taskGraphMinimal` / `taskGraphCollapsed` / `reduceMotion` / `polling` / `toastDuration` / `transcriptOrder` / `noticeNotifications` / `noticeChannels`）；告知按三类 × 两渠道的客户端布尔偏好规范化；坏数据回落默认值，存储不可用不抛异常；老键（`lush.treeSort`、`lush.theme`、`lush.markdown`）继续生效；`collapsed` / `filters` / `sidebarSort` / `taskGraphStatuses` / `taskGraphMinimal` / `taskGraphCollapsed` 按项目隔离（键加 `:<project-id>` 后缀），主题等外观偏好共享；`resetPrefs()` 删除全部受管键（含历史键）并逐项通知回默认值 | `PREF_DEFS`、`PREF_NAMES`、`MARKDOWN_KEY`、`THEME_KEY`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`REDUCED_MOTION_KEY`、`POLLING_KEY`、`TOAST_DURATION_KEY`、`TRANSCRIPT_ORDER_KEY`、`THEME_VALUES`、`SORT_IDS`、`POLLING_MODES`、`TOAST_MODES`、`TRANSCRIPT_ORDER_MODES`、`pollingIntervals()`、`toastDurations()`、`readPref`、`writePref`、`setPref`、`onPrefChange`、`resetPrefs`、`prefsSnapshot`、`storageAvailable`、`scopedKey`、`normalizeNoticeChannels` |
 | `sleep-ui.js` / `styles-sleep.css` | 托管模式设置与风险确认、全页面左栏状态（管家值守/预算暂停、本会话已处理与选择计数、token 用量）及关闭/恢复入口、只读管家选择卡片；不在轮询时重置设置表单 | `sleepSettings()`、`renderSleepBanner(state)`、`sleepChoiceCard(choice)`；CSS |
 | `creation-profile-dialog.js` | 历史草稿发射时的完整运行参数确认，使用应用弹窗、页面身份与默认加载；取消保留旧覆盖，不调用 Agent | `chooseCreationProfile()` |
 | `hook-controls.js` | 详情内置自动合并兼容与一行最高环节按钮控制，点击即保存；child 最低级别、补办/归档确认和旧服务兼容；保存用 revision、在途锁和项目/导航保护，见[自动链接缝](completion-hooks.md) | `autoMergeControl()`、`autoCompletionControl()`、`COMPLETION_LEVELS`、`HOOK_STATES` |
@@ -78,7 +78,7 @@
 | `render-tree.js` | `#workers` 全类型 Worker 的平铺列表（保留旧文件与导出名，不渲染树）；筛选只显示命中项，不补祖先、不缩进、不画兄弟链，排序跨父子层级且不继承后代优先级（`tree-order.js` 的 `orderTasks(tasks,{mode,openNoticeIds})`）；状态 / Worker类型常展开即时多选，兼容历史与未知类型；专用及历史角色用 `roleBadge`（不显示通用 `agent` 角色标签）、快速路由用 `.route-flagged` 与 `routeBadge`；保留依赖标签、等待原因与进度；明确标出“活动 + 最近历史”的截断范围，通过 `/api/workers?scope=all&before=` 按需加载更早页，筛选与搜索只针对已加载记录 | `renderTree(data)` |
 | `notice-kind.js` | 生命周期告知/未读判定、按明确 lifecycle_type 过滤渠道（未知分类可见，待决不受过滤）、项目限定告知身份、记录筛选与数字 Notice hash；历史 info 不算未读 | `lifecycleNotice`、`unreadNotice`、`noticeChannelEnabled`、`noticeIdentity`、`noticeMatches`、`positiveId`、`noticeHash` |
 | `render-notices.js` | 独立「管家选择」Event 游标页、待决与未读告知分开计数/分页、面板内答复与 Plan 审批、只读历史；生命周期告知直接打开 Worker，只有当前详情成功渲染才调用 `notice.read`；与告知条共用按项目/记录身份单飞的已读接缝，ACK 成功后缓存事实防止陈旧快照复活；Worker 删除身份过滤同时覆盖分页、告知条与迟到 ACK，删除时清除专属已读缓存，不能因在途请求恢复已删除记录；未缓存的数字深链接按 ID 查记录，迟到导航不标已读；轮询保留输入与已加载历史，revision 变化提示旧页可能过期、不后台扫描，显式刷新只读重载已加载页数并保留答复 | `initNoticeRecords()`、`loadNoticeRecords({more?,preserve?,reload?})`、`renderNotices(data)`、`readNotice(notice)`、`openNotice(noticeId)`、`noticePanel(notice, task?)` |
-| `notice-notifications.js` | 默认关闭的客户端系统提醒：用户授权、总开关、分类渠道过滤、桌面偏好恢复/同步（防旧 Host 异步结果回写）、按项目建立首屏基线与增量去重，关闭期间不补发；浏览器 Notification / Electron IPC 使用数字 Notice ID 深链接并保留来源项目路径 | `initNoticeNotifications()`、`notificationStatus()`、`setNoticeNotifications(enabled)`、`notificationControl()`、`createNoticeNotifier(options)`、`resetNoticeNotifier()`、`observeNotices(data)` |
+| `notice-notifications.js` | 默认关闭的客户端系统提醒：用户授权、总开关、分类渠道过滤、按项目建立首屏基线与增量去重，关闭期间不补发；浏览器 Notification 使用数字 Notice ID 深链接并保留来源项目路径 | `notificationStatus()`、`setNoticeNotifications(enabled)`、`notificationControl()`、`createNoticeNotifier(options)`、`resetNoticeNotifier()`、`observeNotices(data)` |
 | `notice-banner.js` | 全局常驻提醒条（移动端 sticky）：独立汇总待决事项，另按页面渠道偏好显示最新未读生命周期告知及可见数量；查看 Worker 成功后已读，「已知」及触摸左右横滑仅调用共享 `readNotice` 标记当前一条，不导航、不批准或调用 Agent，下一条依次显示；待决没有已知/滑动消除。宿主 `role="status" / aria-live="polite"`，告知行含查看与已知两个键盘按钮；WeakMap 状态/签名复用，ACK 单飞与焦点恢复、手势期间保留节点、垂直/短滑/取消/文本选择及合成点击保护；轮询不触发系统通知 | `renderNoticeBanner(data)` |
 | `render-ladder.js` | 按目标分支分组的交付队列、变更栈与批量落地 | `renderLadder(data)`、`mergeBatch(ids, candidates)`、`renderMergeResult(entry)` |
 | `render-history.js` | 事件时间线以中文名称为主标题、原始类型代码为次要字段同时显示，引用快照保留二者，不改写历史数据；默认最近 100 条，明确显示截断并用 `before` 游标逐页加载更早记录；事件引用的消息正文（后端附在 `event.message`）按收发方向与信号展示，普通消息仍按 Agent 输出渲染 | `renderHistory(history, opts)` |
@@ -147,41 +147,25 @@ Worker 彻底删除前端验证：`test/web/dom-worker-delete.test.js` 覆盖详
 
 Worker树极简模式验证：`test/web/dom-task-graph-minimal.test.js` 覆盖偏好、摘要、筛选/折叠、待决草稿与共享动作；`bun scripts/check-task-graph-layout.js` 使用临时 HTTP fixture 与 Firefox / geckodriver 验证双主题、窄屏/桌面等高布局、原生浮层、键盘/外部关闭与轮询保护，不连接用户 daemon。
 
-Agent / 来源两页真实浏览器回归：`bun run check:agent-layout`（`scripts/check-agent-layout.js`），使用临时回环 HTTP fixture、Firefox / geckodriver，不连接用户 daemon、不使用账号或调用模型；覆盖双主题、1440/900/390px 的全宽总览、侧边详情与编辑、长名称 / 端点无溢出、Codex 双窗口进度与重置倒计时、本地搜索、打开聚焦 / 返回归还入口 / Escape、非模态语义及配置草稿在诊断失败后保留，输出截图与失败日志。不替代真实账号、触摸、Electron 或完整宿主侧栏布局验收。
+Agent / 来源两页真实浏览器回归：`bun run check:agent-layout`（`scripts/check-agent-layout.js`），使用临时回环 HTTP fixture、Firefox / geckodriver，不连接用户 daemon、不使用账号或调用模型；覆盖双主题、1440/900/390px 的全宽总览、侧边详情与编辑、长名称 / 端点无溢出、Codex 双窗口进度与重置倒计时、本地搜索、打开聚焦 / 返回归还入口 / Escape、非模态语义及配置草稿在诊断失败后保留，输出截图与失败日志。不替代真实账号、触摸或完整宿主侧栏布局验收。
 
 来源管理台 DOM 回归：`test/web/dom-model-sources.test.js`、`dom-agent-connections.test.js`、`dom-model-source-management.test.js` 覆盖本地只读总览、多维筛选、非模态侧面板焦点/返回/Escape、公开草稿恢复与秘密取消/离页清理、物理 slash ID 与显式前缀修正、默认范围校验、批量范围确认/三项并发/完整公开字段/逐项失败、真实 Service/Manager 公开默认设定与 DOM 编辑/自动查询/批量启停的组合保留、新编辑与迟到页面保护、并发查询整表快照隔离、保存/设备码/备用登录后自动刷新及查询失败分离、独立倒计时/隐藏暂停/到期待刷新/清理；不替代真实浏览器双主题、触摸与视觉验收。
 
 真实浏览器布局回归入口：`scripts/check-transcript-layout.js`（Firefox / geckodriver，无第三方 JS 依赖），职责与命令见[执行记录阅读器验证](transcript-reader.md#验证入口)。
 
-## Web / 桌面宿主
+## Web 宿主
 
-SSH 接入边界见[设计契约](../design/remote-ssh.md)，使用与构建见[桌面 SSH 部署](../deployment/ssh-desktop.md)。可信连接页通过窄 IPC 调用系统 SSH、预检与确认安装；业务窗口不获得 SSH 能力。显式转发 origin 不改变默认 Host 网络边界。
+服务器运行 Host 与网络接入由用户配置，见[远程 Host](../deployment/remote-host.md)。Lush 不管理 SSH、远端部署或隧道。
 
 | 文件 | 职责 | 导出 / 接缝 |
 |---|---|---|
-| `src/ui/web/server.js` | Host 的 HTTP 适配器：UI 资源、认证、窄 API 路由与 `/p/<project-id>/` 项目身份路由；项目连接与发现委托 `src/host/project-host.js` | `startWeb()`、`rememberWebProject()`、`sshLoopbackOrigin(env, config?)`（显式 `LUSH_WEB_SSH_ORIGIN`，与已有认证配置冲突时启动前拒绝） |
+| `src/ui/web/server.js` | Host 的 HTTP 适配器：UI 资源、认证、窄 API 路由与 `/p/<project-id>/` 项目身份路由；项目连接与发现委托 `src/host/project-host.js` | `startWeb()`、`rememberWebProject()` |
 | `src/host/project-host.js` | 已登记项目的连接缓存与 single-flight、身份解析、按需启动 lushd；列表仅探测已登记项目的 socket，不启动未打开的项目 | `createProjectHost()` |
 | `src/host/control.js` | 后台 lush-host 进程识别（含 worker）、状态文件、端口探测与安全停止；状态记录可带 `supervisor_pid` 以关联启动者 | `webOwners()`、`stopStaleWeb()`、`recordWebState()` 等 |
 | `src/host/service-control.js` | 项目级显式启动/停止/重启互斥；停止请求 idle 准入、等锁释放，无强杀 | `startProjectDaemon(config)`、`stopProjectDaemon(config)`、`restartProjectDaemon(config)` |
-| `src/host/environments.js` | Web 服务用户的 SSH 能力与公网别名白名单、预检/会话确认、受管回环入口、只回收自有隧道 | `createEnvironmentManager()`、`sshHostAllowlist()` |
 | `src/host/supervisor.js` | `bin/lush-host` 的稳定进程所有者，等 worker 退出75后在同端口重新启动；普通退出不重放，退出时停止唯一 worker | `superviseHost(args?)` |
 | `src/ui/web/docs.js` | 扫描随代码发布的 Markdown 文档与搜索字段 | `docsIndex()`、`docsSearchIndex()`、`readDoc()` |
 | `src/host/registry.js` | 跨项目的登记列表、最后路径缓存、稳定路由 ID 派生、绝对目录 canonicalize、无项目 Web 控制配置 | `launcherStateDir()`、`readLauncherState()`、`writeLauncherState()`、`removeLauncherProject()`、`projectRouteId()`、`canonicalProjectPath()`、`launcherWebConfig()` |
-| `src/ui/desktop/main.js` | Electron 装配：userData / AppUserModelID、SSH manager 与运行包路径；SSH 元数据错误不禁用旧入口；仅非 Windows 加载本地 Host，macOS 安装包固定使用独立 `resources/local-runtime/` 的私有 Bun / 后台，不依赖系统 PATH | Electron `main` 入口 |
-| `src/ui/desktop/runtime.js` | 主体优先启动；窗口 / 导航 / 通知 IPC；SSH 稳定身份、单次安装授权、取消与退出。入口 Host 上 `/e/` 工作窗口按远端能力降权，通知携带环境/项目身份；直接 Host 窗口仍不复制业务 API | `createDesktop({electron,userData,localHost?,sshManager?,sshError?,platform?,store?})`；Windows 拒绝本地启动 |
-| `src/ui/desktop/ssh.js` | Node-only 系统 OpenSSH：安全 argv / 环境、有界输出、超时 / 取消、身份 / 固定端口、只读预检；缺包时展示固定 Release 下载计划，确认后下载并复检，再上传 / 安装；Host 与自有隧道生命周期 | `createSSHManager({payloadProvider?,...})` → `list()` / `inspect()` / `connect()` / `disconnect()` / `dispose()` |
-| `src/ui/desktop/ssh-release.js` | 主进程固定 GitHub Release 来源，客户端版本 / 指纹匹配；优先随包 / 手工产物及独立 userData 缓存；无预检联网，确认后有界、可取消下载、校验、原子缓存。不接受渲染器 URL / 路径 / token | `createReleasePayloadProvider({payloadDir,userData,identity,fetchImpl?})` → `resolve(target)` / `download(target,{signal})` / `desktopReleaseIdentity(root)`；复用非执行校验，显式纳入桌面白名单 |
-| `src/ui/desktop/remote-artifact.js` | Node-only 共享 manifest / ELF / ustar / 哈希 / 源码身份与目录安全校验；原生构建脚本与下载器使用同一实现，不提取或执行运行包 | `BUN_VERSION`、`TARGETS`、`SOURCE_DIRS`、`SOURCE_FILES`、`safePath()`、`sourceName()`、`runtimeSourceIdentity()`、`inspectRuntimeBinary()`、`validateRemoteManifest()`、`verifyPayloadDirectory()` |
-| `src/ui/desktop/ssh-config.js` | Node-only 只读枚举用户 SSH config / Include 的明确 Host；有界文件 / 通配符 / 递归读取、去重与安全警告，不执行配置命令、不暴露原文 | `readSSHConfig({home?})` → `{hosts:[{alias}],warnings}`，仅主进程决定用户目录 |
-| `src/ui/desktop/ssh-scripts.js` | 固定远端 shell：只读探测、受限暂存、哈希校验与原子安装、profile 绑定及回环 Host 启动；不停止 daemon | `shellQuote()`、`probeScript()`、`uploadScript()`、`installScript()`、`hostScript()` |
-| `src/ui/desktop/ssh-payload.js` | 不执行 Linux 二进制的客户端验证：manifest / archive / Bun 哈希、源码身份、ustar 文件与路径安全 | `readRemoteTar()`、`loadRemotePayload()` |
-| `src/ui/desktop/local-host.js` | single-flight 启动随机端口临时 Host，处理启动失败、超时及退出；打包 macOS 使用私有 Bun，源码本地窗口需要系统 Bun，桌面退出只停自己持有的 Host | `createLocalHost(options?)` → `start()` / `stop()` |
-| `src/ui/desktop/connections.js` | Host 根地址校验（HTTPS / 回环 HTTP）、会话分区与页面身份判定、最近连接和按 Host 的系统提醒开关/告知分类渠道偏好（本地为稳定 local 身份）；白名单布尔规范化；另以独立 `ui-preferences.json` 保存本地非通知受管界面偏好，按名称 / 值校验、按键同步 RMW / revision，不含项目事实或密码 | `normalizeHostUrl()`、`sameHost()`、`sessionPartition()`、`workspaceIdentity()`、`isProjectPage()`、`gatewayNoticeKey()`、`ConnectionStore` |
-| `src/ui/desktop/connection.html` / `connection.js` / `connection.css` | Windows / 本地启动失败时的可信主体管理壳，项目 / 环境 / 帮助导航；URL / 本机 SSH 配置、预检、安装确认、取消 / 断开、元数据与就地错误放在环境页；Windows 禁用本地；复用 Web `help.js` | 桌面内部页面，无业务 API |
-| `src/ui/desktop/connection-preload.cjs` | 仅连接页的打开 / 记录及窄 SSH IPC；不接收自由命令或远端渲染器授权 | `lushConnections`：`localSupported`、`list/openLocal/openRemote/remove`、`sshConfig/sshList/sshInspect/sshConnect/sshCancel/sshDisconnect` |
-| `src/ui/desktop/preload.cjs` | 沙箱内的窄通知 IPC；仅本地工作窗口另有目录选择与受管界面偏好能力，远程窗口不暴露；通知点击仅接受正整数 Worker/Notice ID 和固定根/项目/环境路径，主进程校验其环境与项目归属后导航到 `#notice-ID`；无目标的旧通知回 `#notices` | `window.lushDesktop.chooseProject()`（仅本地）、`notificationSettings(enabled?)`、`noticePreferences(value?)`（完整 idle / analysis / failed × banner / system 布尔对象）、`notifyNotice(payload)`；仅本地另有 `readPreferences()` / `writePreference(name,value)` / `resetPreferences()` / `onPreferencesChanged(callback)`，见[受管偏好 IPC](desktop-preferences.md#窄-ipc-与身份) |
-
-桌面可信管理壳不复制项目业务 API；工作窗口可经仅打开本机管理界面的 `lushDesktop.openConnections()` 窄 IPC 返回环境管理，不获得 SSH 执行能力。Windows 为仅远程客户端，不加载本地 Host、不启动 Bun 或 daemon；`test/desktop/windows-connection-ui.test.js` 覆盖平台提示及刷新后禁用状态，`test/desktop/runtime.test.js` 覆盖主进程拒绝与 preload 能力。macOS/Linux 首启直接进入本地工作台，Windows 或本地启动失败时进入可信主体管理壳；连接方式放在环境页。本地窗口共享桌面持有的临时 Host，远程窗口连接 HTTPS Host、手工隧道或桌面自有 SSH 回环隧道；可同时使用本地和多个远程窗口。原有桌面直连远端窗口的业务 UI / API 仍由各自 Host 提供；Web 受管 SSH 网关使用入口 Host 的 UI 和受限远端 JSON 代理，选择远程项目时路径属于远端，不使用本地目录选择器。登录会话按 Host origin 隔离并持久化，提醒开关按 Host 隔离；未知源、子 frame 和独立预览窗口不得调用工作窗口 IPC。完整行为与限制见[远程桌面部署](../deployment/remote-desktop.md)。
 
 Worker 用户编号展示验证：`test/web/dom-worker-number.test.js` 覆盖 `Wn(-n)*` 接受与历史 `#id`/Draft `#id` 回落、深层子编号、合并队列链接、项目作用域与删除后缓存失效、列表搜索命中编号，以及点击导航与引用 `data-ref` 仍使用整数 `task-<id>`；`test/web/format.test.js` 固定 `taskTitle`/`edgeLabel` 的编号优先与回落口径。编号只改标签，URL/hash、API 参数、`data-task-id`、引用 target/location 与排序仍用整数身份。
 

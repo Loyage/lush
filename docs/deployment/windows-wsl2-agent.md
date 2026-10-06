@@ -44,9 +44,9 @@ git --version
 command -v pi codex   # 至少所选的一种可用；另一种缺失不算部署失败
 ```
 
-缺少工具时，按目标机环境约定安装。Bun / Git 的上游入口是 [Bun 安装](https://bun.sh/docs/installation)与 [Git 安装](https://git-scm.com/downloads)。Bun 至少满足通用部署要求；新环境可参考[仓库构建环境使用的 Bun 版本](windows-client-agent.md#4-仅维护者构建与交付安装包)，但构建版本不代表 WSL 已实测。Pi/Codex 使用用户认可的发行来源，在 WSL 内安装并认证；不要默认调用 Windows `.exe` / `.cmd` 或复制 Windows 凭证目录。
+缺少工具时，按目标机环境约定安装。Bun / Git 的上游入口是 [Bun 安装](https://bun.sh/docs/installation)与 [Git 安装](https://git-scm.com/downloads)。Bun 至少满足[通用部署要求](agent-guide.md#前置条件)，CI 使用的版本不代表 WSL 已实测。Pi/Codex 使用用户认可的发行来源，在 WSL 内安装并认证；不要默认调用 Windows `.exe` / `.cmd` 或复制 Windows 凭证目录。
 
-取得用户提供的 Lush 仓库 / 检出，优先放在 Linux home 下。没有仓库地址时问用户，不猜下载来源；克隆认证也使用 WSL 用户的环境。在 Lush 源码目录执行 `bun install --frozen-lockfile` 安装依赖（可能下载 Electron；使用 Windows 浏览器不要求启动 WSL Electron）。
+取得用户提供的 Lush 仓库 / 检出，优先放在 Linux home 下。没有仓库地址时问用户，不猜下载来源；克隆认证也使用 WSL 用户的环境。在 Lush 源码目录执行 `bun install --frozen-lockfile` 检查锁文件（当前无第三方运行依赖）。
 
 目标项目应是 Linux 文件系统内的 Git 工作区根目录，并有初始提交：
 
@@ -97,7 +97,7 @@ curl --fail --silent --show-error --output /dev/null http://127.0.0.1:4318/
 (Invoke-WebRequest -Uri http://localhost:4318/ -UseBasicParsing).StatusCode
 ```
 
-用 Windows 浏览器打开 `http://localhost:4318`，确认项目页面能读取状态。Electron 用户按[Windows 客户端说明](windows-client.md)填这个 Host 地址打开连接窗口，不使用禁用的“本地窗口”。没有 Windows 执行 / 浏览器权限时，请用户验证并记录反馈，不能自行报通过。
+用 Windows 浏览器打开 `http://localhost:4318`，确认项目页面能读取状态。没有 Windows 执行 / 浏览器权限时，请用户验证并记录反馈，不能自行报通过。
 
 | 现象 | 优先检查 |
 |---|---|

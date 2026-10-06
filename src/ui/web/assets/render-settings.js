@@ -4,7 +4,7 @@ import { effectiveTheme, systemThemeMedia } from './appearance.js';
 import { action, api } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { show } from './messages.js';
-import { PREF_NAMES, POLLING_MODES, THEME_VALUES, TOAST_MODES, TRANSCRIPT_ORDER_MODES, onPrefChange, preferenceStorageStatus, readPref, resetPrefs, setPref } from './prefs.js';
+import { PREF_NAMES, POLLING_MODES, THEME_VALUES, TOAST_MODES, TRANSCRIPT_ORDER_MODES, onPrefChange, readPref, resetPrefs, setPref } from './prefs.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { SORT_MODES } from './tree-order.js';
@@ -120,14 +120,8 @@ function interfaceTab() {
 
   const reset = block('恢复界面默认');
   const resetButton = el('button', '恢复默认设置', 'ghost pref-reset'); resetButton.type = 'button'; resetButton.onclick = () => resetPrefs();
-  const storage = preferenceStorageStatus();
-  resetButton.setAttribute('data-help', storage.desktop
-    ? '恢复本地共享界面偏好与当前项目视图默认，不清其他项目；通知仍按既有规则关闭并恢复分类默认。不改项目 Agent 配置。'
-    : '恢复当前 origin 的受管界面偏好与通知默认，不改项目 Agent 配置。');
-  reset.append(row('恢复界面默认', storage.desktop
-    ? '本地界面偏好保存在桌面宿主；只清共享与当前项目偏好，不清其他项目。不改项目 Agent 配置。'
-    : '只清除当前浏览器的界面偏好，不改项目 Agent 配置。', resetButton));
-  if (storage.error) reset.append(el('p', `桌面偏好保存 / 读取失败：${storage.error}。当前会话选择保留，未覆盖原存储。`, 'error'));
+  resetButton.setAttribute('data-help', '恢复当前浏览器的共享界面偏好、通知与当前项目视图默认；不清其他项目视图，不改项目 Agent 配置。');
+  reset.append(row('恢复界面默认', '偏好保存在当前浏览器；只清共享与当前项目视图偏好，不改项目 Agent 配置。', resetButton));
   content.append(reset);
   return content;
 }

@@ -5,7 +5,7 @@
 
 Lush 是项目级的多 agent 开发应用。你描述想要的结果，Lush 在独立的 Git 分支与 worktree 里并行拆解、实现与验证，把成果冻结成精确的提交，最后由你明确批准落地。当前输入路径是 **order（指令）**：一条输入直连一个拥有独立分支与 worktree 的 Worker，它自己判断亲自做还是再派子 Worker。旧 Intent / Plan / Candidate 的对外操作已下线；磁盘历史数据、会话与工作区原样保留，不自动迁移或删除。它面向长期维护真实代码库、希望把重复开发真正并行起来的开发者。
 
-Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行时依赖。后台支持 macOS 与 Linux；Windows 可连接远程 Host，或按[WSL2 方案](docs/deployment/windows-wsl2.md)在本机运行 Linux 后台。客户端安装见[macOS 客户端](docs/deployment/macos-client.md)与[Windows 客户端](docs/deployment/windows-client.md)。
+Bun 1.2+ / JavaScript / SQLite / Unix socket；daemon 与 CLI 零第三方运行时依赖。后台支持 macOS 与 Linux；使用浏览器访问 Web UI。Windows 可用浏览器连接服务器 Host，或按[WSL2 方案](docs/deployment/windows-wsl2.md)在本机运行 Linux 后台。
 
 ## 设计理念
 
@@ -29,11 +29,11 @@ CLI 使用 `lush order '目标'`（源码快捷命令 `bun run order`），RPC /
 
 ### 三层：Lush UI → Lush Host → lushd
 
-- **Lush UI**：浏览器页面／Electron 窗口，只展示状态和发送带项目身份的请求；没有项目数据库或 Agent 调度器。
+- **Lush UI**：浏览器页面，只展示状态和发送带项目身份的请求；没有项目数据库或 Agent 调度器。
 - **Lush Host**（`bin/lush-host` / `bun run lush host start`）：本机入口，提供 UI、认证、项目登记、连接与请求转发。一个 Host 可连接多个项目；列表只探测已登记项目的 lushd，打开项目时按需连接或启动。它的 `launcher.json` 仅是界面元数据，不是项目事实来源。
 - **lushd**（`bin/lushd`）：每个 canonical 项目目录一个 daemon，独占该项目的 SQLite、RPC、Agent 与 Git 工作区；事实写入 `<project>/.lush/`。CLI `lush` 也是项目客户端，可直接连接 lushd。
 
-Host 不进行跨项目调度。共享同一份 Lush 代码的不同项目互不干扰；项目 API 带 `/p/<project-id>/` 身份，受管 SSH 环境另带 `/e/<environment-id>/` 前缀。主体中的「项目管理」「环境与连接」区分打开窗口、连接环境和启停后台；关闭窗口或断开 SSH 不停止开发。设计与施工边界见[工作台与开发环境](docs/design/workbench.md)及[接入契约](docs/engineering/workbench.md)。
+Host 不进行跨项目调度。共享同一份 Lush 代码的不同项目互不干扰；项目 API 带 `/p/<project-id>/` 身份。项目在独立浏览器标签中打开；关闭页面不停止开发。Lush 不管理 SSH、远端部署或跨 Host 环境代理。设计与施工边界见[工作台与开发环境](docs/design/workbench.md)及[接入契约](docs/engineering/workbench.md)。
 
 ### 人类把关：Agent 不是沙箱
 
@@ -51,18 +51,13 @@ Host 不进行跨项目调度。共享同一份 Lush 代码的不同项目互不
 
 ## 部署方式
 
-Lush 提供两种图形化使用方式，两者复用同一份 Web UI 与 API：
+Lush 仅提供 Web UI。在 Lush 源码目录执行 `bun run lush host start`，用浏览器打开工作台，再在项目管理中打开独立项目标签。
 
-| 方式 | 适合场景 | 启动 |
-|---|---|---|
-| 本地 Web | 日常使用的主工作台，用浏览器打开 | 在 Lush 源码目录执行 `bun run lush host start`；直接进入主体，在项目管理里打开独立项目窗口 |
-| 桌面应用 | macOS / Linux 可选择本地目录；Windows 为远程客户端，独立窗口可同时工作 | 源码：准备开发依赖后 `bun run desktop`，SSH 自动部署另需显式[准备运行包](docs/deployment/desktop-build-agent.md)；macOS 安装包携带本机 Bun，Windows 仅远程，见[Mac](docs/deployment/macos-client.md) / [Windows](docs/deployment/windows-client.md)与[远程桌面部署](docs/deployment/remote-desktop.md) |
-
-Host 默认只监听回环。SSH-only Linux 可在本地 Electron 使用[SSH 预检与确认部署](docs/deployment/ssh-desktop.md)，自动建立自有隧道、安装用户私有运行包并打开远端 Host；项目与 Agent 仍在远端。原有认证 HTTPS 和手工隧道见[远程 Host](docs/deployment/remote-host.md)。其它部署形态统一见[用户 / Agent 配套教程索引](docs/deployment/README.md)。
+Host 默认只监听回环。开发远程项目时，由用户在服务器准备并运行 Lush，再自行选择 SSH 端口转发、IP 加端口或域名访问；Lush 不管理这些网络与部署配置。Host 允许 HTTP，但明文传输可能泄露密码、会话及项目内容，推荐 HTTPS 或用户自建 SSH 隧道。见[远程 Host](docs/deployment/remote-host.md)与[部署索引](docs/deployment/README.md)。
 
 ## 部署文档：用户与 Agent 各一份
 
-你不需要自己完成安装、配置与排错。[部署索引](docs/deployment/README.md)按场景提供配套教程：**用户版解释方案和原因，Agent 版负责帮助配置与验收。** 覆盖 macOS/Linux 本机、远程 Host、桌面 SSH 首次部署、远程桌面、Windows 客户端和 WSL2。
+你不需要自己完成安装、配置与排错。[部署索引](docs/deployment/README.md)按场景提供配套教程：**用户版解释方案和原因，Agent 版负责帮助配置与验收。** 覆盖 macOS/Linux 本机 Web、用户自行配置的远程 Host 和 Windows WSL2。
 
 本机部署先读[用户说明](docs/deployment/local-deployment.md)，再把[Agent 指导](docs/deployment/agent-guide.md)交给你的 coding agent（pi、Codex、Claude Code 等），并说明目标机器与项目；Windows 同机后台先读[WSL2 用户说明](docs/deployment/windows-wsl2.md)。部署 Agent 应先检查现状、询问未知选择，再安装与验证，不默认迁移项目、开放公网或调用付费模型。
 

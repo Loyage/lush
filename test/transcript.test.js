@@ -1,17 +1,10 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fixture } from './helpers.js';
+import { sessionFixture as fixture, sessionFile } from './session-fixture.js';
 import { readTranscript, readUsage, sessionFiles, transcriptReadStats } from '../src/core/transcript.js';
 import { LushError } from '../src/core/types.js';
 
-/** pi 的会话记录长这样：一行一条 JSON，消息正文按 part 排列。 */
-function sessionFile(root, taskId, lines, name = `2026-01-01T00-00-00-000Z_lush-task-${taskId}.jsonl`) {
-  const dir = path.join(root, '.lush', 'sessions');
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(path.join(dir, name), lines.map(line => (typeof line === 'string' ? line : JSON.stringify(line))).join('\n') + '\n');
-  return path.join(dir, name);
-}
 const message = (role, content, timestamp = 1789749049638) => ({ type: 'message', timestamp, message: { role, content } });
 /** assistant 消息带 pi 的用量：模型每次请求都给出 token 与按单价算好的花费。 */
 const billing = (text, usage, timestamp) => ({ type: 'message', timestamp,

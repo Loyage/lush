@@ -1,11 +1,10 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT } from '../../src/identity.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
 import { temp, repo, env, until } from '../helpers.js';
-import { cli, freePort, waitForWeb } from './harness.js';
+import { cli, freePort } from './harness.js';
 import { fetch } from '../web/harness.js';
 import { installDom, deepText } from '../dom-stub.js';
 import { serviceRestartControls, waitForHostRestart } from '../../src/ui/web/assets/service-restart.js';
@@ -106,50 +105,6 @@ test('全部重启按钮更换后台与Host进程，保留静息Worker且不动�
     fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(other, { recursive: true, force: true });
   }
 }, 30000);
-
-test('desktop ephemeral supervisor keeps random port through restart and owns the replacement lifetime', async () => {
-  const root = temp();
-  const host = Bun.spawn([process.execPath, path.join(ROOT, 'bin/lush-host'), '0'], {
-    cwd: ROOT, env: env({ LUSH_WEB_LAUNCHER: '1', LUSH_WEB_EPHEMERAL: '1', XDG_CONFIG_HOME: root }),
-    stdout: 'pipe', stderr: 'pipe',
-  });
-  let ready;
-  const firstReady = new Promise(resolve => { ready = resolve; });
-  const output = (async () => {
-    const reader = host.stdout.getReader(), decoder = new TextDecoder();
-    let text = '';
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) return text;
-      text += decoder.decode(value, { stream: true });
-      const line = text.split('\n').find(line => line.startsWith('LUSH_HOST_READY ') && line.endsWith('}'));
-      if (line) ready(JSON.parse(line.slice(16)));
-    }
-  })();
-  const errors = new Response(host.stderr).text();
-  let first = null, replacement = null;
-  try {
-    let timer;
-    const readyState = await Promise.race([firstReady, new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error('ephemeral Host readiness timed out')), 10000);
-    })]).finally(() => clearTimeout(timer));
-    const url = readyState.url;
-    first = { ...await fetch(url + '/api/host').then(r => r.json()), port: readyState.port };
-    expect((await post(url + '/api/host/restart')).status).toBe(200);
-    replacement = await hostChanged(url, first.pid);
-    host.kill('SIGKILL'); await host.exited; // lost owner must close IPC and stop replacement too
-    await waitForWeb(first.port, false);
-    await until(() => !alive(replacement.pid));
-    expect(alive(first.pid)).toBe(false);
-    expect(alive(replacement.pid)).toBe(false);
-    const ready = (await output).split('\n').filter(line => line.startsWith('LUSH_HOST_READY '));
-    expect(ready.length).toBe(2);
-    expect(ready.map(line => JSON.parse(line.slice(16)).port)).toEqual([first.port, first.port]);
-  } finally {
-    host.kill('SIGTERM'); await host.exited; await output; await errors;
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-}, 20000);
 
 test('real authenticated Host restart invalidates old session and still accepts a fresh login', async () => {
   const root = temp(), port = freePort(), password = 'host restart auth password';

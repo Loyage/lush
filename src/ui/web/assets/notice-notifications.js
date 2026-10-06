@@ -1,39 +1,14 @@
 import { button, el } from './dom.js';
 import { onPrefChange, readPref, setPref } from './prefs.js';
-import { unreadNotice, noticeHash, positiveId, noticeChannelEnabled } from './notice-kind.js';
+import { unreadNotice, noticeHash, noticeChannelEnabled } from './notice-kind.js';
 
-const desktop = () => globalThis.window?.lushDesktop;
-let failure = '', restoring = false, initialization = 0;
-onPrefChange('noticeChannels', value => {
-  if (!restoring && desktop()?.noticePreferences) void desktop().noticePreferences(value).catch(error => { failure = error.message; });
-});
-onPrefChange('noticeNotifications', enabled => {
-  // Includes “restore defaults”; the desktop preference must not resurrect on restart.
-  if (!restoring && desktop()?.notificationSettings) void desktop().notificationSettings(enabled).catch(error => { failure = error.message; });
+let failure = '';
+onPrefChange('noticeNotifications', () => {
   for (const root of globalThis.document?.querySelectorAll?.('.notice-notification-control') || []) paintControl(root);
 });
 
-export async function initNoticeNotifications() {
-  failure = '';
-  const generation = ++initialization, bridge = desktop(), origin = globalThis.location?.origin;
-  const owns = () => generation === initialization && bridge === desktop() && origin === globalThis.location?.origin;
-  restoring = true;
-  try {
-    if (bridge?.notificationSettings) {
-      try { const settings = await bridge.notificationSettings(); if (owns()) setPref('noticeNotifications', settings.enabled); }
-      catch { if (owns()) failure = '无法读取桌面提醒设置'; }
-    }
-    if (!owns()) return;
-    if (bridge?.noticePreferences) {
-      try { const value = await bridge.noticePreferences(); if (owns()) setPref('noticeChannels', value); }
-      catch { if (owns()) failure = '无法读取桌面告知设置'; }
-    }
-  } finally { if (generation === initialization) restoring = false; }
-}
-
 export function notificationStatus() {
   if (failure) return failure;
-  if (desktop()?.notifyNotice) return readPref('noticeNotifications') ? '已开启系统提醒' : '系统提醒已关闭';
   if (!globalThis.Notification || globalThis.isSecureContext === false) return '此环境不支持系统通知，请使用 HTTPS 或 localhost';
   if (Notification.permission === 'denied') return '通知权限被拒绝，请在浏览器站点设置中允许';
   if (!readPref('noticeNotifications')) return '系统提醒已关闭';
@@ -44,10 +19,7 @@ export function notificationStatus() {
 export async function setNoticeNotifications(enabled) {
   failure = '';
   try {
-    if (desktop()?.notificationSettings) {
-      const settings = await desktop().notificationSettings(Boolean(enabled));
-      if (enabled && !settings.enabled) throw new Error('系统不支持通知');
-    } else if (enabled) {
+    if (enabled) {
       if (!globalThis.Notification || globalThis.isSecureContext === false) throw new Error('此环境不支持系统通知，请使用 HTTPS 或 localhost');
       const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
       if (permission !== 'granted') throw new Error('通知未获授权，可在浏览器站点设置中允许后重试');
@@ -111,21 +83,16 @@ async function deliver(notice, project) {
     try { if (localStorage.getItem(key)) return; } catch { /* private browsing */ }
     const title = `Lush · ${project.split('/').filter(Boolean).at(-1) || project}`;
     const body = notice.title.slice(0, 500);
-    if (desktop()?.notifyNotice) {
-      const target = positiveId(notice.id) && positiveId(notice.task_id) ? { notice_id: notice.id, task_id: notice.task_id } : {};
-      if (!await desktop().notifyNotice({ title, body, tag: key, ...target })) return;
-    } else {
-      if (!globalThis.Notification || Notification.permission !== 'granted') return;
-      const notification = new Notification(title, { body, tag: key });
-      const hash = noticeHash(notice);
-      const pathname = location.pathname;
-      notification.onclick = () => {
-        globalThis.window?.focus?.();
-        if (location.pathname === pathname) location.hash = hash;
-        else location.href = `${pathname}${hash}`;
-        notification.close();
-      };
-    }
+    if (!globalThis.Notification || globalThis.isSecureContext === false || Notification.permission !== 'granted') return;
+    const notification = new Notification(title, { body, tag: key });
+    const hash = noticeHash(notice);
+    const pathname = location.pathname;
+    notification.onclick = () => {
+      globalThis.window?.focus?.();
+      if (location.pathname === pathname) location.hash = hash;
+      else location.href = `${pathname}${hash}`;
+      notification.close();
+    };
     try { localStorage.setItem(key, '1'); } catch { /* session baseline still deduplicates */ }
   };
   // Serialize across same-origin tabs when available; tag also replaces duplicate OS banners.
@@ -133,5 +100,5 @@ async function deliver(notice, project) {
   else await run();
 }
 let observer = createNoticeNotifier({ send: deliver });
-export function resetNoticeNotifier() { observer = createNoticeNotifier({ send: deliver }); }
+export function resetNoticeNotifier() { failure = ''; observer = createNoticeNotifier({ send: deliver }); }
 export function observeNotices(data) { observer(data); }

@@ -1,16 +1,22 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { repo } from '../helpers.js';
-import { fetch, pageSource, setup } from './harness.js';
+import { fetch, setup } from './harness.js';
 
 // 只读 transcript 与 usage 路由。
+// 系统/HTTP 行为在保持当前 Worker 身份的前提下验证；具体的执行正文与 token chip 渲染
+// 由 test/web/dom-detail.test.js、dom-transcript-reader.test.js 等 DOM 用例覆盖，
+// 这里不再遍历模块图做重复的源码字符串断言。
+const asset = name => fs.readFileSync(new URL(`../../src/ui/web/assets/${name}`, import.meta.url), 'utf8');
+/** 现行 order Worker 身份：直接写 Store，不建仓库、不走已退休的 submit/worktree 路径。 */
+const currentWorker = (f, goal) => f.store.create({ input_id: null, role: 'agent', goal, task_kind: 'order' });
 
 test('web exposes the read-only agent transcript and keeps sessions out of the read models', async () => {
-  const f = await setup(); await repo(f.root);
+  const f = await setup();
   try {
-    const task = (await f.project.submit('transcript me')).task;
-    f.project.stopping = true;   // 只造数据，不让 planner 真的跑
+    const task = currentWorker(f, 'transcript me');
+    // 只造数据：intent 层的 planner（task_kind 为空）不得冒充 work 层 Worker。
+    const planner = f.store.create({ input_id: null, role: 'planner', goal: 'intent only' });
     const dir = path.join(f.config.home, 'sessions');
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `2026-01-01T00-00-00-000Z_lush-task-${task.id}.jsonl`);
@@ -29,25 +35,22 @@ test('web exposes the read-only agent transcript and keeps sessions out of the r
     // 越界游标、未知任务、超限 limit 都是 400，不当成服务器错误
     expect((await fetch(`${f.url}/api/worker/${task.id}/transcript?after=-1`)).status).toBe(400);
     expect((await fetch(`${f.url}/api/worker/99/transcript`)).status).toBe(400);
-    // 正文优先：思考与工具默认可读，长内容在原处展开，搜索入口不再折叠。
-    const app = await pageSource(f.url);
-    expect(app).toContain("STEP_OPEN = new Set(['input', 'text', 'thinking', 'tool', 'result'])");
-    expect(app).toContain('展开全部步骤');
-    expect(app).toContain('展开剩余内容');
-    expect(app).toContain("el('section', undefined, 'transcript-reader')");
-    // 过程不进快照/列表，只有 transcript 路由才读会话文件；快照只带 work 层任务
+    // 正文优先：思考与工具默认可读，长内容在原处展开。默认展开集合由 DOM 用例行为覆盖。
+    expect(asset('render-transcript.js')).toContain('展开全部步骤');
+    expect(asset('transcript-body.js')).toContain('展开剩余内容');
+    // 过程不进快照/列表，只有 transcript 路由才读会话文件；快照只回显 Worker 身份，不回显输入。
     const snapshot = await (await fetch(f.url + '/api/snapshot')).json();
     expect(JSON.stringify(snapshot)).not.toContain('先看看代码');
-    expect(snapshot.tasks.map(row => row.id)).not.toContain(task.id);
+    expect(snapshot.tasks.map(row => row.id)).toContain(task.id);
+    expect(snapshot.tasks.map(row => row.id)).not.toContain(planner.id);
     expect(snapshot.inputs).toEqual([]);
   } finally { await f.close(); }
 });
 
 test('web exposes agent usage (model, context, cost) next to the transcript', async () => {
-  const f = await setup(); await repo(f.root);
+  const f = await setup();
   try {
-    const task = (await f.project.submit('usage me')).task;
-    f.project.stopping = true;   // 只造数据，不让 planner 真的跑
+    const task = currentWorker(f, 'usage me');
     const dir = path.join(f.config.home, 'sessions');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, `2026-01-01T00-00-00-000Z_lush-task-${task.id}.jsonl`), [
@@ -64,18 +67,13 @@ test('web exposes agent usage (model, context, cost) next to the transcript', as
     expect((await fetch(`${f.url}/api/worker/99/usage`)).status).toBe(400);
     // 用量只走这条只读路由，不进快照
     expect(JSON.stringify(await (await fetch(f.url + '/api/snapshot')).json())).not.toContain('deepseek-flash');
-    // 详情面板把 agent 身份、模型、上下文与花费和执行过程放在同一块里
-    const app = await pageSource(f.url);
-    expect(app).toContain("block('Agent'");
-    for (const label of ['模型', '上下文占用', '累计 token', '预计花费', '模型请求']) expect(app).toContain(label);
   } finally { await f.close(); }
 });
 
 test('web transcript steps carry per-step tokens: exact for a billed turn, estimated for the batch in between', async () => {
-  const f = await setup(); await repo(f.root);
+  const f = await setup();
   try {
-    const task = (await f.project.submit('token me')).task;
-    f.project.stopping = true;   // 只造数据，不让 planner 真的跑
+    const task = currentWorker(f, 'token me');
     const dir = path.join(f.config.home, 'sessions');
     fs.mkdirSync(dir, { recursive: true });
     // 两次带 usage 的请求，中间夹一条工具输出：assistant 步拿到 pi 记录的精确用量，
@@ -98,19 +96,13 @@ test('web transcript steps carry per-step tokens: exact for a billed turn, estim
     // 两次请求之间的工具输出：估算，只有批首带 first
     expect(page.steps[2].tokens).toEqual({ context_added: 725, estimated: true, batch: true, first: true });
     expect(page.steps[3].tokens).toMatchObject({ exact: true, turn: true, first: true, total: 1080 });
-    // 前端渲染只认 tokens.first 才画 chip，估算带 + 前缀
-    const app = await pageSource(f.url);
-    expect(app).toContain('step-tokens');
-    expect(app).toContain('tokensView');
-    expect(app).toContain("t.estimated");
   } finally { await f.close(); }
 });
 
 test('web exposes the newest transcript window and validates its cursors', async () => {
-  const f = await setup(); await repo(f.root);
+  const f = await setup();
   try {
-    const task = (await f.project.submit('latest me')).task;
-    f.project.stopping = true;   // 只造数据，不让 planner 真的跑
+    const task = currentWorker(f, 'latest me');
     const dir = path.join(f.config.home, 'sessions');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, `2026-01-01T00-00-00-000Z_lush-task-${task.id}.jsonl`), Array.from({ length: 5 }, (_v, index) =>

@@ -10,9 +10,9 @@ const DEFAULT_WEB_PORT = 4318;
 const HOST_START = ['host:start', 'host:restart'];
 const HOST_COMMANDS = [...HOST_START, 'host:stop', 'host:status'];
 
-/** 对应作用域的 web.json 存在即公网模式；Electron 临时 host 永远只监听回环。 */
+/** 对应作用域的 web.json 存在即公网模式。 */
 function publicWeb(config) {
-  return config.env?.LUSH_WEB_EPHEMERAL !== '1' && fs.existsSync(path.join(config.home, 'web.json'));
+  return fs.existsSync(path.join(config.home, 'web.json'));
 }
 function webUrl(config, port) {
   return `http://${publicWeb(config) ? '0.0.0.0' : '127.0.0.1'}:${port}`;
@@ -69,7 +69,7 @@ async function serveWeb(config, port) {
   const supervised = typeof process.send === 'function' && process.connected;
   const shutdown = (code = 0) => {
     web.rememberWebProject(server); server.stop(true);
-    if (config.env.LUSH_WEB_EPHEMERAL !== '1') control.clearWebState(config, process.pid);
+    control.clearWebState(config, process.pid);
     process.exit(code);
   };
   try { server = web.startWeb(config.launcher ? null : config, port, { env: config.env,
@@ -80,17 +80,15 @@ async function serveWeb(config, port) {
     if (!/in use|EADDRINUSE|address/i.test(error.message)) throw error;
     throw new Error(`${error.message}${await control.busyPortHint(port)}`);
   }
-  const ephemeral = config.env.LUSH_WEB_EPHEMERAL === '1';
-  if (!ephemeral) control.recordWebState(config, { pid: process.pid, port: server.port,
+  control.recordWebState(config, { pid: process.pid, port: server.port,
     supervisor_pid: supervised ? process.ppid : null });
   // Signal wrappers must not pass the signal name as an exit code.
   process.on('SIGTERM', () => shutdown()); process.on('SIGINT', () => shutdown());
   if (supervised) {
-    process.on('disconnect', () => shutdown()); // owner died: never leave a desktop Host orphaned
+    process.on('disconnect', () => shutdown()); // supervisor died: do not leave an orphaned Host
     process.send({ type: 'host-ready', port: server.port });
   }
-  if (ephemeral) console.log(`LUSH_HOST_READY ${JSON.stringify({ url: webUrl(config, server.port), port: server.port })}`);
-  else console.log(`Lush ${config.project || '项目启动器'}\n${webUrl(config, server.port)}${publicMode ? '\n公网监听，需登录；请在前置代理启用 HTTPS。' : ''}`);
+  console.log(`Lush ${config.project || '项目启动器'}\n${webUrl(config, server.port)}${publicMode ? '\n公网监听，需登录；直接 HTTP 访问存在明文传输与篡改风险，建议自行配置 HTTPS 或端口转发。' : ''}`);
 }
 
 /**
@@ -109,6 +107,7 @@ async function launchWeb(config, port, extra = {}) {
   child.on('error', err => { error = err; });
   const state = await control.waitForWebState(config, child.pid, { timeoutMs: 10000, abort: () => Boolean(error) || child.exitCode !== null });
   if (!state) throw new Error(`host failed to start: ${error?.message || logTail(config) || `see ${webLog(config)}`}`);
+  if (publicWeb(config)) console.warn('lush: 公网 HTTP 监听已启用；直接 HTTP 访问会明文传输账号密码、会话和项目数据，存在窃听与篡改风险。建议自行配置 HTTPS 反向代理或 SSH 端口转发。');
   return { ...stateReport(config, state), ...extra };
 }
 
@@ -218,11 +217,6 @@ export async function run(command, args, ctx) {
     check(!client.token, 'agents cannot control web servers');
     check(args.length <= 1, `${command} accepts one port`);
     check(!foreground || HOST_START.includes(command), `${command} has no foreground mode`);
-    if (HOST_START.includes(command)) {
-      // Reject invalid / authenticated SSH scopes before restart can stop an existing Host.
-      const { sshLoopbackOrigin } = await import('../../ui/web/server.js');
-      sshLoopbackOrigin(config.env, config);
-    }
     const control = await import('../../host/control.js');
     const port = resolvePort(args[0], control.liveWebState(config));
     if (command === 'host:start') value = await webStart(config, port, foreground);

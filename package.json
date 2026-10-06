@@ -3,14 +3,12 @@
   "version": "0.2.0",
   "description": "Project-scoped, non-blocking multi-agent development",
   "type": "module",
-  "main": "./src/ui/desktop/main.js",
   "private": true,
   "bin": { "lush": "./bin/lush", "lush-host": "./bin/lush-host", "lushd": "./bin/lushd", "lush-agent-guard": "./bin/lush-agent-guard" },
   "exports": { ".": "./src/index.js" },
   "scripts": {
-    "test": "bun test --parallel=4 --path-ignore-patterns='**/packaging/**'",
+    "test": "bun test --parallel=4",
     "test:serial": "bun test",
-    "test:packaging": "bun test ./test/packaging",
     "test:all": "bun test --parallel=4",
     "docs:check": "bun ./scripts/docs-check.js",
     "check:workbench": "bun ./scripts/check-workbench.js",
@@ -28,17 +26,6 @@
     "daemon-restart": "bun ./scripts/ops.js daemon-restart",
     "status": "bun ./scripts/ops.js status",
     "log": "bun ./scripts/ops.js log",
-    "desktop": "bun ./scripts/start-desktop.js",
-    "desktop:prepare": "bun ./scripts/prepare-desktop.js",
-    "desktop:stage:mac": "bun ./scripts/build-desktop.js --stage --platform darwin",
-    "desktop:build:mac": "bun ./scripts/build-desktop.js --build --platform darwin",
-    "desktop:verify:mac": "bun ./scripts/build-desktop.js --verify --platform darwin",
-    "desktop:stage:win": "bun ./scripts/build-desktop.js --stage",
-    "remote:build": "bun ./scripts/build-remote.js --build",
-    "remote:verify": "bun ./scripts/build-remote.js --verify",
-    "remote:merge": "bun ./scripts/build-remote.js --merge",
-    "desktop:build:win": "bun ./scripts/build-desktop.js --build",
-    "desktop:verify:win": "bun ./scripts/build-desktop.js --verify",
     "order": "bun ./scripts/ops.js order",
     "draft": "bun ./scripts/ops.js draft",
     "drafts": "bun ./scripts/ops.js drafts",
@@ -62,11 +49,6 @@
     "clear": "bun ./scripts/ops.js clear",
     "notices": "bun ./scripts/ops.js notices",
     "answer": "bun ./scripts/ops.js answer"
-  },
-  "devDependencies": {
-    "electron": "39.8.10",
-    "electron-builder": "26.15.3",
-    "@electron/asar": "4.3.1"
   },
   "engines": { "bun": ">=1.2.0" }
 }

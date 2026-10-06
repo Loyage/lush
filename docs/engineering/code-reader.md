@@ -100,6 +100,6 @@
 
 真实浏览器验证入口 `bun scripts/check-code-reader-layout.js [截图目录]`：Firefox / geckodriver 驱动真实前端，与临时 Git 项目的 Workspaces 读面通过临时本机 HTTP fixture 对接；覆盖实际文件正文/diff、并排/统一与窄屏布局、路径搜索往返、刷新不抢正文、关闭停止探测。脚本自行清理临时项目/服务/浏览器，失败保留日志；不启动用户 daemon，不冒充生产 Host 鉴权测试（后者由 HTTP/RPC 单测覆盖）。
 
-聚焦自动测试：`bun run test test/workspaces/code-posix.test.js test/workspaces/code-reader.test.js test/web/code-reader-api.test.js test/web/dom-code-view.test.js`。工作区/内核接口用真实临时 Git 与文件系统；HTTP/RPC 与 DOM 用受控 fixture，不调用模型。默认通用套件不含 Windows 打包专项；`bun run test:packaging` / `test:all` 另需 `package.json` 所列开发依赖，专项未执行不能冒称全套通过。
+聚焦自动测试：`bun run test test/workspaces/code-posix.test.js test/workspaces/code-reader.test.js test/web/code-reader-api.test.js test/web/dom-code-view.test.js`。工作区/内核接口用真实临时 Git 与文件系统；HTTP/RPC 与 DOM 用受控 fixture，不调用模型。默认 `bun run test` 运行全部现有 Web/core 套件，不忽略测试目录。
 
 改变本契约时必须同步后端与前端，不能单侧改变字段口径。

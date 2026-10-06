@@ -1,4 +1,4 @@
-import { test, expect } from 'bun:test';
+import { test, expect, spyOn } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { RPCClient } from '../../src/rpc/client.js';
@@ -103,6 +103,15 @@ test('web exposes only read-only worker routes and rejects other paths', async (
     expect((await fetch(f.url+'/api/worker/99/diff')).status).toBe(400);
     expect((await fetch(f.url+'/api/worker/1/merge')).status).toBe(404);
     expect((await fetch(f.url+'/api/system/status')).status).toBe(404);
+    // Removed SSH APIs and managed environment paths must not become local-project aliases.
+    for (const route of ['/api/environments', '/e/0123456789abcdef0123456789abcdef/',
+      '/e/0123456789abcdef0123456789abcdef/api/host', '/e/0123456789abcdef0123456789abcdef/p/aaaaaaaaaaaaaaaa/api/snapshot']) {
+      expect((await fetch(f.url + route)).status).toBe(404);
+    }
+    for (const action of ['inspect', 'connect', 'disconnect', 'cancel']) {
+      expect((await fetch(f.url + '/api/environments/ssh/' + action, { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: '{}' })).status).toBe(404);
+    }
   } finally { await f.close(); }
 });
 
@@ -112,17 +121,28 @@ test('web rejects cross-origin requests, forged host, non-JSON and arbitrary RPC
     const body = JSON.stringify({method:'input.submit',params:{content:'bad'}});
     expect((await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json',Origin:'https://evil.invalid'},body})).status).toBe(403);
     expect((await fetch(f.url+'/api/snapshot',{headers:{Host:'evil.invalid'}})).status).toBe(403);
+    expect((await fetch(f.url+'/api/snapshot',{headers:{Host:`127.0.0.1:${f.web.port === 65535 ? 65534 : f.web.port + 1}`}})).status).toBe(403);
     expect((await fetch(f.url+'/api/action',{method:'POST',body})).status).toBe(400);
     expect((await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'system.stop',params:{}})})).status).toBe(400);
     expect(f.project.inputs()).toHaveLength(0);
   } finally { await f.close(); }
 });
 
-test('web auth config enables public hosts and protects every route with a login session', async () => {
+test('public HTTP warns without blocking startup and retains login, cookies and Origin protection', async () => {
   const password = 'correct horse battery staple';
-  const f = await setup({ auth: { username: 'owner', password } }); await repo(f.root);
+  const warning = spyOn(console, 'warn').mockImplementation(() => {});
+  let f, warnings;
   try {
-    expect(f.web.hostname).toBe('0.0.0.0');    const config = JSON.parse(fs.readFileSync(path.join(f.config.home, 'web.json'), 'utf8'));
+    f = await setup({ auth: { username: 'owner', password, origin: 'http://lush.example:8080' } });
+    warnings = warning.mock.calls.flat().join('\n');
+  } finally { warning.mockRestore(); }
+  await repo(f.root);
+  try {
+    expect(warnings).toContain('公网 HTTP 监听已启用');
+    expect(warnings).toContain('明文传输账号密码、会话和项目数据');
+    expect(warnings).toContain('窃听与篡改风险');
+    expect(f.web.hostname).toBe('0.0.0.0');
+    const config = JSON.parse(fs.readFileSync(path.join(f.config.home, 'web.json'), 'utf8'));
     expect(config.password).toBeUndefined();
     expect(config.password_hash).toStartWith('scrypt$');
     expect(fs.statSync(path.join(f.config.home, 'web.json')).mode & 0o777).toBe(0o600);
@@ -142,12 +162,21 @@ test('web auth config enables public hosts and protects every route with a login
     expect(padded.status).toBe(303);
     const success = await fetch(f.url + '/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `username=owner&password=${encodeURIComponent(password)}&next=%2F` });
     expect(success.status).toBe(303);
-    const cookie = success.headers.get('set-cookie').split(';')[0];
+    const sessionCookie = success.headers.get('set-cookie');
+    expect(sessionCookie).toContain('; HttpOnly; SameSite=Strict;');
+    expect(sessionCookie).not.toContain('; Secure');
+    const cookie = sessionCookie.split(';')[0];
     expect(cookie).toStartWith('lush_session=');
+    const proxied = await fetch(f.url + '/login', { method: 'POST', headers: {
+      'Content-Type': 'application/x-www-form-urlencoded', 'X-Forwarded-Proto': 'https', Origin: 'http://lush.example:8080',
+    }, body: `username=owner&password=${encodeURIComponent(password)}` });
+    expect(proxied.status).toBe(303);
+    expect(proxied.headers.get('set-cookie')).toContain('; Secure');
     expect((await fetch(f.url, { headers: { Cookie: cookie } })).status).toBe(200);
 
     const publicHost = `lush.example:${f.web.port}`;
-    expect((await fetch(f.url + '/api/snapshot', { headers: { Cookie: cookie, Host: publicHost } })).status).toBe(200);
+    expect((await fetch(f.url + '/api/snapshot', { headers: { Cookie: cookie, Host: publicHost, Origin: `http://${publicHost}` } })).status).toBe(200);
+    expect((await fetch(f.url + '/api/snapshot', { headers: { Cookie: cookie, Origin: 'http://lush.example:8080' } })).status).toBe(200);
     const mutation = JSON.stringify({ method: 'input.submit', params: { content: 'cross-site' } });
     expect((await fetch(f.url + '/api/action', { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json', Origin: 'https://evil.invalid' }, body: mutation })).status).toBe(403);
     expect(f.project.inputs()).toHaveLength(0);

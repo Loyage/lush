@@ -1,7 +1,7 @@
 import { api } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { el } from './dom.js';
-import { projectHref, projectRoute, environmentRoute } from './route.js';
+import { projectHref, projectRoute } from './route.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 
@@ -12,7 +12,7 @@ let projectUsable = false;
 let managerRequest = 0;
 
 export function workbenchStatus() {
-  return { launcher, host: hostStatus, projectUsable, environment: environmentRoute(), project: projectRoute() };
+  return { launcher, host: hostStatus, projectUsable, project: projectRoute() };
 }
 
 function setError(message = '', target = node('project-error')) {
@@ -128,13 +128,6 @@ function reserveProjectWindow() {
 
 function completeProjectWindow(popup, target) {
   if (popup) { popup.location.href = target; return true; }
-  const bridge = globalThis.window?.lushDesktop ?? globalThis.lushDesktop;
-  if (bridge?.platform) {
-    // Electron owns popups and intentionally returns no renderer WindowProxy.
-    // Its main process validates the actual same-Host project URL.
-    (globalThis.open ?? globalThis.window?.open)?.(target, '_blank', 'noopener');
-    return true;
-  }
   return false;
 }
 
@@ -164,16 +157,12 @@ function managerForm() {
   const input = el('input'); input.id = 'project-manager-path'; input.name = 'project'; input.required = true;
   input.autocomplete = 'off'; input.spellcheck = false; input.placeholder = '/absolute/path/to/project';
   const submit = el('button', '在新窗口打开', 'primary'); submit.type = 'submit';
-  const choose = el('button', '选择文件夹…', 'ghost'); choose.type = 'button';
-  const desktop = globalThis.window?.lushDesktop ?? globalThis.lushDesktop;
-  choose.hidden = Boolean(environmentRoute()) || typeof desktop?.chooseProject !== 'function';
-  choose.onclick = async () => { const selected = await desktop.chooseProject(); if (selected) input.value = selected; };
   const error = el('p', undefined, 'error'); error.hidden = true; error.setAttribute('role', 'alert');
   const fallback = el('a', '浏览器阻止了弹出窗口；点此打开项目', 'project-popup-fallback');
   fallback.id = 'project-open-fallback'; fallback.target = '_blank'; fallback.rel = 'noopener'; fallback.hidden = true;
   form.onsubmit = event => { event.preventDefault(); void selectProject(input, submit, error); };
   form.append(el('label', '项目目录'), el('div', undefined, 'project-path-row'));
-  form.children[1].append(input, choose, submit);
+  form.children[1].append(input, submit);
   form.append(el('p', '登记和打开是显式操作。列表刷新不会启动项目；每个项目始终在独立窗口或标签页打开。', 'hint'), error, fallback);
   return form;
 }
@@ -216,12 +205,12 @@ export async function ensureProject() {
     launcher = hostStatus.mode === 'host';
   } catch (error) {
     if (/404|no route|not found/i.test(error.message)) {
-      hostStatus = { mode: 'bound' }; launcher = false; projectUsable = !environmentRoute(); return true;
+      hostStatus = { mode: 'bound' }; launcher = false; projectUsable = true; return true;
     }
     hostStatus = { mode: 'offline', error: error.message }; launcher = true; projectUsable = false; return true;
   }
   const current = projectRoute();
-  if (!launcher) projectUsable = !environmentRoute() || Boolean(current);
+  if (!launcher) projectUsable = true;
   else projectUsable = Boolean(current && (hostStatus.projects || []).some(row => row.id === current));
   const panel = node('project-list-panel'); if (panel) panel.hidden = !launcher;
   const switcher = node('project-switch'); if (switcher) { switcher.hidden = !launcher; switcher.onclick = () => void openProjectManager(); }

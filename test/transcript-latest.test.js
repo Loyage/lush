@@ -1,18 +1,10 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
-import path from 'node:path';
-import { fixture } from './helpers.js';
+import { sessionFixture as fixture, sessionFile } from './session-fixture.js';
 import { readTranscript, readTranscriptLatest } from '../src/core/transcript.js';
 import { LushError } from '../src/core/types.js';
 import { PARAMS, USER_ONLY, assertAllowed } from '../src/rpc/registry.js';
 
-/** pi 的会话记录长这样：一行一条 JSON，消息正文按 part 排列。 */
-function sessionFile(root, taskId, lines, name = `2026-01-01T00-00-00-000Z_lush-task-${taskId}.jsonl`) {
-  const dir = path.join(root, '.lush', 'sessions');
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  fs.writeFileSync(path.join(dir, name), lines.map(line => (typeof line === 'string' ? line : JSON.stringify(line))).join('\n') + '\n');
-  return path.join(dir, name);
-}
 const assistant = (text, timestamp) => ({ type: 'message', timestamp,
   message: { role: 'assistant', provider: 'mock', model: 'mock-1', content: [{ type: 'text', text }] } });
 const billing = (text, usage, timestamp) => ({ type: 'message', timestamp,

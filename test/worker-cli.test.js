@@ -60,6 +60,28 @@ test('worker read and lifecycle commands use only worker RPC methods', async () 
   expect(client.calls).toHaveLength(cases.length);
 });
 
+test('worker auto-merge is a strict user hook CLI, not a reservation', async () => {
+  const calls = [], client = { async request(method, params) { calls.push({ method, params }); return params; } };
+  expect(await worker('worker', ['auto-merge','7','on'], { client, json: true })).toEqual({ id: 7, enabled: true });
+  expect(await worker('worker', ['auto-merge','7','off'], { client, json: true })).toEqual({ id: 7, enabled: false });
+  expect(calls).toEqual([
+    { method: 'worker.auto_merge', params: { id: 7, enabled: true } },
+    { method: 'worker.auto_merge', params: { id: 7, enabled: false } },
+  ]);
+  for (const args of [['7'],['7','true'],['7','on','force'],['invalid','on']])
+    await expect(worker('worker', ['auto-merge', ...args], { client, json: true })).rejects.toThrow();
+  expect(calls).toHaveLength(2);
+  expect(HELP).toContain('worker auto-merge ID on|off');
+});
+
+test('worker iteration CLI rejects extra arguments and documents each action', async () => {
+  for (const verb of ['accept','reopen','sync-parent','resolve-sync']) {
+    const client = { async request() { throw new Error('CLI must reject before RPC'); } };
+    expect(HELP).toContain(`worker ${verb} ID`);
+    await expect(worker('worker', [verb, '7', 'force'], { client, json: true })).rejects.toThrow();
+  }
+});
+
 test('worker wait is read-only and forbidden to agents', async () => {
   const calls = [], result = { id: 7, status: 'completed' };
   const client = { token: null, async request(method, params) { calls.push({ method, params }); return result; } };

@@ -1,13 +1,13 @@
 # Windows 本机后台：WSL2 方案
 
-本文面向 Windows 用户，解释为什么用 WSL2 运行 Lush 后台、需要准备什么，以及它对现有架构的影响。具体配置可以交给 Agent 按[WSL2 环境配置指导](windows-wsl2-agent.md)执行；Windows 客户端的安装与远程连接见[客户端说明](windows-client.md)。
+本文面向 Windows 用户，解释为什么用 WSL2 运行 Lush 后台、需要准备什么，以及它对现有架构的影响。具体配置可以交给 Agent 按[WSL2 环境配置指导](windows-wsl2-agent.md)执行；远程服务器浏览器访问见[远程 Host](remote-host.md)。
 
 ## 这是什么方案
 
-Windows 负责浏览器或 Electron 窗口；WSL2 内的 Linux 负责 Host、项目 daemon、Git 和编码 Agent。它不是 Windows 原生 daemon，也不要求把项目送到远程服务器。
+Windows 负责浏览器；WSL2 内的 Linux 负责 Host、项目 daemon、Git 和编码 Agent。它不是 Windows 原生 daemon，也不要求把项目送到远程服务器。
 
 ```text
-Windows：浏览器 / Electron 连接窗口
+Windows：浏览器
                  ↓ 本机 HTTP
 WSL2 Linux：Lush Host
                  ↓ Unix socket
@@ -33,7 +33,7 @@ WSL2 提供 Linux 环境，可以先复用这些实现，不必改 Worker、消�
 - 在 WSL 内取得 Lush 代码和要开发的项目；目标项目必须是有初始提交的 Git 工作区根目录。
 - 启动 WSL 内的 Host / daemon，再用 Windows 浏览器打开 Host 地址。
 
-不要求 Windows 侧另装 Bun 或 Git 来运行浏览器。使用现有 Windows Electron 安装包时，填写 Host 地址打开连接窗口；它不自动启动或管理 WSL，也不开放 Windows 原生“本地窗口”。
+不要求 Windows 侧另装 Bun 或 Git 来运行浏览器。Lush 不提供桌面安装包，也不自动启动或管理 WSL。
 
 ## 为什么建议把项目放在 Linux 文件系统
 
@@ -57,7 +57,7 @@ Windows 上的代理也未必能从 WSL 用同一个 `127.0.0.1` 地址访问；
 
 ## 后台什么时候继续运行
 
-关闭浏览器或 Electron 窗口不会停止已启动的项目 daemon；正常后台启动也不要求一直保留那个启动终端。但这不意味着 WSL 在所有情况下都会一直运行。
+关闭浏览器不会停止已启动的项目 daemon；正常后台启动也不要求一直保留那个启动终端。但这不意味着 WSL 在所有情况下都会一直运行。
 
 Windows 重启、注销、WSL 终止或系统休眠可能中断后台或网络连接；不能把它当作持续在线的服务器。恢复后先检查状态，再决定是否继续 Worker，不要自动重发结果未知的写操作。
 

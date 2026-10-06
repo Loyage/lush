@@ -4,7 +4,7 @@
 
 ## 1. 先确认机器与访问方案
 
-明确哪个终端在后台机器、哪个在客户端；确认后台用户、Lush 检出、项目绝对路径、当前服务、SSH 参数或域名 / HTTPS 代理。用户没有选择时，先询问 SSH 隧道还是认证 HTTPS，不自行暴露端口。
+明确哪个终端在后台机器、哪个在客户端；确认后台用户、Lush 检出、项目绝对路径、当前服务、SSH 参数或域名 / HTTPS 代理。用户没有选择时，先询问自建 SSH 隧道、IP/端口 HTTP 或域名 HTTPS，不自行暴露端口。SSH、隧道、域名与网络部署由用户管理，Lush 不提供这些能力；本文仅是用户授权后手工配置的指导。HTTP 可用但必须说明明文凭证、会话和项目内容泄露/篡改风险，推荐 HTTPS 或 SSH。
 
 - 只部署可信用户工具，不承诺多租户沙箱。
 - 不覆盖已有 `web.json`、代理配置或凭证；只读检查后说明差异，变更前保留安全的恢复办法。
@@ -14,7 +14,7 @@
 
 ## 2. SSH 隧道路线
 
-SSH-only Linux 的内置桌面预检 / 首次部署见[SSH Agent 指导](ssh-desktop-agent.md)；以下为仍支持的手工配置。
+以下操作使用用户自己的系统 SSH，与 Lush 无内置连接或安装流程。
 
 保持远端 Host 的回环模式。先检查对应作用域是否已有 `web.json`；存在时说明它会启用认证和全接口监听，不为了隧道自动删除原配置。
 
@@ -27,21 +27,17 @@ bun run doctor --project /srv/projects/demo
 bun run lush host status --project /srv/projects/demo
 ```
 
-客户端隧道命令与端口隔离规则统一见[远程桌面说明](remote-desktop.md#https-与-ssh-隧道)。先验证 SSH 主机身份，未知指纹让用户核对；不得关闭 host key 检查。转发仅绑定客户端回环地址，不开放 `0.0.0.0`，不同远端不得复用同一本地端口。
-
-默认无认证 Host 要求本地转发端口与远端监听端口相同。若需 `14318 → 4318`，经用户确认，在远端源码目录启动时显式声明：
+先验证 SSH 主机身份，未知指纹让用户核对；不得关闭 host key 检查。用户在客户端自行建立仅绑定回环的转发，例如：
 
 ```bash
-LUSH_WEB_SSH_ORIGIN=http://127.0.0.1:14318 bun run lush host start 4318 --project /srv/projects/demo
+ssh -N -L 127.0.0.1:4318:127.0.0.1:4318 user@remote-machine
 ```
 
-此变量只接受带明确端口的 `http://127.0.0.1:PORT`，服务仍仅监听远端回环并检查 Host / Origin。它不能与同作用域 `web.json` 并用；已有 Host 需先核对作用域、版本和入口，再经用户确认重启，不以重复 `host` 自动换配置。自动桌面部署会在独立 profile 中声明该 origin，不改现有公开入口。
-
-先验证远端 HTTP，再验证客户端转发地址；保持隧道终端运行。在浏览器或 Electron 打开转发地址，读取项目状态。断开隧道只断入口，不停止项目 daemon。
+无认证回环 Host 的转发端口使用同一 `4318`，保持 Host/Origin 身份一致；如需不同端口，用户应配置带明确 origin 的认证入口，而不是禁用同源校验。先验证远端 HTTP，再在客户端浏览器打开 `http://127.0.0.1:4318`；用户自行保持隧道运行。断开只断入口，不停止项目 daemon。
 
 ## 3. 配置认证与项目范围
 
-仅用于用户确认的 HTTPS 路线。**创建认证文件会使 Host 监听 `0.0.0.0`**；必须先安排后台 HTTP 端口只允许回环或指定代理来源访问，再启动 / 重启认证模式，不能留一个裸露的明文 `4318`。
+用于用户确认的 HTTP 或 HTTPS 入口。**创建认证文件会使 Host 监听 `0.0.0.0`**；启动前确认防火墙和允许来源。推荐由 HTTPS 代理隔离后台 HTTP 端口；用户选择直接 HTTP 时明确记录明文风险，不阻拦其选择，也不关闭认证或同源保护。
 
 | 模式 | 认证文件位置 |
 |---|---|
@@ -49,7 +45,7 @@ LUSH_WEB_SSH_ORIGIN=http://127.0.0.1:14318 bun run lush host start 4318 --projec
 | Linux 多项目启动器 | `${XDG_CONFIG_HOME:-~/.config}/lush/web.json` |
 | macOS 多项目启动器 | `~/Library/Application Support/Lush/web.json` |
 
-若已有 `LUSH_GLOBAL_CONFIG` 覆盖，使用它指定的启动器目录，不另外写默认目录。Windows 原生客户端不运行 Host，WSL 使用 Linux 路径。
+若已有 `LUSH_GLOBAL_CONFIG` 覆盖，使用它指定的启动器目录，不另外写默认目录。Windows 浏览器不运行 Host，WSL 使用 Linux 路径。
 
 文件必须由后台用户拥有，权限为 `600`，且不能是符号链接。单项目配置模板：
 
@@ -76,7 +72,7 @@ LUSH_WEB_SSH_ORIGIN=http://127.0.0.1:14318 bun run lush host start 4318 --projec
 
 沿用用户选择的代理和证书管理方式，不默认另装代理或接管域名。HTTPS 对外只提供 Host 根入口，不挂任意子路径；证书必须在客户端可信，不能使用跳过 TLS 验证的访问方式。
 
-代理转发到实际 Host HTTP 端口，并保留正确 Host；上节模板中的 `origin` 登记完整对外协议 / 域名 / 端口。使用已有 nginx 时，location 可参考（TLS server / 证书配置需按目标环境补齐）：
+代理转发到实际 Host HTTP 端口，并保留正确 Host；上节模板中的 `origin` 登记完整对外协议 / 域名 / 端口。直接 HTTP 可改为 `http://服务器IP:4318`（使用实际地址），但该配置不提供传输加密。使用已有 nginx 时，location 可参考（TLS server / 证书配置需按目标环境补齐）：
 
 ```nginx
 location / {
@@ -97,7 +93,7 @@ location / {
 
 - `doctor --project ...` / `bun run lush host status` 确认代码身份、端口与日志位置。
 - SSH 路线：Host 是预期回环模式，隧道仅绑定本地回环，项目页面可读。
-- HTTPS 路线：证书可信；未登录不能读取项目 API，用户能登录并读取授权项目；确认未授权项目无法通过列表或已知 URL 越权访问。
+- HTTP/HTTPS 路线：HTTPS 证书可信，或已向用户说明 HTTP 风险；未登录不能读取项目 API，用户能登录并读取授权项目；确认未授权项目无法通过列表或已知 URL 越权访问。
 - 全局白名单、实际监听地址和网络隔离一起检查；仅从回环能连通不证明公网端口已被隔离。
 - API 404 优先核对 Host 代码版本；登录 403 检查代理 Host / `origin` 与日志，不靠关闭保护修复。
 - 会话默认 12 小时；连续输错 5 次锁 60 秒，不在生产服务上反复猜密码测试锁定。

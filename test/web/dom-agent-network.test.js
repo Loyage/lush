@@ -105,14 +105,14 @@ test('旧Host或daemon不支持只影响网络面板，读取可重试，其他�
 
 test('离页迟到读取不能出版，新项目路由和非秘密草稿独立', async () => {
   const first = dom.location.pathname, root = panel(), pending = deferred(); intercept = () => pending.promise;
-  const reading = load(root); dom.location.pathname = '/e/server/p/aaaaaaaaaaaaaaaa/';
+  const reading = load(root); dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/';
   const other = panel(); expect(field(other, 'mode')).toBeNull();
   pending.resolve(json(model({ mode: 'proxy', proxy_url: 'http://private.invalid' }))); await reading;
   expect(field(root, 'mode')).toBeNull();
   intercept = null; const b = panel(); await load(b); choose(b, 'mode', 'proxy'); input(b, 'proxy_url', 'http://b.invalid');
   dom.location.pathname = first; const a = panel(); await load(a); choose(a, 'mode', 'proxy'); input(a, 'proxy_url', 'http://a.invalid');
-  dom.location.pathname = '/e/server/p/aaaaaaaaaaaaaaaa/'; expect(field(panel(), 'proxy_url').value).toBe('http://b.invalid');
-  expect(requests.some(entry => entry.url === '/e/server/p/aaaaaaaaaaaaaaaa/api/agent/network')).toBe(true);
+  dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/'; expect(field(panel(), 'proxy_url').value).toBe('http://b.invalid');
+  expect(requests.some(entry => entry.url === '/p/aaaaaaaaaaaaaaaa/api/agent/network')).toBe(true);
   dom.location.pathname = first; expect(field(panel(), 'proxy_url').value).toBe('http://a.invalid');
 });
 
@@ -134,7 +134,7 @@ for (const result of ['success', 'failure']) {
       const saving = button(root, '保存网络设置').onclick();
       expect(oldUser.value).toBe(''); expect(oldPassword.value).toBe('');
       current = false;
-      if (leaving === 'project') dom.location.pathname = `/e/server/p/${String(sequence + 100).padStart(16, '0')}/`;
+      if (leaving === 'project') dom.location.pathname = `/p/${String(sequence + 100).padStart(16, '0')}/`;
       const other = renderNetworkSettings({ ownsPage: () => true });
       if (leaving === 'project') {
         response = model({ mode: 'proxy', proxy_url: 'http://target.invalid' }); await load(other);

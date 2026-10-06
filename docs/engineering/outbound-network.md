@@ -8,7 +8,7 @@
 - 不改整机代理，不启动或管理 Clash。`127.0.0.1` 指实际执行 daemon / Agent 的机器；远程环境不自动使用客户端代理。
 - 首版支持 HTTP / HTTPS 代理（例如 Clash HTTP/混合端口），不实现 SOCKS-only 或 NO_PROXY CIDR。后台继承环境遇到实际路由将使用的、不支持的代理应明确失败，不静默直连；Agent 外部 CLI 自身支持情况另行验证。
 - TLS 验证、拒绝重定向、超时、响应大小、取消、迟到凭证保护继续有效。显式代理不可用时不得重试直连。
-- 回环和本地通信不得走出站代理；Host↔daemon RPC、SSH/Host 网关不是这份设置的消费者。
+- 回环和本地通信不得走出站代理；Host↔daemon RPC不是这份设置的消费者。
 - 配置只作用于后续请求 / invocation；在途登录和 OAuth 兑换链固定同一网络策略。更新网络不覆盖现有账号凭证。
 
 ## 存储和用户接口
@@ -76,4 +76,4 @@ CLI 沿用 `agent` 入口：`agent network show` / `agent network set --file PAT
 
 受控测试已覆盖本机 HTTP/HTTPS 代理的真实 CONNECT、目标 TLS 证书信任/主机名/SNI、代理与目标认证分离、CONNECT/TLS 握手取消/截止时间、解压后的响应大小与拒绝重定向。PEM 是公开自签名测试 fixture，只在隔离子进程通过 `NODE_EXTRA_CA_CERTS` 信任；生产 TLS 校验未放宽。
 
-本机传输/Mock 验证不等于真实 OpenAI、Pi/Codex CLI 联网、真实浏览器/Electron、跨机器 SSH、ARM 或 macOS 发布验收。不得为了测试自动修改用户当前代理或重启活动 daemon / Host。
+本机传输/Mock 验证不等于真实 OpenAI、Pi/Codex CLI 联网、真实浏览器、用户服务器网络或其它平台验收。不得为了测试自动修改用户当前代理或重启活动 daemon / Host。

@@ -17,7 +17,7 @@ Lush 的中心对象是 **Worker**。这里的 Worker 是 **Agent + Process**：
 
 ## 项目、输入与 Worker
 
-Lush UI（浏览器或 Electron）通过整机入口 Lush Host（`bin/lush-host`）访问项目；Host 登记项目、校验身份、按需连接或启动对应 lushd，不保存Worker事实，也不调度跨项目工作。一个 lushd 绑定一个 canonical 项目，数据库状态在 `<project>/.lush/`。CLI `lush` 可作为另一客户端直接访问项目 lushd。业务实体是 Input、Worker、Agent、Message、Notice、Event；Git 分支与 worktree 承载代码隔离。一次新 `order` 保存 Input（原话、引用）并创建与它直接关联的 Worker；Worker 拥有自己的分支和工作区。main 或显式绑定的分支所有者 Worker 是它的父节点。Worker 可以再派独立子 Worker，也可以不改代码直接回答。
+Lush UI（浏览器）通过整机入口 Lush Host（`bin/lush-host`）访问项目；Host 登记项目、校验身份、按需连接或启动对应 lushd，不保存Worker事实，也不调度跨项目工作。一个 lushd 绑定一个 canonical 项目，数据库状态在 `<project>/.lush/`。CLI `lush` 可作为另一客户端直接访问项目 lushd。业务实体是 Input、Worker、Agent、Message、Notice、Event；Git 分支与 worktree 承载代码隔离。一次新 `order` 保存 Input（原话、引用）并创建与它直接关联的 Worker；Worker 拥有自己的分支和工作区。main 或显式绑定的分支所有者 Worker 是它的父节点。Worker 可以再派独立子 Worker，也可以不改代码直接回答。
 
 ```mermaid
 flowchart LR

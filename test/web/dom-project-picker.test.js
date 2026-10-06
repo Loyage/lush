@@ -57,21 +57,25 @@ test('新增项目同步预约窗口，异步 select 后不清空当前输入', 
   expect(JSON.parse(select.options.body)).toEqual({ project: '/tmp/new-project' });
 });
 
-test('桌面拦截空白弹窗后仍用已校验的项目地址打开独立窗口，已登记项目只显式 start', async () => {
+test('已登记项目显式 start 并在独立标签打开，修饰点击保留真实链接', async () => {
   state = { ...state, projects: [row] }; globalThis.location.pathname = '/';
   await picker.ensureProject(); await picker.openProjectManager({ push: false });
-  const oldOpen = dom.window.open, oldDesktop = dom.window.lushDesktop;
-  const opened = [], before = requests.length;
-  dom.window.open = (...args) => { opened.push(args); return null; };
-  dom.window.lushDesktop = { platform: 'darwin', mode: 'local' };
+  const oldOpen = dom.window.open;
+  const popup = { location: { href: 'about:blank' }, opener: {} }, before = requests.length;
+  let opens = 0;
+  dom.window.open = () => { opens++; return popup; };
   try {
     const link = dom.node('detail').querySelector('a.project-open');
+    link.onclick({ ctrlKey: true, preventDefault() { throw new Error('modifier click intercepted'); } });
+    expect(opens).toBe(0);
     link.onclick({ preventDefault() {} });
     await Bun.sleep(0); await Bun.sleep(0);
-    expect(opened.some(([target]) => target === `/p/${ID}/`)).toBe(true);
+    expect(opens).toBe(1);
+    expect(popup.location.href).toBe(`/p/${ID}/`);
+    expect(popup.opener).toBeNull();
     expect(requests.slice(before).filter(entry => entry.options.method === 'POST').map(entry => entry.path)).toEqual(['/api/host/projects/start']);
     expect(globalThis.location.pathname).toBe('/');
-  } finally { dom.window.open = oldOpen; dom.window.lushDesktop = oldDesktop; }
+  } finally { dom.window.open = oldOpen; }
 });
 
 test('浏览器阻止弹窗后提供真实链接，不替换当前页面或反复启动', async () => {
@@ -97,12 +101,11 @@ test('已移除项目地址保留 shell，不静默绑定或回落其它项目',
   globalThis.location.pathname = '/';
 });
 
-test('离线环境地址请求环境自己的 Host API，不回落入口本地项目', async () => {
-  const environment = 'c'.repeat(32), before = requests.length;
-  globalThis.location.pathname = `/e/${environment}/p/${ID}/`;
+test('无效项目地址保留 shell，不请求或回落到其它项目', async () => {
+  const before = requests.length;
+  globalThis.location.pathname = '/p/invalid/';
   expect(await picker.ensureProject()).toBe(true);
-  expect(picker.workbenchStatus()).toMatchObject({ environment, project: ID, projectUsable: false });
-  expect(requests.slice(before).map(entry => entry.path)).toEqual([`/e/${environment}/api/host`]);
-  expect(requests.slice(before).some(entry => entry.path === '/api/host')).toBe(false);
+  expect(picker.workbenchStatus()).toMatchObject({ project: null, projectUsable: false });
+  expect(requests.slice(before)).toEqual([]);
   globalThis.location.pathname = '/';
 });

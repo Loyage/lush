@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect } from 'bun:test';
-import { fixture } from './helpers.js';
+import { sessionFixture as fixture } from './session-fixture.js';
 import { sessionFiles, readTranscript } from '../src/core/transcript.js';
 import { readUsageStatistics, readWorkerResources } from '../src/core/usage-statistics.js';
 import { workerFiles } from '../src/core/deletion-resources.js';

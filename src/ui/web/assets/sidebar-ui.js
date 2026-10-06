@@ -4,7 +4,6 @@ import { ui } from './state.js';
 const RESOURCE_META = new Map(SIDEBAR_SECTIONS.map(section => [section.id, section]));
 const PAGES = {
   projects: ['项目管理', '工作台', '登记、打开与安全控制项目后台'],
-  environments: ['开发环境', '工作台', '本地、SSH 与 HTTPS Host 连接'],
   unavailable: ['项目不可用', '工作台', '项目离线时仍可使用环境、设置与帮助'],
   overview: ['项目概览', '工作', '需求、执行进展与最新成果'],
   'task-graph': ['Worker 树', '工作', 'Worker 父子关系 · Agent、分支与 worktree'],

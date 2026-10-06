@@ -1,4 +1,4 @@
 #!/usr/bin/env bun
-// Stable owner for Web and desktop hosts; the serving worker changes on restart.
+// Stable owner for the Web Host; the serving worker changes on restart.
 import { superviseHost } from '../src/host/supervisor.js';
 process.exitCode = await superviseHost();

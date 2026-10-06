@@ -22,11 +22,9 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 - `POST /api/host/remove`：仅全局模式可用，JSON `{id}` 只从列表移除入口并断开这个 Web 连接，**不停止 daemon**；停止走上述独立入口。
 - `GET /api/docs`、`GET /api/docs/search-index`、`GET /api/docs/<id>`：「文档」视图的目录、搜索索引与 Markdown 正文，读的是随这份代码发布的 `docs/**/*.md` 与 `README.md`（`src/ui/web/docs.js`），与当前项目目录无关。搜索索引只在用户第一次搜索时返回标题、小节、正文、普通代码与低权重 Mermaid 字段，匹配和排序在浏览器完成。id 由相对路径推出，只按已扫出的表命中，请求里的路径片段不进文件系统；未命中返回 404。
 
-## 环境管理与受管 SSH
+## 服务器访问边界
 
-`GET /api/environments` 返回服务执行机器/用户、SSH 能力、允许别名和连接记录；`POST /api/environments/ssh/inspect|connect|cancel|disconnect` 的参数、一次性授权、执行位置和公网 `LUSH_SSH_HOSTS` 白名单见[工作台接入契约](../engineering/workbench.md)。这些是入口 Host 级端点，不随当前远程项目前缀改变。
-
-受管环境页面使用 `/e/<environment-id>/` 或 `/e/<environment-id>/p/<project-id>/`，界面资源由入口 Host 提供，已知项目 JSON API 经已连接的受管 SSH 隧道转发。不得代理任意 URL、远端脚本或透传入口 Cookie。HTTPS Host 暂保留独立 origin 的窗口，不通过此隧道代理。
+Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理路由。用户自行在服务器运行 Host，并配置 SSH 转发、IP/端口或域名后由浏览器直接访问，见[远程 Host](../deployment/remote-host.md)。项目仍使用该 Host 的 `/p/<project-id>/` 身份。
 
 ## 服务重启
 

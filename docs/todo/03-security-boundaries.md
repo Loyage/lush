@@ -1,6 +1,10 @@
 # 安全与边界改进建议
 
-本文供维护者评估 RPC、Web Host、报告／问卷预览、Electron IPC 与 Agent 子进程边界；区分现行复核、已修复问题与待决建议，不把可信本机工具改造成多用户沙箱。
+本文供维护者评估 RPC、Web Host、报告／问卷预览与 Agent 子进程边界；区分现行复核、已修复问题与待决建议，不把可信本机工具改造成多用户沙箱。
+
+## 当前范围
+
+桌面壳与内置 SSH 部署已删除；下文旧测试命令、数量及缺依赖记录仅为历史证据，不是当前能力或通过证明。Web 认证、Origin、项目身份与 RPC 预算仍须保持。
 
 ## 当前复核（2026-10-02）
 
@@ -10,7 +14,7 @@
 |---|---|---|
 | S-01 | 已修复，仍需维持项目路由回归 | 无需重复多项目改造；Host 公开入口现为 `/api/host/*` |
 | S-02 | 用户确认后已修复显式 Origin 校验 | 完整同源/配置白名单，保留 null/缺失来源兼容与跨站拒绝 |
-| S-03 | 当前 Electron runtime 已修复缺 sender 校验 | 补目录 IPC 专项回归；真实 Electron 验收未运行 |
+| S-03 | 随桌面壳删除而关闭 | 原桌面 IPC 审查证据从 Git 查阅，不要求桌面验收 |
 | S-04 | 仍成立 | 可信代理或代理侧限流的部署选择待决 |
 | S-05 | 已按 Notice #81 实现 | RPC 每连接预算、回压与超限关闭，区分未执行和结果未知 |
 | S-06 | 仍成立，本轮已修复 | 规范化站内 next，拒绝反斜杠、控制字符及规范化后的 `//` |
@@ -60,19 +64,9 @@
 - **建议／取舍**：把 Fetch Metadata 当额外拒绝信号，而非替代 Origin；有 Origin 时对照完整同源值或显式可信 origins。保留反向代理配置能力；`Origin:null`／旧 webview 的兼容策略需明确选择，不能无说明地删除现有支持。
 - **验收**：用真实浏览器覆盖同源、兄弟子域、同站异端口、cross-site 与 opaque origin；非可信来源的 login／logout／写 API 不产生状态变化，显式配置的代理 Origin 继续可用。
 
-## S-03 · 原生目录选择 IPC 缺少与通知 IPC 一致的来源校验
+## S-03 · 原桌面 IPC 审查已关闭
 
-**P2 · 已修复（当前桌面 runtime）；专项回归已补（2026-10-02）**
-
-- **当前实现**：入口已移到 `src/ui/desktop/runtime.js`；`lush:choose-project` 与通知都走 `trusted(event)`，校验登记窗口、workspace 类型、主 frame、Host origin 与项目页面；远程窗口另行拒绝本机目录选择。窗口导航／重定向限制在所选 Host，预览窗口没有 preload；所有窗口 sandbox=true、contextIsolation=true、nodeIntegration=false。无需重复旧修复或新增公共 API。
-- **当前回归**：`test/desktop/runtime.test.js` 新增目录选择专测：未知窗口、子 frame、连接页、不同源／端口、报告路径、独立预览在弹框前拒绝（picks=0）；本地项目页正常选择，取消返回 null。原导航、预览与远程拒绝用例亦通过。该证据是注入 Electron 的单元测试，真实 Electron 导航／preload 集成未运行。
-- 以下依据、缺失校验和 sandbox:false 仅为首次审查历史，不再描述当前实现。
-
-- **依据**：`src/ui/desktop/main.js`，`trustedNoticeSender`，19–22 行；`createWindow`，67–88 行；`app.whenReady` 内 `lush:choose-project` handler，135–138 行。通知校验 webContents／主 frame／origin，目录 handler 却不接收 event；`src/ui/desktop/preload.cjs`，3–8 行，无条件暴露桥。
-- **触发／影响**：若非工作台页面获得这份 preload 桥，目录选择没有拒绝条件，可反复弹原生对话框，用户选中后将绝对路径返回调用页面。当前只限制新窗口 URL，没有 `will-navigate` 拦截；报告新窗口的 preload 继承及后续导航需要 Electron 实测。
-- **反例／边界**：contextIsolation 已开启、nodeIntegration 已关闭，通知 IPC 有检查，报告有独立 sandbox CSP；因此不能把缺 sender 检查或 `sandbox:false` 单独描述成任意文件读取／RCE。目录选择也仍需要用户交互。
-- **建议／取舍**：统一窄 IPC 的主窗口、主 frame、受信来源验证，并明确主窗口及报告窗口导航策略；报告窗口是否完全不带 preload，作为需确认的宿主策略。不要为修复而扩大 Web API 或给渲染层 Node 权限。
-- **验收**：主工作台可选目录；子 frame、报告窗口和非可信导航后的页面调用均被拒且不弹框；取消返回 null。增加真实 Electron 集成测试，而不只用通知模块的 DOM mock。
+桌面壳及其测试已删除，不再提供原生目录选择或通知 IPC。原审查与修复证据从 Git 历史查阅，不恢复该能力或要求桌面验收。
 
 ## S-04 · HTTPS 反向代理后的登录限流会连带锁住所有访问者
 
@@ -121,4 +115,4 @@
 - 全局认证要求非空 canonical 项目白名单；未登录 API、未知方法／参数、伪造本地 Host 与跨项目 token 有拒绝测试。S-01 不否认这些保护。
 - `src/ui/web/notice-preview.js` 的 HTMLRewriter 白名单会去除脚本、事件、导航、表单和嵌套 frame，并设置独立无脚本 sandbox CSP；报告路由另有角色、真实路径、非 symlink、8 MiB 校验及无同源权限 CSP。未确认这些路径存在任意文件读取或脚本越权，仍建议真实浏览器测导航／网络限制。
 - invocation token 每轮轮换、结束清空、取消失效；USER_ONLY、父子消息约束及 explainer 无工具／无 token 测试通过。普通 Agent 继承 daemon 环境是明确设计；预览环境采用白名单且有父进程死亡清理。无 token 的本机用户 RPC、人工批准与重启不重放均不列为漏洞。
-- S-02 已按用户确认策略修复；S-05 已按用户确认方案实施，S-04 未选入下一批、继续留待评审；S-01 已确认且实现，不重复询问。真实浏览器／Electron 的 Origin、导航与 IPC 验收仍未完成；本文不授予真实数据操作授权。
+- S-02 已按用户确认策略修复；S-05 已按用户确认方案实施，S-04 未选入下一批、继续留待评审；S-01 已确认且实现，不重复询问。真实浏览器的 Origin 与导航验收仍未完成；本文不授予真实数据操作授权。

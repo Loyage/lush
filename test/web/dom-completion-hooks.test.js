@@ -123,8 +123,8 @@ test('cancelling archive never modifies saved authorization or leaves a staged s
   expect(choice(node, 'archive').disabled).toBe(false); expect(node.getAttribute('aria-busy')).toBeNull();
 });
 
-test('leaving during confirmation blocks saving, including project and environment changes before page identity updates', async () => {
-  for (const next of ['/p/2222222222222222/', '/e/remote/p/1111111111111111/', '/p/invalid/', null]) {
+test('leaving during confirmation blocks saving, including project changes or invalid project paths before page identity updates', async () => {
+  for (const next of ['/p/2222222222222222/', '/p/invalid/', null]) {
     dom.location.pathname = '/p/1111111111111111/'; activateDetailView({ view: 'task', key: 'task-20' });
     const identity = ui.view;
     const section = workerHooks(responseTask, { refresh() {} }); root().replaceChildren(section);

@@ -5,7 +5,7 @@ import { show } from './messages.js';
 import { docsTarget, openDocs } from './docs.js';
 import { detail, overview } from './navigate.js';
 import { liveInterval } from './live.js';
-import { initDesktopPreferences, onPrefChange, pollingIntervals, readPref, setPref } from './prefs.js';
+import { onPrefChange, pollingIntervals, readPref, setPref } from './prefs.js';
 import { liveRefresh, refresh, applySort, applyFilters } from './refresh.js';
 import { openTaskGraph } from './render-task-graph.js';
 import { openSettings } from './render-settings.js';
@@ -26,8 +26,7 @@ import { resetTranscriptReaders } from './transcript-reader.js';
 import { closeTranscriptView } from './transcript-view.js';
 import { closeExplanationPanel } from './explanations.js';
 import { ensureProject, openProjectManager, refreshProjectList, workbenchStatus } from './project-picker.js';
-import { openEnvironments } from './environments.js';
-import { initNoticeNotifications, resetNoticeNotifier } from './notice-notifications.js';
+import { resetNoticeNotifier } from './notice-notifications.js';
 import { initNoticeRecords, openNotice } from './render-notices.js';
 
 /* ---------- 左栏全局排序偏好（与设置页共用 lush.sidebarSort） ---------- */
@@ -75,15 +74,14 @@ async function openSources(connectionId = '') {
 // 地址栏是唯一的路由源：设置 / Agent 状态 / Task 图 / 文档 / Task；其余回概览。
 // 每个分支都把 promise 返回出去：浏览器不看返回值，但测试能 await 到「画完」为止。
 function noProjectView() {
-  const status = workbenchStatus();
   const identity = activateDetailView({ view: 'unavailable', title: '项目不可用', context: '工作台',
     hint: '当前地址没有可用项目', push: false, hash: location.hash || undefined });
   const panel = $('detail');
   if (ui.view !== identity) return;
   const box = el('div', undefined, 'workbench-view');
   const empty = el('div', undefined, 'workbench-empty');
-  empty.append(el('strong', status.environment ? '远端环境或项目当前不可用' : '还没有打开项目'),
-    el('p', status.environment ? '保留了地址中的环境身份，没有回落到本地项目。你仍可管理环境、界面设置并阅读帮助。' : '项目管理、环境、界面设置和帮助仍可使用。'));
+  empty.append(el('strong', '当前没有可用项目'),
+    el('p', '项目管理、界面设置和帮助仍可使用。'));
   box.append(empty); panel.replaceChildren(box);
 }
 
@@ -91,7 +89,6 @@ function onHashChange() {
   hideHelp(); // 换页前先把上一页的按钮提示收掉，避免固定浮层跨页残留。
   const report = error => { show(error.message, 'error'); };
   if (location.hash === '#projects') return openProjectManager({ push: false });
-  if (location.hash === '#environments') return openEnvironments({ push: false });
   if (location.hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
   const doc = docsTarget(location.hash);
   if (doc) return openDocsView(doc.id);
@@ -148,31 +145,25 @@ export async function boot() {
   if (projectVisibilityListener !== null && typeof removeEventListener === 'function') removeEventListener('visibilitychange', projectVisibilityListener);
   refreshTimer = null; liveTimer = null; hashListener = null; projectTimer = null; projectVisibilityListener = null;
   closeTranscriptView();
-  await initDesktopPreferences();
   resetUiState();
   resetTranscriptReaders();
   closeExplanationPanel();
   closeQuickExplanationPanel();
   resetNoticeNotifier();
-  await initNoticeNotifications();
   initAppearance();                              // 按当前 DOM 重新绑定主题与头部按钮
   applyReducedMotion(readPref('reduceMotion'));
-  // Global navigation does not wait for a remote Host probe or a project daemon.
+  // Global navigation does not wait for a Host probe or a project daemon.
   initHelp();
   $('projects-open').onclick = () => openProjectManager();
-  $('environments-open').onclick = () => openEnvironments();
   $('settings-open').onclick = () => openSettings();
   $('docs-open').onclick = () => openDocsView();
   await ensureProject();
   const context = workbenchStatus();
   const projectReady = context.projectUsable;
-  const desktop = globalThis.window?.lushDesktop ?? globalThis.lushDesktop;
-  const environmentLabel = context.environment ? `SSH · ${context.host?.environment?.alias || context.environment.slice(0, 8)}`
-    : desktop?.mode === 'local' ? '本机' : '当前 Host';
-  if ($('environment-context')) $('environment-context').textContent = environmentLabel;
+  if ($('host-context')) $('host-context').textContent = '当前 Host';
   if (!projectReady) {
     $('project').textContent = context.project ? '项目不可用' : '未打开项目';
-    $('connection').textContent = context.host?.mode === 'offline' ? '环境离线' : '工作台已就绪';
+    $('connection').textContent = context.host?.mode === 'offline' ? 'Host 离线' : '工作台已就绪';
   }
   initContextReferences();
   initHelp();                                    // 统一按钮帮助提示（document 级委托，可重复装配）
@@ -181,7 +172,6 @@ export async function boot() {
   $('home').onclick = goOverview;
   $('overview-open').onclick = goOverview;
   $('projects-open').onclick = () => openProjectManager();
-  $('environments-open').onclick = () => openEnvironments();
   $('settings-open').onclick = () => openSettings();
   $('docs-open').onclick = () => openDocsView();
   const projectOnly = ['overview-open','task-graph-open','inputs-open','versions-open','hooks-open','agent-status-open','model-sources-open','quick-explain-open'];

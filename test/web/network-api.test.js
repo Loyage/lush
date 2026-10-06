@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { PARAMS, USER_ONLY, assertAllowed } from '../../src/rpc/registry.js';
 import { RPCClient } from '../../src/rpc/client.js';
-import { run as runAgentCLI } from '../../src/cli/commands/agent.js';
 import { startWeb } from '../../src/ui/web/server.js';
 import { projectRouteId } from '../../src/host/registry.js';
 import { temp } from '../helpers.js';
@@ -39,22 +38,6 @@ test('network RPC is narrow/user-only and real HTTP returns only safe no-store c
   } finally { await f.close(); }
 });
 
-test('merged CLI file input interoperates with real network RPC and private persistence', async () => {
-  const f = await setup(), file = path.join(f.root, 'cli-network-input.json'), client = new RPCClient(f.config.socket);
-  const input = value({ proxy_auth: { username: 'PRIVATE-CLI-USER', password: 'PRIVATE-CLI-PASSWORD' } });
-  fs.writeFileSync(file, JSON.stringify(input), { mode: 0o600 });
-  const execute = args => runAgentCLI('agent', ['network', ...args], { client, json: true });
-  try {
-    const saved = await execute(['set', '--file', file]);
-    expect(saved).toEqual({ version: 1, mode: 'proxy', proxy_url: input.proxy_url, no_proxy: [], has_proxy_auth: true });
-    expect(JSON.stringify(saved)).not.toContain('PRIVATE'); expect(await execute(['show'])).toEqual(saved);
-    expect(await (await fetch(f.url + '/api/agent/network')).json()).toEqual(saved);
-    const reset = await execute(['reset']);
-    expect(reset).toEqual({ version: 1, mode: 'inherit', proxy_url: null, no_proxy: [], has_proxy_auth: false });
-    expect((await client.request('agent.network')).has_proxy_auth).toBe(false);
-  } finally { await f.close(); }
-});
-
 test('both network reads and writes require Web login, and settings stay separate across projects', async () => {
   const f = await setup({ auth: { username: 'owner', password: 'network-test-password' } }), other = await setup();
   try {
@@ -82,24 +65,4 @@ test('global network routes retain registered project identity for reads and wri
     expect((await fetch(url + '/api/agent/network')).status).toBe(400);
     expect((await fetch(`${url}/p/${'0'.repeat(16)}/api/agent/network`)).status).toBe(400);
   } finally { web.stop(true); for (const dir of [a, b, global]) fs.rmSync(dir, { recursive: true, force: true }); }
-});
-
-test('managed remote gateway allows only fixed network routes and removes browser credentials', async () => {
-  const home = temp(), seen = [], ID = '0123456789abcdef0123456789abcdef';
-  const remote = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
-    seen.push({ path: new URL(request.url).pathname, authorization: request.headers.get('authorization'), cookie: request.headers.get('cookie') });
-    if (new URL(request.url).pathname === '/api/host') return Response.json({ mode: 'host', pid: 77, projects: [{ id: 'aaaaaaaaaaaaaaaa' }] });
-    return Response.json({ mode: 'inherit', has_proxy_auth: false });
-  } });
-  const environmentManager = { endpoint: () => `http://127.0.0.1:${remote.port}`, describe: () => ({ id: ID }), dispose() {}, cancel() {} };
-  const projectHost = { launcher: true, status: async () => ({ mode: 'host', projects: [] }), rememberCurrent() {} };
-  const web = startWeb(null, 0, { env: { LUSH_GLOBAL_CONFIG: home }, environmentManager, projectHost });
-  const url = `http://127.0.0.1:${web.port}/e/${ID}/p/aaaaaaaaaaaaaaaa`;
-  try {
-    expect((await fetch(url + '/api/agent/network', { headers: { Cookie: 'browser=PRIVATE', Authorization: 'Bearer PRIVATE' } })).status).toBe(200);
-    expect((await action(url, value())).status).toBe(200);
-    expect((await fetch(url + '/api/agent/network/credentials')).status).toBe(400);
-    expect(seen.some(row => row.path.endsWith('/api/agent/network'))).toBe(true);
-    expect(seen.every(row => !row.authorization && !row.cookie)).toBe(true);
-  } finally { web.stop(true); remote.stop(true); fs.rmSync(home, { recursive: true, force: true }); }
 });

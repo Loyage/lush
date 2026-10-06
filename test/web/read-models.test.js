@@ -5,7 +5,7 @@ import { fetch, pageSource, setup } from './harness.js';
 
 // 大结果不进列表、事件分页；Web 也不再提供改判入口。
 test('large results do not inflate task listings and event history stays paginated', async () => {
-  const f = await setup(); await repo(f.root);
+  const f = await setup();
   try {
     f.project.stopping = true;
     const task = f.store.create({ input_id: null, role: 'research', goal: 'large' });
@@ -23,12 +23,13 @@ test('large results do not inflate task listings and event history stays paginat
   } finally { await f.close(); }
 });
 test('recent event history is cursor-paged and explicitly reports truncation', async () => {
-  const f = await setup(); await repo(f.root);
+  const f = await setup();
   try {
     f.project.stopping = true;
     const task = f.store.create({ input_id: null, role: 'research', goal: 'history' });
     f.store.transaction(() => {
-      for (let index = 0; index < 220; index += 1) f.store.event(task.id, 'tick', { index });
+      // 只用略超两个默认页（100）的数据：三页游标与截断边界的口径不变，记录数最小。
+      for (let index = 0; index < 201; index += 1) f.store.event(task.id, 'tick', { index });
     });
     const recent = await (await fetch(f.url + `/api/worker/${task.id}/history-page`)).json();
     expect(recent.events).toHaveLength(100); expect(recent.truncated).toBe(true);

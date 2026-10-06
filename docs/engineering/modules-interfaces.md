@@ -62,26 +62,14 @@ Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 
 | 文件 | 职责 | 导出 / 命令 |
 |---|---|---|
 | `scripts/measure-read-performance.js` | 临时 fixture 的同进程读面 / DOM stub / 事件循环重复采样，逐样本保留既有预算，代码及 OS / Bun / Git 身份与显式 JSON 输出；无 CI / 生产改动 | `parseOptions(args)`、`summarize(values)`、`collectEnvironment(root?,env?)`、`buildReport(samples,environment,startedAt,finishedAt)`、`writeReport(report,output)`、`THRESHOLDS`；`bun run measure:read-performance [--samples N] [--output PATH]`，契约见[本地读取性能报告](../contributing/read-performance.md) |
-| `scripts/build-desktop.js` | Windows x64 NSIS / macOS 原生 x64、ARM64 ZIP：平台白名单、ASAR 与 resources 字节校验及 SHA-256；manifest 的 `lushRemote` 封存完整检出身份，独立校验拒绝篡改；两平台携带双架构 Linux 包，macOS 另携带本机私有 Bun 与后台源码；生成物只写入忽略的 `node_modules/lush-desktop-build/`，无项目状态、凭证、签名、公证或自动发布 | `APP_FILES`、`BUILD_DIR`、`desktopFiles(platform?)`、`buildPaths(root?,platform?,arch?)`、`stageDesktop(root?,platform?)`、`validateStage(app,platform?)`、`verifyArchive(archive,app,platform?)`、`builderConfig(root?,platform?,arch?)`、`writeChecksums(output,platform?,arch?)`；`bun run desktop:stage:win` / `desktop:build:win` / `desktop:verify:win`，对应 `:mac` 命令 |
-| `scripts/build-remote.js` | 原生 Linux x64 / ARM64 私有 Bun 与完整源码白名单运行包，多架构汇总；ELF / ustar / 哈希 / 身份校验复用 `src/ui/desktop/remote-artifact.js`，构建 / smoke 的执行能力不进入桌面 ASAR；生成物在 `node_modules/lush-remote-build/payload/` | `BUILD_DIR`、`BUN_VERSION`、`TARGETS`、`nativeTarget()`、`runtimeSourceIdentity()`、`inspectRuntimeBinary()`、`validateRemoteManifest()`、`collectRuntimeSources(root?)`、`remoteSourceIdentity(root?)`、`buildRemotePayload()`、`verifyRemotePayload()`、`mergeRemotePayloads()` |
-| `scripts/prepare-desktop.js` | 显式导入可信、与本检出匹配的双架构 Linux CI 产物，不联网、不执行 Linux 二进制；旧生成物仅凭 `--replace` 替换；缺包不禁用本地 / URL 入口 | `prepareDesktopPayload(root,options)`、`desktopPayloadWarning(root)`；`bun run desktop:prepare DIR [--replace]` |
-| `scripts/start-desktop.js` | 源码 Desktop 启动前报告运行包准备状态，再直接启动 Electron；不下载、不构建、不启动额外服务 | `bun run desktop` |
-| `scripts/desktop-local-runtime.js` | macOS 原生私有 Bun / 后台源码 staging；Mach-O 平台、版本、源码身份、文件哈希及依赖 / RPATH 校验；afterPack 比对已审核 bytes，可选本机烟测；不跟随链接、不包含 node_modules / 项目 / 凭证 | `LOCAL_RUNTIME_DIR`、`inspectMacRuntime()`、`stageDesktopLocalRuntime(root,options)`、`verifyDesktopLocalRuntime(root,directory,options)` |
-| `scripts/desktop-remote-payload.js` | 桌面独立 Linux resources 的 staging、两架构完整性、与当前源码身份及已审核 staged 字节的一致性校验；不执行 Linux 二进制 | `REMOTE_RESOURCE_FILES`、`DESKTOP_PAYLOAD_DIR`、`stageDesktopRemotePayload(root, options?)`、`verifyDesktopRemotePayload(root, directory, options?)` |
 
-`.github/workflows/publish-remote-payload.yml` 仅由 `Loyage/lush` 的正式 `vX.Y.Z` tag push 触发，校验 package.json 版本及 main 历史后复用原生构建；依赖其成功的独立 Release 写权限 job 使用同运行 artifact 与固定 tag SHA 检出验证，发布 `payload-v<version>-<fingerprint>` 的三份资源，不替换已有匹配 Release。普通 main push、PR、手动 / 复用构建仍只有 artifact。下载器只在授权后取固定身份标签；本地构建 / `desktop:prepare DIR` 继续优先且不依赖 tag、Release 或联网，既有桌面安装器仍无自动发布或更新。
-
-根 `.gitattributes` 固定 `src/`、`bin/`、`package.json` 的 LF 检出，避免 Windows autocrlf 改变代码身份；运行包 / 双平台桌面 workflow 的 PR 与 main path filters 包含该文件，不能通过忽略字节差异修复身份失败。
-
-`.github/workflows/remote-payload.yml` 由原生 Linux x64 / ARM64 runner 构建与烟测，汇总为 `lush-remote-payload` artifact；Windows 与 macOS workflow 复用此工作流，下载并独立校验运行包，再构建客户端。macOS workflow 在原生 x64 / ARM64 runner 携带固定版本本机 Bun 与后台，验证后上传未签名 ZIP 和校验和，不发布 Release；源码开发者显式下载可信同检出 artifact，再使用 `desktop:prepare` 导入。
-
-`.github/workflows/windows-desktop.yml` 在 Windows runner 实际生成并校验 NSIS 安装器，手动、相关 PR 或 main 提交触发，仅上传 14 天保留的安装器与校验和 artifact。无 tag 发布、GitHub Release 写权限或签名密钥；真实 Windows 安装与远程连接仍需人工验收。Windows 主入口不得静态导入未打包的 `local-host.js`；macOS 本地入口按平台延迟加载，独立后台资源不进入 ASAR 或 Windows 包。
+根 `.gitattributes` 固定 `src/`、`bin/`、`package.json` 的 LF 检出，避免 autocrlf 改变代码身份。Lush 不提供客户端安装包或远端部署产物。
 
 ## 测试：`test/`
 
 测试文件必须自给自足（自己的 fixture / world / DOM stub），不要靠别的文件先跑过。
 
-`bun run test` 是无需第三方开发依赖的通用套件：并行运行全部测试，明确排除 `test/packaging/`。`bun run test:packaging` 单独运行需要 Electron 开发依赖的打包契约；`bun run test:all` 合并运行两者。`test:serial` 保留原生 `bun test`，供最低支持 Bun 与聚焦串行诊断使用；不指定路径时也包含打包专项。质量 CI 将通用与打包套件分成独立 job，Windows CI 仍执行打包测试和真实构建；专项未执行不能称为全套通过。
+`bun run test` 并行运行全部现有 Web/core 测试，不使用路径忽略模式；`test:all` 为同一完整入口，`test:serial` 保留原生 `bun test` 供聚焦串行诊断。质量 CI 执行测试与文档检查；真实浏览器专项需相应系统浏览器，不能用 DOM stub 代替。
 
 数据规模边界只在负责该边界的后端测试完整验证；HTTP / DOM 层用小规模数据验证参数、游标、刷新和交互。批量造库使用测试事务，不关闭生产持久化或安全设置。Web 资源测试只保留模块可加载、CSP、启动落点、Agent 标识与减动效契约，不锁定精确颜色、字体或 CSS 排版。
 
@@ -91,16 +79,12 @@ Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 
 |---|---|
 | Worker 中心主链 | `test/project/order.test.js`、`merge-queue.test.js`、`parent-delivery.test.js`（父自有队列顺序/执行位/暂停重排/取消与精确恢复）、`delivery-compatibility.test.js`（重复交付/代码依赖/旧 v2 审计与 Git/DB 窗口/源漂移）、`delivery-review.test.js`（拒绝非法 sender 无副作用、busy 挂起/取消真实自动唤醒、父前进后精确恢复读模型）、`task-signals.test.js`、`task-centered-graph.test.js`、`lifecycle.test.js`、`scheduling.test.js`、`preempt.test.js`、`progress.test.js`、`recovery.test.js`、`limits.test.js`、`agents.test.js`、`status.test.js` |
 | Worker 彻底删除入口 | `test/worker-delete-api.test.js`（用户权限、确认/revision 与 CLI 两步预检）、`test/web/worker-delete-api.test.js`（登录/Origin/参数边界与真实临时 Git 项目 HTTP→RPC→资源清理联调）；后端与 DOM 回归由各自分区维护 |
-| 公开面契约 | `test/core-api.test.js`（RPC 白名单）、`test/help-guard.test.js`（帮助与命令面）、`test/web/core-api.test.js`、`test/task-iteration-api.test.js`（四个用户专属接口/CLI mock）、`test/web/iteration-api.test.js`（HTTP mock）、`test/web/dom-iteration.test.js`（共享迭代动作） |
+| 公开面契约 | `test/core-api.test.js`（RPC 白名单）、`test/help-guard.test.js`（帮助与命令面）、`test/web/core-api.test.js`、`test/worker-api.test.js`（Worker 权限/严格参数、迭代 envelope）、`test/worker-cli.test.js`（命令映射/非法参数/帮助）、`test/web/worker-api.test.js`（HTTP→Dispatcher 接缝）、`test/web/dom-iteration.test.js`（共享迭代动作） |
 | Git / worktree | `test/workspaces/{naming,merge,cleanup,genealogy,anchor,archive,branch-diagnostics,branch-first,safety,task-squash}.test.js`（task-squash 核验精确凭据、双 ref 事务、guard、dirty/drift 与失败保留现场）；`safety` 直接验证通用 Git 安全门、历史展示 worktree 保留与 DB 附属数据只读兼容 |
-| 服务重启 | `test/service-restart.test.js`、`test/web/service-restart.test.js`、`test/integration/service-restart.test.js`（idle 准入、鉴权/路由、真实进程与桌面所有权） |
+| 服务重启 | `test/service-restart.test.js`、`test/web/service-restart.test.js`、`test/integration/service-restart.test.js`（idle 准入、鉴权/路由、真实进程所有权） |
 | main 版本迭代 | `test/workspaces/version-history.test.js`（SHA-256/Unicode/配置与环境隔离）、`test/project/version-history.test.js`（真实第一父链/多轮交付/历史证据/伪标题/分页/安全大小/无 main）、`test/web/version-history-api.test.js`（RPC 权限/窄参数/认证/Origin/多项目隔离） |
 | Web 读面与安全 | `test/web/{security,assets,read-models,project-route,core-studio,multi-project,launcher}.test.js`；assets 以一次模块图加载冒烟验证资源/CSP，并保留启动与供应资源契约 |
 | Web DOM | `test/web/dom-*.test.js`（各自 `boot()`） |
-| 远端运行包与桌面资源 | `test/packaging/remote-payload.test.js`（归档 / ELF / 哈希 / 固定版本 / 代码身份 / 原生可选烟测）、`desktop-remote-payload.test.js`（resources / 两架构 / 当前源码身份 / 包装字节 / 失败保留）；`remote-fixture.js` 是纯 ELF/ustar 测试数据生成器，不是实际运行时 |
-| macOS 打包与开发准备 | `test/packaging/macos-desktop.test.js`（平台 staging / ASAR / 双架构配置 / resources / ZIP 校验和 / CI 契约）、`desktop-local-runtime.test.js`（Mach-O / 版本 / 依赖 / 身份 / 哈希 / 原生可选 smoke）、`desktop-prepare.test.js`（实际 Git autocrlf 检出一致性 / 显式导入 / 拒绝不同身份 / 替换授权 / 链接与状态保护） |
-| Windows 打包 | `test/packaging/windows-desktop.test.js`（白名单 / 清理隔离 / 静态依赖边界 / 真实 ASAR / 固定版本构建配置 schema / 安装器校验和 / CI 交付契约，不冒充 Windows 运行验证） |
-| 桌面连接与 SSH | `test/desktop/{connections,runtime,local-host,connection-ui,ssh,ssh-release,ssh-connection-ui,windows-connection-ui}.test.js`（窗口 / IPC / 一次安装授权 / 确认后 Release 下载、来源 / 身份 / 大小 / 取消与缓存安全 / 元数据 / 隔离 shell 安装）；`test/web/ssh-origin.test.js`（默认与显式 Host / Origin 边界）；可选 `test/integration/ssh-remote-live.test.js`（生产桌面 IPC / 授权 + 真实 sshd、私有 Bun、Host、项目 daemon、重连；仅窗口模拟） |
 | Notice 记录与提醒 | `test/project/{notice-page,notice-info,lifecycle-notice,notice-lifecycle-type,questionnaire}.test.js`、`test/web/{notice-records,notice-notifications,lifecycle-notice-api,overview-lifecycle-notices,dom-lifecycle-notices,settings,questionnaire}.test.js`；真实 Firefox 独立临时 fixture：`bun run ./test/web/check-notice-banner-browser.js`（精确桌面/390px 视口、WebDriver 原生触摸）与 `bun run ./test/web/check-notice-interaction.js`（CSP、键盘/PointerEvents）；两者需 Firefox/geckodriver，不连接用户 daemon |
 | 执行详情代码阅读 | `test/workspaces/code-reader.test.js`（真实临时 Git 工作区、基线/净变化、ignored/链接/外部程序/大文件/历史降级、受阻路径明确失败、长转义路径的字节分页及真实 RPC 帧预算）、`test/workspaces/code-posix.test.js`（真实 openat/readlinkat、换链竞态、FD 回收/CLOEXEC 与 Darwin loader 契约）、`test/web/code-reader-api.test.js`（用户权限、窄参数、认证、Origin、多项目路由） |
 | 执行过程阅读 | `test/transcript*.test.js`、`test/web/{transcript-reader,dom-transcript-reader,dom-transcript-view,dom-results}.test.js` |
@@ -115,7 +99,7 @@ Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 
 
 `.github/workflows/code-reader-posix.yml` 独立运行代码读取器的 Linux/macOS 聚焦回归，覆盖最低支持 Bun 1.2.0 和当前固定 Bun 1.4.2；无 native 包或编译步骤。Linux 本地通过不等于 macOS 实测，Darwin loader mock 也不能替代 macOS job 的结果。
 
-`test/desktop/runtime-fixture.js` 共享模拟 Electron 窗口与 IPC 调用环境；不渲染页面，不证明原生桌面行为。
+`test/session-fixture.js` 提供纯文件读取的 `sessionFixture(extra?)` 与 `sessionFile(root,taskId,lines,name?)`，每例独立 Config/临时目录，不初始化 SQLite/Project；会话读取保留 UTF-8、截断、缓存、token 与链接拒绝覆盖。HTTP 执行记录直接创建现行 Worker 行，不为只读投影创建仓库或 worktree。退休流程成功路径与重复接口矩阵已移除，拒绝旧入口、安全权限和真实 Git 交付覆盖仍保留。
 
 `test/helpers.js`、`test/dom-stub.js` 是被多个文件共用的**公共面**：保持公共签名兼容，改签名会同时影响所有分区。`helpers.env(extra)` 与 `git(root,...args)` 为测试子进程隔离 HOME/XDG、全局/系统 Git 配置及继承的 `GIT_*`；`extra` 可显式注入受控配置，不修改进程级环境或生产 Git 行为。直接自建环境/spawn 的测试需自行隔离。
 

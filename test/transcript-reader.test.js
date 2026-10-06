@@ -1,18 +1,14 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fixture } from './helpers.js';
+import { sessionFixture as fixture, sessionFile } from './session-fixture.js';
 import { searchTranscript, transcriptStep, transcriptPage } from '../src/core/transcript-reader.js';
 import { readTranscript } from '../src/core/transcript.js';
 import { groupSteps, stepSummary } from '../src/ui/web/assets/transcript-model.js';
 
 const row = message => ({ type: 'message', timestamp: '2026-01-01T00:00:00Z', message });
 const assistant = content => row({ role: 'assistant', content });
-function session(f, name, records) {
-  const file = path.join(f.config.home, 'sessions', `${name}_lush-task-1.jsonl`);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, records.map(value => JSON.stringify(value)).join('\n') + '\n'); return file;
-}
+const session = (f, name, records) => sessionFile(f.root, 1, records, `${name}_lush-task-1.jsonl`);
 
 test('full transcript search reaches beyond 8 MiB and clipped bodies, with filters and stable pagination', async () => {
   const f = fixture();
@@ -102,7 +98,8 @@ test('reader rejects malformed filters, unsafe files and oversized records expli
     expect((await searchTranscript(f.config, 1)).steps.length).toBe(1);
     fs.writeFileSync(file, 'x'.repeat(16 * 1024 * 1024 + 1));
     await expect(searchTranscript(f.config, 1)).rejects.toThrow('超过 16 MiB');
-    fs.unlinkSync(file); fs.symlinkSync(path.join(f.config.home, 'project.db'), file);
+    fs.unlinkSync(file); fs.writeFileSync(path.join(f.config.home, 'project.db'), '');
+    fs.symlinkSync(path.join(f.config.home, 'project.db'), file);
     await expect(searchTranscript(f.config, 1)).rejects.toThrow();
   } finally { await f.close(); }
 });

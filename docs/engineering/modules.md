@@ -20,7 +20,7 @@
 
 ## 工作台改造接缝
 
-用户已确认：启动直接进入主体，每项目独立窗口，Web SSH 在 Web 服务所在机器执行，关闭/断开后后台继续。修改启动、环境与项目入口前阅读[工作台设计](../design/workbench.md)；文件分工与新增接口以[工作台接入契约](workbench.md)为准。该接缝优先于下文旧首启连接页/项目闸门描述；逐步交付不得宣称尚未验收能力。
+用户已确认：仅保留 Web UI，启动直接进入主体，每项目独立浏览器标签，关闭页面后后台继续；服务器部署与网络访问由用户管理，Lush 不管理 SSH 或远端产物。修改启动、环境与项目入口前阅读[工作台设计](../design/workbench.md)；文件分工与新增接口以[工作台接入契约](workbench.md)为准。该接缝优先于旧项目闸门描述；逐步交付不得宣称尚未验收能力。
 
 ## 快捷解释接缝
 
@@ -73,9 +73,9 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 - Web 路由与 asset 路径：`server.js` 只按 basename 服务 `assets/` 下的 `.js` / `.css`，
   所以**新增前端模块不需要改 server.js**。带 `--project` 的单项目 Web 继续用无前缀的 `/api/**`；无 `--project` 的全局工作台改为**每项目一条稳定身份路由**：`/p/<project-id>/**` 下的页面、GET 与 `POST /api/action` 都按请求自带的项目身份解析（ID 由 canonical 路径派生，只在已登记集合里反查，不把 URL 片段当路径），`GET /api/snapshot` 因此不再有可被别的标签页切换的「当前项目」。宿主级路由留在无前缀：`GET /api/host`（模式、已登记列表、上次打开）、`GET /api/host/projects`（仅探测已登记目录的 lushd，返回 `running` 与有界摘要；不启动项目）、`POST /api/host/select`（登记并连接，返回路由 ID，不设全局当前项目）、`POST /api/host/remove`（只删入口并断开 Web 连接），以及「文档」视图的 `/api/docs`、`/api/docs/search-index` 与 `/api/docs/<id>`——数据源是 `src/ui/web/docs.js`，只读随代码发布的 `docs/**/*.md` 与 `README.md`，与当前项目目录无关，只按扫出来的 id 查表命中。项目读取与写动作的完整白名单见[Web 路由](../reference/web-routes.md)（`CORE_READS` / `CORE_WORKER_READ` / `CORE_DOC_READ` / `MUTATIONS`）。认证边界也在 `server.js`：项目绑定模式读取 `.lush/web.json`，全局启动器读取用户配置目录的 `web.json`；无对应配置时只监听本机，有配置时监听公网，并用 `/login`、`/logout` 与 HttpOnly 会话 Cookie 保护全部页面、资源和 API。全局公网配置必须额外提供 `projects` 绝对路径白名单，且项目注册表不允许把白名单外的路径解析成可访问身份；本地无认证启动器仍可输入任意现存绝对目录。
 - 前端项目身份在 `src/ui/web/assets/route.js`：从 `location.pathname` 读 `/p/<id>/`（读不到就是单项目模式或全局根），`api.js` 用它给项目 API 加前缀，启动器与文档等宿主级资源不加；折叠 / 筛选 / 排序与 Worker 图偏好按项目隔离在 `prefs.js` / `state.js`，主题等外观偏好共享。项目列表与切换在 `project-picker.js`：已在一个项目页时用新标签打开别的项目，切换项目不会清空当前标签的输入。
-- 服务重启接缝：设置页保留项目后台与当前界面服务独立重启，并提供「全部重启」按钮；一次确认后复用现有接口先重启当前项目后台，成功后再重启当前界面服务，后台拒绝时不动界面，部分成功明确提示，不重启其他项目后台。`POST /api/service/restart`（全局模式须带 `/p/<project-id>` 前缀）只处理已解析的当前项目，不接受路径或 Agent token；Host 调用用户专属 `system.stop_if_idle`，daemon 同步检查活动 invocation / 模型调用和 Git 工作后封闭新调度，再停止，由 Host 等待退出并启动。忙碌时拒绝，不把运行中Worker标为失败。`POST /api/host/restart` 只重启接收请求的 Host（不停止任何项目 daemon）；`GET /api/host` 增加 `restart_supported`，不支持的嵌入模式禁用按钮并说明原因。两个 POST 都复用登录、Origin、JSON 类型校验；Host 重启会清空登录会话，页面有界探测恢复或提示重新登录。桌面临时 Host 必须保持主进程对服务生命周期的所有权，不留下无人管理的子进程。`bin/lush-host` 通过 `src/host/supervisor.js` 持有 `bin/lush-host-worker`，worker 请求重启时退出 75，supervisor 等退出后在同端口启动新进程；普通退出不重放。`src/host/service-control.js` 提供 `restartProjectDaemon(config)`，按项目 single-flight 并等待 daemon 锁释放；`Workspaces.pending` 跟踪全部排队及执行中的串行 Git 工作，为 idle 准入提供同步证据。
+- 服务重启接缝：设置页保留项目后台与当前界面服务独立重启，并提供「全部重启」按钮；一次确认后复用现有接口先重启当前项目后台，成功后再重启当前界面服务，后台拒绝时不动界面，部分成功明确提示，不重启其他项目后台。`POST /api/service/restart`（全局模式须带 `/p/<project-id>` 前缀）只处理已解析的当前项目，不接受路径或 Agent token；Host 调用用户专属 `system.stop_if_idle`，daemon 同步检查活动 invocation / 模型调用和 Git 工作后封闭新调度，再停止，由 Host 等待退出并启动。忙碌时拒绝，不把运行中Worker标为失败。`POST /api/host/restart` 只重启接收请求的 Host（不停止任何项目 daemon）；`GET /api/host` 增加 `restart_supported`，不支持的嵌入模式禁用按钮并说明原因。两个 POST 都复用登录、Origin、JSON 类型校验；Host 重启会清空登录会话，页面有界探测恢复或提示重新登录。`bin/lush-host` 通过 `src/host/supervisor.js` 持有 `bin/lush-host-worker`，worker 请求重启时退出 75，supervisor 等退出后在同端口启动新进程；普通退出不重放。`src/host/service-control.js` 提供 `restartProjectDaemon(config)`，按项目 single-flight 并等待 daemon 锁释放；`Workspaces.pending` 跟踪全部排队及执行中的串行 Git 工作，为 idle 准入提供同步证据。
 - Web 按钮帮助走 `data-help`：含义不直观的按钮都带提示，会调用 Agent 的按钮另带 `agent-call` 类与 `agentHelp()` 生成的文案，禁用按钮由外层 `.help-host` 承载；前端实现与三种输入方式见[按钮帮助与 Agent 触发标识](../design/ui-guidance.md)。
-- Host 的项目连接与按需启动在 `src/host/project-host.js`；全局项目登记状态在 `src/host/registry.js`：用户配置目录中的 `launcher.json` 是 v2，存 `last_project` 与已登记的 `projects` 路径列表（读 v1 时把 `last_project` 提升为登记项），只把上次打开当作**新窗口首次落点**，不再决定任何页面的请求目标；同目录的可选 `web.json` 独立保存全局启动器认证、可信 Origin 与项目白名单；两者都不是业务事实也不是 `LUSH_HOME`。`projectRouteId(path)` 由 canonical 路径派生 16 位十六进制 ID，同一路径稳定、不同路径不可混同；服务端只用它在已登记集合里反查路径。macOS / Linux / Windows 分别遵循各自用户配置目录。Electron 桌面首启显示本地连接页；本地工作窗口共享桌面持有的随机端口临时 Host，只监听回环且不读取全局公网认证，退出时只停自己的临时 Host、不停项目 daemon。远程工作窗口直接加载所选 HTTPS Host 或用户自行建立的回环 HTTP SSH 隧道，按 Host 隔离会话与提醒，本地与多个远端可以并存；窗口、preload 与连接元数据职责见 [Web / 桌面宿主](modules-web.md#web--桌面宿主)。
+- Host 的项目连接与按需启动在 `src/host/project-host.js`；全局项目登记状态在 `src/host/registry.js`：用户配置目录中的 `launcher.json` 是 v2，存 `last_project` 与已登记的 `projects` 路径列表（读 v1 时把 `last_project` 提升为登记项），只把上次打开当作**新窗口首次落点**，不再决定任何页面的请求目标；同目录的可选 `web.json` 独立保存全局启动器认证、可信 Origin 与项目白名单；两者都不是业务事实也不是 `LUSH_HOME`。`projectRouteId(path)` 由 canonical 路径派生 16 位十六进制 ID，同一路径稳定、不同路径不可混同；服务端只用它在已登记集合里反查路径。macOS / Linux / Windows 分别遵循各自用户配置目录。浏览器直接访问各 Host，网络由用户自行配置；宿主职责见 [Web 宿主](modules-web.md#web-宿主)。
 - Web 进程的生命周期在 `src/host/control.js`：`webListenerPids(port)` 认出端口上的监听者，
   `webOwners(config, port)` 把端口与 `.lush/host.state.json`（后台 Web 自己写的 pid / 端口 / 代码指纹）
   合起来给出「谁在听、命令行是不是 Lush Web」，`stopStaleWeb(port)` 只停命令行确实是 Lush Web 的进程
@@ -92,10 +92,6 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
   `taskSlug` / `taskLabel` 与 `inputLabel(id)`（历史输入聚合分支的 `input-<id>` 名）。
 
 当前接缝（尚未完成全类型统一）：新式 指令/child 的 Git 基线在创建时固定，指令以输入时选定的父 ref 建 worktree，child 派生时在 Git 串行队列里立即从父分支 tip 建 worktree；analysis 创建时固定只读 detached worktree。其它专用 Worker、旧 Worker 与额外绑定的 owner 根 Worker 尚未迁入统一 fork 创建路径。`commit_contexts` 是项目本地的提交→Pi session/entry 附属索引；Agent 的 `git commit` 成功后记录当时可复用的上下文指针，外部提交没有指针时子 Pi 从空会话起步。子 Pi 首次运行用固定 entry 截出的 checkpoint 调 `--fork`，后续 invocation 继续自己的会话。旧 Worker/commit 不回填。
-
-## 本地桌面受管偏好接缝
-
-`ConnectionStore.uiPreferences(project, change?)` 在独立 userData 文件保存非通知受管偏好；主进程仅允许受信本地主 frame 调用，并从页面地址派生项目 ID。preload 不提供任意键 / 路径 / IPC；`prefs.js` 的 `initDesktopPreferences()` 在 boot 的 UI 状态初始化前只读恢复，按键排队写和广播快照同步多窗口，Worker 树折叠纳入受管偏好。远端 / 浏览器和既有通知契约不变。白名单、并发 / 失败及重置范围以[桌面偏好契约](desktop-preferences.md)为准。
 
 ## 执行详情代码阅读器接缝
 
@@ -244,11 +240,11 @@ Git 接缝新增 `prepareTaskSquashUnsafe(child,source,baseline,message)` 返回
 - 复用 Notice 的 `kind='info' / status='sent'`，新增可空 `source_event_id`（唯一的来源生命周期 Event ID）与 `read_at`（成功打开 Worker 或显式「已知」后的已读时间）；旧 Notice 不回填、不作为新增未读告知。状态/来源事件/告知同事务保存，以来源 ID 幂等；历史终态提醒兼容保留，用户创建 Worker 不重复生成旧结算提醒。
 - 跨分区契约：用户专属 `notice.read {id}` 幂等标记 info Notice 已读，不答复、不唤醒 Worker；`notice.page {status:'unread'}` 仅返回 `kind=info,status=sent,source_event_id IS NOT NULL,read_at IS NULL`。`notice.list` 的有界快照优先包含待决与未读告知，返回完整新字段。Web `POST /api/action` 开放 `notice.read`。
 - Notice 读面以同 Worker 的来源 Event 投影 `lifecycle_type`（idle / analysis / failed / NULL），不按标题或当前状态猜测，不增列或重写历史。
-- UI 将待决与未读告知区分展示；点击生命周期告知成功加载对应 Worker 后调用 `notice.read`，加载失败不标已读；告知条可显式「已知」或手机横滑，仅标记当前一条且不导航。客户端分类与渠道开关只控制提醒，不影响记录或待决事项。系统通知沿用客户端开关/首屏不补发/项目隔离，新增 info 生命周期告知的增量提醒；浏览器和桌面点击使用受限的 Worker/Notice 数字 ID 路由，不允许任意 URL。告知不进入调度、合并、验收的 open 决策口径。
+- UI 将待决与未读告知区分展示；点击生命周期告知成功加载对应 Worker 后调用 `notice.read`，加载失败不标已读；告知条可显式「已知」或手机横滑，仅标记当前一条且不导航。客户端分类与渠道开关只控制提醒，不影响记录或待决事项。系统通知沿用客户端开关/首屏不补发/项目隔离，新增 info 生命周期告知的增量提醒；浏览器通知点击使用受限的 Worker/Notice 数字 ID 路由，不允许任意 URL。告知不进入调度、合并、验收的 open 决策口径。
 
 - 保留 `notice.list` 兼容读面，新增 `notice.page(status?,before?,limit?)` 与 `GET /api/notices`：按 ID 降序分页，status 为 `all|open|answered|dismissed|sent|unread`，返回 `{notices,cursor,has_more,limit}`。不删除或重写既有 Notice。
 - 「待我处理」按需查询全部类型的 Notice，未处理项可直接答复／审批，历史只读；首页仍用有界快照。通知针对新增的 open 决策事项与未读生命周期告知，首次加载不补发历史。
-- `notice-notifications.js` 负责浏览器 Notification 与桌面 IPC 适配，默认关闭；授权只由用户开启时触发，失败不影响轮询和留档。开关属于当前客户端，桌面保存在 Electron userData（不受随机端口影响）。窗口关闭后不提醒，不引入 daemon 后台推送。
+- `notice-notifications.js` 负责浏览器 Notification，默认关闭；授权只由用户开启时触发，失败不影响轮询和留档。开关按浏览器站点保存；页面关闭后不提醒，不引入 daemon 后台推送。
 
 ## 可撤销中断与非阻塞继续接缝
 

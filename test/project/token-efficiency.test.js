@@ -261,13 +261,3 @@ test('the startup prompt carries a bounded batch and explicit messages_page, nev
     expect(body.messages.map(row => row.id)).toEqual([1, 2]);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
-
-test('a route materialization failure rolls back input, specs and tasks', async () => {
-  const f = fixture(); await repo(f.root); f.project.stopping = true;
-  f.project.materializeSpec = () => { throw new Error('controlled compile failure'); };
-  try {
-    await expect(f.project.submit('开发 cannot materialize')).rejects.toThrow('controlled compile failure');
-    expect(f.project.inputs()).toHaveLength(0); expect(f.store.tasks()).toHaveLength(0);
-    expect(f.store.all('SELECT * FROM task_specs')).toHaveLength(0);
-  } finally { await f.close(); }
-});

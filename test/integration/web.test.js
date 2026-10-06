@@ -1,6 +1,7 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
-import { temp } from '../helpers.js';
+import { temp, env } from '../helpers.js';
+import { ROOT } from '../../src/identity.js';
 import { cli, freePort, httpStatus, waitForWeb } from './harness.js';
 
 function alive(pid) {
@@ -61,6 +62,27 @@ test('web 后台起：重复启动幂等、host restart 换进程、host stop �
     fs.rmSync(root, { recursive: true, force: true });
   }
 }, 60000);
+
+test('公网 HTTP 后台启动成功，CLI 在 stderr 警告而不污染 JSON 结果', async () => {
+  const root = temp(), port = freePort();
+  fs.mkdirSync(`${root}/.lush`, { recursive: true });
+  fs.writeFileSync(`${root}/.lush/web.json`, JSON.stringify({ version: 1, username: 'owner',
+    password: 'http-test-password', origin: 'http://lush.example:8080' }), { mode: 0o600 });
+  try {
+    const proc = Bun.spawn([process.execPath, 'run', 'scripts/ops.js', 'host', 'start', String(port), '--project', root, '--json'],
+      { cwd: ROOT, env: env(), stdout: 'pipe', stderr: 'pipe' });
+    const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+    expect(code).toBe(0);
+    expect(JSON.parse(stdout)).toMatchObject({ running: true, url: `http://0.0.0.0:${port}` });
+    expect(stderr).toContain('公网 HTTP 监听已启用');
+    expect(stderr).toContain('明文传输账号密码、会话和项目数据');
+    expect(await httpStatus(port)).toBe(303); // authentication is still mandatory
+    expect(fs.readFileSync(`${root}/.lush/host.log`, 'utf8')).toContain('窃听与篡改风险');
+  } finally {
+    await cli(root, ['host', 'stop', String(port)]).catch(() => {});
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}, 30000);
 
 // 端口上是别人的程序（命令行不是 Lush Web）：起和停都不许碰它，只把占用者原样报出来。
 test('端口被别的进程占着时既不起也不停：只报告，不改动它', async () => {

@@ -5,10 +5,9 @@ import { installDom } from '../dom-stub.js';
 const dom = installDom({ fetch: async () => new Response('{}') });
 afterAll(() => dom.restore());
 
-const { environmentRoute, projectBase, projectApi, projectHref, projectRoute, routeContext } = await import('../../src/ui/web/assets/route.js');
+const { projectBase, projectApi, projectHref, projectRoute, routeContext } = await import('../../src/ui/web/assets/route.js');
 const prefs = await import('../../src/ui/web/assets/prefs.js');
 const ID = 'a1b2c3d4e5f60718';
-const ENV = 'b'.repeat(32);
 
 test('项目身份来自地址：项目 API 加前缀，宿主级资源不加', () => {
   globalThis.location.pathname = '/';
@@ -26,28 +25,15 @@ test('项目身份来自地址：项目 API 加前缀，宿主级资源不加', 
   expect(projectApi('/api/docs')).toBe('/api/docs');
   expect(projectApi('/app.js')).toBe('/app.js');
   expect(projectHref(ID, '/#worker-1')).toBe(`/p/${ID}/#worker-1`);
-  // 环境 + 项目身份同时进入路径；Host API 按环境路由，环境管理 / 文档仍属于入口 Host。
-  globalThis.location.pathname = `/e/${ENV}/p/${ID}/`;
-  expect(routeContext()).toEqual({ environment: ENV, project: ID, remote: true });
-  expect(environmentRoute()).toBe(ENV);
-  expect(projectBase()).toBe(`/e/${ENV}/p/${ID}`);
-  expect(projectApi('/api/worker/1')).toBe(`/e/${ENV}/p/${ID}/api/worker/1`);
-  expect(projectApi('/api/host/projects')).toBe(`/e/${ENV}/api/host/projects`);
-  expect(projectApi('/api/environments')).toBe('/api/environments');
-  expect(projectHref(ID)).toBe(`/e/${ENV}/p/${ID}/`);
-  globalThis.location.pathname = `/e/${ENV}/`;
-  expect(projectApi('/api/worker/1')).toBe(`/e/${ENV}/api/worker/1`);
-  expect(projectApi('/api/host')).toBe(`/e/${ENV}/api/host`);
+  expect(routeContext()).toEqual({ project: ID, invalid: false });
   // 非项目路径（ID 后续还有别的字符）不会被误认成项目页。
   globalThis.location.pathname = `/p/${ID}x/`;
   expect(projectRoute()).toBeNull();
   expect(() => projectApi('/api/worker/1')).toThrow('未回落');
-  globalThis.location.pathname = '/e/not-an-environment/p/ffffffffffffffff/';
-  expect(projectApi('/api/host')).toBe('/e/not-an-environment/api/host');
-  globalThis.location.pathname = '/e/invalid%2Fsegment/p/ffffffffffffffff/';
+  globalThis.location.pathname = '/p/invalid%2Fsegment/';
   expect(() => projectApi('/api/host')).toThrow('未回落');
   expect(() => projectHref('../../../../')).toThrow('项目身份');
-  expect(projectApi('/api/environments')).toBe('/api/environments');
+  expect(projectApi('/api/docs')).toBe('/api/docs');
 });
 
 test('项目相关偏好按项目隔离，全局外观偏好共享', () => {
@@ -67,13 +53,15 @@ test('项目相关偏好按项目隔离，全局外观偏好共享', () => {
   expect(globalThis.localStorage.getItem(`lush.sidebarSort:${ID}`)).toBe('updated');
   expect(globalThis.localStorage.getItem('lush.sidebarSort')).toBe('id');
 
-  // 远端偏好同时包含环境与项目；相同 pid 不会与本地或另一个环境串写。
-  globalThis.location.pathname = `/e/${ENV}/p/${ID}/`;
+  // 不同项目 ID 的视图独立；恢复当前项目不清除别的项目。
+  globalThis.location.pathname = '/p/2222222222222222/';
   expect(prefs.readPref('sidebarSort')).toBe('smart');
   prefs.setPref('sidebarSort', 'id');
-  expect(globalThis.localStorage.getItem(`lush.sidebarSort:e:${ENV}:p:${ID}`)).toBe('id');
   globalThis.location.pathname = `/p/${ID}/`;
   expect(prefs.readPref('sidebarSort')).toBe('updated');
+  prefs.resetPrefs();
+  expect(prefs.readPref('sidebarSort')).toBe('smart');
+  expect(globalThis.localStorage.getItem('lush.sidebarSort:2222222222222222')).toBe('id');
 
   // Task 图的状态筛选同样按项目隔离。
   prefs.setPref('taskGraphStatuses', new Set(['completed']));

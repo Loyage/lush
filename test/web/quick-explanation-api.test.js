@@ -145,24 +145,3 @@ test('global quick explanation reads and writes use explicit project identity', 
     expect(calls).toHaveLength(4);
   } finally { web.stop(true); for (const dir of [a,b,home]) fs.rmSync(dir,{ recursive:true,force:true }); }
 });
-
-test('managed remote gateway forwards quick explanation reads/actions without browser credentials', async () => {
-  const home = temp(), seen = [], ID = '0123456789abcdef0123456789abcdef';
-  const remote = Bun.serve({ hostname:'127.0.0.1',port:0,async fetch(request) {
-    const route = new URL(request.url).pathname;
-    seen.push({ route,authorization:request.headers.get('authorization'),cookie:request.headers.get('cookie') });
-    return Response.json(route === '/api/host' ? { mode:'host',pid:77,projects:[{ id:'aaaaaaaaaaaaaaaa' }] } : row);
-  } });
-  const environmentManager = { endpoint:() => `http://127.0.0.1:${remote.port}`,describe:() => ({ id:ID }),dispose() {},cancel() {} };
-  const projectHost = { launcher:true,status:async () => ({ mode:'host',projects:[] }),rememberCurrent() {} };
-  const web = startWeb(null,0,{ env:{ LUSH_GLOBAL_CONFIG:home },environmentManager,projectHost });
-  const url = `http://127.0.0.1:${web.port}/e/${ID}/p/aaaaaaaaaaaaaaaa`;
-  try {
-    for (const route of ['/api/quick-explain/config','/api/quick-explain/history','/api/quick-explain/7'])
-      expect((await fetch(url + route,{ headers:{ Cookie:'browser=PRIVATE',Authorization:'Bearer PRIVATE' } })).status).toBe(200);
-    expect((await post(url,'quick_explain.start',{ quote:'text' })).status).toBe(200);
-    expect((await fetch(url + '/api/quick-explain/7/private')).status).toBe(400);
-    expect(seen.every(entry => !entry.authorization && !entry.cookie)).toBe(true);
-    expect(seen.filter(entry => entry.route.includes('quick-explain'))).toHaveLength(3);
-  } finally { web.stop(true); remote.stop(true); fs.rmSync(home,{ recursive:true,force:true }); }
-});
