@@ -59,6 +59,11 @@ async function panel(options = {}) {
   const p = createAgentConnections({ ownsPage: () => current, ...options }); panels.push(p); dom.document.body.append(p.node); await p.load(); return p;
 }
 const selected = p => { button(p.node, '选择当前筛选结果').onclick(); };
+async function editSource(p, id) {
+  const detail = button(row(p.node, id), '详情'); detail.focus();
+  p.selectConnection(id);
+  const edit = button(card(p.node, id), '编辑'); edit.focus(); await edit.onclick();
+}
 afterAll(() => dom.restore());
 afterEach(() => { for (const p of panels.splice(0)) p.dispose(); ui.modelSourcesPage?.connections.dispose(); ui.modelSourcesPage = null; dom.document.hidden = false; });
 beforeEach(() => { data = fixture(); current = true; intercept = null; requests.length = 0; ui.view = null; });
@@ -68,7 +73,7 @@ test('overview stays compact, per-source detail retains full settings/resources/
   expect(p.node.querySelector('.model-source-detail').hidden).toBe(true);
   expect(p.node.querySelectorAll('.model-source-row')).toHaveLength(5);
   const first = deepText(row(p.node, 'a'));
-  for (const text of ['gpt-6.1-sol', '已配置（不代表已联网验证）', '周套餐', '7 天', '已用 30%']) expect(first).toContain(text);
+  for (const text of ['gpt-6.1-sol', '已配置（不代表已联网验证）', '7d', '重置：', '已用 30%']) expect(first).toContain(text);
   for (const text of ['high', 'org/model', 'Worker #42']) expect(first).not.toContain(text);
   await button(row(p.node, 'a'), '详情').onclick();
   for (const text of ['gpt-6.1-sol', 'high', 'org/model', '周套餐', '7 天', '70', 'Worker #42']) expect(deepText(card(p.node, 'a'))).toContain(text);
@@ -87,27 +92,27 @@ test('non-modal side editor is focused and Escape returns to trigger; secrets cl
   const name = field(p.node, 'label'), key = field(p.node, 'api_key'), pane = p.node.querySelector('.model-source-detail');
   expect(dom.document.activeElement).toBe(name); expect(pane.hidden).toBe(false); expect(pane.getAttribute('aria-modal')).toBeNull();
   change(name, '公开草稿'); change(key, 'SECRET-DO-NOT-RETAIN');
-  const edit = button(row(p.node, 'b'), '编辑'); edit.focus(); await edit.onclick(); expect(key.value).toBe('');
+  await editSource(p, 'b'); expect(key.value).toBe('');
   change(field(p.node, 'default_model'), 'org/model');
   await trigger.onclick(); expect(field(p.node, 'label').value).toBe('公开草稿'); expect(field(p.node, 'api_key').value).toBe('');
   pane.onkeydown({ key: 'Escape', preventDefault() {}, stopPropagation() {} });
   expect(pane.hidden).toBe(true); expect(dom.document.activeElement).toBe(trigger);
-  await edit.onclick(); expect(field(p.node, 'default_model').value).toBe('org/model');
+  await editSource(p, 'b'); expect(field(p.node, 'default_model').value).toBe('org/model');
   await button(p.node, '取消编辑').onclick();
-  await edit.onclick(); expect(field(p.node, 'default_model').value).toBe('gpt-6.1-sol');
+  await editSource(p, 'b'); expect(field(p.node, 'default_model').value).toBe('gpt-6.1-sol');
   expect(globalThis.localStorage.getItem('api_key')).toBeNull();
 });
 
-test('saving returns focus to the original overview edit entry even after automatic query re-renders rows', async () => {
-  const p = await panel(), trigger = button(row(p.node, 'a'), '编辑'); trigger.focus(); await trigger.onclick();
+test('saving returns focus to the original overview detail entry even after automatic query re-renders rows', async () => {
+  const p = await panel(); await editSource(p, 'a');
   change(field(p.node, 'default_model'), 'org/model'); await button(p.node, '保存连接').onclick();
   expect(p.node.querySelector('.model-source-detail').hidden).toBe(true);
-  expect(dom.document.activeElement).toBe(button(row(p.node, 'a'), '编辑'));
+  expect(dom.document.activeElement).toBe(button(row(p.node, 'a'), '详情'));
   expect(actions('query').map(action => action.params.id)).toEqual(['a']);
 });
 
 test('provider/model preview preserves arbitrary slash IDs and prefix correction is explicit and targeted', async () => {
-  const p = await panel(); await button(row(p.node, 'a'), '编辑').onclick();
+  const p = await panel(); await editSource(p, 'a');
   change(field(p.node, 'models'), 'org/model, openai-codex/gpt-6.1-sol');
   change(field(p.node, 'default_model'), 'org/model');
   expect(p.node.querySelector('.model-source-call-preview').textContent).toContain('openai-codex/org/model');
@@ -137,7 +142,7 @@ test('real service defaults projection survives overview editing, automatic quer
     expect(deepText(row(p.node, saved.id))).not.toContain('xhigh');
     await button(row(p.node, saved.id), '详情').onclick();
     expect(deepText(card(p.node, saved.id))).toContain('deepseek-chat · xhigh');
-    await button(row(p.node, saved.id), '编辑').onclick();
+    await editSource(p, saved.id);
     expect(field(p.node, 'default_model').value).toBe('deepseek-chat'); expect(field(p.node, 'default_thinking').value).toBe('xhigh');
     expect(deepText(field(p.node, 'default_model').parentNode)).toContain('已有 Worker 主动换源时自动填入此模型，思考深度不变');
     change(field(p.node, 'default_model'), 'deepseek-reasoner'); await button(p.node, '保存连接').onclick();
@@ -192,7 +197,7 @@ test('bulk selection is frozen to explicit scope; edits started later are never 
   const p = await panel(); change(field(p.node, 'source-search'), '账号 a'); selected(p);
   const wait = deferred(); intercept = (_url, action) => action?.method === 'agent.connections.save' ? wait.promise : null;
   const work = button(p.node, '批量停用').onclick(); await answerDialog(dom, '确认执行');
-  await button(row(p.node, 'a'), '编辑').onclick(); const model = field(p.node, 'default_model'); change(model, 'org/model');
+  await editSource(p, 'a'); const model = field(p.node, 'default_model'); change(model, 'org/model');
   await button(p.node, '保存连接').onclick(); expect(actions('save')).toHaveLength(1); expect(deepText(p.node)).toContain('正在批量配置');
   change(field(p.node, 'source-search'), ''); await button(p.node, '选择当前筛选结果').onclick();
   wait.resolve(json(source('a', { enabled: false }))); await work;
@@ -244,7 +249,7 @@ test('concurrent query whole-list snapshots cannot swallow sibling results; fina
 });
 
 test('save success and auto-query failure are separate; old credential observation is not attached to new account', async () => {
-  const p = await panel(); await button(row(p.node, 'c'), '编辑').onclick();
+  const p = await panel(); await editSource(p, 'c');
   expect(deepText(p.node)).toContain('会自动联网刷新');
   change(field(p.node, 'api_key'), 'NEW-PRIVATE-KEY');
   const wait = deferred();
@@ -258,7 +263,7 @@ test('save success and auto-query failure are separate; old credential observati
   const saving = button(p.node, '保存连接').onclick(); await new Promise(done => setImmediate(done));
   expect(actions('query')).toHaveLength(1); expect(button(row(p.node, 'c'), '刷新中…').disabled).toBe(true);
   expect(deepText(row(p.node, 'c'))).not.toContain('剩余 70');
-  await button(row(p.node, 'b'), '编辑').onclick(); change(field(p.node, 'label'), '更晚的新草稿');
+  await editSource(p, 'b'); change(field(p.node, 'label'), '更晚的新草稿');
   wait.resolve(failed()); await saving;
   expect(deepText(p.node)).toContain('连接已保存；自动查询失败'); expect(field(p.node, 'label').value).toBe('更晚的新草稿');
   expect(deepText(p.node)).not.toContain('NEW-PRIVATE-KEY'); expect(deepText(p.node)).not.toContain('RAW-SECRET-ERROR');
@@ -266,8 +271,8 @@ test('save success and auto-query failure are separate; old credential observati
 
 test('unsupported and disabled saves do not query; fallback login success auto-refreshes only its connection', async () => {
   const p = await panel();
-  await button(row(p.node, 'd'), '编辑').onclick(); await button(p.node, '保存连接').onclick(); expect(actions('query')).toHaveLength(0);
-  await button(row(p.node, 'e'), '编辑').onclick(); await button(p.node, '保存连接').onclick(); expect(actions('query')).toHaveLength(0);
+  await editSource(p, 'd'); await button(p.node, '保存连接').onclick(); expect(actions('query')).toHaveLength(0);
+  await editSource(p, 'e'); await button(p.node, '保存连接').onclick(); expect(actions('query')).toHaveLength(0);
   p.selectConnection('a');
   const card = p.node.querySelector('[data-connection-id="a"]');
   await button(card, '备用：回调 URL 登录').onclick();
@@ -283,12 +288,15 @@ test('reset countdown only ticks locally, pauses hidden, expires honestly and cl
   dom.document.removeEventListener = name => visibility.delete(name);
   const p = await panel(timer); p.selectConnection('a');
   expect(row(p.node, 'a').querySelector('.agent-reset-remaining')).toBeNull();
+  const summaryReset = row(p.node, 'a').querySelector('.model-source-reset-time');
+  expect(summaryReset.textContent).toContain('重置：'); expect(summaryReset.classList.contains('is-due')).toBe(false);
   const reset = card(p.node, 'a').querySelector('.agent-reset-remaining');
   expect(reset.textContent).toBe('约 2 小时后重置'); expect(timer.timers.size).toBe(1);
   await timer.tick(); expect(reset.textContent).toBe('约 1 小时 59 分钟后重置');
   dom.document.hidden = true; visibility.get('visibilitychange')(); expect(timer.timers.size).toBe(0);
   timer.advance(2 * 3600000); dom.document.hidden = false; visibility.get('visibilitychange')();
   expect(reset.textContent).toBe('已到重置时间，待刷新'); expect(timer.timers.size).toBe(0); expect(actions('query')).toHaveLength(0);
+  expect(summaryReset.textContent).toContain('待刷新'); expect(summaryReset.classList.contains('is-due')).toBe(true);
   expect(card(p.node, 'a').querySelector('.agent-connection-resource-details').querySelectorAll('p').some(node => node.textContent.includes(new Date('2026-10-06T11:00:00.000Z').toLocaleString()))).toBe(true);
   p.dispose(); expect(visibility.has('visibilitychange')).toBe(false); expect(timer.timers.size).toBe(0);
   expect(resetRemaining('invalid', timer.now())).toBe('重置时间未知'); expect(resetRemaining('2026-10-09T11:00:00Z', Date.parse(at))).toContain('3 天');
@@ -359,7 +367,7 @@ test('late query after returning to the page releases busy controls without appl
   const querying = button(row(p.node, 'a'), '刷新').onclick(); expect(actions('query').map(action => action.params.id)).toEqual(['a']);
   current = false; p.dispose(); current = true; p.resume();
   data.connections[0].label = '返回后新状态'; await p.load(true);
-  await button(row(p.node, 'a'), '编辑').onclick(); change(field(p.node, 'default_model'), 'org/model');
+  await editSource(p, 'a'); change(field(p.node, 'default_model'), 'org/model');
   const old = fixture(); old.connections[0].label = 'OLD-QUERY-SNAPSHOT'; wait.resolve(json(old)); await querying;
   expect(deepText(p.node)).not.toContain('OLD-QUERY-SNAPSHOT'); expect(deepText(row(p.node, 'a'))).toContain('返回后新状态');
   expect(button(row(p.node, 'a'), '刷新').disabled).toBe(false); expect(field(p.node, 'default_model').value).toBe('org/model');

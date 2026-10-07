@@ -105,6 +105,21 @@ const quotaPercent = resource => {
   return null;
 };
 const quotaLevel = percent => percent >= 85 ? 'is-high' : percent >= 60 ? 'is-mid' : 'is-low';
+const shortWindow = seconds => {
+  if (!Number.isSafeInteger(seconds) || seconds <= 0) return '窗口未知';
+  for (const [unit, size] of [['d', 86400], ['h', 3600], ['m', 60]]) if (seconds % size === 0) return `${seconds / size}${unit}`;
+  return `${seconds}s`;
+};
+const subscription = resource => resource.kind === 'quota' && resource.scope === 'account';
+const resourceTitle = resource => subscription(resource) ? shortWindow(resource.window_seconds) : text(resource.label, resource.kind === 'balance' ? '现金' : 'Key / 模型额度');
+function resetTime(value, now) {
+  const at = Date.parse(value);
+  if (!Number.isFinite(at)) return '重置时间未知';
+  const date = new Date(at);
+  const label = date.toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    ...(date.getFullYear() !== new Date(now).getFullYear() ? { year: 'numeric' } : {}) });
+  return `重置：${label}${at <= now ? ' · 待刷新' : ''}`;
+}
 function quotaBar(resource, percent) {
   const bar = el('div', undefined, `agent-quota-bar ${quotaLevel(percent)}`);
   bar.setAttribute('role', 'progressbar');
@@ -137,8 +152,8 @@ export function renderConnectionResources(observation = {}, { now = Date.now, re
     if (!['balance', 'quota'].includes(resource.kind)) continue;
     const entry = el('section', undefined, 'agent-connection-resource');
     const head = el('div', undefined, 'agent-connection-resource-head');
-    head.append(el('h4', text(resource.label, '未命名指标')));
-    if (resource.kind === 'quota' && Number.isSafeInteger(resource.window_seconds) && resource.window_seconds > 0)
+    head.append(el('h4', resourceTitle(resource)));
+    if (!subscription(resource) && resource.kind === 'quota' && Number.isSafeInteger(resource.window_seconds) && resource.window_seconds > 0)
       head.append(el('span', usageWindow(resource.window_seconds), 'agent-connection-window'));
     entry.append(head);
     const percent = resource.kind === 'quota' ? quotaPercent(resource) : null;
@@ -164,6 +179,7 @@ export function renderConnectionResources(observation = {}, { now = Date.now, re
     // 详细口径收进折叠区，主视图只留进度与关键时间，事实仍完整可读。
     const details = el('details', undefined, 'agent-connection-resource-details');
     details.append(el('summary', '指标说明与原始读数'));
+    note(details, `指标：${text(resource.label, '未命名指标')}`);
     note(details, `${resource.kind === 'balance' ? '现金余额' : resource.scope === 'key' ? 'API Key 消费额度（非账户余额）' : '套餐 / API 额度（非现金余额）'} · ${SCOPES[resource.scope] || '范围未知'}`);
     if (finite(resource.total)) note(details, `总量 ${amount(resource.total)} ${text(resource.unit, '单位未知')}`);
     if (finite(resource.used)) note(details, `已用 ${amount(resource.used)} ${text(resource.unit, '单位未知')}`);
@@ -179,7 +195,7 @@ export function renderConnectionResources(observation = {}, { now = Date.now, re
 }
 
 /** Bounded overview: never expand raw resources, old values or consumers into the list. */
-function renderResourceSummary(observation = {}) {
+function renderResourceSummary(observation = {}, now = Date.now()) {
   observation ||= {};
   const root = el('div', undefined, 'model-source-resource-summary');
   if (observation.status !== 'available') note(root, STATUSES[observation.status] || '观测状态未知', !successful(observation));
@@ -187,13 +203,19 @@ function renderResourceSummary(observation = {}) {
   for (const resource of resources.slice(0, 2)) {
     const percent = resource.kind === 'quota' ? quotaPercent(resource) : null;
     const kind = resource.kind === 'balance' ? '现金' : resource.scope === 'key' ? 'Key 预算' : '套餐 / 额度';
-    const window = resource.kind === 'quota' && resource.window_seconds > 0 ? ` · ${usageWindow(resource.window_seconds)}` : '';
+    const window = resource.kind === 'quota' && !subscription(resource) && resource.window_seconds > 0 ? ` · ${shortWindow(resource.window_seconds)}` : '';
     const entry = el('div', undefined, 'model-source-resource-item');
-    const value = el('p', `${text(resource.label, kind)}（${kind}${window}）：`, 'hint');
+    const value = el('p', `${subscription(resource) ? resourceTitle(resource) : `${text(resource.label, kind)}（${kind}${window}）`}：`, 'hint');
     value.append(el('strong', percent !== null ? `已用 ${amount(percent)}%` : `剩余 ${amount(resource.remaining)} ${text(resource.unit, '单位未知')}`, 'model-source-key-amount'));
     if (percent !== null && finite(resource.remaining)) value.append(el('strong', ` · 剩余 ${amount(resource.remaining)} ${text(resource.unit, '单位未知')}`, 'model-source-key-amount'));
     entry.append(value);
     if (percent !== null) entry.append(quotaBar(resource, percent));
+    if (resource.kind === 'quota') {
+      const reset = el('p', resetTime(resource.reset_at, now), 'model-source-reset-time');
+      reset.dataset.resetAt = resource.reset_at || '';
+      reset.classList.toggle('is-due', Date.parse(resource.reset_at) <= now);
+      entry.append(reset);
+    }
     root.append(entry);
   }
   if (successful(observation) && !resources.length) note(root, '暂无指标；未知不等于零。', true);
@@ -343,7 +365,12 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       reset.textContent = resetRemaining(reset.dataset.resetAt, currentTime) + (due && reset.dataset.reminder === '1' ? '（刷新提醒已开启）' : '');
     }
     if (reminderSeeded) evaluateReminders(false);
-    if ([...resets].some(reset => Date.parse(reset.dataset.resetAt) > currentTime)) {
+    const summaryResets = node.querySelectorAll('.model-source-reset-time');
+    for (const reset of summaryResets) {
+      reset.classList.toggle('is-due', Date.parse(reset.dataset.resetAt) <= currentTime);
+      reset.textContent = resetTime(reset.dataset.resetAt, currentTime);
+    }
+    if ([...resets, ...summaryResets].some(reset => Date.parse(reset.dataset.resetAt) > currentTime)) {
       resetTimer = resetSetTimeout(updateResets, 60000); resetTimer?.unref?.();
     }
   }
@@ -559,15 +586,17 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       const settings = el('div', undefined, 'model-source-settings');
       note(settings, `默认模型：${connection.default_model || '未设置'}`);
       note(settings, `${connection.auth_type === 'oauth' ? 'OAuth 登录' : 'API Key'} · ${CREDENTIALS[connection.credential?.status] || '凭证未知'}`);
-      const resources = renderResourceSummary(connection.observation);
+      settings.children[1].setAttribute('data-help', CREDENTIALS[connection.credential?.status] || '本地凭证状态未知；请打开详情检查。');
+      const resources = renderResourceSummary(connection.observation, now());
       const actions = el('div', undefined, 'model-source-row-actions');
       const refreshRow = el('div', undefined, 'model-source-refresh-row');
       const refresh = helped(queries.has(connection.id) ? '刷新中…' : '刷新', () => query(connection.id), '联网查询专用余额 / 套餐接口，不调用模型；失败不等于零余额。');
       refresh.children[0].disabled = !canQuery(connection) || queries.has(connection.id);
-      const cache = el('span', `缓存 · ${relativeTime(connection.observation?.checked_at, now())}（非实时）`, 'model-source-cache-time');
-      refreshRow.append(refresh, cache); actions.append(refreshRow);
+      const cache = el('span', `上次刷新：${relativeTime(connection.observation?.checked_at, now())}`, 'model-source-cache-time');
+      cache.setAttribute('data-help', `缓存观测（非实时）；观测时间：${time(connection.observation?.checked_at)}。查询失败不代表余额为零。`);
+      refreshRow.append(cache, refresh); actions.append(refreshRow);
       const status = el('p', operationState.get(connection.id) || '', 'hint model-source-operation'); status.setAttribute('role', 'status'); status.hidden = !status.textContent; actions.append(status);
-      actions.append(button('编辑', () => paintEditor(array(data?.connections).find(row => row.id === connection.id)), 'ghost'), button('详情', () => {
+      actions.append(button('详情', () => {
         if (panelKind === 'detail' && selectedId === connection.id && !detailPane.hidden) back.onclick();
         else selectConnection(connection.id);
       }, 'ghost model-source-details-toggle', { help: '在此来源下方展开完整配置、额度与使用情况；再次点击收起，不联网查询。' }));

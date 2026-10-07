@@ -64,10 +64,10 @@ test('摘要最多两项指标，完整模型、端点、读数和消费者仅�
     ] } });
   const p = await panel({ now: () => Date.parse('2026-10-07T05:30:00Z') });
   const summary = deepText(row(p.node, 'source-a'));
-  for (const value of ['main-model', '部分指标可用', '现金', '12.5 USD', '已用 25%', '5 小时', '另 1 项见详情', '30 分钟前', '非实时']) expect(summary).toContain(value);
+  for (const value of ['main-model', '部分指标可用', '现金', '12.5 USD', '已用 25%', '5h', '重置时间未知', '另 1 项见详情', '30 分钟前']) expect(summary).toContain(value);
   for (const value of ['secondary-model', 'api.deepseek.com', 'xhigh', '第三指标', 'Worker #47', '原始读数', '来源：']) expect(summary).not.toContain(value);
   const sourceRow = row(p.node, 'source-a'), resources = sourceRow.querySelector('.model-source-resource-summary');
-  expect(resources.querySelectorAll('p')).toHaveLength(3);
+  expect(resources.querySelectorAll('p')).toHaveLength(4);
   expect(resources.querySelectorAll('[role="progressbar"]')).toHaveLength(1);
   expect(resources.querySelector('[role="progressbar"]').getAttribute('aria-valuenow')).toBe('25');
   expect(deepText(resources)).not.toContain('缓存');
@@ -75,11 +75,39 @@ test('摘要最多两项指标，完整模型、端点、读数和消费者仅�
   expect(resources.querySelectorAll('strong').map(node => node.textContent)).toContain(' · 剩余 75 %');
   const refreshRow = sourceRow.querySelector('.model-source-refresh-row');
   expect(button(refreshRow, '刷新')).toBeTruthy();
-  expect(deepText(refreshRow)).toContain('缓存 · 30 分钟前（非实时）');
+  expect(deepText(refreshRow)).toContain('上次刷新：30 分钟前');
+  expect(refreshRow.children[0].classList.contains('model-source-cache-time')).toBe(true);
+  expect(refreshRow.children[0].getAttribute('data-help')).toContain('非实时');
+  expect(sourceRow.querySelectorAll('button').map(node => node.textContent)).toEqual(['刷新', '详情']);
   await button(row(p.node, 'source-a'), '详情').onclick();
   const detail = deepText(visibleCards(p.node)[0]);
   for (const value of ['secondary-model', 'api.deepseek.com', 'xhigh', '第三指标', 'Worker #47', '原始读数', '来源：', '私有文件']) expect(detail).toContain(value);
   expect(requests).toHaveLength(1);
+});
+
+test('订阅窗口简写并显示重置时间，编辑只在详情内；窗口时长缺失不按顺序猜测', async () => {
+  const now = Date.parse('2026-10-07T05:30:00Z'), resetAt = '2026-10-07T06:00:00Z';
+  data.connections[0].observation = { status: 'available', checked_at: '2026-10-07T05:00:00Z', resources: [
+    { kind: 'quota', label: '主要套餐窗口', scope: 'account', used_percent: 25, window_seconds: 18000, reset_at: resetAt },
+    { kind: 'quota', label: '次要套餐窗口', scope: 'account', used_percent: 50, window_seconds: 604800, reset_at: '2026-10-07T04:00:00Z' },
+  ] };
+  const p = await panel({ now: () => now });
+  const summary = deepText(row(p.node, 'source-a'));
+  expect(summary).toContain('5h：'); expect(summary).toContain('7d：');
+  expect(summary).not.toContain('主要套餐窗口'); expect(summary).not.toContain('次要套餐窗口');
+  const resets = row(p.node, 'source-a').querySelectorAll('.model-source-reset-time');
+  expect(resets[0].textContent).toContain(new Date(resetAt).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }));
+  expect(resets[1].textContent).toContain('待刷新'); expect(resets[1].classList.contains('is-due')).toBe(true);
+  expect(button(row(p.node, 'source-a'), '编辑')).toBeUndefined();
+  await button(row(p.node, 'source-a'), '详情').onclick();
+  const detail = visibleCards(p.node)[0];
+  expect(detail.querySelectorAll('h4').map(node => node.textContent)).toEqual(['5h', '7d']);
+  expect(deepText(detail.querySelector('.agent-connection-resource-details'))).toContain('主要套餐窗口');
+  await button(detail, '编辑').onclick(); expect(p.node.dataset.sourcePanel).toBe('editor');
+  await button(p.node, '取消编辑').onclick();
+  data.connections[0].observation.resources[0].window_seconds = null;
+  await p.load(true); expect(deepText(row(p.node, 'source-a'))).toContain('窗口未知：');
+  p.dispose();
 });
 
 test('失败与旧值不冒充当前额度，未知指标不填零；不同资源保持口径', async () => {
@@ -246,7 +274,12 @@ test('来源 CSS 有全宽总览、侧面板和窄屏卡片、隐藏语义与主
   expect(css).toContain('.model-source-layout{display:grid;grid-template-columns:minmax(0,1fr)');
   expect(css).toContain('.model-source-detail{position:fixed'); expect(css).toContain('data-source-view="detail"');
   expect(css).toContain('[hidden]{display:none!important}'); expect(css).toContain('var(--bg)'); expect(css).toContain(':focus-visible');
-  expect(css).toContain('height:192px'); expect(css).toContain('height:288px'); expect(css).toContain('height:320px');
+  expect(css).toContain('height:144px'); expect(css).toContain('height:168px'); expect(css).toContain('height:268px');
+  expect(css).not.toContain('height:192px'); expect(css).not.toContain('height:320px');
+  expect(css).toContain('minmax(0,1.5fr) 104px');
+  expect(css).toContain('.model-source-refresh-row{display:flex;flex-direction:column');
+  expect(css).toContain('.model-source-row-actions{grid-column:3;grid-row:1/3}');
+  expect(css).toContain('.model-source-row-actions{grid-column:2;grid-row:1/4}');
   expect(css).toContain('text-overflow:ellipsis');
   expect(css).toContain('[data-source-panel="detail"] .model-source-detail{position:static');
   expect(css).toContain('.model-source-key-amount{font-weight:700');
