@@ -1,6 +1,7 @@
 .agent-connections-panel{min-width:0;box-sizing:border-box;--source-panel-width:min(560px,44vw)}
 .agent-connections-panel[data-source-view="detail"]{padding-right:calc(var(--source-panel-width) + 20px)}
-.agent-connections-panel[data-source-view="detail"] .model-source-row,.agent-connections-panel[data-source-view="detail"] .model-source-filters{grid-template-columns:minmax(0,1fr)}
+.agent-connections-panel[data-source-view="detail"] .model-source-row{grid-template-columns:repeat(2,minmax(0,1fr));height:224px}
+.agent-connections-panel[data-source-view="detail"] .model-source-filters{grid-template-columns:minmax(0,1fr)}
 .agent-connection-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0}
 .agent-connection-cards{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;margin:16px 0 24px}
 .model-sources-page{width:100%;min-width:0;margin:0 auto;padding:8px 0 32px}
@@ -13,14 +14,23 @@
 .model-source-call-preview{grid-column:1/-1;padding:12px;background:var(--accent-soft);color:var(--text);border-radius:8px;overflow-wrap:anywhere}
 .model-source-batch-feedback{max-height:180px;overflow:auto}
 .model-source-identity,.model-source-settings,.model-source-row-actions{min-width:0;overflow-wrap:anywhere}
-.model-source-identity{display:flex;flex-direction:column;gap:10px}
-.model-source-row-actions{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.model-source-identity{display:flex;flex-direction:column;gap:8px}
+.model-source-identity .agent-connection-field{display:block;height:40px;line-height:20px;overflow:hidden;font-size:14px;font-weight:600;color:var(--text)}
+.model-source-identity input[type=checkbox]{float:left;margin:2px 8px 0 0}
+.model-source-identity .model-source-meta{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.model-source-settings p{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:18px;max-height:36px;margin:0 0 8px}
+.model-source-resource-summary{min-width:0}
+.model-source-resource-summary p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:20px;margin:0 0 4px;font-size:12px}
+.model-source-resource-summary .agent-status-warning{padding:0;border:0;background:none;color:var(--awaiting)}
+.model-source-row-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-content:start;gap:8px}
+.model-source-row-actions button{padding:6px 8px;min-height:32px;width:100%}
+.model-source-operation{grid-column:1/-1;min-height:36px;margin:0;line-height:18px;font-size:12px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .model-source-row-actions a{color:var(--accent);font-size:12px;overflow-wrap:anywhere}
 .model-source-row .agent-connection-resources{margin:0;border:0;padding:0}
 .model-source-detail{position:fixed;z-index:40;right:0;top:0;bottom:0;width:var(--source-panel-width);box-sizing:border-box;overflow:auto;padding:24px;background:var(--bg);border-left:1px solid var(--line-soft);box-shadow:-12px 0 40px #0003}
 .model-source-detail>.block{margin-top:16px}
 .model-source-rows{display:flex;flex-direction:column;gap:8px}
-.model-source-row{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr) minmax(0,1.5fr) minmax(0,.8fr);align-items:start;text-align:left;gap:18px;width:100%;min-width:0;box-sizing:border-box;padding:18px;border:1px solid var(--line-soft);border-radius:10px;background:var(--bg);color:var(--text)}
+.model-source-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.4fr) 182px;height:136px;align-items:start;text-align:left;gap:12px;width:100%;min-width:0;box-sizing:border-box;padding:14px;border:1px solid var(--line-soft);border-radius:10px;background:var(--bg);color:var(--text)}
 .model-source-row.selected{border-color:var(--accent);box-shadow:inset 3px 0 var(--accent)}
 .model-source-row strong{font-size:14px;overflow-wrap:anywhere}
 .model-source-meta,.model-source-row small{font-size:11px;color:var(--muted);overflow-wrap:anywhere}
@@ -71,6 +81,6 @@
 .agent-connection-form a{overflow-wrap:anywhere;color:var(--accent);align-self:start}
 .agent-connection-actions .danger{color:var(--failed)}
 .agent-connections-panel input:focus-visible,.agent-connections-panel select:focus-visible,.agent-connections-panel a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
-@media(max-width:1100px){.model-source-row{grid-template-columns:minmax(0,1fr) minmax(0,1.5fr)}.model-source-filters{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:1100px){.model-source-row{grid-template-columns:repeat(2,minmax(0,1fr));height:224px}.model-source-filters{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:1000px){.agent-connections-panel[data-source-view="detail"]{padding-right:0}.agent-connections-panel[data-source-view="detail"] .model-source-list,.agent-connections-panel[data-source-view="detail"] .model-source-intro{display:none}.model-source-detail{position:static;width:100%;padding:16px;border:1px solid var(--line-soft);border-radius:12px;box-shadow:none}}
-@media(max-width:640px){.model-source-row,.model-source-filters{grid-template-columns:minmax(0,1fr)}.model-source-row{padding:14px;gap:12px}.model-source-row-actions{flex-direction:row;flex-wrap:wrap}.model-source-row-actions>.hint{flex-basis:100%}.agent-connection-form,.agent-connection-history-controls{grid-template-columns:minmax(0,1fr)}.agent-connection-card{padding:14px}.agent-connection-card .grid{grid-template-columns:minmax(0,1fr)}.agent-connection-actions button,.model-source-row-actions button{min-height:44px}}
+@media(max-width:640px){.model-source-row,.agent-connections-panel[data-source-view="detail"] .model-source-row,.model-source-filters{grid-template-columns:minmax(0,1fr)}.model-source-row,.agent-connections-panel[data-source-view="detail"] .model-source-row{height:340px;padding:14px;gap:10px}.model-source-row-actions{grid-template-columns:repeat(3,minmax(0,1fr))}.model-source-operation{min-height:18px;-webkit-line-clamp:1;max-height:18px}.agent-connection-form,.agent-connection-history-controls{grid-template-columns:minmax(0,1fr)}.agent-connection-card{padding:14px}.agent-connection-card .grid{grid-template-columns:minmax(0,1fr)}.agent-connection-actions button,.model-source-row-actions button{min-height:44px}}

@@ -176,15 +176,30 @@ export function renderConnectionResources(observation = {}, { now = Date.now, re
   return root;
 }
 
+/** Bounded overview: never expand raw resources, old values or consumers into the list. */
+function renderResourceSummary(observation = {}, { now = Date.now } = {}) {
+  observation ||= {};
+  const root = el('div', undefined, 'model-source-resource-summary');
+  note(root, STATUSES[observation.status] || '观测状态未知', !successful(observation));
+  const resources = successful(observation) ? array(observation.resources).filter(resource => ['balance', 'quota'].includes(resource.kind)) : [];
+  for (const resource of resources.slice(0, 2)) {
+    const percent = resource.kind === 'quota' ? quotaPercent(resource) : null;
+    const kind = resource.kind === 'balance' ? '现金' : resource.scope === 'key' ? 'Key 预算' : '套餐 / 额度';
+    const window = resource.kind === 'quota' && resource.window_seconds > 0 ? ` · ${usageWindow(resource.window_seconds)}` : '';
+    note(root, `${text(resource.label, kind)}（${kind}${window}）：${percent !== null ? `已用 ${amount(percent)}%` : `剩余 ${amount(resource.remaining)} ${text(resource.unit, '单位未知')}`}`);
+  }
+  if (successful(observation) && !resources.length) note(root, '暂无指标；未知不等于零。', true);
+  note(root, `${resources.length > 2 ? `另 ${resources.length - 2} 项见详情 · ` : ''}缓存 · ${relativeTime(observation.checked_at, now())}（非实时）`);
+  return root;
+}
+
 /** Local list reads and explicit remote queries; retain editor drafts and reject late page responses. */
 export function createAgentConnections({ ownsPage, connectionId = '', setTimeout: setTimer = globalThis.setTimeout,
   clearTimeout: clearTimer = globalThis.clearTimeout, now = Date.now,
   resetSetTimeout = globalThis.setTimeout, resetClearTimeout = globalThis.clearTimeout }) {
   const node = el('div', undefined, 'agent-connections-panel');
   const intro = block('项目模型来源'); intro.classList.add('model-source-intro');
-  note(intro, '连接区分服务商、端点和账号。密钥由本项目 Lush 管理，存放在严格权限的私有文件中，不提供静态加密；系统当前用户仍可读取。');
-  note(intro, '进入此页只读取本地配置和缓存。查询、登录和采样均不调用 Agent 或模型；不自动切换模型，也不自动转用付费资源。');
-  note(intro, '托管来源目前可供 Pi 使用；Codex CLI 仍沿用自身认证。托管 Codex 订阅登录不代表 Codex CLI 已支持绑定。');
+  note(intro, '仅显示来源与缓存摘要；点击“详情”查看完整配置、额度和使用情况。进入页面不联网，刷新不调用模型。');
   const toolbar = el('div', undefined, 'agent-connection-actions');
   const feedback = el('p', '尚未读取本地连接。', 'hint agent-connections-feedback'); feedback.setAttribute('role', 'status');
   const layout = el('div', undefined, 'model-source-layout');
@@ -517,29 +532,15 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     sourceRows.replaceChildren(...filtered.map(connection => {
       const row = el('article', undefined, 'model-source-row'); row.dataset.sourceId = connection.id;
       const identity = el('div', undefined, 'model-source-identity');
-      const check = field(identity, '选择', 'select-source', 'checkbox', selected.has(connection.id));
+      const check = field(identity, text(connection.label, '未命名来源'), 'select-source', 'checkbox', selected.has(connection.id));
       check.setAttribute('aria-label', `选择 ${connection.label}`);
       check.onchange = () => { check.checked ? selected.add(connection.id) : selected.delete(connection.id); updateBatchControls(); };
-      identity.append(el('strong', text(connection.label, '未命名来源')), el('span', `${PROVIDERS.find(([id]) => id === connection.provider)?.[1] || connection.provider} · ${connection.enabled ? '启用' : '停用'}`, 'model-source-meta'));
+      identity.append(el('span', `${PROVIDERS.find(([id]) => id === connection.provider)?.[1] || connection.provider} · ${connection.enabled ? '启用' : '停用'}`, 'model-source-meta'));
       const settings = el('div', undefined, 'model-source-settings');
-      settings.append(el('p', text(connection.endpoint), 'model-source-endpoint'));
-      note(settings, `模型范围：${array(connection.models).join('、') || '未限制（未验证）'}`);
-      note(settings, `默认：${connection.default_model || '未设置'} · 思考：${connection.default_thinking || '未设置'}`);
-      note(settings, `额度刷新提醒：${connection.notify_reset === true ? '开启（页面内）' : '关闭'}`);
+      note(settings, `默认模型：${connection.default_model || '未设置'}`);
       note(settings, `${connection.auth_type === 'oauth' ? 'OAuth 登录' : 'API Key'} · ${CREDENTIALS[connection.credential?.status] || '凭证未知'}`);
-      const resources = renderConnectionResources(connection.observation, { now, reminder: connection.notify_reset === true });
-      note(resources, '缓存观测；不保证当前额度。');
-      if (!successful(connection.observation) && successful(connection.last_success?.observation || connection.last_success)) {
-        const stale = el('div', undefined, 'agent-connection-last-success');
-        note(stale, '缓存旧值，不是当前资源状态。', true);
-        stale.append(renderConnectionResources(connection.last_success.observation || connection.last_success, { now })); resources.append(stale);
-      }
+      const resources = renderResourceSummary(connection.observation, { now });
       const actions = el('div', undefined, 'model-source-row-actions');
-      note(actions, `使用中：${array(connection.consumers).length} 个实际绑定 Worker`);
-      for (const consumer of array(connection.consumers)) {
-        if (!Number.isSafeInteger(consumer.task_id) || consumer.task_id <= 0) continue;
-        const link = el('a', `Worker #${consumer.task_id} · ${text(consumer.model)}`); link.href = `#worker-${consumer.task_id}`; actions.append(link);
-      }
       const status = el('p', operationState.get(connection.id) || '', 'hint model-source-operation'); status.setAttribute('role', 'status'); actions.append(status);
       const refresh = helped(queries.has(connection.id) ? '刷新中…' : '刷新', () => query(connection.id), '联网查询专用余额 / 套餐接口，不调用模型；失败不等于零余额。');
       refresh.children[0].disabled = !canQuery(connection) || queries.has(connection.id); actions.append(refresh);
@@ -583,7 +584,11 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       if (defaults) grid.append(kv('默认设定（运行设置快速填入）', defaults));
       if (connection.credential?.identity) grid.append(kv('账号身份（脱敏）', connection.credential.identity));
       if (connection.credential?.expires_at) grid.append(kv('凭证到期', time(connection.credential.expires_at)));
-      connectionSection.append(grid); note(connectionSection, `模型列表：${array(connection.models).length ? connection.models.join('、') : '尚未填写；点击“编辑”添加，发射 Worker 时即可从列表选择（留空不限制模型范围）'}`);
+      connectionSection.append(grid);
+      note(connectionSection, '密钥由本项目 Lush 管理，存放在严格权限的私有文件中，不提供静态加密；系统当前用户仍可读取。托管来源可供 Pi 使用，Codex CLI 仍沿用自身认证；托管 Codex 登录不代表 Codex CLI 支持绑定。');
+      note(connectionSection, '查询、登录和采样均不调用 Agent 或模型；不自动切换模型，也不自动转用付费资源。');
+      note(connectionSection, `额度刷新提醒：${connection.notify_reset === true ? '开启（页面内）' : '关闭'}`);
+      note(connectionSection, `模型列表：${array(connection.models).length ? connection.models.join('、') : '尚未填写；点击“编辑”添加，发射 Worker 时即可从列表选择（留空不限制模型范围）'}`);
       if (array(connection.models).length) note(connectionSection, '由用户填写，供 Worker 运行设置选择；同时限制此来源的模型范围，不代表已联网验证可用。');
       if (connection.provider === 'openai-compatible') note(connectionSection, '自定义 OpenAI Chat Completions 兼容 API；余额查询尚不支持，不代表余额为零。运行时仅供 Pi 显式绑定，不自动切换账号。当前适配按文本/工具调用配置；32K 上下文、4K 输出是本地运行预算，不是已验证的上游限额或价格。');
       note(resourceSection, '以下为缓存观测，不保证当前仍有额度；窗口到期或账号变化后需重新查询。');
@@ -645,7 +650,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     const provider = select(form, '服务商', 'provider', PROVIDERS, connection?.provider || 'deepseek');
     const endpoint = field(form, '模型端点（HTTPS，可留空）', 'endpoint', 'url', connection?.endpoint || '', '留空采用该服务商官方模型端点；代理密钥不能发往官方余额接口。'); endpoint.maxLength = 2048;
     const models = field(form, '模型列表（模型 ID，逗号分隔）', 'models', 'text', array(connection?.models).join(', '), '在此填写一次，保存后发射 Worker 即可从所选来源的列表选择，无需重复输入。填写物理模型 ID，不加服务商前缀；非空时也限制模型范围，留空不限制，不进行付费可用性探测。'); models.maxLength = 8192;
-    const defaultModel = field(form, '默认模型（可选）', 'default_model', 'text', connection?.default_model || '', '填写物理模型 ID（可留空）；填写了模型列表时须在列表内。用于「运行设置」一键填入，不代表已验证可用。');
+    const defaultModel = field(form, '默认模型（可选）', 'default_model', 'text', connection?.default_model || '', '填写物理模型 ID（可留空）；填写了模型列表时须在列表内。已有 Worker 主动换源时自动填入此模型，思考深度不变；其他运行设置可一键填入，不代表已验证可用。');
     defaultModel.maxLength = 256;
     const defaultModelList = el('datalist'); defaultModelList.id = 'connection-default-model-options';
     defaultModel.setAttribute('list', defaultModelList.id); defaultModel.parentNode.append(defaultModelList);

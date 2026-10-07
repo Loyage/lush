@@ -67,6 +67,8 @@ async function screenshot(name) {
 async function layout(name) {
   const result = await execute(`const p=document.querySelector('.model-sources-page,.agent-status-page');return {page:p.scrollWidth-p.clientWidth,document:document.documentElement.scrollWidth-innerWidth,inputs:[...p.querySelectorAll('input,select,textarea')].filter(n=>n.getClientRects().length).some(n=>n.getBoundingClientRect().right>innerWidth+1)};`);
   assert(result.page <= 1 && result.document <= 1 && !result.inputs, `Overflow ${name}: ${JSON.stringify(result)}`);
+  const rows = await execute(`const rows=[...document.querySelectorAll('.model-source-row')].filter(n=>n.getClientRects().length);return rows.map(row=>{const box=row.getBoundingClientRect();return {height:box.height,overflow:row.scrollHeight>row.clientHeight+1,controls:[...row.querySelectorAll('button,input')].every(n=>{const b=n.getBoundingClientRect();return b.top>=box.top&&b.bottom<=box.bottom&&b.right<=box.right})}});`);
+  assert(rows.every(row => row.height === rows[0].height && !row.overflow && row.controls), `Unequal/clipped rows ${name}: ${JSON.stringify(rows)}`);
   await screenshot(name);
 }
 try {
@@ -100,7 +102,10 @@ try {
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` }); await waitFor('window.ready');
   assert(await execute(`return document.querySelectorAll('.model-source-row').length===3 && document.querySelector('.model-source-detail').hidden`), 'Full overview or closed initial panel missing');
-  assert(await execute(`const row=document.querySelector('[data-source-id="${codexId}"]');return row.textContent.includes('gpt-6.1-sol') && row.textContent.includes('xhigh') && row.querySelectorAll('[role="progressbar"]').length===2 && [...row.querySelectorAll('.agent-reset-remaining')].every(n=>n.textContent.includes('后重置'));`), 'Codex settings, quota windows or reset countdown missing');
+  assert(await execute(`const row=document.querySelector('[data-source-id="${codexId}"]');return row.textContent.includes('gpt-6.1-sol') && !row.textContent.includes('xhigh') && row.textContent.includes('已用 25%') && row.textContent.includes('已用 90%') && !row.querySelector('details') && !row.querySelector('[role="progressbar"]');`), 'Bounded Codex model/quota summary missing');
+  await click('.model-source-row:nth-child(3) .model-source-row-actions > button:last-child');
+  assert(await execute(`const card=document.querySelector('[data-connection-id="${codexId}"]');return card.textContent.includes('xhigh') && card.querySelectorAll('[role="progressbar"]').length===2 && [...card.querySelectorAll('.agent-reset-remaining')].every(n=>n.textContent.includes('后重置'));`), 'Full per-source quota detail missing');
+  await click('.model-source-back');
   await click('.model-source-row:nth-child(2) .model-source-row-actions > button:last-child');
   assert(await execute(`return document.querySelector('.agent-connections-panel').textContent.includes('不支持') && !document.querySelector('[data-connection-field="api_key"]')?.getClientRects().length`), 'Unknown quota or write-only editor wrong');
   for (const theme of ['light', 'dark']) for (const [width, height] of [[1440,900], [900,700], [390,844]]) {
@@ -140,7 +145,7 @@ try {
   assert(calls.every(route => ['/api/agent/connections', '/api/agent/connections/models', '/api/agent/packages',
     '/api/agent/config', '/api/agent/status', '/api/agent/usage/config', '/api/agent/usage/history'].includes(route)), `Unexpected API: ${calls.join(',')}`);
   assert(await execute('return window.browserErrors.length===0'), 'Browser emitted errors');
-  passed = true; console.log(`PASS mock-only overview/detail/editor layouts, Codex windows/countdown, narrow screen navigation, local search, focus/Escape and draft preservation. Screenshots: ${output}`);
+  passed = true; console.log(`PASS mock-only equal-height compact overview/detail/editor layouts, Codex summary and full windows/countdown, narrow screen navigation, local search, focus/Escape and draft preservation. Screenshots: ${output}`);
 } catch (error) {
   if (session) await screenshot('failure').catch(() => {});
   console.error(`Agent browser failure; full logs: ${logs}`); throw error;

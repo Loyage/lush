@@ -30,11 +30,14 @@ const visibleCards = root => root.querySelectorAll('.agent-connection-card').fil
 async function panel(options = {}) { const p = createAgentConnections({ ownsPage: () => current, ...options }); await p.load(); return p; }
 const row = (root, id) => root.querySelector(`[data-source-id="${id}"]`);
 
-test('全宽总览包含所有来源身份、端点与凭证；详情、表单、历史、采样按需展开', async () => {
+test('总览默认只含来源摘要；完整详情、表单、历史、采样按需展开', async () => {
   const p = await panel();
   expect(requests.map(entry => entry.url)).toEqual(['/api/agent/connections']);
   expect(p.node.querySelectorAll('.model-source-row')).toHaveLength(2);
-  expect(deepText(row(p.node, 'source-a'))).toContain('api.deepseek.com');
+  expect(deepText(row(p.node, 'source-a'))).not.toContain('api.deepseek.com');
+  expect(deepText(row(p.node, 'source-a'))).toContain('默认模型：未设置');
+  expect(deepText(p.node.querySelector('.model-source-intro'))).not.toContain('私有文件');
+  expect(deepText(p.node)).not.toContain('详情模式');
   expect(deepText(row(p.node, 'source-a'))).toContain('不代表已联网验证');
   expect(visibleCards(p.node)).toHaveLength(1); expect(p.selectedConnection()).toBe('source-a');
   expect(p.node.dataset.sourceView).toBe('list');
@@ -47,6 +50,42 @@ test('全宽总览包含所有来源身份、端点与凭证；详情、表单�
   await button(p.node, '后台采样设置').onclick();
   expect(field(p.node, 'sampling-enabled').parentNode.parentNode.parentNode.hidden).toBe(false);
   expect(requests).toHaveLength(1);
+});
+
+test('摘要最多两项指标，完整模型、端点、读数和消费者仅在来源详情查看', async () => {
+  data.connections[0] = source('source-a', { default_model: 'main-model', default_thinking: 'xhigh',
+    models: ['main-model', 'secondary-model'], consumers: [{ task_id: 47, model: 'main-model' }],
+    observation: { status: 'partial', source: 'usage_api', checked_at: '2026-10-07T05:00:00Z', resources: [
+      { kind: 'balance', label: '余额', remaining: 12.5, unit: 'USD', scope: 'account' },
+      { kind: 'quota', label: '短窗口', used_percent: 25, remaining: 75, total: 100, unit: '%', scope: 'account', window_seconds: 18000 },
+      { kind: 'quota', label: '第三指标', remaining: 8, unit: 'USD', scope: 'key' },
+    ] } });
+  const p = await panel({ now: () => Date.parse('2026-10-07T05:30:00Z') });
+  const summary = deepText(row(p.node, 'source-a'));
+  for (const value of ['main-model', '部分指标可用', '现金', '12.5 USD', '已用 25%', '5 小时', '另 1 项见详情', '30 分钟前', '非实时']) expect(summary).toContain(value);
+  for (const value of ['secondary-model', 'api.deepseek.com', 'xhigh', '第三指标', 'Worker #47', '原始读数', '来源：']) expect(summary).not.toContain(value);
+  expect(row(p.node, 'source-a').querySelector('.model-source-resource-summary').querySelectorAll('p')).toHaveLength(4);
+  await button(row(p.node, 'source-a'), '详情').onclick();
+  const detail = deepText(visibleCards(p.node)[0]);
+  for (const value of ['secondary-model', 'api.deepseek.com', 'xhigh', '第三指标', 'Worker #47', '原始读数', '来源：', '私有文件']) expect(detail).toContain(value);
+  expect(requests).toHaveLength(1);
+});
+
+test('失败与旧值不冒充当前额度，未知指标不填零；不同资源保持口径', async () => {
+  data.connections[0].observation.status = 'error';
+  data.connections[0].last_success = { status: 'available', resources: [{ kind: 'balance', remaining: 999, unit: 'USD' }] };
+  const p = await panel();
+  const summary = deepText(row(p.node, 'source-a'));
+  expect(summary).toContain('查询失败（不代表资源耗尽）'); expect(summary).not.toContain('999'); expect(summary).not.toContain('剩余 0');
+  await button(row(p.node, 'source-a'), '详情').onclick();
+  expect(deepText(visibleCards(p.node)[0])).toContain('999 USD');
+  data.connections[0].observation = { status: 'available', resources: [
+    { kind: 'quota', label: 'Key 限额', remaining: null, total: null, scope: 'key', unit: 'USD' },
+    { kind: 'quota', label: '套餐', used: 0, total: 100, scope: 'account' },
+  ] };
+  await p.load(true);
+  const updated = deepText(row(p.node, 'source-a'));
+  expect(updated).toContain('Key 预算'); expect(updated).toContain('剩余 未知 USD'); expect(updated).toContain('已用 0%');
 });
 
 test('名称/端点搜索与服务商、启用状态筛选只过滤本地列表，不切默认来源', async () => {
@@ -139,4 +178,6 @@ test('来源 CSS 有全宽总览、侧面板和窄屏卡片、隐藏语义与主
   expect(css).toContain('.model-source-layout{display:grid;grid-template-columns:minmax(0,1fr)');
   expect(css).toContain('.model-source-detail{position:fixed'); expect(css).toContain('data-source-view="detail"');
   expect(css).toContain('[hidden]{display:none!important}'); expect(css).toContain('var(--bg)'); expect(css).toContain(':focus-visible');
+  expect(css).toContain('height:136px'); expect(css).toContain('height:224px'); expect(css).toContain('height:340px');
+  expect(css).toContain('text-overflow:ellipsis');
 });

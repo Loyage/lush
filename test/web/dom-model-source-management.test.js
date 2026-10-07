@@ -47,6 +47,7 @@ const { ui } = await import('../../src/ui/web/assets/state.js');
 const button = (root, label) => root.querySelectorAll('button').find(node => node.textContent === label);
 const field = (root, key) => root.querySelector(`[data-connection-field="${key}"]`);
 const row = (root, id) => root.querySelector(`[data-source-id="${id}"]`);
+const card = (root, id) => root.querySelector(`[data-connection-id="${id}"]`);
 const change = (input, value) => { input.value = value; input.oninput?.(); };
 const actions = method => requests.filter(entry => entry.action?.method === `agent.connections.${method}`).map(entry => entry.action);
 function clock() {
@@ -62,12 +63,16 @@ afterAll(() => dom.restore());
 afterEach(() => { for (const p of panels.splice(0)) p.dispose(); ui.modelSourcesPage?.connections.dispose(); ui.modelSourcesPage = null; dom.document.hidden = false; });
 beforeEach(() => { data = fixture(); current = true; intercept = null; requests.length = 0; ui.view = null; });
 
-test('overview compares all public settings/resources/consumers; search and auth/observation filters stay local', async () => {
+test('overview stays compact, per-source detail retains full settings/resources/consumers; filters stay local', async () => {
   const p = await panel();
   expect(p.node.querySelector('.model-source-detail').hidden).toBe(true);
   expect(p.node.querySelectorAll('.model-source-row')).toHaveLength(5);
   const first = deepText(row(p.node, 'a'));
-  for (const text of ['gpt-6.1-sol', 'high', 'org/model', '已配置（不代表已联网验证）', '周套餐', '7 天', '70', 'Worker #42']) expect(first).toContain(text);
+  for (const text of ['gpt-6.1-sol', '已配置（不代表已联网验证）', '周套餐', '7 天', '已用 30%']) expect(first).toContain(text);
+  for (const text of ['high', 'org/model', 'Worker #42']) expect(first).not.toContain(text);
+  await button(row(p.node, 'a'), '详情').onclick();
+  for (const text of ['gpt-6.1-sol', 'high', 'org/model', '周套餐', '7 天', '70', 'Worker #42']) expect(deepText(card(p.node, 'a'))).toContain(text);
+  await button(p.node, '返回来源列表').onclick();
   expect(deepText(p.node.querySelector('.model-source-statistics'))).not.toContain('USD');
   expect(p.node.querySelector('.model-source-statistics').textContent).toContain('总数 5 · 启用 4 · 需处理 1 · 使用中 1');
   change(field(p.node, 'source-search'), 'org/model'); expect(p.node.querySelectorAll('.model-source-row')).toHaveLength(3);
@@ -128,9 +133,13 @@ test('real service defaults projection survives overview editing, automatic quer
       if (action?.method === 'agent.connections.query') return service.query(action.params.id).then(json);
     };
     const p = await panel(); expect(networkCalls).toBe(0);
-    expect(deepText(row(p.node, saved.id))).toContain('deepseek-chat · 思考：xhigh');
+    expect(deepText(row(p.node, saved.id))).toContain('默认模型：deepseek-chat');
+    expect(deepText(row(p.node, saved.id))).not.toContain('xhigh');
+    await button(row(p.node, saved.id), '详情').onclick();
+    expect(deepText(card(p.node, saved.id))).toContain('deepseek-chat · xhigh');
     await button(row(p.node, saved.id), '编辑').onclick();
     expect(field(p.node, 'default_model').value).toBe('deepseek-chat'); expect(field(p.node, 'default_thinking').value).toBe('xhigh');
+    expect(deepText(field(p.node, 'default_model').parentNode)).toContain('已有 Worker 主动换源时自动填入此模型，思考深度不变');
     change(field(p.node, 'default_model'), 'deepseek-reasoner'); await button(p.node, '保存连接').onclick();
     expect(networkCalls).toBe(1); expect(deepText(row(p.node, saved.id))).toContain('剩余 42 USD');
     selected(p); let work = button(p.node, '批量停用').onclick(); await answerDialog(dom, '确认执行'); await work;
@@ -229,7 +238,8 @@ test('concurrent query whole-list snapshots cannot swallow sibling results; fina
   data.connections[2].observation = observation(33); const c = structuredClone(old); c.connections[2].observation = observation(33); pending.get('c').resolve(json(c));
   await work;
   expect(actions('query')).toHaveLength(3); expect(requests.at(-1).url).toBe('/api/agent/connections');
-  expect(deepText(row(p.node, 'a'))).toContain('剩余 91'); expect(deepText(row(p.node, 'b'))).toContain('剩余 52'); expect(deepText(row(p.node, 'c'))).toContain('剩余 33');
+  expect(deepText(row(p.node, 'a'))).toContain('已用 9%'); expect(deepText(row(p.node, 'b'))).toContain('已用 48%'); expect(deepText(row(p.node, 'c'))).toContain('已用 67%');
+  expect(deepText(card(p.node, 'a'))).toContain('剩余 91'); expect(deepText(card(p.node, 'b'))).toContain('剩余 52'); expect(deepText(card(p.node, 'c'))).toContain('剩余 33');
   expect(deepText(row(p.node, 'd'))).not.toContain('刷新中');
 });
 
@@ -271,13 +281,15 @@ test('reset countdown only ticks locally, pauses hidden, expires honestly and cl
   const timer = clock(), visibility = new Map();
   dom.document.addEventListener = (name, fn) => visibility.set(name, fn);
   dom.document.removeEventListener = name => visibility.delete(name);
-  const p = await panel(timer), reset = row(p.node, 'a').querySelector('.agent-reset-remaining');
+  const p = await panel(timer); p.selectConnection('a');
+  expect(row(p.node, 'a').querySelector('.agent-reset-remaining')).toBeNull();
+  const reset = card(p.node, 'a').querySelector('.agent-reset-remaining');
   expect(reset.textContent).toBe('约 2 小时后重置'); expect(timer.timers.size).toBe(1);
   await timer.tick(); expect(reset.textContent).toBe('约 1 小时 59 分钟后重置');
   dom.document.hidden = true; visibility.get('visibilitychange')(); expect(timer.timers.size).toBe(0);
   timer.advance(2 * 3600000); dom.document.hidden = false; visibility.get('visibilitychange')();
   expect(reset.textContent).toBe('已到重置时间，待刷新'); expect(timer.timers.size).toBe(0); expect(actions('query')).toHaveLength(0);
-  expect(row(p.node, 'a').querySelector('.agent-connection-resource-details').querySelectorAll('p').some(node => node.textContent.includes(new Date('2026-10-06T11:00:00.000Z').toLocaleString()))).toBe(true);
+  expect(card(p.node, 'a').querySelector('.agent-connection-resource-details').querySelectorAll('p').some(node => node.textContent.includes(new Date('2026-10-06T11:00:00.000Z').toLocaleString()))).toBe(true);
   p.dispose(); expect(visibility.has('visibilitychange')).toBe(false); expect(timer.timers.size).toBe(0);
   expect(resetRemaining('invalid', timer.now())).toBe('重置时间未知'); expect(resetRemaining('2026-10-09T11:00:00Z', Date.parse(at))).toContain('3 天');
   delete dom.document.addEventListener; delete dom.document.removeEventListener;
@@ -305,7 +317,7 @@ test('勾选额度刷新提醒后，reset_at 到达时提醒一次；reset_at �
     const quota = reset => ({ status: 'available', checked_at: at, source: 'usage_api', resources: [
       { id: 'week', kind: 'quota', scope: 'account', label: '周套餐', unit: '%', remaining: 70, total: 100, used_percent: 30, window_seconds: 604800, reset_at: reset }] });
     data.connections = [source('r', { notify_reset: true, observation: quota('2026-10-06T11:00:00.000Z') })];
-    const p = await panel(timer), reset = row(p.node, 'r').querySelector('.agent-reset-remaining');
+    const p = await panel(timer), reset = card(p.node, 'r').querySelector('.agent-reset-remaining');
     expect(reset.dataset.reminder).toBe('1'); expect(sent).toHaveLength(0); // 首次载入只标记，不补发
     timer.advance(2 * 3600000); await timer.tick();
     expect(sent).toHaveLength(1); expect(sent[0].title).toContain('额度刷新'); expect(sent[0].options.body).toContain('已到重置时间');
@@ -330,9 +342,9 @@ test('未勾选提醒或系统通知关闭时只保留页面内到期标记，�
       { id: 'week', kind: 'quota', scope: 'account', label: '周套餐', unit: '%', remaining: 70, reset_at: '2026-10-06T11:00:00.000Z' }] };
     const timer = clock(); data.connections = [source('n', { notify_reset: true, observation: quota })];
     const p = await panel(timer); timer.advance(2 * 3600000); await timer.tick();
-    expect(sent).toHaveLength(0); expect(row(p.node, 'n').querySelector('.agent-reset-remaining').classList.contains('is-due')).toBe(true);
+    expect(sent).toHaveLength(0); expect(card(p.node, 'n').querySelector('.agent-reset-remaining').classList.contains('is-due')).toBe(true);
     const timer2 = clock(); data.connections = [source('x', { observation: quota })];
-    const q = await panel(timer2); expect(row(q.node, 'x').querySelector('.agent-reset-remaining').dataset.reminder).toBeUndefined();
+    const q = await panel(timer2); expect(card(q.node, 'x').querySelector('.agent-reset-remaining').dataset.reminder).toBeUndefined();
     timer2.advance(2 * 3600000); await timer2.tick(); expect(sent).toHaveLength(0);
   } finally {
     setPref('noticeNotifications', false);
