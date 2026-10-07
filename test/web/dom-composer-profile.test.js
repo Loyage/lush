@@ -145,7 +145,9 @@ test('运行设置可按来源默认一键填入模型与思考深度，未读�
     expect(deepText(modal)).toContain('请先读取并选择模型来源');
     await dialogButton(dom, '读取项目连接').onclick();
     const select = modal.querySelector('[data-retry-field="connection_id"]');
+    const model = modal.querySelector('[data-retry-field="model"]'); model.value = 'unsaved/model';
     select.value = CONNECTION; select.onchange();
+    expect(model.value).toBe('unsaved/model'); // Automatic defaults are scoped to existing Worker editors.
     await dialogButton(dom, '填入来源默认（模型 + 思考深度）').onclick();
     expect(modal.querySelector('[data-retry-field="model"]').value).toBe('openai-compatible/second-model');
     expect(modal.querySelector('[data-retry-field="thinking"]').value).toBe('high');

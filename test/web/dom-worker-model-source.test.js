@@ -48,6 +48,20 @@ for (const explicit of [false, true]) test(`轻量保存只提交窄选择，不
   expect(JSON.stringify(worker.retry_profile)).toBe(before); expect(worker.model_selection.explicit).toBe(true);
 });
 
+test('轻量切换来源自动填入来源默认模型，保存只提交来源和模型', async () => {
+  actions.length = 0;
+  connections[1].default_model = 'model-1';
+  try {
+    const pending = configureModelSource(task()); await ready();
+    const modal = dom.node('modal'), model = modal.querySelector('[data-worker-model-field="model"]');
+    expect(model.value).toBe('openai-compatible/model-0');
+    const source = modal.querySelector('[data-worker-model-field="connection_id"]'); source.value = second; source.onchange();
+    expect(model.value).toBe('openai-compatible/model-1');
+    await dialogButton(dom, '保存来源与模型').onclick(); expect(await pending).toBe(true);
+    expect(actions).toEqual([{ method: 'worker.configure', params: { id: 51, model_selection: { connection_id: second, model: 'openai-compatible/model-1' } } }]);
+  } finally { delete connections[1].default_model; }
+});
+
 test('模型越界和未绑定来源拒绝保存，保留输入可修正', async () => {
   actions.length = 0;
   const pending = configureModelSource(task()); await ready();

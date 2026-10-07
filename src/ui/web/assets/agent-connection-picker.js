@@ -13,7 +13,7 @@ const CATALOG_STATES = { fresh: '缓存目录已更新', cached: '缓存目录�
  * 目录缺失或读取失败不影响手动列表；两者皆空时引导到来源页填写，不默默替换用户已选来源或模型。
  * 思考等级只按目录里确有证据的元数据返回；未知一律返回 null，由调用方保留原选项。
  */
-export function createAgentConnectionPicker({ backend, model, connectionId = '', ownsPage = () => true, onChange = () => {} }) {
+export function createAgentConnectionPicker({ backend, model, connectionId = '', ownsPage = () => true, onChange = () => {}, applyDefaultModelOnChange = false }) {
   const node = el('div', undefined, 'agent-connection-binding');
   const connection = el('select'); connection.className = 'agent-select';
   const models = el('select'); models.className = 'model-catalog'; models.dataset.connectionModel = 'choice';
@@ -25,6 +25,7 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
   const catalogs = new Map();
   const catalogPending = new Map();
   let loading = null;
+  let selectedConnection = connectionId;
   const value = () => backend.value === 'pi' ? connection.value : '';
   const entry = () => entries.get(value());
   const catalog = () => catalogs.get(value()) || null;
@@ -39,7 +40,7 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
       connection.append(option(row.id, `${row.label} · ${row.provider}${row.enabled ? '' : '（停用）'}`));
     }
     if (selected && !entries.has(selected)) connection.append(option(selected, `已配置连接 ${selected}（未读取 / 不可用）`));
-    connection.value = selected; sync();
+    connection.value = selected; selectedConnection = selected; sync();
   }
   function paintModels(row) {
     const seen = new Set();
@@ -90,6 +91,11 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
       : !value() ? 'Pi 必须选择 Lush 模型来源与明确模型才能启动；不会回退到用户 Pi 认证或默认模型。'
       : !row ? '请读取项目连接以查看模型范围；当前连接与未保存模型保持不变。'
       : `${row.label} · ${row.endpoint}。${manualNote}${emptyModels ? '暂无可选模型；请到此来源详情点击“编辑”，填写并保存“模型列表”，再读取项目连接；也可手填 provider/model。' : ''}${details || (row.models?.length ? '选择已保存模型或填写范围内的 provider/model。' : `填写 ${row.provider}/模型 ID（范围未限定）。`)}${details ? '' : '此列表未联网验证模型；'}停用或凭证不可用时不能启动。${row.provider === 'openai-compatible' ? '自定义兼容 API 的余额尚不支持查询，不代表余额为零。' : ''}`;
+    if (pi && row && applyDefaultModelOnChange) {
+      note.textContent += row.default_model
+        ? ' 切换来源时自动填入来源默认模型；思考深度不变，保存前仍可修改。'
+        : ' 此来源未设置默认模型，已保留当前模型；请显式选择或填写匹配模型。';
+    }
     if (row && model.value.trim() && (!model.value.trim().startsWith(`${row.provider}/`)
       || (row.models?.length && !row.models.includes(model.value.trim().slice(row.provider.length + 1))))) {
       note.textContent += ' 当前模型与此来源不匹配，请显式选择或填写匹配模型；不会自动替换。';
@@ -137,7 +143,16 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
     })();
     loadButton.disabled = true; return loading;
   }
-  connection.onchange = () => { if (ownsPage()) { sync(); void loadCatalog(entry()); } };
+  connection.onchange = () => {
+    if (!ownsPage()) return;
+    const changed = connection.value !== selectedConnection;
+    selectedConnection = connection.value;
+    // Only a deliberate Worker source change applies defaults. Reads, resets and late catalogs
+    // must never overwrite a model edited after the selection (or apply a different source's default).
+    const row = entry();
+    if (changed && applyDefaultModelOnChange && row?.default_model) model.value = `${row.provider}/${row.default_model}`;
+    sync(); void loadCatalog(row);
+  };
   models.onchange = () => { if (ownsPage() && value() && models.value) { model.value = models.value; sync(); } };
   node.append(connection, host, models, detailsLink, note);
   // Initial rendering must not invoke a caller callback before it has received the picker.

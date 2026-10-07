@@ -103,14 +103,15 @@ export async function configureModelSource(task) {
     const backend = el('select'); const pi = el('option', 'Pi'); pi.value = 'pi'; backend.append(pi); backend.value = 'pi'; backend.disabled = true;
     const model = el('input'); model.value = task.model_selection.model || ''; model.maxLength = 256;
     model.setAttribute('aria-label', '模型'); model.dataset.workerModelField = 'model';
-    const picker = createAgentConnectionPicker({ backend, model, connectionId: task.model_selection.connection_id || '', ownsPage });
+    const picker = createAgentConnectionPicker({ backend, model, connectionId: task.model_selection.connection_id || '', ownsPage,
+      applyDefaultModelOnChange: true });
     picker.connection.dataset.workerModelField = 'connection_id';
     picker.connection.setAttribute('aria-label', '模型来源');
     const form = el('div', undefined, 'retry-profile-form');
     const sourceField = el('div', undefined, 'retry-field'); sourceField.append(el('span', '模型来源', 'retry-field-label'), picker.node);
     const modelField = el('label', undefined, 'retry-field'); modelField.append(el('span', '模型', 'retry-field-label'), model);
     form.append(el('p', '执行后端：Pi（此操作不切换后端）', 'hint'), sourceField, modelField,
-      el('p', '先选择来源，再选择匹配模型；不会自动选取模型或转用付费账号。Prompt、环境变量、Skills、扩展与预算均保留。', 'hint'));
+      el('p', '切换来源时自动填入该来源的默认模型；未设置默认时保留当前模型并提示选择，不猜选第一个模型。不自动改变思考深度或转用其他账号；保存前仍可修改模型。Prompt、环境变量、Skills、扩展与预算均保留。', 'hint'));
     const errorBox = el('p', undefined, 'settings-error'); errorBox.setAttribute('role', 'alert'); form.append(errorBox);
     // Loading is local only. Render first so a slow read remains cancellable.
     const loading = picker.load();

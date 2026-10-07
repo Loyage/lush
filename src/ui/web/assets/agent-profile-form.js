@@ -81,7 +81,7 @@ function resourceGroup(title, entries, selected, kind, enabled) {
  *
  * 只负责取值与校验；调用方决定送 `worker.retry` / `worker.configure`，还是随 `order.submit` 提交。
  */
-export function createProfileForm({ profile, settings, role, ownsPage = () => true, onChange = () => {} }) {
+export function createProfileForm({ profile, settings, role, ownsPage = () => true, onChange = () => {}, applyDefaultModelOnChange = false }) {
   const initial = { ...(profile || {}) };
   const selectedExtensions = new Set(initial.extensions || []);
   const selectedSkills = new Set(initial.skills || []);
@@ -117,7 +117,7 @@ export function createProfileForm({ profile, settings, role, ownsPage = () => tr
   modelChoices.onchange = () => { if (modelChoices.value) { model.value = modelChoices.value; onChange(); } };
   modelBox.append(model, modelChoices);
   const connectionPicker = createAgentConnectionPicker({ backend, model, connectionId: initial.connection_id || '',
-    ownsPage, onChange: () => paintModels() });
+    ownsPage, onChange: () => paintModels(), applyDefaultModelOnChange });
   connectionPicker.connection.dataset.retryField = 'connection_id';
   const fillNote = el('span', undefined, 'settings-note');
   const fillDefaults = button('填入来源默认（模型 + 思考深度）', () => {

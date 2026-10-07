@@ -130,7 +130,8 @@ test('Worker暂停配置和失败重试可绑定共享连接与匹配模型，�
     const modal = dom.node('modal'), model = modal.querySelector('[data-retry-field="model"]');
     model.value = 'unsaved/model'; await dialogButton(dom, '读取项目连接').onclick(); expect(model.value).toBe('unsaved/model');
     const connection = modal.querySelector('[data-retry-field="connection_id"]'); connection.value = id; connection.onchange();
-    expect(model.value).toBe('unsaved/model'); expect(modal.querySelector('[data-retry-field="model-choice"]').disabled).toBe(true);
+    expect(model.value).toBe('unsaved/model'); expect(deepText(modal)).toContain('此来源未设置默认模型');
+    expect(modal.querySelector('[data-retry-field="model-choice"]').disabled).toBe(true);
     const choices = modal.querySelector('[data-connection-model="choice"]');
     expect(choices.children.map(node => node.value)).toEqual(['', 'openai-compatible/custom-model']);
     choices.value = 'openai-compatible/custom-model'; choices.onchange();
@@ -139,6 +140,35 @@ test('Worker暂停配置和失败重试可绑定共享连接与匹配模型，�
     await dialogButton(dom, label).onclick(); expect(await pending).toBe(true);
     expect(actions).toHaveLength(1); expect(actions[0]).toMatchObject({ method: configuring ? 'worker.configure' : 'worker.retry',
       params: { id: 50, profile: { connection_id: id, model: 'openai-compatible/custom-model', agent: 'pi' } } });
+  }
+});
+
+test('Worker 完整配置及重试在主动换源时填入默认模型，不改思考深度及其他编辑', async () => {
+  managedConnections[0].default_model = 'custom-model'; managedConnections[0].default_thinking = 'high';
+  managedConnections[1].default_model = 'gpt-5.4-mini';
+  try {
+    for (const configuring of [true, false]) {
+      actions.length = 0;
+      const pending = configuring ? configureTask({ id: 53, role: 'worker', status: 'paused' }) : retryTask({ id: 53, role: 'worker', status: 'failed' });
+      const label = configuring ? '保存设置' : '使用这些设置重试';
+      await until(() => dialogButton(dom, label));
+      const modal = dom.node('modal'), get = name => modal.querySelector(`[data-retry-field="${name}"]`);
+      expect(get('model').value).toBe(profile.model); // Opening does not apply the current source default.
+      await dialogButton(dom, '读取项目连接').onclick(); expect(get('model').value).toBe(profile.model);
+      get('append-prompt').value = 'keep this edit'; get('budget-tokens').value = '1000';
+      get('connection_id').value = id; get('connection_id').onchange();
+      expect(get('model').value).toBe('openai-compatible/custom-model');
+      expect(get('thinking').value).toBe('medium');
+      await dialogButton(dom, '读取项目连接').onclick(); expect(get('model').value).toBe('openai-compatible/custom-model');
+      await dialogButton(dom, label).onclick(); expect(await pending).toBe(true);
+      expect(actions).toHaveLength(1);
+      expect(actions[0]).toMatchObject({ method: configuring ? 'worker.configure' : 'worker.retry', params: { profile: {
+        connection_id: id, model: 'openai-compatible/custom-model', thinking: 'medium', append_prompt: 'keep this edit',
+        soft_budget: { tokens: 1000 }, env: { ...commonEnv, ...roleEnv },
+      } } });
+    }
+  } finally {
+    delete managedConnections[0].default_model; delete managedConnections[0].default_thinking; delete managedConnections[1].default_model;
   }
 });
 

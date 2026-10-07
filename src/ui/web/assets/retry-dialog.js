@@ -43,7 +43,7 @@ async function profileDialog(task, options) {
     ]);
     profile.env = { ...commonEnv.values, ...roleEnv.values, ...(profile.env || {}) };
 
-    const form = createProfileForm({ profile, settings, role, ownsPage });
+    const form = createProfileForm({ profile, settings, role, ownsPage, applyDefaultModelOnChange: true });
     const content = el('div', undefined, 'retry-profile-form-wrap');
     content.append(form.node, el('p', '确认后，所选完整 Profile 会固定到这个 Worker，直到它再次完成、失败或取消。', 'retry-scope-note'));
     await form.ready;

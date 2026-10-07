@@ -25,7 +25,7 @@
 - provider 是 deepseek/openrouter/zai/kimi-coding/openai-codex；endpoint 是模型端点，默认官方模型端点，必须明确显示；不在 URL 中放秘密。
 - auth_type 为 api_key/oauth；Codex 只支持 oauth，其他只支持 api_key。
 - models 是可空的模型 ID 限制列表（物理 model id，不含 provider 前缀），不声称联网验证可用。
-- default_model / default_thinking 是可空的默认设定：物理模型 ID（非空时必须在 models 范围内）与 Pi 思考等级（`settings.THINKING_LEVELS.pi`）。它们只供「运行设置」一键填入，不参与连接身份、凭证轮换或额度历史。
+- default_model / default_thinking 是可空的默认设定：物理模型 ID（非空时必须在 models 范围内）与 Pi 思考等级（`settings.THINKING_LEVELS.pi`）。它们供「运行设置」一键填入；已有 Worker 主动换源时自动填入默认模型的界面规则见[切换来源](../design/agent-model-settings.md#切换来源)。它们不参与连接身份、凭证轮换或额度历史。
 - notify_reset 是布尔本地偏好：用户在「模型来源」勾选后，页面在缓存观测的 `reset_at` 到达时标出该额度；系统通知开关已开启且已授权时另发浏览器通知。它不参与连接身份、凭证轮换或额度缓存命名空间，也不新增 daemon 后台调度。
 - credential.status 为 configured/unconfigured/expired/unknown；存在本地凭证不代表验证登录成功；identity 服务端脱敏；expires_at 为 ISO/null。
 - 凭证内保存的秘密从不放进公开连接。采样默认 `{enabled:false,interval_minutes:5,retention_days:90}`，校验范围同旧 usage 设置。
@@ -93,7 +93,7 @@ HTTP GET `/api/agent/connections`、GET `/api/agent/connections/history?id=&days
 
 额度区主显示「上次刷新」相对时长，绝对观测时间与来源收进折叠详情。逐来源可勾选 `notify_reset` 额度刷新提醒：页面在缓存观测的 `reset_at` 到达时标出到期并按来源/指标/`reset_at` 去重提醒；同一 `reset_at` 只提醒一次，刷新后 `reset_at` 变化则按新时间重新计时。浏览器系统通知沿用既有总开关，首次载入与刷新不补发页面关闭期间积压的提醒；提醒不新增 daemon 调度，也不断言额度已恢复。模型输入提供物理 ID 示例与限定调用名预览；合法 `vendor/model` 物理 ID 不得按斜杠机械截断。设计取舍见[模型来源](../design/agent-model-settings.md#模型来源)。
 
-「运行设置」共用表单（`agent-profile-form.js`）在已选托管来源时可一键填入该来源的默认模型（限定为 `provider/model`）与思考深度；只改这两项，未读来源或无默认时给就地提示，不调用 Agent，保存前仍可修改。来源选择本身不自动改模型或思考深度。
+「运行设置」共用表单（`agent-profile-form.js`）在已选托管来源时可一键填入该来源的默认模型（限定为 `provider/model`）与思考深度；只改这两项，未读来源或无默认时给就地提示，不调用 Agent，保存前仍可修改。已有 Worker 主动换源时默认模型的自动填入例外见[切换来源](../design/agent-model-settings.md#切换来源)；思考深度仍不自动改变。
 
 配置页 profile 的 `connection_id` 为后续 Pi 调用必需来源（空不会恢复外部 Pi 认证）；由 parent 实现后端校验与执行绑定。Web可从 list API加载可用连接选项；首版只支持 Pi绑定（Codex执行后端仍走原凭证），明确提示固定物理 provider/model且模型限制必须匹配。配置保存不改变正在运行的 invocation。
 
