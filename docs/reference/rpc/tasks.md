@@ -52,6 +52,14 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 
 `worker.activity` / `worker.page` 的 `scope='work'|'all'` 省略时保留旧 work 口径；Web overview 与历史分页显式请求 `all`，继续有界读取，不改Worker实体或存储层级。`GET /api/workers` 透传 scope。
 
+## 目标与追加输入的投递时间
+
+`worker.inspect.goal_input_delivery` 与 `worker.history` / `worker.history_page` 中用户 `message` 事件的 `input_delivery` 均为 `{status:'delivered'|'pending'|'unknown',at:string|null}`。`delivered` 的 `at` 是首次将该输入交给 Agent 的时间，不是用户提交、排队、调用准入或消费完成时间。真实后端完成准备并启动携带输入的进程时确认；这不代表模型已经理解或执行了输入。调用失败/抢占不撤销已投递事实，重试不覆盖首次时间；运行中到达的追加输入在下一轮投递前为 `pending`。
+
+新消息事件与收件箱同事务记录 `message_id`；投递事件 `invocation.inputs_delivered {run_id,message_ids}` 按精确身份关联，重复正文不合并。历史页的投递投影覆盖完整事件历史，不受分页窗口限制；投递事件另附 `input_deliveries:[{message_id,status,at}]`，供前端刷新已加载但已不在最新页中的待输入记录，重试仍投影首次确认时间。旧记录缺少精确消息身份或投递证据时为 `unknown`，不回填、不以旧提交时间猜测；旧服务未提供字段时前端也显示时间未知。
+
+Worker 详情的原始目标直接展示；追加输入只需展开一层即可阅读已加载的全文，更早历史仍通过有界分页读取。
+
 ## 追加消息的准入与失败处理
 
 `worker.message {id,body}` 是追加工作入口，不是冻结期间的只读通知通道。Agent 仅可给直接父子 Worker 发送消息；main/owner 不接收普通消息，即使是直接父 Worker。指令 Agent 的完成报告写本轮结果，交付由 runtime 按已有协议处理。

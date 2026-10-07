@@ -2,14 +2,16 @@ import { test, expect } from 'bun:test';
 import { installDom, deepText, findByText } from '../dom-stub.js';
 import { renderGoal } from '../../src/ui/web/assets/render-goal.js';
 import { renderDetail } from '../../src/ui/web/assets/render-detail.js';
+import { absolute } from '../../src/ui/web/assets/format.js';
 
 const at = '2026-10-02T09:00:00Z';
 const task = { id: 7, role: 'agent', task_kind: 'order', status: 'waiting', goal: '**原始目标**',
   created_at: at, updated_at: at, result: '最新结果' };
-const event = (id, body, sender = null) => ({ id, task_id: 7, type: 'message', created_at: at, data: { sender, body } });
+const event = (id, body, sender = null) => ({ id, task_id: 7, type: 'message', created_at: at,
+  input_delivery: { status: 'pending', at: null }, data: { sender, body } });
 const expand = node => { node.open = true; for (const handler of node.listeners.toggle || []) handler(); };
 
-test('任务目标保留原文；追加输入默认隐藏、惰性展开，重复输入不合并，不含 Agent 或决策消息', () => {
+test('任务目标保留原文；只展开一层即见追加全文，重复输入不合并，不含 Agent 或决策消息', () => {
   const dom = installDom();
   try {
     const history = { events: [event(1, '**补充**\n\n- 新要求'), event(2, '**补充**\n\n- 新要求'),
@@ -20,17 +22,19 @@ test('任务目标保留原文；追加输入默认隐藏、惰性展开，重�
     expect(deepText(goal)).toContain('原始目标'); expect(goal.querySelector('strong')).toBeTruthy();
     const fold = goal.querySelector('.goal-history'); expect(fold.open).not.toBe(true);
     expect(deepText(goal)).toContain('追加输入（已加载 2 条）');
-    for (const text of ['补充', 'Agent 消息', '决策答复', '系统信号', '仅属于收件箱']) expect(deepText(goal)).not.toContain(text);
+    for (const text of ['Agent 消息', '决策答复', '系统信号', '仅属于收件箱']) expect(deepText(goal)).not.toContain(text);
     const entries = goal.querySelectorAll('.goal-history-entry'); expect(entries).toHaveLength(2);
     expect(entries.map(node => node.dataset.eventId)).toEqual(['2', '1']);
-    expand(fold); expand(entries[0]);
+    expand(fold);
+    expect(entries[0].tagName).toBe('DIV'); expect(entries[0].querySelector('summary')).toBeNull();
+    expect(goal.querySelectorAll('details')).toHaveLength(1);
     expect(entries[0].querySelector('strong')).toBeTruthy(); expect(deepText(entries[0])).toContain('新要求');
     expect(entries[0].dataset.ref).toBeTruthy();
     expect([...panel.children].indexOf(goal)).toBeLessThan([...panel.children].indexOf(panel.querySelector('.result-panel')));
     renderDetail(task, { ...history, events: [...history.events, event(6, '新的输入')] }, null, null);
     expect(panel.querySelector('.goal-panel')).toBe(goal); expect(fold.open).toBe(true);
-    expect(goal.querySelectorAll('.goal-history-entry')[1]).toBe(entries[0]); expect(entries[0].open).toBe(true);
-    expect(deepText(goal)).not.toContain('新的输入');
+    expect(goal.querySelectorAll('.goal-history-entry')[1]).toBe(entries[0]); expect(deepText(entries[0])).toContain('新要求');
+    expect(deepText(goal)).toContain('新的输入');
   } finally { dom.restore(); }
 });
 
@@ -55,10 +59,10 @@ test('可逐页加载更早输入，失败可重试，刷新不丢已加载历�
     await findByText(goal, '加载更早输入').onclick();
     expect(requests.some(url => url.includes('before=20'))).toBe(true);
     const old = goal.querySelectorAll('.goal-history-entry').find(node => node.dataset.eventId === '1');
-    expand(old); expect(deepText(old)).toContain('<script>old</script>'); expect(old.querySelector('script')).toBeNull();
+    expect(deepText(old)).toContain('<script>old</script>'); expect(old.querySelector('script')).toBeNull();
     expect(deepText(goal)).toContain('已读取全部追加输入历史');
     expect(renderGoal(task, history, goal)).toBe(goal);
-    expect(goal.querySelectorAll('.goal-history-entry')).toHaveLength(3); expect(old.open).toBe(true);
+    expect(goal.querySelectorAll('.goal-history-entry')).toHaveLength(3); expect(deepText(old)).toContain('第二行');
     expect(goal.goalCursor).toBe(1); expect(goal.goalHasMore).toBe(false);
     expect(findByText(goal, '加载更早输入').hidden).toBe(true);
   } finally { dom.restore(); }
@@ -72,8 +76,33 @@ test('无追加输入时隐藏折叠栏；纯文本偏好保留换行，未知�
     localStorage.setItem('lush.markdown', '0');
     const goal = renderGoal(task, { events: [event(1, '**原文**\n第二行'),
       { ...event(2, '未知发送者'), data: { body: '未知发送者' } }] });
-    const entry = goal.querySelector('.goal-history-entry'); expand(entry);
+    const entry = goal.querySelector('.goal-history-entry');
     expect(entry.querySelector('strong')).toBeNull(); expect(deepText(entry)).toContain('**原文**\n第二行');
     expect(goal.querySelectorAll('.goal-history-entry')).toHaveLength(1);
   } finally { localStorage.removeItem('lush.markdown'); dom.restore(); }
+});
+
+test('输入时间使用实际投递证据；待输入与未知明确显示，刷新保持展开和正文节点', () => {
+  const dom = installDom();
+  try {
+    const deliveredAt = '2026-10-03T10:30:00Z';
+    const followup = event(1, '尚未投递'); followup.data.message_id = 40;
+    const pendingTask = { ...task, goal_input_delivery: { status: 'pending', at: null } };
+    const goal = renderGoal(pendingTask, { events: [followup] });
+    const fold = goal.querySelector('.goal-history'); expand(fold);
+    const entry = goal.querySelector('.goal-history-entry'), body = entry.querySelector('.goal-text');
+    expect(deepText(entry)).toContain('待输入'); expect(deepText(entry)).not.toContain(absolute(at));
+    expect(goal.querySelector('.goal-input-time').textContent).toBe('待输入');
+    const delivery = { status: 'delivered', at: deliveredAt };
+    expect(renderGoal({ ...task, goal_input_delivery: delivery },
+      { events: [{ id: 100, type: 'invocation.inputs_delivered',
+        input_deliveries: [{ message_id: 40, ...delivery }] }] }, goal)).toBe(goal);
+    expect(fold.open).toBe(true); expect(entry.querySelector('.goal-text')).toBe(body);
+    expect(deepText(entry)).toContain(`输入时间：${absolute(deliveredAt)}`);
+    expect(goal.querySelector('.goal-input-time').textContent).toBe(`输入时间：${absolute(deliveredAt)}`);
+    expect(deepText(entry)).not.toContain(absolute(at));
+    goal.updateGoalHistory({ events: [{ ...followup, input_delivery: { status: 'unknown', at: null } }] });
+    expect(deepText(entry)).toContain('输入时间未知');
+    expect(deepText(renderGoal(task))).toContain('输入时间未知');
+  } finally { dom.restore(); }
 });

@@ -16,7 +16,10 @@ import os from 'node:os';
 // Bounded grace before waiting on straggler descendants that keep the wrapped stdio open
 // after the direct child already exited.
 const GRACE_MS = 250;
-const [command, ...args] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const reportInputDelivery = argv[0] === '--input-delivery-fd=3';
+if (reportInputDelivery) argv.shift();
+const [command, ...args] = argv;
 if (!command) {
   process.stderr.write('lush-agent-guard: missing command\n');
   process.exit(2);
@@ -56,6 +59,12 @@ function finish() {
 }
 
 child = cp.spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
+// The separate, optional pipe acknowledges the real command, not merely this guard.
+// It is never inherited by the wrapped Agent and cannot contaminate its output.
+if (reportInputDelivery) child.once('spawn', () => {
+  try { fs.writeSync(3, 'input-delivered\n'); } catch { /* daemon may already be gone */ }
+  try { fs.closeSync(3); } catch { /* already closed */ }
+});
 child.stdout.on('data', chunk => { process.stdout.write(chunk); });
 child.stderr.on('data', chunk => { process.stderr.write(chunk); });
 child.stdout.on('end', () => { stdoutEnded = true; if (childExit && stderrEnded) finish(); });

@@ -444,7 +444,8 @@ export default {
       }
       if (run.controller.signal.aborted) throw new Error('cancelled');
       task = this.store.task(taskId);
-      const hookStart = this.store.event(taskId, 'invocation.started', { call: task.calls, cwd, message_ids: messages.map(message => message.id),
+      const hookStart = this.store.event(taskId, 'invocation.started', { call: task.calls, cwd, input_delivery_tracked: true,
+        message_ids: messages.map(message => message.id),
         agent: agent.agent, model: agent.model || null, thinking: agent.thinking || null });
       this.emitTaskHook(taskId, 'agent.started', hookStart);
       if (!timer) armDeadline();
@@ -475,7 +476,17 @@ export default {
           if ((this.workspaces.gitRefWrites ?? 0) === refWritesBaseline) break;
         }
       }
-      const result = await this.provider.run({ task: providerTask, cwd, token: run.token, signal: run.controller.signal, agent,
+      // Real backends acknowledge after preparing and launching the input-bearing process.
+      // In-process/custom backends receive the payload at run(); consumption is a separate fact.
+      let inputsDelivered = false;
+      const onInputDelivered = () => {
+        if (inputsDelivered) return;
+        inputsDelivered = true;
+        this.store.event(taskId, 'invocation.inputs_delivered', { run_id: run.recordId,
+          message_ids: messages.map(message => message.id) });
+      };
+      if (!this.provider.reportsInputDelivery) onInputDelivered();
+      const result = await this.provider.run({ task: providerTask, cwd, token: run.token, signal: run.controller.signal, agent, onInputDelivered,
         connectionRuntime, onConnectionObservation: connectionRuntime ? observation => this.agentConnections.observe(
           agent.connection_id, connectionRuntime.account_key, connectionRuntime.source_key, observation) : null,
         onSpawn: pid => { run.pid = pid; }, onPreempt: () => { run.boundaryClaimed = true; }, messages, messagesPage, api: this,

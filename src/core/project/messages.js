@@ -35,8 +35,8 @@ export default {
       if (booking?.version === 2 && ['resolving','suspended'].includes(booking.status)) this.resumeQueuedTaskMerge(target.id);
       if (sender === null) resumeTaskDelivery(this, target.id, 'new user input');
       consumeIntegratedReservation(this, target, 'new input');
-      this.store.message(target.id, body, sender);
-      this.store.event(target.id, 'message', { sender, body });
+      const messageId = this.store.message(target.id, body, sender);
+      this.store.event(target.id, 'message', { sender, body, message_id: messageId });
       if (sender === null) this.store.event(target.id, 'task.input_routed', { delivery: decision.delivery,
         source: decision.source, error: ruleError });
     });

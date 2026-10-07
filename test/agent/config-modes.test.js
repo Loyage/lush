@@ -108,14 +108,16 @@ test('PiDefault and Lush invocations differ in argv, environment, and session id
     OPENAI_API_KEY: 'ambient-key' }) });
   config.prepare();
   try {
-    const provider = new PiProvider(config);
+    const provider = new PiProvider(config); let delivered = 0;
+    expect(provider.reportsInputDelivery).toBe(true);
     const common = { task: { id: 42, parent_id: 3, role: 'agent', goal: 'mode test' }, context: {}, messages: [], cwd: root,
-      token: 'secret', signal: new AbortController().signal, onSpawn() {} };
+      token: 'secret', signal: new AbortController().signal, onSpawn() {}, onInputDelivered() { delivered++; } };
     expect(await provider.run({ ...common, agent: { agent: 'pi', config_mode: 'pi', model: '', thinking: '',
       default_prompt: '', append_prompt: '', extensions: [], skills: [] },
       // A Lush-mode checkpoint must never be imported into Pi-default mode.
       forkPointer: { session: path.join(config.home, 'sessions', 'never.jsonl'), entry: 'e', commit: 'a'.repeat(40) } }))
       .toBe('pi finished');
+    expect(delivered).toBe(1);
     const piRun = pi.read();
     expect(piRun.args).toContain('--print');
     for (const flag of ['--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes', '--model', '--thinking', '--fork', '--no-approve']) {
@@ -132,6 +134,11 @@ test('PiDefault and Lush invocations differ in argv, environment, and session id
     const managed = managedPiRun({ agent: { agent: 'pi', model: 'deepseek/deepseek-chat', thinking: 'low',
       default_prompt: '', append_prompt: '', extensions: ['/tmp/selected-extension.ts'], skills: [] } });
     expect(await provider.run({ ...common, agent: managed.agent, connectionRuntime: managed.connectionRuntime })).toBe('pi finished');
+    expect(delivered).toBe(2);
+    await expect(provider.run({ ...common, agent: managed.agent, connectionRuntime: managed.connectionRuntime,
+      task: { ...common.task, id: 43, base_commit: 'a'.repeat(40) },
+      forkPointer: { session: path.join(root, 'missing.jsonl'), entry: 'missing' } })).rejects.toThrow();
+    expect(delivered).toBe(2); // preparation failures never acknowledge input
     const lushRun = pi.read();
     expect(lushRun.args).toContain('--no-extensions');
     expect(lushRun.args).toContain('--no-approve');

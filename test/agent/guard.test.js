@@ -153,12 +153,18 @@ test('guarded invocations preserve stdout, stderr and the exit code for success 
   await repo(f.root);
   try {
     const provider = new PiProvider(f.config);
-    let spawned = null;
-    expect(await provider.run(runOptions(f, { onSpawn: pid => { spawned = pid; } }))).toBe('result-ok');
+    let spawned = null, delivered = 0;
+    const onInputDelivered = () => { delivered++; };
+    expect(await provider.run(runOptions(f, { onSpawn: pid => { spawned = pid; }, onInputDelivered }))).toBe('result-ok');
+    expect(delivered).toBe(1);
     await until(() => !groupAlive(spawned), 3000);
     expect(groupAlive(spawned)).toBe(false);
     f.config.env.LUSH_PI_COMMAND = bad;
-    await expect(provider.run(runOptions(f))).rejects.toThrow('managed Pi invocation failed');
+    await expect(provider.run(runOptions(f, { onInputDelivered }))).rejects.toThrow('managed Pi invocation failed');
+    expect(delivered).toBe(2); // failure after startup still received the input
+    f.config.env.LUSH_PI_COMMAND = path.join(dir, 'missing-agent');
+    await expect(provider.run(runOptions(f, { onInputDelivered }))).rejects.toThrow('managed Pi invocation failed');
+    expect(delivered).toBe(2); // starting the guard alone is not a delivery
   } finally { await f.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

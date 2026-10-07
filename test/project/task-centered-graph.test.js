@@ -29,7 +29,8 @@ test('Task graph projects current Git diagnostics, compact progress, waiting and
   const f = fixture({ run: async () => { await hold.promise; return 'done'; } }); await repo(f.root);
   try {
     const created = await f.project.order('实施功能\n验收条件');
-    await until(() => f.store.all("SELECT id FROM events WHERE task_id=? AND type='invocation.started'", created.task.id).length > 0);
+    // Wait for the input boundary, not admission: startup may still write delivery facts.
+    await until(() => f.store.all("SELECT id FROM events WHERE task_id=? AND type='invocation.inputs_delivered'", created.task.id).length > 0);
     f.store.setProgressPlan(created.task.id, { version: 1, items: [
       { key: 'inspect', label: '现状', status: 'completed' },
       { key: 'build', label: '实现', status: 'pending', started_at: new Date().toISOString() },

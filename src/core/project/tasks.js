@@ -231,7 +231,8 @@ export default {
     const runs = bounded(progressRuns.length > RUN_WINDOW ? progressRuns.slice(-RUN_WINDOW) : progressRuns, 200000);
     const artifactsRead = this.store.artifactsPage(task.id, { limit: RUN_WINDOW });
     const artifacts = bounded(artifactsRead.items, 200000);
-    return { ...task, model_selection: workerModelSelection(this, this.store.task(taskId)),
+    return { ...task, goal_input_delivery: this.store.goalInputDelivery(taskId),
+      model_selection: workerModelSelection(this, this.store.task(taskId)),
       auto_merge: this.autoMergeView(storedTask), completion: this.autoCompletionView(storedTask), merge_readiness: this.mergeReadiness(storedTask),
       hooks: this.taskHooks(taskId),
       parent_task_kind: task.parent_id ? this.store.task(task.parent_id).task_kind : null,

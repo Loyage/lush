@@ -70,19 +70,29 @@ function sessionFiles(config, task, context, messages, agent, messagesPage = nul
   return { sessions, promptFile, systemFile, environment: { ...environment, values } };
 }
 
-async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, onPreempt = null, onStdout = null, extraEnv = {} }) {
+async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, onInputDelivered = null, onPreempt = null, onStdout = null, extraEnv = {} }) {
   // The daemon never starts pi/codex directly: it starts the internal guard detached and owns
   // its stdin pipe. The guard runs the real command in the same process group, forwards
   // stdout/stderr and the exit code, and kills that group if the daemon dies (stdin EOF) —
   // including SIGKILL, which skips this process's abort/finally path entirely. The guard
   // receives stdin='pipe' and never has it forwarded downstream.
   const networkEnv = mergeNetworkEnvironment(config.env, extraEnv);
-  const child = cp.spawn(process.execPath, [GUARD, command, ...args], {
-    cwd, detached: true, stdio: ['pipe', 'pipe', 'pipe'],
+  const child = cp.spawn(process.execPath, [GUARD, '--input-delivery-fd=3', command, ...args], {
+    cwd, detached: true, stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
     env: { ...networkEnv, LUSH_TASK_ID: String(config.taskId ?? ''), LUSH_AGENT_TOKEN: token,
       PATH: `${BIN}${path.delimiter}${extraEnv.PATH ?? config.env.PATH ?? ''}` },
   });
   onSpawn(child.pid);
+  let deliveryReport = '';
+  child.stdio[3].setEncoding('utf8');
+  child.stdio[3].on('data', chunk => {
+    deliveryReport = (deliveryReport + chunk).slice(0, 32);
+    if (deliveryReport === 'input-delivered\n') {
+      onInputDelivered?.();
+      child.stdio[3].destroy();
+    }
+  });
+  child.stdio[3].on('error', () => { /* closed startup pipe is not Agent output */ });
   let output = '', stderr = '', overflow = false, stderrOverflow = false;
   const kill = () => {
     try { process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch {} }
@@ -124,7 +134,8 @@ export class PiProvider {
   constructor(config) { this.config = config; }
   /** The scheduler uses this to refuse before spawning; custom test providers leave it unset. */
   requiresPiSource = true;
-  async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, onPreempt = null, agent, forkPointer = null,
+  reportsInputDelivery = true;
+  async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, onInputDelivered, onPreempt = null, agent, forkPointer = null,
     connectionRuntime = null, onConnectionObservation = null }) {
     const config = this.config;
     const piMode = agent?.config_mode === 'pi';
@@ -172,7 +183,7 @@ export class PiProvider {
       const result = await spawnAgent(config.env.LUSH_PI_COMMAND || 'pi', args, {
         config: { ...config, env: piMode ? defaultPiEnvironment(config, config.env)
           : isolatedPiEnvironment(config, config.env, managed.dir),
-          taskId: task.id, runId: context.invocation?.run_id ?? null }, cwd, token: isolated ? '' : token, signal, onSpawn, onPreempt,
+          taskId: task.id, runId: context.invocation?.run_id ?? null }, cwd, token: isolated ? '' : token, signal, onSpawn, onInputDelivered, onPreempt,
         extraEnv: { ...values, LUSH_RUNTIME_CONTEXT: JSON.stringify({ ...context.invocation,
             task_id: task.id, role: task.role, config_mode: piMode ? 'pi' : 'lush',
             soft_budget: agent.soft_budget, preempt_dir: path.join(config.home, 'preempt'),
@@ -212,7 +223,8 @@ function writeThread(file, threadId) {
 
 export class CodexProvider {
   constructor(config) { this.config = config; }
-  async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, agent }) {
+  reportsInputDelivery = true;
+  async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, onInputDelivered, agent }) {
     const config = this.config;
     if (['explainer','butler'].includes(task.role)) throw new Error('isolated agents require Pi no-tools mode');
     const files = sessionFiles(config, task, context, messages, agent, messagesPage);
@@ -260,7 +272,7 @@ export class CodexProvider {
       if (buffer.length > 1024 * 1024) buffer = buffer.slice(-65536);
     };
     await spawnAgent(config.env.LUSH_CODEX_COMMAND || 'codex', args, {
-      config: { ...config, taskId: task.id }, cwd, token, signal, onSpawn, onStdout, extraEnv: files.environment.values,
+      config: { ...config, taskId: task.id }, cwd, token, signal, onSpawn, onInputDelivered, onStdout, extraEnv: files.environment.values,
     });
     if (!threadId) throw new Error('codex did not report a thread id');
     if (!fs.existsSync(resultFile)) throw new Error('codex did not write a final response');
@@ -280,6 +292,7 @@ export class AgentProvider {
   }
   /** Real managed Pi cannot run without a bound Lush source; the router inherits that requirement. */
   requiresPiSource = true;
+  reportsInputDelivery = true;
   resolve(task) { return this.settings.resolve(task.role); }
   run(options) {
     const agent = options.agent || this.resolve(options.task);
