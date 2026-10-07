@@ -61,6 +61,8 @@ bun run stop
 
 修改账号连接、凭证托管、余额/套餐观测、显式连接绑定与被动响应反馈前，先读 `docs/design/account-resources.md`；字段与模块边界见 `docs/engineering/agent-connections.md`，旧状态/历史兼容见 `docs/engineering/agent-usage.md`。私有权限不是沙箱，不得把凭证或原始认证响应放进读 API、会话或错误。
 
+修改共享设置、配置作用域或旧项目迁移前，先读 `docs/design/device-settings.md` 与 `docs/engineering/device-settings.md`：设备只共享技术配置，项目事实与历史隔离；`LUSH_HOME` 不改成全局目录，迁移必须显式预检/确认。
+
 修改启动、项目入口、环境管理前，先读 `docs/design/workbench.md` 与 `docs/engineering/workbench.md`：每项目独立浏览器标签，关闭页面不停止任务；项目 API 附着只读，不能由旧页轮询自动启动已停止后台。
 
 远程项目由用户自行在服务器运行 Lush Host；SSH、端口转发、IP/端口、域名、证书和防火墙均由用户配置，Lush 不部署远端或管理隧道。部署说明见 `docs/deployment/remote-host.md` 与 `remote-host-agent.md`。Host 允许 HTTP，但必须提示明文传输风险；推荐 HTTPS 或用户自建 SSH 隧道。

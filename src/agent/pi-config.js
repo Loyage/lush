@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { check } from '../core/types.js';
 import { PI_CREDENTIAL_ENV_NAMES } from './status-accounts.js';
+import { configurationHome, normalizeConfigurationScope, scopedConfiguration, withConfigurationWriteLock } from '../core/device-config.js';
 
 const MAX_FILE = 256 * 1024;
 const DEFAULT_SETTINGS = Object.freeze({ defaultProjectTrust: 'never', enableInstallTelemetry: false,
@@ -17,15 +18,15 @@ function validateDirectory(dir, required = false) {
     throw new Error('Lush Pi configuration directory unavailable');
   }
   check(typeof process.getuid === 'function' && stat.isDirectory() && !stat.isSymbolicLink()
-    && stat.uid === process.getuid() && !(stat.mode & 0o077), 'unsafe Lush Pi configuration directory');
+    && stat.uid === process.getuid() && !(stat.mode & 0o077) && fs.realpathSync(dir) === dir, 'unsafe Lush Pi configuration directory');
   return true;
 }
 
-/** Project-owned path, never an environment override or a user-level Pi directory. */
-export function piConfigDirectory(config) {
-  check(typeof config.home === 'string' && path.isAbsolute(config.home), 'Lush Pi configuration requires project home');
-  validateDirectory(config.home);
-  const dir = path.join(config.home, 'pi');
+/** Explicit Lush storage root, never PI_CODING_AGENT_DIR or an external user's Pi directory. */
+export function piConfigDirectory(config, scope = 'project') {
+  const home = configurationHome(config, scope);
+  validateDirectory(home);
+  const dir = path.join(home, 'pi');
   validateDirectory(dir);
   return dir;
 }
@@ -37,8 +38,12 @@ export function readPiConfiguration(file) {
     fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
     const stat = fs.fstatSync(fd);
     check(typeof process.getuid === 'function' && stat.isFile() && stat.uid === process.getuid()
-      && !(stat.mode & 0o077) && stat.size <= MAX_FILE, 'unsafe Lush Pi configuration file');
-    const value = JSON.parse(fs.readFileSync(fd, 'utf8'));
+      && !(stat.mode & 0o077) && stat.nlink === 1 && stat.size <= MAX_FILE, 'unsafe Lush Pi configuration file');
+    const source = fs.readFileSync(fd, 'utf8'), after = fs.fstatSync(fd), current = fs.lstatSync(file);
+    check(Buffer.byteLength(source) <= MAX_FILE && stat.dev === after.dev && stat.ino === after.ino
+      && stat.size === after.size && stat.mtimeMs === after.mtimeMs && stat.dev === current.dev && stat.ino === current.ino,
+    'Lush Pi configuration file changed');
+    const value = JSON.parse(source);
     check(value && typeof value === 'object' && !Array.isArray(value), 'invalid Lush Pi configuration');
     return value;
   } catch (error) {
@@ -48,7 +53,22 @@ export function readPiConfiguration(file) {
 }
 
 /** Atomic create-only initialization; never overwrite an existing project file, even during races. */
-export function ensurePiConfiguration(config) {
+export function ensurePiConfiguration(config, scope = 'project') {
+  normalizeConfigurationScope(scope);
+  const selected = scope === 'device' ? scopedConfiguration(config, scope) : config;
+  const own = withConfigurationWriteLock(config, scope, lock => {
+    const snapshot = ensureLocalPiConfiguration(selected); lock.assert(); return snapshot;
+  });
+  if (scope === 'device' || !config.deviceHome) return own;
+  const sharedDir = piConfigDirectory(config, 'device');
+  const sharedSettings = readPiConfiguration(path.join(sharedDir, 'settings.json'));
+  const sharedModels = readPiConfiguration(path.join(sharedDir, 'models.json'));
+  const inherited = Object.fromEntries(PI_RUNTIME_SETTINGS.filter(key => Object.hasOwn(sharedSettings, key)).map(key => [key, sharedSettings[key]]));
+  const models = { ...sharedModels, ...own.models };
+  if (sharedModels.providers || own.models.providers) models.providers = { ...sharedModels.providers, ...own.models.providers };
+  return { ...own, settings: { ...inherited, ...own.settings }, models };
+}
+function ensureLocalPiConfiguration(config) {
   const dir = piConfigDirectory(config);
   if (!fs.existsSync(config.home)) fs.mkdirSync(config.home, { recursive: true, mode: 0o700 });
   validateDirectory(config.home, true);
@@ -61,6 +81,7 @@ export function ensurePiConfiguration(config) {
     if (!fs.existsSync(file)) {
       fs.writeFileSync(temporary, JSON.stringify(DEFAULT_SETTINGS, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
       try { fs.linkSync(temporary, file); } catch (error) { if (error.code !== 'EEXIST') throw error; }
+      fs.unlinkSync(temporary); // Publication is create-only; release our alias before strict single-link reads.
     }
     const settings = readPiConfiguration(file);
     const models = readPiConfiguration(path.join(dir, 'models.json'));

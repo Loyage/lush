@@ -9,6 +9,7 @@ import { ensurePiConfiguration, piConfigDirectory, readPiConfiguration } from '.
 import { PI_CREDENTIAL_ENV_NAMES } from './status-accounts.js';
 import { agentNetworkEnvironment } from './network.js';
 import { scanDirectoryResources, scanPackageResources } from './resources.js';
+import { normalizeConfigurationScope, scopedConfiguration, configurationScope, acquireConfigurationLock } from '../core/device-config.js';
 
 /*
  * Lush-managed Pi package installation.
@@ -288,7 +289,9 @@ export function spawnPackageCommand({ command, args, env, cwd, signal, timeoutMs
 export class AgentPackages {
   constructor(config, options = {}) {
     check(config && typeof config === 'object', 'agent packages requires project configuration');
-    this.config = config;
+    this.originalConfig = config; this.scope = normalizeConfigurationScope(options.scope);
+    this.config = this.scope === 'device' ? scopedConfiguration(config, this.scope) : config;
+    this.options = options; this.scopedManagers = new Map();
     this.run = options.run || spawnPackageCommand;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.maxMutations = options.maxMutations ?? 8;
@@ -297,6 +300,13 @@ export class AgentPackages {
     this.closed = false;
     this.mutations = [];
     this.activeMutation = null;
+  }
+
+  forScope(scope = 'project') {
+    normalizeConfigurationScope(scope); this.assertOpen();
+    if (scope === this.scope) return this;
+    if (!this.scopedManagers.has(scope)) this.scopedManagers.set(scope, new AgentPackages(this.originalConfig, { ...this.options, scope }));
+    return this.scopedManagers.get(scope);
   }
 
   directory() { return piConfigDirectory(this.config); }
@@ -315,7 +325,7 @@ export class AgentPackages {
     // Reading installed state stays local; only install/remove/update may use the network.
     if (options.offline) env.PI_OFFLINE = '1';
     this.pending.add(controller);
-    const promise = Promise.resolve().then(() => this.run({ command: this.command(), args, cwd: this.config.project,
+    const promise = Promise.resolve().then(() => this.run({ command: this.command(), args, cwd: this.scope === 'device' ? this.config.home : this.config.project || this.config.home,
       env, signal: controller.signal, timeoutMs: this.timeoutMs })).finally(() => {
       this.pending.delete(controller); this.inflight.delete(promise);
       if (signal) signal.removeEventListener('abort', relay);
@@ -329,8 +339,13 @@ export class AgentPackages {
     this.closed = true;
     const active = this.activeMutation;
     for (const controller of this.pending) controller.abort();
-    await Promise.allSettled([...this.inflight]);
+    await Promise.allSettled([...this.inflight, ...[...this.scopedManagers.values()].map(manager => manager.stop())]);
     if (active) await active;
+  }
+
+  isBusy() {
+    return Boolean(this.activeMutation || this.pending.size || this.inflight.size || this.mutations.length
+      || [...this.scopedManagers.values()].some(manager => manager.isBusy()));
   }
 
   assertOpen() { check(!this.closed, 'package management is stopping; retry after restart'); }
@@ -351,8 +366,13 @@ export class AgentPackages {
     while (this.mutations.length) {
       const task = this.mutations.shift();
       if (this.closed || task.signal?.aborted) { task.reject(new PackageCommandError('cancelled')); continue; }
-      try { task.resolve(await task.fn(task.signal)); }
-      catch (error) { task.reject(error); }
+      let lock;
+      try {
+        // Actual storage root: two daemons editing the shared library must never overlap.
+        lock = acquireConfigurationLock(this.config, 'project', 'packages');
+        const value = await task.fn(task.signal); lock.assert(); task.resolve(value);
+      } catch (error) { task.reject(error); }
+      finally { if (lock) { try { lock.release(); } catch { /* Do not remove a replaced lock. */ } } }
     }
     this.activeMutation = null;
   }
@@ -406,7 +426,9 @@ export class AgentPackages {
     appendResources(resources, 'skills', scanDirectoryResources(path.join(dir, 'skills'), 'skill', 'Lush Pi'), null);
     const order = (a, b) => a.source.localeCompare(b.source) || a.path.localeCompare(b.path);
     resources.extensions.sort(order); resources.skills.sort(order);
-    return { version: 1, packages, resources, truncated: Boolean(resources.truncated), ...(warning ? { warning } : {}) };
+    return { version: 1, packages, resources, truncated: Boolean(resources.truncated), ...(warning ? { warning } : {}),
+      ...(this.originalConfig.deviceHome ? { configuration_scope: configurationScope(this.originalConfig, this.scope, this.scope,
+        this.scope === 'project' && configured.length > 0) } : {}) };
   }
 
   async list(options = {}) { return this.snapshot(options.signal); }
@@ -414,7 +436,7 @@ export class AgentPackages {
   install(rawSource, options = {}) {
     return this.enqueueMutation(async signal => {
       ensurePiConfiguration(this.config);
-      const parsed = normalizePackageSource(rawSource, { project: this.config.project });
+      const parsed = normalizePackageSource(rawSource, { project: this.config.project || this.config.home });
       await this.invoke(['install', parsed.install, '--no-approve'], { signal });
       return { ...(await this.snapshot(signal)), action: 'install' };
     }, options);

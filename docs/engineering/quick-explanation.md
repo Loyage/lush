@@ -1,24 +1,26 @@
 # 快捷解释实施契约
 
-用户决定 #203：已选项目的所有 Lush 页面（含文档、设置、执行详情）选区右键提供「解释」；按项目保存配置与历史。首版仅复用现有 OpenAI 兼容 API Key 模型来源，不支持 Codex OAuth、不创建 Worker、不调用开发 Agent、不读取额外项目内容。全局未选项目不发起调用。
+用户决定 #203：已选项目的所有 Lush 页面（含文档、设置、执行详情）选区右键提供「解释」；配置支持设备默认及项目完整文档覆盖，历史与实际调用仍归项目（W116 / #261，见[设备设置](device-settings.md)）。首版仅复用现有 OpenAI 兼容 API Key 模型来源，不支持 Codex OAuth、不创建 Worker、不调用开发 Agent、不读取额外项目内容。全局未选项目不发起调用。
 
 ## 接口
 
 新用户专属 RPC（不恢复旧 `intro.*` / `explanation.*`）：
 
-- `quick_explain.config {}` → `{version:1,connection_id:string|null,model:string,prompt:string,default_prompt:string,ready:boolean,reason:string|null}`。model 是物理模型 ID，不带 provider 前缀。ready 仅代表本地配置就绪，不代表联网可用。
-- `quick_explain.configure {config:{connection_id?,model?,prompt?}}` → 同一配置读面。部分更新，null 清除来源/模型，prompt null 或空恢复默认。校验来源存在、enabled、API Key、受支持 Chat Completions 协议及模型范围；不联网、不更改 Agent 默认。
+- `quick_explain.config {scope?}` → `{version:1,connection_id:string|null,model:string,prompt:string,default_prompt:string,ready:boolean,reason:string|null}`。model 是物理模型 ID，不带 provider 前缀。ready 仅代表本地配置就绪，不代表联网可用。
+- `quick_explain.configure {config:{connection_id?,model?,prompt?},scope?}` → 同一配置读面。部分更新，null 清除来源/模型，prompt null 或空恢复默认。校验来源存在、enabled、API Key、受支持 Chat Completions 协议及模型范围；不联网、不更改 Agent 默认。
 - `quick_explain.start {quote,location?}` → 一条解释记录。quote 1–8192 字，location 复用引用 location 白名单；只发送所选文字和页面位置，不读关联文件或步骤。
 - `quick_explain.followup {id,question}` → 追加一轮追问后的完整解释详情（与 `get` 同形）。question 1–8192 字；仅对已 `completed` 且带 `source_snapshot` 的解释有效，运行中、失败或旧式无快照的解释拒绝且不落行。沿用原解释固定的来源、模型与 Prompt 快照，不静默切换。
 - `quick_explain.get {id}` → `{id,status,quote,location,result,error,model,source:{connection_id,label,provider,endpoint}|null,prompt:string|null,followups:[{id,question,answer,status,error,truncated,created_at,updated_at}],created_at,updated_at}`。status running/completed/failed；历史来源不可用时显示未知。不返回密钥、原始请求/响应或私人网络设置。
 - `quick_explain.list {before?,limit?}` → `{explanations:[记录摘要],has_more,next}`。项目全历史，默认 30、最多 50，按 id 降序；摘要 quote 最多 180 字、不返回结果正文和完整 prompt，用户点击 get 阅读。历史旧 introduction 可以只读展示，来源/prompt 未知，不改写旧记录。
 - `quick_explain.delete {id}` → `{removed:id}`。永久删除一条解释历史记录及其全部追问轮次（含同页列出的旧式 introduction 行）；解释或任一追问仍在进行时拒绝删除，模型来源配置、Prompt 与其他记录不变。删除是用户确认后的破坏性动作，不随配置或重启自动发生。
 
+配置读面附 `configuration_scope`；scope 省略保持 project，device 忽略项目覆盖，无项目 Host 只能读写共享配置，不能调用或读取项目历史。配置 GET 可加 `?scope=device|project`；历史与调用不接收 scope。
+
 HTTP GET `/api/quick-explain/config`、`/api/quick-explain/history?before=&limit=`、`/api/quick-explain/<id>`；configure/start/delete 统一 POST `/api/action`。全部沿用项目路由前缀、认证、Origin、no-store 和用户权限。不得恢复旧公开解释 Agent 入口。
 
 ## 后台与安全
 
-新增 `src/core/quick-explanation.js` 项目私有配置（0600 原子写）；新增 `src/core/project/quick-explanation.js` 方法对象，Project 方法 `quickExplanationConfig()`、`configureQuickExplanation(config)`、`startQuickExplanation(quote,location)`、`followUpQuickExplanation(id,question)`、`quickExplanation(id)`、`quickExplanations(before,limit)`。
+`src/core/quick-explanation.js` 的配置文件在明确选择的设备/项目根（0600 原子写），纯 read/preview/save 不混入 metadata，Project/Host 单独投影；新增 `src/core/project/quick-explanation.js` 方法对象，Project 方法 `quickExplanationConfig()`、`configureQuickExplanation(config)`、`startQuickExplanation(quote,location)`、`followUpQuickExplanation(id,question)`、`quickExplanation(id)`、`quickExplanations(before,limit)`。
 
 追问轮次存于新表 `explanation_followups`（`introduction_id`、`question`、`answer`、`status`、`error`、可空 `context_truncated`），随原解释一起删除；`recover` 把中断的在途追问如实标成失败，不重放、不丢问题。每次追问只带原选区、原解释、已完成的历史问答与新问题，按新到旧装入 128KB 字节预算，超出时从最早的追问开始丢弃并在该轮标记 `context_truncated`；在途追问与原解释共用最多 4 次并发与同一 `introRunning` 追踪。
 
@@ -26,7 +28,7 @@ HTTP GET `/api/quick-explain/config`、`/api/quick-explain/history?before=&limit
 
 ## 前端
 
-独立 `#quick-explain` 页面，导航「快捷解释」，集中配置和项目历史；来源选择只展示适用 API Key 来源，模型来自其限制/本地目录，也允许合法物理 ID 手输（服务端验证），来源改变不偷偷挑模型。Prompt 默认可编辑/恢复。保存不发模型请求；刷新历史不调用模型。
+独立 `#quick-explain` 页面，导航「快捷解释」，默认设备配置与可选项目覆盖、项目历史分开；来源选择只展示适用 API Key 来源，模型来自其限制/本地目录，也允许合法物理 ID 手输（服务端验证），来源改变不偷偷挑模型。Prompt 默认可编辑/恢复。保存不发模型请求；刷新历史不调用模型。
 
 任意有效选区菜单「解释」使用 `agent-call` + `modelHelp()`，旁侧展示结果，保留原位置；全文执行 dialog 中挂到 dialog 内，关闭只停止客户端轮询、不取消后台。Esc/boot 清理，迟到响应和轮询不覆盖新页面/选区；未就绪给配置页入口。菜单的引用行为保持不变，无选区不自动把整块文字送模型。超长选区不得静默截断发起，应明确提示。
 

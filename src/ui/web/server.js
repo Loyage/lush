@@ -8,6 +8,8 @@ import { docsIndex, docsSearchIndex, readDoc } from './docs.js';
 import { previewResponse } from './notice-preview.js';
 import { check, id, isPlainObject } from '../../core/types.js';
 import { restartProjectDaemon } from '../../host/service-control.js';
+import { DeviceSettingsService, DEVICE_SETTINGS_READS, DEVICE_SETTINGS_ACTIONS } from '../../host/device-settings.js';
+import { normalizeConfigurationScope } from '../../core/device-config.js';
 const ASSETS = fileURLToPath(new URL('./assets/', import.meta.url));
 const AUTH_FILE = 'web.json';
 const SESSION_COOKIE = 'lush_session';
@@ -26,10 +28,10 @@ function assetFile(pathname) {
   if (!ASSET_NAME.test(name) || !ASSET_EXTENSIONS.has(path.extname(name))) return null;
   return path.join(ASSETS, name);
 }
-const MUTATIONS = new Set(['quick_explain.configure','quick_explain.start','quick_explain.followup','quick_explain.delete','agent.network.configure','agent.configure','agent.environment.configure','agent.usage.configure','agent.connections.save','agent.connections.remove','agent.connections.sampling','agent.connections.query','agent.connections.models.refresh','agent.connections.login.start','agent.connections.login.finish','agent.connections.device.start','agent.connections.device.poll','agent.connections.device.cancel','agent.packages.install','agent.packages.remove','agent.packages.update','system.configure','hooks.save','hooks.remove','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove','order.submit','draft.add','draft.update','draft.remove','worker.spawn','worker.message','worker.auto_merge','worker.reserve','worker.reserve_all','worker.resolve','worker.accept','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.resolve_divergence','worker.unreserve','worker.approve_merge','worker.cancel','worker.retry','worker.clear_override','worker.interrupt','worker.resume','worker.configure','worker.cleanup','worker.delete','notice.answer','notice.dismiss','notice.read','branch.archive']);
+const MUTATIONS = new Set(['settings.clear_override','settings.migration.apply','quick_explain.configure','quick_explain.start','quick_explain.followup','quick_explain.delete','agent.network.configure','agent.configure','agent.environment.configure','agent.usage.configure','agent.connections.save','agent.connections.remove','agent.connections.sampling','agent.connections.query','agent.connections.models.refresh','agent.connections.login.start','agent.connections.login.finish','agent.connections.device.start','agent.connections.device.poll','agent.connections.device.cancel','agent.packages.install','agent.packages.remove','agent.packages.update','system.configure','hooks.save','hooks.remove','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove','order.submit','draft.add','draft.update','draft.remove','worker.spawn','worker.message','worker.auto_merge','worker.reserve','worker.reserve_all','worker.resolve','worker.accept','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.resolve_divergence','worker.unreserve','worker.approve_merge','worker.cancel','worker.retry','worker.clear_override','worker.interrupt','worker.resume','worker.configure','worker.cleanup','worker.delete','notice.answer','notice.dismiss','notice.read','branch.archive']);
 const CORE_INPUT_READ = /^\/api\/input\/(draft|input)\/([1-9]\d*)$/;
 const CORE_QUICK_EXPLAIN_READ = /^\/api\/quick-explain\/[1-9]\d*$/;
-const CORE_READS = new Set(['/api/quick-explain/config','/api/quick-explain/history','/api/hooks','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/notices','/api/worker-graph','/api/versions','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
+const CORE_READS = new Set(['/api/settings/runtime','/api/settings/migration','/api/quick-explain/config','/api/quick-explain/history','/api/hooks','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/notices','/api/worker-graph','/api/versions','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
 const CORE_WORKER_READ = /^\/api\/worker\/\d+(?:\/(?:hooks|history|history-page|delete-preview|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的 Worker 读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/worker\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
@@ -153,6 +155,19 @@ function originAllowed(request, url, origins) {
 }
 
 
+function settingQuery(url, keys = [], host = false) {
+  const params = {};
+  for (const [key, value] of url.searchParams) {
+    check([...keys, 'scope'].includes(key) && !Object.hasOwn(params, key), 'unknown or duplicate settings query parameter');
+    params[key] = value;
+  }
+  if (Object.hasOwn(params, 'scope')) normalizeConfigurationScope(params.scope);
+  check(!host || params.scope === undefined || params.scope === 'device', 'Host settings only accept device scope');
+  return host ? { ...params, scope: 'device' } : params;
+}
+const PROJECT_SETTINGS_READS = new Map([...DEVICE_SETTINGS_READS].map(([suffix, spec]) =>
+  [suffix === 'runtime' ? '/api/settings/runtime' : `/api/${suffix}`, spec]));
+
 export function startWeb(config, port = 4318, options = {}) {
   check(Number.isInteger(port) && port >= 0 && port <= 65535, 'invalid web port');
   const env = options.env || config?.env || process.env;
@@ -163,6 +178,8 @@ export function startWeb(config, port = 4318, options = {}) {
   const sessions = new Map();
   const failures = new Map();
   let hostRestarting = false;
+  let deviceSettings = null;
+  const getDeviceSettings = () => deviceSettings ||= options.deviceSettingsService || new DeviceSettingsService(env, options.deviceSettingsOptions);
   const emptyJson = async request => {
     check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');
     const body = await request.json();
@@ -233,6 +250,20 @@ export function startWeb(config, port = 4318, options = {}) {
 
       try {
         // ---- 宿主级路由：启动器等不属于任何项目的接口先于项目路由匹配 ----
+        if (request.method === 'GET' && url.pathname.startsWith('/api/host/settings/')) {
+          const suffix = url.pathname.slice('/api/host/settings/'.length), spec = DEVICE_SETTINGS_READS.get(suffix);
+          if (!spec) return json({ error: 'not found' }, 404);
+          return json(await getDeviceSettings().request(spec[0], settingQuery(url, spec[1], true)));
+        }
+        if (request.method === 'POST' && url.pathname === '/api/host/settings/action') {
+          check(!url.search, 'settings action accepts no query parameters');
+          check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');
+          const body = await request.json();
+          check(isPlainObject(body) && Object.keys(body).every(key => ['method', 'params'].includes(key))
+            && DEVICE_SETTINGS_ACTIONS.has(body.method), 'method not allowed from Host settings');
+          check(isPlainObject(body.params) && !Object.hasOwn(body.params, '_token'), 'settings params required; agent tokens are not accepted');
+          return json(await getDeviceSettings().request(body.method, body.params));
+        }
         if (request.method === 'GET' && url.pathname === '/api/host') return json({ ...await projectHost.status(),
           pid: process.pid, restart_supported: typeof options.restartHost === 'function', project_control: true });
         if (request.method === 'POST' && url.pathname === '/api/host/restart') {
@@ -289,6 +320,14 @@ export function startWeb(config, port = 4318, options = {}) {
           return json(await restartProjectDaemon(binding.config));
         }
         if (request.method === 'GET') {
+          if (url.pathname === '/api/settings/migration') {
+            check(!url.search, 'settings migration preview accepts no query parameters');
+            return json(await client.request('settings.migration.preview'));
+          }
+          const settingsRead = PROJECT_SETTINGS_READS.get(url.pathname);
+          if (settingsRead && (url.pathname === '/api/settings/runtime' || url.searchParams.has('scope'))) {
+            return json(await client.request(settingsRead[0], settingQuery(url, settingsRead[1])));
+          }
           if (url.pathname.startsWith('/api/') && !CORE_READS.has(url.pathname) && !CORE_WORKER_READ.test(url.pathname) && !CORE_INPUT_READ.test(url.pathname) && !CORE_NOTICE_PREVIEW.test(url.pathname) && !CORE_DOC_READ.test(url.pathname) && !CORE_QUICK_EXPLAIN_READ.test(url.pathname))
             return json({ error: 'not found' }, 404);
           if (url.pathname === '/api/sleep') return json(await client.request('sleep.status'));
@@ -505,6 +544,11 @@ export function startWeb(config, port = 4318, options = {}) {
       } catch (error) { return json({ error: error.message }, 400); }
     },
   });
+  const stop = server.stop.bind(server);
+  server.stop = async closeActiveConnections => {
+    const stopped = stop(closeActiveConnections);
+    await Promise.allSettled([stopped, deviceSettings?.stop()]);
+  };
   WEB_HOSTS.set(server, projectHost);
   if (auth) console.warn('[web] 公网 HTTP 监听已启用；直接通过 HTTP 访问会明文传输账号密码、会话和项目数据，存在窃听与篡改风险。建议由用户配置 HTTPS 反向代理或 SSH 端口转发；HTTP 不会因此被拒绝。');
   return server;

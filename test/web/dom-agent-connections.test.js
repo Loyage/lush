@@ -7,7 +7,7 @@ import { normalizeConnection } from '../../src/agent/connections-utils.js';
 import { validateRuntimeConnection } from '../../src/agent/connection-runtime.js';
 
 const world = makeWorld(), requests = [], actions = [];
-const json = value => ({ ok: true, status: 200, json: async () => value });
+const json = value => ({ ok: true, status: 200, json: async () => value?.connections ? { ...value, configuration_scope: { selected: 'device', source: 'device', project_override: false } } : value });
 const fail = error => ({ ok: false, status: 400, json: async () => ({ error }) });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const at = '2026-10-01T09:00:00.000Z';
@@ -26,7 +26,7 @@ const historyFixture = () => ({ version: 1, from: at, to: '2026-10-02T09:00:00.0
     points: [{ at, remaining: 12.5, total: null, used: null, used_percent: null, status: 'available', reset_at: null, error_code: null }] }] });
 let data = fixture(), intercept = null, current = true;
 const dom = installDom({ fetch: async (url, options) => {
-  url = String(url); requests.push({ url, options });
+  url = String(url); requests.push({ url, options }); url = url.replace(/[?&]scope=(device|project)$/, '');
   const custom = intercept?.(url, options); if (custom !== undefined && custom !== null) return custom;
   if (url === '/api/agent/connections') return json(structuredClone(data));
   if (url.startsWith('/api/agent/connections/history?')) return json(historyFixture());
@@ -535,7 +535,7 @@ test('模型来源为独立页面，重复打开保留草稿且只读取本地�
   ui.modelSourcesPage = null; await openModelSources();
   const detail = dom.node('detail'); expect(ui.view.id).toBe('model-sources');
   expect(dom.location.hash).toBe('#model-sources');
-  expect(requests.map(entry => entry.url)).toEqual(['/api/agent/connections']);
+  expect(requests.map(entry => entry.url)).toEqual(['/api/agent/connections?scope=device']);
   await btn(detail, '添加连接').onclick();
   const input = field(detail, 'label'); change(input, '切页未保存'); await openModelSources();
   expect(field(detail, 'label')).toBe(input); expect(input.value).toBe('切页未保存'); expect(requests).toHaveLength(1);

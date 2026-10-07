@@ -2,6 +2,8 @@
 
 用户决定 #157：账号/API、扩展与 Skills 在当前项目统一管理；用户创建 Worker 时可选编辑运行设置，未修改用项目默认，Agent 派生 Worker 自动继承；直接分阶段实施。此章在涉及 Pi 配置模式的范围内优先于 #154 的“所有调用只能使用托管来源”，其余凭证隔离规则不变。
 
+W116 / #261 增加[设备共享设置](device-settings.md)：Worker 显式覆盖 → 项目文档覆盖 → 设备默认。下文原项目安装边界扩展为显式 device/project 存储根，旧本地库保留，不物理搬迁；外部 Pi 认证仍不复制，历史/消费者仍项目隔离。Web 默认 device，既有 CLI/RPC 省略 scope 仍 project。
+
 ## 三层配置
 
 1. 模型来源：一个账号/Key 一个稳定 connection ID；同服务商多个账号独立凭证、模型可见范围和额度。沿用连接文件及额度历史，不迁移外部 Pi 凭证。
@@ -34,7 +36,7 @@ Lush 模式必须选择托管来源，继续使用私有调用快照，只有本
 
 新增 `agent sources list|show ID|save --file PATH|remove ID|refresh [ID]|models ID [--refresh]|login ID`，登录可提供设备 start/poll/cancel 和回调备用，凭证通过私有输入文件（不放命令行明文），所有输出安全且支持全局 --json。`agent resources` 返回共享模型选择的连接/额度/模型读面（不是已安装资源列表），只读本地。
 
-新增 `agent packages list|install SOURCE|remove ID|update ID` 与 USER_ONLY `agent.packages.list/install/remove/update`。安装位置为项目私有 Lush Pi 目录，不改用户默认 Pi。资源读面列出安装来源、固定版本、扩展与 Skills 的稳定绝对路径，Worker/profile 沿用现有 extensions/skills 显式路径。安装与更新不得自动启用或启动模型，受控子进程有界、可取消，测试注入假安装器，不访问真实 npm/账号。初版允许固定版本 npm、固定 commit/tag git、显式本地路径；未固定远端来源拒绝并指导，不能隐式升级。安装失败保留可恢复事实，不将部分成功冒充成功；秘密和任意 subprocess stderr 不进入 RPC。
+新增 `agent packages list|install SOURCE|remove ID|update ID` 与 USER_ONLY `agent.packages.list/install/remove/update`。安装位置为所选作用域的私有 Lush Pi 目录，不改用户默认 Pi；显式 --scope device 安装共享库。资源读面列出安装来源、固定版本、扩展与 Skills 的稳定绝对路径，Worker/profile 沿用现有 extensions/skills 显式路径。安装与更新不得自动启用或启动模型，受控子进程有界、可取消，测试注入假安装器，不访问真实 npm/账号。初版允许固定版本 npm、固定 commit/tag git、显式本地路径；未固定远端来源拒绝并指导，不能隐式升级。安装失败保留可恢复事实，不将部分成功冒充成功；秘密和任意 subprocess stderr 不进入 RPC。
 
 ## Web
 
@@ -46,7 +48,7 @@ Agent 配置、Worker 完整 profile 编辑以及用户 order 发射设置最先
 
 ## 项目扩展与 Skills 安装管理（实现契约）
 
-后端位于 `src/agent/packages.js` 与 `src/core/project/agent-packages.js`。所有读写只针对项目私有的 `<home>/pi/`（`PI_CODING_AGENT_DIR`），从不改用户默认 Pi 的声明或凭证。
+后端位于 `src/agent/packages.js` 与 `src/core/project/agent-packages.js`。所有读写只针对明确所选根的 `<home>/pi/`（device 为 deviceHome，project 为原 home；`PI_CODING_AGENT_DIR`），从不改用户默认 Pi 的声明或凭证。
 
 ### 来源
 
@@ -61,7 +63,7 @@ Agent 配置、Worker 完整 profile 编辑以及用户 order 发射设置最先
 - `AgentPackages` 用有界串行队列执行安装/移除/更新，同一时刻最多一个变更，排队超过上限直接拒绝；`stop()` 后封闭新调用（读也一样），中止在途子进程并取消已排队任务，迟到任务不会再启动。
 - 子进程不经过 shell；stdout 有界，stderr 不采集也不返回，任何 npm/git 诊断、代理认证或 provider 凭证都不会进入 RPC 结果或事件。
 - 超时、取消、输出超限、进程不可用映射为固定安全错误码（`timeout` / `cancelled` / `output_too_large` / `unavailable` / `failed`），失败不写声明，不冒充成功。
-- 环境是项目私有 `PI_CODING_AGENT_DIR`、`PI_OFFLINE` 关闭（安装/更新需要网络）、`PI_PACKAGE_DIR` 等所有 `PI_*` 被清掉以防重定向安装根，provider 凭证变量被剔除，网络走项目出站策略；子进程为独立进程组，超时/取消时整组结束。
+- 环境是项目私有 `PI_CODING_AGENT_DIR`、`PI_OFFLINE` 关闭（安装/更新需要网络）、`PI_PACKAGE_DIR` 等所有 `PI_*` 被清掉以防重定向安装根，provider 凭证变量被剔除，网络走所选作用域出站策略（device 不读项目覆盖）；子进程为独立进程组，超时/取消时整组结束。
 - 项目 shutdown 时中止所有在途安装；不启动 Agent、不探测模型。
 
 ### 读模型
@@ -96,6 +98,6 @@ Agent 配置、Worker 完整 profile 编辑以及用户 order 发射设置最先
 
 ### RPC / HTTP / CLI
 
-USER_ONLY：`agent.packages.list {}` / `agent.packages.install {source}` / `agent.packages.remove {id}` / `agent.packages.update {id}`；HTTP `GET /api/agent/packages` 只读，其余走 `/api/action`。
+USER_ONLY：`agent.packages.list {scope?}` / `agent.packages.install {source,scope?}` / `agent.packages.remove {id,scope?}` / `agent.packages.update {id,scope?}`；HTTP `GET /api/agent/packages` 只读，其余走 `/api/action`。
 
 CLI：`lush agent packages list|install SOURCE|remove ID|update ID`，全局 `--json` 输出上述读模型。`update` 只对带显式 ref/精确版本的来源生效；固定的 npm 精确版本不会移动，git 的 tag/commit 通常不移动，但 **branch ref 可能跟随远端移动**。未写 ref 的远端来源直接拒绝，避免隐式升级。CLI 处理器为 `src/cli/commands/agent-packages.js` 的 `runPackages(args, client)`，由 `agent` 命令父模块接入，本文件不修改父接入。

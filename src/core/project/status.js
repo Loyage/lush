@@ -6,6 +6,7 @@ const TERMINAL = new Set(['completed', 'failed', 'cancelled']);
 
 /** Shared status projection. Its task aggregates are served by covering indexes, never task rows. */
 function statusView(project, agentConfig = null) {
+  project.refreshRuntimeConfiguration();
   const layers = project.store.all('SELECT layer,status,count FROM overview_task_counts WHERE count>0 ORDER BY layer,status');
   const tasks = layers.filter(row => row.layer === 'work').map(({ status, count }) => ({ status, count }));
   const alive = layers.filter(row => !TERMINAL.has(row.status)).reduce((sum, row) => sum + row.count, 0);

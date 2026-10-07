@@ -50,13 +50,16 @@ lush [--project PATH] [--json] <command>
   agent sources list|show ID|refresh [ID]|models ID [--refresh]  来源、额度与缓存模型目录
   agent sources save --file PATH|remove ID|login ID  托管连接管理与显式登录
   agent resources                          本地来源/模型/额度安全 JSON 读面（不联网）
-  agent packages list|install SOURCE|remove ID|update ID  项目插件/Skills安装（不自动启用）
+  agent packages list|install SOURCE|remove ID|update ID  插件/Skills安装（不自动启用，可选 --scope device）
   agent set TARGET --config-mode lush|pi    默认 Lush 托管；显式 Pi 默认不混入托管设置
   agent network show                       读取项目出站代理设置（认证不回显）
   agent network set --file PATH             从私有 JSON 文件保存代理，不在参数中填写密码
   agent network reset                      恢复继承后台启动环境，后续请求与 Agent 生效
   agent set TARGET --connection UUID|off --model PROVIDER/MODEL  显式选择 Pi 账号连接（不自动路由）
   config show|set|reset              设置并发和调用限额（worker-call-limit 为单 Worker 调用上限）
+  config migrate                    预检当前项目设置迁移到设备共享；不改文件
+  config migrate --confirm --revision REV  按预检确认迁移，并保留私有备份
+  config ... / agent ... --scope device|project  选择设置层（省略保留项目兼容；Web 默认设备共享）
 
 Worker ID 可用原整数或稳定编号 W5 / W5-1；编号由 daemon 解析，不是整数 ID。
 新输入按现有序列显示 O5，对应新指令 W5；派生子 Worker 为 W5-1，历史 Worker 编号不改。

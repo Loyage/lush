@@ -23,15 +23,16 @@ const { renderSettings } = await import('../../src/ui/web/assets/render-settings
 afterAll(() => dom.restore());
 const panel = () => dom.node('detail');
 const checkbox = () => panel().querySelector('input[data-runtime-input="progress_reporting"]');
-const openSettings = () => {
-  dom.node('settings-open').onclick();
-  panel().querySelector('button[data-settings-tab="system"]').onclick();
+const openSettings = async () => {
+  await dom.node('settings-open').onclick();
+  await panel().querySelector('button[data-settings-tab="system"]').onclick();
+  const scope = panel().querySelector('select[data-settings-scope=""]'); scope.value = 'project'; await scope.onchange();
 };
 
 test('system switch persists on/off, hides all progress UI including running placeholders, and restores it', async () => {
-  await boot(); openSettings();
+  await boot(); await openSettings();
   expect(checkbox().checked).toBe(true);
-  expect(deepText(panel())).toContain('默认开启，作用于当前项目');
+  expect(deepText(panel())).toContain('仅改变当前项目');
   const progress = { items: [
     { key: 'inspect', label: '检查进度', status: 'completed', duration_ms: 1000 },
     { key: 'implement', label: '实现进度', status: 'pending', started_at: new Date().toISOString() },
@@ -39,7 +40,7 @@ test('system switch persists on/off, hides all progress UI including running pla
   expect(renderCompactProgress(progress)).not.toBeNull();
   expect(renderTaskProgress(progress)).not.toBeNull();
   checkbox().checked = false; await checkbox().onchange();
-  expect(world.state.actions.at(-1)).toMatchObject({ method: 'system.configure', params: { settings: { progress_reporting: false } } });
+  expect(world.state.actions.at(-1)).toMatchObject({ method: 'system.configure', params: { scope: 'project', settings: { progress_reporting: false } } });
   expect(checkbox().checked).toBe(false);
   expect(ui.lastSnapshot.status.settings.progress_reporting.value).toBe(false);
   expect(renderCompactProgress(progress)).toBeNull();
@@ -53,7 +54,7 @@ test('system switch persists on/off, hides all progress UI including running pla
     expect(panel().querySelector('.graph-task-progress')).toBeNull();
     expect(deepText(panel())).not.toMatch(/实现进度开关|等待 Agent 汇报计划|1\/2/);
   }
-  openSettings(); checkbox().checked = true; await checkbox().onchange();
+  await openSettings(); checkbox().checked = true; await checkbox().onchange();
   expect(world.state.runtimeSettings.progress_reporting.value).toBe(true);
   expect(checkbox().checked).toBe(true);
   expect(renderCompactProgress(progress)).not.toBeNull();
@@ -74,7 +75,7 @@ test('system switch persists on/off, hides all progress UI including running pla
 });
 
 test('failed saving rolls the checkbox back without changing effective settings', async () => {
-  openSettings();
+  await openSettings();
   renderSettings();
   const input = checkbox(); input.checked = false;
   failSave = true;

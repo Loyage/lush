@@ -22,6 +22,12 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 - `POST /api/host/remove`：仅全局模式可用，JSON `{id}` 只从列表移除入口并断开这个 Web 连接，**不停止 daemon**；停止走上述独立入口。
 - `GET /api/docs`、`GET /api/docs/search-index`、`GET /api/docs/<id>`：「文档」视图的目录、搜索索引与 Markdown 正文，读的是随这份代码发布的 `docs/**/*.md` 与 `README.md`（`src/ui/web/docs.js`），与当前项目目录无关。搜索索引只在用户第一次搜索时返回标题、小节、正文、普通代码与低权重 Mermaid 字段，匹配和排序在浏览器完成。id 由相对路径推出，只按已扫出的表命中，请求里的路径片段不进文件系统；未命中返回 404。
 
+## 设备共享设置路由
+
+`GET /api/host/settings/<suffix>` 与 `POST /api/host/settings/action` 是已登录用户专属的窄设置入口，无项目前缀、仅 device scope；不接受 Worker/模型调用/历史/迁移/项目路径/token。允许的设置读 suffix、动作和安全投影以[设备设置契约](../engineering/device-settings.md)为准；Host 不为管理配置启动 daemon，也不构造伪项目。
+
+项目范围新增 `GET /api/settings/runtime?scope=device|project`、`GET /api/settings/migration`。配置/来源/安装库的现有读面可显式携带 scope，动作在 params 给 scope；默认 project 保持兼容。`settings.clear_override` 与 `settings.migration.apply {revision,confirm:true}` 经原 POST action，迁移只作用于路由绑定的当前项目，历史路由不接受 scope。设备与项目仍复用登录、Origin、JSON 与 no-store 边界。
+
 ## 服务器访问边界
 
 Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理路由。用户自行在服务器运行 Host，并配置 SSH 转发、IP/端口或域名后由浏览器直接访问，见[远程 Host](../deployment/remote-host.md)。项目仍使用该 Host 的 `/p/<project-id>/` 身份。

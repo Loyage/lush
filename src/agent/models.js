@@ -1,16 +1,19 @@
 import cp from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { check } from '../core/types.js';
 import { AGENT_BACKENDS, MODEL_PRESETS } from './settings.js';
 import { agentNetworkEnvironment, redactNetworkText } from './network.js';
 import { discoverPiModelMetadata } from './status.js';
+import { piConfigDirectory } from './pi-config.js';
+import { normalizeConfigurationScope, scopedConfiguration, configurationScope } from '../core/device-config.js';
 
 const MAX_OUTPUT = 2 * 1024 * 1024;
 const TIMEOUT_MS = 15_000;
 
-function commandOutput(command, args, env) {
+function commandOutput(command, args, env, cwd) {
   return new Promise((resolve, reject) => {
-    const child = cp.spawn(command, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = cp.spawn(command, args, { env, cwd, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '', stderr = '', settled = false;
     const finish = (error, value) => {
       if (settled) return;
@@ -56,16 +59,30 @@ function fallback(agent, error) {
     warning: `无法读取 ${agent === 'pi' ? 'Lush Pi 本地' : `${agent} CLI`}模型目录，暂时显示内置预设：${String(error?.message || error).slice(0, 500)}` };
 }
 
+function hasLocalModelFile(config) {
+  const file = path.join(piConfigDirectory(config), 'models.json');
+  try { fs.lstatSync(file); return true; } catch (error) { if (error.code === 'ENOENT') return false; throw error; }
+}
+
 /** Pi uses an auth-free, offline SDK probe; Codex keeps its local CLI catalog. Raw diagnostics never leave this module. */
-export async function discoverAgentModels(config, agent) {
+export async function discoverAgentModels(config, agent, scope = 'project') {
   check(AGENT_BACKENDS.includes(agent), 'agent must be pi or codex');
-  let env;
+  normalizeConfigurationScope(scope);
+  const selected = scope === 'device' ? scopedConfiguration(config, scope) : config;
+  let env, view;
   try {
-    env = agentNetworkEnvironment(config);
-    if (agent === 'pi') return await discoverPiModelMetadata(config);
-    const command = config.env.LUSH_CODEX_COMMAND || 'codex';
-    const models = codexModels(await commandOutput(command, ['debug', 'models'], env));
-    check(models.length > 0, 'codex returned an empty model catalog');
-    return { agent, source: 'cli', models, warning: null };
-  } catch (error) { return fallback(agent, new Error(redactNetworkText(env || {}, String(error?.message || error)))); }
+    env = agentNetworkEnvironment(selected);
+    if (agent === 'pi') {
+      // A local custom catalog keeps precedence; an absent one can reuse the shared baseline.
+      const metadataConfig = scope === 'project' && config.deviceHome && !hasLocalModelFile(config)
+        ? scopedConfiguration(config, 'device') : selected;
+      view = await discoverPiModelMetadata(metadataConfig);
+    } else {
+      const command = selected.env.LUSH_CODEX_COMMAND || 'codex';
+      const models = codexModels(await commandOutput(command, ['debug', 'models'], env, scope === 'device' ? selected.home : selected.project || selected.home));
+      check(models.length > 0, 'codex returned an empty model catalog');
+      view = { agent, source: 'cli', models, warning: null };
+    }
+  } catch (error) { view = fallback(agent, new Error(redactNetworkText(env || {}, String(error?.message || error)))); }
+  return { ...view, ...(config.deviceHome ? { configuration_scope: configurationScope(config, scope, scope === 'device' ? 'device' : 'mixed') } : {}) };
 }

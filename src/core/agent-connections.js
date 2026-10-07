@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { networkSnapshot } from '../agent/network.js';
 import { check, LushError } from './types.js';
+import { normalizeConfigurationScope, configurationScope } from './device-config.js';
 import { normalizeCatalog } from '../agent/connections-catalog.js';
 import { safeText as connectionText } from '../agent/connections-utils.js';
 import { THINKING_LEVELS } from '../agent/settings.js';
@@ -49,6 +50,7 @@ function publicConnection(connection) {
   return { id: connection.id, label: safeText(connection.label, 256) || connection.provider, provider: connection.provider,
     endpoint: url.href, auth_type: connection.auth_type, enabled: connection.enabled === true,
     models, default_model, default_thinking, notify_reset: connection.notify_reset === true,
+    ...(['project', 'device'].includes(connection.storage_scope) ? { storage_scope: connection.storage_scope } : {}),
     credential: { status, identity: safeText(connection.credential?.identity, 120),
       expires_at: typeof expires === 'string' && Number.isFinite(Date.parse(expires)) ? new Date(expires).toISOString() : null } };
 }
@@ -63,6 +65,10 @@ function sampling(value) {
 export class AgentConnectionsService {
   constructor(project, options = {}) {
     this.project = project; this.store = project.store;
+    this.scope = normalizeConfigurationScope(options.scope);
+    this.options = options;
+    this.scopedServices = options.scopedServices || new Map();
+    this.scopedServices.set(this.scope, this);
     // Loading is lazy: ordinary Worker/status operations do not read credential files or initialize auth.
     this.manager = options.manager || null; this.managerOptions = options.managerOptions || {};
     this.now = options.now || Date.now;
@@ -77,23 +83,53 @@ export class AgentConnectionsService {
     this.catalogDeferMs = Number.isFinite(options.catalogDeferMs) && options.catalogDeferMs > 0
       ? options.catalogDeferMs : 20000;
   }
+  forScope(scope = 'project') {
+    this.assertOpen(); normalizeConfigurationScope(scope);
+    if (!this.scopedServices.has(scope)) {
+      const manager = this.getManager();
+      check(typeof manager.forScope === 'function', 'scoped connection management is unavailable');
+      new AgentConnectionsService(this.project, { ...this.options, scope, manager: manager.forScope(scope),
+        scopedServices: this.scopedServices });
+    }
+    return this.scopedServices.get(scope);
+  }
+  isBusy() {
+    return [...this.scopedServices.values()].some(service => service.pending.size || service.active || service.waiters.length
+      || service.manager?.isBusy?.());
+  }
+  // Device management of a shadowed UUID must not invalidate this project's runtime/cache head.
+  // Observation history continues to use the actual connection UUID, never this internal state key.
+  stateId(id) {
+    if (this.scope === 'device') {
+      const manager = this.getManager();
+      try { if (manager.forScope('project').storageScope(id) === 'project') return `device-${id}`; }
+      catch { /* No local shadow. */ }
+    }
+    return id;
+  }
   getManager() {
     if (!this.manager) {
       const { ConnectionManager } = require('../agent/connections.js');
-      this.manager = new ConnectionManager(this.project.config, this.managerOptions);
+      this.manager = new ConnectionManager(this.project.config, { ...this.managerOptions, scope: this.scope });
     }
     return this.manager;
   }
   config() {
     try {
       const config = this.getManager().config();
-      check(config?.version === 1 && Array.isArray(config.connections) && config.connections.length <= 50, 'invalid connection configuration');
+      check(config?.version === 1 && Array.isArray(config.connections) && config.connections.length <= 100, 'invalid connection configuration');
       const connections = config.connections.map(publicConnection);
       check(new Set(connections.map(connection => connection.id)).size === connections.length, 'duplicate connection identity');
       const result = { version: 1, sampling: sampling(config.sampling), connections };
+      if (this.project.config.deviceHome) {
+        const meta = config.configuration_scope;
+        result.configuration_scope = configurationScope(this.project.config, this.scope,
+          ['device', 'project', 'default', 'mixed'].includes(meta?.source) ? meta.source : 'default', meta?.project_override === true);
+      }
       check(Buffer.byteLength(JSON.stringify(result)) <= 500000, 'connection configuration exceeds read budget');
+      if (this.scope === 'project' && this.started && this.samplingKey !== JSON.stringify(result.sampling)) this.schedule(result.sampling);
       return result;
-    } catch { throw failure(); }
+    } catch { if (this.scope === 'project') this.samplingKey = null; throw failure(); }
   }
   assertOpen() { check(!this.closed && !this.project.stopping, 'project is stopping'); }
   identity(id) {
@@ -111,8 +147,8 @@ export class AgentConnectionsService {
     const identity = this.identity(id);
     // Credential revision is intentionally not the persisted cache namespace:
     // ordinary OAuth refresh must not hide still-valid same-account observations.
-    const state = this.store.ensureAgentConnectionState(id,hash([fingerprint(connection),identity.account_key,identity.source_key]));
-    this.store.rememberAgentConnectionIdentity(id,state.revision,identity.account_key,identity.source_key);
+    const state = this.store.ensureAgentConnectionState(this.stateId(id),hash([fingerprint(connection),identity.account_key,identity.source_key]));
+    this.store.rememberAgentConnectionIdentity(state.connection_id,state.revision,identity.account_key,identity.source_key);
     return { connection, state: { ...state, account_key: identity.account_key, source_key: identity.source_key }, identity };
   }
   current(snapshot, allowRefresh = false) {
@@ -123,6 +159,11 @@ export class AgentConnectionsService {
     } catch { return false; }
   }
   prune(policy = this.config().sampling) {
+    // Device editing/querying does not shorten history governed by a legacy project override.
+    if (this.scope === 'device') {
+      try { policy = sampling(this.getManager().forScope('project').config().sampling); }
+      catch { return; } // Cannot prove the owning project's retention policy: keep its history.
+    }
     this.store.pruneAgentConnections(new Date(this.now() - policy.retention_days * 86400000).toISOString());
   }
   /** Read-only model catalog for one connection; local cache, no network, no model request. */
@@ -188,6 +229,7 @@ export class AgentConnectionsService {
    * service stay local-only, while a running daemon refreshes soon after an edit.
    */
   syncCatalog() {
+    if (this.scope !== 'project') { this.scopedServices.get('project')?.syncCatalog(); return; }
     if (typeof this.getManager().catalogRefresh !== 'function' || !this.started || this.closed || this.project.stopping) return;
     this.scheduleCatalog(this.catalogDeferMs);
   }
@@ -252,7 +294,7 @@ export class AgentConnectionsService {
     return this.operation('save agent connection', () => {
       const saved = publicConnection(this.getManager().save(connection,credential));
       const snapshot = this.snapshot(saved.id);
-      this.store.ensureAgentConnectionState(saved.id,snapshot.state.fingerprint,true);
+      this.store.ensureAgentConnectionState(snapshot.state.connection_id,snapshot.state.fingerprint,true);
       this.schedule(this.config().sampling);
       this.syncCatalog();
       return saved;
@@ -261,8 +303,9 @@ export class AgentConnectionsService {
   remove(id) {
     check(validConnectionId(id), 'invalid connection id');
     return this.operation('remove agent connection', () => {
+      const stateId = this.stateId(id);
       this.getManager().remove(id);
-      this.store.forgetAgentConnectionState(id);
+      this.store.forgetAgentConnectionState(stateId);
       for (const [key,binding] of this.bindings) if (binding.id === id) this.bindings.delete(key);
       for (const key of [...this.catalogFlights.keys()]) if (key.startsWith(`${id}:`)) this.catalogFlights.delete(key);
       this.schedule(this.config().sampling);
@@ -273,7 +316,15 @@ export class AgentConnectionsService {
     const policy = sampling(value);
     return this.operation('configure connection sampling', () => {
       const saved = sampling(this.getManager().configureSampling(policy));
-      this.prune(saved); this.schedule(saved); return saved;
+      this.prune(saved); this.schedule(saved);
+      if (this.scope !== 'project') {
+        const root = this.scopedServices.get('project');
+        if (root) {
+          try { const effective = root.config().sampling; if (!root.started) root.schedule(effective); }
+          catch { root.warning = '项目连接配置无法安全读取，共享采样设置已保存。'; }
+        }
+      }
+      return saved;
     });
   }
   async acquire() {
@@ -307,7 +358,7 @@ export class AgentConnectionsService {
         if (result.account_key !== currentIdentity.account_key || result.source_key !== currentIdentity.source_key) return;
         const observation = normalizeConnectionObservation(result.observation,new Date(this.now()).toISOString());
         this.prune();
-        this.store.rememberAgentConnectionIdentity(result.id,snapshot.state.revision,result.account_key,result.source_key);
+        this.store.rememberAgentConnectionIdentity(snapshot.state.connection_id,snapshot.state.revision,result.account_key,result.source_key);
         this.store.recordAgentConnectionObservation({ connection_id: result.id, revision: snapshot.state.revision,
           provider: snapshot.connection.provider, account_key: result.account_key, source_key: result.source_key,
           query_key: randomUUID(), observation });
@@ -348,7 +399,7 @@ export class AgentConnectionsService {
       check(result?.connection?.id === id && validConnectionHash(result.account_key) && validConnectionHash(result.source_key), 'invalid connection runtime identity');
       const currentIdentity = this.identity(id);
       check(result.account_key === currentIdentity.account_key && result.source_key === currentIdentity.source_key, 'connection identity changed during runtime preparation');
-      this.store.rememberAgentConnectionIdentity(id,snapshot.state.revision,result.account_key,result.source_key);
+      this.store.rememberAgentConnectionIdentity(snapshot.state.connection_id,snapshot.state.revision,result.account_key,result.source_key);
       this.bindings.set(identityKey(id,result.account_key,result.source_key), { id, provider: snapshot.connection.provider, revision: snapshot.state.revision });
       check(this.bindings.size <= 1000, 'too many prepared connection identities');
       return result; // INTERNAL ONLY: never registered with RPC or returned by a public view.
@@ -369,7 +420,7 @@ export class AgentConnectionsService {
         && current.identity.account_key === account_key && current.identity.source_key === source_key,
       'connection identity changed since runtime preparation');
       const revision = binding.revision;
-      this.store.rememberAgentConnectionIdentity(id,revision,account_key,source_key);
+      this.store.rememberAgentConnectionIdentity(current.state.connection_id,revision,account_key,source_key);
       const recorded = this.store.recordAgentConnectionObservation({ connection_id: id, revision, provider: binding.provider,
         account_key, source_key, query_key: hash([id,account_key,source_key,safe]), observation: safe });
       return { recorded };
@@ -436,17 +487,20 @@ export class AgentConnectionsService {
     return this.operation('complete connection login', async () => {
       const saved = publicConnection(await this.getManager().loginFinish(id,login_id,redirect_url));
       const snapshot = this.snapshot(saved.id);
-      this.store.ensureAgentConnectionState(saved.id,snapshot.state.fingerprint,true);
+      this.store.ensureAgentConnectionState(snapshot.state.connection_id,snapshot.state.fingerprint,true);
       this.syncCatalog();
       return saved;
     });
   }
   start() {
+    if (this.scope !== 'project') return; // Scoped editors do not add duplicate background samplers.
     this.started = true;
-    try { const config = this.config(); this.prune(config.sampling); this.schedule(config.sampling); this.scheduleCatalog(); }
+    try { const config = this.config(); this.prune(config.sampling); this.scheduleCatalog(); }
     catch { this.warning = '连接配置无法安全读取，后台采样未启用。'; }
   }
   schedule(policy) {
+    if (this.scope !== 'project') return;
+    this.samplingKey = JSON.stringify(policy);
     this.generation++;
     if (this.timer !== null) this.clearTimer(this.timer);
     this.timer = null;
@@ -466,6 +520,9 @@ export class AgentConnectionsService {
     this.timer?.unref?.();
   }
   async stop() {
+    await Promise.all([...this.scopedServices.values()].map(service => service._stopSelf()));
+  }
+  async _stopSelf() {
     this.closed = true; this.started = false; this.generation++; this.catalogGeneration++;
     if (this.timer !== null) this.clearTimer(this.timer);
     this.timer = null;

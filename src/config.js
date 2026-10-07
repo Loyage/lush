@@ -4,6 +4,7 @@ import os from 'node:os';
 import { createHash } from 'node:crypto';
 import { check } from './core/types.js';
 import { RuntimeSettings } from './core/settings.js';
+import { launcherStateDir } from './host/registry.js';
 
 export function discoverProject(cwd) {
   let current = fs.realpathSync(cwd);
@@ -37,6 +38,8 @@ export class Config {
     check(!env.LUSH_HOME || path.resolve(env.LUSH_HOME) === this.home,
       'LUSH_HOME is no longer independent: unset it and select a project with --project or LUSH_PROJECT');
     this.env = { ...env, LUSH_PROJECT: this.project, LUSH_HOME: this.home };
+    // Shared technical settings are separate from the immutable project state binding.
+    this.deviceHome = path.join(launcherStateDir(env), 'shared');
     this.provider = env.LUSH_PROVIDER || 'pi';
     check(['pi', 'codex', 'mock'].includes(this.provider), 'LUSH_PROVIDER must be pi, codex or mock');
     // Execution and control work have separate admission lanes: long workers can never starve new intent planning.
@@ -76,8 +79,16 @@ export class Config {
    * 运行时改写并发上限：校验并原子写盘，成功后同步内存里的生效值，再 kick 一次。
    * 调低并发不取消任何在跑任务——它们自然结束，pump() 只是不再准入新任务。
    */
-  configureRuntime(patch) {
-    const model = this.runtimeSettings.save(patch);
+  configureRuntime(patch, scope = 'project') {
+    const saved = this.runtimeSettings.save(patch, scope);
+    this.refreshRuntimeSettings();
+    this.kick();
+    return saved;
+  }
+
+  /** Re-read shared defaults before later admission; current invocation snapshots stay unchanged. */
+  refreshRuntimeSettings() {
+    const model = this.runtimeSettings.get();
     this.concurrency = model.concurrency.value;
     this.controlConcurrency = model.control_concurrency.value;
     this.timeout = model.call_timeout.value;
@@ -85,7 +96,6 @@ export class Config {
     this.maxDepth = model.max_depth.value;
     this.progressReporting = model.progress_reporting.value;
     this.inputRoutes = model.input_routes.value.map(route => ({ ...route }));
-    this.kick();
     return model;
   }
   prepare() {

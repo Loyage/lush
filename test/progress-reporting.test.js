@@ -14,11 +14,11 @@ test('progress reporting defaults on, validates booleans, persists false and res
   try {
     const config = new Config({ project: root, env: env() });
     expect(config.progressReporting).toBe(true);
-    expect(config.runtimeSettings.get().progress_reporting).toEqual({ value: true, default: true, overridden: false });
+    expect(config.runtimeSettings.get().progress_reporting).toEqual({ value: true, default: true, overridden: false, source: 'default' });
     expect(fs.existsSync(config.runtimeSettings.file)).toBe(false);
     config.configureRuntime({ progress_reporting: false });
     expect(config.progressReporting).toBe(false);
-    expect(config.runtimeSettings.get().progress_reporting).toEqual({ value: false, default: true, overridden: true });
+    expect(config.runtimeSettings.get().progress_reporting).toEqual({ value: false, default: true, overridden: true, source: 'project' });
     expect(new Config({ project: root, env: env() }).progressReporting).toBe(false);
     const before = fs.readFileSync(config.runtimeSettings.file, 'utf8');
     for (const value of [0, 1, 'false', [], {}]) {
@@ -28,7 +28,7 @@ test('progress reporting defaults on, validates booleans, persists false and res
     }
     config.configureRuntime({ progress_reporting: null });
     expect(config.progressReporting).toBe(true);
-    expect(config.runtimeSettings.get().progress_reporting).toEqual({ value: true, default: true, overridden: false });
+    expect(config.runtimeSettings.get().progress_reporting).toEqual({ value: true, default: true, overridden: false, source: 'default' });
     expect(JSON.parse(fs.readFileSync(config.runtimeSettings.file, 'utf8'))).toEqual({ version: 1 });
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

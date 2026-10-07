@@ -13,7 +13,7 @@ const CATALOG_STATES = { fresh: '缓存目录已更新', cached: '缓存目录�
  * 目录缺失或读取失败不影响手动列表；两者皆空时引导到来源页填写，不默默替换用户已选来源或模型。
  * 思考等级只按目录里确有证据的元数据返回；未知一律返回 null，由调用方保留原选项。
  */
-export function createAgentConnectionPicker({ backend, model, connectionId = '', ownsPage = () => true, onChange = () => {}, applyDefaultModelOnChange = false }) {
+export function createAgentConnectionPicker({ backend, model, connectionId = '', ownsPage = () => true, onChange = () => {}, applyDefaultModelOnChange = false, read = api, readLabel = '读取项目连接' }) {
   const node = el('div', undefined, 'agent-connection-binding');
   const connection = el('select'); connection.className = 'agent-select';
   const models = el('select'); models.className = 'model-catalog'; models.dataset.connectionModel = 'choice';
@@ -89,8 +89,8 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
     const manualNote = row?.models?.length ? '候选模型来自你在模型来源页填写的列表；未联网验证可用性。' : '';
     note.textContent = !pi ? '托管连接仅支持 Pi；Codex CLI 沿用原认证，切回 Pi 后保留连接选择。'
       : !value() ? 'Pi 必须选择 Lush 模型来源与明确模型才能启动；不会回退到用户 Pi 认证或默认模型。'
-      : !row ? '请读取项目连接以查看模型范围；当前连接与未保存模型保持不变。'
-      : `${row.label} · ${row.endpoint}。${manualNote}${emptyModels ? '暂无可选模型；请到此来源详情点击“编辑”，填写并保存“模型列表”，再读取项目连接；也可手填 provider/model。' : ''}${details || (row.models?.length ? '选择已保存模型或填写范围内的 provider/model。' : `填写 ${row.provider}/模型 ID（范围未限定）。`)}${details ? '' : '此列表未联网验证模型；'}停用或凭证不可用时不能启动。${row.provider === 'openai-compatible' ? '自定义兼容 API 的余额尚不支持查询，不代表余额为零。' : ''}`;
+      : !row ? `请${readLabel}以查看模型范围；当前连接与未保存模型保持不变。`
+      : `${row.label} · ${row.endpoint}。${manualNote}${emptyModels ? '暂无可选模型；请到此来源详情点击“编辑”，填写并保存“模型列表”，再读取来源；也可手填 provider/model。' : ''}${details || (row.models?.length ? '选择已保存模型或填写范围内的 provider/model。' : `填写 ${row.provider}/模型 ID（范围未限定）。`)}${details ? '' : '此列表未联网验证模型；'}停用或凭证不可用时不能启动。${row.provider === 'openai-compatible' ? '自定义兼容 API 的余额尚不支持查询，不代表余额为零。' : ''}`;
     if (pi && row && applyDefaultModelOnChange) {
       note.textContent += row.default_model
         ? ' 切换来源时自动填入来源默认模型；思考深度不变，保存前仍可修改。'
@@ -108,7 +108,7 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
     if (catalogs.has(row.id) || catalogPending.has(row.id)) return catalogPending.get(row.id);
     const pending = (async () => {
       try {
-        const data = await api(`/api/agent/connections/models?id=${encodeURIComponent(row.id)}`);
+        const data = await read(`/api/agent/connections/models?id=${encodeURIComponent(row.id)}`);
         if (data?.version === 1 && Array.isArray(data.models)) {
           catalogs.set(row.id, { status: data.status || 'cached', checked_at: data.checked_at || null, source: data.source || null,
             models: data.models, warning: data.warning || null });
@@ -124,15 +124,15 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
     catalogPending.set(row.id, pending);
     return pending;
   }
-  const help = '只读取当前项目的连接配置和本地模型目录缓存，不查询上游、不调用 Agent；不会覆盖当前模型或未保存的连接选择。';
+  const help = '只读取当前范围的模型来源配置和本地模型目录缓存，不查询上游、不调用 Agent；不会覆盖当前模型或未保存的连接选择。';
   const host = el('span', undefined, 'help-host'); host.setAttribute('data-help', help);
-  const loadButton = button('读取项目连接', load, 'ghost', { help }); loadButton.type = 'button'; host.append(loadButton);
+  const loadButton = button(readLabel, load, 'ghost', { help }); loadButton.type = 'button'; host.append(loadButton);
   async function load() {
     if (!ownsPage()) return;
     if (loading) return loading;
     loading = (async () => {
       try {
-        const data = await api('/api/agent/connections');
+        const data = await read('/api/agent/connections');
         if (!ownsPage()) return;
         if (data?.version !== 1 || !Array.isArray(data.connections)) throw new Error('invalid connections');
         entries.clear(); for (const row of data.connections) entries.set(row.id, row);
@@ -166,7 +166,7 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
     if (!id) return fail('请选择 Lush 模型来源；Pi 未选择来源时无法启动，不会回退用户 Pi 认证。');
     const row = entry(), selected = model.value.trim();
     if (!selected) return fail('请选择来源内模型；Pi 不能使用 CLI 默认模型。');
-    if (!row) return fail('请先读取项目连接，确认所选来源存在且凭证可用；当前草稿保留。');
+    if (!row) return fail(`请先${readLabel}，确认所选来源存在且凭证可用；当前草稿保留。`);
     // Expired managed Codex OAuth can be refreshed by the trusted runtime; unknown/missing keys cannot.
     const credentialReady = row.credential?.status === 'configured'
       || (row.provider === 'openai-codex' && row.auth_type === 'oauth' && row.credential?.status === 'expired');

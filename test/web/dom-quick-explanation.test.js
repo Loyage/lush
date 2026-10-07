@@ -14,10 +14,10 @@ const world = makeWorld(), calls = [];
 let intercept = null;
 const dom = installDom({ fetch: async (url, options = {}) => {
   calls.push({ url: String(url), options });
-  const value = intercept?.(String(url), options); return value || world.fetchImpl(url, options);
+  const value = intercept?.(String(url).replace(/\?scope=device$/, ''), options); return value || world.fetchImpl(url, options);
 } });
 const { boot } = await import('../../src/ui/web/assets/app.js');
-const json = value => ({ ok: true, status: 200, json: async () => value });
+const json = value => ({ ok: true, status: 200, json: async () => value && Object.hasOwn(value, 'ready') ? { ...value, configuration_scope: { selected: 'device', source: 'device', project_override: false } } : value });
 const ready = () => Object.assign(world.state.quickExplanationConfig, { connection_id: world.state.agentConnections.connections[0].id,
   model: 'fixture-model', ready: true, reason: null });
 const field = name => dom.node('detail').querySelector(`[data-quick-field="${name}"]`);
@@ -40,7 +40,7 @@ test('快捷解释独立导航和 hash 加载本地配置与全项目历史，�
   expect(dom.location.hash).toBe('#quick-explain'); expect(ui.view.id).toBe('quick-explain');
   expect(dom.node('quick-explain-open').getAttribute('aria-current')).toBe('page');
   expect(dom.node('view-title').textContent).toBe('快捷解释');
-  expect(calls.map(call => call.url)).toEqual(['/api/quick-explain/config', '/api/agent/connections', '/api/quick-explain/history?limit=30']);
+  expect(calls.map(call => call.url)).toEqual(['/api/quick-explain/config?scope=device', '/api/agent/connections?scope=device', '/api/quick-explain/history?limit=30']);
   expect(world.state.actions).toHaveLength(0); expect(deepText(dom.node('detail'))).toContain('还没有解释记录');
   activateDetailView({ view: 'overview' }); dom.location.hash = '#quick-explain'; await dom.fire('hashchange');
   expect(ui.view.id).toBe('quick-explain'); expect(field('prompt').value).toBe('请简洁解释所选文字。');
@@ -61,7 +61,7 @@ test('来源只显示受支持的启用 API Key，模型候选保持手输并保
   expect(deepText(dom.node('detail'))).toContain('当前模型不在来源范围内');
   field('model').value = 'vendor/model'; field('model').oninput(); field('prompt').value = '用英文详细解释'; field('prompt').oninput();
   await findByText(dom.node('detail'), '保存解释设置').onclick();
-  expect(world.state.actions).toEqual([{ method: 'quick_explain.configure', params: { config: { connection_id: 'other', model: 'vendor/model', prompt: '用英文详细解释' } } }]);
+  expect(world.state.actions).toEqual([{ method: 'quick_explain.configure', params: { scope: 'device', config: { connection_id: 'other', model: 'vendor/model', prompt: '用英文详细解释' } } }]);
   expect(deepText(dom.node('detail'))).toContain('没有发起模型调用');
   findByText(dom.node('detail'), '恢复默认 Prompt').onclick(); expect(field('prompt').value).toBe('请简洁解释所选文字。');
   expect(world.state.actions).toHaveLength(1);
@@ -203,10 +203,10 @@ test('running 读取计时器在关闭及 boot 清理；正文不变不重绘选
   } finally { closeQuickExplanationPanel(); globalThis.setTimeout = originalSet; globalThis.clearTimeout = originalClear; }
 });
 
-test('未选项目的全局工作台禁用快捷解释导航，不从菜单或调用读取项目 API', async () => {
+test('未选项目可管理快捷解释配置，但菜单或模型调用仍不读取项目 API', async () => {
   intercept = url => url === '/api/host' ? json({ mode: 'host', projects: [] }) : url === '/api/host/projects' ? json({ projects: [] }) : null;
   await boot(); calls.length = 0;
-  expect(dom.node('quick-explain-open').disabled).toBe(true);
+  expect(dom.node('quick-explain-open').disabled).toBe(false);
   const target = dom.document.createElement('p'); target.textContent = '全局文档'; dom.setSelection('选中文字');
   await dom.fire('contextmenu', { target, preventDefault() {} }); expect(findByText(dom.node('context-menu'), '解释')).toBeNull();
   await startQuickExplanation('选中文字', { view: 'docs' }); expect(deepText(panel())).toContain('请先打开'); expect(calls).toHaveLength(0);

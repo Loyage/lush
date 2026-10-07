@@ -2,7 +2,7 @@
 // Fixed source and licence: docs/third-party/agent-connections.md.
 import { randomUUID } from 'node:crypto';
 import { check } from '../core/types.js';
-import { digest, fail, object, secret, validId } from './connections-utils.js';
+import { fail, object, secret, validId } from './connections-utils.js';
 import { CODEX_CLIENT_ID, DEVICE_REDIRECT_URI, exchange } from './connections-oauth.js';
 
 const USER_CODE_URL = 'https://auth.openai.com/api/accounts/deviceauth/usercode';
@@ -26,7 +26,7 @@ export class ConnectionDeviceLogins {
     const m = this.manager; m._alive();
     if (this.sessions.get(loginId) !== session || session.controller.signal.aborted) fail('login_expired');
     if (session.expires <= m.now()) { this.discard(loginId, session); fail('login_expired'); }
-    if (digest(m._row(session.id)) !== session.revision) { this.discard(loginId, session); fail('auth_changed'); }
+    if (m._revision(m._row(session.id)) !== session.revision) { this.discard(loginId, session); fail('auth_changed'); }
   }
   request(session, url, init, options = {}) {
     return this.manager._request(url, init, { ...options, network: session.network, signal: session.controller.signal });
@@ -36,7 +36,7 @@ export class ConnectionDeviceLogins {
       const m = this.manager, row = m._row(id);
       check(row.auth_type === 'oauth' && row.provider === 'openai-codex', 'connection does not support device login');
       this.purge(); m._cancelLogins(id);
-      const loginId = randomUUID(), session = { id, revision: digest(row), expires: m.now() + LIFETIME,
+      const loginId = randomUUID(), session = { id, revision: m._revision(row), expires: m.now() + LIFETIME,
         status: 'starting', controller: new AbortController(), network: m.networkSnapshot() };
       this.sessions.set(loginId, session);
       try {
@@ -80,7 +80,7 @@ export class ConnectionDeviceLogins {
             (url, init) => this.request(session, url, init), this.manager.now, DEVICE_REDIRECT_URI);
           this.current(loginId, session);
           const row = this.manager._publish(id, session.revision, credential);
-          session.connection = this.view(row, this.manager.now()); session.revision = digest(row);
+          session.connection = this.view(row, this.manager.now()); session.revision = this.manager._revision(row);
           session.status = 'complete'; session.expires = this.manager.now() + COMPLETED_LIFETIME;
           delete session.deviceAuthId; delete session.userCode;
           return { id, login_id: loginId, status: 'complete', connection: session.connection };

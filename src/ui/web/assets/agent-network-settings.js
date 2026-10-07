@@ -1,7 +1,7 @@
 /** Project-scoped outbound policy editor; credentials live only in current inputs. */
 import { block, button, el } from './dom.js';
-import { api } from './api.js';
-import { projectBase } from './route.js';
+import { settingsClient, settingsClientFor } from './settings-api.js';
+import { scopeSummary, scopeImpact, scopeLabel, clearOverrideButton } from './settings-scope.js';
 
 const states = new Map();
 const modes = [['inherit', '继承后台启动环境'], ['direct', '明确直连'], ['proxy', '使用 HTTP(S) 代理']];
@@ -16,7 +16,8 @@ function projection(value) {
     || !value.no_proxy.every(entry => typeof entry === 'string' && entry.length <= 256 && !/[\x00-\x1f\x7f]/.test(entry))
     || typeof value.has_proxy_auth !== 'boolean') throw new Error();
   return { version: 1, mode: value.mode, proxy_url: value.proxy_url === null ? null : proxyOrigin(value.proxy_url),
-    no_proxy: [...value.no_proxy], has_proxy_auth: value.has_proxy_auth };
+    no_proxy: [...value.no_proxy], has_proxy_auth: value.has_proxy_auth,
+    configuration_scope: value.configuration_scope };
 }
 const unsupported = error => /^(?:not found|unknown method: agent\.network(?:\.configure)?|method not allowed from Web UI)$/.test(error?.message || '');
 function stateFor(scope) {
@@ -28,17 +29,18 @@ function stateFor(scope) {
 }
 
 /** Read only on explicit load. Non-secret drafts survive profile repaint, isolated by route. */
-export function renderNetworkSettings({ ownsPage = () => true } = {}) {
-  const scope = projectBase(), state = stateFor(scope), section = block('出站网络');
+export function renderNetworkSettings({ ownsPage = () => true, scope } = {}) {
+  const client = scope ? settingsClient(scope) : settingsClientFor(null), state = stateFor(client.key), section = block('出站网络');
   section.classList.add('agent-network-block');
-  const active = () => ownsPage() && projectBase() === scope;
+  const active = () => ownsPage() && client.isCurrent();
   let secretInputs = [];
   function paint(message = '', failed = false) {
     for (const input of secretInputs) input.value = '';
     secretInputs = [];
     const heading = el('div', undefined, 'section-title'); heading.append(el('h2', '出站网络'));
     section.replaceChildren(heading);
-    section.append(el('p', '项目级执行机器出站代理，覆盖账号登录、令牌刷新、额度查询和后续 Agent 调用；不是模型端点，也不是 Host 入站代理。不修改系统代理、不启动代理软件。', 'settings-note'),
+    section.append(el('p', `${scopeLabel(client.scope)}执行机器出站代理，覆盖账号登录、令牌刷新、额度查询和后续 Agent 调用；不是模型端点，也不是 Host 入站代理。不修改系统代理、不启动代理软件。`, 'settings-note'),
+      el('p', scopeImpact(client.scope), 'settings-note'),
       el('p', '仅后续请求 / Agent 调用生效，在途登录和运行中的调用不变。已有公共、角色或 Worker 环境覆盖仍优先；外部工具是否支持代理需单独验证。', 'settings-note'),
       el('p', '127.0.0.1 指后台执行机器；SSH 远端不能自动使用客户端代理。支持 HTTP / HTTPS 代理（如 Clash HTTP/混合端口），不支持 SOCKS-only；代理失败不会自动改为直连。', 'settings-note'));
     const feedback = el('p', message, failed ? 'settings-error' : 'settings-note'); feedback.setAttribute('role', 'status');
@@ -47,7 +49,7 @@ export function renderNetworkSettings({ ownsPage = () => true } = {}) {
       if (!active() || state.busy) return;
       state.busy = true; const generation = ++state.generation; paint('正在读取网络设置…');
       try {
-        const model = projection(await api('/api/agent/network'));
+        const model = projection(await client.read('/api/agent/network'));
         if (!active() || generation !== state.generation) return;
         state.model = model; state.draft = { mode: model.mode, proxy_url: model.proxy_url || '', no_proxy: model.no_proxy.join('\n') };
         state.busy = false; paint();
@@ -64,6 +66,11 @@ export function renderNetworkSettings({ ownsPage = () => true } = {}) {
       section.append(el('p', '点击“读取网络设置”后编辑。代理认证仅可写入，已保存的用户名和密码不会返回浏览器。', 'settings-note'), feedback);
       return;
     }
+    section.append(scopeSummary(state.model, client.scope));
+    if (scope === 'project') section.append(clearOverrideButton('network', async () => {
+      const model = projection(await client.read('/api/agent/network')); if (!active()) return;
+      state.model = model; state.draft = { mode: model.mode, proxy_url: model.proxy_url || '', no_proxy: model.no_proxy.join('\n') }; paint('已清除项目网络覆盖，继承设备默认。');
+    }, { ownsPage: active, onCleared: () => { state.model = null; state.draft = null; state.busy = false; state.generation++; } }));
     const draft = state.draft;
     const form = el('div', undefined, 'agent-form-grid');
     function field(label, key, type = 'text', value = '') {
@@ -117,8 +124,7 @@ export function renderNetworkSettings({ ownsPage = () => true } = {}) {
       state.busy = true; const generation = ++state.generation; paint('正在保存网络设置…');
       try {
         // No global action refresh: only this panel changes, preserving other settings drafts.
-        const model = projection(await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ method: 'agent.network.configure', params: { config } }) }));
+        const model = projection(await client.action('agent.network.configure', { config }));
         if (!active() || generation !== state.generation) return;
         state.model = model; state.draft = { mode: model.mode, proxy_url: model.proxy_url || '', no_proxy: model.no_proxy.join('\n') };
         state.busy = false; paint('网络设置已保存；后续请求 / Agent 调用生效。已有账号凭证和运行中的调用未改变。');
@@ -130,5 +136,7 @@ export function renderNetworkSettings({ ownsPage = () => true } = {}) {
     }, 'primary'); save.type = 'button'; save.disabled = state.busy;
     section.append(form, save, feedback);
   }
+  section.clearSecrets = () => { for (const input of secretInputs) input.value = ''; };
+  section.resume = () => { if (active()) paint(); };
   paint(); return section;
 }

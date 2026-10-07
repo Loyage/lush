@@ -7,6 +7,10 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (path === '/api/host') return Response.json({ mode: 'host', projects: [], last_project_id: null, capabilities: { project_control: true } });
   if (path === '/api/host/projects') return Response.json({ projects: [] });
   if (path === '/api/docs') return Response.json({ docs: [] });
+  if (path === '/api/host/settings/runtime?scope=device') return Response.json({ file: '/fixture/shared/settings.json',
+    concurrency: { value: 2, default: 2, overridden: false, source: 'default' },
+    progress_reporting: { value: true, default: true, overridden: false, source: 'default' },
+    configuration_scope: { selected: 'device', source: 'default', device_home: '/fixture/shared', project_home: null, project_override: false } });
   return Response.json({ error: 'project API must not be called without a project' }, { status: 500 });
 } });
 afterAll(() => dom.restore());

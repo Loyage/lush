@@ -17,7 +17,9 @@ test('CLI file configuration, real RPC and HTTP share private project policy wit
     expect((await execute(['show'])).mode).toBe('inherit');
     fs.writeFileSync(file, JSON.stringify(config), { mode: 0o600 });
     const saved = await execute(['set', '--file', file]);
-    expect(saved).toEqual({ version: 1, mode: 'proxy', proxy_url: config.proxy_url, no_proxy: config.no_proxy, has_proxy_auth: true });
+    expect(saved).toEqual({ version: 1, mode: 'proxy', proxy_url: config.proxy_url, no_proxy: config.no_proxy, has_proxy_auth: true,
+      configuration_scope: { selected: 'project', source: 'project', device_home: f.config.deviceHome,
+        project_home: f.config.home, project_override: true } });
     const response = await fetch(f.url + '/api/agent/network');
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(await response.json()).toEqual(saved);

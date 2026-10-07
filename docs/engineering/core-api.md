@@ -33,6 +33,12 @@ Worker 是原 Task 的整体更名，含义仍是持久的 Agent + Process；父
 
 Input（原始输入）、历史输入、Draft（暂存）仍是各自的实体与界面名称；「指令」只替代原 say 概念，不把它们一并更名。上述兼容的历史指令 Worker 继续按原交付协议受检；下文关于退休 Intent / Plan 等记录的限制不表示历史指令被退休。
 
+## 设备共享设置与兼容
+
+W116 / 待决 #261 批准设备同系统用户共享技术配置，项目/Worker 可覆盖；项目事实/历史/Git/调度及 `LUSH_HOME` 绑定不变。新增用户专属 `system.settings {scope?}`、`settings.clear_override {kind,target?}`、`settings.migration.preview {}`、`settings.migration.apply {revision,confirm:true}`。既有设置/来源/安装管理 RPC 增可选 `scope=device|project`，省略仍选 project，Agent token 不能访问 device scope；Worker 与历史接口不因此全局化。
+
+无项目 Host 提供窄 `/api/host/settings/**` 用户管理入口，不是通用 RPC 代理。CLI `config ...` / 配置类 `agent ...` 可显式 --scope；`config migrate` 预检、带 confirm/revision 执行。字段、优先级、迁移与限制以[设备共享设置](device-settings.md)为权威；组合交付的实际验证另记录，不把接口登记当作功能已验收。
+
 ## 核心工作流
 
 - `order.submit`：一条用户输入创建一个有独立分支/worktree 的指令 Worker；显式 `defer:true` 且父冻结时则先保存父可创建安全点的一次性 Hook，返回预约而非 task，真正创建时才固定基线；父可写时仍直接创建。`start:false`（Web 主发送默认）只创建为 `paused`（Web 显示「待开始」）且不调用 Agent；`start:true`（缺省）立即排队运行。main 自动确立静息 owner；其它现有本地分支须先 `branch.bind` 固定 HEAD。

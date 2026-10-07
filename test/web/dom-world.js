@@ -211,9 +211,22 @@ export function makeWorld() {
     requests: 1, context_tokens: 123, compacted: 0, last_at: state.usageLast.at, last: state.usageLast,
     totals: { input: 10, output: 5, cache_read: 0, cache_write: 0, reasoning: 0, tokens: 15, cost: 0.001 } });
   const fetchImpl = async (url, options = {}) => {
-    const path = String(url);
-    const json = data => ({ ok: true, status: 200, json: async () => data });
+    const requestUrl = new URL(String(url), 'http://world.test');
+    const requestScope = requestUrl.searchParams.get('scope'); requestUrl.searchParams.delete('scope');
+    let pathname = requestUrl.pathname;
+    if (pathname.startsWith('/api/host/settings/')) pathname = pathname.replace('/api/host/settings/', '/api/');
+    if (pathname === '/api/runtime') pathname = '/api/settings/runtime';
+    const path = pathname + requestUrl.search;
+    const json = data => {
+      const scoped = requestScope && ['/api/settings/runtime', '/api/agent/config', '/api/agent/connections', '/api/agent/network', '/api/quick-explain/config'].includes(pathname)
+        ? { ...data, configuration_scope: { selected: requestScope, source: requestScope, project_override: requestScope === 'project',
+          device_home: '/fixture/device/shared', project_home: '/tmp/demo/.lush' } } : data;
+      return { ok: true, status: 200, json: async () => scoped };
+    };
     if (path === '/api/snapshot') return json(snapshot());
+    if (path === '/api/settings/runtime') return json(Object.fromEntries(Object.entries(state.runtimeSettings).map(([key, value]) =>
+      [key, value && typeof value === 'object' && Object.hasOwn(value, 'value') ? { ...value, source: value.overridden ? 'project' : 'default' } : value])));
+    if (path === '/api/agent/config') return json(state.agentConfig);
     if (path === '/api/input-parents') return json({ items: state.inputParents });
     if (path === '/api/agent/connections') return json(state.agentConnections);
     if (path === '/api/agent/usage/config') return json(state.agentUsageConfig);
@@ -276,7 +289,8 @@ export function makeWorld() {
             : { value: patch.input_routes.map(route => ({ ...route })), default: next.input_routes.default.map(route => ({ ...route })), overridden: true };
         }
         state.runtimeSettings = next;
-        return json(next);
+        return json(Object.fromEntries(Object.entries(next).map(([key, value]) =>
+          [key, value && typeof value === 'object' && Object.hasOwn(value, 'value') ? { ...value, source: value.overridden ? (body.params.scope || 'project') : 'default' } : value])));
       }
       if (body.method === 'branch.orchestrate_plan') return json(state.orchestratePlan ?? {
         target_branch: body.params.branch, order: ['order-1'],

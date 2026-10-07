@@ -1,21 +1,24 @@
 import { LushError, check, isPlainObject } from '../core/types.js';
+import { normalizeConfigurationScope } from '../core/device-config.js';
 
 // Public API for the Worker-centred workflow. Historical rows remain on disk, but
 // Intent/Plan/Candidate and optional services cannot create new work.
 export const PARAMS = {
-  'system.status': [], 'system.summary': [], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings'],
-  'agent.config': [], 'agent.models': ['agent'], 'agent.resources': [], 'agent.status': [], 'agent.configure': ['config'],
-  'agent.network': [], 'agent.network.configure': ['config'],
-  'agent.environment': ['target'], 'agent.environment.configure': ['target','values'],
+  'system.status': [], 'system.summary': [], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings','scope'],
+  'system.settings': ['scope'],
+  'settings.clear_override': ['kind','target'], 'settings.migration.preview': [], 'settings.migration.apply': ['revision','confirm'],
+  'agent.config': ['scope'], 'agent.models': ['agent','scope'], 'agent.resources': ['scope'], 'agent.status': ['scope'], 'agent.configure': ['config','scope'],
+  'agent.network': ['scope'], 'agent.network.configure': ['config','scope'],
+  'agent.environment': ['target','scope'], 'agent.environment.configure': ['target','values','scope'],
   'agent.usage.config': [], 'agent.usage.configure': ['config'], 'agent.usage.history': ['provider','account_key','days'],
-  'agent.selection.resources': [],
-  'agent.connections.list': [], 'agent.connections.save': ['connection','credential'], 'agent.connections.remove': ['id'],
-  'agent.connections.sampling': ['sampling'], 'agent.connections.query': ['id'], 'agent.connections.history': ['id','days'],
-  'agent.connections.login.start': ['id'], 'agent.connections.login.finish': ['id','login_id','redirect_url'],
-  'agent.connections.device.start': ['id'], 'agent.connections.device.poll': ['id','login_id'], 'agent.connections.device.cancel': ['id','login_id'],
-  'agent.connections.models': ['id'], 'agent.connections.models.refresh': ['id'],
-  'agent.packages.list': [], 'agent.packages.install': ['source'], 'agent.packages.remove': ['id'], 'agent.packages.update': ['id'],
-  'quick_explain.config': [], 'quick_explain.configure': ['config'],
+  'agent.selection.resources': ['scope'],
+  'agent.connections.list': ['scope'], 'agent.connections.save': ['connection','credential','scope'], 'agent.connections.remove': ['id','scope'],
+  'agent.connections.sampling': ['sampling','scope'], 'agent.connections.query': ['id','scope'], 'agent.connections.history': ['id','days'],
+  'agent.connections.login.start': ['id','scope'], 'agent.connections.login.finish': ['id','login_id','redirect_url','scope'],
+  'agent.connections.device.start': ['id','scope'], 'agent.connections.device.poll': ['id','login_id','scope'], 'agent.connections.device.cancel': ['id','login_id','scope'],
+  'agent.connections.models': ['id','scope'], 'agent.connections.models.refresh': ['id','scope'],
+  'agent.packages.list': ['scope'], 'agent.packages.install': ['source','scope'], 'agent.packages.remove': ['id','scope'], 'agent.packages.update': ['id','scope'],
+  'quick_explain.config': ['scope'], 'quick_explain.configure': ['config','scope'],
   'quick_explain.start': ['quote','location'], 'quick_explain.followup': ['id','question'],
   'quick_explain.get': ['id'], 'quick_explain.list': ['before','limit'],
   'quick_explain.delete': ['id'],
@@ -53,6 +56,7 @@ export const PARAMS = {
   'branch.archive': ['branch','discard','continue'], 'graph.get': [],
 };
 export const USER_ONLY = new Set([
+  'system.settings','settings.clear_override','settings.migration.preview','settings.migration.apply',
   'system.stop','system.stop_if_idle','system.configure','agent.configure','agent.status','agent.environment','agent.environment.configure','agent.network','agent.network.configure',
   'branch.history','worker.code_state','worker.code_tree','worker.code_file',
   'agent.usage.config','agent.usage.configure','agent.usage.history','agent.selection.resources',
@@ -79,6 +83,10 @@ export function assertAllowed(method, params, actor) {
   if (!Object.hasOwn(PARAMS, method)) throw new LushError(`unknown method: ${method}`, -32601);
   check(Object.keys(params).every(key => key === '_token' || PARAMS[method].includes(key)), 'unknown parameter');
   const who = typeof actor === 'function' ? actor() : actor;
+  if (['system.', 'agent.', 'quick_explain.'].some(prefix => method.startsWith(prefix)) && Object.hasOwn(params, 'scope')) {
+    normalizeConfigurationScope(params.scope);
+    check(params.scope !== 'device' || who === null, 'device settings require user approval, not an agent');
+  }
   check(who === null || !USER_ONLY.has(method), `${method} requires user approval, not an agent`);
   check(!(who === null && AGENT_ONLY.has(method)), `${method} is agent only`);
   return who;

@@ -9,7 +9,7 @@ const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="vi
 <script type="module">
 import { createAgentConnections } from '/assets/render-agent-connections.js';
 const at='2026-10-07T05:30:00Z';
-const source=(id,extra={})=>({id,label:'订阅来源 '+id,provider:'openai-codex',auth_type:'oauth',enabled:true,endpoint:'https://chatgpt.com/backend-api/codex',models:['gpt-6.1-sol'],default_model:'gpt-6.1-sol',credential:{status:'configured'},observation:{status:'available',checked_at:at,resources:[
+const source=(id,extra={})=>({id,storage_scope:id==='b'?'project':'device',label:'订阅来源 '+id,provider:'openai-codex',auth_type:'oauth',enabled:true,endpoint:'https://chatgpt.com/backend-api/codex',models:['gpt-6.1-sol'],default_model:'gpt-6.1-sol',credential:{status:'configured'},observation:{status:'available',checked_at:at,resources:[
 {kind:'quota',scope:'account',label:'主要套餐窗口',window_seconds:18000,used_percent:25,remaining:75,unit:'%',reset_at:'2026-10-08T05:29:00Z'},
 {kind:'quota',scope:'account',label:'次要套餐窗口',window_seconds:604800,used_percent:50,remaining:50,unit:'%',reset_at:'2026-10-14T05:30:00Z'}]},...extra});
 window.calls=[];window.fetch=async(url,options)=>{window.calls.push(String(url));if(options)throw Error('unexpected mutation');return Response.json({version:1,connections:[source('a'),source('b',{label:'很长的账号名称'.repeat(10),default_model:'org/very-long-model-name'.repeat(10)}),source('c',{observation:{status:'error',checked_at:at,resources:[]}}),source('d',{observation:{status:'partial',checked_at:at,resources:[...source('d').observation.resources,{kind:'balance',remaining:5,unit:'USD'}]}})],sampling:{enabled:false,interval_minutes:5,retention_days:90}});};
@@ -64,6 +64,7 @@ try {
       const errors=[];let height=0;
       for(const row of rows){
         const r=row.getBoundingClientRect(),actions=row.querySelector('.model-source-row-actions'),a=actions.getBoundingClientRect();height=r.height;
+        if(!row.querySelector('[data-source-scope]')?.textContent.includes('来源'))errors.push('missing storage scope badge');
         const cache=actions.querySelector('.model-source-cache-time').getBoundingClientRect(),buttons=[...actions.querySelectorAll('button')],refresh=buttons[0].getBoundingClientRect(),detail=buttons[1].getBoundingClientRect();
         if(buttons.map(b=>b.textContent).join(',')!=='刷新,详情')errors.push('unexpected actions');
         if(cache.bottom>refresh.top+.5||refresh.bottom>detail.top+.5)errors.push('action order');

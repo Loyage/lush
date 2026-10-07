@@ -35,11 +35,14 @@ export class ProjectBase {
     this.agentUsage = new AgentUsageService(this);
     this.agentConnections = new AgentConnectionsService(this);
     this.agentSelection = new AgentSelectionService(this, { strategy: options.modelSelectionStrategy ?? null });
-    this.agentPackageManager = new AgentPackages(config, options.agentPackages ?? {});
+    this.agentPackageOptions = options.agentPackages ?? {};
+    this.agentPackageManager = new AgentPackages(config, this.agentPackageOptions);
+    this.deviceAgentPackageManager = null;
   }
 
   /** R-01: reject writes that would create rows while a clear is reclaiming disk. */
   assertWritable(action = 'write') {
+    check(!this.settingsMigrationApplying, 'settings migration is in progress; retry after it finishes');
     check(!this.clearing, `clear is in progress; retry to ${action} in a moment`);
     check(!this.workerDeleteIds?.size, `Worker deletion is in progress; retry to ${action} in a moment`);
   }

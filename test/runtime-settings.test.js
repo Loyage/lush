@@ -55,19 +55,20 @@ test('runtime settings file is atomic, owner-only, and falls back to env default
     expect(settings.file).toBe(file);
     // 没有覆盖时读模型给出环境默认值，且不创建文件（不造假值）。
     expect(settings.get()).toEqual({ file,
-      concurrency: { value: 6, default: 6, overridden: false },
-      control_concurrency: { value: 3, default: 3, overridden: false },
-      call_timeout: { value: 10800, default: 10800, overridden: false },
-      task_call_limit: { value: 24, default: 24, overridden: false },
-      max_depth: { value: 8, default: 8, overridden: false },
-      progress_reporting: { value: true, default: true, overridden: false },
+      configuration_scope: { selected: 'project', source: 'default', device_home: config.deviceHome, project_home: config.home, project_override: false },
+      concurrency: { value: 6, default: 6, overridden: false, source: 'default' },
+      control_concurrency: { value: 3, default: 3, overridden: false, source: 'default' },
+      call_timeout: { value: 10800, default: 10800, overridden: false, source: 'default' },
+      task_call_limit: { value: 24, default: 24, overridden: false, source: 'default' },
+      max_depth: { value: 8, default: 8, overridden: false, source: 'default' },
+      progress_reporting: { value: true, default: true, overridden: false, source: 'default' },
       input_routes: { value: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }],
-        default: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }], overridden: false } });
+        default: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }], overridden: false, source: 'default' } });
     expect(fs.existsSync(file)).toBe(false);
 
     const saved = settings.save({ concurrency: 8 });
-    expect(saved.concurrency).toEqual({ value: 8, default: 6, overridden: true });
-    expect(saved.control_concurrency).toEqual({ value: 3, default: 3, overridden: false });
+    expect(saved.concurrency).toEqual({ value: 8, default: 6, overridden: true, source: 'project' });
+    expect(saved.control_concurrency).toEqual({ value: 3, default: 3, overridden: false, source: 'default' });
     expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1, concurrency: 8 });
     expect(fs.statSync(file).mode & 0o077).toBe(0);
     // 原子替换：临时文件不残留，另一处读取立刻看到新值。
@@ -80,8 +81,8 @@ test('runtime settings file is atomic, owner-only, and falls back to env default
 
     // null 清除该键，回退环境默认。
     const cleared = settings.save({ concurrency: null });
-    expect(cleared.concurrency).toEqual({ value: 6, default: 6, overridden: false });
-    expect(cleared.control_concurrency).toEqual({ value: 5, default: 3, overridden: true });
+    expect(cleared.concurrency).toEqual({ value: 6, default: 6, overridden: false, source: 'default' });
+    expect(cleared.control_concurrency).toEqual({ value: 5, default: 3, overridden: true, source: 'project' });
     expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1, control_concurrency: 5 });
 
     // 非法值报错且不落盘：文件保持上一次成功写入的内容。
@@ -108,14 +109,14 @@ test('call timeout / task call limit / max depth are runtime-overridable and val
     });
     // 写盘后生效值同步进 Config，调度 / 拆解立即读到。
     const saved = config.configureRuntime({ call_timeout: 1200, task_call_limit: 40, max_depth: 10 });
-    expect(saved.call_timeout).toEqual({ value: 1200, default: 600, overridden: true });
+    expect(saved.call_timeout).toEqual({ value: 1200, default: 600, overridden: true, source: 'project' });
     expect(config.timeout).toBe(1200);
     expect(config.maxCalls).toBe(40);
     expect(config.maxDepth).toBe(10);
     expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1, call_timeout: 1200, task_call_limit: 40, max_depth: 10 });
     // null 清除该键，回退环境默认。
     const cleared = config.configureRuntime({ call_timeout: null });
-    expect(cleared.call_timeout).toEqual({ value: 600, default: 600, overridden: false });
+    expect(cleared.call_timeout).toEqual({ value: 600, default: 600, overridden: false, source: 'default' });
     expect(config.timeout).toBe(600);
     // 越界 / 非整数不落盘。
     expect(() => config.configureRuntime({ call_timeout: 0 })).toThrow('call_timeout');
@@ -134,7 +135,7 @@ test('runtime max_depth override reaches later spawns without restart', async ()
     const child = await f.project.spawn(root.id, 'child', undefined, [], 'child');
     expect(() => f.project.spawn(child.id, 'too deep', undefined, [], 'too-deep')).toThrow('nesting');
     // 调高后同一个 daemon 立即允许更深的派生，不需要重启。
-    expect(f.project.configureRuntimeSettings({ max_depth: 5 }).max_depth).toEqual({ value: 5, default: 3, overridden: true });
+    expect(f.project.configureRuntimeSettings({ max_depth: 5 }).max_depth).toEqual({ value: 5, default: 3, overridden: true, source: 'project' });
     const grandchild = await f.project.spawn(child.id, 'grandchild', undefined, [], 'grandchild');
     const great = await f.project.spawn(grandchild.id, 'great', undefined, [], 'great');
     expect(great.parent_id).toBe(grandchild.id);
@@ -196,11 +197,11 @@ test('raising the limit admits queued work immediately; lowering it cancels noth
     const second = (await f.project.order('second')).task;
     await until(() => f.project.running.size === 1);
     expect(f.project.running.has(first.id)).toBe(true);
-    expect(f.project.status().settings.concurrency).toEqual({ value: 1, default: 1, overridden: false });
+    expect(f.project.status().settings.concurrency).toEqual({ value: 1, default: 1, overridden: false, source: 'default' });
 
     // 通过项目级写入口调高：内存生效值、status 镜像与调度准入都必须立刻跟上。
     const model = f.project.configureRuntimeSettings({ concurrency: 2 });
-    expect(model.concurrency).toEqual({ value: 2, default: 1, overridden: true });
+    expect(model.concurrency).toEqual({ value: 2, default: 1, overridden: true, source: 'project' });
     expect(f.config.concurrency).toBe(2);
     expect(f.project.status()).toMatchObject({ concurrency: 2, control_concurrency: 2,
       settings: { concurrency: { value: 2, default: 1, overridden: true } } });
@@ -239,13 +240,13 @@ test('input_routes defaults, overrides, null clearing and validation', () => {
     const file = path.join(root, '.lush', 'settings.json');
     const defaults = [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }];
     // 默认值是核心默认表，且读模型返回拷贝：改它不影响后续读取。
-    expect(settings.get().input_routes).toEqual({ value: defaults, default: defaults, overridden: false });
+    expect(settings.get().input_routes).toEqual({ value: defaults, default: defaults, overridden: false, source: 'default' });
     settings.get().input_routes.value.push({ prefix: 'x', target: 'worker' });
     expect(settings.get().input_routes.value).toEqual(defaults);
 
     const routes = [{ prefix: 'Build', target: 'worker' }, { prefix: '解释', target: 'research' }];
     const saved = settings.save({ input_routes: routes });
-    expect(saved.input_routes).toEqual({ value: routes, default: defaults, overridden: true });
+    expect(saved.input_routes).toEqual({ value: routes, default: defaults, overridden: true, source: 'project' });
     expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1, input_routes: routes });
     expect(new RuntimeSettings(config).get().input_routes.value).toEqual(routes);
     // 保存后改调用方手里的数组不影响已落盘内容。
@@ -254,7 +255,7 @@ test('input_routes defaults, overrides, null clearing and validation', () => {
 
     // null 清除该键，回退默认，且不写进文件。
     const cleared = settings.save({ input_routes: null });
-    expect(cleared.input_routes).toEqual({ value: defaults, default: defaults, overridden: false });
+    expect(cleared.input_routes).toEqual({ value: defaults, default: defaults, overridden: false, source: 'default' });
     expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1 });
 
     // 非法配置：坏 target、重复 prefix（大小写不敏感）、空 prefix、含空白、非数组、超 32、缺字段、多余字段。
@@ -281,7 +282,7 @@ test('config mirrors input_routes from storage and runtime updates', () => {
     expect(config.inputRoutes).toEqual(defaults);
     config.prepare();
     const model = config.configureRuntime({ input_routes: [{ prefix: 'Build', target: 'research' }] });
-    expect(model.input_routes).toEqual({ value: [{ prefix: 'Build', target: 'research' }], default: defaults, overridden: true });
+    expect(model.input_routes).toEqual({ value: [{ prefix: 'Build', target: 'research' }], default: defaults, overridden: true, source: 'project' });
     expect(config.inputRoutes).toEqual([{ prefix: 'Build', target: 'research' }]);
     expect(new Config({ project: root, env: env() }).inputRoutes).toEqual([{ prefix: 'Build', target: 'research' }]);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }

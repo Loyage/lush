@@ -79,7 +79,7 @@ test('overview stays compact, per-source detail retains full settings/resources/
   for (const text of ['gpt-6.1-sol', 'high', 'org/model', '周套餐', '7 天', '70', 'Worker #42']) expect(deepText(card(p.node, 'a'))).toContain(text);
   await button(p.node, '返回来源列表').onclick();
   expect(deepText(p.node.querySelector('.model-source-statistics'))).not.toContain('USD');
-  expect(p.node.querySelector('.model-source-statistics').textContent).toContain('总数 5 · 启用 4 · 需处理 1 · 使用中 1');
+  expect(p.node.querySelector('.model-source-statistics').textContent).toContain('总数 5 · 启用 4 · 需处理 1 · 本项目使用中 1');
   change(field(p.node, 'source-search'), 'org/model'); expect(p.node.querySelectorAll('.model-source-row')).toHaveLength(3);
   change(field(p.node, 'source-search'), '');
   field(p.node, 'source-state').value = 'attention'; field(p.node, 'source-state').onchange();

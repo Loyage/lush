@@ -142,14 +142,14 @@ test('failure/timeout produces one lifecycle info with exact reason; retry is a 
       return new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
     } });
     try {
-      stubGit(f); if (timeout) f.config.timeout = 0.01;
+      stubGit(f); if (timeout) f.config.configureRuntime({ call_timeout: 1 });
       const task = userTask(f);
       await invoke(f, task);
       expect(f.store.task(task.id).status).toBe('failed');
       expect(rows(f, task.id)).toHaveLength(1);
       const [notice] = rows(f, task.id);
       expect(notice.title).toContain('异常停止');
-      expect(notice.body).toContain(timeout ? 'timed out after 0.01 seconds' : '模型调用失败');
+      expect(notice.body).toContain(timeout ? 'timed out after 1 second' : '模型调用失败');
       f.project.finish(task.id, 'failed', null, 'again');
       expect(rows(f, task.id)).toHaveLength(1);
       f.project.stopping = true;

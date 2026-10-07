@@ -56,6 +56,16 @@ test('无效、大文件与非对象JSON不发RPC，语法错误不回显秘密'
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('CLI preserves only validated scope metadata without proxy credentials', async () => {
+  const configuration_scope = { selected: 'device', source: 'device', device_home: '/private/lush/shared',
+    project_home: '/project/.lush', project_override: true };
+  const f = fixture(safe({ configuration_scope, proxy_auth: { password: 'PRIVATE-PASS' } }));
+  expect(await f.execute(['show', '--scope', 'device'])).toEqual(safe({ configuration_scope }));
+  expect(f.calls).toEqual([{ method: 'agent.network', params: { scope: 'device' } }]);
+  const invalid = fixture(safe({ configuration_scope: { ...configuration_scope, credential: 'PRIVATE-PASS' } }));
+  await expect(invalid.execute(['show'])).rejects.toThrow('invalid configuration scope response');
+});
+
 test('上游错误和认证URL响应不能泄露到CLI错误', async () => {
   const f = fixture(); f.client.request = async () => { throw new Error('PRIVATE-PASS raw provider response'); };
   await expect(f.execute(['show'])).rejects.toThrow('network configuration unavailable');

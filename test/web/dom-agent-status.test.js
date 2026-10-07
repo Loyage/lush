@@ -10,12 +10,12 @@ const fixture = () => ({ version: 2, checked_at: '2026-10-01T09:00:00.000Z',
     { agent: 'pi', command: 'pi', executable: '/bin/pi', real_path: '/opt/pi/cli.js', version: '1.0.0', status: 'available', warning: null },
     { agent: 'codex', command: 'codex', executable: null, real_path: null, version: null, status: 'unavailable', warning: '未发现 Codex 软件' },
   ], warnings: [] });
-const json = data => ({ ok: true, json: async () => data });
+const json = data => ({ ok: true, json: async () => data?.default && data?.options ? { ...data, configuration_scope: { selected: 'device', source: 'device', project_override: false } } : data });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const world = makeWorld(), requests = [];
 let intercept = null, calls = 0, configIntercept = null, configCalls = 0, configureIntercept = null;
 const dom = installDom({ fetch: (url, options) => {
-  const path = String(url); requests.push(path);
+  const raw = String(url), path = raw.split('?')[0]; requests.push(raw);
   if (path === '/api/agent/status') { calls++; return intercept?.() ?? Promise.resolve(json(fixture())); }
   if (path === '/api/agent/config') { configCalls++; if (configIntercept) return configIntercept(); }
   if (path === '/api/action' && configureIntercept && JSON.parse(options.body).method === 'agent.configure') return configureIntercept();
@@ -48,7 +48,7 @@ test('Agent配置默认读取配置不检查软件或旧查询，Prompt与资源
   for (const value of ['模型与运行', '工作方式', '高级', 'Prompt', 'Skills', '扩展', 'Pi → 未选择来源 → 请选择来源内模型', '不继承用户全局 Pi 设置或 Prompt']) expect(pageText()).toContain(value);
   expect(refresh().parentNode.hidden).toBe(true); expect(calls).toBe(before);
   expect(requests.some(path => path.includes('/usage/'))).toBe(false);
-  await findByText(detail().querySelector('[data-agent-target="default"]'), '读取项目连接').onclick();
+  await findByText(detail().querySelector('[data-agent-target="default"]'), '读取共享来源').onclick();
   await until(() => !pageText().includes('读取中…'));
   const content = pageText(), pushes = dom.pushed(); await openAgentStatus();
   await dom.intervalFor(1500)(); await dom.intervalFor(3000)();
@@ -62,7 +62,7 @@ test('显式软件检查保留配置草稿，诊断缓存且不读旧账号历�
   await tab('status').onclick(); expect(calls).toBe(before + 1);
   expect(detail().querySelector('.agent-management-status').hidden).toBe(false);
   for (const value of ['软件诊断', '不读取账号或凭证', '1.0.0', '不可用']) expect(pageText()).toContain(value);
-  expect(requests).toEqual(['/api/agent/status']); expect(detail().querySelector('.agent-usage-panel')).toBeNull();
+  expect(requests).toEqual(['/api/agent/status?scope=device']); expect(detail().querySelector('.agent-usage-panel')).toBeNull();
   expect(refresh().getAttribute('data-help')).toContain('不启动 Agent 或模型调用'); expect(refresh().getAttribute('data-help')).toContain('不联网');
   expect(refresh().parentNode.classList.contains('help-host')).toBe(true); expect(refresh().classList.contains('agent-call')).toBe(false);
   expect(tab('status').getAttribute('data-help')).toContain('不联网');
@@ -79,7 +79,7 @@ test('默认配置按需单飞读取，不依赖overview完整配置，保存不
   expect(configCalls).toBe(beforeConfig + 1); expect(calls).toBe(before); expect(pageText()).toContain('正在读取 Agent 配置');
   pending.resolve(json(world.state.agentConfig)); await Promise.all([first, second]); configIntercept = null;
   expect(pageText()).toContain('默认 Agent');
-  const profile = detail().querySelector('[data-agent-target="default"]'); await findByText(profile, '读取项目连接').onclick();
+  const profile = detail().querySelector('[data-agent-target="default"]'); await findByText(profile, '读取共享来源').onclick();
   const choice = profile.querySelector('[data-agent-field="connection_id"]'); choice.value = world.state.agentConnections.connections[0].id; choice.onchange();
   profile.querySelector('input[data-agent-field="model"]').value = 'openai-compatible/fixture-model';
   const save = findByText(profile, '保存配置'); expect(save.classList.contains('agent-call')).toBe(false); await save.onclick();
@@ -102,7 +102,7 @@ test('配置读取失败可重试，迟到读取不覆盖系统设置或返回�
 });
 
 test('配置保存的迟到回调不能抢回已离开的页面', async () => {
-  await fresh(); await findByText(detail().querySelector('[data-agent-target="default"]'), '读取项目连接').onclick();
+  await fresh(); await findByText(detail().querySelector('[data-agent-target="default"]'), '读取共享来源').onclick();
   const pending = deferred(); configureIntercept = () => pending.promise;
   const saving = findByText(detail().querySelector('[data-agent-target="default"]'), '保存配置').onclick();
   await dom.node('settings-open').onclick(); pending.resolve(json(world.state.agentConfig)); await saving; configureIntercept = null;

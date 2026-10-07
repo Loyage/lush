@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fail, object, fields, normalizeConnection, normalizeSampling, secret, validId } from './connections-utils.js';
+import { withConfigurationWriteLock } from '../core/device-config.js';
 
 const MAX_BYTES = 1024 * 1024;
 export const emptyConnections = () => ({ version: 1,
@@ -41,7 +42,10 @@ function validate(data) {
 
 /** Project-owned file only. Never reads external Pi/Codex credentials. */
 export class ConnectionFile {
-  constructor(home) {
+  constructor(home, { privateRoot = false, migrationRead = false } = {}) {
+    this.privateRoot = privateRoot;
+    // Only the trusted migration module may bypass an interrupted handoff guard.
+    this.migrationRead = migrationRead === true;
     this.home = path.resolve(home); this.dir = path.join(this.home, 'credentials');
     this.file = path.join(this.dir, 'agent-connections.json');
   }
@@ -55,7 +59,8 @@ export class ConnectionFile {
       }
       const home = fs.lstatSync(this.home);
       if (!home.isDirectory() || home.isSymbolicLink() || !owner(home)
-        || process.platform !== 'win32' && home.mode & 0o022 || fs.realpathSync(this.home) !== this.home) fail('auth_changed');
+        || process.platform !== 'win32' && home.mode & 0o022 || this.privateRoot && !privateMode(home, 0o700)
+        || fs.realpathSync(this.home) !== this.home) fail('auth_changed');
       try { fs.lstatSync(this.dir); }
       catch (error) {
         if (error.code !== 'ENOENT') throw error;
@@ -70,6 +75,17 @@ export class ConnectionFile {
   }
   read() {
     const parent = this.directory(); if (!parent) return emptyConnections();
+    if (!this.migrationRead) {
+      // Handoff starts before device publication. Interrupted retirement must not leave
+      // two independent OAuth refresh owners, even after all advisory locks are released.
+      const marker = path.join(this.dir, 'device-migration-active.json');
+      try { fs.lstatSync(marker); }
+      catch (error) { if (error.code === 'ENOENT') return this._read(parent); fail('auth_locked'); }
+      fail('auth_locked'); // Any marker (including an unsafe alias or bad mode) fails closed.
+    }
+    return this._read(parent);
+  }
+  _read(parent) {
     let fd;
     try {
       try { fd = fs.openSync(this.file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0)); }
@@ -96,6 +112,15 @@ export class ConnectionFile {
     return { assert, release: () => { try { assert(); fs.rmdirSync(file); } catch { /* Never delete a replaced lock. */ } } };
   }
   transaction(fn) {
+    // This root-level gate also coordinates explicit migrations and non-credential settings writers.
+    try { return withConfigurationWriteLock({ home: this.home }, 'project', () => this._transaction(fn)); }
+    catch (error) {
+      if (error?.connectionCode) throw error;
+      if (String(error?.message).includes('busy')) fail('auth_locked');
+      fail('auth_changed');
+    }
+  }
+  _transaction(fn) {
     const lock = this.lock('agent-connections.lock'); let temporary, fd;
     try {
       lock.assert(); const data = this.read(), result = fn(data);

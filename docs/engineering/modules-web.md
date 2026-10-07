@@ -10,6 +10,8 @@
 
 启动与环境管理的新边界见[工作台接入契约](workbench.md)，优先于历史连接页描述；界面资源、项目身份与后台控制分别验收。
 
+设备共享设置新增接缝见[设备设置](device-settings.md)：`host/device-settings.js` 导出 `DeviceSettingsService`、`DEVICE_SETTINGS_READS`、`DEVICE_SETTINGS_ACTIONS`，无项目也能管理共享技术配置，不构造 Project/Store、不启动 daemon 或模型调用；缓存是有界本地/内存读面，不伪造项目历史/消费者。`server.js` 独立处理 `/api/host/settings/**` 白名单与 scope 查询校验，复用认证/Origin/JSON/no-store；停止 Web 会取消设置服务在途登录/网络/安装。项目设置仍经固定项目路由，新增 `/api/settings/runtime`、`/api/settings/migration`，历史读面不接收 device scope。前端 `settings-api.js` 专门服务设置，不更改 Worker/history 的通用 API 语义。其导出 `settingsClient(scope)`、`settingsClientFor(model)`、`projectSettingsAction(method,params)`，捕获项目上下文并检查迟到响应；`settings-scope.js` 导出 `scopeLabel/scopeImpact`、`draftFingerprint`、`scopeSelector/scopeSummary`、`clearOverrideButton`；`settings-migration.js` 导出 `renderSettingsMigration`（显式预检/确认，空范围禁用）。Agent/来源/系统/快捷解释页在各自 generation 与 scope draft 下组合，历史/消费者保留项目限制。
+
 **三个必须遵守的接缝：**
 
 - **`app.js` 导出 `boot()`**，并在被当作模块加载时执行一次 `await boot()`。

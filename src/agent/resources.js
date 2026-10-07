@@ -2,6 +2,7 @@ import cp from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { piConfigDirectory, isolatedPiEnvironment } from './pi-config.js';
+import { normalizeConfigurationScope, scopedConfiguration, configurationScope } from '../core/device-config.js';
 
 const MAX_OUTPUT = 2 * 1024 * 1024;
 const MAX_FILE_BYTES = 64 * 1024;
@@ -167,14 +168,20 @@ function installedPackages(output) {
 }
 
 /** Discover installed Pi extensions and skills without loading or executing them. */
-export async function discoverAgentResources(config, options = {}) {
+export async function discoverAgentResources(config, options = {}, scope = 'project') {
+  normalizeConfigurationScope(scope);
   const extensions = new Map(), skills = new Map();
-  const configDir = piConfigDirectory(config);
-  extensionEntries(extensions, path.join(configDir, 'extensions'), 'Lush Pi 扩展');
-  skillEntries(skills, path.join(configDir, 'skills'), 'Lush Pi Skills');
-  extensionEntries(extensions, path.join(config.project, '.pi', 'extensions'), '项目扩展');
-  skillEntries(skills, path.join(config.project, '.pi', 'skills'), '项目 Skills');
-  skillEntries(skills, path.join(config.project, '.agents', 'skills'), '项目 Skills');
+  const configDirs = scope === 'device' ? [piConfigDirectory(config, 'device')]
+    : [...(config.deviceHome ? [piConfigDirectory(config, 'device')] : []), piConfigDirectory(config)];
+  for (const dir of configDirs) {
+    extensionEntries(extensions, path.join(dir, 'extensions'), 'Lush Pi 扩展');
+    skillEntries(skills, path.join(dir, 'skills'), 'Lush Pi Skills');
+  }
+  if (scope === 'project' && config.project) {
+    extensionEntries(extensions, path.join(config.project, '.pi', 'extensions'), '项目扩展');
+    skillEntries(skills, path.join(config.project, '.pi', 'skills'), '项目 Skills');
+    skillEntries(skills, path.join(config.project, '.agents', 'skills'), '项目 Skills');
+  }
 
   for (const file of options.extensions || []) addExtension(extensions, file, 'Lush agent 配置');
   for (const file of options.skills || []) {
@@ -187,8 +194,13 @@ export async function discoverAgentResources(config, options = {}) {
   if (!Array.isArray(packages)) {
     try {
       const command = config.env.LUSH_PI_COMMAND || 'pi';
-      const output = await commandOutput(command, ['list', '--no-approve'], isolatedPiEnvironment(config), config.project);
-      packages = installedPackages(output);
+      packages = [];
+      for (const dir of configDirs) {
+        if (!fs.existsSync(dir)) continue;
+        const selected = scope === 'device' ? scopedConfiguration(config, 'device') : config;
+        const output = await commandOutput(command, ['list', '--no-approve'], isolatedPiEnvironment(selected, selected.env, dir), scope === 'device' ? selected.home : config.project || selected.home);
+        packages.push(...installedPackages(output));
+      }
     } catch (error) {
       warning = `无法读取 Pi 已安装包，仅显示本地目录资源：${String(error?.message || error).slice(0, 500)}`;
       packages = [];
@@ -196,5 +208,6 @@ export async function discoverAgentResources(config, options = {}) {
   }
   for (const item of packages) if (item.root) packageEntries(extensions, skills, item.root, item.source);
   const sorted = values => [...values.values()].sort((a, b) => a.source.localeCompare(b.source) || a.label.localeCompare(b.label));
-  return { agent: 'pi', extensions: sorted(extensions), skills: sorted(skills), packages, warning };
+  return { agent: 'pi', extensions: sorted(extensions), skills: sorted(skills), packages, warning,
+    ...(config.deviceHome ? { configuration_scope: configurationScope(config, scope, scope === 'device' ? 'device' : 'mixed') } : {}) };
 }

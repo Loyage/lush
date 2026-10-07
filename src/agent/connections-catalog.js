@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { digest, fail, object } from './connections-utils.js';
+import { withConfigurationWriteLock } from '../core/device-config.js';
 
 export const CATALOG_VERSION = 1;
 export const CATALOG_MAX_MODELS = 500;
@@ -169,6 +170,14 @@ export class ConnectionCatalogFile {
     }
   }
   _putOnce(key, catalog) {
+    try { return withConfigurationWriteLock({ home: this.connections.home }, 'project', () => this._putLocked(key, catalog)); }
+    catch (error) {
+      if (error?.connectionCode) throw error;
+      if (String(error?.message).includes('busy')) fail('auth_locked');
+      fail('auth_changed');
+    }
+  }
+  _putLocked(key, catalog) {
     if (!/^[a-f0-9]{64}$/.test(key)) fail('auth_changed');
     this.connections.directory(true);
     const dir = this.connections.dir;

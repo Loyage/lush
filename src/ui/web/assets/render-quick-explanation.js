@@ -4,31 +4,39 @@ import { ui } from './state.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { confirmDialog } from './dialog.js';
 import { openQuickExplanation, explanationLocation } from './quick-explanation.js';
+import { settingsClient } from './settings-api.js';
+import { scopeSelector, scopeSummary, scopeImpact, clearOverrideButton } from './settings-scope.js';
+import { workbenchStatus } from './project-picker.js';
 
 const PROVIDERS = new Set(['openai-compatible', 'deepseek', 'openrouter', 'zai']);
 const option = (value, label) => { const node = el('option', label); node.value = value; return node; };
 const field = (tag, name) => { const node = el(tag); node.dataset.quickField = name; return node; };
 const label = (text, control) => { const node = el('label'); node.append(el('span', text), control); return node; };
-const post = config => api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ method: 'quick_explain.configure', params: { config } }) });
 
 /** A project-local page. Entry and history refresh only read local configuration/cache. */
 export async function openQuickExplanationPage() {
   const view = activateDetailView({ view: 'quick-explain' });
   if (ui.quickExplanationPage?.view === view) return ui.quickExplanationPage.pending;
-  const state = { view, historyGeneration: 0, pending: null };
+  const state = { view, scope: 'device', panes: new Map(), historyGeneration: 0, pending: null };
   ui.quickExplanationPage = state;
   const owns = () => ui.view === view && ui.quickExplanationPage === state;
   const root = el('div', undefined, 'quick-explanation-page');
-  root.append(el('h1', '快捷解释'), el('p', '在任意项目页面划选文字，右键选择“解释”。只将所选文字与页面位置发送给所选 API，不创建 Worker。配置和历史保存在当前项目。', 'hint'));
-  const settings = el('section', undefined, 'quick-explanation-settings'), history = el('section', undefined, 'quick-explanation-history');
-  root.append(settings, history); $('detail').replaceChildren(root);
-  const note = el('p', '正在读取配置…', 'hint'); settings.append(el('h2', '解释设置'), note);
+  root.append(el('h1', '快捷解释'), el('p', '解释配置默认设备共享，项目可覆盖。只将所选文字与页面位置发送给所选 API，不创建 Worker；历史与追问仍保存在当次项目。', 'hint'));
+  const settingsHost = el('section', undefined, 'quick-explanation-settings'), history = el('section', undefined, 'quick-explanation-history');
+  function changeScope(scope) {
+    if (!owns()) return Promise.resolve(); state.scope = scope;
+    let pane = state.panes.get(scope);
+    if (!pane) { pane = { node: el('div'), rendered: false, pending: null }; state.panes.set(scope, pane); }
+    settingsHost.replaceChildren(pane.node); return loadSettings(scope);
+  }
+  root.append(scopeSelector(state.scope, changeScope), settingsHost, history); $('detail').replaceChildren(root);
   const rows = el('div', undefined, 'quick-explanation-history-rows'), historyNote = el('p', '', 'hint');
   let before = null, reading = false;
   const more = button('加载更早解释', () => loadHistory(true), 'ghost'); more.hidden = true;
   const reload = button('刷新历史', () => loadHistory(false), 'ghost');
-  history.append(el('h2', '历史解释'), el('p', '当前项目的所有页面记录；结果、来源与追问问答按当时快照保存，不随配置变化改写。', 'hint'), reload, historyNote, rows, more);
+  const project = workbenchStatus().projectUsable;
+  if (project) history.append(el('h2', '历史解释'), el('p', '当前项目的所有页面记录；结果、来源与追问问答按当时快照保存，不随配置变化改写。', 'hint'), reload, historyNote, rows, more);
+  else history.append(el('p', '当前未打开可用项目。可管理共享解释配置；选区模型调用与解释历史需打开项目，不创建全局历史。', 'hint'));
   async function loadHistory(append) {
     if (!owns() || (append && reading)) return;
     const version = ++state.historyGeneration; reading = true; more.disabled = true;
@@ -79,10 +87,14 @@ export async function openQuickExplanationPage() {
     } catch (error) { if (owns()) historyNote.textContent = `删除失败：${error.message}；记录保留。`; }
   }
 
-  async function loadSettings() {
-    try {
-      const [config, data] = await Promise.all([api('/api/quick-explain/config'), api('/api/agent/connections')]);
-      if (!owns()) return;
+  async function loadSettings(scope = state.scope) {
+    const pane = state.panes.get(scope);
+    if (pane.rendered) return; if (pane.pending) return pane.pending;
+    const client = settingsClient(scope), settings = pane.node, active = () => owns() && state.scope === scope && client.isCurrent();
+    settings.replaceChildren(el('h2', '解释设置'), el('p', '正在读取配置…', 'hint'));
+    const loading = (async () => { try {
+      const [config, data] = await Promise.all([client.read('/api/quick-explain/config'), client.read('/api/agent/connections')]);
+      if (!active()) return;
       const entries = (data.connections || []).filter(row => row.enabled && row.auth_type === 'api_key' && PROVIDERS.has(row.provider));
       const connection = field('select', 'connection_id'), model = field('input', 'model'), candidates = field('select', 'model_choice'), prompt = field('textarea', 'prompt');
       connection.append(option('', '请选择模型来源'));
@@ -107,31 +119,31 @@ export async function openQuickExplanationPage() {
         paintModels(); const row = chosen(), version = ++catalogVersion;
         if (!row || row.models?.length || catalogue.has(row.id)) return;
         try {
-          const cached = await api(`/api/agent/connections/models?id=${encodeURIComponent(row.id)}`);
-          if (!owns() || version !== catalogVersion) return;
+          const cached = await client.read(`/api/agent/connections/models?id=${encodeURIComponent(row.id)}`);
+          if (!active() || version !== catalogVersion) return;
           const prefix = `${row.provider}/`;
           catalogue.set(row.id, (cached.models || []).map(entry => typeof entry.id === 'string' && entry.id.startsWith(prefix) ? entry.id.slice(prefix.length) : '').filter(Boolean));
           paintModels();
-        } catch { if (owns() && version === catalogVersion) modelNote.textContent += ' 本地目录读取失败；仍可手填模型 ID。'; }
+        } catch { if (active() && version === catalogVersion) modelNote.textContent += ' 本地目录读取失败；仍可手填模型 ID。'; }
       }
       connection.onchange = () => { markEdited(); void loadCatalog(); };
       candidates.onchange = () => { if (candidates.value) { model.value = candidates.value; markEdited(); paintModels(); } };
       model.oninput = () => { markEdited(); paintModels(); }; prompt.oninput = markEdited;
       const form = el('form', undefined, 'quick-explanation-form');
       const save = button('保存解释设置', async () => {
-        if (!owns() || saving) return;
+        if (!active() || saving) return;
         const row = chosen(), value = model.value.trim();
         if (connection.value && (!row || row.credential?.status !== 'configured')) { status.textContent = '所选来源不可用或尚未配置 API Key，请先到模型来源检查。'; return; }
         if (row && (!value || (row.models?.length && !row.models.includes(value)))) { status.textContent = '请选择或填写来源范围内的物理模型 ID。'; return; }
         if (prompt.value.length > 8192) { status.textContent = 'Prompt 最多 8192 字。'; return; }
         saving = true; save.disabled = true; const revision = editRevision;
         try {
-          const result = await post({ connection_id: connection.value || null, model: value || null, prompt: prompt.value || null });
-          if (!owns()) return;
+          const result = await client.action('quick_explain.configure', { config: { connection_id: connection.value || null, model: value || null, prompt: prompt.value || null } });
+          if (!active()) return;
           status.textContent = '已保存，下次解释生效；没有发起模型调用。';
           if (revision === editRevision) prompt.value = result.prompt || result.default_prompt || '';
-        } catch (error) { if (owns()) status.textContent = `保存失败：${error.message}；未保存输入保留。`; }
-        finally { saving = false; if (owns()) save.disabled = false; }
+        } catch (error) { if (active()) status.textContent = `保存失败：${error.message}；未保存输入保留。`; }
+        finally { saving = false; save.disabled = false; }
       }); save.type = 'button';
       const reset = button('恢复默认 Prompt', () => { prompt.value = config.default_prompt || ''; markEdited(); status.textContent = '已填入默认 Prompt，保存后生效。'; }, 'ghost'); reset.type = 'button';
       const sources = el('a', '管理模型来源'); sources.href = '#model-sources';
@@ -139,11 +151,15 @@ export async function openQuickExplanationPage() {
       form.onsubmit = event => { event.preventDefault(); return save.onclick(); };
       form.append(label('模型来源', connection), sources, label('模型 ID', model), label('来源内的候选模型', candidates), modelNote,
         label('解释 Prompt', prompt), el('p', '可调整解释风格、长度和语言。只读安全规则始终生效，选区里的命令不会被执行。空 Prompt 恢复默认；保存不调用模型。', 'hint'), reset, saveHost, status);
-      settings.replaceChildren(el('h2', '解释设置'), form); await loadCatalog();
+      const info = scopeSummary(config, scope);
+      settings.replaceChildren(el('h2', '解释设置'), info, el('p', scopeImpact(scope), 'hint'), form);
+      if (scope === 'project') settings.prepend(clearOverrideButton('quick_explain', () => { pane.rendered = false; return loadSettings(scope); }, { ownsPage: active, onCleared: () => { pane.rendered = false; } }));
+      pane.rendered = true; await loadCatalog();
     } catch (error) {
-      if (owns()) settings.replaceChildren(el('h2', '解释设置'), el('p', `配置读取失败：${error.message}`, 'error'), button('重试读取配置', loadSettings, 'ghost'));
-    }
+      if (active()) settings.replaceChildren(el('h2', '解释设置'), el('p', `配置读取失败：${error.message}`, 'error'), button('重试读取配置', () => loadSettings(scope), 'ghost'));
+    } finally { pane.pending = null; } })();
+    pane.pending = loading; return loading;
   }
-  state.pending = Promise.all([loadSettings(), loadHistory(false)]);
+  state.pending = Promise.all([changeScope('device'), project ? loadHistory(false) : Promise.resolve()]);
   await state.pending;
 }

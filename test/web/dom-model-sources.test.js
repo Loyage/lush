@@ -9,11 +9,12 @@ const initial = () => ({ version: 1, sampling: { enabled: false, interval_minute
   source('source-a'), source('source-b', { label: '工作中转', provider: 'openai-compatible', endpoint: 'https://models.example/v1', enabled: false, models: ['model-b'] }),
 ] });
 let data = initial(), current = true, intercept = null;
-const requests = [], json = value => ({ ok: true, json: async () => value });
+const requests = [], json = value => ({ ok: true, json: async () => value?.connections ? { ...value, configuration_scope: { selected: 'device', source: 'device', project_override: false } } : value });
 const dom = installDom({ fetch: async (url, options) => {
   requests.push({ url: String(url), options });
-  const result = intercept?.(String(url), options); if (result) return result;
-  if (String(url) === '/api/agent/connections') return json(structuredClone(data));
+  const result = intercept?.(String(url).replace(/\?scope=device$/, ''), options); if (result) return result;
+  if (String(url) === '/api/host') return json({ mode: 'bound' });
+  if (String(url).split('?')[0] === '/api/agent/connections') return json(structuredClone(data));
   if (String(url).includes('/history?')) return json({ version: 1, series: [], retention_days: 90, from: '2026-01-01', to: '2026-01-02' });
   if (String(url) === '/api/action' && JSON.parse(options.body).method === 'agent.connections.device.cancel') return json({ status: 'cancelled' });
   throw new Error(`unexpected request ${url}`);
@@ -22,8 +23,9 @@ const { createAgentConnections } = await import('../../src/ui/web/assets/render-
 const { openModelSources } = await import('../../src/ui/web/assets/render-model-sources.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
+const { ensureProject } = await import('../../src/ui/web/assets/project-picker.js');
 afterAll(() => dom.restore());
-beforeEach(() => { data = initial(); requests.length = 0; current = true; intercept = null; ui.modelSourcesPage = null; ui.view = null; });
+beforeEach(async () => { data = initial(); current = true; intercept = null; ui.modelSourcesPage = null; ui.view = null; await ensureProject(); requests.length = 0; });
 const button = (root, label) => root.querySelectorAll('button').find(node => node.textContent === label);
 const field = (root, key) => root.querySelector(`[data-connection-field="${key}"]`);
 const visibleCards = root => root.querySelectorAll('.agent-connection-card').filter(node => !node.hidden);
@@ -216,7 +218,7 @@ test('来源页面重复打开单飞，离页迟到响应不能覆盖其他画�
 
 test('模型来源首次与重复打开不读取旧历史/config/status，显式存档按需只读展开', async () => {
   await openModelSources(); await openModelSources();
-  expect(requests.map(entry => entry.url)).toEqual(['/api/agent/connections']);
+  expect(requests.map(entry => entry.url)).toEqual(['/api/agent/connections?scope=device']);
   const root = dom.node('detail'), toggle = button(root, '查看旧余额历史存档');
   expect(toggle.classList.contains('agent-call')).toBe(false); expect(toggle.getAttribute('data-help')).toContain('不联网');
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
@@ -225,7 +227,7 @@ test('模型来源首次与重复打开不读取旧历史/config/status，显式
   expect(requests.at(-1).url).toBe('/api/agent/usage/history?days=7');
   expect(deepText(host)).toContain('不归到任何正式连接'); expect(host.querySelectorAll('form')).toHaveLength(0);
   await toggle.onclick(); expect(host.hidden).toBe(true);
-  expect(requests.map(entry => entry.url)).toEqual(['/api/agent/connections', '/api/agent/usage/history?days=7']);
+  expect(requests.map(entry => entry.url)).toEqual(['/api/agent/connections?scope=device', '/api/agent/usage/history?days=7']);
 });
 
 test('存档收起、离页与返回作废旧历史响应，不污染正式连接或新存档', async () => {

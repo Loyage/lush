@@ -13,8 +13,8 @@ const model = project => ({ version: 2, checked_at: '2026-01-01T00:00:00.000Z',
     executable: `/bin/${agent}`, real_path: `/bin/${agent}`, version: '1.2.3', status: 'available', warning: null })), warnings: [] });
 const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-test('agent.status has no parameters and is user-only even though it is read-only', () => {
-  expect(PARAMS['agent.status']).toEqual([]); expect(USER_ONLY.has('agent.status')).toBe(true);
+test('agent.status accepts only an optional configuration scope and remains user-only', () => {
+  expect(PARAMS['agent.status']).toEqual(['scope']); expect(USER_ONLY.has('agent.status')).toBe(true);
   expect(assertAllowed('agent.status', {}, null)).toBeNull();
   expect(() => assertAllowed('agent.status', {}, 47)).toThrow('requires user approval');
   expect(() => assertAllowed('agent.status', { project: '/other' }, null)).toThrow('unknown parameter');

@@ -92,15 +92,15 @@ function onHashChange() {
   if (location.hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
   const doc = docsTarget(location.hash);
   if (doc) return openDocsView(doc.id);
-  if (!workbenchStatus().projectUsable) {
-    if (!location.hash) return openProjectManager({ push: false });
-    return noProjectView();
-  }
   if (location.hash === '#agent-status') return ui.view?.id === 'agent-status' ? undefined : openAgentStatus();
   if (location.hash === '#model-sources') return ui.view?.id === 'model-sources' ? undefined : openSources();
   const sourceMatch = /^#model-source-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.exec(location.hash);
   if (sourceMatch) return openSources(sourceMatch[1]);
   if (location.hash === '#quick-explain') return ui.view?.id === 'quick-explain' ? undefined : openQuickExplanationPage();
+  if (!workbenchStatus().projectUsable) {
+    if (!location.hash) return openProjectManager({ push: false });
+    return noProjectView();
+  }
   if (location.hash === '#hooks') return ui.view?.id === 'hooks' ? undefined : openHooks();
   if (location.hash === '#versions') return ui.view?.id === 'versions' ? undefined : openVersions();
   if (location.hash === '#inputs') return openInputs({ push: false });
@@ -174,7 +174,7 @@ export async function boot() {
   $('projects-open').onclick = () => openProjectManager();
   $('settings-open').onclick = () => openSettings();
   $('docs-open').onclick = () => openDocsView();
-  const projectOnly = ['overview-open','task-graph-open','inputs-open','versions-open','hooks-open','agent-status-open','model-sources-open','quick-explain-open'];
+  const projectOnly = ['overview-open','task-graph-open','inputs-open','versions-open','hooks-open'];
   for (const id of projectOnly) { const target = $(id); target.disabled = !projectReady; target.setAttribute('aria-disabled', String(!projectReady)); }
   const composerShell = $('composer-shell'); if (composerShell) composerShell.hidden = !projectReady;
   const composerReady = projectReady ? initComposer() : Promise.resolve();
@@ -187,9 +187,10 @@ export async function boot() {
       addEventListener('visibilitychange', projectVisibilityListener);
     }
   }
-  if ($('agent-status-open')) $('agent-status-open').onclick = () => projectReady ? openAgentStatus() : noProjectView();
-  if ($('model-sources-open')) $('model-sources-open').onclick = () => projectReady ? openSources() : noProjectView();
-  if ($('quick-explain-open')) $('quick-explain-open').onclick = () => projectReady ? openQuickExplanationPage() : noProjectView();
+  for (const id of ['agent-status-open', 'model-sources-open', 'quick-explain-open']) { const target = $(id); if (target) { target.disabled = false; target.setAttribute('aria-disabled', 'false'); } }
+  if ($('agent-status-open')) $('agent-status-open').onclick = () => openAgentStatus();
+  if ($('model-sources-open')) $('model-sources-open').onclick = () => openSources();
+  if ($('quick-explain-open')) $('quick-explain-open').onclick = () => openQuickExplanationPage();
   if ($('hooks-open')) $('hooks-open').onclick = () => projectReady ? openHooks() : noProjectView();
   if ($('versions-open')) $('versions-open').onclick = () => projectReady ? openVersions() : noProjectView();
   if ($('inputs-open')) $('inputs-open').onclick = () => projectReady ? openInputs() : noProjectView();

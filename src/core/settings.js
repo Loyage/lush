@@ -1,16 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { configurationHome, configurationScope, normalizeConfigurationScope, withConfigurationWriteLock } from './device-config.js';
 import { check, isPlainObject, LushError } from './types.js';
 import { DEFAULT_INPUT_ROUTES, normalizeInputRoutes } from './input-routes.js';
 
 /**
- * 项目级「运行设置」：并发、调用 / 拆解限额、进度汇报开关与历史快速路由前缀表。
+ * 设备默认 / 项目覆盖的运行设置：并发、调用限额、进度开关与历史路由表。
  *
- * 与 AgentSettings 同风格：值存在 <home>/settings.json，0600，临时文件加 rename 原子替换，
+ * 值存在所选作用域的 settings.json，0600，跨进程锁 + 原子替换，
  * 读时校验 uid / symlink / 大小 / 字段。区别是运行设置是**热更新**的——写盘成功后调用方
  * 把有效值同步进内存并重新 kick，所以调高并发、放宽超时不需要重启 daemon。
  *
- * 有效值 = 存储值 ?? 环境默认值（LUSH_CONCURRENCY / LUSH_CONTROL_CONCURRENCY /
+ * 项目有效值 = 项目存储值 ?? 设备存储值 ?? 环境默认值（LUSH_CONCURRENCY / LUSH_CONTROL_CONCURRENCY /
  * LUSH_CALL_TIMEOUT / LUSH_TASK_CALLS / LUSH_MAX_DEPTH 的启动值）；
  * progress_reporting 为布尔开关，默认 true；未被覆盖的键不写进文件，也不用假值填充。
  */
@@ -74,27 +76,51 @@ export class RuntimeSettings {
   }
 
   /** 文件里被显式覆盖的键；不存在的文件是空对象，不是「全默认值」。 */
-  readStored() {
-    if (!fs.existsSync(this.file)) return {};
-    const stat = fs.lstatSync(this.file);
-    check(!stat.isSymbolicLink() && stat.isFile() && stat.uid === process.getuid(), `unsafe runtime settings file: ${this.file}`);
-    check((stat.mode & 0o077) === 0, `${this.file} must only be readable by its owner (chmod 600)`);
-    check(stat.size <= MAX_FILE_BYTES, `runtime settings file is too large: ${this.file}`);
-    let value;
-    try { value = JSON.parse(fs.readFileSync(this.file, 'utf8')); }
-    catch { throw new LushError(`invalid JSON in runtime settings file: ${this.file}`); }
-    return normalizeRuntimeSettings(value, this.file);
+  readStored(scope = 'project') {
+    const home = configurationHome(this.config, scope), file = path.join(home, 'settings.json');
+    let root;
+    try { root = fs.lstatSync(home); } catch (error) { if (error.code === 'ENOENT') return {}; throw error; }
+    check(root.isDirectory() && !root.isSymbolicLink() && root.uid === process.getuid()
+      && !(root.mode & 0o022) && (scope !== 'device' || !(root.mode & 0o077))
+      && fs.realpathSync(home) === home, 'unsafe runtime settings directory');
+    let fd;
+    try {
+      let published;
+      try { published = fs.lstatSync(file); } catch (error) { if (error.code === 'ENOENT') return {}; throw error; }
+      check(!published.isSymbolicLink(), `unsafe runtime settings file: ${file}`);
+      fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      const stat = fs.fstatSync(fd);
+      check(stat.isFile() && stat.uid === process.getuid() && stat.nlink === 1, `unsafe runtime settings file: ${file}`);
+      check((stat.mode & 0o077) === 0, `${file} must only be readable by its owner (chmod 600)`);
+      check(stat.size <= MAX_FILE_BYTES, `runtime settings file is too large: ${file}`);
+      const text = fs.readFileSync(fd, 'utf8'), after = fs.fstatSync(fd), current = fs.lstatSync(file), currentRoot = fs.lstatSync(home);
+      check(Buffer.byteLength(text) <= MAX_FILE_BYTES && stat.ino === after.ino && stat.dev === after.dev
+        && stat.size === after.size && stat.mtimeMs === after.mtimeMs && stat.ino === current.ino && stat.dev === current.dev
+        && root.ino === currentRoot.ino && root.dev === currentRoot.dev && fs.realpathSync(home) === home,
+      `runtime settings file changed: ${file}`);
+      let value;
+      try { value = JSON.parse(text); } catch { throw new LushError(`invalid JSON in runtime settings file: ${file}`); }
+      return normalizeRuntimeSettings(value, file);
+    } finally { if (fd !== undefined) fs.closeSync(fd); }
   }
 
   /** 稳定读模型：每个键给出生效值、环境默认值与是否被设置文件覆盖，外加文件路径。 */
-  get() {
-    const stored = this.readStored();
-    const model = { file: this.file };
+  get(scope = 'project') {
+    normalizeConfigurationScope(scope);
+    const shared = this.config.deviceHome ? this.readStored('device') : {};
+    const stored = scope === 'device' ? shared : this.readStored();
+    const model = { file: path.join(configurationHome(this.config, scope), 'settings.json') };
+    const sources = new Set();
     for (const key of RUNTIME_SETTINGS_KEYS) {
       const overridden = Object.hasOwn(stored, key);
-      model[key] = { value: copySetting(key, overridden ? stored[key] : this.defaults[key]),
-        default: copySetting(key, this.defaults[key]), overridden };
+      const inherited = scope === 'project' && Object.hasOwn(shared, key) ? shared[key] : this.defaults[key];
+      const source = overridden ? scope : scope === 'project' && Object.hasOwn(shared, key) ? 'device' : 'default';
+      sources.add(source);
+      model[key] = { value: copySetting(key, overridden ? stored[key] : inherited),
+        default: copySetting(key, inherited), overridden, source };
     }
+    model.configuration_scope = configurationScope(this.config, scope,
+      sources.size === 1 ? [...sources][0] : 'mixed', scope === 'project' && Object.keys(stored).length > 0);
     return model;
   }
 
@@ -102,29 +128,33 @@ export class RuntimeSettings {
    * 部分更新：patch 里出现的键才动，null 表示清除该键、回退环境默认。
    * 先校验再写盘，非法值既不生效也不落盘；成功返回最新读模型。
    */
-  save(patch) {
+  save(patch, scope = 'project') {
     check(isPlainObject(patch), 'runtime settings patch must be an object');
     check(Object.keys(patch).every(key => RUNTIME_SETTINGS_KEYS.includes(key)), 'runtime settings patch has an unknown field');
-    const merged = { ...this.readStored() };
-    for (const key of RUNTIME_SETTINGS_KEYS) {
-      if (!Object.hasOwn(patch, key)) continue;
-      if (patch[key] === null) delete merged[key];
-      else merged[key] = patch[key];
-    }
-    const stored = normalizeRuntimeSettings(merged, this.file);
-    this.write({ version: 1, ...stored });
-    return this.get();
+    return withConfigurationWriteLock(this.config, scope, lock => {
+      const merged = { ...this.readStored(scope) };
+      for (const key of RUNTIME_SETTINGS_KEYS) {
+        if (!Object.hasOwn(patch, key)) continue;
+        if (patch[key] === null) delete merged[key];
+        else merged[key] = patch[key];
+      }
+      const stored = normalizeRuntimeSettings(merged, this.file);
+      this.write({ version: 1, ...stored }, scope, lock);
+      return this.get(scope);
+    });
   }
 
-  write(body) {
+  write(body, scope = 'project', lock = null) {
+    if (!lock) return withConfigurationWriteLock(this.config, scope, held => this.write(body, scope, held));
     const serialized = JSON.stringify(body, null, 2) + '\n';
     check(Buffer.byteLength(serialized) <= MAX_FILE_BYTES, 'runtime settings file is too large');
-    fs.mkdirSync(this.config.home, { recursive: true, mode: 0o700 });
-    const temporary = `${this.file}.${process.pid}.tmp`;
+    const file = path.join(configurationHome(this.config, scope), 'settings.json');
+    this.readStored(scope);
+    const temporary = `${file}.${randomUUID()}.tmp`;
     try {
       fs.writeFileSync(temporary, serialized, { mode: 0o600, flag: 'wx' });
-      fs.renameSync(temporary, this.file);
-      fs.chmodSync(this.file, 0o600);
+      lock.assert(); this.readStored(scope);
+      fs.renameSync(temporary, file);
     } finally { fs.rmSync(temporary, { force: true }); }
   }
 }

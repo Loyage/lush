@@ -22,6 +22,12 @@
 
 用户已确认：仅保留 Web UI，启动直接进入主体，每项目独立浏览器标签，关闭页面后后台继续；服务器部署与网络访问由用户管理，Lush 不管理 SSH 或远端产物。修改启动、环境与项目入口前阅读[工作台设计](../design/workbench.md)；文件分工与新增接口以[工作台接入契约](workbench.md)为准。该接缝优先于旧项目闸门描述；逐步交付不得宣称尚未验收能力。
 
+## 设备共享设置接缝
+
+用户 W116 / 待决 #261 确认同设备同系统用户共享设置，项目/Worker 可覆盖；当前项目作为显式首次迁移来源，成功后源项目改为继承，其他旧项目保留覆盖，新项目直接继承。范围内以[设备共享设置理念](../design/device-settings.md)与[工程契约](device-settings.md)为准，优先于下文旧的全项目私有设置描述。项目 home、DB、Worker、历史、Git 与调度绑定不变，不引入跨项目调度。
+
+父分区负责 `src/core/device-config.js`（作用域/私有根/跨进程锁）、Host 独立设置服务、RPC/HTTP/CLI 接入、Project 转发与组合测试；配置基础分区负责 Config、RuntimeSettings、AgentSettings、网络/env、快捷解释配置及 Pi 资源存储的继承；连接/迁移分区负责有效来源并集、实际根凭证锁、作用域管理器和 `src/core/device-migration.js`；前端分区负责 assets 的作用域编辑、继承/覆盖、迁移 UI 和无项目入口。详细签名与测试隔离以工程契约为准。
+
 ## 快捷解释接缝
 
 用户决定 #203 恢复项目级选区阅读辅助，但不恢复旧公开 `intro.*` / `explanation.*` 或解释 Agent。新增 `quick_explain.*` 用户专属接口、独立 `#quick-explain` 设置/历史页，来源复用现有 Chat Completions API Key 连接；契约与并行分工见[快捷解释](quick-explanation.md)。新调用不创建 Worker，附属历史复用 introductions，追问轮次存于 explanation_followups 并随原解释一起删除；旧行不迁移或改写。该增补优先于下文历史服务无公开入口的描述（旧名字仍关闭）。

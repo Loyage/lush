@@ -35,11 +35,13 @@ world.state.agentConnections.connections[0].observation.resources.push(
   { id: 'bonus', kind: 'balance', scope: 'account', label: '其他余额', unit: 'USD', remaining: 2 });
 Object.assign(world.state.agentConfig.default, { agent: 'pi', connection_id: ids[0], model: 'deepseek/deepseek-chat' });
 for (const role of Object.keys(world.state.agentConfig.resolved)) world.state.agentConfig.resolved[role] = { ...world.state.agentConfig.default };
+for (const row of world.state.agentConnections.connections) row.storage_scope = 'device';
 const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-core.css"><link rel="stylesheet" href="/assets/styles-agent-status.css"><link rel="stylesheet" href="/assets/styles-agent-connections.css"><link rel="stylesheet" href="/assets/styles-agent-usage.css"></head>
 <body><div id="detail"></div><div id="modal" hidden></div><div id="error"></div><script type="module">
 window.browserErrors=[];addEventListener('error',e=>browserErrors.push(e.message));addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));
 import {openAgentStatus} from '/assets/render-agent-status.js';import {openModelSources} from '/assets/render-model-sources.js';
+import {ensureProject} from '/assets/project-picker.js';await ensureProject();
 window.openConfig=openAgentStatus;window.openSources=openModelSources;await openModelSources();window.ready=true;
 </script></body></html>`;
 let server, driver, session, base, passed = false, diagnosisFails = false;
@@ -72,9 +74,9 @@ async function screenshot(name) {
 async function layout(name) {
   const result = await execute(`const p=document.querySelector('.model-sources-page,.agent-status-page');return {page:p.scrollWidth-p.clientWidth,document:document.documentElement.scrollWidth-innerWidth,inputs:[...p.querySelectorAll('input,select,textarea')].filter(n=>n.getClientRects().length).some(n=>n.getBoundingClientRect().right>innerWidth+1)};`);
   assert(result.page <= 1 && result.document <= 1 && !result.inputs, `Overflow ${name}: ${JSON.stringify(result)}`);
-  const rows = await execute(`const rows=[...document.querySelectorAll('.model-source-row')].filter(n=>n.getClientRects().length);return rows.map(row=>{const box=row.getBoundingClientRect();return {height:box.height,overflow:row.scrollHeight>row.clientHeight+1,informationFirst:row.querySelector('.model-source-row-actions').getBoundingClientRect().top>=Math.max(...[...row.children].filter(n=>!n.matches('.model-source-row-actions')).map(n=>n.getBoundingClientRect().bottom)),controls:[...row.querySelectorAll('button,input')].every(n=>{const b=n.getBoundingClientRect();return b.top>=box.top&&b.bottom<=box.bottom&&b.right<=box.right})}});`);
+  const rows = await execute(`const rows=[...document.querySelectorAll('.model-source-row')].filter(n=>n.getClientRects().length);return rows.map(row=>{const box=row.getBoundingClientRect();return {height:box.height,overflow:row.scrollHeight>row.clientHeight+1,informationFirst:(()=>{const a=row.querySelector('.model-source-row-actions').getBoundingClientRect(),info=[...row.children].filter(n=>!n.matches('.model-source-row-actions')).map(n=>n.getBoundingClientRect());return a.top>=Math.max(...info.map(n=>n.bottom))-1||a.left>=Math.max(...info.map(n=>n.right))-1})(),controls:[...row.querySelectorAll('button,input')].every(n=>{const b=n.getBoundingClientRect();return b.top>=box.top&&b.bottom<=box.bottom&&b.right<=box.right})}});`);
   assert(rows.every(row => row.height === rows[0].height && !row.overflow && row.informationFirst && row.controls), `Unequal/clipped rows ${name}: ${JSON.stringify(rows)}`);
-  assert(await execute(`return [...document.querySelectorAll('.model-source-key-amount')].filter(n=>n.getClientRects().length).every(n=>Number(getComputedStyle(n).fontWeight)>=700) && [...document.querySelectorAll('.model-source-refresh-row')].filter(n=>n.getClientRects().length).every(n=>n.querySelector('.model-source-cache-time').getBoundingClientRect().left>=n.querySelector('button').getBoundingClientRect().right);`), `Key amounts are not bold or cache time is not beside refresh ${name}`);
+  assert(await execute(`return [...document.querySelectorAll('.model-source-key-amount')].filter(n=>n.getClientRects().length).every(n=>Number(getComputedStyle(n).fontWeight)>=700) && [...document.querySelectorAll('.model-source-refresh-row')].filter(n=>n.getClientRects().length).every(n=>(()=>{const c=n.querySelector('.model-source-cache-time').getBoundingClientRect(),b=n.querySelector('button').getBoundingClientRect();return c.bottom<=b.top+1||c.left>=b.right-1})());`), `Key amounts are not bold or refresh timestamp overlaps its button ${name}`);
   await screenshot(name);
 }
 try {
@@ -87,18 +89,21 @@ try {
       diagnosisFails = url.searchParams.get('fail') === 'true';
       return new Response(null, { status: 204 });
     }
+    if (url.pathname === '/api/host') return Response.json({ mode: 'bound' });
     calls.push(url.pathname);
+    const scoped = value => ({ ...value, configuration_scope: { selected: url.searchParams.get('scope') || 'project',
+      source: 'device', project_override: false, device_home: '/tmp/layout-device/shared', project_home: '/tmp/layout-fixture/.lush' } });
     if (url.pathname === '/api/agent/status') return diagnosisFails
       ? Response.json({ error: 'Fixture software check failed' }, { status: 503 })
       : Response.json({ version: 2, checked_at: new Date().toISOString(), scope: { project: '/tmp/layout-fixture', note: '软件诊断，不读取账号或凭证。' }, warnings: [],
           software: ['pi', 'codex'].map(agent => ({ agent, command: agent, executable: `/bin/${agent}`, real_path: `/opt/${agent}/cli.js`, version: '1.2.3', status: 'available', warning: null })) });
-    if (url.pathname === '/api/agent/connections') return Response.json(world.state.agentConnections);
+    if (url.pathname === '/api/agent/connections') return Response.json(scoped(world.state.agentConnections));
     if (url.pathname === '/api/action' && request.method === 'POST') {
       const action = await request.json();
       assert(action.method === 'agent.connections.query', `Unexpected mock action: ${action.method}`);
-      return Response.json(world.state.agentConnections);
+      return Response.json(scoped(world.state.agentConnections));
     }
-    if (url.pathname === '/api/agent/config') return Response.json(world.state.agentConfig);
+    if (url.pathname === '/api/agent/config') return Response.json(scoped(world.state.agentConfig));
     if (url.pathname === '/api/agent/resources') return Response.json({ extensions: [], skills: [], warning: null });
     // Agent 配置页与来源选择读取的本地目录；fixture 只给空/未确认结果，不联网、不调用模型。
     if (url.pathname === '/api/agent/packages') return Response.json({ version: 1, packages: [], resources: { extensions: [], skills: [] }, truncated: false });
@@ -120,7 +125,7 @@ try {
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` }); await waitFor('window.ready');
   assert(await execute(`const rows=document.querySelector('.model-source-rows'),tools=document.querySelector('.model-source-intro');return document.querySelectorAll('.model-source-row').length===3 && document.querySelector('.model-source-detail').hidden && rows.getBoundingClientRect().top<innerHeight && tools.getBoundingClientRect().top>=rows.getBoundingClientRect().bottom;`), 'Information-first overview or closed initial panel missing');
-  assert(await execute(`const row=document.querySelector('[data-source-id="${codexId}"]');return row.textContent.includes('gpt-6.1-sol') && !row.textContent.includes('xhigh') && row.textContent.includes('已用 25%') && row.textContent.includes('已用 90%') && !row.querySelector('details') && row.querySelectorAll('[role="progressbar"]').length===2 && !row.querySelector('.model-source-resource-summary').textContent.includes('观测成功') && row.querySelector('.model-source-refresh-row').textContent.includes('缓存');`), 'Bounded Codex model/quota summary missing');
+  assert(await execute(`const row=document.querySelector('[data-source-id="${codexId}"]');return row.textContent.includes('gpt-6.1-sol') && !row.textContent.includes('xhigh') && row.textContent.includes('已用 25%') && row.textContent.includes('已用 90%') && !row.querySelector('details') && row.querySelectorAll('[role="progressbar"]').length===2 && !row.querySelector('.model-source-resource-summary').textContent.includes('观测成功') && row.querySelector('.model-source-cache-time').textContent.includes('上次刷新') && row.querySelector('.model-source-cache-time').getAttribute('data-help').includes('缓存观测（非实时）');`), 'Bounded Codex model/quota summary missing');
   await click('.model-source-row:nth-child(3) .model-source-row-actions > button:last-child');
   assert(await execute(`const card=document.querySelector('[data-connection-id="${codexId}"]'),pane=document.querySelector('.model-source-detail'),row=document.querySelector('[data-source-id="${codexId}"]');return pane.previousElementSibling===row && getComputedStyle(pane).position==='static' && pane.getBoundingClientRect().top>=row.getBoundingClientRect().bottom && card.textContent.includes('xhigh') && card.querySelectorAll('[role="progressbar"]').length===2 && [...card.querySelectorAll('.agent-reset-remaining')].every(n=>n.textContent.includes('后重置'));`), 'Full per-source quota detail missing');
   await click('.model-source-back');

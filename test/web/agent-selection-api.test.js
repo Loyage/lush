@@ -14,7 +14,7 @@ const post = (url, body, headers = {}) => fetch(url, { method: 'POST', headers: 
 const generic = () => new ManagerStub([connection({ provider: 'openai-compatible', endpoint: 'https://custom.invalid/v1', models: ['chat'] })]);
 
 test('selection resource RPC is a narrow user-only safe read, not a way to install or run a strategy', () => {
-  expect(PARAMS[method]).toEqual([]); expect(USER_ONLY.has(method)).toBe(true);
+  expect(PARAMS[method]).toEqual(['scope']); expect(USER_ONLY.has(method)).toBe(true);
   expect(assertAllowed(method, {}, null)).toBeNull();
   expect(() => assertAllowed(method, {}, 99)).toThrow('requires user approval');
   for (const params of [{ strategy: 'SECRET' }, { refresh: true }, { worker_id: 9 }, { connection_id: 'conn-one' }]) {

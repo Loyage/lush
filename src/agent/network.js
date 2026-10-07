@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 import { isPlainObject, LushError } from '../core/types.js';
 import { outboundFetch } from './network-transport.js';
+import { configurationScope, normalizeConfigurationScope, scopedConfiguration, withConfigurationWriteLock } from '../core/device-config.js';
 
 const MAX_BYTES = 65536;
 const PROXY_NAMES = ['http_proxy', 'https_proxy', 'all_proxy', 'no_proxy'];
@@ -65,7 +66,7 @@ function location(config, create = false) {
   verify(stat.isDirectory() && !stat.isSymbolicLink() && owner(stat) && (stat.mode & 0o777) === 0o700 && fs.realpathSync(home) === home);
   return { home, stat, file: path.join(home, 'network.json') };
 }
-function stored(config) {
+function storedLocal(config) {
   // Minimal legacy metadata/test configs have no persistence home; there is no file to load.
   if (!config?.home) return defaults();
   let fd;
@@ -81,20 +82,59 @@ function stored(config) {
   } catch { throw invalid(); }
   finally { if (fd !== undefined) fs.closeSync(fd); }
 }
+function networkSelection(config, scope = 'project') {
+  normalizeConfigurationScope(scope);
+  if (scope === 'device') {
+    const selected = scopedConfiguration(config, scope), loc = location(selected);
+    let exists = false;
+    if (loc) try { fs.lstatSync(loc.file); exists = true; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    return { data: storedLocal(selected), source: exists ? 'device' : 'default', overridden: false };
+  }
+  const loc = config?.home ? location(config) : null;
+  if (loc) try { fs.lstatSync(loc.file); return { data: storedLocal(config), source: 'project', overridden: true }; }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (config?.deviceHome) return networkSelection(config, 'device');
+  return { data: storedLocal(config), source: 'default', overridden: false };
+}
+function stored(config, scope = 'project') { return networkSelection(config, scope).data; }
+export function networkConfigurationScope(config, scope = 'project') {
+  const selected = networkSelection(config, scope);
+  return configurationScope(config, scope, selected.source, selected.overridden);
+}
 const publicView = data => ({ version: 1, mode: data.mode, proxy_url: data.proxy_url, no_proxy: [...data.no_proxy], has_proxy_auth: !!data.proxy_auth });
-export function readNetworkConfiguration(config) { return publicView(stored(config)); }
-export function saveNetworkConfiguration(config, value) {
+export function readNetworkConfiguration(config, scope = 'project') {
+  const selected = networkSelection(config, scope), view = publicView(selected.data);
+  return config?.deviceHome ? { ...view, configuration_scope: configurationScope(config, scope, selected.source, selected.overridden) } : view;
+}
+export function saveNetworkConfiguration(config, value, scope = 'project') {
+  try {
+    return withConfigurationWriteLock(config, scope, lock => {
+      const previous = stored(config, scope);
+      const saved = saveLocalNetworkConfiguration(scopedConfiguration(config, scope), value, previous, lock);
+      return config?.deviceHome ? { ...saved, configuration_scope: networkConfigurationScope(config, scope) } : saved;
+    });
+  } catch { throw invalid(); }
+}
+export function clearNetworkOverride(config) {
+  try {
+    return withConfigurationWriteLock(config, 'project', lock => {
+      storedLocal(config); const loc = location(config); lock.assert(); fs.rmSync(loc.file, { force: true });
+      return readNetworkConfiguration(config);
+    });
+  } catch { throw invalid(); }
+}
+function saveLocalNetworkConfiguration(config, value, inherited, writeLock) {
   let temporary, fd, lock, loc, lockStat;
   try {
     loc = location(config, true); lock = path.join(loc.home, 'network.lock');
     fs.mkdirSync(lock, { mode: 0o700 });
     lockStat = fs.lstatSync(lock);
-    const previous = stored(config), data = normalize(value, previous);
+    storedLocal(config); const data = normalize(value, inherited);
     const source = JSON.stringify(data, null, 2) + '\n'; verify(Buffer.byteLength(source) <= MAX_BYTES);
     temporary = path.join(loc.home, `.network-${randomUUID()}.tmp`);
     fd = fs.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
     fs.writeFileSync(fd, source); fs.fsyncSync(fd); fs.closeSync(fd); fd = undefined;
-    stored(config); verify(same(loc.stat, location(config).stat) && same(lockStat, fs.lstatSync(lock)));
+    storedLocal(config); writeLock.assert(); verify(same(loc.stat, location(config).stat) && same(lockStat, fs.lstatSync(lock)));
     fs.renameSync(temporary, loc.file); temporary = null;
     fs.rmdirSync(lock); lock = null;
     return publicView(data);

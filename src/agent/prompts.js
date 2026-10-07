@@ -215,9 +215,11 @@ export function agentPrompt(config, role, profile = {}, taskKind = null) {
   const resolved = canonicalRole(role);
   check(AGENT_ROLES.includes(resolved), `role must be one of ${AGENT_ROLES.join(', ')}`);
   const piMode = profile.config_mode === 'pi';
+  const localSettings = path.join(config.home, 'agent.json');
+  const settingsFile = config.deviceHome && !fs.existsSync(localSettings) ? path.join(config.deviceHome, 'agent.json') : localSettings;
   const names = taskKind === 'analysis' ? ANALYSIS_PROMPT_PARTS : ROLE_PROMPT_PARTS[resolved];
   const parts = !piMode && profile.default_prompt
-    ? [{ name: 'settings.default_prompt', title: 'Agent 配置：替代 Prompt', source: path.join(config.home, 'agent.json'), content: profile.default_prompt }]
+    ? [{ name: 'settings.default_prompt', title: 'Agent 配置：替代 Prompt', source: settingsFile, content: profile.default_prompt }]
     : builtInParts(names, config.runtimeSettings?.get().progress_reporting?.value !== false);
   const projectDir = path.join(config.project, '.lush-agent');
   const localDir = path.join(config.home, 'agent');
@@ -228,7 +230,7 @@ export function agentPrompt(config, role, profile = {}, taskKind = null) {
     optionalPart(`project.${resolved}`, `项目共享补充：${resolved}`, path.join(projectDir, `${resolved}.md`)),
     optionalPart('local.common', '本机补充：所有角色', path.join(localDir, 'common.md')),
     optionalPart(`local.${resolved}`, `本机补充：${resolved}`, path.join(localDir, `${resolved}.md`)),
-    profile.append_prompt ? { name: 'settings.append_prompt', title: 'Agent 配置：追加 Prompt', source: path.join(config.home, 'agent.json'), content: profile.append_prompt } : null,
+    profile.append_prompt ? { name: 'settings.append_prompt', title: 'Agent 配置：追加 Prompt', source: settingsFile, content: profile.append_prompt } : null,
   ]) if (part) parts.push(part);
   const text = parts.map(part => part.name === 'settings.default_prompt' ? part.content.trim() : render(part)).join('\n\n');
   check(Buffer.byteLength(text) <= 65536, `assembled ${resolved} prompt exceeds 65536 bytes`);
@@ -236,6 +238,6 @@ export function agentPrompt(config, role, profile = {}, taskKind = null) {
     mode: piMode ? 'pi' : 'lush',
     project: piMode ? [] : [path.join(projectDir, 'common.md'), path.join(projectDir, `${resolved}.md`)],
     local: piMode ? [] : [path.join(localDir, 'common.md'), path.join(localDir, `${resolved}.md`)],
-    settings: path.join(config.home, 'agent.json'),
+    settings: settingsFile,
   } };
 }

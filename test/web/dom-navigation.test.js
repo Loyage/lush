@@ -11,7 +11,7 @@ const { detail } = await import('../../src/ui/web/assets/navigate.js');
 const { renderTree } = await import('../../src/ui/web/assets/render-tree.js');
 const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
 const { ROLE } = await import('../../src/ui/web/assets/format.js');
-const json = data => ({ ok: true, json: async () => data });
+const json = data => ({ ok: true, json: async () => data?.connections ? { ...data, configuration_scope: { selected: 'device', source: 'device', project_override: false } } : data });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const { boot } = await import('../../src/ui/web/assets/app.js');
 dom.node('side-nav').replaceChildren();
@@ -107,7 +107,7 @@ test('来源UUID深链接选择正确详情，来源只读请求迟到不覆盖�
     await dom.intervalFor(1500)(); expectSelected('model-sources');
     await dom.node('home').onclick();
     const pending = deferred(), started = deferred();
-    intercept = url => url === '/api/agent/connections' ? (started.resolve(), pending.promise) : null;
+    intercept = url => url === '/api/agent/connections?scope=device' ? (started.resolve(), pending.promise) : null;
     const opening = dom.node('model-sources-open').onclick(); await started.promise;
     await dom.node('settings-open').onclick(); pending.resolve(json(world.state.agentConnections)); await opening;
     expectSelected('settings'); expect(dom.node('detail').querySelector('.model-source-layout')).toBeNull();

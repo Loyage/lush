@@ -6,6 +6,7 @@ import { agentEnvironment } from '../../agent/environment.js';
 import { AgentSettings } from '../../agent/settings.js';
 import { exact, option } from '../args.js';
 import { runPackages } from './agent-packages.js';
+import { takeConfigurationScope, scopedSettingsClient, safeConfigurationScope } from '../settings-scope.js';
 
 const TARGETS = new Set(['default', ...AGENT_ROLES]);
 
@@ -48,7 +49,9 @@ function safeNetworkView(value) {
       && !url.search && !url.hash && url.pathname === '/', 'invalid network configuration response');
     proxy_url = url.origin;
   }
-  return { version: 1, mode: value.mode, proxy_url, no_proxy: [...value.no_proxy], has_proxy_auth: value.has_proxy_auth };
+  const configuration_scope = safeConfigurationScope(value.configuration_scope);
+  return { version: 1, mode: value.mode, proxy_url, no_proxy: [...value.no_proxy], has_proxy_auth: value.has_proxy_auth,
+    ...(configuration_scope ? { configuration_scope } : {}) };
 }
 
 async function network(args, client) {
@@ -77,7 +80,10 @@ async function network(args, client) {
 }
 
 export async function run(command, args, { client, json }) {
+  const scope = takeConfigurationScope(args);
+  client = scopedSettingsClient(client, scope);
   const verb = args.shift() || 'show';
+  check(scope === null || !['prompt', 'env', 'init'].includes(verb), '--scope is available for stored settings, sources and packages; project prompt/env inspection and init stay project-bound');
   if (verb === 'prompt') {
     exact(args, 1);
     const selectedRole = role(args[0]);

@@ -12,11 +12,11 @@ import { install, connection, ManagerStub } from '../project/agent-connection-fi
 const post=(url,body,headers={})=>fetch(url,{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
 const action=(url,method,params={},headers={})=>post(url+'/api/action',{method,params},headers);
 const methods={
-  'agent.connections.list':[], 'agent.connections.save':['connection','credential'], 'agent.connections.remove':['id'],
-  'agent.connections.sampling':['sampling'], 'agent.connections.query':['id'], 'agent.connections.history':['id','days'],
-  'agent.connections.login.start':['id'], 'agent.connections.login.finish':['id','login_id','redirect_url'],
-  'agent.connections.device.start':['id'], 'agent.connections.device.poll':['id','login_id'], 'agent.connections.device.cancel':['id','login_id'],
-  'agent.connections.models':['id'], 'agent.connections.models.refresh':['id'],
+  'agent.connections.list':['scope'], 'agent.connections.save':['connection','credential','scope'], 'agent.connections.remove':['id','scope'],
+  'agent.connections.sampling':['sampling','scope'], 'agent.connections.query':['id','scope'], 'agent.connections.history':['id','days'],
+  'agent.connections.login.start':['id','scope'], 'agent.connections.login.finish':['id','login_id','redirect_url','scope'],
+  'agent.connections.device.start':['id','scope'], 'agent.connections.device.poll':['id','login_id','scope'], 'agent.connections.device.cancel':['id','login_id','scope'],
+  'agent.connections.models':['id','scope'], 'agent.connections.models.refresh':['id','scope'],
 };
 
 test('connection RPC surface is narrow and entirely user-only, with no secret read or passive write methods',()=>{
@@ -170,7 +170,7 @@ test('global connection routes preserve project identity for reads/query/login/w
 });
 
 test('model catalog and package RPCs are user-only with narrow parameters',()=>{
-  const methods={ 'agent.packages.list':[], 'agent.packages.install':['source'], 'agent.packages.remove':['id'], 'agent.packages.update':['id'] };
+  const methods={ 'agent.packages.list':['scope'], 'agent.packages.install':['source','scope'], 'agent.packages.remove':['id','scope'], 'agent.packages.update':['id','scope'] };
   for(const [method,params] of Object.entries(methods)){
     expect(PARAMS[method]).toEqual(params);expect(USER_ONLY.has(method)).toBe(true);
     expect(assertAllowed(method,{},null)).toBeNull();

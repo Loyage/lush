@@ -13,7 +13,7 @@ const post = (url, body, headers = {}) => fetch(url, { method: 'POST', headers: 
 const action = (url, config, headers = {}) => post(url + '/api/action', { method: 'agent.network.configure', params: { config } }, headers);
 
 test('network RPC is narrow/user-only and real HTTP returns only safe no-store configuration', async () => {
-  expect(PARAMS['agent.network']).toEqual([]); expect(PARAMS['agent.network.configure']).toEqual(['config']);
+  expect(PARAMS['agent.network']).toEqual(['scope']); expect(PARAMS['agent.network.configure']).toEqual(['config', 'scope']);
   for (const method of ['agent.network', 'agent.network.configure']) {
     expect(USER_ONLY.has(method)).toBe(true); expect(() => assertAllowed(method, {}, 42)).toThrow('requires user approval');
     expect(() => assertAllowed(method, { secret: 'PRIVATE' }, null)).toThrow('unknown parameter');

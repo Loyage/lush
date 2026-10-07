@@ -6,6 +6,27 @@
 
 > 模块地图：[总览](modules.md) → **Runtime 与持久化** → [Web 前端](modules-web.md) → [CLI、RPC 与测试](modules-interfaces.md)
 
+## 设备共享配置接缝
+
+范围与优先级见[设备设置契约](device-settings.md)，覆盖旧项目私有配置描述；项目 Store、Git、会话与 Worker 身份仍不共享。
+
+| 文件 | 职责 | 导出 / 接入 |
+|---|---|---|
+| `core/device-config.js` | 显式 device/project 选根，保留项目身份和环境；拒绝不安全私有根，跨进程独占锁，不偷过期锁 | `normalizeConfigurationScope`、`configurationHome`、`scopedConfiguration`、`configurationScope`、`documentConfigurationScope`、`validateConfigurationDirectory`、`ensureConfigurationDirectory`、`acquireConfigurationLock`、`withConfigurationWriteLock` |
+| `core/quick-explanation-policy.js` | Project 与无项目 Host 共用只读配置就绪校验，不联网 | `explanationReadiness(connection,profile,requireModel?)` |
+| `core/project/settings.js` | 有效运行参数与显式 scope 保存；后续准入重读，daemon 每秒检查共享变更；坏配置封闭新调用、不取消在途；迁移空闲/写 gate 与显式清除覆盖 | `runtimeSettings(scope?)`、`configureRuntimeSettings(patch,scope?)`、`refreshRuntimeConfiguration()`、`start/stopRuntimeSettingsMonitor()`、`settingsMigrationPreview()`、`settingsMigrationApply(options)`、`clearSettingsOverride(kind,target?)` |
+| `core/project/agents.js` | 后端/配置/来源管理按 scope 转发；Worker 运行始终读有效项目配置，历史只走原项目接口 | `agentConnectionsForScope(scope?)` 与原方法的末参 scope；不改选择策略运行语义 |
+| `core/project/agent-packages.js` | 项目与设备安装管理器显式分开、沿用写 gate，shutdown 停掉两个管理器 | `packageManagerForScope(scope?)`、原包管理方法末参 scope |
+
+| `config.js` / `core/settings.js` | deviceHome 由 launcherStateDir(env)/shared 派生；运行参数逐键继承，变更不取消在途 | `Config.configureRuntime(patch,scope)`、`refreshRuntimeSettings()`；`RuntimeSettings.get/save/readStored(scope)` |
+| `agent/settings.js` / `agent/network.js` / `core/quick-explanation.js` | 全文档项目覆盖；保存共享资源相对路径时归一到当前项目，缺项目拒绝；纯解释 profile 不混入 metadata | Agent `get/save/readStored(scope)`、`readLocal(scope)`、`clearOverride()`；network `read/save` 末参 scope、`networkConfigurationScope`、`clearNetworkOverride`；Quick `read/preview/save(scope)`、`readLocal`、`configurationScope`、`clearOverride` |
+| `agent/environment.js` | 显式目标/作用域读写、运行时多层叠加；common/agent 历史物理别名保留 | `read/saveAgentEnvironment` 末参 scope、`readLocalAgentEnvironment`、`clearAgentEnvironmentOverride` |
+| `agent/packages.js` / `agent/resources.js` / `agent/models.js` / `agent/pi-config.js` | 私有设备/项目库与跨进程包锁；无项目不发现项目上下文，快照仍项目私有 | `AgentPackages.forScope(scope)`、`isBusy()`、options.scope；`discoverAgentResources(config,options,scope)`、`discoverAgentModels(config,agent,scope)`、`ensurePiConfiguration(config,scope)` |
+| `agent/connections.js` / `core/agent-connections.js` | 有效并集/同 ID 本地优先，显式设备管理只看共享；实际根 OAuth/目录锁，Store 仍项目隔离 | 两类 `forScope(scope)`、family `isBusy()/stop()`；manager `storageScope(id)`、连接只读 `storage_scope`，service 设备阴影内部 state key 不改历史 UUID |
+| `core/device-migration.js` | 当前项目预检、HMAC revision、私有备份/持久步骤、发布后退役、交接 guard 与显式恢复；无自动数据迁移 | `previewDeviceMigration(config)`、`migrateDeviceSettings(config,{revision,confirm:true})` |
+
+模块与场景验证见[设备设置契约](device-settings.md#验证)；不把 mock OAuth/包测试称为真实账号或第三方包验收。
+
 ## 指令类型的只读兼容接缝
 
 `src/core/order-kind.js` 导出 `normalizeOrderRecord(row)`，供 `Store.get` / `Store.all` 在返回行的读取边界将历史 `task_kind='say'` 及联表读面的 `parent_task_kind='say'` 投影为 `order`；不执行数据库 UPDATE，不修改已有名称、分支或工作区。SQL 类型筛选同时识别 `order` / 历史 `say`，避免仅改返回值却漏掉历史记录。新指令使用类型 `order` 与默认名称 `order-ID`，已有名称原样保留。`tasks_order_branch_owner` 部分唯一索引覆盖新旧指令及 main/owner；旧库已有索引保留，避免同分支出现新旧两个所有者。

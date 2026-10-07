@@ -66,8 +66,8 @@ test('web reads and saves per-target Agent environment through user-only narrow 
   const f = await setup(); await repo(f.root);
   const post = (method, params) => fetch(f.url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }) });
   try {
-    expect(PARAMS['agent.environment']).toEqual(['target']);
-    expect(PARAMS['agent.environment.configure']).toEqual(['target', 'values']);
+    expect(PARAMS['agent.environment']).toEqual(['target', 'scope']);
+    expect(PARAMS['agent.environment.configure']).toEqual(['target', 'values', 'scope']);
     expect(USER_ONLY.has('agent.environment')).toBe(true);
     expect(USER_ONLY.has('agent.environment.configure')).toBe(true);
 

@@ -175,7 +175,7 @@ test('backends without safe boundaries wait naturally and never abort solely for
 test('Pi interrupt no longer has a grace-period hard kill; ordinary invocation timeout remains a failure', async () => {
   const provider = controlled(), f = fixture(provider);
   try {
-    f.config.timeout = 0.12;
+    f.config.configureRuntime({ call_timeout: 1 });
     f.config.interruptGraceMs = 1;
     const task = await start(f), run = f.project.running.get(task.id);
     f.project.interrupt(task.id);
@@ -183,7 +183,7 @@ test('Pi interrupt no longer has a grace-period hard kill; ordinary invocation t
     expect(run.controller.signal.aborted).toBe(false);
     await until(() => !f.project.running.has(task.id));
     expect(f.store.task(task.id)).toMatchObject({ status: 'failed', interrupt_state: null });
-    expect(f.store.task(task.id).error).toContain('timed out after 0.12 seconds');
+    expect(f.store.task(task.id).error).toContain('timed out after 1 second');
     expect(events(f, task, 'task.interrupt_timeout')).toHaveLength(0);
   } finally { await f.close(); }
 });

@@ -83,7 +83,8 @@ export default {
   },
 
   pump() {
-    if (this.stopping || this.workerDeleteIds?.size) return;
+    if (this.stopping || this.workerDeleteIds?.size || this.settingsMigrationApplying) return;
+    if (!this.refreshRuntimeConfiguration()) return;
     this.observeTaskHooks();
     this.scheduleTaskCompletion();
     for (const taskId of this.taskSyncWakePending ?? []) if (!this.taskSyncBusy?.has(taskId)) {

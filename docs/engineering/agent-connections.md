@@ -1,6 +1,8 @@
 # 账号资源连接器（首版实施契约）
 
-用户决定 #124/#126：本轮只做连接器与额度观测，不自动模型路由；Lush 自己管理多个账号的密钥与登录，采用项目私有 0700 目录/0600 凭证文件（不是静态加密保险箱），固定审查 MIT 核心代码，不直接加载第三方插件或付费探测。首版 DeepSeek/OpenRouter/Z.AI/Kimi API Key 和 Codex OAuth；既有 Agent 状态/用量配置与历史不迁移、不覆盖外部客户端认证。
+用户决定 #124/#126：本轮只做连接器与额度观测，不自动模型路由；Lush 自己管理多个账号的密钥与登录，采用私有 0700 目录/0600 凭证文件（不是静态加密保险箱），固定审查 MIT 核心代码，不直接加载第三方插件或付费探测。首版 DeepSeek/OpenRouter/Z.AI/Kimi API Key 和 Codex OAuth；既有 Agent 状态/用量配置与历史不迁移、不覆盖外部客户端认证。
+
+W116 / #261 的[设备设置](device-settings.md)优先于首版项目单根描述：来源为设备共享 + 旧本地并集，同 ID 本地优先；device 管理只看共享。`ConnectionManager.forScope(scope)` / `AgentConnectionsService.forScope(scope)` 共用受控生命周期，`storage_scope` 仅公开读字段（save 可忽略合法值，不据此选根），配置读面附 `configuration_scope`。登录、目录和 OAuth refresh 的锁落实际凭证根，stop 涵盖派生 manager/service；无项目 Host 不建项目历史或消费者。显式迁移支持私有备份、持久步骤、重新预检恢复及源端交接 fail-closed，不启动自动迁移。
 
 用户决定 #142 的共享保存、自定义 OpenAI 兼容 API、单 Worker 选择与默认关闭的受信调用前策略接口，由[共享模型选择增补](managed-model-selection.md)规定；该增补优先于本文的首版服务商列表和“本轮不实现”范围描述。
 
@@ -38,7 +40,7 @@ Manager 方法：
 - `configureSampling(sampling)` -> sampling。
 - `identity(id)` -> 私密同步 `{account_key,source_key,revision}`，前两项与 query/prepareRuntime 一致；revision 是配置/凭证变动指纹，供迟到与外部更换校验，不经 RPC 返回。
 - `query(id)` -> Promise `{id,account_key,source_key,observation}`；单连接专用额度查询，失败返回安全状态。不创建模型调用。OpenRouter Key 预算和账号 credits 两次查询独立，权限不足不能抹掉成功指标。
-- `prepareRuntime(id)` -> Promise 私密 `{connection,credential,account_key,source_key}`；credential 为 `{type:'api_key',key}` 或 `{type:'oauth',access,refresh,expires,accountId?}`。检查 enabled/可用凭证，必要时仅刷新本项目自己的 Codex 凭证；更新/删除在途必须防止旧刷新覆盖新配置。
+- `prepareRuntime(id)` -> Promise 私密 `{connection,credential,account_key,source_key}`；credential 为 `{type:'api_key',key}` 或 `{type:'oauth',access,refresh,expires,accountId?}`。检查 enabled/可用凭证，必要时协调刷新实际存储根的 Lush 托管 Codex 凭证，多个 daemon 复用同一 refresh 锁；更新/删除在途必须防止旧刷新覆盖新配置。
 - `loginStart(id)` -> `{id,login_id,url,expires_at,redirect_uri,instructions}`；只允许 Codex oauth，固定授权 URL、PKCE/state。首版手动粘贴回调 URL，兼容远端 SSH，不启动不受控浏览器/CLI，也不覆盖外部 auth.json。
 - `loginFinish(id,login_id,redirect_url)` -> 公开连接；验证回调 origin/path、state、超时和一次性消费；兑换失败只返回固定安全错误。OAuth refresh 与登录写回协调，不能覆盖已更换/删除的连接。
 - `stop()` 取消未完成登录及在途请求；实现可同步或 Promise。

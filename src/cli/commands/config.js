@@ -2,6 +2,7 @@ import { check } from '../../core/types.js';
 import { RUNTIME_SETTINGS_LIMITS } from '../../core/settings.js';
 import { ROUTE_TARGETS, normalizeInputRoutes } from '../../core/input-routes.js';
 import { exact, option } from '../args.js';
+import { takeConfigurationScope, scopedSettingsClient } from '../settings-scope.js';
 
 /**
  * `lush config`：项目级「运行设置」（两条并发上限 + 三条调用 / 拆解限额）的用户接口。
@@ -47,10 +48,13 @@ function printRoutes(entry) {
 function printConfig(settings) {
   for (const field of FIELDS) {
     const entry = settings[field.key];
-    console.log(`${field.label} ${field.flag}\t生效 ${entry.value} · 环境默认 ${entry.default} · ${entry.overridden ? '已覆盖' : '环境默认'}`);
+    const source = { device: '设备共享', project: '项目覆盖', default: '环境默认' }[entry.source]
+      || (entry.overridden ? '已覆盖' : '环境默认');
+    console.log(`${field.label} ${field.flag}\t生效 ${entry.value} · 环境默认 ${entry.default} · ${source}`);
   }
   printRoutes(settings.input_routes);
   console.log(`设置文件\t${settings.file || '—'}`);
+  if (settings.configuration_scope) console.log(`编辑作用域\t${settings.configuration_scope.selected === 'device' ? '设备共享' : '本项目覆盖'}`);
 }
 
 /** 快速路由读模型：生效表、默认表与来源。`route` 子命令的 --json 输出。 */
@@ -79,12 +83,32 @@ function report(settings, json) {
 
 export async function run(command, args, { client, json }) {
   check(!client.token, 'agents cannot change runtime settings');
+  const scope = takeConfigurationScope(args);
+  client = scopedSettingsClient(client, scope);
   const verb = args.shift() || 'show';
-  check(['show','set','reset'].includes(verb), 'unknown config command; use show, set or reset');
+  check(['show','set','reset','migrate'].includes(verb), 'unknown config command; use show, set, reset or migrate');
+  if (verb === 'migrate') {
+    check(scope !== 'device', 'migration reads the current project; use --scope project or omit scope');
+    const index = args.indexOf('--confirm'), confirm = index !== -1;
+    if (confirm) args.splice(index, 1);
+    const revision = option(args, '--revision'); exact(args, 0);
+    check(confirm ? typeof revision === 'string' && revision.length > 0 : revision === null,
+      'config migrate execution requires --confirm --revision REV; omit both to preview');
+    const result = await client.request(confirm ? 'settings.migration.apply' : 'settings.migration.preview',
+      confirm ? { revision, confirm: true } : undefined);
+    if (json) return result;
+    console.log(result.already_migrated ? '项目设置已迁移；无需重复导入。' : confirm ? '迁移执行结果：' : '当前项目 → 设备共享设置迁移预检：');
+    for (const item of result.items ?? []) console.log(`${item.kind}\t${item.action}\t${item.source} → ${item.destination}`);
+    for (const blocker of result.blockers ?? []) console.log(`阻止：${blocker}`);
+    for (const warning of result.warnings ?? []) console.log(`提示：${warning}`);
+    if (result.backup) console.log(`私有备份：${result.backup}`);
+    if (!confirm && result.can_migrate && !result.already_migrated) console.log(`确认执行：lush config migrate --confirm --revision ${result.revision}`);
+    return;
+  }
   if (verb === 'show') {
     exact(args, 0);
-    const status = await client.request('system.status');
-    return report(status.settings, json);
+    const settings = scope === null ? (await client.request('system.status')).settings : await client.request('system.settings');
+    return report(settings, json);
   }
   if (verb === 'set') {
     const flag = args.shift();

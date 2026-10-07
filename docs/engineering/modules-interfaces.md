@@ -4,6 +4,12 @@
 
 > 模块地图：[总览](modules.md) → [Runtime 与持久化](modules-runtime.md) → [Web 前端](modules-web.md) → **CLI、RPC 与测试**
 
+## 设备设置与迁移接缝
+
+[设备设置契约](device-settings.md)优先于下面旧的项目配置路径描述。既有设置 RPC 的可选 `scope` 默认 project，显式 device 管理不受项目覆盖影响；device 管理不能由 Agent token 调用。新增用户专属 `system.settings`、`settings.clear_override`、`settings.migration.preview/apply`，由 `handlers/system.js` 转发。迁移固定当前项目，不接收路径/项目选择参数，confirm 与预检 revision 必需。
+
+`cli/settings-scope.js` 导出 `takeConfigurationScope(args)` / `scopedSettingsClient(client,scope)` / `safeConfigurationScope(value)`（安全 CLI metadata 白名单），仅在显式 --scope 时给支持它的设置请求加参数，不污染 Worker/历史。`config` 增加 `migrate` 预检与 `migrate --confirm --revision REV`；设置命令/来源/包支持 --scope，项目 prompt/env 检查与 init 不接受 scope。新接口与空闲保护回归在 `test/device-settings-interfaces.test.js`；Host 无项目、安全白名单和固定项目 scope 转发在 `test/web/device-settings-api.test.js`。
+
 ## CLI：`src/cli/main.js` + `src/cli/`
 
 命令处理器的统一签名：`export async function run(command, args, ctx)`，

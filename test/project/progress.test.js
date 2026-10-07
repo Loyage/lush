@@ -11,7 +11,9 @@ function controlled() {
   const calls = [];
   return { calls, run(ctx) {
     const done = gate(); calls.push({ ...ctx, done });
-    ctx.signal.addEventListener('abort', () => done.resolve('aborted'), { once: true });
+    // Under parallel load shutdown can win while the invocation is still preparing its workspace.
+    if (ctx.signal.aborted) done.resolve('aborted');
+    else ctx.signal.addEventListener('abort', () => done.resolve('aborted'), { once: true });
     return done.promise;
   } };
 }
@@ -218,7 +220,8 @@ test('a parked parent shows waiting as its own plan entry in inspect and tree su
     await rpc.dispatch('progress.complete', { _token: token, step: 'delegate' });
     const child = await f.project.spawn(parent.id, 'child work', undefined, [], 'child');
     provider.calls[0].done.resolve('delegated');
-    await until(() => f.store.task(parent.id).status === 'waiting' && f.store.task(child.id).status === 'running');
+    await until(() => f.store.task(parent.id).status === 'waiting' && f.store.task(child.id).status === 'running'
+      && provider.calls.length === 2);
     // 等一小段真实时间，让「等子任务」的区间长得足够生成等待行。
     await new Promise(resolve => setTimeout(resolve, 30));
 

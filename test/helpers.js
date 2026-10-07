@@ -22,10 +22,15 @@ export function env(extra = {}) {
     LUSH_PROVIDER: 'mock', ...extra };
 }
 export function fixture(provider, extra = {}) {
-  const root = temp(); const config = new Config({ project: root, env: env(extra) }); config.prepare();
+  const root = temp(), deviceRoot = temp();
+  // Fixtures are independent devices unless a test explicitly supplies a common temporary root.
+  const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: deviceRoot, ...extra }) }); config.prepare();
   const store = new Store(path.join(config.home, 'project.db'), root);
   const project = new Project(config, store, provider);
-  return { root, config, store, project, async close() { await project.shutdown(); store.close(); fs.rmSync(root, { recursive:true, force:true }); } };
+  return { root, config, store, project, async close() {
+    await project.shutdown(); store.close(); fs.rmSync(root, { recursive:true, force:true });
+    fs.rmSync(deviceRoot, { recursive:true, force:true });
+  } };
 }
 export async function until(fn, timeout = 4000) {
   const end = Date.now() + timeout;

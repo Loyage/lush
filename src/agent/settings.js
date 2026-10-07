@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { configurationHome, configurationScope, normalizeConfigurationScope, withConfigurationWriteLock } from '../core/device-config.js';
 import { check, isPlainObject } from '../core/types.js';
 import { AGENT_ROLES as PROMPT_ROLES, builtInPrompt } from './prompts.js';
 import { normalizeAgentEnv } from './environment.js';
@@ -118,34 +120,59 @@ export function normalizeAgentConfig(value, fallback) {
   return { version: 1, default: base, roles: normalizedRoles };
 }
 
-/** Project-level agent settings. Reads on every invocation so queued work sees the latest saved profile. */
+/** Shared defaults with whole-document project overrides, re-read for each later invocation. */
 export class AgentSettings {
   constructor(config) {
     this.config = config;
     this.file = path.join(config.home, 'agent.json');
   }
 
-  readStored() {
-    const fallback = envDefault(this.config);
-    if (!fs.existsSync(this.file)) return normalizeAgentConfig({ version: 1, default: fallback, roles: {} }, fallback);
-    const stat = fs.lstatSync(this.file);
-    check(!stat.isSymbolicLink() && stat.isFile() && stat.uid === process.getuid(), `unsafe Agent config file: ${this.file}`);
-    check((stat.mode & 0o077) === 0, `${this.file} must only be readable by its owner (chmod 600)`);
-    check(stat.size <= MAX_FILE_BYTES, `${this.file} is too large`);
-    let value;
-    try { value = JSON.parse(fs.readFileSync(this.file, 'utf8')); }
-    catch { throw new Error(`invalid JSON in ${this.file}`); }
-    // Retired role overrides must not prevent existing projects from reading active profiles.
-    // Ignore only on read; do not rewrite the file or accept new overrides through save().
-    if (isPlainObject(value?.roles) && Object.hasOwn(value.roles, 'showcase')) {
-      const { showcase: retired, ...roles } = value.roles;
-      value = { ...value, roles };
-    }
-    return normalizeAgentConfig(value, fallback);
+  readLocal(scope = 'project') {
+    const home = configurationHome(this.config, scope), file = path.join(home, 'agent.json');
+    let root;
+    try { root = fs.lstatSync(home); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+    check(root.isDirectory() && !root.isSymbolicLink() && root.uid === process.getuid() && !(root.mode & 0o022)
+      && (scope !== 'device' || !(root.mode & 0o077)) && fs.realpathSync(home) === home, 'unsafe Agent config directory');
+    let fd;
+    try {
+      let published;
+      try { published = fs.lstatSync(file); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+      check(!published.isSymbolicLink(), `unsafe Agent config file: ${file}`);
+      fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      const stat = fs.fstatSync(fd);
+      check(stat.isFile() && stat.uid === process.getuid() && stat.nlink === 1, `unsafe Agent config file: ${file}`);
+      check((stat.mode & 0o077) === 0, `${file} must only be readable by its owner (chmod 600)`);
+      check(stat.size <= MAX_FILE_BYTES, `${file} is too large`);
+      const source = fs.readFileSync(fd, 'utf8'), after = fs.fstatSync(fd), current = fs.lstatSync(file), currentRoot = fs.lstatSync(home);
+      check(Buffer.byteLength(source) <= MAX_FILE_BYTES && stat.dev === after.dev && stat.ino === after.ino
+        && stat.size === after.size && stat.mtimeMs === after.mtimeMs && stat.dev === current.dev && stat.ino === current.ino
+        && root.dev === currentRoot.dev && root.ino === currentRoot.ino && fs.realpathSync(home) === home,
+      'Agent config file changed while reading');
+      let value;
+      try { value = JSON.parse(source); } catch { throw new Error(`invalid JSON in ${file}`); }
+      // Retired overrides stay on disk; compatibility is read-only.
+      if (isPlainObject(value?.roles) && Object.hasOwn(value.roles, 'showcase')) {
+        const { showcase: retired, ...roles } = value.roles;
+        value = { ...value, roles };
+      }
+      return normalizeAgentConfig(value, envDefault(this.config));
+    } finally { if (fd !== undefined) fs.closeSync(fd); }
   }
 
-  get() {
-    const stored = this.readStored();
+  selection(scope = 'project') {
+    normalizeConfigurationScope(scope);
+    const own = this.readLocal(scope);
+    if (own) return { stored: own, source: scope, file: path.join(configurationHome(this.config, scope), 'agent.json'), overridden: scope === 'project' };
+    const shared = scope === 'project' && this.config.deviceHome ? this.readLocal('device') : null;
+    return { stored: shared || normalizeAgentConfig({ default: envDefault(this.config), roles: {} }, envDefault(this.config)),
+      source: shared ? 'device' : 'default', file: path.join(configurationHome(this.config, shared ? 'device' : scope), 'agent.json'), overridden: false };
+  }
+
+  readStored(scope = 'project') { return this.selection(scope).stored; }
+
+  get(scope = 'project') {
+    const selection = this.selection(scope), stored = selection.stored;
+    const progressReporting = this.config.runtimeSettings?.get(scope)?.progress_reporting?.value ?? this.config.progressReporting;
     const resolved = {};
     for (const role of AGENT_ROLES) {
       resolved[role] = { ...(stored.roles[role] || stored.default) };
@@ -153,7 +180,8 @@ export class AgentSettings {
       if (['explainer','butler'].includes(role)) { delete resolved[role].soft_budget; delete resolved[role].config_mode; }
     }
     return {
-      ...stored, resolved, file: this.file, runtime_agent: this.config.provider === 'mock' ? 'mock' : stored.default.agent,
+      ...stored, resolved, file: selection.file,
+      configuration_scope: configurationScope(this.config, scope, selection.source, selection.overridden), runtime_agent: this.config.provider === 'mock' ? 'mock' : stored.default.agent,
       options: {
         agents: [...AGENT_BACKENDS],
         // Which configuration source a Pi invocation uses: Lush-managed or the machine's own Pi.
@@ -162,8 +190,8 @@ export class AgentSettings {
         thinking: Object.fromEntries(Object.entries(THINKING_LEVELS).map(([key, values]) => [key, [...values]])),
         models: Object.fromEntries(Object.entries(MODEL_PRESETS).map(([key, values]) => [key, [...values]])),
         // Compatibility field for older clients; role-aware clients use default_prompts.
-        default_prompt: builtInPrompt('planner', { progressReporting: this.config.progressReporting !== false }),
-        default_prompts: Object.fromEntries(AGENT_ROLES.map(role => [role, builtInPrompt(role, { progressReporting: this.config.progressReporting !== false })])),
+        default_prompt: builtInPrompt('planner', { progressReporting: progressReporting !== false }),
+        default_prompts: Object.fromEntries(AGENT_ROLES.map(role => [role, builtInPrompt(role, { progressReporting: progressReporting !== false })])),
       },
     };
   }
@@ -181,17 +209,36 @@ export class AgentSettings {
     return normalizeAgentProfile(value, `roles.${resolvedRole}`);
   }
 
-  save(value) {
+  save(value, scope = 'project') {
+    normalizeConfigurationScope(scope);
     const normalized = normalizeAgentConfig(value, envDefault(this.config));
+    // A shared resource cannot resolve relative to whichever project happens to launch next.
+    if (scope === 'device') for (const profile of [normalized.default, ...Object.values(normalized.roles)]) {
+      for (const key of ['extensions', 'skills']) profile[key] = profile[key].map(resource => {
+        if (path.isAbsolute(resource)) return resource;
+        if (resource.startsWith('~/') && this.config.env?.HOME) return path.resolve(this.config.env.HOME, resource.slice(2));
+        check(typeof this.config.project === 'string' && path.isAbsolute(this.config.project), 'shared resource paths must be absolute');
+        return path.resolve(this.config.project, resource);
+      });
+    }
     const body = JSON.stringify(normalized, null, 2) + '\n';
     check(Buffer.byteLength(body) <= MAX_FILE_BYTES, 'agent config is too large');
-    fs.mkdirSync(this.config.home, { recursive: true, mode: 0o700 });
-    const temporary = `${this.file}.${process.pid}.tmp`;
-    try {
-      fs.writeFileSync(temporary, body, { mode: 0o600, flag: 'wx' });
-      fs.renameSync(temporary, this.file);
-      fs.chmodSync(this.file, 0o600);
-    } finally { fs.rmSync(temporary, { force: true }); }
-    return this.get();
+    return withConfigurationWriteLock(this.config, scope, lock => {
+      this.readLocal(scope);
+      const file = path.join(configurationHome(this.config, scope), 'agent.json'), temporary = `${file}.${randomUUID()}.tmp`;
+      try {
+        fs.writeFileSync(temporary, body, { mode: 0o600, flag: 'wx' });
+        lock.assert(); this.readLocal(scope);
+        fs.renameSync(temporary, file);
+      } finally { fs.rmSync(temporary, { force: true }); }
+      return this.get(scope);
+    });
+  }
+
+  clearOverride() {
+    return withConfigurationWriteLock(this.config, 'project', lock => {
+      this.readLocal(); lock.assert(); fs.rmSync(this.file, { force: true });
+      return this.get();
+    });
   }
 }

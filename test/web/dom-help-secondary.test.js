@@ -84,7 +84,7 @@ test('设置页的 Agent / 系统按钮按标准补 data-help', async () => {
   expect(buttonOf(panel, '单独配置').getAttribute('data-help')).toContain('独立配置');
 
   // 系统页：并发额度的「恢复环境默认」会立即改写运行参数，必须说清后果。
-  openSettings(); tabOf('system').onclick();
+  await openSettings(); await tabOf('system').onclick();
   expect(buttonOf(panel, '恢复环境默认').getAttribute('data-help')).toContain('并发');
   tabOf('interface').onclick();
   expect(deepText(panel)).toContain('Markdown 渲染');

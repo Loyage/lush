@@ -1,13 +1,18 @@
+import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { check } from '../core/types.js';
 import { ConnectionFile } from './connections-file.js';
-import { DEFAULT_ENDPOINTS, digest, secret, fields, validId, normalizeConnection, normalizeSampling,
+import { DEFAULT_ENDPOINTS, digest, secret, fields, object, validId, normalizeConnection, normalizeSampling,
   requestJson, fail, safeCode, unavailable } from './connections-utils.js';
 import { queryConnection } from './connections-query.js';
 import { authorization, callbackCode, REDIRECT_URI, exchange, refresh } from './connections-oauth.js';
 import { ConnectionDeviceLogins } from './connections-device.js';
 import { ConnectionCatalogFile, LISTINGS, catalogKey, listingUrl, localModels, manualModels, normalizeCatalog } from './connections-catalog.js';
 import { networkSnapshot } from './network.js';
+import { normalizeConfigurationScope, scopedConfiguration, configurationScope } from '../core/device-config.js';
+
+const STORAGE = Symbol('connection-storage');
+const storedRow = (row, file) => Object.defineProperty({ ...row }, STORAGE, { value: file });
 
 function publicConnection(row, now) {
   const { revision, credential, ...connection } = row;
@@ -27,18 +32,67 @@ function identity(row) {
 export class ConnectionManager {
   constructor(config, options = {}) {
     check(typeof config?.home === 'string' && config.home.length > 0, 'connection home is required');
-    this.networkConfig = config;
-    this.file = new ConnectionFile(config.home); this.catalogs = new ConnectionCatalogFile(this.file);
+    // Host settings have an explicit device root but no project identity. This is not
+    // a synthetic Project and never acquires project history or a daemon binding.
+    this.deviceOnly = config.project === null && !config.deviceHome;
+    this.configurationConfig = this.deviceOnly ? { ...config, deviceHome: config.home } : config;
+    this.scope = normalizeConfigurationScope(options.scope ?? (this.deviceOnly ? 'device' : 'project'));
+    check(!this.deviceOnly || this.scope === 'device', 'project configuration is unavailable');
+    this.networkConfig = this.scope === 'device' ? scopedConfiguration(this.configurationConfig, 'device') : config;
+    this.file = new ConnectionFile(this.networkConfig.home, { privateRoot: this.scope === 'device' });
+    this.sharedFile = this.scope === 'project' && config.deviceHome ? new ConnectionFile(config.deviceHome, { privateRoot: true }) : null;
+    this.catalogs = new ConnectionCatalogFile(this.file);
+    this.catalogStores = new Map([[this.file.home, this.catalogs]]);
+    this.scopedManagers = options.scopedManagers || new Map();
+    this.scopedManagers.set(this.scope, this);
     this.options = options; this.now = options.now || Date.now;
     this.logins = new Map(); this.flights = new Map(); this.pending = new Set();
     this.devices = new ConnectionDeviceLogins(this, publicConnection);
     this.controller = new AbortController(); this.closed = false;
   }
   _alive() { if (this.closed) fail('stopped'); }
+  forScope(scope = 'project') {
+    this._alive(); normalizeConfigurationScope(scope);
+    check(!this.deviceOnly || scope === 'device', 'project configuration is unavailable');
+    if (!this.scopedManagers.has(scope)) new ConnectionManager(this.configurationConfig,
+      { ...this.options, scope, scopedManagers: this.scopedManagers });
+    return this.scopedManagers.get(scope);
+  }
+  _data() {
+    const local = this.file.read();
+    const own = local.connections.map(row => storedRow(row, this.file));
+    if (!this.sharedFile) return { ...local, connections: own };
+    const shared = this.sharedFile.read(), ids = new Set(own.map(row => row.id));
+    return { version: 1, sampling: fs.existsSync(this.file.file) ? local.sampling : shared.sampling,
+      connections: [...shared.connections.filter(row => !ids.has(row.id)).map(row => storedRow(row, this.sharedFile)), ...own] };
+  }
   _row(id) {
     check(validId(id), 'connection id is invalid');
-    const row = this.file.read().connections.find(row => row.id === id);
+    const row = this._data().connections.find(row => row.id === id);
     check(row, 'connection not found'); return row;
+  }
+  _storage(row) { return row[STORAGE] || this.file; }
+  _revision(row) { return digest([row, this._storage(row).home]); }
+  storageScope(id) {
+    const file = this._storage(this._row(id));
+    return this.configurationConfig.deviceHome && file.home === this.configurationConfig.deviceHome ? 'device' : 'project';
+  }
+  _view(row) {
+    const view = publicConnection(row, this.now());
+    if (this.configurationConfig.deviceHome) view.storage_scope = this._storage(row).home === this.configurationConfig.deviceHome ? 'device' : 'project';
+    return view;
+  }
+  _catalogStore(row) {
+    const file = this._storage(row);
+    if (!this.catalogStores.has(file.home)) this.catalogStores.set(file.home, new ConnectionCatalogFile(file));
+    return this.catalogStores.get(file.home);
+  }
+  isBusy() {
+    return [...this.scopedManagers.values()].some(manager => {
+      manager._purgeLogins(); manager.devices.purge();
+      return manager.pending.size || manager.logins.size || manager.flights.size
+        || [...manager.devices.sessions.values()].some(session => !session.connection);
+    });
   }
   _track(fn) {
     this._alive();
@@ -54,17 +108,28 @@ export class ConnectionManager {
       fetch: (target, request) => network.fetch(target, request, this.options.fetch) });
   }
   config() {
-    const data = this.file.read();
-    return { version: 1, sampling: data.sampling, connections: data.connections.map(row => publicConnection(row, this.now())) };
+    const data = this._data();
+    const result = { version: 1, sampling: data.sampling, connections: data.connections.map(row => this._view(row)) };
+    if (this.configurationConfig.deviceHome) {
+      const overridden = this.scope === 'project' && fs.existsSync(this.file.file);
+      const device = fs.existsSync((this.sharedFile || this.file).file);
+      result.configuration_scope = configurationScope(this.configurationConfig, this.scope,
+        overridden ? data.connections.some(row => this._storage(row) === this.sharedFile) ? 'mixed' : 'project' : device ? 'device' : 'default', overridden);
+    }
+    return result;
   }
   /** Internal synchronous identity; never returns credentials or goes on the public config read model. */
   identity(id) {
     const row = this._row(id);
-    return { ...identity(row), revision: digest(row) };
+    return { ...identity(row), revision: this._revision(row) };
   }
   save(connection, credential = null) {
     this._alive();
-    const id = connection?.id ?? randomUUID(), normalized = normalizeConnection(connection, id);
+    check(object(connection), 'connection fields are invalid');
+    // Public read metadata is not configuration and cannot choose or change the write root.
+    const { storage_scope, ...input } = connection;
+    check(storage_scope === undefined || ['device', 'project'].includes(storage_scope), 'connection storage scope is invalid');
+    const id = input.id ?? randomUUID(), normalized = normalizeConnection(input, id);
     let key = null;
     if (credential !== null && credential !== undefined) {
       fields(credential, ['api_key'], 'credential');
@@ -73,7 +138,9 @@ export class ConnectionManager {
         check(secret(credential.api_key), 'API key is invalid'); key = credential.api_key;
       }
     }
-    const result = this.file.transaction(data => {
+    // Inherited connections are updated in their actual root; new project-view connections stay local.
+    const target = connection.id === undefined ? this.file : this._storage(this._row(id));
+    const result = target.transaction(data => {
       const index = data.connections.findIndex(row => row.id === id), previous = data.connections[index];
       check(connection.id === undefined || previous, 'connection not found');
       check(index >= 0 || data.connections.length < 50, 'too many connections');
@@ -82,13 +149,14 @@ export class ConnectionManager {
       const row = { ...normalized, revision: randomUUID(),
         credential: key ? { type: 'api_key', key } : keep ? previous.credential : null };
       if (index < 0) data.connections.push(row); else data.connections[index] = row;
-      return publicConnection(row, this.now());
+      return this._view(storedRow(row, target));
     });
     this._cancelLogins(id); return result;
   }
   remove(id) {
     this._alive(); check(validId(id), 'connection id is invalid');
-    this.file.transaction(data => {
+    const target = this._storage(this._row(id));
+    target.transaction(data => {
       const index = data.connections.findIndex(row => row.id === id); check(index >= 0, 'connection not found');
       data.connections.splice(index, 1);
     });
@@ -105,11 +173,12 @@ export class ConnectionManager {
   _purgeLogins() { for (const [key,value] of this.logins) if (value.expires <= this.now()) this.logins.delete(key); }
   _publish(id, revision, credential) {
     this._alive();
-    return this.file.transaction(data => {
+    const target = this._storage(this._row(id));
+    return target.transaction(data => {
       const row = data.connections.find(row => row.id === id);
-      if (!row || digest(row) !== revision) fail('auth_changed');
+      if (!row || this._revision(storedRow(row, target)) !== revision) fail('auth_changed');
       row.credential = credential; row.revision = randomUUID();
-      return { ...row };
+      return storedRow(row, target);
     });
   }
   async _runtime(row, minimumValidityMs = 300000, network = this.networkSnapshot()) {
@@ -128,18 +197,19 @@ export class ConnectionManager {
     }
     this._alive();
     // Even non-refreshing asynchronous operations must reject configuration changes.
-    const latest = this.file.read().connections.find(entry => entry.id === row.id);
-    if (!latest || digest(latest) !== digest(current)) fail('auth_changed');
+    const latest = this._data().connections.find(entry => entry.id === row.id);
+    if (!latest || this._revision(latest) !== this._revision(current)) fail('auth_changed');
     if (current.credential.type === 'oauth' && current.credential.expires <= this.now() + minimumValidityMs) fail('expired');
     return { connection: publicConnection(current, this.now()), credential: { ...current.credential }, ...identity(current) };
   }
   async _refresh(row, minimumValidityMs, network) {
-    const lock = await this.file.refreshLock(row.id, this.controller.signal, this.options.lockTimeout);
+    const source = this._storage(row);
+    const lock = await source.refreshLock(row.id, this.controller.signal, this.options.lockTimeout);
     try {
       lock.assert();
-      const latest = this.file.read().connections.find(entry => entry.id === row.id);
-      if (!latest) fail('auth_changed');
-      if (digest(latest) !== digest(row)) {
+      const latest = this._data().connections.find(entry => entry.id === row.id);
+      if (!latest || this._storage(latest).home !== source.home) fail('auth_changed');
+      if (this._revision(latest) !== this._revision(row)) {
         // Another coordinated refresh can be reused, but changed configuration/identity cannot.
         const { credential: a, revision: ar, ...ac } = row;
         const { credential: b, revision: br, ...bc } = latest;
@@ -149,7 +219,7 @@ export class ConnectionManager {
       if (latest.credential.expires > this.now() + minimumValidityMs) return latest;
       const credential = await refresh(latest.credential, (url,init) => this._request(url,init,{ network }), this.now);
       lock.assert();
-      return this._publish(row.id, digest(latest), credential);
+      return this._publish(row.id, this._revision(latest), credential);
     } finally { lock.release(); }
   }
   prepareRuntime(id) { const network = this.networkSnapshot(); return this._track(() => this._runtime(this._row(id), 300000, network)); }
@@ -166,8 +236,8 @@ export class ConnectionManager {
         const runtime = await this._runtime(row, 30000, network); binding = { account_key: runtime.account_key, source_key: runtime.source_key };
         observation = await queryConnection(runtime.connection, runtime.credential, checked_at, (url,init) => this._request(url,init,{ network }));
         this._alive();
-        const latest = this.file.read().connections.find(entry => entry.id === id);
-        if (!latest || digest(identity(latest)) !== digest(binding) || latest.enabled !== row.enabled || latest.label !== row.label
+        const latest = this._data().connections.find(entry => entry.id === id);
+        if (!latest || this._storage(latest).home !== this._storage(row).home || digest(identity(latest)) !== digest(binding) || latest.enabled !== row.enabled || latest.label !== row.label
           || latest.provider !== row.provider || latest.endpoint !== row.endpoint || digest(latest.models) !== digest(row.models)) fail('auth_changed');
       } catch (error) {
         const code = safeCode(error);
@@ -184,7 +254,7 @@ export class ConnectionManager {
     check(row.auth_type === 'oauth' && row.provider === 'openai-codex', 'connection does not support OAuth login');
     this._purgeLogins(); this._cancelLogins(id);
     const flow = authorization(), login_id = randomUUID(), expires = this.now() + 15 * 60000;
-    this.logins.set(login_id, { ...flow, id, revision: digest(row), expires, network: this.networkSnapshot() });
+    this.logins.set(login_id, { ...flow, id, revision: this._revision(row), expires, network: this.networkSnapshot() });
     return { id, login_id, url: flow.url, expires_at: new Date(expires).toISOString(), redirect_uri: REDIRECT_URI,
       instructions: '在浏览器完成授权；若 localhost 回调页无法打开，复制地址栏完整回调 URL（含 code/state）粘贴回来。不要分享回调 URL。' };
   }
@@ -193,7 +263,7 @@ export class ConnectionManager {
       check(validId(login_id), 'login id is invalid');
       const login = this.logins.get(login_id);
       if (!login || login.id !== id || login.exchanging || login.expires <= this.now()) { this._purgeLogins(); fail('login_expired'); }
-      const row = this._row(id); if (digest(row) !== login.revision) fail('auth_changed');
+      const row = this._row(id); if (this._revision(row) !== login.revision) fail('auth_changed');
       const code = callbackCode(redirect_url, login.state);
       // Consume before await, but retain the guard so a newer device/browser
       // login can invalidate an exchange already in flight.
@@ -201,14 +271,14 @@ export class ConnectionManager {
       try {
         const credential = await exchange(code, login.verifier, (url,init) => this._request(url,init,{ network: login.network }), this.now);
         if (this.logins.get(login_id) !== login || login.expires <= this.now()) fail('login_expired');
-        return publicConnection(this._publish(id, digest(row), credential), this.now());
+        return this._view(this._publish(id, this._revision(row), credential));
       } finally { if (this.logins.get(login_id) === login) this.logins.delete(login_id); }
     });
   }
   /** Cached, identity-scoped model catalog. Local read only; never contacts the provider. */
   catalog(id) {
     const row = this._row(id), ident = identity(row), key = catalogKey(row, ident);
-    const stored = this.catalogs.get(key);
+    const stored = this._catalogStore(row).get(key);
     if (stored) return stored;
     return normalizeCatalog(this._synthesized(row), id, this.now);
   }
@@ -261,18 +331,22 @@ export class ConnectionManager {
       }
       if (!result || result.status !== 'fresh') result = await this._fallbackModels(row, result);
       this._alive();
-      const latest = this.file.read().connections.find(entry => entry.id === id);
+      const latest = this._data().connections.find(entry => entry.id === id);
       const after = latest ? identity(latest) : null;
-      if (!latest || !after || after.account_key !== ident.account_key || after.source_key !== ident.source_key
+      if (!latest || !after || this._storage(latest).home !== this._storage(row).home
+        || after.account_key !== ident.account_key || after.source_key !== ident.source_key
         || latest.provider !== row.provider || latest.endpoint !== row.endpoint
         || digest(latest.models) !== digest(row.models)) return null;
       const catalog = normalizeCatalog({ ...result, version: 1, id, checked_at }, id, this.now);
-      await this.catalogs.put(key, catalog);
+      await this._catalogStore(row).put(key, catalog);
       return catalog;
     });
   }
   async stop() {
-    this.closed = true; this.logins.clear(); this.devices.stop(); this.controller.abort();
-    await Promise.allSettled([...this.pending]);
+    const managers = [...this.scopedManagers.values()];
+    for (const manager of managers) {
+      manager.closed = true; manager.logins.clear(); manager.devices.stop(); manager.controller.abort();
+    }
+    await Promise.allSettled(managers.flatMap(manager => [...manager.pending]));
   }
 }

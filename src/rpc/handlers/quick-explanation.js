@@ -2,8 +2,8 @@ import { check, id } from '../../core/types.js';
 
 /** User-only, project-owned reading assistance; never creates a Worker. */
 export const handlers = {
-  'quick_explain.config'(p) { return p.quickExplanationConfig(); },
-  'quick_explain.configure'(p, params) { return p.configureQuickExplanation(params.config); },
+  'quick_explain.config'(p, params) { return p.quickExplanationConfig(params.scope); },
+  'quick_explain.configure'(p, params) { return p.configureQuickExplanation(params.config, params.scope); },
   'quick_explain.start'(p, params) { return p.startQuickExplanation(params.quote, params.location); },
   'quick_explain.followup'(p, params) { return p.followUpQuickExplanation(id(params.id), params.question); },
   'quick_explain.get'(p, params) { return p.quickExplanation(id(params.id)); },

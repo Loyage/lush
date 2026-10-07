@@ -5,6 +5,8 @@ import { readPref, readStored, scopedKey, writeStored } from './prefs.js';
 import { PI_THINKING_LEVELS } from './agent-config-mode.js';
 import { renderUsageSeries } from './render-agent-usage.js';
 import { usageErrorLabels, usageWindow } from './usage-window.js';
+import { scopeLabel, scopeImpact } from './settings-scope.js';
+import { settingsClient } from './settings-api.js';
 
 const PROVIDERS = [['deepseek', 'DeepSeek'], ['openrouter', 'OpenRouter'], ['zai', 'Z.AI'], ['kimi-coding', 'Kimi Coding'], ['openai-codex', 'Codex 订阅'], ['openai-compatible', '自定义 OpenAI 兼容 API']];
 const SOURCES = { usage_api: '专用余额 / 额度接口', client_rpc: '原生客户端协议', response_headers: '正常模型响应（调用结束后采集）', none: '尚无观测来源' };
@@ -71,7 +73,7 @@ function deviceFailureReason(error) {
     return '浏览器无法连接 Lush 服务，请检查连接后重试。';
   return '未取得可识别的错误分类，请重试或使用备用回调登录。';
 }
-const post = (method, params) => api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }) });
+const legacyPost = (method, params) => api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }) });
 const note = (parent, value, warning = false) => parent.append(el('p', value, warning ? 'agent-status-warning' : 'hint'));
 
 function field(parent, label, key, type = 'text', value = '', help = '') {
@@ -222,9 +224,25 @@ function renderResourceSummary(observation = {}, now = Date.now()) {
 /** Local list reads and explicit remote queries; retain editor drafts and reject late page responses. */
 export function createAgentConnections({ ownsPage, connectionId = '', setTimeout: setTimer = globalThis.setTimeout,
   clearTimeout: clearTimer = globalThis.clearTimeout, now = Date.now,
-  resetSetTimeout = globalThis.setTimeout, resetClearTimeout = globalThis.clearTimeout }) {
+  resetSetTimeout = globalThis.setTimeout, resetClearTimeout = globalThis.clearTimeout, client = null }) {
+  const read = client ? url => url.startsWith('/api/agent/connections/history') ? api(url) : client.read(url) : api;
+  const storageScopeFor = id => {
+    const row = array(data?.connections).find(entry => entry.id === id);
+    return row?.storage_scope || (typeof row?.scope === 'string' ? row.scope : null);
+  };
+  const post = (method, params) => {
+    if (!client) return legacyPost(method, params);
+    if (!data?.configuration_scope) return Promise.reject(new Error('来源范围未确认，请先重新读取本地连接并更新后台'));
+    const id = params?.id || params?.connection?.id;
+    const owner = id && storageScopeFor(id);
+    return owner === 'device' && client.scope === 'project'
+      ? settingsClient('device').action(method, params) : client.action(method, params);
+  };
+  const projectHistory = client?.project !== false;
+  const sharedSampling = client?.scope === 'device';
   const node = el('div', undefined, 'agent-connections-panel');
-  const intro = block('项目模型来源'); intro.classList.add('model-source-intro');
+  const intro = block(client ? (client.scope === 'device' ? '设备共享模型来源' : '本项目有效模型来源') : '项目模型来源'); intro.classList.add('model-source-intro');
+  if (client) note(intro, `${client.scope === 'device' ? scopeImpact(client.scope) : '显示本项目有效的共享来源与独立来源，不会把账号按名称合并。'} 连接操作按其明确标注的实际存储范围执行；项目视图中的共享来源修改仍会影响其他使用此来源的项目。`);
   note(intro, '仅显示来源与缓存摘要；点击“详情”查看完整配置、额度和使用情况。进入页面不联网，刷新不调用模型。');
   const toolbar = el('div', undefined, 'agent-connection-actions');
   const feedback = el('p', '尚未读取本地连接。', 'hint agent-connections-feedback'); feedback.setAttribute('role', 'status');
@@ -278,7 +296,9 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   const samplingEnabled = field(samplingForm, '启用后台采样', 'sampling-enabled', 'checkbox', false);
   const interval = field(samplingForm, '采样间隔（分钟）', 'interval_minutes', 'number', 5); interval.min = '1'; interval.max = '1440'; interval.step = '1';
   const retention = field(samplingForm, '保留天数', 'retention_days', 'number', 90); retention.min = '1'; retention.max = '3650'; retention.step = '1';
-  note(samplingHost, '默认关闭。开启后关闭页面仍采样，daemon 停止期间留空、不补查询；缩短保留天数会清理到期历史。');
+  note(samplingHost, sharedSampling
+    ? '设备采样默认由继承项目各自执行；后续读取来源或调用时刷新调度，项目旧来源文件可保留独立策略。历史仍归各项目，无项目 Host 不运行采样；缩短保留期限仅影响继承该期限的项目。'
+    : '默认关闭。开启后关闭页面仍采样，daemon 停止期间留空、不补查询；缩短保留天数会清理到期历史。');
   samplingHost.append(samplingForm, samplingFeedback);
   const historyHost = block('连接资源历史'), historyControls = el('div', undefined, 'agent-connection-history-controls');
   const historyConnection = select(historyControls, '历史连接', 'history-connection', [['', '请选择连接']], '');
@@ -424,7 +444,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     message('正在读取本地连接和缓存…'); node.setAttribute('aria-busy', 'true');
     const pending = (async () => {
       try {
-        const value = await api('/api/agent/connections');
+        const value = await read('/api/agent/connections');
         if (!apply(value, stamp)) return false;
         message('本地连接已读取；额度可显式刷新，旧配置和历史保持不迁移。'); return true;
       }
@@ -575,6 +595,10 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       check.setAttribute('aria-label', `选择 ${connection.label}`);
       check.onchange = () => { check.checked ? selected.add(connection.id) : selected.delete(connection.id); updateBatchControls(); };
       identity.append(el('span', `${PROVIDERS.find(([id]) => id === connection.provider)?.[1] || connection.provider} · ${connection.enabled ? '启用' : '停用'}`, 'model-source-meta'));
+      const storageScope = connection.storage_scope || (typeof connection.scope === 'string' ? connection.scope : null);
+      if (storageScope === 'device' || storageScope === 'project') {
+        const badge = el('span', storageScope === 'device' ? '设备共享来源' : '本项目来源', 'badge b-neutral'); badge.dataset.sourceScope = storageScope; identity.append(badge);
+      }
       const settings = el('div', undefined, 'model-source-settings');
       note(settings, `默认模型：${connection.default_model || '未设置'}`);
       note(settings, `${connection.auth_type === 'oauth' ? 'OAuth 登录' : 'API Key'} · ${CREDENTIALS[connection.credential?.status] || '凭证未知'}`);
@@ -594,7 +618,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       }, 'ghost model-source-details-toggle', { help: '在此来源下方展开完整配置、额度与使用情况；再次点击收起，不联网查询。' }));
       row.append(identity, settings, resources, actions); return row;
     }));
-    statistics.textContent = `总数 ${all.length} · 启用 ${all.filter(row => row.enabled).length} · 需处理 ${all.filter(attention).length} · 使用中 ${all.filter(row => array(row.consumers).length).length}（不合计不同币种或套餐）`;
+    statistics.textContent = `总数 ${all.length} · 启用 ${all.filter(row => row.enabled).length} · 需处理 ${all.filter(attention).length}${projectHistory ? ` · 本项目使用中 ${all.filter(row => array(row.consumers).length).length}` : ' · 未打开项目，不展示实际消费者'}（不合计不同币种或套餐）`;
     listFeedback.textContent = `显示 ${filtered.length} / ${all.length} 个来源${filtered.length ? '' : '；暂无匹配来源'}`;
     batchFeedback.replaceChildren(...all.filter(row => selected.has(row.id) && operationState.has(row.id)).map(row => el('p', `${row.label}：${operationState.get(row.id)}`, 'hint')));
     updateBatchControls(); paintSelection(); updateResets();
@@ -657,21 +681,22 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
         consumers.append(link, el('span', ` · ${text(consumer.model)} `));
       }
       if (!array(connection.consumers).length) note(consumers, '暂无运行中的显式绑定；不猜测其他客户端消耗。');
-      consumerSection.append(consumers);
+      if (projectHistory) consumerSection.append(consumers);
+      else note(consumerSection, '未打开项目，不显示实际消费者或项目历史；不推测其他项目与客户端的消耗。');
       const actions = el('div', undefined, 'agent-connection-actions');
       const refresh = helped('刷新此连接', () => query(connection.id), '访问此连接的专用资源接口，可能刷新本项目 OAuth 凭证；不会调用 Agent 或模型。');
       refresh.children[0].disabled = !canQuery(connection) || queries.has(connection.id); actions.append(refresh);
       note(actions, operationState.get(connection.id) || '');
-      actions.append(button('编辑', () => { if (current()) paintEditor(connection); }, 'ghost'),
-        helped('查看历史', () => { selectConnection(connection.id); openPanel('history'); historyConnection.value = connection.id; historyId.value = ''; return loadHistory(); }, '只读取此连接本地历史，不访问服务商；不同账号与指标分开显示。'));
+      actions.append(button('编辑', () => { if (current()) paintEditor(connection); }, 'ghost'));
+      if (projectHistory) actions.append(helped('查看历史', () => { selectConnection(connection.id); openPanel('history'); historyConnection.value = connection.id; historyId.value = ''; return loadHistory(); }, '只读取当前项目对此连接的本地历史，不访问服务商；不合并其他项目记录。'));
       if (connection.auth_type === 'oauth') actions.append(
         helped('登录 / 重新登录', () => beginDeviceLogin(connection), '显示设备码和 OpenAI 官方授权链接，自动检查授权并保存本项目登录；不改外部客户端凭证，不调用 Agent 或模型。'),
         helped('备用：回调 URL 登录', () => beginLogin(connection), '设备码不可用时可显式使用浏览器回调登录，需要手动粘贴回调 URL；不自动切换，不调用 Agent 或模型。'));
       actions.append(helped('删除连接', async () => {
         if (!current()) return;
-        const accepted = await confirmDialog({ title: '删除账号连接？', message: `将删除“${connection.label}”的项目配置和凭证。`,
+        const accepted = await confirmDialog({ title: '删除账号连接？', message: `将删除“${connection.label}”在${client ? (storageScopeFor(connection.id) ? scopeLabel(storageScopeFor(connection.id)) : '未报告范围（需后台核验）的存储位置') : '本项目'}中的配置和凭证。设备共享删除会影响所有继承此来源的项目。`,
           detail: '历史观测保留；外部客户端凭证不变。已有运行中的 invocation 不会热切换账号。', confirmLabel: '删除连接', danger: true,
-          confirmHelp: '删除本项目的连接配置及凭证，保留历史观测与外部客户端登录。' });
+          confirmHelp: '删除所选作用域的连接配置及凭证；共享来源删除会影响继承项目。保留项目历史观测与外部客户端登录。' });
         if (!accepted || !current()) return;
         ++version; if (deviceSession?.login.id === connection.id) invalidateLogin();
         try {
@@ -947,7 +972,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     historyFeedback.textContent = '正在读取本地历史…'; historyFeedback.setAttribute('role', 'status');
     const pending = (async () => {
       try {
-        const value = await api(`/api/agent/connections/history?id=${encodeURIComponent(id)}&days=${encodeURIComponent(days.value)}`);
+        const value = await read(`/api/agent/connections/history?id=${encodeURIComponent(id)}&days=${encodeURIComponent(days.value)}`);
         if (!current() || sequence !== historySequence || key !== `${historicalId()}\n${days.value}`) return;
         if (value?.version !== 1 || !Array.isArray(value.series)) throw new Error('invalid history');
         activeHistoryKey = key; historyContent.replaceChildren();
@@ -981,7 +1006,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     try {
       await post('agent.connections.sampling', { sampling }); if (!current()) return;
       if (revision === samplingRevision) samplingDirty = false;
-      await load(true); if (current()) { samplingFeedback.textContent = '采样设置已保存；开启后关闭页面仍运行，daemon 停机期间留空。'; samplingFeedback.setAttribute('role', 'status'); }
+      await load(true); if (current()) { samplingFeedback.textContent = sharedSampling ? '设备采样默认已保存；继承项目在后续读取来源或调用时刷新调度，历史各归项目。' : '采样设置已保存；开启后关闭页面仍运行，daemon 停机期间留空。'; samplingFeedback.setAttribute('role', 'status'); }
     } catch { if (current()) { samplingFeedback.textContent = '采样设置保存失败；修改保留，请重试。'; samplingFeedback.setAttribute('role', 'alert'); } }
     finally { samplingSaving = false; }
   }));
@@ -992,8 +1017,11 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   toolbar.append(addConnection,
     helped('刷新全部资源', () => query(), '只查询启用且有凭证的受支持连接；可能刷新本项目 OAuth，不调用 Agent 或模型，不自动切换模型。'),
     helped('重新读取本地连接', () => load(true), '重新读取项目连接配置和缓存，不访问服务商，不覆盖未保存编辑。'),
-    button('后台采样设置', () => { if (current()) { closeEditor(); openPanel('sampling'); samplingEnabled.focus(); } }, 'ghost', { help: '展开本项目全部托管来源的采样设置；开启后关页仍采样，不是某个来源单独的开关。' }),
+    button('后台采样设置', () => { if (current()) { closeEditor(); openPanel('sampling'); samplingEnabled.focus(); } }, 'ghost', { help: sharedSampling ? '编辑设备共享的采样默认，各项目独立执行和保存历史；项目策略覆盖仍有效，无项目 Host 不采样。' : '展开本项目全部托管来源的采样设置；开启后关页仍采样，不是某个来源单独的开关。' }),
     button('历史与已删除来源', () => { if (current()) { closeEditor(); openPanel('history'); historyConnection.focus(); } }, 'ghost', { help: '展开本地观测历史入口，可按原连接 ID 查看已删除来源的历史；不访问服务商。' }));
+  if (!projectHistory) {
+    for (const control of [...toolbar.querySelectorAll('button')]) if (['后台采样设置', '历史与已删除来源'].includes(control.textContent)) control.parentNode?.classList.contains('help-host') ? control.parentNode.remove() : control.remove();
+  }
   intro.append(toolbar); detailPane.append(back, selectionFeedback, cards, editor, samplingHost, historyHost);
   layout.append(listPane, detailPane); node.append(layout, intro, feedback);
   // Construct the initial empty form for old callers, but keep it out of the visual/focus flow.
