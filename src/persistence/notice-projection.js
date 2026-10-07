@@ -1,5 +1,7 @@
 /** Shared read projection; lifecycle classification belongs to the source Event, not current Worker state. */
-export const NOTICE_SELECT = `SELECT n.*, (SELECT t.worker_number FROM tasks t WHERE t.id=n.task_id) AS task_worker_number,
+export const NOTICE_SELECT = `SELECT n.id,n.task_id,n.title,n.body,n.status,n.answer,n.kind,n.source_event_id,n.read_at,n.created_at,
+  CASE WHEN n.status IN ('answered','dismissed') THEN COALESCE(n.answer_source,'user') ELSE NULL END AS answer_source,
+  (SELECT t.worker_number FROM tasks t WHERE t.id=n.task_id) AS task_worker_number,
   CASE WHEN n.kind='info' AND n.source_event_id IS NOT NULL THEN (
     SELECT CASE e.type
       WHEN 'task.idle' THEN 'idle'

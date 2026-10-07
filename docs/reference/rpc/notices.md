@@ -46,7 +46,7 @@ Notice 读面另投影可空 `lifecycle_type`，依据同 Worker 的来源 Event
 ```
 
 - `header` 最多 16 字，`question` 最多 2000 字；label 最多 60 字，description 最多 2000 字，均不能为空。选项标签不可重复。
-- 推荐项排第一并在 label 标「（推荐）」，默认**不自动选择**。多选仅用于多个选项可以同时成立的题目。
+- 推荐项排第一并在 label 标「（推荐）」，默认**不自动选择**。用户显式开启项目 [daemon 自动选择 Hook](../../engineering/daemon-auto-select.md) 后，单选固定选择第一项，多选交回 Agent 自行判断；开启也处理已有待答问卷及文字问题。多选仅用于多个选项可以同时成立的题目。
 - 每题自动提供自定义答案，不要手写 `Other` / `其他` / `自定义答案` 占位选项。自定义答案替代该题全部选项，不与选项混用。
 - `preview` 是 Markdown（最多 12000 字）；`previewHtml` 是自包含静态 HTML/CSS（最多 16000 字）。整个 versioned envelope 最多 64000 UTF-8 字节，背景 body 最多 8000 字。无需预览的简单偏好题只写说明即可。
 - 发布前完整校验，非法请求不建 notice、不暂停Worker。每个 Worker 同时最多一份开放问卷。
@@ -67,7 +67,7 @@ Notice 读面另投影可空 `lifecycle_type`，依据同 Worker 的来源 Event
 
 自定义答案示例：`{"answers":[{"selected":[],"custom":"先保留当前布局"}]}`。最多 4000 字。多选用 `selected:[0,1]`；单选只能有一项。缺题、越界、重复项、伪造标签或选项与自定义混用会被拒绝，原 notice 保持 open。
 
-服务端从已存问卷生成规范化答案：`{version:1,answers:[{question,header,selected,labels,custom}]}`，JSON 存入 `notice.answer`。收件箱消息包含 `{notice_id,title,dismissed,answer}`，其中 answer 是规范化对象，不是客户端自报的标签。答复 RPC 只允许用户；同一 notice 只能结算一次。
+服务端从已存问卷生成规范化答案：`{version:1,answers:[{question,header,selected,labels,custom}]}`，JSON 存入 `notice.answer`。收件箱消息包含 `{notice_id,title,dismissed,answer}`，其中 answer 是规范化对象，不是客户端自报的标签。答复 RPC 只允许用户；同一 notice 只能结算一次。读面附带 `answer_source:user|lush|null`：用户答复为 user，daemon 自动答复为 lush，未答为 null；历史已回答/已忽略兼容为 user、不改写历史行。自动答复消息和事件同样带来源，Worker 不得把自动选择误当用户决断。
 
 忽略问卷表示**未做决定，不是默认同意推荐项**。普通 owner 收到 `dismissed:true` 消息后继续评估，不应实施依赖未决选择的工作。从未被唤醒的预置解分歧Worker（`resolves_task_id` 且 `agent_wakes=0`）会因忽略被直接取消，见[合并](../../engineering/merge.md)。
 

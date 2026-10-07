@@ -44,6 +44,14 @@ test('自动链配置、下一人工环节和过期执行有独立中文名称�
   expect(eventLabel({ type: 'completion.execution_unknown' })).toContain('待核验');
 });
 
+test('daemon Hook events and answer provenance have explicit labels without guessing old answers', () => {
+  expect(eventLabel({ type: 'hook.daemon_configured' })).toBe('调整 daemon 自动选择 Hook');
+  expect(eventLabel({ type: 'hook.daemon_failed' })).toContain('失败');
+  expect(eventLabel({ type: 'notice.answered', data: { answer_source: 'lush' } })).toBe('Lush 自动选择');
+  expect(eventLabel({ type: 'notice.answered', data: { answer_source: 'user' } })).toBe('用户答复');
+  expect(eventLabel({ type: 'notice.answered', data: { answer: '请由 Agent 自行判断并继续。' } })).toBe('已答复');
+});
+
 test('提醒与待决问题的名称不同；未知类型不猜测语义、不读取原型属性', () => {
   expect(eventLabel({ type: 'task.reserved' })).toBe('已预约合并');
   expect(eventLabel({ type: 'notice.opened', data: { kind: 'info' } })).toBe('提醒');

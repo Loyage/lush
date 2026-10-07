@@ -92,8 +92,9 @@ test('legacy info, unknown/missing/mismatched source and non-info Notices projec
     expect(f.project.readNotice(legacy.id).lifecycle_type).toBeNull();
     for (const noticeId of [unknown, mismatch, missing]) expect(f.project.readNotice(noticeId).lifecycle_type).toBeNull();
     expect(f.project.answer(question.id, '知道了').lifecycle_type).toBeNull();
-    expect(f.store.all('SELECT * FROM notices ORDER BY id').map(({ read_at, status, answer, ...row }) => row))
-      .toEqual(stored.map(({ read_at, status, answer, ...row }) => row));
+    expect(f.store.get('SELECT answer_source FROM notices WHERE id=?', question.id).answer_source).toBe('user');
+    expect(f.store.all('SELECT * FROM notices ORDER BY id').map(({ read_at, status, answer, answer_source, ...row }) => row))
+      .toEqual(stored.map(({ read_at, status, answer, answer_source, ...row }) => row));
     expect(f.store.get('SELECT kind FROM notices WHERE id=?', nonInfo).kind).toBe('question');
   } finally { await f.close(); }
 });

@@ -1,5 +1,5 @@
 import { $, el, button, badge, block } from './dom.js';
-import { api, action } from './api.js';
+import { api, action, projectApi } from './api.js';
 import { ui } from './state.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { detail } from './navigate.js';
@@ -192,9 +192,10 @@ async function promptRisk() {
 /** Explicit project-local template management, separate from actual Worker attachments. */
 export async function openHooks() {
   const view = activateDetailView({ view: 'hooks', title: 'Hooks', context: '工作', hint: '生命周期节点 · 受控动作 · 可复用模板', hash: '#hooks' });
-  const ownsPage = () => ui.view === view;
-  if (ui.hooksPage?.view === view) return ui.hooksPage.pending;
-  const state = { view, pending: null, catalogue: null, editing: false, busy: false }; ui.hooksPage = state;
+  const project = projectApi('/api/hooks');
+  const ownsPage = () => ui.view === view && projectApi('/api/hooks') === project;
+  if (ui.hooksPage?.view === view && ui.hooksPage.project === project) return ui.hooksPage.pending;
+  const state = { view, project, pending: null, catalogue: null, editing: false, busy: false }; ui.hooksPage = state;
   const owns = () => ownsPage() && ui.hooksPage === state;
   const root = el('div', undefined, 'hooks-page'); $('detail').replaceChildren(root);
   const editor = el('div', undefined, 'hook-editor');
@@ -220,10 +221,54 @@ export async function openHooks() {
     try { const catalogue = await api('/api/hooks'); if (!owns()) return; state.catalogue = catalogue; ui.hookCatalogue = catalogue; paint(); }
     catch (error) { if (owns()) { root.replaceChildren(el('h1', 'Hooks'), el('p', `读取失败：${error.message}`, 'error'), button('重新读取', load, 'ghost')); } }
   }
+  function daemonSection(catalogue) {
+    const section = block('项目 daemon Hooks');
+    section.append(el('p', '由当前项目后台执行，关闭浏览器后仍生效；独立于 Worker 挂载和项目模板。', 'hint'));
+    const model = catalogue.daemon_hooks;
+    const mount = Array.isArray(model?.mounts) ? model.mounts.find(item => item?.id === 'auto-select') : null;
+    if (model?.version !== 1 || !mount || typeof mount.enabled !== 'boolean' || typeof model.revision !== 'string' || !model.revision.trim()) {
+      section.append(el('p', '自动选择状态暂不可用；请更新后台服务后刷新。', 'hint')); return section;
+    }
+    const row = el('article', undefined, 'hook-mount daemon-auto-select');
+    const head = el('div', undefined, 'hook-mount-head');
+    head.append(el('strong', mount.name || '自动选择'), badge('持续'), badge(mount.enabled ? '已启用' : '已关闭'));
+    if (mount.state && STATES[mount.state]) head.append(badge(STATES[mount.state]));
+    row.append(head, el('p', '触发点：后台收到问题（notice.received）。默认关闭，开关按当前项目持久保存。', 'hint'),
+      el('p', '单选选第一项，不依赖推荐标记；多选和文字问答回复「请由 Agent 自行判断并继续。」。不处理计划审批和纯告知。'),
+      el('p', '开启会同时处理已有待答问题，并持续处理新问题；可能唤醒多个 Worker 并产生调用费用。自动答复标记为「Lush 自动选择」，不是用户亲自作出的决定。', 'hint'));
+    const key = `daemon-auto-select:${project}`;
+    const help = mount.enabled ? '关闭当前项目后台的未来自动答复；不会撤回答复或停止已继续的 Worker。'
+      : agentHelp('授权当前项目后台自动答复已有和新收到的问题，让等待中的 Worker 继续。');
+    const update = async () => {
+      if (!owns() || state.busy || pending.has(key) || mount.editable === false) return;
+      pending.add(key); state.busy = true; paint();
+      try {
+        if (!mount.enabled && !await confirmDialog({ title: '开启项目自动选择？',
+          message: '将立即答复当前项目已有的待答问题，以后收到的新问题也会自动答复。单选选第一项，多选和文字问答交由 Agent 自行判断。这可能唤醒多个 Worker 并产生调用费用；答复会标记为 Lush 自动选择，不代表用户亲自作出了决定。',
+          confirmLabel: '授权并开启', agent: true, confirmHelp: agentHelp('保存持续授权，并允许已有待答 Worker 自动继续。') })) return;
+        if (!owns()) return;
+        const result = await action('hooks.auto_select', { enabled: !mount.enabled, expected_revision: model.revision });
+        if (owns()) { state.catalogue = result; ui.hookCatalogue = result;
+          show(mount.enabled ? '自动选择已关闭；已有答复不变。' : '自动选择已开启；答复来源记录为 Lush。'); }
+      } catch (error) { if (owns()) show(`${error.message}；未假定开关已更改，请刷新目录读取最新状态。`, 'error'); }
+      finally { pending.delete(key); state.busy = false; if (owns()) paint(); }
+    };
+    const control = button(pending.has(key) ? '正在保存…' : mount.enabled ? '关闭自动选择' : '开启自动选择', update, 'hook-button',
+      { agent: !mount.enabled, help });
+    row.append(guarded(control, state.busy || pending.has(key) ? '正在确认或保存设置，请稍候。'
+      : mount.editable === false ? mount.reason || '当前设置不可编辑。' : null));
+    if (mount.reason) row.append(el('p', mount.reason, 'hint'));
+    const execution = mount.last_execution;
+    if (execution) {
+      row.append(el('p', `最近执行：${STATES[execution.status] || execution.status} · 问题 #${execution.notice_id || execution.id} · ${absolute(execution.finished_at || execution.created_at)}`, 'hint'));
+      if (execution.error) row.append(el('p', execution.error, 'error'));
+    }
+    section.append(row); return section;
+  }
   function paint() {
     if (!owns()) return;
     const catalogue = state.catalogue;
-    root.replaceChildren(el('h1', 'Hooks'), el('p', '当前项目的 Worker 生命周期自动动作。模板只保存配置；实际挂载、启停和执行结果在 Worker 详情管理。自定义仅组合受控动作，不执行脚本，不自动重试未知副作用。', 'hint'));
+    root.replaceChildren(el('h1', 'Hooks'), el('p', '当前项目的后台与 Worker 生命周期自动动作。模板只保存配置；实际挂载、启停和执行结果在 Worker 详情管理。自定义仅组合受控动作，不执行脚本，不自动重试未知副作用。', 'hint'), daemonSection(catalogue));
     const controls = el('div', undefined, 'actions'); controls.append(button('新建模板', () => edit(), 'hook-button', { help: '编辑可复用规则，不启动 Agent，也不自动安装到 Worker。' }),
       button('刷新目录', async () => { if (state.busy) return; if (state.editing && !await confirmDialog({ title: '放弃未保存编辑并刷新？', message: '刷新会读取后台最新模板，当前未保存编辑会丢失。', confirmLabel: '放弃并刷新' })) return;
         if (!owns()) return; state.editing = false; editor.replaceChildren(); await load(); }, 'ghost hook-button', { help: '显式读取最新节点和模板；未保存编辑会先确认，不进行后台自动刷新。' })); root.append(controls);

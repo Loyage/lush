@@ -17,7 +17,9 @@ lush [--project PATH] [--json] <command>
                                       验收不调用评审 Agent；自动归档不丢弃未提交改动
   worker hook attach ID --file PATH --revision REV  从私有 JSON 挂载规则
   worker hook enable|disable|remove ID HOOK_ID --revision REV  启停或撤销未来动作（不撤回已执行动作）
-  hooks list                        查看项目触发目录、动作和模板及修改版本
+  hooks list                        查看项目触发目录、动作、模板与 daemon Hooks 及修改版本
+  hooks auto-select on|off --revision REV  启停项目 daemon 自动选择（使用 daemon_hooks.revision）
+                                      开启也答复已有问题；单选选第一项，多选/问答交给 Agent 自行判断，可能继续消耗 token
   hooks save --file PATH --revision REV  保存模板（不自动挂载或调用 Agent）
   hooks remove TEMPLATE_ID --revision REV  删除模板，不影响已有挂载实例
   worker auto-merge ID on|off         设置 Worker 持久自动合并 hook；派生子 Worker 不可关闭

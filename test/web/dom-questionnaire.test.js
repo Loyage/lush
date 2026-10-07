@@ -129,6 +129,47 @@ test('label-only answers backfill to options; dismissed notices never fake a sel
   } finally { dom.restore(); }
 });
 
+test('answered questionnaires distinguish explicit Lush and user sources without guessing from selected content', () => {
+  const dom = installDom(); resetUiState();
+  try {
+    const settled = { ...notice(), status: 'answered', answer: JSON.stringify({ version: 1, answers: [
+      { question: 'Which layout?', selected: [0], labels: ['Sidebar'], custom: '' },
+      { question: 'Which features?', selected: [], labels: [], custom: '请由 Agent 自行判断并继续。' },
+    ] }) };
+    for (const source of ['lush', 'user', null]) {
+      const record = { ...settled, answer_source: source }, root = questionnairePanel(record);
+      const label = source === 'lush' ? 'Lush 自动选择' : source === 'user' ? '用户答复' : '答复来源未记录';
+      expect(deepText(root)).toContain(label); expect(deepText(noticePanel(record))).toContain(label);
+      expect(deepText(root)).toContain('请由 Agent 自行判断并继续。');
+      expect(option(root, 'Sidebar').classList.contains('selected')).toBe(true);
+      expect(root.querySelectorAll('.actions')).toHaveLength(0);
+      if (source === 'lush') expect(deepText(root)).toContain('不是用户亲自作出的决定');
+      else expect(deepText(root)).not.toContain('Lush 自动选择');
+    }
+  } finally { dom.restore(); }
+});
+
+test('text decisions and history rows display server-projected answer source and remain read-only', () => {
+  const dom = installDom(); resetUiState();
+  try {
+    const records = [
+      { ...notice(10), kind: 'question', body: '如何处理？', status: 'answered', answer: '请由 Agent 自行判断并继续。', answer_source: 'lush' },
+      { ...notice(11), kind: 'question', body: '如何处理？', status: 'answered', answer: '请由 Agent 自行判断并继续。', answer_source: 'user' },
+      { ...notice(12), kind: 'question', body: '旧问题', status: 'answered', answer: '第一项', answer_source: null },
+    ];
+    for (const record of records) {
+      const root = noticePanel(record); expect(root.querySelector('textarea')).toBeNull(); expect(root.querySelector('button')).toBeNull();
+      expect(deepText(root)).toContain(record.answer_source === 'lush' ? 'Lush 自动选择' : record.answer_source === 'user' ? '用户答复' : '答复来源未记录');
+    }
+    ui.indexOpen = 'notices'; ui.noticeRecords = { status: 'answered', rows: records, page: { has_more: false }, selected: null };
+    renderNotices({ notices: records });
+    const rows = dom.node('notices').querySelectorAll('.notice-brief'); expect(rows).toHaveLength(3);
+    expect(deepText(rows.find(row => Number(row.dataset.id) === 10))).toContain('Lush 自动选择');
+    expect(deepText(rows.find(row => Number(row.dataset.id) === 11))).toContain('用户答复');
+    expect(deepText(rows.find(row => Number(row.dataset.id) === 12))).toContain('答复来源未记录');
+  } finally { dom.restore(); }
+});
+
 test('different branches share the notice queue and final confirmation advances to the next task', async () => {
   const first = notice(), second = notice(8, 99), sent = [], navigated = [];
   const dom = installDom({ fetch: async (_url, opts) => { sent.push(JSON.parse(opts.body)); return Response.json({ status: 'answered' }); } });

@@ -13,9 +13,10 @@ function messageContent({ body, task_id: to, sender_id: from, signal_type: signa
   const text = String(body ?? '');
   const wrap = el('div', undefined, 'timeline-message');
   const outgoing = from !== null && from !== undefined && from === taskId;
-  const who = outgoing ? `发给 Worker ${workerLabel(to, toNumber)}` : from ? `来自 Worker ${workerLabel(from, fromNumber)}` : '来自你';
   let parsed = null;
   try { parsed = JSON.parse(text); } catch { /* 普通文本消息 */ }
+  const automatic = !from && Number.isInteger(parsed?.notice_id) && parsed.answer_source === 'lush';
+  const who = automatic ? '来自 Lush 自动选择' : outgoing ? `发给 Worker ${workerLabel(to, toNumber)}` : from ? `来自 Worker ${workerLabel(from, fromNumber)}` : '来自你';
   const signal = typeof parsed?.signal === 'string' ? parsed.signal : signalType;
   wrap.append(el('div', `${who}${signal ? ` · 信号 ${signal}` : ''}`, 't-from'));
   const payload = parsed && typeof parsed === 'object' && parsed.payload && typeof parsed.payload === 'object' ? parsed.payload : null;

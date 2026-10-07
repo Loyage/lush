@@ -106,7 +106,9 @@ export function questionnairePanel(notice, { settle, dismiss } = {}) {
   if (form.body) root.append(renderMarkdown(form.body));
   const content = el('div'); root.append(content);
   if (notice.status !== 'open') {
-    content.append(el('p', notice.status === 'answered' ? '已提交选择' : '已忽略 · 未选择任何选项', 'hint'));
+    const source = notice.answer_source === 'lush' ? 'Lush 自动选择' : notice.answer_source === 'user' ? '用户答复' : '答复来源未记录';
+    content.append(el('p', `${notice.status === 'answered' ? '已提交选择' : '已忽略 · 未选择任何选项'} · ${source}`, 'hint'));
+    if (notice.answer_source === 'lush') content.append(el('p', '这是项目后台自动答复，不是用户亲自作出的决定；多选和文字问答由 Agent 自行判断。', 'hint'));
     let answers = null, broken = false;
     if (notice.status === 'answered') {
       try { const parsed = JSON.parse(notice.answer); answers = Array.isArray(parsed?.answers) ? parsed.answers : null; }

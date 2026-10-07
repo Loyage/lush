@@ -25,6 +25,7 @@ export const EVENTS = {
   'hook.attached': '挂载 Hook', 'hook.updated': '调整 Hook', 'hook.removed': '移除 Hook',
   'hook.triggered': 'Hook 节点触发', 'hook.started': '开始执行 Hook', 'hook.succeeded': 'Hook 执行成功',
   'hook.failed': 'Hook 执行失败', 'hook.unknown': 'Hook 结果待核验',
+  'hook.daemon_configured': '调整 daemon 自动选择 Hook', 'hook.daemon_failed': 'daemon 自动选择失败',
   'hook.enabled': '调整 Hook 启用状态', 'hook.execution_started': '开始执行 Hook',
   'hook.action_completed': 'Hook 动作已执行', 'hook.worker_created': 'Hook 已创建 Worker',
   'hook.execution_succeeded': 'Hook 执行成功', 'hook.execution_failed': 'Hook 执行失败',
@@ -91,6 +92,8 @@ export const EVENTS = {
 /** 中文名是阅读投影，保留原始 type；未知事件明确标注，不猜测含义。 */
 export function eventLabel(event) {
   if (event.type === 'notice.opened' && event.data?.kind === 'info') return '提醒';
+  if (event.type === 'notice.answered' && event.data?.answer_source === 'lush') return 'Lush 自动选择';
+  if (event.type === 'notice.answered' && event.data?.answer_source === 'user') return '用户答复';
   return Object.hasOwn(EVENTS, event.type) ? EVENTS[event.type] : '未识别事件';
 }
 export const HOT = new Set(['running', 'awaiting', 'awaiting_acceptance', 'waiting', 'queued', 'paused']);

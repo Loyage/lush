@@ -80,7 +80,7 @@ function eligible(mount) { return mount.enabled && !['running','failed','unknown
 export default {
   hooksList() {
     const data = definitions(this);
-    return { version: 1, revision: hookRevision(data), triggers: HOOK_TRIGGERS, actions: HOOK_ACTIONS,
+    return { version: 1, revision: hookRevision(data), daemon_hooks: this.daemonHooks(), triggers: HOOK_TRIGGERS, actions: HOOK_ACTIONS,
       templates: data.templates.map(item => ({ id: item.id, ...readDefinition(this, item.definition) })) };
   },
 

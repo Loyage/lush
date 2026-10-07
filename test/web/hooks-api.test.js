@@ -10,14 +10,16 @@ import { check } from '../../src/core/types.js';
 const revision = 'hooks-revision';
 const hook = { name: '通知', trigger: 'agent.returned', mode: 'once', enabled: true,
   actions: [{ type: 'notify', title: '结果', body: '查看 Worker' }] };
-const projectView = { version: 1, revision, triggers: [], actions: [], templates: [] };
+const daemonRevision = 'daemon-hooks-revision';
+const projectView = { version: 1, revision, triggers: [], actions: [], templates: [],
+  daemon_hooks: { version: 1, revision: daemonRevision, mounts: [{ id: 'auto-select', enabled: false }] } };
 const workerView = { version: 1, worker_id: 7, revision, mounts: [] };
-const targets = ['hooksList','saveHookTemplate','removeHookTemplate','taskHooks','attachTaskHook','updateTaskHook','removeTaskHook','setTaskCompletion'];
+const targets = ['hooksList','saveHookTemplate','removeHookTemplate','taskHooks','attachTaskHook','updateTaskHook','removeTaskHook','setTaskCompletion','setDaemonAutoSelect'];
 function mocks(project) {
   const calls = [];
   for (const method of targets) project[method] = (...args) => {
     calls.push({ method, args });
-    return method === 'hooksList' || method.endsWith('Template') ? projectView : workerView;
+    return method === 'hooksList' || method.endsWith('Template') || method === 'setDaemonAutoSelect' ? projectView : workerView;
   };
   return calls;
 }
@@ -32,6 +34,7 @@ const mutations = [
   ['worker.hook_update', { id: 7, hook_id: 'hook-1', enabled: false, expected_revision: revision }, 'updateTaskHook', [7, 'hook-1', false, revision], workerView],
   ['worker.hook_remove', { id: 7, hook_id: 'hook-1', expected_revision: revision }, 'removeTaskHook', [7, 'hook-1', revision], workerView],
   ['worker.completion', { id: 7, level: 'accept', expected_revision: revision }, 'setTaskCompletion', [7, 'accept', revision], workerView],
+  ['hooks.auto_select', { enabled: true, expected_revision: daemonRevision }, 'setDaemonAutoSelect', [true, daemonRevision], projectView],
 ];
 
 test('Hooks HTTP reads and all mutations reach user RPC with exact revisions and no implicit actions', async () => {
@@ -87,6 +90,9 @@ test('Hooks HTTP refuses tokens, extra arguments, invalid revisions/types and cr
     }
     expect((await post(f.url, 'worker.hook_update', { id: 7, hook_id: 'x', enabled: 'false', expected_revision: revision })).status).toBe(400);
     expect((await post(f.url, 'hooks.save', { template: [], expected_revision: revision })).status).toBe(400);
+    for (const enabled of [undefined, null, 0, 'false', [], {}]) {
+      expect((await post(f.url, 'hooks.auto_select', { enabled, expected_revision: daemonRevision })).status).toBe(400);
+    }
     expect((await post(f.url, 'hooks.list', {})).status).toBe(400);
     expect((await post(f.url, 'worker.hooks', { id: 7 })).status).toBe(400);
     expect(calls).toEqual([]);
@@ -105,12 +111,34 @@ test('Hooks HTTP preserves stale revision errors without a mutation retry', asyn
   } finally { await f.close(); }
 });
 
+test('daemon auto-select HTTP forwards disable and returns stale revisions without retry', async () => {
+  const f = await setup(), calls = mocks(f.project);
+  try {
+    const response = await post(f.url, 'hooks.auto_select', { enabled: false, expected_revision: daemonRevision });
+    expect(response.status).toBe(200); expect(await response.json()).toEqual(projectView);
+    expect(calls).toEqual([{ method: 'setDaemonAutoSelect', args: [false, daemonRevision] }]);
+    f.project.setDaemonAutoSelect = (enabled, expected) => {
+      calls.push({ method: 'setDaemonAutoSelect', args: [enabled, expected] });
+      check(expected === daemonRevision, 'Daemon Hooks changed; reload the latest revision');
+      return projectView;
+    };
+    for (const expected_revision of ['stale', revision]) {
+      const stale = await post(f.url, 'hooks.auto_select', { enabled: true, expected_revision });
+      expect(stale.status).toBe(400); expect((await stale.json()).error).toContain('reload');
+    }
+    expect(calls).toHaveLength(3);
+    expect((await fetch(f.url + '/api/hooks/auto_select?enabled=true')).status).toBe(404);
+    expect(calls).toHaveLength(3);
+  } finally { await f.close(); }
+});
+
 test('Hooks routes and mutations require the normal authenticated session', async () => {
   const f = await setup({ auth: { username: 'owner', password: 'hook-password' } }), calls = mocks(f.project);
   try {
     expect((await fetch(f.url + '/api/hooks')).status).toBe(401);
     expect((await fetch(f.url + '/api/worker/7/hooks')).status).toBe(401);
     expect((await post(f.url, 'worker.hook_attach', mutations[2][1])).status).toBe(401);
+    expect((await post(f.url, 'hooks.auto_select', { enabled: true, expected_revision: daemonRevision })).status).toBe(401);
     expect(calls).toEqual([]);
     const login = await fetch(f.url + '/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'username=owner&password=hook-password&next=%2F' });
@@ -120,7 +148,9 @@ test('Hooks routes and mutations require the normal authenticated session', asyn
     expect((await fetch(f.url + '/api/worker/7/hooks', { headers: { Cookie } })).status).toBe(200);
     expect((await post(f.url, 'worker.hook_attach', mutations[2][1], { Cookie, Origin: f.url })).status).toBe(200);
     expect((await post(f.url, 'worker.hook_remove', mutations[4][1], { Cookie, Origin: 'https://evil.invalid' })).status).toBe(403);
-    expect(calls).toHaveLength(3);
+    expect((await post(f.url, 'hooks.auto_select', { enabled: true, expected_revision: daemonRevision }, { Cookie, Origin: f.url })).status).toBe(200);
+    expect((await post(f.url, 'hooks.auto_select', { enabled: false, expected_revision: daemonRevision }, { Cookie, Origin: 'https://evil.invalid' })).status).toBe(403);
+    expect(calls).toHaveLength(4);
   } finally { await f.close(); }
 });
 
@@ -168,10 +198,13 @@ test('Host project-prefixed Hooks routes keep each request on its explicit proje
     expect((await (await fetch(url + pa + '/api/hooks')).json()).project).toBe(a);
     expect((await (await fetch(url + pb + '/api/worker/7/hooks')).json()).project).toBe(b);
     expect((await post(url + pa, 'hooks.save', mutations[0][1])).status).toBe(200);
+    const automatic = { enabled: true, expected_revision: daemonRevision };
+    expect((await post(url + pb, 'hooks.auto_select', automatic)).status).toBe(200);
     expect(calls.filter(entry => entry.method.startsWith('hooks.') || entry.method === 'worker.hooks')).toEqual([
       { project: a, method: 'hooks.list', params: undefined },
       { project: b, method: 'worker.hooks', params: { id: 7 } },
       { project: a, method: 'hooks.save', params: mutations[0][1] },
+      { project: b, method: 'hooks.auto_select', params: automatic },
     ]);
     expect((await fetch(url + '/api/hooks')).status).toBe(400);
   } finally { web.stop(true); fs.rmSync(root,{ recursive:true, force:true }); }

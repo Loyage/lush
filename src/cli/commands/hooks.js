@@ -15,8 +15,13 @@ export async function run(command, args, { client }) {
   check(!client.token, 'Hooks configuration is user only, not an agent operation');
   const verb = args.shift();
   if (verb === 'list') { exact(args, 0); return client.request('hooks.list'); }
-  check(['save','remove'].includes(verb), 'hooks requires list|save|remove; run lush help');
+  check(['save','remove','auto-select'].includes(verb), 'hooks requires list|save|remove|auto-select; run lush help');
   const expected_revision = readRevision(args);
+  if (verb === 'auto-select') {
+    exact(args, 1);
+    check(['on','off'].includes(args[0]), 'hooks auto-select expects on|off');
+    return client.request('hooks.auto_select', { enabled: args[0] === 'on', expected_revision });
+  }
   if (verb === 'save') {
     const file = option(args, '--file'); exact(args, 0);
     check(file, 'hooks save requires --file PATH');

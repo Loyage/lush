@@ -23,6 +23,22 @@ test('kind=info 的 notice.opened 显示为「提醒」，question 仍是「向�
   expect(text).toContain('完成');
 });
 
+test('automatic decisions and their inbox messages are never described as coming from the user', () => {
+  const at = new Date().toISOString();
+  const body = JSON.stringify({ notice_id: 9, answer_source: 'lush', automatic: true, answer: '请由 Agent 自行判断并继续。' });
+  const list = renderHistory([
+    { id: 1, type: 'notice.answered', created_at: at, data: { notice_id: 9, answer_source: 'lush',
+      answer: { answers: [{ question: '方案？', labels: ['第一项'], custom: '' }] } } },
+    { id: 2, type: 'task.signal', created_at: at, data: { message_id: 4 },
+      message: { task_id: 23, sender_id: null, body } },
+    { id: 3, type: 'notice.answered', created_at: at, data: { answer_source: 'user', answer: '我的选择' } },
+  ], { taskId: 23 });
+  const text = deepText(list);
+  expect(text).toContain('Lush 自动选择'); expect(text).toContain('来自 Lush 自动选择');
+  expect(text).toContain('用户答复'); expect(text).toContain('方案？：第一项');
+  expect(text).not.toContain('来自你');
+});
+
 test('时间线以中文为主标题，同时保留独立的次要代码字段和事件数据', () => {
   const events = ['task.reserved', 'merge.enqueued', 'task.merge_integrated', 'invocation.started'].map((type, index) => ({
     id: index + 1, type, created_at: new Date().toISOString(), data: { marker: '原始字段', call: 2 },

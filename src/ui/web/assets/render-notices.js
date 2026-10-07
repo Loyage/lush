@@ -17,6 +17,8 @@ import { lifecycleNotice, unreadNotice, noticeMatches, positiveId, noticeIdentit
 import { workerLabel } from './worker-label.js';
 
 const STATUS = { open: '待处理', answered: '已回答', dismissed: '已忽略', sent: '已发送' };
+const answerSource = notice => ['answered', 'dismissed'].includes(notice.status) && ['question', 'questionnaire'].includes(notice.kind)
+  ? notice.answer_source === 'lush' ? 'Lush 自动选择' : notice.answer_source === 'user' ? '用户答复' : '答复来源未记录' : null;
 
 export function initNoticeRecords() {
   const host = $('side-notices-body');
@@ -165,6 +167,7 @@ function paintNoticeRows(rows) {
     const row = el('span', undefined, 'row');
     row.append(badge(lifecycleNotice(notice) ? unreadNotice(notice) ? '未读告知' : '已读告知' : STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'),
       el('span', workerLabel(notice.task_id, notice.task_worker_number), 'tid'), el('span', relative(notice.created_at), 'when'));
+    if (answerSource(notice)) row.append(badge(answerSource(notice), 'b-neutral'));
     node.append(row, el('span', notice.title, 'goal'));
     node.setAttribute('data-help', lifecycleNotice(notice) ? '打开对应 Worker；成功加载后自动已读，不会启动 Agent 或批准合并' : `${notice.title}；发布于 ${absolute(notice.created_at)}`);
     referenceable(node, { kind: 'notice', target: { notice_id: notice.id }, label: `事项记录 #${notice.id}`,
@@ -285,6 +288,7 @@ export function noticePanel(notice, task = null) {
   const head = el('div', undefined, 'notice-head');
   head.append(badge(STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'), el('span', `Worker ${workerLabel(task || notice.task_id, notice.task_worker_number)}`, 'tid'),
     el('span', `${relative(notice.created_at)} · ${absolute(notice.created_at)}`, 'when'));
+  if (answerSource(notice)) head.append(badge(answerSource(notice), 'b-neutral'));
   section.append(head, el('h3', notice.title));
   if (notice.status !== 'open') {
     if (notice.kind === 'questionnaire') section.append(questionnairePanel(notice));

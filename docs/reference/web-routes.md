@@ -70,7 +70,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/quick-explain/config` | 用户专属 `quick_explain.config`，本地解释来源、模型与 Prompt，不返回凭证 |
 | `GET /api/quick-explain/history?before=&limit=` | 用户专属 `quick_explain.list`，项目全历史摘要分页（默认 30、最多 50） |
 | `GET /api/quick-explain/ID` | 用户专属 `quick_explain.get`，结果与当时选区/来源/Prompt 快照 |
-| `GET /api/hooks` | 用户专属 `hooks.list`，节点／动作目录与安全模板投影，不接受查询参数 |
+| `GET /api/hooks` | 用户专属 `hooks.list`，节点／动作目录、安全模板与项目 daemon Hooks 投影，不接受查询参数 |
 | `GET /api/worker/ID/hooks` | 用户专属 `worker.hooks`，安全挂载、修订与最近收据，不接受查询参数 |
 | `GET /api/worker/ID` | `worker.inspect` |
 | `GET /api/worker/ID/delete-preview` | 用户专属 `worker.delete_preview {id}`，只读完整删除范围和资源清单，不接受查询参数 |
@@ -101,5 +101,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 账号连接另开放 `agent.connections.save/remove/sampling/query/login.start/login.finish/device.start/device.poll/device.cancel`，均经项目的 `POST /api/action`、登录与 Origin 校验；设备码检查也是显式 action，不新增读取路由。设备授权 ID、OAuth token、回调授权码均不返回读面，不进审计事件或错误。参数和操作见[Agent 账号连接](rpc/agents.md#托管账号连接)。
 
 快捷解释另开放 `quick_explain.configure` / `quick_explain.start` / `quick_explain.followup` / `quick_explain.delete`，均为用户专属 POST action；旧 `intro.*` / `explanation.*` 仍关闭。配置和历史按项目隔离，支持受管远端项目转发；未选项目不能发起解释。使用见[快捷解释](../quick-explanation.md)，字段见[实现契约](../engineering/quick-explanation.md)。
+
+Hooks 另开放 `hooks.save/remove/auto_select`、`worker.hook_attach/hook_update/hook_remove`，均为当前项目用户专属 action；daemon 自动选择使用独立 revision，不提供 Host 全局开关，见[Hooks 接口](rpc/hooks.md)。
 
 任何不在上述白名单的写入（含已下线的批量草稿提交、Candidate 验收、托管模式、展示、旧介绍与旧合并入口）都不再提供 Web 操作。

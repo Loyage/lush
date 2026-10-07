@@ -4,6 +4,31 @@ import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
 import { decideTaskInput } from '../task-input-rule.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation, resumeTaskDelivery } from './iteration.js';
 
+/** Internal shared settlement; provenance is chosen by the runtime, never by RPC input. */
+export function settleNoticeAnswer(project, noticeId, answer, dismiss = false, source = 'user') {
+  check(['user', 'lush'].includes(source), 'invalid answer source');
+  const notice = project.store.get('SELECT * FROM notices WHERE id=?', id(noticeId));
+  check(notice && notice.status === 'open', 'notice is not open');
+  check(notice.kind !== 'plan', `notice ${notice.id} is a plan approval; use lush plan approve|reject ${notice.task_id}`);
+  if (!dismiss) {
+    if (notice.kind === 'questionnaire') answer = questionnaireAnswer(notice.body, answer);
+    else text(answer, 'answer');
+  }
+  const stored = typeof answer === 'string' ? answer : JSON.stringify(answer);
+  project.store.transaction(() => {
+    project.store.run('UPDATE notices SET status=?,answer=?,answer_source=? WHERE id=?', dismiss ? 'dismissed' : 'answered', stored || '', source, notice.id);
+    project.store.message(notice.task_id, JSON.stringify({ notice_id: notice.id, title: notice.title, dismissed: dismiss,
+      answer: answer || '', answer_source: source,
+      ...(source === 'lush' ? { automatic: true, instruction: '此答复由 Lush 自动选择 Hook 生成，不是用户亲自决断；多选或文字答复授权 Agent 自行判断并继续。' } : {}) }));
+    project.store.event(notice.task_id, 'notice.answered', { notice_id: notice.id, answer, dismiss, answer_source: source });
+  });
+  const owner = project.store.task(notice.task_id);
+  if (dismiss && owner.agent_wakes === 0 && owner.resolves_task_id) project.cancel(owner.id, `user dismissed notice ${notice.id}: ${notice.title}`);
+  else project.wake(notice.task_id);
+  project.scheduleTaskHooks();
+  return project.store.get(`${NOTICE_SELECT} WHERE id=?`, notice.id);
+}
+
 /** 收件箱、notice、答复。 */
 export default {
   message(taskId, body, sender = null) {
@@ -82,6 +107,7 @@ export default {
       const noticeId = Number(row.lastInsertRowid);
       this.store.event(task.id, 'notice.opened', { notice_id: noticeId, title, kind });
       if (kind === 'questionnaire') this.parkForQuestion(task.id, noticeId);
+      this.autoAnswerNotice(noticeId);
       return noticeId;
     });
     // This is a deliberate suspension, not a timeout/failure. Persist before stopping the process.
@@ -153,26 +179,6 @@ export default {
   },
 
   answer(noticeId, answer, dismiss = false) {
-    const notice = this.store.get('SELECT * FROM notices WHERE id=?', id(noticeId));
-    check(notice && notice.status === 'open', 'notice is not open');
-    // 计划审批走 plan.approve / plan.reject：它们要动闸门、作废本轮 spec，不是“回答一个问题”。
-    check(notice.kind !== 'plan', `notice ${notice.id} is a plan approval; use lush plan approve|reject ${notice.task_id}`);
-    if (!dismiss) {
-      if (notice.kind === 'questionnaire') answer = questionnaireAnswer(notice.body, answer);
-      else text(answer, 'answer');
-    }
-    const stored = typeof answer === 'string' ? answer : JSON.stringify(answer);
-    this.store.transaction(() => {
-      this.store.run('UPDATE notices SET status=?,answer=? WHERE id=?', dismiss ? 'dismissed' : 'answered', stored || '', notice.id);
-      this.store.message(notice.task_id, JSON.stringify({ notice_id: notice.id, title: notice.title, dismissed: dismiss, answer: answer || '' }));
-      this.store.event(notice.task_id, 'notice.answered', { notice_id: notice.id, answer, dismiss });
-    });
-    const owner = this.store.task(notice.task_id);
-    // 预置任务（从未被唤醒过的解冲突任务）唯一没答过的请求就是这条 notice：
-    // 忽略它意味着这件事不要做了，唤醒 agent 只会让它去做用户刚拒绝的事，所以直接让它结束。
-    if (dismiss && owner.agent_wakes === 0 && owner.resolves_task_id) this.cancel(owner.id, `user dismissed notice ${notice.id}: ${notice.title}`);
-    else this.wake(notice.task_id);
-    this.scheduleTaskHooks();
-    return this.store.get(`${NOTICE_SELECT} WHERE id=?`, notice.id);
+    return settleNoticeAnswer(this, noticeId, answer, dismiss, 'user');
   }
 };

@@ -14,6 +14,7 @@ const definition = { name: '结束后提醒', trigger: 'agent.returned', mode: '
 const revision = 'opaque-revision:a1';
 const cases = [
   ['hooks.list', [], {}, 'hooksList', []],
+  ['hooks.auto_select', ['enabled','expected_revision'], { enabled: true, expected_revision: revision }, 'setDaemonAutoSelect', [true, revision]],
   ['hooks.save', ['template','expected_revision'], { template: definition, expected_revision: revision }, 'saveHookTemplate', [definition, revision]],
   ['hooks.remove', ['id','expected_revision'], { id: 'template-1', expected_revision: revision }, 'removeHookTemplate', ['template-1', revision]],
   ['worker.hooks', ['id'], { id: 7 }, 'taskHooks', [7]],
@@ -57,8 +58,12 @@ test('Hook handler rejects non-object definitions, invalid IDs and non-boolean e
     expect(() => HANDLERS['hooks.save'](noCalls, { template: value, expected_revision: revision })).toThrow('template must be an object');
     expect(() => HANDLERS['worker.hook_attach'](noCalls, { id: 7, hook: value, expected_revision: revision })).toThrow('hook must be an object');
   }
-  for (const enabled of [undefined, 'false', 0, null]) expect(() => HANDLERS['worker.hook_update'](noCalls,
-    { id: 7, hook_id: 'hook-1', enabled, expected_revision: revision })).toThrow('enabled must be a boolean');
+  for (const enabled of [undefined, 'false', 0, null, [], {}]) {
+    expect(() => HANDLERS['worker.hook_update'](noCalls,
+      { id: 7, hook_id: 'hook-1', enabled, expected_revision: revision })).toThrow('enabled must be a boolean');
+    expect(() => HANDLERS['hooks.auto_select'](noCalls,
+      { enabled, expected_revision: revision })).toThrow('enabled must be a boolean');
+  }
   for (const value of [0, -1, 'other-project', Number.MAX_SAFE_INTEGER + 1]) {
     expect(() => HANDLERS['worker.hooks'](noCalls, { id: value })).toThrow();
   }
@@ -115,6 +120,31 @@ test('CLI Hook templates and Worker mounts forward file payloads and revisions w
     expect(HELP).toContain('hooks list'); expect(HELP).toContain('worker hooks ID');
     expect(HELP).toContain('--revision REV'); expect(HELP).toContain('owner-only');
   } finally { f.close(); }
+});
+
+test('daemon auto-select CLI forwards only explicit on/off and the separate daemon read revision', async () => {
+  const c = client(), daemonRevision = 'daemon-revision:a2';
+  for (const state of ['on', 'off']) {
+    await hooks('hooks', ['auto-select', state, '--revision', daemonRevision], { client: c });
+  }
+  expect(c.calls).toEqual([
+    { method: 'hooks.auto_select', params: { enabled: true, expected_revision: daemonRevision } },
+    { method: 'hooks.auto_select', params: { enabled: false, expected_revision: daemonRevision } },
+  ]);
+  c.calls.length = 0;
+  for (const args of [[], ['on'], ['on','extra','--revision',daemonRevision], ['true','--revision',daemonRevision],
+    ['--revision',daemonRevision], ['on','--revision',daemonRevision,'--revision',daemonRevision],
+    ['off','--revision',' padded '], ['off','--revision','']]) {
+    await expect(hooks('hooks', ['auto-select', ...args], { client: c })).rejects.toThrow();
+  }
+  c.token = 'agent';
+  for (const state of ['on', 'off']) {
+    await expect(hooks('hooks', ['auto-select',state,'--revision',daemonRevision], { client: c })).rejects.toThrow('user only');
+  }
+  expect(c.calls).toEqual([]);
+  expect(HELP).toContain('hooks auto-select on|off --revision REV');
+  expect(HELP).toContain('daemon_hooks.revision');
+  expect(HELP).toContain('已有问题');
 });
 
 test('new Hook CLI entry points resolve W numbers once and retain integer RPC identities and user-only gates', async () => {

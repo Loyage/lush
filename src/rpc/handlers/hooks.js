@@ -14,6 +14,11 @@ function hookId(value) {
 /** User-only Hook configuration; the runtime owns definition validation and execution. */
 export const handlers = {
   'hooks.list'(p) { return p.hooksList(); },
+  'hooks.auto_select'(p, params) {
+    const expected = revision(params.expected_revision);
+    check(typeof params.enabled === 'boolean', 'enabled must be a boolean');
+    return p.setDaemonAutoSelect(params.enabled, expected);
+  },
   'hooks.save'(p, params) {
     const expected = revision(params.expected_revision);
     check(isPlainObject(params.template), 'template must be an object');

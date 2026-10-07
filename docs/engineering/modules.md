@@ -56,6 +56,18 @@
 
 用户决定 #197：以 Worker 挂载 Hook 统一预约和自动合并；项目模板集中在独立 Hooks 页面，首个可创建安全边界执行预约发射，自定义仅组合受控动作。[设计理念](../design/hooks.md)与[工程接口/并行职责](hooks.md)是本次实施权威接缝。Runtime、接口和前端分别遵循该契约；现有 auto_merge / reservation 保持兼容，不新增核心实体或 Host 调度。
 
+## daemon 自动选择 Hook 接缝（W118 / 决定 #267）
+
+当前项目 daemon 的内置持续 Hook `auto-select`，触发 `notice.received`，不是 Worker 挂载或 Host 全局配置。默认关闭，项目 meta 持久保存；显式开启同时处理已有 open 的 `questionnaire` / `question`，不答复 plan/info，不重放 invocation。单选选择第一项（不依赖推荐标签）；多选每题自定义答复、文字问题答复均为「请由 Agent 自行判断并继续。」。自动答复仍走原问卷暂停/真实退出/收件箱唤醒安全边界，不能并发调用或丢唤醒。
+
+- `hooks.list` 增加 `daemon_hooks:{version:1,revision,mounts:[{id:'auto-select',name,trigger:'notice.received',mode:'persistent',enabled,builtin:true,...}]}`；daemon revision 独立于模板 revision。`Project.daemonHooks()` 返回此对象，`Project.setDaemonAutoSelect(enabled,expectedRevision)` 保存开关、处理积压后返回完整 `hooksList()`。
+- 用户专属 RPC `hooks.auto_select {enabled:boolean,expected_revision:string}`；Web POST action 同名；CLI `hooks auto-select on|off --revision REV` 使用 daemon revision，Agent 禁止设置。Hooks 页面展示 daemon 独立区、持久开关和费用说明，开启按钮带 agent-call / agentHelp。
+- Notice 读面统一增加 `answer_source:'user'|'lush'|null`（历史 answered/dismissed 视为 user，未答 null）；自动来源同事务写入 Notice、`notice.answered` Event 和收件箱消息，消息不可让 Agent 误当成用户决断。页面历史/详情显示「Lush 自动选择」或「用户答复」。不得允许公开 answer 参数伪造来源。
+- Runtime 子分区：core/project/auto-select.js（新增）、project.js 装配、project/hooks.js 目录读面、messages.js、questionnaire.js、persistence schema / notice-projection、test/project/auto-select.test.js 及必要调度测试。
+- 接口子分区：rpc registry/handlers、cli hooks/help、Web server 路由及 API 测试；按上述方法/字段调用，不修改 runtime/assets。
+- UI 子分区：assets/render-hooks.js、render-notices.js、render-questionnaire.js、必要样式与 DOM 测试；不改 runtime/接口。
+- 父 Worker：设计/工程/使用文档、地图更新、集成及全量验证。
+
 ## Worker 用户编号接缝
 
 用户决定 #190：保留整数内部身份，为升级后新建的指令 Worker 增加不可变、可空的 `tasks.worker_number`（如 `W5`）；Agent 在已编号父 Worker 下派生的 child 使用同父创建次序（`W5-1`、`W5-1-1`）。原始 Input 展示 `O<id>`，沿用项目现有 Input 序列，允许失败或删除留下空号；暂存与追加消息不占 O 编号。在已有指令分支上提交新的 O8 仍产生 W8，不使用父的 child 序号。历史 Worker 不回填，历史未编号父节点的新派生后代继续使用旧整数编号；main/owner 保留原标识。
