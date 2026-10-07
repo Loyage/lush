@@ -3,6 +3,7 @@ import { check, id, TERMINAL } from '../types.js';
 import { HOOK_LIMITS, HOOK_TRIGGERS, HOOK_ACTIONS, normalizeHook, publicHookDefinition, hookConditionsMatch, hookRevision, hookObject } from '../hooks.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing } from './iteration.js';
 import { inheritedRunProfile } from './internal.js';
+import { nextHookRun } from '../hook-schedule.js';
 
 const empty = () => ({ version: 1, mounts: [], observed: {} });
 const parse = task => task.hooks ? JSON.parse(task.hooks) : empty();
@@ -20,7 +21,7 @@ function writeDefinitions(project, state) {
 function revision(project, task) { return hookRevision({ hooks: task.hooks ?? null, automatic: project.autoMergeView(task), completion: task.auto_merge ?? null }); }
 function readDefinition(project, value) {
   const view = publicHookDefinition(value);
-  view.actions = view.actions.map(action => action.type === 'message' ? { ...action,
+  view.actions = view.actions.map(action => ['message','retry_worker','resume_worker'].includes(action.type) ? { ...action,
     target_worker_number: project.store.get('SELECT worker_number FROM tasks WHERE id=?', action.target_id)?.worker_number ?? null,
   } : action);
   return view;
@@ -31,11 +32,19 @@ function readExecution(project, execution) {
     worker_number: project.store.get('SELECT worker_number FROM tasks WHERE id=?', execution.worker_id)?.worker_number ?? null,
   } : execution;
 }
-function editable(project, task) {
+function scheduledSelfRetry(hook, task) {
+  return hook?.trigger === 'time.scheduled' && hook.actions.some(a => a.type === 'retry_worker' && a.target_id === task.id)
+    && hook.actions.every(a => a.type === 'notify' || (a.type === 'retry_worker' && a.target_id === task.id));
+}
+function ownerAvailable(project, task, allowFailed = false) {
+  if (!['main','owner','order','child'].includes(task.task_kind) || (TERMINAL.has(task.status)
+    && !(allowFailed && task.status === 'failed' && ['order','child'].includes(task.task_kind)))) return false;
+  if (task.branch && ['archived','deleted'].includes(project.store.branch(task.branch)?.status)) return false;
+  try { assertTaskAncestorsOpen(project, task); return true; } catch { return false; }
+}
+function editable(project, task, hook = null, disabling = false) {
   project.assertWritable('configure a Hook');
-  check(['main','owner','order','child'].includes(task.task_kind) && !TERMINAL.has(task.status), 'only active Worker owners support Hooks');
-  check(!task.branch || !['archived','deleted'].includes(project.store.branch(task.branch)?.status), 'archived Workers cannot mount Hooks');
-  assertTaskAncestorsOpen(project, task);
+  check(ownerAvailable(project, task, scheduledSelfRetry(hook, task) || (disabling && hook?.schedule)), 'only active Worker owners or failed Workers with scheduled self-retry support this Hook');
 }
 function checkRevision(actual, expected) { check(typeof expected === 'string' && actual === expected, 'Hook revision changed; reload before editing'); }
 function definition(project, raw, task = null) {
@@ -56,10 +65,15 @@ function definition(project, raw, task = null) {
       } catch { throw new Error('Hook run settings are invalid or unavailable'); }
       return { ...action, references, ...(profile ? { profile } : {}) };
     }
-    if (action.type === 'message' && task) {
+    if (['message','retry_worker','resume_worker'].includes(action.type) && task) {
       const target = project.store.task(action.target_id);
       check(target.id === task.id || target.parent_id === task.id || task.parent_id === target.id, 'Hook messages require the current Worker or a direct parent/child');
       check(!['main','owner'].includes(target.task_kind), 'branch owners are not Agent inboxes');
+      if (action.type !== 'message') check(['order','child'].includes(target.task_kind), 'only order/child Workers support scheduled restart');
+    }
+    if (['retry_worker','resume_worker'].includes(action.type) && action.profile !== undefined) {
+      try { return { ...action, profile: project.agentSettings.retryProfile(task ? project.store.task(action.target_id).role : 'agent', action.profile) }; }
+      catch { throw new Error('Hook run settings are invalid or unavailable'); }
     }
     if (action.type === 'request_merge' && task) check(['order','child'].includes(task.task_kind), 'only order/child Workers can request a merge');
     return action;
@@ -86,7 +100,7 @@ export default {
 
   saveHookTemplate(template, expectedRevision) {
     this.assertWritable('save a Hook template');
-    hookObject(template, ['id','name','trigger','mode','enabled','conditions','actions'], 'Hook template');
+    hookObject(template, ['id','name','trigger','mode','enabled','conditions','actions','schedule'], 'Hook template');
     const { id: templateId, ...raw } = template;
     // Public templates deliberately omit private profiles. Editing a name or condition must not
     // silently replace an existing model/Prompt/env selection with the current project default.
@@ -95,7 +109,7 @@ export default {
       check(stored, 'Hook template not found');
       if (Array.isArray(raw.actions)) raw.actions = raw.actions.map((action, index) => {
         const old = stored.definition.actions[index];
-        return action?.type === 'create_worker' && action.profile === undefined && old?.type === 'create_worker' && old.profile
+        return ['create_worker','retry_worker','resume_worker'].includes(action?.type) && action.profile === undefined && old?.type === action.type && old.profile
           ? { ...action, profile: old.profile } : action;
       });
     }
@@ -124,10 +138,11 @@ export default {
 
   taskHooks(taskId) {
     const task = this.store.task(id(taskId)), data = parse(task), automatic = this.autoMergeView(task);
-    const available = !TERMINAL.has(task.status) && (!task.branch || !['archived','deleted'].includes(this.store.branch(task.branch)?.status));
+    const available = ownerAvailable(this, task);
     const mounts = data.mounts.map(m => ({ id: m.id, ...readDefinition(this, m), builtin: false, locked: false,
-      editable: available && m.state !== 'running', removable: ['main','owner','order','child'].includes(task.task_kind) && m.state !== 'running', reason: m.state === 'running' ? 'Hook 已领取执行，不能修改' : !available ? 'Worker 已结束或归档' : m.reason ?? null,
+      editable: (available || (ownerAvailable(this, task, true) && (scheduledSelfRetry(m, task) || (m.schedule && m.enabled)))) && m.state !== 'running', removable: ['main','owner','order','child'].includes(task.task_kind) && m.state !== 'running', reason: m.state === 'running' ? 'Hook 已领取执行，不能修改' : !available && !(ownerAvailable(this, task, true) && scheduledSelfRetry(m, task)) ? 'Worker 已结束或归档' : m.reason ?? null,
       state: m.state, last_execution: readExecution(this, m.last_execution),
+      ...(m.schedule ? { next_run_at: m.next_run_at ?? null, pending_due_at: m.pending_due_at ?? null } : {}),
       ...(m.actions.find(a => a.type === 'create_worker')?.profile ? { model_selection: publicHookDefinition(m).actions.find(a => a.type === 'create_worker').model_selection } : {}) }));
     if (automatic) {
       const booking = task.reservation ? JSON.parse(task.reservation) : null;
@@ -154,18 +169,21 @@ export default {
         conditions: {}, actions: [{ type }], ...status,
         reason: status.reason ?? '通过最高自动级别统一设置，仍需前一步与现有安全检查通过' });
     }
-    return { version: 1, worker_id: task.id, revision: revision(this, task), completion, mounts };
+    return { version: 1, worker_id: task.id, revision: revision(this, task), completion, can_attach: ownerAvailable(this, task, true), mounts };
   },
 
   attachTaskHook(taskId, raw, expectedRevision) {
-    const task = this.store.task(id(taskId)); editable(this, task);
-    const value = definition(this, raw, task);
+    const task = this.store.task(id(taskId));
+    const value = definition(this, raw, task); editable(this, task, value);
+    const next = value.schedule ? nextHookRun(value.schedule, this.hookClock()) : null;
+    check(!value.schedule || value.schedule.kind !== 'once' || next, 'one-shot schedule must be in the future when mounted');
     this.store.transaction(() => {
       const current = this.store.task(task.id); checkRevision(revision(this, current), expectedRevision);
       const data = parse(current); check(data.mounts.length < HOOK_LIMITS.mounts, 'too many mounted Hooks');
       check(this.store.get("SELECT count(*) AS n FROM tasks WHERE hooks IS NOT NULL").n < 500 || current.hooks,
         'too many Workers with mounted Hooks (limit 500)');
-      data.mounts.push({ ...value, id: randomUUID(), state: value.trigger === 'worker.parent_ready' ? 'waiting' : 'idle', created_at: now(), last_execution: null });
+      data.mounts.push({ ...value, id: randomUUID(), state: value.trigger === 'worker.parent_ready' || value.schedule ? 'waiting' : 'idle', created_at: now(), last_execution: null,
+        ...(value.schedule ? { next_run_at: next, pending_due_at: null } : {}) });
       check(Buffer.byteLength(JSON.stringify(data)) <= HOOK_LIMITS.bytes, 'mounted Hooks exceed size limit');
       save(this, task.id, data);
       this.store.event(task.id, 'hook.attached', { hook_id: data.mounts.at(-1).id, trigger: value.trigger, name: value.name });
@@ -176,13 +194,19 @@ export default {
 
   async updateTaskHook(taskId, hookId, enabled, expectedRevision) {
     check(typeof enabled === 'boolean', 'Hook enabled must be boolean');
-    const task = this.store.task(id(taskId)); editable(this, task); checkRevision(revision(this, task), expectedRevision);
+    const task = this.store.task(id(taskId)), existing = parse(task).mounts.find(m => m.id === hookId);
+    editable(this, task, existing, !enabled); checkRevision(revision(this, task), expectedRevision);
     if (hookId === 'auto-merge') { await this.setTaskAutoMerge(task.id, enabled); return this.taskHooks(task.id); }
     this.store.transaction(() => {
       const data = parse(this.store.task(task.id)), mount = data.mounts.find(m => m.id === hookId); check(mount, 'Hook mount not found');
       check(mount.state !== 'running', 'Hook is executing; wait for its result');
       check(!enabled || !['failed','unknown'].includes(mount.state), 'Hook effects require inspection; mount a new explicitly authorized rule instead of replaying');
-      check(!enabled || mount.mode !== 'once' || mount.state !== 'succeeded', 'one-shot Hook already executed; mount a new rule instead of replaying');
+      check(!enabled || mount.mode !== 'once' || !['succeeded','skipped'].includes(mount.state), 'one-shot Hook already executed or skipped; mount a new rule instead of replaying');
+      if (enabled && !mount.enabled && mount.schedule && !mount.pending_due_at) {
+        const clock = this.hookClock();
+        mount.next_run_at = nextHookRun(mount.schedule, Math.max(clock, Date.parse(mount.last_due_at ?? '') || clock));
+        check(mount.next_run_at, 'one-shot schedule has expired; mount a new future rule');
+      }
       mount.enabled = enabled; save(this, task.id, data); this.store.event(task.id, 'hook.enabled', { hook_id: hookId, enabled });
     });
     this.scheduleTaskHooks(); return this.taskHooks(task.id);
@@ -203,6 +227,7 @@ export default {
       if (data.mounts.length) save(this, task.id, data); else this.store.update(task.id, { hooks: null });
       this.store.event(task.id, 'hook.removed', { hook_id: hookId });
     });
+    this.scheduleTaskHooks();
     return this.taskHooks(task.id);
   },
 
@@ -224,7 +249,7 @@ export default {
 
   /** Persist claims before dispatch; reads never call this. */
   emitTaskHook(taskId, trigger, sourceId = null, pendingOnly = false) {
-    if (this.stopping || this.clearing || this.workerDeleteIds?.size) return;
+    if (trigger === 'time.scheduled' || this.stopping || this.clearing || this.workerDeleteIds?.size) return;
     if (this.recoveringHooks) { (this.hookRecoveryEvents ??= []).push([taskId, trigger, sourceId]); return; }
     const task = this.store.task(taskId); if (!task.hooks) return;
     const data = parse(task), mounts = data.mounts.filter(m => m.trigger === trigger && eligible(m) && hookConditionsMatch(m, task)
@@ -333,6 +358,7 @@ export default {
       // A new one-shot mount can be attached while a parent is already writable.
       if (current.parent && (parentBoundary || !this.taskMergeBusy?.has(task.id))) this.emitTaskHook(task.id, 'worker.parent_ready', null, previous.parent === true);
     }
+    this.observeScheduledTaskHooks(taskId);
   },
 
   async runParentReadyHooks(parentId) {
@@ -344,8 +370,9 @@ export default {
   },
 
   recoverTaskHooks() {
+    this.recoverScheduledTaskHooks();
     for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL')) {
-      for (const mount of parse(task).mounts) if (mount.state === 'running') {
+      for (const mount of parse(task).mounts) if (mount.state === 'running' && !mount.schedule) {
         const created = this.store.get("SELECT data FROM events WHERE task_id=? AND type='hook.worker_created' AND json_extract(data,'$.execution_id')=? ORDER BY id DESC LIMIT 1", task.id, mount.last_execution.id);
         // Only a complete single create action is an exact sufficient recovery proof.
         if (created && mount.actions.length === 1 && mount.actions[0].type === 'create_worker') {

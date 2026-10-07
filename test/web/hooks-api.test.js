@@ -58,6 +58,26 @@ test('Hooks HTTP reads and all mutations reach user RPC with exact revisions and
   } finally { await f.close(); }
 });
 
+test('scheduled Hook HTTP mutations retain explicit timezones and project-local queue projections', async () => {
+  const f = await setup(), calls = mocks(f.project);
+  const schedule = { kind: 'daily', time: '00:05', timezone: 'Asia/Shanghai' };
+  const scheduled = { name: 'daily creation', trigger: 'time.scheduled', mode: 'persistent', enabled: true, schedule,
+    actions: [{ type: 'create_worker', content: 'next job', start: true }] };
+  const view = { ...workerView, can_attach: true, mounts: [{ id: 'scheduled-1', ...scheduled,
+    state: 'waiting', next_run_at: '2027-01-01T16:05:00.000Z', pending_due_at: '2026-12-31T16:05:00.000Z' }] };
+  f.project.attachTaskHook = (...args) => { calls.push({ method: 'attachTaskHook', args }); return view; };
+  f.project.taskHooks = () => view;
+  try {
+    const params = { id: 7, hook: scheduled, expected_revision: revision };
+    const response = await post(f.url, 'worker.hook_attach', params);
+    expect(response.status).toBe(200); expect(await response.json()).toEqual(view);
+    expect(calls).toEqual([{ method: 'attachTaskHook', args: [7, scheduled, revision] }]);
+    expect(await (await fetch(f.url + '/api/worker/7/hooks')).json()).toEqual(view);
+    expect((await post(f.url, 'worker.hook_attach', { ...params, _token: 'agent' })).status).toBe(400);
+    expect(calls).toHaveLength(1);
+  } finally { await f.close(); }
+});
+
 test('HTTP preserves a template reference mount and draft hook_mount without exposing a profile', async () => {
   const f = await setup(), calls = mocks(f.project);
   const reference = { template_id: '931d1b67-11b1-4b39-b4be-6d07611f697e' };

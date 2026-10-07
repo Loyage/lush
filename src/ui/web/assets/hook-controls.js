@@ -8,7 +8,7 @@ import { projectBase, routeContext } from './route.js';
 
 const updating = new Set();
 export const COMPLETION_LEVELS = { off: '关闭自动链', merge: '自动到合并', accept: '自动到验收', archive: '自动到归档' };
-export const HOOK_STATES = { idle: '已挂载', waiting: '等待条件', running: '动作执行中', succeeded: '已执行', failed: '执行失败', unknown: '结果未知·需检查' };
+export const HOOK_STATES = { idle: '已挂载', waiting: '等待条件', running: '动作执行中', succeeded: '已执行', skipped: '已跳过', failed: '执行失败', unknown: '结果未知·需检查' };
 const rank = level => Object.keys(COMPLETION_LEVELS).indexOf(level);
 
 /** One-click highest-stage authorization; a locked minimum still permits higher choices. */

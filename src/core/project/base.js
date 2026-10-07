@@ -38,6 +38,8 @@ export class ProjectBase {
     this.agentPackageOptions = options.agentPackages ?? {};
     this.agentPackageManager = new AgentPackages(config, this.agentPackageOptions);
     this.deviceAgentPackageManager = null;
+    // Internal clock/timer seam for deterministic scheduled-Hook tests; never a public configuration field.
+    this.scheduledHookOptions = options.scheduledHooks ?? {};
   }
 
   /** R-01: reject writes that would create rows while a clear is reclaiming disk. */

@@ -37,6 +37,7 @@
 | `creation-profile-dialog.js` | 历史草稿发射时的完整运行参数确认，使用应用弹窗、页面身份与默认加载；取消保留旧覆盖，不调用 Agent | `chooseCreationProfile()` |
 | `hook-controls.js` | 详情内置自动合并兼容与一行最高环节按钮控制，点击即保存；child 最低级别、补办/归档确认和旧服务兼容；保存用 revision、在途锁和项目/导航保护，见[自动链接缝](completion-hooks.md) | `autoMergeControl()`、`autoCompletionControl()`、`COMPLETION_LEVELS`、`HOOK_STATES` |
 | `render-inputs.js` / `styles-inputs.css` | `#inputs` 历史输入页：资源页风格的等高摘要列表、全库搜索/双维状态筛选/有界分页；`#input-draft-<id>` / `#input-input-<id>` 独立原文详情、暂存编辑与单条发射，同页往返保留列表/编辑；完整父候选、版本冲突与请求身份保护，不被 overview 轮询重画；契约见[历史输入接口](input-history.md) | `openInputs({item?:{kind,id},push?:boolean})`、`INPUT_STATUS`、`INPUT_MERGE`；CSS |
+| `hook-schedule.js` | 浏览器定时表单的显式 IANA 时区／日期转换与时间摘要；默认浏览器时区但明确保存，一次性 DST 模糊／缺失时间拒绝，模板元数据编辑保留精确 at | `browserTimezone`、`scheduledWallTime`、`scheduledInstant`、`hookSchedule`、`hookScheduleSummary` |
 | `render-hooks.js` / `hook-form.js` / `styles-hooks.css` | 项目 `#hooks` 目录、自动链介绍与模板；Worker 默认一行级别选择、异常摘要和折叠管理区，按需查看节点挂载/参数/执行结果和编辑；受控动作配置及统一标识；创建 Hook 完整运行设置只写、安全摘要只读，契约见 [Hooks](hooks.md) | `openHooks()`、`workerHooks(task,options?)`；表单辅助/CSS |
 | `render-versions.js` | 工作分组 `#versions` 的只读 main 第一父链历史：显式加载、固定 tip 分页、刷新作废旧请求、失败保留旧历史并明确提示、无 main 空态；安全文本呈现提交 SHA / 作者 / 时间 / 摘要、精确关联的 Worker 与原始指令，跳转走 navigate 接缝，不执行 Agent；契约见[版本迭代](version-history.md) | `openVersions()`、`renderVersionCommit(commit)` |
 | `styles-versions.css` | 版本迭代卡片、main tip 与完整 SHA、原始指令折叠和响应式布局，沿用双主题 token，无内联样式 | CSS |

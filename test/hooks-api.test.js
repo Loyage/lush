@@ -85,6 +85,29 @@ test('template reference mounting is forwarded intact for private server-side co
   } finally { f.close(); }
 });
 
+test('scheduled definitions pass through existing user-only RPC and owner-only CLI without an alternate scheduler', async () => {
+  const rule = { name: 'daily Codex job', trigger: 'time.scheduled', mode: 'persistent', enabled: true,
+    schedule: { kind: 'daily', time: '00:05', timezone: 'Asia/Shanghai' },
+    actions: [{ type: 'retry_worker', target_id: 7, profile: { agent: 'pi', connection_id: 'chosen-codex', model: 'test/codex' } }] };
+  const calls = [], view = { version: 1, worker_id: 7, can_attach: true, revision: 'next', mounts: [] };
+  const project = { actor: token => token ? 8 : null,
+    attachTaskHook(...args) { calls.push(args); return view; }, saveHookTemplate(...args) { calls.push(args); return view; } };
+  const dispatcher = new Dispatcher(project);
+  const params = { id: 7, hook: rule, expected_revision: revision };
+  expect(await dispatcher.dispatch('worker.hook_attach', params)).toBe(view);
+  expect(await dispatcher.dispatch('hooks.save', { template: rule, expected_revision: revision })).toBe(view);
+  expect(calls).toEqual([[7, rule, revision], [rule, revision]]);
+  await expect(dispatcher.dispatch('worker.hook_attach', { ...params, _token: 'agent' })).rejects.toThrow('requires user approval');
+  expect(calls).toHaveLength(2);
+  const f = privateFile(rule), c = client();
+  try {
+    await worker('worker', ['hook','attach','7','--file',f.file,'--revision',revision], { client: c, json: true });
+    await hooks('hooks', ['save','--file',f.file,'--revision',revision], { client: c });
+    expect(c.calls).toEqual([{ method: 'worker.hook_attach', params },
+      { method: 'hooks.save', params: { template: rule, expected_revision: revision } }]);
+  } finally { f.close(); }
+});
+
 function client() {
   const calls = [];
   return { calls, request(method, params) { calls.push({ method, params }); return { method, ok: true }; } };

@@ -44,6 +44,12 @@ test('自动链配置、下一人工环节和过期执行有独立中文名称�
   expect(eventLabel({ type: 'completion.execution_unknown' })).toContain('待核验');
 });
 
+test('定时提交、停机错过与动作跳过有独立名称，不冒充 Agent 已开始', () => {
+  expect(eventLabel({ type: 'hook.scheduled_submitted' })).toBe('定时 Hook 已提交待执行动作');
+  expect(eventLabel({ type: 'hook.schedule_missed' })).toBe('定时 Hook 已错过提交时间');
+  expect(eventLabel({ type: 'hook.execution_skipped' })).toBe('Hook 动作已跳过');
+});
+
 test('daemon Hook events and answer provenance have explicit labels without guessing old answers', () => {
   expect(eventLabel({ type: 'hook.daemon_configured' })).toBe('调整 daemon 自动选择 Hook');
   expect(eventLabel({ type: 'hook.daemon_failed' })).toContain('失败');

@@ -358,6 +358,7 @@ export default {
   },
 
   recover() {
+    this.scheduledHookRecoveryClock = this.hookClock();
     this.recoveringHooks = true;
     this.hookRecoveredWorkers = new Set();
     this.agentUsage.start();
@@ -469,6 +470,7 @@ export default {
 
   async shutdown() {
     this.stopping = true;
+    this.stopScheduledHookTimer();
     this.stopRuntimeSettingsMonitor();
     const usageStopped = this.agentUsage.stop();
     const connectionsStopped = this.agentConnections.stop();

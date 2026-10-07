@@ -11,9 +11,16 @@ import { isHistoricalDelivery, absolute } from './format.js';
 import { createHookForm } from './hook-form.js';
 import { autoMergeControl, autoCompletionControl, COMPLETION_LEVELS, HOOK_STATES as STATES } from './hook-controls.js';
 import { workerLabel } from './worker-label.js';
+import { hookScheduleSummary, scheduledWallTime } from './hook-schedule.js';
 
 const pending = new Set();
-const callsAgent = mount => (mount.actions || []).some(a => a.type === 'message' || a.type === 'request_merge' || (a.type === 'create_worker' && a.start !== false));
+const callsAgent = mount => (mount.actions || []).some(a => ['message', 'request_merge', 'retry_worker', 'resume_worker'].includes(a.type) || (a.type === 'create_worker' && a.start !== false));
+const failedSelfTemplate = (template, workerId) => template.trigger === 'time.scheduled'
+  && template.actions?.some(a => a.type === 'retry_worker' && a.target_id === workerId)
+  && template.actions.every(a => a.type === 'notify' || (a.type === 'retry_worker' && a.target_id === workerId));
+function scheduledLabel(instant, timezone) {
+  try { return `${scheduledWallTime(instant, timezone).replace('T', ' ')} · ${timezone}`; } catch { return absolute(instant); }
+}
 function guarded(node, reason) {
   if (!reason) return node;
   node.disabled = true; const host = el('span', undefined, 'help-host'); host.tabIndex = 0;
@@ -22,14 +29,25 @@ function guarded(node, reason) {
 function summary(actionItem) {
   return actionItem.type === 'create_worker' ? `预约创建 Worker${actionItem.start !== false ? '并开始 Agent' : '（待开始）'}：${actionItem.content || ''}`
     : actionItem.type === 'notify' ? `发送告知：${actionItem.title || ''}`
-      : actionItem.type === 'message' ? `追加消息到 ${workerLabel(actionItem.target_id, actionItem.target_worker_number)}：${actionItem.body || ''}` : actionItem.type === 'request_merge' ? '冻结源提交并向直接父 Worker 请求合并'
+      : actionItem.type === 'message' ? `追加消息到 ${workerLabel(actionItem.target_id, actionItem.target_worker_number)}：${actionItem.body || ''}`
+        : actionItem.type === 'retry_worker' ? `到点时若失败则重试 ${workerLabel(actionItem.target_id, actionItem.target_worker_number)}；保留工作区，不检测额度恢复`
+          : actionItem.type === 'resume_worker' ? `到点时若已暂停则继续 ${workerLabel(actionItem.target_id, actionItem.target_worker_number)}；不恢复取消或已验收的 Worker`
+            : actionItem.type === 'request_merge' ? '冻结源提交并向直接父 Worker 请求合并'
         : actionItem.type === 'accept_worker' ? '安全条件通过后自动验收；不调用质量评审 Agent，不保证业务质量'
           : actionItem.type === 'archive_worker' ? '验收后归档分支及后代，清理 worktree/ref；保留 Worker、会话和历史，不丢弃未提交改动' : actionItem.type;
 }
 function parameters(mount) {
   const content = el('details', undefined, 'hook-parameters'); content.append(el('summary', '参数与最近执行'));
+  if (mount.schedule) {
+    content.append(el('p', `定时：${hookScheduleSummary(mount.schedule)}`, 'hook-schedule-preview'));
+    if (mount.pending_due_at) content.append(el('p', `已到点提交，等待安全执行：${scheduledLabel(mount.pending_due_at, mount.schedule.timezone)}`, 'hint'));
+    if (mount.next_run_at) content.append(el('p', `下次提交：${scheduledLabel(mount.next_run_at, mount.schedule.timezone)}`, 'hint'));
+    content.append(el('p', '到点提交非阻塞动作，安全点尽早执行；不保证 Agent 准点开始。后台停机错过时间跳过，不自动启动项目或检测额度恢复。', 'hint'));
+  }
   for (const item of mount.actions || []) {
     content.append(el('p', summary(item), 'hook-action-preview'));
+    if (item.type === 'message') content.append(el('p', '追加输入使用目标 Worker 现有运行设置，不隐式切换账号。', 'hint'));
+    if (['retry_worker', 'resume_worker'].includes(item.type) && !item.model_selection) content.append(el('p', '未显式覆盖，沿用目标 Worker 已有运行设置。', 'hint'));
     if (item.model_selection) content.append(el('p', `动作运行设置：${item.model_selection.config_mode === 'pi' ? '执行机器的 Pi 默认配置' : [item.model_selection.agent, item.model_selection.model, item.model_selection.thinking].filter(Boolean).join(' · ') || '已固定默认配置'}`, 'hint'));
   }
   const selection = mount.model_selection;
@@ -39,7 +57,8 @@ function parameters(mount) {
   const last = mount.last_execution;
   if (last) {
     content.append(el('p', `最近执行：${STATES[last.status] || last.status} · ${absolute(last.finished_at || last.created_at)}`, 'hint'));
-    if (last.error) content.append(el('p', last.error, 'error'));
+    if (last.due_at && mount.schedule) content.append(el('p', `原定提交：${scheduledLabel(last.due_at, mount.schedule.timezone)}`, 'hint'));
+    if (last.error) content.append(el('p', last.error, last.status === 'skipped' ? 'hint' : 'error'));
     if (last.worker_id) content.append(button(`查看创建的 Worker ${workerLabel(last.worker_id, last.worker_number)}`, () => detail(last.worker_id), 'ghost hook-button'));
   } else content.append(el('p', '还没有执行记录。', 'hint'));
   return content;
@@ -110,7 +129,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   if (completion) row.append(autoCompletionControl(task, { ...model, completion }, refresh, ownsPage,
     editing => { section.dataset.completionEditing = String(editing); }));
   else if (['order', 'child'].includes(workerKind(task))) row.append(autoMergeControl(task, refresh, ownsPage));
-  const alerts = items.filter(item => !BUILTIN_STEPS[item.id] && ['running', 'failed', 'unknown'].includes(item.state));
+  const alerts = items.filter(item => !BUILTIN_STEPS[item.id] && (['running', 'failed', 'unknown', 'skipped'].includes(item.state) || item.pending_due_at));
   for (const mount of alerts) {
     const alert = el('span', `${mount.name}：${STATES[mount.state]}`, 'hint hook-mount-alert');
     alert.setAttribute('data-help', mount.last_execution?.error || mount.reason || STATES[mount.state]); alert.tabIndex = 0;
@@ -133,7 +152,9 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   }
   const editor = el('div', undefined, 'hook-editor');
   const controls = el('div', undefined, 'actions hook-actions');
-  const writable = model && !['completed', 'failed', 'cancelled'].includes(task.status) && !task.archived && !task.branch_archive?.archived;
+  const failedSelf = task.status === 'failed';
+  const writable = model && !['completed', 'cancelled'].includes(task.status) && !task.archived && !task.branch_archive?.archived
+    && (model.can_attach !== undefined ? model.can_attach === true : !failedSelf);
   const attach = button('挂载 Hook', async () => {
     if (!ownsPage() || !writable || pending.has(`attach:${task.id}`)) return;
     management.open = true;
@@ -142,11 +163,12 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
       const catalogue = await api('/api/hooks'); if (!ownsPage()) return;
       const picker = el('select'); picker.setAttribute('aria-label', '挂载模板');
       const blank = el('option', '新建自定义规则'); blank.value = ''; picker.append(blank);
-      for (const template of catalogue.templates || []) { const option = el('option', template.name); option.value = template.id; picker.append(option); }
+      const templates = (catalogue.templates || []).filter(template => !failedSelf || failedSelfTemplate(template, task.id));
+      for (const template of templates) { const option = el('option', template.name); option.value = template.id; picker.append(option); }
       const host = el('div'); editor.replaceChildren(picker, host); section.dataset.hookEditing = 'true';
       const paint = () => {
         if (pending.has(`save:${task.id}`)) return;
-        const template = catalogue.templates?.find(t => t.id === picker.value);
+        const template = templates.find(t => t.id === picker.value);
         let save = null;
         const paintCost = agent => {
           if (!save) return;
@@ -154,7 +176,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
           const help = '保存此 Worker 的 Hook 挂载授权；条件满足时执行受控动作，纯告知不调用 Agent。';
           save.setAttribute('data-help', agent ? agentHelp(help) : help);
         };
-        const form = template ? null : createHookForm(catalogue, { ownsPage, workerId: task.id, onChange: paintCost });
+        const form = template ? null : createHookForm(catalogue, { ownsPage, workerId: task.id, failedSelf, onChange: paintCost });
         if (template) host.replaceChildren(el('h3', `原样挂载模板：${template.name}`), parameters(template),
           el('p', '服务器按模板身份复制完整参数和私有运行覆盖，不从安全读面重建。挂载时不修改模板参数；需要不同参数，请先编辑模板或新建自定义规则。', 'hint'));
         else host.replaceChildren(form.node);
@@ -163,7 +185,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
           if (form?.replacesPrompt() && !await promptRisk()) return;
           if (!ownsPage()) return;
           const hook = template ? { template_id: template.id } : form.collect(), agent = template ? callsAgent(template) : form.agentCall();
-          if (agent && !await confirmDialog({ title: '挂载会安排 Agent 调用的 Hook？', message: '此操作保存授权；条件满足时即可启动或唤醒 Agent。请确认动作、目标和运行设置。',
+          if (agent && !await confirmDialog({ title: '挂载会安排 Agent 调用的 Hook？', message: '此操作保存授权；条件满足时可能启动或唤醒 Agent。定时只保证到点提交动作，安全点尽早执行，不保证 Agent 准点开始。请确认时间、时区、动作、目标和运行设置。',
             confirmLabel: '授权并挂载', agent: true, confirmHelp: agentHelp('挂载此受控规则，允许在指定安全节点执行所配置的调用。') })) return;
           if (!ownsPage()) return;
           pending.add(`save:${task.id}`); form?.setBusy(true); save.disabled = true; picker.disabled = true;
@@ -185,13 +207,13 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   management.append(controls, editor); row.append(management); section.append(row); return section;
 }
 async function promptRisk() {
-  return confirmDialog({ title: '使用替换内置规则的 Prompt？', message: '这份自定义 Prompt 可能影响 Worker 权限、协作、工作区安全和交付协议；只影响新建 Worker 及其派生 Worker。',
+  return confirmDialog({ title: '使用替换内置规则的 Prompt？', message: '这份自定义 Prompt 可能影响 Worker 权限、协作、工作区安全和交付协议；作用于所配置动作的新建或重试／继续目标 Worker。',
     confirmLabel: '仍然使用', danger: true, confirmHelp: '将自定义 Prompt 写入预约运行设置，不修改项目默认。' });
 }
 
 /** Explicit project-local template management, separate from actual Worker attachments. */
 export async function openHooks() {
-  const view = activateDetailView({ view: 'hooks', title: 'Hooks', context: '工作', hint: '生命周期节点 · 受控动作 · 可复用模板', hash: '#hooks' });
+  const view = activateDetailView({ view: 'hooks', title: 'Hooks', context: '工作', hint: '生命周期与定时节点 · 受控动作 · 可复用模板', hash: '#hooks' });
   const project = projectApi('/api/hooks');
   const ownsPage = () => ui.view === view && projectApi('/api/hooks') === project;
   if (ui.hooksPage?.view === view && ui.hooksPage.project === project) return ui.hooksPage.pending;
@@ -268,7 +290,7 @@ export async function openHooks() {
   function paint() {
     if (!owns()) return;
     const catalogue = state.catalogue;
-    root.replaceChildren(el('h1', 'Hooks'), el('p', '当前项目的后台与 Worker 生命周期自动动作。模板只保存配置；实际挂载、启停和执行结果在 Worker 详情管理。自定义仅组合受控动作，不执行脚本，不自动重试未知副作用。', 'hint'), daemonSection(catalogue));
+    root.replaceChildren(el('h1', 'Hooks'), el('p', '当前项目的后台与 Worker 生命周期、定时自动动作。模板只保存配置；实际挂载、启停和执行结果在 Worker 详情管理。定时到点提交非阻塞动作，安全点尽早执行，不保证 Agent 准点开始；后台停机错过时间跳过，不自动启动项目或判断额度恢复。自定义仅组合受控动作，不执行脚本，不自动重试未知副作用。', 'hint'), daemonSection(catalogue));
     const controls = el('div', undefined, 'actions'); controls.append(button('新建模板', () => edit(), 'hook-button', { help: '编辑可复用规则，不启动 Agent，也不自动安装到 Worker。' }),
       button('刷新目录', async () => { if (state.busy) return; if (state.editing && !await confirmDialog({ title: '放弃未保存编辑并刷新？', message: '刷新会读取后台最新模板，当前未保存编辑会丢失。', confirmLabel: '放弃并刷新' })) return;
         if (!owns()) return; state.editing = false; editor.replaceChildren(); await load(); }, 'ghost hook-button', { help: '显式读取最新节点和模板；未保存编辑会先确认，不进行后台自动刷新。' })); root.append(controls);

@@ -1,8 +1,10 @@
 import { createHash } from 'node:crypto';
 import { check, id, isPlainObject, text } from './types.js';
+import { normalizeHookSchedule } from './hook-schedule.js';
 
 export const HOOK_LIMITS = Object.freeze({ mounts: 32, templates: 50, actions: 4, bytes: 131072, batch: 16 });
 export const HOOK_TRIGGERS = Object.freeze([
+  ['time.scheduled', '指定时间提交动作', '一次性或每日按显式时区提交待执行动作；安全点尽早准入，不保证 Agent 准点开始，停机错过跳过。'],
   ['agent.started', 'Agent 开始调用', '本轮正式获得执行位。'],
   ['agent.returned', 'Agent 正常返回', '本轮实际退出；可能仍在等待，不代表工作完成。'],
   ['agent.failed', 'Agent 异常结束', '异常、超时或重启发现中断；不自动重试。'],
@@ -25,9 +27,11 @@ export const HOOK_ACTIONS = Object.freeze([
   { type: 'accept_worker', label: '自动验收', description: '内置串行阶段：复用安全校验后代替用户确认，不调用质量评审 Agent。', triggers: ['delivery.integrated'], modes: ['persistent'], agent_call: false, builtin_only: true },
   { type: 'archive_worker', label: '自动归档', description: '内置串行阶段：已验收后受检归档子树，不丢弃未提交修改。', triggers: ['worker.accepted'], modes: ['persistent'], agent_call: false, builtin_only: true },
   { type: 'request_merge', label: '请求合并', description: '经现有安全检查向直接父队列请求合并。', triggers: ['worker.delivery_ready'], modes: ['once','persistent'], agent_call: true },
-  { type: 'create_worker', label: '预约创建 Worker', description: '在所挂载父 Worker 下创建独立工作区，按保存参数启动。', triggers: ['worker.parent_ready'], modes: ['once'], agent_call: true },
+  { type: 'create_worker', label: '预约创建 Worker', description: '在所挂载父 Worker 下创建独立工作区，按保存参数启动。', triggers: ['worker.parent_ready','time.scheduled'], modes: ['once'], modes_by_trigger: { 'time.scheduled': ['once','persistent'] }, agent_call: true },
   { type: 'notify', label: '发送告知', description: '只保存纯告知，不启动 Agent。', triggers: [...TRIGGERS], modes: ['once','persistent'], agent_call: false },
-  { type: 'message', label: '追加消息', description: '仅当前或直接父子；可能唤醒 Agent，每个挂载最多发送一次以防递归。', triggers: [...TRIGGERS], modes: ['once'], agent_call: true },
+  { type: 'message', label: '追加消息', description: '仅当前或直接父子；可能唤醒 Agent。生命周期规则仅一次性，定时规则按所选周期提交，沿用目标运行设置。', triggers: [...TRIGGERS], modes: ['once'], modes_by_trigger: { 'time.scheduled': ['once','persistent'] }, agent_call: true },
+  { type: 'retry_worker', label: '重试失败 Worker', description: '仅当前或直接父子；到点只重试 failed，沿用工作区与已有运行设置，不自动判断额度恢复。', triggers: ['time.scheduled'], modes: ['once','persistent'], agent_call: true },
+  { type: 'resume_worker', label: '继续暂停 Worker', description: '仅当前或直接父子；到点只继续 paused，不撤销尚未生效的暂停、不恢复取消或已验收工作。', triggers: ['time.scheduled'], modes: ['once','persistent'], agent_call: true },
 ]);
 const STATUSES = new Set(['queued','running','waiting','awaiting','paused','awaiting_acceptance','completed','failed','cancelled']);
 const INTEGRATIONS = new Set(['none','pending','review','merging','merged','conflict','superseded']);
@@ -40,7 +44,7 @@ function choices(values, allowed, label) {
   return [...new Set(values)];
 }
 export function normalizeHook(value) {
-  hookObject(value, ['name','trigger','mode','enabled','conditions','actions'], 'hook');
+  hookObject(value, ['name','trigger','mode','enabled','conditions','actions','schedule'], 'hook');
   text(value.name, 'hook name'); check(value.name.length <= 120, 'hook name exceeds 120 characters');
   check(TRIGGERS.has(value.trigger), 'unknown hook trigger');
   check(['once','persistent'].includes(value.mode), 'hook mode must be once or persistent');
@@ -50,15 +54,17 @@ export function normalizeHook(value) {
   const normalized = { name: value.name, trigger: value.trigger, mode: value.mode, enabled: value.enabled,
     conditions: { ...(conditions.statuses !== undefined ? { statuses: choices(conditions.statuses, STATUSES, 'statuses') } : {}),
       ...(conditions.integrations !== undefined ? { integrations: choices(conditions.integrations, INTEGRATIONS, 'integrations') } : {}) } };
+  if (value.trigger === 'time.scheduled') normalized.schedule = normalizeHookSchedule(value.schedule, value.mode);
+  else check(value.schedule === undefined, 'schedule is only allowed for time.scheduled hooks');
   check(Array.isArray(value.actions) && value.actions.length >= 1 && value.actions.length <= HOOK_LIMITS.actions, 'hook requires 1-4 actions');
   normalized.actions = value.actions.map(action => {
     const entry = HOOK_ACTIONS.find(a => a.type === action?.type);
     check(entry && !entry.builtin_only && entry.triggers.includes(value.trigger), 'hook action is not allowed at this trigger or is built-in only');
-    check(entry.modes.includes(value.mode), `${entry.type} hooks must be once to prevent repeated side effects`);
+    check((entry.modes_by_trigger?.[value.trigger] ?? entry.modes).includes(value.mode), `${entry.type} hooks must be once to prevent repeated side effects`);
     if (action.type === 'request_merge') { hookObject(action, ['type'], 'merge action'); return { type: action.type }; }
     if (action.type === 'create_worker') {
       hookObject(action, ['type','content','references','start','profile'], 'create action');
-      check(value.mode === 'once', 'Worker creation hooks must be once'); text(action.content, 'hook content');
+      check(value.trigger === 'time.scheduled' || value.mode === 'once', 'Worker creation hooks must be once'); text(action.content, 'hook content');
       check(action.start === undefined || typeof action.start === 'boolean', 'hook start must be boolean');
       check(action.references === undefined || Array.isArray(action.references), 'hook references must be an array');
       check(action.profile === undefined || isPlainObject(action.profile), 'invalid hook profile');
@@ -70,9 +76,14 @@ export function normalizeHook(value) {
       check(typeof action.body === 'string' && action.body.length <= 32000, 'invalid hook notice body');
       return { type: action.type, title: action.title, body: action.body };
     }
+    if (['retry_worker','resume_worker'].includes(action.type)) {
+      hookObject(action, ['type','target_id','profile'], 'Worker restart action');
+      check(action.profile === undefined || isPlainObject(action.profile), 'invalid hook profile');
+      return { type: action.type, target_id: id(action.target_id), ...(action.profile !== undefined ? { profile: action.profile } : {}) };
+    }
     hookObject(action, ['type','target_id','body'], 'message action'); text(action.body, 'hook message');
     // Persistent automatic messages can re-awaken each other's Agents indefinitely. One-shot is an explicit fuse.
-    check(value.mode === 'once', 'message hooks must be once to prevent recursive Agent calls');
+    check(value.trigger === 'time.scheduled' || value.mode === 'once', 'message hooks must be once to prevent recursive Agent calls');
     return { type: action.type, target_id: id(action.target_id), body: action.body };
   });
   check(Buffer.byteLength(JSON.stringify(normalized)) <= HOOK_LIMITS.bytes, 'hook definition is too large');
@@ -81,7 +92,7 @@ export function normalizeHook(value) {
 }
 export function publicHookDefinition(definition) {
   return { name: definition.name, trigger: definition.trigger, mode: definition.mode, enabled: definition.enabled,
-    conditions: definition.conditions, actions: definition.actions.map(({ profile, ...action }) => ({ ...action,
+    conditions: definition.conditions, ...(definition.schedule ? { schedule: { ...definition.schedule } } : {}), actions: definition.actions.map(({ profile, ...action }) => ({ ...action,
       ...(profile ? { model_selection: { agent: profile.agent, config_mode: profile.config_mode === 'pi' ? 'pi' : 'lush',
         connection_id: profile.connection_id || null, model: profile.model || '', thinking: profile.thinking || '', explicit: true } } : {}) })) };
 }

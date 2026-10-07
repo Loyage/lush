@@ -18,7 +18,7 @@
 
 读取 HTTP：`GET /api/hooks`、`GET /api/worker/ID/hooks`，不接受查询参数。写入通过已登录、同源的 `POST /api/action {method,params}`，不是通用 RPC 代理。
 
-目录返回 `{version:1,revision,triggers,actions,templates,daemon_hooks}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,completion,mounts}`。CLI 的 Worker 参数接受内部整数或 `Wn(-n)*`，先经 `worker.lookup` 解析；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
+目录返回 `{version:1,revision,triggers,actions,templates,daemon_hooks}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,completion,can_attach,mounts}`。CLI 的 Worker 参数接受内部整数或 `Wn(-n)*`，先经 `worker.lookup` 解析；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
 
 `revision` 是不透明字符串，必须先读并随写请求携带；过期返回错误，不覆盖并发修改。模板 `id` 与挂载 `hook_id` 是不同身份。
 
@@ -50,7 +50,28 @@
 }
 ```
 
-模板编辑在定义中带 `id`，新建不带。可用节点、动作支持的触发器和模式以 `hooks.list` 为准；创建与消息动作只接受 `mode:'once'`。
+模板编辑在定义中带 `id`，新建不带。可用节点、动作支持的触发器和模式以 `hooks.list` 为准；生命周期创建与消息动作只接受 `mode:'once'`；定时支持持续每日，目录可用 `modes_by_trigger[trigger]` 覆盖动作 `modes`。
+
+### 定时规则示例
+
+定时仍使用上表的模板／挂载入口，不增加任意 RPC 调度接口。以下规则挂在 main，按上海时区每天提交一次创建请求；把 profile 换成已配置的真实来源可显式固定 Codex 账号，不保存凭证。
+
+```json
+{
+  "name": "每日额度更新后创建",
+  "trigger": "time.scheduled",
+  "mode": "persistent",
+  "enabled": true,
+  "schedule": { "kind": "daily", "time": "00:05", "timezone": "Asia/Shanghai" },
+  "actions": [{ "type": "create_worker", "content": "执行已安排的开发目标", "start": true }]
+}
+```
+
+一次性用 `mode:'once'`、`schedule:{kind:'once',at:'2027-01-01T00:05:00+08:00',timezone:'Asia/Shanghai'}`，at 必须含明确偏移或 Z，挂载时必须是未来时间。每日 HH:mm，IANA 时区必须有效。
+
+定时另支持 `{type:'retry_worker',target_id:7,profile?}` 和 `{type:'resume_worker',target_id:7,profile?}`，目标只当前或直接父子且非 main/owner。分别只处理 failed/paused，其他状态记 skipped。未提供 profile 沿用目标原运行设置；显式覆盖须是完整合法 profile，同位置同类型模板编辑省略 profile 保留私有覆盖，安全读面仅投影 model_selection。message 不带 profile、使用目标已有设置。
+
+定时挂载新增 schedule、next_run_at、pending_due_at；last_execution 可带 due_at、status:'skipped' 和诊断。`can_attach` 给实际挂载能力，失败 order/child 仅允许定时自重试（可组合 notify），不是开放终态 Worker 的所有动作。到点持久提交，不保证 Agent 准点开始；临时门禁保留等待。停机未提交过期时间跳过、不补跑，已提交未执行项恢复继续，未知副作用不重放。详见[使用流程](../../hooks.md#定时-hook到点提交尽早开始)。
 
 ## 预约指令与草稿
 

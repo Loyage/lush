@@ -2,6 +2,26 @@
 
 本文记录用户决定 #197 对应的首期实现接口与模块边界；设计目标见[Worker Hooks](../design/hooks.md)，使用流程见[Hooks 与预约发射](../hooks.md)。用户决定 #202 的追加实现以[合并—验收—归档自动链](completion-hooks.md)为准，覆盖最高级别、串行门禁与成功静默告知。触发目录不是测试证明，验证入口和实际验收限制见末节。
 
+## 定时 Hook 增补（用户决定 #266）
+
+定时仍是 Worker 附属 Hook，不新增 Host 调度、业务实体或 Agent 权限。用户确认：一次性与每日固定时间；停机错过跳过；到点持久提交非阻塞待执行动作，临时受阻时在首个安全点执行；允许重试失败与继续暂停，不恢复取消／验收／归档。
+
+定义新增 `trigger:'time.scheduled'` 与 `schedule`：
+- 一次性：`{kind:'once',at:'2026-10-08T00:05:00+08:00',timezone:'Asia/Shanghai'}`，at 必须带明确偏移／Z，归一为 UTC ISO；timezone 必须有效 IANA。挂载一次性须是未来时间，模板保存可保留原时间，但挂载过期模板明确拒绝。
+- 每日：`{kind:'daily',time:'00:05',timezone:'Asia/Shanghai'}`，HH:mm、IANA 时区；对应 `mode:'persistent'`；一次性对应 `mode:'once'`。每日按本地日期最多一次；夏令时重叠取首次，缺失时间跳过当天。非定时规则不得带 schedule。
+
+`create_worker`、`message` 和 `notify` 可用于 time.scheduled；新增 `retry_worker` / `resume_worker`，只允许定时，参数 `{type,target_id,profile?}`，目标限当前或直接父子、非 main/owner。retry 只处理 failed，resume 只处理 paused（不撤销尚未生效的主动暂停请求）；其他状态记录 skipped，不等待未来失败。普通消息继续已有生命周期准入，不自动复活失败 Worker。显式 profile 是完整运行覆盖、不含凭证；未指定沿用目标 Worker 已有设置，不隐式换账号。create_worker 仍挂在所选父身份，不改投分支。模板编辑同位置、同类型动作未提供 profile 保留已有私有覆盖；读面只给 model_selection 摘要，不回读 profile。message 使用目标既有运行设置，界面明确提示。
+
+动作目录保留 `modes` 的旧生命周期限制；新增可选 `modes_by_trigger:{'time.scheduled':['once','persistent']}` 覆盖定时模式。所有表单以目录交集为准，不解除生命周期消息的一次性防递归限制。
+
+挂载读面新增 `schedule?`、`next_run_at:string|null`、`pending_due_at:string|null`；state 增加 `skipped`（已错过／不适用），last_execution 保留 skipped 诊断与原 due_at。Worker Hooks 读面新增 `can_attach:boolean`，失败的 order/child 仅可挂载定时自重试（可组合纯告知），不放开其他终态挂载、创建或合并能力。paused 沿用活动挂载准入。failed 上允许停用／移除定时授权，不复活 Worker。
+
+到点先持久记 occurrence 和 pending_due_at，再异步经原安全门执行；冻结、同步、实际收尾或清理中保留等待并公开固定安全原因，绝不绕过门禁。一次最多保留一项待执行，每日受阻跨天不累计排队。安全门已通过但执行开始后副作用未知，停止该挂载、禁止重放。目标取消、验收、归档、祖先关闭等永久不可用停止并留诊断。同规则多动作逐项收据，不重放已成功部分。
+
+项目 daemon 用有界可取消定时器，关闭页面不影响执行，停机不自动启动项目或唤醒设备。恢复仅跳过停机期间未提交的过期 occurrence：一次性标 skipped 并停用，每日推进到启动时刻之后；停机前已持久提交、尚未开始动作的 pending 项仍继续等待安全点。已 started 的沿用 unknown/精确收据恢复，不盲目重试。运行期间定时器迟到不冒充停机错过。停用后重新启用不补跑停用期间 occurrence，保留已提交且未执行项；移除仅撤销未来授权，执行中不可移除。API 读取无副作用，shutdown 清计时器并等 Hook 写入收口。
+
+分区：runtime 子 Worker 负责 `src/core/hooks.js`、新增纯时间计算模块及 project Hooks/调度恢复接缝、`test/project/*scheduled*` 和纯计算测试；前端子 Worker 负责 `src/ui/web/assets/` Hooks 表单/渲染/状态与 DOM 测试；父 Worker 负责文档、接口白名单相关必要适配和跨区联调。现有 RPC/CLI 复用定义文件与挂载接口，无新增 RPC。
+
 项目 daemon 的内置自动选择不挂在 Worker 上、不属于模板动作目录；W118 / 决定 #267 的开关、来源与接口见[daemon 自动选择契约](daemon-auto-select.md)。
 
 ## 触发目录
@@ -99,5 +119,7 @@ CLI 的挂载 Worker 身份遵循父侧编号接缝：允许整数或 `Wn(-n)*`�
 ## 验证与交付限制
 
 `test/project/hooks*.test.js` 覆盖 runtime、生命周期、模板和恢复；`test/hooks-api.test.js`、`test/web/hooks-api.test.js` 覆盖 RPC/HTTP/CLI、权限、修订和文件入口；`test/rpc-public-result.test.js` / `test/web/rpc-public-result.test.js` 覆盖私有字段出口隔离；`test/web/dom-hooks*.test.js` 与输入 DOM 测试覆盖界面状态。`test/web/hooks-runtime-integration.test.js` 使用真实临时 HTTP、RPC、SQLite 与 Git 联调，验证冻结预约、模板私有覆盖保留及终态父上的草稿释放。
+
+定时补充验证入口：`test/hook-schedule.test.js`（定义、时区与 DST）、`test/project/hooks-scheduled.test.js`（真实／可控定时器、停机跳过、pending 恢复、门禁与去重）、`test/web/dom-hooks-scheduled.test.js`（时间表单、模式目录、运行覆盖与安全提示），以及 `test/web/hooks-scheduled-integration.test.js`（真实 HTTP/RPC/SQLite/Git：自动到点创建、失败重试／暂停继续、私有覆盖保留、冻结待执行与当前 tip、错过一次性禁止回拨重启）。提交、错过、skipped 的中文事件标签由 `test/web/event-labels.test.js` 覆盖。
 
 测试使用临时项目、可控 provider 与 DOM，不重启用户 daemon/Host、不调用真实模型。覆盖：正常返回与交付就绪区别、异常/暂停/冻结边缘、自动合并锁定、冻结期间参数与默认快照、首次安全点、公平与创建恰好一次、重复提交/草稿版本、权限/白名单、禁用/取消、去重及重启 unknown、秘密投影、模板实例隔离、迟到响应与按钮调用标识。真实浏览器和实际模型端点另行验收。
