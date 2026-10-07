@@ -21,7 +21,7 @@ test('all usage RPCs are user-only and expose only declared parameters', () => {
   }
 });
 
-test('usage config/history are no-store reads and configure is an authenticated action, not a query-trigger', async () => {
+test('legacy config/history remain no-store reads; authenticated configure is explicitly retired', async () => {
   const f = await setup(); let queried = 0;
   f.project.agentUsage.discoverUsage = async () => { queried++; throw new Error('must not query'); };
   f.project.agentUsage.discoverStatus = async () => { queried++; throw new Error('must not query'); };
@@ -32,8 +32,10 @@ test('usage config/history are no-store reads and configure is an authenticated 
     expect(config.status).toBe(200); expect(config.headers.get('cache-control')).toBe('no-store');
     expect((await config.json()).retention_days).toBe(90);
     const save = await action(f.url, { retention_days: 30, providers: ['deepseek'] });
-    expect(save.status).toBe(200);
-    expect(f.project.agentUsageConfig().providers).toEqual(['deepseek']);
+    expect(save.status).toBe(400); expect(JSON.stringify(await save.json())).toContain('retired');
+    await expect(client.request('agent.usage.configure', { config: { enabled: true } })).rejects.toThrow('retired');
+    expect(f.project.agentUsageConfig().providers).toEqual([]);
+    expect(fs.existsSync(path.join(f.config.home, 'agent-usage.json'))).toBe(false);
     const history = await fetch(f.url + '/api/agent/usage/history?provider=deepseek&account_key=account_one&days=30');
     expect(history.status).toBe(200); expect(history.headers.get('cache-control')).toBe('no-store');
     expect((await history.json()).series).toEqual([]); expect(queried).toBe(0);
@@ -56,7 +58,8 @@ test('usage configuration and history require the existing login session', async
       body: 'username=owner&password=test-only-password&next=%2F' });
     const Cookie = login.headers.get('set-cookie').split(';')[0];
     expect((await fetch(f.url + '/api/agent/usage/config', { headers: { Cookie } })).status).toBe(200);
-    expect((await action(f.url, { retention_days: 365 }, { Cookie })).status).toBe(200);
+    const result = await action(f.url, { retention_days: 365 }, { Cookie });
+    expect(result.status).toBe(400); expect(JSON.stringify(await result.json())).toContain('retired');
   } finally { await f.close(); }
 });
 

@@ -14,7 +14,7 @@ const dom = installDom({ fetch: async (url, options) => {
   requests.push({ url: String(url), options });
   const result = intercept?.(String(url), options); if (result) return result;
   if (String(url) === '/api/agent/connections') return json(structuredClone(data));
-  if (String(url).includes('/history?')) return json({ version: 1, series: [], from: '2026-01-01', to: '2026-01-02' });
+  if (String(url).includes('/history?')) return json({ version: 1, series: [], retention_days: 90, from: '2026-01-01', to: '2026-01-02' });
   if (String(url) === '/api/action' && JSON.parse(options.body).method === 'agent.connections.device.cancel') return json({ status: 'cancelled' });
   throw new Error(`unexpected request ${url}`);
 } });
@@ -182,6 +182,40 @@ test('来源页面重复打开单飞，离页迟到响应不能覆盖其他画�
   activateDetailView({ view: 'settings' }); dom.node('detail').replaceChildren(dom.document.createElement('h1'));
   resolve(json(data)); await Promise.all([first, second]);
   expect(ui.view.id).toBe('settings'); expect(dom.node('detail').querySelector('.model-source-layout')).toBeNull();
+});
+
+test('模型来源首次与重复打开不读取旧历史/config/status，显式存档按需只读展开', async () => {
+  await openModelSources(); await openModelSources();
+  expect(requests.map(entry => entry.url)).toEqual(['/api/agent/connections']);
+  const root = dom.node('detail'), toggle = button(root, '查看旧余额历史存档');
+  expect(toggle.classList.contains('agent-call')).toBe(false); expect(toggle.getAttribute('data-help')).toContain('不联网');
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  const host = root.querySelector('.legacy-usage-history'); expect(host.hidden).toBe(true);
+  await toggle.onclick(); expect(host.hidden).toBe(false); expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  expect(requests.at(-1).url).toBe('/api/agent/usage/history?days=7');
+  expect(deepText(host)).toContain('不归到任何正式连接'); expect(host.querySelectorAll('form')).toHaveLength(0);
+  await toggle.onclick(); expect(host.hidden).toBe(true);
+  expect(requests.map(entry => entry.url)).toEqual(['/api/agent/connections', '/api/agent/usage/history?days=7']);
+});
+
+test('存档收起、离页与返回作废旧历史响应，不污染正式连接或新存档', async () => {
+  await openModelSources();
+  let resolve; const pending = new Promise(done => { resolve = done; });
+  intercept = url => url.startsWith('/api/agent/usage/history?') ? pending : null;
+  const oldToggle = button(dom.node('detail'), '查看旧余额历史存档'), oldHost = dom.node('detail').querySelector('.legacy-usage-history');
+  const loading = oldToggle.onclick(); await oldToggle.onclick();
+  const oldText = deepText(oldHost);
+  resolve(json({ version: 1, series: [], retention_days: 777 })); await loading; expect(deepText(oldHost)).toBe(oldText);
+  intercept = null; await oldToggle.onclick(); expect(deepText(oldHost)).toContain('已读取本地缓存');
+  const late = new Promise(done => { resolve = done; }); intercept = url => url.startsWith('/api/agent/usage/history?') ? late : null;
+  const stale = button(oldHost, '刷新历史缓存').onclick();
+  activateDetailView({ view: 'settings' }); intercept = null; await openModelSources();
+  const newHost = dom.node('detail').querySelector('.legacy-usage-history'); expect(newHost.hidden).toBe(true);
+  expect(requests.filter(entry => entry.url.startsWith('/api/agent/usage/history?'))).toHaveLength(3);
+  await button(dom.node('detail'), '查看旧余额历史存档').onclick(); const content = deepText(newHost);
+  resolve(json({ version: 1, series: [], retention_days: 888 })); await stale;
+  expect(deepText(newHost)).toBe(content); expect(deepText(newHost)).not.toContain('888');
+  expect(requests.some(entry => entry.url.includes('/usage/config') || entry.url === '/api/agent/status')).toBe(false);
 });
 
 test('切换来源立即取消设备码登录，清除短码与定时器，不后台继续检查', async () => {

@@ -218,9 +218,11 @@ export function makeWorld() {
     if (path === '/api/agent/connections') return json(state.agentConnections);
     if (path === '/api/agent/usage/config') return json(state.agentUsageConfig);
     if (path.startsWith('/api/agent/usage/history?')) return json(state.agentUsageHistory);
-    if (path === '/api/agent/status') return json({ version: 1, agent: 'pi', checked_at: iso(NOW), usage_config: state.agentUsageConfig,
-      scope: { project: '/tmp/demo', role: 'agent' }, runtime: { command: 'pi', version: '0.1.0', backend: 'pi' },
-      models: { source: 'cli', models: [] }, resources: { extensions: [], skills: [], packages: [] }, accounts: [], warnings: [] });
+    if (path === '/api/agent/status') return json({ version: 2, checked_at: iso(NOW), scope: { project: '/tmp/demo', note: '项目执行机器的软件安装检查' },
+      software: [
+        { agent: 'pi', command: 'pi', executable: '/bin/pi', real_path: '/opt/pi/cli.js', version: '0.1.0', status: 'available', warning: null },
+        { agent: 'codex', command: 'codex', executable: null, real_path: null, version: null, status: 'unavailable', warning: '未发现 Codex 软件' },
+      ], warnings: [] });
     if (path.startsWith('/api/agent/models?agent=')) {
       const agent = decodeURIComponent(path.split('=').at(-1));
       return json({ agent, source: 'cli', warning: null, models: agent === 'pi'

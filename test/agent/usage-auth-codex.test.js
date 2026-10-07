@@ -249,18 +249,16 @@ test('OAuth unauthorized usage does not trigger a second refresh or retry', asyn
   } finally { f.close(); }
 });
 
-test('project shutdown drains an in-flight independent refresh and its sanitized observation', async () => {
-  const f = fixture(), hold = gate(), entered = gate();
+test('retired project usage cannot refresh expired OAuth or persist observations on startup/shutdown', async () => {
+  const f = fixture();
   const configDir = path.join(f.config.home, 'pi'); fs.mkdirSync(configDir, { mode: 0o700 });
   const authFile = path.join(configDir, 'auth.json'); fs.writeFileSync(authFile,JSON.stringify({'openai-codex':expired()}),{mode:0o600});
-  f.config.env.PI_CODING_AGENT_DIR = f.root;
-  f.project.agentUsage.discoverUsage = (config,profile,options) => discoverAgentUsage(config,{...profile,model:'openai-codex/test'}, {...options,
-    authFetch:async()=>{entered.resolve();await hold.promise;return reply();},fetch:async()=>quota()});
+  const before = fs.readFileSync(authFile, 'utf8'); let calls = 0;
+  f.project.agentUsage.discoverUsage = () => { calls++; throw new Error('must not refresh'); };
   try {
-    const pending = f.project.agentUsage.query(false); await entered.promise;
-    let stopped = false; const stop = f.project.shutdown().then(()=>{stopped=true;}); await Promise.resolve(); expect(stopped).toBe(false);
-    hold.resolve(); await pending; await stop; expect(stopped).toBe(true);
-    expect(f.store.get('SELECT COUNT(*) AS n FROM agent_usage_queries').n).toBe(1);
-    expect(fs.existsSync(authFile+'.lock')).toBe(false); expect(JSON.parse(fs.readFileSync(authFile,'utf8'))['openai-codex'].access).toBe(access());
-  } finally { hold.resolve(); await f.close(); }
+    f.project.agentUsage.start(); expect(() => f.project.agentUsage.query(false)).toThrow('retired');
+    await f.project.shutdown(); expect(calls).toBe(0);
+    expect(f.store.get('SELECT COUNT(*) AS n FROM agent_usage_queries').n).toBe(0);
+    expect(fs.existsSync(authFile+'.lock')).toBe(false); expect(fs.readFileSync(authFile, 'utf8')).toBe(before);
+  } finally { await f.close(); }
 });

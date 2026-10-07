@@ -24,10 +24,10 @@ export function statusCommand(command, args, env, cwd, { timeout = 15000, maxByt
   });
 }
 
-/** Resolve only the configured command. Do not guess another globally installed Pi. */
-export function resolvePiInstallation(config) {
-  const command = config.env.LUSH_PI_COMMAND || 'pi';
-  let executable = null, real_path = null, package_dir = null;
+/** Resolve only daemon command/PATH, without inspecting any software configuration. */
+export function resolveSoftwareCommand(config, agent) {
+  const command = config.env[`LUSH_${agent.toUpperCase()}_COMMAND`] || agent;
+  let executable = null, real_path = null;
   const candidates = command.includes(path.sep) ? [path.resolve(config.project, command)]
     : (config.env.PATH || '').split(path.delimiter).filter(Boolean).map(dir => path.resolve(config.project, dir, command));
   for (const file of candidates) {
@@ -37,6 +37,13 @@ export function resolvePiInstallation(config) {
       executable = file; real_path = fs.realpathSync(file); break;
     } catch {}
   }
+  return { command, executable, real_path };
+}
+
+/** SDK metadata callers additionally locate the installed Pi package, not its credentials. */
+export function resolvePiInstallation(config) {
+  const { command, executable, real_path } = resolveSoftwareCommand(config, 'pi');
+  let package_dir = null;
   const roots = config.env.PI_PACKAGE_DIR ? [path.resolve(config.project, config.env.PI_PACKAGE_DIR)] : [];
   if (real_path) {
     let dir = path.dirname(real_path);

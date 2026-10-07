@@ -202,7 +202,7 @@ test('field mapping reads only own fields and missing or empty numbers never bec
   expect((await queryCustomBalance(custom, { USAGE_KEY: 'PRIVATE' }, at, { fetch: async () => response({}) })).error_code).toBe('invalid_response');
 });
 
-test('identical status and lightweight requests share remote query; configuration change cannot reuse old result', async () => {
+test('legacy adapter remains single-flight but software status never shares or issues remote queries', async () => {
   const f = world();
   try {
     f.auth({ 'openai-codex': oauth() });
@@ -215,7 +215,8 @@ test('identical status and lightweight requests share remote query; configuratio
     const changed = discoverAgentUsage(f.config, f.profile, { ...options, usageConfig: { providers: ['deepseek'] } });
     expect(changed).not.toBe(light); resolve();
     const [a, b, c] = await Promise.all([light, full, changed]);
-    expect(calls).toBe(1); expect(a.checked_at).toBe(b.checked_at); expect(a.accounts).toBe(b.accounts); expect(a.query_id).toBe(b.query_id);
+    expect(calls).toBe(1); expect(b.version).toBe(2); expect(b.accounts).toBeUndefined(); expect(b.query_id).toBeUndefined();
+    expect(a.accounts).toBeDefined(); expect(b.software.map(row => row.agent)).toEqual(['pi', 'codex']);
     expect(c.accounts.find(row => row.provider === 'openai-codex').balance.queried).toBe(false);
     const next = discoverAgentUsage(f.config, f.profile, options);
     expect(next).not.toBe(light); expect((await next).query_id).not.toBe(a.query_id);

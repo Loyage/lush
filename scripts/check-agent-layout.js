@@ -42,7 +42,7 @@ window.browserErrors=[];addEventListener('error',e=>browserErrors.push(e.message
 import {openAgentStatus} from '/assets/render-agent-status.js';import {openModelSources} from '/assets/render-model-sources.js';
 window.openConfig=openAgentStatus;window.openSources=openModelSources;await openModelSources();window.ready=true;
 </script></body></html>`;
-let server, driver, session, base, passed = false;
+let server, driver, session, base, passed = false, diagnosisFails = false;
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 async function rpc(route, body, method = 'POST') {
   const response = await new Promise((resolve, reject) => {
@@ -83,7 +83,15 @@ try {
     if (url.pathname === '/') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
     if (/^\/assets\/[\w.-]+\.(js|css)$/.test(url.pathname)) return new Response(Bun.file(path.join(assets, path.basename(url.pathname))));
     if (url.pathname === '/favicon.ico') return new Response(null, { status: 204 });
+    if (url.pathname === '/test/diagnosis' && request.method === 'POST') {
+      diagnosisFails = url.searchParams.get('fail') === 'true';
+      return new Response(null, { status: 204 });
+    }
     calls.push(url.pathname);
+    if (url.pathname === '/api/agent/status') return diagnosisFails
+      ? Response.json({ error: 'Fixture software check failed' }, { status: 503 })
+      : Response.json({ version: 2, checked_at: new Date().toISOString(), scope: { project: '/tmp/layout-fixture', note: '软件诊断，不读取账号或凭证。' }, warnings: [],
+          software: ['pi', 'codex'].map(agent => ({ agent, command: agent, executable: `/bin/${agent}`, real_path: `/opt/${agent}/cli.js`, version: '1.2.3', status: 'available', warning: null })) });
     if (url.pathname === '/api/agent/connections') return Response.json(world.state.agentConnections);
     if (url.pathname === '/api/action' && request.method === 'POST') {
       const action = await request.json();
@@ -95,7 +103,6 @@ try {
     // Agent 配置页与来源选择读取的本地目录；fixture 只给空/未确认结果，不联网、不调用模型。
     if (url.pathname === '/api/agent/packages') return Response.json({ version: 1, packages: [], resources: { extensions: [], skills: [] }, truncated: false });
     if (url.pathname === '/api/agent/connections/models') return Response.json({ version: 1, id: url.searchParams.get('id'), checked_at: null, status: 'unsupported', source: null, models: [] });
-    if (url.pathname === '/api/agent/usage/config') return Response.json(world.state.agentUsageConfig);
     if (url.pathname === '/api/agent/usage/history') return Response.json(world.state.agentUsageHistory);
     return Response.json({ error: `Unexpected request: ${url.pathname}` }, { status: 400 });
   } });
@@ -149,17 +156,30 @@ try {
     await waitFor('document.querySelector(".agent-default-summary")?.textContent.includes("我的 DeepSeek")');
     await execute(`document.querySelector('[data-agent-field="model"]').value='unsaved-model';`);
     await click('[data-agent-tab="status"]');
-    await waitFor('document.querySelector(".agent-status-feedback")?.textContent.includes("查询失败")');
+    await waitFor('document.querySelector(".agent-status-feedback")?.textContent.includes("检查完成")');
+    assert(await execute(`const results=document.querySelector('.agent-status-results');return results.textContent.includes('Pi 软件') && results.textContent.includes('Codex 软件') && results.textContent.includes('1.2.3') && !results.querySelector('.agent-status-accounts,.agent-status-model-table,.agent-usage-panel');`), 'Software-only diagnosis missing or contains old account diagnostics');
+    await layout(`diagnosis-${theme}-${width}`);
+    await fetch(`http://127.0.0.1:${server.port}/test/diagnosis?fail=true`, { method: 'POST' });
+    await click('.agent-status-refresh');
+    await waitFor('document.querySelector(".agent-status-feedback")?.textContent.includes("检查失败")');
+    await fetch(`http://127.0.0.1:${server.port}/test/diagnosis?fail=false`, { method: 'POST' });
     await click('[data-agent-tab="settings"]');
     assert(await execute(`return document.querySelector('[data-agent-field="model"]').value==='unsaved-model'`), 'Diagnostic failure lost configuration draft');
     await execute('window.openSources()'); await waitFor('document.querySelectorAll(".model-source-row").length===3');
     if (await execute(`return !document.querySelector('.model-source-detail').hidden`)) await click('.model-source-back');
+    assert(await execute(`return document.querySelector('.legacy-usage-history').hidden`), 'Legacy archive unexpectedly loaded on entry');
+    await click('.model-sources-legacy-history > button');
+    await waitFor('document.querySelector(".agent-usage-history-feedback")?.textContent.includes("已读取本地缓存")');
+    assert(await execute(`const archive=document.querySelector('.legacy-usage-history');return !archive.hidden && archive.textContent.includes('只读旧余额') && !archive.querySelector('.agent-usage-config,[data-usage-field]');`), 'Legacy archive is not read-only');
+    await layout(`archive-${theme}-${width}`);
+    await click('.model-sources-legacy-history > button');
     console.log(`PASS Agent/source layout and interaction ${theme}/${width}`);
   }
   assert(calls.every(route => ['/api/action', '/api/agent/connections', '/api/agent/connections/models', '/api/agent/packages',
-    '/api/agent/config', '/api/agent/status', '/api/agent/usage/config', '/api/agent/usage/history'].includes(route)), `Unexpected API: ${calls.join(',')}`);
+    '/api/agent/config', '/api/agent/status', '/api/agent/usage/history'].includes(route)), `Unexpected API: ${calls.join(',')}`);
+  assert(calls.filter(route => route === '/api/agent/usage/history').length === 6, 'Archive history must load only on explicit open');
   assert(await execute('return window.browserErrors.length===0'), 'Browser emitted errors');
-  passed = true; console.log(`PASS mock-only equal-height compact overview/detail/editor layouts, Codex summary and full windows/countdown, narrow screen navigation, local search, focus/Escape and draft preservation. Screenshots: ${output}`);
+  passed = true; console.log(`PASS mock-only equal-height compact overview/detail/editor layouts, Codex summary and full windows/countdown, narrow screen navigation, local search, focus/Escape and draft preservation, software-only diagnosis and read-only legacy archive. Screenshots: ${output}`);
 } catch (error) {
   if (session) await screenshot('failure').catch(() => {});
   console.error(`Agent browser failure; full logs: ${logs}`); throw error;

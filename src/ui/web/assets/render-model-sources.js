@@ -1,7 +1,8 @@
-import { $, el } from './dom.js';
+import { $, button, el } from './dom.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { createAgentConnections } from './render-agent-connections.js';
+import { createLegacyUsageHistory } from './render-agent-usage.js';
 
 /** Project-local source management; only local configuration/cache is read on entry. */
 export function openModelSources({ connectionId = '' } = {}) {
@@ -23,7 +24,21 @@ export function openModelSources({ connectionId = '' } = {}) {
   const ownsPage = () => ui.view === state.view && ui.modelSourcesPage === state;
   if (!state.connections) state.connections = createAgentConnections({ ownsPage, connectionId: id });
   else { state.connections.resume(); if (id) state.connections.selectConnection(id); }
-  page.append(head, state.connections.node); $('detail').replaceChildren(page);
+  // A fresh archive owner per view prevents responses from a previous visit being adopted.
+  const archive = el('section', undefined, 'model-sources-legacy-history');
+  const historyHost = el('div', undefined, 'legacy-usage-history'); historyHost.id = 'legacy-usage-history'; historyHost.hidden = true;
+  const history = createLegacyUsageHistory({ ownsPage: () => ui.view === view && ui.modelSourcesPage === state && !historyHost.hidden });
+  const toggle = button('查看旧余额历史存档', () => {
+    if (ui.view !== view || ui.modelSourcesPage !== state) return Promise.resolve();
+    historyHost.hidden = !historyHost.hidden;
+    toggle.setAttribute('aria-expanded', String(!historyHost.hidden));
+    toggle.textContent = historyHost.hidden ? '查看旧余额历史存档' : '收起旧余额历史存档';
+    if (historyHost.hidden) { history.invalidate(); return Promise.resolve(); }
+    return history.loadHistory();
+  }, 'ghost', { help: '按需读取项目本地的旧余额历史，只读存档不归到任何连接；不联网、不读取旧凭证、不调用 Agent，也不编辑旧查询设置。' });
+  toggle.setAttribute('aria-expanded', 'false'); toggle.setAttribute('aria-controls', historyHost.id);
+  historyHost.append(history.node); archive.append(toggle, historyHost);
+  page.append(head, state.connections.node, archive); $('detail').replaceChildren(page);
   const pending = state.connections.load(reused).finally(() => { if (state.pending === pending) state.pending = null; });
   state.pending = pending;
   return pending;

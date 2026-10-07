@@ -51,12 +51,12 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/worker-graph` | Worker 父子读面（`worker.graph`） |
 | `GET /api/versions?cursor=&limit=` | 用户专属只读 `branch.history`，main 第一父链、固定 tip 分页与精确 Worker/原始指令关联；见 [分支 RPC](rpc/branches.md#branchhistory) |
 | `GET /api/agent/config` | `agent.config` |
-| `GET /api/agent/status` | 用户专属 `agent.status {}`，当前项目 Pi 安装、模型目录、资源、脱敏账号与可查询余额/额度；仅进入页面和手动刷新时读取，详见 [Agent 状态](rpc/agents.md) |
+| `GET /api/agent/status` | 用户专属 `agent.status {}`，version 2 Pi/Codex 软件路径、版本与可用性；显式诊断/刷新时读取，不读取配置/认证、不联网或启动模型，详见 [Agent 状态](rpc/agents.md) |
 | `GET /api/agent/selection/resources` | 用户专属 `agent.selection.resources {}`；本地托管 API/模型范围、执行后端能力、余额状态与观测时间，不含秘密、不联网；不接受查询参数 |
 | `GET /api/agent/connections` | 用户专属 `agent.connections.list {}`；只读取项目托管连接及缓存，不导入 Pi 登录 |
 | `GET /api/agent/connections/history?id=&days=` | 用户专属 `agent.connections.history`；本地连接历史，不访问上游 |
-| `GET /api/agent/usage/config` | 用户专属 `agent.usage.config {}`；声明式查询模板与采样设置，见 [Agent 状态](rpc/agents.md) |
-| `GET /api/agent/usage/history?provider=&account_key=&days=` | 用户专属 `agent.usage.history`，只读本地脱敏缓存；days 为 1/7/30/90，不访问上游 |
+| `GET /api/agent/usage/config` | 用户专属 `agent.usage.config {}`；旧配置只读兼容，页面不调用；旧配置写入明确退役，见 [Agent 状态](rpc/agents.md) |
+| `GET /api/agent/usage/history?provider=&account_key=&days=` | 用户专属 `agent.usage.history`，模型来源中的旧历史只读存档；days 为 1/7/30/90，不访问上游、不按旧策略清理记录 |
 | `GET /api/agent/models?agent=pi\|codex` | 按需读取所选本机 CLI 当前可用模型目录；失败时带预设与 warning 回退 |
 | `GET /api/agent/resources` | 不执行资源代码地读取当前用户和项目已安装的 Pi 扩展、Skills 与 package 资源 |
 | `GET /api/agent/network` | 用户专属 `agent.network {}`；项目网络安全投影，不返回代理用户名/密码，不联网，见[出站网络](../engineering/outbound-network.md) |
@@ -90,7 +90,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 
 ## 用户动作
 
-`POST /api/action` 接受 JSON `{method, params}`，只放行 `MUTATIONS`：`agent.configure`、`agent.environment.configure`、`agent.network.configure`、`agent.usage.configure`、`system.configure`、`order.submit`、`draft.add`、`draft.update`、`draft.remove`、`worker.spawn`、`worker.message`、`worker.auto_merge`、`worker.completion`、`worker.reserve`、`worker.reserve_all`、`worker.accept`、`worker.reopen`、`worker.sync_parent`、`worker.resolve_sync`、`worker.resolve`、`worker.resolve_divergence`、`worker.unreserve`、`worker.approve_merge`、`worker.cancel`、`worker.retry`、`worker.interrupt`、`worker.resume`、`worker.configure`、`worker.cleanup`、`worker.delete`、`notice.answer`、`notice.dismiss`、`notice.read`、`branch.bind`、`branch.archive`。请求不接受 `_token`，agent 不能借 Web 通道写库。
+`POST /api/action` 接受 JSON `{method, params}`，只放行 `MUTATIONS`：`agent.configure`、`agent.environment.configure`、`agent.network.configure`、`agent.usage.configure`、`system.configure`、`order.submit`、`draft.add`、`draft.update`、`draft.remove`、`worker.spawn`、`worker.message`、`worker.auto_merge`、`worker.completion`、`worker.reserve`、`worker.reserve_all`、`worker.accept`、`worker.reopen`、`worker.sync_parent`、`worker.resolve_sync`、`worker.resolve`、`worker.resolve_divergence`、`worker.unreserve`、`worker.approve_merge`、`worker.cancel`、`worker.retry`、`worker.interrupt`、`worker.resume`、`worker.configure`、`worker.cleanup`、`worker.delete`、`notice.answer`、`notice.dismiss`、`notice.read`、`branch.bind`、`branch.archive`。请求不接受 `_token`，agent 不能借 Web 通道写库。`agent.usage.configure` 仅保留旧协议接缝，当前明确返回退役错误，不再写入旧配置；正式来源采样仍使用 `agent.connections.sampling`。
 
 账号连接另开放 `agent.connections.save/remove/sampling/query/login.start/login.finish/device.start/device.poll/device.cancel`，均经项目的 `POST /api/action`、登录与 Origin 校验；设备码检查也是显式 action，不新增读取路由。设备授权 ID、OAuth token、回调授权码均不返回读面，不进审计事件或错误。参数和操作见[Agent 账号连接](rpc/agents.md#托管账号连接)。
 

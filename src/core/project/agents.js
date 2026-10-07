@@ -1,5 +1,6 @@
 import { discoverAgentModels } from '../../agent/models.js';
 import { discoverAgentResources } from '../../agent/resources.js';
+import { discoverSoftwareStatus } from '../../agent/status-software.js';
 import { readAgentEnvironment, saveAgentEnvironment } from '../../agent/environment.js';
 import { readNetworkConfiguration, saveNetworkConfiguration } from '../../agent/network.js';
 
@@ -8,7 +9,7 @@ export default {
   agentConfig() { return this.agentSettings.get(); },
   agentModels(agent) { return discoverAgentModels(this.config, agent); },
   agentResources() { return discoverAgentResources(this.config); },
-  agentStatus() { return this.agentUsage.query(true); },
+  agentStatus() { return discoverSoftwareStatus(this.config); },
   agentUsageConfig() { return this.agentUsage.config(); },
   configureAgentUsage(value) { return this.agentUsage.configure(value); },
   agentUsageHistory(options) { return this.agentUsage.history(options); },

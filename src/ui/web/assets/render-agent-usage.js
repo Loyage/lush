@@ -1,6 +1,5 @@
 import { block, button, el } from './dom.js';
 import { api } from './api.js';
-import { usageConfigForm } from './agent-usage-form.js';
 import { usageWindow, usageErrorLabels } from './usage-window.js';
 
 const list = value => Array.isArray(value) ? value : [];
@@ -77,7 +76,7 @@ export function renderUsageSeries(series, range, config = {}) {
       previous = point;
     }
     const wrap = el('div', undefined, 'agent-usage-chart-scroll'); wrap.append(graph); root.append(wrap);
-    text(root, '虚线只连接观测点，不推测两次采样之间的实际消耗。失败 / 未知、额度重置 / 补充处断开；后台采样超过两倍间隔也留空。');
+    text(root, `虚线只连接观测点，不推测两次采样之间的实际消耗。失败 / 未知、额度重置 / 补充处断开；${config.enabled ? '后台采样超过两倍间隔也留空。' : '未采样时期无法还原。'}`);
     if (range.truncated) text(root, '历史已截断 / 降采样，仅显示观测点，不跨缺失记录连线。', true);
     if (resets) text(root, `${resets} 处重置时间变化或额度回升已标注为重置 / 补充，不视为负消耗。`);
   }
@@ -97,47 +96,18 @@ export function renderUsageSeries(series, range, config = {}) {
   table.append(body); scroll.append(table); details.append(scroll); root.append(details); return root;
 }
 
-/** Persistent sub-panel: status refreshes update history without replacing unsaved configuration. */
-export function createAgentUsage({ ownsPage }) {
+/** Read-only archive; creation never reads configuration, credentials or history. */
+export function createLegacyUsageHistory({ ownsPage }) {
   const node = el('div', undefined, 'agent-usage-panel');
-  const configHost = el('div'), configFeedback = el('p', '正在读取用量配置…', 'hint agent-usage-config-feedback'); configFeedback.setAttribute('role', 'status');
-  const history = block('剩余量历史'), filters = el('div', undefined, 'agent-usage-filters');
+  const history = block('旧余额历史存档'), filters = el('div', undefined, 'agent-usage-filters');
   const days = selectControl(filters, '历史范围', [['1', '24 小时'], ['7', '7 天'], ['30', '30 天'], ['90', '90 天']], '7', 'agent-usage-days');
   const account = selectControl(filters, '账号', [['', '全部账号']], '', 'agent-usage-account-filter');
   const metric = selectControl(filters, '指标 / 单位 / 窗口', [], '', 'agent-usage-metric-filter');
   const feedback = el('p', undefined, 'hint agent-usage-history-feedback'); feedback.setAttribute('role', 'status');
   const content = el('div', undefined, 'agent-usage-history-content');
-  let config = null, form = null, dirty = false, revision = 0, saving = null, configFlight = null, historyFlight = null, historyRequest = 0, data = null, accounts = [];
+  let historyFlight = null, historyRequest = 0, data = null;
   const accountChoices = new Map();
   const current = () => ownsPage();
-  const configMessage = (message, error = false) => {
-    configFeedback.textContent = message; configFeedback.className = error ? 'agent-status-warning agent-usage-config-feedback' : 'hint agent-usage-config-feedback';
-    configFeedback.setAttribute('role', error ? 'alert' : 'status');
-  };
-  const renderForm = value => {
-    config = value;
-    form = usageConfigForm(value, accounts, { changed() { dirty = true; revision++; configMessage('有未保存的修改；历史读取与状态刷新不会覆盖编辑。'); }, save });
-    configHost.replaceChildren(form.node);
-    configMessage(`${config.enabled ? `后台采样已启用，每 ${config.interval_minutes} 分钟查询，关闭页面仍运行` : '后台采样未启用，仅按需查询'}；历史保留 ${config.retention_days} 天。`);
-  };
-  async function save(value) {
-    if (!current() || saving) return saving;
-    const submittedRevision = revision; form.busy(true); configMessage('正在保存查询设置…');
-    saving = (async () => {
-      try {
-        const result = await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method: 'agent.usage.configure', params: { config: value } }) });
-        if (!current()) return;
-        if (result?.version !== 1) throw new Error('查询配置格式不兼容，请更新后台服务。');
-        config = result;
-        if (submittedRevision === revision) dirty = false;
-        revision++; // Invalidate status requests started before this save completed.
-        configMessage(`查询设置已保存；${config.enabled ? '后台采样已启用，关闭页面仍运行' : '后台采样未启用'}。${dirty ? '仍有新编辑尚未保存。' : '可点击页面顶部刷新状态执行查询；保存本身不调用上游。'}`);
-        await loadHistory(true);
-      } catch (error) { if (current()) configMessage(`保存失败：${error.message}；已保留编辑，可重试。`, true); }
-      finally { saving = null; if (current()) form.busy(false); }
-    })();
-    return saving;
-  }
   function paintSeries() {
     if (!data) return;
     const all = list(data.series), selectedAccount = account.value, previousMetric = metric.value;
@@ -147,12 +117,12 @@ export function createAgentUsage({ ownsPage }) {
     metric.value = choices.some(series => series.id === previousMetric) ? previousMetric : choices[0]?.id || '';
     metric.disabled = !choices.length;
     const selected = choices.find(series => series.id === metric.value);
-    content.replaceChildren(selected ? renderUsageSeries(selected, data, config || {}) : el('p', '所选范围 / 账号暂无缓存样本。打开状态页、手动刷新或启用后台采样后才会产生历史。', 'hint'));
+    content.replaceChildren(selected ? renderUsageSeries(selected, data) : el('p', '所选范围 / 账号暂无缓存样本。旧历史只保留已有观测，不能还原未采样时期；此存档不会产生新观测。', 'hint'));
   }
   function paintHistory(value) {
     data = value; const previousAccount = account.value;
     account.replaceChildren(); const all = el('option', '全部账号'); all.value = ''; account.append(all);
-    for (const item of [...accounts, ...list(value.series)]) {
+    for (const item of list(value.series)) {
       if (!item.account_key || !item.provider) continue;
       accountChoices.set(`${item.provider}\n${item.account_key}`, `${item.provider} · ${item.account_key}`);
     }
@@ -160,13 +130,14 @@ export function createAgentUsage({ ownsPage }) {
     account.value = accountChoices.has(previousAccount) ? previousAccount : '';
     paintSeries();
   }
-  async function loadHistory(force = false) {
+  async function loadHistory() {
     if (!current()) return;
     const params = new URLSearchParams({ days: days.value });
     if (account.value) { const [provider, account_key] = account.value.split('\n'); params.set('provider', provider); params.set('account_key', account_key); }
     const key = params.toString();
-    if (!force && historyFlight?.key === key) return historyFlight.promise;
+    if (historyFlight?.key === key) return historyFlight.promise;
     const request = ++historyRequest;
+    node.setAttribute('aria-busy', 'true');
     feedback.textContent = '正在读取项目本地历史缓存…'; feedback.setAttribute('role', 'status');
     feedback.className = 'hint agent-usage-history-feedback';
     const promise = (async () => {
@@ -175,13 +146,19 @@ export function createAgentUsage({ ownsPage }) {
         if (!current() || request !== historyRequest) return;
         if (value?.version !== 1 || !Array.isArray(value.series)) throw new Error('历史数据格式不兼容，请更新后台服务。');
         paintHistory(value);
-        feedback.textContent = `已读取本地缓存；历史保留 ${value.retention_days} 天。${value.truncated ? '结果已截断 / 降采样，不能视为完整连续历史；可缩小时间范围。' : '切换范围和账号不访问服务商。'}`;
+        const retention = finite(value.retention_days) && value.retention_days > 0
+          ? `旧配置元数据：历史保留 ${value.retention_days} 天（存档不执行清理）。`
+          : '旧配置元数据：历史保留期限未知（存档不执行清理）。';
+        feedback.textContent = `已读取本地缓存；${retention}${value.truncated ? '结果已截断 / 降采样，不能视为完整连续历史；可缩小时间范围。' : '切换范围和账号不访问服务商。'}`;
         feedback.className = value.truncated ? 'agent-status-warning agent-usage-history-feedback' : 'hint agent-usage-history-feedback';
       } catch (error) {
         if (!current() || request !== historyRequest) return;
         feedback.textContent = `历史读取失败：${error.message}${data ? '；以下保留上次范围的历史，并非本次结果。' : '；可重新读取缓存。'}`;
         feedback.className = 'agent-status-warning agent-usage-history-feedback'; feedback.setAttribute('role', 'alert');
-      } finally { if (historyFlight?.request === request) historyFlight = null; }
+      } finally {
+        if (historyFlight?.request === request) historyFlight = null;
+        if (current() && request === historyRequest) node.setAttribute('aria-busy', 'false');
+      }
     })();
     historyFlight = { key, request, promise }; return promise;
   }
@@ -190,28 +167,10 @@ export function createAgentUsage({ ownsPage }) {
   host.append(button('刷新历史缓存', loadHistory, 'agent-usage-history-refresh', { help })); filters.append(host);
   days.onchange = () => loadHistory(); account.onchange = () => { paintSeries(); return loadHistory(); }; metric.onchange = () => {
     const series = list(data?.series).find(series => series.id === metric.value);
-    if (series) content.replaceChildren(renderUsageSeries(series, data, config || {}));
+    if (series) content.replaceChildren(renderUsageSeries(series, data));
   };
-  history.append(el('p', '只展示每次查询的观测值，账号和指标分别成图。没有采样的时期无法还原；本页不会自动轮询，后台采样须显式启用。', 'hint'), filters, feedback, content);
-  node.append(configHost, configFeedback, history);
-  const retry = button('重试读取查询配置', () => update({ accounts }), 'agent-usage-config-retry'); retry.hidden = true; node.append(retry);
-  async function update(status, expectedRevision = revision) {
-    if (!current()) return;
-    accounts = list(status.accounts);
-    if (status.usage_config?.version === 1 && !dirty && !saving && expectedRevision === revision) { renderForm(status.usage_config); retry.hidden = true; }
-    else if (!config && !configFlight) {
-      configFlight = (async () => {
-        try {
-          const value = await api('/api/agent/usage/config');
-          if (!current()) return;
-          if (value?.version !== 1) throw new Error('查询配置格式不兼容，请更新后台服务。');
-          if (!config && !dirty && !saving) renderForm(value);
-          retry.hidden = true;
-        } catch (error) { if (current() && !config) { configMessage(`用量配置读取失败：${error.message}；未使用默认值覆盖已有配置。`, true); retry.hidden = false; } }
-        finally { configFlight = null; }
-      })();
-    }
-    await Promise.all([configFlight, loadHistory()]);
-  }
-  return { node, update, loadHistory, configRevision: () => revision };
+  history.append(el('p', '只读旧余额观测存档，不归到任何正式连接，不联网、不查询账号或旧凭证，不提供旧采样或 HTTP 查询设置。账号和指标分别成图；没有采样的时期无法还原，本页不会自动轮询。', 'hint'), filters, feedback, content);
+  node.append(history);
+  const invalidate = () => { historyRequest++; historyFlight = null; node.setAttribute('aria-busy', 'false'); };
+  return { node, loadHistory, invalidate };
 }

@@ -64,11 +64,11 @@ Codex 等套餐窗口主显示“约多久后重置”，绝对本地时间与�
 
 后台采样默认关闭，显式开启后关页仍采样；daemon 停止期间留空、不补请求。默认 5 分钟、保留 90 天，缩短保留期会清理到期历史。历史区分账号、端点、指标、单位与窗口，失败/未知留缺口，不把采样曲线当逐笔账单。单来源历史最多 40 条曲线、每条 500 点、总预算 680 KB，降采样明确标注；不会删除外部认证。
 
-## 诊断与旧查询兼容
+## 软件诊断与旧余额存档
 
-「高级与诊断」显式读取 Lush 独立 Pi 的安装、配置目录、模型元数据及发现资源。发现不代表某 Worker 已加载，目录不保证模型请求成功，也不是当前 Worker 的实际配置快照。数据来自项目所在机器，不是浏览器本机。旧查询配置与本地历史保留，不导入托管来源，不写回用户默认 Pi 认证；不应把旧缓存冒充当前来源额度。
+「高级与诊断」只按需检查执行机器上安装的 Pi、Codex 命令路径、实际文件地址、版本和可用性。仅执行有界 `--version`，不读取配置、认证、模型目录或扩展，不联网、不启动模型。安装路径可以是全局目录；软件可用不代表账号已认证或模型调用可成功，也不是某个 Worker 的运行快照。默认打开配置页不执行诊断，切换页签保留配置草稿。
 
-旧自定义 HTTPS 查询与 JSON 字段映射保留在诊断中的「查询与采样设置」，不是首选来源管理流程。配置保存于 `.lush/agent-usage.json`；环境引用在 Agent 配置的高级环境变量中显式配置。无脚本/表达式，不跟重定向，超时和响应有界；不自动附带 Pi 凭证，禁止 invocation 凭证引用。详情见[旧额度查询契约](../../engineering/agent-usage.md)。
+模型来源页提供按需展开的「旧余额历史」只读存档，查看及刷新只读取项目本地历史。旧历史没有连接 ID，不按服务商名自动归到正式来源，不与来源曲线混合。旧诊断查询、HTTP 映射编辑与旧后台采样已停用，即使旧配置开启采样，重启也不会恢复；原 `.lush/agent-usage.json`、凭证文件和历史记录均不删除、不迁移。存档读取不会按旧保留期清理记录。正式模型来源的查询、采样和逐连接历史不受影响。详情见[旧余额历史契约](../../engineering/agent-usage.md)。
 
 ## RPC / HTTP
 
@@ -88,10 +88,10 @@ Codex 等套餐窗口主显示“约多久后重置”，绝对本地时间与�
 | `agent.connections.device.start {id}` | POST action，官方授权页、短码、截止时间、间隔 |
 | `agent.connections.device.poll {id,login_id}` | POST action，pending / complete，不返回 token |
 | `agent.connections.device.cancel {id,login_id}` | POST action，取消会话，不删除已有凭证 |
-| `agent.status {}` | GET `/api/agent/status`，显式安装/配置诊断与旧查询 |
-| `agent.usage.config {}` | GET `/api/agent/usage/config` |
-| `agent.usage.configure {config}` | POST action，完整替换旧查询设置，不立即查询 |
-| `agent.usage.history {provider?,account_key?,days?}` | GET `/api/agent/usage/history`，本地历史 |
+| `agent.status {}` | GET `/api/agent/status`，version 2 Pi/Codex 软件诊断，无账号查询 |
+| `agent.usage.config {}` | GET `/api/agent/usage/config`，旧配置只读兼容；页面不调用 |
+| `agent.usage.configure {config}` | 旧协议接缝，明确返回退役错误，不改写配置 |
+| `agent.usage.history {provider?,account_key?,days?}` | GET `/api/agent/usage/history`，只读旧存档，不联网或清理 |
 | `worker.configure {id,model_selection}` | POST action，窄更新；与 profile 互斥 |
 
 受信调用前策略仍默认关闭，不执行用户脚本；Worker 显式覆盖优先。`agent.selection.resources` 的顶层时间是读面生成时间，额度新鲜度须看各观测时间。没有策略不做自动付费切换。

@@ -151,7 +151,7 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 用户决定 #154 增补上述范围：
 
-- 所有 `PiProvider.run` 必须绑定 Lush 连接。新项目配置模块（`src/agent/pi-config.js`）管理 `<home>/pi/` 的独立基础设置；`connection-runtime.js` 只从该配置和本次连接生成私有调用快照，用 `PI_CODING_AGENT_DIR` 指向快照，不复制用户默认 Pi 的设置/模型覆盖/全局 Prompt/凭证。显式所选扩展/Skills 与项目上下文仍保留，项目 `.pi` 设置不能覆盖受管端点。`models.js` / `resources.js` / `status.js` 的运行配置发现收敛到独立目录；旧历史不迁移、不删除，用户默认 Pi 认证不得被诊断或刷新写回。
+- 所有 `PiProvider.run` 必须绑定 Lush 连接。新项目配置模块（`src/agent/pi-config.js`）管理 `<home>/pi/` 的独立基础设置；`connection-runtime.js` 只从该配置和本次连接生成私有调用快照，用 `PI_CODING_AGENT_DIR` 指向快照，不复制用户默认 Pi 的设置/模型覆盖/全局 Prompt/凭证。显式所选扩展/Skills 与项目上下文仍保留，项目 `.pi` 设置不能覆盖受管端点。`models.js` / `resources.js` 的工作配置发现收敛到独立目录；#255 将 `status` 收窄为软件诊断，不再读取任何认证或运行配置。旧历史不迁移、不删除。
 - `worker.configure` 增补互斥的 `model_selection:{connection_id,model}` 输入（与 `profile` 不得同时存在）；窄更新仅允许 Pi 托管来源，不切换执行后端。服务端从完整既有覆盖或有效角色默认取基线，仅替换这两个字段；验证配置、连接启用/认证及模型范围，沿用既有状态、分支冻结与用户专属边界，不启动 Agent。
 - `worker.inspect` 增补安全 `model_selection:{agent,connection_id,model,thinking,explicit}`，仅表示下一次调用的配置，不含 env/Prompt/资源/秘密。当前调用的实际绑定另从运行时绑定证据展示，不能用该摘要冒充。窄更新返回安全摘要，不把完整 retry_profile 返回客户端。
 - Runtime 隔离分区负责 `src/agent/pi-config.js`、provider/connection-runtime/models/resources/status相关实现及测试；安全更新分区负责 project/scheduling/tasks/internal、RPC registry/handlers、对应项目/RPC/HTTP测试。Worker 前端沿用上述新契约；父维护文档与集成，不允许子分区互改文件。
@@ -164,19 +164,15 @@ Codex 托管登录的默认设备码与备用回调入口见[设备码登录契�
 
 托管来源的自动模型目录、缓存隔离、后台低频刷新与 `agent sources` / `agent resources` 命令面见[模型目录与来源 CLI](agent-model-catalog.md)：用户专属 `agent.connections.models(.refresh)`（`SELECT` 读本地缓存，刷新仅 POST action），`agent.selection.resources` 每连接附带只读 `model_catalog`；CLI 子模块 `cli/commands/agent-sources.js` 导出 `runSources` / `runResources`，由 `agent.js` 分派。目录不代表额度或请求必然成功，`connection.models` 仍是手动限制。
 
-旧用量扩展的完整字段与文件契约见 [Agent 额度查询与历史曲线](agent-usage.md)，操作说明见 [Agent 状态](../reference/rpc/agents.md)。
+用户决定 #255 收窄诊断并退役旧查询，当前契约见 [旧余额历史只读存档](agent-usage.md)，操作说明见 [Agent 配置与模型来源](../reference/rpc/agents.md)。
 
-平级「Agent 配置」`#agent-status` 保留旧地址，默认配置分模型与运行、工作方式、高级项，按需读取 `/api/agent/config`，不依赖 overview 的完整配置。高级诊断显式触发 `agent.status` / GET `/api/agent/status`，配置默认打开不查上游。诊断数据来自项目 Lush 独立 Pi，不是用户默认 Pi、浏览器本机或当前 invocation 快照；旧历史保留，不导入托管来源。独立「模型来源」`#model-sources` 与 `#model-source-UUID` 只读本地列表/缓存，显式登录/额度刷新；来源选择不改变项目默认。两页保存/读取有页面身份保护，不被轮询覆盖，不启动模型。系统设置 `#settings` 保留界面/系统页签并承载项目出站网络；采样默认关闭、间隔 5 分钟、保留 90 天。
+「Agent 配置」`#agent-status` 默认读取工作配置，保留 Prompt、环境变量及扩展/Skills 安装启用；高级诊断仅按需检查执行机器上安装的 Pi、Codex 软件，不读取任何账号、认证、模型或运行配置，不联网。安装路径可以是全局目录，不是 Worker 当前调用快照。打开配置、概览轮询不执行诊断，页签保留草稿，失败与迟到响应不能覆盖配置。
 
-读模型 version 1：`{version:1, agent:'pi', query_id, checked_at, current_provider, scope, runtime, models, resources, accounts, warnings, usage_config}`。
-- `scope:{project, role:'agent', note}`；`runtime:{command, executable, real_path, version, config_dir, backend, model, warning}`，读取失败字段为 null 而不伪造。
-- `models` 沿用模型目录读模型 `{agent,source,models,warning}`；状态页安全读取 SDK 本地元数据并按本地凭证匹配，source 为 `local`，不加载扩展动态模型、不联网验证可用性；安装不支持时回退 `presets`，预设不能冒充实际可用模型。不能直接对真实配置运行可能执行密钥命令或刷新 OAuth 的 `--list-models`。
-- `resources` 沿用扩展/Skills 目录并提供 `packages:[{source,root}]`；包声明不代表已安装，未发现安装路径时 root 为 null。目录仅说明安装/发现，不宣称扩展已加载。
-- `accounts:[{provider,auth_type,source,identity,status,expires_at,balance}]`；`identity` 已在服务端脱敏，`status` 说明本地凭证配置/过期/未知，不把存在凭证当作已联网验证登录。`balance:{status,kind,items,reason,checked_at}`，status 为 `available|unsupported|unconfigured|error`，kind 为 `balance|quota|null`；items 为安全白名单 `{label,remaining,total,used,unit}`（数值不可得用 null）。余额与额度不可互换，未知不可写成零。
-- 账号增加匿名 `account_key`，失败可带 `last_success` 旧值及时间；balance 增加 `queried/error_code`，items 增加 `id/reset_at/window_seconds/used_percent`。默认仅当前服务商，可显式选择多服务商；内置 DeepSeek/OpenRouter/Codex/Z.AI/Kimi，Codex 明确标注网页后端兼容性风险，其他可配置 HTTPS 请求与字段映射。
-- 凭证、原始 auth/models 配置、完整 CLI stderr 和上游响应永不返回。请求不跟重定向、有界大小/超时；自定义查询只向用户配置目标发送显式环境引用，不自动转发 Pi 凭证。不通过模型调用探测，不执行密钥命令；已选官方 Codex 过期 OAuth 可通过独立适配刷新并安全写回原凭证文件（不依赖 Pi 运行时），其他认证不变。项目 SQLite 留存安全采样，历史读面有界且标明降采样，不把失败/缺失填成零。
+`agent.status` / GET `/api/agent/status` 返回 version 2：`{version:2,checked_at,scope:{project,note},software,warnings}`。`software` 固定包含 Pi、Codex，两项分别为 `{agent,command,executable,real_path,version,status,warning}`，`status` 为 `available|unavailable`，未知路径/版本为 null。按 daemon 的 `LUSH_PI_COMMAND` / `LUSH_CODEX_COMMAND` 或 PATH 发现，只执行有界 `--version`，不加载 SDK/扩展、不启动登录或模型；不返回原始 stdout/stderr，失败用固定安全说明。同配置并发单飞，下一次显式刷新重新检查。前端拒绝旧 version 1 响应并提示更新服务，不回退显示账号诊断。
 
-后端职责在 `src/agent/status.js`、`usage-query*.js`、`usage-settings.js`、`src/core/agent-usage.js`、Store 用量 mixin 与 Project/RPC handler；Web server 仅转发。新增用户专属 `agent.usage.config/configure/history`，前端由 `render-agent-status.js`、`render-agent-usage.js` 与 `agent-usage-form.js` 协作，复用唯一页面身份与项目路由前缀，迟到响应不能覆盖新页面。细表分别见 Runtime、Web 与 CLI/RPC 分章。
+「模型来源」`#model-sources` 与 `#model-source-UUID` 继续管理正式连接的认证、余额、采样和逐连接历史。旧余额历史仅作为额外的按需只读存档，保留匿名账号/指标隔离，不按服务商名猜测 connection ID，不导入正式曲线；页面进入不自动请求旧历史或旧配置。旧查询及采样停用，旧 enabled 配置不在重启后恢复，不写配置、不删除凭证、不清理存档；`agent.usage.configure` 明确退役，`agent.usage.config` 只读兼容，`agent.usage.history` 只读旧 SQLite 投影。正式连接采样仍按其既有配置运行。
+
+软件诊断由 `src/agent/status-software.js`、`status-command.js` 与 Project 接缝负责；`src/core/agent-usage.js` 只保留旧存档读服务，内部旧适配不再由项目查询入口调用。Web `render-agent-status.js` 负责配置及软件诊断；`render-model-sources.js` 组装正式管理台和旧存档；`render-agent-usage.js` 导出只读存档与正式历史共用的曲线原语。细表见 Runtime、Web 与 CLI/RPC 分章。
 
 ## main 版本迭代
 

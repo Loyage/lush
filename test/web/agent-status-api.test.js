@@ -8,9 +8,9 @@ import { projectRouteId } from '../../src/host/registry.js';
 import { temp } from '../helpers.js';
 import { setup, fetch } from './harness.js';
 
-const model = project => ({ version: 1, agent: 'pi', checked_at: '2026-01-01T00:00:00.000Z',
-  scope: { project, role: 'agent', note: 'local read-only metadata' }, runtime: { version: '1.2.3' },
-  models: { source: 'local', models: [] }, resources: { extensions: [], skills: [], packages: [] }, accounts: [], warnings: [] });
+const model = project => ({ version: 2, checked_at: '2026-01-01T00:00:00.000Z',
+  scope: { project, note: 'software versions only' }, software: ['pi', 'codex'].map(agent => ({ agent, command: agent,
+    executable: `/bin/${agent}`, real_path: `/bin/${agent}`, version: '1.2.3', status: 'available', warning: null })), warnings: [] });
 const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 test('agent.status has no parameters and is user-only even though it is read-only', () => {
