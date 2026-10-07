@@ -69,11 +69,11 @@ afterEach(() => { for (const p of panels.splice(0)) p.dispose(); ui.modelSources
 beforeEach(() => { data = fixture(); current = true; intercept = null; requests.length = 0; ui.view = null; });
 
 test('overview stays compact, per-source detail retains full settings/resources/consumers; filters stay local', async () => {
-  const p = await panel();
+  const p = await panel({ now: () => Date.parse(at) });
   expect(p.node.querySelector('.model-source-detail').hidden).toBe(true);
   expect(p.node.querySelectorAll('.model-source-row')).toHaveLength(5);
   const first = deepText(row(p.node, 'a'));
-  for (const text of ['gpt-6.1-sol', '已配置（不代表已联网验证）', '7d', '重置：', '已用 30%']) expect(first).toContain(text);
+  for (const text of ['gpt-6.1-sol', '已配置（不代表已联网验证）', '7d', '后重置', '已用 30%']) expect(first).toContain(text);
   for (const text of ['high', 'org/model', 'Worker #42']) expect(first).not.toContain(text);
   await button(row(p.node, 'a'), '详情').onclick();
   for (const text of ['gpt-6.1-sol', 'high', 'org/model', '周套餐', '7 天', '70', 'Worker #42']) expect(deepText(card(p.node, 'a'))).toContain(text);
@@ -289,10 +289,11 @@ test('reset countdown only ticks locally, pauses hidden, expires honestly and cl
   const p = await panel(timer); p.selectConnection('a');
   expect(row(p.node, 'a').querySelector('.agent-reset-remaining')).toBeNull();
   const summaryReset = row(p.node, 'a').querySelector('.model-source-reset-time');
-  expect(summaryReset.textContent).toContain('重置：'); expect(summaryReset.classList.contains('is-due')).toBe(false);
+  expect(summaryReset.textContent).toBe('约 2 小时后重置'); expect(summaryReset.classList.contains('is-due')).toBe(false);
   const reset = card(p.node, 'a').querySelector('.agent-reset-remaining');
   expect(reset.textContent).toBe('约 2 小时后重置'); expect(timer.timers.size).toBe(1);
   await timer.tick(); expect(reset.textContent).toBe('约 1 小时 59 分钟后重置');
+  expect(summaryReset.textContent).toBe('约 1 小时 59 分钟后重置');
   dom.document.hidden = true; visibility.get('visibilitychange')(); expect(timer.timers.size).toBe(0);
   timer.advance(2 * 3600000); dom.document.hidden = false; visibility.get('visibilitychange')();
   expect(reset.textContent).toBe('已到重置时间，待刷新'); expect(timer.timers.size).toBe(0); expect(actions('query')).toHaveLength(0);

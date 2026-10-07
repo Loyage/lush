@@ -85,7 +85,7 @@ test('摘要最多两项指标，完整模型、端点、读数和消费者仅�
   expect(requests).toHaveLength(1);
 });
 
-test('订阅窗口简写并显示重置时间，编辑只在详情内；窗口时长缺失不按顺序猜测', async () => {
+test('订阅窗口简写并显示重置倒计时，编辑只在详情内；窗口时长缺失不按顺序猜测', async () => {
   const now = Date.parse('2026-10-07T05:30:00Z'), resetAt = '2026-10-07T06:00:00Z';
   data.connections[0].observation = { status: 'available', checked_at: '2026-10-07T05:00:00Z', resources: [
     { kind: 'quota', label: '主要套餐窗口', scope: 'account', used_percent: 25, window_seconds: 18000, reset_at: resetAt },
@@ -96,13 +96,15 @@ test('订阅窗口简写并显示重置时间，编辑只在详情内；窗口�
   expect(summary).toContain('5h：'); expect(summary).toContain('7d：');
   expect(summary).not.toContain('主要套餐窗口'); expect(summary).not.toContain('次要套餐窗口');
   const resets = row(p.node, 'source-a').querySelectorAll('.model-source-reset-time');
-  expect(resets[0].textContent).toContain(new Date(resetAt).toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }));
+  expect(resets[0].textContent).toBe('约 30 分钟后重置');
+  expect(summary).not.toContain('重置：');
   expect(resets[1].textContent).toContain('待刷新'); expect(resets[1].classList.contains('is-due')).toBe(true);
   expect(button(row(p.node, 'source-a'), '编辑')).toBeUndefined();
   await button(row(p.node, 'source-a'), '详情').onclick();
   const detail = visibleCards(p.node)[0];
   expect(detail.querySelectorAll('h4').map(node => node.textContent)).toEqual(['5h', '7d']);
   expect(deepText(detail.querySelector('.agent-connection-resource-details'))).toContain('主要套餐窗口');
+  expect(deepText(detail.querySelector('.agent-connection-resource-details'))).toContain(`重置时间：${new Date(resetAt).toLocaleString()}`);
   await button(detail, '编辑').onclick(); expect(p.node.dataset.sourcePanel).toBe('editor');
   await button(p.node, '取消编辑').onclick();
   data.connections[0].observation.resources[0].window_seconds = null;

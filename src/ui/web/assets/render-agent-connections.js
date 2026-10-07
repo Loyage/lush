@@ -112,14 +112,6 @@ const shortWindow = seconds => {
 };
 const subscription = resource => resource.kind === 'quota' && resource.scope === 'account';
 const resourceTitle = resource => subscription(resource) ? shortWindow(resource.window_seconds) : text(resource.label, resource.kind === 'balance' ? '现金' : 'Key / 模型额度');
-function resetTime(value, now) {
-  const at = Date.parse(value);
-  if (!Number.isFinite(at)) return '重置时间未知';
-  const date = new Date(at);
-  const label = date.toLocaleString(undefined, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
-    ...(date.getFullYear() !== new Date(now).getFullYear() ? { year: 'numeric' } : {}) });
-  return `重置：${label}${at <= now ? ' · 待刷新' : ''}`;
-}
 function quotaBar(resource, percent) {
   const bar = el('div', undefined, `agent-quota-bar ${quotaLevel(percent)}`);
   bar.setAttribute('role', 'progressbar');
@@ -211,7 +203,7 @@ function renderResourceSummary(observation = {}, now = Date.now()) {
     entry.append(value);
     if (percent !== null) entry.append(quotaBar(resource, percent));
     if (resource.kind === 'quota') {
-      const reset = el('p', resetTime(resource.reset_at, now), 'model-source-reset-time');
+      const reset = el('p', resetRemaining(resource.reset_at, now), 'model-source-reset-time');
       reset.dataset.resetAt = resource.reset_at || '';
       reset.classList.toggle('is-due', Date.parse(resource.reset_at) <= now);
       entry.append(reset);
@@ -368,7 +360,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     const summaryResets = node.querySelectorAll('.model-source-reset-time');
     for (const reset of summaryResets) {
       reset.classList.toggle('is-due', Date.parse(reset.dataset.resetAt) <= currentTime);
-      reset.textContent = resetTime(reset.dataset.resetAt, currentTime);
+      reset.textContent = resetRemaining(reset.dataset.resetAt, currentTime);
     }
     if ([...resets, ...summaryResets].some(reset => Date.parse(reset.dataset.resetAt) > currentTime)) {
       resetTimer = resetSetTimeout(updateResets, 60000); resetTimer?.unref?.();

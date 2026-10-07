@@ -10,7 +10,7 @@ const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="vi
 import { createAgentConnections } from '/assets/render-agent-connections.js';
 const at='2026-10-07T05:30:00Z';
 const source=(id,extra={})=>({id,label:'订阅来源 '+id,provider:'openai-codex',auth_type:'oauth',enabled:true,endpoint:'https://chatgpt.com/backend-api/codex',models:['gpt-6.1-sol'],default_model:'gpt-6.1-sol',credential:{status:'configured'},observation:{status:'available',checked_at:at,resources:[
-{kind:'quota',scope:'account',label:'主要套餐窗口',window_seconds:18000,used_percent:25,remaining:75,unit:'%',reset_at:'2026-10-07T10:30:00Z'},
+{kind:'quota',scope:'account',label:'主要套餐窗口',window_seconds:18000,used_percent:25,remaining:75,unit:'%',reset_at:'2026-10-08T05:29:00Z'},
 {kind:'quota',scope:'account',label:'次要套餐窗口',window_seconds:604800,used_percent:50,remaining:50,unit:'%',reset_at:'2026-10-14T05:30:00Z'}]},...extra});
 window.calls=[];window.fetch=async(url,options)=>{window.calls.push(String(url));if(options)throw Error('unexpected mutation');return Response.json({version:1,connections:[source('a'),source('b',{label:'很长的账号名称'.repeat(10),default_model:'org/very-long-model-name'.repeat(10)}),source('c',{observation:{status:'error',checked_at:at,resources:[]}}),source('d',{observation:{status:'partial',checked_at:at,resources:[...source('d').observation.resources,{kind:'balance',remaining:5,unit:'USD'}]}})],sampling:{enabled:false,interval_minutes:5,retention_days:90}});};
 window.panel=createAgentConnections({ownsPage:()=>true,now:()=>Date.parse(at)});document.body.append(window.panel.node);await window.panel.load();window.ready=true;
@@ -73,14 +73,17 @@ try {
         }
         const parts=['.model-source-identity','.model-source-settings','.model-source-resource-summary'].map(selector=>row.querySelector(selector).getBoundingClientRect());
         for(let i=0;i<parts.length;i++)for(let j=i+1;j<parts.length;j++)if(Math.min(parts[i].right,parts[j].right)>Math.max(parts[i].left,parts[j].left)+.5&&Math.min(parts[i].bottom,parts[j].bottom)>Math.max(parts[i].top,parts[j].top)+.5)errors.push('overlapping information');
-        for(const reset of row.querySelectorAll('.model-source-reset-time'))if(reset.scrollWidth>reset.clientWidth)errors.push('clipped reset time');
+        for(const reset of row.querySelectorAll('.model-source-reset-time')){
+          if(reset.scrollWidth>reset.clientWidth)errors.push('clipped reset countdown');
+          if(!reset.textContent.includes('后重置')||reset.textContent.includes('重置：'))errors.push('reset was not a countdown');
+        }
       }
       if(document.documentElement.scrollWidth>innerWidth)errors.push('horizontal overflow');
       return {errors,height,calls:window.calls};`);
     assert(!result.errors.length, `${theme} ${width}: ${JSON.stringify(result)}`);
     assert(result.height === (width <= 640 ? 268 : width <= 1100 ? 168 : 144), 'unexpected row height');
     assert(result.calls.length === 1, 'overview unexpectedly queried');
-    console.log(`PASS ${theme} ${width}px: ${result.height}px rows, right-hand actions, reset times, no overlap/overflow`);
+    console.log(`PASS ${theme} ${width}px: ${result.height}px rows, right-hand actions, reset countdowns, no overlap/overflow`);
   }
   assert(await execute(`const row=document.querySelector('.model-source-row');row.querySelector('.model-source-details-toggle').click();const pane=document.querySelector('.model-source-detail');return pane.parentNode===row.parentNode&&pane.previousElementSibling===row&&!pane.hidden;`), 'detail did not expand inline');
   assert(await execute(`const pane=document.querySelector('.model-source-detail');[...pane.querySelectorAll('button')].find(b=>b.textContent==='编辑').click();return window.panel.node.dataset.sourcePanel==='editor'&&!pane.hidden;`), 'detail editor failed');
