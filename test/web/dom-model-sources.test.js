@@ -34,6 +34,8 @@ test('总览默认只含来源摘要；完整详情、表单、历史、采样�
   const p = await panel();
   expect(requests.map(entry => entry.url)).toEqual(['/api/agent/connections']);
   expect(p.node.querySelectorAll('.model-source-row')).toHaveLength(2);
+  expect(p.node.querySelector('.model-source-list').children[0]).toBe(p.node.querySelector('.model-source-rows'));
+  expect(p.node.children[0]).toBe(p.node.querySelector('.model-source-layout'));
   expect(deepText(row(p.node, 'source-a'))).not.toContain('api.deepseek.com');
   expect(deepText(row(p.node, 'source-a'))).toContain('默认模型：未设置');
   expect(deepText(p.node.querySelector('.model-source-intro'))).not.toContain('私有文件');
@@ -64,7 +66,16 @@ test('摘要最多两项指标，完整模型、端点、读数和消费者仅�
   const summary = deepText(row(p.node, 'source-a'));
   for (const value of ['main-model', '部分指标可用', '现金', '12.5 USD', '已用 25%', '5 小时', '另 1 项见详情', '30 分钟前', '非实时']) expect(summary).toContain(value);
   for (const value of ['secondary-model', 'api.deepseek.com', 'xhigh', '第三指标', 'Worker #47', '原始读数', '来源：']) expect(summary).not.toContain(value);
-  expect(row(p.node, 'source-a').querySelector('.model-source-resource-summary').querySelectorAll('p')).toHaveLength(4);
+  const sourceRow = row(p.node, 'source-a'), resources = sourceRow.querySelector('.model-source-resource-summary');
+  expect(resources.querySelectorAll('p')).toHaveLength(3);
+  expect(resources.querySelectorAll('[role="progressbar"]')).toHaveLength(1);
+  expect(resources.querySelector('[role="progressbar"]').getAttribute('aria-valuenow')).toBe('25');
+  expect(deepText(resources)).not.toContain('缓存');
+  expect(resources.querySelectorAll('strong').map(node => node.textContent)).toContain('剩余 12.5 USD');
+  expect(resources.querySelectorAll('strong').map(node => node.textContent)).toContain(' · 剩余 75 %');
+  const refreshRow = sourceRow.querySelector('.model-source-refresh-row');
+  expect(button(refreshRow, '刷新')).toBeTruthy();
+  expect(deepText(refreshRow)).toContain('缓存 · 30 分钟前（非实时）');
   await button(row(p.node, 'source-a'), '详情').onclick();
   const detail = deepText(visibleCards(p.node)[0]);
   for (const value of ['secondary-model', 'api.deepseek.com', 'xhigh', '第三指标', 'Worker #47', '原始读数', '来源：', '私有文件']) expect(detail).toContain(value);
@@ -86,6 +97,9 @@ test('失败与旧值不冒充当前额度，未知指标不填零；不同资�
   await p.load(true);
   const updated = deepText(row(p.node, 'source-a'));
   expect(updated).toContain('Key 预算'); expect(updated).toContain('剩余 未知 USD'); expect(updated).toContain('已用 0%');
+  expect(updated).not.toContain('观测成功');
+  const bars = row(p.node, 'source-a').querySelectorAll('[role="progressbar"]');
+  expect(bars).toHaveLength(1); expect(bars[0].getAttribute('aria-valuenow')).toBe('0');
 });
 
 test('名称/端点搜索与服务商、启用状态筛选只过滤本地列表，不切默认来源', async () => {
@@ -104,11 +118,31 @@ test('选择来源更新独立详情与窄屏前后导航，不产生配置或�
   expect(p.selectedConnection()).toBe('source-b'); expect(p.node.dataset.sourceView).toBe('detail');
   expect(visibleCards(p.node).map(card => card.dataset.connectionId)).toEqual(['source-b']);
   expect(row(p.node, 'source-b').getAttribute('aria-current')).toBe('true');
+  const pane = p.node.querySelector('.model-source-detail'), rows = p.node.querySelector('.model-source-rows');
+  expect(pane.parentNode).toBe(rows);
+  expect([...rows.children].indexOf(pane)).toBe([...rows.children].indexOf(row(p.node, 'source-b')) + 1);
+  expect(row(p.node, 'source-b').querySelector('.model-source-details-toggle').getAttribute('aria-expanded')).toBe('true');
   const text = deepText(visibleCards(p.node)[0]);
   expect(text).toContain('连接与模型'); expect(text).toContain('余额与额度'); expect(text).toContain('使用情况');
   expect(text).toContain('model-b'); expect(text).not.toContain('Worker #');
   await button(p.node, '返回来源列表').onclick(); expect(p.node.dataset.sourceView).toBe('list');
   expect(dom.document.activeElement).toBe(field(p.node, 'source-search')); expect(requests).toHaveLength(1);
+});
+
+test('来源详情在行下方展开，重复点击收起；刷新和过滤后保持正确挂载', async () => {
+  const p = await panel();
+  await button(row(p.node, 'source-a'), '详情').onclick();
+  const pane = p.node.querySelector('.model-source-detail'), rows = p.node.querySelector('.model-source-rows');
+  expect([...rows.children].indexOf(pane)).toBe(1);
+  await p.load(true); expect([...rows.children].indexOf(pane)).toBe(1);
+  await button(row(p.node, 'source-a'), '详情').onclick(); expect(pane.hidden).toBe(true);
+  expect(row(p.node, 'source-a').querySelector('.model-source-details-toggle').getAttribute('aria-expanded')).toBe('false');
+  await button(row(p.node, 'source-b'), '详情').onclick();
+  const search = field(p.node, 'source-search'); search.value = 'source-a'; search.oninput();
+  expect(pane.parentNode).toBe(rows); expect([...rows.children].at(-1)).toBe(pane);
+  expect(p.selectedConnection()).toBe('source-b');
+  await button(p.node, '返回来源列表').onclick(); expect(pane.hidden).toBe(true);
+  expect(requests.map(entry => entry.url)).toEqual(['/api/agent/connections', '/api/agent/connections']);
 });
 
 test('刷新列表保留筛选和未保存表单，选择其他来源不悄悄丢失编辑', async () => {
@@ -178,6 +212,8 @@ test('来源 CSS 有全宽总览、侧面板和窄屏卡片、隐藏语义与主
   expect(css).toContain('.model-source-layout{display:grid;grid-template-columns:minmax(0,1fr)');
   expect(css).toContain('.model-source-detail{position:fixed'); expect(css).toContain('data-source-view="detail"');
   expect(css).toContain('[hidden]{display:none!important}'); expect(css).toContain('var(--bg)'); expect(css).toContain(':focus-visible');
-  expect(css).toContain('height:136px'); expect(css).toContain('height:224px'); expect(css).toContain('height:340px');
+  expect(css).toContain('height:192px'); expect(css).toContain('height:288px'); expect(css).toContain('height:320px');
   expect(css).toContain('text-overflow:ellipsis');
+  expect(css).toContain('[data-source-panel="detail"] .model-source-detail{position:static');
+  expect(css).toContain('.model-source-key-amount{font-weight:700');
 });

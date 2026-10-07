@@ -146,11 +146,13 @@ export function renderConnectionResources(observation = {}, { now = Date.now, re
       const row = el('div', undefined, 'agent-quota-row');
       row.append(quotaBar(resource, percent), el('span', `${amount(percent)}%`, 'agent-quota-percent'));
       entry.append(row);
-      const summary = [];
-      if (finite(resource.remaining)) summary.push(`剩余 ${amount(resource.remaining)} ${text(resource.unit, '单位未知')}`);
-      if (summary.length) note(entry, summary.join(' · '));
+      if (finite(resource.remaining)) {
+        const remaining = el('p', undefined, 'hint');
+        remaining.append(el('strong', `剩余 ${amount(resource.remaining)} ${text(resource.unit, '单位未知')}`, 'model-source-key-amount')); entry.append(remaining);
+      }
     } else {
-      entry.append(el('p', `剩余 ${amount(resource.remaining)} ${text(resource.unit, '单位未知')}`, 'agent-status-amount'));
+      const remaining = el('p', undefined, 'agent-status-amount');
+      remaining.append(el('strong', `剩余 ${amount(resource.remaining)} ${text(resource.unit, '单位未知')}`, 'model-source-key-amount')); entry.append(remaining);
     }
     if (resource.reset_at) {
       const reset = el('p', resetRemaining(resource.reset_at, now()), 'hint agent-reset-remaining');
@@ -177,19 +179,29 @@ export function renderConnectionResources(observation = {}, { now = Date.now, re
 }
 
 /** Bounded overview: never expand raw resources, old values or consumers into the list. */
-function renderResourceSummary(observation = {}, { now = Date.now } = {}) {
+function renderResourceSummary(observation = {}) {
   observation ||= {};
   const root = el('div', undefined, 'model-source-resource-summary');
-  note(root, STATUSES[observation.status] || '观测状态未知', !successful(observation));
+  if (observation.status !== 'available') note(root, STATUSES[observation.status] || '观测状态未知', !successful(observation));
   const resources = successful(observation) ? array(observation.resources).filter(resource => ['balance', 'quota'].includes(resource.kind)) : [];
   for (const resource of resources.slice(0, 2)) {
     const percent = resource.kind === 'quota' ? quotaPercent(resource) : null;
     const kind = resource.kind === 'balance' ? '现金' : resource.scope === 'key' ? 'Key 预算' : '套餐 / 额度';
     const window = resource.kind === 'quota' && resource.window_seconds > 0 ? ` · ${usageWindow(resource.window_seconds)}` : '';
-    note(root, `${text(resource.label, kind)}（${kind}${window}）：${percent !== null ? `已用 ${amount(percent)}%` : `剩余 ${amount(resource.remaining)} ${text(resource.unit, '单位未知')}`}`);
+    const entry = el('div', undefined, 'model-source-resource-item');
+    const value = el('p', `${text(resource.label, kind)}（${kind}${window}）：`, 'hint');
+    value.append(el('strong', percent !== null ? `已用 ${amount(percent)}%` : `剩余 ${amount(resource.remaining)} ${text(resource.unit, '单位未知')}`, 'model-source-key-amount'));
+    if (percent !== null && finite(resource.remaining)) value.append(el('strong', ` · 剩余 ${amount(resource.remaining)} ${text(resource.unit, '单位未知')}`, 'model-source-key-amount'));
+    entry.append(value);
+    if (percent !== null) entry.append(quotaBar(resource, percent));
+    root.append(entry);
   }
   if (successful(observation) && !resources.length) note(root, '暂无指标；未知不等于零。', true);
-  note(root, `${resources.length > 2 ? `另 ${resources.length - 2} 项见详情 · ` : ''}缓存 · ${relativeTime(observation.checked_at, now())}（非实时）`);
+  if (resources.length > 2) {
+    const extra = `另 ${resources.length - 2} 项见详情`;
+    if (observation.status !== 'available') root.children[0].textContent += ` · ${extra}`;
+    else note(root, extra);
+  }
   return root;
 }
 
@@ -215,7 +227,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   const selectionCount = el('strong', '已选 0 个连接');
   const listFeedback = el('p', undefined, 'hint'); listFeedback.setAttribute('role', 'status');
   const sourceRows = el('div', undefined, 'model-source-rows');
-  listPane.append(statistics, filters, listFeedback, batchToolbar, batchFeedback, sourceRows);
+  listPane.append(sourceRows, statistics, listFeedback, filters, batchToolbar, batchFeedback);
   const detailPane = el('aside', undefined, 'model-source-detail'); detailPane.setAttribute('aria-label', '模型来源操作面板'); detailPane.hidden = !connectionId;
   // Non-modal: the overview stays operable; do not claim aria-modal or trap focus.
   let panelTrigger = null, triggerSource = '', triggerLabel = '', panelKind = connectionId ? 'detail' : '', dirty = false;
@@ -493,10 +505,18 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     const found = array(data?.connections).some(row => row.id === selectedId);
     selectionFeedback.textContent = found ? '' : selectedId ? '所选来源不存在或已删除；请选择其他来源。' : '选择来源查看详情，或添加一个模型来源。';
     for (const card of cards.children) card.hidden = card.dataset.connectionId !== selectedId;
+    node.dataset.sourcePanel = panelKind;
     for (const row of sourceRows.children) {
+      if (!row.dataset.sourceId) continue;
       const active = panelKind === 'detail' && row.dataset.sourceId === selectedId;
       row.classList.toggle('selected', active); row.setAttribute('aria-current', active ? 'true' : 'false');
+      row.querySelector('.model-source-details-toggle')?.setAttribute('aria-expanded', active ? 'true' : 'false');
     }
+    if (panelKind === 'detail') {
+      const rows = [...sourceRows.children], index = rows.findIndex(row => row.dataset.sourceId === selectedId);
+      const next = index >= 0 ? rows[index + 1] || null : null;
+      if (next !== detailPane && !(next === null && rows.at(-1) === detailPane)) sourceRows.insertBefore(detailPane, next);
+    } else if (detailPane.parentNode !== layout) layout.insertBefore(detailPane, null);
   }
   function selectConnection(id) {
     if (!current()) return false;
@@ -506,7 +526,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       historyHost.hidden = true; historySequence++; historyContent.replaceChildren();
     }
     selectedId = id; explicitSelection = true; openPanel('detail'); paintSelection();
-    // Detail is an independent non-modal side view on all screen widths.
+    // Read-only detail expands immediately below the selected source on all screen widths.
     {
       const card = [...cards.children].find(row => row.dataset.connectionId === id);
       const heading = card?.querySelector('h3');
@@ -539,12 +559,18 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       const settings = el('div', undefined, 'model-source-settings');
       note(settings, `默认模型：${connection.default_model || '未设置'}`);
       note(settings, `${connection.auth_type === 'oauth' ? 'OAuth 登录' : 'API Key'} · ${CREDENTIALS[connection.credential?.status] || '凭证未知'}`);
-      const resources = renderResourceSummary(connection.observation, { now });
+      const resources = renderResourceSummary(connection.observation);
       const actions = el('div', undefined, 'model-source-row-actions');
-      const status = el('p', operationState.get(connection.id) || '', 'hint model-source-operation'); status.setAttribute('role', 'status'); actions.append(status);
+      const refreshRow = el('div', undefined, 'model-source-refresh-row');
       const refresh = helped(queries.has(connection.id) ? '刷新中…' : '刷新', () => query(connection.id), '联网查询专用余额 / 套餐接口，不调用模型；失败不等于零余额。');
-      refresh.children[0].disabled = !canQuery(connection) || queries.has(connection.id); actions.append(refresh);
-      actions.append(button('编辑', () => paintEditor(array(data?.connections).find(row => row.id === connection.id)), 'ghost'), button('详情', () => selectConnection(connection.id), 'ghost'));
+      refresh.children[0].disabled = !canQuery(connection) || queries.has(connection.id);
+      const cache = el('span', `缓存 · ${relativeTime(connection.observation?.checked_at, now())}（非实时）`, 'model-source-cache-time');
+      refreshRow.append(refresh, cache); actions.append(refreshRow);
+      const status = el('p', operationState.get(connection.id) || '', 'hint model-source-operation'); status.setAttribute('role', 'status'); status.hidden = !status.textContent; actions.append(status);
+      actions.append(button('编辑', () => paintEditor(array(data?.connections).find(row => row.id === connection.id)), 'ghost'), button('详情', () => {
+        if (panelKind === 'detail' && selectedId === connection.id && !detailPane.hidden) back.onclick();
+        else selectConnection(connection.id);
+      }, 'ghost model-source-details-toggle', { help: '在此来源下方展开完整配置、额度与使用情况；再次点击收起，不联网查询。' }));
       row.append(identity, settings, resources, actions); return row;
     }));
     statistics.textContent = `总数 ${all.length} · 启用 ${all.filter(row => row.enabled).length} · 需处理 ${all.filter(attention).length} · 使用中 ${all.filter(row => array(row.consumers).length).length}（不合计不同币种或套餐）`;
@@ -948,7 +974,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     button('后台采样设置', () => { if (current()) { closeEditor(); openPanel('sampling'); samplingEnabled.focus(); } }, 'ghost', { help: '展开本项目全部托管来源的采样设置；开启后关页仍采样，不是某个来源单独的开关。' }),
     button('历史与已删除来源', () => { if (current()) { closeEditor(); openPanel('history'); historyConnection.focus(); } }, 'ghost', { help: '展开本地观测历史入口，可按原连接 ID 查看已删除来源的历史；不访问服务商。' }));
   intro.append(toolbar); detailPane.append(back, selectionFeedback, cards, editor, samplingHost, historyHost);
-  layout.append(listPane, detailPane); node.append(intro, feedback, layout);
+  layout.append(listPane, detailPane); node.append(layout, intro, feedback);
   // Construct the initial empty form for old callers, but keep it out of the visual/focus flow.
   const initialFocus = document.activeElement;
   paintEditor(null, null); closeEditor(); initialFocus?.focus(); detailPane.hidden = !connectionId; panelKind = connectionId ? 'detail' : '';

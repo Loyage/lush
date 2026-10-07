@@ -28,6 +28,11 @@ world.state.agentConnections.connections.push({ id: codexId, label: '我的 Code
     { id: 'week', kind: 'quota', scope: 'account', label: '周窗口', unit: '%', remaining: 10, total: 100, used_percent: 90,
       window_seconds: 604800, reset_at: new Date(Date.now() + 3 * 86400000).toISOString() },
   ] } });
+// Exercise the tallest bounded summary: partial data, three metrics and a completed operation.
+world.state.agentConnections.connections[0].observation.status = 'partial';
+world.state.agentConnections.connections[0].observation.resources.push(
+  { id: 'key', kind: 'quota', scope: 'key', label: 'Key 预算', unit: 'USD', total: 100, used: 30, remaining: 70 },
+  { id: 'bonus', kind: 'balance', scope: 'account', label: '其他余额', unit: 'USD', remaining: 2 });
 Object.assign(world.state.agentConfig.default, { agent: 'pi', connection_id: ids[0], model: 'deepseek/deepseek-chat' });
 for (const role of Object.keys(world.state.agentConfig.resolved)) world.state.agentConfig.resolved[role] = { ...world.state.agentConfig.default };
 const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -67,8 +72,9 @@ async function screenshot(name) {
 async function layout(name) {
   const result = await execute(`const p=document.querySelector('.model-sources-page,.agent-status-page');return {page:p.scrollWidth-p.clientWidth,document:document.documentElement.scrollWidth-innerWidth,inputs:[...p.querySelectorAll('input,select,textarea')].filter(n=>n.getClientRects().length).some(n=>n.getBoundingClientRect().right>innerWidth+1)};`);
   assert(result.page <= 1 && result.document <= 1 && !result.inputs, `Overflow ${name}: ${JSON.stringify(result)}`);
-  const rows = await execute(`const rows=[...document.querySelectorAll('.model-source-row')].filter(n=>n.getClientRects().length);return rows.map(row=>{const box=row.getBoundingClientRect();return {height:box.height,overflow:row.scrollHeight>row.clientHeight+1,controls:[...row.querySelectorAll('button,input')].every(n=>{const b=n.getBoundingClientRect();return b.top>=box.top&&b.bottom<=box.bottom&&b.right<=box.right})}});`);
-  assert(rows.every(row => row.height === rows[0].height && !row.overflow && row.controls), `Unequal/clipped rows ${name}: ${JSON.stringify(rows)}`);
+  const rows = await execute(`const rows=[...document.querySelectorAll('.model-source-row')].filter(n=>n.getClientRects().length);return rows.map(row=>{const box=row.getBoundingClientRect();return {height:box.height,overflow:row.scrollHeight>row.clientHeight+1,informationFirst:row.querySelector('.model-source-row-actions').getBoundingClientRect().top>=Math.max(...[...row.children].filter(n=>!n.matches('.model-source-row-actions')).map(n=>n.getBoundingClientRect().bottom)),controls:[...row.querySelectorAll('button,input')].every(n=>{const b=n.getBoundingClientRect();return b.top>=box.top&&b.bottom<=box.bottom&&b.right<=box.right})}});`);
+  assert(rows.every(row => row.height === rows[0].height && !row.overflow && row.informationFirst && row.controls), `Unequal/clipped rows ${name}: ${JSON.stringify(rows)}`);
+  assert(await execute(`return [...document.querySelectorAll('.model-source-key-amount')].filter(n=>n.getClientRects().length).every(n=>Number(getComputedStyle(n).fontWeight)>=700) && [...document.querySelectorAll('.model-source-refresh-row')].filter(n=>n.getClientRects().length).every(n=>n.querySelector('.model-source-cache-time').getBoundingClientRect().left>=n.querySelector('button').getBoundingClientRect().right);`), `Key amounts are not bold or cache time is not beside refresh ${name}`);
   await screenshot(name);
 }
 try {
@@ -79,6 +85,11 @@ try {
     if (url.pathname === '/favicon.ico') return new Response(null, { status: 204 });
     calls.push(url.pathname);
     if (url.pathname === '/api/agent/connections') return Response.json(world.state.agentConnections);
+    if (url.pathname === '/api/action' && request.method === 'POST') {
+      const action = await request.json();
+      assert(action.method === 'agent.connections.query', `Unexpected mock action: ${action.method}`);
+      return Response.json(world.state.agentConnections);
+    }
     if (url.pathname === '/api/agent/config') return Response.json(world.state.agentConfig);
     if (url.pathname === '/api/agent/resources') return Response.json({ extensions: [], skills: [], warning: null });
     // Agent 配置页与来源选择读取的本地目录；fixture 只给空/未确认结果，不联网、不调用模型。
@@ -101,11 +112,13 @@ try {
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` }); await waitFor('window.ready');
-  assert(await execute(`return document.querySelectorAll('.model-source-row').length===3 && document.querySelector('.model-source-detail').hidden`), 'Full overview or closed initial panel missing');
-  assert(await execute(`const row=document.querySelector('[data-source-id="${codexId}"]');return row.textContent.includes('gpt-6.1-sol') && !row.textContent.includes('xhigh') && row.textContent.includes('已用 25%') && row.textContent.includes('已用 90%') && !row.querySelector('details') && !row.querySelector('[role="progressbar"]');`), 'Bounded Codex model/quota summary missing');
+  assert(await execute(`const rows=document.querySelector('.model-source-rows'),tools=document.querySelector('.model-source-intro');return document.querySelectorAll('.model-source-row').length===3 && document.querySelector('.model-source-detail').hidden && rows.getBoundingClientRect().top<innerHeight && tools.getBoundingClientRect().top>=rows.getBoundingClientRect().bottom;`), 'Information-first overview or closed initial panel missing');
+  assert(await execute(`const row=document.querySelector('[data-source-id="${codexId}"]');return row.textContent.includes('gpt-6.1-sol') && !row.textContent.includes('xhigh') && row.textContent.includes('已用 25%') && row.textContent.includes('已用 90%') && !row.querySelector('details') && row.querySelectorAll('[role="progressbar"]').length===2 && !row.querySelector('.model-source-resource-summary').textContent.includes('观测成功') && row.querySelector('.model-source-refresh-row').textContent.includes('缓存');`), 'Bounded Codex model/quota summary missing');
   await click('.model-source-row:nth-child(3) .model-source-row-actions > button:last-child');
-  assert(await execute(`const card=document.querySelector('[data-connection-id="${codexId}"]');return card.textContent.includes('xhigh') && card.querySelectorAll('[role="progressbar"]').length===2 && [...card.querySelectorAll('.agent-reset-remaining')].every(n=>n.textContent.includes('后重置'));`), 'Full per-source quota detail missing');
+  assert(await execute(`const card=document.querySelector('[data-connection-id="${codexId}"]'),pane=document.querySelector('.model-source-detail'),row=document.querySelector('[data-source-id="${codexId}"]');return pane.previousElementSibling===row && getComputedStyle(pane).position==='static' && pane.getBoundingClientRect().top>=row.getBoundingClientRect().bottom && card.textContent.includes('xhigh') && card.querySelectorAll('[role="progressbar"]').length===2 && [...card.querySelectorAll('.agent-reset-remaining')].every(n=>n.textContent.includes('后重置'));`), 'Full per-source quota detail missing');
   await click('.model-source-back');
+  await click('.model-source-row:first-child .model-source-refresh-row button');
+  await waitFor('document.querySelector(".model-source-row:first-child .model-source-operation")?.textContent.includes("刷新完成")');
   await click('.model-source-row:nth-child(2) .model-source-row-actions > button:last-child');
   assert(await execute(`return document.querySelector('.agent-connections-panel').textContent.includes('不支持') && !document.querySelector('[data-connection-field="api_key"]')?.getClientRects().length`), 'Unknown quota or write-only editor wrong');
   for (const theme of ['light', 'dark']) for (const [width, height] of [[1440,900], [900,700], [390,844]]) {
@@ -114,6 +127,7 @@ try {
     if (await execute(`return !document.querySelector('.model-source-detail').hidden`)) await click('.model-source-back');
     await layout(`overview-${theme}-${width}`);
     await click('.model-source-row:nth-child(2) .model-source-row-actions > button:last-child');
+    assert(await execute(`const pane=document.querySelector('.model-source-detail'),list=document.querySelector('.model-source-list');return getComputedStyle(pane).position==='static' && getComputedStyle(list).display!=='none'`), 'Source detail is not inline or hid the overview');
     await layout(`sources-${theme}-${width}`);
     await click('.model-source-back');
     assert(await execute(`return getComputedStyle(document.querySelector('.model-source-list')).display!=='none' && getComputedStyle(document.querySelector('.model-source-detail')).display==='none'`), 'Return did not show overview');
@@ -142,7 +156,7 @@ try {
     if (await execute(`return !document.querySelector('.model-source-detail').hidden`)) await click('.model-source-back');
     console.log(`PASS Agent/source layout and interaction ${theme}/${width}`);
   }
-  assert(calls.every(route => ['/api/agent/connections', '/api/agent/connections/models', '/api/agent/packages',
+  assert(calls.every(route => ['/api/action', '/api/agent/connections', '/api/agent/connections/models', '/api/agent/packages',
     '/api/agent/config', '/api/agent/status', '/api/agent/usage/config', '/api/agent/usage/history'].includes(route)), `Unexpected API: ${calls.join(',')}`);
   assert(await execute('return window.browserErrors.length===0'), 'Browser emitted errors');
   passed = true; console.log(`PASS mock-only equal-height compact overview/detail/editor layouts, Codex summary and full windows/countdown, narrow screen navigation, local search, focus/Escape and draft preservation. Screenshots: ${output}`);
