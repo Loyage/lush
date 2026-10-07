@@ -9,6 +9,7 @@ import { CodexProvider, PiProvider } from '../src/agent/provider.js';
 import { readUsageStatistics } from '../src/core/usage-statistics.js';
 import { discoverAgentModels } from '../src/agent/models.js';
 import { discoverAgentResources } from '../src/agent/resources.js';
+import { ensurePiConfiguration } from '../src/agent/pi-config.js';
 import { GUIDE } from '../src/agent/guide.js';
 import { run as runAgentCommand } from '../src/cli/commands/agent.js';
 import { env } from './helpers.js';
@@ -148,21 +149,23 @@ console.log(JSON.stringify({ models: [
 });
 
 test('Pi resource discovery lists installed extensions and skills without loading them', async () => {
-  const root = temp(), piHome = path.join(root, '.lush', 'pi'), pkg = path.join(root, 'installed-package');
-  fs.mkdirSync(path.join(piHome, 'extensions'), { recursive: true });
-  fs.mkdirSync(path.join(piHome, 'skills', 'local-skill'), { recursive: true });
-  fs.mkdirSync(path.join(pkg, 'tools'), { recursive: true });
-  fs.mkdirSync(path.join(pkg, 'skills', 'package-skill'), { recursive: true });
-  fs.writeFileSync(path.join(piHome, 'extensions', 'local.ts'), 'export default () => {}');
-  fs.writeFileSync(path.join(piHome, 'skills', 'local-skill', 'SKILL.md'), '---\nname: local-skill\ndescription: Local skill.\n---\n');
-  fs.writeFileSync(path.join(pkg, 'tools', 'plugin.js'), 'export default () => {}');
-  fs.writeFileSync(path.join(pkg, 'skills', 'package-skill', 'SKILL.md'), '---\nname: package-skill\ndescription: Package skill.\n---\n');
-  fs.writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({ name: 'demo-plugin', pi: { extensions: ['./tools/*.js'], skills: ['./skills'] } }));
-  const fakePi = path.join(root, 'fake-pi');
-  fs.writeFileSync(fakePi, `#!/usr/bin/env bun\nconsole.log('User packages:');\nconsole.log('  npm:demo-plugin');\nconsole.log('    ${pkg}');\n`, { mode: 0o755 });
-  const config = new Config({ project: root, env: env({ PI_CODING_AGENT_DIR: piHome, LUSH_PI_COMMAND: fakePi }) });
+  const root = temp(), pkg = path.join(root, 'installed-package'), fakePi = path.join(root, 'fake-pi');
+  const config = new Config({ project: root, env: env({ LUSH_PI_COMMAND: fakePi }) });
   config.prepare();
   try {
+    // Initialize the private Pi directory explicitly; CI's umask must not determine its permissions.
+    const { dir: piHome } = ensurePiConfiguration(config);
+    expect(fs.statSync(piHome).mode & 0o777).toBe(0o700);
+    fs.mkdirSync(path.join(piHome, 'extensions'), { recursive: true });
+    fs.mkdirSync(path.join(piHome, 'skills', 'local-skill'), { recursive: true });
+    fs.mkdirSync(path.join(pkg, 'tools'), { recursive: true });
+    fs.mkdirSync(path.join(pkg, 'skills', 'package-skill'), { recursive: true });
+    fs.writeFileSync(path.join(piHome, 'extensions', 'local.ts'), 'export default () => {}');
+    fs.writeFileSync(path.join(piHome, 'skills', 'local-skill', 'SKILL.md'), '---\nname: local-skill\ndescription: Local skill.\n---\n');
+    fs.writeFileSync(path.join(pkg, 'tools', 'plugin.js'), 'export default () => {}');
+    fs.writeFileSync(path.join(pkg, 'skills', 'package-skill', 'SKILL.md'), '---\nname: package-skill\ndescription: Package skill.\n---\n');
+    fs.writeFileSync(path.join(pkg, 'package.json'), JSON.stringify({ name: 'demo-plugin', pi: { extensions: ['./tools/*.js'], skills: ['./skills'] } }));
+    fs.writeFileSync(fakePi, `#!/usr/bin/env bun\nconsole.log('User packages:');\nconsole.log('  npm:demo-plugin');\nconsole.log('    ${pkg}');\n`, { mode: 0o755 });
     const catalog = await discoverAgentResources(config);
     expect(catalog.warning).toBeNull();
     expect(catalog.extensions.map(item => item.label)).toContain('local.ts');
