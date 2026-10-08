@@ -325,7 +325,7 @@ export async function openHooks() {
     chain.append(el('p', '合并：本轮交付就绪后由父队列处理，不是任意一轮 Agent 返回；实际退出且后代、消息、待决和 Git 条件通过后才触发。分歧时可能唤醒源 Agent。'));
     chain.append(el('p', '验收：合并或确认无需合并后，仅核验安全条件并代替用户确认；不调用质量评审 Agent，也不保证业务质量。'));
     chain.append(el('p', '归档：验收后清理分支及后代的 worktree/ref，保留 Worker、会话和历史，不丢弃未提交改动。失败不撤销前面已完成的环节，失败或未知结果不自动重试。'));
-    chain.append(el('p', 'child 至少自动合并，不能关闭。请求冻结或动作执行中不可修改；已交付成果只能提高级别补办，不重新合并已落地成果。自动成功只留记录，只提醒下一人工环节；失败、受阻和待决仍会提醒。', 'hint'));
+    chain.append(el('p', '父 Worker 派生的 child 流程 Hook 为只读：默认自动合并、由直接父 Agent 检查验收，用户不能更改合并、验收或归档自动级别。用户指令在请求冻结或动作执行中不可修改；已交付成果只能提高级别补办，不重新合并已落地成果。自动成功只留记录，只提醒下一人工环节；失败、受阻和待决仍会提醒。', 'hint'));
     root.append(chain);
     const nodes = block('允许的触发节点');
     for (const trigger of catalogue.triggers || []) { const row = el('article', undefined, 'hook-catalogue-row'); row.append(el('strong', trigger.label), el('code', trigger.id), el('p', trigger.description, 'hint')); nodes.append(row); }

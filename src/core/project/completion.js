@@ -53,7 +53,8 @@ export default {
     const config = settings(task), level = levelOf(task), data = state(this, task), phase = phaseOf(task);
     const record = data.executions?.[phase], last = Object.values(data.executions ?? {}).at(-1) ?? null;
     let reason = null;
-    if (['failed', 'cancelled'].includes(task.status)) reason = 'Worker 已结束，不能配置自动链';
+    if (task.task_kind === 'child' || config.locked === true) reason = '父Worker派生的子Worker流程 Hook 已锁定，用户不能修改合并、验收或归档自动级别';
+    else if (['failed', 'cancelled'].includes(task.status)) reason = 'Worker 已结束，不能配置自动链';
     else if (task.branch && ['archived', 'deleted'].includes(this.store.branch(task.branch)?.status)) reason = 'Worker 已归档或回收';
     else if (['requested', 'executing', 'resolving', 'blocked', 'suspended'].includes(booking(task)?.status)) reason = '交付请求已冻结或挂起，不能调整当前自动链';
     else if (this.completionBusy?.has(task.id) || Object.values(data.executions ?? {}).some(row => row.status === 'running')) reason = '自动动作已领取执行，不能调整';
@@ -64,7 +65,7 @@ export default {
     if (!reason && frozen) reason = 'Worker 分支正在冻结，不能调整自动链';
     const receipt = booking(task);
     const status = record?.status ?? (level === 'off' ? 'idle' : phase === 'archive' && rank(level) >= 3 && this.store.branch(task.branch)?.status === 'archived' ? 'succeeded' : 'waiting');
-    return { level, min_level: config.locked ? 'merge' : 'off', locked: config.locked === true,
+    return { level, min_level: task.task_kind === 'child' || config.locked ? 'merge' : 'off', locked: task.task_kind === 'child' || config.locked === true,
       editable: !reason, reason, phase: level === 'off' ? null : phase,
       state: receipt?.status === 'blocked' ? 'unknown' : status, last_execution: publicExecution(last) };
   },

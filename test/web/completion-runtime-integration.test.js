@@ -88,16 +88,39 @@ test('real HTTP manual acceptance then higher archive authorization resumes only
   } finally { await f.close(); }
 });
 
-test('real HTTP honors child minimum without inheriting parent level and rejects custom builtin-only actions', async () => {
+test('real HTTP locks child flow Hooks without inheriting parent level and rejects custom builtin-only actions', async () => {
   const f = await prepared();
   try {
     const { task } = await post(f, 'order.submit', { content: 'HTTP parent', start: false });
     await configure(f, task.id, 'archive');
     const child = await post(f, 'worker.spawn', { parent: task.id, goal: 'independent child' });
     const childHooks = await hooks(f, child.id);
-    expect(childHooks.completion).toMatchObject({ level: 'merge', min_level: 'merge', locked: true });
-    await post(f, 'worker.completion', { id: child.id, level: 'off', expected_revision: childHooks.revision }, 400);
-    expect((await configure(f, child.id, 'accept')).completion.level).toBe('accept');
+    expect(childHooks.completion).toMatchObject({ level: 'merge', min_level: 'merge', locked: true, editable: false });
+    expect(childHooks.mounts.slice(0, 3).every(item => item.locked && !item.editable && !item.removable)).toBe(true);
+    const original = f.store.task(child.id), history = f.store.history(child.id);
+    for (const level of ['off', 'merge', 'accept', 'archive']) {
+      const error = await post(f, 'worker.completion', { id: child.id, level, expected_revision: childHooks.revision }, 400);
+      expect(error.error).toContain('锁定');
+    }
+    for (const enabled of [false, true]) {
+      expect((await post(f, 'worker.auto_merge', { id: child.id, enabled }, 400)).error).toContain('锁定');
+      await post(f, 'worker.hook_update', { id: child.id, hook_id: 'auto-merge', enabled, expected_revision: childHooks.revision }, 400);
+    }
+    for (const hook_id of ['auto-merge', 'auto-accept', 'auto-archive']) {
+      await post(f, 'worker.hook_remove', { id: child.id, hook_id, expected_revision: childHooks.revision }, 400);
+    }
+    expect((await hooks(f, child.id)).revision).toBe(childHooks.revision);
+    expect(f.store.task(child.id).auto_merge).toBe(original.auto_merge);
+    expect(f.store.task(child.id).reservation).toBe(original.reservation);
+    expect(f.store.history(child.id)).toEqual(history);
+    expect((await get(f, `/api/worker/${child.id}`)).completion).toEqual(childHooks.completion);
+    expect((await get(f, '/api/worker-graph')).nodes.find(item => item.id === child.id).completion).toEqual(childHooks.completion);
+    // A user order on another Worker's branch is not a delegated child.
+    const nested = await post(f, 'order.submit', { content: 'user-created nested order', branch: task.branch, start: false });
+    expect((await configure(f, nested.task.id, 'accept')).completion).toMatchObject({ level: 'accept', editable: true, locked: false });
+    const custom = await post(f, 'worker.hook_attach', { id: child.id, expected_revision: childHooks.revision,
+      hook: { name: 'non-flow notification', mode: 'once', enabled: true, trigger: 'agent.returned', actions: [{ type: 'notify', title: 'Notice', body: 'Result' }] } });
+    expect(custom.mounts.find(item => !item.builtin).editable).toBe(true);
     for (const [type, trigger] of [['accept_worker', 'delivery.integrated'], ['archive_worker', 'worker.accepted']]) {
       const current = await hooks(f, task.id);
       const error = await post(f, 'worker.hook_attach', { id: task.id, expected_revision: current.revision,

@@ -70,7 +70,7 @@
 
 模板定义同形，但未填 profile 的 create_worker 在实际挂载时冻结默认。`worker.hook_attach` 的 `hook` 也可为 `{template_id:UUID}`，由服务器复制完整私有定义，不能把裁去 profile 的安全读面当作完整参数回传。挂载时复制模板；以后编辑模板不修改实例。同一位置的 `create_worker` 编辑时省略 `profile` 会保留模板已有私有覆盖，显式提供则替换；前端新增或移动创建动作要求显式设置参数，避免从安全读面重建秘密。普通读面必须剔除完整 profile/Prompt/env，仅给 `model_selection` 的无秘密摘要；事件不得包含秘密或任意运行错误输出。
 
-持久化采用附属 versioned JSON（如 `tasks.hooks`、项目模板 `meta`），不新增核心业务实体。现有 `tasks.auto_merge` / `tasks.reservation` 保持兼容，自动合并投影为内置挂载 `id:'auto-merge'`，触发为 `worker.delivery_ready`，持续、启用、锁定/可编辑原因复用 `autoMergeView`。此阶段不批量迁移历史行。
+持久化采用附属 versioned JSON（如 `tasks.hooks`、项目模板 `meta`），不新增核心业务实体。现有 `tasks.auto_merge` / `tasks.reservation` 保持兼容，自动合并投影为内置挂载 `id:'auto-merge'`，触发为 `worker.delivery_ready`，持续、启用、锁定/可编辑原因复用 `autoMergeView`。派生 child 的合并—验收—归档流程 Hook 整体对用户只读，旧开关及挂载入口也不能修改；其他受控自定义规则保留原权限。此阶段不批量迁移历史行。
 
 ## Project / RPC / HTTP
 

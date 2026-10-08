@@ -158,6 +158,7 @@ export default {
     if (completion && mounts[0]?.id === 'auto-merge') {
       const receipt = this.completionMountState(task, 'merge');
       if (receipt.last_execution) Object.assign(mounts[0], receipt);
+      if (completion.locked) mounts[0].reason = completion.reason;
     }
     if (completion) for (const [phase, name, trigger, type, threshold] of [
       ['accept', '自动验收', 'delivery.integrated', 'accept_worker', 2],
@@ -166,9 +167,9 @@ export default {
       const status = this.completionMountState(task, phase);
       mounts.splice(threshold - 1, 0, { id: `auto-${phase}`, name, trigger, mode: 'persistent',
         enabled: ['off','merge','accept','archive'].indexOf(completion.level) >= threshold,
-        builtin: true, locked: false, editable: false, removable: false,
+        builtin: true, locked: completion.locked, editable: false, removable: false,
         conditions: {}, actions: [{ type }], ...status,
-        reason: status.reason ?? '通过最高自动级别统一设置，仍需前一步与现有安全检查通过' });
+        reason: completion.locked ? completion.reason : status.reason ?? '通过最高自动级别统一设置，仍需前一步与现有安全检查通过' });
     }
     return { version: 1, worker_id: task.id, revision: revision(this, task), completion, can_attach: ownerAvailable(this, task, true), mounts };
   },

@@ -42,11 +42,11 @@
 
 ## 最高自动级别
 
-`worker.completion` 严格接受 `off|merge|accept|archive`，高档包含之前的步骤，返回更新后的 Worker Hooks。读取当前 revision 后显式保存，不隐式继承给后代。child 的 min_level 为 merge，不能关闭，但可由用户单独提高级别。
+`worker.completion` 严格接受 `off|merge|accept|archive`，高档包含之前的步骤，返回更新后的 Worker Hooks。读取当前 revision 后显式保存，不隐式继承给后代。派生 child 的 min_level 为 merge，整组流程 Hook 对用户只读；所有级别设置（含同值）与旧自动合并开关写入均拒绝。用户直接创建的指令仍可配置，即使其父不是 main。
 
-`completion` 为 `{level,min_level,locked,editable,reason,phase,state,last_execution}`；locked 只表示最低合并级别受保护，不禁止所有高级别。phase 是 merge/accept/archive 或 null，state 沿用 idle/waiting/running/succeeded/failed/unknown。inspect、graph、Hooks 为同源安全投影，不含私有执行／提醒收据。普通 Worker 出口去除字符串 hooks、auto_merge 和完整 retry_profile，保留安全对象和授权配置/env 字典。
+`completion` 为 `{level,min_level,locked,editable,reason,phase,state,last_execution}`；child 的 locked:true、editable:false 表示整组流程 Hook 锁定，reason 解释用户不可修改；三个内置挂载同样锁定且不可移除。phase 是 merge/accept/archive 或 null，state 沿用 idle/waiting/running/succeeded/failed/unknown。inspect、graph、Hooks 为同源安全投影，不含私有执行／提醒收据。普通 Worker 出口去除字符串 hooks、auto_merge 和完整 retry_profile，保留安全对象和授权配置/env 字典。
 
-已冻结请求、挂起、执行中、同步或 unknown 不能改级别；已合并／验收时只允许显式提高，补办仍复用原安全门。验收不做模型质量评审；归档不授权丢弃脏工作区。归档高级别失败不会重放或反向撤销验收。历史 completed 没有 task.accepted 事实时不能冒充验收。
+已冻结请求、挂起、执行中、同步或 unknown 不能改级别；用户指令已合并／验收时只允许显式提高，补办仍复用原安全门。验收不做模型质量评审；归档不授权丢弃脏工作区。归档高级别失败不会重放或反向撤销验收。历史 completed 没有 task.accepted 事实时不能冒充验收。
 
 动作目录中的 `accept_worker` / `archive_worker` 标 `builtin_only:true`，用于说明内置步骤，不能安装为自定义规则。配置和恢复细节见[自动链接缝](../../engineering/completion-hooks.md)。
 

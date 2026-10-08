@@ -16,9 +16,9 @@ export default {
     const booking = reservationOf(task);
     if (booking && booking.version !== 2) return null; // historical approval stays historical
     const settings = task.auto_merge ? JSON.parse(task.auto_merge) : null;
-    const enabled = settings?.enabled === true, locked = settings?.locked === true;
+    const enabled = settings?.enabled === true, locked = task.task_kind === 'child' || settings?.locked === true;
     let reason = null;
-    if (locked) reason = '父Worker派生的子Worker默认自动合并，不能关闭';
+    if (locked) reason = '父Worker派生的子Worker自动合并 Hook 已锁定，用户不能关闭或修改';
     else if (TERMINAL.has(task.status) || task.status === 'awaiting_acceptance') reason = '本轮已交付或 Worker 已结束，不能调整自动合并';
     else if (booking && [...FROZEN, 'suspended'].includes(booking.status)) reason = '合并请求已发出，不能调整自动合并';
     else if (this.taskSyncBusy?.has(task.id) || taskSyncDeliveryPaused(this, task.id)) reason = '父分支同步正在执行或交付已暂停，不能调整自动合并';
@@ -45,6 +45,7 @@ export default {
     const task = this.store.task(id(taskId));
     const before = this.autoMergeView(task);
     check(before, 'only version 2 order/child Workers support auto merge');
+    check(!before.locked, before.reason);
     if (before.enabled === enabled) return { task_id: task.id, changed: false, auto_merge: before };
     check(before.editable, before.reason);
     assertTaskAncestorsOpen(this, task);

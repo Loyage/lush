@@ -6,7 +6,7 @@
 
 - 选择当前 Worker 的最高自动级别：`off | merge | accept | archive`；高档包含前面的步骤。
 - 自动验收只复用现有安全校验并代替用户确认，不调用质量评审 Agent，不保证业务效果符合用户预期。
-- 设置不继承。新 child 仍默认锁定自动合并、由直接父 Agent 检查确认；只有用户显式为某个 child 选择高级别，才授权它自动验收／归档。
+- 设置不继承。派生 child 的合并—验收—归档流程 Hook 整体对用户只读：默认锁定自动合并、由直接父 Agent 检查确认，用户不能关闭、提高或重设自动级别。用户直接创建的指令即使挂在另一个 Worker 分支下，仍可配置自己的自动链。
 - 开发中可预设；请求已冻结或自动动作正在执行时不可改当前链。已合并待验收、已验收未归档时，允许显式提高级别补办后续步骤。
 - 自动成功环节不生成普通完成告知；仅提醒下一个人工环节。失败、受阻和待决仍可见；审计 Event、执行结果与原始历史保留。
 
@@ -20,7 +20,7 @@
 
 后续级别不得重新合并已落地成果或重复验收。每个阶段持久化领取和收据；安全准入改变时停止并说明，不覆盖用户新输入，不并发删除仍在使用的工作区。自动动作不能借 actor:null 获得额外用户权限，执行时仍须验证当前保存的用户授权和对应轮次。
 
-级别跨轮保存，与本轮执行状态分开；重开/追加开发时不能复用旧轮成功或失败收据推进新成果。父 child 的最低级别仍为 merge，不能用新入口关闭锁定合并。旧 `worker.auto_merge` 开关继续原权限和门禁；on 不降级已有高级别，off（允许时）关闭整条未来自动链，不撤回已发请求。历史 version 1 交付不改造成新自动链，旧配置不回填。
+级别跨轮保存，与本轮执行状态分开；重开/追加开发时不能复用旧轮成功或失败收据推进新成果。派生 child 的流程 Hook 整体锁定，最高级别及旧开关入口都拒绝用户设置（含同值写入）。旧 `worker.auto_merge` 开关继续原权限和门禁；on 不降级已有高级别，off（允许时）关闭整条未来自动链，不撤回已发请求。历史 version 1 交付不改造成新自动链，旧配置不回填；已有 child 的保存级别及执行收据不重写，仅锁定后续配置权限。
 
 明确失败与未知结果不自动重试。归档有部分副作用或重启途中断时保留逐分支事实与 unknown/failed 诊断，不能因重启再次发射删除；需要用户检查现场并显式恢复。只有精确成功凭据可收口，不能仅凭目录不存在推断成功。
 
@@ -35,9 +35,9 @@ RPC 出口递归去除普通 Worker 结果的字符串 `auto_merge`，防止 raw
 ```js
 {
   level: 'accept',
-  min_level: 'off', // child 为 merge；不是整组选项不可编辑
-  locked: false, // 表示最低合并级别锁定，不禁止用户显式选择更高档
-  editable: true, reason: null,
+  min_level: 'off', // child 为 merge
+  locked: false, // child 为 true，表示整组流程 Hook 对用户只读
+  editable: true, reason: null, // child 为 false，并给出流程锁定原因
   phase: 'merge', // merge | accept | archive | null
   state: 'waiting', // idle | waiting | running | succeeded | failed | unknown
   last_execution: null // 或安全 id/phase/status/created_at/finished_at/error 摘要
@@ -46,7 +46,7 @@ RPC 出口递归去除普通 Worker 结果的字符串 `auto_merge`，防止 raw
 
 `worker.inspect`、`worker.graph` 和 `worker.hooks` 返回同源 `completion`；不适用的历史 Worker/main/owner 为 null。Hook revision 必须覆盖真实级别与执行授权变化，不只哈希旧 enabled 布尔值。
 
-内置挂载保持 `auto-merge`，新增不可移除 `auto-accept`、`auto-archive`，分别是 delivery_ready、delivery.integrated、worker.accepted 节点。统一用最高级别配置，不提供三份独立且可矛盾的开关。最近执行与阻塞原因走同源安全投影。
+内置挂载保持 `auto-merge`，新增不可移除 `auto-accept`、`auto-archive`，分别是 delivery_ready、delivery.integrated、worker.accepted 节点。统一用最高级别配置，不提供三份独立且可矛盾的开关。child 的三个内置挂载均 locked:true、editable:false、removable:false；通用自定义 Hook 的权限不因本限制扩大或收紧。最近执行与阻塞原因走同源安全投影。
 
 动作目录可用 `accept_worker`、`archive_worker` 描述两个内置动作，必须标 `builtin_only:true`；首期仅最高级别授权，不开放任意自定义组合安装这两个动作。前端表单排除 builtin_only，后端也必须拒绝直接安装，不能只藏 UI。原四个自定义动作不变。
 
@@ -80,6 +80,6 @@ RPC 出口递归去除普通 Worker 结果的字符串 `auto_merge`，防止 raw
 - Web：hook-controls/render-hooks/hook-form、必要图摘要与样式、DOM 测试；最高级别选择，三个节点结果，旧服务 completion 缺失时保守保留旧自动合并控制，不伪装高级别可用。
 - 父 Worker：契约与使用文档、跨区适配、真实临时 HTTP/RPC/SQLite/Git 联调与全量回归。
 
-`test/web/completion-runtime-integration.test.js` 使用真实临时 HTTP/RPC/SQLite/Git 验证四档串行链、成功静默／下一人工环节、补办、去重、child 最低级别和私有收据出口。Runtime 另由 `completion*.test.js` 验证安全准入、部分归档及 unknown 恢复；真实浏览器、桌面与实际模型仍另行验收。
+`test/web/completion-runtime-integration.test.js` 使用真实临时 HTTP/RPC/SQLite/Git 验证四档串行链、成功静默／下一人工环节、补办、去重、child 整组流程锁定和私有收据出口。Runtime 另由 `completion*.test.js` 验证安全准入、部分归档及 unknown 恢复；真实浏览器、桌面与实际模型仍另行验收。
 
-至少实际验证四档级别、顺序与去重、无代码成果、已合并／已验收补办、设置不继承、child 最低级别锁定、旧开关一致性、权限与 stale revision、后代/未读/待决/脏现场/冻结阻塞、并发追加输入、部分归档与重启 unknown 不重放、成功静默及下一人工提醒、失败诊断保留、迟到响应与 Agent 代价标识。测试使用临时项目和可控 provider，不重启用户服务、不调用真实模型。
+至少实际验证四档级别、顺序与去重、无代码成果、已合并／已验收补办、设置不继承、child 整组流程锁定（包括缺失／旧 unlocked 配置、同值写入、旧开关与挂载入口）、旧开关一致性、权限与 stale revision、后代/未读/待决/脏现场/冻结阻塞、并发追加输入、部分归档与重启 unknown 不重放、成功静默及下一人工提醒、失败诊断保留、迟到响应与 Agent 代价标识。测试使用临时项目和可控 provider，不重启用户服务、不调用真实模型。

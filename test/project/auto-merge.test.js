@@ -30,7 +30,7 @@ test('new order hook is off; new delegated child is on and locked through both m
     expect((await f.project.taskGraph()).nodes.find(row => row.id === child.id).auto_merge).toMatchObject(expected);
     await expect(f.project.setTaskAutoMerge(child.id, false)).rejects.toThrow('不能关闭');
     expect(() => f.project.unreserveTask(child.id)).toThrow('锁定');
-    expect((await f.project.setTaskAutoMerge(child.id, true)).changed).toBe(false);
+    await expect(f.project.setTaskAutoMerge(child.id, true)).rejects.toThrow('锁定');
     expect(f.project.inspect(task.parent_id).auto_merge).toBeNull();
     await expect(f.project.setTaskAutoMerge(task.parent_id, true)).rejects.toThrow('only version 2');
   } finally { await f.close(); }
@@ -128,7 +128,7 @@ test('legacy NULL settings and legacy approvals remain unchanged through recover
     expect(f.store.task(child.id)).toMatchObject({ auto_merge: null, reservation: null });
     expect(f.store.task(task.id).auto_merge).toBeNull();
     expect(booking(f, task.id).version).toBe(1);
-    expect(f.project.inspect(child.id).auto_merge).toMatchObject({ enabled: false, locked: false });
+    expect(f.project.inspect(child.id).auto_merge).toMatchObject({ enabled: false, locked: true, editable: false });
   } finally { await f.close(); }
 });
 

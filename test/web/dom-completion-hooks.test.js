@@ -83,14 +83,21 @@ test('click immediately authorizes one Worker with its revision; selecting the s
   await click(node, 'merge'); expect(actions.at(-1).params.expected_revision).toBe('mount-v2');
 });
 
-test('child minimum only disables off, explains on focusable host and allows higher explicit authorization', async () => {
-  responseTask = taskFor('merge', { task_kind: 'child', auto_merge: { enabled: true, locked: true, editable: false }, completion: { min_level: 'merge', locked: true } });
-  const node = control(); expect(choice(node, 'off').disabled).toBe(true);
-  expect(choice(node, 'off').parentNode.tabIndex).toBe(0);
-  expect(choice(node, 'off').parentNode.getAttribute('data-help')).toContain('不能关闭');
-  await click(node, 'off'); expect(actions).toHaveLength(0);
-  expect(choice(node, 'accept').disabled).toBe(false); await click(node, 'accept');
-  expect(actions[0].params.level).toBe('accept'); expect(choice(node, 'accept').getAttribute('data-help')).toContain('不继承');
+test('child flow Hooks are read-only even with an old editable projection; focusable hosts explain every locked choice', async () => {
+  for (const status of ['waiting', 'awaiting_acceptance', 'completed']) {
+    for (const locked of [true, false]) {
+      responseTask = taskFor('merge', { status, task_kind: 'child', auto_merge: { enabled: true, locked, editable: true }, completion: { min_level: 'merge', locked, editable: true } });
+      const node = control();
+      for (const level of levels) {
+        expect(choice(node, level).disabled).toBe(true);
+        expect(choice(node, level).parentNode.tabIndex).toBe(0);
+        expect(choice(node, level).parentNode.getAttribute('data-help')).toContain('用户不能修改');
+        await click(node, level);
+      }
+      expect(selected(node)).toEqual(['merge']); expect(actions).toHaveLength(0);
+      expect(deepText(node)).toContain('流程 Hook 已锁定');
+    }
+  }
 });
 
 test('merged and accepted Workers can raise the level without Agent cost or old auto-merge toggle gates', async () => {
@@ -196,6 +203,17 @@ test('old services with missing or null completion retain only the original auto
   const input = workerHooks(old, { refresh() {} }).querySelector('input');
   dom.location.pathname = '/p/2222222222222222/'; const count = actions.length; input.checked = true; await input.onchange();
   expect(actions).toHaveLength(count); expect(input.checked).toBe(false);
+});
+
+test('legacy auto-merge fallback stays read-only for children even when old settings say editable', async () => {
+  const child = taskFor('merge', { task_kind: 'child', auto_merge: { enabled: true, locked: false, editable: true } });
+  delete child.completion; delete child.hooks.completion;
+  const section = workerHooks(child, { refresh() {} }); root().replaceChildren(section);
+  const input = section.querySelector('input'); expect(input.disabled).toBe(true);
+  expect(deepText(section)).not.toContain('自动到');
+  expect(input.parentNode.parentNode.getAttribute('data-help')).toContain('用户不能修改自动合并');
+  input.checked = false; await input.onchange();
+  expect(input.checked).toBe(true); expect(actions).toHaveLength(0);
 });
 
 test('detailed chain explanations live on project Hooks page; builtin-only actions stay excluded from custom editor', async () => {

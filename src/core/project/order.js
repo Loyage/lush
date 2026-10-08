@@ -679,7 +679,10 @@ export default {
     const requested = this.store.task(id(taskId));
     assertTaskNotSyncing(this, requested.id);
     const automatic = this.autoMergeView(requested);
-    check(!automatic?.locked, '父Worker派生的子Worker自动合并已锁定，不能撤销；如需停止工作，请取消 Worker');
+    // Flow configuration is read-only for every child, but historical one-shot
+    // requests without a persisted locked Hook keep their original withdrawal gate.
+    const lockedHook = automatic && requested.auto_merge && JSON.parse(requested.auto_merge).locked === true;
+    check(!lockedHook, '父Worker派生的子Worker自动合并已锁定，不能撤销；如需停止工作，请取消 Worker');
     // A persistent hook would immediately recreate an automatic intention. Make
     // the user explicitly switch it off (with the same readiness gate) instead.
     check(!automatic?.enabled || !requested.reservation || !JSON.parse(requested.reservation).auto_merge,

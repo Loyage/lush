@@ -130,16 +130,44 @@ test('revision, lock and legacy boolean routes cannot conflict with the highest 
     await configure(f, task, 'archive');
     const child = await f.project.spawn(task.id, 'default child');
     expect(config(f, child)).toEqual({ version: 1, enabled: true, locked: true });
-    expect(f.project.autoCompletionView(f.store.task(child.id))).toMatchObject({ level: 'merge', min_level: 'merge', locked: true, editable: true });
-    await expect(configure(f, child, 'off')).rejects.toThrow('不能关闭');
-    await configure(f, child, 'accept');
-    expect(f.project.taskHooks(child.id).mounts.find(row => row.id === 'auto-accept').enabled).toBe(true);
-    await expect(f.project.setTaskAutoMerge(child.id, false)).rejects.toThrow('不能关闭');
+    expect(f.project.autoCompletionView(f.store.task(child.id))).toMatchObject({ level: 'merge', min_level: 'merge', locked: true, editable: false });
+    const original = f.store.task(child.id), history = f.store.history(child.id);
+    for (const level of ['off', 'merge', 'accept', 'archive']) await expect(configure(f, child, level)).rejects.toThrow('锁定');
+    for (const enabled of [true, false]) {
+      await expect(f.project.setTaskAutoMerge(child.id, enabled)).rejects.toThrow('锁定');
+      await expect(f.project.updateTaskHook(child.id, 'auto-merge', enabled, f.project.taskHooks(child.id).revision)).rejects.toThrow('锁定');
+    }
+    const mounted = f.project.taskHooks(child.id);
+    expect(mounted.mounts.slice(0, 3).every(row => row.locked && !row.editable && !row.removable)).toBe(true);
+    expect(mounted.mounts.find(row => row.id === 'auto-accept').enabled).toBe(false);
+    expect(f.store.task(child.id).auto_merge).toBe(original.auto_merge);
+    expect(f.store.task(child.id).reservation).toBe(original.reservation);
+    expect(f.store.history(child.id)).toEqual(history);
     for (const phase of ['accept', 'archive']) expect(() => normalizeHook({ name: 'bypass', trigger: phase === 'accept' ? 'delivery.integrated' : 'worker.accepted', mode: 'persistent', enabled: true, actions: [{ type: `${phase}_worker` }] })).toThrow('built-in');
     f.store.update(task.id, { reservation: JSON.stringify({ version: 1, kind: 'merge', status: 'pending' }) });
     expect(f.project.autoCompletionView(f.store.task(task.id))).toBeNull();
   } finally { await f.close(); }
 }, 15000);
+
+test('child identity locks historical flow settings without rewriting saved authorizations', async () => {
+  const f = await setup();
+  try {
+    const { task } = await f.project.order('parent');
+    const child = await f.project.spawn(task.id, 'historical child');
+    for (const saved of [null, { version: 1, enabled: false, locked: false }, { version: 1, enabled: true, locked: false, level: 'archive' }]) {
+      f.store.update(child.id, { auto_merge: saved ? JSON.stringify(saved) : null });
+      const original = f.store.task(child.id).auto_merge;
+      for (const status of ['waiting', 'awaiting_acceptance', 'completed']) {
+        f.store.update(child.id, { status });
+        expect(f.project.autoCompletionView(f.store.task(child.id))).toMatchObject({ locked: true, editable: false });
+        expect(f.project.autoMergeView(f.store.task(child.id))).toMatchObject({ locked: true, editable: false });
+        for (const level of ['off', 'merge', 'accept', 'archive']) await expect(configure(f, child, level)).rejects.toThrow('锁定');
+        for (const enabled of [true, false]) await expect(f.project.setTaskAutoMerge(child.id, enabled)).rejects.toThrow('锁定');
+        expect(f.store.task(child.id).auto_merge).toBe(original);
+      }
+    }
+  } finally { await f.close(); }
+});
 
 for (const obstacle of ['message', 'decision', 'child', 'dirty', 'freeze']) test(`automatic acceptance preserves ${obstacle} and stops once with a safe diagnostic`, async () => {
   const f = await setup();
