@@ -128,9 +128,12 @@ test('call timeout / task call limit / max depth are runtime-overridable and val
 });
 
 test('runtime max_depth override reaches later spawns without restart', async () => {
-  const f = fixture(controlled(), { LUSH_MAX_DEPTH: '3' });
-  await repo(f.root);
+  const provider = controlled();
+  const f = fixture(provider, { LUSH_MAX_DEPTH: '3' });
+  // Only exercise fork admission: background invocations add unrelated Git work and shutdown races.
+  f.project.stopping = true;
   try {
+    await repo(f.root);
     const root = (await f.project.order('root')).task;
     const child = await f.project.spawn(root.id, 'child', undefined, [], 'child');
     expect(() => f.project.spawn(child.id, 'too deep', undefined, [], 'too-deep')).toThrow('nesting');
@@ -139,8 +142,14 @@ test('runtime max_depth override reaches later spawns without restart', async ()
     const grandchild = await f.project.spawn(child.id, 'grandchild', undefined, [], 'grandchild');
     const great = await f.project.spawn(grandchild.id, 'great', undefined, [], 'great');
     expect(great.parent_id).toBe(grandchild.id);
+    // Clearing the override immediately restores admission limits, without deleting existing descendants.
+    expect(f.project.configureRuntimeSettings({ max_depth: null }).max_depth).toEqual({ value: 3, default: 3, overridden: false, source: 'default' });
+    expect(() => f.project.spawn(child.id, 'too deep again')).toThrow('nesting');
+    expect(f.store.task(great.id).parent_id).toBe(grandchild.id);
+    expect(f.project.running.size).toBe(0);
+    expect(provider.calls).toHaveLength(0);
   } finally { await f.close(); }
-});
+}, 15000); // Several real Git forks need a CI budget independent of the default 5s timeout.
 
 test('corrupt or unsafe runtime settings fail loudly with the file path', () => {
   const root = temp();
