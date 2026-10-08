@@ -25,15 +25,6 @@ export async function run(command, args, ctx) {
     }
     else if (verb === 'dismiss') { exact(args, 1); value = await client.request('notice.dismiss', { id: id(args[0]) }); }
     else if (verb === 'read') { exact(args, 1); value = await client.request('notice.read', { id: id(args[0]) }); }
-    else if (verb === 'snapshot') { exact(args, 1); value = await client.request('notice.snapshot', { id: id(args[0]) }); }
-    else if (verb === 'rechoose') {
-      const file = option(args, '--answers-file'), revision = option(args, '--revision'), requestId = option(args, '--request-id');
-      exact(args, 1);
-      check(file && revision && requestId, 'rechoose requires --answers-file, --revision and --request-id; reuse the same request ID when retrying');
-      const noticeId = id(args[0]);
-      value = await client.request('notice.rechoose', { id: noticeId, answer: JSON.parse(fs.readFileSync(file, 'utf8')),
-        revision, request_id: requestId });
-    }
     else throw new Error('unknown notice command');
   }
   return value;

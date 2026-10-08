@@ -307,7 +307,7 @@ export function renderDetail(task, history, diff, usage, connections = null) {
         fold.dataset.noticeId = String(notice.id); fold.dataset.signature = signature;
         const label = { open: '历史待决 · 只读', answered: '已回答', dismissed: '已忽略' }[notice.status] || notice.status;
         fold.append(el('summary', `${notice.title} · ${label}`),
-          readOnly && notice.status === 'open' ? el('pre', notice.body) : settledDecision(notice, { rechoose: !readOnly }));
+          readOnly && notice.status === 'open' ? el('pre', notice.body) : settledDecision(notice));
         record.append(fold);
       }
     }

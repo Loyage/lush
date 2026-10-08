@@ -45,7 +45,6 @@ export const ui = {
   noticeFocus: null, noticeIndex: new Map(), noticeRecords: null, loadNoticeRecords: null,
   noticeReadPending: new Map(), noticeReadRows: new Map(),
   questionDrafts: new Map(), // 当前会话草稿；sessionStorage 可跨刷新恢复
-  choiceRechooseRequests: new Map(), // 重选请求身份/成功回执，与原问卷草稿隔离
   // 左栏四个列表共用的排序偏好（smart / updated / id）。
   sidebarSortMode: readSidebarSortPref(),
   deletedWorkerIds: new Set(), // 已删除身份不复用；阻止在途读响应把已删缓存/卡片复活。
@@ -93,7 +92,7 @@ export function resetUiState() {
   ui.draftSignature = null; ui.draftEditing = null; ui.draftIds = []; ui.draftPanelOpen = false; ui.composerExpanded = false; ui.composerSubmitting = false; ui.composerStartNow = false; ui.composerReferences = [];
   ui.intentSignature = null; ui.specSignature = null;
   ui.noticeReadPending = new Map(); ui.noticeReadRows = new Map();
-  ui.noticeFocus = null; ui.noticeIndex = new Map(); ui.questionDrafts = new Map(); ui.choiceRechooseRequests = new Map(); ui.noticeRecords = null; ui.loadNoticeRecords = null;
+  ui.noticeFocus = null; ui.noticeIndex = new Map(); ui.questionDrafts = new Map(); ui.noticeRecords = null; ui.loadNoticeRecords = null;
   ui.lastSnapshot = null; ui.taskHistory = []; ui.taskHistoryPage = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
   ui.taskGraphFetchedAt = 0; ui.taskGraphIds = new Set(); ui.taskGraphShowArchived = false;
   ui.taskGraphFilesExpanded = new Set(); ui.taskGraphMinimal = readPref('taskGraphMinimal');

@@ -90,9 +90,9 @@
 
 实现分工：编号校验、唯一约束与只读 `worker.lookup` 在 `src/core/worker-number.js` 与 `src/persistence/store/`、`src/rpc/`；CLI 解析与展示在 `src/cli/worker-number.js`；Web 展示接缝在 `src/ui/web/assets/worker-label.js` 与 `format.js`。字段与接口见 [Runtime 地图](modules-runtime.md) 与 [Web 前端](modules-web.md)。
 
-## 选择快照与重选路线（W121 / 决定 #283）
+## 选择快照已停用（W138）
 
-结构化问卷保存选择前代码现场与可恢复上下文，历史重选另开用户指令 Worker，旧路线和已合并成果不自动撤回。API、快照安全点、资源保留与并行职责以[选择快照契约](choice-snapshots.md)为准。Runtime 子分区负责 core/persistence/agent 与测试；UI 子分区负责 assets/DOM；父负责 RPC/CLI/Host、文档和集成。
+用户要求暂停选择快照，待产品方向明确后再开发。新问卷不保存代码／上下文快照，RPC、CLI、HTTP 与 Web 不提供快照查看或重选。正常选择、答复、自动选择 Hook 和历史问卷回放不变。已有附属资源与已创建路线只保留历史恢复、调度和删除保护，不迁移或擅自清理；边界见[选择快照停用说明](choice-snapshots.md)。
 
 ## 当前公开面
 

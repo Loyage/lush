@@ -6,46 +6,34 @@ import { projectRouteId } from '../../src/host/registry.js';
 import { env, temp } from '../helpers.js';
 import { setup, fetch } from './harness.js';
 
-const params = { id: 8, answer: { answers: [{ selected: [1], custom: '' }] }, revision: 'snapshot-revision',
-  request_id: '76e2c51f-474a-40da-979c-27c6affb4e23' };
-const post = (url, input = params, headers = {}, method = 'notice.rechoose') => fetch(url + '/api/action', {
-  method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ method, params: input }),
+const post = (url, method = 'notice.rechoose') => fetch(url + '/api/action', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ method, params: { id: 8, answer: { answers: [{ selected: [1], custom: '' }] },
+    revision: 'legacy', request_id: '76e2c51f-474a-40da-979c-27c6affb4e23' } }),
 });
 
-test('choice HTTP routes retain login, origin, user-only and strict parameter boundaries through real RPC', async () => {
+test('authenticated single-project Host rejects retired snapshot routes and actions without reaching runtime', async () => {
   const f = await setup({ auth: { username: 'owner', password: 'test-only-password' } }), calls = [];
-  const snapshot = { notice_id: 8, status: 'ready', revision: params.revision, can_rechoose: true, blockers: [] };
-  const restored = { notice_id: 8, task: { id: 9, worker_number: 'W9' }, reused: false };
-  f.project.noticeSnapshot = id => { calls.push(['read', id]); return snapshot; };
-  f.project.rechooseNotice = (...args) => { calls.push(['restore', ...args]); return restored; };
+  f.project.noticeSnapshot = () => { calls.push('read'); };
+  f.project.rechooseNotice = () => { calls.push('restore'); };
   try {
     expect((await fetch(f.url + '/api/notice/8/snapshot')).status).toBe(401);
     expect((await post(f.url)).status).toBe(401);
-    expect(calls).toHaveLength(0);
     const login = await fetch(f.url + '/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'username=owner&password=test-only-password&next=%2F' });
     const Cookie = login.headers.get('set-cookie').split(';')[0];
-    const read = await fetch(f.url + '/api/notice/8/snapshot', { headers: { Cookie } });
-    expect(read.status).toBe(200); expect(await read.json()).toEqual(snapshot);
-    expect(read.headers.get('cache-control')).toBe('no-store');
-    const write = await post(f.url, params, { Cookie });
-    expect(write.status).toBe(200); expect(await write.json()).toEqual(restored);
-    expect(calls).toEqual([['read',8], ['restore',8,params.answer,params.revision,params.request_id]]);
-    for (const query of ['?_token=forged','?path=/etc','?id=9','?revision=a&revision=b'])
-      expect((await fetch(f.url + '/api/notice/8/snapshot' + query, { headers: { Cookie } })).status).toBe(400);
-    for (const route of ['/api/notice/0/snapshot','/api/notice/W8/snapshot','/api/notice/8/rechoose'])
-      expect((await fetch(f.url + route, { headers: { Cookie } })).status).toBe(404);
-    for (const extra of ['_token','path','branch','profile','force','answer_source'])
-      expect((await post(f.url, { ...params, [extra]: 'forged' }, { Cookie })).status).toBe(400);
-    expect((await post(f.url, { id: 8 }, { Cookie }, 'notice.snapshot')).status).toBe(400);
-    expect((await post(f.url, params, { Cookie, Origin: 'https://evil.invalid' })).status).toBe(403);
-    expect((await fetch(f.url + '/api/notice/8/snapshot', { headers: { Cookie, Origin: 'https://evil.invalid' } })).status).toBe(403);
-    expect((await post(f.url, params, { Cookie, 'Content-Type': 'text/plain' })).status).toBe(400);
-    expect(calls).toHaveLength(2);
+    for (const suffix of ['', '?revision=legacy', '?_token=forged'])
+      expect((await fetch(f.url + '/api/notice/8/snapshot' + suffix, { headers: { Cookie } })).status).toBe(404);
+    for (const method of ['notice.rechoose', 'notice.snapshot']) {
+      const response = await fetch(f.url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie },
+        body: JSON.stringify({ method, params: { id: 8 } }) });
+      expect(response.status).toBe(400);
+    }
+    expect(calls).toEqual([]);
   } finally { await f.close(); }
 });
 
-test('choice snapshots and restore actions bind to the explicit project route, never another tab', async () => {
+test('workbench rejects retired choice APIs for every explicit project without forwarding', async () => {
   const a = temp(), b = temp(), global = temp(), calls = [];
   const web = startWeb(null, 0, { env: env({ LUSH_GLOBAL_CONFIG: global }), openProject: async project => ({
     config: { project, home: path.join(project, '.lush') },
@@ -58,16 +46,9 @@ test('choice snapshots and restore actions bind to the explicit project route, n
     calls.length = 0;
     for (const project of [a, b, a]) {
       const route = `${url}/p/${projectRouteId(project)}`;
-      const read = await fetch(route + '/api/notice/8/snapshot');
-      expect(read.status).toBe(200); expect(await read.json()).toEqual({ project });
-      expect(calls.at(-1)).toEqual({ project, method: 'notice.snapshot', params: { id: 8 } });
-      expect((await post(route)).status).toBe(200);
-      expect(calls.at(-1)).toEqual({ project, method: 'notice.rechoose', params });
+      expect((await fetch(route + '/api/notice/8/snapshot')).status).toBe(404);
+      expect((await post(route)).status).toBe(400);
     }
-    const count = calls.length;
-    expect((await fetch(url + '/api/notice/8/snapshot')).status).toBe(400);
-    expect((await post(url)).status).toBe(400);
-    expect((await fetch(`${url}/p/${'0'.repeat(16)}/api/notice/8/snapshot`)).status).toBe(400);
-    expect(calls).toHaveLength(count);
+    expect(calls).toEqual([]);
   } finally { web.stop(true); for (const dir of [a,b,global]) fs.rmSync(dir, { recursive: true, force: true }); }
 });

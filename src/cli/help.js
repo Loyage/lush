@@ -51,9 +51,6 @@ lush [--project PATH] [--json] <command>
   branch bind BRANCH COMMIT          显式绑定已有本地分支
   branch archive BRANCH [--discard] [--continue]  安全归档分支；--continue 继续上次未完成的后代
   notice list|post|answer|dismiss|read    用户决策与告知已读
-  notice snapshot ID                   查看历史问卷快照与重选限制（只读）
-  notice rechoose ID --answers-file FILE --revision REV --request-id UUID
-                                       从快照另开路线并调用 Agent；重试沿用 UUID，不回滚旧成果
   notice post '标题' [--worker ID] [--body '正文']  发给指定 Worker（Agent 默认当前 Worker）
   progress plan|complete             Agent 汇报进度
   agent show|models|set|reset|prompt|env|init|network  配置 Agent

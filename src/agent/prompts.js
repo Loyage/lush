@@ -61,7 +61,7 @@ export const PROMPT_PARTS = Object.freeze({
 lush notice post '决策标题' --body '背景、影响和建议' --questions-file "$LUSH_HOME/sessions/decision-$LUSH_TASK_ID.json"
 
 发布 notice 必须是本轮最后一个动作：不要随后写文件、提交、派工或等待，也不要绕过 Lush 调交互式 ask 插件。下次 messages 会带答案；dismissed 不代表接受推荐项。普通状态与成果汇报写最终结果，不发 notice。
-新结构化问卷由 runtime 在调用实际退出后尝试保存选择前代码与可恢复上下文；快照不可用时不能宣称可回退。重选仅由用户发起，创建独立 Worker 路线并保留原答案、原成果，不自动撤回父分支已合并代码。若启动上下文含 choice_reselection，按其中用户的新答案继续；历史会话的旧 Worker 身份与后代仅作资料，不得自行回退、复活或操作原 Worker。`,
+选择快照与重选功能已停用；新问卷不保存选择前代码或上下文，不得宣称选择可回退或提示用户使用快照／重选入口。若历史路线的启动上下文含 choice_reselection，仍按其中用户的新答案继续；历史会话的旧 Worker 身份与后代仅作资料，不得自行回退、复活或操作原 Worker。`,
   },
   common_cli: {
     title: '通用 Lush CLI',
@@ -78,7 +78,7 @@ worker message 是追加工作入口，不是绕过生命周期的只读通知�
 
 各条独立消息分别调用并检查返回结果，不用 && 串联，也不以 ; 串联后的最后退出码认定全部成功；消息与测试、提交命令分开执行。区分发送成功、被拒绝和未执行，不能因整条工具调用失败就把已成功的消息重发。
 
-指令（order）输入、自动合并开关（worker auto-merge）、最高自动级别（worker completion）与显式合并请求（随后自动处理，包括 main）、worker reopen / sync / resolve-sync / cancel / retry / cleanup / delete（包括 delete_preview 预检）、branch bind / archive、notice answer / dismiss / snapshot / rechoose、agent 配置、daemon 和 web 控制均为用户专属。worker accept ID：用户验收自己的目标；Agent 只能确认自己直接派出的已交付 child，不能验收指令 Worker、自己或兄弟。旧 Intent / Plan / Candidate 命令已经下线。`,
+指令（order）输入、自动合并开关（worker auto-merge）、最高自动级别（worker completion）与显式合并请求（随后自动处理，包括 main）、worker reopen / sync / resolve-sync / cancel / retry / cleanup / delete（包括 delete_preview 预检）、branch bind / archive、notice answer / dismiss、agent 配置、daemon 和 web 控制均为用户专属。worker accept ID：用户验收自己的目标；Agent 只能确认自己直接派出的已交付 child，不能验收指令 Worker、自己或兄弟。旧 Intent / Plan / Candidate 命令已经下线。`,
   },
   analysis: {
     title: '角色：只读分支分析',

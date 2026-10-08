@@ -3,14 +3,14 @@ import { randomUUID } from 'node:crypto';
 import { fixture, repo } from '../helpers.js';
 import { Dispatcher } from '../../src/rpc/dispatcher.js';
 
-// Exercise the new management lifecycle against the durable choice creation boundary.
+// Preserve management safety for historical choice creation receipts after feature retirement.
 async function setup(receiptStatus, targetStatus, action) {
   let f, target, result;
   f = fixture({ async run({ task, api, token }) {
     if (task.role !== 'manager') throw new Error('target must not start during choice creation');
     const rpc = new Dispatcher(api);
     for (const method of ['notice.snapshot','notice.rechoose'])
-      await expect(rpc.dispatch(method, { id: f.notice.id, _token: token })).rejects.toThrow('requires user approval');
+      await expect(rpc.dispatch(method, { id: f.notice.id, _token: token })).rejects.toThrow('unknown method');
     await expect(rpc.dispatch('notice.post', { title: 'no management questionnaire', _token: token })).rejects.toThrow('management agents');
     result = api.requestManagementAction(task.id, action, target.id);
     return 'management request recorded';

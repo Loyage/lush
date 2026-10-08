@@ -33,8 +33,4 @@ export const handlers = {
   'notice.answer'(p, params, actor) { return p.answer(params.id, params.answer); },
   'notice.dismiss'(p, params, actor) { return p.answer(params.id, '', true); },
   'notice.read'(p, params) { return p.readNotice(params.id); },
-  'notice.snapshot'(p, { id: noticeId }) { return p.noticeSnapshot(id(noticeId)); },
-  'notice.rechoose'(p, { id: noticeId, answer, revision, request_id }) {
-    return p.rechooseNotice(id(noticeId), answer, revision, request_id);
-  },
 };

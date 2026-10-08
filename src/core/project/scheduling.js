@@ -142,9 +142,6 @@ export default {
       run.promise = this.invoke(task.id, run).catch(error => {
         console.error(`worker ${task.id}: ${error.stack || error}`);
       }).finally(async () => {
-        // Capture while the exited invocation still owns running: neither another
-        // invocation nor a child delivery can change this selection's worktree.
-        await this.finishChoiceSnapshot(task.id, run);
         // Publish actual pause / release resume intent only after the invocation
         // has really exited; no new provider can overlap the old ownership.
         const released = this.store.task(task.id);

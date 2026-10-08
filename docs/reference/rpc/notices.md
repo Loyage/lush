@@ -12,8 +12,6 @@ Notice 共用持久记录，但决策与告知的语义独立。Agent 需要用�
 | `notice answer ID --answers-file FILE` | `notice.answer` | `{id, answer:{answers:[…]}}`（结构化问卷） |
 | `notice dismiss ID` | `notice.dismiss` | `{id}` |
 | `notice read ID` | `notice.read` | `{id}`（用户专属，只将 `info/sent` 标记已读） |
-| `notice snapshot ID` | `notice.snapshot` | `{id}`（用户专属，只读快照状态与重选限制） |
-| `notice rechoose ID --answers-file FILE --revision REV --request-id UUID` | `notice.rechoose` | `{id,answer,revision,request_id}`（用户专属，从选择快照另开路线并调用 Agent） |
 
 在源码仓库中统一用 `bun run lush notice …`（或 `bun run answer …`）。Agent 子进程通过注入的 CLI 与 `LUSH_PROJECT` 连接原项目，即使 cwd 是独立 worktree，也不会把问题发到另一个项目。
 
@@ -73,13 +71,9 @@ Notice 读面另投影可空 `lifecycle_type`，依据同 Worker 的来源 Event
 
 忽略问卷表示**未做决定，不是默认同意推荐项**。普通 owner 收到 `dismissed:true` 消息后继续评估，不应实施依赖未决选择的工作。从未被唤醒的预置解分歧Worker（`resolves_task_id` 且 `agent_wakes=0`）会因忽略被直接取消，见[合并](../../engineering/merge.md)。
 
-## 历史选择快照与重选
+## 选择快照已停用
 
-用户决定 #283 的重选功能以[选择快照契约](../../engineering/choice-snapshots.md)为准：新结构化问卷保存作答前的代码现场与可恢复上下文，历史问卷不会补拍。快照只覆盖该 Worker，不回滚整个项目或外部服务。
-
-查看 `notice.snapshot` 不调用 Agent。`pending` 是尚未完成安全保存，`unavailable` 明示不支持、缺失或失败原因；仅 `ready` 且 `can_rechoose=true` 可创建新路线。原问题、旧答案与旧成果保留；新路线不自动暂停原路线，也不撤回已合入 main 的成果。父 Worker 不可用或被冻结时拒绝，不改投别处。
-
-重选仍使用上面的完整 `{answers:[…]}`，但发送到 `notice.rechoose` 而非 `notice.answer`；`revision` 来自快照读面，`request_id` 为本次操作生成的 UUID。响应丢失后必须用同一 UUID、答案和 revision 重试，避免重复创建 Worker；另一次独立重选才用新的 UUID。最终操作会创建用户指令 Worker 并调用 Agent，自动合并默认关闭。返回 `{notice_id,task,reused}`。
+用户 W138 要求取消选择快照，待方向明确后再开发。新问卷不保存代码或上下文快照；`notice.snapshot` / `notice.rechoose` 及对应 CLI、HTTP、Web 重选入口不再开放。正常选择与答复不变，历史问卷和原答案仍可只读回看。已有快照及已创建路线不擅自删除或改写，兼容边界见[停用说明](../../engineering/choice-snapshots.md)。
 
 ## Web
 
