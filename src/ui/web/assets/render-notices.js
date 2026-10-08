@@ -16,6 +16,7 @@ import { settledDecision } from './choice-snapshot.js';
 import { sleepChoiceCard } from './sleep-ui.js';
 import { lifecycleNotice, unreadNotice, noticeMatches, positiveId, noticeIdentity } from './notice-kind.js';
 import { workerLabel } from './worker-label.js';
+import { linkWorkerNumbers } from './worker-links.js';
 
 const STATUS = { open: '待处理', answered: '已回答', dismissed: '已忽略', sent: '已发送' };
 const answerSource = notice => ['answered', 'dismissed'].includes(notice.status) && ['question', 'questionnaire'].includes(notice.kind)
@@ -284,6 +285,9 @@ export async function openNotice(noticeId) {
 /* ---------- detail ---------- */
 /** 右侧顶部的 notice：完整正文 + 回复框，下面继续跟它所属任务的详情。 */
 export function noticePanel(notice, task = null) {
+  return linkWorkerNumbers(buildNoticePanel(notice, task));
+}
+function buildNoticePanel(notice, task = null) {
   const section = el('section', undefined, 'notice focus');
   section.dataset.id = notice.id;
   const head = el('div', undefined, 'notice-head');

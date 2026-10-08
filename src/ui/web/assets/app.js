@@ -28,6 +28,7 @@ import { closeExplanationPanel } from './explanations.js';
 import { ensureProject, openProjectManager, workbenchStatus } from './project-picker.js';
 import { resetNoticeNotifier } from './notice-notifications.js';
 import { initNoticeRecords, openNotice } from './render-notices.js';
+import { workerNumberTarget, resolveWorkerNumber } from './worker-links.js';
 
 /* ---------- 左栏全局排序偏好（与设置页共用 lush.sidebarSort） ---------- */
 function syncSidebarSortSelect() {
@@ -85,7 +86,9 @@ function noProjectView() {
   box.append(empty); panel.replaceChildren(box);
 }
 
+let hashGeneration = 0;
 function onHashChange() {
+  const generation = ++hashGeneration;
   hideHelp(); // 换页前先把上一页的按钮提示收掉，避免固定浮层跨页残留。
   const report = error => { show(error.message, 'error'); };
   if (location.hash === '#projects') return openProjectManager({ push: false });
@@ -114,6 +117,19 @@ function onHashChange() {
   const resourceRoute = /^#(notices|workers)$/.exec(location.hash)?.[1];
   const resource = resourceRoute === 'workers' ? 'tasks' : resourceRoute;
   if (resource) return openResource(resource, { push: false });
+  const number = workerNumberTarget(location.hash);
+  if (number) {
+    const hash = location.hash, path = location.pathname, view = ui.view;
+    return resolveWorkerNumber(number).then(id => {
+      // A late lookup must not steal a newer page, even within the same project.
+      if (generation !== hashGeneration || location.hash !== hash || location.pathname !== path || ui.view !== view) return;
+      if (ui.deletedWorkerIds.has(id)) throw new Error(`Worker ${number} 已删除`);
+      // Canonicalize the current entry, rather than adding a second history entry
+      // that would resolve/push again on Back and trap users in the Worker page.
+      window.history.replaceState(null, '', `#worker-${id}`);
+      return detail(id);
+    }).catch(error => { if (generation === hashGeneration && location.hash === hash && location.pathname === path && ui.view === view) report(error); });
+  }
   const next = linked(location.hash);
   // 未知或已移除的 hash（包括旧 #graph）回项目概览。
   if (!next) return overview().catch(report);

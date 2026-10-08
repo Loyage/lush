@@ -43,6 +43,8 @@ const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js'
 const { syncComposer } = await import('../../src/ui/web/assets/composer.js');
 const restoreNavigation = registerNavigation({ refresh: async () => {}, detail: id => { detailCalls.push(id); } });
 const root = () => dom.node('detail');
+// Concatenate inline text without deepText's artificial inter-node spaces.
+const inlineText = node => node.childNodes.length ? node.childNodes.map(inlineText).join('') : node.textContent;
 const btn = (label, node = root()) => node.querySelectorAll('button').find(item => item.textContent === label);
 const input = (label, node = root()) => node.querySelector(`[aria-label="${label}"]`);
 const newManagement = async () => {
@@ -80,7 +82,10 @@ for (const state of [{ status: 'paused', agent_wakes: 0 }, { status: 'paused', a
       data: { due_at: row.created_at } }] };
     renderDetail(row, history, null, null); syncComposer();
     expect(deepText(root())).toContain('管理指令详情只读'); expect(deepText(root())).toContain('绑定启停仅在自动化页面');
-    expect(deepText(root())).toContain(manager.goal); expect(deepText(root())).toContain(row.result);
+    expect(inlineText(root().querySelector('.goal-text'))).toBe(manager.goal);
+    expect(root().querySelector('.goal-text').querySelectorAll('.worker-link').map(node => node.getAttribute('href')))
+      .toEqual(['#worker-number-W10', '#worker-number-W11']);
+    expect(deepText(root())).toContain(row.result);
     expect(deepText(root())).toContain('管理信号已提交待执行'); expect(deepText(root())).toContain('管理工作目录');
     expect(root().querySelector('.task-actions').querySelectorAll('button').map(item => item.textContent)).toEqual(['刷新详情']);
     for (const text of ['开始', '继续', '调整运行设置', '放弃 Worker', '中断', '检查后重试', '向该 Worker 追加输入', '删除', '合并', '验收', '归档', '启用管理绑定', '停用管理绑定']) expect(btn(text)).toBeUndefined();

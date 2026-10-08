@@ -14,6 +14,7 @@ import { renderAgent } from './render-agent.js';
 import { renderResults } from './render-results.js';
 import { renderGoal } from './render-goal.js';
 import { limitDetailModules } from './detail-preview.js';
+import { linkWorkerNumbers } from './worker-links.js';
 import { renderDiff } from './render-diff.js';
 import { deliveryControls } from './render-delivery.js';
 import { workerHooks } from './render-hooks.js';
@@ -332,6 +333,7 @@ export function renderDetail(task, history, diff, usage, connections = null) {
       cursor: history.cursor, onMore: history.onMore, taskId: task.id }));
     panel.append(events);
   }
+  linkWorkerNumbers(panel);
   limitDetailModules(panel, { taskId: task.id, from: readingStart });
 }
 export function renderDetailError(taskId, message) {

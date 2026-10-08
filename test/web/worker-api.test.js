@@ -77,6 +77,25 @@ test('worker HTTP reads forward only the new namespace with unchanged typed para
   } finally { f.close(); }
 });
 
+test('Worker number lookup is a narrow project-scoped read, not a generic RPC or integer-ID alias', async () => {
+  const f = await hostFixture();
+  try {
+    for (const [url, project] of [[f.urlA, f.a], [f.urlB, f.b]]) {
+      const response = await fetch(`${url}/api/worker-lookup?number=W141-1-2`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(f.calls.at(-1)).toEqual({ project, method: 'worker.lookup', params: { number: 'W141-1-2' } });
+    }
+    const before = f.calls.length;
+    for (const query of ['', '?number=141', '?number=W0', '?number=W01', '?number=W1-0', '?number=W1-1x',
+      '?number=W9007199254740993', `?number=W${'1'.repeat(2048)}`, '?number=W1&number=W2', '?number=W1&id=7', '?number=W1&project=/elsewhere', '?number=W1&_token=x'])
+      expect((await fetch(`${f.urlA}/api/worker-lookup${query}`)).status).toBe(400);
+    expect((await fetch(`${f.url}/api/worker-lookup?number=W1`)).status).toBe(400);
+    expect((await post(f.urlA, 'worker.lookup', { number: 'W1' })).status).toBe(400);
+    expect(f.calls).toHaveLength(before);
+  } finally { f.close(); }
+});
+
 test('missing report errors show explicit deep Worker numbers, never infer or lookup, with #id history fallback', async () => {
   for (const [number, label] of [['W119-3-2', 'W119-3-2'], [null, '#7'], [undefined, '#7']]) {
     const f = await hostFixture(number);

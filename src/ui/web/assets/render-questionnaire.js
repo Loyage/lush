@@ -4,6 +4,30 @@ import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { renderMarkdown } from './markdown.js';
 import { ui } from './state.js';
+import { linkWorkerNumbers } from './worker-links.js';
+
+// Links and the native selection button are siblings, never nested interactive
+// elements. The transparent button preserves whole-card and keyboard selection.
+function optionCard(option, select, className) {
+  const wording = el('div');
+  wording.append(el('strong', option.label), el('span', option.description));
+  linkWorkerNumbers(wording);
+  if (!wording.querySelector('.worker-link')) {
+    const choice = button('', select, className);
+    choice.append(...wording.childNodes);
+    choice.setAttribute('aria-pressed', String(className.includes(' selected')));
+    return choice;
+  }
+  const choice = el('div', undefined, `${className} decision-option-card`);
+  const control = button('', select, 'decision-option-select');
+  control.setAttribute('aria-label', option.label);
+  control.setAttribute('aria-pressed', String(className.includes(' selected')));
+  choice.append(control, ...wording.childNodes);
+  choice.onclick = event => {
+    if (!control.disabled && (!event || event.target === choice)) return control.onclick();
+  };
+  return choice;
+}
 
 function storageKey(notice, scope = '') {
   return `lush.decision:${ui.lastSnapshot?.status?.project || location.pathname}:${notice.id}:${notice.created_at}${scope ? `:${scope}` : ''}`;
@@ -38,7 +62,7 @@ function preview(notice, question, option, value) {
     pane.append(frame);
   }
   if (!value.preview && !value.previewHtml) pane.append(el('p', value.description));
-  return pane;
+  return linkWorkerNumbers(pane);
 }
 const complete = (q, answer) => Boolean(answer.custom.trim()) || (answer.selected.length > 0
   && (q.multiSelect || answer.selected.length === 1) && answer.selected.every(i => i >= 0 && i < q.options.length));
@@ -81,9 +105,7 @@ function settledQuestion(notice, index, question, answer) {
   const show = n => { if (hasPreview && question.options[n]) pane.replaceChildren(preview(notice, index, n, question.options[n])); };
   question.options.forEach((option, n) => {
     const picked = selected.includes(n);
-    const choice = button('', () => show(n), `decision-option${picked ? ' selected' : ''}`);
-    choice.setAttribute('aria-pressed', String(picked));
-    choice.append(el('strong', option.label), el('span', option.description));
+    const choice = optionCard(option, () => show(n), `decision-option${picked ? ' selected' : ''}`);
     const row = el('div', undefined, 'decision-option-row'); row.append(choice);
     if (picked) row.append(el('span', '已选', 'decision-picked-mark'));
     choices.append(row);
@@ -126,7 +148,7 @@ export function questionnairePanel(notice, { settle, dismiss, draftScope = '', a
       content.append(settledQuestion(notice, i, question, answer));
     });
     if (broken) content.append(el('p', '无法解析已提交的答案，原始内容如下：', 'hint'), el('pre', notice.answer || ''));
-    return root;
+    return linkWorkerNumbers(root);
   }
   const draft = loadDraft(notice, questions, draftScope), key = storageKey(notice, draftScope);
   let busy = false, error = '';
@@ -195,14 +217,12 @@ export function questionnairePanel(notice, { settle, dismiss, draftScope = '', a
       const show = n => { if (hasPreview) pane.replaceChildren(preview(notice, i, n, q.options[n])); };
       q.options.forEach((o, n) => {
         const row = el('div', undefined, 'decision-option-row');
-        const choice = button('', () => {
+        const choice = optionCard(o, () => {
           a.custom = '';
           if (q.multiSelect) { a.selected = a.selected.includes(n) ? a.selected.filter(v => v !== n) : [...a.selected, n]; save(); paint(); }
           else { a.selected = [n]; advance(); }
         }, `decision-option${!a.custom && a.selected.includes(n) ? ' selected' : ''}`);
-        choice.setAttribute('aria-pressed', String(!a.custom && a.selected.includes(n)));
-        choice.append(el('strong', o.label), el('span', o.description));
-        choice.addEventListener('mouseenter', () => show(n)); choice.addEventListener('focus', () => show(n));
+        choice.addEventListener('mouseenter', () => show(n)); choice.addEventListener('focusin', () => show(n));
         row.append(choice);
         if (o.preview || o.previewHtml) row.append(button('预览', () => show(n), 'ghost decision-preview-button'));
         choices.append(row);
@@ -217,7 +237,10 @@ export function questionnairePanel(notice, { settle, dismiss, draftScope = '', a
       custom.addEventListener('input', () => {
         a.custom = custom.value; if (a.custom.trim()) a.selected = []; save();
         next.disabled = !complete(q, a);
-        choices.querySelectorAll('.decision-option').forEach(node => { node.classList.remove('selected'); node.setAttribute('aria-pressed', 'false'); });
+        choices.querySelectorAll('.decision-option').forEach(node => {
+          node.classList.remove('selected');
+          (node.querySelector('.decision-option-select') || node).setAttribute('aria-pressed', 'false');
+        });
       });
       content.append(el('p', '也可以输入你自己的决定：', 'hint'), custom, next);
     }
@@ -227,6 +250,7 @@ export function questionnairePanel(notice, { settle, dismiss, draftScope = '', a
       { help: '忽略整份问卷，不代表批准任何选项；Worker 会收到「未做决定」的消息。' }));
     content.append(controls);
     if (error) { const message = el('p', error, 'error'); message.setAttribute('role', 'alert'); content.append(message); }
+    linkWorkerNumbers(root);
     if (busy) {
       content.querySelectorAll('button').forEach(node => { node.disabled = true; });
       content.querySelectorAll('textarea').forEach(node => { node.disabled = true; });

@@ -10,6 +10,8 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 浏览器的 Worker 详情使用 `#worker-ID`，执行详情仍在详情页显式点击打开，不提供独立 hash；平铺列表使用 `#workers`，父子树使用 `#worker-graph`。HTTP 与 Web 写动作同步使用下文的 `/api/worker/**`、`/api/workers`、`/api/worker-graph` 和 `worker.*`。旧 Task 路由与动作不保留别名；数据字段与历史事件仍可保留 `task`，完整边界见[核心 API 更名说明](../engineering/core-api.md#worker-更名与兼容边界)。
 
+问卷、通知详情和 Agent 正文中的独立 Worker 用户编号（例如 `W141-1`）自动显示为蓝色下划线链接。链接使用 `#worker-number-W141-1`，打开时通过当前项目只读查找解析真实内部身份，再进入原有 `#worker-ID` 详情；支持键盘与新标签打开，不把 W 编号当作内部 ID，也不在渲染时查询。未知／已删除编号明确报错。代码块、已有链接、编辑区和普通操作按钮不自动改写；选择题选项中的编号链接与选择按钮独立，查看 Worker 不会作答，返回问卷保留未提交草稿。静态 HTML 效果预览仍保持原 sandbox，不注入跳转能力。
+
 项目的 `#hooks` 页面管理受控生命周期模板，Worker 详情按触发节点显示挂载与合并／验收／归档串行内置 Hook，并用最高自动级别统一授权；挂载不是新业务实体。使用见 [Worker Hooks 与预约发射](../hooks.md)。
 
 ## 宿主级路由
@@ -52,6 +54,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/inputs?cursor=&limit=&q=&status=&integration=` | 用户专属 `input.history`，全项目原始输入与未提交草稿搜索/筛选/分页，见[历史输入接口](../engineering/input-history.md) |
 | `GET /api/input/{kind}/{id}` | 用户专属 `input.get`，`kind` 为 `draft` / `input`，完整正文与引用 |
 | `GET /api/input-parents` | 用户专属 `input.parents`，完整可选父 Worker 读面 |
+| `GET /api/worker-lookup?number=Wn(-n)*` | 只读 `worker.lookup {number}`，严格完整用户编号，返回 `{id,worker_number}`；仅当前项目查找，不接受额外或重复参数 |
 | `GET /api/workers?scope=&before=&limit=` | `worker.page`，有界Worker分页，`scope` 为 `work` / `all` |
 | `GET /api/notices?status=&before=&limit=` | `notice.page`：全部类型事项与处理结果的按需分页；过滤掉旧 `plan` 类型；参数和留档语义见[待决问题](rpc/notices.md) |
 | `GET /api/worker-graph` | Worker 父子读面（`worker.graph`） |

@@ -295,6 +295,38 @@ test('Worker 公开深链接使用新地址，内部页面与 DOM 身份不迁�
   } finally { intercept = null; }
 });
 
+test('编号深链接查找真实身份、缺失时明确报错，迟到查找不抢走当前页面', async () => {
+  const reads = [];
+  intercept = url => {
+    reads.push(url);
+    if (url === '/api/worker-lookup?number=W141-1') return json({ id: 1, worker_number: 'W141-1' });
+    if (url === '/api/worker-lookup?number=W999') return { ok: false, json: async () => ({ error: 'worker W999 not found' }) };
+    return null;
+  };
+  try {
+    dom.location.hash = '#worker-number-W141-1';
+    const pushed = dom.pushed();
+    await boot();
+    expect(reads).toContain('/api/worker-lookup?number=W141-1');
+    expect(reads).toContain('/api/worker/1');
+    expect(reads).not.toContain('/api/worker/141');
+    expect(ui.selected).toBe(1);
+    expect(dom.location.hash).toBe('#worker-1');
+    expect(dom.pushed()).toBe(pushed); // canonicalization must not create a Back loop
+    dom.location.hash = '#worker-number-W999';
+    await dom.fire('hashchange');
+    expect(dom.node('error').textContent).toContain('worker W999 not found');
+    expect(ui.selected).toBe(1);
+    const pending = deferred();
+    intercept = url => url === '/api/worker-lookup?number=W141-1' ? pending.promise : null;
+    dom.location.hash = '#worker-number-W141-1';
+    const opening = dom.fire('hashchange');
+    dom.location.hash = '#workers'; await dom.fire('hashchange');
+    pending.resolve(json({ id: 1, worker_number: 'W141-1' })); await opening;
+    expect(dom.location.hash).toBe('#workers'); expect(ui.view.id).toBe('tasks');
+  } finally { intercept = null; }
+});
+
 test('前端 mock 只接受 worker HTTP/RPC，不保留 task 接口别名；响应内字段仍为 task_id', async () => {
   const isolated = makeWorld();
   expect((await isolated.fetchImpl('/api/worker/1')).ok).toBe(true);

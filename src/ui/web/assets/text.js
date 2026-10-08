@@ -1,4 +1,5 @@
 import { renderMarkdown } from './markdown.js';
+import { linkWorkerNumbers } from './worker-links.js';
 import { el } from './dom.js';
 import { detail } from './navigate.js';
 import { show } from './messages.js';
@@ -11,10 +12,10 @@ export function markdownEnabled() { return readPref('markdown'); }
 /** 受开关影响的 agent 输出：开启时返回 markdown 容器，关闭时保持与原来一致的纯文本节点。 */
 export function agentText(value, { className = '', plain = 'div' } = {}) {
   const text = value == null ? '' : String(value);
-  if (!markdownEnabled()) return el(plain, text, className || undefined);
+  if (!markdownEnabled()) return linkWorkerNumbers(el(plain, text, className || undefined));
   const node = renderMarkdown(text, document);
   if (className) node.className = `${node.className} ${className}`;
-  return node;
+  return linkWorkerNumbers(node);
 }
 
 // 设置页修改偏好后，正在看的详情立刻按新方式重画。

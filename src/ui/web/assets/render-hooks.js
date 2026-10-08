@@ -58,7 +58,11 @@ function parameters(mount) {
     content.append(el('p', '到点提交非阻塞动作，安全点尽早执行；不保证 Agent 准点开始。后台停机错过时间跳过，不自动启动项目或检测额度恢复。', 'hint'));
   }
   for (const item of mount.actions || []) {
-    content.append(el('p', summary(item), 'hook-action-preview'));
+    const preview = el('p', summary(item), 'hook-action-preview');
+    // Commands are literal source, not prose Worker references, even when the
+    // surrounding Worker detail receives automatic number links.
+    if (item.type === 'command') preview.setAttribute('data-worker-links', 'off');
+    content.append(preview);
     if (item.type === 'command') content.append(el('p', COMMAND_WARNING, 'hint hook-command-warning'));
     if (item.type === 'message') content.append(el('p', '追加输入使用目标 Worker 现有运行设置，不隐式切换账号。', 'hint'));
     if (['retry_worker', 'resume_worker'].includes(item.type) && !item.model_selection) content.append(el('p', '未显式覆盖，沿用目标 Worker 已有运行设置。', 'hint'));
