@@ -16,7 +16,7 @@ onPrefChange('noticeChannels', () => {
 
 function bannerState(host) {
   if (states.has(host)) return states.get(host);
-  const state = { data: null, busy: false, gesture: null, suppressUntil: 0 };
+  const state = { data: null, operations: new Map(), gesture: null, suppressUntil: 0 };
   states.set(host, state);
   // Capture on the surviving host: a swipe may replace its original button before
   // the browser dispatches a synthetic click onto the next notice's Worker link.
@@ -34,7 +34,7 @@ function swipe(row, state, acknowledge) {
       if (state.gesture.axis === 'horizontal') state.suppressUntil = Date.now() + 700;
       state.gesture = null; row.classList.remove('notice-swiping'); return;
     }
-    if (event.pointerType !== 'touch' || event.isPrimary === false || state.busy || selecting()) return;
+    if (event.pointerType !== 'touch' || event.isPrimary === false || row.getAttribute('aria-busy') === 'true' || selecting()) return;
     for (let node = event.target; node && node !== row; node = node.parentNode) {
       if (node.classList?.contains('notice-banner-known')) return;
     }
@@ -78,12 +78,17 @@ export function renderNoticeBanner(data) {
   const host = $('notice-banner');
   if (!host) return;
   const state = bannerState(host);
-  const scope = `${projectBase()}:${data?.status?.project || ''}`;
+  const source = projectBase(), scope = `${source}:${data?.status?.project || ''}`;
   if (state.scope !== scope || state.reads !== ui.noticeReadRows) {
     state.scope = scope; state.reads = ui.noticeReadRows;
-    state.busy = false; state.gesture = null; state.suppressUntil = 0; host.dataset.signature = '';
+    state.operations = new Map(); state.gesture = null; state.suppressUntil = 0; host.dataset.signature = '';
   }
   state.data = data;
+  // Shared ACK path asks the surviving banner to repaint its latest data, not
+  // an older snapshot captured when the write began. No panel import cycle.
+  ui.refreshNoticeBanner = () => {
+    if ($('notice-banner') === host && state.reads === ui.noticeReadRows) renderNoticeBanner(state.data);
+  };
   if (state.gesture) return; // Keep pointer capture intact when polling replaces the snapshot.
   const rows = (data?.notices || []).filter(row => !ui.deletedWorkerIds.has(row.task_id))
     .map(row => ui.noticeReadRows.get(noticeIdentity(row)) || row);
@@ -97,7 +102,11 @@ export function renderNoticeBanner(data) {
     host.hidden = true; return;
   }
   const newest = group => group.rows.reduce((a, b) => b.id > a.id ? b : a);
-  const signature = JSON.stringify([state.busy, groups.map(group => [group.kind, group.rows.length, newest(group).id, newest(group).title])]);
+  const busy = notice => state.operations.has(noticeIdentity(notice)) || ui.noticeReadPending.has(noticeIdentity(notice));
+  const signature = JSON.stringify(groups.map(group => {
+    const notice = newest(group);
+    return [group.kind, group.rows.length, noticeIdentity(notice), notice.title, busy(notice)];
+  }));
   host.hidden = false;
   if (host.dataset.signature === signature) return;
   host.dataset.signature = signature;
@@ -107,43 +116,45 @@ export function renderNoticeBanner(data) {
     main.type = 'button'; main.setAttribute('data-help', group.help);
     main.append(el('span', undefined, 'notice-banner-dot'), el('span', `${group.rows.length} ${group.label}`, 'notice-banner-count'),
       el('span', notice.title, 'notice-banner-title'), el('span', group.action, 'notice-banner-go'));
-    let opening = false;
-    main.disabled = group.kind === 'info' && state.busy;
+    const key = noticeIdentity(notice), reads = state.reads, operations = state.operations;
+    const owns = () => state.scope === scope && projectBase() === source
+      && state.reads === reads && ui.noticeReadRows === reads && state.operations === operations;
+    const run = async (work, failurePrefix = '', focusTarget = null) => {
+      if (!owns() || busy(notice) || ui.deletedWorkerIds.has(notice.task_id)) return;
+      const operation = {}, view = ui.view;
+      operations.set(key, operation);
+      renderNoticeBanner(state.data);
+      try { await work(); }
+      catch (error) { if (owns()) show(`${failurePrefix}${error.message}`, 'error'); }
+      finally {
+        // A replaced scope or another entry's request owns its own lock.
+        if (operations.get(key) === operation) operations.delete(key);
+        if (!owns()) return;
+        renderNoticeBanner(state.data);
+        if (focusTarget && ui.view === view
+          && (document.activeElement === focusTarget || document.activeElement === document.body)) {
+          (host.querySelector('.notice-banner-known') || host.querySelector('button'))?.focus();
+        }
+      }
+    };
+    main.disabled = busy(notice);
     main.onclick = async event => {
-      if (opening || main.disabled || selecting() || (Date.now() < state.suppressUntil && event?.detail !== 0)) return;
-      opening = true; main.disabled = true;
-      try { if (group.kind === 'decision') openResource('notices'); await openNotice(notice.id); }
-      catch (error) { show(error.message, 'error'); }
-      finally { opening = false; main.disabled = false; renderNoticeBanner(state.data); }
+      if (main.disabled || selecting() || (Date.now() < state.suppressUntil && event?.detail !== 0)) return;
+      return run(async () => { if (group.kind === 'decision') openResource('notices'); await openNotice(notice.id); });
     };
     if (group.kind === 'decision') return main;
     const row = el('div', undefined, 'notice-banner-row'); row.dataset.noticeId = notice.id;
-    const rowReads = state.reads;
-    const acknowledge = async () => {
-      if (state.busy || state.scope !== scope || state.reads !== rowReads) return;
-      const restoreFocus = globalThis.document?.activeElement === known;
-      const source = state.scope, reads = state.reads;
-      const owns = () => state.scope === source && state.reads === reads && ui.noticeReadRows === reads;
-      state.busy = true; known.disabled = true; main.disabled = true;
-      row.setAttribute('aria-busy', 'true');
-      renderNoticeBanner(state.data);
-      try { await readNotice(notice); }
-      catch (error) { if (owns()) show(`无法标记已知：${error.message}`, 'error'); }
-      finally {
-        if (!owns()) return;
-        state.busy = false; renderNoticeBanner(state.data);
-        if (restoreFocus) (host.querySelector('.notice-banner-known') || host.querySelector('button'))?.focus();
-      }
-    };
-    const known = button(state.busy ? '处理中…' : '已知', acknowledge, 'ghost notice-banner-known',
+    const acknowledge = () => run(() => readNotice(notice), '无法标记已知：',
+      globalThis.document?.activeElement === known ? known : null);
+    const known = button(busy(notice) ? '处理中…' : '已知', acknowledge, 'ghost notice-banner-known',
       { help: '仅将当前展示的这一条告知标记已读，随后展示下一条；保留历史，不打开 Worker、不调用 Agent、不验收或合并' });
-    known.disabled = state.busy;
+    known.disabled = busy(notice);
     const helpHost = el('span', undefined, 'help-host');
     helpHost.setAttribute('data-help', known.getAttribute('data-help'));
     const mainHost = el('span', undefined, 'help-host');
     mainHost.setAttribute('data-help', group.help); mainHost.append(main);
     row.append(mainHost, helpHost); helpHost.append(known);
-    row.setAttribute('aria-busy', String(state.busy));
+    row.setAttribute('aria-busy', String(busy(notice)));
     swipe(row, state, acknowledge);
     return row;
   }));

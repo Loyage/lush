@@ -96,7 +96,10 @@ export async function refresh() {
     const taskGraphAge = Date.now() - ui.taskGraphFetchedAt;
     if (ui.view?.id === 'task-graph' && (taskGraphAge >= GRAPH_MAX_AGE_MS || (changed && taskGraphAge >= GRAPH_MIN_INTERVAL_MS))
       && ![...$('detail').querySelectorAll('textarea')].some(node => node === document.activeElement || node.value)) {
-      await loadTaskGraph();
+      // Heavy Git/session reads have their own single flight, not the global refresh lock.
+      void loadTaskGraph().catch(error => {
+        if (ui.view?.id === 'task-graph') show(`Worker 树更新失败：${error.message}`, 'error');
+      });
     }
     const current = data.tasks.find(task => task.id === ui.selected);
     let readingFocused = false;

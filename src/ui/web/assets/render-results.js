@@ -22,7 +22,7 @@ export function renderResults(task, history = {}, previous = null) {
     }
   }
   addEvents(history.events);
-  if (!task.result && !entries.size && !history.truncated) return null;
+  if (!task.result && !entries.size && !history.truncated && !history.loading) return null;
   const result = block('结果'); result.classList.add('result-panel'); result.resultSignature = signature;
   if (task.result) {
     const latest = agentText(task.result, { plain: 'pre' }); result.append(latest);
@@ -33,6 +33,7 @@ export function renderResults(task, history = {}, previous = null) {
   fold.open = previous?.querySelector('.result-history')?.open ?? true;
   const summary = el('summary'); const list = el('div'); const status = el('p', '', 'hint');
   let cursor = history.cursor, hasMore = Boolean(history.truncated || history.has_more);
+  let historyState = history.loading ? ' · 历史加载中' : history.unavailable ? ' · 历史不可用' : '';
   const rendered = new Map();
   const more = button('加载更早结果', async () => {
     more.disabled = true; status.textContent = '正在读取更早的调用结果…';
@@ -47,7 +48,7 @@ export function renderResults(task, history = {}, previous = null) {
   function paint() {
     const ordered = [...entries.values()].sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')) || (b.runId || b.eventId || 0) - (a.runId || a.eventId || 0));
     // Only the newest occurrence is represented by the default latest-result body. Equal older results remain distinct.
-    const latest = ordered[0]?.text === task.result ? ordered[0].key : null;
+    const latest = ordered.length && ordered[0].text === task.result ? ordered[0].key : null;
     const older = ordered.filter(entry => entry.key !== latest);
     for (const entry of older) {
       if (rendered.has(entry.key)) { list.insertBefore(rendered.get(entry.key), null); continue; }
@@ -60,9 +61,18 @@ export function renderResults(task, history = {}, previous = null) {
         location: { view: 'task-detail', task_id: task.id, section: 'history' } });
       rendered.set(entry.key, item); list.append(item);
     }
-    summary.textContent = `此前结果（已加载 ${older.length} 次${hasMore ? ' · 还有更早历史' : ''}）`;
-    fold.hidden = !older.length && !hasMore; more.hidden = !hasMore || !cursor;
+    summary.textContent = `此前结果（已加载 ${older.length} 次${hasMore ? ' · 还有更早历史' : ''}${historyState}）`;
+    fold.hidden = !older.length && !hasMore && !historyState; more.hidden = !hasMore || !cursor;
   }
+  result.updateResultHistory = page => {
+    historyState = page.loading ? ' · 历史加载中' : page.unavailable ? ' · 历史不可用' : '';
+    addEvents(page.events);
+    // Keep older pages already loaded by the reader, including their cursor.
+    if (page.cursor != null && (cursor == null || page.cursor <= cursor)) {
+      cursor = page.cursor; hasMore = Boolean(page.truncated || page.has_more);
+    } else if (cursor == null) hasMore = Boolean(page.truncated || page.has_more);
+    paint();
+  };
   fold.append(summary, list, status, more); result.append(fold); paint();
   return result;
 }

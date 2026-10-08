@@ -3,6 +3,7 @@ import { iterationViews } from './iteration.js';
 import { branchFreeze } from '../branch-freeze.js';
 import { readWorkerResources } from '../usage-statistics.js';
 import { workerLabel } from '../worker-number.js';
+import { check } from '../types.js';
 
 /** 分支图的规模上限：只读视图不该为了画全图把 daemon 拖垮，超限截断并在结果里说明。 */
 export const GRAPH_NODE_LIMIT = 200;
@@ -130,7 +131,8 @@ export default {
    * `current` 表示 canonical 项目目录当前检出；`relation` 比较登记父分支与本分支的固定 tip，
    * 与 Task 父子边 / integration 无关（Squash 落地也不改写真实 Git 分歧）。自身归档时为 null。
    */
-  async taskGraph() {
+  async taskGraph({ details = true } = {}) {
+    check(typeof details === 'boolean', 'details must be boolean');
     const limit = GRAPH_NODE_LIMIT;
     const rows = this.store.all(`SELECT id, worker_number, parent_id, input_id, task_kind, role, name, goal, status,
       integration, integration_error, branch, workspace, target_branch, base_commit, iteration_base_commit, head_commit, resolves_task_id,
@@ -144,9 +146,9 @@ export default {
         WHEN status IN ('running','queued','waiting','awaiting') THEN 1 ELSE 2 END, id DESC LIMIT ?`, limit + 1);
     const selected = rows.slice(0, limit);
     const ids = selected.map(row => row.id);
-    const resources = await readWorkerResources(this.config,
+    const resources = details ? await readWorkerResources(this.config,
       this.store.all('SELECT id,parent_id,status FROM tasks'),
-      this.store.all('SELECT task_id,started_at,ended_at FROM agent_runs')).catch(() => new Map());
+      this.store.all('SELECT task_id,started_at,ended_at FROM agent_runs')).catch(() => new Map()) : new Map();
     const iterations = iterationViews(this.store, selected);
     const mergeQueues = mergeQueueSummaries(this.store, ids);
     // 一批取回调用区间：任务图上的紧凑进度也要把等待排除在 Agent 工作用时之外。
@@ -199,7 +201,7 @@ export default {
     const branchNames = [...new Set(selected.map(row => row.branch).filter(Boolean))];
     const refs = new Map();
     let refsKnown = false, currentBranch = null;
-    try {
+    if (details) try {
       // 用完整 ref 名避免同名 tag 令 refname:short 变成 heads/<name>；只批量读一次。
       const output = await this.workspaces.git(this.config.project, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads');
       for (const line of output.split('\n')) {
@@ -208,13 +210,13 @@ export default {
       }
       refsKnown = true;
     } catch { /* 读取失败不是 ref 缺失：关系保持 unknown。 */ }
-    try {
+    if (details) try {
       const headRef = await this.workspaces.git(this.config.project, 'symbolic-ref', '--quiet', 'HEAD');
       if (headRef.startsWith('refs/heads/')) currentBranch = headRef.slice(11);
     } catch { /* detached HEAD / 无 Git / 读取失败：没有可确认的当前分支。 */ }
     // 同一分支只算一次；不同分支使用同一固定提交对时也共享 rev-list 结果，包括失败。
     const relations = new Map(), commitRelations = new Map();
-    for (const name of branchNames) {
+    for (const name of details ? branchNames : []) {
       const record = records.get(name);
       if (record?.status === 'archived') { relations.set(name, null); continue; }
       let relation = { status: 'unknown', ahead: null, behind: null };
@@ -244,14 +246,14 @@ export default {
       }
       relations.set(name, relation);
     }
-    const candidates = branchNames.filter(name => records.get(name)?.status !== 'archived');
+    const candidates = details ? branchNames.filter(name => records.get(name)?.status !== 'archived') : [];
     const diagnostics = candidates.length ? await this.workspaces.branchDiagnostics(candidates
       .map(name => ({ name, head_commit: refs.get(name) ?? null,
         created_from_commit: records.get(name)?.created_from_commit ?? null }))) : new Map();
     // 归档按钮的可用性预判（与分支图同口径）：Task 图只读消费，判断在 branches.branchArchivability。
     // 归档预判复用同一批 refs / 当前检出，不再为每轮 Task 图重复取 Git 状态。
     const worktrees = new Map();
-    try {
+    if (details) try {
       const output = await this.workspaces.git(this.config.project, 'worktree', 'list', '--porcelain');
       for (const block of output.split(/\n\n+/)) {
         const workspace = /^worktree (.*)$/m.exec(block)?.[1];
@@ -259,8 +261,8 @@ export default {
         if (workspace && branch) worktrees.set(branch, workspace);
       }
     } catch { /* 工作区不可读不影响已确认的 refs / 提交关系。 */ }
-    const archivability = await this.branchArchivability(branchNames,
-      { git: refsKnown, refs, current_branch: currentBranch, worktrees });
+    const archivability = details ? await this.branchArchivability(branchNames,
+      { git: refsKnown, refs, current_branch: currentBranch, worktrees }) : new Map();
     const nodes = selected.map(({ goal, progress_plan, reservation, parent_branch, ...row }) => {
       const view = this.progressView({ progress_plan, reservation, status: row.status }, runs.get(row.id) ?? []);
       const delivery = view.reservation;
@@ -291,7 +293,7 @@ export default {
         progress: plan, notice: notice.notice, notice_count: notice.count,
         children_total: child.total, children_active: child.active, waiting_reason,
         merge_queue: mergeQueues.get(row.id),
-        resources: resources.get(row.id) ?? null,
+        resources: resources.get(row.id) ?? null, details_pending: !details,
         freeze: freeze ? { kind: freeze.kind, task_id: freeze.task_id ?? null, reason: freeze.reason } : null,
         resolves_task_id: row.resolves_task_id ?? resolutions.get(row.id) ?? null,
         auto_merge: this.autoMergeView({ ...row, reservation }),
@@ -300,8 +302,8 @@ export default {
         reservation: delivery, delivery: delivery ? { kind: delivery.kind, status: delivery.status,
           blocked_reason: delivery.blocked_reason ?? null } : null,
         branch_info: row.branch ? { parent: branch?.parent ?? null, archived: branch?.status === 'archived',
-          current: row.branch === currentBranch, relation: relations.get(row.branch),
-          archivable: archivability.get(row.branch)?.archivable === true,
+          current: details ? row.branch === currentBranch : null, relation: relations.get(row.branch) ?? null,
+          archivable: details ? archivability.get(row.branch)?.archivable === true : null,
           subtree_branches: archivability.get(row.branch)?.subtree_branches ?? 0,
           current_head: refs.get(row.branch) ?? null, diagnostics: diagnostics.get(row.branch) ?? null,
           subtree_order, merge_run: mergeRun ? { mode: mergeRun.mode ?? 'merge_all', status: mergeRun.status,
@@ -312,7 +314,8 @@ export default {
     });
     const visible = new Set(ids);
     const edges = nodes.filter(node => visible.has(node.parent_id)).map(node => ({ from: node.parent_id, to: node.id }));
-    return { nodes, edges, truncated: rows.length > limit, total: this.store.get('SELECT count(*) AS n FROM tasks').n };
+    return { nodes, edges, ...(!details ? { details_pending: true } : {}), truncated: rows.length > limit,
+      total: this.store.get('SELECT count(*) AS n FROM tasks').n };
   },
 
   async graph() {

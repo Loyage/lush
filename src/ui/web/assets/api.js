@@ -11,10 +11,11 @@ export async function api(url, options) {
   const value = await response.json();
   if (!response.ok) throw new Error(value.error || response.statusText); return value;
 }
-export async function action(method, params) {
+export async function action(method, params, options = {}) {
   clear();
   const result = await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }) });
-  await refresh(); return result;
+  if (options.refresh !== false) await refresh();
+  return result;
 }
 
 export async function loadHistory(taskId, before = null) {

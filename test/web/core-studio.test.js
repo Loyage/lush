@@ -33,8 +33,9 @@ test('原 Studio 页面在核心 API 下可加载、发送指令并打开 Worker
   expect(details.checked).toBe(false);
   expect(dom.node('detail').querySelector('.task-graph-minimal')).toBeTruthy();
   details.checked = true; details.onchange();
-  // 真 RPC → HTTP → 详情模式 Worker 卡片，验证合入后的诊断字段，不只依赖 DOM fixture。
-  const graph = await (await localFetch(f.url + '/api/worker-graph')).json();
+  // 首屏只保证结构可读；诊断断言显式等待同一个后台补齐请求，避免把独立 HTTP 读完成当作 UI 已更新。
+  const { loadTaskGraph } = await import('../../src/ui/web/assets/render-task-graph.js');
+  const graph = await loadTaskGraph();
   const node = graph.nodes.find(row => row.id === task.id);
   expect(node.branch_info).toMatchObject({ parent: 'main', current: false,
     relation: { status: 'equal', ahead: 0, behind: 0 } });

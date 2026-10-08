@@ -86,7 +86,9 @@ export async function loadNoticeRecords({ more = false, preserve = false, reload
       state.rows = state.rows.map(row => row.id === current.id ? current : row);
     }
     if (!Array.isArray(page.notices)) throw new Error('请重启 Web 与 daemon 以加载 notice 历史');
-    page.notices = page.notices.filter(row => !ui.deletedWorkerIds.has(row.task_id));
+    page.notices = page.notices.filter(row => !ui.deletedWorkerIds.has(row.task_id))
+      .map(row => ui.noticeReadRows.get(noticeIdentity(row)) || row)
+      .filter(row => noticeMatches(row, status));
     state.rows = state.rows.filter(row => !ui.deletedWorkerIds.has(row.task_id));
     state.rows = more || preserve
       ? [...new Map([...state.rows, ...page.notices].map(row => [row.id, row])).values()]
@@ -235,10 +237,30 @@ export function readNotice(notice) {
     ui.noticeIndex.set(current.id, current);
     if (ui.noticeRecords) ui.noticeRecords.rows = ui.noticeRecords.rows.map(row => noticeIdentity(row) === key ? current : row);
     if (ui.lastSnapshot) renderNotices(ui.lastSnapshot);
-    await refresh();
+    ui.refreshNoticeBanner?.();
+    // The ACK is the durable success boundary. Global reads (including detail)
+    // must not hold this notice's lock or report a successful read as failed.
+    let refreshed = false;
+    void Promise.resolve().then(() => {
+      if (source !== projectBase() || ui.noticeReadRows !== reads || ui.busy) return;
+      refreshed = true;
+      return refresh();
+    }).then(() => {
+      if (refreshed && source === projectBase() && ui.noticeReadRows === reads && ui.offline) {
+        show('告知已读，但页面刷新失败；稍后重试刷新。', 'error');
+      }
+    }).catch(error => {
+      if (source === projectBase() && ui.noticeReadRows === reads) {
+        show(`告知已读，但页面刷新失败：${error.message}`, 'error');
+      }
+    });
     return current;
-  }).finally(() => pending.delete(key));
+  }).finally(() => {
+    if (pending.get(key) === request) pending.delete(key);
+    if (source === projectBase() && ui.noticeReadRows === reads) ui.refreshNoticeBanner?.();
+  });
   pending.set(key, request);
+  ui.refreshNoticeBanner?.();
   return request;
 }
 
@@ -246,15 +268,17 @@ let noticeRequest = 0;
 export async function openNotice(noticeId) {
   if (!positiveId(noticeId)) return;
   const request = ++noticeRequest;
-  const previousView = ui.view;
+  const previousView = ui.view, source = projectBase(), reads = ui.noticeReadRows;
+  const ownsProject = () => source === projectBase() && ui.noticeReadRows === reads;
   const notice = ui.noticeIndex.get(noticeId) || await readNoticeRecord(noticeId);
-  if (request !== noticeRequest || ui.view !== previousView || ui.deletedWorkerIds.has(notice.task_id)) return;
+  if (!ownsProject() || request !== noticeRequest || ui.view !== previousView || ui.deletedWorkerIds.has(notice.task_id)) return;
   ui.noticeIndex.set(noticeId, notice);
   if (lifecycleNotice(notice)) {
     ui.noticeFocus = null;
     // loadDetail returns true only for a successfully rendered, still-current request.
     const loaded = await detail(notice.task_id);
-    if (loaded !== true || request !== noticeRequest || ui.selected !== notice.task_id) return;
+    if (!ownsProject() || loaded !== true || request !== noticeRequest || ui.selected !== notice.task_id
+      || ui.deletedWorkerIds.has(notice.task_id)) return;
     if (!unreadNotice(notice)) return;
     await readNotice(notice);
     return;
@@ -270,7 +294,7 @@ export async function openNotice(noticeId) {
     }
     state.selected = noticeId; state.signature = null;
     return Promise.all([api(`/api/worker/${notice.task_id}`), readNoticeRecord(noticeId)]).then(([task, current]) => {
-      if (ui.noticeRecords !== state || state.selected !== noticeId || ui.indexOpen !== 'notices'
+      if (!ownsProject() || ui.noticeRecords !== state || state.selected !== noticeId || ui.indexOpen !== 'notices'
         || ui.deletedWorkerIds.has(notice.task_id)) return;
       state.task = task;
       ui.noticeIndex.set(noticeId, current);

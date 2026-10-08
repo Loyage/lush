@@ -11,7 +11,7 @@ const graph = { total: 3, truncated: false, nodes: [
   { id: 3, parent_id: 1, role: 'agent', task_kind: 'child', title: '无进度', status: 'running', progress: null },
 ] };
 const dom = installDom({ fetch: (url, options) => {
-  if (String(url) === '/api/worker-graph') return { ok: true, json: async () => graph };
+  if (String(url).split('?')[0] === '/api/worker-graph') return { ok: true, json: async () => graph };
   if (failSave && String(url) === '/api/action') return { ok: false, status: 500, json: async () => ({ error: '保存失败测试' }) };
   return world.fetchImpl(url, options);
 } });

@@ -3,7 +3,7 @@ import { installDom } from '../dom-stub.js';
 import { until } from '../helpers.js';
 
 const json = data => ({ ok: true, json: async () => data });
-const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
+const deferred = () => { let resolve, reject; const promise = new Promise((done, fail) => { resolve = done; reject = fail; }); return { promise, resolve, reject }; };
 const calls = []; let intercept = null, opened = null, parentGate = null, parentReads = 0;
 const parents = [{ id: 1, branch: 'main', goal: 'main' }, { id: 800, branch: 'feature/old-parent', goal: '完整列表中的旧父任务' }];
 const dom = installDom({ fetch: async (url, options = {}) => {
@@ -18,6 +18,7 @@ const { initComposer, buffer, syncComposer, loadComposerParents, appendToWorker,
 const { setComposerReferences, composerReferences } = await import('../../src/ui/web/assets/context-references.js');
 const { resetUiState, ui } = await import('../../src/ui/web/assets/state.js');
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
+const { action } = await import('../../src/ui/web/assets/api.js');
 const { activateDetailView, openResource } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const restoreNav = registerNavigation({ refresh: async () => {}, detail: async id => { opened = id; } });
 const input = () => dom.node('input');
@@ -328,6 +329,144 @@ test('默认模式不受详情加载、失败、终态、只读或归档阻塞�
   ui.composerTask = null; ui.composerError = '读取失败'; syncComposer(); expect(input().disabled).toBe(false);
   openWorker(); syncComposer(); expect(dom.node('input-form').dataset.mode).toBe('append');
   openResource('tasks'); openWorker({}, false); expect(dom.node('input-form').dataset.mode).toBe('create');
+});
+
+test('action 默认仍等待刷新，内部 refresh:false 仅等待服务端确认', async () => {
+  const gate = deferred(); let refreshes = 0, settled = false;
+  const restore = registerNavigation({ refresh: () => { refreshes++; return gate.promise; }, detail: async () => {} });
+  try {
+    const pending = action('draft.add', { content: '兼容默认' }).then(() => { settled = true; });
+    await until(() => refreshes === 1);
+    expect(settled).toBe(false);
+    await action('draft.add', { content: '仅确认' }, { refresh: false });
+    expect(refreshes).toBe(1); expect(settled).toBe(false);
+    gate.resolve(); await pending; expect(settled).toBe(true);
+    expect(calls[1]).toEqual({ method: 'draft.add', params: { content: '仅确认' } });
+  } finally { gate.resolve(); restore(); }
+});
+
+test('慢 overview 不阻塞创建、开始、暂存、追加或预约的确认和下一条提交；每条只刷一次', async () => {
+  for (const mode of ['create', 'start', 'buffer', 'append', 'defer']) {
+    const gate = deferred(); let refreshes = 0;
+    const restore = registerNavigation({ refresh: () => { refreshes++; return gate.promise; }, detail: async id => { opened = id; } });
+    try {
+      activateDetailView({ view: 'overview' }); opened = null;
+      const profile = { agent: 'pi', config_mode: 'pi' }; ui.composerProfile = profile;
+      if (mode === 'append') openWorker();
+      if (mode === 'defer') {
+        ui.composerParents = [{ id: 1, branch: 'main', freeze: { reason: '等待合并' } }];
+        intercept = () => json({ deferred: true, parent_id: 1 });
+      } else intercept = null;
+      type('第一条'); if (mode !== 'append') setComposerReferences([ref('第一条来源')]);
+      input().focus();
+      const send = () => mode === 'buffer' ? buffer() : mode === 'start' ? enter({ ctrlKey: true, shiftKey: true }) : dom.node('input-form').onsubmit({ preventDefault() {} });
+      let acknowledged = false; const first = send().then(() => { acknowledged = true; });
+      await until(() => refreshes === 1);
+      expect(acknowledged).toBe(true); expect(ui.composerSubmitting).toBe(false);
+      expect(input().value).toBe(''); expect(composerReferences()).toEqual([]);
+      expect(ui.composerProfile).toBe(['buffer', 'append'].includes(mode) ? profile : null);
+      type('第二条'); expect(dom.node('draft-commit').disabled).toBe(false);
+      await send(); expect(calls.at(-1).params.content ?? calls.at(-1).params.body).toBe('第二条');
+      expect(refreshes).toBe(2); expect(ui.composerSubmitting).toBe(false);
+      type('第三条正在写'); if (mode !== 'append') setComposerReferences([ref('第三条来源')]);
+      const view = ui.view;
+      gate.resolve(); await first; await Promise.resolve(); await Promise.resolve();
+      expect(opened).toBeNull(); expect(ui.view).toBe(view);
+      expect(input().value).toBe('第三条正在写'); expect(document.activeElement).toBe(input());
+      expect(composerReferences()).toEqual(mode === 'append' ? [] : [ref('第三条来源')]);
+    } finally {
+      gate.resolve(); await Promise.resolve(); restore();
+      setComposerReferences([]); resetComposerMode(); ui.composerParents = parents; intercept = null;
+    }
+  }
+});
+
+test('慢详情不占用提交锁，输入下一条仍可暂存且迟到完成不触碰焦点', async () => {
+  const gate = deferred(); let detailReads = 0, detailFinished = false;
+  const restore = registerNavigation({ refresh: async () => {}, detail: async id => {
+    opened = id; detailReads++; await gate.promise; detailFinished = true;
+  } });
+  try {
+    activateDetailView({ view: 'overview' }); type('先创建'); input().focus();
+    await enter({ ctrlKey: true }); await until(() => detailReads === 1);
+    expect(detailFinished).toBe(false); expect(ui.composerSubmitting).toBe(false); expect(input().value).toBe('');
+    type('详情读取中下一条'); setComposerReferences([ref('新来源')]);
+    expect(dom.node('input-buffer').disabled).toBe(false);
+    await buffer(); expect(calls).toHaveLength(2); expect(input().value).toBe('');
+    type('继续编辑'); setComposerReferences([ref('继续来源')]);
+    gate.resolve(); await until(() => detailFinished);
+    expect(input().value).toBe('继续编辑'); expect(composerReferences()).toEqual([ref('继续来源')]);
+    expect(document.activeElement).toBe(input()); expect(detailReads).toBe(1);
+  } finally { gate.resolve(); restore(); }
+});
+
+test('后台页面更新失败独立提示提交已成功，不恢复已消费输入、引用或配置', async () => {
+  for (const failAt of ['overview', 'detail', 'offline']) {
+    const restore = registerNavigation({ refresh: async () => {
+      if (failAt === 'overview') throw new Error('overview 不可用');
+      if (failAt === 'offline') ui.offline = true;
+    }, detail: async () => { throw new Error('detail 不可用'); } });
+    try {
+      ui.offline = false; activateDetailView({ view: 'overview' });
+      type('已确认'); setComposerReferences([ref('来源')]); ui.composerProfile = { config_mode: 'pi' };
+      await enter({ ctrlKey: true });
+      await until(() => dom.node('error').textContent.includes('页面更新失败'));
+      expect(dom.node('error').textContent).toContain('提交已成功');
+      expect(dom.node('error').textContent).toContain('不要重复提交');
+      expect(input().value).toBe(''); expect(composerReferences()).toEqual([]); expect(ui.composerProfile).toBeNull();
+      expect(ui.composerSubmitting).toBe(false); expect(calls.at(-1).method).toBe('order.submit');
+    } finally { ui.offline = false; restore(); }
+  }
+});
+
+test('旧后台更新失败不覆盖第二条成功，切页或修改再撤销不触发旧导航', async () => {
+  for (const change of [() => { type('修改'); type(''); }, () => openResource('tasks'), () => setComposerReferences([ref('下一条引用')])]) {
+    const gate = deferred(); let refreshes = 0;
+    const restore = registerNavigation({ refresh: () => { refreshes++; return refreshes === 1 ? gate.promise : Promise.resolve(); }, detail: async id => { opened = id; } });
+    try {
+      activateDetailView({ view: 'overview' }); type('第一条'); opened = null;
+      await enter({ ctrlKey: true }); change(); const view = ui.view;
+      gate.resolve(); await Promise.resolve(); await Promise.resolve();
+      expect(opened).toBeNull(); expect(ui.view).toBe(view);
+    } finally { gate.resolve(); setComposerReferences([]); restore(); }
+  }
+  const gate = deferred(); let refreshes = 0;
+  const restore = registerNavigation({ refresh: () => ++refreshes === 1 ? gate.promise : Promise.resolve(), detail: async () => {} });
+  try {
+    activateDetailView({ view: 'overview' }); type('第一条'); await enter({ ctrlKey: true });
+    type('第二条'); await buffer(); const message = dom.node('error').textContent;
+    gate.reject(new Error('第一条迟到错误')); await Promise.resolve(); await Promise.resolve();
+    expect(dom.node('error').textContent).toBe(message); expect(message).toContain('已暂存');
+  } finally { restore(); }
+});
+
+test('刷新已更新同一个 Worker 详情时不重复读取，提交失败不启动后台更新', async () => {
+  let refreshes = 0, details = 0;
+  const restore = registerNavigation({ refresh: async () => {
+    refreshes++; ui.detailTask = 126; ui.composerTask = { ...ui.composerTask };
+  }, detail: async () => { details++; } });
+  try {
+    openWorker(); type('追加'); await enter(); await Promise.resolve();
+    expect(refreshes).toBe(1); expect(details).toBe(0);
+    resetComposerMode(); ui.composerProfile = { config_mode: 'pi' }; type('失败原文'); setComposerReferences([ref('来源')]);
+    intercept = () => ({ ok: false, json: async () => ({ error: '服务端拒绝提交' }) });
+    await enter({ ctrlKey: true });
+    expect(refreshes).toBe(1); expect(details).toBe(0);
+    expect(dom.node('error').textContent).toBe('服务端拒绝提交'); expect(input().value).toBe('失败原文');
+    expect(composerReferences()).toEqual([ref('来源')]); expect(ui.composerProfile).toEqual({ config_mode: 'pi' });
+    expect(ui.composerSubmitting).toBe(false); expect(dom.node('draft-commit').disabled).toBe(false);
+  } finally { restore(); }
+});
+
+test('创建确认仅消费提交时配置，提交中重新选择的配置和编辑中的下一条保留', async () => {
+  const gate = deferred(); intercept = () => gate.promise;
+  const submitted = { config_mode: 'pi' }, next = { config_mode: 'lush', model: 'next/model' };
+  ui.composerProfile = submitted; type('第一条'); setComposerReferences([ref('第一条')]);
+  const send = enter({ ctrlKey: true });
+  type('第二条'); setComposerReferences([ref('第二条')]); ui.composerProfile = next;
+  gate.resolve(json({ task: { id: 90 } })); await send;
+  expect(calls[0].params.profile).toEqual(submitted); expect(ui.composerProfile).toBe(next);
+  expect(input().value).toBe('第二条'); expect(composerReferences()).toEqual([ref('第二条')]); expect(opened).toBeNull();
 });
 
 test('暂存不标 Agent，发送保留标识与禁用宿主帮助', async () => {

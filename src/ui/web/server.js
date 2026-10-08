@@ -447,7 +447,11 @@ export function startWeb(config, port = 4318, options = {}) {
           }
           if (url.pathname === '/api/agent/environment') return json(await client.request('agent.environment', { target: url.searchParams.get('target') || '' }));
           // Worker 图的 Git 诊断单独按需取数，不进概览的常规轮询。
-          if (url.pathname === '/api/worker-graph') return json(await client.request('worker.graph'));
+          if (url.pathname === '/api/worker-graph') {
+            const details = url.searchParams.get('details');
+            check(details === null || details === '0' || details === '1', 'details must be 0 or 1');
+            return json(await client.request('worker.graph', details === null ? {} : { details: details === '1' }));
+          }
           if (url.pathname === '/api/versions') {
             const params = {};
             for (const [key, value] of url.searchParams) {

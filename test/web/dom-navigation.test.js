@@ -142,7 +142,7 @@ test('迟到的 Task 图、文档与任务请求不覆盖新页面；文档 A→
     ['/api/worker/1', () => detail(1)],
   ]) {
     const pending = deferred();
-    intercept = url => url === path ? pending.promise : null;
+    intercept = url => url.split('?')[0] === path ? pending.promise : null;
     const loading = open();
     await dom.node('settings-open').onclick();
     pending.resolve(path === '/api/docs' ? json({ docs: [] }) : await world.fetchImpl(path));
@@ -262,7 +262,7 @@ test('Worker 公开深链接使用新地址，内部页面与 DOM 身份不迁�
   const reads = [];
   intercept = url => {
     reads.push(url);
-    return url === '/api/worker-graph' ? Promise.resolve(json({ total: 0, nodes: [], edges: [] })) : null;
+    return url.split('?')[0] === '/api/worker-graph' ? Promise.resolve(json({ total: 0, nodes: [], edges: [] })) : null;
   };
   try {
     for (const [hash, view, selected] of [
@@ -279,7 +279,7 @@ test('Worker 公开深链接使用新地址，内部页面与 DOM 身份不迁�
     expect(dom.node('detail').dataset.view).toBe('task');
     expect(dom.node('tasks')).toBeTruthy();
     expect(reads).toContain('/api/worker/1');
-    expect(reads).toContain('/api/worker-graph');
+    expect(reads).toContain('/api/worker-graph?details=0');
     expect(reads.some(url => /^\/api\/tasks?(?:\/|\?|$|-graph)/.test(url))).toBe(false);
     const workerReads = () => reads.filter(url => url.startsWith('/api/worker')).length;
     for (const hash of ['#task-1', '#task-graph', '#tasks']) {
@@ -350,6 +350,8 @@ test('Worker 详情按本地连接列表显示来源名称，完整响应形状�
     model_selection: { agent: 'pi', connection_id: id, model: 'openai-compatible/model-1', thinking: '', explicit: true } }) : null;
   try {
     await detail(1);
+    // The main Worker now opens before its independent connection-name read completes.
+    for (let i = 0; i < 12; i++) await Promise.resolve();
     const text = deepText(dom.node('detail'));
     expect(text).toContain('下一次配置：pi → 我的订阅来源 → openai-compatible/model-1');
     expect(text).not.toContain(id);

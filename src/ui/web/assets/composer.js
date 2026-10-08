@@ -249,6 +249,33 @@ export function syncComposer() {
   paintRunSettings();
 }
 
+/** Reads are not part of submission: release the composer before starting them. */
+async function updateAfterSubmit({ identity, submission, view, appendTarget, detailId, editRevision, referenceRevision, canNavigate }) {
+  const current = () => ui.composerIdentity === identity && identity.submission === submission;
+  const ownsNavigation = () => canNavigate && current() && ui.view === view && ui.composerAppendTarget === appendTarget
+    && ui.composerEditRevision === editRevision && ui.composerReferenceRevision === referenceRevision
+    && !$('input').value.trim() && !composerReferences().length;
+  let updateView = view;
+  const taskBefore = ui.composerTask, renderedBefore = ui.detailRenderedAt;
+  try {
+    await refresh();
+    if (!current()) return;
+    // refresh currently reports network errors itself rather than rejecting.
+    if (ui.offline) {
+      if (ui.view === view) show('提交已成功，但页面更新失败；请稍后刷新，不要重复提交。', 'error');
+      return;
+    }
+    if (detailId == null || !ownsNavigation()) return;
+    // A refresh of the current Worker may already have fetched its detail.
+    if (ui.detailTask === detailId && (ui.composerTask !== taskBefore || ui.detailRenderedAt !== renderedBefore)) return;
+    const pending = detail(detailId);
+    updateView = ui.view;
+    await pending;
+  } catch (error) {
+    if (current() && ui.view === updateView) show(`提交已成功，但页面更新失败：${error.message}；请稍后刷新，不要重复提交。`, 'error');
+  }
+}
+
 /** One flight across buffering, button submission and all keyboard shortcuts. */
 async function submitInput(mode) {
   const input = $('input'), value = input.value, content = value.trim();
@@ -261,15 +288,17 @@ async function submitInput(mode) {
   const target = destination(), branch = target.branch;
   if (target.reason) { show(target.reason, 'error'); return; }
   if (target.id != null && mode === 'buffer') return;
+  const submission = {}; identity.submission = submission;
+  let update = null;
   ui.composerSubmitting = true; syncComposer();
   try {
     if (target.id != null && references.length) throw new Error('追加输入暂不支持引用附件；引用已保留，请先移除引用，或回到新建 Worker 模式暂存 / 创建带引用的新 Worker。');
     if (branch && branch !== 'main' && !target.task && !ui.composerParents?.some(task => task.branch === branch)) throw new Error('所选父 Worker 已不可用，请展开输入区重新选择。');
     const params = { content, references, ...(branch ? { branch } : {}) };
     const result = target.id != null
-      ? await action('worker.message', { id: target.id, body: content })
+      ? await action('worker.message', { id: target.id, body: content }, { refresh: false })
       : await action(mode === 'buffer' ? 'draft.add' : 'order.submit', mode === 'buffer' ? params
-        : { ...params, start: mode === 'start' || mode === 'defer_start', ...(target.freeze ? { defer: true } : {}), ...(creationProfile ? { profile: creationProfile } : {}) });
+        : { ...params, start: mode === 'start' || mode === 'defer_start', ...(target.freeze ? { defer: true } : {}), ...(creationProfile ? { profile: creationProfile } : {}) }, { refresh: false });
     if (ui.composerIdentity !== identity) return;
     // The composer survives page navigation: consume unchanged submitted content even after a page switch.
     // Still protect edits (including edit-and-undo) and explicit inbox mode changes; view guards below only own navigation.
@@ -278,7 +307,6 @@ async function submitInput(mode) {
     if (untouched) { input.value = ''; setComposerReferences([]); }
     if (target.id != null) {
       show(`已追加给 Worker ${workerLabel(target.task)}${target.task.status === 'paused' ? '；开始 / 继续后处理' : ''}。`);
-      if (ui.view === view && ui.composerAppendTarget === appendTarget) await detail(target.id);
     } else if (mode === 'buffer') {
       show(`已暂存输入 #${result.id}，可到「历史输入」编辑或发射；未创建 Worker、未调用 Agent。`);
       ui.inputsPage?.added?.();
@@ -288,16 +316,16 @@ async function submitInput(mode) {
       paintRunSettings();
       if (result.deferred) {
         show(`已在父 Worker ${workerLabel(result.parent_id)} 挂载预约 Hook；尚未创建 Worker。首个可创建安全点将${mode === 'start' || mode === 'defer_start' ? '创建并开始' : '仅创建'}。`);
-        await refresh();
-        if (ui.composerIdentity === identity && ui.view === view && ui.composerAppendTarget === appendTarget) await detail(result.parent_id);
       } else {
         show(mode === 'start' || mode === 'defer_start' ? `已创建并开始 Worker ${workerLabel(result.task)}` : `已创建 Worker ${workerLabel(result.task)}（待开始），可配置后开始`);
-        await refresh();
-        if (ui.composerIdentity === identity && ui.view === view && ui.composerAppendTarget === appendTarget) await detail(result.task.id);
       }
     }
+    update = { identity, submission, view, appendTarget,
+      detailId: target.id ?? (mode === 'buffer' ? null : result.deferred ? result.parent_id : result.task.id),
+      editRevision: ui.composerEditRevision, referenceRevision: ui.composerReferenceRevision, canNavigate: untouched };
   } catch (error) { if (ui.composerIdentity === identity) show(error.message, 'error'); }
   finally { if (ui.composerIdentity === identity) { ui.composerSubmitting = false; syncComposer(); } }
+  if (update) void updateAfterSubmit(update);
 }
 export function buffer() { return submitInput('buffer'); }
 

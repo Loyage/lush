@@ -9,7 +9,7 @@ const graph = { nodes: [
 ], total: 2, truncated: false };
 let requests = 0;
 const dom = installDom({ fetch: (url, options) => {
-  if (String(url) === '/api/worker-graph') { requests++; return { ok: true, json: async () => graph }; }
+  if (String(url).split('?')[0] === '/api/worker-graph') { requests++; return { ok: true, json: async () => graph }; }
   return world.fetchImpl(url, options);
 } });
 const { boot } = await import('../../src/ui/web/assets/app.js');
@@ -227,6 +227,8 @@ test('Task 卡片同屏展示工作状态、进度、结果、Git 诊断、待�
   const previousRequests = requests;
   ui.taskGraphFetchedAt = Date.now() - 11000;
   await dom.intervalFor(1500)();
+  // Overview polling no longer waits for heavy graph enrichment.
+  await (await import('../../src/ui/web/assets/render-task-graph.js')).loadTaskGraph();
   expect(requests).toBeGreaterThan(previousRequests);
   expect(deepText(dom.node('detail'))).toContain('未提交：3 个文件');
 

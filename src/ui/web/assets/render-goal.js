@@ -13,7 +13,7 @@ export function renderGoal(task, history = {}, previous = null) {
     previous.updateGoalHistory(history, task.goal_input_delivery);
     return previous;
   }
-  if (!task.goal && !(history.events || []).some(isFollowup) && !history.truncated && !history.has_more) return null;
+  if (!task.goal && !(history.events || []).some(isFollowup) && !history.truncated && !history.has_more && !history.loading) return null;
   const goal = block('Worker 目标'); goal.classList.add('goal-panel'); goal.goalSignature = signature;
   const initialTime = el('p', inputTime(task.goal_input_delivery), 'hint goal-input-time');
   if (task.goal) goal.append(initialTime, agentText(task.goal, { className: 'goal-text', plain: 'div' }));
@@ -23,6 +23,7 @@ export function renderGoal(task, history = {}, previous = null) {
   const entries = new Map(previous?.goalEntries || []), rendered = new Map();
   goal.goalEntries = entries;
   let cursor = previous?.goalCursor ?? null, hasMore = previous?.goalHasMore ?? false;
+  let historyState = '';
   const more = button('加载更早输入', async () => {
     more.disabled = true; status.textContent = '正在读取更早的追加输入…';
     try {
@@ -50,12 +51,13 @@ export function renderGoal(task, history = {}, previous = null) {
       item.querySelector('.goal-input-time').textContent = `追加输入 · ${inputTime(event.input_delivery)}`;
       list.insertBefore(item, null);
     }
-    summary.textContent = `追加输入（已加载 ${ordered.length} 条${hasMore ? ' · 还有更早历史' : ''}）`;
-    fold.hidden = !ordered.length && !hasMore;
+    summary.textContent = `追加输入（已加载 ${ordered.length} 条${hasMore ? ' · 还有更早历史' : ''}${historyState}）`;
+    fold.hidden = !ordered.length && !hasMore && !historyState;
     more.hidden = !hasMore || !cursor;
     goal.goalCursor = cursor; goal.goalHasMore = hasMore;
   }
   goal.updateGoalHistory = (page, delivery) => {
+    historyState = page.loading ? ' · 历史加载中' : page.unavailable ? ' · 历史不可用' : '';
     if (delivery) initialTime.textContent = inputTime(delivery);
     for (const event of page.events || []) if (isFollowup(event)) entries.set(event.id, event);
     // A pending input may have aged out of the latest event page before it is delivered.

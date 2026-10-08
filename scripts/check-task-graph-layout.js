@@ -6,7 +6,7 @@ import { request } from 'node:http';
 const assets = new URL('../src/ui/web/assets/', import.meta.url).pathname;
 const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/styles.css"></head>
 <body><div id="detail"></div><div id="modal" hidden></div><div id="error"></div><script type="module">
-import { renderTaskGraph, loadTaskGraph } from '/assets/render-task-graph.js';
+import { renderTaskGraph, loadTaskGraph, openTaskGraph } from '/assets/render-task-graph.js';
 import { ui } from '/assets/state.js';
 import { initHelp } from '/assets/help.js';
 initHelp();
@@ -33,7 +33,7 @@ window.graph.nodes[0].merge_queue={counts:{resolving:1,requested:7,blocked:1},to
   items:[{id:2,status:'resolving'},{id:900,status:'requested'},{id:901,status:'blocked'}]};
 window.graph.nodes[1].reservation={version:2,kind:'merge',queue_protocol:1,parent_id:1,status:'resolving'};
 ui.view={id:'task-graph'}; window.paint=()=>renderTaskGraph(window.graph);
-window.refreshGraph=loadTaskGraph;
+window.refreshGraph=loadTaskGraph; window.openGraph=openTaskGraph; window.ui=ui;
 window.fetch=async(url)=>new URL(url,location.href).pathname==='/api/worker-graph'
   ?Response.json(window.graph):Response.json({error:'no route '+url},{status:404});
 window.paint(); window.ready=true;
@@ -97,7 +97,7 @@ try {
   await click('[data-graph-focus="detail-mode"]');
   assert(await execute(`const usage=document.querySelector('[data-task-id="2"] .task-graph-usage');
     return usage.textContent.includes('$2.24') && usage.firstElementChild.classList.contains('task-graph-usage-runtime')
-      && usage.textContent.includes('运行 1 小时 1 分') && getComputedStyle(usage).animationName==='task-usage-live'
+      && usage.textContent.includes('1 h 1 m 1 s') && getComputedStyle(usage).animationName==='task-usage-live'
       && getComputedStyle(usage.querySelector('.task-graph-usage-input')).color!==getComputedStyle(usage.querySelector('.task-graph-usage-output')).color;`), 'resource values, colors or running animation missing');
   await click('[data-graph-focus="fold-1"]');
   assert(await execute(`const usage=document.querySelector('[data-task-id="1"] .task-graph-usage');
@@ -169,6 +169,35 @@ try {
   console.log('PASS real FLIP duration, no polling restart, reading anchor/focus, reduced motion and selection protection');
   await rpc(`/session/${session}/refresh`, {});
   assert(await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0];let n=0;const check=()=>window.ready?done(!document.querySelector('[data-graph-focus="detail-mode"]').checked):++n>100?done(false):setTimeout(check,30);check();`, args: [] }), 'preference did not survive reload');
+  // Exercise the real async loader, not just the static layout fixture: the
+  // enrichment promise stays unresolved while opening/reopening must finish.
+  assert(await rpc(`/session/${session}/execute/async`, { script: `
+    const done=arguments[0];
+    window.ui.taskGraphPage=null; window.ui.view={id:'overview',key:'overview'};
+    window.graphReads=[];
+    window.fetch=async(url)=>{
+      window.graphReads.push(String(url));
+      if(String(url).includes('details=0')) return Response.json({...window.graph,details_pending:true,
+        nodes:window.graph.nodes.map(n=>({...n,details_pending:true,resources:null}))});
+      return new Promise(resolve=>{window.releaseGraph=()=>resolve(Response.json(window.graph));});
+    };
+    const timer=setTimeout(()=>done(false),5000);
+    window.openGraph().then(()=>{clearTimeout(timer);done(!!window.releaseGraph
+      && document.querySelectorAll('.task-graph-card').length===8
+      && document.querySelector('.task-graph-load-status').textContent.includes('加载中'));});
+  `, args: [] }), 'first graph open waited for slow enrichment');
+  assert(await rpc(`/session/${session}/execute/async`, { script: `
+    const done=arguments[0];window.ui.view={id:'overview',key:'overview'};
+    const timer=setTimeout(()=>done(false),5000);
+    window.openGraph().then(()=>{clearTimeout(timer);done(window.graphReads.length===2
+      && !!document.querySelector('.task-graph-card'));});
+  `, args: [] }), 'cached reopen waited or duplicated enrichment');
+  assert(await rpc(`/session/${session}/execute/async`, { script: `
+    const done=arguments[0];window.releaseGraph();window.refreshGraph().then(()=>done(
+      document.querySelector('[data-task-id="2"] .task-graph-usage').textContent.includes('$2.24')
+      && !document.querySelector('.task-graph-load-status').textContent.includes('加载中')));
+  `, args: [] }), 'enrichment did not fill resource values');
+  console.log('PASS real progressive loading, slow enrichment, cache reopen and single flight');
   await execute(`document.documentElement.dataset.theme='light';`);
   const screenshotPath = process.argv[2] || '/tmp/lush-task-graph-layout.png';
   await Bun.write(screenshotPath, Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));

@@ -32,7 +32,7 @@ export function resourceSummary(node, folded) {
     el('span', `↓${output}`, 'task-graph-usage-output'),
     el('span', cost, 'task-graph-usage-cost'));
   box.setAttribute('tabindex', '0');
-  box.setAttribute('data-help', `${aggregate ? '此 Worker 与全部后代的累计消耗（含隐藏、归档及图外节点）' : '此 Worker 自身的累计消耗，不含子 Worker'}。运行时间为各轮 Agent 调用的累计时长，不含等待；↑ 输入 token（含缓存读取与写入），↓ 输出 token；美元费用为会话报告的估算，不代表实际账单。— 表示记录缺失或无法完整统计。${value?.running ? '有 Worker 正在运行，数值可能变化。' : ''}`);
+  box.setAttribute('data-help', `${node.details_pending ? '累计消耗正在加载，— 不代表零。' : ''}${aggregate ? '此 Worker 与全部后代的累计消耗（含隐藏、归档及图外节点）' : '此 Worker 自身的累计消耗，不含子 Worker'}。运行时间为各轮 Agent 调用的累计时长，不含等待；↑ 输入 token（含缓存读取与写入），↓ 输出 token；美元费用为会话报告的估算，不代表实际账单。— 表示记录缺失或无法完整统计。${value?.running ? '有 Worker 正在运行，数值可能变化。' : ''}`);
   box.setAttribute('aria-label', `${aggregate ? '子树合计' : '自身消耗'}：运行 ${runtime}，输入 ${input}，输出 ${output}，费用 ${cost}`);
   return box;
 }

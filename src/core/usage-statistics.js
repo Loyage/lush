@@ -10,7 +10,12 @@ const MAX_LINE = 16 * 1024 * 1024;
 const MAX_BUCKETS = 1500;
 const CACHE_ROWS = 100000;
 const cache = new Map();
+// Lifetime cards need compact per-file totals, not every historical request row.
+// Keep these separately so a sequential scan cannot evict its own 128-file row cache.
+const resourceCache = new Map();
+const RESOURCE_CACHE_FILES = 4096;
 const pending = new Map();
+const resourcePending = new Map();
 const validNumber = n => typeof n === 'number' && Number.isFinite(n) && n >= 0;
 const num = n => validNumber(n) ? n : 0;
 const signature = stat => `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
@@ -54,14 +59,18 @@ function normalize(record, model, invocation, taskId) {
   };
 }
 
-async function readFile(file, stat) {
+async function readFile(file, stat, compact = false) {
   const key = signature(stat);
+  const compactPrevious = compact && resourceCache.get(file);
+  if (compactPrevious?.signature === key) return compactPrevious;
   const previous = cache.get(file);
   if (previous?.signature === key) {
     cache.delete(file); cache.set(file, previous);
+    if (compact) return rememberResources(file, previous);
     return previous;
   }
-  const result = { signature: key, task_id: Number(file.match(SESSION)[1]), rows: [], malformed: 0, incomplete: 0 };
+  const result = { signature: key, task_id: Number(file.match(SESSION)[1]), rows: [], malformed: 0, incomplete: 0,
+    resources: { requests: 0, input: 0, output: 0, cost: 0, unknown_tokens: 0, unknown_cost: 0 } };
   let invocation = null;
   let model = { provider: 'unknown', model: 'unknown' };
   let tail = '', skipping = false;
@@ -74,7 +83,13 @@ async function readFile(file, stat) {
     }
     if (record?.type === 'custom' && record.customType === 'lush.invocation') invocation = record.data;
     const row = normalize(record, model, invocation, result.task_id);
-    if (row) result.rows.push(row);
+    if (!row) return;
+    if (!compact) result.rows.push(row);
+    if (!row.foreign) {
+      const total = result.resources;
+      total.requests++; total.input += row.input + row.cache_read + row.cache_write;
+      for (const field of ['output', 'cost', 'unknown_tokens', 'unknown_cost']) total[field] += row[field];
+    }
   };
   // Snapshot the size: a live agent can keep appending, but one request must still finish.
   if (stat.size) for await (const chunk of fs.createReadStream(file, { encoding: 'utf8', highWaterMark: 64 * 1024, end: stat.size - 1 })) {
@@ -93,6 +108,7 @@ async function readFile(file, stat) {
   }
   // Do not count a partially written final JSON line until the writer terminates it.
   if (tail || skipping) result.incomplete++;
+  if (compact) return rememberResources(file, result);
   cache.delete(file);
   if (result.rows.length <= CACHE_ROWS) cache.set(file, result);
   let rows = [...cache.values()].reduce((n, value) => n + value.rows.length, 0);
@@ -103,20 +119,29 @@ async function readFile(file, stat) {
   return result;
 }
 
-async function scan(dir) {
+function rememberResources(file, result) {
+  const { rows: _rows, ...summary } = result;
+  resourceCache.delete(file); resourceCache.set(file, summary);
+  while (resourceCache.size > RESOURCE_CACHE_FILES) resourceCache.delete(resourceCache.keys().next().value);
+  return summary;
+}
+
+async function scan(dir, compact = false) {
   let names;
   try { names = await fs.promises.readdir(dir); }
   catch (error) { if (error.code === 'ENOENT') return { files: [], codex_threads: 0, codex_ids: [], unreadable: 0 }; throw error; }
   const codexIds = names.map(name => /^codex-task-(\d+)\.json$/.exec(name)).filter(Boolean).map(match => Number(match[1]));
   const result = { files: [], codex_threads: codexIds.length, codex_ids: codexIds, unreadable: 0 };
   const live = new Set(names.filter(name => SESSION.test(name)).map(name => path.join(dir, name)));
-  for (const file of cache.keys()) if (path.dirname(file) === dir && !live.has(file)) cache.delete(file);
+  for (const target of [cache, resourceCache]) {
+    for (const file of target.keys()) if (path.dirname(file) === dir && !live.has(file)) target.delete(file);
+  }
   for (const file of [...live].sort()) {
     try {
       const stat = await fs.promises.lstat(file);
       // Do not follow session symlinks into another project or the global agent history.
       if (!stat.isFile()) { result.unreadable++; continue; }
-      result.files.push(await readFile(file, stat));
+      result.files.push(await readFile(file, stat, compact));
     } catch { result.unreadable++; }
   }
   return result;
@@ -159,8 +184,8 @@ function runMs(runs, now) {
 /** Compact lifetime resource summaries, independent of graph/group limits. */
 export async function readWorkerResources(config, tasks, runs = []) {
   const dir = path.join(config.home, 'sessions');
-  if (!pending.has(dir)) pending.set(dir, scan(dir).finally(() => pending.delete(dir)));
-  const source = await pending.get(dir);
+  if (!resourcePending.has(dir)) resourcePending.set(dir, scan(dir, true).finally(() => resourcePending.delete(dir)));
+  const source = await resourcePending.get(dir);
   const now = Date.now();
   const runsByTask = new Map();
   for (const run of runs) {
@@ -176,14 +201,9 @@ export async function readWorkerResources(config, tasks, runs = []) {
     const total = own.get(file.task_id);
     if (!total) continue;
     total.incomplete ||= file.malformed > 0 || file.incomplete > 0;
-    for (const row of file.rows) {
-      // Forked context is not expenditure by the new Worker.
-      if (row.foreign) continue;
-      observed.add(file.task_id);
-      total.input += row.input + row.cache_read + row.cache_write;
-      total.output += row.output; total.cost += row.cost;
-      total.unknown_tokens += row.unknown_tokens; total.unknown_cost += row.unknown_cost;
-    }
+    // Forked context was excluded while parsing; unchanged files reuse these compact totals.
+    if (file.resources.requests) observed.add(file.task_id);
+    for (const field of ['input', 'output', 'cost', 'unknown_tokens', 'unknown_cost']) total[field] += file.resources[field];
   }
   // Codex thread metadata does not contain request expenditure.
   for (const id of source.codex_ids) if (own.has(id) && !observed.has(id)) own.get(id).incomplete = true;

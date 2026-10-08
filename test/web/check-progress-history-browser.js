@@ -15,9 +15,18 @@ const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
 const html = (await Bun.file(join(assets, 'index.html')).text()).replace('<script type="module" src="/app.js"></script>', '');
 const fixture = html.replace('</body>', `<script type="module">
 import { renderDetail } from '/render-detail.js';
+import { loadDetail } from '/detail.js';
 import { refreshProgressDurations } from '/render-progress.js';
 import { ui } from '/state.js';
-ui.selected=${task.id}; ui.view={id:'task',key:'task-${task.id}'};
+ui.selected=${task.id}; ui.detailTask=${task.id}; ui.view={id:'task',key:'task-${task.id}'};
+const nativeFetch=window.fetch.bind(window);window.supplementReleases=[];window.holdSupplements=false;
+window.fetch=async(url,options)=>{const path=new URL(url,location.href).pathname;
+  if(window.holdSupplements&&(path==='/api/worker/${task.id}/history-page'||path==='/api/worker/${task.id}/diff'
+    ||path==='/api/worker/${task.id}/usage'||path==='/api/agent/connections'))
+    await new Promise(resolve=>window.supplementReleases.push(resolve));
+  return nativeFetch(url,options);};
+window.progressiveRefresh=()=>loadDetail(${task.id});
+window.releaseSupplements=()=>{window.holdSupplements=false;for(const release of window.supplementReleases.splice(0))release();};
 window.refresh=async()=>{window.task=await(await fetch('/api/worker/${task.id}')).json();renderDetail(window.task,null,null,null);};
 window.tick=()=>refreshProgressDurations(document.getElementById('detail'));
 await window.refresh();window.ready=true;
@@ -98,6 +107,22 @@ try {
   assert(await execute(`return document.querySelectorAll('.progress-history-version').length===14&&
     document.querySelector('#detail>.task-progress-panel progress').value===0&&window.old.open;`), 'new input replaced history');
   console.log('PASS real HTTP pagination, frozen timers, retained expansion, refresh and appended work');
+  assert(await execute(`window.holdSupplements=true;return window.progressiveRefresh();`), 'progressive refresh waited for supplements');
+  assert(await execute(`return window.supplementReleases.length===4&&document.querySelector('#detail').textContent.includes('改动加载中')
+    &&document.querySelectorAll('.progress-history-version').length===14&&window.old.open
+    &&[...document.querySelectorAll('.progress-history-version')].includes(window.old);`), 'progressive refresh lost folded history or pagination');
+  await execute(`window.old.querySelector('summary').focus();window.historyScroll=document.querySelector('#detail').scrollTop;window.releaseSupplements();`);
+  assert(await wait(`!window.holdSupplements`), 'supplements were not released');
+  await execute(`document.activeElement.blur();`);
+  assert(await wait(`!document.querySelector('#detail').textContent.includes('改动加载中')`), 'supplement update did not finish');
+  const reading = await execute(`return {count:document.querySelectorAll('.progress-history-version').length,open:window.old.open,
+    exhausted:document.querySelector('.progress-history-controls button').hidden,
+    scroll:document.querySelector('#detail').scrollTop,before:window.historyScroll,
+    ticking:!!document.querySelector('.progress-history-panel .is-running-duration')};`);
+  // Firefox can round fractional layout pixels when applying scrollTop.
+  assert(reading.count===14&&reading.open&&reading.exhausted&&Math.abs(reading.scroll-reading.before)<=1&&!reading.ticking,
+    'late supplements changed history reading state: '+JSON.stringify(reading));
+  console.log('PASS real progressive detail preserves loaded/open frozen history and reading position under slow supplements');
   passed = true;
 } finally {
   if (session) await rpc(`/session/${session}`, undefined, 'DELETE').catch(() => {});

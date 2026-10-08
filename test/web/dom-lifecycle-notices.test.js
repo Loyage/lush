@@ -172,17 +172,20 @@ test('已知失败不消除且报错，显式重试按钮仍可用；轮询绝�
 test('ACK 在途新告知/轮询/双击共用单飞，始终只标原展示条；陈旧快照不复活已读', async () => {
   world.state.notices = [info(100)]; world.state.actions = []; await update();
   const stale = structuredClone(ui.lastSnapshot); const before = readRequests;
-  deferRead = true; const ack = known().onclick();
+  const original = known();
+  deferRead = true; const ack = original.onclick();
   while (!releaseRead) await Promise.resolve();
   const same = readNotice(info(100));
   world.state.notices.push(info(101)); await update();
-  expect(deepText(banner())).toContain('Task 告知 101'); expect(known().disabled).toBe(true);
-  await known().onclick(); expect(readRequests).toBe(before + 1);
+  expect(deepText(banner())).toContain('Task 告知 101'); expect(known().disabled).toBe(false);
+  await original.onclick(); expect(readRequests).toBe(before + 1);
   deferRead = false; releaseRead(); releaseRead = null; await Promise.all([ack, same]);
   expect(world.state.actions).toEqual([{ method: 'notice.read', params: { id: 100 } }]);
   expect(world.state.notices[1].read_at).toBeNull(); expect(known().disabled).toBe(false);
   renderNotices(stale); renderNoticeBanner(stale); expect(banner().hidden).toBe(true);
   await readNotice(info(100)); expect(readRequests).toBe(before + 1);
+  // ACK no longer waits for the background refresh; let it leave its single-flight slot.
+  await new Promise(resolve => setTimeout(resolve, 0));
   await update(); expect(deepText(banner())).toContain('Task 告知 101');
 });
 
@@ -293,7 +296,7 @@ test('ACK 单飞，轮询不重复 ACK、不复活旧告知；请求期间有新
   const shared = readNotice(info(90));
   await update(); expect(readRequests).toBe(before + 1); expect(known().disabled).toBe(true);
   world.state.notices.push(info(91)); await update();
-  expect(infoRow().dataset.noticeId).toBe(91); expect(known().disabled).toBe(true);
+  expect(infoRow().dataset.noticeId).toBe(91); expect(known().disabled).toBe(false);
   deferRead = false; releaseRead(); releaseRead = null; await Promise.all([ack, shared]);
   expect(world.state.actions.map(row => row.params.id)).toEqual([90]);
   expect(infoRow().dataset.noticeId).toBe(91); expect(known().disabled).toBe(false);

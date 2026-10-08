@@ -14,7 +14,7 @@ const graph = { nodes: [
     workspace: '/tmp/task-4', target_branch: 'release', integration: 'pending', children: [] },
 ], total: 4, truncated: false };
 const dom = installDom({ fetch: (url, options) => {
-  if (String(url) === '/api/worker-graph') return { ok: true, json: async () => graph };
+  if (String(url).split('?')[0] === '/api/worker-graph') return { ok: true, json: async () => graph };
   return world.fetchImpl(url, options);
 } });
 const { boot } = await import('../../src/ui/web/assets/app.js');

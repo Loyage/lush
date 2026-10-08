@@ -1,6 +1,7 @@
 import { $, badge, button, el, roleBadge } from './dom.js';
 import { workerKind, workerKindLabel } from './worker-kind.js';
 import { api, action } from './api.js';
+import { projectBase } from './route.js';
 import { confirmDialog, promptDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { absolute, INTEGRATION, statusOf, interruptReason, worktreeLabel, isHistoricalDelivery } from './format.js';
@@ -207,7 +208,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
     const git = el('section', undefined, 'task-graph-git');
     const header = el('div', '分支诊断', 'task-graph-git-head');
     if (branch.current_head) header.append(el('span', `HEAD ${branch.current_head.slice(0, 12)}`, 'mono'));
-    else header.append(el('span', '当前分支 ref 不可用', 'warn'));
+    else header.append(el('span', node.details_pending ? 'Git 诊断加载中…' : '当前分支 ref 不可用', node.details_pending ? 'meta' : 'warn'));
     if (branch.current_head && node.head_commit && branch.current_head !== node.head_commit) {
       header.append(el('span', `与 Worker 固定提交 ${node.head_commit.slice(0, 12)} 不同`, 'warn'));
     }
@@ -469,7 +470,8 @@ export function renderTaskGraph(graph) {
   };
   mode.append(checkbox, el('span', '详情模式'));
   mode.setAttribute('data-help', '勾选后展开 Worker 的目标、结果、进度、分支诊断与操作；取消勾选回到默认的极简双行展示。仅改变显示，按项目记住选择。');
-  hero.append(summary, mode, button('刷新', () => loadTaskGraph(), 'ghost'));
+  hero.append(summary, mode, button('刷新', () => loadTaskGraph().catch(graphFailure), 'ghost'),
+    el('p', undefined, 'hint task-graph-load-status'));
   box.append(hero);
   if (view.truncated) box.append(el('p', `只显示最近及活动的 ${nodes.length} / ${graph.total} 条 Worker；父节点可能在截断范围外。`, 'hint'));
   const paint = (node, parent) => {
@@ -499,18 +501,60 @@ export function renderTaskGraph(graph) {
   }
   box.dataset.renderKey = renderKey;
   host.replaceChildren(box);
+  paintGraphStatus();
   restoreGraph(host, box, before);
   if (focusKey) (host.querySelector(`[data-graph-focus="${focusKey}"]`)
     || (focusTask && host.querySelector(`[data-graph-focus="title-${focusTask}"]`)))?.focus({ preventScroll: true });
 }
 
-let pending = null;
-export async function loadTaskGraph() {
-  const view = ui.view;
-  if (!pending) pending = api('/api/worker-graph').finally(() => { pending = null; });
-  const graph = await pending;
-  if (ui.view === view) {
-    ui.taskGraphFetchedAt = Date.now();
+function graphPage() {
+  const scope = projectBase();
+  if (!ui.taskGraphPage || ui.taskGraphPage.scope !== scope) {
+    ui.taskGraphPage = { scope, graph: null, fetchedAt: 0, sequence: 0, applied: 0, error: null,
+      summaryPending: null, fullPending: null };
+  }
+  return ui.taskGraphPage;
+}
+function paintGraphStatus() {
+  const node = $('detail').querySelector('.task-graph-load-status'), page = ui.taskGraphPage;
+  if (!node || !page || ui.view?.id !== 'task-graph') return;
+  const sampled = page.fetchedAt ? new Date(page.fetchedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '';
+  node.textContent = page.error ? `更新失败：${page.error}；保留上次可用内容，可点刷新重试。`
+    : page.graph?.details_pending ? 'Worker 结构已加载，Git 诊断与累计用量加载中…'
+      : page.fullPending ? `正在更新；显示 ${sampled} 的缓存。`
+        : sampled ? `上次更新 ${sampled}` : '';
+}
+function graphFailure(error) {
+  show(`Worker 树更新失败：${error.message}`, 'error');
+}
+export async function loadTaskGraph({ summary = false } = {}) {
+  const view = ui.view, page = graphPage(), slot = summary ? 'summaryPending' : 'fullPending';
+  const current = () => ui.taskGraphPage === page && projectBase() === page.scope;
+  if (!page[slot]) {
+    const sequence = ++page.sequence;
+    page.error = null;
+    const request = (summary ? api('/api/worker-graph?details=0').catch(error => {
+      // A newer Host may be attached to an older daemon. Retrying a read is safe.
+      if (!error.message.includes('unknown parameter')) throw error;
+      return api('/api/worker-graph');
+    }) : api('/api/worker-graph'));
+    page[slot] = request.then(graph => {
+      if (current() && sequence >= page.applied) {
+        page.graph = graph; page.applied = sequence; page.fetchedAt = Date.now(); page.error = null;
+      }
+      return graph;
+    }).catch(error => {
+      if (current() && sequence >= page.applied) page.error = error.message;
+      throw error;
+    }).finally(() => {
+      page[slot] = null;
+      if (current()) paintGraphStatus();
+    });
+    paintGraphStatus();
+  }
+  const graph = await page[slot];
+  if (current() && ui.view === view && page.graph === graph) {
+    ui.taskGraphFetchedAt = page.fetchedAt;
     if (!hasPendingInput()) renderTaskGraph(graph);
   }
   return graph;
@@ -530,7 +574,23 @@ function hasPendingInput() {
   return false;
 }
 export async function openTaskGraph() {
-  activateDetailView({ view: 'task-graph', hash: '#worker-graph' });
-  try { await loadTaskGraph(); }
-  catch (error) { if (ui.view?.id === 'task-graph') $('detail').textContent = `Worker 树加载失败：${error.message}`; throw error; }
+  const view = activateDetailView({ view: 'task-graph', hash: '#worker-graph' });
+  const page = graphPage();
+  if (page.graph) {
+    renderTaskGraph(page.graph);
+    // The cache paints synchronously; never make reopening wait for Git diagnostics.
+    if (Date.now() - page.fetchedAt >= 3000 || page.graph.details_pending) {
+      void loadTaskGraph().catch(error => { if (ui.view === view) graphFailure(error); });
+    }
+    return;
+  }
+  try {
+    const graph = await loadTaskGraph({ summary: true });
+    if (ui.view === view && graph.details_pending) {
+      void loadTaskGraph().catch(error => { if (ui.view === view) graphFailure(error); });
+    }
+  } catch (error) {
+    if (ui.view === view) $('detail').textContent = `Worker 树加载失败：${error.message}`;
+    throw error;
+  }
 }

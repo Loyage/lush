@@ -36,6 +36,7 @@ import { referenceable } from './context-references.js';
 import { inputNumber } from './format.js';
 import { workerLabel, rememberWorkers } from './worker-label.js';
 
+const progressivePanels = new WeakMap();
 const freezeOf = task => freezeBlocker(task.target_branch, task, ui.lastSnapshot?.status?.merge_freeze || []);
 /** 任务依赖：本任务等谁、谁在等它。 */
 function renderDeps(task) {
@@ -70,9 +71,11 @@ function intentBadge(task) {
   }
   return node;
 }
-export function renderDetail(task, history, diff, usage, connections = null) {
+export function renderDetail(task, history, diff, usage, connections = null, progressive = null) {
   workerLabel(task); rememberWorkers(task.children); rememberWorkers(task.deps); rememberWorkers(task.dependents);
   const panel = $('detail');
+  progressivePanels.get(panel)?.dispose();
+  progressivePanels.delete(panel);
   const sameTask = panel.dataset.taskId === String(task.id);
   const previousResult = sameTask ? panel.querySelector('.result-panel') : null;
   const previousGoal = sameTask ? panel.querySelector('.goal-panel') : null;
@@ -218,7 +221,11 @@ export function renderDetail(task, history, diff, usage, connections = null) {
   if (deletion) actions.append(deletion);
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
   panel.append(actions);
-  if (['order', 'child'].includes(workerKind(task))) panel.append(modelSourceSummary(task, history, connections));
+  const source = ['order', 'child'].includes(workerKind(task)) ? modelSourceSummary(task, history?.events, connections) : null;
+  if (source) {
+    panel.append(source);
+    if (progressive) source.append(el('p', '连接名称加载中…', 'hint detail-connections-status'));
+  }
   const interruptHint = management ? null : interruptReason(task);
   if (interruptHint) panel.append(el('p', interruptHint, 'hint interrupt-reason'));
   if (task.divergence_resolution && TERMINAL_STATUS.has(task.status) && task.integration !== 'merged') {
@@ -263,7 +270,11 @@ export function renderDetail(task, history, diff, usage, connections = null) {
   if (task.error) { const error = block('错误'); error.classList.add('error-panel'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); panel.append(error); }
   if (task.integration_error) { const error = block('合并错误'); error.classList.add('error-panel'); error.append(agentText(task.integration_error, { className: 'error', plain: 'pre' })); panel.append(error); }
 
-  if (task.calls) panel.append(renderAgent(task, usage));
+  const agent = task.calls ? renderAgent(task, usage) : null;
+  if (agent) {
+    panel.append(agent);
+    if (progressive) agent.append(el('p', '用量加载中…', 'hint detail-usage-status'));
+  }
 
   const stats = block('状态'); stats.classList.add('task-stats');
   const grid = el('div', undefined, 'grid');
@@ -289,7 +300,12 @@ export function renderDetail(task, history, diff, usage, connections = null) {
     workspace.append(el('p', text, 'mono'));
     panel.append(workspace);
   }
-  if (!management) panel.append(renderDiff(diff, task.id));
+  let diffSection = null;
+  if (!management) {
+    diffSection = progressive ? block('改动概览') : renderDiff(diff, task.id);
+    if (progressive) diffSection.append(el('p', '改动加载中…', 'hint'));
+    panel.append(diffSection);
+  }
   if (task.role === 'verifier' || task.verifications?.length || (task.role === 'worker' && task.status === 'completed' && task.workspace && task.head_commit)) panel.append(renderVerifications(task));
 
   if (task.children?.length) {
@@ -338,9 +354,10 @@ export function renderDetail(task, history, diff, usage, connections = null) {
     }
     panel.append(messages);
   }
-  if (history?.events?.length) {
-    const events = block('事件时间线', String(history.events.length));
-    events.append(renderHistory(history.events, { running: task.status === 'running', truncated: history.truncated,
+  let events = null;
+  if (progressive || history?.events?.length) {
+    events = block('事件时间线', progressive ? undefined : String(history.events.length));
+    events.append(progressive ? el('p', '历史加载中…', 'hint') : renderHistory(history.events, { running: task.status === 'running', truncated: history.truncated,
       cursor: history.cursor, onMore: history.onMore, taskId: task.id }));
     panel.append(events);
   }
@@ -352,8 +369,106 @@ export function renderDetail(task, history, diff, usage, connections = null) {
     const nextTop = historyAnchor.getBoundingClientRect?.().top;
     if (nextTop !== undefined) panel.scrollTop = readingScroll + nextTop - anchorTop;
   }
+  if (!progressive) return;
+
+  // At most four supplemental patches. Never rebuild the page or replace a live form/reader.
+  const pending = new Map();
+  let listening = false, observer = null, disposed = false;
+  const inside = node => { for (let at = node; at; at = at.parentNode) if (at === panel) return true; return false; };
+  const reading = () => {
+    const selection = globalThis.window?.getSelection?.();
+    return Boolean(selection && !selection.isCollapsed && (inside(selection.anchorNode) || inside(selection.focusNode)))
+      || inside(document.activeElement);
+  };
+  const dispose = () => {
+    disposed = true; pending.clear();
+    document.removeEventListener?.('selectionchange', flush);
+    panel.removeEventListener?.('focusout', onFocusOut);
+    observer?.disconnect();
+  };
+  function flush() {
+    if (disposed) return;
+    if (!progressive.current() || panel.dataset.taskId !== String(task.id)) { dispose(); return; }
+    if (reading()) return;
+    const scroll = panel.scrollTop;
+    const pageScroll = globalThis.window?.scrollY;
+    for (const patch of pending.values()) patch();
+    pending.clear();
+    panel.scrollTop = scroll;
+    if (Number.isFinite(pageScroll) && window.scrollY !== pageScroll) window.scrollTo?.(window.scrollX, pageScroll);
+    if (listening) {
+      document.removeEventListener?.('selectionchange', flush);
+      panel.removeEventListener?.('focusout', onFocusOut);
+      observer?.disconnect(); listening = false;
+    }
+  }
+  const onFocusOut = () => queueMicrotask(flush);
+  const replace = (old, next) => { panel.insertBefore(next, old); old.remove(); return next; };
+  const sourcePatch = () => {
+    if (!source) return;
+    const next = modelSourceSummary(task, history?.events, connections);
+    source.replaceChildren(...next.childNodes);
+    if (connectionStatus !== 'ready') source.append(el('p', connectionStatus === 'loading' ? '连接名称加载中…' : '连接名称不可用；显示连接 ID。', 'hint detail-connections-status'));
+  };
+  let connectionStatus = 'loading';
+  const patches = {
+    dispose,
+    update(kind, value, available) {
+      if (disposed || !progressive.current()) { dispose(); return; }
+      pending.set(kind, () => {
+        if (kind === 'connections') { connections = value; connectionStatus = available ? 'ready' : 'unavailable'; sourcePatch(); }
+        if (kind === 'usage' && agent) {
+          const next = renderAgent(task, available ? value : null);
+          const grid = agent.querySelector('.grid');
+          if (grid) grid.remove();
+          const nextGrid = next.querySelector('.grid');
+          if (nextGrid) (agent.querySelector('.detail-preview-content') || agent).insertBefore(nextGrid, null);
+          const last = next.querySelector('.last-step');
+          if (last) agent.querySelector('.block').insertBefore(last, null);
+          const status = agent.querySelector('.detail-usage-status');
+          status.textContent = available ? (value?.files?.length ? '' : '未记录会话用量。') : '用量不可用；未读取到数据。';
+        }
+        if (kind === 'diff' && diffSection) {
+          const next = available && value ? renderDiff(value, task.id) : block('改动概览');
+          if (!available || !value) next.append(el('p', available ? '改动不可用：尚无可读取的工作区。' : '改动不可用；读取失败。', 'hint'));
+          diffSection = replace(diffSection, next);
+        }
+        if (kind === 'history') {
+          if (available) {
+            history = value;
+            goal?.updateGoalHistory(value, task.goal_input_delivery);
+            result?.updateResultHistory?.(value);
+            sourcePatch();
+          } else {
+            goal?.updateGoalHistory({ events: [], unavailable: true });
+            result?.updateResultHistory?.({ events: [], unavailable: true });
+          }
+          const next = block('事件时间线', available ? String(value.events?.length || 0) : undefined);
+          next.append(available && value.events?.length ? renderHistory(value.events, { running: task.status === 'running', truncated: value.truncated,
+            cursor: value.cursor, onMore: value.onMore, taskId: task.id }) : el('p', available ? '暂无历史事件。' : '历史不可用；读取失败。', 'hint'));
+          events = replace(events, next);
+        }
+        linkWorkerNumbers(panel);
+        limitDetailModules(panel, { taskId: task.id, from: readingStart });
+      });
+      flush();
+      if (pending.size && !listening) {
+        listening = true;
+        document.addEventListener?.('selectionchange', flush);
+        // focusout precedes the browser's activeElement change.
+        panel.addEventListener('focusout', onFocusOut);
+        if (typeof MutationObserver === 'function') {
+          observer = new MutationObserver(() => { if (!progressive.current()) dispose(); });
+          observer.observe(panel, { attributes: true, childList: true });
+        }
+      }
+    },
+  };
+  progressivePanels.set(panel, patches);
+  return patches;
 }
 export function renderDetailError(taskId, message) {
   const panel = $('detail');
+  progressivePanels.get(panel)?.dispose(); progressivePanels.delete(panel);
   panel.replaceChildren(el('h2', `无法打开 ${workerLabel(taskId)}`), el('p', message, 'error'));
 }

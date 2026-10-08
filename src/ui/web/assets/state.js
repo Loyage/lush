@@ -49,7 +49,7 @@ export const ui = {
   sidebarSortMode: readSidebarSortPref(),
   deletedWorkerIds: new Set(), // 已删除身份不复用；阻止在途读响应把已删缓存/卡片复活。
   workerNumbers: new Map(), // 已知用户编号的项目作用域有界缓存，仅展示；不存储业务身份。
-  taskGraphFetchedAt: 0, taskGraphIds: new Set(),
+  taskGraphFetchedAt: 0, taskGraphIds: new Set(), taskGraphPage: null,
   taskGraphMinimal: readPref('taskGraphMinimal'),
   /** Task 图里是否临时显示已归档 Task（默认隐藏，随页面重开复位）。 */
   taskGraphShowArchived: false,
@@ -94,7 +94,7 @@ export function resetUiState() {
   ui.noticeReadPending = new Map(); ui.noticeReadRows = new Map();
   ui.noticeFocus = null; ui.noticeIndex = new Map(); ui.questionDrafts = new Map(); ui.noticeRecords = null; ui.loadNoticeRecords = null;
   ui.lastSnapshot = null; ui.taskHistory = []; ui.taskHistoryPage = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
-  ui.taskGraphFetchedAt = 0; ui.taskGraphIds = new Set(); ui.taskGraphShowArchived = false;
+  ui.taskGraphFetchedAt = 0; ui.taskGraphIds = new Set(); ui.taskGraphPage = null; ui.taskGraphShowArchived = false;
   ui.taskGraphFilesExpanded = new Set(); ui.taskGraphMinimal = readPref('taskGraphMinimal');
   ui.sideNodes = new Map(); ui.sideHeads = new Map(); ui.navButtons = new Map(); ui.navCounts = new Map();
   ui.stepToggle = new Map();

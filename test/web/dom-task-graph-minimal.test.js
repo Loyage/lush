@@ -4,7 +4,7 @@ import { makeWorld } from './dom-world.js';
 
 const world = makeWorld();
 let graph;
-const dom = installDom({ fetch: (url, options) => String(url) === '/api/worker-graph'
+const dom = installDom({ fetch: (url, options) => String(url).split('?')[0] === '/api/worker-graph'
   ? { ok: true, json: async () => graph } : world.fetchImpl(url, options) });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');

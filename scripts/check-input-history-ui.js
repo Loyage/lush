@@ -13,8 +13,12 @@ window.rows=[{...base,kind:'draft',id:1,content:'尚未实施的想法\\n可以�
  {...base,kind:'input',id:3,content:'',task_id:null,status:'unknown',merge_status:'none',revision:null},
  {...base,kind:'input',id:4,content:'X'.repeat(1000),task_id:1,status:'created',merge_status:'blocked',revision:null}];
 window.calls=[];window.delayMutation=false;window.hold=null;
+window.supplementReleases=[];window.refreshReleases=[];window.holdSupplements=false;window.holdRefresh=false;
 window.fetch=async(url,options={})=>{
  const path=new URL(url,location.href).pathname;const json=data=>({ok:true,json:async()=>structuredClone(data)});
+ if(window.holdRefresh&&(path==='/api/overview'||path==='/api/snapshot')) await new Promise(resolve=>window.refreshReleases.push(resolve));
+ if(window.holdSupplements&&(/^\\/api\\/worker\\/\\d+\\/(history-page|diff|usage)$/.test(path)||path==='/api/agent/connections'))
+  await new Promise(resolve=>window.supplementReleases.push(resolve));
  if(path==='/api/inputs')return json({items:window.rows,next_cursor:null});
  if(path==='/api/input-parents')return json({items:world.state.inputParents});
  if(path==='/api/worker/1'){const task=await(await world.fetchImpl(url,options)).json();return json({...task,task_kind:'order',status:window.workerStatus||'paused',agent:{...task.agent,active:false}});}
@@ -23,6 +27,7 @@ window.fetch=async(url,options={})=>{
  if(path==='/api/action'){
   const body=JSON.parse(options.body);window.calls.push(body);const p=body.params;
   if(window.delayMutation){window.delayMutation=false;await new Promise(resolve=>{window.hold=resolve;});}
+  if(body.method==='notice.read'){const row=world.state.notices.find(n=>n.id===p.id);row.read_at='2026-10-08T12:00:00Z';return json(row);}
   if(body.method==='draft.add'){const row={...base,...p,kind:'draft',id:Math.max(...window.rows.map(r=>r.id))+1,task_id:null,status:'draft',revision:1};window.rows.unshift(row);return json(row);}
   if(body.method==='draft.update'){const row=window.rows.find(r=>r.kind==='draft'&&r.id===p.id);Object.assign(row,p,{revision:row.revision+1});if(p.branch)row.parent_id=world.state.inputParents.find(t=>t.branch===p.branch).id;return json(row);}
   if(body.method==='draft.remove'){window.rows=window.rows.filter(r=>!(r.kind==='draft'&&r.id===p.id));return json({id:p.id});}
@@ -30,7 +35,14 @@ window.fetch=async(url,options={})=>{
  }
  return world.fetchImpl(url,options);
 };
-await import('/app.js');window.ready=true;
+await import('/app.js');
+window.ui=(await import('/state.js')).ui;window.world=world;
+window.detailApi=(await import('/detail.js')).loadDetail;
+const {renderNotices}=await import('/render-notices.js');const {renderNoticeBanner}=await import('/notice-banner.js');
+window.paintNotices=()=>{window.ui.lastSnapshot={...window.ui.lastSnapshot,notices:world.state.notices};renderNotices(window.ui.lastSnapshot);renderNoticeBanner(window.ui.lastSnapshot);};
+window.releaseReads=()=>{window.holdRefresh=false;window.holdSupplements=false;
+ for(const release of [...window.refreshReleases.splice(0),...window.supplementReleases.splice(0)])release();};
+window.ready=true;
 `;
 const html = (await Bun.file(join(assets, 'index.html')).text()).replace('<script type="module" src="/app.js"></script>', '<script type="module" src="/fixture.js"></script>');
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
@@ -163,7 +175,10 @@ try {
   assert(await execute(`return document.querySelectorAll('img').length===0;`), 'unsafe input rendered as markup');
   await execute(`document.querySelector('#input').value='';document.querySelector('#input').dispatchEvent(new Event('input'));`);
   await execute(`location.hash='#worker-1';`);
-  assert(await waitFor('document.querySelector("#input").placeholder.includes("追加给 Worker #1")'), 'Worker destination did not activate: '+JSON.stringify(await execute(`return {placeholder:document.querySelector('#input').placeholder,detail:document.querySelector('#detail').textContent.slice(0,400),error:window.detailError,hash:location.hash};`)));
+  assert(await waitFor('document.querySelector("#detail").dataset.taskId==="1"'), 'Worker detail did not open');
+  assert(await execute(`return document.querySelector('#composer-mode-title').textContent==='新建独立 Worker';`), 'navigation implicitly entered append mode');
+  await execute(`const entry=[...document.querySelectorAll('.task-actions button')].find(n=>n.textContent==='向该 Worker 追加输入');if(!entry)throw Error('append entry missing');entry.click();`);
+  assert(await waitFor('document.querySelector("#input").placeholder.includes("追加给 Worker #1")'), 'explicit Worker destination did not activate');
   assert(await execute(`return document.querySelector('#input-buffer-help').hidden && document.querySelector('#composer-expand').hidden && document.querySelector('#input').placeholder.includes('需开始 / 继续');`), 'followup controls/pause hint incorrect');
   for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [900, 700], [390, 844]]) {
     await rpc(`/session/${session}/window/rect`, { width, height });
@@ -181,10 +196,36 @@ try {
   await execute(`const box=document.querySelector('#input');box.value='点击发送保留内容';box.dispatchEvent(new Event('input'));box.focus();`);
   await click('#draft-commit');
   assert(await waitFor('window.calls.at(-1)?.params.body==="点击发送保留内容" && document.querySelector("#input").value===""'), 'blur shrink prevented button send');
+  // Real composer ACK must release the next input even while all global reads stay pending.
+  await execute(`window.holdRefresh=true;const box=document.querySelector('#input');box.value='ACK 后马上继续';box.dispatchEvent(new Event('input'));box.focus();`);
+  await press('\uE007');
+  assert(await waitFor('window.refreshReleases.length>0 && !window.ui.composerSubmitting && document.querySelector("#input").value===""'), 'composer ACK waited for global refresh');
+  await execute(`const box=document.querySelector('#input');box.value='第二条立即发射';box.dispatchEvent(new Event('input'));box.focus();`);
+  assert(await execute(`return !document.querySelector('#draft-commit').disabled;`), 'next input still disabled');
+  await press('\uE007');
+  assert(await waitFor('window.calls.at(-1)?.params.body==="第二条立即发射" && !window.ui.composerSubmitting'), 'second input waited for old refresh');
+  await execute(`const box=document.querySelector('#input');box.value='第三条尚未提交';box.dispatchEvent(new Event('input'));window.releaseReads();`);
+  assert(await waitFor('!window.ui.busy'), 'global refresh did not finish after release');
+  assert(await execute(`return document.querySelector('#input').value==='第三条尚未提交';`), 'late refresh consumed the next input');
+  // Use the actual detail loader and actual ACK implementation, not a navigation stub.
+  await execute(`document.querySelector('#input').value='';document.querySelector('#input').dispatchEvent(new Event('input'));
+    window.holdRefresh=true;window.holdSupplements=true;
+    window.world.state.notices=[201,202].map(id=>({id,task_id:1,kind:'info',status:'sent',lifecycle_type:'idle',source_event_id:id,read_at:null,title:'慢详情告知 '+id,created_at:'2026-10-08T11:00:00Z'}));window.paintNotices();`);
+  await click('.notice-banner-info');
+  assert(await waitFor('document.querySelector(".notice-banner-row")?.dataset.noticeId==="201" && window.supplementReleases.length>=4'), 'slow detail blocked notice ACK');
+  assert(await execute(`return document.querySelector('#detail').dataset.taskId==='1'
+    && document.querySelector('#detail').textContent.includes('改动加载中')
+    && !document.querySelector('.notice-banner-info').disabled;`), 'detail did not paint independently of supplements');
+  await click('.notice-banner-info');
+  assert(await waitFor('document.querySelector("#notice-banner").hidden'), 'second notice waited for supplements or global refresh');
+  await execute('window.releaseReads();');
+  assert(await waitFor('!window.ui.busy && !document.querySelector("#detail").textContent.includes("改动加载中")'), 'detail did not fill supplements after release');
+  console.log('PASS real app fast composer ACK, next input protection, progressive detail and continuous notice ACK under slow reads');
   await execute(`window.workerStatus='completed';location.hash='#workers';`);
   assert(await waitFor('document.querySelector("#input").placeholder.includes("在 main 下创建子 Worker")'), 'list did not restore main');
   await execute(`location.hash='#worker-1';`);
-  assert(await waitFor('document.querySelector("#input").disabled && document.querySelector("#input").placeholder.includes("已完成")'), 'terminal Worker was not blocked');
+  assert(await waitFor('document.querySelector("#detail").dataset.taskId==="1" && document.querySelector("#composer-mode-title").textContent==="新建独立 Worker"'), 'terminal Worker navigation changed creation mode');
+  assert(await execute(`return !document.querySelector('#input').disabled && ![...document.querySelectorAll('.task-actions button')].some(n=>n.textContent==='向该 Worker 追加输入');`), 'terminal Worker offered append or blocked independent creation');
   await execute(`location.hash='#workers';`);
   assert(await waitFor('!document.querySelector("#input").disabled && document.querySelector("#input").placeholder.includes("在 main 下创建子 Worker")'), 'back navigation did not restore main');
   console.log('PASS real browser Worker followup Enter/button routing, paused hint, terminal guard and navigation restoration');

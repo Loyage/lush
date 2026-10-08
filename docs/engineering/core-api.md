@@ -49,6 +49,7 @@ W116 / 待决 #261 批准设备同系统用户共享技术配置，项目/Worker
 - `worker.message` / `notice.post` / `notice.answer` / `notice.dismiss`：继续沟通和决策。普通消息仍受目标生命周期、直接父子权限与合并冻结限制，main/owner 不是普通收件箱；发送失败不自动重投，见[消息准入与失败处理](../reference/rpc/tasks.md#追加消息的准入与失败处理)。
 - 选择快照与重选已按 W138 停用；`notice.snapshot` / `notice.rechoose` 不在公开白名单中。历史资源兼容边界见[停用说明](choice-snapshots.md)。
 - `branch.history {cursor?,limit?}`：用户专属只读 main 第一父链历史与精确交付 Worker / 原始指令追溯；Web `GET /api/versions`，不新增 CLI 写入口，见 [版本迭代](version-history.md)。
+- `worker.graph {details?:boolean}`：缺省仍是完整只读图；`details:false` 先返回不读取 Git/会话的结构摘要，未知字段与待补充状态明确标示，完整结果另读，见 [Worker RPC](../reference/rpc/tasks.md)与[图加载边界](task-graph.md#渐进加载与重开缓存)。不新增写入口或权限，也不更改 CLI 缺省读取。
 - `worker.inspect` / `worker.page` / `worker.graph` / `worker.diff` / `worker.history*` / `worker.progress_history` / `worker.transcript*` / `worker.runs_page` / `worker.artifacts_page` / `worker.artifact`：按需只读审阅；支持 CLI 与 Web。另有只读 `worker.lookup {number}`：把用户编号（`W5` / `W5-1`）严格解析成 `{id,worker_number}`，供 CLI/Web 转调原整数身份接口；它不改写任何状态，也不让原 RPC/HTTP 的 `id`（含 Artifact 产物 ID）接受编号。
 - `worker.integrate`：运行中的直接父 Agent 核对固定子提交并快进；`worker.resolve_child_divergence` 为父侧分歧派隔离Worker。
 - `worker.auto_merge {id,enabled}`：用户专属的持久自动合并开关，Web 位于 Worker 详情的「本轮交付就绪」Hooks 节点；新指令默认关闭，新 child 默认开启且不可关闭，开发就绪后不能调整。与单次请求分离，语义见 [Worker RPC](../reference/rpc/tasks.md#自动合并开关与本轮合并)。

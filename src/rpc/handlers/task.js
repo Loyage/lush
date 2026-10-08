@@ -3,7 +3,7 @@ import { check, id, bounded } from '../../core/types.js';
 /** worker.* (persistent Task data and internal methods keep their names). */
 export const handlers = {
   'worker.lookup'(p, params) { return p.store.lookupWorker(params.number); },
-  'worker.graph'(p) { return p.taskGraph(); },
+  'worker.graph'(p, params) { return p.taskGraph(params); },
   'worker.list'(p, params, actor) {
     const after = Number(params.after ?? 0), limit = Number(params.limit ?? 200);
     check(Number.isSafeInteger(after) && after >= 0 && Number.isInteger(limit) && limit > 0 && limit <= 1000, 'invalid worker page');
