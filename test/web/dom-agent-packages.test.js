@@ -12,8 +12,8 @@ const catalog = { version: 1, id: connectionId, checked_at: '2026-10-01T09:00:00
   models: [{ id: 'openai-compatible/fixture-model', name: 'Fixture', thinking_levels: ['minimal', 'medium', 'high'] }] };
 const packagesFixture = () => ({ version: 1,
   packages: [{ id: 'pkg-1', source: 'npm:example@1.0.0', label: 'Example 工具', version: '1.0.0', root: '/tmp/demo/.lush/pi/npm/example' }],
-  resources: { extensions: [{ name: 'review helper', path: '/tmp/demo/.lush/pi/extensions/review.ts', source: 'npm:example@1.0.0' }],
-    skills: [{ name: 'browser', path: '/tmp/demo/.lush/pi/skills/browser/SKILL.md', description: '浏览器自动化' }] },
+  resources: { extensions: [{ name: 'review helper', path: '/tmp/demo/.lush/pi/extensions/review.ts', source: 'npm:example@1.0.0', package_id: 'pkg-1' }],
+    skills: [{ name: 'browser', path: '/tmp/demo/.lush/pi/skills/browser/SKILL.md', description: '浏览器自动化', package_id: 'pkg-1' }] },
   warning: null });
 const legacyFixture = () => ({ agent: 'pi', warning: null, packages: [{ source: 'npm:legacy', root: '/tmp/demo/.lush/pi/npm/legacy' }],
   extensions: [{ id: '/tmp/demo/.lush/pi/extensions/legacy.ts', label: 'legacy.ts', source: 'Lush 独立 Pi 扩展' }], skills: [] });
@@ -45,6 +45,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
 } });
 dom.document.createElementNS = (_ns, tag) => dom.document.createElement(tag);
 const { renderAgentSettings } = await import('../../src/ui/web/assets/render-settings.js');
+const { createProfileForm } = await import('../../src/ui/web/assets/agent-profile-form.js');
 afterAll(() => dom.restore());
 
 const settle = async () => { for (let i = 0; i < 4; i++) await new Promise(resolve => setTimeout(resolve, 0)); };
@@ -181,6 +182,63 @@ test('资源启用复选框使用 packages 的 path，启用与安装分离，�
   await click(findByText(card, '保存配置'));
   expect(actions.at(-1).params.config.default.extensions).toEqual(['/tmp/demo/.lush/pi/extensions/review.ts']);
   expect(deepText(card)).toContain('已安装插件与 Skills');
+});
+
+test('插件管理显示可启用入口及完整路径，说明 MCP 服务不是 Pi 扩展', async () => {
+  packagesMode = 'ok'; packagesPending = null;
+  const root = render(); await settle();
+  const block = await reloadPackages(root);
+  const details = block.querySelector('details[data-package-resources=""]');
+  expect(deepText(details)).toContain('可启用资源：1 个扩展 · 1 个 Skill');
+  expect(deepText(details)).toContain('/tmp/demo/.lush/pi/extensions/review.ts');
+  expect(deepText(details)).toContain('独立 MCP 服务不作为 Pi 扩展加载');
+  const card = profile(root);
+  await click(findByText(card, '读取已安装项'));
+  expect(deepText(card)).toContain('不必勾选目录内所有脚本');
+  expect(deepText(card.querySelector('.resource-choice'))).toContain('/tmp/demo/.lush/pi/extensions/review.ts');
+});
+
+test('旧配置中的未发现路径保留并警告，用户可明确取消而非静默迁移', async () => {
+  actions = []; packagesMode = 'ok'; packagesPending = null;
+  const settings = settingsFixture();
+  const obsolete = '/tmp/demo/.lush/pi/npm/example/dist/mcp-cli.js';
+  settings.default.extensions = [obsolete];
+  const root = renderAgentSettings(settings, () => {}, { ownsPage: () => true });
+  await settle(); const card = profile(root);
+  await click(findByText(card, '读取已安装项'));
+  const row = [...card.querySelectorAll('.resource-choice')].find(node => node.classList.contains('missing'));
+  expect(deepText(row)).toContain('请核对入口路径或取消勾选');
+  const checkbox = row.querySelector('input');
+  expect(checkbox.checked).toBe(true);
+  checkbox.checked = false; await checkbox.listeners.change[0]();
+  await click(findByText(card, '保存配置'));
+  expect(actions.at(-1).params.config.default.extensions).toEqual([]);
+});
+
+test('Worker 共用表单也展示入口路径、MCP 提示并保留旧选择供明确取消', async () => {
+  packagesMode = 'ok'; packagesPending = null;
+  const settings = settingsFixture();
+  const obsolete = '/tmp/demo/.lush/pi/npm/example/dist/mcp-cli.js';
+  const available = '/tmp/demo/.lush/pi/extensions/review.ts';
+  const form = createProfileForm({ profile: { ...settings.default, extensions: [obsolete] },
+    defaultProfile: { ...settings.default, extensions: [available] }, settings, role: 'agent', collapseAdvanced: true });
+  await form.ready;
+  const advanced = form.node.querySelector('[data-retry-advanced="settings"]');
+  expect(advanced.tagName).toBe('DETAILS');
+  expect(Boolean(advanced.open)).toBe(false);
+  expect(form.collect().extensions).toEqual([obsolete]);
+  expect(deepText(form.node)).toContain('独立 MCP 服务不是 Pi 扩展');
+  expect(deepText(form.node)).toContain('/tmp/demo/.lush/pi/extensions/review.ts');
+  const checkbox = [...form.node.querySelectorAll('input[data-retry-resource="extensions"]')].find(input => input.value === obsolete);
+  expect(checkbox.checked).toBe(true);
+  expect(deepText(checkbox.parentNode)).toContain('请核对入口路径或取消勾选');
+  expect([...advanced.querySelectorAll('input[data-retry-resource="extensions"]')]).toContain(checkbox);
+  advanced.open = true;
+  checkbox.checked = false; checkbox.onchange();
+  expect(form.collect().extensions).toEqual([]);
+  form.reset();
+  expect(form.collect().extensions).toEqual([available]);
+  expect([...advanced.querySelectorAll('input[data-retry-resource="extensions"]')].some(input => input.value === obsolete)).toBe(false);
 });
 
 test('目录迟到响应不覆盖用户正在填写的安装来源，也不在离页后重画', async () => {

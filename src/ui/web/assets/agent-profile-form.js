@@ -59,14 +59,14 @@ function resourceGroup(title, entries, selected, kind, enabled) {
   group.append(el('legend', title));
   const known = new Set(entries.map(entry => entry.id));
   const rows = [...entries];
-  for (const id of selected) if (!known.has(id)) rows.push({ id, label: id.split('/').at(-1), source: '已配置但当前未发现', missing: true });
+  for (const id of selected) if (!known.has(id)) rows.push({ id, label: id.split('/').at(-1), source: '已配置但当前未发现，请核对入口路径或取消勾选', missing: true });
   if (!rows.length) group.append(el('p', '没有发现可选项。', 'settings-note'));
   for (const entry of rows) {
     const row = el('label', undefined, `resource-choice${entry.missing ? ' missing' : ''}`);
     const input = el('input'); input.type = 'checkbox'; input.value = entry.id; input.checked = selected.has(entry.id);
     input.disabled = !enabled; input.dataset.retryResource = kind;
     input.onchange = () => input.checked ? selected.add(entry.id) : selected.delete(entry.id);
-    const copy = el('span'); copy.append(el('strong', entry.label || entry.id), el('small', entry.description || entry.source || entry.id));
+    const copy = el('span'); copy.append(el('strong', entry.label || entry.id), el('small', entry.description || entry.source || entry.id), el('small', entry.id));
     row.append(input, copy); group.append(row);
   }
   return group;
@@ -187,7 +187,7 @@ export function createProfileForm({ profile, defaultProfile = profile, settings,
   const paintResources = () => {
     const enabled = backend.value === 'pi';
     resourceNote.textContent = enabled
-      ? (resources.warning || '勾选项只在本轮运行中加载；扩展拥有当前用户的完整系统权限，不是沙箱。安装与移除在「Agent 配置」页的「已安装插件与 Skills」里进行。')
+      ? (resources.warning || '只列出插件声明的扩展入口，不必勾选目录内所有脚本；独立 MCP 服务不是 Pi 扩展。后续 Pi 调用只加载显式勾选项；扩展拥有当前用户的完整系统权限，不是沙箱。安装与移除在「Agent 配置」页的「已安装插件与 Skills」里进行。')
       : 'Codex 不加载 Pi 扩展与 Skills；已选项会保留，但本轮不使用。';
     resourceChoices.replaceChildren(
       resourceGroup('扩展', resources.extensions || [], selectedExtensions, 'extensions', enabled),
@@ -225,7 +225,7 @@ export function createProfileForm({ profile, defaultProfile = profile, settings,
     field('默认 Prompt', promptBox, '修改后会替换 Lush 内置角色 Prompt，可能影响 Worker 协议与交付行为。', true),
     field('追加 Prompt', appendPrompt, '追加在基础 Prompt 与项目补充之后，仅本轮运行生效。', true),
     field('Pi 环境变量', envBox, '每行一个 NAME=value，仅本轮运行覆盖；留空表示沿用角色设置。', true),
-    field('扩展与 Skills', resourcesBox, '保留当前角色配置，可按本轮需要增删。', true));
+    field('扩展与 Skills', resourcesBox, '保留已有选择，可按需要增删；保存后用于后续调用。', true));
 
   const modeDescription = () => {
     const mode = CONFIG_MODES.find(item => item.id === normalizeConfigMode(modeSelect.value));

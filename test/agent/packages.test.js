@@ -122,6 +122,26 @@ test('list reads config declarations plus installed package resources without a 
   } finally { f.close(); }
 });
 
+test('package management lists only the declared dist entry, never the sibling MCP executable', async () => {
+  const f = fixture();
+  try {
+    const local = path.join(f.root, 'web-access-fixture');
+    fs.mkdirSync(path.join(local, 'dist'), { recursive: true });
+    fs.writeFileSync(path.join(local, 'package.json'), JSON.stringify({ name: 'web-access-fixture', version: '0.37.0', pi: { extensions: ['./dist'] } }));
+    const index = path.join(local, 'dist', 'index.js');
+    fs.writeFileSync(index, 'throw new Error("must not execute");');
+    fs.writeFileSync(path.join(local, 'dist', 'mcp-cli.js'), 'process.exit(0);');
+    privatePi(f.config, { packages: [local] });
+    const runner = fakeRun(() => `User packages:\n  ${local}\n    ${local}`);
+    const view = await new AgentPackages(f.config, { run: runner.run }).list();
+    expect(view.resources.extensions.map(row => row.path)).toEqual([index]);
+    expect(view.resources.extensions[0].package_id).toBe(view.packages[0].id);
+    expect(view.packages[0].resource_counts).toEqual({ extensions: 1, skills: 0 });
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0].args).toEqual(['list', '--no-approve']);
+  } finally { f.close(); }
+});
+
 test('list falls back to declarations with a safe warning when pi cannot list', async () => {
   const f = fixture();
   try {

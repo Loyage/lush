@@ -154,7 +154,7 @@ const resourceValue = entry => entry?.path || entry?.id || '';
 const resourceLabel = entry => entry?.name || entry?.label || String(resourceValue(entry)).split('/').at(-1) || '未命名资源';
 const normalizeResourceEntries = rows => (Array.isArray(rows) ? rows : []).map(entry => ({
   value: resourceValue(entry), label: resourceLabel(entry),
-  description: entry?.description || '', source: entry?.source || '',
+  description: entry?.description || '', source: entry?.source || '', package_id: entry?.package_id || null,
 })).filter(entry => entry.value);
 async function loadPackagesCatalog(force = false, client) {
   let packagesCatalog = packagesCatalogs.get(client.key);
@@ -283,14 +283,14 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
     group.append(el('legend', `${title}（${entries.length}）`));
     const known = new Set(entries.map(entry => entry.value));
     const rows = [...entries];
-    for (const value of selected) if (!known.has(value)) rows.push({ value, label: value.split('/').at(-1), source: '已配置但当前未发现', missing: true });
+    for (const value of selected) if (!known.has(value)) rows.push({ value, label: value.split('/').at(-1), source: '已配置但当前未发现，请核对入口路径或取消勾选', missing: true });
     if (!rows.length) group.append(el('p', '没有发现可选项。', 'settings-note'));
     for (const entry of rows) {
       const wrap = el('label', undefined, `resource-choice${entry.missing ? ' missing' : ''}`);
       const input = el('input'); input.type = 'checkbox'; input.dataset.resourceKind = kind; input.value = entry.value;
       input.checked = selected.has(entry.value); input.disabled = backend.value !== 'pi' || mode.value === 'pi';
       input.addEventListener('change', () => input.checked ? selected.add(entry.value) : selected.delete(entry.value));
-      const copy = el('span'); copy.append(el('strong', entry.label), el('small', entry.description || entry.source || 'Pi 资源'));
+      const copy = el('span'); copy.append(el('strong', entry.label), el('small', entry.description || entry.source || 'Pi 资源'), el('small', entry.value));
       wrap.append(input, copy); group.append(wrap);
     }
     return group;
@@ -304,7 +304,7 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
       resourcesNote.textContent = 'Pi 扩展与 Skills 不会传给 Codex；选择会保留，切回 Pi 后生效。';
     } else if (packagesCatalog?.warning) resourcesNote.textContent = packagesCatalog.warning;
     else resourcesNote.textContent = packagesCatalog
-      ? '只加载显式勾选的资源；扩展拥有当前用户的完整系统权限，不是沙箱。安装与移除在页面顶部的「已安装插件与 Skills」里进行。'
+      ? '只列出插件声明的扩展入口，不必勾选目录内所有脚本；独立 MCP 服务不是 Pi 扩展。只加载显式勾选的资源；扩展拥有当前用户的完整系统权限，不是沙箱。安装与移除在页面顶部的「已安装插件与 Skills」里进行。'
       : '按需读取本项目 Lush 独立 Pi 目录中的已安装资源；安装与移除在页面顶部的「已安装插件与 Skills」里进行。';
     resourceChoices.replaceChildren(...(packagesCatalog?.resources ? [
       paintResourceGroup('扩展', packagesCatalog.resources.extensions || [], selectedExtensions, 'extensions'),
@@ -658,6 +658,17 @@ function packagesManager(ownsPage, client) {
     if (entry.label && entry.source) copy.append(el('small', `来源：${entry.source}`));
     const meta = [entry.version ? `版本 ${entry.version}` : null, entry.requested ? `引用 ${entry.requested}` : null, entry.root || null].filter(Boolean).join(' · ');
     if (meta) copy.append(el('small', meta));
+    if (packagesCatalog?.source === 'packages') {
+      const extensions = packagesCatalog.resources.extensions.filter(resource => resource.package_id === entry.id);
+      const skills = packagesCatalog.resources.skills.filter(resource => resource.package_id === entry.id);
+      const details = el('details'); details.dataset.packageResources = '';
+      details.append(el('summary', `可启用资源：${extensions.length} 个扩展 · ${skills.length} 个 Skill`));
+      for (const [kind, resources] of [['扩展入口', extensions], ['Skill', skills]]) {
+        for (const resource of resources) details.append(el('p', `${kind}：${resource.label}`), el('code', resource.value, 'settings-path'));
+      }
+      details.append(el('p', '扩展按插件声明或目录 index 入口识别，不需要全选目录内脚本；独立 MCP 服务不作为 Pi 扩展加载。安装不等于启用。', 'settings-note'));
+      copy.append(details);
+    }
     const canEdit = Boolean(entry.id) && packagesCatalog?.installable;
     const reason = '这个 daemon 未提供安装管理接口或包 ID；升级 daemon 后再试。';
     const actions = el('div', undefined, 'agent-package-actions');

@@ -50,15 +50,42 @@ function addExtension(rows, value, source, label = '') {
   rows.set(file, { id: file, label: label || path.basename(file), source });
 }
 
-function extensionEntries(rows, root, source, labelPrefix = '') {
-  if (rows.size >= 500 || !fs.existsSync(root)) return;
-  for (const entry of fs.readdirSync(root, { withFileTypes: true }).slice(0, 500)) {
+function extensionRootEntries(root) {
+  let manifest;
+  try { manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')); } catch {}
+  if (Array.isArray(manifest?.pi?.extensions)) return manifestPaths(root, manifest.pi.extensions);
+  for (const name of ['index.ts', 'index.js', 'index.mts', 'index.mjs', 'index.cts', 'index.cjs']) {
+    if (realFile(path.join(root, name))) return [path.join(root, name)];
+  }
+  return null;
+}
+
+function extensionEntries(rows, root, source, labelPrefix = '', depth = 0, seen = new Set()) {
+  if (rows.size >= 500 || depth > 8) return;
+  let realRoot;
+  try { realRoot = fs.realpathSync(root); } catch { return; }
+  if (seen.has(realRoot)) return;
+  seen.add(realRoot);
+  // A package/directory entry point is not a bag of JS files. In particular,
+  // dist/index.js must hide sibling helpers and standalone MCP/CLI programs.
+  const declared = extensionRootEntries(root);
+  if (declared !== null) {
+    for (const full of declared) {
+      let stat;
+      try { stat = fs.statSync(full); } catch { continue; }
+      if (stat.isDirectory()) extensionEntries(rows, full, source, labelPrefix, depth + 1, seen);
+      else addExtension(rows, full, source, labelPrefix ? `${labelPrefix} · ${path.basename(full)}` : path.basename(full));
+    }
+    return;
+  }
+  let entries;
+  try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch { return; }
+  for (const entry of entries.slice(0, 500)) {
+    if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
     const full = path.join(root, entry.name);
     if (entry.isFile()) addExtension(rows, full, source, labelPrefix ? `${labelPrefix} · ${entry.name}` : entry.name);
-    else if (entry.isDirectory()) {
-      for (const name of ['index.ts', 'index.js', 'index.mts', 'index.mjs', 'index.cts', 'index.cjs']) {
-        if (fs.existsSync(path.join(full, name))) { addExtension(rows, path.join(full, name), source, labelPrefix ? `${labelPrefix} · ${entry.name}` : entry.name); break; }
-      }
+    else if (entry.isDirectory() && extensionRootEntries(full) !== null) {
+      extensionEntries(rows, full, source, labelPrefix || entry.name, depth + 1, seen);
     }
   }
 }
@@ -126,7 +153,7 @@ function packageEntries(extensions, skills, root, source) {
   const pi = manifest?.pi;
   const extensionPaths = manifestPaths(root, pi?.extensions);
   const skillPaths = manifestPaths(root, pi?.skills);
-  if (extensionPaths.length) for (const entry of extensionPaths) {
+  if (Array.isArray(pi?.extensions)) for (const entry of extensionPaths) {
     const stat = (() => { try { return fs.statSync(entry); } catch { return null; } })();
     if (stat?.isDirectory()) extensionEntries(extensions, entry, source, source); else addExtension(extensions, entry, source, `${source} · ${path.basename(entry)}`);
   }
