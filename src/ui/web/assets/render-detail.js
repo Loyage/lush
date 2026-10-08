@@ -22,6 +22,7 @@ import { guardedAction, iterationBlocker, iterationControls } from './render-ite
 import { renderHistory } from './render-history.js';
 import { renderTaskMessage } from './render-task-message.js';
 import { formatProgressDuration, renderTaskProgress } from './render-progress.js';
+import { renderProgressHistory } from './render-progress-history.js';
 import { noticePanel } from './render-notices.js';
 import { settledDecision } from './choice-snapshot.js';
 import { renderResolutions } from './render-resolutions.js';
@@ -75,6 +76,17 @@ export function renderDetail(task, history, diff, usage, connections = null) {
   const sameTask = panel.dataset.taskId === String(task.id);
   const previousResult = sameTask ? panel.querySelector('.result-panel') : null;
   const previousGoal = sameTask ? panel.querySelector('.goal-panel') : null;
+  const previousProgressHistory = sameTask ? panel.querySelector('.progress-history-panel') : null;
+  const historyFocus = previousProgressHistory && [...previousProgressHistory.querySelectorAll('summary'), ...previousProgressHistory.querySelectorAll('button')]
+    .find(node => node === document.activeElement);
+  const panelTop = panel.getBoundingClientRect?.().top ?? 0;
+  const historyAnchor = previousProgressHistory && (historyFocus || panel.scrollTop > 0) && [...previousProgressHistory.querySelectorAll('.progress-history-version')]
+    .find(node => {
+      const rect = node.getBoundingClientRect?.();
+      return rect && rect.bottom > panelTop && rect.top < (panel.getBoundingClientRect?.().bottom ?? 0);
+    });
+  const anchorTop = historyAnchor?.getBoundingClientRect?.().top;
+  const readingScroll = panel.scrollTop;
   const previousHooks = sameTask ? panel.querySelector('.worker-hooks[data-hook-editing="true"]') || panel.querySelector('.worker-hooks[data-completion-editing="true"]') : null;
   const hookManagementOpen = sameTask && panel.querySelector('.hook-management')?.open === true;
   const previousMessages = new Map(sameTask ? [...panel.querySelectorAll('.task-message')].map(node => [node.dataset.messageId, node]) : []);
@@ -244,6 +256,8 @@ export function renderDetail(task, history, diff, usage, connections = null) {
   const endedAt = [...(task.runs || [])].reverse().find(run => run.ended_at)?.ended_at ?? task.updated_at;
   const progress = renderTaskProgress(task.progress, { status: task.status, endedAt });
   if (progress) panel.append(progress);
+  const progressHistory = renderProgressHistory(task, previousProgressHistory);
+  if (progressHistory) panel.append(progressHistory);
   const result = renderResults(task, history, previousResult);
   if (result) panel.append(result);
   if (task.error) { const error = block('错误'); error.classList.add('error-panel'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); panel.append(error); }
@@ -332,6 +346,12 @@ export function renderDetail(task, history, diff, usage, connections = null) {
   }
   linkWorkerNumbers(panel);
   limitDetailModules(panel, { taskId: task.id, from: readingStart });
+  if (progressHistory && historyFocus && document.activeElement !== historyFocus) historyFocus.focus({ preventScroll: true });
+  if (sameTask) panel.scrollTop = readingScroll;
+  if (progressHistory && anchorTop !== undefined) {
+    const nextTop = historyAnchor.getBoundingClientRect?.().top;
+    if (nextTop !== undefined) panel.scrollTop = readingScroll + nextTop - anchorTop;
+  }
 }
 export function renderDetailError(taskId, message) {
   const panel = $('detail');

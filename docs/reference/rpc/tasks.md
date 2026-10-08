@@ -53,6 +53,14 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 
 `worker.activity` / `worker.page` 的 `scope='work'|'all'` 省略时保留旧 work 口径；Web overview 与历史分页显式请求 `all`，继续有界读取，不改Worker实体或存储层级。`GET /api/workers` 透传 scope。
 
+## 规划历史
+
+用户与普通开发 Agent 均可只读调用 `worker.progress_history {id,before?,limit?}`；HTTP 为 `GET /api/worker/ID/progress-history?before=N&limit=N`。默认 10 条，limit 为 1..100，before 为正整数 Event ID（排除该 ID）；返回倒序 `{items:[{id,archived_at,reason,progress}],cursor,has_more,limit}`，cursor 是本页最旧 ID，空页沿用传入游标，无初始游标时为 null。Worker 不存在或参数非法会拒绝。单页完整快照正文最多900,000字节，`worker.inspect.progress_history` 内嵌同形首屏，最多10条/200,000字节；达到字节上限会少于 limit，但保留完整版本并以 has_more/cursor 继续；Worker 列表、图和 provider 启动进度不带历史。
+
+每次步骤增删、改名或换序，替换前的完整状态保存为 `progress.archived` Event，reason 为 `replan`。已实际投递普通用户追加输入后的首次 plan，reason 为 `new_input`，即使步骤完全相同也归档并重置同 key 的完成态、漏报标记与计时；同一次工作调整保留稳定 key 状态。重复同形 plan 不增加历史。运行中尚未投递的输入、Notice 答复、Agent 消息和子 Worker 信号不开始新工作。精确 Message/Event 投递身份判定，不按正文、时间或 invocation 次数猜测；失败后的同一输入重复投递不二次重置，已收到但尚未重新规划的边界跨重启保留。
+
+归档 `progress` 携带 `frozen:true,frozen_at`（与 archived_at 相同），步骤状态仍是归档时状态；`work_ms` / `wait_ms` / `duration_ms` 在归档时冻结，`active_since` / `waiting_since` 为 null，未知耗时仍为 null。旧历史不重建或回填，不用后续调用重新投影旧计划，也不由浏览器继续计时。`progress_reporting=false` 时历史读面为空 `{items:[],cursor:null,has_more:false,limit}`，存储 Event 保留，再开启可读。
+
 ## 目标与追加输入的投递时间
 
 `worker.inspect.goal_input_delivery` 与 `worker.history` / `worker.history_page` 中用户 `message` 事件的 `input_delivery` 均为 `{status:'delivered'|'pending'|'unknown',at:string|null}`。`delivered` 的 `at` 是首次将该输入交给 Agent 的时间，不是用户提交、排队、调用准入或消费完成时间。真实后端完成准备并启动携带输入的进程时确认；这不代表模型已经理解或执行了输入。调用失败/抢占不撤销已投递事实，重试不覆盖首次时间；运行中到达的追加输入在下一轮投递前为 `pending`。

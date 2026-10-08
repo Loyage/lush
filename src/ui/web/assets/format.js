@@ -61,7 +61,7 @@ export const EVENTS = {
   'task.accepted': '验收完成', 'task.reopened': '恢复待验收',
   'task.parent_synced': '已同步父分支', 'task.parent_sync_conflict': '父同步冲突',
   'task.sync_resolution_requested': '请求解决父同步冲突', 'task.sync_resolution_settled': '父同步冲突已解决',
-  'progress.plan': '更新 Worker 计划', 'progress.completed': '完成计划步骤',
+  'progress.plan': '更新 Worker 计划', 'progress.completed': '完成计划步骤', 'progress.archived': '保留过往 Worker 计划',
   'workspace.created': '创建 worktree', 'workspace.removed': '回收 worktree', 'branch.removed': '回收分支',
   'verify.requested': '请求检验', 'baseline.created': '创建对照基线', 'baseline.removed': '回收对照基线',
   'merge.approved': '批准合并', merged: '已合并', 'merge.included': '随其它变更一并落地', 'merge.failed': '合并失败',

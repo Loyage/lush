@@ -8,6 +8,7 @@ import { AgentPreempted } from '../../agent/provider.js';
 import { validateRuntimeConnection } from '../../agent/connection-runtime.js';
 import { MISSING_PI_SOURCE_MESSAGE } from '../../agent/settings.js';
 import { workerLabel } from '../worker-number.js';
+import { receivedProgressInput } from './progress.js';
 
 /** A claimed boundary cannot be cancelled, even while the process is still exiting. */
 function claimedStop(project, taskId, run) {
@@ -400,6 +401,7 @@ export default {
     // Deliver a bounded batch; undelivered originals stay unread for the next invocation.
     const page = this.store.unreadPage(taskId);
     const messages = page.messages;
+    run.progressInputMessageId = receivedProgressInput(this.store, taskId);
     const messagesPage = { delivered: messages.length, has_more: page.has_more, pending: page.pending,
       truncated_bytes: page.truncated_bytes, reordered: page.reordered };
     try {
@@ -492,6 +494,7 @@ export default {
       const onInputDelivered = () => {
         if (inputsDelivered) return;
         inputsDelivered = true;
+        run.progressInputMessageId = receivedProgressInput(this.store, taskId, { messages });
         this.store.event(taskId, 'invocation.inputs_delivered', { run_id: run.recordId,
           message_ids: messages.map(message => message.id) });
       };

@@ -17,7 +17,6 @@ export async function loadDetail(taskId) {
   const request = ++detailRequest;
   const current = () => ui.view === view && request === detailRequest && !ui.deletedWorkerIds.has(taskId);
   const navigated = ui.detailTask !== taskId;
-  const scrolled = navigated ? 0 : $('detail').scrollTop;
   let task, timeline, diff, usage, connections;
   try {
     [task, timeline, diff, usage, connections] = await Promise.all([
@@ -64,7 +63,8 @@ export async function loadDetail(taskId) {
   ui.selectedRevision = task.updated_at; ui.detailTask = taskId; ui.detailRenderedAt = Date.now(); ui.detailDirty = false;
   renderDetail(task, timeline, diff, usage, connections);
   ui.composerTask = task; ui.composerError = null; ui.syncComposer?.();
-  $('detail').scrollTop = scrolled;
+  // Preserve reading moves made while the request was in flight, including the history renderer's anchor correction.
+  if (navigated) $('detail').scrollTop = 0;
   if (navigated && window.matchMedia?.('(max-width: 760px)')?.matches) {
     $('sidebar').classList.remove('mobile-open');
     $('sidebar-toggle').setAttribute('aria-expanded', 'false');

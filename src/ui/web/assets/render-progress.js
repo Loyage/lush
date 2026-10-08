@@ -144,13 +144,14 @@ export function renderGraphProgress(progress, { running = false, status = null }
   return node;
 }
 
-export function renderTaskProgress(progress, { status = null, endedAt = null } = {}) {
+export function renderTaskProgress(progress, { status = null, endedAt = null, historical = false } = {}) {
   if (!progressReportingEnabled()) return null;
   const stats = progressStats(progress);
   if (!stats.total) return null;
-  const terminal = TERMINAL.has(status);
-  const section = block('Worker 计划', `${stats.completed}/${stats.total}`);
+  const terminal = !historical && TERMINAL.has(status);
+  const section = block(historical ? '当时计划' : 'Worker 计划', `${stats.completed}/${stats.total}`);
   section.classList.add('task-progress-panel');
+  if (historical) section.classList.add('is-historical');
   if (terminal) section.classList.add('is-terminal', `is-terminal-${status}`);
   const meter = el('progress', undefined, 'task-progress-meter'); meter.max = stats.total; meter.value = stats.completed;
   section.append(meter);
@@ -158,13 +159,18 @@ export function renderTaskProgress(progress, { status = null, endedAt = null } =
   for (const item of stats.items) {
     const wait = item.kind === 'wait';
     const done = item.status === 'completed';
-    const current = item === stats.current;
+    const current = !historical && item === stats.current;
     const state = done ? 'is-complete' : current ? (terminal ? 'is-interrupted' : 'is-current') : 'is-pending';
     const row = el('li', undefined, `task-progress-step ${state}${wait ? ' is-wait' : ''}`);
     row.append(el('span', wait ? '⏳' : done ? '✓' : current ? (terminal ? '×' : '●') : '○', 'task-progress-icon'),
       el('span', item.label, 'task-progress-label'));
     if (!wait) row.append(el('code', item.key, 'task-progress-key'));
-    if (wait) {
+    if (historical) {
+      const ms = wait ? item.wait_ms ?? item.duration_ms : item.work_ms ?? item.duration_ms;
+      const duration = item.timing_unknown || ms == null ? '用时未知' : `${wait ? '等待' : '用时'} ${formatProgressDuration(ms)}`;
+      row.append(el('span', `${done ? '' : item.unconfirmed ? '未确认完成 · ' : '当时未完成 · '}${duration}`,
+        `task-progress-duration ${done ? 'is-complete-duration' : 'is-pending-duration'}`));
+    } else if (wait) {
       if (done) row.append(el('span', `等待 ${formatProgressDuration(item.duration_ms ?? item.wait_ms)}`, 'task-progress-duration is-wait-duration'));
       else if (current && terminal) row.append(el('span', stoppedDuration(item.waiting_since ?? item.started_at, endedAt, status), 'task-progress-duration is-stopped-duration'));
       else if (current) row.append(liveDuration(item, 'task-progress-duration is-running-duration is-wait-duration', '已等待'));

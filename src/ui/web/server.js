@@ -34,7 +34,7 @@ const MUTATIONS = new Set(['settings.clear_override','settings.migration.apply',
 const CORE_INPUT_READ = /^\/api\/input\/(draft|input)\/([1-9]\d*)$/;
 const CORE_QUICK_EXPLAIN_READ = /^\/api\/quick-explain\/[1-9]\d*$/;
 const CORE_READS = new Set(['/api/settings/runtime','/api/settings/migration','/api/quick-explain/config','/api/quick-explain/history','/api/hooks','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/worker-lookup','/api/notices','/api/worker-graph','/api/versions','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
-const CORE_WORKER_READ = /^\/api\/worker\/\d+(?:\/(?:hooks|history|history-page|run-settings|delete-preview|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
+const CORE_WORKER_READ = /^\/api\/worker\/\d+(?:\/(?:hooks|history|history-page|progress-history|run-settings|delete-preview|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的 Worker 读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/worker\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
 const CORE_DOC_READ = /^\/api\/docs\/[a-z0-9._-]+$/;
@@ -518,6 +518,11 @@ export function startWeb(config, port = 4318, options = {}) {
           if (url.pathname === '/api/intro/config') return json(await client.request('intro.config'));
           const intro = /^\/api\/intro\/(\d+)$/.exec(url.pathname);
           if (intro) return json(await client.request('intro.get', { id: Number(intro[1]) }));
+          const progressHistory = /^\/api\/worker\/(\d+)\/progress-history$/.exec(url.pathname);
+          if (progressHistory) return json(await client.request('worker.progress_history', {
+            id: Number(progressHistory[1]), before: url.searchParams.get('before'),
+            limit: url.searchParams.get('limit') ?? 10,
+          }));
           const historyPage = /^\/api\/worker\/(\d+)\/history-page$/.exec(url.pathname);
           if (historyPage) return json(await client.request('worker.history_page', {
             id: Number(historyPage[1]), before: url.searchParams.has('before') ? Number(url.searchParams.get('before')) : null,

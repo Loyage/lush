@@ -6,6 +6,7 @@ import { Dispatcher, HANDLERS } from '../src/rpc/dispatcher.js';
 const reads = {
   lookup: ['number'], graph: [], list: ['after','limit'], activity: ['limit','scope'], page: ['before','limit','scope'],
   tree: ['id'], inspect: ['id'], run_settings: ['id'], hooks: ['id'], history: ['id','after'], history_page: ['id','before','limit'],
+  progress_history: ['id','before','limit'],
   delete_preview: ['id'], diff: ['id'], usage: ['id'], code_state: ['id','scope','after','limit'],
   code_tree: ['id','scope','path','query','changed','after','limit','revision'],
   code_file: ['id','scope','path','view','side','offset','limit','context','revision'],

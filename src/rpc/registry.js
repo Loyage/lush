@@ -38,6 +38,7 @@ export const PARAMS = {
   'draft.remove': ['id','expected_revision'],
   'worker.lookup': ['number'], 'worker.graph': [], 'worker.list': ['after','limit'], 'worker.activity': ['limit','scope'],
   'worker.page': ['before','limit','scope'], 'worker.tree': ['id'], 'worker.inspect': ['id'], 'worker.run_settings': ['id'],
+  'worker.progress_history': ['id','before','limit'],
   'worker.history': ['id','after'], 'worker.history_page': ['id','before','limit'], 'worker.diff': ['id'], 'worker.usage': ['id'],
   'worker.code_state': ['id','scope','after','limit'],
   'worker.code_tree': ['id','scope','path','query','changed','after','limit','revision'],

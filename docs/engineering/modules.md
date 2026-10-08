@@ -176,6 +176,14 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 前端 `task-graph-merge.js` 统一新协议阶段/排序及关系 DOM，子卡片目标只用真实 `parent_id` 与 `target_branch`，不把布局祖先当交付目标。`taskForest` 保留根 ID 降序，只在同一真实父的兄弟槽位按 executing/resolving、requested、其它分组，组内 ID 降序；该顺序不是 runtime 执行次序。`task-graph-motion.js` 为整树刷新记录可见卡片位置，仅同一视图结构下真实兄弟换序播放 250ms FLIP（不移动连线），保留阅读锚点、滚动和焦点；首次加载、筛选、折叠、模式/窗口尺寸变化不播放，编辑、选区、弹层、未结束动效期间暂缓刷新，遵循系统/应用减少动效设置。无后台计时器或全局监听。
 
+## Worker 规划历史（W149 / 用户决定 #360）
+
+追加用户输入被当前 invocation 实际收到后，首次 `progress.plan` 开启新计划，同 key 不继承旧完成度或计时；无新用户输入的计划调整仍保留稳定 key 状态。每次步骤增删、改名、换序或新输入开启计划时，将被替换版本的完整状态与冻结计时保存为 Worker 附属 `progress.archived` Event；完全相同的重复汇报不新增历史。旧记录不回填、不伪造已丢失版本。
+
+新增只读 `worker.progress_history {id,before?,limit?}` / `GET /api/worker/<id>/progress-history`，按 Event id 倒序有界分页，返回 `{items:[{id,archived_at,reason,progress}],cursor,has_more,limit}`；`reason` 为 `new_input` / `replan`。`worker.inspect` 首屏增加同形 `progress_history`（默认最多 10 条），禁用进度汇报时返回空历史读面，不删除存储。列表、概览、图与 provider task 的 `progress` 只含当前计划，不携带历史。当前计划附属元数据用于识别已收到的输入边界，不新增核心实体或迁移已有行。
+
+Runtime 子 Worker 负责 `project/progress.js`、`project/tasks.js`、必要 scheduling / persistence 接缝、RPC/HTTP 路由与对应测试，维护 Runtime 与 API 文档。父 W149 负责前端历史折叠、按需加载更早版本、刷新保留展开状态、冻结历史计时、DOM 回归与 Web 文档以及组合验证。历史默认折叠，按版本独立展开，当前计划优先；旧版本状态不混入完成度和当前步骤。
+
 ## 可选进度汇报
 
 项目级运行设置 `progress_reporting` 为布尔值，默认 `true`，由系统设置经用户专属 `system.configure` 保存，`null` 恢复默认。`Config.progressReporting` 随启动与热更新同步；概览 revision 纳入开关，确保其他页面/客户端及时刷新。关闭时 Runtime 的 `progressView` 投影 `progress:null`，不删除已有计划；后续 invocation 与 Agent 配置预览不再包含内置进度片段或 CLI 示例（包括 analysis 与 Pi 默认模式）。自定义 Prompt / 项目补充和既有会话原文不改写，正在运行的调用不打断，进度 RPC 保留以兼容在途调用。

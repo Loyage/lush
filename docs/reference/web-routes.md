@@ -80,6 +80,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/worker/ID/delete-preview` | 用户专属 `worker.delete_preview {id}`，只读完整删除范围和资源清单，不接受查询参数 |
 | `GET /api/worker/ID/history?after=N` | `worker.history` |
 | `GET /api/worker/ID/history-page?before=N&limit=N` | `worker.history_page` |
+| `GET /api/worker/ID/progress-history?before=N&limit=N` | `worker.progress_history`（倒序规划快照，默认10、最多100条） |
 | `GET /api/worker/ID/diff` | `worker.diff` |
 | `GET /api/worker/ID/code-state?scope=&after=&limit=` | 用户专属 `worker.code_state`，代码净变化与未提交状态分页 |
 | `GET /api/worker/ID/code-tree?scope=&path=&query=&changed=&after=&limit=&revision=` | 用户专属 `worker.code_tree`，全项目文件目录/路径筛选分页 |

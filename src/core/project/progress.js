@@ -121,6 +121,50 @@ export function projectProgress(progress, runs, status, now = Date.now(), taskKi
   return { ...progress, items: [...steps.slice(0, at), waitItem, ...steps.slice(at)], updated_at: progress.updated_at };
 }
 
+/** A receipt is delivery, not consumption. Ordinary user input is identified by its message Event,
+ * never by JSON-looking body text (notice answers also have sender_id=NULL).
+ * The message high-water mark deduplicates redelivery after failures/restarts. */
+export function receivedProgressInput(store, taskId, { through = null, messages = [] } = {}) {
+  const delivered = store.get(`WITH ordinary AS MATERIALIZED (
+      SELECT json_extract(data,'$.message_id') AS id FROM events
+      WHERE task_id=? AND type='message' AND json_extract(data,'$.sender') IS NULL
+    ), receipts AS MATERIALIZED (
+      SELECT DISTINCT j.value AS id FROM events e, json_each(e.data,'$.message_ids') j
+      WHERE e.task_id=? AND e.type='invocation.inputs_delivered' ${through === null ? '' : 'AND e.id<=?'}
+    ) SELECT max(m.id) AS boundary FROM receipts r JOIN ordinary u ON u.id=r.id
+      JOIN messages m ON m.id=r.id WHERE m.task_id=? AND m.sender_id IS NULL AND m.signal_type IS NULL`,
+    taskId, taskId, ...(through === null ? [] : [through]), taskId)?.boundary ?? 0;
+  const ids = messages.filter(message => message.sender_id === null && !message.signal_type).map(message => message.id);
+  const direct = ids.length ? store.get(`SELECT max(json_extract(data,'$.message_id')) AS boundary FROM events
+    WHERE task_id=? AND type='message' AND json_extract(data,'$.sender') IS NULL
+      AND json_extract(data,'$.message_id') IN (${ids.map(() => '?').join(',')})`, taskId, ...ids)?.boundary ?? 0 : 0;
+  return Math.max(delivered, direct);
+}
+
+function inputMarker(raw) {
+  try {
+    const value = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Number.isSafeInteger(value?.input_message_id) && value.input_message_id >= 0 ? value.input_message_id : null;
+  } catch { return null; }
+}
+
+/** Freeze both the runtime projection and the no-Run legacy fallback at this one instant. */
+function freezeProgress(progress, runs, task, now) {
+  // Close open Runs at the archive instant so projectProgress includes all work instead of a live base.
+  const closed = runs.map(run => ({ ...run, ended_at: run.ended_at ?? new Date(now).toISOString() }));
+  const projected = projectProgress(progress, closed, task.status, now, task.task_kind);
+  return { ...projected, frozen: true, frozen_at: new Date(now).toISOString(), items: projected.items.map(item => {
+    if (item.kind === 'wait') return { ...item, wait_ms: (item.wait_ms ?? 0)
+      + (item.waiting_since ? elapsed(item.waiting_since, new Date(now).toISOString()) ?? 0 : 0),
+      duration_ms: item.duration_ms ?? (item.wait_ms ?? 0)
+        + (item.waiting_since ? elapsed(item.waiting_since, new Date(now).toISOString()) ?? 0 : 0), waiting_since: null };
+    const work = item.timing_unknown ? null : item.work_ms ?? (item.started_at
+      ? elapsed(item.started_at, item.completed_at ?? new Date(now).toISOString()) : 0);
+    return { ...item, kind: 'step', work_ms: work, wait_ms: item.wait_ms ?? 0,
+      duration_ms: work, active_since: null };
+  }) };
+}
+
 function decode(raw) {
   if (!raw) return null;
   try {
@@ -189,14 +233,48 @@ export default {
       reservation: decodeReservation(reservation) };
   },
 
+  /** Only details read archives; lists/graphs/provider startup keep progressView history-free. */
+  progressHistory(taskId, { before = null, limit = 10 } = {}, byteBudget = 900000) {
+    const task = this.store.task(taskId);
+    const cursor = before === null || before === undefined ? null : Number(before);
+    const size = Number(limit);
+    check(cursor === null || (Number.isSafeInteger(cursor) && cursor > 0), 'invalid progress history cursor');
+    check(Number.isInteger(size) && size >= 1 && size <= 100, 'progress history limit must be 1..100');
+    if (this.config.progressReporting === false) return { items: [], cursor: null, has_more: false, limit: size };
+    const rows = this.store.all(`SELECT id,created_at,data FROM events WHERE task_id=? AND type='progress.archived'
+      ${cursor === null ? '' : 'AND id<?'} ORDER BY id DESC LIMIT ?`, task.id, ...(cursor === null ? [] : [cursor]), size + 1);
+    const items = []; let bytes = 0;
+    for (const row of rows.slice(0, size)) {
+      const data = JSON.parse(row.data);
+      const item = { id: row.id, archived_at: data.archived_at ?? row.created_at, reason: data.reason, progress: data.progress };
+      const itemBytes = Buffer.byteLength(JSON.stringify(item));
+      // Production snapshots are bounded by MAX_STEPS/MAX_LABEL; always return at least one
+      // so a valid snapshot never strands the cursor. Preserve entire snapshots, not prefixes.
+      if (items.length && bytes + itemBytes > byteBudget) break;
+      items.push(item); bytes += itemBytes;
+    }
+    return { items, cursor: items.at(-1)?.id ?? cursor, has_more: rows.length > items.length, limit: size };
+  },
+
   reportProgressPlan(taskId, steps) {
     const task = this.store.task(taskId);
     check(!TERMINAL.has(task.status), 'cannot update progress for a terminal worker');
     const normalized = normalizeSteps(steps);
     const previous = decode(task.progress_plan);
-    const previousByKey = new Map((previous?.items || []).map(item => [item.key, item]));
-    const previousCurrent = (previous?.items || []).find(item => item.status === 'pending' && !item.unconfirmed && item.started_at) ?? null;
-    const now = new Date().toISOString();
+    const run = this.running?.get(task.id);
+    // Never look at an evolving unread inbox while a real invocation is running.
+    // Direct in-process callers have no running entry: their bounded unread batch models received input.
+    const input = run ? (run.progressInputMessageId ?? 0)
+      : receivedProgressInput(this.store, task.id, { messages: this.store.unreadPage(task.id).messages });
+    const lastPlan = this.store.get("SELECT id FROM events WHERE task_id=? AND type='progress.plan' ORDER BY id DESC LIMIT 1", task.id);
+    const previousInput = inputMarker(task.progress_plan) ?? (lastPlan
+      ? receivedProgressInput(this.store, task.id, { through: lastPlan.id }) : 0);
+    const newInput = !!previous && input > previousInput;
+    const changed = !!previous && JSON.stringify(normalized) !== JSON.stringify(previous.items.map(({ key, label }) => ({ key, label })));
+    if (previous && !newInput && !changed) return { task_id: task.id, progress: previous, unchanged: true };
+    const previousByKey = new Map((newInput ? [] : previous?.items || []).map(item => [item.key, item]));
+    const previousCurrent = (newInput ? [] : previous?.items || []).find(item => item.status === 'pending' && !item.unconfirmed && item.started_at) ?? null;
+    const nowMs = Date.now(), now = new Date(nowMs).toISOString();
     const progress = { version: 1, items: normalized.map(step => {
       const old = previousByKey.get(step.key);
       return old ? { ...old, ...step }
@@ -207,7 +285,12 @@ export default {
     if (current && !current.started_at) current.started_at = now;
     const preserved = progress.items.filter(item => item.status === 'completed').length;
     this.store.transaction(() => {
-      this.store.setProgressPlan(task.id, progress);
+      if (previous && (newInput || changed)) {
+        const runs = this.store.all('SELECT started_at,ended_at FROM agent_runs WHERE task_id=? ORDER BY id LIMIT 1000', task.id);
+        this.store.event(task.id, 'progress.archived', { archived_at: now, reason: newInput ? 'new_input' : 'replan',
+          progress: freezeProgress(previous, runs, task, nowMs) });
+      }
+      this.store.setProgressPlan(task.id, { ...progress, input_message_id: Math.max(input, previousInput) });
       this.store.event(task.id, 'progress.plan', { steps: progress.items.map(item => ({ key: item.key, label: item.label })), preserved });
     });
     return { task_id: task.id, progress };
@@ -251,7 +334,8 @@ export default {
       ?? progress.items.find(step => step.status === 'pending' && !step.unconfirmed)) : null;
     if (next && !next.started_at) next.started_at = now;
     this.store.transaction(() => {
-      this.store.setProgressPlan(task.id, progress);
+      this.store.setProgressPlan(task.id, { ...progress,
+        ...(inputMarker(task.progress_plan) !== null ? { input_message_id: inputMarker(task.progress_plan) } : {}) });
       this.store.event(task.id, 'progress.completed', { step: key, label: item.label, duration_ms: item.duration_ms,
         completed: progress.items.filter(step => step.status === 'completed').length, total: progress.items.length,
         timing_unknown: item.timing_unknown === true,

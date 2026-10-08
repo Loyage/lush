@@ -234,6 +234,7 @@ export default {
     const artifactsRead = this.store.artifactsPage(task.id, { limit: RUN_WINDOW });
     const artifacts = bounded(artifactsRead.items, 200000);
     return { ...task, goal_input_delivery: this.store.goalInputDelivery(taskId),
+      progress_history: this.progressHistory(taskId, { limit: 10 }, 200000),
       ...(task.role === 'verifier' ? { verifies_task_worker_number: task.verifies_task_id
         ? this.store.get('SELECT worker_number FROM tasks WHERE id=?', task.verifies_task_id)?.worker_number ?? null : null } : {}),
       model_selection: task.task_kind === 'management'
