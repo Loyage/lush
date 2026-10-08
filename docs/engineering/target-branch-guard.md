@@ -10,6 +10,7 @@
 
 - daemon 经 `Workspaces.gitOutput` 成功执行的 checkout 分支写入（commit／merge 等）或具名 update-ref，记录该分支写入前后的 tip。失败命令、commit-tree 对象创建、历史快照 ref 与无关分支操作不能抵消目标分支移动；[选择快照已停用](choice-snapshots.md)，本检测不恢复问卷捕获或重选入口。
 - 新式 Squash 自定义 ref 事务用已核验的 receipt 注册在途写入，仅事务成功后记录精确的父 baseline → landed commit；未提交／失败事务没有成功证据。
+- 用户授权的命令 Hook 经 `trackRefWrite` 记录**所挂载分支**的成功 before → after；Shell 失败、未开始或触及其他 ref 都不能提供这些 ref 的成功归因。基线读取后再次核验命令准入，旧的全局 `noteRefWrite` 接口不再使用。
 - provider 启动前确认 Worker 的分支与 worktree 身份，建立所属分支观测窗口。返回／抢占／暂停／失败时，在释放调用身份之前收口，写 `invocation.branch_observed {branch,before,after,run_id,source:'worker_ownership_window'}`。只记录实际变化，不以 running Map 中有一个身份条目作为证据。
 - 子调用结束时也可对仍活动的目标分支所属调用采样；父先结束时，其已收口的转移仍保留在子调用的窗口中。子从父调用中间的 tip 开始时，按同一个采样切开父窗口，避免 A → C 无法解释子基线 B 的误判。
 - 检测等待**该 ref** 的在途 daemon 写入收据；读 tip 时遇到新的并发写入最多重采样三次，不把“有写入正在发生”当成任意豁免。

@@ -34,6 +34,8 @@ export const EVENTS = {
   'hook.execution_succeeded': 'Hook 执行成功', 'hook.execution_failed': 'Hook 执行失败',
   'hook.execution_unknown': 'Hook 结果待核验', 'hook.execution_skipped': 'Hook 动作已跳过',
   'hook.scheduled_submitted': '定时 Hook 已提交待执行动作', 'hook.schedule_missed': '定时 Hook 已错过提交时间',
+  'worker.merge_received': '此 Worker 已收到合并', 'hook.command_example_installed': '初始化停用的命令 Hook 示例',
+  'hook.command_submitted': '命令 Hook 已提交待安全执行',
   'hook.signal_saved': '保存时间信号', 'hook.signal_removed': '删除时间信号',
   'hook.signal_emitted': '时间信号已发出', 'hook.signal_missed': '时间信号已错过发出时刻',
   'management.created': '创建管理型 Worker', 'management.binding_updated': '调整管理信号绑定',

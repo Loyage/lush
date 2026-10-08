@@ -40,6 +40,7 @@ export class ProjectBase {
     this.deviceAgentPackageManager = null;
     // Internal clock/timer seam for deterministic scheduled-Hook tests; never a public configuration field.
     this.scheduledHookOptions = options.scheduledHooks ?? {};
+    this.commandHookOptions = options.commandHooks ?? {}; // internal bounded test seam, not public settings
   }
 
   /** R-01: reject writes that would create rows while a clear is reclaiming disk. */

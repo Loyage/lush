@@ -4,6 +4,7 @@ import { HOOK_LIMITS, HOOK_TRIGGERS, HOOK_ACTIONS, normalizeHook, publicHookDefi
 import { assertTaskAncestorsOpen, assertTaskNotSyncing } from './iteration.js';
 import { inheritedRunProfile } from './internal.js';
 import { nextHookRun } from '../hook-schedule.js';
+import { hasCommand } from './command-hooks.js';
 
 const empty = () => ({ version: 1, mounts: [], observed: {} });
 const parse = task => task.hooks ? JSON.parse(task.hooks) : empty();
@@ -97,7 +98,7 @@ export default {
     return { version: 1, revision: hookRevision(data), completion_defaults: this.completionDefaults(),
       daemon_hooks: this.daemonHooks(), signals: this.hookSignals(),
       management_workers: this.managementWorkers(), triggers: HOOK_TRIGGERS, actions: HOOK_ACTIONS,
-      templates: data.templates.map(item => ({ id: item.id, ...readDefinition(this, item.definition) })) };
+      command_example: this.commandHookExample(), templates: data.templates.map(item => ({ id: item.id, ...readDefinition(this, item.definition) })) };
   },
 
   saveHookTemplate(template, expectedRevision) {
@@ -144,6 +145,7 @@ export default {
     const mounts = data.mounts.map(m => ({ id: m.id, ...readDefinition(this, m), builtin: false, locked: false,
       editable: (available || (ownerAvailable(this, task, true) && (scheduledSelfRetry(m, task) || (m.schedule && m.enabled)))) && m.state !== 'running', removable: ['main','owner','order','child'].includes(task.task_kind) && m.state !== 'running', reason: m.state === 'running' ? 'Hook 已领取执行，不能修改' : !available && !(ownerAvailable(this, task, true) && scheduledSelfRetry(m, task)) ? 'Worker 已结束或归档' : m.reason ?? null,
       state: m.state, last_execution: readExecution(this, m.last_execution),
+      ...(hasCommand(m) ? { pending_count: m.command_pending ?? 0 } : {}),
       ...(m.schedule ? { next_run_at: m.next_run_at ?? null, pending_due_at: m.pending_due_at ?? null } : {}),
       ...(m.actions.find(a => a.type === 'create_worker')?.profile ? { model_selection: publicHookDefinition(m).actions.find(a => a.type === 'create_worker').model_selection } : {}) }));
     if (automatic) {
@@ -195,22 +197,66 @@ export default {
     return this.taskHooks(task.id);
   },
 
-  async updateTaskHook(taskId, hookId, enabled, expectedRevision) {
-    check(typeof enabled === 'boolean', 'Hook enabled must be boolean');
+  async updateTaskHook(taskId, hookId, enabled, expectedRevision, hook = null) {
+    const editing = hook !== null && hook !== undefined;
+    check(editing ? enabled === undefined || enabled === null : typeof enabled === 'boolean', 'provide either a complete Hook or enabled, not both');
     const task = this.store.task(id(taskId)), existing = parse(task).mounts.find(m => m.id === hookId);
     editable(this, task, existing, !enabled); checkRevision(revision(this, task), expectedRevision);
-    if (hookId === 'auto-merge') { await this.setTaskAutoMerge(task.id, enabled); return this.taskHooks(task.id); }
+    if (hookId === 'auto-merge') {
+      check(!editing, 'built-in automatic merge cannot be edited');
+      await this.setTaskAutoMerge(task.id, enabled); return this.taskHooks(task.id);
+    }
+    let replacement = null;
+    if (editing) {
+      check(existing, 'Hook mount not found');
+      const raw = structuredClone(hook);
+      if (Array.isArray(raw.actions)) raw.actions = raw.actions.map((action, index) => {
+        const previous = existing.actions[index];
+        return ['create_worker','retry_worker','resume_worker'].includes(action?.type) && action.profile === undefined && previous?.type === action.type && previous.profile
+          ? { ...action, profile: previous.profile } : action;
+      });
+      replacement = definition(this, raw, task); editable(this, task, replacement, !replacement.enabled);
+      enabled = replacement.enabled;
+      check(!existing.draft_id || creationIdentity(replacement) === creationIdentity(existing), 'buffered draft Hook parameters cannot be edited; remove and remount the draft');
+    }
     this.store.transaction(() => {
       const data = parse(this.store.task(task.id)), mount = data.mounts.find(m => m.id === hookId); check(mount, 'Hook mount not found');
       check(mount.state !== 'running', 'Hook is executing; wait for its result');
-      check(!enabled || !['failed','unknown'].includes(mount.state), 'Hook effects require inspection; mount a new explicitly authorized rule instead of replaying');
+      const command = hasCommand(replacement ?? mount);
+      const recovering = ['failed','unknown'].includes(mount.state);
+      check(!enabled || !recovering || (command && (replacement ?? mount).mode === 'persistent'), 'Hook effects require inspection; mount a new explicitly authorized rule instead of replaying');
       check(!enabled || mount.mode !== 'once' || !['succeeded','skipped'].includes(mount.state), 'one-shot Hook already executed or skipped; mount a new rule instead of replaying');
+      if (replacement) {
+        const oldTrigger = mount.trigger;
+        Object.assign(mount, replacement);
+        if (mount.trigger !== 'time.scheduled') {
+          delete mount.schedule; delete mount.next_run_at; delete mount.pending_due_at; delete mount.pending_execution_id;
+        } else {
+          const next = nextHookRun(mount.schedule, this.hookClock());
+          check(mount.schedule.kind !== 'once' || next, 'one-shot schedule must be in the future when mounted');
+          mount.next_run_at = next; mount.pending_due_at = null; delete mount.pending_execution_id;
+        }
+        if (command || hasCommand(existing)) {
+          mount.command_cursor = this.store.get("SELECT max(id) AS id FROM events WHERE task_id=? AND type='hook.command_submitted' AND json_extract(data,'$.hook_id')=?", task.id, hookId)?.id ?? 0;
+          mount.command_pending = 0;
+        }
+        if (oldTrigger !== mount.trigger && !recovering) mount.state = 'idle';
+      }
+      if (enabled && recovering && command) {
+        // Explicit recovery authorizes FUTURE events only, never old failed/unknown or queued effects.
+        mount.command_cursor = this.store.get("SELECT max(id) AS id FROM events WHERE task_id=? AND type='hook.command_submitted' AND json_extract(data,'$.hook_id')=?", task.id, hookId)?.id ?? 0;
+        mount.command_pending = 0; mount.state = 'idle'; mount.reason = null;
+      }
       if (enabled && !mount.enabled && mount.schedule && !mount.pending_due_at) {
         const clock = this.hookClock();
         mount.next_run_at = nextHookRun(mount.schedule, Math.max(clock, Date.parse(mount.last_due_at ?? '') || clock));
         check(mount.next_run_at, 'one-shot schedule has expired; mount a new future rule');
       }
-      mount.enabled = enabled; save(this, task.id, data); this.store.event(task.id, 'hook.enabled', { hook_id: hookId, enabled });
+      if (command && (replacement || (enabled && !mount.enabled)))
+        mount.command_last_source = this.store.get('SELECT max(id) AS id FROM events')?.id ?? mount.command_last_source ?? 0;
+      mount.enabled = enabled;
+      check(Buffer.byteLength(JSON.stringify(data)) <= HOOK_LIMITS.bytes, 'mounted Hooks exceed size limit');
+      save(this, task.id, data); this.store.event(task.id, replacement ? 'hook.updated' : 'hook.enabled', { hook_id: hookId, enabled });
     });
     this.scheduleTaskHooks(); return this.taskHooks(task.id);
   },
@@ -255,17 +301,21 @@ export default {
     if (trigger === 'time.scheduled' || this.stopping || this.clearing || this.workerDeleteIds?.size) return;
     if (this.recoveringHooks) { (this.hookRecoveryEvents ??= []).push([taskId, trigger, sourceId]); return; }
     const task = this.store.task(taskId); if (!task.hooks) return;
-    const data = parse(task), mounts = data.mounts.filter(m => m.trigger === trigger && eligible(m) && hookConditionsMatch(m, task)
+    const data = parse(task), mounts = data.mounts.filter(m => m.trigger === trigger && (hasCommand(m)
+      ? m.enabled && !['failed','unknown'].includes(m.state) && !(m.mode === 'once' && m.state === 'succeeded') : eligible(m)) && hookConditionsMatch(m, task)
       && (!pendingOnly || m.mode === 'once' || !m.last_execution));
     if (!mounts.length) return;
     const eventId = sourceId ?? this.store.event(task.id, 'hook.triggered', { trigger });
     for (const mount of mounts) {
+      if (hasCommand(mount)) { this.submitCommandTaskHook(task.id, mount.id, eventId); continue; }
       if (mount.last_source === `${trigger}:${eventId}`) continue;
       const executionId = this.store.transaction(() => {
         const executionId = this.store.event(task.id, 'hook.execution_started', { hook_id: mount.id, trigger, source_id: eventId });
         mount.state = 'running'; mount.last_source = `${trigger}:${eventId}`;
         mount.last_execution = { id: executionId, trigger, status: 'running', created_at: now(), finished_at: null };
-        mount.receipts = []; save(this, task.id, data);
+        mount.receipts = [];
+        // A command submission may have updated the same Worker's JSON earlier in this loop.
+        const current = parse(this.store.task(task.id)); Object.assign(current.mounts.find(m => m.id === mount.id), mount); save(this, task.id, current);
         return executionId;
       });
       const previous = this.hookQueue ?? Promise.resolve();
@@ -362,6 +412,8 @@ export default {
       if (current.parent && (parentBoundary || !this.taskMergeBusy?.has(task.id))) this.emitTaskHook(task.id, 'worker.parent_ready', null, previous.parent === true);
     }
     this.observeScheduledTaskHooks(taskId);
+    for (const task of tasks) for (const mount of parse(this.store.task(task.id)).mounts)
+      if (hasCommand(mount)) this.queueCommandTaskHook(task.id, mount.id);
   },
 
   async runParentReadyHooks(parentId) {
@@ -374,8 +426,9 @@ export default {
 
   recoverTaskHooks() {
     this.recoverScheduledTaskHooks();
+    this.recoverCommandTaskHooks();
     for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL')) {
-      for (const mount of parse(task).mounts) if (mount.state === 'running' && !mount.schedule) {
+      for (const mount of parse(task).mounts) if (mount.state === 'running' && !mount.schedule && !hasCommand(mount)) {
         const created = this.store.get("SELECT data FROM events WHERE task_id=? AND type='hook.worker_created' AND json_extract(data,'$.execution_id')=? ORDER BY id DESC LIMIT 1", task.id, mount.last_execution.id);
         // Only a complete single create action is an exact sufficient recovery proof.
         if (created && mount.actions.length === 1 && mount.actions[0].type === 'create_worker') {

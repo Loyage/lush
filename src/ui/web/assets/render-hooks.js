@@ -8,17 +8,29 @@ import { show } from './messages.js';
 import { agentHelp } from './help.js';
 import { workerKind } from './worker-kind.js';
 import { isHistoricalDelivery, absolute } from './format.js';
-import { createHookForm } from './hook-form.js';
+import { createHookForm, COMMAND_WARNING } from './hook-form.js';
 import { autoMergeControl, autoCompletionControl, COMPLETION_LEVELS, HOOK_STATES as STATES } from './hook-controls.js';
 import { workerLabel } from './worker-label.js';
 import { hookScheduleSummary, scheduledWallTime } from './hook-schedule.js';
 import { renderSignalManagement } from './hook-signals.js';
 
 const pending = new Set();
+function sameProject(project) { try { return projectApi('/api/hooks') === project; } catch { return false; } }
 const callsAgent = mount => (mount.actions || []).some(a => ['message', 'request_merge', 'retry_worker', 'resume_worker'].includes(a.type) || (a.type === 'create_worker' && a.start !== false));
 const failedSelfTemplate = (template, workerId) => template.trigger === 'time.scheduled'
   && template.actions?.some(a => a.type === 'retry_worker' && a.target_id === workerId)
   && template.actions.every(a => a.type === 'notify' || (a.type === 'retry_worker' && a.target_id === workerId));
+const hasCommand = hook => hook.actions?.some(item => item.type === 'command');
+async function authorizeHook(hook, agent = callsAgent(hook)) {
+  if (hook.enabled === false) return true;
+  if (hasCommand(hook) && !await confirmDialog({ title: '授权执行 Shell 命令？', message: COMMAND_WARNING,
+    detail: hook.actions.filter(item => item.type === 'command').map(item => item.command).join('\n\n'),
+    confirmLabel: '授权命令执行', danger: true, confirmHelp: '启用真实命令挂载；以后匹配节点和条件时可能产生不可逆副作用。' })) return false;
+  if (agent && !await confirmDialog({ title: '授权会安排 Agent 调用的 Hook？',
+    message: '保存授权后，条件满足时可能启动或唤醒 Agent。定时只保证到点提交动作，安全点尽早执行，不保证 Agent 准点开始。请确认节点、时间、条件、目标和运行设置。',
+    confirmLabel: '授权并挂载', agent: true, confirmHelp: agentHelp('允许在指定安全节点执行所配置的调用。') })) return false;
+  return true;
+}
 function scheduledLabel(instant, timezone) {
   try { return `${scheduledWallTime(instant, timezone).replace('T', ' ')} · ${timezone}`; } catch { return absolute(instant); }
 }
@@ -28,7 +40,7 @@ function guarded(node, reason) {
   host.setAttribute('data-help', `${reason} ${node.getAttribute('data-help') || ''}`); host.append(node); return host;
 }
 function summary(actionItem) {
-  return actionItem.type === 'create_worker' ? `预约创建 Worker${actionItem.start !== false ? '并开始 Agent' : '（待开始）'}：${actionItem.content || ''}`
+  return actionItem.type === 'command' ? `执行 Shell 命令：\n${actionItem.command || ''}` : actionItem.type === 'create_worker' ? `预约创建 Worker${actionItem.start !== false ? '并开始 Agent' : '（待开始）'}：${actionItem.content || ''}`
     : actionItem.type === 'notify' ? `发送告知：${actionItem.title || ''}`
       : actionItem.type === 'message' ? `追加消息到 ${workerLabel(actionItem.target_id, actionItem.target_worker_number)}：${actionItem.body || ''}`
         : actionItem.type === 'retry_worker' ? `到点时若失败则重试 ${workerLabel(actionItem.target_id, actionItem.target_worker_number)}；保留工作区，不检测额度恢复`
@@ -47,6 +59,7 @@ function parameters(mount) {
   }
   for (const item of mount.actions || []) {
     content.append(el('p', summary(item), 'hook-action-preview'));
+    if (item.type === 'command') content.append(el('p', COMMAND_WARNING, 'hint hook-command-warning'));
     if (item.type === 'message') content.append(el('p', '追加输入使用目标 Worker 现有运行设置，不隐式切换账号。', 'hint'));
     if (['retry_worker', 'resume_worker'].includes(item.type) && !item.model_selection) content.append(el('p', '未显式覆盖，沿用目标 Worker 已有运行设置。', 'hint'));
     if (item.model_selection) content.append(el('p', `动作运行设置：${item.model_selection.config_mode === 'pi' ? '执行机器的 Pi 默认配置' : [item.model_selection.agent, item.model_selection.model, item.model_selection.thinking].filter(Boolean).join(' · ') || '已固定默认配置'}`, 'hint'));
@@ -59,47 +72,105 @@ function parameters(mount) {
   if (last) {
     content.append(el('p', `最近执行：${STATES[last.status] || last.status} · ${absolute(last.finished_at || last.created_at)}`, 'hint'));
     if (last.due_at && mount.schedule) content.append(el('p', `原定提交：${scheduledLabel(last.due_at, mount.schedule.timezone)}`, 'hint'));
+    if (last.command_result) {
+      const result = last.command_result;
+      content.append(el('p', `命令结果：${STATES[result.status] || result.status}${result.exit_code !== null && result.exit_code !== undefined ? ` · 退出码 ${result.exit_code}` : ''}${result.reason === 'timeout' ? ' · 超时（最长 60 秒）' : result.reason === 'output_limit' ? ' · 输出超限（64 KiB）' : result.reason === 'spawn' ? ' · 无法启动命令' : ''}；原始输出不公开。`, 'hint'));
+    }
     if (last.error) content.append(el('p', last.error, last.status === 'skipped' ? 'hint' : 'error'));
     if (last.worker_id) content.append(button(`查看创建的 Worker ${workerLabel(last.worker_id, last.worker_number)}`, () => detail(last.worker_id), 'ghost hook-button'));
   } else content.append(el('p', '还没有执行记录。', 'hint'));
   return content;
 }
 const BUILTIN_STEPS = { 'auto-merge': { number: 1 }, 'auto-accept': { number: 2 }, 'auto-archive': { number: 3 } };
-function mountCard(task, mount, model, refresh, ownsPage) {
+function mountCard(task, mount, model, refresh, ownsPage, { setEditing = () => {}, catalogue = null, busy = () => false } = {}) {
   const row = el('article', undefined, 'hook-mount'); row.dataset.hookId = mount.id;
   const head = el('div', undefined, 'hook-mount-head');
   const step = BUILTIN_STEPS[mount.id];
   if (step) head.append(badge(`第 ${step.number} 步`));
   head.append(el('strong', mount.name), badge(mount.mode === 'persistent' ? '持续' : '一次性'), badge(mount.enabled ? '启用' : '停用'), badge(STATES[mount.state] || mount.state || '已挂载'));
   if (mount.locked) head.append(badge('锁定')); row.append(head);
+  row.append(el('p', `当前触发节点：${(catalogue || ui.hookCatalogue)?.triggers?.find(item => item.id === mount.trigger)?.label || mount.trigger} · ${mount.trigger}`, 'hint'));
   if (!mount.builtin && !step) {
     const actions = el('div', undefined, 'actions hook-actions');
-    const key = `${task.id}:${mount.id}`, busy = pending.has(key);
+    const key = `${projectApi('/api/hooks')}:${task.id}:${mount.id}`, saving = pending.has(key);
     const update = async remove => {
-      if (!ownsPage() || pending.has(key)) return;
-      if (remove && !await confirmDialog({ title: `移除 Hook「${mount.name}」？`,
-        message: '仅移除未来触发。不会取消已开始的动作、删除已创建的 Worker，或撤回已发出的合并请求和消息。', confirmLabel: '移除挂载',
-        confirmHelp: '移除当前 Worker 的这个 Hook；执行历史与已产生的成果保留。' })) return;
-      if (!ownsPage()) return;
-      pending.add(key); for (const node of actions.querySelectorAll('button')) node.disabled = true;
+      if (!ownsPage() || busy() || pending.has(key) || (remove ? (mount.removable ?? mount.editable) !== true || mount.locked : mount.editable !== true)) return;
+      pending.add(key); setEditing(true); for (const node of actions.querySelectorAll('button')) node.disabled = true;
       try {
-        await action(remove ? 'worker.hook_remove' : 'worker.hook_update', { id: task.id, hook_id: mount.id, expected_revision: model.revision,
+        if (!remove && !mount.enabled && hasCommand(mount) && !await authorizeHook({ ...mount, enabled: true }, false)) return;
+        if (remove && !await confirmDialog({ title: `移除 Hook「${mount.name}」？`,
+          message: '仅移除未来触发。不会取消已开始的动作、删除已创建的 Worker，或撤回已发出的合并请求和消息。', confirmLabel: '移除挂载',
+          confirmHelp: '移除当前 Worker 的这个 Hook；执行历史与已产生的成果保留。' })) return;
+        if (!ownsPage()) return;
+        const result = await action(remove ? 'worker.hook_remove' : 'worker.hook_update', { id: task.id, hook_id: mount.id, expected_revision: model.revision,
           ...(remove ? {} : { enabled: !mount.enabled }) });
-        if (ownsPage()) { show(remove ? '已移除挂载，已有成果不变。' : '已保存 Hook 启用状态。'); await refresh(); }
+        if (ownsPage()) { show(remove ? '已移除挂载，已有成果不变。' : '已保存 Hook 启用状态。'); pending.delete(key); setEditing(false); await refresh(result); }
       } catch (error) { if (ownsPage()) show(`${error.message}；请刷新读取最新挂载状态。`, 'error'); }
       finally { pending.delete(key); if (ownsPage()) {
-        const [toggle, remove] = actions.querySelectorAll('button');
-        if (toggle) toggle.disabled = mount.editable !== true;
-        if (remove) remove.disabled = (mount.removable ?? mount.editable) !== true || mount.locked;
+        setEditing(false); restoreControls();
       } }
     };
     const agent = !mount.enabled && callsAgent(mount);
     const help = '只修改未来触发；停用不撤回已开始的动作。启用后条件满足即可执行。';
     actions.append(guarded(button(mount.enabled ? '停用 Hook' : '启用 Hook', () => update(false), 'ghost hook-button', { agent, help: agent ? agentHelp(help) : help }),
-      busy ? '此挂载正在保存。' : mount.editable !== true ? mount.reason || '当前挂载不可编辑。' : null));
+      saving || busy() ? '此挂载正在保存。' : mount.editable !== true ? mount.reason || '当前挂载不可编辑。' : null));
     actions.append(guarded(button('移除挂载', () => update(true), 'ghost hook-button', { help: '移除未来触发，不删除已产生的 Worker、提交或消息。' }),
-      busy ? '此挂载正在保存。' : (mount.removable ?? mount.editable) !== true || mount.locked ? mount.reason || '此挂载不可移除。' : null));
-    row.append(actions);
+      saving || busy() ? '此挂载正在保存。' : (mount.removable ?? mount.editable) !== true || mount.locked ? mount.reason || '此挂载不可移除。' : null));
+    const editor = el('div', undefined, 'hook-editor');
+    let editing = false;
+    function restoreControls() {
+      const [toggle, remove, edit, copy] = actions.querySelectorAll('button');
+      if (toggle) toggle.disabled = pending.has(key) || editing || busy() || mount.editable !== true;
+      if (remove) remove.disabled = pending.has(key) || editing || busy() || (mount.removable ?? mount.editable) !== true || mount.locked;
+      if (edit) edit.disabled = pending.has(key) || editing || busy() || mount.editable !== true || mount.locked;
+      if (copy) copy.disabled = pending.has(key) || editing || busy() || model.can_attach === false || ['completed', 'cancelled'].includes(task.status) || task.archived;
+    }
+    async function editMount(copy = false) {
+      if (!ownsPage() || busy() || editing || pending.has(key)
+        || (!copy && (mount.editable !== true || mount.locked))
+        || (copy && (model.can_attach === false || ['completed', 'cancelled'].includes(task.status) || task.archived))) return;
+      editing = true; setEditing(true); restoreControls();
+      try {
+        const directory = catalogue || await api('/api/hooks'); if (!ownsPage()) return;
+        const initial = copy ? { ...mount, name: `${mount.name}（副本）`, enabled: false } : mount;
+        let save;
+        const paintCost = agent => {
+          if (!save) return;
+          const cost = !copy && agent;
+          save.classList.toggle('agent-call', cost);
+          save.setAttribute('data-help', cost ? agentHelp('保存挂载授权；启用时条件满足即可安排调用。')
+            : copy ? '复制为新停用挂载，不执行、不复制执行记录或私有运行覆盖。' : '保存完整挂载配置；启用命令前须确认执行授权。');
+        };
+        const form = createHookForm(directory, { initial, ownsPage, workerId: task.id, failedSelf: task.status === 'failed', copying: copy, onChange: paintCost });
+        editor.replaceChildren(el('h3', copy ? '复制为新停用挂载' : `编辑挂载：${mount.name}`), form.node);
+        if (copy) editor.append(el('p', '副本是此 Worker 的新停用挂载，不执行，不复制执行记录；私有运行覆盖必须显式重新设置。', 'hint'));
+        save = button(copy ? '保存停用副本' : '保存挂载', async () => {
+          if (!ownsPage() || pending.has(key) || form.validate()) return;
+          const hook = { ...form.collect(), ...(copy ? { enabled: false } : {}) };
+          pending.add(key); form.setBusy(true); save.disabled = true; cancel.disabled = true;
+          let saved = false;
+          try {
+            if (form.replacesPrompt() && !await promptRisk()) return;
+            if (!ownsPage() || !await authorizeHook(hook, form.agentCall()) || !ownsPage()) return;
+            const result = await action(copy ? 'worker.hook_attach' : 'worker.hook_update', { id: task.id,
+              ...(!copy ? { hook_id: mount.id } : {}), hook, expected_revision: model.revision });
+            saved = true;
+            if (ownsPage()) { editing = false; setEditing(false); editor.replaceChildren(); show(copy ? '已复制为新停用挂载，不执行。' : '挂载配置已保存。'); pending.delete(key); await refresh(result); }
+          } catch (error) { if (ownsPage()) show(saved ? `已保存，但刷新失败：${error.message}` : `${error.message}；编辑保留，版本冲突时请复制正文后刷新。`, 'error'); }
+          finally { pending.delete(key); if (ownsPage()) { form.setBusy(false); save.disabled = saved; cancel.disabled = false; restoreControls(); } }
+        }, 'hook-button');
+        const cancel = button('取消编辑', () => { if (pending.has(key)) return; editing = false; setEditing(false); editor.replaceChildren(); restoreControls(); }, 'ghost');
+        paintCost(!copy && initial.enabled !== false && form.agentCall()); editor.append(save, cancel);
+      } catch (error) { if (ownsPage()) { editing = false; setEditing(false); restoreControls(); show(error.message, 'error'); } }
+    }
+    actions.append(guarded(button('编辑挂载', () => editMount(), 'ghost hook-button', { help: '编辑此实例的命令、节点、条件和模式；不会修改来源模板。' }),
+      saving || busy() || mount.editable !== true || mount.locked ? mount.reason || '此挂载不可编辑。' : null),
+    guarded(button('复制为停用挂载', () => editMount(true), 'ghost hook-button', { help: '复制配置为此 Worker 的新停用挂载，不执行，也不复制执行记录。' }),
+      model.can_attach === false || ['completed', 'cancelled'].includes(task.status) || task.archived ? '此 Worker 当前不允许新增挂载。' : null));
+    for (const control of actions.querySelectorAll('button')) {
+      const click = control.onclick; control.onclick = async () => { await click(); if (ownsPage()) restoreControls(); };
+    }
+    row.append(actions, editor);
   }
   if (mount.reason) row.append(el('p', mount.reason, 'hint'));
   row.append(parameters(mount)); return row;
@@ -108,7 +179,7 @@ function mountCard(task, mount, model, refresh, ownsPage) {
 /** Synchronous inspect projection; graph uses the same compact, non-mutating entry. */
 export function workerHooks(task, { refresh = () => detail(task.id), compact = false } = {}) {
   if (!['order', 'child', 'main', 'owner'].includes(workerKind(task)) || isHistoricalDelivery(task)) return null;
-  const identity = ui.view, ownsPage = () => ui.view === identity;
+  const identity = ui.view, project = projectApi('/api/hooks'), ownsPage = () => ui.view === identity && sameProject(project);
   const model = task.hooks;
   const completion = model && Object.hasOwn(model, 'completion') ? model.completion : task.completion;
   const mounts = Array.isArray(model?.mounts) ? model.mounts : [];
@@ -144,11 +215,12 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   if (!items.length) management.append(el('p', '此 Worker 尚未挂载 Hook。', 'hint'));
   const groups = new Map(); for (const mount of items) { const group = groups.get(mount.trigger) || []; group.push(mount); groups.set(mount.trigger, group); }
   const phaseOrder = ['worker.delivery_ready', 'delivery.integrated', 'worker.accepted'];
-  const labels = { 'worker.delivery_ready': 'Agent 完成工作后 · 交付就绪', 'delivery.integrated': '合并完成后 · 已集成', 'worker.accepted': '验收完成后' };
+  const labels = { 'worker.delivery_ready': 'Agent 完成工作后 · 交付就绪', 'delivery.integrated': '合并完成后 · 已集成', 'worker.accepted': '验收完成后', 'worker.merge_received': '此 Worker 成功收到一次合并后' };
   for (const [trigger, group] of [...groups].sort(([a], [b]) => (phaseOrder.includes(a) ? phaseOrder.indexOf(a) : 3) - (phaseOrder.includes(b) ? phaseOrder.indexOf(b) : 3))) {
     const part = el('section', undefined, 'hook-trigger-group');
     part.append(el('h3', ui.hookCatalogue?.triggers?.find(item => item.id === trigger)?.label || labels[trigger] || trigger));
-    for (const mount of group) part.append(mountCard(task, mount, model, refresh, ownsPage));
+    for (const mount of group) part.append(mountCard(task, mount, model, refresh, ownsPage,
+      { setEditing(value) { section.dataset.hookEditing = String(value); }, busy: () => section.dataset.hookEditing === 'true' }));
     management.append(part);
   }
   const editor = el('div', undefined, 'hook-editor');
@@ -157,7 +229,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   const writable = model && !['completed', 'cancelled'].includes(task.status) && !task.archived && !task.branch_archive?.archived
     && (model.can_attach !== undefined ? model.can_attach === true : !failedSelf);
   const attach = button('挂载 Hook', async () => {
-    if (!ownsPage() || !writable || pending.has(`attach:${task.id}`)) return;
+    if (!ownsPage() || !writable || section.dataset.hookEditing === 'true' || pending.has(`attach:${task.id}`)) return;
     management.open = true;
     pending.add(`attach:${task.id}`); attach.disabled = true;
     try {
@@ -174,7 +246,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
         const paintCost = agent => {
           if (!save) return;
           save.classList.toggle('agent-call', agent);
-          const help = '保存此 Worker 的 Hook 挂载授权；条件满足时执行受控动作，纯告知不调用 Agent。';
+          const help = '保存此 Worker 的 Hook 挂载授权；启用时条件满足即可执行。命令需明确授权，停用配置不执行。';
           save.setAttribute('data-help', agent ? agentHelp(help) : help);
         };
         const form = template ? null : createHookForm(catalogue, { ownsPage, workerId: task.id, failedSelf, onChange: paintCost });
@@ -183,21 +255,20 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
         else host.replaceChildren(form.node);
         save = button(template ? '原样挂载模板' : '确认挂载', async () => {
           if (!ownsPage() || pending.has(`save:${task.id}`) || form?.validate()) return;
-          if (form?.replacesPrompt() && !await promptRisk()) return;
-          if (!ownsPage()) return;
           const hook = template ? { template_id: template.id } : form.collect(), agent = template ? callsAgent(template) : form.agentCall();
-          if (agent && !await confirmDialog({ title: '挂载会安排 Agent 调用的 Hook？', message: '此操作保存授权；条件满足时可能启动或唤醒 Agent。定时只保证到点提交动作，安全点尽早执行，不保证 Agent 准点开始。请确认时间、时区、动作、目标和运行设置。',
-            confirmLabel: '授权并挂载', agent: true, confirmHelp: agentHelp('挂载此受控规则，允许在指定安全节点执行所配置的调用。') })) return;
-          if (!ownsPage()) return;
-          pending.add(`save:${task.id}`); form?.setBusy(true); save.disabled = true; picker.disabled = true;
+          pending.add(`save:${task.id}`); form?.setBusy(true); save.disabled = true; picker.disabled = true; cancel.disabled = true;
           let attached = false;
-          try { await action('worker.hook_attach', { id: task.id, hook, expected_revision: model.revision }); attached = true;
+          try {
+            if (form?.replacesPrompt() && !await promptRisk()) return;
+            if (!ownsPage() || !await authorizeHook(template || hook, agent) || !ownsPage()) return;
+            await action('worker.hook_attach', { id: task.id, hook, expected_revision: model.revision }); attached = true;
             if (ownsPage()) { section.dataset.hookEditing = 'false'; editor.replaceChildren(); show('Hook 已挂载；实际执行以条件和安全检查为准。'); await refresh(); }
           } catch (error) { if (ownsPage()) show(attached ? `Hook 已挂载，但刷新失败：${error.message}` : `${error.message}；规则编辑已保留。`, 'error'); }
-          finally { pending.delete(`save:${task.id}`); if (ownsPage()) { form?.setBusy(false); save.disabled = attached; picker.disabled = attached; } }
+          finally { pending.delete(`save:${task.id}`); if (ownsPage()) { form?.setBusy(false); save.disabled = attached; picker.disabled = attached; cancel.disabled = attached; } }
         }, 'hook-button');
-        paintCost(template ? callsAgent(template) : form.agentCall());
-        host.append(save, button('取消编辑', () => { section.dataset.hookEditing = 'false'; editor.replaceChildren(); }, 'ghost'));
+        paintCost(template ? template.enabled !== false && callsAgent(template) : form.enabled() && form.agentCall());
+        const cancel = button('取消编辑', () => { if (pending.has(`save:${task.id}`)) return; section.dataset.hookEditing = 'false'; editor.replaceChildren(); }, 'ghost');
+        host.append(save, cancel);
       };
       picker.onchange = paint; paint();
     } catch (error) { if (ownsPage()) show(error.message, 'error'); }
@@ -216,34 +287,60 @@ async function promptRisk() {
 export async function openHooks() {
   const view = activateDetailView({ view: 'hooks', title: '自动化', context: '工作', hint: '时间信号与管理 Agent · 生命周期 · 受控动作 · 模板', hash: '#hooks' });
   const project = projectApi('/api/hooks');
-  const ownsPage = () => ui.view === view && projectApi('/api/hooks') === project;
+  const ownsPage = () => ui.view === view && sameProject(project);
   if (ui.hooksPage?.view === view && ui.hooksPage.project === project) return ui.hooksPage.pending;
   const state = { view, project, pending: null, catalogue: null, editing: false, busy: false, completionDraft: null, completionError: null, completionBlocked: false }; ui.hooksPage = state;
   const owns = () => ownsPage() && ui.hooksPage === state;
   const root = el('div', undefined, 'hooks-page'); $('detail').replaceChildren(root);
   const editor = el('div', undefined, 'hook-editor');
-  function edit(initial = {}) {
+  function edit(initial = {}, copying = false) {
     if (!owns() || state.busy) return;
     state.editing = true;
-    const form = createHookForm(state.catalogue, { initial, ownsPage: owns });
-    editor.replaceChildren(el('h2', initial.id ? `编辑模板：${initial.name}` : '新建模板'), form.node);
-    const save = button('保存模板', async () => {
+    const revision = state.catalogue.revision;
+    const form = createHookForm(state.catalogue, { initial: copying ? { ...initial, name: `${initial.name}（副本）`, enabled: false } : initial, ownsPage: owns, copying });
+    editor.replaceChildren(el('h2', copying ? '复制为新停用模板' : initial.id ? `编辑模板：${initial.name}` : '新建模板'), form.node);
+    if (copying) editor.append(el('p', '复制为新停用模板，不执行、不挂载、不复制执行记录；私有运行覆盖必须显式重新设置。', 'hint'));
+    const save = button(copying ? '保存停用模板副本' : '保存模板', async () => {
       if (!owns() || state.busy || form.validate()) return;
       if (form.replacesPrompt() && !await promptRisk()) return;
       if (!owns()) return;
       state.busy = true; form.setBusy(true); save.disabled = true;
       try {
-        const result = await action('hooks.save', { template: { ...(initial.id ? { id: initial.id } : {}), ...form.collect() }, expected_revision: state.catalogue.revision });
-        if (owns()) { state.catalogue = result; state.editing = false; editor.replaceChildren(); paint(); show('模板已保存；尚未挂载，不会启动 Agent。'); }
+        const result = await action('hooks.save', { template: { ...(!copying && initial.id ? { id: initial.id } : {}), ...form.collect(), ...(copying ? { enabled: false } : {}) }, expected_revision: revision });
+        if (owns()) { state.catalogue = result; state.editing = false; editor.replaceChildren(); paint(); show('模板已保存；已有实例不变。保存不执行、不挂载，也不调用 Agent。'); }
       } catch (error) { if (owns()) show(`${error.message}；编辑保留。版本冲突时请复制内容后刷新。`, 'error'); }
       finally { state.busy = false; if (owns()) { form.setBusy(false); save.disabled = false; paint(); } }
     }, 'hook-button', { help: '保存可复用项目模板；不挂载到 Worker、不调用 Agent。' });
     editor.append(save, button('取消编辑', () => { if (!state.busy) { state.editing = false; editor.replaceChildren(); } }, 'ghost'));
   }
-  async function load() {
+  async function load({ preserveDefaults = false } = {}) {
     try { const catalogue = await api('/api/hooks'); if (!owns()) return; state.catalogue = catalogue; ui.hookCatalogue = catalogue;
-      state.completionDraft = null; state.completionError = null; state.completionBlocked = false; paint(); }
+      if (!preserveDefaults) { state.completionDraft = null; state.completionError = null; state.completionBlocked = false; }
+      paint(); }
     catch (error) { if (owns()) { root.replaceChildren(el('h1', '自动化'), el('p', `读取失败：${error.message}`, 'error'), button('重新读取', load, 'ghost')); } }
+  }
+  function commandExample(catalogue) {
+    const section = block('示例：main 收到合并后 git push'); section.classList.add('command-hook-example');
+    section.append(el('p', '初始示例是挂载在 main 对应 Worker 上的持续 Hook：每成功收到一次子 Worker 合并，触发 worker.merge_received，执行 git push。不是源 Worker 的 delivery.integrated，也不是任意一次 Agent 返回。编辑后以卡片中的实际节点和参数为准。'),
+      el('p', '默认停用。开启后由项目后台执行，关闭浏览器仍生效；git push 使用用户已有 remote、上游分支和认证配置，Lush 不选择或配置 remote。命令失败或未知结果如实保留，不自动重放。模板只是配置，下面管理的是真实 main 挂载，与 main Worker 的 Hooks 区同源。', 'hint'),
+      el('p', COMMAND_WARNING, 'hint hook-command-warning'));
+    const example = catalogue.command_example;
+    const model = example?.hooks;
+    const mount = Array.isArray(model?.mounts) ? model.mounts.find(item => item.id === example.hook_id) : null;
+    const valid = Number.isSafeInteger(example?.worker_id) && model?.worker_id === example.worker_id && typeof model?.revision === 'string' && model.revision.trim();
+    if (!valid || !mount) {
+      section.append(el('p', example ? '示例挂载已删除或不可用；不会自动重装。可从项目模板自行新建规则。' : '示例状态暂不可用；请更新服务后刷新，不会凭空创建或启用挂载。', 'hint'));
+    } else {
+      section.append(mountCard({ id: example.worker_id, task_kind: 'main', status: 'waiting' }, mount, model,
+        // Runtime observations can advance the mount revision after the mutation response.
+        // Read the authoritative catalogue before offering the next edit/toggle.
+        async () => { if (owns()) await load({ preserveDefaults: true }); }, owns, { catalogue, busy: () => state.busy || state.commandEditing, setEditing(value) { state.commandEditing = value; state.editing = value; } }));
+      section.append(button('查看 main Worker Hooks', () => detail(example.worker_id), 'ghost hook-button', { help: '只打开示例所挂载的真实 Worker；两个入口管理同一挂载。' }));
+    }
+    const template = catalogue.templates?.find(item => item.id === example?.template_id);
+    if (template) section.append(button('编辑示例模板', () => edit(template), 'ghost hook-button', { help: '只编辑模板，已经挂载在 main 上的实例不会改变。' }),
+      button('复制示例为停用模板', () => edit(template, true), 'ghost hook-button', { help: '保存为新的停用模板，不执行、不挂载，也不复制执行记录。' }));
+    return section;
   }
   const validDefaults = model => model?.version === 1 && typeof model.enabled === 'boolean'
     && ['merge', 'accept', 'archive'].includes(model.level) && typeof model.revision === 'string' && !!model.revision.trim();
@@ -356,7 +453,8 @@ export async function openHooks() {
   function paint() {
     if (!owns()) return;
     const catalogue = state.catalogue;
-    root.replaceChildren(el('h1', '自动化'), el('p', '当前项目的后台与 Worker 生命周期、定时自动动作。模板只保存配置；实际挂载、启停和执行结果在 Worker 详情管理。定时到点提交非阻塞动作，安全点尽早执行，不保证 Agent 准点开始；后台停机错过时间跳过，不自动启动项目或判断额度恢复。自定义仅组合受控动作，不执行脚本，不自动重试未知副作用。', 'hint'), completionDefaultsSection(catalogue), daemonSection(catalogue));
+    const preservedExample = state.commandEditing ? root.querySelector('.command-hook-example') : null;
+    root.replaceChildren(el('h1', '自动化'), el('p', '当前项目的后台与 Worker 生命周期、定时自动动作。模板只保存配置；实际挂载、启停和执行结果在 Worker 详情管理。定时到点提交非阻塞动作，安全点尽早执行，不保证 Agent 准点开始；后台停机错过时间跳过，不自动启动项目或判断额度恢复。动作由目录决定；Shell 命令以 daemon 权限执行，不是沙箱，启用需明确授权。未知副作用不自动重放。', 'hint'), completionDefaultsSection(catalogue), preservedExample || commandExample(catalogue), daemonSection(catalogue));
     root.append(...renderSignalManagement({ catalogue, editor, ownsPage: owns, busy: () => state.busy,
       setBusy(value) { state.busy = value; if (owns()) paint(); }, setEditing(value) { state.editing = value; },
       onCatalogue(result) { if (owns()) { state.catalogue = result; ui.hookCatalogue = result; paint(); } },
@@ -369,13 +467,14 @@ export async function openHooks() {
       } },
     }));
     const controls = el('div', undefined, 'actions'); controls.append(button('新建模板', () => edit(), 'hook-button', { help: '编辑可复用规则，不启动 Agent，也不自动安装到 Worker。' }),
-      button('刷新目录', async () => { if (state.busy) return; if ((state.editing || (state.completionDraft && (state.completionDraft.enabled !== state.catalogue.completion_defaults?.enabled || state.completionDraft.level !== state.catalogue.completion_defaults?.level))) && !await confirmDialog({ title: '放弃未保存编辑并刷新？', message: '刷新会读取后台最新目录与项目默认，当前未保存编辑会丢失。', confirmLabel: '放弃并刷新' })) return;
-        if (!owns()) return; state.editing = false; editor.replaceChildren(); await load(); }, 'ghost hook-button', { help: '显式读取最新节点和模板；未保存编辑会先确认，不进行后台自动刷新。' })); root.append(controls);
+      button('刷新目录', async () => { if (state.busy) return; if ((state.editing || state.commandEditing || (state.completionDraft && (state.completionDraft.enabled !== state.catalogue.completion_defaults?.enabled || state.completionDraft.level !== state.catalogue.completion_defaults?.level))) && !await confirmDialog({ title: '放弃未保存编辑并刷新？', message: '刷新会读取后台最新目录与项目默认，当前未保存编辑会丢失。', confirmLabel: '放弃并刷新' })) return;
+        if (!owns()) return; state.editing = false; state.commandEditing = false; editor.replaceChildren(); await load(); }, 'ghost hook-button', { help: '显式读取最新节点和模板；未保存编辑会先确认，不进行后台自动刷新。' })); root.append(controls);
     const templates = block('项目模板', String(catalogue.templates?.length || 0));
     if (!catalogue.templates?.length) templates.append(el('p', '还没有模板。自动合并是 Worker 内置 Hook，不需要创建模板。', 'hint'));
     for (const template of catalogue.templates || []) {
       const card = el('article', undefined, 'hook-mount'); card.append(el('strong', template.name), el('p', `${catalogue.triggers?.find(t => t.id === template.trigger)?.label || template.trigger} · ${template.mode === 'persistent' ? '持续' : '一次性'}`, 'hint'), parameters(template));
-      const buttons = el('div', undefined, 'actions'); buttons.append(button('编辑模板', () => edit(template), 'ghost hook-button'),
+      const buttons = el('div', undefined, 'actions'); buttons.append(button('编辑模板', () => edit(template), 'ghost hook-button', { help: '只修改可复用模板；已有挂载实例不会改变。' }),
+        button('复制为停用模板', () => edit(template, true), 'ghost hook-button', { help: '保存为新的停用模板，不执行、不挂载，不复制执行记录。' }),
         button('删除模板', async () => {
           if (!owns() || state.busy || !await confirmDialog({ title: `删除模板「${template.name}」？`, message: '只删除可复用模板，不移除已挂载到 Worker 的实例。', confirmLabel: '删除模板', confirmHelp: '删除这个模板；实际挂载独立保留。' })) return;
           if (!owns()) return; state.busy = true;

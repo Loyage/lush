@@ -56,6 +56,14 @@
 
 用户决定 #197：以 Worker 挂载 Hook 统一预约和自动合并；项目模板集中在独立「自动化」页面（沿用 `#hooks`），首个可创建安全边界执行预约发射，自定义仅组合受控动作。[设计理念](../design/hooks.md)与[工程接口/并行职责](hooks.md)是本次实施权威接缝。Runtime、接口和前端分别遵循该契约；现有 auto_merge / reservation 保持兼容，不新增核心实体或 Host 调度。
 
+### 通用命令 Hook 与 main 推送示例（W133 / 决定 #319）
+
+用户明确选择通用命令而非专用推送动作，示例仅执行 `git push`，remote/认证由用户命令和 Git 配置决定。新增节点 `worker.merge_received`（成功合入所挂载父 Worker），动作 `command`（`{type,command}`，不调用 Agent）。默认关闭的持续示例在项目初始化时一次性保存为模板与 main 挂载；读取不安装，删除/停用后不自动重装。`hooks.list` 增加 `command_example:{template_id,worker_id,hook_id,hooks}`（无 main 时 null；已删除身份保留用于说明）。Worker 更新增加可选完整 `hook`，与 `enabled` 互斥：`updateTaskHook(id,hookId,enabled,expectedRevision,hook=null)`，保持原启停签名兼容。编辑保留原挂载身份，模板编辑不改变实例；复制产生新的停用配置。
+
+命令在挂载 Worker 的真实工作目录以用户 daemon 身份运行，不是沙箱；有界超时、非交互输入、输出限制，不把凭证/原始输出写入公开读面。通过既有项目写门和 Workspaces 串行执行，复核冻结/同步/归档与真实 invocation；没有永久 Agent 凭证。领取和执行结果持久化，成功合并事件去重，连续合并不丢触发，未知副作用不自动重放。用户需在启用/挂载命令前看到明确的任意命令执行授权提示。
+
+Runtime 子 Worker 负责 core Hooks、初始化、merge-queue、Workspaces 命令执行及 runtime 测试；UI 子 Worker 负责 hook-form/render-hooks/样式与 DOM 测试；父 W133 负责 RPC/HTTP 接缝、文档、集成测试及收口。默认示例命令与动作不是 Agent 入口，不染 Agent 紫色。
+
 ### 新指令结束后默认流程（W137 / 用户决定 #325）
 
 自动化页面保存当前项目专属的 enabled 与最高默认环节，仅之后实际创建的新指令复制授权，已有 Worker、child 和管理 Worker 不变。`hooks.list.completion_defaults` 独立版本、用户专属 `hooks.completion_defaults` mutation；字段及 `Project.completionDefaults/setCompletionDefaults/newOrderCompletionConfig` 接缝见[自动链契约](completion-hooks.md#项目新指令默认值w137--用户决定-325)。Runtime 负责 completion/hooks/order 及项目测试，Web 负责 render-hooks/必要 assets 与 DOM，父负责 RPC/HTTP、文档及真实临时项目联调。

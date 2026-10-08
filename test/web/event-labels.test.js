@@ -51,6 +51,13 @@ test('定时提交、停机错过与动作跳过有独立名称，不冒充 Agen
   expect(eventLabel({ type: 'hook.execution_skipped' })).toBe('Hook 动作已跳过');
 });
 
+test('命令提交、示例初始化和父侧收到合并区分触发与执行，不冒充推送成功', () => {
+  expect(eventLabel({ type: 'worker.merge_received' })).toBe('此 Worker 已收到合并');
+  expect(eventLabel({ type: 'hook.command_example_installed' })).toBe('初始化停用的命令 Hook 示例');
+  expect(eventLabel({ type: 'hook.command_submitted' })).toBe('命令 Hook 已提交待安全执行');
+  expect(eventLabel({ type: 'hook.updated' })).toBe('调整 Hook');
+});
+
 test('daemon Hook events and answer provenance have explicit labels without guessing old answers', () => {
   expect(eventLabel({ type: 'hook.daemon_configured' })).toBe('调整 daemon 自动选择 Hook');
   expect(eventLabel({ type: 'hook.daemon_failed' })).toContain('失败');

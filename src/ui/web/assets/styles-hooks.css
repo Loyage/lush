@@ -34,6 +34,8 @@ button.hook-completion-level.is-selected { border-color: var(--violet-ink); back
 .hook-field { display: grid; gap: .4rem; min-width: 0; }
 .hook-field input, .hook-field select, .hook-field textarea { width: 100%; box-sizing: border-box; }
 .hook-field textarea { resize: vertical; }
+.hook-command-input { font-family: monospace; min-height: 7rem; }
+.hook-command-warning { border-left: 3px solid var(--violet-ink); padding-left: .7rem; }
 .hook-action { min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: .8rem; }
 .hook-conditions { display: flex; flex-wrap: wrap; gap: .6rem; border: 1px solid var(--line); border-radius: 10px; padding: .6rem; min-width: 0; }
 .hook-check { display: inline-flex; align-items: center; gap: .35rem; }

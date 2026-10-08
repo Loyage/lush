@@ -31,7 +31,7 @@ export const PARAMS = {
   'manager.query': ['id'], 'manager.start': ['id'], 'manager.retry': ['id'],
   'worker.hooks': ['id'], 'worker.completion': ['id','level','expected_revision'],
   'worker.hook_attach': ['id','hook','expected_revision'],
-  'worker.hook_update': ['id','hook_id','enabled','expected_revision'], 'worker.hook_remove': ['id','hook_id','expected_revision'],
+  'worker.hook_update': ['id','hook_id','enabled','hook','expected_revision'], 'worker.hook_remove': ['id','hook_id','expected_revision'],
   'order.submit': ['content','branch','references','start','draft_id','expected_revision','profile','defer'],
   'input.history': ['cursor','limit','q','status','integration'], 'input.get': ['kind','id'], 'input.parents': [],
   'draft.add': ['content','references','branch'], 'draft.update': ['id','content','references','branch','expected_revision'],

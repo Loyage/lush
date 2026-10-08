@@ -6,6 +6,7 @@ import { workerLabel } from './worker-label.js';
 import { browserTimezone, scheduledWallTime, hookSchedule } from './hook-schedule.js';
 
 const SCHEDULED = 'time.scheduled';
+export const COMMAND_WARNING = '任意 Shell 命令将在挂载 Worker 的目录中，以 daemon 用户权限执行；这不是沙箱，可读取或修改文件、访问网络及凭证。启用即授权在节点和条件满足时执行，不调用 Agent。未知副作用不自动重放。';
 const profileAction = type => ['create_worker', 'retry_worker', 'resume_worker'].includes(type);
 const targetAction = type => ['message', 'retry_worker', 'resume_worker'].includes(type);
 function field(label, tag = 'input', value = '') {
@@ -31,12 +32,12 @@ function conditions(label, entries, chosen) {
 }
 
 /** Declarative editor. Trigger/action IDs and compatibility come exclusively from the catalogue. */
-export function createHookForm(catalogue, { initial = {}, ownsPage = () => true, workerId = null, failedSelf = false, onChange = () => {} } = {}) {
+export function createHookForm(catalogue, { initial = {}, ownsPage = () => true, workerId = null, failedSelf = false, copying = false, onChange = () => {} } = {}) {
   const node = el('div', undefined, 'hook-form');
   const name = field('Hook 名称', 'input', initial.name); name.input.maxLength = 120;
   const trigger = select('触发节点', (catalogue.triggers || []).filter(t => !failedSelf || t.id === SCHEDULED).map(t => [t.id, t.label]), initial.trigger);
   const mode = select('挂载方式', [['once', '一次性'], ['persistent', '持续']], initial.mode || 'once');
-  const enabled = checked('启用此 Hook', initial.enabled !== false);
+  const enabled = checked('启用此 Hook', !copying && initial.enabled !== false); enabled.input.disabled = copying;
   const triggerHelp = el('p', undefined, 'hint');
   node.append(name.wrap, trigger.wrap, triggerHelp, mode.wrap, enabled.wrap);
   const scheduleNode = el('fieldset', undefined, 'hook-schedule'); scheduleNode.append(el('legend', '定时提交'));
@@ -74,6 +75,8 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
     const row = { initial: initialAction, node: el('fieldset', undefined, 'hook-action'), profileForm: null, profilePending: false };
     row.node.append(el('legend', `动作 ${rows.length + 1}`));
     row.type = select('动作类型', allowed().map(a => [a.type, a.label]), initialAction.type || (failedSelf ? 'retry_worker' : undefined));
+    row.command = field('Shell 命令', 'textarea', initialAction.command); row.command.input.rows = 5;
+    row.command.input.spellcheck = false; row.command.input.classList.add('hook-command-input');
     row.body = field('消息或告知正文', 'textarea', initialAction.body); row.body.input.rows = 4;
     row.title = field('告知标题', 'input', initialAction.title);
     row.target = field('目标 Worker 内部 ID（仅当前或直接父子）', 'input', failedSelf ? workerId : initialAction.target_id ?? workerId ?? ''); row.target.input.type = 'number'; row.target.input.min = '1';
@@ -103,7 +106,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
     row.remove = button('移除动作', () => {
       const at = rows.indexOf(row); if (at < 0) return; rows.splice(at, 1); row.node.remove(); repaint();
     }, 'ghost hook-button', { help: '只移除此表单中尚未保存的动作；不撤销已经发出的消息或交付。' });
-    row.node.append(row.type.wrap, row.note, row.title.wrap, row.target.wrap, row.body.wrap, row.content.wrap, row.start.wrap, row.configureHost, row.profileHost, row.remove);
+    row.node.append(row.type.wrap, row.note, row.title.wrap, row.target.wrap, row.body.wrap, row.command.wrap, row.content.wrap, row.start.wrap, row.configureHost, row.profileHost, row.remove);
     row.type.input.onchange = () => { paintRow(row); repaint(); };
     row.target.input.oninput = () => paintRow(row);
     row.start.input.onchange = repaint;
@@ -113,6 +116,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
     const type = row.type.input.value;
     if (row.paintedType && row.paintedType !== type) { row.profileForm = null; row.profileHost.replaceChildren(); }
     row.paintedType = type;
+    row.command.wrap.hidden = type !== 'command';
     row.title.wrap.hidden = type !== 'notify'; row.target.wrap.hidden = !targetAction(type); row.body.wrap.hidden = !['notify', 'message'].includes(type);
     row.target.input.disabled = pending || failedSelf;
     row.content.wrap.hidden = type !== 'create_worker'; row.start.wrap.hidden = type !== 'create_worker'; row.configureHost.hidden = !profileAction(type); row.profileHost.hidden = !profileAction(type);
@@ -121,16 +125,17 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
     row.configureHost.tabIndex = row.configure.disabled ? 0 : -1;
     row.configureHost.setAttribute('data-help', row.profilePending ? '运行设置正在读取，请稍后。' : row.profileForm ? '完整运行覆盖已展开，请在下方编辑。' : row.configure.getAttribute('data-help'));
     const description = catalogue.actions?.find(a => a.type === type)?.description || '';
-    const preserved = initial.id && row.initial.type === type;
-    row.note.textContent = type === 'create_worker' ? `${description} ${preserved
+    const preserved = !copying && initial.id && row.initial.type === type;
+    row.note.textContent = type === 'command' ? `${description} ${COMMAND_WARNING}` : type === 'create_worker' ? `${description} ${preserved
       ? '未重新设置且动作位置不变时保留模板已保存的私有运行覆盖；不会回读 Prompt/env。'
       : '未单独设置时，挂载时冻结有效项目默认；不回读已有私有运行覆盖。'}`
       : targetAction(type) ? `${description} 目标：${workerLabel(Number(row.target.input.value), Number(row.target.input.value) === row.initial.target_id ? row.initial.target_worker_number : undefined)}。此处填写内部整数 ID，不把 W 编号当作 ID。${type === 'message'
         ? '追加输入只使用目标 Worker 现有运行设置，不自动切换账号或唤醒失败的 Worker。'
         : `${preserved ? '位置与类型不变时保留模板已有私有覆盖；否则' : ''}未显式覆盖就沿用目标 Worker 已有运行设置，不隐式换账号。只有目标${type === 'retry_worker' ? '失败' : '已暂停'}时执行，其他状态跳过；不自动判断额度恢复。显式覆盖从项目配置起步，会替换完整设置而非只换模型。`}` : description;
+    if (copying && profileAction(type)) row.note.textContent += ' 复制不复制私有运行覆盖或执行记录；请显式设置新的完整运行参数。';
     if (row.profileForm) row.note.textContent += ' 已展开的完整运行覆盖将写入此动作；可以显式选择模型来源，不复制凭证。';
   }
-  const add = button('添加动作', () => addRow(), 'ghost hook-button', { help: '最多组合四个受控动作，按此处顺序执行；不执行脚本。' });
+  const add = button('添加动作', () => addRow(), 'ghost hook-button', { help: '最多组合四个目录允许的动作，按此处顺序执行；Shell 命令需要明确授权。' });
   const addHost = el('span', undefined, 'help-host'); addHost.append(add); node.append(addHost);
   const addClick = add.onclick; add.onclick = async () => { await addClick(); repaint(); };
   function repaint() {
@@ -149,8 +154,9 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
       : rows.some(row => row.type.input.value === 'message') ? '消息动作只允许一次性，避免返回→消息→调用的无限付费循环。'
         : rows.some(row => row.type.input.value === 'create_worker') ? '预约创建 Worker 只允许一次性，避免重复创建。' : '组合规则只能使用所有动作共同支持的挂载方式。';
     for (const row of rows) paintRow(row);
-    onChange(agentCall());
+    onChange(enabled.input.checked && agentCall());
   }
+  enabled.input.onchange = repaint;
   kind.input.onchange = repaint;
   trigger.input.onchange = () => {
     for (const row of rows) {
@@ -164,7 +170,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
   for (const action of initial.actions?.length ? initial.actions : [{}]) addRow(action);
   repaint();
   return {
-    node, agentCall,
+    node, agentCall, enabled: () => !copying && enabled.input.checked,
     validate() {
       error.textContent = '';
       let message = '';
@@ -181,6 +187,8 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
         else if (targetAction(type) && (!Number.isSafeInteger(Number(row.target.input.value)) || Number(row.target.input.value) < 1
           || (failedSelf && Number(row.target.input.value) !== workerId))) message = '请填写有效目标 Worker 内部整数 ID；失败 Worker 只能重试自身。';
         else if (type === 'message' && !row.body.input.value.trim()) message = '请填写消息正文和有效目标 Worker 内部整数 ID。';
+        else if (type === 'command' && !row.command.input.value.trim()) message = '请填写 Shell 命令。';
+        else if (copying && profileAction(type) && !row.profileForm) message = '复制私有运行覆盖动作时，请显式设置新的完整运行参数，不能从安全摘要重建。';
         else if (type === 'create_worker' && !row.content.input.value.trim()) message = '请填写新 Worker 指令。';
         else if (profileAction(type) && initial.id && !row.profileForm && !(row.initial.type === type && row.initial.profile)
           && (initial.actions?.[rows.indexOf(row)] !== row.initial || row.initial.type !== type)) message = type === 'create_worker'
@@ -193,10 +201,11 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
       error.textContent = message; return message;
     },
     collect() {
-      return { name: name.input.value.trim(), trigger: trigger.input.value, mode: mode.input.value, enabled: enabled.input.checked,
+      return { name: name.input.value.trim(), trigger: trigger.input.value, mode: mode.input.value, enabled: !copying && enabled.input.checked,
         ...(isScheduled() ? { schedule: collectSchedule() } : {}),
         conditions: { statuses: statuses.collect(), integrations: integrations.collect() }, actions: rows.map(row => {
           const type = row.type.input.value;
+          if (type === 'command') return { type, command: row.command.input.value };
           if (type === 'notify') return { type, title: row.title.input.value, body: row.body.input.value };
           if (type === 'message') return { type, target_id: Number(row.target.input.value), body: row.body.input.value };
           const profile = row.profileForm ? { profile: row.profileForm.collect() } : row.initial.type === type && row.initial.profile ? { profile: row.initial.profile } : {};

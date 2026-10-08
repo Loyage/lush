@@ -72,6 +72,11 @@ export const handlers = {
   },
   'worker.hook_update'(p, params) {
     const expected = revision(params.expected_revision);
+    if (params.hook !== undefined) {
+      check(params.enabled === undefined, 'hook and enabled are mutually exclusive');
+      check(isPlainObject(params.hook), 'hook must be an object');
+      return p.updateTaskHook(id(params.id), hookId(params.hook_id), undefined, expected, params.hook);
+    }
     check(typeof params.enabled === 'boolean', 'enabled must be a boolean');
     return p.updateTaskHook(id(params.id), hookId(params.hook_id), params.enabled, expected);
   },

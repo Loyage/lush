@@ -428,6 +428,7 @@ export default {
   },
 
   finalizeTaskMerge(taskId, attemptId, landedCommit, parentHead = landedCommit) {
+    let receivedEvent, parentId;
     this.store.transaction(() => {
       const { task, request, parent } = this.assertTaskMergeAttempt(taskId, attemptId, true);
       // 落地进入非终态 awaiting_acceptance，同一 Worker 之后仍会继续开发；这里保留它的
@@ -441,6 +442,13 @@ export default {
       const integratedEvent = this.store.event(task.id, 'task.merge_integrated', { source_commit: request.commit, commit: landedCommit,
         parent_head: parentHead, parent_id: parent.id, delivery_id: request.delivery_id, attempt_id: attemptId, squash: true });
       this.recordCompletionDelivery(task.id, integratedEvent);
+      parentId = parent.id;
+      receivedEvent = this.store.event(parent.id, 'worker.merge_received', { source_worker_id: task.id,
+        source_event_id: integratedEvent, commit: landedCommit, delivery_id: request.delivery_id, attempt_id: attemptId });
+      // Persist matching command submissions atomically with the successful landing receipt.
+      // Dispatch happens outside the transaction/Git lock; restart can resume unstarted submissions.
+      this.submitMergeReceivedCommandHooks(parent.id, receivedEvent);
+      this.emitTaskHook(parent.id, 'worker.merge_received', receivedEvent);
       const key = `merge-v2-completed:${task.id}:${request.delivery_id}:${attemptId}`;
       const receipt = this.store.signal(parent.id, task.id, 'merge.completed', key,
         JSON.stringify({ version: 1, signal: 'merge.completed', key, source_task_id: task.id,
@@ -450,6 +458,7 @@ export default {
         source_task_id: task.id, signal: 'merge.completed', key });
       this.store.run("UPDATE messages SET consumed=1 WHERE task_id=? AND sender_id=? AND signal_type='merge.requested'", parent.id, task.id);
     });
+    this.emitTaskHook(parentId, 'worker.merge_received', receivedEvent); // event identity dedupes the atomic submission
     this.emitTaskHook(taskId, 'delivery.integrated');
     this.scheduleTaskHooks();
   },

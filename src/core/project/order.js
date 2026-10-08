@@ -37,7 +37,9 @@ export default {
   async bootstrapMain() {
     try { await this.workspaces.git(this.config.project, 'show-ref', '--verify', 'refs/heads/main'); }
     catch { return null; }
-    return this.ensureMainTask();
+    const main = await this.ensureMainTask();
+    this.initializeCommandHookExample();
+    return main;
   },
 
   /** A stable logical root; no provider invocation is started merely by creating it. */

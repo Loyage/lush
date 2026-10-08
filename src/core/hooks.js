@@ -16,6 +16,7 @@ export const HOOK_TRIGGERS = Object.freeze([
   ['worker.parent_ready', 'Worker 可创建子 Worker', '父身份、分支、冻结与同步准入已复核。'],
   ['worker.awaiting', 'Worker 等待用户', '出现尚未回答的待决。'],
   ['worker.resumed', 'Worker 等待结束', '全部待决已解除，不代表交付完成。'],
+  ['worker.merge_received', 'Worker 成功接收合并后', '代码已成功合入所挂载 Worker 的分支；每次成功合并独立触发，不代表源 Worker 已验收。'],
   ['delivery.integrated', '交付已落地', '代码已受检合入父分支，仍待验收。'],
   ['delivery.suspended', '交付挂起', '执行位已释放，等待显式恢复。'],
   ['delivery.blocked', '交付待核验', '副作用未知，仍保留父执行位。'],
@@ -24,6 +25,7 @@ export const HOOK_TRIGGERS = Object.freeze([
 ].map(([id, label, description]) => Object.freeze({ id, label, description })));
 const TRIGGERS = new Set(HOOK_TRIGGERS.map(t => t.id));
 export const HOOK_ACTIONS = Object.freeze([
+  { type: 'command', label: '执行 Shell 命令', description: '以 daemon 用户权限在挂载 Worker 的实际检出目录执行；非交互、有界超时，不是沙箱。失败停用未来执行，输出不公开。', triggers: [...TRIGGERS].filter(t => !['time.scheduled','agent.failed','worker.accepted','worker.cancelled'].includes(t)), modes: ['once','persistent'], agent_call: false },
   { type: 'accept_worker', label: '自动验收', description: '内置串行阶段：复用安全校验后代替用户确认，不调用质量评审 Agent。', triggers: ['delivery.integrated'], modes: ['persistent'], agent_call: false, builtin_only: true },
   { type: 'archive_worker', label: '自动归档', description: '内置串行阶段：已验收后受检归档子树，不丢弃未提交修改。', triggers: ['worker.accepted'], modes: ['persistent'], agent_call: false, builtin_only: true },
   { type: 'request_merge', label: '请求合并', description: '经现有安全检查向直接父队列请求合并。', triggers: ['worker.delivery_ready'], modes: ['once','persistent'], agent_call: true },
@@ -61,6 +63,11 @@ export function normalizeHook(value) {
     const entry = HOOK_ACTIONS.find(a => a.type === action?.type);
     check(entry && !entry.builtin_only && entry.triggers.includes(value.trigger), 'hook action is not allowed at this trigger or is built-in only');
     check((entry.modes_by_trigger?.[value.trigger] ?? entry.modes).includes(value.mode), `${entry.type} hooks must be once to prevent repeated side effects`);
+    if (action.type === 'command') {
+      hookObject(action, ['type','command'], 'command action'); text(action.command, 'hook command');
+      check(action.command.length <= 16000 && !action.command.includes('\0'), 'invalid hook command');
+      return { type: action.type, command: action.command };
+    }
     if (action.type === 'request_merge') { hookObject(action, ['type'], 'merge action'); return { type: action.type }; }
     if (action.type === 'create_worker') {
       hookObject(action, ['type','content','references','start','profile'], 'create action');

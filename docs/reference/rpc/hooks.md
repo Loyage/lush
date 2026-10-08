@@ -18,18 +18,26 @@
 | `worker.hooks` | `{id}` | `worker hooks ID` |
 | `worker.completion` | `{id,level,expected_revision}` | `worker completion ID off\|merge\|accept\|archive --revision REV` |
 | `worker.hook_attach` | `{id,hook,expected_revision}` | `worker hook attach ID --file PATH --revision REV` |
-| `worker.hook_update` | `{id,hook_id,enabled,expected_revision}` | `worker hook enable\|disable ID HOOK_ID --revision REV` |
+| `worker.hook_update` | `{id,hook_id,enabled?,hook?,expected_revision}`（enabled/hook 二选一） | `worker hook enable\|disable ID HOOK_ID --revision REV`；完整编辑由 Web/RPC 提供 |
 | `worker.hook_remove` | `{id,hook_id,expected_revision}` | `worker hook remove ID HOOK_ID --revision REV` |
 
 读取 HTTP：`GET /api/hooks`、`GET /api/worker/ID/hooks`，不接受查询参数。写入通过已登录、同源的 `POST /api/action {method,params}`，不是通用 RPC 代理。
 
-目录返回 `{version:1,revision,triggers,actions,templates,daemon_hooks,completion_defaults,signals,management_workers}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,completion,can_attach,mounts}`。CLI 的 Worker 参数接受内部整数或 `Wn(-n)*`，先经 `worker.lookup` 解析；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
+目录返回 `{version:1,revision,triggers,actions,templates,daemon_hooks,completion_defaults,signals,management_workers,command_example}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,completion,can_attach,mounts}`。CLI 的 Worker 参数接受内部整数或 `Wn(-n)*`，先经 `worker.lookup` 解析；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
 
 `revision` 是不透明字符串，必须先读并随写请求携带；过期返回错误，不覆盖并发修改。模板 `id` 与挂载 `hook_id` 是不同身份。
 
 `hook` 可为新规则定义，或仅 `{template_id:'UUID'}`；后者让后台复制模板的完整私有覆盖。不得用脱敏列表重建原模板挂载。创建动作读取只有安全 `model_selection` 摘要；模板同位置创建动作省略 `profile` 表示编辑时保留原私有覆盖。
 
 挂载含 `trigger`、`mode`、`enabled`、`conditions`、安全动作摘要、`state`、`last_execution`、`editable` 与 `removable`。`removable` 与可启用状态不同：结束的 Worker 可移除未来授权，不能重新启用。`auto-merge`、`auto-accept`、`auto-archive` 是不可移除的内置挂载，通过一份最高级别授权配置；旧 `worker.auto_merge` 开关保留原准入。
+
+## 通用命令与 main 示例
+
+`command_example` 为 `{template_id,worker_id,hook_id,hooks}`，无 main 为 null。示例首次初始化为默认关闭的持续模板与 main 挂载；读取不安装，被用户删除不重装。项目页面启停示例时使用 **command_example.hooks.revision**，不是模板 revision。
+
+定义使用 `trigger:'worker.merge_received'`（父 Worker 收到成功合并）和 `actions:[{type:'command',command:'git push'}]`；动作支持节点以目录为准。Hook 不配置 remote/upstream/认证，命令业务语义由用户自己决定。Shell 在挂载目录以 daemon 系统用户权限执行，不是沙箱，不调用 Agent；启用前需明确授权，不自动重放失败或未知副作用。
+
+完整编辑使用 `worker.hook_update {id,hook_id,hook:{name,trigger,mode,enabled,conditions?,actions,schedule?},expected_revision}`；不得同时提供 enabled。保留挂载 id，同位置省略 profile 保留已存私有覆盖。创建副本用新模板/挂载定义且 enabled=false，不携带原挂载状态或执行记录。示例用户流程见[自动化示例](../../hooks.md#示例main-合并后自动推送)。
 
 ## 时间信号与管理指令
 

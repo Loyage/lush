@@ -114,7 +114,7 @@ export default {
       if (!['order','child','management'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
       if (task.task_kind === 'management' && !this.managementReady(task)) continue;
       if (['main','owner','merge'].includes(task.task_kind)) continue; // Bound parent roots and merge orchestration do not run unrestricted providers.
-      if (this.running.has(task.id) || this.taskSyncBusy?.has(task.id) || this.choiceRouteCreating(task.id)) continue;
+      if (this.running.has(task.id) || this.commandHookRunning?.has(task.id) || this.taskSyncBusy?.has(task.id) || this.choiceRouteCreating(task.id)) continue;
       try { assertTaskAncestorsOpen(this, task); } catch { continue; }
       if (task.reservation && JSON.parse(task.reservation)?.version === 2
         && ['requested','executing','blocked'].includes(JSON.parse(task.reservation).status)) continue;

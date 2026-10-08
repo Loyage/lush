@@ -17,7 +17,7 @@ const reads = {
 const writes = {
   spawn: ['parent','goal','name'], integrate: ['id','commit'], reserve: ['id','kind'], reserve_all: ['branch'],
   auto_merge: ['id','enabled'], completion: ['id','level','expected_revision'], hook_attach: ['id','hook','expected_revision'],
-  hook_update: ['id','hook_id','enabled','expected_revision'], hook_remove: ['id','hook_id','expected_revision'],
+  hook_update: ['id','hook_id','enabled','hook','expected_revision'], hook_remove: ['id','hook_id','expected_revision'],
   resolve: ['id'], resolve_divergence: ['id'], accept: ['id'],
   reopen: ['id'], sync_parent: ['id'], resolve_sync: ['id'], resolve_child_divergence: ['id'],
   unreserve: ['id'], approve_merge: ['id','commit','baseline'], message: ['id','body'],

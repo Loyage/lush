@@ -59,6 +59,28 @@ test('Hooks HTTP reads and all mutations reach user RPC with exact revisions and
   } finally { await f.close(); }
 });
 
+test('command Hook HTTP editing forwards full definition and rejects ambiguous authorization', async () => {
+  const f = await setup(), calls = mocks(f.project);
+  const command = { name: 'main push', trigger: 'worker.merge_received', mode: 'persistent', enabled: false,
+    actions: [{ type: 'command', command: 'git push' }] };
+  const params = { id: 7, hook_id: 'hook-1', hook: command, expected_revision: revision };
+  try {
+    const response = await post(f.url, 'worker.hook_update', params);
+    expect(response.status).toBe(200); expect(await response.json()).toEqual(workerView);
+    expect(calls).toEqual([{ method: 'updateTaskHook', args: [7, 'hook-1', undefined, revision, command] }]);
+    for (const invalid of [{ ...params, enabled: true }, { ...params, enabled: false }, { ...params, hook: null },
+      { ...params, hook: [] }, { ...params, hook: 'git push' }, { ...params, _token: 'agent' }, { ...params, expected_revision: '' }]) {
+      expect((await post(f.url, 'worker.hook_update', invalid)).status).toBe(400);
+    }
+    expect((await post(f.url, 'worker.hook_update', params, { Origin: 'https://evil.invalid' })).status).toBe(403);
+    expect(calls).toHaveLength(1);
+    f.project.updateTaskHook = () => { calls.push({ method: 'stale' }); check(false, 'Hook revision changed'); };
+    const stale = await post(f.url, 'worker.hook_update', { ...params, expected_revision: 'stale' });
+    expect(stale.status).toBe(400); expect((await stale.json()).error).toContain('revision changed');
+    expect(calls).toHaveLength(2);
+  } finally { await f.close(); }
+});
+
 test('scheduled Hook HTTP mutations retain explicit timezones and project-local queue projections', async () => {
   const f = await setup(), calls = mocks(f.project);
   const schedule = { kind: 'daily', time: '00:05', timezone: 'Asia/Shanghai' };

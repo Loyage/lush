@@ -21,7 +21,7 @@ const cases = [
   ['worker.hooks', ['id'], { id: 7 }, 'taskHooks', [7]],
   ['worker.completion', ['id','level','expected_revision'], { id: 7, level: 'archive', expected_revision: revision }, 'setTaskCompletion', [7, 'archive', revision]],
   ['worker.hook_attach', ['id','hook','expected_revision'], { id: 7, hook: definition, expected_revision: revision }, 'attachTaskHook', [7, definition, revision]],
-  ['worker.hook_update', ['id','hook_id','enabled','expected_revision'], { id: 7, hook_id: 'hook-1', enabled: false, expected_revision: revision }, 'updateTaskHook', [7, 'hook-1', false, revision]],
+  ['worker.hook_update', ['id','hook_id','enabled','hook','expected_revision'], { id: 7, hook_id: 'hook-1', enabled: false, expected_revision: revision }, 'updateTaskHook', [7, 'hook-1', false, revision]],
   ['worker.hook_remove', ['id','hook_id','expected_revision'], { id: 7, hook_id: 'hook-1', expected_revision: revision }, 'removeTaskHook', [7, 'hook-1', revision]],
 ];
 
@@ -76,6 +76,25 @@ test('Hook handler rejects non-object definitions, invalid IDs and non-boolean e
   }
   for (const value of ['', 7, ' bad ', 'a\nb']) expect(() => HANDLERS['hooks.remove'](noCalls,
     { id: value, expected_revision: revision })).toThrow('invalid Hook id');
+});
+
+test('full command Hook editing is user-only, revisioned and exclusive with enable', async () => {
+  const command = { name: 'main push', trigger: 'worker.merge_received', mode: 'persistent', enabled: false,
+    actions: [{ type: 'command', command: 'git push' }] };
+  const calls = [], view = { version: 1, worker_id: 7, revision: 'next', mounts: [] };
+  const project = { actor: token => token ? 8 : null, updateTaskHook(...args) { calls.push(args); return view; } };
+  const dispatcher = new Dispatcher(project), params = { id: 7, hook_id: 'hook-1', hook: command, expected_revision: revision };
+  expect(await dispatcher.dispatch('worker.hook_update', params)).toBe(view);
+  expect(calls).toEqual([[7, 'hook-1', undefined, revision, command]]);
+  await expect(dispatcher.dispatch('worker.hook_update', { ...params, _token: 'agent' })).rejects.toThrow('requires user approval');
+  for (const enabled of [true, false, null, 'false']) {
+    await expect(dispatcher.dispatch('worker.hook_update', { ...params, enabled })).rejects.toThrow('mutually exclusive');
+  }
+  for (const hook of [null, [], 'git push', 7]) {
+    await expect(dispatcher.dispatch('worker.hook_update', { ...params, hook })).rejects.toThrow('hook must be an object');
+  }
+  await expect(dispatcher.dispatch('worker.hook_update', { ...params, expected_revision: '' })).rejects.toThrow('expected_revision');
+  expect(calls).toHaveLength(1);
 });
 
 test('template reference mounting is forwarded intact for private server-side copying', async () => {

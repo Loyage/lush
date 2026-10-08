@@ -63,7 +63,7 @@ Worker 身份参数（含 `spawn --parent`、`notice post --worker`）接受原�
 
 `rpc/handlers/hooks.js` 同时承载用户专属时间信号／管理配置与 Agent-only 的 `manager.query/start/retry`；专用方法只转发经 token 核验的 Actor，Project 再检查管理能力。`manager.*` 不进入 Web 动作白名单，接口回归在 `test/management-api.test.js` 与 `test/web/management-api.test.js`，契约见[时间信号与管理](hook-signals-management.md)。
 
-Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 接缝](hooks.md) 为准：`hooks.list/save/remove`、`worker.hooks/hook_attach/hook_update/hook_remove`，只读 GET `/api/hooks` 与 `/api/worker/ID/hooks`；`order.submit` 显式 `defer:boolean` 才可转为预约。追加用户专属 `worker.completion` 与 CLI `worker completion`，最高级别、revision 与方法映射见[自动链接缝](completion-hooks.md)。
+Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 接缝](hooks.md) 为准：`hooks.list/save/remove`、`worker.hooks/hook_attach/hook_update/hook_remove`，只读 GET `/api/hooks` 与 `/api/worker/ID/hooks`；`worker.hook_update` 的完整 `hook` 编辑与 `enabled` 互斥，旧启停签名兼容，命令示例和执行授权见[命令增补](hooks.md#通用命令与-main-推送示例w133--用户决定-319)；`order.submit` 显式 `defer:boolean` 才可转为预约。追加用户专属 `worker.completion` 与 CLI `worker completion`，最高级别、revision 与方法映射见[自动链接缝](completion-hooks.md)。
 
 ## 开发与构建脚本：`scripts/`
 
@@ -103,6 +103,7 @@ Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 
 | 托管账号连接与设备码登录 | `test/agent/connections{,-device}.test.js`（固定协议、一次兑换、间隔/限流、取消与迟到防护）、`test/project/agent-connections-manager.test.js`（真实私有文件与项目准入）、`test/web/{agent-connections-api,codex-device-login-flow,dom-agent-connections}.test.js`（权限/安全投影、真实 HTTP→RPC→Manager 联调、页面自动确认与离页清理）；上游均 mock，不读取真实账号 |
 | 运行设置与 Agent | `test/runtime-settings.test.js`、`test/config*.test.js`、`test/agent-settings.test.js`、`test/soft-budget.test.js` |
 | 本地性能报告契约 | `test/read-performance.test.js`（参数 / 统计 / 原样本预算 / 输出不覆盖 / Git 身份与降级；不在通用套件重复运行大规模测量） |
+| 通用命令与 main 推送示例 | `test/project/hooks-command.test.js`、`hooks-command-invocation.test.js`（真实临时 bare remote、连续触发、冻结等待、失败/unknown 禁重放、输出/进程组/凭证及 invocation 排他）；`test/web/hooks-command-integration.test.js`（真实 HTTP→RPC→Runtime→临时 Git remote，默认关闭、同源 revision、编辑/副本/模板隔离、失败停用及删除不重装）；`test/web/dom-hooks-command.test.js`（命令授权、同源编辑与安全结果、迟到响应、独立 revision 与停用复制） |
 | 定时信号与管理跨层联调 | `test/web/hooks-management-integration.test.js`：浏览器时间转换→HTTP→真实 RPC→受控 Pi bridge→安全生命周期入口；无 Git/Input 副作用、配置保留、精确重复收据、私有投影与返回后的持久等待。仅临时项目／可控进程，不调用真实模型；接口与 DOM 分别见 `management-api.test.js`、`dom-hooks-management.test.js` |
 | 测试环境隔离 | `test/helpers.test.js`（子进程 HOME/XDG 与全局/系统 Git 配置隔离、合成 hook/签名/环境污染及退出回收；生产 Git 环境不变） |
 | 文档 | `test/docs-check.test.js`、`test/docs-search.test.js`、`test/markdown.test.js`、`test/mermaid-docs.test.js`、`test/web/docs.test.js` |

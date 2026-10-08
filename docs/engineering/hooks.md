@@ -2,6 +2,16 @@
 
 本文记录用户决定 #197 对应的首期实现接口与模块边界；设计目标见[Worker Hooks](../design/hooks.md)，使用流程见[Hooks 与预约发射](../hooks.md)。用户决定 #202 的追加实现以[合并—验收—归档自动链](completion-hooks.md)为准，覆盖最高级别、串行门禁与成功静默告知。触发目录不是测试证明，验证入口和实际验收限制见末节。
 
+## 通用命令与 main 推送示例（W133 / 用户决定 #319）
+
+用户选择通用命令而非专用推送动作。新增 `worker.merge_received` 父侧节点，区别于源 Worker 的 `delivery.integrated`；命令动作 `{type:'command',command:'git push'}` 支持一次性/持续，不调用 Agent。允许的生命周期触发点以动作目录为准，本期不开放 `time.scheduled` 命令。remote、跟踪分支与认证只由用户自己的命令和 Git 配置决定。
+
+初始化一次性保存默认关闭的持续示例模板及 main 挂载，读取不安装，用户删除后不重装。`hooks.list` 新增 `command_example:{template_id,worker_id,hook_id,hooks}`；无 main 返回 null。hooks 为 main 同源安全读面，项目页面与 main 管理区修改同一挂载、使用它的 revision。模板和实例编辑继续分离。
+
+`worker.hook_update` 支持完整 `hook` 编辑，与 `enabled` 互斥，Project 签名 `updateTaskHook(id,hookId,enabled,expectedRevision,hook=null)` 保持旧启停兼容；编辑保留挂载身份，同位置省略私有 profile 保留已存覆盖，不把安全摘要当秘密参数。复制为新的停用定义，不复制执行记录。
+
+通用命令是明确的系统用户级执行授权，不是沙箱。以所挂载 Worker 的真实目录运行，经过项目写门、Workspaces 串行区及冻结/同步/归档/实际 invocation 的执行前核验；输入非交互，运行时间与输出有界，去除 Agent invocation 凭证。命令执行使用[按 ref 的精确收据](target-branch-guard.md)，仅成功命令记录挂载分支的 before → after；失败或未开始不提供成功归因，无关 ref 不豁免。执行器使用 POSIX `/bin/sh -c`，最长 60 秒，累计输出最多 64 KiB，超时/超限回收进程组；不支持交互认证。公开读面仅返回退出码、超时/超限等安全状态和诊断，不公开命令原始输出或秘密。成功合并使用持久事件身份去重，连续触发在开始前持久等待；失败和 unknown 停止未来授权，显式重新启用只恢复未来触发，不自动重放旧动作。失败不会撤销成功合并。
+
 ## 定时 Hook 增补（用户决定 #266）
 
 定时仍是 Worker 附属 Hook，不新增 Host 调度、业务实体或 Agent 权限。用户确认：一次性与每日固定时间；停机错过跳过；到点持久提交非阻塞待执行动作，临时受阻时在首个安全点执行；允许重试失败与继续暂停，不恢复取消／验收／归档。
@@ -43,6 +53,7 @@
 | `worker.frozen` | 整体分支写冻结从无到有 |
 | `worker.unfrozen` | 最后一项分支写冻结释放 |
 | `worker.parent_ready` | 当前父 Worker 已通过创建准入，预约发射使用此节点 |
+| `worker.merge_received` | 子 Worker 的交付成功合入当前父 Worker，在父侧触发 |
 | `worker.awaiting` / `worker.resumed` | 待决出现／解除 |
 | `delivery.integrated` / `delivery.suspended` / `delivery.blocked` | 交付落地／挂起释放执行位／未知现场保留执行位 |
 | `worker.accepted` / `worker.cancelled` | 明确验收／取消 |
@@ -63,6 +74,7 @@
 ```
 
 `mode` 是 `once|persistent`；条件只允许现有 Worker 状态和 integration 枚举，无脚本。动作：
+- `command`：`{type,command}`，用户显式授权 Shell 执行，一次性/持续，真实目录和安全边界见上节；不调用 Agent。
 - `request_merge`：只在 `worker.delivery_ready`，通过现有请求及父自有队列。
 - `create_worker`：只在 `worker.parent_ready`，只允许 `once`；所挂载的 Worker 就是父，不允许动作改投任意分支。保存完整有效 profile，不保存凭证快照。
 - `notify`：`{type,title,body}`，纯 `info` 告知，不创建待决、不唤醒 Agent。
@@ -83,7 +95,7 @@
 | `hooks.remove` | `id`, `expected_revision` | `removeHookTemplate(id,expectedRevision)` | POST action |
 | `worker.hooks` | `id` | `taskHooks(id)` | `GET /api/worker/ID/hooks` |
 | `worker.hook_attach` | `id`, `hook`, `expected_revision` | `attachTaskHook(id,hook,expectedRevision)` | POST action |
-| `worker.hook_update` | `id`, `hook_id`, `enabled`, `expected_revision` | `updateTaskHook(id,hookId,enabled,expectedRevision)` | POST action |
+| `worker.hook_update` | `id`, `hook_id`, `enabled` 或完整 `hook`（互斥）, `expected_revision` | `updateTaskHook(id,hookId,enabled,expectedRevision,hook=null)` | POST action |
 | `worker.hook_remove` | `id`, `hook_id`, `expected_revision` | `removeTaskHook(id,hookId,expectedRevision)` | POST action |
 
 `hooks.list` 返回 `{version:1,revision,triggers,actions,templates}`；actions 目录包含 `{type,label,description,triggers,modes,agent_call}`，`modes` 是支持的 `once|persistent` 数组，组合规则只能使用全部动作都支持的模式；templates 为 `{id,...安全定义}`。
