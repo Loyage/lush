@@ -13,6 +13,7 @@ import { detail, overview } from './navigate.js';
 import { renderAgent } from './render-agent.js';
 import { renderResults } from './render-results.js';
 import { renderGoal } from './render-goal.js';
+import { limitDetailModules } from './detail-preview.js';
 import { renderDiff } from './render-diff.js';
 import { deliveryControls } from './render-delivery.js';
 import { workerHooks } from './render-hooks.js';
@@ -237,6 +238,8 @@ export function renderDetail(task, history, diff, usage, connections = null) {
     panel.append(hooks);
   }
 
+  // Only reading modules below this point get height-limited previews, never actions/forms above.
+  const readingStart = panel.children.length;
   // 结果与失败原因优先于调用次数、目录等底层元数据。完整目标（goal）以 Markdown 正文排在结果之前。
   const goal = renderGoal(task, history, previousGoal);
   if (goal) panel.append(goal);
@@ -329,7 +332,7 @@ export function renderDetail(task, history, diff, usage, connections = null) {
       cursor: history.cursor, onMore: history.onMore, taskId: task.id }));
     panel.append(events);
   }
-
+  limitDetailModules(panel, { taskId: task.id, from: readingStart });
 }
 export function renderDetailError(taskId, message) {
   const panel = $('detail');

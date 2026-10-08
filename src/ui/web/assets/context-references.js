@@ -5,6 +5,7 @@ import { transcriptOpen, ui } from './state.js';
 import { startQuickExplanation } from './quick-explanation.js';
 import { modelHelp } from './help.js';
 import { workbenchStatus } from './project-picker.js';
+import { revealDetailPreview } from './detail-preview.js';
 
 const MAX_REFERENCES = 12;
 const MAX_QUOTE = 8192;
@@ -180,6 +181,7 @@ const prefersReducedMotion = () => Boolean(
   globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
   || globalThis.document?.documentElement?.dataset?.reducedMotion === 'true');
 function flashLocated(node) {
+  revealDetailPreview(node);
   clearLocateFlash();
   node.classList?.add?.('locate-flash');
   flashNode = node;
