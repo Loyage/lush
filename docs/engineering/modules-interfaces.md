@@ -27,7 +27,7 @@
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `host start|stop|restart|status`；无 `--project` 时使用全局项目启动器，显式项目时保持单项目模式；`doctor` / `host status` 分列磁盘、daemon、Web 身份并只给显式更新提示 | `run` |
 | `cli/commands/intent.js` | `order`（新输入的唯一入口），`--profile-file PATH` 从 owner-only 普通 JSON 文件读取完整运行覆盖 | `run` |
 | `cli/commands/task.js` | `worker`（list / tree / inspect / spawn / message / transcript [--follow] / history / wait / integrate / auto-merge ID on\|off / reserve / accept / reopen / sync-parent / resolve-sync / resolve / resolve-divergence / resolve-child-divergence / unreserve / approve-merge / cancel / retry / cleanup / delete ID [--confirm --revision REV]） | `run`、`followTranscript`、`FOLLOW_INTERVAL_MS` |
-| `cli/commands/hooks.js` | 项目 Hook 目录/模板与 Worker 挂载的用户专属 CLI，复用 `cli/private-json.js` 的有界、owner-only、no-follow 文件输入和 revision 校验；`order --defer` 由指令命令授权 | `run`、`runWorkerHook`、`runWorkerCompletion`（接口以 [Hooks 接缝](hooks.md)与[自动链](completion-hooks.md)为准） |
+| `cli/commands/hooks.js` | 项目 Hook 目录/模板与 Worker 挂载的用户专属 CLI，复用 `cli/private-json.js` 的有界、owner-only、no-follow 文件输入和 revision 校验；`order --defer` 由指令命令授权 | `run`、`runWorkerHook`、`runWorkerCompletion`；新增 `hooks signal save/remove` 与 `hooks management create/enable/disable`，无立即执行管理工具入口（接口以 [Hooks 接缝](hooks.md)、[时间信号与管理](hook-signals-management.md)和[自动链](completion-hooks.md)为准） |
 | `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 Agent 的 Worker） | `run` |
 | `cli/commands/notice.js` | `notice list/post/answer/dismiss/read`（read 为用户专属，只将 info 告知标已读）；`post --worker` 接受整数或稳定 Worker 编号，Notice 本身的 ID 仍只接受整数 | `run` |
 | `cli/commands/branch.js` | `branch tree / show / bind / archive` | `run` |
@@ -49,7 +49,7 @@ Worker 身份参数（含 `spawn --parent`、`notice post --worker`）接受原�
 | 文件 | 职责 | 导出 |
 |---|---|---|
 | `rpc/protocol.js` | framing（编码、解析、帧上限）；并 re-export `Dispatcher` 保持旧 import 可用 | `MAX_FRAME`、`encode`、`errorResponse`、`parseRequest`、`Dispatcher` |
-| `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验。**唯一公开面**：未列入 `PARAMS` 的方法一律 `unknown method`。含用户专属连接模型目录 `agent.connections.models(.refresh)` 与资源安装 `agent.packages.*`，`order.submit` 预置可选 `profile` 覆盖参数 | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`assertAllowed(method, params, actor)` |
+| `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验。**唯一公开面**：未列入 `PARAMS` 的方法一律 `unknown method`。含用户专属连接模型目录 `agent.connections.models(.refresh)` 与资源安装 `agent.packages.*`，`order.submit` 预置可选 `profile` 覆盖参数 | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`MANAGER_METHODS`、`assertAllowed(method, params, actor)` |
 | `rpc/handlers/system.js` | 用户专属 `system.configure`、`system.stop_if_idle`（同步 idle 准入并关闭调度，见[服务重启](../reference/web-routes.md#服务重启)）；只读 `system.status`（兼容完整状态）与 `system.summary`（首页用持久 revision/索引聚合的无 Agent 全配置摘要）；`graph.get`；`agent.*`（含用户专属配置与环境文件，以及按需读取 version 2 Pi/Codex 软件安装状态的 `agent.status`（无账号查询），不纳入快照）；历史 `sleep.*` / `system.usage` 仍可被内部调用，但不在白名单 | `handlers` |
 | `rpc/handlers/task.js` | `worker.*`：只读 `lookup {number}`（把界面编号解析为 `{id,worker_number}`，不改变原整数入口）/ `graph` / `list` / `activity` / `page` / `tree` / `inspect` / `history` / `history_page` / `diff` / 用户专属 `code_state` / `code_tree` / `code_file` / `usage` / `transcript*`、`spawn`、agent-only 的 `integrate` / `resolve_child_divergence` / `progress.*`，共享但按身份校验的 `accept`（用户验收指令 / 直接父 Agent 确认 child），以及用户专属的 `auto_merge` / `reserve` / `unreserve` / `reopen` / `sync_parent` / `resolve_sync` / `resolve` / `resolve_divergence` / `approve_merge` / `cancel` / `retry` / `cleanup` / `delete_preview` / `delete`（确认与 revision 必填） | `handlers` |
 | `rpc/handlers/quick-explanation.js` | 用户专属 `quick_explain.config/configure/start/followup/get/list`，窄参数与历史游标/页大小校验，不恢复旧解释接口 | `handlers` |
@@ -58,8 +58,10 @@ Worker 身份参数（含 `spawn --parent`、`notice post --worker`）接受原�
 | `rpc/handlers/input.js` | 历史 `input.*` / `draft.*`：源码保留，不在白名单 | `handlers` |
 | `rpc/handlers/spec.js` | 历史 `spec.*` / `plan.*`：源码保留，不在白名单 | `handlers` |
 | `rpc/handlers/candidate.js` | 历史 `candidate.*`：源码保留，不在白名单 | `handlers` |
-| `rpc/dispatcher.js` | 合并 handler 表（查重名、查漏），校验后分派，统一应用安全输出过滤 | `class Dispatcher` |
-| `rpc/public-result.js` | 递归隔离 Worker 私有 `retry_profile` 与字符串 `hooks` / `auto_merge` JSON；授权 Agent 配置/env 表面保留合法同名键，不对普通 mutation 开例外 | `publicResult()` |
+| `rpc/dispatcher.js` | 合并 handler 表（查重名、查漏），校验后分派，按 Store 管理身份收窄管理 invocation 能力，统一应用安全输出过滤 | `class Dispatcher` |
+| `rpc/public-result.js` | 递归隔离 Worker 私有 `retry_profile` 与字符串 `hooks` / `auto_merge` / `management` JSON；授权 Agent 配置/env 表面保留合法同名键，不对普通 mutation 开例外 | `publicResult()` |
+
+`rpc/handlers/hooks.js` 同时承载用户专属时间信号／管理配置与 Agent-only 的 `manager.query/start/retry`；专用方法只转发经 token 核验的 Actor，Project 再检查管理能力。`manager.*` 不进入 Web 动作白名单，接口回归在 `test/management-api.test.js` 与 `test/web/management-api.test.js`，契约见[时间信号与管理](hook-signals-management.md)。
 
 Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 接缝](hooks.md) 为准：`hooks.list/save/remove`、`worker.hooks/hook_attach/hook_update/hook_remove`，只读 GET `/api/hooks` 与 `/api/worker/ID/hooks`；`order.submit` 显式 `defer:boolean` 才可转为预约。追加用户专属 `worker.completion` 与 CLI `worker completion`，最高级别、revision 与方法映射见[自动链接缝](completion-hooks.md)。
 
@@ -100,6 +102,7 @@ Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 
 | 托管账号连接与设备码登录 | `test/agent/connections{,-device}.test.js`（固定协议、一次兑换、间隔/限流、取消与迟到防护）、`test/project/agent-connections-manager.test.js`（真实私有文件与项目准入）、`test/web/{agent-connections-api,codex-device-login-flow,dom-agent-connections}.test.js`（权限/安全投影、真实 HTTP→RPC→Manager 联调、页面自动确认与离页清理）；上游均 mock，不读取真实账号 |
 | 运行设置与 Agent | `test/runtime-settings.test.js`、`test/config*.test.js`、`test/agent-settings.test.js`、`test/soft-budget.test.js` |
 | 本地性能报告契约 | `test/read-performance.test.js`（参数 / 统计 / 原样本预算 / 输出不覆盖 / Git 身份与降级；不在通用套件重复运行大规模测量） |
+| 定时信号与管理跨层联调 | `test/web/hooks-management-integration.test.js`：浏览器时间转换→HTTP→真实 RPC→受控 Pi bridge→安全生命周期入口；无 Git/Input 副作用、配置保留、精确重复收据、私有投影与返回后的持久等待。仅临时项目／可控进程，不调用真实模型；接口与 DOM 分别见 `management-api.test.js`、`dom-hooks-management.test.js` |
 | 测试环境隔离 | `test/helpers.test.js`（子进程 HOME/XDG 与全局/系统 Git 配置隔离、合成 hook/签名/环境污染及退出回收；生产 Git 环境不变） |
 | 文档 | `test/docs-check.test.js`、`test/docs-search.test.js`、`test/markdown.test.js`、`test/mermaid-docs.test.js`、`test/web/docs.test.js` |
 | 历史兼容与安全 | `test/project/order-compatibility.test.js` 覆盖旧类型只读投影、父类型、名称/路径/原话不变、混合类型唯一索引、父候选、派生、调度告知、历史落地证据与旧入口拒绝；`test/input-routes.test.js` 仅保留旧配置格式校验；`test/{butler,explainer}-provider.test.js` 保留无工具/无凭证隔离；`test/web/dom-merge.test.js` 保留旧 Notice 审批语义；历史记录读取、删除共享引用与交付恢复由各现行分区覆盖。旧 Candidate 命令、快速路由匹配、休眠批量交付面板和项目统计的成功路径测试已移除；拒绝旧公开入口由 core-api / help-guard 覆盖 |

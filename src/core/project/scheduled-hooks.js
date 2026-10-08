@@ -67,7 +67,7 @@ export default {
   armScheduledHookTimer() {
     this.stopScheduledHookTimer();
     if (this.stopping || this.recoveringHooks) return;
-    const clock = this.hookClock(); let deadline = Infinity;
+    const clock = this.hookClock(); let deadline = this.managementTimerDeadline(clock);
     for (const task of this.store.all('SELECT hooks FROM tasks WHERE hooks IS NOT NULL')) for (const mount of read(task).mounts) {
       if (!mount.schedule || !mount.enabled || ['failed','unknown'].includes(mount.state)) continue;
       if (mount.next_run_at) deadline = Math.min(deadline, mount.state === 'running' ? Math.max(clock + 1000, Date.parse(mount.next_run_at)) : Date.parse(mount.next_run_at));
@@ -113,6 +113,7 @@ export default {
     if (this.stopping || this.recoveringHooks) return;
     if (this.clearing || this.workerDeleteIds?.size || this.settingsMigrationApplying) { this.armScheduledHookTimer(); return; }
     const clock = this.hookClock();
+    this.observeHookSignals(clock);
     const tasks = taskId === null ? this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL ORDER BY id')
       : this.store.all('SELECT * FROM tasks WHERE id=? AND hooks IS NOT NULL', taskId);
     for (const task of tasks) for (const original of read(task).mounts) {
@@ -224,6 +225,7 @@ export default {
     this.stopScheduledHookTimer();
     const clock = this.scheduledHookRecoveryClock ?? this.hookClock();
     this.scheduledHookRecoveryClock = null;
+    this.recoverHookSignals(clock);
     for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL')) for (const original of read(task).mounts) {
       if (!original.schedule) continue;
       if (original.state === 'running') {

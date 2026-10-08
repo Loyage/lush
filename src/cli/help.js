@@ -17,11 +17,16 @@ lush [--project PATH] [--json] <command>
                                       验收不调用评审 Agent；自动归档不丢弃未提交改动
   worker hook attach ID --file PATH --revision REV  从私有 JSON 挂载规则
   worker hook enable|disable|remove ID HOOK_ID --revision REV  启停或撤销未来动作（不撤回已执行动作）
-  hooks list                        查看项目触发目录、动作、模板与 daemon Hooks 及修改版本
+  hooks list                        查看项目触发目录、动作、模板、daemon Hooks、时间信号与管理指令
   hooks auto-select on|off --revision REV  启停项目 daemon 自动选择（使用 daemon_hooks.revision）
                                       开启也答复已有问题；单选选第一项，多选/问答交给 Agent 自行判断，可能继续消耗 token
   hooks save --file PATH --revision REV  保存模板（不自动挂载或调用 Agent）
   hooks remove TEMPLATE_ID --revision REV  删除模板，不影响已有挂载实例
+  hooks signal save --file PATH --revision REV  保存时间信号（使用 signals.revision，不证明额度恢复）
+  hooks signal remove SIGNAL_ID --revision REV  删除无启用绑定的信号
+  hooks management create --file PATH  创建并绑定管理指令；到信号时才调用 Agent，可能消耗 token
+  hooks management enable|disable ID --revision REV  启停管理绑定（使用 management.revision）
+                                      专用 Agent 仅查询、开始/继续暂停、重试失败；默认一次，不开发、不合并
   worker auto-merge ID on|off         设置 Worker 持久自动合并 hook；派生子 Worker 不可关闭
   worker reserve ID merge            发起一次合并意图（不改变自动合并开关）
   worker reserve-all BRANCH          一次把该分支下所有已静息、待合并 Worker 放入 merge 队列

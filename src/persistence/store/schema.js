@@ -100,6 +100,8 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         reservation TEXT,
         auto_merge TEXT,
         hooks TEXT,
+        -- 管理 Worker 的显式绑定、信号与受控操作收据；NULL 历史行不授予新权限。
+        management TEXT,
         -- plan_gate: planner 这一轮拆解的审批闸门：NULL=没申请批准（直接编排）/ proposed=等你批准 / approved / rejected。
         plan_gate TEXT,
         -- verifier task: verifies_task_id 指向被检验的 worker；baseline_* 是目标分支的对照检出。

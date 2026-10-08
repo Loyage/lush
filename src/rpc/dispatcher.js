@@ -1,5 +1,5 @@
 import { check } from '../core/types.js';
-import { PARAMS, assertAllowed } from './registry.js';
+import { PARAMS, MANAGER_METHODS, assertAllowed } from './registry.js';
 import { publicResult } from './public-result.js';
 import { handlers as systemHandlers } from './handlers/system.js';
 import { handlers as inputHandlers } from './handlers/input.js';
@@ -30,6 +30,11 @@ export class Dispatcher {
     // 身份解析交给 registry：只有白名单与未知参数都过了才去查 token（actor() 会写 agent_last_seen_at）。
     const actor = assertAllowed(method, params, () => this.project.actor(params._token));
     const p = this.project;
+    // actor() still returns an invocation-bound integer. Do not grant a manager the
+    // ordinary Agent surface (e.g. notice.post/progress/message) merely for having a token.
+    const actorTask = actor === null || actor === undefined ? null : p.store?.task(actor);
+    check(!(actorTask?.role === 'manager' || actorTask?.task_kind === 'management') || MANAGER_METHODS.has(method),
+      'management agents can only query, start or retry Workers through their dedicated tools');
     check(!this.stopping?.isRequested?.() || ['system.status', 'system.summary'].includes(method),
       '项目后台正在停止，请稍后再试');
     return publicResult(await HANDLERS[method].call(this, p, params, actor), method);

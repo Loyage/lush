@@ -56,6 +56,7 @@ export default {
   finish(taskId, status, result = null, error = null, options = {}) {
     const task = this.store.task(taskId);
     if (TERMINAL.has(task.status)) return task;
+    if (task.task_kind === 'management' && status !== 'completed') this.failManagementOccurrence(task.id, 'failed');
     const resolutionEvent = task.task_kind === 'child' ? this.store.get(`SELECT data FROM events WHERE task_id=?
       AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1`, task.id) : null;
     const resolutionSource = resolutionEvent ? JSON.parse(resolutionEvent.data).source_task_id : task.resolves_task_id;
@@ -102,7 +103,7 @@ export default {
         this.store.update(task.id, { reservation: JSON.stringify(requested) });
       }
       this.store.update(task.id, { status, result, error,
-        retry_profile: ['order','say','child'].includes(task.task_kind) ? task.retry_profile : null, interrupt_state: null,
+        retry_profile: ['order','say','child','management'].includes(task.task_kind) ? task.retry_profile : null, interrupt_state: null,
         ...(resolvedByUser ? { reservation: null } : {}) });
       if (resolvedByUser) this.store.event(task.id, 'task.resolved', { head_commit: task.head_commit ?? null });
       this.store.run("UPDATE notices SET status='dismissed',answer='worker ended' WHERE task_id=? AND status='open'", task.id);
@@ -318,6 +319,7 @@ export default {
     check(!this.running.has(task.id), 'agent is still stopping; retry shortly');
     check(!this.workspaces.busy.has(task.id), 'worktree cleanup is in progress; retry shortly');
     check(task.role !== 'butler', '管家决定不允许重放；请手动处理原 Notice');
+    check(task.task_kind !== 'management', 'management invocations do not replay; create a new authorized instruction');
     const divergenceChild = task.task_kind === 'child' && this.store.get(
       "SELECT id FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' LIMIT 1", task.id);
     check(!divergenceChild, '解分歧子Worker不重放未知文件副作用：先检查现场，显式归档旧分支，再从源指令重新派独立子Worker');

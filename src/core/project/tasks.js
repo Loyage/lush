@@ -4,6 +4,7 @@ import { workerLabel } from '../worker-number.js';
 import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
 import { MESSAGE_SELECT } from '../../persistence/store/messages.js';
 import { agentView, workerModelSelection, inheritedRunProfile, profileEvent } from './internal.js';
+import { managementModel } from './management-data.js';
 import fs from 'node:fs';
 import { saveInputRule, snapshotPath } from '../task-input-rule.js';
 import { forkCheckpoint } from '../../agent/fork.js';
@@ -216,7 +217,7 @@ export default {
   inspect(taskId) {
     // retry_profile may contain a replacement system prompt and local resource paths. It is
     // runtime configuration, not part of the task read model (agents can call worker.inspect).
-    const { retry_profile: _retryProfile, hooks: _privateHooks, ...storedTask } = this.store.task(taskId);
+    const { retry_profile: _retryProfile, hooks: _privateHooks, management: _privateManagement, ...storedTask } = this.store.task(taskId);
     // 详情页要显示工作用时与等待行：先取这一轮的调用区间，计划时长才能只算真正运行的时间。
     // 有执行计划时读计划窗口内足够重建用时的有界调用记录；否则只取展示窗口。
     const runsRead = storedTask.progress_plan
@@ -235,7 +236,10 @@ export default {
     return { ...task, goal_input_delivery: this.store.goalInputDelivery(taskId),
       ...(task.role === 'verifier' ? { verifies_task_worker_number: task.verifies_task_id
         ? this.store.get('SELECT worker_number FROM tasks WHERE id=?', task.verifies_task_id)?.worker_number ?? null : null } : {}),
-      model_selection: workerModelSelection(this, this.store.task(taskId)),
+      model_selection: task.task_kind === 'management'
+        ? managementModel(this, this.store.task(taskId))
+        : workerModelSelection(this, this.store.task(taskId)),
+      ...(task.task_kind === 'management' ? { management: this.managementView(taskId) } : {}),
       auto_merge: this.autoMergeView(storedTask), completion: this.autoCompletionView(storedTask), merge_readiness: this.mergeReadiness(storedTask),
       hooks: this.taskHooks(taskId),
       parent_task_kind: task.parent_id ? this.store.task(task.parent_id).task_kind : null,

@@ -24,6 +24,10 @@
 
 项目 daemon 的内置自动选择不挂在 Worker 上、不属于模板动作目录；W118 / 决定 #267 的开关、来源与接口见[daemon 自动选择契约](daemon-auto-select.md)。
 
+## 时间信号与管理型 Worker 增补
+
+用户追加需求与决定 #270 引入项目内具名时间信号及独立管理 Worker；并非放开开发 Agent 的用户专属权限。产品授权、数据字段、专用受限工具、RPC 和分区见[时间信号与管理契约](hook-signals-management.md)。此前定时 Worker 规则继续原行为；管理 Worker 首版仅查询、开始／继续及重试失败，不负责开发／Git 交付。
+
 ## 触发目录
 
 目录由后端统一提供，前端不得自行制造触发名称。每个节点返回 `{id,label,description}`。

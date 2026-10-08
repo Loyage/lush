@@ -26,6 +26,12 @@ export const methods = {
     for (const task of tasks) {
       if (task.branch) branches.add(task.branch);
       for (const file of [task.workspace, task.baseline_workspace]) if (file) paths.add(file);
+      if (task.task_kind === 'management') {
+        if (task.branch || task.target_branch || (task.workspace && task.workspace !== path.join(home, 'management', String(task.id))))
+          blockers.push(`management Worker #${task.id} has unexpected branch or workspace ownership`);
+        generated(path.join(home, 'management', String(task.id)));
+        continue;
+      }
       const label = taskLabel(task.id, task.name);
       for (const suffix of ['', '-base', '-analysis']) generated(path.join(home, 'worktrees', label + suffix));
     }
@@ -36,7 +42,7 @@ export const methods = {
     }
     for (const record of records) if (record.worktree) paths.add(record.worktree);
     // Recover exact runtime names after metadata loss; IDs are never reused.
-    for (const task of tasks) branches.add(`lush/${this.namespace}/${taskLabel(task.id, task.name)}`);
+    for (const task of tasks) if (task.task_kind !== 'management') branches.add(`lush/${this.namespace}/${taskLabel(task.id, task.name)}`);
     for (const input of inputs) branches.add(`lush/${this.namespace}/${inputLabel(input.id)}`);
     for (const tree of allWorktrees) if (branches.has(tree.branch)) paths.add(tree.path);
     const branchPlan = [];
@@ -51,8 +57,11 @@ export const methods = {
       const tree = allWorktrees.find(entry => entry.path === file);
       try {
         const resolved = deletionPath(this.config, file);
-        check(resolved.startsWith(path.resolve(home, 'worktrees') + path.sep),
+        const managementDirectory = tasks.some(task => task.task_kind === 'management'
+          && resolved === path.join(home, 'management', String(task.id)));
+        check(managementDirectory || resolved.startsWith(path.resolve(home, 'worktrees') + path.sep),
           `worktree path is outside the private worktrees root: ${file}`);
+        check(!managementDirectory || !tree, `management directory unexpectedly registered as a Git worktree: ${file}`);
         const stat = present(file);
         if (!stat && !tree) continue;
         check(!stat || stat.isDirectory(), `worktree is not a directory: ${file}`);

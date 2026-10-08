@@ -20,6 +20,7 @@ export const MODEL_PRESETS = {
 const ROLE_LABELS = {
   agent: '直接 Worker', planner: '规划 Worker', coordinator: '协调 Worker', worker: '开发 Worker', research: '调研 Worker',
   verifier: '检验 Worker', merger: '分支分歧解决', explainer: '执行过程介绍（Pi 无工具）', butler: '托管模式管家（Pi 无工具）',
+  manager: '项目管理 Agent（受限管理工具）',
 };
 /** One wording for every boundary that refuses to start an unbounded Pi invocation. */
 export const MISSING_PI_SOURCE_MESSAGE = 'Pi requires a Lush model source; select a source in Agent configuration before the next invocation';
@@ -61,6 +62,7 @@ export function normalizeAgentProfile(value, name = 'profile') {
   check(Object.keys(value).every(key => PROFILE_KEYS.has(key)), `${name} has an unknown field`);
   const agent = text(value.agent ?? '', `${name}.agent`, 32);
   check(AGENT_BACKENDS.includes(agent), `${name}.agent must be pi or codex`);
+  check(name !== 'roles.manager' || agent === 'pi', 'manager requires Pi restricted management tools; the legacy Codex CLI backend is not supported');
   const config_mode = text(value.config_mode ?? '', `${name}.config_mode`, 16).trim();
   check(['', 'lush', 'pi'].includes(config_mode), `${name}.config_mode must be lush or pi`);
   check(config_mode !== 'pi' || agent === 'pi', `${name}: Pi default configuration is available only for the Pi backend`);
@@ -91,7 +93,9 @@ export function normalizeAgentProfile(value, name = 'profile') {
   check(!enabled || !['roles.explainer','roles.butler'].includes(name), 'explainer/butler does not support soft_budget');
   // Per-task env overrides are the innermost layer; stored only when non-empty so profiles stay byte-stable.
   const env = normalizeAgentEnv(value.env ?? {});
-  return { agent, model, thinking, default_prompt, append_prompt, extensions, skills,
+  return { agent, model, thinking, default_prompt: name === 'roles.manager' ? '' : default_prompt,
+    append_prompt: name === 'roles.manager' ? '' : append_prompt,
+    extensions: name === 'roles.manager' ? [] : extensions, skills: name === 'roles.manager' ? [] : skills,
     ...(enabled ? { soft_budget } : {}), ...(Object.keys(env).length ? { env } : {}), ...(connection_id ? { connection_id } : {}) };
 }
 
@@ -178,6 +182,8 @@ export class AgentSettings {
       resolved[role] = { ...(stored.roles[role] || stored.default) };
       // The isolated, no-extension explainer never inherits a development budget or Pi-default mode.
       if (['explainer','butler'].includes(role)) { delete resolved[role].soft_budget; delete resolved[role].config_mode; }
+      // A manager may inherit model/auth selection, never a development Prompt or executable resources.
+      if (role === 'manager') Object.assign(resolved[role], { default_prompt: '', append_prompt: '', extensions: [], skills: [] });
     }
     return {
       ...stored, resolved, file: selection.file,

@@ -39,4 +39,7 @@ button.hook-completion-level.is-selected { border-color: var(--violet-ink); back
 .hook-check { display: inline-flex; align-items: center; gap: .35rem; }
 .hook-profile { min-width: 0; }
 .hook-form [hidden], .hook-editor [hidden] { display: none; }
+.management-profile-form .hook-profile { display: grid; gap: .7rem; }
+.signal-form input[type="checkbox"] { width: auto; justify-self: start; }
+.hook-manager .hook-mount-head > strong, .hook-signal .hook-mount-head > strong { overflow-wrap: anywhere; }
 @media (max-width: 600px) { .hook-mount, .hook-form { padding: .7rem; } .hook-mount-head strong { flex-basis: 100%; } }

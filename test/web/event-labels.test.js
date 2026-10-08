@@ -58,6 +58,23 @@ test('daemon Hook events and answer provenance have explicit labels without gues
   expect(eventLabel({ type: 'notice.answered', data: { answer: '请由 Agent 自行判断并继续。' } })).toBe('已答复');
 });
 
+test('时间信号与管理操作有独立中文标签，提交不冒充开始或业务成功，动态失败未知保留含义', () => {
+  for (const type of [...['saved', 'removed', 'emitted', 'missed'].map(state => `hook.signal_${state}`),
+    ...['created', 'binding_updated', 'signal_skipped', 'signal_submitted', 'invocation_started', 'action_submitted',
+      'action_skipped', 'action_completed', 'settled', 'failed', 'unknown'].map(state => `management.${state}`)]) {
+    const source = Object.freeze({ type });
+    expect(Object.hasOwn(EVENTS, type)).toBe(true); expect(eventLabel(source)).toMatch(/[\u4e00-\u9fff]/); expect(source.type).toBe(type);
+  }
+  expect(eventLabel({ type: 'hook.signal_emitted' })).toBe('时间信号已发出');
+  expect(eventLabel({ type: 'hook.signal_missed' })).toContain('错过');
+  expect(eventLabel({ type: 'management.signal_submitted' })).toBe('管理信号已提交待执行');
+  expect(eventLabel({ type: 'management.action_submitted' })).toBe('管理操作已提交待安全点');
+  expect(eventLabel({ type: 'management.invocation_started' })).toBe('管理 Agent 开始调用');
+  expect(eventLabel({ type: 'management.action_completed' })).toBe('管理操作已执行');
+  expect(eventLabel({ type: 'management.failed' })).toContain('失败');
+  expect(eventLabel({ type: 'management.unknown' })).toContain('待核验');
+});
+
 test('提醒与待决问题的名称不同；未知类型不猜测语义、不读取原型属性', () => {
   expect(eventLabel({ type: 'task.reserved' })).toBe('已预约合并');
   expect(eventLabel({ type: 'notice.opened', data: { kind: 'info' } })).toBe('提醒');

@@ -1,13 +1,13 @@
-import { check, id, isPlainObject } from '../../core/types.js';
+import { check, id, isPlainObject, text } from '../../core/types.js';
 
 function revision(value) {
   check(typeof value === 'string' && value.length > 0 && value.length <= 256
     && value === value.trim() && !/[\x00-\x1f\x7f]/.test(value), 'expected_revision must be a Hooks read revision');
   return value;
 }
-function hookId(value) {
+function hookId(value, label = 'Hook id') {
   check(typeof value === 'string' && value.length > 0 && value.length <= 128
-    && value === value.trim() && !/[\x00-\x1f\x7f]/.test(value), 'invalid Hook id');
+    && value === value.trim() && !/[\x00-\x1f\x7f]/.test(value), `invalid ${label}`);
   return value;
 }
 
@@ -25,6 +25,32 @@ export const handlers = {
     return p.saveHookTemplate(params.template, expected);
   },
   'hooks.remove'(p, params) { return p.removeHookTemplate(hookId(params.id), revision(params.expected_revision)); },
+  'hooks.signal_save'(p, params) {
+    const expected = revision(params.expected_revision);
+    check(isPlainObject(params.signal), 'signal must be an object');
+    return p.saveHookSignal(params.signal, expected);
+  },
+  'hooks.signal_remove'(p, params) { return p.removeHookSignal(hookId(params.id), revision(params.expected_revision)); },
+  async 'management.create'(p, params) {
+    const name = text(params.name, 'name'), instruction = text(params.instruction, 'instruction');
+    const signal_id = hookId(params.signal_id);
+    check(params.mode === undefined || ['once','persistent'].includes(params.mode), 'mode must be once|persistent');
+    check(params.profile === undefined || isPlainObject(params.profile), 'profile must be an object');
+    const client_request_id = params.client_request_id === undefined ? undefined : hookId(params.client_request_id, 'client_request_id');
+    return { task: await p.createManagementWorker({ name, instruction, signal_id,
+      ...(params.mode === undefined ? {} : { mode: params.mode }), ...(params.profile === undefined ? {} : { profile: params.profile }),
+      ...(client_request_id === undefined ? {} : { client_request_id }) }) };
+  },
+  'management.binding_update'(p, params) {
+    const expected = revision(params.expected_revision);
+    check(typeof params.enabled === 'boolean', 'enabled must be a boolean');
+    return p.updateManagementBinding(id(params.id), params.enabled, expected);
+  },
+  'manager.query'(p, params, actor) {
+    return p.managementQuery(id(actor), params.id === undefined ? undefined : id(params.id));
+  },
+  'manager.start'(p, params, actor) { return p.requestManagementAction(id(actor), 'start', id(params.id)); },
+  'manager.retry'(p, params, actor) { return p.requestManagementAction(id(actor), 'retry', id(params.id)); },
   'worker.hooks'(p, params) { return p.taskHooks(id(params.id)); },
   'worker.completion'(p, params) {
     const expected = revision(params.expected_revision);

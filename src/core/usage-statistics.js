@@ -5,7 +5,7 @@ import { check } from './types.js';
 import { usageAttribution } from './usage-attribution.js';
 
 // Both config modes belong to one Worker even though runtime sessions are isolated.
-const SESSION = /_lush-task-(\d+)(?:-pi)?\.jsonl$/;
+const SESSION = /_lush-(?:task|manager)-(\d+)(?:-pi)?\.jsonl$/;
 const MAX_LINE = 16 * 1024 * 1024;
 const MAX_BUCKETS = 1500;
 const CACHE_ROWS = 100000;
@@ -42,7 +42,7 @@ function normalize(record, model, invocation, taskId) {
   return {
     foreign: attribution?.task_id != null && !owned,
     run_id: owned && Number.isSafeInteger(attribution.run_id) && attribution.run_id > 0 ? attribution.run_id : null,
-    role: owned && ['planner','scheduler','coordinator','worker','research','verifier','merger','showcase','explainer','butler'].includes(attribution.role) ? attribution.role : null,
+    role: owned && ['planner','scheduler','coordinator','worker','research','verifier','merger','showcase','explainer','butler','manager'].includes(attribution.role) ? attribution.role : null,
     at: timestamp(record.timestamp) ?? timestamp(m.timestamp),
     provider: typeof m.provider === 'string' ? m.provider.slice(0, 256) : model.provider,
     model: typeof m.model === 'string' ? m.model.slice(0, 256) : model.model,

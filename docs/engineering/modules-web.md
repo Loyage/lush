@@ -38,7 +38,9 @@
 | `hook-controls.js` | 详情内置自动合并兼容与一行最高环节按钮控制，点击即保存；child 最低级别、补办/归档确认和旧服务兼容；保存用 revision、在途锁和项目/导航保护，见[自动链接缝](completion-hooks.md) | `autoMergeControl()`、`autoCompletionControl()`、`COMPLETION_LEVELS`、`HOOK_STATES` |
 | `render-inputs.js` / `styles-inputs.css` | `#inputs` 历史输入页：资源页风格的等高摘要列表、全库搜索/双维状态筛选/有界分页；`#input-draft-<id>` / `#input-input-<id>` 独立原文详情、暂存编辑与单条发射，同页往返保留列表/编辑；完整父候选、版本冲突与请求身份保护，不被 overview 轮询重画；契约见[历史输入接口](input-history.md) | `openInputs({item?:{kind,id},push?:boolean})`、`INPUT_STATUS`、`INPUT_MERGE`；CSS |
 | `hook-schedule.js` | 浏览器定时表单的显式 IANA 时区／日期转换与时间摘要；默认浏览器时区但明确保存，一次性 DST 模糊／缺失时间拒绝，模板元数据编辑保留精确 at | `browserTimezone`、`scheduledWallTime`、`scheduledInstant`、`hookSchedule`、`hookScheduleSummary` |
-| `render-hooks.js` / `hook-form.js` / `styles-hooks.css` | 项目 `#hooks` 目录、自动链介绍与模板；Worker 默认一行级别选择、异常摘要和折叠管理区，按需查看节点挂载/参数/执行结果和编辑；受控动作配置及统一标识；创建 Hook 完整运行设置只写、安全摘要只读，契约见 [Hooks](hooks.md) | `openHooks()`、`workerHooks(task,options?)`；表单辅助/CSS |
+| `hook-signals.js` | Hooks 的时间信号编辑与管理指令创建、绑定启停、安全摘要／结果；独立 revision、同表单去重 key、迟到响应保护、改期历史判断与截断提示；不改变开发输入框 | `createSignalForm`、`createManagementForm`、`renderSignalManagement` |
+| `management-profile-form.js` | 管理调用来源表单：Pi 托管／机器默认、独立管理配置，不重造私有 profile、不编辑开发 Prompt/env/扩展；使用现有来源选择器 | `createManagementProfileForm(settings,{ownsPage}?)` |
+| `render-hooks.js` / `hook-form.js` / `styles-hooks.css` | 项目 `#hooks` 目录、自动链介绍与模板；Worker 默认一行级别选择、异常摘要和折叠管理区；项目页面装配时间信号与管理指令，按需查看节点挂载/参数/执行结果和编辑；受控动作配置及统一标识；创建 Hook 完整运行设置只写、安全摘要只读，契约见 [Hooks](hooks.md) | `openHooks()`、`workerHooks(task,options?)`；表单辅助/CSS |
 | `render-versions.js` | 工作分组 `#versions` 的只读 main 第一父链历史：显式加载、固定 tip 分页、刷新作废旧请求、失败保留旧历史并明确提示、无 main 空态；安全文本呈现提交 SHA / 作者 / 时间 / 摘要、精确关联的 Worker 与原始指令，跳转走 navigate 接缝，不执行 Agent；契约见[版本迭代](version-history.md) | `openVersions()`、`renderVersionCommit(commit)` |
 | `styles-versions.css` | 版本迭代卡片、main tip 与完整 SHA、原始指令折叠和响应式布局，沿用双主题 token，无内联样式 | CSS |
 | `render-agent-status.js` | `#agent-status`「Agent 配置」入口，默认按需读配置并展示 `renderAgentSettings`；高级诊断仅显式读取 version 2 Pi/Codex 软件路径、版本和可用性，无账号、模型、资源或额度查询，拒绝旧响应；默认开页/轮询不执行诊断。页签保留草稿，异步结果按页面身份保护；失败可重试、旧观测明确标旧，不猜当前 Worker 实际绑定。首次绘制前本地读取连接列表，供继承摘要把来源显示成用户命名的名称 | `openAgentStatus()`、`renderAgentStatus(data)` |
@@ -156,6 +158,8 @@ Agent / 来源两页真实浏览器回归：`bun run check:agent-layout`（`scri
 来源管理台 DOM 回归：`test/web/dom-model-sources.test.js`、`dom-agent-connections.test.js`、`dom-model-source-management.test.js` 覆盖本地只读总览、多维筛选、非模态侧面板焦点/返回/Escape、公开草稿恢复与秘密取消/离页清理、物理 slash ID 与显式前缀修正、默认范围校验、批量范围确认/三项并发/完整公开字段/逐项失败、真实 Service/Manager 公开默认设定与 DOM 编辑/自动查询/批量启停的组合保留、新编辑与迟到页面保护、并发查询整表快照隔离、保存/设备码/备用登录后自动刷新及查询失败分离、独立倒计时/隐藏暂停/到期待刷新/清理；不替代真实浏览器双主题、触摸与视觉验收。
 
 真实浏览器布局回归入口：`scripts/check-transcript-layout.js`（Firefox / geckodriver，无第三方 JS 依赖），职责与命令见[执行记录阅读器验证](transcript-reader.md#验证入口)。
+
+管理型 Worker 的 `render-detail.js` 详情只读：指令、结果、事件、用量与执行过程可读；不显示开发开始／重试、配置、消息、取消、交付、验收、删除、Git diff 或 Worker 挂载控制。绑定启停只在 Hooks 页面；运行／失败／等待等状态均不得露出开发动作。
 
 ## Web 宿主
 

@@ -9,11 +9,11 @@ export const STATUS = {
 };
 export const INTEGRATION = { pending: '待合并', review: '待复查', merging: '合并中', merged: '已合并', conflict: '冲突待处理', superseded: '已作废' };
 /** 无分支的历史检出只标为 detached，不再依赖已下线的专用角色。 */
-export const worktreeLabel = task => (!task?.branch && task?.workspace ? 'detached worktree' : 'worktree');
+export const worktreeLabel = task => (task?.task_kind === 'management' ? '管理工作目录' : !task?.branch && task?.workspace ? 'detached worktree' : 'worktree');
 /** 已下线交付记录仅供回看，不提供重试、预约或迭代操作。 */
 export const isHistoricalDelivery = task => task.role === 'showcase' || task.task_kind === 'showcase'
   || Boolean(task.reservation?.kind && task.reservation.kind !== 'merge');
-export const ROLE = { planner: '规划', scheduler: '调度', worker: '执行', coordinator: '协调', research: '调研', verifier: '检验', merger: '解冲突', explainer: '执行介绍', butler: '管家' };
+export const ROLE = { planner: '规划', scheduler: '调度', worker: '执行', coordinator: '协调', research: '调研', verifier: '检验', merger: '解冲突', explainer: '执行介绍', butler: '管家', manager: '管理' };
 export const EVENTS = {
   created: '创建 Worker', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
   'invocation.connection': '绑定账号连接', 'invocation.inputs_delivered': '输入已交给 Agent',
@@ -31,6 +31,13 @@ export const EVENTS = {
   'hook.execution_succeeded': 'Hook 执行成功', 'hook.execution_failed': 'Hook 执行失败',
   'hook.execution_unknown': 'Hook 结果待核验', 'hook.execution_skipped': 'Hook 动作已跳过',
   'hook.scheduled_submitted': '定时 Hook 已提交待执行动作', 'hook.schedule_missed': '定时 Hook 已错过提交时间',
+  'hook.signal_saved': '保存时间信号', 'hook.signal_removed': '删除时间信号',
+  'hook.signal_emitted': '时间信号已发出', 'hook.signal_missed': '时间信号已错过发出时刻',
+  'management.created': '创建管理型 Worker', 'management.binding_updated': '调整管理信号绑定',
+  'management.signal_skipped': '管理信号已跳过', 'management.signal_submitted': '管理信号已提交待执行',
+  'management.invocation_started': '管理 Agent 开始调用', 'management.action_submitted': '管理操作已提交待安全点',
+  'management.action_skipped': '管理操作已跳过', 'management.action_completed': '管理操作已执行',
+  'management.settled': '管理信号处理已收口', 'management.failed': '管理信号处理失败', 'management.unknown': '管理结果未知，待核验',
   'hooks.template_saved': '保存 Hook 模板', 'hooks.template_removed': '删除 Hook 模板',
   'task.auto_merge_changed': '调整自动合并 Hook', 'task.merge_parent_restored': '已恢复原父 Worker',
   'task.completion_changed': '调整自动处理级别', 'completion.reminder': '提示下一人工环节',

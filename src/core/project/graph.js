@@ -140,7 +140,7 @@ export default {
       (SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
       CASE WHEN result IS NULL THEN 0 ELSE 1 END AS has_result,
       substr(result, 1, 320) AS result_preview
-      FROM tasks ORDER BY CASE WHEN task_kind IN ('main','owner') THEN 0
+      FROM tasks WHERE task_kind IS NULL OR task_kind!='management' ORDER BY CASE WHEN task_kind IN ('main','owner') THEN 0
         WHEN status IN ('running','queued','waiting','awaiting') THEN 1 ELSE 2 END, id DESC LIMIT ?`, limit + 1);
     const selected = rows.slice(0, limit);
     const ids = selected.map(row => row.id);
@@ -346,7 +346,7 @@ export default {
       // role='agent' 里只有 order 与新派生的 child 是「自己拥有分支与 worktree」的工作 Task，必须画成任务行；
       // main/owner 是分支所有者（同样的信息已经落在 branch 节点的 title / source_id 上，不重复画），
       // analysis 是只读分离检出（无分支），都不进任务节点。
-      const candidates = rows.filter(row => (row.role !== 'agent' || row.task_kind === 'order' || row.task_kind === 'child')
+      const candidates = rows.filter(row => row.task_kind !== 'management' && (row.role !== 'agent' || row.task_kind === 'order' || row.task_kind === 'child')
         && (row.branch || row.workspace || row.baseline_workspace));
 
       // 分支节点名：记录 ∪ 现在的 ref ∪ 当前检出 ∪ 占位父名。记录是历史事实，ref 是现状，

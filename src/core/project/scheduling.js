@@ -57,7 +57,7 @@ export default {
       (this.taskSyncWakePending ??= new Set()).add(task.id);
       return;
     }
-    if (['main','owner','merge'].includes(task.task_kind)) return; // runtime-driven roots and merge orchestration never run providers
+    if (['main','owner','merge','management'].includes(task.task_kind)) return; // runtime-driven roots and merge orchestration never run providers
     try { assertTaskAncestorsOpen(this, task); } catch { return; }
     if (task.status === 'awaiting_acceptance' && !this.hasActionableMessages(task.id)) return;
     if (task.status === 'paused' || task.interrupt_state === 'requested') return; // 用户暂停意愿不被消息唤醒
@@ -93,7 +93,7 @@ export default {
       if (this.hasActionableMessages(taskId)) this.wake(taskId);
     }
     // Legacy planner/spec rows are retained on disk but no longer scheduled.
-    const queued = this.store.all("SELECT * FROM tasks WHERE status='queued' AND task_kind IN ('order','say','child') ORDER BY id");
+    const queued = this.store.all("SELECT * FROM tasks WHERE status='queued' AND task_kind IN ('order','say','child','management') ORDER BY id");
     const dependencies = this.store.depMap(queued.map(task => task.id));
     const freezes = new Map(this.branchFreeze().map(info => [info.branch, info]));
     const taskBranch = task => {
@@ -111,7 +111,8 @@ export default {
     let butlerRunning = [...this.running.values()].filter(run => run.role === 'butler').length;
     let executionRunning = this.running.size - controlRunning - butlerRunning;
     for (const task of queued) {
-      if (!['order','child'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
+      if (!['order','child','management'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
+      if (task.task_kind === 'management' && !this.managementReady(task)) continue;
       if (['main','owner','merge'].includes(task.task_kind)) continue; // Bound parent roots and merge orchestration do not run unrestricted providers.
       if (this.running.has(task.id) || this.taskSyncBusy?.has(task.id)) continue;
       try { assertTaskAncestorsOpen(this, task); } catch { continue; }
@@ -150,6 +151,7 @@ export default {
           if (released.interrupt_state === 'requested') this.store.event(task.id, 'task.paused', { run_id: run.recordId });
         });
         this.running.delete(task.id);
+        if (!this.stopping) this.drainManagementActions();
         if (!this.stopping && run.recordId) {
           const closedRun = this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId);
           if (!run.parked) {
@@ -428,6 +430,7 @@ export default {
       const record = this.store.transaction(() => {
         const record = this.store.startRun(task, agent);
         this.store.update(taskId, { status: 'running', calls: task.calls + 1, agent_wakes: task.agent_wakes + 1 });
+        if (task.task_kind === 'management') this.beginManagementInvocation(taskId, record.id);
         return record;
       });
       run.recordId = record.id;
@@ -456,7 +459,7 @@ export default {
       if (run.controller.signal.aborted) throw new Error(abortMessage());
       // retry_profile contains system instructions and local resource paths. It is runtime
       // configuration, not task data, so do not copy it into the provider's untrusted input JSON.
-      const { retry_profile: _retryProfile, ...providerTask } = this.progressView(task);
+      const { retry_profile: _retryProfile, management: _privateManagement, ...providerTask } = this.progressView(task);
       const forkPointer = task.base_commit ? this.store.get(
         'SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', task.base_commit) : null;
       const connectionRuntime = agent.connection_id ? await this.agentConnections.prepareRuntime(agent.connection_id) : null;
@@ -554,6 +557,7 @@ export default {
       });
       // 暂停中的 Task 即使本轮正常返回也只保留结果，不自动推进状态；用户点「继续」时才恢复调度。
       if (this.store.task(taskId).status === 'paused' || this.store.task(taskId).interrupt_state || run.resumeRequested) return;
+      if (task.task_kind === 'management') { this.completeManagementInvocation(taskId, run.recordId); return; }
       if (task.role === 'butler') await this.completeButler(taskId, result);
       if (TERMINAL.has(this.store.task(taskId).status)) return;
       // Deliver actionable arrivals next time; ordinary coordinator receipts wait for the wave.
@@ -624,6 +628,12 @@ export default {
       run.invocationEnded = true;
       // 安全抢占：Agent 在本轮工具都结束后自行收尾，不是失败、不是超时也不是取消。
       // 工作区按现状保留，这条输入下一轮就会被读到；不重建、不重放本轮已发生的副作用。
+      if (taskId && this.store.task(taskId).task_kind === 'management') {
+        if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running')
+          this.store.finishRun(run.recordId, 'failed', { error: 'management invocation interrupted; no automatic replay' });
+        this.failManagementOccurrence(taskId, 'failed');
+        return;
+      }
       if (error instanceof AgentPreempted) {
         if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running') {
           this.store.finishRun(run.recordId, 'preempted', { error: error.details?.reason ?? 'preempted by new input' });

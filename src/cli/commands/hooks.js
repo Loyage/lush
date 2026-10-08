@@ -1,4 +1,4 @@
-import { check } from '../../core/types.js';
+import { check, id } from '../../core/types.js';
 import { resolveWorkerId } from '../worker-number.js';
 import { exact, option } from '../args.js';
 import { readPrivateJson } from '../private-json.js';
@@ -15,7 +15,9 @@ export async function run(command, args, { client }) {
   check(!client.token, 'Hooks configuration is user only, not an agent operation');
   const verb = args.shift();
   if (verb === 'list') { exact(args, 0); return client.request('hooks.list'); }
-  check(['save','remove','auto-select'].includes(verb), 'hooks requires list|save|remove|auto-select; run lush help');
+  if (verb === 'signal') return runSignal(args, client);
+  if (verb === 'management') return runManagement(args, client);
+  check(['save','remove','auto-select'].includes(verb), 'hooks requires list|save|remove|auto-select|signal|management; run lush help');
   const expected_revision = readRevision(args);
   if (verb === 'auto-select') {
     exact(args, 1);
@@ -29,6 +31,33 @@ export async function run(command, args, { client }) {
   }
   exact(args, 1);
   return client.request('hooks.remove', { id: args[0], expected_revision });
+}
+
+async function runSignal(args, client) {
+  const verb = args.shift();
+  check(['save','remove'].includes(verb), 'hooks signal requires save|remove; run lush help');
+  const expected_revision = readRevision(args);
+  if (verb === 'save') {
+    const file = option(args, '--file'); exact(args, 0);
+    check(file, 'hooks signal save requires --file PATH');
+    return client.request('hooks.signal_save', { signal: readPrivateJson(file, 'signal'), expected_revision });
+  }
+  exact(args, 1);
+  return client.request('hooks.signal_remove', { id: args[0], expected_revision });
+}
+
+async function runManagement(args, client) {
+  const verb = args.shift();
+  check(['create','enable','disable'].includes(verb), 'hooks management requires create|enable|disable; run lush help');
+  if (verb === 'create') {
+    const file = option(args, '--file'); exact(args, 0);
+    check(file, 'hooks management create requires --file PATH');
+    const request = readPrivateJson(file, 'management');
+    check(Object.keys(request).every(key => ['name','instruction','signal_id','mode','profile','client_request_id'].includes(key)), 'unknown management parameter');
+    return client.request('management.create', request);
+  }
+  const expected_revision = readRevision(args); exact(args, 1);
+  return client.request('management.binding_update', { id: id(args[0]), enabled: verb === 'enable', expected_revision });
 }
 
 /** Highest automatic stage; uses the current worker.hooks read revision. */

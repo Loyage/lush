@@ -52,6 +52,7 @@ export function workerFiles(config, tasks, contexts) {
   for (const task of tasks) {
     const id = task.id;
     for (const name of names) if (name.endsWith(`_lush-task-${id}.jsonl`) || name.endsWith(`_lush-task-${id}-pi.jsonl`) ||
+      (task.task_kind === 'management' && (name.endsWith(`_lush-manager-${id}.jsonl`) || name.endsWith(`_lush-manager-${id}-pi.jsonl`))) ||
       new RegExp(`^(?:task-${id}-(?:input|system)\\.md|task-${id}-context\\.json(?:\\.\\d+\\.tmp)?|decision-${id}\\.json|codex-task-${id}(?:-result\\.md|\\.json(?:\\.\\d+\\.tmp)?))$`).test(name)) add(path.join(sessions, name));
     add(path.join(home, 'task-rules', `task-${id}.mjs`));
     for (const suffix of ['request.json', 'stop.json']) add(path.join(home, 'preempt', `task-${id}.${suffix}`));

@@ -10,7 +10,7 @@ const ADDED_COLUMNS = {
   inputs: ['anchor_branch', 'anchor_commit', 'anchor_workspace', 'anchor_target_branch'],
   branches: ['summary', 'showcase_reservation', 'merge_run'],
   messages: ['signal_type', 'signal_key'],
-  tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile', 'task_kind', 'reservation', 'iteration_base_commit', 'auto_merge', 'interrupt_state', 'hooks', 'worker_number'],
+  tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile', 'task_kind', 'reservation', 'iteration_base_commit', 'auto_merge', 'interrupt_state', 'hooks', 'worker_number', 'management'],
   agent_runs: ['model', 'thinking'],
   notices: ['read_at', 'answer_source'],
   introductions: ['source_snapshot'],
@@ -22,6 +22,13 @@ function addMissingColumns(db) {
   }
   db.query(`CREATE UNIQUE INDEX IF NOT EXISTS tasks_worker_number ON tasks(worker_number)
     WHERE worker_number IS NOT NULL`).run();
+  db.query(`CREATE INDEX IF NOT EXISTS tasks_management_enabled ON tasks(id)
+    WHERE task_kind='management' AND json_extract(management,'$.enabled')=1`).run();
+  db.query(`CREATE INDEX IF NOT EXISTS tasks_management_recent ON tasks(id DESC)
+    WHERE task_kind='management'`).run();
+  db.query(`CREATE UNIQUE INDEX IF NOT EXISTS tasks_management_request_once
+    ON tasks(json_extract(management,'$.client_request_id'))
+    WHERE task_kind='management'`).run();
   // Draft ownership/version are optional on historical rows; never infer or backfill them.
   const draftColumns = new Set(db.query('PRAGMA table_info(drafts)').all().map(row => row.name));
   for (const column of ['parent_id', 'revision']) {

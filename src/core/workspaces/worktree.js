@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { check } from '../types.js';
 import { taskLabel, inputLabel } from '../naming.js';
 import { dirtDetail } from './git.js';
+import { deletionPath } from '../deletion-resources.js';
 import { workerLabel } from '../worker-number.js';
 
 /** worktree / 对照检出 / 输入锚点的创建与回收。 */
@@ -125,6 +126,18 @@ export const methods = {
 
   async ensure(task) {
     check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
+    if (task.task_kind === 'management') {
+      check(task.role === 'manager' && !task.branch && !task.target_branch && !task.base_commit, 'management Worker must not own a Git branch');
+      const parent = path.join(this.config.home, 'management'), dir = path.join(parent, String(task.id));
+      check(!task.workspace || task.workspace === dir, 'management workspace identity changed');
+      deletionPath(this.config, dir); // Reject every ancestor link before creating any directory.
+      fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
+      check(!fs.lstatSync(parent).isSymbolicLink() && fs.lstatSync(parent).isDirectory(), 'management directory must not be a link');
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      check(!fs.lstatSync(dir).isSymbolicLink() && fs.lstatSync(dir).isDirectory(), 'management workspace must not be a link');
+      this.store.update(task.id, { workspace: dir });
+      return dir;
+    }
     if (task.task_kind === 'main') return this.config.project;
     // 只读分析：分支最新提交的分离检出，**不创建也不占用任何分支**，所以分析师无法推进任何 ref。
     // 与 verifier 的对照检出同一套路：目录是派生的，invocation 结束就回收。
@@ -273,6 +286,7 @@ export const methods = {
     return { id: input.id, branch: input.anchor_branch, commit: input.anchor_commit, workspace: input.anchor_workspace, target: input.anchor_target_branch };
   },
   async finish(task) {
+    if (task.task_kind === 'management') return; // No Git deliverable, clean or commit in a management directory.
     check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
     if (!task.workspace) return;
     await this.clean(task.workspace);

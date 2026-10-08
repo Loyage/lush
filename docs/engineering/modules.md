@@ -60,6 +60,10 @@
 
 在既有 Worker 附属 Hook 中增加 `time.scheduled`，一次性日期与每日显式时区；停机错过跳过，到点持久提交非阻塞待执行项，安全点尽早准入而非保证 Agent 准点开始。失败重试与暂停继续为显式受控动作，未知副作用不重放。定义、目录模式覆盖、pending/next 时间读面和失败 Worker 的窄挂载准入见 [Hooks 工程接缝](hooks.md#定时-hook-增补用户决定-266)。Runtime 负责 core/project 与纯时间模块和对应测试；前端负责 assets Hooks 编辑/读面与 DOM 测试；父维护文档与跨区接口/组合验证。无 Host 调度或新公开 RPC。
 
+### 时间信号与管理 Agent（用户决定 #270）
+
+Hooks 页面提供具名时间信号与独立管理指令，不改变开发输入框。管理 Worker 使用 `role='manager', task_kind='management'`、无 Input／Git 的专属目录、独立提示词及受限工具。只允许查询当前项目、开始 paused／重试 failed 的开发 Worker；Dispatcher 与 Project 双重核验 invocation、绑定、occurrence 和原安全门。信号、绑定、持久请求与读面权威契约见[时间信号与管理](hook-signals-management.md)，实际文件与导出在 Runtime／Web／接口分章。不是 Host 调度、OS 沙箱或额度恢复证明。
+
 ## daemon 自动选择 Hook 接缝（W118 / 决定 #267）
 
 当前项目 daemon 的内置持续 Hook `auto-select`，触发 `notice.received`，不是 Worker 挂载或 Host 全局配置。默认关闭，项目 meta 持久保存；显式开启同时处理已有 open 的 `questionnaire` / `question`，不答复 plan/info，不重放 invocation。单选选择第一项（不依赖推荐标签）；多选每题自定义答复、文字问题答复均为「请由 Agent 自行判断并继续。」。自动答复仍走原问卷暂停/真实退出/收件箱唤醒安全边界，不能并发调用或丢唤醒。

@@ -21,11 +21,11 @@ export function publicResult(value, method = '') {
     seen.set(entry, copy);
     let changed = false;
     for (const [key, child] of Object.entries(entry)) {
-      if (key === 'retry_profile' || (['hooks', 'auto_merge'].includes(key) && typeof child === 'string')) {
+      if (key === 'retry_profile' || (['hooks', 'auto_merge', 'management'].includes(key) && typeof child === 'string')) {
         changed = true; continue;
       }
       // Profile env and environment API values are validated string maps, not
-      // Worker records. Preserve legitimate hooks/auto_merge/retry_profile variables.
+      // Worker records. Preserve legitimate hooks/auto_merge/management/retry_profile variables.
       const configured = configuration || (method === 'system.status' && depth === 0 && key === 'agent_config');
       const authorizedMap = configured && key === 'env' || environment && depth === 0 && key === 'values';
       const next = authorizedMap && stringDictionary(child) ? child : visit(child, configured, depth + 1);

@@ -24,6 +24,10 @@ export const PARAMS = {
   'quick_explain.delete': ['id'],
   'hooks.list': [], 'hooks.save': ['template','expected_revision'], 'hooks.remove': ['id','expected_revision'],
   'hooks.auto_select': ['enabled','expected_revision'],
+  'hooks.signal_save': ['signal','expected_revision'], 'hooks.signal_remove': ['id','expected_revision'],
+  'management.create': ['name','instruction','signal_id','mode','profile','client_request_id'],
+  'management.binding_update': ['id','enabled','expected_revision'],
+  'manager.query': ['id'], 'manager.start': ['id'], 'manager.retry': ['id'],
   'worker.hooks': ['id'], 'worker.completion': ['id','level','expected_revision'],
   'worker.hook_attach': ['id','hook','expected_revision'],
   'worker.hook_update': ['id','hook_id','enabled','expected_revision'], 'worker.hook_remove': ['id','hook_id','expected_revision'],
@@ -67,6 +71,7 @@ export const USER_ONLY = new Set([
   'agent.connections.models','agent.connections.models.refresh',
   'agent.packages.list','agent.packages.install','agent.packages.remove','agent.packages.update',
   'quick_explain.config','quick_explain.configure','quick_explain.start','quick_explain.followup','quick_explain.get','quick_explain.list','quick_explain.delete',
+  'hooks.signal_save','hooks.signal_remove','management.create','management.binding_update',
   'hooks.list','hooks.save','hooks.remove','hooks.auto_select','worker.hooks','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove',
   'input.history','input.get','input.parents','draft.add','draft.update','draft.remove',
   'order.submit','worker.transcript_latest','worker.transcript_page','worker.transcript_step','worker.transcript_search',
@@ -78,7 +83,11 @@ export const USER_ONLY = new Set([
 ]);
 export const AGENT_ONLY = new Set([
   'worker.integrate','worker.resolve_child_divergence','progress.plan','progress.complete',
+  'manager.query','manager.start','manager.retry',
 ]);
+/** Management invocations have a narrower capability than ordinary development Agents. */
+export const MANAGER_METHODS = new Set(['manager.query','manager.start','manager.retry','worker.lookup']);
+
 export function assertAllowed(method, params, actor) {
   check(isPlainObject(params), 'params must be an object');
   if (!Object.hasOwn(PARAMS, method)) throw new LushError(`unknown method: ${method}`, -32601);

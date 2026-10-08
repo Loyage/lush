@@ -1,5 +1,7 @@
 import fs from 'node:fs';
+import path from 'node:path';
 import { check } from '../types.js';
+import { deletionPath, present } from '../deletion-resources.js';
 import { workerLabel } from '../worker-number.js';
 
 /** 分支回收与安全清理。 */
@@ -152,6 +154,20 @@ export const methods = {
    */
   async release(task, { keepBranch = false } = {}) {
     check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
+    if (task.task_kind === 'management') {
+      check(!task.branch && !task.target_branch, 'management Worker must not own a Git branch');
+      const dir = path.join(this.config.home, 'management', String(task.id));
+      check(!task.workspace || task.workspace === dir, 'management workspace identity changed');
+      deletionPath(this.config, dir);
+      let worktree = 'absent';
+      if (task.workspace && present(dir)) {
+        check(!fs.lstatSync(path.dirname(dir)).isSymbolicLink() && !fs.lstatSync(dir).isSymbolicLink(), 'management directory must not be a link');
+        check(fs.readdirSync(dir).length === 0, 'management workspace contains files; preserve and inspect before cleanup');
+        fs.rmdirSync(dir); worktree = 'removed';
+      }
+      this.store.update(task.id, { workspace: null });
+      return { id: task.id, worktree, branch: 'absent', reason: null };
+    }
     // 检验任务没有 branch/integration，只有派生出来的对照检出。
     if (task.verifies_task_id || task.review_candidate_id) {
       if (!task.baseline_workspace) return { id: task.id, worktree: 'absent', branch: 'absent', reason: null };

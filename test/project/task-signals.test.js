@@ -77,17 +77,20 @@ test('opening an old database adds only nullable signal columns and preserves ol
     const old = new Database(file);
     old.query('DROP INDEX messages_signal_once').run();
     old.query('DROP INDEX tasks_order_branch_owner').run();
+    for (const name of ['tasks_management_enabled','tasks_management_recent','tasks_management_request_once'])
+      old.query(`DROP INDEX IF EXISTS ${name}`).run();
     old.query('ALTER TABLE messages DROP COLUMN signal_key').run();
     old.query('ALTER TABLE messages DROP COLUMN signal_type').run();
     old.query('ALTER TABLE tasks DROP COLUMN reservation').run();
     old.query('ALTER TABLE tasks DROP COLUMN task_kind').run();
+    old.query('ALTER TABLE tasks DROP COLUMN management').run();
     old.close();
     const reopened = new Store(file, root);
     try {
       expect(reopened.unread(task.id)[0]).toMatchObject({ body: 'old message', signal_type: null, signal_key: null });
       expect(reopened.get('SELECT count(*) AS n FROM messages').n).toBe(1);
       expect(reopened.all('PRAGMA index_list(messages)').some(row => row.name === 'messages_signal_once')).toBe(true);
-      expect(reopened.task(task.id)).toMatchObject({ task_kind: null, reservation: null });
+      expect(reopened.task(task.id)).toMatchObject({ task_kind: null, reservation: null, management: null });
       expect(reopened.all('PRAGMA index_list(tasks)').some(row => row.name === 'tasks_order_branch_owner')).toBe(true);
     } finally { reopened.close(); }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }

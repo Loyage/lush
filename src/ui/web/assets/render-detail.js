@@ -85,13 +85,15 @@ export function renderDetail(task, history, diff, usage, connections = null) {
   const head = el('div', undefined, 'head');
   head.append(el('span', workerLabel(task), 'tid-lg'), statusBadge(task),
     ...(task.role === 'agent' ? [] : [roleBadge(task.role)]), ...(task.route ? [routeBadge()] : []), intentBadge(task));
-  const integration = INTEGRATION[task.integration];
+  const management = task.role === 'manager' || task.task_kind === 'management';
+  const integration = management ? null : INTEGRATION[task.integration];
   if (integration) head.append(badge(integration, task.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
   if (task.task_kind === 'analysis') head.append(badge('只读分析', 'b-neutral'));
   if (task.agent) head.append(badge(`agent ${task.agent.id}${task.agent.active ? ` · pid ${task.agent.pid ?? '待上报'}` : ' · 空闲'}`, 'b-neutral'));
   hero.append(head, el('h1', taskTitle(task), 'task-title')); panel.append(hero);
 
-  const readOnly = isHistoricalDelivery(task);
+  const readOnly = management || isHistoricalDelivery(task);
+  if (management) panel.append(el('p', '管理指令详情只读：查看指令、结果、历史与执行过程。绑定启停仅在 Hooks 页面管理；不在这里开始、调整开发运行设置、追加输入、合并、验收或删除。', 'hint management-readonly'));
   const notice = ui.noticeFocus === null ? null : ui.noticeIndex.get(ui.noticeFocus);
   if (!readOnly && notice && notice.task_id === task.id) panel.prepend(noticePanel(notice, task));
 
@@ -230,16 +232,16 @@ export function renderDetail(task, history, diff, usage, connections = null) {
   if (task.divergence_resolution) {
     actions.append(button(`查看源指令 ${workerLabel(task.parent_id, task.parent_worker_number)}`, () => detail(task.parent_id), 'link'));
   }
-  const sourceControl = modelSourceControl(task, () => detail(task.id));
+  const sourceControl = management ? null : modelSourceControl(task, () => detail(task.id));
   if (sourceControl) actions.append(sourceControl);
-  const clearOverride = clearOverrideControl(task, () => detail(task.id));
+  const clearOverride = management ? null : clearOverrideControl(task, () => detail(task.id));
   if (clearOverride) actions.append(clearOverride);
-  const deletion = workerDeleteControl(task);
+  const deletion = management ? null : workerDeleteControl(task);
   if (deletion) actions.append(deletion);
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
   panel.append(actions);
   if (['order', 'child'].includes(workerKind(task))) panel.append(modelSourceSummary(task, history, connections));
-  const interruptHint = interruptReason(task);
+  const interruptHint = management ? null : interruptReason(task);
   if (interruptHint) panel.append(el('p', interruptHint, 'hint interrupt-reason'));
   if (task.divergence_resolution && TERMINAL_STATUS.has(task.status) && task.integration !== 'merged') {
     const archived = task.divergence_resolution.branch_status === 'archived';
@@ -258,11 +260,11 @@ export function renderDetail(task, history, diff, usage, connections = null) {
       : `解分歧成果尚未集成：先检查工作区和固定提交。需要另试时，在 Worker 树或 Worker 详情显式归档这条子分支（删除 ref/worktree；未提交文件会丢失），${retry}不会重放本次 Agent。`,
     'hint delivery-reason'));
   }
-  const iteration = iterationControls(task, { refresh: () => detail(task.id), events: history?.events || [] });
+  const iteration = management ? null : iterationControls(task, { refresh: () => detail(task.id), events: history?.events || [] });
   if (iteration) panel.append(iteration);
-  const delivery = deliveryControls(task, { refresh: () => detail(task.id) });
+  const delivery = management ? null : deliveryControls(task, { refresh: () => detail(task.id) });
   if (delivery) panel.append(delivery);
-  const hooks = previousHooks || workerHooks(task, { refresh: () => detail(task.id) });
+  const hooks = management ? null : previousHooks || workerHooks(task, { refresh: () => detail(task.id) });
   if (hooks) {
     if (hookManagementOpen) hooks.querySelector('.hook-management').open = true;
     panel.append(hooks);
@@ -305,7 +307,7 @@ export function renderDetail(task, history, diff, usage, connections = null) {
     workspace.append(el('p', text, 'mono'));
     panel.append(workspace);
   }
-  panel.append(renderDiff(diff, task.id));
+  if (!management) panel.append(renderDiff(diff, task.id));
   if (task.role === 'verifier' || task.verifications?.length || (task.role === 'worker' && task.status === 'completed' && task.workspace && task.head_commit)) panel.append(renderVerifications(task));
 
   if (task.children?.length) {
