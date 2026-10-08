@@ -61,14 +61,10 @@ export default {
       AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1`, task.id) : null;
     const resolutionSource = resolutionEvent ? JSON.parse(resolutionEvent.data).source_task_id : task.resolves_task_id;
     const request = options.mergeRequest ?? null;
-    // 用户对一次「只想了解」的 order 显式收尾：没有代码改动，也不产生合并请求。
-    const resolvedByUser = options.resolvedByUser === true;
-    if (resolvedByUser) {
-      check(task.task_kind === 'order' && status === 'completed' && !request,
-        'a user-resolved settlement belongs to a new order Worker');
-    } else if (task.task_kind === 'order' && status === 'completed') {
+    // Current order acceptance is handled by acceptTask; this is the historical pinned-request path.
+    if (task.task_kind === 'order' && status === 'completed') {
       const reservation = task.reservation ? JSON.parse(task.reservation) : null;
-      check(request, 'a new order Worker completes only with its pinned merge request or explicit user resolution');
+      check(request, 'a new order Worker completes only through acceptance or its historical pinned merge request');
       {
         check(reservation?.kind === 'merge' && reservation.status === 'pending'
           && task.status === 'waiting' && task.head_commit === request.commit && task.parent_id === request.parent_id,
@@ -103,9 +99,7 @@ export default {
         this.store.update(task.id, { reservation: JSON.stringify(requested) });
       }
       this.store.update(task.id, { status, result, error,
-        retry_profile: ['order','say','child','management'].includes(task.task_kind) ? task.retry_profile : null, interrupt_state: null,
-        ...(resolvedByUser ? { reservation: null } : {}) });
-      if (resolvedByUser) this.store.event(task.id, 'task.resolved', { head_commit: task.head_commit ?? null });
+        retry_profile: ['order','say','child','management'].includes(task.task_kind) ? task.retry_profile : null, interrupt_state: null });
       this.store.run("UPDATE notices SET status='dismissed',answer='worker ended' WHERE task_id=? AND status='open'", task.id);
       // Historical branch settlements keep their old info reminder. User-created order/analysis
       // use the lifecycle hook below instead, so a failure cannot create two notices.

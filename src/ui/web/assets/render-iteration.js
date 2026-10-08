@@ -42,6 +42,12 @@ export function iterationControls(task, { refresh = () => {}, events = [] } = {}
   const panel = el('div', undefined, 'iteration-controls');
   const actions = el('div', undefined, 'actions iteration-actions');
   const blocker = iterationBlocker(task);
+  const iterationBase = task.iteration_base_commit ?? task.base_commit;
+  // A known unchanged iteration and a returned answer are candidates, not delivery proof.
+  // The daemon still checks the worktree, inbox, decisions, descendants and fixed Git facts.
+  const noChangeAnswer = workerKind(task) === 'order' && task.status === 'waiting'
+    && (task.result != null || task.has_result === true)
+    && Boolean(iterationBase && task.head_commit === iterationBase);
   const busy = task.status === 'running' || task.status === 'queued' || task.agent?.active;
   const reason = blocker || (!task.workspace ? 'worktree 未保留；不会自动重建。' : null)
     || (busy ? 'Agent 仍在执行；请等安全结束后操作。' : null);
@@ -57,12 +63,19 @@ export function iterationControls(task, { refresh = () => {}, events = [] } = {}
       await update('worker.reopen', '已恢复待验收；追加输入可继续开发。');
     }, 'ghost', { help: '显式恢复历史已合并 Worker为待验收；不会调用 Agent 或重建已归档分支。' }), reason));
   } else {
-    if (task.status === 'awaiting_acceptance') {
-      const acceptanceReason = reason || ((task.children || []).some(child => !['completed', 'failed', 'cancelled'].includes(child.status))
-        ? '后代尚未确认或结算；派生 Worker 由其直接父 Agent 检查并确认，无需你逐个验收。' : null);
+    if (task.status === 'awaiting_acceptance' || noChangeAnswer) {
+      const booking = task.reservation;
+      const deliveryReason = noChangeAnswer && booking && !['integrated', 'completed', 'withdrawn'].includes(booking.status)
+        ? '交付预约尚未结算；验收不能绕过在途交付。' : null;
+      const acceptanceReason = reason || deliveryReason
+        || ((task.children || []).some(child => !['completed', 'failed', 'cancelled'].includes(child.status))
+          ? '后代尚未确认或结算；派生 Worker 由其直接父 Agent 检查并确认，无需你逐个验收。' : null);
+      const introduction = noChangeAnswer
+        ? '本轮已有回答且没有新增提交，可直接验收，无需先请求合并。验收保留答案，不代表代码已合并；未读输入、待决问题或未交付改动会阻止验收。'
+        : '本轮已交付，等待你验收；';
       panel.append(el('p', task.task_kind === 'child'
         ? `本轮已交付，等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 的 Agent 检查并确认；无需你验收。需要修改时可追加输入，分支与 worktree 保留。`
-        : '本轮已交付，等待你验收；追加输入可继续当前 Worker。派生 Worker 由父 Agent 检查并确认，无需你逐个验收。选择「仅验收」保留分支与 worktree，或点击「验收并归档」直接验收并删除本分支及后代的 worktree 与本地 ref，不再弹窗确认。', 'hint'));
+        : `${introduction} 追加输入可继续当前 Worker，验收后如有新要求请另发指令。派生 Worker 由父 Agent 检查并确认，无需你逐个验收。选择「仅验收」保留分支与 worktree，或点击「验收并归档」直接验收并删除本分支及后代的 worktree 与本地 ref，不再弹窗确认。`, 'hint'));
       if (task.task_kind !== 'child') {
         let accepting = false, accepted = false;
         const acceptTask = async () => {

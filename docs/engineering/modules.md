@@ -308,7 +308,7 @@ Pi 的 request→stop 原子 rename 是安全点认领；daemon 通过 unlink re
 
 前六个分区 **互不共享文件**，可以同时开工。测试分区要等它们落地，否则测的是半成品。
 
-历史 version 1 的预约是 `tasks.reservation` 可空 versioned JSON 附属状态：仅指令 Worker 可设置 `merge` 的一个 pending 意图，同类重复幂等；User-only `worker.reserve` / `worker.unreserve` 与 Event 同事务。`merge` 预约只在指令静息、工作区可检验且子 Worker 已结算时冻结提交与直接父基线，在结算事务内写一次父 Worker 信号并结束源 Worker；用户另用固定 commit + baseline 批准 main/owner 的快进，Git 串行区内复核双方 ref。同类重复 `worker.reserve` 不重建预约，而是显式重查 pending 状态：执行屏障、未读消息和子 Worker 等待原因也记在 `blocked_reason`，成功后由结算事务清掉；Web 的「复查预约」与 CLI 原命令共享此路径，不自动轮询外部 Git 变化。User-only `worker.resolve` 另给无代码改动的指令一个与取消区分的收尾：工作区干净、分支无新提交、没有活动 Agent/请求时以 `completed` + `integration='none'` 结算并保留 `result`，不移动任何 ref；有提交仍须走 `worker.reserve` 或 `worker.cancel`。
+历史 version 1 的预约是 `tasks.reservation` 可空 versioned JSON 附属状态：仅指令 Worker 可设置 `merge` 的一个 pending 意图，同类重复幂等；User-only `worker.reserve` / `worker.unreserve` 与 Event 同事务。`merge` 预约只在指令静息、工作区可检验且子 Worker 已结算时冻结提交与直接父基线，在结算事务内写一次父 Worker 信号并结束源 Worker；用户另用固定 commit + baseline 批准 main/owner 的快进，Git 串行区内复核双方 ref。同类重复 `worker.reserve` 不重建预约，而是显式重查 pending 状态：执行屏障、未读消息和子 Worker 等待原因也记在 `blocked_reason`，成功后由结算事务清掉；Web 的「复查预约」与 CLI 原命令共享此路径，不自动轮询外部 Git 变化。User-only `worker.resolve` 现仅保留为指令验收的兼容入口，委托 `acceptTask`；无改动回答与代码成果共用安全校验、审计与 Hook，不走独立结算。完整语义见[持续迭代](task-iteration.md)。
 
 daemon 启动在 project identity/Store 建立后、RPC 开放前幂等执行 `Project.bootstrapMain()`：只有本地 main ref 存在才确立唯一静息 main Worker；无 main 时保持 daemon 可用、首次新指令给明确错误，不自动造 ref，也不触发 provider。恢复仍保留未知副作用不重放。
 

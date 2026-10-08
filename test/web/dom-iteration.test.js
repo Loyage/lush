@@ -240,6 +240,60 @@ test('detail and graph expose the same awaiting acceptance actions and continuin
   expect(buttonOf(dom.node('detail'), '继续开发')).toBeUndefined();
 });
 
+test('unchanged returned answers share acceptance in detail and graph, including minimal mode', async () => {
+  ui.lastSnapshot = null;
+  const answer = { ...task, status: 'waiting', integration: 'none', reservation: null,
+    base_commit: task.head_commit, iteration_base_commit: null, result: 'answer only' };
+  const renderers = [
+    () => renderDetail(answer, null, null, null),
+    ...[false, true].map(minimal => () => {
+      activateDetailView({ view: 'task-graph' }); ui.taskGraphMinimal = minimal;
+      const { result, ...node } = answer;
+      renderTaskGraph({ total: 1, nodes: [{ ...node, has_result: true }], edges: [] });
+    }),
+  ];
+  try {
+    for (const paint of renderers) for (const label of ['仅验收', '验收并归档']) {
+      ui.lastSnapshot = null;
+      dom.node('detail').replaceChildren();
+      paint();
+      const panel = dom.node('detail');
+      if (panel.querySelector('.task-graph-more-trigger')) panel.querySelector('.task-graph-more-trigger').onclick();
+      expect(buttonOf(panel, '已解决')).toBeUndefined();
+      expect(deepText(panel)).toContain('无需先请求合并');
+      const before = calls.length;
+      await buttonOf(panel, label).onclick();
+      expect(calls.slice(before).map(call => call.method)).toEqual(label === '仅验收'
+        ? ['worker.accept'] : ['worker.accept', 'branch.archive']);
+      expect(dom.node('modal').hidden).toBe(true);
+    }
+  } finally { ui.taskGraphMinimal = false; }
+});
+
+test('answer acceptance requires known unchanged iteration and idle state, with guarded blockers', () => {
+  const answer = { ...task, status: 'waiting', integration: 'none', reservation: null, result: 'answer only' };
+  // Previously delivered commits do not make an unchanged current round ineligible.
+  expect(buttonOf(render(answer), '仅验收')).toBeTruthy();
+  for (const override of [{ result: null }, { base_commit: null, iteration_base_commit: null },
+    { head_commit: null }, { head_commit: 'c'.repeat(40) }, { task_kind: 'child' },
+    ...['queued', 'running', 'paused', 'failed', 'cancelled', 'completed'].map(status => ({ status, accepted: true }))]) {
+    const panel = iterationControls({ ...answer, ...override });
+    expect(panel && buttonOf(panel, '仅验收')).toBeFalsy();
+  }
+  for (const override of [{ workspace: null }, { workspace_state: 'missing' },
+    { branch_info: { archived: true } }, { agent: { active: true } },
+    { children: [{ id: 71, status: 'awaiting_acceptance' }] },
+    ...['pending', 'requested', 'executing', 'resolving', 'suspended', 'blocked'].map(status => ({
+      reservation: { version: 2, kind: 'merge', status },
+    }))]) {
+    for (const label of ['仅验收', '验收并归档']) {
+      const button = buttonOf(render({ ...answer, ...override }), label);
+      expect(button.disabled).toBe(true);
+      expect(button.parentNode.classList.contains('help-host')).toBe(true);
+    }
+  }
+});
+
 test('completed task detail uses archive as its only worktree and branch reclamation action', () => {
   ui.lastSnapshot = null;
   for (const integration of ['merged', 'none', 'superseded']) {

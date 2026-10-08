@@ -35,12 +35,12 @@ lush [--project PATH] [--json] <command>
   worker resolve-child-divergence ID 历史解分歧子 Worker
   worker resolve-divergence ID       历史指令解分歧入口
   worker approve-merge ID COMMIT BASELINE  历史请求的用户批准入口
-  worker accept ID                   用户验收 / 父 Agent 确认已交付 child（不归档）
+  worker accept ID                   用户验收成果（含无改动回答）/ 父 Agent 确认 child（不归档）
   worker reopen ID                   历史已合并 Worker 恢复待验收（不调用 Agent）
   worker sync-parent ID              安全同步父提交；冲突只返回诊断
   worker resolve-sync ID             调用 Agent 解决已记录的同步冲突
   worker clear-override ID           清除本 Worker 的独立运行覆盖，回到项目默认
-  worker resolve ID                  无代码改动时标记已解决
+  worker resolve ID                  指令验收的兼容入口（等同 accept，不归档）
   worker cancel|retry ID             停止或显式重试
   worker interrupt|resume ID         请求安全点暂停 / 非阻塞继续
   worker cleanup ID [--keep-branch]   安全回收工作区

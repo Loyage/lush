@@ -374,7 +374,7 @@ test('order Agent becomes idle after a call, can wake again, and can own another
   } finally { await f.close(); }
 });
 
-test('user marks a no-change order resolved: completed + integration none, answer kept, no redundant settlement notice', async () => {
+test('legacy resolve delegates a no-change order to acceptance, preserving answer and Git facts', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const sent = await f.project.order('只是想了解：预约是怎么工作的？');
@@ -384,12 +384,15 @@ test('user marks a no-change order resolved: completed + integration none, answe
     expect(resolved).toMatchObject({ status: 'completed', integration: 'none', reservation: null,
       result: '预约是 order 上的一种互斥意图。', branch: before.branch, base_commit: before.base_commit });
     expect(resolved.head_commit).toBe(before.base_commit);
-    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='task.resolved'", sent.task.id)).toHaveLength(1);
+    expect(f.store.all("SELECT id FROM events WHERE task_id=? AND type='task.resolved'", sent.task.id)).toHaveLength(0);
+    expect(f.store.history(sent.task.id).filter(row => row.type === 'task.accepted').map(row => row.data.accepted_by)).toEqual(['user']);
+    expect(f.project.inspect(sent.task.id).accepted).toBe(true);
     const notices = f.store.all("SELECT * FROM notices WHERE task_id=? AND kind='info'", sent.task.id);
     // User-created Tasks notify on runtime idle/failure, not on the user's own explicit resolution.
     expect(notices).toHaveLength(0);
-    // 终态不能重复结算，也不能再被 message 唤醒。
-    await expect(f.project.resolveTask(sent.task.id)).rejects.toThrow('already ended');
+    // Compatibility calls are idempotent, just like acceptance; no second audit or Agent call.
+    expect((await f.project.resolveTask(sent.task.id)).status).toBe('completed');
+    expect(f.store.history(sent.task.id).filter(row => row.type === 'task.accepted')).toHaveLength(1);
   } finally { await f.close(); }
 });
 
@@ -401,7 +404,7 @@ test('resolving a order refuses committed work, in-flight delivery, and active i
     fs.writeFileSync(path.join(committed.task.workspace, 'work.txt'), 'work\n');
     await git(committed.task.workspace, 'add', 'work.txt');
     await git(committed.task.workspace, 'commit', '-m', 'work');
-    await expect(f.project.resolveTask(committed.task.id)).rejects.toThrow('已经有提交');
+    await expect(f.project.resolveTask(committed.task.id)).rejects.toThrow('undelivered');
     expect(f.store.task(committed.task.id).status).toBe('waiting');
 
     // 先建好全部 order，再伪造各态：requested 预约会冻结 main，之后就不能再往 main 发 order。
@@ -411,15 +414,15 @@ test('resolving a order refuses committed work, in-flight delivery, and active i
 
     f.store.update(requested.task.id, { status: 'waiting', reservation: JSON.stringify({ version: 1, kind: 'merge',
       status: 'requested', commit: 'a'.repeat(40), baseline: 'b'.repeat(40), parent_id: 1 }) });
-    await expect(f.project.resolveTask(requested.task.id)).rejects.toThrow('合并请求');
+    await expect(f.project.resolveTask(requested.task.id)).rejects.toThrow('delivery');
 
     f.store.update(shown.task.id, { status: 'waiting', reservation: JSON.stringify({ version: 1, kind: 'showcase',
       status: 'preparing', child_id: 1 }) });
-    await expect(f.project.resolveTask(shown.task.id)).rejects.toThrow('reservation state is invalid');
+    await expect(f.project.resolveTask(shown.task.id)).rejects.toThrow('delivery');
 
     f.store.update(busy.task.id, { status: 'running' });
     f.project.running.set(busy.task.id, { controller: new AbortController() });
-    try { await expect(f.project.resolveTask(busy.task.id)).rejects.toThrow('正在调用'); }
+    try { await expect(f.project.resolveTask(busy.task.id)).rejects.toThrow('idle'); }
     finally { f.project.running.delete(busy.task.id); }
 
     expect(() => assertAllowed('worker.resolve', { id: busy.task.id }, busy.task.id)).toThrow('requires user approval');

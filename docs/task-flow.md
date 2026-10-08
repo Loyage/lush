@@ -9,7 +9,7 @@ Web 中尚未决定执行的想法可先按 Enter 暂存，Shift+Enter 换行；
 1. `lush order '目标'` 立即提交并开始这一条输入；Web「发送」或 Ctrl/⌘+Enter 只发送当前输入并创建待开始 Worker，Ctrl/⌘+Shift+Enter 才立即开始。输入保留原话和引用，直接创建拥有独立分支、worktree 的指令 Worker，**不先运行 planner、快速路由或 Plan Compiler**。
 2. 默认以当前检出的本地分支为父分支；Web 可选父分支。main 有静息的根 Worker，其他分支必须先显式绑定所有者（`lush branch bind BRANCH COMMIT`）。从父分支的已提交 tip 创建工作区；未提交改动不会被带入。
 3. 指令 Agent 可亲自完成，也可派子 Worker。子 Worker 各有自己的分支；新 child 默认预约合入直接父 Worker。安全结束、后代收敛、工作区干净且有提交时，由父 Worker 自有队列的 runtime 串行 Squash，不额外调用父 Agent；无提交的干净 child 只交付结果，不产生合并提交。分歧回源 Worker 合入固定父提交并测试，不允许 Agent 在父分支擅自解决或 rebase。
-4. Agent 每轮返回后，指令 Worker 通常静息等待下一条消息或子Worker结果；`waiting` 不占调用槽，也不表示失败或代码已合并。直接问问题也走指令 worktree。只想了解、没有代码改动的回答可用用户专属 `lush worker resolve ID` 标记「已解决」：保留答案并以 `completed` 结算，区别于「取消」。
+4. Agent 每轮返回后，指令 Worker 通常静息等待下一条消息或子Worker结果；`waiting` 不占调用槽，也不表示失败或代码已合并。直接问问题也走指令 worktree。只想了解、没有代码改动的回答也用 `lush worker accept ID` 验收：保留答案并以 `completed` / `integration='none'` 结算，无需先请求合并，区别于放弃工作。Web 详情与 Worker 图共用「仅验收」「验收并归档」；原 `worker.resolve` 仅保留为指令验收的用户专属兼容入口，统一安全检查、验收审计与 Hook。
 
 ## 合并预约与交付
 

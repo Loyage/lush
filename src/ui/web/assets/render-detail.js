@@ -159,21 +159,6 @@ export function renderDetail(task, history, diff, usage, connections = null) {
   if (!readOnly && task.branch_archive?.archivable && task.status !== 'awaiting_acceptance') actions.append(button('归档', () => runBranchArchive(
     { name: task.branch, subtreeBranches: task.branch_archive.subtree_branches }, { refresh: () => detail(task.id) }), 'ghost',
     { help: BRANCH_ARCHIVE_HELP }));
-  // 没有代码改动的指令给一个与「取消」区分的收尾：已解决=没有别的需求，取消=因别的原因放弃。
-  const iterationBase = task.iteration_base_commit || task.base_commit;
-  const noCommittedChange = !task.head_commit || !iterationBase || task.head_commit === iterationBase;
-  if (!readOnly && workerKind(task) === 'order' && !TERMINAL_STATUS.has(task.status) && task.status !== 'awaiting_acceptance' && noCommittedChange) actions.append(button('已解决', async () => {
-    const confirmed = await confirmDialog({
-      title: `把指令 ${workerLabel(task)} 标记为已解决？`,
-      message: '适用于这次输入只是想了解/确认、没有代码改动的情况：Worker 结算为「已完成」，答案作为结果保留，并解除它占用的唤醒。它与「放弃 Worker」不同——那是因别的原因放弃正在进行的工作；这里代表你确认没有别的需求了。如需继续追问，请在标记前直接给这个 Worker 发消息；标记后请作为新的指令发送。',
-      confirmLabel: '标记已解决',
-      confirmHelp: '仅在没有提交、工作区干净时允许；Worker 变为已完成，不发起合并请求，也不删除分支与工作区。',
-    });
-    if (!confirmed) return;
-    try { await action('worker.resolve', { id: task.id }); show(`指令 ${workerLabel(task)} 已标记为已解决`); }
-    catch (error) { show(error.message, 'error'); }
-    await detail(task.id);
-  }, 'ghost', { help: '把没有代码改动的指令结算为已完成（保留答案），用来区分「没有别的要求」和「放弃 Worker」；有提交时请改用请求合并或放弃。' }));
   // 中断只是可撤销的意图；请求期间即可继续、调整下一轮设置或明确放弃。
   const liveWorkTask = !readOnly && ['order','child'].includes(workerKind(task)) && !TERMINAL_STATUS.has(task.status);
   const interruptRequested = task.interrupt_state === 'requested';

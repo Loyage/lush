@@ -524,24 +524,26 @@ test('nested order requests await the parent Agent; failed historical delivery h
   expect(buttonOf(dom.node('detail'), '查看展示 #81')).toBeUndefined();
 });
 
-test('no-change order gets an 已解决 button distinct from cancel; committed or showcase work does not', async () => {
-  renderDetail({ ...order, head_commit: null, base_commit: baseline, integration: 'none' }, null, null, null);
+test('no-change answer uses shared acceptance rather than a separate resolved action', async () => {
+  renderDetail({ ...order, head_commit: baseline, base_commit: baseline, integration: 'none',
+    workspace: '/tmp/lush-answer', result: 'answer only' }, null, null, null);
   const panel = dom.node('detail');
-  const resolve = buttonOf(panel, '已解决');
-  expect(resolve).toBeDefined();
-  // 语义不直观但不调用 Agent：只带 data-help，不带 agent-call。
-  expect(resolve.classList.contains('agent-call')).toBe(false);
-  expect(resolve.getAttribute('data-help')).toContain('放弃 Worker');
-  const pending = resolve.onclick();
-  expect(dialogText(dom)).toContain('已解决');
-  await answerDialog(dom, '标记已解决'); await pending;
-  expect(world.state.actions).toContainEqual({ method: 'worker.resolve', params: { id: order.id } });
+  expect(buttonOf(panel, '已解决')).toBeUndefined();
+  expect(buttonOf(panel, '验收并归档')).toBeDefined();
+  const accept = buttonOf(panel, '仅验收');
+  expect(accept.classList.contains('agent-call')).toBe(false);
+  expect(accept.getAttribute('data-help')).toContain('保留分支与 worktree');
+  const before = world.state.actions.length;
+  await accept.onclick();
+  expect(world.state.actions.slice(before)).toEqual([{ method: 'worker.accept', params: { id: order.id } }]);
+  expect(dom.node('modal').hidden).toBe(true);
 
-  renderDetail({ ...order, head_commit: commit, base_commit: baseline, integration: 'pending' }, null, null, null);
-  expect(buttonOf(dom.node('detail'), '已解决')).toBeUndefined();
-  renderDetail({ ...order, head_commit: null, base_commit: baseline,
-    reservation: { version: 1, kind: 'showcase', status: 'preparing', child_id: 5 } }, null, null, null);
-  expect(buttonOf(dom.node('detail'), '已解决')).toBeUndefined();
+  for (const row of [{ ...order, head_commit: commit, base_commit: baseline, integration: 'pending' },
+    { ...order, head_commit: null, base_commit: baseline }, { ...order, status: 'running' }]) {
+    renderDetail(row, null, null, null);
+    expect(buttonOf(dom.node('detail'), '已解决')).toBeUndefined();
+    expect(buttonOf(dom.node('detail'), '仅验收')).toBeUndefined();
+  }
 });
 
 test('non-terminal order offers 中断 instead of direct cancel; paused offers 继续 / 调整运行设置 / 放弃任务', async () => {

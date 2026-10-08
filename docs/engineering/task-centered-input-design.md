@@ -19,5 +19,5 @@
 以下固定提交人工批准的语义只适用于历史 version 1，不是当前父自有队列的准入：
 
 - 合并预约仅在静息、后代已结算、工作区干净且能快进时发请求，固定源/父提交并锁父分支；请求不等于授权合并。
-- 直接父指令 Agent 可确认集成；main/owner 需要用户按固定 commit + baseline 批准。父分支自己前进或外部 Git 更改可能让请求失去快进前提，必须保留诊断、交由源侧解决或撤销请求。撤销不删除分支/历史。`completed` 不等于 `merged`。只想了解、没有代码改动的指令不会自己结束（一次调用正常返回只进入 waiting）；用户用 `worker.resolve` 把它标记为「已解决」——与「取消」区分，保留答案并以 `completed`/`integration='none'` 结算，仅在没有提交、工作区干净且无在途交付时允许。
+- 直接父指令 Agent 可确认集成；main/owner 需要用户按固定 commit + baseline 批准。父分支自己前进或外部 Git 更改可能让请求失去快进前提，必须保留诊断、交由源侧解决或撤销请求。撤销不删除分支/历史。`completed` 不等于 `merged`。只想了解、没有代码改动的指令不会自己结束（一次调用正常返回只进入 waiting）；用户使用同一套 `worker.accept` 验收回答，保留答案并以 `completed`/`integration='none'` 结算，无需先合并。原 `worker.resolve` 仅作为指令验收兼容入口，不再单独收尾；安全检查与历史边界见[持续迭代](task-iteration.md)。
 - 旧 Input、Plan、Candidate、路由事件保留在磁盘上，不迁移、不删除，但不再有公开入口，也不会自动重放；不能由旧记录的 role 或 Worker ID 猜测新协议身份。旧合并接口不能绕过当前队列准入或历史Worker的父确认/人工批准。

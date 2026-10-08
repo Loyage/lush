@@ -35,11 +35,11 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 | `worker reserve-all BRANCH`（Web「合并所有」） | `worker.reserve_all` | `{branch}`；用户专属；把该分支下所有已静息、待合并的 指令/child 逐条走同一套预约准入并交给父 Worker 自有交付队列的 runtime 串行处理 |
 | `worker unreserve ID` | `worker.unreserve` | `{id}`；用户专属 |
 | `worker approve-merge ID COMMIT BASELINE` | `worker.approve_merge` | `{id, commit, baseline}`；用户专属 |
-| `worker accept ID` | `worker.accept` | `{id}`；用户验收指令 / 运行中的直接父 Agent 确认已交付 child；返回 Worker，不归档 |
+| `worker accept ID` | `worker.accept` | `{id}`；用户验收指令成果（含静息无改动回答，无需先合并）/ 运行中的直接父 Agent 确认已交付 child；返回 Worker，不归档 |
 | `worker reopen ID` | `worker.reopen` | `{id}`；用户专属；历史已合并Worker显式恢复待验收，返回 Worker，不调用 Agent |
 | `worker sync-parent ID` | `worker.sync_parent` | `{id}`；用户专属；返回 `{task,synced,conflict,source_commit,parent_commit,reason?}`；不调用 Agent |
 | `worker resolve-sync ID` | `worker.resolve_sync` | `{id}`；用户专属；返回 Worker，显式调用 Agent 解决已记录同步冲突 |
-| `worker resolve ID` | `worker.resolve` | `{id}`；用户专属 |
+| `worker resolve ID` | `worker.resolve` | `{id}`；用户专属，仅指令；委托 `worker.accept` 的兼容入口，不归档 |
 | `worker resolve-divergence ID` | `worker.resolve_divergence` | `{id}`；用户专属 |
 | `worker resolve-child-divergence CHILD_ID` | `worker.resolve_child_divergence` | `{id}`；agent-only |
 | `worker cancel ID` | `worker.cancel` | `{id}` |
@@ -132,9 +132,13 @@ Worker 详情的原始目标直接展示；追加输入只需展开一层即可�
 
 指令的 pending merge 请求若与直接父分支分歧（`blocked_code='diverged'`），用户可 `worker.resolve_divergence ID` 派一个源侧解分歧子 Worker：它固定源 tip 为工作区基线、固定直接父 tip 为要吸收的提交，不移动任何 ref。已完成但未集成、或失败/取消且仍有活动分支的子Worker返回 `needs_review`（包含原 Worker 和原因），不悄悄新派。完成后由 runtime 校验产物同时包含原源 tip 和固定父 tip，快进源分支并自动发出固定请求（main/owner 仍须用户批准最终合并），不再要求被冻结的源指令 Agent 重新运行。若产物不合格或失败，先检查原子 Worker/工作区；显式 `branch archive BRANCH`（Web Worker 图「归档」）旧分支后，原指令静息且已处理子信号时才能重新 `worker resolve-divergence ID` 派新子Worker。归档删掉旧 ref/worktree、保留 Worker/固定提交事件/会话；脏工作区默认拒绝，只有用户明确 `--discard` 才丢弃未提交文件。该类子 Worker 不支持 `worker retry` 重放未知文件副作用。没有创建分支的失败Worker无需归档，重派仍需通过静息检查。若 Worker 已失败/取消，不能对终态预约直接复查：先检查 Agent/工作区副作用，再显式 `worker retry ID`。
 
-## 无改动指令的「已解决」
+## 无改动回答也走验收
 
-`worker.resolve` 是「已解决」与「放弃Worker」的语义区分：前者表示这次输入只是想了解/确认、用户已经没有别的需求，Worker以 `completed` 结算并保留 Agent 的 `result`，`integration='none'`，另落一条信息提醒；后者是放弃正在进行的工作。它只在分支没有新提交（`head_commit` 为空或等于 `base_commit`）、工作区干净、没有正在调用的 Agent 且没有发出的合并请求时允许；有提交的指令仍走 `worker.reserve merge` 交付或 `worker.cancel` 放弃。它不创建/删除分支与 worktree，也不推进任何 ref；需要继续追问时应在标记前给该 Worker 发消息（标记后请另发新的指令（已合并Worker的待验收与验收完成另走上述多轮交付协议））。
+`worker.accept` 可直接验收静息、无未交付改动的指令回答，无需请求合并或创建空 Squash。保留 `result`，结算为 `completed`；无代码交付保持 `integration='none'`，已交付轮次保留真实交付状态。验收确认成果，不等同于放弃 Worker，也不删除分支/worktree。检查运行与清理、未读消息、待决问题、未结算后代、预约/冻结、工作区与真实 Git 交付事实；失败保留现场，不自动消除待决事项。继续追问应在验收前追加输入，验收后有新要求另发指令。
+
+Web 详情与 Worker 图（含极简模式）对本轮有回答、已知顶端等于本轮基线的静息指令展示共用的「仅验收」「验收并归档」控件；未知基线/顶端、运行中、暂停或新增提交不能冒充无改动回答。控件只是候选提示，最终安全门由后端裁决，不自动把所有 waiting Worker 改成待验收。
+
+原 `worker.resolve` 仅保留用户专属的指令验收兼容入口，直接委托同一个 `acceptTask`，包括已交付代码的验收；不再走独立 `finish` 收尾、不新增 `task.resolved`，统一写 `task.accepted` 并触发 `worker.accepted` Hook。重复验收幂等，旧历史事件与已完成记录不迁移。
 
 `worker.inspect`、`worker.list` 提供结构化 `reservation`（旧Worker为 null）：version 1 与 version 2 的预约都原样读出，认不出的形态显示 `status:'invalid'` 供检查。旧 Worker 不接受该预约。
 

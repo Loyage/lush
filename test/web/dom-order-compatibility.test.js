@@ -47,7 +47,9 @@ for (const task_kind of ['order', 'say']) {
     buttonOf(dom.node('detail'), '向该 Worker 追加输入').onclick();
     expect(dom.node('input').placeholder).toContain('追加给 Worker #77');
     expect(dom.node('input-buffer').hidden).toBe(true);
-    expect(buttonOf(dom.node('detail'), '已解决')).toBeTruthy();
+    expect(buttonOf(dom.node('detail'), '已解决')).toBeUndefined();
+    // Missing answer and Git baseline must not be projected as a no-change acceptance candidate.
+    expect(buttonOf(dom.node('detail'), '仅验收')).toBeUndefined();
     expect(workerHooks(task).querySelector('.auto-merge-toggle')).toBeTruthy();
     const accepted = { ...task, status: 'awaiting_acceptance', integration: 'merged' };
     expect(isIterationTask(accepted)).toBe(true);
