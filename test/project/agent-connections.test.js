@@ -19,7 +19,7 @@ test('managed list is local-only, whitelisted, unknown not zero; consumers requi
     const list = f.project.agentConnectionsList();
     expect(list.version).toBe(1); expect(list.sampling.enabled).toBe(false);
     expect(list.connections[0].observation.status).toBe('unknown'); expect(list.connections[0].observation.resources).toEqual([]);
-    expect(list.connections[0].consumers).toEqual([{task_id:10,model:'deepseek/chat'}]);
+    expect(list.connections[0].consumers).toEqual([{task_id:10,task_worker_number:null,model:'deepseek/chat'}]);
     expect(JSON.stringify(list)).not.toContain('MUST_NOT_RETURN'); expect(reads).toBe(0); expect(count(f)).toBe(0);
     expect(() => service.history('conn-one',2)).toThrow(); expect(() => service.history('../private',7)).toThrow();
   } finally { f.project.running.clear(); await f.close(); }

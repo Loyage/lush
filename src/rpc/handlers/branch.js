@@ -1,4 +1,5 @@
 import { check } from '../../core/types.js';
+import { workerLabel } from '../../core/worker-number.js';
 
 /**
  * 「自己拥有的分支」：agent 只能给自己负责的分支写摘要——
@@ -66,11 +67,11 @@ export const handlers = {
     }
     if (params.branch !== undefined && params.branch !== null) {
       check(ownedBranches(p, actor).has(params.branch),
-        `branch ${params.branch} does not belong to worker #${actor}; agents may summarize only their own branch`);
+        `branch ${params.branch} does not belong to worker ${workerLabel(p.store.task(actor))}; agents may summarize only their own branch`);
       return p.setBranchSummary(params.branch, params.summary);
     }
     const branch = ownBranch(p, actor);
-    check(branch, `worker #${actor} has no branch to summarize; pass an explicit branch`);
+    check(branch, `worker ${workerLabel(p.store.task(actor))} has no branch to summarize; pass an explicit branch`);
     return p.setBranchSummary(branch, params.summary);
   },
 };

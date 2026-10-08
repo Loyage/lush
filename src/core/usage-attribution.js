@@ -32,8 +32,8 @@ export function usageAttribution(metadata = {}) {
       if (role === 'unknown') unknownRole++;
       if (runId === null) unknownRun++;
       add(roles, role, { role }, row);
-      add(byTask, taskId, { task_id: taskId, role, status: task?.status ?? null, integration: task?.integration ?? null, goal: task?.goal?.slice(0, 160) ?? null }, row);
-      add(invocations, `${taskId}:${runId}`, { task_id: taskId, run_id: runId, role, status: run?.status ?? null }, row);
+      add(byTask, taskId, { task_id: taskId, task_worker_number: task?.worker_number ?? null, role, status: task?.status ?? null, integration: task?.integration ?? null, goal: task?.goal?.slice(0, 160) ?? null }, row);
+      add(invocations, `${taskId}:${runId}`, { task_id: taskId, task_worker_number: task?.worker_number ?? null, run_id: runId, role, status: run?.status ?? null }, row);
     },
     result() {
       const sort = map => [...map.values()].sort((a, b) => b.cost - a.cost || b.tokens - a.tokens);

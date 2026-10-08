@@ -1,4 +1,5 @@
 import { descendantsOf, parentOf } from './genealogy.js';
+import { workerLabel } from './worker-number.js';
 
 /**
  * 分支写冻结（merge freeze）的唯一计算处。
@@ -22,7 +23,7 @@ export function branchFreeze(store) {
 
   // 新式解分歧 child 不使用 merger 角色。它创建时即在同一事务里写固定两端提交的事件；
   // 完成但尚未落地仍保持冻结，失败/取消释放（失败分支必须检查/归档后才能重派）。
-  for (const task of store.all(`SELECT t.id, t.target_branch, t.status, t.integration, t.branch
+  for (const task of store.all(`SELECT t.id, t.worker_number, t.target_branch, t.status, t.integration, t.branch
     FROM tasks t WHERE t.task_kind='child' AND t.target_branch IS NOT NULL
       AND (t.status NOT IN ('completed','failed','cancelled','awaiting_acceptance')
         OR (t.status IN ('completed','awaiting_acceptance') AND t.integration!='merged'))
@@ -31,12 +32,12 @@ export function branchFreeze(store) {
     if (task.status === 'completed' && (!task.branch || store.branch(task.branch)?.status !== 'active')) continue;
     const branch = task.target_branch;
     for (const name of [branch, parentOf(rows, branch), ...descendantsOf(rows, branch)]) {
-      add(name, { kind: 'resolution', task_id: task.id, target: branch,
-        reason: `解分歧 Worker #${task.id} 正在固定 ${branch} 与其父分支（完成后须先落地或显式归档）` });
+      add(name, { kind: 'resolution', task_id: task.id, task_worker_number: task.worker_number, target: branch,
+        reason: `解分歧 Worker ${workerLabel(task)} 正在固定 ${branch} 与其父分支（完成后须先落地或显式归档）` });
     }
   }
 
-  for (const task of store.all(`SELECT id, branch, target_branch, reservation FROM tasks
+  for (const task of store.all(`SELECT id, worker_number, branch, target_branch, reservation FROM tasks
     WHERE task_kind IN ('order','say','child') AND target_branch IS NOT NULL AND reservation IS NOT NULL
     ORDER BY CASE WHEN json_valid(reservation) AND json_extract(reservation,'$.status') IN ('executing','resolving','blocked') THEN 0 ELSE 1 END,id`)) {
     let request = null;
@@ -46,13 +47,13 @@ export function branchFreeze(store) {
       || !(request.status === 'requested' || (request.version === 2 && ['executing','resolving','blocked'].includes(request.status)))) continue;
     if (request.version === 2 && request.queue_protocol === 1) {
       // Queued work freezes only its source. The current attempt owns the parent writer slot.
-      const info = { kind: 'delivery', task_id: task.id, commit: request.commit ?? null,
+      const info = { kind: 'delivery', task_id: task.id, task_worker_number: task.worker_number, commit: request.commit ?? null,
         attempt_id: request.attempt_id ?? null,
-        reason: `Worker #${task.id} 的交付由父Worker队列串行处理（${request.status}）` };
+        reason: `Worker ${workerLabel(task)} 的交付由父Worker队列串行处理（${request.status}）` };
       add(task.branch, info);
       if (['executing','resolving','blocked'].includes(request.status)) add(task.target_branch, info);
-    } else add(task.target_branch, { kind: 'delivery', task_id: task.id, commit: request.commit ?? null,
-      reason: `历史 Worker #${task.id} 的固定提交交付请求尚未结算` });
+    } else add(task.target_branch, { kind: 'delivery', task_id: task.id, task_worker_number: task.worker_number, commit: request.commit ?? null,
+      reason: `历史 Worker ${workerLabel(task)} 的固定提交交付请求尚未结算` });
   }
 
   return frozen;

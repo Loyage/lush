@@ -10,6 +10,7 @@ import { check, id, isPlainObject } from '../../core/types.js';
 import { restartProjectDaemon } from '../../host/service-control.js';
 import { DeviceSettingsService, DEVICE_SETTINGS_READS, DEVICE_SETTINGS_ACTIONS } from '../../host/device-settings.js';
 import { normalizeConfigurationScope } from '../../core/device-config.js';
+import { workerLabel } from '../../cli/worker-number.js';
 const ASSETS = fileURLToPath(new URL('./assets/', import.meta.url));
 const AUTH_FILE = 'web.json';
 const SESSION_COOKIE = 'lush_session';
@@ -463,7 +464,7 @@ export function startWeb(config, port = 4318, options = {}) {
             const task = await client.request('worker.inspect', { id: Number(report[1]) });
             if (task.role !== 'verifier') return json({ error: 'not found' }, 404);
             const file = path.join(binding.config.home, 'verify', String(task.id), 'report.html');
-            if (!fs.existsSync(file)) return json({ error: `worker #${task.id} has no report yet` }, 404);
+            if (!fs.existsSync(file)) return json({ error: `worker ${workerLabel(task)} has no report yet` }, 404);
             const stat = fs.lstatSync(file);
             check(stat.isFile() && !stat.isSymbolicLink() && fs.realpathSync(file) === file && stat.size <= 8 * 1024 * 1024, 'unsafe report file');
             // 独立顶层文档（新标签打开）：不受主页面 CSP 约束，但仍显式收紧到一个自包含页面。

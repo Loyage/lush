@@ -7,6 +7,7 @@ import { tokenHash, workerRunProfile, workerModelSelection, profileEvent } from 
 import { AgentPreempted } from '../../agent/provider.js';
 import { validateRuntimeConnection } from '../../agent/connection-runtime.js';
 import { MISSING_PI_SOURCE_MESSAGE } from '../../agent/settings.js';
+import { workerLabel } from '../worker-number.js';
 
 /** A claimed boundary cannot be cancelled, even while the process is still exiting. */
 function claimedStop(project, taskId, run) {
@@ -441,7 +442,7 @@ export default {
         const fixed = JSON.parse(fixedEvent.data);
         const state = await this.workspaces.branchState(task.target_branch);
         check(state.child_head === fixed.source_commit && state.parent_head === fixed.parent_commit,
-          `解分歧两端提交在 Worker #${task.id} 开工前已移动；保留现场，检查后再派`);
+          `解分歧两端提交在 Worker ${workerLabel(task)} 开工前已移动；保留现场，检查后再派`);
       }
       if (run.controller.signal.aborted) throw new Error('cancelled');
       task = this.store.task(taskId);

@@ -1,5 +1,6 @@
 import { check, id, text, TERMINAL } from '../types.js';
 import { assertTaskAncestorsOpen } from './iteration.js';
+import { workerLabel } from '../worker-number.js';
 
 const STATUSES = new Set(['draft','created','queued','running','waiting','awaiting','paused','awaiting_acceptance','completed','failed','cancelled','unknown']);
 const MERGES = new Set(['merging','blocked','merged','none']);
@@ -63,7 +64,7 @@ export default {
   assertInputParent(parentId, branch = undefined) {
     const parent = this.store.task(id(parentId));
     check(['main','owner','order'].includes(parent.task_kind) && parent.branch && (branch === undefined || parent.branch === branch)
-      && !TERMINAL.has(parent.status), `parent worker #${parent.id} is no longer available; select an active parent Worker`);
+      && !TERMINAL.has(parent.status), `parent worker ${workerLabel(parent)} is no longer available; select an active parent Worker`);
     const record = this.store.branch(parent.branch);
     check(!record || !['deleted','archived'].includes(record.status), 'parent branch was deleted or archived; select another parent Worker');
     assertTaskAncestorsOpen(this, parent);

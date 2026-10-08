@@ -2,6 +2,7 @@ import { check, id, text, TERMINAL, isPlainObject, isSettled } from '../types.js
 import { questionnaire, questionnaireAnswer } from '../questionnaire.js';
 import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
 import { decideTaskInput } from '../task-input-rule.js';
+import { workerLabel } from '../worker-number.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation, resumeTaskDelivery } from './iteration.js';
 
 /** Internal shared settlement; provenance is chosen by the runtime, never by RPC input. */
@@ -148,7 +149,7 @@ export default {
     const existing = this.store.get(`${NOTICE_SELECT} WHERE source_event_id=?`, event.id);
     if (existing) return existing;
     const goal = String(task.goal ?? '').trim().split('\n')[0].slice(0, 100);
-    const title = `${task.task_kind === 'analysis' ? '分析' : 'Worker'} ${task.worker_number ?? `#${task.id}`} ${failed ? '异常停止' : analyzed ? '已完成' : '本轮已结束'}：${goal}`;
+    const title = `${task.task_kind === 'analysis' ? '分析' : 'Worker'} ${workerLabel(task)} ${failed ? '异常停止' : analyzed ? '已完成' : '本轮已结束'}：${goal}`;
     const body = [
       failed ? `Worker 异常停止：${String(task.error ?? '没有记录到原因').slice(0, 1200)}`
         : analyzed ? '只读分析已完成，没有分支改动。'
@@ -158,7 +159,7 @@ export default {
       task.task_kind === 'analysis' ? '' : task.integration === 'merged'
         ? 'integration：已合入父分支。' : '尚未记录已合入父分支；实际交付状态见 Worker 详情。',
       task.result ? `${analyzed ? '结论' : '本轮结果'}：${String(task.result).slice(0, 1200)}` : '',
-      `打开 Worker #${task.id} 查看详情。此告知无需答复，不会批准合并、验收或自动重试。`,
+      `打开 Worker ${workerLabel(task)} 查看详情。此告知无需答复，不会批准合并、验收或自动重试。`,
     ].filter(Boolean).join('\n');
     const row = this.store.run(`INSERT INTO notices(task_id,title,body,kind,status,source_event_id)
       VALUES (?,?,?,'info','sent',?)`, task.id, title, body, event.id);

@@ -7,6 +7,7 @@ import { renderUsageSeries } from './render-agent-usage.js';
 import { usageErrorLabels, usageWindow } from './usage-window.js';
 import { scopeLabel, scopeImpact } from './settings-scope.js';
 import { settingsClient } from './settings-api.js';
+import { workerLabel } from './worker-label.js';
 
 const PROVIDERS = [['deepseek', 'DeepSeek'], ['openrouter', 'OpenRouter'], ['zai', 'Z.AI'], ['kimi-coding', 'Kimi Coding'], ['openai-codex', 'Codex 订阅'], ['openai-compatible', '自定义 OpenAI 兼容 API']];
 const SOURCES = { usage_api: '专用余额 / 额度接口', client_rpc: '原生客户端协议', response_headers: '正常模型响应（调用结束后采集）', none: '尚无观测来源' };
@@ -677,7 +678,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       note(consumers, '实际正在使用此连接的本项目 Worker：');
       for (const consumer of array(connection.consumers)) {
         if (!Number.isSafeInteger(consumer.task_id) || consumer.task_id <= 0) continue;
-        const link = el('a', `Worker #${consumer.task_id}`); link.href = `#worker-${consumer.task_id}`;
+        const link = el('a', `Worker ${workerLabel(consumer.task_id, consumer.task_worker_number)}`); link.href = `#worker-${consumer.task_id}`;
         consumers.append(link, el('span', ` · ${text(consumer.model)} `));
       }
       if (!array(connection.consumers).length) note(consumers, '暂无运行中的显式绑定；不猜测其他客户端消耗。');

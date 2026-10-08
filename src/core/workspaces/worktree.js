@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { check } from '../types.js';
 import { taskLabel, inputLabel } from '../naming.js';
 import { dirtDetail } from './git.js';
+import { workerLabel } from '../worker-number.js';
 
 /** worktree / 对照检出 / 输入锚点的创建与回收。 */
 export const methods = {
@@ -130,7 +131,7 @@ export const methods = {
     if (task.task_kind === 'analysis') return this.exclusive(async () => {
       task = this.store.task(task.id);
       const project = this.config.project;
-      check(task.target_branch, `analysis #${task.id} has no branch to analyze`);
+      check(task.target_branch, `analysis ${workerLabel(task)} has no branch to analyze`);
       const commit = await this.git(project, 'rev-parse', '--verify', `refs/heads/${task.target_branch}^{commit}`);
       if (task.baseline_workspace && fs.existsSync(task.baseline_workspace)) {
         const root = fs.realpathSync(await this.git(task.baseline_workspace, 'rev-parse', '--show-toplevel'));
@@ -147,7 +148,7 @@ export const methods = {
     if (task.task_kind === 'order') {
       // A order Task owns the input branch itself. Never create a second worker branch for it.
       const anchor = this.inputAnchor(task);
-      check(anchor?.workspace && fs.existsSync(anchor.workspace), `order #${task.id} has no worktree; inspect before retrying`);
+      check(anchor?.workspace && fs.existsSync(anchor.workspace), `order ${workerLabel(task)} has no worktree; inspect before retrying`);
       const root = fs.realpathSync(await this.git(anchor.workspace, 'rev-parse', '--show-toplevel'));
       check(root === anchor.workspace && task.workspace === anchor.workspace, 'order worktree identity changed');
       check(await this.git(anchor.workspace, 'symbolic-ref', '--short', 'HEAD') === task.branch, 'order branch changed');

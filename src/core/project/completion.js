@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { workerLabel } from '../worker-number.js';
 import { check, id, TERMINAL } from '../types.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, taskSyncDeliveryPaused } from './iteration.js';
 
@@ -117,7 +118,7 @@ export default {
       const data = state(this, task), key = `${data.authorization ?? 'legacy'}:${stage}`;
       data.notices ??= {};
       if (data.notices[key]) return this.store.get('SELECT * FROM notices WHERE id=?', data.notices[key]);
-      const label = task.worker_number ?? `#${task.id}`;
+      const label = workerLabel(task);
       const notice = this.notify(task.id, `Worker ${label} · ${stage === 'accept' ? '待验收' : stage === 'archive' ? '待归档' : '自动处理受阻'}`, body);
       data.notices[key] = notice.id;
       // Only four stage reminders are relevant to an authorization. Keep history in Events, not unbounded JSON.

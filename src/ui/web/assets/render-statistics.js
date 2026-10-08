@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { statisticsDefaults, statisticsDates, statisticsQuery, statisticsToday } from './statistics-range.js';
+import { workerLabel } from './worker-label.js';
 
 const number = value => Number(value).toLocaleString();
 const money = value => `$${Number(value).toFixed(6)}`;
@@ -130,7 +131,7 @@ export function renderStatistics(data) {
     const thead = el('thead'); thead.append(head); table.append(thead);
     const body = el('tbody');
     for (const entry of data[key]) {
-      const name = key === 'roles' ? entry.role : `#${entry.task_id} · ${entry.role}${key === 'invocations' ? ` · run ${entry.run_id ?? '未知'}` : ''}`;
+      const name = key === 'roles' ? entry.role : `${workerLabel(entry.task_id, entry.task_worker_number)} · ${entry.role}${key === 'invocations' ? ` · run ${entry.run_id ?? '未知'}` : ''}`;
       const row = el('tr');
       const status = [entry.status, entry.integration, entry.unknown_tokens ? `${entry.unknown_tokens} 条用量未知` : null].filter(Boolean).join(' / ');
       row.append(el('th', `${name}${status ? ` / ${status}` : ''}`), el('td', number(entry.requests)),

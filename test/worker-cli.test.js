@@ -145,6 +145,6 @@ test('human-readable CLI renders Worker identity and child wait labels', () => {
   const text = logs.join('\n');
   expect(text).toContain('这个 Worker 还没有 pi 会话记录');
   expect(text).toContain('待父 Worker #2 确认');
-  expect(text).toContain('Worker: worker#7');
+  expect(text).toContain('Worker: #7');
   expect(text).not.toMatch(/任务|\bTask\b|task:/);
 });

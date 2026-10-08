@@ -3,6 +3,7 @@ import path from 'node:path';
 import { check, TERMINAL } from '../types.js';
 import { buildForest, parentOf, childrenOf, ancestorsOf, descendantsOf, chainOf, rootOf, pruneHidden } from '../genealogy.js';
 import { slugify } from '../naming.js';
+import { workerLabel } from '../worker-number.js';
 import { sessionFiles } from '../transcript.js';
 
 /** 分支谱系一次最多画这么多节点；超过就截断并在结果里说明（只读视图不该拖垮 daemon）。 */
@@ -165,7 +166,7 @@ export default {
     if (record.task_id !== null) {
       const task = this.store.get('SELECT * FROM tasks WHERE id=?', record.task_id);
       check(!task?.task_kind, 'new Worker branches require parent confirmation or fixed-commit main approval; legacy branch.merge is unavailable');
-      check(!task || task.status === 'completed', `branch worker #${record.task_id} is not completed`);
+      check(!task || task.status === 'completed', `branch worker ${workerLabel(task ?? { id: record.task_id })} is not completed`);
     }
     const outcome = await this.workspaces.mergeBranch(name, expected);
     if (!outcome.merged && !outcome.already_integrated) return outcome;
@@ -295,11 +296,11 @@ export default {
       if (!(own && TERMINAL.has(repair.status))) this.assertBranchWritable(target, 'archive it');
     }
     // 已发出未集成的请求：源分支就是那次交付本身，归档它会让父分支的交付锁永远没有落地对象。
-    const requested = this.store.all(`SELECT t.id,t.branch,t.reservation FROM tasks t
+    const requested = this.store.all(`SELECT t.id,t.worker_number,t.branch,t.reservation FROM tasks t
       WHERE t.task_kind IN ('order','say') AND t.reservation IS NOT NULL AND t.branch IN (${targets.map(() => '?').join(',')})`, ...targets)
       .filter(row => { try { const value = JSON.parse(row.reservation); return value?.kind === 'merge' && value.status === 'requested'; } catch { return false; } });
     check(requested.length === 0,
-      `branch ${requested[0]?.branch} still has an outstanding merge request from order #${requested[0]?.id}; integrate or withdraw it before archiving`);
+      `branch ${requested[0]?.branch} still has an outstanding merge request from order ${workerLabel(requested[0])}; integrate or withdraw it before archiving`);
     const guard = completion ? () => {
       const task = this.assertCompletionClaim(record.task_id, completion, 'archive');
       check(task.status === 'completed' && !discard_worktree && !continueArchive, 'automatic archive requires accepted clean work');
@@ -317,7 +318,7 @@ export default {
     check(!targets.includes(state.current_branch), `cannot archive the branch currently checked out: ${state.current_branch}`);
     // 整棵子树上的任务都必须已终态：归档把这条分支的工作收起来，活还没完的状态不该被藏掉。
     const placeholders = targets.map(() => '?').join(',');
-    const unfinished = this.store.all(`SELECT id, status FROM tasks WHERE branch IN (${placeholders})
+    const unfinished = this.store.all(`SELECT id, worker_number, status FROM tasks WHERE branch IN (${placeholders})
       AND status NOT IN ('completed','failed','cancelled') ORDER BY id`, ...targets);
     // Historical branchless checkouts are never reclaimed through ordinary branch archive.
     const showcases = this.store.all(`SELECT * FROM tasks WHERE role='showcase'
@@ -327,13 +328,13 @@ export default {
     // invocation is still unwinding also hold the worktrees; archiving them would delete a live checkout.
     const users = new Set(this.branchResourceUsers(targets));
     for (const id of users) {
-      const task = this.store.get('SELECT id, status FROM tasks WHERE id=?', id);
+      const task = this.store.get('SELECT id, worker_number, status FROM tasks WHERE id=?', id);
       if (task && (!TERMINAL.has(task.status) || this.running.has(task.id))
         && !unfinished.some(row => row.id === task.id)) unfinished.push(task);
     }
     const cleaning = [...this.workspaces.busy].filter(id => users.has(id));
-    check(cleaning.length === 0, `branch ${name} is being cleaned up (worker #${cleaning[0]})`);
-    check(unfinished.length === 0, `branch ${name} still has unfinished workers: ${unfinished.map(task => `#${task.id}`).join(', ')}`);
+    check(cleaning.length === 0, `branch ${name} is being cleaned up (worker ${workerLabel(this.store.get('SELECT id,worker_number FROM tasks WHERE id=?', cleaning[0]) ?? { id: cleaning[0] })})`);
+    check(unfinished.length === 0, `branch ${name} still has unfinished workers: ${unfinished.map(workerLabel).join(', ')}`);
     // 子树里每条分支名下的任务行先收好：每条分支 settle 时就立刻把库改成磁盘的事实，
     // 所以第 N 条失败也不会留下「库说还在、目录已经没了」的前 N-1 条。
     const tasksByBranch = new Map(targets.map(target => [target,
@@ -432,7 +433,7 @@ export default {
     // 便利：允许用 task id 查——分支名形如 lush/<hash>/<id>-<name>，手打太长。
     if (/^\d+$/.test(branch)) {
       const task = this.store.task(Number(branch));
-      check(task.branch, `worker #${task.id} has no branch`);
+      check(task.branch, `worker ${workerLabel(task)} has no branch`);
       branch = task.branch;
     }
     const nodes = this.branchNodes(state);

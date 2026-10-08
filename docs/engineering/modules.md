@@ -80,6 +80,9 @@
 - 读取完整 Worker 与摘要对象时携带 `worker_number:string|null`；Input 历史的关联字段为 `task_worker_number`、父候选为 `worker_number`；Notice 关联字段为 `task_worker_number`。关联 Worker 缺失时编号未知，不凭数字猜测。
 - CLI 通过新增只读 `worker.lookup {number}` 得到 `{id,worker_number}`，将严格匹配的 `Wn(-n)*` 解析为整数后调用原接口；旧整数参数照常可用。原 RPC/HTTP 的 `id` 字段、链接和引用 target 不变；不能给通用 `id()` 增加字符串身份，不能将 `worker.artifact` 的产物 ID 当成 Worker 编号。
 - Web / CLI 显示优先使用持久编号，没有编号时保留历史标识；新引用的标签可用新编号，但 target/location 仍保存整数，旧快照不回写。编号不是排序键，也不能据其推导真实父子权限或合并顺序。
+- 用户决定 #278：新生成的用户报告、异常告知（标题与正文）、错误及相关 Worker 提示统一使用显式持久编号；历史未编号或关联缺失时回退 `#内部ID`，不得把整数 ID 加上 W 前缀或靠父子关系推算。Agent 内置提示遵守同一口径；已有报告、Notice 正文与原始日志不回写，机器身份、blocker key、信号和 Git 协议不改动。
+
+报告关联读面：冻结信息、实际连接消费者与既有用量归因的关联字段为 `task_worker_number`；历史检验/解分歧列表为 `worker_number`，verifier 被检验目标为 `verifies_task_worker_number`，历史 Spec 关联为 `task_worker_number`。缺失关联返回 NULL，不恢复已退役 API。回归入口为 `test/project/worker-number-{reports,projections}.test.js`、`test/web/dom-worker-report-number.test.js`、`test/worker-number-cli.test.js` 与 `test/agent-worker-report-number.test.js`。
 
 实现分工：编号校验、唯一约束与只读 `worker.lookup` 在 `src/core/worker-number.js` 与 `src/persistence/store/`、`src/rpc/`；CLI 解析与展示在 `src/cli/worker-number.js`；Web 展示接缝在 `src/ui/web/assets/worker-label.js` 与 `format.js`。字段与接口见 [Runtime 地图](modules-runtime.md) 与 [Web 前端](modules-web.md)。
 

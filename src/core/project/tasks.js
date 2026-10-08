@@ -1,5 +1,6 @@
 import { check, id, text, TERMINAL, bounded, isPlainObject } from '../types.js';
 import { taskSlug } from '../naming.js';
+import { workerLabel } from '../worker-number.js';
 import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
 import { MESSAGE_SELECT } from '../../persistence/store/messages.js';
 import { agentView, workerModelSelection, inheritedRunProfile, profileEvent } from './internal.js';
@@ -150,7 +151,7 @@ export default {
         // A partially created worktree is valuable evidence; never force-delete it.
         this.store.update(task.id, { status: 'failed', error: `fork failed: ${error.message}` });
         this.store.event(task.id, 'task.fork_failed', { parent_id: parent.id, commit, error: error.message });
-        throw new Error(`worker #${task.id} fork failed; inspect its worktree: ${error.message}`);
+        throw new Error(`worker ${workerLabel(task)} fork failed; inspect its worktree: ${error.message}`);
       }
       this.kick(); return this.store.task(task.id);
     });
@@ -232,6 +233,8 @@ export default {
     const artifactsRead = this.store.artifactsPage(task.id, { limit: RUN_WINDOW });
     const artifacts = bounded(artifactsRead.items, 200000);
     return { ...task, goal_input_delivery: this.store.goalInputDelivery(taskId),
+      ...(task.role === 'verifier' ? { verifies_task_worker_number: task.verifies_task_id
+        ? this.store.get('SELECT worker_number FROM tasks WHERE id=?', task.verifies_task_id)?.worker_number ?? null : null } : {}),
       model_selection: workerModelSelection(this, this.store.task(taskId)),
       auto_merge: this.autoMergeView(storedTask), completion: this.autoCompletionView(storedTask), merge_readiness: this.mergeReadiness(storedTask),
       hooks: this.taskHooks(taskId),

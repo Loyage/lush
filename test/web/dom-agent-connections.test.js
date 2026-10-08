@@ -95,6 +95,23 @@ test('连接页进入只读本地列表，多账号不按服务商合并，资�
   expect(refresh.parentNode.classList.contains('help-host')).toBe(true);
 });
 
+test('消费者使用显式深层编号或项目缓存，保留整数链接和历史回退，不发标签查询', async () => {
+  const { workerLabel } = await import('../../src/ui/web/assets/worker-label.js');
+  ui.workerNumbers.clear();
+  workerLabel(301, 'W8-1');
+  data.connections[0].consumers = [{ task_id: 205, task_worker_number: 'W5-3-2', model: 'deep' },
+    { task_id: 47, task_worker_number: null, model: 'legacy' }, { task_id: 301, model: 'cached' }];
+  const snapshot = structuredClone(data);
+  const p = await panel();
+  try {
+    const links = card(p).querySelector('.agent-connection-consumers').querySelectorAll('a');
+    expect(links.map(link => link.textContent)).toEqual(['Worker W5-3-2', 'Worker #47', 'Worker W8-1']);
+    expect(links.map(link => link.href)).toEqual(['#worker-205', '#worker-47', '#worker-301']);
+    expect(requests.map(entry => entry.url)).toEqual(['/api/agent/connections']);
+    expect(actions).toHaveLength(0); expect(data).toEqual(snapshot);
+  } finally { p.dispose(); ui.workerNumbers.clear(); }
+});
+
 test('窄屏选择来源将焦点移到可见详情，返回恢复列表搜索焦点', async () => {
   const previous = globalThis.matchMedia;
   globalThis.matchMedia = () => ({ matches: true });

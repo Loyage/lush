@@ -11,6 +11,7 @@ export async function resolveWorkerId(client, value) {
   return id(resolved.id);
 }
 
-/** Keep each caller's historical fallback; never derive a number from an integer ID. */
-export const workerLabel = (task, fallback = `#${task?.id ?? '?'}`) => task?.worker_number || fallback;
+/** Only explicit stable metadata is a label; never derive a number from an integer ID. */
+export const workerLabel = (task, fallback = `#${task?.id ?? '?'}`) => typeof task?.worker_number === 'string'
+  && /^W[1-9]\d*(?:-[1-9]\d*)*$/.test(task.worker_number) ? task.worker_number : fallback;
 export const inputNumber = inputId => `O${inputId}`;

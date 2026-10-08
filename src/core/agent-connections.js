@@ -273,7 +273,9 @@ export class AgentConnectionsService {
       const consumers = [...this.project.running.entries()].filter(([, run]) =>
         !run.parked && !run.controller?.signal?.aborted && run.connectionBinding?.id === connection.id
         && run.connectionBinding.account_key === state.account_key && run.connectionBinding.source_key === state.source_key)
-        .slice(0, 100).map(([task_id, run]) => ({ task_id, model: safeText(run.agent.model) }));
+        .slice(0, 100).map(([task_id, run]) => ({ task_id,
+          task_worker_number: this.store.get('SELECT worker_number FROM tasks WHERE id=?', task_id)?.worker_number ?? null,
+          model: safeText(run.agent.model) }));
       return { ...connection, observation, last_success, consumers, ...(observation_truncated ? { observation_truncated: true } : {}),
         ...(last_success_truncated ? { last_success_truncated: true } : {}) };
     });

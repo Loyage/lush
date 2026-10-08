@@ -6,6 +6,7 @@ import { readInputRule, saveInputRule, snapshotPath } from '../task-input-rule.j
 import { forkCheckpoint } from '../../agent/fork.js';
 import { checkDraftRevision } from './input-history.js';
 import { profileEvent } from './internal.js';
+import { workerLabel } from '../worker-number.js';
 
 function storedReservation(raw) {
   if (raw === null) return null;
@@ -21,7 +22,7 @@ function storedReservation(raw) {
 /** 请求失效的唯一诊断文案：三个触发点（父分支自己提交 / 集成 / 批准）说同一句话，才不会被去重成多条事件。 */
 function assertQuietResolutionParent(project, parent) {
   check(!project.running.has(parent.id) && !['running', 'queued'].includes(parent.status),
-    `父Worker #${parent.id} 尚未到安全点；等待当前 Agent 调用结束后再冻结并派解分歧 Worker`);
+    `父Worker ${workerLabel(parent)} 尚未到安全点；等待当前 Agent 调用结束后再冻结并派解分歧 Worker`);
 }
 
 function parentMovedReason(branch, parentHead, commit) {
@@ -70,10 +71,10 @@ export default {
       check(actual === commit, `branch ${branch} moved; confirm its current HEAD before binding`);
       const old = this.store.branch(branch);
       check(!old || !['deleted','archived'].includes(old.status), `branch ${branch} has a deleted/archived historical record; inspect before binding`);
-      const unfinished = this.store.get(`SELECT t.id FROM tasks t LEFT JOIN inputs i ON i.id=t.input_id
+      const unfinished = this.store.get(`SELECT t.id,t.worker_number FROM tasks t LEFT JOIN inputs i ON i.id=t.input_id
         WHERE t.task_kind IS NULL AND t.status NOT IN ('completed','failed','cancelled')
           AND (t.branch=? OR t.target_branch=? OR i.anchor_branch=?) LIMIT 1`, branch, branch, branch);
-      check(!unfinished, `branch ${branch} still has an active old worker #${unfinished?.id}; finish it before binding`);
+      check(!unfinished, `branch ${branch} still has an active old worker ${workerLabel(unfinished)}; finish it before binding`);
       return this.store.transaction(() => {
         const owners = this.store.all("SELECT id FROM tasks WHERE branch=? AND task_kind IN ('main','owner','order','say')", branch);
         check(owners.length === 0, `branch ${branch} already has a new Worker owner`);
@@ -100,7 +101,7 @@ export default {
     check(!TERMINAL.has(parent.status), 'branch owner has ended; bind the branch again first');
     return this.workspaces.exclusive(async () => {
       const branch = parent.branch;
-      check(branch, `worker #${parent.id} owns no branch to analyze`);
+      check(branch, `worker ${workerLabel(parent)} owns no branch to analyze`);
       const commit = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${branch}^{commit}`)
         .catch(() => { throw new Error(`local branch ${branch} does not exist; nothing to analyze`); });
       const created = this.store.transaction(() => {
@@ -129,7 +130,7 @@ export default {
           const eventId = this.store.event(created.id, 'analysis.fork_failed', { error: error.message });
           this.notifyTaskLifecycle(created.id, eventId);
         });
-        throw new Error(`analysis #${created.id} fork failed; inspect its checkout: ${error.message}`);
+        throw new Error(`analysis ${workerLabel(created)} fork failed; inspect its checkout: ${error.message}`);
       }
       this.kick();
       return { status: 'queued', task: this.progressView(created), branch, commit };
@@ -178,7 +179,7 @@ export default {
       const previous = storedReservation(task.reservation);
       check(!previous || (previous.version === 1 && previous.status === 'pending' && previous.kind === 'merge'),
         'reservation state needs inspection before changing it');
-      check(!previous || previous.kind === kind, `worker #${task.id} already reserves ${previous?.kind}; unreserve it before choosing ${kind}`);
+      check(!previous || previous.kind === kind, `worker ${workerLabel(task)} already reserves ${previous?.kind}; unreserve it before choosing ${kind}`);
       if (previous) return { task_id: task.id, reservation: previous, changed: false };
       const reservation = { version: 1, kind, status: 'pending', created_at: new Date().toISOString() };
       this.store.update(task.id, { reservation: JSON.stringify(reservation) });
@@ -320,8 +321,8 @@ export default {
       if (previous) return TERMINAL.has(previous.status)
         ? { status: 'needs_review', task: this.progressView(previous),
           reason: terminal
-            ? `解分歧子Worker #${previous.id} ${previous.status} 且尚未集成；先检查现场。若需重新派 Worker，须显式归档 ${previous.branch}（保留 Worker 和会话，脏工作区需用户另行确认丢弃）。`
-            : `解分歧子Worker #${previous.id} ${previous.status} 且尚未集成；先检查现场。完成的结果可由指令 Agent 确认固定提交；若需重新派 Worker，须显式归档 ${previous.branch}（保留 Worker 和会话，脏工作区需用户另行确认丢弃）。` }
+            ? `解分歧子Worker ${workerLabel(previous)} ${previous.status} 且尚未集成；先检查现场。若需重新派 Worker，须显式归档 ${previous.branch}（保留 Worker 和会话，脏工作区需用户另行确认丢弃）。`
+            : `解分歧子Worker ${workerLabel(previous)} ${previous.status} 且尚未集成；先检查现场。完成的结果可由指令 Agent 确认固定提交；若需重新派 Worker，须显式归档 ${previous.branch}（保留 Worker 和会话，脏工作区需用户另行确认丢弃）。` }
         : { status: 'existing', task: this.progressView(previous) };
       if (!terminal) {
         const reason = this.reservationWaitReason(task);
@@ -340,7 +341,7 @@ export default {
       check(state.status === 'diverged', `source is ${state.status}; resolve_divergence only applies to a diverged branch`);
       const blockers = state.blockers.filter(item => item !== `task:#${source.id}`);
       check(blockers.length === 0, `unintegrated child branches block divergence resolution: ${blockers.join(', ')}; inspect failed or rejected child work and explicitly archive only the unwanted child branch before retrying`);
-      const goal = `在独立子Worker工作区解决指令 #${source.id} 与直接父分支 ${parent.branch} 的分歧。\n`
+      const goal = `在独立子Worker工作区解决指令 ${workerLabel(source)} 与直接父分支 ${parent.branch} 的分歧。\n`
         + `基线是固定源提交 ${state.child_head}。请将固定父提交 ${state.parent_head} 合入本工作区（不要合入会移动的分支名）；`
         + `如有冲突，保留双方意图并解决，运行相关测试，再提交结果。只改自己的子Worker分支，`
         + `不可修改指令分支或父分支；`
@@ -365,8 +366,8 @@ export default {
           parent_commit: state.parent_head });
         this.store.update(live.id, { reservation: JSON.stringify({ ...currentReservation,
           blocked_reason: terminal
-            ? `等待独立解分歧子Worker #${child.id} 完成后由 runtime 推进指令分支并重新发合并请求`
-            : `等待解分歧子Worker #${child.id} 完成并由指令 Agent 确认集成`,
+            ? `等待独立解分歧子Worker ${workerLabel(child)} 完成后由 runtime 推进指令分支并重新发合并请求`
+            : `等待解分歧子Worker ${workerLabel(child)} 完成并由指令 Agent 确认集成`,
           blocked_code: 'resolving', resolution_child_id: child.id }) });
         this.store.event(live.id, 'task.divergence_resolution_started', { child_id: child.id,
           source_commit: state.child_head, parent_commit: state.parent_head });
@@ -479,7 +480,7 @@ export default {
     if (reservation?.kind !== 'merge' || reservation.status !== 'pending'
       || reservation.resolution_child_id !== resolution.id) return false;
     this.store.update(order.id, { reservation: JSON.stringify({ ...reservation,
-      blocked_reason: `解分歧子Worker #${resolution.id} ${status}${error ? `：${error}` : ''}；检查现场后显式归档旧分支再重新派。`,
+      blocked_reason: `解分歧子Worker ${workerLabel(resolution)} ${status}${error ? `：${error}` : ''}；检查现场后显式归档旧分支再重新派。`,
       blocked_code: 'diverged' }) });
     this.store.event(order.id, 'task.divergence_resolution_failed', { resolution: resolution.id, status, error: error ?? null });
     return true;
@@ -502,7 +503,7 @@ export default {
         ORDER BY t.id DESC LIMIT 1`, parent.id, child.id);
       if (previous) return TERMINAL.has(previous.status)
         ? { status: 'needs_review', task: this.progressView(previous),
-          reason: `解分歧子Worker #${previous.id} 已结束且尚未集成；先检查现场。若需重做，由用户显式归档 ${previous.branch} 后再调用本接口（不会重放上一次 Agent）。` }
+          reason: `解分歧子Worker ${workerLabel(previous)} 已结束且尚未集成；先检查现场。若需重做，由用户显式归档 ${previous.branch} 后再调用本接口（不会重放上一次 Agent）。` }
         : { status: 'existing', task: this.progressView(previous) };
       check(child.status === 'completed' && child.integration !== 'merged',
         'only a completed child whose work is not integrated yet can be repaired');
@@ -517,10 +518,10 @@ export default {
         'child branch moved after its completed commit; inspect it before repairing');
       check(state.status === 'diverged', `child is ${state.status}; repair only applies to a diverged child`);
       check(state.blockers.length === 0, `unintegrated descendants block repairing this child: ${state.blockers.join(', ')}`);
-      const goal = `在独立子Worker工作区解决子Worker #${live.id} 与直接父分支 ${parent.branch} 的分歧。\n`
+      const goal = `在独立子Worker工作区解决子Worker ${workerLabel(live)} 与直接父分支 ${parent.branch} 的分歧。\n`
         + `基线是固定子提交 ${state.child_head}。请将固定父提交 ${state.parent_head} 合入本工作区（不要合入会移动的分支名）；`
         + `如有冲突，保留双方意图并解决，运行相关测试，再提交结果。只改自己的子Worker分支，`
-        + `不可修改 #${live.id} 或 ${parent.branch}；完成后由 runtime 核对两端固定提交，依次快进 #${live.id} 与 #${parent.id} 的分支。`;
+        + `不可修改 ${workerLabel(live)} 或 ${parent.branch}；完成后由 runtime 核对两端固定提交，依次快进 ${workerLabel(live)} 与 ${workerLabel(parent)} 的分支。`;
       const created = this.store.transaction(() => {
         const current = this.store.task(live.id), owner = this.store.task(parent.id);
         check(owner.status === 'running' && current.status === 'completed' && current.integration !== 'merged'
@@ -559,13 +560,13 @@ export default {
   reservationWaitReason(task) {
     if (this.taskSyncBusy?.has(task.id)) return 'Worker 父分支同步正在执行，请等待安全点';
     const inbound = this.activeTaskMerge(task.id);
-    if (inbound) return `等待子Worker #${inbound.id} 的父分支执行位释放`;
+    if (inbound) return `等待子Worker ${workerLabel(inbound)} 的父分支执行位释放`;
     if (this.running.has(task.id) || task.status === 'running') return 'Agent 正在调用或收尾，等待本轮安全结束';
     if (task.status === 'queued') return 'Worker 等待下一轮 Agent 调用完成';
     if (task.status === 'awaiting' || this.questionPending(task.id)) return 'Worker 正在等待用户答复';
     if (task.status !== 'waiting') return `Worker 尚未静息（${task.status}）`;
     const child = this.store.children(task.id).find(row => !isSettled(row));
-    if (child) return `等待子Worker #${child.id} 结算`;
+    if (child) return `等待子Worker ${workerLabel(child)} 结算`;
     if (this.hasActionableMessages(task.id)) return '还有未处理的消息或子Worker信号，需先交给 Agent';
     return null;
   },
@@ -727,7 +728,7 @@ export default {
         const resolution = this.store.task(previous.resolution_child_id);
         check(TERMINAL.has(resolution.status) && (resolution.integration === 'merged'
           || !resolution.branch || this.store.branch(resolution.branch)?.status === 'archived'),
-        `解分歧 Worker #${resolution.id} 仍占用冻结；先等待它落地，或取消并显式归档其分支`);
+        `解分歧 Worker ${workerLabel(resolution)} 仍占用冻结；先等待它落地，或取消并显式归档其分支`);
       }
       // 已发出但尚未集成的合并请求可以撤销：否则父分支会被一个不再成立的请求一直冻住。
       const withdrawable = previous.version === 1 && previous.kind === 'merge'
@@ -913,7 +914,7 @@ export default {
     const parent = owner[0];
     if (buffered) check(parent.id === draft.parent_id, 'saved parent Worker changed; edit the draft before sending');
     assertTaskNotSyncing(this, parent.id);
-    check(!TERMINAL.has(parent.status), `parent worker #${parent.id} has ended; select an active parent Worker`);
+    check(!TERMINAL.has(parent.status), `parent worker ${workerLabel(parent)} has ended; select an active parent Worker`);
     assertTaskAncestorsOpen(this, parent);
     if (defer && this.branchFreeze(target))
       return this.deferOrderHook(parent, content, normalized, runProfile, start, draft);

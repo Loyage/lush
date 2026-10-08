@@ -181,7 +181,7 @@ test('settled source diagnostics in an idle runtime merge queue do not block par
     }
     // A normal completed child's inbox must not receive the queue exemption.
     const childInput = f.store.message(child.id, 'unprocessed input');
-    await expect(f.project.acceptTask(parent.id)).rejects.toThrow(`Worker #${child.id}: unread input`);
+    await expect(f.project.acceptTask(parent.id)).rejects.toThrow(`Worker ${child.worker_number}: unread input`);
     f.store.run('UPDATE messages SET consumed=1 WHERE id=?', childInput);
     expect((await f.project.acceptTask(parent.id)).status).toBe('completed');
     expect(f.store.unread(queue.id).map(row => row.id)).toEqual(messages);

@@ -62,7 +62,7 @@ Manager 方法：
 
 `src/core/agent-connections.js` 导出 `AgentConnectionsService(project, options={})`；持有 manager（可注入测试 stub）。
 
-- `list()` -> manager.config() 加 checked_at；connections 每项追加 `observation`（无观测为 unknown）、可空 `last_success`、`consumers:[{task_id,model}]`（仅实际绑定且正在运行的本项目 Worker，不猜历史归因）。不联网。
+- `list()` -> manager.config() 加 checked_at；connections 每项追加 `observation`（无观测为 unknown）、可空 `last_success`、`consumers:[{task_id,task_worker_number,model}]`（仅实际绑定且正在运行的本项目 Worker，不猜历史归因；`task_worker_number` 为可空的显式用户编号，`task_id` 仍为内部整数）。不联网。
 - `save(connection,credential)` / `remove(id)` / `configureSampling(sampling)`，经项目写入准入，返回安全管理结果。
 - `query(id=null)` -> Promise list()；null 刷新所有 enabled 连接；单飞按连接及实际配置/账号版本隔离，网络并发有界。每次真实观测存一次。配置/删除期间的迟到响应不覆盖当前连接。
 - `history(id,days=7)` -> `{version:1,from,to,retention_days,series,truncated}`；series 形状兼容旧 renderUsageSeries 并追加 scope/models/source。连接内仍按 account_key/source_key/kind/id/unit/window 隔离。可读已删除连接历史。最多 40 series/500点每系列/680KB，降采样覆盖完整所选范围，失败/重置保留且标明截断。

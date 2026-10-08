@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { check, id, TERMINAL } from '../types.js';
+import { workerLabel } from '../worker-number.js';
 
 const bookingOf = task => task.reservation ? JSON.parse(task.reservation) : null;
 
@@ -43,7 +44,7 @@ export function assertTaskAncestorsOpen(project, task) {
     const parent = project.store.task(parentId);
     // A reusable runtime queue can be idle; its original parent is the actual owner.
     check(parent.task_kind === 'merge' || !TERMINAL.has(parent.status),
-      `parent has ended (ancestor Worker #${parent.id}); reopen or retry the ancestor first`);
+      `parent has ended (ancestor Worker ${workerLabel(parent)}); reopen or retry the ancestor first`);
     parentId = parent.parent_id;
   }
 }
@@ -161,7 +162,7 @@ export default {
         assertTaskNotSyncing(this, row.id);
         check(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status)
           || (booking.status === 'pending' && taskSyncDeliveryPaused(this, row.id)), 'delivery is still in flight or reserved');
-        check(!acceptanceUnreadMessage(this, row), `Worker #${row.id}: unread input must be processed before acceptance`);
+        check(!acceptanceUnreadMessage(this, row), `Worker ${workerLabel(row)}: unread input must be processed before acceptance`);
         check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
         if (row.branch) {
           const record = this.store.branch(row.branch);
@@ -172,12 +173,12 @@ export default {
           if (row.workspace) await this.workspaces.finish(row);
           else {
             const head = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${row.branch}^{commit}`);
-            check(head === row.head_commit, `descendant Worker #${row.id} branch moved`);
+            check(head === row.head_commit, `descendant Worker ${workerLabel(row)} branch moved`);
             const workspace = await this.workspaces.workspaceForBranch(row.branch);
             if (workspace) await this.workspaces.clean(workspace);
           }
           const state = await taskDeliveryState(this, this.store.task(row.id));
-          check(state !== 'pending', `Worker #${row.id} has undelivered changes`);
+          check(state !== 'pending', `Worker ${workerLabel(row)} has undelivered changes`);
           this.store.update(row.id, { integration: state });
         }
       }
@@ -187,7 +188,7 @@ export default {
       for (const row of this.subtreeTasks(task.id)) {
         check(row.id === task.id || TERMINAL.has(row.status), 'descendant changed during acceptance');
         check(!this.running.has(row.id) && !acceptanceUnreadMessage(this, row),
-          `Worker #${row.id}: new input arrived during acceptance`);
+          `Worker ${workerLabel(row)}: new input arrived during acceptance`);
         assertTaskNotSyncing(this, row.id);
         check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
         check(!bookingOf(row) || ['integrated', 'completed', 'withdrawn'].includes(bookingOf(row).status)

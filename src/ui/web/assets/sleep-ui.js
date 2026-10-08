@@ -4,6 +4,7 @@ import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { ui } from './state.js';
 import { absolute } from './format.js';
+import { workerLabel } from './worker-label.js';
 
 const modeLabel = mode => mode === 'preferences' ? '参考以往选择' : '全通过／推荐';
 const usageLabel = state => `项目全部 Agent：${state?.used_tokens || 0} / ${state?.budget_tokens ?? '不限'} token`;
@@ -90,7 +91,7 @@ export function sleepChoiceCard(choice) {
   const result = choice.result || {};
   const decision = result.decision;
   card.append(el('h3', `管家选择 #${choice.id} · ${RESULT[result.status] || result.status}`),
-    el('p', `${absolute(choice.created_at)} · ${modeLabel(choice.mode)} · Notice #${choice.notice.id} · Worker #${choice.notice.task_id}`, 'hint'),
+    el('p', `${absolute(choice.created_at)} · ${modeLabel(choice.mode)} · Notice #${choice.notice.id} · Worker ${workerLabel(choice.notice.task_id, choice.notice.task_worker_number)}`, 'hint'),
     el('h4', choice.notice.title));
   if (choice.notice.kind === 'questionnaire') {
     try {

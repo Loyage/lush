@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { agentPrompt } from './prompts.js';
+import { workerLabel } from '../core/worker-number.js';
 import { agentEnvironment, emptyAgentEnvironment } from './environment.js';
 import { agentNetworkEnvironment, mergeNetworkEnvironment, redactNetworkText } from './network.js';
 import { forkCheckpoint } from './fork.js';
@@ -312,6 +313,6 @@ export class MockProvider {
       api.addSpec(task.id, { goal: `${task.goal}（离线演示调研）`, role: 'research', name: 'mock-research', deps: [] });
       return '已提交结构化 Plan，等待 runtime 编译。';
     }
-    return `Mock ${task.role} #${task.id}: ${task.goal}（未调用模型、未修改文件）`;
+    return `Mock ${task.role} ${workerLabel(task)}: ${task.goal}（未调用模型、未修改文件）`;
   }
 }

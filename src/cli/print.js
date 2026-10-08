@@ -182,7 +182,7 @@ function branchMarks(node) {
 /** 每个节点在 --verbose 下单列出的细节：Worker / worktree / fork / parent。 */
 function branchDetails(node) {
   const out = [];
-  if (node.task_id !== null) out.push(`Worker: ${workerLabel({ id: node.task_id, worker_number: node.task_worker_number }, node.task_role ? `${node.task_role}#${node.task_id}` : `#${node.task_id}`)}${node.task_name ? ` ${node.task_name}` : ''}${node.task_goal ? ` · ${oneLine(node.task_goal, 60)}` : ''}`);
+  if (node.task_id !== null) out.push(`Worker: ${workerLabel({ id: node.task_id, worker_number: node.task_worker_number })}${node.task_name ? ` ${node.task_name}` : ''}${node.task_goal ? ` · ${oneLine(node.task_goal, 60)}` : ''}`);
   if (node.worktree) out.push(`worktree: ${node.worktree}${node.worktree_exists === false ? '（已不在磁盘上）' : ''}`);
   if (node.created_from_commit) out.push(`fork: ${shortSha(node.created_from_commit)}`);
   out.push(node.parent ? `parent: ${node.parent}（${node.parent_relation ?? 'recorded'}）` : 'parent: unknown');
@@ -218,7 +218,7 @@ export function printBranchShow(node) {
   console.log(`branch: ${node.branch}${branchMarks(node)}`);
   console.log(`parent: ${node.parent ? `${node.parent}（${node.parent_relation ?? 'recorded'}）` : 'unknown'}`);
   console.log(`fork commit: ${shortSha(node.created_from_commit) ?? '—'}${node.head_commit && node.head_commit !== node.created_from_commit ? ` · 现在 ${shortSha(node.head_commit)}` : ''}`);
-  console.log(`Worker: ${node.task_id === null ? '—' : `${workerLabel({ id: node.task_id, worker_number: node.task_worker_number }, node.task_role ? `${node.task_role}#${node.task_id}` : `#${node.task_id}（Worker 已被清理）`)}${node.task_name ? ` ${node.task_name}` : ''}`}`);
+  console.log(`Worker: ${node.task_id === null ? '—' : `${workerLabel({ id: node.task_id, worker_number: node.task_worker_number }, `#${node.task_id}${node.task_role ? '' : '（Worker 已被清理）'}`)}${node.task_name ? ` ${node.task_name}` : ''}`}`);
   console.log(`worktree: ${node.worktree ?? '—'}${node.worktree_exists === false ? '（已不在磁盘上）' : ''}`);
   console.log(`status: ${node.tracked ? node.status ?? 'active' : node.present === false ? '只作为 parent 出现' : 'untracked'} · ${node.present === null ? 'git 不可用' : node.present ? 'ref 存在' : 'ref 已不在'}`);
   console.log(`created: ${node.created_at ?? '—'}`);

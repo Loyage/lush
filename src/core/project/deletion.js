@@ -1,11 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { check, id, TERMINAL } from '../types.js';
+import { workerLabel } from '../worker-number.js';
 import { deletionHash, deletionFingerprint, deletionPath, present, workerFiles } from '../deletion-resources.js';
 
 const warnings = ['删除不可撤销；确认即授权丢弃所列工作区中的未提交改动和未合并代码。',
   '已合并代码与 Git 提交历史不撤销；其他记录中的引用快照不改写。'];
 const inMarks = ids => ids.map(() => '?').join(',');
+const associatedWorkerLabel = (store, taskId) => workerLabel(store.get('SELECT id,worker_number FROM tasks WHERE id=?', taskId) ?? { id: taskId });
 function boundedSubtree(project, rootId) {
   const tasks = [], seen = new Set(), queue = [project.store.task(rootId)];
   while (queue.length) {
@@ -33,36 +35,36 @@ function databasePlan(project, rootId) {
   const records = store.branches().filter(record => chosen.has(record.task_id) || branchNames.has(record.branch));
   for (const record of records) branchNames.add(record.branch);
   for (const task of tasks) {
-    if (['main','owner'].includes(task.task_kind) || task.branch === 'main') blockers.push(`#${task.id}: main/owner Worker cannot be deleted`);
-    if (!TERMINAL.has(task.status)) blockers.push(`#${task.id}: Worker is ${task.status}; cancel it or finish/accept it before deletion`);
-    if (project.running.has(task.id)) blockers.push(`#${task.id}: invocation is still exiting; wait before deletion`);
-    if (project.workspaces.busy.has(task.id)) blockers.push(`#${task.id}: worktree cleanup is in progress`);
-    if (project.taskSyncBusy?.has(task.id)) blockers.push(`#${task.id}: parent synchronization is in progress`);
-    if (project.workerDeleteIds?.has(task.id) && project.deletionRoot !== rootId) blockers.push(`#${task.id}: deletion is in progress`);
+    if (['main','owner'].includes(task.task_kind) || task.branch === 'main') blockers.push(`${workerLabel(task)}: main/owner Worker cannot be deleted`);
+    if (!TERMINAL.has(task.status)) blockers.push(`${workerLabel(task)}: Worker is ${task.status}; cancel it or finish/accept it before deletion`);
+    if (project.running.has(task.id)) blockers.push(`${workerLabel(task)}: invocation is still exiting; wait before deletion`);
+    if (project.workspaces.busy.has(task.id)) blockers.push(`${workerLabel(task)}: worktree cleanup is in progress`);
+    if (project.taskSyncBusy?.has(task.id)) blockers.push(`${workerLabel(task)}: parent synchronization is in progress`);
+    if (project.workerDeleteIds?.has(task.id) && project.deletionRoot !== rootId) blockers.push(`${workerLabel(task)}: deletion is in progress`);
     if (project.introRunning) {
       const introductions = store.all('SELECT id FROM introductions WHERE task_id=?', task.id);
       if (introductions.some(row => project.introRunning.has(row.id)))
-        blockers.push(`#${task.id}: a historical introduction request is still running`);
+        blockers.push(`${workerLabel(task)}: a historical introduction request is still running`);
       else if (introductions.some(row => store.followupList(row.id).some(item => project.introRunning.has(`followup:${item.id}`))))
-        blockers.push(`#${task.id}: a historical explanation follow-up is still running`);
+        blockers.push(`${workerLabel(task)}: a historical explanation follow-up is still running`);
     }
     if (task.reservation) {
       try { const booking = JSON.parse(task.reservation);
         if (!['pending','integrated','withdrawn','completed','failed','cancelled','suspended'].includes(booking.status))
-          blockers.push(`#${task.id}: an outstanding delivery is still ${booking.status}`);
-      } catch { blockers.push(`#${task.id}: unknown delivery metadata`); }
+          blockers.push(`${workerLabel(task)}: an outstanding delivery is still ${booking.status}`);
+      } catch { blockers.push(`${workerLabel(task)}: unknown delivery metadata`); }
     }
     if ((task.role === 'showcase' || task.task_kind === 'showcase') && task.showcase)
-      blockers.push(`#${task.id}: legacy showcase ownership must be inspected manually`);
+      blockers.push(`${workerLabel(task)}: legacy showcase ownership must be inspected manually`);
   }
   for (const task of store.tasks().filter(task => !chosen.has(task.id))) {
-    if (chosen.has(task.verifies_task_id) || chosen.has(task.resolves_task_id)) blockers.push(`referenced by Worker #${task.id}`);
-    if (branchNames.has(task.branch) || branchNames.has(task.target_branch)) blockers.push(`branch is used by Worker #${task.id}`);
+    if (chosen.has(task.verifies_task_id) || chosen.has(task.resolves_task_id)) blockers.push(`referenced by Worker ${workerLabel(task)}`);
+    if (branchNames.has(task.branch) || branchNames.has(task.target_branch)) blockers.push(`branch is used by Worker ${workerLabel(task)}`);
   }
   for (const row of store.all(`SELECT id FROM drafts WHERE input_id IS NULL AND parent_id IN (${marks})`,...ids))
     blockers.push(`unsubmitted draft #${row.id} still selects this Worker as its parent`);
   for (const row of store.all(`SELECT * FROM task_deps WHERE depends_on IN (${marks}) AND task_id NOT IN (${marks})`, ...ids, ...ids))
-    blockers.push(`required by dependent Worker #${row.task_id}`);
+    blockers.push(`required by dependent Worker ${associatedWorkerLabel(store, row.task_id)}`);
   for (const row of store.all(`SELECT * FROM task_specs WHERE (task_id IN (${marks}) OR batch_id IN (${marks}))
     AND planner_task_id NOT IN (${marks})`, ...ids, ...ids, ...ids)) blockers.push(`referenced by external historical spec #${row.id}`);
   const candidates = store.all(`SELECT * FROM review_candidates WHERE report_task_id IN (${marks}) ORDER BY id`, ...ids);
@@ -70,7 +72,7 @@ function databasePlan(project, rootId) {
   for (const record of store.branches()) {
     if (!branchNames.has(record.branch) && branchNames.has(record.parent)) blockers.push(`branch genealogy still has external child ${record.branch}`);
     if (branchNames.has(record.branch) && record.task_id !== null && !chosen.has(record.task_id))
-      blockers.push(`branch ${record.branch} has another owner #${record.task_id}`);
+      blockers.push(`branch ${record.branch} has another owner ${associatedWorkerLabel(store, record.task_id)}`);
   }
   for (const name of branchNames) { const frozen = project.branchFreeze(name); if (frozen) blockers.push(`branch ${name} is frozen: ${frozen.reason}`); }
   const data = { tasks, inputs, branches: records, contexts,
@@ -92,17 +94,17 @@ function databasePlan(project, rootId) {
         blockers.push(`input is used by external ${table} #${row.id}`);
     const allCandidates = select('review_candidates', `input_id IN (${inputMarks})`, inputIds);
     for (const row of allCandidates) if (row.report_task_id !== null && !chosen.has(row.report_task_id))
-      blockers.push(`input is used by external candidate Worker #${row.report_task_id}`);
+      blockers.push(`input is used by external candidate Worker ${associatedWorkerLabel(store, row.report_task_id)}`);
     data.candidates = [...new Map([...candidates,...allCandidates].map(row => [row.id,row])).values()].sort((a,b)=>a.id-b.id);
   }
   const candidateIds = new Set(data.candidates.map(row=>row.id));
   for (const task of store.tasks().filter(task=>!chosen.has(task.id)))
-    if (candidateIds.has(task.review_candidate_id)) blockers.push(`candidate is still referenced by Worker #${task.id}`);
+    if (candidateIds.has(task.review_candidate_id)) blockers.push(`candidate is still referenced by Worker ${workerLabel(task)}`);
   for (const spec of data.specs) {
     if (spec.task_id && !chosen.has(spec.task_id) && store.get('SELECT id FROM tasks WHERE id=?',spec.task_id))
-      blockers.push(`historical spec #${spec.id} owns external Worker #${spec.task_id}`);
+      blockers.push(`historical spec #${spec.id} owns external Worker ${associatedWorkerLabel(store, spec.task_id)}`);
     if (spec.batch_id && !chosen.has(spec.batch_id) && store.get('SELECT id FROM tasks WHERE id=?',spec.batch_id))
-      blockers.push(`historical spec #${spec.id} belongs to external batch Worker #${spec.batch_id}`);
+      blockers.push(`historical spec #${spec.id} belongs to external batch Worker ${associatedWorkerLabel(store, spec.batch_id)}`);
   }
   return { ids, inputIds, tasks, inputs, records, contexts, blockers, data };
 }
@@ -116,21 +118,21 @@ async function deletionPlan(project, rootId) {
   const paths = [...git.worktrees.map(tree => tree.path), ...files];
   const overlaps = (a,b) => a === b || a.startsWith(b + path.sep) || b.startsWith(a + path.sep);
   for (const task of outside) for (const file of [task.workspace,task.baseline_workspace].filter(Boolean))
-    if (paths.some(candidate => overlaps(path.resolve(candidate),path.resolve(file)))) blockers.push(`resource is shared with Worker #${task.id}: ${file}`);
+    if (paths.some(candidate => overlaps(path.resolve(candidate),path.resolve(file)))) blockers.push(`resource is shared with Worker ${workerLabel(task)}: ${file}`);
   for (const record of project.store.branches()) if (!db.records.some(owned=>owned.branch===record.branch) && record.worktree)
     if (paths.some(candidate=>overlaps(path.resolve(candidate),path.resolve(record.worktree)))) blockers.push(`resource is shared with branch ${record.branch}`);
   for (const input of project.store.all('SELECT id,anchor_workspace FROM inputs WHERE anchor_workspace IS NOT NULL')) if (!db.inputIds.includes(input.id))
     if (paths.some(candidate=>overlaps(path.resolve(candidate),path.resolve(input.anchor_workspace)))) blockers.push(`resource is shared with Input #${input.id}`);
   for (const row of project.store.all('SELECT * FROM commit_contexts')) if (!db.ids.includes(row.task_id))
     if (files.some(file => path.resolve(row.session_path) === path.resolve(file) || path.basename(file) === `${row.commit_hash}.jsonl`))
-      blockers.push(`session/checkpoint is shared with Worker #${row.task_id}`);
+      blockers.push(`session/checkpoint is shared with Worker ${associatedWorkerLabel(project.store, row.task_id)}`);
   // Inferred resource names can have a registered owner even after task metadata was lost.
   const resourceBranches = new Set(git.branches.map(entry => entry.branch));
   for (const record of project.store.branches()) {
-    if (resourceBranches.has(record.branch) && record.task_id !== null && !db.ids.includes(record.task_id)) blockers.push(`branch is owned by Worker #${record.task_id}: ${record.branch}`);
+    if (resourceBranches.has(record.branch) && record.task_id !== null && !db.ids.includes(record.task_id)) blockers.push(`branch is owned by Worker ${associatedWorkerLabel(project.store, record.task_id)}: ${record.branch}`);
     if (!resourceBranches.has(record.branch) && resourceBranches.has(record.parent)) blockers.push(`branch has external genealogy child: ${record.branch}`);
   }
-  for (const task of outside) if (resourceBranches.has(task.branch) || resourceBranches.has(task.target_branch)) blockers.push(`branch is shared with Worker #${task.id}`);
+  for (const task of outside) if (resourceBranches.has(task.branch) || resourceBranches.has(task.target_branch)) blockers.push(`branch is shared with Worker ${workerLabel(task)}`);
   const filePlan = [];
   for (const file of files) try { filePlan.push({ path:file, fingerprint:deletionFingerprint(project.config,file) }); } catch (error) { blockers.push(error.message); }
   const uniqueBlockers = [...new Set(blockers)];

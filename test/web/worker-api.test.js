@@ -33,7 +33,7 @@ const mutations = ['spawn','message','auto_merge','reserve','reserve_all','resol
   'resolve_sync','resolve_divergence','unreserve','approve_merge','cancel','retry','interrupt','resume','configure','cleanup','delete'];
 const legacy = route => route.replace(/^workers/, 'tasks').replace(/^worker-graph/, 'task-graph').replace(/^worker\//, 'task/');
 
-async function hostFixture() {
+async function hostFixture(workerNumber = undefined) {
   const a = temp(), b = temp(), global = temp(), calls = [];
   const web = startWeb(null, 0, { env: env({ LUSH_GLOBAL_CONFIG: global }), openProject: async project => ({
     config: { project, home: path.join(project, '.lush') },
@@ -41,7 +41,7 @@ async function hostFixture() {
       calls.push({ project, method, params });
       if (method === 'notice.page') return { notices: [{ id: 8, task_id: 7, kind: 'questionnaire',
         body: JSON.stringify({ questions: [{ options: [{ previewHtml: '<p>safe preview</p>' }] }] }) }] };
-      if (method === 'worker.inspect') return { id: 7, task_kind: 'order', role: 'verifier' };
+      if (method === 'worker.inspect') return { id: 7, worker_number: workerNumber, task_kind: 'order', role: 'verifier' };
       return { project, task_id: 7, task_kind: 'order' };
     } },
   }) });
@@ -75,6 +75,20 @@ test('worker HTTP reads forward only the new namespace with unchanged typed para
     expect((await fetch(`${f.url}/p/${'0'.repeat(16)}/api/workers`)).status).toBe(400);
     expect(f.calls).toHaveLength(before);
   } finally { f.close(); }
+});
+
+test('missing report errors show explicit deep Worker numbers, never infer or lookup, with #id history fallback', async () => {
+  for (const [number, label] of [['W119-3-2', 'W119-3-2'], [null, '#7'], [undefined, '#7']]) {
+    const f = await hostFixture(number);
+    try {
+      const response = await fetch(`${f.urlA}/api/worker/7/report`);
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ error: `worker ${label} has no report yet` });
+      expect(f.calls).toEqual([{ project: f.a, method: 'worker.inspect', params: { id: 7 } }]);
+      expect((await fetch(`${f.urlA}/api/worker/W119-3-2/report`)).status).toBe(404);
+      expect(f.calls).toHaveLength(1);
+    } finally { f.close(); }
+  }
 });
 
 test('worker HTTP mutation whitelist accepts renamed actions, rejects every old action and agent tokens', async () => {

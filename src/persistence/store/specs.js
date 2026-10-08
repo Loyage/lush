@@ -23,7 +23,7 @@ export const specs = {
     if (status) { where.push('s.status=?'); params.push(status); }
     if (batch_id !== null && batch_id !== undefined) { where.push('s.batch_id=?'); params.push(batch_id); }
     if (planner_task_id !== null && planner_task_id !== undefined) { where.push('s.planner_task_id=?'); params.push(planner_task_id); }
-    const rows = this.all(`SELECT s.*, t.status AS task_status, t.role AS task_role, t.name AS task_name
+    const rows = this.all(`SELECT s.*, t.worker_number AS task_worker_number, t.status AS task_status, t.role AS task_role, t.name AS task_name
       FROM task_specs s LEFT JOIN tasks t ON t.id=s.task_id${where.length ? ` WHERE ${where.join(' AND ')}` : ''}
       ORDER BY s.id LIMIT ?`, ...params, limit);
     return rows.map(row => ({ ...row, deps: this.specDeps(row.deps) }));

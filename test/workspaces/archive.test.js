@@ -122,7 +122,7 @@ test('a branch whose task has not finished is refused without side effects', asy
     // 不走 change()：worktree 建好但任务还停在 queued，属于「活没干完」。
     const cwd = await f.project.workspaces.ensure(f.task);
     const branch = f.store.task(f.task.id).branch;
-    await expect(f.project.archiveBranch(branch)).rejects.toThrow(/unfinished workers: #\d+/);
+    await expect(f.project.archiveBranch(branch)).rejects.toThrow(`unfinished workers: ${f.task.worker_number}`);
     expect(fs.existsSync(cwd)).toBe(true);
     expect(await git(f.root, 'branch', '--list', branch)).toContain(branch);
     expect(f.store.branch(branch).status).toBe('active');
@@ -231,7 +231,7 @@ test('子树里有一条后代没干完，整棵子树都不归档、且无副�
     const stackedCwd = await f.project.workspaces.ensure(stacked);
     const firstBranch = f.store.task(f.task.id).branch;
 
-    await expect(f.project.archiveBranch(firstBranch)).rejects.toThrow(new RegExp(`unfinished workers: #${stacked.id}`));
+    await expect(f.project.archiveBranch(firstBranch)).rejects.toThrow(`unfinished workers: ${stacked.worker_number}`);
     expect(fs.existsSync(firstCwd)).toBe(true);
     expect(fs.existsSync(stackedCwd)).toBe(true);
     expect(f.store.branch(firstBranch).status).toBe('active');
@@ -394,7 +394,7 @@ test('a terminal task whose invocation is still unwinding blocks archiving', asy
     const cwd = await change(f, f.task);
     const branch = f.store.task(f.task.id).branch;
     f.project.running.set(f.task.id, {});
-    await expect(f.project.archiveBranch(branch)).rejects.toThrow(new RegExp(`unfinished workers: #${f.task.id}`));
+    await expect(f.project.archiveBranch(branch)).rejects.toThrow(`unfinished workers: ${f.task.worker_number}`);
     expect(fs.existsSync(cwd)).toBe(true);
     f.project.running.delete(f.task.id);
   } finally { await f.close(); }

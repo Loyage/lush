@@ -4,6 +4,7 @@ import { agentText } from './text.js';
 import { ui } from './state.js';
 import { workbenchStatus } from './project-picker.js';
 import { modelHelp } from './help.js';
+import { workerLabel } from './worker-label.js';
 
 let current = null, generation = 0;
 export function closeQuickExplanationPanel() {
@@ -17,7 +18,7 @@ export function closeQuickExplanationPanel() {
 ui.closeQuickExplanationPanel = closeQuickExplanationPanel;
 export function explanationLocation(location = {}) {
   return [location.view && `页面 ${location.view}`, location.section && `位置 ${location.section}`,
-    location.task_id != null && `Worker #${location.task_id}`, location.path].filter(Boolean).join(' · ') || '当前页面';
+    location.task_id != null && `Worker ${workerLabel(location.task_id, location.task_worker_number)}`, location.path].filter(Boolean).join(' · ') || '当前页面';
 }
 const configurationLink = () => { const link = el('a', '打开快捷解释设置'); link.href = '#quick-explain'; link.onclick = closeQuickExplanationPanel; return link; };
 function shell() {

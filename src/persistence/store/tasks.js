@@ -61,7 +61,7 @@ export const tasks = {
   },
   /** Tasks the scheduler may still touch: a clear has to wait for all of them. */
   activeTasks() {
-    return this.all("SELECT id,status FROM tasks WHERE status NOT IN ('completed','failed','cancelled') ORDER BY id");
+    return this.all("SELECT id,worker_number,status FROM tasks WHERE status NOT IN ('completed','failed','cancelled') ORDER BY id");
   },
   /**
    * Project-level reset: drops every task-scoped row plus the input audit trail.

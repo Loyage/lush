@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { check, TERMINAL, bounded } from '../types.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing } from './iteration.js';
+import { workerLabel } from '../worker-number.js';
 
 /**
  * 结算提醒的文案只由任务事实拼出来：goal 可能很长，只取第一行并截断成「一句话目标」。
@@ -17,7 +18,7 @@ const INTEGRATION_REMINDER = {
   superseded: '已被后续合并取代，不需要你处理',
   none: '没有记录到需要合入父分支的改动，不需要你处理',
 };
-function settlementReminder(task, status) {
+function settlementReminder(store, task, status) {
   const label = SETTLE_LABEL[status];
   const goal = String(task.goal ?? '').split('\n').map(line => line.trim()).find(Boolean) ?? '';
   const brief = goal.length > 80 ? `${goal.slice(0, 80)}…` : goal;
@@ -25,26 +26,26 @@ function settlementReminder(task, status) {
   if (task.task_kind === 'analysis') {
     const answer = String(task.result ?? '').trim();
     return {
-      title: `分支 ${task.target_branch} 的分析 #${task.id} ${label}`,
+      title: `分支 ${task.target_branch} 的分析 ${workerLabel(task)} ${label}`,
       body: [
         `问题：${brief}`,
         `分支：${task.target_branch}（只读分析，没有分支改动）`,
         status === 'completed'
           ? `结论：${answer.length > 1200 ? `${answer.slice(0, 1200)}…` : answer || '（空回答）'}`
           : `分析未完成：${String(task.error ?? '').slice(0, 500) || '没有记录到原因'}`,
-        `完整回答见 Worker #${task.id} 详情。`,
+        `完整回答见 Worker ${workerLabel(task)} 详情。`,
       ].join('\n'),
     };
   }
   const reservation = task.task_kind === 'order' && task.reservation ? JSON.parse(task.reservation) : null;
   return {
-    title: `分支 ${task.branch}：Worker #${task.id} ${label}`,
+    title: `分支 ${task.branch}：Worker ${workerLabel(task)} ${label}`,
     body: [
-      `Worker #${task.id}（${task.role}：${brief}）结算为「${label}」。`,
+      `Worker ${workerLabel(task)}（${task.role}：${brief}）结算为「${label}」。`,
       `分支：${task.branch}`,
       `直接父分支：${task.target_branch ?? '（未记录）'}`,
       reservation?.kind === 'merge' && reservation.status === 'requested'
-        ? `固定提交 ${reservation.commit} 的合并请求已发给父Worker #${reservation.parent_id}；当前尚未合入，须由父 Agent 或用户确认。`
+        ? `固定提交 ${reservation.commit} 的合并请求已发给父Worker ${workerLabel(store.get('SELECT id,worker_number FROM tasks WHERE id=?', reservation.parent_id) ?? { id: reservation.parent_id })}；当前尚未合入，须由父 Agent 或用户确认。`
         : `integration：${INTEGRATION_REMINDER[task.integration] ?? INTEGRATION_REMINDER.none}。`,
     ].join('\n'),
   };
@@ -110,7 +111,7 @@ export default {
       // Both remain info/sent, outside every open-decision/blocking query.
       if ((status === 'completed' || status === 'failed') && task.branch
         && !['order','analysis'].includes(task.task_kind)) {
-        const reminder = settlementReminder(this.store.task(task.id), status);
+        const reminder = settlementReminder(this.store, this.store.task(task.id), status);
         this.notify(task.id, reminder.title, reminder.body);
       }
       const settlementEvent = this.store.event(task.id, status, { result, error });
@@ -166,7 +167,7 @@ export default {
         const target = this.store.task(resolutionSource);
         if (target.integration === 'conflict') {
           this.store.update(target.id, { integration: 'pending',
-            integration_error: `resolution worker #${task.id} ${status}${error ? `: ${error}` : ''}` });
+            integration_error: `resolution worker ${workerLabel(task)} ${status}${error ? `: ${error}` : ''}` });
           this.store.event(target.id, 'merge.conflict.abandoned', { resolution: task.id, status });
         } else {
           // 终态 order 的独立解分歧子 Task 没做成：把预约落回可分派的 diverged，保留失败现场。
@@ -259,7 +260,7 @@ export default {
     check(!this.taskSyncBusy?.size, 'Worker parent synchronization is in flight; clear must wait');
     const active = this.store.activeTasks();
     check(active.length === 0,
-      `#${active.slice(0, 20).map(task => task.id).join(', #')} still active (${active.length}); cancel them or wait until they finish`);
+      `${active.slice(0, 20).map(workerLabel).join(', ')} still active (${active.length}); cancel them or wait until they finish`);
     // 分支名、worktree 路径与对照目录都记在即将被删的行里，所以先回收再 purge。
     const anchors = this.store.all(`SELECT id, anchor_branch, anchor_commit, anchor_workspace FROM inputs
       WHERE anchor_branch IS NOT NULL ORDER BY id`);

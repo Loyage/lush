@@ -48,7 +48,7 @@ test('scheduler freezes managed identity, reports active consumers, ingests pass
     launches++;
     runtimeRun = f.project.running.get(options.task.id);
     expect(runtimeRun.connectionBinding.id).toBe(profile.connection_id);
-    expect(f.project.agentConnections.list().connections[0].consumers).toEqual([{ task_id: options.task.id, model: profile.model }]);
+    expect(f.project.agentConnections.list().connections[0].consumers).toEqual([{ task_id: options.task.id, task_worker_number: options.task.worker_number, model: profile.model }]);
     expect(JSON.stringify(options.context)).not.toContain(options.connectionRuntime.credential.access);
     return new PiProvider(f.config).run(options);
   } }, { LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: executable });

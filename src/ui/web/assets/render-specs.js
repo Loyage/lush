@@ -7,6 +7,7 @@ import { setNavCount } from './sidebar-ui.js';
 import { orderList } from './tree-order.js';
 import { ui } from './state.js';
 import { referenceable } from './context-references.js';
+import { workerLabel } from './worker-label.js';
 
 /* ---------- Structured Plan (read-only): planner writes, runtime compiles ---------- */
 // deps 可能是已解析的数组（{spec,kind} 或裸 id），也可能是 JSON 字符串；三种都要兼容。
@@ -33,7 +34,7 @@ export function specItem(spec) {
   if (spec.note && spec.status === 'dropped') item.append(el('span', `原因：${spec.note}`, 'meta'));
   if (spec.status === 'planned' && spec.task_id !== null && spec.task_id !== undefined) {
     const taskRow = el('span', undefined, 'spec-task');
-    taskRow.append(el('span', `Worker #${spec.task_id}`, 'tid'),
+    taskRow.append(el('span', `Worker ${workerLabel(spec.task_id, spec.task_worker_number)}`, 'tid'),
       button('查看 Worker', () => { ui.noticeFocus = null; return detail(spec.task_id); }, 'link'));
     item.append(taskRow);
   }

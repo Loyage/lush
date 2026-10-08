@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { check } from '../types.js';
+import { workerLabel } from '../worker-number.js';
 
 /** 分支回收与安全清理。 */
 export const methods = {
@@ -61,7 +62,7 @@ export const methods = {
         let snapshot;
         try { snapshot = JSON.parse(task.showcase); } catch { /* unknown ownership: preserve */ }
         check(snapshot?.branch && !names.includes(snapshot.branch) && !names.includes(task.branch),
-          `legacy showcase #${task.id} retains worktrees; preserve and inspect them manually before archive`);
+          `legacy showcase ${workerLabel(task)} retains worktrees; preserve and inspect them manually before archive`);
       }
       // NUL records preserve paths/reasons containing whitespace, quotes or newlines.
       // Known Git refusal conditions must reject the entire subtree before any removal,
@@ -241,11 +242,11 @@ export const methods = {
       try {
         const task = this.store.task(taskId);
         check(['completed','failed','cancelled'].includes(task.status), 'worker must have stopped; accept delivered work before cleanup');
-        const active = this.store.get(`WITH RECURSIVE descendants(id,status) AS (
-          SELECT id,status FROM tasks WHERE parent_id=?
-          UNION ALL SELECT t.id,t.status FROM tasks t JOIN descendants d ON t.parent_id=d.id
-        ) SELECT id FROM descendants WHERE status NOT IN ('completed','failed','cancelled') LIMIT 1`, task.id);
-        check(!active, `descendant Worker #${active?.id} must be accepted or ended before cleanup`);
+        const active = this.store.get(`WITH RECURSIVE descendants(id,worker_number,status) AS (
+          SELECT id,worker_number,status FROM tasks WHERE parent_id=?
+          UNION ALL SELECT t.id,t.worker_number,t.status FROM tasks t JOIN descendants d ON t.parent_id=d.id
+        ) SELECT id,worker_number FROM descendants WHERE status NOT IN ('completed','failed','cancelled') LIMIT 1`, task.id);
+        check(!active, `descendant Worker ${workerLabel(active)} must be accepted or ended before cleanup`);
         return { ...this.store.task(task.id), cleanup: await this.release(task, { keepBranch }) };
       } finally { this.busy.delete(taskId); }
     });

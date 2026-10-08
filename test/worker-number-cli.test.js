@@ -142,12 +142,30 @@ test('human lists/tree/branch show persisted numbers without renaming legacy or 
     printBranchShow({ branch: 'main', parent: null, task_id: 205, task_worker_number: 'W5', task_role: 'agent',
       chain: [], children: [], descendants: [] });
   });
-  expect(text).toContain('W5\twaiting'); expect(text).toContain('7\tcompleted');
+  expect(text).toContain('W5\twaiting'); expect(text).toContain('#7\tcompleted');
   expect(text).toContain('待父 Worker W5 确认'); expect(text).toContain('{#7 ‖ W5-1}');
   expect(text).toContain('W5-1 agent awaiting_acceptance'); expect(text).toContain('#7 worker completed');
   expect(text).toContain('Worker: W5');
   expect(JSON.parse(capture(() => print([parent], true)))[0]).toMatchObject({ id: 205, worker_number: 'W5' });
   expect(workerLabel({ id: 205 })).toBe('#205');
+});
+
+test('human summaries use explicit deep numbers and #id fallbacks only for Worker rows', () => {
+  const rows = [{ id: 205, worker_number: 'W5-3-2', role: 'agent', goal: 'deep', status: 'failed' },
+    { id: 7, worker_number: null, role: 'worker', goal: 'legacy', status: 'failed' },
+    { id: 9, worker_number: 'W0', role: 'agent', goal: 'invalid', status: 'failed' }];
+  const snapshot = structuredClone(rows);
+  const text = capture(() => print(rows, false));
+  expect(text).toContain('W5-3-2\tfailed'); expect(text).not.toContain('#205');
+  expect(text).toContain('#7\tfailed'); expect(text).toContain('#9\tfailed');
+  expect(capture(() => print([{ id: 8, kind: 'info', task_id: 205, title: 'Notice' }], false))).toStartWith('8\t');
+  expect(capture(() => print([{ id: 12, flow: 'develop', content: 'Input' }], false))).toStartWith('12\t');
+  expect(rows).toEqual(snapshot); expect(JSON.parse(capture(() => print(rows, true)))).toEqual(snapshot);
+  const branch = capture(() => printBranchShow({ branch: 'legacy', parent: null, task_id: 7, task_role: 'worker',
+    chain: [], children: [], descendants: [] }));
+  expect(branch).toContain('Worker: #7'); expect(branch).not.toContain('worker#7');
+  expect(workerLabel({ id: 205, worker_number: 'W5-3-2' })).toBe('W5-3-2');
+  expect(workerLabel({ id: 205, worker_number: 'W0' })).toBe('#205');
 });
 
 test('order human output identifies On while its return and JSON keep integer identity', async () => {

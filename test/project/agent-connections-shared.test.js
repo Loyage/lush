@@ -30,7 +30,7 @@ test('scoped service shares configuration across projects while observations, co
     const runtime = await a.service.prepareRuntime(row.id);
     a.project.running.set(456, { agent: { model: 'deepseek/deepseek-chat' }, connectionBinding: { id: row.id,
       account_key: runtime.account_key, source_key: runtime.source_key } });
-    expect(device.list().connections[0].consumers).toEqual([{ task_id: 456, model: 'deepseek/deepseek-chat' }]);
+    expect(device.list().connections[0].consumers).toEqual([{ task_id: 456, task_worker_number: null, model: 'deepseek/deepseek-chat' }]);
     expect(b.service.list().connections[0].consumers).toEqual([]);
     a.project.running.delete(456);
     expect(JSON.stringify(device.list())).not.toContain('shared-key-secret');
@@ -51,7 +51,7 @@ test('device management of a same-UUID legacy shadow cannot invalidate the local
     expect(device.list().connections[0].consumers).toEqual([]);
     expect(f.service.snapshot(shared.id).state.revision).toBe(revision);
     expect(f.service.list().connections[0].observation.status).toBe('unknown');
-    expect(f.service.list().connections[0].consumers).toEqual([{ task_id: 123, model: 'deepseek/deepseek-chat' }]);
+    expect(f.service.list().connections[0].consumers).toEqual([{ task_id: 123, task_worker_number: null, model: 'deepseek/deepseek-chat' }]);
     await device.save({ ...writable(shared), label: 'Shared renamed' });
     expect(f.service.snapshot(shared.id).state.revision).toBe(revision);
     expect(f.service.list().connections[0].label).toBe('Shared account');

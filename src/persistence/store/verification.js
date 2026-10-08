@@ -2,7 +2,7 @@
 export const verification = {
   /** 一个 worker 收到过的检验记录，最新的在前。 */
   verifications(taskId) {
-    return this.all(`SELECT id,status,result,error,baseline_commit,created_at,updated_at
+    return this.all(`SELECT id,worker_number,status,result,error,baseline_commit,created_at,updated_at
       FROM tasks WHERE verifies_task_id=? ORDER BY id DESC`, taskId);
   },
   /** 同一任务同时只允许一次检验：还在跑的会占住这个名额。 */
@@ -11,7 +11,7 @@ export const verification = {
   },
   /** 一次 worker 的合并冲突处理记录，最新在前：与 verifications 同一读模型。 */
   resolutions(taskId) {
-    return this.all(`SELECT id,status,result,error,integration,integration_error,branch,head_commit,created_at,updated_at
+    return this.all(`SELECT id,worker_number,status,result,error,integration,integration_error,branch,head_commit,created_at,updated_at
       FROM tasks WHERE resolves_task_id=? ORDER BY id DESC`, taskId);
   },
   /**

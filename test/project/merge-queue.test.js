@@ -33,11 +33,11 @@ test('detail and graph share read-only request readiness across child and messag
     const child = f.store.create({ parent_id: order.id, role: 'agent', task_kind: 'child', goal: 'pending child' });
     for (const status of ['queued','running','waiting','awaiting']) {
       f.store.update(child.id, { status });
-      await projectView({ ready: false, reason: `等待子Worker #${child.id} 结算` });
+      await projectView({ ready: false, reason: `等待子Worker ${child.worker_number} 结算` });
     }
     const booked = await f.project.reserveTask(order.id, 'merge');
     expect(booked.reservation.status).toBe('pending');
-    expect(booked.reservation.blocked_reason).toContain(`子Worker #${child.id}`);
+    expect(booked.reservation.blocked_reason).toContain(`子Worker ${child.worker_number}`);
     expect(f.store.history(order.id).some(event => event.type === 'task.merge_requested')).toBe(false);
     await f.project.unreserveTask(order.id);
     // A delivered child awaiting user acceptance no longer blocks this invocation's delivery.
