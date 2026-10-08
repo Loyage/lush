@@ -18,6 +18,7 @@ test('Task graph keeps owner, child and old tasks with branches as attributes', 
     expect(order.parent_id).toBe(main.id);
     expect(order.branch).toBe(input.task.branch);
     expect(order.workspace).toBe(input.task.workspace);
+    expect(order.created_at).toBe(input.task.created_at);
     expect(graph.edges).toContainEqual({ from: main.id, to: order.id });
     expect(graph.nodes.every(node => node.kind === 'task')).toBe(true);
     expect(taskForest(graph)[0].children[0].id).toBe(order.id);

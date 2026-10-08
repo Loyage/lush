@@ -400,7 +400,7 @@ export function renderTaskGraph(graph) {
   const focusTask = document.activeElement?.closest?.('.task-graph-card')?.dataset.taskId;
   const box = el('div', undefined, `task-graph${minimal ? ' task-graph-minimal' : ''}`);
   const hero = el('header', undefined, 'resource-hero task-graph-hero');
-  hero.append(el('h1', 'Worker 树'), el('p', '连线表示委派层级（隐藏节点可能省略），卡片箭头表示真实合并目标。新式请求由父 Worker 的 runtime 串行合并，不额外调用父 Agent；分歧时由源 Worker 处理。同父兄弟按处理阶段优先展示，不代表执行次序，代码依赖仍优先。'));
+  hero.append(el('h1', 'Worker 树'), el('p', '连线表示委派层级（隐藏节点可能省略），卡片箭头表示真实合并目标。新式请求由父 Worker 的 runtime 串行合并，不额外调用父 Agent；分歧时由源 Worker 处理。根节点及各层节点按自身关注度排序：合并中/分歧处理中 → 等待合并 → 待处理问题 → 待验收 → 运行中 → 等子 Worker → 排队 → 暂停 → 已完成 → 已取消；同档新建在前。不代表执行次序，代码依赖仍优先。'));
   const summary = el('div', undefined, 'task-graph-summary');
   const active = nodes.filter(node => ACTIVE.has(node.status)).length;
   const decisions = nodes.reduce((count, node) => count + (node.notice_count || 0), 0);

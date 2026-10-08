@@ -70,7 +70,7 @@ test('parent full summary survives filtering, collapsed children and missing IDs
   } finally { restore(); }
 });
 
-test('hidden intermediate preserves real target across refresh; roots and virtual siblings are not promoted', () => {
+test('hidden intermediate preserves real target across refresh; roots and visible siblings use their own attention', () => {
   const parent = node(1, null, null), hidden = { ...node(3, null), task_kind: 'analysis' };
   const child = node(4, 'executing', 3), sibling = node(2, 'requested');
   const graph = { nodes: [parent, hidden, child, sibling], total: 4 };
@@ -82,8 +82,40 @@ test('hidden intermediate preserves real target across refresh; roots and virtua
   const forest = taskForest({ nodes: [node(1, null, null), node(9, 'executing', 999), node(10, 'pending', null),
     node(2, 'executing'), node(3, 'requested'), node(4, 'resolving'), node(5, 'pending'), node(6, 'blocked'),
     { ...node(7, 'executing', 80), layout_parent_id: 1 }] });
-  expect(forest.map(n => n.id)).toEqual([10, 9, 1]);
+  expect(forest.map(n => n.id)).toEqual([9, 10, 1]);
   expect(forest[2].children.map(n => n.id)).toEqual([7, 4, 2, 3, 6, 5]);
+});
+
+test('both display modes reorder by development stage, but content refresh keeps creation order', () => {
+  const ids = () => dom.node('detail').querySelectorAll('.task-graph-card').map(card => Number(card.dataset.taskId));
+  for (const minimal of [false, true]) {
+    ui.taskGraphMinimal = minimal;
+    const parent = node(1, null, null);
+    const recent = { ...node(2, null), status: 'running', created_at: '2026-02-01T00:00:00Z' };
+    const queued = { ...node(3, null), status: 'queued' };
+    const older = { ...node(4, null), status: 'running', created_at: '2026-01-01T00:00:00Z' };
+    const delivered = { ...node(5, null), status: 'awaiting_acceptance' };
+    const endedRoot = { ...node(20, null, null), status: 'completed' };
+    const graph = { total: 6, nodes: [endedRoot, older, queued, parent, recent, delivered] };
+    renderTaskGraph(graph);
+    expect(ids()).toEqual([1, 5, 2, 4, 3, 20]);
+    older.updated_at = '2030-01-01T00:00:00Z';
+    older.result_preview = 'latest content';
+    renderTaskGraph(graph);
+    expect(ids()).toEqual([1, 5, 2, 4, 3, 20]);
+    queued.status = 'awaiting';
+    renderTaskGraph(graph);
+    expect(ids()).toEqual([1, 3, 5, 2, 4, 20]);
+    queued.status = 'queued';
+    renderTaskGraph(graph);
+    expect(ids()).toEqual([1, 5, 2, 4, 3, 20]);
+    older.reservation = { ...older.reservation, status: 'requested' };
+    renderTaskGraph(graph);
+    expect(ids()).toEqual([1, 4, 5, 2, 3, 20]);
+    recent.reservation = { ...recent.reservation, status: 'executing' };
+    renderTaskGraph(graph);
+    expect(ids()).toEqual([1, 2, 4, 5, 3, 20]);
+  }
 });
 
 test('selection, editing and action layers defer refresh; focus survives normal refresh', () => {
