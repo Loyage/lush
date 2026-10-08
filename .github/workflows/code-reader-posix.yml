@@ -1,27 +1,7 @@
 name: Code reader POSIX safety
 
+# Keep the cross-platform matrix available on demand during early development.
 on:
-  pull_request:
-    paths:
-      - 'src/core/workspaces/code*.js'
-      - 'src/core/project/code.js'
-      - 'src/rpc/registry.js'
-      - 'src/rpc/handlers/task.js'
-      - 'src/ui/web/server.js'
-      - 'test/workspaces/code*.test.js'
-      - 'test/web/code-reader-api.test.js'
-      - '.github/workflows/code-reader-posix.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'src/core/workspaces/code*.js'
-      - 'src/core/project/code.js'
-      - 'src/rpc/registry.js'
-      - 'src/rpc/handlers/task.js'
-      - 'src/ui/web/server.js'
-      - 'test/workspaces/code*.test.js'
-      - 'test/web/code-reader-api.test.js'
-      - '.github/workflows/code-reader-posix.yml'
   workflow_dispatch:
 
 permissions:

@@ -108,7 +108,7 @@ Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 
 | 文档 | `test/docs-check.test.js`、`test/docs-search.test.js`、`test/markdown.test.js`、`test/mermaid-docs.test.js`、`test/web/docs.test.js` |
 | 历史兼容与安全 | `test/project/order-compatibility.test.js` 覆盖旧类型只读投影、父类型、名称/路径/原话不变、混合类型唯一索引、父候选、派生、调度告知、历史落地证据与旧入口拒绝；`test/input-routes.test.js` 仅保留旧配置格式校验；`test/{butler,explainer}-provider.test.js` 保留无工具/无凭证隔离；`test/web/dom-merge.test.js` 保留旧 Notice 审批语义；历史记录读取、删除共享引用与交付恢复由各现行分区覆盖。旧 Candidate 命令、快速路由匹配、休眠批量交付面板和项目统计的成功路径测试已移除；拒绝旧公开入口由 core-api / help-guard 覆盖 |
 
-`.github/workflows/code-reader-posix.yml` 独立运行代码读取器的 Linux/macOS 聚焦回归，覆盖最低支持 Bun 1.2.0 和当前固定 Bun 1.4.2；无 native 包或编译步骤。Linux 本地通过不等于 macOS 实测，Darwin loader mock 也不能替代 macOS job 的结果。
+`.github/workflows/code-reader-posix.yml` 仅手动触发，独立运行代码读取器的 Linux/macOS 聚焦回归，覆盖最低支持 Bun 1.2.0 和当前固定 Bun 1.4.2；无 native 包或编译步骤。触发方式见[贡献指南](../contributing/README.md#ci-触发方式)。Linux 本地通过不等于 macOS 实测，Darwin loader mock 也不能替代 macOS job 的结果。
 
 `test/session-fixture.js` 提供纯文件读取的 `sessionFixture(extra?)` 与 `sessionFile(root,taskId,lines,name?)`，每例独立 Config/临时目录，不初始化 SQLite/Project；会话读取保留 UTF-8、截断、缓存、token 与链接拒绝覆盖。HTTP 执行记录直接创建现行 Worker 行，不为只读投影创建仓库或 worktree。退休流程成功路径与重复接口矩阵已移除，拒绝旧入口、安全权限和真实 Git 交付覆盖仍保留。
 
