@@ -19,6 +19,13 @@ export const handlers = {
     check(typeof params.enabled === 'boolean', 'enabled must be a boolean');
     return p.setDaemonAutoSelect(params.enabled, expected);
   },
+  'hooks.completion_defaults'(p, params) {
+    const expected = revision(params.expected_revision);
+    check(typeof params.enabled === 'boolean', 'enabled must be a boolean');
+    check(typeof params.level === 'string' && ['merge','accept','archive'].includes(params.level),
+      'level must be merge|accept|archive');
+    return p.setCompletionDefaults(params.enabled, params.level, expected);
+  },
   'hooks.save'(p, params) {
     const expected = revision(params.expected_revision);
     check(isPlainObject(params.template), 'template must be an object');

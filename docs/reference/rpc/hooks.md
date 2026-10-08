@@ -8,6 +8,7 @@
 |---|---|---|
 | `hooks.list` | `{}` | `hooks list` |
 | `hooks.auto_select` | `{enabled,expected_revision}` | `hooks auto-select on\|off --revision REV` |
+| `hooks.completion_defaults` | `{enabled,level,expected_revision}` | 在自动化页面保存 |
 | `hooks.save` | `{template,expected_revision}` | `hooks save --file PATH --revision REV` |
 | `hooks.remove` | `{id,expected_revision}` | `hooks remove TEMPLATE_ID --revision REV` |
 | `hooks.signal_save` | `{signal,expected_revision}` | `hooks signal save --file PATH --revision REV` |
@@ -22,7 +23,7 @@
 
 读取 HTTP：`GET /api/hooks`、`GET /api/worker/ID/hooks`，不接受查询参数。写入通过已登录、同源的 `POST /api/action {method,params}`，不是通用 RPC 代理。
 
-目录返回 `{version:1,revision,triggers,actions,templates,daemon_hooks,signals,management_workers}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,completion,can_attach,mounts}`。CLI 的 Worker 参数接受内部整数或 `Wn(-n)*`，先经 `worker.lookup` 解析；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
+目录返回 `{version:1,revision,triggers,actions,templates,daemon_hooks,completion_defaults,signals,management_workers}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,completion,can_attach,mounts}`。CLI 的 Worker 参数接受内部整数或 `Wn(-n)*`，先经 `worker.lookup` 解析；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
 
 `revision` 是不透明字符串，必须先读并随写请求携带；过期返回错误，不覆盖并发修改。模板 `id` 与挂载 `hook_id` 是不同身份。
 
@@ -39,6 +40,12 @@
 专用受限工具使用 Agent-only `manager.query {id?}` / `manager.start {id}` / `manager.retry {id}`，不在 Web POST action 或用户 CLI 管理执行入口开放。后端另强制核验当前 invocation 的管理角色、绑定和 occurrence，普通开发 Agent 不能调用。目标是内部整数 ID，工具通过 worker.lookup 解析 W 编号。开始仅处理 paused，重试仅 failed；无 profile 参数、不切账号。受阻返回已持久 waiting，安全点执行，不让模型循环重发。
 
 产品授权、动作收据和恢复规则见[时间信号与管理契约](../../engineering/hook-signals-management.md)。
+
+## 新指令默认流程
+
+`completion_defaults:{version:1,enabled,level,revision}` 是当前项目新指令默认配置，初始 disabled、level=merge。`hooks.completion_defaults` 严格接受布尔 enabled 和 `merge|accept|archive`，使用 **completion_defaults.revision**，返回完整目录；关闭仍保留 level。该版本独立于模板、daemon 自动选择及 Worker Hooks 的版本。
+
+仅实际创建的新指令（含预约／定时，已停用的重选路线不恢复）复制授权，不改已有 Worker、不推进已有成果。child 和管理 Worker 不应用此默认，不提供设备作用域。此用户专属接口不启动 Agent；保存归档默认授权未来新指令及后代安全清理 worktree/ref，历史保留、脏现场不丢弃。单 Worker 设置仍用以下接口。
 
 ## 最高自动级别
 

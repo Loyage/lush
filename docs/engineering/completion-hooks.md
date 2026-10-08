@@ -50,6 +50,28 @@ RPC 出口递归去除普通 Worker 结果的字符串 `auto_merge`，防止 raw
 
 动作目录可用 `accept_worker`、`archive_worker` 描述两个内置动作，必须标 `builtin_only:true`；首期仅最高级别授权，不开放任意自定义组合安装这两个动作。前端表单排除 builtin_only，后端也必须拒绝直接安装，不能只藏 UI。原四个自定义动作不变。
 
+## 项目新指令默认值（W137 / 用户决定 #325）
+
+自动化页面增加「结束后自动处理流程」配置，项目专属，默认关闭。用户保存 `enabled:boolean` 和 `level:'merge'|'accept'|'archive'`；关闭时仍记住所选默认环节。仅在新指令 Worker 实际创建时复制授权到其 `auto_merge`，包括预约／定时发射；选择快照与重选功能已停用，不恢复该创建路径。不改已有 Worker、不从父继承、不改变 child 锁定合并及父 Agent 验收，不适用于管理 Worker。重新开启默认不补办已有成果。模板挂载不是创建，新指令以实际创建时的默认为准。
+
+- `hooks.list` 增加 `completion_defaults:{version:1,enabled,level,revision}`，独立不透明 revision，不影响模板或 daemon 自动选择 revision。
+- 用户专属 RPC / Web POST action `hooks.completion_defaults {enabled,level,expected_revision}` → `Project.setCompletionDefaults(enabled,level,expectedRevision)`，返回完整 `hooksList()`。参数严格白名单，不提供 device scope。
+- Runtime `Project.completionDefaults()` 为只读投影；`Project.newOrderCompletionConfig()` 返回新指令私有附属配置（启用高级别时包含独立用户授权身份与当前轮次收据），实际创建事务内调用。项目默认用 versioned meta 保存，变更审计不泄漏私有执行收据，不执行 Git、不唤醒已有 Agent。
+- UI 分开显示启用开关与默认最高环节，保存才生效；归档授权确认删除 worktree/ref 范围与历史保留，启用提示未来分歧可能调用源 Agent。失败保留编辑值，迟到响应不覆盖其他页面；旧服务缺失字段显示不可用，不冒充已关闭。
+- Runtime 子分区负责 completion.js、hooks.js、order.js 及项目测试；Web 子分区负责 render-hooks.js／必要 assets 和 DOM 测试；父负责 RPC／HTTP 接入、文档与组合验证。
+
+### W137 验证记录
+
+两个子分区已由 runtime 合入 W137 并由父 Agent 检查验收。真实临时 HTTP/RPC/SQLite/Git 联调与相关回归 83 项通过；覆盖关闭、合并、验收、归档默认，修改默认不撤销已有授权，预约创建时取值、当时尚可用的重选新指令（现已随父侧停用）、child 待父验收、独立修订与项目隔离、私有收据出口以及 DOM 失败／迟到保护。
+
+最终完整运行 `bun run test --timeout 30000`：**2393 pass / 0 fail**，313 文件；日志 `/tmp/lush-w137-logs/full.log`，专项 `/tmp/lush-w137-logs/integrated.log`。文档检查通过，仅既有篇幅警告。未操作用户的默认配置、重启用户 daemon/Host 或调用真实模型；真实浏览器未验证。初次子分区因父自身提交触发旧 daemon 的目标分支监测而失败，用户恢复后经源侧固定父基线修复交付，保留原提交；没有以失败调用冒充成功。
+
+### 固定父基线适配
+
+交付 11900／尝试 11922 在 W137 源工作区吸收固定父提交 `d1c0eea`，保留源提交 `139b51a`；共同祖先为 `443c37e`。增量检查发现父侧停用选择快照／重选路径、将 child 流程 Hook 整体改为用户只读，另新增详情模块预览限高。删除本需求的重选创建接入及失效测试，更新默认值文档，合并 HTTP 白名单以保留新默认配置且不恢复旧重选接口；保留 child 整组锁定与详情预览。无整体改名或其他架构迁移。
+
+修复专项 **111 pass / 0 fail**；完整 `bun run test --timeout 30000` **2387 pass / 0 fail**，314 文件，日志 `/tmp/lush-w137-logs/repair-focused.log` 与 `/tmp/lush-w137-logs/repair-full.log`。文档检查通过（既有篇幅警告）。新增回归确认项目归档默认不能改变 child 的三个只读流程 Hook，所有级别写入均被拒绝。真实浏览器／模型仍未验证，未修改父分支或用户配置／服务。
+
 ## RPC / HTTP / CLI
 
 用户专属新增：

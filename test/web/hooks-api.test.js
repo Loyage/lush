@@ -14,12 +14,12 @@ const daemonRevision = 'daemon-hooks-revision';
 const projectView = { version: 1, revision, triggers: [], actions: [], templates: [],
   daemon_hooks: { version: 1, revision: daemonRevision, mounts: [{ id: 'auto-select', enabled: false }] } };
 const workerView = { version: 1, worker_id: 7, revision, mounts: [] };
-const targets = ['hooksList','saveHookTemplate','removeHookTemplate','taskHooks','attachTaskHook','updateTaskHook','removeTaskHook','setTaskCompletion','setDaemonAutoSelect'];
+const targets = ['hooksList','saveHookTemplate','removeHookTemplate','taskHooks','attachTaskHook','updateTaskHook','removeTaskHook','setTaskCompletion','setDaemonAutoSelect','setCompletionDefaults'];
 function mocks(project) {
   const calls = [];
   for (const method of targets) project[method] = (...args) => {
     calls.push({ method, args });
-    return method === 'hooksList' || method.endsWith('Template') || method === 'setDaemonAutoSelect' ? projectView : workerView;
+    return method === 'hooksList' || method.endsWith('Template') || ['setDaemonAutoSelect','setCompletionDefaults'].includes(method) ? projectView : workerView;
   };
   return calls;
 }
@@ -35,6 +35,7 @@ const mutations = [
   ['worker.hook_remove', { id: 7, hook_id: 'hook-1', expected_revision: revision }, 'removeTaskHook', [7, 'hook-1', revision], workerView],
   ['worker.completion', { id: 7, level: 'accept', expected_revision: revision }, 'setTaskCompletion', [7, 'accept', revision], workerView],
   ['hooks.auto_select', { enabled: true, expected_revision: daemonRevision }, 'setDaemonAutoSelect', [true, daemonRevision], projectView],
+  ['hooks.completion_defaults', { enabled: true, level: 'archive', expected_revision: 'defaults-revision' }, 'setCompletionDefaults', [true, 'archive', 'defaults-revision'], projectView],
 ];
 
 test('Hooks HTTP reads and all mutations reach user RPC with exact revisions and no implicit actions', async () => {
@@ -112,7 +113,12 @@ test('Hooks HTTP refuses tokens, extra arguments, invalid revisions/types and cr
     expect((await post(f.url, 'hooks.save', { template: [], expected_revision: revision })).status).toBe(400);
     for (const enabled of [undefined, null, 0, 'false', [], {}]) {
       expect((await post(f.url, 'hooks.auto_select', { enabled, expected_revision: daemonRevision })).status).toBe(400);
+      expect((await post(f.url, 'hooks.completion_defaults', { enabled, level: 'merge', expected_revision: revision })).status).toBe(400);
     }
+    for (const level of [undefined, null, 'off', 'auto', 1, [], {}]) {
+      expect((await post(f.url, 'hooks.completion_defaults', { enabled: true, level, expected_revision: revision })).status).toBe(400);
+    }
+    expect((await post(f.url, 'hooks.completion_defaults', { enabled: true, level: 'merge', expected_revision: revision, scope: 'device' })).status).toBe(400);
     expect((await post(f.url, 'hooks.list', {})).status).toBe(400);
     expect((await post(f.url, 'worker.hooks', { id: 7 })).status).toBe(400);
     expect(calls).toEqual([]);
@@ -159,6 +165,7 @@ test('Hooks routes and mutations require the normal authenticated session', asyn
     expect((await fetch(f.url + '/api/worker/7/hooks')).status).toBe(401);
     expect((await post(f.url, 'worker.hook_attach', mutations[2][1])).status).toBe(401);
     expect((await post(f.url, 'hooks.auto_select', { enabled: true, expected_revision: daemonRevision })).status).toBe(401);
+    expect((await post(f.url, 'hooks.completion_defaults', { enabled: true, level: 'archive', expected_revision: revision })).status).toBe(401);
     expect(calls).toEqual([]);
     const login = await fetch(f.url + '/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'username=owner&password=hook-password&next=%2F' });
@@ -170,7 +177,9 @@ test('Hooks routes and mutations require the normal authenticated session', asyn
     expect((await post(f.url, 'worker.hook_remove', mutations[4][1], { Cookie, Origin: 'https://evil.invalid' })).status).toBe(403);
     expect((await post(f.url, 'hooks.auto_select', { enabled: true, expected_revision: daemonRevision }, { Cookie, Origin: f.url })).status).toBe(200);
     expect((await post(f.url, 'hooks.auto_select', { enabled: false, expected_revision: daemonRevision }, { Cookie, Origin: 'https://evil.invalid' })).status).toBe(403);
-    expect(calls).toHaveLength(4);
+    expect((await post(f.url, 'hooks.completion_defaults', { enabled: true, level: 'archive', expected_revision: revision }, { Cookie, Origin: f.url })).status).toBe(200);
+    expect((await post(f.url, 'hooks.completion_defaults', { enabled: false, level: 'archive', expected_revision: revision }, { Cookie, Origin: 'https://evil.invalid' })).status).toBe(403);
+    expect(calls).toHaveLength(5);
   } finally { await f.close(); }
 });
 
@@ -220,11 +229,14 @@ test('Host project-prefixed Hooks routes keep each request on its explicit proje
     expect((await post(url + pa, 'hooks.save', mutations[0][1])).status).toBe(200);
     const automatic = { enabled: true, expected_revision: daemonRevision };
     expect((await post(url + pb, 'hooks.auto_select', automatic)).status).toBe(200);
+    const defaults = { enabled: true, level: 'accept', expected_revision: 'defaults-revision' };
+    expect((await post(url + pa, 'hooks.completion_defaults', defaults)).status).toBe(200);
     expect(calls.filter(entry => entry.method.startsWith('hooks.') || entry.method === 'worker.hooks')).toEqual([
       { project: a, method: 'hooks.list', params: undefined },
       { project: b, method: 'worker.hooks', params: { id: 7 } },
       { project: a, method: 'hooks.save', params: mutations[0][1] },
       { project: b, method: 'hooks.auto_select', params: automatic },
+      { project: a, method: 'hooks.completion_defaults', params: defaults },
     ]);
     expect((await fetch(url + '/api/hooks')).status).toBe(400);
   } finally { web.stop(true); fs.rmSync(root,{ recursive:true, force:true }); }

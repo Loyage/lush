@@ -15,6 +15,7 @@ const revision = 'opaque-revision:a1';
 const cases = [
   ['hooks.list', [], {}, 'hooksList', []],
   ['hooks.auto_select', ['enabled','expected_revision'], { enabled: true, expected_revision: revision }, 'setDaemonAutoSelect', [true, revision]],
+  ['hooks.completion_defaults', ['enabled','level','expected_revision'], { enabled: true, level: 'archive', expected_revision: revision }, 'setCompletionDefaults', [true, 'archive', revision]],
   ['hooks.save', ['template','expected_revision'], { template: definition, expected_revision: revision }, 'saveHookTemplate', [definition, revision]],
   ['hooks.remove', ['id','expected_revision'], { id: 'template-1', expected_revision: revision }, 'removeHookTemplate', ['template-1', revision]],
   ['worker.hooks', ['id'], { id: 7 }, 'taskHooks', [7]],
@@ -63,6 +64,12 @@ test('Hook handler rejects non-object definitions, invalid IDs and non-boolean e
       { id: 7, hook_id: 'hook-1', enabled, expected_revision: revision })).toThrow('enabled must be a boolean');
     expect(() => HANDLERS['hooks.auto_select'](noCalls,
       { enabled, expected_revision: revision })).toThrow('enabled must be a boolean');
+    expect(() => HANDLERS['hooks.completion_defaults'](noCalls,
+      { enabled, level: 'merge', expected_revision: revision })).toThrow('enabled must be a boolean');
+  }
+  for (const level of [undefined, null, 'off', 'auto', 1, [], {}]) {
+    expect(() => HANDLERS['hooks.completion_defaults'](noCalls,
+      { enabled: true, level, expected_revision: revision })).toThrow('level must be merge|accept|archive');
   }
   for (const value of [0, -1, 'other-project', Number.MAX_SAFE_INTEGER + 1]) {
     expect(() => HANDLERS['worker.hooks'](noCalls, { id: value })).toThrow();

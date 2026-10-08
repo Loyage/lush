@@ -943,7 +943,7 @@ export default {
         const task = this.store.create({ parent_id: parent.id, input_id: inputId, role: 'agent', goal: content,
           name: `order-${inputId}`, task_kind: 'order' });
         this.store.update(task.id, { branch: anchor.branch, workspace: anchor.workspace,
-          auto_merge: JSON.stringify({ version: 1, enabled: false, locked: false }),
+          auto_merge: JSON.stringify(this.newOrderCompletionConfig()),
           base_commit: anchor.commit, target_branch: target, ...(start ? {} : { status: 'paused' }),
           ...(runProfile ? { retry_profile: JSON.stringify(runProfile) } : {}) });
         if (runProfile) this.store.event(task.id, 'task.configured', { ...profileEvent(runProfile), profile_override: true, via: 'order' });

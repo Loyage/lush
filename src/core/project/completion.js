@@ -1,9 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { workerLabel } from '../worker-number.js';
 import { check, id, TERMINAL } from '../types.js';
+import { hookRevision } from '../hooks.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, taskSyncDeliveryPaused } from './iteration.js';
 
 const LEVELS = ['off', 'merge', 'accept', 'archive'];
+const DEFAULTS_KEY = 'completion_defaults';
+function defaults(project) {
+  return JSON.parse(project.store.get('SELECT value FROM meta WHERE key=?', DEFAULTS_KEY)?.value
+    ?? '{"version":1,"enabled":false,"level":"merge","generation":0}');
+}
+const defaultsRevision = value => hookRevision({ version: 1, enabled: value.enabled, level: value.level, generation: value.generation });
 const rank = level => LEVELS.indexOf(level);
 const settings = task => task.auto_merge ? JSON.parse(task.auto_merge) : { version: 1, enabled: false, locked: false };
 const booking = task => task.reservation ? JSON.parse(task.reservation) : null;
@@ -48,6 +55,37 @@ function archiveProof(project, task, receipt) {
 
 /** User-authorized completion, separate from the parent's merge and custom Hook queues. */
 export default {
+  /** Project-local policy for future order creation. Reading never installs or advances Hooks. */
+  completionDefaults() {
+    const value = defaults(this);
+    return { version: 1, enabled: value.enabled, level: value.level, revision: defaultsRevision(value) };
+  },
+
+  setCompletionDefaults(enabled, level, expectedRevision) {
+    this.assertWritable('configure new order completion defaults');
+    check(typeof enabled === 'boolean', 'enabled must be boolean');
+    check(LEVELS.slice(1).includes(level), 'default completion level must be merge, accept or archive');
+    this.store.transaction(() => {
+      const value = defaults(this);
+      check(typeof expectedRevision === 'string' && expectedRevision === defaultsRevision(value),
+        'completion defaults revision changed; reload before editing');
+      const next = { version: 1, enabled, level, generation: value.generation + 1 };
+      this.store.run('INSERT INTO meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+        DEFAULTS_KEY, JSON.stringify(next));
+      this.store.event(null, 'hook.completion_defaults_configured', { enabled, level });
+    });
+    // Do not arm, schedule or rewrite existing Workers (including already mounted creation Hooks).
+    return this.hooksList();
+  },
+
+  /** Internal: call inside the actual order creation transaction, never at reservation time. */
+  newOrderCompletionConfig() {
+    const value = defaults(this);
+    if (!value.enabled) return { version: 1, enabled: false, locked: false };
+    return { version: 1, enabled: true, locked: false, level: value.level,
+      completion: { authorization: randomUUID(), round: 0, executions: {}, notices: {} } };
+  },
+
   autoCompletionView(task) {
     if (!this.autoMergeView(task)) return null;
     const config = settings(task), level = levelOf(task), data = state(this, task), phase = phaseOf(task);

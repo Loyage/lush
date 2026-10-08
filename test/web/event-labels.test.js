@@ -34,6 +34,7 @@ test('动态结算与批量合并状态事件也有中文名称', () => {
 });
 
 test('自动链配置、下一人工环节和过期执行有独立中文名称且不改写来源', () => {
+  expect(eventLabel({ type: 'hook.completion_defaults_configured' })).toBe('调整新指令结束后自动处理默认值');
   for (const type of ['task.completion_changed', 'completion.reminder', 'completion.execution_started', 'completion.execution_superseded']) {
     const source = Object.freeze({ type });
     expect(Object.hasOwn(EVENTS, type)).toBe(true);

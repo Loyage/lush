@@ -56,6 +56,10 @@
 
 用户决定 #197：以 Worker 挂载 Hook 统一预约和自动合并；项目模板集中在独立「自动化」页面（沿用 `#hooks`），首个可创建安全边界执行预约发射，自定义仅组合受控动作。[设计理念](../design/hooks.md)与[工程接口/并行职责](hooks.md)是本次实施权威接缝。Runtime、接口和前端分别遵循该契约；现有 auto_merge / reservation 保持兼容，不新增核心实体或 Host 调度。
 
+### 新指令结束后默认流程（W137 / 用户决定 #325）
+
+自动化页面保存当前项目专属的 enabled 与最高默认环节，仅之后实际创建的新指令复制授权，已有 Worker、child 和管理 Worker 不变。`hooks.list.completion_defaults` 独立版本、用户专属 `hooks.completion_defaults` mutation；字段及 `Project.completionDefaults/setCompletionDefaults/newOrderCompletionConfig` 接缝见[自动链契约](completion-hooks.md#项目新指令默认值w137--用户决定-325)。Runtime 负责 completion/hooks/order 及项目测试，Web 负责 render-hooks/必要 assets 与 DOM，父负责 RPC/HTTP、文档及真实临时项目联调。
+
 ### 定时 Hooks（用户决定 #266）
 
 在既有 Worker 附属 Hook 中增加 `time.scheduled`，一次性日期与每日显式时区；停机错过跳过，到点持久提交非阻塞待执行项，安全点尽早准入而非保证 Agent 准点开始。失败重试与暂停继续为显式受控动作，未知副作用不重放。定义、目录模式覆盖、pending/next 时间读面和失败 Worker 的窄挂载准入见 [Hooks 工程接缝](hooks.md#定时-hook-增补用户决定-266)。Runtime 负责 core/project 与纯时间模块和对应测试；前端负责 assets Hooks 编辑/读面与 DOM 测试；父维护文档与跨区接口/组合验证。无 Host 调度或新公开 RPC。
