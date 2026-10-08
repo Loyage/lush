@@ -225,7 +225,7 @@ function renderResourceSummary(observation = {}, now = Date.now()) {
 /** Local list reads and explicit remote queries; retain editor drafts and reject late page responses. */
 export function createAgentConnections({ ownsPage, connectionId = '', setTimeout: setTimer = globalThis.setTimeout,
   clearTimeout: clearTimer = globalThis.clearTimeout, now = Date.now,
-  resetSetTimeout = globalThis.setTimeout, resetClearTimeout = globalThis.clearTimeout, client = null }) {
+  resetSetTimeout = globalThis.setTimeout, resetClearTimeout = globalThis.clearTimeout, client = null, onProjectSampling = null }) {
   const read = client ? url => url.startsWith('/api/agent/connections/history') ? api(url) : client.read(url) : api;
   const storageScopeFor = id => {
     const row = array(data?.connections).find(entry => entry.id === id);
@@ -265,7 +265,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   // Non-modal: the overview stays operable; do not claim aria-modal or trap focus.
   let panelTrigger = null, triggerSource = '', triggerLabel = '', panelKind = connectionId ? 'detail' : '', dirty = false;
   const drafts = new Map();
-  const back = button('返回来源列表', () => { closeEditor(); detailPane.hidden = true; panelKind = ''; historySequence++; node.dataset.sourceView = 'list'; paintSelection(); returnFocus(); }, 'ghost model-source-back');
+  const back = button('返回来源列表', () => { closeEditor(); detailPane.hidden = true; panelKind = ''; historySequence++; historyFlight = null; node.dataset.sourceView = 'list'; paintSelection(); returnFocus(); }, 'ghost model-source-back');
   function returnFocus() {
     let target = panelTrigger, within = false;
     for (let parent = target; parent; parent = parent.parentNode) if (parent === node) within = true;
@@ -277,6 +277,11 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     (within ? panelTrigger : target || search)?.focus();
   }
   function openPanel(kind, trigger = document.activeElement) {
+    if (kind === 'history') {
+      detailPane.hidden = true; panelKind = ''; historyHost.hidden = false;
+      node.dataset.sourceView = 'list'; paintSelection(); historyConnection.focus(); return;
+    }
+    historySequence++; historyFlight = null;
     let inside = false;
     for (let parent = trigger; parent; parent = parent.parentNode) if (parent === detailPane) inside = true;
     if (!inside || detailPane.hidden) {
@@ -301,19 +306,26 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     ? '设备采样默认由继承项目各自执行；后续读取来源或调用时刷新调度，项目旧来源文件可保留独立策略。历史仍归各项目，无项目 Host 不运行采样；缩短保留期限仅影响继承该期限的项目。'
     : '默认关闭。开启后关闭页面仍采样，daemon 停止期间留空、不补查询；缩短保留天数会清理到期历史。');
   samplingHost.append(samplingForm, samplingFeedback);
-  const historyHost = block('连接资源历史'), historyControls = el('div', undefined, 'agent-connection-history-controls');
+  const trends = block('余额与额度趋势'); trends.classList.add('model-source-trends');
+  note(trends, '来源刷新得到的数据记录在这里，不在“旧余额历史存档”中。曲线只显示当前项目已有观测，不合并其他项目；没有采集过的数据无法补回。');
+  const trendSampling = el('p', undefined, 'hint model-source-trend-sampling'); trends.append(trendSampling);
+  const trendActions = el('div', undefined, 'agent-connection-actions');
+  const historyHost = el('div', undefined, 'model-source-trend-body'), historyControls = el('div', undefined, 'agent-connection-history-controls');
   const historyConnection = select(historyControls, '历史连接', 'history-connection', [['', '请选择连接']], '');
   const historyId = field(historyControls, '已删除连接 ID（可选）', 'history-id', 'text', '', '连接删除不删除历史；可粘贴原连接 ID 查询。'); historyId.maxLength = 128;
   const days = select(historyControls, '历史范围', 'history-days', [['1', '24 小时'], ['7', '7 天'], ['30', '30 天'], ['90', '90 天']], '7');
+  const historyAccount = select(historyControls, '账号段', 'history-account', [['', '全部账号段']], '');
+  const historyMetric = select(historyControls, '指标 / 单位 / 窗口', 'history-metric', [['', '全部指标']], '');
   const historyFeedback = el('p', '选择连接后读取本地历史，不访问服务商。', 'hint agent-connection-history-feedback'); historyFeedback.setAttribute('role', 'status');
   const historyContent = el('div', undefined, 'agent-connection-history-content');
   historyHost.append(historyControls, historyFeedback, historyContent);
+  trends.append(trendActions, historyHost); trends.hidden = !projectHistory;
   samplingHost.hidden = historyHost.hidden = true;
   let selectedId = connectionId, explicitSelection = Boolean(connectionId), selectionRevision = 0, initialDetail = Boolean(connectionId);
   node.dataset.sourceView = connectionId ? 'detail' : 'list';
   let data = null, listFlight = null, version = 0, editorRevision = 0, saving = false, samplingDirty = false, samplingRevision = 0, samplingSaving = false;
-  let historySequence = 0, historyFlight = null, historyKey = '', activeHistoryKey = '', editId = null, loginSequence = 0;
-  const queries = new Map(), historyChoices = new Map(), selected = new Set(), operationState = new Map(), configBusy = new Set();
+  let historySequence = 0, historyFlight = null, historyKey = '', activeHistoryKey = '', historyData = null, editId = null, loginSequence = 0;
+  const queries = new Map(), historyChoices = new Map(), historyReadings = new Map(), selected = new Set(), operationState = new Map(), configBusy = new Set();
   let batchBusy = false, filtered = [], resetTimer = null, disposed = false, sessionRevision = 0;
   const queryVersions = new Map();
   const attention = connection => ['expired', 'unconfigured', 'unknown'].includes(connection.credential?.status || 'unknown') || ['error', 'unconfigured', 'unknown'].includes(connection.observation?.status || 'unknown');
@@ -422,6 +434,13 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     for (const [id, name] of historyChoices) { const option = el('option', `${ids.has(id) ? '' : '已删除 · '}${name} · ${id}`); option.value = id; historyConnection.append(option); }
     historyConnection.value = historyChoices.has(selected) ? selected : '';
   }
+  function paintTrendSampling() {
+    trendSampling.textContent = sharedSampling
+      ? '后台采样默认关闭；当前项目可能有独立策略，请在“本项目采样设置”查看或开启。手动刷新和受支持的被动观测仍会留样，设备默认不能代表项目实际采样状态。'
+      : data?.sampling?.enabled
+        ? `本项目后台采样已开启，每 ${data.sampling.interval_minutes} 分钟采样，保留 ${data.sampling.retention_days} 天；关闭页面仍运行，daemon 停机期间留空。`
+        : '本项目后台采样已关闭；手动刷新和受支持的被动观测仍会留样。可在“本项目采样设置”开启定时采样；未采样时期无法还原。';
+  }
   function apply(value, stamp) {
     if (!current() || stamp !== version) return false;
     if (value?.version !== 1 || !Array.isArray(value.connections)) throw new Error('连接数据格式不兼容。');
@@ -430,7 +449,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     if (!reminderSeeded) { evaluateReminders(true); reminderSeeded = true; }
     if (!explicitSelection && !array(data.connections).some(row => row.id === selectedId)) selectedId = data.connections[0]?.id || '';
     for (const id of selected) if (!data.connections.some(row => row.id === id)) selected.delete(id);
-    paintCards(); paintHistoryChoices(); paintRows(); paintSelection(); updateResets();
+    paintCards(); paintHistoryChoices(); paintTrendSampling(); paintRows(); paintSelection(); updateResets();
     if (initialDetail) { initialDetail = false; if (panelKind === 'detail') selectConnection(selectedId); }
     if (!samplingDirty && !samplingSaving) {
       samplingEnabled.checked = Boolean(value.sampling?.enabled);
@@ -474,7 +493,11 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       } catch { if (generation === sessionRevision && queryRevision === (queryVersions.get(id) || 0)) operationState.set(id, '查询失败；旧值仅供参考（非零余额）'); }
       finally {
         queries.delete(id);
-        if (current() && generation === sessionRevision) { await load(true); message(ok ? '资源查询完成；数值只代表观测时刻。' : '资源查询失败或未知；旧值仅供参考，不代表耗尽。', !ok); }
+        if (current() && generation === sessionRevision) {
+          await load(true);
+          if (!historyHost.hidden && historicalId() === id) { historySequence++; historyFlight = null; await loadHistory(); }
+          message(ok ? '资源查询完成，已记录到本项目余额与额度趋势；数值只代表观测时刻。' : '资源查询失败或未知；旧值仅供参考，不代表耗尽。', !ok);
+        }
         else if (current()) { operationState.delete(id); paintRows(); paintCards(); paintSelection(); }
       }
       return ok;
@@ -563,7 +586,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     closeEditor();
     if (id !== selectedId) {
       selectionRevision++;
-      historyHost.hidden = true; historySequence++; historyContent.replaceChildren();
+      historyHost.hidden = true; historySequence++; historyFlight = null; historyData = null; activeHistoryKey = ''; historyContent.replaceChildren();
     }
     selectedId = id; explicitSelection = true; openPanel('detail'); paintSelection();
     // Read-only detail expands immediately below the selected source on all screen widths.
@@ -963,27 +986,51 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     note(form, '登录成功后会自动联网查询此连接的余额 / 套餐，不调用模型；查询失败不撤销登录成功。');
     editorHost.replaceChildren(form, loginFeedback, actions); callback.focus(); message('授权请求已创建；请打开官方授权页面并粘贴回调地址。');
   }
+  function paintTrendSeries() {
+    for (const wrap of historyContent.querySelectorAll('.agent-connection-history-series')) {
+      const reading = wrap.querySelector('.agent-usage-reading');
+      if (reading) historyReadings.set(wrap.dataset.seriesId, reading.value);
+    }
+    historyContent.replaceChildren();
+    if (!historyData) return;
+    const accounts = [...new Set(historyData.series.map(series => series.account_key))];
+    const account = historyAccount.value;
+    historyAccount.replaceChildren();
+    const allAccounts = el('option', '全部账号段'); allAccounts.value = ''; historyAccount.append(allAccounts);
+    for (const key of accounts) { const option = el('option', key || '未知账号'); option.value = key || ''; historyAccount.append(option); }
+    historyAccount.value = accounts.includes(account) ? account : '';
+    const choices = historyData.series.filter(series => !historyAccount.value || series.account_key === historyAccount.value);
+    const metric = historyMetric.value;
+    historyMetric.replaceChildren(); const allMetrics = el('option', '全部指标'); allMetrics.value = ''; historyMetric.append(allMetrics);
+    for (const series of choices) {
+      const option = el('option', `${text(series.label)} · ${text(series.unit, '单位未知')} · ${usageWindow(series.window_seconds)} · 来源段 ${String(series.source_key || series.id).slice(0, 12)}`);
+      option.value = series.id; historyMetric.append(option);
+    }
+    historyMetric.value = choices.some(series => series.id === metric) ? metric : '';
+    for (const series of choices.filter(series => !historyMetric.value || series.id === historyMetric.value)) {
+      const wrap = el('section', undefined, 'agent-connection-history-series'); wrap.dataset.seriesId = series.id;
+      note(wrap, `${SCOPES[series.scope] || '范围未知'} · 来源：${SOURCES[series.source] || '历史来源'} · 来源段 ${series.source_key || series.id}${array(series.models).length ? ` · 模型：${series.models.join('、')}` : ''}`);
+      wrap.append(renderUsageSeries(series, historyData, { ...(sharedSampling ? {} : data?.sampling || {}), selectMetric: true, metric: historyReadings.get(series.id) })); historyContent.append(wrap);
+    }
+    if (!choices.length) note(historyContent, '暂无缓存样本；只有真实观测才会产生历史，未知不补零。请确认所选来源、时间范围和后台采样设置；此处不是旧存档。');
+  }
   function loadHistory() {
-    if (!current()) return Promise.resolve();
+    if (!current() || !projectHistory) return Promise.resolve();
     const id = historicalId(), key = `${id}\n${days.value}`;
-    if (!id) { historySequence++; historyContent.replaceChildren(); historyFeedback.textContent = '请选择连接或填写原连接 ID。'; return Promise.resolve(); }
+    if (!id) { historySequence++; historyData = null; historyFlight = null; historyContent.replaceChildren(); historyFeedback.textContent = '请选择连接或填写原连接 ID。'; return Promise.resolve(); }
     if (historyFlight && historyKey === key) return historyFlight;
     const sequence = ++historySequence; historyKey = key;
-    if (activeHistoryKey !== key) historyContent.replaceChildren();
+    if (activeHistoryKey !== key) {
+      historyData = null; historyContent.replaceChildren(); historyAccount.value = historyMetric.value = '';
+    }
     historyFeedback.textContent = '正在读取本地历史…'; historyFeedback.setAttribute('role', 'status');
     const pending = (async () => {
       try {
         const value = await read(`/api/agent/connections/history?id=${encodeURIComponent(id)}&days=${encodeURIComponent(days.value)}`);
         if (!current() || sequence !== historySequence || key !== `${historicalId()}\n${days.value}`) return;
         if (value?.version !== 1 || !Array.isArray(value.series)) throw new Error('invalid history');
-        activeHistoryKey = key; historyContent.replaceChildren();
-        for (const series of value.series) {
-          const wrap = el('section', undefined, 'agent-connection-history-series');
-          note(wrap, `${SCOPES[series.scope] || '范围未知'} · 来源：${SOURCES[series.source] || '历史来源'}${array(series.models).length ? ` · 模型：${series.models.join('、')}` : ''}`);
-          wrap.append(renderUsageSeries(series, value, data?.sampling || {})); historyContent.append(wrap);
-        }
-        if (!value.series.length) note(historyContent, '暂无缓存样本；只有真实观测才会产生历史，未知不补零。');
-        historyFeedback.textContent = value.truncated ? '历史已截断 / 降采样；不同账号、来源和单位分开显示，不跨缺失记录连线。' : '历史来自本地缓存，不访问服务商；账号和来源变化不会混为一条曲线。';
+        activeHistoryKey = key; historyData = value; paintTrendSeries();
+        historyFeedback.textContent = `${value.truncated ? '历史已截断 / 降采样；不同账号、来源和单位分开显示，不跨缺失记录连线。' : '历史来自本地缓存，不访问服务商；账号和来源变化不会混为一条曲线。'} 实际范围 ${value.from} — ${value.to}（UTC），保留 ${value.retention_days} 天。`;
       } catch { if (current() && sequence === historySequence) { historyFeedback.textContent = '历史读取失败；已有图表仅为上次缓存，不代表当前资源状态。'; historyFeedback.setAttribute('role', 'alert'); } }
       finally { if (historyFlight === pending) historyFlight = null; }
     })();
@@ -1012,7 +1059,18 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     finally { samplingSaving = false; }
   }));
   historyConnection.onchange = () => { historyId.value = ''; return loadHistory(); };
+  historyAccount.onchange = historyMetric.onchange = () => { if (current()) paintTrendSeries(); };
   days.onchange = loadHistory;
+  const openSampling = () => { if (current()) { closeEditor(); openPanel('sampling'); samplingEnabled.focus(); } };
+  trendActions.append(
+    button('查看余额与额度趋势', () => {
+      if (!current()) return;
+      closeEditor(); openPanel('history');
+      if (!historicalId()) historyConnection.value = selectedId || data?.connections?.[0]?.id || '';
+      return loadHistory();
+    }, 'primary', { help: '只读取当前项目记录的来源余额和额度，按账号段、指标与时间范围绘图，不联网、不调用模型。' }),
+    button('本项目采样设置', () => onProjectSampling ? onProjectSampling() : openSampling(), 'ghost', {
+      help: '查看本项目实际采样策略；启用并保存后，daemon 定时联网查询余额和额度，关闭页面仍运行，不调用模型。' }));
   historyControls.append(helped('读取历史', loadHistory, '只读取所选连接的项目 SQLite 历史，不联网查询服务商。'));
   const addConnection = button('添加连接', () => { if (current()) paintEditor(null, addConnection); }, 'primary');
   toolbar.append(addConnection,
@@ -1023,8 +1081,8 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   if (!projectHistory) {
     for (const control of [...toolbar.querySelectorAll('button')]) if (['后台采样设置', '历史与已删除来源'].includes(control.textContent)) control.parentNode?.classList.contains('help-host') ? control.parentNode.remove() : control.remove();
   }
-  intro.append(toolbar); detailPane.append(back, selectionFeedback, cards, editor, samplingHost, historyHost);
-  layout.append(listPane, detailPane); node.append(layout, intro, feedback);
+  intro.append(toolbar); detailPane.append(back, selectionFeedback, cards, editor, samplingHost);
+  layout.append(listPane, detailPane); node.append(layout, trends, intro, feedback);
   // Construct the initial empty form for old callers, but keep it out of the visual/focus flow.
   const initialFocus = document.activeElement;
   paintEditor(null, null); closeEditor(); initialFocus?.focus(); detailPane.hidden = !connectionId; panelKind = connectionId ? 'detail' : '';
@@ -1032,7 +1090,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   node.dataset.sourceView = connectionId ? 'detail' : 'list';
   let observer = null;
   function dispose() {
-    disposed = true; sessionRevision++; version++; editorRevision++; historySequence++;
+    disposed = true; sessionRevision++; version++; editorRevision++; historySequence++; historyFlight = null;
     closeEditor(); resetClearTimeout(resetTimer); resetTimer = null;
     observer?.disconnect(); observer = null;
     document.removeEventListener?.('visibilitychange', visibilityChanged);
@@ -1049,5 +1107,5 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     updateResets();
   }
   resume();
-  return { node, load, loadHistory, selectConnection, selectedConnection: () => selectedId, dispose, resume };
+  return { node, load, loadHistory, openSampling, selectConnection, selectedConnection: () => selectedId, dispose, resume };
 }
