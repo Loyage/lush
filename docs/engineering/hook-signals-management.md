@@ -4,11 +4,17 @@
 
 ## 产品和授权
 
-Hooks 页面增加两个独立区域：时间信号、管理指令。用户保存具名时间信号（例如「Codex 额度更新时间已到」），创建管理型 Worker，写「开始 Wxx」／「重试失败的 Wxx」，选择信号及一次性／持续绑定。一个信号可绑定多个管理 Worker。默认一次性；创建、绑定不调用 Agent，信号到来才持久排队，不保证 Agent 准点获得槽。默认开发输入框、order.submit 和开发 Worker 流程不变。
+「自动化」页面（沿用 `#hooks`）包含两个独立区域：时间信号、管理指令。用户保存具名时间信号（例如「Codex 额度更新时间已到」），创建管理型 Worker，写「开始 Wxx」／「重试失败的 Wxx」，选择信号及一次性／持续绑定。一个信号可绑定多个管理 Worker。默认一次性；创建、绑定不调用 Agent，信号到来才持久排队，不保证 Agent 准点获得槽。默认开发输入框、order.submit 和开发 Worker 流程不变。
 
 信号只说明时间已到，不是实际额度恢复的观测，不自动查询／切换账号，不跨项目、不启动停止的 daemon。管理 Worker 的模型／来源由用户明确选择或创建时冻结项目管理角色有效默认；不把目标 Worker 的 Codex 账号自动当作管理 Agent 的来源。
 
 用户决定 #270：管理型 Agent 首版仅可查询当前项目、开始／继续 paused 的开发 Worker、重试 failed 的开发 Worker。目标可为当前项目任意 order/child，不限父子，但不得复活 completed/cancelled、已验收／归档或祖先关闭的任务。不增加追加输入、创建开发任务、取消、中断、合并、验收、归档、删除、配置账号／Hook／服务的权限。
+
+### 订阅刷新时间填入
+
+Web 的时间信号编辑器按需 GET `/api/agent/connections`，仅读取当前项目有效模型来源与本地观测，不调用 `query`。候选为当前 `available|partial` 观测中 `kind:'quota',scope:'account'` 的资源；显示账号名称、指标、结构化窗口与刷新时刻，填入后显示 `checked_at`。缺失／无效／已到期 `reset_at` 不可选，失败或 unknown 不从 `last_success` 补候选。不按来源启停推断额度已恢复，停用来源明确标注。
+
+显式选择直接改为 `kind:'once'`，保留表单当前 IANA 时区，以缓存明确瞬间转换本地显示；精确 UTC at（含毫秒／DST 重叠中的明确偏移）保存，手改日期或时区后仍走既有无歧义校验。保存参数仍仅信号定义，不新增账号绑定或公开接口，不追踪后续观测。读取失败不阻塞手填；重新读缓存不覆盖已填时间；离页／跨项目／替换表单的迟到响应作废，保存中禁止填入。
 
 ## Worker 与执行隔离
 
@@ -51,7 +57,7 @@ Workspace 是项目 .lush 下专属 management 目录，不是 canonical 项目�
 
 受控动作返回 `{status:'succeeded'|'waiting'|'skipped'|'unknown',target_id,target_worker_number,reason?,receipt_id}`（尚未创建新动作的校验失败可拒绝）。成功仅表示生命周期操作已提交／排队，不冒充目标业务成功或额度已恢复。每项操作先记录授权、触发身份和收据，禁用后拒绝新操作。
 
-普通 worker.inspect 及所有公开 RPC/HTTP 出口不得泄漏字符串 management 私有 JSON 或 retry_profile。管理型 Worker 在 Hooks 页面显示历史／结果入口，不假装有分支可合并。配置 revision 不因时钟 tick 变化而让未改配置的表单失效。跨项目迟到响应使用现有 Hooks 页面项目身份守卫，不串页；延迟安排 Agent 的按钮使用 agent-call 与 agentHelp。
+普通 worker.inspect 及所有公开 RPC/HTTP 出口不得泄漏字符串 management 私有 JSON 或 retry_profile。管理型 Worker 在自动化页面显示历史／结果入口，不假装有分支可合并。配置 revision 不因时钟 tick 变化而让未改配置的表单失效。跨项目迟到响应使用现有自动化页面项目身份守卫，不串页；延迟安排 Agent 的按钮使用 agent-call 与 agentHelp。
 
 ## 实施分区与验证
 

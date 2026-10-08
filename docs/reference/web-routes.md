@@ -105,6 +105,6 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 
 Hooks 另开放 `hooks.save/remove/auto_select/signal_save/signal_remove`、`management.create/binding_update`、`worker.hook_attach/hook_update/hook_remove`，均为当前项目用户专属 action；daemon 自动选择使用独立 revision，不提供 Host 全局开关，见[Hooks 接口](rpc/hooks.md)。
 
-管理 Agent 的专用 `manager.query/start/retry` RPC 不进入 Web 动作白名单；用户通过 Hooks 页面保存指令和时间信号，不从 Web 构造管理 Actor。授权范围见[时间信号与管理契约](../engineering/hook-signals-management.md)。
+管理 Agent 的专用 `manager.query/start/retry` RPC 不进入 Web 动作白名单；用户通过自动化页面保存指令和时间信号，不从 Web 构造管理 Actor。授权范围见[时间信号与管理契约](../engineering/hook-signals-management.md)。
 
 任何不在上述白名单的写入（含已下线的批量草稿提交、Candidate 验收、托管模式、展示、旧介绍与旧合并入口）都不再提供 Web 操作。

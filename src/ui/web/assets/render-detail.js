@@ -95,7 +95,7 @@ export function renderDetail(task, history, diff, usage, connections = null) {
   hero.append(head, el('h1', taskTitle(task), 'task-title')); panel.append(hero);
 
   const readOnly = management || isHistoricalDelivery(task);
-  if (management) panel.append(el('p', '管理指令详情只读：查看指令、结果、历史与执行过程。绑定启停仅在 Hooks 页面管理；不在这里开始、调整开发运行设置、追加输入、合并、验收或删除。', 'hint management-readonly'));
+  if (management) panel.append(el('p', '管理指令详情只读：查看指令、结果、历史与执行过程。绑定启停仅在自动化页面管理；不在这里开始、调整开发运行设置、追加输入、合并、验收或删除。', 'hint management-readonly'));
   const notice = ui.noticeFocus === null ? null : ui.noticeIndex.get(ui.noticeFocus);
   if (!readOnly && notice && notice.task_id === task.id) panel.prepend(noticePanel(notice, task));
 

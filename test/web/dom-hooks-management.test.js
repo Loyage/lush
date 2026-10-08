@@ -79,7 +79,7 @@ for (const state of [{ status: 'paused', agent_wakes: 0 }, { status: 'paused', a
     const history = { events: [{ id: 500, type: 'management.signal_submitted', created_at: row.created_at,
       data: { due_at: row.created_at } }] };
     renderDetail(row, history, null, null); syncComposer();
-    expect(deepText(root())).toContain('管理指令详情只读'); expect(deepText(root())).toContain('绑定启停仅在 Hooks 页面');
+    expect(deepText(root())).toContain('管理指令详情只读'); expect(deepText(root())).toContain('绑定启停仅在自动化页面');
     expect(deepText(root())).toContain(manager.goal); expect(deepText(root())).toContain(row.result);
     expect(deepText(root())).toContain('管理信号已提交待执行'); expect(deepText(root())).toContain('管理工作目录');
     expect(root().querySelector('.task-actions').querySelectorAll('button').map(item => item.textContent)).toEqual(['刷新详情']);

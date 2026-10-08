@@ -8,6 +8,7 @@ import { absolute } from './format.js';
 import { workerLabel } from './worker-label.js';
 import { browserTimezone, hookSchedule, hookScheduleSummary, scheduledWallTime } from './hook-schedule.js';
 import { createManagementProfileForm } from './management-profile-form.js';
+import { createSignalResetPicker } from './signal-reset-picker.js';
 
 // These mutations own their safe page projection. A failed overview refresh after a
 // successful RPC must not turn a known successful creation into a retryable failure.
@@ -56,7 +57,7 @@ function formBusy(node, value) {
   for (const tag of ['input', 'select', 'textarea', 'button']) for (const control of node.querySelectorAll(tag)) control.disabled = value;
 }
 
-export function createSignalForm(initial = {}) {
+export function createSignalForm(initial = {}, { ownsPage = () => true } = {}) {
   const node = el('div', undefined, 'hook-form signal-form');
   const name = el('input'); name.maxLength = 160; name.value = initial.name || '';
   const kind = el('select'); kind.replaceChildren(option('once', '一次性日期'), option('daily', '每日固定时间'));
@@ -66,24 +67,33 @@ export function createSignalForm(initial = {}) {
   if (initial.schedule?.kind === 'once') {
     try { date.value = scheduledWallTime(initial.schedule.at, timezone.value); } catch { date.value = ''; }
   }
-  const originalDate = date.value;
+  let exactSchedule = initial.schedule?.kind === 'once' ? { ...initial.schedule } : null;
+  let exactDate = date.value;
   const time = el('input'); time.type = 'time'; time.step = '60'; time.value = initial.schedule?.time || '00:05';
   const enabled = el('input'); enabled.type = 'checkbox'; enabled.checked = initial.enabled !== false;
   const dateWrap = field('信号日期与时间', date), timeWrap = field('信号每日时间', time);
   const preview = el('p', undefined, 'hint'); const error = el('p', undefined, 'error');
   const collect = () => ({ name: name.value.trim(), enabled: enabled.checked,
-    schedule: kind.value === 'once' && initial.schedule?.kind === 'once' && date.value === originalDate && timezone.value.trim() === initial.schedule.timezone
-      ? { ...initial.schedule } : hookSchedule(kind.value, date.value, time.value, timezone.value) });
+    schedule: kind.value === 'once' && exactSchedule && date.value === exactDate && timezone.value.trim() === exactSchedule.timezone
+      ? { ...exactSchedule } : hookSchedule(kind.value, date.value, time.value, timezone.value) });
   const paint = () => {
     dateWrap.hidden = kind.value !== 'once'; timeWrap.hidden = kind.value !== 'daily';
     try { preview.textContent = `时间：${hookScheduleSummary(collect().schedule)}`; } catch { preview.textContent = '一次性时间必须在所选时区确实存在且无歧义。'; }
   };
   for (const input of [kind, date, time, timezone]) { input.onchange = paint; input.oninput = paint; }
-  node.append(field('信号名称', name), field('信号周期', kind), dateWrap, timeWrap, field('信号时区（IANA）', timezone),
+  const resetPicker = createSignalResetPicker({ ownsPage, timezone: () => timezone.value,
+    onSelect(schedule, local) {
+      exactSchedule = schedule; kind.value = 'once'; date.value = local;
+      // datetime-local may normalize :00 seconds away; compare the actual DOM value.
+      exactDate = date.value; paint();
+    },
+  });
+  node.append(field('信号名称', name), resetPicker.node, field('信号周期', kind), dateWrap, timeWrap, field('信号时区（IANA）', timezone),
     field('启用时间信号', enabled), preview,
     el('p', '信号只表示所安排的时间已到，不证明额度恢复。后台停机错过的时刻跳过；每日夏令时重复取首次，不存在的时刻跳过当天。到点持久提交，受并发和安全门限制，不保证 Agent 准点开始。', 'hint'), error);
   paint();
-  return { node, collect, setBusy: value => formBusy(node, value), validate() {
+  return { node, collect, loadResetTimes: resetPicker.load,
+    setBusy(value) { formBusy(node, value); resetPicker.setBusy(value); }, validate() {
     let message = '';
     try {
       const signal = collect();
@@ -170,8 +180,9 @@ export function renderSignalManagement({ catalogue, editor, ownsPage, busy, setB
   const finishEdit = () => { setEditing(false); editor.replaceChildren(); };
   function editSignal(initial = {}) {
     if (!ownsPage() || busy()) return;
-    setEditing(true); const form = createSignalForm(initial);
+    setEditing(true); let form;
     const ownsForm = () => ownsPage() && editor.querySelector('.signal-form') === form.node;
+    form = createSignalForm(initial, { ownsPage: ownsForm });
     editor.replaceChildren(el('h2', initial.id ? `编辑时间信号：${initial.name}` : '新建时间信号'), form.node);
     const save = button('保存时间信号', async () => {
       if (!ownsForm() || busy() || form.validate()) return;
@@ -183,6 +194,7 @@ export function renderSignalManagement({ catalogue, editor, ownsPage, busy, setB
       finally { setBusy(false); if (ownsForm()) { form.setBusy(false); save.disabled = false; } }
     }, 'hook-button', { agent: true, help: agentHelp('保存具名时间信号，允许到点唤醒已绑定的管理 Agent；保存时不立即调用。') });
     editor.append(save, button('取消编辑', () => { if (ownsForm() && !busy()) finishEdit(); }, 'ghost'));
+    void form.loadResetTimes();
   }
   function editManagement() {
     if (!ownsPage() || busy()) return;

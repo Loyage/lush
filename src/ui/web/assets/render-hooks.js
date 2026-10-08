@@ -204,7 +204,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
     finally { pending.delete(`attach:${task.id}`); attach.disabled = !writable; }
   }, 'ghost hook-button', { help: '打开受控规则编辑器或选择项目模板；打开不调用 Agent，确认挂载前会说明动作代价。' });
   controls.append(guarded(attach, !writable ? '挂载列表不可用、Worker 已结束或分支已归档；请先处理后刷新。' : null),
-    button('项目 Hooks 与模板', () => openHooks(), 'ghost hook-button', { help: '查看当前项目的节点、动作和模板；不会自动挂载到 Worker。' }));
+    button('项目自动化与模板', () => openHooks(), 'ghost hook-button', { help: '查看当前项目的节点、动作和模板；不会自动挂载到 Worker。' }));
   management.append(controls, editor); row.append(management); section.append(row); return section;
 }
 async function promptRisk() {
@@ -214,7 +214,7 @@ async function promptRisk() {
 
 /** Explicit project-local template management, separate from actual Worker attachments. */
 export async function openHooks() {
-  const view = activateDetailView({ view: 'hooks', title: 'Hooks', context: '工作', hint: '时间信号与管理 Agent · 生命周期 · 受控动作 · 模板', hash: '#hooks' });
+  const view = activateDetailView({ view: 'hooks', title: '自动化', context: '工作', hint: '时间信号与管理 Agent · 生命周期 · 受控动作 · 模板', hash: '#hooks' });
   const project = projectApi('/api/hooks');
   const ownsPage = () => ui.view === view && projectApi('/api/hooks') === project;
   if (ui.hooksPage?.view === view && ui.hooksPage.project === project) return ui.hooksPage.pending;
@@ -242,10 +242,10 @@ export async function openHooks() {
   }
   async function load() {
     try { const catalogue = await api('/api/hooks'); if (!owns()) return; state.catalogue = catalogue; ui.hookCatalogue = catalogue; paint(); }
-    catch (error) { if (owns()) { root.replaceChildren(el('h1', 'Hooks'), el('p', `读取失败：${error.message}`, 'error'), button('重新读取', load, 'ghost')); } }
+    catch (error) { if (owns()) { root.replaceChildren(el('h1', '自动化'), el('p', `读取失败：${error.message}`, 'error'), button('重新读取', load, 'ghost')); } }
   }
   function daemonSection(catalogue) {
-    const section = block('项目 daemon Hooks');
+    const section = block('项目后台自动化');
     section.append(el('p', '由当前项目后台执行，关闭浏览器后仍生效；独立于 Worker 挂载和项目模板。', 'hint'));
     const model = catalogue.daemon_hooks;
     const mount = Array.isArray(model?.mounts) ? model.mounts.find(item => item?.id === 'auto-select') : null;
@@ -291,7 +291,7 @@ export async function openHooks() {
   function paint() {
     if (!owns()) return;
     const catalogue = state.catalogue;
-    root.replaceChildren(el('h1', 'Hooks'), el('p', '当前项目的后台与 Worker 生命周期、定时自动动作。模板只保存配置；实际挂载、启停和执行结果在 Worker 详情管理。定时到点提交非阻塞动作，安全点尽早执行，不保证 Agent 准点开始；后台停机错过时间跳过，不自动启动项目或判断额度恢复。自定义仅组合受控动作，不执行脚本，不自动重试未知副作用。', 'hint'), daemonSection(catalogue));
+    root.replaceChildren(el('h1', '自动化'), el('p', '当前项目的后台与 Worker 生命周期、定时自动动作。模板只保存配置；实际挂载、启停和执行结果在 Worker 详情管理。定时到点提交非阻塞动作，安全点尽早执行，不保证 Agent 准点开始；后台停机错过时间跳过，不自动启动项目或判断额度恢复。自定义仅组合受控动作，不执行脚本，不自动重试未知副作用。', 'hint'), daemonSection(catalogue));
     root.append(...renderSignalManagement({ catalogue, editor, ownsPage: owns, busy: () => state.busy,
       setBusy(value) { state.busy = value; if (owns()) paint(); }, setEditing(value) { state.editing = value; },
       onCatalogue(result) { if (owns()) { state.catalogue = result; ui.hookCatalogue = result; paint(); } },
