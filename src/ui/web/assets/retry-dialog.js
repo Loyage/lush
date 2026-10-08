@@ -48,6 +48,9 @@ async function profileDialog(task, options) {
     content.append(form.node, el('p', '确认后，所选完整 Profile 会固定到这个 Worker，直到它再次完成、失败或取消。', 'retry-scope-note'));
     await form.ready;
     if (!ownsPage()) return false;
+    // Read local sources on open; a slow/failed read must not block editing.
+    // Start after initialization so its repaint cannot erase a read failure or loading state.
+    void form.picker.load();
 
     // Keep the same live form when the profile is invalid, so fixing it does not lose other edits.
     for (;;) {

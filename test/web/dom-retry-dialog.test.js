@@ -4,6 +4,7 @@ import { until } from '../helpers.js';
 
 const actions = [];
 const environmentReads = [];
+const connectionReads = [];
 const id = '44444444-4444-4444-8444-444444444444';
 const codexId = '55555555-5555-4555-8555-555555555555';
 const managedConnections = [{ id, label: '兼容服务', provider: 'openai-compatible', endpoint: 'https://models.example/v1',
@@ -26,7 +27,12 @@ const settings = {
 const response = value => ({ ok: true, status: 200, json: async () => value });
 const dom = installDom({ fetch: async (url, options = {}) => {
   if (url === '/api/agent/config') return response(settings);
-  if (url === '/api/agent/connections') return connectionResponse || response({ version: 1, connections: managedConnections });
+  if (url.startsWith('/api/agent/connections')) {
+    connectionReads.push(url);
+    if (url === '/api/agent/connections') return connectionResponse || response({ version: 1, connections: managedConnections });
+    const connectionId = new URL(url, 'http://localhost').searchParams.get('id');
+    return response({ version: 1, id: connectionId, status: 'cached', models: [] });
+  }
   if (url.startsWith('/api/agent/environment?target=')) {
     const target = new URL(url, 'http://localhost').searchParams.get('target');
     environmentReads.push(target);
@@ -47,7 +53,8 @@ const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js'
 
 afterAll(() => { restoreNavigation(); dom.restore(); });
 
-test('检查后重试编辑完整 Profile，并只把覆盖参数提交给 worker.retry', async () => {
+test('检查后重试自动读取本地连接，编辑完整 Profile 后直接提交 worker.retry', async () => {
+  connectionReads.length = 0;
   const pending = retryTask({ id: 42, role: 'worker', status: 'failed' });
   await until(() => dialogButton(dom, '使用这些设置重试'));
   const modal = dom.node('modal');
@@ -55,6 +62,14 @@ test('检查后重试编辑完整 Profile，并只把覆盖参数提交给 worke
   expect(deepText(modal)).toContain('默认 Prompt');
   expect(deepText(modal)).toContain('扩展与 Skills');
   expect(environmentReads).toEqual(['common', 'worker']);
+  expect(connectionReads).toEqual(['/api/agent/connections', `/api/agent/connections/models?id=${codexId}`]);
+  const connection = modal.querySelector('[data-retry-field="connection_id"]');
+  expect(connection.value).toBe(codexId);
+  expect(deepText(connection)).toContain('Lush Codex OAuth');
+  expect(modal.querySelector('[data-connection-model="choice"]').children.map(node => node.value))
+    .toEqual(['', 'openai-codex/gpt-5.4', 'openai-codex/gpt-5.4-mini']);
+  expect(modal.querySelector('[data-retry-field="model"]').value).toBe(profile.model);
+  expect(modal.querySelector('[data-retry-field="thinking"]').value).toBe(profile.thinking);
 
   const model = modal.querySelector('[data-retry-field="model"]');
   const thinking = modal.querySelector('[data-retry-field="thinking"]');
@@ -63,7 +78,6 @@ test('检查后重试编辑完整 Profile，并只把覆盖参数提交给 worke
   const extension = modal.querySelector('[data-retry-resource="extensions"]');
   extension.checked = true; extension.onchange();
 
-  await dialogButton(dom, '读取项目连接').onclick();
   await dialogButton(dom, '使用这些设置重试').onclick();
   expect(await pending).toBe(true);
   expect(actions).toHaveLength(1);
@@ -97,7 +111,7 @@ test('暂停中的「调整运行设置」只保存 Profile，不启动 Agent', 
   await until(() => dialogButton(dom, '保存设置'));
   const modal = dom.node('modal');
   expect(deepText(modal)).toContain('下一次 Agent 调用');
-  await dialogButton(dom, '读取项目连接').onclick();
+  expect(deepText(modal.querySelector('[data-retry-field="connection_id"]'))).toContain('Lush Codex OAuth');
   await dialogButton(dom, '保存设置').onclick();
   expect(await pending).toBe(true);
   expect(actions).toHaveLength(1);
@@ -242,15 +256,75 @@ test('隔离的 explainer 角色不能切到 Pi 默认配置', async () => {
   expect(actions).toHaveLength(0);
 });
 
-test('取消Worker配置后连接列表迟到不改变其他页面，也不发起重试', async () => {
-  actions.length = 0; let resolve;
+test('取消Worker配置后自动读取的连接列表迟到不改变其他页面，也不发起重试', async () => {
+  actions.length = 0; connectionReads.length = 0; let resolve;
   connectionResponse = new Promise(done => { resolve = done; });
   const pending = configureTask({ id: 52, role: 'worker', status: 'paused' });
   await until(() => dialogButton(dom, '保存设置'));
-  const loading = dialogButton(dom, '读取项目连接').onclick();
+  expect(connectionReads).toEqual(['/api/agent/connections']);
+  expect(dialogButton(dom, '读取项目连接').disabled).toBe(true);
+  const loading = dialogButton(dom, '读取项目连接').onclick(); // Join the automatic single-flight read.
+  expect(connectionReads).toEqual(['/api/agent/connections']);
   await dialogButton(dom, '不修改').onclick(); expect(await pending).toBe(false);
   const before = deepText(dom.node('modal')); resolve(response({ version: 1, connections: managedConnections })); await loading;
   expect(deepText(dom.node('modal'))).toBe(before); expect(actions).toHaveLength(0); connectionResponse = null;
+});
+
+test('自动读取慢响应不阻断编辑，也不覆盖已改模型或填入来源默认', async () => {
+  actions.length = 0; let resolve;
+  connectionResponse = new Promise(done => { resolve = done; });
+  managedConnections[1].default_model = 'gpt-5.4';
+  try {
+    const pending = retryTask({ id: 55, role: 'worker', status: 'cancelled' });
+    await until(() => dialogButton(dom, '使用这些设置重试'));
+    const modal = dom.node('modal'), get = name => modal.querySelector(`[data-retry-field="${name}"]`);
+    get('model').value = 'openai-codex/gpt-5.4-mini';
+    get('append-prompt').value = 'keep slow-read edit';
+    get('thinking').value = 'high';
+    expect(actions).toHaveLength(0);
+    resolve(response({ version: 1, connections: managedConnections }));
+    await until(() => !dialogButton(dom, '读取项目连接').disabled);
+    expect(get('connection_id').value).toBe(codexId);
+    expect(get('model').value).toBe('openai-codex/gpt-5.4-mini');
+    expect(get('thinking').value).toBe('high');
+    expect(get('append-prompt').value).toBe('keep slow-read edit');
+    await dialogButton(dom, '使用这些设置重试').onclick();
+    expect(await pending).toBe(true);
+    expect(actions).toHaveLength(1);
+    expect(actions[0]).toMatchObject({ method: 'worker.retry', params: { profile: {
+      model: 'openai-codex/gpt-5.4-mini', thinking: 'high', append_prompt: 'keep slow-read edit',
+    } } });
+  } finally { connectionResponse = null; delete managedConnections[1].default_model; }
+});
+
+test('自动读取连接失败仍可编辑，手动重读保留草稿后能重试', async () => {
+  actions.length = 0;
+  connectionResponse = { ok: false, status: 503, json: async () => ({ error: 'unavailable' }) };
+  try {
+    const pending = retryTask({ id: 54, role: 'worker', status: 'failed' });
+    await until(() => dialogButton(dom, '使用这些设置重试'));
+    const modal = dom.node('modal'), get = name => modal.querySelector(`[data-retry-field="${name}"]`);
+    expect(deepText(modal)).toContain('连接列表读取失败');
+    expect(dialogButton(dom, '读取项目连接').disabled).toBe(false);
+    expect(get('connection_id').value).toBe(codexId);
+    expect(get('model').value).toBe(profile.model);
+    get('model').value = 'openai-codex/gpt-5.4-mini';
+    get('append-prompt').value = 'keep edited prompt';
+    await dialogButton(dom, '使用这些设置重试').onclick();
+    await until(() => dialogButton(dom, '使用这些设置重试'));
+    expect(actions).toHaveLength(0);
+    expect(dom.node('error').textContent).toContain('请先读取项目连接');
+    connectionResponse = null;
+    await dialogButton(dom, '读取项目连接').onclick();
+    expect(get('model').value).toBe('openai-codex/gpt-5.4-mini');
+    expect(get('append-prompt').value).toBe('keep edited prompt');
+    await dialogButton(dom, '使用这些设置重试').onclick();
+    expect(await pending).toBe(true);
+    expect(actions).toHaveLength(1);
+    expect(actions[0]).toMatchObject({ method: 'worker.retry', params: { profile: {
+      connection_id: codexId, model: 'openai-codex/gpt-5.4-mini', append_prompt: 'keep edited prompt',
+    } } });
+  } finally { connectionResponse = null; }
 });
 
 test('加载默认参数恢复角色的 Prompt、资源与软预算，并正确解析 scheduler 的 planner 环境', async () => {

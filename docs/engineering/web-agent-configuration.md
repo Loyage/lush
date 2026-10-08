@@ -16,7 +16,7 @@
 | 入口 | 文件 | 说明 |
 |---|---|---|
 | 项目默认与角色覆盖 | `render-settings.js` 的 `renderAgentSettings` / `profileEditor` | 每份 Profile 首位是配置模式；数据字段 `data-agent-field="config_mode"`。思考深度在目录确证该模型等级时收窄，未知时保留既有选项，不静默改写已保存等级。 |
-| Worker 运行设置 / 重试 | `retry-dialog.js` 调用共享表单 `agent-profile-form.js` | 字段契约（`data-retry-field`）保持不变；Profile 只送 `worker.retry` / `worker.configure`，提交前按模式裁剪。 |
+| Worker 运行设置 / 重试 | `retry-dialog.js` 调用共享表单 `agent-profile-form.js` | 打开时自动读取本地连接列表和已选来源目录缓存，不联网、不自动替换来源或模型；慢响应或失败不阻断编辑，仍可手动重读且保留草稿。字段契约（`data-retry-field`）保持不变；Profile 只送 `worker.retry` / `worker.configure`，提交前按模式裁剪。 |
 | 新建指令的运行设置 | `composer.js` 的 `openComposerRunSettings` | 只打开设置，不调用 Agent、不创建 Worker；确认后把 Profile 存在本会话，随下一次 `order.submit` 一起发送，创建成功后清空，不悄悄沿用到下一条指令。「恢复项目默认」只清除本条覆盖。 |
 
 `agent-profile-form.js` 的 `createProfileForm({profile, settings, role, ownsPage, onChange, applyDefaultModelOnChange?})` 返回 `{node, ready, collect, validate, reset, mode, ...}`：`ready` 在资源目录与模型目录读取完成后 resolve，`collect()` 输出已按模式裁剪的 Profile，调用方决定提交目标。表单不自行发写请求。已选托管来源时提供「填入来源默认」：把该来源保存的 `default_model` / `default_thinking` 写入模型与思考深度两项（模型限定 `provider/model`），未读来源或无默认时只就地提示；不调用 Agent。Worker 的 `retry-dialog.js` 显式传入 `applyDefaultModelOnChange:true`，轻量入口也启用该选项；仅主动换源自动填入默认模型，不动思考深度，无默认保留并提示。项目/角色配置与新建指令不启用，具体边界见[切换来源](../design/agent-model-settings.md#切换来源)。
