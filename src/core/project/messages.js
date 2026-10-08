@@ -107,7 +107,10 @@ export default {
       const row = this.store.run('INSERT INTO notices(task_id,title,body,kind) VALUES (?,?,?,?)', task.id, title, body, kind);
       const noticeId = Number(row.lastInsertRowid);
       this.store.event(task.id, 'notice.opened', { notice_id: noticeId, title, kind });
-      if (kind === 'questionnaire') this.parkForQuestion(task.id, noticeId);
+      if (kind === 'questionnaire') {
+        this.prepareChoiceSnapshot(noticeId, task);
+        this.parkForQuestion(task.id, noticeId);
+      }
       this.autoAnswerNotice(noticeId);
       return noticeId;
     });

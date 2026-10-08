@@ -90,6 +90,10 @@ Hooks 页面提供具名时间信号与独立管理指令，不改变开发输�
 
 实现分工：编号校验、唯一约束与只读 `worker.lookup` 在 `src/core/worker-number.js` 与 `src/persistence/store/`、`src/rpc/`；CLI 解析与展示在 `src/cli/worker-number.js`；Web 展示接缝在 `src/ui/web/assets/worker-label.js` 与 `format.js`。字段与接口见 [Runtime 地图](modules-runtime.md) 与 [Web 前端](modules-web.md)。
 
+## 选择快照与重选路线（W121 / 决定 #283）
+
+结构化问卷保存选择前代码现场与可恢复上下文，历史重选另开用户指令 Worker，旧路线和已合并成果不自动撤回。API、快照安全点、资源保留与并行职责以[选择快照契约](choice-snapshots.md)为准。Runtime 子分区负责 core/persistence/agent 与测试；UI 子分区负责 assets/DOM；父负责 RPC/CLI/Host、文档和集成。
+
 ## 当前公开面
 
 Worker 更名中的公开入口与保留字段、事件、内部路径边界见[核心 API 收敛](core-api.md#worker-更名与兼容边界)。精简后的 RPC / CLI / Web 白名单以[核心 API 收敛](core-api.md)和 `src/rpc/registry.js` 为准：`system.*`、`agent.*`、`order.submit`、`worker.*`（含 `spawn` / `integrate` / `auto_merge` / `reserve` / `resolve*` / `unreserve` / `approve_merge` / `message` / `cancel` / `retry` / `interrupt` / `resume` / `configure` / `cleanup` 与只读读面）、`progress.*`、`notice.*`、`branch.tree/show/bind/archive`、`graph.get`。用户专属输入缓冲与检索另开放 `input.history/get/parents`、`draft.add/update/remove`，`order.submit` 支持带版本的单条草稿发射，见[历史输入接口](input-history.md)。CLI 只注册 `daemon` / `status` / `doctor` / `log` / `web*` / `order` / `worker` / `progress` / `notice` / `branch` / `agent` / `config`；其余命令模块（draft / intent / spec / plan / candidate / sleep）不再挂载，handlers 中未列入白名单的方法一律返回 `unknown method`。

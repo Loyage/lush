@@ -5,12 +5,12 @@ import { agentHelp } from './help.js';
 import { renderMarkdown } from './markdown.js';
 import { ui } from './state.js';
 
-function storageKey(notice) {
-  return `lush.decision:${ui.lastSnapshot?.status?.project || location.pathname}:${notice.id}:${notice.created_at}`;
+function storageKey(notice, scope = '') {
+  return `lush.decision:${ui.lastSnapshot?.status?.project || location.pathname}:${notice.id}:${notice.created_at}${scope ? `:${scope}` : ''}`;
 }
-function loadDraft(notice, questions) {
+function loadDraft(notice, questions, scope) {
   const count = questions.length;
-  const key = storageKey(notice);
+  const key = storageKey(notice, scope);
   let draft = ui.questionDrafts.get(key);
   if (!draft) {
     try { draft = JSON.parse(sessionStorage.getItem(key)); } catch { /* unavailable / corrupt */ }
@@ -97,7 +97,12 @@ function settledQuestion(notice, index, question, answer) {
 }
 
 /** Click-through questions; no network mutation until the final review is confirmed. */
-export function questionnairePanel(notice, { settle, dismiss } = {}) {
+export function questionnairePanel(notice, { settle, dismiss, draftScope = '', allowDismiss = true,
+  reviewMessage = '尚未发送给 agent。确认后整份问卷一次提交，原 Worker 将继续。',
+  submitLabel = '确认全部选择并继续 Worker',
+  submitHelp = agentHelp('把整份问卷一次性提交，原 Worker Agent 会带着你的选择继续。'),
+  failureMessage = error => `未提交成功：${error.message}。选择已保留，可重试；若已在别处处理，请刷新。`,
+} = {}) {
   const root = el('div', undefined, 'questionnaire');
   let form;
   try { form = JSON.parse(notice.body); if (form.version !== 1 || !form.questions?.length) throw new Error('version'); }
@@ -123,11 +128,11 @@ export function questionnairePanel(notice, { settle, dismiss } = {}) {
     if (broken) content.append(el('p', '无法解析已提交的答案，原始内容如下：', 'hint'), el('pre', notice.answer || ''));
     return root;
   }
-  const draft = loadDraft(notice, questions);
+  const draft = loadDraft(notice, questions, draftScope), key = storageKey(notice, draftScope);
   let busy = false, error = '';
   const save = () => {
     ui.detailDirty = true;
-    try { sessionStorage.setItem(storageKey(notice), JSON.stringify(draft)); } catch { /* memory fallback */ }
+    try { sessionStorage.setItem(key, JSON.stringify(draft)); } catch { /* memory fallback */ }
   };
   const advance = () => { draft.step = Math.min(questions.length, draft.step + 1); save(); paint(); };
   const send = async discard => {
@@ -142,11 +147,11 @@ export function questionnairePanel(notice, { settle, dismiss } = {}) {
     busy = true; error = ''; paint();
     try {
       if (discard) await dismiss();
-      else await settle({ answers: draft.answers.map(a => ({ selected: a.custom.trim() ? [] : a.selected, custom: a.custom.trim() })) });
-      ui.questionDrafts.delete(storageKey(notice));
-      try { sessionStorage.removeItem(storageKey(notice)); } catch { /* unavailable */ }
+      else await settle({ answers: draft.answers.map(a => ({ selected: a.custom.trim() ? [] : [...a.selected], custom: a.custom.trim() })) });
+      ui.questionDrafts.delete(key);
+      try { sessionStorage.removeItem(key); } catch { /* unavailable */ }
     } catch (e) {
-      error = `未提交成功：${e.message}。选择已保留，可重试；若已在别处处理，请刷新。`;
+      error = failureMessage(e);
       busy = false; paint();
     }
   };
@@ -160,7 +165,7 @@ export function questionnairePanel(notice, { settle, dismiss } = {}) {
     progress.append(button('汇总确认', () => { draft.step = questions.length; save(); paint(); }, draft.step === questions.length ? '' : 'ghost'));
     content.append(progress);
     if (draft.step === questions.length) {
-      content.append(el('h3', '确认你的全部选择'), el('p', '尚未发送给 agent。确认后整份问卷一次提交，原 Worker 将继续。', 'hint'));
+      content.append(el('h3', '确认你的全部选择'), el('p', reviewMessage, 'hint'));
       questions.forEach((q, i) => {
         const a = draft.answers[i], item = el('div', undefined, 'decision-summary');
         item.append(el('strong', q.question), el('p', a.custom.trim() || a.selected.map(n => q.options[n]?.label).filter(Boolean).join('、') || '尚未回答'));
@@ -175,11 +180,12 @@ export function questionnairePanel(notice, { settle, dismiss } = {}) {
         }
         content.append(item);
       });
-      const submit = button(busy ? '正在提交…' : '确认全部选择并继续 Worker', () => send(false), undefined,
-        { agent: true, help: agentHelp('把整份问卷一次性提交，原 Worker Agent 会带着你的选择继续。') });
+      const submit = button(busy ? '正在提交…' : submitLabel, () => send(false), undefined,
+        { agent: true, help: submitHelp });
       submit.disabled = !questions.every((q, i) => complete(q, draft.answers[i]));
       // 未答完时按钮禁用，data-help 放外层 span.help-host 才能悬停看到。
       const submitHost = el('span', undefined, 'help-host');
+      submitHost.setAttribute('data-help', submitHelp);
       submitHost.append(submit); content.append(submitHost);
     } else {
       const i = draft.step, q = questions[i], a = draft.answers[i];
@@ -217,11 +223,14 @@ export function questionnairePanel(notice, { settle, dismiss } = {}) {
     }
     const controls = el('div', undefined, 'actions');
     if (draft.step > 0) controls.append(button('上一题', () => { draft.step--; save(); paint(); }, 'ghost'));
-    controls.append(button('忽略问卷', () => send(true), 'ghost',
+    if (allowDismiss) controls.append(button('忽略问卷', () => send(true), 'ghost',
       { help: '忽略整份问卷，不代表批准任何选项；Worker 会收到「未做决定」的消息。' }));
     content.append(controls);
     if (error) { const message = el('p', error, 'error'); message.setAttribute('role', 'alert'); content.append(message); }
-    if (busy) content.querySelectorAll('button').forEach(node => { node.disabled = true; });
+    if (busy) {
+      content.querySelectorAll('button').forEach(node => { node.disabled = true; });
+      content.querySelectorAll('textarea').forEach(node => { node.disabled = true; });
+    }
   }
   paint();
   return root;

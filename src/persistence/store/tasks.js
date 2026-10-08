@@ -77,7 +77,7 @@ export const tasks = {
       // 锚点的分支名与目录名带着 input id，所以输入 id 也钉住：清空之后的输入继续往大走。
       this.setInputIdHigh(Math.max(this.inputIdHigh(), this.get('SELECT COALESCE(MAX(id),0) AS value FROM inputs').value));
       // Children of tasks/inputs go first; foreign keys are on, so the order is not decorative.
-      for (const table of ['artifacts','agent_runs','review_candidates','task_specs','messages','notices','task_deps','events','tasks','draft_references','input_references','drafts','inputs']) {
+      for (const table of ['choice_rechoices','choice_snapshots','artifacts','agent_runs','review_candidates','task_specs','messages','notices','task_deps','events','tasks','draft_references','input_references','drafts','inputs']) {
         counts[table] = this.get(`SELECT count(*) AS value FROM ${table}`).value;
         this.run(`DELETE FROM ${table}`);
       }
@@ -128,6 +128,8 @@ export const tasks = {
       counts.artifacts = drop('artifacts', `task_id IN (${marks})`);
       counts.agent_runs = drop('agent_runs', `task_id IN (${marks})`);
       counts.messages = drop('messages', `task_id IN (${marks}) OR sender_id IN (${marks})`, twice);
+      counts.choice_rechoices = drop('choice_rechoices', `task_id IN (${marks}) OR notice_id IN (SELECT id FROM notices WHERE task_id IN (${marks}))`, twice);
+      counts.choice_snapshots = drop('choice_snapshots', `task_id IN (${marks})`);
       counts.notices = drop('notices', `task_id IN (${marks})`);
       counts.events = drop('events', `task_id IN (${marks})`);
       counts.task_deps = drop('task_deps', `task_id IN (${marks}) OR depends_on IN (${marks})`, twice);
@@ -153,6 +155,13 @@ export const tasks = {
         'Input is still shared with another Worker');
       this.setTaskIdHigh(Math.max(this.taskIdHigh(),...ids));
       if (inputs.length) this.setInputIdHigh(Math.max(this.inputIdHigh(),...inputs));
+      check(!this.get(`SELECT r.request_id FROM choice_rechoices r JOIN notices n ON n.id=r.notice_id
+        WHERE n.task_id IN (${marks}) AND r.task_id NOT IN (${marks}) LIMIT 1`, ...ids,...ids), 'choice snapshot has external routes');
+      // Keep a receipt tombstone when only the new route is deleted: a stale retry must not recreate it.
+      this.run(`UPDATE choice_rechoices SET status='deleted',task_id=NULL,error='route explicitly deleted'
+        WHERE task_id IN (${marks})`, ...ids);
+      drop('choice_rechoices', `notice_id IN (SELECT id FROM notices WHERE task_id IN (${marks}))`, ids);
+      drop('choice_snapshots', `task_id IN (${marks})`, ids);
       // Follow-up rows reference the introduction, so clear them before introductions disappear.
       drop('explanation_followups',`introduction_id IN (SELECT id FROM introductions WHERE task_id IN (${marks}))`,ids);
       for (const table of ['artifacts','agent_runs','notices','events','introductions','commit_contexts']) drop(table,`task_id IN (${marks})`,ids);

@@ -28,6 +28,7 @@ export default {
       children_truncated: children.length > SUMMARY_LIMIT,
       dependencies: dependencies.map(row => ({ ...summary(row, true), kind: row.kind })),
       referenced_context: referenced,
+      ...(this.choiceReselectionContext(task.id) ? { choice_reselection: this.choiceReselectionContext(task.id) } : {}),
       open_notices: this.store.all("SELECT * FROM notices WHERE task_id=? AND status='open'", task.id),
       ...(task.role === 'planner' ? { queued_specs: this.store.specs({ planner_task_id: task.id, status: 'pending', limit: 50 }) } : {}),
       ...(task.role === 'verifier' ? { verification: this.verificationContext(task) } : {}),

@@ -36,6 +36,9 @@ function targetGate(project, target, action) {
   if (TERMINAL.has(target.status) && target.status !== 'failed') return { skip: '目标已取消或验收，不通过管理信号复活。' };
   if (target.branch && ['archived','deleted'].includes(project.store.branch(target.branch)?.status)) return { skip: '目标已归档或分支已回收。' };
   try { assertTaskAncestorsOpen(project, target); } catch { return { skip: '目标的祖先已关闭，不通过管理信号复活。' }; }
+  const choice = project.store.get('SELECT status FROM choice_rechoices WHERE task_id=?', target.id);
+  if (choice?.status === 'creating') return { wait: '重选路线正在创建，已提交并等待安全点。' };
+  if (choice && choice.status !== 'created') return { skip: '重选创建未完成或副作用未知，需用户检查现场，不通过管理信号重放。' };
   if (action === 'start' && (target.status !== 'paused' || target.interrupt_state)) return { skip: '目标不是已生效的暂停／待开始状态，本次操作不适用。' };
   if (action === 'retry' && target.status !== 'failed') return { skip: '目标不是失败状态，本次重试不适用。' };
   if (action === 'retry' && project.store.get("SELECT id FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' LIMIT 1", target.id))

@@ -29,13 +29,14 @@ function assetFile(pathname) {
   if (!ASSET_NAME.test(name) || !ASSET_EXTENSIONS.has(path.extname(name))) return null;
   return path.join(ASSETS, name);
 }
-const MUTATIONS = new Set(['settings.clear_override','settings.migration.apply','quick_explain.configure','quick_explain.start','quick_explain.followup','quick_explain.delete','agent.network.configure','agent.configure','agent.environment.configure','agent.usage.configure','agent.connections.save','agent.connections.remove','agent.connections.sampling','agent.connections.query','agent.connections.models.refresh','agent.connections.login.start','agent.connections.login.finish','agent.connections.device.start','agent.connections.device.poll','agent.connections.device.cancel','agent.packages.install','agent.packages.remove','agent.packages.update','system.configure','hooks.save','hooks.remove','hooks.auto_select','hooks.signal_save','hooks.signal_remove','management.create','management.binding_update','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove','order.submit','draft.add','draft.update','draft.remove','worker.spawn','worker.message','worker.auto_merge','worker.reserve','worker.reserve_all','worker.resolve','worker.accept','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.resolve_divergence','worker.unreserve','worker.approve_merge','worker.cancel','worker.retry','worker.clear_override','worker.interrupt','worker.resume','worker.configure','worker.cleanup','worker.delete','notice.answer','notice.dismiss','notice.read','branch.archive']);
+const MUTATIONS = new Set(['settings.clear_override','settings.migration.apply','quick_explain.configure','quick_explain.start','quick_explain.followup','quick_explain.delete','agent.network.configure','agent.configure','agent.environment.configure','agent.usage.configure','agent.connections.save','agent.connections.remove','agent.connections.sampling','agent.connections.query','agent.connections.models.refresh','agent.connections.login.start','agent.connections.login.finish','agent.connections.device.start','agent.connections.device.cancel','agent.connections.device.poll','agent.packages.install','agent.packages.remove','agent.packages.update','system.configure','hooks.save','hooks.remove','hooks.auto_select','hooks.signal_save','hooks.signal_remove','management.create','management.binding_update','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove','order.submit','draft.add','draft.update','draft.remove','worker.spawn','worker.message','worker.auto_merge','worker.reserve','worker.reserve_all','worker.resolve','worker.accept','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.resolve_divergence','worker.unreserve','worker.approve_merge','worker.cancel','worker.retry','worker.clear_override','worker.interrupt','worker.resume','worker.configure','worker.cleanup','worker.delete','notice.answer','notice.dismiss','notice.read','notice.rechoose','branch.archive']);
 const CORE_INPUT_READ = /^\/api\/input\/(draft|input)\/([1-9]\d*)$/;
 const CORE_QUICK_EXPLAIN_READ = /^\/api\/quick-explain\/[1-9]\d*$/;
 const CORE_READS = new Set(['/api/settings/runtime','/api/settings/migration','/api/quick-explain/config','/api/quick-explain/history','/api/hooks','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/notices','/api/worker-graph','/api/versions','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
 const CORE_WORKER_READ = /^\/api\/worker\/\d+(?:\/(?:hooks|history|history-page|delete-preview|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的 Worker 读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/worker\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
+const CORE_NOTICE_SNAPSHOT = /^\/api\/notice\/([1-9]\d*)\/snapshot$/;
 const CORE_DOC_READ = /^\/api\/docs\/[a-z0-9._-]+$/;
 /** 检验报告是 agent 写的自包含 HTML：只允许内联样式/脚本与 data: 图片，禁止任何外部加载与表单提交。
  *  主页面 CSP 不会作用于这个独立文档，所以这里必须自己收紧。 */
@@ -329,7 +330,7 @@ export function startWeb(config, port = 4318, options = {}) {
           if (settingsRead && (url.pathname === '/api/settings/runtime' || url.searchParams.has('scope'))) {
             return json(await client.request(settingsRead[0], settingQuery(url, settingsRead[1])));
           }
-          if (url.pathname.startsWith('/api/') && !CORE_READS.has(url.pathname) && !CORE_WORKER_READ.test(url.pathname) && !CORE_INPUT_READ.test(url.pathname) && !CORE_NOTICE_PREVIEW.test(url.pathname) && !CORE_DOC_READ.test(url.pathname) && !CORE_QUICK_EXPLAIN_READ.test(url.pathname))
+          if (url.pathname.startsWith('/api/') && !CORE_READS.has(url.pathname) && !CORE_WORKER_READ.test(url.pathname) && !CORE_INPUT_READ.test(url.pathname) && !CORE_NOTICE_PREVIEW.test(url.pathname) && !CORE_NOTICE_SNAPSHOT.test(url.pathname) && !CORE_DOC_READ.test(url.pathname) && !CORE_QUICK_EXPLAIN_READ.test(url.pathname))
             return json({ error: 'not found' }, 404);
           if (url.pathname === '/api/sleep') return json(await client.request('sleep.status'));
           if (url.pathname === '/api/sleep/choices') return json(await client.request('sleep.choices', {
@@ -341,6 +342,11 @@ export function startWeb(config, port = 4318, options = {}) {
           }));
           if (url.pathname === '/api/snapshot') return json(await client.snapshot());
           if (url.pathname === '/api/overview') return json(await client.overview(url.searchParams.get('revision')));
+          const choiceSnapshot = url.pathname.match(CORE_NOTICE_SNAPSHOT);
+          if (choiceSnapshot) {
+            check(!url.search, 'notice snapshot accepts no query parameters');
+            return json(await client.request('notice.snapshot', { id: id(choiceSnapshot[1]) }));
+          }
           if (url.pathname === '/api/notices') {
             const page = await client.request('notice.page', {
               status: url.searchParams.get('status') ?? 'all',

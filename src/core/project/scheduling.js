@@ -114,7 +114,7 @@ export default {
       if (!['order','child','management'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
       if (task.task_kind === 'management' && !this.managementReady(task)) continue;
       if (['main','owner','merge'].includes(task.task_kind)) continue; // Bound parent roots and merge orchestration do not run unrestricted providers.
-      if (this.running.has(task.id) || this.taskSyncBusy?.has(task.id)) continue;
+      if (this.running.has(task.id) || this.taskSyncBusy?.has(task.id) || this.choiceRouteCreating(task.id)) continue;
       try { assertTaskAncestorsOpen(this, task); } catch { continue; }
       if (task.reservation && JSON.parse(task.reservation)?.version === 2
         && ['requested','executing','blocked'].includes(JSON.parse(task.reservation).status)) continue;
@@ -142,6 +142,9 @@ export default {
       run.promise = this.invoke(task.id, run).catch(error => {
         console.error(`worker ${task.id}: ${error.stack || error}`);
       }).finally(async () => {
+        // Capture while the exited invocation still owns running: neither another
+        // invocation nor a child delivery can change this selection's worktree.
+        await this.finishChoiceSnapshot(task.id, run);
         // Publish actual pause / release resume intent only after the invocation
         // has really exited; no new provider can overlap the old ownership.
         const released = this.store.task(task.id);
@@ -425,6 +428,8 @@ export default {
         return;
       }
       run.agent = agent;
+      // Refuse incomplete or incompatible choice routes before ensure() can touch a checkout.
+      const choiceFork = this.choiceFork(taskId, agent);
       // Run identity and admission counters are one durable boundary; a crash cannot leave
       // a newly inserted Run attached to a still-queued Worker.
       const record = this.store.transaction(() => {
@@ -495,7 +500,7 @@ export default {
         connectionRuntime, onConnectionObservation: connectionRuntime ? observation => this.agentConnections.observe(
           agent.connection_id, connectionRuntime.account_key, connectionRuntime.source_key, observation) : null,
         onSpawn: pid => { run.pid = pid; }, onPreempt: () => { run.boundaryClaimed = true; }, messages, messagesPage, api: this,
-        context, forkPointer,
+        context, forkPointer, choiceFork,
       });
       run.invocationEnded = true;
       clearTimeout(timer);

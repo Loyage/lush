@@ -30,6 +30,10 @@ function databasePlan(project, rootId) {
     AND remaining.id NOT IN (${marks})) ORDER BY id`, ...ids, ...ids, ...ids);
   const inputIds = inputs.map(input => input.id), inputMarks = inMarks(inputIds);
   const contexts = select('commit_contexts', `task_id IN (${marks})`);
+  const choices = select('choice_snapshots', `task_id IN (${marks})`);
+  const rechoices = select('choice_rechoices', `task_id IN (${marks}) OR notice_id IN (SELECT id FROM notices WHERE task_id IN (${marks}))`, [...ids,...ids]);
+  for (const row of rechoices) if (row.task_id && !chosen.has(row.task_id))
+    blockers.push(`choice snapshot is used by Worker ${associatedWorkerLabel(store, row.task_id)}; delete that route first`);
   const branchNames = new Set(tasks.map(task => task.branch).filter(Boolean));
   for (const input of inputs) if (input.anchor_branch) branchNames.add(input.anchor_branch);
   const records = store.branches().filter(record => chosen.has(record.task_id) || branchNames.has(record.branch));
@@ -75,7 +79,7 @@ function databasePlan(project, rootId) {
       blockers.push(`branch ${record.branch} has another owner ${associatedWorkerLabel(store, record.task_id)}`);
   }
   for (const name of branchNames) { const frozen = project.branchFreeze(name); if (frozen) blockers.push(`branch ${name} is frozen: ${frozen.reason}`); }
-  const data = { tasks, inputs, branches: records, contexts,
+  const data = { tasks, inputs, branches: records, contexts, choices, rechoices,
     artifacts: select('artifacts', `task_id IN (${marks})`), runs: select('agent_runs', `task_id IN (${marks})`),
     messages: select('messages', `task_id IN (${marks}) OR sender_id IN (${marks})`, [...ids,...ids]),
     notices: select('notices', `task_id IN (${marks})`), events: select('events', `task_id IN (${marks})`),
@@ -106,14 +110,21 @@ function databasePlan(project, rootId) {
     if (spec.batch_id && !chosen.has(spec.batch_id) && store.get('SELECT id FROM tasks WHERE id=?',spec.batch_id))
       blockers.push(`historical spec #${spec.id} belongs to external batch Worker ${associatedWorkerLabel(store, spec.batch_id)}`);
   }
-  return { ids, inputIds, tasks, inputs, records, contexts, blockers, data };
+  return { ids, inputIds, tasks, inputs, records, contexts, choices, blockers, data };
 }
 
 async function deletionPlan(project, rootId) {
   const db = databasePlan(project, rootId), blockers = db.blockers;
   const git = await project.workspaces.workerDeletionResourcesUnsafe(db.tasks, db.inputs, db.records, blockers);
+  const choiceRefs = [];
+  for (const choice of db.choices) {
+    const ref = `refs/lush/choice-snapshots/${choice.notice_id}`;
+    const tip = await project.workspaces.git(project.config.project, 'rev-parse', '--verify', ref).catch(() => null);
+    if (tip && !/^[0-9a-f]{40,64}$/.test(tip)) blockers.push('choice snapshot ref is invalid');
+    choiceRefs.push({ ref, tip });
+  }
   let files = [];
-  try { files = workerFiles(project.config, db.tasks, db.contexts); } catch (error) { blockers.push(error.message); }
+  try { files = workerFiles(project.config, db.tasks, db.contexts, db.choices); } catch (error) { blockers.push(error.message); }
   const outside = project.store.tasks().filter(task => !db.ids.includes(task.id));
   const paths = [...git.worktrees.map(tree => tree.path), ...files];
   const overlaps = (a,b) => a === b || a.startsWith(b + path.sep) || b.startsWith(a + path.sep);
@@ -136,13 +147,13 @@ async function deletionPlan(project, rootId) {
   const filePlan = [];
   for (const file of files) try { filePlan.push({ path:file, fingerprint:deletionFingerprint(project.config,file) }); } catch (error) { blockers.push(error.message); }
   const uniqueBlockers = [...new Set(blockers)];
-  const snapshot = { data: db.data, git, files:filePlan };
+  const snapshot = { data: db.data, git, choiceRefs, files:filePlan };
   const preview = { id:rootId, revision:deletionHash(snapshot), can_delete:uniqueBlockers.length === 0, blockers:uniqueBlockers,
     workers:db.tasks.map(task => ({ id:task.id, worker_number:task.worker_number, goal:task.goal.slice(0,400), status:task.status })),
     inputs:db.inputs.map(input => ({id:input.id})), resources:{ worktrees:git.worktrees.map(tree => tree.path),
-      branches:git.branches.map(entry => entry.branch), files:filePlan.map(file => file.path) }, warnings };
+      branches:[...git.branches.map(entry => entry.branch), ...choiceRefs.filter(entry => entry.tip).map(entry => entry.ref)], files:filePlan.map(file => file.path) }, warnings };
   check(Buffer.byteLength(JSON.stringify(preview)) < 192000, 'deletion preview is too large; delete smaller subtrees first');
-  return { db, git, files:filePlan, preview };
+  return { db, git, choiceRefs, files:filePlan, preview };
 }
 
 export default {
@@ -173,6 +184,12 @@ export default {
           check(deletionHash(live.data) === dbRevision, 'Worker history changed during deletion; preview again');
         };
         await this.workspaces.deleteWorkerResourcesUnsafe(plan.git,guard);
+        for (const entry of plan.choiceRefs) {
+          guard();
+          const tip = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', entry.ref).catch(() => null);
+          check(tip === entry.tip, 'choice snapshot ref changed; preview again');
+          if (tip) await this.workspaces.git(this.config.project, 'update-ref', '-d', entry.ref, tip);
+        }
         guard();
         for (const file of plan.files) {
           deletionPath(this.config,file.path);
@@ -189,7 +206,7 @@ export default {
         for (const file of plan.git.worktrees.map(tree=>tree.path)) {
           deletionPath(this.config,file); check(!present(file), `resource reappeared during cleanup: ${file}`);
         }
-        check(workerFiles(this.config,plan.db.tasks,plan.db.contexts).length===0, 'Worker files reappeared during cleanup; preview again');
+        check(workerFiles(this.config,plan.db.tasks,plan.db.contexts,plan.db.choices).length===0, 'Worker files reappeared during cleanup; preview again');
         const counts = this.store.hardDeleteTasks(plan.db.ids,plan.db.inputIds,plan.git.branches.map(entry=>entry.branch));
         for (const task of plan.db.tasks) this.ancestry.delete(task.id);
         return {deleted:{root:rootId,ids:plan.db.ids,...counts},reclaimed:{worktrees:plan.git.worktrees.length,

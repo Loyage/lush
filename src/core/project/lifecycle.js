@@ -361,6 +361,7 @@ export default {
   },
 
   recover() {
+    this.recoverChoiceSnapshots();
     this.scheduledHookRecoveryClock = this.hookClock();
     this.recoveringHooks = true;
     this.hookRecoveredWorkers = new Set();

@@ -18,6 +18,8 @@ export const EVENTS = {
   created: '创建 Worker', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
   'invocation.connection': '绑定账号连接', 'invocation.inputs_delivered': '输入已交给 Agent',
   message: '收到消息', 'notice.opened': '向你提问', 'notice.answered': '已答复', retry: '重试',
+  'notice.snapshot_ready': '选择快照已保存', 'notice.snapshot_unavailable': '选择快照不可用',
+  'notice.reselected': '从选择点继续', 'notice.choice_route_created': '已创建重选路线',
   'task.signal': 'Worker 信号', 'child.completed': '子 Worker 完成', 'child.integrated': '子 Worker 已集成',
   'task.merge_requested': '请求合并', 'task.merge_approved': '批准合并', 'task.merge_integrated': '已合入父分支',
   'task.reserved': '已预约合并', 'task.unreserved': '已取消合并预约', 'task.request_withdrawn': '已撤回合并请求',

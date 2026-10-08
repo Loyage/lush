@@ -47,6 +47,7 @@ W116 / 待决 #261 批准设备同系统用户共享技术配置，项目/Worker
 - `worker.completion {id,level,expected_revision}`：用户专属的最高自动级别 off/merge/accept/archive，按合并 → 安全验收 → 子树归档串行推进；高级别不继承，child 至少合并，交付后可显式提高补办。成功自动环节不告知，只提示下一人工环节；失败/unknown 不重放。见[自动链接缝](completion-hooks.md)。
 - `worker.spawn`：只可在活动 指令/child 下派 agent 子 Worker；不再接受 role、deps 或 spec。
 - `worker.message` / `notice.post` / `notice.answer` / `notice.dismiss`：继续沟通和决策。普通消息仍受目标生命周期、直接父子权限与合并冻结限制，main/owner 不是普通收件箱；发送失败不自动重投，见[消息准入与失败处理](../reference/rpc/tasks.md#追加消息的准入与失败处理)。
+- `notice.snapshot {id}` / `notice.rechoose {id,answer,revision,request_id}`：用户专属选择快照读面与幂等另开路线，不改写原答案、不回滚 main；HTTP/CLI 与可恢复边界见[选择快照](choice-snapshots.md)。
 - `branch.history {cursor?,limit?}`：用户专属只读 main 第一父链历史与精确交付 Worker / 原始指令追溯；Web `GET /api/versions`，不新增 CLI 写入口，见 [版本迭代](version-history.md)。
 - `worker.inspect` / `worker.page` / `worker.graph` / `worker.diff` / `worker.history*` / `worker.transcript*` / `worker.runs_page` / `worker.artifacts_page` / `worker.artifact`：按需只读审阅；支持 CLI 与 Web。另有只读 `worker.lookup {number}`：把用户编号（`W5` / `W5-1`）严格解析成 `{id,worker_number}`，供 CLI/Web 转调原整数身份接口；它不改写任何状态，也不让原 RPC/HTTP 的 `id`（含 Artifact 产物 ID）接受编号。
 - `worker.integrate`：运行中的直接父 Agent 核对固定子提交并快进；`worker.resolve_child_divergence` 为父侧分歧派隔离Worker。

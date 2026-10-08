@@ -12,6 +12,7 @@ import { orderList } from './tree-order.js';
 import { ui } from './state.js';
 import { referenceable } from './context-references.js';
 import { questionnairePanel } from './render-questionnaire.js';
+import { settledDecision } from './choice-snapshot.js';
 import { sleepChoiceCard } from './sleep-ui.js';
 import { lifecycleNotice, unreadNotice, noticeMatches, positiveId, noticeIdentity } from './notice-kind.js';
 import { workerLabel } from './worker-label.js';
@@ -291,7 +292,7 @@ export function noticePanel(notice, task = null) {
   if (answerSource(notice)) head.append(badge(answerSource(notice), 'b-neutral'));
   section.append(head, el('h3', notice.title));
   if (notice.status !== 'open') {
-    if (notice.kind === 'questionnaire') section.append(questionnairePanel(notice));
+    if (notice.kind === 'questionnaire') section.append(settledDecision(notice));
     else {
       section.append(el('p', notice.body || '（没有补充说明）', 'notice-body'));
       section.append(el('p', notice.answer ? `处理结果：${notice.answer}` : notice.status === 'dismissed' ? '已忽略 · 不代表批准' : '无需答复', 'notice-body'));

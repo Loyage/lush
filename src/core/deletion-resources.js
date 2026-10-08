@@ -37,7 +37,7 @@ export function deletionFingerprint(config, file) {
 }
 
 /** No recursive directory scanning outside known private roots; file naming is exact-ID anchored. */
-export function workerFiles(config, tasks, contexts) {
+export function workerFiles(config, tasks, contexts, choices = []) {
   const home = config.home, files = new Set();
   const add = (file, directory = false) => {
     deletionPath(config, file);
@@ -55,8 +55,13 @@ export function workerFiles(config, tasks, contexts) {
       (task.task_kind === 'management' && (name.endsWith(`_lush-manager-${id}.jsonl`) || name.endsWith(`_lush-manager-${id}-pi.jsonl`))) ||
       new RegExp(`^(?:task-${id}-(?:input|system)\\.md|task-${id}-context\\.json(?:\\.\\d+\\.tmp)?|decision-${id}\\.json|codex-task-${id}(?:-result\\.md|\\.json(?:\\.\\d+\\.tmp)?))$`).test(name)) add(path.join(sessions, name));
     add(path.join(home, 'task-rules', `task-${id}.mjs`));
+    add(path.join(home, 'choice-contexts', `task-${id}.jsonl`));
     for (const suffix of ['request.json', 'stop.json']) add(path.join(home, 'preempt', `task-${id}.${suffix}`));
     add(path.join(home, 'verify', String(id)), true);
+  }
+  for (const choice of choices) {
+    check(Number.isSafeInteger(choice.notice_id) && choice.notice_id > 0, 'invalid choice snapshot identity');
+    add(path.join(home, 'choice-snapshots', `notice-${choice.notice_id}.jsonl`));
   }
   for (const context of contexts) {
     check(/^[0-9a-f]{40,64}$/.test(context.commit_hash), 'invalid commit context identity');

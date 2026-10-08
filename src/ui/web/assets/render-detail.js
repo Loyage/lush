@@ -20,7 +20,7 @@ import { renderHistory } from './render-history.js';
 import { renderTaskMessage } from './render-task-message.js';
 import { formatProgressDuration, renderTaskProgress } from './render-progress.js';
 import { noticePanel } from './render-notices.js';
-import { questionnairePanel } from './render-questionnaire.js';
+import { settledDecision } from './choice-snapshot.js';
 import { renderResolutions } from './render-resolutions.js';
 import { specItem } from './render-specs.js';
 import { renderVerifications } from './render-verify.js';
@@ -75,6 +75,7 @@ export function renderDetail(task, history, diff, usage, connections = null) {
   const previousHooks = sameTask ? panel.querySelector('.worker-hooks[data-hook-editing="true"]') || panel.querySelector('.worker-hooks[data-completion-editing="true"]') : null;
   const hookManagementOpen = sameTask && panel.querySelector('.hook-management')?.open === true;
   const previousMessages = new Map(sameTask ? [...panel.querySelectorAll('.task-message')].map(node => [node.dataset.messageId, node]) : []);
+  const previousDecisions = new Map(sameTask ? [...panel.querySelectorAll('.decision-record')].map(node => [node.dataset.noticeId, node]) : []);
   panel.dataset.view = 'task'; panel.dataset.taskId = String(task.id); panel.replaceChildren();
   referenceable(panel, { kind: 'task', target: { task_id: task.id }, label: `Worker ${workerLabel(task)}`,
     quote: `${task.goal}\n状态：${statusOf(task).label} · ${ROLE[task.role] || task.role}`, location: { view: 'task-detail', task_id: task.id } });
@@ -333,10 +334,14 @@ export function renderDetail(task, history, diff, usage, connections = null) {
         ui.noticeIndex.set(notice.id, notice); ui.noticeFocus = notice.id; return detail(task.id);
       }, 'ghost'));
       else {
-        const fold = el('details');
+        const signature = JSON.stringify([notice, readOnly]);
+        const previous = previousDecisions.get(String(notice.id));
+        if (previous?.dataset.signature === signature) { record.append(previous); continue; }
+        const fold = el('details', undefined, 'decision-record');
+        fold.dataset.noticeId = String(notice.id); fold.dataset.signature = signature;
         const label = { open: '历史待决 · 只读', answered: '已回答', dismissed: '已忽略' }[notice.status] || notice.status;
         fold.append(el('summary', `${notice.title} · ${label}`),
-          readOnly && notice.status === 'open' ? el('pre', notice.body) : questionnairePanel(notice));
+          readOnly && notice.status === 'open' ? el('pre', notice.body) : settledDecision(notice, { rechoose: !readOnly }));
         record.append(fold);
       }
     }

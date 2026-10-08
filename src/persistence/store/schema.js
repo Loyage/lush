@@ -186,6 +186,20 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE INDEX IF NOT EXISTS notices_task_status_kind ON notices(task_id,status,kind,id);
       CREATE INDEX IF NOT EXISTS notices_status_kind ON notices(status,kind,id);
+      -- Notice-owned checkpoints and idempotent fork receipts, not new business entities.
+      CREATE TABLE IF NOT EXISTS choice_snapshots (
+        notice_id INTEGER PRIMARY KEY REFERENCES notices(id), task_id INTEGER NOT NULL REFERENCES tasks(id),
+        status TEXT NOT NULL, revision TEXT NOT NULL, reason TEXT, run_id INTEGER,
+        parent_id INTEGER, target_branch TEXT, source_branch TEXT, source_workspace TEXT,
+        profile TEXT, pointer TEXT, rule TEXT, commit_hash TEXT, context_digest TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+      CREATE INDEX IF NOT EXISTS choice_snapshots_task ON choice_snapshots(task_id,status);
+      CREATE TABLE IF NOT EXISTS choice_rechoices (
+        request_id TEXT PRIMARY KEY, notice_id INTEGER NOT NULL REFERENCES notices(id),
+        revision TEXT NOT NULL, answer TEXT NOT NULL, status TEXT NOT NULL,
+        task_id INTEGER REFERENCES tasks(id), context_digest TEXT, error TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+      CREATE INDEX IF NOT EXISTS choice_rechoices_task ON choice_rechoices(task_id);
       CREATE INDEX IF NOT EXISTS messages_task ON messages(task_id, consumed);
       CREATE INDEX IF NOT EXISTS events_task ON events(task_id, id);
       CREATE INDEX IF NOT EXISTS events_task_type_id ON events(task_id, type, id);
