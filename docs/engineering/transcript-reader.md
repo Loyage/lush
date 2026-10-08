@@ -68,7 +68,7 @@
 
 ### 结果历史
 
-`render-results.js` 默认直接展示 `Worker.result`，此前 invocation 结果在「此前结果」内逐项惰性展开，显示调用身份与时间，重复文本也保留为不同调用。初始读 `worker.inspect.runs`（最新 50 条窗口及其 `runs_page` 游标）与已加载 `invocation.completed` 事件；更早结果通过既有 `worker.history_page` 逐页加载，按 run ID 去重，不把首屏窗口当成完整历史。无需新表／RPC，历史结果引用其不可变事件而不是可变的最新结果。刷新且最新结果未改变时保留展开节点与已加载历史。
+`render-results.js` 默认直接展示 `Worker.result`，此前 invocation 结果在「此前结果」内按时间从新到旧排列，历史区默认展开，每项正文直接可见、不再逐项折叠，显示调用身份与时间，重复文本也保留为不同调用。初始读 `worker.inspect.runs`（最新 50 条窗口及其 `runs_page` 游标）与已加载 `invocation.completed` 事件；更早结果通过既有 `worker.history_page` 逐页加载，按 run ID 去重，不把首屏窗口当成完整历史。无需新表／RPC，历史结果引用其不可变事件而不是可变的最新结果。同签名刷新时保留阅读节点与已加载历史；历史区的手动折叠状态在重绘时保留。
 
 在真实终端里观看执行过程走 `lush worker transcript ID --follow`（Web「Agent」块的「复制命令」给出的同一条命令）：先用兼容读面 `worker.transcript` 分页打印已有记录，再用 `worker.transcript_latest` 以 `after` 为游标轮询新步骤，直到 Ctrl-C。它只读、不执行日志里的命令、不新增 RPC；一次轮询读到整页上限（200 步）时明确提示中间可能还有未显示的记录，不冒充已全部显示。该命令仅用户可运行，agent token 会被拒绝，`--json` 不适用。
 

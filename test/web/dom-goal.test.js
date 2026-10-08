@@ -24,7 +24,7 @@ test('任务目标保留原文；只展开一层即见追加全文，重复输�
     expect(deepText(goal)).toContain('追加输入（已加载 2 条）');
     for (const text of ['Agent 消息', '决策答复', '系统信号', '仅属于收件箱']) expect(deepText(goal)).not.toContain(text);
     const entries = goal.querySelectorAll('.goal-history-entry'); expect(entries).toHaveLength(2);
-    expect(entries.map(node => node.dataset.eventId)).toEqual(['2', '1']);
+    expect(entries.map(node => node.dataset.eventId)).toEqual(['1', '2']);
     expand(fold);
     expect(entries[0].tagName).toBe('DIV'); expect(entries[0].querySelector('summary')).toBeNull();
     expect(goal.querySelectorAll('details')).toHaveLength(1);
@@ -33,7 +33,8 @@ test('任务目标保留原文；只展开一层即见追加全文，重复输�
     expect([...panel.children].indexOf(goal)).toBeLessThan([...panel.children].indexOf(panel.querySelector('.result-panel')));
     renderDetail(task, { ...history, events: [...history.events, event(6, '新的输入')] }, null, null);
     expect(panel.querySelector('.goal-panel')).toBe(goal); expect(fold.open).toBe(true);
-    expect(goal.querySelectorAll('.goal-history-entry')[1]).toBe(entries[0]); expect(deepText(entries[0])).toContain('新要求');
+    expect(goal.querySelectorAll('.goal-history-entry')[0]).toBe(entries[0]); expect(deepText(entries[0])).toContain('新要求');
+    expect(goal.querySelectorAll('.goal-history-entry').map(node => node.dataset.eventId)).toEqual(['1', '2', '6']);
     expect(deepText(goal)).toContain('新的输入');
   } finally { dom.restore(); }
 });
@@ -62,7 +63,8 @@ test('可逐页加载更早输入，失败可重试，刷新不丢已加载历�
     expect(deepText(old)).toContain('<script>old</script>'); expect(old.querySelector('script')).toBeNull();
     expect(deepText(goal)).toContain('已读取全部追加输入历史');
     expect(renderGoal(task, history, goal)).toBe(goal);
-    expect(goal.querySelectorAll('.goal-history-entry')).toHaveLength(3); expect(deepText(old)).toContain('第二行');
+    expect(goal.querySelectorAll('.goal-history-entry').map(node => node.dataset.eventId)).toEqual(['1', '2', '100']);
+    expect(deepText(old)).toContain('第二行');
     expect(goal.goalCursor).toBe(1); expect(goal.goalHasMore).toBe(false);
     expect(findByText(goal, '加载更早输入').hidden).toBe(true);
   } finally { dom.restore(); }

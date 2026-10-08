@@ -408,7 +408,7 @@ button.context-action{display:block;width:100%;background:transparent;color:var(
 .transcript-viewport{grid-area:body;min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;padding:20px clamp(16px,4vw,64px) 50px;overflow-anchor:none}
 .transcript-match{scroll-margin-top:16px;border-bottom:1px solid var(--line);padding:10px 0 20px;margin-bottom:16px}.transcript-match h3{font-size:14px}.transcript-match-context{margin-top:12px}.transcript-match-context>summary{cursor:pointer;color:var(--muted)}
 .transcript-full-original{margin:12px 0}.transcript-full-original summary,.result-history summary,.goal-history summary{cursor:pointer}
-.result-history,.goal-history{margin-top:20px;border-top:1px solid var(--line-soft);padding-top:12px}.result-history-entry,.goal-history-entry{margin:12px 0;padding:12px;border:1px solid var(--line-soft);border-radius:8px}.result-history-entry summary{font-size:12px;color:var(--muted)}.goal-history-entry>.goal-input-time{margin:0 0 8px}
+.result-history,.goal-history{margin-top:20px;border-top:1px solid var(--line-soft);padding-top:12px}.result-history-entry,.goal-history-entry{margin:12px 0;padding:12px;border:1px solid var(--line-soft);border-radius:8px}.result-history-entry>.result-history-time,.goal-history-entry>.goal-input-time{margin:0 0 8px}
 @media(max-width:760px){.transcript-toolbar{gap:8px;padding:10px}.transcript-toolbar strong{font-size:12px}.transcript-layout{grid-template-areas:"search" "body";grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(100px,35dvh) minmax(0,1fr)}.transcript-sidebar{padding:10px;border-right:0;border-bottom:1px solid var(--line)}.transcript-viewport{padding:12px 10px 30px}}
 
 /* Notice records and opt-in system alerts. */

@@ -35,7 +35,7 @@ export function renderGoal(task, history = {}, previous = null) {
     finally { more.disabled = false; }
   }, 'ghost');
   function paint() {
-    const ordered = [...entries.values()].sort((a, b) => b.id - a.id);
+    const ordered = [...entries.values()].sort((a, b) => a.id - b.id);
     for (const event of ordered) {
       let item = rendered.get(event.id);
       if (!item) {

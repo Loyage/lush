@@ -30,6 +30,7 @@ export function renderResults(task, history = {}, previous = null) {
       quote: task.result, location: { view: 'task-detail', task_id: task.id, section: 'result' } });
   } else result.append(el('p', '当前没有最新结果；此前调用的结果保留在下方。', 'hint'));
   const fold = el('details', undefined, 'result-history');
+  fold.open = previous?.querySelector('.result-history')?.open ?? true;
   const summary = el('summary'); const list = el('div'); const status = el('p', '', 'hint');
   let cursor = history.cursor, hasMore = Boolean(history.truncated || history.has_more);
   const rendered = new Map();
@@ -50,12 +51,9 @@ export function renderResults(task, history = {}, previous = null) {
     const older = ordered.filter(entry => entry.key !== latest);
     for (const entry of older) {
       if (rendered.has(entry.key)) { list.insertBefore(rendered.get(entry.key), null); continue; }
-      const item = el('details', undefined, 'result-history-entry'); item.dataset.resultKey = entry.key;
-      item.append(el('summary', `${entry.runId ? `调用 #${entry.runId}` : `记录 #${entry.eventId}`} · ${absolute(entry.at)}`));
-      item.addEventListener('toggle', () => {
-        if (!item.open || item.dataset.loaded) return;
-        item.dataset.loaded = 'true'; item.append(agentText(entry.text, { plain: 'pre' }));
-      });
+      const item = el('div', undefined, 'result-history-entry'); item.dataset.resultKey = entry.key;
+      item.append(el('p', `${entry.runId ? `调用 #${entry.runId}` : `记录 #${entry.eventId}`} · ${absolute(entry.at)}`, 'hint result-history-time'),
+        agentText(entry.text, { plain: 'pre' }));
       // Historical results refer to their immutable event, never to the mutable latest result.
       if (entry.eventId) referenceable(item, { kind: 'history_event', target: { task_id: task.id, event_id: entry.eventId },
         label: `历史结果 ${workerLabel(task)} · 事件 #${entry.eventId}`, quote: entry.text,
