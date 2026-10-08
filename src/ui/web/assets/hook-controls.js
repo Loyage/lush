@@ -11,14 +11,28 @@ export const COMPLETION_LEVELS = { off: '关闭自动链', merge: '自动到合�
 export const HOOK_STATES = { idle: '已挂载', waiting: '等待条件', running: '动作执行中', succeeded: '已执行', skipped: '已跳过', failed: '执行失败', unknown: '结果未知·需检查' };
 const rank = level => Object.keys(COMPLETION_LEVELS).indexOf(level);
 
+/** Shared stage buttons; callers decide whether selection is a draft or saved authorization. */
+export function completionLevelButtons(label, onSelect, { includeOff = true } = {}) {
+  const group = el('div', undefined, 'hook-completion-levels');
+  group.setAttribute('role', 'group'); group.setAttribute('aria-label', label);
+  const choices = [];
+  for (const [level, text] of Object.entries({ off: '关闭', merge: '合并', accept: '验收', archive: '归档' })) {
+    if (!includeOff && level === 'off') continue;
+    const control = button(text, () => onSelect(level), 'hook-completion-level'); control.dataset.level = level;
+    control.setAttribute('aria-label', COMPLETION_LEVELS[level]);
+    const host = el('span', undefined, 'help-host hook-completion-help'); host.append(control);
+    choices.push({ level, control, host }); group.append(host);
+  }
+  return { group, choices };
+}
+
 /** One-click highest-stage authorization; delegated Worker flow Hooks are read-only. */
 export function autoCompletionControl(task, model, refresh = () => {}, ownsPage = () => true, onEditing = () => {}) {
   const scope = projectBase(), updateKey = `${scope}:${task.id}`;
   const owns = () => ownsPage() && !routeContext().invalid && projectBase() === scope;
   let setting = model?.completion, revision = model?.revision, saved = setting?.level;
   const node = el('div', undefined, 'hook-completion-control');
-  const group = el('div', undefined, 'hook-completion-levels');
-  group.setAttribute('role', 'group'); group.setAttribute('aria-label', `Worker ${workerLabel(task)} 自动执行到`);
+  const { group, choices } = completionLevelButtons(`Worker ${workerLabel(task)} 自动执行到`, save);
   const status = el('span', undefined, 'hint hook-completion-state'); status.setAttribute('role', 'status');
   const ended = ['failed', 'cancelled'].includes(task.status);
   const delivered = ['completed', 'awaiting_acceptance'].includes(task.status);
@@ -34,7 +48,6 @@ export function autoCompletionControl(task, model, refresh = () => {}, ownsPage 
     : frozen ? '合并请求已冻结，不能修改当前自动链。' : setting?.state === 'running' ? '自动动作正在执行，不能修改当前链。'
       : setting?.state === 'unknown' ? '结果未知，请先检查现场；不能通过修改级别重放动作。'
         : !editable() ? '自动链设置或版本暂不可用，请刷新。' : '');
-  const choices = [];
   function paint() {
     const busy = updating.has(updateKey);
     for (const { level, control, host } of choices) {
@@ -83,13 +96,9 @@ export function autoCompletionControl(task, model, refresh = () => {}, ownsPage 
     finally { updating.delete(updateKey); onEditing(false); paint(); node.removeAttribute('aria-busy'); }
     if (submitted && owns()) try { await refresh(); } catch (error) { if (owns()) show(`自动级别已保存，但刷新失败：${error.message}`, 'error'); }
   }
-  for (const [level, text] of Object.entries({ off: '关闭', merge: '合并', accept: '验收', archive: '归档' })) {
-    const control = button(text, () => save(level), 'hook-completion-level'); control.dataset.level = level;
+  for (const { control } of choices) {
     // button() restores its generic enabled state; reapply the authorization gate afterwards.
     const clicked = control.onclick; control.onclick = async () => { await clicked(); paint(); };
-    control.setAttribute('aria-label', COMPLETION_LEVELS[level]);
-    const host = el('span', undefined, 'help-host hook-completion-help'); host.append(control);
-    choices.push({ level, control, host }); group.append(host);
   }
   node.append(el('span', '自动到', 'hook-completion-label'), group, status); paint(); return node;
 }

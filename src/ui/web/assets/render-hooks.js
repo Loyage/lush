@@ -9,12 +9,20 @@ import { agentHelp } from './help.js';
 import { workerKind } from './worker-kind.js';
 import { isHistoricalDelivery, absolute } from './format.js';
 import { createHookForm, COMMAND_WARNING } from './hook-form.js';
-import { autoMergeControl, autoCompletionControl, COMPLETION_LEVELS, HOOK_STATES as STATES } from './hook-controls.js';
+import { autoMergeControl, autoCompletionControl, completionLevelButtons, COMPLETION_LEVELS, HOOK_STATES as STATES } from './hook-controls.js';
 import { workerLabel } from './worker-label.js';
 import { hookScheduleSummary, scheduledWallTime } from './hook-schedule.js';
 import { renderSignalManagement } from './hook-signals.js';
 
 const pending = new Set();
+function hookHelpLink() {
+  const link = el('a', '使用帮助', 'hook-help-link'); link.href = '#doc-docs-hooks'; return link;
+}
+function projectHookCard(name, scope, className) {
+  const card = el('article', undefined, `hook-mount project-hook ${className}`);
+  const head = el('div', undefined, 'hook-mount-head');
+  head.append(el('h2', name), badge(scope, 'hook-scope'), hookHelpLink()); card.append(head); return card;
+}
 function sameProject(project) { try { return projectApi('/api/hooks') === project; } catch { return false; } }
 const callsAgent = mount => (mount.actions || []).some(a => ['message', 'request_merge', 'retry_worker', 'resume_worker'].includes(a.type) || (a.type === 'create_worker' && a.start !== false));
 const failedSelfTemplate = (template, workerId) => template.trigger === 'time.scheduled'
@@ -86,13 +94,15 @@ function parameters(mount) {
   return content;
 }
 const BUILTIN_STEPS = { 'auto-merge': { number: 1 }, 'auto-accept': { number: 2 }, 'auto-archive': { number: 3 } };
-function mountCard(task, mount, model, refresh, ownsPage, { setEditing = () => {}, catalogue = null, busy = () => false } = {}) {
+function mountCard(task, mount, model, refresh, ownsPage, { setEditing = () => {}, catalogue = null, busy = () => false, scope = null } = {}) {
   const row = el('article', undefined, 'hook-mount'); row.dataset.hookId = mount.id;
   const head = el('div', undefined, 'hook-mount-head');
   const step = BUILTIN_STEPS[mount.id];
   if (step) head.append(badge(`第 ${step.number} 步`));
   head.append(el('strong', mount.name), badge(mount.mode === 'persistent' ? '持续' : '一次性'), badge(mount.enabled ? '启用' : '停用'), badge(STATES[mount.state] || mount.state || '已挂载'));
-  if (mount.locked) head.append(badge('锁定')); row.append(head);
+  if (mount.locked) head.append(badge('锁定'));
+  if (scope) { row.classList.add('project-hook'); head.append(badge(scope, 'hook-scope'), hookHelpLink()); }
+  row.append(head);
   row.append(el('p', `当前触发节点：${(catalogue || ui.hookCatalogue)?.triggers?.find(item => item.id === mount.trigger)?.label || mount.trigger} · ${mount.trigger}`, 'hint'));
   if (!mount.builtin && !step) {
     const actions = el('div', undefined, 'actions hook-actions');
@@ -293,7 +303,7 @@ export async function openHooks() {
   const project = projectApi('/api/hooks');
   const ownsPage = () => ui.view === view && sameProject(project);
   if (ui.hooksPage?.view === view && ui.hooksPage.project === project) return ui.hooksPage.pending;
-  const state = { view, project, pending: null, catalogue: null, editing: false, busy: false, completionDraft: null, completionError: null, completionBlocked: false }; ui.hooksPage = state;
+  const state = { view, project, pending: null, catalogue: null, editing: false, busy: false, completionDraft: null, completionError: null, completionBlocked: false, templateQuery: '' }; ui.hooksPage = state;
   const owns = () => ownsPage() && ui.hooksPage === state;
   const root = el('div', undefined, 'hooks-page'); $('detail').replaceChildren(root);
   const editor = el('div', undefined, 'hook-editor');
@@ -324,34 +334,31 @@ export async function openHooks() {
     catch (error) { if (owns()) { root.replaceChildren(el('h1', '自动化'), el('p', `读取失败：${error.message}`, 'error'), button('重新读取', load, 'ghost')); } }
   }
   function commandExample(catalogue) {
-    const section = block('示例：main 收到合并后 git push'); section.classList.add('command-hook-example');
-    section.append(el('p', '初始示例是挂载在 main 对应 Worker 上的持续 Hook：每成功收到一次子 Worker 合并，触发 worker.merge_received，执行 git push。不是源 Worker 的 delivery.integrated，也不是任意一次 Agent 返回。编辑后以卡片中的实际节点和参数为准。'),
-      el('p', '默认停用。开启后由项目后台执行，关闭浏览器仍生效；git push 使用用户已有 remote、上游分支和认证配置，Lush 不选择或配置 remote。命令失败或未知结果如实保留，不自动重放。模板只是配置，下面管理的是真实 main 挂载，与 main Worker 的 Hooks 区同源。', 'hint'),
-      el('p', COMMAND_WARNING, 'hint hook-command-warning'));
+    const section = el('div', undefined, 'command-hook-example');
     const example = catalogue.command_example;
     const model = example?.hooks;
     const mount = Array.isArray(model?.mounts) ? model.mounts.find(item => item.id === example.hook_id) : null;
     const valid = Number.isSafeInteger(example?.worker_id) && model?.worker_id === example.worker_id && typeof model?.revision === 'string' && model.revision.trim();
     if (!valid || !mount) {
-      section.append(el('p', example ? '示例挂载已删除或不可用；不会自动重装。可从项目模板自行新建规则。' : '示例状态暂不可用；请更新服务后刷新，不会凭空创建或启用挂载。', 'hint'));
+      const card = projectHookCard('main 收到合并后 git push', '仅 main Worker', '');
+      card.append(el('p', example ? '挂载已删除或不可用；不会自动重装。可从项目模板自行新建规则。' : '挂载状态暂不可用；请更新服务后刷新，不会凭空创建或启用挂载。', 'hint')); section.append(card);
     } else {
       section.append(mountCard({ id: example.worker_id, task_kind: 'main', status: 'waiting' }, mount, model,
         // Runtime observations can advance the mount revision after the mutation response.
         // Read the authoritative catalogue before offering the next edit/toggle.
-        async () => { if (owns()) await load({ preserveDefaults: true }); }, owns, { catalogue, busy: () => state.busy || state.commandEditing, setEditing(value) { state.commandEditing = value; state.editing = value; } }));
-      section.append(button('查看 main Worker Hooks', () => detail(example.worker_id), 'ghost hook-button', { help: '只打开示例所挂载的真实 Worker；两个入口管理同一挂载。' }));
+        async () => { if (owns()) await load({ preserveDefaults: true }); }, owns, { catalogue, scope: '仅 main Worker', busy: () => state.busy || state.commandEditing, setEditing(value) { state.commandEditing = value; state.editing = value; } }));
+      section.querySelector('.project-hook').append(button('查看 main Worker Hooks', () => detail(example.worker_id), 'ghost hook-button', { help: '只打开此规则所挂载的 main Worker；两个入口管理同一挂载。' }));
     }
     const template = catalogue.templates?.find(item => item.id === example?.template_id);
-    if (template) section.append(button('编辑示例模板', () => edit(template), 'ghost hook-button', { help: '只编辑模板，已经挂载在 main 上的实例不会改变。' }),
-      button('复制示例为停用模板', () => edit(template, true), 'ghost hook-button', { help: '保存为新的停用模板，不执行、不挂载，也不复制执行记录。' }));
+    if (template) section.querySelector('.project-hook').append(button('编辑来源模板', () => edit(template), 'ghost hook-button', { help: '只编辑模板，已经挂载在 main 上的实例不会改变。' }),
+      button('复制为停用模板', () => edit(template, true), 'ghost hook-button', { help: '保存为新的停用模板，不执行、不挂载，也不复制执行记录。' }));
     return section;
   }
   const validDefaults = model => model?.version === 1 && typeof model.enabled === 'boolean'
     && ['merge', 'accept', 'archive'].includes(model.level) && typeof model.revision === 'string' && !!model.revision.trim();
   function completionDefaultsSection(catalogue) {
-    const section = block('结束后自动处理流程'); section.classList.add('completion-defaults');
-    section.append(el('p', '仅当前项目：保存后，只在之后实际创建的新指令 Worker 上复制此默认授权；已有 Worker 不变。预约指令以实际创建时的默认值为准，不会调用已有 Agent。', 'hint'),
-      el('p', 'child 仍锁定自动合并，由直接父 Agent 检查验收；管理 Worker 不参与。新指令 Worker 创建后，可在其详情单独调整。', 'hint'));
+    const section = projectHookCard('结束后自动处理流程', '仅之后新建的指令 Worker', 'completion-defaults');
+    section.append(el('p', '保存当前项目的新指令默认授权；已有 Worker 不变。', 'hint'));
     const model = catalogue.completion_defaults;
     if (!validDefaults(model)) {
       section.append(el('p', '项目默认状态暂不可用；请更新后台服务后刷新目录。未假定此功能已关闭。', 'error')); return section;
@@ -360,12 +367,14 @@ export async function openHooks() {
     const dirty = () => draft.enabled !== model.enabled || draft.level !== model.level;
     const enabled = el('input'); enabled.type = 'checkbox'; enabled.setAttribute('aria-label', '启用新指令 Worker 自动流程'); enabled.checked = draft.enabled;
     const toggle = el('label', undefined, 'hook-check'); toggle.append(enabled, el('span', '启用新指令 Worker 自动流程'));
-    const level = el('select'); level.setAttribute('aria-label', '默认最高自动环节');
-    for (const [value, label] of [['merge', '合并'], ['accept', '验收'], ['archive', '归档']]) {
-      const option = el('option', label); option.value = value; level.append(option);
+    const { group, choices } = completionLevelButtons('默认最高自动环节', selected => {
+      if (!owns() || state.busy) return;
+      draft.level = selected; sync();
+    }, { includeOff: false });
+    for (const { control } of choices) {
+      const clicked = control.onclick; control.onclick = async () => { await clicked(); sync(); };
     }
-    level.value = draft.level;
-    const field = el('label', undefined, 'hook-field'); field.append(el('span', '默认最高自动环节'), level);
+    const field = el('div', undefined, 'hook-completion-control'); field.append(el('span', '自动到', 'hook-completion-label'), group);
     const status = el('p', undefined, 'hint');
     const saveHost = el('span', undefined, 'help-host'); saveHost.tabIndex = 0;
     const save = button('保存项目默认', async () => {
@@ -397,34 +406,40 @@ export async function openHooks() {
       const help = agent ? agentHelp('保存当前项目对未来新指令 Worker 的自动流程授权；保存不调用已有 Agent，未来合并分歧可能唤醒新 Worker 的 Agent。')
         : '保存关闭未来新指令 Worker 的自动流程；记住所选最高环节，不修改已有 Worker。';
       save.classList.toggle('agent-call', agent); save.setAttribute('data-help', help);
-      save.disabled = state.busy || state.completionBlocked || !dirty(); enabled.disabled = state.busy; level.disabled = state.busy;
+      save.disabled = state.busy || state.completionBlocked || !dirty(); enabled.disabled = state.busy;
+      for (const { level, control, host } of choices) {
+        control.disabled = state.busy;
+        control.setAttribute('aria-pressed', String(level === draft.level));
+        control.classList.toggle('is-selected', level === draft.level);
+        control.classList.toggle('is-included', ['merge', 'accept', 'archive'].indexOf(level) < ['merge', 'accept', 'archive'].indexOf(draft.level));
+        const consequence = level === 'merge' ? '交付就绪后自动合并。' : level === 'accept'
+          ? '自动合并后验收；不评审或保证业务质量。'
+          : '自动合并、验收并归档；清理 worktree/ref，保留历史，不丢弃脏改动。';
+        const help = `${state.busy ? '正在确认或保存。' : ''}${consequence}仅选择默认最高环节；点击保存后才生效，关闭仍记住所选环节。`;
+        control.setAttribute('data-help', help); host.setAttribute('data-help', help); host.tabIndex = control.disabled ? 0 : -1;
+      }
       saveHost.setAttribute('data-help', save.disabled ? `${state.busy ? '正在确认或保存，请稍候。' : state.completionBlocked ? '保存结果未确认，请刷新目录，勿重复提交。' : '没有未保存更改。'} ${help}` : help);
       status.textContent = `已保存：${model.enabled ? '启用' : '关闭'} · 默认到${{ merge: '合并', accept: '验收', archive: '归档' }[model.level]}${dirty() ? '；有未保存更改，保存后才生效。' : '。'}`;
     };
     enabled.onchange = () => { if (!owns() || state.busy) return; draft.enabled = enabled.checked; sync(); };
-    level.onchange = () => { if (!owns() || state.busy) return; draft.level = level.value; sync(); };
     const clicked = save.onclick; save.onclick = async () => { await clicked(); sync(); };
     saveHost.append(save); sync();
-    section.append(toggle, field, status, el('p', '启用与最高环节分开设置，保存才生效；关闭仍记住所选环节。高档包含前面的步骤，初始默认为关闭／合并。', 'hint'),
-      el('p', '合并分歧可能调用 Agent 并消耗 token；验收只核验安全条件并代替用户确认，不调用质量评审 Agent，不保证业务质量。归档清理新 Worker 及后代 worktree/ref、保留历史，不丢弃脏改动；失败或未知结果不自动重试。', 'hint'), saveHost);
+    section.append(toggle, field, status, saveHost);
     if (state.completionError) section.append(el('p', state.completionError, 'error'));
     return section;
   }
   function daemonSection(catalogue) {
-    const section = block('项目后台自动化');
-    section.append(el('p', '由当前项目后台执行，关闭浏览器后仍生效；独立于 Worker 挂载和项目模板。', 'hint'));
+    const section = projectHookCard('自动选择', '当前项目后台', 'daemon-auto-select');
     const model = catalogue.daemon_hooks;
     const mount = Array.isArray(model?.mounts) ? model.mounts.find(item => item?.id === 'auto-select') : null;
     if (model?.version !== 1 || !mount || typeof mount.enabled !== 'boolean' || typeof model.revision !== 'string' || !model.revision.trim()) {
       section.append(el('p', '自动选择状态暂不可用；请更新后台服务后刷新。', 'hint')); return section;
     }
-    const row = el('article', undefined, 'hook-mount daemon-auto-select');
+    const row = el('div', undefined, 'project-hook-body');
     const head = el('div', undefined, 'hook-mount-head');
-    head.append(el('strong', mount.name || '自动选择'), badge('持续'), badge(mount.enabled ? '已启用' : '已关闭'));
+    head.append(badge('持续'), badge(mount.enabled ? '已启用' : '已关闭'));
     if (mount.state && STATES[mount.state]) head.append(badge(STATES[mount.state]));
-    row.append(head, el('p', '触发点：后台收到问题（notice.received）。默认关闭，开关按当前项目持久保存。', 'hint'),
-      el('p', '单选选第一项，不依赖推荐标记；多选和文字问答回复「请由 Agent 自行判断并继续。」。不处理计划审批和纯告知。'),
-      el('p', '开启会同时处理已有待答问题，并持续处理新问题；可能唤醒多个 Worker 并产生调用费用。自动答复标记为「Lush 自动选择」，不是用户亲自作出的决定。', 'hint'));
+    row.append(head, el('p', '自动答复已有和新收到的问题，让等待中的 Worker 继续；可能产生 Agent 调用费用。', 'hint'));
     const key = `daemon-auto-select:${project}`;
     const help = mount.enabled ? '关闭当前项目后台的未来自动答复；不会撤回答复或停止已继续的 Worker。'
       : agentHelp('授权当前项目后台自动答复已有和新收到的问题，让等待中的 Worker 继续。');
@@ -458,7 +473,10 @@ export async function openHooks() {
     if (!owns()) return;
     const catalogue = state.catalogue;
     const preservedExample = state.commandEditing ? root.querySelector('.command-hook-example') : null;
-    root.replaceChildren(el('h1', '自动化'), el('p', '当前项目的后台与 Worker 生命周期、定时自动动作。模板只保存配置；实际挂载、启停和执行结果在 Worker 详情管理。定时到点提交非阻塞动作，安全点尽早执行，不保证 Agent 准点开始；后台停机错过时间跳过，不自动启动项目或判断额度恢复。动作由目录决定；Shell 命令以 daemon 权限执行，不是沙箱，启用需明确授权。未知副作用不自动重放。', 'hint'), completionDefaultsSection(catalogue), preservedExample || commandExample(catalogue), daemonSection(catalogue));
+    const header = el('div', undefined, 'hooks-page-header'); header.append(el('h1', '自动化'), hookHelpLink());
+    const hooks = block('项目 Hooks'); hooks.classList.add('project-hooks');
+    hooks.append(completionDefaultsSection(catalogue), preservedExample || commandExample(catalogue), daemonSection(catalogue));
+    root.replaceChildren(header, el('p', '按作用范围管理自动规则；模板可复用，已挂载实例独立保存。', 'hint'), hooks);
     root.append(...renderSignalManagement({ catalogue, editor, ownsPage: owns, busy: () => state.busy,
       setBusy(value) { state.busy = value; if (owns()) paint(); }, setEditing(value) { state.editing = value; },
       onCatalogue(result) { if (owns()) { state.catalogue = result; ui.hookCatalogue = result; paint(); } },
@@ -474,9 +492,24 @@ export async function openHooks() {
       button('刷新目录', async () => { if (state.busy) return; if ((state.editing || state.commandEditing || (state.completionDraft && (state.completionDraft.enabled !== state.catalogue.completion_defaults?.enabled || state.completionDraft.level !== state.catalogue.completion_defaults?.level))) && !await confirmDialog({ title: '放弃未保存编辑并刷新？', message: '刷新会读取后台最新目录与项目默认，当前未保存编辑会丢失。', confirmLabel: '放弃并刷新' })) return;
         if (!owns()) return; state.editing = false; state.commandEditing = false; editor.replaceChildren(); await load(); }, 'ghost hook-button', { help: '显式读取最新节点和模板；未保存编辑会先确认，不进行后台自动刷新。' })); root.append(controls);
     const templates = block('项目模板', String(catalogue.templates?.length || 0));
+    templates.querySelector('.section-title').append(hookHelpLink());
+    const search = el('input', undefined, 'hook-template-search'); search.type = 'search';
+    search.placeholder = '按名称、触发节点或动作查找模板'; search.setAttribute('aria-label', '查找 Hook 模板');
+    const cards = [], empty = el('p', '没有匹配的模板。', 'hint'); empty.hidden = true;
+    search.value = state.templateQuery;
+    search.oninput = () => {
+      state.templateQuery = search.value;
+      const query = search.value.trim().toLowerCase(); let count = 0;
+      for (const { card, text } of cards) { card.hidden = !text.includes(query); if (!card.hidden) count++; }
+      empty.hidden = count !== 0 || !query;
+    };
+    if (catalogue.templates?.length) templates.append(search);
     if (!catalogue.templates?.length) templates.append(el('p', '还没有模板。自动合并是 Worker 内置 Hook，不需要创建模板。', 'hint'));
     for (const template of catalogue.templates || []) {
-      const card = el('article', undefined, 'hook-mount'); card.append(el('strong', template.name), el('p', `${catalogue.triggers?.find(t => t.id === template.trigger)?.label || template.trigger} · ${template.mode === 'persistent' ? '持续' : '一次性'}`, 'hint'), parameters(template));
+      const card = projectHookCard(template.name, '模板 · 尚未挂载', 'hook-template');
+      card.append(el('p', `${catalogue.triggers?.find(t => t.id === template.trigger)?.label || template.trigger} · ${template.mode === 'persistent' ? '持续' : '一次性'}`, 'hint'), parameters(template));
+      cards.push({ card, text: [template.name, template.trigger, catalogue.triggers?.find(t => t.id === template.trigger)?.label,
+        ...(template.actions || []).flatMap(item => [item.type, catalogue.actions?.find(action => action.type === item.type)?.label])].filter(Boolean).join(' ').toLowerCase() });
       const buttons = el('div', undefined, 'actions'); buttons.append(button('编辑模板', () => edit(template), 'ghost hook-button', { help: '只修改可复用模板；已有挂载实例不会改变。' }),
         button('复制为停用模板', () => edit(template, true), 'ghost hook-button', { help: '保存为新的停用模板，不执行、不挂载，不复制执行记录。' }),
         button('删除模板', async () => {
@@ -487,19 +520,8 @@ export async function openHooks() {
           } catch (error) { if (owns()) show(error.message, 'error'); } finally { state.busy = false; if (owns()) paint(); }
         }, 'ghost hook-button', { help: '经确认删除模板，不撤销已挂载的规则或执行成果。' })); card.append(buttons); templates.append(card);
     }
-    root.append(templates, editor);
-    const chain = block('自动合并 → 验收 → 归档');
-    chain.append(el('p', 'Worker 详情的一行按钮选择最高自动环节，点击即保存；高档包含前面的步骤。高亮的是已保存授权，不代表执行已完成。归档授权需确认，级别只作用于当前 Worker，不继承给后代。'));
-    chain.append(el('p', '合并：本轮交付就绪后由父队列处理，不是任意一轮 Agent 返回；实际退出且后代、消息、待决和 Git 条件通过后才触发。分歧时可能唤醒源 Agent。'));
-    chain.append(el('p', '验收：合并或确认无需合并后，仅核验安全条件并代替用户确认；不调用质量评审 Agent，也不保证业务质量。'));
-    chain.append(el('p', '归档：验收后清理分支及后代的 worktree/ref，保留 Worker、会话和历史，不丢弃未提交改动。失败不撤销前面已完成的环节，失败或未知结果不自动重试。'));
-    chain.append(el('p', '父 Worker 派生的 child 流程 Hook 为只读：默认自动合并、由直接父 Agent 检查验收，用户不能更改合并、验收或归档自动级别。用户指令在请求冻结或动作执行中不可修改；已交付成果只能提高级别补办，不重新合并已落地成果。自动成功只留记录，只提醒下一人工环节；失败、受阻和待决仍会提醒。', 'hint'));
-    root.append(chain);
-    const nodes = block('允许的触发节点');
-    for (const trigger of catalogue.triggers || []) { const row = el('article', undefined, 'hook-catalogue-row'); row.append(el('strong', trigger.label), el('code', trigger.id), el('p', trigger.description, 'hint')); nodes.append(row); }
-    const actions = block('受控动作与代价');
-    for (const item of catalogue.actions || []) { const row = el('article', undefined, 'hook-catalogue-row'); row.append(el('strong', item.label), badge(item.agent_call ? '可能安排 Agent' : '不调用 Agent'), ...(item.builtin_only ? [badge('仅内置自动链 · 不可自定义安装')] : []), el('p', item.agent_call ? agentHelp(item.description) : item.description, 'hint'), el('p', `允许节点：${item.triggers?.length ? item.triggers.join(' / ') : '目录中的允许节点'}`, 'hint')); actions.append(row); }
-    root.append(nodes, actions);
+    search.oninput(); templates.append(empty); root.append(templates, editor);
+
   }
   state.pending = load(); return state.pending;
 }

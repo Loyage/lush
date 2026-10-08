@@ -216,10 +216,10 @@ test('legacy auto-merge fallback stays read-only for children even when old sett
   expect(input.checked).toBe(true); expect(actions).toHaveLength(0);
 });
 
-test('detailed chain explanations live on project Hooks page; builtin-only actions stay excluded from custom editor', async () => {
-  await openHooks(); expect(deepText(root())).toContain('仅内置自动链 · 不可自定义安装');
-  expect(deepText(root())).toContain('不保证业务质量'); expect(deepText(root())).toContain('不丢弃未提交改动');
-  expect(deepText(root())).toContain('只提醒下一人工环节');
+test('project Hooks links to chain help instead of repeating documentation; builtin-only actions stay excluded from custom editor', async () => {
+  await openHooks(); expect(root().querySelector('.completion-defaults').querySelector('.hook-help-link').href).toBe('#doc-docs-hooks');
+  expect(deepText(root())).not.toContain('仅内置自动链 · 不可自定义安装');
+  expect(deepText(root())).not.toContain('只提醒下一人工环节');
   const form = createHookForm(catalogue, { initial: { name: '规则', trigger: 'delivery.integrated' } });
   const type = form.node.querySelector('[aria-label="动作类型"]'); expect(type.children.map(option => option.value)).toEqual(['notify']);
   type.value = 'accept_worker'; expect(form.validate()).toContain('不支持所选动作');

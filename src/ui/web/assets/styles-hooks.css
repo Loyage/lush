@@ -1,5 +1,16 @@
 .hooks-page, .worker-hooks { min-width: 0; }
 .hooks-page { display: grid; gap: 1rem; max-width: 1100px; margin-inline: auto; }
+.hooks-page-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.hook-help-link { margin-left: auto; font-size: .85rem; white-space: nowrap; }
+.project-hooks { display: grid; gap: .75rem; }
+.project-hooks .hook-mount { margin: 0; }
+.project-hook > .hook-mount-head h2 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.project-hook > .hook-mount-head strong { overflow-wrap: anywhere; }
+.project-hook > button { margin: .35rem .35rem 0 0; }
+.project-hook .hook-scope { color: var(--muted); }
+.project-hook .hook-completion-control { margin-block: .75rem; }
+.hook-template-search { width: 100%; box-sizing: border-box; margin-block: .6rem; }
+.hooks-page [hidden] { display: none; }
 .hook-trigger-group { padding-block: .75rem; border-top: 1px solid var(--line); }
 .hook-mount { padding: .9rem; border: 1px solid var(--line); border-radius: 12px; margin-block: .7rem; background: var(--panel); min-width: 0; }
 .hook-mount-head, .hook-actions, .hook-compact { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }

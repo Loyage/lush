@@ -68,7 +68,9 @@ test('command textarea is catalogue driven, preserves multiline text and only su
 });
 
 test('example reads real main mount, confirms command authorization and uses mount revision rather than template revision', async () => {
-  await openHooks(); expect(deepText(example())).toContain('默认停用'); expect(deepText(example())).toContain('用户已有 remote');
+  await openHooks(); expect(deepText(example())).toContain('停用'); expect(deepText(example())).toContain('仅 main Worker');
+  expect(example().querySelector('.hook-help-link').href).toBe('#doc-docs-hooks');
+  expect(deepText(example())).toContain(command.name); expect(deepText(example())).not.toContain('示例');
   const enabling = btn('启用 Hook', example()).onclick();
   expect(actions).toHaveLength(0); expect(deepText(dom.node('modal'))).toContain('git push');
   const authorize = dialogButton(dom, '授权命令执行');
@@ -98,10 +100,10 @@ test('command example mutation refresh preserves the independent unsaved complet
   catalogue.completion_defaults = { version: 1, enabled: false, level: 'merge', revision: 'defaults-revision' };
   await openHooks();
   let defaults = root().querySelector('.completion-defaults');
-  field(defaults, '默认最高自动环节').value = 'accept'; field(defaults, '默认最高自动环节').onchange();
+  await defaults.querySelector('[data-level="accept"]').onclick();
   const enabling = btn('启用 Hook', example()).onclick(); await dialogButton(dom, '授权命令执行').onclick(); await enabling;
   defaults = root().querySelector('.completion-defaults');
-  expect(field(defaults, '默认最高自动环节').value).toBe('accept');
+  expect(defaults.querySelector('[data-level="accept"]').getAttribute('aria-pressed')).toBe('true');
   expect(btn('保存项目默认', defaults).disabled).toBe(false);
   intercept = (_path, body) => body?.method === 'hooks.completion_defaults' ? json({ ...catalogue,
     completion_defaults: { version: 1, enabled: false, level: 'accept', revision: 'defaults-next' } }) : null;
@@ -156,10 +158,10 @@ test('editing enabled command reauthorizes exact command; copied mounts are forc
 });
 
 test('template edits are isolated; copies save new disabled template without invoking Agent or mounting', async () => {
-  await openHooks(); await btn('编辑示例模板').onclick(); field(root().querySelector('.hook-form'), 'Shell 命令').value = 'git push --tags';
+  await openHooks(); await btn('编辑来源模板').onclick(); field(root().querySelector('.hook-form'), 'Shell 命令').value = 'git push --tags';
   await btn('保存模板').onclick(); expect(actions.at(-1)).toMatchObject({ method: 'hooks.save', params: { expected_revision: 'template-revision', template: { id: template.id, actions: [{ type: 'command', command: 'git push --tags' }] } } });
   expect(deepText(example())).toContain('git push'); expect(deepText(example())).not.toContain('git push --tags');
-  await btn('复制示例为停用模板').onclick(); field(root().querySelector('.hook-form'), '启用此 Hook').checked = true;
+  await btn('复制为停用模板', example()).onclick(); field(root().querySelector('.hook-form'), '启用此 Hook').checked = true;
   expect(btn('保存停用模板副本').classList.contains('agent-call')).toBe(false); await btn('保存停用模板副本').onclick();
   expect(actions.at(-1).params.template.enabled).toBe(false); expect(actions.at(-1).params.template).not.toHaveProperty('id');
   expect(actions.at(-1).params.template).not.toHaveProperty('last_execution'); expect(actions.every(item => item.method === 'hooks.save')).toBe(true);

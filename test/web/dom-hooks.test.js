@@ -45,13 +45,36 @@ afterAll(() => { closeDialog(); dom.restore(); });
 test('Hooks page reads catalogue, explains costs and saves templates without mounting or calling an Agent', async () => {
   await openHooks();
   expect(dom.location.hash).toBe('#hooks'); expect(dom.node('hooks-open').getAttribute('aria-current')).toBe('page');
-  expect(deepText(root())).toContain('保留现场，不自动重放'); expect(deepText(root())).toContain('模板只保存配置');
+  expect(deepText(root())).toContain('模板可复用');
+  expect(root().querySelector('.hooks-page-header').querySelector('.hook-help-link').href).toBe('#doc-docs-hooks');
+  expect(deepText(root())).not.toContain('允许的触发节点');
+  expect(deepText(root())).not.toContain('受控动作与代价');
+  expect(deepText(root())).not.toContain('示例：');
   await btn('新建模板').onclick();
   const form = root().querySelector('.hook-form'); form.querySelector('[aria-label="Hook 名称"]').value = '收尾规则';
   expect(btn('保存模板').classList.contains('agent-call')).toBe(false);
   await btn('保存模板').onclick();
   expect(actions).toHaveLength(1); expect(actions[0]).toMatchObject({ method: 'hooks.save', params: { expected_revision: 'catalogue-v1', template: { name: '收尾规则', trigger: 'worker.delivery_ready' } } });
   expect(actions.some(call => call.method.startsWith('worker.'))).toBe(false);
+});
+
+test('template catalogue scales with search by name, trigger and action while keeping mounts separate', async () => {
+  catalogue.templates = Array.from({ length: 50 }, (_, index) => ({ id: `template-${index}`, name: `规则 ${index}`,
+    trigger: 'agent.failed', mode: 'once', enabled: false, actions: [{ type: 'notify', title: '告知', body: '正文' }] }));
+  await openHooks();
+  const search = root().querySelector('[aria-label="查找 Hook 模板"]');
+  const cards = () => root().querySelectorAll('.hook-template');
+  expect(cards()).toHaveLength(50);
+  search.value = '规则 49'; search.oninput();
+  expect(cards().filter(card => !card.hidden)).toHaveLength(1);
+  expect(deepText(cards().find(card => !card.hidden))).toContain('模板 · 尚未挂载');
+  expect(root().querySelector('.project-hooks').querySelectorAll('.project-hook')).toHaveLength(3);
+  for (const query of ['agent.failed', 'notify']) {
+    search.value = query; search.oninput(); expect(cards().every(card => !card.hidden)).toBe(true);
+  }
+  search.value = '不存在'; search.oninput(); expect(cards().every(card => card.hidden)).toBe(true);
+  search.value = ''; search.oninput(); expect(cards().every(card => !card.hidden)).toBe(true);
+  expect(actions).toHaveLength(0);
 });
 
 test('daemon auto-select retains a visible failed execution without confusing enabled authorization with success', async () => {
@@ -215,9 +238,9 @@ test('daemon auto-selection has independent authorization, cost markers and revi
   intercept = (_path, body) => body?.method === 'hooks.auto_select' ? json({ ...catalogue, daemon_hooks: daemonModel(body.params.enabled, 'daemon-v2') }) : null;
   await openHooks();
   const node = root().querySelector('.daemon-auto-select');
-  expect(deepText(node)).toContain('单选选第一项'); expect(deepText(node)).toContain('多选和文字问答');
-  expect(deepText(node)).toContain('同时处理已有待答问题'); expect(deepText(node)).toContain('不是用户亲自作出的决定');
-  expect(deepText(root())).toContain('独立于 Worker 挂载和项目模板');
+  expect(deepText(node)).toContain('已有和新收到的问题'); expect(deepText(node)).toContain('Agent 调用费用');
+  expect(deepText(node)).toContain('当前项目后台');
+  expect(node.querySelector('.hook-help-link').href).toBe('#doc-docs-hooks');
   const enable = btn('开启自动选择');
   expect(enable.classList.contains('agent-call')).toBe(true); expect(enable.getAttribute('data-help')).toContain('消耗 token');
   const saving = enable.onclick();
