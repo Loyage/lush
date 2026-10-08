@@ -108,9 +108,7 @@ export async function configureModelSource(task) {
     picker.connection.dataset.workerModelField = 'connection_id';
     picker.connection.setAttribute('aria-label', '模型来源');
     const form = el('div', undefined, 'retry-profile-form');
-    const sourceField = el('div', undefined, 'retry-field'); sourceField.append(el('span', '模型来源', 'retry-field-label'), picker.node);
-    const modelField = el('label', undefined, 'retry-field'); modelField.append(el('span', '模型', 'retry-field-label'), model);
-    form.append(el('p', '执行后端：Pi（此操作不切换后端）', 'hint'), sourceField, modelField,
+    form.append(el('p', '执行后端：Pi（此操作不切换后端）', 'hint'), picker.node,
       el('p', '切换来源时自动填入该来源的默认模型；未设置默认时保留当前模型并提示选择，不猜选第一个模型。不自动改变思考深度或转用其他账号；保存前仍可修改模型。Prompt、环境变量、Skills、扩展与预算均保留。', 'hint'));
     const errorBox = el('p', undefined, 'settings-error'); errorBox.setAttribute('role', 'alert'); form.append(errorBox);
     // Loading is local only. Render first so a slow read remains cancellable.

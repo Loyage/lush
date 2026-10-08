@@ -38,6 +38,12 @@ for (const explicit of [false, true]) test(`轻量保存只提交窄选择，不
   worker.retry_profile = { env: { SECRET: 'do-not-send' }, append_prompt: 'keep', default_prompt: 'keep system', extensions: ['/extension'], skills: ['/skill'], soft_budget: { tokens: 123 } };
   const before = JSON.stringify(worker.retry_profile);
   const pending = configureModelSource(worker); await ready(); setModel();
+  const group = dom.node('modal').querySelector('.agent-connection-binding');
+  const row = group.querySelector('.model-choice-row');
+  expect(row.children[0].querySelector('select')).toBe(group.querySelector('[data-connection-model="choice"]'));
+  expect(row.children[1].querySelector('input')).toBe(group.querySelector('[data-worker-model-field="model"]'));
+  expect(group.querySelectorAll('input')).toHaveLength(1);
+  expect(group.querySelector('[data-connection-model="choice"]').value).toBe('openai-compatible/model-1');
   expect(dialogButton(dom, '保存来源与模型').classList.contains('agent-call')).toBe(false);
   expect(deepText(dom.node('modal'))).toContain('不改变仍在运行的调用');
   await dialogButton(dom, '保存来源与模型').onclick(); expect(await pending).toBe(true);

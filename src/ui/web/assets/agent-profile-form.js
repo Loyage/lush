@@ -112,10 +112,6 @@ export function createProfileForm({ profile, settings, role, ownsPage = () => tr
 
   const model = el('input'); model.type = 'text'; model.maxLength = 256; model.value = inheritedBackend ? (initial.model || '') : '';
   model.dataset.retryField = 'model';
-  const modelBox = el('div', undefined, 'retry-model-box');
-  const modelChoices = el('select'); modelChoices.dataset.retryField = 'model-choice';
-  modelChoices.onchange = () => { if (modelChoices.value) { model.value = modelChoices.value; onChange(); } };
-  modelBox.append(model, modelChoices);
   const connectionPicker = createAgentConnectionPicker({ backend, model, connectionId: initial.connection_id || '',
     ownsPage, onChange: () => paintModels(), applyDefaultModelOnChange });
   connectionPicker.connection.dataset.retryField = 'connection_id';
@@ -133,7 +129,7 @@ export function createProfileForm({ profile, settings, role, ownsPage = () => tr
   }, 'ghost', { help: '把所选来源保存的默认模型与思考深度填入本表单；只改这两项，不调用 Agent，保存前仍可修改。' });
   fillDefaults.type = 'button';
   const defaultsRow = el('div', undefined, 'profile-source-defaults'); defaultsRow.append(fillDefaults, fillNote);
-  const connectionControl = el('div', undefined, 'retry-connection-control'); connectionControl.append(connectionPicker.node, defaultsRow);
+  connectionPicker.actions.append(defaultsRow);
 
   const thinking = el('select'); thinking.dataset.retryField = 'thinking';
   thinking.onchange = () => onChange();
@@ -173,18 +169,16 @@ export function createProfileForm({ profile, settings, role, ownsPage = () => tr
 
   const paintModels = () => {
     const agent = backend.value;
-    if (connectionPicker.value()) {
-      modelChoices.replaceChildren(option('', '使用账号连接内的模型选项…')); modelChoices.disabled = true; return;
-    }
-    modelChoices.disabled = false;
     const values = new Map();
-    for (const id of settings.options?.models?.[agent] || []) values.set(id, id);
-    for (const entry of catalogs.get(agent)?.models || []) values.set(entry.id, entry.label && entry.label !== entry.id ? `${entry.label} · ${entry.id}` : entry.id);
-    modelChoices.replaceChildren(option('', '选择常用或本机可用模型…'), ...[...values].map(([id, label]) => option(id, label)));
-    modelChoices.value = '';
+    if (agent !== 'pi') {
+      for (const id of settings.options?.models?.[agent] || []) values.set(id, id);
+      for (const entry of catalogs.get(agent)?.models || []) values.set(entry.id, entry.label && entry.label !== entry.id ? `${entry.label} · ${entry.id}` : entry.id);
+    }
+    connectionPicker.setCliModels([...values].map(([id, label]) => ({ id, label })));
+    onChange();
   };
   const loadModels = async agent => {
-    if (connectionPicker.value() || catalogs.has(agent)) return;
+    if (agent === 'pi' || catalogs.has(agent)) return;
     try { catalogs.set(agent, await api(`/api/agent/models?agent=${encodeURIComponent(agent)}`)); }
     catch (error) { catalogs.set(agent, { models: [], warning: error.message }); }
     if (ownsPage() && backend.value === agent) paintModels();
@@ -201,7 +195,7 @@ export function createProfileForm({ profile, settings, role, ownsPage = () => tr
   const syncBackend = clear => {
     const agent = backend.value;
     if (clear) { model.value = ''; thinking.value = ''; }
-    model.placeholder = `${agent} CLI 默认模型`;
+    model.placeholder = agent === 'pi' ? 'provider/model' : 'Codex CLI 默认模型';
     connectionPicker.sync();
     const levels = settings.options?.thinking?.[agent] || [''];
     const selected = clear || !inheritedBackend || !levels.includes(initial.thinking) ? '' : initial.thinking;
@@ -212,10 +206,10 @@ export function createProfileForm({ profile, settings, role, ownsPage = () => tr
   };
   backend.onchange = () => { syncBackend(true); onChange(); };
 
+  connectionPicker.node.classList.add('retry-field-wide');
   grid.append(
     field('Agent', backend, '只覆盖本轮运行，不修改项目或角色默认配置。'),
-    field('模型', modelBox, '可直接填写模型 ID，或从预设与本机目录中选择。'),
-    field('账号连接', connectionControl, '只覆盖本 Worker 的后续调用；API Key 与登录共享保存，当前仅 Pi 支持托管连接。'),
+    connectionPicker.node,
     field('思考深度', thinking, '可用等级随 Agent 变化。'),
     field('软预算：响应数', budgetResponses, '留空关闭；仅 Pi。'),
     field('软预算：累计 token', budgetTokens, '留空关闭；仅 Pi。'),
@@ -236,6 +230,8 @@ export function createProfileForm({ profile, settings, role, ownsPage = () => tr
     for (const tag of ['input', 'select', 'textarea', 'button']) {
       for (const control of managed.querySelectorAll(tag)) control.disabled = pi;
     }
+    connectionPicker.models.disabled = pi || connectionPicker.models.children.length <= 1
+      || (backend.value === 'pi' && (!connectionPicker.value() || connectionPicker.entry()?.enabled === false));
     modeNote.textContent = modeDescription();
     onChange();
   };

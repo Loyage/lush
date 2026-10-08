@@ -13,6 +13,7 @@
     "docs:check": "bun ./scripts/docs-check.js",
     "check:workbench": "bun ./scripts/check-workbench.js",
     "check:agent-layout": "bun ./scripts/check-agent-layout.js",
+    "check:model-choice": "bun ./test/web/check-model-choice-browser.js",
     "check:device-settings": "bun ./test/web/check-device-settings.js",
     "measure:read-performance": "bun ./scripts/measure-read-performance.js",
     "lush": "bun ./bin/lush",

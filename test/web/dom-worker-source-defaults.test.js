@@ -36,11 +36,13 @@ test('Worker 主动切换来源填入默认模型，保留物理 ID 的斜杠，
   expect(model.value).toBe('deepseek/deepseek-flash');
   choose(picker, second);
   expect(model.value).toBe('openai-compatible/vendor/model');
+  expect(picker.models.value).toBe(model.value);
   expect(picker.validate()).toBeNull();
   expect(deepText(picker.node)).toContain('思考深度不变');
   model.value = 'openai-compatible/alternative';
   await picker.load(); await settled(); picker.sync();
   expect(model.value).toBe('openai-compatible/alternative');
+  expect(picker.models.value).toBe(model.value);
   choose(picker, second); // Same selection is not a source switch.
   expect(model.value).toBe('openai-compatible/alternative');
   expect(calls.every(url => url === '/api/agent/connections' || url.startsWith('/api/agent/connections/models?id='))).toBe(true);
@@ -82,5 +84,6 @@ test('迟到目录不覆盖换源后手改的模型，也不应用旧来源的�
     await settled();
     expect(model.value).toBe('openai-compatible/alternative');
     expect(picker.value()).toBe(second);
+    expect(picker.models.value).toBe('openai-compatible/alternative');
   } finally { catalogIntercept = null; }
 });

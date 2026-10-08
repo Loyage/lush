@@ -7,6 +7,7 @@ import { openQuickExplanation, explanationLocation } from './quick-explanation.j
 import { settingsClient } from './settings-api.js';
 import { scopeSelector, scopeSummary, scopeImpact, clearOverrideButton } from './settings-scope.js';
 import { workbenchStatus } from './project-picker.js';
+import { createModelChoice } from './model-choice.js';
 
 const PROVIDERS = new Set(['openai-compatible', 'deepseek', 'openrouter', 'zai']);
 const option = (value, label) => { const node = el('option', label); node.value = value; return node; };
@@ -97,6 +98,7 @@ export async function openQuickExplanationPage() {
       if (!active()) return;
       const entries = (data.connections || []).filter(row => row.enabled && row.auth_type === 'api_key' && PROVIDERS.has(row.provider));
       const connection = field('select', 'connection_id'), model = field('input', 'model'), candidates = field('select', 'model_choice'), prompt = field('textarea', 'prompt');
+      const modelChoice = createModelChoice({ model, candidates });
       connection.append(option('', '请选择模型来源'));
       for (const row of entries) connection.append(option(row.id, `${row.label} · ${row.provider}${row.credential?.status === 'configured' ? '' : '（凭证未就绪）'}`));
       if (config.connection_id && !entries.some(row => row.id === config.connection_id)) connection.append(option(config.connection_id, '已配置来源不可用，请重新选择'));
@@ -112,7 +114,7 @@ export async function openQuickExplanationPage() {
         const models = row?.models?.length ? row.models : cached;
         candidates.replaceChildren(option('', models.length ? '选择此来源的模型…' : '无缓存候选，可手填模型 ID'));
         for (const value of [...new Set(models)]) candidates.append(option(value, value));
-        candidates.value = ''; candidates.disabled = !models.length;
+        candidates.disabled = !models.length; modelChoice.sync();
         modelNote.textContent = row ? `${row.label} · ${row.endpoint}。模型为物理 ID，不带 ${row.provider}/ 前缀；来源或候选变化不会替换当前输入。${row.models?.length && model.value && !row.models.includes(model.value.trim()) ? ' 当前模型不在来源范围内，请修正后保存。' : ''}` : '首版支持 OpenAI 兼容 Chat Completions API Key 来源，不支持 Codex OAuth 或 Kimi Coding 协议。';
       }
       async function loadCatalog() {
@@ -149,7 +151,12 @@ export async function openQuickExplanationPage() {
       const sources = el('a', '管理模型来源'); sources.href = '#model-sources';
       const saveHost = el('span', undefined, 'help-host'); saveHost.setAttribute('data-help', '正在保存解释设置；保存不会调用模型。'); saveHost.append(save);
       form.onsubmit = event => { event.preventDefault(); return save.onclick(); };
-      form.append(label('模型来源', connection), sources, label('模型 ID', model), label('来源内的候选模型', candidates), modelNote,
+      const selection = el('fieldset', undefined, 'agent-connection-binding');
+      const sourceField = label('模型来源', connection); sourceField.className = 'model-source-field';
+      const actions = el('div', undefined, 'model-source-actions'); actions.append(sources);
+      selection.append(el('legend', '模型来源与模型'), sourceField, modelChoice.node,
+        el('span', '选择候选会填入模型名称；也可直接输入物理模型 ID，保存时以名称输入框为准。', 'settings-note'), actions, modelNote);
+      form.append(selection,
         label('解释 Prompt', prompt), el('p', '可调整解释风格、长度和语言。只读安全规则始终生效，选区里的命令不会被执行。空 Prompt 恢复默认；保存不调用模型。', 'hint'), reset, saveHost, status);
       const info = scopeSummary(config, scope);
       settings.replaceChildren(el('h2', '解释设置'), info, el('p', scopeImpact(scope), 'hint'), form);

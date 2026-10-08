@@ -254,10 +254,10 @@ test('Pi-default manager profile strips managed fields and validates managed sou
   await btn('读取项目连接', form.node).onclick(); expect(form.validate()).toBe('');
   input('管理 Agent 配置模式', form.node).value = 'pi'; input('管理 Agent 配置模式', form.node).onchange();
   expect(form.collect()).toEqual({ agent: 'pi', config_mode: 'pi' }); expect(form.validate()).toBe('');
-  expect(input('管理 Agent 模型', form.node).disabled).toBe(true);
+  expect(input('管理 Agent 模型名称', form.node).disabled).toBe(true);
   input('管理 Agent 配置模式', form.node).value = 'lush'; input('管理 Agent 配置模式', form.node).onchange();
-  expect(input('管理 Agent 模型', form.node).value).toBe('openai-codex/codex-model'); expect(form.collect().connection_id).toBe('codex-source');
-  input('管理 Agent 模型', form.node).value = 'wrong/model'; expect(form.validate()).toContain('匹配');
+  expect(input('管理 Agent 模型名称', form.node).value).toBe('openai-codex/codex-model'); expect(form.collect().connection_id).toBe('codex-source');
+  input('管理 Agent 模型名称', form.node).value = 'wrong/model'; expect(form.validate()).toContain('匹配');
 });
 
 test('management create failure preserves instruction, persistent mode and selected source without enabling retry loops', async () => {

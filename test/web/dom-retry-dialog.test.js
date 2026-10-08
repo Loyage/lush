@@ -84,7 +84,7 @@ test('详情页的「检查后重试」打开完整 Profile，可切换模型来
   const pending = reopen.onclick();
   await until(() => dialogButton(dom, '使用这些设置重试'));
   const modal = dom.node('modal');
-  expect(deepText(modal)).toContain('账号连接');
+  expect(deepText(modal)).toContain('模型来源与模型');
   expect(modal.querySelector('[data-retry-field="connection_id"]')).toBeTruthy();
   await dialogButton(dom, '暂不重试').onclick();
   expect(await pending).toBeUndefined();
@@ -131,7 +131,8 @@ test('Worker暂停配置和失败重试可绑定共享连接与匹配模型，�
     model.value = 'unsaved/model'; await dialogButton(dom, '读取项目连接').onclick(); expect(model.value).toBe('unsaved/model');
     const connection = modal.querySelector('[data-retry-field="connection_id"]'); connection.value = id; connection.onchange();
     expect(model.value).toBe('unsaved/model'); expect(deepText(modal)).toContain('此来源未设置默认模型');
-    expect(modal.querySelector('[data-retry-field="model-choice"]').disabled).toBe(true);
+    expect(modal.querySelector('[data-retry-field="model-choice"]')).toBeNull(); // 无重复的 CLI 模型下拉
+    expect(modal.querySelectorAll('[data-connection-model="choice"]')).toHaveLength(1);
     const choices = modal.querySelector('[data-connection-model="choice"]');
     expect(choices.children.map(node => node.value)).toEqual(['', 'openai-compatible/custom-model']);
     choices.value = 'openai-compatible/custom-model'; choices.onchange();

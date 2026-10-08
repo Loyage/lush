@@ -299,9 +299,9 @@ test('Agent 页：模型目录、双 Prompt、角色覆盖与替换警告都可�
   backend.value = 'codex';
   await backend.listeners.change[0]();
   await findByText(card, '读取 CLI 模型').onclick();
-  const catalog = card.querySelector('.model-choices').querySelector('select.model-catalog');
+  const catalog = card.querySelector('.model-choice-row').querySelector('select.model-catalog');
   expect(catalog.children).toHaveLength(3);
-  catalog.value = 'gpt-5.4-mini'; await catalog.listeners.change[0]();
+  catalog.value = 'gpt-5.4-mini'; await catalog.onchange();
   expect(model.value).toBe('gpt-5.4-mini');
   thinking.value = 'high';
   card.querySelector('textarea[data-agent-field="append_prompt"]').value = '保持改动可审阅。';
@@ -345,7 +345,8 @@ test('Pi配置缺来源/模型或凭证时不保存，不显示CLI默认目录�
   const before = world.state.actions.length;
   const cli = findByText(card, '读取 CLI 模型'); expect(cli.hidden).toBe(true); expect(cli.disabled).toBe(true);
   expect(card.querySelectorAll('.model-preset')).toHaveLength(0); expect(model.placeholder).toContain('请选择来源内模型');
-  await cli.onclick(); expect(card.querySelector('.model-choices').querySelector('.model-catalog')).toBeNull();
+  await cli.onclick(); expect(card.querySelectorAll('.model-catalog')).toHaveLength(1);
+  expect(card.querySelector('.model-catalog').disabled).toBe(true);
   await findByText(card, '保存配置').onclick(); expect(world.state.actions).toHaveLength(before);
   expect(dom.node('error').textContent).toContain('请选择 Lush 模型来源');
   await findByText(card, '读取项目连接').onclick(); choice.value = world.state.agentConnections.connections[0].id; choice.onchange();

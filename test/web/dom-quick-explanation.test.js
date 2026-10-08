@@ -67,6 +67,23 @@ test('来源只显示受支持的启用 API Key，模型候选保持手输并保
   expect(world.state.actions).toHaveLength(1);
 });
 
+test('解释设置把候选和名称紧邻分组，手输同步候选且仍保存物理模型ID', async () => {
+  const source = world.state.agentConnections.connections[0]; source.models.push('vendor/chat'); ready();
+  await openQuickExplanationPage();
+  const group = dom.node('detail').querySelector('.agent-connection-binding');
+  const row = group.querySelector('.model-choice-row');
+  expect(group.tagName).toBe('FIELDSET');
+  expect(row.children[0].querySelector('select')).toBe(field('model_choice'));
+  expect(row.children[1].querySelector('input')).toBe(field('model'));
+  expect(group.children.indexOf(row)).toBeLessThan(group.children.indexOf(group.querySelector('.model-source-actions')));
+  expect(field('model_choice').value).toBe('fixture-model');
+  field('model').value = 'vendor/chat'; field('model').oninput(); expect(field('model_choice').value).toBe('vendor/chat');
+  field('model').value = 'typed/model'; field('model').oninput(); expect(field('model_choice').value).toBe('');
+  field('model_choice').value = 'vendor/chat'; field('model_choice').onchange(); expect(field('model_choice').value).toBe(field('model').value);
+  await findByText(dom.node('detail'), '保存解释设置').onclick();
+  expect(world.state.actions.at(-1).params.config.model).toBe('vendor/chat');
+});
+
 test('没有手填列表时只读本地目录，保留合法 slash 模型 ID，目录失败不阻止手输', async () => {
   world.state.agentConnections.connections[0].models = []; world.state.agentConnections.connections[0].provider = 'deepseek'; ready();
   intercept = url => url.startsWith('/api/agent/connections/models?') ? json({ version: 1, status: 'cached', models: [{ id: 'deepseek/vendor/chat' }] }) : null;

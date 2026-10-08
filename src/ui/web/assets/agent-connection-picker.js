@@ -1,5 +1,6 @@
 import { api } from './api.js';
 import { button, el } from './dom.js';
+import { createModelChoice } from './model-choice.js';
 
 const option = (value, text) => { const node = el('option', text); node.value = value; return node; };
 const MODEL_ERROR = '账号连接需要启用且匹配固定 provider/model 及模型范围；请先检查连接和模型。';
@@ -14,11 +15,17 @@ const CATALOG_STATES = { fresh: '缓存目录已更新', cached: '缓存目录�
  * 思考等级只按目录里确有证据的元数据返回；未知一律返回 null，由调用方保留原选项。
  */
 export function createAgentConnectionPicker({ backend, model, connectionId = '', ownsPage = () => true, onChange = () => {}, applyDefaultModelOnChange = false, read = api, readLabel = '读取项目连接' }) {
-  const node = el('div', undefined, 'agent-connection-binding');
+  const node = el('fieldset', undefined, 'agent-connection-binding');
+  node.append(el('legend', '模型来源与模型'));
   const connection = el('select'); connection.className = 'agent-select';
   const models = el('select'); models.className = 'model-catalog'; models.dataset.connectionModel = 'choice';
-  models.setAttribute('aria-label', '连接内的模型');
+  models.setAttribute('aria-label', '候选模型');
+  const choice = createModelChoice({ model, candidates: models });
+  const modelExtras = el('div', undefined, 'model-choice-extras');
+  const actions = el('div', undefined, 'model-source-actions');
   const note = el('span', undefined, 'settings-note');
+  note.setAttribute('role', 'status');
+  let cliModels = [];
   const detailsLink = el('a', '管理模型来源', 'agent-sources-link'); detailsLink.href = '#model-sources';
   const entries = new Map();
   // 只保存已读取的目录缓存；不从连接列表里推断，也不在打开表单时联网刷新。
@@ -43,6 +50,11 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
     connection.value = selected; selectedConnection = selected; sync();
   }
   function paintModels(row) {
+    if (backend.value !== 'pi') {
+      models.replaceChildren(option('', cliModels.length ? '选择 CLI 模型或直接输入…' : '可直接输入，留空使用 CLI 默认'),
+        ...cliModels.map(item => option(item.id, item.label || item.id)));
+      models.hidden = false; models.disabled = cliModels.length === 0; choice.sync(); return;
+    }
     const seen = new Set();
     const list = catalogModels(row);
     const saved = row?.models || [];
@@ -53,7 +65,7 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
       const id = `${row.provider}/${rawId}`;
       return metadata.get(id) || { id, name: rawId };
     }) : list || [];
-    models.replaceChildren(option('', saved.length ? '选择此来源已填写的模型…' : choices.length
+    models.replaceChildren(option('', !value() ? '请先选择模型来源' : saved.length ? '选择此来源已填写的模型…' : choices.length
       ? '选择此来源缓存目录内的模型…' : '请先在来源页填写模型列表'));
     let count = 0;
     for (const item of choices) {
@@ -64,9 +76,9 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
       const levels = Array.isArray(item?.thinking_levels) && item.thinking_levels.length ? ` · 思考 ${item.thinking_levels.join('/')}` : '';
       models.append(option(id, name && name !== id ? `${name} · ${id}${levels}` : `${id}${levels}`));
     }
-    models.value = '';
-    models.hidden = !value();
-    models.disabled = !backend.value || row?.enabled === false || count === 0;
+    models.hidden = false;
+    models.disabled = !value() || row?.enabled === false || count === 0;
+    choice.sync();
   }
   function catalogNote(row) {
     const cached = catalogs.get(row?.id);
@@ -153,8 +165,13 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
     if (changed && applyDefaultModelOnChange && row?.default_model) model.value = `${row.provider}/${row.default_model}`;
     sync(); void loadCatalog(row);
   };
-  models.onchange = () => { if (ownsPage() && value() && models.value) { model.value = models.value; sync(); } };
-  node.append(connection, host, models, detailsLink, note);
+  models.onchange = () => { if (ownsPage() && (backend.value !== 'pi' || value()) && models.value) { model.value = models.value; sync(); } };
+  model.addEventListener('input', () => { if (ownsPage()) sync(); });
+  const sourceField = el('label', undefined, 'model-source-field');
+  sourceField.append(el('span', '模型来源', 'model-choice-label'), connection);
+  const modelHelp = el('span', '选择候选会填入模型名称；也可直接输入，保存时以名称输入框为准。', 'settings-note');
+  actions.append(host, detailsLink);
+  node.append(sourceField, choice.node, modelHelp, modelExtras, actions, note);
   // Initial rendering must not invoke a caller callback before it has received the picker.
   connection.append(option('', '请选择 Lush 模型来源'));
   if (connectionId) connection.append(option(connectionId, `已配置连接 ${connectionId}（未读取 / 不可用）`));
@@ -185,5 +202,7 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
     const levels = item?.thinking_levels;
     return Array.isArray(levels) && levels.length ? [...levels] : null;
   };
-  return { node, connection, models, value, entry, catalog, thinkingLevels, load, sync, validate, reset(id = '') { paint(id); void loadCatalog(entries.get(id)); } };
+  return { node, connection, models, actions, modelExtras,
+    setCliModels(items) { cliModels = items; if (backend.value !== 'pi') paintModels(); },
+    value, entry, catalog, thinkingLevels, load, sync, validate, reset(id = '') { paint(id); void loadCatalog(entries.get(id)); } };
 }

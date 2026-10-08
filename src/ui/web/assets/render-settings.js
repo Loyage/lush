@@ -242,11 +242,9 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
     input.placeholder = '关闭'; input.disabled = ['explainer','butler'].includes(target); budgetControls[key] = input;
   }
 
-  const modelBox = el('div', undefined, 'agent-model-box');
-  const modelLine = el('div', undefined, 'agent-model-line');
   const loadModels = el('button', '读取 CLI 模型', 'ghost model-load'); loadModels.type = 'button';
-  const choices = el('div', undefined, 'model-choices');
-  modelLine.append(model, loadModels); modelBox.append(modelLine, choices);
+  loadModels.setAttribute('data-help', '只读取执行机器的 Codex CLI 模型目录，不调用模型；保留当前名称输入。');
+  connectionPicker.actions.append(loadModels);
 
   const paintModels = () => {
     const agent = backend.value;
@@ -260,35 +258,15 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
     }
     loadModels.hidden = agent === 'pi';
     if (agent === 'pi') {
-      choices.replaceChildren(el('span', connectionPicker.value()
-        ? '使用所选来源内的模型选项，或填写匹配的 provider/model；不读取用户 Pi 的 CLI 模型目录。'
-        : '请选择 Lush 模型来源，再选择明确模型；未绑定来源不能启动 Pi，不读取用户 Pi 的模型目录。', 'settings-note'));
+      connectionPicker.modelExtras.replaceChildren();
       loadModels.disabled = true; return;
     }
     loadModels.disabled = false;
-    const preset = settings.options.models[agent] || [];
+    const values = new Map((settings.options.models[agent] || []).map(id => [id, id]));
     const catalog = modelCatalogs.get(`${client.key}:${agent}`);
-    const nodes = [];
-    if (preset.length) {
-      const presets = el('div', undefined, 'model-presets');
-      presets.append(el('span', '常用', 'model-choice-label'));
-      for (const value of preset) {
-        const chip = el('button', value, 'model-preset'); chip.type = 'button'; chip.onclick = () => { model.value = value; }; presets.append(chip);
-      }
-      nodes.push(presets);
-    }
-    if (catalog) {
-      const picker = el('select', undefined, 'model-catalog');
-      const first = el('option', `从 ${catalog.models.length} 个可用模型中选择…`); first.value = ''; picker.append(first);
-      for (const entry of catalog.models) {
-        const option = el('option', entry.label && entry.label !== entry.id ? `${entry.label} · ${entry.id}` : entry.id);
-        option.value = entry.id; picker.append(option);
-      }
-      picker.value = '';
-      picker.addEventListener('change', () => { if (picker.value) model.value = picker.value; });
-      nodes.push(picker, el('span', catalog.warning || `已从本机 ${agent} CLI 读取当前可用模型。`, `model-catalog-note${catalog.warning ? ' warning' : ''}`));
-    }
-    choices.replaceChildren(...nodes);
+    for (const entry of catalog?.models || []) values.set(entry.id, entry.label && entry.label !== entry.id ? `${entry.label} · ${entry.id}` : entry.id);
+    connectionPicker.setCliModels([...values].map(([id, label]) => ({ id, label })));
+    connectionPicker.modelExtras.replaceChildren(...(catalog ? [el('span', catalog.warning || `已从本机 ${agent} CLI 读取当前可用模型。`, `model-catalog-note${catalog.warning ? ' warning' : ''}`)] : []));
   };
 
   const selectedExtensions = new Set(profile.extensions || []);
@@ -374,11 +352,12 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
     finally { if (ownsPage()) { paintModels(); loadModels.textContent = '重新读取'; } }
   };
 
+  // 来源与模型共用一组，不能再包在含多个控件的 label 内。
+  connectionPicker.node.dataset.agentManaged = 'true'; managedFields.push(connectionPicker.node);
   // 执行后端始终可见（切换配置模式时它的可选范围会变），其余托管字段随模式整体隐藏。
   runtime.append(modeField,
     field('执行后端', backend, '执行该类 Worker 的 CLI；Pi 默认配置模式下固定为 Pi。'),
-    managedField('模型来源', connectionPicker.node, '先选来源，再选匹配模型。API Key 与登录按来源标注的设备 / 项目范围托管，下一次调用生效。'),
-    managedField('模型', modelBox, 'Pi 必须选择托管来源内的明确模型；仅 Codex CLI 可留空使用自身默认模型。'),
+    connectionPicker.node,
     managedField('思考深度', thinking, '可用等级随 Agent 与来源模型变化。'),
     managedField('软预算：模型响应数', budgetControls.responses, '每次 invocation 单独计数；达到阈值提醒收尾，不强制终止。仅 Pi；解释角色不继承。'),
     managedField('软预算：累计 token', budgetControls.tokens, '包含缓存读取，非上下文长度；留空关闭。Codex 不支持，切换前需清空。'));
