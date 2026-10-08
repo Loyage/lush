@@ -116,11 +116,18 @@ try {
   await rpc(`/session/${session}/window`, { handle: source });
   assert(await evaluate(`location.pathname === '/' && document.querySelector('.project-manager-form input').value === ${JSON.stringify(fixtureProject)}`), 'opening a project replaced the source page or discarded its input');
   assert(await evaluate(`document.getElementById('environments-open') === null`), 'removed environment navigation remains');
+  assert(await evaluate(`document.querySelector('#sidebar .project-list') === null && document.getElementById('project-list-panel') === null`), 'sidebar still contains a project list');
+  // Exercise the shared project identity typography with a long directory name,
+  // including unbroken names that previously disappeared behind an ellipsis.
+  await evaluate(`document.getElementById('project').textContent = 'long-project-name-for-sidebar-readability-check'`);
   for (const theme of ['light', 'dark']) for (const width of [1440, 900, 390]) {
     await resize(width);
     await evaluate(`document.documentElement.dataset.theme='${theme}'`);
     const layout = await evaluate(`({width:innerWidth,scrollWidth:document.documentElement.scrollWidth})`);
     assert(layout.width === width && layout.scrollWidth <= layout.width + 1, `wrong viewport or horizontal overflow ${theme} ${width}: ${JSON.stringify(layout)}`);
+    const identity = await evaluate(`(() => { const node=document.getElementById('project'), style=getComputedStyle(node); return {size:parseFloat(style.fontSize),weight:Number(style.fontWeight),whiteSpace:style.whiteSpace,width:node.clientWidth,scrollWidth:node.scrollWidth}; })()`);
+    assert(identity.size >= 20 && identity.weight >= 700 && identity.whiteSpace !== 'nowrap' && identity.scrollWidth <= identity.width + 1,
+      `project identity is small, clipped or not bold ${theme} ${width}: ${JSON.stringify(identity)}`);
     await screenshot(`${theme}-${width}`);
     console.log(`PASS workbench layout ${theme}/${layout.width}`);
   }

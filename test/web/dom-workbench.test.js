@@ -32,6 +32,9 @@ test('空根路径使用主内容项目管理，发布 shell 没有阻塞 gate',
   expect(html).toContain('id="settings-open"');
   expect(html).toContain('id="docs-open"');
   expect(html).not.toContain('id="project-gate"');
+  expect(html).not.toContain('id="project-list-panel"');
+  expect(html).not.toContain('id="project-list"');
+  expect(html).toContain('<strong id="project">未打开项目</strong>');
   expect(dom.node('detail').dataset.view).toBe('projects');
   expect(deepText(dom.node('detail'))).toContain('还没有项目入口');
   expect(dom.node('project-app').getAttribute('inert')).toBeNull();

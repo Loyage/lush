@@ -100,22 +100,29 @@ function projectItem(row, repaint, { compact = false } = {}) {
   return item;
 }
 
-function paint(containerId, rows, repaint = refreshProjectList, options) {
-  const list = node(containerId);
-  if (list) list.replaceChildren(...rows.map(row => projectItem(row, repaint, options)));
-}
-
-/** 只探测已登记项目；不会 select、启动或写项目。 */
+/** 仅刷新已打开的项目管理页；只探测已登记项目，不启动后台或清空目录输入。 */
 export async function refreshProjectList() {
-  const list = node('project-list');
-  const recent = node('project-recent-list');
-  if (!list && !recent) return;
+  const identity = ui.view;
+  const panel = node('detail');
+  const list = panel?.querySelector('.project-manager-list');
+  const empty = panel?.querySelector('.workbench-empty');
+  if (identity?.id !== 'projects' || !list) return;
+  const request = ++managerRequest;
   try {
     const { projects = [] } = await api('/api/host/projects');
-    paint('project-list', projects, refreshProjectList);
-    paint('project-recent-list', projects, refreshProjectList, { compact: true });
-    const box = node('project-recent'); if (box) box.hidden = projects.length === 0;
-  } catch { /* Offline list refresh must not become an unhandled rejection or erase inputs. */ }
+    if (request !== managerRequest || identity !== ui.view) return;
+    list.replaceChildren(...projects.map(row => projectItem(row, refreshProjectList)));
+    if (empty) {
+      empty.hidden = projects.length > 0;
+      empty.querySelector('strong').textContent = '还没有项目入口';
+      empty.querySelector('p').textContent = '输入一个绝对目录登记项目，或先浏览设置和帮助文档。';
+    }
+  } catch {
+    if (request !== managerRequest || identity !== ui.view || !empty) return;
+    empty.hidden = false;
+    empty.querySelector('strong').textContent = '项目列表刷新失败';
+    empty.querySelector('p').textContent = '上次读取的列表已保留，请重试刷新。';
+  }
 }
 
 function reserveProjectWindow() {
@@ -175,6 +182,9 @@ export async function openProjectManager({ push = true } = {}) {
   head.append(el('span', 'PROJECTS', 'eyebrow'), el('h1', '项目管理'), el('p', '项目视图与后台生命周期彼此独立。关闭标签不会停止开发。', 'hint'));
   const list = el('ul', undefined, 'project-list project-manager-list'); list.id = 'project-list';
   const empty = el('div', undefined, 'workbench-empty'); empty.append(el('strong', '还没有项目入口'), el('p', '输入一个绝对目录登记项目，或先浏览设置和帮助文档。'));
+  const refresh = el('button', '刷新项目状态', 'ghost'); refresh.type = 'button';
+  refresh.onclick = () => refreshProjectList();
+  head.append(refresh);
   view.append(head);
   if (launcher && hostStatus?.mode !== 'offline') view.append(managerForm());
   view.append(empty, list); panel?.replaceChildren(view);
@@ -185,7 +195,7 @@ export async function openProjectManager({ push = true } = {}) {
     empty.hidden = projects.length > 0;
     list.replaceChildren(...projects.map(row => projectItem(row, () => openProjectManager({ push: false }))));
   } catch (error) {
-    if (request === managerRequest) { empty.hidden = false; empty.querySelector('strong').textContent = '项目列表暂时不可用'; empty.querySelector('p').textContent = error.message; }
+    if (request === managerRequest && identity === ui.view) { empty.hidden = false; empty.querySelector('strong').textContent = '项目列表暂时不可用'; empty.querySelector('p').textContent = error.message; }
   }
 }
 
@@ -212,7 +222,6 @@ export async function ensureProject() {
   const current = projectRoute();
   if (!launcher) projectUsable = true;
   else projectUsable = Boolean(current && (hostStatus.projects || []).some(row => row.id === current));
-  const panel = node('project-list-panel'); if (panel) panel.hidden = !launcher;
   const switcher = node('project-switch'); if (switcher) { switcher.hidden = !launcher; switcher.onclick = () => void openProjectManager(); }
   return true;
 }

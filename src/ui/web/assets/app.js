@@ -25,7 +25,7 @@ import { hideHelp, initHelp } from './help.js';
 import { resetTranscriptReaders } from './transcript-reader.js';
 import { closeTranscriptView } from './transcript-view.js';
 import { closeExplanationPanel } from './explanations.js';
-import { ensureProject, openProjectManager, refreshProjectList, workbenchStatus } from './project-picker.js';
+import { ensureProject, openProjectManager, workbenchStatus } from './project-picker.js';
 import { resetNoticeNotifier } from './notice-notifications.js';
 import { initNoticeRecords, openNotice } from './render-notices.js';
 
@@ -121,9 +121,7 @@ function onHashChange() {
 }
 
 // 上一次注册的定时器与监听器；重复 boot() 前必须先清掉（bun test 在文件之间复用模块注册表）。
-let refreshTimer = null, liveTimer = null, hashListener = null, projectTimer = null, projectVisibilityListener = null;
-// 项目列表摘要不是热数据：低频刷新，且只对已经连接的项目读一次 system.summary。
-const PROJECT_LIST_INTERVAL_MS = 20000;
+let refreshTimer = null, liveTimer = null, hashListener = null;
 
 /** 按当前「轮询频率」偏好重建两个定时器；标准档＝快照 1500ms + 实时 3000ms。 */
 function startTimers() {
@@ -140,10 +138,8 @@ function startTimers() {
 export async function boot() {
   if (refreshTimer !== null && typeof clearInterval === 'function') clearInterval(refreshTimer);
   if (liveTimer !== null && typeof clearInterval === 'function') clearInterval(liveTimer);
-  if (projectTimer !== null && typeof clearInterval === 'function') clearInterval(projectTimer);
   if (hashListener !== null && typeof removeEventListener === 'function') removeEventListener('hashchange', hashListener);
-  if (projectVisibilityListener !== null && typeof removeEventListener === 'function') removeEventListener('visibilitychange', projectVisibilityListener);
-  refreshTimer = null; liveTimer = null; hashListener = null; projectTimer = null; projectVisibilityListener = null;
+  refreshTimer = null; liveTimer = null; hashListener = null;
   closeTranscriptView();
   resetUiState();
   resetTranscriptReaders();
@@ -160,7 +156,7 @@ export async function boot() {
   await ensureProject();
   const context = workbenchStatus();
   const projectReady = context.projectUsable;
-  if ($('host-context')) $('host-context').textContent = '当前 Host';
+  if ($('host-context')) $('host-context').textContent = context.project || projectReady ? '当前项目' : '工作台';
   if (!projectReady) {
     $('project').textContent = context.project ? '项目不可用' : '未打开项目';
     $('connection').textContent = context.host?.mode === 'offline' ? 'Host 离线' : '工作台已就绪';
@@ -181,11 +177,6 @@ export async function boot() {
   if (projectReady) {
     syncSidebarSortSelect();
     $('sidebar-sort').addEventListener('change', onSidebarSortChange);
-    if (workbenchStatus().launcher) {
-      projectTimer = setInterval(() => { void refreshProjectList(); }, PROJECT_LIST_INTERVAL_MS);
-      projectVisibilityListener = () => { if (document.visibilityState === 'visible') void refreshProjectList(); };
-      addEventListener('visibilitychange', projectVisibilityListener);
-    }
   }
   for (const id of ['agent-status-open', 'model-sources-open', 'quick-explain-open']) { const target = $(id); if (target) { target.disabled = false; target.setAttribute('aria-disabled', 'false'); } }
   if ($('agent-status-open')) $('agent-status-open').onclick = () => openAgentStatus();

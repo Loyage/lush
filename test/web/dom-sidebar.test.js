@@ -24,6 +24,32 @@ world.state.specs = [];
 
 afterAll(() => dom.restore());
 
+test('当前项目身份不误称 Host，侧栏不装配跨项目列表轮询', async () => {
+  const id = 'a1b2c3d4e5f60718';
+  const calls = [], before = dom.intervals.length;
+  intercept = (url, options) => {
+    calls.push(url);
+    if (url === '/api/host') return Response.json({ mode: 'host', projects: [{ id, name: 'demo', project: '/tmp/demo' }] });
+    return world.fetchImpl(String(url).replace(`/p/${id}`, ''), options);
+  };
+  dom.location.pathname = `/p/${id}/`; dom.location.hash = '';
+  try {
+    await boot();
+    expect(dom.node('host-context').textContent).toBe('当前项目');
+    expect(dom.node('project').textContent).toBe('demo');
+    expect(dom.node('project').title).toBe('/tmp/demo');
+    expect(dom.intervals.slice(before).some(timer => timer.ms === 20000)).toBe(false);
+    await dom.fire('visibilitychange');
+    expect(calls).not.toContain('/api/host/projects');
+    dom.location.pathname = '/'; dom.location.hash = '';
+    await boot();
+    expect(dom.node('host-context').textContent).toBe('工作台');
+    expect(dom.node('project').textContent).toBe('未打开项目');
+  } finally {
+    intercept = null; dom.location.pathname = '/'; dom.location.hash = ''; await boot();
+  }
+});
+
 test('左栏：两个区块的导航计数与索引、折叠开关、行动任务筛选在真 DOM 上都生效', async () => {
   await dom.intervalFor(1500)();
   const nav = dom.node('side-nav');
