@@ -18,7 +18,7 @@ Worker 图是 `#worker-graph` / `worker.graph` / `/api/worker-graph` 的有界�
 
 父卡片 `merge_queue` 摘要来自完整直接子Worker的 SQL 聚合，不随图的 200 节点限制、状态筛选或折叠漏计；每阶段最多列 3 个可点编号，多余明确提示。子卡片显示「→ 真实父Worker / 目标分支 · 阶段」，布局跳过隐藏中间节点不会改变交付目标。两种模式都可读，极简仍为 68px 双行，第二行优先合并关系，过长时可聚焦并横向滚动；完整进度和诊断在详情。
 
-根节点与每层可见兄弟均按**自身**关注度分档，不继承后代优先级，父子层级不打平。顺序为：executing/resolving（合并中/分歧处理中）→ requested（等待合并）→ 待处理问题 → awaiting_acceptance（待验收/待父确认）→ running → waiting → queued → paused → 未知状态 → completed → cancelled。待处理问题包括 open 待决、awaiting、blocked/suspended 当前请求、failed、integration=conflict，以及历史 completed 且 integration=pending/review 的待人工交付；仅持久请求可进入前两档，普通 Agent 运行或 Git 分歧不会冒充合并阶段。布局跳过隐藏祖先时，同层仍按节点自身阶段排列，预约校验与箭头继续使用真实父 ID。
+根节点与每层可见兄弟均按**自身**关注度分档，不继承后代优先级，父子层级不打平。顺序为：executing/resolving（合并中/分歧处理中）→ requested（等待合并）→ 待处理问题 → running → waiting → queued → paused → awaiting_acceptance（待验收/待父确认）→ 未知状态 → completed → cancelled。待处理问题包括 open 待决、awaiting、blocked/suspended 当前请求、failed、integration=conflict，以及历史 completed 且 integration=pending/review 的待人工交付；仅持久请求可进入前两档，普通 Agent 运行或 Git 分歧不会冒充合并阶段。布局跳过隐藏祖先时，同层仍按节点自身阶段排列，预约校验与箭头继续使用真实父 ID。
 
 同档按 `created_at` 倒序，新建的在前；毫秒数与日期字符串均可解析，缺失/坏值按 0，时间相同按内部 ID 倒序兜底，不用 `updated_at`。普通进度、结果、消息更新不会让同档换位；阶段、待决或可见节点变化可重排。这不是严格队列序号，runtime 仍以入队顺序和代码依赖决定实际执行。仅同一可见结构下真实重排对卡片播放 250ms FLIP，连线不动；不自动滚向被提升的Worker。保留阅读锚点、滚动与焦点，首次加载、普通刷新、筛选、折叠、模式切换/尺寸变化不播放；有编辑草稿/选区/弹层/未结束动效时暂缓刷新，下次轮询再更新。遵循系统与应用减少动效设置。
 

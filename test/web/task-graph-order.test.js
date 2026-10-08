@@ -29,8 +29,10 @@ test('all development stages follow attention priority regardless of recency', (
     node(21, 'completed', { integration: 'none' }),
     node(22, 'cancelled', { created_at: '2027-01-01T00:00:00Z' }),
   ];
-  expect(order(nodes.reverse())).toEqual([3, 2, 4, 13, 12, 11, 10, 9, 8, 7, 6, 5,
-    14, 15, 16, 17, 18, 19, 21, 20, 22]);
+  const expected = [3, 2, 4, 13, 12, 11, 10, 9, 8, 7, 6, 5,
+    15, 16, 17, 18, 14, 19, 21, 20, 22];
+  expect(order(nodes.reverse())).toEqual(expected);
+  expect(taskForest({ nodes }).map(node => node.id)).toEqual(expected);
 });
 
 test('same stage uses creation time, not updated time or ID except as a tie-breaker', () => {
@@ -85,22 +87,22 @@ test('legacy requests, auto-merge settings, Agent status and Git divergence do n
     node(7, 'running', { reservation: { ...request('executing'), kind: 'showcase' } }),
     node(8, 'awaiting_acceptance'),
   ];
-  expect(order(nodes)).toEqual([8, 7, 6, 5, 4, 3, 2]);
+  expect(order(nodes)).toEqual([7, 6, 5, 4, 3, 2, 8]);
 });
 
 test('stage and open-decision changes reorder, content updates do not; input is not mutated', () => {
   const nodes = [node(2, 'queued'), node(3, 'running'), node(4, 'awaiting_acceptance')];
   const original = structuredClone(nodes);
-  expect(order(nodes)).toEqual([4, 3, 2]);
+  expect(order(nodes)).toEqual([3, 2, 4]);
   expect(nodes).toEqual(original);
   nodes[0].notice_count = 1;
-  expect(order(nodes)).toEqual([2, 4, 3]);
+  expect(order(nodes)).toEqual([2, 3, 4]);
   nodes[0].notice_count = 0;
   nodes[0].status = 'running';
-  expect(order(nodes)).toEqual([4, 3, 2]);
+  expect(order(nodes)).toEqual([3, 2, 4]);
   nodes[0].reservation = request('requested');
-  expect(order(nodes)).toEqual([2, 4, 3]);
+  expect(order(nodes)).toEqual([2, 3, 4]);
   nodes[2].result_preview = 'new result';
   nodes[2].updated_at = '2030-01-01T00:00:00Z';
-  expect(order(nodes)).toEqual([2, 4, 3]);
+  expect(order(nodes)).toEqual([2, 3, 4]);
 });

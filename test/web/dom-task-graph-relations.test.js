@@ -98,23 +98,23 @@ test('both display modes reorder by development stage, but content refresh keeps
     const endedRoot = { ...node(20, null, null), status: 'completed' };
     const graph = { total: 6, nodes: [endedRoot, older, queued, parent, recent, delivered] };
     renderTaskGraph(graph);
-    expect(ids()).toEqual([1, 5, 2, 4, 3, 20]);
+    expect(ids()).toEqual([1, 2, 4, 3, 5, 20]);
     older.updated_at = '2030-01-01T00:00:00Z';
     older.result_preview = 'latest content';
     renderTaskGraph(graph);
-    expect(ids()).toEqual([1, 5, 2, 4, 3, 20]);
+    expect(ids()).toEqual([1, 2, 4, 3, 5, 20]);
     queued.status = 'awaiting';
     renderTaskGraph(graph);
-    expect(ids()).toEqual([1, 3, 5, 2, 4, 20]);
+    expect(ids()).toEqual([1, 3, 2, 4, 5, 20]);
     queued.status = 'queued';
     renderTaskGraph(graph);
-    expect(ids()).toEqual([1, 5, 2, 4, 3, 20]);
+    expect(ids()).toEqual([1, 2, 4, 3, 5, 20]);
     older.reservation = { ...older.reservation, status: 'requested' };
     renderTaskGraph(graph);
-    expect(ids()).toEqual([1, 4, 5, 2, 3, 20]);
+    expect(ids()).toEqual([1, 4, 2, 3, 5, 20]);
     recent.reservation = { ...recent.reservation, status: 'executing' };
     renderTaskGraph(graph);
-    expect(ids()).toEqual([1, 2, 4, 5, 3, 20]);
+    expect(ids()).toEqual([1, 2, 4, 3, 5, 20]);
   }
 });
 

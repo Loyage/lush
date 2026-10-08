@@ -9,8 +9,8 @@ function attention(node) {
   if (['blocked', 'suspended'].includes(phase) || node.notice_count > 0 || node.notice
     || node.status === 'awaiting' || node.status === 'failed' || node.integration === 'conflict'
     || (node.status === 'completed' && ['pending', 'review'].includes(node.integration))) return 2;
-  return { awaiting_acceptance: 3, running: 4, waiting: 5, queued: 6,
-    paused: 7, completed: 9, cancelled: 10 }[node.status] ?? 8;
+  return { running: 3, waiting: 4, queued: 5, paused: 6,
+    awaiting_acceptance: 7, completed: 9, cancelled: 10 }[node.status] ?? 8;
 }
 
 function createdAt(node) {
