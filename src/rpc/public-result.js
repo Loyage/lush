@@ -6,7 +6,7 @@
  */
 export function publicResult(value, method = '') {
   const seen = new WeakMap();
-  const agentConfig = method === 'agent.config' || method === 'agent.configure';
+  const agentConfig = method === 'agent.config' || method === 'agent.configure' || method === 'worker.run_settings';
   const environment = method === 'agent.environment' || method === 'agent.environment.configure';
   const stringDictionary = entry => entry !== null && typeof entry === 'object' && !Array.isArray(entry)
     && [Object.prototype, null].includes(Object.getPrototypeOf(entry))

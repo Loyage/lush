@@ -25,6 +25,7 @@ export const handlers = {
     return { ...task, ...(info ? { branch_archive: info } : {}),
       ...(relation ? { parent_relation: relation } : {}) };
   },
+  'worker.run_settings'(p, params) { return p.taskRunSettings(id(params.id)); },
   'worker.history'(p, params, actor) {
     p.store.task(params.id);
     const after = Number(params.after ?? 0);

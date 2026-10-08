@@ -38,6 +38,7 @@ test('safe read objects and authorized Agent profiles/env dictionaries retain th
   const profile = { agent: 'pi', config_mode: 'lush', append_prompt: 'authorized prompt', default_prompt: 'authorized default', env };
   const config = freezeTree({ version: 1, default: profile, roles: { agent: profile }, resolved: { agent: profile } });
   expect(publicResult(config, 'agent.config')).toBe(config);
+  expect(publicResult({ profile, explicit: true }, 'worker.run_settings')).toEqual({ profile, explicit: true });
   expect(publicResult({ target: 'common', values: env }, 'agent.environment').values).toBe(env);
   expect(publicResult({ agent_config: config }, 'system.status')).toEqual({ agent_config: config });
   // Same names in arbitrary mutation envelopes are not an authorization bypass.

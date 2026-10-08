@@ -253,13 +253,21 @@ export default {
     return this.store.task(task.id);
   },
 
-  /** 暂停中调整本轮运行设置：复用任务级 retry_profile，继续时生效、结算时清除，不改项目默认。 */
+  /** Explicit user configuration read only; never include this in ordinary Worker projections. */
+  taskRunSettings(taskId) {
+    const task = this.store.task(taskId);
+    check(['order','child'].includes(task.task_kind), 'only order/child Workers have editable run settings');
+    return { profile: workerRunProfile(this, task), explicit: Boolean(task.retry_profile) };
+  },
+
+  /** 暂停中调整运行设置：只影响后续调用，不改项目默认，覆盖保留直到显式清除或重新保存。 */
   configureTask(taskId, profile = null) {
     this.assertWritable('configure a worker');
     const task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
     check(task.status === 'paused' || task.interrupt_state === 'requested', 'only paused workers can adjust run settings');
     check(['order','child'].includes(task.task_kind), 'only order/child Workers can adjust run settings');
+    if (task.branch) this.assertBranchWritable(task.branch, 'configure a worker on it');
     const retryProfile = profile === null || profile === undefined ? null : this.agentSettings.retryProfile(task.role, profile);
     this.store.transaction(() => {
       this.store.update(task.id, { retry_profile: retryProfile ? JSON.stringify(retryProfile) : null });

@@ -4,7 +4,7 @@ import { action } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { appendToWorker } from './composer.js';
 import { configureTask, retryTask } from './retry-dialog.js';
-import { clearOverrideControl, modelSourceControl, modelSourceSummary } from './worker-model-source.js';
+import { clearOverrideControl, modelSourceSummary } from './worker-model-source.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, runWorkMs, statusOf, interruptReason, taskTitle, worktreeLabel, isHistoricalDelivery } from './format.js';
 import { agentHelp } from './help.js';
 import { freezeBlocker } from './merge-select.js';
@@ -183,10 +183,9 @@ export function renderDetail(task, history, diff, usage, connections = null) {
       catch (error) { show(`无法${neverStarted ? '开始' : '继续'}：${error.message}`, 'error'); }
       await detail(task.id);
     }, undefined, { agent: true, help: agentHelp('撤销尚未生效的中断；若已暂停，则请求按当前运行设置调度 Agent。无需等待旧调用释放，重复继续不重复启动；工作区、提交、会话与消息保留。') }));
-    if (task.status === 'paused' || interruptRequested) actions.append(button('调整运行设置', async () => {
-      await configureTask(task);
-      await detail(task.id);
-    }, 'ghost', { help: '只修改这条 Worker 下一次调用使用的 Agent、模型、Prompt、扩展与 Pi 环境变量；不改变仍在运行的调用，Worker 结算后自动清除。' }));
+    if (liveWorkTask && (task.status === 'paused' || interruptRequested)) actions.append(button('调整运行设置', async () => {
+      if (await configureTask(task)) await detail(task.id);
+    }, 'ghost', { help: '在同一面板调整配置模式、Agent、模型来源、模型与思考深度，高级设置包含 Prompt、扩展、Skills、预算和环境变量；保留未修改设置，不启动 Agent，不改变当前调用。' }));
     actions.append(button('放弃 Worker', async () => {
       const confirmed = await confirmDialog({
         title: '放弃这个 Worker 树？',
@@ -201,8 +200,6 @@ export function renderDetail(task, history, diff, usage, connections = null) {
   if (task.divergence_resolution) {
     actions.append(button(`查看源指令 ${workerLabel(task.parent_id, task.parent_worker_number)}`, () => detail(task.parent_id), 'link'));
   }
-  const sourceControl = management ? null : modelSourceControl(task, () => detail(task.id));
-  if (sourceControl) actions.append(sourceControl);
   const clearOverride = management ? null : clearOverrideControl(task, () => detail(task.id));
   if (clearOverride) actions.append(clearOverride);
   const deletion = management ? null : workerDeleteControl(task);

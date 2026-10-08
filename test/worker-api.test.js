@@ -5,7 +5,7 @@ import { Dispatcher, HANDLERS } from '../src/rpc/dispatcher.js';
 // Strict public namespace; authority stays unchanged when optional profile selection is added.
 const reads = {
   lookup: ['number'], graph: [], list: ['after','limit'], activity: ['limit','scope'], page: ['before','limit','scope'],
-  tree: ['id'], inspect: ['id'], hooks: ['id'], history: ['id','after'], history_page: ['id','before','limit'],
+  tree: ['id'], inspect: ['id'], run_settings: ['id'], hooks: ['id'], history: ['id','after'], history_page: ['id','before','limit'],
   delete_preview: ['id'], diff: ['id'], usage: ['id'], code_state: ['id','scope','after','limit'],
   code_tree: ['id','scope','path','query','changed','after','limit','revision'],
   code_file: ['id','scope','path','view','side','offset','limit','context','revision'],
@@ -24,7 +24,7 @@ const writes = {
   cancel: ['id'], retry: ['id','profile'], clear_override: ['id'], cleanup: ['id','keep_branch'], interrupt: ['id'],
   resume: ['id','profile'], configure: ['id','profile','model_selection'], delete: ['id','revision','confirm'],
 };
-const userOnly = new Set(['code_state','code_tree','code_file','transcript_latest','transcript_page','transcript_step',
+const userOnly = new Set(['run_settings','code_state','code_tree','code_file','transcript_latest','transcript_page','transcript_step',
   'transcript_search','runs_page','artifacts_page','artifact','hooks','hook_attach','hook_update','hook_remove',
   'reserve','reserve_all','auto_merge','completion','resolve','resolve_divergence','unreserve','approve_merge',
   'cancel','retry','clear_override','cleanup','interrupt','resume','configure','reopen','sync_parent','resolve_sync','delete_preview','delete']);
@@ -79,6 +79,7 @@ test('worker lifecycle RPC forwards existing internal methods, actors and persis
     ['reopen', 'reopenTask', { id: 7 }, [7]],
     ['sync_parent', 'syncTaskParent', { id: 7 }, [7]],
     ['resolve_sync', 'resolveTaskSync', { id: 7 }, [7]],
+    ['run_settings', 'taskRunSettings', { id: 7 }, [7]],
     ['clear_override', 'clearTaskProfile', { id: 7 }, [7]],
     ['auto_merge', 'setTaskAutoMerge', { id: 7, enabled: true }, [7, true]],
     ['completion', 'setTaskCompletion', { id: 7, level: 'accept', expected_revision: 'hooks-revision' }, [7, 'accept', 'hooks-revision']],

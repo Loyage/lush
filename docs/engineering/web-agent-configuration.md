@@ -19,9 +19,9 @@
 | Worker 运行设置 / 重试 | `retry-dialog.js` 调用共享表单 `agent-profile-form.js` | 打开时自动读取本地连接列表和已选来源目录缓存，不联网、不自动替换来源或模型；慢响应或失败不阻断编辑，仍可手动重读且保留草稿。字段契约（`data-retry-field`）保持不变；Profile 只送 `worker.retry` / `worker.configure`，提交前按模式裁剪。 |
 | 新建指令的运行设置 | `composer.js` 的 `openComposerRunSettings` | 只打开设置，不调用 Agent、不创建 Worker；确认后把 Profile 存在本会话，随下一次 `order.submit` 一起发送，创建成功后清空，不悄悄沿用到下一条指令。「恢复项目默认」只清除本条覆盖。 |
 
-`agent-profile-form.js` 的 `createProfileForm({profile, settings, role, ownsPage, onChange, applyDefaultModelOnChange?})` 返回 `{node, ready, collect, validate, reset, mode, ...}`：`ready` 在资源目录与模型目录读取完成后 resolve，`collect()` 输出已按模式裁剪的 Profile，调用方决定提交目标。表单不自行发写请求。已选托管来源时提供「填入来源默认」：把该来源保存的 `default_model` / `default_thinking` 写入模型与思考深度两项（模型限定 `provider/model`），未读来源或无默认时只就地提示；不调用 Agent。Worker 的 `retry-dialog.js` 显式传入 `applyDefaultModelOnChange:true`，轻量入口也启用该选项；仅主动换源自动填入默认模型，不动思考深度，无默认保留并提示。项目/角色配置与新建指令不启用，具体边界见[切换来源](../design/agent-model-settings.md#切换来源)。
+`agent-profile-form.js` 的 `createProfileForm({profile, defaultProfile?, settings, role, ownsPage, onChange, applyDefaultModelOnChange?, collapseAdvanced?})` 返回 `{node, ready, collect, validate, reset, mode, ...}`：`ready` 在资源目录与模型目录读取完成后 resolve，`collect()` 输出已按模式裁剪的 Profile，调用方决定提交目标。表单不自行发写请求。已选托管来源时提供「填入来源默认」：把该来源保存的 `default_model` / `default_thinking` 写入模型与思考深度两项（模型限定 `provider/model`），未读来源或无默认时只就地提示；不调用 Agent。Worker 的 `retry-dialog.js` 显式传入 `applyDefaultModelOnChange:true` 与 `collapseAdvanced:true`；仅主动换源自动填入默认模型，不动思考深度，无默认保留并提示。项目/角色配置与新建指令不启用，具体边界见[切换来源](../design/agent-model-settings.md#切换来源)。
 
-暂存只保存正文，不携带 Profile；从历史输入发射的 Worker 默认暂停，用户可在详情用「调整运行设置」补。轻量「切换模型来源」入口（`worker-model-source.js`）仍只发 `{connection_id, model}`；Worker 处于 Pi 模式时该入口禁用并用 `.help-host` 指向完整运行设置，绝不发送托管 `model_selection`。
+暂存只保存正文，不携带 Profile；从历史输入发射的 Worker 默认暂停，用户在详情只用「调整运行设置」一个入口。面板通过用户专属 `GET /api/worker/<id>/run-settings` 读取已有有效 Profile 与 explicit 标记（不读连接凭证），未修改项保留；读取失败不打开默认表单。配置模式、后端、来源、模型、思考深度直接展示，其余放进默认折叠的原生 details 高级设置；折叠不清空字段。`defaultProfile` 单独传入公共/角色环境与角色默认，供「加载默认参数」显式恢复。保存失败保留草稿可重试，保存不自动继续；失败重试沿用同一面板并明确调用 Agent。`worker-model-source.js` 只负责安全摘要和清除覆盖；既有窄更新 API 仍兼容。
 
 ## 模型目录
 
@@ -60,6 +60,6 @@
 
 ## 验证与未验证边界
 
-自动测试在 `test/web/` 下用 DOM stub 与 mock fetch 覆盖：双模式切换与字段清除、Pi 模式只提交双字段、缺省 Lush 提交完整 Profile、目录命中 / 失败回退 / 不自动换来源、packages 安装 / 移除 / 更新与失败保留、旧 daemon 回退、窄入口 Pi 禁用、迟到响应与离页保护。测试不访问真实凭证、不联网安装、不调用模型。
+自动测试在 `test/web/` 下用 DOM stub 与 mock fetch 覆盖：双模式切换与字段清除、Pi 模式只提交双字段、缺省 Lush 提交完整 Profile、目录命中 / 失败回退 / 不自动换来源、packages 安装 / 移除 / 更新与失败保留、旧 daemon 回退、单一入口、已有覆盖回填与高级折叠、读取失败保护、保存失败保留草稿、迟到响应与离页保护。测试不访问真实凭证、不联网安装、不调用模型。
 
 真实模型目录接口、真实 npm / git 安装与第三方包运行环境由对应后端另行验收，不因前端测试通过而视为已验证。

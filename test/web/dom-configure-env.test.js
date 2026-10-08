@@ -21,6 +21,7 @@ const settings = {
 const response = value => ({ ok: true, status: 200, json: async () => value });
 const dom = installDom({ fetch: async (url, options = {}) => {
   if (url === '/api/agent/config') return response(settings);
+  if (/^\/api\/worker\/\d+\/run-settings$/.test(url)) return response({ profile, explicit: false });
   if (url === '/api/agent/connections') return response({ version: 1, connections: [
     { id: connectionId, label: 'Lush Codex OAuth', provider: 'openai-codex', auth_type: 'oauth', enabled: true,
       models: ['gpt-5.4'], credential: { status: 'configured' } },

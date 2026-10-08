@@ -81,8 +81,9 @@ function resourceGroup(title, entries, selected, kind, enabled) {
  *
  * 只负责取值与校验；调用方决定送 `worker.retry` / `worker.configure`，还是随 `order.submit` 提交。
  */
-export function createProfileForm({ profile, settings, role, ownsPage = () => true, onChange = () => {}, applyDefaultModelOnChange = false }) {
-  const initial = { ...(profile || {}) };
+export function createProfileForm({ profile, defaultProfile = profile, settings, role, ownsPage = () => true, onChange = () => {}, applyDefaultModelOnChange = false, collapseAdvanced = false }) {
+  let initial = { ...(profile || {}) };
+  const defaults = { ...(defaultProfile || {}) };
   const selectedExtensions = new Set(initial.extensions || []);
   const selectedSkills = new Set(initial.skills || []);
   const catalogs = new Map();
@@ -107,7 +108,7 @@ export function createProfileForm({ profile, settings, role, ownsPage = () => tr
   const backend = el('select'); backend.dataset.retryField = 'agent';
   const availableAgents = role === 'explainer' ? ['pi'] : (settings.options?.agents || ['pi', 'codex']);
   backend.replaceChildren(...availableAgents.map(value => option(value, backendLabel(value))));
-  const inheritedBackend = availableAgents.includes(initial.agent);
+  let inheritedBackend = availableAgents.includes(initial.agent);
   backend.value = inheritedBackend ? initial.agent : availableAgents[0];
 
   const model = el('input'); model.type = 'text'; model.maxLength = 256; model.value = inheritedBackend ? (initial.model || '') : '';
@@ -210,7 +211,15 @@ export function createProfileForm({ profile, settings, role, ownsPage = () => tr
   grid.append(
     field('Agent', backend, '只覆盖本轮运行，不修改项目或角色默认配置。'),
     connectionPicker.node,
-    field('思考深度', thinking, '可用等级随 Agent 变化。'),
+    field('思考深度', thinking, '可用等级随 Agent 变化。'));
+  const advancedGrid = collapseAdvanced ? el('div', undefined, 'retry-profile-grid') : grid;
+  if (collapseAdvanced) {
+    const advanced = el('details', undefined, 'retry-advanced');
+    advanced.dataset.retryAdvanced = 'settings';
+    advanced.append(el('summary', '高级设置（Prompt、扩展、Skills、预算、环境变量）'), advancedGrid);
+    managed.append(advanced);
+  }
+  advancedGrid.append(
     field('软预算：响应数', budgetResponses, '留空关闭；仅 Pi。'),
     field('软预算：累计 token', budgetTokens, '留空关闭；仅 Pi。'),
     field('默认 Prompt', promptBox, '修改后会替换 Lush 内置角色 Prompt，可能影响 Worker 协议与交付行为。', true),
@@ -244,6 +253,8 @@ export function createProfileForm({ profile, settings, role, ownsPage = () => tr
 
   const defaultsTools = el('div', undefined, 'retry-prompt-tools');
   const restoreDefaults = button('加载默认参数', () => {
+    initial = { ...defaults };
+    inheritedBackend = availableAgents.includes(initial.agent);
     modeSelect.value = normalizeConfigMode(initial.config_mode);
     backend.value = inheritedBackend ? initial.agent : availableAgents[0];
     model.value = inheritedBackend ? (initial.model || '') : '';

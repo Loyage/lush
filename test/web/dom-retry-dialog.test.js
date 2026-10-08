@@ -12,6 +12,12 @@ const managedConnections = [{ id, label: '兼容服务', provider: 'openai-compa
   { id: codexId, label: 'Lush Codex OAuth', provider: 'openai-codex', auth_type: 'oauth', enabled: true,
     models: ['gpt-5.4', 'gpt-5.4-mini'], credential: { status: 'configured' } }];
 let connectionResponse = null;
+let workerSettings = null;
+let workerSettingsError = null;
+let saveError = null;
+let workerReadResponse = null;
+let workerReadRequests = 0;
+let saveResponse = null;
 const commonEnv = { SHARED: 'common', COMMON: 'only-common' };
 const roleEnv = { SHARED: 'role', ROLE: 'only-role' };
 const profile = { agent: 'pi', connection_id: codexId, model: 'openai-codex/gpt-5.4', thinking: 'medium', default_prompt: '', append_prompt: '',
@@ -27,6 +33,12 @@ const settings = {
 const response = value => ({ ok: true, status: 200, json: async () => value });
 const dom = installDom({ fetch: async (url, options = {}) => {
   if (url === '/api/agent/config') return response(settings);
+  if (/^\/api\/worker\/\d+\/run-settings$/.test(url)) {
+    workerReadRequests++;
+    if (workerReadResponse) return workerReadResponse;
+    if (workerSettingsError) return { ok: false, status: 400, json: async () => ({ error: workerSettingsError }) };
+    return response(workerSettings || { profile: settings.resolved[environmentReads.at(-1)] || settings.default, explicit: false });
+  }
   if (url.startsWith('/api/agent/connections')) {
     connectionReads.push(url);
     if (url === '/api/agent/connections') return connectionResponse || response({ version: 1, connections: managedConnections });
@@ -43,12 +55,16 @@ const dom = installDom({ fetch: async (url, options = {}) => {
     extensions: [{ id: '/tmp/review.js', label: 'Review helper', description: '本轮检查工具' }],
     skills: [{ id: '/tmp/ui-skill', label: 'UI skill', description: '界面检查' }],
   });
-  if (url === '/api/action') { const body = JSON.parse(options.body); actions.push(body); return response({ status: 'queued' }); }
+  if (url === '/api/action') { const body = JSON.parse(options.body); actions.push(body);
+    if (saveResponse) return saveResponse;
+    if (saveError) return { ok: false, status: 400, json: async () => ({ error: saveError }) };
+    return response({ status: 'queued' }); }
   return response({});
 } });
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
 const restoreNavigation = registerNavigation({ refresh: async () => {}, detail: async () => {}, overview: async () => {}, graph: async () => {} });
-const { retryTask, configureTask } = await import('../../src/ui/web/assets/retry-dialog.js');
+const { ui } = await import('../../src/ui/web/assets/state.js');
+const { retryTask, configureTask, parseEnvLines } = await import('../../src/ui/web/assets/retry-dialog.js');
 const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
 
 afterAll(() => { restoreNavigation(); dom.restore(); });
@@ -361,4 +377,88 @@ test('加载默认参数恢复角色的 Prompt、资源与软预算，并正确�
   } finally {
     delete settings.resolved.planner; delete settings.options.default_prompts.planner;
   }
+});
+
+test('统一面板读取已有覆盖，来源切换保留折叠高级项，重新打开仍读 Worker 配置', async () => {
+  actions.length = 0;
+  const existing = { ...profile, model: 'openai-codex/gpt-5.4-mini', thinking: 'high',
+    default_prompt: 'Worker 自定义规则', append_prompt: 'Worker 补充',
+    extensions: ['/tmp/review.js'], skills: ['/tmp/ui-skill'], soft_budget: { responses: 7, tokens: 1234 },
+    env: { SHARED: 'worker', CUSTOM: 'first\nsecond' } };
+  workerSettings = { profile: existing, explicit: true };
+  managedConnections[0].default_model = 'custom-model';
+  try {
+    for (const configuring of [true, false]) {
+      const pending = configuring ? configureTask({ id: 56, role: 'worker', status: 'paused' }) : retryTask({ id: 56, role: 'worker', status: 'failed' });
+      const label = configuring ? '保存设置' : '使用这些设置重试';
+      await until(() => dialogButton(dom, label));
+      const modal = dom.node('modal'), get = name => modal.querySelector(`[data-retry-field="${name}"]`);
+      const advanced = modal.querySelector('[data-retry-advanced="settings"]');
+      expect(advanced.tagName).toBe('DETAILS'); expect(Boolean(advanced.open)).toBe(false);
+      expect(advanced.querySelector('[data-retry-field="default-prompt"]')).toBe(get('default-prompt'));
+      expect(advanced.querySelector('[data-retry-field="thinking"]')).toBeNull();
+      expect(get('model').value).toBe(existing.model); expect(get('thinking').value).toBe('high');
+      expect(deepText(modal)).toContain('已载入本 Worker 的独立运行覆盖');
+      get('connection_id').value = id; get('connection_id').onchange();
+      expect(get('model').value).toBe('openai-compatible/custom-model');
+      await dialogButton(dom, label).onclick(); expect(await pending).toBe(true);
+      expect(actions.at(-1).params.profile).toEqual({ ...existing, config_mode: 'lush', connection_id: id,
+        model: 'openai-compatible/custom-model', env: { ...commonEnv, ...roleEnv, ...existing.env } });
+      expect(dialogButton(dom, '仍然保存')).toBeNull(); // unchanged custom Prompt needs no new warning
+    }
+    const pending = configureTask({ id: 56, role: 'worker', status: 'paused' });
+    await until(() => dialogButton(dom, '保存设置'));
+    await dialogButton(dom, '加载默认参数').onclick();
+    const get = name => dom.node('modal').querySelector(`[data-retry-field="${name}"]`);
+    expect(get('model').value).toBe(profile.model);
+    expect(get('default-prompt').value).toBe(settings.options.default_prompts.worker);
+    expect(parseEnvLines(get('env').value)).toEqual({ ...commonEnv, ...roleEnv });
+    await dialogButton(dom, '不修改').onclick(); expect(await pending).toBe(false);
+  } finally { workerSettings = null; delete managedConnections[0].default_model; }
+});
+
+test('读取 Worker 设置失败不打开默认表单，保存失败保留所有草稿后可重试', async () => {
+  actions.length = 0; workerSettingsError = 'Worker 设置不可读取';
+  expect(await configureTask({ id: 57, role: 'worker', status: 'paused' })).toBe(false);
+  expect(dialogButton(dom, '保存设置')).toBeNull(); expect(actions).toHaveLength(0);
+  workerSettingsError = null;
+  const pending = configureTask({ id: 57, role: 'worker', status: 'paused' });
+  await until(() => dialogButton(dom, '保存设置'));
+  const get = name => dom.node('modal').querySelector(`[data-retry-field="${name}"]`);
+  get('append-prompt').value = '保留草稿'; get('thinking').value = 'high';
+  saveError = 'branch is frozen';
+  await dialogButton(dom, '保存设置').onclick();
+  await until(() => dialogButton(dom, '保存设置'));
+  expect(deepText(dom.node('modal'))).toContain('当前编辑已保留');
+  expect(get('append-prompt').value).toBe('保留草稿'); expect(get('thinking').value).toBe('high');
+  saveError = null;
+  await dialogButton(dom, '保存设置').onclick(); expect(await pending).toBe(true);
+  expect(actions).toHaveLength(2);
+  expect(actions[1]).toEqual(actions[0]);
+});
+
+test('已有设置读取或保存迟到且已离页时，不打开旧表单或报告成功', async () => {
+  actions.length = 0;
+  const originalView = ui.view;
+  let resolveRead;
+  workerReadResponse = new Promise(resolve => { resolveRead = resolve; });
+  const before = workerReadRequests;
+  const pending = configureTask({ id: 58, role: 'worker', status: 'paused' });
+  await until(() => workerReadRequests > before);
+  ui.view = { id: 'settings', key: 'new-page' };
+  resolveRead(response({ profile, explicit: false }));
+  expect(await pending).toBe(false);
+  expect(dialogButton(dom, '保存设置')).toBeNull();
+  expect(actions).toHaveLength(0); workerReadResponse = null;
+  ui.view = originalView;
+  const saving = configureTask({ id: 58, role: 'worker', status: 'paused' });
+  await until(() => dialogButton(dom, '保存设置'));
+  let resolveSave;
+  saveResponse = new Promise(resolve => { resolveSave = resolve; });
+  await dialogButton(dom, '保存设置').onclick();
+  await until(() => actions.length === 1);
+  ui.view = { id: 'settings', key: 'another-page' };
+  resolveSave(response({ status: 'paused' }));
+  expect(await saving).toBe(false);
+  saveResponse = null; ui.view = originalView;
 });

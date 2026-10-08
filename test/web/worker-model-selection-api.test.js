@@ -25,6 +25,10 @@ test('real RPC and HTTP narrow configuration preserve private overrides with saf
   const f = await setup(), { task, manager } = prepare(f);
   try {
     const before = JSON.parse(f.store.task(task.id).retry_profile);
+    const settingsRead = await fetch(f.url + `/api/worker/${task.id}/run-settings`);
+    expect(settingsRead.status).toBe(200); expect(settingsRead.headers.get('cache-control')).toBe('no-store');
+    expect(await settingsRead.json()).toEqual({ profile: before, explicit: true });
+    expect((await fetch(f.url + `/api/worker/${task.id}/run-settings?force=true`)).status).toBe(400);
     const rpc = await new RPCClient(f.config.socket).request('worker.configure', { id: task.id, model_selection: choice });
     expect(rpc).toEqual({ id: task.id, model_selection: { agent: 'pi', config_mode: 'lush', ...choice, thinking: 'high', explicit: true } });
     noSecrets(rpc);
@@ -69,6 +73,7 @@ test('valid active Agent RPC credential may read safe choice but cannot configur
     f.store.armAgent(task.id, tokenHash(token));
     f.project.running.set(task.id, { token, controller: new AbortController(), agent: { agent: 'pi', model: 'deepseek/current' } });
     const client = new RPCClient(f.config.socket), before = f.store.task(task.id).retry_profile;
+    await expect(client.request('worker.run_settings', { id: task.id, _token: token })).rejects.toThrow('requires user approval');
     await expect(client.request('worker.configure', { id: task.id, model_selection: choice, _token: token })).rejects.toThrow('requires user approval');
     const read = await client.request('worker.inspect', { id: task.id, _token: token });
     noSecrets(read.model_selection); expect(read.retry_profile).toBeUndefined(); expect(read.model_selection.model).toBe('deepseek/old');
@@ -83,9 +88,11 @@ test('existing Web login gates the narrow update and the safe next-choice read',
     const params = { id: task.id, model_selection: choice };
     expect((await post(f, params)).status).toBe(401);
     expect((await fetch(f.url + `/api/worker/${task.id}`)).status).toBe(401);
+    expect((await fetch(f.url + `/api/worker/${task.id}/run-settings`)).status).toBe(401);
     const login = await fetch(f.url + '/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'username=owner&password=test-password&next=%2F' });
     const Cookie = login.headers.get('set-cookie').split(';')[0];
+    expect((await fetch(f.url + `/api/worker/${task.id}/run-settings`, { headers: { Cookie } })).status).toBe(200);
     expect((await post(f, params, { Cookie })).status).toBe(200);
     expect((await post(f, params, { Cookie, Origin: 'https://attacker.invalid' })).status).toBe(403);
     const worker = await (await fetch(f.url + `/api/worker/${task.id}`, { headers: { Cookie } })).json();

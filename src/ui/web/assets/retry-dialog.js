@@ -1,5 +1,5 @@
 import { action, api } from './api.js';
-import { button, el } from './dom.js';
+import { el } from './dom.js';
 import { confirmDialog, formDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { show } from './messages.js';
@@ -14,16 +14,12 @@ const roleProfile = (settings, role) => {
   return { role: resolved, profile: { ...(settings.resolved?.[resolved] || settings.default) } };
 };
 
-/**
- * 任务级 Agent Profile 面板：terminal retry 与 paused 的「调整运行设置」共用同一套字段。
- * 字段含配置模式、本轮 Agent / 模型 / 思考深度 / Prompt / 扩展 / Skills / 软预算，以及只在本任务生效的 Pi 环境变量。
- * Profile 只送到 worker.retry / worker.configure，不修改项目 agent.json，Worker 结算时失效。
- */
+/** Worker-local settings survive delivery; saving never changes project defaults. */
 export async function retryTask(task) {
   return profileDialog(task, { method: 'worker.retry' });
 }
 
-/** 暂停或请求中断时的「调整运行设置」：只保存 Profile，下一次调用生效，不改变旧调用。 */
+/** One entry for model source and all other settings; save does not resume the Worker. */
 export async function configureTask(task) {
   return profileDialog(task, { method: 'worker.configure' });
 }
@@ -34,67 +30,74 @@ async function profileDialog(task, options) {
   const ownsPage = () => active && ui.view === view;
   try {
     const settings = await api('/api/agent/config');
-    const { role, profile } = roleProfile(settings, task.role);
-    // agent.json does not contain the env-file layers. Match invocation precedence:
-    // common env < role env < profile env. Do not silently open an incomplete form on read failure.
-    const [commonEnv, roleEnv] = await Promise.all([
+    if (!ownsPage()) return false;
+    const { role, profile: defaults } = roleProfile(settings, task.role);
+    // Full Worker profiles stay out of inspect/list. Read only through the user-only settings API.
+    // Failure must not silently replace an existing override with role defaults.
+    const [commonEnv, roleEnv, current] = await Promise.all([
       api('/api/agent/environment?target=common'),
       api(`/api/agent/environment?target=${encodeURIComponent(role)}`),
+      api(`/api/worker/${task.id}/run-settings`),
     ]);
-    profile.env = { ...commonEnv.values, ...roleEnv.values, ...(profile.env || {}) };
-
-    const form = createProfileForm({ profile, settings, role, ownsPage, applyDefaultModelOnChange: true });
+    if (!ownsPage()) return false;
+    if (!current?.profile || typeof current.explicit !== 'boolean') throw new Error('无法读取 Worker 已有运行设置，请更新后台后重试');
+    defaults.env = { ...commonEnv.values, ...roleEnv.values, ...(defaults.env || {}) };
+    const profile = { ...current.profile, env: { ...commonEnv.values, ...roleEnv.values, ...(current.profile.env || {}) } };
+    const form = createProfileForm({ profile, defaultProfile: defaults, settings, role, ownsPage,
+      applyDefaultModelOnChange: true, collapseAdvanced: true });
     const content = el('div', undefined, 'retry-profile-form-wrap');
-    content.append(form.node, el('p', '确认后，所选完整 Profile 会固定到这个 Worker，直到它再次完成、失败或取消。', 'retry-scope-note'));
+    const errorBox = el('p', undefined, 'settings-error'); errorBox.setAttribute('role', 'alert');
+    content.append(el('p', current.explicit ? '已载入本 Worker 的独立运行覆盖；未修改项保留。' : '已载入当前项目 / 角色默认；保存后成为本 Worker 的独立运行覆盖。', 'hint'),
+      form.node, el('p', '运行覆盖只属于这个 Worker，跨交付与验收保留，直到显式清除或重新保存；不修改项目默认。', 'retry-scope-note'), errorBox);
     await form.ready;
     if (!ownsPage()) return false;
-    // Read local sources on open; a slow/failed read must not block editing.
-    // Start after initialization so its repaint cannot erase a read failure or loading state.
     void form.picker.load();
 
-    // Keep the same live form when the profile is invalid, so fixing it does not lose other edits.
     for (;;) {
+      if (!ownsPage()) return false;
       const confirmed = await formDialog({
         title: configuring ? `调整 Worker ${workerLabel(task)} 的运行设置` : `检查后重试 Worker ${workerLabel(task)}`,
         message: configuring
-          ? '这些设置用于下一次 Agent 调用，不改变仍在运行的调用。尚未生效的中断可用「继续」撤销；Worker 结算后设置自动清除。'
-          : `Worker 因“${task.status === 'cancelled' ? '已取消' : '失败'}”停止。请检查并调整 ${task.role} Agent；这些设置只用于本轮重试。`,
+          ? '模型来源与其他运行设置在此统一调整；用于下一次 Agent 调用，不改变仍在运行的调用。保存不会自动开始或继续。'
+          : `Worker 因“${task.status === 'cancelled' ? '已取消' : '失败'}”停止。请检查并调整 ${task.role} Agent；这些设置只用于本轮重试及后续调用。`,
         content, confirmLabel: configuring ? '保存设置' : '使用这些设置重试',
         cancelLabel: configuring ? '不修改' : '暂不重试', cardClass: 'retry-modal',
         agent: !configuring,
         confirmHelp: configuring
-          ? '保存这次运行设置，在下一次 Agent 调用时生效；不改变当前调用，也不自动继续。'
+          ? '保存本 Worker 的运行设置，未修改项保留；下一次 Agent 调用生效，不改变当前调用，也不自动继续。'
           : agentHelp('用上面选定的 Agent 设置重新启动这个 Worker。'),
       });
-      if (!confirmed || ui.view !== view) return false;
+      if (!confirmed || !ownsPage()) return false;
       const error = form.validate();
-      if (error) { show(error, 'error'); continue; }
-      break;
+      if (error) { errorBox.textContent = error; show(error, 'error'); continue; }
+      const entered = form.defaultPromptValue();
+      const nextDefault = entered === form.builtInPrompt.trim() ? '' : entered;
+      if (nextDefault && nextDefault !== (profile.default_prompt || '') && form.mode() !== 'pi') {
+        const accepted = await confirmDialog({
+          title: configuring ? '用自定义 Prompt 保存设置？' : '用自定义 Prompt 重试？',
+          message: '自定义内容会替换 Lush 内置 Worker 规则，作为本 Worker 的运行覆盖保留。',
+          detail: '可能影响：Worker API 使用、权限边界、子 Worker 协作、工作区安全和交付流程。',
+          confirmLabel: configuring ? '仍然保存' : '仍然重试', cancelLabel: configuring ? '取消修改' : '取消重试', danger: true,
+          agent: !configuring,
+          confirmHelp: configuring ? '保存这份自定义 Prompt 作为本 Worker 的运行覆盖。' : agentHelp('用这份自定义 Prompt 重新启动这个 Worker。'),
+        });
+        if (!ownsPage()) return false;
+        if (!accepted) continue;
+      }
+      try {
+        await action(options.method, { id: task.id, profile: form.collect() });
+        if (!ownsPage()) return false;
+        show(configuring
+          ? `Worker ${workerLabel(task)} 的运行设置已保存，将在下一次 Agent 调用时生效。`
+          : `Worker ${workerLabel(task)} 已按选定的 Agent 设置进入重试队列。`);
+        return true;
+      } catch (error) {
+        if (!ownsPage()) return false;
+        errorBox.textContent = `保存失败：${error.message}。当前编辑已保留，请检查后重试。`;
+      }
     }
-    active = false;
-
-    const builtIn = form.builtInPrompt;
-    const entered = form.defaultPromptValue();
-    const nextDefault = entered === builtIn.trim() ? '' : entered;
-    if (nextDefault && nextDefault !== (profile.default_prompt || '') && form.mode() !== 'pi') {
-      const accepted = await confirmDialog({
-        title: configuring ? '用自定义 Prompt 保存设置？' : '用自定义 Prompt 重试？',
-        message: '自定义内容会替换 Lush 内置 Worker 规则，仅本轮生效。',
-        detail: '可能影响：Worker API 使用、权限边界、子 Worker 协作、工作区安全和交付流程。',
-        confirmLabel: configuring ? '仍然保存' : '仍然重试', cancelLabel: configuring ? '取消修改' : '取消重试', danger: true,
-        agent: !configuring,
-        confirmHelp: configuring ? '保存这份自定义 Prompt 作为本轮运行设置。' : agentHelp('用这份自定义 Prompt 重新启动这个 Worker。'),
-      });
-      if (!accepted) return false;
-    }
-    const taskProfile = form.collect();
-    await action(options.method, { id: task.id, profile: taskProfile });
-    show(configuring
-      ? `Worker ${workerLabel(task)} 的运行设置已保存，将在下一次 Agent 调用时生效。`
-      : `Worker ${workerLabel(task)} 已按本轮 Agent 设置进入重试队列。`);
-    return true;
   } catch (error) {
-    show(configuring ? `无法保存运行设置：${error.message}` : `无法重试：${error.message}`, 'error');
+    if (ownsPage()) show(configuring ? `无法保存运行设置：${error.message}` : `无法重试：${error.message}`, 'error');
     return false;
   } finally { active = false; }
 }

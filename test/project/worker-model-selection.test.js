@@ -45,6 +45,34 @@ test('narrow update preserves all existing overrides and exposes only next-invoc
   } finally { await f.close(); }
 });
 
+test('explicit settings read returns existing override or role default, without credential reads or public leaks', async () => {
+  const f = setup();
+  try {
+    f.project.configureAgents({ version: 1, default: { agent: 'pi' }, roles: { agent: rich() } });
+    f.project.agentConnections.config = () => { throw new Error('MUST_NOT_READ_CREDENTIALS'); };
+    expect(await f.dispatcher.dispatch('worker.run_settings', { id: f.task.id })).toEqual({
+      profile: f.project.agentSettings.resolve('agent'), explicit: false });
+    f.project.configureTask(f.task.id, { ...rich(), env: { hooks: 'keep', retry_profile: 'keep-too' } });
+    expect(await f.dispatcher.dispatch('worker.run_settings', { id: f.task.id })).toEqual({ profile: stored(f), explicit: true });
+    expect(f.project.inspect(f.task.id).retry_profile).toBeUndefined();
+    expect(f.manager.calls).toBe(0); expect(f.store.task(f.task.id).calls).toBe(0);
+    f.store.update(f.task.id, { retry_profile: 'invalid-json' });
+    await expect(f.dispatcher.dispatch('worker.run_settings', { id: f.task.id })).rejects.toThrow('configuration unavailable');
+  } finally { await f.close(); }
+});
+
+test('unified full configuration retains branch freeze protection before replacing any settings', async () => {
+  const f = setup();
+  try {
+    f.project.configureTask(f.task.id, rich());
+    const before = f.store.task(f.task.id).retry_profile;
+    f.store.update(f.task.id, { branch: 'lush/frozen' });
+    f.project.assertBranchWritable = () => { throw new Error('branch is frozen'); };
+    await expect(f.dispatcher.dispatch('worker.configure', { id: f.task.id, profile: { agent: 'pi' } })).rejects.toThrow('branch is frozen');
+    expect(f.store.task(f.task.id).retry_profile).toBe(before);
+  } finally { await f.close(); }
+});
+
 test('without an override the effective role profile is the baseline, not the project default', async () => {
   const f = setup();
   try {

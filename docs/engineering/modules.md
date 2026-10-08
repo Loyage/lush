@@ -106,6 +106,12 @@ Runtime 子 Worker 负责 core Hooks、初始化、merge-queue、Workspaces 命�
 
 用户要求暂停选择快照，待产品方向明确后再开发。新问卷不保存代码／上下文快照，RPC、CLI、HTTP 与 Web 不提供快照查看或重选。正常选择、答复、自动选择 Hook 和历史问卷回放不变。已有附属资源与已创建路线只保留历史恢复、调度和删除保护，不迁移或擅自清理；边界见[选择快照停用说明](choice-snapshots.md)。
 
+## Worker 统一运行设置（W147 / 决定 #357）
+
+Worker 详情只保留「调整运行设置」一个入口：配置模式、后端、来源、模型与思考深度直接展示，Prompt、资源、预算、环境变量折入高级设置。新增用户专属只读 `worker.run_settings {id}` / `GET /api/worker/<id>/run-settings`，仅显式打开设置时读取 `{profile,explicit}`；完整 Profile 不进入 inspect/list/graph、Agent 读面或事件，不读取连接凭证、不联网。前端读取失败不得回退默认覆盖已有配置；「加载默认参数」仍是显式恢复项目/角色默认。
+
+Runtime `project/scheduling.js` 提供 `taskRunSettings(id)`；RPC registry/handler/public-result 与 Web server 负责用户权限、私有 env 字典的授权投影及只读路由；`retry-dialog.js` 读取已有 Profile、`agent-profile-form.js` 可选折叠高级设置、`render-detail.js` 移除轻量入口，`worker-model-source.js` 仅保留摘要与清除覆盖。既有 `worker.configure {model_selection}` 窄更新 API 保持兼容，不新增启动行为或放宽状态准入。
+
 ## 当前公开面
 
 Worker 更名中的公开入口与保留字段、事件、内部路径边界见[核心 API 收敛](core-api.md#worker-更名与兼容边界)。精简后的 RPC / CLI / Web 白名单以[核心 API 收敛](core-api.md)和 `src/rpc/registry.js` 为准：`system.*`、`agent.*`、`order.submit`、`worker.*`（含 `spawn` / `integrate` / `auto_merge` / `reserve` / `resolve*` / `unreserve` / `approve_merge` / `message` / `cancel` / `retry` / `interrupt` / `resume` / `configure` / `cleanup` 与只读读面）、`progress.*`、`notice.*`、`branch.tree/show/bind/archive`、`graph.get`。用户专属输入缓冲与检索另开放 `input.history/get/parents`、`draft.add/update/remove`，`order.submit` 支持带版本的单条草稿发射，见[历史输入接口](input-history.md)。CLI 只注册 `daemon` / `status` / `doctor` / `log` / `web*` / `order` / `worker` / `progress` / `notice` / `branch` / `agent` / `config`；其余命令模块（draft / intent / spec / plan / candidate / sleep）不再挂载，handlers 中未列入白名单的方法一律返回 `unknown method`。
@@ -191,7 +197,7 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 - `render-agent-connections.js` / `styles-agent-connections.css` 负责来源列表、筛选、选择详情、编辑/登录、额度/历史与采样；不修改 Agent 配置或导航装配。
 - `render-settings.js` 负责 Agent 配置分区及将项目出站网络放入系统设置；`agent-connection-picker.js` 统一后端→来源→模型选择，保留现有导出接口、用户草稿与能力校验。
 - `app.js` / `sidebar-ui.js` / `index.html` 接入两页独立导航及来源深链接；`navigate.js` 仍是跨面板跳转接缝。
-- `retry-dialog.js` 增补轻量 Worker 来源编辑，`render-detail.js` / `render-agent.js` 接入入口/只读配置摘要，仍走 `worker.configure` 和既有状态准入，完整 Profile 与其他覆盖不得丢失。
+- Worker 来源编辑已整合到 `retry-dialog.js` 的统一运行设置，`render-detail.js` / `render-agent.js` 接入单一入口/只读配置摘要，仍走 `worker.configure` 和既有状态准入，完整 Profile 与其他覆盖不得丢失。
 - 各前端变更配套 DOM 回归；父 Worker 维护设计/模块/使用文档与组合、全量测试。
 
 用户决定 #154 增补上述范围：

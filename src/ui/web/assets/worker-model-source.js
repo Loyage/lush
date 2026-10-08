@@ -1,27 +1,16 @@
 import { action } from './api.js';
 import { button, el } from './dom.js';
-import { confirmDialog, formDialog } from './dialog.js';
-import { createAgentConnectionPicker } from './agent-connection-picker.js';
+import { confirmDialog } from './dialog.js';
 import { TERMINAL_STATUS, isHistoricalDelivery } from './format.js';
 import { normalizeConfigMode } from './agent-config-mode.js';
 import { workerKind } from './worker-kind.js';
-import { ui } from './state.js';
 import { show } from './messages.js';
 import { workerLabel } from './worker-label.js';
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
-const SAVE_HELP = '仅保存本 Worker 下一次调用的模型来源与模型，后台保留其他运行覆盖；不启动 Agent，不自动继续，不改变当前调用。';
-const PI_MODE_REASON = '该 Worker 使用 Pi 默认配置（执行机器的 Pi 自行决定来源与模型）；请用完整运行设置切换配置模式后，再在这里选择托管来源。';
+export const nextConfigMode = task => normalizeConfigMode(task?.model_selection?.config_mode);
 
-/** Worker 下一次调用是否走 Pi 默认配置；摘要缺失时按默认 Lush 处理。 */
-export const nextConfigMode = task => normalizeConfigMode(task?.model_selection?.config_mode ?? task?.retry_profile?.config_mode);
-
-export function canConfigureModelSource(task) {
-  return !isHistoricalDelivery(task) && ['order', 'child'].includes(workerKind(task))
-    && !TERMINAL_STATUS.has(task.status) && (task.status === 'paused' || task.interrupt_state === 'requested');
-}
-
-/** Task-local overrides survive delivery now; clearing one is an explicit, non-Agent action. */
+/** Task-local overrides survive delivery; clearing one is an explicit, non-Agent action. */
 export function canClearOverride(task) {
   return !isHistoricalDelivery(task) && ['order', 'child'].includes(workerKind(task))
     && !TERMINAL_STATUS.has(task.status) && task.status !== 'running'
@@ -31,7 +20,6 @@ export function canClearOverride(task) {
 /** Runtime binding is authoritative; old backends can fall back to a same-run connection event. */
 export function modelSourceSummary(task, history = [], connections = null) {
   const node = el('div', undefined, 'worker-model-source-summary');
-  // 来源只显示用户自己命名的名称；列表未提供或已删除时回退到连接 ID，不猜测。
   const names = new Map();
   const rows = Array.isArray(connections) ? connections : (Array.isArray(connections?.connections) ? connections.connections : []);
   for (const row of rows) {
@@ -40,7 +28,6 @@ export function modelSourceSummary(task, history = [], connections = null) {
   const sourceName = id => names.get(id) || id;
   let current = task.agent?.active ? '未知（缺少当前调用的来源绑定证据）' : '无进行中的调用';
   if (task.agent?.active && Object.hasOwn(task.agent, 'connection_id')) {
-    // An explicit null also matters: parked/aborted/ended invocations have no active binding.
     if (UUID.test(task.agent.connection_id)) current = `${sourceName(task.agent.connection_id)} · ${task.agent.model || '模型未知'}`;
   } else if (task.agent?.active) {
     const run = [...(task.runs || [])].filter(row => row.status === 'running').sort((a, b) => b.id - a.id)[0];
@@ -54,7 +41,6 @@ export function modelSourceSummary(task, history = [], connections = null) {
   }
   node.append(el('p', `当前调用来源：${current}`, 'hint'));
   const next = task.model_selection;
-  // Pi 默认模式下没有托管来源：摘要明确说明由执行机器 Pi 决定，且不由这个窄入口切换。
   node.append(el('p', next && nextConfigMode(task) === 'pi'
     ? `下一次配置：Pi 默认配置（执行机器的 Pi 自行决定来源与模型）· ${next.explicit ? 'Worker 独立覆盖' : '继承项目 / 角色配置'}`
     : next
@@ -79,61 +65,4 @@ export function clearOverrideControl(task, onCleared = () => {}) {
       await onCleared();
     } catch (error) { show(`无法清除覆盖：${error.message}`, 'error'); }
   }, 'ghost', { help });
-}
-
-export function modelSourceControl(task, onSaved = () => {}) {
-  if (!canConfigureModelSource(task)) return null;
-  const reason = !task.model_selection ? '后台尚未提供安全模型选择摘要，请更新后台后刷新详情。'
-    : nextConfigMode(task) === 'pi' ? PI_MODE_REASON
-      : task.model_selection.agent !== 'pi' ? 'Codex CLI 不支持 Lush 托管来源；切换执行后端请使用完整运行设置。' : null;
-  const node = button('切换模型来源', async () => { if (await configureModelSource(task)) await onSaved(); }, 'ghost', { help: reason || SAVE_HELP });
-  if (!reason) return node;
-  node.disabled = true;
-  const host = el('span', undefined, 'help-host'); host.setAttribute('data-help', reason); host.append(node); return host;
-}
-
-/** Submit a narrow patch, never round-trip Prompt/env or reconstruct a full Worker profile. */
-export async function configureModelSource(task) {
-  // Pi 默认模式不得经这个窄入口提交托管 model_selection；切换模式走完整运行设置。
-  if (!canConfigureModelSource(task) || task.model_selection?.agent !== 'pi' || nextConfigMode(task) === 'pi') return false;
-  const view = ui.view;
-  let active = true;
-  const ownsPage = () => active && ui.view === view;
-  try {
-    const backend = el('select'); const pi = el('option', 'Pi'); pi.value = 'pi'; backend.append(pi); backend.value = 'pi'; backend.disabled = true;
-    const model = el('input'); model.value = task.model_selection.model || ''; model.maxLength = 256;
-    model.setAttribute('aria-label', '模型'); model.dataset.workerModelField = 'model';
-    const picker = createAgentConnectionPicker({ backend, model, connectionId: task.model_selection.connection_id || '', ownsPage,
-      applyDefaultModelOnChange: true });
-    picker.connection.dataset.workerModelField = 'connection_id';
-    picker.connection.setAttribute('aria-label', '模型来源');
-    const form = el('div', undefined, 'retry-profile-form');
-    form.append(el('p', '执行后端：Pi（此操作不切换后端）', 'hint'), picker.node,
-      el('p', '切换来源时自动填入该来源的默认模型；未设置默认时保留当前模型并提示选择，不猜选第一个模型。不自动改变思考深度或转用其他账号；保存前仍可修改模型。Prompt、环境变量、Skills、扩展与预算均保留。', 'hint'));
-    const errorBox = el('p', undefined, 'settings-error'); errorBox.setAttribute('role', 'alert'); form.append(errorBox);
-    // Loading is local only. Render first so a slow read remains cancellable.
-    const loading = picker.load();
-    for (;;) {
-      if (!ownsPage()) return false;
-      const confirmed = await formDialog({ title: `切换 Worker ${workerLabel(task)} 的模型来源`,
-        message: '下一次 Agent 调用生效，不改变仍在运行的调用。保存后如需开始或继续，请另行操作。',
-        content: form, confirmLabel: '保存来源与模型', cancelLabel: '取消', confirmHelp: SAVE_HELP });
-      if (!confirmed || !ownsPage()) return false;
-      await loading;
-      if (!ownsPage()) return false;
-      const problem = !picker.value() ? 'Pi 必须选择 Lush 模型来源；不会回退到外部 Pi 认证。'
-        : !picker.entry() ? '尚未取得此来源配置，请重新读取来源并检查后保存。' : picker.validate();
-      if (problem) { errorBox.textContent = problem; continue; }
-      try {
-        const result = await action('worker.configure', { id: task.id, model_selection: { connection_id: picker.value(), model: model.value.trim() } });
-        if (!ownsPage()) return false;
-        if (result?.model_selection) task.model_selection = result.model_selection;
-        show('模型来源与模型已保存；其他运行设置保留，下一次调用生效。');
-        return true;
-      } catch (error) {
-        if (!ownsPage()) return false;
-        errorBox.textContent = `保存失败：${error.message}。当前选择保留，请检查后重试。`;
-      }
-    }
-  } finally { active = false; }
 }

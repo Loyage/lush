@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { LushError } from '../types.js';
 import { AGENT_BACKENDS } from '../../agent/settings.js';
 
-/** Internal only: never expose the full task-local runtime profile in a Worker read model. */
+/** Full profile: ordinary Worker read models must not expose it; only the explicit user settings API may. */
 export function workerRunProfile(project, task) {
   try {
     return task.retry_profile
