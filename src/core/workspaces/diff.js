@@ -115,6 +115,21 @@ export const methods = {
     }
     return result;
   },
+  /** Live ref distance to the same target used by parent sync; never reads a stale stored tip. */
+  async parentRelation(task) {
+    const unknown = { ahead: null, behind: null };
+    if (!task.branch || !task.target_branch) return unknown;
+    try {
+      const [source, parent] = await Promise.all([task.branch, task.target_branch].map(branch =>
+        this.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${branch}^{commit}`)));
+      const output = await this.git(this.config.project, 'rev-list', '--left-right', '--count', `${parent}...${source}`, '--');
+      const counts = output.trim().split(/\s+/);
+      if (counts.length !== 2 || !counts.every(value => /^\d+$/.test(value) && Number.isSafeInteger(Number(value))))
+        return unknown;
+      const [behind, ahead] = counts.map(Number);
+      return { ahead, behind };
+    } catch { return unknown; }
+  },
   /** Read-only overview for review: never mutates, so it stays outside the mutation queue. */
   async diff(task) {
     const workspace = task.workspace;

@@ -229,7 +229,7 @@ export function renderDetail(task, history, diff, usage, connections = null) {
       : `解分歧成果尚未集成：先检查工作区和固定提交。需要另试时，在 Worker 树或 Worker 详情显式归档这条子分支（删除 ref/worktree；未提交文件会丢失），${retry}不会重放本次 Agent。`,
     'hint delivery-reason'));
   }
-  const iteration = management ? null : iterationControls(task, { refresh: () => detail(task.id), events: history?.events || [] });
+  const iteration = management ? null : iterationControls(task, { refresh: () => detail(task.id), events: history?.events || [], showParentDistance: true });
   if (iteration) panel.append(iteration);
   const delivery = management ? null : deliveryControls(task, { refresh: () => detail(task.id) });
   if (delivery) panel.append(delivery);

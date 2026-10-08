@@ -31,7 +31,7 @@ export function guardedAction(node, reason) {
 }
 
 /** Detail and graph share the same non-Agent acceptance/sync and explicit Agent conflict path. */
-export function iterationControls(task, { refresh = () => {}, events = [] } = {}) {
+export function iterationControls(task, { refresh = () => {}, events = [], showParentDistance = false } = {}) {
   if (!isIterationTask(task) || isHistoricalDelivery(task)) return null;
   const ended = ['completed', 'failed', 'cancelled'].includes(task.status);
   const accepted = task.accepted === true || events.some(event => event.type === 'task.accepted');
@@ -116,12 +116,21 @@ export function iterationControls(task, { refresh = () => {}, events = [] } = {}
         if (result.conflict) {
           task.parent_sync_conflict = { source_commit: result.source_commit, parent_commit: result.parent_commit, reason: result.reason };
           show(`同步冲突：${result.reason || '请单独点击「Agent 解决同步冲突」'}。未启动 Agent。`, 'error');
-          const diagnosis = iterationControls(task, { refresh, events });
+          const diagnosis = iterationControls(task, { refresh, events, showParentDistance });
           panel.replaceChildren(...diagnosis.children);
         } else show(result.synced ? '已同步父分支；未调用 Agent。' : result.reason || '已与父分支同步。');
         await refresh();
       } catch (error) { show(error.message, 'error'); }
     }, 'ghost', { help: '只在当前 Worker 分支安全吸收父分支提交；无冲突由程序完成，冲突只显示诊断，不调用 Agent，不推进父分支。' }), reason));
+    if (showParentDistance) {
+      const { ahead, behind } = task.parent_relation || {};
+      const distance = el('span', undefined, 'parent-commit-distance');
+      if ([ahead, behind].every(count => Number.isSafeInteger(count) && count >= 0)) {
+        distance.append(el('span', `领先 ${ahead}`, 'parent-commit-ahead'), el('span', ' / '),
+          el('span', `落后 ${behind}`, 'parent-commit-behind'), el('span', ' 个 commit'));
+      } else distance.textContent = '父分支 commit 距离未知';
+      actions.append(distance);
+    }
     const conflict = task.parent_sync_conflict;
     if (conflict) {
       panel.append(el('p', `父同步冲突：${conflict.reason || '需要处理'}\n源 ${conflict.source_commit || '未知'} · 父 ${conflict.parent_commit || '未知'}`, 'hint mono'));

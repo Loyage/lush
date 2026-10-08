@@ -108,6 +108,8 @@ Worker 详情的原始目标直接展示预览；长模块点击「展开完整�
 
 当前 指令/child 的 version 2 预约由父 Worker 自有队列的 runtime 串行 Squash（含 main），不创建 merge Worker、不改 `parent_id`、不额外调用父 Agent；落地后保持原父子关系并进入非终态 `awaiting_acceptance`，不是 `completed`。追加 `worker.message` 继续同一 Worker；验收 `worker.accept` 才结算为 completed，归档仍须显式操作且待验收时不得直接归档；派生 child 的成果由其运行中的直接父 Agent 检查后 `worker.accept` 确认，无需用户逐个验收；父 Agent 不能验收指令、自己或兄弟。无代码改动的 child 也先交付结果、等父确认。验收父 Worker 不隐式确认后代，未决问题、未读输入、未交付改动与未结算后代仍阻止确认。原始 `base_commit` 保留，本轮基线用可空 `iteration_base_commit`。`accepted:boolean`（依据 `task.accepted` 事件，`accepted_by:'user'|'parent'` 区分用户验收与父确认）和 `parent_sync_conflict:{source_commit,parent_commit,reason}|null` 由 inspect/Worker 图投影。
 
+`worker.inspect` 的异步 RPC 读面为有分支的 指令/child 附加 `parent_relation:{ahead,behind}`，只读实时本地 `branch` 与 `target_branch` 的固定提交对：ahead 为 Worker 独有提交数，behind 为父目标独有提交数；不使用原始 base 或存储的 head。无 ref、读取失败或无效计数为 null。详情在「同步父分支」旁显示红色「领先 N」与绿色「落后 M」及 commit 单位，包含 0；旧服务缺字段显示距离未知。刷新详情会重读，不调用 Agent，不改变 Git 或 Worker 状态。
+
 `sync_parent` 只在源侧安全吸收父提交；无冲突由程序直接完成并记 `task.parent_synced`，冲突返回诊断并记 `task.parent_sync_conflict`，不自动调用 Agent。`resolve_sync` 才显式唤醒当前 Worker，固定两端提交已漂移时拒绝并要求重新同步。冻结、运行中、工作区不安全或后代未收敛由后端严格拒绝；不重置现场，不推进父分支。
 
 `reopen` 仅面向未归档、分支/worktree 仍保留、未明确用户验收的历史 completed/merged 指令/child；只恢复待验收，不启动 Agent。已归档不重建，不批量迁移旧记录。完整生命周期见[持续迭代](../../engineering/task-iteration.md)。

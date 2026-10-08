@@ -235,6 +235,10 @@ Codex 托管登录的默认设备码与备用回调入口见[设备码登录契�
 - `graph.get` 的 branch 节点增量提供 `diagnostics`：`changes` 以登记的 `created_from_commit` → 当前固定 tip 统计已提交净改动（文件总数、文本增删行、二进制文件数及有界文件列表），`latest_commit` 给出 tip 的提交时间与摘要，`working_tree` 单独统计实际检出该分支的工作区未提交文件数（暂存 / 未暂存 / 未跟踪 / 冲突，分类可能重叠）。无起点、无 ref、未检出与读取失败不能冒充零。
 - Git 边界 `workspaces/diff.js` 新增 `branchDiagnostics(branches)` 批量读面：只读 Git、禁用外部 diff/textconv，固定提交结果有界缓存；文件列表每分支最多 50 项且 JSON 不超过 2 KiB，截断不影响汇总。无新表、无新 RPC 方法；Web 用 Worker 图轮询，并保留文件列表展开状态。
 
+## Worker 详情的父分支提交距离（W142）
+
+`worker.inspect` 的异步 RPC 读面为 指令/child 附加 `parent_relation:{ahead,behind}`：Git 边界 `Workspaces.parentRelation(task)` 只读当前 `branch` 与固定同步目标 `target_branch` 的本地 ref，固定两侧提交后计算双方独有提交数，不使用创建基线或持久 `head_commit`。缺失 ref / Git 失败 / 无效计数均为 null，不冒充零；核心 `Project.inspect` 保持同步，无新 RPC 或持久化。详情经 `iterationControls(task,{showParentDistance:true})` 在同步按钮旁显示「领先 N / 落后 M 个 commit」，领先红、落后绿（用户决定 #344）；旧服务缺字段显示距离未知。Worker 图原有登记父关系诊断不变。
+
 ## 已合并 Worker 的多轮交付接缝
 
 [持续迭代](task-iteration.md)规定新式 指令/child 合并后的非终态 `awaiting_acceptance`、显式验收与归档分离、安全父同步及历史显式恢复。`worker.accept` 调用 `Project.acceptTask(taskId, actor=null)`：用户验收指令；运行中的直接父 Agent 可确认已交付的 child，不能验收自己、兄弟或用户创建的指令，审计 `task.accepted` 区分 `accepted_by:'user'|'parent'` 与 `parent_id`。用户仍可显式确认 child，但不再要求逐个点击；父 Worker 的后代须已结算，不能用父验收隐式掩盖未确认成果。USER_ONLY `worker.reopen/sync_parent/resolve_sync` 分别调用 `Project.reopenTask/syncTaskParent/resolveTaskSync`；验收、恢复、同步不调用 Agent，只有 resolve_sync 显式启动当前 Worker Agent。Worker 详情/图共用 `render-iteration.js`；读模型 `accepted:boolean` 防止已验收记录误重开，`parent_sync_conflict` 提供固定提交诊断。保留原始 `base_commit`，本轮用可空 `iteration_base_commit`，不批量迁移旧行。

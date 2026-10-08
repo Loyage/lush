@@ -189,6 +189,54 @@ test('safe sync returns conflict diagnostics without Agent; conflict resolution 
   expect(calls.at(-1).method).toBe('worker.sync_parent');
 });
 
+test('detail shows red ahead and green behind counts beside sync, including zero and disabled sync', () => {
+  for (const [ahead, behind, status] of [[0, 0, 'waiting'], [3, 0, 'awaiting_acceptance'],
+    [0, 5, 'waiting'], [2, 4, 'running']]) {
+    dom.node('detail').replaceChildren();
+    renderDetail({ ...task, status, parent_relation: { ahead, behind } }, null, null, null);
+    const panel = dom.node('detail');
+    const distance = panel.querySelector('.parent-commit-distance');
+    expect(deepText(distance).replace(/\s+/g, ' ')).toBe(`领先 ${ahead} / 落后 ${behind} 个 commit`);
+    expect(distance.querySelector('.parent-commit-ahead').textContent).toBe(`领先 ${ahead}`);
+    expect(distance.querySelector('.parent-commit-behind').textContent).toBe(`落后 ${behind}`);
+    const siblings = [...distance.parentNode.children], sync = buttonOf(panel, '同步父分支');
+    expect(siblings[siblings.indexOf(distance) - 1]).toBe(sync.disabled ? sync.parentNode : sync);
+    expect(sync.classList.contains('agent-call')).toBe(false);
+  }
+});
+
+test('parent distance colors use theme-aware red for ahead and green for behind', async () => {
+  const css = await Bun.file(new URL('../../src/ui/web/assets/styles.css', import.meta.url)).text();
+  expect(css).toContain('.parent-commit-ahead{color:var(--failed)}');
+  expect(css).toContain('.parent-commit-behind{color:var(--completed)}');
+});
+
+test('old or invalid relation data is unknown, and re-render updates counts', () => {
+  for (const parent_relation of [undefined, null, { ahead: null, behind: null },
+    { ahead: 1, behind: null }, { ahead: -1, behind: 0 }, { ahead: '1', behind: 0 }]) {
+    dom.node('detail').replaceChildren();
+    renderDetail({ ...task, parent_relation }, null, null, null);
+    expect(dom.node('detail').querySelector('.parent-commit-distance').textContent).toBe('父分支 commit 距离未知');
+  }
+  for (const behind of [5, 0, 1]) {
+    renderDetail({ ...task, parent_relation: { ahead: 2, behind } }, null, null, null);
+    expect(deepText(dom.node('detail').querySelector('.parent-commit-distance')).replace(/\s+/g, ' ')).toBe(`领先 2 / 落后 ${behind} 个 commit`);
+    expect(dom.node('detail').querySelectorAll('.parent-commit-distance')).toHaveLength(1);
+  }
+});
+
+test('sync conflict diagnosis preserves the detail distance display without starting Agent', async () => {
+  const panel = iterationControls({ ...task, parent_relation: { ahead: 2, behind: 3 } }, { showParentDistance: true });
+  dom.node('detail').replaceChildren(panel);
+  syncResult = { task, synced: false, conflict: true, source_commit: 'source', parent_commit: 'parent', reason: '冲突' };
+  const before = calls.length;
+  await buttonOf(panel, '同步父分支').onclick();
+  expect(deepText(panel.querySelector('.parent-commit-distance')).replace(/\s+/g, ' ')).toBe('领先 2 / 落后 3 个 commit');
+  expect(calls.slice(before).map(call => call.method)).toEqual(['worker.sync_parent']);
+  // Graph actions keep their existing separate Git relation diagnostic.
+  expect(iterationControls(task).querySelector('.parent-commit-distance')).toBeNull();
+});
+
 test('disabled archived, busy and frozen iteration actions explain why on help-host', () => {
   for (const row of [{ ...task, branch_info: { archived: true } }, { ...task, status: 'running' },
     { ...task, freeze: { task_id: 99 } }, { ...task, reservation: { status: 'requested' } }]) {

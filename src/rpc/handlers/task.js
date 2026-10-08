@@ -17,8 +17,13 @@ export const handlers = {
     const task = p.inspect(params.id);
     if (!task.branch) return task;
     // 归档按钮的可用性预判只在 Web 详情这种异步 RPC 路径上附加，保持核心 inspect 同步。
-    const info = (await p.branchArchivability([task.branch])).get(task.branch);
-    return info ? { ...task, branch_archive: info } : task;
+    const [archive, relation] = await Promise.all([
+      p.branchArchivability([task.branch]),
+      ['order', 'child'].includes(task.task_kind) ? p.workspaces.parentRelation(task) : null,
+    ]);
+    const info = archive.get(task.branch);
+    return { ...task, ...(info ? { branch_archive: info } : {}),
+      ...(relation ? { parent_relation: relation } : {}) };
   },
   'worker.history'(p, params, actor) {
     p.store.task(params.id);
