@@ -20,7 +20,7 @@ const dom = installDom({ fetch: (url, options = {}) => {
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
 const { overview } = await import('../../src/ui/web/assets/navigate.js');
-const { syncComposer } = await import('../../src/ui/web/assets/composer.js');
+const { syncComposer, appendToWorker } = await import('../../src/ui/web/assets/composer.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { setComposerReferences } = await import('../../src/ui/web/assets/context-references.js');
 await boot();
@@ -60,11 +60,11 @@ test('keyboard only-create stays explicit; input typed during flight is not clea
   expect(input().value).toBe('新写的文字'); release = null;
 });
 
-test('frozen main detail can mount a creation Hook, but archived roots and frozen code Worker inboxes remain blocked', () => {
+test('detail stays in default creation mode; explicit frozen Worker inbox remains blocked', () => {
   const root = { id: 100, task_kind: 'main', status: 'waiting', branch: 'main', freeze };
   activateDetailView({ view: 'task', key: 'task-100' }); ui.selected = 100; ui.composerTask = root; input().value = '目标'; syncComposer();
   expect(input().disabled).toBe(false); expect(dom.node('draft-commit').textContent).toBe('预约发射 Worker');
-  ui.composerTask = { ...root, branch_archive: { archived: true } }; syncComposer(); expect(input().disabled).toBe(true);
-  ui.composerTask = { ...root, task_kind: 'order', branch: 'feature', workspace: '/tmp/feature' }; syncComposer();
+  ui.composerTask = { ...root, branch_archive: { archived: true } }; syncComposer(); expect(input().disabled).toBe(false);
+  ui.composerTask = { ...root, task_kind: 'order', branch: 'feature', workspace: '/tmp/feature' }; appendToWorker(ui.composerTask);
   expect(input().disabled).toBe(true); expect(deepText(dom.node('composer-shell'))).not.toContain('改投');
 });

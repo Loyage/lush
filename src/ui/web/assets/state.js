@@ -31,7 +31,7 @@ export const ui = {
   quickExplanationPage: null, closeQuickExplanationPanel: null, // 项目解释页身份与阅读浮层清理接缝。
   inputsPage: null, // 全库输入搜索、分页与本地编辑；不受 overview 轮询影响。
   hooksPage: null, hookCatalogue: null, hookCataloguePending: null,
-  composerParents: [], composerIdentity: null, composerTask: null, composerError: null, syncComposer: null, composerEditRevision: 0, composerReferenceRevision: 0,
+  composerParents: [], composerIdentity: null, composerTask: null, composerAppendTarget: null, composerError: null, syncComposer: null, composerEditRevision: 0, composerReferenceRevision: 0,
   transcriptView: null,
   draftSignature: null,
   // 意图面板的重建哨兵：planner 状态、闸门、spec 计数、scheduler 进度变了才重画。
@@ -86,7 +86,7 @@ export const mergeSelection = new Set();
 export function resetUiState() {
   ui.quickExplanationPage = null;
   ui.view = null; ui.inputsPage = null; ui.hooksPage = null; ui.hookCatalogue = null; ui.hookCataloguePending = null; ui.deletedWorkerIds = new Set(); ui.workerNumbers = new Map();
-  ui.composerParents = []; ui.composerIdentity = null; ui.composerTask = null; ui.composerError = null; ui.syncComposer = null; ui.composerEditRevision = 0; ui.composerReferenceRevision = 0;
+  ui.composerParents = []; ui.composerIdentity = null; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerError = null; ui.syncComposer = null; ui.composerEditRevision = 0; ui.composerReferenceRevision = 0;
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;
   ui.statisticsOpen = false; ui.statisticsFilters = null; ui.transcriptView = null; ui.agentStatusPage = null; ui.versionsPage = null;
   ui.detailDirty = false; ui.detailTask = null; ui.detailRenderedAt = 0; ui.indexOpen = null; ui.docsOpen = false; ui.docsQuery = ''; ui.settingsOpen = false;

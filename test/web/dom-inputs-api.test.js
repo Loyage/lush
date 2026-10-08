@@ -17,7 +17,7 @@ afterAll(() => dom.restore());
 const root = () => dom.node('detail');
 const btn = (label, host = root()) => host.querySelectorAll('button').find(node => node.textContent === label || node.getAttribute('aria-label')?.endsWith(`：${label}`));
 
-test('真实 API：详情页 Enter 给暂停 Worker 追加消息，不创建 Input/Draft/Worker', async () => {
+test('真实 API：详情默认新建，显式追加 Enter 仅发消息，返回按钮恢复独立创建', async () => {
   fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
   const restore = registerNavigation({ refresh: async () => {}, detail: loadDetail });
   try {
@@ -26,12 +26,25 @@ test('真实 API：详情页 Enter 给暂停 Worker 追加消息，不创建 Inp
     const { task } = await fixture.project.order('初始要求', 'main', [], null, false);
     await loadDetail(task.id);
     const before = ['tasks', 'inputs', 'drafts'].map(table => fixture.store.all(`SELECT * FROM ${table}`).length);
-    const input = dom.node('input'); expect(input.placeholder).toContain(`追加给 Worker ${task.worker_number ?? `#${task.id}`}`);
+    const input = dom.node('input'); expect(dom.node('input-form').dataset.mode).toBe('create');
+    expect(input.placeholder).toContain('在 main 下创建子 Worker');
+    btn('向该 Worker 追加输入').onclick();
+    expect(input.placeholder).toContain(`追加给 Worker ${task.worker_number ?? `#${task.id}`}`);
     expect(input.placeholder).toContain('需开始 / 继续');
     input.value = '后续要求'; input.oninput(); await input.onkeydown({ key: 'Enter', preventDefault() {} });
     expect(input.value).toBe(''); expect(fixture.store.task(task.id).status).toBe('paused');
     expect(fixture.store.all('SELECT * FROM messages WHERE task_id = ? AND sender_id IS NULL', task.id).at(-1).body).toBe('后续要求');
     expect(['tasks', 'inputs', 'drafts'].map(table => fixture.store.all(`SELECT * FROM ${table}`).length)).toEqual(before);
+    expect(dom.node('input-form').dataset.mode).toBe('append');
+    dom.node('composer-reset').onclick();
+    input.value = '详情中独立新建'; input.oninput();
+    await input.onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
+    const independent = fixture.store.all("SELECT * FROM tasks WHERE goal='详情中独立新建'")[0];
+    expect(independent.parent_id).toBe(task.parent_id);
+    expect(independent.parent_id).not.toBe(task.id);
+    expect(independent.status).toBe('paused');
+    expect(fixture.store.all('SELECT * FROM messages WHERE task_id = ? AND sender_id IS NULL', task.id)).toHaveLength(1);
+    expect(dom.node('input-form').dataset.mode).toBe('create');
     activateDetailView({ view: 'overview' }); expect(input.placeholder).toContain('在 main 下创建子 Worker');
   } finally { restore(); await fixture.close(); }
 });

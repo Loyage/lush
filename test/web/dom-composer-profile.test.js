@@ -18,7 +18,7 @@ const dom = installDom({ fetch: (url, options = {}) => {
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
 const { overview, detail } = await import('../../src/ui/web/assets/navigate.js');
-const { paintRunSettings } = await import('../../src/ui/web/assets/composer.js');
+const { paintRunSettings, appendToWorker } = await import('../../src/ui/web/assets/composer.js');
 await boot();
 afterAll(() => dom.restore());
 
@@ -129,6 +129,9 @@ test('提交失败保留输入与已选运行设置，重试成功后清空输�
 
 test('追加输入模式隐藏运行设置入口，返回概览后恢复', async () => {
   await detail(1);
+  expect(dom.node('input-form').dataset.mode).toBe('create');
+  expect(button().hidden).toBe(false);
+  appendToWorker(ui.composerTask);
   expect(dom.node('input-form').dataset.mode).toBe('append');
   paintRunSettings();
   expect(button().hidden).toBe(true);

@@ -83,9 +83,9 @@ for (const state of [{ status: 'paused', agent_wakes: 0 }, { status: 'paused', a
     expect(deepText(root())).toContain(manager.goal); expect(deepText(root())).toContain(row.result);
     expect(deepText(root())).toContain('管理信号已提交待执行'); expect(deepText(root())).toContain('管理工作目录');
     expect(root().querySelector('.task-actions').querySelectorAll('button').map(item => item.textContent)).toEqual(['刷新详情']);
-    for (const text of ['开始', '继续', '调整运行设置', '放弃 Worker', '中断', '检查后重试', '追加输入', '删除', '合并', '验收', '归档', '启用管理绑定', '停用管理绑定']) expect(btn(text)).toBeUndefined();
+    for (const text of ['开始', '继续', '调整运行设置', '放弃 Worker', '中断', '检查后重试', '向该 Worker 追加输入', '删除', '合并', '验收', '归档', '启用管理绑定', '停用管理绑定']) expect(btn(text)).toBeUndefined();
     expect(root().querySelector('.worker-hooks')).toBeNull(); expect(btn('打开执行详情')).toBeTruthy();
-    expect(dom.node('input').disabled).toBe(true); expect(dom.node('draft-commit').disabled).toBe(true);
+    expect(dom.node('input').disabled).toBe(false); expect(dom.node('input-form').dataset.mode).toBe('create');
     await btn('刷新详情').onclick(); expect(detailCalls).toEqual([200]); expect(actions).toHaveLength(0);
   });
 }

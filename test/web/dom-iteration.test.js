@@ -221,7 +221,7 @@ test('detail and graph expose the same awaiting acceptance actions and continuin
   expect(buttonOf(panel, '回收工作区与分支')).toBeUndefined();
   expect(buttonOf(panel, '只回收 worktree（保留分支）')).toBeUndefined();
   expect(deepText(panel)).toContain('无需你逐个验收');
-  expect(buttonOf(panel, '追加输入').classList.contains('agent-call')).toBe(true);
+  expect(buttonOf(panel, '向该 Worker 追加输入').classList.contains('agent-call')).toBe(false);
   expect(buttonOf(panel, '仅验收')).toBeTruthy(); expect(buttonOf(panel, '验收并归档')).toBeTruthy();
   expect(buttonOf(panel, '同步父分支')).toBeTruthy();
   expect(buttonOf(panel, '中断')).toBeUndefined(); expect(buttonOf(panel, '已解决')).toBeUndefined();

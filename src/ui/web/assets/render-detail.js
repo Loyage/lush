@@ -1,7 +1,8 @@
 import { $, badge, block, button, el, kv, roleBadge, routeBadge, statusBadge } from './dom.js';
 import { workerKind } from './worker-kind.js';
 import { action } from './api.js';
-import { confirmDialog, formDialog } from './dialog.js';
+import { confirmDialog } from './dialog.js';
+import { appendToWorker } from './composer.js';
 import { configureTask, retryTask } from './retry-dialog.js';
 import { clearOverrideControl, modelSourceControl, modelSourceSummary } from './worker-model-source.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, runWorkMs, statusOf, interruptReason, taskTitle, worktreeLabel, isHistoricalDelivery } from './format.js';
@@ -100,28 +101,8 @@ export function renderDetail(task, history, diff, usage, connections = null) {
 
   const actions = el('div', undefined, 'actions task-actions');
   if (!readOnly && ['order','child'].includes(workerKind(task)) && !TERMINAL_STATUS.has(task.status)) {
-    const help = agentHelp('把追加输入发给该 Worker 的 Agent。若它正在调用，会请它在当前一轮工具都结束后收尾，下一轮先读这条输入；暂停中的 Worker 需点「开始 / 继续」后处理。');
-    actions.append(guardedAction(button('追加输入', async () => {
-      const field = el('div', undefined, 'modal-field');
-      const label = el('label', '希望 Worker 接下来进行的内容', 'modal-label');
-      label.setAttribute('for', 'task-followup-input');
-      const input = el('textarea', undefined, 'modal-input');
-      input.id = 'task-followup-input'; input.rows = 5; input.required = true;
-      input.placeholder = '输入希望这个 Worker 接下来做什么，例如新的要求、调整方向或补充信息';
-      field.append(label, input);
-      while (true) {
-        const pending = formDialog({ title: `追加输入 · Worker ${workerLabel(task)}`, content: field,
-          message: task.status === 'paused' || task.interrupt_state === 'requested' ? '输入会保留在当前 Worker 中；点「开始 / 继续」后由 Agent 处理。' : '输入会发送给当前 Worker，让 Agent 接下来处理这些内容。',
-          confirmLabel: '发送输入', agent: true, confirmHelp: help });
-        input.focus();
-        if (!await pending) return;
-        if (!input.value.trim()) { show('请输入希望 Worker 接下来进行的内容。', 'error'); continue; }
-        try { await action('worker.message', { id: task.id, body: input.value }); }
-        catch (error) { show(error.message, 'error'); continue; }
-        await detail(task.id);
-        return;
-      }
-    }, undefined, { agent: true, help }), iterationBlocker(task)));
+    const help = '将底部输入框切换为向该 Worker 追加输入，并保留已输入的正文；现在不发送、不调用 Agent。暂停中的 Worker 收到输入后仍需点「开始 / 继续」。';
+    actions.append(guardedAction(button('向该 Worker 追加输入', () => appendToWorker(task), undefined, { help }), iterationBlocker(task)));
   }
   const stacked = (task.deps || []).filter(edge => edge.kind === 'code');
   const freeze = freezeOf(task);

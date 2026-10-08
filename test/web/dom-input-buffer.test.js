@@ -14,7 +14,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   }
   throw new Error(`Unexpected ${url}`);
 } });
-const { initComposer, buffer, syncComposer, loadComposerParents } = await import('../../src/ui/web/assets/composer.js');
+const { initComposer, buffer, syncComposer, loadComposerParents, appendToWorker, resetComposerMode } = await import('../../src/ui/web/assets/composer.js');
 const { setComposerReferences, composerReferences } = await import('../../src/ui/web/assets/context-references.js');
 const { resetUiState, ui } = await import('../../src/ui/web/assets/state.js');
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
@@ -121,11 +121,12 @@ test('父候选查询单飞，迟到旧初始化结果不可覆盖新候选', as
   expect(ui.composerParents).toEqual(parents);
 });
 
-function openWorker(overrides = {}) {
+function openWorker(overrides = {}, append = true) {
   ui.selected = 126;
   activateDetailView({ view: 'task', key: 'task-126' });
   ui.composerTask = { id: 126, task_kind: 'order', status: 'running', branch: 'lush/126', ...overrides };
-  syncComposer();
+  if (append) appendToWorker(ui.composerTask);
+  else { resetComposerMode(); syncComposer(); }
 }
 
 test('当前 Worker 追加键盘/按钮矩阵，隐藏暂存与父选择；返回列表恢复 main', async () => {
@@ -151,7 +152,7 @@ test('当前 Worker 追加键盘/按钮矩阵，隐藏暂存与父选择；返�
   await enter({ ctrlKey: true }); expect(calls.at(-1).params.branch).toBe('main');
 });
 
-test('读取中/终态/只读/归档/冻结不改投 main；main 与 owner 创建自己的子 Worker', async () => {
+test('显式追加读取中/终态/只读/归档/冻结不改投 main；main 与 owner 详情默认新建独立 Worker', async () => {
   for (const overrides of [
     { status: 'completed' }, { status: 'failed' }, { status: 'cancelled' },
     { archived: true }, { task_kind: 'analysis' }, { freeze: {} }, { workspace_state: 'missing' },
@@ -165,8 +166,8 @@ test('读取中/终态/只读/归档/冻结不改投 main；main 与 owner 创�
   expect(input().placeholder).toContain('读取失败'); await enter(); expect(calls).toHaveLength(0);
   ui.composerError = null;
   for (const [task_kind, branch] of [['main', 'main'], ['owner', 'release']]) {
-    openWorker({ task_kind, branch, status: 'waiting' }); type('新的独立工作'); await enter({ ctrlKey: true });
-    expect(calls.at(-1)).toMatchObject({ method: 'order.submit', params: { branch, start: false } });
+    openWorker({ task_kind, branch, status: 'waiting' }, false); type('新的独立工作'); await enter({ ctrlKey: true });
+    expect(calls.at(-1)).toMatchObject({ method: 'order.submit', params: { branch: 'main', start: false } });
   }
   openWorker({ status: 'paused' }); expect(input().placeholder).toContain('需开始 / 继续');
   type('暂停追加'); await enter(); expect(calls.at(-1).method).toBe('worker.message');
@@ -208,7 +209,7 @@ test('常驻模式条在打字、导航、父选择及阻塞状态下准确区�
   expect(title.textContent).toBe('继续当前 Worker');
   expect(target.textContent).toContain('Worker #126');
   expect(target.textContent).toContain('修复当前问题');
-  expect(behavior.textContent).toBe('不创建新 Worker · Enter 追加');
+  expect(behavior.textContent).toBe('不创建新 Worker · Enter 追加 · 空白时 Esc 返回');
   expect(dom.node('draft-commit').textContent).toBe('追加输入');
   type('追加文字'); expect(target.textContent).toContain('#126');
   openWorker({ status: 'paused' }); expect(behavior.textContent).toContain('需开始 / 继续');
@@ -219,9 +220,9 @@ test('常驻模式条在打字、导航、父选择及阻塞状态下准确区�
   expect(input().value).toBe('追加文字');
   ui.composerTask = null; syncComposer(); expect(behavior.textContent).toContain('正在读取');
 
-  openWorker({ task_kind: 'owner', branch: 'release', status: 'waiting' });
+  openWorker({ task_kind: 'owner', branch: 'release', status: 'waiting' }, false);
   expect(form.dataset.mode).toBe('create');
-  expect(target.textContent).toContain('父 Worker：Worker #126 · release');
+  expect(target.textContent).toContain('#800');
   expect(behavior.textContent).toContain('Enter 暂存');
   openResource('tasks');
   expect(form.dataset.mode).toBe('create');
@@ -230,6 +231,56 @@ test('常驻模式条在打字、导航、父选择及阻塞状态下准确区�
   expect(dom.node('composer-mode-icon').textContent).toBe('＋');
   // Returning to new-work mode retains the explicitly chosen parent, not the inbox/owner target.
   expect(target.textContent).toContain('#800');
+});
+
+test('打开详情仍默认新建；显式追加与返回按钮保留文字、引用及所选父 Worker', async () => {
+  dom.node('input-parent').value = 'feature/old-parent';
+  type('已有草稿'); setComposerReferences([ref('来源')]);
+  openWorker({ worker_number: 'W123' }, false);
+  expect(dom.node('input-form').dataset.mode).toBe('create');
+  expect(dom.node('input-buffer').hidden).toBe(false);
+  expect(dom.node('composer-expand').hidden).toBe(false);
+  appendToWorker(ui.composerTask);
+  expect(dom.node('composer-mode-target').textContent).toContain('W123');
+  expect(dom.node('composer-reset').hidden).toBe(false);
+  expect(input().value).toBe('已有草稿'); expect(composerReferences()).toHaveLength(1);
+  dom.node('composer-reset').onclick();
+  expect(dom.node('input-form').dataset.mode).toBe('create');
+  expect(dom.node('composer-reset').hidden).toBe(true);
+  expect(dom.node('input-parent').value).toBe('feature/old-parent');
+  expect(input().value).toBe('已有草稿'); expect(composerReferences()).toHaveLength(1);
+  await enter({ ctrlKey: true });
+  expect(calls.at(-1)).toMatchObject({ method: 'order.submit', params: { branch: 'feature/old-parent' } });
+});
+
+test('Esc 仅在追加模式空白且没有引用时返回；IME 确认、不空白与重复按键不切换', async () => {
+  const escape = options => input().onkeydown({ key: 'Escape', preventDefault() {}, ...options });
+  openWorker(); type('草稿'); escape(); expect(dom.node('input-form').dataset.mode).toBe('append');
+  type('  \n '); setComposerReferences([ref('来源')]); escape(); expect(dom.node('input-form').dataset.mode).toBe('append');
+  setComposerReferences([]);
+  for (const options of [{ isComposing: true }, { keyCode: 229 }, { repeat: true }]) {
+    escape(options); expect(dom.node('input-form').dataset.mode).toBe('append');
+  }
+  input().oncompositionstart(); escape(); expect(dom.node('input-form').dataset.mode).toBe('append'); input().oncompositionend();
+  escape(); expect(dom.node('input-form').dataset.mode).toBe('create');
+  expect(calls).toHaveLength(0);
+});
+
+test('同页在发送途中退出追加模式，迟到成功不清空草稿或重新打开追加目标', async () => {
+  openWorker(); type('原文'); const pending = deferred(); intercept = () => pending.promise;
+  const send = enter(); resetComposerMode();
+  pending.resolve(json({ id: 126 })); await send;
+  expect(input().value).toBe('原文'); expect(opened).toBeNull();
+  expect(dom.node('input-form').dataset.mode).toBe('create');
+});
+
+test('默认模式不受详情加载、失败、终态、只读或归档阻塞；追加刷新仍保留模式', () => {
+  for (const overrides of [{ status: 'completed' }, { task_kind: 'analysis' }, { archived: true }, { freeze: {} }]) {
+    openWorker(overrides, false); expect(input().disabled).toBe(false);
+  }
+  ui.composerTask = null; ui.composerError = '读取失败'; syncComposer(); expect(input().disabled).toBe(false);
+  openWorker(); syncComposer(); expect(dom.node('input-form').dataset.mode).toBe('append');
+  openResource('tasks'); openWorker({}, false); expect(dom.node('input-form').dataset.mode).toBe('create');
 });
 
 test('暂存不标 Agent，发送保留标识与禁用宿主帮助', async () => {

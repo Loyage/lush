@@ -35,7 +35,7 @@ export function setViewChrome(title, context = '项目', hint = '', { root = fal
 /** 页面身份是唯一导航状态；旧读标记在此统一投影，面板不得各自设置。 */
 function activate(id, { key = id, title, context, hint, push = true, hash } = {}) {
   const changed = ui.view?.key !== key;
-  if (changed) { ui.clearSettingsSecrets?.(); ui.closeQuickExplanationPanel?.(); ui.view = { id, key }; ui.composerTask = null; ui.composerError = null; }
+  if (changed) { ui.clearSettingsSecrets?.(); ui.closeQuickExplanationPanel?.(); ui.view = { id, key }; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerError = null; }
   const resource = RESOURCE_META.get(id);
   ui.indexOpen = resource ? id : null;
   ui.docsOpen = id === 'docs';

@@ -41,10 +41,12 @@ for (const task_kind of ['order', 'say']) {
     activateDetailView({ view: 'task', key: 'task-77' }); ui.selected = 77; ui.composerTask = task;
     syncComposer();
     expect(dom.node('input').disabled).toBe(false);
+    expect(dom.node('input-form').dataset.mode).toBe('create');
+    expect(dom.node('input-buffer').hidden).toBe(false);
+    renderDetail(task, null, null, null);
+    buttonOf(dom.node('detail'), '向该 Worker 追加输入').onclick();
     expect(dom.node('input').placeholder).toContain('追加给 Worker #77');
     expect(dom.node('input-buffer').hidden).toBe(true);
-    renderDetail(task, null, null, null);
-    expect(buttonOf(dom.node('detail'), '追加输入')).toBeTruthy();
     expect(buttonOf(dom.node('detail'), '已解决')).toBeTruthy();
     expect(workerHooks(task).querySelector('.auto-merge-toggle')).toBeTruthy();
     const accepted = { ...task, status: 'awaiting_acceptance', integration: 'merged' };
