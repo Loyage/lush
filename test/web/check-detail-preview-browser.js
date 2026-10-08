@@ -76,11 +76,15 @@ try {
       title:n.querySelector('h2').textContent,body:n.querySelector('.detail-preview-body').getBoundingClientRect().height,
       limit:n.querySelector('.detail-preview-limit').getBoundingClientRect().height,
       footer:getComputedStyle(n.querySelector('.detail-preview-footer')).display,
+      controls:n.querySelectorAll('.detail-preview-toggle').length,
+      headerControl:!!n.querySelector('.section-title>.detail-preview-toggle'),
+      footerControl:!!n.querySelector('.detail-preview-footer .detail-preview-toggle'),
       natural:n.querySelector('.detail-preview-content').getBoundingClientRect().height}));`);
     assert(sizes.length >= 8, 'missing reading modules');
     for (const size of sizes) {
       assert(size.body <= size.limit + 1 && size.limit <= 240, `${width}/${theme}: ${JSON.stringify(size)}`);
       assert((size.footer !== 'none') === (size.natural > size.limit + 1), 'short/long control mismatch');
+      assert(size.controls === 1 && size.headerControl && !size.footerControl, 'module must have only a header toggle');
     }
     assert(await execute(`return document.querySelector('#detail').scrollWidth<=document.querySelector('#detail').clientWidth+1;`), 'horizontal page overflow');
     assert(await execute(`return !document.querySelector('.task-actions .detail-preview-body') &&
@@ -104,7 +108,7 @@ try {
     window.savedMessage=document.querySelector('.task-message');window.paint();return document.querySelector('.result-panel')===window.savedResult&&
     document.querySelector('.goal-panel')===window.savedGoal&&document.querySelector('.task-message')===window.savedMessage&&
     window.savedResult.classList.contains('detail-preview-expanded');`), 'refresh reset reading state/nodes');
-  await click('.result-panel .detail-preview-footer .detail-preview-toggle');
+  await click('.result-panel .section-title .detail-preview-toggle');
   assert(await execute(`const n=document.querySelector('.result-panel');return !n.classList.contains('detail-preview-expanded')&&
     n.querySelector('.detail-preview-body').getBoundingClientRect().height<=240;`), 'collapse not bounded');
   assert(await execute(`const n=document.querySelector('.agent-panel');const target=n.querySelector('.detail-preview-content button');target.focus();

@@ -19,26 +19,21 @@ function preview(section, id, expanded, remember) {
     const note = el('span', '仅展示预览，完整内容可展开。', 'hint');
     const toggle = () => view.setExpanded(!view.expanded, true);
     const top = button('', toggle, 'ghost detail-preview-toggle');
-    const bottom = button('', toggle, 'ghost detail-preview-toggle');
-    for (const control of [top, bottom]) {
-      control.setAttribute('aria-controls', id);
-      control.setAttribute('data-help', '只改变本模块的展示长度，不删除内容，也不调用 Agent；同一 Worker 刷新时保留选择。');
-    }
+    top.setAttribute('aria-controls', id);
+    top.setAttribute('data-help', '只改变本模块的展示长度，不删除内容，也不调用 Agent；同一 Worker 刷新时保留选择。');
     const gauge = el('span', undefined, 'detail-preview-limit'); gauge.setAttribute('aria-hidden', 'true');
-    head.append(top); footer.append(note, bottom); section.append(body, footer, gauge);
+    head.append(top); footer.append(note); section.append(body, footer, gauge);
     section.classList.add('detail-preview');
     view = { section, body, content, gauge, expanded: false, remember,
       setExpanded(value, user = false) {
         this.expanded = Boolean(value);
         section.classList.toggle('detail-preview-expanded', this.expanded);
         if (user) this.remember(this.expanded);
-        for (const control of [top, bottom]) {
-          control.textContent = this.expanded ? '收起' : '展开完整内容';
-          control.setAttribute('aria-expanded', String(this.expanded));
-          control.setAttribute('aria-label', `${this.expanded ? '收起' : '展开完整内容'}：${title}`);
-        }
+        top.textContent = this.expanded ? '收起' : '展开完整内容';
+        top.setAttribute('aria-expanded', String(this.expanded));
+        top.setAttribute('aria-label', `${this.expanded ? '收起' : '展开完整内容'}：${title}`);
         note.hidden = this.expanded;
-        if (user && !this.expanded) bottom.scrollIntoView?.({ block: 'nearest', behavior: 'auto' });
+        if (user && !this.expanded) top.scrollIntoView?.({ block: 'nearest', behavior: 'auto' });
         this.measure();
       },
       measure() {

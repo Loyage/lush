@@ -28,7 +28,7 @@ function fixture(run) {
 const toggle = section => section.querySelector('.detail-preview-toggle');
 const expanded = section => section.classList.contains('detail-preview-expanded');
 
-test('whole module gets one bounded preview, keeps original nodes/references and exposes accessible local controls only when long', () => fixture(async ({ dom, resize }) => {
+test('whole module gets one bounded preview, keeps original nodes/references and exposes one accessible header control only when long', () => fixture(async ({ dom, resize }) => {
   const panel = dom.node('detail'), section = block('消息', '20');
   const messages = Array.from({ length: 20 }, (_, i) => el('p', `消息 ${i}`));
   referenceable(messages[19], { kind: 'message', target: { task_id: 7, message_id: 20 } });
@@ -38,14 +38,20 @@ test('whole module gets one bounded preview, keeps original nodes/references and
   resize(section);
   expect(toggle(section).hidden).toBe(false); expect(expanded(section)).toBe(false);
   expect(section.querySelectorAll('.detail-preview-body')).toHaveLength(1);
-  expect(section.querySelectorAll('.detail-preview-toggle')).toHaveLength(2);
+  expect(section.querySelectorAll('.detail-preview-toggle')).toHaveLength(1);
+  expect(section.querySelector('.section-title').querySelector('.detail-preview-toggle')).toBe(toggle(section));
+  expect(section.querySelector('.detail-preview-footer').querySelector('.detail-preview-toggle')).toBeNull();
   expect(section.querySelector('.detail-preview-content').children).toEqual(messages);
   expect(deepText(section)).toContain('消息 19'); expect(messages[19].dataset.ref).toBe('message-20');
   const control = toggle(section);
+  let scrolledControl = false;
+  control.scrollIntoView = () => { scrolledControl = true; };
   expect(control.getAttribute('aria-controls')).toBe(section.querySelector('.detail-preview-body').id);
   expect(control.getAttribute('aria-label')).toContain('消息'); expect(control.getAttribute('data-help')).toContain('不调用 Agent');
   await control.click(); expect(expanded(section)).toBe(true); expect(control.getAttribute('aria-expanded')).toBe('true');
+  expect(control.textContent).toBe('收起'); expect(scrolledControl).toBe(false);
   await control.click(); expect(expanded(section)).toBe(false); expect(control.getAttribute('aria-expanded')).toBe('false');
+  expect(control.textContent).toBe('展开完整内容'); expect(scrolledControl).toBe(true);
   expect(section.querySelector('.detail-preview-content').children[19]).toBe(messages[19]);
 }));
 
