@@ -56,7 +56,12 @@ test('prepare is object-only; persisted receipt applies exactly one known commit
     for (const name of ['post-merge', 'pre-commit', 'post-commit', 'reference-transaction']) {
       fs.writeFileSync(path.join(hooks, name), '#!/bin/sh\nprintf hook > hook-ran.txt\n', { mode: 0o755 });
     }
+    const watch = await f.workspaces.watchBranch('main');
     expect(await f.apply(saved)).toEqual(saved);
+    expect(await f.workspaces.checkWatchedBranch(watch)).toMatchObject({ before: f.baseline, after: saved.commit, explained: true });
+    expect(watch.transitions).toEqual([{ before: f.baseline, after: saved.commit, source: { kind: 'daemon' } }]);
+    f.workspaces.unwatchBranch(watch);
+    expect(f.workspaces.refWrites.size).toBe(0);
     expect(await git(f.root, 'rev-parse', 'HEAD')).toBe(saved.commit);
     expect(await git(f.root, 'show', '-s', '--format=%P', 'HEAD')).toBe(f.baseline);
     expect(await git(f.root, 'rev-list', '--count', `${f.baseline}..HEAD`)).toBe('1');
@@ -76,7 +81,10 @@ test('unchecked-out target uses the same exact CAS receipt without changing unre
   try {
     const receipt = await f.prepare(); expect(receipt.workspace).toBeNull();
     const index = await git(f.root, 'write-tree');
+    const watch = await f.workspaces.watchBranch('main');
     await f.apply(receipt);
+    expect((await f.workspaces.checkWatchedBranch(watch)).explained).toBe(true);
+    f.workspaces.unwatchBranch(watch);
     expect(await git(f.root, 'rev-parse', 'refs/heads/main')).toBe(receipt.commit);
     expect(await git(f.root, 'rev-parse', 'HEAD')).toBe(f.baseline);
     expect(await git(f.root, 'write-tree')).toBe(index);

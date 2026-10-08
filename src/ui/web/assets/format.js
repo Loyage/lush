@@ -81,6 +81,7 @@ export const EVENTS = {
   'task.interrupted': '接受中断请求', 'task.paused': '已安全暂停', 'task.resumed': '接受继续请求', 'task.configured': '调整运行设置',
   'invocation.preempted': '安全中断', 'invocation.blocked': '未启动：缺少模型来源', 'task.interrupt_timeout': '中断超时强制终止',
   'invocation.recovered': '已恢复调用记录', 'invocation.target_branch_moved': '目标分支被越过交付直接推进',
+  'invocation.branch_observed': '调用期分支变动观测',
   'preempt.requested': '请求安全中断调用',
   'notice.read': '提醒已读', 'dep.added': '添加依赖关系', 'explanation.requested': '请求执行步骤介绍',
   'input.draft': '输入已关联暂存记录', 'input.anchor': '已固定输入代码基线', 'input.route': '输入已按前缀分派',
@@ -102,6 +103,7 @@ export const EVENTS = {
 };
 /** 中文名是阅读投影，保留原始 type；未知事件明确标注，不猜测含义。 */
 export function eventLabel(event) {
+  if (event.type === 'invocation.target_branch_moved' && event.data?.reason === 'unattributed_ref_movement') return '目标分支存在未归因的移动';
   if (event.type === 'notice.opened' && event.data?.kind === 'info') return '提醒';
   if (event.type === 'notice.answered' && event.data?.answer_source === 'lush') return 'Lush 自动选择';
   if (event.type === 'notice.answered' && event.data?.answer_source === 'user') return '用户答复';

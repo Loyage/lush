@@ -25,7 +25,13 @@ function taskSquashGuard(guard) {
 }
 
 /** Lock both fixed refs before touching the index, then CAS the parent only after the checkout is ready. */
-async function applyTaskSquashTransaction(workspaces, receipt, guard, action) {
+function applyTaskSquashTransaction(workspaces, receipt, guard, action) {
+  return workspaces.trackRefWrite(`refs/heads/${receipt.parent}`,
+    () => commitTaskSquashTransaction(workspaces, receipt, guard, action),
+    { before: receipt.baseline, after: receipt.commit });
+}
+
+async function commitTaskSquashTransaction(workspaces, receipt, guard, action) {
   const proc = Bun.spawn(['git', '-C', workspaces.config.project, '-c', 'core.hooksPath=/dev/null',
     'update-ref', '-m', 'Lush task squash', '--stdin'], {
     stdin: 'pipe', stdout: 'pipe', stderr: 'pipe', env: { ...workspaces.config.env, GIT_TERMINAL_PROMPT: '0' },
@@ -46,7 +52,6 @@ async function applyTaskSquashTransaction(workspaces, receipt, guard, action) {
     await response('prepare: ok\n');
     await action();
     taskSquashGuard(guard); // No await between runtime cancellation/new-input guard and this write.
-    workspaces.noteRefWrite(); // 自定义 ref 事务：把这次父分支写入计入 daemon 打点，避免被越界检测误判。
     proc.stdin.write('commit\n');
     await proc.stdin.flush();
     await response('commit: ok\n');

@@ -105,7 +105,6 @@ export const methods = {
         }
         const tree = (await git(['write-tree'])).toString().trim();
         check(oid(tree), 'invalid choice snapshot tree');
-        this.noteRefWrite();
         const commit = (await git(['commit-tree', tree, '-p', context.head, '-m', `Lush choice snapshot notice ${noticeId}`])).toString().trim();
         check(oid(commit), 'invalid choice snapshot commit');
         await guard?.();
@@ -124,7 +123,6 @@ export const methods = {
         }
         assertOwner(this, task);
         // CAS protects a competing ref publisher; only this Notice's private ref is written.
-        this.noteRefWrite();
         await runGit(this.config, this.config.project, ['update-ref', ref, commit, '0'.repeat(commit.length)]);
         return { commit, ref, source_head: context.head };
       } finally { context.close(); }
@@ -135,7 +133,6 @@ export const methods = {
     const ref = snapshotRef(noticeId);
     check(oid(commit), 'invalid choice snapshot commit');
     return this.exclusive(async () => {
-      this.noteRefWrite();
       await runGit(this.config, this.config.project, ['update-ref', '-d', ref, commit]);
       return { ref, commit };
     });

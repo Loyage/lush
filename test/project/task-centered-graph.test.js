@@ -93,7 +93,7 @@ test('graph progress counts only planned work, including after all work finishes
 });
 
 test('Task graph projects branch-level merge orchestration state read-only', async () => {
-  const f = fixture({ run: async () => 'done' }); await repo(f.root);
+  const f = fixture({ run: async () => 'done' }); f.project.stopping = true; await repo(f.root);
   try {
     const input = await f.project.order('work');
     const graph = await f.project.taskGraph();

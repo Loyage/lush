@@ -1,14 +1,30 @@
 import { check, LushError } from '../types.js';
 
-// ref 会被这些子命令写：daemon 的交付、同步、清理全从 gitOutput 走；agent 自己的 git 在独立进程里，不经过这里。
-const REF_WRITE_COMMANDS = new Set(['commit', 'commit-tree', 'update-ref', 'merge', 'reset', 'rebase',
-  'cherry-pick', 'revert', 'am', 'pull', 'checkout', 'switch', 'fetch', 'push']);
+// These commands can write the checkout's branch. Object creation (commit-tree),
+// snapshots, and writes to other refs must not excuse movement of a watched branch.
+const HEAD_WRITE_COMMANDS = new Set(['commit', 'merge', 'reset', 'rebase', 'cherry-pick', 'revert', 'am', 'pull']);
 /** 跳过 `-c name=value`、`--git-dir` 这类前置选项，找真正被调用的子命令。 */
 function gitSubcommand(args) {
   for (let i = 0; i < args.length; i++) {
     if (['-c', '-C', '--git-dir', '--work-tree', '--namespace', '--exec-path'].includes(args[i])) { i++; continue; }
     if (typeof args[i] !== 'string' || args[i].startsWith('-')) continue;
-    return args[i];
+    return { name: args[i], index: i };
+  }
+  return null;
+}
+
+async function writtenRef(workspaces, cwd, args) {
+  const command = gitSubcommand(args);
+  if (HEAD_WRITE_COMMANDS.has(command?.name)) {
+    return workspaces.git(cwd, 'symbolic-ref', '--quiet', 'HEAD').catch(() => null);
+  }
+  if (command?.name !== 'update-ref') return null;
+  for (let i = command.index + 1; i < args.length; i++) {
+    if (args[i] === '-m') { i++; continue; }
+    if (args[i] === '--stdin') return null; // Custom transactions carry explicit exact receipts.
+    if (args[i].startsWith('-')) continue;
+    return args[i] === 'HEAD'
+      ? workspaces.git(cwd, 'symbolic-ref', '--quiet', 'HEAD').catch(() => null) : args[i];
   }
   return null;
 }
@@ -33,15 +49,18 @@ export const methods = {
   async git(cwd, ...args) {
     return (await this.gitOutput(cwd, ...args)).trim();
   },
-  /** daemon 侧 ref 写入打点；自定义 spawn 的 ref 事务也要显式调用。 */
-  noteRefWrite() { this.gitRefWrites = (this.gitRefWrites ?? 0) + 1; },
   /** 需要保留行内空白时用它：porcelain 的首行状态位就是一个前导空格（" M path"）。 */
   async gitOutput(cwd, ...args) {
-    if (REF_WRITE_COMMANDS.has(gitSubcommand(args))) this.noteRefWrite();
-    const proc = Bun.spawn(['git', '-C', cwd, ...args], { stdout: 'pipe', stderr: 'pipe', env: { ...this.config.env, GIT_TERMINAL_PROMPT: '0' } });
-    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-    if (code !== 0) throw new LushError(`git ${args[0]}: ${err.trim() || out.trim()}`);
-    return out;
+    const execute = async () => {
+      const proc = Bun.spawn(['git', '-C', cwd, ...args], { stdout: 'pipe', stderr: 'pipe', env: { ...this.config.env, GIT_TERMINAL_PROMPT: '0' } });
+      const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+      if (code !== 0) throw new LushError(`git ${args[0]}: ${err.trim() || out.trim()}`);
+      return out;
+    };
+    const ref = await writtenRef(this, cwd, args);
+    // Register even without a current watcher: an invocation may start while this
+    // command is in flight, before its actual ref write or receipt is published.
+    return ref?.startsWith('refs/heads/') ? this.trackRefWrite(ref, execute) : execute();
   },
   /** porcelain 明细（含未跟踪文件，排除 .lush）；空字符串表示干净。 */
   async porcelain(cwd) {

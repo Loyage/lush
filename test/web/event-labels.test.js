@@ -76,6 +76,14 @@ test('时间信号与管理操作有独立中文标签，提交不冒充开始�
   expect(eventLabel({ type: 'management.unknown' })).toContain('待核验');
 });
 
+test('分支观测与未归因移动不冒充写入者证明，历史事件名称保留', () => {
+  expect(eventLabel({ type: 'invocation.branch_observed' })).toBe('调用期分支变动观测');
+  const source = Object.freeze({ type: 'invocation.target_branch_moved', data: Object.freeze({ reason: 'unattributed_ref_movement' }) });
+  expect(eventLabel(source)).toBe('目标分支存在未归因的移动');
+  expect(source.data.reason).toBe('unattributed_ref_movement');
+  expect(eventLabel({ type: 'invocation.target_branch_moved' })).toBe('目标分支被越过交付直接推进');
+});
+
 test('提醒与待决问题的名称不同；未知类型不猜测语义、不读取原型属性', () => {
   expect(eventLabel({ type: 'task.reserved' })).toBe('已预约合并');
   expect(eventLabel({ type: 'notice.opened', data: { kind: 'info' } })).toBe('提醒');

@@ -165,7 +165,8 @@ manager 的 Provider 接缝优先于普通 Pi 描述：使用独立 `lush-manage
 | 文件 | 职责 | 导出 |
 |---|---|---|
 | `workspaces/base.js` | 构造与串行队列状态（`queue` / `pending` / `busy` / `namespace`） | `class WorkspacesBase` |
-| `workspaces/git.js` | Git 原语与串行队列（无 shell 插值） | `exclusive`、`git`、`gitOutput`、`porcelain`、`clean`、`isAncestor`、`merging`、`unmerged`、`workspaceForBranch`、`checkedOut` |
+| `workspaces/git.js` | Git 原语与串行队列（无 shell 插值）；成功的具名／checkout 分支写入通过 ref guard 记录实际转移，不用全局写入计数 | `exclusive`、`git`、`gitOutput`、`porcelain`、`clean`、`isAncestor`、`merging`、`unmerged`、`workspaceForBranch`、`checkedOut` |
+| `workspaces/ref-guard.js` | [调用期目标分支移动检测](target-branch-guard.md)：按 ref 的在途写入与有界转移链，Worker 所属分支观测在释放调用身份前收口；父先结束不误判，未知来源保留现场，不冒充 OS 写入者证明 | `readGuardRef`、`watchBranch`、`unwatchBranch`、`noteRefTransition`、`trackRefWrite`、`observeOwnedBranch`、`checkpointOwnedBranch`、`closeOwnedBranch`、`checkWatchedBranch` |
 | `workspaces/worktree.js` | worktree / 对照检出 / 可推进输入分支的创建与回收；新 child 在 spawn 时从父分支当时 tip 建 worktree；`anchor` 创建失败时清理本次自建锚点，不删除用户已有工作区；`task_kind='analysis'` 创建时从固定父提交做只读分离检出；management 只确保专属非 Git `<home>/management/ID`，finish 不运行 Git | `forkTaskUnsafe(task,parentBranch,commit)`、`anchor(inputId, requestedBranch, guard?)`（Hook 创建准入可选同步 guard，串行 Git 区内复核）、`dropAnchor(anchor)`、`releaseAnchor(anchor)`、`reclaimAnchors(anchors)`、`inputAnchor(task)`、`ensure(task)`、`finish(task)`、`codeBase(task)`、`removeBaseline(taskId)` |
 | `workspaces/safety.js` | 通用 Git 安全原语：固定提交树有界缓存，分支工作区洁净与 Git 中间态校验；供合并/同步使用 | `commitTree`、`assertCleanBranches` |
 | `workspaces/code.js` | 有界代码状态、目录/路径检索和单文件正文/diff；task/iteration/working 基线，采样 revision、脏状态与净变化分离，归档仅原始对象可读时降级；每实例至多 4 个并发读取 | `codeState(task,options)`、`codeTree(task,options)`、`codeFile(task,options)` |

@@ -17,6 +17,8 @@ function userTask(f, kind = 'order', patch = {}) {
 const rows = (f, taskId) => f.store.all('SELECT * FROM notices WHERE task_id=? ORDER BY id', taskId);
 function stubGit(f) {
   f.project.workspaces.ensure = async () => f.root;
+  // These tests isolate notification policy without a repository or real branch ownership.
+  f.project.workspaces.observeOwnedBranch = async () => null;
   f.project.workspaces.finish = async task => f.store.update(task.id, { head_commit: 'a'.repeat(40) });
   f.project.noteBranchAdvance = async () => {};
 }

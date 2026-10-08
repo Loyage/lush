@@ -377,7 +377,7 @@ export default {
   },
 
   async invoke(taskId, run) {
-    let timer, timedOut = false;
+    let timer, targetWatch, ownedBranch, timedOut = false;
     const timeoutMessage = `agent invocation timed out after ${this.config.timeout} second${this.config.timeout === 1 ? '' : 's'}`;
     const abortMessage = () => run.controller.signal.reason instanceof Error
       ? run.controller.signal.reason.message
@@ -472,17 +472,12 @@ export default {
           account_key: connectionRuntime.account_key, model: agent.model });
       }
       if (run.controller.signal.aborted) throw new Error(abortMessage());
-      // 目标分支只能由 daemon 的交付推进。记录调用前的稳定快照，结束后对照 daemon 侧 ref 写入打点：
-      // agent 越过自己的 worktree 直接提交、或外部 Git 手动推进，都会在这里被如实拦下。
+      // Match exact transitions on this ref, including a parent's own invocation that
+      // finishes before its child. Neither a global write counter nor end-state running
+      // membership proves who advanced a target branch.
       const targetBranch = task.target_branch && task.target_branch !== task.branch ? task.target_branch : null;
-      let targetBaseline = null, refWritesBaseline = 0;
-      if (targetBranch) {
-        for (let attempt = 0; attempt < 3; attempt++) {
-          refWritesBaseline = this.workspaces.gitRefWrites ?? 0;
-          targetBaseline = await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${targetBranch}`).catch(() => null);
-          if ((this.workspaces.gitRefWrites ?? 0) === refWritesBaseline) break;
-        }
-      }
+      if (targetBranch) targetWatch = await this.workspaces.watchBranch(targetBranch);
+      ownedBranch = await this.workspaces.observeOwnedBranch(task, cwd, run.recordId);
       // Real backends acknowledge after preparing and launching the input-bearing process.
       // In-process/custom backends receive the payload at run(); consumption is a separate fact.
       let inputsDelivered = false;
@@ -493,34 +488,36 @@ export default {
           message_ids: messages.map(message => message.id) });
       };
       if (!this.provider.reportsInputDelivery) onInputDelivered();
-      const result = await this.provider.run({ task: providerTask, cwd, token: run.token, signal: run.controller.signal, agent, onInputDelivered,
-        connectionRuntime, onConnectionObservation: connectionRuntime ? observation => this.agentConnections.observe(
-          agent.connection_id, connectionRuntime.account_key, connectionRuntime.source_key, observation) : null,
-        onSpawn: pid => { run.pid = pid; }, onPreempt: () => { run.boundaryClaimed = true; }, messages, messagesPage, api: this,
-        context, forkPointer, choiceFork,
-      });
-      run.invocationEnded = true;
-      clearTimeout(timer);
+      let result;
+      try {
+        result = await this.provider.run({ task: providerTask, cwd, token: run.token, signal: run.controller.signal, agent, onInputDelivered,
+          connectionRuntime, onConnectionObservation: connectionRuntime ? observation => this.agentConnections.observe(
+            agent.connection_id, connectionRuntime.account_key, connectionRuntime.source_key, observation) : null,
+          onSpawn: pid => { run.pid = pid; }, onPreempt: () => { run.boundaryClaimed = true; }, messages, messagesPage, api: this,
+          context, forkPointer, choiceFork,
+        });
+      } finally {
+        run.invocationEnded = true;
+        clearTimeout(timer);
+        // Also retain legal own-branch observations on pause/preemption/provider failure.
+        // Close before releasing running ownership or processing delivery hooks.
+        await this.workspaces.closeOwnedBranch(ownedBranch);
+      }
       if (TERMINAL.has(this.store.task(taskId).status) || run.parked) return;
       if (run.controller.signal.aborted) throw new Error(timedOut ? timeoutMessage : abortMessage());
       check(typeof result === 'string' && Buffer.byteLength(result) <= 256000, 'agent result exceeds 256000 bytes');
-      // 目标分支被本次调用越过交付直接推进时，不把它当成功：保留现场、记录事件、按失败处理。
-      if (targetBranch && targetBaseline) {
-        let targetNow = targetBaseline, refWritesNow = this.workspaces.gitRefWrites ?? 0;
-        for (let attempt = 0; attempt < 3; attempt++) {
-          refWritesNow = this.workspaces.gitRefWrites ?? 0;
-          targetNow = await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${targetBranch}`).catch(() => targetBaseline);
-          if ((this.workspaces.gitRefWrites ?? 0) === refWritesNow) break;
-        }
-        const ownerRunning = [...this.running.keys()].some(id => this.store.task(id)?.branch === targetBranch);
-        if (targetNow !== targetBaseline && refWritesNow === refWritesBaseline && !ownerRunning) {
-          const moved = (await this.workspaces.git(this.config.project, 'log', '--oneline',
-            `${targetBaseline}..${targetNow}`).catch(() => '')).split('\n').filter(Boolean);
-          this.store.event(taskId, 'invocation.target_branch_moved', { branch: targetBranch, before: targetBaseline,
-            after: targetNow, commits: moved.slice(0, 20) });
-          throw new Error(`目标分支 ${targetBranch} 在本次调用期间被直接推进，而不是经 daemon 交付：`
-            + `${moved.slice(0, 3).join('；') || targetNow.slice(0, 12)}。本次调用按失败处理并保留现场；`
-            + '请检查这次提交是否应当显式交付，或改为在自己的 worktree 内提交后再继续。');
+      if (targetWatch) {
+        const movement = await this.workspaces.checkWatchedBranch(targetWatch);
+        if (!movement.explained) {
+          const moved = movement.before && movement.after ? (await this.workspaces.git(this.config.project, 'log', '--oneline',
+            `${movement.before}..${movement.after}`).catch(() => '')).split('\n').filter(Boolean) : [];
+          this.store.event(taskId, 'invocation.target_branch_moved', { branch: targetBranch, before: movement.before,
+            after: movement.after, commits: moved.slice(0, 20), reason: 'unattributed_ref_movement',
+            evidence_overflow: movement.overflow, transitions: movement.transitions.slice(-20) });
+          throw new Error(`目标分支 ${targetBranch} 在本次调用期间存在未归因的移动：`
+            + `${moved.slice(0, 3).join('；') || movement.after?.slice(0, 12) || '分支已缺失'}。`
+            + '没有完整的 daemon 写入或所属 Worker 调用期观测记录连接基线与现状；不能据此断言是当前 Worker 越界。'
+            + '本次调用按失败处理并保留现场，请检查分支移动来源和交付记录后再继续。');
         }
       }
       // G-02: re-check the pinned tree after the invocation. Drift or dirt means the evidence no longer
@@ -660,6 +657,8 @@ export default {
       const current = this.store.task(taskId);
       if (!run.parked && !TERMINAL.has(current.status) && current.status !== 'paused') this.cancel(taskId, message, 'failed');
     } finally {
+      await this.workspaces.closeOwnedBranch(ownedBranch).catch(error => console.error(`branch observation ${taskId}: ${error.message}`));
+      if (targetWatch) this.workspaces.unwatchBranch(targetWatch);
       delete run.connectionBinding;
       clearTimeout(timer);
       if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running') {
