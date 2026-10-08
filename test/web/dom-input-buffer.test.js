@@ -111,6 +111,53 @@ test('失效父身份不能悄悄回退，迟到结果不污染重新初始化�
   late.resolve(json({ task: { id: 91 } })); await send; expect(opened).toBe(null);
 });
 
+test('创建/立即开始/暂存途中切页，成功清空未编辑正文和引用，但不抢回导航', async () => {
+  for (const keys of [{ ctrlKey: true }, { ctrlKey: true, shiftKey: true }, { metaKey: true, shiftKey: true }, {}]) {
+    activateDetailView({ view: 'overview' });
+    type('已发送的原文'); setComposerReferences([ref('来源')]);
+    const pending = deferred(); intercept = () => pending.promise;
+    const send = enter(keys);
+    openResource('tasks'); const view = ui.view;
+    expect(input().value).toBe('已发送的原文');
+    pending.resolve(json({ id: 9, task: { id: 90 } })); await send;
+    expect(input().value).toBe(''); expect(composerReferences()).toEqual([]);
+    expect(ui.view).toBe(view); expect(opened).toBeNull();
+    expect(ui.composerSubmitting).toBe(false);
+    expect(dom.node('draft-commit').disabled).toBe(true);
+  }
+});
+
+test('创建成功后的状态刷新切页，不阻止清空已提交内容', async () => {
+  activateDetailView({ view: 'overview' });
+  const restore = registerNavigation({ refresh: async () => { openResource('tasks'); }, detail: async id => { opened = id; } });
+  try {
+    type('立即开始'); setComposerReferences([ref('来源')]);
+    await enter({ ctrlKey: true, shiftKey: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ method: 'order.submit', params: { start: true } });
+    expect(input().value).toBe(''); expect(composerReferences()).toEqual([]);
+    expect(ui.view.id).toBe('tasks'); expect(opened).toBeNull();
+  } finally { restore(); }
+});
+
+test('创建途中切页后新输入或修改再恢复的正文、引用仍保留', async () => {
+  for (const change of [
+    () => type('下一条新想法'),
+    () => { type('修改'); type('原文'); },
+    () => setComposerReferences([ref('来源'), ref('新引用')]),
+  ]) {
+    activateDetailView({ view: 'overview' });
+    type('原文'); setComposerReferences([ref('来源')]);
+    const pending = deferred(); intercept = () => pending.promise;
+    const send = enter({ ctrlKey: true, shiftKey: true });
+    openResource('tasks'); change();
+    const text = input().value, refs = composerReferences();
+    pending.resolve(json({ task: { id: 90 } })); await send;
+    expect(input().value).toBe(text); expect(composerReferences()).toEqual(refs);
+    expect(opened).toBeNull(); expect(ui.composerSubmitting).toBe(false);
+  }
+});
+
 test('父候选查询单飞，迟到旧初始化结果不可覆盖新候选', async () => {
   parentGate = deferred(); const before = parentReads;
   const first = loadComposerParents(), second = loadComposerParents();

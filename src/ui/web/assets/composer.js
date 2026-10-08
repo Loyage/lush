@@ -271,8 +271,9 @@ async function submitInput(mode) {
       : await action(mode === 'buffer' ? 'draft.add' : 'order.submit', mode === 'buffer' ? params
         : { ...params, start: mode === 'start' || mode === 'defer_start', ...(target.freeze ? { defer: true } : {}), ...(creationProfile ? { profile: creationProfile } : {}) });
     if (ui.composerIdentity !== identity) return;
-    // Never consume text or references authored while the request was in flight (even an edit-and-undo).
-    const untouched = ui.view === view && ui.composerAppendTarget === appendTarget && ui.composerEditRevision === editRevision && input.value === value
+    // The composer survives page navigation: consume unchanged submitted content even after a page switch.
+    // Still protect edits (including edit-and-undo) and explicit inbox mode changes; view guards below only own navigation.
+    const untouched = ui.composerAppendTarget === appendTarget && ui.composerEditRevision === editRevision && input.value === value
       && ui.composerReferenceRevision === referenceRevision && JSON.stringify(composerReferences()) === signature;
     if (untouched) { input.value = ''; setComposerReferences([]); }
     if (target.id != null) {
