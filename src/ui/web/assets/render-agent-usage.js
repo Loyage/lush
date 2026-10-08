@@ -28,48 +28,29 @@ function resetBetween(previous, point) {
 }
 
 /** One series per chart: accounts, units, quota windows and source versions never share an axis. */
-const READINGS = [['remaining', '剩余量'], ['used', '已用量'], ['used_percent', '已用比例'], ['total', '总量']];
-
-/** Structured readings only; never derive a missing percentage or mix it with money. */
 export function renderUsageSeries(series, range, config = {}) {
-  if (!config.selectMetric) return renderMetricSeries(series, range, config);
-  const root = el('div', undefined, 'agent-usage-metrics'), controls = el('div', undefined, 'agent-usage-filters');
-  const choices = READINGS.filter(([key]) => list(series.points).some(point => point.status === 'available' && finite(point[key])));
-  const available = choices.length ? choices : [READINGS[0]];
-  const selected = available.some(([key]) => key === config.metric) ? config.metric : available[0][0];
-  const metric = selectControl(controls, '曲线读数', available, selected, 'agent-usage-reading');
-  const content = el('div');
-  const paint = () => content.replaceChildren(renderMetricSeries(series, range, { ...config, metric: metric.value }));
-  metric.onchange = paint; paint(); root.append(controls, content); return root;
-}
-
-function renderMetricSeries(series, range, config = {}) {
   const root = el('div', undefined, 'agent-usage-series'), points = list(series.points);
-  const metric = READINGS.some(([key]) => key === config.metric) ? config.metric : 'remaining';
-  const reading = metric === 'remaining' ? '剩余' : READINGS.find(([key]) => key === metric)[1];
-  const unit = metric === 'used_percent' ? '%' : series.unit || '未知';
-  const isKnownValue = point => point.status === 'available' && finite(point[metric]) && Number.isFinite(Date.parse(point.at));
   root.append(el('h3', `${series.provider} · ${series.label || '未命名指标'}`));
   text(root, `${series.kind === 'balance' ? '现金余额' : '订阅 / API 额度（非现金余额）'} · 单位 ${series.unit || '未知'} · 账号 ${series.account_key || '未知'} · ${usageWindow(series.window_seconds)}`);
   text(root, `范围：${time(range.from)} — ${time(range.to)}；显示 ${points.length} / ${series.sample_count ?? points.length} 个样本。时间均为 UTC。`);
-  const known = points.filter(isKnownValue), latest = points.at(-1), lastKnown = known.at(-1);
-  if (latest && !isKnownValue(latest)) {
+  const known = points.filter(isKnown), latest = points.at(-1), lastKnown = known.at(-1);
+  if (latest && !isKnown(latest)) {
     text(root, `最近记录：${pointStatus(latest)}（${time(latest.at)}）。未知不等于零。`, true);
-    if (lastKnown) text(root, `最后成功${metric === 'remaining' ? '剩余量' : reading} ${amount(lastKnown[metric])} ${unit}，采样于 ${time(lastKnown.at)}；这是旧值，并非最新状态。`, true);
+    if (lastKnown) text(root, `最后成功剩余量 ${amount(lastKnown.remaining)} ${series.unit || ''}，采样于 ${time(lastKnown.at)}；这是旧值，并非最新状态。`, true);
   }
   if (!points.length) text(root, '此指标在所选范围内暂无采样。');
-  else if (!known.length) text(root, `没有可绘制的已知${metric === 'remaining' ? '剩余量' : reading}；失败和未知记录保留在下方数据表。`, true);
+  else if (!known.length) text(root, '没有可绘制的已知剩余量；失败和未知记录保留在下方数据表。', true);
   else {
     const width = 760, height = 270, left = 85, right = 25, top = 28, bottom = 55;
     const plotWidth = width - left - right, plotHeight = height - top - bottom;
     const from = Number.isFinite(Date.parse(range.from)) ? Date.parse(range.from) : Math.min(...known.map(point => Date.parse(point.at)));
     const to = Number.isFinite(Date.parse(range.to)) && Date.parse(range.to) > from ? Date.parse(range.to) : Math.max(from + 1, ...known.map(point => Date.parse(point.at)));
-    const values = known.map(point => point[metric]), min = Math.min(0, ...values), max = Math.max(0, ...values);
+    const values = known.map(point => point.remaining), min = Math.min(0, ...values), max = Math.max(0, ...values);
     const scale = max - min || 1;
     const x = point => left + Math.max(0, Math.min(1, (Date.parse(point.at) - from) / (to - from))) * plotWidth;
-    const y = point => top + plotHeight * (1 - (point[metric] - min) / scale);
-    const graph = svg('svg', { viewBox: `0 0 ${width} ${height}`, role: 'group', 'aria-label': `${series.label || '未命名指标'} · ${reading}曲线，单位 ${unit}，时间为 UTC`, class: 'agent-usage-chart' });
-    graph.append(svg('title', {}, `采样时刻的${reading}；虚线仅连接相邻观测，不代表期间真实消耗。`));
+    const y = point => top + plotHeight * (1 - (point.remaining - min) / scale);
+    const graph = svg('svg', { viewBox: `0 0 ${width} ${height}`, role: 'group', 'aria-label': `${series.label || '剩余量'}曲线，单位 ${series.unit || '未知'}，时间为 UTC`, class: 'agent-usage-chart' });
+    graph.append(svg('title', {}, '采样时刻的剩余量；虚线仅连接相邻观测，不代表期间真实消耗。'));
     for (let i = 0; i <= 4; i++) {
       const lineY = top + plotHeight * i / 4;
       graph.append(svg('line', { x1: left, x2: width - right, y1: lineY, y2: lineY, class: 'agent-usage-gridline' }));
@@ -77,15 +58,15 @@ function renderMetricSeries(series, range, config = {}) {
     }
     graph.append(svg('text', { x: left, y: height - 24, class: 'agent-usage-axis' }, new Date(from).toISOString().slice(5, 16).replace('T', ' ')),
       svg('text', { x: width - right, y: height - 24, 'text-anchor': 'end', class: 'agent-usage-axis' }, new Date(to).toISOString().slice(5, 16).replace('T', ' ')),
-      svg('text', { x: left, y: 16, class: 'agent-usage-axis' }, `${reading} · ${unit}`));
+      svg('text', { x: left, y: 16, class: 'agent-usage-axis' }, series.unit || '单位未知'));
     let previous = null, resets = 0;
     for (const point of points) {
-      if (!isKnownValue(point)) { previous = null; continue; }
-      const reset = resetBetween(previous, point) || Boolean(previous && ['used', 'used_percent'].includes(metric) && point[metric] < previous[metric]);
+      if (!isKnown(point)) { previous = null; continue; }
+      const reset = resetBetween(previous, point);
       const gap = config.enabled && previous && Date.parse(point.at) - Date.parse(previous.at) > (Number(config.interval_minutes) || 5) * 120000;
       if (previous && !reset && !gap && !range.truncated) graph.append(svg('line', { x1: x(previous), y1: y(previous), x2: x(point), y2: y(point), class: 'agent-usage-connection' }));
       if (reset) { resets++; graph.append(svg('line', { x1: x(point), x2: x(point), y1: top, y2: top + plotHeight, class: 'agent-usage-reset' })); }
-      const description = `${time(point.at)}：${reading} ${amount(point[metric])} ${unit}${point.reset_at ? `；重置时间 ${time(point.reset_at)}` : ''}${reset ? '；重置 / 额度补充，曲线在此断开' : ''}`;
+      const description = `${time(point.at)}：剩余 ${amount(point.remaining)} ${series.unit || ''}${point.reset_at ? `；重置时间 ${time(point.reset_at)}` : ''}${reset ? '；重置 / 额度补充，曲线在此断开' : ''}`;
       const dot = svg('circle', { cx: x(point), cy: y(point), r: 3.5, tabindex: 0, class: 'agent-usage-dot', 'aria-label': description });
       const detail = el('p', description, 'hint agent-usage-point-detail'); detail.hidden = true;
       dot.onfocus = dot.onmouseenter = () => { detail.hidden = false; };

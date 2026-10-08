@@ -20,7 +20,6 @@ const dom = installDom({ fetch: async (url, options = {}) => {
     || raw.startsWith('/api/quick-explain/config') || raw === '/api/action') return httpFetch(f.url + raw, options);
   return world.fetchImpl(raw, options);
 } });
-dom.document.createElementNS = (_ns, tag) => dom.document.createElement(tag);
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const detail = () => dom.node('detail');
 const button = (root, label) => root.querySelectorAll('button').find(node => node.textContent === label);
@@ -104,48 +103,6 @@ test('真实迁移空预检不能应用；有条目时按实际 revision 确认�
   expect(deepText(detail())).toContain(path.join(f.config.home, 'device-migration'));
   expect(fs.existsSync(path.join(f.config.home, 'settings.json'))).toBe(false);
   expect(f.config.runtimeSettings.get().concurrency).toMatchObject({ value: 6, source: 'device', overridden: false });
-});
-
-test('真实HTTP/RPC/SQLite：共享来源刷新持续留样到项目趋势，旧存档不接收新数据', async () => {
-  let balance = 12, calls = 0, now = Date.now();
-  const service = f.project.agentConnections;
-  service.now = () => now;
-  service.managerOptions.now = () => now;
-  service.managerOptions.fetch = async url => {
-    expect(String(url)).toBe('https://api.deepseek.com/user/balance'); calls++;
-    return Response.json({ is_available: true, balance_infos: [{ currency: 'USD', total_balance: balance }] });
-  };
-  service.forScope('device').now = () => now;
-  const saved = await saveSource();
-  await openModelSources();
-  const trends = detail().querySelector('.model-source-trends');
-  expect(calls).toBe(0); expect(trends.hidden).toBe(false);
-  await button(trends, '查看余额与额度趋势').onclick();
-  expect(deepText(trends)).toContain('暂无缓存样本'); expect(calls).toBe(0);
-  const refresh = () => button(detail().querySelector(`[data-source-id="${saved.id}"]`), '刷新').onclick();
-  await refresh(); now += 60000; balance = 10; await refresh();
-  expect(calls).toBe(2);
-  expect(service.history(saved.id).series[0].points.map(point => point.remaining)).toEqual([12, 10]);
-  expect(f.store.get('SELECT COUNT(*) AS n FROM agent_connection_queries').n).toBe(2);
-  expect(trends.querySelectorAll('.agent-usage-dot')).toHaveLength(2);
-  expect(trends.querySelectorAll('.agent-usage-connection')).toHaveLength(1);
-  expect(requests.filter(row => row.url.includes('/usage/history'))).toHaveLength(0);
-  expect(requests.filter(row => row.url.includes('/connections/history')).every(row => !row.url.includes('scope='))).toBe(true);
-  // The sampling shortcut reads the actual project policy, not device defaults, and saves nothing.
-  await button(trends, '本项目采样设置').onclick();
-  expect(detail().querySelector('select[data-settings-scope=""]').value).toBe('project');
-  const sampling = detail().querySelector('[data-connection-field="sampling-enabled"]');
-  expect(sampling.checked).toBe(false); expect(sampling.parentNode.parentNode.parentNode.hidden).toBe(false);
-  expect(calls).toBe(2); expect(service.config().sampling.enabled).toBe(false);
-  expect(requests.filter(row => row.options.body && JSON.parse(row.options.body).method === 'agent.connections.sampling')).toHaveLength(0);
-  expect(JSON.stringify(service.history(saved.id))).not.toContain('TEMPORARY-TEST-KEY');
-  // Reused panes after navigation must update the new page, not a detached scope selector.
-  await openAgentStatus(); await openModelSources();
-  expect(detail().querySelector('select[data-settings-scope=""]').value).toBe('device');
-  await button(detail(), '本项目采样设置').onclick();
-  expect(detail().querySelector('select[data-settings-scope=""]').value).toBe('project');
-  expect(detail().querySelector('[data-connection-field="sampling-enabled"]').parentNode.parentNode.parentNode.hidden).toBe(false);
-  expect(calls).toBe(2);
 });
 
 // Each suite runs in its own DOM process; release the installed globals once all cases finish.

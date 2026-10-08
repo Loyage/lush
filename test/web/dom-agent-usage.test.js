@@ -152,43 +152,6 @@ test('离页和收起作废旧响应，重新展开的读取不能被旧响应�
   expect(deepText(p.node)).toContain('历史保留 42 天'); expect(deepText(p.node)).not.toContain('历史保留 888 天'); interceptor = null;
 });
 
-test('正式趋势可切换结构化读数，百分比独立单位，多次切换不失效或联网', () => {
-  const data = history(), root = renderUsageSeries(data.series[1], data, { selectMetric: true });
-  const count = requests.length;
-  let metric = root.querySelector('.agent-usage-reading');
-  expect(metric.children.map(option => option.value)).toEqual(['remaining', 'used', 'total']);
-  // Percentages are not inferred from totals.
-  metric.value = 'used'; metric.onchange(); expect(root.querySelector('svg').getAttribute('aria-label')).toContain('已用量曲线，单位 USD');
-  metric.value = 'total'; metric.onchange(); expect(root.querySelectorAll('.agent-usage-dot')).toHaveLength(2);
-  expect(root.querySelector('svg').getAttribute('aria-label')).toContain('总量曲线');
-  metric.value = 'remaining'; metric.onchange(); expect(root.querySelector('svg').getAttribute('aria-label')).toContain('剩余曲线');
-  expect(requests.length).toBe(count);
-  const percent = renderUsageSeries({ ...data.series[1], points: [point('09:00', 12, { used_percent: 25 })] }, data, { selectMetric: true });
-  metric = percent.querySelector('.agent-usage-reading'); metric.value = 'used_percent'; metric.onchange();
-  expect(percent.querySelector('svg').getAttribute('aria-label')).toContain('已用比例曲线，单位 %');
-  expect(percent.querySelector('.agent-usage-dot').getAttribute('aria-label')).toContain('已用比例 25 %');
-});
-
-test('只有已用比例仍能绘图，缺失与失败留空，比例下降不连成负消耗', () => {
-  const data = history(), series = { ...data.series[0], points: [
-    point('09:00', null, { used: null, total: null, used_percent: 20 }),
-    point('09:05', null, { used: null, total: null, used_percent: 30 }),
-    point('09:10', null, { used: null, total: null, used_percent: 5 }),
-    point('09:15', null, { used: null, total: null, used_percent: null }),
-    point('09:20', null, { status: 'error', used_percent: 99 }),
-    point('09:25', null, { used: null, total: null, used_percent: 10 }),
-  ] };
-  const root = renderUsageSeries(series, data, { selectMetric: true });
-  expect(root.querySelector('.agent-usage-reading').value).toBe('used_percent');
-  expect(root.querySelectorAll('.agent-usage-dot')).toHaveLength(4);
-  expect(root.querySelectorAll('.agent-usage-connection')).toHaveLength(1);
-  expect(root.querySelectorAll('.agent-usage-reset')).toHaveLength(1);
-  expect(root.querySelector('tbody').children).toHaveLength(6);
-  expect(root.querySelector('tbody').children[4].children[4].textContent).toBe('未知');
-  const empty = renderUsageSeries({ ...series, points: [] }, data, { selectMetric: true });
-  expect(empty.querySelectorAll('svg')).toHaveLength(0); expect(deepText(empty)).toContain('暂无采样');
-});
-
 test('接口文字仅为安全文本，历史组件不含旧配置读取/写入口，无内联样式或HTML拼接', () => {
   const payload = '<img src=x onerror=alert(1)>', data = history(); data.series[0].label = payload;
   const root = renderUsageSeries(data.series[0], data); expect(deepText(root)).toContain(payload); expect(root.querySelectorAll('img')).toHaveLength(0);

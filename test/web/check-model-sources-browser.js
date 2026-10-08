@@ -5,17 +5,14 @@ import { tmpdir } from 'node:os';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { request } from 'node:http';
 const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
-const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-agent-connections.css"><link rel="stylesheet" href="/assets/styles-agent-usage.css"><link rel="stylesheet" href="/assets/styles-agent-status.css"></head><body style="margin:0;padding:12px;box-sizing:border-box">
+const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-agent-connections.css"></head><body style="margin:0;padding:12px;box-sizing:border-box">
 <script type="module">
 import { createAgentConnections } from '/assets/render-agent-connections.js';
 const at='2026-10-07T05:30:00Z';
 const source=(id,extra={})=>({id,storage_scope:id==='b'?'project':'device',label:'订阅来源 '+id,provider:'openai-codex',auth_type:'oauth',enabled:true,endpoint:'https://chatgpt.com/backend-api/codex',models:['gpt-6.1-sol'],default_model:'gpt-6.1-sol',credential:{status:'configured'},observation:{status:'available',checked_at:at,resources:[
 {kind:'quota',scope:'account',label:'主要套餐窗口',window_seconds:18000,used_percent:25,remaining:75,unit:'%',reset_at:'2026-10-08T05:29:00Z'},
 {kind:'quota',scope:'account',label:'次要套餐窗口',window_seconds:604800,used_percent:50,remaining:50,unit:'%',reset_at:'2026-10-14T05:30:00Z'}]},...extra});
-window.calls=[];window.fetch=async(url,options)=>{window.calls.push(String(url));if(options)throw Error('unexpected mutation');if(String(url).includes('/history?'))return Response.json({version:1,from:'2026-10-07T00:00:00Z',to:at,retention_days:90,truncated:false,series:[
-{id:'cash',provider:'deepseek',account_key:'account-a',source_key:'source-a',kind:'balance',scope:'account',unit:'USD',label:'现金余额',sample_count:2,points:[{at:'2026-10-07T05:00:00Z',remaining:12,used:3,status:'available'},{at:'2026-10-07T05:05:00Z',remaining:10,used:5,status:'available'}]},
-{id:'quota',provider:'openai-codex',account_key:'account-b',source_key:'source-b',kind:'quota',scope:'account',unit:'%',label:'5h套餐',window_seconds:18000,sample_count:2,points:[{at:'2026-10-07T05:00:00Z',used_percent:20,status:'available'},{at:'2026-10-07T05:05:00Z',used_percent:30,status:'available'}]}
-]});return Response.json({version:1,connections:[source('a'),source('b',{label:'很长的账号名称'.repeat(10),default_model:'org/very-long-model-name'.repeat(10)}),source('c',{observation:{status:'error',checked_at:at,resources:[]}}),source('d',{observation:{status:'partial',checked_at:at,resources:[...source('d').observation.resources,{kind:'balance',remaining:5,unit:'USD'}]}})],sampling:{enabled:false,interval_minutes:5,retention_days:90}});};
+window.calls=[];window.fetch=async(url,options)=>{window.calls.push(String(url));if(options)throw Error('unexpected mutation');return Response.json({version:1,connections:[source('a'),source('b',{label:'很长的账号名称'.repeat(10),default_model:'org/very-long-model-name'.repeat(10)}),source('c',{observation:{status:'error',checked_at:at,resources:[]}}),source('d',{observation:{status:'partial',checked_at:at,resources:[...source('d').observation.resources,{kind:'balance',remaining:5,unit:'USD'}]}})],sampling:{enabled:false,interval_minutes:5,retention_days:90}});};
 window.panel=createAgentConnections({ownsPage:()=>true,now:()=>Date.parse(at)});document.body.append(window.panel.node);await window.panel.load();window.ready=true;
 </script></body></html>`;
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
@@ -92,25 +89,7 @@ try {
   assert(await execute(`const row=document.querySelector('.model-source-row');row.querySelector('.model-source-details-toggle').click();const pane=document.querySelector('.model-source-detail');return pane.parentNode===row.parentNode&&pane.previousElementSibling===row&&!pane.hidden;`), 'detail did not expand inline');
   assert(await execute(`const pane=document.querySelector('.model-source-detail');[...pane.querySelectorAll('button')].find(b=>b.textContent==='编辑').click();return window.panel.node.dataset.sourcePanel==='editor'&&!pane.hidden;`), 'detail editor failed');
   assert(await execute(`document.querySelector('.model-source-back').click();return document.querySelector('.model-source-detail').hidden&&window.calls.length===1;`), 'return/networking failed');
-  console.log('PASS inline detail -> editor -> return; no network mutations');
-  assert(await execute(`const trends=document.querySelector('.model-source-trends');[...trends.querySelectorAll('button')].find(b=>b.textContent==='查看余额与额度趋势').click();return !trends.querySelector('.model-source-trend-body').hidden&&document.querySelector('.model-source-detail').hidden;`), 'trend entry did not expand full-width');
-  assert(await rpc(`/session/${session}/execute/async`, { script: 'const done=arguments[0];let n=0;const check=()=>document.querySelectorAll(".model-source-trends svg").length===2?done(true):++n>100?done(false):setTimeout(check,20);check();', args: [] }), 'trend fixture did not draw both readings');
-  for (const theme of ['light', 'dark']) for (const width of [1440, 900, 390, 320]) {
-    await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='${width}px';`); await enterViewport();
-    const result = await execute(`document.documentElement.dataset.theme='${theme}';
-      const root=document.querySelector('.model-source-trends'),readings=[...root.querySelectorAll('.agent-usage-reading')];
-      for(const details of root.querySelectorAll('.agent-usage-data'))details.open=true;
-      readings[0].value='used';readings[0].dispatchEvent(new Event('change'));
-      const dot=root.querySelector('.agent-usage-dot');dot.focus();
-      const graphs=[...root.querySelectorAll('svg')];return {overflow:document.documentElement.scrollWidth>innerWidth,
-        graphLabels:graphs.map(graph=>graph.getAttribute('aria-label')),focus:document.activeElement===dot,
-        controls:[...root.querySelectorAll('select,button')].every(node=>node.getBoundingClientRect().right<=innerWidth),calls:window.calls.length};`);
-    assert(!result.overflow && result.controls && result.focus, `${theme} ${width}px trends: ${JSON.stringify(result)}`);
-    assert(result.graphLabels[0].includes('已用量曲线，单位 USD') && result.graphLabels[1].includes('已用比例曲线，单位 %'), 'trend axes mixed or used-only quota lost');
-    assert(result.calls === 2, 'local chart controls unexpectedly requested network');
-    console.log(`PASS ${theme} ${width}px: full-width trends, separate USD/% axes, keyboard focus, table scroll, no page overflow or extra requests`);
-  }
-  passed = true;
+  console.log('PASS inline detail -> editor -> return; no network mutations'); passed = true;
 } catch (error) { console.error(`Browser check failed; full driver log: ${log}`); throw error; }
 finally {
   if (session) { try { await rpc(`/session/${session}`, undefined, 'DELETE'); } catch {} }

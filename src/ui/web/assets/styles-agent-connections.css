@@ -88,9 +88,6 @@
 .agent-device-feedback{overflow-wrap:anywhere}
 .agent-connection-secret{min-width:0}
 /* Shared source/model form layout lives in styles.css (also used outside this page). */
-.model-source-trends{margin:24px 0;padding:18px;border:1px solid var(--line-soft);border-radius:12px;background:var(--bg);min-width:0;overflow-wrap:anywhere}
-.model-source-trend-body{min-width:0}
-.model-source-trends .agent-usage-reading{max-width:100%}
 .agent-connection-history-series{margin:18px 0 26px}
 .agent-connection-editor-feedback,.agent-connections-feedback,.agent-connection-history-feedback{overflow-wrap:anywhere}
 .agent-connection-form a{overflow-wrap:anywhere;color:var(--accent);align-self:start}

@@ -675,44 +675,6 @@ test('连接读取单飞且在读取期间保留最新连接选择和模型草�
   await btn(profile, '保存配置').onclick(); expect(world.state.actions).toHaveLength(before);
 });
 
-test('醒目的趋势区按需读取，账号段和指标本地筛选，重读保留筛选', async () => {
-  const p = await panel(); const section = p.node.querySelector('.model-source-trends');
-  expect(section.hidden).toBe(false); expect(deepText(section)).toContain('不在“旧余额历史存档”');
-  expect(section.querySelector('.model-source-trend-body').hidden).toBe(true);
-  expect(requests.filter(row => row.url.includes('/history?'))).toHaveLength(0);
-  const data = historyFixture(); data.series.push({ ...data.series[0], id: 'old-account', account_key: 'old', label: '旧账号余额' },
-    { ...data.series[0], id: 'quota', label: '套餐比例', kind: 'quota', unit: '%', window_seconds: 18000,
-      points: [{ ...data.series[0].points[0], used_percent: 25 }] });
-  intercept = url => url.includes('/history?') ? json(data) : undefined;
-  await btn(section, '查看余额与额度趋势').onclick();
-  expect(p.node.dataset.sourceView).toBe('list'); expect(p.node.querySelector('.model-source-detail').hidden).toBe(true);
-  expect(section.querySelectorAll('svg')).toHaveLength(3);
-  expect(actions).toHaveLength(0);
-  const count = requests.length, account = field(p.node, 'history-account'), metric = field(p.node, 'history-metric');
-  account.value = 'anonymous-account'; account.onchange(); expect(section.querySelectorAll('svg')).toHaveLength(2);
-  metric.value = 'quota'; metric.onchange(); expect(section.querySelectorAll('svg')).toHaveLength(1);
-  expect(section.querySelector('svg').getAttribute('aria-label')).toContain('单位 %');
-  expect(requests.length).toBe(count);
-  const reading = section.querySelector('.agent-usage-reading'); reading.value = 'used_percent'; reading.onchange();
-  await btn(section, '读取历史').onclick(); expect(account.value).toBe('anonymous-account'); expect(metric.value).toBe('quota');
-  expect(section.querySelector('.agent-usage-reading').value).toBe('used_percent');
-  expect(section.querySelectorAll('svg')).toHaveLength(1);
-  account.value = 'old'; account.onchange(); expect(metric.value).toBe('');
-  expect(deepText(section.querySelector('.agent-connection-history-content'))).toContain('旧账号余额');
-});
-
-test('离页后重开趋势不复用旧单飞响应，未打开项目不读取趋势或显示入口', async () => {
-  const p = await panel(), wait = deferred(); intercept = url => url.includes('/history?') ? wait.promise : undefined;
-  const old = btn(p.node, '查看余额与额度趋势').onclick(); p.dispose();
-  intercept = url => url.includes('/history?') ? json({ ...historyFixture(), series: [] }) : undefined;
-  p.resume(); await btn(p.node, '查看余额与额度趋势').onclick();
-  wait.resolve(json(historyFixture())); await old;
-  expect(p.node.querySelectorAll('svg')).toHaveLength(0); expect(deepText(p.node)).toContain('暂无缓存样本');
-  const noProject = await panel({ client: { project: false, scope: 'device', read: async () => ({ ...fixture(), configuration_scope: { selected: 'device' } }) } });
-  expect(noProject.node.querySelector('.model-source-trends').hidden).toBe(true);
-  const count = requests.length; await noProject.loadHistory(); expect(requests.length).toBe(count);
-});
-
 test('发布入口加载连接样式且无秘密localStorage或HTML插值代码', () => {
   const html = fs.readFileSync(new URL('../../src/ui/web/assets/index.html', import.meta.url), 'utf8'); expect(html).toContain('/styles-agent-connections.css');
   const source = fs.readFileSync(new URL('../../src/ui/web/assets/render-agent-connections.js', import.meta.url), 'utf8');

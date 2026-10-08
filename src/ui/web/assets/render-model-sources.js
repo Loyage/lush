@@ -30,8 +30,7 @@ export function openModelSources({ connectionId = '' } = {}) {
     let pane = state.panes.get(scope), reused = Boolean(pane);
     if (!pane) {
       const client = settingsClient(scope), active = () => ownsPage() && state.scope === scope && client.isCurrent();
-      pane = { connections: createAgentConnections({ ownsPage: active, connectionId: id, client,
-        onProjectSampling: () => active() ? state.openProjectSampling() : undefined }) }; state.panes.set(scope, pane);
+      pane = { connections: createAgentConnections({ ownsPage: active, connectionId: id, client }) }; state.panes.set(scope, pane);
     } else pane.connections.resume();
     state.connections = pane.connections;
     if (id) pane.connections.selectConnection(id);
@@ -39,17 +38,9 @@ export function openModelSources({ connectionId = '' } = {}) {
     const pending = pane.connections.load(reused).finally(() => { if (state.pending === pending) state.pending = null; });
     state.pending = pending; return pending;
   }
-  const scopeControl = scopeSelector(state.scope, changeScope, { projectLabel: '本项目来源',
+  page.append(head, scopeSelector(state.scope, changeScope, { projectLabel: '本项目来源',
     impact: scope => scope === 'project' ? '显示本项目有效来源，包括共享来源与项目独立来源；连接操作按其标注的实际存储位置生效。' : scopeImpact(scope),
-    help: '选择设备共享来源或本项目有效来源视图；来源身份由后台范围标识确定，不按名称合并账号，不调用 Agent。' });
-  // Reused panes must call the current page's scope control/host, not a detached old page.
-  state.openProjectSampling = async () => {
-    if (!ownsPage()) return;
-    const control = scopeControl.querySelector('select'); control.value = 'project';
-    await control.onchange();
-    if (ownsPage() && state.scope === 'project') state.connections.openSampling();
-  };
-  page.append(head, scopeControl, host);
+    help: '选择设备共享来源或本项目有效来源视图；来源身份由后台范围标识确定，不按名称合并账号，不调用 Agent。' }), host);
   if (workbenchStatus().projectUsable) {
     const archive = el('section', undefined, 'model-sources-legacy-history'), historyHost = el('div', undefined, 'legacy-usage-history');
     historyHost.id = 'legacy-usage-history'; historyHost.hidden = true;
@@ -60,8 +51,7 @@ export function openModelSources({ connectionId = '' } = {}) {
       toggle.textContent = historyHost.hidden ? '查看旧余额历史存档' : '收起旧余额历史存档';
       if (historyHost.hidden) { history.invalidate(); return Promise.resolve(); } return history.loadHistory();
     }, 'ghost', { help: '按需读取当前项目的旧余额历史，只读存档不归到任何连接、不合并其他项目；不联网、不读取旧凭证、不调用 Agent。' });
-    toggle.setAttribute('aria-expanded', 'false'); historyHost.append(history.node);
-    archive.append(el('p', '旧余额历史存档已停止接收新数据。现在刷新得到的余额、额度请查看上方“余额与额度趋势”；旧存档仅保留旧查询留下的记录。', 'hint'), toggle, historyHost); page.append(archive);
+    toggle.setAttribute('aria-expanded', 'false'); historyHost.append(history.node); archive.append(toggle, historyHost); page.append(archive);
   } else page.append(el('p', '未打开项目；不显示项目历史、后台采样或实际消费者。共享连接管理无需启动项目后台。', 'hint'));
   $('detail').replaceChildren(page); return changeScope('device');
 }
