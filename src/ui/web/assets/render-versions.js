@@ -10,30 +10,34 @@ const REFRESH_HELP = '重新读取当前项目 main 的最新主线历史并从�
 const MORE_HELP = '沿首次读取时固定的 main 提交继续查看更早版本；不会混入刷新前后新增的提交。';
 const text = (value, fallback = '未知') => typeof value === 'string' && value ? value : fallback;
 
+function showDetails(root, detailed) {
+  for (const node of root.querySelectorAll('.version-detail')) node.hidden = !detailed;
+}
+
 /** Commit metadata and original order are always plain text, never executable markup. */
-export function renderVersionCommit(commit) {
+export function renderVersionCommit(commit, { detailed = false } = {}) {
   const card = el('li', undefined, 'version-commit'); card.dataset.commit = commit.commit;
   card.append(el('h2', text(commit.subject, '（无提交摘要）')));
   const metadata = el('div', undefined, 'version-metadata');
-  const sha = el('code', text(commit.commit), 'version-sha');
+  const sha = el('code', text(commit.commit), 'version-sha version-detail');
   sha.setAttribute('aria-label', `提交 SHA ${text(commit.commit)}`);
   const time = el('time', text(commit.committed_at));
   if (commit.committed_at) time.setAttribute('datetime', commit.committed_at);
-  metadata.append(sha, time, el('span', `作者：${text(commit.author?.name)}`)); card.append(metadata);
+  metadata.append(sha, time, el('span', `作者：${text(commit.author?.name)}`, 'version-detail')); card.append(metadata);
   const tasks = commit.association === 'verified' && Array.isArray(commit.tasks) ? commit.tasks : [];
   if (!tasks.length) {
     card.append(el('p', '未关联 Worker', 'version-unassociated'),
-      el('p', '没有确切交付证据；不会根据提交标题猜测归属。', 'hint'));
+      el('p', '没有确切交付证据；不会根据提交标题猜测归属。', 'hint version-detail'));
   } else {
-    card.append(el('p', '已核实 Worker 交付关联', 'version-associated'));
+    card.append(el('p', '已核实 Worker 交付关联', 'version-associated version-detail'));
     for (const task of tasks) {
       const entry = el('section', undefined, 'version-task');
       entry.append(button(`查看 Worker ${workerLabel(task)}`, () => detail(task.id), 'version-task-link',
         { help: '打开这次交付对应的 Worker 详情，查看开发过程与结果；不启动 Agent。' }),
-      el('p', text(task.goal, '（无 Worker 目标）'), 'version-goal'));
-      if (task.goal_truncated) entry.append(el('p', 'Worker 目标已截断，可在详情中查看完整内容。', 'hint'));
+      el('p', text(task.goal, '（无 Worker 目标）'), 'version-goal version-detail'));
+      if (task.goal_truncated) entry.append(el('p', 'Worker 目标已截断，可在详情中查看完整内容。', 'hint version-detail'));
       if (task.input) {
-        const input = el('details', undefined, 'version-input');
+        const input = el('details', undefined, 'version-input version-detail');
         input.append(el('summary', `原始指令 ${inputNumber(task.input.id)}`), el('p', text(task.input.content, '（空输入）'), 'version-order'));
         if (task.input.truncated || task.input.content_truncated) input.append(el('p', '原始指令内容已截断。', 'hint'));
         entry.append(input);
@@ -41,7 +45,8 @@ export function renderVersionCommit(commit) {
       card.append(entry);
     }
   }
-  if (commit.subject_truncated || commit.author?.name_truncated) card.append(el('p', '提交摘要或作者信息已截断。', 'hint'));
+  if (commit.subject_truncated || commit.author?.name_truncated) card.append(el('p', '提交摘要或作者信息已截断。', 'hint version-detail'));
+  showDetails(card, detailed);
   return card;
 }
 
@@ -60,13 +65,14 @@ export function openVersions() {
   if (ui.versionsPage?.view === view) return ui.versionsPage.pending || Promise.resolve();
   const page = el('div', undefined, 'versions-page'), header = el('header', undefined, 'versions-head');
   const copy = el('div');
-  copy.append(el('h1', '版本迭代'), el('p', 'main 主线 · 最新在前。每条记录代表一个主线提交，侧分支内部开发提交不混入列表；同一 Worker 的多次交付分别保留。', 'hint'));
+  copy.append(el('h1', '版本迭代'), el('p', 'main 主线 · 最新在前。勾选详情模式查看提交信息与原始指令。', 'hint'),
+    el('p', '每条记录代表一个主线提交，侧分支内部开发提交不混入列表；同一 Worker 的多次交付分别保留。', 'hint version-detail'));
   const feedback = el('p', undefined, 'versions-feedback hint'); feedback.setAttribute('role', 'status');
-  const tip = el('p', undefined, 'version-tip hint');
+  const tip = el('p', undefined, 'version-tip hint version-detail');
   const list = el('ol', undefined, 'versions-list'); list.setAttribute('aria-label', 'main 主线提交历史');
   const empty = el('p', undefined, 'hint'); empty.hidden = true;
   const footer = el('div', undefined, 'versions-footer');
-  const state = { view, pending: null, request: 0, tip: null, cursor: null, count: 0, loaded: false, hasMore: false };
+  const state = { view, pending: null, request: 0, tip: null, cursor: null, count: 0, loaded: false, hasMore: false, detailed: false };
   ui.versionsPage = state;
   const ownsPage = () => ui.view === view && ui.versionsPage === state;
   const load = (more = false) => {
@@ -83,7 +89,7 @@ export function openVersions() {
         const data = checkedPage(await api(`/api/versions?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`));
         if (!current()) return;
         if (more && data.tip !== state.tip) throw new Error('历史分页基线发生变化，请刷新后重新读取。');
-        const cards = data.commits.map(renderVersionCommit);
+        const cards = data.commits.map(commit => renderVersionCommit(commit, { detailed: state.detailed }));
         if (!more) { list.replaceChildren(); state.count = 0; }
         list.append(...cards); state.count += cards.length;
         state.tip = data.tip; state.cursor = data.cursor; state.hasMore = data.has_more; state.loaded = true;
@@ -115,7 +121,19 @@ export function openVersions() {
   moreButton.onclick = () => { moreButton.textContent = '加载更早版本'; return load(true); };
   moreButton.setAttribute('data-help', MORE_HELP); moreButton.hidden = true;
   const moreHost = el('span', undefined, 'help-host'); moreHost.setAttribute('data-help', MORE_HELP); moreHost.append(moreButton);
-  footer.append(moreHost); header.append(copy, refreshButton); page.append(header, feedback, tip, empty, list, footer);
+  const controls = el('div', undefined, 'versions-controls');
+  const mode = el('label', undefined, 'versions-mode');
+  const checkbox = el('input'); checkbox.type = 'checkbox'; checkbox.checked = state.detailed;
+  checkbox.onchange = () => {
+    if (!ownsPage()) return;
+    state.detailed = checkbox.checked;
+    page.classList.toggle('versions-detailed', state.detailed);
+    showDetails(page, state.detailed);
+  };
+  mode.append(checkbox, el('span', '详情模式'));
+  controls.append(mode, refreshButton);
+  footer.append(moreHost); header.append(copy, controls); page.append(header, feedback, tip, empty, list, footer);
+  showDetails(page, state.detailed);
   $('detail').replaceChildren(page);
   return load();
 }

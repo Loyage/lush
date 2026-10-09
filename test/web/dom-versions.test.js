@@ -2,6 +2,7 @@ import { test, expect, afterAll } from 'bun:test';
 import fs from 'node:fs';
 import { installDom, deepText } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
+import { until } from '../helpers.js';
 
 const sha = char => char.repeat(40);
 const commit = (char = 'a', tasks = []) => ({ commit: sha(char), short_commit: char.repeat(7), parents: [],
@@ -27,6 +28,9 @@ afterAll(() => dom.restore());
 const text = () => deepText(dom.node('detail'));
 const refresh = () => dom.node('detail').querySelector('.versions-refresh');
 const more = () => dom.node('detail').querySelector('.versions-more');
+const mode = () => dom.node('detail').querySelector('.versions-mode').querySelector('input');
+const toggleMode = detailed => { mode().checked = detailed; mode().onchange(); };
+const details = () => dom.node('detail').querySelectorAll('.version-detail');
 const reset = () => { intercept = null; data = fixture(); activateDetailView({ view: 'overview' }); };
 const selected = () => [...['overview', 'task-graph', 'versions', 'agent-status', 'settings', 'docs'].map(key => [key, dom.node(`${key}-open`)]), ...ui.navButtons]
   .filter(([, node]) => node.classList.contains('selected')).map(([key]) => key);
@@ -50,6 +54,74 @@ test('版本迭代平级导航、hash、页面身份、移动端与只读轮询�
   dom.location.hash = '#workers'; await dom.fire('hashchange'); expect(selected()).toEqual(['tasks']);
   dom.location.hash = '#versions'; await dom.fire('hashchange'); expect(selected()).toEqual(['versions']);
   expect(paths.length).toBe(before + 2);
+});
+
+test('默认简易模式只留摘要、时间和追溯入口；详情切换不发请求、不重建卡片', async () => {
+  reset(); await openVersions(); const before = paths.length;
+  const page = dom.node('detail').querySelector('.versions-page');
+  const cards = dom.node('detail').querySelectorAll('.version-commit');
+  expect(mode().type).toBe('checkbox'); expect(mode().checked).toBe(false);
+  expect(page.classList.contains('versions-detailed')).toBe(false);
+  expect(details().every(node => node.hidden)).toBe(true);
+  expect(cards[0].querySelector('h2').hidden).toBe(false);
+  expect(cards[0].querySelector('time').hidden).toBe(false);
+  expect(cards[0].querySelector('.version-task-link').hidden).toBe(false);
+  expect(cards[1].querySelector('.version-unassociated').hidden).toBe(false);
+  toggleMode(true);
+  expect(page.classList.contains('versions-detailed')).toBe(true);
+  expect(details().every(node => !node.hidden)).toBe(true);
+  const input = cards[0].querySelector('.version-input'); input.open = true;
+  toggleMode(false); expect(input.hidden).toBe(true);
+  toggleMode(true); expect(input.open).toBe(true); expect(input.hidden).toBe(false);
+  expect(dom.node('detail').querySelectorAll('.version-commit')).toEqual(cards);
+  expect(paths.length).toBe(before); expect(ui.versionsPage.count).toBe(2);
+});
+
+test('分页、刷新和失败保留当前模式；离页重新进入默认简易模式', async () => {
+  reset(); await openVersions(); toggleMode(true);
+  data = { ...fixture(), commits: [commit('c', [task])], cursor: null, has_more: false };
+  await more().onclick(); expect(details().every(node => !node.hidden)).toBe(true);
+  await refresh().onclick(); expect(mode().checked).toBe(true);
+  expect(details().every(node => !node.hidden)).toBe(true);
+  intercept = () => Promise.reject(new Error('测试模式读取失败'));
+  await refresh().onclick(); expect(mode().checked).toBe(true);
+  toggleMode(false); expect(details().every(node => node.hidden)).toBe(true);
+  expect(text()).toContain('读取失败');
+  reset(); await openVersions(); expect(mode().checked).toBe(false);
+});
+
+test('读取期间切换按响应到达时的模式展示，不改变请求身份与游标', async () => {
+  reset(); const first = deferred(); intercept = () => first.promise;
+  const opening = openVersions(); toggleMode(true);
+  first.resolve(json(fixture())); await opening;
+  expect(details().every(node => !node.hidden)).toBe(true);
+  const pending = deferred(); intercept = () => pending.promise;
+  const cursor = ui.versionsPage.cursor, before = paths.length;
+  const paging = more().onclick(); toggleMode(false);
+  pending.resolve(json({ ...fixture(), commits: [commit('c', [task])], cursor: null, has_more: false }));
+  await paging;
+  expect(paths.length).toBe(before + 1); expect(paths.at(-1)).toContain(encodeURIComponent(cursor));
+  expect(details().every(node => node.hidden)).toBe(true);
+  expect(dom.node('detail').querySelectorAll('.version-commit')).toHaveLength(3);
+});
+
+test('输入框创建或立即开始后留在版本页，保留模式、历史卡片和指令展开状态', async () => {
+  reset(); await openVersions(); const before = paths.length;
+  const view = ui.view, state = ui.versionsPage, cards = dom.node('detail').querySelectorAll('.version-commit');
+  const order = cards[0].querySelector('.version-input'); order.open = true;
+  for (const detailed of [false, true]) for (const start of [false, true]) {
+    toggleMode(detailed);
+    const input = dom.node('input'); input.value = '从版本页发射，不打断历史阅读'; input.oninput(); input.focus();
+    await input.onkeydown({ key: 'Enter', ctrlKey: true, shiftKey: start, preventDefault() {} });
+    await until(() => !ui.busy); await Promise.resolve();
+    expect(world.state.actions.at(-1)).toMatchObject({ method: 'order.submit', params: { start } });
+    expect(ui.view).toBe(view); expect(dom.location.hash).toBe('#versions');
+    expect(ui.versionsPage).toBe(state); expect(mode().checked).toBe(detailed);
+    expect(dom.node('detail').querySelectorAll('.version-commit')).toEqual(cards);
+    expect(order.open).toBe(true); expect(order.hidden).toBe(!detailed);
+    expect(input.value).toBe(''); expect(document.activeElement).toBe(input);
+    expect(paths.length).toBe(before);
+  }
 });
 
 test('固定 tip 游标分页，重复 Task 的不同交付保留，刷新替换历史', async () => {

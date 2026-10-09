@@ -9,7 +9,7 @@ const f = fixture(), logs = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-versions
 const output = path.resolve(process.argv[2] || path.join(logs, 'screenshots'));
 fs.mkdirSync(output, { recursive: true });
 const assets = new URL('../src/ui/web/assets/', import.meta.url).pathname;
-let server, driver, session, base, tree, head, passed = false;
+let server, driver, session, base, tree, head, reads = 0, passed = false;
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 async function rpc(route, body, method = 'POST') {
   // Loopback requests must not inherit outbound proxies.
@@ -66,6 +66,7 @@ try {
     if (url.pathname === '/') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
     if (/^\/assets\/[\w.-]+\.(js|css)$/.test(url.pathname)) return new Response(Bun.file(path.join(assets, path.basename(url.pathname))));
     if (url.pathname === '/api/versions') {
+      reads++;
       try { return Response.json(await f.project.branchHistory({ limit: Number(url.searchParams.get('limit')), ...(url.searchParams.has('cursor') ? { cursor: url.searchParams.get('cursor') } : {}) })); }
       catch (error) { return Response.json({ error: error.message }, { status: 400 }); }
     }
@@ -85,20 +86,31 @@ try {
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` }); await waitFor('window.ready');
   assert(await execute('return document.querySelectorAll(".version-commit").length===50'), 'first page must contain 50 commits');
+  assert(await execute(`return !document.querySelector('.versions-mode input').checked && document.querySelector('.version-input').hidden && document.querySelector('.version-sha').hidden`), 'default must be compact');
+  const firstReads = reads;
+  const compactHeight = await execute(`return document.querySelector('.versions-list').getBoundingClientRect().height`);
+  await click('.versions-mode input');
+  assert(await execute(`return !document.querySelector('.version-input').hidden && !document.querySelector('.version-sha').hidden`), 'detail mode did not reveal metadata');
+  const detailedHeight = await execute(`return document.querySelector('.versions-list').getBoundingClientRect().height`);
+  assert(compactHeight < detailedHeight * 0.6, `compact history is not dense enough: ${compactHeight}/${detailedHeight}`);
   await click('.version-input summary'); await click('.version-task-link');
   assert(await execute(`return window.openedTask===${task.id} && !window.injected && document.querySelector('.version-order').textContent.includes('<script>')`), 'Worker navigation or safe original order rendering failed');
-  for (const theme of ['light', 'dark']) for (const [width, height] of [[1440,900], [900,700], [390,844]]) {
+  for (const theme of ['light', 'dark']) for (const [width, height] of [[1440,900], [900,700], [390,844]]) for (const detailed of [false, true]) {
+    if (await execute(`return document.querySelector('.versions-mode input').checked !== ${detailed}`)) await click('.versions-mode input');
     await rpc(`/session/${session}/window/rect`, { width, height });
     await execute(`document.documentElement.dataset.theme='${theme}';document.querySelector('#detail').scrollTop=0;window.scrollTo(0,0);`);
     const layout = await execute(`const c=document.querySelector('.version-commit'),p=document.querySelector('.versions-page'),r=c.getBoundingClientRect();return {width:innerWidth,left:r.left,right:r.right,card:c.scrollWidth-c.clientWidth,page:p.scrollWidth-p.clientWidth,overflow:document.documentElement.scrollWidth-innerWidth};`);
     assert(layout.left >= 0 && layout.right <= layout.width + 1 && layout.card <= 1 && layout.page <= 1 && layout.overflow <= 1, `layout overflow ${theme}/${width}: ${JSON.stringify(layout)}`);
-    await screenshot(`${theme}-${width}`); console.log(`PASS versions layout ${theme}/${width}`);
+    assert(await execute(`return document.querySelector('.version-input').open && document.querySelector('.version-input').hidden === ${!detailed} && getComputedStyle(document.querySelector('.version-sha')).display ${detailed ? '!==' : '==='} 'none'`), 'detail visibility or original order expansion was lost');
+    await screenshot(`${theme}-${width}-${detailed ? 'detailed' : 'compact'}`); console.log(`PASS versions layout ${theme}/${width}/${detailed ? 'detailed' : 'compact'}`);
   }
+  assert(reads === firstReads, 'mode changes must not refetch history');
   await commit('new main commit after first page');
   await click('.versions-more'); await waitFor('document.querySelectorAll(".version-commit").length===53');
-  assert(await execute(`return document.querySelector('.version-tip').textContent.includes('${initial}') && !document.querySelector('.versions-list').textContent.includes('new main commit')`), 'pagination did not preserve initial tip');
+  assert(await execute(`return document.querySelector('.version-tip').textContent.includes('${initial}') && !document.querySelector('.versions-list').textContent.includes('new main commit') && [...document.querySelectorAll('.version-detail')].every(n=>!n.hidden)`), 'pagination did not preserve initial tip or detail mode');
+  await click('.versions-mode input');
   await click('.versions-refresh'); await waitFor('document.querySelector(".versions-list").textContent.includes("new main commit")');
-  assert(await execute(`return document.querySelectorAll('.version-commit').length===50 && document.querySelector('.version-tip').textContent.includes('${head}')`), 'refresh did not replace snapshot');
+  assert(await execute(`return document.querySelectorAll('.version-commit').length===50 && document.querySelector('.version-tip').textContent.includes('${head}') && !document.querySelector('.versions-mode input').checked && [...document.querySelectorAll('.version-detail')].every(n=>n.hidden)`), 'refresh did not replace snapshot or preserve compact mode');
   assert((await git(f.root, 'rev-parse', 'HEAD')) === head, 'read changed main');
   assert(await execute('return window.browserErrors.length===0'), 'browser emitted errors');
   passed = true; console.log(`PASS real Git paging, fixed tip, explicit refresh, safe order and Worker navigation. Screenshots: ${output}`);
