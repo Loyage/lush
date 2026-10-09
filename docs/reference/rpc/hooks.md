@@ -50,7 +50,7 @@ Hook 只引用 `{type:'command',command_id:'UUID',command_version:1}`，启用�
 
 `command_example` 为 `{template_id,worker_id,hook_id,hooks}`，无 main 为 null。示例首次初始化为默认关闭的持续模板与 main 挂载；读取不安装，被用户删除不重装。项目页面启停示例时使用 **command_example.hooks.revision**，不是模板 revision。
 
-定义使用 `trigger:'worker.merge_received'`（父 Worker 收到成功合并）和 `actions:[{type:'command',command_id:'UUID',command_version:1}]`；动作支持节点以目录为准。新项目先注册未授权的 `git push` 快捷指令，再由示例引用；旧项目示例需要显式导入及重新授权。Hook 不配置 remote/upstream/认证，命令业务语义由用户自己决定。Shell 在挂载目录以 daemon 系统用户权限执行，不是沙箱，不调用 Agent；启用前需明确授权，不自动重放失败或未知副作用。
+定义使用 `trigger:'worker.merge_received'`（父 Worker 收到成功合并）和 `actions:[{type:'command',command_id:'UUID',command_version:1}]`；动作支持节点以目录为准。新项目默认注册并授权内置 `git push` 快捷指令，再由停用示例引用；旧项目未修改的默认示例在启动时一次性导入／授权，不恢复用户撤权、修改或删除，不重放旧触发。其他内联命令仍须显式导入并授权。Hook 不配置 remote/upstream/认证，命令业务语义由用户自己决定。Shell 在挂载目录以 daemon 系统用户权限执行，不是沙箱，不调用 Agent；启用前需明确授权，不自动重放失败或未知副作用。
 
 完整编辑使用 `worker.hook_update {id,hook_id,hook:{name,trigger,mode,enabled,conditions?,actions,schedule?},expected_revision}`；不得同时提供 enabled。保留挂载 id，同位置省略 profile 保留已存私有覆盖。创建副本用新模板/挂载定义且 enabled=false，不携带原挂载状态或执行记录。示例用户流程见[自动化示例](../../hooks.md#示例main-合并后自动推送)。
 

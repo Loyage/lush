@@ -48,7 +48,7 @@ async function deliver(f, mainId, name) {
   expect(f.store.task(task.id).integration).toBe('merged'); return task;
 }
 
-test('HTTP git push is registered before its Hook, requires separate authorization and pushes each successful merge to a local bare remote', async () => {
+test('HTTP built-in git push is pre-authorized but its Hook stays off until explicitly enabled, then pushes each successful merge', async () => {
   const f = await prepare();
   try {
     const remote = path.join(f.config.home, 'http-remote.git');
@@ -58,18 +58,16 @@ test('HTTP git push is registered before its Hook, requires separate authorizati
     const mainId = example.worker_id, hookId = example.hook_id;
     const command = catalogue.commands.items.find(item => item.command === 'git push');
     const initial = example.hooks.mounts.find(m => m.id === hookId);
-    expect(command).toMatchObject({ authorized: false, version: 1 });
+    expect(command).toMatchObject({ authorized: true, version: 1 });
     expect(initial).toMatchObject({ enabled: false, trigger: 'worker.merge_received', actions: [reference(command)] });
     expect(Object.hasOwn(initial.actions[0], 'command')).toBe(false);
     expect(await get(f, `/api/worker/${mainId}/hooks`)).toEqual(example.hooks);
     const beforeEvents = f.store.history(mainId).length;
     await get(f, '/api/hooks'); await get(f, `/api/worker/${mainId}/hooks`);
     expect(f.store.history(mainId)).toHaveLength(beforeEvents);
-    await post(f, 'worker.hook_update', { id: mainId, hook_id: hookId, enabled: true, expected_revision: example.hooks.revision }, 400);
     await deliver(f, mainId, 'disabled');
     expect(await git(remote, 'rev-parse', 'main')).not.toBe(await git(f.root, 'rev-parse', 'main'));
 
-    await authorize(f, command);
     example = (await get(f, '/api/hooks')).command_example;
     const enabled = await updateMount(f, mainId, hookId, { enabled: true });
     expect(enabled.mounts.find(m => m.id === hookId).enabled).toBe(true);

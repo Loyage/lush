@@ -431,6 +431,9 @@ export default {
     this.recoverShortcutCommands();
     this.recoverScheduledTaskHooks();
     this.recoverCommandTaskHooks();
+    // A built-in legacy push may have been running at bootstrap. Upgrade only
+    // after recovery has preserved its known/unknown result, never replay it.
+    this.initializeCommandHookExample();
     for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL')) {
       for (const mount of parse(task).mounts) if (mount.state === 'running' && !mount.schedule && !hasCommand(mount)) {
         const created = this.store.get("SELECT data FROM events WHERE task_id=? AND type='hook.worker_created' AND json_extract(data,'$.execution_id')=? ORDER BY id DESC LIMIT 1", task.id, mount.last_execution.id);

@@ -26,11 +26,17 @@ export default {
   /** Called only from startup bootstrap, never from read APIs. Tombstone prevents reinstall after deletion. */
   initializeCommandHookExample() {
     const main = this.store.get("SELECT * FROM tasks WHERE task_kind='main' AND branch='main' ORDER BY id LIMIT 1");
-    if (!main || this.store.get("SELECT value FROM meta WHERE key='command_hook_example'")) return;
+    if (!main) return;
+    const installed = JSON.parse(this.store.get("SELECT value FROM meta WHERE key='command_hook_example'")?.value ?? 'null');
+    if (installed) {
+      if (installed.version === 1) this.upgradeDefaultPushCommand(main, installed);
+      return;
+    }
     this.store.transaction(() => {
       const templates = JSON.parse(this.store.get("SELECT value FROM meta WHERE key='hook_templates'")?.value ?? '{"version":1,"templates":[]}');
       const commands = this.saveShortcutCommand({ name: 'git push', command: 'git push' }, this.shortcutCommands().revision).commands;
       const command = commands.items.at(-1);
+      this.authorizeShortcutCommand(command.id, command.version, true, this.shortcutCommands().revision);
       const data = read(main), templateId = randomUUID(), hookId = randomUUID();
       const definition = { name: 'main 合并后 git push', trigger: 'worker.merge_received', mode: 'persistent', enabled: false,
         conditions: {}, actions: [{ type: 'command', command_id: command.id, command_version: command.version }] };
@@ -38,8 +44,44 @@ export default {
       data.mounts.push({ ...structuredClone(definition), id: hookId, state: 'idle', created_at: timestamp(), last_execution: null });
       save(this, main.id, data);
       this.store.run("INSERT INTO meta(key,value) VALUES ('hook_templates',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", JSON.stringify(templates));
-      this.store.run("INSERT INTO meta(key,value) VALUES ('command_hook_example',?)", JSON.stringify({ version: 1, template_id: templateId, worker_id: main.id, hook_id: hookId }));
+      this.store.run("INSERT INTO meta(key,value) VALUES ('command_hook_example',?)", JSON.stringify({ version: 2, template_id: templateId, worker_id: main.id, hook_id: hookId }));
       this.store.event(main.id, 'hook.command_example_installed', { template_id: templateId, hook_id: hookId });
+    });
+  },
+
+  /** One-time upgrade of installed built-ins only, never user commands, reads or deleted identities. */
+  upgradeDefaultPushCommand(main, installed) {
+    if (installed.worker_id !== main.id) return;
+    const data = read(main), mount = data.mounts.find(m => m.id === installed.hook_id);
+    if (mount?.state === 'running') return; // Recovery must settle unknown legacy effects first.
+    this.store.transaction(() => {
+      const templates = JSON.parse(this.store.get("SELECT value FROM meta WHERE key='hook_templates'")?.value ?? '{"version":1,"templates":[]}');
+      const template = templates.templates.find(t => t.id === installed.template_id)?.definition;
+      const definitions = [mount, template].filter(Boolean);
+      const defaults = definitions.filter(h => h.actions.length === 1 && h.actions[0].type === 'command');
+      const referenced = defaults.map(h => h.actions[0]).find(a => a.command === undefined && a.command_version === 1
+        && this.shortcutCommands().items.some(c => c.id === a.command_id && c.version === 1 && c.name === 'git push' && c.command === 'git push'));
+      const inline = defaults.filter(h => h.actions[0].command === 'git push');
+      let command = referenced && this.shortcutCommands().items.find(c => c.id === referenced.command_id);
+      if (!command && inline.length) command = this.saveShortcutCommand({ name: 'git push', command: 'git push' }, this.shortcutCommands().revision).commands.items.at(-1);
+      if (command) {
+        // A user's prior explicit revocation is not superseded by installing this release.
+        const revoked = this.store.get("SELECT id FROM events WHERE type='shortcut.command_authorized' AND json_extract(data,'$.command_id')=? AND json_extract(data,'$.authorized')=0 LIMIT 1", command.id);
+        if (!command.authorized && !revoked) this.authorizeShortcutCommand(command.id, command.version, true, this.shortcutCommands().revision);
+        for (const definition of inline) {
+          definition.actions = [{ type: 'command', command_id: command.id, command_version: command.version }];
+          definition.enabled = false;
+        }
+        if (inline.includes(mount)) {
+          mount.command_cursor = this.store.get("SELECT max(id) AS id FROM events WHERE task_id=? AND type='hook.command_submitted' AND json_extract(data,'$.hook_id')=?", main.id, mount.id)?.id ?? 0;
+          mount.command_pending = 0; mount.command_last_source = this.store.get('SELECT max(id) AS id FROM events')?.id ?? 0;
+          if (mount.state === 'waiting') mount.state = 'idle';
+          if (mount.state === 'idle') mount.reason = null;
+          save(this, main.id, data);
+        }
+        if (inline.includes(template)) this.store.run("UPDATE meta SET value=? WHERE key='hook_templates'", JSON.stringify(templates));
+      }
+      this.store.run("UPDATE meta SET value=? WHERE key='command_hook_example'", JSON.stringify({ ...installed, version: 2 }));
     });
   },
 

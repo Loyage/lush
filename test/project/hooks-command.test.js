@@ -65,7 +65,7 @@ test('startup installs exactly one disabled persistent template/main mount; read
     expect(example.worker_id).toBe(main.id);
     expect(example.hooks.mounts.find(m => m.id === example.hook_id)).toMatchObject({ enabled: false, mode: 'persistent',
       actions: [{ type: 'command', command_id: initial.commands.items[0].id, command_version: 1 }], trigger: 'worker.merge_received' });
-    expect(initial.commands.items[0]).toMatchObject({ name: 'git push', command: 'git push', authorized: false });
+    expect(initial.commands.items[0]).toMatchObject({ name: 'git push', command: 'git push', authorized: true });
     expect(initial.templates.find(t => t.id === example.template_id)).toMatchObject({ enabled: false, mode: 'persistent' });
     await f.project.bootstrapMain(); expect(f.project.hooksList().revision).toBe(initial.revision);
     const history = f.store.history(main.id).length;

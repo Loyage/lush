@@ -4,7 +4,7 @@
 
 ## 授权与版本
 
-快捷指令是项目 meta 的附属 versioned JSON，不新增核心实体、Host 调度或 Agent 权限。保存 `{id?,name,command}`，新增和修改均不授权；修改内容或名称递增正整数 `version` 并撤权。单独授权或撤权当前版本。删除使引用不可执行，不复用身份。
+快捷指令是项目 meta 的附属 versioned JSON，不新增核心实体、Host 调度或 Agent 权限。保存 `{id?,name,command}`，普通新增和修改均不授权；内置默认 `git push` 按用户追加要求在初始化时授权，Hook 仍默认停用；修改内容或名称递增正整数 `version` 并撤权。单独授权或撤权当前版本。删除使引用不可执行，不复用身份。
 
 Hook Shell 动作新形为 `{type:'command',command_id:UUID,command_version:正整数}`，不得提交内联 command、运行目录、额外参数或 Shell 拼接。保存模板/挂载必须检查引用存在及版本；未授权版本可保存停用配置，但启用、提交及真正 spawn 前必须核验授权与版本。修改后不自动更新已有 Hook 的引用。撤权不承诺取消已开始的副作用，不自动重放旧触发。
 
@@ -37,7 +37,7 @@ CLI 使用 `hooks command list`（复用 hooks.list）、`save --file PATH --rev
 
 ## 旧配置与 git push
 
-旧内联命令保留用于展示、显式导入与历史诊断，但不得再执行或启用。启动接缝停止旧命令未来执行；不得把读取当迁移，不重写历史收据，不重放未知/已发生触发。新项目先注册未授权 `git push` 快捷指令，再保存默认关闭的 main 模板和挂载，引用该指令版本。已有示例通过显式导入切换；旧删除 tombstone 仍有效，不重装已删除项。
+旧内联命令保留用于展示、显式导入与历史诊断，但不得再执行或启用。启动接缝停止旧命令未来执行；不得把读取当迁移，不重写历史收据，不重放未知/已发生触发。W151 追加要求：新项目先默认注册并授权内置 `git push` 快捷指令，再保存默认关闭的 main 模板和挂载，引用该指令版本。已有未修改的默认模板／挂载或最初未授权版本在启动初始化时一次性导入／授权，`command_hook_example.version=2` 标记升级已处理；只处理持久登记的内置身份，不处理用户副本或其他命令。用户已撤权、修改或删除的配置不恢复；旧触发全部丢弃，历史与未知收据保留。运行中旧命令先由恢复流程收口为 unknown 后才能导入。读取不执行升级，旧删除 tombstone 仍有效，不重装已删除项。其他旧命令仍需显式导入并授权。
 
 ## 界面与分区
 
@@ -56,8 +56,16 @@ CLI 使用 `hooks command list`（复用 hooks.list）、`save --file PATH --rev
 
 完整 `bun run test --timeout 30000`：**2582 pass / 0 fail**，336 文件；日志 `/tmp/lush-w151-logs/full-final.log`。首次全量仅两个旧内联 HTTP 联调测试失败（`/tmp/lush-w151-logs/full-initial.log`），已迁移为注册、授权及明确版本引用并新增手动／导入回归；最终完整重跑通过。未调用真实模型、连接真实推送 remote 或重启用户 daemon/Host，真实浏览器交互仍未验证。
 
+### 默认推送追加要求
+
+用户追加要求内置默认 `git push` 自动导入并授权，以便直接启用 main 的推送 Hook。本项覆盖上面首次交付的默认未授权行为：普通命令授权不变，推送 Hook 仍默认关闭。新增 `test/project/default-push-command.test.js` 覆盖默认即授权、旧默认一次性升级、内置模板与挂载共用一项指令、读取纯度、用户副本不升级、用户撤权／编辑／删除不恢复、积压触发丢弃、启动期间原 running 收口 unknown 后完成导入而不重放。真实 HTTP 联调直接启用默认 Hook 并推送到临时 bare remote，不再先手工授权。
+
+专项 **39 pass / 0 fail**（`/tmp/lush-w151-logs/default-push-focused.log`）；最终完整 `bun run test --timeout 30000` **2595 pass / 0 fail**，339 文件（`/tmp/lush-w151-logs/default-push-full.log`）。未重启用户服务，运行中的旧 daemon 须加载新版本后才执行一次性初始化；真实浏览器仍未验证。
+
 ### 固定父基线修复
 
 交付 13042／尝试 13045 在 W151 源工作区合入固定父提交 `4a1f132`，保留原源提交 `873ad3d`；共同祖先 `23c2bf8`。逐项检查双方含改名增量：父侧增加设备共享连接最新余额文件及本地读取，未发现符号改名、公共接口迁移或架构冲突，无文本冲突。快捷指令授权仍保存在当前项目 meta，不随连接余额改为设备共享；自动化的刷新时间选择器仍只消费同形 `connection.observation`，失败不使用 `last_success` 填入，因而无需代码适配。双方 Runtime 模块条目均保留。
 
 合入后专项 **77 pass / 0 fail**（`/tmp/lush-w151-logs/repair-focused.log`）；完整 `bun run test --timeout 30000` **2590 pass / 0 fail**，338 文件（`/tmp/lush-w151-logs/repair-full.log`）；文档检查通过（既有篇幅警告，`/tmp/lush-w151-logs/repair-docs.log`）。未验证真实浏览器、真实模型或网络 remote，未修改父分支或重启用户服务。
+
+交付 13091／尝试 13094 合入固定父提交 `4ac2c86`，保留追加源提交 `d30236a`；共同祖先 `4a1f132`。双方增量检查确认固定父代码树与上一源交付 `bd8257d` 完全一致，是同一成果的 squash，没有改名或接口迁移。Git 因历史关系产生八处内容／添加冲突，逐项保留本轮默认推送授权、一次性升级及相应文档／测试；合入后的代码树与 `d30236a` 一致，无额外语义适配。专项 **79 pass / 0 fail**（`/tmp/lush-w151-logs/default-repair-focused.log`），完整 **2595 pass / 0 fail**、339 文件（`/tmp/lush-w151-logs/default-repair-full.log`），文档检查通过（既有篇幅警告）。真实浏览器及外部 remote 仍未验证，未操作父分支或用户服务。
