@@ -33,7 +33,7 @@ const events = new Map();
 dom.document.addEventListener = (type, fn) => { const list = events.get(type) || new Set(); list.add(fn); events.set(type, list); };
 dom.document.removeEventListener = (type, fn) => events.get(type)?.delete(fn);
 const fire = type => { for (const fn of [...(events.get(type) || [])]) fn(); };
-const { ui, transcriptOpen, transcriptCache } = await import('../../src/ui/web/assets/state.js');
+const { ui, resetUiState, transcriptOpen, transcriptCache } = await import('../../src/ui/web/assets/state.js');
 const { loadDetail } = await import('../../src/ui/web/assets/detail.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const panel = dom.node('detail');
@@ -47,7 +47,10 @@ const slowExtras = () => {
   return gates;
 };
 const settle = gates => { gates.history.resolve(json(history)); gates.diff.resolve(json(diff)); gates.usage.resolve(json(usage)); gates.connections.resolve(json(connections)); };
+const openDiff = () => { const fold = panel.querySelector('.detail-diff'); fold.open = true; return fold.ontoggle(); };
 beforeEach(() => {
+  resetUiState();
+  panel.replaceChildren(); delete panel.dataset.taskId;
   intercept = null; requests = []; ui.view = null; ui.detailTask = null; ui.transcriptView = null;
   ui.deletedWorkerIds.clear(); ui.noticeFocus = null; ui.composerTask = null; ui.syncComposer = null;
   transcriptOpen.clear(); transcriptCache.clear(); dom.document.activeElement = null;
@@ -66,6 +69,9 @@ test('主体一到即显示目标、状态、结果和操作并返回 true；慢
     expect(deepText(panel)).toContain('原始目标 71'); expect(deepText(panel)).toContain('正文结果 71');
     expect(panel.querySelector('.task-actions')).toBeTruthy(); expect(panel.querySelector('.task-stats')).toBeTruthy();
     expect(ui.composerTask.id).toBe(71);
+    expect(requests[0]).toBe('/api/worker/71');
+    expect(requests.some(url => url.endsWith('/diff'))).toBe(false);
+    openDiff();
     for (const text of ['历史加载中', '改动加载中', '用量加载中', '连接名称加载中']) expect(deepText(panel)).toContain(text);
     expect(deepText(panel)).not.toContain('未提交文件');
     expect(requests.some(url => url.includes('/transcript'))).toBe(false);
@@ -106,7 +112,7 @@ test('真实告知查看在主体成功后即 ACK 并开放下一条，不等详
     main.resolve(json(task())); await drain();
     expect(await Promise.race([opening, Promise.resolve('pending')])).toBeUndefined();
     expect(acknowledgements).toBe(1); expect(refreshes).toBe(1);
-    expect(deepText(panel)).toContain('正文结果 71'); expect(deepText(panel)).toContain('改动加载中');
+    expect(deepText(panel)).toContain('正文结果 71'); expect(deepText(panel)).toContain('打开后读取改动');
     expect(deepText(panel)).toContain('用量加载中');
     expect(deepText(banner)).toContain(first.title); expect(deepText(banner)).not.toContain(second.title);
     expect(banner.querySelector('.notice-banner-info').disabled).toBe(false);
@@ -130,7 +136,7 @@ test('未产出结果的 Worker 也能先打开，历史状态不会冒充已读
 
 test('补充失败明确不可用而非零消耗/零改动；主体失败不返回成功', async () => {
   intercept = url => /history|diff|usage|connections/.test(url) ? fail() : null;
-  expect(await loadDetail(71)).toBe(true); await drain();
+  expect(await loadDetail(71)).toBe(true); openDiff(); await drain();
   for (const text of ['历史不可用', '改动不可用', '用量不可用', '连接名称不可用']) expect(deepText(panel)).toContain(text);
   expect(deepText(panel)).not.toContain('累计 token'); expect(deepText(panel)).not.toContain('提交文件');
   expect(deepText(panel)).toContain('正文结果 71');
@@ -142,7 +148,7 @@ test('补充失败明确不可用而非零消耗/零改动；主体失败不返�
 test('历史、用量、改动和连接名补齐不替换正文、折叠、输入、焦点或滚动；详情选区期间暂缓', async () => {
   const gates = slowExtras();
   try {
-    expect(await loadDetail(71)).toBe(true);
+    expect(await loadDetail(71)).toBe(true); openDiff();
     const goal = panel.querySelector('.goal-panel'), result = panel.querySelector('.result-panel');
     const body = goal.querySelector('.goal-text');
     const goalFold = panel.querySelector('.goal-history'), resultFold = panel.querySelector('.result-history');
@@ -166,7 +172,7 @@ test('历史、用量、改动和连接名补齐不替换正文、折叠、输�
 test('焦点保护在 focusout 后补齐且不失去已展开预览', async () => {
   const gates = slowExtras();
   try {
-    await loadDetail(71);
+    await loadDetail(71); openDiff();
     const goal = panel.querySelector('.goal-panel');
     const toggle = goal.querySelector('.detail-preview-toggle'); toggle.onclick();
     const input = document.createElement('input'); panel.querySelector('.task-actions').append(input); input.focus();
@@ -226,7 +232,7 @@ test('已打开执行记录的终态尾读独立且只读取一次；关闭记�
 test('主体打开后进入全屏阅读，补充数据仍补齐隐藏详情而不触碰阅读器', async () => {
   const gates = slowExtras();
   try {
-    await loadDetail(71);
+    await loadDetail(71); openDiff();
     const reader = document.createElement('input'); reader.value = '执行记录内搜索词'; document.body.append(reader); reader.focus();
     const view = { taskId: 71, panel: reader }; ui.transcriptView = view;
     settle(gates); await drain();
@@ -246,7 +252,7 @@ test('渐进详情先展示规划历史；迟到主体和补充保留历史分�
   intercept = url => url === '/api/worker/71' ? (refreshing ? main.promise : json(enriched([20])))
     : url.includes('/progress-history?') ? json(plans([19], false)) : extras(url);
   try {
-    expect(await loadDetail(71)).toBe(true);
+    expect(await loadDetail(71)).toBe(true); openDiff();
     const section = panel.querySelector('.progress-history-panel');
     expect(deepText(section)).toContain('旧计划 20'); expect(deepText(panel)).toContain('改动加载中');
     const more = section.querySelector('.progress-history-controls').querySelector('button');

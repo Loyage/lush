@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { webStaticAssets } from './static-assets.js';
 import { canonicalProjectPath, launcherWebConfig, projectRouteId } from '../../host/registry.js';
 import { createProjectHost } from '../../host/project-host.js';
 import { docsIndex, docsSearchIndex, readDoc } from './docs.js';
@@ -12,24 +12,10 @@ import { DeviceSettingsService, DEVICE_SETTINGS_READS, DEVICE_SETTINGS_ACTIONS }
 import { normalizeConfigurationScope } from '../../core/device-config.js';
 import { workerLabel } from '../../cli/worker-number.js';
 import { workerNumber } from '../../core/worker-number.js';
-const ASSETS = fileURLToPath(new URL('./assets/', import.meta.url));
 const AUTH_FILE = 'web.json';
 const SESSION_COOKIE = 'lush_session';
 const SESSION_SECONDS = 12 * 60 * 60;
 const WEB_HOSTS = new WeakMap();
-/**
- * 前端资源按 basename 解析，新增模块只加文件、不改这张表——否则每个拆分 asset 的并行 worker
- * 都要动同一个 server.js，正是我们要消掉的那种冲突。扩展名白名单把目录穿越、dotfile
- * 与任意文件读取挡在外面：name 里不允许 '/'，只接受 .js / .css。
- */
-const ASSET_EXTENSIONS = new Set(['.js', '.css']);
-const ASSET_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-function assetFile(pathname) {
-  if (pathname === '/') return path.join(ASSETS, 'index.html');
-  const name = pathname.slice(1);
-  if (!ASSET_NAME.test(name) || !ASSET_EXTENSIONS.has(path.extname(name))) return null;
-  return path.join(ASSETS, name);
-}
 const MUTATIONS = new Set(['settings.clear_override','settings.migration.apply','quick_explain.configure','quick_explain.start','quick_explain.followup','quick_explain.delete','agent.network.configure','agent.configure','agent.environment.configure','agent.usage.configure','agent.connections.save','agent.connections.remove','agent.connections.sampling','agent.connections.query','agent.connections.models.refresh','agent.connections.login.start','agent.connections.login.finish','agent.connections.device.start','agent.connections.device.cancel','agent.connections.device.poll','agent.packages.install','agent.packages.remove','agent.packages.update','system.configure','hooks.save','hooks.remove','hooks.command_save','hooks.command_authorize','hooks.command_remove','hooks.command_run','hooks.command_import','hooks.auto_select','hooks.completion_defaults','hooks.signal_save','hooks.signal_remove','management.create','management.binding_update','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove','order.submit','draft.add','draft.update','draft.remove','worker.spawn','worker.message','worker.rename','worker.auto_merge','worker.reserve','worker.reserve_all','worker.resolve','worker.accept','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.resolve_divergence','worker.unreserve','worker.approve_merge','worker.cancel','worker.retry','worker.clear_override','worker.interrupt','worker.resume','worker.configure','worker.cleanup','worker.delete','notice.answer','notice.dismiss','notice.read','branch.archive']);
 const CORE_INPUT_READ = /^\/api\/input\/(draft|input)\/([1-9]\d*)$/;
 const CORE_QUICK_EXPLAIN_READ = /^\/api\/quick-explain\/[1-9]\d*$/;
@@ -177,6 +163,8 @@ export function startWeb(config, port = 4318, options = {}) {
   const authConfig = options.authConfig === undefined ? (config || launcherWebConfig(env)) : options.authConfig;
   const auth = authConfig ? loadAuth(authConfig, { launcher }) : null;
   const projectHost = options.projectHost || createProjectHost(config, { ...options, env, allowedProjects: launcher ? auth?.projects : null });
+  // Build once before listening; preserve the synchronous startWeb -> Bun server contract.
+  const staticAssets = webStaticAssets();
   const sessions = new Map();
   const failures = new Map();
   let hostRestarting = false;
@@ -551,8 +539,9 @@ export function startWeb(config, port = 4318, options = {}) {
             const found = readDoc(doc[1]);
             return found ? json(found) : json({ error: `no such document: ${doc[1]}` }, 404);
           }
-          const file = assetFile(url.pathname);
-          if (file && fs.existsSync(file) && fs.statSync(file).isFile()) return new Response(Bun.file(file), { headers });
+          // Static caches sit behind the same Host, Origin and authentication checks as APIs.
+          const asset = staticAssets.response(url.pathname, request, headers);
+          if (asset) return asset;
         }
         if (request.method === 'POST' && url.pathname === '/api/action') {
           check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');

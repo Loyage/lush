@@ -1,12 +1,11 @@
 # 模块地图：Web 前端
 
-本章是 `src/ui/web/assets/` 的职责与导出清单。浏览器端使用原生 ES module，不经过打包。修改执行过程相关模块前，必须先读[设计理念](../design/agent-process.md)与[阅读器边界](transcript-reader.md)。修改按钮文案、图标、样式或 `agent-call` 标识前，必须先读[按钮帮助与 Agent 触发标识](../design/ui-guidance.md)。修改通知、分类渠道设置、已读与滑动消除前，必须先读[通知与告知](../design/notices.md)。公开面以[核心 API 收敛](core-api.md)与 `src/rpc/registry.js` 为准；**下面涉及旧批量草稿、Intent / Plan、介绍、托管模式、统计面板与旧一键合并的行都是历史遗留实现**：文件仍在源码与测试里，但没有公开入口，不能当作当前可操作的界面。
+本章是 `src/ui/web/assets/` 的职责与导出清单。源码使用原生 ES module，Host 用 Bun 内置构建发布内容版本化的共享/动态拆包。修改执行过程相关模块前，必须先读[设计理念](../design/agent-process.md)与[阅读器边界](transcript-reader.md)。修改按钮文案、图标、样式或 `agent-call` 标识前，必须先读[按钮帮助与 Agent 触发标识](../design/ui-guidance.md)。修改通知、分类渠道设置、已读与滑动消除前，必须先读[通知与告知](../design/notices.md)。公开面以[核心 API 收敛](core-api.md)与 `src/rpc/registry.js` 为准；**下面涉及旧批量草稿、Intent / Plan、介绍、托管模式、统计面板与旧一键合并的行都是历史遗留实现**：文件仍在源码与测试里，但没有公开入口，不能当作当前可操作的界面。
 
 > 模块地图：[总览](modules.md) → [Runtime 与持久化](modules-runtime.md) → **Web 前端** → [CLI、RPC 与测试](modules-interfaces.md)
 
 
-浏览器端 ES module，无打包器：`index.html` 先以 module 加载 `/appearance.js`（head 中定主题）再加载 `/app.js`，其余模块走 import 图，
-由 `server.js` 的扩展名白名单按 basename 服务。
+`index.html` 是源码模板；`static-assets.js` / `build-assets.js` 在 Host 装配时发布内容版本化的 appearance/app 入口、共享块、动态页面和单个 CSS，预加载静态启动闭包。HTML/API 保持 no-store；鉴权后的版本资源私有缓存、预压缩 gzip 和条件 ETag，旧源码 basename 仍按扩展名白名单服务且 no-store。缓存、刷新和测试边界见 [Web 性能](web-performance.md)。
 
 启动与环境管理的新边界见[工作台接入契约](workbench.md)，优先于历史连接页描述；界面资源、项目身份与后台控制分别验收。
 
@@ -15,7 +14,7 @@
 **三个必须遵守的接缝：**
 
 - **`app.js` 导出 `boot()`**，并在被当作模块加载时执行一次 `await boot()`。
-  `boot()` 先清掉上一次的定时器/监听器，再按当前全局 DOM 重新装配。理由：`bun test`
+  `boot()` 先清掉上一次的定时器、轮询会话/监听器与详情只读请求，再按当前全局 DOM 重新装配；有项目时通过 `initRefreshPolling()` 持有当前会话的 dispose。理由：`bun test`
   在多个测试文件之间**共享模块注册表**，DOM 测试要给每个文件装自己的 stub，只能靠重复调用 `boot()`。
 - **面板之间不互相 import 实现，只 import 接缝。** 跳转走 `navigate.js`，共享可变状态走 `state.js`，
   本地偏好（键名 / 默认值 / 读写）走 `prefs.js`，这既断掉循环依赖，也让面板文件之间没有编辑冲突面。
@@ -66,7 +65,8 @@
 | `state.js` | 共享可变状态（一个对象，新字段不必改别的文件就能加）；`ui.view` 为唯一页面身份（id/key），导航接缝集中更新兼容读标记；`deletedWorkerIds` 保存本会话删除成功的身份，阻止在途旧 Worker/记录响应复活缓存与详情；`ui.taskGraphPage` 保存项目/boot 隔离的图缓存、采样时间及摘要/完整读取身份；`ui.indexOpen` 记录右侧信息页，`ui.settingsOpen` 标记设置视图，`ui.agentStatusPage` 保存 Agent 配置/诊断页与单飞读取身份，`ui.modelSourcesPage` 保存模型来源页身份及来源选择，`ui.versionsPage` 保存版本历史页的固定 tip / 游标与请求身份；折叠 / 筛选 / 排序偏好经 prefs.js 读写 | `ui`、`transcriptOpen`、`transcriptCache`、`mergeSelection`、`resetUiState()`、`readSidebarSortPref`、`readCollapsedPref`、`readFiltersPref`、`saveCollapsedPref`、`saveFiltersPref`、`SIDEBAR_SORT_KEY`、`LEGACY_TREE_SORT_KEY`、`SORT_IDS` |
 | `navigate.js` | 导航间接层（断循环依赖）；注册返回带身份保护的 teardown，DOM 测试用完必须恢复，避免跨文件污染 | `registerNavigation({refresh, detail, overview, resource}) -> restore()`、`refresh()`、`detail(taskId)`、`overview()`、`resource(id)` |
 | `service-restart.js` | 设置系统页的后台、界面与「全部重启」入口：应用内确认、范围与忙碌保护提示、重复点击保护、Host 能力探测；全部重启先完成当前项目后台重启，再重启界面，后台失败不动界面、部分成功明确提示；Host 换进程后有界探测新 pid，恢复刷新或转登录，失败就地提示 | `serviceRestartControls(options?)`、`waitForHostRestart(pid,options?)` |
-| `api.js` | fetch 与用户动作；请求路径经 `route.js` 挂到本页项目前缀下 | `api(url, options)`、`action(method, params, {refresh?:boolean}?)`（缺省等待刷新，输入 ACK 路径显式关闭）、`loadHistory(taskId)`、`projectApi` |
+| `api.js` | 项目路径 fetch 与用户动作；只读请求信号/取消判定、公开连接名称读缓存与相关成功 POST 失效，不重试写动作 | `api(url, options)`、`action(method, params, {refresh?:boolean}?)`、`loadHistory(taskId,before?,options?)`、`projectApi`、`loadConnectionNames(options?)`、`withReadSignal(signal,start)`、`isReadAbort(error)` |
+| `request-cache.js` | 单个公开内存读面：项目/boot 隔离、30 秒 TTL、single-flight、取消订阅与失效，无 stale-on-error | `publicReadCache({scope,load,ttl?,now?})` → `{read,invalidate}` |
 | `worker-kind.js` | 只读类型兼容：历史 `task_kind='say'` 判定为 `order`，指令类型标签统一中文「指令」，不修改传入对象；输入目标、概览、详情、图与交付/迭代控件共用；不兼容旧写入口 | `workerKind(task)`、`workerKindLabel(task)` |
 | `format.js` | 标签映射与格式化（纯函数）；`taskTitle` 优先用户 `display_title`；`EVENTS` 维护当前与历史事件中文名称，`eventLabel(event)` 区分提醒、待决问题与已记录来源的 Lush 自动选择／用户答复，未知类型明确标为「未识别事件」；`workerNumber(task)` 只接受服务端投影的 `Wn(-n)*`，其余回落 `#id`，`inputNumber(id)` 只格式化已发射原始 Input 为 `On` | `eventLabel`、`STATUS`、`INTEGRATION`、`ROLE`、`EVENTS`、`HOT`、`TERMINAL_STATUS`、`PLAN_GATE`、`SPEC_STATUS`、`MERGE_STATUS`、`CHANGE`、`DEP_HELP`、`STEP`、`MD_STEP`、`GOAL_TITLE_LIMIT`、`statusOf`、`interruptReason`、`relative`、`duration`、`absolute`、`clock`、`tokens`、`tokensView`、`money`、`depsOf`、`waitingDeps`、`resolverOf`、`specStatus`、`specTitle`、`summarizeGoal`、`taskTitle`、`edgeLabel`、`lastView`、`short`、`workerNumber`、`inputNumber`、`worktreeLabel`、`isHistoricalDelivery` |
 | `worker-links.js` | 将展示正文中独立的 `Wn(-n)*` 编号转成蓝色下划线链接；保留原文，不处理代码、表单编辑区、已有链接或按钮；`data-worker-links="off"` 标识命令原文等不参与链接的子树，Shell Hook 预览由渲染方显式标注。链接使用 `#worker-number-Wn`，点击／新标签打开时经项目只读 lookup 解析真实整数身份，不从编号推算 ID，不在渲染时发请求 | `linkWorkerNumbers(root, doc?)`、`workerNumberTarget(hash)`、`resolveWorkerNumber(number)` |
@@ -88,7 +88,7 @@
 | `render-drafts.js` | 历史下线面板，不用于新缓冲区（新页见 `render-inputs.js`）；待提交缓存与引用摘要；每条草稿可就地编辑、移除、引用卡片定位，或用带 `agent-call` 与 `agentHelp()` 说明的「执行」按钮只提交这一条（`draft.commit {ids:[id]}`） | `renderDrafts(data)` |
 | `render-intents.js` | Intent 列表：原始目标、planner 闸门、Plan 计数，以及历史 Review Candidate 的「打开结果 / 接受并合入 / 要求修改」动作；输入带 `route` 时行内加「⚡ 快速路由」徽章 | `renderIntents(data)` |
 | `render-specs.js` | 拆解队列（只读） | `renderSpecs(data)`、`specItem(spec)`、`specDeps(value)` |
-| `render-tree.js` | `#workers` 全类型 Worker 的平铺列表（保留旧文件与导出名，不渲染树）；筛选只显示命中项，不补祖先、不缩进、不画兄弟链，排序跨父子层级且不继承后代优先级（`tree-order.js` 的 `orderTasks(tasks,{mode,openNoticeIds})`）；状态 / Worker类型常展开即时多选，兼容历史与未知类型；专用及历史角色用 `roleBadge`（不显示通用 `agent` 角色标签）、快速路由用 `.route-flagged` 与 `routeBadge`；保留依赖标签、等待原因与进度；明确标出“活动 + 最近历史”的截断范围，通过 `/api/workers?scope=all&before=` 按需加载更早页，筛选与搜索只针对已加载记录 | `renderTree(data)` |
+| `render-tree.js` | `#workers` 全类型 Worker 的平铺列表（保留旧文件与导出名，不渲染树）；筛选只显示命中项，不补祖先、不缩进、不画兄弟链，排序跨父子层级且不继承后代优先级（`tree-order.js` 的 `orderTasks(tasks,{mode,openNoticeIds})`）；状态 / Worker类型常展开即时多选，兼容历史与未知类型；专用及历史角色用 `roleBadge`（不显示通用 `agent` 角色标签）、快速路由用 `.route-flagged` 与 `routeBadge`；保留依赖标签、等待原因与进度；明确标出“活动 + 最近历史”的截断范围，通过 `/api/workers?scope=all&before=` 按需加载更早页，筛选与搜索只针对已加载记录 | `renderTree(data)`、`refreshTreeTimes(container?)`（按 ID 复用行与阅读节点，时间独立补丁） |
 | `notice-kind.js` | 生命周期告知/未读判定、按明确 lifecycle_type 过滤渠道（未知分类可见，待决不受过滤）、项目限定告知身份、记录筛选与数字 Notice hash；历史 info 不算未读 | `lifecycleNotice`、`unreadNotice`、`noticeChannelEnabled`、`noticeIdentity`、`automaticNotice`、`noticeMatches`、`positiveId`、`noticeHash` |
 | `render-notices.js` | 独立「管家选择」Event 游标页、待决与未读告知分开计数/分页、独立自动选择问答筛选（来源在服务端分页）、面板内答复与 Plan 审批、只读历史；生命周期告知直接打开 Worker，只有当前详情成功渲染才调用 `notice.read`；与告知条共用按项目/记录身份单飞的已读接缝，ACK 成功后缓存事实防止陈旧快照复活，并经 `ui.refreshNoticeBanner` 即时更新告知条，不等待后台全局刷新；Worker 删除身份过滤同时覆盖分页、告知条与迟到 ACK，删除时清除专属已读缓存，不能因在途请求恢复已删除记录；未缓存的数字深链接按 ID 查记录，迟到导航不标已读；轮询保留输入与已加载历史，revision 变化提示旧页可能过期、不后台扫描，显式刷新只读重载已加载页数并保留答复 | `initNoticeRecords()`、`loadNoticeRecords({more?,preserve?,reload?})`、`renderNotices(data)`、`readNotice(notice)`、`openNotice(noticeId)`、`noticePanel(notice, task?)` |
 | `choice-snapshot.js` | 历史问卷只读回放；选择快照与重选已停用，不读取快照或提供创建入口 | `settledDecision(notice)` |
@@ -128,7 +128,7 @@
 | `render-iteration.js` | Worker 详情/图共用的待验收与静息无改动回答验收（「仅验收」保留代码现场、不追问归档；「验收并归档」点击后直接先验收再归档、不弹确认）、历史显式继续开发、安全同步父分支与独立 Agent 解决同步冲突；冻结/归档/执行前置禁用，最终准入由后端校验 | `iterationControls(task,{refresh,events,showParentDistance=false})`（详情启用同步按钮旁红色领先 / 绿色落后 commit 数）、`iterationBlocker(task)`、`guardedAction(node,reason)`、`isIterationTask(task)` |
 | `render-delivery.js` | Worker 详情/Worker 图共用合并控件：新式 指令/child 开发阶段显示持久「自动合并」复选框，调用 `worker.auto_merge`，按后端 `auto_merge` 的 enabled/locked/editable/reason 展示与禁用（缺投影保守只读）；`merge_readiness.ready` 为真时只显示「合并」（调用 `worker.reserve`，Git 准入仍须复核），pending 保留等待原因，不再显示预约按钮；version 2 请求显示冻结、自动 Squash、源侧解分歧与合并后待验收状态。历史 version 1 合并预约保留显式复查、撤销、源侧解分歧，以及固定 commit + baseline 审批；历史下线交付预约不提供操作 | `deliveryControls(task,{refresh})` |
 | `detail-preview.js` | Worker 详情阅读模块的统一高度预览（收起正文为 `min(400px,50dvh)`，自然高度超出 120px 才收起，余量内完整显示）、明显超长才显示展开/收起；单个模块而非单条消息限高，保留完整 DOM、引用与同 Worker 刷新时的手动状态；自然正文与限高标尺的 ResizeObserver 跟随内容和窗口宽高变化，不裁剪操作栏、交付、Hooks 或待决表单；键盘进入正文与引用定位自动展开，不调用 API | `limitDetailModules(panel,{taskId,from?})`、`revealDetailPreview(node)` |
-| `render-detail.js` | Worker 详情整页：非终态 指令/child 的操作栏首位提供「向该 Worker 追加输入」，只切换并聚焦底部输入框，不弹窗、不调用 Agent；实际发送经 composer 的 `worker.message`，冻结不禁用追加、展示暂存条数与等待原因，暂停中的Worker仍需开始 / 继续；一句话短标题（`taskTitle`）、完整 goal 以 Markdown 正文排在结果之前，并以 `render-goal.js` 默认折叠展示用户追加输入、状态、结果优先的阅读顺序与 Worker 操作；头部用 `roleBadge` 显示专用及历史类型颜色（不显示通用 `agent` 角色标签；Agent 身份与运行信息保留），`task.route` 为真时另带「⚡ 快速路由」徽章，`task_kind='analysis'` 另带「只读分析」徽章；旧 `task.analyze` 分支分析入口已下线，不因 Worker 更名重新开放；Worker 详情的代码现场回收保留「归档」入口，不提供独立回收或保留分支选项；另提供 `worker-delete.js` 的不可逆「删除」入口，清专属历史与资源；有可归档分支时显示（读模型 `branch_archive` 投影，复用 `branch-archive.js`，与 Worker 图同源），一起删除 worktree 与本地 ref，保留Worker和历史记录；来源摘要接收本地连接列表以显示来源名称 | `renderDetail(task, history, diff, usage, connections?, progressive?:{current})`（渐进路径返回 `{update,dispose}`，按区补齐并保护阅读状态）、`renderDetailError(taskId, message)` |
+| `render-detail.js` | Worker 详情整页：非终态 指令/child 的操作栏首位提供「向该 Worker 追加输入」，只切换并聚焦底部输入框，不弹窗、不调用 Agent；实际发送经 composer 的 `worker.message`，冻结不禁用追加、展示暂存条数与等待原因，暂停中的Worker仍需开始 / 继续；一句话短标题（`taskTitle`）、完整 goal 以 Markdown 正文排在结果之前，并以 `render-goal.js` 默认折叠展示用户追加输入、状态、结果优先的阅读顺序与 Worker 操作；头部用 `roleBadge` 显示专用及历史类型颜色（不显示通用 `agent` 角色标签；Agent 身份与运行信息保留），`task.route` 为真时另带「⚡ 快速路由」徽章，`task_kind='analysis'` 另带「只读分析」徽章；旧 `task.analyze` 分支分析入口已下线，不因 Worker 更名重新开放；Worker 详情的代码现场回收保留「归档」入口，不提供独立回收或保留分支选项；另提供 `worker-delete.js` 的不可逆「删除」入口，清专属历史与资源；有可归档分支时显示（读模型 `branch_archive` 投影，复用 `branch-archive.js`，与 Worker 图同源），一起删除 worktree 与本地 ref，保留Worker和历史记录；来源摘要接收本地连接列表以显示来源名称 | `renderDetail(task, history, diff, usage, connections?, progressive?:{current,requestDiff?,signal?})`（渐进路径返回 `{update,dispose}`，按区补齐并保护阅读状态）、`renderDetailError(taskId, message)` |
 | `render-overview.js` | 项目概览：Worker 指标、最近Worker、待决与运行中的 Agent，运行时信息默认折叠；没有旧分支图入口，也不再拉 Git 分支图 | `renderOverview(data)` |
 | `task-graph-usage.js` | Worker 卡片自身/折叠子树的运行时长、输入、输出、美元估算；消费后端完整摘要，未知明示、聚合加粗、运行闪烁及键盘帮助 | `resourceSummary(node,folded)` |
 | `task-graph-layout.js` | Worker 父子森林纯逻辑：缺失父节点作为可见根，坏数据成环不死循环；`layout_parent_id` 仅用于隐藏中间节点的布局，保留真实 `parent_id`。根与各层可见兄弟按自身关注度分档、同档创建时间倒序（ID 倒序兜底），不汇总后代或冒充 runtime 执行次序；完整规则见[Worker 图展示排序](task-graph.md#合并关系展示排序与动效) | `taskForest(graph)` |
@@ -138,12 +138,12 @@
 | `task-graph-parts.js` | Worker 图的有界文件改动/工作区诊断与就地待决控件；文件展开状态走 `ui.taskGraphFilesExpanded`，答复后用调用方提供的刷新接缝重拉 | `branchDiagnostics(branch)`、`decisionRow(node,refresh)` |
 | `branch-archive.js` | 「归档分支」这条用户动作的唯一实现，Worker 图 / Worker 详情两个入口共用：独立归档的确认弹窗写清会连后代分支一起删 worktree 与本地 ref、未提交改动会丢、Worker／消息／事件／会话保留；「验收并归档」直接先执行验收回调、不弹确认，成功后发 `branch.archive {branch, discard:true}`，把结果写进顶部提示并调用调用方传的 `refresh()` 重拉对应视图；`BRANCH_ARCHIVE_HELP` 是三个入口共用的按钮含义说明（归档是放弃代码的记录状态，不等于删除 Worker） | `runBranchArchive(branch,{refresh,acceptBeforeArchive?})`（组合动作不弹确认，直接调用验收回调，返回真才归档；独立归档仍须确认）、`BRANCH_ARCHIVE_HELP` |
 | `worker-delete.js` | 详情/Worker图（含极简更多操作）的共享彻底删除：只读资源预检、完整范围/资源清单及丢弃代码的应用内最终确认，带固定 revision 发用户删除请求；活动记录禁用并提示先手动取消，main/owner 与历史只读展示记录不显示；成功后清专属前端缓存、返回列表或刷新原图，迟到响应/重复点击/失败不误导航或重试已成功删除 | `workerDeleteControl(task,{refresh?})`、`runWorkerDelete(task,{refresh?})`、`WORKER_DELETE_HELP` |
-| `detail.js` | 拉取并渲染 Worker 详情，仅用户已展开过程时读取执行记录；窄屏新导航收起索引并定位内容，轮询保留滚动；主体成功渲染且仍是当前请求时即返回 `true`，供告知入口确认实际打开，不等待历史/Git 改动/用量/连接名；四类补充读取按区后台更新，明确加载中/不可用，不重画整页，详情内焦点或选区期间暂缓，失效请求清理监听；已删除身份及其在途旧响应不再请求/渲染；成功加载当前详情后写 `ui.composerTask` 并调用 `ui.syncComposer`，失败保留禁用而不改投；与详情并行读取本地连接列表（失败不阻断其余部分），用于把来源显示成用户命名的名称 | `loadDetail(taskId)` |
+| `detail.js` | 拉取并渲染 Worker 详情，仅用户已展开过程时读取执行记录；窄屏新导航收起索引并定位内容，轮询保留滚动；主体成功渲染且仍是当前请求时即返回 `true`，供告知入口确认实际打开，不等待历史/Git 改动/用量/连接名；主体 inspect 优先，历史/必要用量及公开连接名称随后补齐，diff 显式展开才读；补充按区更新，明确加载中/不可用，不重画整页，详情内焦点或选区期间暂缓，失效请求清理监听；已删除身份及其在途旧响应不再请求/渲染；成功加载当前详情后写 `ui.composerTask` 并调用 `ui.syncComposer`，失败保留禁用而不改投；连接名称按项目/boot 有界缓存，失败不阻断；统一导航/boot 取消旧只读请求 | `loadDetail(taskId)`、`disposeDetailRequests()` |
 | `docs.js` | 「文档」视图：路由（`#docs` / `#doc-<id>`）、取数、搜索索引懒加载与站内相对链接解析 | `docsTarget(hash)`、`resolveDocPath(from, raw)`、`docLinkResolver(current, docs)`、`loadDocsSearchIndex()`、`openDocs(id)`、`loadDocs(id)`、`DOCS_HASH` |
 | `docs-search.js` | 浏览器全文搜索纯逻辑：NFKC / 小写归一化，中英文子串、多词 AND、字段加权、摘要与稳定排序；Mermaid 仅低权重参与 | `normalizeDocsQuery(value)`、`searchDocs(index, query, limit)` |
 | `render-docs.js` | 「文档」视图的目录、懒加载内容搜索、Markdown 正文、Mermaid 启动与兜底 | `renderDocsIndex(docs, onOpen, options)`、`renderDoc(doc, resolveLink, onOpen)`、`renderDocError(id, message, onOpen)` |
 | `mermaid-docs.js` | 只在文档存在 Mermaid 容器时加载本地固定版本，以 strict 模式逐图校验，并通过显式唯一 id 渲染成隔离的 blob SVG 图片（避免节点/箭头串图，也不用为 Mermaid 放宽主页面的 inline-style CSP）；换文档时回收 blob URL，切换深浅主题时从保留源码串行重绘，超长、超量、加载或语法失败均回退为源码。Agent 输出不走这条路径 | `renderMermaidDiagrams(root)`、`refreshMermaidDiagrams(root)`、`clearMermaidDiagrams(root)` |
-| `refresh.js` | 轮询有界 `/api/overview`（revision 未变时不重画；旧 host 回退完整 snapshot）、概览、热 Worker 增量刷新、筛选重画；右侧信息页 / 文档 / 设置 / 统计打开时不让概览覆盖；切回概览立即用缓存绘制，不等 revision 变化或轮询空闲；概览不再拉 Git 分支图；Worker 图通过 `/api/worker-graph` 独立后台单飞刷新，不占概览刷新锁，快照变且距上次 ≥3s 或距上次 ≥10s 时重拉，正在输入时不重画；changed 时在 `renderNotices(data)` 之后同步调用 `renderNoticeBanner(data)` | `refresh()`、`overview()`、`liveRefresh()`、`applyFilters()` |
+| `refresh.js` | 轮询有界 `/api/overview`（revision 未变时不重画；旧 host 回退完整 snapshot）、概览、热 Worker 增量刷新、筛选重画；右侧信息页 / 文档 / 设置 / 统计打开时不让概览覆盖；切回概览立即用缓存绘制，不等 revision 变化或轮询空闲；概览不再拉 Git 分支图；Worker 图通过 `/api/worker-graph` 独立后台单飞刷新，不占概览刷新锁，快照变且距上次 ≥3s 或距上次 ≥10s 时重拉，正在输入时不重画；changed 时在 `renderNotices(data)` 之后同步调用 `renderNoticeBanner(data)` | `refresh({force?})`、`overview()`、`liveRefresh()`、`applyFilters()`、`applySort()`、`initRefreshPolling()` → dispose；隐藏暂停（已授权系统通知保留有界概览）、失败退避，显式刷新绕过并合并后续 ACK |
 
 预约展示、展示详情/预览、展示后专用合并入口与展示图类型/样式已删除。历史 Worker 与事件数据不改写；Worker列表/详情可按通用文本回看，历史下线交付不提供重试或操作。`isHistoricalDelivery()` 是详情、合并与迭代控件的只读隔离接缝。
 
@@ -185,7 +185,9 @@ Agent / 来源两页真实浏览器回归：`bun run check:agent-layout`（`scri
 
 | 文件 | 职责 | 导出 / 接缝 |
 |---|---|---|
-| `src/ui/web/server.js` | Host 的 HTTP 适配器：UI 资源、认证、窄 API 路由与 `/p/<project-id>/` 项目身份路由；项目连接与发现委托 `src/host/project-host.js` | `startWeb()`、`rememberWebProject()` |
+| `src/ui/web/server.js` | Host 的 HTTP 适配器：UI 资源、认证、窄 API 路由与 `/p/<project-id>/` 项目身份路由；项目连接与发现委托 `src/host/project-host.js` | `startWeb()`（同步） 、`rememberWebProject()` |
+| `src/ui/web/static-assets.js` | 进程共享静态产物、内容版本/有界私有临时快照、预压缩/编码协商/ETag；调用方先鉴权 | `webStaticAssets()`、`createStaticAssets(options?)`、`staticEncoding(header)` |
+| `src/ui/web/build-assets.js` | 隔离 Bun 浏览器构建、动态拆包、静态闭包预加载及保序 CSS 合并，不读取项目数据 | `buildAssets(assets,outdir,version)`；同文件子进程入口 |
 | `src/host/project-host.js` | 已登记项目的连接缓存与 single-flight、身份解析、按需启动 lushd；列表仅探测已登记项目的 socket，不启动未打开的项目 | `createProjectHost()` |
 | `src/host/control.js` | 后台 lush-host 进程识别（含 worker）、状态文件、端口探测与安全停止；状态记录可带 `supervisor_pid` 以关联启动者 | `webOwners()`、`stopStaleWeb()`、`recordWebState()` 等 |
 | `src/host/service-control.js` | 项目级显式启动/停止/重启互斥；停止请求 idle 准入、等锁释放，无强杀 | `startProjectDaemon(config)`、`stopProjectDaemon(config)`、`restartProjectDaemon(config)` |

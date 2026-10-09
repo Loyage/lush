@@ -20,7 +20,7 @@ const origin = `http://127.0.0.1:${server.port}`;
 const reservation = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') });
 const port = reservation.port; reservation.stop(true);
 let driver, session, socket, passed = false;
-const errors = [], pending = new Map(); let sequence = 0;
+const errors = [], pending = new Map(), reloadReads = []; let sequence = 0, captureReload = false;
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 async function rpc(route, body, method = 'POST') {
   // Loopback WebDriver requests must not inherit outbound proxies.
@@ -85,13 +85,43 @@ try {
   socket.onmessage = event => {
     const message = JSON.parse(event.data);
     if (message.method === 'log.entryAdded' && message.params.type === 'javascript' && message.params.level === 'error') errors.push(message.params.text);
+    if (captureReload && message.method === 'network.beforeRequestSent'
+      && /\/web-[a-f0-9]{32}-.*\.(?:js|css)$/.test(new URL(message.params.request.url).pathname)) {
+      reloadReads.push({ conditional: message.params.request.headers.some(header => header.name.toLowerCase() === 'if-none-match') });
+    }
     const callback = pending.get(message.id);
     if (callback) { pending.delete(message.id); message.type === 'error' ? callback.reject(new Error(message.message)) : callback.resolve(message.result); }
   };
   await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
-  await bidi('session.subscribe', { events: ['log.entryAdded'] });
+  await bidi('session.subscribe', { events: ['log.entryAdded', 'network.beforeRequestSent'] });
   await resize(1440); await navigate(origin);
   await until(`document.querySelector('#detail .project-manager') !== null`);
+  const resources = () => evaluate(`performance.getEntriesByType('resource').filter(row=>/\\/web-[a-f0-9]{32}-.*\\.(?:js|css)$/.test(new URL(row.name).pathname)).map(row=>({name:new URL(row.name).pathname,transfer:row.transferSize,encoded:row.encodedBodySize,decoded:row.decodedBodySize}))`);
+  const cold = await resources();
+  assert(cold.length > 0 && cold.some(row => row.transfer > 0), 'cold load has no measurable static transfers');
+  assert(!cold.some(row => row.name.includes('-render-settings-')), 'settings chunk was fetched before opening its page');
+  // Normal revisit, not an explicit reload that Firefox can revalidate even fresh HTTP assets.
+  await navigate(`${origin}/?cache-check=1`);
+  await until(`document.querySelector('#detail .project-manager') !== null`);
+  const warm = await resources();
+  const coldNames = new Set(cold.map(row => row.name)), reused = warm.filter(row => coldNames.has(row.name));
+  assert(reused.length > 0 && reused.every(row => row.transfer === 0), `repeat navigation did not reuse versioned browser resources: ${JSON.stringify({ cold, warm })}`);
+  console.log('PASS Firefox static cache cold/warm:', JSON.stringify({
+    coldFiles: coldNames.size, coldTransferBytes: cold.reduce((sum, row) => sum + row.transfer, 0),
+    coldEncodedBytes: cold.reduce((sum, row) => sum + row.encoded, 0), coldDecodedBytes: cold.reduce((sum, row) => sum + row.decoded, 0),
+    warmFiles: new Set(reused.map(row => row.name)).size, warmTransferBytes: reused.reduce((sum, row) => sum + row.transfer, 0),
+  }));
+  captureReload = true;
+  await rpc(`/session/${session}/refresh`, {});
+  await until(`document.querySelector('#detail .project-manager') !== null`);
+  captureReload = false;
+  const reloaded = (await resources()).filter(row => coldNames.has(row.name));
+  assert(reloaded.length > 0, 'reload did not report the versioned static resources');
+  // WebDriver can bypass cache (including validators); report this separately from normal revisit.
+  console.log('MEASURE Firefox WebDriver reload:', JSON.stringify({
+    transferBytes: reloaded.reduce((sum, row) => sum + row.transfer, 0),
+    staticRequests: reloadReads.length, conditionalRequests: reloadReads.filter(row => row.conditional).length,
+  }));
   assert(await evaluate(`!document.getElementById('project-app').hasAttribute('inert')`), 'workbench is blocked by project gate');
   assert(await evaluate(`document.querySelector('.composer').hidden || getComputedStyle(document.querySelector('.composer')).display === 'none'`), 'empty workbench shows active composer');
   for (const [id, fragment] of [['settings-open', 'settings'], ['docs-open', 'docs'], ['projects-open', 'projects']]) {

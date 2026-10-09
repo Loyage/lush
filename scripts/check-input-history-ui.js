@@ -13,12 +13,13 @@ window.rows=[{...base,kind:'draft',id:1,content:'尚未实施的想法\\n可以�
  {...base,kind:'input',id:3,content:'',task_id:null,status:'unknown',merge_status:'none',revision:null},
  {...base,kind:'input',id:4,content:'X'.repeat(1000),task_id:1,status:'created',merge_status:'blocked',revision:null}];
 window.calls=[];window.delayMutation=false;window.hold=null;
-window.supplementReleases=[];window.refreshReleases=[];window.holdSupplements=false;window.holdRefresh=false;
+window.supplementReleases=[];window.supplementPaths=[];window.refreshReleases=[];window.holdSupplements=false;window.holdRefresh=false;
 window.fetch=async(url,options={})=>{
  const path=new URL(url,location.href).pathname;const json=data=>({ok:true,json:async()=>structuredClone(data)});
  if(window.holdRefresh&&(path==='/api/overview'||path==='/api/snapshot')) await new Promise(resolve=>window.refreshReleases.push(resolve));
- if(window.holdSupplements&&(/^\\/api\\/worker\\/\\d+\\/(history-page|diff|usage)$/.test(path)||path==='/api/agent/connections'))
-  await new Promise(resolve=>window.supplementReleases.push(resolve));
+ if(window.holdSupplements&&(/^\\/api\\/worker\\/\\d+\\/(history-page|diff|usage)$/.test(path)||path==='/api/agent/connections')) {
+  window.supplementPaths.push(path);await new Promise(resolve=>window.supplementReleases.push(resolve));
+ }
  if(path==='/api/inputs')return json({items:window.rows,next_cursor:null});
  if(path==='/api/input-parents')return json({items:world.state.inputParents});
  if(path==='/api/worker/1'){const task=await(await world.fetchImpl(url,options)).json();return json({...task,task_kind:'order',status:window.workerStatus||'paused',agent:{...task.agent,active:false}});}
@@ -212,10 +213,13 @@ try {
     window.holdRefresh=true;window.holdSupplements=true;
     window.world.state.notices=[201,202].map(id=>({id,task_id:1,kind:'info',status:'sent',lifecycle_type:'idle',source_event_id:id,read_at:null,title:'慢详情告知 '+id,created_at:'2026-10-08T11:00:00Z'}));window.paintNotices();`);
   await click('.notice-banner-info');
-  assert(await waitFor('document.querySelector(".notice-banner-row")?.dataset.noticeId==="201" && window.supplementReleases.length>=4'), 'slow detail blocked notice ACK');
+  assert(await waitFor('document.querySelector(".notice-banner-row")?.dataset.noticeId==="201" && window.supplementReleases.length>=2'), 'slow detail blocked notice ACK');
   assert(await execute(`return document.querySelector('#detail').dataset.taskId==='1'
-    && document.querySelector('#detail').textContent.includes('改动加载中')
-    && !document.querySelector('.notice-banner-info').disabled;`), 'detail did not paint independently of supplements');
+    && document.querySelector('#detail').textContent.includes('打开后读取改动')
+    && !window.supplementPaths.some(path=>path.endsWith('/diff'))
+    && !document.querySelector('.notice-banner-info').disabled;`), 'detail did not paint independently of supplements or eagerly read diff');
+  await click('.detail-diff > summary');
+  assert(await waitFor('window.supplementPaths.some(path=>path.endsWith("/diff"))'), 'explicit diff expansion did not request changes');
   await click('.notice-banner-info');
   assert(await waitFor('document.querySelector("#notice-banner").hidden'), 'second notice waited for supplements or global refresh');
   await execute('window.releaseReads();');

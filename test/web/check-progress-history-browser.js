@@ -19,11 +19,12 @@ import { loadDetail } from '/detail.js';
 import { refreshProgressDurations } from '/render-progress.js';
 import { ui } from '/state.js';
 ui.selected=${task.id}; ui.detailTask=${task.id}; ui.view={id:'task',key:'task-${task.id}'};
-const nativeFetch=window.fetch.bind(window);window.supplementReleases=[];window.holdSupplements=false;
+const nativeFetch=window.fetch.bind(window);window.supplementReleases=[];window.supplementPaths=[];window.holdSupplements=false;
 window.fetch=async(url,options)=>{const path=new URL(url,location.href).pathname;
   if(window.holdSupplements&&(path==='/api/worker/${task.id}/history-page'||path==='/api/worker/${task.id}/diff'
-    ||path==='/api/worker/${task.id}/usage'||path==='/api/agent/connections'))
-    await new Promise(resolve=>window.supplementReleases.push(resolve));
+    ||path==='/api/worker/${task.id}/usage'||path==='/api/agent/connections')) {
+    window.supplementPaths.push(path);await new Promise(resolve=>window.supplementReleases.push(resolve));
+  }
   return nativeFetch(url,options);};
 window.progressiveRefresh=()=>loadDetail(${task.id});
 window.releaseSupplements=()=>{window.holdSupplements=false;for(const release of window.supplementReleases.splice(0))release();};
@@ -108,9 +109,13 @@ try {
     document.querySelector('#detail>.task-progress-panel progress').value===0&&window.old.open;`), 'new input replaced history');
   console.log('PASS real HTTP pagination, frozen timers, retained expansion, refresh and appended work');
   assert(await execute(`window.holdSupplements=true;return window.progressiveRefresh();`), 'progressive refresh waited for supplements');
-  assert(await execute(`return window.supplementReleases.length===4&&document.querySelector('#detail').textContent.includes('改动加载中')
+  assert(await wait(`window.supplementPaths.includes('/api/worker/${task.id}/history-page')`), 'history request did not start');
+  assert(await execute(`return document.querySelector('#detail').textContent.includes('打开后读取改动')
+    &&!window.supplementPaths.some(path=>path.endsWith('/diff')||path.endsWith('/usage'))
     &&document.querySelectorAll('.progress-history-version').length===14&&window.old.open
-    &&[...document.querySelectorAll('.progress-history-version')].includes(window.old);`), 'progressive refresh lost folded history or pagination');
+    &&[...document.querySelectorAll('.progress-history-version')].includes(window.old);`), 'progressive refresh lost folded history, pagination, or read unnecessary content');
+  await click('.detail-diff > summary');
+  assert(await wait(`window.supplementPaths.includes('/api/worker/${task.id}/diff')`), 'explicit diff read did not start');
   await execute(`window.old.querySelector('summary').focus();window.historyScroll=document.querySelector('#detail').scrollTop;window.releaseSupplements();`);
   assert(await wait(`!window.holdSupplements`), 'supplements were not released');
   await execute(`document.activeElement.blur();`);

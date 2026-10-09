@@ -23,13 +23,13 @@ afterAll(() => {
 const panel = () => dom.node('detail');
 const openSettings = () => dom.node('settings-open').onclick();
 const openTab = id => panel().querySelector(`button.settings-tab[data-settings-tab="${id}"]`).onclick();
-const openInterface = () => { openSettings(); openTab('interface'); };
+const openInterface = async () => { await openSettings(); await openTab('interface'); };
 const openSystem = async () => {
   await openSettings(); await openTab('system');
   const scope = panel().querySelector('select[data-settings-scope=""]'); scope.value = 'project'; await scope.onchange();
 };
-const openAgent = () => {
-  dom.node('agent-status-open').onclick();
+const openAgent = async () => {
+  await dom.node('agent-status-open').onclick();
   return panel().querySelector('button[data-agent-tab="settings"]').onclick();
 };
 const systemBlock = () => [...panel().querySelectorAll('.block')]
@@ -45,7 +45,7 @@ test('设置入口：侧栏工作区导航进入 #settings，后退回概览，1
   await dom.intervalFor(1500)();
   expect(panel().dataset.view).toBe('overview');
 
-  openInterface();
+  await openInterface();
   expect(dom.location.hash).toBe('#settings');
   expect(panel().dataset.view).toBe('settings');
   expect(dom.node('view-title').textContent).toBe('系统设置');
@@ -68,7 +68,7 @@ test('设置入口：侧栏工作区导航进入 #settings，后退回概览，1
 });
 
 test('告知设置提供四类两渠道独立复选项，默认全选，不改系统通知总开关或项目数据', async () => {
-  prefs.resetPrefs(); openInterface();
+  prefs.resetPrefs(); await openInterface();
   const controls = () => panel().querySelectorAll('input').filter(node => node.dataset.pref === 'noticeChannels');
   expect(controls()).toHaveLength(8); expect(controls().every(node => node.checked)).toBe(true);
   expect(controls().filter(node => node.dataset.noticeType === 'created')).toHaveLength(2);
@@ -135,7 +135,7 @@ test('偏好快照与变更通知：setPref 只通知对应偏好', () => {
 
 test('Markdown 偏好只在设置页管理，并立即影响 Agent 输出', async () => {
   const { agentText, markdownEnabled } = await import('../../src/ui/web/assets/text.js');
-  openInterface();
+  await openInterface();
   let toggle = panel().querySelector('input.pref-toggle[data-pref="markdown"]');
   expect(toggle.checked).toBe(true);
 
@@ -148,7 +148,7 @@ test('Markdown 偏好只在设置页管理，并立即影响 Agent 输出', asyn
   expect(plain.className).toBe('');
   expect(plain.textContent).toBe('**粗** 和 *斜*');
 
-  openInterface();
+  await openInterface();
   toggle = panel().querySelector('input.pref-toggle[data-pref="markdown"]');
   toggle.checked = true;
   await toggle.listeners.change[0]();
@@ -156,7 +156,7 @@ test('Markdown 偏好只在设置页管理，并立即影响 Agent 输出', asyn
 });
 
 test('执行过程排序：默认最新在前，设置行切正序并持久化', async () => {
-  openInterface();
+  await openInterface();
   let select = panel().querySelector('select.pref-select[data-pref="transcriptOrder"]');
   expect(select.value).toBe('desc');
   const labels = [...select.children].map(option => option.textContent);
@@ -170,13 +170,13 @@ test('执行过程排序：默认最新在前，设置行切正序并持久化',
   await select.listeners.change[0]();
   expect(globalThis.localStorage.getItem(prefs.TRANSCRIPT_ORDER_KEY)).toBe('asc');
   expect(prefs.readPref('transcriptOrder')).toBe('asc');
-  openInterface();
+  await openInterface();
   expect(panel().querySelector('select.pref-select[data-pref="transcriptOrder"]').value).toBe('asc');
   prefs.setPref('transcriptOrder', 'desc');
 });
 
 test('设置项即时生效并持久化：左栏排序、主题、动效、轮询频率', async () => {
-  openInterface();
+  await openInterface();
   // 左栏默认排序 = 左栏顶部下拉的同一个偏好。
   const sort = panel().querySelector('select.pref-select[data-pref="sidebarSort"]');
   expect(sort.value).toBe('smart');
@@ -186,7 +186,7 @@ test('设置项即时生效并持久化：左栏排序、主题、动效、轮�
   expect(dom.node('sidebar-sort').value).toBe('updated');
 
   // 外观：选中深色立刻改 <html data-theme> 并落盘。
-  openInterface();
+  await openInterface();
   const dark = panel().querySelector('input.pref-radio[data-value="dark"]');
   expect(dark.checked).toBe(false);
   dark.checked = true;
@@ -198,7 +198,7 @@ test('设置项即时生效并持久化：左栏排序、主题、动效、轮�
   expect(globalThis.localStorage.getItem(prefs.THEME_KEY)).toBe('light');
 
   // 动效：覆盖系统偏好，写到 <html> 上让 CSS 生效。
-  openInterface();
+  await openInterface();
   const motion = panel().querySelector('input.pref-toggle[data-pref="reduceMotion"]');
   motion.checked = true;
   await motion.listeners.change[0]();
@@ -206,7 +206,7 @@ test('设置项即时生效并持久化：左栏排序、主题、动效、轮�
   expect(dom.document.documentElement.dataset.reducedMotion).toBe('true');
 
   // 轮询频率：改动后立即按新间隔重建定时器（标准 1500/3000 → 快速 800/1600）。
-  openInterface();
+  await openInterface();
   const polling = panel().querySelector('select.pref-select[data-pref="polling"]');
   expect(polling.value).toBe('standard');
   polling.value = 'fast';
@@ -227,7 +227,7 @@ test('消息提示停留时长偏好对之后出现的提示生效', async () =>
   });
   const advance = ms => { clock += ms; for (const [id, entry] of [...pending]) if (entry.at <= clock) { pending.delete(id); entry.fn(); } };
   try {
-    openInterface();
+    await openInterface();
     const toast = panel().querySelector('select.pref-select[data-pref="toastDuration"]');
     toast.value = 'short';
     await toast.listeners.change[0]();
@@ -259,7 +259,7 @@ test('恢复默认设置：删掉所有偏好键（含历史键）并就地重�
   globalThis.localStorage.setItem(prefs.TOAST_DURATION_KEY, 'long');
   globalThis.localStorage.setItem(prefs.LEGACY_TREE_SORT_KEY, 'updated');
 
-  openInterface();
+  await openInterface();
   await panel().querySelector('button.pref-reset').onclick();
 
   for (const name of prefs.PREF_NAMES) expect(globalThis.localStorage.getItem(prefs.PREF_DEFS[name].key)).toBeNull();
@@ -311,7 +311,7 @@ test('Agent 页：模型目录、双 Prompt、角色覆盖与替换警告都可�
   expect(world.state.agentConfig.default).toMatchObject({ agent: 'codex', model: 'gpt-5.4-mini', thinking: 'high', append_prompt: '保持改动可审阅。',
     extensions: ['/tmp/demo/.lush/pi/extensions/review.ts'], skills: ['/tmp/demo/.lush/pi/skills/browser/SKILL.md'] });
 
-  openAgent();
+  await openAgent();
   card = panel().querySelector('[data-agent-target="default"]');
   card.querySelector('textarea[data-agent-field="default_prompt"]').value = '完整替代规则。';
   const saving = findByText(card, '保存配置').onclick();
@@ -320,14 +320,14 @@ test('Agent 页：模型目录、双 Prompt、角色覆盖与替换警告都可�
   await saving;
   expect(world.state.agentConfig.default.default_prompt).toBe('完整替代规则。');
 
-  openAgent();
+  await openAgent();
   card = panel().querySelector('[data-agent-target="default"]');
   await findByText(card, '恢复默认 Prompt').onclick();
   expect(card.querySelector('textarea[data-agent-field="default_prompt"]').value).toBe('');
   await findByText(card, '保存配置').onclick();
   expect(world.state.agentConfig.default.default_prompt).toBe('');
 
-  openAgent();
+  await openAgent();
   const agentRole = panel().querySelector('[data-agent-target="agent"]');
   await findByText(agentRole, '单独配置').onclick();
   expect(world.state.agentConfig.roles.agent).toMatchObject({ agent: 'codex', model: 'gpt-5.4-mini', thinking: 'high' });
@@ -366,7 +366,7 @@ test('Pi配置缺来源/模型或凭证时不保存，不显示CLI默认目录�
 });
 
 test('Agent 页：环境变量按公共/角色文件读取，默认遮罩并可用键值表保存', async () => {
-  openAgent();
+  await openAgent();
   let env = environmentBlock();
   expect(env).toBeTruthy();
   expect(deepText(env)).toContain('尚未把变量值读入浏览器');
@@ -403,7 +403,7 @@ test('Agent 页：环境变量按公共/角色文件读取，默认遮罩并可�
 });
 
 test('Agent 页：环境变量拒绝保留名，不发送写请求', async () => {
-  openAgent();
+  await openAgent();
   let env = environmentBlock();
   const target = env.querySelector('select.agent-env-target'); target.value = 'verifier'; await target.listeners.change[0]();
   env = environmentBlock();

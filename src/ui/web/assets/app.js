@@ -6,14 +6,8 @@ import { docsTarget, openDocs } from './docs.js';
 import { detail, overview } from './navigate.js';
 import { liveInterval } from './live.js';
 import { onPrefChange, pollingIntervals, readPref, setPref } from './prefs.js';
-import { liveRefresh, refresh, applySort, applyFilters } from './refresh.js';
+import { liveRefresh, refresh, applySort, applyFilters, initRefreshPolling } from './refresh.js';
 import { openTaskGraph } from './render-task-graph.js';
-import { openSettings } from './render-settings.js';
-import { openAgentStatus } from './render-agent-status.js';
-import { openVersions } from './render-versions.js';
-import { openInputs } from './render-inputs.js';
-import { openHooks } from './render-hooks.js';
-import { openQuickExplanationPage } from './render-quick-explanation.js';
 import { closeQuickExplanationPanel } from './quick-explanation.js';
 import { initSidebar } from './sidebar-init.js';
 import { activateDetailView, openResource, paintCollapsed } from './sidebar-ui.js';
@@ -63,15 +57,34 @@ const linked = taskId => /^#worker-(\d+)$/.test(taskId) ? Number(taskId.slice(8)
 /** 打开文档：点左栏「文档」与 #docs / #doc-<id> 共用；同样只报错，不中断轮询。 */
 function openDocsView(id = null) { return openDocs(id).catch(error => { show(error.message, 'error'); }); }
 
-// 模型来源是独立、按需加载的页面；延迟模块加载不能抢回用户已离开的视图。
-async function openSources(connectionId = '') {
-  const previous = ui.view;
+// Page imports share one navigation/boot generation. Show the destination immediately,
+// but never let a late chunk (or its failure) repaint a newer route or a replacement DOM.
+let pageGeneration = 0, bootGeneration = 0;
+async function openPage(load, open, view, options = {}) {
+  const generation = ++pageGeneration, boot = bootGeneration;
+  // Same-page subroutes (notably dirty input drafts) own their confirmation and
+  // chrome. Do not overwrite their title/hash before they decide whether to switch.
+  const identity = ui.view?.id === view ? ui.view : activateDetailView({ view, ...options });
+  const hash = location.hash, pathname = location.pathname;
+  const current = () => generation === pageGeneration && boot === bootGeneration
+    && ui.view === identity && location.hash === hash && location.pathname === pathname;
   try {
-    const { openModelSources } = await import('./render-model-sources.js');
-    if (ui.view !== previous) return;
-    return openModelSources({ connectionId });
-  } catch (error) { if (ui.view === previous) show(error.message, 'error'); }
+    const module = await load();
+    if (!current()) return;
+    return await open(module);
+  } catch (error) {
+    if (current()) show(`${error.message}（若界面已更新，请刷新页面后重试）`, 'error');
+  }
 }
+const openSettings = () => openPage(() => import('./render-settings.js'), module => module.openSettings(), 'settings');
+const openAgentStatus = () => openPage(() => import('./render-agent-status.js'), module => module.openAgentStatus(), 'agent-status');
+const openVersions = () => openPage(() => import('./render-versions.js'), module => module.openVersions(), 'versions');
+const openHooks = () => openPage(() => import('./render-hooks.js'), module => module.openHooks(), 'hooks');
+const openQuickExplanationPage = () => openPage(() => import('./render-quick-explanation.js'), module => module.openQuickExplanationPage(), 'quick-explain');
+const openInputs = (options = {}) => openPage(() => import('./render-inputs.js'), module => module.openInputs(options), 'inputs',
+  { push: options.push, hash: options.item ? `#input-${options.item.kind}-${options.item.id}` : '#inputs' });
+const openSources = (connectionId = '') => openPage(() => import('./render-model-sources.js'), module => module.openModelSources({ connectionId }),
+  'model-sources', { hash: connectionId ? `#model-source-${connectionId}` : '#model-sources' });
 
 // 地址栏是唯一的路由源：设置 / Agent 状态 / Task 图 / 文档 / Task；其余回概览。
 // 每个分支都把 promise 返回出去：浏览器不看返回值，但测试能 await 到「画完」为止。
@@ -138,7 +151,7 @@ function onHashChange() {
 }
 
 // 上一次注册的定时器与监听器；重复 boot() 前必须先清掉（bun test 在文件之间复用模块注册表）。
-let refreshTimer = null, liveTimer = null, hashListener = null;
+let refreshTimer = null, liveTimer = null, hashListener = null, disposeRefreshPolling = null;
 
 /** 按当前「轮询频率」偏好重建两个定时器；标准档＝快照 1500ms + 实时 3000ms。 */
 function startTimers() {
@@ -153,6 +166,10 @@ function startTimers() {
  * 浏览器里只跑一次；DOM 测试会重复调用它来换上自己的 stub。
  */
 export async function boot() {
+  const boot = ++bootGeneration;
+  ++pageGeneration; ++hashGeneration;
+  disposeRefreshPolling?.(); disposeRefreshPolling = null;
+  ui.disposeDetailRequests?.();
   if (refreshTimer !== null && typeof clearInterval === 'function') clearInterval(refreshTimer);
   if (liveTimer !== null && typeof clearInterval === 'function') clearInterval(liveTimer);
   if (hashListener !== null && typeof removeEventListener === 'function') removeEventListener('hashchange', hashListener);
@@ -172,6 +189,7 @@ export async function boot() {
   $('settings-open').onclick = () => openSettings();
   $('docs-open').onclick = () => openDocsView();
   await ensureProject();
+  if (boot !== bootGeneration) return;
   const context = workbenchStatus();
   const projectReady = context.projectUsable;
   if ($('host-context')) $('host-context').textContent = context.project || projectReady ? '当前项目' : '工作台';
@@ -215,7 +233,10 @@ export async function boot() {
     if (typeof window.history.back === 'function') return window.history.back();
     return goOverview();
   };
-  if (projectReady) { initSidebar(); initNoticeRecords(); }
+  if (projectReady) {
+    initSidebar(); initNoticeRecords();
+    disposeRefreshPolling = initRefreshPolling();
+  }
   hashListener = onHashChange;
   addEventListener('hashchange', hashListener);
   // 先确定页面归属，再开始取数；首次加载期间的导航也不会被启动逻辑抢回。
@@ -223,8 +244,10 @@ export async function boot() {
   if (projectReady) await refresh();
   await initialView;
   await composerReady;
+  if (boot !== bootGeneration) return;
   // 深链接设置页可能先于概览摘要到达；摘要就绪后补画配置与系统信息。
-  if (ui.settingsOpen) openSettings();
+  if (ui.settingsOpen) await openSettings();
+  if (boot !== bootGeneration) return;
   if (projectReady) startTimers();
 }
 

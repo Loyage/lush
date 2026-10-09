@@ -42,8 +42,10 @@ test('空根路径使用主内容项目管理，发布 shell 没有阻塞 gate',
 });
 
 test('空态设置、文档与项目管理可用，项目系统动作保持关闭', async () => {
-  openSettings();
+  await openSettings();
   expect(dom.node('detail').dataset.view).toBe('settings');
+  // The settings module remembers its tab across navigation and shared-module test files.
+  await dom.node('detail').querySelector('button.settings-tab[data-settings-tab="interface"]').onclick();
   expect(deepText(dom.node('detail'))).toContain('Markdown 渲染');
   const systemTab = dom.node('detail').querySelector('button.settings-tab[data-settings-tab="system"]');
   await systemTab.onclick();

@@ -12,7 +12,10 @@ test('Web exposes order and worker reads, not legacy mutations or pages', async 
     const workspaceNav = html.match(/<nav class="workspace-nav"[^>]*>([\s\S]*?)<\/nav>/)[1];
     expect([...workspaceNav.matchAll(/id="([^"]+)-open"/g)].map(match => match[1]))
       .toEqual(['overview', 'task-graph']);
-    expect(html).toContain('/styles.css');
+    const css = html.match(/<link rel="stylesheet" href="(\/web-[a-f0-9]{32}-styles\.css)"/)[1];
+    const stylesheet = await fetch(f.url + css);
+    expect(stylesheet.status).toBe(200);
+    expect(stylesheet.headers.get('cache-control')).toContain('private');
     expect((await fetch(f.url + '/styles-core.css')).status).toBe(200);
     expect(html).not.toContain('id="project-home"');
     const post = (method, params) => fetch(f.url + '/api/action', {

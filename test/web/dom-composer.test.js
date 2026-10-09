@@ -100,8 +100,9 @@ test('真实 refresh 慢 overview：确认立即清空解锁，继续暂存与�
     await buffer();
     expect(world.state.actions.at(-1)).toMatchObject({ method: 'draft.add', params: { content: 'overview 在途时的第二条' } });
     dom.node('input').value = '第三条继续编辑'; dom.node('input').oninput(); const view = ui.view;
-    release(); await send; await until(() => !ui.busy); await Promise.resolve();
-    expect(ui.view).toBe(view); expect(ui.selected).toBeNull(); expect(reads).toBe(1);
+    release(); await send; await until(() => reads === 2 && !ui.busy); await Promise.resolve();
+    // The second ACK queues one fresh read behind the slow first overview, rather than being swallowed.
+    expect(ui.view).toBe(view); expect(ui.selected).toBeNull(); expect(reads).toBe(2);
     expect(dom.node('input').value).toBe('第三条继续编辑'); expect(document.activeElement).toBe(dom.node('input'));
   } finally { release(); await until(() => !ui.busy); intercept = null; }
 });

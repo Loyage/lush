@@ -56,6 +56,16 @@ const text = () => deepText(root());
 const panel = () => root().querySelector('.input-detail');
 const btn = (label, parent = root()) => parent.querySelectorAll('button').find(node => node.textContent === label || node.getAttribute('aria-label')?.endsWith(`：${label}`));
 const openDraft = () => btn('编辑与发射').onclick();
+// Module loading may need an event-loop turn before the confirmation appears.
+// Wait for the explicit UI condition, not an arbitrary sleep or an unresolved navigation promise.
+const readyDialogButton = async label => {
+  for (let turn = 0; turn < 100; turn++) {
+    const button = dialogButton(dom, label);
+    if (button) return button;
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  throw new Error(`Dialog button did not become ready: ${label}`);
+};
 const form = () => root().querySelector('.inputs-filters');
 const selectStatus = value => {
   const select = form().querySelector('select'); select.value = value; return select.onchange();
@@ -152,10 +162,10 @@ test('详情深链接、浏览器后退与迟到读取，切换草稿取消时�
   late.resolve(json(fixture())); await opening; expect(panel().hidden).toBe(true); expect(dom.location.hash).toBe('#inputs');
   intercept = null; await openDraft(); editor().value = '不丢弃';
   dom.location.hash = '#input-input-2'; const switching = dom.fire('hashchange');
-  await dialogButton(dom, '取消').onclick(); await switching;
+  await (await readyDialogButton('取消')).onclick(); await switching;
   expect(dom.location.hash).toBe('#input-draft-1'); expect(editor().value).toBe('不丢弃'); expect(dom.node('view-title').textContent).toBe('暂存输入 #1');
   dom.location.hash = '#input-input-2'; const confirmed = dom.fire('hashchange');
-  await dialogButton(dom, '放弃编辑').onclick(); await confirmed;
+  await (await readyDialogButton('放弃编辑')).onclick(); await confirmed;
   expect(dom.location.hash).toBe('#input-input-2'); expect(editor()).toBe(null); expect(deepText(panel())).toContain('原始输入 O2');
 });
 

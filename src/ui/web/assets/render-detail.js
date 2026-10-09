@@ -1,6 +1,6 @@
 import { $, badge, block, button, el, kv, roleBadge, routeBadge, statusBadge } from './dom.js';
 import { workerKind } from './worker-kind.js';
-import { action } from './api.js';
+import { action, withReadSignal } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { appendToWorker } from './composer.js';
 import { configureTask, retryTask } from './retry-dialog.js';
@@ -39,6 +39,7 @@ import { inputNumber } from './format.js';
 import { workerLabel, rememberWorkers } from './worker-label.js';
 
 const progressivePanels = new WeakMap();
+const readingHandlers = new WeakMap();
 const freezeOf = task => freezeBlocker(task.target_branch, task, ui.lastSnapshot?.status?.merge_freeze || []);
 /** 任务依赖：本任务等谁、谁在等它。 */
 function renderDeps(task) {
@@ -76,12 +77,14 @@ function intentBadge(task) {
 export function renderDetail(task, history, diff, usage, connections = null, progressive = null) {
   workerLabel(task); rememberWorkers(task.children); rememberWorkers(task.deps); rememberWorkers(task.dependents);
   const panel = $('detail');
+  const ownerDocument = globalThis.document;
   progressivePanels.get(panel)?.dispose();
   progressivePanels.delete(panel);
   const sameTask = panel.dataset.taskId === String(task.id);
   const previousResult = sameTask ? panel.querySelector('.result-panel') : null;
   const previousGoal = sameTask ? panel.querySelector('.goal-panel') : null;
   const previousProgressHistory = sameTask ? panel.querySelector('.progress-history-panel') : null;
+  const previousDiff = sameTask ? panel.querySelector('.detail-diff') : null;
   const historyFocus = previousProgressHistory && [...previousProgressHistory.querySelectorAll('summary'), ...previousProgressHistory.querySelectorAll('button')]
     .find(node => node === document.activeElement);
   const panelTop = panel.getBoundingClientRect?.().top ?? 0;
@@ -305,10 +308,31 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     workspace.append(el('p', text, 'mono'));
     panel.append(workspace);
   }
-  let diffSection = null;
+  let diffSection = null, diffFold = null, diffBody = null;
+  const lazyDiff = Boolean(progressive?.requestDiff);
+  const loadDiff = () => {
+    if (!diffFold?.open || !progressive.current()) return;
+    diffFold.dataset.state = 'loading';
+    diffBody.querySelector('.detail-diff-status')?.remove();
+    diffBody.append(el('p', '改动加载中…', 'hint detail-diff-status'));
+    return progressive.requestDiff();
+  };
   if (!management) {
     diffSection = progressive ? block('改动概览') : renderDiff(diff, task.id);
-    if (progressive) diffSection.append(el('p', '改动加载中…', 'hint'));
+    if (lazyDiff) {
+      diffFold = previousDiff || el('details', undefined, 'detail-diff');
+      if (!previousDiff) {
+        diffFold.append(el('summary', '查看改动概览'));
+        diffFold.append(el('div', undefined, 'detail-diff-body'));
+      }
+      diffBody = diffFold.querySelector('.detail-diff-body');
+      diffFold.dataset.state = 'idle';
+      diffBody.querySelector('.detail-diff-status')?.remove();
+      diffBody.append(el('p', diffFold.open ? '改动加载中…' : '打开后读取改动。', 'hint detail-diff-status'));
+      diffFold.ontoggle = () => { if (diffFold.open && diffFold.dataset.state === 'idle') void loadDiff(); };
+      diffSection.append(diffFold);
+      if (diffFold.open) queueMicrotask(loadDiff);
+    } else if (progressive) diffSection.append(el('p', '改动加载中…', 'hint'));
     panel.append(diffSection);
   }
   if (task.role === 'verifier' || task.verifications?.length || (task.role === 'worker' && task.status === 'completed' && task.workspace && task.head_commit)) panel.append(renderVerifications(task));
@@ -375,6 +399,16 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     if (nextTop !== undefined) panel.scrollTop = readingScroll + nextTop - anchorTop;
   }
   if (!progressive) return;
+  // Existing explicit history pagers start their GET synchronously. Bind them to this view,
+  // including reused goal/result/progress nodes, without changing their write/action contracts.
+  if (progressive.signal) for (const area of [goal, result, progressHistory]) {
+    for (const control of area?.querySelectorAll('button') || []) {
+      const start = readingHandlers.get(control) || control.onclick;
+      if (typeof start !== 'function') continue;
+      readingHandlers.set(control, start);
+      control.onclick = event => withReadSignal(progressive.signal, () => start.call(control, event));
+    }
+  }
 
   // At most four supplemental patches. Never rebuild the page or replace a live form/reader.
   const pending = new Map();
@@ -387,7 +421,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   };
   const dispose = () => {
     disposed = true; pending.clear();
-    document.removeEventListener?.('selectionchange', flush);
+    ownerDocument?.removeEventListener?.('selectionchange', flush);
     panel.removeEventListener?.('focusout', onFocusOut);
     observer?.disconnect();
   };
@@ -402,7 +436,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     panel.scrollTop = scroll;
     if (Number.isFinite(pageScroll) && window.scrollY !== pageScroll) window.scrollTo?.(window.scrollX, pageScroll);
     if (listening) {
-      document.removeEventListener?.('selectionchange', flush);
+      ownerDocument?.removeEventListener?.('selectionchange', flush);
       panel.removeEventListener?.('focusout', onFocusOut);
       observer?.disconnect(); listening = false;
     }
@@ -436,7 +470,17 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
         if (kind === 'diff' && diffSection) {
           const next = available && value ? renderDiff(value, task.id) : block('改动概览');
           if (!available || !value) next.append(el('p', available ? '改动不可用：尚无可读取的工作区。' : '改动不可用；读取失败。', 'hint'));
-          diffSection = replace(diffSection, next);
+          if (lazyDiff) {
+            const filesOpen = diffBody.querySelector('.diff-files')?.open === true;
+            const signature = JSON.stringify([value, available]);
+            diffBody.querySelector('.detail-diff-status')?.remove();
+            if (diffFold.dataset.signature !== signature) diffBody.replaceChildren(next);
+            diffFold.dataset.signature = signature;
+            if (filesOpen && diffBody.querySelector('.diff-files')) diffBody.querySelector('.diff-files').open = true;
+            diffFold.dataset.state = available ? 'ready' : 'failed';
+            diffBody.querySelector('.detail-diff-retry')?.remove();
+            if (!available) diffBody.append(button('重试读取改动', loadDiff, 'ghost detail-diff-retry'));
+          } else diffSection = replace(diffSection, next);
         }
         if (kind === 'history') {
           if (available) {
@@ -459,7 +503,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
       flush();
       if (pending.size && !listening) {
         listening = true;
-        document.addEventListener?.('selectionchange', flush);
+        ownerDocument?.addEventListener?.('selectionchange', flush);
         // focusout precedes the browser's activeElement change.
         panel.addEventListener('focusout', onFocusOut);
         if (typeof MutationObserver === 'function') {
