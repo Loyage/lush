@@ -13,7 +13,7 @@ function setup(options = {}) {
   return { ...f, service: f.project.agentConnections };
 }
 
-test('scoped service shares configuration across projects while observations, consumers and history remain project-local', async () => {
+test('scoped service shares configuration and latest observations across projects while consumers and history remain project-local', async () => {
   const a = setup({ managerOptions: { fetch: async () => balance(12) } }), b = setup({ managerOptions: { fetch: async () => balance(99) } });
   b.config.deviceHome = a.config.deviceHome;
   try {
@@ -24,7 +24,7 @@ test('scoped service shares configuration across projects while observations, co
     expect(b.service.list().connections[0]).toMatchObject({ id: row.id, storage_scope: 'device', observation: { status: 'unknown' } });
     await a.service.query(row.id);
     expect(a.service.list().connections[0].observation.resources[0].remaining).toBe(12);
-    expect(b.service.list().connections[0].observation.status).toBe('unknown');
+    expect(b.service.list().connections[0].observation.resources[0].remaining).toBe(12);
     expect(b.service.history(row.id).series).toEqual([]);
     expect(a.service.history(row.id).series).toHaveLength(1);
     const runtime = await a.service.prepareRuntime(row.id);

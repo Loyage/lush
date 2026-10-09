@@ -57,7 +57,7 @@ configuration_scope: {
 
 共享 OAuth refresh 必须使用同一实际目录的 refresh lock，多个项目同时调用不能各复制 refresh token 或各自刷新；runtime 仍仅复制 access token。本地旧凭证未迁移前可用，但不能自动把它复制进设备层。设备连接删除后不能让迁移源的旧文件重新显现。
 
-`AgentConnectionsService` 可增加 `forScope(scope)` 返回共享同一项目历史的 scoped service 或为公开管理方法增加最后 scope 参数；最终实现报告需明确选择，父负责 Project 转发。项目 root service 在后续 config/source 读取时核对有效采样策略，变化才更新调度；scoped device editor 不建重复定时器。device 保存不因损坏的项目覆盖而假报失败，prune 必须用历史拥有项目的有效 retention，无法证明时保留历史。历史/实际消费者仍限当前项目，绝不汇总别项目 Worker；共享目录缓存可跨项目复用但观测历史仍不搬库。无项目 Host 管理只用 ConnectionManager 与安全本地/内存缓存，不伪造项目历史。
+`AgentConnectionsService` 可增加 `forScope(scope)` 返回共享同一项目历史的 scoped service 或为公开管理方法增加最后 scope 参数；最终实现报告需明确选择，父负责 Project 转发。项目 root service 在后续 config/source 读取时核对有效采样策略，变化才更新调度；scoped device editor 不建重复定时器。device 保存不因损坏的项目覆盖而假报失败，prune 必须用历史拥有项目的有效 retention，无法证明时保留历史。历史/实际消费者仍限当前项目，绝不汇总别项目 Worker；共享模型目录与最新余额/额度缓存跨项目复用，但观测历史仍不搬库。设备共享余额直接从实际设备根读取，不回退某项目的数据库缓存；无项目 Host 使用同一私有持久缓存，重启不丢已刷新值、不伪造项目历史。缓存字段与安全边界见[连接器契约](agent-connections.md#设备共享最新余额缓存w152)。
 
 ## 显式迁移（连接与迁移分区）
 

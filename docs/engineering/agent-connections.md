@@ -85,6 +85,16 @@ RPC（全部 USER_ONLY）：
 
 HTTP GET `/api/agent/connections`、GET `/api/agent/connections/history?id=&days=`；其余统一 POST `/api/action` 转上述管理/查询 RPC。保留项目路由、Origin/认证、no-store。即使 query 是只读远端查询也用显式 action。不要把用户提交的 secrets/回调 URL写到审计事件或错误里。
 
+## 设备共享最新余额缓存（W152）
+
+设备共享连接的最新观测以 `<deviceHome>/credentials/agent-connection-observations.json` 持久化；项目连接仍沿用项目数据库读面，不自动迁移旧余额或项目覆盖。缓存归连接实际存储根，Manager `cachedObservation(id)` 只读本地文件，`recordObservation(id,account_key,source_key,observation)` 校验当前匿名身份后写入。项目显式查询、启用后的采样、受信被动反馈及无项目 Host 显式查询均更新共享缓存；所有项目和 Host 列表直接重读该文件，无需逐项目联网刷新，不复制进各项目历史。
+
+缓存仅保存归一化的最新 `observation` 和 `last_success:{checked_at,observation}|null`。命名空间包括稳定 connection ID、账号与来源（含服务商、端点及模型限制），同服务商/同名不同连接、不同账号和本地同 UUID 阴影不得互用。普通 OAuth token 轮换保留同账号观测，修改标签/默认模型不要求重新查询。最新失败不冒充零余额，旧成功仅作为 `last_success`；按 `checked_at` 单调更新，迟到观测不能覆盖更新值。
+
+文件 0600，凭证目录 0700；沿用实际存储根校验、跨进程配置/缓存锁、原子替换、无 symlink/foreign owner/硬链接和有限大小（2 MiB、60 个命名空间，超限淘汰最旧条目）。不保存原始响应、headers、凭证、Worker、消费者或历史曲线。损坏或不安全缓存明确失败，不回退其它项目值或偷偷修复。既有项目数据库样本不自动导入设备缓存；首次使用新缓存需在任一入口刷新一次，之后各项目复用同一观测。
+
+历史仍只由实际产生观测的项目记入自己的 SQLite，读取共享最新值不补造本项目历史；实际消费者只来自当前项目冻结运行绑定，无项目 Host 仍无历史和消费者。测试见 `test/agent/connections-observations.test.js` 与 `test/project/agent-connections-observations.test.js`，覆盖跨进程写入/读取、Host 重启、失败旧值、身份变化、被动反馈、安全文件与项目隔离。
+
 ## Web
 
 用户决定 #152/#154：托管账号集中在独立「模型来源」页面（`#model-sources`），不再是 Agent 管理 tab；Agent 配置保留 `#agent-status`。`render-model-sources.js` 导出 `openModelSources({connectionId?})`；`render-agent-connections.js` 导出 `createAgentConnections({ownsPage,connectionId?})`，保留 `{node,load()}` 并增加来源选择与清理接口。本地列表、显式刷新单项/全部、添加/编辑/删除连接、密钥 password 输入（更换时才写，提交后清空）、采样设置、Codex 打开授权链接与粘贴回调、认证诊断、独立现金/Key预算/套餐窗口、旧值/来源/时间、历史和实际消费者。套餐额度用进度条表达已用比例并标出窗口（如 5 小时 / 7 天）与重置时间，详细口径、适用范围与原始读数收进折叠区；现金余额仍显金额，不用无总数的进度条。详情编辑器可设置 `default_model` / `default_thinking`。#255 已退役旧 HTTP 查询/映射编辑与旧采样；模型来源页仅按需保留旧余额历史只读存档，不与正式连接混合，契约见[旧存档](agent-usage.md)。删除需确认，说明不删除历史。登录会联网但不调用 Agent，使用 help，不标 agent-call。

@@ -258,12 +258,17 @@ export class AgentConnectionsService {
     const observationBudget = Math.max(1000, Math.floor((600000 - Buffer.byteLength(JSON.stringify(config)) - remainingBytes) / Math.max(1,config.connections.length)));
     const connections = config.connections.map(connection => {
       const { state } = this.snapshot(connection.id, config);
-      const current = this.store.latestAgentConnectionObservation(connection.id,state.revision,state.account_key,state.source_key)
+      const shared = connection.storage_scope === 'device';
+      let cached = null;
+      if (shared) {
+        try { cached = this.getManager().cachedObservation(connection.id); } catch { throw failure(); }
+      }
+      const current = (shared ? cached?.observation : this.store.latestAgentConnectionObservation(connection.id,state.revision,state.account_key,state.source_key))
         || normalizeConnectionObservation({ status: 'unknown', checked_at, source: 'none', resources: [] });
       const { view: observation, truncated: observation_truncated } = boundedObservation(current,observationBudget);
       let last_success = null, last_success_truncated = false;
       if (!['available','partial'].includes(observation.status)) {
-        const old = this.store.lastAgentConnectionSuccess(connection.id,state.account_key,state.source_key);
+        const old = shared ? cached?.last_success : this.store.lastAgentConnectionSuccess(connection.id,state.account_key,state.source_key);
         if (old) {
           const bytes = Buffer.byteLength(JSON.stringify(old));
           if (bytes <= Math.min(16384, remainingBytes)) { last_success = old; remainingBytes -= bytes; }
@@ -364,6 +369,8 @@ export class AgentConnectionsService {
         this.store.recordAgentConnectionObservation({ connection_id: result.id, revision: snapshot.state.revision,
           provider: snapshot.connection.provider, account_key: result.account_key, source_key: result.source_key,
           query_key: randomUUID(), observation });
+        if (snapshot.connection.storage_scope === 'device') await this.getManager().recordObservation(
+          result.id, result.account_key, result.source_key, observation);
       } finally { this.release(); }
     }).finally(() => { this.flights.delete(key); });
     this.flights.set(key,pending); this.track(pending);
@@ -413,7 +420,7 @@ export class AgentConnectionsService {
     check(binding, 'connection observation has no frozen runtime binding');
     // Shutdown may already have cancelled proactive queries while an Agent is
     // delivering its final passive feedback. Track this trusted write as well.
-    return this.track(this.project.write('observe agent connection', () => {
+    return this.track(this.project.write('observe agent connection', async () => {
       const safe = normalizeConnectionObservation(observation,new Date(this.now()).toISOString());
       check(safe.source === 'response_headers', 'invalid passive connection observation source');
       this.prune(this.config().sampling);
@@ -425,6 +432,7 @@ export class AgentConnectionsService {
       this.store.rememberAgentConnectionIdentity(current.state.connection_id,revision,account_key,source_key);
       const recorded = this.store.recordAgentConnectionObservation({ connection_id: id, revision, provider: binding.provider,
         account_key, source_key, query_key: hash([id,account_key,source_key,safe]), observation: safe });
+      if (current.connection.storage_scope === 'device') await this.getManager().recordObservation(id, account_key, source_key, safe);
       return { recorded };
     }));
   }

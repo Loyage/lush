@@ -7,6 +7,7 @@ import { DEFAULT_ENDPOINTS, digest, secret, fields, object, validId, normalizeCo
 import { queryConnection } from './connections-query.js';
 import { authorization, callbackCode, REDIRECT_URI, exchange, refresh } from './connections-oauth.js';
 import { ConnectionDeviceLogins } from './connections-device.js';
+import { ConnectionObservationFile } from './connections-observations.js';
 import { ConnectionCatalogFile, LISTINGS, catalogKey, listingUrl, localModels, manualModels, normalizeCatalog } from './connections-catalog.js';
 import { networkSnapshot } from './network.js';
 import { normalizeConfigurationScope, scopedConfiguration, configurationScope } from '../core/device-config.js';
@@ -43,6 +44,7 @@ export class ConnectionManager {
     this.sharedFile = this.scope === 'project' && config.deviceHome ? new ConnectionFile(config.deviceHome, { privateRoot: true }) : null;
     this.catalogs = new ConnectionCatalogFile(this.file);
     this.catalogStores = new Map([[this.file.home, this.catalogs]]);
+    this.observationStores = new Map();
     this.scopedManagers = options.scopedManagers || new Map();
     this.scopedManagers.set(this.scope, this);
     this.options = options; this.now = options.now || Date.now;
@@ -86,6 +88,24 @@ export class ConnectionManager {
     const file = this._storage(row);
     if (!this.catalogStores.has(file.home)) this.catalogStores.set(file.home, new ConnectionCatalogFile(file));
     return this.catalogStores.get(file.home);
+  }
+  _observationStore(row) {
+    const file = this._storage(row);
+    if (!this.observationStores.has(file.home)) this.observationStores.set(file.home, new ConnectionObservationFile(file));
+    return this.observationStores.get(file.home);
+  }
+  _observationKey(row) { return digest(['connection-observation-v1', row.id, identity(row)]); }
+  /** Local read on every request: another daemon or Host may have refreshed this source. */
+  cachedObservation(id) {
+    const row = this._row(id);
+    return this._observationStore(row).get(this._observationKey(row));
+  }
+  recordObservation(id, account_key, source_key, observation) {
+    return this._track(async () => {
+      const row = this._row(id), current = identity(row);
+      if (account_key !== current.account_key || source_key !== current.source_key) fail('auth_changed');
+      await this._observationStore(row).put(this._observationKey(row), observation);
+    });
   }
   isBusy() {
     return [...this.scopedManagers.values()].some(manager => {

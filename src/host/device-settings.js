@@ -58,7 +58,7 @@ export class DeviceSettingsService {
     this.agents = new AgentSettings({ ...this.config, deviceHome: this.config.home });
     this.explanation = new QuickExplanationSettings(this.config);
     this.options = options;
-    this.manager = null; this.packages = null; this.cache = new Map(); this.pending = new Set(); this.closed = false;
+    this.manager = null; this.packages = null; this.pending = new Set(); this.closed = false;
   }
   metadata(source = 'device') {
     return configurationScope({ deviceHome: this.config.home, project: null }, 'device', source);
@@ -81,14 +81,11 @@ export class DeviceSettingsService {
   }
   connectionList() {
     const manager = this.getManager(), config = manager.config(), checked_at = new Date().toISOString();
-    const ids = new Set(config.connections.map(row => row.id));
-    for (const id of this.cache.keys()) if (!ids.has(id)) this.cache.delete(id);
     return this.view({ ...config, checked_at, connections: config.connections.map(connection => {
-      const identity = manager.identity(connection.id), cached = this.cache.get(connection.id);
-      const current = cached && cached.account === identity.account_key && cached.source === identity.source_key ? cached : null;
+      const current = manager.cachedObservation(connection.id);
       return { ...connection, storage_scope: 'device', consumers: [],
         observation: current?.observation || normalizeConnectionObservation({ status: 'unknown', checked_at, source: 'none', resources: [] }),
-        last_success: current?.lastSuccess || null };
+        last_success: current?.last_success || null };
     }), history_available: false, consumers_scope: 'none' });
   }
   async queryConnections(id = null) {
@@ -100,11 +97,7 @@ export class DeviceSettingsService {
       check(!this.closed, 'device settings service is stopping');
       const identity = manager.identity(connectionId);
       if (identity.account_key !== result.account_key || identity.source_key !== result.source_key) continue;
-      const observation = normalizeConnectionObservation(result.observation), old = this.cache.get(connectionId);
-      const same = old?.account === identity.account_key && old?.source === identity.source_key;
-      this.cache.set(connectionId, { account: identity.account_key, source: identity.source_key, observation,
-        lastSuccess: ['available', 'partial'].includes(observation.status) ? observation : same ? old.lastSuccess : null });
-      while (this.cache.size > 50) this.cache.delete(this.cache.keys().next().value);
+      await manager.recordObservation(connectionId, result.account_key, result.source_key, result.observation);
     }
     return this.connectionList();
   }
@@ -156,7 +149,7 @@ export class DeviceSettingsService {
       }
       case 'agent.connections.save': return this.view({ ...this.getManager().save(p.connection, p.credential), storage_scope: 'device' });
       case 'agent.connections.remove': {
-        const result = this.getManager().remove(p.id); this.cache.delete(p.id); return result;
+        return this.getManager().remove(p.id);
       }
       case 'agent.connections.sampling': return this.getManager().configureSampling(p.sampling);
       case 'agent.connections.query': return this.queryConnections(p.id);
@@ -195,6 +188,5 @@ export class DeviceSettingsService {
     this.closed = true;
     await Promise.allSettled([this.manager?.stop(), this.packages?.stop()]);
     await Promise.allSettled([...this.pending]);
-    this.cache.clear();
   }
 }
