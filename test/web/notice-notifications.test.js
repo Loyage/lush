@@ -94,7 +94,7 @@ test('noticeChannels defaults/normalization/reset and unavailable localStorage p
     localStorage.setItem(PREF_DEFS.noticeChannels.key, '{broken');
     expect(readPref('noticeChannels')).toEqual(normalizeNoticeChannels());
     localStorage.setItem(PREF_DEFS.noticeChannels.key, JSON.stringify({ idle: { banner: false, system: 'false' }, failed: null, future: { banner: false } }));
-    expect(readPref('noticeChannels')).toEqual({ idle: { banner: false, system: true }, analysis: { banner: true, system: true }, failed: { banner: true, system: true } });
+    expect(readPref('noticeChannels')).toEqual({ created: { banner: true, system: true }, idle: { banner: false, system: true }, analysis: { banner: true, system: true }, failed: { banner: true, system: true } });
     const storage = globalThis.localStorage;
     globalThis.localStorage = { getItem() { throw Error('private'); }, setItem() { throw Error('private'); }, removeItem() { throw Error('private'); } };
     setPref('noticeChannels', { failed: { banner: false, system: false } });

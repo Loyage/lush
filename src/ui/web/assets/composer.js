@@ -319,7 +319,8 @@ async function submitInput(mode) {
       }
     }
     update = { identity, submission, view, appendTarget,
-      detailId: target.id ?? (mode === 'buffer' ? null : result.deferred ? result.parent_id : result.task.id),
+      // New work never owns navigation; only an explicit inbox may update its current detail.
+      detailId: target.id ?? null,
       editRevision: ui.composerEditRevision, referenceRevision: ui.composerReferenceRevision, canNavigate: untouched };
   } catch (error) { if (ui.composerIdentity === identity) show(error.message, 'error'); }
   finally { if (ui.composerIdentity === identity) { ui.composerSubmitting = false; syncComposer(); } }

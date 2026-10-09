@@ -981,6 +981,10 @@ export default {
         }
         this.store.event(task.id, 'input.anchor', { input_id: inputId, branch: anchor.branch, commit: anchor.commit,
           target_branch: target, workspace: anchor.workspace, dirty_source: anchor.dirty_source });
+        if (!start) {
+          const eventId = this.store.event(task.id, 'task.start_pending', { input_id: inputId });
+          this.notifyTaskLifecycle(task.id, eventId);
+        }
         return { id: inputId, content, references: normalized, task: this.store.task(task.id), anchor,
           ...(draft ? { draft: draft.id } : {}) };
       });

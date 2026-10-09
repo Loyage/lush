@@ -39,6 +39,8 @@
 
 缓冲区不新增Worker实体，不产生 Agent 调度信号，不为保存想法冻结提交；真正的工作区基线在发射时固定。
 
+主输入框创建、立即开始及预约发射成功后留在当前页面，不自动进入新 Worker 或预约父 Worker。`start:false` 真正创建成功时，`project/order.js` 在创建事务内记录 `task.start_pending` 并调用 `project/messages.js` 的 `notifyTaskLifecycle`，生成「待开始」纯告知；直接正文、草稿与 Hook 延迟创建共用此路径。Notice SQL 投影为 `lifecycle_type:'created'`，Web 复用告知条的查看 Worker／已知入口，并提供独立的页面与系统通知偏好。预约尚未创建、立即开始、用户暂停与重启恢复不产生此告知；不补发旧记录，不调用 Agent。
+
 显式预约先保存一次性创建 Hook，不创建 Input/Worker/worktree。挂载认领草稿版本并保护其正文与引用；占用中不可编辑、删除或重复发射。等待／明确失败挂载停用或移除可释放占用；unknown 须检查现场后移除，不自动重放。已结束父上的未执行自定义挂载仍可移除释放草稿。创建成功才回写 `input_id`。参数与恢复边界见 [Hooks](hooks.md)。
 
 ## 实现职责

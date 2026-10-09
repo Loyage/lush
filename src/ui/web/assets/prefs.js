@@ -96,7 +96,7 @@ const parseTaskGraphStatuses = raw => {
  * `default` 可以是值或工厂（集合 / 对象每次都要新的，避免调用方改到共享默认值）。
  */
 export function normalizeNoticeChannels(value) {
-  return Object.fromEntries(['idle', 'analysis', 'failed'].map(type => [type,
+  return Object.fromEntries(['created', 'idle', 'analysis', 'failed'].map(type => [type,
     Object.fromEntries(['banner', 'system'].map(channel => [channel,
       typeof value?.[type]?.[channel] === 'boolean' ? value[type][channel] : true]))]));
 }

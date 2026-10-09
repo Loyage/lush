@@ -1,6 +1,7 @@
 import { test, expect, afterAll } from 'bun:test';
 import { installDom, deepText } from '../dom-stub.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
+import { until } from '../helpers.js';
 
 const world = makeWorld();
 let failTask = false, failRead = false, releaseTask = null, deferTask = false;
@@ -68,6 +69,26 @@ test('点击告知直接进入 Task，成功加载后仅标已读，保留 sent 
   expect(world.state.notices[0].read_at).toBeTruthy(); expect(world.state.notices[0].status).toBe('sent');
   expect(dom.node('notice-banner').hidden).toBe(true);
   await openNotice(20); expect(world.state.actions).toHaveLength(1);
+});
+
+test('待开始告知留在原页，已知不启动；用户点击查看才进入 Worker 并标已读', async () => {
+  await overview();
+  const row = { ...info(25), lifecycle_type: 'created', title: 'Worker W154 待开始', body: '尚未调用 Agent，可配置后手动开始' };
+  world.state.notices = [row]; world.state.actions = []; await update();
+  const view = ui.view, hash = dom.location.hash;
+  expect(deepText(dom.node('notice-banner'))).toContain('Worker W154 待开始');
+  expect(ui.view).toBe(view); expect(dom.location.hash).toBe(hash);
+  await dom.node('notice-banner').querySelector('.notice-banner-known').onclick();
+  expect(ui.view).toBe(view); expect(dom.location.hash).toBe(hash);
+  expect(world.state.actions).toEqual([{ method: 'notice.read', params: { id: 25 } }]);
+  await until(() => !ui.busy);
+  world.state.notices = [{ ...row, id: 26, source_event_id: 126, read_at: null }]; world.state.actions = []; await update();
+  const channels = normalizeNoticeChannels(); channels.created.banner = false; setPref('noticeChannels', channels);
+  expect(dom.node('notice-banner').querySelector('.notice-banner-info')).toBeNull();
+  setPref('noticeChannels', normalizeNoticeChannels());
+  await dom.node('notice-banner').querySelector('.notice-banner-info').onclick();
+  expect(dom.location.hash).toBe('#worker-4'); expect(ui.detailTask).toBe(4);
+  expect(world.state.actions).toEqual([{ method: 'notice.read', params: { id: 26 } }]);
 });
 
 test('打开 Task 失败不标已读，不消失；成功重试后已读', async () => {

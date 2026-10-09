@@ -53,6 +53,7 @@ export const EVENTS = {
   'completion.execution_started': '开始执行自动处理', 'completion.execution_superseded': '过期自动动作已作废',
   'completion.execution_succeeded': '自动处理执行成功', 'completion.execution_failed': '自动处理执行失败',
   'completion.execution_unknown': '自动处理结果待核验',
+  'task.start_pending': 'Worker 已创建，待开始',
   'task.delivered': '已交付成果', 'task.idle': '本轮工作结束', 'task.resolved': '已标记问题解决',
   'task.delivery_resumed': '恢复交付流程', 'task.iteration_started': '开始新一轮开发',
   'task.forked': '已从父分支创建工作区', 'task.fork_failed': '创建工作区失败',

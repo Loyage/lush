@@ -94,7 +94,8 @@ test('historical orders resume through the renamed scheduler and retain lifecycl
     f.project.stopping = false; f.project.kick();
     await until(() => f.store.task(old.task.id).status === 'waiting' && !f.project.running.has(old.task.id));
     expect(f.store.task(old.task.id).calls).toBe(1);
-    expect(f.store.all('SELECT id FROM notices WHERE task_id=? AND source_event_id IS NOT NULL', old.task.id)).toHaveLength(1);
+    expect(f.store.all(`SELECT n.id FROM notices n JOIN events e ON e.id=n.source_event_id
+      WHERE n.task_id=? AND e.type='task.idle'`, old.task.id)).toHaveLength(1);
     expect(raw(f, old.task.id).task_kind).toBe('say');
     expect(await git(old.task.workspace, 'symbolic-ref', '--short', 'HEAD')).toBe(old.task.branch);
   } finally { await f.close(); }

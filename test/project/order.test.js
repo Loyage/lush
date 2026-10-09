@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fixture, repo, git, until, gate } from '../helpers.js';
 import { Dispatcher } from '../../src/rpc/protocol.js';
 import { assertAllowed } from '../../src/rpc/registry.js';
+import { handlers as noticeHandlers } from '../../src/rpc/handlers/notice.js';
 
 test('new order creates one Input and one Task in its own worktree, without planner or fast routing', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
@@ -31,6 +32,50 @@ test('new order creates one Input and one Task in its own worktree, without plan
     expect(() => f.project.cancel(root.id)).toThrow('permanent root');
     await expect(f.project.order('another', 'feature/missing')).rejects.toThrow('explicitly bound Worker');
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(1);
+  } finally { await f.close(); }
+});
+
+test('create-only direct and buffered orders emit one persistent start-pending notice without invoking Agent', async () => {
+  let calls = 0;
+  const f = fixture({ async run() { calls++; return 'unexpected'; } }); await repo(f.root);
+  try {
+    for (const buffered of [false, true]) {
+      const draft = buffered ? await f.project.addBufferedDraft('暂存后仅创建', [], 'main') : null;
+      const sent = await f.project.order(draft ? undefined : '直接仅创建', 'main', [], draft?.id ?? null,
+        false, draft?.revision);
+      expect(sent.task).toMatchObject({ status: 'paused', calls: 0, agent_wakes: 0 });
+      const [notice] = noticeHandlers['notice.list'](f.project, {}).filter(row => row.task_id === sent.task.id);
+      expect(notice).toMatchObject({ kind: 'info', status: 'sent', read_at: null, lifecycle_type: 'created' });
+      expect(notice.title).toContain(`Worker ${sent.task.worker_number} 待开始`);
+      expect(notice.body).toContain('尚未调用 Agent'); expect(notice.body).toContain('手动开始');
+      expect(f.store.get('SELECT type FROM events WHERE id=?', notice.source_event_id).type).toBe('task.start_pending');
+      expect(f.project.notifyTaskLifecycle(sent.task.id, notice.source_event_id).id).toBe(notice.id);
+      expect(noticeHandlers['notice.page'](f.project, { status: 'unread' }).notices.some(row => row.id === notice.id)).toBe(true);
+      f.project.readNotice(notice.id);
+      expect(f.store.task(sent.task.id).status).toBe('paused');
+      expect(f.project.running.has(sent.task.id)).toBe(false);
+      expect(f.store.all('SELECT * FROM notices WHERE task_id=?', sent.task.id)).toHaveLength(1);
+    }
+    expect(calls).toBe(0);
+    f.project.stopping = true;
+    const started = await f.project.order('立即开始不发待开始告知');
+    expect(f.store.all('SELECT * FROM notices WHERE task_id=?', started.task.id)).toHaveLength(0);
+    f.project.interrupt(started.task.id);
+    expect(f.store.all('SELECT * FROM notices WHERE task_id=?', started.task.id)).toHaveLength(0);
+  } finally { await f.close(); }
+});
+
+test('start-pending notice failure rolls back Worker creation and retains its buffered input', async () => {
+  const f = fixture(); f.project.stopping = true; await repo(f.root);
+  try {
+    const draft = await f.project.addBufferedDraft('保留草稿', [], 'main');
+    f.store.run("CREATE TRIGGER fail_start_notice BEFORE INSERT ON notices WHEN NEW.source_event_id IS NOT NULL BEGIN SELECT RAISE(ABORT, 'notice unavailable'); END");
+    await expect(f.project.order(undefined, 'main', [], draft.id, false, draft.revision)).rejects.toThrow('notice unavailable');
+    expect(f.store.draft(draft.id).input_id).toBeNull();
+    expect(f.store.all('SELECT * FROM inputs')).toHaveLength(0);
+    expect(f.store.all("SELECT * FROM tasks WHERE task_kind='order'")).toHaveLength(0);
+    expect(f.store.all("SELECT * FROM events WHERE type='task.start_pending'")).toHaveLength(0);
+    expect(f.store.all('SELECT * FROM notices')).toHaveLength(0);
   } finally { await f.close(); }
 });
 

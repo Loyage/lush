@@ -53,7 +53,10 @@ for (const level of ['off', 'merge', 'accept', 'archive']) test(`real HTTP/RPC/G
     expect(Boolean(merged)).toBe(level !== 'off'); expect(Boolean(accepted)).toBe(['accept', 'archive'].includes(level));
     if (accepted) { expect(accepted.id).toBeGreaterThan(merged.id); expect(accepted.data.via).toBe('completion_hook'); }
     if (archived) expect(archived.id).toBeGreaterThan(accepted.id);
-    const notices = f.store.all("SELECT * FROM notices WHERE task_id=? AND kind='info'", task.id);
+    const allNotices = (await get(f, '/api/notices?status=all')).notices.filter(row => row.task_id === task.id && row.kind === 'info');
+    expect(allNotices.filter(row => row.lifecycle_type === 'created')).toHaveLength(1);
+    // The creation reminder is independent of the later completion chain and remains historical.
+    const notices = allNotices.filter(row => row.lifecycle_type !== 'created');
     expect(notices).toHaveLength(level === 'archive' ? 0 : 1);
     if (level === 'merge') expect(notices[0].title).toContain('待验收');
     if (level === 'accept') expect(notices[0].title).toContain('待归档');

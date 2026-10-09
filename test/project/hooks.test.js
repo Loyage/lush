@@ -64,6 +64,7 @@ test('deferred frozen creation preserves full parameters, creates only once at c
     const refs = [{ kind: 'text', quote: 'context', label: 'quote' }];
     const queued = await f.project.order('deferred job', 'main', refs, null, false, undefined, profile, true);
     expect(queued).toMatchObject({ deferred: true, parent_id: f.main.id });
+    expect(f.store.all('SELECT * FROM notices WHERE task_id=?', f.main.id)).toHaveLength(0);
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(1);
     expect(fs.readdirSync(path.join(f.config.home, 'worktrees'))).toHaveLength(1);
     const repeated = await f.project.order('deferred job', 'main', refs, null, false, undefined, profile, true);
@@ -83,6 +84,10 @@ test('deferred frozen creation preserves full parameters, creates only once at c
     expect(f.store.inputReferences(child.input_id)[0].quote).toBe('context');
     await f.project.runParentReadyHooks(f.main.id); await f.project.runParentReadyHooks(f.main.id);
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(2);
+    const [notice] = f.store.all('SELECT * FROM notices WHERE task_id=?', child.id);
+    expect(notice.title).toContain(`Worker ${child.worker_number} 待开始`);
+    expect(notice.body).toContain('尚未调用 Agent');
+    expect(f.store.all('SELECT * FROM notices WHERE task_id=?', child.id)).toHaveLength(1);
   } finally { await f.close(); }
 });
 

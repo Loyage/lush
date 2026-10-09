@@ -22,6 +22,7 @@ test('lifecycle_type is projected consistently from source Events across list/pa
   const f = fixture(); f.project.stopping = true;
   try {
     const cases = [
+      ['order', 'paused', 'task.start_pending', 'created'],
       ['order', 'waiting', 'task.idle', 'idle'],
       ['order', 'failed', 'failed', 'failed'],
       ['order', 'failed', 'merge.repair_interrupted', 'failed'],

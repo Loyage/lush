@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { repo } from '../helpers.js';
+import { repo, until } from '../helpers.js';
 import { fetch as httpFetch, setup } from './harness.js';
 import { installDom, deepText } from '../dom-stub.js';
 
@@ -13,6 +13,8 @@ const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.
 const { openInputs } = await import('../../src/ui/web/assets/render-inputs.js');
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
 const { setComposerReferences } = await import('../../src/ui/web/assets/context-references.js');
+const { renderNoticeBanner } = await import('../../src/ui/web/assets/notice-banner.js');
+const { renderNotices } = await import('../../src/ui/web/assets/render-notices.js');
 afterAll(() => dom.restore());
 const root = () => dom.node('detail');
 const btn = (label, host = root()) => host.querySelectorAll('button').find(node => node.textContent === label || node.getAttribute('aria-label')?.endsWith(`：${label}`));
@@ -46,6 +48,33 @@ test('真实 API：详情默认新建，显式追加 Enter 仅发消息，返回
     expect(fixture.store.all('SELECT * FROM messages WHERE task_id = ? AND sender_id IS NULL', task.id)).toHaveLength(1);
     expect(dom.node('input-form').dataset.mode).toBe('create');
     activateDetailView({ view: 'overview' }); expect(input.placeholder).toContain('在 main 下创建子 Worker');
+  } finally { restore(); await fixture.close(); }
+});
+
+test('真实 API：输入框创建后原页告知，主动查看才跳转且不会开始 Agent', async () => {
+  fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
+  let details = 0;
+  const restore = registerNavigation({ refresh: async () => {
+    const response = await httpFetch(fixture.url + '/api/snapshot');
+    ui.lastSnapshot = await response.json(); renderNotices(ui.lastSnapshot); renderNoticeBanner(ui.lastSnapshot);
+  }, detail: id => { details++; return loadDetail(id); } });
+  try {
+    resetUiState(); dom.node('input').value = ''; dom.node('input-parent').value = ''; await initComposer();
+    const view = activateDetailView({ view: 'overview' }), hash = dom.location.hash;
+    const input = dom.node('input'); input.value = '留在原页的真实创建'; input.oninput(); input.focus();
+    await dom.node('input-form').onsubmit({ preventDefault() {} });
+    await until(() => dom.node('notice-banner').querySelector('.notice-banner-info'));
+    const task = fixture.store.all("SELECT * FROM tasks WHERE task_kind='order'")[0];
+    expect(deepText(dom.node('notice-banner'))).toContain(`Worker ${task.worker_number} 待开始`);
+    expect(ui.view).toBe(view); expect(dom.location.hash).toBe(hash); expect(details).toBe(0);
+    expect(input.value).toBe(''); expect(document.activeElement).toBe(input);
+    const [notice] = fixture.store.all('SELECT * FROM notices WHERE task_id=?', task.id);
+    expect(notice.read_at).toBeNull();
+    await dom.node('notice-banner').querySelector('.notice-banner-info').onclick();
+    await until(() => ui.lastSnapshot.notices.find(row => row.id === notice.id)?.read_at);
+    expect(details).toBe(1); expect(ui.selected).toBe(task.id); expect(dom.location.hash).toBe(`#worker-${task.id}`);
+    expect(fixture.store.task(task.id)).toMatchObject({ status: 'paused', calls: 0, agent_wakes: 0 });
+    expect(fixture.store.get('SELECT read_at FROM notices WHERE id=?', notice.id).read_at).toBeTruthy();
   } finally { restore(); await fixture.close(); }
 });
 

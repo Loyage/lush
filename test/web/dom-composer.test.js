@@ -131,24 +131,26 @@ test('树页重型后台更新不占输入确认或概览锁，迟到树补齐�
   } finally { release({ ok: true, json: async () => graph }); intercept = null; await overview(); }
 });
 
-test('真实 detail 慢读取：创建确认不等详情，迟到详情保住下一条文字、引用和焦点', async () => {
-  await overview(); let release, reads = 0;
-  const gate = new Promise(done => { release = done; });
-  intercept = url => {
-    if (url === '/api/worker/99') { reads++; return gate.then(() => world.fetchImpl(url)); }
-  };
+test('真实 refresh：创建及立即开始不读取新 Worker 详情、不跳转，继续输入保住焦点', async () => {
+  await until(() => !ui.busy); await overview(); let reads = 0;
+  intercept = url => { if (url === '/api/worker/99') reads++; };
   try {
-    dom.node('input').value = '创建确认不等 detail'; dom.node('input').oninput(); dom.node('input').focus();
-    await dom.node('input-form').onsubmit({ preventDefault() {} }); await until(() => reads === 1);
-    expect(ui.composerSubmitting).toBe(false); expect(dom.node('input').value).toBe('');
-    const view = ui.view;
-    dom.node('input').value = '详情在途时的第二条'; dom.node('input').oninput();
+    const view = ui.view, hash = dom.location.hash;
+    for (const shiftKey of [false, true]) {
+      dom.node('input').value = '发射不打开 detail'; dom.node('input').oninput(); dom.node('input').focus();
+      await dom.node('input').onkeydown({ key: 'Enter', ctrlKey: true, shiftKey, preventDefault() {} });
+      await until(() => !ui.busy); await Promise.resolve();
+      expect(ui.composerSubmitting).toBe(false); expect(dom.node('input').value).toBe('');
+      expect(ui.view).toBe(view); expect(dom.location.hash).toBe(hash); expect(ui.selected).toBeNull();
+      expect(reads).toBe(0); expect(document.activeElement).toBe(dom.node('input'));
+    }
+    dom.node('input').value = '发射后的第二条'; dom.node('input').oninput();
     await buffer(); expect(world.state.actions.at(-1).method).toBe('draft.add');
     dom.node('input').value = '下一条尚未发送'; dom.node('input').oninput();
     setComposerReferences([{ version: 1, kind: 'text', target: {}, label: '下一条引用', quote: '保留快照', location: {}, captured_at: iso(NOW) }]);
-    release(); await until(() => ui.detailTask === 99);
-    expect(ui.view).toBe(view); expect(reads).toBe(1);
+    await until(() => !ui.busy);
+    expect(ui.view).toBe(view); expect(reads).toBe(0);
     expect(dom.node('input').value).toBe('下一条尚未发送'); expect(dom.node('composer-references').hidden).toBe(false);
     expect(document.activeElement).toBe(dom.node('input')); expect(ui.composerSubmitting).toBe(false);
-  } finally { release(); intercept = null; setComposerReferences([]); await overview(); }
+  } finally { intercept = null; setComposerReferences([]); await overview(); }
 });

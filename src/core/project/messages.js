@@ -147,7 +147,9 @@ export default {
     const failed = task.status === 'failed' && ['failed','merge.repair_interrupted','analysis.fork_failed'].includes(event.type);
     const idle = event.type === 'task.idle' && ['waiting','awaiting_acceptance'].includes(task.status);
     const analyzed = task.task_kind === 'analysis' && task.status === 'completed' && event.type === 'completed';
-    if (!failed && !idle && !analyzed) return null;
+    const created = task.task_kind === 'order' && task.status === 'paused' && !task.calls && !task.agent_wakes
+      && event.type === 'task.start_pending';
+    if (!failed && !idle && !analyzed && !created) return null;
     // A configured automatic stage records success, but only its next manual stage reminds.
     if (idle && this.autoCompletionView(task)?.level !== 'off' && this.autoCompletionView(task)) return null;
     if (!failed && (this.hasActionableMessages(task.id)
@@ -156,17 +158,18 @@ export default {
     const existing = this.store.get(`${NOTICE_SELECT} WHERE source_event_id=?`, event.id);
     if (existing) return existing;
     const goal = String(task.goal ?? '').trim().split('\n')[0].slice(0, 100);
-    const title = `${task.task_kind === 'analysis' ? '分析' : 'Worker'} ${workerLabel(task)} ${failed ? '异常停止' : analyzed ? '已完成' : '本轮已结束'}：${goal}`;
+    const title = `${task.task_kind === 'analysis' ? '分析' : 'Worker'} ${workerLabel(task)} ${failed ? '异常停止' : analyzed ? '已完成' : created ? '待开始' : '本轮已结束'}：${goal}`;
     const body = [
       failed ? `Worker 异常停止：${String(task.error ?? '没有记录到原因').slice(0, 1200)}`
         : analyzed ? '只读分析已完成，没有分支改动。'
+          : created ? 'Worker 和独立工作区已创建，尚未调用 Agent；可打开 Worker 调整运行设置，再手动开始。'
           : '本轮工作已收尾，现已静息，等待合并、验收或进一步指示；这不代表 Worker 已验收完成。',
       task.branch ? `分支：${task.branch}\n父分支：${task.target_branch ?? '（未记录）'}`
         : `分析分支：${task.target_branch ?? '（未记录）'}`,
       task.task_kind === 'analysis' ? '' : task.integration === 'merged'
         ? 'integration：已合入父分支。' : '尚未记录已合入父分支；实际交付状态见 Worker 详情。',
       task.result ? `${analyzed ? '结论' : '本轮结果'}：${String(task.result).slice(0, 1200)}` : '',
-      `打开 Worker ${workerLabel(task)} 查看详情。此告知无需答复，不会批准合并、验收或自动重试。`,
+      `打开 Worker ${workerLabel(task)} 查看详情。此告知无需答复，不会启动 Agent、批准合并、验收或自动重试。`,
     ].filter(Boolean).join('\n');
     const row = this.store.run(`INSERT INTO notices(task_id,title,body,kind,status,source_event_id)
       VALUES (?,?,?,'info','sent',?)`, task.id, title, body, event.id);

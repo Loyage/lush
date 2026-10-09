@@ -52,6 +52,23 @@ test('Enter 暂存/Shift 换行/Ctrl 与 Meta 创建/开始的完整键盘矩阵
   type('按钮暂存'); await dom.node('input-buffer').onclick(); expect(calls.at(-1).method).toBe('draft.add');
 });
 
+test('创建、立即开始及预约发射都留在当前页面，不打开 Worker 或父 Worker', async () => {
+  for (const mode of ['button', 'ctrl', 'meta', 'start', 'defer_create', 'defer_start']) {
+    activateDetailView({ view: 'overview' }); input().focus(); opened = null;
+    const view = ui.view, hash = dom.location.hash;
+    ui.composerParents = mode.startsWith('defer')
+      ? [{ id: 1, branch: 'main', freeze: { reason: '等待合并' } }] : parents;
+    intercept = mode.startsWith('defer') ? () => json({ deferred: true, parent_id: 1 }) : null;
+    type('发射但不跳转'); setComposerReferences([ref('来源')]);
+    if (mode === 'button' || mode === 'defer_start') await dom.node('input-form').onsubmit({ preventDefault() {} });
+    else await enter(mode === 'meta' ? { metaKey: true } : { ctrlKey: true, shiftKey: mode === 'start' });
+    await Promise.resolve(); await Promise.resolve();
+    expect(opened).toBeNull(); expect(ui.view).toBe(view); expect(dom.location.hash).toBe(hash);
+    expect(input().value).toBe(''); expect(composerReferences()).toEqual([]);
+    expect(document.activeElement).toBe(input()); expect(ui.composerSubmitting).toBe(false);
+  }
+});
+
 test('IME 确认和长按重复不暂存，不拦截换行', async () => {
   type('中文');
   expect(await enter({ isComposing: true })).toBe(false);
@@ -422,16 +439,16 @@ test('慢 overview 不阻塞创建、开始、暂存、追加或预约的确认�
   }
 });
 
-test('慢详情不占用提交锁，输入下一条仍可暂存且迟到完成不触碰焦点', async () => {
+test('追加后的慢详情不占用提交锁，切回新建后下一条仍可暂存且迟到完成不触碰焦点', async () => {
   const gate = deferred(); let detailReads = 0, detailFinished = false;
   const restore = registerNavigation({ refresh: async () => {}, detail: async id => {
     opened = id; detailReads++; await gate.promise; detailFinished = true;
   } });
   try {
-    activateDetailView({ view: 'overview' }); type('先创建'); input().focus();
-    await enter({ ctrlKey: true }); await until(() => detailReads === 1);
+    openWorker(); type('先追加'); input().focus();
+    await enter(); await until(() => detailReads === 1);
     expect(detailFinished).toBe(false); expect(ui.composerSubmitting).toBe(false); expect(input().value).toBe('');
-    type('详情读取中下一条'); setComposerReferences([ref('新来源')]);
+    resetComposerMode(); type('详情读取中下一条'); setComposerReferences([ref('新来源')]);
     expect(dom.node('input-buffer').disabled).toBe(false);
     await buffer(); expect(calls).toHaveLength(2); expect(input().value).toBe('');
     type('继续编辑'); setComposerReferences([ref('继续来源')]);
@@ -449,13 +466,16 @@ test('后台页面更新失败独立提示提交已成功，不恢复已消费�
     }, detail: async () => { throw new Error('detail 不可用'); } });
     try {
       ui.offline = false; activateDetailView({ view: 'overview' });
-      type('已确认'); setComposerReferences([ref('来源')]); ui.composerProfile = { config_mode: 'pi' };
-      await enter({ ctrlKey: true });
+      if (failAt === 'detail') { openWorker(); type('已确认'); await enter(); }
+      else {
+        type('已确认'); setComposerReferences([ref('来源')]); ui.composerProfile = { config_mode: 'pi' };
+        await enter({ ctrlKey: true });
+      }
       await until(() => dom.node('error').textContent.includes('页面更新失败'));
       expect(dom.node('error').textContent).toContain('提交已成功');
       expect(dom.node('error').textContent).toContain('不要重复提交');
       expect(input().value).toBe(''); expect(composerReferences()).toEqual([]); expect(ui.composerProfile).toBeNull();
-      expect(ui.composerSubmitting).toBe(false); expect(calls.at(-1).method).toBe('order.submit');
+      expect(ui.composerSubmitting).toBe(false); expect(calls.at(-1).method).toBe(failAt === 'detail' ? 'worker.message' : 'order.submit');
     } finally { ui.offline = false; restore(); }
   }
 });

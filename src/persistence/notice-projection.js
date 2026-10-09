@@ -4,6 +4,7 @@ export const NOTICE_SELECT = `SELECT n.id,n.task_id,n.title,n.body,n.status,n.an
   (SELECT t.worker_number FROM tasks t WHERE t.id=n.task_id) AS task_worker_number,
   CASE WHEN n.kind='info' AND n.source_event_id IS NOT NULL THEN (
     SELECT CASE e.type
+      WHEN 'task.start_pending' THEN 'created'
       WHEN 'task.idle' THEN 'idle'
       WHEN 'completed' THEN 'analysis'
       WHEN 'failed' THEN 'failed'

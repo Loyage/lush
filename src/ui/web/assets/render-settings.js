@@ -115,6 +115,7 @@ function interfaceTab() {
   const notices = block('告知渠道');
   notices.append(el('p', '仅控制当前客户端的页面告知条和系统通知；系统通知还需开启总开关。所有记录保留，不改变历史或未读列表计数。待决事项始终独立显示，不能用「已知」消除。', 'settings-note'));
   for (const [type, label, note] of [
+    ['created', 'Worker 待开始', '仅创建 Worker 后等待手动开始；尚未调用 Agent。'],
     ['idle', 'Worker 本轮结束', 'Worker 已静息，不代表验收完成或已合并。'],
     ['analysis', '只读分析完成', '用户发起的只读分析已完成。'],
     ['failed', '异常停止', '超时、调用失败或后台中断等异常。'],

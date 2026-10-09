@@ -67,10 +67,11 @@ test('设置入口：侧栏工作区导航进入 #settings，后退回概览，1
   expect(panel().dataset.view).toBe('overview');
 });
 
-test('告知设置提供三类两渠道独立复选项，默认全选，不改系统通知总开关或项目数据', async () => {
+test('告知设置提供四类两渠道独立复选项，默认全选，不改系统通知总开关或项目数据', async () => {
   prefs.resetPrefs(); openInterface();
   const controls = () => panel().querySelectorAll('input').filter(node => node.dataset.pref === 'noticeChannels');
-  expect(controls()).toHaveLength(6); expect(controls().every(node => node.checked)).toBe(true);
+  expect(controls()).toHaveLength(8); expect(controls().every(node => node.checked)).toBe(true);
+  expect(controls().filter(node => node.dataset.noticeType === 'created')).toHaveLength(2);
   expect(controls().every(node => node.getAttribute('aria-label'))).toBe(true);
   expect(deepText(panel())).toContain('待决事项始终独立显示');
   expect(deepText(panel())).toContain('不改变历史或未读列表计数');
@@ -82,7 +83,7 @@ test('告知设置提供三类两渠道独立复选项，默认全选，不改�
   expect(controls().find(node => node.dataset.noticeType === 'analysis' && node.dataset.channel === 'banner').checked).toBe(false);
   expect(prefs.readPref('noticeNotifications')).toBe(false);
   expect(world.state.actions).toHaveLength(before);
-  await dom.intervalFor(1500)(); expect(controls()).toHaveLength(6);
+  await dom.intervalFor(1500)(); expect(controls()).toHaveLength(8);
   prefs.resetPrefs(); expect(controls().every(node => node.checked)).toBe(true);
 });
 
