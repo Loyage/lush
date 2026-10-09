@@ -27,6 +27,7 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 | —（Web 轮询） | `worker.activity` | `{limit?: 50, scope?: 'work'|'all'}` |
 | —（Web 分页） | `worker.page` | `{before?: null, limit?: 50, scope?: 'work'|'all'}` |
 | `worker spawn 'goal' --parent ID [--name NAME]` | `worker.spawn` | `{parent, goal, name?}`；父必须是 指令/child Worker |
+| `worker rename ID '标题'` | `worker.rename` | `{id,title}`；用户专属，只改展示标题，不改变正文或执行；单行最多 200 字符，空串/null 恢复自动标题；返回 `{id,display_title}` |
 | `worker message ID 'body'` | `worker.message` | `{id, body}` |
 | `worker integrate CHILD_ID CHILD_HEAD_COMMIT` | `worker.integrate` | `{id, commit}`；agent-only |
 | `worker auto-merge ID on\|off` | `worker.auto_merge` | `{id, enabled:boolean}`；用户专属；设置跨轮保留的自动合并 hook，返回 `{task_id,changed,auto_merge}` |

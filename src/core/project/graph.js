@@ -134,7 +134,7 @@ export default {
   async taskGraph({ details = true } = {}) {
     check(typeof details === 'boolean', 'details must be boolean');
     const limit = GRAPH_NODE_LIMIT;
-    const rows = this.store.all(`SELECT id, worker_number, parent_id, input_id, task_kind, role, name, goal, status,
+    const rows = this.store.all(`SELECT id, worker_number, parent_id, input_id, task_kind, role, name, display_title, goal, status,
       integration, integration_error, branch, workspace, target_branch, base_commit, iteration_base_commit, head_commit, resolves_task_id,
       reservation, auto_merge, interrupt_state, progress_plan, created_at, updated_at, calls, agent_wakes,
       (SELECT p.task_kind FROM tasks p WHERE p.id=tasks.parent_id) AS parent_task_kind,
@@ -291,7 +291,7 @@ export default {
       // 这条分支下还有多少个 order 子分支：决定卡片上「编排合并全部子 Task」入口是否有意义。
       const subtree_order = row.branch ? countOrderDescendants(row.branch) : 0;
       const mergeRun = row.branch ? activeRuns.get(row.branch) ?? null : null;
-      return { ...row, ...iterations.get(row.id), kind: 'task', archived, title: summarize(goal) || row.name || `Worker ${workerLabel(row)}`,
+      return { ...row, ...iterations.get(row.id), kind: 'task', archived, title: row.display_title || summarize(goal) || row.name || `Worker ${workerLabel(row)}`,
         goal_preview: String(goal ?? '').slice(0, 600),
         progress: plan, notice: notice.notice, notice_count: notice.count,
         children_total: child.total, children_active: child.active, waiting_reason,

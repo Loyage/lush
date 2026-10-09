@@ -31,7 +31,7 @@ export const tasks = {
   /** layer 省略时给全部任务（内部用）；'work' 是任务树/任务链的读模型，'intent' 是 planner + scheduler。 */
   summaries(layer = null) {
     return this.all(`SELECT id,worker_number,parent_id,(SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
-      input_id,role,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
+      input_id,role,display_title,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
       agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,interrupt_state FROM tasks${layer ? ' WHERE layer=?' : ''} ORDER BY id`,
       ...(layer ? [layer] : []));
   },
@@ -54,7 +54,7 @@ export const tasks = {
     // 每层先用已有索引取有界页，再归并；避免跨 layer 的全历史排序。
     const layers = scope === 'all' ? ['work', 'intent'] : ['work'];
     return layers.flatMap(layer => this.all(`SELECT id,worker_number,parent_id,(SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
-      input_id,role,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
+      input_id,role,display_title,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
       agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,branch,interrupt_state FROM tasks INDEXED BY ${index}
       WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ?`, layer, ...params, limit))
       .sort((a, b) => b.id - a.id).slice(0, limit);
@@ -187,6 +187,10 @@ export const tasks = {
   touchAgent(taskId) { this.run("UPDATE tasks SET agent_last_seen_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", taskId); },
   agentByToken(hash) { return this.get('SELECT * FROM tasks WHERE agent_token_hash=?', hash); },
   children(taskId) { return this.all('SELECT * FROM tasks WHERE parent_id=? ORDER BY id', taskId); },
+  /** Display-only metadata: keep lifecycle timestamps and execution identity untouched. */
+  setTaskDisplayTitle(taskId, title) {
+    this.run('UPDATE tasks SET display_title=? WHERE id=?', title, id(taskId));
+  },
   /** Bump the visible timestamp without touching status; used when a verification starts or settles. */
   touch(taskId) { this.run("UPDATE tasks SET updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?", taskId); },
   update(taskId, patch) {

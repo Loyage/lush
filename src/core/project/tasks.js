@@ -54,6 +54,21 @@ function normalizeDeps(deps) {
 
 /** 派生任务与单任务详情。 */
 export default {
+  /** User-facing title only; no Git, scheduling, message delivery or lifecycle changes. */
+  renameTask(taskId, title) {
+    this.assertWritable('rename a Worker');
+    const task = this.store.task(id(taskId));
+    check(title === null || typeof title === 'string', 'title must be text or null');
+    const value = title === null ? null : title.trim() || null;
+    check(value === null || value.length <= 200, 'title must be at most 200 characters');
+    check(value === null || !/[\u0000-\u001f\u007f\u2028\u2029]/u.test(value), 'title must be a single line without control characters');
+    if (task.display_title !== value) this.store.transaction(() => {
+      this.store.setTaskDisplayTitle(task.id, value);
+      this.store.event(task.id, 'task.renamed', { display_title: value });
+    });
+    return { id: task.id, display_title: value };
+  },
+
   /** name is the planner's short slug for the work; it becomes the branch/worktree name and stays fixed for the task's life. */
   async spawn(parentId, goal, role = undefined, deps = [], name = null, specId = null) {
     return this.write('fork a worker', () => this.forkChildTask(parentId, goal, role, deps, name, specId));
@@ -251,7 +266,7 @@ export default {
       ...(task.role === 'planner' ? { specs: bounded(this.store.specsByPlanner(task.id), 200000) } : {}),
       ...(task.role === 'scheduler' ? { specs: bounded(this.store.specsForBatch(task.id), 200000) } : {}),
       children: bounded(this.decorate(this.store.all(`SELECT id,worker_number,parent_id,(SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
-        input_id,role,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
+        input_id,role,display_title,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
         agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,interrupt_state
         FROM tasks WHERE parent_id=? ORDER BY id`, task.id)), 100000),
       messages: bounded(this.store.all(`${MESSAGE_SELECT} WHERE task_id=? ORDER BY id DESC LIMIT 100`, task.id), 200000),

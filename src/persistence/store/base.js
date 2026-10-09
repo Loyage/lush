@@ -10,7 +10,7 @@ const ADDED_COLUMNS = {
   inputs: ['anchor_branch', 'anchor_commit', 'anchor_workspace', 'anchor_target_branch'],
   branches: ['summary', 'showcase_reservation', 'merge_run'],
   messages: ['signal_type', 'signal_key', 'delivery_hold'],
-  tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile', 'task_kind', 'reservation', 'iteration_base_commit', 'auto_merge', 'interrupt_state', 'hooks', 'worker_number', 'management'],
+  tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile', 'task_kind', 'reservation', 'iteration_base_commit', 'auto_merge', 'interrupt_state', 'hooks', 'worker_number', 'management', 'display_title'],
   agent_runs: ['model', 'thinking'],
   notices: ['read_at', 'answer_source'],
   introductions: ['source_snapshot'],

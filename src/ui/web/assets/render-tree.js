@@ -80,7 +80,7 @@ export function renderTree(data) {
     if (task.route) row.append(routeBadge());
     for (const chip of depChips(task)) row.append(chip);
     row.append(el('span', relative(task.updated_at), 'when'));
-    node.append(row, el('span', task.goal, 'goal'));
+    node.append(row, el('span', task.display_title || task.goal, 'goal'));
     if (HOT.has(task.status)) {
       const progress = renderCompactProgress(task.progress);
       if (progress) node.append(progress);

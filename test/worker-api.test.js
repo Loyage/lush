@@ -16,7 +16,7 @@ const reads = {
   runs_page: ['id','before','limit'], artifacts_page: ['id','before','limit'], artifact: ['id'],
 };
 const writes = {
-  spawn: ['parent','goal','name'], integrate: ['id','commit'], reserve: ['id','kind'], reserve_all: ['branch'],
+  rename: ['id','title'], spawn: ['parent','goal','name'], integrate: ['id','commit'], reserve: ['id','kind'], reserve_all: ['branch'],
   auto_merge: ['id','enabled'], completion: ['id','level','expected_revision'], hook_attach: ['id','hook','expected_revision'],
   hook_update: ['id','hook_id','enabled','hook','expected_revision'], hook_remove: ['id','hook_id','expected_revision'],
   resolve: ['id'], resolve_divergence: ['id'], accept: ['id'],
@@ -28,7 +28,7 @@ const writes = {
 const userOnly = new Set(['run_settings','code_state','code_tree','code_file','transcript_latest','transcript_page','transcript_step',
   'transcript_search','runs_page','artifacts_page','artifact','hooks','hook_attach','hook_update','hook_remove',
   'reserve','reserve_all','auto_merge','completion','resolve','resolve_divergence','unreserve','approve_merge',
-  'cancel','retry','clear_override','cleanup','interrupt','resume','configure','reopen','sync_parent','resolve_sync','delete_preview','delete']);
+  'rename','cancel','retry','clear_override','cleanup','interrupt','resume','configure','reopen','sync_parent','resolve_sync','delete_preview','delete']);
 const agentOnly = new Set(['integrate','resolve_child_divergence']);
 const contract = { ...reads, ...writes };
 
@@ -76,6 +76,7 @@ test('worker lifecycle RPC forwards existing internal methods, actors and persis
   let actor = null;
   const project = { actor() { return actor; } };
   const cases = [
+    ['rename', 'renameTask', { id: 7, title: 'display title' }, [7, 'display title']],
     ['accept', 'acceptTask', { id: 7 }, [7, null]],
     ['reopen', 'reopenTask', { id: 7 }, [7]],
     ['sync_parent', 'syncTaskParent', { id: 7 }, [7]],

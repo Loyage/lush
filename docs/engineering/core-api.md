@@ -33,6 +33,10 @@ Worker 是原 Task 的整体更名，含义仍是持久的 Agent + Process；父
 
 Input（原始输入）、历史输入、Draft（暂存）仍是各自的实体与界面名称；「指令」只替代原 say 概念，不把它们一并更名。上述兼容的历史指令 Worker 继续按原交付协议受检；下文关于退休 Intent / Plan 等记录的限制不表示历史指令被退休。
 
+## Worker 自定义标题
+
+用户专属 `worker.rename {id,title}` / Web 同名 action / CLI `worker rename ID '标题'` 只修改 `tasks.display_title` 展示元数据；不改 goal、固定 name、编号、Git 路径、会话、状态或调用，不唤醒 Agent。标题为最多 200 字符的单行文本，去除首尾空白，空串或 null 恢复自动标题。运行、冻结、终态及归档 Worker 均可调整；旧数据不回填，旧报告、输入历史及引用快照不回写。返回 `{id,display_title}`；inspect/list/page/子节点摘要带 display_title，graph.title 优先自定义标题。Web Worker 树两种模式「⋯ → 重命名」及普通详情提供应用内弹窗；管理型／退休详情维持只读。Agent 无写权限。
+
 ## 设备共享设置与兼容
 
 W116 / 待决 #261 批准设备同系统用户共享技术配置，项目/Worker 可覆盖；项目事实/历史/Git/调度及 `LUSH_HOME` 绑定不变。新增用户专属 `system.settings {scope?}`、`settings.clear_override {kind,target?}`、`settings.migration.preview {}`、`settings.migration.apply {revision,confirm:true}`。既有设置/来源/安装管理 RPC 增可选 `scope=device|project`，省略仍选 project，Agent token 不能访问 device scope；Worker 与历史接口不因此全局化。

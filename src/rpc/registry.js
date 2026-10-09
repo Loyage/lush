@@ -41,7 +41,7 @@ export const PARAMS = {
   'input.history': ['cursor','limit','q','status','integration'], 'input.get': ['kind','id'], 'input.parents': [],
   'draft.add': ['content','references','branch'], 'draft.update': ['id','content','references','branch','expected_revision'],
   'draft.remove': ['id','expected_revision'],
-  'worker.lookup': ['number'], 'worker.graph': ['details'], 'worker.list': ['after','limit'], 'worker.activity': ['limit','scope'],
+  'worker.rename': ['id','title'], 'worker.lookup': ['number'], 'worker.graph': ['details'], 'worker.list': ['after','limit'], 'worker.activity': ['limit','scope'],
   'worker.page': ['before','limit','scope'], 'worker.tree': ['id'], 'worker.inspect': ['id'], 'worker.run_settings': ['id'],
   'worker.progress_history': ['id','before','limit'],
   'worker.history': ['id','after'], 'worker.history_page': ['id','before','limit'], 'worker.diff': ['id'], 'worker.usage': ['id'],
@@ -86,7 +86,7 @@ export const USER_ONLY = new Set([
   'worker.runs_page','worker.artifacts_page','worker.artifact',
   'worker.reserve','worker.reserve_all','worker.auto_merge','worker.resolve','worker.resolve_divergence','worker.unreserve','worker.approve_merge',
   'worker.cancel','worker.retry','worker.clear_override','worker.cleanup','worker.interrupt','worker.resume','worker.configure','worker.run_settings',
-  'worker.reopen','worker.sync_parent','worker.resolve_sync','worker.delete_preview','worker.delete',
+  'worker.rename','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.delete_preview','worker.delete',
   'notice.answer','notice.dismiss','notice.read','branch.bind','branch.archive',
 ]);
 export const AGENT_ONLY = new Set([

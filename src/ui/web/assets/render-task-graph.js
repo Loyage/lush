@@ -17,6 +17,7 @@ import { captureGraph, restoreGraph, graphMotionRunning } from './task-graph-mot
 import { branchDiagnostics, decisionRow } from './task-graph-parts.js';
 import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
 import { workerDeleteControl } from './worker-delete.js';
+import { workerRenameControl } from './worker-rename.js';
 import { progressReportingEnabled, progressStats, renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
 import { workerHooks } from './render-hooks.js';
@@ -164,6 +165,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   if (!minimal && node.task_kind) head.append(badge(node.task_kind === 'merge' ? 'merge（历史）' : workerKindLabel(node)));
   if (!minimal && node.freeze && node.freeze.task_id !== node.id) head.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
   if (node.notice_count) head.append(badge(`${node.notice_count} 条待决`, 'b-awaiting'));
+  if (!minimal) head.append(taskActionsMenu(node, mergeAllByBranch, inputWorkers));
   row.append(head);
   if (minimal) {
     row.append(minimalSummary(node, queueNote, folded), taskActionsMenu(node, mergeAllByBranch, inputWorkers));
@@ -339,13 +341,14 @@ function taskActionsMenu(node, mergeAllByBranch, inputWorkers) {
   const trigger = el('button', '⋯', 'ghost task-graph-more-trigger');
   trigger.type = 'button';
   trigger.setAttribute('popovertarget', panel.id);
-  trigger.setAttribute('data-help', '打开这条 Worker 的更多操作；可追加输入、处理交付或进入详情，不展开 Worker 条目。');
+  trigger.setAttribute('data-help', '打开这条 Worker 的更多操作；可重命名、追加输入、处理交付或进入详情，不展开 Worker 条目。');
   trigger.onclick = () => {
     if (panel.dataset.open === 'true') return;
     const heading = el('strong', `${workerLabel(node)} ${node.title}`, 'task-graph-actions-title');
     const close = button('关闭', () => panel.hidePopover(), 'ghost');
     close.setAttribute('autofocus', '');
-    panel.replaceChildren(heading, close, button('打开 Worker 详情', () => detail(node.id), 'ghost'));
+    panel.replaceChildren(heading, close, button('打开 Worker 详情', () => detail(node.id), 'ghost'),
+      workerRenameControl(node, { refresh: loadTaskGraph }));
     if (node.notice) panel.append(button('打开待决事项', () => detail(node.id), 'ghost',
       { help: '到 Worker 详情查看完整问题与选项并答复。' }));
     const queueText = inputQueueText(node);

@@ -144,7 +144,7 @@ export function printTree(value, status) {
       console.log(`${indent(depth + 1)}‖ ${chain}（并列的可同时跑）`);
     }
     const meta = [depLabels(node), INTEGRATION_WORD[node.integration] || '', whyText(node, children, byId.get(node.parent_id))].filter(Boolean).join(' · ');
-    console.log(`${indent(depth)}${workerLabel(node)} ${node.role} ${node.status}${meta ? `  ${meta}` : ''}  ${oneLine(node.goal)}`);
+    console.log(`${indent(depth)}${workerLabel(node)} ${node.role} ${node.status}${meta ? `  ${meta}` : ''}  ${oneLine(node.display_title || node.goal)}`);
     for (const child of children) walk(child, depth + 1);
   };
   for (const root of roots) walk(root, 0);

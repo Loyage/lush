@@ -19,6 +19,7 @@ CLI 的 Worker 身份参数支持原整数或严格的新编号：
 ```bash
 bun run lush worker inspect W5-1
 bun run lush worker message W5-1 '补充说明'
+bun run lush worker rename W5 '登录修复'  # 仅用户，只改展示标题；空串恢复自动标题
 bun run lush worker spawn '目标' --parent W5 --name child
 bun run lush notice post '问题' --worker W5-1 --body '背景'
 ```

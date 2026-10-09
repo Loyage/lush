@@ -9,6 +9,7 @@ lush [--project PATH] [--json] <command>
   order '目标' [--branch NAME] [--profile-file PATH] [--defer]  提交指令；--defer 授权父冻结时挂载预约发射
   worker list|tree|inspect ID         查看 Worker
   worker spawn '目标' --parent ID [--name NAME]  在指令/child 下派 agent 子 Worker
+  worker rename ID '标题'            只改展示标题；空标题恢复自动标题（仅用户）
   worker message ID '说明'            给现有 Worker 追加消息
   worker transcript ID [--follow]     查看执行记录
   worker history ID                  查看事件

@@ -5,6 +5,7 @@ import { confirmDialog } from './dialog.js';
 import { appendToWorker } from './composer.js';
 import { configureTask, retryTask } from './retry-dialog.js';
 import { clearOverrideControl, modelSourceSummary } from './worker-model-source.js';
+import { workerRenameControl } from './worker-rename.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, runWorkMs, statusOf, interruptReason, taskTitle, worktreeLabel, isHistoricalDelivery } from './format.js';
 import { agentHelp } from './help.js';
 import { freezeBlocker } from './merge-select.js';
@@ -122,6 +123,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     const help = '将底部输入框切换为向该 Worker 追加输入，并保留已输入的正文；现在不发送、不调用 Agent。冻结期间发送的输入由 Worker 保存，解除冻结且 Agent 静息后投递；暂停中仍需点「开始 / 继续」。';
     actions.append(guardedAction(button('向该 Worker 追加输入', () => appendToWorker(task), undefined, { help }), appendInputBlocker(task)));
   }
+  if (!readOnly) actions.append(workerRenameControl(task, { refresh: () => detail(task.id) }));
   const queueText = inputQueueText(task);
   if (queueText) panel.append(el('p', queueText, 'hint worker-input-queue'));
   const stacked = (task.deps || []).filter(edge => edge.kind === 'code');

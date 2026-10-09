@@ -135,7 +135,7 @@ export function matchTask(task, query = {}) {
   }
   const needle = keyword(query.text);
   if (needle) {
-    const hay = `${workerNumber(task)}\n#${task.id}\n${task.id}\n${task.goal ?? ''}`.toLowerCase();
+    const hay = `${workerNumber(task)}\n#${task.id}\n${task.id}\n${task.display_title ?? ''}\n${task.goal ?? ''}`.toLowerCase();
     if (!hay.includes(needle)) return false;
   }
   return true;

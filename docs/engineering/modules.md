@@ -92,6 +92,14 @@ Runtime 子 Worker 负责 core Hooks、初始化、merge-queue、Workspaces 命�
 - UI 子分区：assets/render-hooks.js、render-notices.js、render-questionnaire.js、必要样式与 DOM 测试；不改 runtime/接口。
 - 父 Worker：设计/工程/使用文档、地图更新、集成及全量验证。
 
+## Worker 自定义标题（W156）
+
+用户可重命名 Worker 的展示标题，不改变任务正文或执行过程。新增 nullable `tasks.display_title TEXT`（历史行保持 NULL），与创建时固定的 `name` slug、编号、分支、worktree、会话身份分离。`Project.renameTask(id,title)` 经项目写门校验并仅更新该附属字段；`Store.setTaskDisplayTitle(id,title)` 不触碰生命周期或更新时间，变更以 `task.renamed` Event 留审计，不唤醒 Agent、不调用 Git。运行、冻结、终态及归档 Worker 均可调整展示标题。
+
+用户专属 RPC / Web action `worker.rename {id,title}`，title 为最多 200 个字符的单行文本，去除首尾空白；空串或 NULL 恢复自动标题，未知参数拒绝。CLI `worker rename ID '标题'`（空串恢复），Agent 不得调用。返回安全 `{id,display_title}`。inspect / list / page / 子节点摘要携带 display_title；图节点 title 优先自定义标题，正文仍为原 goal。Web 详情经 taskTitle、列表优先 display_title；Worker 树两种模式的「⋯」和普通 Worker 详情共用 `worker-rename.js` 的 `workerRenameControl(task,{refresh?})`，应用内弹窗，失败保留输入，保存与刷新失败分开，不带 Agent 调用标识。旧报告、引用快照与输入历史不回写。
+
+实现范围：persistence schema/base/tasks、project tasks/graph、RPC registry/handlers、Web server、CLI task/help、assets worker-rename/format/render-task-graph/render-detail/render-tree 与对应存储、RPC/HTTP、CLI、DOM 回归。
+
 ## Worker 用户编号接缝
 
 用户决定 #190：保留整数内部身份，为升级后新建的指令 Worker 增加不可变、可空的 `tasks.worker_number`（如 `W5`）；Agent 在已编号父 Worker 下派生的 child 使用同父创建次序（`W5-1`、`W5-1-1`）。原始 Input 展示 `O<id>`，沿用项目现有 Input 序列，允许失败或删除留下空号；暂存与追加消息不占 O 编号。在已有指令分支上提交新的 O8 仍产生 W8，不使用父的 child 序号。历史 Worker 不回填，历史未编号父节点的新派生后代继续使用旧整数编号；main/owner 保留原标识。

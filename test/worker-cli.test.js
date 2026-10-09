@@ -60,6 +60,23 @@ test('worker read and lifecycle commands use only worker RPC methods', async () 
   expect(client.calls).toHaveLength(cases.length);
 });
 
+test('worker rename accepts numbered identity and an empty reset title, but rejects Agent calls', async () => {
+  const calls = [], client = { async request(method, params) {
+    calls.push({ method, params }); return method === 'worker.lookup' ? { id: 302, worker_number: 'W156' } : params;
+  } };
+  await worker('worker', ['rename', 'W156', '中文标题'], { client, json: true });
+  await worker('worker', ['rename', '302', ''], { client, json: true });
+  expect(calls).toEqual([
+    { method: 'worker.lookup', params: { number: 'W156' } },
+    { method: 'worker.rename', params: { id: 302, title: '中文标题' } },
+    { method: 'worker.rename', params: { id: 302, title: '' } },
+  ]);
+  for (const args of [['rename','302'], ['rename','302','title','extra'], ['rename','bad','title']])
+    await expect(worker('worker', args, { client, json: true })).rejects.toThrow();
+  await expect(worker('worker', ['rename', '302', 'title'], { client: { ...client, token: 'active' }, json: true })).rejects.toThrow('user only');
+  expect(calls).toHaveLength(3); expect(HELP).toContain("worker rename ID '标题'");
+});
+
 test('worker auto-merge is a strict user hook CLI, not a reservation', async () => {
   const calls = [], client = { async request(method, params) { calls.push({ method, params }); return params; } };
   expect(await worker('worker', ['auto-merge','7','on'], { client, json: true })).toEqual({ id: 7, enabled: true });

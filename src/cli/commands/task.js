@@ -72,6 +72,11 @@ export async function run(command, args, ctx) {
           note: '短摘要；完整目标与结果用 lush worker inspect ID。' };
       }
     }
+    else if (verb === 'rename') {
+      check(!client.token, 'Worker titles are user only, not an agent operation');
+      exact(args, 2);
+      value = await client.request('worker.rename', { id: await resolveWorkerId(client, args[0]), title: args[1] });
+    }
     else if (verb === 'hooks') {
       check(!client.token, 'Hooks configuration is user only, not an agent operation');
       exact(args, 1); value = await client.request('worker.hooks', { id: await resolveWorkerId(client, args[0]) });

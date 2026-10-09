@@ -83,7 +83,7 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         PRIMARY KEY (input_id, segment, ordinal));
       CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES tasks(id), input_id INTEGER REFERENCES inputs(id),
-        role TEXT NOT NULL, goal TEXT NOT NULL, name TEXT, status TEXT NOT NULL DEFAULT 'queued',
+        role TEXT NOT NULL, goal TEXT NOT NULL, name TEXT, display_title TEXT, status TEXT NOT NULL DEFAULT 'queued',
         result TEXT, error TEXT, calls INTEGER NOT NULL DEFAULT 0,
         agent_wakes INTEGER NOT NULL DEFAULT 0, agent_token_hash TEXT, agent_last_seen_at TEXT,
         workspace TEXT, branch TEXT, base_commit TEXT, head_commit TEXT,

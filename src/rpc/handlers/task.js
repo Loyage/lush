@@ -2,6 +2,7 @@ import { check, id, bounded } from '../../core/types.js';
 
 /** worker.* (persistent Task data and internal methods keep their names). */
 export const handlers = {
+  'worker.rename'(p, params) { return p.renameTask(id(params.id), params.title); },
   'worker.lookup'(p, params) { return p.store.lookupWorker(params.number); },
   'worker.graph'(p, params) { return p.taskGraph(params); },
   'worker.list'(p, params, actor) {
