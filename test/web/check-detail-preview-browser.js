@@ -76,6 +76,8 @@ try {
       title:n.querySelector('h2').textContent,body:n.querySelector('.detail-preview-body').getBoundingClientRect().height,
       limit:n.querySelector('.detail-preview-limit').getBoundingClientRect().height,
       footer:getComputedStyle(n.querySelector('.detail-preview-footer')).display,
+      footerHeight:n.querySelector('.detail-preview-footer').getBoundingClientRect().height,
+      mask:getComputedStyle(n.querySelector('.detail-preview-body')).maskImage,
       controls:n.querySelectorAll('.detail-preview-toggle').length,
       headerControl:!!n.querySelector('.section-title>.detail-preview-toggle'),
       footerControl:!!n.querySelector('.detail-preview-footer .detail-preview-toggle'),
@@ -86,6 +88,9 @@ try {
       assert(size.limit <= 400 && Math.abs(size.body - (long ? size.limit : size.natural)) <= 1,
         `${width}/${theme}: ${JSON.stringify(size)}`);
       assert((size.footer !== 'none') === long, 'short/long control mismatch');
+      assert((size.mask.includes('linear-gradient')) === long, 'fade must appear only on clipped previews');
+      assert(!long || size.mask.includes('96px'), 'fade should cover the bottom reading edge');
+      assert(size.footerHeight <= 1, 'preview note should be screen-reader-only, not a visible footer');
       assert(size.controls === 1 && size.headerControl && !size.footerControl, 'module must have only a header toggle');
     }
     assert(await execute(`return document.querySelector('#detail').scrollWidth<=document.querySelector('#detail').clientWidth+1;`), 'horizontal page overflow');
@@ -102,10 +107,11 @@ try {
       assert(await execute(`const n=window.boundaryProbe,body=n.querySelector('.detail-preview-body'),natural=n.querySelector('.detail-preview-content');
         const limit=n.querySelector('.detail-preview-limit').getBoundingClientRect().height;
         return n.querySelector('.detail-preview-toggle').hidden===${excess <= 120}&&
-          Math.abs(body.getBoundingClientRect().height-(${excess > 120} ? limit : natural.getBoundingClientRect().height))<=1;`),
+          Math.abs(body.getBoundingClientRect().height-(${excess > 120} ? limit : natural.getBoundingClientRect().height))<=1&&
+          getComputedStyle(body).maskImage.includes('linear-gradient')===${excess > 120};`),
         `${width}/${theme}: incorrect clipping at +${excess}px`);
     }
-    console.log('PASS bounded modules and 120px margin', width, height, theme);
+    console.log('PASS bounded modules, clipped-only fade, accessible note and 120px margin', width, height, theme);
   }
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await execute(`window.resizeProbe=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='Worker 依赖');
@@ -119,14 +125,16 @@ try {
   await execute('window.paint();');
   await click('.result-panel .section-title .detail-preview-toggle');
   assert(await execute(`const n=document.querySelector('.result-panel');return n.classList.contains('detail-preview-expanded')&&
-    n.querySelector('.detail-preview-body').getBoundingClientRect().height>1000&&n.textContent.includes('最后一段结果');`), 'result expansion lost body');
+    n.querySelector('.detail-preview-body').getBoundingClientRect().height>1000&&n.textContent.includes('最后一段结果')&&
+    getComputedStyle(n.querySelector('.detail-preview-body')).maskImage==='none';`), 'result expansion lost body or retained fade');
   assert(await execute(`window.savedGoal=document.querySelector('.goal-panel');window.savedResult=document.querySelector('.result-panel');
     window.savedMessage=document.querySelector('.task-message');window.paint();return document.querySelector('.result-panel')===window.savedResult&&
     document.querySelector('.goal-panel')===window.savedGoal&&document.querySelector('.task-message')===window.savedMessage&&
     window.savedResult.classList.contains('detail-preview-expanded');`), 'refresh reset reading state/nodes');
   await click('.result-panel .section-title .detail-preview-toggle');
   assert(await execute(`const n=document.querySelector('.result-panel');return !n.classList.contains('detail-preview-expanded')&&
-    n.querySelector('.detail-preview-body').getBoundingClientRect().height<=400;`), 'collapse not bounded');
+    n.querySelector('.detail-preview-body').getBoundingClientRect().height<=400&&
+    getComputedStyle(n.querySelector('.detail-preview-body')).maskImage.includes('linear-gradient');`), 'collapse not bounded or missing fade');
   assert(await execute(`const n=document.querySelector('.agent-panel');const target=n.querySelector('.detail-preview-content button');target.focus();
     return n.classList.contains('detail-preview-expanded')&&document.activeElement===target;`), 'keyboard focus stayed clipped');
   assert(await execute(`const n=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='消息');

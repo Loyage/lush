@@ -186,6 +186,8 @@ input.pick{flex:none;width:15px;height:15px;accent-color:var(--accent);cursor:po
 .detail-preview{position:relative;--detail-preview-height:min(400px,50dvh)}
 .detail-preview-body{min-width:0}
 .detail-preview-long>.detail-preview-body{max-height:var(--detail-preview-height);overflow:hidden;overflow:clip}
+/* Fade only genuinely clipped previews; a mask follows any theme/background without covering hit targets. */
+.detail-preview-long:not(.detail-preview-expanded)>.detail-preview-body{-webkit-mask-image:linear-gradient(to bottom,#000 max(65%,calc(100% - 96px)),transparent 100%);mask-image:linear-gradient(to bottom,#000 max(65%,calc(100% - 96px)),transparent 100%)}
 .detail-preview-content{display:flow-root;min-width:0;overflow-wrap:anywhere}
 .detail-preview-content>.row{padding:9px 0;border-bottom:1px solid var(--line-soft)}
 .detail-preview-content>.row:last-child{border-bottom:0}
@@ -198,7 +200,8 @@ input.pick{flex:none;width:15px;height:15px;accent-color:var(--accent);cursor:po
 .detail-preview>.section-title{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
 .detail-preview>.section-title>.detail-preview-toggle{margin-left:auto}
 .detail-preview-toggle{font-size:11px;white-space:normal}
-.detail-preview-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--line-soft);margin-top:6px}
+/* The fade is the visible continuation cue; keep the preview explanation available to screen readers. */
+.detail-preview-footer{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;pointer-events:none}
 .detail-preview-footer .hint{margin:0;font-size:11px}
 .detail-preview-toggle[hidden],.detail-preview-footer[hidden],.detail-preview-footer .hint[hidden]{display:none}
 .task-message{min-width:0;padding:14px 16px;border:1px solid var(--line-soft);border-radius:10px;background:var(--panel);overflow-wrap:anywhere}.message-system{border-left:3px solid var(--accent)}.message-failed{border-left-color:var(--failed)}.message-meta{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 16px;margin-bottom:10px;font-size:11px;color:var(--muted)}.message-title{margin:0 0 12px;font-size:14px}.message-section{margin:12px 0}.message-section h4{margin:0 0 5px;font-size:11px;color:var(--muted)}.message-error h4{color:var(--failed)}.message-prose:not(.markdown){white-space:pre-wrap;line-height:1.8}.message-fields{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 14px;margin:12px 0;font-size:12px}.message-fields dt{color:var(--muted)}.message-fields dd{margin:0;overflow-wrap:anywhere}.message-original,.message-extra{margin-top:12px;font-size:11px;color:var(--muted)}.message-original summary,.message-extra summary{cursor:pointer}.message-original pre{max-height:none;overflow:visible;color:var(--text)}.message-extra .structured-value{margin-top:8px;color:var(--text)}.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}.chip{font-size:10px;border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:var(--muted)}.chip.ok{color:var(--completed);border-color:var(--completed)}.chip.warn{color:var(--awaiting);border-color:var(--awaiting)}
