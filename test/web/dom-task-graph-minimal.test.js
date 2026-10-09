@@ -234,7 +234,7 @@ test('更多操作惰性创建、沿用 Agent 帮助与原有输入弹窗，展�
   expect(deepText(card(2))).toContain('新标题');
 });
 
-test('极简菜单复用合并、待决入口及冻结禁用，不内嵌待决表单', () => {
+test('极简菜单复用合并、待决入口且冻结时可追加，不内嵌待决表单', () => {
   enable();
   card(1).querySelector('.task-graph-more-trigger').onclick();
   expect(deepText(card(1).querySelector('.task-graph-actions-popover'))).toContain('合并所有');
@@ -245,8 +245,9 @@ test('极简菜单复用合并、待决入口及冻结禁用，不内嵌待决�
   expect(deepText(card(2))).toContain('冻结');
   card(2).querySelector('.task-graph-more-trigger').onclick();
   const input = card(2).querySelectorAll('button').find(button => button.textContent === '向此 Worker 输入');
-  expect(input.disabled).toBe(true);
-  expect(input.parentNode.classList.contains('help-host')).toBe(true);
+  expect(input.disabled).toBe(false);
+  expect(input.classList.contains('agent-call')).toBe(true);
+  expect(input.getAttribute('data-help')).toContain('冻结期间由 Worker 暂存');
 });
 
 test('偏好按项目隔离，旧选择保留，坏值和重置回落极简；存储不可用时会话内仍可切换', () => {

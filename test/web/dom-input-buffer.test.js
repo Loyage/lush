@@ -200,10 +200,10 @@ test('当前 Worker 追加键盘/按钮矩阵，隐藏暂存与父选择；返�
   await enter({ ctrlKey: true }); expect(calls.at(-1).params.branch).toBe('main');
 });
 
-test('显式追加读取中/终态/只读/归档/冻结不改投 main；main 与 owner 详情默认新建独立 Worker', async () => {
+test('显式追加读取中/终态/只读/归档不改投 main；main 与 owner 详情默认新建独立 Worker', async () => {
   for (const overrides of [
     { status: 'completed' }, { status: 'failed' }, { status: 'cancelled' },
-    { archived: true }, { task_kind: 'analysis' }, { freeze: {} }, { workspace_state: 'missing' },
+    { archived: true }, { task_kind: 'analysis' }, { task_kind: 'main' }, { task_kind: 'owner' }, { workspace_state: 'missing' },
   ]) {
     openWorker(overrides); type('不能错投'); await enter();
     expect(input().disabled).toBe(true); expect(input().placeholder).toContain('#126'); expect(calls).toHaveLength(0);
@@ -219,6 +219,47 @@ test('显式追加读取中/终态/只读/归档/冻结不改投 main；main 与
   }
   openWorker({ status: 'paused' }); expect(input().placeholder).toContain('需开始 / 继续');
   type('暂停追加'); await enter(); expect(calls.at(-1).method).toBe('worker.message');
+});
+
+test('冻结期间允许追加，常驻模式条、影子文字、帮助与成功提示区分保存和投递', async () => {
+  for (const status of ['requested', 'executing', 'resolving', 'blocked']) {
+    openWorker({ worker_number: 'W153', status: 'waiting', reservation: { status }, input_queue: { buffered: 2, reason: '等待固定交付结束' } });
+    type(`新需求 ${status}`);
+    expect(input().disabled).toBe(false);
+    expect(dom.node('draft-commit').disabled).toBe(false);
+    expect(input().placeholder).toContain('Enter 保存，等待投递');
+    expect(dom.node('composer-mode-behavior').textContent).toContain('已暂存 2 条');
+    expect(dom.node('draft-commit').getAttribute('data-help')).toContain('不打断在途交付或源侧修复');
+    expect(dom.node('draft-commit').classList.contains('agent-call')).toBe(true);
+    intercept = () => json({ id: 126, input_queue: { buffered: 3, reason: '等待固定交付结束' } });
+    await enter();
+    expect(calls.at(-1)).toMatchObject({ method: 'worker.message', params: { id: 126, body: `新需求 ${status}` } });
+    expect(dom.node('error').textContent).toContain('已保存给 Worker W153，等待投递');
+    expect(input().value).toBe('');
+    expect(dom.node('composer-mode-behavior').textContent).toContain('已暂存 3 条');
+    expect(dom.node('input-form').dataset.mode).toBe('append');
+  }
+  openWorker({ freeze: { reason: '兄弟 Worker 合并占用父分支' } }); type('普通分支冻结');
+  expect(input().disabled).toBe(false); expect(input().placeholder).toContain('兄弟 Worker 合并');
+  intercept = () => json({ id: 126 }); await enter();
+  expect(dom.node('error').textContent).toContain('投递状态暂不可用');
+  expect(dom.node('error').textContent).not.toContain('已投递');
+  ui.composerTask = { ...ui.composerTask, freeze: null, input_queue: { buffered: 0, reason: null } }; syncComposer();
+  expect(dom.node('input-form').dataset.mode).toBe('append'); expect(input().placeholder).toContain('Enter 发送');
+});
+
+test('冻结追加的慢确认保留新正文、修改再恢复的正文和新引用，拒收不清空输入', async () => {
+  for (const change of [() => type('下一条需求'), () => { type('修改'); type('冻结需求'); }, () => setComposerReferences([ref('新引用')])]) {
+    setComposerReferences([]); openWorker({ reservation: { status: 'resolving' } }); type('冻结需求');
+    const pending = deferred(); intercept = () => pending.promise; const send = enter();
+    change(); const value = input().value, refs = composerReferences();
+    pending.resolve(json({ id: 126, input_queue: { buffered: 1, reason: '等待修复结束' } })); await send;
+    expect(input().value).toBe(value); expect(composerReferences()).toEqual(refs);
+  }
+  setComposerReferences([]); openWorker({ freeze: {} }); type('不要丢');
+  intercept = () => ({ ok: false, json: async () => ({ error: '祖先 Worker 已结束' }) }); await enter();
+  expect(input().value).toBe('不要丢'); expect(dom.node('input-form').dataset.mode).toBe('append');
+  expect(dom.node('error').textContent).toContain('祖先 Worker 已结束');
 });
 
 test('追加单飞、失败重试、迟到导航和引用均保住正文，不静默丢附件', async () => {

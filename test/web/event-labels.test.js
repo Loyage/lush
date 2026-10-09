@@ -102,6 +102,12 @@ test('分支观测与未归因移动不冒充写入者证明，历史事件名�
   expect(eventLabel({ type: 'invocation.target_branch_moved' })).toBe('目标分支被越过交付直接推进');
 });
 
+test('暂存和解除暂存不冒充 Agent 已收到追加输入', () => {
+  expect(eventLabel({ type: 'task.input_buffered' })).toBe('追加输入已暂存，等待投递');
+  expect(eventLabel({ type: 'task.input_released' })).toBe('追加输入已解除暂存，等待 Agent 接收');
+  expect(eventLabel({ type: 'invocation.inputs_delivered' })).toBe('输入已交给 Agent');
+});
+
 test('提醒与待决问题的名称不同；未知类型不猜测语义、不读取原型属性', () => {
   expect(eventLabel({ type: 'task.reserved' })).toBe('已预约合并');
   expect(eventLabel({ type: 'notice.opened', data: { kind: 'info' } })).toBe('提醒');

@@ -227,6 +227,9 @@ export default {
     }
     if (task.status !== 'awaiting_acceptance' && task.status !== 'completed') return;
     if (phase === 'archive' && !accepted(this, task)) return;
+    // An input buffered during the just-finished landing belongs to the next
+    // iteration. Do not claim (or fail) automatic acceptance while it waits.
+    if (this.subtreeTasks(task.id).some(row => this.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 AND delivery_hold IS NOT NULL LIMIT 1', row.id))) return;
     if (rank(level) < rank(phase)) {
       this.completionNotice(task.id, phase, phase === 'accept' ? '成果交付已收口，下一步请检查并验收；验收不等于质量保证。' : 'Worker 已验收，下一步可归档工作区；历史记录和会话保留。'); return;
     }

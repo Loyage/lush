@@ -46,7 +46,7 @@ W116 / 待决 #261 批准设备同系统用户共享技术配置，项目/Worker
 - `hooks.list/save/remove`、`worker.hooks/hook_attach/hook_update/hook_remove`：用户专属受控模板与挂载；自动合并是内置 Hook，执行收据与私有定义持久化，未知副作用不自动重放。见 [Hooks 工程契约](hooks.md)及 [接口参考](../reference/rpc/hooks.md)。
 - `worker.completion {id,level,expected_revision}`：用户专属的最高自动级别 off/merge/accept/archive，按合并 → 安全验收 → 子树归档串行推进；高级别不继承，派生 child 的流程 Hook 整体只读（含旧开关入口），默认自动合并、由直接父 Agent 确认；用户指令交付后可显式提高补办。成功自动环节不告知，只提示下一人工环节；失败/unknown 不重放。见[自动链接缝](completion-hooks.md)。
 - `worker.spawn`：只可在活动 指令/child 下派 agent 子 Worker；不再接受 role、deps 或 spec。
-- `worker.message` / `notice.post` / `notice.answer` / `notice.dismiss`：继续沟通和决策。普通消息仍受目标生命周期、直接父子权限与合并冻结限制，main/owner 不是普通收件箱；发送失败不自动重投，见[消息准入与失败处理](../reference/rpc/tasks.md#追加消息的准入与失败处理)。
+- `worker.message` / `notice.post` / `notice.answer` / `notice.dismiss`：继续沟通和决策。普通消息仍受目标生命周期与直接父子权限限制，main/owner 不是普通收件箱；冻结期间合法消息由 Worker 持久暂存，整体解冻且 Agent 实际退出后投递；发送失败不自动重投，见[消息准入与失败处理](../reference/rpc/tasks.md#追加消息的准入与失败处理)。
 - 选择快照与重选已按 W138 停用；`notice.snapshot` / `notice.rechoose` 不在公开白名单中。历史资源兼容边界见[停用说明](choice-snapshots.md)。
 - `branch.history {cursor?,limit?}`：用户专属只读 main 第一父链历史与精确交付 Worker / 原始指令追溯；Web `GET /api/versions`，不新增 CLI 写入口，见 [版本迭代](version-history.md)。
 - `worker.graph {details?:boolean}`：缺省仍是完整只读图；`details:false` 先返回不读取 Git/会话的结构摘要，未知字段与待补充状态明确标示，完整结果另读，见 [Worker RPC](../reference/rpc/tasks.md)与[图加载边界](task-graph.md#渐进加载与重开缓存)。不新增写入口或权限，也不更改 CLI 缺省读取。

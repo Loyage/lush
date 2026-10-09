@@ -37,7 +37,7 @@ export const PROMPT_PARTS = Object.freeze({
   },
   delegation_lifecycle: {
     title: '委派与唤醒',
-    content: `spawn 默认以当前 Worker 为父，立即返回；子 Worker 后台运行。派完后结束本轮，不要 wait / poll。子 Worker 交付会发消息；普通成功消息攒到本轮所有子 Worker 交付结算再唤醒，已交付且没有新工作的 awaiting_acceptance 子 Worker 不阻塞父交付；失败、取消和显式消息及时处理。再次唤醒时先读 messages 和 children，不重复派同一工作。对自己派出的 child，检查结果、测试与交付事实；成果符合委派目标且状态为 awaiting_acceptance 时，用 lush worker accept ID 确认完成。需要修改时不确认，仅在目标允许追加工作时先 lush worker message；遇到冻结按下文消息边界保留补充事项。失败、未交付改动或待决问题不能当作成功。父 Worker 收口前确认自己的派生 Worker，不把内部验收交给用户。
+    content: `spawn 默认以当前 Worker 为父，立即返回；子 Worker 后台运行。派完后结束本轮，不要 wait / poll。子 Worker 交付会发消息；普通成功消息攒到本轮所有子 Worker 交付结算再唤醒，已交付且没有新工作的 awaiting_acceptance 子 Worker 不阻塞父交付；失败、取消和显式消息及时处理。再次唤醒时先读 messages 和 children，不重复派同一工作。对自己派出的 child，检查结果、测试与交付事实；成果符合委派目标且状态为 awaiting_acceptance 时，用 lush worker accept ID 确认完成。需要修改时不确认，仅在目标允许追加工作时先 lush worker message；冻结期间也可发送，成功表示由 Worker 持久暂存，尚未投递给 Agent，不能据此验收 child。失败、未交付改动或待决问题不能当作成功。父 Worker 收口前确认自己的派生 Worker，不把内部验收交给用户。
 
 只能给直接父 Worker 或子 Worker 发送 lush worker message。子 Worker 失败时如实评估、汇报或另派替代方案，不能把失败说成成功。对已有 Worker 的追加需求应通过消息送给对应 Worker，不擅自取消或重建。`,
   },
@@ -74,7 +74,7 @@ lush notice post '决策标题' --body '背景、影响和建议' --questions-fi
 
 worker message 是追加工作入口，不是绕过生命周期的只读通知通道。Agent 只能给直接父子 Worker 发消息，但 main/owner 即使是直接父 Worker 也不接收普通消息；完成报告写本轮结果，由 runtime 处理交付，不给 main/owner 发 message。
 
-发送前按需用 worker inspect 核对目标的 task_kind、status、reservation 与归档/同步状态；检查只是快照，实际发送仍可能因竞态被拒绝。version 2 的 reservation.status 为 requested / executing / blocked 时，普通消息被拒绝且不会入箱；pending 或仅开启自动合并不等于冻结，也不保证其它准入条件成立。冻结时或发送被拒绝后，把目标、未发送正文与后续动作留在当前 Worker 的可续读记录或本轮结果中，不验收仍需修改的 child；结束本轮等交付/修复事件，下轮重新核对后再决定是否发送，不承诺自动重投。不要轮询、后台重试、撤销预约、改自动合并开关或绕过冻结；终态/归档等拒绝按用户专属恢复边界处理，不能无条件重发。
+发送前按需用 worker inspect 核对目标的 task_kind、status、reservation 与归档/同步状态；检查只是快照，实际发送仍可能因竞态被拒绝。version 2 的 reservation.status 为 requested / executing / resolving / blocked 或整体分支冻结时，合法普通消息仍可持久入箱，由 Worker 暂存；input_queue.buffered 与 reason 表示待投递条数和等待原因。先完成固定交付及源侧修复，再在整体解冻且 Agent 实际退出后投递；暂存输入不抢占修复、不改变当前尝试，也不代表 Agent 已收到或处理。pending 或仅开启自动合并不等于冻结，也不保证其它准入条件成立。发送被拒绝后，把目标、未发送正文与后续动作留在当前 Worker 的可续读记录或本轮结果中，不验收仍需修改的 child；结束本轮等交付/修复事件，下轮重新核对后再决定是否发送，不承诺自动重投。不要轮询、后台重试、撤销预约、改自动合并开关或绕过冻结；终态/归档等拒绝按用户专属恢复边界处理，不能无条件重发。
 
 各条独立消息分别调用并检查返回结果，不用 && 串联，也不以 ; 串联后的最后退出码认定全部成功；消息与测试、提交命令分开执行。区分发送成功、被拒绝和未执行，不能因整条工具调用失败就把已成功的消息重发。
 

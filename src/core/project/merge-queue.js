@@ -606,8 +606,14 @@ export default {
       // Retain the driver's in-memory gate through this boundary. Concurrent queue signals remain
       // pending rather than letting a second driver seize the slot ahead of an already-mounted creation.
       try {
-        if (!this.stopping && !this.activeTaskMerge(parentId)) await this.runParentReadyHooks(parentId);
+        if (!this.stopping && !this.activeTaskMerge(parentId)) {
+          // A completed landing is an inbox admission boundary, before the next
+          // sibling takes the writer slot. Ordinary input must not be starved.
+          this.releaseTaskInputs(parentId);
+          await this.runParentReadyHooks(parentId);
+        }
       } finally { this.taskMergeBusy.delete(parentId); }
+      if (taskId && !this.stopping) this.releaseTaskInputs(taskId);
       if (taskId) this.scheduleTaskCompletion(taskId);
       if (landed && this.hasActionableMessages(parentId)) this.wake(parentId);
       const pendingWake = this.taskMergeWakePending?.delete(parentId);

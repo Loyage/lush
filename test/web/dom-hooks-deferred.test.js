@@ -60,11 +60,12 @@ test('keyboard only-create stays explicit; input typed during flight is not clea
   expect(input().value).toBe('新写的文字'); release = null;
 });
 
-test('detail stays in default creation mode; explicit frozen Worker inbox remains blocked', () => {
+test('detail stays in default creation mode; explicit frozen Worker inbox can save input', () => {
   const root = { id: 100, task_kind: 'main', status: 'waiting', branch: 'main', freeze };
   activateDetailView({ view: 'task', key: 'task-100' }); ui.selected = 100; ui.composerTask = root; input().value = '目标'; syncComposer();
   expect(input().disabled).toBe(false); expect(dom.node('draft-commit').textContent).toBe('预约发射 Worker');
   ui.composerTask = { ...root, branch_archive: { archived: true } }; syncComposer(); expect(input().disabled).toBe(false);
   ui.composerTask = { ...root, task_kind: 'order', branch: 'feature', workspace: '/tmp/feature' }; appendToWorker(ui.composerTask);
-  expect(input().disabled).toBe(true); expect(deepText(dom.node('composer-shell'))).not.toContain('改投');
+  expect(input().disabled).toBe(false); expect(input().placeholder).toContain('保存，等待投递');
+  expect(deepText(dom.node('composer-shell'))).not.toContain('改投');
 });

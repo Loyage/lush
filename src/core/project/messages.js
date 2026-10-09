@@ -39,36 +39,43 @@ export default {
     check(!TERMINAL.has(target.status), 'worker has ended; explicitly reopen a completed Worker or retry failed work');
     assertTaskAncestorsOpen(this, target);
     check(!target.branch || this.store.branch(target.branch)?.status === 'active', 'archived Workers cannot receive new work');
-    if (target.reservation) {
-      const booking = JSON.parse(target.reservation);
-      check(!(booking.version === 2 && ['requested','executing','blocked'].includes(booking.status)),
-        'Worker is frozen for merge; wait for integration or divergence repair before messaging it');
-    }
     if (sender !== null) {
       const from = this.store.task(sender);
       check(target.parent_id === from.id || from.parent_id === target.id, 'agents may message only a direct parent or child');
     }
-    // Rules are frozen when a order Task is created. Failure is visible, but never discards the input.
-    let decision = { delivery: 'message', source: 'agent' }, ruleError = null;
-    if (sender === null && ['order', 'child'].includes(target.task_kind)) {
-      try { decision = decideTaskInput(this.config.home, target, body); }
-      catch (error) { ruleError = error.message; decision = { delivery: 'interrupt', source: 'fallback' }; }
-    } else if (sender === null) decision = { delivery: 'interrupt', source: 'default' };
+    // Buffer behind the whole freeze, including source repair and parent-side landings.
+    // Once a wave is held, later arrivals cannot overtake it while the old Agent exits.
+    const held = Boolean(this.inputFreezeReason(target) || this.taskInputQueue(target).buffered);
+    const routing = held ? null : this.routeTaskInput(target, body, sender);
     this.store.transaction(() => {
       // No delivery mutation (including consuming repair signals) before all sender/target admission checks.
       const booking = target.reservation ? JSON.parse(target.reservation) : null;
-      if (booking?.version === 2 && booking.status === 'resolving') this.suspendTaskMerge(target.id, '源侧修复收到追加输入');
-      if (booking?.version === 2 && ['resolving','suspended'].includes(booking.status)) this.resumeQueuedTaskMerge(target.id);
-      if (sender === null) resumeTaskDelivery(this, target.id, 'new user input');
-      consumeIntegratedReservation(this, target, 'new input');
-      const messageId = this.store.message(target.id, body, sender);
+      if (!held) {
+        if (booking?.version === 2 && booking.status === 'suspended') this.resumeQueuedTaskMerge(target.id);
+        if (sender === null) resumeTaskDelivery(this, target.id, 'new user input');
+        consumeIntegratedReservation(this, target, 'new input');
+      }
+      const messageId = this.store.message(target.id, body, sender, held ? 'frozen' : null);
       this.store.event(target.id, 'message', { sender, body, message_id: messageId });
-      if (sender === null) this.store.event(target.id, 'task.input_routed', { delivery: decision.delivery,
-        source: decision.source, error: ruleError });
+      if (held) this.store.event(target.id, 'task.input_buffered', { message_id: messageId });
+      else if (sender === null) this.store.event(target.id, 'task.input_routed', { message_id: messageId,
+        delivery: routing.decision.delivery, source: routing.decision.source, error: routing.error });
     });
     // Soft preemption only at a backend-attested safe point; otherwise deliver at the end of the turn.
-    if (sender === null && decision.delivery === 'interrupt') this.requestPreempt(target.id, 'user message');
-    this.wake(target.id); return this.store.task(target.id);
+    if (!held) {
+      if (sender === null && routing.decision.delivery === 'interrupt') this.requestPreempt(target.id, 'user message');
+      this.wake(target.id);
+    } else this.kick();
+    const current = this.store.task(target.id);
+    return { ...current, input_queue: this.taskInputQueue(current) };
+  },
+
+  /** Rules belong to a fixed Worker snapshot; buffered rules run only at release. */
+  routeTaskInput(target, body, sender) {
+    if (sender !== null) return { decision: { delivery: 'message', source: 'agent' }, error: null };
+    if (!['order','child'].includes(target.task_kind)) return { decision: { delivery: 'interrupt', source: 'default' }, error: null };
+    try { return { decision: decideTaskInput(this.config.home, target, body), error: null }; }
+    catch (error) { return { decision: { delivery: 'interrupt', source: 'fallback' }, error: error.message }; }
   },
 
   /** Runtime-only: commit a typed child→parent signal once, then wake the parent. */

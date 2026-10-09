@@ -39,14 +39,14 @@ export default {
   },
 
   hasActionableMessages(taskId) {
-    if (!this.store.get("SELECT id FROM messages WHERE task_id=? AND consumed=0 AND (signal_key IS NULL OR signal_key NOT LIKE 'merge-v2:%') LIMIT 1", taskId)) return false;
+    if (!this.store.get("SELECT id FROM messages WHERE task_id=? AND consumed=0 AND (delivery_hold IS NULL OR delivery_hold='released') AND (signal_key IS NULL OR signal_key NOT LIKE 'merge-v2:%') LIMIT 1", taskId)) return false;
     const task = this.store.get('SELECT role,task_kind FROM tasks WHERE id=?', taskId);
     if (!(task.role === 'coordinator' || ['order','child'].includes(task.task_kind)) || !this.store.get(`SELECT id FROM tasks WHERE parent_id=?
       AND status NOT IN ('completed','failed','cancelled','awaiting_acceptance') LIMIT 1`, taskId)) return true;
     // Only runtime-attested success receipts wait; explicit messages remain urgent.
     // Runtime merge requests never wake the development Agent, even alongside a receipt.
     return Boolean(this.store.get(`SELECT m.id FROM messages m WHERE m.task_id=? AND m.consumed=0
-      AND (m.signal_key IS NULL OR m.signal_key NOT LIKE 'merge-v2:%')
+      AND (m.delivery_hold IS NULL OR m.delivery_hold='released') AND (m.signal_key IS NULL OR m.signal_key NOT LIKE 'merge-v2:%')
       AND NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id=m.task_id
         AND (e.type='child.completed' OR (? AND e.type='task.signal' AND json_extract(e.data,'$.signal') IN ('child.completed','merge.completed')))
         AND json_extract(e.data,'$.message_id')=m.id) LIMIT 1`, taskId, ['order','child'].includes(task.task_kind) ? 1 : 0));
@@ -87,6 +87,7 @@ export default {
   pump() {
     if (this.stopping || this.workerDeleteIds?.size || this.settingsMigrationApplying) return;
     if (!this.refreshRuntimeConfiguration()) return;
+    this.releaseQueuedInputs();
     this.observeTaskHooks();
     this.scheduleTaskCompletion();
     for (const taskId of this.taskSyncWakePending ?? []) if (!this.taskSyncBusy?.has(taskId)) {
@@ -182,7 +183,8 @@ export default {
         // The credential is valid only while this invocation owns the task.
         this.store.armAgent(task.id, null);
         // A child can settle after its parent parked but before this cleanup.
-        // Recheck the inbox after releasing ownership to avoid a lost wake-up.
+        // Recheck both deferred admission and the inbox after actual ownership release.
+        if (!this.stopping) this.releaseTaskInputs(task.id);
         if (!TERMINAL.has(this.store.task(task.id).status) && this.hasActionableMessages(task.id)) this.wake(task.id);
         if (!this.stopping) {
           this.armTaskAutoMerge(task.id);
@@ -540,7 +542,8 @@ export default {
       // The hook owns its own Git exclusive lock and never delivers into the parent.
       if (['order','child'].includes(task.task_kind) && this.store.task(taskId).status !== 'paused'
         && !this.store.task(taskId).interrupt_state && !run.resumeRequested
-        && this.store.unread(taskId).every(row => messages.some(message => message.id === row.id))
+        && this.store.unread(taskId).every(row => (row.delivery_hold && row.delivery_hold !== 'released')
+          || messages.some(message => message.id === row.id))
         && !this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open'", taskId)
         && this.store.children(taskId).every(isSettled) && this.settleTaskSyncResolution) {
         run.syncResolved = await this.settleTaskSyncResolution(taskId);

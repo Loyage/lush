@@ -20,7 +20,8 @@ import { workerDeleteControl } from './worker-delete.js';
 import { progressReportingEnabled, progressStats, renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
 import { workerHooks } from './render-hooks.js';
-import { guardedAction, iterationBlocker, iterationControls } from './render-iteration.js';
+import { guardedAction, iterationControls } from './render-iteration.js';
+import { appendInputBlocker, inputQueueText, inputWaitReason, appendInputAcknowledgement } from './worker-input.js';
 import { workerLabel, rememberWorkers } from './worker-label.js';
 
 const ACTIVE = new Set(['running', 'queued', 'waiting', 'awaiting', 'awaiting_acceptance']);
@@ -134,7 +135,7 @@ function mergeAllControl(node, candidates, refresh) {
   return box;
 }
 
-function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote = null, minimal = false) {
+function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote = null, minimal = false, inputWorkers = []) {
   const row = el('article', undefined, 'task-graph-card');
   row.dataset.taskId = String(node.id);
   row.classList.add(`task-graph-${taskVisualState(node)}`);
@@ -165,7 +166,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   if (node.notice_count) head.append(badge(`${node.notice_count} 条待决`, 'b-awaiting'));
   row.append(head);
   if (minimal) {
-    row.append(minimalSummary(node, queueNote, folded), taskActionsMenu(node, mergeAllByBranch));
+    row.append(minimalSummary(node, queueNote, folded), taskActionsMenu(node, mergeAllByBranch, inputWorkers));
     return row;
   }
 
@@ -175,6 +176,8 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   const interruptHint = interruptReason(node);
   if (interruptHint || node.waiting_reason) row.append(el('p', interruptHint || node.waiting_reason, 'task-graph-reason'));
   if (queueNote) row.append(el('p', queueNote, 'task-graph-reason'));
+  const queueText = inputQueueText(node);
+  if (queueText) row.append(el('p', queueText, 'hint worker-input-queue'));
   if (node.result_preview) row.append(el('p', `最近结果：${node.result_preview}${node.result_preview.length >= 320 ? '…' : ''}`, 'task-graph-result'));
   const progress = renderGraphProgress(node.progress, { running: node.status === 'running', status: node.status });
   if (progress) row.append(progress);
@@ -245,7 +248,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
       row.append(pending);
     }
   }
-  appendTaskActions(row, node, mergeAllByBranch);
+  appendTaskActions(row, node, mergeAllByBranch, inputWorkers);
   return row;
 }
 
@@ -257,7 +260,7 @@ function archiveControl(node) {
 }
 
 // 完整卡片和极简浮层共用同一套准入、确认、Agent 标识与 RPC，不复制业务规则。
-function appendTaskActions(row, node, mergeAllByBranch) {
+function appendTaskActions(row, node, mergeAllByBranch, inputWorkers) {
   if (['main', 'owner'].includes(node.task_kind) && node.branch)
     row.append(mergeAllControl(node, mergeAllByBranch.get(node.branch) ?? [], loadTaskGraph));
   const iteration = iterationControls(node, { refresh: loadTaskGraph });
@@ -270,13 +273,27 @@ function appendTaskActions(row, node, mergeAllByBranch) {
   if (deletion) row.append(deletion);
   if (['order', 'child'].includes(workerKind(node)) && !ENDED.has(node.status) && !isHistoricalDelivery(node)) {
     row.append(guardedAction(button('向此 Worker 输入', async () => {
-      const body = await promptDialog({ title: `发给 Worker ${workerLabel(node)}`, label: '输入', confirmLabel: '发送消息',
-        confirmHelp: agentHelp('把输入交给这条 Worker；固定规则可请求 Agent 在安全点提前收尾，否则轮末投递。'), agent: true });
-      if (!body) return;
-      await action('worker.message', { id: node.id, body });
-      show(`已提交给 Worker ${workerLabel(node)}`);
-      await loadTaskGraph();
-    }, 'ghost', { agent: true, help: agentHelp('给这个 Worker 的 Agent 发送输入；可能在安全点提前收尾，不会立即硬杀。') }), iterationBlocker(node)));
+      const view = ui.view;
+      let value = '', failure = null;
+      while (ui.view === view) {
+        const body = await promptDialog({ title: `发给 Worker ${workerLabel(node)}`, label: '输入', value,
+          message: failure || inputQueueText(node) || inputWaitReason(node), confirmLabel: '发送消息',
+          confirmHelp: agentHelp('立即保存输入；冻结期间由 Worker 暂存，不打断在途交付或源侧修复，解除冻结且 Agent 静息后投递；暂停中仍需显式继续。'), agent: true });
+        if (!body || ui.view !== view) return;
+        let result;
+        try { result = await action('worker.message', { id: node.id, body }, { refresh: false }); }
+        catch (error) {
+          value = body; failure = `追加失败：${error.message}；正文已保留，可修改后重试。`;
+          if (ui.view === view) show(failure, 'error');
+          continue;
+        }
+        if (ui.view !== view) return;
+        show(appendInputAcknowledgement(node, result));
+        try { await loadTaskGraph(); }
+        catch (error) { show(`输入已保存，但页面更新失败：${error.message}；请刷新，不要重复提交。`, 'error'); }
+        return;
+      }
+    }, 'ghost', { agent: true, help: agentHelp('立即保存追加输入；冻结期间由 Worker 暂存，解除冻结且 Agent 静息后投递，不打断在途交付或源侧修复。') }), appendInputBlocker(node, inputWorkers)));
   }
 }
 
@@ -297,6 +314,12 @@ function minimalSummary(node, queueNote, folded = new Set()) {
   line.append(interruptHint ? text : relations || text);
   if (node.freeze && node.freeze.task_id !== node.id) line.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
   if (isArchivedTask(node)) line.append(badge('已归档'));
+  const queueText = inputQueueText(node);
+  if (queueText) {
+    const queue = badge(`暂存输入 ${node.input_queue.buffered} 条`, 'b-awaiting worker-input-queue');
+    queue.setAttribute('data-help', queueText); queue.setAttribute('aria-label', queueText); queue.tabIndex = 0;
+    line.append(queue);
+  }
   // 资源消耗排在合并状态标签前面；收拢时这里显示的是整棵子树的合计。
   line.append(resourceSummary(node, folded.has(node.id)));
   const merge = INTEGRATION[node.integration];
@@ -306,7 +329,7 @@ function minimalSummary(node, queueNote, folded = new Set()) {
 
 /** 原生非模态 popover：在顶层浮动，不受树横向滚动裁切；Esc / 外部点击由浏览器收起。
  * 普通按钮组而非 ARIA menu：复用控件内含说明与禁用帮助，Tab 按文档顺序可达。 */
-function taskActionsMenu(node, mergeAllByBranch) {
+function taskActionsMenu(node, mergeAllByBranch, inputWorkers) {
   const wrap = el('div', undefined, 'task-graph-more');
   const panel = el('section', undefined, 'task-graph-actions-popover');
   panel.id = `task-graph-actions-${node.id}`;
@@ -325,7 +348,9 @@ function taskActionsMenu(node, mergeAllByBranch) {
     panel.replaceChildren(heading, close, button('打开 Worker 详情', () => detail(node.id), 'ghost'));
     if (node.notice) panel.append(button('打开待决事项', () => detail(node.id), 'ghost',
       { help: '到 Worker 详情查看完整问题与选项并答复。' }));
-    appendTaskActions(panel, node, mergeAllByBranch);
+    const queueText = inputQueueText(node);
+    if (queueText) panel.append(el('p', queueText, 'hint worker-input-queue'));
+    appendTaskActions(panel, node, mergeAllByBranch, inputWorkers);
     const archive = archiveControl(node);
     if (archive) panel.append(archive);
   };
@@ -476,7 +501,7 @@ export function renderTaskGraph(graph) {
   if (view.truncated) box.append(el('p', `只显示最近及活动的 ${nodes.length} / ${graph.total} 条 Worker；父节点可能在截断范围外。`, 'hint'));
   const paint = (node, parent) => {
     const wrap = el('div', undefined, 'task-graph-node');
-    wrap.append(taskCard(node, saved, () => renderTaskGraph(full), mergeAllByBranch, mergeQueue.get(node.id) ?? null, minimal));
+    wrap.append(taskCard(node, saved, () => renderTaskGraph(full), mergeAllByBranch, mergeQueue.get(node.id) ?? null, minimal, raw));
     if (node.children.length && !saved.has(node.id)) {
       const children = el('div', undefined, 'task-graph-children');
       for (const child of node.children) paint(child, children);

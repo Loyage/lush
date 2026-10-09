@@ -18,7 +18,8 @@ import { linkWorkerNumbers } from './worker-links.js';
 import { renderDiff } from './render-diff.js';
 import { deliveryControls } from './render-delivery.js';
 import { workerHooks } from './render-hooks.js';
-import { guardedAction, iterationBlocker, iterationControls } from './render-iteration.js';
+import { guardedAction, iterationControls } from './render-iteration.js';
+import { appendInputBlocker, inputQueueText } from './worker-input.js';
 import { renderHistory } from './render-history.js';
 import { renderTaskMessage } from './render-task-message.js';
 import { formatProgressDuration, renderTaskProgress } from './render-progress.js';
@@ -118,9 +119,11 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
 
   const actions = el('div', undefined, 'actions task-actions');
   if (!readOnly && ['order','child'].includes(workerKind(task)) && !TERMINAL_STATUS.has(task.status)) {
-    const help = '将底部输入框切换为向该 Worker 追加输入，并保留已输入的正文；现在不发送、不调用 Agent。暂停中的 Worker 收到输入后仍需点「开始 / 继续」。';
-    actions.append(guardedAction(button('向该 Worker 追加输入', () => appendToWorker(task), undefined, { help }), iterationBlocker(task)));
+    const help = '将底部输入框切换为向该 Worker 追加输入，并保留已输入的正文；现在不发送、不调用 Agent。冻结期间发送的输入由 Worker 保存，解除冻结且 Agent 静息后投递；暂停中仍需点「开始 / 继续」。';
+    actions.append(guardedAction(button('向该 Worker 追加输入', () => appendToWorker(task), undefined, { help }), appendInputBlocker(task)));
   }
+  const queueText = inputQueueText(task);
+  if (queueText) panel.append(el('p', queueText, 'hint worker-input-queue'));
   const stacked = (task.deps || []).filter(edge => edge.kind === 'code');
   const freeze = freezeOf(task);
   const resolver = resolverOf(task);

@@ -17,7 +17,9 @@ Lush 的合并单位是分支谱系中的一条 `direct child → parent` 边。
 
 分歧唤醒原 Worker，在它自己的 worktree 合入消息给定的固定父提交、解决冲突、测试并提交；runtime 核验产物保留原源提交和固定父提交。修复期间保留父逻辑执行位，防止兄弟落地使基线反复失效；不得跨 Agent 调用持有全项目 Git 锁。失败、等待用户或取消必须挂起／撤销尝试并释放执行位；若父落地工作区已被修改、结果未知，则保留现场并以 `blocked` 阻止下一项写入，不能贸然释放。
 
-Git 写入前再次复核取消、新输入、固定 refs、清洁度与祖先保留。`prepareTaskSquashUnsafe` 先生成未落地提交，将精确落地凭据持久化到 `reservation.landing_receipt`（含落地提交、固定源提交、父基线与树）后，`applyTaskSquashUnsafe` 受检推进父工作区/ref；Git 成功而 DB 尚未写入时，恢复只能按精确提交、父、树与目标祖先核验凭据，未知副作用不重放。接口契约见[模块地图](modules.md)。
+冻结期间合法追加输入仍持久入箱，由 Worker 暂存，不能混入源侧修复 invocation、抢占修复或改变固定尝试。暂存输入不阻挡已固定交付的收口，但必须阻止验收与归档；整体解冻且 Agent 实际退出后再交给下一轮。公开状态与发送语义见[追加消息](../reference/rpc/tasks.md#追加消息的准入与失败处理)。
+
+Git 写入前再次复核取消、可投递新输入、固定 refs、清洁度与祖先保留。`prepareTaskSquashUnsafe` 先生成未落地提交，将精确落地凭据持久化到 `reservation.landing_receipt`（含落地提交、固定源提交、父基线与树）后，`applyTaskSquashUnsafe` 受检推进父工作区/ref；Git 成功而 DB 尚未写入时，恢复只能按精确提交、父、树与目标祖先核验凭据，未知副作用不重放。接口契约见[模块地图](modules.md)。
 
 落地进入非终态 `awaiting_acceptance` / `integration='merged'`，保留原父子关系及分支/worktree/会话。追加输入继续当前 Worker；指令用户验收 / child 直接父 Agent 确认（`worker.accept`）与显式归档分开。本轮使用 `iteration_base_commit`，原始起点不改写。安全父同步只在源侧吸收固定父提交，冲突先诊断、另点 Agent；详见[持续迭代](task-iteration.md)。
 

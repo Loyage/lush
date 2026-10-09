@@ -548,7 +548,12 @@ export default {
     if (task.status !== 'waiting') return `Worker 尚未静息（${task.status}）`;
     const child = this.store.children(task.id).find(row => !isSettled(row));
     if (child) return `等待子Worker ${workerLabel(child)} 结算`;
-    if (this.hasActionableMessages(task.id)) return '还有未处理的消息或子Worker信号，需先交给 Agent';
+    // Deferred inputs cannot invalidate an already-fixed attempt, but do block a
+    // fresh delivery until the Worker has admitted and processed its next wave.
+    const booking = storedReservation(task.reservation);
+    const fixed = booking?.version === 2 && ['requested','executing','resolving','blocked'].includes(booking.status);
+    if (this.hasActionableMessages(task.id) || (!fixed && this.taskInputQueue(task).buffered))
+      return '还有未处理的消息或子Worker信号，需先交给 Agent';
     return null;
   },
 

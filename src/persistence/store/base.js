@@ -9,7 +9,7 @@ import { normalizeOrderRecord } from '../../core/order-kind.js';
 const ADDED_COLUMNS = {
   inputs: ['anchor_branch', 'anchor_commit', 'anchor_workspace', 'anchor_target_branch'],
   branches: ['summary', 'showcase_reservation', 'merge_run'],
-  messages: ['signal_type', 'signal_key'],
+  messages: ['signal_type', 'signal_key', 'delivery_hold'],
   tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile', 'task_kind', 'reservation', 'iteration_base_commit', 'auto_merge', 'interrupt_state', 'hooks', 'worker_number', 'management'],
   agent_runs: ['model', 'thinking'],
   notices: ['read_at', 'answer_source'],
@@ -47,6 +47,8 @@ function addMissingColumns(db) {
   // Old free-text messages have NULL keys, so a partial unique index adds no new restriction to history.
   db.query(`CREATE UNIQUE INDEX IF NOT EXISTS messages_signal_once ON messages(task_id,sender_id,signal_key)
     WHERE signal_key IS NOT NULL`).run();
+  db.query(`CREATE INDEX IF NOT EXISTS messages_held_input ON messages(task_id,id)
+    WHERE consumed=0 AND delivery_hold IN ('frozen','routing')`).run();
   // Use a new index name: existing databases retain the old partial index definition.
   // Both historical and current orders must participate in the same ownership constraint.
   db.query(`CREATE UNIQUE INDEX IF NOT EXISTS tasks_order_branch_owner ON tasks(branch)

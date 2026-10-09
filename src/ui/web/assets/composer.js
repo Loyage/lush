@@ -1,7 +1,7 @@
 import { $, button, el } from './dom.js';
 import { workerKind } from './worker-kind.js';
 import { action, api } from './api.js';
-import { taskTitle, isHistoricalDelivery, TERMINAL_STATUS } from './format.js';
+import { taskTitle, isHistoricalDelivery } from './format.js';
 import { iterationBlocker } from './render-iteration.js';
 import { show } from './messages.js';
 import { detail, refresh } from './navigate.js';
@@ -12,6 +12,7 @@ import { confirmDialog, closeDialog, formDialog } from './dialog.js';
 import { createProfileForm } from './agent-profile-form.js';
 import { normalizeConfigMode } from './agent-config-mode.js';
 import { workerLabel } from './worker-label.js';
+import { appendInputBlocker, inputQueue, inputQueueText, inputWaitReason, appendInputAcknowledgement } from './worker-input.js';
 
 // 本条指令可选的运行设置：只打开设置，不调用 Agent；派生 Worker 由后端自动继承。
 export const RUN_SETTINGS_HELP = '打开本条指令的运行设置：先选由 Lush 掌握配置，还是交给执行机器上用户自己的 Pi 默认配置。只打开设置，不调用 Agent；派生 Worker 自动继承本次选择，不逐个确认。';
@@ -121,12 +122,7 @@ function destination() {
   const { id } = ui.composerAppendTarget;
   const task = ui.composerTask?.id === id ? ui.composerTask : null;
   if (!task) return { id, reason: ui.composerError || '正在读取 Worker；加载成功后才能输入。' };
-  const reason = isHistoricalDelivery(task) || !['order', 'child'].includes(workerKind(task))
-    ? '此 Worker 不支持追加输入。'
-    : TERMINAL_STATUS.has(task.status)
-      ? (task.status === 'completed' ? 'Worker 已完成；请先显式恢复开发。' : 'Worker 已结束；请先重试。')
-      : iterationBlocker(task);
-  return { id, task, reason };
+  return { id, task, reason: appendInputBlocker(task), wait: inputWaitReason(task), queueText: inputQueueText(task) };
 }
 function selectedParentLabel() {
   const select = $('input-parent');
@@ -212,7 +208,7 @@ export function syncComposer() {
     'composer-mode-title': followup ? '继续当前 Worker' : '新建独立 Worker',
     'composer-mode-target': followup ? `追加到 ${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}` : `父 Worker：${label}`,
     'composer-mode-behavior': target.reason || (followup
-      ? `不创建新 Worker · Enter 追加 · 空白时 Esc 返回${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
+      ? `不创建新 Worker · Enter ${target.wait ? '保存' : '追加'} · 空白时 Esc 返回${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
       : target.freeze ? `父分支冻结：${target.freeze.reason || '等待安全边界'} · Enter 暂存 · 点击预约后自动发射`
         : '独立工作区 · Enter 暂存 · 点击创建后待开始'),
   };
@@ -222,7 +218,7 @@ export function syncComposer() {
     if (node.textContent !== text) node.textContent = text;
   }
   input.placeholder = target.reason ? `${label}：${target.reason}` : followup
-    ? `追加给 ${label} · Enter 发送 · Shift+Enter 换行${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
+    ? `追加给 ${label} · Enter ${target.wait ? '保存，等待投递' : '发送'} · Shift+Enter 换行${target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
     : target.freeze ? `在 ${label} 挂载预约发射 Hook · Enter 暂存 · Ctrl/⌘+Enter 预约仅创建`
       : `在 ${label} 下创建子 Worker · Enter 暂存 · Ctrl/⌘+Enter 仅创建 · Shift+Enter 换行`;
   input.setAttribute('aria-label', input.placeholder);
@@ -233,7 +229,7 @@ export function syncComposer() {
   $('draft-commit').textContent = followup ? '追加输入' : target.freeze ? '预约发射 Worker' : '创建 Worker';
   $('draft-commit').classList.toggle('hook-button', Boolean(!followup && target.freeze));
   const help = agentHelp(target.reason || (followup
-    ? `追加给 ${label}，不创建新 Worker；运行中会在安全边界处理，暂停中需显式开始 / 继续。`
+    ? `追加给 ${label}，不创建新 Worker；输入立即保存，冻结期间由 Worker 暂存，不打断在途交付或源侧修复，解除冻结且 Agent 静息后投递；暂停中需显式开始 / 继续。${target.queueText || target.wait || ''}`
     : target.freeze ? `挂载到 ${label} 的可创建安全点 Hook；现在只保存正文、引用和完整运行参数，不创建 Worker 或调用 Agent。解除全部冻结并通过创建准入后，按当时父提交创建并开始；Ctrl/⌘+Enter 预约仅创建。`
       : `在 ${label} 下创建独立 Worker；默认待开始，Ctrl/⌘+Shift+Enter 直接开始。`));
   $('draft-commit').setAttribute('data-help', help);
@@ -306,7 +302,9 @@ async function submitInput(mode) {
       && ui.composerReferenceRevision === referenceRevision && JSON.stringify(composerReferences()) === signature;
     if (untouched) { input.value = ''; setComposerReferences([]); }
     if (target.id != null) {
-      show(`已追加给 Worker ${workerLabel(target.task)}${target.task.status === 'paused' ? '；开始 / 继续后处理' : ''}。`);
+      if (ui.composerTask?.id === target.id && ui.composerAppendTarget === appendTarget && inputQueue(result))
+        ui.composerTask = { ...ui.composerTask, input_queue: result.input_queue };
+      show(appendInputAcknowledgement(target.task, result));
     } else if (mode === 'buffer') {
       show(`已暂存输入 #${result.id}，可到「历史输入」编辑或发射；未创建 Worker、未调用 Agent。`);
       ui.inputsPage?.added?.();

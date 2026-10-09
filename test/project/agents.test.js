@@ -77,7 +77,7 @@ test('a notice parks only its task, answer wakes it, duplicate answers fail', as
   } finally { await f.close(); }
 });
 
-test('message admission rejects frozen deliveries and owners without enqueueing or changing delivery', async () => {
+test('message admission buffers frozen deliveries without changing them and still rejects owners', async () => {
   const f = fixture({ async run() { throw new Error('diagnosis must not invoke an Agent'); } });
   f.project.stopping = true;
   try {
@@ -86,17 +86,20 @@ test('message admission rejects frozen deliveries and owners without enqueueing 
     f.store.update(parent.id, { status: 'waiting' });
     const child = await f.project.spawn(parent.id, 'message target', undefined, [], 'message-target');
     f.store.update(child.id, { status: 'waiting' });
-    for (const status of ['requested', 'executing', 'blocked']) {
+    for (const status of ['requested', 'executing', 'resolving', 'blocked']) {
       const reservation = JSON.stringify({ version: 2, kind: 'merge', status, parent_id: parent.id });
       f.store.update(child.id, { reservation });
-      const inbox = f.store.unread(child.id), history = f.store.history(child.id);
+      const inbox = f.store.unread(child.id);
       for (const sender of [null, parent.id]) {
-        expect(() => f.project.message(child.id, 'must remain unsent', sender)).toThrow('Worker is frozen for merge');
-        expect(f.store.unread(child.id)).toEqual(inbox);
-        expect(f.store.history(child.id)).toEqual(history);
+        const response = f.project.message(child.id, 'must remain outside Agent', sender);
+        expect(response.input_queue.buffered).toBeGreaterThan(inbox.length);
+        expect(f.store.unread(child.id).at(-1)).toMatchObject({ delivery_hold: 'frozen', body: 'must remain outside Agent' });
+        expect(f.store.unreadPage(child.id).messages).toHaveLength(0);
+        expect(f.project.hasActionableMessages(child.id)).toBe(false);
         expect(f.store.task(child.id).reservation).toBe(reservation);
       }
     }
+    f.store.run('UPDATE messages SET consumed=1 WHERE task_id=?', child.id);
     f.store.update(child.id, { reservation: JSON.stringify({ version: 2, kind: 'merge', status: 'pending' }) });
     const before = f.store.unread(child.id).length;
     f.project.message(child.id, 'pending is not frozen', parent.id);

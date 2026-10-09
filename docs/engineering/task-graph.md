@@ -51,7 +51,7 @@ const { input } = await Bun.stdin.json();
 console.log(JSON.stringify({ delivery: input.startsWith('稍后') ? 'message' : 'interrupt' }));
 ```
 
-每次提交到指令 / child Worker 的用户消息执行一次固定规则（限时 1s、stdout/stderr 最多 16 KiB），不传一次性 Agent 凭证。规则返回 `message` 时只写入收件箱、轮末交付；返回 `interrupt` 时先写入收件箱，再请求**有安全边界的后端**在安全点软抢占；不支持安全抢占的后端轮末交付，**绝不硬杀**。规则失败或输出无效：记录 `task.input_routed` 错误并回退 `interrupt`，输入仍持久化、不丢失。Agent 发来的消息不执行用户输入规则。无规则的新指令保持现有安全抢占行为。
+提交到指令 / child Worker 的用户消息执行一次固定规则（限时 1s、stdout/stderr 最多 16 KiB），不传一次性 Agent 凭证。冻结期间先由 Worker 持久暂存输入，不执行规则、不抢占源侧修复；规则延期到整体解冻且 Agent 实际退出后的投递安全点。执行前持久记录规则领取，重启发现已领取但结果未知时只回退路由、不重放可信规则的未知副作用。接收与实际投递边界见[追加消息](../reference/rpc/tasks.md#追加消息的准入与失败处理)。规则返回 `message` 时只写入收件箱、轮末交付；返回 `interrupt` 时先写入收件箱，再请求**有安全边界的后端**在安全点软抢占；不支持安全抢占的后端轮末交付，**绝不硬杀**。规则失败或输出无效：记录 `task.input_routed` 错误并回退 `interrupt`，输入仍持久化、不丢失。Agent 发来的消息不执行用户输入规则。无规则的新指令保持现有安全抢占行为。
 
 ## 读面边界
 

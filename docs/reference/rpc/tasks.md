@@ -75,11 +75,12 @@ Worker 详情的原始目标直接展示预览；长模块点击「展开完整�
 
 发送前可用 `worker.inspect` 核对目标的 `task_kind`、`status`、`reservation` 及归档/同步状态，但读取只是快照，实际准入仍以发送时检查为准：
 
-- version 2 的 `reservation.status='requested'|'executing'|'blocked'` 拒绝普通消息，报 `Worker is frozen for merge; wait for integration or divergence repair before messaging it`。消息**未入箱**，不会自动在解冻后重投。
-- `pending` 或仅开启自动合并不等于已冻结，也不保证其它准入条件满足；新 child 完成后可能自动从 pending 进入 requested，发送前检查无法消除这段竞态。
+- version 2 的 `reservation.status='requested'|'executing'|'resolving'|'blocked'` 及普通分支写冻结期间，合法普通消息仍立即持久入箱，由 Worker 暂存，不抢占源侧修复或改变当前固定交付。整体冻结解除、旧 invocation 实际退出后再按既有安全门投递。
+- `worker.message` 返回及 `worker.inspect` / `worker.graph` 增加 `input_queue:{buffered:number,reason:string|null}`：暂存条数与等待原因，不含正文。已保存不等于 Agent 已收到；精确投递时间仍读 `input_delivery`。暂存消息不参与 repair provider 批次，但仍阻止验收与归档。
+- `pending` 或仅开启自动合并不等于已冻结，也不保证其它准入条件满足；发送时若已进入冻结，runtime 暂存消息而不是要求发送者重试。
 - 终态、祖先已结束、分支已归档、同步中、非直接父子等也可能拒绝。Agent 不得自行 reopen/retry、撤销预约、关闭自动合并或绕过检查。
 
-遇到冻结，Agent 必须把目标、未发送正文与后续动作留在当前 Worker 的可续读记录或本轮结果中，不确认仍需修改的 child；结束本轮等交付/修复事件，下轮重新检查后再决定是否发送，不轮询、不后台重试，也不承诺 runtime 会自动重投。收到当前尝试的修复通知仍须遵守固定提交/尝试边界，不借追加消息推进旧尝试。其它拒绝按相应生命周期边界处理，不无条件重发。
+冻结期间发送成功的消息已经持久入箱，Agent 不得为等待投递而重发、轮询或后台重试，也不得确认仍需处理追加要求的 child。若因其它准入条件被拒绝，须把目标、未发送正文与后续动作留在当前 Worker 的可续读记录或本轮结果中，下轮核对相应生命周期边界后再决定是否发送，不能把拒绝说成已暂存。收到当前尝试的修复通知仍须遵守固定提交/尝试边界，不借追加消息推进旧尝试。
 
 独立消息必须分别调用并逐条确认，不用 `&&` 连发：中途拒绝会使后续命令根本未执行。改成 `;` 也不能只看最后一个退出码来认定全部成功。消息发送与测试、提交命令分开执行；区分“发送成功”“被拒绝”“未执行”，不能因为后续测试失败就把已经成功的消息重发。
 

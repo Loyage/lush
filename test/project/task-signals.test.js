@@ -67,7 +67,7 @@ test('task signals reject unrelated or terminal targets, malformed keys and over
   } finally { await f.close(); }
 });
 
-test('opening an old database adds only nullable signal columns and preserves old messages', () => {
+test('opening an old database adds nullable signal/hold columns and preserves old messages', () => {
   const root = temp(); const config = new Config({ project: root, env: env() }); config.prepare();
   const file = path.join(config.home, 'project.db');
   try {
@@ -76,6 +76,8 @@ test('opening an old database adds only nullable signal columns and preserves ol
     first.message(task.id, 'old message'); first.close();
     const old = new Database(file);
     old.query('DROP INDEX messages_signal_once').run();
+    old.query('DROP INDEX messages_held_input').run();
+    old.query('ALTER TABLE messages DROP COLUMN delivery_hold').run();
     old.query('DROP INDEX tasks_order_branch_owner').run();
     for (const name of ['tasks_management_enabled','tasks_management_recent','tasks_management_request_once'])
       old.query(`DROP INDEX IF EXISTS ${name}`).run();
@@ -87,7 +89,8 @@ test('opening an old database adds only nullable signal columns and preserves ol
     old.close();
     const reopened = new Store(file, root);
     try {
-      expect(reopened.unread(task.id)[0]).toMatchObject({ body: 'old message', signal_type: null, signal_key: null });
+      expect(reopened.unread(task.id)[0]).toMatchObject({ body: 'old message', signal_type: null, signal_key: null, delivery_hold: null });
+      expect(reopened.unreadPage(task.id).messages[0].body).toBe('old message');
       expect(reopened.get('SELECT count(*) AS n FROM messages').n).toBe(1);
       expect(reopened.all('PRAGMA index_list(messages)').some(row => row.name === 'messages_signal_once')).toBe(true);
       expect(reopened.task(task.id)).toMatchObject({ task_kind: null, reservation: null, management: null });

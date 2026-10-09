@@ -82,8 +82,10 @@ test('message guidance survives role/mode composition and separates admission fr
           'main/owner 即使是直接父 Worker 也不接收普通消息',
           '用 worker inspect 核对目标',
           '检查只是快照',
-          'requested / executing / blocked',
-          '普通消息被拒绝且不会入箱',
+          'requested / executing / resolving / blocked',
+          '合法普通消息仍可持久入箱，由 Worker 暂存',
+          'input_queue.buffered 与 reason',
+          '暂存输入不抢占修复、不改变当前尝试',
           'pending 或仅开启自动合并不等于冻结',
           '目标、未发送正文与后续动作',
           '不验收仍需修改的 child',
@@ -96,7 +98,7 @@ test('message guidance survives role/mode composition and separates admission fr
         expect(prompt).not.toContain('需要修改时先 lush worker message，不确认');
         if (role !== 'worker') expect(prompt).toContain('仅在目标允许追加工作时先 lush worker message');
       }
-      expect(builtInPrompt(role, { progressReporting: false })).toContain('普通消息被拒绝且不会入箱');
+      expect(builtInPrompt(role, { progressReporting: false })).toContain('合法普通消息仍可持久入箱，由 Worker 暂存');
     }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

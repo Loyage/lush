@@ -7,7 +7,7 @@ export const MESSAGE_SELECT = `SELECT m.*,
 
 /** 收件箱。 */
 export const messages = {
-  message(taskId, body, sender = null) { return Number(this.run('INSERT INTO messages(task_id,sender_id,body) VALUES (?,?,?)', taskId, sender, body).lastInsertRowid); },
+  message(taskId, body, sender = null, hold = null) { return Number(this.run('INSERT INTO messages(task_id,sender_id,body,delivery_hold) VALUES (?,?,?,?)', taskId, sender, body, hold).lastInsertRowid); },
   /** A keyed child→parent signal is durable and idempotent; ordinary messages keep NULL signal fields. */
   signal(taskId, senderId, type, key, body) {
     const inserted = this.run(`INSERT OR IGNORE INTO messages(task_id,sender_id,body,signal_type,signal_key)
@@ -27,27 +27,38 @@ export const messages = {
    * Remaining budget then fills older-to-newer runtime signals (FIFO). A message larger
    * than the whole budget is still delivered whole — never truncated or summarized — so
    * batching always makes progress and the next call starts with that record.
+   * A released buffered wave instead uses strict FIFO across senders; frozen/routing
+   * records remain outside the Agent batch (but stay in the full unread safety view).
    */
   unreadPage(taskId, { limit = 50, bytes = 262144 } = {}) {
     const taskIdValue = id(taskId);
     check(Number.isInteger(limit) && limit >= 1 && limit <= 1000, 'invalid message page limit');
     check(Number.isInteger(bytes) && bytes >= 1, 'invalid message page byte budget');
     // CAST AS BLOB counts UTF-8 bytes, not SQLite characters, so the budget matches the JSON payload.
-    const pending = this.all(`SELECT id, sender_id, length(CAST(body AS BLOB)) AS size FROM messages
-      WHERE task_id=? AND consumed=0 ORDER BY id`, taskIdValue);
+    const pending = this.all(`SELECT id, sender_id, delivery_hold, length(CAST(body AS BLOB)) AS size FROM messages
+      WHERE task_id=? AND consumed=0 AND (delivery_hold IS NULL OR delivery_hold='released') ORDER BY id`, taskIdValue);
     const chosen = []; let used = 0;
     const take = row => { chosen.push(row.id); used += row.size; };
-    for (const row of pending) {
-      if (chosen.length >= limit) break;
-      if (row.sender_id !== null) continue;
-      take(row);
-    }
-    const already = new Set(chosen);
-    for (const row of pending) {
-      if (chosen.length >= limit) break;
-      if (row.sender_id === null || already.has(row.id)) continue;
-      if (chosen.length > 0 && used + row.size > bytes) continue;
-      take(row);
+    if (pending.some(row => row.delivery_hold === 'released')) {
+      // A buffered wave keeps strict FIFO across user/Agent senders and batches.
+      // Do not skip a larger record and let a later requirement overtake it.
+      for (const row of pending) {
+        if (chosen.length >= limit || (chosen.length > 0 && used + row.size > bytes)) break;
+        take(row);
+      }
+    } else {
+      for (const row of pending) {
+        if (chosen.length >= limit) break;
+        if (row.sender_id !== null) continue;
+        take(row);
+      }
+      const already = new Set(chosen);
+      for (const row of pending) {
+        if (chosen.length >= limit) break;
+        if (row.sender_id === null || already.has(row.id)) continue;
+        if (chosen.length > 0 && used + row.size > bytes) continue;
+        take(row);
+      }
     }
     // Preserve delivery order (user messages first, then FIFO); do not re-sort by id.
     const rows = chosen.length

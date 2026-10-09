@@ -57,6 +57,7 @@ export const EVENTS = {
   'task.delivery_resumed': '恢复交付流程', 'task.iteration_started': '开始新一轮开发',
   'task.forked': '已从父分支创建工作区', 'task.fork_failed': '创建工作区失败',
   'task.archived': '已归档 Worker', 'task.input_rule_frozen': '已固定输入规则', 'task.input_routed': '已分发追加输入',
+  'task.input_buffered': '追加输入已暂存，等待投递', 'task.input_released': '追加输入已解除暂存，等待 Agent 接收',
   'task.analyze_requested': '请求分支分析',
   'task.divergence_resolution_requested': '请求解决合并分歧', 'task.divergence_resolution_started': '开始解决合并分歧',
   'task.divergence_resolved': '合并分歧已解决', 'task.divergence_integrated': '分歧修复已合入',

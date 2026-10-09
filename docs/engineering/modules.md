@@ -180,6 +180,18 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 前端 `task-graph-merge.js` 统一新协议阶段/排序及关系 DOM，子卡片目标只用真实 `parent_id` 与 `target_branch`，不把布局祖先当交付目标。`taskForest` 保留根 ID 降序，只在同一真实父的兄弟槽位按 executing/resolving、requested、其它分组，组内 ID 降序；该顺序不是 runtime 执行次序。`task-graph-motion.js` 为整树刷新记录可见卡片位置，仅同一视图结构下真实兄弟换序播放 250ms FLIP（不移动连线），保留阅读锚点、滚动和焦点；首次加载、筛选、折叠、模式/窗口尺寸变化不播放，编辑、选区、弹层、未结束动效期间暂缓刷新，遵循系统/应用减少动效设置。无后台计时器或全局监听。
 
+## 冻结期间的 Worker 追加输入（W153 / 决定 #376）
+
+决定 #376 由用户已启用的 Lush 自动选择 Hook 选定推荐项：先完成已冻结交付，再处理追加输入；用户和合法直接父子 Agent 均可追加。接收与 Agent 投递分离，冻结不能成为丢失／拒收人类需求的理由。已有终态、归档、祖先关闭、main/owner 与直接父子权限不变。
+
+冻结期间追加消息立即持久化在 Worker 收件箱，由 runtime 暂存；不抢占源侧修复、不改变固定源提交／父基线／尝试、不挂起当前交付。源侧修复 invocation 只能收到对应修复信号与原有可投递消息，暂存输入不得混入。冻结解除且旧 invocation 实际退出后再准入，按消息顺序投递，开启下一轮；暂停／待决／失败／同步等既有安全门仍有效。未知落地现场不因新输入自动重放或撤销。暂存输入阻止验收和归档，但不阻止其追加之前已固定的交付收口。
+
+接缝：复用 messages 附属持久字段（仅增列，旧记录默认可投递，不新增业务实体）；Store 的全量未读读面继续含暂存消息用于验收安全门，provider 批次与 actionable 判断排除暂存消息。Runtime 负责安全点释放与重启恢复，避免仅依赖消息通知造成丢唤醒。公开 Worker inspect / graph / message 返回新增安全 `input_queue:{buffered:number,reason:string|null}`（暂存条数和等待原因，不含正文），无需新增 RPC。界面允许冻结目标进入追加模式，成功后区分「已保存，等待投递」与普通追加，并展示暂存条数；终态等永久拒收仍明确解释且保留输入。
+
+分区：Runtime 子 Worker 负责 core/project、persistence、必要 agent 提示词边界、test/project 与 Store 测试、modules-runtime.md；UI 子 Worker 负责 assets、test/web DOM 与 modules-web.md；父 W153 负责其他设计／工程／使用文档、接口组合验证与全量测试。两分区按上述 input_queue 投影对接，不互改文件。
+
+验证：`test/project/input-queue.test.js` 覆盖固定交付各阶段、源侧修复期间追加、暂停／待决／同步安全门、FIFO 批次、重启与未知规则副作用、自动验收归档；`test/web/dom-worker-input.test.js` 与输入 DOM 回归覆盖追加入口与失败保护；`test/web/input-queue-runtime-integration.test.js` 使用真实临时 HTTP/RPC/SQLite/Git 联调，核对已保存／待投递／实际收到、详情和 composer 等待提示及自动归档不得提前吞输入。完整 `bun run test --timeout 30000`：2616 通过、0 失败，342 文件，日志 `/tmp/lush-w153-logs/full-final.log`；文档检查通过（既有篇幅警告）。首轮全量因外部执行时限中断且发现事件中文名称遗漏，补齐后重新完整运行；未用不完整测试冒充通过。未验证真实浏览器／模型，未重启用户 daemon 或 Host。
+
 ## Worker 规划历史（W149 / 用户决定 #360）
 
 追加用户输入被当前 invocation 实际收到后，首次 `progress.plan` 开启新计划，同 key 不继承旧完成度或计时；无新用户输入的计划调整仍保留稳定 key 状态。每次步骤增删、改名、换序或新输入开启计划时，将被替换版本的完整状态与冻结计时保存为 Worker 附属 `progress.archived` Event；完全相同的重复汇报不新增历史。旧记录不回填、不伪造已丢失版本。
@@ -269,7 +281,7 @@ Codex 托管登录的默认设备码与备用回调入口见[设备码登录契�
 
 新请求不创建 merge Worker，也不改源 Worker 的 parent_id。`tasks.reservation` 是持久事实，Message/Event 只通知：真实源安全点固定 `delivery_id`（请求 Event ID）、`enqueue_seq`、`commit`、`parent_id`；拿到父分支逻辑执行位后才固定 `attempt_id`、`baseline` 与 `original_commit`。状态为 pending → requested → executing/resolving → integrated；suspended 显式释放执行位，恢复重新排队并生成新尝试；blocked 保留未知父侧现场，不让下一项写入。请求按 enqueue_seq、代码依赖优先；逻辑执行位跨源侧修复持久化，不持有全项目 Git 锁跨 Agent 调用。
 
-Project 的 `scheduleTaskMerge(parentId)` 用内存 pending-wake 集合保留 busy 期间的信号，`driveTaskMerge(parentId)` 释放 busy 后重新准入，避免挂起/取消丢唤醒；持久预约仍是唯一交付事实。`finalizeTaskMerge(taskId,attemptId,landedCommit,parentHead=landedCommit)` 分开记录交付提交与经 Git 核验的实时父 tip，恢复到已前进父分支不能回写旧 head_commit。`message` 的 sender/目标权限检查全部通过后，才在消息事务内挂起/恢复尝试、消费修复信号。`driveTaskMerge(parentId)` 每次只处理一项，父 invocation 实际退出后准入；`suspendTaskMerge(taskId,reason)` / `resumeQueuedTaskMerge(taskId)` 管理尝试暂停与重排；`recoverTaskDeliveries()` 核对准确 Git 凭据，兼容旧 v2 在途重挂仅使用 reservation/audit 的明确原父，保留历史 merge 身份。调度、同步、向上交付与兄弟落地共享父分支写冻结；仅当前 attempt 的源侧修复可绕过自己的源冻结。落地前复核源/目标 ref、取消、新输入、清洁度与祖先保留。Git 成功 DB 未写时只按预先持久化的 `landing_receipt.commit` 精确恢复，未知副作用不重放。Web 共用交付控件只给静息 suspended 显示「恢复交付」、静息 blocked 显示「受检复查落地」，复用 worker.reserve 且标注可能唤醒源 Agent；failed/paused/awaiting 仍先处理已有检查/继续/待决，不绕过安全点。
+Project 的 `scheduleTaskMerge(parentId)` 用内存 pending-wake 集合保留 busy 期间的信号，`driveTaskMerge(parentId)` 释放 busy 后重新准入，避免挂起/取消丢唤醒；持久预约仍是唯一交付事实。`finalizeTaskMerge(taskId,attemptId,landedCommit,parentHead=landedCommit)` 分开记录交付提交与经 Git 核验的实时父 tip，恢复到已前进父分支不能回写旧 head_commit。`message` 的 sender/目标权限检查全部通过后，才在消息事务内保存输入并更新非冻结迭代；冻结追加只暂存，不挂起固定尝试或消费修复信号。`driveTaskMerge(parentId)` 每次只处理一项，父 invocation 实际退出后准入；`suspendTaskMerge(taskId,reason)` / `resumeQueuedTaskMerge(taskId)` 管理尝试暂停与重排；`recoverTaskDeliveries()` 核对准确 Git 凭据，兼容旧 v2 在途重挂仅使用 reservation/audit 的明确原父，保留历史 merge 身份。调度、同步、向上交付与兄弟落地共享父分支写冻结；仅当前 attempt 的源侧修复可绕过自己的源冻结。落地前复核源/目标 ref、取消、新输入、清洁度与祖先保留。Git 成功 DB 未写时只按预先持久化的 `landing_receipt.commit` 精确恢复，未知副作用不重放。Web 共用交付控件只给静息 suspended 显示「恢复交付」、静息 blocked 显示「受检复查落地」，复用 worker.reserve 且标注可能唤醒源 Agent；failed/paused/awaiting 仍先处理已有检查/继续/待决，不绕过安全点。
 
 Git 接缝新增 `prepareTaskSquashUnsafe(child,source,baseline,message)` 返回未落地的 `{commit,source,baseline,tree,parent,workspace}`；`applyTaskSquashUnsafe(receipt,guard)` 最后复核固定 refs/清洁度并在写入前调用同步 guard，受检推进父工作区/ref；`verifyTaskSquashUnsafe(receipt)` 精确核验提交/父/树与目标祖先、工作区。Store 仍使用 reservation JSON 与 Event ID，无新业务实体。旧 version 1 原语义不变；旧 v2 凭据以精确父/树/完整标题核对，不能以标题前缀猜测。
 

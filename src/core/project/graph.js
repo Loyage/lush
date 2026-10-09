@@ -170,6 +170,9 @@ export default {
       try { resolutions.set(entry.task_id, JSON.parse(entry.data).source_task_id); } catch { /* legacy event */ }
     }
     const freezes = new Map(this.branchFreeze().map(item => [item.branch, item]));
+    const inputCounts = new Map(ids.length ? this.store.all(`SELECT task_id,count(*) AS n FROM messages
+      WHERE consumed=0 AND delivery_hold IN ('frozen','routing') AND task_id IN (${ids.map(() => '?').join(',')})
+      GROUP BY task_id`, ...ids).map(row => [row.task_id, row.n]) : []);
     // Task 卡片的合并编排入口只读投影：目标就是这条 Task 自己的分支。只读 store / branches，不碰 git、不写库。
     const branchRows = this.store.branches();
     const records = new Map(branchRows.map(row => [row.branch, row]));
@@ -293,6 +296,7 @@ export default {
         progress: plan, notice: notice.notice, notice_count: notice.count,
         children_total: child.total, children_active: child.active, waiting_reason,
         merge_queue: mergeQueues.get(row.id),
+        input_queue: this.taskInputQueue({ ...row, reservation }, inputCounts.get(row.id) ?? 0, freezes),
         resources: resources.get(row.id) ?? null, details_pending: !details,
         freeze: freeze ? { kind: freeze.kind, task_id: freeze.task_id ?? null, reason: freeze.reason } : null,
         resolves_task_id: row.resolves_task_id ?? resolutions.get(row.id) ?? null,
