@@ -23,6 +23,20 @@ Git 写入前再次复核取消、可投递新输入、固定 refs、清洁度�
 
 落地进入非终态 `awaiting_acceptance` / `integration='merged'`，保留原父子关系及分支/worktree/会话。追加输入继续当前 Worker；指令用户验收 / child 直接父 Agent 确认（`worker.accept`）与显式归档分开。本轮使用 `iteration_base_commit`，原始起点不改写。安全父同步只在源侧吸收固定父提交，冲突先诊断、另点 Agent；详见[持续迭代](task-iteration.md)。
 
+### 区分嵌套交付等待与死锁
+
+父 Worker 等子 Worker，子 Worker 的预约又等待父调用退出，并不一定形成循环：父 Agent 正常返回后释放 invocation 槽，runtime 才能取得父分支写执行位。父在收到普通追加消息后继续运行，会延迟子交付；`merge.requested` 通知本身不会启动父 Agent。父向上的 `pending` 意图也不会阻挡子交付，只有真正发出并冻结的向上请求才会阻挡。
+
+只读诊断用 `lush worker inspect W编号` 检查父与直接子 Worker，并用 `lush worker history W编号` 对照调用结束、尝试开始和分歧返回事件：
+
+- 子 `requested` 且父 Agent 仍活动：等待父调用实际退出，尚未取得父执行位。
+- 一个子 `resolving` 且其 Agent 运行：该子正在吸收固定父提交；父静息、其它子 `requested` 是正常串行等待。父普通输入会暂存到这一项落地后的安全边界。
+- 子 `suspended`、`blocked`、`failed`、`paused` 或有待决：检查对应原因，不能仅凭父 `waiting` 判断可自行推进，也不能强行清预约、解锁或重放未知 Git 副作用。
+
+`reservation.blocked_reason` 可能是 pending 意图上一次安全点留下的诊断；当前准入原因应结合 `merge_readiness.reason`、`input_queue.reason` 与直接子的持久预约核对。单次快照只能证明当时的状态，不能证明未来一定成功。
+
+隔离回归 `test/project/nested-delivery.test.js` 覆盖一个父 Worker、两个子交付、父连续调用、源侧分歧修复及父冻结输入，在单槽和多槽下验证自动续进、落地顺序和最终父唤醒；不操作真实项目或调用真实模型。
+
 ### Agent 的语义迁移检查
 
 `src/agent/prompts.js` 的共享交付提示词要求：在 runtime 明确授权的分歧修复／父同步冲突修复中，Agent 必须先找固定源／父提交的共同祖先，查看双方增量提交及 diff（含改名），识别名称、接口、数据模型及架构迁移，并检查自己的代码、调用点、测试和文档是否需要适配；没有文本冲突也不能跳过。改动限于恢复一致性所必需范围，歧义通过 Notice 问用户，实际测试受影响路径，并在结果中说明参考提交、迁移适配、验证与剩余风险。当前队列的 `merge.repair` 消息再次提醒此步骤。
