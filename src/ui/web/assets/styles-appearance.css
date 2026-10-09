@@ -1,0 +1,16 @@
+/* Project identity palette: semantic status and Agent-call tokens intentionally untouched. */
+:root[data-project-color="green"],.project-color-choice[data-color="green"]{--project-light:#147457;--project-dark:#8ddbb4}
+:root[data-project-color="blue"],.project-color-choice[data-color="blue"]{--project-light:#2463a6;--project-dark:#93c3f4}
+:root[data-project-color="teal"],.project-color-choice[data-color="teal"]{--project-light:#087070;--project-dark:#7fd8d6}
+:root[data-project-color="amber"],.project-color-choice[data-color="amber"]{--project-light:#8b5b0a;--project-dark:#ebc27b}
+:root[data-project-color="rose"],.project-color-choice[data-color="rose"]{--project-light:#a54365;--project-dark:#efa7bf}
+:root[data-project-color="slate"],.project-color-choice[data-color="slate"]{--project-light:#52647b;--project-dark:#b3c4dd}
+:root[data-project-color]{--accent:var(--project-light);--accent-ink:#fff;--accent-soft:color-mix(in srgb,var(--accent) 11%,var(--panel));--sidebar:color-mix(in srgb,var(--accent) 13%,var(--panel))}
+:root[data-theme="dark"][data-project-color]{--accent:var(--project-dark);--accent-ink:#111719;--accent-soft:color-mix(in srgb,var(--accent) 15%,var(--panel));--sidebar:color-mix(in srgb,var(--accent) 9%,var(--bg))}
+:root[data-project-color] #sidebar{border-top:4px solid var(--accent)}
+.project-color-choice{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+.project-color-choice:has(input:checked){outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.project-color-choice:has(input:disabled){opacity:.6;cursor:default}
+.project-color-swatch{width:14px;height:14px;flex:none;border-radius:50%;background:var(--project-light)}
+:root[data-theme="dark"] .project-color-swatch{background:var(--project-dark)}
+.project-colors{gap:12px}

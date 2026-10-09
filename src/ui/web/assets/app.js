@@ -1,5 +1,7 @@
 // 前端唯一入口：装配顶部按钮、hashchange 与两个定时器；其余职责都在同目录的模块里。
 import { $, el } from './dom.js';
+import { api } from './api.js';
+import { setProjectIdentity } from './project-identity.js';
 import { initAppearance, refreshTheme } from './appearance.js';
 import { show } from './messages.js';
 import { docsTarget, openDocs } from './docs.js';
@@ -181,7 +183,8 @@ export async function boot() {
   closeExplanationPanel();
   closeQuickExplanationPanel();
   resetNoticeNotifier();
-  initAppearance();                              // 按当前 DOM 重新绑定主题与头部按钮
+  initAppearance();                              // 工作台主题；确认项目身份后改为项目持久外观
+  setProjectIdentity();
   applyReducedMotion(readPref('reduceMotion'));
   // Global navigation does not wait for a Host probe or a project daemon.
   initHelp();
@@ -192,9 +195,16 @@ export async function boot() {
   if (boot !== bootGeneration) return;
   const context = workbenchStatus();
   const projectReady = context.projectUsable;
+  const currentProject = (context.host?.projects || []).find(row => row.id === context.project)
+    || (!context.project && context.host?.mode === 'bound' ? context.host.projects?.[0] : null);
+  if (currentProject) setProjectIdentity(currentProject.name, currentProject.project);
+  const appearance = initAppearance({ projectId: currentProject?.id || context.project,
+    request: api, reportError: message => show(message, 'error') });
+  await appearance.load(true);
+  if (boot !== bootGeneration) return;
   if ($('host-context')) $('host-context').textContent = context.project || projectReady ? '当前项目' : '工作台';
   if (!projectReady) {
-    $('project').textContent = context.project ? '项目不可用' : '未打开项目';
+    if (!currentProject) $('project').textContent = context.project ? '项目不可用' : '未打开项目';
     $('connection').textContent = context.host?.mode === 'offline' ? 'Host 离线' : '工作台已就绪';
   }
   initContextReferences();

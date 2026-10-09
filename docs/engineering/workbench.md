@@ -17,9 +17,18 @@
 
 `POST /api/host/projects/start {id}`、`POST /api/host/projects/stop {id}` 只接受已登记身份。stop 复用 `system.stop_if_idle` 并等待退出；忙碌拒绝，不改写 Worker 事实。项目 API 附着始终只读；用户明确选择/启动可恢复。直接书签打开未运行项目时显示离线并提供启动入口。能力通过 `/api/host` 发布；remove 只移除记录。
 
+## 项目外观（W160）
+
+项目页标题为「项目名 · Lush」，由 Host 登记元数据先建立，daemon 离线仍可识别；根工作台标题为「Lush」。项目外观保存到 `<project>/.lush/appearance.json`，不是浏览器偏好或设备运行设置，不依赖 daemon。Host 首次显式打开初始化，优先分配已登记项目未使用的预设颜色（green/blue/teal/amber/rose/slate），耗尽后选使用最少者，重开不改色；列表读取不分配。
+
+`GET /api/host/projects/<id>/appearance` 只读返回 `{id,name,project,appearance}`，尚未配置时 appearance 为 null；`POST` 同路径接受 `{initialize:true}` 或 `{theme,color,expected_revision}`，配置为 `{version:1,theme,color,revision}`，theme 为 system/light/dark。身份须已登记／在白名单内，不接受任意路径；沿用认证、Origin、JSON/no-store，并拒绝 token 与未知字段。持久化私有读取、原子写入、跨进程分配锁及 revision 冲突保护；损坏或不安全文件不自动覆盖。
+
+设置页可编辑项目深浅主题与六种具名配色；侧栏主题按钮同样写项目设置。其余浏览器偏好和无项目工作台主题仍由 prefs.js 管理，恢复浏览器默认不清项目外观。不复制既有浏览器主题到项目（以免某个浏览器决定其他用户默认）。当前配置失败时保留已知值、提供重读入口，未加载配置不允许保存；后台每 15 秒可见时只读同步其他浏览器的修改，保存携带 revision，迟到响应不能污染新项目。仅改变侧栏、品牌、选中项及强调色，不替换业务状态／Agent 紫色。
+
 ## 验证入口
 
-- `bun run check:workbench`：真实 Firefox/WebDriver（需系统 Firefox 与 geckodriver），独立临时 Host/profile 和可控项目替身；验证空主体、全局导航、独立项目页、输入保留、双主题/响应式布局与离线状态。使用系统浏览器，不依赖已删除的 Electron Chromium；不连接用户项目。
+- `bun run check:workbench`：真实 Firefox/WebDriver（需系统 Firefox 与 geckodriver），独立临时 Host/profile 和可控项目替身；验证空主体、全局导航、独立项目页、输入保留、双主题/响应式布局与离线状态。另用两个独立 Firefox profile 验证项目标题、持久外观与跨浏览器同步，六种配色 × 深浅主题 × 1440/900/390px 的布局、对比度与业务状态／Agent 色不变，首次分配与重开保留。使用系统浏览器，不依赖已删除的 Electron Chromium；不连接用户项目。
+- `test/project-appearance.test.js`、`test/web/project-appearance-api.test.js`：临时目录的私有存储／权限／别名／TOCTOU／损坏文件／锁／并发配色分配与 revision 冲突，真实 Host HTTP 与前端控制器联调、认证／Origin／白名单保护及离线不启动 daemon。`project-appearance-client.test.js` 与 `dom-project-appearance*.test.js` 覆盖读取／保存／迟到响应／设置／项目切换／标签页身份／默认恢复不清项目外观／禁用帮助宿主。`project-colors-contrast.test.js` 按实际 CSS 调色与混合比例验证六种配色在染色侧栏／选中项上的 WCAG 文本对比度；浏览器测量在侧栏过渡动画真正结束后进行。
 - `test/web/project-control.test.js` / `test/integration/project-control.test.js`：显式启停、空闲停止及旧标签不偷启 daemon；只使用临时项目与 mock Agent。
 
 [返回工程索引](README.md) · [Web 路由](../reference/web-routes.md)

@@ -1,4 +1,5 @@
 import { $ } from './dom.js';
+import { setProjectIdentity } from './project-identity.js';
 import { renderSleepBanner } from './sleep-ui.js';
 import { renderAutoSelectBanner } from './auto-select-banner.js';
 import { api } from './api.js';
@@ -145,8 +146,7 @@ async function runRefresh(session, currentResponse) {
       ui.lastSnapshot = response;
     }
     if (ui.transcriptView) ui.transcriptView.paintStatus?.(data.tasks?.find(task => task.id === ui.transcriptView.taskId));
-    $('project').textContent = data.status.project.split('/').filter(Boolean).at(-1) || data.status.project;
-    $('project').title = data.status.project;
+    setProjectIdentity('', data.status.project);
     $('connection').textContent = '已连接'; $('connection').classList.remove('offline');
     if (ui.offline) { ui.offline = false; clear(); }
     renderSleepBanner(data.status.sleep);

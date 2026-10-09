@@ -27,5 +27,5 @@ export function projectHref(id, suffix = '/') {
   return `/p/${id}${suffix}`;
 }
 
-/** 兼容已有项目 localStorage 键；外观偏好按浏览器 origin 共享。 */
+/** 兼容已有项目 localStorage 视图键；项目主题／配色另由 Host 持久保存。 */
 export function preferenceScope() { return projectRoute(); }

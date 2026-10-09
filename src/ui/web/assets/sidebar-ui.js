@@ -23,7 +23,8 @@ export function setViewChrome(title, context = '项目', hint = '', { root = fal
   const titleNode = node('view-title'); if (titleNode) titleNode.textContent = title;
   const contextNode = node('view-context'); if (contextNode) contextNode.textContent = context;
   const hintNode = node('view-hint'); if (hintNode) hintNode.textContent = hint;
-  if (globalThis.document) document.title = `Lush · ${title}`;
+  // Browser-tab identity is owned by project-identity.js, not the current panel.
+  // Keep the project name visible when navigating to settings/docs/Worker views.
   const back = node('view-back');
   if (back) {
     back.disabled = Boolean(root);

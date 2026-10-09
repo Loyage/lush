@@ -5,27 +5,40 @@ import path from 'node:path';
 import { request } from 'node:http';
 import { startWeb } from '../src/ui/web/server.js';
 import { projectRouteId } from '../src/host/registry.js';
+import { readProjectAppearance, saveProjectAppearance } from '../src/host/project-appearance.js';
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lush-workbench-ui-')));
 let offline = false;
-const selected = [], fixtureProject = path.join(root, 'mock-project');
+const selected = [], fixtureProject = path.join(root, 'mock-project'), secondProject = path.join(root, 'second-project');
+for (const project of [fixtureProject, secondProject]) fs.mkdirSync(project);
+const fixtureEnv = { HOME: root, LUSH_GLOBAL_CONFIG: root };
+const entries = () => [...new Set(selected)].map(project => ({ id: projectRouteId(project), name: path.basename(project), project, running: false }));
+function appearance(id, body) {
+  const project = entries().find(row => row.id === id)?.project;
+  if (!project) throw new Error('unknown fixture project');
+  return { id, project, name: path.basename(project), appearance: body
+    ? saveProjectAppearance(project, body, { projects: entries().map(row => row.project), env: fixtureEnv }) : readProjectAppearance(project) };
+}
 const projectHost = {
   launcher: true, rememberCurrent() {},
-  status: async () => { if (offline) throw new Error('fixture Host offline'); return { mode: 'host', projects: [], capabilities: { project_control: true } }; },
-  projects: async () => [], hasRoute: id => id === projectRouteId(fixtureProject),
-  select: async project => { selected.push(project); return fixtureProject; },
+  status: async () => { if (offline) throw new Error('fixture Host offline'); return { mode: 'host', projects: entries(), capabilities: { project_control: true } }; },
+  projects: async () => entries(), hasRoute: id => entries().some(row => row.id === id),
+  select: async project => { if (![fixtureProject, secondProject].includes(project)) throw new Error('unknown fixture project'); selected.push(project); return project; },
+  openRoute: async () => { throw new Error('fixture project daemon offline'); },
+  appearance: id => appearance(id), saveAppearance: (id, body) => appearance(id, body),
 };
 const server = startWeb(null, 0, { env: { HOME: root, LUSH_GLOBAL_CONFIG: root }, projectHost });
 const origin = `http://127.0.0.1:${server.port}`;
 const reservation = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') });
 const port = reservation.port; reservation.stop(true);
-let driver, session, socket, passed = false;
+let currentPort = port, extraPort = null;
+let driver, extraDriver, session, extraSession, socket, passed = false;
 const errors = [], pending = new Map(), reloadReads = []; let sequence = 0, captureReload = false;
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 async function rpc(route, body, method = 'POST') {
   // Loopback WebDriver requests must not inherit outbound proxies.
   const response = await new Promise((resolve, reject) => {
-    const req = request(`http://127.0.0.1:${port}${route}`, { method, headers: { 'Content-Type': 'application/json' } }, res => {
+    const req = request(`http://127.0.0.1:${currentPort}${route}`, { method, headers: { 'Content-Type': 'application/json' } }, res => {
       const chunks = []; let bytes = 0;
       res.on('data', chunk => { bytes += chunk.length; if (bytes > 8 * 1024 * 1024) req.destroy(new Error('WebDriver response too large')); else chunks.push(chunk); });
       res.on('end', () => resolve({ status: res.statusCode, text: Buffer.concat(chunks).toString() }));
@@ -48,7 +61,7 @@ function bidi(method, params) {
 }
 const evaluate = expression => rpc(`/session/${session}/execute/sync`, { script: `return (${expression});`, args: [] });
 async function until(expression) {
-  const settled = await rpc(`/session/${session}/execute/async`, { args: [], script: `const done=arguments[0];let n=0;const check=()=>{try{if(${expression})return done(true)}catch{}if(++n>200)return done(false);setTimeout(check,50)};check();` });
+  const settled = await rpc(`/session/${session}/execute/async`, { args: [], script: `const done=arguments[0];let n=0;const check=()=>{try{if(${expression})return done(true)}catch{}if(++n>400)return done(false);setTimeout(check,50)};check();` });
   assert(settled, `UI did not settle: ${expression}`);
 }
 async function click(selector) {
@@ -142,6 +155,78 @@ try {
   await rpc(`/session/${session}/window`, { handle: child });
   await until(`location.href === ${JSON.stringify(`${origin}/p/${projectRouteId(fixtureProject)}/`)}`);
   assert(selected.length === 1 && selected[0] === fixtureProject, 'project selection was not explicit and single-shot');
+  await until(`document.documentElement.dataset.projectColor === 'green' && document.title === 'mock-project · Lush'`);
+  await click('#settings-open');
+  await until(`document.querySelector('input[data-project-color="rose"]') !== null`);
+  await click('input[data-project-color="rose"]');
+  await until(`document.documentElement.dataset.projectColor === 'rose' && !document.querySelector('input[data-project-color="rose"]').disabled`);
+  await click('input.pref-radio[data-value="dark"]');
+  await until(`document.documentElement.dataset.theme === 'dark' && !document.querySelector('input[data-project-color="rose"]').disabled`);
+  assert(await evaluate(`document.title === 'mock-project · Lush' && localStorage.getItem('lush.theme') === null`), 'project navigation lost title or wrote browser theme');
+  const firstAppearance = readProjectAppearance(fixtureProject);
+  assert(firstAppearance.theme === 'dark' && firstAppearance.color === 'rose', 'browser controls did not persist project appearance');
+  // A second independent Firefox profile has no localStorage but must render the same project.
+  const primarySession = session;
+  const extraReservation = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') });
+  extraPort = extraReservation.port; extraReservation.stop(true);
+  extraDriver = Bun.spawn(['geckodriver', '--host', '127.0.0.1', '--port', String(extraPort)], {
+    env: { ...process.env, MOZ_HEADLESS: '1' }, stdout: Bun.file(path.join(root, 'geckodriver-second.log')), stderr: Bun.file(path.join(root, 'geckodriver-second.log')),
+  });
+  currentPort = extraPort;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try { await rpc('/status', undefined, 'GET'); break; } catch {}
+    if (extraDriver.exitCode !== null) throw new Error('second geckodriver exited');
+    await Bun.sleep(100);
+  }
+  const secondBrowser = await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } });
+  extraSession = secondBrowser.sessionId; session = extraSession;
+  try {
+    await navigate(`${origin}/p/${projectRouteId(fixtureProject)}/#settings`);
+    await until(`document.documentElement.dataset.projectColor === 'rose' && document.documentElement.dataset.theme === 'dark' && document.querySelector('input[data-project-color="rose"]') !== null`);
+    assert(await evaluate(`document.title === 'mock-project · Lush' && localStorage.getItem('lush.theme') === null`), 'independent browser did not inherit project appearance');
+    await click('input.pref-radio[data-value="light"]');
+    await until(`document.documentElement.dataset.theme === 'light' && !document.querySelector('input[data-project-color="rose"]').disabled`);
+  } finally {
+    await rpc(`/session/${extraSession}`, undefined, 'DELETE'); extraSession = null;
+    extraDriver.kill('SIGTERM'); await extraDriver.exited; extraDriver = null;
+    session = primarySession; currentPort = port;
+  }
+  await until(`document.documentElement.dataset.theme === 'light'`);
+  // Full palette × light/dark × responsive widths. CSS checks also protect semantic colors.
+  for (const theme of ['light', 'dark']) {
+    await click(`input.pref-radio[data-value="${theme}"]`);
+    await until(`document.documentElement.dataset.theme === '${theme}' && !document.querySelector('input[data-project-color="rose"]').disabled`);
+    for (const color of ['green', 'blue', 'teal', 'amber', 'rose', 'slate']) {
+      await click(`input[data-project-color="${color}"]`);
+      await until(`document.documentElement.dataset.projectColor === '${color}' && !document.querySelector('input[data-project-color="${color}"]').disabled`);
+      // Palette changes animate the sidebar for 200ms. First let style/paint
+      // run so the transition exists, then measure only after it has settled.
+      await rpc(`/session/${session}/execute/async`, { args: [], script: 'const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));' });
+      await until(`(() => { const side=document.getElementById('sidebar'); getComputedStyle(side).backgroundColor; return side.getAnimations().length === 0; })()`);
+      const contrast = await evaluate(`(() => { const canvas=document.createElement('canvas'), ctx=canvas.getContext('2d'); canvas.width=canvas.height=1;
+        const rgb=color=>{ctx.fillStyle=color;ctx.fillRect(0,0,1,1);return [...ctx.getImageData(0,0,1,1).data].slice(0,3).map(n=>n/255)};
+        const lum=color=>rgb(color).map(n=>n<=.04045?n/12.92:((n+.055)/1.055)**2.4).reduce((sum,n,i)=>sum+n*[.2126,.7152,.0722][i],0);
+        const ratio=(a,b)=>{a=lum(a);b=lum(b);return (Math.max(a,b)+.05)/(Math.min(a,b)+.05)};
+        const brand=getComputedStyle(document.querySelector('.brand-mark')), side=getComputedStyle(document.getElementById('sidebar')), tokens=getComputedStyle(document.documentElement);
+        return {button:ratio(brand.color,brand.backgroundColor),side:ratio(side.borderTopColor,side.backgroundColor),failed:tokens.getPropertyValue('--failed').trim(),agent:tokens.getPropertyValue('--violet-ink').trim()}; })()`);
+      assert(contrast.button >= 4.5 && contrast.side >= 4.5, `project contrast failed ${theme}/${color}: ${JSON.stringify(contrast)}`);
+      assert(contrast.failed === (theme === 'dark' ? '#f4959d' : '#bd4147') && contrast.agent === (theme === 'dark' ? '#c1a4f3' : '#7955b4'), `project color changed semantic colors: ${JSON.stringify(contrast)}`);
+      for (const width of [1440, 900, 390]) {
+        await resize(width);
+        assert(await evaluate(`document.documentElement.scrollWidth <= innerWidth + 1`), `project settings overflow ${theme}/${color}/${width}`);
+        await screenshot(`project-${theme}-${color}-${width}`);
+      }
+    }
+  }
+  await resize(1440);
+  // New-project allocation avoids the first project's current color; reopening remains stable.
+  const registered = await fetch(`${origin}/api/host/select`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: secondProject }) });
+  assert(registered.ok, 'second fixture project registration failed');
+  await navigate(`${origin}/p/${projectRouteId(secondProject)}/`);
+  await until(`document.title === 'second-project · Lush' && document.documentElement.dataset.projectColor === 'green'`);
+  await navigate(`${origin}/p/${projectRouteId(fixtureProject)}/`);
+  await until(`document.title === 'mock-project · Lush' && document.documentElement.dataset.projectColor === 'slate'`);
+  console.log('PASS project appearance: independent Firefox profiles, cross-browser synchronization, offline project titles, stable unused allocation, six palettes/light+dark/responsive with contrast and semantic-color checks');
   await rpc(`/session/${session}/window`, undefined, 'DELETE');
   await rpc(`/session/${session}/window`, { handle: source });
   assert(await evaluate(`location.pathname === '/' && document.querySelector('.project-manager-form input').value === ${JSON.stringify(fixtureProject)}`), 'opening a project replaced the source page or discarded its input');
@@ -183,6 +268,9 @@ try {
   socket?.close();
   for (const callback of pending.values()) callback.reject(new Error('Browser fixture closing'));
   pending.clear();
+  if (extraSession) { currentPort = extraPort; await rpc(`/session/${extraSession}`, undefined, 'DELETE').catch(() => {}); }
+  if (extraDriver) { extraDriver.kill('SIGTERM'); await extraDriver.exited; }
+  currentPort = port;
   if (session) await rpc(`/session/${session}`, undefined, 'DELETE').catch(() => {});
   if (driver) { driver.kill('SIGTERM'); await driver.exited; }
   server.stop(true);

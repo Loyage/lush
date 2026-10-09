@@ -4,6 +4,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 import { webStaticAssets } from './static-assets.js';
 import { canonicalProjectPath, launcherWebConfig, projectRouteId } from '../../host/registry.js';
 import { createProjectHost } from '../../host/project-host.js';
+import { validateAppearanceUpdate } from '../../host/project-appearance.js';
 import { docsIndex, docsSearchIndex, readDoc } from './docs.js';
 import { previewResponse } from './notice-preview.js';
 import { check, id, isPlainObject } from '../../core/types.js';
@@ -264,6 +265,18 @@ export function startWeb(config, port = 4318, options = {}) {
           // Let Bun flush the small acceptance response before releasing the listener.
           setTimeout(() => options.restartHost(), 200);
           return json({ restarting: true });
+        }
+        const appearanceRoute = /^\/api\/host\/projects\/([a-f0-9]{16})\/appearance$/.exec(url.pathname);
+        if (appearanceRoute && ['GET', 'POST'].includes(request.method)) {
+          check(!url.search, 'project appearance accepts no query parameters or agent tokens');
+          if (request.method === 'GET') {
+            check(typeof projectHost.appearance === 'function', 'project appearance is unavailable');
+            return json(await projectHost.appearance(appearanceRoute[1]));
+          }
+          check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');
+          const body = validateAppearanceUpdate(await request.json());
+          check(typeof projectHost.saveAppearance === 'function', 'project appearance is unavailable');
+          return json(await projectHost.saveAppearance(appearanceRoute[1], body));
         }
         if (request.method === 'GET' && url.pathname === '/api/host/projects') return json({ projects: await projectHost.projects() });
         if (request.method === 'POST' && ['/api/host/projects/start', '/api/host/projects/stop'].includes(url.pathname)) {

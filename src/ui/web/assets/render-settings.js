@@ -1,6 +1,6 @@
 /** System settings and the Agent settings subpanel used by Agent management. */
 import { $, block, button, el } from './dom.js';
-import { effectiveTheme, systemThemeMedia } from './appearance.js';
+import { effectiveTheme, systemThemeMedia, PROJECT_COLORS, appearanceSnapshot, onAppearanceChange, saveAppearance, reloadAppearance } from './appearance.js';
 import { action, api } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { show } from './messages.js';
@@ -51,14 +51,43 @@ function toggleControl(name, onLabel = '开启', offLabel = '关闭') {
 
 function themeControl() {
   const group = el('div', undefined, 'settings-choices');
-  const current = readPref('theme');
+  const state = appearanceSnapshot();
+  const current = state.projectId ? state.appearance?.theme : readPref('theme');
   const labels = { system: '跟随系统', light: '浅色', dark: '深色' };
   for (const value of THEME_VALUES) {
     const wrap = el('label', undefined, 'settings-choice');
     const input = el('input'); input.type = 'radio'; input.name = 'theme-preference'; input.className = 'pref-radio';
     input.dataset.pref = 'theme'; input.dataset.value = value; input.checked = current === value;
-    input.addEventListener('change', () => { if (input.checked) setPref('theme', value); });
+    input.disabled = Boolean(state.projectId && (!state.appearance || state.busy || state.loading));
+    input.addEventListener('change', async () => {
+      if (!input.checked) return;
+      if (!state.projectId) return setPref('theme', value);
+      if (!ui.settingsOpen) return;
+      const view = ui.view;
+      try { await saveAppearance({ theme: value }, state.projectId); }
+      catch (error) { if (ui.view === view) show(error.message, 'error'); }
+    });
     wrap.append(input, el('span', labels[value] ?? value)); group.append(wrap);
+  }
+  return group;
+}
+
+function projectColorControl(state) {
+  const group = el('div', undefined, 'settings-choices project-colors');
+  for (const { id, label } of PROJECT_COLORS) {
+    const wrap = el('label', undefined, 'settings-choice project-color-choice'); wrap.dataset.color = id;
+    const input = el('input'); input.type = 'radio'; input.name = 'project-color'; input.dataset.projectColor = id;
+    input.checked = state.appearance?.color === id;
+    input.disabled = !state.appearance || state.busy || state.loading;
+    input.addEventListener('change', async () => {
+      if (!input.checked) return;
+      if (!ui.settingsOpen) return;
+      const view = ui.view;
+      try { await saveAppearance({ color: id }, state.projectId); }
+      catch (error) { if (ui.view === view) show(error.message, 'error'); }
+    });
+    const swatch = el('span', undefined, 'project-color-swatch'); swatch.setAttribute('aria-hidden', 'true');
+    wrap.append(input, swatch, el('span', label)); group.append(wrap);
   }
   return group;
 }
@@ -98,7 +127,19 @@ function interfaceTab() {
 
   const system = systemThemeMedia();
   const appearance = block('外观');
-  appearance.append(row('主题', `系统当前${system?.matches ? '深色' : '浅色'}，实际显示${effectiveTheme() === 'dark' ? '深色' : '浅色'}。`, themeControl()));
+  const projectAppearance = appearanceSnapshot();
+  appearance.append(row(projectAppearance.projectId ? '本项目主题' : '工作台主题',
+    `${projectAppearance.projectId ? '保存在项目中，不同浏览器共用；跟随系统时各自使用系统深浅模式。' : '仅保存在当前浏览器，不影响项目。'}实际显示${effectiveTheme() === 'dark' ? '深色' : '浅色'}。`, themeControl()));
+  if (projectAppearance.projectId) {
+    appearance.append(row('本项目配色', '品牌、侧栏与强调色绑定本项目；首次打开优先使用未分配颜色，颜色耗尽后尽量均衡复用。状态色与 Agent 紫色不变。', projectColorControl(projectAppearance)));
+    if (projectAppearance.loading || projectAppearance.busy) appearance.append(el('p', projectAppearance.busy ? '正在保存项目外观…' : '正在读取项目外观…', 'settings-note'));
+    if (projectAppearance.error) {
+      appearance.append(el('p', `项目外观未同步：${projectAppearance.error}。${projectAppearance.appearance ? '保留上次配置；重试读取最新配置后再保存。' : '尚未获得项目配置，未使用浏览器主题替代。'}`, 'settings-error'));
+      const retry = button('重新读取项目外观', () => reloadAppearance(), 'ghost');
+      retry.disabled = projectAppearance.busy || projectAppearance.loading;
+      appearance.append(retry);
+    }
+  }
   appearance.append(row('减少动态效果', `覆盖系统偏好（系统当前${system?.matches ? '已要求减少' : '未要求'}）。`, toggleControl('reduceMotion')));
   content.append(appearance);
 
@@ -124,8 +165,8 @@ function interfaceTab() {
 
   const reset = block('恢复界面默认');
   const resetButton = el('button', '恢复默认设置', 'ghost pref-reset'); resetButton.type = 'button'; resetButton.onclick = () => resetPrefs();
-  resetButton.setAttribute('data-help', '恢复当前浏览器的共享界面偏好、通知与当前项目视图默认；不清其他项目视图，不改项目 Agent 配置。');
-  reset.append(row('恢复界面默认', '偏好保存在当前浏览器；只清共享与当前项目视图偏好，不改项目 Agent 配置。', resetButton));
+  resetButton.setAttribute('data-help', '恢复当前浏览器的共享界面偏好、通知与当前项目视图默认；不清其他项目视图，不改项目主题、配色或 Agent 配置。');
+  reset.append(row('恢复界面默认', '偏好保存在当前浏览器；只清共享与当前项目视图偏好，不改项目主题、配色或 Agent 配置。', resetButton));
   content.append(reset);
   return content;
 }
@@ -1054,11 +1095,12 @@ export function renderSettings() {
   const view = el('div', undefined, 'settings-view');
   const head = el('div', undefined, 'settings-head');
   const intro = el('div'); intro.append(el('span', 'SYSTEM SETTINGS', 'eyebrow'), el('h1', '系统设置'),
-    el('p', '界面偏好只存当前浏览器；系统默认在执行机器上设备共享，项目可按需覆盖。Agent 配置与模型来源有独立页面。', 'hint'));
+    el('p', '项目主题与配色保存在项目中、不同浏览器共用；其余界面偏好只存当前浏览器。系统默认在执行机器上设备共享，项目可按需覆盖。Agent 配置与模型来源有独立页面。', 'hint'));
   head.append(intro); view.append(head, tabBar());
   view.append(activeTab === 'interface' ? interfaceTab() : systemTab());
   panel.replaceChildren(view);
   return activeTab === 'system' ? systemPage?.pending : undefined;
 }
 
+onAppearanceChange(() => { if (ui.settingsOpen && activeTab === 'interface') renderSettings(); });
 for (const name of PREF_NAMES) onPrefChange(name, () => { if (ui.settingsOpen && activeTab === 'interface') renderSettings(); });

@@ -140,7 +140,7 @@ function defaultValue(def) { return typeof def.default === 'function' ? def.defa
 
 /**
  * 项目相关偏好（折叠 / 筛选 / 排序）按项目隔离：同一浏览器里 A 的视图状态不会带到 B，
- * 全局外观偏好（主题 / Markdown / 轮询 / 提醒）继续共享。单项目模式与全局项目列表下无前缀，键保持原样。
+ * 客户端偏好（无项目工作台主题 / Markdown / 轮询 / 提醒）继续共享。项目主题／配色由 appearance.js 经 Host 保存，不使用这里的主题键。单项目模式与全局项目列表下无前缀，键保持原样。
  */
 function prefKey(def) {
   if (!def.scope) return def.key;

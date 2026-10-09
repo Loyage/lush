@@ -28,7 +28,7 @@ test('原 Studio 页面在核心 API 下可加载、发送指令并打开 Worker
   expect(deepText(dom.node('detail'))).toContain('Worker 树');
   expect(deepText(dom.node('detail'))).not.toContain('Task 图');
   expect(dom.node('view-title').textContent).toBe('Worker 树');
-  expect(document.title).toBe('Lush · Worker 树');
+  expect(document.title).toBe(`${f.config.project.split('/').filter(Boolean).at(-1)} · Lush`);
   const details = dom.node('detail').querySelector('[data-graph-focus="detail-mode"]');
   expect(details.checked).toBe(false);
   expect(dom.node('detail').querySelector('.task-graph-minimal')).toBeTruthy();

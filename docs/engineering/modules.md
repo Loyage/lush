@@ -22,6 +22,16 @@
 
 用户已确认：仅保留 Web UI，启动直接进入主体，每项目独立浏览器标签，关闭页面后后台继续；服务器部署与网络访问由用户管理，Lush 不管理 SSH 或远端产物。修改启动、环境与项目入口前阅读[工作台设计](../design/workbench.md)；文件分工与新增接口以[工作台接入契约](workbench.md)为准。该接缝优先于旧项目闸门描述；逐步交付不得宣称尚未验收能力。
 
+## 项目外观与标签页身份（W160）
+
+用户确认项目主题绑定执行机器上的项目（跨浏览器一致），采用预设配色＋侧栏染色，保留状态色和 Agent 紫色语义。主题模式仍为 `system|light|dark`；`system` 表示各客户端跟随自己的系统。项目页标题为「项目名 · Lush」，无项目为「Lush」。
+
+Host 外观元数据模块 `src/host/project-appearance.js` 保存 `<project>/.lush/appearance.json`（version 1、theme、color、revision），不启动 daemon、不读取 Worker 事实。首次打开优先选已登记项目中未使用的预设色，耗尽后选使用最少者；已配置项目保持原色。安全私有读写、原子替换与跨进程分配锁，非法或损坏配置报错、不静默覆盖。颜色 ID 固定为 `green|blue|teal|amber|rose|slate`。
+
+Host 已登记身份 API：`GET /api/host/projects/<id>/appearance` 只读；`POST` 同一路径接受 `{initialize:true}`，只为缺失配置分配并保存默认，或 `{theme,color,expected_revision}` 显式保存整份外观，冲突拒绝。返回 `{id,name,project,appearance:{version:1,theme,color,revision}|null}`；root 无项目不调用外观 API。单项目模式从 Host status 的 projects 项取得稳定 ID。认证、Origin、JSON、未知字段和 Agent token 拒绝复用 Host 边界；白名单外／未知身份拒绝，不接受路径。列表只读不分配颜色。
+
+后端 child 负责 Host 外观存储、project-host 接缝、server 路由与后端／HTTP 测试；父 W160 负责 assets（控制器加载／保存、设置页配色、CSS 与项目标题）、DOM／浏览器验证、文档与组合全量测试。项目外观不能写入 localStorage；无项目工作台保留旧浏览器主题。恢复浏览器界面默认不清项目外观。前端保存带 revision、在途保护及项目／页面身份检查，加载失败保留已知配置并提供重试，不能误写另一项目或用浏览器偏好冒充项目配置。
+
 ## 设备共享设置接缝
 
 用户 W116 / 待决 #261 确认同设备同系统用户共享设置，项目/Worker 可覆盖；当前项目作为显式首次迁移来源，成功后源项目改为继承，其他旧项目保留覆盖，新项目直接继承。范围内以[设备共享设置理念](../design/device-settings.md)与[工程契约](device-settings.md)为准，优先于下文旧的全项目私有设置描述。项目 home、DB、Worker、历史、Git 与调度绑定不变，不引入跨项目调度。
@@ -135,7 +145,7 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 - `src/index.js` 的导出、`bin/*` 的行为。
 - Web 路由与 asset 路径：`server.js` 只按 basename 服务 `assets/` 下的 `.js` / `.css`，
   所以**新增前端模块不需要改 server.js**。带 `--project` 的单项目 Web 继续用无前缀的 `/api/**`；无 `--project` 的全局工作台改为**每项目一条稳定身份路由**：`/p/<project-id>/**` 下的页面、GET 与 `POST /api/action` 都按请求自带的项目身份解析（ID 由 canonical 路径派生，只在已登记集合里反查，不把 URL 片段当路径），`GET /api/snapshot` 因此不再有可被别的标签页切换的「当前项目」。宿主级路由留在无前缀：`GET /api/host`（模式、已登记列表、上次打开）、`GET /api/host/projects`（仅探测已登记目录的 lushd，返回 `running` 与有界摘要；不启动项目）、`POST /api/host/select`（登记并连接，返回路由 ID，不设全局当前项目）、`POST /api/host/remove`（只删入口并断开 Web 连接），以及「文档」视图的 `/api/docs`、`/api/docs/search-index` 与 `/api/docs/<id>`——数据源是 `src/ui/web/docs.js`，只读随代码发布的 `docs/**/*.md` 与 `README.md`，与当前项目目录无关，只按扫出来的 id 查表命中。项目读取与写动作的完整白名单见[Web 路由](../reference/web-routes.md)（`CORE_READS` / `CORE_WORKER_READ` / `CORE_DOC_READ` / `MUTATIONS`）。认证边界也在 `server.js`：项目绑定模式读取 `.lush/web.json`，全局启动器读取用户配置目录的 `web.json`；无对应配置时只监听本机，有配置时监听公网，并用 `/login`、`/logout` 与 HttpOnly 会话 Cookie 保护全部页面、资源和 API。全局公网配置必须额外提供 `projects` 绝对路径白名单，且项目注册表不允许把白名单外的路径解析成可访问身份；本地无认证启动器仍可输入任意现存绝对目录。
-- 前端项目身份在 `src/ui/web/assets/route.js`：从 `location.pathname` 读 `/p/<id>/`（读不到就是单项目模式或全局根），`api.js` 用它给项目 API 加前缀，启动器与文档等宿主级资源不加；折叠 / 筛选 / 排序与 Worker 图偏好按项目隔离在 `prefs.js` / `state.js`，主题等外观偏好共享。项目列表与切换在 `project-picker.js`：已在一个项目页时用新标签打开别的项目，切换项目不会清空当前标签的输入。
+- 前端项目身份在 `src/ui/web/assets/route.js`：从 `location.pathname` 读 `/p/<id>/`（读不到就是单项目模式或全局根），`api.js` 用它给项目 API 加前缀，启动器与文档等宿主级资源不加；折叠 / 筛选 / 排序与 Worker 图偏好按项目隔离在 `prefs.js` / `state.js`，项目主题／配色由 `appearance.js` 经 Host 持久保存，其他客户端偏好共享。项目列表与切换在 `project-picker.js`：已在一个项目页时用新标签打开别的项目，切换项目不会清空当前标签的输入。
 - 服务重启接缝：设置页保留项目后台与当前界面服务独立重启，并提供「全部重启」按钮；一次确认后复用现有接口先重启当前项目后台，成功后再重启当前界面服务，后台拒绝时不动界面，部分成功明确提示，不重启其他项目后台。`POST /api/service/restart`（全局模式须带 `/p/<project-id>` 前缀）只处理已解析的当前项目，不接受路径或 Agent token；Host 调用用户专属 `system.stop_if_idle`，daemon 同步检查活动 invocation / 模型调用和 Git 工作后封闭新调度，再停止，由 Host 等待退出并启动。忙碌时拒绝，不把运行中Worker标为失败。`POST /api/host/restart` 只重启接收请求的 Host（不停止任何项目 daemon）；`GET /api/host` 增加 `restart_supported`，不支持的嵌入模式禁用按钮并说明原因。两个 POST 都复用登录、Origin、JSON 类型校验；Host 重启会清空登录会话，页面有界探测恢复或提示重新登录。`bin/lush-host` 通过 `src/host/supervisor.js` 持有 `bin/lush-host-worker`，worker 请求重启时退出 75，supervisor 等退出后在同端口启动新进程；普通退出不重放。`src/host/service-control.js` 提供 `restartProjectDaemon(config)`，按项目 single-flight 并等待 daemon 锁释放；`Workspaces.pending` 跟踪全部排队及执行中的串行 Git 工作，为 idle 准入提供同步证据。
 - Web 按钮帮助走 `data-help`：含义不直观的按钮都带提示，会调用 Agent 的按钮另带 `agent-call` 类与 `agentHelp()` 生成的文案，禁用按钮由外层 `.help-host` 承载；前端实现与三种输入方式见[按钮帮助与 Agent 触发标识](../design/ui-guidance.md)。
 - Host 的项目连接与按需启动在 `src/host/project-host.js`；全局项目登记状态在 `src/host/registry.js`：用户配置目录中的 `launcher.json` 是 v2，存 `last_project` 与已登记的 `projects` 路径列表（读 v1 时把 `last_project` 提升为登记项），只把上次打开当作**新窗口首次落点**，不再决定任何页面的请求目标；同目录的可选 `web.json` 独立保存全局启动器认证、可信 Origin 与项目白名单；两者都不是业务事实也不是 `LUSH_HOME`。`projectRouteId(path)` 由 canonical 路径派生 16 位十六进制 ID，同一路径稳定、不同路径不可混同；服务端只用它在已登记集合里反查路径。macOS / Linux / Windows 分别遵循各自用户配置目录。浏览器直接访问各 Host，网络由用户自行配置；宿主职责见 [Web 宿主](modules-web.md#web-宿主)。

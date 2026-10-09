@@ -4,6 +4,7 @@ import { Config } from '../config.js';
 import { UIClient } from '../ui/client.js';
 import { startProjectDaemon, stopProjectDaemon } from './service-control.js';
 import { check } from '../core/types.js';
+import { readProjectAppearance, saveProjectAppearance } from './project-appearance.js';
 import { canonicalProjectPath, readLauncherState, removeLauncherProject, projectRouteId, writeLauncherState } from './registry.js';
 
 export function createProjectHost(initialConfig = null, options = {}) {
@@ -108,8 +109,20 @@ export function createProjectHost(initialConfig = null, options = {}) {
     return project;
   }
 
+  function appearanceMetadata(id, update, write = false) {
+    // Unlike daemon routing, appearance storage never follows a moved registry
+    // entry to a different canonical path or accepts a symlink alias identity.
+    const project = registry().find(entry => projectRouteId(entry) === id);
+    check(typeof id === 'string' && /^[a-f0-9]{16}$/.test(id) && project, `未知或已失效的项目身份：${id}`);
+    const appearance = write ? saveProjectAppearance(project, update, { projects: registry(), env })
+      : readProjectAppearance(project);
+    return { id, name: path.basename(project) || project, project, appearance };
+  }
+
   return {
     launcher,
+    appearance(id) { return appearanceMetadata(id); },
+    saveAppearance(id, body) { return appearanceMetadata(id, body, true); },
     async status() {
       const state = launcher ? readLauncherState(env) : { last_project: boundProject };
       const last = state.last_project && (!allowedProjects || allowedProjects.has(state.last_project)) ? state.last_project : null;
