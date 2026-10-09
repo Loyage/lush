@@ -82,20 +82,36 @@ try {
       natural:n.querySelector('.detail-preview-content').getBoundingClientRect().height}));`);
     assert(sizes.length >= 8, 'missing reading modules');
     for (const size of sizes) {
-      assert(size.body <= size.limit + 1 && size.limit <= 240, `${width}/${theme}: ${JSON.stringify(size)}`);
-      assert((size.footer !== 'none') === (size.natural > size.limit + 1), 'short/long control mismatch');
+      const long = size.natural > size.limit + 120;
+      assert(size.limit <= 400 && Math.abs(size.body - (long ? size.limit : size.natural)) <= 1,
+        `${width}/${theme}: ${JSON.stringify(size)}`);
+      assert((size.footer !== 'none') === long, 'short/long control mismatch');
       assert(size.controls === 1 && size.headerControl && !size.footerControl, 'module must have only a header toggle');
     }
     assert(await execute(`return document.querySelector('#detail').scrollWidth<=document.querySelector('#detail').clientWidth+1;`), 'horizontal page overflow');
     assert(await execute(`return !document.querySelector('.task-actions .detail-preview-body') &&
       !document.querySelector('.goal-panel').classList.contains('detail-preview-expanded');`), 'actions clipped or expanded by default');
-    console.log('PASS bounded modules', width, height, theme);
+    // Test actual clipping, not only the presence of an expand control, at each responsive limit.
+    await execute(`window.boundaryProbe=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='Worker 依赖');
+      window.boundaryFixed=document.createElement('div');
+      window.boundaryProbe.querySelector('.detail-preview-content').replaceChildren(window.boundaryFixed);`);
+    for (const excess of [1, 119, 120, 121, 120]) {
+      await execute(`const limit=window.boundaryProbe.querySelector('.detail-preview-limit').getBoundingClientRect().height;
+        window.boundaryFixed.style.height=(limit+${excess})+'px';`);
+      assert(await wait(`window.boundaryProbe.classList.contains('detail-preview-long')===${excess > 120}`), 'boundary measurement not updated');
+      assert(await execute(`const n=window.boundaryProbe,body=n.querySelector('.detail-preview-body'),natural=n.querySelector('.detail-preview-content');
+        const limit=n.querySelector('.detail-preview-limit').getBoundingClientRect().height;
+        return n.querySelector('.detail-preview-toggle').hidden===${excess <= 120}&&
+          Math.abs(body.getBoundingClientRect().height-(${excess > 120} ? limit : natural.getBoundingClientRect().height))<=1;`),
+        `${width}/${theme}: incorrect clipping at +${excess}px`);
+    }
+    console.log('PASS bounded modules and 120px margin', width, height, theme);
   }
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await execute(`window.resizeProbe=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='Worker 依赖');
-    const fixed=document.createElement('div');fixed.style.height='180px';fixed.textContent='短模块高度响应测试';
+    const fixed=document.createElement('div');fixed.style.height='400px';fixed.textContent='短模块高度响应测试';
     window.resizeProbe.querySelector('.detail-preview-content').replaceChildren(fixed);`);
-  assert(await wait(`window.resizeProbe.querySelector('.detail-preview-toggle').hidden`), '180px module should fit a tall viewport');
+  assert(await wait(`window.resizeProbe.querySelector('.detail-preview-toggle').hidden`), '400px module should fit a tall viewport');
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 450 });
   assert(await wait(`!window.resizeProbe.querySelector('.detail-preview-toggle').hidden`), 'height-only resize clipped a short module without an expand control');
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
@@ -110,7 +126,7 @@ try {
     window.savedResult.classList.contains('detail-preview-expanded');`), 'refresh reset reading state/nodes');
   await click('.result-panel .section-title .detail-preview-toggle');
   assert(await execute(`const n=document.querySelector('.result-panel');return !n.classList.contains('detail-preview-expanded')&&
-    n.querySelector('.detail-preview-body').getBoundingClientRect().height<=240;`), 'collapse not bounded');
+    n.querySelector('.detail-preview-body').getBoundingClientRect().height<=400;`), 'collapse not bounded');
   assert(await execute(`const n=document.querySelector('.agent-panel');const target=n.querySelector('.detail-preview-content button');target.focus();
     return n.classList.contains('detail-preview-expanded')&&document.activeElement===target;`), 'keyboard focus stayed clipped');
   assert(await execute(`const n=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='消息');

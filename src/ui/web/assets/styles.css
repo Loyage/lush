@@ -183,8 +183,9 @@ input.pick{flex:none;width:15px;height:15px;accent-color:var(--accent);cursor:po
 .msg{border-left:2px solid var(--line);padding:3px 0 3px 14px;margin:12px 0}.msg small{font-size:11px}
 /* Worker detail: cap the whole reading module, not each item; full content keeps page scrolling. */
 .progress-history-version{border-bottom:1px solid var(--line-soft);padding:10px 0}.progress-history-version>summary{cursor:pointer;color:var(--muted);font-size:12px;line-height:1.6;overflow-wrap:anywhere}.progress-history-version>.task-progress-panel{margin:10px 0 0;background:transparent;box-shadow:none;border-left-color:var(--dim)}.progress-history-controls{padding-top:12px}.progress-history-status{margin-bottom:0}.task-progress-panel.is-historical{border-left-color:var(--dim)}
-.detail-preview{position:relative;--detail-preview-height:min(240px,32dvh)}
-.detail-preview-body{max-height:var(--detail-preview-height);overflow:hidden;overflow:clip;min-width:0}
+.detail-preview{position:relative;--detail-preview-height:min(400px,50dvh)}
+.detail-preview-body{min-width:0}
+.detail-preview-long>.detail-preview-body{max-height:var(--detail-preview-height);overflow:hidden;overflow:clip}
 .detail-preview-content{display:flow-root;min-width:0;overflow-wrap:anywhere}
 .detail-preview-content>.row{padding:9px 0;border-bottom:1px solid var(--line-soft)}
 .detail-preview-content>.row:last-child{border-bottom:0}

@@ -14,7 +14,7 @@ function fixture(run) {
     unobserve(node) { this.targets.delete(node); }
     disconnect() { this.targets.clear(); this.disconnected = true; }
   };
-  const resize = (section, height = 1000, limit = 240) => {
+  const resize = (section, height = 1000, limit = 400) => {
     section.querySelector('.detail-preview-content').getBoundingClientRect = () => ({ height });
     section.querySelector('.detail-preview-limit').getBoundingClientRect = () => ({ height: limit });
     observers.at(-1).callback();
@@ -74,11 +74,38 @@ test('natural content observation handles lazy growth, narrow viewports and shri
   const panel = dom.node('detail'), section = block('事件时间线'); panel.append(section);
   limitDetailModules(panel, { taskId: 7 });
   expect([...observers[0].targets]).toEqual([section.querySelector('.detail-preview-content'), section.querySelector('.detail-preview-limit')]);
-  resize(section, 200, 240); expect(toggle(section).hidden).toBe(true);
-  resize(section, 200, 160); expect(toggle(section).hidden).toBe(false);
+  resize(section, 400, 400); expect(toggle(section).hidden).toBe(true);
+  resize(section, 400, 160); expect(toggle(section).hidden).toBe(false);
   await toggle(section).click();
   resize(section, 100, 160); expect(toggle(section).hidden).toBe(true); expect(expanded(section)).toBe(true);
   resize(section, 800, 160); expect(toggle(section).hidden).toBe(false); expect(expanded(section)).toBe(true);
+}));
+
+test('only overflow beyond the 120px margin clips; exact boundary and shrinking stay fully visible', () => fixture(async ({ dom, resize }) => {
+  const panel = dom.node('detail'), section = block('结果'); panel.append(section);
+  limitDetailModules(panel, { taskId: 7 });
+  const footer = section.querySelector('.detail-preview-footer');
+  for (const limit of [400, 275.5]) {
+    for (const height of [limit - 1, limit, limit + 1, limit + 119, limit + 120]) {
+      resize(section, height, limit);
+      expect(section.classList.contains('detail-preview-long')).toBe(false);
+      expect(toggle(section).hidden).toBe(true); expect(footer.hidden).toBe(true);
+    }
+    resize(section, limit + 120.5, limit);
+    expect(section.classList.contains('detail-preview-long')).toBe(true);
+    expect(toggle(section).hidden).toBe(false); expect(footer.hidden).toBe(false);
+    expect(expanded(section)).toBe(false);
+    await toggle(section).click();
+    resize(section, limit + 120, limit);
+    expect(section.classList.contains('detail-preview-long')).toBe(false);
+    expect(toggle(section).hidden).toBe(true); expect(expanded(section)).toBe(true);
+    resize(section, limit + 121, limit);
+    expect(toggle(section).hidden).toBe(false); expect(expanded(section)).toBe(true);
+    await toggle(section).click();
+    limitDetailModules(panel, { taskId: 7 }); resize(section, limit + 120, limit);
+    expect(section.classList.contains('detail-preview-long')).toBe(false);
+    expect(toggle(section).hidden).toBe(true);
+  }
 }));
 
 test('keyboard focus and reference navigation reveal clipped destinations before scrolling', () => fixture(async ({ dom, resize }) => {
@@ -112,7 +139,10 @@ test('detail limits reading blocks only and preserves reused goal/result/message
   resize(messages); await toggle(messages).click();
   resize(result); await toggle(result).click();
   expect(panel.querySelector('.task-actions').querySelector('.detail-preview-body')).toBeNull();
-  renderDetail({ ...task, messages: [...task.messages, { id: 21, body: '新消息', sender_id: null }] }, { events: [] }, null, null);
+  renderDetail({ ...task, display_title: '用户自定义标题', messages: [...task.messages, { id: 21, body: '新消息', sender_id: null }] }, { events: [] }, null, null);
+  expect(panel.querySelector('h1').textContent).toBe('用户自定义标题');
+  expect(panel.querySelector('.task-actions').querySelector('.worker-rename')).toBeTruthy();
+  expect(panel.querySelector('.task-actions').querySelector('.detail-preview-body')).toBeNull();
   expect(panel.querySelector('.goal-panel')).toBe(goal); expect(panel.querySelector('.result-panel')).toBe(result);
   expect(panel.querySelector('.task-message')).toBe(message); expect(expanded(result)).toBe(true);
   const updatedMessages = [...panel.children].find(node => node.children[0]?.querySelector('h2')?.textContent === '消息');

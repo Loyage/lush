@@ -4,6 +4,8 @@ import { button, el } from './dom.js';
 const panels = new WeakMap();
 const modules = new WeakMap();
 let nextPreviewId = 0;
+// Slightly taller modules remain fully visible; only substantial overflow warrants clipping.
+const COLLAPSE_MARGIN = 120;
 
 function preview(section, id, expanded, remember) {
   let view = modules.get(section);
@@ -40,7 +42,7 @@ function preview(section, id, expanded, remember) {
         // The invisible gauge resolves the same responsive CSS height in either mode.
         const height = content.getBoundingClientRect?.().height ?? 0;
         const limit = gauge.getBoundingClientRect?.().height ?? 0;
-        const overflows = height > limit + 1;
+        const overflows = height > limit + COLLAPSE_MARGIN;
         top.hidden = footer.hidden = !overflows;
         section.classList.toggle('detail-preview-long', overflows);
       },
