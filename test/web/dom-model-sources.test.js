@@ -56,6 +56,24 @@ test('总览默认只含来源摘要；完整详情、表单、历史、采样�
   expect(requests).toHaveLength(1);
 });
 
+test('刷新和详情自解释不加提示，禁用原因及危险操作仍保留说明', async () => {
+  const p = await panel();
+  const refresh = button(row(p.node, 'source-a'), '刷新');
+  expect(refresh.getAttribute('data-help')).toBeNull();
+  expect(refresh.parentNode.getAttribute('data-help')).toBeNull();
+  expect(button(row(p.node, 'source-a'), '详情').getAttribute('data-help')).toBeNull();
+  expect(button(p.node, '批量刷新').getAttribute('data-help')).toBeNull();
+  const disabled = button(row(p.node, 'source-b'), '刷新');
+  expect(disabled.disabled).toBe(true);
+  expect(disabled.parentNode.getAttribute('data-help')).toContain('不支持额度查询');
+  await button(row(p.node, 'source-a'), '详情').onclick();
+  const card = visibleCards(p.node)[0];
+  expect(button(card, '刷新此连接').getAttribute('data-help')).toBeNull();
+  expect(button(card, '刷新此连接').parentNode.getAttribute('data-help')).toBeNull();
+  expect(button(card, '删除连接').getAttribute('data-help')).toContain('删除');
+  p.dispose();
+});
+
 test('摘要最多两项指标，完整模型、端点、读数和消费者仅在来源详情查看', async () => {
   data.connections[0] = source('source-a', { default_model: 'main-model', default_thinking: 'xhigh',
     models: ['main-model', 'secondary-model'], consumers: [{ task_id: 47, model: 'main-model' }],

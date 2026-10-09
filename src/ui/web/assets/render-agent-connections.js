@@ -91,7 +91,7 @@ function select(parent, label, key, options, value = '') {
   input.value = value; wrap.append(input); parent.append(wrap); return input;
 }
 function helped(label, fn, help, className = 'ghost') {
-  const host = el('span', undefined, 'help-host'); host.setAttribute('data-help', help);
+  const host = el('span', undefined, 'help-host'); if (help) host.setAttribute('data-help', help);
   host.append(button(label, fn, className, { help })); return host;
 }
 function positive(input, max, name) {
@@ -607,7 +607,8 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       const resources = renderResourceSummary(connection.observation, now());
       const actions = el('div', undefined, 'model-source-row-actions');
       const refreshRow = el('div', undefined, 'model-source-refresh-row');
-      const refresh = helped(queries.has(connection.id) ? '刷新中…' : '刷新', () => query(connection.id), '联网查询专用余额 / 套餐接口，不调用模型；失败不等于零余额。');
+      const refresh = helped(queries.has(connection.id) ? '刷新中…' : '刷新', () => query(connection.id),
+        !canQuery(connection) ? '此来源未启用、缺少本地凭证或不支持额度查询；请到详情检查。' : null);
       refresh.children[0].disabled = !canQuery(connection) || queries.has(connection.id);
       const cache = el('span', `上次刷新：${relativeTime(connection.observation?.checked_at, now())}`, 'model-source-cache-time');
       cache.setAttribute('data-help', `缓存观测（非实时）；观测时间：${time(connection.observation?.checked_at)}。查询失败不代表余额为零。`);
@@ -616,7 +617,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       actions.append(button('详情', () => {
         if (panelKind === 'detail' && selectedId === connection.id && !detailPane.hidden) back.onclick();
         else selectConnection(connection.id);
-      }, 'ghost model-source-details-toggle', { help: '在此来源下方展开完整配置、额度与使用情况；再次点击收起，不联网查询。' }));
+      }, 'ghost model-source-details-toggle'));
       row.append(identity, settings, resources, actions); return row;
     }));
     statistics.textContent = `总数 ${all.length} · 启用 ${all.filter(row => row.enabled).length} · 需处理 ${all.filter(attention).length}${projectHistory ? ` · 本项目使用中 ${all.filter(row => array(row.consumers).length).length}` : ' · 未打开项目，不展示实际消费者'}（不合计不同币种或套餐）`;
@@ -638,7 +639,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   batchToolbar.append(selectionCount, button('选择当前筛选结果', () => { for (const row of filtered) selected.add(row.id); paintRows(); }, 'ghost'),
     button('清空选择', () => { selected.clear(); paintRows(); }, 'ghost'));
   for (const [kind, label] of [['refresh', '批量刷新'], ['enable', '批量启用'], ['disable', '批量停用']]) {
-    const control = helped(label, () => runBatch(kind), kind === 'refresh' ? '确认连接范围后联网刷新所选支持查询的连接；不调用模型。' : '先确认连接范围，再逐项保存启用状态；不更换秘密、不删除，保留端点、模型和默认设定。');
+    const control = helped(label, () => runBatch(kind), kind === 'refresh' ? null : '先确认连接范围，再逐项保存启用状态；不更换秘密、不删除，保留端点、模型和默认设定。');
     control.children[0].dataset.batchAction = kind; batchToolbar.append(control);
   }
   search.oninput = paintRows; providerFilter.onchange = enabledFilter.onchange = stateFilter.onchange = paintRows;
@@ -685,11 +686,12 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       if (projectHistory) consumerSection.append(consumers);
       else note(consumerSection, '未打开项目，不显示实际消费者或项目历史；不推测其他项目与客户端的消耗。');
       const actions = el('div', undefined, 'agent-connection-actions');
-      const refresh = helped('刷新此连接', () => query(connection.id), '访问此连接的专用资源接口，可能刷新本项目 OAuth 凭证；不会调用 Agent 或模型。');
+      const refresh = helped('刷新此连接', () => query(connection.id),
+        !canQuery(connection) ? '此来源未启用、缺少本地凭证或不支持额度查询；请检查连接配置。' : null);
       refresh.children[0].disabled = !canQuery(connection) || queries.has(connection.id); actions.append(refresh);
       note(actions, operationState.get(connection.id) || '');
       actions.append(button('编辑', () => { if (current()) paintEditor(connection); }, 'ghost'));
-      if (projectHistory) actions.append(helped('查看历史', () => { selectConnection(connection.id); openPanel('history'); historyConnection.value = connection.id; historyId.value = ''; return loadHistory(); }, '只读取当前项目对此连接的本地历史，不访问服务商；不合并其他项目记录。'));
+      if (projectHistory) actions.append(button('查看历史', () => { selectConnection(connection.id); openPanel('history'); historyConnection.value = connection.id; historyId.value = ''; return loadHistory(); }, 'ghost'));
       if (connection.auth_type === 'oauth') actions.append(
         helped('登录 / 重新登录', () => beginDeviceLogin(connection), '显示设备码和 OpenAI 官方授权链接，自动检查授权并保存本项目登录；不改外部客户端凭证，不调用 Agent 或模型。'),
         helped('备用：回调 URL 登录', () => beginLogin(connection), '设备码不可用时可显式使用浏览器回调登录，需要手动粘贴回调 URL；不自动切换，不调用 Agent 或模型。'));
@@ -1013,11 +1015,11 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   }));
   historyConnection.onchange = () => { historyId.value = ''; return loadHistory(); };
   days.onchange = loadHistory;
-  historyControls.append(helped('读取历史', loadHistory, '只读取所选连接的项目 SQLite 历史，不联网查询服务商。'));
+  historyControls.append(button('读取历史', loadHistory, 'ghost'));
   const addConnection = button('添加连接', () => { if (current()) paintEditor(null, addConnection); }, 'primary');
   toolbar.append(addConnection,
-    helped('刷新全部资源', () => query(), '只查询启用且有凭证的受支持连接；可能刷新本项目 OAuth，不调用 Agent 或模型，不自动切换模型。'),
-    helped('重新读取本地连接', () => load(true), '重新读取项目连接配置和缓存，不访问服务商，不覆盖未保存编辑。'),
+    button('刷新全部资源', () => query(), 'ghost'),
+    button('重新读取本地连接', () => load(true), 'ghost'),
     button('后台采样设置', () => { if (current()) { closeEditor(); openPanel('sampling'); samplingEnabled.focus(); } }, 'ghost', { help: sharedSampling ? '编辑设备共享的采样默认，各项目独立执行和保存历史；项目策略覆盖仍有效，无项目 Host 不采样。' : '展开本项目全部托管来源的采样设置；开启后关页仍采样，不是某个来源单独的开关。' }),
     button('历史与已删除来源', () => { if (current()) { closeEditor(); openPanel('history'); historyConnection.focus(); } }, 'ghost', { help: '展开本地观测历史入口，可按原连接 ID 查看已删除来源的历史；不访问服务商。' }));
   if (!projectHistory) {

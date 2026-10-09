@@ -177,7 +177,8 @@ test('深链接与重复boot不自动检查，双页导航发布且保留旧地�
   const html = fs.readFileSync(new URL('../../src/ui/web/assets/index.html', import.meta.url), 'utf8');
   expect(html).toContain('id="agent-status-open"'); expect(html).toContain('id="model-sources-open"');
   expect(html).toContain('<strong>Agent 配置</strong>'); expect(html).toContain('<strong>模型来源</strong>');
-  expect(html).toContain('打开只读本地配置'); expect(html).not.toContain('<strong>Agent 管理</strong>');
+  expect(html).not.toMatch(/id="model-sources-open"[^>]*data-help=/);
+  expect(html).not.toContain('<strong>Agent 管理</strong>');
   const css = fs.readFileSync(new URL('../../src/ui/web/assets/styles-agent-status.css', import.meta.url), 'utf8');
   expect(css).toContain('var(--bg)'); expect(css).toContain('@media(max-width:600px)'); expect(css).toContain('.agent-config-section');
 });

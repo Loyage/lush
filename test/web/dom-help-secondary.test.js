@@ -55,10 +55,10 @@ test('「打开执行详情」打开只读全屏阅读器，带 data-help 且不
   expect(reader.classList.contains('agent-call')).toBe(false);
 });
 
-test('左栏导航与缓冲输入带帮助，发送明确标识 Agent 代价', async () => {
-  // 左栏导航：title 迁移到 data-help
+test('自解释导航不带帮助，缓冲输入仍明确标识后果与 Agent 代价', async () => {
   const nav = dom.node('side-nav').querySelector('.nav-item');
-  expect(nav.getAttribute('data-help')).toContain('在右侧打开');
+  expect(nav.getAttribute('data-help')).toBeNull();
+  expect(dom.node('view-back').getAttribute('data-help')).toBeNull();
 
   // 草稿：每条的「发送」是 Agent 触发按钮（agent-call + agentHelp 说明）；「移除」与「×」补 data-help
   const { renderDrafts } = await import('../../src/ui/web/assets/render-drafts.js');

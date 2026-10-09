@@ -91,8 +91,8 @@ test('连接页进入只读本地列表，多账号不按服务商合并，资�
   expect(card(p).querySelector('a').href).toBe('#worker-47');
   expect(deepText(p.node)).toContain('不提供静态加密'); expect(deepText(p.node)).toContain('不自动切换模型');
   expect(p.node.querySelectorAll('.agent-call')).toHaveLength(0);
-  const refresh = btn(p.node, '刷新全部资源'); expect(refresh.getAttribute('data-help')).toContain('不调用 Agent');
-  expect(refresh.parentNode.classList.contains('help-host')).toBe(true);
+  const refresh = btn(p.node, '刷新全部资源'); expect(refresh.getAttribute('data-help')).toBeNull();
+  expect(refresh.parentNode.getAttribute('data-help')).toBeNull();
 });
 
 test('消费者使用显式深层编号或项目缓存，保留整数链接和历史回退，不发标签查询', async () => {

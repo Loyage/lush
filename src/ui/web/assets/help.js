@@ -3,7 +3,7 @@
  *
  * 以前按钮的解释分散在原生 `title` 属性里：桌面悬停才看得到、触屏看不到、键盘用户也看不到，
  * 而且会调用 Agent 的按钮（耗时、烧 token）和普通按钮长得一模一样。这里把两件事收在一起：
- * - 任何带 `data-help` 的元素（按钮、菜单项、外层 `span.help-host`）在悬停、键盘聚焦、触屏长按时
+ * - 任何带 `data-help` 的元素（按钮、菜单项、外层 `span.help-host`）在持续悬停、键盘持续聚焦、长按时
  *   显示同一个 `#help-tip`（role="tooltip"），Esc / 滚动 / 点别处隐藏，屏幕阅读器经 `aria-describedby` 读到；
  * - `agentHelp()` 统一给会启动 Agent 的按钮补上代价说明，`button.agent-call` 用紫色 ⚡ 把它们标出来。
  *   直连模型 API 的按钮（如「快速介绍」）用 `modelHelp()`，同样带 `agent-call` 紫色标识以提示这是一次模型调用。
@@ -30,7 +30,8 @@ export function modelHelp(text) {
 }
 
 const TIP_ID = 'help-tip';
-const LONG_PRESS_MS = 500;   // 触屏按住多久算长按
+const HOVER_MS = 1200;      // 有意停留后才解释，掠过与普通点击不打扰
+const LONG_PRESS_MS = 650;   // 鼠标 / 触屏按住多久算长按
 const SUPPRESS_MS = 1500;    // 长按后抑制 click / contextmenu 的有效窗口
 
 // 可注入的计时器：不注入时用宿主 setTimeout / clearTimeout。
@@ -41,8 +42,12 @@ const stopLater = id => (timers?.clearTimeout ?? globalThis.clearTimeout)(id);
 
 let handlers = null;
 let pressTimer = null;
+let delayTimer = null;
+let keyboardInput = false;
+let pressOrigin = null;
 let suppressTimer = null;
 let suppressClick = false;
+let suppressTarget = null;
 let described = null; // { node, previous }：当前挂了 aria-describedby 的目标与它原来的值
 
 const node = id => globalThis.document?.getElementById?.(id) ?? null;
@@ -130,6 +135,7 @@ export function showHelp(target) {
 
 /** 隐藏提示并解除 aria-describedby；导航 / 重渲染前可主动调用。 */
 export function hideHelp() {
+  clearDelay();
   clearPress();
   clearSuppress(); // 提示都收了，再扣着下一次 click 只会误伤后续正常操作。
   const tip = node(TIP_ID);
@@ -143,12 +149,28 @@ export function hideHelp() {
   restoreDescribed();
 }
 
+function clearDelay() {
+  if (delayTimer !== null) { stopLater(delayTimer); delayTimer = null; }
+}
+
+function delayedHelp(target) {
+  clearDelay();
+  delayTimer = later(() => {
+    delayTimer = null;
+    // 重渲染后的旧按钮不能在下一页冒出提示。
+    if (globalThis.document?.body?.contains?.(target) === false || target.isConnected === false) return;
+    showHelp(target);
+  }, HOVER_MS);
+}
+
 function clearPress() {
   if (pressTimer !== null) { stopLater(pressTimer); pressTimer = null; }
+  pressOrigin = null;
 }
 
 function clearSuppress() {
   suppressClick = false;
+  suppressTarget = null;
   if (suppressTimer !== null) { stopLater(suppressTimer); suppressTimer = null; }
 }
 
@@ -156,7 +178,9 @@ function clearSuppress() {
 function onPointerOver(event) {
   if (event?.pointerType === 'touch') return;
   const target = closestHelp(event?.target);
-  if (target) showHelp(target);
+  if (!target || closestHelp(event?.relatedTarget) === target) return;
+  hideHelp();
+  delayedHelp(target);
 }
 function onPointerOut(event) {
   if (event?.pointerType === 'touch') return;
@@ -167,40 +191,61 @@ function onPointerOut(event) {
   hideHelp();
 }
 function onFocusIn(event) {
+  if (!keyboardInput) return; // 点击带来的焦点不应触发说明。
   const target = closestHelp(event?.target);
-  if (target) showHelp(target);
+  if (target) delayedHelp(target);
 }
 function onFocusOut() { hideHelp(); }
-function onTouchStart(event) {
+function onPressStart(event) {
+  keyboardInput = false;
+  hideHelp();
+  if ((event?.button != null && event.button !== 0) || event?.isPrimary === false || event?.touches?.length > 1) return;
   const target = closestHelp(event?.target);
   if (!target) return;
-  clearPress();
-  // 按住约 500ms 就显示提示，并抑制随后由这次触摸触发的 click / 右键菜单，避免误触按钮。
+  pressOrigin = { x: event.clientX, y: event.clientY };
+  // 长按只读帮助，抑制随后 click / 右键菜单，避免误触按钮。
   pressTimer = later(() => {
     pressTimer = null;
+    if (target.isConnected === false) return;
     suppressClick = true;
-    if (suppressTimer !== null) stopLater(suppressTimer);
-    suppressTimer = later(() => { suppressTimer = null; suppressClick = false; }, SUPPRESS_MS);
+    suppressTarget = target;
     showHelp(target);
   }, LONG_PRESS_MS);
 }
-function onTouchEnd() { clearPress(); }
+function onPressMove(event) {
+  if (pressOrigin && Math.hypot(event.clientX - pressOrigin.x, event.clientY - pressOrigin.y) > 10) clearPress();
+}
+function onPressEnd() {
+  clearPress();
+  // 从松手开始计时：即使按住很久也不会误执行按钮。
+  if (suppressClick) {
+    if (suppressTimer !== null) stopLater(suppressTimer);
+    suppressTimer = later(clearSuppress, SUPPRESS_MS);
+  }
+}
+function onPressCancel() { hideHelp(); }
 function onClick(event) {
   // 长按后的第一次 click 只用来「吃掉」这次触摸：不关提示、不触发按钮。
-  if (suppressClick) { clearSuppress(); event?.preventDefault?.(); event?.stopPropagation?.(); return; }
+  if (suppressClick && closestHelp(event?.target) === suppressTarget) { clearSuppress(); event?.preventDefault?.(); event?.stopPropagation?.(); return; }
   hideHelp();
 }
 function onContextMenu(event) {
-  if (suppressClick) { clearSuppress(); event?.preventDefault?.(); event?.stopPropagation?.(); return; }
+  // 某些触屏先发 contextmenu 再发 click；吃菜单不能放行后续按钮点击。
+  if (suppressClick && closestHelp(event?.target) === suppressTarget) { event?.preventDefault?.(); event?.stopPropagation?.(); return; }
   hideHelp();
 }
-function onKeydown(event) { if (event?.key === 'Escape') hideHelp(); }
+function onKeydown(event) {
+  keyboardInput = true;
+  if (event?.key === 'Escape' || event?.key === 'Enter' || event?.key === ' ') hideHelp();
+}
 function onScroll() { hideHelp(); }
 
 const LISTENERS = [
   ['pointerover', onPointerOver], ['pointerout', onPointerOut],
   ['focusin', onFocusIn], ['focusout', onFocusOut],
-  ['touchstart', onTouchStart], ['touchmove', onTouchEnd], ['touchend', onTouchEnd], ['touchcancel', onTouchEnd],
+  ['pointerdown', onPressStart, true], ['pointermove', onPressMove], ['pointerup', onPressEnd], ['pointercancel', onPressCancel],
+  // touch 事件作为兼容路径；现代浏览器同时发两类事件时只重置同一次长按计时。
+  ['touchstart', onPressStart, true], ['touchmove', clearPress], ['touchend', onPressEnd], ['touchcancel', onPressCancel],
   ['scroll', onScroll], ['keydown', onKeydown],
   ['click', onClick, true], ['contextmenu', onContextMenu, true],
 ];
@@ -217,6 +262,8 @@ function destroyHelp() {
     for (const [type, fn, capture] of handlers) removeEventListener(type, fn, Boolean(capture));
     handlers = null;
   }
+  clearDelay();
   clearPress();
   clearSuppress();
+  keyboardInput = false;
 }

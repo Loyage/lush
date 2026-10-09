@@ -29,7 +29,7 @@ export function setViewChrome(title, context = '项目', hint = '', { root = fal
   if (back) {
     back.disabled = Boolean(root);
     back.removeAttribute('title');
-    back.setAttribute('data-help', root ? '已经在项目概览' : '返回上一页面');
+    back.removeAttribute('data-help');
   }
 }
 
