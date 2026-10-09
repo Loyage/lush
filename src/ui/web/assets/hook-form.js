@@ -4,9 +4,10 @@ import { createProfileForm } from './agent-profile-form.js';
 import { STATUS, INTEGRATION } from './format.js';
 import { workerLabel } from './worker-label.js';
 import { browserTimezone, scheduledWallTime, hookSchedule } from './hook-schedule.js';
+import { COMMAND_WARNING, validCommands, commandReferencesIssue } from './shortcut-command-model.js';
+export { COMMAND_WARNING } from './shortcut-command-model.js';
 
 const SCHEDULED = 'time.scheduled';
-export const COMMAND_WARNING = '任意 Shell 命令将在挂载 Worker 的目录中，以 daemon 用户权限执行；这不是沙箱，可读取或修改文件、访问网络及凭证。启用即授权在节点和条件满足时执行，不调用 Agent。未知副作用不自动重放。';
 const profileAction = type => ['create_worker', 'retry_worker', 'resume_worker'].includes(type);
 const targetAction = type => ['message', 'retry_worker', 'resume_worker'].includes(type);
 function field(label, tag = 'input', value = '') {
@@ -75,8 +76,15 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
     const row = { initial: initialAction, node: el('fieldset', undefined, 'hook-action'), profileForm: null, profilePending: false };
     row.node.append(el('legend', `动作 ${rows.length + 1}`));
     row.type = select('动作类型', allowed().map(a => [a.type, a.label]), initialAction.type || (failedSelf ? 'retry_worker' : undefined));
-    row.command = field('Shell 命令', 'textarea', initialAction.command); row.command.input.rows = 5;
-    row.command.input.spellcheck = false; row.command.input.classList.add('hook-command-input');
+    const commands = validCommands(catalogue.commands) ? catalogue.commands.items : [];
+    row.command = select('快捷指令版本', [['', '请选择已注册快捷指令版本'], ...commands.map(item =>
+      [`${item.id}:${item.version}`, `${item.name} · v${item.version} · ${item.authorized ? '已授权' : '未授权／已撤权'}`])],
+    initialAction.command_id ? `${initialAction.command_id}:${initialAction.command_version}` : '');
+    if (initialAction.command_id && !commands.some(item => item.id === initialAction.command_id && item.version === initialAction.command_version)) {
+      const option = el('option', `原引用 v${initialAction.command_version} 已不可用；请明确重选`);
+      option.value = `${initialAction.command_id}:${initialAction.command_version}`; row.command.input.append(option); row.command.input.value = option.value;
+    }
+    row.command.input.onchange = () => paintRow(row);
     row.body = field('消息或告知正文', 'textarea', initialAction.body); row.body.input.rows = 4;
     row.title = field('告知标题', 'input', initialAction.title);
     row.target = field('目标 Worker 内部 ID（仅当前或直接父子）', 'input', failedSelf ? workerId : initialAction.target_id ?? workerId ?? ''); row.target.input.type = 'number'; row.target.input.min = '1';
@@ -126,7 +134,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
     row.configureHost.setAttribute('data-help', row.profilePending ? '运行设置正在读取，请稍后。' : row.profileForm ? '完整运行覆盖已展开，请在下方编辑。' : row.configure.getAttribute('data-help'));
     const description = catalogue.actions?.find(a => a.type === type)?.description || '';
     const preserved = !copying && initial.id && row.initial.type === type;
-    row.note.textContent = type === 'command' ? `${description} ${COMMAND_WARNING}` : type === 'create_worker' ? `${description} ${preserved
+    row.note.textContent = type === 'command' ? `${description} ${COMMAND_WARNING} Hook 仅引用明确版本，不接受 Shell 正文；修改指令即撤权，已有引用不会自动升级。${validCommands(catalogue.commands) ? '' : '快捷指令目录不可用，请更新服务并刷新。'}${Object.hasOwn(row.initial, 'command') ? '旧内联命令不能直接保存，请取消并显式导入。' : ''}` : type === 'create_worker' ? `${description} ${preserved
       ? '未重新设置且动作位置不变时保留模板已保存的私有运行覆盖；不会回读 Prompt/env。'
       : '未单独设置时，挂载时冻结有效项目默认；不回读已有私有运行覆盖。'}`
       : targetAction(type) ? `${description} 目标：${workerLabel(Number(row.target.input.value), Number(row.target.input.value) === row.initial.target_id ? row.initial.target_worker_number : undefined)}。此处填写内部整数 ID，不把 W 编号当作 ID。${type === 'message'
@@ -187,7 +195,12 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
         else if (targetAction(type) && (!Number.isSafeInteger(Number(row.target.input.value)) || Number(row.target.input.value) < 1
           || (failedSelf && Number(row.target.input.value) !== workerId))) message = '请填写有效目标 Worker 内部整数 ID；失败 Worker 只能重试自身。';
         else if (type === 'message' && !row.body.input.value.trim()) message = '请填写消息正文和有效目标 Worker 内部整数 ID。';
-        else if (type === 'command' && !row.command.input.value.trim()) message = '请填写 Shell 命令。';
+        else if (type === 'command') {
+          const command = catalogue.commands?.items?.find(item => `${item.id}:${item.version}` === row.command.input.value);
+          message = Object.hasOwn(row.initial, 'command') ? '旧内联命令须先显式导入快捷指令。'
+            : !command ? '请选择当前已注册的快捷指令版本。'
+              : commandReferencesIssue({ actions: [{ type, command_id: command.id, command_version: command.version }] }, catalogue, !copying && enabled.input.checked) || '';
+        }
         else if (copying && profileAction(type) && !row.profileForm) message = '复制私有运行覆盖动作时，请显式设置新的完整运行参数，不能从安全摘要重建。';
         else if (type === 'create_worker' && !row.content.input.value.trim()) message = '请填写新 Worker 指令。';
         else if (profileAction(type) && initial.id && !row.profileForm && !(row.initial.type === type && row.initial.profile)
@@ -205,7 +218,10 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
         ...(isScheduled() ? { schedule: collectSchedule() } : {}),
         conditions: { statuses: statuses.collect(), integrations: integrations.collect() }, actions: rows.map(row => {
           const type = row.type.input.value;
-          if (type === 'command') return { type, command: row.command.input.value };
+          if (type === 'command') {
+            const command = catalogue.commands?.items?.find(item => `${item.id}:${item.version}` === row.command.input.value);
+            return { type, command_id: command?.id, command_version: command?.version };
+          }
           if (type === 'notify') return { type, title: row.title.input.value, body: row.body.input.value };
           if (type === 'message') return { type, target_id: Number(row.target.input.value), body: row.body.input.value };
           const profile = row.profileForm ? { profile: row.profileForm.collect() } : row.initial.type === type && row.initial.profile ? { profile: row.initial.profile } : {};

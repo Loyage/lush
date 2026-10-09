@@ -484,6 +484,7 @@ export default {
     await Promise.allSettled([...this.introRunning.values()].map(entry => entry.promise));
     await Promise.allSettled([...this.running.values()].map(run => run.promise));
     await this.hookQueue;
+    await Promise.allSettled([...(this.shortcutCommandJobs ?? [])]);
     await this.completionQueue;
     await this.workspaces.queue;
     await usageStopped;

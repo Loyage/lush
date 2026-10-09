@@ -10,7 +10,7 @@ const timestamp = () => new Date().toISOString();
 const FAILURE = 'Shell 命令 Hook 未完成；输出不公开。请检查命令、认证、remote 和现场，未来执行已停用，须显式恢复。';
 const UNKNOWN = '后台中断；Shell 命令可能已生效，禁止自动重放。检查现场后可显式恢复未来触发。';
 
-function admission(project, task) {
+export function commandAdmission(project, task) {
   if (TERMINAL.has(task.status) || !task.branch || ['archived','deleted'].includes(project.store.branch(task.branch)?.status))
     return { stop: '挂载 Worker 已结束、归档或无分支，命令授权停止。' };
   try { assertTaskAncestorsOpen(project, task); } catch { return { stop: '挂载 Worker 的祖先已结束，命令授权停止。' }; }
@@ -29,9 +29,11 @@ export default {
     if (!main || this.store.get("SELECT value FROM meta WHERE key='command_hook_example'")) return;
     this.store.transaction(() => {
       const templates = JSON.parse(this.store.get("SELECT value FROM meta WHERE key='hook_templates'")?.value ?? '{"version":1,"templates":[]}');
+      const commands = this.saveShortcutCommand({ name: 'git push', command: 'git push' }, this.shortcutCommands().revision).commands;
+      const command = commands.items.at(-1);
       const data = read(main), templateId = randomUUID(), hookId = randomUUID();
       const definition = { name: 'main 合并后 git push', trigger: 'worker.merge_received', mode: 'persistent', enabled: false,
-        conditions: {}, actions: [{ type: 'command', command: 'git push' }] };
+        conditions: {}, actions: [{ type: 'command', command_id: command.id, command_version: command.version }] };
       templates.templates.push({ id: templateId, definition });
       data.mounts.push({ ...structuredClone(definition), id: hookId, state: 'idle', created_at: timestamp(), last_execution: null });
       save(this, main.id, data);
@@ -61,7 +63,7 @@ export default {
   submitCommandTaskHook(taskId, hookId, sourceId) {
     this.store.transaction(() => {
       const data = read(this.store.task(taskId)), mount = data.mounts.find(m => m.id === hookId);
-      if (!mount?.enabled || ['failed','unknown'].includes(mount.state) || sourceId <= (mount.command_last_source ?? 0)) return;
+      if (!mount?.enabled || this.shortcutHookIssue(mount) || ['failed','unknown'].includes(mount.state) || sourceId <= (mount.command_last_source ?? 0)) return;
       if (mount.mode === 'once' && (mount.command_pending > 0 || mount.state === 'succeeded')) return;
       this.store.event(taskId, 'hook.command_submitted', { hook_id: hookId, trigger: mount.trigger, source_id: sourceId });
       mount.command_last_source = sourceId; mount.command_pending = (mount.command_pending ?? 0) + 1;
@@ -74,8 +76,8 @@ export default {
   queueCommandTaskHook(taskId, hookId) {
     if (this.stopping || this.recoveringHooks) return;
     const task = this.store.task(taskId), mount = read(task).mounts.find(m => m.id === hookId);
-    if (!mount?.enabled || !mount.command_pending || ['failed','unknown'].includes(mount.state)) return;
-    const gate = admission(this, task);
+    if (!mount?.enabled || !mount.command_pending || this.shortcutHookIssue(mount) || ['failed','unknown'].includes(mount.state)) return;
+    const gate = commandAdmission(this, task);
     if (gate.wait) {
       if (mount.reason !== gate.wait) { const data = read(task); data.mounts.find(m => m.id === hookId).reason = gate.wait; save(this, taskId, data); }
       return;
@@ -92,7 +94,7 @@ export default {
     let count = 0;
     while (!this.stopping) {
       const task = this.store.task(taskId), data = read(task), mount = data.mounts.find(m => m.id === hookId);
-      if (!mount?.enabled || !mount.command_pending || ['failed','unknown'].includes(mount.state)) return;
+      if (!mount?.enabled || !mount.command_pending || this.shortcutHookIssue(mount) || ['failed','unknown'].includes(mount.state)) return;
       const next = this.store.get(`SELECT id FROM events WHERE task_id=? AND type='hook.command_submitted'
         AND json_extract(data,'$.hook_id')=? AND id>? ORDER BY id LIMIT 1`, taskId, hookId, mount.command_cursor ?? 0);
       if (!next) return;
@@ -106,13 +108,18 @@ export default {
         await this.write('execute a command Hook', async () => {
           for (let index = 0; ; index++) {
             const current = this.store.task(taskId), state = read(current), active = state.mounts.find(m => m.id === hookId);
-            if (!active?.enabled || active.last_execution?.id !== executionId) { waiting = true; return; }
+            if (!active || active.last_execution?.id !== executionId) { waiting = true; return; }
             const action = active.actions[index]; if (!action) break;
+            if (!active.enabled) {
+              if (active.state === 'running') check(false, 'shortcut command authorization stopped');
+              waiting = true; return;
+            }
             if (active.receipts.some(r => r.index === index)) continue;
             const guard = () => {
               const live = this.store.task(taskId), snapshot = read(live), rule = snapshot.mounts.find(m => m.id === hookId);
               if (!rule?.enabled || rule.last_execution?.id !== executionId) return false;
-              const gate = admission(this, live);
+              this.validateShortcutHook(rule);
+              const gate = commandAdmission(this, live);
               check(!gate.stop, 'mounted Worker no longer available');
               if (gate.wait) {
                 rule.state = 'waiting'; rule.reason = gate.wait; rule.last_execution.status = 'waiting';
@@ -129,11 +136,18 @@ export default {
             };
             let outcome = {};
             if (action.type === 'command') {
-              let result;
+              let result, started = false;
+              const shortcutExecutionId = randomUUID();
               try {
-                result = await this.workspaces.runHookCommand(current, action.command, guard, { ...this.commandHookOptions, started: () => {
-                  begin(); (this.commandHookRunning ??= new Set()).add(taskId);
+                const command = this.resolveShortcutCommand(action);
+                result = await this.workspaces.runHookCommand(current, command.command, guard, { ...this.commandHookOptions, started: () => {
+                  this.store.transaction(() => { begin(); this.startShortcutExecution(action.command_id, action.command_version, taskId, shortcutExecutionId); });
+                  started = true; (this.commandHookRunning ??= new Set()).add(taskId);
                 } });
+                if (started) this.finishShortcutExecution(action.command_id, shortcutExecutionId, taskId, result.status, result);
+              } catch (error) {
+                if (started) this.finishShortcutExecution(action.command_id, shortcutExecutionId, taskId, 'unknown');
+                throw error;
               } finally { this.commandHookRunning?.delete(taskId); this.kick(); }
               if (result.status === 'waiting') { waiting = true; return; }
               outcome = { command_result: result };

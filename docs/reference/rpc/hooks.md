@@ -6,7 +6,12 @@
 
 | RPC | 参数 | CLI（加 `bun run lush` 前缀） |
 |---|---|---|
-| `hooks.list` | `{}` | `hooks list` |
+| `hooks.list` | `{}` | `hooks list` / `hooks command list` |
+| `hooks.command_save` | `{command,expected_revision}` | `hooks command save --file PATH --revision REV` |
+| `hooks.command_authorize` | `{id,version,authorized,expected_revision}` | `hooks command authorize\|revoke ID --version N --revision REV` |
+| `hooks.command_remove` | `{id,expected_revision}` | `hooks command remove ID --revision REV` |
+| `hooks.command_run` | `{id,version,worker_id,expected_revision}` | `hooks command run ID --version N --worker ID --revision REV` |
+| `hooks.command_import` | `{source,expected_revision}` | `hooks command import --file PATH --revision REV` |
 | `hooks.auto_select` | `{enabled,expected_revision}` | `hooks auto-select on\|off --revision REV` |
 | `hooks.completion_defaults` | `{enabled,level,expected_revision}` | 在自动化页面保存 |
 | `hooks.save` | `{template,expected_revision}` | `hooks save --file PATH --revision REV` |
@@ -23,7 +28,7 @@
 
 读取 HTTP：`GET /api/hooks`、`GET /api/worker/ID/hooks`，不接受查询参数。写入通过已登录、同源的 `POST /api/action {method,params}`，不是通用 RPC 代理。
 
-目录返回 `{version:1,revision,triggers,actions,templates,daemon_hooks,completion_defaults,signals,management_workers,command_example}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,completion,can_attach,mounts}`。CLI 的 Worker 参数接受内部整数或 `Wn(-n)*`，先经 `worker.lookup` 解析；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
+目录返回 `{version:1,revision,triggers,actions,templates,commands,daemon_hooks,completion_defaults,signals,management_workers,command_example}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,completion,can_attach,mounts}`。CLI 的 Worker 参数接受内部整数或 `Wn(-n)*`，先经 `worker.lookup` 解析；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
 
 `revision` 是不透明字符串，必须先读并随写请求携带；过期返回错误，不覆盖并发修改。模板 `id` 与挂载 `hook_id` 是不同身份。
 
@@ -31,11 +36,21 @@
 
 挂载含 `trigger`、`mode`、`enabled`、`conditions`、安全动作摘要、`state`、`last_execution`、`editable` 与 `removable`。`removable` 与可启用状态不同：结束的 Worker 可移除未来授权，不能重新启用。`auto-merge`、`auto-accept`、`auto-archive` 是不可移除的内置挂载，通过一份最高级别授权配置；旧 `worker.auto_merge` 开关保留原准入。
 
+## 快捷指令授权
+
+`commands:{version:1,revision,items}` 为当前项目 Shell 指令目录，每项含 `{id,name,command,version,authorized,last_execution}`。保存 `command:{id?,name,command}`，不得附带 authorized、version、运行目录或参数；新增未授权，修改名称或内容递增版本并撤权。指令 id 是 UUID，version 必须是正整数 JSON 数字；授权/撤权必须显式给布尔 authorized 和当前版本。保存、授权、删除和执行使用 **commands.revision**，前者返回完整 Hooks 目录。
+
+手动 `hooks.command_run` 使用 Worker 内部整数 worker_id，CLI `--worker` 可解析 W 编号。执行仅允许当前已授权版本，复用真实工作目录、Git 串行和生命周期门禁，受阻拒绝、不隐式排队重试；返回 `{execution_id,command_result,commands}`，不公开命令原始输出。不是沙箱、不调用 Agent，Shell 具有 daemon 系统用户权限。
+
+Hook 只引用 `{type:'command',command_id:'UUID',command_version:1}`，启用、触发和执行前复核授权版本。旧内联 Shell 不再执行；显式 `hooks.command_import` 的 source 只能是 `{worker_id,hook_id}` 或 `{template_id}`，使用源 Worker Hooks / 模板目录 revision。导入新建未授权指令、替换源引用并停用规则，保留历史、不重放旧触发；返回完整目录及 imported_command_ids、可选 worker_hooks。CLI import 文件的 worker_id 可用 W 编号，其余 Hook/模板身份不改写。
+
+修改、撤权和删除均不会默默将所有 Hook 改绑新版本，不承诺撤回已经开始的副作用；未知结果禁止重放。完整安全契约见[快捷指令与 Hook](../../engineering/shortcut-commands.md)。
+
 ## 通用命令与 main 示例
 
 `command_example` 为 `{template_id,worker_id,hook_id,hooks}`，无 main 为 null。示例首次初始化为默认关闭的持续模板与 main 挂载；读取不安装，被用户删除不重装。项目页面启停示例时使用 **command_example.hooks.revision**，不是模板 revision。
 
-定义使用 `trigger:'worker.merge_received'`（父 Worker 收到成功合并）和 `actions:[{type:'command',command:'git push'}]`；动作支持节点以目录为准。Hook 不配置 remote/upstream/认证，命令业务语义由用户自己决定。Shell 在挂载目录以 daemon 系统用户权限执行，不是沙箱，不调用 Agent；启用前需明确授权，不自动重放失败或未知副作用。
+定义使用 `trigger:'worker.merge_received'`（父 Worker 收到成功合并）和 `actions:[{type:'command',command_id:'UUID',command_version:1}]`；动作支持节点以目录为准。新项目先注册未授权的 `git push` 快捷指令，再由示例引用；旧项目示例需要显式导入及重新授权。Hook 不配置 remote/upstream/认证，命令业务语义由用户自己决定。Shell 在挂载目录以 daemon 系统用户权限执行，不是沙箱，不调用 Agent；启用前需明确授权，不自动重放失败或未知副作用。
 
 完整编辑使用 `worker.hook_update {id,hook_id,hook:{name,trigger,mode,enabled,conditions?,actions,schedule?},expected_revision}`；不得同时提供 enabled。保留挂载 id，同位置省略 profile 保留已存私有覆盖。创建副本用新模板/挂载定义且 enabled=false，不携带原挂载状态或执行记录。示例用户流程见[自动化示例](../../hooks.md#示例main-合并后自动推送)。
 

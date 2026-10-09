@@ -11,9 +11,58 @@ function hookId(value, label = 'Hook id') {
   return value;
 }
 
+function commandId(value) {
+  check(typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value), 'invalid command id');
+  return value;
+}
+function commandVersion(value) {
+  check(Number.isSafeInteger(value) && value > 0, 'version must be a positive integer');
+  return value;
+}
+function commandDefinition(value) {
+  check(isPlainObject(value), 'command must be an object');
+  check(Object.keys(value).every(key => ['id','name','command'].includes(key)), 'unknown command parameter');
+  if (value.id !== undefined) commandId(value.id);
+  text(value.name, 'command name');
+  check(value.name.length <= 120, 'command name exceeds its size limit');
+  text(value.command, 'Shell command');
+  check(value.command.length <= 16000 && !value.command.includes('\0'), 'invalid Shell command');
+  return value;
+}
+function commandImportSource(value) {
+  check(isPlainObject(value), 'source must be an object');
+  if (Object.hasOwn(value, 'template_id')) {
+    check(Object.keys(value).length === 1, 'source requires either template_id or worker_id and hook_id');
+    return { template_id: hookId(value.template_id) };
+  }
+  check(Object.keys(value).length === 2 && Object.keys(value).every(key => ['worker_id','hook_id'].includes(key)),
+    'source requires either template_id or worker_id and hook_id');
+  return { worker_id: id(value.worker_id), hook_id: hookId(value.hook_id) };
+}
+
 /** User-only Hook configuration; the runtime owns definition validation and execution. */
 export const handlers = {
   'hooks.list'(p) { return p.hooksList(); },
+  'hooks.command_save'(p, params) {
+    const expected = revision(params.expected_revision);
+    return p.saveShortcutCommand(commandDefinition(params.command), expected);
+  },
+  'hooks.command_authorize'(p, params) {
+    const expected = revision(params.expected_revision);
+    check(typeof params.authorized === 'boolean', 'authorized must be a boolean');
+    return p.authorizeShortcutCommand(commandId(params.id), commandVersion(params.version), params.authorized, expected);
+  },
+  'hooks.command_remove'(p, params) {
+    return p.removeShortcutCommand(commandId(params.id), revision(params.expected_revision));
+  },
+  'hooks.command_run'(p, params) {
+    const expected = revision(params.expected_revision);
+    return p.runShortcutCommand(commandId(params.id), commandVersion(params.version), id(params.worker_id), expected);
+  },
+  'hooks.command_import'(p, params) {
+    const expected = revision(params.expected_revision);
+    return p.importLegacyHookCommands(commandImportSource(params.source), expected);
+  },
   'hooks.auto_select'(p, params) {
     const expected = revision(params.expected_revision);
     check(typeof params.enabled === 'boolean', 'enabled must be a boolean');

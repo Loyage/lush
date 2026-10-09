@@ -63,6 +63,8 @@ Worker 身份参数（含 `spawn --parent`、`notice post --worker`）接受原�
 
 `rpc/handlers/hooks.js` 同时承载用户专属时间信号／管理配置与 Agent-only 的 `manager.query/start/retry`；专用方法只转发经 token 核验的 Actor，Project 再检查管理能力。`manager.*` 不进入 Web 动作白名单，接口回归在 `test/management-api.test.js` 与 `test/web/management-api.test.js`，契约见[时间信号与管理](hook-signals-management.md)。
 
+快捷指令新增用户专属 `hooks.command_save/command_authorize/command_remove/command_run/command_import`，Project 签名与授权版本、旧配置边界以[快捷指令契约](shortcut-commands.md)为准；registry/handlers/hooks 负责严格顶层与嵌套白名单、UUID 指令身份、正整数版本与 revision，Web server 仅加入 POST action 白名单。CLI commands/hooks 内部新增 `hooks command list/save/authorize/revoke/remove/run/import` 分派，复用私有文件与 Worker 编号解析，不新增导出或立即执行管理 Agent 入口。回归为 `test/shortcut-command-api.test.js`、`test/web/shortcut-command-api.test.js`，原 hooks-api 矩阵同时覆盖新增方法和引用定义。
+
 Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 接缝](hooks.md) 为准：`hooks.list/save/remove`、`worker.hooks/hook_attach/hook_update/hook_remove`，只读 GET `/api/hooks` 与 `/api/worker/ID/hooks`；`worker.hook_update` 的完整 `hook` 编辑与 `enabled` 互斥，旧启停签名兼容，命令示例和执行授权见[命令增补](hooks.md#通用命令与-main-推送示例w133--用户决定-319)；`order.submit` 显式 `defer:boolean` 才可转为预约。追加用户专属 `worker.completion` 与 CLI `worker completion`，最高级别、revision 与方法映射见[自动链接缝](completion-hooks.md)。
 
 ## 开发与构建脚本：`scripts/`

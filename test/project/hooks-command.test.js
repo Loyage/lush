@@ -9,7 +9,18 @@ import { executeCommand, commandEnvironment } from '../../src/core/workspaces/co
 setDefaultTimeout(20000);
 const rule = (command = 'true', extra = {}) => ({ name: 'command', trigger: 'worker.merge_received', mode: 'persistent', enabled: true,
   actions: [{ type: 'command', command }], ...extra });
-const attach = (f, task, hook) => f.project.attachTaskHook(task.id, hook, f.project.taskHooks(task.id).revision).mounts.at(-1);
+const authorize = (f, command) => {
+  const item = f.project.saveShortcutCommand({ name: 'test command', command }, f.project.shortcutCommands().revision).commands.items.at(-1);
+  f.project.authorizeShortcutCommand(item.id, item.version, true, f.project.shortcutCommands().revision);
+  return { type: 'command', command_id: item.id, command_version: item.version };
+};
+const registered = (f, hook) => hook.actions ? { ...hook, actions: hook.actions.map(action => action.type === 'command' && action.command !== undefined
+  ? authorize(f, action.command) : action) } : hook;
+const authorizeExample = f => {
+  const action = f.project.hooksList().command_example.hooks.mounts.at(-1).actions[0];
+  f.project.authorizeShortcutCommand(action.command_id, action.command_version, true, f.project.shortcutCommands().revision);
+};
+const attach = (f, task, hook) => f.project.attachTaskHook(task.id, registered(f, hook), f.project.taskHooks(task.id).revision).mounts.at(-1);
 const view = (f, task, hook) => f.project.taskHooks(task.id).mounts.find(m => m.id === hook.id);
 const emit = (f, task, source = null, trigger = 'worker.merge_received') => {
   const id = source ?? f.store.event(task.id, 'test.merge', {});
@@ -31,16 +42,16 @@ async function deliver(f, name) {
   return task;
 }
 
-test('command action validates explicit Shell text, modes and fields without accepting executable config', () => {
-  expect(normalizeHook(rule('git push')).actions).toEqual([{ type: 'command', command: 'git push' }]);
-  expect(normalizeHook(rule('true', { mode: 'once' })).mode).toBe('once');
-  expect(() => normalizeHook(rule('', {}))).toThrow();
-  expect(() => normalizeHook(rule('a\0b'))).toThrow('invalid hook command');
-  expect(() => normalizeHook(rule('a'.repeat(16001)))).toThrow('invalid hook command');
-  expect(() => normalizeHook(rule('true', { actions: [{ type: 'command', command: 'true', cwd: '/' }] }))).toThrow('fields');
-  expect(() => normalizeHook(rule('true', { trigger: 'time.scheduled', schedule: { kind: 'daily', time: '00:00', timezone: 'UTC' } }))).toThrow('not allowed');
-  for (const trigger of ['agent.failed','worker.accepted','worker.cancelled'])
-    expect(() => normalizeHook(rule('true', { trigger }))).toThrow('not allowed');
+test('command actions validate exact references, modes and fields and reject inline Shell', () => {
+  const action = { type: 'command', command_id: '12345678-1234-1234-1234-123456789abc', command_version: 1 };
+  const hook = extra => rule('', { actions: [action], ...extra });
+  expect(normalizeHook(hook()).actions).toEqual([action]);
+  expect(normalizeHook(hook({ mode: 'once' })).mode).toBe('once');
+  for (const command of ['', 'git push', 'a\0b', 'a'.repeat(16001)]) expect(() => normalizeHook(rule(command))).toThrow('fields');
+  for (const command_version of [0, -1, '1', 1.5]) expect(() => normalizeHook(hook({ actions: [{ ...action, command_version }] }))).toThrow('reference');
+  expect(() => normalizeHook(hook({ actions: [{ ...action, cwd: '/' }] }))).toThrow('fields');
+  expect(() => normalizeHook(hook({ trigger: 'time.scheduled', schedule: { kind: 'daily', time: '00:00', timezone: 'UTC' } }))).toThrow('not allowed');
+  for (const trigger of ['agent.failed','worker.accepted','worker.cancelled']) expect(() => normalizeHook(hook({ trigger }))).toThrow('not allowed');
 });
 
 test('startup installs exactly one disabled persistent template/main mount; reads and deletion never reinstall', async () => {
@@ -53,7 +64,8 @@ test('startup installs exactly one disabled persistent template/main mount; read
     const initial = f.project.hooksList(), example = initial.command_example;
     expect(example.worker_id).toBe(main.id);
     expect(example.hooks.mounts.find(m => m.id === example.hook_id)).toMatchObject({ enabled: false, mode: 'persistent',
-      actions: [{ type: 'command', command: 'git push' }], trigger: 'worker.merge_received' });
+      actions: [{ type: 'command', command_id: initial.commands.items[0].id, command_version: 1 }], trigger: 'worker.merge_received' });
+    expect(initial.commands.items[0]).toMatchObject({ name: 'git push', command: 'git push', authorized: false });
     expect(initial.templates.find(t => t.id === example.template_id)).toMatchObject({ enabled: false, mode: 'persistent' });
     await f.project.bootstrapMain(); expect(f.project.hooksList().revision).toBe(initial.revision);
     const history = f.store.history(main.id).length;
@@ -75,6 +87,7 @@ test('a real successful queue landing triggers git push to a temporary bare remo
     await git(f.root, 'init', '--bare', remote); await git(f.root, 'remote', 'add', 'origin', remote);
     await git(f.root, 'push', '-u', 'origin', 'main');
     const example = f.project.hooksList().command_example;
+    authorizeExample(f);
     await f.project.updateTaskHook(f.main.id, example.hook_id, true, example.hooks.revision);
     const first = await deliver(f, 'first');
     const firstTip = await git(f.root, 'rev-parse', 'main');
@@ -125,7 +138,7 @@ test('failure hides raw stdout/stderr, stops future automatic execution and expl
     emit(f, f.main); await f.project.hookQueue;
     expect(f.store.history(f.main.id).filter(e => e.type === 'hook.command_submitted')).toHaveLength(submissions);
     await f.project.updateTaskHook(f.main.id, hook.id, undefined, f.project.taskHooks(f.main.id).revision,
-      rule('printf recovered >> .lush/recovered'));
+      registered(f, rule('printf recovered >> .lush/recovered')));
     emit(f, f.main, first); await f.project.hookQueue;
     expect(fs.existsSync(path.join(f.config.home, 'recovered'))).toBe(false);
     emit(f, f.main); await f.project.hookQueue;
@@ -138,6 +151,7 @@ test('git push without a remote fails visibly and never installs or changes remo
   const f = await setup();
   try {
     const hook = f.project.hooksList().command_example;
+    authorizeExample(f);
     await f.project.updateTaskHook(f.main.id, hook.hook_id, true, hook.hooks.revision);
     await deliver(f, 'no-remote');
     expect(view(f, f.main, { id: hook.hook_id })).toMatchObject({ state: 'failed', enabled: false });
@@ -341,12 +355,12 @@ test('a successful landing during shutdown atomically retains its unstarted comm
 test('full editing preserves mount identity/private profile; template edits and copied mounts stay isolated', async () => {
   const f = await setup();
   try {
-    const saved = f.project.saveHookTemplate(rule('echo original'), f.project.hooksList().revision);
+    const saved = f.project.saveHookTemplate(registered(f, rule('echo original')), f.project.hooksList().revision);
     const template = saved.templates.at(-1), one = attach(f, f.main, { template_id: template.id }), two = attach(f, f.main, { template_id: template.id });
-    f.project.saveHookTemplate({ id: template.id, ...rule('echo template-edited') }, saved.revision);
-    await f.project.updateTaskHook(f.main.id, one.id, undefined, f.project.taskHooks(f.main.id).revision, rule('echo instance-edited', { enabled: false }));
-    expect(view(f, f.main, one).actions[0].command).toBe('echo instance-edited');
-    expect(view(f, f.main, two).actions[0].command).toBe('echo original');
+    f.project.saveHookTemplate({ id: template.id, ...registered(f, rule('echo template-edited')) }, saved.revision);
+    await f.project.updateTaskHook(f.main.id, one.id, undefined, f.project.taskHooks(f.main.id).revision, registered(f, rule('echo instance-edited', { enabled: false })));
+    expect(f.project.resolveShortcutCommand(view(f, f.main, one).actions[0]).command).toBe('echo instance-edited');
+    expect(f.project.resolveShortcutCommand(view(f, f.main, two).actions[0]).command).toBe('echo original');
     expect(view(f, f.main, one).id).toBe(one.id);
     await expect(f.project.updateTaskHook(f.main.id, one.id, true, f.project.taskHooks(f.main.id).revision, rule())).rejects.toThrow('not both');
     await expect(f.project.updateTaskHook(f.main.id, one.id, undefined, 'stale', rule())).rejects.toThrow('revision changed');

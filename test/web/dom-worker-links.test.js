@@ -106,7 +106,7 @@ test('Worker detail links Hook message targets but leaves Shell command literals
       ] } }, { events: [] }, null, null);
     const previews = dom.node('detail').querySelectorAll('.hook-action-preview');
     expect(previews).toHaveLength(2);
-    expect(text(previews[0])).toBe(`执行 Shell 命令：\n${command}`);
+    expect(text(previews[0])).toBe(`旧内联命令（已停止直接执行，需显式导入）：\n${command}`);
     expect(links(previews[0])).toHaveLength(0);
     expect(links(previews[1]).map(node => node.textContent)).toEqual(['W141', 'W141-1']);
     expect(links(dom.node('detail').querySelector('.goal-text')).map(node => node.textContent)).toEqual(['W141']);

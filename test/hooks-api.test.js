@@ -12,8 +12,15 @@ import { HELP } from '../src/cli/help.js';
 const definition = { name: '结束后提醒', trigger: 'agent.returned', mode: 'once', enabled: true,
   actions: [{ type: 'notify', title: '结束', body: '检查结果' }] };
 const revision = 'opaque-revision:a1';
+const commandId = 'ee2f98f1-fc9a-46b1-a37c-67d8595c0649';
+const shortcut = { name: 'push', command: 'git push' };
 const cases = [
   ['hooks.list', [], {}, 'hooksList', []],
+  ['hooks.command_save', ['command','expected_revision'], { command: shortcut, expected_revision: revision }, 'saveShortcutCommand', [shortcut, revision]],
+  ['hooks.command_authorize', ['id','version','authorized','expected_revision'], { id: commandId, version: 2, authorized: true, expected_revision: revision }, 'authorizeShortcutCommand', [commandId, 2, true, revision]],
+  ['hooks.command_remove', ['id','expected_revision'], { id: commandId, expected_revision: revision }, 'removeShortcutCommand', [commandId, revision]],
+  ['hooks.command_run', ['id','version','worker_id','expected_revision'], { id: commandId, version: 2, worker_id: 7, expected_revision: revision }, 'runShortcutCommand', [commandId, 2, 7, revision]],
+  ['hooks.command_import', ['source','expected_revision'], { source: { worker_id: 7, hook_id: 'old-hook' }, expected_revision: revision }, 'importLegacyHookCommands', [{ worker_id: 7, hook_id: 'old-hook' }, revision]],
   ['hooks.auto_select', ['enabled','expected_revision'], { enabled: true, expected_revision: revision }, 'setDaemonAutoSelect', [true, revision]],
   ['hooks.completion_defaults', ['enabled','level','expected_revision'], { enabled: true, level: 'archive', expected_revision: revision }, 'setCompletionDefaults', [true, 'archive', revision]],
   ['hooks.save', ['template','expected_revision'], { template: definition, expected_revision: revision }, 'saveHookTemplate', [definition, revision]],
@@ -80,7 +87,7 @@ test('Hook handler rejects non-object definitions, invalid IDs and non-boolean e
 
 test('full command Hook editing is user-only, revisioned and exclusive with enable', async () => {
   const command = { name: 'main push', trigger: 'worker.merge_received', mode: 'persistent', enabled: false,
-    actions: [{ type: 'command', command: 'git push' }] };
+    actions: [{ type: 'command', command_id: commandId, command_version: 2 }] };
   const calls = [], view = { version: 1, worker_id: 7, revision: 'next', mounts: [] };
   const project = { actor: token => token ? 8 : null, updateTaskHook(...args) { calls.push(args); return view; } };
   const dispatcher = new Dispatcher(project), params = { id: 7, hook_id: 'hook-1', hook: command, expected_revision: revision };

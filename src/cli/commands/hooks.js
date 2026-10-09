@@ -15,9 +15,10 @@ export async function run(command, args, { client }) {
   check(!client.token, 'Hooks configuration is user only, not an agent operation');
   const verb = args.shift();
   if (verb === 'list') { exact(args, 0); return client.request('hooks.list'); }
+  if (verb === 'command') return runCommand(args, client);
   if (verb === 'signal') return runSignal(args, client);
   if (verb === 'management') return runManagement(args, client);
-  check(['save','remove','auto-select'].includes(verb), 'hooks requires list|save|remove|auto-select|signal|management; run lush help');
+  check(['save','remove','auto-select'].includes(verb), 'hooks requires list|save|remove|auto-select|command|signal|management; run lush help');
   const expected_revision = readRevision(args);
   if (verb === 'auto-select') {
     exact(args, 1);
@@ -31,6 +32,39 @@ export async function run(command, args, { client }) {
   }
   exact(args, 1);
   return client.request('hooks.remove', { id: args[0], expected_revision });
+}
+
+async function runCommand(args, client) {
+  const verb = args.shift();
+  check(['list','save','authorize','revoke','remove','run','import'].includes(verb),
+    'hooks command requires list|save|authorize|revoke|remove|run|import; run lush help');
+  if (verb === 'list') { exact(args, 0); return client.request('hooks.list'); }
+  const expected_revision = readRevision(args);
+  if (verb === 'save' || verb === 'import') {
+    const file = option(args, '--file'); exact(args, 0);
+    check(file, `hooks command ${verb} requires --file PATH`);
+    const value = readPrivateJson(file, 'shortcut command');
+    const keys = verb === 'save' ? ['id','name','command'] : ['template_id','worker_id','hook_id'];
+    check(Object.keys(value).every(key => keys.includes(key)), 'unknown shortcut command parameter');
+    if (verb === 'import' && Object.hasOwn(value, 'worker_id')) {
+      check(!Object.hasOwn(value, 'template_id') && Object.hasOwn(value, 'hook_id'), 'invalid import source');
+      value.worker_id = await resolveWorkerId(client, value.worker_id);
+    }
+    return client.request(`hooks.command_${verb}`, { [verb === 'save' ? 'command' : 'source']: value, expected_revision });
+  }
+  const rawVersion = verb === 'remove' ? null : option(args, '--version');
+  const worker = verb === 'run' ? option(args, '--worker') : null;
+  exact(args, 1);
+  check(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(args[0]), 'invalid command id');
+  if (verb === 'remove') return client.request('hooks.command_remove', { id: args[0], expected_revision });
+  check(typeof rawVersion === 'string' && /^[1-9]\d*$/.test(rawVersion)
+    && Number.isSafeInteger(Number(rawVersion)), 'provide --version N as a positive integer');
+  const version = Number(rawVersion);
+  if (verb === 'run') {
+    check(worker !== null, 'hooks command run requires --worker ID');
+    return client.request('hooks.command_run', { id: args[0], version, worker_id: await resolveWorkerId(client, worker), expected_revision });
+  }
+  return client.request('hooks.command_authorize', { id: args[0], version, authorized: verb === 'authorize', expected_revision });
 }
 
 async function runSignal(args, client) {

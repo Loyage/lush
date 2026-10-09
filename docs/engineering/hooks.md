@@ -2,9 +2,13 @@
 
 本文记录用户决定 #197 对应的首期实现接口与模块边界；设计目标见[Worker Hooks](../design/hooks.md)，使用流程见[Hooks 与预约发射](../hooks.md)。用户决定 #202 的追加实现以[合并—验收—归档自动链](completion-hooks.md)为准，覆盖最高级别、串行门禁与成功静默告知。触发目录不是测试证明，验证入口和实际验收限制见末节。
 
+## 快捷指令授权（W151 / 决定 #363）
+
+当前命令动作只接受 `{type:'command',command_id,command_version}`，引用项目快捷指令的明确授权版本。注册、授权、手动执行、版本失效及旧内联显式导入以[快捷指令与 Hook 契约](shortcut-commands.md)为准，覆盖下文旧直接 Shell 定义；其他受控动作不变。旧内联只保留展示和历史，不能执行或启用。自动化小标题为「快捷指令和 Hook」。
+
 ## 通用命令与 main 推送示例（W133 / 用户决定 #319）
 
-用户选择通用命令而非专用推送动作。新增 `worker.merge_received` 父侧节点，区别于源 Worker 的 `delivery.integrated`；命令动作 `{type:'command',command:'git push'}` 支持一次性/持续，不调用 Agent。允许的生命周期触发点以动作目录为准，本期不开放 `time.scheduled` 命令。remote、跟踪分支与认证只由用户自己的命令和 Git 配置决定。
+用户选择通用命令而非专用推送动作。新增 `worker.merge_received` 父侧节点，区别于源 Worker 的 `delivery.integrated`；命令动作引用已注册并明确授权的快捷指令版本，支持一次性/持续，不调用 Agent。允许的生命周期触发点以动作目录为准，本期不开放 `time.scheduled` 命令。remote、跟踪分支与认证只由用户自己的命令和 Git 配置决定。
 
 初始化一次性保存默认关闭的持续示例模板及 main 挂载，读取不安装，用户删除后不重装。`hooks.list` 新增 `command_example:{template_id,worker_id,hook_id,hooks}`；无 main 返回 null。hooks 为 main 同源安全读面，项目页面与 main 管理区修改同一挂载、使用它的 revision。模板和实例编辑继续分离。
 
@@ -74,7 +78,7 @@
 ```
 
 `mode` 是 `once|persistent`；条件只允许现有 Worker 状态和 integration 枚举，无脚本。动作：
-- `command`：`{type,command}`，用户显式授权 Shell 执行，一次性/持续，真实目录和安全边界见上节；不调用 Agent。
+- `command`：`{type,command_id,command_version}`，用户在快捷指令目录显式授权具体版本；Hook 仅引用，不允许内联 Shell，一次性/持续，真实目录和安全边界见上节；不调用 Agent。
 - `request_merge`：只在 `worker.delivery_ready`，通过现有请求及父自有队列。
 - `create_worker`：只在 `worker.parent_ready`，只允许 `once`；所挂载的 Worker 就是父，不允许动作改投任意分支。保存完整有效 profile，不保存凭证快照。
 - `notify`：`{type,title,body}`，纯 `info` 告知，不创建待决、不唤醒 Agent。

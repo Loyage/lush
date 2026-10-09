@@ -56,6 +56,10 @@
 
 用户决定 #197：以 Worker 挂载 Hook 统一预约和自动合并；项目模板集中在独立「自动化」页面（沿用 `#hooks`），首个可创建安全边界执行预约发射，自定义仅组合受控动作。[设计理念](../design/hooks.md)与[工程接口/并行职责](hooks.md)是本次实施权威接缝。Runtime、接口和前端分别遵循该契约；现有 auto_merge / reservation 保持兼容，不新增核心实体或 Host 调度。
 
+### 快捷指令与 Hook（W151 / 决定 #363）
+
+项目级 Shell 快捷指令独立注册、授权与手动执行，Hook 仅引用明确授权版本。修改即撤权，旧内联 Shell 停止直执行且需显式导入，git push 先注册后引用。接口、分区与旧配置边界以[快捷指令授权契约](shortcut-commands.md)为准，覆盖下节旧直接命令定义；其他受控动作与自动链保持原义。Runtime、Web、接口独立开发，父负责组合验证。
+
 ### 通用命令 Hook 与 main 推送示例（W133 / 决定 #319）
 
 用户明确选择通用命令而非专用推送动作，示例仅执行 `git push`，remote/认证由用户命令和 Git 配置决定。新增节点 `worker.merge_received`（成功合入所挂载父 Worker），动作 `command`（`{type,command}`，不调用 Agent）。默认关闭的持续示例在项目初始化时一次性保存为模板与 main 挂载；读取不安装，删除/停用后不自动重装。`hooks.list` 增加 `command_example:{template_id,worker_id,hook_id,hooks}`（无 main 时 null；已删除身份保留用于说明）。Worker 更新增加可选完整 `hook`，与 `enabled` 互斥：`updateTaskHook(id,hookId,enabled,expectedRevision,hook=null)`，保持原启停签名兼容。编辑保留原挂载身份，模板编辑不改变实例；复制产生新的停用配置。

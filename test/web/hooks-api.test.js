@@ -14,12 +14,14 @@ const daemonRevision = 'daemon-hooks-revision';
 const projectView = { version: 1, revision, triggers: [], actions: [], templates: [],
   daemon_hooks: { version: 1, revision: daemonRevision, mounts: [{ id: 'auto-select', enabled: false }] } };
 const workerView = { version: 1, worker_id: 7, revision, mounts: [] };
-const targets = ['hooksList','saveHookTemplate','removeHookTemplate','taskHooks','attachTaskHook','updateTaskHook','removeTaskHook','setTaskCompletion','setDaemonAutoSelect','setCompletionDefaults'];
+const commandId = 'ee2f98f1-fc9a-46b1-a37c-67d8595c0649';
+const shortcut = { name: 'push', command: 'git push' };
+const targets = ['saveShortcutCommand','authorizeShortcutCommand','removeShortcutCommand','runShortcutCommand','importLegacyHookCommands','hooksList','saveHookTemplate','removeHookTemplate','taskHooks','attachTaskHook','updateTaskHook','removeTaskHook','setTaskCompletion','setDaemonAutoSelect','setCompletionDefaults'];
 function mocks(project) {
   const calls = [];
   for (const method of targets) project[method] = (...args) => {
     calls.push({ method, args });
-    return method === 'hooksList' || method.endsWith('Template') || ['setDaemonAutoSelect','setCompletionDefaults'].includes(method) ? projectView : workerView;
+    return method.includes('ShortcutCommand') || method === 'importLegacyHookCommands' || method === 'hooksList' || method.endsWith('Template') || ['setDaemonAutoSelect','setCompletionDefaults'].includes(method) ? projectView : workerView;
   };
   return calls;
 }
@@ -36,6 +38,11 @@ const mutations = [
   ['worker.completion', { id: 7, level: 'accept', expected_revision: revision }, 'setTaskCompletion', [7, 'accept', revision], workerView],
   ['hooks.auto_select', { enabled: true, expected_revision: daemonRevision }, 'setDaemonAutoSelect', [true, daemonRevision], projectView],
   ['hooks.completion_defaults', { enabled: true, level: 'archive', expected_revision: 'defaults-revision' }, 'setCompletionDefaults', [true, 'archive', 'defaults-revision'], projectView],
+  ['hooks.command_save', { command: shortcut, expected_revision: revision }, 'saveShortcutCommand', [shortcut, revision], projectView],
+  ['hooks.command_authorize', { id: commandId, version: 2, authorized: true, expected_revision: revision }, 'authorizeShortcutCommand', [commandId, 2, true, revision], projectView],
+  ['hooks.command_remove', { id: commandId, expected_revision: revision }, 'removeShortcutCommand', [commandId, revision], projectView],
+  ['hooks.command_run', { id: commandId, version: 2, worker_id: 7, expected_revision: revision }, 'runShortcutCommand', [commandId, 2, 7, revision], projectView],
+  ['hooks.command_import', { source: { template_id: 'old-template' }, expected_revision: revision }, 'importLegacyHookCommands', [{ template_id: 'old-template' }, revision], projectView],
 ];
 
 test('Hooks HTTP reads and all mutations reach user RPC with exact revisions and no implicit actions', async () => {
@@ -62,7 +69,7 @@ test('Hooks HTTP reads and all mutations reach user RPC with exact revisions and
 test('command Hook HTTP editing forwards full definition and rejects ambiguous authorization', async () => {
   const f = await setup(), calls = mocks(f.project);
   const command = { name: 'main push', trigger: 'worker.merge_received', mode: 'persistent', enabled: false,
-    actions: [{ type: 'command', command: 'git push' }] };
+    actions: [{ type: 'command', command_id: commandId, command_version: 2 }] };
   const params = { id: 7, hook_id: 'hook-1', hook: command, expected_revision: revision };
   try {
     const response = await post(f.url, 'worker.hook_update', params);

@@ -17,7 +17,13 @@ lush [--project PATH] [--json] <command>
                                       验收不调用评审 Agent；自动归档不丢弃未提交改动
   worker hook attach ID --file PATH --revision REV  从私有 JSON 挂载规则
   worker hook enable|disable|remove ID HOOK_ID --revision REV  启停或撤销未来动作（不撤回已执行动作）
-  hooks list                        查看项目触发目录、动作、模板、daemon Hooks、时间信号与管理指令
+  hooks list                        查看项目触发目录、动作、模板、快捷指令、daemon Hooks、时间信号与管理指令
+  hooks command list                查看快捷指令目录（hooks.list.commands，修改使用 commands.revision）
+  hooks command save --file PATH --revision REV  注册/修改 Shell 指令（不授权，修改即撤权）
+  hooks command authorize|revoke ID --version N --revision REV  授权/撤权指定版本（不是沙箱）
+  hooks command remove ID --revision REV  删除未来授权，已有 Hook 引用失效
+  hooks command run ID --version N --worker ID --revision REV  在所选 Worker 目录执行已授权版本（不调用 Agent）
+  hooks command import --file PATH --revision REV  导入旧内联命令并停用源 Hook（用源模板或 Worker Hooks 版本）
   hooks auto-select on|off --revision REV  启停项目 daemon 自动选择（使用 daemon_hooks.revision）
                                       开启也答复已有问题；单选选第一项，多选/问答交给 Agent 自行判断，可能继续消耗 token
   hooks save --file PATH --revision REV  保存模板（不自动挂载或调用 Agent）

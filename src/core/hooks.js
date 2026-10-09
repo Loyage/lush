@@ -25,7 +25,7 @@ export const HOOK_TRIGGERS = Object.freeze([
 ].map(([id, label, description]) => Object.freeze({ id, label, description })));
 const TRIGGERS = new Set(HOOK_TRIGGERS.map(t => t.id));
 export const HOOK_ACTIONS = Object.freeze([
-  { type: 'command', label: '执行 Shell 命令', description: '以 daemon 用户权限在挂载 Worker 的实际检出目录执行；非交互、有界超时，不是沙箱。失败停用未来执行，输出不公开。', triggers: [...TRIGGERS].filter(t => !['time.scheduled','agent.failed','worker.accepted','worker.cancelled'].includes(t)), modes: ['once','persistent'], agent_call: false },
+  { type: 'command', label: '运行快捷指令', description: '仅调用项目中明确授权的快捷指令版本，以 daemon 用户权限在挂载 Worker 的实际检出目录运行；不是沙箱，失败停用未来执行，输出不公开。', triggers: [...TRIGGERS].filter(t => !['time.scheduled','agent.failed','worker.accepted','worker.cancelled'].includes(t)), modes: ['once','persistent'], agent_call: false },
   { type: 'accept_worker', label: '自动验收', description: '内置串行阶段：复用安全校验后代替用户确认，不调用质量评审 Agent。', triggers: ['delivery.integrated'], modes: ['persistent'], agent_call: false, builtin_only: true },
   { type: 'archive_worker', label: '自动归档', description: '内置串行阶段：已验收后受检归档子树，不丢弃未提交修改。', triggers: ['worker.accepted'], modes: ['persistent'], agent_call: false, builtin_only: true },
   { type: 'request_merge', label: '请求合并', description: '经现有安全检查向直接父队列请求合并。', triggers: ['worker.delivery_ready'], modes: ['once','persistent'], agent_call: true },
@@ -64,9 +64,10 @@ export function normalizeHook(value) {
     check(entry && !entry.builtin_only && entry.triggers.includes(value.trigger), 'hook action is not allowed at this trigger or is built-in only');
     check((entry.modes_by_trigger?.[value.trigger] ?? entry.modes).includes(value.mode), `${entry.type} hooks must be once to prevent repeated side effects`);
     if (action.type === 'command') {
-      hookObject(action, ['type','command'], 'command action'); text(action.command, 'hook command');
-      check(action.command.length <= 16000 && !action.command.includes('\0'), 'invalid hook command');
-      return { type: action.type, command: action.command };
+      hookObject(action, ['type','command_id','command_version'], 'command action');
+      check(typeof action.command_id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(action.command_id)
+        && Number.isSafeInteger(action.command_version) && action.command_version > 0, 'invalid shortcut command reference');
+      return { type: action.type, command_id: action.command_id, command_version: action.command_version };
     }
     if (action.type === 'request_merge') { hookObject(action, ['type'], 'merge action'); return { type: action.type }; }
     if (action.type === 'create_worker') {

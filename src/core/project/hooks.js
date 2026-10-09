@@ -22,6 +22,7 @@ function writeDefinitions(project, state) {
 function revision(project, task) { return hookRevision({ hooks: task.hooks ?? null, automatic: project.autoMergeView(task), completion: task.auto_merge ?? null }); }
 function readDefinition(project, value) {
   const view = publicHookDefinition(value);
+  if (project.shortcutHookIssue(value)) view.enabled = false;
   view.actions = view.actions.map(action => ['message','retry_worker','resume_worker'].includes(action.type) ? { ...action,
     target_worker_number: project.store.get('SELECT worker_number FROM tasks WHERE id=?', action.target_id)?.worker_number ?? null,
   } : action);
@@ -55,6 +56,7 @@ function definition(project, raw, task = null) {
     check(stored, 'Hook template not found'); raw = stored.definition;
   }
   const value = normalizeHook(raw);
+  project.validateShortcutHook(value);
   value.actions = value.actions.map(action => {
     if (action.type === 'create_worker') {
       if (task) check(['main','owner','order'].includes(task.task_kind), 'this Worker cannot create independent order Workers');
@@ -98,7 +100,7 @@ export default {
     return { version: 1, revision: hookRevision(data), completion_defaults: this.completionDefaults(),
       daemon_hooks: this.daemonHooks(), signals: this.hookSignals(),
       management_workers: this.managementWorkers(), triggers: HOOK_TRIGGERS, actions: HOOK_ACTIONS,
-      command_example: this.commandHookExample(), templates: data.templates.map(item => ({ id: item.id, ...readDefinition(this, item.definition) })) };
+      commands: this.shortcutCommands(), command_example: this.commandHookExample(), templates: data.templates.map(item => ({ id: item.id, ...readDefinition(this, item.definition) })) };
   },
 
   saveHookTemplate(template, expectedRevision) {
@@ -143,7 +145,7 @@ export default {
     const task = this.store.task(id(taskId)), data = parse(task), automatic = this.autoMergeView(task);
     const available = ownerAvailable(this, task);
     const mounts = data.mounts.map(m => ({ id: m.id, ...readDefinition(this, m), builtin: false, locked: false,
-      editable: (available || (ownerAvailable(this, task, true) && (scheduledSelfRetry(m, task) || (m.schedule && m.enabled)))) && m.state !== 'running', removable: ['main','owner','order','child'].includes(task.task_kind) && m.state !== 'running', reason: m.state === 'running' ? 'Hook 已领取执行，不能修改' : !available && !(ownerAvailable(this, task, true) && scheduledSelfRetry(m, task)) ? 'Worker 已结束或归档' : m.reason ?? null,
+      editable: (available || (ownerAvailable(this, task, true) && (scheduledSelfRetry(m, task) || (m.schedule && m.enabled)))) && m.state !== 'running', removable: ['main','owner','order','child'].includes(task.task_kind) && m.state !== 'running', reason: m.state === 'running' ? 'Hook 已领取执行，不能修改' : !available && !(ownerAvailable(this, task, true) && scheduledSelfRetry(m, task)) ? 'Worker 已结束或归档' : this.shortcutHookIssue(m) ?? m.reason ?? null,
       state: m.state, last_execution: readExecution(this, m.last_execution),
       ...(hasCommand(m) ? { pending_count: m.command_pending ?? 0 } : {}),
       ...(m.schedule ? { next_run_at: m.next_run_at ?? null, pending_due_at: m.pending_due_at ?? null } : {}),
@@ -223,6 +225,7 @@ export default {
       const data = parse(this.store.task(task.id)), mount = data.mounts.find(m => m.id === hookId); check(mount, 'Hook mount not found');
       check(mount.state !== 'running', 'Hook is executing; wait for its result');
       const command = hasCommand(replacement ?? mount);
+      if (enabled && command) this.validateShortcutHook({ ...(replacement ?? mount), enabled: true });
       const recovering = ['failed','unknown'].includes(mount.state);
       check(!enabled || !recovering || (command && (replacement ?? mount).mode === 'persistent'), 'Hook effects require inspection; mount a new explicitly authorized rule instead of replaying');
       check(!enabled || mount.mode !== 'once' || !['succeeded','skipped'].includes(mount.state), 'one-shot Hook already executed or skipped; mount a new rule instead of replaying');
@@ -425,6 +428,7 @@ export default {
   },
 
   recoverTaskHooks() {
+    this.recoverShortcutCommands();
     this.recoverScheduledTaskHooks();
     this.recoverCommandTaskHooks();
     for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL')) {

@@ -58,6 +58,17 @@ test('命令提交、示例初始化和父侧收到合并区分触发与执行�
   expect(eventLabel({ type: 'hook.updated' })).toBe('调整 Hook');
 });
 
+test('快捷指令配置授权与实际执行分开显示，未知不冒充成功', () => {
+  for (const type of ['saved','authorized','removed','started','succeeded','failed','unknown'].map(state => `shortcut.command_${state}`)) {
+    expect(Object.hasOwn(EVENTS, type)).toBe(true);
+    expect(eventLabel({ type })).toMatch(/[\u4e00-\u9fff]/);
+  }
+  expect(eventLabel({ type: 'shortcut.command_saved' })).toContain('未授权');
+  expect(eventLabel({ type: 'shortcut.commands_imported' })).toContain('未授权');
+  expect(eventLabel({ type: 'shortcut.command_failed' })).toContain('失败');
+  expect(eventLabel({ type: 'shortcut.command_unknown' })).toContain('待核验');
+});
+
 test('daemon Hook events and answer provenance have explicit labels without guessing old answers', () => {
   expect(eventLabel({ type: 'hook.daemon_configured' })).toBe('调整 daemon 自动选择 Hook');
   expect(eventLabel({ type: 'hook.daemon_failed' })).toContain('失败');
