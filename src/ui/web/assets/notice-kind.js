@@ -10,6 +10,9 @@ export const lifecycleNotice = row => row?.kind === 'info' && row.status === 'se
   && Number.isSafeInteger(row.source_event_id) && row.source_event_id > 0;
 export const noticeIdentity = row => `${projectBase()}:${row.id}:${row.task_id}:${row.source_event_id}:${row.created_at}`;
 export const unreadNotice = row => lifecycleNotice(row) && !row.read_at;
-export const noticeMatches = (row, status) => status === 'all' || (status === 'unread' ? unreadNotice(row) : row.status === status);
+export const automaticNotice = row => row?.status === 'answered' && row.answer_source === 'lush'
+  && ['question', 'questionnaire'].includes(row.kind);
+export const noticeMatches = (row, status) => status === 'all' || (status === 'unread' ? unreadNotice(row)
+  : status === 'automatic' ? automaticNotice(row) : row.status === status);
 export const positiveId = value => Number.isSafeInteger(value) && value > 0;
 export const noticeHash = row => positiveId(row?.id) && positiveId(row?.task_id) ? `#notice-${row.id}` : '#notices';

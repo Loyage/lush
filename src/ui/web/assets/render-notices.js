@@ -29,14 +29,15 @@ export function initNoticeRecords() {
     observedRevision: ui.lastSnapshot?.revision ?? null, stale: false, loadedPages: 0 };
   const tools = el('div', undefined, 'resource-tools');
   const filters = el('div', undefined, 'filters');
-  for (const [value, label] of [['open','待决'],['unread','未读告知'],['answered','已回答'],['dismissed','已忽略'],['all','全部记录']]) {
-    const tab = button(label, () => {
-      state.status = value; state.page = null; state.rows = []; state.choices = []; state.selected = null;
-      state.stale = false; state.loadedPages = 0;
-      $('notice-record-detail')?.replaceChildren();
-      for (const node of filters.children) node.setAttribute('aria-pressed', String(node === tab));
-      return loadNoticeRecords();
-    }, 'ghost');
+  const selectFilter = value => {
+    state.status = value; state.page = null; state.rows = []; state.choices = []; state.selected = null; state.signature = null;
+    state.stale = false; state.loadedPages = 0; state.request++; state.pending = false;
+    $('notices')?.replaceChildren(); $('notice-record-detail')?.replaceChildren();
+    for (const node of filters.children) node.setAttribute('aria-pressed', String(node.dataset.noticeFilter === value));
+  };
+  ui.selectNoticeFilter = selectFilter;
+  for (const [value, label] of [['open','待决'],['unread','未读告知'],['automatic','自动选择'],['answered','已回答'],['dismissed','已忽略'],['all','全部记录']]) {
+    const tab = button(label, () => { selectFilter(value); return loadNoticeRecords(); }, 'ghost');
     tab.dataset.noticeFilter = value;
     tab.setAttribute('aria-pressed', String(value === 'open')); filters.append(tab);
   }
@@ -116,6 +117,7 @@ export async function loadNoticeRecords({ more = false, preserve = false, reload
 function paintNoticeFooter(state) {
   const footer = $('notice-pagination');
   footer.replaceChildren(el('p', state.rows.length ? `已显示 ${state.rows.length} 条记录` : '没有符合条件的记录', 'hint'));
+  if (state.status === 'automatic') footer.append(el('p', '仅显示 Lush 自动选择处理的问答；不代表用户亲自决断。关闭自动选择后，记录仍保留。', 'hint'));
   if (state.stale) {
     const warning = el('p', '列表可能已过期；旧页未自动重查，打开事项时会核验当前状态。', 'hint');
     warning.setAttribute('role', 'status');

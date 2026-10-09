@@ -6,6 +6,7 @@ import { detail } from './navigate.js';
 import { confirmDialog } from './dialog.js';
 import { show } from './messages.js';
 import { agentHelp } from './help.js';
+import { applyAutoSelectCatalogue } from './auto-select-banner.js';
 import { workerKind } from './worker-kind.js';
 import { isHistoricalDelivery, absolute } from './format.js';
 import { createHookForm, COMMAND_WARNING } from './hook-form.js';
@@ -489,6 +490,7 @@ export async function openHooks() {
         if (!owns()) return;
         const result = await action('hooks.auto_select', { enabled: !mount.enabled, expected_revision: model.revision });
         if (owns()) { state.catalogue = result; ui.hookCatalogue = result;
+          applyAutoSelectCatalogue(result, model.revision);
           show(mount.enabled ? '自动选择已关闭；已有答复不变。' : '自动选择已开启；答复来源记录为 Lush。'); }
       } catch (error) { if (owns()) show(`${error.message}；未假定开关已更改，请刷新目录读取最新状态。`, 'error'); }
       finally { pending.delete(key); state.busy = false; if (owns()) paint(); }

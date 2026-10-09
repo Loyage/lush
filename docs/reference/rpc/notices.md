@@ -79,7 +79,7 @@ Notice 读面另投影可空 `lifecycle_type`，依据同 Worker 的来源 Event
 
 ## Web
 
-「待我处理」面板提供待决、未读告知、已回答、已忽略和全部记录筛选，包括普通提问、问卷与纯提醒。待决事项在面板内查看正文、答复或审批；生命周期告知直接进入对应 Worker，成功加载后自动已读。历史事项保留原正文与处理记录，不会因已读、答复、忽略、刷新或重启丢失。
+「待我处理」面板提供待决、未读告知、自动选择、已回答、已忽略和全部记录筛选，包括普通提问、问卷与纯提醒。待决事项在面板内查看正文、答复或审批；生命周期告知直接进入对应 Worker，成功加载后自动已读。历史事项保留原正文与处理记录，不会因已读、答复、忽略、刷新或重启丢失。
 
 问卷单选点一次即进入下一题；多选点选后继续；预览按钮/悬停/键盘聚焦可先看方案，不提交答案。最后展示全部题目的选择、说明与可展开预览，可返回修改，一次确认整份问卷。在记录面板提交后原地显示处理结果；从Worker详情答复时仍可自动打开下一个未决问题。
 
@@ -87,7 +87,7 @@ Notice 读面另投影可空 `lifecycle_type`，依据同 Worker 的来源 Event
 
 HTML 通过已认证的只读预览路由渲染，不读取 agent 提供的本机路径：先白名单清洗，删除脚本、事件、外链导航、meta refresh、表单、嵌套 frame 等，再使用独立 CSP 和无权限 iframe sandbox。仅允许内联样式与 data 图片/字体，禁止网络与脚本、宿主访问、导航与表单提交。预览是**静态提案，不是已实现效果**。浏览器使用该实现，主页面 CSP 不放宽。
 
-兼容 `notice.list` 优先返回未决项，其次未读生命周期告知，再是历史记录，同组按新到旧排列；最多 200 条并受 RPC 字节预算限制。记录面板使用 `notice.page`（HTTP `GET /api/notices`），按 ID 降序返回 `{notices,cursor,has_more,limit}`；status 为 `all|open|answered|dismissed|sent|unread`；`unread` 仅匹配 info/sent、source_event_id 非空且 read_at 为空，limit 为 1–100、默认 30。使用返回的 cursor 作为下一页 before，字节预算截断时也保留续页游标，所以历史不受 200 条总量限制。
+兼容 `notice.list` 优先返回未决项，其次未读生命周期告知，再是历史记录，同组按新到旧排列；最多 200 条并受 RPC 字节预算限制。记录面板使用 `notice.page`（HTTP `GET /api/notices`），按 ID 降序返回 `{notices,cursor,has_more,limit}`；status 为 `all|open|answered|dismissed|sent|unread|automatic`；`automatic` 在数据库分页前只匹配已回答、question/questionnaire、持久 `answer_source='lush'` 的问答，不根据答案正文或当前开关猜来源，关闭后仍可回放原问题与答案；`unread` 仅匹配 info/sent、source_event_id 非空且 read_at 为空，limit 为 1–100、默认 30。使用返回的 cursor 作为下一页 before，字节预算截断时也保留续页游标，所以历史不受 200 条总量限制。
 
 旧式文字问题仍接收字符串，发布后依赖 agent 结束本轮再停在 awaiting；它不是结构化问卷的主动中止路径。
 

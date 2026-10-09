@@ -235,18 +235,24 @@ test('compact graph entry remains read-only and shares highest level', () => {
 
 test('detail polling preserves in-flight authorization and open management, while refreshing results when idle', async () => {
   const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
-  let resolve;
-  intercept = (_path, body) => body?.method === 'worker.completion' ? new Promise(done => { resolve = done; }) : null;
-  renderDetail(responseTask, null, null, null);
-  const section = root().querySelector('.worker-hooks'); section.querySelector('.hook-management').open = true;
-  const saving = click(section, 'accept'); await until(() => resolve);
-  expect(section.dataset.completionEditing).toBe('true');
-  renderDetail({ ...responseTask, hooks: { ...responseTask.hooks, revision: 'mount-v2' } }, null, null, null);
-  expect(root().querySelector('.worker-hooks')).toBe(section); expect(selected(section)).toEqual(['off']);
-  resolve(json({ ...responseTask.hooks, completion: { ...responseTask.completion, level: 'accept' } })); await saving;
-  expect(section.dataset.completionEditing).toBe('false');
-  renderDetail(responseTask, null, null, null);
-  expect(root().querySelector('.worker-hooks')).not.toBe(section); expect(root().querySelector('.hook-management').open).toBe(true);
-  root().querySelector('.hook-management').open = false; renderDetail(responseTask, null, null, null);
-  expect(Boolean(root().querySelector('.hook-management').open)).toBe(false);
+  const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
+  // Other files can already have booted the real application in the shared
+  // module registry. This renderer test owns its refreshes, not live navigation.
+  const restore = registerNavigation({ detail: async () => {}, refresh: async () => {} });
+  try {
+    let resolve;
+    intercept = (_path, body) => body?.method === 'worker.completion' ? new Promise(done => { resolve = done; }) : null;
+    renderDetail(responseTask, null, null, null);
+    const section = root().querySelector('.worker-hooks'); section.querySelector('.hook-management').open = true;
+    const saving = click(section, 'accept'); await until(() => resolve);
+    expect(section.dataset.completionEditing).toBe('true');
+    renderDetail({ ...responseTask, hooks: { ...responseTask.hooks, revision: 'mount-v2' } }, null, null, null);
+    expect(root().querySelector('.worker-hooks')).toBe(section); expect(selected(section)).toEqual(['off']);
+    resolve(json({ ...responseTask.hooks, completion: { ...responseTask.completion, level: 'accept' } })); await saving;
+    expect(section.dataset.completionEditing).toBe('false');
+    renderDetail(responseTask, null, null, null);
+    expect(root().querySelector('.worker-hooks')).not.toBe(section); expect(root().querySelector('.hook-management').open).toBe(true);
+    root().querySelector('.hook-management').open = false; renderDetail(responseTask, null, null, null);
+    expect(Boolean(root().querySelector('.hook-management').open)).toBe(false);
+  } finally { restore(); }
 });

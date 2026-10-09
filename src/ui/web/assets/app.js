@@ -27,6 +27,7 @@ import { closeTranscriptView } from './transcript-view.js';
 import { closeExplanationPanel } from './explanations.js';
 import { ensureProject, openProjectManager, workbenchStatus } from './project-picker.js';
 import { resetNoticeNotifier } from './notice-notifications.js';
+import { renderAutoSelectBanner } from './auto-select-banner.js';
 import { initNoticeRecords, openNotice } from './render-notices.js';
 import { workerNumberTarget, resolveWorkerNumber } from './worker-links.js';
 
@@ -158,6 +159,7 @@ export async function boot() {
   refreshTimer = null; liveTimer = null; hashListener = null;
   closeTranscriptView();
   resetUiState();
+  renderAutoSelectBanner(null);
   resetTranscriptReaders();
   closeExplanationPanel();
   closeQuickExplanationPanel();

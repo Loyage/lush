@@ -42,7 +42,7 @@ export const ui = {
   // 尚未加入草稿的输入框引用；引用随 draft.add 持久化，轮询不能清掉本地选择。
   composerReferences: [],
   // 左侧「待定事项」只是索引；右侧展开的那条 notice 由 noticeFocus 记住，数据每次都取自最新 snapshot。
-  noticeFocus: null, noticeIndex: new Map(), noticeRecords: null, loadNoticeRecords: null,
+  noticeFocus: null, noticeIndex: new Map(), noticeRecords: null, loadNoticeRecords: null, selectNoticeFilter: null,
   noticeReadPending: new Map(), noticeReadRows: new Map(),
   questionDrafts: new Map(), // 当前会话草稿；sessionStorage 可跨刷新恢复
   // 左栏四个列表共用的排序偏好（smart / updated / id）。
@@ -92,7 +92,7 @@ export function resetUiState() {
   ui.draftSignature = null; ui.draftEditing = null; ui.draftIds = []; ui.draftPanelOpen = false; ui.composerExpanded = false; ui.composerSubmitting = false; ui.composerStartNow = false; ui.composerReferences = [];
   ui.intentSignature = null; ui.specSignature = null;
   ui.noticeReadPending = new Map(); ui.noticeReadRows = new Map();
-  ui.noticeFocus = null; ui.noticeIndex = new Map(); ui.questionDrafts = new Map(); ui.noticeRecords = null; ui.loadNoticeRecords = null;
+  ui.noticeFocus = null; ui.noticeIndex = new Map(); ui.questionDrafts = new Map(); ui.noticeRecords = null; ui.loadNoticeRecords = null; ui.selectNoticeFilter = null;
   ui.lastSnapshot = null; ui.taskHistory = []; ui.taskHistoryPage = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
   ui.taskGraphFetchedAt = 0; ui.taskGraphIds = new Set(); ui.taskGraphPage = null; ui.taskGraphShowArchived = false;
   ui.taskGraphFilesExpanded = new Set(); ui.taskGraphMinimal = readPref('taskGraphMinimal');

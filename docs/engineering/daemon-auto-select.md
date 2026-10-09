@@ -24,7 +24,7 @@
 - 自动答复将 `answer_source='lush'` 与答案、收件箱消息、`notice.answered` Event 在同一事务保存。
 - 消息携带来源与自动答复说明，不冒充用户决断；用户公共答复入口不能传入或伪造来源。
 - 历史已回答／已忽略记录没有持久来源时，读面兼容投影为 `user`，未答记录为 `null`，不回填历史行。
-- Web 记录与详情显示「Lush 自动选择」或「用户答复」，不依据答案内容猜来源。
+- Web 记录与详情显示「Lush 自动选择」或「用户答复」，不依据答案内容猜来源。「待我处理 → 自动选择」独立栏目按来源在服务端分页，保留只读原问卷／文字问题、答案和 Worker 编号；历史空来源不归入自动问答。
 
 ## 接口与修订
 
@@ -40,6 +40,10 @@ daemon_hooks: {
 
 daemon 的 revision 独立于模板 revision，执行收据不改变配置 revision；旧客户端省略字段时仍能读取原模板目录。读取不得执行 Hook。
 
+用户轮询 `system.summary` 附带窄投影 `auto_select:{enabled,revision,editable}`，不附带模板、完整挂载或执行收据；Agent 的同一读面不返回此字段。配置变更事件使概览 revision 失效，重开页面及其他标签修改后，常规项目轮询即可更新，不额外轮询完整 Hooks 目录。
+
+开启期间，所有项目页面在内容区常驻「自动选择已开启」提示（移动端随页面栏一起 sticky），显示后台持续答复和调用费用说明，提供只读「查看自动问答」与非 Agent「关闭自动选择」。不提供临时隐藏、已知或滑动消除，不自动到期关闭。离线时标明最近确认开启而非声称当前实时状态；禁用关闭按钮及外层帮助解释原因。关闭使用独立 revision、单飞和项目身份保护，成功 ACK 立即收起提示，陈旧在途快照不能复活刚关闭的状态；后续读失败不冒充关闭失败，关闭失败保留提示并读取最新状态。
+
 用户专属 RPC `hooks.auto_select {enabled:boolean,expected_revision:string}` 调用 `Project.setDaemonAutoSelect(enabled,expectedRevision)`，返回更新后的完整 `hooks.list`。过期 revision 拒绝，不覆盖其他标签的设置。Agent token 不可读写 Hook 配置。
 
 Web 使用当前项目已登录、同源的 `POST /api/action`，不接受项目路径或 `_token`。CLI 为 `bun run lush hooks auto-select on|off --revision REV`，REV 来自 `hooks.list.daemon_hooks.revision`。
@@ -53,5 +57,7 @@ Web 使用当前项目已登录、同源的 `POST /api/action`，不接受项目
 ## 模块与验证
 
 Runtime 入口为 `src/core/project/auto-select.js`，装配见 `project.js`；Notice 答复在 `project/messages.js`，共享投影在 `persistence/notice-projection.js`。RPC/CLI、Web server 与 assets 只调用该窄契约，分区见[模块地图](modules.md#daemon-自动选择-hook-接缝w118--决定-267)。
+
+新增历史与常驻状态验证入口：`test/project/automatic-notice-history.test.js`、`test/web/dom-auto-select.test.js`、`test/web/auto-select-runtime-integration.test.js`；真实 Firefox 检查 `bun run ./test/web/check-auto-select-browser.js` 使用实际 shell/CSS 和受控 HTTP，覆盖深浅主题、1440/390/320 宽度、移动 sticky、跨页面与只读历史、失败重试及键盘关闭，不操作用户 daemon。
 
 测试应覆盖默认关闭、项目隔离、热更新和持久化、旧问题批次、新问题、混合问卷与文字问答、来源不可伪造、去重、过期 revision、权限、shutdown、真实退出后的恢复，以及页面授权和历史来源展示。不调用真实模型，不重启用户正在工作的 daemon/Host；真实浏览器与实际模型另行验收。

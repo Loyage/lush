@@ -461,6 +461,10 @@ button.context-action{display:block;width:100%;background:transparent;color:var(
 
 /* 全局常驻待决提醒条：任何页面可见，点击进入「待我处理」并定位最新一条。
    与左栏计数同口径（status==="open"）；脉冲只做点缀，文案本身已经说明「有待决」。 */
+.project-banners{flex:none;z-index:3}
+.auto-select-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px clamp(22px,3.5vw,64px);background:var(--amber-soft);border-bottom:1px solid color-mix(in srgb,var(--awaiting) 45%,var(--line))}
+.auto-select-copy{min-width:0}.auto-select-copy strong{font-size:13px;color:var(--awaiting)}.auto-select-copy p{margin:3px 0 0;font-size:11px;color:var(--text);overflow-wrap:anywhere}
+.auto-select-actions{display:flex;flex:none;flex-wrap:wrap;gap:8px}.auto-select-actions button{min-height:44px;font-size:11px;border:1px solid var(--line);white-space:nowrap}.auto-select-actions button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .notice-banner{display:flex;flex-direction:column;gap:6px;justify-content:center;padding:8px clamp(22px,3.5vw,64px);background:color-mix(in srgb,var(--awaiting) 13%,var(--panel));border-bottom:1px solid var(--line-soft);z-index:3}
 .notice-banner[hidden]{display:none}
 .notice-banner-row{display:flex;align-items:center;gap:8px;width:100%;max-width:1180px;margin:0 auto;touch-action:pan-y pinch-zoom}
@@ -480,7 +484,7 @@ button.notice-banner-info{border-color:var(--accent)}
 .notice-banner-info .notice-banner-count{color:var(--accent)}
 .notice-banner-info .notice-banner-dot{background:var(--accent);animation:none}
 @keyframes notice-banner-pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--awaiting) 55%,transparent)}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
-@media(max-width:760px){.notice-banner{position:sticky;top:42px;padding:6px 10px}button.notice-banner-main{padding:8px 10px;gap:7px}.notice-banner-go{display:none}.notice-banner-row{gap:6px}.notice-banner-known{padding:8px}}
+@media(max-width:760px){.project-banners{position:sticky;top:42px}.auto-select-banner{flex-wrap:wrap;padding:8px 10px;gap:6px}.auto-select-actions{gap:6px}.notice-banner{padding:6px 10px}button.notice-banner-main{padding:8px 10px;gap:7px}.notice-banner-go{display:none}.notice-banner-row{gap:6px}.notice-banner-known{padding:8px}}
 @media(prefers-reduced-motion:reduce){.notice-banner-dot{animation:none}}
 [data-reduced-motion="true"] .notice-banner-dot{animation:none}
 

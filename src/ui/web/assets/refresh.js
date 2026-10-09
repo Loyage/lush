@@ -1,5 +1,6 @@
 import { $ } from './dom.js';
 import { renderSleepBanner } from './sleep-ui.js';
+import { renderAutoSelectBanner } from './auto-select-banner.js';
 import { api } from './api.js';
 import { loadDetail } from './detail.js';
 import { HOT } from './format.js';
@@ -85,6 +86,7 @@ export async function refresh() {
     $('connection').textContent = '已连接'; $('connection').classList.remove('offline');
     if (ui.offline) { ui.offline = false; clear(); }
     renderSleepBanner(data.status.sleep);
+    renderAutoSelectBanner(data.status.auto_select);
     const noticeBefore = ui.noticeFocus;
     if (changed) {
       $('agents').replaceChildren(slotGauge(data));
@@ -118,7 +120,9 @@ export async function refresh() {
     if (noticeBefore !== ui.noticeFocus && ui.selected !== null && !editing) await detail(ui.selected);
   } catch (error) {
     $('connection').textContent = '离线 · 自动重连'; $('connection').classList.add('offline');
-    ui.offline = true; show(error.message, 'error');
+    ui.offline = true;
+    renderAutoSelectBanner(ui.lastSnapshot?.status?.auto_select, { offline: true });
+    show(error.message, 'error');
   } finally { ui.busy = false; }
 }
 

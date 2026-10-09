@@ -10,7 +10,16 @@ export const handlers = {
   'system.usage'(p, params) { return p.usageStatistics(params); },
   'system.status'(p, params, actor) { return { ...p.status(), ...this.identity, pid: process.pid }; },
   // Polling summary has its own indexed/persistent-cursor path and never opens the full Agent profile.
-  'system.summary'(p, params, actor) { return { ...p.summary(), ...this.identity, pid: process.pid }; },
+  'system.summary'(p, params, actor) {
+    const summary = { ...p.summary(), ...this.identity, pid: process.pid };
+    // Only the user polling surface gets this narrow authorization mirror;
+    // Agent summaries still cannot read Hook configuration or receipts.
+    if (actor === null) {
+      const model = p.daemonHooks(), mount = model.mounts.find(item => item.id === 'auto-select');
+      summary.auto_select = { enabled: mount.enabled, revision: model.revision, editable: mount.editable };
+    }
+    return summary;
+  },
   'system.stop'(p, params, actor) { this.stopping.request(); return { stopping: true }; },
   'system.stop_if_idle'(p) {
     // No await between checking activity and closing admission: pump/merge callbacks

@@ -24,8 +24,14 @@ test('real HTTP/RPC/SQLite auto-select handles old and new questions and exposes
     const plan = f.project.notice(worker.id, 'plan not authorized', '', 'plan');
     const before = await get(f, '/api/hooks');
     expect(before.daemon_hooks.mounts[0].enabled).toBe(false);
+    const initialOverview = await get(f, '/api/overview');
+    expect(initialOverview.status.auto_select).toMatchObject({ enabled: false, revision: before.daemon_hooks.revision, editable: true });
+    expect(await get(f, `/api/overview?revision=${initialOverview.revision}`)).toMatchObject({ unchanged: true });
     const enabled = await post(f, 'hooks.auto_select', { enabled: true, expected_revision: before.daemon_hooks.revision });
     expect(enabled.status).toBe(200); expect(enabled.value.daemon_hooks.mounts[0].enabled).toBe(true);
+    const enabledOverview = await get(f, `/api/overview?revision=${initialOverview.revision}`);
+    expect(enabledOverview.unchanged).toBeUndefined();
+    expect(enabledOverview.status.auto_select).toMatchObject({ enabled: true, revision: enabled.value.daemon_hooks.revision });
     await until(() => f.store.get('SELECT status FROM notices WHERE id=?', oldText.id).status === 'answered');
     const records = (await get(f, '/api/notices?status=all')).notices;
     const selected = records.find(n => n.id === old.id);
@@ -39,6 +45,10 @@ test('real HTTP/RPC/SQLite auto-select handles old and new questions and exposes
     expect(f.store.get('SELECT status,answer_source FROM notices WHERE id=?', plan.id)).toEqual({ status: 'open', answer_source: null });
     const fresh = f.project.notice(worker.id, 'new single', '', 'question', [question()]);
     expect(fresh).toMatchObject({ status: 'answered', answer_source: 'lush' });
+    const renamed = await post(f, 'worker.rename', { id: worker.id, title: '用户自定义 Worker 标题' });
+    expect(renamed.status).toBe(200);
+    expect(renamed.value).toEqual({ id: worker.id, display_title: '用户自定义 Worker 标题' });
+    expect((await get(f, '/api/hooks')).daemon_hooks.revision).toBe(enabled.value.daemon_hooks.revision);
     const inspected = await get(f, `/api/worker/${worker.id}`);
     expect(inspected.notices.find(n => n.id === fresh.id).answer_source).toBe('lush');
     const message = JSON.parse(f.store.unread(worker.id).find(m => JSON.parse(m.body).notice_id === fresh.id).body);
@@ -55,5 +65,17 @@ test('real HTTP/RPC/SQLite auto-select handles old and new questions and exposes
     const answered = await post(f, 'notice.answer', { id: manual.id, answer: 'user answer' });
     expect(answered.status).toBe(200); expect(answered.value.answer_source).toBe('user');
     expect((await get(f, '/api/notices?status=answered')).notices.find(n => n.id === manual.id).answer_source).toBe('user');
+    const automatic = []; let cursor = '';
+    do {
+      const page = await get(f, `/api/notices?status=automatic&limit=1${cursor}`);
+      automatic.push(...page.notices);
+      if (!page.has_more) break;
+      cursor = `&before=${page.cursor}`;
+    } while (automatic.length < 10);
+    expect(automatic.map(n => n.id)).toEqual([fresh.id, oldText.id, old.id]);
+    expect(automatic.every(n => n.answer_source === 'lush')).toBe(true);
+    expect(automatic.map(n => n.title)).toEqual(['new single', 'old text question', 'mixed old questionnaire']);
+    expect(automatic.find(n => n.id === old.id).answer).toBe(selected.answer);
+    expect((await get(f, '/api/snapshot')).status.auto_select.enabled).toBe(false);
   } finally { await f.close(); }
 });
