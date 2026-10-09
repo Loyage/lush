@@ -70,6 +70,10 @@ test('code reader is opt-in and shows all files, diff/status, content paging and
     expect(findFile(code.root, 'README.md')).toBeTruthy();
     expect(deepText(code.root)).toContain('已暂存 · 未暂存');
     expect(deepText(code.root)).toContain('aaaaaaab → 当前工作区');
+    const summary = code.root.querySelector('.code-summary');
+    expect(summary.children.map(node => node.textContent)).toEqual(['净变化 2 文件', '未提交 1 文件', '+2 −2', '冲突 0']);
+    const sampling = code.root.querySelector('.code-sample-details');
+    expect(sampling.open).not.toBe(true); expect(deepText(sampling)).toContain('2026-10-01T10:00:00Z');
     expect(f.calls.filter(url => url.pathname.endsWith('/code-tree')).map(url => url.searchParams.get('path'))).toEqual(['', 'src']);
     await findFile(code.root, changedFile.path).onclick();
     expect(code.root.querySelectorAll('.code-hunk')).toHaveLength(1);
@@ -90,6 +94,7 @@ test('code reader is opt-in and shows all files, diff/status, content paging and
     expect(f.calls.at(-1).searchParams.get('side')).toBe('old');
     expect(f.calls.at(-1).searchParams.get('offset')).toBe('0');
     expect(code.root.querySelector('.agent-call')).toBeNull();
+    sampling.open = true; await code.refresh(); expect(sampling.open).toBe(true);
   } finally { code.dispose(); dom.restore(); }
 });
 
@@ -377,7 +382,7 @@ test('execution tabs retain transcript and code scroll/content, stop hidden tran
     await click(panel, '在执行记录中搜索此路径');
     const search = f.calls.find(url => url.pathname.endsWith('/transcript-search'));
     expect(search.searchParams.get('query')).toBe(changedFile.path); expect(search.searchParams.get('tool')).toBe('');
-    expect(ui.transcriptView.mode).toBe('transcript');
+    expect(ui.transcriptView.mode).toBe('transcript'); expect(ui.transcriptView.searchOpen).toBe(true);
     await click(panel, '代码与改动');
     panel.onkeydown({ key: 'F', ctrlKey: true, shiftKey: true, preventDefault() {} });
     expect(ui.transcriptView.mode).toBe('transcript'); expect(dom.document.activeElement.type).toBe('search');

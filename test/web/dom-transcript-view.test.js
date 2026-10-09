@@ -100,6 +100,54 @@ test('obsolete order responses cannot replace a newer fullscreen window', async 
   } finally { closeTranscriptView(); transcriptCache.delete(995); resetTranscriptReaders(); ui.selected = null; writePref('transcriptOrder', 'desc'); dom.restore(); }
 });
 
+test('mobile search opens on demand, keeps criteria, locates a hit and restores reading focus; Escape closes search first', async () => {
+  const requests = [];
+  const hit = { seq: 20, kind: 'result', tool_name: 'bash', file: 'a', body: 'error: needle', excerpt: 'needle', is_error: true };
+  const dom = installDom({ fetch: async url => {
+    requests.push(String(url));
+    return response(String(url).includes('transcript-search') ? { steps: [hit], files: ['a'], next: 20 }
+      : { step: hit, related: [], context: [] });
+  } });
+  const media = Object.getOwnPropertyDescriptor(globalThis, 'matchMedia');
+  let narrow = true;
+  Object.defineProperty(globalThis, 'matchMedia', { value: () => ({ matches: narrow }), configurable: true });
+  const taskId = 994; ui.selected = taskId; transcriptCache.set(taskId, page);
+  try {
+    await openTranscriptView(taskId);
+    const panel = ui.transcriptView.panel, viewport = panel.querySelector('.transcript-viewport');
+    const toggle = panel.querySelector('.transcript-search-toggle'), form = panel.querySelector('form');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(panel.classList.contains('transcript-search-open')).toBe(false);
+    expect(toggle.getAttribute('aria-controls')).toBe(panel.querySelector('.transcript-sidebar').id);
+    expect(requests).toHaveLength(0);
+    await toggle.onclick();
+    const query = form.querySelector('input'); query.value = 'needle';
+    expect(dom.document.activeElement).toBe(query);
+    form.onsubmit({ preventDefault() {} });
+    await until(() => panel.querySelector('.transcript-match')?.querySelector('.step'));
+    expect(panel.querySelector('.search-hit').querySelector('button').textContent).toBe('#20 · 工具输出 · bash · 失败');
+    const card = panel.querySelector('.transcript-match'); let located = false;
+    card.scrollIntoView = () => { located = true; if (narrow) expect(panel.classList.contains('transcript-search-open')).toBe(false); };
+    await panel.querySelector('.search-hit').querySelector('button').onclick();
+    expect(located).toBe(true); expect(dom.document.activeElement).toBe(viewport);
+    expect(query.value).toBe('needle'); expect(ui.transcriptView.filtered).toBe(true);
+    panel.onkeydown({ ctrlKey: true, shiftKey: true, key: 'f', preventDefault() {} });
+    expect(toggle.getAttribute('aria-expanded')).toBe('true'); expect(dom.document.activeElement).toBe(query);
+    panel.onkeydown({ key: 'Escape', preventDefault() {} });
+    expect(ui.transcriptView).not.toBeNull(); expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(dom.document.activeElement).toBe(toggle);
+    // Desktop hit navigation does not close the search column or steal its focus.
+    await toggle.onclick(); narrow = false;
+    await panel.querySelector('.search-hit').querySelector('button').onclick();
+    expect(ui.transcriptView.searchOpen).toBe(true); expect(dom.document.activeElement).toBe(query);
+    panel.onkeydown({ key: 'Escape', preventDefault() {} }); expect(ui.transcriptView).toBeNull();
+  } finally {
+    closeTranscriptView(); transcriptCache.delete(taskId); resetTranscriptReaders(); ui.selected = null;
+    if (media) Object.defineProperty(globalThis, 'matchMedia', media); else delete globalThis.matchMedia;
+    dom.restore();
+  }
+});
+
 test('agent retains the copyable terminal follow command', async () => {
   const dom = installDom(), copied = [];
   const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');

@@ -241,11 +241,13 @@ test('热任务点击才加载执行正文，轮询增量续读并保留阅读�
   expect(chipOf(rendered[3]).textContent).toBe('上下文 9.9k');   // seq2 assistant 步：精确
   expect(chipOf(rendered[4])).toBeNull();                       // seq1：首个请求之前没有可比对的上下文
   expect(list().querySelectorAll('.step-tokens').length).toBe(2);
-  // chip 插在标题与时间之间，标题被截断时它和时间仍完整可见（flex:none 在样式里）。
+  // 正文标题与辅助信息分层；编号、token 和时间完整保留在次级元信息行。
   const head = rendered[1].querySelector('.step-head');
   const order = [...head.children].map(node => node.className);
-  expect(order.indexOf('step-title')).toBeLessThan(order.indexOf('step-tokens'));
-  expect(order.indexOf('step-tokens')).toBeLessThan(order.indexOf('when'));
+  expect(order.indexOf('step-title')).toBeLessThan(order.indexOf('step-meta'));
+  expect(head.querySelector('.step-meta').querySelector('.step-tokens')).toBeTruthy();
+  const metadataOrder = [...head.querySelector('.step-meta').children].map(node => node.className);
+  expect(metadataOrder.indexOf('step-tokens')).toBeLessThan(metadataOrder.indexOf('when'));
 
   // 续读到的步骤即使属于同一批（没有 first），也不能把已经印过的 chip 再印一遍。
   world.state.transcriptSteps.push({ seq: 6, kind: 'result', title: 'edit', at: iso(NOW), body: '测试通过',
@@ -267,7 +269,7 @@ test('热任务点击才加载执行正文，轮询增量续读并保留阅读�
   const finalReads = [...world.state.transcriptAfter];
   await dom.intervalFor(3000)(); expect(world.state.transcriptAfter).toEqual(finalReads);
   ui.lastSnapshot = snapshot;
-  await findByText(panel(), '返回 Worker · Esc').onclick();
+  await findByText(panel(), '返回 Worker').onclick();
   expect(panel()).toBeNull();
   await dom.intervalFor(3000)();
   expect(world.state.transcriptAfter).toEqual(finalReads);

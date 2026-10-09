@@ -2,7 +2,6 @@ import { el, button } from './dom.js';
 import { api } from './api.js';
 import { STEP } from './format.js';
 import { ui } from './state.js';
-import { stepSummary } from './transcript-model.js';
 
 const readers = new Map();
 export function releaseTranscriptReader(taskId) {
@@ -102,7 +101,10 @@ function readerState(taskId) {
       else if (!data.steps.length) results.append(el('p', '没有命中。未写完的记录不参与检索。', 'hint'));
       for (const step of data.steps) {
         const row = el('div', undefined, 'search-hit'); row.dataset.hitSeq = String(step.seq);
-        row.append(button(`#${step.seq} · ${STEP[step.kind] || step.kind} · ${stepSummary(step)}`, () => (state.locate || openTranscriptStep)(taskId, step.seq), 'ghost'));
+        const type = STEP[step.kind] || step.kind;
+        const name = step.tool_name || step.title;
+        const heading = [`#${step.seq}`, type, name && name !== type ? name : '', step.is_error ? '失败' : ''].filter(Boolean).join(' · ');
+        row.append(button(heading, () => (state.locate || openTranscriptStep)(taskId, step.seq), 'ghost'));
         const excerpt = el('p');
         const text = step.excerpt || '', needle = criteria.query, at = needle ? text.toLocaleLowerCase().indexOf(needle.toLocaleLowerCase()) : -1;
         if (at < 0) excerpt.textContent = text;

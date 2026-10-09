@@ -54,9 +54,17 @@ async function clickText(text) {
     if(!node)throw new Error('Missing button');node.dataset.browserClick='target';return '[data-browser-click="target"]';`);
   await click(selector); await execute(`document.querySelector('[data-browser-click="target"]')?.removeAttribute('data-browser-click');`);
 }
+async function resize(width, height) {
+  await rpc(`/session/${session}/window/rect`, { width: Math.max(540, width + 40), height: height + 200 });
+  await execute(`const frame=parent.document.querySelector('iframe');frame.style.width='${width}px';frame.style.height='${height}px';parent.scrollTo(0,0);`);
+}
 async function screenshot(name) {
-  const raw = await rpc(`/session/${session}/screenshot`, undefined, 'GET');
-  fs.writeFileSync(path.join(output, name + '.png'), Buffer.from(raw, 'base64'));
+  await rpc(`/session/${session}/frame`, { id: null });
+  const frame = await rpc(`/session/${session}/element`, { using: 'css selector', value: 'iframe' });
+  try {
+    const raw = await rpc(`/session/${session}/element/${frame['element-6066-11e4-a52e-4f735466cecf']}/screenshot`, undefined, 'GET');
+    fs.writeFileSync(path.join(output, name + '.png'), Buffer.from(raw, 'base64'));
+  } finally { await rpc(`/session/${session}/frame`, { id: 0 }); }
 }
 try {
   await repo(f.root);
@@ -91,7 +99,8 @@ try {
   server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
     const url = new URL(request.url), route = url.pathname;
     try {
-      if (route === '/') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
+      if (route === '/') return new Response('<!doctype html><body style="margin:0"><iframe src="/reader" style="border:0;display:block;width:1440px;height:900px"></iframe>', { headers: { 'Content-Type': 'text/html' } });
+      if (route === '/reader') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
       if (/^\/assets\/[\w.-]+\.(js|css)$/.test(route) || route === '/highlight.min.js') return new Response(Bun.file(path.join(assets, path.basename(route))));
       if (route.endsWith('/transcript-search')) return Response.json({ steps: [step], files: ['fixture'], next: 1, has_more: false });
       if (route.endsWith('/transcript-step')) return Response.json({ step, related: [], context: [], has_more: false });
@@ -121,6 +130,8 @@ try {
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` });
+  await rpc(`/session/${session}/frame`, { id: 0 });
+  await resize(1440, 900);
   await waitFor('document.querySelector(".transcript-dialog[open]")', 'execution reader opened');
   assert(counts.state + counts.tree + counts.file === 0, 'closed code tab must not read files');
   await click('#execution-tab-code-101');
@@ -133,10 +144,11 @@ try {
   assert(await execute(`return getComputedStyle(document.querySelector('.code-split')).display!=='none'&&getComputedStyle(document.querySelector('.code-unified')).display==='none'`), 'desktop must default to split diff');
   for (const theme of ['light', 'dark']) {
     await execute(`document.documentElement.dataset.theme='${theme}';`);
-    for (const [width, height] of [[1440, 900], [900, 700], [390, 844]]) {
-      await rpc(`/session/${session}/window/rect`, { width, height });
+    for (const [width, height] of [[1440, 900], [900, 700], [390, 844], [320, 568]]) {
+      await resize(width, height);
       const box = await execute(`const rect=s=>{const r=document.querySelector(s).getBoundingClientRect();return {x:r.x,y:r.y,w:r.width,h:r.height,right:r.right,bottom:r.bottom}};
         return {side:rect('.code-sidebar'),body:rect('.code-viewport'),filter:rect('.code-tree-filter'),width:innerWidth,height:innerHeight,split:getComputedStyle(document.querySelector('.code-split')).display,unified:getComputedStyle(document.querySelector('.code-unified')).display};`);
+      assert(box.width === width && box.height === height, `wrong test viewport: ${JSON.stringify(box)}`);
       assert(box.body.h > 100 && box.body.w > 200, `clipped body ${theme}/${width}: ${JSON.stringify(box)}`);
       assert(box.body.right <= box.width + 1 && box.body.bottom <= box.height + 1, `escaped viewport: ${JSON.stringify(box)}`);
       if (box.width > 760) assert(box.side.right <= box.body.x + 1 && Math.abs(box.side.y - box.body.y) < 1, `desktop columns misplaced: ${JSON.stringify(box)}`);
@@ -148,7 +160,7 @@ try {
   await clickText('收起文件栏');
   assert(await execute(`return getComputedStyle(document.querySelector('.code-sidebar')).display==='none'&&document.querySelector('.code-viewport').getBoundingClientRect().height>300`), 'mobile file collapse did not expand body');
   await clickText('展开文件栏');
-  await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
+  await resize(1440, 900);
   await clickText('文件内容');
   await waitFor('document.querySelector(".code-content-segment")', 'current file content');
   await execute(`window.savedFile=document.querySelector('.code-content-segment');document.querySelector('.code-viewport').scrollTop=100;window.savedScroll=document.querySelector('.code-viewport').scrollTop;`);
@@ -180,7 +192,7 @@ try {
   assert(await execute(`return document.querySelectorAll('.code-content-line[data-line="1"]').length===1`), 'continued line duplicated source line number');
   assert(fs.readFileSync(indexPath).equals(originalIndex), 'read-only viewer rewrote original Git index');
   assert((await git(workspace, 'rev-parse', 'HEAD')) === commit, 'read-only viewer moved HEAD');
-  await clickText('返回 Worker · Esc');
+  await clickText('返回 Worker');
   const closedCount = counts.state;
   await Bun.sleep(3500);
   assert(counts.state === closedCount, 'closed viewer kept polling');

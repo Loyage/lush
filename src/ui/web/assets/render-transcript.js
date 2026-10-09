@@ -71,16 +71,19 @@ function stepNode(taskId, step) {
   const caret = el('span', '', 'step-caret');
   const summary = stepSummary(step);
   // Content belongs below the heading, not in a single-line button or tooltip.
-  const heading = ['tool', 'result', 'meta'].includes(step.kind) ? step.tool_name || step.title : `#${step.seq}`;
-  const title = el('span', heading, 'step-title');
+  const heading = ['tool', 'result', 'meta'].includes(step.kind) ? step.tool_name || step.title : '';
+  const title = el('span', heading || '', 'step-title');
   title.title = summary;
   head.append(caret, el('span', STEP[step.kind] || step.kind, `step-kind k-${step.kind}`), title);
   if (step.kind === 'tool') head.append(el('span', '尚未见到结果', 'step-call-status'));
   else if (step.is_error) head.append(el('span', '失败', 'step-call-status'));
   // 同一组（turn 或 batch）只认 first：翻页增量续读拿到的后续步骤没有 first，chip 不会重复印出来。
+  const metadata = el('span', undefined, 'step-meta');
+  metadata.append(el('span', `#${step.seq}`, 'step-number'));
   const chip = step.tokens?.first ? tokensChip(step.tokens) : null;
-  if (chip) head.append(chip);
-  if (step.at) head.append(el('span', relative(step.at), 'when'));
+  if (chip) metadata.append(chip);
+  if (step.at) metadata.append(el('span', relative(step.at), 'when'));
+  head.append(metadata);
   item.append(head);
   // 没有正文的步骤（运行时元数据）保持一行，也不做可点的样子。
   if (!step.body && step.kind !== 'tool') {
@@ -181,7 +184,7 @@ function insertOlder(taskId, list, state, steps) {
 }
 
 const transcriptMetaText = state => state.steps.length
-  ? `已加载 ${state.steps.length} 条记录 · 按调用关联输入输出 · 长内容可就地展开${(state.has_older || state.has_more) ? ' · 尚有未加载记录' : ''}`
+  ? `已加载 ${state.steps.length} 条记录${(state.has_older || state.has_more) ? ' · 尚有未加载' : ''}`
   : (state.files.length ? '会话记录里还没有可显示的步骤。' : '这个 Worker 还没有 pi 会话记录（可能从未被唤醒，或会话文件已被清理）。');
 
 /** 全屏打开时只更新其正文，不重建任务页。 */
@@ -224,11 +227,14 @@ export function transcriptContent(taskId) {
   // state.steps 始终按 seq 升序保存为规范态；倒序只在渲染层反转。
   for (const step of desc ? [...grouped].reverse() : grouped) list.append(stepNode(taskId, step));
   const foldable = grouped.filter(step => step.body || step.results.length);
-  const actions = el('div', undefined, 'actions');
+  const actions = el('div', undefined, 'actions transcript-pagination');
+  const controls = el('div', undefined, 'transcript-record-controls');
+  const readingActions = el('div', undefined, 'actions');
+  controls.append(meta, readingActions);
   // 一步一行，但轮到要看全文时不该点几十次：一个按钮把整段过程一次摊开或收起。
   if (foldable.length > 1) {
     const allOpen = foldable.every(step => stepExpanded(taskId, step));
-    actions.append(button(allOpen ? '收起全部步骤' : '展开全部步骤', () => {
+    readingActions.append(button(allOpen ? '收起全部步骤' : '展开全部步骤', () => {
       for (const step of foldable) ui.stepToggle.set(stepKey(taskId, step), !allOpen);
       paintTranscript(taskId);
     }, 'ghost'));
@@ -238,15 +244,17 @@ export function transcriptContent(taskId) {
   const newer = newerButton(taskId, state);
   if (older) actions.append(older);
   if (newer) actions.append(newer);
-  actions.append(button('重新加载', () => loadTranscript(taskId), 'ghost'));
+  readingActions.append(button('重新加载', () => loadTranscript(taskId), 'ghost'));
   const latest = button(desc ? '有新记录 · 跳到最新' : '有新记录 · 跳到末尾', () => {
     const target = desc ? list.firstElementChild : list.lastElementChild;
     target?.scrollIntoView?.({ block: 'nearest' }); latest.hidden = true;
   }, 'ghost transcript-new');
   latest.hidden = true; latest.dataset.live = 'transcript-new';
   const sources = el('details', undefined, 'transcript-sources');
-  sources.append(el('summary', `记录来源 · ${state.files.length} 个会话文件`), el('pre', state.files.join('\n'), 'raw-value'));
-  return [...reader(), meta, latest, list, actions, sources, state.truncated ? el('p', '快速视图有未读取记录；全文搜索可访问后续会话与完整原文。', 'hint') : null].filter(Boolean);
+  sources.append(el('summary', `记录来源 · ${state.files.length} 个会话文件`),
+    el('p', '按会话与调用身份关联输入输出；长内容可就地展开，原文与来源保留在每一步内。', 'hint'),
+    el('pre', state.files.join('\n'), 'raw-value'));
+  return [...reader(), controls, latest, list, actions, sources, state.truncated ? el('p', '快速视图有未读取记录；全文搜索可访问后续会话与完整原文。', 'hint') : null].filter(Boolean);
 }
 
 /** 「加载更多」：向后读更新的一页，asc 追加到末尾、desc 前插到顶部。 */

@@ -17,7 +17,14 @@ export function createCodeView(taskId, { onSearch } = {}) {
   }
   scopeSelect.value = 'task';
   scopeSelect.setAttribute('data-help', 'Worker 累计从创建基线比较，本次交付从迭代基线比较，未提交从实际 HEAD 比较；右侧均为当前工作区，归档时明确降级。');
-  const metadata = el('p', '尚未读取代码现场。', 'hint code-snapshot');
+  const metadata = el('div', undefined, 'code-snapshot');
+  const summaryLine = el('div', '尚未读取代码现场。', 'code-summary');
+  const provenance = el('p', '', 'code-provenance');
+  const sampling = el('details', undefined, 'code-sample-details');
+  const samplingBody = el('p', '', 'hint'); sampling.append(el('summary', '采样详情'), samplingBody);
+  sampling.hidden = true;
+  const warning = el('p', '', 'code-snapshot-warning'); warning.hidden = true;
+  metadata.append(summaryLine, provenance, sampling, warning);
   const refreshButton = button('刷新', () => refresh(), 'ghost', { help: '重新采样当前 Worker 工作区，并显式更新文件列表和选中文件；不会修改文件或调用 Agent。' });
   const toggleFiles = button('收起文件栏', () => {
     const collapsed = root.classList.toggle('code-files-collapsed'); toggleFiles.textContent = collapsed ? '展开文件栏' : '收起文件栏';
@@ -59,10 +66,15 @@ export function createCodeView(taskId, { onSearch } = {}) {
     const summary = data.summary || {};
     const current = data.source === 'workspace' ? `当前工作区（HEAD ${short(data.head_commit)}，含未提交）`
       : data.source === 'commit' ? `已提交版本 ${short(data.head_commit)} · 现场不可用` : '无可用现场';
-    metadata.textContent = `分支 ${data.branch || '未知'} · ${short(data.base_commit)} → ${current} · 采样 ${data.sampled_at || '未知'}\n`
-      + `净变化 ${summary.changed_total ?? '?'} 文件 · 未提交 ${summary.pending_total ?? '?'} 文件 · +${summary.added ?? '?'} −${summary.deleted ?? '?'} · 冲突 ${summary.conflicts ?? '?'}`
-      + (data.truncated ? ' · 范围不完整（达到读取限额）' : '')
-      + (data.reason ? ` · ${data.reason}` : '');
+    summaryLine.replaceChildren(...[
+      `净变化 ${summary.changed_total ?? '?'} 文件`, `未提交 ${summary.pending_total ?? '?'} 文件`,
+      `+${summary.added ?? '?'} −${summary.deleted ?? '?'}`, `冲突 ${summary.conflicts ?? '?'}`,
+    ].map(text => el('span', text)));
+    provenance.textContent = `基线 ${short(data.base_commit)} → ${current}`;
+    sampling.hidden = false;
+    samplingBody.textContent = `分支 ${data.branch || '未知'} · 采样 ${data.sampled_at || '未知'}`;
+    warning.textContent = [data.truncated ? '范围不完整（达到读取限额）' : '', data.reason || ''].filter(Boolean).join(' · ');
+    warning.hidden = !warning.textContent;
   }
   async function probe() {
     if (!visible() || probing || refreshPromise || !snapshot) return;
