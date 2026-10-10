@@ -89,8 +89,11 @@ test('styles retain Agent-call visibility, both themes and system/application re
     const css = await (await fetch(f.url + styles[0])).text();
     expect(css).not.toContain('@import');
     expect(css).toContain(':root[data-theme="dark"]');
-    expect(css).toContain('#input-form[data-mode="append"] .composer-mode');
-    expect(css).toContain('#input-form[data-mode="create"] .composer-input textarea');
+    expect(css).toMatch(/\.composer form\{[^}]*border:1px dashed var\(--dim\)/);
+    expect(css).toMatch(/#input-form\[data-mode="append"\]\{[^}]*border-style:solid;[^}]*border-inline-start:4px solid var\(--text\)/);
+    expect(css).toMatch(/#input-form\[data-mode="append"\] \.composer-mode-target\{[^}]*flex-basis:100%;[^}]*font-weight:700/);
+    expect(css).not.toContain('--mode-color');
+    expect(css).not.toContain('border-left:3px solid var(--queued)');
     expect(css).toContain('.composer-mode-behavior{flex-basis:100%}');
     expect(css).toMatch(/button\.agent-call\s*\{[^}]*var\(--violet-ink\)/);
     expect(css).toMatch(/\.help-host\s*\{[^}]*display:\s*contents/);

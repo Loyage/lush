@@ -62,5 +62,6 @@
 - `test/web/dom-input-buffer.test.js` / `dom-inputs.test.js`：键盘、输入法、单飞、编辑与迟到响应保护。
 - `test/web/dom-inputs-api.test.js`：真实临时 HTTP/RPC/SQLite/Git 串联主输入暂存、搜索、修订保存、仅创建及原始引用回看，不连接用户项目。
 - `bun scripts/check-input-history-ui.js`：Firefox/geckodriver 临时 fixture，验证双主题 1440/900/500px 实际视口的等高列表/详情布局、浏览器后退与键盘交互；Firefox 将请求的 390px 窗口限制为 500px 视口，不据此声称验证了 390px。
+- `bun run scripts/check-composer-layout.js`：实际 `/p/<id>/` 项目页和 fixture API；Firefox 验证新建虚线框／追加实线框、粗侧边、常驻加粗目标、六种项目色下的模式样式不漂移、双主题、聚焦／失焦、长标题、冻结／阻塞目标保留、Enter 真实投递与导航退出。用真实 iframe 浏览上下文绕过 Firefox 顶层最小窗口限制，实际测试 1440/900/390px 视口；不连接 daemon 或模型，运行后清理服务与浏览器进程。
 
 缓冲区上限 500 条。无已绑定父 Worker 或 detached HEAD 时，暂存需先明确选择有效父Worker；失败保留输入，不自动新建任意 owner。当前不提供批量发射、Worker 追加消息的全局检索或原始 Input 改写。

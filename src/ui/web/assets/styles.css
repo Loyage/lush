@@ -218,15 +218,18 @@ input.pick{flex:none;width:15px;height:15px;accent-color:var(--accent);cursor:po
 /* Compose without stealing vertical space from the work: collapsed it is one input line plus one action
    line; the parent-branch field and the shortcut legend only appear after the user expands it. */
 .composer{grid-area:composer;border-top:1px solid var(--line);padding:14px clamp(22px,3.5vw,64px) calc(14px + env(safe-area-inset-bottom,0px));background:var(--panel);z-index:4}
-.composer form{position:relative;max-width:1320px;margin:0 auto}.composer-heading{display:flex;align-items:center;gap:12px;margin-bottom:8px}.composer-heading label{font-size:13px;font-weight:650;color:var(--text)}.composer-caption{font-size:11px;color:var(--dim)}
+/* Destination is encoded by shape and hierarchy, never by the project palette. */
+.composer form{position:relative;max-width:1320px;margin:0 auto;padding:10px 12px;border:1px dashed var(--dim);border-radius:12px;background:var(--panel)}
+#input-form[data-mode="append"]{border-style:solid;border-inline-start:4px solid var(--text);background:var(--panel-2)}
+.composer-heading{display:flex;align-items:center;gap:12px;margin-bottom:8px}.composer-heading label{font-size:13px;font-weight:650;color:var(--text)}.composer-caption{font-size:11px;color:var(--dim)}
 .composer-target{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 4px}.composer-target label{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}.composer-target input,.composer-target select{min-width:220px;max-width:460px;flex:1;padding:6px 9px;background:var(--bg);border:1px solid var(--line-soft);border-radius:6px;color:var(--text);font:11px ui-monospace,SFMono-Regular,Menlo,monospace}.composer-target .hint{font-size:10px}.composer-input{position:relative;margin:0 0 8px;background:var(--bg);border-radius:10px}.composer-input:focus-within{background:var(--panel)}.composer-input textarea{margin:0;display:block;width:100%;background:transparent}.composer textarea{min-height:34px;height:36px;max-height:22vh;resize:none;overflow-y:auto;padding:7px 11px;line-height:1.5;border-color:var(--line-soft);overflow-wrap:break-word;word-break:break-word}
-.composer-mode{--mode-color:var(--accent);display:flex;align-items:center;flex-wrap:wrap;gap:4px 9px;margin-bottom:8px;padding:6px 10px;border-left:3px solid var(--mode-color);border-radius:0 6px 6px 0;background:var(--accent-soft);font-size:11px;line-height:1.5}
-.composer-mode-icon,.composer-mode strong{color:var(--mode-color);flex:none}.composer-mode-icon{font-size:16px;font-weight:700}.composer-mode-target{flex:1 1 160px;min-width:0;overflow-wrap:anywhere;color:var(--text)}.composer-mode-behavior{color:var(--muted);overflow-wrap:anywhere}
-#input-form[data-mode="append"] .composer-mode{--mode-color:var(--queued);background:var(--blue-soft)}
-#input-form[data-mode="create"] .composer-input textarea{border-left:3px solid var(--accent)}
-#input-form[data-mode="append"] .composer-input textarea{border-left:3px solid var(--queued)}
+.composer-mode{display:flex;align-items:center;flex-wrap:wrap;gap:5px 9px;margin-bottom:8px;font-size:11px;line-height:1.5}
+.composer-mode-icon,.composer-mode strong{color:var(--text);flex:none}.composer-mode strong{font-size:12px}.composer-mode-icon{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:1px dashed var(--dim);border-radius:6px;font-size:16px;font-weight:700}.composer-mode-target{flex:1 1 160px;min-width:0;overflow-wrap:anywhere;color:var(--text)}.composer-mode-behavior{color:var(--muted);overflow-wrap:anywhere}
+#input-form[data-mode="append"] .composer-mode-icon{border-style:solid;border-color:var(--text);background:var(--text);color:var(--panel)}
+#input-form[data-mode="append"] .composer-mode-target{flex-basis:100%;padding:6px 9px;border:1px solid var(--line);border-radius:6px;background:var(--panel);font-size:14px;font-weight:700}
+#input-form .composer-input textarea:focus{outline-color:var(--text)}
 #input-form[data-blocked="true"] .composer-mode-behavior{color:var(--failed)}
-@media(max-width:680px){.composer-mode{gap:3px 7px;padding:5px 8px;margin-bottom:5px}.composer-mode-behavior{flex-basis:100%}}
+@media(max-width:680px){.composer form{padding:7px 8px}.composer-mode{gap:3px 7px;margin-bottom:5px}.composer-mode-behavior{flex-basis:100%}#input-form[data-mode="append"] .composer-mode-target{font-size:12px}}
 .composer-input textarea:focus{height:clamp(72px,16dvh,144px)}
 #input-buffer-help[hidden]{display:none}
 .composer-foot{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.composer-foot .hint{flex:1 1 230px;font-size:10px}.composer-actions{display:flex;align-items:center;gap:8px;margin-left:auto;flex:none;flex-wrap:wrap;max-width:100%}.composer-actions button{font-size:11px}.composer-expand{white-space:nowrap;max-width:46vw;overflow:hidden;text-overflow:ellipsis}.shortcut-separator{margin:0 6px;color:var(--line)}kbd{font-size:10px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:1px 4px;background:var(--bg)}
