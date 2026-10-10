@@ -1,7 +1,7 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, deepText } from '../dom-stub.js';
+import { installDom, deepText, dialogButton } from '../dom-stub.js';
 
-let state = { mode: 'host', project: null, last_project: null, last_project_id: null, projects: [], capabilities: { project_control: true } };
+let state = { mode: 'host', pid: 123, restart_supported: true, project: null, last_project: null, last_project_id: null, projects: [], capabilities: { project_control: true } };
 const requests = [];
 let projectListResponse = null;
 const dom = installDom({ fetch: async (url, options = {}) => {
@@ -11,6 +11,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (path === '/api/host/projects') return projectListResponse?.() ?? Response.json({ projects: state.projects });
   if (path === '/api/host') return Response.json(state);
   if (path === '/api/host/projects/start' || path === '/api/host/projects/stop' || path === '/api/host/remove') return Response.json({ ok: true });
+  if (path === `/p/${ID}/api/service/restart`) return Response.json({ restarted: true, pid: 124 });
   return Response.json({ error: 'not mocked' }, { status: 404 });
 } });
 afterAll(() => dom.restore());
@@ -54,6 +55,26 @@ test('后台总览展示真实进程摘要及指令输入，不再提供处理�
   state.projects[0].running = false; await picker.refreshProjectList();
   expect(input.value).toBe('未发送的工作'); expect(slot.querySelector('.project-order-form').querySelectorAll('button').every(control => control.disabled)).toBe(true);
   expect(requests.slice(before).every(request => !request.options.method || request.options.method === 'GET')).toBe(true);
+});
+
+test('总览挂载项目行重启及页旁界面／全部按钮，确认来源，项目重启刷新保留指令草稿', async () => {
+  state = { ...state, projects: [{ ...row, running: true }, { ...row, id: 'bbbbbbbbbbbbbbbb', running: false }] };
+  await picker.openProjectManager({ push: false });
+  const panel = dom.node('detail'), slot = panel.querySelector('.project-order'); await slot.querySelector('button').onclick();
+  const input = slot.querySelector('textarea'); input.value = '重启后仍未发送'; input.oninput();
+  const button = panel.querySelector(`[data-service-restart="daemon"][data-project-id="${ID}"]`);
+  expect(button.parentNode.parentNode.classList.contains('project-item-actions')).toBe(true);
+  expect(panel.querySelector('.workbench-service-restart').querySelector('[data-service-restart="host"]').disabled).toBe(false);
+  expect(panel.querySelector('[data-project-id="bbbbbbbbbbbbbbbb"]').disabled).toBe(true);
+  const before = requests.length, pending = button.onclick();
+  expect(deepText(dom.node('modal'))).toContain('/tmp/demo');
+  await dialogButton(dom, '确认重启').onclick(); await pending;
+  expect(requests.slice(before).filter(request => request.options.method === 'POST').map(request => request.path)).toEqual([`/p/${ID}/api/service/restart`]);
+  expect(panel.querySelector(`[data-service-restart="daemon"][data-project-id="${ID}"]`)).toBe(button);
+  expect(panel.querySelector('.project-order').querySelector('textarea')).toBe(input); expect(input.value).toBe('重启后仍未发送');
+  const all = panel.querySelector('[data-service-restart="all"]'), confirmAll = all.onclick();
+  await Bun.sleep(0); expect(deepText(dom.node('modal'))).toContain('1 个在线项目');
+  await dialogButton(dom, '取消').onclick(); await confirmAll;
 });
 
 test('新增项目同步预约窗口，异步 select 后不清空当前输入', async () => {

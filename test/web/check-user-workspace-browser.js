@@ -14,7 +14,7 @@ if (compiled) await buildAssets(assets, temp, 'c'.repeat(32));
 const servedAssets = compiled ? temp : assets;
 const entryHtml = await Bun.file(join(servedAssets, 'index.html')).text();
 const appPath = entryHtml.match(/src="(\/[^"\n]*(?:-app-[^"\n]+|app)\.js)"/)[1];
-const world = makeWorld(), calls = [], preferenceWrites = [], assetCalls = [], projectId = 'aaaaaaaaaaaaaaaa'; let offline = false, inboxNotices = [];
+const world = makeWorld(), calls = [], preferenceWrites = [], assetCalls = [], restartWrites = [], projectId = 'aaaaaaaaaaaaaaaa'; let offline = false, inboxNotices = [];
 const inboxItem = id => ({ project_id: projectId, project_name: 'fixture', project: '/tmp/demo', online: true,
   checked_at: new Date().toISOString(), notice: { id, task_id: 1, task_worker_number: 'W1', kind: 'info', status: 'sent',
     title: `编译提醒 ${id}`, body: 'controlled fixture', created_at: new Date().toISOString(), source_event_id: id,
@@ -42,6 +42,14 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   }
   if (path.startsWith('/api/') || path.startsWith(`/p/${projectId}/api/`)) {
     calls.push(path + url.search);
+    if (path === '/api/host') {
+      const response = await world.fetchImpl(path);
+      return Response.json({ ...await response.json(), pid: 101, restart_supported: true });
+    }
+    if (req.method === 'POST' && (path.endsWith('/api/service/restart') || path === '/api/host/restart')) {
+      restartWrites.push(path);
+      return Response.json({ error: 'fixture 后台有活动 Agent，拒绝重启' }, { status: 400 });
+    }
     if (path === '/api/host/inbox') return Response.json({ version: 1,
       items: url.searchParams.get('status') === 'open' ? [] : inboxNotices, cursor: null, has_more: false, complete: true,
       projects: [{ id: projectId, name: 'fixture', online: true, checked_at: new Date().toISOString(), error: null, complete: true }] });
@@ -98,7 +106,10 @@ try {
   assert(await wait(`document.getElementById('detail').dataset.view==='projects'&&!document.getElementById('theme-toggle').disabled`), 'root boot failed');
   const pages = [['projects', 'projects'], ['settings', 'settings'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['quick-explain', 'quick-explain'], ['automation', 'automation'], ['global-inbox', 'global-inbox']];
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
-    await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.getElementById('viewport').style.width='${width}px'`); await frame();
+    await rpc(`/session/${session}/frame`, { id: null });
+    // WebDriver keyboard activation can scroll the outer iframe fixture as well as
+    // its document. Restore the fixture origin before clicking the next viewport's header.
+    await execute(`document.getElementById('viewport').style.width='${width}px';window.scrollTo(0,0)`); await frame();
     if (await execute(`return document.documentElement.dataset.theme!=='${theme}'`)) { await click('#theme-toggle'); assert(await wait(`document.documentElement.dataset.theme==='${theme}'`), 'authoritative theme save failed'); }
     for (const [id, view] of pages) {
       await execute(`document.getElementById('${id}-open').click()`);
@@ -113,8 +124,25 @@ try {
     assert(await execute(`return document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth&&document.querySelector('.project-order-form .agent-call').dataset.help.includes('token')&&!document.getElementById('global-inbox-summary')`), `backend form layout or Agent help failed at ${width}/${theme}`);
     await execute(`Array.from(document.querySelectorAll('#detail button')).find(b=>b.textContent==='刷新项目状态').click()`);
     assert(await wait(`document.querySelector('.project-order-form textarea')?.value==='浏览器会话中的独立指令'`), 'overview refresh lost source draft');
+    assert(await wait(`document.querySelector('[data-service-restart="host"]')&&!document.querySelector('[data-service-restart="host"]').disabled&&!document.querySelector('[data-service-restart="daemon"]').disabled`), 'overview restart controls did not mount');
+    assert(await execute(`return document.querySelector('[data-service-restart="daemon"]').closest('.project-item')&&document.querySelector('[data-service-restart="host"]').closest('.workbench-service-restart')&&!document.querySelector('.workbench-service-restart .agent-call')&&!document.querySelector('#project-maintenance')&&!Array.from(document.querySelectorAll('#detail a,#detail button')).some(node=>node.textContent==='处理消息')&&document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth`), `restart layout or scope failed at ${width}/${theme}`);
+    const restartBefore = restartWrites.length;
+    // A real keyboard activation, not a direct call into the controller.
+    const allButton = await rpc(`/session/${session}/element`, { using: 'css selector', value: '[data-service-restart="all"]' });
+    await rpc(`/session/${session}/element/${allButton['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE007' });
+    assert(await wait(`document.getElementById('modal').textContent.includes('1 个在线项目')`), 'all restart confirmation omitted fixed online scope');
+    assert(await execute(`return document.getElementById('modal').textContent.includes('/tmp/demo')&&!document.querySelector('#modal .agent-call')`), 'all restart omitted project identity or incorrectly triggers Agent');
+    await execute(`Array.from(document.querySelectorAll('#modal button')).find(b=>b.textContent==='取消').click()`);
+    assert(await wait(`!document.querySelector('[data-service-restart="all"]').disabled`), 'cancel did not release overview restart lock');
+    assert(restartWrites.length === restartBefore, 'cancelled all restart wrote a service mutation');
+    await execute(`document.querySelector('[data-service-restart="daemon"]').click()`);
+    assert(await wait(`document.getElementById('modal').textContent.includes('重启项目后台？')`), 'project restart did not confirm');
+    await execute(`Array.from(document.querySelectorAll('#modal button')).find(b=>b.textContent==='确认重启').click()`);
+    assert(await wait(`document.querySelector('.workbench-service-restart').textContent.includes('后台有活动 Agent')&&!document.querySelector('[data-service-restart="daemon"]').disabled`), 'busy restart did not report rejection and release lock');
+    assert(restartWrites.length === restartBefore + 1 && restartWrites.at(-1) === `/p/${projectId}/api/service/restart`, 'project restart lost fixed identity or retried');
+    assert(await execute(`return document.querySelector('.project-order-form textarea').value==='浏览器会话中的独立指令'&&document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth`), `busy error lost draft or overflowed at ${width}/${theme}`);
     assert(!calls.some(path => /^\/api\/(overview|snapshot|worker\/|stats|transcript)/.test(path)), 'root boot/read attached a project');
-    console.log(`PASS assembled global pages, authoritative theme and CSP: ${theme} ${width}px`);
+    console.log(`PASS assembled global pages, authoritative theme, restart scopes/keyboard/cancel/busy guard and CSP: ${theme} ${width}px`);
   }
   await execute(`Array.from(document.querySelectorAll('.project-order-form button')).find(b=>b.textContent==='创建 Worker').click()`);
   assert(await wait(`document.querySelector('.project-order-form .project-order-status').textContent.includes('待开始')`), 'source create-only ACK not rendered');
@@ -198,7 +226,7 @@ try {
   assert(await execute(`return document.getElementById('input').value==='未提交输入'&&document.getElementById('detail').dataset.view===before.view&&document.getElementById('detail').scrollTop===before.scroll&&getSelection().toString()===before.quote`), 'native global link destroyed project input, reading position or selection');
   console.log('PASS independent global tab preserves project identity, draft, selection and reading position'); passed = true;
 } catch (error) {
-  let snapshot; try { snapshot = await execute(`return {url:location.href,count:document.getElementById('global-inbox-count')?.textContent,timers:window.fixtureObserverTimers?.size,stacks:Array.from(window.fixtureObserverTimers?.values()||[]),events:window.fixtureTimerEvents?.slice(-25),sent:window.sentNotifications,error:document.getElementById('error')?.textContent}`); } catch {}
+  let snapshot; try { snapshot = await execute(`return {url:location.href,theme:document.documentElement.dataset.theme,themeButton:{disabled:document.getElementById('theme-toggle')?.disabled,rect:document.getElementById('theme-toggle')?.getBoundingClientRect().toJSON()},modalHidden:document.getElementById('modal')?.hidden,active:document.activeElement?.outerHTML?.slice(0,300),count:document.getElementById('global-inbox-count')?.textContent,timers:window.fixtureObserverTimers?.size,stacks:Array.from(window.fixtureObserverTimers?.values()||[]),events:window.fixtureTimerEvents?.slice(-25),sent:window.sentNotifications,error:document.getElementById('error')?.textContent}`); } catch {}
   console.error(`Browser failure; geckodriver log: ${log}; snapshot: ${JSON.stringify(snapshot)}; mock requests: ${JSON.stringify(calls.slice(-15))}`); throw error;
 }
 finally { if (session) { try { await rpc(`/session/${session}`, undefined, 'DELETE'); } catch {} } driver.kill(); await driver.exited; server.stop(true); if (passed) await rm(temp, { recursive: true, force: true }); }

@@ -8,6 +8,9 @@ import { cli, freePort } from './harness.js';
 import { fetch } from '../web/harness.js';
 import { installDom, deepText } from '../dom-stub.js';
 import { serviceRestartControls, waitForHostRestart } from '../../src/ui/web/assets/service-restart.js';
+import { projectRouteId, writeLauncherState } from '../../src/host/registry.js';
+import { startWeb } from '../../src/ui/web/server.js';
+import { isLocked } from '../../src/daemon/locking.js';
 
 const post = (url, body = {}, headers = {}) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
 const alive = pid => { try { process.kill(pid, 0); return true; } catch { return false; } };
@@ -88,12 +91,12 @@ test('全部重启按钮更换后台与Host进程，保留静息Worker且不动�
         if (!response.ok) throw new Error(value.error);
         return value;
       } });
-    const button = section.querySelector('[data-service-restart="all"]');
+    const button = section.root.querySelector('[data-service-restart="all"]');
     await until(() => !button.disabled);
     await button.onclick();
-    expect(deepText(section)).not.toContain('失败');
+    expect(deepText(section.root)).not.toContain('失败');
     expect(confirmations).toBe(1); expect(reloads).toBe(1);
-    expect(calls).toEqual(['/api/host', '/api/host', '/api/service/restart', '/api/host/restart']);
+    expect(calls).toEqual(['/api/host', '/api/host/projects', '/api/host', `/p/${projectRouteId(root)}/api/service/restart`, '/api/host/restart']);
     expect((await fetch(url + '/api/host').then(r => r.json())).pid).not.toBe(web.pid);
     expect((await cli(root, ['daemon', 'status'])).pid).not.toBe(daemon.pid);
     expect((await cli(other, ['daemon', 'status'])).pid).toBe(untouched.pid);
@@ -103,6 +106,45 @@ test('全部重启按钮更换后台与Host进程，保留静息Worker且不动�
     await cli(root, ['host', 'stop', String(port)]).catch(() => {});
     await Promise.all([cli(root, ['daemon', 'stop']).catch(() => {}), cli(other, ['daemon', 'stop']).catch(() => {})]);
     fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(other, { recursive: true, force: true });
+  }
+}, 30000);
+
+test('全局全部重启真实双daemon：只处理已登记在线项目，离线与未登记项目不启动／不重启', async () => {
+  const roots = [temp(), temp(), temp(), temp()], device = temp(), dom = installDom();
+  const extra = { LUSH_GLOBAL_CONFIG: device }, environment = env(extra);
+  const configs = roots.map(project => new Config({ project, env: environment }));
+  const ids = roots.map(projectRouteId);
+  let web, hostRestarts = 0;
+  try {
+    await Promise.all(roots.map(root => repo(root)));
+    const [beforeA, beforeB, untouched] = await Promise.all([0, 1, 3].map(index => cli(roots[index], ['daemon', 'start'], extra)));
+    for (const root of roots.slice(0, 3)) writeLauncherState(root, environment);
+    const clients = configs.slice(0, 2).map(config => new UIClient(config));
+    const tasks = await Promise.all(clients.map(client => client.request('order.submit', { content: 'keep paused', start: false })));
+    // Daemons and routing are real; the isolated embedded Host's exit is controlled.
+    web = startWeb(null, 0, { env: environment, restartHost: () => hostRestarts++ });
+    const url = `http://127.0.0.1:${web.port}`, calls = []; let reloads = 0;
+    const section = serviceRestartControls({ confirm: async options => {
+      expect(options.message).toContain('2 个在线项目');
+      expect(options.detail).toContain(roots[0]); expect(options.detail).toContain(roots[1]);
+      expect(options.detail).not.toContain(roots[2]); expect(options.detail).not.toContain(roots[3]); return true;
+    }, reload: () => reloads++, recover: async () => true, request: async (route, options) => {
+      calls.push(route); const response = await fetch(url + route, options), value = await response.json();
+      if (!response.ok) throw new Error(value.error); return value;
+    } });
+    await section.ready; await section.root.querySelector('[data-service-restart="all"]').onclick();
+    expect(calls).toEqual(['/api/host', '/api/host/projects', '/api/host', `/p/${ids[0]}/api/service/restart`, `/p/${ids[1]}/api/service/restart`, '/api/host/restart']);
+    expect(reloads).toBe(1); await until(() => hostRestarts === 1);
+    expect((await clients[0].request('system.status')).pid).not.toBe(beforeA.pid);
+    expect((await clients[1].request('system.status')).pid).not.toBe(beforeB.pid);
+    expect(isLocked(configs[2].home)).toBe(false);
+    expect((await cli(roots[3], ['daemon', 'status'], extra)).pid).toBe(untouched.pid);
+    for (let i = 0; i < 2; i++) expect(await clients[i].request('worker.inspect', { id: tasks[i].task.id })).toMatchObject({ status: 'paused', calls: 0 });
+  } finally {
+    dom.restore(); await web?.stop(true);
+    await Promise.all(roots.map(root => cli(root, ['daemon', 'stop'], extra)));
+    expect(configs.every(config => !isLocked(config.home))).toBe(true);
+    for (const root of [...roots, device]) fs.rmSync(root, { recursive: true, force: true });
   }
 }, 30000);
 

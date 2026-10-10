@@ -21,6 +21,8 @@
 
 `POST /api/host/projects/start {id}`、`POST /api/host/projects/stop {id}` 只接受已登记身份。stop 复用 `system.stop_if_idle` 并等待退出；忙碌拒绝，不改写 Worker 事实。项目 API 附着始终只读；用户明确选择/启动可恢复。直接书签打开未运行项目时显示离线并提供启动入口。能力通过 `/api/host` 发布；remove 只移除记录。
 
+W176／决定 #434：全局后台总览各项目行挂载「重启项目后台」，固定 `/p/<id>/api/service/restart`，成功只刷新列表，保留未发指令。页面旁边挂载独立「重启界面服务」和「全部重启」；后者只读重核已登记在线项目并确认固定范围，逐个安全重启后台，全成功后才重启当前 Host。忙碌／失败停止后续步骤，说明已成功、失败／未确认与未执行范围，不自动重试、不启动离线项目。刷新复用控制器和在途锁，离页不继续后续写入或刷新新页；Host 不支持时只禁界面／全部重启。认证、空闲门与现有路由不变，详见[服务重启](../reference/web-routes.md#服务重启)。
+
 ## 项目外观（W160）
 
 项目页标题为「项目名 · Lush」，由 Host 登记元数据先建立，daemon 离线仍可识别；根工作台标题为「Lush」。项目外观保存到 `<project>/.lush/appearance.json`，不是浏览器偏好或设备运行设置，不依赖 daemon。Host 首次显式打开初始化，优先分配已登记项目未使用的预设颜色（green/blue/teal/amber/rose/slate），耗尽后选使用最少者，重开不改色；列表读取不分配。

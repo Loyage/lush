@@ -81,7 +81,7 @@ function projectOrderSlot(row, list) {
   slot.append(toggle, message); return slot;
 }
 
-function projectItem(row, repaint, { compact = false, orderSlot = null } = {}) {
+function projectItem(row, repaint, { compact = false, orderSlot = null, restartControls = null } = {}) {
   const item = el('li', undefined, 'project-item');
   const link = el('a', undefined, 'project-open');
   link.href = projectHref(row.id); link.target = '_blank'; link.rel = 'noopener';
@@ -118,6 +118,7 @@ function projectItem(row, repaint, { compact = false, orderSlot = null } = {}) {
       control.setAttribute('data-help', kind === 'stop' ? '通过空闲准入安全停止项目后台；不会取消 Worker 或删除项目' : '显式启动这个项目的后台；读取列表不会自动启动');
       control.onclick = () => void projectControl(kind, row, status, repaint); actions.append(control);
     }
+    if (restartControls) actions.append(restartControls.projectControl(row));
     if (launcher) {
       const remove = el('button', '移除入口', 'ghost project-remove'); remove.type = 'button';
       remove.setAttribute('data-help', '只删除这个 Host 保存的项目入口，不停止后台、不删除项目或 Worker 数据');
@@ -151,11 +152,13 @@ function projectItem(row, repaint, { compact = false, orderSlot = null } = {}) {
 }
 
 function paintProjects(list, projects) {
+  list.projects = projects;
+  list.restartControls?.updateProjects(projects);
   const previous = list.orderSlots || new Map(), next = new Map();
   list.replaceChildren(...projects.map(row => {
     const slot = previous.get(row.id) || projectOrderSlot(row, list);
     slot.row = row; next.set(row.id, slot);
-    return projectItem(row, refreshProjectList, { orderSlot: slot });
+    return projectItem(row, refreshProjectList, { orderSlot: slot, restartControls: list.restartControls });
   }));
   list.orderSlots = next;
   for (const slot of next.values()) slot.control?.update(slot.row);
@@ -184,11 +187,13 @@ export async function refreshProjectList() {
       empty.querySelector('strong').textContent = '还没有项目入口';
       empty.querySelector('p').textContent = '输入一个绝对目录登记项目，或先浏览设置和帮助文档。';
     }
+    return true;
   } catch {
     if (request !== managerRequest || identity !== ui.view || !empty) return;
     empty.hidden = false;
     empty.querySelector('strong').textContent = '项目列表刷新失败';
     empty.querySelector('p').textContent = '上次读取的列表已保留，请重试刷新。';
+    return false;
   }
 }
 
@@ -253,18 +258,32 @@ export async function openProjectManager({ push = true } = {}) {
   const empty = el('div', undefined, 'workbench-empty'); empty.append(el('strong', '还没有项目入口'), el('p', '输入一个绝对目录登记项目，或先浏览设置和帮助文档。'));
   const refresh = el('button', '刷新项目状态', 'ghost'); refresh.type = 'button';
   refresh.onclick = () => refreshProjectList();
-  head.append(refresh);
+  const tools = el('div', undefined, 'workbench-backend-tools');
+  tools.append(refresh); head.append(tools);
   view.append(head);
   if (launcher && hostStatus?.mode !== 'offline') view.append(managerForm());
   view.append(empty, list); panel?.replaceChildren(view);
+  const owner = document;
+  const ownsPage = () => owner === globalThis.document && identity === ui.view && node('detail')?.querySelector('.project-manager-list') === list;
+  // Load only when the overview opens; project pages and device settings do not mount controls.
+  const controlsReady = import('./service-restart.js').then(({ serviceRestartControls }) => {
+    if (!ownsPage()) return;
+    list.restartControls = serviceRestartControls({ ownsPage, changed: async () => {
+      if (await refreshProjectList() === false) throw new Error('请显式刷新项目状态');
+    } });
+    tools.append(list.restartControls.root);
+    if (list.projects) paintProjects(list, list.projects);
+    return list.restartControls.ready;
+  }).catch(error => { if (ownsPage()) tools.append(el('p', `重启控制加载失败：${error.message}`, 'error')); });
   const request = ++managerRequest;
   try {
     const { projects = [] } = await api('/api/host/projects');
-    if (request !== managerRequest || identity !== ui.view) return;
+    await controlsReady;
+    if (request !== managerRequest || !ownsPage()) return;
     empty.hidden = projects.length > 0;
     paintProjects(list, projects);
   } catch (error) {
-    if (request === managerRequest && identity === ui.view) { empty.hidden = false; empty.querySelector('strong').textContent = '项目列表暂时不可用'; empty.querySelector('p').textContent = error.message; }
+    if (request === managerRequest && ownsPage()) { empty.hidden = false; empty.querySelector('strong').textContent = '项目列表暂时不可用'; empty.querySelector('p').textContent = error.message; }
   }
 }
 
