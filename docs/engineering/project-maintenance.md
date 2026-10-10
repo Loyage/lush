@@ -42,13 +42,13 @@ Web 复用当前项目 `POST /api/action`，固定项目 URL 与原认证／Orig
 
 ## 界面
 
-项目页常驻区域提供两个按钮与同源状态说明，不在全局无项目页面伪装可用。全部中断有一次应用内确认，说明当前项目、子 Worker、安全点和持久维护门；全部继续带 `agent-call` 与 `agentHelp()`。禁用原因由 `.help-host` 承载。请求成功只表示接受，失败保留可重试入口；刷新失败不得自动重发成功 mutation。页面初次加载／离线／旧 daemon 缺少 maintenance 时，不假造未暂停或可重启，明确不可用。现有重启按钮继续原串行服务控制，不被暂停按钮自动触发。
+项目概览内提供两个按钮与同源状态说明，不放在所有页面上方的共享横幅，不在全局无项目页面伪装可用。全部中断有一次应用内确认，说明当前项目、子 Worker、安全点和持久维护门；全部继续带 `agent-call` 与 `agentHelp()`。禁用原因由 `.help-host` 承载。请求成功只表示接受，失败保留可重试入口；刷新失败不得自动重发成功 mutation。页面初次加载／离线／旧 daemon 缺少 maintenance 时，不假造未暂停或可重启，明确不可用。现有重启按钮继续原串行服务控制，不被暂停按钮自动触发。
 
 ## 并行分区
 
 - Runtime child：`src/core/`、必要 persistence 附属存储、`test/project/project-maintenance.test.js` 及其它 runtime 回归；实现 Project 方法、持久门、安全中断／恢复、自动动作与重启恢复、summary/status/revision，同步维护 `modules-runtime.md`。不改 RPC、Host、CLI、Web assets 或本文。
 - Interfaces child：`src/rpc/registry.js`、`src/rpc/handlers/system.js`、`src/ui/web/server.js` 与专属接口测试（`test/project-maintenance-api.test.js`、`test/web/project-maintenance-api.test.js`），维护 `modules-interfaces.md`。不改 core、assets、本文；使用上述稳定方法和投影，不旁路 core 门禁。
-- UI child：`src/ui/web/assets/`、`test/web/dom-project-maintenance.test.js` 等 DOM 回归，维护 `modules-web.md`。不改 server/core/rpc 或本文；消费 snapshot 的 status.maintenance（按实际 snapshot 装配定位）、调用上述 action。
+- UI child（原并行分工；后续按用户要求将入口移入项目概览）：`src/ui/web/assets/`、`test/web/dom-project-maintenance.test.js` 等 DOM 回归，维护 `modules-web.md`。不改 server/core/rpc 或本文；消费 snapshot 的 status.maintenance（按实际 snapshot 装配定位）、调用上述 action。
 - W173：本文、其它设计／工程／使用文档、模块总索引、跨区真实临时 HTTP/RPC/SQLite/Git／可控 provider 联调、全量测试和派生 Worker 检查确认。
 
 ## 验证要求
@@ -58,14 +58,23 @@ Web 复用当前项目 `POST /api/action`，固定项目 URL 与原认证／Orig
 ## 实现与验证入口
 
 - `src/core/project/maintenance.js` 保存项目门与本次运行者身份，`scheduling.js` 在调度和异步准备后的真实 provider 开始前复核。暂停期间个人暂停优先，不无差别重启静息父级；已开始 lifecycle Hook 的后续未开始动作以精确附属标记等待，不重放已成功动作或未知副作用。
-- `src/rpc/handlers/system.js` 的 `system.stop_if_idle` 保留原检查与报错，并同步复核同源 `maintenanceView().ready_to_restart`。UI 用 `assets/project-maintenance.js` 的持久区域消费该投影，保持请求确认与后续状态刷新分离。
+- `src/rpc/handlers/system.js` 的 `system.stop_if_idle` 保留原检查与报错，并同步复核同源 `maintenanceView().ready_to_restart`。UI 用 `assets/project-maintenance.js` 的概览区域消费该投影，保持请求确认与后续状态刷新分离。
 - `test/project/project-maintenance.test.js` 覆盖 Runtime 与真实 Git／Shell Hook；`test/project-maintenance-api.test.js`／`test/web/project-maintenance-api.test.js` 验证授权与固定项目路由；`test/web/dom-project-maintenance.test.js` 验证交互与未知／离线状态。
 - `test/web/project-maintenance-runtime-integration.test.js` 使用真实 HTTP／Unix RPC／SQLite／Git 与可控 provider 联调按钮、多级子树、安全暂停后后台重建、运行设置与未读输入只恢复一次；`test/service-restart.test.js` 验证就绪与原子停机门一致。
 - `test/integration/project-maintenance.test.js` 使用真正的临时 daemon 与受监督 Host 进程（离线 MockProvider），分别替换后台与 Host PID，验证维护门与 queued 父子工作跨重启保留、原待开始不启动、显式继续才运行，并核对其它项目 PID 不变。测试退出停止临时服务、删除临时项目与设备根。
 - W173-2 与 W173-3 接口／UI 已合入并确认；W173-1 Runtime 已合入并确认。父最终完整 `bun run test --timeout 30000` **3073 pass / 0 fail**（396 文件），日志 `/tmp/lush-w173-logs/full-final.log`；维护组合 **75 pass / 0 fail**，日志 `/tmp/lush-w173-logs/integrated-first.log`；真实进程专项 **1 pass / 0 fail**，日志 `/tmp/lush-w173-logs/real-process-first.log`。文档检查通过，仅既有篇幅警告，日志 `/tmp/lush-w173-logs/docs-final.log`。首轮全量同样通过（3072 项），新增进程专项后完整复跑为最终数。
 - UI child 的 Firefox 源码／构建版双主题与 1440／390／320px 验证通过，日志 `/tmp/lush-w173-3-logs/repair-*`。未连接真实模型或重启用户服务；安全点行为沿用 Pi 既有原子认领协议，无安全点后端需自然收尾。
 
+### 项目概览内入口调整
+
+- 按 W173 用户追加要求，入口仅放在项目概览标题下方，移除共享页面横幅中的维护区域。切至 Worker 列表或详情不显示；回到概览复用控件，保持单飞请求与键盘焦点；确认期间离开概览不发送请求，已发送请求离页后仍释放单飞状态并只刷新一次。
+- 专项 **55 pass / 0 fail**，全量 **3094 pass / 0 fail**（398 文件），日志 `/tmp/lush-w173-logs/overview-targeted-final.log`、`/tmp/lush-w173-logs/overview-full.log`。Firefox 源码／构建版双主题与 1440／390／320px、列表／详情不显示及返回概览验证通过，日志 `/tmp/lush-w173-logs/overview-browser-{source,compiled}-final.log`。只改 UI 与说明，不变更暂停／父子恢复协议，不重启用户服务。
+
 ### W173 固定父基线兼容验证
+
+- 交付 15680／尝试 15683：保留源提交 `606b3d18b7147a6522b76e977685687ab84d33db`，从共同祖先 `ff2ea9f2a7d8a10c75216c2f8d3c41ac535236ac` 检查双方提交、含改名增量及已接收的维护 Squash 等价树后，合入固定父提交 `5d025d8c6890585b01f3a478985ee4f7a7aade45`。父侧无模块改名或公共 RPC／数据模型迁移；新消息导航增加 `openNotice(id,{record:true})` 与 `#notices-<id>`，保持来源记录只读、不自动已读。维护入口无需修改该调用接口。
+- 保留父侧消息新标签链接、info 蓝色与移除「处理消息」按钮；解决已交付维护文件的重复添加冲突，保留新概览控件／离页单飞逻辑，并移除 Git 无文本冲突却恢复的旧共享横幅。浏览器追加验证消息记录页不显示维护入口、输入保留、导航不产生 mutation，返回概览仍正常操作。
+- 本次完整 **3095 pass / 0 fail**（398 文件），日志 `/tmp/lush-w173-logs/repair-15683-full.log`；Firefox 源码／构建版双主题和 1440／390／320px 通过，日志 `/tmp/lush-w173-logs/repair-15683-browser-{source,compiled}.log`；文档检查仅既有篇幅警告。未重启用户服务或调用真实模型。
 
 - 交付 15581／尝试 15584：保留源提交 `64e3f602830d00df7692adb44101fea8c92a09c1`，从共同祖先 `774a1107bd76f004a55bf0cba59f16dfc840ceed` 检查双方提交与含改名增量后，在 W173 工作区合入固定父提交 `ff2ea9f2a7d8a10c75216c2f8d3c41ac535236ac`。父侧变化是全局导航精简、详情吸顶／阅读位置保持和静息文案；没有公共接口、数据模型或模块迁移，也没有文本冲突。
 - 保留父侧原生上级工作台链接、隐藏项目内全局导航、正文阅读锚点和静息投影；维护就绪仍只依赖真实调用／操作屏障，不依赖静息文案。补充 DOM 与浏览器断言，确保维护区域不会恢复被移除的全局摘要或破坏上级链接。

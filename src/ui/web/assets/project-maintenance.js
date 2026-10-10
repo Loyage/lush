@@ -5,8 +5,13 @@ import { agentHelp } from './help.js';
 import { show } from './messages.js';
 import { refresh } from './navigate.js';
 import { projectRoute } from './route.js';
+import { ui } from './state.js';
 
 const states = new WeakMap();
+let region = null;
+function currentHost() {
+  return $('project-maintenance') || (region?.document === document && region.project === projectRoute() ? region.host : null);
+}
 const PAUSE_HELP = '只中断当前项目：包括子 Worker，在安全点收尾，不强杀工具；维护暂停在后台重启后保留，直到点击全部继续。';
 const RESUME_HELP = agentHelp('解除当前项目维护暂停，只恢复本次影响的工作；原先单独暂停、待开始或失败的 Worker 不自动启动。等待子 Worker 的父级仍按原关系等待。');
 const count = value => Number.isSafeInteger(value) && value >= 0;
@@ -17,13 +22,16 @@ export function validMaintenance(value) {
     && ['active_calls', 'pending_operations', 'affected_count'].every(key => count(value[key]))
     && Array.isArray(value.blockers) && value.blockers.every(reason => typeof reason === 'string');
 }
+function current(host, state) {
+  return states.get(host) === state && state.document === document && projectRoute() === state.project;
+}
 function owns(host, state) {
-  return $('project-maintenance') === host && states.get(host) === state && projectRoute() === state.project;
+  return current(host, state) && $('project-maintenance') === host && ui.view?.id === 'overview';
 }
 function stateFor(host) {
   let state = states.get(host);
   if (state?.project === projectRoute()) return state;
-  state = { project: projectRoute(), model: null, offline: false, busy: false, pending: null };
+  state = { project: projectRoute(), document, model: null, offline: false, busy: false, pending: null };
   states.set(host, state);
   const copy = el('div', undefined, 'project-maintenance-copy');
   copy.setAttribute('role', 'status'); copy.setAttribute('aria-live', 'polite');
@@ -68,9 +76,18 @@ function paint(host, state) {
     else wrapper.removeAttribute('data-help');
   }
 }
-/** Reuse only this small shell region; polling must not replace editor or composer nodes. */
+/** The overview owns placement; retain its small region across repaint/navigation for single-flight requests. */
+export function projectMaintenanceRegion(model, { offline = false } = {}) {
+  const host = currentHost() || el('section', undefined, 'project-maintenance');
+  host.id = 'project-maintenance'; host.classList.add('project-maintenance');
+  host.setAttribute('aria-label', '当前项目维护控制');
+  region = { host, document, project: projectRoute() };
+  renderProjectMaintenance(model, { offline });
+  return host;
+}
+/** Polling updates the overview region, including while detached; it never creates a page-wide banner. */
 export function renderProjectMaintenance(model, { offline = false } = {}) {
-  const host = $('project-maintenance'); if (!host) return;
+  const host = currentHost(); if (!host) return;
   const state = stateFor(host);
   state.offline = offline;
   const next = validMaintenance(model) ? model : null;
@@ -80,8 +97,10 @@ export function renderProjectMaintenance(model, { offline = false } = {}) {
 }
 /** boot owns the generation: a response from an old boot cannot mutate the new shell. */
 export function resetProjectMaintenance() {
-  const host = $('project-maintenance'); if (!host) return;
-  states.delete(host); renderProjectMaintenance(null);
+  const host = currentHost();
+  if (host) states.delete(host);
+  region = null;
+  renderProjectMaintenance(null);
 }
 async function change(host, state, key) {
   if (!state.project || !owns(host, state) || state.busy || state[key].disabled) return;
@@ -97,17 +116,17 @@ async function change(host, state, key) {
     }
     attempted = true;
     const result = await action(key === 'pause' ? 'system.interrupt_all' : 'system.resume_all', {}, { refresh: false });
-    if (!owns(host, state)) return;
+    if (!current(host, state)) return;
     acknowledged = true;
     state.model = validMaintenance(result) ? result : null;
     // Pre-ACK polling responses must not replace the newly acknowledged state.
     state.pending = null; paint(host, state);
-    show(key === 'pause' ? '全部中断请求已接受；当前调用仍需安全收尾，可重启状态以后台检查为准。'
+    if (owns(host, state)) show(key === 'pause' ? '全部中断请求已接受；当前调用仍需安全收尾，可重启状态以后台检查为准。'
       : '全部继续请求已接受；只恢复本次影响的工作，仍按父子等待关系与安全门调度，不代表已经运行。');
   } catch (error) {
     if (owns(host, state)) show(`维护请求未确认：${error.message}；请读取当前状态后再操作。`, 'error');
   } finally {
-    if (owns(host, state)) {
+    if (current(host, state)) {
       // Read failures never resend a confirmed mutation. Force-refresh queues behind older polling reads.
       if (attempted) {
         try { await refresh(); }
@@ -117,7 +136,7 @@ async function change(host, state, key) {
         } }
       }
       state.busy = false;
-      if (owns(host, state)) {
+      if (current(host, state)) {
         if (state.pending) { state.model = state.pending.model; state.offline = state.pending.offline; state.pending = null; }
         paint(host, state);
       }

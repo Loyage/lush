@@ -15,6 +15,8 @@ const servedAssets = compiled ? temp : assets;
 const entry = await Bun.file(join(servedAssets, 'index.html')).text();
 const appPath = entry.match(/src="(\/[^"\n]*(?:-app-[^"\n]+|app)\.js)"/)[1];
 const world = makeWorld(), mutations = [], project = 'aaaaaaaaaaaaaaaa';
+world.state.notices = [{ id: 71, task_id: 1, kind: 'info', status: 'sent', source_event_id: 171,
+  lifecycle_type: 'idle', read_at: null, title: '兼容检查告知', body: '只读导航，不自动已读', created_at: '2026-10-10T05:00:00Z' }];
 const running = { version: 1, paused: false, phase: 'running', ready_to_restart: false, active_calls: 2,
   pending_operations: 0, affected_count: 0, blockers: ['等待当前调用安全退出'] };
 const pausing = { ...running, paused: true, phase: 'pausing', affected_count: 2 };
@@ -43,8 +45,8 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
     const options = { method: req.method, ...(req.method === 'POST' ? { body: await req.text() } : {}) };
     if (logical === '/api/action') {
       const call = JSON.parse(options.body);
+      mutations.push({ path, ...call });
       if (['system.interrupt_all', 'system.resume_all'].includes(call.method)) {
-        mutations.push({ path, ...call });
         if (reject) return Response.json({ error: 'fixture request rejected' }, { status: 409 });
         model = call.method === 'system.interrupt_all' ? pausing : running; revision++;
         return Response.json(model);
@@ -89,7 +91,7 @@ try {
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/window/rect`, { width: 1600, height: 1000 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/fixture` }); await frame();
-  assert(await wait(`!document.querySelector('#project-maintenance button').disabled && typeof window.fixtureState==='function'`), 'assembled project boot did not expose maintenance');
+  assert(await wait(`document.querySelector('#project-maintenance button')&&!document.querySelector('#project-maintenance button').disabled && typeof window.fixtureState==='function'`), 'assembled project boot did not expose maintenance');
   assert(await execute(`const home=document.querySelector('#home');return !document.querySelector('#global-inbox-summary')&&home.tagName==='A'&&home.target==='_blank'&&[...document.querySelectorAll('[data-global-navigation="true"]')].every(node=>node.hidden)&&!document.querySelector('#project-maintenance').hidden;`), 'maintenance restored global project navigation or broke the native upper-workspace link');
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
@@ -103,9 +105,21 @@ try {
     assert(await execute(`const h=document.querySelector('#project-maintenance .help-host');return document.activeElement===h && h.getBoundingClientRect().width>0 && h.getAttribute('data-help').includes('维护暂停')`), 'disabled help host has no focusable box');
     const screenshot = await rpc(`/session/${session}/screenshot`, undefined, 'GET');
     await Bun.write(join(temp, `${theme}-${width}.png`), Buffer.from(screenshot, 'base64'));
-    console.log(`PASS persistent maintenance phase/input/help/CSP layout: ${theme} ${width}px`);
+    console.log(`PASS overview maintenance phase/input/help/CSP layout: ${theme} ${width}px`);
   }
-  await state({ model: running }); assert(await wait(`!document.querySelector('#project-maintenance button').disabled`), 'running reset failed');
+  assert(await execute(`return document.querySelector('#project-maintenance').parentElement===document.querySelector('#detail')&&document.querySelector('#detail').dataset.view==='overview'&&!document.querySelector('.project-banners .project-maintenance')`), 'maintenance controls are outside the overview');
+  await execute(`location.hash='#workers'`);
+  assert(await wait(`document.querySelector('#detail').hidden&&(!document.querySelector('#project-maintenance')||!document.querySelector('#project-maintenance').getClientRects().length)`), 'maintenance leaked into the Worker list');
+  await execute(`location.hash='#worker-1'`);
+  assert(await wait(`document.querySelector('#detail').dataset.view==='task'&&!document.querySelector('#project-maintenance')`), 'maintenance leaked into Worker detail');
+  await execute(`location.hash='#notices-71'`);
+  assert(await wait(`document.querySelector('#notice-record-detail')?.textContent.includes('兼容检查告知')&&document.querySelector('#detail').hidden`), 'parent source-record route did not open its exact record');
+  assert(await execute(`return !document.querySelector('#project-maintenance')&&!!document.querySelector('#notice-record-detail .notice-info')&&document.querySelector('#input').value==='保留下一条输入'`), 'maintenance or navigation broke the source record page/input');
+  assert(mutations.length===0, 'source record navigation performed a mutation');
+  await state({ model: running });
+  await click('#overview-open');
+  assert(await wait(`document.querySelector('#project-maintenance button')&&!document.querySelector('#project-maintenance button').disabled`), 'return to overview did not restore maintenance');
+  console.log('PASS overview-only placement, Worker list/detail/source-record absence, read-only record navigation and return');
   const before = mutations.length; await click('#project-maintenance button');
   assert(await execute(`return document.querySelector('#modal').textContent.includes('包括子 Worker')&&document.querySelector('#modal').textContent.includes('不强杀')&&document.querySelector('#modal').textContent.includes('后台重启后仍保持');`), 'confirmation lost safety/descendant scope');
   await click('#modal .ghost'); assert(mutations.length === before, 'cancel sent mutation');
@@ -126,7 +140,7 @@ try {
   await state({ model: null }); assert(await wait(`document.querySelector('#project-maintenance').textContent.includes('暂不可用')`), 'legacy capability absence not observed');
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` });
   assert(await wait(`document.documentElement.dataset.lushSpace==='global'`), 'global shell not ready');
-  assert(await execute(`return document.querySelector('#project-maintenance').hidden`), 'global shell exposes project mutation');
+  assert(await execute(`return !document.querySelector('#project-maintenance')`), 'global shell exposes project mutation');
   console.log('PASS application confirmation/cancel, scoped actions, failure/retry, offline/legacy/root safety');
   passed = true; console.log('Screenshots/log fixture:', temp);
 } catch (error) { console.error('Browser check failed; fixture/log:', temp, log); throw error; }

@@ -14,8 +14,10 @@ const dom = installDom({ fetch: async (url, options) => {
   if (reject) return Response.json({ error: '当前项目正在停止' }, { status: 409 });
   return Response.json(requests.at(-1).method === 'system.interrupt_all' ? pausing : running);
 } });
-const { renderProjectMaintenance: paint, resetProjectMaintenance, validMaintenance } = await import('../../src/ui/web/assets/project-maintenance.js');
+const { renderProjectMaintenance: paint, projectMaintenanceRegion, resetProjectMaintenance, validMaintenance } = await import('../../src/ui/web/assets/project-maintenance.js');
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
+const { ui } = await import('../../src/ui/web/assets/state.js');
+const { renderOverview } = await import('../../src/ui/web/assets/render-overview.js');
 const { AGENT_NOTE } = await import('../../src/ui/web/assets/help.js');
 const { clear, setTimers } = await import('../../src/ui/web/assets/messages.js');
 const { closeDialog } = await import('../../src/ui/web/assets/dialog.js');
@@ -32,7 +34,8 @@ const copy = () => deepText(host());
 async function interrupt() { const work = pause().onclick(); await answerDialog(dom, '全部中断'); return work; }
 setTimers({ setTimeout: () => 1, clearTimeout: () => {}, now: () => 0 });
 beforeEach(() => {
-  dom.location.pathname = `/p/${PROJECT}/`; requests = []; readCount = 0;
+  dom.location.pathname = `/p/${PROJECT}/`; ui.view = { id: 'overview' }; ui.overviewKey = null; ui.offline = false;
+  requests = []; readCount = 0;
   requestGate = readGate = nextRead = null; reject = rejectRead = false;
   closeDialog(); clear(); resetProjectMaintenance(); document.activeElement = null;
 });
@@ -102,7 +105,7 @@ test('continue restores only the maintenance wave with no auto-restart request o
   expect(pause().disabled).toBe(false); expect(resume().disabled).toBe(true);
 });
 
-test('polling reuses shell nodes, keeps focus and cannot replace composer/edited detail', () => {
+test('polling reuses overview nodes, keeps focus and cannot replace composer/edited detail', () => {
   paint(running); const button = pause(), title = host().querySelector('strong'); button.focus();
   const editor = document.createElement('textarea'); editor.value = '未提交的界面编辑'; dom.node('detail').append(editor);
   dom.node('input').value = '下一条用户输入';
@@ -155,6 +158,46 @@ test('route change or fresh boot invalidates late action responses and does not 
   }
 });
 
+test('leaving the overview during confirmation sends no late pause request', async () => {
+  paint(running); const work = pause().onclick();
+  ui.view = { id: 'task', key: '1' };
+  await answerDialog(dom, '全部中断'); await work;
+  expect(requests).toEqual([]); expect(readCount).toBe(0);
+  ui.view = { id: 'overview' }; expect(pause().disabled).toBe(false);
+});
+
+test('overview navigation/repaint preserves in-flight single flight and completes an ACK while detached', async () => {
+  const panel = dom.node('detail'), getElementById = document.getElementById;
+  // Unlike the generic stub, resolve dynamic IDs only while attached to the overview.
+  document.getElementById = id => id === 'project-maintenance' ? panel.querySelector('.project-maintenance') : getElementById(id);
+  try {
+    resetProjectMaintenance(); panel.replaceChildren();
+    paint(paused); expect(panel.querySelector('.project-maintenance')).toBeNull();
+    const data = { revision: 'initial', tasks: [], notices: [], status: { maintenance: paused } };
+    renderOverview(data);
+    const region = panel.querySelector('.project-maintenance'), button = region.querySelector('.agent-call');
+    requestGate = gate(); nextRead = running;
+    const work = button.onclick();
+    ui.view = { id: 'task' }; panel.replaceChildren(); paint(paused);
+    expect(panel.querySelector('.project-maintenance')).toBeNull();
+    ui.view = { id: 'overview' }; ui.overviewKey = null;
+    renderOverview(data);
+    expect(panel.querySelector('.project-maintenance')).toBe(region);
+    expect(region.getAttribute('aria-busy')).toBe('true'); await button.onclick();
+    expect(requests).toHaveLength(1);
+    // The response finishes off-page, but releases the retained region and refreshes exactly once.
+    ui.view = { id: 'task' }; panel.replaceChildren(); requestGate.resolve(); await work;
+    expect(readCount).toBe(1); expect(region.getAttribute('aria-busy')).toBe('false');
+    ui.view = { id: 'overview' }; ui.overviewKey = null; ui.offline = true;
+    renderOverview(data);
+    expect(panel.querySelector('.project-maintenance')).toBe(region);
+    expect(deepText(region)).toContain('离线'); expect(button.disabled).toBe(true);
+    ui.offline = false; paint(paused); button.parentNode.focus();
+    renderOverview({ ...data, revision: 'changed' });
+    expect(document.activeElement).toBe(button.parentNode);
+  } finally { document.getElementById = getElementById; resetProjectMaintenance(); }
+});
+
 test('leaving the project or losing capability during the confirmation does not send a late pause request', async () => {
   for (const invalidate of [() => { dom.location.pathname = '/'; paint(null); }, () => paint(null, { offline: true }), () => paint(null)]) {
     dom.location.pathname = `/p/${PROJECT}/`; resetProjectMaintenance(); paint(running);
@@ -163,10 +206,16 @@ test('leaving the project or losing capability during the confirmation does not 
   }
 });
 
-test('maintenance template and CSS expose a bounded wrapping region with 44px narrow-screen targets', async () => {
+test('maintenance belongs to the overview, not the shared HTML shell, with bounded narrow-screen targets', async () => {
   const html = await Bun.file(new URL('../../src/ui/web/assets/index.html', import.meta.url)).text();
   const css = await Bun.file(new URL('../../src/ui/web/assets/styles-workspace-shell.css', import.meta.url)).text();
-  expect(html).toContain('id="project-maintenance"'); expect(html).toContain('aria-label="当前项目维护控制"');
+  expect(html).not.toContain('id="project-maintenance"');
+  const region = projectMaintenanceRegion(paused);
+  expect(region.id).toBe('project-maintenance'); expect(region.getAttribute('aria-label')).toBe('当前项目维护控制');
+  renderOverview({ revision: 'overview-placement', tasks: [], notices: [], status: { maintenance: paused } });
+  expect(region.parentNode).toBe(dom.node('detail'));
+  expect(dom.node('detail').children[0].classList.contains('overview-hero')).toBe(true);
+  expect(dom.node('detail').children[1]).toBe(region);
   // The project-specific control must coexist with the parent branch's stripped global shell.
   expect(html).not.toContain('id="global-inbox-summary"');
   expect(html).toContain('<a id="home" href="/#projects"');

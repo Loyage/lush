@@ -13,6 +13,8 @@ import { installDom, deepText, answerDialog } from '../dom-stub.js';
 import { renderProjectMaintenance, resetProjectMaintenance } from '../../src/ui/web/assets/project-maintenance.js';
 import { registerNavigation } from '../../src/ui/web/assets/navigate.js';
 import { clear } from '../../src/ui/web/assets/messages.js';
+import { ui } from '../../src/ui/web/assets/state.js';
+import { renderOverview } from '../../src/ui/web/assets/render-overview.js';
 setDefaultTimeout(30000);
 
 function controlled() {
@@ -46,6 +48,7 @@ async function exitAtBoundary(f, p, id) {
 test('maintenance buttons preserve a multi-level child wait and only resume the affected work', async () => {
   const f = await setup(), provider = controlled(); f.project.provider = provider; f.project.stopping = true;
   let dom, navigation;
+  const previousView = ui.view;
   try {
     await repo(f.root);
     const parent = (await post(f, 'order.submit', { content: 'parent waits for children' })).task;
@@ -59,8 +62,12 @@ test('maintenance buttons preserve a multi-level child wait and only resume the 
     expect(provider.calls[0].task.id).toBe(leaf.id);
     dom = installDom({ fetch: (url, options) => fetch(f.url + url, options) });
     dom.location.pathname = `/p/${projectRouteId(f.root)}/`;
+    ui.view = { id: 'overview' }; ui.overviewKey = null;
     resetProjectMaintenance();
-    const paint = async () => renderProjectMaintenance((await snapshot(f)).status.maintenance);
+    const paint = async () => {
+      const data = await snapshot(f);
+      renderProjectMaintenance(data.status.maintenance); renderOverview(data);
+    };
     navigation = registerNavigation({ refresh: paint, detail: async () => {}, overview: async () => {} });
     await paint();
     const host = dom.node('project-maintenance');
@@ -84,7 +91,7 @@ test('maintenance buttons preserve a multi-level child wait and only resume the 
     await until(() => provider.calls.some(row => row.task.id === child.id));
     expect(f.store.task(leaf.id).status).toBe('awaiting_acceptance');
     expect(f.store.task(parent.id).status).toBe('waiting');
-  } finally { navigation?.(); clear(); dom?.restore(); await f.close(); }
+  } finally { navigation?.(); clear(); ui.view = previousView; dom?.restore(); await f.close(); }
 });
 
 test('safe daemon reconstruction retains maintenance over real RPC and restores saved profile and unread input exactly once', async () => {

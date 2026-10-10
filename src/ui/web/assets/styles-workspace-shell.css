@@ -15,8 +15,8 @@ html[data-lush-space="global"] .help-host[tabindex="0"]:has(:disabled),
 .workspace-automation .help-host[tabindex="0"]:has(:disabled) { display: inline-flex; align-items: stretch; min-width: 0; max-width: 100%; }
 html[data-lush-space="global"] .help-host:focus-visible,
 .workspace-automation .help-host:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-/* Persistent project control is independent of the current detail/editor view. */
-.project-maintenance { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .65rem 1rem; background: var(--panel); border-bottom: 1px solid var(--line); min-width: 0; }
+/* Maintenance controls belong to the project overview, not the shared page banners. */
+.project-maintenance { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .65rem 1rem; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin: 0 0 1rem; min-width: 0; }
 .project-maintenance[hidden], html[data-lush-space="global"] .project-maintenance { display: none; }
 .project-maintenance-copy { min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
 .project-maintenance-copy p { margin: .2rem 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }

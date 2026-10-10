@@ -5,6 +5,7 @@ import { detail } from './navigate.js';
 import { openNotice } from './render-notices.js';
 import { ui } from './state.js';
 import { workerLabel, rememberWorkers } from './worker-label.js';
+import { projectMaintenanceRegion } from './project-maintenance.js';
 
 /** Worker-first homepage using the existing studio layout, without old Intent/Plan/Candidate controls. */
 export function renderOverview(data) {
@@ -19,12 +20,16 @@ export function renderOverview(data) {
   ui.overviewKey = key;
   const panel = $('detail');
   const expanded = new Set([...panel.querySelectorAll('details[data-fold]')].filter(node => node.open).map(node => node.dataset.fold));
+  const maintenance = projectMaintenanceRegion(data.status.maintenance, { offline: Boolean(ui.offline) });
+  const focus = document.activeElement;
+  const maintenanceFocus = [...maintenance.querySelectorAll('button')].some(node => node === focus || node.parentNode === focus) ? focus : null;
   panel.dataset.view = 'overview'; panel.replaceChildren();
   const hero = el('div', undefined, 'overview-hero');
   const copy = el('div');
   copy.append(el('span', 'WORKER / 目标与交付', 'eyebrow'), el('h1', '项目概览'),
     el('p', open.length ? `${open.length} 个问题等待你的决定。` : active.length ? `${active.length} 个 Worker 正在推进。` : acceptance.length ? `${acceptance.length} 个 Worker 等待验收，可追加输入继续开发。` : parentConfirmation.length ? `${parentConfirmation.length} 个派生 Worker 等待父 Agent 确认，无需你验收。` : '发送一条目标，创建独立 Worker。', 'hero-description'));
-  hero.append(copy, el('div', '✳', 'hero-mark')); panel.append(hero);
+  hero.append(copy, el('div', '✳', 'hero-mark')); panel.append(hero, maintenance);
+  maintenanceFocus?.focus({ preventScroll: true });
 
   const metrics = el('div', undefined, 'metrics');
   for (const [label, value, note, tone] of [
