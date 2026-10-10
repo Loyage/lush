@@ -14,7 +14,8 @@ import { detail, overview } from './navigate.js';
 import { renderAgent } from './render-agent.js';
 import { renderResults } from './render-results.js';
 import { renderGoal } from './render-goal.js';
-import { limitDetailModules } from './detail-preview.js';
+import { disposeDetailModules, limitDetailModules } from './detail-preview.js';
+import { captureDetailReading, restoreDetailReading } from './detail-reading.js';
 import { linkWorkerNumbers } from './worker-links.js';
 import { renderDiff } from './render-diff.js';
 import { deliveryControls } from './render-delivery.js';
@@ -87,14 +88,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const previousDiff = sameTask ? panel.querySelector('.detail-diff') : null;
   const historyFocus = previousProgressHistory && [...previousProgressHistory.querySelectorAll('summary'), ...previousProgressHistory.querySelectorAll('button')]
     .find(node => node === document.activeElement);
-  const panelTop = panel.getBoundingClientRect?.().top ?? 0;
-  const historyAnchor = previousProgressHistory && (historyFocus || panel.scrollTop > 0) && [...previousProgressHistory.querySelectorAll('.progress-history-version')]
-    .find(node => {
-      const rect = node.getBoundingClientRect?.();
-      return rect && rect.bottom > panelTop && rect.top < (panel.getBoundingClientRect?.().bottom ?? 0);
-    });
-  const anchorTop = historyAnchor?.getBoundingClientRect?.().top;
-  const readingScroll = panel.scrollTop;
+  const readingPosition = sameTask ? captureDetailReading(panel) : null;
   const previousHooks = sameTask ? panel.querySelector('.worker-hooks[data-hook-editing="true"]') || panel.querySelector('.worker-hooks[data-completion-editing="true"]') : null;
   const hookManagementOpen = sameTask && panel.querySelector('.hook-management')?.open === true;
   const previousMessages = new Map(sameTask ? [...panel.querySelectorAll('.task-message')].map(node => [node.dataset.messageId, node]) : []);
@@ -235,7 +229,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const source = ['order', 'child'].includes(workerKind(task)) ? modelSourceSummary(task, history?.events, connections) : null;
   if (source) {
     panel.append(source);
-    if (progressive) source.append(el('p', '连接名称加载中…', 'hint detail-connections-status'));
+    if (progressive && !progressive.loaded?.connections) source.append(el('p', '连接名称加载中…', 'hint detail-connections-status'));
   }
   const interruptHint = management ? null : interruptReason(task);
   if (interruptHint) panel.append(el('p', interruptHint, 'hint interrupt-reason'));
@@ -284,7 +278,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const agent = task.calls ? renderAgent(task, usage) : null;
   if (agent) {
     panel.append(agent);
-    if (progressive) agent.append(el('p', '用量加载中…', 'hint detail-usage-status'));
+    if (progressive) agent.append(el('p', progressive.loaded?.usage ? '' : '用量加载中…', 'hint detail-usage-status'));
   }
 
   const stats = block('状态'); stats.classList.add('task-stats');
@@ -317,7 +311,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     if (!diffFold?.open || !progressive.current()) return;
     diffFold.dataset.state = 'loading';
     diffBody.querySelector('.detail-diff-status')?.remove();
-    diffBody.append(el('p', '改动加载中…', 'hint detail-diff-status'));
+    if (!diffFold.dataset.signature) diffBody.append(el('p', '改动加载中…', 'hint detail-diff-status'));
     return progressive.requestDiff();
   };
   if (!management) {
@@ -331,7 +325,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
       diffBody = diffFold.querySelector('.detail-diff-body');
       diffFold.dataset.state = 'idle';
       diffBody.querySelector('.detail-diff-status')?.remove();
-      diffBody.append(el('p', diffFold.open ? '改动加载中…' : '打开后读取改动。', 'hint detail-diff-status'));
+      if (!diffFold.dataset.signature) diffBody.append(el('p', diffFold.open ? '改动加载中…' : '打开后读取改动。', 'hint detail-diff-status'));
       diffFold.ontoggle = () => { if (diffFold.open && diffFold.dataset.state === 'idle') void loadDiff(); };
       diffSection.append(diffFold);
       if (diffFold.open) queueMicrotask(loadDiff);
@@ -388,19 +382,15 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   }
   let events = null;
   if (progressive || history?.events?.length) {
-    events = block('事件时间线', progressive ? undefined : String(history.events.length));
-    events.append(progressive ? el('p', '历史加载中…', 'hint') : renderHistory(history.events, { running: task.status === 'running', truncated: history.truncated,
+    events = block('事件时间线', history?.loading ? undefined : String(history.events.length));
+    events.append(history?.loading ? el('p', '历史加载中…', 'hint') : renderHistory(history.events, { running: task.status === 'running', truncated: history.truncated,
       cursor: history.cursor, onMore: history.onMore, taskId: task.id }));
     panel.append(events);
   }
   linkWorkerNumbers(panel);
   limitDetailModules(panel, { taskId: task.id, from: readingStart });
   if (progressHistory && historyFocus && document.activeElement !== historyFocus) historyFocus.focus({ preventScroll: true });
-  if (sameTask) panel.scrollTop = readingScroll;
-  if (progressHistory && anchorTop !== undefined) {
-    const nextTop = historyAnchor.getBoundingClientRect?.().top;
-    if (nextTop !== undefined) panel.scrollTop = readingScroll + nextTop - anchorTop;
-  }
+  restoreDetailReading(panel, readingPosition);
   if (!progressive) return;
   // Existing explicit history pagers start their GET synchronously. Bind them to this view,
   // including reused goal/result/progress nodes, without changing their write/action contracts.
@@ -423,7 +413,9 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
       || inside(document.activeElement);
   };
   const dispose = () => {
+    if (disposed) return;
     disposed = true; pending.clear();
+    disposeDetailModules(panel);
     ownerDocument?.removeEventListener?.('selectionchange', flush);
     panel.removeEventListener?.('focusout', onFocusOut);
     observer?.disconnect();
@@ -432,12 +424,10 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     if (disposed) return;
     if (!progressive.current() || panel.dataset.taskId !== String(task.id)) { dispose(); return; }
     if (reading()) return;
-    const scroll = panel.scrollTop;
-    const pageScroll = globalThis.window?.scrollY;
+    const position = captureDetailReading(panel);
     for (const patch of pending.values()) patch();
     pending.clear();
-    panel.scrollTop = scroll;
-    if (Number.isFinite(pageScroll) && window.scrollY !== pageScroll) window.scrollTo?.(window.scrollX, pageScroll);
+    restoreDetailReading(panel, position);
     if (listening) {
       ownerDocument?.removeEventListener?.('selectionchange', flush);
       panel.removeEventListener?.('focusout', onFocusOut);
@@ -452,7 +442,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     source.replaceChildren(...next.childNodes);
     if (connectionStatus !== 'ready') source.append(el('p', connectionStatus === 'loading' ? '连接名称加载中…' : '连接名称不可用；显示连接 ID。', 'hint detail-connections-status'));
   };
-  let connectionStatus = 'loading';
+  let connectionStatus = progressive.loaded?.connections ? 'ready' : 'loading';
   const patches = {
     dispose,
     update(kind, value, available) {
@@ -522,5 +512,6 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
 export function renderDetailError(taskId, message) {
   const panel = $('detail');
   progressivePanels.get(panel)?.dispose(); progressivePanels.delete(panel);
+  disposeDetailModules(panel);
   panel.replaceChildren(el('h2', `无法打开 ${workerLabel(taskId)}`), el('p', message, 'error'));
 }

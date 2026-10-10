@@ -18,12 +18,13 @@ window.task={id:7,worker_number:'W7',role:'agent',task_kind:'order',status:'wait
   messages:Array.from({length:20},(_,i)=>({id:i+1,sender_id:null,body:'消息 '+i+'\\n\\n'+long,created_at:at}))};
 window.fixtureHistory={events:Array.from({length:50},(_,i)=>({id:i+1,type:'invocation.completed',created_at:at,data:{run_id:i+1,result:'此前结果 '+i+'\\n'+long}}))};
 ui.selected=7; ui.view={id:'task',key:'7'};
-window.paint=()=>renderDetail(window.task,window.fixtureHistory,null,null);
+window.paint=(progressive=null)=>renderDetail(window.task,window.fixtureHistory,null,null,null,progressive);
 window.reveal=revealDetailPreview;
 window.paint(); window.ready=true;
 </script></body>`);
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
   const path = new URL(req.url).pathname;
+  if (path === '/host') return new Response('<!doctype html><iframe id="fixture" src="/" style="border:0;width:1440px;height:900px"></iframe>', { headers: { 'Content-Type': 'text/html' } });
   if (path === '/') return new Response(fixture, { headers: { 'Content-Type': 'text/html' } });
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.slice(1))));
   return new Response('not found', { status: 404 });
@@ -56,6 +57,13 @@ async function click(selector) {
   const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: selector });
   await rpc(`/session/${session}/element/${element['element-6066-11e4-a52e-4f735466cecf']}/click`, {});
 }
+async function viewport(width, height) {
+  await rpc(`/session/${session}/frame`, { id: null });
+  await execute(`const frame=document.querySelector('#fixture');frame.style.width='${width}px';frame.style.height='${height}px';`);
+  const frame = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#fixture' });
+  await rpc(`/session/${session}/frame`, { id: frame });
+  assert(await execute(`return innerWidth===${width}&&innerHeight===${height};`), 'fixture viewport mismatch');
+}
 try {
   let ready = false;
   for (let i = 0; i < 100; i++) {
@@ -66,10 +74,11 @@ try {
   assert(ready, 'geckodriver timeout');
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox',
     'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
-  await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` });
+  await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/host` });
+  await viewport(1440, 900);
   assert(await wait('window.ready'), 'fixture failed to load');
   for (const [width, height] of [[1440,900],[390,700],[320,560]]) for (const theme of ['light','dark']) {
-    await rpc(`/session/${session}/window/rect`, { width, height });
+    await viewport(width, height);
     await execute(`document.documentElement.dataset.theme='${theme}';window.paint();`);
     assert(await wait(`document.querySelector('.goal-panel').classList.contains('detail-preview-long')`), 'long goal not measured');
     const sizes = await execute(`return [...document.querySelectorAll('.detail-preview')].map(n=>({
@@ -113,14 +122,14 @@ try {
     }
     console.log('PASS bounded modules, clipped-only fade, accessible note and 120px margin', width, height, theme);
   }
-  await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
+  await viewport(1440, 900);
   await execute(`window.resizeProbe=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='Worker 依赖');
     const fixed=document.createElement('div');fixed.style.height='400px';fixed.textContent='短模块高度响应测试';
     window.resizeProbe.querySelector('.detail-preview-content').replaceChildren(fixed);`);
   assert(await wait(`window.resizeProbe.querySelector('.detail-preview-toggle').hidden`), '400px module should fit a tall viewport');
-  await rpc(`/session/${session}/window/rect`, { width: 1440, height: 450 });
+  await viewport(1440, 450);
   assert(await wait(`!window.resizeProbe.querySelector('.detail-preview-toggle').hidden`), 'height-only resize clipped a short module without an expand control');
-  await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
+  await viewport(1440, 900);
   assert(await wait(`window.resizeProbe.querySelector('.detail-preview-toggle').hidden`), 'height-only resize left a redundant expand control');
   await execute('window.paint();');
   await click('.result-panel .section-title .detail-preview-toggle');
@@ -143,6 +152,56 @@ try {
     window.short=short;const extra=document.createElement('p');extra.textContent='新增历史\\n'.repeat(300);extra.style.whiteSpace='pre-wrap';
     short.querySelector('.detail-preview-content').append(extra);`);
   assert(await wait(`window.short.classList.contains('detail-preview-long')&&!window.short.querySelector('.detail-preview-toggle').hidden`), 'lazy growth did not expose expand control');
+  // Reading geometry, not just scroll numbers: refresh and late content above a reader.
+  for (const [width,height] of [[1440,900],[390,700],[320,560]]) for (const theme of ['light','dark']) {
+    await viewport(width, height);
+    await execute(`document.documentElement.dataset.theme='${theme}';window.paint();
+      window.result=document.querySelector('.result-panel');window.reveal(window.result);
+      window.anchor=window.result.querySelectorAll('.markdown p')[25];
+      const panel=document.querySelector('#detail');window.page=matchMedia('(max-width:760px)').matches;
+      const delta=window.anchor.getBoundingClientRect().top-(window.page?140:panel.getBoundingClientRect().top+100);
+      if(window.page)window.scrollBy(0,delta);else panel.scrollTop+=delta;`);
+    await rpc(`/session/${session}/execute/async`, { script:'requestAnimationFrame(()=>requestAnimationFrame(()=>arguments[0](true)));',args:[] });
+    assert(await execute(`const head=window.result.querySelector('.section-title');
+      const edge=window.page?42:document.querySelector('#detail').getBoundingClientRect().top;
+      window.anchorTop=window.anchor.getBoundingClientRect().top;
+      return Math.abs(head.getBoundingClientRect().top-edge)<2&&
+        !head.querySelector('button').hidden;`), `sticky result header/control ${width}/${theme}`);
+    assert(await execute(`window.task={...window.task,progress:{...window.task.progress,items:window.task.progress.items.slice(0,10)}};
+      window.paint();window.result=document.querySelector('.result-panel');
+      return Math.abs(window.anchor.getBoundingClientRect().top-window.anchorTop)<2;`), `refresh moved reader ${width}/${theme}`);
+    await execute(`const before=document.querySelector('.goal-panel .detail-preview-content');
+      const extra=document.createElement('p');extra.textContent='异步新增内容';extra.style.height='160px';
+      window.reveal(document.querySelector('.goal-panel'));before.append(extra);`);
+    // Explicit expansion is intentional; establish a new reading position, then grow it lazily.
+    await execute(`const panel=document.querySelector('#detail');const delta=window.anchor.getBoundingClientRect().top-(window.page?140:panel.getBoundingClientRect().top+100);
+      if(window.page)window.scrollBy(0,delta);else panel.scrollTop+=delta;`);
+    await rpc(`/session/${session}/execute/async`, { script:'requestAnimationFrame(()=>requestAnimationFrame(()=>arguments[0](true)));',args:[] });
+    await execute(`window.anchorTop=window.anchor.getBoundingClientRect().top;
+      document.querySelector('.goal-panel .detail-preview-content').lastElementChild.style.height='340px';`);
+    assert(await wait(`Math.abs(window.anchor.getBoundingClientRect().top-window.anchorTop)<2`), `lazy growth moved reader ${width}/${theme}`);
+    // Move close to the module end: its header must give way, not overlay the next module.
+    assert(await execute(`const panel=document.querySelector('#detail');const edge=window.page?42:panel.getBoundingClientRect().top;
+      const delta=window.result.getBoundingClientRect().bottom-edge-10;
+      if(window.page)window.scrollBy(0,delta);else panel.scrollTop+=delta;
+      return window.result.querySelector('.section-title').getBoundingClientRect().bottom<=window.result.getBoundingClientRect().bottom+1;`), 'sticky header escaped module');
+    await execute(`window.result.querySelector('.detail-preview-toggle').click();`);
+    assert(await execute(`const box=window.result.querySelector('.section-title').getBoundingClientRect();
+      return !window.result.classList.contains('detail-preview-expanded')&&box.bottom>0&&box.top<innerHeight;`), 'sticky collapse left control offscreen');
+    // Supplemental history/use patches above a late module must preserve the same paragraph.
+    await execute(`window.patches=window.paint({current:()=>true});
+      window.messages=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='消息');
+      window.reveal(window.messages);window.messageAnchor=window.messages.querySelectorAll('.task-message')[10].querySelectorAll('p')[5];
+      const panel=document.querySelector('#detail');const delta=window.messageAnchor.getBoundingClientRect().top-(window.page?140:panel.getBoundingClientRect().top+100);
+      if(window.page)window.scrollBy(0,delta);else panel.scrollTop+=delta;`);
+    await rpc(`/session/${session}/execute/async`, { script:'requestAnimationFrame(()=>requestAnimationFrame(()=>arguments[0](true)));',args:[] });
+    assert(await execute(`window.messageTop=window.messageAnchor.getBoundingClientRect().top;
+      window.patches.update('usage',{files:['fixture'],requests:1,totals:{input:200,output:30,cost:0.01}},true);
+      window.patches.update('history',{events:[...window.fixtureHistory.events,{id:900,type:'invocation.completed',created_at:'2026-10-10T00:00:00Z',data:{run_id:900,result:'新增历史结果\\n\\n'.repeat(100)}}]},true);
+      return Math.abs(window.messageAnchor.getBoundingClientRect().top-window.messageTop)<2;`), `supplemental patch moved reader ${width}/${theme}`);
+    assert(await wait(`Math.abs(window.messageAnchor.getBoundingClientRect().top-window.messageTop)<2`), 'observer undid patch compensation');
+    console.log('PASS sticky header, refresh anchor, lazy growth, supplemental patches and collapse',width,height,theme);
+  }
   await execute(`window.task={...window.task,id:8,worker_number:'W8'};window.paint();`);
   assert(await execute(`return [...document.querySelectorAll('.detail-preview')].every(n=>!n.classList.contains('detail-preview-expanded'));`), 'state leaked into other Worker');
   console.log('PASS height-only resize, expand/collapse, refresh, focus, reference reveal, lazy growth and Worker isolation');

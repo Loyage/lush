@@ -85,6 +85,44 @@ test('主体一到即显示目标、状态、结果和操作并返回 true；慢
   } finally { main.resolve(json(task())); settle(gates); await opening; await drain(); }
 });
 
+test('同 Worker 刷新保留已加载历史/用量/连接/改动，不先缩回占位再膨胀；切 Worker 隔离', async () => {
+  intercept = url => url.endsWith('/history-page') ? json(history) : null;
+  await loadDetail(71); openDiff(); await drain();
+  expect(deepText(panel)).toContain('累计 token'); expect(deepText(panel)).toContain('此前结果正文');
+  expect(deepText(panel)).toContain('我的来源'); expect(deepText(panel)).toContain('changed.js');
+  const gates = slowExtras();
+  try {
+    await loadDetail(71);
+    for (const text of ['历史加载中', '用量加载中', '连接名称加载中', '改动加载中']) expect(deepText(panel)).not.toContain(text);
+    for (const text of ['累计 token', '此前结果正文', '我的来源', 'changed.js']) expect(deepText(panel)).toContain(text);
+    await loadDetail(72);
+    expect(deepText(panel)).toContain('用量加载中'); expect(deepText(panel)).toContain('历史加载中');
+    expect(deepText(panel)).not.toContain('changed.js');
+  } finally { settle(gates); await drain(); }
+});
+
+test('旧请求迟到或重复 dispose 不得释放新详情的几何观察器', async () => {
+  const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
+  const original = globalThis.ResizeObserver, observers = [];
+  globalThis.ResizeObserver = class {
+    constructor() { observers.push(this); this.disconnected = false; }
+    observe() {} unobserve() {} disconnect() { this.disconnected = true; }
+  };
+  let latest;
+  try {
+    const old = renderDetail(task(), { loading: true, events: [] }, null, null, null, { current: () => true });
+    latest = renderDetail(task(), { loading: true, events: [] }, null, null, null, { current: () => true });
+    const liveObserver = observers.at(-1);
+    expect(liveObserver.disconnected).toBe(false);
+    old.dispose(); old.dispose();
+    expect(liveObserver.disconnected).toBe(false);
+    latest.dispose(); expect(liveObserver.disconnected).toBe(true);
+  } finally {
+    latest?.dispose();
+    if (original === undefined) delete globalThis.ResizeObserver; else globalThis.ResizeObserver = original;
+  }
+});
+
 test('真实告知查看在主体成功后即 ACK 并开放下一条，不等详情补充或全局刷新', async () => {
   const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
   const { renderNotices } = await import('../../src/ui/web/assets/render-notices.js');

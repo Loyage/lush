@@ -8,7 +8,7 @@ import { liveTarget } from './live.js';
 import { workerLabel } from './worker-label.js';
 import { routeContext } from './route.js';
 
-let detailRequest = 0, supplemental = null, lifetime = null;
+let detailRequest = 0, supplemental = null, lifetime = null, renderedExtras = null;
 export function disposeDetailRequests() {
   lifetime?.abort(); lifetime = null;
   supplemental?.dispose(); supplemental = null;
@@ -104,7 +104,15 @@ export async function loadDetail(taskId) {
     }).finally(() => { diffPending = null; });
     return diffPending;
   };
-  const patches = renderDetail(task, { loading: true, events: [] }, null, null, null, { current, requestDiff, signal: reads.signal });
+  // Keep the last successful supplementary content visible during same-Worker revalidation.
+  // One rendered view only, scoped to the project and boot; never a cross-Worker data cache.
+  const previous = renderedExtras?.taskId === taskId && renderedExtras.project === project && renderedExtras.boot === boot
+    ? renderedExtras : null;
+  const values = renderedExtras = { taskId, project, boot, values: { ...(previous?.values || {}) } };
+  const cached = values.values;
+  const initialHistory = cached.history ? { ...cached.history, onMore: before => loadHistory(taskId, before, options) } : { loading: true, events: [] };
+  const patches = renderDetail(task, initialHistory, null, cached.usage ?? null, cached.connections ?? null,
+    { current, requestDiff, signal: reads.signal, loaded: cached });
   supplemental = patches;
   ui.composerTask = task; ui.composerError = null; ui.syncComposer?.();
   // Preserve reading moves made while the request was in flight, including the history renderer's anchor correction.
@@ -127,6 +135,7 @@ export async function loadDetail(taskId) {
       if (!current()) { patches.dispose(); return; }
       if (kind !== 'diff' && value == null) available = false;
       if (kind === 'history' && available) value.onMore = before => loadHistory(taskId, before, options);
+      if (available) cached[kind] = value;
       patches.update(kind, value, available);
     });
   }

@@ -114,6 +114,7 @@ test('same Worker refresh retains loaded pages, open versions, module expansion,
     focus.focus(); panel.scrollTop = 250;
     panel.getBoundingClientRect = () => ({ top: 0, bottom: 600 });
     let top = -20;
+    section.getBoundingClientRect = () => ({ top: top - 40, bottom: top + 400 });
     fold.getBoundingClientRect = () => ({ top, bottom: top + 100 });
     const replace = panel.replaceChildren.bind(panel);
     panel.replaceChildren = (...nodes) => { document.activeElement = null; top = 20; replace(...nodes); };

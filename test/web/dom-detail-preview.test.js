@@ -73,7 +73,7 @@ test('same Worker refresh preserves expansion even when module rebuilt; other Wo
 test('natural content observation handles lazy growth, narrow viewports and shrinking without resetting manual state', () => fixture(async ({ dom, observers, resize }) => {
   const panel = dom.node('detail'), section = block('事件时间线'); panel.append(section);
   limitDetailModules(panel, { taskId: 7 });
-  expect([...observers[0].targets]).toEqual([section.querySelector('.detail-preview-content'), section.querySelector('.detail-preview-limit')]);
+  expect([...observers[0].targets]).toEqual([section.querySelector('.detail-preview-content'), section.querySelector('.detail-preview-limit'), section]);
   resize(section, 400, 400); expect(toggle(section).hidden).toBe(true);
   resize(section, 400, 160); expect(toggle(section).hidden).toBe(false);
   await toggle(section).click();

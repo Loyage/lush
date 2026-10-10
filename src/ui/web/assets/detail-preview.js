@@ -1,4 +1,5 @@
 import { button, el } from './dom.js';
+import { captureDetailReading, restoreDetailReading } from './detail-reading.js';
 
 // Reading state belongs to this rendered Worker, not a project/global preference.
 const panels = new WeakMap();
@@ -59,7 +60,7 @@ function preview(section, id, expanded, remember) {
 /** Apply only to the detail renderer's reading blocks; lifecycle actions/forms stay outside. */
 export function limitDetailModules(panel, { taskId, from = 0 }) {
   const old = panels.get(panel);
-  old?.observer?.disconnect();
+  old?.dispose?.();
   const expanded = old?.taskId === taskId ? old.expanded : new Map();
   const views = [], occurrences = new Map();
   for (const section of [...panel.children].slice(from)) {
@@ -67,24 +68,50 @@ export function limitDetailModules(panel, { taskId, from = 0 }) {
     const title = section.children[0]?.querySelector('h2')?.textContent || '模块';
     const occurrence = occurrences.get(title) || 0; occurrences.set(title, occurrence + 1);
     const key = `${title}:${occurrence}`;
-    views.push(preview(section, `worker-${taskId}-preview-${++nextPreviewId}`, expanded.get(key) || false,
-      value => expanded.set(key, value)));
+    const view = preview(section, `worker-${taskId}-preview-${++nextPreviewId}`, expanded.get(key) || false,
+      value => expanded.set(key, value));
+    view.key = key; views.push(view);
   }
-  let observer = null;
+  let observer = null, disposed = false, position = captureDetailReading(panel);
+  const rememberPosition = () => { if (!disposed) position = captureDetailReading(panel); };
+  const afterInteraction = () => queueMicrotask(rememberPosition);
+  const ownerWindow = globalThis.window;
+  panel.addEventListener('scroll', rememberPosition, { passive: true });
+  panel.addEventListener('click', afterInteraction);
+  ownerWindow?.addEventListener?.('scroll', rememberPosition, { passive: true });
+  // Explicit expand/collapse and keyboard/reference reveal are intentional reading moves.
+  for (const view of views) {
+    view.remember = value => { expanded.set(view.key, value); queueMicrotask(rememberPosition); };
+  }
   if (typeof ResizeObserver === 'function') {
     observer = new ResizeObserver(() => {
+      if (disposed) return;
+      if (panel.dataset.view && panel.dataset.view !== 'task') { disposeDetailModules(panel); return; }
+      const current = captureDetailReading(panel);
+      // A user scroll (or synchronous renderer compensation) wins over our saved geometry.
+      if (current.scroll !== position.scroll) position = current;
       for (const view of views) {
         if (view.section.parentNode !== panel) {
-          observer.unobserve(view.content); observer.unobserve(view.gauge);
+          observer.unobserve(view.content); observer.unobserve(view.gauge); observer.unobserve(view.section);
         } else view.measure();
       }
+      restoreDetailReading(panel, position);
+      rememberPosition();
     });
     // Natural content detects lazy growth; the gauge detects height-only viewport changes.
     // Neither observation changes when our own expand/collapse controls toggle.
-    for (const view of views) { observer.observe(view.content); observer.observe(view.gauge); }
+    for (const view of views) { observer.observe(view.content); observer.observe(view.gauge); observer.observe(view.section); }
   }
-  panels.set(panel, { taskId, expanded, observer });
+  panels.set(panel, { taskId, expanded, dispose() {
+    disposed = true; observer?.disconnect();
+    panel.removeEventListener?.('scroll', rememberPosition);
+    panel.removeEventListener?.('click', afterInteraction);
+    ownerWindow?.removeEventListener?.('scroll', rememberPosition);
+  } });
 }
+
+/** Release geometry observers/listeners on navigation; keep this Worker's expansion choices. */
+export function disposeDetailModules(panel) { panels.get(panel)?.dispose?.(); }
 
 /** Reference navigation must reveal its real destination before scrolling/highlighting. */
 export function revealDetailPreview(node) {

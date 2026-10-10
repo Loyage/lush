@@ -199,6 +199,11 @@ input.pick{flex:none;width:15px;height:15px;accent-color:var(--accent);cursor:po
 .detail-preview-body pre{max-height:none;overflow:visible}
 .detail-preview-limit{position:fixed;top:0;left:0;width:0;height:var(--detail-preview-height);visibility:hidden;pointer-events:none}
 .detail-preview>.section-title{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+/* Desktop's scrollport includes 30px top padding; cancel it at the sticky edge. */
+#detail[data-view="task"]>.block>.section-title{position:sticky;top:-30px;z-index:3;background:var(--panel);padding:8px 0;margin-top:-8px;margin-bottom:6px;box-shadow:0 1px 0 var(--line-soft)}
+/* Explicit reading anchors own update compensation; native anchoring must not double-adjust. */
+#detail[data-view="task"]{overflow-anchor:none}
+@media(max-width:760px){#detail[data-view="task"]>.block>.section-title{top:42px}}
 .detail-preview>.section-title>.detail-preview-toggle{margin-left:auto}
 .detail-preview-toggle{font-size:11px;white-space:normal}
 /* The fade is the visible continuation cue; keep the preview explanation available to screen readers. */
