@@ -21,7 +21,7 @@ const { loadConnectionNames, loadHistory, api, action, withReadSignal } = await 
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
 const { activateDetailView, openResource } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const panel = dom.node('detail');
-const openDiff = () => { const fold = panel.querySelector('.detail-diff'); fold.open = true; fold.ontoggle(); return fold; };
+const openDiff = () => { const section = panel.querySelector('.detail-diff'); expect(section.tagName).not.toBe('DETAILS'); return section; };
 beforeEach(() => {
   disposeDetailRequests(); resetUiState(); panel.replaceChildren(); delete panel.dataset.taskId;
   dom.document.activeElement = null; dom.location.pathname = '/'; handler = null; requests = [];
@@ -32,8 +32,7 @@ test('核心 inspect 独占首个读取，失败/取消前不发附加请求；�
   const core = deferred(); handler = ({ url }) => url === '/api/worker/7' ? core.promise : null;
   const loading = loadDetail(7); await drain(); expect(requests.map(row => row.url)).toEqual(['/api/worker/7']);
   core.resolve(json(task(7))); expect(await loading).toBe(true); await drain();
-  expect(requests.some(row => row.url.endsWith('/diff'))).toBe(false);
-  expect(deepText(panel)).toContain('打开后读取改动'); openDiff(); await drain();
+  expect(panel.querySelector('.detail-diff > summary')).toBeNull();
   expect(requests.filter(row => row.url.endsWith('/diff'))).toHaveLength(1); expect(deepText(panel)).toContain('new.js');
   requests = []; handler = ({ url }) => url === '/api/worker/8' ? bad() : null;
   await expect(loadDetail(8)).rejects.toThrow('offline'); expect(requests.map(row => row.url)).toEqual(['/api/worker/8']);
@@ -56,20 +55,21 @@ test('统一导航在更换 view 前释放详情；同页面 activate 不取消�
   disposeDetailRequests(); resetUiState(); expect(active.aborted).toBe(true);
 });
 
-test('diff 显式打开单飞/失败重试；同 Worker 刷新保留展开与文件明细，其他 Worker 不继承', async () => {
+test('diff 自动读取/失败重试；同 Worker 刷新保留正文与文件明细，其他 Worker 不继承', async () => {
   let gate = deferred(); handler = ({ url }) => url.endsWith('/diff') ? gate.promise : null;
-  await loadDetail(7); const fold = openDiff(); fold.ontoggle(); await drain();
+  await loadDetail(7); const section = openDiff(); await drain();
   expect(requests.filter(row => row.url.endsWith('/diff'))).toHaveLength(1);
   gate.resolve(bad()); await drain(); expect(deepText(panel)).toContain('改动不可用');
   gate = deferred(); const retry = panel.querySelector('.detail-diff-retry').onclick();
   gate.resolve(json(diff)); await retry; await drain();
   const files = panel.querySelector('.diff-files'); files.open = true; panel.scrollTop = 172;
   handler = null; await loadDetail(7); await drain();
-  expect(panel.querySelector('.detail-diff')).toBe(fold); expect(fold.open).toBe(true);
+  expect(panel.querySelector('.detail-diff')).toBe(section); expect(section.querySelector('summary')).toBe(files.querySelector('summary'));
   expect(panel.querySelector('.diff-files')).toBe(files); expect(files.open).toBe(true); expect(panel.scrollTop).toBe(172);
   const before = requests.filter(row => row.url.endsWith('/diff')).length;
-  await loadDetail(8); await drain(); expect(panel.querySelector('.detail-diff').open).not.toBe(true);
-  expect(requests.filter(row => row.url.endsWith('/diff'))).toHaveLength(before);
+  await loadDetail(8); await drain(); expect(panel.querySelector('.detail-diff')).not.toBe(section);
+  expect(panel.querySelector('.diff-files').open).not.toBe(true);
+  expect(requests.filter(row => row.url.endsWith('/diff'))).toHaveLength(before + 1);
 });
 
 test('切 Worker/离页/boot 时中止核心及附加 HTTP；忽略取消仍迟到的 fetch 不 ACK/不复活正文', async () => {
@@ -80,7 +80,7 @@ test('切 Worker/离页/boot 时中止核心及附加 HTTP；忽略取消仍迟�
   const history = deferred(), usage = deferred(), changes = deferred();
   handler = ({ url }) => url.includes('/history') ? history.promise : url.endsWith('/usage') ? usage.promise : url.endsWith('/diff') ? changes.promise : null;
   await loadDetail(7); openDiff(); await drain(); const obsolete = [...requests].filter(row => /history|usage|diff/.test(row.url));
-  handler = null; await loadDetail(8); await drain();
+  handler = ({ url }) => url.endsWith('/diff') ? json(null) : null; await loadDetail(8); await drain();
   expect(obsolete.every(row => row.options.signal.aborted)).toBe(true);
   history.resolve(json({ events: [{ id: 1, type: 'message', data: { body: '过期输入' } }] })); usage.resolve(json({ files: [] })); changes.resolve(json(diff));
   await drain(); expect(panel.dataset.taskId).toBe('8'); expect(deepText(panel)).not.toContain('过期输入'); expect(deepText(panel)).not.toContain('new.js');

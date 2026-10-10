@@ -32,7 +32,7 @@ Worker 列表按 ID 复用节点，仅更新变化的显示字段。依赖包括
 
 ## Worker 详情
 
-核心 inspect 是首个请求；成功绘制后即可返回给告知已读 ACK，不等补充内容。随后读取历史，仅有调用记录时读取用量。改动概览必须显式打开才读 diff；同 Worker 刷新保留该展开状态，加载/失败状态与旧内容分别可辨。
+核心 inspect 是首个请求；成功绘制后即可返回给告知已读 ACK，不等补充内容。随后读取历史，仅有调用记录时读取用量。W185：改动概览直接展示，主体绘制后自动渐进读取 diff，不再有重复的「查看改动概览」折叠层；同 Worker 刷新保留正文与文件明细展开状态，加载/失败状态与旧内容分别可辨。
 
 连接名称缓存只保留最多 1000 个公开 `id/label`，30 秒 TTL、单飞、内存存储，按项目和 boot 身份隔离。相关成功配置/连接 action 后失效，在途旧读也失效；失败不回退为假装新鲜的旧事实。它不是账号/额度/配置缓存，不保存秘密或磁盘副本。
 
@@ -54,7 +54,7 @@ bun run docs:check
 - `loading-assets.test.js`：源码/产物静态依赖闭包、拆包与 modulepreload、CSS 次序、gzip/ETag、登录与项目路由、旧代/淘汰、缓存权限与路径拒绝。
 - `build-assets-state.test.js`：编译产物入口 namespace、跨入口／懒页面 live 状态单例、懒副作用顺序与重复 import；`dom-built-loading-assets.test.js`：实际 Bun 浏览器产物的共享状态、懒页面和重复 boot；`dom-loading-assets.test.js`：导航/boot 竞态。
 - `dom-refresh-performance.test.js` / `live-performance.test.js`：节点复用、隐藏/恢复、退避/ACK、分页/尾读/慢统计竞争。
-- `detail-request-cache.test.js` / `dom-detail-requests.test.js` / `dom-detail-tail.test.js` / `detail-requests-api.test.js`：核心优先、显式 diff、标签失效/隔离、只读取消、终态尾部与真实 HTTP 请求组合。
+- `detail-request-cache.test.js` / `dom-detail-requests.test.js` / `dom-detail-tail.test.js` / `detail-requests-api.test.js`：核心优先、渐进 diff、标签失效/隔离、只读取消、终态尾部与真实 HTTP 请求组合。
 - `dom-web-performance-integration.test.js`：真实 boot 与轮询/详情生命周期组合。
 - `check:workbench`：实际 Host + Firefox，记录首屏静态传输、普通再次访问的缓存收益和 WebDriver 主动刷新是否发送验证器，检查拆包、全局导航、独立项目标签及双主题响应式。
 - 输入与规划历史浏览器脚本：真实键盘/原生展开/焦点、慢读取下 ACK、分页和阅读位置保护；这些是本机回环测试，不是远端链路测速。

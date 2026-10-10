@@ -15,9 +15,11 @@ window.task={id:7,worker_number:'W7',role:'agent',task_kind:'order',status:'wait
   goal:long,result:long+'\\n\\n最后一段结果',created_at:at,updated_at:at,
   progress:{version:1,items:Array.from({length:30},(_,i)=>({key:'step'+i,label:'步骤 '+i+' '+('较长的阶段名称 '.repeat(5)),status:i<5?'completed':'pending'}))},
   children:Array.from({length:20},(_,i)=>({id:100+i,worker_number:'W7-'+(i+1),role:'agent',status:'waiting',goal:'子 Worker '+i,updated_at:at})),
+  notices:[{id:71,kind:'questionnaire',status:'answered',title:'历史决定',body:JSON.stringify({version:1,body:'保留决定',questions:[{header:'范围',question:'选择范围？',options:[{label:'方案一',description:'当前方案'},{label:'方案二',description:'候选方案'}]}]}),answer:JSON.stringify({answers:[{selected:[0],labels:['方案一'],custom:''}]})}],
   messages:Array.from({length:20},(_,i)=>({id:i+1,sender_id:null,body:'消息 '+i+'\\n\\n'+long,created_at:at}))};
 window.fixtureHistory={events:[...Array.from({length:50},(_,i)=>({id:i+1,type:'invocation.completed',created_at:at,data:{run_id:i+1,result:'此前结果 '+i+'\\n'+long}})),
-  {id:80,type:'message',created_at:'2026-10-08T10:01:00Z',data:{sender:null,body:'短追加输入'},input_delivery:{status:'pending',at:null}}]};
+  {id:80,type:'message',created_at:'2026-10-08T10:01:00Z',data:{sender:null,body:'短追加输入'},input_delivery:{status:'pending',at:null}},
+  {id:81,type:'message',created_at:'2026-10-08T10:02:00Z',data:{sender:100,body:'来自子 Worker 的通信',message_id:81}}]};
 ui.selected=7; ui.view={id:'task',key:'7'};
 window.paint=(progressive=null)=>renderDetail(window.task,window.fixtureHistory,null,null,null,progressive);
 window.reveal=revealDetailPreview;
@@ -82,6 +84,13 @@ try {
     await viewport(width, height);
     await execute(`document.documentElement.dataset.theme='${theme}';window.paint();`);
     assert(await wait(`document.querySelector('.conversation-panel').classList.contains('detail-preview-long')`), 'long goal not measured');
+    assert(await execute(`const root=document.querySelector('.conversation-panel'),filters=[...root.querySelectorAll('.conversation-filters input')];
+      if(filters.length!==3||!filters[0].checked||!filters[1].checked||filters[2].checked||root.querySelector('.conversation-other'))return false;
+      filters[2].click();const message=root.querySelector('.conversation-other');
+      if(!message?.textContent.includes('来自子 Worker 的通信')||!message.textContent.includes('Worker W7-1'))return false;
+      window.paint();if(!filters[2].checked||document.querySelector('.conversation-other')!==message)return false;
+      filters[2].click();return !root.querySelector('.conversation-other')&&document.querySelector('.decision-record').open;
+    `), 'conversation filters, communication provenance, refresh or default decision expansion');
     const sizes = await execute(`return [...document.querySelectorAll('.detail-preview')].map(n=>({
       title:n.querySelector('h2').textContent,body:n.querySelector('.detail-preview-body').getBoundingClientRect().height,
       limit:n.querySelector('.detail-preview-limit').getBoundingClientRect().height,

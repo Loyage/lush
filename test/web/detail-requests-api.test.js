@@ -9,7 +9,7 @@ import { installDom, deepText } from '../dom-stub.js';
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const drain = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 
-test('临时 Host 的真实项目 API：核心优先、diff 按需、名称单飞隔离/失效/失败且 no-store', async () => {
+test('临时 Host 的真实项目 API：核心优先、diff 渐进读取、名称单飞隔离/失效/失败且 no-store', async () => {
   const a = temp(), b = temp(), shared = temp(), calls = [], core = deferred(), extras = deferred(), arrived = deferred(), diffArrived = deferred();
   let gateCore = true, gateExtras = true, label = '原名称', unavailable = false;
   const web = startWeb(null, 0, { env: env({ LUSH_GLOBAL_CONFIG: shared }), openProject: async project => ({
@@ -51,9 +51,8 @@ test('临时 Host 的真实项目 API：核心优先、diff 按需、名称单�
     expect(calls).toEqual([{ project: a, method: 'worker.inspect' }]);
     gateCore = false; core.resolve(); expect(await opening).toBe(true);
     expect(calls[0]).toEqual({ project: a, method: 'worker.inspect' });
-    expect(calls.some(row => row.method === 'worker.diff')).toBe(false);
     expect(deepText(dom.node('detail'))).toContain('真实 HTTP 结果');
-    const fold = dom.node('detail').querySelector('.detail-diff'); fold.open = true; fold.ontoggle();
+    expect(dom.node('detail').querySelector('.detail-diff > summary')).toBeNull();
     await diffArrived.promise;
     // History/usage stay gated; opening success and read-name completion do not depend on them.
     const names = await Promise.all([loadConnectionNames(), loadConnectionNames()]);

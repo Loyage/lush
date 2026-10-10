@@ -301,30 +301,25 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     workspace.append(el('p', text, 'mono'));
     panel.append(workspace);
   }
-  let diffSection = null, diffFold = null, diffBody = null;
-  const lazyDiff = Boolean(progressive?.requestDiff);
+  let diffSection = null, diffBody = null;
+  const progressiveDiff = Boolean(progressive?.requestDiff);
   const loadDiff = () => {
-    if (!diffFold?.open || !progressive.current()) return;
-    diffFold.dataset.state = 'loading';
+    if (!diffSection || !progressive.current()) return;
+    diffSection.dataset.state = 'loading';
     diffBody.querySelector('.detail-diff-status')?.remove();
-    if (!diffFold.dataset.signature) diffBody.append(el('p', '改动加载中…', 'hint detail-diff-status'));
+    if (!diffSection.dataset.signature) diffBody.append(el('p', '改动加载中…', 'hint detail-diff-status'));
     return progressive.requestDiff();
   };
   if (!management) {
-    diffSection = progressive ? block('改动概览') : renderDiff(diff, task.id);
-    if (lazyDiff) {
-      diffFold = previousDiff || el('details', undefined, 'detail-diff');
-      if (!previousDiff) {
-        diffFold.append(el('summary', '查看改动概览'));
-        diffFold.append(el('div', undefined, 'detail-diff-body'));
-      }
-      diffBody = diffFold.querySelector('.detail-diff-body');
-      diffFold.dataset.state = 'idle';
+    diffSection = progressiveDiff ? previousDiff || block('改动概览') : progressive ? block('改动概览') : renderDiff(diff, task.id);
+    if (progressiveDiff) {
+      diffSection.classList.add('detail-diff');
+      if (!previousDiff) diffSection.append(el('div', undefined, 'detail-diff-body'));
+      diffBody = diffSection.querySelector('.detail-diff-body');
+      diffSection.dataset.state = 'idle';
       diffBody.querySelector('.detail-diff-status')?.remove();
-      if (!diffFold.dataset.signature) diffBody.append(el('p', diffFold.open ? '改动加载中…' : '打开后读取改动。', 'hint detail-diff-status'));
-      diffFold.ontoggle = () => { if (diffFold.open && diffFold.dataset.state === 'idle') void loadDiff(); };
-      diffSection.append(diffFold);
-      if (diffFold.open) queueMicrotask(loadDiff);
+      if (!diffSection.dataset.signature) diffBody.append(el('p', '改动加载中…', 'hint detail-diff-status'));
+      queueMicrotask(loadDiff);
     } else if (progressive) diffSection.append(el('p', '改动加载中…', 'hint'));
     panel.append(diffSection);
   }
@@ -357,6 +352,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
         const previous = previousDecisions.get(String(notice.id));
         if (previous?.dataset.signature === signature) { record.append(previous); continue; }
         const fold = el('details', undefined, 'decision-record');
+        fold.open = previous ? previous.open : true;
         fold.dataset.noticeId = String(notice.id); fold.dataset.signature = signature;
         const label = { open: '历史待决 · 只读', answered: '已回答', dismissed: '已忽略' }[notice.status] || notice.status;
         fold.append(el('summary', `${notice.title} · ${label}`),
@@ -461,14 +457,16 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
         if (kind === 'diff' && diffSection) {
           const next = available && value ? renderDiff(value, task.id) : block('改动概览');
           if (!available || !value) next.append(el('p', available ? '改动不可用：尚无可读取的工作区。' : '改动不可用；读取失败。', 'hint'));
-          if (lazyDiff) {
+          if (progressiveDiff) {
+            // The module already has a heading; keep only the rendered diff content.
+            next.querySelector('.section-title')?.remove();
             const filesOpen = diffBody.querySelector('.diff-files')?.open === true;
             const signature = JSON.stringify([value, available]);
             diffBody.querySelector('.detail-diff-status')?.remove();
-            if (diffFold.dataset.signature !== signature) diffBody.replaceChildren(next);
-            diffFold.dataset.signature = signature;
+            if (diffSection.dataset.signature !== signature) diffBody.replaceChildren(next);
+            diffSection.dataset.signature = signature;
             if (filesOpen && diffBody.querySelector('.diff-files')) diffBody.querySelector('.diff-files').open = true;
-            diffFold.dataset.state = available ? 'ready' : 'failed';
+            diffSection.dataset.state = available ? 'ready' : 'failed';
             diffBody.querySelector('.detail-diff-retry')?.remove();
             if (!available) diffBody.append(button('重试读取改动', loadDiff, 'ghost detail-diff-retry'));
           } else diffSection = replace(diffSection, next);

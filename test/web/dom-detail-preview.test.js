@@ -170,7 +170,7 @@ test('merged parent semantics stay intact: child flow Hooks remain unclipped/rea
   const levels = hooks.querySelectorAll('.hook-completion-level'); expect(levels).toHaveLength(3);
   for (const control of levels) { expect(control.disabled).toBe(true); await control.onclick(); }
   const decisions = [...panel.children].find(node => node.children[0]?.querySelector('h2')?.textContent === '决策记录');
-  const fold = decisions.querySelector('.decision-record'); fold.open = true;
+  const fold = decisions.querySelector('.decision-record'); expect(fold.open).toBe(true);
   resize(decisions); await toggle(decisions).click();
   expect(decisions.classList.contains('detail-preview')).toBe(true); expect(deepText(decisions)).toContain('已选：方案一');
   expect(decisions.querySelector('.choice-snapshot')).toBeNull(); expect(decisions.querySelector('textarea')).toBeNull();
@@ -179,4 +179,7 @@ test('merged parent semantics stay intact: child flow Hooks remain unclipped/rea
   const refreshed = [...panel.children].find(node => node.children[0]?.querySelector('h2')?.textContent === '决策记录');
   expect(expanded(refreshed)).toBe(true); expect(refreshed.querySelector('.decision-record')).toBe(fold);
   expect(fold.open).toBe(true); expect(requests).toHaveLength(0);
+  fold.open = false;
+  renderDetail({ ...child, notices: [{ ...notice, title: '更新后的历史选择' }] }, { events: [] }, null, null);
+  expect(panel.querySelector('.decision-record').open).toBe(false);
 }));

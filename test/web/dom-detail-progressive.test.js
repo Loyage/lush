@@ -47,7 +47,8 @@ const slowExtras = () => {
   return gates;
 };
 const settle = gates => { gates.history.resolve(json(history)); gates.diff.resolve(json(diff)); gates.usage.resolve(json(usage)); gates.connections.resolve(json(connections)); };
-const openDiff = () => { const fold = panel.querySelector('.detail-diff'); fold.open = true; return fold.ontoggle(); };
+// The summary is now visible and requested automatically; no expansion is necessary.
+const openDiff = () => { expect(panel.querySelector('.detail-diff').tagName).not.toBe('DETAILS'); };
 beforeEach(() => {
   resetUiState();
   panel.replaceChildren(); delete panel.dataset.taskId;
@@ -70,7 +71,7 @@ test('主体一到即显示目标、状态、结果和操作并返回 true；慢
     expect(panel.querySelector('.task-actions')).toBeTruthy(); expect(panel.querySelector('.task-stats')).toBeTruthy();
     expect(ui.composerTask.id).toBe(71);
     expect(requests[0]).toBe('/api/worker/71');
-    expect(requests.some(url => url.endsWith('/diff'))).toBe(false);
+    expect(requests.filter(url => url.endsWith('/diff'))).toHaveLength(1);
     openDiff();
     for (const text of ['历史加载中', '改动加载中', '用量加载中', '连接名称加载中']) expect(deepText(panel)).toContain(text);
     expect(deepText(panel)).not.toContain('未提交文件');
@@ -198,7 +199,7 @@ test('真实告知查看在主体成功后即 ACK 并开放下一条，不等详
     main.resolve(json(task())); await drain();
     expect(await Promise.race([opening, Promise.resolve('pending')])).toBeUndefined();
     expect(acknowledgements).toBe(1); expect(refreshes).toBe(1);
-    expect(deepText(panel)).toContain('正文结果 71'); expect(deepText(panel)).toContain('打开后读取改动');
+    expect(deepText(panel)).toContain('正文结果 71'); expect(deepText(panel)).toContain('改动加载中');
     expect(deepText(panel)).toContain('用量加载中');
     expect(deepText(banner)).toContain(first.title); expect(deepText(banner)).not.toContain(second.title);
     expect(banner.querySelector('.notice-banner-info').disabled).toBe(false);

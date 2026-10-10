@@ -37,6 +37,42 @@ test('one conversation shows original goal, explicit user followups and results;
   } finally { dom.restore(); }
 });
 
+test('content checkboxes default to user/Worker, keep communication distinct and retain choices/nodes across refresh', async () => {
+  const dom = installDom({ fetch: async () => new Response(JSON.stringify({ events: [event(8, '较早通信', 9)], cursor: 8, has_more: false })) });
+  try {
+    const incoming = { id: 43, task_id: 7, sender_id: 8, sender_worker_number: 'W185-1', body: 'Agent 消息', created_at: at };
+    const outgoing = { id: 44, task_id: 8, sender_id: 7, body: '发给其他 Worker', created_at: at };
+    const history = { events: [event(1, '用户补充'), event(3, 'Agent 消息', 8),
+      { id: 4, type: 'task.signal', message: { id: 45, task_id: 7, sender_id: 8, sender_worker_number: 'W185-1', body: '结算信号', created_at: at } },
+      { id: 5, type: 'task.signal', message: outgoing }], cursor: 50, has_more: true };
+    const current = { ...task, messages: [incoming, outgoing] };
+    const root = renderConversation(current, history);
+    const filters = root.querySelector('.conversation-filters').querySelectorAll('input');
+    expect(filters.map(node => node.checked)).toEqual([true, true, false]);
+    const toggle = (index, checked) => { filters[index].checked = checked; filters[index].onchange(); };
+    const result = root.querySelector('.conversation-output'), user = root.querySelector('.conversation-input');
+    expect(deepText(root)).not.toContain('Agent 消息');
+    toggle(2, true);
+    expect(root.querySelectorAll('.conversation-other')).toHaveLength(2);
+    const communication = root.querySelectorAll('.conversation-other').find(node => deepText(node).includes('Agent 消息'));
+    expect(deepText(communication)).toContain('Worker W185-1'); expect(deepText(communication)).toContain('通信时间');
+    expect(communication.dataset.ref).toContain('event-3'); expect(communication.dataset.ref).toContain('message-43');
+    expect(deepText(root)).not.toContain('发给其他 Worker');
+    toggle(0, false); toggle(1, false);
+    expect(root.querySelectorAll('.conversation-input')).toHaveLength(0); expect(root.querySelectorAll('.conversation-output')).toHaveLength(0);
+    await findByText(root, '加载更早对话').onclick();
+    expect(deepText(root)).toContain('较早通信');
+    renderConversation(current, history, root);
+    expect(filters.map(node => node.checked)).toEqual([false, false, true]);
+    expect(root.querySelectorAll('.conversation-other')).toHaveLength(3);
+    toggle(2, false); expect(root.querySelectorAll('.conversation-message')).toHaveLength(0);
+    toggle(2, true); expect(root.querySelectorAll('.conversation-other')).toContain(communication);
+    toggle(0, true); toggle(1, true);
+    expect(root.querySelectorAll('.conversation-output')).toContain(result); expect(root.querySelectorAll('.conversation-input')).toContain(user);
+    expect(renderConversation({ id: 8, goal: '另一 Worker' }).querySelector('.conversation-filters').querySelectorAll('input').map(node => node.checked)).toEqual([true, true, false]);
+  } finally { dom.restore(); }
+});
+
 test('one pager loads both directions of history, retries failure and retains older pages across refresh', async () => {
   const requests = []; let fail = true;
   const dom = installDom({ fetch: async url => {

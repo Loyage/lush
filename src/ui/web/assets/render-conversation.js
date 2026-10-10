@@ -18,7 +18,8 @@ export function renderConversation(task, history = {}, previous = null) {
     return previous;
   }
   if (!task.goal && !task.result && !(task.runs || []).some(run => run.result)
-    && !(history.events || []).some(event => followup(event) || event.type === 'invocation.completed')
+    && !(task.messages || []).some(message => message.sender_id != null || message.signal_type)
+    && !(history.events || []).some(event => followup(event) || event.type === 'message' || event.message || event.type === 'invocation.completed')
     && !history.loading && !history.unavailable && !history.has_more && !history.truncated) return null;
   const root = block('对话'); root.classList.add('conversation-panel'); root.conversationTaskId = task.id;
   const head = root.querySelector('.section-title');
@@ -26,7 +27,16 @@ export function renderConversation(task, history = {}, previous = null) {
   ordering.setAttribute('role', 'group'); ordering.setAttribute('aria-label', '对话排序');
   const list = el('div', undefined, 'conversation-list'), status = el('p', '', 'hint conversation-status');
   let current = task, direction = 'desc', cursor = null, hasMore = false, historyState = '';
-  const inputs = new Map(), outputs = new Map(), rendered = new Map();
+  const inputs = new Map(), outputs = new Map(), others = new Map(), rendered = new Map();
+  const visible = { input: true, output: true, other: false };
+  const filters = el('div', undefined, 'conversation-filters');
+  filters.setAttribute('role', 'group'); filters.setAttribute('aria-label', '对话显示内容');
+  for (const [side, text] of [['input', '用户输入'], ['output', 'Worker 输出'], ['other', '其他输入']]) {
+    const label = el('label'), checkbox = el('input');
+    checkbox.type = 'checkbox'; checkbox.checked = visible[side]; checkbox.dataset.conversationFilter = side;
+    checkbox.onchange = () => { visible[side] = checkbox.checked; paint(); };
+    label.append(checkbox, el('span', text)); filters.append(label);
+  }
   const asc = button('正序', () => { direction = 'asc'; paint(); }, 'ghost', { help: '按时间从早到晚阅读已加载的输入和结果，只改变当前对话的显示顺序，不调用 Agent。' });
   const desc = button('倒序', () => { direction = 'desc'; paint(); }, 'ghost', { help: '按时间从晚到早阅读已加载的输入和结果，只改变当前对话的显示顺序，不调用 Agent。' });
   ordering.append(asc, desc); head.append(count, ordering);
@@ -39,7 +49,7 @@ export function renderConversation(task, history = {}, previous = null) {
       status.textContent = hasMore ? '更早历史尚未全部读取，可继续加载。' : '已读取全部对话历史。';
     } catch (error) { status.textContent = `读取未完成：${error.message}`; }
   }, 'ghost conversation-more');
-  root.append(list, status, more);
+  root.append(filters, list, status, more);
 
   function message(entry, latestKey) {
     let node = rendered.get(entry.key);
@@ -48,7 +58,7 @@ export function renderConversation(task, history = {}, previous = null) {
       node = el('article', undefined, `conversation-message conversation-${entry.side}`);
       node.dataset.conversationKey = entry.key;
       const meta = el('div', undefined, 'conversation-meta');
-      const avatar = el('span', entry.side === 'input' ? '人' : 'W', `conversation-avatar avatar-${entry.side}`);
+      const avatar = el('span', entry.side === 'input' ? '人' : entry.side === 'other' ? '信' : 'W', `conversation-avatar avatar-${entry.side}`);
       avatar.setAttribute('aria-hidden', 'true');
       meta.append(avatar, el('strong', '', 'conversation-sender'), el('span', '', 'conversation-kind'), el('time', '', 'conversation-time'));
       const body = el('div', undefined, 'conversation-body');
@@ -86,19 +96,25 @@ export function renderConversation(task, history = {}, previous = null) {
       node.querySelector('.conversation-expand').hidden = !long;
       node.updateExpansion();
     }
-    node.querySelector('.conversation-sender').textContent = entry.side === 'input' ? '用户' : `Worker ${workerLabel(current)}`;
+    node.querySelector('.conversation-sender').textContent = entry.side === 'input' ? '用户'
+      : entry.side === 'other' ? entry.senderId != null ? `Worker ${workerLabel(entry.senderId, entry.senderNumber)}` : '系统'
+        : `Worker ${workerLabel(current)}`;
     node.querySelector('.conversation-kind').textContent = entry.kind;
     const at = entry.side === 'input' ? entry.delivery?.at : entry.at;
     const clock = node.querySelector('.conversation-time');
-    clock.textContent = entry.side === 'input' ? inputTime(entry.delivery) : time(at) === null ? '结果时间未知' : absolute(at);
+    clock.textContent = entry.side === 'input' ? inputTime(entry.delivery)
+      : entry.side === 'other' ? time(at) === null ? '通信时间未知' : `通信时间：${absolute(at)}`
+        : time(at) === null ? '结果时间未知' : absolute(at);
     if (time(at) !== null && (entry.side !== 'input' || entry.delivery?.status === 'delivered')) clock.setAttribute('datetime', at);
     else clock.removeAttribute('datetime');
     const refs = [];
     if (entry.key === latestKey) refs.push({ kind: 'result', target: { task_id: current.id, section: 'result' },
       label: `Worker 结果 ${workerLabel(current)}`, quote: entry.text, location: { view: 'task-detail', task_id: current.id, section: 'result' } });
     if (entry.eventId) refs.push({ kind: 'history_event', target: { task_id: current.id, event_id: entry.eventId },
-      label: `${entry.side === 'input' ? '追加输入' : '历史结果'} ${workerLabel(current)} · 事件 #${entry.eventId}`,
+      label: `${entry.side === 'input' ? '追加输入' : entry.side === 'other' ? '其他输入' : '历史结果'} ${workerLabel(current)} · 事件 #${entry.eventId}`,
       quote: entry.text, location: { view: 'task-detail', task_id: current.id, section: 'history' } });
+    if (entry.side === 'other' && entry.messageId != null) refs.push({ kind: 'message', target: { task_id: current.id, message_id: entry.messageId },
+      label: `Worker ${workerLabel(current)} 的其他输入`, quote: entry.text, location: { view: 'task-detail', task_id: current.id, section: 'messages' } });
     referenceable(node, refs);
     return node;
   }
@@ -107,7 +123,7 @@ export function renderConversation(task, history = {}, previous = null) {
     // Deduplicate only the newest occurrence, not equal text from independent earlier calls.
     const matched = current.result && results[0]?.text === current.result ? results[0].key : null;
     const latestKey = current.result ? matched || 'latest' : null;
-    const entries = [...inputs.values(), ...results];
+    const entries = [...inputs.values(), ...results, ...others.values()];
     if (current.goal) entries.push({ key: 'goal', side: 'input', kind: '原始目标', text: current.goal,
       delivery: current.goal_input_delivery, at: current.created_at, sequence: 0 });
     if (current.result && !matched) entries.push({ key: 'latest', side: 'output', kind: '最新结果', text: current.result, at: null, sequence: Infinity });
@@ -121,11 +137,21 @@ export function renderConversation(task, history = {}, previous = null) {
       return (Number.isNaN(delta) ? 0 : delta) || a.sequence - b.sequence || a.key.localeCompare(b.key);
     });
     if (direction === 'desc') entries.reverse();
-    syncChildren(list, entries.map(entry => message({ ...entry, kind: entry.key === latestKey ? '最新结果' : entry.kind }, latestKey)));
-    count.textContent = `已加载 ${entries.length} 条${hasMore ? ' · 还有更早历史' : ''}${historyState}`;
+    const shown = entries.filter(entry => visible[entry.side]);
+    syncChildren(list, shown.map(entry => message({ ...entry, kind: entry.key === latestKey ? '最新结果' : entry.kind }, latestKey)));
+    count.textContent = `显示 ${shown.length} / 已加载 ${entries.length} 条${hasMore ? ' · 还有更早历史' : ''}${historyState}`;
     asc.setAttribute('aria-pressed', String(direction === 'asc')); desc.setAttribute('aria-pressed', String(direction === 'desc'));
     root.dataset.order = direction;
     more.hidden = !hasMore || cursor == null;
+  }
+  function addOther(message, eventId = null) {
+    if (typeof message.body !== 'string') return;
+    const key = message.id != null ? `other:message:${message.id}` : `other:event:${eventId}`;
+    const old = others.get(key);
+    others.set(key, { ...old, key, side: 'other', kind: '其他输入', text: message.body,
+      messageId: message.id, eventId: eventId ?? old?.eventId, senderId: message.sender_id,
+      senderNumber: message.sender_worker_number ?? old?.senderNumber, at: message.created_at ?? old?.at,
+      sequence: eventId ?? old?.sequence ?? message.id });
   }
   root.updateConversation = (nextTask, page = {}) => {
     current = nextTask;
@@ -135,7 +161,18 @@ export function renderConversation(task, history = {}, previous = null) {
       outputs.set(key, { ...old, key, side: 'output', kind: `调用 #${run.id}`, text: run.result,
         at: run.ended_at || old?.at || null, sequence: run.id });
     }
+    // Only incoming communication belongs here; outgoing messages stay in the message/history views.
+    for (const message of current.messages || []) {
+      if (message.task_id != null && message.task_id !== current.id) continue;
+      if (message.sender_id == null && !message.signal_type) continue;
+      addOther(message);
+    }
     for (const event of page.events || []) {
+      if (event.type === 'message' && event.data?.sender != null && typeof event.data.body === 'string') {
+        addOther({ id: event.data.message_id, sender_id: event.data.sender, body: event.data.body, created_at: event.created_at }, event.id);
+      } else if (event.message && (event.message.task_id == null || event.message.task_id === current.id) && !followup(event)) {
+        addOther(event.message, event.id);
+      }
       if (followup(event)) inputs.set(event.id, { key: `input:${event.id}`, eventId: event.id, messageId: event.data.message_id,
         side: 'input', kind: '追加输入', text: event.data.body, at: event.created_at, delivery: event.input_delivery, sequence: event.id });
       if (event.type === 'invocation.completed' && typeof event.data?.result === 'string' && event.data.result) {

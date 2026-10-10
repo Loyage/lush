@@ -110,22 +110,22 @@ try {
   console.log('PASS real HTTP pagination, frozen timers, retained expansion, refresh and appended work');
   assert(await execute(`window.holdSupplements=true;return window.progressiveRefresh();`), 'progressive refresh waited for supplements');
   assert(await wait(`window.supplementPaths.includes('/api/worker/${task.id}/history-page')`), 'history request did not start');
-  assert(await execute(`return document.querySelector('#detail').textContent.includes('打开后读取改动')
-    &&!window.supplementPaths.some(path=>path.endsWith('/diff')||path.endsWith('/usage'))
+  assert(await execute(`return document.querySelector('#detail').textContent.includes('改动加载中')
+    &&!document.querySelector('.detail-diff > summary')
+    &&!window.supplementPaths.some(path=>path.endsWith('/usage'))
     &&document.querySelectorAll('.progress-history-version').length===14&&window.old.open
     &&[...document.querySelectorAll('.progress-history-version')].includes(window.old);`), 'progressive refresh lost folded history, pagination, or read unnecessary content');
-  await click('.detail-diff > summary');
-  assert(await wait(`window.supplementPaths.includes('/api/worker/${task.id}/diff')`), 'explicit diff read did not start');
-  await execute(`window.old.querySelector('summary').focus();window.historyScroll=document.querySelector('#detail').scrollTop;window.releaseSupplements();`);
+  assert(await wait(`window.supplementPaths.includes('/api/worker/${task.id}/diff')`), 'automatic diff read did not start');
+  await execute(`window.old.querySelector('summary').focus();window.historyAnchorTop=window.old.querySelector('summary').getBoundingClientRect().top;window.releaseSupplements();`);
   assert(await wait(`!window.holdSupplements`), 'supplements were not released');
   await execute(`document.activeElement.blur();`);
   assert(await wait(`!document.querySelector('#detail').textContent.includes('改动加载中')`), 'supplement update did not finish');
   const reading = await execute(`return {count:document.querySelectorAll('.progress-history-version').length,open:window.old.open,
     exhausted:document.querySelector('.progress-history-controls button').hidden,
-    scroll:document.querySelector('#detail').scrollTop,before:window.historyScroll,
+    anchorTop:window.old.querySelector('summary').getBoundingClientRect().top,before:window.historyAnchorTop,
     ticking:!!document.querySelector('.progress-history-panel .is-running-duration')};`);
-  // Firefox can round fractional layout pixels when applying scrollTop.
-  assert(reading.count===14&&reading.open&&reading.exhausted&&Math.abs(reading.scroll-reading.before)<=1&&!reading.ticking,
+  // Supplementary conversation content above history may change scrollTop; preserve the visible anchor instead.
+  assert(reading.count===14&&reading.open&&reading.exhausted&&Math.abs(reading.anchorTop-reading.before)<=1&&!reading.ticking,
     'late supplements changed history reading state: '+JSON.stringify(reading));
   console.log('PASS real progressive detail preserves loaded/open frozen history and reading position under slow supplements');
   passed = true;

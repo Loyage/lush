@@ -15,7 +15,9 @@ window.rows=[{...base,kind:'draft',id:1,content:'尚未实施的想法\\n可以�
 window.calls=[];window.delayMutation=false;window.hold=null;
 window.supplementReleases=[];window.supplementPaths=[];window.refreshReleases=[];window.holdSupplements=false;window.holdRefresh=false;
 window.fetch=async(url,options={})=>{
- const path=new URL(url,location.href).pathname;const json=data=>({ok:true,json:async()=>structuredClone(data)});
+ // The actual app now requires an explicit project route; normalize only this fixture's API prefix.
+ const requestUrl=new URL(url,location.href);if(requestUrl.pathname.startsWith('/p/aaaaaaaaaaaaaaaa/api/'))requestUrl.pathname=requestUrl.pathname.slice('/p/aaaaaaaaaaaaaaaa'.length);
+ url=requestUrl.href;const path=requestUrl.pathname;const json=data=>({ok:true,json:async()=>structuredClone(data)});
  if(window.holdRefresh&&(path==='/api/overview'||path==='/api/snapshot')) await new Promise(resolve=>window.refreshReleases.push(resolve));
  if(window.holdSupplements&&(/^\\/api\\/worker\\/\\d+\\/(history-page|diff|usage)$/.test(path)||path==='/api/agent/connections')) {
   window.supplementPaths.push(path);await new Promise(resolve=>window.supplementReleases.push(resolve));
@@ -46,11 +48,12 @@ window.releaseReads=()=>{window.holdRefresh=false;window.holdSupplements=false;
 window.ready=true;
 `;
 const html = (await Bun.file(join(assets, 'index.html')).text()).replace('<script type="module" src="/app.js"></script>', '<script type="module" src="/fixture.js"></script>');
-const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
+const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   const path = new URL(req.url).pathname;
-  if (path === '/') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
+  if (path === '/' || path === '/p/aaaaaaaaaaaaaaaa/') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
   if (path === '/fixture.js') return new Response(fixtureScript, { headers: { 'Content-Type': 'text/javascript' } });
-  if (path === '/fixture-world.js') return new Response(Bun.file(new URL('../test/web/dom-world.js', import.meta.url)));
+  if (path === '/fixture-world.js') return new Response((await Bun.file(new URL('../test/web/dom-world.js', import.meta.url)).text())
+    .replace('../../src/ui/web/assets/prefs.js', '/prefs.js'), { headers: { 'Content-Type': 'text/javascript' } });
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.slice(1))));
   return new Response('not found', { status: 404 });
 } });
@@ -74,7 +77,7 @@ async function rpc(path, body, method = 'POST') {
 }
 const execute = script => rpc(`/session/${session}/execute/sync`, { script, args: [] });
 const setTheme = theme => rpc(`/session/${session}/execute/async`, {
-  script: `const done=arguments[0];Promise.all([import('/prefs.js'),import('/appearance.js')]).then(([{setPref},{refreshTheme}])=>{setPref('theme','${theme}');refreshTheme();requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>done(true),250)));});`, args: [],
+  script: `const done=arguments[0];Promise.all([import('/prefs.js'),import('/appearance.js')]).then(async([{saveDevicePreference},{refreshTheme}])=>{await saveDevicePreference('theme','${theme}');refreshTheme();requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>done(true),250)));}).catch(error=>done({error:error.message}));`, args: [],
 });
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 const waitFor = expression => rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0];let n=0;const check=()=>(${expression})?done(true):++n>150?done(false):setTimeout(check,20);check();`, args: [] });
@@ -110,7 +113,7 @@ try {
   assert(ready, 'geckodriver startup timed out');
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
-  await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/#inputs` });
+  await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/p/aaaaaaaaaaaaaaaa/#inputs` });
   assert(await waitFor('window.ready && document.querySelectorAll(".input-record").length===4'), 'app/history did not load');
   for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [900, 700], [390, 844]]) {
     await rpc(`/session/${session}/window/rect`, { width, height });
@@ -168,7 +171,10 @@ try {
   assert(await waitFor('!document.querySelector("#input-buffer").disabled'), 'buffer not released');
   assert(await execute(`return document.querySelector('#input').value==='网络期间的新想法';`), 'new text lost');
   await execute(`document.querySelector('.input-detail textarea').value='浏览器里编辑的原文';document.querySelector('.input-detail .agent-call').scrollIntoView({block:'center'});`);
-  const help = await execute(`const node=document.querySelector('.input-detail .agent-call');node.focus({preventScroll:true});const tip=document.querySelector('#help-tip');return {focused:document.activeElement===node,visible:!!tip&&!tip.hidden,text:tip?.textContent};`);
+  await press('\uE008'); // Establish real keyboard modality without scrolling away from the target.
+  await execute(`const node=document.querySelector('.input-detail .agent-call');node.blur();node.focus({preventScroll:true});`);
+  assert(await waitFor('!!document.querySelector("#help-tip") && !document.querySelector("#help-tip").hidden'), 'Agent keyboard help did not appear after dwell');
+  const help = await execute(`const node=document.querySelector('.input-detail .agent-call'),tip=document.querySelector('#help-tip');return {focused:document.activeElement===node,visible:!!tip&&!tip.hidden,text:tip?.textContent};`);
   assert(help.focused && help.visible && help.text.includes('token'), `Agent focus help missing: ${JSON.stringify(help)}`);
   await click('.input-detail .agent-call');
   assert(await waitFor('document.querySelector(".input-detail").textContent.includes("已发射并开始")'), 'draft was not fired');
@@ -178,7 +184,7 @@ try {
   await execute(`location.hash='#worker-1';`);
   assert(await waitFor('document.querySelector("#detail").dataset.taskId==="1"'), 'Worker detail did not open');
   assert(await execute(`return document.querySelector('#composer-mode-title').textContent==='新建独立 Worker';`), 'navigation implicitly entered append mode');
-  await execute(`const entry=[...document.querySelectorAll('.task-actions button')].find(n=>n.textContent==='向该 Worker 追加输入');if(!entry)throw Error('append entry missing');entry.click();`);
+  await execute(`window.appendAgain=()=>{const entry=[...document.querySelectorAll('.task-actions button')].find(n=>n.textContent==='向该 Worker 追加输入');if(!entry)throw Error('append entry missing');entry.click();};window.appendAgain();`);
   assert(await waitFor('document.querySelector("#input").placeholder.includes("追加给 Worker #1")'), 'explicit Worker destination did not activate');
   assert(await execute(`return document.querySelector('#input-buffer-help').hidden && document.querySelector('#composer-expand').hidden && document.querySelector('#input').placeholder.includes('需开始 / 继续');`), 'followup controls/pause hint incorrect');
   for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [900, 700], [390, 844]]) {
@@ -194,14 +200,14 @@ try {
   await press('\uE007');
   assert(await waitFor('window.calls.at(-1)?.method==="worker.message" && document.querySelector("#input").value===""'), 'Enter did not append');
   assert(await execute(`const c=window.calls.at(-1);return c.params.id===1 && c.params.body==='当前 Worker 的后续要求';`), 'followup sent to wrong Worker');
-  await execute(`const box=document.querySelector('#input');box.value='点击发送保留内容';box.dispatchEvent(new Event('input'));box.focus();`);
+  await execute(`window.appendAgain();const box=document.querySelector('#input');box.value='点击发送保留内容';box.dispatchEvent(new Event('input'));box.focus();`);
   await click('#draft-commit');
   assert(await waitFor('window.calls.at(-1)?.params.body==="点击发送保留内容" && document.querySelector("#input").value===""'), 'blur shrink prevented button send');
   // Real composer ACK must release the next input even while all global reads stay pending.
-  await execute(`window.holdRefresh=true;const box=document.querySelector('#input');box.value='ACK 后马上继续';box.dispatchEvent(new Event('input'));box.focus();`);
+  await execute(`window.appendAgain();window.holdRefresh=true;const box=document.querySelector('#input');box.value='ACK 后马上继续';box.dispatchEvent(new Event('input'));box.focus();`);
   await press('\uE007');
   assert(await waitFor('window.refreshReleases.length>0 && !window.ui.composerSubmitting && document.querySelector("#input").value===""'), 'composer ACK waited for global refresh');
-  await execute(`const box=document.querySelector('#input');box.value='第二条立即发射';box.dispatchEvent(new Event('input'));box.focus();`);
+  await execute(`window.appendAgain();const box=document.querySelector('#input');box.value='第二条立即发射';box.dispatchEvent(new Event('input'));box.focus();`);
   assert(await execute(`return !document.querySelector('#draft-commit').disabled;`), 'next input still disabled');
   await press('\uE007');
   assert(await waitFor('window.calls.at(-1)?.params.body==="第二条立即发射" && !window.ui.composerSubmitting'), 'second input waited for old refresh');
@@ -215,11 +221,10 @@ try {
   await click('.notice-banner-info');
   assert(await waitFor('document.querySelector(".notice-banner-row")?.dataset.noticeId==="201" && window.supplementReleases.length>=2'), 'slow detail blocked notice ACK');
   assert(await execute(`return document.querySelector('#detail').dataset.taskId==='1'
-    && document.querySelector('#detail').textContent.includes('打开后读取改动')
-    && !window.supplementPaths.some(path=>path.endsWith('/diff'))
-    && !document.querySelector('.notice-banner-info').disabled;`), 'detail did not paint independently of supplements or eagerly read diff');
-  await click('.detail-diff > summary');
-  assert(await waitFor('window.supplementPaths.some(path=>path.endsWith("/diff"))'), 'explicit diff expansion did not request changes');
+    && document.querySelector('.detail-diff')?.dataset.state==='loading'
+    && !document.querySelector('.detail-diff > summary')
+    && !document.querySelector('.notice-banner-info').disabled;`), 'detail did not paint independently of supplements');
+  assert(await waitFor('window.supplementPaths.some(path=>path.endsWith("/diff"))'), 'automatic diff read did not start');
   await click('.notice-banner-info');
   assert(await waitFor('document.querySelector("#notice-banner").hidden'), 'second notice waited for supplements or global refresh');
   await execute('window.releaseReads();');
