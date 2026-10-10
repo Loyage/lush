@@ -13,6 +13,7 @@
 
 7. [项目出站网络代理](engineering/outbound-network.md)：项目后台与 Agent 的代理范围、私有配置、三种模式和远端执行位置；不同于模型端点或 Host 入站代理。
 8. [快捷解释](quick-explanation.md)：选中文字右键解释、独立来源/Prompt 设置与项目历史（旧介绍 Agent 入口仍关闭）。
+9. [全部中断、重启与全部继续](project-maintenance.md)：当前项目持久维护暂停、安全重启窗口和父子 Worker 的恢复安排。
 
 ## 理解与修改系统
 

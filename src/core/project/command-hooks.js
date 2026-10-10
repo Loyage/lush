@@ -14,6 +14,7 @@ export function commandAdmission(project, task) {
   if (TERMINAL.has(task.status) || !task.branch || ['archived','deleted'].includes(project.store.branch(task.branch)?.status))
     return { stop: '挂载 Worker 已结束、归档或无分支，命令授权停止。' };
   try { assertTaskAncestorsOpen(project, task); } catch { return { stop: '挂载 Worker 的祖先已结束，命令授权停止。' }; }
+  if (project.maintenancePaused()) return { wait: '项目维护暂停，等待显式全部继续。' };
   if (project.stopping || project.clearing || project.workerDeleteIds?.size || project.settingsMigrationApplying)
     return { wait: '项目正在停止、清理或迁移，命令等待安全点。' };
   if (project.taskSyncBusy?.has(task.id) || project.workspaces.busy.has(task.id)) return { wait: '工作区正在同步或清理，命令等待安全点。' };

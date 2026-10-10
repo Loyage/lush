@@ -24,6 +24,12 @@ test('所有源码中直接写入的事件类型都有中文名称，避免新�
   }
 });
 
+test('项目维护事件只承诺接受请求，不冒充已经停止或运行', () => {
+  expect(eventLabel({ type: 'maintenance.interrupted' })).toBe('接受当前项目全部中断请求');
+  expect(eventLabel({ type: 'maintenance.resumed' })).toBe('接受当前项目全部继续请求');
+  expect(eventLabel({ type: 'maintenance.resume_blocked' })).toContain('受阻');
+});
+
 test('动态结算与批量合并状态事件也有中文名称', () => {
   for (const type of ['completed', 'failed', 'cancelled', ...['merge.run', 'merge.orchestrate'].flatMap(prefix =>
     ['started', 'paused', 'completed', 'failed', 'cancelled'].map(status => `${prefix}.${status}`)),

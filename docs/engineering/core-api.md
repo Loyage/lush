@@ -68,6 +68,8 @@ W116 / 待决 #261 批准设备同系统用户共享技术配置，项目/Worker
 
 项目网络另有用户专属 `agent.network {}` / `agent.network.configure {config}`，CLI `agent network show|set --file PATH|reset`；后台账号请求与后续 Agent 调用共享默认网络，代理认证只写、安全读模型不含秘密，不增加整机调度。字段与协议边界见[项目出站网络代理](outbound-network.md)。
 
+项目维护暂停提供用户专属、无参数 `system.interrupt_all {}` / `system.resume_all {}`，Web 复用当前项目 action；Agent／管理 Agent 不可调用。持久维护门暂停本项目新调用，保留父子原等待关系，仅恢复本次影响的工作，不批量开始原待开始／个人暂停或重试失败；不改变单 Worker 中断的非级联语义，不自动重启或跨项目。`system.summary`／`system.status` 增加安全 `maintenance` 投影，精确字段与恢复边界见[维护暂停契约](project-maintenance.md)。
+
 服务维护另有用户专属的 `system.stop_if_idle {}`：daemon 同步拒绝有活动调用或 Git/合并工作的重启请求，准入后封闭新调度并正常停止。Host 的项目重启入口负责等待退出、启动新进程；Host 自身重启独立进行，不停止项目。完整 HTTP 与返回字段见[服务重启](../reference/web-routes.md#服务重启)。
 
 ## 快捷解释

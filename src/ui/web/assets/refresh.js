@@ -1,6 +1,7 @@
 import { $ } from './dom.js';
 import { setProjectIdentity } from './project-identity.js';
 import { renderSleepBanner } from './sleep-ui.js';
+import { renderProjectMaintenance } from './project-maintenance.js';
 import { api } from './api.js';
 import { loadDetail } from './detail.js';
 import { HOT } from './format.js';
@@ -148,6 +149,7 @@ async function runRefresh(session, currentResponse) {
     $('connection').textContent = '已连接'; $('connection').classList.remove('offline');
     if (ui.offline) { ui.offline = false; clear(); }
     renderSleepBanner(data.status.sleep);
+    renderProjectMaintenance(data.status.maintenance);
     refreshTreeTimes();
     const noticeBefore = ui.noticeFocus;
     if (changed) {
@@ -187,6 +189,7 @@ async function runRefresh(session, currentResponse) {
     session.overviewBackoff.failed();
     $('connection').textContent = '离线 · 自动重连'; $('connection').classList.add('offline');
     ui.offline = true;
+    renderProjectMaintenance(ui.lastSnapshot?.status?.maintenance, { offline: true });
     show(error.message, 'error');
   }
 }

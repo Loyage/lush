@@ -131,6 +131,7 @@ export default {
   },
 
   async settleQueuedMerge(taskId) {
+    if (this.maintenancePaused()) return false;
     const current = this.store.task(taskId);
     const reservation = reservationOf(current);
     if (!codeTask(current) || reservation?.version !== 2 || reservation.status !== 'pending') return false;
@@ -141,6 +142,7 @@ export default {
       return false;
     }
     return this.workspaces.exclusive(async () => {
+      if (this.maintenancePaused()) return false;
       let task = this.store.task(taskId);
       if (reservationOf(task)?.status !== 'pending' || taskSyncDeliveryPaused(this, taskId)
         || this.taskSyncBusy?.has(taskId) || this.reservationWaitReason(task) || this.running.has(taskId)) return false;
@@ -352,7 +354,7 @@ export default {
 
   /** Dispatch the parent's merge signal without waking its development Agent. */
   scheduleTaskMerge(parentId) {
-    if (this.stopping || !parentId) return;
+    if (this.stopping || this.maintenancePaused() || !parentId) return;
     // A signal delivered while the driver awaits Git must survive a busy early return.
     (this.taskMergeWakePending ??= new Set()).add(parentId);
     queueMicrotask(() => this.driveTaskMerge(parentId).catch(error => {
@@ -464,7 +466,7 @@ export default {
   },
 
   async driveTaskMerge(parentId) {
-    if (this.stopping || !parentId) return;
+    if (this.stopping || this.maintenancePaused() || !parentId) return;
     this.taskMergeBusy ??= new Set();
     if (this.taskMergeBusy.has(parentId)) return;
     this.taskMergeBusy.add(parentId);
@@ -472,6 +474,7 @@ export default {
     let landed = false, taskId = null;
     try {
       await this.workspaces.exclusive(async () => {
+        if (this.maintenancePaused()) return;
         let row = this.activeTaskMerge(parentId);
         const parent = this.store.task(parentId);
         // The parent itself may be a frozen source in an upward delivery. Its

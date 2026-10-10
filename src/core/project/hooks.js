@@ -91,7 +91,7 @@ function creationIdentity(mount) {
   } : {}) }));
   return hookRevision(value);
 }
-function eligible(mount) { return mount.enabled && !['running','failed','unknown'].includes(mount.state)
+function eligible(mount) { return mount.enabled && !mount.maintenance_pending && !['running','failed','unknown'].includes(mount.state)
   && !(mount.mode === 'once' && mount.state === 'succeeded'); }
 
 export default {
@@ -202,6 +202,7 @@ export default {
     const editing = hook !== null && hook !== undefined;
     check(editing ? enabled === undefined || enabled === null : typeof enabled === 'boolean', 'provide either a complete Hook or enabled, not both');
     const task = this.store.task(id(taskId)), existing = parse(task).mounts.find(m => m.id === hookId);
+    check(!editing || !existing?.maintenance_pending, 'Hook has a pending execution; finish or remove it before editing');
     editable(this, task, existing, !enabled); checkRevision(revision(this, task), expectedRevision);
     if (hookId === 'auto-merge') {
       check(!editing, 'built-in automatic merge cannot be edited');
@@ -315,32 +316,53 @@ export default {
         const executionId = this.store.event(task.id, 'hook.execution_started', { hook_id: mount.id, trigger, source_id: eventId });
         mount.state = 'running'; mount.last_source = `${trigger}:${eventId}`;
         mount.last_execution = { id: executionId, trigger, status: 'running', created_at: now(), finished_at: null };
-        mount.receipts = [];
+        mount.receipts = []; mount.maintenance_pending = true;
         // A command submission may have updated the same Worker's JSON earlier in this loop.
         const current = parse(this.store.task(task.id)); Object.assign(current.mounts.find(m => m.id === mount.id), mount); save(this, task.id, current);
         return executionId;
       });
-      const previous = this.hookQueue ?? Promise.resolve();
-      const job = previous.then(async () => {
-        this.hookBatchCount = ((this.hookBatchCount ?? 0) + 1) % HOOK_LIMITS.batch;
-        if (this.hookBatchCount === 0) await new Promise(resolve => setImmediate(resolve));
-        await this.runTaskHook(task.id, mount.id, executionId);
-      });
-      this.hookQueue = job.catch(() => {});
+      this.queueLifecycleTaskHook(task.id, mount.id, executionId);
     }
   },
 
+  queueLifecycleTaskHook(taskId, hookId, executionId) {
+    if (this.stopping || this.maintenancePaused()) return;
+    const key = `${taskId}:${hookId}:${executionId}`, queued = this.lifecycleHookQueued ??= new Set();
+    if (queued.has(key)) return;
+    queued.add(key);
+    const job = (this.hookQueue ?? Promise.resolve()).then(async () => {
+      this.hookBatchCount = ((this.hookBatchCount ?? 0) + 1) % HOOK_LIMITS.batch;
+      if (this.hookBatchCount === 0) await new Promise(resolve => setImmediate(resolve));
+      await this.runTaskHook(taskId, hookId, executionId);
+    }).finally(() => queued.delete(key));
+    this.hookQueue = job.catch(() => {});
+  },
+
   async runTaskHook(taskId, hookId, executionId) {
-    if (this.stopping) return; // recovery diagnoses the persisted unexecuted claim, never blindly replays
+    if (this.stopping || this.maintenancePaused()) return;
+    const key = `${taskId}:${hookId}:${executionId}`;
+    (this.lifecycleHookRunning ??= new Set()).add(key);
     let actionType = null;
     try {
       await this.write('execute a Hook', async () => {
         for (let index = 0; ; index += 1) {
           const task = this.store.task(taskId), mount = parse(task).mounts.find(m => m.id === hookId);
-          if (!mount || mount.last_execution?.id !== executionId || mount.state !== 'running') return;
+          if (!mount || !mount.enabled || mount.last_execution?.id !== executionId
+            || !['waiting','running'].includes(mount.state)) return;
           const action = mount.actions[index]; if (!action) break;
+          if (mount.receipts.some(receipt => receipt.index === index)) continue;
           actionType = action.type;
           if (this.stopping) return;
+          if (this.maintenancePaused()) {
+            const data = parse(task), current = data.mounts.find(m => m.id === hookId);
+            current.state = 'waiting'; current.maintenance_pending = true;
+            current.last_execution.status = 'waiting'; delete current.action_started_index;
+            save(this, taskId, data); return;
+          }
+          const data = parse(task), current = data.mounts.find(m => m.id === hookId);
+          current.state = 'running'; current.maintenance_pending = false;
+          current.last_execution.status = 'running'; current.action_started_index = index;
+          save(this, taskId, data);
           let outcome = {};
           if (action.type === 'create_worker') {
             const parent = this.assertInputParent(taskId); check(this.hookParentReady(taskId), 'parent no longer ready');
@@ -367,12 +389,14 @@ export default {
         this.finishTaskHook(taskId, hookId, executionId, 'succeeded');
       });
     } catch { this.finishTaskHook(taskId, hookId, executionId, 'failed', safeError(actionType)); }
+    finally { this.lifecycleHookRunning.delete(key); }
   },
 
   recordHookAction(taskId, hookId, executionId, index, outcome) {
     const data = parse(this.store.task(taskId)), mount = data.mounts.find(m => m.id === hookId);
     check(mount?.last_execution?.id === executionId && mount.state === 'running', 'Hook execution changed');
     if (!mount.receipts.some(r => r.index === index)) mount.receipts.push({ index, ...outcome });
+    delete mount.action_started_index;
     Object.assign(mount.last_execution, outcome); save(this, taskId, data);
     this.store.event(taskId, 'hook.action_completed', { hook_id: hookId, execution_id: executionId, index, ...outcome });
   },
@@ -429,8 +453,11 @@ export default {
       if (current.parent && (parentBoundary || !this.taskMergeBusy?.has(task.id))) this.emitTaskHook(task.id, 'worker.parent_ready', null, previous.parent === true);
     }
     this.observeScheduledTaskHooks(taskId);
-    for (const task of tasks) for (const mount of parse(this.store.task(task.id)).mounts)
+    for (const task of tasks) for (const mount of parse(this.store.task(task.id)).mounts) {
       if (hasCommand(mount)) this.queueCommandTaskHook(task.id, mount.id);
+      else if (!mount.schedule && mount.enabled && mount.maintenance_pending && ['waiting','running'].includes(mount.state))
+        this.queueLifecycleTaskHook(task.id, mount.id, mount.last_execution.id);
+    }
   },
 
   async runParentReadyHooks(parentId) {
@@ -450,6 +477,9 @@ export default {
     this.initializeCommandHookExample();
     for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL')) {
       for (const mount of parse(task).mounts) if (mount.state === 'running' && !mount.schedule && !hasCommand(mount)) {
+        // Only an exact durable unstarted-action marker permits continuation.
+        // Old running claims (without this marker) retain unknown-side-effect recovery.
+        if (mount.maintenance_pending && mount.action_started_index === undefined) continue;
         const created = this.store.get("SELECT data FROM events WHERE task_id=? AND type='hook.worker_created' AND json_extract(data,'$.execution_id')=? ORDER BY id DESC LIMIT 1", task.id, mount.last_execution.id);
         // Only a complete single create action is an exact sufficient recovery proof.
         if (created && mount.actions.length === 1 && mount.actions[0].type === 'create_worker') {

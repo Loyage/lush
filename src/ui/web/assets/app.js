@@ -12,6 +12,7 @@ import { liveRefresh, refresh, applySort, applyFilters, initRefreshPolling } fro
 import { openTaskGraph } from './render-task-graph.js';
 import { closeQuickExplanationPanel } from './quick-explanation.js';
 import { initSidebar } from './sidebar-init.js';
+import { resetProjectMaintenance, renderProjectMaintenance } from './project-maintenance.js';
 import { activateDetailView, openResource, paintCollapsed } from './sidebar-ui.js';
 import { resetUiState, ui } from './state.js';
 import { initComposer } from './composer.js';
@@ -184,7 +185,7 @@ export async function boot() {
   refreshTimer = liveTimer = hashListener = null;
   closeTranscriptView(); resetUiState(); resetTranscriptReaders(); closeExplanationPanel(); closeQuickExplanationPanel();
   initAppearance(); setProjectIdentity(); applyReducedMotion(readPref('reduceMotion')); configureWorkspaceShell(); initHelp(); initGlobalNavigation();
-  renderAutoSelectBanner(null); renderGlobalInboxSummary(null);
+  renderAutoSelectBanner(null); renderGlobalInboxSummary(null); resetProjectMaintenance();
   disposePreferences = startDevicePreferencesSync();
   disposeAutomationView = onDeviceAutomation(status => {
     if (active()) renderAutoSelectBanner(status.model, { offline: status.offline });
@@ -211,6 +212,7 @@ export async function boot() {
   await ensureProject(); if (!active()) return;
   const context = workbenchStatus(), projectReady = context.projectUsable;
   configureWorkspaceShell();
+  renderProjectMaintenance(null, { offline: Boolean(projectRoute() && !projectReady) });
   const currentProject = (context.host?.projects || []).find(row => row.id === projectRoute());
   if (projectRoute()) {
     if (currentProject) setProjectIdentity(currentProject.name, currentProject.project);

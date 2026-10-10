@@ -167,9 +167,9 @@ export default {
 
   /** 单飞调度：与旧一键合并共用 `mergeRunsDriving`，同一目标同时只有一个 driver。 */
   scheduleOrchestrate(target) {
-    if (this.stopping || this.mergeRunsDriving.has(target)) return;
+    if (this.stopping || this.maintenancePaused() || this.mergeRunsDriving.has(target)) return;
     queueMicrotask(() => {
-      if (this.stopping) return;
+      if (this.stopping || this.maintenancePaused()) return;
       const run = this.store.branchMergeRun(target);
       const drive = run?.mode === 'orchestrate' ? () => this.driveOrchestrate(target) : () => this.driveMergeRun(target);
       drive().catch(error => {

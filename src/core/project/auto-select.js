@@ -74,7 +74,7 @@ export default {
   /** Runtime-only; public notice.answer never accepts caller-supplied provenance. */
   autoAnswerNotice(noticeId) {
     noticeId = id(noticeId);
-    if (this.stopping || this.clearing || this.workerDeleteIds?.size || this.settingsMigrationApplying
+    if (this.stopping || this.maintenancePaused() || this.clearing || this.workerDeleteIds?.size || this.settingsMigrationApplying
       || !policy(this)?.auto_select.enabled) return false;
     // Notice creation still calls us inside its transaction. Hold the policy lock through a REAL
     // outer commit, not a nested savepoint: defer until creation has committed (or rolled back).
@@ -144,7 +144,7 @@ export default {
 
   /** Bounded batches yield to I/O; no unbounded microtask chain can starve a global close request. */
   drainDaemonAutoSelect(after = 0) {
-    if (this.stopping || this.clearing || this.workerDeleteIds?.size || this.settingsMigrationApplying || !policy(this)?.auto_select.enabled) {
+    if (this.stopping || this.maintenancePaused() || this.clearing || this.workerDeleteIds?.size || this.settingsMigrationApplying || !policy(this)?.auto_select.enabled) {
       stopBatch(this); return;
     }
     const rows = this.store.all("SELECT id FROM notices WHERE id>? AND status='open' AND kind IN ('question','questionnaire') ORDER BY id LIMIT ?", after, HOOK_LIMITS.batch);

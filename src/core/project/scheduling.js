@@ -85,7 +85,7 @@ export default {
   },
 
   pump() {
-    if (this.stopping || this.workerDeleteIds?.size || this.acceptanceBusy?.size || this.settingsMigrationApplying) return;
+    if (this.stopping || this.maintenancePaused() || this.workerDeleteIds?.size || this.acceptanceBusy?.size || this.settingsMigrationApplying) return;
     if (!this.refreshRuntimeConfiguration()) return;
     this.releaseQueuedInputs();
     this.observeTaskHooks();
@@ -169,7 +169,7 @@ export default {
           const current = this.store.task(task.id);
           const booking = current.reservation ? JSON.parse(current.reservation) : null;
           if (booking?.version === 2 && ['requested','executing','resolving','blocked'].includes(booking.status)) this.scheduleTaskMerge(booking.parent_id);
-          if (booking?.status === 'resolving' && ['awaiting','paused'].includes(current.status))
+          if (booking?.status === 'resolving' && ['awaiting','paused'].includes(current.status) && !run.maintenancePause)
             this.suspendTaskMerge(task.id, '源侧修复等待用户或已暂停');
           if (current.branch) {
             const parent = this.store.get('SELECT id FROM tasks WHERE branch=? AND task_kind IN (\'main\',\'owner\',\'order\',\'say\',\'child\')', current.branch);
@@ -215,6 +215,7 @@ export default {
     if (!run || TERMINAL.has(task.status)) return false;
     if (run.agent?.agent !== 'pi' || run.invocationEnded) return false;
     if (source === 'input') run.inputPreemptRequested = true;
+    if (source === 'pause' && task.task_kind === 'management') run.maintenancePreemptRequested = true;
     if (claimedStop(this, task.id, run)) return true;
     const dir = path.join(this.config.home, 'preempt');
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -232,15 +233,18 @@ export default {
    * 用户中断表达暂停意愿，不撤销正在安全执行的 Agent RPC，也不强杀工具。
    * Pi 在 turn_end 认领；其它后端等自然结束。只暂停当前 Worker，不级联子 Worker。
    */
-  interrupt(taskId, reason = 'interrupted by user') {
+  interrupt(taskId, reason = 'interrupted by user', maintenance = false) {
     const task = this.store.task(taskId);
-    assertTaskNotSyncing(this, task.id);
+    if (!maintenance) {
+      assertTaskNotSyncing(this, task.id);
+      this.forgetMaintenanceWorker(task.id);
+    }
     check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; interrupt individual order Workers instead');
     check(['order','child'].includes(task.task_kind), 'only order/child Workers can be paused');
     check(!TERMINAL.has(task.status), 'worker has ended; retry it or submit a new input');
     if (task.status === 'paused' || task.interrupt_state === 'requested') return task;
     const booking = task.reservation ? JSON.parse(task.reservation) : null;
-    check(!(booking?.version === 2 && ['requested','executing','blocked'].includes(booking.status)),
+    check(maintenance || !(booking?.version === 2 && ['requested','executing','blocked'].includes(booking.status)),
       'Worker is frozen for merge; wait for integration or withdraw the request before pausing');
     const run = this.running.get(task.id);
     if (run) run.resumeRequested = false;
@@ -250,7 +254,9 @@ export default {
         : { status: 'paused', interrupt_state: null }), error: null });
       this.store.event(task.id, 'task.interrupted', { run_id: run?.recordId ?? null, reason, pending: Boolean(active) });
     });
-    this.suspendTaskMerge(task.id, reason);
+    // Maintenance holds the project gate, including sibling deliveries. Retain
+    // a resolving attempt's fixed parent/source identity across safe restart.
+    if (!maintenance) this.suspendTaskMerge(task.id, reason);
     if (!run) this.emitTaskHook(task.id, 'agent.paused');
     if (active) this.requestPreempt(task.id, reason, 'pause');
     return this.store.task(task.id);
@@ -372,6 +378,14 @@ export default {
     });
     this.kick();
     return this.store.task(task.id);
+  },
+
+  /** Management calls use the same atomic request/claim protocol without a public resume API. */
+  cancelMaintenancePreempt(taskId, run) {
+    if (!run.invocationEnded && !run.boundaryClaimed && !claimedStop(this, taskId, run)) {
+      fs.rmSync(path.join(this.config.home, 'preempt', `task-${taskId}.request.json`), { force: true });
+      run.maintenancePreemptRequested = run.boundaryClaimed || claimedStop(this, taskId, run);
+    }
   },
 
   /** Resolve an agent credential to its task. Only the invocation that was issued the token is an actor. */
@@ -500,6 +514,15 @@ export default {
         this.store.event(taskId, 'invocation.inputs_delivered', { run_id: run.recordId,
           message_ids: messages.map(message => message.id) });
       };
+      // The last asynchronous branch/credential preparation may race a cancel.
+      // Do not rely on adapters to notice an AbortSignal that fired before run().
+      if (run.controller.signal.aborted) throw new Error(timedOut ? timeoutMessage : abortMessage());
+      // Admission may have closed while preparing cwd, credentials or context.
+      // No model request has begun yet, so safe preemption here preserves input.
+      if (this.maintenancePaused()) {
+        if (task.task_kind === 'management') run.maintenancePreemptRequested = true;
+        throw new AgentPreempted({ reason: 'project maintenance before provider start' });
+      }
       if (!this.provider.reportsInputDelivery) onInputDelivered();
       let result;
       try {
@@ -642,6 +665,12 @@ export default {
       // 安全抢占：Agent 在本轮工具都结束后自行收尾，不是失败、不是超时也不是取消。
       // 工作区按现状保留，这条输入下一轮就会被读到；不重建、不重放本轮已发生的副作用。
       if (taskId && this.store.task(taskId).task_kind === 'management') {
+        if (error instanceof AgentPreempted && run.maintenancePreemptRequested && !run.controller.signal.aborted) {
+          if (run.recordId) this.store.finishRun(run.recordId, 'preempted', { error: 'project maintenance safe boundary' });
+          this.pauseManagementInvocation(taskId, run.recordId);
+          this.store.event(taskId, 'invocation.preempted', { run_id: run.recordId, ...error.details });
+          return;
+        }
         if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running')
           this.store.finishRun(run.recordId, 'failed', { error: 'management invocation interrupted; no automatic replay' });
         this.failManagementOccurrence(taskId, 'failed');

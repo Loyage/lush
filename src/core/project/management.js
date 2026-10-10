@@ -217,6 +217,7 @@ export default {
   },
 
   executeManagementAction(taskId, receiptId) {
+    if (this.maintenancePaused()) return;
     const task = this.store.task(taskId), state = managementState(task);
     const receipt = state?.receipts.find(item => item.receipt_id === receiptId);
     if (!state?.enabled || !['started','returned'].includes(state.pending_signal?.phase)
@@ -252,7 +253,7 @@ export default {
   },
 
   drainManagementActions() {
-    if (this.stopping || this.recoveringHooks || this.clearing || this.workerDeleteIds?.size || this.settingsMigrationApplying) return;
+    if (this.stopping || this.maintenancePaused() || this.recoveringHooks || this.clearing || this.workerDeleteIds?.size || this.settingsMigrationApplying) return;
     for (const task of this.store.all(`SELECT id,management FROM tasks WHERE task_kind='management'
       AND json_extract(management,'$.enabled')=1 AND json_extract(management,'$.pending_signal') IS NOT NULL ORDER BY id`)) {
       const state = managementState(task);
@@ -260,6 +261,18 @@ export default {
       for (const receipt of state.receipts) if (receipt.status === 'waiting') this.executeManagementAction(task.id, receipt.receipt_id);
       this.settleManagementOccurrence(task.id);
     }
+  },
+
+  /** A verified safe boundary retains occurrence identity and completed action receipts. */
+  pauseManagementInvocation(taskId, runId) {
+    const task = this.store.task(taskId), state = managementState(task);
+    if (state?.pending_signal?.run_id !== runId || state.pending_signal.phase !== 'started' || !state.enabled) return;
+    check(!state.receipts.some(receipt => ['running','unknown'].includes(receipt.status)), 'management effect is unknown; inspect before continuing');
+    state.pending_signal.phase = 'pending';
+    delete state.pending_signal.run_id; delete state.pending_signal.started_at;
+    state.state = 'queued'; state.reason = '项目维护暂停，等待显式全部继续。';
+    saveManagement(this, taskId, state);
+    this.store.update(taskId, { status: 'queued' });
   },
 
   completeManagementInvocation(taskId, runId) {

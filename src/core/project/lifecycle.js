@@ -440,7 +440,7 @@ export default {
     for (const task of this.store.tasks()) if (['order','child'].includes(task.task_kind) && task.reservation) {
       let booking;
       try { booking = JSON.parse(task.reservation); } catch { continue; }
-      if (booking.version === 2 && booking.status === 'resolving' && task.status === 'queued') {
+      if (booking.version === 2 && booking.status === 'resolving' && task.status === 'queued' && !this.maintenancePaused()) {
         this.suspendTaskMerge(task.id, 'daemon interrupted divergence repair; inspect and explicitly retry');
         this.store.transaction(() => {
           this.store.update(task.id, { status: 'failed', error: 'daemon interrupted divergence repair; inspect and explicitly retry' });

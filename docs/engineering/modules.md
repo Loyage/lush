@@ -349,6 +349,10 @@ Git 接缝新增 `prepareTaskSquashUnsafe(child,source,baseline,message)` 返回
 - 「待我处理」按需查询全部类型的 Notice，未处理项可直接答复／审批，历史只读；首页仍用有界快照。通知针对新增的 open 决策事项与未读生命周期告知，首次加载不补发历史。
 - `notice-notifications.js` 负责浏览器 Notification，默认关闭；授权只由用户开启时触发，失败不影响轮询和留档。开关按浏览器站点保存；页面关闭后不提醒，不引入 daemon 后台推送。
 
+## 当前项目维护暂停（W173／用户决定 #422）
+
+“全部中断／全部继续”采用持久项目维护门、只恢复本次影响的调用、保留父子原等待关系。接口、状态投影、分区与验证要求见[当前项目维护暂停](project-maintenance.md)。Runtime 负责 core／persistence 和 runtime tests，Interfaces 负责 RPC／server 与 API tests，UI 负责 assets／DOM，W173 负责其它文档及组合验证；不改变单 Worker 中断的非级联语义，不自动重启服务，也不跨项目调度。
+
 ## 可撤销中断与非阻塞继续接缝
 
 用户已确认：中断只在安全点停止，不再用 30 秒宽限期强杀。新增可空 `tasks.interrupt_state TEXT`，旧行不回填；读面（详情、列表、Worker 图）提供 `interrupt_state: 'requested'|'resuming'|null`。`requested` 表示用户希望暂停，当前 invocation 仍可安全执行工具与 RPC，真实状态保持 running；静息 Worker 直接 paused。`worker.resume` 接受 requested/paused/resuming：未认领请求则撤销暂停（仍有用户消息抢占时保留），已认领或旧调用收尾则记 queued/resuming，由内部等待真实退出后再次准入，绝不重叠调用。重复中断/继续幂等。运行设置仍在暂停意愿期间可保存，下一次 invocation 生效，不暗中改当前调用。

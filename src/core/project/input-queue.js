@@ -6,6 +6,7 @@ const bookingOf = task => task.reservation ? JSON.parse(task.reservation) : null
 /** Worker-owned inbox admission is separate from Agent delivery and Git ownership. */
 export default {
   inputFreezeReason(task, freezes = null) {
+    if (this.maintenancePaused()) return '项目维护暂停；输入已保存，等待显式全部继续';
     const booking = bookingOf(task);
     if (booking?.version === 2 && ['requested','executing','resolving','blocked'].includes(booking.status))
       return booking.status === 'blocked' ? '交付落地待核验；输入已保存，等待安全解冻'

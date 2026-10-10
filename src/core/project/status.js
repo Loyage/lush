@@ -12,6 +12,7 @@ function statusView(project, agentConfig = null) {
   const alive = layers.filter(row => !TERMINAL.has(row.status)).reduce((sum, row) => sum + row.count, 0);
   return { project: project.config.project, home: project.config.home,
     revision: project.overviewRevision(),
+    maintenance: project.maintenanceView(),
     provider: project.config.provider === 'mock' ? 'mock' : (agentConfig?.default?.agent ?? project.config.provider),
     ...(agentConfig ? { agent_config: agentConfig } : {}),
     concurrency: project.config.concurrency, control_concurrency: project.config.controlConcurrency,
@@ -45,7 +46,7 @@ export default {
     const cursor = this.store.get("SELECT value FROM meta WHERE key='overview_revision'")?.value ?? '0';
     const facts = [cursor, [...this.running.keys()].sort((a, b) => a - b),
       this.config.concurrency, this.config.controlConcurrency, this.config.progressReporting,
-      this.deviceAutomationRevision()];
+      this.deviceAutomationRevision(), this.maintenanceView()];
     return createHash('sha256').update(JSON.stringify(facts)).digest('base64url').slice(0, 22);
   },
 

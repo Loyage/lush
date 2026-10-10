@@ -157,7 +157,7 @@ export default {
   },
 
   scheduleTaskCompletion(taskId = null) {
-    if (this.stopping || this.clearing || this.workerDeleteIds?.size || this.recoveringHooks) return;
+    if (this.stopping || this.maintenancePaused() || this.clearing || this.workerDeleteIds?.size || this.recoveringHooks) return;
     const rows = taskId === null ? this.store.all("SELECT * FROM tasks WHERE auto_merge IS NOT NULL AND task_kind IN ('order','child') AND status IN ('waiting','awaiting_acceptance','completed') ORDER BY id") : [this.store.task(taskId)];
     this.completionQueued ??= new Set();
     for (const task of rows) {
@@ -172,7 +172,7 @@ export default {
       if (task.branch && ['archived','deleted'].includes(this.store.branch(task.branch)?.status)) continue;
       this.completionQueued.add(task.id);
       const job = (this.completionQueue ?? Promise.resolve()).then(async () => {
-        if (!this.stopping) await this.write('run completion Hooks', () => this.runTaskCompletion(task.id));
+        if (!this.stopping && !this.maintenancePaused()) await this.write('run completion Hooks', () => this.runTaskCompletion(task.id));
       }).catch(() => {}).finally(() => { this.completionQueued.delete(task.id); });
       this.completionQueue = job;
     }
@@ -207,7 +207,7 @@ export default {
 
   async runTaskCompletion(taskId) {
     let task = this.store.task(taskId), level = levelOf(task), phase = phaseOf(task);
-    if (!this.autoMergeView(task) || level === 'off' || this.stopping || this.running.has(task.id)) return;
+    if (!this.autoMergeView(task) || level === 'off' || this.stopping || this.maintenancePaused() || this.running.has(task.id)) return;
     if (phase === 'merge') {
       const request = booking(task);
       if (['blocked', 'suspended'].includes(request?.status) || (request?.blocked_code === 'completion_failed'

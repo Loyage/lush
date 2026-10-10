@@ -15,6 +15,21 @@ html[data-lush-space="global"] .help-host[tabindex="0"]:has(:disabled),
 .workspace-automation .help-host[tabindex="0"]:has(:disabled) { display: inline-flex; align-items: stretch; min-width: 0; max-width: 100%; }
 html[data-lush-space="global"] .help-host:focus-visible,
 .workspace-automation .help-host:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* Persistent project control is independent of the current detail/editor view. */
+.project-maintenance { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .65rem 1rem; background: var(--panel); border-bottom: 1px solid var(--line); min-width: 0; }
+.project-maintenance[hidden], html[data-lush-space="global"] .project-maintenance { display: none; }
+.project-maintenance-copy { min-width: 0; overflow-wrap: anywhere; font-size: 12px; }
+.project-maintenance-copy p { margin: .2rem 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.project-maintenance[data-phase="pausing"] strong, .project-maintenance[data-phase="paused"] strong { color: var(--waiting); }
+.project-maintenance-actions { display: flex; flex: none; flex-wrap: wrap; gap: .4rem; }
+.project-maintenance-actions button { min-height: 36px; font-size: 12px; }
+.project-maintenance .help-host { display: inline-flex; min-width: 0; }
+.project-maintenance .help-host:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 680px) {
+  .project-maintenance { align-items: flex-start; flex-direction: column; gap: .4rem; padding: .55rem .75rem; }
+  .project-maintenance-actions { width: 100%; }
+  .project-maintenance-actions button { min-height: 44px; }
+}
 @media (max-width: 480px) {
   .workspace-automation-card { padding: .75rem; }
   .workspace-automation-card button { white-space: normal; }

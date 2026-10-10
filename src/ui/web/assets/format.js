@@ -17,6 +17,8 @@ export const ROLE = { planner: '规划', scheduler: '调度', worker: '执行', 
 export const EVENTS = {
   created: '创建 Worker', 'task.renamed': '调整 Worker 标题', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
   'invocation.connection': '绑定账号连接', 'invocation.inputs_delivered': '输入已交给 Agent',
+  'maintenance.interrupted': '接受当前项目全部中断请求', 'maintenance.resumed': '接受当前项目全部继续请求',
+  'maintenance.resume_blocked': '维护暂停恢复受阻',
   message: '收到消息', 'notice.opened': '向你提问', 'notice.answered': '已答复', retry: '重试',
   'notice.snapshot_ready': '选择快照已保存', 'notice.snapshot_unavailable': '选择快照不可用',
   'notice.reselected': '从选择点继续', 'notice.choice_route_created': '已创建重选路线',

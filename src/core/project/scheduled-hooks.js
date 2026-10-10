@@ -32,6 +32,7 @@ function targetReason(project, target) {
 
 /** Known, side-effect-free admission facts. An arbitrary action exception is NEVER treated as a retryable gate. */
 function admission(project, task, mount, action) {
+  if (project.maintenancePaused()) return { wait: '项目维护暂停，动作已提交并等待显式全部继续。' };
   const permanent = ownerReason(project, task, mount);
   if (permanent) return { stop: permanent };
   if (project.clearing || project.workerDeleteIds?.size || project.settingsMigrationApplying) return { wait: '项目正在清理或迁移，等待安全点。' };
@@ -141,6 +142,7 @@ export default {
   },
 
   queueScheduledTaskHook(taskId, hookId, executionId) {
+    if (this.maintenancePaused()) return;
     const key = `${taskId}:${hookId}`, queued = this.scheduledHookQueued ??= new Set();
     if (queued.has(key)) return;
     // Probe only the first uncompleted action, without marking a waiting item as started.
@@ -162,7 +164,7 @@ export default {
   },
 
   async runScheduledTaskHook(taskId, hookId, executionId) {
-    if (this.stopping) return;
+    if (this.stopping || this.maintenancePaused()) return;
     let actionType = null;
     try {
       // Another admitted writer may have closed the global gate since the non-blocking submission.

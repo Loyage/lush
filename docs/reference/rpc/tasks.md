@@ -167,4 +167,6 @@ Artifact 窗口为了有界响应只投影 `payload`：完整 payload 正常解�
 
 `worker.resume` 不要求旧调用已退出：未认领时撤销暂停，继续原调用；已认领或正在收尾时立即接受，读面为 `queued` / `interrupt_state='resuming'`，内部等旧 invocation 真正退出后重新准入，不会重叠调用。重复中断 / 继续幂等；继续不撤销独立的用户消息抢占。真实暂停或恢复准入后 `interrupt_state` 清为 null。暂停意愿期间也可追加说明或 `worker.configure` 保存下一次调用的设置；不会暗中改变当前调用。来源/模型窄更新仅限 Pi 托管连接，后台保留完整已有覆盖；`worker.inspect.model_selection` 为无秘密的下次选择摘要，不代表当前实际绑定。`worker.inspect.model_selection.explicit` 为 `true` 时，Web 提供「清除运行覆盖」入口回到项目/角色默认；运行中的调用被拒绝，必须等安全点。项目默认未绑定 Lush 来源时，Pi 调用在创建 Run/启动进程之前被拦截：Worker 回到 `paused`、写 `invocation.blocked` 与一条 info 提醒，输入保留，提示去「Agent 配置」选择来源。字段和隔离规则见[Agent 配置与模型来源](agents.md)。重启仍不自动重放未知副作用的调用。已发出的冻结合并请求仍拒绝暂停。
 
+当前项目的「全部中断／全部继续」另走用户专属 `system.interrupt_all {}` / `system.resume_all {}`：持久项目维护门在重启后仍有效，所有新 Agent 调用受控，但不把原静息父级逐个 resume。只恢复本次影响的调用及原有待执行工作，原个人暂停／待开始／失败／待验收不批量启动。父等待子交付关系保持，单个 Worker 的继续不能越过维护门。用法见[全部中断、重启与全部继续](../../project-maintenance.md)，字段见[工程契约](../../engineering/project-maintenance.md)。
+
 相关：[审阅与过程读模型](inspect.md) · [分支合并](../../engineering/merge.md) · [维护与回收](maintenance.md) · [Worker 中心输入](../../engineering/task-centered-input-design.md)

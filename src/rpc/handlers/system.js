@@ -24,6 +24,8 @@ export const handlers = {
     }
     return summary;
   },
+  'system.interrupt_all'(p) { return p.interruptAll(); },
+  'system.resume_all'(p) { return p.resumeAll(); },
   'system.stop'(p, params, actor) { this.stopping.request(); return { stopping: true }; },
   'system.stop_if_idle'(p) {
     // No await between checking activity and closing admission: pump/merge callbacks
@@ -34,6 +36,8 @@ export const handlers = {
     check(!p.writing && !p.clearing && !p.workspaces.pending && !p.workspaces.busy.size
       && !p.taskMergeBusy?.size && !p.mergeRunsDriving.size && !p.integratingIntents.size,
       '项目还有 Git、合并或后台操作正在执行，请稍后再重启');
+    check(p.maintenanceView().ready_to_restart,
+      '项目还有自动化、同步、资源回收或后台操作正在执行，请稍后再重启');
     p.stopping = true;
     this.stopping.request();
     return { stopping: true };

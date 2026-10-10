@@ -65,6 +65,29 @@ test('queued and executing Git work prevents idle stop; rejected Git releases ad
   } finally { g.resolve(); await f.close(); }
 });
 
+test('idle stop and maintenance readiness share Hook, synchronization and reclamation barriers', async () => {
+  const f = fixture();
+  try {
+    const { rpc, signal } = dispatcher(f);
+    expect(f.project.maintenanceView()).toMatchObject({ paused: false, ready_to_restart: true });
+    for (const key of ['commandHookRunning', 'commandHookQueued', 'lifecycleHookRunning', 'lifecycleHookQueued',
+      'scheduledHookQueued', 'taskSyncBusy', 'acceptanceBusy', 'workerDeleteIds', 'completionQueued',
+      'completionBusy', 'shortcutCommandJobs']) {
+      f.project[key] ??= new Set(); f.project[key].add('test');
+      expect(f.project.maintenanceView().ready_to_restart).toBe(false);
+      await expect(rpc.dispatch('system.stop_if_idle')).rejects.toThrow('后台操作');
+      expect(signal.isRequested()).toBe(false); expect(f.project.stopping).toBe(false);
+      f.project[key].clear();
+    }
+    f.project.settingsMigrationApplying = true;
+    expect(f.project.maintenanceView().ready_to_restart).toBe(false);
+    await expect(rpc.dispatch('system.stop_if_idle')).rejects.toThrow('后台操作');
+    f.project.settingsMigrationApplying = false;
+    expect(f.project.maintenanceView().ready_to_restart).toBe(true);
+    expect(await rpc.dispatch('system.stop_if_idle')).toEqual({ stopping: true });
+  } finally { await f.close(); }
+});
+
 test('idle shutdown is user-only and has no parameters', () => {
   expect(() => assertAllowed('system.stop_if_idle', {}, { id: 1 })).toThrow('requires user approval');
   expect(() => assertAllowed('system.stop_if_idle', { force: true }, null)).toThrow('unknown parameter');
