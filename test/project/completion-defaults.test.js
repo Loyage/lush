@@ -1,3 +1,4 @@
+import { retiredHook } from '../hook-assertions.js';
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -173,9 +174,8 @@ for (const [mountedEnabled, createdEnabled] of [[false, true], [true, false]])
       const tip = await git(f.root, 'rev-parse', 'main');
       f.store.update(source.id, { reservation: null });
       await f.project.runParentReadyHooks(source.parent_id);
-      const mount = f.project.taskHooks(source.parent_id).mounts.find(row => row.id === queued.hook_id);
-      expect(mount.state).toBe('succeeded');
-      const task = f.store.task(mount.last_execution.worker_id);
+      const receipt = retiredHook(f.project, source.parent_id, queued.hook_id);
+      const task = f.store.task(receipt.worker_id);
       expect(task).toMatchObject({ task_kind: 'order', status: 'paused', base_commit: tip });
       expect(settings(f, task)).toMatchObject({ enabled: createdEnabled, locked: false,
         ...(createdEnabled ? { level: 'archive', completion: { authorization: expect.any(String) } } : {}) });

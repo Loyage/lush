@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { retiredHook } from '../hook-assertions.js';
 import { test, expect, setDefaultTimeout } from 'bun:test';
 import { fixture, repo, until } from '../helpers.js';
 import { Project } from '../../src/core/project.js';
@@ -141,7 +142,7 @@ test('ordinary timed Hook and project time signal share one bounded timer withou
       actions: [{ type: 'notify', title: 'ordinary quota clock', body: 'not proof of quota' }] }, f.project.taskHooks(main).revision).mounts.at(-1);
     f.advance(60000); f.flush(); await f.project.hookQueue;
     expect(f.project.managementView(manager.id).state).toBe('queued');
-    expect(f.project.taskHooks(main).mounts.find(item => item.id === mount.id).state).toBe('succeeded');
+    retiredHook(f.project, main, mount.id);
     expect(f.project.daemonHooks().revision).toBe(daemonRevision);
     expect(f.store.get("SELECT count(*) AS n FROM notices WHERE title='ordinary quota clock'").n).toBe(1);
     await f.run(); expect(f.project.managementView(manager.id).state).toBe('succeeded');

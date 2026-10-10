@@ -1,3 +1,4 @@
+import { retiredHook } from '../hook-assertions.js';
 import { test, expect, setDefaultTimeout } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,6 +28,6 @@ test('a newly queued invocation cannot overlap Shell execution in the same workt
     await git(workspace, 'add', '.'); await git(workspace, 'commit', '-m', 'test command artifacts');
     f.project.pump(); await until(() => f.store.task(task.id).calls === 1 && f.store.task(task.id).status === 'waiting');
     expect(calls).toBe(1);
-    expect(f.project.taskHooks(task.id).mounts.find(m => m.id === hook.id)).toMatchObject({ enabled: false, state: 'succeeded' });
+    retiredHook(f.project, task.id, hook.id);
   } finally { if (workspace) fs.writeFileSync(path.join(workspace, 'release'), 'go'); await f.close(); }
 });

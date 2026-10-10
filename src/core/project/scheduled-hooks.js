@@ -3,7 +3,7 @@ import { HOOK_LIMITS, hookConditionsMatch } from '../hooks.js';
 import { nextHookRun } from '../hook-schedule.js';
 import { assertTaskAncestorsOpen } from './iteration.js';
 
-const read = task => JSON.parse(task.hooks);
+const read = task => task.hooks ? JSON.parse(task.hooks) : { mounts: [] };
 const save = (project, taskId, data) => project.store.update(taskId, { hooks: JSON.stringify(data) });
 const timestamp = project => new Date(project.hookClock()).toISOString();
 const nextRun = (mount, clock) => nextHookRun(mount.schedule, Math.max(clock, Date.parse(mount.last_due_at ?? '') || clock));
@@ -106,6 +106,7 @@ export default {
       Object.assign(mount.last_execution, { status, finished_at: timestamp(this), ...(reason ? { error: reason } : {}) });
       save(this, taskId, data);
       this.store.event(taskId, `hook.execution_${status}`, { hook_id: hookId, execution_id: executionId, error: reason });
+      this.removeSucceededTaskHook(taskId, hookId);
     });
   },
 

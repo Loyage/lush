@@ -1,5 +1,6 @@
 import { test, expect, setDefaultTimeout } from 'bun:test';
 import { fixture, repo, gate, until } from '../helpers.js';
+import { retiredHook, interruptHookFinish } from '../hook-assertions.js';
 import { Project } from '../../src/core/project.js';
 setDefaultTimeout(20000);
 
@@ -40,7 +41,7 @@ test('read-only future projection, bounded timer and nonblocking submission fire
     expect(f.view(f.main, mount)).toMatchObject({ state: 'waiting', pending_due_at: '2030-01-01T00:01:00.000Z' });
     expect(countNotices(f)).toBe(0); // Persisted authorization, no blocking work in observation.
     block.resolve(); await f.project.hookQueue;
-    expect(f.view(f.main, mount)).toMatchObject({ state: 'succeeded', enabled: false, next_run_at: null, pending_due_at: null });
+    retiredHook(f.project, f.main.id, mount.id);
     expect(countNotices(f)).toBe(1);
     await f.flush(); await f.flush(); expect(countNotices(f)).toBe(1);
     await f.project.shutdown(); expect(f.timers.size).toBe(0);
@@ -57,10 +58,9 @@ test('real daemon-side timer automatically submits a future action without UI po
       schedule: { kind: 'once', at: dueAt, timezone: 'UTC' }, actions: [notice] });
     expect(countNotices(f)).toBe(0);
     // Only the normal attach microtask arms the timer. Neither observation nor emit/tick is called by the test.
-    await until(() => f.view(f.main, mount).state === 'succeeded');
+    await until(() => !f.view(f.main, mount));
     expect(callbacks).toBeGreaterThanOrEqual(1); expect(countNotices(f)).toBe(1);
-    expect(f.view(f.main, mount)).toMatchObject({ enabled: false, next_run_at: null, pending_due_at: null });
-    expect(f.view(f.main, mount).last_execution.due_at).toBe(dueAt);
+    expect(retiredHook(f.project, f.main.id, mount.id).due_at).toBe(dueAt);
     expect(f.project.scheduledHookTimer).toBeNull();
   } finally { await f.close(); }
 });
@@ -79,10 +79,10 @@ test('real timer retains a frozen pending action and submits exactly once when i
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(1);
     f.store.update(f.job.id, { reservation: null });
     // No manual observation after releasing the gate: the bounded pending timer rechecks and performs the action.
-    await until(() => f.view(f.main, mount).state === 'succeeded');
+    await until(() => !f.view(f.main, mount));
     expect(callbacks).toBeGreaterThanOrEqual(2);
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(2);
-    expect(f.view(f.main, mount)).toMatchObject({ enabled: false, pending_due_at: null });
+    retiredHook(f.project, f.main.id, mount.id);
   } finally { await f.close(); }
 });
 
@@ -98,8 +98,8 @@ test('frozen creation submits on time, survives restart as pending, and forks on
     f.advance(86400000); f.project.recoverTaskHooks(); await f.project.hookQueue;
     expect(f.view(f.main, mount).pending_due_at).toBe('2030-01-01T00:01:00.000Z');
     f.store.update(f.job.id, { reservation: null }); await f.project.runParentReadyHooks(f.main.id);
-    expect(f.view(f.main, mount)).toMatchObject({ state: 'succeeded', enabled: false });
-    const created = f.store.task(f.view(f.main, mount).last_execution.worker_id);
+    const receipt = retiredHook(f.project, f.main.id, mount.id);
+    const created = f.store.task(receipt.worker_id);
     expect(created).toMatchObject({ goal: 'midnight job', status: 'paused', parent_id: f.main.id });
     await f.flush(); expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(2);
   } finally { await f.close(); }
@@ -139,7 +139,7 @@ test('a fresh Project full recover skips offline dates but still executes persis
     // Recovery installs a new queue/timer, rather than relying on the old instance's memory.
     await Promise.resolve(); await restarted.hookQueue;
     const mounts = restarted.taskHooks(f.main.id).mounts;
-    expect(mounts.find(m => m.id === pending.id)).toMatchObject({ state: 'succeeded', enabled: false });
+    retiredHook(restarted, f.main.id, pending.id);
     expect(mounts.find(m => m.id === missed.id)).toMatchObject({ state: 'skipped', enabled: false });
     expect(mounts.find(m => m.id === daily.id).next_run_at).toBe('2030-01-04T00:01:00.000Z');
     expect(restarted.taskHooks(f.job.id).mounts.find(m => m.id === retry.id).state).toBe('skipped');
@@ -207,7 +207,7 @@ test('failed Worker can mount only scheduled self-retry, profile is preserved an
     f.project.running.delete(f.job.id); await f.flush();
     expect(f.store.task(f.job.id)).toMatchObject({ status: 'queued', error: null, calls: 0 });
     expect(JSON.parse(f.store.task(f.job.id).retry_profile)).toEqual(profile);
-    expect(f.view(f.job, mount)).toMatchObject({ state: 'succeeded', enabled: false });
+    retiredHook(f.project, f.job.id, mount.id);
     await f.flush(); expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='retry'", f.job.id).n).toBe(1);
   } finally { await f.close(); }
 });
@@ -219,8 +219,8 @@ test('paused resume queues without restarting cancelled/accepted workers, incomp
     const resume = f.attach(f.job, f.once({ type: 'resume_worker', target_id: f.job.id }));
     f.advance(60000); await f.flush();
     expect(f.view(f.job, retry)).toMatchObject({ state: 'skipped', enabled: false });
-    expect(f.view(f.job, resume)).toMatchObject({ state: 'succeeded', enabled: false });
-    expect(f.view(f.job, resume).actions[0].target_worker_number).toBe(f.job.worker_number);
+    retiredHook(f.project, f.job.id, resume.id);
+    expect(resume.actions[0].target_worker_number).toBe(f.job.worker_number);
     expect(f.store.task(f.job.id).status).toBe('queued');
     f.store.update(f.job.id, { status: 'paused' });
     const cancelled = f.attach(f.job, f.once({ type: 'resume_worker', target_id: f.job.id }));
@@ -272,7 +272,7 @@ test('explicit restart profile/template is private and retained when same action
     f.project.saveHookTemplate({ ...rule, id: template.id, name: 'renamed', actions: [publicAction] }, catalogue.revision);
     const mount = f.attach(f.job, { template_id: template.id });
     f.advance(60000); await f.flush();
-    expect(f.view(f.job, mount).state).toBe('succeeded');
+    retiredHook(f.project, f.job.id, mount.id);
     expect(JSON.parse(f.store.task(f.job.id).retry_profile)).toEqual(f.project.agentSettings.retryProfile('agent', privateProfile));
     expect(() => f.attach(f.job, { template_id: template.id })).toThrow('future');
   } finally { await f.close(); }
@@ -292,12 +292,12 @@ test('unknown begun effect never replays; complete atomic receipts reconcile and
     await f.flush(); expect(f.store.get('SELECT count(*) AS n FROM messages WHERE task_id=?', f.job.id).n).toBe(0);
     await expect(f.project.updateTaskHook(f.job.id, mount.id, true, f.project.taskHooks(f.job.id).revision)).rejects.toThrow('require inspection');
     const atomic = f.attach(f.main, f.once(notice));
-    f.advance(60000); await f.flush(); expect(countNotices(f)).toBe(1);
+    f.advance(60000); await interruptHookFinish(f.project, 'finishScheduledTaskHook', () => f.flush()); expect(countNotices(f)).toBe(1);
     const stored = JSON.parse(f.store.task(f.main.id).hooks), complete = stored.mounts.find(m => m.id === atomic.id);
     complete.state = 'running'; complete.enabled = true; complete.pending_execution_id = complete.last_execution.id;
     complete.pending_due_at = complete.last_execution.due_at; complete.last_execution.status = 'running';
     f.store.update(f.main.id, { hooks: JSON.stringify(stored) }); f.project.recoverTaskHooks(); await f.project.hookQueue;
-    expect(f.view(f.main, atomic)).toMatchObject({ state: 'succeeded', enabled: false }); expect(countNotices(f)).toBe(1);
+    retiredHook(f.project, f.main.id, atomic.id); expect(countNotices(f)).toBe(1);
   } finally { await f.close(); }
 });
 
@@ -312,7 +312,7 @@ test('submitted pending can be disabled/re-enabled without losing due identity; 
     blocked = false; f.advance(86400000); await f.flush();
     expect(f.store.get('SELECT count(*) AS n FROM messages WHERE task_id=?', f.job.id).n).toBe(0);
     await f.project.updateTaskHook(f.job.id, mount.id, true, f.project.taskHooks(f.job.id).revision); await f.flush();
-    expect(f.view(f.job, mount).last_execution.due_at).toBe(due);
+    expect(retiredHook(f.project, f.job.id, mount.id).due_at).toBe(due);
     expect(f.store.get('SELECT count(*) AS n FROM messages WHERE task_id=?', f.job.id).n).toBe(1);
     const far = f.attach(f.main, f.once(notice, { schedule: { kind: 'once', at: '2035-01-01T00:00:00Z', timezone: 'UTC' } }));
     await f.flush(); expect([...f.timers.values()][0].delay).toBe(60000);
@@ -325,14 +325,14 @@ test('exact scheduled creation Event reconciles an interrupted receipt without a
   const f = await scheduledFixture();
   try {
     const mount = f.attach(f.main, f.once({ type: 'create_worker', content: 'exact scheduled', start: false }));
-    f.advance(60000); await f.flush();
+    f.advance(60000); await interruptHookFinish(f.project, 'finishScheduledTaskHook', () => f.flush());
     const completed = f.view(f.main, mount), data = JSON.parse(f.store.task(f.main.id).hooks), raw = data.mounts.find(m => m.id === mount.id);
     raw.state = 'running'; raw.enabled = true; raw.receipts = []; raw.pending_execution_id = raw.last_execution.id;
     raw.pending_due_at = raw.last_execution.due_at; raw.last_execution.status = 'running'; raw.action_started_index = 0;
     f.store.update(f.main.id, { hooks: JSON.stringify(data) }); f.project.recoverTaskHooks(); await f.project.hookQueue;
-    expect(f.view(f.main, mount)).toMatchObject({ state: 'succeeded', enabled: false });
-    expect(f.view(f.main, mount).last_execution.worker_id).toBe(completed.last_execution.worker_id);
-    expect(f.view(f.main, mount).last_execution.worker_number).toBe(f.store.task(completed.last_execution.worker_id).worker_number);
+    const receipt = retiredHook(f.project, f.main.id, mount.id);
+    expect(receipt.worker_id).toBe(completed.last_execution.worker_id);
+    expect(f.project.inspect(receipt.worker_id).worker_number).toBe(f.store.task(completed.last_execution.worker_id).worker_number);
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(2);
   } finally { await f.close(); }
 });
@@ -346,7 +346,7 @@ test('a partially completed rule waits at a later gate without duplicating prior
     expect(f.view(f.main, mount)).toMatchObject({ state: 'waiting', enabled: true });
     f.project.recoverTaskHooks(); await f.project.hookQueue; expect(countNotices(f)).toBe(1);
     f.project.taskSyncBusy.clear(); await f.flush();
-    expect(f.view(f.main, mount).state).toBe('succeeded'); expect(countNotices(f)).toBe(1);
+    retiredHook(f.project, f.main.id, mount.id); expect(countNotices(f)).toBe(1);
     expect(f.store.task(f.job.id).status).toBe('queued');
   } finally { await f.close(); }
 });

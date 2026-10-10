@@ -2,6 +2,7 @@ import { test, expect, setDefaultTimeout } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { repo, git, until } from '../helpers.js';
+import { retiredHook } from '../hook-assertions.js';
 import { setup, fetch } from './harness.js';
 import { hookSchedule } from '../../src/ui/web/assets/hook-schedule.js';
 setDefaultTimeout(20000);
@@ -38,11 +39,12 @@ test('real HTTP template mount starts daemon timer and creates one Git workspace
     expect(mount).toMatchObject({ state: 'waiting', schedule, pending_due_at: null });
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(0);
     // Only observe database output, never manually tick or read the UI to execute.
-    await until(() => JSON.parse(f.store.task(main.id).hooks).mounts.at(-1).state === 'succeeded');
+    await until(() => !JSON.parse(f.store.task(main.id).hooks ?? '{"mounts":[]}').mounts.some(m => m.id === mount.id));
     const model = await get(f, `/api/worker/${main.id}/hooks`), done = model.mounts.find(item => item.id === mount.id);
-    expect(done).toMatchObject({ enabled: false, state: 'succeeded', pending_due_at: null, next_run_at: null });
-    expect(done.last_execution.due_at).toBe(schedule.at);
-    const created = await get(f, `/api/worker/${done.last_execution.worker_id}`);
+    expect(done).toBeUndefined();
+    const receipt = retiredHook(f.project, main.id, mount.id);
+    expect(receipt.due_at).toBe(schedule.at);
+    const created = await get(f, `/api/worker/${receipt.worker_id}`);
     expect(created).toMatchObject({ goal: 'night job', status: 'paused', parent_id: main.id, base_commit: await git(f.root, 'rev-parse', 'main') });
     expect(fs.existsSync(path.join(created.workspace, '.git'))).toBe(true);
     expect(JSON.parse(f.store.task(created.id).retry_profile).env).toEqual(profile.env);
@@ -80,7 +82,8 @@ test('HTTP failed self-retry and paused resume preserve explicit profiles and sa
     expect(JSON.parse(f.store.task(failed.id).retry_profile).env).toEqual(profile.env);
     for (const [id, mount] of [[failed.id, retry], [paused.id, resume]]) {
       const model = await get(f, `/api/worker/${id}/hooks`);
-      expect(model.mounts.find(item => item.id === mount.id)).toMatchObject({ state: 'succeeded', enabled: false, pending_due_at: null });
+      expect(model.mounts.find(item => item.id === mount.id)).toBeUndefined();
+      retiredHook(f.project, id, mount.id);
       expect(JSON.stringify(model)).not.toContain('PRIVATE_RETRY');
     }
   } finally { await f.close(); }
@@ -112,7 +115,8 @@ test('daemon automatic answers and Worker timers coexist with independent author
     expect(model.mounts.find(item => item.id === mount.id)).toMatchObject({ state: 'waiting', pending_due_at: null });
     time.advance(60000); f.project.observeScheduledTaskHooks(); await f.project.hookQueue;
     model = await get(f, `/api/worker/${source.parent_id}/hooks`);
-    expect(model.mounts.find(item => item.id === mount.id)).toMatchObject({ state: 'succeeded', enabled: false });
+    expect(model.mounts.find(item => item.id === mount.id)).toBeUndefined();
+    retiredHook(f.project, source.parent_id, mount.id);
     expect((await get(f, '/api/hooks')).daemon_hooks.revision).toBe(daemonRevision);
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(2);
     f.project.observeScheduledTaskHooks(); await f.project.hookQueue;
@@ -159,8 +163,8 @@ test('browser time definition reaches HTTP and frozen creation remains submitted
     const tip = await git(f.root, 'rev-parse', 'main');
     await action(f, 'worker.unreserve', { id: source.id }); await f.project.runParentReadyHooks(mainId);
     model = await get(f, `/api/worker/${mainId}/hooks`); const done = model.mounts.find(item => item.id === mount.id);
-    expect(done).toMatchObject({ state: 'succeeded', enabled: false, pending_due_at: null });
-    expect(f.store.task(done.last_execution.worker_id).base_commit).toBe(tip);
+    expect(done).toBeUndefined();
+    expect(f.store.task(retiredHook(f.project, mainId, mount.id).worker_id).base_commit).toBe(tip);
     f.project.observeScheduledTaskHooks(); await f.project.hookQueue;
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(2);
   } finally { await f.close(); }

@@ -121,6 +121,7 @@ CLI 的挂载 Worker 身份遵循父侧编号接缝：允许整数或 `Wn(-n)*`�
 ## 执行与恢复
 
 - 配置持久化、动作领取和执行结果分离；动作逐个去重，部分失败如实记载，不能重复前面已成功动作。
+- 一次性 Worker 挂载仅在 `succeeded` 后自动移除（预约发射、生命周期、命令和定时共用此边界）；结算、成功审计与自动 `hook.removed` 同事务保存，移除事件带 `automatic:true` 与 execution_id。动作收据、Worker/Input、草稿已发射关联、模板和持续挂载保留；最后一项移除将 `tasks.hooks` 清为 NULL，释放挂载容量。失败、unknown、skipped 与待执行挂载保留。启动恢复会清理旧版本保留的成功一次性挂载，并对精确收据确认成功的中断动作同样清理；读 API 不执行清理，不重放动作。
 - create_worker 的触发领取先持久化；调用现有 order 路径受写 gate 和串行 Git 保护，最后再次检查分支冻结及身份。`Workspaces.anchor(inputId,requestedBranch,guard?)` 增补可选同步 guard，在串行 Git 区内创建前复核，不改变现有调用；sendOrder 在落库前再次核验，失败只回收本次自建 anchor。创建事务保存关联 Hook 执行身份，成功关联真实 Worker/Input。
 - 父队列每项释放执行位后，先给已挂载创建 Hook 一次有界准入机会，再推进下一项。仍有冻结或同步时等待；不能跨源侧修复释放父执行位。
 - 不持有 Git 锁跨 Agent 调用，不新增永久 token、父 Agent 调用或调度进程。shutdown 等待本项目在途 Hook 写入并禁止新动作。

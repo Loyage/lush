@@ -2,6 +2,7 @@ import { test, expect, setDefaultTimeout } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fixture, repo, git, until, gate } from '../helpers.js';
+import { retiredHook, interruptHookFinish } from '../hook-assertions.js';
 import { normalizeHook, publicHookDefinition } from '../../src/core/hooks.js';
 setDefaultTimeout(20000);
 const notifyRule = (trigger = 'agent.returned', mode = 'once') => ({ name: '告知', trigger, mode, enabled: true, conditions: {},
@@ -76,9 +77,8 @@ test('deferred frozen creation preserves full parameters, creates only once at c
     const current = await git(f.root, 'rev-parse', 'main');
     f.store.update(f.source.id, { reservation: null });
     await f.project.runParentReadyHooks(f.main.id);
-    const completed = f.project.taskHooks(f.main.id).mounts.find(m => m.id === queued.hook_id);
-    expect(completed).toMatchObject({ state: 'succeeded', enabled: false });
-    const child = f.store.task(completed.last_execution.worker_id);
+    const completed = retiredHook(f.project, f.main.id, queued.hook_id);
+    const child = f.store.task(completed.worker_id);
     expect(child).toMatchObject({ parent_id: f.main.id, base_commit: current, status: 'paused', goal: 'deferred job' });
     expect(JSON.parse(child.retry_profile)).toEqual(f.project.agentSettings.retryProfile('agent', profile));
     expect(f.store.inputReferences(child.input_id)[0].quote).toBe('context');
@@ -96,11 +96,11 @@ test('a default run profile is snapshotted at mount, not reread when frozen pare
   try {
     f.project.agentSettings.save({ default: { agent: 'pi', config_mode: 'pi' }, roles: {} });
     const queued = await f.project.order('default snapshot', 'main', [], null, false, undefined, null, true);
+    expect(f.project.taskHooks(f.main.id).mounts.find(m => m.id === queued.hook_id).model_selection).toMatchObject({ agent: 'pi', config_mode: 'pi' });
     f.project.agentSettings.save({ default: { agent: 'codex', model: 'changed', thinking: 'medium' }, roles: {} });
     f.store.update(f.source.id, { reservation: null }); await f.project.runParentReadyHooks(f.main.id);
-    const mount = f.project.taskHooks(f.main.id).mounts.find(m => m.id === queued.hook_id);
-    expect(mount.model_selection).toMatchObject({ agent: 'pi', config_mode: 'pi' });
-    expect(JSON.parse(f.store.task(mount.last_execution.worker_id).retry_profile)).toMatchObject({ agent: 'pi', config_mode: 'pi' });
+    const receipt = retiredHook(f.project, f.main.id, queued.hook_id);
+    expect(JSON.parse(f.store.task(receipt.worker_id).retry_profile)).toMatchObject({ agent: 'pi', config_mode: 'pi' });
   } finally { await f.close(); }
 });
 
@@ -115,9 +115,10 @@ test('mounted drafts are protected against edit/delete/refire and are linked onl
     expect(() => f.project.removeBufferedDraft(draft.id, draft.revision)).toThrow('mounted');
     await expect(f.project.submitBufferedDraft(draft.id, draft.revision, false, true)).rejects.toThrow('mounted');
     f.store.update(f.source.id, { reservation: null }); await f.project.runParentReadyHooks(f.main.id);
-    const mount = f.project.taskHooks(f.main.id).mounts.find(m => m.id === result.hook_id);
-    expect(f.store.draft(draft.id).input_id).toBe(mount.last_execution.input_id);
-    expect(JSON.parse(f.store.task(mount.last_execution.worker_id).retry_profile).config_mode).toBe('pi');
+    const receipt = retiredHook(f.project, f.main.id, result.hook_id);
+    expect(f.store.draft(draft.id).input_id).toBe(receipt.input_id);
+    expect(f.project.draftHookMount(draft.id)).toBeNull();
+    expect(JSON.parse(f.store.task(receipt.worker_id).retry_profile).config_mode).toBe('pi');
   } finally { await f.close(); }
 });
 
@@ -164,11 +165,11 @@ test('recovery never replays an unknown started effect, but reconciles exact cre
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(1);
     await expect(f.project.updateTaskHook(f.main.id, queued.hook_id, true, f.project.taskHooks(f.main.id).revision)).rejects.toThrow('require inspection');
     const next = attach(f, f.main, { name: 'exact', trigger: 'worker.parent_ready', mode: 'once', enabled: true, actions: [{ type: 'create_worker', content: 'exact', start: false }] }).mounts.at(-1);
-    await f.project.runParentReadyHooks(f.main.id);
+    await interruptHookFinish(f.project, 'finishTaskHook', () => f.project.runParentReadyHooks(f.main.id));
     const raw = JSON.parse(f.store.task(f.main.id).hooks), exact = raw.mounts.find(m => m.id === next.id);
     exact.state = 'running'; exact.enabled = true; exact.last_execution.status = 'running';
     f.store.update(f.main.id, { hooks: JSON.stringify(raw) }); f.project.recoverTaskHooks();
-    expect(f.project.taskHooks(f.main.id).mounts.find(m => m.id === next.id).state).toBe('succeeded');
+    retiredHook(f.project, f.main.id, next.id);
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(2);
   } finally { await f.close(); }
 });

@@ -1,3 +1,4 @@
+import { retiredHook } from '../hook-assertions.js';
 import { test, expect, setDefaultTimeout } from 'bun:test';
 import { fixture, repo, until } from '../helpers.js';
 import { AgentPreempted } from '../../src/agent/provider.js';
@@ -45,8 +46,9 @@ test('a deferred start creates its worktree and immediately schedules the saved 
     expect(invocation).toBeNull();
     f.store.update(source.task.id, { reservation: null }); f.project.stopping = false; f.project.kick();
     await until(() => invocation);
-    const mount = f.project.taskHooks(source.task.parent_id).mounts.find(m => m.id === queued.hook_id);
-    expect(invocation.task.id).toBe(mount.last_execution.worker_id);
+    await f.project.hookQueue;
+    const receipt = retiredHook(f.project, source.task.parent_id, queued.hook_id);
+    expect(invocation.task.id).toBe(receipt.worker_id);
     expect(invocation.agent).toMatchObject({ agent: 'pi', model: 'selected/model', thinking: 'high', env: { SAVED: 'value' } });
     expect(invocation.cwd).toBe(f.store.task(invocation.task.id).workspace);
     expect(invocation.task.hooks).toBeUndefined(); expect(invocation.task.retry_profile).toBeUndefined();

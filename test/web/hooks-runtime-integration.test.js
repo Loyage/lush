@@ -2,6 +2,7 @@ import { test, expect, setDefaultTimeout } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { repo, git } from '../helpers.js';
+import { retiredHook } from '../hook-assertions.js';
 import { setup, fetch } from './harness.js';
 setDefaultTimeout(20000);
 const post = (f, method, params) => fetch(f.url + '/api/action', {
@@ -41,10 +42,11 @@ test('real HTTP/RPC/Runtime defers a frozen draft, preserves private settings an
     await action(f, 'worker.unreserve', { id: source.task.id });
     await f.project.runParentReadyHooks(mainId);
     const hooks = await get(f, `/api/worker/${mainId}/hooks`), mount = hooks.mounts.find(item => item.id === deferred.hook_id);
-    expect(mount).toMatchObject({ state: 'succeeded', enabled: false });
-    const created = await get(f, `/api/worker/${mount.last_execution.worker_id}`);
+    expect(mount).toBeUndefined();
+    const receipt = retiredHook(f.project, mainId, deferred.hook_id);
+    const created = await get(f, `/api/worker/${receipt.worker_id}`);
     expect(created).toMatchObject({ base_commit: tip, status: 'paused', parent_id: mainId, goal: 'deferred HTTP job', worker_number: `W${created.input_id}` });
-    expect(mount.last_execution.worker_number).toBe(created.worker_number);
+    expect(f.project.draftHookMount(draft.id)).toBeNull();
     expect(f.store.lookupWorker(created.worker_number)).toEqual({ id: created.id, worker_number: created.worker_number });
     expect(created.retry_profile).toBeUndefined();
     expect(JSON.parse(f.store.task(created.id).retry_profile).env).toEqual(profile.env);

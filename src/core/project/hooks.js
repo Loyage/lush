@@ -386,6 +386,21 @@ export default {
       if (mount.mode === 'once' && status === 'succeeded') mount.enabled = false;
       Object.assign(mount.last_execution, { status, finished_at: now(), ...(error ? { error } : {}) });
       save(this, taskId, data); this.store.event(taskId, `hook.execution_${status}`, { hook_id: hookId, execution_id: executionId, error });
+      this.removeSucceededTaskHook(taskId, hookId);
+    });
+  },
+
+  /** Drop completed one-shot authorization, never its audit or produced resources. */
+  removeSucceededTaskHook(taskId, hookId) {
+    this.store.transaction(() => {
+      const task = this.store.task(taskId);
+      if (!task.hooks) return;
+      const data = parse(task), index = data.mounts.findIndex(m => m.id === hookId);
+      const mount = data.mounts[index];
+      if (mount?.mode !== 'once' || mount.state !== 'succeeded') return;
+      data.mounts.splice(index, 1);
+      this.store.update(taskId, { hooks: data.mounts.length ? JSON.stringify(data) : null });
+      this.store.event(taskId, 'hook.removed', { hook_id: hookId, execution_id: mount.last_execution?.id ?? null, automatic: true });
     });
   },
 
@@ -445,6 +460,10 @@ export default {
         } else this.finishTaskHook(task.id, mount.id, mount.last_execution.id, 'unknown', '后台中断；动作可能已生效，保留现场并禁止自动重放。');
       }
     }
+    // Older daemons retained disabled successful one-shots. Retire only those
+    // proven complete; waiting, failed, skipped and unknown mounts keep their diagnostics.
+    for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL'))
+      for (const mount of parse(task).mounts) this.removeSucceededTaskHook(task.id, mount.id);
     this.recoveringHooks = false;
     for (const [taskId, trigger, sourceId] of this.hookRecoveryEvents ?? []) this.emitTaskHook(taskId, trigger, sourceId);
     this.hookRecoveryEvents = [];

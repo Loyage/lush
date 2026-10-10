@@ -1,3 +1,4 @@
+import { retiredHook } from '../hook-assertions.js';
 import { test, expect, setDefaultTimeout } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -382,6 +383,7 @@ test('once commands execute once, absent checkout/closed owner fail safely, and 
     const once = attach(f, f.main, rule('printf x >> .lush/once', { mode: 'once' }));
     emit(f, f.main); emit(f, f.main); await f.project.hookQueue; emit(f, f.main); await f.project.hookQueue;
     expect(fs.readFileSync(path.join(f.config.home, 'once'), 'utf8')).toBe('x');
+    expect(retiredHook(f.project, f.main.id, once.id).command_result).toMatchObject({ status: 'succeeded' });
     const compound = attach(f, f.main, rule('true', { actions: [{ type: 'command', command: 'printf x >> .lush/partial' },
       { type: 'command', command: 'exit 1' }] }));
     emit(f, f.main); await f.project.hookQueue; f.project.recoverTaskHooks(); await Promise.resolve(); await f.project.hookQueue;

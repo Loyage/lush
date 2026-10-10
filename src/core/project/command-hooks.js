@@ -245,6 +245,7 @@ export default {
       if (status !== 'succeeded' || mount.mode === 'once') mount.enabled = false;
       save(this, taskId, data);
       this.store.event(taskId, `hook.execution_${status}`, { hook_id: hookId, execution_id: executionId, error });
+      this.removeSucceededTaskHook(taskId, hookId);
       if (error) this.notify(taskId, '命令 Hook 已停用', error);
     });
   },
@@ -258,7 +259,7 @@ export default {
       else if (failed) this.finishCommandTaskHook(task.id, mount.id, mount.last_execution.id, 'failed', FAILURE);
       else if (mount.command_started_index !== undefined) this.finishCommandTaskHook(task.id, mount.id, mount.last_execution.id, 'unknown', UNKNOWN);
       else {
-        const data = read(task), current = data.mounts.find(m => m.id === mount.id);
+        const data = read(this.store.task(task.id)), current = data.mounts.find(m => m.id === mount.id);
         current.state = 'waiting'; current.last_execution.status = 'waiting'; save(this, task.id, data);
       }
     }

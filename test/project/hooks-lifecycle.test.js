@@ -1,3 +1,4 @@
+import { retiredHook } from '../hook-assertions.js';
 import { test, expect, setDefaultTimeout } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -50,10 +51,9 @@ test('a queued merge boundary creates a mounted Worker before the next merge acq
     attach(f, first.task, rule('delivery.integrated'));
     f.project.stopping = false; await f.project.driveTaskMerge(parent.id);
     await until(() => JSON.parse(f.store.task(second.task.id).reservation).attempt_id);
-    const complete = f.project.taskHooks(parent.id).mounts.find(m => m.id === mounted.id);
-    expect(complete.state).toBe('succeeded');
+    const complete = retiredHook(f.project, parent.id, mounted.id);
     const sourceReceipt = JSON.parse(f.store.task(first.task.id).reservation);
-    expect(f.store.task(complete.last_execution.worker_id).base_commit).toBe(sourceReceipt.landed_commit);
+    expect(f.store.task(complete.worker_id).base_commit).toBe(sourceReceipt.landed_commit);
     const created = f.store.get("SELECT id FROM events WHERE task_id=? AND type='hook.worker_created'", parent.id);
     expect(created.id).toBeLessThan(JSON.parse(f.store.task(second.task.id).reservation).attempt_id);
     await f.project.hookQueue;
