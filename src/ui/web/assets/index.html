@@ -24,7 +24,7 @@
 <main>
 <aside id="sidebar" aria-label="项目导航">
   <div class="rail-identity">
-    <div class="brand"><button type="button" id="home" class="home" aria-label="Lush · 项目概览"><span class="brand-mark" aria-hidden="true">L</span><strong>Lush<span class="brand-caption">WORKER STUDIO</span></strong></button></div>
+    <div class="brand"><a id="home" href="/#projects" class="home" aria-label="Lush · 用户工作台"><span class="brand-mark" aria-hidden="true">L</span><strong>Lush<span class="brand-caption">WORKER STUDIO</span></strong></a></div>
     <div class="rail-context"><span id="host-context" class="eyebrow">工作台</span><strong id="project">未打开项目</strong></div>
     <div class="rail-tools">
       <span id="agents"></span><span id="connection" role="status">连接中…</span>
@@ -39,9 +39,9 @@
     <strong id="nav-space-label">用户工作台</strong>
     <button type="button" id="sidebar-toggle" class="ghost" aria-expanded="false" aria-controls="side-nav">导航菜单</button>
   </div>
-  <div class="nav-divider"><span>工作台</span></div>
-  <nav class="workspace-nav workbench-nav" aria-label="工作台管理">
-    <a id="projects-open" href="/#projects" class="workspace-link"><span class="nav-icon" aria-hidden="true">▣</span><span><strong>项目</strong><small>登记、打开与后台状态</small></span><span class="nav-arrow">→</span></a>
+  <div class="nav-divider" data-global-navigation="true"><span>工作台</span></div>
+  <nav class="workspace-nav workbench-nav" aria-label="工作台管理" data-global-navigation="true">
+    <a id="projects-open" href="/#projects" class="workspace-link"><span class="nav-icon" aria-hidden="true">▣</span><span><strong>后台总览</strong><small>项目后台与新建 Worker</small></span><span class="nav-arrow">→</span></a>
     <a id="global-inbox-open" href="/#notices" class="workspace-link"><span class="nav-icon" aria-hidden="true">✉</span><span><strong>全局收件箱</strong><small>所有项目需要你的事项</small></span><span id="global-inbox-count" class="count" aria-label="正在读取全局事项">…</span></a>
     <a id="automation-open" href="/#automation" class="workspace-link"><span class="nav-icon" aria-hidden="true">⌁</span><span><strong>全局自动化</strong><small>自动选择与默认流程</small></span><span class="nav-arrow">→</span></a>
   </nav>
@@ -62,8 +62,8 @@
   <nav class="workspace-nav" aria-label="项目阅读历史" data-project-navigation>
     <button type="button" id="quick-explain-history-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">?</span><span><strong>解释历史</strong><small>当前项目的阅读结果</small></span><span class="nav-arrow">→</span></button>
   </nav>
-  <div class="nav-divider"><span>设备设置与帮助</span></div>
-  <nav class="support-nav" aria-label="设备设置与帮助">
+  <div class="nav-divider" data-global-navigation="true"><span>设备设置与帮助</span></div>
+  <nav class="support-nav" aria-label="设备设置与帮助" data-global-navigation="true">
     <a id="settings-open" href="/#settings" class="workspace-link"><span class="nav-icon" aria-hidden="true">⚙</span><span><strong>设备设置</strong><small>偏好与系统运行</small></span><span class="nav-arrow">→</span></a>
     <a id="agent-status-open" href="/#agent-status" class="workspace-link" data-device-management><span class="nav-icon" aria-hidden="true">◎</span><span><strong>Agent 配置</strong><small>模型选择与工作方式</small></span><span class="nav-arrow">→</span></a>
     <a id="model-sources-open" href="/#model-sources" class="workspace-link" data-device-management><span class="nav-icon" aria-hidden="true">◈</span><span><strong>模型来源</strong><small>API、账号与额度</small></span><span class="nav-arrow">→</span></a>
@@ -81,7 +81,6 @@
   </div>
   <div class="project-banners">
     <section id="auto-select-banner" class="auto-select-banner" role="status" aria-live="polite" hidden></section>
-    <section id="global-inbox-summary" class="notice-banner global-inbox-summary" role="status" aria-live="polite" hidden></section>
     <section id="notice-banner" class="notice-banner" role="status" aria-live="polite" hidden></section>
   </div>
   <section id="detail" tabindex="-1" aria-label="项目内容"><div class="loading-state"><span class="brand-spark">✳</span><h1>正在连接你的项目</h1><p class="hint">分支、Worker 与进展，即将在这里汇合。</p></div></section>

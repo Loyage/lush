@@ -80,9 +80,19 @@ test('real dual daemons and Host preserve global settings, source-only actions a
   try {
     const base = f.startHost(false);
     const tasks = await Promise.all([order(a, 'A deferred'), order(b, 'B deferred')]);
+    const backends = await get(base, '/api/host/projects');
+    expect(backends.projects.every(row => row.running && Number.isSafeInteger(row.summary.pid) && row.summary.pid > 0)).toBe(true);
+    expect(new Set(backends.projects.map(row => row.summary.pid)).size).toBe(2);
     const [one, two] = await Promise.all([pending(a, tasks[0], 'A question'), pending(b, tasks[1], 'B question')]);
     expect(one.id).toBe(two.id);
     expect(one.sync_identity).not.toBe(two.sync_identity);
+    const beforeA = (await a.request('input.history', { limit: 100 })).items.map(row => row.id);
+    const createdB = await post(base, `/p/${idB}/api/action`, { method: 'order.submit',
+      params: { content: 'independent B instruction from global overview', branch: 'main', start: false } });
+    expect(createdB.task).toMatchObject({ parent_id: tasks[1].parent_id, target_branch: 'main', task_kind: 'order', status: 'paused' });
+    expect(createdB.task.id).not.toBe(tasks[1].id);
+    expect((await a.request('input.history', { limit: 100 })).items.map(row => row.id)).toEqual(beforeA);
+    await post(base, `/p/${'0'.repeat(16)}/api/action`, { method: 'order.submit', params: { content: 'unknown source', branch: 'main', start: false } }, 400);
     const inbox = await get(base, '/api/host/inbox?status=open');
     expect(inbox.complete).toBe(true);
     expect(inbox.items.map(item => item.project_id).sort()).toEqual([idA, idB].sort());
@@ -114,7 +124,12 @@ test('real dual daemons and Host preserve global settings, source-only actions a
     expect(offline.projects.find(row => row.id === idB).online).toBe(false);
     expect(offline.items.find(item => item.project_id === idB && item.notice.id === two.id).online).toBe(false);
     await post(base, '/api/host/inbox/action', action, 400);
-    await get(base, '/api/host/projects');
+    const unavailableBackends = await get(base, '/api/host/projects');
+    expect(unavailableBackends.projects.find(row => row.id === idB).running).toBe(false);
+    const offlineSend = await fetch(`${base}/p/${idB}/api/action`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify({ method: 'order.submit',
+        params: { content: 'must not restart B', branch: 'main', start: false } }) });
+    expect(offlineSend.status).toBeGreaterThanOrEqual(400);
     await get(base, '/api/host/preferences');
     await get(base, '/api/host/settings/agent/config');
     expect(fs.existsSync(f.configs[1].socket)).toBe(false);

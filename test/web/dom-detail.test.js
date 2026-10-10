@@ -19,7 +19,7 @@ await boot();
 
 afterAll(() => dom.restore());
 
-test('概览入口与后退：点左上角 Lush 回概览，后退到无 hash 也一样', async () => {
+test('概览入口与后退：点项目概览导航返回，后退到无 hash 也一样', async () => {
   const load = () => dom.intervalFor(1500)();
   await load();
   const detail = dom.node('detail');
@@ -28,7 +28,7 @@ test('概览入口与后退：点左上角 Lush 回概览，后退到无 hash �
   expect(deepText(detail)).toContain('项目概览');
   expect(onOverview()).toBeTruthy();
 
-  // 从任务树点进详情（真实的入口）：概览标题随之消失，回概览只能靠左上角的 Lush，
+  // 从任务树点进详情（真实的入口）：概览标题随之消失，通过项目概览导航返回，
   // 并且这次要压栈，否则浏览器后退无处可退。
   const pushedBefore = dom.pushed();
   await dom.node('tasks').querySelector('[data-id="1"]').onclick();
@@ -37,7 +37,7 @@ test('概览入口与后退：点左上角 Lush 回概览，后退到无 hash �
   expect(dom.pushed()).toBeGreaterThan(pushedBefore);
   expect(onOverview()).toBeNull();
 
-  await dom.node('home').onclick();
+  await dom.node('overview-open').onclick();
   await until(onOverview, 2000);
   // hash 一起清掉，刷新页面不会又跳回详情。
   expect(dom.location.hash).toBe('');

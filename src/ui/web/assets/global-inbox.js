@@ -179,6 +179,7 @@ function paintSources(state, projects, complete) {
   if (!state.current()) return;
   const confirmed = complete && projects.every(source => source.online && source.complete);
   state.sources.replaceChildren(el('p', confirmed ? '已同步当前可访问项目。' : '部分项目离线或尚未同步完整；下面是已确认／缓存的记录，不代表所有项目的实时全量。', 'hint'));
+  if (state.projectId) state.sources.prepend(el('p', `当前来源：${projects.find(source => source.id === state.projectId)?.name || state.projectId}`, 'hint'));
   for (const source of projects.filter(row => !row.online || !row.complete)) state.sources.append(el('p',
     `${source.name}：${!source.online ? '离线' : '正在补齐'} · 最后确认 ${source.checked_at ? absolute(source.checked_at) : '未知'}${source.error ? ` · ${source.error}` : ''}`, 'hint'));
 }
@@ -226,7 +227,7 @@ async function loadSelected(state, noticeId) {
 export async function openGlobalInbox({ projectId = null, noticeId = null, status = 'all', push = true } = {}) {
   if ((projectId !== null && !validProjectId(projectId)) || !INBOX_STATUSES.includes(status)
     || (noticeId !== null && (!Number.isSafeInteger(noticeId) || noticeId <= 0 || !projectId))) throw new Error('无效的全局收件箱地址');
-  const hash = noticeId ? inboxHash(projectId, noticeId) : status === 'all' ? '#notices' : `#notices-${status}`;
+  const hash = noticeId ? inboxHash(projectId, noticeId) : projectId ? `#notices-project-${projectId}${status === 'all' ? '' : `-${status}`}` : status === 'all' ? '#notices' : `#notices-${status}`;
   const view = activateDetailView({ view: 'global-inbox', key: `global-inbox:${status}:${projectId || ''}:${noticeId || ''}`,
     title: '全局收件箱', context: '用户工作台', hint: '所有可访问项目的待决、告知与自动选择记录', hash, push });
   ui.globalInboxPage?.controller.abort();
@@ -241,9 +242,10 @@ export async function openGlobalInbox({ projectId = null, noticeId = null, statu
   const head = el('header', undefined, 'global-inbox-head'); head.append(el('h1', '全局收件箱'), el('p', '各项目保存原记录；这里统一查看和处理，不会自动启动已停止的项目后台。', 'hint'));
   const filters = el('div', undefined, 'filters');
   for (const value of INBOX_STATUSES) {
-    const filter = button(LABELS[value], () => openGlobalInbox({ status: value }), 'ghost');
+    const filter = button(LABELS[value], () => openGlobalInbox({ projectId, status: value }), 'ghost');
     filter.setAttribute('aria-pressed', String(value === status)); filters.append(filter);
   }
+  if (projectId) filters.append(button('查看所有项目', () => openGlobalInbox({ status }), 'ghost'));
   const refresh = button('刷新记录', () => Promise.all([loadRows(state), noticeId ? loadSelected(state, noticeId) : Promise.resolve()]), 'ghost');
   const tools = el('div', undefined, 'resource-tools'); tools.append(filters, refresh, notificationControl());
   state.sources = el('div', undefined, 'global-inbox-sources');

@@ -11,4 +11,15 @@
 .project-item-actions{grid-column:1/-1;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}.workbench-nav{margin-bottom:4px}
 .workspace-link:disabled{opacity:.52;cursor:not-allowed}.project-popup-fallback{width:max-content}.warning{color:var(--waiting)}
 @media(max-width:700px){.workbench-view{padding:16px}.project-path-row{display:grid}.project-manager-list .project-item{grid-template-columns:1fr}.project-status{grid-column:1}.project-item-actions{justify-content:stretch}.project-item-actions>*{flex:1}.project-manager-form{padding:16px}}
+.project-roster-summary{overflow-wrap:anywhere}
+.project-order{grid-column:1/-1;min-width:0;border-top:1px solid var(--line-soft);padding-top:10px}
+.project-order-form{display:grid;gap:10px;margin-top:12px;min-width:0}
+.project-order-form[hidden]{display:none}
+.project-order-form label{display:grid;gap:8px;font-weight:600;min-width:0}
+.project-order-form textarea{width:100%;min-width:0;resize:vertical;box-sizing:border-box}
+.project-order-actions{display:flex;gap:8px;flex-wrap:wrap}
+.project-order-actions .help-host{display:inline-flex;min-width:0;max-width:100%}
+.project-order-actions .help-host:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.project-order-actions button{white-space:normal}
+.project-order-status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;overflow-wrap:anywhere}
 @media(prefers-reduced-motion:reduce){.workbench-view *{scroll-behavior:auto!important}}

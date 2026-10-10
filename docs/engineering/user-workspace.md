@@ -83,8 +83,9 @@ Host Inbox Worker 负责新增 `src/host/global-inbox.js`、`src/host/project-ho
 
 UI Worker 负责 `src/ui/web/assets/`（HTML 入口为 `assets/index.html`）及对应 DOM／独立浏览器 fixture tests，不修改 backend/server.js。
 
-- 根 shell 显示用户工作台导航；项目 shell 聚焦工作并提供根设置／收件箱入口（新标签保留原工作）。单项目 Host 根也为工作台，用明确项目身份进入工作。
+- W171／决定 #421：根 shell 显示完整全局导航；项目 shell 只显示项目内部导航，左上品牌原生链接 `/#projects` 在新标签打开上级空间，不再显示全局页面按钮或全局收件箱顶部摘要。单项目 Host 根也为工作台，用明确项目身份进入工作。
 - `settingsClient` 只接受 device，始终使用 Host 设置 API。删掉活跃项目覆盖／继承编辑，不删除历史记录；设备来源页不伪造全局消费者或历史，项目解释历史仍由项目页提供入口。
+- 根 `#projects` 增强为后台总览：只读已登记项目，安全 summary 可附已验证的正整数 pid；不可达显示未确认状态，不冒充已停止。每行「处理消息」进入 `#notices-project-<id>[-<status>]` 来源筛选，沿用全局分页／答复协议并提供所有项目出口。新指令表单按需加载 `project-order-form.js`，固定 `/p/<id>/api/action` 的 `order.submit {content,branch:'main',start}`；默认仅创建，显式创建并开始带 Agent 标识。离线／空白禁发送，单飞跨刷新，正文／ACK 按项目与文档隔离，失败保留并提示先核对未知写入结果，不自动重试。刷新保留表单节点和编辑；未发原文为会话内草稿，不持久写项目 Draft。
 - 新全局自动化页调用上述根接口，含自动选择与未来指令默认流程。项目 hooks 页移除这两份编辑，项目授权、命令与实际挂载保持。
 - 全局收件箱可就地答复／已知，来源 Worker 使用完整项目链接；问卷 preview 用来源项目路由，输入草稿和通知去重按项目＋sync_epoch＋sync_identity 隔离。有 sync_identity 的记录提交动作必须携带 expected_identity，缺失字段不能伪造。离线动作禁用及 help-host 解释，ACK与后续刷新失败分开。
 - 设备偏好后端权威，缓存首帧、显式写入、跨标签／客户端定期或版本失效同步；启动旧缓存不得写回覆盖新值。请求失败保留编辑并明确未保存。
@@ -95,5 +96,7 @@ UI Worker 负责 `src/ui/web/assets/`（HTML 入口为 `assets/index.html`）及
 ## 验证与交付
 
 用户决定 #410：Web 首屏资源保留原绝对预算（冷 JS 最多24个，含CSS最多25个），扩展用户工作台采用至少四倍源码静态模块数对照；仍核验共享状态、懒执行、HTTP/CSP 与真实浏览器，不以提高绝对上限或删断言达标。
+
+W171／决定 #421 验证：完整 `bun run test --timeout 30000` 3024 通过、0 失败（391 文件）；真实临时双 daemon／Host 验证 PID 与来源新指令隔离、离线发送不启动后台；Firefox 编译产物 fixture 覆盖双主题 1440/390/320px 的后台表单、刷新保留草稿、Agent 标识及品牌新标签保留项目现场；`check:workbench` 覆盖双浏览器／配色与 1440/900/390px。文档检查通过，既有篇幅警告保留。完整日志 `/tmp/lush-w171-logs/full-final.log`，浏览器与文档日志同目录。首轮专项新增指令导致 Notice 序号不再相等，修正测试顺序；首轮全量受 240 秒执行时限中断，不作为成功证据。未调用真实模型、未扫描未登记项目、未重启用户 daemon／Host。
 
 各分区先实际运行完整专项 tests，报告通过数／日志路径和未验证风险，再提交干净工作区。父在 runtime 合并并检查后确认 child，运行真实临时双 daemon／Host 组合及完整 `bun run test --timeout 30000`、`bun run docs:check`；不以截断／未结束的测试宣称通过。不读取真实凭证，不迁移用户配置，不重启用户 daemon／Host。

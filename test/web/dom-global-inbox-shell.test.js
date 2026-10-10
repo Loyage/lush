@@ -67,8 +67,21 @@ test('source notice deep link runs through the real root shell, keeps source Wor
   const worker = dom.node('detail').querySelector('.global-inbox-worker');
   expect(worker.getAttribute('href')).toBe(`/p/${B}/#worker-21`); expect(worker.getAttribute('target')).toBe('_blank');
   expect(dom.node('detail').querySelector('textarea')).not.toBeNull();
-  expect(deepText(dom.node('global-inbox-summary'))).toContain('待答 1 · 未读告知 1');
+  expect(deepText(dom.node('global-inbox-summary'))).toBe('');
+  expect(dom.node('global-inbox-count').getAttribute('aria-label')).toContain('1 项待答问题，1 条未读告知');
   expect(requests.some(request => request.url.startsWith('/p/'))).toBe(false);
+});
+
+test('backend overview source filter survives global shell routing and status changes, with an explicit all-projects exit', async () => {
+  dom.location.hash = `#notices-project-${B}`; await boot();
+  expect(ui.globalInboxPage.projectId).toBe(B); expect(dom.location.hash).toBe(`#notices-project-${B}`);
+  expect(deepText(dom.node('detail'))).toContain('当前来源：项目 b');
+  await dom.node('detail').querySelectorAll('button').find(node => node.textContent === '需要我决定').onclick();
+  expect(dom.location.hash).toBe(`#notices-project-${B}-open`); await dom.fire('hashchange');
+  expect(ui.globalInboxPage.projectId).toBe(B); expect(ui.globalInboxPage.status).toBe('open');
+  await dom.node('detail').querySelectorAll('button').find(node => node.textContent === '查看所有项目').onclick();
+  expect(dom.location.hash).toBe('#notices-open'); expect(ui.globalInboxPage.projectId).toBeNull();
+  expect(requests.some(request => request.options.method === 'POST')).toBe(false);
 });
 
 test('shell waits for authoritative preferences before starting open/unread observer, never seeds them from cache', async () => {

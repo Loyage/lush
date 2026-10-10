@@ -37,8 +37,23 @@ test('项目管理画在主内容，不再 inert 应用或显示阻塞 gate', as
   await picker.openProjectManager({ push: false });
   expect(dom.node('project-app').getAttribute('inert')).toBeNull();
   expect(dom.node('detail').dataset.view).toBe('projects');
-  expect(deepText(dom.node('detail'))).toContain('项目管理');
+  expect(deepText(dom.node('detail'))).toContain('后台总览');
   expect(dom.node('detail').querySelector('a.project-open').target).toBe('_blank');
+});
+
+test('后台总览展示真实进程摘要、来源收件箱及指令输入，刷新不丢草稿或另起后台', async () => {
+  state = { ...state, projects: [{ ...row, running: true, summary: { pid: 1234, agents_total: 2, notices: 3, pending_merges: 1 } }] };
+  await picker.openProjectManager({ push: false });
+  const panel = dom.node('detail'); expect(deepText(panel)).toContain('PID 1234'); expect(deepText(panel)).toContain('执行中 2');
+  expect(deepText(panel)).toContain('在线后台 1');
+  expect(panel.querySelectorAll('a').find(link => link.textContent === '处理消息').href).toBe(`/#notices-project-${ID}`);
+  const slot = panel.querySelector('.project-order'); await slot.querySelector('button').onclick();
+  const input = slot.querySelector('textarea'); input.value = '未发送的工作'; input.oninput();
+  const before = requests.length; await picker.refreshProjectList();
+  expect(panel.querySelector('.project-order')).toBe(slot); expect(slot.querySelector('textarea')).toBe(input); expect(input.value).toBe('未发送的工作');
+  state.projects[0].running = false; await picker.refreshProjectList();
+  expect(input.value).toBe('未发送的工作'); expect(slot.querySelector('.project-order-form').querySelectorAll('button').every(control => control.disabled)).toBe(true);
+  expect(requests.slice(before).every(request => !request.options.method || request.options.method === 'GET')).toBe(true);
 });
 
 test('新增项目同步预约窗口，异步 select 后不清空当前输入', async () => {

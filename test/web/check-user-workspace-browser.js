@@ -96,7 +96,7 @@ try {
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/fixture` }); await frame();
   assert(await wait(`document.getElementById('detail').dataset.view==='projects'&&!document.getElementById('theme-toggle').disabled`), 'root boot failed');
-  const pages = [['settings', 'settings'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['quick-explain', 'quick-explain'], ['automation', 'automation'], ['global-inbox', 'global-inbox']];
+  const pages = [['projects', 'projects'], ['settings', 'settings'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['quick-explain', 'quick-explain'], ['automation', 'automation'], ['global-inbox', 'global-inbox']];
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.getElementById('viewport').style.width='${width}px'`); await frame();
     if (await execute(`return document.documentElement.dataset.theme!=='${theme}'`)) { await click('#theme-toggle'); assert(await wait(`document.documentElement.dataset.theme==='${theme}'`), 'authoritative theme save failed'); }
@@ -105,9 +105,22 @@ try {
       assert(await wait(`document.getElementById('detail').dataset.view==='${view}'&&!document.getElementById('detail').textContent.includes('正在加载页面')`), `global ${id} chunk failed`);
       assert(await execute(`return document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth&&!document.querySelector('button a')&&document.getElementById('composer-shell').hidden&&document.documentElement.dataset.lushSpace==='global'`), `global ${id} layout or partition failed at ${width}/${theme}`);
     }
+    await execute(`document.getElementById('projects-open').click()`);
+    assert(await wait(`document.querySelector('.project-order > button')`), 'backend overview has no source instruction entry');
+    await execute(`document.querySelector('.project-order > button').click()`);
+    assert(await wait(`document.querySelector('.project-order-form textarea')`), 'lazy source instruction form did not load');
+    await execute(`const input=document.querySelector('.project-order-form textarea');input.value='浏览器会话中的独立指令';input.dispatchEvent(new Event('input'));`);
+    assert(await execute(`return document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth&&document.querySelector('.project-order-form .agent-call').dataset.help.includes('token')&&!document.getElementById('global-inbox-summary')`), `backend form layout or Agent help failed at ${width}/${theme}`);
+    await execute(`Array.from(document.querySelectorAll('#detail button')).find(b=>b.textContent==='刷新项目状态').click()`);
+    assert(await wait(`document.querySelector('.project-order-form textarea')?.value==='浏览器会话中的独立指令'`), 'overview refresh lost source draft');
     assert(!calls.some(path => /^\/api\/(overview|snapshot|worker\/|stats|transcript)/.test(path)), 'root boot/read attached a project');
     console.log(`PASS assembled global pages, authoritative theme and CSP: ${theme} ${width}px`);
   }
+  await execute(`Array.from(document.querySelectorAll('.project-order-form button')).find(b=>b.textContent==='创建 Worker').click()`);
+  assert(await wait(`document.querySelector('.project-order-form .project-order-status').textContent.includes('待开始')`), 'source create-only ACK not rendered');
+  assert(calls.filter(path => path === `/p/${projectId}/api/action`).length === 1, 'source instruction was sent to the wrong daemon or duplicated');
+  assert(world.state.actions.at(-1).method === 'order.submit' && world.state.actions.at(-1).params.branch === 'main' && world.state.actions.at(-1).params.start === false, 'backend overview did not create independent main Worker');
+  console.log('PASS backend overview source drafts, responsive lazy form and explicit create-only source routing');
   // Replace only the browser permission/delivery capability, never prefs or observer modules.
   await execute(`window.sentNotifications=[];Object.defineProperty(window,'Notification',{configurable:true,value:class {
     static permission='granted';static requestPermission(){throw Error('unexpected permission request')}
@@ -175,11 +188,12 @@ try {
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/p/${projectId}/` });
   assert(await wait(`document.getElementById('detail').dataset.view==='overview'`), 'explicit project boot failed');
   await execute(`document.getElementById('input').value='未提交输入';const d=document.getElementById('detail');d.scrollTop=120;const range=document.createRange();range.selectNodeContents(document.getElementById('view-title'));getSelection().removeAllRanges();getSelection().addRange(range);window.before={scroll:d.scrollTop,quote:getSelection().toString(),view:d.dataset.view};document.getElementById('sidebar-toggle').click()`);
-  const original = await rpc(`/session/${session}/window`, undefined, 'GET'); await click('#settings-open');
+  assert(await execute(`return Array.from(document.querySelectorAll('[data-global-navigation]')).every(node=>getComputedStyle(node).display==='none')&&!document.getElementById('global-inbox-summary')&&document.getElementById('project-switch').hidden`), 'project sidebar still exposes global pages');
+  const original = await rpc(`/session/${session}/window`, undefined, 'GET'); await click('#home');
   const handles = await rpc(`/session/${session}/window/handles`, undefined, 'GET'); assert(handles.length === 2, 'global settings did not open a separate tab');
   await rpc(`/session/${session}/window`, { handle: handles.find(handle => handle !== original) });
-  assert(await waitUrl(`http://127.0.0.1:${server.port}/#settings`), 'global tab URL retained a project identity');
-  assert(await wait(`location.pathname==='/'&&location.hash==='#settings'&&document.getElementById('detail').dataset.view==='settings'`), 'global tab retained a project identity');
+  assert(await waitUrl(`http://127.0.0.1:${server.port}/#projects`), 'global tab URL retained a project identity');
+  assert(await wait(`location.pathname==='/'&&location.hash==='#projects'&&document.getElementById('detail').dataset.view==='projects'`), 'global tab retained a project identity');
   await rpc(`/session/${session}/window`, undefined, 'DELETE'); await rpc(`/session/${session}/window`, { handle: original });
   assert(await execute(`return document.getElementById('input').value==='未提交输入'&&document.getElementById('detail').dataset.view===before.view&&document.getElementById('detail').scrollTop===before.scroll&&getSelection().toString()===before.quote`), 'native global link destroyed project input, reading position or selection');
   console.log('PASS independent global tab preserves project identity, draft, selection and reading position'); passed = true;

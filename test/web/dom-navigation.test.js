@@ -56,7 +56,7 @@ test('右侧固定返回按钮在没有原生 history.back 的宿主里安全回
 });
 
 test('项目所有全局入口都在独立根标签打开，保留输入、选区、阅读位置与当前工作页', async () => {
-  await dom.node('home').onclick(); const opened = [], previous = dom.window.open;
+  await dom.node('overview-open').onclick(); const opened = [], previous = dom.window.open;
   dom.window.open = href => { opened.push(href); return null; };
   dom.node('input').value = '未发送输入'; dom.node('detail').scrollTop = 140; dom.setSelection('阅读选区');
   try {
@@ -125,11 +125,11 @@ test('根来源UUID深链接与迟到读保护；项目旧设置hash只给独立
   dom.location.hash = '#settings'; await dom.fire('hashchange');
   expect(ui.view.id).toBe('workspace-link'); const link = dom.node('detail').querySelector('a');
   expect(link.href).toBe('/#settings'); expect(link.target).toBe('_blank');
-  await dom.node('home').onclick();
+  await dom.node('overview-open').onclick();
 });
 
 test('概览切换不依赖 revision，轮询忙或断网时立即显示缓存', async () => {
-  await dom.node('home').onclick(); ui.lastSnapshot.revision = 'stable'; const pending = deferred();
+  await dom.node('overview-open').onclick(); ui.lastSnapshot.revision = 'stable'; const pending = deferred();
   intercept = url => url.startsWith('/api/overview') ? pending.promise : null;
   const poll = dom.intervalFor(1500)(); await ui.navButtons.get('tasks').onclick(); await dom.node('overview-open').onclick();
   expect(deepText(dom.node('detail'))).toContain('项目概览'); expectSelected('overview');
@@ -140,7 +140,7 @@ test('概览切换不依赖 revision，轮询忙或断网时立即显示缓存',
 });
 
 test('迟到的 Task 图、文档与任务请求不覆盖新页面；文档 A→B 乱序也安全', async () => {
-  await dom.node('home').onclick();
+  await dom.node('overview-open').onclick();
   for (const [path, open] of [
     ['/api/worker-graph', () => dom.node('task-graph-open').onclick()],
     ['/api/docs', () => openDocs()],
@@ -172,7 +172,7 @@ test('迟到的 Task 图、文档与任务请求不覆盖新页面；文档 A→
 });
 
 test('全部现行角色和历史调度类型始终可选，未知类型也不丢失', async () => {
-  await dom.node('home').onclick();
+  await dom.node('overview-open').onclick();
   const snapshot = ui.lastSnapshot;
   const tasks = [...Object.keys(ROLE), 'future-role'].map((role, index) => ({
     id: 100 + index, parent_id: null, input_id: null, role, goal: `测试 ${role}`,
@@ -197,7 +197,7 @@ test('全部现行角色和历史调度类型始终可选，未知类型也不�
 });
 
 test('任务列表与详情省略通用 agent 角色标签，保留专用角色和 Agent 运行信息', async () => {
-  await dom.node('home').onclick();
+  await dom.node('overview-open').onclick();
   const snapshot = ui.lastSnapshot;
   const base = { id: 401, parent_id: 1, input_id: null, role: 'agent', task_kind: 'order',
     goal: '普通任务', status: 'completed', integration: 'none', calls: 0,
@@ -227,12 +227,12 @@ test('任务列表与详情省略通用 agent 角色标签，保留专用角色�
   } finally {
     ui.lastSnapshot = snapshot;
     renderTree(snapshot);
-    await dom.node('home').onclick();
+    await dom.node('overview-open').onclick();
   }
 });
 
 test('任务列表：角色胶囊带 role-<role> 类，快速路由任务整行标记并显示徽章', async () => {
-  await dom.node('home').onclick();
+  await dom.node('overview-open').onclick();
   const snapshot = ui.lastSnapshot;
   ui.lastSnapshot = { ...snapshot, tasks: [
     { id: 301, parent_id: null, input_id: 1, role: 'worker', goal: '路由出来的任务', status: 'running', integration: 'none', route: true, updated_at: new Date().toISOString() },

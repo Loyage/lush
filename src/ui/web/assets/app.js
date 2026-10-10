@@ -80,7 +80,7 @@ const openQuickExplanationPage = () => openPage(() => import('./render-quick-exp
 const openQuickExplanationHistory = () => openPage(() => import('./render-quick-explanation.js'), module => module.openQuickExplanationHistory(), 'quick-explain-history');
 const openAutomation = () => openPage(() => import('./render-workspace-automation.js'), module => module.openWorkspaceAutomation(), 'automation');
 const openGlobalInbox = (options = {}) => openPage(() => import('./global-inbox.js'), module => module.openGlobalInbox(options), 'global-inbox',
-  { push: options.push, hash: options.projectId && options.noticeId ? `#inbox-notice-${options.projectId}-${options.noticeId}` : options.status === 'automatic' ? '#notices-automatic' : '#notices' });
+  { push: options.push, hash: options.projectId && options.noticeId ? `#inbox-notice-${options.projectId}-${options.noticeId}` : options.projectId ? `#notices-project-${options.projectId}${options.status && options.status !== 'all' ? `-${options.status}` : ''}` : options.status === 'automatic' ? '#notices-automatic' : '#notices' });
 const openInputs = (options = {}) => openPage(() => import('./render-inputs.js'), module => module.openInputs(options), 'inputs',
   { push: options.push, hash: options.item ? `#input-${options.item.kind}-${options.item.id}` : '#inputs' });
 const openSources = (connectionId = '') => openPage(() => import('./render-model-sources.js'), module => module.openModelSources({ connectionId }),
@@ -105,7 +105,7 @@ function globalPageRedirect(hash) {
   const link = el('a', '打开用户工作台页面', 'primary'); link.href = workspaceHref(hash); link.target = '_blank'; link.rel = 'noopener'; box.append(link);
   const back = el('a', '返回项目概览', 'ghost'); back.href = `\u0023`; box.append(back); $('detail').replaceChildren(box);
 }
-const deviceHash = hash => /^#(?:settings|agent-status|model-sources|model-source-[a-f0-9-]+|quick-explain|automation|notices-(?:all|open|unread|automatic|failed)|inbox-notice-[a-f0-9]{16}-[1-9]\d*)$/.test(hash);
+const deviceHash = hash => /^#(?:settings|agent-status|model-sources|model-source-[a-f0-9-]+|quick-explain|automation|notices-(?:all|open|unread|automatic|failed)|notices-project-[a-f0-9]{16}(?:-(?:all|open|unread|automatic|failed))?|inbox-notice-[a-f0-9]{16}-[1-9]\d*)$/.test(hash);
 let hashGeneration = 0;
 function onHashChange() {
   const generation = ++hashGeneration; hideHelp();
@@ -123,6 +123,8 @@ function onHashChange() {
     if (doc) return openDocsView(doc.id);
     const notice = /^#inbox-notice-([a-f0-9]{16})-([1-9]\d*)$/.exec(hash);
     if (notice && Number.isSafeInteger(Number(notice[2]))) return openGlobalInbox({ projectId: notice[1], noticeId: Number(notice[2]), push: false });
+    const sourceNotices = /^#notices-project-([a-f0-9]{16})(?:-(all|open|unread|automatic|failed))?$/.exec(hash);
+    if (sourceNotices) return openGlobalInbox({ projectId: sourceNotices[1], status: sourceNotices[2] || 'all', push: false });
     const filter = /^#notices(?:-(all|open|unread|automatic|failed))?$/.exec(hash);
     if (filter) return openGlobalInbox({ status: filter[1] || 'all', push: false });
     return noProjectView();
@@ -219,8 +221,13 @@ export async function boot() {
   else if (!projectRoute() && context.host?.mode === 'offline') $('connection').textContent = 'Host 离线';
   initContextReferences(); initHelp();
   const goOverview = () => projectReady ? overview().catch(report) : projectRoute() ? noProjectView() : openProjectManager();
-  $('home').onclick = goOverview; $('overview-open').onclick = goOverview;
-  if ($('home')) { $('home').removeAttribute('data-help'); $('home').setAttribute('aria-label', projectRoute() ? 'Lush · 项目概览' : 'Lush · 用户工作台'); }
+  workspaceLink('home', '#projects', () => openProjectManager());
+  $('overview-open').onclick = goOverview;
+  if ($('home')) {
+    $('home').setAttribute('aria-label', 'Lush · 用户工作台');
+    if (projectRoute()) $('home').setAttribute('data-help', '在新标签打开上级用户工作台，当前项目的输入与阅读位置保留。');
+    else $('home').removeAttribute('data-help');
+  }
   const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'versions-open', 'hooks-open', 'quick-explain-history-open'];
   for (const id of projectOnly) { const target = $(id); if (target) { target.disabled = !projectReady; target.setAttribute('aria-disabled', String(!projectReady)); } }
   if ($('composer-shell')) $('composer-shell').hidden = !projectReady;

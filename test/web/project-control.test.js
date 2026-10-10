@@ -85,6 +85,24 @@ test('busy stop preserves binding and identity; stop/remove cannot race or accep
   } finally { g.resolve(); f.close(); }
 });
 
+test('backend overview publishes validated process PID and safe unreachable diagnostics without changing Worker facts', async () => {
+  const f = setup(); let pid = 1234;
+  f.binding.client.request = async method => {
+    expect(method).toBe('system.summary');
+    return { project: f.root, pid, agents_total: 2, notices: 3, pending_merges: [17], credential: 'never project this' };
+  };
+  try {
+    await f.host.start(f.id);
+    const [running] = await f.host.projects(); expect(running.running).toBe(true);
+    expect(running.summary).toMatchObject({ pid: 1234, agents_total: 2, notices: 3, pending_merges: 1 });
+    expect(running.summary.credential).toBeUndefined();
+    pid = 'invalid'; expect((await f.host.projects())[0].summary.pid).toBeUndefined();
+    f.binding.client.request = async () => { throw Error('private error payload'); };
+    const failed = (await f.host.projects())[0]; expect(failed.running).toBe(false); expect(failed.error).toContain('未确认');
+    expect(failed.error).not.toContain('private error'); expect(f.calls).toEqual([['start', f.root]]);
+  } finally { f.close(); }
+});
+
 test('public project controls honor only allowed project registry', async () => {
   const f = setup({ allowedProjects: [] });
   try {

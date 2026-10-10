@@ -157,8 +157,9 @@ try {
   assert(selected.length === 1 && selected[0] === fixtureProject, 'project selection was not explicit and single-shot');
   await until(`document.documentElement.dataset.projectColor === 'green' && document.title === 'mock-project · Lush'`);
   assert(await evaluate(`document.getElementById('theme-toggle').hidden`), 'project shell exposes a theme editing control');
-  // Global settings must open outside the project, preserving its independent page.
-  await click('#settings-open');
+  // Project navigation excludes every global page group; only the brand leads to the parent space.
+  assert(await evaluate(`Array.from(document.querySelectorAll('[data-global-navigation]')).every(node => getComputedStyle(node).display === 'none') && !document.getElementById('global-inbox-summary')`), 'project shell exposes global navigation or inbox summary');
+  await click('#home');
   let settingsWindow;
   for (let attempt = 0; attempt < 100; attempt++) {
     settingsWindow = (await rpc(`/session/${session}/window/handles`, undefined, 'GET')).find(handle => handle !== source && handle !== child);
@@ -167,9 +168,11 @@ try {
   assert(settingsWindow, 'global settings did not open in a separate page');
   await rpc(`/session/${session}/window`, { handle: settingsWindow });
   for (let attempt = 0; attempt < 100; attempt++) {
-    if ((await rpc(`/session/${session}/url`, undefined, 'GET')) === `${origin}/#settings`) break;
+    if ((await rpc(`/session/${session}/url`, undefined, 'GET')) === `${origin}/#projects`) break;
     await Bun.sleep(40);
   }
+  await until(`document.querySelector('#detail .project-manager') !== null`);
+  await click('#settings-open');
   await until(`document.querySelector('input.pref-radio[data-value="dark"]') && !document.querySelector('input.pref-radio[data-value="dark"]').disabled`);
   async function setDeviceTheme(theme) {
     await rpc(`/session/${session}/window`, { handle: settingsWindow }); await resize(1440); await click('#settings-open');

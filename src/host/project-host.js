@@ -137,7 +137,7 @@ export function createProjectHost(initialConfig = null, options = {}) {
       return await Promise.all(entries().map(async row => {
         const binding = connections.get(row.project);
         const retryAt = summaryBackoff.get(row.project) ?? 0;
-        if (retryAt > Date.now()) return { ...row, running: false, error: binding ? failures.get(row.project) ?? '项目暂时不可达' : null };
+        if (retryAt > Date.now()) return { ...row, running: false, error: failures.get(row.project) ?? '项目暂时不可达' };
         let timer = null;
         try {
           // 未打开的项目只探测已存在的 socket；列表读取绝不启动 lushd。
@@ -151,6 +151,7 @@ export function createProjectHost(initialConfig = null, options = {}) {
           summaryBackoff.delete(row.project);
           return { ...row, running: true, error: null, summary: { project: status.project, revision: status.revision, provider: status.provider,
             agents_total: status.agents_total ?? 0, notices: status.notices ?? 0,
+            ...(Number.isSafeInteger(status.pid) && status.pid > 0 ? { pid: status.pid } : {}),
             ...(typeof status.auto_select?.enabled === 'boolean' && typeof status.auto_select.revision === 'string'
               && status.auto_select.revision.length <= 256 ? { auto_select: { enabled: status.auto_select.enabled,
               revision: status.auto_select.revision, ...(['device','project'].includes(status.auto_select.scope)
@@ -158,7 +159,8 @@ export function createProjectHost(initialConfig = null, options = {}) {
             waiting_approval: status.intents?.waiting_approval ?? 0, pending_merges: status.pending_merges?.length ?? 0 } };
         } catch (error) {
           summaryBackoff.set(row.project, Date.now() + SUMMARY_BACKOFF_MS);
-          return { ...row, running: false, error: binding ? error.message : null };
+          failures.set(row.project, '后台状态读取失败；未确认当前进程状态');
+          return { ...row, running: false, error: '后台状态读取失败；未确认当前进程状态' };
         } finally { if (timer) clearTimeout(timer); }
       }));
     },

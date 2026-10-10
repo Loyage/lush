@@ -21,14 +21,17 @@ function setError(message = '', target = node('project-error')) {
 
 function summaryText(row) {
   if (row.error) return row.error;
-  if (row.running === false) return row.connected ? 'lushd 未运行' : '未运行';
+  if (row.running === false) return '后台未运行或不可达';
   const summary = row.summary;
   if (!summary) return row.running ? '运行中' : '未打开';
-  const parts = [];
+  const parts = ['运行中'];
+  if (Number.isSafeInteger(summary.pid) && summary.pid > 0) parts.push(`PID ${summary.pid}`);
   if (summary.notices > 0) parts.push(`待决 ${summary.notices}`);
   if (summary.waiting_approval > 0) parts.push(`待批计划 ${summary.waiting_approval}`);
   if (summary.agents_total > 0) parts.push(`执行中 ${summary.agents_total}`);
-  return parts.length ? parts.join(' · ') : '空闲';
+  if (summary.pending_merges > 0) parts.push(`待合并 ${summary.pending_merges}`);
+  if (!summary.agents_total) parts.push('空闲');
+  return parts.join(' · ');
 }
 
 function controlCapability() {
@@ -53,7 +56,32 @@ async function projectControl(kind, row, status, repaint) {
   } catch (error) { status.textContent = error.message; status.classList.add('error'); }
 }
 
-function projectItem(row, repaint, { compact = false } = {}) {
+function projectOrderSlot(row, list) {
+  const slot = el('div', undefined, 'project-order');
+  const owner = document, identity = ui.view;
+  const ownsPage = () => owner === globalThis.document && identity === ui.view
+    && node('detail')?.querySelector('.project-manager-list') === list && slot.parentNode?.parentNode === list;
+  slot.row = row;
+  const toggle = el('button', '新建 Worker…', 'ghost'); toggle.type = 'button'; toggle.setAttribute('aria-expanded', 'false');
+  toggle.setAttribute('data-help', '展开此项目的新指令输入；仅打开表单，不创建 Worker 或调用 Agent。');
+  const message = el('p', undefined, 'error'); message.hidden = true;
+  let loading = false;
+  toggle.onclick = async () => {
+    if (!ownsPage() || loading) return;
+    if (slot.control) { slot.control.root.hidden = !slot.control.root.hidden; toggle.setAttribute('aria-expanded', String(!slot.control.root.hidden)); return; }
+    loading = true; message.hidden = true;
+    try {
+      const { createProjectOrderForm } = await import('./project-order-form.js');
+      if (!ownsPage()) return;
+      slot.control = createProjectOrderForm(slot.row, { ownsPage }); slot.append(slot.control.root);
+      toggle.setAttribute('aria-expanded', 'true');
+    } catch (error) { if (ownsPage()) { message.hidden = false; message.textContent = error.message; } }
+    finally { loading = false; }
+  };
+  slot.append(toggle, message); return slot;
+}
+
+function projectItem(row, repaint, { compact = false, orderSlot = null } = {}) {
   const item = el('li', undefined, 'project-item');
   const link = el('a', undefined, 'project-open');
   link.href = projectHref(row.id); link.target = '_blank'; link.rel = 'noopener';
@@ -116,12 +144,31 @@ function projectItem(row, repaint, { compact = false } = {}) {
       };
       actions.append(color);
     }
+    const notices = el('a', '处理消息', 'ghost'); notices.href = `/#notices-project-${row.id}`; actions.prepend(notices);
     item.append(actions);
+    if (orderSlot) { orderSlot.remove(); item.append(orderSlot); }
   }
   return item;
 }
 
-/** 仅刷新已打开的项目管理页；只探测已登记项目，不启动后台或清空目录输入。 */
+function paintProjects(list, projects) {
+  const previous = list.orderSlots || new Map(), next = new Map();
+  list.replaceChildren(...projects.map(row => {
+    const slot = previous.get(row.id) || projectOrderSlot(row, list);
+    slot.row = row; next.set(row.id, slot);
+    return projectItem(row, refreshProjectList, { orderSlot: slot });
+  }));
+  list.orderSlots = next;
+  for (const slot of next.values()) slot.control?.update(slot.row);
+  const total = node('detail')?.querySelector('.project-roster-summary');
+  if (total) {
+    const running = projects.filter(row => row.running === true).length;
+    const unavailable = projects.filter(row => row.running !== true).length;
+    total.textContent = `已登记 ${projects.length} 个项目 · 在线后台 ${running} · 未运行或不可达 ${unavailable} · 本次读取 ${new Date().toLocaleTimeString()}`;
+  }
+}
+
+/** 仅刷新已打开的后台总览；只探测已登记项目，不启动后台或清空目录与指令输入。 */
 export async function refreshProjectList() {
   const identity = ui.view;
   const panel = node('detail');
@@ -132,7 +179,7 @@ export async function refreshProjectList() {
   try {
     const { projects = [] } = await api('/api/host/projects');
     if (request !== managerRequest || identity !== ui.view) return;
-    list.replaceChildren(...projects.map(row => projectItem(row, refreshProjectList)));
+    paintProjects(list, projects);
     if (empty) {
       empty.hidden = projects.length > 0;
       empty.querySelector('strong').textContent = '还没有项目入口';
@@ -196,11 +243,13 @@ function managerForm() {
 }
 
 export async function openProjectManager({ push = true } = {}) {
-  const identity = activateDetailView({ view: 'projects', title: '项目管理', context: '工作台', hint: '登记、打开与安全控制项目后台', push, hash: '#projects' });
+  const identity = activateDetailView({ view: 'projects', title: '后台总览', context: '工作台', hint: '已登记项目后台、消息与独立 Worker', push, hash: '#projects' });
   const panel = node('detail');
   const view = el('div', undefined, 'workbench-view project-manager');
   const head = el('header', undefined, 'workbench-hero');
-  head.append(el('span', 'PROJECTS', 'eyebrow'), el('h1', '项目管理'), el('p', '项目视图与后台生命周期彼此独立。关闭标签不会停止开发。', 'hint'));
+  head.append(el('span', 'PROJECT BACKENDS', 'eyebrow'), el('h1', '后台总览'),
+    el('p', '总览此 Host 已登记的项目后台，处理来源项目的消息，或向在线后台发送新指令。读取不会启动后台；关闭项目标签不会停止开发。', 'hint'));
+  const summary = el('p', '正在读取后台状态…', 'hint project-roster-summary'); summary.setAttribute('role', 'status'); head.append(summary);
   const list = el('ul', undefined, 'project-list project-manager-list'); list.id = 'project-list';
   const empty = el('div', undefined, 'workbench-empty'); empty.append(el('strong', '还没有项目入口'), el('p', '输入一个绝对目录登记项目，或先浏览设置和帮助文档。'));
   const refresh = el('button', '刷新项目状态', 'ghost'); refresh.type = 'button';
@@ -214,7 +263,7 @@ export async function openProjectManager({ push = true } = {}) {
     const { projects = [] } = await api('/api/host/projects');
     if (request !== managerRequest || identity !== ui.view) return;
     empty.hidden = projects.length > 0;
-    list.replaceChildren(...projects.map(row => projectItem(row, () => openProjectManager({ push: false }))));
+    paintProjects(list, projects);
   } catch (error) {
     if (request === managerRequest && identity === ui.view) { empty.hidden = false; empty.querySelector('strong').textContent = '项目列表暂时不可用'; empty.querySelector('p').textContent = error.message; }
   }
@@ -244,12 +293,7 @@ export async function ensureProject() {
   projectUsable = Boolean(current && (hostStatus.projects || []).some(row => row.id === current));
   const switcher = node('project-switch');
   if (switcher) {
-    switcher.hidden = !current;
-    switcher.textContent = '项目入口';
-    switcher.onclick = () => {
-      if (current) globalThis.window?.open?.('/#projects', '_blank', 'noopener');
-      else void openProjectManager();
-    };
+    switcher.hidden = true;
   }
   return true;
 }

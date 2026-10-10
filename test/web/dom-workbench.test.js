@@ -57,6 +57,6 @@ test('空态设置、文档与项目管理可用，项目系统动作保持关�
   expect(dom.node('detail').dataset.view).toBe('docs');
   await picker.openProjectManager({ push: false });
   expect(dom.node('detail').dataset.view).toBe('projects');
-  expect(deepText(dom.node('detail'))).toContain('项目管理');
+  expect(deepText(dom.node('detail'))).toContain('后台总览');
   expect(calls.every(call => call.method === 'GET')).toBe(true);
 });
