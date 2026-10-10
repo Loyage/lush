@@ -7,6 +7,7 @@
 .project-manager-form label{font-weight:700}.project-path-row{display:flex;gap:8px;align-items:stretch}.project-path-row input{min-width:0;flex:1}
 .project-manager-list{display:grid;gap:10px;padding:0;margin:0;list-style:none}.project-manager-list .project-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
 .project-open{min-width:0;display:grid;text-decoration:none;color:var(--text)}.project-open small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.project-status{color:var(--muted)}.project-status.error{color:var(--failed)}
+.project-color-editor{grid-column:1/-1;min-width:0}.project-color-editor .project-colors{display:flex;flex-wrap:wrap;gap:8px}.project-color-editor .settings-choice{padding:8px;min-height:44px}
 .project-item-actions{grid-column:1/-1;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}.workbench-nav{margin-bottom:4px}
 .workspace-link:disabled{opacity:.52;cursor:not-allowed}.project-popup-fallback{width:max-content}.warning{color:var(--waiting)}
 @media(max-width:700px){.workbench-view{padding:16px}.project-path-row{display:grid}.project-manager-list .project-item{grid-template-columns:1fr}.project-status{grid-column:1}.project-item-actions{justify-content:stretch}.project-item-actions>*{flex:1}.project-manager-form{padding:16px}}

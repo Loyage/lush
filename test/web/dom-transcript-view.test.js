@@ -7,6 +7,7 @@ import { openTranscriptStep, resetTranscriptReaders } from '../../src/ui/web/ass
 import { ui, transcriptCache, transcriptOpen } from '../../src/ui/web/assets/state.js';
 import { setPref, writePref } from '../../src/ui/web/assets/prefs.js';
 import { until } from '../helpers.js';
+import { makeWorld } from './dom-world.js';
 
 const response = data => new Response(JSON.stringify(data));
 const steps = [{ seq: 1, kind: 'text', file: 'a', body: '**first**' },
@@ -15,7 +16,11 @@ const page = { steps, files: ['a'], next: 2, oldest: 1, has_older: false, has_mo
 
 test('agent opens fullscreen rich details only on click, supports both orders, live pairing, and restores focus/scroll', async () => {
   const requests = [];
-  const dom = installDom({ fetch: async url => { requests.push(String(url)); return response(page); } });
+  const world = makeWorld();
+  const dom = installDom({ fetch: async (url, options) => {
+    requests.push(String(url));
+    return String(url) === '/api/host/preferences' ? world.fetchImpl(url, options) : response(page);
+  } });
   const taskId = 998; ui.selected = taskId; writePref('transcriptOrder', 'desc');
   try {
     const agent = renderAgent({ id: taskId }, { files: ['a'], totals: {} }); dom.node('detail').append(agent);
@@ -36,7 +41,7 @@ test('agent opens fullscreen rich details only on click, supports both orders, l
     transcriptCache.get(taskId).steps.push(output); appendTranscriptSteps(taskId, [output]);
     expect(list.children).toHaveLength(2); expect(list.children[0]).toBe(tool); expect(deepText(tool)).toContain('done');
     expect(viewport.scrollTop).toBe(240);
-    const order = panel.querySelector('select'); order.value = 'asc'; order.onchange();
+    const order = panel.querySelector('select'); order.value = 'asc'; await order.onchange();
     await until(() => panel.querySelector('.steps') && panel.querySelector('.steps') !== list);
     expect([...panel.querySelector('.steps').children].map(node => node.dataset.seq)).toEqual(['1', '2']);
     expect(requests.at(-1)).toContain('/transcript?after=0');

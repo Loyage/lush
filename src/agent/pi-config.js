@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { check } from '../core/types.js';
 import { PI_CREDENTIAL_ENV_NAMES } from './status-accounts.js';
-import { configurationHome, normalizeConfigurationScope, scopedConfiguration, withConfigurationWriteLock } from '../core/device-config.js';
+import { configurationHome, settingsConfigurationScope, scopedConfiguration, withConfigurationWriteLock } from '../core/device-config.js';
 
 const MAX_FILE = 256 * 1024;
 const DEFAULT_SETTINGS = Object.freeze({ defaultProjectTrust: 'never', enableInstallTelemetry: false,
@@ -23,7 +23,8 @@ function validateDirectory(dir, required = false) {
 }
 
 /** Explicit Lush storage root, never PI_CODING_AGENT_DIR or an external user's Pi directory. */
-export function piConfigDirectory(config, scope = 'project') {
+export function piConfigDirectory(config, scope) {
+  scope = settingsConfigurationScope(config, scope);
   const home = configurationHome(config, scope);
   validateDirectory(home);
   const dir = path.join(home, 'pi');
@@ -53,20 +54,13 @@ export function readPiConfiguration(file) {
 }
 
 /** Atomic create-only initialization; never overwrite an existing project file, even during races. */
-export function ensurePiConfiguration(config, scope = 'project') {
-  normalizeConfigurationScope(scope);
+export function ensurePiConfiguration(config, scope) {
+  scope = settingsConfigurationScope(config, scope);
   const selected = scope === 'device' ? scopedConfiguration(config, scope) : config;
   const own = withConfigurationWriteLock(config, scope, lock => {
     const snapshot = ensureLocalPiConfiguration(selected); lock.assert(); return snapshot;
   });
-  if (scope === 'device' || !config.deviceHome) return own;
-  const sharedDir = piConfigDirectory(config, 'device');
-  const sharedSettings = readPiConfiguration(path.join(sharedDir, 'settings.json'));
-  const sharedModels = readPiConfiguration(path.join(sharedDir, 'models.json'));
-  const inherited = Object.fromEntries(PI_RUNTIME_SETTINGS.filter(key => Object.hasOwn(sharedSettings, key)).map(key => [key, sharedSettings[key]]));
-  const models = { ...sharedModels, ...own.models };
-  if (sharedModels.providers || own.models.providers) models.providers = { ...sharedModels.providers, ...own.models.providers };
-  return { ...own, settings: { ...inherited, ...own.settings }, models };
+  return own;
 }
 function ensureLocalPiConfiguration(config) {
   const dir = piConfigDirectory(config);

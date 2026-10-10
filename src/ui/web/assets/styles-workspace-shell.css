@@ -1,0 +1,26 @@
+/* The root workspace and project workspace share primitives, not navigation ownership. */
+html[data-lush-space="global"] [data-project-navigation],
+html[data-lush-space="project"] [data-device-management] { display: none !important; }
+.workspace-nav a.workspace-link,
+.support-nav a.workspace-link { text-decoration: none; color: inherit; }
+.global-inbox-summary { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+.global-inbox-summary[hidden] { display: none; }
+.global-inbox-copy { min-width: 0; overflow-wrap: anywhere; }
+.global-inbox-copy small { font-weight: normal; }
+.global-inbox-summary a { white-space: normal; flex-shrink: 0; }
+.workspace-automation { display: grid; gap: 1rem; min-width: 0; }
+.workspace-automation-card { border: 1px solid var(--line); background: var(--panel, transparent); border-radius: 12px; padding: 1rem; min-width: 0; }
+.workspace-automation-card h2 { margin: 0 0 .75rem; }
+.workspace-automation-card p { overflow-wrap: anywhere; }
+.workspace-automation-card .hook-completion-levels { flex-wrap: wrap; }
+.workspace-automation-card .automation-saved { font-weight: 600; }
+/* display:contents has no focusable box in Firefox. Disabled global controls need a real help target. */
+html[data-lush-space="global"] .help-host[tabindex="0"]:has(:disabled),
+.workspace-automation .help-host[tabindex="0"]:has(:disabled) { display: inline-flex; align-items: stretch; min-width: 0; max-width: 100%; }
+html[data-lush-space="global"] .help-host:focus-visible,
+.workspace-automation .help-host:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 480px) {
+  .global-inbox-summary { align-items: flex-start; flex-direction: column; gap: .4rem; }
+  .workspace-automation-card { padding: .75rem; }
+  .workspace-automation-card button { white-space: normal; }
+}

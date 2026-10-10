@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, deepText } from '../dom-stub.js';
+import { installDom, deepText } from './project-dom.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 import { until } from '../helpers.js';
 

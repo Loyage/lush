@@ -16,13 +16,17 @@ export function safeConfigurationScope(value) {
 
 export function takeConfigurationScope(args) {
   const scope = option(args, '--scope');
-  return scope === null ? null : normalizeConfigurationScope(scope);
+  if (scope === null) return null;
+  normalizeConfigurationScope(scope);
+  check(scope === 'device', 'project configuration overrides are no longer supported; use --scope device');
+  return scope;
 }
 
-/** Opt-in only, preserving legacy CLI calls and never adding scope to Worker/history operations. */
+/** Optional explicit device scope; omitted settings calls also use the backend's device authority. */
 export function scopedSettingsClient(client, scope) {
   if (scope === null) return client;
   normalizeConfigurationScope(scope);
+  check(scope === 'device', 'project configuration overrides are no longer supported; use device settings');
   const scoped = Object.create(client);
   scoped.request = (method, params) => client.request(method,
     PARAMS[method]?.includes('scope') && /^(agent|system|quick_explain)\./.test(method)

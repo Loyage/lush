@@ -1,8 +1,20 @@
 import { check, id, bounded } from '../../core/types.js';
 import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
+import { syncNotices } from '../../persistence/notice-sync.js';
+
+function withNoticeIdentity(project, params, operation) {
+  if (params.expected_identity === undefined) return operation();
+  check(typeof params.expected_identity === 'string' && /^[a-f0-9]{32}$/.test(params.expected_identity), 'invalid Notice record identity');
+  return project.store.transaction(() => {
+    check(project.store.get('SELECT identity FROM notice_sync_records WHERE notice_id=?', id(params.id))?.identity === params.expected_identity,
+      'Notice record changed or was deleted; reload before answering');
+    return operation();
+  });
+}
 
 /** notice.* */
 export const handlers = {
+  'notice.sync'(p, params) { return syncNotices(p.store, p.config.project, params); },
   'notice.list'(p, params, actor) { return bounded(p.store.all(`${NOTICE_SELECT}
     ORDER BY (status='open') DESC,
       (kind='info' AND status='sent' AND source_event_id IS NOT NULL AND read_at IS NULL) DESC,
@@ -31,7 +43,7 @@ export const handlers = {
     check(actor === null || id(task) === actor, 'agents may post notices only for their own worker');
     return p.notice(task, params.title, params.body, 'question', params.questions);
   },
-  'notice.answer'(p, params, actor) { return p.answer(params.id, params.answer); },
-  'notice.dismiss'(p, params, actor) { return p.answer(params.id, '', true); },
-  'notice.read'(p, params) { return p.readNotice(params.id); },
+  'notice.answer'(p, params, actor) { return withNoticeIdentity(p, params, () => p.answer(params.id, params.answer)); },
+  'notice.dismiss'(p, params, actor) { return withNoticeIdentity(p, params, () => p.answer(params.id, '', true)); },
+  'notice.read'(p, params) { return withNoticeIdentity(p, params, () => p.readNotice(params.id)); },
 };

@@ -4,8 +4,8 @@ import path from 'node:path';
 import { fixture } from './helpers.js';
 import { QuickExplanationSettings, DEFAULT_EXPLANATION_PROMPT } from '../src/core/quick-explanation.js';
 
-const file = f => path.join(f.config.home, 'quick-explanation.json');
-test('explanation settings are project-local, partial, defaulted and atomically owner-only', async () => {
+const file = f => path.join(f.config.deviceHome, 'quick-explanation.json');
+test('explanation settings are device-owned, partial, defaulted and atomically owner-only', async () => {
   const a = fixture(), b = fixture();
   try {
     const settings = new QuickExplanationSettings(a.config);
@@ -26,6 +26,7 @@ test('explanation settings reject symlinks, hardlinks, bad modes, malformed and 
   const f = fixture();
   try {
     const settings = new QuickExplanationSettings(f.config);
+    fs.mkdirSync(f.config.deviceHome, { recursive: true, mode: 0o700 });
     const target = path.join(f.root, 'outside');
     fs.writeFileSync(target, JSON.stringify({ version: 1 }), { mode: 0o600 });
     fs.symlinkSync(target, file(f)); expect(() => settings.read()).toThrow('私有文件');

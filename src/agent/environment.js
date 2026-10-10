@@ -3,7 +3,7 @@ import path from 'node:path';
 import { check, isPlainObject } from '../core/types.js';
 import { AGENT_ROLES } from './prompts.js';
 import { randomUUID } from 'node:crypto';
-import { configurationHome, configurationScope, normalizeConfigurationScope, ensureConfigurationDirectory, withConfigurationWriteLock } from '../core/device-config.js';
+import { configurationHome, configurationScope, settingsConfigurationScope, ensureConfigurationDirectory, withConfigurationWriteLock } from '../core/device-config.js';
 
 const MAX_ENV_BYTES = 65536;
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -126,19 +126,17 @@ function overlayEnvironment(values, layer) {
   Object.assign(values, layer);
 }
 
-export function readAgentEnvironment(config, target, scope = 'project') {
-  normalizeConfigurationScope(scope);
+export function readAgentEnvironment(config, target, scope) {
+  scope = settingsConfigurationScope(config, scope);
   const own = readLocalAgentEnvironment(config, target, scope);
-  const inherited = scope === 'project' && config.deviceHome ? readLocalAgentEnvironment(config, target, 'device') : null;
-  const values = {}; overlayEnvironment(values, inherited?.values || {}); overlayEnvironment(values, own.values);
   if (!config.deviceHome) return own;
-  const source = own.exists && inherited?.exists ? 'mixed' : own.exists ? scope : inherited?.exists ? 'device' : 'default';
-  return { ...own, values, sources: [inherited, own].filter(layer => layer?.exists).map(layer => layer.file),
-    configuration_scope: configurationScope(config, scope, source, scope === 'project' && own.exists) };
+  return { ...own, sources: own.exists ? [own.file] : [],
+    configuration_scope: configurationScope(config, scope, own.exists ? scope : 'default', false) };
 }
 
 /** Web/RPC editor storage: canonical NAME="value" output, atomically replaced with owner-only permissions. */
-export function saveAgentEnvironment(config, target, values, scope = 'project') {
+export function saveAgentEnvironment(config, target, values, scope) {
+  scope = settingsConfigurationScope(config, scope);
   const file = targetFile(config, target, scope);
   const normalized = normalizeValues(values);
   const serialized = serializeValues(normalized);
@@ -164,7 +162,10 @@ export function saveAgentEnvironment(config, target, values, scope = 'project') 
   });
 }
 
-export function clearAgentEnvironmentOverride(config, target) { return saveAgentEnvironment(config, target, {}); }
+export function clearAgentEnvironmentOverride(config, target) {
+  settingsConfigurationScope(config, 'project');
+  return saveAgentEnvironment(config, target, {});
+}
 
 /** Pi-default mode uses the machine's own Pi environment; no Lush Agent env file is injected. */
 export function emptyAgentEnvironment(role) {
@@ -176,10 +177,8 @@ export function emptyAgentEnvironment(role) {
 export function agentEnvironment(config, role) {
   const resolvedRole = role === 'scheduler' ? 'planner' : role;
   check(AGENT_ROLES.includes(resolvedRole), `role must be one of ${AGENT_ROLES.join(', ')}`);
-  const layers = [
-    ...(config.deviceHome ? [readLocalAgentEnvironment(config, 'common', 'device'), readLocalAgentEnvironment(config, resolvedRole, 'device')] : []),
-    readLocalAgentEnvironment(config, 'common'), readLocalAgentEnvironment(config, resolvedRole),
-  ];
+  const scope = settingsConfigurationScope(config);
+  const layers = [readLocalAgentEnvironment(config, 'common', scope), readLocalAgentEnvironment(config, resolvedRole, scope)];
   const values = {};
   const sources = [];
   for (const layer of layers) {

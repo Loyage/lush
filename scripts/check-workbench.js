@@ -156,15 +156,43 @@ try {
   await until(`location.href === ${JSON.stringify(`${origin}/p/${projectRouteId(fixtureProject)}/`)}`);
   assert(selected.length === 1 && selected[0] === fixtureProject, 'project selection was not explicit and single-shot');
   await until(`document.documentElement.dataset.projectColor === 'green' && document.title === 'mock-project · Lush'`);
+  assert(await evaluate(`document.getElementById('theme-toggle').hidden`), 'project shell exposes a theme editing control');
+  // Global settings must open outside the project, preserving its independent page.
   await click('#settings-open');
-  await until(`document.querySelector('input[data-project-color="rose"]') !== null`);
-  await click('input[data-project-color="rose"]');
-  await until(`document.documentElement.dataset.projectColor === 'rose' && !document.querySelector('input[data-project-color="rose"]').disabled`);
-  await click('input.pref-radio[data-value="dark"]');
-  await until(`document.documentElement.dataset.theme === 'dark' && !document.querySelector('input[data-project-color="rose"]').disabled`);
-  assert(await evaluate(`document.title === 'mock-project · Lush' && localStorage.getItem('lush.theme') === null`), 'project navigation lost title or wrote browser theme');
+  let settingsWindow;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    settingsWindow = (await rpc(`/session/${session}/window/handles`, undefined, 'GET')).find(handle => handle !== source && handle !== child);
+    if (settingsWindow) break; await Bun.sleep(40);
+  }
+  assert(settingsWindow, 'global settings did not open in a separate page');
+  await rpc(`/session/${session}/window`, { handle: settingsWindow });
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if ((await rpc(`/session/${session}/url`, undefined, 'GET')) === `${origin}/#settings`) break;
+    await Bun.sleep(40);
+  }
+  await until(`document.querySelector('input.pref-radio[data-value="dark"]') && !document.querySelector('input.pref-radio[data-value="dark"]').disabled`);
+  async function setDeviceTheme(theme) {
+    await rpc(`/session/${session}/window`, { handle: settingsWindow }); await resize(1440); await click('#settings-open');
+    await until(`document.querySelector('input.pref-radio[data-value="${theme}"]') && !document.querySelector('input.pref-radio[data-value="${theme}"]').disabled`);
+    await click(`input.pref-radio[data-value="${theme}"]`);
+    await until(`document.documentElement.dataset.theme==='${theme}' && !document.querySelector('input.pref-radio[data-value="${theme}"]').disabled`);
+  }
+  async function setProjectColor(color) {
+    await rpc(`/session/${session}/window`, { handle: settingsWindow }); await resize(1440); await click('#projects-open');
+    await until(`document.querySelector('.project-color-open') !== null`); await click('.project-color-open');
+    await until(`document.querySelector('input[data-project-color="${color}"]') && !document.querySelector('input[data-project-color="${color}"]').disabled`);
+    await click(`input[data-project-color="${color}"]`);
+    await until(`document.querySelector('input[data-project-color="${color}"]').checked && !document.querySelector('input[data-project-color="${color}"]').disabled`);
+    assert(readProjectAppearance(fixtureProject).color === color, 'global color editor did not persist the selected identity color');
+    await rpc(`/session/${session}/window`, { handle: child });
+    await navigate(`${origin}/p/${projectRouteId(fixtureProject)}/`);
+    await until(`document.documentElement.dataset.projectColor==='${color}' && document.title==='mock-project · Lush'`);
+  }
+  await setDeviceTheme('dark'); await setProjectColor('rose');
+  await until(`document.documentElement.dataset.theme === 'dark'`);
+  assert(await evaluate(`document.title === 'mock-project · Lush'`), 'global settings lost project-tab identity');
   const firstAppearance = readProjectAppearance(fixtureProject);
-  assert(firstAppearance.theme === 'dark' && firstAppearance.color === 'rose', 'browser controls did not persist project appearance');
+  assert(firstAppearance.theme === 'system' && firstAppearance.color === 'rose', 'color save modified the retained inactive project theme');
   // A second independent Firefox profile has no localStorage but must render the same project.
   const primarySession = session;
   const extraReservation = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') });
@@ -181,11 +209,13 @@ try {
   const secondBrowser = await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } });
   extraSession = secondBrowser.sessionId; session = extraSession;
   try {
-    await navigate(`${origin}/p/${projectRouteId(fixtureProject)}/#settings`);
-    await until(`document.documentElement.dataset.projectColor === 'rose' && document.documentElement.dataset.theme === 'dark' && document.querySelector('input[data-project-color="rose"]') !== null`);
-    assert(await evaluate(`document.title === 'mock-project · Lush' && localStorage.getItem('lush.theme') === null`), 'independent browser did not inherit project appearance');
+    await navigate(`${origin}/p/${projectRouteId(fixtureProject)}/`);
+    await until(`document.documentElement.dataset.projectColor === 'rose' && document.documentElement.dataset.theme === 'dark'`);
+    assert(await evaluate(`document.title === 'mock-project · Lush' && document.getElementById('theme-toggle').hidden`), 'independent browser did not share device theme/project identity');
+    await navigate(`${origin}/#settings`);
+    await until(`document.querySelector('input.pref-radio[data-value="light"]') && !document.querySelector('input.pref-radio[data-value="light"]').disabled`);
     await click('input.pref-radio[data-value="light"]');
-    await until(`document.documentElement.dataset.theme === 'light' && !document.querySelector('input[data-project-color="rose"]').disabled`);
+    await until(`document.documentElement.dataset.theme === 'light' && !document.querySelector('input.pref-radio[data-value="light"]').disabled`);
   } finally {
     await rpc(`/session/${extraSession}`, undefined, 'DELETE'); extraSession = null;
     extraDriver.kill('SIGTERM'); await extraDriver.exited; extraDriver = null;
@@ -194,11 +224,10 @@ try {
   await until(`document.documentElement.dataset.theme === 'light'`);
   // Full palette × light/dark × responsive widths. CSS checks also protect semantic colors.
   for (const theme of ['light', 'dark']) {
-    await click(`input.pref-radio[data-value="${theme}"]`);
-    await until(`document.documentElement.dataset.theme === '${theme}' && !document.querySelector('input[data-project-color="rose"]').disabled`);
+    await setDeviceTheme(theme);
     for (const color of ['green', 'blue', 'teal', 'amber', 'rose', 'slate']) {
-      await click(`input[data-project-color="${color}"]`);
-      await until(`document.documentElement.dataset.projectColor === '${color}' && !document.querySelector('input[data-project-color="${color}"]').disabled`);
+      await setProjectColor(color);
+      await until(`document.documentElement.dataset.theme === '${theme}'`);
       // Palette changes animate the sidebar for 200ms. First let style/paint
       // run so the transition exists, then measure only after it has settled.
       await rpc(`/session/${session}/execute/async`, { args: [], script: 'const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));' });
@@ -226,8 +255,9 @@ try {
   await until(`document.title === 'second-project · Lush' && document.documentElement.dataset.projectColor === 'green'`);
   await navigate(`${origin}/p/${projectRouteId(fixtureProject)}/`);
   await until(`document.title === 'mock-project · Lush' && document.documentElement.dataset.projectColor === 'slate'`);
-  console.log('PASS project appearance: independent Firefox profiles, cross-browser synchronization, offline project titles, stable unused allocation, six palettes/light+dark/responsive with contrast and semantic-color checks');
+  console.log('PASS device theme/project identity: independent Firefox profiles, global color editing outside project pages, preserved inactive theme, cross-browser synchronization, offline titles, stable allocation, six palettes/light+dark/responsive with contrast and semantic-color checks');
   await rpc(`/session/${session}/window`, undefined, 'DELETE');
+  await rpc(`/session/${session}/window`, { handle: settingsWindow }); await rpc(`/session/${session}/window`, undefined, 'DELETE');
   await rpc(`/session/${session}/window`, { handle: source });
   assert(await evaluate(`location.pathname === '/' && document.querySelector('.project-manager-form input').value === ${JSON.stringify(fixtureProject)}`), 'opening a project replaced the source page or discarded its input');
   assert(await evaluate(`document.getElementById('environments-open') === null`), 'removed environment navigation remains');

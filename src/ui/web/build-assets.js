@@ -7,6 +7,8 @@ export async function buildAssets(assets, outdir, version) {
   const result = await Bun.build({
     entrypoints: [path.join(assets, 'app.js'), path.join(assets, 'appearance.js')],
     outdir, target: 'browser', format: 'esm', splitting: true,
+    // Fold small, side-effect-free shared chunks; retain lazy pages and ESM singleton state.
+    minChunkSize: 16 * 1024,
     minify: true, sourcemap: 'none', naming: { entry: naming, chunk: naming, asset: naming },
   });
   if (!result.success) throw new AggregateError(result.logs, 'Web asset build failed');

@@ -5,15 +5,16 @@ import { RPCClient } from '../../src/rpc/client.js';
 import { parseRequest, encode } from '../../src/rpc/protocol.js';
 import { PARAMS, USER_ONLY } from '../../src/rpc/registry.js';
 import { UIClient } from '../../src/ui/client.js';
+import { projectRouteId } from '../../src/host/registry.js';
 import { repo } from '../helpers.js';
 import { fetch, setup } from './harness.js';
 
 // 项目作用域、只读路由白名单、跨源 / 伪造 Host / 非 JSON / 任意 RPC 拒绝。
 
-test('web is project scoped, submits immediately and exposes no Service views', async () => {
+test('bound project APIs remain scoped, submit immediately and expose no Service views', async () => {
   const f = await setup(); await repo(f.root);
   try {
-    const page = await fetch(f.url); const html = await page.text();
+    const page = await fetch(`${f.url}/p/${projectRouteId(f.root)}/`); const html = await page.text();
     expect(html).toContain('Worker 列表'); expect(html).not.toContain('Service');
     expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
     const submit = await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'order.submit',params:{content:'web request'}})});
@@ -29,7 +30,7 @@ test('web is project scoped, submits immediately and exposes no Service views', 
   } finally { await f.close(); }
 });
 
-test('web saves project Agent profiles through the narrow mutation whitelist', async () => {
+test('web saves device Agent profiles through the narrow mutation whitelist', async () => {
   const f = await setup(); await repo(f.root);
   try {
     const config = { version: 1,
@@ -46,7 +47,9 @@ test('web saves project Agent profiles through the narrow mutation whitelist', a
     expect(snapshot.status.provider).toBe('mock');
     const configView = await (await fetch(f.url + '/api/agent/config')).json();
     expect(configView.default.model).toBe('gpt-5.4-mini');
-    expect(fs.existsSync(path.join(f.config.home, 'agent.json'))).toBe(true);
+    expect(configView.configuration_scope).toMatchObject({ selected: 'device', source: 'device', project_override: false });
+    expect(fs.existsSync(path.join(f.config.deviceHome, 'agent.json'))).toBe(true);
+    expect(fs.existsSync(path.join(f.config.home, 'agent.json'))).toBe(false);
 
     const fakePi = path.join(f.root, 'fake-pi-models');
     fs.writeFileSync(fakePi, `#!/usr/bin/env bun\nconsole.log('provider  model  context  max-out  thinking  images');\nconsole.log('demo      current  100K     10K      yes       no');\n`, { mode: 0o755 });

@@ -1,3 +1,5 @@
+import { DEVICE_PREF_NAMES, PREF_DEFS } from '../../src/ui/web/assets/prefs.js';
+
 export const NOW = Date.now();
 export const iso = ms => new Date(ms).toISOString();
 
@@ -7,6 +9,9 @@ export const iso = ms => new Date(ms).toISOString();
  */
 export function makeWorld() {
   const state = {
+    devicePreferences: { version: 1, revision: 'preferences-1', values: Object.fromEntries(DEVICE_PREF_NAMES.map(name =>
+      [name, typeof PREF_DEFS[name].default === 'function' ? PREF_DEFS[name].default() : PREF_DEFS[name].default])) },
+    deviceAutomation: { version: 1, revision: 'automation-1', auto_select: { enabled: false }, completion_defaults: { enabled: false, level: 'merge' } },
     // 折叠态「最近一次执行」：usage.last 带精确 tokens，chip 与执行过程同口径显示。
     usageLast: { at: iso(NOW - 1000), kind: 'tool', title: 'bash', body: 'ls -la',
       tokens: { input: 300, output: 40, cache_read: 9600, cache_write: 0, reasoning: 9, total: 9940, cost: 0.001, exact: true, turn: true } },
@@ -218,11 +223,25 @@ export function makeWorld() {
     if (pathname === '/api/runtime') pathname = '/api/settings/runtime';
     const path = pathname + requestUrl.search;
     const json = data => {
-      const scoped = requestScope && ['/api/settings/runtime', '/api/agent/config', '/api/agent/connections', '/api/agent/network', '/api/quick-explain/config'].includes(pathname)
+      const scoped = requestScope && ['/api/settings/runtime', '/api/agent/config', '/api/agent/connections', '/api/agent/network', '/api/agent/environment', '/api/quick-explain/config'].includes(pathname)
         ? { ...data, configuration_scope: { selected: requestScope, source: requestScope, project_override: requestScope === 'project',
           device_home: '/fixture/device/shared', project_home: '/tmp/demo/.lush' } } : data;
       return { ok: true, status: 200, json: async () => scoped };
     };
+    if (path === '/api/host') return json({ mode: 'bound', projects: [{ id: 'aaaaaaaaaaaaaaaa', name: 'fixture', project: '/tmp/demo', online: true, running: true }] });
+    if (path === '/api/host/projects') return json({ projects: [{ id: 'aaaaaaaaaaaaaaaa', name: 'fixture', project: '/tmp/demo', online: true, running: true }] });
+    if (path === '/api/host/preferences' || path === '/api/host/automation') {
+      const key = path.endsWith('preferences') ? 'devicePreferences' : 'deviceAutomation';
+      if (options.method === 'POST') {
+        const body = JSON.parse(options.body);
+        if (body.expected_revision !== state[key].revision) return { ok: false, status: 409, json: async () => ({ error: 'revision conflict' }) };
+        state[key] = key === 'devicePreferences' ? { ...state[key], values: { ...state[key].values, ...body.patch }, revision: `${state[key].revision}-next` }
+          : { ...state[key], ...body.patch, revision: `${state[key].revision}-next` };
+      }
+      return json(structuredClone(state[key]));
+    }
+    if (path.startsWith('/api/host/inbox?')) return json({ version: 1, items: [], cursor: null, has_more: false, complete: true,
+      projects: [{ id: 'aaaaaaaaaaaaaaaa', name: 'fixture', online: true, checked_at: iso(NOW), error: null, complete: true }] });
     if (path === '/api/snapshot') return json(snapshot());
     if (path === '/api/settings/runtime') return json(Object.fromEntries(Object.entries(state.runtimeSettings).map(([key, value]) =>
       [key, value && typeof value === 'object' && Object.hasOwn(value, 'value') ? { ...value, source: value.overridden ? 'project' : 'default' } : value])));

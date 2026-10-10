@@ -101,7 +101,12 @@ test('daemon automatic answers and Worker timers coexist with independent author
     const daemonRevision = catalogue.daemon_hooks.revision;
     expect(catalogue.revision).toBe(templateRevision);
     const notice = f.project.notice(source.id, 'Choose', 'Which direction?');
-    expect(notice).toMatchObject({ status: 'answered', answer_source: 'lush' });
+    // The final policy-locked answer runs after the enclosing SQLite transaction commits.
+    // Posting may return open; only the persisted answer proves automatic execution.
+    expect(['open', 'answered']).toContain(notice.status);
+    await until(() => f.store.get('SELECT status FROM notices WHERE id=?', notice.id)?.status === 'answered');
+    expect(f.store.get('SELECT status,answer_source FROM notices WHERE id=?', notice.id))
+      .toEqual({ status: 'answered', answer_source: 'lush' });
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(1);
     let model = await get(f, `/api/worker/${source.parent_id}/hooks`);
     expect(model.mounts.find(item => item.id === mount.id)).toMatchObject({ state: 'waiting', pending_due_at: null });

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { configurationHome, configurationScope, normalizeConfigurationScope, withConfigurationWriteLock } from './device-config.js';
+import { configurationHome, configurationScope, settingsConfigurationScope, withConfigurationWriteLock } from './device-config.js';
 import { check, isPlainObject, LushError } from './types.js';
 import { DEFAULT_INPUT_ROUTES, normalizeInputRoutes } from './input-routes.js';
 
@@ -62,7 +62,7 @@ export function normalizeRuntimeSettings(value, file = 'runtime settings') {
 export class RuntimeSettings {
   constructor(config) {
     this.config = config;
-    this.file = path.join(config.home, 'settings.json');
+    this.file = path.join(configurationHome(config, settingsConfigurationScope(config)), 'settings.json');
     // 环境默认值由 Config 在读取设置文件之前校验好（LUSH_* 非法仍然在构造时抛错）。
     this.defaults = {
       concurrency: config.concurrencyDefault,
@@ -105,16 +105,15 @@ export class RuntimeSettings {
   }
 
   /** 稳定读模型：每个键给出生效值、环境默认值与是否被设置文件覆盖，外加文件路径。 */
-  get(scope = 'project') {
-    normalizeConfigurationScope(scope);
-    const shared = this.config.deviceHome ? this.readStored('device') : {};
-    const stored = scope === 'device' ? shared : this.readStored();
+  get(scope) {
+    scope = settingsConfigurationScope(this.config, scope);
+    const stored = this.readStored(scope);
     const model = { file: path.join(configurationHome(this.config, scope), 'settings.json') };
     const sources = new Set();
     for (const key of RUNTIME_SETTINGS_KEYS) {
       const overridden = Object.hasOwn(stored, key);
-      const inherited = scope === 'project' && Object.hasOwn(shared, key) ? shared[key] : this.defaults[key];
-      const source = overridden ? scope : scope === 'project' && Object.hasOwn(shared, key) ? 'device' : 'default';
+      const inherited = this.defaults[key];
+      const source = overridden ? scope : 'default';
       sources.add(source);
       model[key] = { value: copySetting(key, overridden ? stored[key] : inherited),
         default: copySetting(key, inherited), overridden, source };
@@ -128,7 +127,8 @@ export class RuntimeSettings {
    * 部分更新：patch 里出现的键才动，null 表示清除该键、回退环境默认。
    * 先校验再写盘，非法值既不生效也不落盘；成功返回最新读模型。
    */
-  save(patch, scope = 'project') {
+  save(patch, scope) {
+    scope = settingsConfigurationScope(this.config, scope);
     check(isPlainObject(patch), 'runtime settings patch must be an object');
     check(Object.keys(patch).every(key => RUNTIME_SETTINGS_KEYS.includes(key)), 'runtime settings patch has an unknown field');
     return withConfigurationWriteLock(this.config, scope, lock => {
@@ -144,7 +144,8 @@ export class RuntimeSettings {
     });
   }
 
-  write(body, scope = 'project', lock = null) {
+  write(body, scope, lock = null) {
+    scope = settingsConfigurationScope(this.config, scope);
     if (!lock) return withConfigurationWriteLock(this.config, scope, held => this.write(body, scope, held));
     const serialized = JSON.stringify(body, null, 2) + '\n';
     check(Buffer.byteLength(serialized) <= MAX_FILE_BYTES, 'runtime settings file is too large');

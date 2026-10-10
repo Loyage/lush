@@ -4,7 +4,7 @@ Lush 是**项目级的多 agent 开发应用**。Bun / JavaScript / SQLite；dae
 
 ## 作用域
 
-- Lush UI（浏览器）↔ 整机入口 Lush Host（`bin/lush-host`）↔ 每项目一个 lushd（`bin/lushd`）。Host 只登记、鉴权、路由及转发，不持有Worker事实；一个 lushd 对应一个 canonical 项目目录，状态固定在 `<project>/.lush/`。
+- Lush UI（浏览器）↔ 整机入口 Lush Host（`bin/lush-host`）↔ 每项目一个 lushd（`bin/lushd`）。Host 负责登记、鉴权、路由、设备设置与跨项目 Notice 派生读面，不持有 Worker 权威事实、不调度跨项目工作；一个 lushd 对应一个 canonical 项目目录，状态固定在 `<project>/.lush/`。
 - CLI 项目命令默认向上发现 `.lush/project.json` 或 `.git`；用 `--project PATH` 显式选择项目。Web 四条命令无 `--project` / `LUSH_PROJECT` 时进入全局工作台；未选择项目时管理、设置与帮助仍可用。
 - `LUSH_PROJECT` 会传入 agent 子进程，agent 在独立 worktree 中仍连接原项目。
 - `LUSH_HOME` 不许指向独立的全局目录；非空时必须等于 `<project>/.lush`。
@@ -61,7 +61,7 @@ bun run stop
 
 修改账号连接、凭证托管、余额/套餐观测、显式连接绑定与被动响应反馈前，先读 `docs/design/account-resources.md`；字段与模块边界见 `docs/engineering/agent-connections.md`，旧状态/历史兼容见 `docs/engineering/agent-usage.md`。私有权限不是沙箱，不得把凭证或原始认证响应放进读 API、会话或错误。
 
-修改共享设置、配置作用域或旧项目迁移前，先读 `docs/design/device-settings.md` 与 `docs/engineering/device-settings.md`：设备只共享技术配置，项目事实与历史隔离；`LUSH_HOME` 不改成全局目录，迁移必须显式预检/确认。
+修改全局页面、共享设置、Notice 聚合或设备自动化前，先读 `docs/design/user-workspace.md` 与 `docs/engineering/user-workspace.md`：W162／决定 #402 取消技术设置的项目覆盖、保留 Worker 显式参数，自动选择与未来新指令默认流程设备统一；Host 只聚合／转发来源项目 Notice，不成为权威库或跨项目调度器。旧配置迁移另读 `docs/design/device-settings.md` 与 `docs/engineering/device-settings.md` 的安全边界：`LUSH_HOME` 不改成全局目录，迁移必须显式预检／确认。
 
 修改启动、项目入口、环境管理前，先读 `docs/design/workbench.md` 与 `docs/engineering/workbench.md`：每项目独立浏览器标签，关闭页面不停止任务；项目 API 附着只读，不能由旧页轮询自动启动已停止后台。
 

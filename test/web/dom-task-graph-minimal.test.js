@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterAll } from 'bun:test';
-import { installDom, deepText, answerDialog, dialogText } from '../dom-stub.js';
+import { installDom, deepText, answerDialog, dialogText } from './project-dom.js';
 import { makeWorld } from './dom-world.js';
 
 const world = makeWorld();
@@ -10,12 +10,12 @@ const { boot } = await import('../../src/ui/web/assets/app.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
 const { showHelp, hideHelp } = await import('../../src/ui/web/assets/help.js');
 const { renderTaskGraph, loadTaskGraph } = await import('../../src/ui/web/assets/render-task-graph.js');
-const { readPref, setPref, resetPrefs } = await import('../../src/ui/web/assets/prefs.js');
+const { readPref, setPref, resetPrefs, resetDevicePreferences, refreshDevicePreferences, saveDevicePreference } = await import('../../src/ui/web/assets/prefs.js');
 const { resourceSummary } = await import('../../src/ui/web/assets/task-graph-usage.js');
 const card = id => dom.node('detail').querySelector(`[data-task-id="${id}"]`);
 const mode = () => dom.node('detail').querySelector('[data-graph-focus="detail-mode"]');
-const enable = () => { mode().checked = false; mode().onchange(); };
-const enableDetails = () => { mode().checked = true; mode().onchange(); };
+const enable = async () => { mode().checked = false; await mode().onchange(); };
+const enableDetails = async () => { mode().checked = true; await mode().onchange(); };
 const fixture = () => ({ total: 3, truncated: false, nodes: [
   { id: 1, parent_id: null, task_kind: 'main', role: 'agent', title: 'main', status: 'waiting', branch: 'main' },
   { id: 2, parent_id: 1, task_kind: 'order', role: 'agent', title: '极简任务树'.repeat(20), status: 'running',
@@ -27,10 +27,10 @@ const fixture = () => ({ total: 3, truncated: false, nodes: [
     progress: { total: 2, completed: 1, current: { label: '实现接口' } } },
 ] });
 beforeEach(async () => {
-  dom.location.pathname = '/';
+  dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/';
   localStorage.removeItem('lush.taskGraph.collapsed');
   dom.node('detail').replaceChildren(); document.activeElement = null;
-  resetPrefs(); graph = fixture();
+  resetPrefs(); world.state.devicePreferences.values.taskGraphMinimal = true; graph = fixture();
   await boot(); await dom.node('task-graph-open').onclick();
 });
 afterAll(() => dom.restore());
@@ -64,7 +64,7 @@ test('资源消耗在两种模式显示自身，折叠显示后端完整子树�
   expect(summary.querySelector('.task-graph-usage-runtime').textContent).toBe('2 h 2 m 2 s');
   expect(deepText(summary)).toContain('$4.48');
   expect(summary.getAttribute('data-help')).toContain('图外节点');
-  enableDetails();
+  await enableDetails();
   expect(deepText(card(1).querySelector('.task-graph-usage'))).toContain('$4.48');
   await card(1).querySelector('button').onclick();
   // 详情模式：消耗排在首行状态标签之后、合并状态标签之前。
@@ -116,7 +116,7 @@ test('默认极简且详情开关未勾选；主动开启详情，取消后回�
   expect(card(3).querySelector('textarea')).toBeNull();
   expect(card(1).querySelector('.task-graph-minimal-summary')).toBeTruthy();
   expect(world.state.actions.length).toBe(count);
-  enableDetails();
+  await enableDetails();
   expect(mode().checked).toBe(true);
   expect(readPref('taskGraphMinimal')).toBe(false);
   expect(deepText(card(2))).toContain('完整结果正文');
@@ -127,7 +127,7 @@ test('默认极简且详情开关未勾选；主动开启详情，取消后回�
   expect(document.activeElement).toBe(mode());
   await boot(); await dom.node('task-graph-open').onclick();
   expect(mode().checked).toBe(true);
-  enable();
+  await enable();
   expect(mode().checked).toBe(false);
   expect(readPref('taskGraphMinimal')).toBe(true);
   expect(deepText(card(2))).not.toContain('完整结果正文');
@@ -138,7 +138,7 @@ test('默认极简且详情开关未勾选；主动开启详情，取消后回�
 });
 
 test('极简与完整视图共用折叠、状态筛选和归档开关', async () => {
-  enable();
+  await enable();
   const fold = card(1).querySelector('button');
   fold.focus(); await fold.onclick();
   expect(card(2)).toBeNull();
@@ -146,9 +146,9 @@ test('极简与完整视图共用折叠、状态筛选和归档开关', async ()
   await card(1).querySelector('button').onclick();
   await dom.node('detail').querySelector('[data-status="running"]').onclick();
   expect(card(2)).toBeNull(); expect(card(3)).toBeTruthy();
-  enableDetails();
+  await enableDetails();
   expect(card(2)).toBeNull(); expect(card(3)).toBeTruthy();
-  enable();
+  await enable();
   graph.nodes[2].archived = true;
   renderTaskGraph(graph);
   expect(card(3)).toBeNull();
@@ -156,14 +156,14 @@ test('极简与完整视图共用折叠、状态筛选和归档开关', async ()
   archived.checked = true; archived.onchange();
   expect(deepText(card(3))).toContain('已归档');
   expect(document.activeElement.dataset.graphFocus).toBe('show-archived');
-  enableDetails();
+  await enableDetails();
   expect(document.activeElement).toBe(mode());
   expect(dom.node('detail').querySelector('.task-graph-archived-toggle').querySelector('input').checked).toBe(true);
   expect(card(3)).toBeTruthy();
 });
 
-test('等待行不增加进度总数，终态不伪装仍在执行，无进度运行态明确说明未知', () => {
-  enable();
+test('等待行不增加进度总数，终态不伪装仍在执行，无进度运行态明确说明未知', async () => {
+  await enable();
   graph.nodes[1].progress = { items: [
     { key: 'a', label: '调查', status: 'completed' },
     { key: 'wait', label: '等待子任务', kind: 'wait', status: 'pending' },
@@ -178,18 +178,18 @@ test('等待行不增加进度总数，终态不伪装仍在执行，无进度�
   expect(deepText(card(2))).not.toContain('0/0');
 });
 
-test('切换极简模式不丢弃未提交的待决答复', () => {
-  enableDetails();
+test('切换极简模式不丢弃未提交的待决答复', async () => {
+  await enableDetails();
   const input = card(3).querySelector('textarea');
-  input.value = '我还在写'; enable();
+  input.value = '我还在写'; await enable();
   expect(mode().checked).toBe(true);
   expect(readPref('taskGraphMinimal')).toBe(false);
   expect(card(3).querySelector('textarea')).toBe(input);
   expect(input.value).toBe('我还在写');
 });
 
-test('切换归档显示不丢弃未提交的待决答复，也不提前改变开关状态', () => {
-  enableDetails();
+test('切换归档显示不丢弃未提交的待决答复，也不提前改变开关状态', async () => {
+  await enableDetails();
   graph.nodes[1].archived = true;
   renderTaskGraph(graph);
   const input = card(3).querySelector('textarea');
@@ -204,7 +204,7 @@ test('切换归档显示不丢弃未提交的待决答复，也不提前改变�
 });
 
 test('更多操作惰性创建、沿用 Agent 帮助与原有输入弹窗，展开期间轮询不卸载菜单', async () => {
-  enable();
+  await enable();
   const trigger = card(2).querySelector('.task-graph-more-trigger');
   const panel = card(2).querySelector('.task-graph-actions-popover');
   expect(trigger.getAttribute('aria-label')).toContain('#2');
@@ -234,8 +234,8 @@ test('更多操作惰性创建、沿用 Agent 帮助与原有输入弹窗，展�
   expect(deepText(card(2))).toContain('新标题');
 });
 
-test('极简菜单复用合并、待决入口且冻结时可追加，不内嵌待决表单', () => {
-  enable();
+test('极简菜单复用合并、待决入口且冻结时可追加，不内嵌待决表单', async () => {
+  await enable();
   card(1).querySelector('.task-graph-more-trigger').onclick();
   expect(deepText(card(1).querySelector('.task-graph-actions-popover'))).toContain('合并所有');
   card(3).querySelector('.task-graph-more-trigger').onclick();
@@ -250,29 +250,22 @@ test('极简菜单复用合并、待决入口且冻结时可追加，不内嵌�
   expect(input.getAttribute('data-help')).toContain('冻结期间由 Worker 暂存');
 });
 
-test('偏好按项目隔离，旧选择保留，坏值和重置回落极简；存储不可用时会话内仍可切换', () => {
-  dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/';
-  expect(readPref('taskGraphMinimal')).toBe(true);
-  setPref('taskGraphMinimal', false);
+test('图模式是权威设备偏好，旧项目cache不覆盖它；无localStorage仍可保存', async () => {
+  await saveDevicePreference('taskGraphMinimal', false);
   dom.location.pathname = '/p/bbbbbbbbbbbbbbbb/';
-  expect(readPref('taskGraphMinimal')).toBe(true);
-  localStorage.setItem('lush.taskGraph.minimal:bbbbbbbbbbbbbbbb', 'broken');
-  expect(readPref('taskGraphMinimal')).toBe(true);
+  expect(readPref('taskGraphMinimal')).toBe(false);
   localStorage.setItem('lush.taskGraph.minimal:bbbbbbbbbbbbbbbb', '1');
-  expect(readPref('taskGraphMinimal')).toBe(true);
-  localStorage.setItem('lush.taskGraph.minimal:bbbbbbbbbbbbbbbb', '0');
   expect(readPref('taskGraphMinimal')).toBe(false);
+  localStorage.setItem('lush.taskGraph.minimal', 'broken');
+  await refreshDevicePreferences(); expect(readPref('taskGraphMinimal')).toBe(false);
   dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/';
-  expect(readPref('taskGraphMinimal')).toBe(false);
-  resetPrefs(); expect(ui.taskGraphMinimal).toBe(true);
-  dom.location.pathname = '/';
+  await resetDevicePreferences(); expect(readPref('taskGraphMinimal')).toBe(true);
+  expect(localStorage.getItem('lush.taskGraph.minimal:bbbbbbbbbbbbbbbb')).toBe('1');
   const storage = globalThis.localStorage;
   try {
     globalThis.localStorage = { getItem() { throw Error('denied'); }, setItem() { throw Error('denied'); } };
-    enable(); renderTaskGraph(graph);
+    await refreshDevicePreferences(); await enable(); renderTaskGraph(graph);
     expect(mode().checked).toBe(false);
-    enableDetails();
-    expect(mode().checked).toBe(true);
-    expect(readPref('taskGraphMinimal')).toBe(false);
+    await enableDetails(); expect(mode().checked).toBe(true); expect(readPref('taskGraphMinimal')).toBe(false);
   } finally { globalThis.localStorage = storage; }
 });

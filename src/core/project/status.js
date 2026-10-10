@@ -44,7 +44,8 @@ export default {
   overviewRevision() {
     const cursor = this.store.get("SELECT value FROM meta WHERE key='overview_revision'")?.value ?? '0';
     const facts = [cursor, [...this.running.keys()].sort((a, b) => a - b),
-      this.config.concurrency, this.config.controlConcurrency, this.config.progressReporting];
+      this.config.concurrency, this.config.controlConcurrency, this.config.progressReporting,
+      this.deviceAutomationRevision()];
     return createHash('sha256').update(JSON.stringify(facts)).digest('base64url').slice(0, 22);
   },
 

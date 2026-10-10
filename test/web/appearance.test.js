@@ -57,11 +57,11 @@ test('applyTheme 写 <html data-theme> 并同步头部按钮文案 / aria', () =
   expect(toggle.attrs['aria-pressed']).toBe('false');
 });
 
-test('createAppearance：跟随系统变化、按钮翻转写回偏好、显式选择后忽略系统', () => {
+test('createAppearance：跟随系统变化、按钮确认保存后翻转、显式选择后忽略系统', async () => {
   const root = { dataset: {} };
   const toggle = fakeToggle();
   const media = fakeMedia(false);
-  const app = createAppearance({ root, toggle, media });
+  const app = createAppearance({ root, toggle, media, persist: async value => setPref('theme', value) });
 
   expect(root.dataset.theme).toBe('light');
   // 仍是 system：系统转深色时页面跟着变
@@ -69,7 +69,7 @@ test('createAppearance：跟随系统变化、按钮翻转写回偏好、显式�
   expect(root.dataset.theme).toBe('dark');
 
   // 点头部按钮：把实际主题反过来并显式写回 lush.theme
-  toggle.onclick();
+  await toggle.onclick();
   expect(store.get(THEME_KEY)).toBe('light');
   expect(root.dataset.theme).toBe('light');
   // 已经是显式选择：系统再变也不影响
@@ -82,7 +82,7 @@ test('createAppearance：跟随系统变化、按钮翻转写回偏好、显式�
   expect(root.dataset.theme).toBe('light');
 });
 
-test('存储不可用（隐私模式）时不抛异常，且主题仍在本页生效', () => {
+test('存储不可用（隐私模式）不妨碍已确认的设备主题在本页生效', async () => {
   installStorage({
     getItem() { throw new Error('denied'); },
     setItem() { throw new Error('denied'); },
@@ -92,9 +92,9 @@ test('存储不可用（隐私模式）时不抛异常，且主题仍在本页�
   expect(effectiveTheme({ matches: false })).toBe('light');
   const root = { dataset: {} };
   const toggle = fakeToggle();
-  expect(() => createAppearance({ root, toggle, media: null })).not.toThrow();
+  expect(() => createAppearance({ root, toggle, media: null, persist: async value => setPref('theme', value) })).not.toThrow();
   expect(root.dataset.theme).toBe('light');
   // 没有 matchMedia 的宿主里点按钮也不炸（会话内翻转，只是写不回存储）
-  expect(() => toggle.onclick()).not.toThrow();
+  await toggle.onclick();
   expect(root.dataset.theme).toBe('dark');
 });

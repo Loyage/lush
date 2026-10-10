@@ -151,6 +151,10 @@ export function createProjectHost(initialConfig = null, options = {}) {
           summaryBackoff.delete(row.project);
           return { ...row, running: true, error: null, summary: { project: status.project, revision: status.revision, provider: status.provider,
             agents_total: status.agents_total ?? 0, notices: status.notices ?? 0,
+            ...(typeof status.auto_select?.enabled === 'boolean' && typeof status.auto_select.revision === 'string'
+              && status.auto_select.revision.length <= 256 ? { auto_select: { enabled: status.auto_select.enabled,
+              revision: status.auto_select.revision, ...(['device','project'].includes(status.auto_select.scope)
+                ? { scope: status.auto_select.scope } : {}) } } : {}),
             waiting_approval: status.intents?.waiting_approval ?? 0, pending_merges: status.pending_merges?.length ?? 0 } };
         } catch (error) {
           summaryBackoff.set(row.project, Date.now() + SUMMARY_BACKOFF_MS);

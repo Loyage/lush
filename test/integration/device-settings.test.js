@@ -6,7 +6,7 @@ import { cli } from './harness.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
 
-test('two real temporary daemons reuse shared settings while project overrides and homes stay independent', async () => {
+test('two real temporary daemons use device-only settings while daemons and project homes stay independent', async () => {
   const a = temp(), b = temp(), shared = temp(), settingsEnv = { LUSH_GLOBAL_CONFIG: shared };
   try {
     await Promise.all([repo(a), repo(b)]);
@@ -14,16 +14,17 @@ test('two real temporary daemons reuse shared settings while project overrides a
     expect(sa.pid).not.toBe(sb.pid);
     const ca = new UIClient(Config.fromEnv(env(settingsEnv), a)), cb = new UIClient(Config.fromEnv(env(settingsEnv), b));
     await ca.request('system.configure', { settings: { concurrency: 5, progress_reporting: false }, scope: 'device' });
-    expect((await cb.request('system.settings')).concurrency).toMatchObject({ value: 5, source: 'device', overridden: false });
+    expect((await cb.request('system.settings')).concurrency).toMatchObject({ value: 5, source: 'device', overridden: true });
     await cb.request('system.configure', { settings: { concurrency: 2 } });
     await ca.request('system.configure', { settings: { concurrency: 7 }, scope: 'device' });
-    expect((await cb.request('system.settings')).concurrency).toMatchObject({ value: 2, source: 'project' });
+    expect((await cb.request('system.settings')).concurrency).toMatchObject({ value: 7, source: 'device' });
+    await expect(cb.request('system.configure', { settings: { concurrency: 2 }, scope: 'project' })).rejects.toThrow('no longer');
     expect((await cb.request('system.settings', { scope: 'device' })).concurrency.value).toBe(7);
     await cb.request('system.configure', { settings: { concurrency: null } });
-    expect((await cb.request('system.status')).settings.concurrency.value).toBe(7);
+    expect((await cb.request('system.status')).settings.concurrency.value).toBe(8);
     await ca.request('agent.configure', { scope: 'device', config: { version: 1, default: { agent: 'pi', config_mode: 'pi' }, roles: {} } });
     const agents = await cb.request('agent.config');
-    expect(agents.configuration_scope).toMatchObject({ selected: 'project', source: 'device', project_override: false });
+    expect(agents.configuration_scope).toMatchObject({ selected: 'device', source: 'device', project_override: false });
     expect(agents.default.config_mode).toBe('pi');
     expect(agents.options.default_prompts.agent).not.toContain('lush progress');
     await ca.request('agent.environment.configure', { scope: 'device', target: 'common', values: { SHARED_TEST_VALUE: 'shared' } });

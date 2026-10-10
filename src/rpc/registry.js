@@ -62,14 +62,15 @@ export const PARAMS = {
   'worker.delete_preview': ['id'], 'worker.delete': ['id','revision','confirm'],
   'worker.interrupt': ['id'], 'worker.resume': ['id','profile'], 'worker.configure': ['id','profile','model_selection'],
   'progress.plan': ['steps'], 'progress.complete': ['step'],
-  'notice.list': [], 'notice.page': ['status','before','limit'],
-  'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer'], 'notice.dismiss': ['id'], 'notice.read': ['id'],
+  'notice.list': [], 'notice.page': ['status','before','limit'], 'notice.sync': ['cursor','limit'],
+  'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer','expected_identity'],
+  'notice.dismiss': ['id','expected_identity'], 'notice.read': ['id','expected_identity'],
   'branch.history': ['cursor','limit'], 'branch.tree': [], 'branch.show': ['branch'], 'branch.bind': ['branch','commit'],
   'branch.archive': ['branch','discard','continue'], 'graph.get': [],
 };
 export const USER_ONLY = new Set([
   'system.settings','settings.clear_override','settings.migration.preview','settings.migration.apply',
-  'system.stop','system.stop_if_idle','system.configure','agent.configure','agent.status','agent.environment','agent.environment.configure','agent.network','agent.network.configure',
+  'system.stop','system.stop_if_idle','system.configure','agent.config','agent.models','agent.resources','agent.configure','agent.status','agent.environment','agent.environment.configure','agent.network','agent.network.configure',
   'branch.history','worker.code_state','worker.code_tree','worker.code_file',
   'agent.usage.config','agent.usage.configure','agent.usage.history','agent.selection.resources',
   'agent.connections.list','agent.connections.save','agent.connections.remove','agent.connections.sampling',
@@ -87,7 +88,7 @@ export const USER_ONLY = new Set([
   'worker.reserve','worker.reserve_all','worker.auto_merge','worker.resolve','worker.resolve_divergence','worker.unreserve','worker.approve_merge',
   'worker.cancel','worker.retry','worker.clear_override','worker.cleanup','worker.interrupt','worker.resume','worker.configure','worker.run_settings',
   'worker.rename','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.delete_preview','worker.delete',
-  'notice.answer','notice.dismiss','notice.read','branch.bind','branch.archive',
+  'notice.sync','notice.answer','notice.dismiss','notice.read','branch.bind','branch.archive',
 ]);
 export const AGENT_ONLY = new Set([
   'worker.integrate','worker.resolve_child_divergence','progress.plan','progress.complete',

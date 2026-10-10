@@ -20,7 +20,7 @@ function setup(count = 1) {
     close() { fs.rmSync(root, { recursive: true, force: true }); } };
 }
 const file = project => path.join(project, '.lush', 'appearance.json');
-const update = (value, patch = {}) => ({ theme: value.theme, color: value.color, expected_revision: value.revision, ...patch });
+const update = (value, patch = {}) => ({ color: value.color, expected_revision: value.revision, ...patch });
 
 function child(f, project, body, allowConflict = false) {
   const module = new URL('../src/host/project-appearance.js', import.meta.url).href;
@@ -70,7 +70,7 @@ test('first open chooses unused presets, exhaustion chooses least used, initiali
     expect(first.map(value => value.color)).toEqual(['green', 'blue', 'teal', 'amber', 'rose', 'slate', 'green', 'blue', 'teal']);
     expect(first.every(value => value.theme === 'system')).toBe(true);
     expect(first[0].revision).toMatch(/^[a-f0-9]{32}$/);
-    const saved = saveProjectAppearance(f.projects[0], update(first[0], { theme: 'dark', color: 'rose' }), f.options);
+    const saved = saveProjectAppearance(f.projects[0], update(first[0], { color: 'rose' }), f.options);
     expect(saved.revision).not.toBe(first[0].revision);
     expect(f.init()).toEqual(saved);
     expect(readProjectAppearance(f.projects[0])).toEqual(saved);
@@ -115,7 +115,10 @@ test('full save requires exact schema and a current revision, never creates on c
       expect(() => saveProjectAppearance(f.projects[0], body, f.options)).toThrow();
       expect(fs.readFileSync(file(f.projects[0]), 'utf8')).toBe(original);
     }
-    const changed = saveProjectAppearance(f.projects[0], update(value, { theme: 'light' }), f.options);
+    expect(() => saveProjectAppearance(f.projects[0], update(value, { theme: 'light' }), f.options)).toThrow('themes are inactive');
+    expect(fs.readFileSync(file(f.projects[0]), 'utf8')).toBe(original);
+    const changed = saveProjectAppearance(f.projects[0], update(value, { color: 'rose' }), f.options);
+    expect(changed.theme).toBe(value.theme);
     expect(() => saveProjectAppearance(f.projects[0], update(value, { color: 'blue' }), f.options)).toThrow('revision conflict');
     expect(readProjectAppearance(f.projects[0])).toEqual(changed);
   } finally { f.close(); }
@@ -200,7 +203,7 @@ test('write rechecks revision and locked root immediately before atomic publicat
       originalSync(fd);
       if (!replaced) { replaced = true; fs.writeFileSync(file(project), JSON.stringify(external)); }
     };
-    expect(() => saveProjectAppearance(project, update(value, { theme: 'dark' }), f.options)).toThrow('changed');
+    expect(() => saveProjectAppearance(project, update(value, { color: 'rose' }), f.options)).toThrow('changed');
     fs.fsyncSync = originalSync;
     expect(readProjectAppearance(project)).toEqual(external);
     expect(fs.readdirSync(path.dirname(file(project)))).toEqual(['appearance.json']);
@@ -210,7 +213,7 @@ test('write rechecks revision and locked root immediately before atomic publicat
       originalSync(fd);
       if (!replaced) { replaced = true; fs.renameSync(home, moved); fs.mkdirSync(home, { mode: 0o700 }); }
     };
-    expect(() => saveProjectAppearance(project, update(external, { theme: 'dark' }), f.options)).toThrow('lock changed');
+    expect(() => saveProjectAppearance(project, update(external, { color: 'blue' }), f.options)).toThrow('lock changed');
     fs.fsyncSync = originalSync;
     expect(fs.readdirSync(home)).toEqual([]);
     expect(JSON.parse(fs.readFileSync(path.join(moved, 'appearance.json'), 'utf8'))).toEqual(external);
@@ -260,8 +263,8 @@ test('cross-process saves with one revision have exactly one winner, also across
     const otherGlobal = path.join(f.root, 'other-host'); fs.mkdirSync(otherGlobal, { mode: 0o700 });
     const other = { ...f, options: { ...f.options, env: env({ LUSH_GLOBAL_CONFIG: otherGlobal }) } };
     const results = await Promise.all([
-      child(f, project, update(value, { theme: 'dark' }), true),
-      child(other, project, update(value, { theme: 'light' }), true),
+      child(f, project, update(value, { color: 'blue' }), true),
+      child(other, project, update(value, { color: 'rose' }), true),
     ]);
     expect(results.filter(value => value.conflict).length).toBe(1);
     const winner = results.find(value => !value.conflict);
@@ -275,7 +278,7 @@ test('atomic rename failure keeps the original appearance and removes owned temp
   try {
     const value = f.init();
     fs.renameSync = () => { throw new Error('injected rename failure'); };
-    expect(() => saveProjectAppearance(project, update(value, { theme: 'dark' }), f.options)).toThrow('injected');
+    expect(() => saveProjectAppearance(project, update(value, { color: 'rose' }), f.options)).toThrow('injected');
     expect(readProjectAppearance(project)).toEqual(value);
     expect(fs.readdirSync(path.dirname(file(project)))).toEqual(['appearance.json']);
     expect(fs.readdirSync(f.global)).toEqual([]);

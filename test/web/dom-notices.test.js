@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, deepText } from '../dom-stub.js';
+import { installDom, deepText } from './project-dom.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 
 // 待决记录现在包含 plan，并调用独立审批接口；概览仍保留原有 Intent 审批入口。

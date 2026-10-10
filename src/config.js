@@ -79,7 +79,7 @@ export class Config {
    * 运行时改写并发上限：校验并原子写盘，成功后同步内存里的生效值，再 kick 一次。
    * 调低并发不取消任何在跑任务——它们自然结束，pump() 只是不再准入新任务。
    */
-  configureRuntime(patch, scope = 'project') {
+  configureRuntime(patch, scope) {
     const saved = this.runtimeSettings.save(patch, scope);
     this.refreshRuntimeSettings();
     this.kick();

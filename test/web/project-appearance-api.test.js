@@ -26,7 +26,7 @@ function setup({ authenticated = false, bound = false, mock = false } = {}) {
     url: (i = 0) => `${base}/api/host/projects/${projectRouteId(projects[i])}/appearance`,
     async close() { await web.stop(true); fs.rmSync(root, { recursive: true, force: true }); } };
 }
-const save = (appearance, patch = {}) => ({ theme: appearance.theme, color: appearance.color, expected_revision: appearance.revision, ...patch });
+const save = (appearance, patch = {}) => ({ color: appearance.color, expected_revision: appearance.revision, ...patch });
 
 test('Host appearance GET is read-only; POST initializes and saves offline projects across Host clients', async () => {
   const f = setup(); let second;
@@ -40,15 +40,16 @@ test('Host appearance GET is read-only; POST initializes and saves offline proje
     expect(initialized.headers.get('cache-control')).toBe('no-store');
     const first = await initialized.json(); expect(first.appearance).toMatchObject({ version: 1, theme: 'system', color: 'green' });
     const next = await (await post(f.url(1), { initialize: true })).json(); expect(next.appearance.color).toBe('blue');
-    const changed = await post(f.url(), save(first.appearance, { theme: 'dark', color: 'teal' })); expect(changed.status).toBe(200);
+    const changed = await post(f.url(), save(first.appearance, { color: 'teal' })); expect(changed.status).toBe(200);
     const saved = await changed.json(); expect(saved.appearance.revision).not.toBe(first.appearance.revision);
     expect((await post(f.url(), save(first.appearance, { color: 'rose' }))).status).toBe(400);
     expect(await (await post(f.url(), { initialize: true })).json()).toEqual(saved);
     second = startWeb(null, 0, { env: f.environment });
     const remote = `http://127.0.0.1:${second.port}/api/host/projects/${first.id}/appearance`;
     expect(await (await fetch(remote)).json()).toEqual(saved);
-    const secondSave = await post(remote, save(saved.appearance, { theme: 'light' })); expect(secondSave.status).toBe(200);
-    expect((await (await fetch(f.url())).json()).appearance.theme).toBe('light');
+    const rejectedTheme = await post(remote, save(saved.appearance, { theme: 'light' })); expect(rejectedTheme.status).toBe(400);
+    const secondSave = await post(remote, save(saved.appearance, { color: 'rose' })); expect(secondSave.status).toBe(200);
+    expect((await (await fetch(f.url())).json()).appearance).toMatchObject({ theme: 'system', color: 'rose' });
     expect(f.calls).toEqual([]);
     expect(fs.existsSync(path.join(f.projects[2], '.lush'))).toBe(false);
   } finally { if (second) await second.stop(true); await f.close(); }
@@ -76,15 +77,16 @@ test('frontend controller and real Host agree on initialization, full saves, rev
     const initial = first.controller.snapshot().appearance;
     expect(initial).toEqual(second.controller.snapshot().appearance);
     expect(initial.revision).toMatch(/^[a-f0-9]{32}$/);
-    await first.controller.save({ theme: 'dark', color: 'rose' });
-    expect(first.root.dataset).toEqual({ theme: 'dark', projectColor: 'rose' });
+    await first.controller.save({ color: 'rose' });
+    expect(first.root.dataset).toEqual({ theme: 'light', projectColor: 'rose' });
     await expect(second.controller.save({ color: 'teal' })).rejects.toThrow('revision conflict');
     expect(second.controller.snapshot().appearance).toEqual(initial);
     await second.controller.load(false);
     expect(second.controller.snapshot().appearance).toEqual(first.controller.snapshot().appearance);
     expect(second.root.dataset).toEqual(first.root.dataset);
-    await second.controller.save({ theme: 'light' }); await first.controller.load(false);
-    expect(first.root.dataset).toEqual({ theme: 'light', projectColor: 'rose' });
+    await expect(second.controller.save({ theme: 'dark' })).rejects.toThrow('主题请使用设备偏好');
+    await second.controller.save({ color: 'blue' }); await first.controller.load(false);
+    expect(first.root.dataset).toEqual({ theme: 'light', projectColor: 'blue' });
     expect(first.controller.snapshot().appearance).toEqual(second.controller.snapshot().appearance);
     expect(f.calls).toEqual([]);
   } finally { for (const controller of controllers) controller.destroy(); await f.close(); }

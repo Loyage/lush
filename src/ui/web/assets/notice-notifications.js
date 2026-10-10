@@ -1,32 +1,40 @@
 import { button, el } from './dom.js';
-import { onPrefChange, readPref, setPref } from './prefs.js';
+import { devicePreferencesStatus, onDevicePreferences, onPrefChange, readPref, saveDevicePreference } from './prefs.js';
 import { unreadNotice, noticeHash, noticeChannelEnabled } from './notice-kind.js';
 
 let failure = '';
-onPrefChange('noticeNotifications', () => {
+const paintControls = () => {
   for (const root of globalThis.document?.querySelectorAll?.('.notice-notification-control') || []) paintControl(root);
-});
+};
+onPrefChange('noticeNotifications', paintControls);
+onDevicePreferences(paintControls);
 
 export function notificationStatus() {
   if (failure) return failure;
   if (!globalThis.Notification || globalThis.isSecureContext === false) return '此环境不支持系统通知，请使用 HTTPS 或 localhost';
   if (Notification.permission === 'denied') return '通知权限被拒绝，请在浏览器站点设置中允许';
   if (!readPref('noticeNotifications')) return '系统提醒已关闭';
-  return Notification.permission === 'granted' ? '已开启系统提醒' : '需要重新开启并授权通知';
+  return Notification.permission === 'granted' ? '设备系统提醒已开启，此浏览器已授权' : '设备总开关已开启，此浏览器仍需授权';
 }
 
-/** Only call from a user gesture; polling never requests permission. */
-export async function setNoticeNotifications(enabled) {
+/** Only call from a user gesture. Local permission never changes another browser's device switch. */
+export async function requestNoticePermission() {
   failure = '';
   try {
-    if (enabled) {
-      if (!globalThis.Notification || globalThis.isSecureContext === false) throw new Error('此环境不支持系统通知，请使用 HTTPS 或 localhost');
-      const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
-      if (permission !== 'granted') throw new Error('通知未获授权，可在浏览器站点设置中允许后重试');
-    }
-    setPref('noticeNotifications', Boolean(enabled));
-  } catch (error) { failure = error.message; setPref('noticeNotifications', false); }
-  return readPref('noticeNotifications');
+    if (!globalThis.Notification || globalThis.isSecureContext === false) throw new Error('此浏览器不支持系统通知，请使用 HTTPS 或 localhost；设备总开关不受影响');
+    const permission = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+    if (permission !== 'granted') throw new Error('此浏览器通知未获授权，可在站点设置中允许后重试；设备总开关不受影响');
+    return true;
+  } catch (error) { failure = error.message; return false; }
+  finally { paintControls(); }
+}
+export async function setNoticeNotifications(enabled) {
+  failure = '';
+  // Start before the first await so browser permission is still directly tied to this gesture.
+  const permission = enabled ? requestNoticePermission() : Promise.resolve(false);
+  try { await saveDevicePreference('noticeNotifications', Boolean(enabled)); }
+  catch (error) { await permission; failure = `设备系统提醒开关未保存：${error.message}`; paintControls(); throw error; }
+  await permission; paintControls(); return readPref('noticeNotifications');
 }
 
 export function notificationControl() {
@@ -34,20 +42,34 @@ export function notificationControl() {
   const status = el('span', undefined, 'hint'); status.setAttribute('role', 'status');
   const toggle = button('', async () => {
     toggle.disabled = true;
-    await setNoticeNotifications(!readPref('noticeNotifications'));
-    paintControl(root); toggle.disabled = false;
+    try { await setNoticeNotifications(!readPref('noticeNotifications')); }
+    catch { /* authoritative write failure is shown by paintControl; keep the saved value */ }
+    finally { paintControl(root); }
   }, 'ghost');
   toggle.dataset.pref = 'noticeNotifications';
-  toggle.setAttribute('data-help', '开启后新的待决问题与 Worker 告知会发系统通知；关闭后只保留页面内提醒');
-  root.append(toggle, status); paintControl(root); return root;
+  toggle.setAttribute('data-help', '修改设备唯一的系统提醒总开关；所有已授权浏览器共享。当前浏览器的授权只由此用户操作请求，关闭不删除项目记录。');
+  const host = el('span', undefined, 'help-host'); host.tabIndex = 0; host.append(toggle);
+  const permission = button('授权此浏览器', async () => { permission.disabled = true; await requestNoticePermission(); paintControl(root); }, 'ghost');
+  permission.classList.add('notice-browser-permission');
+  permission.setAttribute('data-help', '仅请求当前浏览器的系统通知权限，不写设备总开关，也不补发历史事项。');
+  // button() restores its generic enabled state; reapply device/offline authorization after it settles.
+  const clicked = toggle.onclick; toggle.onclick = async () => { await clicked(); paintControl(root); };
+  root.append(host, permission, status); paintControl(root); return root;
 }
 function paintControl(root) {
   const toggle = root.querySelector('button');
-  const on = readPref('noticeNotifications');
+  const on = readPref('noticeNotifications'), device = devicePreferencesStatus();
+  const offline = !device.ready || Boolean(device.error);
+  toggle.disabled = device.saving || offline;
+  const host = toggle.parentElement || toggle.parentNode;
+  host?.setAttribute('data-help', offline ? `设备偏好当前不可用，不能修改系统提醒开关。${device.error || '等待权威配置读取。'}` : device.saving ? '正在保存设备偏好，请稍候。' : '设备开关与当前浏览器授权相互独立。');
+  const permission = root.querySelector('.notice-browser-permission');
+  if (permission) { permission.hidden = !on || !globalThis.Notification || globalThis.isSecureContext === false || Notification.permission === 'granted'; permission.disabled = false; }
   toggle.textContent = on ? '关闭系统提醒' : '开启系统提醒';
   toggle.setAttribute('aria-label', on ? '关闭系统提醒' : '开启系统提醒');
   toggle.setAttribute('aria-pressed', String(on));
-  root.querySelector('span').textContent = notificationStatus();
+  const status = root.querySelector('[role="status"]');
+  if (status) status.textContent = offline ? `设备偏好尚不可用，显示缓存值。${device.error || ''} ${notificationStatus()}` : notificationStatus();
 }
 
 /** Per-page baseline: no historical burst on first load, refresh or project switch. */

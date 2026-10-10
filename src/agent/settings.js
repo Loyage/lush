@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { configurationHome, configurationScope, normalizeConfigurationScope, withConfigurationWriteLock } from '../core/device-config.js';
+import { configurationHome, configurationScope, settingsConfigurationScope, withConfigurationWriteLock } from '../core/device-config.js';
 import { check, isPlainObject } from '../core/types.js';
 import { AGENT_ROLES as PROMPT_ROLES, builtInPrompt } from './prompts.js';
 import { normalizeAgentEnv } from './environment.js';
@@ -124,11 +124,11 @@ export function normalizeAgentConfig(value, fallback) {
   return { version: 1, default: base, roles: normalizedRoles };
 }
 
-/** Shared defaults with whole-document project overrides, re-read for each later invocation. */
+/** Device-owned profiles, re-read for each later invocation; explicit Worker profiles remain complete. */
 export class AgentSettings {
   constructor(config) {
     this.config = config;
-    this.file = path.join(config.home, 'agent.json');
+    this.file = path.join(configurationHome(config, settingsConfigurationScope(config)), 'agent.json');
   }
 
   readLocal(scope = 'project') {
@@ -163,18 +163,17 @@ export class AgentSettings {
     } finally { if (fd !== undefined) fs.closeSync(fd); }
   }
 
-  selection(scope = 'project') {
-    normalizeConfigurationScope(scope);
+  selection(scope) {
+    scope = settingsConfigurationScope(this.config, scope);
     const own = this.readLocal(scope);
-    if (own) return { stored: own, source: scope, file: path.join(configurationHome(this.config, scope), 'agent.json'), overridden: scope === 'project' };
-    const shared = scope === 'project' && this.config.deviceHome ? this.readLocal('device') : null;
-    return { stored: shared || normalizeAgentConfig({ default: envDefault(this.config), roles: {} }, envDefault(this.config)),
-      source: shared ? 'device' : 'default', file: path.join(configurationHome(this.config, shared ? 'device' : scope), 'agent.json'), overridden: false };
+    return { stored: own || normalizeAgentConfig({ default: envDefault(this.config), roles: {} }, envDefault(this.config)),
+      source: own ? scope : 'default', file: path.join(configurationHome(this.config, scope), 'agent.json'), overridden: false };
   }
 
-  readStored(scope = 'project') { return this.selection(scope).stored; }
+  readStored(scope) { return this.selection(scope).stored; }
 
-  get(scope = 'project') {
+  get(scope) {
+    scope = settingsConfigurationScope(this.config, scope);
     const selection = this.selection(scope), stored = selection.stored;
     const progressReporting = this.config.runtimeSettings?.get(scope)?.progress_reporting?.value ?? this.config.progressReporting;
     const resolved = {};
@@ -215,8 +214,8 @@ export class AgentSettings {
     return normalizeAgentProfile(value, `roles.${resolvedRole}`);
   }
 
-  save(value, scope = 'project') {
-    normalizeConfigurationScope(scope);
+  save(value, scope) {
+    scope = settingsConfigurationScope(this.config, scope);
     const normalized = normalizeAgentConfig(value, envDefault(this.config));
     // A shared resource cannot resolve relative to whichever project happens to launch next.
     if (scope === 'device') for (const profile of [normalized.default, ...Object.values(normalized.roles)]) {
@@ -242,6 +241,7 @@ export class AgentSettings {
   }
 
   clearOverride() {
+    settingsConfigurationScope(this.config, 'project');
     return withConfigurationWriteLock(this.config, 'project', lock => {
       this.readLocal(); lock.assert(); fs.rmSync(this.file, { force: true });
       return this.get();

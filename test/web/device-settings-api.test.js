@@ -77,7 +77,7 @@ test('selected project routes forward device scope without losing project identi
     await post(`${url}/api/host/select`, { project: a }); await post(`${url}/api/host/select`, { project: b }); calls.length = 0;
     for (const [project, route, method, params] of [
       [a, `/p/${idA}/api/settings/runtime?scope=device`, 'system.settings', { scope: 'device' }],
-      [b, `/p/${idB}/api/agent/config?scope=project`, 'agent.config', { scope: 'project' }],
+      [b, `/p/${idB}/api/agent/config?scope=device`, 'agent.config', { scope: 'device' }],
       [a, `/p/${idA}/api/agent/environment?scope=device&target=common`, 'agent.environment', { scope: 'device', target: 'common' }],
       [b, `/p/${idB}/api/quick-explain/config?scope=device`, 'quick_explain.config', { scope: 'device' }],
       [a, `/p/${idA}/api/settings/migration`, 'settings.migration.preview', {}],
@@ -85,6 +85,7 @@ test('selected project routes forward device scope without losing project identi
       expect((await fetch(url + route)).status).toBe(200); expect(calls.at(-1)).toEqual({ project, method, params });
     }
     const count = calls.length;
+    expect((await fetch(`${url}/p/${idA}/api/agent/config?scope=project`)).status).toBe(400);
     expect((await fetch(`${url}/p/${idA}/api/agent/config?scope=all`)).status).toBe(400);
     expect((await fetch(`${url}/p/${idA}/api/agent/config?scope=device&scope=project`)).status).toBe(400);
     expect((await fetch(`${url}/p/${idA}/api/quick-explain/history?scope=device`)).status).toBe(400);

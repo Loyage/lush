@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, deepText, findByText } from '../dom-stub.js';
+import { installDom, deepText, findByText } from './project-dom.js';
 import { gate, until } from '../helpers.js';
 import { makeWorld } from './dom-world.js';
 const world = makeWorld();
@@ -80,7 +80,7 @@ test('settings saves optional Pi soft budgets and preserves blank as disabled', 
   const detail = dom.node('detail');
   await detail.querySelector('button[data-agent-tab="settings"]').onclick();
   const profile = detail.querySelector('[data-agent-target="default"]');
-  await findByText(profile, '读取共享来源').onclick();
+  await findByText(profile, '读取设备来源').onclick();
   const choice = profile.querySelector('[data-agent-field="connection_id"]'); choice.value = world.state.agentConnections.connections[0].id; choice.onchange();
   profile.querySelector('[data-agent-field="model"]').value = 'openai-compatible/fixture-model';
   const responses = profile.querySelector('[data-agent-field="budget_responses"]');

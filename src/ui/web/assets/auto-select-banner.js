@@ -1,105 +1,70 @@
-import { $, el, button } from './dom.js';
-import { api } from './api.js';
-import { resource, refresh } from './navigate.js';
-import { projectBase } from './route.js';
-import { ui } from './state.js';
+import { $, el } from './dom.js';
+import { projectRoute } from './route.js';
 import { show } from './messages.js';
+import { applyDeviceAutomation, deviceAutomationStatus, refreshDeviceAutomation, saveDeviceAutomation, validDeviceAutomation } from './workspace-automation.js';
 
 const states = new WeakMap();
-const valid = model => typeof model?.enabled === 'boolean' && typeof model.revision === 'string' && model.revision.trim();
-
 function stateFor(host) {
-  const source = projectBase(), reads = ui.noticeReadRows;
-  let state = states.get(host);
-  if (state?.source === source && state.reads === reads) return state;
-  state = { source, reads, model: null, superseded: new Set(), busy: false, offline: false };
-  states.set(host, state);
+  let value = states.get(host);
+  if (value) return value;
+  value = { model: null, offline: false, busy: false }; states.set(host, value);
   const copy = el('div', undefined, 'auto-select-copy');
-  state.title = el('strong');
-  copy.append(state.title, el('p', '单选选第一项；多选和文字问题交给 Agent 判断。离开页面后仍会自动答复，可能产生调用费用。'));
+  value.title = el('strong');
+  copy.append(value.title, el('p', '此设备的项目后台会自动答复已有和新到的问题。单选选第一项；多选和文字问题交给 Agent 判断，可能继续调用并产生费用。'));
   const actions = el('div', undefined, 'auto-select-actions');
-  const view = button('查看自动问答', () => {
-    if (!owns(host, state)) return;
-    ui.selectNoticeFilter?.('automatic');
-    resource('notices');
-  }, 'ghost', { help: '打开“待我处理”的自动选择记录，只读查看原问题与答案，不调用 Agent。' });
-  // This surviving control owns its lock; button()'s generic finally-unlock
-  // would re-enable it on a duplicate click or a poll during the save.
-  state.control = el('button', '关闭自动选择', 'ghost'); state.control.type = 'button';
-  state.control.setAttribute('data-help', '关闭当前项目之后的自动答复；不撤回已有答案，也不停止已开始的调用。');
-  state.control.onclick = () => disable(host, state);
-  state.controlHost = el('span', undefined, 'help-host');
-  state.controlHost.append(state.control);
-  actions.append(view, state.controlHost);
-  host.replaceChildren(copy, actions);
-  return state;
+  const view = el('a', '查看自动问答', 'ghost'); view.href = '/#notices-automatic';
+  if (projectRoute()) { view.target = '_blank'; view.rel = 'noopener'; }
+  view.setAttribute('data-help', '在全局收件箱只读查看各项目的原问题、答案及自动答复来源，不调用 Agent。');
+  value.control = el('button', '关闭全局自动选择', 'ghost'); value.control.type = 'button';
+  value.control.setAttribute('data-help', '关闭此设备所有项目之后的自动答复；不撤回已有答案，也不停止已开始的调用。');
+  value.control.onclick = () => disable(host, value);
+  value.controlHost = el('span', undefined, 'help-host'); value.controlHost.append(value.control);
+  actions.append(view, value.controlHost); host.replaceChildren(copy, actions); return value;
 }
-function owns(host, state) {
-  return globalThis.document?.getElementById?.('auto-select-banner') === host && states.get(host) === state
-    && state.source === projectBase() && state.reads === ui.noticeReadRows;
-}
-function paint(host, state) {
-  host.hidden = state.model?.enabled !== true;
+const owns = (host, value) => globalThis.document?.getElementById?.('auto-select-banner') === host && states.get(host) === value;
+function paint(host, value) {
+  host.hidden = value.model?.auto_select.enabled !== true;
   if (host.hidden) return;
-  state.title.textContent = state.offline ? '自动选择最近确认为开启 · 当前离线' : '自动选择已开启';
-  state.control.textContent = state.busy ? '正在关闭…' : '关闭自动选择';
-  const reason = state.busy ? '正在保存，请稍候。' : state.offline ? '当前离线，无法确认或关闭后台状态；恢复连接后再试。'
-    : state.model.editable === false ? '后台暂不允许更改，请稍后再试。' : null;
-  state.control.disabled = Boolean(reason);
-  if (reason) state.controlHost.setAttribute('data-help', reason);
-  else state.controlHost.removeAttribute('data-help');
-  host.setAttribute('aria-busy', String(state.busy));
+  value.title.textContent = value.offline ? '全局自动选择最近确认为开启 · Host 当前不可达' : '全局自动选择已开启';
+  value.control.textContent = value.busy ? '正在关闭…' : '关闭全局自动选择';
+  const reason = value.busy ? '正在保存，请稍候。' : value.offline ? 'Host 当前不可达，无法确认或修改全局策略；项目 daemon 可能仍按最后保存的策略运行。' : null;
+  value.control.disabled = Boolean(reason);
+  value.controlHost.tabIndex = reason ? 0 : -1;
+  if (reason) value.controlHost.setAttribute('data-help', reason); else value.controlHost.removeAttribute('data-help');
+  host.setAttribute('aria-busy', String(value.busy));
 }
 
-/** Persistent project authorization, not a dismissible/unread Notice. */
+/** One device authorization across both shells. Project snapshots must not repaint this global policy. */
 export function renderAutoSelectBanner(model, { offline = false } = {}) {
-  const host = $('auto-select-banner');
-  if (!host) return;
-  const state = stateFor(host);
-  state.offline = offline;
-  if (valid(model) && !state.superseded.has(model.revision)) state.model = { ...model };
-  paint(host, state);
+  const host = $('auto-select-banner'); if (!host) return;
+  const value = stateFor(host); value.offline = offline;
+  if (validDeviceAutomation(model)) value.model = model;
+  const status = deviceAutomationStatus(); value.busy = status.saving;
+  paint(host, value);
 }
-
-/** Apply a confirmed user mutation immediately, ignoring pre-ACK polls. */
-export function applyAutoSelectCatalogue(catalogue, previousRevision = null) {
-  const model = catalogue?.daemon_hooks;
-  const mount = model?.mounts?.find(item => item.id === 'auto-select');
-  const next = mount && { enabled: mount.enabled, revision: model.revision, editable: mount.editable };
-  if (!valid(next)) throw new Error('自动选择状态确认失败，请刷新读取后台状态');
-  const host = $('auto-select-banner');
-  if (!host) return;
-  const state = stateFor(host);
-  // Only invalidate the revision used by this write, never a newer setting
-  // observed from another tab while this ACK was in flight.
-  if (previousRevision && previousRevision !== next.revision) state.superseded.add(previousRevision);
-  // Only protect a bounded window of in-flight, older authorization mirrors.
-  if (state.superseded.size > 32) state.superseded.delete(state.superseded.values().next().value);
-  state.model = next; state.offline = false;
-  if (ui.lastSnapshot?.status) ui.lastSnapshot.status.auto_select = next;
-  paint(host, state);
+export function applyAutoSelectCatalogue(model) {
+  const next = applyDeviceAutomation(model);
+  const host = $('auto-select-banner'); if (!host) return;
+  const value = stateFor(host);
+  value.model = next; value.offline = false; paint(host, value);
 }
-
-async function disable(host, state) {
-  if (!owns(host, state) || state.busy || state.offline || !state.model?.enabled || state.model.editable === false) return;
-  const revision = state.model.revision;
-  state.busy = true; paint(host, state);
+async function disable(host, value) {
+  if (!owns(host, value) || value.busy || value.offline || !value.model?.auto_select.enabled) return;
+  const revision = value.model.revision; let confirmed = false;
+  value.busy = true; paint(host, value);
   try {
-    const result = await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ method: 'hooks.auto_select', params: { enabled: false, expected_revision: revision } }) });
-    if (!owns(host, state)) return;
-    applyAutoSelectCatalogue(result, revision);
-    if (state.model.enabled) throw new Error('后台尚未确认关闭');
-    show('自动选择已关闭；已有答案保留，已开始的调用不会停止。');
-  } catch (error) {
-    if (owns(host, state)) show(`关闭未确认：${error.message}；请读取后台最新状态后重试。`, 'error');
-  } finally {
-    state.busy = false;
-    if (owns(host, state)) {
-      paint(host, state);
-      // The write ACK must not depend on a subsequent global read succeeding.
-      void Promise.resolve().then(() => owns(host, state) ? refresh() : null)
-        .catch(error => { if (owns(host, state)) show(`自动选择状态刷新失败：${error.message}`, 'error'); });
-    }
+    const result = await saveDeviceAutomation({ auto_select: { enabled: false } }, revision);
+    if (!owns(host, value)) return;
+    applyAutoSelectCatalogue(result);
+    if (result.auto_select.enabled) throw new Error('Host 尚未确认关闭');
+    confirmed = true;
+    show('全局自动选择已关闭；已有答案保留，已开始的调用不会停止。');
+  } catch (error) { if (owns(host, value)) show(`全局关闭未确认：${error.message}；请读取最新策略后重试。`, 'error'); }
+  finally {
+    value.busy = false; if (owns(host, value)) paint(host, value);
+    // ACK and follow-up reads are separate facts: a later failure cannot undo a confirmed close.
+    void refreshDeviceAutomation().catch(error => {
+      if (owns(host, value)) show(`全局策略刷新失败：${error.message}；${confirmed ? '已经确认关闭，后续读取失败不会撤销该结果。' : '关闭结果仍未确认，请读取最新策略后再操作。'}`, 'error');
+    });
   }
 }

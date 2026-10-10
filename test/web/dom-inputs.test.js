@@ -1,6 +1,6 @@
 import { test, expect, beforeEach, afterAll } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { installDom, deepText, dialogButton } from '../dom-stub.js';
+import { installDom, deepText, dialogButton } from './project-dom.js';
 import { until } from '../helpers.js';
 import { makeWorld } from './dom-world.js';
 
@@ -74,7 +74,7 @@ const editor = () => panel().querySelector('textarea');
 const parentSelect = () => panel().querySelector('select');
 beforeEach(() => {
   rows = [fixture(), fixture('input', 2)]; intercept = null; pageCursor = null; calls.length = 0; reads.length = 0;
-  activateDetailView({ view: 'overview' }); dom.location.pathname = '/';
+  activateDetailView({ view: 'overview' }); dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/';
 });
 afterAll(() => dom.restore());
 
@@ -296,7 +296,7 @@ test('列表查询/详情迟到响应与离页返回身份保护；编辑期间�
 
 test('新搜索作废旧分页，项目路由前缀不丢；详情父列表失败不冒充空列表', async () => {
   dom.location.pathname = '/p/0123456789abcdef/'; pageCursor = 'next'; await openInputs(); await selectStatus('');
-  expect(reads[0]).toContain('/p/0123456789abcdef/api/inputs');
+  expect(dom.requests.filter(row => row.path.includes('/api/inputs')).at(-1).path).toContain('/p/0123456789abcdef/api/inputs');
   const stale = deferred(); intercept = (path, _body, route) => path === '/api/inputs' && route.searchParams.has('cursor') ? stale.promise : null;
   const more = btn('加载更多').onclick(); form().querySelector('input').value = '原始输入'; await form().onsubmit({ preventDefault() {} });
   stale.resolve(json({ items: [fixture('input', 88, { content: '过时分页' })], next_cursor: null })); await more;
@@ -316,7 +316,7 @@ test('文本安全、Agent 标识和帮助宿主，静态导航与快捷键提�
   expect(btn('仅创建', panel()).classList.contains('agent-call')).toBe(false);
   for (const label of ['仅创建', '删除草稿', '移除引用']) expect(btn(label, panel()).getAttribute('data-help')).toBeTruthy();
   const html = readFileSync('src/ui/web/assets/index.html', 'utf8');
-  expect(html.indexOf('id="inputs-open"')).toBeLessThan(html.indexOf('<span>其他</span>'));
+  expect(html.indexOf('id="inputs-open"')).toBeLessThan(html.indexOf('<span>设备设置与帮助</span>'));
   expect(html).toContain('<kbd>Enter</kbd> 暂存'); expect(html).toContain('<kbd>Shift+Enter</kbd> 换行'); expect(html).toContain('/styles-inputs.css');
 });
 

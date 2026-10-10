@@ -10,7 +10,7 @@ import { managedPiRun } from './managed-runtime-fixture.js';
 import { env, temp } from '../helpers.js';
 
 function fixture(extra = {}) {
-  const root = temp(), config = new Config({ project: root, env: env(extra) }); config.prepare();
+  const root = temp(), config = new Config({ project: root, env: env({ ...extra, LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) }); config.prepare();
   return { root, config, close() { fs.rmSync(root, { recursive: true, force: true }); } };
 }
 const json = (file, value) => fs.writeFileSync(file, JSON.stringify(value), { mode: 0o600 });
@@ -20,10 +20,10 @@ function options(f, task = { id: 31, role: 'agent', goal: 'isolated' }) {
     signal: new AbortController().signal, onSpawn() {}, agent: { agent: 'pi', extensions: [], skills: [] } });
 }
 
-test('Lush Pi baseline is project-owned, private, create-only and ignores environment directory overrides', () => {
+test('Lush Pi baseline is device-owned, private, create-only and ignores environment directory overrides', () => {
   const f = fixture({ PI_CODING_AGENT_DIR: '/must-not-read', HOME: '/must-not-import' });
   try {
-    expect(piConfigDirectory(f.config)).toBe(path.join(f.config.home, 'pi'));
+    expect(piConfigDirectory(f.config)).toBe(path.join(f.config.deviceHome, 'pi'));
     expect(fs.existsSync(piConfigDirectory(f.config))).toBe(false);
     const a = ensurePiConfiguration(f.config), file = path.join(a.dir, 'settings.json');
     expect(a.settings).toMatchObject({ defaultProjectTrust: 'never', enableInstallTelemetry: false, cacheWarming: 'off' });
@@ -43,7 +43,8 @@ test('unsafe baseline directory, settings/models symlinks, permissions and damag
     const f = fixture(), external = path.join(f.root, 'external'); fs.mkdirSync(external, { mode: 0o700 });
     const original = path.join(external, 'settings.json'); json(original, { secret: 'DO-NOT-IMPORT' });
     try {
-      const directory = path.join(f.config.home, 'pi');
+      fs.mkdirSync(f.config.deviceHome, { recursive: true, mode: 0o700 });
+      const directory = path.join(f.config.deviceHome, 'pi');
       if (kind === 'directory-link') fs.symlinkSync(external, directory);
       else {
         const baseline = ensurePiConfiguration(f.config), file = path.join(baseline.dir, 'settings.json');
@@ -71,7 +72,7 @@ test('unbound Pi including no-tools roles fails before spawning, creating sessio
     }
     expect(fs.existsSync(path.join(f.config.home, 'sessions'))).toBe(false);
     expect(fs.existsSync(path.join(f.config.home, 'agent-runtime'))).toBe(false);
-    expect(fs.existsSync(path.join(f.config.home, 'pi'))).toBe(false);
+    expect(fs.existsSync(path.join(f.config.deviceHome, 'pi'))).toBe(false);
   } finally { f.close(); }
 });
 
@@ -102,8 +103,8 @@ const auth=JSON.parse(fs.readFileSync(path.join(directory,'auth.json')));
 const keys=['DEEPSEEK_API_KEY','OPENAI_API_KEY','AWS_PROFILE','AWS_SHARED_CREDENTIALS_FILE','PI_SESSION_FILE','PI_CODING_AGENT_SESSION_DIR'];
 console.log(JSON.stringify({ directory, files:fs.readdirSync(directory), ambient:keys.filter(k=>process.env[k]), args:process.argv.slice(2), custom:process.env.TOOL_SERVICE_KEY, keyMatches:auth.deepseek.key==='FIXTURE-MANAGED-API-KEY', telemetry:process.env.PI_TELEMETRY }));`, { mode: 0o700 });
   f.config.env.LUSH_PI_COMMAND = fake;
-  fs.mkdirSync(path.join(f.config.home, 'agent'), { mode: 0o700 });
-  fs.writeFileSync(path.join(f.config.home, 'agent', 'agent.env'), 'PI_CODING_AGENT_DIR=/role-pi\nDEEPSEEK_API_KEY=ROLE-KEY\n');
+  fs.mkdirSync(path.join(f.config.deviceHome, 'agent'), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(f.config.deviceHome, 'agent', 'agent.env'), 'PI_CODING_AGENT_DIR=/role-pi\nDEEPSEEK_API_KEY=ROLE-KEY\n');
   try {
     const run = options(f); run.agent.env = { PI_CODING_AGENT_DIR: '/worker-pi', DEEPSEEK_API_KEY: 'WORKER-KEY',
       AWS_SHARED_CREDENTIALS_FILE: '/external-cloud', PI_SESSION_FILE: '/wrong-session', TOOL_SERVICE_KEY: 'explicit-tool-value' };

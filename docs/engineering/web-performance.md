@@ -5,7 +5,7 @@
 ## 首屏资源
 
 - 源码仍采用原生 ES module；`static-assets.js` 在进程首次使用时固定源码内容版本，启动独立 Bun 子构建，并复用内存产物。`startWeb()` 保持同步调用契约；子构建固定当前 Bun、无 shell 插值，超时 60 秒，失败保留诊断且清理临时构建目录。
-- `build-assets.js` 使用 Bun 内置 `build`，压缩入口、拆分共享块和动态页面，不添加第三方运行时依赖或要求用户手动执行构建步骤。
+- `build-assets.js` 使用 Bun 内置 `build`，压缩入口、拆分共享块和动态页面，不添加第三方运行时依赖或要求用户手动执行构建步骤。`minChunkSize:16*1024` 在支持该选项的 Bun 中合并小型、无顶层副作用的共享块，不手工拼接 ESM、不复制状态，也不把懒页面提前执行；用户决定 #410 保留绝对冷启动预算（JS 最多24个、含CSS最多25个），扩展工作台的源码模块数对照改为至少四倍；未改绝对上限或懒加载断言。当前 Bun 1.4.2 已实测，其他版本仍须实际验证预算与共享状态，不能以参数存在冒称通过。
 - HTML 只引用内容版本 URL；仅预加载实际静态依赖闭包，不提前拉取动态页面。设置、Agent 配置、版本、输入历史和模型来源等入口动态加载。模块加载与导航/boot 代次绑定，迟到结果不得覆盖新页面。
 - 首屏 CSS 合为一个文件，展开原有 CSS import 并保持级联次序；本期不是逐页面懒加载全部 CSS。自动化的部分实现仍被详情/Worker 图共享，不能把动态入口当成其全部代码已退出首屏。
 - gzip 在产物装载时生成，不逐请求压缩；按 `Accept-Encoding`（含 q 值）协商，设置 `Vary`，不支持可接受的表示时返回 406。
@@ -52,7 +52,7 @@ bun run docs:check
 测试使用临时项目、受控进程或本地 fixture，不重启用户 Host/daemon，不连接真实账号或调用模型。
 
 - `loading-assets.test.js`：源码/产物静态依赖闭包、拆包与 modulepreload、CSS 次序、gzip/ETag、登录与项目路由、旧代/淘汰、缓存权限与路径拒绝。
-- `dom-built-loading-assets.test.js`：实际 Bun 浏览器产物的共享状态、懒页面和重复 boot；`dom-loading-assets.test.js`：导航/boot 竞态。
+- `build-assets-state.test.js`：编译产物入口 namespace、跨入口／懒页面 live 状态单例、懒副作用顺序与重复 import；`dom-built-loading-assets.test.js`：实际 Bun 浏览器产物的共享状态、懒页面和重复 boot；`dom-loading-assets.test.js`：导航/boot 竞态。
 - `dom-refresh-performance.test.js` / `live-performance.test.js`：节点复用、隐藏/恢复、退避/ACK、分页/尾读/慢统计竞争。
 - `detail-request-cache.test.js` / `dom-detail-requests.test.js` / `dom-detail-tail.test.js` / `detail-requests-api.test.js`：核心优先、显式 diff、标签失效/隔离、只读取消、终态尾部与真实 HTTP 请求组合。
 - `dom-web-performance-integration.test.js`：真实 boot 与轮询/详情生命周期组合。

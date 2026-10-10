@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach, afterAll } from 'bun:test';
-import { installDom, deepText, findByText } from '../dom-stub.js';
+import { installDom, deepText, findByText } from './project-dom.js';
 import { makeWorld } from './dom-world.js';
 import { ui, resetUiState, transcriptCache, transcriptOpen } from '../../src/ui/web/assets/state.js';
 import { renderTree, refreshTreeTimes } from '../../src/ui/web/assets/render-tree.js';
@@ -105,7 +105,7 @@ test('hidden polling stops reads; visibility resumes promptly, duplicate setup a
   const stopped = calls.length; await dom.fire('visibilitychange'); await refresh(); expect(calls.length).toBe(stopped);
 });
 
-test('hidden tabs preserve enabled system notices, without detail, Git or transcript reads', async () => {
+test('hidden project polling stays lean and cannot dispatch system notices from a project snapshot', async () => {
   const original = globalThis.Notification, secure = globalThis.isSecureContext;
   const preference = readPref('noticeNotifications'), delivered = [];
   globalThis.Notification = class {
@@ -128,7 +128,7 @@ test('hidden tabs preserve enabled system notices, without detail, Git or transc
     for (let i = 0; i < 8; i++) await Promise.resolve();
     expect(calls.slice(before)).toHaveLength(1);
     expect(calls.at(-1)).toContain('/api/overview');
-    expect(delivered).toContain('background notice');
+    expect(delivered).toHaveLength(0); // System delivery belongs exclusively to the source-aware Host observer.
     setPref('noticeNotifications', false);
     const stopped = calls.length; await refresh(); expect(calls.length).toBe(stopped);
   } finally {

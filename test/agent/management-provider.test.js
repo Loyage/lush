@@ -16,7 +16,7 @@ const MANAGEMENT = fileURLToPath(new URL('../../src/agent/pi-management.js', imp
 function fixture() {
   const root = temp(), fake = path.join(root, 'fake-pi');
   fs.writeFileSync(fake, `#!/usr/bin/env bun\nconsole.log(JSON.stringify({args:process.argv.slice(2),env:process.env}));\n`, { mode: 0o755 });
-  const config = new Config({ project: root, env: env({ LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake,
+  const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device'), LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake,
     LUSH_MANAGER_BUN: '/malicious-ambient-bun', LUSH_MANAGER_RPC_SOCKET: '/malicious-ambient-socket' }) }); config.prepare();
   return { root, config, options: { task: { id: 50, role: 'manager', task_kind: 'management', goal: '开始 W117' },
     context: { invocation: { run_id: 12 } }, messages: [], cwd: root, token: 'one-invocation-token',
@@ -105,7 +105,7 @@ test('management credentials and task kind cannot be omitted and old unrestricte
 test('manager ignores common/role env and inherited or explicit profile env, while preserving network policy and development inheritance', async () => {
   const f = fixture();
   try {
-    const directory = path.join(f.config.home, 'agent'); fs.mkdirSync(directory, { recursive: true });
+    const directory = path.join(f.config.deviceHome, 'agent'); fs.mkdirSync(directory, { recursive: true });
     fs.writeFileSync(path.join(directory, 'agent.env'), 'COMMON_SENTINEL=common-development-secret\nHTTP_PROXY=http://common-env.invalid\n');
     fs.writeFileSync(path.join(directory, 'manager.env'), 'ROLE_SENTINEL=manager-env-secret\n');
     fs.writeFileSync(path.join(directory, 'worker.env'), 'ROLE_SENTINEL=worker-env-secret\n');

@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, deepText, allByTag } from '../dom-stub.js';
+import { installDom, deepText, allByTag } from './project-dom.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 
 // 全局常驻待决提醒条：与左栏「待我处理」同口径（status === "open"）汇总，任何页面可见，

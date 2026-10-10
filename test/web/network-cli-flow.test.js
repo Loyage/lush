@@ -6,7 +6,7 @@ import { RPCClient } from '../../src/rpc/client.js';
 import { networkSnapshot } from '../../src/agent/network.js';
 import { setup, fetch } from './harness.js';
 
-test('CLI file configuration, real RPC and HTTP share private project policy without returning authentication', async () => {
+test('CLI file configuration, real RPC and HTTP share private device policy without returning authentication', async () => {
   const f = await setup();
   const client = new RPCClient(f.config.socket);
   const execute = args => run('agent', ['network', ...args], { client, json: true });
@@ -18,8 +18,8 @@ test('CLI file configuration, real RPC and HTTP share private project policy wit
     fs.writeFileSync(file, JSON.stringify(config), { mode: 0o600 });
     const saved = await execute(['set', '--file', file]);
     expect(saved).toEqual({ version: 1, mode: 'proxy', proxy_url: config.proxy_url, no_proxy: config.no_proxy, has_proxy_auth: true,
-      configuration_scope: { selected: 'project', source: 'project', device_home: f.config.deviceHome,
-        project_home: f.config.home, project_override: true } });
+      configuration_scope: { selected: 'device', source: 'device', device_home: f.config.deviceHome,
+        project_home: f.config.home, project_override: false } });
     const response = await fetch(f.url + '/api/agent/network');
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(await response.json()).toEqual(saved);
@@ -32,7 +32,8 @@ test('CLI file configuration, real RPC and HTTP share private project policy wit
     expect((await execute(['show'])).has_proxy_auth).toBe(false);
     expect(networkSnapshot(f.config).route('https://auth.openai.com')).toBe('http://another-proxy.invalid:7897/');
     expect(JSON.stringify(await execute(['show']))).not.toContain('PRIVATE-');
-    expect(fs.statSync(path.join(f.config.home, 'network.json')).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(path.join(f.config.deviceHome, 'network.json')).mode & 0o777).toBe(0o600);
+    expect(fs.existsSync(path.join(f.config.home, 'network.json'))).toBe(false);
     expect((await execute(['reset'])).mode).toBe('inherit');
     expect((await (await fetch(f.url + '/api/agent/network')).json()).has_proxy_auth).toBe(false);
     expect(f.store.get('SELECT COUNT(*) AS n FROM events').n).toBe(0);

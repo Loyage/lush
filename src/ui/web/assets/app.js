@@ -1,4 +1,4 @@
-// 前端唯一入口：装配顶部按钮、hashchange 与两个定时器；其余职责都在同目录的模块里。
+// One entry, two spaces: device user workspace at root, project work at an explicit /p/<id>/ route.
 import { $, el } from './dom.js';
 import { api } from './api.js';
 import { setProjectIdentity } from './project-identity.js';
@@ -7,7 +7,7 @@ import { show } from './messages.js';
 import { docsTarget, openDocs } from './docs.js';
 import { detail, overview } from './navigate.js';
 import { liveInterval } from './live.js';
-import { onPrefChange, pollingIntervals, readPref, setPref } from './prefs.js';
+import { onDevicePreferences, onPrefChange, pollingIntervals, readPref, saveDevicePreference, startDevicePreferencesSync } from './prefs.js';
 import { liveRefresh, refresh, applySort, applyFilters, initRefreshPolling } from './refresh.js';
 import { openTaskGraph } from './render-task-graph.js';
 import { closeQuickExplanationPanel } from './quick-explanation.js';
@@ -22,243 +22,227 @@ import { resetTranscriptReaders } from './transcript-reader.js';
 import { closeTranscriptView } from './transcript-view.js';
 import { closeExplanationPanel } from './explanations.js';
 import { ensureProject, openProjectManager, workbenchStatus } from './project-picker.js';
-import { resetNoticeNotifier } from './notice-notifications.js';
 import { renderAutoSelectBanner } from './auto-select-banner.js';
 import { initNoticeRecords, openNotice } from './render-notices.js';
 import { workerNumberTarget, resolveWorkerNumber } from './worker-links.js';
+import { projectRoute, workspaceHref } from './route.js';
+import { configureWorkspaceShell, renderGlobalInboxSummary, workspaceLink } from './workspace-shell.js';
+import { onDeviceAutomation, startDeviceAutomationObserver } from './workspace-automation.js';
 
-/* ---------- 左栏全局排序偏好（与设置页共用 lush.sidebarSort） ---------- */
 function syncSidebarSortSelect() {
-  const select = $('sidebar-sort');
+  const select = $('sidebar-sort'); if (!select) return;
   select.replaceChildren(...SORT_MODES.map(mode => { const option = el('option', mode.label); option.value = mode.id; return option; }));
   select.value = ui.sidebarSortMode;
-  select.title = '四个列表共用：智能排序会为 Worker、规划、输入与待决事项分别选择最有用的顺序；也可以统一按最近更新或编号排序。';
+  select.removeAttribute('title');
+  select.setAttribute('data-help', '设备统一的列表排序偏好；具体项目的过滤与折叠状态仍独立保存。');
 }
-function onSidebarSortChange() { setPref('sidebarSort', $('sidebar-sort').value); }
-
-/* ---------- 动效偏好：勾选后强制减少，覆盖系统设置 ---------- */
+async function onSidebarSortChange() {
+  const owner = globalThis.document;
+  try { await saveDevicePreference('sidebarSort', $('sidebar-sort').value); }
+  catch (error) { if (owner === globalThis.document) { show(`排序偏好未保存：${error.message}`, 'error'); syncSidebarSortSelect(); } }
+}
 function applyReducedMotion(value) {
-  const root = typeof document !== 'undefined' ? document.documentElement : null;
-  if (!root?.dataset) return;
-  if (value) root.dataset.reducedMotion = 'true';
-  else delete root.dataset.reducedMotion;
+  const root = globalThis.document?.documentElement; if (!root?.dataset) return;
+  if (value) root.dataset.reducedMotion = 'true'; else delete root.dataset.reducedMotion;
 }
-
-/* ---------- 偏好变更后的重画（「变更后重画」统一由 prefs.js 通知） ---------- */
-onPrefChange('sidebarSort', value => { ui.sidebarSortMode = value; syncSidebarSortSelect(); applySort(); });
-// 折叠 / 筛选平时只写盘（saveCollapsedPref / saveFiltersPref），不通知；resetPrefs() 清空它们后要把内存状态一起拉回默认。
+onPrefChange('sidebarSort', value => { ui.sidebarSortMode = value; syncSidebarSortSelect(); if (workbenchStatus().projectUsable) applySort(); });
 onPrefChange('collapsed', value => { ui.collapsed = value; paintCollapsed(); });
-onPrefChange('filters', value => { ui.filters = value; applyFilters({ persist: false }); });
+onPrefChange('filters', value => { ui.filters = value; if (workbenchStatus().projectUsable) applyFilters({ persist: false }); });
+onDevicePreferences(status => {
+  if (!globalThis.document) return;
+  const sort = $('sidebar-sort'); if (!sort) return;
+  sort.disabled = status.saving || !status.ready || Boolean(status.error);
+  const host = sort.parentElement || sort.parentNode;
+  host?.setAttribute('data-help', !status.ready || status.error ? `设备偏好尚不可用，不能保存排序。${status.error || '等待权威配置读取。'}` : status.saving ? '正在保存设备偏好。' : '设备统一排序；项目的过滤、折叠与选择仍独立。');
+});
 onPrefChange('reduceMotion', applyReducedMotion);
 onPrefChange('theme', () => refreshTheme());
-// 轮询频率变了：立刻按新间隔重建两个定时器，不必刷新页面。
 onPrefChange('polling', () => { if (refreshTimer !== null || liveTimer !== null) startTimers(); });
 
-const linked = taskId => /^#worker-(\d+)$/.test(taskId) ? Number(taskId.slice(8)) : null;
-
-/** 打开文档：点左栏「文档」与 #docs / #doc-<id> 共用；同样只报错，不中断轮询。 */
-function openDocsView(id = null) { return openDocs(id).catch(error => { show(error.message, 'error'); }); }
-
-// Page imports share one navigation/boot generation. Show the destination immediately,
-// but never let a late chunk (or its failure) repaint a newer route or a replacement DOM.
+const linked = hash => /^#worker-(\d+)$/.test(hash) ? Number(hash.slice(8)) : null;
+const report = error => { show(error.message, 'error'); };
+function openDocsView(id = null) { return openDocs(id).catch(report); }
 let pageGeneration = 0, bootGeneration = 0;
 async function openPage(load, open, view, options = {}) {
-  const generation = ++pageGeneration, boot = bootGeneration;
-  // Same-page subroutes (notably dirty input drafts) own their confirmation and
-  // chrome. Do not overwrite their title/hash before they decide whether to switch.
+  const generation = ++pageGeneration, boot = bootGeneration, owner = globalThis.document;
   const identity = ui.view?.id === view ? ui.view : activateDetailView({ view, ...options });
   const hash = location.hash, pathname = location.pathname;
-  const current = () => generation === pageGeneration && boot === bootGeneration
+  const current = () => generation === pageGeneration && boot === bootGeneration && owner === globalThis.document
     && ui.view === identity && location.hash === hash && location.pathname === pathname;
-  try {
-    const module = await load();
-    if (!current()) return;
-    return await open(module);
-  } catch (error) {
-    if (current()) show(`${error.message}（若界面已更新，请刷新页面后重试）`, 'error');
-  }
+  try { const module = await load(); if (current()) return await open(module); }
+  catch (error) { if (current()) show(`${error.message}（若界面已更新，请刷新后重试）`, 'error'); }
 }
 const openSettings = () => openPage(() => import('./render-settings.js'), module => module.openSettings(), 'settings');
 const openAgentStatus = () => openPage(() => import('./render-agent-status.js'), module => module.openAgentStatus(), 'agent-status');
 const openVersions = () => openPage(() => import('./render-versions.js'), module => module.openVersions(), 'versions');
 const openHooks = () => openPage(() => import('./render-hooks.js'), module => module.openHooks(), 'hooks');
 const openQuickExplanationPage = () => openPage(() => import('./render-quick-explanation.js'), module => module.openQuickExplanationPage(), 'quick-explain');
+const openQuickExplanationHistory = () => openPage(() => import('./render-quick-explanation.js'), module => module.openQuickExplanationHistory(), 'quick-explain-history');
+const openAutomation = () => openPage(() => import('./render-workspace-automation.js'), module => module.openWorkspaceAutomation(), 'automation');
+const openGlobalInbox = (options = {}) => openPage(() => import('./global-inbox.js'), module => module.openGlobalInbox(options), 'global-inbox',
+  { push: options.push, hash: options.projectId && options.noticeId ? `#inbox-notice-${options.projectId}-${options.noticeId}` : options.status === 'automatic' ? '#notices-automatic' : '#notices' });
 const openInputs = (options = {}) => openPage(() => import('./render-inputs.js'), module => module.openInputs(options), 'inputs',
   { push: options.push, hash: options.item ? `#input-${options.item.kind}-${options.item.id}` : '#inputs' });
 const openSources = (connectionId = '') => openPage(() => import('./render-model-sources.js'), module => module.openModelSources({ connectionId }),
   'model-sources', { hash: connectionId ? `#model-source-${connectionId}` : '#model-sources' });
 
-// 地址栏是唯一的路由源：设置 / Agent 状态 / Task 图 / 文档 / Task；其余回概览。
-// 每个分支都把 promise 返回出去：浏览器不看返回值，但测试能 await 到「画完」为止。
 function noProjectView() {
-  const identity = activateDetailView({ view: 'unavailable', title: '项目不可用', context: '工作台',
-    hint: '当前地址没有可用项目', push: false, hash: location.hash || undefined });
-  const panel = $('detail');
+  const identity = activateDetailView({ view: 'unavailable', title: '项目不可用', context: '用户工作台',
+    hint: '项目工作需要明确、有效的项目地址', push: false, hash: location.hash || undefined });
   if (ui.view !== identity) return;
   const box = el('div', undefined, 'workbench-view');
-  const empty = el('div', undefined, 'workbench-empty');
-  empty.append(el('strong', '当前没有可用项目'),
-    el('p', '项目管理、界面设置和帮助仍可使用。'));
-  box.append(empty); panel.replaceChildren(box);
+  box.append(el('h1', '当前地址没有可用项目'), el('p', '设备设置、全局收件箱、项目入口与帮助仍可使用。', 'hint'));
+  const link = el('a', '打开项目入口', 'ghost'); link.href = '/#projects'; link.target = '_blank'; link.rel = 'noopener'; box.append(link);
+  $('detail').replaceChildren(box);
 }
-
+/** Old in-project setting bookmarks lead to the real global page; never silently replace the project tab. */
+function globalPageRedirect(hash) {
+  const identity = activateDetailView({ view: 'workspace-link', title: '此页面已移至用户工作台', context: '项目工作',
+    hint: '设备配置和全局事项在独立页面管理', push: false, hash });
+  if (ui.view !== identity) return;
+  const box = el('div', undefined, 'workbench-view');
+  box.append(el('h1', '在独立用户工作台打开'), el('p', '设备设置与全局事项不再属于当前项目。新标签打开后，当前项目的输入和现场保留。', 'hint'));
+  const link = el('a', '打开用户工作台页面', 'primary'); link.href = workspaceHref(hash); link.target = '_blank'; link.rel = 'noopener'; box.append(link);
+  const back = el('a', '返回项目概览', 'ghost'); back.href = `\u0023`; box.append(back); $('detail').replaceChildren(box);
+}
+const deviceHash = hash => /^#(?:settings|agent-status|model-sources|model-source-[a-f0-9-]+|quick-explain|automation|notices-(?:all|open|unread|automatic|failed)|inbox-notice-[a-f0-9]{16}-[1-9]\d*)$/.test(hash);
 let hashGeneration = 0;
 function onHashChange() {
-  const generation = ++hashGeneration;
-  hideHelp(); // 换页前先把上一页的按钮提示收掉，避免固定浮层跨页残留。
-  const report = error => { show(error.message, 'error'); };
-  if (location.hash === '#projects') return openProjectManager({ push: false });
-  if (location.hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
-  const doc = docsTarget(location.hash);
-  if (doc) return openDocsView(doc.id);
-  if (location.hash === '#agent-status') return ui.view?.id === 'agent-status' ? undefined : openAgentStatus();
-  if (location.hash === '#model-sources') return ui.view?.id === 'model-sources' ? undefined : openSources();
-  const sourceMatch = /^#model-source-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.exec(location.hash);
-  if (sourceMatch) return openSources(sourceMatch[1]);
-  if (location.hash === '#quick-explain') return ui.view?.id === 'quick-explain' ? undefined : openQuickExplanationPage();
-  if (!workbenchStatus().projectUsable) {
-    if (!location.hash) return openProjectManager({ push: false });
+  const generation = ++hashGeneration; hideHelp();
+  const hash = location.hash, project = projectRoute(), doc = docsTarget(hash);
+  if (project && (deviceHash(hash) || hash === '#projects' || doc)) return globalPageRedirect(hash);
+  if (!project) {
+    if (!hash || hash === '#projects') return openProjectManager({ push: false });
+    if (hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
+    if (hash === '#agent-status') return ui.view?.id === 'agent-status' ? undefined : openAgentStatus();
+    if (hash === '#model-sources') return ui.view?.id === 'model-sources' ? undefined : openSources();
+    const source = /^#model-source-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.exec(hash);
+    if (source) return openSources(source[1]);
+    if (hash === '#quick-explain') return ui.view?.id === 'quick-explain' ? undefined : openQuickExplanationPage();
+    if (hash === '#automation' || hash === '#hooks') return ui.view?.id === 'automation' ? undefined : openAutomation();
+    if (doc) return openDocsView(doc.id);
+    const notice = /^#inbox-notice-([a-f0-9]{16})-([1-9]\d*)$/.exec(hash);
+    if (notice && Number.isSafeInteger(Number(notice[2]))) return openGlobalInbox({ projectId: notice[1], noticeId: Number(notice[2]), push: false });
+    const filter = /^#notices(?:-(all|open|unread|automatic|failed))?$/.exec(hash);
+    if (filter) return openGlobalInbox({ status: filter[1] || 'all', push: false });
     return noProjectView();
   }
-  if (location.hash === '#hooks') return ui.view?.id === 'hooks' ? undefined : openHooks();
-  if (location.hash === '#versions') return ui.view?.id === 'versions' ? undefined : openVersions();
-  if (location.hash === '#inputs') return openInputs({ push: false });
-  const inputMatch = /^#input-(draft|input)-([1-9]\d*)$/.exec(location.hash);
-  if (inputMatch && Number.isSafeInteger(Number(inputMatch[2]))) {
-    return openInputs({ item: { kind: inputMatch[1], id: Number(inputMatch[2]) }, push: false });
-  }
-  if (location.hash === '#worker-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
-  const noticeId = /^#notice-([1-9]\d*)$/.exec(location.hash)?.[1];
+  if (!workbenchStatus().projectUsable) return noProjectView();
+  if (hash === '#hooks') return ui.view?.id === 'hooks' ? undefined : openHooks();
+  if (hash === '#versions') return ui.view?.id === 'versions' ? undefined : openVersions();
+  if (hash === '#quick-explain-history') return ui.view?.id === 'quick-explain-history' ? undefined : openQuickExplanationHistory();
+  if (hash === '#inputs') return openInputs({ push: false });
+  const input = /^#input-(draft|input)-([1-9]\d*)$/.exec(hash);
+  if (input && Number.isSafeInteger(Number(input[2]))) return openInputs({ item: { kind: input[1], id: Number(input[2]) }, push: false });
+  if (hash === '#worker-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
+  const noticeId = /^#notice-([1-9]\d*)$/.exec(hash)?.[1];
   if (noticeId && Number.isSafeInteger(Number(noticeId))) return openNotice(Number(noticeId)).catch(report);
-  const resourceRoute = /^#(notices|workers)$/.exec(location.hash)?.[1];
-  const resource = resourceRoute === 'workers' ? 'tasks' : resourceRoute;
-  if (resource) return openResource(resource, { push: false });
-  const number = workerNumberTarget(location.hash);
+  const resourceRoute = /^#(notices|workers)$/.exec(hash)?.[1];
+  if (resourceRoute) return openResource(resourceRoute === 'workers' ? 'tasks' : resourceRoute, { push: false });
+  const number = workerNumberTarget(hash);
   if (number) {
-    const hash = location.hash, path = location.pathname, view = ui.view;
+    const path = location.pathname, view = ui.view;
     return resolveWorkerNumber(number).then(id => {
-      // A late lookup must not steal a newer page, even within the same project.
       if (generation !== hashGeneration || location.hash !== hash || location.pathname !== path || ui.view !== view) return;
       if (ui.deletedWorkerIds.has(id)) throw new Error(`Worker ${number} 已删除`);
-      // Canonicalize the current entry, rather than adding a second history entry
-      // that would resolve/push again on Back and trap users in the Worker page.
-      window.history.replaceState(null, '', `#worker-${id}`);
-      return detail(id);
+      window.history.replaceState(null, '', `#worker-${id}`); return detail(id);
     }).catch(error => { if (generation === hashGeneration && location.hash === hash && location.pathname === path && ui.view === view) report(error); });
   }
-  const next = linked(location.hash);
-  // 未知或已移除的 hash（包括旧 #graph）回项目概览。
+  const next = linked(hash);
   if (!next) return overview().catch(report);
   return next === ui.selected ? undefined : detail(next).catch(report);
 }
-
-// 上一次注册的定时器与监听器；重复 boot() 前必须先清掉（bun test 在文件之间复用模块注册表）。
 let refreshTimer = null, liveTimer = null, hashListener = null, disposeRefreshPolling = null;
-
-/** 按当前「轮询频率」偏好重建两个定时器；标准档＝快照 1500ms + 实时 3000ms。 */
+let disposePreferences = null, disposeAutomation = null, disposeAutomationView = null, disposeInbox = null, disposeInboxReady = null;
 function startTimers() {
-  if (refreshTimer !== null && typeof clearInterval === 'function') clearInterval(refreshTimer);
-  if (liveTimer !== null && typeof clearInterval === 'function') clearInterval(liveTimer);
-  refreshTimer = setInterval(refresh, pollingIntervals().snapshot);
-  liveTimer = setInterval(liveRefresh, liveInterval());
+  if (refreshTimer !== null) clearInterval(refreshTimer); if (liveTimer !== null) clearInterval(liveTimer);
+  refreshTimer = setInterval(refresh, pollingIntervals().snapshot); liveTimer = setInterval(liveRefresh, liveInterval());
 }
-
-/**
- * 装配页面：先清掉上一次的定时器 / window 监听器，再按当前全局 DOM 重新接一遍。
- * 浏览器里只跑一次；DOM 测试会重复调用它来换上自己的 stub。
- */
+function initGlobalNavigation() {
+  workspaceLink('projects-open', '#projects', () => openProjectManager());
+  workspaceLink('global-inbox-open', '#notices', () => openGlobalInbox());
+  workspaceLink('automation-open', '#automation', openAutomation);
+  workspaceLink('settings-open', '#settings', openSettings);
+  workspaceLink('agent-status-open', '#agent-status', openAgentStatus);
+  workspaceLink('model-sources-open', '#model-sources', () => openSources());
+  workspaceLink('quick-explain-open', '#quick-explain', openQuickExplanationPage);
+  workspaceLink('docs-open', '#docs', () => openDocsView());
+}
+/** Repeated boot must dispose global and project polling separately; late imports cannot bind an older DOM. */
 export async function boot() {
-  const boot = ++bootGeneration;
+  const boot = ++bootGeneration, owner = globalThis.document;
+  const active = () => boot === bootGeneration && owner === globalThis.document;
   ++pageGeneration; ++hashGeneration;
   disposeRefreshPolling?.(); disposeRefreshPolling = null;
+  disposePreferences?.(); disposeAutomation?.(); disposeAutomationView?.(); disposeInbox?.(); disposeInboxReady?.();
+  disposePreferences = disposeAutomation = disposeAutomationView = disposeInbox = disposeInboxReady = null;
   ui.disposeDetailRequests?.();
-  if (refreshTimer !== null && typeof clearInterval === 'function') clearInterval(refreshTimer);
-  if (liveTimer !== null && typeof clearInterval === 'function') clearInterval(liveTimer);
-  if (hashListener !== null && typeof removeEventListener === 'function') removeEventListener('hashchange', hashListener);
-  refreshTimer = null; liveTimer = null; hashListener = null;
-  closeTranscriptView();
-  resetUiState();
-  renderAutoSelectBanner(null);
-  resetTranscriptReaders();
-  closeExplanationPanel();
-  closeQuickExplanationPanel();
-  resetNoticeNotifier();
-  initAppearance();                              // 工作台主题；确认项目身份后改为项目持久外观
-  setProjectIdentity();
-  applyReducedMotion(readPref('reduceMotion'));
-  // Global navigation does not wait for a Host probe or a project daemon.
-  initHelp();
-  $('projects-open').onclick = () => openProjectManager();
-  $('settings-open').onclick = () => openSettings();
-  $('docs-open').onclick = () => openDocsView();
-  await ensureProject();
-  if (boot !== bootGeneration) return;
-  const context = workbenchStatus();
-  const projectReady = context.projectUsable;
-  const currentProject = (context.host?.projects || []).find(row => row.id === context.project)
-    || (!context.project && context.host?.mode === 'bound' ? context.host.projects?.[0] : null);
-  if (currentProject) setProjectIdentity(currentProject.name, currentProject.project);
-  const appearance = initAppearance({ projectId: currentProject?.id || context.project,
-    request: api, reportError: message => show(message, 'error') });
-  await appearance.load(true);
-  if (boot !== bootGeneration) return;
-  if ($('host-context')) $('host-context').textContent = context.project || projectReady ? '当前项目' : '工作台';
-  if (!projectReady) {
-    if (!currentProject) $('project').textContent = context.project ? '项目不可用' : '未打开项目';
-    $('connection').textContent = context.host?.mode === 'offline' ? 'Host 离线' : '工作台已就绪';
+  if (refreshTimer !== null) clearInterval(refreshTimer); if (liveTimer !== null) clearInterval(liveTimer);
+  if (hashListener !== null) globalThis.removeEventListener?.('hashchange', hashListener);
+  refreshTimer = liveTimer = hashListener = null;
+  closeTranscriptView(); resetUiState(); resetTranscriptReaders(); closeExplanationPanel(); closeQuickExplanationPanel();
+  initAppearance(); setProjectIdentity(); applyReducedMotion(readPref('reduceMotion')); configureWorkspaceShell(); initHelp(); initGlobalNavigation();
+  renderAutoSelectBanner(null); renderGlobalInboxSummary(null);
+  disposePreferences = startDevicePreferencesSync();
+  disposeAutomationView = onDeviceAutomation(status => {
+    if (active()) renderAutoSelectBanner(status.model, { offline: status.offline });
+  });
+  disposeAutomation = startDeviceAutomationObserver();
+  let inboxStarted = false, localInbox = null;
+  disposeInboxReady = onDevicePreferences(status => {
+    if (!active() || inboxStarted || !status.ready || status.error) return;
+    // Do not let an old browser cache authorize a notification before the first authoritative preference read.
+    inboxStarted = true;
+    void import('./global-notice-notifications.js').then(module => {
+      if (!active()) return;
+      localInbox = module.startGlobalNoticeObserver({
+        onSummary: summary => { if (active()) renderGlobalInboxSummary(summary); },
+        enabled: () => active() && readPref('noticeNotifications'),
+        read: (url, options) => {
+          if (!active()) { localInbox?.(); return Promise.reject(new DOMException('工作台已离开', 'AbortError')); }
+          return api(url, options);
+        },
+      });
+      disposeInbox = localInbox;
+    }).catch(error => { if (active()) show(`全局提醒暂不可用：${error.message}`, 'error'); });
+  });
+  await ensureProject(); if (!active()) return;
+  const context = workbenchStatus(), projectReady = context.projectUsable;
+  configureWorkspaceShell();
+  const currentProject = (context.host?.projects || []).find(row => row.id === projectRoute());
+  if (projectRoute()) {
+    if (currentProject) setProjectIdentity(currentProject.name, currentProject.project);
+    const appearance = initAppearance({ projectId: projectRoute(), request: api });
+    await appearance.load(true); if (!active()) return;
   }
-  initContextReferences();
-  initHelp();                                    // 统一按钮帮助提示（document 级委托，可重复装配）
-  // 工作台导航永远先可用；没有项目时不装配任何项目写入口或轮询。
-  const goOverview = () => projectReady ? overview().catch(error => { show(error.message, 'error'); }) : openProjectManager();
-  $('home').onclick = goOverview;
-  $('overview-open').onclick = goOverview;
-  $('projects-open').onclick = () => openProjectManager();
-  $('settings-open').onclick = () => openSettings();
-  $('docs-open').onclick = () => openDocsView();
-  const projectOnly = ['overview-open','task-graph-open','inputs-open','versions-open','hooks-open'];
-  for (const id of projectOnly) { const target = $(id); target.disabled = !projectReady; target.setAttribute('aria-disabled', String(!projectReady)); }
-  const composerShell = $('composer-shell'); if (composerShell) composerShell.hidden = !projectReady;
+  if (projectRoute() && !projectReady) { if (!currentProject) $('project').textContent = '项目不可用'; $('connection').textContent = context.host?.mode === 'offline' ? 'Host 离线' : '项目身份不可用'; }
+  else if (!projectRoute() && context.host?.mode === 'offline') $('connection').textContent = 'Host 离线';
+  initContextReferences(); initHelp();
+  const goOverview = () => projectReady ? overview().catch(report) : projectRoute() ? noProjectView() : openProjectManager();
+  $('home').onclick = goOverview; $('overview-open').onclick = goOverview;
+  if ($('home')) { $('home').removeAttribute('data-help'); $('home').setAttribute('aria-label', projectRoute() ? 'Lush · 项目概览' : 'Lush · 用户工作台'); }
+  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'versions-open', 'hooks-open', 'quick-explain-history-open'];
+  for (const id of projectOnly) { const target = $(id); if (target) { target.disabled = !projectReady; target.setAttribute('aria-disabled', String(!projectReady)); } }
+  if ($('composer-shell')) $('composer-shell').hidden = !projectReady;
+
   const composerReady = projectReady ? initComposer() : Promise.resolve();
-  if (projectReady) {
-    syncSidebarSortSelect();
-    $('sidebar-sort').addEventListener('change', onSidebarSortChange);
-  }
-  for (const id of ['agent-status-open', 'model-sources-open', 'quick-explain-open']) { const target = $(id); if (target) { target.disabled = false; target.setAttribute('aria-disabled', 'false'); } }
-  if ($('agent-status-open')) $('agent-status-open').onclick = () => openAgentStatus();
-  if ($('model-sources-open')) $('model-sources-open').onclick = () => openSources();
-  if ($('quick-explain-open')) $('quick-explain-open').onclick = () => openQuickExplanationPage();
+  if (projectReady) { syncSidebarSortSelect(); $('sidebar-sort').addEventListener('change', onSidebarSortChange); }
   if ($('hooks-open')) $('hooks-open').onclick = () => projectReady ? openHooks() : noProjectView();
   if ($('versions-open')) $('versions-open').onclick = () => projectReady ? openVersions() : noProjectView();
   if ($('inputs-open')) $('inputs-open').onclick = () => projectReady ? openInputs() : noProjectView();
   if ($('input-history')) $('input-history').onclick = () => projectReady ? openInputs() : noProjectView();
+  if ($('quick-explain-history-open')) $('quick-explain-history-open').onclick = () => projectReady ? openQuickExplanationHistory() : noProjectView();
   $('sidebar-toggle').onclick = () => {
-    const open = $('sidebar').classList.toggle('mobile-open');
-    $('sidebar-toggle').setAttribute('aria-expanded', String(open));
+    const open = $('sidebar').classList.toggle('mobile-open'); $('sidebar-toggle').setAttribute('aria-expanded', String(open));
     $('sidebar-toggle').textContent = open ? '收起菜单' : '导航菜单';
   };
-  $('task-graph-open').onclick = () => projectReady ? openTaskGraph().catch(error => { show(error.message, 'error'); }) : noProjectView();
-  $('view-back').onclick = () => {
-    if ($('view-back').disabled) return;
-    if (typeof window.history.back === 'function') return window.history.back();
-    return goOverview();
-  };
-  if (projectReady) {
-    initSidebar(); initNoticeRecords();
-    disposeRefreshPolling = initRefreshPolling();
-  }
-  hashListener = onHashChange;
-  addEventListener('hashchange', hashListener);
-  // 先确定页面归属，再开始取数；首次加载期间的导航也不会被启动逻辑抢回。
+  $('task-graph-open').onclick = () => projectReady ? openTaskGraph().catch(report) : noProjectView();
+  $('view-back').onclick = () => { if ($('view-back').disabled) return; if (typeof window.history.back === 'function') return window.history.back(); return goOverview(); };
+  if (projectReady) { initSidebar(); initNoticeRecords(); disposeRefreshPolling = initRefreshPolling(); }
+  hashListener = onHashChange; globalThis.addEventListener?.('hashchange', hashListener);
   const initialView = onHashChange();
-  if (projectReady) await refresh();
-  await initialView;
-  await composerReady;
-  if (boot !== bootGeneration) return;
-  // 深链接设置页可能先于概览摘要到达；摘要就绪后补画配置与系统信息。
-  if (ui.settingsOpen) await openSettings();
-  if (boot !== bootGeneration) return;
+  if (projectReady) await refresh(); await initialView; await composerReady;
+  if (!active()) return;
   if (projectReady) startTimers();
 }
-
 await boot();

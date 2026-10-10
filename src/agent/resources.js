@@ -2,7 +2,7 @@ import cp from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { piConfigDirectory, isolatedPiEnvironment } from './pi-config.js';
-import { normalizeConfigurationScope, scopedConfiguration, configurationScope } from '../core/device-config.js';
+import { settingsConfigurationScope, scopedConfiguration, configurationScope } from '../core/device-config.js';
 
 const MAX_OUTPUT = 2 * 1024 * 1024;
 const MAX_FILE_BYTES = 64 * 1024;
@@ -195,11 +195,11 @@ function installedPackages(output) {
 }
 
 /** Discover installed Pi extensions and skills without loading or executing them. */
-export async function discoverAgentResources(config, options = {}, scope = 'project') {
-  normalizeConfigurationScope(scope);
+export async function discoverAgentResources(config, options = {}, scope) {
+  scope = settingsConfigurationScope(config, scope);
   const extensions = new Map(), skills = new Map();
   const configDirs = scope === 'device' ? [piConfigDirectory(config, 'device')]
-    : [...(config.deviceHome ? [piConfigDirectory(config, 'device')] : []), piConfigDirectory(config)];
+    : [piConfigDirectory(config)];
   for (const dir of configDirs) {
     extensionEntries(extensions, path.join(dir, 'extensions'), 'Lush Pi 扩展');
     skillEntries(skills, path.join(dir, 'skills'), 'Lush Pi Skills');

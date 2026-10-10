@@ -73,7 +73,7 @@ test('command reference picker is catalogue driven, only emits explicit register
 
 test('example reads real main mount, confirms command authorization and uses mount revision rather than template revision', async () => {
   await openHooks(); expect(deepText(example())).toContain('停用'); expect(deepText(example())).toContain('仅 main Worker');
-  expect(example().querySelector('.hook-help-link').href).toBe('#doc-docs-hooks');
+  expect(example().querySelector('.hook-help-link').href).toBe('/#doc-docs-hooks');
   expect(deepText(example())).toContain(command.name); expect(deepText(example())).not.toContain('示例');
   const enabling = btn('启用 Hook', example()).onclick();
   expect(actions).toHaveLength(0); expect(deepText(dom.node('modal'))).toContain('git push');
@@ -100,20 +100,14 @@ test('example refresh rereads authoritative revision after runtime observation a
   expect(actions.at(-1).params.expected_revision).toBe('observed-revision');
 });
 
-test('command example mutation refresh preserves the independent unsaved completion default draft', async () => {
+test('command example refresh preserves independent project template draft and never renders legacy project defaults', async () => {
   catalogue.completion_defaults = { version: 1, enabled: false, level: 'merge', revision: 'defaults-revision' };
-  await openHooks();
-  let defaults = root().querySelector('.completion-defaults');
-  await defaults.querySelector('[data-level="accept"]').onclick();
+  await openHooks(); await btn('新建模板').onclick(); const form = root().querySelector('.hook-form');
+  field(form, 'Hook 名称').value = '独立模板草稿';
   const enabling = btn('启用 Hook', example()).onclick(); await dialogButton(dom, '启用指令 Hook').onclick(); await enabling;
-  defaults = root().querySelector('.completion-defaults');
-  expect(defaults.querySelector('[data-level="accept"]').getAttribute('aria-pressed')).toBe('true');
-  expect(btn('保存项目默认', defaults).disabled).toBe(false);
-  intercept = (_path, body) => body?.method === 'hooks.completion_defaults' ? json({ ...catalogue,
-    completion_defaults: { version: 1, enabled: false, level: 'accept', revision: 'defaults-next' } }) : null;
-  await btn('保存项目默认', defaults).onclick();
-  expect(actions.at(-1).params).toEqual({ enabled: false, level: 'accept', expected_revision: 'defaults-revision' });
-  expect(deepText(example())).toContain('git push');
+  expect(root().querySelector('.completion-defaults')).toBeNull(); expect(root().querySelector('.hook-form')).toBe(form);
+  expect(field(form, 'Hook 名称').value).toBe('独立模板草稿'); expect(deepText(example())).toContain('git push');
+  expect(actions.some(call => call.method === 'hooks.completion_defaults')).toBe(false);
 });
 
 test('command result displays safe exit and timeout diagnostics without raw output', async () => {
@@ -218,17 +212,13 @@ test('late full edit response does not repaint a new page; template refresh does
   resolve(json(model)); await saving; expect(root().children).toEqual([next]);
 });
 
-test('daemon catalogue writes preserve unsaved example editor and never upgrade a template draft optimistic revision', async () => {
-  catalogue.daemon_hooks = { version: 1, revision: 'daemon-revision', mounts: [{ id: 'auto-select', name: '自动选择', enabled: true, editable: true }] };
-  intercept = (_path, body) => body?.method === 'hooks.auto_select' ? json({ ...catalogue, revision: 'new-template-revision', daemon_hooks: {
-    ...catalogue.daemon_hooks, mounts: [{ ...catalogue.daemon_hooks.mounts[0], enabled: false }],
-  } }) : null;
+test('project template save retains unsaved example editor and uses its originally captured optimistic revision', async () => {
+  intercept = (_path, body) => body?.method === 'hooks.save' ? json({ ...catalogue, revision: 'new-template-revision' }) : null;
   await openHooks(); await btn('编辑挂载', example()).onclick(); const form = example().querySelector('.hook-form');
   field(form, '快捷指令版本').value = 'tags-command:1'; await btn('编辑模板').onclick();
-  await btn('关闭自动选择').onclick();
-  expect(example().querySelector('.hook-form')).toBe(form); expect(field(form, '快捷指令版本').value).toBe('tags-command:1');
   await btn('保存模板').onclick(); expect(actions.at(-1).params.expected_revision).toBe('template-revision');
-  expect(example().querySelector('.hook-form')).toBe(form);
+  expect(ui.hooksPage.catalogue.revision).toBe('new-template-revision');
+  expect(example().querySelector('.hook-form')).toBe(form); expect(field(form, '快捷指令版本').value).toBe('tags-command:1');
 });
 
 test('mixed Agent actions retain unified purple help while command-only and disabled saves have no Agent cost', async () => {

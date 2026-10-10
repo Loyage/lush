@@ -18,7 +18,7 @@ function controlled() {
 test('execution slots and call timeout use new defaults without replacing explicit overrides', () => {
   const root = temp();
   try {
-    const config = new Config({ project: root, env: env() });
+    const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) });
     expect(config).toMatchObject({ concurrency: 8, timeout: 10800, controlConcurrency: 2 });
     expect(RUNTIME_SETTINGS_LIMITS.concurrency.fallback).toBe(8);
     expect(RUNTIME_SETTINGS_LIMITS.call_timeout.fallback).toBe(10800);
@@ -30,7 +30,7 @@ test('execution slots and call timeout use new defaults without replacing explic
 
     // Existing explicit values remain valid, including timeouts longer than the new default.
     config.configureRuntime({ concurrency: 4, call_timeout: 86400 });
-    const restarted = new Config({ project: root, env: env() });
+    const restarted = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) });
     expect(restarted).toMatchObject({ concurrency: 4, timeout: 86400 });
     expect(restarted.runtimeSettings.get()).toMatchObject({
       concurrency: { value: 4, default: 8, overridden: true },
@@ -39,7 +39,7 @@ test('execution slots and call timeout use new defaults without replacing explic
     restarted.configureRuntime({ concurrency: null, call_timeout: null });
     expect(restarted).toMatchObject({ concurrency: 8, timeout: 10800 });
 
-    const overridden = new Config({ project: root, env: env({ LUSH_CONCURRENCY: '3', LUSH_CALL_TIMEOUT: '1800' }) });
+    const overridden = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device'), LUSH_CONCURRENCY: '3', LUSH_CALL_TIMEOUT: '1800' }) });
     expect(overridden).toMatchObject({ concurrency: 3, timeout: 1800 });
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -47,15 +47,15 @@ test('execution slots and call timeout use new defaults without replacing explic
 /** 并发上限可热更新的存储：文件、0600、原子替换、环境默认回退、null 清除、非法值不落盘。 */
 test('runtime settings file is atomic, owner-only, and falls back to env defaults per key', () => {
   const root = temp();
-  const config = new Config({ project: root, env: env({ LUSH_CONCURRENCY: '6', LUSH_CONTROL_CONCURRENCY: '3' }) });
+  const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device'), LUSH_CONCURRENCY: '6', LUSH_CONTROL_CONCURRENCY: '3' }) });
   config.prepare();
   try {
     const settings = new RuntimeSettings(config);
-    const file = path.join(root, '.lush', 'settings.json');
+    const file = path.join(config.deviceHome, 'settings.json');
     expect(settings.file).toBe(file);
     // 没有覆盖时读模型给出环境默认值，且不创建文件（不造假值）。
     expect(settings.get()).toEqual({ file,
-      configuration_scope: { selected: 'project', source: 'default', device_home: config.deviceHome, project_home: config.home, project_override: false },
+      configuration_scope: { selected: 'device', source: 'default', device_home: config.deviceHome, project_home: config.home, project_override: false },
       concurrency: { value: 6, default: 6, overridden: false, source: 'default' },
       control_concurrency: { value: 3, default: 3, overridden: false, source: 'default' },
       call_timeout: { value: 10800, default: 10800, overridden: false, source: 'default' },
@@ -67,7 +67,7 @@ test('runtime settings file is atomic, owner-only, and falls back to env default
     expect(fs.existsSync(file)).toBe(false);
 
     const saved = settings.save({ concurrency: 8 });
-    expect(saved.concurrency).toEqual({ value: 8, default: 6, overridden: true, source: 'project' });
+    expect(saved.concurrency).toEqual({ value: 8, default: 6, overridden: true, source: 'device' });
     expect(saved.control_concurrency).toEqual({ value: 3, default: 3, overridden: false, source: 'default' });
     expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1, concurrency: 8 });
     expect(fs.statSync(file).mode & 0o077).toBe(0);
@@ -82,7 +82,7 @@ test('runtime settings file is atomic, owner-only, and falls back to env default
     // null 清除该键，回退环境默认。
     const cleared = settings.save({ concurrency: null });
     expect(cleared.concurrency).toEqual({ value: 6, default: 6, overridden: false, source: 'default' });
-    expect(cleared.control_concurrency).toEqual({ value: 5, default: 3, overridden: true, source: 'project' });
+    expect(cleared.control_concurrency).toEqual({ value: 5, default: 3, overridden: true, source: 'device' });
     expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1, control_concurrency: 5 });
 
     // 非法值报错且不落盘：文件保持上一次成功写入的内容。
@@ -97,11 +97,11 @@ test('runtime settings file is atomic, owner-only, and falls back to env default
 
 test('call timeout / task call limit / max depth are runtime-overridable and validated', () => {
   const root = temp();
-  const config = new Config({ project: root, env: env({ LUSH_CALL_TIMEOUT: '600', LUSH_TASK_CALLS: '12', LUSH_MAX_DEPTH: '5' }) });
+  const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device'), LUSH_CALL_TIMEOUT: '600', LUSH_TASK_CALLS: '12', LUSH_MAX_DEPTH: '5' }) });
   config.prepare();
   try {
     const settings = new RuntimeSettings(config);
-    const file = path.join(root, '.lush', 'settings.json');
+    const file = path.join(config.deviceHome, 'settings.json');
     expect(settings.get()).toMatchObject({
       call_timeout: { value: 600, default: 600, overridden: false },
       task_call_limit: { value: 12, default: 12, overridden: false },
@@ -109,7 +109,7 @@ test('call timeout / task call limit / max depth are runtime-overridable and val
     });
     // 写盘后生效值同步进 Config，调度 / 拆解立即读到。
     const saved = config.configureRuntime({ call_timeout: 1200, task_call_limit: 40, max_depth: 10 });
-    expect(saved.call_timeout).toEqual({ value: 1200, default: 600, overridden: true, source: 'project' });
+    expect(saved.call_timeout).toEqual({ value: 1200, default: 600, overridden: true, source: 'device' });
     expect(config.timeout).toBe(1200);
     expect(config.maxCalls).toBe(40);
     expect(config.maxDepth).toBe(10);
@@ -138,7 +138,7 @@ test('runtime max_depth override reaches later spawns without restart', async ()
     const child = await f.project.spawn(root.id, 'child', undefined, [], 'child');
     expect(() => f.project.spawn(child.id, 'too deep', undefined, [], 'too-deep')).toThrow('nesting');
     // 调高后同一个 daemon 立即允许更深的派生，不需要重启。
-    expect(f.project.configureRuntimeSettings({ max_depth: 5 }).max_depth).toEqual({ value: 5, default: 3, overridden: true, source: 'project' });
+    expect(f.project.configureRuntimeSettings({ max_depth: 5 }).max_depth).toEqual({ value: 5, default: 3, overridden: true, source: 'device' });
     const grandchild = await f.project.spawn(child.id, 'grandchild', undefined, [], 'grandchild');
     const great = await f.project.spawn(grandchild.id, 'great', undefined, [], 'great');
     expect(great.parent_id).toBe(grandchild.id);
@@ -153,10 +153,11 @@ test('runtime max_depth override reaches later spawns without restart', async ()
 
 test('corrupt or unsafe runtime settings fail loudly with the file path', () => {
   const root = temp();
-  const config = new Config({ project: root, env: env() });
+  const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) });
   config.prepare();
   try {
-    const file = path.join(root, '.lush', 'settings.json');
+    const file = path.join(config.deviceHome, 'settings.json');
+    fs.mkdirSync(config.deviceHome, { recursive: true, mode: 0o700 });
     fs.writeFileSync(file, '{"version":1,"concurrency":0}\n', { mode: 0o600 });
     expect(() => new RuntimeSettings(config).get()).toThrow(file);
     fs.writeFileSync(file, '{not json', { mode: 0o600 });
@@ -173,10 +174,10 @@ test('corrupt or unsafe runtime settings fail loudly with the file path', () => 
 test('stored settings win over env defaults, and invalid env still fails at startup', () => {
   const root = temp();
   try {
-    fs.mkdirSync(path.join(root, '.lush'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.lush', 'settings.json'),
+    fs.mkdirSync(path.join(root, 'device', 'shared'), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(root, 'device', 'shared', 'settings.json'),
       JSON.stringify({ version: 1, concurrency: 9, control_concurrency: 1, call_timeout: 42, task_call_limit: 7, max_depth: 3 }), { mode: 0o600 });
-    const config = new Config({ project: root, env: env({ LUSH_CONCURRENCY: '5', LUSH_CONTROL_CONCURRENCY: '3',
+    const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device'), LUSH_CONCURRENCY: '5', LUSH_CONTROL_CONCURRENCY: '3',
       LUSH_CALL_TIMEOUT: '600', LUSH_TASK_CALLS: '12', LUSH_MAX_DEPTH: '5' }) });
     expect(config.concurrency).toBe(9);
     expect(config.controlConcurrency).toBe(1);
@@ -189,11 +190,11 @@ test('stored settings win over env defaults, and invalid env still fails at star
     expect(config.maxCallsDefault).toBe(12);
     expect(config.maxDepthDefault).toBe(5);
     // 环境变量仍是启动时的硬校验：非整数直接抛错。
-    expect(() => new Config({ project: root, env: env({ LUSH_CONCURRENCY: '2x' }) })).toThrow('integer');
-    expect(() => new Config({ project: root, env: env({ LUSH_CONTROL_CONCURRENCY: '0' }) })).toThrow('integer');
-    expect(() => new Config({ project: root, env: env({ LUSH_CALL_TIMEOUT: '0' }) })).toThrow('integer');
-    expect(() => new Config({ project: root, env: env({ LUSH_TASK_CALLS: '1001' }) })).toThrow('integer');
-    expect(() => new Config({ project: root, env: env({ LUSH_MAX_DEPTH: 'x' }) })).toThrow('integer');
+    expect(() => new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device'), LUSH_CONCURRENCY: '2x' }) })).toThrow('integer');
+    expect(() => new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device'), LUSH_CONTROL_CONCURRENCY: '0' }) })).toThrow('integer');
+    expect(() => new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device'), LUSH_CALL_TIMEOUT: '0' }) })).toThrow('integer');
+    expect(() => new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device'), LUSH_TASK_CALLS: '1001' }) })).toThrow('integer');
+    expect(() => new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device'), LUSH_MAX_DEPTH: 'x' }) })).toThrow('integer');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -210,7 +211,7 @@ test('raising the limit admits queued work immediately; lowering it cancels noth
 
     // 通过项目级写入口调高：内存生效值、status 镜像与调度准入都必须立刻跟上。
     const model = f.project.configureRuntimeSettings({ concurrency: 2 });
-    expect(model.concurrency).toEqual({ value: 2, default: 1, overridden: true, source: 'project' });
+    expect(model.concurrency).toEqual({ value: 2, default: 1, overridden: true, source: 'device' });
     expect(f.config.concurrency).toBe(2);
     expect(f.project.status()).toMatchObject({ concurrency: 2, control_concurrency: 2,
       settings: { concurrency: { value: 2, default: 1, overridden: true } } });
@@ -223,13 +224,13 @@ test('raising the limit admits queued work immediately; lowering it cancels noth
     f.project.configureRuntimeSettings({ concurrency: 1 });
     expect(f.project.running.size).toBe(2);
     expect(f.project.status()).toMatchObject({ concurrency: 1, control_concurrency: 9 });
-    expect(fs.existsSync(path.join(f.config.home, 'settings.json'))).toBe(true);
+    expect(fs.existsSync(path.join(f.config.deviceHome, 'settings.json'))).toBe(true);
 
     await until(() => provider.calls.length === 2);
     for (const call of provider.calls) call.done.resolve('done');
     await until(() => f.project.running.size === 0);
     // 重新打开配置也读到持久化的生效值。
-    expect(new Config({ project: f.root, env: env({ LUSH_CONCURRENCY: '1' }) })).toMatchObject({ concurrency: 1, controlConcurrency: 9 });
+    expect(new Config({ project: f.root, env: env({ LUSH_GLOBAL_CONFIG: path.dirname(f.config.deviceHome), LUSH_CONCURRENCY: '1' }) })).toMatchObject({ concurrency: 1, controlConcurrency: 9 });
   } finally { await f.close(); }
 });
 
@@ -242,11 +243,11 @@ test('system.configure is user-only and only accepts a settings patch', () => {
 
 test('input_routes defaults, overrides, null clearing and validation', () => {
   const root = temp();
-  const config = new Config({ project: root, env: env() });
+  const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) });
   config.prepare();
   try {
     const settings = new RuntimeSettings(config);
-    const file = path.join(root, '.lush', 'settings.json');
+    const file = path.join(config.deviceHome, 'settings.json');
     const defaults = [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }];
     // 默认值是核心默认表，且读模型返回拷贝：改它不影响后续读取。
     expect(settings.get().input_routes).toEqual({ value: defaults, default: defaults, overridden: false, source: 'default' });
@@ -255,7 +256,7 @@ test('input_routes defaults, overrides, null clearing and validation', () => {
 
     const routes = [{ prefix: 'Build', target: 'worker' }, { prefix: '解释', target: 'research' }];
     const saved = settings.save({ input_routes: routes });
-    expect(saved.input_routes).toEqual({ value: routes, default: defaults, overridden: true, source: 'project' });
+    expect(saved.input_routes).toEqual({ value: routes, default: defaults, overridden: true, source: 'device' });
     expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1, input_routes: routes });
     expect(new RuntimeSettings(config).get().input_routes.value).toEqual(routes);
     // 保存后改调用方手里的数组不影响已落盘内容。
@@ -286,13 +287,13 @@ test('input_routes defaults, overrides, null clearing and validation', () => {
 test('config mirrors input_routes from storage and runtime updates', () => {
   const root = temp();
   try {
-    const config = new Config({ project: root, env: env() });
+    const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) });
     const defaults = [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }];
     expect(config.inputRoutes).toEqual(defaults);
     config.prepare();
     const model = config.configureRuntime({ input_routes: [{ prefix: 'Build', target: 'research' }] });
-    expect(model.input_routes).toEqual({ value: [{ prefix: 'Build', target: 'research' }], default: defaults, overridden: true, source: 'project' });
+    expect(model.input_routes).toEqual({ value: [{ prefix: 'Build', target: 'research' }], default: defaults, overridden: true, source: 'device' });
     expect(config.inputRoutes).toEqual([{ prefix: 'Build', target: 'research' }]);
-    expect(new Config({ project: root, env: env() }).inputRoutes).toEqual([{ prefix: 'Build', target: 'research' }]);
+    expect(new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) }).inputRoutes).toEqual([{ prefix: 'Build', target: 'research' }]);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

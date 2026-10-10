@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Lush · 项目概览</title>
+<title>Lush · 用户工作台</title>
 <script src="/appearance.js" type="module"></script>
 <link rel="stylesheet" href="/styles.css">
 <link rel="stylesheet" href="/styles-core.css">
@@ -14,6 +14,8 @@
 <link rel="stylesheet" href="/styles-agent-usage.css">
 <link rel="stylesheet" href="/styles-agent-connections.css">
 <link rel="stylesheet" href="/styles-workbench.css">
+<link rel="stylesheet" href="/styles-workspace-shell.css">
+<link rel="stylesheet" href="/styles-global-inbox.css">
 <script type="module" src="/app.js"></script>
 </head>
 <body>
@@ -27,40 +29,47 @@
     <div class="rail-tools">
       <span id="agents"></span><span id="connection" role="status">连接中…</span>
       <button type="button" id="project-switch" class="ghost" hidden>切换项目</button>
-      <span class="help-host"><button type="button" id="theme-toggle" class="ghost theme-toggle" aria-label="切换主题">◐ 主题</button></span>
+      <span class="help-host" tabindex="0" data-help="主题为设备统一偏好；等待权威配置读取后可修改。"><button type="button" id="theme-toggle" class="ghost theme-toggle" aria-label="切换主题">◐ 主题</button></span>
       <form class="logout" method="post" action="/logout"><button type="submit" class="ghost">退出</button></form>
     </div>
   </div>
   <section id="sleep-banner" class="sleep-banner" aria-live="polite" hidden></section>
   <div class="nav-intro">
-    <span class="eyebrow">PROJECT NAVIGATION</span>
-    <strong>工作空间</strong>
+    <span id="nav-space-eyebrow" class="eyebrow">USER WORKSPACE</span>
+    <strong id="nav-space-label">用户工作台</strong>
     <button type="button" id="sidebar-toggle" class="ghost" aria-expanded="false" aria-controls="side-nav">导航菜单</button>
   </div>
   <div class="nav-divider"><span>工作台</span></div>
   <nav class="workspace-nav workbench-nav" aria-label="工作台管理">
-    <button type="button" id="projects-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">▣</span><span><strong>项目</strong><small>登记、打开与后台状态</small></span><span class="nav-arrow">→</span></button>
+    <a id="projects-open" href="/#projects" class="workspace-link"><span class="nav-icon" aria-hidden="true">▣</span><span><strong>项目</strong><small>登记、打开与后台状态</small></span><span class="nav-arrow">→</span></a>
+    <a id="global-inbox-open" href="/#notices" class="workspace-link"><span class="nav-icon" aria-hidden="true">✉</span><span><strong>全局收件箱</strong><small>所有项目需要你的事项</small></span><span id="global-inbox-count" class="count" aria-label="正在读取全局事项">…</span></a>
+    <a id="automation-open" href="/#automation" class="workspace-link"><span class="nav-icon" aria-hidden="true">⌁</span><span><strong>全局自动化</strong><small>自动选择与默认流程</small></span><span class="nav-arrow">→</span></a>
   </nav>
-  <div class="nav-divider"><span>工作</span></div>
-  <nav class="workspace-nav" aria-label="工作概览">
+  <div class="nav-divider" data-project-navigation><span>项目工作</span></div>
+  <nav class="workspace-nav" aria-label="工作概览" data-project-navigation>
     <button type="button" id="overview-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">◈</span><span><strong>项目概览</strong><small>Worker、进展与交付</small></span><span class="nav-arrow">→</span></button>
     <button type="button" id="task-graph-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">◇</span><span><strong>Worker 树</strong><small>Worker 与工作区</small></span><span class="nav-arrow">→</span></button>
   </nav>
-  <nav id="side-nav" class="side-nav" aria-label="工作页面"></nav>
-  <nav class="workspace-nav" aria-label="输入与代码演变">
+  <nav id="side-nav" class="side-nav" aria-label="工作页面" data-project-navigation></nav>
+  <nav class="workspace-nav" aria-label="输入与代码演变" data-project-navigation>
     <button type="button" id="inputs-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">≡</span><span><strong>历史输入</strong><small>输入缓冲区与原文检索</small></span><span class="nav-arrow">→</span></button>
     <button type="button" id="versions-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">↗</span><span><strong>版本迭代</strong><small>main 历史与功能交付</small></span><span class="nav-arrow">→</span></button>
+
   </nav>
-  <nav class="workspace-nav" aria-label="自动动作">
-    <span class="help-host" data-help="打开可用项目后才能管理项目自动化；模板不会自动安装或启动 Agent。"><button type="button" id="hooks-open" class="workspace-link" data-help="查看当前项目允许的生命周期节点、受控动作与可复用模板；实际挂载和执行结果在 Worker 详情中管理，打开不调用 Agent"><span class="nav-icon" aria-hidden="true">⌁</span><span><strong>自动化</strong><small>时间信号与自动动作</small></span><span class="nav-arrow">→</span></button></span>
+  <nav class="workspace-nav" aria-label="自动动作" data-project-navigation>
+    <span class="help-host" data-help="打开可用项目后才能管理项目自动化；模板不会自动安装或启动 Agent。"><button type="button" id="hooks-open" class="workspace-link" data-help="查看当前项目允许的生命周期节点、受控动作与可复用模板；实际挂载和执行结果在 Worker 详情中管理，打开不调用 Agent"><span class="nav-icon" aria-hidden="true">⌁</span><span><strong>项目自动化</strong><small>命令授权与实际挂载</small></span><span class="nav-arrow">→</span></button></span>
   </nav>
-  <div class="nav-divider"><span>其他</span></div>
-  <nav class="support-nav" aria-label="状态、设置与帮助">
-    <span class="help-host"><button type="button" id="agent-status-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">◎</span><span><strong>Agent 配置</strong><small>模型选择与工作方式</small></span><span class="nav-arrow">→</span></button></span>
-    <span class="help-host"><button type="button" id="quick-explain-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">?</span><span><strong>快捷解释</strong><small>设置与解释历史</small></span><span class="nav-arrow">→</span></button></span>
-    <span class="help-host"><button type="button" id="model-sources-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">◈</span><span><strong>模型来源</strong><small>API、账号与额度</small></span><span class="nav-arrow">→</span></button></span>
-    <button type="button" id="settings-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">⚙</span><span><strong>系统设置</strong><small>界面与系统运行</small></span><span class="nav-arrow">→</span></button>
-    <button type="button" id="docs-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">≡</span><span><strong>帮助文档</strong><small>使用流程与架构参考</small></span><span class="nav-arrow">→</span></button>
+  <nav class="workspace-nav" aria-label="项目阅读历史" data-project-navigation>
+    <button type="button" id="quick-explain-history-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">?</span><span><strong>解释历史</strong><small>当前项目的阅读结果</small></span><span class="nav-arrow">→</span></button>
+  </nav>
+  <div class="nav-divider"><span>设备设置与帮助</span></div>
+  <nav class="support-nav" aria-label="设备设置与帮助">
+    <a id="settings-open" href="/#settings" class="workspace-link"><span class="nav-icon" aria-hidden="true">⚙</span><span><strong>设备设置</strong><small>偏好与系统运行</small></span><span class="nav-arrow">→</span></a>
+    <a id="agent-status-open" href="/#agent-status" class="workspace-link" data-device-management><span class="nav-icon" aria-hidden="true">◎</span><span><strong>Agent 配置</strong><small>模型选择与工作方式</small></span><span class="nav-arrow">→</span></a>
+    <a id="model-sources-open" href="/#model-sources" class="workspace-link" data-device-management><span class="nav-icon" aria-hidden="true">◈</span><span><strong>模型来源</strong><small>API、账号与额度</small></span><span class="nav-arrow">→</span></a>
+    <a id="quick-explain-open" href="/#quick-explain" class="workspace-link" data-device-management><span class="nav-icon" aria-hidden="true">?</span><span><strong>快捷解释配置</strong><small>模型来源与 Prompt</small></span><span class="nav-arrow">→</span></a>
+    <a id="docs-open" href="/#docs" class="workspace-link"><span class="nav-icon" aria-hidden="true">≡</span><span><strong>帮助文档</strong><small>使用流程与架构参考</small></span><span class="nav-arrow">→</span></a>
+
   </nav>
   <div class="sidebar-footer"><span class="brand-spark">✳</span> 以 Worker 组织成果。<span>派子 Worker · 审阅 · 人工合并</span></div>
 </aside>
@@ -72,6 +81,7 @@
   </div>
   <div class="project-banners">
     <section id="auto-select-banner" class="auto-select-banner" role="status" aria-live="polite" hidden></section>
+    <section id="global-inbox-summary" class="notice-banner global-inbox-summary" role="status" aria-live="polite" hidden></section>
     <section id="notice-banner" class="notice-banner" role="status" aria-live="polite" hidden></section>
   </div>
   <section id="detail" tabindex="-1" aria-label="项目内容"><div class="loading-state"><span class="brand-spark">✳</span><h1>正在连接你的项目</h1><p class="hint">分支、Worker 与进展，即将在这里汇合。</p></div></section>
@@ -85,7 +95,7 @@
     </section>
     <section class="resource-page side" id="side-tasks" data-side="tasks" hidden>
       <header class="resource-hero"><span class="resource-kicker">EXECUTION</span><h1>Worker 列表</h1><p>平铺浏览所有类型的 Worker，用搜索与多选筛选快速定位；父子关系请到「Worker 树」查看。</p></header>
-      <div class="resource-tools"><div class="filters" id="task-filters"></div><label class="sort-label" for="sidebar-sort">排序<select id="sidebar-sort" class="sort" aria-label="列表排序方式"></select></label></div>
+      <div class="resource-tools"><div class="filters" id="task-filters"></div><label class="sort-label help-host" tabindex="0" for="sidebar-sort" data-help="排序为设备统一偏好；等待权威配置读取后可修改。">排序<select id="sidebar-sort" class="sort" aria-label="列表排序方式"></select></label></div>
       <div class="resource-card">
         <div class="section-title"><button type="button" class="side-head" id="side-head-tasks" data-side="tasks" aria-expanded="true" aria-controls="tasks"><span class="side-name">Worker</span><span id="task-count" class="count"></span></button></div>
         <div class="side-body" id="side-tasks-body"><div id="tasks"></div></div>

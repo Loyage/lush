@@ -19,17 +19,33 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 - `GET /`、`/app.js`、`/styles.css`、`/assets/**`：Web 资源（无项目前缀）。全局模式下 `/` 是可在未选项目时使用的完整主体，`#projects` / `#environments` 管理项目与环境；`/p/<id>/` 是该项目的工作台。
 - `GET /api/host`：返回 `mode`、上次打开的项目（`last_project` / `last_project_id`）与已登记项目列表（`projects`，含 `connected` / `last`；`mode` 为 `host` 或 `bound`）。只报告上次落点，不因此自动启动或连接任何 daemon。另返回当前服务进程的 `pid` 与 `restart_supported`；嵌入式 Host 不支持进程重启时为 `false`。
 - `GET /api/host/projects`：项目列表对已登记目录检查项目 socket，并对可达的 lushd 有界读取 `system.summary`，返回 `running` 与摘要；`connected` 仅表示 Host 已打开连接，二者不是同一状态。读取列表不会启动任何 lushd，未登记项目不会被扫描；单个项目失败只影响自己那一行。
-- `GET /api/host/projects/<id>/appearance`：只读项目外观元数据，不启动 daemon；返回 `{id,name,project,appearance}`，未初始化时 appearance 为 null。`POST` 同路径仅接受 `{initialize:true}` 或 `{theme,color,expected_revision}`，首次分配尽量不重复的预设色，保存须匹配 revision。配置写入项目 `.lush/appearance.json`，跨浏览器共用；只认已登记／白名单身份，拒绝路径、token、未知字段和 query，沿用认证／Origin／JSON／no-store。详见[项目外观契约](../engineering/workbench.md#项目外观w160)。
+- `GET /api/host/projects/<id>/appearance`：只读项目外观元数据，不启动 daemon；返回 `{id,name,project,appearance}`，未初始化时 appearance 为 null。`POST` 同路径接受 `{initialize:true}` 或 `{color,expected_revision}`，首次分配尽量不重复的预设色，保存须匹配 revision。#411：项目 `.lush/appearance.json` 的旧 theme 留存但不生效，兼容回传相同 theme、改变拒绝；配色在用户工作台管理，设备主题另走 preferences API；只认已登记／白名单身份，拒绝路径、token、未知字段和 query，沿用认证／Origin／JSON／no-store。详见[项目外观契约](../engineering/workbench.md#项目外观w160)。
 - `POST /api/host/select`：仅全局模式可用，JSON `{project}` 必须是现存目录的绝对路径（公网模式还必须在白名单内）；登记该项目、按需启动 / 连接 daemon，返回该项目稳定路由 ID（`id`）。它不再设置全局「当前项目」，页面归属由前端跳到 `/p/<id>/` 决定。
 - `POST /api/host/projects/start` / `stop`：JSON `{id}`，只允许已登记的项目身份。启动是显式操作；停止复用 daemon 的空闲准入并等待退出，不取消 Worker、不强杀；忙碌拒绝。`/api/host` 的 `project_control:true` 宣告支持。项目 API、旧标签轮询、另一个 Host 的附着都不会重新启动已停止的项目。
 - `POST /api/host/remove`：仅全局模式可用，JSON `{id}` 只从列表移除入口并断开这个 Web 连接，**不停止 daemon**；停止走上述独立入口。
 - `GET /api/docs`、`GET /api/docs/search-index`、`GET /api/docs/<id>`：「文档」视图的目录、搜索索引与 Markdown 正文，读的是随这份代码发布的 `docs/**/*.md` 与 `README.md`（`src/ui/web/docs.js`），与当前项目目录无关。搜索索引只在用户第一次搜索时返回标题、小节、正文、普通代码与低权重 Mermaid 字段，匹配和排序在浏览器完成。id 由相对路径推出，只按已扫出的表命中，请求里的路径片段不进文件系统；未命中返回 404。
 
-## 设备共享设置路由
+## 用户工作台路由（W162）
 
-`GET /api/host/settings/<suffix>` 与 `POST /api/host/settings/action` 是已登录用户专属的窄设置入口，无项目前缀、仅 device scope；不接受 Worker/模型调用/历史/迁移/项目路径/token。允许的设置读 suffix、动作和安全投影以[设备设置契约](../engineering/device-settings.md)为准；Host 不为管理配置启动 daemon，也不构造伪项目。
+工作台的设备偏好、全局自动化和跨项目 Inbox 接口只有根路径，不添加 `/p/<id>` 前缀，也不依赖“当前项目”。精确数据模型及实现进度见[用户工作台契约](../engineering/user-workspace.md)。它们复用 Host 登录、Origin、JSON 与 no-store；拒绝未知／重复参数、项目路径、Agent token 和任意 RPC。
 
-项目范围新增 `GET /api/settings/runtime?scope=device|project`、`GET /api/settings/migration`。配置/来源/安装库的现有读面可显式携带 scope，动作在 params 给 scope；默认 project 保持兼容。`settings.clear_override` 与 `settings.migration.apply {revision,confirm:true}` 经原 POST action，迁移只作用于路由绑定的当前项目，历史路由不接受 scope。设备与项目仍复用登录、Origin、JSON 与 no-store 边界。
+| 路由 | 参数与行为 |
+|---|---|
+| `GET /api/host/preferences` | 无查询参数；返回 `{version,revision,values}` 的设备权威偏好 |
+| `POST /api/host/preferences` | `{patch,expected_revision}`，严格偏好白名单、非空 patch，过期版本拒绝 |
+| `GET /api/host/automation` | 无查询参数；设备策略 `{version,revision,auto_select,completion_defaults}` |
+| `POST /api/host/automation` | `{patch,expected_revision}`，仅自动选择和未来新指令默认流程，不循环修改项目开关 |
+| `GET /api/host/inbox?status=&before=&limit=` | status 为 all/open/unread/automatic/failed；before 为不透明全局游标，limit 为 1..100（默认30） |
+| `GET /api/host/inbox/notice?project_id=&id=` | 只接受当前有权访问的登记身份及正整数 Notice ID；不同来源的整数ID不可混用 |
+| `POST /api/host/inbox/action` | `{project_id,id,method,answer?,expected_identity?}`；仅 notice.answer/dismiss/read，answer只用于answer；有真实记录身份时新UI携带expected_identity，源事务核验防整数ID复用误答 |
+
+接口依赖失败只返回安全的未确认诊断，不公开原始认证／上游响应，也不把已提交但未确认的动作说成未执行。Host 停止关闭已实例化聚合服务，不停止项目 daemon 或撤销全局授权。
+
+## 设备设置与旧配置迁移
+
+`GET /api/host/settings/<suffix>` 与 `POST /api/host/settings/action` 是已登录用户专属的窄设置入口，无项目前缀、仅 device scope；不接受 Worker/模型调用/历史/迁移/项目路径/token。设置的唯一有效来源以[用户工作台契约](../engineering/user-workspace.md)为准；安全迁移见[旧配置迁移契约](../engineering/device-settings.md)。Host 不为管理配置启动 daemon，也不构造伪项目。
+
+项目路由的兼容配置读面仅接受 device scope；显式 `scope=project` 已拒绝，不继续提供项目设置覆盖。`GET /api/settings/migration` 与 `settings.migration.apply {revision,confirm:true}` 仍经固定项目路由显式预检／确认，不接受任意磁盘路径。历史与 Worker 运行参数接口不接受 device scope，不搬迁项目事实。
 
 ## 服务器访问边界
 
@@ -108,9 +124,9 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 
 账号连接另开放 `agent.connections.save/remove/sampling/query/login.start/login.finish/device.start/device.poll/device.cancel`，均经项目的 `POST /api/action`、登录与 Origin 校验；设备码检查也是显式 action，不新增读取路由。设备授权 ID、OAuth token、回调授权码均不返回读面，不进审计事件或错误。参数和操作见[Agent 账号连接](rpc/agents.md#托管账号连接)。
 
-快捷解释另开放 `quick_explain.configure` / `quick_explain.start` / `quick_explain.followup` / `quick_explain.delete`，均为用户专属 POST action；旧 `intro.*` / `explanation.*` 仍关闭。配置和历史按项目隔离，支持受管远端项目转发；未选项目不能发起解释。使用见[快捷解释](../quick-explanation.md)，字段见[实现契约](../engineering/quick-explanation.md)。
+快捷解释另开放 `quick_explain.configure` / `quick_explain.start` / `quick_explain.followup` / `quick_explain.delete`，均为用户专属 POST action；旧 `intro.*` / `explanation.*` 仍关闭。配置使用设备唯一来源，结果和历史仍按项目隔离；未打开项目不能发起解释。使用见[快捷解释](../quick-explanation.md)，字段见[实现契约](../engineering/quick-explanation.md)。
 
-Hooks 另开放 `hooks.save/remove/auto_select/signal_save/signal_remove`、`hooks.command_save/command_authorize/command_remove/command_run/command_import`（快捷指令注册、授权、删除、手动执行与旧配置显式导入；无 GET 写入口）、`management.create/binding_update`、`worker.hook_attach/hook_update/hook_remove`，均为当前项目用户专属 action；daemon 自动选择使用独立 revision，不提供 Host 全局开关，见[Hooks 接口](rpc/hooks.md)。
+Hooks 另开放 `hooks.save/remove/auto_select/signal_save/signal_remove`、`hooks.command_save/command_authorize/command_remove/command_run/command_import`（快捷指令注册、授权、删除、手动执行与旧配置显式导入；无 GET 写入口）、`management.create/binding_update`、`worker.hook_attach/hook_update/hook_remove`，均为当前项目用户专属 action；自动选择与新指令默认流程使用同一设备策略 revision，新前端通过上面的 Host 全局接口管理；兼容 hooks mutation 不再保存另一份项目开关，见[用户工作台契约](../engineering/user-workspace.md)。
 
 管理 Agent 的专用 `manager.query/start/retry` RPC 不进入 Web 动作白名单；用户通过自动化页面保存指令和时间信号，不从 Web 构造管理 Actor。授权范围见[时间信号与管理契约](../engineering/hook-signals-management.md)。
 

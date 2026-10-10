@@ -4,6 +4,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 import { webStaticAssets } from './static-assets.js';
 import { canonicalProjectPath, launcherWebConfig, projectRouteId } from '../../host/registry.js';
 import { createProjectHost } from '../../host/project-host.js';
+import { createUserServices } from '../../host/user-services.js';
 import { validateAppearanceUpdate } from '../../host/project-appearance.js';
 import { docsIndex, docsSearchIndex, readDoc } from './docs.js';
 import { previewResponse } from './notice-preview.js';
@@ -150,12 +151,27 @@ function settingQuery(url, keys = [], host = false) {
     check([...keys, 'scope'].includes(key) && !Object.hasOwn(params, key), 'unknown or duplicate settings query parameter');
     params[key] = value;
   }
+  check(params.scope !== 'project', 'project setting overrides are no longer supported; use device settings');
   if (Object.hasOwn(params, 'scope')) normalizeConfigurationScope(params.scope);
   check(!host || params.scope === undefined || params.scope === 'device', 'Host settings only accept device scope');
   return host ? { ...params, scope: 'device' } : params;
 }
 const PROJECT_SETTINGS_READS = new Map([...DEVICE_SETTINGS_READS].map(([suffix, spec]) =>
   [suffix === 'runtime' ? '/api/settings/runtime' : `/api/${suffix}`, spec]));
+
+function userQuery(url, allowed) {
+  const result = {};
+  for (const [key, value] of url.searchParams) {
+    check(allowed.includes(key) && !Object.hasOwn(result, key), 'unknown or duplicate user workspace query parameter');
+    result[key] = value;
+  }
+  return result;
+}
+async function userBody(request, url) {
+  check(!url.search, 'user workspace mutation accepts no query parameters');
+  check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');
+  return request.json();
+}
 
 export function startWeb(config, port = 4318, options = {}) {
   check(Number.isInteger(port) && port >= 0 && port <= 65535, 'invalid web port');
@@ -169,8 +185,9 @@ export function startWeb(config, port = 4318, options = {}) {
   const sessions = new Map();
   const failures = new Map();
   let hostRestarting = false;
-  let deviceSettings = null;
+  let deviceSettings = null, userServices = null;
   const getDeviceSettings = () => deviceSettings ||= options.deviceSettingsService || new DeviceSettingsService(env, options.deviceSettingsOptions);
+  const getUserServices = () => userServices ||= createUserServices(projectHost, { ...options.userServiceOptions, env });
   const emptyJson = async request => {
     check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');
     const body = await request.json();
@@ -241,6 +258,35 @@ export function startWeb(config, port = 4318, options = {}) {
 
       try {
         // ---- 宿主级路由：启动器等不属于任何项目的接口先于项目路由匹配 ----
+        if (['/api/host/preferences', '/api/host/automation'].includes(url.pathname)) {
+          const preference = url.pathname.endsWith('/preferences');
+          if (request.method === 'GET') {
+            userQuery(url, []);
+            return json(await getUserServices()[preference ? 'readPreferences' : 'readAutomation']());
+          }
+          if (request.method === 'POST') {
+            const body = await userBody(request, url);
+            return json(await getUserServices()[preference ? 'savePreferences' : 'saveAutomation'](body));
+          }
+          return json({ error: 'not found' }, 404);
+        }
+        if (request.method === 'GET' && url.pathname === '/api/host/inbox') {
+          const query = userQuery(url, ['status', 'before', 'limit']);
+          if (Object.hasOwn(query, 'limit')) {
+            check(/^[1-9]\d*$/.test(query.limit), 'inbox limit must be a positive integer');
+            query.limit = Number(query.limit);
+          }
+          return json(await getUserServices().listInbox(query));
+        }
+        if (request.method === 'GET' && url.pathname === '/api/host/inbox/notice') {
+          const query = userQuery(url, ['project_id', 'id']);
+          check(typeof query.id === 'string' && /^[1-9]\d*$/.test(query.id), 'positive Notice id required');
+          query.id = Number(query.id);
+          return json(await getUserServices().getNotice(query));
+        }
+        if (request.method === 'POST' && url.pathname === '/api/host/inbox/action') {
+          return json(await getUserServices().actionInbox(await userBody(request, url)));
+        }
         if (request.method === 'GET' && url.pathname.startsWith('/api/host/settings/')) {
           const suffix = url.pathname.slice('/api/host/settings/'.length), spec = DEVICE_SETTINGS_READS.get(suffix);
           if (!spec) return json({ error: 'not found' }, 404);
@@ -570,7 +616,7 @@ export function startWeb(config, port = 4318, options = {}) {
   const stop = server.stop.bind(server);
   server.stop = async closeActiveConnections => {
     const stopped = stop(closeActiveConnections);
-    await Promise.allSettled([stopped, deviceSettings?.stop()]);
+    await Promise.allSettled([stopped, deviceSettings?.stop(), userServices?.close()]);
   };
   WEB_HOSTS.set(server, projectHost);
   if (auth) console.warn('[web] 公网 HTTP 监听已启用；直接通过 HTTP 访问会明文传输账号密码、会话和项目数据，存在窃听与篡改风险。建议由用户配置 HTTPS 反向代理或 SSH 端口转发；HTTP 不会因此被拒绝。');

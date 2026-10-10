@@ -31,7 +31,7 @@ test('来源列表只读本地，不自动选择来源或模型；来源模型�
   expect(model.value).toBe('old/model'); expect(deepText(picker.node)).toContain('当前模型与此来源不匹配'); expect(picker.validate()).toContain('模型范围');
   picker.models.value = 'openai-compatible/model-b'; picker.models.onchange();
   expect(model.value).toBe('openai-compatible/model-b'); expect(picker.validate()).toBeNull();
-  expect(picker.node.querySelector('a').href).toBe(`#model-source-${id}`);
+  expect(picker.node.querySelector('a').href).toBe(`/#model-source-${id}`);
 });
 
 test('读取期间用户改模型与来源保持不变，重复读取单飞', async () => {
@@ -63,7 +63,7 @@ test('Codex CLI如实禁用托管来源，切回Pi保留选择；Pi不允许空�
   expect(picker.validate()).toBeNull();
   backend.value = 'pi'; picker.sync(); expect(picker.value()).toBe(id);
   picker.reset(''); expect(model.value).toBe('old/model'); expect(picker.validate()).toContain('请选择 Lush 模型来源');
-  expect(picker.node.querySelector('a').href).toBe('#model-sources');
+  expect(picker.node.querySelector('a').href).toBe('/#model-sources');
 });
 
 test('Pi必须确认来源并选择明确模型，缺项与凭证失败保留草稿', async () => {

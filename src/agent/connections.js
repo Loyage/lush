@@ -10,7 +10,7 @@ import { ConnectionDeviceLogins } from './connections-device.js';
 import { ConnectionObservationFile } from './connections-observations.js';
 import { ConnectionCatalogFile, LISTINGS, catalogKey, listingUrl, localModels, manualModels, normalizeCatalog } from './connections-catalog.js';
 import { networkSnapshot } from './network.js';
-import { normalizeConfigurationScope, scopedConfiguration, configurationScope } from '../core/device-config.js';
+import { settingsConfigurationScope, scopedConfiguration, configurationScope } from '../core/device-config.js';
 
 const STORAGE = Symbol('connection-storage');
 const storedRow = (row, file) => Object.defineProperty({ ...row }, STORAGE, { value: file });
@@ -37,11 +37,11 @@ export class ConnectionManager {
     // a synthetic Project and never acquires project history or a daemon binding.
     this.deviceOnly = config.project === null && !config.deviceHome;
     this.configurationConfig = this.deviceOnly ? { ...config, deviceHome: config.home } : config;
-    this.scope = normalizeConfigurationScope(options.scope ?? (this.deviceOnly ? 'device' : 'project'));
+    this.scope = settingsConfigurationScope(this.configurationConfig, options.scope);
     check(!this.deviceOnly || this.scope === 'device', 'project configuration is unavailable');
     this.networkConfig = this.scope === 'device' ? scopedConfiguration(this.configurationConfig, 'device') : config;
     this.file = new ConnectionFile(this.networkConfig.home, { privateRoot: this.scope === 'device' });
-    this.sharedFile = this.scope === 'project' && config.deviceHome ? new ConnectionFile(config.deviceHome, { privateRoot: true }) : null;
+    this.sharedFile = null; // Legacy project credentials are migration sources, never runtime fallbacks.
     this.catalogs = new ConnectionCatalogFile(this.file);
     this.catalogStores = new Map([[this.file.home, this.catalogs]]);
     this.observationStores = new Map();
@@ -53,8 +53,8 @@ export class ConnectionManager {
     this.controller = new AbortController(); this.closed = false;
   }
   _alive() { if (this.closed) fail('stopped'); }
-  forScope(scope = 'project') {
-    this._alive(); normalizeConfigurationScope(scope);
+  forScope(scope) {
+    this._alive(); scope = settingsConfigurationScope(this.configurationConfig, scope);
     check(!this.deviceOnly || scope === 'device', 'project configuration is unavailable');
     if (!this.scopedManagers.has(scope)) new ConnectionManager(this.configurationConfig,
       { ...this.options, scope, scopedManagers: this.scopedManagers });
@@ -62,11 +62,7 @@ export class ConnectionManager {
   }
   _data() {
     const local = this.file.read();
-    const own = local.connections.map(row => storedRow(row, this.file));
-    if (!this.sharedFile) return { ...local, connections: own };
-    const shared = this.sharedFile.read(), ids = new Set(own.map(row => row.id));
-    return { version: 1, sampling: fs.existsSync(this.file.file) ? local.sampling : shared.sampling,
-      connections: [...shared.connections.filter(row => !ids.has(row.id)).map(row => storedRow(row, this.sharedFile)), ...own] };
+    return { ...local, connections: local.connections.map(row => storedRow(row, this.file)) };
   }
   _row(id) {
     check(validId(id), 'connection id is invalid');
@@ -131,10 +127,9 @@ export class ConnectionManager {
     const data = this._data();
     const result = { version: 1, sampling: data.sampling, connections: data.connections.map(row => this._view(row)) };
     if (this.configurationConfig.deviceHome) {
-      const overridden = this.scope === 'project' && fs.existsSync(this.file.file);
-      const device = fs.existsSync((this.sharedFile || this.file).file);
+      const device = fs.existsSync(this.file.file);
       result.configuration_scope = configurationScope(this.configurationConfig, this.scope,
-        overridden ? data.connections.some(row => this._storage(row) === this.sharedFile) ? 'mixed' : 'project' : device ? 'device' : 'default', overridden);
+        device ? 'device' : 'default', false);
     }
     return result;
   }

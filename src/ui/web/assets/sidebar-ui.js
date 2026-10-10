@@ -3,18 +3,22 @@ import { ui } from './state.js';
 
 const RESOURCE_META = new Map(SIDEBAR_SECTIONS.map(section => [section.id, section]));
 const PAGES = {
-  projects: ['项目管理', '工作台', '登记、打开与安全控制项目后台'],
+  projects: ['项目管理', '用户工作台', '登记、打开与安全控制项目后台'],
+  'global-inbox': ['全局收件箱', '用户工作台', '所有有权访问项目的待答问题与告知'],
+  automation: ['全局自动化', '用户工作台', '设备自动选择 · 未来新指令默认流程'],
+  'workspace-link': ['独立用户工作台', '项目工作', '全局页面在独立标签打开'],
+  'quick-explain-history': ['解释历史', '项目工作', '当前项目的阅读结果与追问记录'],
   unavailable: ['项目不可用', '工作台', '项目离线时仍可使用环境、设置与帮助'],
   overview: ['项目概览', '工作', '需求、执行进展与最新成果'],
   'task-graph': ['Worker 树', '工作', 'Worker 父子关系 · Agent、分支与 worktree'],
   versions: ['版本迭代', '工作', 'main 主线历史 · 提交与 Worker / 指令追溯'],
-  hooks: ['自动化', '工作', '时间信号 · 管理 Agent · 受控动作 · 模板'],
+  hooks: ['项目自动化', '工作', 'Shell 授权 · 时间信号 · 实际挂载 · 项目模板'],
   inputs: ['历史输入', '工作', '暂存想法 · 全库原始输入检索与发射'],
   statistics: ['用量统计', '交付与用量', 'Token 用量与预计花费 · 非实际账单'],
-  settings: ['系统设置', '其他', '界面偏好、运行参数与系统状态'],
-  'agent-status': ['Agent 配置', '其他', '执行后端、模型来源、Prompt 与工作方式'],
-  'model-sources': ['模型来源', '其他', '设备共享 API、账号登录、模型范围与余额额度'],
-  'quick-explain': ['快捷解释', '其他', '选区解释 · 模型来源与 Prompt · 项目历史'],
+  settings: ['设备设置', '用户工作台', '设备唯一偏好、运行参数与网络'],
+  'agent-status': ['Agent 配置', '用户工作台', '设备统一的执行后端、模型来源、Prompt 与工作方式'],
+  'model-sources': ['模型来源', '用户工作台', '设备 API、账号登录、模型范围与余额额度'],
+  'quick-explain': ['快捷解释配置', '用户工作台', '设备统一的模型来源与 Prompt，历史留在项目'],
   docs: ['帮助文档', '其他', '使用流程、架构与接口参考'],
 };
 function node(id) { return globalThis.document?.getElementById?.(id) ?? null; }
@@ -61,7 +65,7 @@ function activate(id, { key = id, title, context, hint, push = true, hash } = {}
   }
   selectNav(id === 'task' ? 'tasks' : id);
   const meta = resource ? [resource.long, '工作', resource.description] : PAGES[id] || ['项目', '工作', ''];
-  setViewChrome(title ?? meta[0], context ?? meta[1], hint ?? meta[2], { root: id === 'overview' });
+  setViewChrome(title ?? meta[0], context ?? meta[1], hint ?? meta[2], { root: id === 'overview' || id === 'projects' });
   const route = id === 'tasks' ? 'workers' : id === 'task-graph' ? 'worker-graph' : id;
   const target = hash ?? (id === 'overview' ? '' : `#${route}`);
   if (push && globalThis.location?.hash !== target) {

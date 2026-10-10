@@ -16,6 +16,11 @@ const questions = () => [
   ] },
 ];
 function enable(f, value = true) { return f.project.setDaemonAutoSelect(value, f.project.daemonHooks().revision); }
+async function automaticNotice(f, ...args) {
+  const notice = f.project.notice(...args);
+  await until(() => f.store.get('SELECT status FROM notices WHERE id=?', notice.id)?.status === 'answered');
+  return f.store.get(`${NOTICE_SELECT} WHERE id=?`, notice.id);
+}
 function controlled(ignoreAbort = false) {
   const calls = [];
   return { calls, run(ctx) {
@@ -54,7 +59,7 @@ test('new single questions select the first option; multi and text answers deleg
   const f = await quiet();
   try {
     enable(f);
-    const notice = f.project.notice(f.task.id, 'Choose', 'context', 'question', questions());
+    const notice = await automaticNotice(f, f.task.id, 'Choose', 'context', 'question', questions());
     expect(notice).toMatchObject({ status: 'answered', answer_source: 'lush' });
     expect(JSON.parse(notice.answer).answers).toMatchObject([
       { selected: [0], labels: ['第一项'], custom: '' }, { selected: [], labels: [], custom: DELEGATE },
@@ -67,7 +72,7 @@ test('new single questions select the first option; multi and text answers deleg
     expect(f.store.get('SELECT answer_source FROM notices WHERE id=?', notice.id).answer_source).toBe('lush');
     expect(f.project.autoAnswerNotice(notice.id)).toBe(false);
     expect(f.store.unread(f.task.id)).toHaveLength(1);
-    const text = f.project.notice(f.task.id, 'Text question');
+    const text = await automaticNotice(f, f.task.id, 'Text question');
     expect(text).toMatchObject({ status: 'answered', answer: DELEGATE, answer_source: 'lush' });
     expect(f.project.daemonHooks().mounts[0].last_execution).toMatchObject({ notice_id: text.id, status: 'succeeded' });
     expect(f.store.task(f.task.id).status).toBe('paused'); // User pause is not overridden.
@@ -130,7 +135,7 @@ test('automatic questionnaire aborts and resumes only after actual exit with one
     const task = (await f.project.order('race')).task;
     await until(() => provider.calls.length === 1);
     const oldToken = f.project.running.get(task.id).token;
-    const notice = f.project.notice(task.id, 'Choose', '', 'question', questions());
+    const notice = await automaticNotice(f, task.id, 'Choose', '', 'question', questions());
     expect(notice).toMatchObject({ status: 'answered', answer_source: 'lush' });
     expect(provider.calls[0].signal.aborted).toBe(true);
     expect(() => f.project.actor(oldToken)).toThrow();

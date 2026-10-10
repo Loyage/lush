@@ -1,7 +1,7 @@
 import { afterAll, expect, test } from 'bun:test';
 import { deepText, dialogButton, findByText, installDom } from '../dom-stub.js';
 
-const json = value => ({ ok: true, status: 200, json: async () => value });
+const json = value => ({ ok: true, status: 200, json: async () => value?.connections ? { ...value, configuration_scope: { selected: 'device', source: 'device', project_override: false } } : value });
 const notFound = () => ({ ok: false, status: 404, json: async () => ({ error: 'no route /api/agent/packages' }) });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 
@@ -31,7 +31,7 @@ const settingsFixture = () => ({
 
 let actions = [], packagesMode = 'ok', packagesPending = null, resourcesCalls = 0;
 const dom = installDom({ fetch: async (url, options = {}) => {
-  const path = String(url);
+  const path = String(url).replace('/api/host/settings/', '/api/').replace(/[?&]scope=device$/, '');
   if (path === '/api/agent/connections') return json({ version: 1, connections: [connection] });
   if (path.startsWith('/api/agent/connections/models')) return json(catalog);
   if (path === '/api/agent/packages') {
@@ -131,7 +131,7 @@ test('已安装包：未固定来源被拒绝且不发请求；固定来源安�
   expect(deepText(block)).toContain('npm 包必须固定版本');
   source.value = 'npm:example@2.0.0';
   await click(byButton(block, '安装'));
-  expect(actions).toEqual([{ method: 'agent.packages.install', params: { source: 'npm:example@2.0.0' } }]);
+  expect(actions).toEqual([{ method: 'agent.packages.install', params: { scope: 'device', source: 'npm:example@2.0.0' } }]);
   expect(source.value).toBe('');
   source.value = 'git:github.com/example/tools';
   await click(byButton(block, '安装'));
@@ -139,7 +139,7 @@ test('已安装包：未固定来源被拒绝且不发请求；固定来源安�
   expect(deepText(block)).toContain('git 来源必须固定 commit 或 tag');
   source.value = './local-package';
   await click(byButton(block, '安装'));
-  expect(actions.at(-1)).toEqual({ method: 'agent.packages.install', params: { source: './local-package' } });
+  expect(actions.at(-1)).toEqual({ method: 'agent.packages.install', params: { scope: 'device', source: './local-package' } });
 });
 
 test('已安装包：更新与移除调用用户专属动作，移除需确认且取消不提交', async () => {
@@ -147,14 +147,14 @@ test('已安装包：更新与移除调用用户专属动作，移除需确认�
   const root = render(); await settle();
   const block = await reloadPackages(root);
   await click(byButton(block, '更新'));
-  expect(actions.at(-1)).toEqual({ method: 'agent.packages.update', params: { id: 'pkg-1' } });
+  expect(actions.at(-1)).toEqual({ method: 'agent.packages.update', params: { scope: 'device', id: 'pkg-1' } });
   const removing = byButton(block, '移除').onclick(); await settle();
   expect(deepText(dom.node('modal'))).toContain('不会删除用户默认 Pi 的安装');
   await dialogButton(dom, '取消').onclick(); await removing; await settle();
   expect(actions).toHaveLength(1);
   const confirmed = byButton(block, '移除').onclick(); await settle();
   await dialogButton(dom, '移除该包').onclick(); await confirmed; await settle();
-  expect(actions.at(-1)).toEqual({ method: 'agent.packages.remove', params: { id: 'pkg-1' } });
+  expect(actions.at(-1)).toEqual({ method: 'agent.packages.remove', params: { scope: 'device', id: 'pkg-1' } });
 });
 
 test('后端不可用时退回只读目录：明确提示、禁用安装更新、仍列出发现到的包', async () => {

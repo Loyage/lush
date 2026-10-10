@@ -21,7 +21,7 @@ function publicOnly(value, authorization) {
   if (authorization) expect(json).not.toContain(authorization);
 }
 
-for (const level of ['off', 'merge', 'accept', 'archive']) test(`real HTTP project defaults ${level} authorize only new orders and run the correct completion stages`, async () => {
+for (const level of ['off', 'merge', 'accept', 'archive']) test(`real HTTP device defaults ${level} authorize only new orders and run the correct completion stages`, async () => {
   const f = await setup(); let calls = 0;
   try {
     await repo(f.root);
@@ -38,7 +38,7 @@ for (const level of ['off', 'merge', 'accept', 'archive']) test(`real HTTP proje
     publicOnly(task);
     expect((await get(f, `/api/worker/${task.id}/hooks`)).completion.level).toBe(level);
     const original = f.store.task(task.id).auto_merge;
-    // Saving a different project default must neither revoke nor raise this order's saved authorization.
+    // Saving a different device default must neither revoke nor raise this order's saved authorization.
     await configure(f, level === 'off', level === 'off' ? 'accept' : 'merge');
     expect(f.store.task(task.id).auto_merge).toBe(original);
     expect(calls).toBe(0);
@@ -64,13 +64,14 @@ for (const level of ['off', 'merge', 'accept', 'archive']) test(`real HTTP proje
   } finally { await f.close(); }
 });
 
-test('real HTTP defaults use their own revision and remain isolated between projects', async () => {
+test('real HTTP defaults share the device policy revision and remain isolated between different devices', async () => {
   const a = await setup(), b = await setup();
   try {
     const before = await get(a, '/api/hooks'), other = await get(b, '/api/hooks');
     expect(before.completion_defaults).toMatchObject({ enabled: false, level: 'merge' });
     const changed = await configure(a, true, 'archive');
-    expect(changed.revision).toBe(before.revision); expect(changed.daemon_hooks.revision).toBe(before.daemon_hooks.revision);
+    expect(changed.revision).toBe(before.revision); expect(changed.daemon_hooks.revision).not.toBe(before.daemon_hooks.revision);
+    expect(changed.daemon_hooks.mounts[0].enabled).toBe(false);
     expect(changed.completion_defaults.revision).not.toBe(before.completion_defaults.revision);
     for (const expected_revision of [before.completion_defaults.revision, before.revision, before.daemon_hooks.revision]) {
       const error = await post(a, 'hooks.completion_defaults', { enabled: false, level: 'merge', expected_revision }, 400);

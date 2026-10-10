@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import { installDom } from '../dom-stub.js';
 import { createNoticeNotifier, notificationStatus, setNoticeNotifications, observeNotices, resetNoticeNotifier } from '../../src/ui/web/assets/notice-notifications.js';
-import { readPref, setPref, resetPrefs, normalizeNoticeChannels, PREF_DEFS } from '../../src/ui/web/assets/prefs.js';
+import { DEVICE_PREF_NAMES, readPref, setPref, resetPrefs, normalizeNoticeChannels, PREF_DEFS } from '../../src/ui/web/assets/prefs.js';
 
 const notice = (id, status = 'open', kind = 'question') => ({ id, status, kind, title: `question ${id}`, created_at: String(id) });
 const data = (notices, project = '/tmp/one') => ({ status: { project }, notices });
@@ -22,8 +22,14 @@ test('notification observer: baseline, disabled, new decisions, dedupe, reconnec
   expect(sent).toEqual([[6, '/tmp/one'], [5, '/tmp/one'], [2, '/tmp/two']]);
 });
 
-test('browser permission is opt-in, rejection safe, click opens records, toggling off keeps records untouched', async () => {
-  const dom = installDom();
+test('device switch and browser permission are separate; grants remain opt-in and records untouched', async () => {
+  let revision = 0, values;
+  const dom = installDom({ fetch: async (path, options) => {
+    expect(String(path)).toBe('/api/host/preferences');
+    if (options?.method === 'POST') { values = { ...values, ...JSON.parse(options.body).patch }; revision++; }
+    return new Response(JSON.stringify({ version: 1, revision: `r${revision}`, values }));
+  } });
+  values = Object.fromEntries(DEVICE_PREF_NAMES.map(name => [name, readPref(name)]));
   const previous = globalThis.Notification;
   let permission = 'default', requests = 0; const banners = [];
   class FakeNotification {
@@ -37,7 +43,7 @@ test('browser permission is opt-in, rejection safe, click opens records, togglin
     expect(readPref('noticeNotifications')).toBe(false);
     resetNoticeNotifier(); observeNotices(data([])); observeNotices(data([notice(1)])); await flush();
     expect(requests).toBe(0); expect(banners).toHaveLength(0);
-    permission = 'denied'; expect(await setNoticeNotifications(true)).toBe(false);
+    permission = 'denied'; expect(await setNoticeNotifications(true)).toBe(true);
     expect(notificationStatus()).toContain('未获授权');
     permission = 'granted'; expect(await setNoticeNotifications(true)).toBe(true);
     observeNotices(data([notice(2)])); await flush();
@@ -50,7 +56,7 @@ test('browser permission is opt-in, rejection safe, click opens records, togglin
     resetNoticeNotifier(); setPref('noticeNotifications', true); observeNotices(data([notice(3)])); await flush();
     expect(banners).toHaveLength(1);
     delete globalThis.Notification;
-    expect(await setNoticeNotifications(true)).toBe(false);
+    expect(await setNoticeNotifications(true)).toBe(true);
     expect(notificationStatus()).toContain('不支持');
   } finally { if (previous === undefined) delete globalThis.Notification; else globalThis.Notification = previous; dom.restore(); }
 });

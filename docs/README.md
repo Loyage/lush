@@ -20,8 +20,9 @@
 - [Worker 图与固定输入规则](engineering/task-graph.md)：实现、可信代码风险与读面边界；[Worker 中心输入](engineering/task-centered-input-design.md)：当前指令的设计约束。
 - [Worker Hooks](design/hooks.md)：触发节点、已挂载动作、自动合并与冻结期间预约发射；[工程接缝](engineering/hooks.md)固定接口、安全边界及实施分工；[合并—验收—归档自动链](engineering/completion-hooks.md)记录追加实现契约。
 - [已合并 Worker 的持续迭代](engineering/task-iteration.md)：追加输入、多轮交付、验收与归档、安全父同步及历史显式恢复。
+- [用户工作台](design/user-workspace.md)：W162／决定 #402 的设备唯一设置、全局收件箱与自动化、项目工作页分离；[工程契约](engineering/user-workspace.md)固定本次接口与实施边界，优先于旧项目设置覆盖描述。
 - [工作台与开发环境](design/workbench.md)：主体启动、独立项目标签、用户管理的远程网络与后台开关；[工程接缝](engineering/workbench.md)记录接入范围与限制。
-- [设备共享设置与迁移](device-settings.md)：用户编辑范围、迁移和中断恢复；[设计理念](design/device-settings.md)解释项目/Worker 覆盖及私有凭证边界；[工程契约](engineering/device-settings.md)记录兼容、接口与验证。
+- [设备共享设置与迁移](device-settings.md)：用户编辑范围、迁移和中断恢复；[设计理念](design/device-settings.md)解释私有凭证边界；[工程契约](engineering/device-settings.md)保留旧继承方案的兼容与迁移记录。
 - [模块设计理念](design/README.md)：修改相关模块前了解目标与取舍，不当作已实现功能清单。
 - [接口参考](reference/README.md)：CLI / RPC / HTTP / Web；[贡献指南](contributing/README.md)说明开发及文档写法。
 

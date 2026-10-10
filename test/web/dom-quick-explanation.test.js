@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { installDom, deepText, findByText, dialogButton } from '../dom-stub.js';
 import { until } from '../helpers.js';
 import { makeWorld } from './dom-world.js';
-import { openQuickExplanationPage } from '../../src/ui/web/assets/render-quick-explanation.js';
+import { openQuickExplanationPage, openQuickExplanationHistory } from '../../src/ui/web/assets/render-quick-explanation.js';
 import { startQuickExplanation, openQuickExplanation, closeQuickExplanationPanel } from '../../src/ui/web/assets/quick-explanation.js';
 import { ui, transcriptCache } from '../../src/ui/web/assets/state.js';
 import { activateDetailView } from '../../src/ui/web/assets/sidebar-ui.js';
@@ -13,8 +13,10 @@ import { renderDiff } from '../../src/ui/web/assets/render-diff.js';
 const world = makeWorld(), calls = [];
 let intercept = null;
 const dom = installDom({ fetch: async (url, options = {}) => {
-  calls.push({ url: String(url), options });
-  const value = intercept?.(String(url).replace(/\?scope=device$/, ''), options); return value || world.fetchImpl(url, options);
+  // Keep app-wide read-only policy/inbox traffic separate from explanation calls.
+  if (!/^\/api\/host\/(preferences|automation|inbox)(?:[/?]|$)/.test(String(url))) calls.push({ url: String(url), options });
+  const logical = String(url).replace('/api/host/settings/', '/api/').replace(/^\/p\/[a-f0-9]{16}\/api\//, '/api/').replace(/\?scope=device$/, '');
+  const value = intercept?.(logical, options); return value || world.fetchImpl(String(url).replace(/^\/p\/[a-f0-9]{16}\/api\//, '/api/'), options);
 } });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const json = value => ({ ok: true, status: 200, json: async () => value && Object.hasOwn(value, 'ready') ? { ...value, configuration_scope: { selected: 'device', source: 'device', project_override: false } } : value });
@@ -26,7 +28,7 @@ const row = (id, extra = {}) => ({ id, status: 'completed', quote: `原文 ${id}
   model: 'fixture-model', prompt: '当时的 Prompt', source: { label: '当时的 API', connection_id: 'old', provider: 'openai-compatible', endpoint: 'https://old.invalid/v1' },
   created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z', ...extra });
 beforeEach(async () => {
-  intercept = null; closeQuickExplanationPanel(); closeTranscriptView(); dom.setSelection(''); dom.location.hash = '';
+  intercept = null; closeQuickExplanationPanel(); closeTranscriptView(); dom.setSelection(''); dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/'; dom.location.hash = '';
   world.state.quickExplanations.clear(); world.state.quickExplanationSeq = 0; world.state.actions.length = 0;
   Object.assign(world.state.quickExplanationConfig, { connection_id: null, model: '', prompt: '请简洁解释所选文字。', ready: false, reason: '请选择解释的模型来源与模型。' });
   world.state.agentConnections.connections = [{ id: '11111111-1111-4111-8111-111111111111', label: '测试 Lush API', provider: 'openai-compatible', auth_type: 'api_key',
@@ -35,13 +37,14 @@ beforeEach(async () => {
 });
 afterAll(() => { closeQuickExplanationPanel(); closeTranscriptView(); dom.restore(); });
 
-test('快捷解释独立导航和 hash 加载本地配置与全项目历史，不调用模型', async () => {
+test('根快捷解释导航只加载设备配置；项目历史入口独立，不调用模型', async () => {
+  dom.location.pathname = '/'; dom.location.hash = ''; await boot(); calls.length = 0;
   await dom.node('quick-explain-open').onclick();
   expect(dom.location.hash).toBe('#quick-explain'); expect(ui.view.id).toBe('quick-explain');
   expect(dom.node('quick-explain-open').getAttribute('aria-current')).toBe('page');
-  expect(dom.node('view-title').textContent).toBe('快捷解释');
-  expect(calls.map(call => call.url)).toEqual(['/api/quick-explain/config?scope=device', '/api/agent/connections?scope=device', '/api/quick-explain/history?limit=30']);
-  expect(world.state.actions).toHaveLength(0); expect(deepText(dom.node('detail'))).toContain('还没有解释记录');
+  expect(dom.node('view-title').textContent).toBe('快捷解释配置');
+  expect(calls.map(call => call.url)).toEqual(['/api/host/settings/quick-explain/config?scope=device', '/api/host/settings/agent/connections?scope=device']);
+  expect(world.state.actions).toHaveLength(0); expect(deepText(dom.node('detail'))).not.toContain('还没有解释记录');
   activateDetailView({ view: 'overview' }); dom.location.hash = '#quick-explain'; await dom.fire('hashchange');
   expect(ui.view.id).toBe('quick-explain'); expect(field('prompt').value).toBe('请简洁解释所选文字。');
 });
@@ -134,12 +137,12 @@ test('超长选区和输入控件选区不发送；未配置显示设置入口�
   await dom.fire('contextmenu', { target: input, preventDefault() {} }); expect(dom.node('context-menu').hidden).toBe(true);
   world.state.quickExplanationConfig.ready = false;
   await startQuickExplanation('待解释', { view: 'settings' }); expect(deepText(panel())).toContain('选择快捷解释');
-  expect(panel().querySelector('a').href).toBe('#quick-explain'); expect(world.state.actions).toHaveLength(0);
+  expect(panel().querySelector('a').href).toBe('/#quick-explain'); expect(panel().querySelector('a').target).toBe('_blank'); expect(world.state.actions).toHaveLength(0);
 });
 
 test('项目全历史有界分页，点击只读记录显示原文、结果及当时配置快照', async () => {
   for (let id = 1; id <= 35; id++) world.state.quickExplanations.set(id, row(id));
-  await openQuickExplanationPage(); expect(dom.node('detail').querySelectorAll('.quick-explanation-history-row')).toHaveLength(30);
+  await openQuickExplanationHistory(); expect(dom.node('detail').querySelectorAll('.quick-explanation-history-row')).toHaveLength(30);
   expect(deepText(dom.node('detail'))).toContain('来源快照见详情');
   expect(deepText(dom.node('detail'))).not.toContain('历史来源未知');
   await findByText(dom.node('detail'), '加载更早解释').onclick();
@@ -154,7 +157,7 @@ test('项目全历史有界分页，点击只读记录显示原文、结果及�
 test('历史记录可删除：先确认再发送 delete，运行中的记录禁用删除', async () => {
   world.state.quickExplanations.set(1, row(1));
   world.state.quickExplanations.set(2, row(2, { status: 'running', result: null }));
-  await openQuickExplanationPage();
+  await openQuickExplanationHistory();
   const articles = [...dom.node('detail').querySelectorAll('.quick-explanation-history-row')];
   const running = articles.find(article => deepText(article).includes('解释中')).querySelector('button.danger');
   expect(running.disabled).toBe(true);
@@ -216,13 +219,14 @@ test('running 读取计时器在关闭及 boot 清理；正文不变不重绘选
     const [id, tick] = [...timers][0]; timers.delete(id); await tick();
     expect(panel().children[2].children[0]).toBe(before); expect(timers.size).toBe(1);
     closeQuickExplanationPanel(); expect(timers.size).toBe(0);
-    await openQuickExplanation(1); expect(timers.size).toBe(1); await boot(); expect(timers.size).toBe(0); expect(panel()).toBeNull();
+    await openQuickExplanation(1); expect(timers.size).toBe(1); const explanationTimer = [...timers.keys()][0];
+    await boot(); expect(timers.has(explanationTimer)).toBe(false); expect(panel()).toBeNull(); // global inbox owns its separate timer
   } finally { closeQuickExplanationPanel(); globalThis.setTimeout = originalSet; globalThis.clearTimeout = originalClear; }
 });
 
 test('未选项目可管理快捷解释配置，但菜单或模型调用仍不读取项目 API', async () => {
   intercept = url => url === '/api/host' ? json({ mode: 'host', projects: [] }) : url === '/api/host/projects' ? json({ projects: [] }) : null;
-  await boot(); calls.length = 0;
+  dom.location.pathname = '/'; dom.location.hash = ''; await boot(); calls.length = 0;
   expect(dom.node('quick-explain-open').disabled).toBe(false);
   const target = dom.document.createElement('p'); target.textContent = '全局文档'; dom.setSelection('选中文字');
   await dom.fire('contextmenu', { target, preventDefault() {} }); expect(findByText(dom.node('context-menu'), '解释')).toBeNull();
@@ -233,12 +237,14 @@ test('历史刷新失败保留已有记录并允许重试；配置读取失败�
   world.state.quickExplanations.set(1, row(1));
   intercept = url => url === '/api/quick-explain/config' ? Promise.reject(new Error('配置暂不可用')) : null;
   await openQuickExplanationPage(); expect(deepText(dom.node('detail'))).toContain('配置读取失败');
+  expect(dom.node('detail').querySelectorAll('.quick-explanation-history-row')).toHaveLength(0);
+  await openQuickExplanationHistory();
   expect(dom.node('detail').querySelectorAll('.quick-explanation-history-row')).toHaveLength(1);
   intercept = url => url.startsWith('/api/quick-explain/history') ? Promise.reject(new Error('读取失败')) : null;
   await findByText(dom.node('detail'), '刷新历史').onclick();
   expect(dom.node('detail').querySelectorAll('.quick-explanation-history-row')).toHaveLength(1);
   expect(deepText(dom.node('detail'))).toContain('已加载记录保留');
-  intercept = null; await findByText(dom.node('detail'), '重试读取配置').onclick(); expect(field('prompt')).toBeTruthy();
+  intercept = null; await findByText(dom.node('detail'), '刷新历史').onclick(); await openQuickExplanationPage(); expect(field('prompt')).toBeTruthy();
 });
 
 test('最终响应不替换面板内当前选区，放开选区后显示完成结果', async () => {
@@ -340,6 +346,6 @@ test('历史摘要显示追问轮数', async () => {
   world.state.quickExplanations.set(1, row(1, { followups: [
     { id: 1, question: 'q', answer: 'a', status: 'completed', error: null, truncated: false, created_at: 't', updated_at: 't' },
   ] }));
-  await openQuickExplanationPage();
+  await openQuickExplanationHistory();
   expect(deepText(dom.node('detail'))).toContain('追问 1 轮');
 });

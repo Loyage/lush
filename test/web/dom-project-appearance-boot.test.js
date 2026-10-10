@@ -41,13 +41,16 @@ test('switching project boot changes title/color; workbench clears them and does
   expect(calls.slice(before).some(row => /\/appearance$/.test(row.path))).toBe(false);
 });
 
-test('single-project root resolves Host stable identity and never falls back to browser settings on read failure', async () => {
-  bound = true; failAppearance = true; await boot();
-  expect(dom.document.title).toBe('project-0 · Lush');
-  expect(dom.node('theme-toggle').disabled).toBe(true);
+test('single-project root remains a device workspace; project color failure does not block device settings', async () => {
+  bound = true; failAppearance = true; const before = calls.length; await boot();
+  expect(dom.document.title).toBe('Lush');
+  expect(dom.node('theme-toggle').disabled).toBe(false);
   expect(dom.document.documentElement.dataset.projectColor).toBeUndefined();
+  expect(calls.slice(before).some(row => /\/appearance$/.test(row.path))).toBe(false);
   await dom.node('settings-open').onclick();
   await dom.node('detail').querySelector('button.settings-tab[data-settings-tab="interface"]').onclick();
-  expect(dom.node('detail').querySelector('input.pref-radio[data-value="dark"]').disabled).toBe(true);
-  expect(dom.node('detail').querySelector('.settings-error').textContent).toContain('configuration unavailable');
+  expect(dom.node('detail').querySelector('input.pref-radio[data-value="dark"]').disabled).toBe(false);
+  dom.location.pathname = `/p/${ids[0]}/`; await boot();
+  expect(dom.document.title).toBe('project-0 · Lush');
+  expect(dom.node('theme-toggle').disabled).toBe(false);
 });

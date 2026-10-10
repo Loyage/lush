@@ -5,17 +5,26 @@ Notice 共用持久记录，但决策与告知的语义独立。Agent 需要用�
 | CLI | RPC | 参数 |
 |---|---|---|
 | `notice list` | `notice.list` | `{}` |
-| Web 历史分页 | `notice.page` | `{status?: 'all', before?: ID, limit?: 30}` |
+| 项目历史分页 | `notice.page` | `{status?: 'all', before?: ID, limit?: 30}` |
+| Host 来源增量同步（用户专属） | `notice.sync` | `{cursor?: 不透明游标, limit?: 100}` |
 | `notice post 'title' --worker ID --body 'body'` | `notice.post` | `{task, title, body?: '', questions?}` |
 | `notice post 'title' --questions-file FILE` | `notice.post` | 文件为 `{questions:[…]}`，agent 可省略 `--worker` |
-| `notice answer ID 'answer'` | `notice.answer` | `{id, answer:字符串}`（旧式文字问题） |
-| `notice answer ID --answers-file FILE` | `notice.answer` | `{id, answer:{answers:[…]}}`（结构化问卷） |
-| `notice dismiss ID` | `notice.dismiss` | `{id}` |
-| `notice read ID` | `notice.read` | `{id}`（用户专属，只将 `info/sent` 标记已读） |
+| `notice answer ID 'answer'` | `notice.answer` | `{id, answer:字符串, expected_identity?:记录身份}`（旧式文字问题） |
+| `notice answer ID --answers-file FILE` | `notice.answer` | `{id, answer:{answers:[…]}, expected_identity?:记录身份}`（结构化问卷） |
+| `notice dismiss ID` | `notice.dismiss` | `{id, expected_identity?:记录身份}` |
+| `notice read ID` | `notice.read` | `{id, expected_identity?:记录身份}`（用户专属，只将 `info/sent` 标记已读） |
 
 在源码仓库中统一用 `bun run lush notice …`（或 `bun run answer …`）。Agent 子进程通过注入的 CLI 与 `LUSH_PROJECT` 连接原项目，即使 cwd 是独立 worktree，也不会把问题发到另一个项目。
 
 CLI 的 `--worker` 映射到保留的 RPC 参数 `task`，不接受旧 `--task` 别名；不要把 `notice.post {task,…}` 改成不存在的 `worker` 参数。见[更名边界](../../engineering/core-api.md#worker-更名与兼容边界)。
+
+## 全局来源同步与记录身份
+
+Host 全局收件箱使用用户专属 `notice.sync`，不通过首页 200 条窗口冒充完整历史。返回 `{version:1,project,epoch,reset,changes,cursor,has_more}`；changes 为 `{id,identity,deleted,notice?}`。初始化固定 watermark 分页扫描旧记录，随后补增量；日志过期或数据库 epoch 变化返回 reset 重新补齐。新增、答复、已读、直接 SQL 结算及删除由附属索引／触发器同步，原 Notice 行不回填或重写。
+
+所有 Notice 读面附加 `sync_identity`、`sync_revision`、`sync_epoch`。整数 ID 仅在来源项目内有效；新全局前端将所见 `sync_identity` 作为 `expected_identity` 交给 Host，来源 RPC 在同一事务核验再执行，删除／ID 复用不误答新记录。该可选 RPC 字段不改变既有 CLI 参数，旧客户端可省略；不是调用方自报答案来源。
+
+全局缓存是私有、有界的派生视图，离线／补齐状态明确，不能据缓存执行动作。来源移除／无权访问后不再返回缓存；读取不启动停止的 daemon。HTTP 路径及容量／失败边界见[用户工作台契约](../../engineering/user-workspace.md#全局收件箱分区)。
 
 ## 生命周期告知
 
@@ -48,7 +57,7 @@ Notice 读面另投影可空 `lifecycle_type`，依据同 Worker 的来源 Event
 ```
 
 - `header` 最多 16 字，`question` 最多 2000 字；label 最多 60 字，description 最多 2000 字，均不能为空。选项标签不可重复。
-- 推荐项排第一并在 label 标「（推荐）」，默认**不自动选择**。用户显式开启项目 [daemon 自动选择 Hook](../../engineering/daemon-auto-select.md) 后，单选固定选择第一项，多选交回 Agent 自行判断；开启也处理已有待答问卷及文字问题。多选仅用于多个选项可以同时成立的题目。
+- 推荐项排第一并在 label 标「（推荐）」，默认**不自动选择**。用户显式开启设备全局 [自动选择授权](../../engineering/daemon-auto-select.md) 后，单选固定选择第一项，多选交回 Agent 自行判断；开启也处理已有待答问卷及文字问题。多选仅用于多个选项可以同时成立的题目。
 - 每题自动提供自定义答案，不要手写 `Other` / `其他` / `自定义答案` 占位选项。自定义答案替代该题全部选项，不与选项混用。
 - `preview` 是 Markdown（最多 12000 字）；`previewHtml` 是自包含静态 HTML/CSS（最多 16000 字）。整个 versioned envelope 最多 64000 UTF-8 字节，背景 body 最多 8000 字。无需预览的简单偏好题只写说明即可。
 - 发布前完整校验，非法请求不建 notice、不暂停Worker。每个 Worker 同时最多一份开放问卷。
@@ -83,7 +92,7 @@ Notice 读面另投影可空 `lifecycle_type`，依据同 Worker 的来源 Event
 
 问卷单选点一次即进入下一题；多选点选后继续；预览按钮/悬停/键盘聚焦可先看方案，不提交答案。最后展示全部题目的选择、说明与可展开预览，可返回修改，一次确认整份问卷。在记录面板提交后原地显示处理结果；从Worker详情答复时仍可自动打开下一个未决问题。
 
-选择草稿按项目、notice id、创建时间及正文隔离，在当前标签页的 sessionStorage 保存；切换Worker、轮询、刷新再打开不会丢选择。发送失败保留草稿、允许重试；其它标签页已处理时服务端拒绝重复提交。
+全局选择草稿按来源项目、sync_epoch、sync_identity 隔离；旧项目读面仍兼容 notice id、创建时间及正文，在当前标签页的 sessionStorage 保存；切换Worker、轮询、刷新再打开不会丢选择。发送失败保留草稿、允许重试；其它标签页已处理时服务端拒绝重复提交。
 
 HTML 通过已认证的只读预览路由渲染，不读取 agent 提供的本机路径：先白名单清洗，删除脚本、事件、外链导航、meta refresh、表单、嵌套 frame 等，再使用独立 CSP 和无权限 iframe sandbox。仅允许内联样式与 data 图片/字体，禁止网络与脚本、宿主访问、导航与表单提交。预览是**静态提案，不是已实现效果**。浏览器使用该实现，主页面 CSP 不放宽。
 
@@ -95,12 +104,12 @@ HTML 通过已认证的只读预览路由渲染，不读取 agent 提供的本�
 
 「设置 → 界面」分别为 **Worker 待开始、Worker 本轮结束、只读分析完成、异常停止** 设置「页面告知条」与「系统通知」；各类各渠道默认允许，系统通知还需总开关与授权。未知分类的生命周期告知保持可见。待决问题独立保留，不能用「已知」或横滑消除。设计取舍见[通知与告知理念](../../design/notices.md)。
 
-关闭某类提醒仅影响当前客户端，不阻止告知生成，不删除记录，不改变未读数；「待我处理」仍可查询全部告知。浏览器按站点保存偏好。已读事实则保存在项目中，各设备共享。
+类别／渠道偏好由 Host 保存为后台机器同一系统用户的设备设置，各客户端同步；localStorage 只缓存首帧。关闭类别不阻止告知生成、不删记录、不改未读数。已读事实仍由来源项目保存，不是浏览器偏好。
 
 页面告知条展示可见类别的最新未读告知及数量，提供查看 Worker 与「已知」两个入口。「已知」只标记当前展示的一条，下一条依次显示。手机可水平滑动执行同一动作，同时保留按钮；垂直滚动、短滑、文本选择或取消手势不消除。
 
 ### 浏览器／系统提醒
 
-在事项页或「设置 → 界面」的系统提醒入口开启。默认关闭，开关仅属于当前客户端：浏览器按站点保存。首次开启 Web 提醒须主动授权；拒绝、不支持或非安全上下文会显示说明，不影响记录与答复。远程 Web 需 HTTPS，本机可用 localhost。
+设备设置的系统提醒总开关默认关闭，由 Host 权威保存；浏览器通知权限是独立客户端能力，只在用户手势下请求。拒绝、不支持或非安全上下文显示本客户端说明，不将已保存的设备总开关写回 false、不影响其它客户端。Host 保存失败则不能假称总开关已开启。远程 Web 需 HTTPS，本机可用 localhost。
 
 仅在浏览器页面打开期间，对新出现的未处理问题、问卷和计划发送通知；后台窗口也可以提醒，但受浏览器节流、系统权限与勿扰模式约束。首次加载／刷新／切换项目不补发旧事项；旧普通完成提醒（source_event_id 为空的 info）仅留档，新的未读生命周期告知也可提醒。点击生命周期告知通知聚焦应用并打开所属 Worker，成功加载后标已读；问题仍进入对应决策处理入口。分类的系统通知开关独立过滤纯告知，不过滤待决问题；关闭期间的新事项不在重新开启时补发。关闭开关只停止提醒，关闭浏览器页面后不提供后台推送。

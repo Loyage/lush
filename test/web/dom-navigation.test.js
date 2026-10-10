@@ -1,5 +1,6 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, deepText } from '../dom-stub.js';
+import { installDom, deepText } from './project-dom.js';
+import { installDom as installRootDom } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
 
 const world = makeWorld();
@@ -54,8 +55,21 @@ test('右侧固定返回按钮在没有原生 history.back 的宿主里安全回
   expect(deepText(dom.node('detail'))).toContain('项目概览');
 });
 
+test('项目所有全局入口都在独立根标签打开，保留输入、选区、阅读位置与当前工作页', async () => {
+  await dom.node('home').onclick(); const opened = [], previous = dom.window.open;
+  dom.window.open = href => { opened.push(href); return null; };
+  dom.node('input').value = '未发送输入'; dom.node('detail').scrollTop = 140; dom.setSelection('阅读选区');
+  try {
+    for (const [id, hash] of [['projects', 'projects'], ['settings', 'settings'], ['global-inbox', 'notices'], ['automation', 'automation'], ['model-sources', 'model-sources'], ['agent-status', 'agent-status'], ['quick-explain', 'quick-explain'], ['docs', 'docs']]) {
+      await dom.node(`${id}-open`).onclick(); expect(opened.at(-1)).toBe(`/#${hash}`);
+      expect(dom.node(`${id}-open`).target).toBe('_blank'); expect(ui.view.id).toBe('overview');
+      expect(dom.node('input').value).toBe('未发送输入'); expect(dom.node('detail').scrollTop).toBe(140); expect(dom.window.getSelection().toString()).toBe('阅读选区');
+    }
+  } finally { dom.window.open = previous; dom.node('input').value = ''; dom.setSelection(''); }
+});
+
 const navEntries = () => [
-  ...['overview', 'task-graph', 'agent-status', 'model-sources', 'settings', 'docs'].map(id => [id, dom.node(`${id}-open`)]),
+  ...['overview', 'task-graph', 'versions', 'inputs', 'hooks', 'agent-status', 'model-sources', 'settings', 'docs'].map(id => [id, dom.node(`${id}-open`)]),
   ...[...ui.navButtons.entries()],
 ];
 const routeHash = id => id === 'overview' ? '' : `#${id === 'tasks' ? 'workers' : id === 'task-graph' ? 'worker-graph' : id}`;
@@ -67,7 +81,7 @@ function expectSelected(id) {
 test('所有页面平级、唯一选中；重复点击、hash 后退与轮询保持画布一致', async () => {
   intercept = url => url === '/api/docs' ? Promise.resolve(json({ docs: [] })) : null;
   try {
-    for (const [id, node] of navEntries()) {
+    for (const [id, node] of navEntries().filter(([id]) => !['agent-status', 'model-sources', 'settings', 'docs'].includes(id))) {
       dom.node('sidebar').classList.add('mobile-open');
       await node.onclick();
       expectSelected(id);
@@ -82,7 +96,7 @@ test('所有页面平级、唯一选中；重复点击、hash 后退与轮询保
       if (ui.indexOpen) expect(dom.node(`side-${id}`).hidden).toBe(false);
       else expect(dom.node('detail').dataset.view).toBe(id);
     }
-    for (const id of ['task-graph', 'agent-status', 'model-sources', 'settings', 'notices', 'tasks', 'docs', 'overview']) {
+    for (const id of ['task-graph', 'versions', 'inputs', 'hooks', 'notices', 'tasks', 'overview']) {
       dom.location.hash = routeHash(id);
       await dom.fire('hashchange');
       expectSelected(id);
@@ -92,46 +106,37 @@ test('所有页面平级、唯一选中；重复点击、hash 后退与轮询保
   } finally { intercept = null; }
 });
 
-test('来源UUID深链接选择正确详情，来源只读请求迟到不覆盖新页面', async () => {
-  const connectionId = '12345678-1234-1234-1234-123456789abc';
-  const previous = world.state.agentConnections;
+test('根来源UUID深链接与迟到读保护；项目旧设置hash只给独立根链接', async () => {
+  const connectionId = '12345678-1234-1234-1234-123456789abc', previous = world.state.agentConnections;
   world.state.agentConnections = { ...previous, connections: [{ id: connectionId, label: '指定 API', provider: 'deepseek',
-    auth_type: 'api_key', endpoint: 'https://api.deepseek.com', enabled: true, models: ['flash'],
-    credential: { status: 'configured' }, consumers: [] }] };
+    auth_type: 'api_key', endpoint: 'https://api.deepseek.com', enabled: true, models: ['flash'], credential: { status: 'configured' }, consumers: [] }] };
+  const rootDom = installRootDom({ fetch: (url, options) => intercept?.(String(url), options) ?? world.fetchImpl(url, options) });
   try {
-    await dom.node('home').onclick(); dom.location.hash = `#model-source-${connectionId}`; await dom.fire('hashchange');
-    expectSelected('model-sources'); expect(dom.node('view-title').textContent).toBe('模型来源');
-    const cards = dom.node('detail').querySelectorAll('.agent-connection-card').filter(node => !node.hidden);
-    expect(cards.map(node => node.dataset.connectionId)).toEqual([connectionId]);
-    expect(dom.location.hash).toBe(`#model-source-${connectionId}`);
-    await dom.intervalFor(1500)(); expectSelected('model-sources');
-    await dom.node('home').onclick();
-    const pending = deferred(), started = deferred();
-    intercept = url => url === '/api/agent/connections?scope=device' ? (started.resolve(), pending.promise) : null;
-    const opening = dom.node('model-sources-open').onclick(); await started.promise;
-    await dom.node('settings-open').onclick(); pending.resolve(json(world.state.agentConnections)); await opening;
-    expectSelected('settings'); expect(dom.node('detail').querySelector('.model-source-layout')).toBeNull();
-  } finally { intercept = null; world.state.agentConnections = previous; }
+    rootDom.location.hash = `#model-source-${connectionId}`; await boot();
+    expect(rootDom.node('model-sources-open').getAttribute('aria-current')).toBe('page');
+    expect(rootDom.node('detail').querySelectorAll('.agent-connection-card').filter(node => !node.hidden).map(node => node.dataset.connectionId)).toEqual([connectionId]);
+    expect(rootDom.location.hash).toBe(`#model-source-${connectionId}`); expect(rootDom.intervalFor(1500)).toBeUndefined();
+    await rootDom.node('home').onclick(); const pending = deferred(), started = deferred();
+    intercept = url => url === '/api/host/settings/agent/connections?scope=device' ? (started.resolve(), pending.promise) : null;
+    const opening = rootDom.node('model-sources-open').onclick(); await started.promise;
+    await rootDom.node('settings-open').onclick(); pending.resolve(json(world.state.agentConnections)); await opening;
+    expect(rootDom.node('settings-open').getAttribute('aria-current')).toBe('page'); expect(rootDom.node('detail').querySelector('.model-source-layout')).toBeNull();
+  } finally { intercept = null; world.state.agentConnections = previous; rootDom.restore(); await boot(); }
+  dom.location.hash = '#settings'; await dom.fire('hashchange');
+  expect(ui.view.id).toBe('workspace-link'); const link = dom.node('detail').querySelector('a');
+  expect(link.href).toBe('/#settings'); expect(link.target).toBe('_blank');
+  await dom.node('home').onclick();
 });
 
-test('概览切换不依赖 revision 变化，轮询忙或断网时也立即显示缓存', async () => {
-  await dom.node('home').onclick();
-  ui.lastSnapshot.revision = 'stable';
-  const pending = deferred();
+test('概览切换不依赖 revision，轮询忙或断网时立即显示缓存', async () => {
+  await dom.node('home').onclick(); ui.lastSnapshot.revision = 'stable'; const pending = deferred();
   intercept = url => url.startsWith('/api/overview') ? pending.promise : null;
-  const poll = dom.intervalFor(1500)();
-  await dom.node('settings-open').onclick();
-  await dom.node('overview-open').onclick();
-  expect(deepText(dom.node('detail'))).toContain('项目概览');
-  expectSelected('overview');
-  pending.resolve(json({ unchanged: true, revision: 'stable' }));
-  await poll;
+  const poll = dom.intervalFor(1500)(); await ui.navButtons.get('tasks').onclick(); await dom.node('overview-open').onclick();
+  expect(deepText(dom.node('detail'))).toContain('项目概览'); expectSelected('overview');
+  pending.resolve(json({ unchanged: true, revision: 'stable' })); await poll;
   intercept = url => url.startsWith('/api/overview') ? Promise.resolve(json({ unchanged: true, revision: 'stable' })) : null;
-  await dom.node('settings-open').onclick();
-  await dom.node('overview-open').onclick();
-  expect(deepText(dom.node('detail'))).toContain('项目概览');
-  intercept = null;
-  delete ui.lastSnapshot.revision;
+  await ui.navButtons.get('tasks').onclick(); await dom.node('overview-open').onclick();
+  expect(deepText(dom.node('detail'))).toContain('项目概览'); intercept = null; delete ui.lastSnapshot.revision;
 });
 
 test('迟到的 Task 图、文档与任务请求不覆盖新页面；文档 A→B 乱序也安全', async () => {
@@ -144,11 +149,11 @@ test('迟到的 Task 图、文档与任务请求不覆盖新页面；文档 A→
     const pending = deferred();
     intercept = url => url.split('?')[0] === path ? pending.promise : null;
     const loading = open();
-    await dom.node('settings-open').onclick();
+    await ui.navButtons.get('tasks').onclick();
     pending.resolve(path === '/api/docs' ? json({ docs: [] }) : await world.fetchImpl(path));
     await loading;
-    expectSelected('settings');
-    expect(dom.node('detail').dataset.view).toBe('settings');
+    expectSelected('tasks');
+    expect(dom.node('detail').dataset.view).toBe('tasks');
   }
   const a = deferred(), b = deferred();
   intercept = url => url === '/api/docs' ? Promise.resolve(json({ docs: [{ id: 'a', path: 'a.md' }, { id: 'b', path: 'b.md' }] }))
@@ -250,10 +255,15 @@ test('任务列表：角色胶囊带 role-<role> 类，快速路由任务整行�
 });
 
 test('直接链接启动复用同一路由，重复 boot 不复制导航', async () => {
-  for (const id of ['task-graph', 'agent-status', 'settings', 'tasks']) {
+  for (const id of ['task-graph', 'versions', 'inputs', 'hooks', 'tasks']) {
     dom.location.hash = routeHash(id);
     await boot();
     expectSelected(id);
+    expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(2);
+  }
+  for (const hash of ['#settings', '#agent-status', '#model-sources', '#automation', '#docs', '#quick-explain']) {
+    dom.location.hash = hash; await boot(); expect(ui.view.id).toBe('workspace-link');
+    expect(dom.node('detail').querySelector('a').href).toBe(`/${hash}`);
     expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(2);
   }
 });

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { networkSnapshot } from '../agent/network.js';
 import { check, LushError } from './types.js';
-import { normalizeConfigurationScope, configurationScope } from './device-config.js';
+import { settingsConfigurationScope, configurationScope } from './device-config.js';
 import { normalizeCatalog } from '../agent/connections-catalog.js';
 import { safeText as connectionText } from '../agent/connections-utils.js';
 import { THINKING_LEVELS } from '../agent/settings.js';
@@ -65,7 +65,8 @@ function sampling(value) {
 export class AgentConnectionsService {
   constructor(project, options = {}) {
     this.project = project; this.store = project.store;
-    this.scope = normalizeConfigurationScope(options.scope);
+    this.scope = settingsConfigurationScope(project.config, options.scope);
+    this.runtimeOwner = !options.scopedServices;
     this.options = options;
     this.scopedServices = options.scopedServices || new Map();
     this.scopedServices.set(this.scope, this);
@@ -83,8 +84,8 @@ export class AgentConnectionsService {
     this.catalogDeferMs = Number.isFinite(options.catalogDeferMs) && options.catalogDeferMs > 0
       ? options.catalogDeferMs : 20000;
   }
-  forScope(scope = 'project') {
-    this.assertOpen(); normalizeConfigurationScope(scope);
+  forScope(scope) {
+    this.assertOpen(); scope = settingsConfigurationScope(this.project.config, scope);
     if (!this.scopedServices.has(scope)) {
       const manager = this.getManager();
       check(typeof manager.forScope === 'function', 'scoped connection management is unavailable');
@@ -97,16 +98,8 @@ export class AgentConnectionsService {
     return [...this.scopedServices.values()].some(service => service.pending.size || service.active || service.waiters.length
       || service.manager?.isBusy?.());
   }
-  // Device management of a shadowed UUID must not invalidate this project's runtime/cache head.
-  // Observation history continues to use the actual connection UUID, never this internal state key.
-  stateId(id) {
-    if (this.scope === 'device') {
-      const manager = this.getManager();
-      try { if (manager.forScope('project').storageScope(id) === 'project') return `device-${id}`; }
-      catch { /* No local shadow. */ }
-    }
-    return id;
-  }
+  // A UUID has one device-owned credential source; historical state remains in this project's Store.
+  stateId(id) { return id; }
   getManager() {
     if (!this.manager) {
       const { ConnectionManager } = require('../agent/connections.js');
@@ -127,9 +120,9 @@ export class AgentConnectionsService {
           ['device', 'project', 'default', 'mixed'].includes(meta?.source) ? meta.source : 'default', meta?.project_override === true);
       }
       check(Buffer.byteLength(JSON.stringify(result)) <= 500000, 'connection configuration exceeds read budget');
-      if (this.scope === 'project' && this.started && this.samplingKey !== JSON.stringify(result.sampling)) this.schedule(result.sampling);
+      if (this.runtimeOwner && this.started && this.samplingKey !== JSON.stringify(result.sampling)) this.schedule(result.sampling);
       return result;
-    } catch { if (this.scope === 'project') this.samplingKey = null; throw failure(); }
+    } catch { if (this.runtimeOwner) this.samplingKey = null; throw failure(); }
   }
   assertOpen() { check(!this.closed && !this.project.stopping, 'project is stopping'); }
   identity(id) {
@@ -159,11 +152,7 @@ export class AgentConnectionsService {
     } catch { return false; }
   }
   prune(policy = this.config().sampling) {
-    // Device editing/querying does not shorten history governed by a legacy project override.
-    if (this.scope === 'device') {
-      try { policy = sampling(this.getManager().forScope('project').config().sampling); }
-      catch { return; } // Cannot prove the owning project's retention policy: keep its history.
-    }
+    // History stays in this project's Store; its retention policy comes from the single device authority.
     this.store.pruneAgentConnections(new Date(this.now() - policy.retention_days * 86400000).toISOString());
   }
   /** Read-only model catalog for one connection; local cache, no network, no model request. */
@@ -229,7 +218,7 @@ export class AgentConnectionsService {
    * service stay local-only, while a running daemon refreshes soon after an edit.
    */
   syncCatalog() {
-    if (this.scope !== 'project') { this.scopedServices.get('project')?.syncCatalog(); return; }
+    if (!this.runtimeOwner) { [...this.scopedServices.values()].find(service => service.runtimeOwner)?.syncCatalog(); return; }
     if (typeof this.getManager().catalogRefresh !== 'function' || !this.started || this.closed || this.project.stopping) return;
     this.scheduleCatalog(this.catalogDeferMs);
   }
@@ -324,8 +313,8 @@ export class AgentConnectionsService {
     return this.operation('configure connection sampling', () => {
       const saved = sampling(this.getManager().configureSampling(policy));
       this.prune(saved); this.schedule(saved);
-      if (this.scope !== 'project') {
-        const root = this.scopedServices.get('project');
+      if (!this.runtimeOwner) {
+        const root = [...this.scopedServices.values()].find(service => service.runtimeOwner);
         if (root) {
           try { const effective = root.config().sampling; if (!root.started) root.schedule(effective); }
           catch { root.warning = '项目连接配置无法安全读取，共享采样设置已保存。'; }
@@ -503,13 +492,13 @@ export class AgentConnectionsService {
     });
   }
   start() {
-    if (this.scope !== 'project') return; // Scoped editors do not add duplicate background samplers.
+    if (!this.runtimeOwner) return; // Scoped editors do not add duplicate background samplers.
     this.started = true;
     try { const config = this.config(); this.prune(config.sampling); this.scheduleCatalog(); }
     catch { this.warning = '连接配置无法安全读取，后台采样未启用。'; }
   }
   schedule(policy) {
-    if (this.scope !== 'project') return;
+    if (!this.runtimeOwner) return;
     this.samplingKey = JSON.stringify(policy);
     this.generation++;
     if (this.timer !== null) this.clearTimer(this.timer);

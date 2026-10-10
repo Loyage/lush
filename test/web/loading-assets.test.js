@@ -190,7 +190,8 @@ test('temporary authenticated Host ships fewer cold modules, compressed immutabl
     const legacyWeb = startWeb(null, 0, { authConfig: null, env: { ...process.env, LUSH_GLOBAL_CONFIG: global } });
     let legacy;
     try { legacy = await graph(`http://127.0.0.1:${legacyWeb.port}`, ['/app.js', '/appearance.js']); } finally { await legacyWeb.stop(true); }
-    expect(legacy.size).toBeGreaterThan(50); expect(cold.size).toBeLessThan(25); expect(cold.size).toBeLessThan(legacy.size / 5);
+    // User decision #410: retain the absolute 24-JS cap; the expanded workspace uses a 4x native-graph comparison.
+    expect(legacy.size).toBeGreaterThan(50); expect(cold.size).toBeLessThan(25); expect(cold.size).toBeLessThan(legacy.size / 4);
     const preloads = [...html.matchAll(/<link rel="modulepreload" href="([^"]+)"/g)].map(row => row[1]);
     expect(new Set(preloads)).toEqual(new Set([...cold.keys()].filter(name => !entries.includes(name))));
     const app = [...cold].find(([name]) => name.includes('-app-'))[1];

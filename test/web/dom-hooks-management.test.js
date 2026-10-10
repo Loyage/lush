@@ -62,7 +62,7 @@ test('Hooks page separates time signals and manager instructions from developmen
   expect(deepText(root())).toContain('不是实际额度已恢复的观测');
   expect(deepText(root())).toContain('每天 00:05 · Asia/Shanghai');
   expect(deepText(root())).toContain('2030-02-03 00:05:00 · Asia/Shanghai');
-  expect(deepText(root())).toContain('来源 codex-source');
+  expect(deepText(root())).toContain('codex-source');
   expect(btn('删除时间信号').disabled).toBe(true);
   expect(btn('删除时间信号').parentNode.getAttribute('data-help')).toContain('先停用绑定');
   await btn('查看指令、结果与调用历史').onclick(); expect(detailCalls).toEqual([200]); expect(actions).toHaveLength(0);

@@ -34,9 +34,9 @@ const dom = installDom({ fetch: async (url, options = {}) => {
     target.actions = hook().actions; target.enabled = false;
     return json({ ...catalogue, imported_command_ids: ['push-command'], worker_hooks: catalogue.command_example.hooks });
   }
-  if (body?.method === 'hooks.auto_select') return json({ ...catalogue, commands: { ...catalogue.commands, revision: 'external-revision' }, daemon_hooks: { ...catalogue.daemon_hooks,
-    mounts: [{ ...catalogue.daemon_hooks.mounts[0], enabled: false }] } });
-  if (body?.method === 'worker.hook_update') return json(catalogue.command_example.hooks);
+  if (body?.method === 'worker.hook_update') {
+    catalogue.commands.revision = 'external-revision'; return json(catalogue.command_example.hooks);
+  }
   throw new Error(`Unexpected request ${path} ${body?.method || ''}`);
 } });
 const { openHooks, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
@@ -124,7 +124,8 @@ test('Hook form permits an unauthed stopped reference but blocks enabling; missi
 
 test('save failures preserve name, multiline draft and original revision across unrelated catalogue mutations', async () => {
   await openHooks(); await btn('编辑快捷指令').onclick(); const input = field('Shell 命令'); input.value = 'echo draft\ngit push';
-  await btn('关闭自动选择').onclick(); expect(field('Shell 命令')).toBe(input);
+  await btn('编辑挂载', mainExample()).onclick(); await btn('保存挂载', mainExample()).onclick();
+  expect(ui.hooksPage.catalogue.commands.revision).toBe('external-revision'); expect(field('Shell 命令')).toBe(input);
   intercept = (_path, body) => body?.method === 'hooks.command_save' ? failure('revision conflict') : null;
   await btn('保存快捷指令').onclick(); expect(calls.at(-1).params.expected_revision).toBe('commands-revision');
   expect(input.value).toBe('echo draft\ngit push'); expect(input.disabled).toBe(false); expect(deepText(section())).toContain('编辑已保留');

@@ -4,7 +4,7 @@ import { loadTranscript, paintTranscript, transcriptContent, transcriptMatch, lo
 import { api } from './api.js';
 import { transcriptReader, releaseTranscriptReader, pauseTranscriptReader, searchTranscriptPath, openTranscriptStep } from './transcript-reader.js';
 import { createCodeView } from './code-view.js';
-import { setPref, onPrefChange, TRANSCRIPT_ORDER_MODES } from './prefs.js';
+import { devicePreferencesStatus, onDevicePreferences, saveDevicePreference, onPrefChange, TRANSCRIPT_ORDER_MODES } from './prefs.js';
 import { closeExplanationPanel } from './explanations.js';
 import { statusOf } from './format.js';
 import { workerLabel } from './worker-label.js';
@@ -14,7 +14,7 @@ export function closeTranscriptView() {
   const state = current;
   if (!state) return;
   current = null;
-  state.code?.dispose();
+  state.code?.dispose(); state.disposePreference?.();
   releaseTranscriptReader(state.taskId);
   removeEventListener('hashchange', state.onNavigate);
   if (state.panel.querySelector('.reading-panel')) { closeExplanationPanel(); ui.closeQuickExplanationPanel?.(); }
@@ -44,8 +44,20 @@ export async function openTranscriptView(taskId, seq) {
     const label = mode.id === 'desc' ? '最新在前' : mode.id === 'asc' ? '最早在前' : mode.label;
     const option = el('option', label); option.value = mode.id; order.append(option);
   }
-  order.value = transcriptOrder(); order.onchange = () => setPref('transcriptOrder', order.value);
-  state.order = order;
+  order.value = transcriptOrder();
+  const orderHost = el('span', undefined, 'help-host'); orderHost.tabIndex = 0; orderHost.append(order);
+  const syncOrder = () => {
+    const device = devicePreferencesStatus();
+    order.disabled = Boolean(state.filtered) || device.saving || !device.ready || Boolean(device.error);
+    orderHost.setAttribute('data-help', state.filtered ? '搜索结果按步骤编号排列，退出搜索后可修改阅读偏好。' : !device.ready || device.error ? `设备偏好当前不可用，不能保存排序。${device.error || '正在读取权威配置。'}` : '设备统一的执行记录阅读顺序，不改变项目记录。');
+  };
+  order.onchange = async () => {
+    order.disabled = true;
+    try { await saveDevicePreference('transcriptOrder', order.value); }
+    catch (error) { if (current === state) { order.value = transcriptOrder(); state.notice.textContent = `阅读偏好未保存：${error.message}`; } }
+    finally { if (current === state) syncOrder(); }
+  };
+  state.order = order; state.disposePreference = onDevicePreferences(syncOrder);
   const taskStatus = el('span', '状态未知', 'badge');
   const heading = el('strong', `Worker ${workerLabel(taskId)}`);
   state.paintStatus = task => {
@@ -89,7 +101,7 @@ export async function openTranscriptView(taskId, seq) {
     if (focus) (open ? reader.querySelector('input') : toggleSearch).focus?.({ preventScroll: true });
   }
   toggleSearch.setAttribute('aria-expanded', 'false');
-  readingTools.append(order, toggleSearch); navigation.append(tabs, readingTools);
+  readingTools.append(orderHost, toggleSearch); navigation.append(tabs, readingTools);
   async function switchMode(mode) {
     if (current !== state || mode === state.mode) return;
     state.mode = mode;
@@ -146,7 +158,7 @@ export async function openTranscriptView(taskId, seq) {
     },
     onError: error => holder.replaceChildren(el('p', `搜索未完成：${error.message}`, 'error')),
     onClear: () => {
-      state.filtered = false; order.disabled = false; notice.textContent = '';
+      state.filtered = false; syncOrder(); notice.textContent = '';
       paintTranscript(taskId); viewport.scrollTop = 0;
     },
     onPage: async (data, valid) => {

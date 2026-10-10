@@ -8,7 +8,7 @@ test('Project exposes Lush Pi package management through the agent-packages mixi
   const f = fixture();
   try {
     const calls = [];
-    const dir = path.join(f.config.home, 'pi');
+    const dir = path.join(f.config.deviceHome, 'pi');
     f.project.agentPackageManager = new AgentPackages(f.config, { run: async options => {
       calls.push(options);
       if (options.args[0] === 'install') {
@@ -22,7 +22,7 @@ test('Project exposes Lush Pi package management through the agent-packages mixi
     expect(await f.project.agentPackages()).toMatchObject({ version: 1, packages: [] });
     const installed = await f.project.installAgentPackage('npm:@scope/tools@1.0.0');
     expect(installed).toMatchObject({ version: 1, action: 'install' });
-    expect(calls[0]).toMatchObject({ command: 'pi', args: ['install', 'npm:@scope/tools@1.0.0', '--no-approve'], cwd: f.config.project });
+    expect(calls[0]).toMatchObject({ command: 'pi', args: ['install', 'npm:@scope/tools@1.0.0', '--no-approve'], cwd: f.config.deviceHome });
     expect(calls[0].env.PI_CODING_AGENT_DIR).toBe(dir);
     const [record] = installed.packages;
     expect(record).toMatchObject({ kind: 'npm', requested: '1.0.0', installed: false });

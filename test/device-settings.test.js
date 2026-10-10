@@ -5,7 +5,7 @@ import { Config } from '../src/config.js';
 import { AgentSettings } from '../src/agent/settings.js';
 import { agentPrompt } from '../src/agent/prompts.js';
 import { QuickExplanationSettings, DEFAULT_EXPLANATION_PROMPT } from '../src/core/quick-explanation.js';
-import { readNetworkConfiguration, saveNetworkConfiguration, clearNetworkOverride, networkSnapshot } from '../src/agent/network.js';
+import { readNetworkConfiguration, saveNetworkConfiguration, clearNetworkOverride, networkSnapshot, agentNetworkEnvironment } from '../src/agent/network.js';
 import { readAgentEnvironment, saveAgentEnvironment, clearAgentEnvironmentOverride, agentEnvironment } from '../src/agent/environment.js';
 import { ensurePiConfiguration } from '../src/agent/pi-config.js';
 import { discoverAgentResources } from '../src/agent/resources.js';
@@ -28,261 +28,168 @@ const profile = (model, extra = {}) => ({ version: 1, default: { agent: 'pi', mo
 const network = (mode = 'proxy', extra = {}) => ({ version: 1, mode, proxy_url: mode === 'proxy' ? 'http://proxy.example:8123' : null, no_proxy: [], ...extra });
 const json = (file, value) => fs.writeFileSync(file, JSON.stringify(value), { mode: 0o600 });
 
-test('Project adapters refresh shared runtime limits while scoped reads and clears preserve local overrides', async () => {
+test('Project adapters share one authority, reject project overrides, and retain immutable project binding', async () => {
   const global = temp(), a = projectFixture(undefined, { LUSH_GLOBAL_CONFIG: global }),
     b = projectFixture(undefined, { LUSH_GLOBAL_CONFIG: global });
   try {
-    a.project.configureRuntimeSettings({ concurrency: 6, progress_reporting: false }, 'device');
+    a.project.configureRuntimeSettings({ concurrency: 6, progress_reporting: false });
     expect(b.project.refreshRuntimeConfiguration()).toBe(true);
     expect(b.config.concurrency).toBe(6);
     expect(b.project.agentConfig().options.default_prompts.agent).not.toContain('lush progress');
-    b.project.configureRuntimeSettings({ concurrency: 2 });
-    expect(b.project.configureRuntimeSettings({ concurrency: 9 }, 'device').concurrency.source).toBe('device');
-    expect(b.config.concurrency).toBe(2);
-    expect(a.project.runtimeSettings().concurrency).toMatchObject({ value: 9, source: 'device' });
-    expect(b.project.runtimeSettings('device').configuration_scope.selected).toBe('device');
-    a.project.configureAgents(profile('shared'), 'device');
-    b.project.configureAgents(profile('local'));
-    expect(b.project.agentConfig('device').default.model).toBe('shared');
-    expect(b.project.agentConfig().default.model).toBe('local');
-    expect((await b.project.clearSettingsOverride('agent')).default.model).toBe('shared');
-    await a.project.configureAgentNetwork(network('direct'), 'device');
-    await b.project.configureAgentNetwork(network());
-    expect(b.project.agentNetwork('device').mode).toBe('direct');
-    expect((await b.project.clearSettingsOverride('network')).configuration_scope.source).toBe('device');
-    a.project.configureAgentEnvironment('common', { SHARED: 'yes' }, 'device');
-    b.project.configureAgentEnvironment('common', { SHARED: 'local' });
-    expect(b.project.agentEnvironment('common', 'device').values.SHARED).toBe('yes');
-    expect((await b.project.clearSettingsOverride('environment', 'common')).values.SHARED).toBe('yes');
-    const runtimeFile = path.join(a.config.deviceHome, 'settings.json');
-    fs.chmodSync(runtimeFile, 0o644);
+    b.project.configureRuntimeSettings({ concurrency: 9 });
+    a.project.refreshRuntimeConfiguration(); expect(a.config.concurrency).toBe(9);
+    expect(a.project.runtimeSettings().concurrency.source).toBe('device');
+    expect(() => b.project.configureRuntimeSettings({ concurrency: 2 }, 'project')).toThrow('no longer');
+    a.project.configureAgents(profile('shared'));
+    expect(b.project.agentConfig().default.model).toBe('shared');
+    expect(() => b.project.configureAgents(profile('local'), 'project')).toThrow('no longer');
+    expect(() => b.project.clearSettingsOverride('agent')).toThrow('no longer');
+    await a.project.configureAgentNetwork(network('direct'));
+    expect(b.project.agentNetwork().mode).toBe('direct');
+    a.project.configureAgentEnvironment('common', { SHARED: 'yes' });
+    expect(b.project.agentEnvironment('common').values.SHARED).toBe('yes');
+    const file = path.join(a.config.deviceHome, 'settings.json'); fs.chmodSync(file, 0o644);
     expect(b.project.refreshRuntimeConfiguration()).toBe(false);
-    expect(b.project.runtimeSettingsUnavailable).toBe(true);
-    expect(b.config.concurrency).toBe(2); // Fail closed without changing an existing call's limits.
-    fs.chmodSync(runtimeFile, 0o600);
-    expect(b.project.refreshRuntimeConfiguration()).toBe(true);
-    expect(b.project.runtimeSettingsUnavailable).toBe(false);
-    expect(a.config.env.LUSH_HOME).toBe(a.config.home);
-    expect(b.config.env.LUSH_HOME).toBe(b.config.home);
+    expect(b.project.runtimeSettingsUnavailable).toBe(true); expect(b.config.concurrency).toBe(9);
+    fs.chmodSync(file, 0o600); expect(b.project.refreshRuntimeConfiguration()).toBe(true);
+    expect(a.config.env.LUSH_HOME).toBe(a.config.home); expect(b.config.env.LUSH_HOME).toBe(b.config.home);
   } finally { await Promise.all([a.close(), b.close()]); fs.rmSync(global, { recursive: true, force: true }); }
 });
 
-test('Project device package adapters retain mock options, block migration while busy and stop their managers', async () => {
+test('Project package adapter keeps injected runner, shared mutation lock and stop behavior', async () => {
   const f = projectFixture(), entered = gate(), finish = gate(), calls = [];
   await f.project.agentPackageManager.stop();
   f.project.agentPackageManager = new AgentPackages(f.config, { run: async options => {
-    calls.push(options);
-    if (options.args[0] === 'install') { entered.resolve(); await finish.promise; }
-    return '';
+    calls.push(options); if (options.args[0] === 'install') { entered.resolve(); await finish.promise; } return '';
   } });
   const manager = f.project.packageManagerForScope('device');
   try {
-    const pending = manager.install('npm:fixture@1.0.0');
-    await entered.promise;
-    expect(f.project.agentPackageManager.isBusy()).toBe(true);
+    expect(manager).toBe(f.project.agentPackageManager);
+    const pending = manager.install('npm:fixture@1.0.0'); await entered.promise;
     expect(() => f.project.settingsMigrationApply({ revision: 'r', confirm: true })).toThrow('资源安装');
-    finish.resolve();
-    expect((await pending).configuration_scope.selected).toBe('device');
-    expect((await f.project.installAgentPackage('npm:fixture@2.0.0', 'device')).configuration_scope.selected).toBe('device');
+    finish.resolve(); expect((await pending).configuration_scope.selected).toBe('device');
     expect(calls[0].cwd).toBe(f.config.deviceHome);
     expect(calls[0].env.PI_CODING_AGENT_DIR).toBe(path.join(f.config.deviceHome, 'pi'));
     expect(fs.existsSync(path.join(f.config.home, 'pi'))).toBe(false);
-    expect(f.project.agentPackageManager.isBusy()).toBe(false);
-    await f.project.agentPackageManager.stop();
-    await expect(manager.install('npm:later@1.0.0')).rejects.toThrow('stopping');
+    await manager.stop(); await expect(manager.install('npm:later@1.0.0')).rejects.toThrow('stopping');
   } finally { finish.resolve(); await f.close(); }
 });
 
- test('device root is separate from immutable project binding and ordinary reads never create it', () => {
+test('ordinary device reads do not initialize the root or consult unsafe legacy project files', async () => {
   const f = fixture();
   try {
-    expect(f.a.deviceHome).toBe(f.b.deviceHome);
-    expect(f.a.home).not.toBe(f.b.home);
-    expect(f.a.env.LUSH_HOME).toBe(f.a.home);
-    expect(f.b.env.LUSH_PROJECT).toBe(f.b.project);
-    new AgentSettings(f.a).get(); new QuickExplanationSettings(f.b).read(); readNetworkConfiguration(f.a); readAgentEnvironment(f.a, 'common');
+    for (const file of ['settings.json', 'agent.json', 'network.json', 'quick-explanation.json'])
+      fs.writeFileSync(path.join(f.a.home, file), 'LEGACY PRIVATE invalid JSON');
+    new AgentSettings(f.a).get(); new QuickExplanationSettings(f.a).read();
+    readNetworkConfiguration(f.a); readAgentEnvironment(f.a, 'common');
+    expect(f.a.runtimeSettings.get().concurrency.value).toBe(3);
     expect(fs.existsSync(f.a.deviceHome)).toBe(false);
-    expect(f.a.runtimeSettings.get().concurrency).toMatchObject({ value: 3, source: 'default', overridden: false });
-    expect(() => f.a.runtimeSettings.get('other')).toThrow('scope');
+    expect(f.a.deviceHome).toBe(f.b.deviceHome); expect(f.a.home).not.toBe(f.b.home);
+    for (const read of [() => f.a.runtimeSettings.get('project'), () => new AgentSettings(f.a).get('project'),
+      () => new QuickExplanationSettings(f.a).read('project'), () => readNetworkConfiguration(f.a, 'project'),
+      () => readAgentEnvironment(f.a, 'common', 'project')]) expect(read).toThrow('no longer');
+    await expect(discoverAgentResources(f.a, {}, 'project')).rejects.toThrow('no longer');
+    await expect(discoverAgentModels(f.a, 'pi', 'project')).rejects.toThrow('no longer');
+    expect(() => new AgentPackages(f.a).forScope('project')).toThrow('no longer');
   } finally { f.close(); }
 });
 
- test('runtime settings inherit per key, keep local overrides and refresh later consumers without rewriting', () => {
+test('runtime settings reload device edits, legacy source stays untouched and null restores defaults', () => {
   const f = fixture();
   try {
-    const first = f.a.configureRuntime({ concurrency: 7, call_timeout: 60, progress_reporting: false }, 'device');
-    expect(first.concurrency).toMatchObject({ value: 7, default: 3, source: 'device', overridden: true });
-    expect(first.configuration_scope.selected).toBe('device');
-    expect(f.b.concurrency).toBe(3); f.b.refreshRuntimeSettings(); expect(f.b.concurrency).toBe(7);
-    expect(f.b.runtimeSettings.get().concurrency).toMatchObject({ value: 7, default: 7, source: 'device', overridden: false });
-    f.b.configureRuntime({ concurrency: 2 });
-    f.a.configureRuntime({ concurrency: 9 }, 'device'); f.b.refreshRuntimeSettings();
-    expect(f.b.concurrency).toBe(2); expect(f.b.timeout).toBe(60); expect(f.b.progressReporting).toBe(false);
-    expect(f.b.runtimeSettings.get().concurrency).toMatchObject({ value: 2, default: 9, source: 'project', overridden: true });
-    f.b.configureRuntime({ concurrency: null }); expect(f.b.concurrency).toBe(9);
-    expect(f.b.runtimeSettings.get('device').concurrency.value).toBe(9);
-    expect(JSON.parse(fs.readFileSync(path.join(f.b.home, 'settings.json')))).toEqual({ version: 1 });
-    expect(fs.statSync(path.join(f.a.deviceHome, 'settings.json')).mode & 0o777).toBe(0o600);
-    expect(new Config({ project: f.b.project, env: f.b.env }).concurrency).toBe(9);
-    f.b.configureRuntime({ concurrency: 4 });
-    expect(f.b.configureRuntime({ concurrency: 10 }, 'device').concurrency.value).toBe(10);
-    expect(f.b.concurrency).toBe(4); // A device edit never masquerades as the local effective value.
+    const legacy = path.join(f.b.home, 'settings.json'); json(legacy, { version: 1, concurrency: 2 });
+    f.a.configureRuntime({ concurrency: 7, call_timeout: 60, progress_reporting: false });
+    f.b.refreshRuntimeSettings(); expect(f.b.concurrency).toBe(7); expect(f.b.timeout).toBe(60);
+    expect(f.b.runtimeSettings.get().concurrency).toMatchObject({ value: 7, default: 3, source: 'device', overridden: true });
+    f.b.configureRuntime({ concurrency: 9 }); f.a.refreshRuntimeSettings(); expect(f.a.concurrency).toBe(9);
+    f.b.configureRuntime({ concurrency: null }); expect(f.b.concurrency).toBe(3);
+    expect(JSON.parse(fs.readFileSync(legacy)).concurrency).toBe(2);
+    expect(f.b.runtimeSettings.get().configuration_scope.project_override).toBe(false);
   } finally { f.close(); }
 });
 
- test('Agent settings use whole-document overrides and shared profiles normalize resource paths', () => {
+test('device Agent profiles preserve full role parameters and normalize explicit resource paths', () => {
   const f = fixture();
   try {
     const a = new AgentSettings(f.a), b = new AgentSettings(f.b);
-    a.save(profile('shared-one', { extensions: ['./ext.ts'], skills: ['./skills'], append_prompt: 'Shared style' }), 'device');
-    expect(b.resolve('agent').model).toBe('shared-one');
-    expect(b.resolve('agent').extensions).toEqual([path.join(f.a.project, 'ext.ts')]);
-    expect(b.get().configuration_scope).toMatchObject({ selected: 'project', source: 'device', project_override: false });
-    expect(b.get().file).toBe(path.join(f.a.deviceHome, 'agent.json'));
+    a.save({ ...profile('shared', { extensions: ['./ext.ts'], skills: ['./skills'], env: { PROFILE: 'value' } }),
+      roles: { agent: { agent: 'codex', model: 'full-model', thinking: 'high', default_prompt: 'rules', append_prompt: 'style',
+        env: { WORKER_VALUE: 'retained' }, extensions: [], skills: [] } } });
+    expect(b.resolve('planner').extensions).toEqual([path.join(f.a.project, 'ext.ts')]);
+    expect(b.resolve('agent')).toMatchObject({ agent: 'codex', model: 'full-model', thinking: 'high',
+      default_prompt: 'rules', append_prompt: 'style', env: { WORKER_VALUE: 'retained' } });
+    expect(b.get().configuration_scope).toMatchObject({ selected: 'device', source: 'device', project_override: false });
     expect(agentPrompt(f.b, 'agent', b.resolve('agent')).customization.settings).toBe(b.get().file);
-    b.save({ ...profile('local'), roles: { agent: { agent: 'codex', model: 'local-role' } } });
-    a.save(profile('shared-two'), 'device');
-    expect(b.resolve('agent').model).toBe('local-role');
-    expect(b.get('device').default.model).toBe('shared-two');
-    expect(b.clearOverride().resolved.agent.model).toBe('shared-two');
-    expect(fs.existsSync(b.file)).toBe(false);
-    expect(b.get().configuration_scope.project_override).toBe(false);
-    expect(() => a.save(profile('bad', { extensions: [] }), 'unknown')).toThrow('scope');
+    expect(() => b.clearOverride()).toThrow('no longer');
   } finally { f.close(); }
 });
 
- test('network scope saves the intended layer, preserves private inherited auth and freezes in-flight snapshots', () => {
+test('Prompt profile sources remain device-owned when a legacy project agent.json still exists', () => {
   const f = fixture();
   try {
-    saveNetworkConfiguration(f.a, network('proxy', { proxy_auth: { username: 'DEVICE-PRIVATE', password: 'TOKEN-PRIVATE' } }), 'device');
-    const before = networkSnapshot(f.b);
-    expect(before.route('https://remote.example')).toContain('DEVICE-PRIVATE:TOKEN-PRIVATE@');
-    const read = readNetworkConfiguration(f.b);
-    expect(read.configuration_scope).toMatchObject({ source: 'device', project_override: false });
-    expect(JSON.stringify(read)).not.toContain('PRIVATE');
-    saveNetworkConfiguration(f.b, network()); // Explicit project override can retain the inherited proxy auth.
-    expect(readNetworkConfiguration(f.b).has_proxy_auth).toBe(true);
-    saveNetworkConfiguration(f.a, network('direct'), 'device');
-    expect(networkSnapshot(f.b).route('https://remote.example')).toContain('DEVICE-PRIVATE');
-    expect(readNetworkConfiguration(f.b, 'device').mode).toBe('direct');
-    expect(clearNetworkOverride(f.b).mode).toBe('direct');
-    expect(before.route('https://remote.example')).toContain('DEVICE-PRIVATE');
-    expect(networkSnapshot(f.b).route('https://remote.example')).toBe('');
+    const a = new AgentSettings(f.a), b = new AgentSettings(f.b);
+    a.save(profile('device', { default_prompt: 'DEVICE REPLACEMENT', append_prompt: 'DEVICE APPEND' }));
+    const legacyFile = path.join(f.b.home, 'agent.json');
+    json(legacyFile, profile('legacy', { default_prompt: 'LEGACY REPLACEMENT', append_prompt: 'LEGACY APPEND' }));
+    const before = fs.readFileSync(legacyFile);
+    const view = agentPrompt(f.b, 'worker', b.resolve('worker'));
+    const deviceFile = path.join(f.b.deviceHome, 'agent.json');
+    expect(view.customization.settings).toBe(deviceFile);
+    expect(view.parts.filter(part => part.name.startsWith('settings.')).map(part => part.source)).toEqual([deviceFile, deviceFile]);
+    expect(view.text).toContain('DEVICE REPLACEMENT'); expect(view.text).toContain('DEVICE APPEND');
+    expect(view.text).not.toContain('LEGACY'); expect(fs.readFileSync(legacyFile)).toEqual(before);
+    const legacy = { ...f.b, deviceHome: null, runtimeSettings: null };
+    expect(agentPrompt(legacy, 'worker').customization.settings).toBe(legacyFile);
   } finally { f.close(); }
 });
 
- test('quick explanation profiles stay metadata-free while configuration scope and inheritance are explicit', () => {
+test('network saves share private auth while in-flight snapshots stay frozen', () => {
+  const f = fixture();
+  try {
+    json(path.join(f.b.home, 'network.json'), network('direct'));
+    saveNetworkConfiguration(f.a, network('proxy', { proxy_auth: { username: 'DEVICE-PRIVATE', password: 'TOKEN-PRIVATE' } }));
+    const before = networkSnapshot(f.b);
+    expect(before.route('https://remote.example')).toContain('DEVICE-PRIVATE:TOKEN-PRIVATE@');
+    expect(JSON.stringify(readNetworkConfiguration(f.b))).not.toContain('PRIVATE');
+    saveNetworkConfiguration(f.b, network()); expect(readNetworkConfiguration(f.a).has_proxy_auth).toBe(true);
+    saveNetworkConfiguration(f.a, network('direct')); expect(networkSnapshot(f.b).route('https://remote.example')).toBe('');
+    expect(before.route('https://remote.example')).toContain('DEVICE-PRIVATE');
+    expect(() => clearNetworkOverride(f.b)).toThrow('no longer');
+  } finally { f.close(); }
+});
+
+test('quick explanation and environment use device authority; Worker env remains highest precedence', () => {
   const f = fixture();
   try {
     const a = new QuickExplanationSettings(f.a), b = new QuickExplanationSettings(f.b);
-    a.save(a.preview({ connection_id: 'conn-device', model: 'shared-model', prompt: 'Shared explanation' }, 'device'), 'device');
-    expect(b.read()).toEqual({ connection_id: 'conn-device', model: 'shared-model', prompt: 'Shared explanation' });
-    expect(b.configurationScope()).toMatchObject({ source: 'device', project_override: false });
-    b.save(b.preview({ model: 'local-model' }));
-    a.save(a.preview({ model: 'shared-next' }, 'device'), 'device');
-    expect(b.read().model).toBe('local-model'); expect(b.read('device').model).toBe('shared-next');
-    expect(b.clearOverride().model).toBe('shared-next');
-    a.save(a.preview({ prompt: null }, 'device'), 'device'); expect(b.read().prompt).toBe(DEFAULT_EXPLANATION_PROMPT);
-    expect(fs.existsSync(path.join(f.b.home, 'quick-explanation.json'))).toBe(false);
+    a.save({ connection_id: null, model: 'one', prompt: 'Shared' }); expect(b.read().model).toBe('one');
+    expect(b.configurationScope()).toMatchObject({ selected: 'device', project_override: false });
+    expect(() => b.clearOverride()).toThrow('no longer');
+    saveAgentEnvironment(f.a, 'common', { VALUE: 'common', SHARED: 'yes' });
+    saveAgentEnvironment(f.a, 'agent', { VALUE: 'role' });
+    fs.mkdirSync(path.join(f.b.home, 'agent'), { mode: 0o700 });
+    fs.writeFileSync(path.join(f.b.home, 'agent', 'agent.env'), 'VALUE=legacy\n');
+    expect(agentEnvironment(f.b, 'agent').values.VALUE).toBe('role');
+    expect(agentNetworkEnvironment(f.b, agentEnvironment(f.b, 'agent').values, { VALUE: 'worker' }).VALUE).toBe('worker');
+    expect(() => clearAgentEnvironmentOverride(f.b, 'common')).toThrow('no longer');
+    expect(() => saveAgentEnvironment(f.a, 'common', { LUSH_HOME: 'reserved' })).toThrow('reserved');
   } finally { f.close(); }
 });
 
- test('Agent environment precedence is device common/role then project common/role with reserved names protected', () => {
+test('Pi baseline and resource discovery are exclusively device-owned but runtime/session roots stay project-owned', async () => {
   const f = fixture();
   try {
-    saveAgentEnvironment(f.a, 'common', { LEVEL: 'device-common', SHARED: 'yes', HTTPS_PROXY: 'http://device-common' }, 'device');
-    saveAgentEnvironment(f.a, 'research', { LEVEL: 'device-role', ROLE: 'yes', HTTPS_PROXY: 'http://device-role' }, 'device');
-    saveAgentEnvironment(f.b, 'common', { LEVEL: 'project-common', https_proxy: 'http://project-common' });
-    expect(agentEnvironment(f.b, 'research').values).toEqual({ LEVEL: 'project-common', SHARED: 'yes', ROLE: 'yes', https_proxy: 'http://project-common' });
-    saveAgentEnvironment(f.b, 'research', { LEVEL: 'project-role', HTTPS_PROXY: 'http://project-role' });
-    expect(agentEnvironment(f.b, 'research').values).toEqual({ LEVEL: 'project-role', SHARED: 'yes', ROLE: 'yes', HTTPS_PROXY: 'http://project-role' });
-    expect(readAgentEnvironment(f.b, 'research', 'device').values.LEVEL).toBe('device-role');
-    expect(clearAgentEnvironmentOverride(f.b, 'research').configuration_scope.project_override).toBe(false);
-    expect(agentEnvironment(f.b, 'research').values.LEVEL).toBe('project-common');
-    clearAgentEnvironmentOverride(f.b, 'common'); expect(agentEnvironment(f.b, 'research').values.LEVEL).toBe('device-role');
-    expect(() => saveAgentEnvironment(f.a, 'common', { LUSH_HOME: '/different' }, 'device')).toThrow('reserved');
-    expect(f.b.env.LUSH_HOME).toBe(f.b.home);
-    expect(fs.statSync(path.join(f.a.deviceHome, 'agent', 'agent.env')).mode & 0o777).toBe(0o600);
-  } finally { f.close(); }
-});
-
- test('shared Pi baseline is inherited without moving project snapshots or importing external Pi defaults', () => {
-  const f = fixture();
-  try {
-    const shared = ensurePiConfiguration(f.a, 'device');
-    json(path.join(shared.dir, 'settings.json'), { transport: 'sse', packages: ['never-autoload'], defaultProjectTrust: 'always' });
-    const first = ensurePiConfiguration(f.b);
-    expect(first.dir).toBe(path.join(f.b.home, 'pi')); expect(first.settings.transport).toBe('sse');
-    expect(first.settings.packages).toBeUndefined(); expect(first.settings.defaultProjectTrust).toBe('never');
-    json(path.join(shared.dir, 'settings.json'), { transport: 'websocket' });
-    expect(first.settings.transport).toBe('sse'); expect(ensurePiConfiguration(f.b).settings.transport).toBe('websocket');
-    json(path.join(first.dir, 'settings.json'), { transport: 'local-transport' });
-    expect(ensurePiConfiguration(f.b).settings.transport).toBe('local-transport');
-    expect(fs.existsSync(path.join(shared.dir, 'auth.json'))).toBe(false);
-  } finally { f.close(); }
-});
-
- test('shared resource discovery is available to both projects while explicit device scope excludes project resources', async () => {
-  const f = fixture();
-  try {
-    const shared = ensurePiConfiguration(f.a, 'device');
-    fs.mkdirSync(path.join(shared.dir, 'extensions'), { mode: 0o700 });
-    fs.writeFileSync(path.join(shared.dir, 'extensions', 'shared.ts'), 'throw new Error("must not execute");');
+    const shared = ensurePiConfiguration(f.a); json(path.join(shared.dir, 'settings.json'), { transport: 'sse' });
+    fs.mkdirSync(path.join(f.b.home, 'pi'), { mode: 0o700 }); json(path.join(f.b.home, 'pi', 'settings.json'), { transport: 'legacy' });
+    expect(ensurePiConfiguration(f.b).settings.transport).toBe('sse');
+    const ext = path.join(shared.dir, 'extensions'); fs.mkdirSync(ext, { mode: 0o700 });
+    fs.writeFileSync(path.join(ext, 'shared.ts'), 'throw new Error("never execute");');
     const local = path.join(f.b.project, '.pi', 'extensions'); fs.mkdirSync(local, { recursive: true });
-    fs.writeFileSync(path.join(local, 'project.ts'), 'throw new Error("must not execute");');
-    const effective = await discoverAgentResources(f.b, { packages: [] });
-    expect(effective.extensions.map(row => row.label)).toEqual(['shared.ts', 'project.ts']);
-    const device = await discoverAgentResources(f.b, { packages: [] }, 'device');
-    expect(device.extensions.map(row => row.label)).toEqual(['shared.ts']);
+    fs.writeFileSync(path.join(local, 'ignored.ts'), 'throw new Error("never execute");');
+    const resources = await discoverAgentResources(f.b);
+    expect(resources.extensions.map(row => row.label)).toEqual(['shared.ts']);
+    expect(f.b.env.LUSH_HOME).toBe(f.b.home); expect(fs.existsSync(path.join(f.b.deviceHome, 'sessions'))).toBe(false);
   } finally { f.close(); }
-});
-
-test('explicit model discovery uses the selected network scope without changing project identity', async () => {
-  const f = fixture();
-  try {
-    const command = path.join(f.root, 'model-catalog');
-    fs.writeFileSync(command, `#!${process.execPath}\nconsole.log(JSON.stringify({models:[{slug:'fixture-model',display_name:process.cwd(),description:process.env.HTTPS_PROXY || 'direct'}]}));`, { mode: 0o700 });
-    f.b.env.LUSH_CODEX_COMMAND = command;
-    saveNetworkConfiguration(f.a, network('direct'), 'device');
-    saveNetworkConfiguration(f.b, network());
-    const device = await discoverAgentModels(f.b, 'codex', 'device');
-    const project = await discoverAgentModels(f.b, 'codex');
-    expect(device.models[0].description).toBe('direct');
-    expect(device.models[0].label).toBe(f.b.deviceHome);
-    expect(project.models[0].description).toBe('http://proxy.example:8123/');
-    expect(project.models[0].label).toBe(f.b.project);
-    expect(device.configuration_scope.selected).toBe('device');
-    expect(f.b.env.LUSH_HOME).toBe(f.b.home);
-  } finally { f.close(); }
-});
-
- test('package scopes share an actual root and a cross-instance lock without enabling installed resources', async () => {
-  const f = fixture(), entered = gate(), finish = gate(), calls = [];
-  const run = async options => {
-    calls.push(options);
-    if (options.args[0] === 'install') {
-      entered.resolve(); await finish.promise;
-      json(path.join(options.env.PI_CODING_AGENT_DIR, 'settings.json'), { packages: [options.args[1]] });
-    }
-    return '';
-  };
-  const a = new AgentPackages(f.a, { run }), b = new AgentPackages(f.b, { run });
-  try {
-    const deviceA = a.forScope('device'), deviceB = b.forScope('device');
-    expect(deviceA.directory()).toBe(deviceB.directory());
-    const pending = deviceA.install('npm:device-tools@1.0.0'); await entered.promise;
-    expect(a.isBusy()).toBe(true);
-    await expect(deviceB.install('npm:other-tools@1.0.0')).rejects.toThrow('busy');
-    finish.resolve(); const result = await pending;
-    expect(a.isBusy()).toBe(false);
-    expect(result.configuration_scope.selected).toBe('device');
-    expect((await deviceB.list()).packages[0].source).toBe('npm:device-tools@1.0.0');
-    expect(calls[0].env.PI_CODING_AGENT_DIR).toBe(path.join(f.a.deviceHome, 'pi'));
-    expect(calls[0].cwd).toBe(f.a.deviceHome);
-    expect(fs.existsSync(path.join(f.a.home, 'pi'))).toBe(false);
-    expect(fs.existsSync(path.join(f.a.deviceHome, 'agent.json'))).toBe(false);
-    await a.stop(); await expect(deviceA.install('npm:more@1.0.0')).rejects.toThrow('stopping');
-  } finally { finish.resolve(); await a.stop(); await b.stop(); f.close(); }
 });
 
 test('no-project package installation resolves relative paths and subprocess cwd from the private configuration root', async () => {
@@ -370,11 +277,11 @@ test('no-project model and resource discovery uses a config-root cwd and exclude
  test('minimal legacy configs remain local and never guess a real user device directory', () => {
   const f = fixture();
   try {
-    const local = { ...f.a, deviceHome: null };
+    const local = { ...f.a, deviceHome: null, runtimeSettings: null };
     new AgentSettings(local).save(profile('project-only'));
     expect(new AgentSettings(local).resolve('agent').model).toBe('project-only');
     expect(() => new AgentSettings(local).get('device')).toThrow('unavailable');
-    expect(() => local.runtimeSettings.get('other')).toThrow();
+    expect(() => f.a.runtimeSettings.get('other')).toThrow();
     expect(() => new QuickExplanationSettings(local).read('device')).toThrow();
     expect(() => saveAgentEnvironment(local, 'common', {}, 'device')).toThrow('unavailable');
     expect(fs.existsSync(f.a.deviceHome)).toBe(false);

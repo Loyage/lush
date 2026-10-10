@@ -463,6 +463,9 @@ export default {
         || (task.task_kind === 'child' && this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' LIMIT 1", task.id))))
         this.scheduleTerminalDivergenceFinalize(task.id);
     }
+    // Observe device authorization only AFTER orphan invocations, tokens and delivery recovery.
+    // This may answer pending questions, but never replays interrupted/unknown invocation effects.
+    this.startDeviceAutomationMonitor();
     // Legacy orchestrations and showcases remain on disk, without resuming their side effects.
   },
 
@@ -470,6 +473,7 @@ export default {
     this.stopping = true;
     this.stopScheduledHookTimer();
     this.stopRuntimeSettingsMonitor();
+    this.stopDeviceAutomationMonitor();
     const usageStopped = this.agentUsage.stop();
     const connectionsStopped = this.agentConnections.stop();
     const packagesStopped = Promise.allSettled([this.agentPackageManager.stop(), this.deviceAgentPackageManager?.stop()]);

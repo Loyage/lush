@@ -20,7 +20,10 @@ export function explanationLocation(location = {}) {
   return [location.view && `页面 ${location.view}`, location.section && `位置 ${location.section}`,
     location.task_id != null && `Worker ${workerLabel(location.task_id, location.task_worker_number)}`, location.path].filter(Boolean).join(' · ') || '当前页面';
 }
-const configurationLink = () => { const link = el('a', '打开快捷解释设置'); link.href = '#quick-explain'; link.onclick = closeQuickExplanationPanel; return link; };
+const configurationLink = () => {
+  const link = el('a', '打开设备快捷解释配置'); link.href = '/#quick-explain'; link.target = '_blank'; link.rel = 'noopener';
+  link.setAttribute('data-help', '在独立用户工作台配置设备统一来源与 Prompt；当前项目解释结果、选区和输入保留。'); return link;
+};
 function shell() {
   closeQuickExplanationPanel();
   const panel = el('aside', undefined, 'reading-panel quick-explanation-panel');

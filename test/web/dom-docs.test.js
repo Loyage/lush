@@ -17,8 +17,9 @@ const BODY = {
 
 const world = makeWorld();
 const baseFetch = world.fetchImpl;
+const seenRequests = [];
 const fetchImpl = async (url, options = {}) => {
-  const path = String(url);
+  const path = String(url); seenRequests.push(path);
   const json = data => ({ ok: true, status: 200, json: async () => data });
   if (path === '/api/docs') return json({ docs: DOCS });
   if (path === '/api/docs/search-index') return json({ docs: DOCS.map(entry => ({ ...entry,
@@ -105,24 +106,20 @@ test('文档视图：左栏入口进目录，点条目读正文，相对链接�
   expect(dom.node('detail').querySelectorAll('th').map(node => deepText(node).trim())).toEqual(['项', '值']);
 });
 
-test('文档视图打开时轮询不覆盖它，切到别的视图后让位', async () => {
+test('根帮助只受全局轮询，返回项目入口；无来源的Worker地址不偷连项目', async () => {
   await openDocs('docs-engineering-modules');
-  // 轮询一次：右栏必须还是文档，而不是被 renderOverview 顶掉
-  await dom.intervalFor(1500)();
+  expect(dom.intervalFor(1500)).toBeUndefined();
+  await dom.intervalFor(3000)();
   expect(deepText(dom.node('detail'))).toContain('模块地图');
   expect(deepText(dom.node('detail'))).not.toContain('项目概览');
-
-  // 点 Lush 标志回概览：右栏换回概览，文档标志让位
   await dom.node('home').onclick();
-  expect(deepText(dom.node('detail'))).toContain('项目概览');
-  expect(dom.node('detail').dataset.view).toBe('overview');
-
-  // 从文档视图点进任务详情：右栏归任务，随后轮询也不会把文档画回来
+  expect(deepText(dom.node('detail'))).toContain('项目管理');
+  expect(dom.node('detail').dataset.view).toBe('projects');
   await openDocs('docs-engineering-modules');
-  dom.location.hash = '#worker-1';
-  await dom.fire('hashchange');
-  expect(dom.node('detail').dataset.view).toBe('task');
-  await dom.intervalFor(1500)();
+  dom.location.hash = '#worker-1'; await dom.fire('hashchange');
+  expect(dom.node('detail').dataset.view).toBe('unavailable');
+  await dom.intervalFor(3000)();
+  expect(seenRequests.some(path => path.startsWith('/api/worker/'))).toBe(false);
   expect(deepText(dom.node('detail'))).not.toContain('三条规矩');
 });
 

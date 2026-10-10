@@ -88,7 +88,7 @@ export async function run(command, args, { client, json }) {
   const verb = args.shift() || 'show';
   check(['show','set','reset','migrate'].includes(verb), 'unknown config command; use show, set, reset or migrate');
   if (verb === 'migrate') {
-    check(scope !== 'device', 'migration reads the current project; use --scope project or omit scope');
+    check(scope !== 'device', 'migration reads the current project; omit --scope');
     const index = args.indexOf('--confirm'), confirm = index !== -1;
     if (confirm) args.splice(index, 1);
     const revision = option(args, '--revision'); exact(args, 0);

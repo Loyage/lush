@@ -1,8 +1,9 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, deepText, dialogText, answerDialog } from '../dom-stub.js';
+import { installDom, deepText, dialogText, answerDialog } from './project-dom.js';
 import { makeWorld } from './dom-world.js';
 
 const world = makeWorld();
+world.state.devicePreferences.values.taskGraphMinimal = false;
 const graph = { nodes: [
   { id: 1, parent_id: null, task_kind: 'main', role: 'agent', status: 'waiting', title: 'main', branch: 'main', children: [] },
   { id: 2, parent_id: 1, task_kind: 'order', role: 'agent', status: 'waiting', title: '实现功能', branch: 'lush/task-2', workspace: '/tmp/task-2', has_rule: true },
@@ -14,9 +15,8 @@ const dom = installDom({ fetch: (url, options) => {
 } });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
-const { setPref } = await import('../../src/ui/web/assets/prefs.js');
-// 此文件验证完整卡片；默认极简与切换由 dom-task-graph-minimal 覆盖。
-setPref('taskGraphMinimal', false);
+const statusKey = 'lush.taskGraph.hiddenStatuses:aaaaaaaaaaaaaaaa';
+// 此文件由权威设备mock设置完整卡片；默认极简与切换由 dom-task-graph-minimal 覆盖。
 await boot();
 afterAll(() => dom.restore());
 
@@ -342,7 +342,7 @@ test('Task 图：旧 v2 merge 卡片保留历史标记及状态筛选，空闲�
     expect(deepText(dom.node('detail'))).not.toContain('不在当前图中');
   } finally {
     graph.nodes = graph.nodes.filter(node => ![5, 6].includes(node.id)); graph.total -= 2;
-    globalThis.localStorage.removeItem('lush.taskGraph.hiddenStatuses');
+    globalThis.localStorage.removeItem(statusKey);
     await dom.node('task-graph-open').onclick();
   }
 });
@@ -361,7 +361,7 @@ test('Task 图：表头状态图例即开关，按状态隐藏后可一键恢复
     chip('completed').onclick();
     expect(card(7)).toBeNull();
     expect(chip('completed').getAttribute('aria-pressed')).toBe('false');
-    expect(JSON.parse(globalThis.localStorage.getItem('lush.taskGraph.hiddenStatuses'))).toEqual(['completed']);
+    expect(JSON.parse(globalThis.localStorage.getItem(statusKey))).toEqual(['completed']);
     // 只按状态筛：不同状态的兄弟 Task 不受影响。
     expect(card(2)).toBeTruthy();
     // 关掉的状态仍留在表头上，点回来即可恢复；「全部状态」一次清空筛选。
@@ -370,7 +370,7 @@ test('Task 图：表头状态图例即开关，按状态隐藏后可一键恢复
     chip('completed').onclick();
     dom.node('detail').querySelector('.task-graph-status-reset').onclick();
     expect(card(7)).toBeTruthy();
-    expect(globalThis.localStorage.getItem('lush.taskGraph.hiddenStatuses')).toBe('[]');
+    expect(globalThis.localStorage.getItem(statusKey)).toBe('[]');
     // 隐藏父 Task 的状态：子 Task 顶成根（与归档筛选同一口径），不会跟着消失也不会误报父不在图里。
     chip('waiting').onclick();
     expect(card(1)).toBeNull();
@@ -379,7 +379,7 @@ test('Task 图：表头状态图例即开关，按状态隐藏后可一键恢复
     expect(deepText(card(7))).not.toContain('不在当前图中');
   } finally {
     graph.nodes = graph.nodes.filter(node => node.id !== 7); graph.total -= 1;
-    globalThis.localStorage.removeItem('lush.taskGraph.hiddenStatuses');
+    globalThis.localStorage.removeItem(statusKey);
     await dom.node('task-graph-open').onclick();
   }
 });

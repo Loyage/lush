@@ -44,7 +44,8 @@ test('real HTTP/RPC/SQLite auto-select handles old and new questions and exposes
     expect(records.find(n => n.id === plan.id)).toBeUndefined(); // Web never exposes old plan approvals.
     expect(f.store.get('SELECT status,answer_source FROM notices WHERE id=?', plan.id)).toEqual({ status: 'open', answer_source: null });
     const fresh = f.project.notice(worker.id, 'new single', '', 'question', [question()]);
-    expect(fresh).toMatchObject({ status: 'answered', answer_source: 'lush' });
+    await until(() => f.store.get('SELECT status FROM notices WHERE id=?', fresh.id).status === 'answered');
+    expect(f.store.get('SELECT status,answer_source FROM notices WHERE id=?', fresh.id)).toEqual({ status: 'answered', answer_source: 'lush' });
     const renamed = await post(f, 'worker.rename', { id: worker.id, title: '用户自定义 Worker 标题' });
     expect(renamed.status).toBe(200);
     expect(renamed.value).toEqual({ id: worker.id, display_title: '用户自定义 Worker 标题' });

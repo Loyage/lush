@@ -9,7 +9,7 @@
 ## 分工
 
 - `src/ui/web/assets/app.js` / `project-picker.js`：先启动主体；项目管理、界面设置与帮助不依赖已选项目。
-- `route.js` / `api.js` / `prefs.js`：项目身份固定为 `/p/<project-id>/`，请求与项目偏好隔离。
+- `route.js` / `api.js` / `prefs.js`：项目身份固定为 `/p/<project-id>/`，项目请求与具体工作状态隔离；主题等设备偏好共享。
 - `src/ui/web/server.js`：Host 的 UI、认证、项目 API 转发适配器，不提供受管远端环境端点。
 - `src/host/project-host.js`：已登记项目列表及显式后台启停；读取不启动，停止后不因轮询重启。
 
@@ -21,9 +21,9 @@
 
 项目页标题为「项目名 · Lush」，由 Host 登记元数据先建立，daemon 离线仍可识别；根工作台标题为「Lush」。项目外观保存到 `<project>/.lush/appearance.json`，不是浏览器偏好或设备运行设置，不依赖 daemon。Host 首次显式打开初始化，优先分配已登记项目未使用的预设颜色（green/blue/teal/amber/rose/slate），耗尽后选使用最少者，重开不改色；列表读取不分配。
 
-`GET /api/host/projects/<id>/appearance` 只读返回 `{id,name,project,appearance}`，尚未配置时 appearance 为 null；`POST` 同路径接受 `{initialize:true}` 或 `{theme,color,expected_revision}`，配置为 `{version:1,theme,color,revision}`，theme 为 system/light/dark。身份须已登记／在白名单内，不接受任意路径；沿用认证、Origin、JSON/no-store，并拒绝 token 与未知字段。持久化私有读取、原子写入、跨进程分配锁及 revision 冲突保护；损坏或不安全文件不自动覆盖。
+#411 保留 W160 的辨识配色，取消项目主题权威。`GET /api/host/projects/<id>/appearance` 只读返回 `{id,name,project,appearance}`，尚未配置时 appearance 为 null；`POST` 同路径接受 `{initialize:true}` 或 `{color,expected_revision}`。文件仍为 `{version:1,theme,color,revision}`，旧 theme 留存但不参与显示；兼容客户端可回传相同 theme，试图修改则拒绝并引导设备偏好。初始化的 system 也是非活跃兼容值，不自动导入设备主题。身份须已登记／在白名单内，不接受任意路径；认证、Origin、JSON/no-store、token／未知字段拒绝、私有读取、原子写入、跨进程锁和 revision 校验保持，损坏文件不自动覆盖。
 
-设置页可编辑项目深浅主题与六种具名配色；侧栏主题按钮同样写项目设置。其余浏览器偏好和无项目工作台主题仍由 prefs.js 管理，恢复浏览器默认不清项目外观。不复制既有浏览器主题到项目（以免某个浏览器决定其他用户默认）。当前配置失败时保留已知值、提供重读入口，未加载配置不允许保存；后台每 15 秒可见时只读同步其他浏览器的修改，保存携带 revision，迟到响应不能污染新项目。仅改变侧栏、品牌、选中项及强调色，不替换业务状态／Agent 紫色。
+用户工作台「项目」列表的「配色」入口提供六种具名辨识色，项目 shell 不再编辑主题或配色。主题统一经设备 prefs.js 管理，恢复设备默认不清项目辨识色或历史 theme。项目色失败保留已知值、提供重读入口，不阻断设备主题。项目页每 15 秒可见时只读同步配色；保存带 revision，迟到响应不能污染新项目。仅改变侧栏、品牌、选中项及强调色，不替换业务状态／Agent 紫色。
 
 ## 验证入口
 

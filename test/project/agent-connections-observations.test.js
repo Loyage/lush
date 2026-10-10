@@ -1,3 +1,4 @@
+import { ConnectionFile } from '../../src/agent/connections-file.js';
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -70,11 +71,11 @@ test('shared failures retain old success across projects; credential changes and
     await device.save({ ...writable(row), label: 'New account' }, { api_key: 'PRIVATE-NEW-KEY' });
     expect(b.service.list().connections[0]).toMatchObject({ observation: { status: 'unknown' }, last_success: null });
     const source = device.getManager().file.read().connections[0];
-    b.service.getManager().file.transaction(data => { data.connections.push({ ...source, credential: { type: 'api_key', key: 'PRIVATE-LOCAL-KEY' } }); });
+    new ConnectionFile(b.config.home).transaction(data => { data.connections.push({ ...source, credential: { type: 'api_key', key: 'PRIVATE-LOCAL-KEY' } }); });
     await b.service.query(row.id);
     expect(b.service.list().connections[0].observation.resources[0].remaining).toBe(99);
-    expect(b.service.forScope('device').list().connections[0].observation.status).toBe('unknown');
-    expect(a.service.list().connections[0].observation.status).toBe('unknown');
+    expect(b.service.forScope('device').list().connections[0].observation.resources[0].remaining).toBe(99);
+    expect(a.service.list().connections[0].observation.resources[0].remaining).toBe(99);
   } finally { await b.close(); await a.close(); }
 });
 

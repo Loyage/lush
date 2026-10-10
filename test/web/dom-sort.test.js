@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom } from '../dom-stub.js';
+import { installDom } from './project-dom.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 
 // 左栏全局排序：smart / updated / id 三个模式同时作用于四个列表，且切换后立刻就地重画。

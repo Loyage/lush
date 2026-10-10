@@ -18,7 +18,7 @@ function facts(f) {
 const rule = { name: 'template', trigger: 'agent.returned', mode: 'once', enabled: true,
   actions: [{ type: 'notify', title: 'template', body: 'done' }] };
 
-test('completion defaults start disabled, read without writes, persist per project and keep their selected level when disabled', async () => {
+test('completion defaults start disabled, read without writes, persist per device and keep their selected level when disabled', async () => {
   const f = await setup(), other = fixture();
   let reopened;
   try {
@@ -42,7 +42,7 @@ test('completion defaults start disabled, read without writes, persist per proje
   } finally { reopened?.close(); await f.close(); await other.close(); }
 });
 
-test('defaults have strict values and an independent revision, including concurrent and ABA edits', async () => {
+test('device defaults have strict values and a revision independent of templates, including concurrent and ABA edits', async () => {
   const f = await setup(); let connection, tab;
   try {
     const initial = f.project.hooksList();
@@ -55,7 +55,8 @@ test('defaults have strict values and an independent revision, including concurr
     expect(saved.completion_defaults).toEqual(initial.completion_defaults);
     const changed = configure(f, true, 'accept');
     expect(changed.revision).toBe(saved.revision);
-    expect(changed.daemon_hooks.revision).toBe(saved.daemon_hooks.revision);
+    expect(changed.daemon_hooks.revision).not.toBe(saved.daemon_hooks.revision); // Both device policies share one optimistic revision.
+    expect(changed.daemon_hooks.mounts[0].enabled).toBe(false);
     // A defaults save does not invalidate a template editor, nor the inverse.
     f.project.removeHookTemplate(saved.templates[0].id, saved.revision);
     connection = new Store(path.join(f.config.home, 'project.db'), f.root);
@@ -115,7 +116,7 @@ test('only newly created order Workers copy defaults; existing, child, owners, m
   } finally { await f.close(); }
 });
 
-test('archive project default still leaves a normally delivered child awaiting its parent acceptance', async () => {
+test('archive device default still leaves a normally delivered child awaiting its parent acceptance', async () => {
   const f = fixture({ resolve() { return { agent: 'mock' }; }, async run({ task }) {
     fs.writeFileSync(path.join(task.workspace, 'child.txt'), 'child work');
     await git(task.workspace, 'add', '.'); await git(task.workspace, 'commit', '-m', 'child work');
@@ -184,7 +185,7 @@ for (const [mountedEnabled, createdEnabled] of [[false, true], [true, false]])
   });
 
 for (const level of ['off', 'merge', 'accept', 'archive'])
-  test(`new order default ${level} actually runs its authorized completion chain after project defaults are disabled`, async () => {
+  test(`new order default ${level} actually runs its authorized completion chain after device defaults are disabled`, async () => {
     const f = fixture({ resolve() { return { agent: 'mock' }; }, async run({ task }) {
       fs.writeFileSync(path.join(task.workspace, 'result.txt'), level);
       await git(task.workspace, 'add', '.'); await git(task.workspace, 'commit', '-m', 'default completion');

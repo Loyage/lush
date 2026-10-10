@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, dialogText, answerDialog, deepText } from '../dom-stub.js';
+import { installDom, dialogText, answerDialog, deepText } from './project-dom.js';
 import { makeWorld } from './dom-world.js';
 
 const world = makeWorld();

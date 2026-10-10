@@ -9,12 +9,12 @@ import {
 import { env, gate, temp, until } from '../helpers.js';
 
 function fixture(extra = {}) {
-  const root = temp(), config = new Config({ project: root, env: env(extra) }); config.prepare();
+  const root = temp(), config = new Config({ project: root, env: env({ ...extra, LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) }); config.prepare();
   return { root, config, close() { fs.rmSync(root, { recursive: true, force: true }); } };
 }
 
 function privatePi(config, settings) {
-  const dir = path.join(config.home, 'pi');
+  const dir = path.join(config.deviceHome, 'pi');
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   fs.chmodSync(dir, 0o700);
   if (settings !== undefined) fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify(settings), { mode: 0o600 });
@@ -146,7 +146,7 @@ test('list falls back to declarations with a safe warning when pi cannot list', 
   const f = fixture();
   try {
     const local = localPackage(f.root);
-    const settingsSource = path.relative(path.join(f.config.home, 'pi'), fs.realpathSync(local));
+    const settingsSource = path.relative(path.join(f.config.deviceHome, 'pi'), fs.realpathSync(local));
     privatePi(f.config, { packages: [settingsSource] });
     const runner = fakeRun(() => { throw new PackageCommandError('unavailable'); });
     const manager = new AgentPackages(f.config, { run: runner.run });
@@ -164,7 +164,7 @@ test('list stays empty without a private Pi directory and does not create one', 
     const view = await new AgentPackages(f.config, { run: runner.run }).list();
     expect(view).toMatchObject({ version: 1, packages: [], resources: { extensions: [], skills: [] } });
     expect(runner.calls).toHaveLength(0);
-    expect(fs.existsSync(path.join(f.config.home, 'pi'))).toBe(false);
+    expect(fs.existsSync(path.join(f.config.deviceHome, 'pi'))).toBe(false);
   } finally { f.close(); }
 });
 
@@ -172,7 +172,7 @@ test('install pins the exact source, prepares the private directory and refreshe
   const f = fixture();
   try {
     const local = localPackage(f.root);
-    const dir = path.join(f.config.home, 'pi');
+    const dir = path.join(f.config.deviceHome, 'pi');
     const runner = fakeRun(options => {
       if (options.args[0] === 'install') {
         fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({ packages: ['./lush-test-pkg'] }), { mode: 0o600 });
@@ -183,7 +183,7 @@ test('install pins the exact source, prepares the private directory and refreshe
     const manager = new AgentPackages(f.config, { run: runner.run });
     const view = await manager.install('./lush-test-pkg');
     expect(runner.calls[0].args).toEqual(['install', fs.realpathSync(local), '--no-approve']);
-    expect(runner.calls[0].cwd).toBe(f.config.project);
+    expect(runner.calls[0].cwd).toBe(f.config.deviceHome);
     expect(runner.calls[0].env.PI_CODING_AGENT_DIR).toBe(dir);
     expect(runner.calls[0].env.PI_OFFLINE).toBeUndefined();
     expect(fs.statSync(path.join(dir, 'settings.json')).mode & 0o777).toBe(0o600);

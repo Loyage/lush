@@ -1,6 +1,6 @@
 import { test, expect, afterAll } from 'bun:test';
 import fs from 'node:fs';
-import { installDom, deepText } from '../dom-stub.js';
+import { installDom, deepText } from './project-dom.js';
 import { makeWorld } from './dom-world.js';
 import { until } from '../helpers.js';
 
@@ -192,8 +192,8 @@ test('分页期间刷新作废旧响应；旧请求不清除新请求状态；�
 
 test('离页、返回和 boot 复位后的迟到响应不覆盖当前页面', async () => {
   reset(); const late = deferred(); intercept = () => late.promise; const opening = openVersions();
-  await dom.node('settings-open').onclick(); late.resolve(json({ ...fixture(), commits: [commit('c')] })); await opening;
-  expect(selected()).toEqual(['settings']); expect(text()).not.toContain('提交 c');
+  await dom.node('overview-open').onclick(); late.resolve(json({ ...fixture(), commits: [commit('c')] })); await opening;
+  expect(selected()).toEqual(['overview']); expect(text()).not.toContain('提交 c');
   const stale = deferred(); intercept = () => stale.promise; const old = openVersions();
   activateDetailView({ view: 'overview' }); intercept = null; await openVersions();
   stale.resolve(json({ ...fixture(), commits: [commit('d')] })); await old;
@@ -205,8 +205,8 @@ test('离页、返回和 boot 复位后的迟到响应不覆盖当前页面', as
 
 test('请求带项目路由前缀；不信任分页 tip 变化与不兼容数据', async () => {
   reset(); dom.location.pathname = '/p/0123456789abcdef/';
-  try { await openVersions(); expect(paths.at(-1)).toBe('/p/0123456789abcdef/api/versions?limit=50'); }
-  finally { dom.location.pathname = '/'; }
+  try { await openVersions(); expect(dom.requests.filter(row => row.path.includes('/api/versions')).at(-1).path).toBe('/p/0123456789abcdef/api/versions?limit=50'); }
+  finally { dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/'; }
   data = { ...fixture(), tip: sha('d'), commits: [commit('d')] }; await more().onclick();
   expect(text()).toContain('分页基线发生变化'); expect(text()).not.toContain('提交 d');
   data = { error: 'invalid' }; await refresh().onclick(); expect(text()).toContain('数据格式不兼容');
@@ -228,7 +228,7 @@ test('重复点击分页单飞；文本安全渲染、未核实关联与明确�
 test('HTML 工作导航和样式入口、响应式与双主题 token 静态约束', () => {
   const html = fs.readFileSync('src/ui/web/assets/index.html', 'utf8');
   expect(html).toContain('id="versions-open"'); expect(html).toContain('href="/styles-versions.css"');
-  expect(html.indexOf('id="versions-open"')).toBeLessThan(html.indexOf('<span>其他</span>'));
+  expect(html.indexOf('id="versions-open"')).toBeLessThan(html.indexOf('<span>设备设置与帮助</span>'));
   const css = fs.readFileSync('src/ui/web/assets/styles-versions.css', 'utf8');
   expect(css).toContain('@media(max-width:640px)'); expect(css).toContain('var(--panel)'); expect(css).toContain('overflow-wrap:anywhere');
 });

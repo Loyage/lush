@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, findByText, deepText } from '../dom-stub.js';
+import { installDom, findByText, deepText } from './project-dom.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 
 // 左栏导航计数、折叠、全局排序控件、行动任务筛选。
@@ -43,10 +43,10 @@ test('当前项目身份不误称 Host，侧栏不装配跨项目列表轮询', 
     expect(calls).not.toContain('/api/host/projects');
     dom.location.pathname = '/'; dom.location.hash = '';
     await boot();
-    expect(dom.node('host-context').textContent).toBe('工作台');
-    expect(dom.node('project').textContent).toBe('未打开项目');
+    expect(dom.node('host-context').textContent).toBe('用户工作台');
+    expect(dom.node('project').textContent).toBe('用户工作台');
   } finally {
-    intercept = null; dom.location.pathname = '/'; dom.location.hash = ''; await boot();
+    intercept = null; dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/'; dom.location.hash = ''; await boot();
   }
 });
 
@@ -95,17 +95,17 @@ test('左栏：两个区块的导航计数与索引、折叠开关、行动任�
   await headTasks.listeners.click[0]();
   expect(sideTasks.classList.contains('collapsed')).toBe(true);
   expect(headTasks.getAttribute('aria-expanded')).toBe('false');
-  expect(JSON.parse(globalThis.localStorage.getItem('lush.sidebar.collapsed'))).toEqual(['tasks']);
+  expect(JSON.parse(globalThis.localStorage.getItem('lush.sidebar.collapsed:aaaaaaaaaaaaaaaa'))).toEqual(['tasks']);
   // 「全部展开」把所有区块一次收起状态清掉
   await findByText(nav, '全部展开').onclick();
   expect(sideTasks.classList.contains('collapsed')).toBe(false);
-  expect(JSON.parse(globalThis.localStorage.getItem('lush.sidebar.collapsed'))).toEqual([]);
+  expect(JSON.parse(globalThis.localStorage.getItem('lush.sidebar.collapsed:aaaaaaaaaaaaaaaa'))).toEqual([]);
 });
 
 test('平铺列表即时多选、搜索、轮询与偏好重载：不补祖先，没有层级和兄弟链', async () => {
   const snapshot = ui.lastSnapshot;
   const sortMode = ui.sidebarSortMode;
-  const saved = globalThis.localStorage.getItem('lush.sidebar.filters');
+  const saved = globalThis.localStorage.getItem('lush.sidebar.filters:aaaaaaaaaaaaaaaa');
   const make = (id, parent_id, status, role) => ({ id, parent_id, status, role, integration: 'none',
     goal: `目标 ${id}`, updated_at: iso(NOW + id) });
   ui.lastSnapshot = { ...snapshot, tasks: [make(10, null, 'completed', 'agent'), make(11, 10, 'running', 'agent'),
@@ -136,7 +136,7 @@ test('平铺列表即时多选、搜索、轮询与偏好重载：不补祖先�
     expect(box(1, 'agent')).toBe(input);
     expect(document.activeElement).toBe(input);
     expect(input.checked).toBe(true);
-    const persisted = JSON.parse(globalThis.localStorage.getItem('lush.sidebar.filters'));
+    const persisted = JSON.parse(globalThis.localStorage.getItem('lush.sidebar.filters:aaaaaaaaaaaaaaaa'));
     expect(persisted.tasks.status).toEqual(['running', 'failed']);
     expect(persisted.tasks.role).toEqual(['agent', 'future-role']);
     await change(0, 'running', false);
@@ -158,8 +158,8 @@ test('平铺列表即时多选、搜索、轮询与偏好重载：不补祖先�
     expect(reloaded.querySelector('[data-value="worker"]').querySelector('input').checked).toBe(true);
     expect(reloaded.querySelector('[data-value="future-role"]').querySelector('input').checked).toBe(true);
   } finally {
-    if (saved === null) globalThis.localStorage.removeItem('lush.sidebar.filters');
-    else globalThis.localStorage.setItem('lush.sidebar.filters', saved);
+    if (saved === null) globalThis.localStorage.removeItem('lush.sidebar.filters:aaaaaaaaaaaaaaaa');
+    else globalThis.localStorage.setItem('lush.sidebar.filters:aaaaaaaaaaaaaaaa', saved);
     await boot();
     ui.lastSnapshot = snapshot; ui.sidebarSortMode = sortMode; renderTree(snapshot);
   }
@@ -199,7 +199,7 @@ test('历史分页保留全类型记录和多选条件，空态明确提示尚�
 test('排序是左栏顶部的全局控件，不再是行动任务区块里的下拉', async () => {
   const sort = dom.node('sidebar-sort');
   // 控件是全局的：挂在左栏顶部，两个列表共用一个；带说明性 title
-  expect(sort.title).toContain('列表共用');
+  expect(sort.getAttribute('data-help')).toContain('设备统一');
   expect(sort.querySelectorAll('option').map(node => node.textContent)).toEqual(['智能排序', '按最近更新', '按编号（新在前）']);
   expect(sort.value).toBe('smart');
   // 区块标题里不再自带排序下拉

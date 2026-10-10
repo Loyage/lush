@@ -1,7 +1,7 @@
 import { test, expect, afterAll } from 'bun:test';
 import { installDom } from '../dom-stub.js';
 
-// 前端项目身份：地址是唯一来源（`/p/<id>/`），项目相关偏好按项目隔离，外观偏好共享。
+// 地址是唯一项目来源；设备偏好共享，具体工作状态按项目隔离。
 const dom = installDom({ fetch: async () => new Response('{}') });
 afterAll(() => dom.restore());
 
@@ -36,35 +36,20 @@ test('项目身份来自地址：项目 API 加前缀，宿主级资源不加', 
   expect(projectApi('/api/docs')).toBe('/api/docs');
 });
 
-test('项目相关偏好按项目隔离，全局外观偏好共享', () => {
+test('设备排序和图显示偏好共享，折叠/过滤工作状态仍按项目隔离', () => {
   globalThis.location.pathname = '/';
-  prefs.setPref('sidebarSort', 'id');
-  prefs.setPref('collapsed', new Set(['tasks']));
-  prefs.setPref('theme', 'dark');
-  expect(globalThis.localStorage.getItem('lush.sidebarSort')).toBe('id');
-  expect(globalThis.localStorage.getItem('lush.theme')).toBe('dark');
-
-  // 另一个项目看不到上一个项目的筛选 / 折叠 / 排序，但共享主题。
+  prefs.setPref('sidebarSort', 'id'); prefs.setPref('taskGraphMinimal', false);
+  prefs.setPref('collapsed', new Set(['tasks'])); prefs.setPref('theme', 'dark');
+  localStorage.setItem(`lush.sidebarSort:${ID}`, 'updated');
   globalThis.location.pathname = `/p/${ID}/`;
-  expect(prefs.readPref('sidebarSort')).toBe('smart');
-  expect([...prefs.readPref('collapsed')]).toEqual([]);
-  expect(prefs.readPref('theme')).toBe('dark');
-  prefs.setPref('sidebarSort', 'updated');
-  expect(globalThis.localStorage.getItem(`lush.sidebarSort:${ID}`)).toBe('updated');
-  expect(globalThis.localStorage.getItem('lush.sidebarSort')).toBe('id');
-
-  // 不同项目 ID 的视图独立；恢复当前项目不清除别的项目。
-  globalThis.location.pathname = '/p/2222222222222222/';
-  expect(prefs.readPref('sidebarSort')).toBe('smart');
-  prefs.setPref('sidebarSort', 'id');
-  globalThis.location.pathname = `/p/${ID}/`;
-  expect(prefs.readPref('sidebarSort')).toBe('updated');
-  prefs.resetPrefs();
-  expect(prefs.readPref('sidebarSort')).toBe('smart');
-  expect(globalThis.localStorage.getItem('lush.sidebarSort:2222222222222222')).toBe('id');
-
-  // Task 图的状态筛选同样按项目隔离。
+  expect(prefs.readPref('sidebarSort')).toBe('id'); expect(prefs.readPref('taskGraphMinimal')).toBe(false);
+  expect([...prefs.readPref('collapsed')]).toEqual([]); expect(prefs.readPref('theme')).toBe('dark');
+  prefs.setPref('collapsed', new Set(['notices'])); prefs.setPref('sidebarSort', 'updated');
   prefs.setPref('taskGraphStatuses', new Set(['completed']));
-  globalThis.location.pathname = '/';
+  globalThis.location.pathname = '/p/2222222222222222/';
+  expect(prefs.readPref('sidebarSort')).toBe('updated'); expect([...prefs.readPref('collapsed')]).toEqual([]);
   expect(prefs.readPref('taskGraphStatuses').size).toBe(0);
+  globalThis.location.pathname = `/p/${ID}/`;
+  expect([...prefs.readPref('collapsed')]).toEqual(['notices']); expect([...prefs.readPref('taskGraphStatuses')]).toEqual(['completed']);
+  expect(localStorage.getItem(`lush.sidebarSort:${ID}`)).toBe('updated'); // dormant historical key, never read or removed
 });

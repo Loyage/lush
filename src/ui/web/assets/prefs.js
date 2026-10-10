@@ -9,7 +9,8 @@
  *
  * 老用户的键值继续生效：`lush.markdown` / `lush.theme` 保持原样；左栏排序从 `lush.treeSort`
  * 迁到 `lush.sidebarSort` 后，读取时仍回落旧键。
- * 浏览器按 origin 保存，不写进项目库。
+ * 设备偏好由 Host 权威保存；localStorage 只是首帧缓存。具体折叠／过滤仍是项目工作状态。
+ * writePref/setPref 是同步缓存原语；用户设备偏好写入必须 await saveDevicePreference。
  */
 import { COLLAPSED_KEY, FILTERS_KEY, parseCollapsed, parseFilters, serializeCollapsed } from './sidebar.js';
 import { SORT_MODES } from './tree-order.js';
@@ -109,13 +110,13 @@ export const PREF_DEFS = {
   markdown: boolPref(MARKDOWN_KEY, true),
   theme: enumPref(THEME_KEY, THEME_VALUES, 'system'),
   sidebarSort: {
-    key: SIDEBAR_SORT_KEY, legacy: [LEGACY_TREE_SORT_KEY], default: 'smart', scope: true,
+    key: SIDEBAR_SORT_KEY, legacy: [LEGACY_TREE_SORT_KEY], default: 'smart',
     parse: raw => (SORT_IDS.has(raw) ? raw : 'smart'),
     format: value => (SORT_IDS.has(value) ? value : 'smart'),
   },
   collapsed: { key: COLLAPSED_KEY, default: () => new Set(), parse: parseCollapsed, format: serializeCollapsed, scope: true },
   taskGraphMinimal: { key: 'lush.taskGraph.minimal', default: true, parse: raw => raw !== '0',
-    format: value => value ? '1' : '0', scope: true },
+    format: value => value ? '1' : '0' },
   taskGraphStatuses: { key: TASK_GRAPH_STATUSES_KEY, default: () => new Set(), parse: parseTaskGraphStatuses,
     format: value => JSON.stringify([...value]), scope: true },
   taskGraphCollapsed: { key: 'lush.taskGraph.collapsed', default: () => new Set(), scope: true,
@@ -140,7 +141,7 @@ function defaultValue(def) { return typeof def.default === 'function' ? def.defa
 
 /**
  * 项目相关偏好（折叠 / 筛选 / 排序）按项目隔离：同一浏览器里 A 的视图状态不会带到 B，
- * 客户端偏好（无项目工作台主题 / Markdown / 轮询 / 提醒）继续共享。项目主题／配色由 appearance.js 经 Host 保存，不使用这里的主题键。单项目模式与全局项目列表下无前缀，键保持原样。
+ * 主题 / Markdown / 轮询 / 提醒等设备偏好统一由 Host 管理，本地仅缓存。项目辨识色由 appearance.js 独立读取；旧项目 theme 不参与显示。
  */
 function prefKey(def) {
   if (!def.scope) return def.key;
@@ -219,4 +220,138 @@ export function resetPrefs() {
 /** 当前全部偏好的快照，给设置页与测试用。 */
 export function prefsSnapshot() {
   return Object.fromEntries(PREF_NAMES.map(name => [name, readPref(name)]));
+}
+
+export const DEVICE_PREF_NAMES = ['markdown', 'theme', 'sidebarSort', 'taskGraphMinimal', 'reduceMotion',
+  'polling', 'toastDuration', 'transcriptOrder', 'noticeChannels', 'noticeNotifications'];
+const DEVICE_PREFS = new Set(DEVICE_PREF_NAMES);
+const DEVICE_REVISION_KEY = 'lush.device-preferences-revision';
+let deviceClient = null;
+const deviceListeners = new Set();
+export function onDevicePreferences(listener) {
+  deviceListeners.add(listener); listener(devicePreferencesStatus()); return () => deviceListeners.delete(listener);
+}
+function emitDevicePreferences() {
+  const status = devicePreferencesStatus();
+  for (const listener of deviceListeners) { try { listener(status); } catch (error) { console.error(error); } }
+}
+function preferenceEqual(a, b) {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)) return false;
+  const left = Object.keys(a).sort(), right = Object.keys(b).sort();
+  return left.length === right.length && left.every((key, index) => key === right[index] && preferenceEqual(a[key], b[key]));
+}
+function deviceState() {
+  const owner = globalThis.document, storage = globalThis.localStorage;
+  if (deviceClient && deviceClient.owner === owner && deviceClient.storage === storage) return deviceClient;
+  deviceClient = { owner, storage, ready: false, pending: 0, error: '', revision: null, generation: 0,
+    read: null, applied: null, queue: Promise.resolve() };
+  return deviceClient;
+}
+const ownsDeviceState = state => state === deviceState();
+export function devicePreferencesStatus() {
+  const state = deviceState();
+  return { ready: state.ready, saving: state.pending > 0, error: state.error, revision: state.revision };
+}
+async function preferenceRequest(options) {
+  // Keep the pre-paint appearance entry lightweight; do not statically import the full app/API graph.
+  const { api } = await import('./api.js');
+  return api('/api/host/preferences', options);
+}
+function validatedDeviceModel(model) {
+  if (model?.version !== 1 || typeof model.revision !== 'string' || !model.revision.trim()
+    || !model.values || typeof model.values !== 'object' || Array.isArray(model.values)
+    || Object.keys(model.values).some(name => !DEVICE_PREFS.has(name))) throw new Error('设备偏好响应无效；请更新 Host 后重试');
+  const values = {};
+  for (const name of DEVICE_PREF_NAMES) {
+    const value = model.values[name], def = PREF_DEFS[name];
+    const normalized = def.parse(def.format(value));
+    if (value === undefined || !preferenceEqual(normalized, value)) throw new Error('设备偏好响应缺少有效值；未覆盖缓存');
+    values[name] = normalized;
+  }
+  return { revision: model.revision, values };
+}
+function applyDeviceModel(state, raw) {
+  const model = validatedDeviceModel(raw);
+  if (!ownsDeviceState(state)) return model;
+  state.ready = true; state.revision = model.revision; state.error = '';
+  for (const name of DEVICE_PREF_NAMES) {
+    // Same-origin tabs share localStorage. Another tab may already have updated
+    // that cache while this page still displays its previously applied snapshot.
+    const cached = readPref(name), applied = state.applied?.[name] ?? cached;
+    const changed = !preferenceEqual(applied, model.values[name]) || !preferenceEqual(cached, model.values[name]);
+    const value = writePref(name, model.values[name]);
+    if (changed) notify(name, value);
+  }
+  state.applied = model.values;
+  emitDevicePreferences();
+  // An invalidation hint only. Other tabs must fetch the authoritative backend, never trust this value as configuration.
+  writeStored(DEVICE_REVISION_KEY, model.revision);
+  return model;
+}
+
+/** Read-only reconciliation. Startup never seeds the backend from stale browser values. */
+export async function refreshDevicePreferences() {
+  const state = deviceState();
+  if (state.read) return state.read;
+  if (state.pending) return state.queue.then(() => refreshDevicePreferences());
+  const generation = state.generation;
+  const pending = preferenceRequest().then(raw => {
+    if (ownsDeviceState(state) && state.generation === generation && !state.pending) return applyDeviceModel(state, raw).values;
+    return null;
+  }).catch(error => {
+    if (ownsDeviceState(state) && state.generation === generation) { state.error = error.message; emitDevicePreferences(); }
+    throw error;
+  }).finally(() => { if (state.read === pending) state.read = null; });
+  state.read = pending; return pending;
+}
+
+/** Explicit, serialized device write. A stale revision is rejected rather than silently overwriting another client. */
+export function saveDevicePreference(name, value) {
+  if (!DEVICE_PREFS.has(name)) return Promise.reject(new Error('此项是项目工作状态，不是设备偏好'));
+  const def = PREF_DEFS[name], normalized = def.parse(def.format(value));
+  return saveDevicePatch({ [name]: normalized }).then(values => values[name]);
+}
+function saveDevicePatch(patch) {
+  const state = deviceState();
+  state.pending++; state.generation++; emitDevicePreferences();
+  const write = state.queue.catch(() => {}).then(async () => {
+    if (!ownsDeviceState(state)) throw new Error('页面已更新，未提交旧偏好');
+    try {
+      if (!state.ready) applyDeviceModel(state, await preferenceRequest());
+      if (!ownsDeviceState(state)) throw new Error('页面已更新，未提交旧偏好');
+      const raw = await preferenceRequest({ method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patch, expected_revision: state.revision }) });
+      // Invalidate GETs that began before this ACK, even when they finish after it.
+      state.generation++;
+      return applyDeviceModel(state, raw).values;
+    } catch (error) {
+      if (ownsDeviceState(state)) state.error = error.message;
+      throw error;
+    } finally { state.pending--; if (ownsDeviceState(state)) emitDevicePreferences(); }
+  });
+  // Keep the serialization queue settled for fire-and-forget lifecycle reads, but return the real rejection to the caller.
+  state.queue = write.catch(() => {});
+  return write;
+}
+export function resetDevicePreferences() {
+  return saveDevicePatch(Object.fromEntries(DEVICE_PREF_NAMES.map(name => [name, defaultValue(PREF_DEFS[name])])));
+}
+
+/** Cross-client sync is read-only and cancellable; it never creates a project or asks for Notification permission. */
+export function startDevicePreferencesSync({ interval = 5000 } = {}) {
+  const owner = globalThis.document, storage = globalThis.localStorage;
+  let disposed = false;
+  const update = () => { if (!disposed && owner === globalThis.document && storage === globalThis.localStorage) void refreshDevicePreferences().catch(() => {}); };
+  const changed = event => { if (event?.key === DEVICE_REVISION_KEY) update(); };
+  const visible = () => { if (!globalThis.document?.hidden) update(); };
+  globalThis.addEventListener?.('storage', changed);
+  globalThis.addEventListener?.('focus', visible);
+  globalThis.document?.addEventListener?.('visibilitychange', visible);
+  const timer = setInterval(visible, interval); timer?.unref?.(); update();
+  return () => {
+    disposed = true; clearInterval(timer);
+    globalThis.removeEventListener?.('storage', changed); globalThis.removeEventListener?.('focus', visible);
+    globalThis.document?.removeEventListener?.('visibilitychange', visible);
+  };
 }

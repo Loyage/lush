@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { check, isPlainObject, LushError } from './types.js';
 import { validId, safeText } from '../agent/connections-utils.js';
-import { configurationHome, configurationScope, normalizeConfigurationScope, withConfigurationWriteLock } from './device-config.js';
+import { configurationHome, configurationScope, settingsConfigurationScope, withConfigurationWriteLock } from './device-config.js';
 
 export const DEFAULT_EXPLANATION_PROMPT = '请用简洁中文解释用户选中的文字：先说明它是什么意思，再解释必要的背景、原理及对用户的意义。默认 3–6 句，复杂内容可用短列表。区分原文事实、背景知识和推测；资料不足时明确说明不知道，不要编造上下文。';
 export const EXPLANATION_PROVIDERS = new Set(['openai-compatible', 'deepseek', 'openrouter', 'zai']);
@@ -25,7 +25,7 @@ function normalized(value) {
   return { connection_id, model, prompt };
 }
 
-/** Project-only settings. No secrets, no inherited Agent configuration or network probes. */
+/** Device-authoritative profile; explanation results and in-flight snapshots remain project-owned. */
 export class QuickExplanationSettings {
   constructor(config) { this.config = config; }
   location(create = false, scope = 'project') {
@@ -56,18 +56,18 @@ export class QuickExplanationSettings {
     } catch { throw invalid(); }
     finally { if (fd !== undefined) fs.closeSync(fd); }
   }
-  read(scope = 'project') {
-    normalizeConfigurationScope(scope);
-    const own = this.readLocal(scope);
-    return own || (scope === 'project' && this.config.deviceHome ? this.readLocal('device') : null) || normalized({});
+  read(scope) {
+    scope = settingsConfigurationScope(this.config, scope);
+    return this.readLocal(scope) || normalized({});
   }
-  configurationScope(scope = 'project') {
+  configurationScope(scope) {
+    scope = settingsConfigurationScope(this.config, scope);
     const own = this.readLocal(scope);
-    const shared = !own && scope === 'project' && this.config.deviceHome ? this.readLocal('device') : null;
-    return configurationScope(this.config, scope, own ? scope : shared ? 'device' : 'default', scope === 'project' && Boolean(own));
+    return configurationScope(this.config, scope, own ? scope : 'default', false);
   }
-  preview(patch, scope = 'project') { fields(patch); return normalized({ ...this.read(scope), ...patch }); }
-  save(profile, scope = 'project') {
+  preview(patch, scope) { fields(patch); return normalized({ ...this.read(scope), ...patch }); }
+  save(profile, scope) {
+    scope = settingsConfigurationScope(this.config, scope);
     const value = normalized(profile);
     try { return withConfigurationWriteLock(this.config, scope, lock => this.saveLocal(value, scope, lock)); }
     catch { throw invalid(); }
@@ -87,6 +87,7 @@ export class QuickExplanationSettings {
     finally { if (fd !== undefined) fs.closeSync(fd); if (temporary) { try { fs.unlinkSync(temporary); } catch {} } }
   }
   clearOverride() {
+    settingsConfigurationScope(this.config, 'project');
     try {
       return withConfigurationWriteLock(this.config, 'project', lock => {
         this.readLocal(); const loc = this.location(); lock.assert(); fs.rmSync(loc.file, { force: true });

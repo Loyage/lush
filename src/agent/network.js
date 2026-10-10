@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
 import { isPlainObject, LushError } from '../core/types.js';
 import { outboundFetch } from './network-transport.js';
-import { configurationScope, normalizeConfigurationScope, scopedConfiguration, withConfigurationWriteLock } from '../core/device-config.js';
+import { configurationScope, settingsConfigurationScope, scopedConfiguration, withConfigurationWriteLock } from '../core/device-config.js';
 
 const MAX_BYTES = 65536;
 const PROXY_NAMES = ['http_proxy', 'https_proxy', 'all_proxy', 'no_proxy'];
@@ -82,8 +82,8 @@ function storedLocal(config) {
   } catch { throw invalid(); }
   finally { if (fd !== undefined) fs.closeSync(fd); }
 }
-function networkSelection(config, scope = 'project') {
-  normalizeConfigurationScope(scope);
+function networkSelection(config, scope) {
+  scope = settingsConfigurationScope(config, scope);
   if (scope === 'device') {
     const selected = scopedConfiguration(config, scope), loc = location(selected);
     let exists = false;
@@ -96,17 +96,20 @@ function networkSelection(config, scope = 'project') {
   if (config?.deviceHome) return networkSelection(config, 'device');
   return { data: storedLocal(config), source: 'default', overridden: false };
 }
-function stored(config, scope = 'project') { return networkSelection(config, scope).data; }
-export function networkConfigurationScope(config, scope = 'project') {
+function stored(config, scope) { return networkSelection(config, scope).data; }
+export function networkConfigurationScope(config, scope) {
+  scope = settingsConfigurationScope(config, scope);
   const selected = networkSelection(config, scope);
   return configurationScope(config, scope, selected.source, selected.overridden);
 }
 const publicView = data => ({ version: 1, mode: data.mode, proxy_url: data.proxy_url, no_proxy: [...data.no_proxy], has_proxy_auth: !!data.proxy_auth });
-export function readNetworkConfiguration(config, scope = 'project') {
+export function readNetworkConfiguration(config, scope) {
+  scope = settingsConfigurationScope(config, scope);
   const selected = networkSelection(config, scope), view = publicView(selected.data);
   return config?.deviceHome ? { ...view, configuration_scope: configurationScope(config, scope, selected.source, selected.overridden) } : view;
 }
-export function saveNetworkConfiguration(config, value, scope = 'project') {
+export function saveNetworkConfiguration(config, value, scope) {
+  scope = settingsConfigurationScope(config, scope);
   try {
     return withConfigurationWriteLock(config, scope, lock => {
       const previous = stored(config, scope);
@@ -116,6 +119,7 @@ export function saveNetworkConfiguration(config, value, scope = 'project') {
   } catch { throw invalid(); }
 }
 export function clearNetworkOverride(config) {
+  settingsConfigurationScope(config, 'project');
   try {
     return withConfigurationWriteLock(config, 'project', lock => {
       storedLocal(config); const loc = location(config); lock.assert(); fs.rmSync(loc.file, { force: true });

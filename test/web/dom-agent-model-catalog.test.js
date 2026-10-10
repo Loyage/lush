@@ -92,7 +92,7 @@ test('空列表引导来源页填写，保存后重读连接即可选择且不�
     expect(picker.models.hidden).toBe(false); expect(picker.models.disabled).toBe(true);
     expect(deepText(picker.node)).toContain('填写并保存“模型列表”');
     expect(picker.node.querySelector('a').textContent).toBe('填写来源模型列表');
-    expect(picker.node.querySelector('a').href).toBe(`#model-source-${id}`);
+    expect(picker.node.querySelector('a').href).toBe(`/#model-source-${id}`);
     rows[0].models = ['my-codex-model'];
     await picker.load(); await settled();
     expect(picker.models.children.map(node => node.value)).toEqual(['', 'openai-codex/my-codex-model']);

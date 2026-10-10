@@ -20,16 +20,22 @@ const model = { version: 1, worker_id: 20, revision: 'mount-v1', mounts: [
     last_execution: { id: 42, status: 'failed', created_at: '2026-01-01T00:00:00Z', error: '动作未完成' } },
 ] };
 const task = { id: 20, task_kind: 'order', status: 'waiting', branch: 'feature', auto_merge: { enabled: false, locked: false, editable: true, reason: null }, hooks: model };
-let intercept, actions;
+let intercept, actions, automation;
 const dom = installDom({ fetch: async (url, options = {}) => {
   const path = String(url); const body = options.body ? JSON.parse(options.body) : null;
   if (body) actions.push(body);
   const custom = intercept?.(path, body); if (custom) return custom;
+  if (path === '/api/host/automation') {
+    if (body?.patch) automation = { ...automation, ...body.patch, revision: `device-${Number(automation.revision.slice(7)) + 1}` };
+    return json(automation);
+  }
   if (path.endsWith('/api/hooks')) return json(catalogue);
   if (body) { return json(body.method.startsWith('hooks.') ? catalogue : body.method === 'worker.auto_merge' ? { auto_merge: { ...task.auto_merge, enabled: body.params.enabled } } : model); }
   throw new Error(`unexpected read ${path}`);
 } });
 const { openHooks, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
+const { openWorkspaceAutomation } = await import('../../src/ui/web/assets/render-workspace-automation.js');
+const { saveDeviceAutomation } = await import('../../src/ui/web/assets/workspace-automation.js');
 const { createHookForm } = await import('../../src/ui/web/assets/hook-form.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
@@ -39,6 +45,7 @@ const daemonModel = (enabled = false, revision = 'daemon-v1') => ({ version: 1, 
 const root = () => dom.node('detail');
 const btn = (label, node = root()) => node.querySelectorAll('button').find(button => button.textContent === label);
 beforeEach(() => { closeDialog(); actions = []; intercept = null; catalogue.templates = []; catalogue.daemon_hooks = daemonModel();
+  automation = { version: 1, revision: 'device-1', auto_select: { enabled: false }, completion_defaults: { enabled: false, level: 'merge' } };
   dom.location.pathname = '/'; ui.hooksPage = null; activateDetailView({ view: 'overview' }); });
 afterAll(() => { closeDialog(); dom.restore(); });
 
@@ -46,7 +53,7 @@ test('Hooks page reads catalogue, explains costs and saves templates without mou
   await openHooks();
   expect(dom.location.hash).toBe('#hooks'); expect(dom.node('hooks-open').getAttribute('aria-current')).toBe('page');
   expect(deepText(root())).toContain('模板可复用');
-  expect(root().querySelector('.hooks-page-header').querySelector('.hook-help-link').href).toBe('#doc-docs-hooks');
+  expect(root().querySelector('.hooks-page-header').querySelector('.hook-help-link').href).toBe('/#doc-docs-hooks');
   expect(deepText(root())).not.toContain('允许的触发节点');
   expect(deepText(root())).not.toContain('受控动作与代价');
   expect(deepText(root())).not.toContain('示例：');
@@ -68,7 +75,7 @@ test('template catalogue scales with search by name, trigger and action while ke
   search.value = '规则 49'; search.oninput();
   expect(cards().filter(card => !card.hidden)).toHaveLength(1);
   expect(deepText(cards().find(card => !card.hidden))).toContain('模板 · 尚未挂载');
-  expect(root().querySelector('.project-hooks').querySelectorAll('.project-hook')).toHaveLength(3);
+  expect(root().querySelector('.project-hooks').querySelectorAll('.project-hook')).toHaveLength(1);
   for (const query of ['agent.failed', 'notify']) {
     search.value = query; search.oninput(); expect(cards().every(card => !card.hidden)).toBe(true);
   }
@@ -77,19 +84,12 @@ test('template catalogue scales with search by name, trigger and action while ke
   expect(actions).toHaveLength(0);
 });
 
-test('daemon auto-select retains a visible failed execution without confusing enabled authorization with success', async () => {
-  Object.assign(catalogue.daemon_hooks.mounts[0], { enabled: true, state: 'failed', last_execution: {
-    id: 58, notice_id: 58, status: 'failed', created_at: '2026-01-01T00:00:00Z',
-    finished_at: '2026-01-01T00:00:01Z', error: '自动答复未完成；请检查问题。',
-  } });
-  await openHooks();
-  const section = root().querySelector('.daemon-auto-select');
-  expect(deepText(section)).toContain('已启用');
-  expect(deepText(section)).toContain('执行失败');
-  expect(deepText(section)).toContain('问题 #58');
-  expect(deepText(section)).toContain('自动答复未完成；请检查问题。');
-  expect(btn('关闭自动选择', section)).toBeTruthy();
-  expect(actions).toHaveLength(0);
+test('legacy project auto-select enabled/failure never becomes device authorization', async () => {
+  Object.assign(catalogue.daemon_hooks.mounts[0], { enabled: true, state: 'failed', last_execution: { id: 58, notice_id: 58, status: 'failed', error: '自动答复未完成' } });
+  await openHooks(); expect(root().querySelector('.daemon-auto-select')).toBeNull();
+  expect(root().querySelectorAll('a').some(link => link.href === '/#automation' && link.target === '_blank')).toBe(true);
+  await openWorkspaceAutomation(); expect(deepText(root())).toContain('已保存：关闭');
+  expect(automation.auto_select.enabled).toBe(false); expect(actions).toHaveLength(0);
 });
 
 test('declarative editor constrains action compatibility, one-shot creation, conditions and four-action maximum', () => {
@@ -234,79 +234,54 @@ test('message forces one-shot mode from the catalogue and explains why persisten
   expect(form.collect().mode).toBe('once');
 });
 
-test('daemon auto-selection has independent authorization, cost markers and revision; enabling settles existing questions', async () => {
-  intercept = (_path, body) => body?.method === 'hooks.auto_select' ? json({ ...catalogue, daemon_hooks: daemonModel(body.params.enabled, 'daemon-v2') }) : null;
-  await openHooks();
-  const node = root().querySelector('.daemon-auto-select');
-  expect(deepText(node)).toContain('已有和新收到的问题'); expect(deepText(node)).toContain('Agent 调用费用');
-  expect(deepText(node)).toContain('当前项目后台');
-  expect(node.querySelector('.hook-help-link').href).toBe('#doc-docs-hooks');
-  const enable = btn('开启自动选择');
+test('device automatic selection retains explicit costs and independent revisioned authorization', async () => {
+  await openWorkspaceAutomation(); const enable = btn('开启全局自动选择');
   expect(enable.classList.contains('agent-call')).toBe(true); expect(enable.getAttribute('data-help')).toContain('消耗 token');
-  const saving = enable.onclick();
-  expect(actions).toHaveLength(0); expect(deepText(dom.node('modal'))).toContain('立即答复');
-  const authorize = dialogButton(dom, '授权并开启');
-  expect(authorize.classList.contains('agent-call')).toBe(true); expect(authorize.getAttribute('data-help')).toContain('消耗 token');
-  await authorize.onclick(); await saving;
-  expect(actions).toEqual([{ method: 'hooks.auto_select', params: { enabled: true, expected_revision: 'daemon-v1' } }]);
-  expect(deepText(root().querySelector('.daemon-auto-select'))).toContain('已启用');
-  const disable = btn('关闭自动选择'); expect(disable.classList.contains('agent-call')).toBe(false);
-  await disable.onclick();
-  expect(actions.at(-1)).toEqual({ method: 'hooks.auto_select', params: { enabled: false, expected_revision: 'daemon-v2' } });
-  expect(actions.every(call => call.method === 'hooks.auto_select')).toBe(true);
-  expect(deepText(root().querySelector('.daemon-auto-select'))).toContain('已关闭');
+  const saving = enable.onclick(); expect(actions).toHaveLength(0); expect(deepText(dom.node('modal'))).toContain('已有和新到问题');
+  const authorize = dialogButton(dom, '授权并开启'); expect(authorize.classList.contains('agent-call')).toBe(true); await authorize.onclick(); await saving;
+  expect(actions).toEqual([{ patch: { auto_select: { enabled: true } }, expected_revision: 'device-1' }]);
+  expect(deepText(root())).toContain('已保存：开启'); const disable = btn('关闭全局自动选择'); expect(disable.classList.contains('agent-call')).toBe(false);
+  await disable.onclick(); expect(actions.at(-1)).toEqual({ patch: { auto_select: { enabled: false } }, expected_revision: 'device-2' });
+  expect(actions.every(call => !call.method)).toBe(true); expect(deepText(root())).toContain('已保存：关闭');
 });
 
-test('cancelled daemon authorization does not save; pending controls use focusable help hosts and reject duplicate writes', async () => {
-  await openHooks();
-  const enable = btn('开启自动选择'), confirming = enable.onclick();
-  const blocked = btn('正在保存…'); expect(blocked.disabled).toBe(true);
+test('cancelled device authorization never saves; pending controls explain lock and reject duplicate writes', async () => {
+  await openWorkspaceAutomation(); const enable = btn('开启全局自动选择'), confirming = enable.onclick();
+  expect(enable.disabled).toBe(true); await dialogButton(dom, '取消').onclick(); await confirming; expect(actions).toHaveLength(0);
+  let resolve; intercept = (path, body) => path === '/api/host/automation' && body?.patch ? new Promise(done => resolve = done) : null;
+  const saving = btn('开启全局自动选择').onclick(); await dialogButton(dom, '授权并开启').onclick(); await until(() => resolve);
+  const blocked = btn('开启全局自动选择'); expect(blocked.disabled).toBe(true);
   expect(blocked.parentNode.classList.contains('help-host')).toBe(true); expect(blocked.parentNode.tabIndex).toBe(0);
-  expect(blocked.parentNode.getAttribute('data-help')).toContain('正在确认或保存');
-  await enable.onclick(); expect(actions).toHaveLength(0);
-  closeDialog(); await confirming;
-  expect(actions).toHaveLength(0); expect(btn('开启自动选择').disabled).toBe(false);
-  let resolve;
-  intercept = (_path, body) => body?.method === 'hooks.auto_select' ? new Promise(done => { resolve = done; }) : null;
-  const saving = btn('开启自动选择').onclick(); await dialogButton(dom, '授权并开启').onclick();
-  await until(() => resolve); await btn('正在保存…').onclick(); expect(actions).toHaveLength(1);
-  resolve(json({ ...catalogue, daemon_hooks: daemonModel(true, 'daemon-v2') })); await saving;
-  expect(actions).toHaveLength(1); expect(btn('关闭自动选择').disabled).toBe(false);
+  await blocked.onclick(); expect(actions).toHaveLength(1);
+  resolve(json({ ...automation, revision: 'device-2', auto_select: { enabled: true } })); await saving;
+  expect(actions).toHaveLength(1); expect(btn('关闭全局自动选择').disabled).toBe(false);
 });
 
-test('daemon revision failures never imply success and preserve a template editor for explicit refresh', async () => {
-  await openHooks(); await btn('新建模板').onclick();
-  const form = root().querySelector('.hook-form'); form.querySelector('[aria-label="Hook 名称"]').value = '未保存规则';
-  intercept = (_path, body) => body?.method === 'hooks.auto_select' ? { ok: false, json: async () => ({ error: 'daemon revision changed' }) } : null;
-  const saving = btn('开启自动选择').onclick(); await dialogButton(dom, '授权并开启').onclick(); await saving;
-  expect(dom.node('error').textContent).toContain('daemon revision changed'); expect(dom.node('error').textContent).toContain('刷新目录');
-  expect(btn('开启自动选择').disabled).toBe(false); expect(btn('关闭自动选择')).toBeUndefined();
+test('failed global policy write preserves independent project template edits and their original revision', async () => {
+  await openHooks(); await btn('新建模板').onclick(); const form = root().querySelector('.hook-form');
+  form.querySelector('[aria-label="Hook 名称"]').value = '未保存规则';
+  intercept = (path, body) => path === '/api/host/automation' && body?.patch ? { ok: false, json: async () => ({ error: 'device revision changed' }) } : null;
+  await expect(saveDeviceAutomation({ auto_select: { enabled: true } }, 'device-1')).rejects.toThrow('device revision changed');
   expect(root().querySelector('.hook-form')).toBe(form); expect(form.querySelector('[aria-label="Hook 名称"]').value).toBe('未保存规则');
+  expect(ui.hooksPage.catalogue.revision).toBe('catalogue-v1'); expect(automation.auto_select.enabled).toBe(false);
 });
 
-test('daemon authorization cannot cross project identity or repaint a newer page after its save', async () => {
-  await openHooks();
-  const confirming = btn('开启自动选择').onclick();
-  dom.location.pathname = '/p/2222222222222222/';
-  await dialogButton(dom, '授权并开启').onclick(); await confirming; expect(actions).toHaveLength(0);
-  await openHooks(); expect(ui.hooksPage.project).toBe('/p/2222222222222222/api/hooks'); expect(btn('开启自动选择')).toBeTruthy();
-  dom.location.pathname = '/'; await openHooks();
-  let resolve;
-  intercept = (_path, body) => body?.method === 'hooks.auto_select' ? new Promise(done => { resolve = done; }) : null;
-  const saving = btn('开启自动选择').onclick(); await dialogButton(dom, '授权并开启').onclick(); await until(() => resolve);
-  activateDetailView({ view: 'overview' }); const next = document.createElement('article'); next.textContent = '新的页面'; root().replaceChildren(next);
-  resolve(json({ ...catalogue, daemon_hooks: daemonModel(true) })); await saving;
-  expect(root().children).toEqual([next]); expect(deepText(root())).toBe('新的页面');
+test('late device save ACK cannot repaint a newer project page', async () => {
+  await openWorkspaceAutomation(); let resolve;
+  intercept = (path, body) => path === '/api/host/automation' && body?.patch ? new Promise(done => resolve = done) : null;
+  const saving = btn('开启全局自动选择').onclick(); await dialogButton(dom, '授权并开启').onclick(); await until(() => resolve);
+  dom.location.pathname = '/p/2222222222222222/'; activateDetailView({ view: 'overview' });
+  const next = document.createElement('article'); next.textContent = '新的项目页面'; root().replaceChildren(next);
+  resolve(json({ ...automation, revision: 'device-2', auto_select: { enabled: true } })); await saving;
+  expect(root().children).toEqual([next]); expect(deepText(root())).toBe('新的项目页面');
 });
 
-test('older daemon responses show unknown automatic-selection availability without inventing a setting', async () => {
-  delete catalogue.daemon_hooks; await openHooks();
-  expect(deepText(root())).toContain('自动选择状态暂不可用'); expect(btn('开启自动选择')).toBeUndefined();
-  expect(btn('新建模板')).toBeTruthy(); expect(actions).toHaveLength(0);
-  for (const invalid of [{ version: 1, revision: '', mounts: daemonModel().mounts }, { version: 1, revision: 'valid', mounts: {} }]) {
+test('malformed historical daemon policy creates no project editor; device authorization is read independently', async () => {
+  for (const invalid of [undefined, { version: 1, revision: '', mounts: daemonModel().mounts }, { version: 1, revision: 'valid', mounts: {} }]) {
     catalogue.daemon_hooks = invalid; ui.hooksPage = null; await openHooks();
-    expect(deepText(root())).toContain('自动选择状态暂不可用'); expect(btn('开启自动选择')).toBeUndefined();
+    expect(root().querySelector('.daemon-auto-select')).toBeNull(); expect(btn('开启自动选择')).toBeUndefined(); expect(btn('新建模板')).toBeTruthy();
   }
+  await openWorkspaceAutomation(); expect(deepText(root())).toContain('已保存：关闭'); expect(actions).toHaveLength(0);
 });
 
 test('original template attachment sends only template identity and never reconstructs its private profile from the read projection', async () => {

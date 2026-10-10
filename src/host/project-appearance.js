@@ -36,10 +36,12 @@ export function validateAppearanceUpdate(body) {
     check(Object.keys(body).length === 1 && body.initialize === true, 'project appearance initialization accepts only initialize:true');
     return { initialize: true };
   }
-  check(Object.keys(body).length === 3 && Object.keys(body).every(key => ['theme', 'color', 'expected_revision'].includes(key))
-    && THEMES.has(body.theme) && COLORS.has(body.color) && revisionValid(body.expected_revision),
-  'project appearance requires theme, color and expected_revision; unknown fields and agent tokens are not accepted');
-  return { theme: body.theme, color: body.color, expected_revision: body.expected_revision };
+  check([2, 3].includes(Object.keys(body).length) && Object.keys(body).every(key => ['theme', 'color', 'expected_revision'].includes(key))
+    && (!Object.hasOwn(body, 'theme') || THEMES.has(body.theme)) && COLORS.has(body.color) && revisionValid(body.expected_revision),
+  'project appearance requires color and expected_revision; unknown fields and agent tokens are not accepted');
+  // Legacy clients may echo the retained theme, but cannot change it (#411).
+  return { color: body.color, expected_revision: body.expected_revision,
+    ...(Object.hasOwn(body, 'theme') ? { theme: body.theme } : {}) };
 }
 
 function safeFile(stat) {
@@ -149,6 +151,8 @@ export function saveProjectAppearance(project, body, { projects = [project], env
       theme = 'system';
     } else {
       check(current && current.revision === update.expected_revision, 'project appearance revision conflict; reload and retry');
+      check(!Object.hasOwn(update, 'theme') || update.theme === current.theme, 'project themes are inactive; use device preferences');
+      theme = current.theme;
     }
     globalLock.assert();
     return writeAppearance(project, current, { version: 1, theme, color, revision: randomBytes(16).toString('hex') }, projectLock);

@@ -9,9 +9,9 @@ const dom = installDom({ fetch: world.fetchImpl });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const prefs = await import('../../src/ui/web/assets/prefs.js');
 const state = await import('../../src/ui/web/assets/state.js');
-const { renderSettings, renderAgentSettings } = await import('../../src/ui/web/assets/render-settings.js');
+const { openSettings: openDeviceSettings, renderSettings, renderAgentSettings } = await import('../../src/ui/web/assets/render-settings.js');
 dom.node('side-nav').replaceChildren();
-await boot();
+await boot(); await prefs.refreshDevicePreferences();
 
 afterAll(() => {
   // 系统设置页签是模块级的：离开前切回界面，避免跨测试污染。
@@ -21,12 +21,11 @@ afterAll(() => {
 });
 
 const panel = () => dom.node('detail');
-const openSettings = () => dom.node('settings-open').onclick();
+const openSettings = () => openDeviceSettings({ preferenceActions: { saveDevicePreference: (name, value) => prefs.setPref(name, value), devicePreferencesStatus: () => ({ ready: true }), resetDevicePreferences: () => prefs.resetPrefs() } });
 const openTab = id => panel().querySelector(`button.settings-tab[data-settings-tab="${id}"]`).onclick();
 const openInterface = async () => { await openSettings(); await openTab('interface'); };
 const openSystem = async () => {
   await openSettings(); await openTab('system');
-  const scope = panel().querySelector('select[data-settings-scope=""]'); scope.value = 'project'; await scope.onchange();
 };
 const openAgent = async () => {
   await dom.node('agent-status-open').onclick();
@@ -41,30 +40,30 @@ const limitsBlock = () => [...panel().querySelectorAll('.block')]
 const environmentBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '环境变量') || null;
 
-test('设置入口：侧栏工作区导航进入 #settings，后退回概览，1.5s 轮询不覆盖该视图', async () => {
-  await dom.intervalFor(1500)();
-  expect(panel().dataset.view).toBe('overview');
+test('根设置入口进入 #settings，后退回项目入口，不装配项目快照轮询', async () => {
+  expect(dom.intervalFor(1500)).toBeUndefined();
+  expect(panel().dataset.view).toBe('projects');
 
   await openInterface();
   expect(dom.location.hash).toBe('#settings');
   expect(panel().dataset.view).toBe('settings');
-  expect(dom.node('view-title').textContent).toBe('系统设置');
-  expect(panel().querySelector('h1').textContent).toBe('系统设置');
+  expect(dom.node('view-title').textContent).toBe('设备设置');
+  expect(panel().querySelector('h1').textContent).toBe('设备设置');
   expect(panel().querySelectorAll('button.settings-tab').map(node => node.dataset.settingsTab)).toEqual(['interface', 'system']);
   expect(panel().querySelector('.agent-settings')).toBeNull();
   expect(deepText(panel())).toContain('Markdown 渲染');
   expect(deepText(panel())).toContain('执行过程排序');
   expect(deepText(panel())).toContain('跟随系统');
 
-  // 轮询照旧更新左栏与连接状态，但不把设置页换成概览。
-  await dom.intervalFor(1500)();
+  // 设置的偏好重画不把设备页伪装成项目概览。
+  renderSettings();
   expect(panel().dataset.view).toBe('settings');
   expect(deepText(panel())).not.toContain('项目概览');
 
-  // 后退到无 hash：回概览。
+  // 根页面的无 hash 入口是项目管理，不是某个项目概览。
   dom.location.hash = '';
   await dom.fire('hashchange');
-  expect(panel().dataset.view).toBe('overview');
+  expect(panel().dataset.view).toBe('projects');
 });
 
 test('告知设置提供四类两渠道独立复选项，默认全选，不改系统通知总开关或项目数据', async () => {
@@ -83,7 +82,7 @@ test('告知设置提供四类两渠道独立复选项，默认全选，不改�
   expect(controls().find(node => node.dataset.noticeType === 'analysis' && node.dataset.channel === 'banner').checked).toBe(false);
   expect(prefs.readPref('noticeNotifications')).toBe(false);
   expect(world.state.actions).toHaveLength(before);
-  await dom.intervalFor(1500)(); expect(controls()).toHaveLength(8);
+  renderSettings(); expect(controls()).toHaveLength(8);
   prefs.resetPrefs(); expect(controls().every(node => node.checked)).toBe(true);
 });
 
@@ -194,7 +193,7 @@ test('设置项即时生效并持久化：左栏排序、主题、动效、轮�
   expect(globalThis.localStorage.getItem(prefs.THEME_KEY)).toBe('dark');
   expect(dom.document.documentElement.dataset.theme).toBe('dark');
   // 头部主题按钮写回偏好，设置页 radio 跟着走（下一次打开状态一致）。
-  dom.node('theme-toggle').onclick();
+  await dom.node('theme-toggle').onclick();
   expect(globalThis.localStorage.getItem(prefs.THEME_KEY)).toBe('light');
 
   // 动效：覆盖系统偏好，写到 <html> 上让 CSS 生效。
@@ -205,15 +204,15 @@ test('设置项即时生效并持久化：左栏排序、主题、动效、轮�
   expect(globalThis.localStorage.getItem(prefs.REDUCED_MOTION_KEY)).toBe('1');
   expect(dom.document.documentElement.dataset.reducedMotion).toBe('true');
 
-  // 轮询频率：改动后立即按新间隔重建定时器（标准 1500/3000 → 快速 800/1600）。
+  // 设备偏好供项目轮询使用；根设置页自身不装配项目快照定时器。
   await openInterface();
   const polling = panel().querySelector('select.pref-select[data-pref="polling"]');
   expect(polling.value).toBe('standard');
   polling.value = 'fast';
   await polling.listeners.change[0]();
   expect(globalThis.localStorage.getItem(prefs.POLLING_KEY)).toBe('fast');
-  expect(dom.intervals.some(entry => entry.ms === 800)).toBe(true);
-  expect(dom.intervals.some(entry => entry.ms === 1600)).toBe(true);
+  expect(prefs.pollingIntervals()).toMatchObject({ snapshot: 800, live: 1600 });
+  expect(dom.intervalFor(800)).toBeUndefined(); expect(dom.intervalFor(1600)).toBeUndefined();
 });
 
 test('消息提示停留时长偏好对之后出现的提示生效', async () => {
@@ -278,7 +277,7 @@ test('恢复默认设置：删掉所有偏好键（含历史键）并就地重�
 });
 
 test('Agent 页：模型目录、双 Prompt、角色覆盖与替换警告都可用', async () => {
-  await dom.intervalFor(1500)();
+  expect(dom.intervalFor(1500)).toBeUndefined();
   await openAgent();
   expect(dom.location.hash).toBe('#agent-status');
   expect(dom.node('view-title').textContent).toBe('Agent 配置');
@@ -350,18 +349,18 @@ test('Pi配置缺来源/模型或凭证时不保存，不显示CLI默认目录�
   expect(card.querySelector('.model-catalog').disabled).toBe(true);
   await findByText(card, '保存配置').onclick(); expect(world.state.actions).toHaveLength(before);
   expect(dom.node('error').textContent).toContain('请选择 Lush 模型来源');
-  await findByText(card, '读取项目连接').onclick(); choice.value = world.state.agentConnections.connections[0].id; choice.onchange();
+  await findByText(card, '读取设备来源').onclick(); choice.value = world.state.agentConnections.connections[0].id; choice.onchange();
   await findByText(card, '保存配置').onclick(); expect(world.state.actions).toHaveLength(before);
   expect(dom.node('error').textContent).toContain('请选择来源内模型');
   model.value = 'wrong/model'; await findByText(card, '保存配置').onclick(); expect(world.state.actions).toHaveLength(before);
   model.value = 'openai-compatible/fixture-model';
   const source = world.state.agentConnections.connections[0], credential = source.credential;
   try {
-    source.credential = { status: 'unconfigured' }; await findByText(card, '读取项目连接').onclick();
+    source.credential = { status: 'unconfigured' }; await findByText(card, '读取设备来源').onclick();
     await findByText(card, '保存配置').onclick(); expect(world.state.actions).toHaveLength(before);
     expect(dom.node('error').textContent).toContain('凭证不可用'); expect(prompt.value).toBe('未保存工作方式');
   } finally { source.credential = credential; }
-  await findByText(card, '读取项目连接').onclick(); await findByText(card, '保存配置').onclick();
+  await findByText(card, '读取设备来源').onclick(); await findByText(card, '保存配置').onclick();
   expect(world.state.actions.at(-1).params.config.default).toMatchObject({ connection_id: source.id, model: 'openai-compatible/fixture-model', append_prompt: '未保存工作方式' });
 });
 
@@ -369,10 +368,10 @@ test('Agent 页：环境变量按公共/角色文件读取，默认遮罩并可�
   await openAgent();
   let env = environmentBlock();
   expect(env).toBeTruthy();
-  expect(deepText(env)).toContain('尚未把变量值读入浏览器');
+  expect(env.querySelectorAll('input.agent-env-value').every(node => node.type === 'password')).toBe(true);
   expect(env.querySelector('select.agent-env-target').value).toBe('common');
 
-  await findByText(env, '读取变量').onclick();
+  await (findByText(env, '读取变量') || findByText(env, '重新读取')).onclick();
   env = environmentBlock();
   const values = env.querySelectorAll('input.agent-env-value');
   expect(values).toHaveLength(2);
@@ -397,8 +396,8 @@ test('Agent 页：环境变量按公共/角色文件读取，默认遮罩并可�
   env = environmentBlock();
   const target = env.querySelector('select.agent-env-target'); target.value = 'worker'; await target.listeners.change[0]();
   env = environmentBlock();
-  expect(deepText(env)).toContain('尚未把变量值读入浏览器');
-  await findByText(env, '读取变量').onclick();
+  expect(env.querySelectorAll('input.agent-env-value').every(node => node.type === 'password')).toBe(true);
+  await (findByText(env, '读取变量') || findByText(env, '重新读取')).onclick();
   expect(deepText(environmentBlock())).toContain('这个文件还没有变量');
 });
 
@@ -407,7 +406,7 @@ test('Agent 页：环境变量拒绝保留名，不发送写请求', async () =>
   let env = environmentBlock();
   const target = env.querySelector('select.agent-env-target'); target.value = 'verifier'; await target.listeners.change[0]();
   env = environmentBlock();
-  if (findByText(env, '读取变量')) await findByText(env, '读取变量').onclick();
+  if (findByText(env, '读取变量')) await (findByText(env, '读取变量') || findByText(env, '重新读取')).onclick();
   env = environmentBlock();
   await env.querySelector('button[data-env-action="add"]').onclick();
   env = environmentBlock();
@@ -421,13 +420,10 @@ test('Agent 页：环境变量拒绝保留名，不发送写请求', async () =>
 test('系统页：只读展示 daemon 状态与项目路径，运行设置改为可编辑表单', async () => {
   await openSystem();
   const block = systemBlock();
-  expect(block).toBeTruthy();
-  const value = field => block.querySelector(`[data-system-field="${field}"]`).textContent;
-  expect(value('provider')).toBe('mock');
+  expect(block).toBeNull();
   // 调用超时 / 调用上限 / 拆解深度不再是只读行；那句「其余参数在 daemon 启动时从环境变量读取」也不再出现。
-  expect(block.querySelector('[data-system-field="call_timeout"]')).toBeNull();
-  expect(block.querySelector('[data-system-field="concurrency"]')).toBeNull();
-  expect(deepText(block)).not.toContain('daemon 启动时从环境变量读取');
+  expect(panel().querySelector('[data-system-field="project"]')).toBeNull();
+  expect(panel().querySelector('select[data-settings-scope=""]')).toBeNull();
   expect(panel().querySelector('.agent-network-block')).toBeTruthy();
   expect(deepText(panel())).toContain('不是模型端点');
 
@@ -440,7 +436,7 @@ test('系统页：只读展示 daemon 状态与项目路径，运行设置改为
   expect(input('concurrency').max).toBe('64');
   expect(input('control_concurrency').max).toBe('16');
   expect(stateText('concurrency')).toContain('生效 2');
-  expect(stateText('concurrency')).toContain('继承默认 2');
+  expect(stateText('concurrency')).toContain('环境默认 2');
   expect(runtime.querySelector('[data-runtime-source="concurrency"]').textContent).toBe('环境默认');
   expect(runtime.querySelector('[data-runtime-source="control_concurrency"]').textContent).toBe('环境默认');
   expect(runtime.querySelector('.settings-path').textContent).toBe('/tmp/demo/.lush/settings.json');
@@ -457,7 +453,7 @@ test('系统页：只读展示 daemon 状态与项目路径，运行设置改为
   expect(limitInput('task_call_limit').max).toBe('1000');
   expect(limitInput('max_depth').max).toBe('64');
   expect(limits.querySelector('[data-runtime-state="call_timeout"]').textContent).toContain('生效 900 秒');
-  expect(limits.querySelector('[data-runtime-state="call_timeout"]').textContent).toContain('继承默认 900 秒');
+  expect(limits.querySelector('[data-runtime-state="call_timeout"]').textContent).toContain('环境默认 900 秒');
   expect(limits.querySelector('[data-runtime-source="max_depth"]').textContent).toBe('环境默认');
   expect(limits.querySelector('button[data-runtime-action="save"]')).toBeTruthy();
   expect(limits.querySelector('button[data-runtime-action="reset"]')).toBeTruthy();
@@ -470,15 +466,14 @@ test('系统页：保存写回并发额度并立即反映到快照；越界或�
   runtime.querySelector('input[data-runtime-input="control_concurrency"]').value = '5';
   await runtime.querySelector('button[data-runtime-action="save"]').onclick();
 
-  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { scope: 'project', settings: { concurrency: 8, control_concurrency: 5 } } });
+  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { scope: 'device', settings: { concurrency: 8, control_concurrency: 5 } } });
   expect(world.state.runtimeSettings.concurrency).toEqual({ value: 8, default: 2, overridden: true });
   expect(world.state.runtimeSettings.control_concurrency).toEqual({ value: 5, default: 1, overridden: true });
   // 内存里立刻镜像到快照，不必等下一次轮询。
-  expect(state.ui.lastSnapshot.status.concurrency).toBe(8);
-  expect(state.ui.lastSnapshot.status.settings.concurrency.overridden).toBe(true);
+  expect(state.ui.lastSnapshot).toBeNull(); // 根设备页不伪造项目运行快照
   runtime = runtimeBlock();
   expect(runtime.querySelector('input[data-runtime-input="concurrency"]').value).toBe('8');
-  expect(runtime.querySelector('[data-runtime-source="concurrency"]').textContent).toBe('项目覆盖');
+  expect(runtime.querySelector('[data-runtime-source="concurrency"]').textContent).toBe('设备配置');
 
   // 越界（65 > 64）：页面报错、不发写请求、磁盘状态保持上一次成功写入的值。
   const before = world.state.actions.length;
@@ -507,10 +502,10 @@ test('系统页：恢复环境默认清除两个覆盖', async () => {
   expect(world.state.runtimeSettings.concurrency.overridden).toBe(true);
 
   await runtimeBlock().querySelector('button[data-runtime-action="reset"]').onclick();
-  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { scope: 'project', settings: { concurrency: null, control_concurrency: null } } });
+  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { scope: 'device', settings: { concurrency: null, control_concurrency: null } } });
   expect(world.state.runtimeSettings.concurrency).toEqual({ value: 2, default: 2, overridden: false });
   expect(world.state.runtimeSettings.control_concurrency).toEqual({ value: 1, default: 1, overridden: false });
-  expect(state.ui.lastSnapshot.status.control_concurrency).toBe(1);
+  expect(runtimeBlock().querySelector('input[data-runtime-input="control_concurrency"]').value).toBe('1');
   expect(runtimeBlock().querySelector('[data-runtime-source="concurrency"]').textContent).toBe('环境默认');
 });
 
@@ -521,14 +516,14 @@ test('系统页：保存写回调用与拆解限额并立即反映到快照；�
   limits.querySelector('input[data-runtime-input="task_call_limit"]').value = '40';
   limits.querySelector('input[data-runtime-input="max_depth"]').value = '10';
   await limits.querySelector('button[data-runtime-action="save"]').onclick();
-  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { scope: 'project', settings: { call_timeout: 1200, task_call_limit: 40, max_depth: 10 } } });
+  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { scope: 'device', settings: { call_timeout: 1200, task_call_limit: 40, max_depth: 10 } } });
   expect(world.state.runtimeSettings.call_timeout).toEqual({ value: 1200, default: 900, overridden: true });
   expect(world.state.runtimeSettings.task_call_limit).toEqual({ value: 40, default: 24, overridden: true });
   // 内存里立刻镜像到快照，不必等下一次轮询。
-  expect(state.ui.lastSnapshot.status.call_timeout).toBe(1200);
+  expect(state.ui.lastSnapshot).toBeNull();
   limits = limitsBlock();
   expect(limits.querySelector('input[data-runtime-input="call_timeout"]').value).toBe('1200');
-  expect(limits.querySelector('[data-runtime-source="max_depth"]').textContent).toBe('项目覆盖');
+  expect(limits.querySelector('[data-runtime-source="max_depth"]').textContent).toBe('设备配置');
 
   const before = world.state.actions.length;
   limits.querySelector('input[data-runtime-input="call_timeout"]').value = '86401';
@@ -545,19 +540,30 @@ test('系统页：调用与拆解限额可恢复环境默认', async () => {
   await limits.querySelector('button[data-runtime-action="save"]').onclick();
   expect(world.state.runtimeSettings.max_depth.overridden).toBe(true);
   await limitsBlock().querySelector('button[data-runtime-action="reset"]').onclick();
-  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { scope: 'project', settings: { call_timeout: null, task_call_limit: null, max_depth: null } } });
+  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { scope: 'device', settings: { call_timeout: null, task_call_limit: null, max_depth: null } } });
   expect(world.state.runtimeSettings.call_timeout).toEqual({ value: 900, default: 900, overridden: false });
   expect(world.state.runtimeSettings.max_depth).toEqual({ value: 8, default: 8, overridden: false });
 });
 
-test('系统页：没有快照时显示占位', async () => {
+test('系统页：无项目快照也可编辑唯一设备配置，不显示项目服务控制', async () => {
   await openSystem(); state.ui.lastSnapshot = null;
   expect(() => renderSettings()).not.toThrow();
-  const block = systemBlock();
-  expect(block).toBeTruthy();
-  expect(block.querySelector('[data-system-field="provider"]')).toBeNull();
-  expect(block.querySelector('.settings-placeholder')).toBeTruthy();
-  expect(deepText(block)).toContain('尚未收到 daemon 快照');
-  // 后面的前缀用例需要快照回来，重新拉一次。
-  await dom.intervalFor(1500)();
+  expect(systemBlock()).toBeNull(); expect(runtimeBlock()).toBeTruthy();
+  expect(panel().querySelector('.service-restart-controls')).toBeNull();
+  expect(deepText(panel())).toContain('项目运行状态、历史与后台控制在项目工作页管理');
+  expect(dom.intervalFor(1500)).toBeUndefined();
+});
+
+test('设置组件使用真实权威 prefs 客户端保存与重置，保留项目工作状态和 Agent 参数', async () => {
+  const foldKey = prefs.PREF_DEFS.collapsed.key, agent = structuredClone(world.state.agentConfig);
+  prefs.setPref('collapsed', new Set(['tasks'])); const folded = globalThis.localStorage.getItem(foldKey);
+  await openDeviceSettings(); await openTab('interface');
+  expect(prefs.devicePreferencesStatus().ready).toBe(true);
+  const checkbox = panel().querySelector('input[data-pref="markdown"]'); checkbox.checked = false;
+  await checkbox.listeners.change[0]();
+  expect(world.state.devicePreferences.values.markdown).toBe(false); expect(prefs.readPref('markdown')).toBe(false);
+  expect(panel().querySelector('input[data-pref="markdown"]').checked).toBe(false);
+  await panel().querySelector('.pref-reset').onclick();
+  expect(world.state.devicePreferences.values.markdown).toBe(true); expect(prefs.readPref('markdown')).toBe(true);
+  expect(globalThis.localStorage.getItem(foldKey)).toBe(folded); expect(world.state.agentConfig).toEqual(agent);
 });

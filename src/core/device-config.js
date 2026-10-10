@@ -7,6 +7,17 @@ export function normalizeConfigurationScope(scope = 'project') {
   return scope;
 }
 
+/** Public technical settings have one authority. Raw project selection below is migration-only. */
+export function settingsConfigurationScope(config, scope) {
+  if (scope !== undefined) normalizeConfigurationScope(scope);
+  if (config?.deviceHome) {
+    check(scope !== 'project', 'project configuration overrides are no longer supported; use device settings');
+    return 'device';
+  }
+  // Explicitly rooted Host services and isolated legacy fixtures have a single local storage root.
+  return scope ?? 'project';
+}
+
 /** Storage selection never changes project identity or LUSH_HOME. Minimal legacy configs stay local. */
 export function configurationHome(config, scope = 'project') {
   normalizeConfigurationScope(scope);

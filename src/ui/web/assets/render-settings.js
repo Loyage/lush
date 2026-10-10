@@ -1,22 +1,19 @@
 /** System settings and the Agent settings subpanel used by Agent management. */
 import { $, block, button, el } from './dom.js';
-import { effectiveTheme, systemThemeMedia, PROJECT_COLORS, appearanceSnapshot, onAppearanceChange, saveAppearance, reloadAppearance } from './appearance.js';
-import { action, api } from './api.js';
+import { effectiveTheme, systemThemeMedia } from './appearance.js';
 import { confirmDialog } from './dialog.js';
 import { show } from './messages.js';
-import { PREF_NAMES, POLLING_MODES, THEME_VALUES, TOAST_MODES, TRANSCRIPT_ORDER_MODES, onPrefChange, readPref, resetPrefs, setPref } from './prefs.js';
+import { PREF_NAMES, POLLING_MODES, THEME_VALUES, TOAST_MODES, TRANSCRIPT_ORDER_MODES, onPrefChange, readPref } from './prefs.js';
+import * as devicePreferences from './prefs.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { SORT_MODES } from './tree-order.js';
 import { notificationControl } from './notice-notifications.js';
-import { DEFAULT_INPUT_ROUTES, ROUTE_TARGETS } from './input-routes.js';
-import { serviceRestartControls } from './service-restart.js';
-import { workbenchStatus } from './project-picker.js';
 import { createAgentConnectionPicker } from './agent-connection-picker.js';
 import { renderNetworkSettings } from './agent-network-settings.js';
 import { CONFIG_MODES, PI_MODE_HELP, normalizeConfigMode, profileForMode } from './agent-config-mode.js';
 import { settingsClient, settingsClientFor } from './settings-api.js';
-import { scopeSelector, scopeSummary, scopeLabel, scopeImpact, clearOverrideButton, draftFingerprint } from './settings-scope.js';
+import { scopeSummary, scopeLabel, scopeImpact, draftFingerprint } from './settings-scope.js';
 import { renderSettingsMigration } from './settings-migration.js';
 
 const TABS = [
@@ -26,9 +23,75 @@ const TABS = [
 let activeTab = 'interface';
 
 
-export function openSettings() {
-  activateDetailView({ view: 'settings' });
-  return renderSettings();
+let preferenceActions = devicePreferences;
+let preferenceMessage = '', preferenceFailed = false, preferenceEpoch = 0, disposePreferenceStatus = null, settingsDocument = null;
+
+export function openSettings({ preferenceActions: actions = devicePreferences } = {}) {
+  disposePreferenceStatus?.(); disposePreferenceStatus = null;
+  preferenceActions = actions; settingsDocument = globalThis.document;
+  preferenceMessage = ''; preferenceFailed = false;
+  const owner = settingsDocument, view = activateDetailView({ view: 'settings' }), epoch = ++preferenceEpoch;
+  const rendering = renderSettings();
+  if (typeof actions.onDevicePreferences === 'function') {
+    disposePreferenceStatus = actions.onDevicePreferences(status => {
+      if (globalThis.document === owner && epoch === preferenceEpoch && ui.view === view && ui.settingsOpen && activeTab === 'interface') updatePreferenceStatus($('detail'), status);
+    });
+  }
+  return Promise.all([rendering, refreshPreferences(view, actions, epoch)]);
+}
+
+async function refreshPreferences(view, actions, epoch) {
+  const owner = globalThis.document;
+  if (typeof actions.refreshDevicePreferences !== 'function') return;
+  try { await actions.refreshDevicePreferences(); }
+  catch (error) { if (globalThis.document === owner && epoch === preferenceEpoch) preferenceFeedback(`读取设备偏好失败：${error.message}；未将本地缓存写回 Host。`, true, view); }
+  finally {
+    if (globalThis.document === owner && epoch === preferenceEpoch && ui.view === view && ui.settingsOpen && activeTab === 'interface') updatePreferenceStatus($('detail'), actions.devicePreferencesStatus?.());
+  }
+}
+
+function preferenceHost(control, help = '设备权威偏好尚未就绪或正在保存；本地缓存不会作为保存来源。') {
+  const host = el('span', undefined, 'help-host'); host.setAttribute('data-help', help); host.append(control); return host;
+}
+
+function updatePreferenceStatus(root, status) {
+  const note = root.querySelector('[data-device-preference-status=""]');
+  if (note) {
+    note.textContent = status?.error ? `设备偏好同步失败：${status.error}；可重新读取。`
+      : status?.saving ? '正在保存设备偏好…'
+      : status?.ready === false ? '正在读取设备权威偏好；当前仅显示缓存，读取完成前不能保存。'
+      : status?.ready ? `设备权威偏好已读取${status.revision ? `（版本 ${status.revision}）` : ''}；本地浏览器只保留显示缓存。`
+      : '设备偏好由 Host 保存；本地浏览器只保留显示缓存。';
+    note.className = status?.error ? 'settings-error' : 'hint'; note.setAttribute('role', status?.error ? 'alert' : 'status');
+  }
+  const blocked = status?.ready === false || status?.saving === true;
+  for (const control of [...root.querySelectorAll('input'), ...root.querySelectorAll('select')]) {
+    if (Object.hasOwn(control.dataset, 'pref') && control.dataset.pref !== 'noticeNotifications') control.disabled = blocked || control.dataset.preferencePending === 'true';
+  }
+  const reset = root.querySelector('.pref-reset'); if (reset) reset.disabled = blocked || reset.dataset.preferencePending === 'true';
+}
+
+
+function preferenceFeedback(message, failed, view) {
+  if (ui.view !== view || !ui.settingsOpen) return;
+  preferenceMessage = message; preferenceFailed = failed;
+  const note = $('detail').querySelector('[data-device-preference-feedback=""]');
+  if (note) { note.textContent = message; note.className = failed ? 'settings-error' : 'hint'; note.setAttribute('role', failed ? 'alert' : 'status'); }
+}
+
+async function savePreference(name, value, input, view) {
+  if (!ui.settingsOpen || ui.view !== view || input.disabled) return;
+  const actions = preferenceActions, epoch = preferenceEpoch;
+  input.dataset.preferencePending = 'true'; input.disabled = true; preferenceFeedback('正在保存设备偏好…', false, view);
+  try {
+    if (typeof actions.saveDevicePreference !== 'function') throw new Error('界面尚不支持设备偏好保存，请更新 Host');
+    await actions.saveDevicePreference(name, value);
+    if (epoch === preferenceEpoch) preferenceFeedback('设备偏好已保存，所有项目使用同一设置。', false, view);
+  } catch (error) { if (epoch === preferenceEpoch) preferenceFeedback(`保存失败：${error.message}；未保存修改保留，未退回浏览器本地写入。`, true, view); }
+  finally {
+    delete input.dataset.preferencePending; input.disabled = false;
+    if (epoch === preferenceEpoch && ui.view === view && ui.settingsOpen) updatePreferenceStatus($('detail'), actions.devicePreferencesStatus?.());
+  }
 }
 
 function row(title, note, control) {
@@ -41,67 +104,42 @@ function row(title, note, control) {
 }
 
 function toggleControl(name, onLabel = '开启', offLabel = '关闭') {
+  const view = ui.view;
   const wrap = el('label', undefined, 'settings-toggle');
   const input = el('input'); input.type = 'checkbox'; input.className = 'pref-toggle'; input.dataset.pref = name;
   input.checked = Boolean(readPref(name));
-  input.addEventListener('change', () => setPref(name, input.checked));
+  input.addEventListener('change', () => savePreference(name, input.checked, input, view));
   wrap.append(input, el('span', input.checked ? onLabel : offLabel));
-  return wrap;
+  return preferenceHost(wrap);
 }
 
 function themeControl() {
+  const view = ui.view;
   const group = el('div', undefined, 'settings-choices');
-  const state = appearanceSnapshot();
-  const current = state.projectId ? state.appearance?.theme : readPref('theme');
+  const current = readPref('theme');
   const labels = { system: '跟随系统', light: '浅色', dark: '深色' };
   for (const value of THEME_VALUES) {
     const wrap = el('label', undefined, 'settings-choice');
     const input = el('input'); input.type = 'radio'; input.name = 'theme-preference'; input.className = 'pref-radio';
     input.dataset.pref = 'theme'; input.dataset.value = value; input.checked = current === value;
-    input.disabled = Boolean(state.projectId && (!state.appearance || state.busy || state.loading));
-    input.addEventListener('change', async () => {
-      if (!input.checked) return;
-      if (!state.projectId) return setPref('theme', value);
-      if (!ui.settingsOpen) return;
-      const view = ui.view;
-      try { await saveAppearance({ theme: value }, state.projectId); }
-      catch (error) { if (ui.view === view) show(error.message, 'error'); }
-    });
-    wrap.append(input, el('span', labels[value] ?? value)); group.append(wrap);
-  }
-  return group;
-}
-
-function projectColorControl(state) {
-  const group = el('div', undefined, 'settings-choices project-colors');
-  for (const { id, label } of PROJECT_COLORS) {
-    const wrap = el('label', undefined, 'settings-choice project-color-choice'); wrap.dataset.color = id;
-    const input = el('input'); input.type = 'radio'; input.name = 'project-color'; input.dataset.projectColor = id;
-    input.checked = state.appearance?.color === id;
-    input.disabled = !state.appearance || state.busy || state.loading;
-    input.addEventListener('change', async () => {
-      if (!input.checked) return;
-      if (!ui.settingsOpen) return;
-      const view = ui.view;
-      try { await saveAppearance({ color: id }, state.projectId); }
-      catch (error) { if (ui.view === view) show(error.message, 'error'); }
-    });
-    const swatch = el('span', undefined, 'project-color-swatch'); swatch.setAttribute('aria-hidden', 'true');
-    wrap.append(input, swatch, el('span', label)); group.append(wrap);
+    input.addEventListener('change', () => input.checked ? savePreference('theme', value, input, view) : undefined);
+    wrap.append(input, el('span', labels[value] ?? value)); group.append(preferenceHost(wrap));
   }
   return group;
 }
 
 function selectControl(name, modes, title) {
+  const view = ui.view;
   const select = el('select'); select.className = 'pref-select'; select.dataset.pref = name;
-  if (title) select.title = title;
+  if (title) select.setAttribute('aria-label', title);
   for (const mode of modes) { const option = el('option', mode.label); option.value = mode.id; select.append(option); }
   select.value = readPref(name);
-  select.addEventListener('change', () => setPref(name, modes.some(mode => mode.id === select.value) ? select.value : modes[0]?.id));
-  return select;
+  select.addEventListener('change', () => savePreference(name, modes.some(mode => mode.id === select.value) ? select.value : modes[0]?.id, select, view));
+  return preferenceHost(select);
 }
 
 function noticeChannelControl(type, label) {
+  const view = ui.view;
   const group = el('div', undefined, 'settings-choices');
   for (const [channel, text] of [['banner', '页面告知条'], ['system', '系统通知']]) {
     const wrap = el('label', undefined, 'settings-choice');
@@ -110,16 +148,25 @@ function noticeChannelControl(type, label) {
     input.checked = readPref('noticeChannels')[type][channel];
     input.setAttribute('aria-label', `${label}：${text}`);
     input.addEventListener('change', () => {
-      const value = readPref('noticeChannels'); value[type][channel] = input.checked;
-      setPref('noticeChannels', value);
+      const value = structuredClone(readPref('noticeChannels')); value[type][channel] = input.checked;
+      return savePreference('noticeChannels', value, input, view);
     });
-    wrap.append(input, el('span', text)); group.append(wrap);
+    wrap.append(input, el('span', text)); group.append(preferenceHost(wrap));
   }
   return group;
 }
 
 function interfaceTab() {
+  const view = ui.view;
   const content = el('div', undefined, 'settings-tab-panel');
+  const status = preferenceActions.devicePreferencesStatus?.(), epoch = preferenceEpoch, actions = preferenceActions;
+  const statusNote = el('p', '', 'hint'); statusNote.dataset.devicePreferenceStatus = ''; content.append(statusNote);
+  if (typeof actions.refreshDevicePreferences === 'function') content.append(button('重新读取设备偏好', () => {
+    if (ui.view !== view || !ui.settingsOpen || epoch !== preferenceEpoch) return;
+    preferenceFeedback('', false, view); return refreshPreferences(view, actions, epoch);
+  }, 'ghost', { help: '只重新读取设备权威偏好，不将浏览器缓存写回 Host，不修改项目工作状态。' }));
+  const feedback = el('p', preferenceMessage, preferenceFailed ? 'settings-error' : 'hint');
+  feedback.dataset.devicePreferenceFeedback = ''; feedback.setAttribute('role', preferenceFailed ? 'alert' : 'status'); content.append(feedback);
   const reading = block('阅读');
   reading.append(row('Markdown 渲染', '控制 Agent 输出的展示方式。', toggleControl('markdown')));
   reading.append(row('执行过程排序', '全屏执行详情默认最新在前，也可在阅读页直接切换为按时间正序。', selectControl('transcriptOrder', TRANSCRIPT_ORDER_MODES, '执行过程阅读顺序')));
@@ -127,34 +174,22 @@ function interfaceTab() {
 
   const system = systemThemeMedia();
   const appearance = block('外观');
-  const projectAppearance = appearanceSnapshot();
-  appearance.append(row(projectAppearance.projectId ? '本项目主题' : '工作台主题',
-    `${projectAppearance.projectId ? '保存在项目中，不同浏览器共用；跟随系统时各自使用系统深浅模式。' : '仅保存在当前浏览器，不影响项目。'}实际显示${effectiveTheme() === 'dark' ? '深色' : '浅色'}。`, themeControl()));
-  if (projectAppearance.projectId) {
-    appearance.append(row('本项目配色', '品牌、侧栏与强调色绑定本项目；首次打开优先使用未分配颜色，颜色耗尽后尽量均衡复用。状态色与 Agent 紫色不变。', projectColorControl(projectAppearance)));
-    if (projectAppearance.loading || projectAppearance.busy) appearance.append(el('p', projectAppearance.busy ? '正在保存项目外观…' : '正在读取项目外观…', 'settings-note'));
-    if (projectAppearance.error) {
-      appearance.append(el('p', `项目外观未同步：${projectAppearance.error}。${projectAppearance.appearance ? '保留上次配置；重试读取最新配置后再保存。' : '尚未获得项目配置，未使用浏览器主题替代。'}`, 'settings-error'));
-      const retry = button('重新读取项目外观', () => reloadAppearance(), 'ghost');
-      retry.disabled = projectAppearance.busy || projectAppearance.loading;
-      appearance.append(retry);
-    }
-  }
+  appearance.append(row('设备主题', `所有项目共用。系统当前${system?.matches ? '深色' : '浅色'}，实际显示${effectiveTheme() === 'dark' ? '深色' : '浅色'}。`, themeControl()));
   appearance.append(row('减少动态效果', `覆盖系统偏好（系统当前${system?.matches ? '已要求减少' : '未要求'}）。`, toggleControl('reduceMotion')));
   content.append(appearance);
 
   const navigation = block('导航');
-  navigation.append(row('信息列表排序', '行动 Worker、Intent、Plan 与待决事项共用。', selectControl('sidebarSort', SORT_MODES, '信息列表排序方式')));
+  navigation.append(row('信息列表排序', '各项目的 Worker 与待决事项使用同一排序习惯。', selectControl('sidebarSort', SORT_MODES, '信息列表排序方式')));
   content.append(navigation);
 
   const behavior = block('刷新与提示');
   behavior.append(row('轮询频率', '控制页面快照与实时状态刷新；修改后立即生效。', selectControl('polling', POLLING_MODES, '页面自动刷新频率')));
   behavior.append(row('消息停留时长', '控制顶部信息与错误提示自动消失的速度。', selectControl('toastDuration', TOAST_MODES, '消息提示停留时长')));
-  behavior.append(row('系统通知总开关', '默认关闭，仅当前客户端生效。窗口打开期间提醒新待决事项及所选告知；关闭期间不补发。', notificationControl()));
+  behavior.append(row('系统通知总开关', '设备统一开关，默认关闭；浏览器仍需单独授权通知权限。窗口打开期间提醒新事项，关闭期间不补发。', notificationControl()));
   content.append(behavior);
 
   const notices = block('告知渠道');
-  notices.append(el('p', '仅控制当前客户端的页面告知条和系统通知；系统通知还需开启总开关。所有记录保留，不改变历史或未读列表计数。待决事项始终独立显示，不能用「已知」消除。', 'settings-note'));
+  notices.append(el('p', '所有项目统一使用这些页面告知条与系统通知偏好；系统通知还需设备总开关及当前浏览器权限。所有记录保留，不改变历史或未读列表计数。待决事项始终独立显示，不能用「已知」消除。', 'settings-note'));
   for (const [type, label, note] of [
     ['created', 'Worker 待开始', '仅创建 Worker 后等待手动开始；尚未调用 Agent。'],
     ['idle', 'Worker 本轮结束', 'Worker 已静息，不代表验收完成或已合并。'],
@@ -164,10 +199,23 @@ function interfaceTab() {
   content.append(notices);
 
   const reset = block('恢复界面默认');
-  const resetButton = el('button', '恢复默认设置', 'ghost pref-reset'); resetButton.type = 'button'; resetButton.onclick = () => resetPrefs();
-  resetButton.setAttribute('data-help', '恢复当前浏览器的共享界面偏好、通知与当前项目视图默认；不清其他项目视图，不改项目主题、配色或 Agent 配置。');
-  reset.append(row('恢复界面默认', '偏好保存在当前浏览器；只清共享与当前项目视图偏好，不改项目主题、配色或 Agent 配置。', resetButton));
-  content.append(reset);
+  const resetButton = el('button', '恢复设备偏好默认', 'ghost pref-reset'); resetButton.type = 'button';
+  resetButton.onclick = async () => {
+    if (ui.view !== view || !ui.settingsOpen || resetButton.disabled) return;
+    if (epoch !== preferenceEpoch) return;
+    resetButton.dataset.preferencePending = 'true'; resetButton.disabled = true;
+    try {
+      if (typeof actions.resetDevicePreferences !== 'function') throw new Error('界面尚不支持设备偏好重置，请更新 Host');
+      await actions.resetDevicePreferences(); if (epoch === preferenceEpoch) preferenceFeedback('设备偏好已恢复默认；项目工作状态保留。', false, view);
+    } catch (error) { if (epoch === preferenceEpoch) preferenceFeedback(`恢复失败：${error.message}；未修改项目工作状态。`, true, view); }
+    finally {
+      delete resetButton.dataset.preferencePending; resetButton.disabled = false;
+      if (epoch === preferenceEpoch && ui.view === view && ui.settingsOpen) updatePreferenceStatus($('detail'), actions.devicePreferencesStatus?.());
+    }
+  };
+  resetButton.setAttribute('data-help', '恢复设备级外观、阅读与提醒偏好；不清项目节点折叠、具体过滤、草稿或 Agent 配置。');
+  reset.append(row('恢复界面默认', '只恢复设备偏好，不重置项目的折叠、过滤、输入草稿或 Agent 配置。', preferenceHost(resetButton, resetButton.getAttribute('data-help'))));
+  content.append(reset); updatePreferenceStatus(content, status);
   return content;
 }
 
@@ -253,7 +301,7 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
   const card = el('section', undefined, 'agent-profile'); card.dataset.agentTarget = target;
   const head = el('div', undefined, 'agent-profile-head');
   const copy = el('div'); copy.append(el('h3', title), el('p', subtitle, 'settings-note'));
-  head.append(copy, el('span', target === 'default' ? (client.scope === 'device' ? '设备默认' : '项目默认') : '独立覆盖', 'badge b-neutral')); card.append(head);
+  head.append(copy, el('span', target === 'default' ? '设备默认' : '独立覆盖', 'badge b-neutral')); card.append(head);
 
   const form = el('div', undefined, 'agent-form-grid');
   const runtime = el('section', undefined, 'agent-config-section'); runtime.append(el('h4', '模型与运行'));
@@ -274,7 +322,7 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
   const model = el('input'); model.className = 'agent-model'; model.dataset.agentField = 'model'; model.value = profile.model || '';
   model.maxLength = 256;
   const connectionPicker = createAgentConnectionPicker({ backend, model, connectionId: profile.connection_id || '',
-    ownsPage, read: client.read, readLabel: client.scope === 'device' ? '读取共享来源' : '读取项目连接', onChange: () => { paintModels(); if (backend.value === 'pi' && normalizeConfigMode(mode.value) === 'lush') syncThinking(false); } });
+    ownsPage, read: client.read, readLabel: '读取设备来源', onChange: () => { paintModels(); if (backend.value === 'pi' && normalizeConfigMode(mode.value) === 'lush') syncThinking(false); } });
   const connection = connectionPicker.connection; connection.dataset.agentField = 'connection_id';
   const thinking = el('select'); thinking.className = 'agent-select'; thinking.dataset.agentField = 'thinking';
   const budgetControls = {};
@@ -295,8 +343,8 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
       const source = saved.agent === 'pi' ? (saved.connection_id
         ? (row?.id === saved.connection_id ? row.label : names.get(saved.connection_id) || `托管来源 ${saved.connection_id}`) : '未选择来源') : 'Codex CLI 自身认证';
       savedSummary.textContent = normalizeConfigMode(saved.config_mode) === 'pi'
-        ? `Pi 默认配置（执行机器 Pi）· ${client.scope === 'device' ? '设备默认' : '项目默认'}（已保存），下一次调用生效`
-        : `${saved.agent === 'pi' ? 'Pi' : 'Codex'} → ${source} → ${saved.model || (saved.agent === 'pi' ? '请选择来源内模型' : 'CLI 默认模型')} · ${client.scope === 'device' ? '设备默认' : '项目默认'}（已保存），下一次调用生效`;
+        ? `Pi 默认配置（执行机器 Pi）· 设备默认（已保存），下一次调用生效`
+        : `${saved.agent === 'pi' ? 'Pi' : 'Codex'} → ${source} → ${saved.model || (saved.agent === 'pi' ? '请选择来源内模型' : 'CLI 默认模型')} · 设备默认（已保存），下一次调用生效`;
     }
     loadModels.hidden = agent === 'pi';
     if (agent === 'pi') {
@@ -347,7 +395,7 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
     } else if (packagesCatalog?.warning) resourcesNote.textContent = packagesCatalog.warning;
     else resourcesNote.textContent = packagesCatalog
       ? '只列出插件声明的扩展入口，不必勾选目录内所有脚本；独立 MCP 服务不是 Pi 扩展。只加载显式勾选的资源；扩展拥有当前用户的完整系统权限，不是沙箱。安装与移除在页面顶部的「已安装插件与 Skills」里进行。'
-      : '按需读取本项目 Lush 独立 Pi 目录中的已安装资源；安装与移除在页面顶部的「已安装插件与 Skills」里进行。';
+      : '按需读取设备 Lush 独立 Pi 目录中的已安装资源；安装与移除在页面顶部的「已安装插件与 Skills」里进行。';
     resourceChoices.replaceChildren(...(packagesCatalog?.resources ? [
       paintResourceGroup('扩展', packagesCatalog.resources.extensions || [], selectedExtensions, 'extensions'),
       paintResourceGroup('Skills', packagesCatalog.resources.skills || [], selectedSkills, 'skills'),
@@ -502,7 +550,6 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
     const draft = draftFingerprint(card);
     const saved = await client.action('agent.configure', { config });
     if (!ownsPage()) return;
-    if (client.scope === 'project' && ui.lastSnapshot?.status) ui.lastSnapshot.status.agent_config = saved;
     show(`${title}已保存；正在运行的调用不受影响，下一次调用使用新配置。`);
     if (draft === draftFingerprint(card)) repaint(saved);
     else { Object.assign(settings, saved); show('配置已保存；保留你随后输入的未保存修改。'); }
@@ -512,8 +559,7 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
     if (!ownsPage()) return;
     const saved = await client.action('agent.configure', { config: { version: 1, default: settings.default, roles } });
     if (!ownsPage()) return;
-    if (client.scope === 'project' && ui.lastSnapshot?.status) ui.lastSnapshot.status.agent_config = saved;
-    show(`${title}已恢复继承此层默认配置。`); repaint(saved);
+    show(`${title}已恢复继承设备默认配置。`); repaint(saved);
   }, 'ghost', { help: '删除这个角色的单独配置，立即改回继承当前编辑层的默认 Agent 配置' }));
   card.append(actions);
   return card;
@@ -535,7 +581,6 @@ function inheritedRole(settings, role, repaint, names = new Map(), ownsPage = ()
     const saved = await client.action('agent.configure', { config: { version: 1, default: settings.default,
       roles: { ...settings.roles, [role]: { ...resolved } } } });
     if (!ownsPage()) return;
-    if (client.scope === 'project' && ui.lastSnapshot?.status) ui.lastSnapshot.status.agent_config = saved;
     repaint(saved);
   }, 'ghost', { help: '为这个角色建立独立配置；保存后不再跟随默认配置一起变化' }));
   return card;
@@ -563,7 +608,6 @@ function environmentEditor(settings, repaint, ownsPage) {
   const active = () => ownsPage() && (environmentTargets.get(client.key) || 'common') === selectedTarget && client.isCurrent();
   const section = block('环境变量'); section.classList.add('agent-env-block');
   section.append(el('p', '按需读取并编辑 Agent 子进程环境。值返回浏览器后默认遮罩；公共变量先加载，角色变量随后覆盖。保存会规范化 env 文件并移除原注释与排序。', 'settings-note settings-section-note'));
-  if (client.scope === 'project' && settings.configuration_scope) section.append(el('p', '本项目显示设备变量与项目变量叠加后的有效值；保存将整张表写为项目变量文件，包括未改动的继承值。移除项目条目后，同名设备变量仍会继承；清除项目覆盖可恢复设备默认。', 'settings-note'));
 
   const toolbar = el('div', undefined, 'agent-env-toolbar');
   const target = el('select'); target.className = 'agent-env-target'; target.dataset.envTarget = '';
@@ -580,9 +624,6 @@ function environmentEditor(settings, repaint, ownsPage) {
   }, 'ghost agent-env-load');
   load.type = 'button';
   toolbar.append(target, load); section.append(toolbar);
-  if (client.scope === 'project' && settings.configuration_scope) section.append(clearOverrideButton('environment', async () => {
-    environmentModels.delete(key); environmentDrafts.delete(key); await loadEnvironment(selectedTarget, true, client, active); if (active()) repaint();
-  }, { target: selectedTarget, ownsPage: active, onCleared: () => { environmentModels.delete(key); environmentDrafts.delete(key); } }));
 
   if (!model) {
     section.append(el('p', '尚未把变量值读入浏览器。点击“读取变量”后可编辑；读取与写入仅允许用户会话，Agent token 无权访问。', 'settings-readonly settings-note agent-env-empty'));
@@ -638,7 +679,7 @@ function environmentEditor(settings, repaint, ownsPage) {
   return section;
 }
 
-const PACKAGE_SOURCE_HELP = '安装到本项目的 Lush 独立 Pi 目录，不改用户默认 Pi。来源必须固定版本：npm:name@1.0.0、git:host/repo@commit-or-tag，或显式本地路径（./、../、/、~/）。安装不会自动启用，也不会调用 Agent。';
+const PACKAGE_SOURCE_HELP = '安装到设备的 Lush 独立 Pi 目录，不改用户默认 Pi。来源必须固定版本：npm:name@1.0.0、git:host/repo@commit-or-tag，或显式本地路径（./、../、/、~/）。安装不会自动启用，也不会调用 Agent。';
 
 /** 项目级插件与 Skills 安装管理：安装与启用分开，安装 / 更新 / 移除都不调用 Agent。 */
 function packagesManager(ownsPage, client) {
@@ -659,7 +700,7 @@ function packagesManager(ownsPage, client) {
   const clearInstall = () => { for (const node of [...installRow.children]) if (node !== source) node.remove(); };
   let pending = false;
   const reload = button('读取已安装包', () => load(true), 'ghost agent-package-load',
-    { help: '读取本项目 Lush 独立 Pi 目录中的已安装包与资源；只读本地，不联网安装、不查询额度、不调用 Agent。' });
+    { help: '读取设备 Lush 独立 Pi 目录中的已安装包与资源；只读本地，不联网安装、不查询额度、不调用 Agent。' });
   toolbar.append(reload, state);
   async function load(force) {
     if (!ownsPage() || pending) return;
@@ -733,7 +774,7 @@ function packagesManager(ownsPage, client) {
     state.textContent = `${catalog.installable ? '已安装包管理可用' : '只读目录发现'} · ${packages.length} 个包`;
     list.replaceChildren(...(packages.length ? packages.map(packageRow) : [el('p', '未发现已安装的 Pi 包。', 'settings-note')]));
     installRow.append(catalog.installable
-      ? button('安装', install, 'primary agent-package-install', { help: `${scopeLabel(client.scope)}：${PACKAGE_SOURCE_HELP.replace('本项目的', '所选作用域的')}` })
+      ? button('安装', install, 'primary agent-package-install', { help: `${scopeLabel(client.scope)}：${PACKAGE_SOURCE_HELP}` })
       : guardedButton('安装', false, '当前 daemon 没有提供安装管理接口；升级 daemon 后再试。', () => {}, 'primary agent-package-install'));
   };
   paint();
@@ -757,7 +798,7 @@ export function renderAgentSettings(settings, repaint, { ownsPage = () => true, 
     content.append(waiting); return content;
   }
   const intro = el('div', undefined, 'agent-callout');
-  intro.append(el('strong', `${scopeLabel(settings.configuration_scope?.selected || 'project')} · 双配置模式`), el('p', `每个 Agent 先选配置模式：Lush 配置使用 Lush 托管的来源、模型、Prompt 与资源，Pi 调用不继承用户全局 Pi 设置或 Prompt；Pi 默认配置使用执行机器上的 Pi 目录。配置保存在 ${settings.file}，项目 AGENTS 与显式资源保留。正在运行的调用保持不变，后续调用读取最新配置。`, 'settings-note'));
+  intro.append(el('strong', `${scopeLabel()} · 双配置模式`), el('p', `每个 Agent 先选配置模式：Lush 配置使用 Lush 托管的来源、模型、Prompt 与资源，Pi 调用不继承用户全局 Pi 设置或 Prompt；Pi 默认配置使用执行机器上的 Pi 目录。配置保存在 ${settings.file}，项目 AGENTS 与显式资源保留。正在运行的调用保持不变，后续调用读取最新配置。`, 'settings-note'));
   const summary = el('p', undefined, 'agent-default-summary'); summary.setAttribute('role', 'status');
   content.append(intro, summary);
   const client = settingsClientFor(settings);
@@ -791,14 +832,6 @@ const LIMIT_FIELDS = [
 ];
 
 /** 候选状态回写快照：保存 / 恢复成功后，不依赖下一次轮询就能重画出新值。 */
-function applyRuntimeSettings(settings) {
-  const status = ui.lastSnapshot?.status;
-  if (!status || !settings) return;
-  status.settings = settings;
-  for (const field of [...CONCURRENCY_FIELDS, ...LIMIT_FIELDS]) status[field.key] = settings[field.key]?.value;
-}
-
-/** 运行设置数字字段编辑器：输入 + 保存 / 恢复环境默认；越界与后端报错都在页面上说清。 */
 function runtimeFieldsEditor(runtime, fields, plain, note, client, repaint, ownsPage) {
   const box = el('div', undefined, 'settings-runtime');
   const grid = el('div', undefined, 'settings-runtime-grid');
@@ -810,10 +843,10 @@ function runtimeFieldsEditor(runtime, fields, plain, note, client, repaint, owns
     const input = el('input'); input.type = 'number'; input.min = '1'; input.max = String(spec.max); input.step = '1';
     input.className = 'settings-number'; input.dataset.runtimeInput = spec.key; input.value = plain(entry.value);
     input.setAttribute('aria-label', `${spec.label}（1..${spec.max}${spec.unit ? `，单位${spec.unit}` : ''}）`);
-    const sourceText = { device: '设备共享', project: '项目覆盖', default: '环境默认' }[entry.source] || (entry.overridden ? '已覆盖' : '来源未报告');
+    const sourceText = { device: '设备配置', default: '环境默认' }[entry.source] || (entry.overridden ? '设备配置' : '环境默认');
     const source = el('span', sourceText, `settings-source${entry.overridden ? ' overridden' : ''}`);
     source.dataset.runtimeSource = spec.key;
-    const state = el('span', `生效 ${plain(entry.value)}${unit} · 继承默认 ${plain(entry.default)}${unit} · ${sourceText}`, 'settings-note');
+    const state = el('span', `生效 ${plain(entry.value)}${unit} · 环境默认 ${plain(entry.default)}${unit} · ${sourceText}`, 'settings-note');
     state.dataset.runtimeState = spec.key;
     cell.append(el('span', spec.label, 'settings-field-label'), input, source, state);
     grid.append(cell); inputs[spec.key] = input;
@@ -838,13 +871,12 @@ function runtimeFieldsEditor(runtime, fields, plain, note, client, repaint, owns
     try {
       const saved = await client.action('system.configure', { settings: patch });
       if (!ownsPage()) return;
-      if (client.scope === 'project') applyRuntimeSettings(saved);
-      show(`${scopeLabel(client.scope)}${note}已保存；影响继承设置的后续准入，不打断当前调用。`);
+      show(`${scopeLabel()}${note}已保存；所有项目后续准入读取新配置，不打断当前调用。`);
       if (draft === draftFingerprint(box)) repaint(saved);
     } catch (error) { if (ownsPage()) fail(error.message); }
   }, 'primary settings-runtime-save');
   save.dataset.runtimeAction = 'save';
-  const reset = button(client.scope === 'project' ? '恢复继承默认' : '恢复环境默认', async () => {
+  const reset = button('恢复环境默认', async () => {
     if (!ownsPage()) return;
     errorBox.hidden = true;
     const settings = {}; for (const spec of fields) settings[spec.key] = null;
@@ -852,228 +884,63 @@ function runtimeFieldsEditor(runtime, fields, plain, note, client, repaint, owns
     try {
       const saved = await client.action('system.configure', { settings });
       if (!ownsPage()) return;
-      if (client.scope === 'project') applyRuntimeSettings(saved);
-      show(`${note}已恢复继承默认。`); if (draft === draftFingerprint(box)) repaint(saved);
+      show(`${note}已恢复环境默认。`); if (draft === draftFingerprint(box)) repaint(saved);
     } catch (error) { if (ownsPage()) fail(error.message); }
-  }, 'ghost settings-runtime-reset', { help: `只清除${scopeLabel(client.scope)}中${note}的这些覆盖键，回到上一级默认；不删除历史或中断调用` });
+  }, 'ghost settings-runtime-reset', { help: `只清除设备设置中${note}的这些键，回到环境／内置默认；不删除历史或中断调用` });
   reset.dataset.runtimeAction = 'reset';
   actions.append(save, reset);
   box.append(grid, actions, errorBox);
   return box;
 }
 
-/**
- * 「输入前缀（仅旧提交路径）」编辑器：列出命中后直接派活的前缀与目标，可增删。
- * 新指令不走快速路由，输入框也不再高亮前缀；这张表只影响旧客户端提交（`input.submit` / 旧批量 `draft.commit`）。
- * 保存写 system.configure 的 input_routes，恢复默认送 null 清除项目覆盖。
- * 只读 fast path：这里只是把同一套结构交给核心，真正的匹配规则在 core 与浏览器 input-routes.js。
- */
-const ROUTE_TARGET_LABELS = { worker: 'worker · 开发', research: 'research · 调研' };
-
-function inputRoutesEditor(runtime) {
-  const fallback = { value: DEFAULT_INPUT_ROUTES.map(route => ({ ...route })), default: DEFAULT_INPUT_ROUTES.map(route => ({ ...route })), overridden: false };
-  const entry = runtime.input_routes || fallback;
-  const section = block('输入前缀（仅旧提交路径）');
-  section.append(el('p', '以这些前缀开头的旧提交（`input.submit` / 旧批量 `draft.commit`）不调用规划模型，直接按目标创建根 Worker：worker 进入开发流程，research 只做调研。新指令不走快速路由，输入框也不再高亮前缀。', 'settings-note settings-section-note'));
-
-  const list = el('div', undefined, 'settings-route-list'); list.dataset.routeList = '';
-  const addRow = (prefix = '', target = 'worker') => {
-    const line = el('div', undefined, 'settings-route-row');
-    const prefixInput = el('input'); prefixInput.type = 'text'; prefixInput.className = 'settings-route-prefix';
-    prefixInput.maxLength = 32; prefixInput.value = prefix; prefixInput.placeholder = '例如：开发'; prefixInput.spellcheck = false;
-    prefixInput.setAttribute('aria-label', '快速路由前缀'); prefixInput.dataset.routePrefix = '';
-    const select = el('select'); select.className = 'settings-route-target'; select.setAttribute('aria-label', '命中后的派活目标');
-    for (const value of ROUTE_TARGETS) { const option = el('option', ROUTE_TARGET_LABELS[value] || value); option.value = value; select.append(option); }
-    select.value = ROUTE_TARGETS.includes(target) ? target : 'worker'; select.dataset.routeTarget = '';
-    const remove = button('删除', () => { line.remove(); paintState(); }, 'ghost settings-route-remove',
-      { help: '从列表移除这个前缀；点「保存前缀」后才会真正删除' });
-    remove.dataset.routeAction = 'remove';
-    line.append(prefixInput, select, remove); list.append(line); return line;
-  };
-  for (const route of entry.value) addRow(route.prefix, route.target);
-
-  const stateNote = el('span', '', 'settings-note'); stateNote.dataset.routeState = '';
-  const paintState = () => {
-    stateNote.textContent = `共 ${list.children.length} 个前缀 · ${entry.overridden ? '已覆盖项目默认' : '默认前缀'}`;
-  };
-  paintState();
-
-  const errorBox = el('p', undefined, 'settings-error'); errorBox.hidden = true; errorBox.dataset.routeError = '';
-  const fail = message => { errorBox.textContent = message; errorBox.hidden = false; show(message, 'error'); };
-
-  const collect = () => {
-    const routes = [], seen = new Set();
-    for (const [index, line] of [...list.children].entries()) {
-      const prefix = line.querySelector('.settings-route-prefix').value.trim();
-      const target = line.querySelector('.settings-route-target').value;
-      if (!prefix) { fail(`第 ${index + 1} 个前缀为空；填写前缀或先删除该行。`); return null; }
-      if (prefix.length > 32 || /\s/u.test(prefix)) { fail(`前缀「${prefix}」不能包含空白，且最多 32 个字符。`); return null; }
-      if (seen.has(prefix.toLowerCase())) { fail(`前缀「${prefix}」重复；每个前缀只能配一个目标。`); return null; }
-      seen.add(prefix.toLowerCase());
-      routes.push({ prefix, target });
-    }
-    if (routes.length > 32) { fail('前缀最多 32 个。'); return null; }
-    return routes;
-  };
-
-  const actions = el('div', undefined, 'settings-route-actions');
-  const add = button('新增前缀', () => {
-    const line = addRow(); paintState(); line.querySelector('.settings-route-prefix').focus();
-  }, 'ghost settings-route-add');
-  add.dataset.routeAction = 'add';
-  const save = button('保存前缀', async () => {
-    const routes = collect(); if (!routes) return;
-    errorBox.hidden = true;
-    const saved = await action('system.configure', { settings: { input_routes: routes } });
-    applyRuntimeSettings(saved);
-    show(routes.length ? `已保存 ${routes.length} 个快速路由前缀（仅旧提交路径生效）。` : '已清空快速路由前缀；旧提交路径不再前缀直派。');
-    renderSettings();
-  }, 'primary settings-route-save');
-  save.dataset.routeAction = 'save';
-  const reset = button('恢复默认前缀', async () => {
-    errorBox.hidden = true;
-    const saved = await action('system.configure', { settings: { input_routes: null } });
-    applyRuntimeSettings(saved);
-    show('已恢复默认快速路由前缀（开发 / 解释）；仅旧提交路径生效。');
-    renderSettings();
-  }, 'ghost settings-route-reset', { help: '清除项目覆盖的前缀表，恢复内置默认（开发 / 解释）；点击后立即写入项目设置' });
-  reset.dataset.routeAction = 'reset';
-  actions.append(add, save, reset, stateNote);
-  section.append(list, actions, errorBox);
-  return section;
-}
-
-/**
- * 「快速介绍」编辑器：选中文字直连的 OpenAI 兼容接口，不经过 Agent。
- * 读模型里 API Key 只有 `has_key` / `key_hint`；这里也只写不显，留空表示保持原值。
- */
-function quickIntroEditor(config, plain) {
-  const section = block('快速介绍');
-  section.append(el('p', '选中文字后「快速介绍」直连这里配置的模型，不经过 Agent；会调用「API 地址」/chat/completions。保存后立即生效。', 'settings-note settings-section-note'));
-  if (!config) { section.append(el('p', '正在读取快速介绍配置…', 'settings-note')); return section; }
-  const grid = el('div', undefined, 'settings-runtime-grid');
-  const specs = [
-    { key: 'base_url', label: 'API 地址', placeholder: 'https://api.openai.com/v1', note: 'OpenAI 兼容接口地址。' },
-    { key: 'model', label: '模型', placeholder: 'gpt-4o-mini' },
-    { key: 'api_key', label: 'API Key', placeholder: config.has_key ? `已保存 ${config.key_hint}` : 'sk-…', note: '留空表示不修改；本地服务常不需要。' },
-  ];
-  const inputs = {};
-  for (const spec of specs) {
-    const cell = el('label', undefined, 'settings-runtime-field'); cell.dataset.introField = spec.key;
-    const input = el('input'); input.type = spec.key === 'api_key' ? 'password' : 'text';
-    input.className = 'settings-number'; input.autocomplete = 'off'; input.spellcheck = false;
-    input.placeholder = spec.placeholder || ''; input.value = spec.key === 'api_key' ? '' : (config[spec.key] || '');
-    input.setAttribute('aria-label', spec.label); input.dataset.introInput = spec.key;
-    cell.append(el('span', spec.label, 'settings-field-label'), input);
-    if (spec.note) cell.append(el('span', spec.note, 'settings-note'));
-    grid.append(cell); inputs[spec.key] = input;
-  }
-  const source = el('span', config.ready ? `可调用 · ${config.model}` : '未配置完成', `settings-source${config.ready ? ' overridden' : ''}`);
-  source.dataset.introSource = '';
-  const errorBox = el('p', undefined, 'settings-error'); errorBox.hidden = true; errorBox.dataset.introError = '';
-  const fail = message => { errorBox.textContent = message; errorBox.hidden = false; show(message, 'error'); };
-  const actions = el('div', undefined, 'settings-runtime-actions');
-  const save = button('保存', async () => {
-    const patch = { base_url: inputs.base_url.value.trim() || null, model: inputs.model.value.trim() || null };
-    const key = inputs.api_key.value.trim();
-    if (key) patch.api_key = key;
-    errorBox.hidden = true;
-    try {
-      const saved = await action('intro.configure', { config: patch });
-      introConfigCache = saved;
-      if (ui.lastSnapshot?.status) ui.lastSnapshot.status.intro_config = saved;
-      show('快速介绍配置已保存，立即生效。'); renderSettings();
-    } catch (error) { fail(error.message); }
-  }, 'primary settings-intro-save');
-  save.dataset.introAction = 'save';
-  const clearKey = button('清除 API Key', async () => {
-    errorBox.hidden = true;
-    try {
-      const saved = await action('intro.configure', { config: { api_key: null } });
-      introConfigCache = saved;
-      if (ui.lastSnapshot?.status) ui.lastSnapshot.status.intro_config = saved;
-      show('已清除 API Key。'); renderSettings();
-    } catch (error) { fail(error.message); }
-  }, 'ghost settings-intro-clear-key');
-  clearKey.dataset.introAction = 'clear-key';
-  clearKey.disabled = !config.has_key;
-  actions.append(save, clearKey, source);
-  section.append(grid, actions, el('span', `配置文件 ${plain(config.file)}`, 'settings-note'), errorBox);
-  return section;
-}
 
 let systemPage = null;
 function systemTab() {
-  if (systemPage?.view !== ui.view) systemPage = { view: ui.view, scope: 'device', panes: new Map(), pending: null };
-  const state = systemPage, content = el('div', undefined, 'settings-tab-panel'), host = el('div');
-  ui.clearSettingsSecrets = () => { for (const pane of state.panes.values()) pane.network?.clearSecrets?.(); };
+  if (systemPage?.view !== ui.view) systemPage = { view: ui.view, node: el('div', undefined, 'settings-scope-pane'), loaded: false, pending: null };
+  const state = systemPage, content = el('div', undefined, 'settings-tab-panel'), client = settingsClient();
   const owns = () => ui.view === state.view && ui.settingsOpen && activeTab === 'system';
-  function paneFor(scope) {
-    if (state.panes.has(scope)) return state.panes.get(scope);
-    const client = settingsClient(scope), active = () => owns() && state.scope === scope && client.isCurrent();
-    const pane = { node: el('div', undefined, 'settings-scope-pane'), runtime: null, pending: null, loaded: false };
-    const plain = value => value == null || value === '' ? '—' : String(value);
-    const line = (key, title, hint, value) => { const node = el('span', plain(value), 'settings-value'); node.dataset.systemField = key; return row(title, hint, node); };
-    const paint = runtime => {
-      if (!active()) return;
-      pane.runtime = { ...runtime, configuration_scope: { ...runtime.configuration_scope, selected: scope } }; pane.loaded = true;
-      const info = scopeSummary(pane.runtime, scope);
-      const concurrency = block('并发额度');
-      concurrency.append(el('p', '这是每个项目的并发默认上限，不是整机总预算。降低上限不取消在跑 Worker，后续准入读取有效配置。', 'settings-note'),
-        runtimeFieldsEditor(pane.runtime, CONCURRENCY_FIELDS, plain, '并发额度', client, paint, active),
-        row('设置文件', '当前编辑作用域的保存位置。', el('code', plain(runtime.file), 'settings-path')));
-      const limits = block('调用与拆解限额');
-      limits.append(runtimeFieldsEditor(pane.runtime, LIMIT_FIELDS, plain, '调用与拆解限额', client, paint, active));
-      const reporting = block('进度汇报'), enabled = runtime.progress_reporting?.value !== false;
-      const input = el('input'); input.type = 'checkbox'; input.checked = enabled; input.dataset.runtimeInput = 'progress_reporting';
-      input.setAttribute('aria-label', '启用进度汇报');
-      const error = el('p', '', 'settings-error'); error.hidden = true;
-      input.onchange = async () => {
-        if (!active()) return; input.disabled = true;
-        try {
-          const saved = await client.action('system.configure', { settings: { progress_reporting: input.checked } });
-          if (!active()) return;
-          if (scope === 'project') applyRuntimeSettings(saved); paint(saved);
-        } catch (failure) { if (active()) { input.checked = enabled; error.textContent = failure.message; error.hidden = false; } }
-        finally { input.disabled = false; }
-      };
-      reporting.append(row('启用进度汇报', `${scopeImpact(scope)} 关闭后有效继承的项目不再显示进度指引；已有记录、自定义 Prompt 与当前调用不改写。`, input), error);
-      const network = pane.network || (pane.network = renderNetworkSettings({ ownsPage: active, scope }));
-      const children = [info, concurrency, limits, reporting, network];
-      if (client.project) {
-        const status = block('运行状态'), paths = block('项目路径');
-        pane.refreshStatus = () => {
-          const snapshot = ui.lastSnapshot?.status;
-          const statusHead = status.children[0], pathsHead = paths.children[0]; status.replaceChildren(statusHead); paths.replaceChildren(pathsHead);
-          status.append(snapshot ? line('provider', '默认 Agent', '当前项目 daemon 的执行后端；不代表设备默认或 Worker 实际绑定。', snapshot.provider)
-            : el('p', '尚未收到 daemon 快照。', 'settings-placeholder'));
-          if (snapshot) paths.append(line('project', '项目', 'daemon 绑定的 canonical 目录。', snapshot.project),
-            line('home', '状态目录', '项目数据库、会话与工作区仍按项目保存。', snapshot.home),
-            line('agent_config_file', 'Agent 配置', '项目快照的配置文件，不代表当前编辑设备层。', snapshot.agent_config?.file));
-        };
-        pane.refreshStatus();
-        pane.migration ||= renderSettingsMigration({ ownsPage: active });
-        children.push(serviceRestartControls(), status, paths, pane.migration);
-      } else children.push(el('p', '当前没有可用项目。共享参数仍可编辑；项目状态、历史、服务控制与迁移需打开项目。', 'settings-note'));
-      pane.node.replaceChildren(...children);
+  ui.clearSettingsSecrets = () => state.network?.clearSecrets?.();
+  const plain = value => value == null || value === '' ? '—' : String(value);
+  const paint = runtime => {
+    if (!owns()) return;
+    state.loaded = true;
+    const concurrency = block('并发额度');
+    concurrency.append(el('p', '所有项目使用同一并发上限；这是每个项目的上限，不是整机总预算。降低上限不取消在跑 Worker，后续准入读取新配置。', 'settings-note'),
+      runtimeFieldsEditor(runtime, CONCURRENCY_FIELDS, plain, '并发额度', client, paint, owns),
+      row('设置文件', '设备唯一运行设置的保存位置。', el('code', plain(runtime.file), 'settings-path')));
+    const limits = block('调用与拆解限额');
+    limits.append(runtimeFieldsEditor(runtime, LIMIT_FIELDS, plain, '调用与拆解限额', client, paint, owns));
+    const reporting = block('进度汇报'), enabled = runtime.progress_reporting?.value !== false;
+    const input = el('input'); input.type = 'checkbox'; input.checked = enabled; input.dataset.runtimeInput = 'progress_reporting';
+    input.setAttribute('aria-label', '启用进度汇报');
+    const error = el('p', '', 'settings-error'); error.hidden = true;
+    input.onchange = async () => {
+      if (!owns() || input.disabled) return;
+      input.parentNode.classList.add('help-host'); input.parentNode.setAttribute('data-help', '正在保存设备进度汇报设置；完成后可继续编辑。');
+      input.disabled = true;
+      try {
+        const saved = await client.action('system.configure', { settings: { progress_reporting: input.checked } });
+        if (owns()) paint(saved);
+      } catch (failure) { if (owns()) { input.checked = enabled; error.textContent = failure.message; error.hidden = false; } }
+      finally { input.disabled = false; }
     };
-    function load() {
-      if (pane.loaded) return Promise.resolve(); if (pane.pending) return pane.pending;
-      pane.node.replaceChildren(el('p', '正在读取运行设置…', 'hint'));
-      const pending = client.read('/api/settings/runtime').then(value => { if (active()) paint(value); })
-        .catch(error => { if (active()) pane.node.replaceChildren(el('p', `读取设置失败：${error.message}`, 'settings-error'), button('重新读取设置', load, 'ghost')); })
-        .finally(() => { pane.pending = null; });
-      pane.pending = pending; return pending;
-    }
-    pane.load = load; state.panes.set(scope, pane); return pane;
+    reporting.append(row('启用进度汇报', `${scopeImpact()} 关闭后所有项目不再显示进度指引；已有记录、自定义 Prompt 与当前调用不改写。`, input), error);
+    state.network ||= renderNetworkSettings({ ownsPage: owns, scope: 'device' });
+    state.migration ||= renderSettingsMigration({ ownsPage: owns, onMigrated: async () => {
+      state.loaded = false; const value = await client.read('/api/settings/runtime'); if (owns()) paint(value);
+    } });
+    state.node.replaceChildren(scopeSummary(runtime), concurrency, limits, reporting, state.network, state.migration,
+      el('p', '项目运行状态、历史与后台控制在项目工作页管理；本页不会因配置读取启动项目。', 'settings-note'));
+  };
+  function load() {
+    if (state.loaded) return Promise.resolve(); if (state.pending) return state.pending;
+    state.node.replaceChildren(el('p', '正在读取设备运行设置…', 'hint'));
+    const pending = client.read('/api/settings/runtime').then(value => { if (owns()) { paint(value); return state.migration.ready; } })
+      .catch(error => { if (owns()) state.node.replaceChildren(el('p', `读取设置失败：${error.message}`, 'settings-error'), button('重新读取设置', load, 'ghost')); })
+      .finally(() => { state.pending = null; });
+    state.pending = pending; return pending;
   }
-  function changeScope(scope) {
-    if (!owns()) return Promise.resolve();
-    if (state.scope !== scope) state.panes.get(state.scope)?.network?.clearSecrets?.();
-    state.scope = scope;
-    const pane = paneFor(scope); pane.refreshStatus?.(); pane.network?.resume?.(); host.replaceChildren(pane.node); state.pending = pane.load(); return state.pending;
-  }
-  content.append(scopeSelector(state.scope, changeScope), host); changeScope(state.scope); return content;
+  state.network?.resume?.(); content.append(state.node); load(); return content;
 }
 
 function tabBar() {
@@ -1094,13 +961,12 @@ export function renderSettings() {
   const panel = $('detail'); panel.dataset.view = 'settings';
   const view = el('div', undefined, 'settings-view');
   const head = el('div', undefined, 'settings-head');
-  const intro = el('div'); intro.append(el('span', 'SYSTEM SETTINGS', 'eyebrow'), el('h1', '系统设置'),
-    el('p', '项目主题与配色保存在项目中、不同浏览器共用；其余界面偏好只存当前浏览器。系统默认在执行机器上设备共享，项目可按需覆盖。Agent 配置与模型来源有独立页面。', 'hint'));
+  const intro = el('div'); intro.append(el('span', 'SYSTEM SETTINGS', 'eyebrow'), el('h1', '设备设置'),
+    el('p', '界面偏好与运行配置统一保存在执行机器的同一用户设备设置中，项目不再单独覆盖。项目辨识配色在工作台的项目管理页调整。Agent 配置、模型来源与快捷解释各有独立设备页面。', 'hint'));
   head.append(intro); view.append(head, tabBar());
   view.append(activeTab === 'interface' ? interfaceTab() : systemTab());
   panel.replaceChildren(view);
   return activeTab === 'system' ? systemPage?.pending : undefined;
 }
 
-onAppearanceChange(() => { if (ui.settingsOpen && activeTab === 'interface') renderSettings(); });
-for (const name of PREF_NAMES) onPrefChange(name, () => { if (ui.settingsOpen && activeTab === 'interface') renderSettings(); });
+for (const name of PREF_NAMES) onPrefChange(name, () => { if (globalThis.document === settingsDocument && ui.settingsOpen && activeTab === 'interface') renderSettings(); });

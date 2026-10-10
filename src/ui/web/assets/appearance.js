@@ -1,8 +1,8 @@
-/** Browser workbench theme; project pages use Host-persisted appearance, never localStorage. */
-import { readPref, setPref } from './prefs.js';
+/** Device theme and project identity color are separate authorities (decision #411). */
+import { devicePreferencesStatus, onDevicePreferences, readPref, saveDevicePreference } from './prefs.js';
+import { show } from './messages.js';
 import { PROJECT_COLORS } from './project-colors.js';
 export { PROJECT_COLORS };
-const themes = ['system', 'light', 'dark'];
 const listeners = new Set();
 export function onAppearanceChange(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 function notify() { for (const fn of listeners) { try { fn(); } catch { /* isolated view */ } } }
@@ -13,7 +13,7 @@ export function resolveTheme(preference, systemDark) {
   return preference === 'dark' || preference === 'light' ? preference : (systemDark ? 'dark' : 'light');
 }
 export function effectiveTheme(media = systemThemeMedia()) {
-  return resolveTheme(appearance?.preference() ?? readPref('theme'), Boolean(media?.matches));
+  return resolveTheme(readPref('theme'), Boolean(media?.matches));
 }
 export function applyTheme(theme, { root, toggle } = {}) {
   const host = root ?? globalThis.document?.documentElement;
@@ -27,121 +27,120 @@ export function applyTheme(theme, { root, toggle } = {}) {
   if (!button) return theme;
   button.textContent = theme === 'dark' ? '☀ 浅色' : '☾ 深色';
   button.removeAttribute?.('title');
-  button.setAttribute('data-help', `当前为${theme === 'dark' ? '深色' : '浅色'}主题，点击切换${appearance?.snapshot().projectId ? '并保存到本项目，影响其他浏览器' : ''}。`);
   button.setAttribute('aria-label', `切换到${theme === 'dark' ? '浅色' : '深色'}主题`);
   button.setAttribute('aria-pressed', String(theme === 'dark'));
   return theme;
 }
 
-/** Injectable request/timers let tests exercise late responses without real services. */
-export function createAppearance({ root, toggle, media, projectId = null, request,
-  reportError = () => {}, setInterval: interval = globalThis.setInterval,
+/** Project color only: the retained legacy theme is never applied or sent in a color update. */
+export function createProjectAppearance({ root, projectId, request, ownsPage = () => true,
+  onChange = notify, setInterval: interval = globalThis.setInterval,
   clearInterval: clear = globalThis.clearInterval } = {}) {
-  const host = root ?? globalThis.document?.documentElement;
-  const button = toggle === undefined ? globalThis.document?.getElementById('theme-toggle') : toggle;
-  const mq = media === undefined ? systemThemeMedia() : media;
-  const path = globalThis.location?.pathname;
+  const owner = globalThis.document, pathname = globalThis.location?.pathname;
   let alive = true, value = null, busy = false, loading = false, error = '', timer = null, pending = null;
-  const current = () => alive && globalThis.location?.pathname === path;
-  const preference = () => projectId ? value?.theme ?? 'system' : readPref('theme');
+  const current = () => alive && owner === globalThis.document && globalThis.location?.pathname === pathname && ownsPage();
   const snapshot = () => ({ projectId, appearance: value ? { ...value } : null, busy, loading, error });
   const paint = () => {
     if (!current()) return;
-    if (host?.dataset) {
-      if (projectId && value) host.dataset.projectColor = value.color;
-      else delete host.dataset.projectColor;
-    }
-    applyTheme(resolveTheme(preference(), Boolean(mq?.matches)), { root: host, toggle: button });
-    if (button) {
-      button.disabled = Boolean(projectId && (!value || busy || loading));
-      if (error) button.setAttribute('data-help', `项目外观未同步：${error}。请到设置中重试；未改用浏览器主题。`);
-      else if (button.disabled) button.setAttribute('data-help', busy ? '正在保存本项目外观，请稍候。' : '项目外观尚未加载，读取完成后才能切换主题。');
-      const helpHost = button.parentNode?.classList?.contains('help-host') ? button.parentNode : null;
-      if (helpHost) {
-        if (button.disabled) {
-          helpHost.setAttribute('data-help', button.getAttribute('data-help'));
-          helpHost.setAttribute('tabindex', '0');
-          button.removeAttribute('data-help');
-        } else { helpHost.removeAttribute('data-help'); helpHost.removeAttribute('tabindex'); }
-      }
+    if (root?.dataset) {
+      if (value) root.dataset.projectColor = value.color;
+      else delete root.dataset.projectColor;
     }
   };
-  const publish = () => { if (current()) { paint(); notify(); } };
+  const publish = () => { if (current()) { paint(); onChange(snapshot()); } };
   const validate = result => {
     const next = result?.appearance;
-    if (result?.id !== projectId || !next || next.version !== 1 || !themes.includes(next.theme)
+    if (result?.id !== projectId || !next || next.version !== 1 || !['system', 'light', 'dark'].includes(next.theme)
       || !PROJECT_COLORS.some(color => color.id === next.color) || typeof next.revision !== 'string' || !next.revision) {
-      throw new Error('项目外观响应无效，请更新 Host 后重试');
+      throw new Error('项目配色响应无效，请更新 Host 后重试');
     }
     return { version: 1, theme: next.theme, color: next.color, revision: next.revision };
   };
   const endpoint = `/api/host/projects/${projectId}/appearance`;
   const post = body => request(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const load = (initialize = false) => {
-    if (!projectId || !current() || busy) return Promise.resolve();
+    if (!current() || busy) return Promise.resolve();
     if (pending) return pending;
-    loading = !value; publish();
+    loading = true; publish();
     pending = (async () => {
       try {
         let result = await request(endpoint);
         if (!current()) return;
         if (result?.id === projectId && result.appearance === null && initialize) result = await post({ initialize: true });
         if (!current()) return;
-        const next = validate(result), changed = next.revision !== value?.revision || Boolean(error) || loading;
-        value = next; error = ''; loading = false;
-        if (changed) publish();
-      } catch (failure) {
-        if (current()) { error = failure.message; loading = false; publish(); }
-      } finally { pending = null; }
+        value = validate(result); error = '';
+      } catch (failure) { if (current()) error = failure.message; }
+      finally { pending = null; loading = false; publish(); }
     })();
     return pending;
   };
   const save = async patch => {
-    if (!projectId) { setPref('theme', patch.theme); paint(); notify(); return; }
-    if (!current() || !value || busy || loading || pending) throw new Error('项目外观尚未就绪或正在同步，请稍后重试');
-    const theme = patch.theme ?? value.theme, color = patch.color ?? value.color;
-    if (!themes.includes(theme) || !PROJECT_COLORS.some(entry => entry.id === color)) throw new Error('无效的项目主题或颜色');
+    if (!current() || !value || busy || loading || pending) throw new Error('项目配色尚未就绪或正在同步，请稍后重试');
+    if (!patch || Object.keys(patch).length !== 1 || !PROJECT_COLORS.some(entry => entry.id === patch.color)) {
+      throw new Error('仅可修改项目辨识色；主题请使用设备偏好');
+    }
     busy = true; error = ''; publish();
     try {
-      const result = await post({ theme, color, expected_revision: value.revision });
-      if (!current()) return;
-      value = validate(result);
-    } catch (failure) {
-      if (current()) error = failure.message;
-      throw failure;
-    } finally { busy = false; publish(); }
+      const result = await post({ color: patch.color, expected_revision: value.revision });
+      if (current()) value = validate(result);
+    } catch (failure) { if (current()) error = failure.message; throw failure; }
+    finally { busy = false; publish(); }
   };
-  const onSystemChange = () => { if (preference() === 'system') paint(); };
+  if (interval) timer = interval(() => { if (current() && !globalThis.document?.hidden) return load(false); }, 15000);
+  paint();
+  return { paint, snapshot, load, save,
+    destroy() { alive = false; if (timer !== null) clear?.(timer); } };
+}
+
+/** Injectable device-theme controller; project-color failure never disables the device preference. */
+export function createAppearance({ root, toggle, media, persist = null, projectId = null, request,
+  setInterval: interval = globalThis.setInterval, clearInterval: clear = globalThis.clearInterval,
+  onError = error => show(`主题偏好未保存：${error.message}`, 'error') } = {}) {
+  const host = root ?? globalThis.document?.documentElement;
+  const button = toggle === undefined ? globalThis.document?.getElementById('theme-toggle') : toggle;
+  const mq = media === undefined ? systemThemeMedia() : media;
+  const readCurrent = () => readPref('theme');
+  let active = true, saving = false;
+  const saveTheme = persist || (value => saveDevicePreference('theme', value));
+  const availability = status => {
+    if (!button || !active) return;
+    button.disabled = saving || status.saving || !status.ready || Boolean(status.error);
+    const hint = button.parentElement || button.parentNode;
+    button.removeAttribute?.('data-help');
+    hint?.setAttribute('data-help', !status.ready || status.error ? `设备偏好尚不可用，不能修改主题。${status.error || '正在读取权威配置。'}`
+      : status.saving || saving ? '设备偏好正在保存。' : '修改设备唯一的主题偏好，所有项目页面共享。');
+    hint?.setAttribute('tabindex', '0');
+  };
+  const paint = () => applyTheme(resolveTheme(readCurrent(), Boolean(mq?.matches)), { root: host, toggle: button });
+  const disposeStatus = persist ? null : onDevicePreferences(availability);
+  const onSystemChange = event => { if (readCurrent() === 'system') applyTheme(resolveTheme('system', event.matches), { root: host, toggle: button }); };
   mq?.addEventListener?.('change', onSystemChange);
   if (button) button.onclick = async () => {
-    try { await save({ theme: resolveTheme(preference(), Boolean(mq?.matches)) === 'dark' ? 'light' : 'dark' }); }
-    catch (failure) { if (current()) reportError(failure.message); }
+    if (!active || saving) return;
+    const next = resolveTheme(readCurrent(), Boolean(mq?.matches)) === 'dark' ? 'light' : 'dark';
+    saving = true; button.disabled = true; button.setAttribute('aria-busy', 'true');
+    try { await saveTheme(next); if (active) paint(); }
+    catch (error) { if (active) { paint(); onError(error); } }
+    finally { saving = false; if (active) { button.disabled = false; button.setAttribute('aria-busy', 'false'); if (!persist) availability(devicePreferencesStatus()); } }
   };
-  if (projectId && interval) timer = interval(() => {
-    if (!globalThis.document?.hidden) return load(false);
-  }, 15000);
+  const color = projectId ? createProjectAppearance({ root: host, projectId, request, setInterval: interval, clearInterval: clear }) : null;
+  if (!projectId && host?.dataset) delete host.dataset.projectColor;
   paint();
-  return { paint, host, button, preference, snapshot, load, save,
-    destroy() { alive = false; mq?.removeEventListener?.('change', onSystemChange); if (timer !== null) clear?.(timer); },
-  };
+  return { paint, host, button, preference: readCurrent,
+    snapshot: () => color?.snapshot() ?? { projectId: null, appearance: null, busy: false, loading: false, error: '' },
+    load: initialize => color?.load(initialize) ?? Promise.resolve(),
+    save: patch => color ? color.save(patch) : Promise.reject(new Error('未选择项目辨识色')),
+    destroy() { active = false; disposeStatus?.(); color?.destroy(); mq?.removeEventListener?.('change', onSystemChange); } };
 }
 let appearance = null;
 export function initAppearance(options = {}) {
-  appearance?.destroy();
-  appearance = createAppearance(options);
-  return appearance;
+  appearance?.destroy(); appearance = createAppearance(options); return appearance;
 }
 export function appearanceSnapshot() { return appearance?.snapshot() ?? { projectId: null, appearance: null, busy: false, loading: false, error: '' }; }
 export function saveAppearance(patch, projectId = appearanceSnapshot().projectId) {
-  if (appearanceSnapshot().projectId !== projectId) return Promise.reject(new Error('项目页面已切换，未保存外观'));
+  if (appearanceSnapshot().projectId !== projectId) return Promise.reject(new Error('项目页面已切换，未保存配色'));
   return appearance?.save(patch);
 }
 export function reloadAppearance() { return appearance?.load(true); }
 export function refreshTheme() { appearance?.paint(); }
-
-// Do not flash a project's old browser-specific theme while its persisted configuration loads.
-if (globalThis.document?.documentElement?.dataset) {
-  const project = /^\/p\/([a-f0-9]{16})(?:\/|$)/.exec(globalThis.location?.pathname || '')?.[1];
-  if (project) applyTheme(resolveTheme('system', Boolean(systemThemeMedia()?.matches)));
-  else initAppearance();
-}
+if (globalThis.document?.documentElement?.dataset) initAppearance();

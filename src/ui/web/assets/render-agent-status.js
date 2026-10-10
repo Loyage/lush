@@ -3,12 +3,12 @@ import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { renderAgentSettings } from './render-settings.js';
 import { settingsClient } from './settings-api.js';
-import { scopeSelector, scopeSummary, clearOverrideButton } from './settings-scope.js';
+import { scopeSummary } from './settings-scope.js';
 
 const REFRESH_HELP = '只检查执行机器上 Pi / Codex 软件的命令、安装路径、版本与可用性；不联网、不读取账号或凭证、不启动 Agent 或模型调用。';
 const list = value => Array.isArray(value) ? value : [];
 const text = (value, fallback = '未知') => typeof value === 'string' && value ? value : fallback;
-const COMPATIBILITY_ERROR = '软件诊断数据格式不兼容，请更新项目后台与界面服务。';
+const COMPATIBILITY_ERROR = '软件诊断数据格式不兼容，请更新 Host 界面服务。';
 function note(parent, value, warning = false) { if (value) parent.append(el('p', String(value), warning ? 'agent-status-warning' : 'hint')); }
 function softwareSection(software) {
   const section = block(`${software.agent === 'pi' ? 'Pi' : 'Codex'} 软件`), grid = el('div', undefined, 'grid');
@@ -24,7 +24,6 @@ export function renderAgentStatus(data) {
   const root = el('div', undefined, 'agent-status-results');
   if (!compatible(data)) { note(root, COMPATIBILITY_ERROR, true); return root; }
   note(root, `检查时间：${text(data.checked_at)}`);
-  if (data.scope?.project) note(root, `执行项目：${data.scope.project}`);
   note(root, data.scope?.note || '来自运行 Lush 的机器的软件安装检查，不是浏览器本机或运行中调用的快照。');
   note(root, '安装路径可能是全局目录；软件可用不代表账号已认证或模型可调用。');
   for (const warning of list(data.warnings)) note(root, warning, true);
@@ -32,7 +31,7 @@ export function renderAgentStatus(data) {
   return root;
 }
 
-/** Scope panes retain their own DOM drafts; inactive/old responses never repaint the current pane. */
+/** Device-only configuration. Inactive/old responses never repaint a newer page. */
 export function openAgentStatus() {
   const view = activateDetailView({ view: 'agent-status' });
   if (ui.agentStatusPage?.view === view) return ui.agentStatusPage.pending || Promise.resolve();
@@ -40,8 +39,8 @@ export function openAgentStatus() {
   ui.agentStatusPage = state;
   const ownsPage = () => ui.view === view && ui.agentStatusPage === state;
   const page = el('div', undefined, 'agent-status-page'), header = el('header', undefined, 'agent-status-head');
-  const copy = el('div'); copy.append(el('h1', 'Agent 配置'), el('p', '决定 Agent 如何工作、默认使用哪个模型来源。保存只影响后续调用，不改变正在运行的调用。账号、API、登录、额度和旧余额历史存档请到“模型来源”；软件诊断仅在显式点击后检查。', 'hint'));
-  const link = el('a', '管理模型来源', 'agent-sources-link'); link.href = '#model-sources'; copy.append(link); header.append(copy);
+  const copy = el('div'); copy.append(el('h1', 'Agent 配置'), el('p', '决定 Agent 如何工作、默认使用哪个模型来源。保存只影响后续调用，不改变正在运行的调用。账号、API、登录和最新额度请到设备“模型来源”；历史留在来源项目；软件诊断仅在显式点击后检查。', 'hint'));
+  const link = el('a', '管理模型来源', 'agent-sources-link'); link.href = '/#model-sources'; copy.append(link); header.append(copy);
   const host = el('div'), tabs = el('div', undefined, 'settings-tabs'), tabButtons = new Map();
   tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Agent 配置');
   function paneFor(scope) {
@@ -56,7 +55,6 @@ export function openAgentStatus() {
       if (!active()) return;
       if (config) pane.config = { ...config, configuration_scope: { ...config.configuration_scope, selected: scope } };
       scopeInfo.replaceChildren(scopeSummary(pane.config, scope));
-      if (scope === 'project') scopeInfo.append(clearOverrideButton('agent', () => { pane.config = null; pane.rendered = false; return loadConfig(); }, { ownsPage: active, onCleared: () => { pane.config = null; pane.rendered = false; } }));
       settings.replaceChildren(scopeInfo, renderAgentSettings(pane.config, repaint, { ownsPage: active, connections: pane.connections }));
       pane.rendered = true;
     };
@@ -108,10 +106,10 @@ export function openAgentStatus() {
     for (const env of pane.settings.querySelectorAll('.agent-env-host')) env.resume?.();
     return selectTab(state.tab);
   }
-  for (const [id, label, detail] of [['settings', '模型与工作方式', '共享默认、Prompt 与资源'], ['status', '高级与诊断', '显式检查 Pi / Codex 软件']]) {
+  for (const [id, label, detail] of [['settings', '模型与工作方式', '设备默认、Prompt 与资源'], ['status', '高级与诊断', '显式检查 Pi / Codex 软件']]) {
     const node = button('', () => selectTab(id), 'settings-tab', id === 'status' ? { help: REFRESH_HELP } : {});
     node.dataset.agentTab = id; node.setAttribute('role', 'tab'); node.append(el('strong', label), el('span', detail)); tabButtons.set(id, node); tabs.append(node);
   }
-  page.append(header, scopeSelector(state.scope, changeScope), tabs, host); $('detail').replaceChildren(page);
+  page.append(header, tabs, host); $('detail').replaceChildren(page);
   return changeScope('device');
 }

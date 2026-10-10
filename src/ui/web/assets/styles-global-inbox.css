@@ -1,0 +1,18 @@
+/* Root inbox only: no project shell, toolbar or preference overrides. */
+.global-inbox{min-width:0;max-width:1100px;margin:0 auto}
+.global-inbox-head h1{margin-top:0}
+.global-inbox .resource-tools{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:16px 0}
+.global-inbox .filters{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.global-inbox-list{display:flex;flex-direction:column;gap:8px}
+.global-inbox-row{display:flex;flex-direction:column;width:100%;min-width:0;text-align:left;white-space:normal;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text)}
+.global-inbox-row .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px;min-width:0}
+.global-inbox-row .goal{margin-top:8px;overflow-wrap:anywhere}
+.global-inbox-row.selected{border-color:var(--accent)}
+.global-inbox-detail{margin-top:22px;padding:16px;min-width:0;border:1px solid var(--line);border-radius:12px}
+.global-inbox-detail h2,.global-inbox-detail .notice-body,.global-inbox-sources p{overflow-wrap:anywhere}
+.global-inbox-detail .notice-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.global-inbox-detail textarea{width:100%;margin:12px 0;min-height:90px}
+.global-inbox-worker{display:inline-block;margin:8px 0}
+.global-inbox .help-host:has(button:disabled){display:inline-flex;align-items:stretch;min-width:0}
+.global-inbox .help-host:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@media(max-width:600px){.global-inbox-detail{padding:10px}.global-inbox .resource-tools{align-items:stretch}.global-inbox .filters{width:100%}.global-inbox .filters button{flex:1 1 auto}.global-inbox-row{padding:10px}}

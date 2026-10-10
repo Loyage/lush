@@ -1,7 +1,7 @@
-/** Project-scoped outbound policy editor; credentials live only in current inputs. */
+/** Device outbound policy editor; credentials live only in current inputs. */
 import { block, button, el } from './dom.js';
-import { settingsClient, settingsClientFor } from './settings-api.js';
-import { scopeSummary, scopeImpact, scopeLabel, clearOverrideButton } from './settings-scope.js';
+import { settingsClient } from './settings-api.js';
+import { scopeSummary, scopeImpact, scopeLabel } from './settings-scope.js';
 
 const states = new Map();
 const modes = [['inherit', '继承后台启动环境'], ['direct', '明确直连'], ['proxy', '使用 HTTP(S) 代理']];
@@ -28,9 +28,9 @@ function stateFor(scope) {
   return states.get(scope);
 }
 
-/** Read only on explicit load. Non-secret drafts survive profile repaint, isolated by route. */
+/** Read only on explicit load. Non-secret device drafts survive repaint across project routes. */
 export function renderNetworkSettings({ ownsPage = () => true, scope } = {}) {
-  const client = scope ? settingsClient(scope) : settingsClientFor(null), state = stateFor(client.key), section = block('出站网络');
+  const client = settingsClient(scope), state = stateFor(client.key), section = block('出站网络');
   section.classList.add('agent-network-block');
   const active = () => ownsPage() && client.isCurrent();
   let secretInputs = [];
@@ -55,10 +55,10 @@ export function renderNetworkSettings({ ownsPage = () => true, scope } = {}) {
         state.busy = false; paint();
       } catch (error) {
         if (active() && generation === state.generation) {
-          state.busy = false; paint(unsupported(error) ? '当前 Host 或项目后台不支持出站网络设置，请更新并分别重启两者；其他设置仍可使用。' : '无法安全读取网络设置，请重试；未改变已有配置。', true);
+          state.busy = false; paint(unsupported(error) ? '当前 Host 不支持设备出站网络设置，请更新界面服务；其他设置仍可使用。' : '无法安全读取网络设置，请重试；未改变已有配置。', true);
         }
       } finally { if (generation === state.generation) state.busy = false; }
-    }, 'ghost', { help: '只读取本项目代理的安全配置；重新读取会丢弃网络表单草稿，不读取代理认证，也不联网测试或调用 Agent。' });
+    }, 'ghost', { help: '只读取设备代理的安全配置；重新读取会丢弃网络表单草稿，不读取代理认证，也不联网测试或调用 Agent。' });
     load.type = 'button'; load.disabled = state.busy;
     const loadHost = el('span', undefined, 'help-host'); loadHost.setAttribute('data-help', load.getAttribute('data-help'));
     loadHost.append(load); section.append(loadHost);
@@ -67,10 +67,6 @@ export function renderNetworkSettings({ ownsPage = () => true, scope } = {}) {
       return;
     }
     section.append(scopeSummary(state.model, client.scope));
-    if (scope === 'project') section.append(clearOverrideButton('network', async () => {
-      const model = projection(await client.read('/api/agent/network')); if (!active()) return;
-      state.model = model; state.draft = { mode: model.mode, proxy_url: model.proxy_url || '', no_proxy: model.no_proxy.join('\n') }; paint('已清除项目网络覆盖，继承设备默认。');
-    }, { ownsPage: active, onCleared: () => { state.model = null; state.draft = null; state.busy = false; state.generation++; } }));
     const draft = state.draft;
     const form = el('div', undefined, 'agent-form-grid');
     function field(label, key, type = 'text', value = '') {
@@ -130,7 +126,7 @@ export function renderNetworkSettings({ ownsPage = () => true, scope } = {}) {
         state.busy = false; paint('网络设置已保存；后续请求 / Agent 调用生效。已有账号凭证和运行中的调用未改变。');
       } catch (error) {
         if (active() && generation === state.generation) {
-          state.busy = false; paint(unsupported(error) ? '当前 Host 或项目后台不支持保存出站网络设置，请更新并分别重启两者。' : '无法确认网络设置保存结果，请重新读取核对，检查地址、绕过规则或私有文件权限后重试；认证输入已清空。', true);
+          state.busy = false; paint(unsupported(error) ? '当前 Host 不支持保存设备出站网络设置，请更新界面服务。' : '无法确认网络设置保存结果，请重新读取核对，检查地址、绕过规则或私有文件权限后重试；认证输入已清空。', true);
         }
       } finally { if (generation === state.generation) state.busy = false; }
     }, 'primary'); save.type = 'button'; save.disabled = state.busy;

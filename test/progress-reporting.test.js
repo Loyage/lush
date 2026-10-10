@@ -1,5 +1,6 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
+import path from 'node:path';
 import { Config } from '../src/config.js';
 import { AGENT_ROLES, agentPrompt, builtInPrompt } from '../src/agent/prompts.js';
 import { AgentSettings } from '../src/agent/settings.js';
@@ -12,14 +13,14 @@ import { assertAllowed } from '../src/rpc/registry.js';
 test('progress reporting defaults on, validates booleans, persists false and resets to on', () => {
   const root = temp();
   try {
-    const config = new Config({ project: root, env: env() });
+    const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) });
     expect(config.progressReporting).toBe(true);
     expect(config.runtimeSettings.get().progress_reporting).toEqual({ value: true, default: true, overridden: false, source: 'default' });
     expect(fs.existsSync(config.runtimeSettings.file)).toBe(false);
     config.configureRuntime({ progress_reporting: false });
     expect(config.progressReporting).toBe(false);
-    expect(config.runtimeSettings.get().progress_reporting).toEqual({ value: false, default: true, overridden: true, source: 'project' });
-    expect(new Config({ project: root, env: env() }).progressReporting).toBe(false);
+    expect(config.runtimeSettings.get().progress_reporting).toEqual({ value: false, default: true, overridden: true, source: 'device' });
+    expect(new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) }).progressReporting).toBe(false);
     const before = fs.readFileSync(config.runtimeSettings.file, 'utf8');
     for (const value of [0, 1, 'false', [], {}]) {
       expect(() => config.configureRuntime({ progress_reporting: value })).toThrow('boolean');
@@ -36,7 +37,7 @@ test('progress reporting defaults on, validates booleans, persists false and res
 test('disabled prompts and previews omit all built-in progress instructions in every role/mode', () => {
   const root = temp();
   try {
-    const config = new Config({ project: root, env: env() });
+    const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) });
     expect(agentPrompt(config, 'agent').text).toContain('lush progress plan');
     config.configureRuntime({ progress_reporting: false });
     const settings = new AgentSettings(config);

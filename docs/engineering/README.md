@@ -32,6 +32,7 @@
 ## 接口与开发边界
 
 - [模块设计理念](../design/README.md)：修改前先理解长期目标与取舍。
+- [用户工作台与设备唯一配置](user-workspace.md)：独立全局页面、设备策略、跨项目收件箱及本次分区接口。
 - [界面与传输](interface.md)
 - [执行记录阅读器](transcript-reader.md)：摘要、调用配对、完整翻找与无工具解释 Agent。
 - [快捷解释](quick-explanation.md)：项目选区直连模型、私有配置与来源/Prompt 快照；[使用说明](../quick-explanation.md)。

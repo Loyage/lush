@@ -20,8 +20,12 @@ function fixture() {
   const root = temp(), project = path.join(root, 'project-one'), home = path.join(project, '.lush');
   fs.mkdirSync(home, { recursive: true, mode: 0o700 });
   const config = { project, home, deviceHome: path.join(root, 'device', 'shared'), provider: 'pi', env: { HOME: root } };
-  const manager = new ConnectionManager(config);
-  const f = { root, config, manager, managers: [manager] }; fixtures.push(f); return f;
+  // Create old files through an explicitly isolated legacy reader, never a production project override.
+  const options = {}, manager = new ConnectionManager({ ...config, deviceHome: null }, options);
+  const runtime = new ConnectionManager(config, options);
+  const legacyScope = manager.forScope.bind(manager);
+  manager.forScope = scope => scope === 'device' ? runtime : legacyScope(scope);
+  const f = { root, config, manager, runtime, managers: [manager, runtime] }; fixtures.push(f); return f;
 }
 function write(home, relative, value) {
   const file = path.join(home, relative); fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
@@ -97,7 +101,7 @@ test('successful migration preserves IDs/references and private backups, removes
   expect(agent.default.skills).toEqual([path.join(f.root, 'skills', 'demo')]);
   expect(read(f.config.deviceHome, 'quick-explanation.json').connection_id).toBe(row.id);
   expect(read(f.config.deviceHome, path.join('credentials', 'agent-connections.json')).connections[0].id).toBe(row.id);
-  expect((await f.manager.prepareRuntime(row.id)).credential.key).toBe('private-api-key');
+  expect((await f.runtime.prepareRuntime(row.id)).credential.key).toBe('private-api-key');
   for (const relative of ['settings.json', 'agent.json', 'network.json', 'quick-explanation.json', path.join('agent', 'agent.env'),
     path.join('agent', 'worker.env'), path.join('credentials', 'agent-connections.json')]) {
     expect(fs.existsSync(path.join(f.config.home, relative))).toBe(false);
@@ -111,7 +115,10 @@ test('successful migration preserves IDs/references and private backups, removes
   expect(fs.readFileSync(path.join(f.config.project, '.lush-agent', 'common.md'), 'utf8')).toBe('keep project convention');
   const pointer = read(f.config.home, path.join('device-migration', 'current.json'));
   const journal = read(f.config.home, path.join('device-migration', pointer.id, 'journal.json'));
-  expect(journal.status).toBe('complete'); expect(journal.entries.every(entry => entry.phase === 'retired')).toBe(true); noSecrets(journal);
+  expect(journal.status).toBe('complete');
+  expect(journal.entries.every(entry => entry.phase === (entry.key.startsWith('prompt-') ? 'retained' : 'retired'))).toBe(true); noSecrets(journal);
+  expect(fs.readFileSync(path.join(f.config.deviceHome, 'agent', 'common.md'), 'utf8')).toBe('keep project facts');
+  expect(fs.readFileSync(path.join(result.backup, 'agent', 'common.md'), 'utf8')).toBe('keep project facts');
   expect(fs.existsSync(path.join(f.config.home, 'credentials', 'device-migration-active.json'))).toBe(false);
 });
 
@@ -129,12 +136,12 @@ test('only the selected project is migrated; other legacy project config and cre
   const f = fixture(); populate(f);
   const otherProject = path.join(f.root, 'project-two'), otherHome = path.join(otherProject, '.lush');
   write(otherHome, 'settings.json', { version: 1, concurrency: 9 });
-  const other = new ConnectionManager({ ...f.config, project: otherProject, home: otherHome }); f.managers.push(other);
+  const other = new ConnectionManager({ ...f.config, project: otherProject, home: otherHome, deviceHome: null }); f.managers.push(other);
   const otherRow = other.save(sourceConnection(), { api_key: 'other-private-key' });
   const before = fs.readFileSync(other.file.file); apply(f);
   expect(fs.readFileSync(other.file.file)).toEqual(before);
   expect(read(otherHome, 'settings.json').concurrency).toBe(9);
-  expect(other.config().connections.find(row => row.id === otherRow.id).storage_scope).toBe('project');
+  expect(other.storageScope(otherRow.id)).toBe('project');
 });
 
 test('conflicting shared ordinary settings reject the whole migration without creating backups or overwriting values', () => {
@@ -421,11 +428,29 @@ test('a published-but-unretired OAuth handoff blocks source refresh until explic
   expect(apply(f, preview).migrated).toBe(true);
   expect(fs.existsSync(f.manager.file.file)).toBe(false);
   expect(fs.existsSync(path.join(f.config.home, 'credentials', 'device-migration-active.json'))).toBe(false);
-  expect(f.manager.storageScope(row.id)).toBe('device');
-  expect((await f.manager.prepareRuntime(row.id)).credential.access).toBe(access);
+  expect(f.runtime.storageScope(row.id)).toBe('device');
+  expect((await f.runtime.prepareRuntime(row.id)).credential.access).toBe(access);
   expect(refreshes).toBe(1);
   expect(new ConnectionFile(f.config.deviceHome).read().connections[0].credential.refresh).toBe('rotated-shared-refresh');
   expect(f.manager.file.read().connections).toEqual([]);
+});
+
+test('Markdown retention during a mixed OAuth handoff never releases the source guard or changes credential retirement', async () => {
+  const f = fixture(), row = populate(f, { oauth: true });
+  const markdown = write(f.config.home, 'agent/common.md', 'private-api-key personal Markdown');
+  const injection = failOnce('unlinkSync', source => source === f.manager.file.file);
+  try { expect(() => apply(f)).toThrow('未完成'); expect(injection.fired()).toBe(true); }
+  finally { injection.restore(); }
+  expect(fs.readFileSync(markdown, 'utf8')).toBe('private-api-key personal Markdown');
+  expect(fs.readFileSync(path.join(f.config.deviceHome, 'agent/common.md'), 'utf8')).toBe('private-api-key personal Markdown');
+  expect(() => f.manager.config()).toThrow('Connection operation unavailable');
+  expect((await f.manager.prepareRuntime(row.id).catch(error => error)).connectionCode).toBe('auth_locked');
+  const preview = previewDeviceMigration(f.config); expect(preview.can_migrate).toBe(true); noSecrets(preview);
+  const result = apply(f, preview); noSecrets(result);
+  expect(fs.existsSync(f.manager.file.file)).toBe(false);
+  expect(fs.existsSync(path.join(f.config.home, 'credentials/device-migration-active.json'))).toBe(false);
+  expect(fs.readFileSync(markdown, 'utf8')).toBe('private-api-key personal Markdown');
+  expect((await f.runtime.prepareRuntime(row.id)).credential.access).toBe('private-access');
 });
 
 test('an interrupted migration does not accept modified originals, missing backups, newly added source files or changed shared targets', () => {

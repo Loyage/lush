@@ -5,6 +5,8 @@ import { openTranscriptView, closeTranscriptView } from '../../src/ui/web/assets
 import { appendTranscriptSteps } from '../../src/ui/web/assets/render-transcript.js';
 import { resetTranscriptReaders } from '../../src/ui/web/assets/transcript-reader.js';
 import { ui, transcriptCache } from '../../src/ui/web/assets/state.js';
+import { refreshDevicePreferences } from '../../src/ui/web/assets/prefs.js';
+import { makeWorld } from './dom-world.js';
 
 const response = data => new Response(JSON.stringify(data));
 const text = (seq, body) => ({ seq, kind: 'text', title: '回答', file: 'a', body, excerpt: body });
@@ -20,14 +22,17 @@ test('fullscreen sidebar and rich match bodies correspond, retain pairing and ra
   const id = 1101, calls = [];
   const call = { seq: 2, kind: 'tool', title: 'bash', tool_name: 'bash', file: 'old', call_id: 'x', body: '{"command":"echo needle"}' };
   const result = { seq: 3, kind: 'result', title: 'bash', file: 'old', call_id: 'x', body: 'needle output' };
+  const world = makeWorld();
   const dom = installDom({ fetch: async url => {
     const path = String(url); calls.push(path);
+    if (path === '/api/host/preferences') return world.fetchImpl(url);
     if (path.includes('transcript-search')) return response({ steps: [{ ...call, excerpt: 'needle' }, text(6, 'needle second')], files: ['old'], has_more: false });
     if (path.includes('seq=2')) return response({ step: call, related: [result], context: [text(4, 'neighbour hidden')] });
     return response({ step: text(6, path.includes('offset=24000') ? 'last raw segment' : 'needle second'), related: [], next_offset: 24000, has_more: !path.includes('offset=24000') });
   } });
   ui.selected = id; transcriptCache.set(id, cached());
   try {
+    await refreshDevicePreferences(); calls.length = 0;
     await openTranscriptView(id);
     const panel = dom.document.body.querySelector('.transcript-dialog'), sidebar = panel.querySelector('.transcript-sidebar');
     const holder = ui.transcriptView.holder;

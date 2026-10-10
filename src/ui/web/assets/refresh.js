@@ -1,7 +1,6 @@
 import { $ } from './dom.js';
 import { setProjectIdentity } from './project-identity.js';
 import { renderSleepBanner } from './sleep-ui.js';
-import { renderAutoSelectBanner } from './auto-select-banner.js';
 import { api } from './api.js';
 import { loadDetail } from './detail.js';
 import { HOT } from './format.js';
@@ -14,7 +13,6 @@ import { slotGauge } from './gauge.js';
 import { paintUsageLast } from './render-agent.js';
 import { renderNotices } from './render-notices.js';
 import { renderNoticeBanner } from './notice-banner.js';
-import { observeNotices } from './notice-notifications.js';
 import { renderOverview } from './render-overview.js';
 import { refreshProgressDurations } from './render-progress.js';
 import { appendTranscriptSteps, fetchTranscriptAfter } from './render-transcript.js';
@@ -150,12 +148,11 @@ async function runRefresh(session, currentResponse) {
     $('connection').textContent = '已连接'; $('connection').classList.remove('offline');
     if (ui.offline) { ui.offline = false; clear(); }
     renderSleepBanner(data.status.sleep);
-    renderAutoSelectBanner(data.status.auto_select);
     refreshTreeTimes();
     const noticeBefore = ui.noticeFocus;
     if (changed) {
       $('agents').replaceChildren(slotGauge(data));
-      renderTree(data); renderNotices(data); renderNoticeBanner(data); observeNotices(data); syncComposer();
+      renderTree(data); renderNotices(data); renderNoticeBanner(data); syncComposer();
     }
     // Enabled system reminders continue in hidden tabs, but heavy view reads stay paused.
     if (hidden()) return;
@@ -190,7 +187,6 @@ async function runRefresh(session, currentResponse) {
     session.overviewBackoff.failed();
     $('connection').textContent = '离线 · 自动重连'; $('connection').classList.add('offline');
     ui.offline = true;
-    renderAutoSelectBanner(ui.lastSnapshot?.status?.auto_select, { offline: true });
     show(error.message, 'error');
   }
 }

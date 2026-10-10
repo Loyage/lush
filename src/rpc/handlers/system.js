@@ -1,5 +1,7 @@
 import { check } from '../../core/types.js';
 
+const deviceUser = actor => check(actor === null, 'device settings requires user approval');
+
 /** system.* */
 export const handlers = {
   'sleep.start'(p, params) { return p.startSleep(params.options, params.confirmed); },
@@ -8,7 +10,7 @@ export const handlers = {
   'sleep.status'(p) { return p.sleepStatus(); },
   'sleep.choices'(p, params) { return p.sleepChoices(params.before, params.limit); },
   'system.usage'(p, params) { return p.usageStatistics(params); },
-  'system.status'(p, params, actor) { return { ...p.status(), ...this.identity, pid: process.pid }; },
+  'system.status'(p, params, actor) { return { ...p.status(actor === null), ...this.identity, pid: process.pid }; },
   // Polling summary has its own indexed/persistent-cursor path and never opens the full Agent profile.
   'system.summary'(p, params, actor) {
     const summary = { ...p.summary(), ...this.identity, pid: process.pid };
@@ -16,7 +18,9 @@ export const handlers = {
     // Agent summaries still cannot read Hook configuration or receipts.
     if (actor === null) {
       const model = p.daemonHooks(), mount = model.mounts.find(item => item.id === 'auto-select');
-      summary.auto_select = { enabled: mount.enabled, revision: model.revision, editable: mount.editable };
+      summary.auto_select = { enabled: mount.enabled, revision: model.revision, editable: mount.editable,
+        scope: 'device', policy_revision: model.policy_revision ?? model.revision,
+        available: !model.error, error: model.error ?? null };
     }
     return summary;
   },
@@ -44,14 +48,14 @@ export const handlers = {
   'settings.clear_override'(p, params) { return p.clearSettingsOverride(params.kind, params.target); },
   'settings.migration.preview'(p) { return p.settingsMigrationPreview(); },
   'settings.migration.apply'(p, params) { return p.settingsMigrationApply(params); },
-  'agent.config'(p, params, actor) { return p.agentConfig(params.scope); },
-  'agent.models'(p, params, actor) { return p.agentModels(params.agent, params.scope); },
-  'agent.resources'(p, params, actor) { return p.agentResources(params.scope); },
+  'agent.config'(p, params, actor) { deviceUser(actor); return p.agentConfig(params.scope); },
+  'agent.models'(p, params, actor) { deviceUser(actor); return p.agentModels(params.agent, params.scope); },
+  'agent.resources'(p, params, actor) { deviceUser(actor); return p.agentResources(params.scope); },
   'agent.status'(p) { return p.agentStatus(); },
   'agent.usage.config'(p) { return p.agentUsageConfig(); },
   'agent.usage.configure'(p, params) { return p.configureAgentUsage(params.config); },
   'agent.usage.history'(p, params) { return p.agentUsageHistory(params); },
-  'agent.selection.resources'(p, params) { return p.agentSelectionResources(params.scope); },
+  'agent.selection.resources'(p, params, actor) { deviceUser(actor); return p.agentSelectionResources(params.scope); },
   'agent.connections.list'(p, params) { return p.agentConnectionsList(params.scope); },
   'agent.connections.save'(p, params) { return p.saveAgentConnection(params.connection, params.credential, params.scope); },
   'agent.connections.remove'(p, params) { return p.removeAgentConnection(params.id, params.scope); },

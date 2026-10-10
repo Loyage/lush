@@ -9,7 +9,7 @@ import { show } from './messages.js';
 import { detail } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
-import { readPref, setPref, writePref } from './prefs.js';
+import { devicePreferencesStatus, onDevicePreferences, readPref, saveDevicePreference, writePref } from './prefs.js';
 import { taskForest } from './task-graph-layout.js';
 import { resourceSummary } from './task-graph-usage.js';
 import { mergeRelations } from './task-graph-merge.js';
@@ -24,6 +24,17 @@ import { workerHooks } from './render-hooks.js';
 import { guardedAction, iterationControls } from './render-iteration.js';
 import { appendInputBlocker, inputQueueText, inputWaitReason, appendInputAcknowledgement } from './worker-input.js';
 import { workerLabel, rememberWorkers } from './worker-label.js';
+
+function syncGraphDevicePreference() {
+  if (!globalThis.document) return;
+  const input = $('detail')?.querySelector('[data-graph-focus="detail-mode"]'); if (!input) return;
+  const device = devicePreferencesStatus();
+  input.disabled = !device.ready || device.saving || Boolean(device.error);
+  (input.parentElement || input.parentNode)?.setAttribute('data-help', device.saving ? '正在保存设备偏好。'
+    : !device.ready || device.error ? `设备偏好当前不可用，不能保存图模式。${device.error || '正在读取权威配置。'}`
+      : '勾选后展开 Worker 的目标、结果、进度、分支诊断与操作；取消勾选回到默认的极简双行展示。仅改变显示，所有项目共享设备偏好。');
+}
+onDevicePreferences(syncGraphDevicePreference);
 
 const ACTIVE = new Set(['running', 'queued', 'waiting', 'awaiting', 'awaiting_acceptance']);
 const ENDED = new Set(['completed', 'failed', 'cancelled']);
@@ -486,18 +497,26 @@ export function renderTaskGraph(graph) {
   checkbox.type = 'checkbox';
   checkbox.checked = !minimal;
   checkbox.dataset.graphFocus = 'detail-mode';
-  checkbox.onchange = () => {
+  checkbox.onchange = async () => {
     if (hasPendingInput()) {
       checkbox.checked = !minimal;
       show('请先提交或清空正在编辑的待决答复，再切换显示模式。');
       return;
     }
-    setPref('taskGraphMinimal', !checkbox.checked);
-    renderTaskGraph(full);
-    host.querySelector('[data-graph-focus="detail-mode"]')?.focus({ preventScroll: true });
+    const identity = ui.view; checkbox.disabled = true;
+    try {
+      await saveDevicePreference('taskGraphMinimal', !checkbox.checked);
+      if (ui.view !== identity || hasPendingInput()) return;
+      renderTaskGraph(full);
+      host.querySelector('[data-graph-focus="detail-mode"]')?.focus({ preventScroll: true });
+    } catch (error) {
+      if (ui.view === identity) { checkbox.checked = !readPref('taskGraphMinimal'); show(`显示偏好未保存：${error.message}`, 'error'); }
+    } finally { syncGraphDevicePreference(); }
   };
   mode.append(checkbox, el('span', '详情模式'));
-  mode.setAttribute('data-help', '勾选后展开 Worker 的目标、结果、进度、分支诊断与操作；取消勾选回到默认的极简双行展示。仅改变显示，按项目记住选择。');
+  mode.classList.add('help-host'); mode.tabIndex = 0;
+  mode.setAttribute('data-help', '勾选后展开 Worker 的目标、结果、进度、分支诊断与操作；取消勾选回到默认的极简双行展示。仅改变显示，所有项目共享设备偏好。');
+  checkbox.disabled = !devicePreferencesStatus().ready || devicePreferencesStatus().saving || Boolean(devicePreferencesStatus().error);
   hero.append(summary, mode, button('刷新', () => loadTaskGraph().catch(graphFailure), 'ghost'),
     el('p', undefined, 'hint task-graph-load-status'));
   box.append(hero);
@@ -529,7 +548,7 @@ export function renderTaskGraph(graph) {
   }
   box.dataset.renderKey = renderKey;
   host.replaceChildren(box);
-  paintGraphStatus();
+  paintGraphStatus(); syncGraphDevicePreference();
   restoreGraph(host, box, before);
   if (focusKey) (host.querySelector(`[data-graph-focus="${focusKey}"]`)
     || (focusTask && host.querySelector(`[data-graph-focus="title-${focusTask}"]`)))?.focus({ preventScroll: true });

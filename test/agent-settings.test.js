@@ -19,12 +19,13 @@ function temp() { return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), '
 
 test('retired showcase profiles are ignored on read, preserved on disk and rejected on write', async () => {
   const root = temp();
-  const config = new Config({ project: root, env: env() }); config.prepare();
+  const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) }); config.prepare();
   try {
     const settings = new AgentSettings(config);
     const stored = { version: 1, default: { agent: 'pi', model: 'active-model' },
       roles: { showcase: { agent: 'obsolete-backend', prompt: 'legacy override' }, worker: { agent: 'codex', model: 'worker-model' } } };
     const body = JSON.stringify(stored);
+    fs.mkdirSync(config.deviceHome, { recursive: true, mode: 0o700 });
     fs.writeFileSync(settings.file, body, { mode: 0o600 });
     const read = settings.get();
     expect(read.resolved.worker.model).toBe('worker-model');
@@ -46,9 +47,9 @@ test('retired showcase profiles are ignored on read, preserved on disk and rejec
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('project Agent config is atomic, role-aware, and re-read dynamically', () => {
+test('device Agent config is atomic, role-aware, and re-read dynamically', () => {
   const root = temp();
-  const config = new Config({ project: root, env: env({ LUSH_PROVIDER: 'pi', LUSH_PI_MODEL: 'openai-codex/gpt-5.4', LUSH_PI_THINKING: 'medium' }) });
+  const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device'), LUSH_PROVIDER: 'pi', LUSH_PI_MODEL: 'openai-codex/gpt-5.4', LUSH_PI_THINKING: 'medium' }) });
   config.prepare();
   try {
     const settings = new AgentSettings(config);
@@ -61,7 +62,7 @@ test('project Agent config is atomic, role-aware, and re-read dynamically', () =
     });
     expect(saved.resolved.worker.agent).toBe('codex');
     expect(saved.resolved.planner).toMatchObject({ agent: 'pi', model: 'deepseek/deepseek-flash', thinking: 'xhigh' });
-    expect(fs.statSync(path.join(root, '.lush', 'agent.json')).mode & 0o077).toBe(0);
+    expect(fs.statSync(path.join(config.deviceHome, 'agent.json')).mode & 0o077).toBe(0);
 
     // Another reader sees the file immediately; no daemon restart or in-memory mutation is required.
     const next = new AgentSettings(config);
@@ -135,13 +136,14 @@ console.log(JSON.stringify({ models: [
   { slug: 'hidden-one', display_name: 'Hidden', visibility: 'hide' }
 ] }));
 `, { mode: 0o755 });
-  const config = new Config({ project: root, env: env({ LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: pi, LUSH_CODEX_COMMAND: codex }) });
+  const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device'), LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: pi, LUSH_CODEX_COMMAND: codex }) });
   config.prepare();
   try {
     const piResult = await discoverAgentModels(config, 'pi');
     expect(piResult.source).toBe('presets');
     expect(piResult.warning).toContain('无法读取');
     expect(piResult.models.map(model => model.id)).not.toContain('deepseek/flash-now');
+    fs.mkdirSync(config.deviceHome, { recursive: true, mode: 0o700 });
     const codexResult = await discoverAgentModels(config, 'codex');
     expect(codexResult.models).toEqual([{ id: 'gpt-current', label: 'GPT Current', description: 'Current model',
       default_thinking: 'medium', thinking: ['low', 'high'] }]);
@@ -150,7 +152,7 @@ console.log(JSON.stringify({ models: [
 
 test('Pi resource discovery lists installed extensions and skills without loading them', async () => {
   const root = temp(), pkg = path.join(root, 'installed-package'), fakePi = path.join(root, 'fake-pi');
-  const config = new Config({ project: root, env: env({ LUSH_PI_COMMAND: fakePi }) });
+  const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device'), LUSH_PI_COMMAND: fakePi }) });
   config.prepare();
   try {
     // Initialize the private Pi directory explicitly; CI's umask must not determine its permissions.
@@ -178,7 +180,7 @@ test('Pi resource discovery lists installed extensions and skills without loadin
 test('Pi provider disables discovery and explicitly loads only the selected extensions and skills', async () => {
   const root = temp(), fake = path.join(root, 'fake-pi');
   fs.writeFileSync(fake, `#!/usr/bin/env bun\nimport fs from 'node:fs';\nfs.writeFileSync(process.env.LUSH_HOME + '/pi-args.json', JSON.stringify(process.argv.slice(2)));\nfs.writeFileSync(process.env.LUSH_HOME + '/pi-env.json', JSON.stringify({ task: process.env.LUSH_TASK_ID }));\nconsole.log('pi finished');\n`, { mode: 0o755 });
-  const config = new Config({ project: root, env: env({ LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake }) });
+  const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device'), LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake }) });
   config.prepare();
   try {
     const provider = new PiProvider(config);
@@ -206,7 +208,7 @@ fs.appendFileSync(path.join(process.env.LUSH_HOME, 'codex-seen.jsonl'), JSON.str
 console.log(JSON.stringify({ type: 'thread.started', thread_id: 'thread-test-1' }));
 console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 100, cached_input_tokens: 40, output_tokens: 20 } }));
 `, { mode: 0o755 });
-  const config = new Config({ project: root, env: env({ LUSH_PROVIDER: 'codex', LUSH_CODEX_COMMAND: fake }) });
+  const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device'), LUSH_PROVIDER: 'codex', LUSH_CODEX_COMMAND: fake }) });
   config.prepare();
   try {
     const provider = new CodexProvider(config);

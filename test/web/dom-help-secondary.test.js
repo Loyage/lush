@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, allByTag, deepText } from '../dom-stub.js';
+import { installDom, allByTag, deepText } from './project-dom.js';
 import { until } from '../helpers.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 
@@ -39,7 +39,7 @@ test('系统提醒开关：初始文本为空补 aria-label 与 data-help，且�
   const { notificationControl } = await import('../../src/ui/web/assets/notice-notifications.js');
   const root = notificationControl();
   const toggle = root.querySelector('button');
-  expect(toggle.getAttribute('data-help')).toContain('系统通知');
+  expect(toggle.getAttribute('data-help')).toContain('设备唯一');
   expect(toggle.getAttribute('aria-label')).toBe('开启系统提醒');
   expect(toggle.textContent).toBe('开启系统提醒');
   expect(toggle.classList.contains('agent-call')).toBe(false);
@@ -76,7 +76,8 @@ test('自解释导航不带帮助，缓冲输入仍明确标识后果与 Agent �
 
 test('设置页的 Agent / 系统按钮按标准补 data-help', async () => {
   const { openSettings } = await import('../../src/ui/web/assets/render-settings.js');
-  await dom.node('agent-status-open').onclick();
+  const { openAgentStatus } = await import('../../src/ui/web/assets/render-agent-status.js');
+  await openAgentStatus();
   const panel = dom.node('detail');
   await panel.querySelector('button[data-agent-tab="settings"]').onclick();
   const tabOf = id => [...panel.querySelectorAll('button')].find(node => node.dataset.settingsTab === id);

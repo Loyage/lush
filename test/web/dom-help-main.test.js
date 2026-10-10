@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, allByTag, answerDialog } from '../dom-stub.js';
+import { installDom, allByTag, answerDialog } from './project-dom.js';
 import { until } from '../helpers.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 
@@ -8,6 +8,7 @@ import { makeWorld, NOW, iso } from './dom-world.js';
 // 只断言「按钮该带的属性与类」，不重复验证浮层本身的交互（那在 dom-help.test.js）。
 // 每个 DOM 测试文件自给自足：自己建 world、装 stub，再显式装配一次当前 DOM。
 const world = makeWorld();
+world.state.devicePreferences.values.taskGraphMinimal = false;
 const dom = installDom({ fetch: world.fetchImpl });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const { agentHelp, AGENT_NOTE, showHelp, hideHelp } = await import('../../src/ui/web/assets/help.js');

@@ -30,14 +30,14 @@ CLI 使用 `lush order '目标'`（源码快捷命令 `bun run order`），RPC /
 ### 三层：Lush UI → Lush Host → lushd
 
 - **Lush UI**：浏览器页面，只展示状态和发送带项目身份的请求；没有项目数据库或 Agent 调度器。
-- **Lush Host**（`bin/lush-host` / `bun run lush host start`）：本机入口，提供 UI、认证、项目登记、连接与请求转发。一个 Host 可连接多个项目；列表只探测已登记项目的 lushd，打开项目时按需连接或启动。它的 `launcher.json` 仅是界面元数据，不是项目事实来源。
+- **Lush Host**（`bin/lush-host` / `bun run lush host start`）：本机入口，提供 UI、认证、项目登记、设备配置、跨项目 Notice 派生读面与来源转发。一个 Host 可连接多个项目；列表只探测已登记项目的 lushd，打开项目时按需连接或启动。它的 `launcher.json` 仅是界面元数据，不是项目事实来源。
 - **lushd**（`bin/lushd`）：每个 canonical 项目目录一个 daemon，独占该项目的 SQLite、RPC、Agent 与 Git 工作区；事实写入 `<project>/.lush/`。CLI `lush` 也是项目客户端，可直接连接 lushd。
 
 Host 不进行跨项目调度。共享同一份 Lush 代码的不同项目互不干扰；项目 API 带 `/p/<project-id>/` 身份。项目在独立浏览器标签中打开；关闭页面不停止开发。Lush 不管理 SSH、远端部署或跨 Host 环境代理。设计与施工边界见[工作台与开发环境](docs/design/workbench.md)及[接入契约](docs/engineering/workbench.md)。
 
 ### 一次配置，同设备项目复用
 
-设置默认管理运行机器、同一系统用户的设备共享配置；项目可独立覆盖，Worker 的显式运行覆盖优先。项目数据库、历史、Git 和调度仍隔离。已有项目不自动迁移：先预检、确认、私有备份，再导入共享层并退役源覆盖；其他旧项目保持原配置。无项目工作台也可管理共享设置。见[设备共享设置与迁移](docs/device-settings.md)。
+偏好、Agent、模型来源、快捷解释等技术配置唯一归运行机器、同一系统用户，不支持项目覆盖；Worker 的完整显式运行参数与 child 继承保持。项目数据库、历史、Git 和执行仍隔离，Host 不调度跨项目工作。旧项目文件不再活跃，也不自动迁移：必须预检、确认并私有备份；JSON/env/凭证发布后退役，私有 Markdown 原件保留但不再参与调用。项目 AGENTS.md 与可提交 `.lush-agent/` 不传播到设备。见[设备设置与显式迁移](docs/device-settings.md)；项目工作页与全局设置／收件箱的安排见[用户工作台设计](docs/design/user-workspace.md)。
 
 ### 人类把关：Agent 不是沙箱
 

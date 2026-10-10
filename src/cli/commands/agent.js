@@ -3,6 +3,7 @@ import path from 'node:path';
 import { check } from '../../core/types.js';
 import { AGENT_ROLES, agentPrompt } from '../../agent/prompts.js';
 import { agentEnvironment } from '../../agent/environment.js';
+import { initPrivatePrompts } from '../../agent/private-prompts.js';
 import { AgentSettings } from '../../agent/settings.js';
 import { exact, option } from '../args.js';
 import { runPackages } from './agent-packages.js';
@@ -21,20 +22,21 @@ function init(config, args) {
   if (local) args.splice(localIndex, 1);
   check(args.length <= 1, 'agent init accepts at most one role');
   const selectedRole = args.length ? role(args[0]) : null;
-  const dir = local ? path.join(config.home, 'agent') : path.join(config.project, '.lush-agent');
-  fs.mkdirSync(dir, { recursive: true, mode: local ? 0o700 : 0o755 });
+  if (local) return initPrivatePrompts(config, selectedRole);
+  const dir = path.join(config.project, '.lush-agent');
+  fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
   const files = [path.join(dir, 'common.md')];
   if (selectedRole) files.push(path.join(dir, `${selectedRole}.md`));
   const created = [], existing = [];
   for (const file of files) {
     if (fs.existsSync(file)) existing.push(file);
-    else { fs.writeFileSync(file, '', { mode: local ? 0o600 : 0o644, flag: 'wx' }); created.push(file); }
+    else { fs.writeFileSync(file, '', { mode: 0o644, flag: 'wx' }); created.push(file); }
   }
   const readme = path.join(dir, 'README.md');
   if (!fs.existsSync(readme)) fs.writeFileSync(readme,
     '# Lush agent customization\n\n`common.md` is appended to every role. `<role>.md` is appended only to that role.\nUse `lush agent prompt ROLE` to inspect the final composition.\n',
-    { mode: local ? 0o600 : 0o644, flag: 'wx' });
-  return { scope: local ? 'local' : 'project', directory: dir, created, existing, role: selectedRole };
+    { mode: 0o644, flag: 'wx' });
+  return { scope: 'project', directory: dir, created, existing, role: selectedRole };
 }
 
 function safeNetworkView(value) {
@@ -83,7 +85,9 @@ export async function run(command, args, { client, json }) {
   const scope = takeConfigurationScope(args);
   client = scopedSettingsClient(client, scope);
   const verb = args.shift() || 'show';
-  check(scope === null || !['prompt', 'env', 'init'].includes(verb), '--scope is available for stored settings, sources and packages; project prompt/env inspection and init stay project-bound');
+  check(scope === null || !['prompt', 'env', 'init'].includes(verb), '--scope is available for stored settings, sources and packages; prompt/env inspection and init select their own fixed roots');
+  // These helpers read files directly rather than going through the user-only RPC gate.
+  if (['prompt', 'env'].includes(verb)) check(!client.token, 'device Agent configuration requires user approval');
   if (verb === 'prompt') {
     exact(args, 1);
     const selectedRole = role(args[0]);

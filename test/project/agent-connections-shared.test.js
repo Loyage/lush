@@ -2,6 +2,7 @@ import { test, expect } from 'bun:test';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fixture, gate } from '../helpers.js';
+import { ConnectionFile } from '../../src/agent/connections-file.js';
 import { AgentConnectionsService } from '../../src/core/agent-connections.js';
 
 const connection = { label: 'Shared account', provider: 'deepseek', auth_type: 'api_key', models: [] };
@@ -20,7 +21,7 @@ test('scoped service shares configuration and latest observations across project
     const device = a.service.forScope('device');
     const row = await device.save(connection, { api_key: 'shared-key-secret' });
     expect(a.service.forScope('device')).toBe(device);
-    expect(device.forScope('project')).toBe(a.service);
+    expect(() => device.forScope('project')).toThrow('no longer');
     expect(b.service.list().connections[0]).toMatchObject({ id: row.id, storage_scope: 'device', observation: { status: 'unknown' } });
     await a.service.query(row.id);
     expect(a.service.list().connections[0].observation.resources[0].remaining).toBe(12);
@@ -38,26 +39,21 @@ test('scoped service shares configuration and latest observations across project
   } finally { a.project.running.clear(); await b.close(); await a.close(); }
 });
 
-test('device management of a same-UUID legacy shadow cannot invalidate the local runtime binding or expose wrong consumers', async () => {
+test('device edits apply to the sole runtime source, ignoring same-UUID legacy credentials', async () => {
   const f = setup({ managerOptions: { fetch: async () => balance(12) } });
   try {
     const device = f.service.forScope('device'), shared = await device.save(connection, { api_key: 'shared-key-secret' });
-    const source = device.getManager().file.read().connections[0];
-    f.service.getManager().file.transaction(data => { data.connections.push({ ...source, credential: { type: 'api_key', key: 'local-key-secret' } }); });
-    const prepared = await f.service.prepareRuntime(shared.id), revision = f.service.snapshot(shared.id).state.revision;
+    const file = new ConnectionFile(f.config.home);
+    file.transaction(data => { data.connections.push({ ...device.getManager().file.read().connections[0], credential: { type: 'api_key', key: 'local-key-secret' } }); });
+    const before = fs.readFileSync(file.file), prepared = await f.service.prepareRuntime(shared.id);
+    expect(prepared.credential.key).toBe('shared-key-secret');
     f.project.running.set(123, { agent: { model: 'deepseek/deepseek-chat' }, connectionBinding: { id: shared.id,
       account_key: prepared.account_key, source_key: prepared.source_key } });
     await device.query(shared.id);
-    expect(device.list().connections[0].consumers).toEqual([]);
-    expect(f.service.snapshot(shared.id).state.revision).toBe(revision);
-    expect(f.service.list().connections[0].observation.status).toBe('unknown');
-    expect(f.service.list().connections[0].consumers).toEqual([{ task_id: 123, task_worker_number: null, model: 'deepseek/deepseek-chat' }]);
-    await device.save({ ...writable(shared), label: 'Shared renamed' });
-    expect(f.service.snapshot(shared.id).state.revision).toBe(revision);
-    expect(f.service.list().connections[0].label).toBe('Shared account');
-    await device.remove(shared.id);
-    expect(f.service.snapshot(shared.id).state.revision).toBe(revision);
-    f.project.running.delete(123);
+    expect(device.list().connections[0].consumers).toEqual([{ task_id: 123, task_worker_number: null, model: 'deepseek/deepseek-chat' }]);
+    await device.save({ ...writable(shared), label: 'Shared renamed' }); expect(f.service.list().connections[0].label).toBe('Shared renamed');
+    await device.remove(shared.id); expect(f.service.list().connections).toEqual([]);
+    expect(fs.readFileSync(file.file)).toEqual(before);
   } finally { f.project.running.clear(); await f.close(); }
 });
 
@@ -71,7 +67,7 @@ test('inheriting projects refresh shared sampling on subsequent source reads wit
     expect(b.service.timer).toBeNull();
     const device = a.service.forScope('device');
     await device.configureSampling({ enabled: true, interval_minutes: 10, retention_days: 90 });
-    expect(a.service.timer).not.toBeNull(); expect(device.timer).toBeNull();
+    expect(a.service.timer).not.toBeNull(); expect(device).toBe(a.service);
     expect(b.service.timer).toBeNull();
     b.service.list(); const first = b.service.timer;
     expect(first).not.toBeNull();
@@ -82,15 +78,15 @@ test('inheriting projects refresh shared sampling on subsequent source reads wit
   expect(pending.size).toBe(0);
 });
 
-test('device retention changes do not prune history governed by a project sampling override', async () => {
+test('device retention applies to project-local historical observations', async () => {
   const f = setup(), seen = []; const now = Date.UTC(2026, 9, 7);
   try {
     f.service.getManager().file.transaction(data => { data.sampling.retention_days = 90; });
     const device = f.service.forScope('device'); device.now = () => now;
     f.store.pruneAgentConnections = cutoff => seen.push(cutoff);
     await device.configureSampling({ enabled: false, interval_minutes: 10, retention_days: 1 });
-    expect(seen).toEqual([new Date(now - 90 * 86400000).toISOString()]);
-    expect(f.service.config().sampling.retention_days).toBe(90);
+    expect(seen).toEqual([new Date(now - 1 * 86400000).toISOString()]);
+    expect(f.service.config().sampling.retention_days).toBe(1);
     expect(device.config().sampling.retention_days).toBe(1);
   } finally { await f.close(); }
 });
@@ -104,28 +100,28 @@ test('device sampling save is not failed by a malformed local source override af
     const policy = { enabled: false, interval_minutes: 10, retention_days: 90 };
     expect(await device.configureSampling(policy)).toEqual(policy);
     expect(device.config().sampling).toEqual(policy);
-    expect(f.service.warning).toBe('项目连接配置无法安全读取，共享采样设置已保存。');
+    expect(f.service.warning).toBeNull();
   } finally { await f.close(); }
 });
 
 test('scoped editors do not add duplicate sampling timers, and stopping closes all pending services', async () => {
-  const entered = gate(), release = gate(); let timers = 0;
-  const f = setup({ setTimeout: () => { timers++; return { unref() {} }; }, clearTimeout() {}, managerOptions: {
+  const entered = gate(), release = gate(), timers = new Set();
+  const f = setup({ setTimeout: () => { const timer = { unref() {} }; timers.add(timer); return timer; }, clearTimeout: timer => timers.delete(timer), managerOptions: {
     fetch: async () => { entered.resolve(); await release.promise; return balance(12); }
   } });
   try {
     const device = f.service.forScope('device');
     const row = await device.save(connection, { api_key: 'shared-key-secret' });
     await device.configureSampling({ enabled: true, interval_minutes: 10, retention_days: 90 });
-    const initial = timers;
-    device.start(); expect(timers).toBe(initial);
-    expect(device.started).toBe(false); expect(device.timer).toBeNull();
+    device.start(); const initial = timers.size;
+    device.start(); expect(timers.size).toBe(initial);
+    expect(device.started).toBe(true); expect(device.timer).not.toBeNull();
     const query = device.query(row.id); await entered.promise;
     expect(f.service.isBusy()).toBeTruthy();
     const stopping = f.service.stop(); release.resolve();
     await stopping; await expect(query).rejects.toThrow();
-    expect(device.closed).toBe(true); expect(device.getManager().closed).toBe(true);
+    expect(device.closed).toBe(true); expect(device.getManager().closed).toBe(true); expect(timers.size).toBe(0);
     expect(() => f.service.forScope('device')).toThrow('project is stopping');
-    expect(fs.existsSync(f.service.getManager().file.file)).toBe(false);
+    expect(fs.existsSync(path.join(f.config.home, 'credentials', 'agent-connections.json'))).toBe(false);
   } finally { release.resolve(); await f.close(); }
 });

@@ -1,5 +1,5 @@
 import { check } from '../types.js';
-import { normalizeConfigurationScope } from '../device-config.js';
+import { settingsConfigurationScope } from '../device-config.js';
 
 const runtimeFacts = config => JSON.stringify([config.concurrency, config.controlConcurrency, config.timeout,
   config.maxCalls, config.maxDepth, config.progressReporting, config.inputRoutes]);
@@ -29,13 +29,13 @@ export default {
     if (this.runtimeSettingsMonitor) clearInterval(this.runtimeSettingsMonitor);
     this.runtimeSettingsMonitor = null;
   },
-  runtimeSettings(scope = 'project') {
-    normalizeConfigurationScope(scope);
+  runtimeSettings(scope) {
+    scope = settingsConfigurationScope(this.config, scope);
     this.config.refreshRuntimeSettings?.();
     return this.config.runtimeSettings.get(scope);
   },
-  configureRuntimeSettings(patch, scope = 'project') {
-    normalizeConfigurationScope(scope);
+  configureRuntimeSettings(patch, scope) {
+    scope = settingsConfigurationScope(this.config, scope);
     this.assertWritable('configure runtime settings');
     return this.config.configureRuntime(patch, scope);
   },
@@ -65,6 +65,7 @@ export default {
     });
   },
   clearSettingsOverride(kind, target) {
+    settingsConfigurationScope(this.config, 'project');
     check(!this.stopping, 'project is stopping');
     check(['agent', 'network', 'quick_explain', 'environment'].includes(kind), 'unknown configuration override kind');
     check(kind === 'environment' || target === undefined, 'only environment accepts a target');

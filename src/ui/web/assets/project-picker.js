@@ -95,6 +95,27 @@ function projectItem(row, repaint, { compact = false } = {}) {
       remove.setAttribute('data-help', '只删除这个 Host 保存的项目入口，不停止后台、不删除项目或 Worker 数据');
       remove.onclick = () => void projectControl('remove', row, status, repaint); actions.append(remove);
     }
+    if (!projectRoute()) {
+      const color = el('button', '配色', 'ghost project-color-open'); color.type = 'button';
+      color.setAttribute('aria-label', `${row.name || '项目'}辨识配色`);
+      color.setAttribute('aria-expanded', 'false');
+      let editor = null, openingColor = false, colorEpoch = 0;
+      color.onclick = async () => {
+        const identity = ui.view, owner = globalThis.document, list = item.parentNode;
+        if (openingColor) return;
+        if (editor) { ++colorEpoch; editor.dispose(); editor.root.remove(); editor = null; color.setAttribute('aria-expanded', 'false'); return; }
+        openingColor = true; const epoch = ++colorEpoch;
+        const ownsPage = () => epoch === colorEpoch && owner === globalThis.document && identity === ui.view && item.parentNode === list;
+        try {
+          const { renderProjectColorEditor } = await import('./project-color-editor.js');
+          if (!ownsPage()) return;
+          editor = renderProjectColorEditor(row.id, { ownsPage }); item.append(editor.root);
+          color.setAttribute('aria-expanded', 'true'); await editor.ready;
+        } catch (error) { if (ownsPage()) status.textContent = `配色暂不可用：${error.message}`; }
+        finally { openingColor = false; }
+      };
+      actions.append(color);
+    }
     item.append(actions);
   }
   return item;
@@ -215,13 +236,20 @@ export async function ensureProject() {
     launcher = hostStatus.mode === 'host';
   } catch (error) {
     if (/404|no route|not found/i.test(error.message)) {
-      hostStatus = { mode: 'bound' }; launcher = false; projectUsable = true; return true;
+      hostStatus = { mode: 'bound' }; launcher = false; projectUsable = Boolean(projectRoute()); return true;
     }
     hostStatus = { mode: 'offline', error: error.message }; launcher = true; projectUsable = false; return true;
   }
   const current = projectRoute();
-  if (!launcher) projectUsable = true;
-  else projectUsable = Boolean(current && (hostStatus.projects || []).some(row => row.id === current));
-  const switcher = node('project-switch'); if (switcher) { switcher.hidden = !launcher; switcher.onclick = () => void openProjectManager(); }
+  projectUsable = Boolean(current && (hostStatus.projects || []).some(row => row.id === current));
+  const switcher = node('project-switch');
+  if (switcher) {
+    switcher.hidden = !current;
+    switcher.textContent = '项目入口';
+    switcher.onclick = () => {
+      if (current) globalThis.window?.open?.('/#projects', '_blank', 'noopener');
+      else void openProjectManager();
+    };
+  }
   return true;
 }

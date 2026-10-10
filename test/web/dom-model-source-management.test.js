@@ -17,13 +17,13 @@ const fixture = () => ({ version: 1, sampling: { enabled: false, interval_minute
   source('d', { provider: 'openai-compatible', auth_type: 'api_key', endpoint: 'https://proxy.example/v1', models: ['vendor/model'], default_model: 'vendor/model', observation: { status: 'unsupported', resources: [] } }),
   source('e', { enabled: false, credential: { status: 'unconfigured' }, observation: { status: 'unconfigured', resources: [] } }),
 ] });
-const json = value => ({ ok: true, json: async () => value });
+const json = value => ({ ok: true, json: async () => value?.connections ? { ...value, configuration_scope: { selected: 'device', source: 'device', project_override: false } } : value });
 const failed = () => ({ ok: false, status: 400, json: async () => ({ error: 'RAW-SECRET-ERROR' }) });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { resolve, promise }; };
 let data, intercept, current;
 const requests = [], panels = [];
 const dom = installDom({ fetch: async (url, options) => {
-  url = String(url); const action = url === '/api/action' ? JSON.parse(options.body) : null;
+  url = String(url).replace('/api/host/settings/', '/api/').replace(/[?&]scope=device$/, ''); const action = url === '/api/action' ? JSON.parse(options.body) : null;
   requests.push({ url, action });
   const result = intercept?.(url, action); if (result) return result;
   if (url === '/api/agent/connections') return json(structuredClone(data));
@@ -278,7 +278,7 @@ test('unsupported and disabled saves do not query; fallback login success auto-r
   await button(card, '备用：回调 URL 登录').onclick();
   field(p.node, 'redirect_url').value = 'http://localhost:1455/auth/callback?code=private&state=safe';
   await button(p.node, '完成登录').onclick();
-  expect(actions('query').map(action => action.params.id)).toEqual(['a']); expect(deepText(p.node)).toContain('本项目登录已保存');
+  expect(actions('query').map(action => action.params.id)).toEqual(['a']); expect(deepText(p.node)).toContain('设备登录已保存');
   expect(deepText(p.node)).not.toContain('code=private');
 });
 

@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, findByText, deepText, dialogText, answerDialog } from '../dom-stub.js';
+import { installDom, findByText, deepText, dialogText, answerDialog } from './project-dom.js';
 import { until } from '../helpers.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 import { ui } from '../../src/ui/web/assets/state.js';

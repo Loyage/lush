@@ -5,13 +5,16 @@ import { agentHelp } from './help.js';
 import { renderMarkdown } from './markdown.js';
 import { ui } from './state.js';
 import { linkWorkerNumbers } from './worker-links.js';
+import { noticeIdentitySuffix, sourceWorkerLinks, validProjectId } from './global-inbox-model.js';
+
+const linkNumbers = (root, projectId) => projectId ? sourceWorkerLinks(root, projectId) : linkWorkerNumbers(root);
 
 // Links and the native selection button are siblings, never nested interactive
 // elements. The transparent button preserves whole-card and keyboard selection.
-function optionCard(option, select, className) {
+function optionCard(option, select, className, projectId = null) {
   const wording = el('div');
   wording.append(el('strong', option.label), el('span', option.description));
-  linkWorkerNumbers(wording);
+  linkNumbers(wording, projectId);
   if (!wording.querySelector('.worker-link')) {
     const choice = button('', select, className);
     choice.append(...wording.childNodes);
@@ -30,7 +33,8 @@ function optionCard(option, select, className) {
 }
 
 function storageKey(notice, scope = '') {
-  return `lush.decision:${ui.lastSnapshot?.status?.project || location.pathname}:${notice.id}:${notice.created_at}${scope ? `:${scope}` : ''}`;
+  const source = scope.startsWith('global:') ? 'global' : ui.lastSnapshot?.status?.project || location.pathname;
+  return `lush.decision:${source}:${notice.id}:${notice.created_at}${scope ? `:${scope}` : ''}${noticeIdentitySuffix(notice)}`;
 }
 function loadDraft(notice, questions, scope) {
   const count = questions.length;
@@ -49,20 +53,22 @@ function loadDraft(notice, questions, scope) {
   ui.questionDrafts.set(key, draft);
   return draft;
 }
-function preview(notice, question, option, value) {
+function preview(notice, question, option, value, projectId = null, online = true) {
   const pane = el('div', undefined, 'decision-preview');
   pane.append(el('small', '效果提案 · 非已实现结果', 'hint'), el('h4', value.label));
   if (value.preview) pane.append(renderMarkdown(value.preview));
-  if (value.previewHtml) {
+  if (value.previewHtml && !online) pane.append(el('p', '来源项目离线，静态预览暂不可读取；选项说明仍保留。', 'hint'));
+  if (value.previewHtml && online) {
     const frame = el('iframe');
     frame.setAttribute('sandbox', '');
     frame.setAttribute('referrerpolicy', 'no-referrer');
     frame.setAttribute('title', `${value.label} · 静态效果预览`);
-    frame.setAttribute('src', projectApi(`/api/worker/${notice.task_id}/notice/${notice.id}/preview/${question}/${option}`));
+    const path = `/api/worker/${notice.task_id}/notice/${notice.id}/preview/${question}/${option}`;
+    frame.setAttribute('src', projectId ? `/p/${projectId}${path}` : projectApi(path));
     pane.append(frame);
   }
   if (!value.preview && !value.previewHtml) pane.append(el('p', value.description));
-  return linkWorkerNumbers(pane);
+  return linkNumbers(pane, projectId);
 }
 const complete = (q, answer) => Boolean(answer.custom.trim()) || (answer.selected.length > 0
   && (q.multiSelect || answer.selected.length === 1) && answer.selected.every(i => i >= 0 && i < q.options.length));
@@ -89,7 +95,7 @@ function answeredIndices(question, answer) {
   return found.sort((a, b) => a - b);
 }
 /** Read-only replay of one answered question: same option cards and previews, no write path. */
-function settledQuestion(notice, index, question, answer) {
+function settledQuestion(notice, index, question, answer, projectId = null, online = true) {
   const box = el('div', undefined, 'decision-summary settled-question');
   box.append(el('strong', question.question), el('span', question.multiSelect ? '多选' : '单选', 'hint'));
   const custom = (answer?.custom || '').trim();
@@ -102,10 +108,10 @@ function settledQuestion(notice, index, question, answer) {
   const hasPreview = question.options.some(option => option.preview || option.previewHtml);
   const layout = el('div', undefined, `decision-layout${hasPreview ? ' has-preview' : ''}`);
   const choices = el('div', undefined, 'decision-choices'), pane = el('div', undefined, 'decision-preview-pane');
-  const show = n => { if (hasPreview && question.options[n]) pane.replaceChildren(preview(notice, index, n, question.options[n])); };
+  const show = n => { if (hasPreview && question.options[n]) pane.replaceChildren(preview(notice, index, n, question.options[n], projectId, online)); };
   question.options.forEach((option, n) => {
     const picked = selected.includes(n);
-    const choice = optionCard(option, () => show(n), `decision-option${picked ? ' selected' : ''}`);
+    const choice = optionCard(option, () => show(n), `decision-option${picked ? ' selected' : ''}`, projectId);
     const row = el('div', undefined, 'decision-option-row'); row.append(choice);
     if (picked) row.append(el('span', '已选', 'decision-picked-mark'));
     choices.append(row);
@@ -120,12 +126,16 @@ function settledQuestion(notice, index, question, answer) {
 
 /** Click-through questions; no network mutation until the final review is confirmed. */
 export function questionnairePanel(notice, { settle, dismiss, draftScope = '', allowDismiss = true,
+  sourceProjectId = null, readOnly = false, previewOnline = true, dismissAgent = false,
+  disabledReason = '来源项目离线；选择可暂存，联网核验后才能提交。',
   reviewMessage = '尚未发送给 agent。确认后整份问卷一次提交，原 Worker 将继续。',
   submitLabel = '确认全部选择并继续 Worker',
   submitHelp = agentHelp('把整份问卷一次性提交，原 Worker Agent 会带着你的选择继续。'),
   failureMessage = error => `未提交成功：${error.message}。选择已保留，可重试；若已在别处处理，请刷新。`,
 } = {}) {
   const root = el('div', undefined, 'questionnaire');
+  if (sourceProjectId !== null && !validProjectId(sourceProjectId)) throw new Error('无效的问卷来源项目');
+  if (readOnly && notice.status === 'open') root.append(el('p', disabledReason, 'hint'));
   let form;
   try { form = JSON.parse(notice.body); if (form.version !== 1 || !form.questions?.length) throw new Error('version'); }
   catch { root.append(el('p', '无法读取问卷，请检查 notice 原始内容。', 'error')); return root; }
@@ -145,10 +155,10 @@ export function questionnairePanel(notice, { settle, dismiss, draftScope = '', a
     questions.forEach((question, i) => {
       // Dismissal carries no answer: every question must read as explicitly unselected.
       const answer = answers ? answerForQuestion(answers, question, i) : null;
-      content.append(settledQuestion(notice, i, question, answer));
+      content.append(settledQuestion(notice, i, question, answer, sourceProjectId, previewOnline));
     });
     if (broken) content.append(el('p', '无法解析已提交的答案，原始内容如下：', 'hint'), el('pre', notice.answer || ''));
-    return linkWorkerNumbers(root);
+    return linkNumbers(root, sourceProjectId);
   }
   const draft = loadDraft(notice, questions, draftScope), key = storageKey(notice, draftScope);
   let busy = false, error = '';
@@ -158,7 +168,7 @@ export function questionnairePanel(notice, { settle, dismiss, draftScope = '', a
   };
   const advance = () => { draft.step = Math.min(questions.length, draft.step + 1); save(); paint(); };
   const send = async discard => {
-    if (busy) return;
+    if (busy || readOnly) return;
     if (!discard && !questions.every((q, i) => complete(q, draft.answers[i]))) return;
     if (discard && !await confirmDialog({
       title: '忽略整份问卷？',
@@ -197,31 +207,35 @@ export function questionnairePanel(notice, { settle, dismiss, draftScope = '', a
           if (!o) continue;
           item.append(el('p', o.description, 'hint'));
           if (o.preview || o.previewHtml) {
-            const fold = el('details'); fold.append(el('summary', `查看 ${o.label} 的效果`), preview(notice, i, n, o)); item.append(fold);
+            const fold = el('details'); fold.append(el('summary', `查看 ${o.label} 的效果`), preview(notice, i, n, o, sourceProjectId, previewOnline)); item.append(fold);
           }
         }
         content.append(item);
       });
       const submit = button(busy ? '正在提交…' : submitLabel, () => send(false), undefined,
         { agent: true, help: submitHelp });
-      submit.disabled = !questions.every((q, i) => complete(q, draft.answers[i]));
+      submit.disabled = readOnly || !questions.every((q, i) => complete(q, draft.answers[i]));
       // 未答完时按钮禁用，data-help 放外层 span.help-host 才能悬停看到。
       const submitHost = el('span', undefined, 'help-host');
-      submitHost.setAttribute('data-help', submitHelp);
+      submitHost.setAttribute('data-help', readOnly ? disabledReason : submitHelp);
+      if (submit.disabled) {
+        submitHost.setAttribute('tabindex', '0'); submitHost.setAttribute('role', 'group');
+        submitHost.setAttribute('aria-label', readOnly ? disabledReason : submitHelp);
+      }
       submitHost.append(submit); content.append(submitHost);
     } else {
       const i = draft.step, q = questions[i], a = draft.answers[i];
       content.append(el('h3', q.question), el('p', q.multiSelect ? '可多选 · 点选后按“下一题”' : '单选 · 点击选项即完成本题；悬停、聚焦或点“预览”先看效果', 'hint'));
       const layout = el('div', undefined, 'decision-layout'), choices = el('div', undefined, 'decision-choices'), pane = el('div');
       const hasPreview = q.options.some(o => o.preview || o.previewHtml);
-      const show = n => { if (hasPreview) pane.replaceChildren(preview(notice, i, n, q.options[n])); };
+      const show = n => { if (hasPreview) pane.replaceChildren(preview(notice, i, n, q.options[n], sourceProjectId, previewOnline)); };
       q.options.forEach((o, n) => {
         const row = el('div', undefined, 'decision-option-row');
         const choice = optionCard(o, () => {
           a.custom = '';
           if (q.multiSelect) { a.selected = a.selected.includes(n) ? a.selected.filter(v => v !== n) : [...a.selected, n]; save(); paint(); }
           else { a.selected = [n]; advance(); }
-        }, `decision-option${!a.custom && a.selected.includes(n) ? ' selected' : ''}`);
+        }, `decision-option${!a.custom && a.selected.includes(n) ? ' selected' : ''}`, sourceProjectId);
         choice.addEventListener('mouseenter', () => show(n)); choice.addEventListener('focusin', () => show(n));
         row.append(choice);
         if (o.preview || o.previewHtml) row.append(button('预览', () => show(n), 'ghost decision-preview-button'));
@@ -246,11 +260,20 @@ export function questionnairePanel(notice, { settle, dismiss, draftScope = '', a
     }
     const controls = el('div', undefined, 'actions');
     if (draft.step > 0) controls.append(button('上一题', () => { draft.step--; save(); paint(); }, 'ghost'));
-    if (allowDismiss) controls.append(button('忽略问卷', () => send(true), 'ghost',
-      { help: '忽略整份问卷，不代表批准任何选项；Worker 会收到「未做决定」的消息。' }));
+    if (allowDismiss) {
+      const dismissHelp = '忽略整份问卷，不代表批准任何选项；Worker 会收到「未做决定」的消息。';
+      const dismissButton = button('忽略问卷', () => send(true), 'ghost',
+        { agent: dismissAgent, help: dismissAgent ? agentHelp(dismissHelp) : dismissHelp });
+      if (readOnly) {
+        dismissButton.disabled = true;
+        const host = el('span', undefined, 'help-host'); host.setAttribute('data-help', disabledReason); host.setAttribute('tabindex', '0');
+        host.setAttribute('role', 'group'); host.setAttribute('aria-label', disabledReason);
+        host.append(dismissButton); controls.append(host);
+      } else controls.append(dismissButton);
+    }
     content.append(controls);
     if (error) { const message = el('p', error, 'error'); message.setAttribute('role', 'alert'); content.append(message); }
-    linkWorkerNumbers(root);
+    linkNumbers(root, sourceProjectId);
     if (busy) {
       content.querySelectorAll('button').forEach(node => { node.disabled = true; });
       content.querySelectorAll('textarea').forEach(node => { node.disabled = true; });

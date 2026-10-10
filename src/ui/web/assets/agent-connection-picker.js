@@ -26,7 +26,8 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
   const note = el('span', undefined, 'settings-note');
   note.setAttribute('role', 'status');
   let cliModels = [];
-  const detailsLink = el('a', '管理模型来源', 'agent-sources-link'); detailsLink.href = '#model-sources';
+  const detailsLink = el('a', '管理模型来源', 'agent-sources-link'); detailsLink.href = '/#model-sources';
+  if (globalThis.location?.pathname?.startsWith('/p/')) { detailsLink.target = '_blank'; detailsLink.rel = 'noopener'; }
   const entries = new Map();
   // 只保存已读取的目录缓存；不从连接列表里推断，也不在打开表单时联网刷新。
   const catalogs = new Map();
@@ -94,7 +95,7 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
     connection.disabled = !pi; loadButton.disabled = !pi || !!loading;
     connection.children[0].textContent = pi ? '请选择 Lush 模型来源' : 'Codex CLI 自身认证';
     paintModels(row);
-    detailsLink.href = value() ? `#model-source-${encodeURIComponent(value())}` : '#model-sources';
+    detailsLink.href = value() ? `/#model-source-${encodeURIComponent(value())}` : '/#model-sources';
     const emptyModels = row && models.children.length === 1;
     detailsLink.textContent = emptyModels ? '填写来源模型列表' : value() ? '查看来源详情' : '管理模型来源';
     const details = catalogNote(row);

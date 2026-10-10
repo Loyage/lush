@@ -37,7 +37,8 @@ test('Codex device login traverses production HTTP/RPC and persists credentials 
     expect(requests[2].init.body.get('redirect_uri')).toBe('https://auth.openai.com/deviceauth/callback');
     const list = await (await fetch(`${f.url}/api/agent/connections`)).json();
     expect(list.connections[0].credential.status).toBe('configured'); expect(JSON.stringify(list)).not.toContain('private-');
-    const file = path.join(f.config.home, 'credentials', 'agent-connections.json');
+    const file = path.join(f.config.deviceHome, 'credentials', 'agent-connections.json');
+    expect(fs.existsSync(path.join(f.config.home, 'credentials', 'agent-connections.json'))).toBe(false);
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     expect(JSON.parse(fs.readFileSync(file, 'utf8')).connections[0].credential.refresh).toBe('private-refresh');
     expect((await action('agent.connections.device.cancel', params)).status).toBe('cancelled');

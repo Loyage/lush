@@ -8,7 +8,7 @@ import { cli, idle } from './harness.js';
 import { bindMockPiSource } from './pi-runtime-fixture.js';
 
 test('pi subprocess receives project/task capability, pinned CLI, persistent session path and performs delegation', async () => {
-  const root = temp();
+  const root = temp(), device = temp(), deviceEnv = { LUSH_GLOBAL_CONFIG: device };
   const fake = path.join(root,'fake-pi');
   await repo(root);
   fs.writeFileSync(fake, `#!/usr/bin/env bun
@@ -28,12 +28,12 @@ if(context.task.task_kind === 'order') {
 console.log('fake pi completed');
 `, { mode:0o755 });
   try {
-    const agentDir = path.join(root, '.lush', 'agent'); fs.mkdirSync(agentDir, { recursive: true });
+    const agentDir = path.join(device, 'shared', 'agent'); fs.mkdirSync(agentDir, { recursive: true });
     fs.writeFileSync(path.join(agentDir, 'agent.env'), 'TEST_SHARED=common\n');
-    await cli(root,['start'], { LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
-    await bindMockPiSource(root);
-    const input = await cli(root,['order','run']);
-    const client = new UIClient(Config.fromEnv(env(),root));
+    await cli(root,['start'], { ...deviceEnv, LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
+    await bindMockPiSource(root, deviceEnv);
+    const input = await cli(root,['order','run'], deviceEnv);
+    const client = new UIClient(Config.fromEnv(env(deviceEnv),root));
     const order = await idle(client,input.task.id);
     // A order Task stays idle after an ordinary return; it is not completed by it.
     expect(order.status).toBe('waiting');
@@ -51,5 +51,5 @@ console.log('fake pi completed');
     expect(orderSeen.promptHasWorkerInstructions).toBe(false);
     const sessions = seen.filter(row => row.task.id === input.task.id).map(row => row.args[row.args.indexOf('--session-id')+1]);
     expect(new Set(sessions).size).toBe(1);
-  } finally { await cli(root,['stop']).catch(() => {}); fs.rmSync(root,{recursive:true,force:true}); }
+  } finally { await cli(root,['stop'], deviceEnv).catch(() => {}); fs.rmSync(root,{recursive:true,force:true}); fs.rmSync(device,{recursive:true,force:true}); }
 }, 30000);

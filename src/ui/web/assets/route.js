@@ -27,5 +27,13 @@ export function projectHref(id, suffix = '/') {
   return `/p/${id}${suffix}`;
 }
 
-/** 兼容已有项目 localStorage 视图键；项目主题／配色另由 Host 持久保存。 */
+/** Only explicit project routes are project workspaces, even for a bound Host. */
+export function isProjectWorkspace() { return Boolean(projectRoute()); }
+
+export function workspaceHref(hash = '') {
+  if (typeof hash !== 'string' || (hash && !/^#[a-z0-9_-]+$/i.test(hash))) throw new Error('无效的工作台地址');
+  return `/${hash}`;
+}
+
+/** 项目工作状态按身份隔离；主题为设备偏好，项目辨识色另由 Host 保存。 */
 export function preferenceScope() { return projectRoute(); }

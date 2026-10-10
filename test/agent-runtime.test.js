@@ -9,7 +9,7 @@ import { temp, env } from './helpers.js';
 test('agent prompts are composed from role-specific named parts', () => {
   const root = temp();
   try {
-    const config = new Config({ project: root, env: env() });
+    const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) });
     const planner = agentPrompt(config, 'planner');
     expect(planner.parts.map(part => part.name)).toEqual([
       'runtime', 'planner', 'role_catalog', 'dependencies', 'planner_cli', 'progress', 'decisions', 'common_cli', 'completion',
@@ -74,7 +74,7 @@ test('agent prompt pins writes to the worktree and forbids direct commits on the
 test('message guidance survives role/mode composition and separates admission from delivery', () => {
   const root = temp();
   try {
-    const config = new Config({ project: root, env: env() });
+    const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) });
     for (const role of ['agent', 'coordinator', 'worker']) {
       for (const config_mode of ['lush', 'pi']) {
         const prompt = agentPrompt(config, role, { config_mode }).text;
@@ -125,13 +125,13 @@ test('source-side repair prompts require commit review and semantic migration ch
 test('settings replacement, project/local overlays and settings append have explicit order', () => {
   const root = temp();
   try {
-    const config = new Config({ project: root, env: env() }); config.prepare();
+    const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) }); config.prepare();
     fs.mkdirSync(path.join(root, '.lush-agent'), { recursive: true });
-    fs.mkdirSync(path.join(config.home, 'agent'), { recursive: true });
+    fs.mkdirSync(path.join(config.deviceHome, 'agent'), { recursive: true, mode: 0o700 });
     fs.writeFileSync(path.join(root, '.lush-agent', 'common.md'), 'PROJECT COMMON');
     fs.writeFileSync(path.join(root, '.lush-agent', 'worker.md'), 'PROJECT WORKER');
-    fs.writeFileSync(path.join(config.home, 'agent', 'common.md'), 'LOCAL COMMON');
-    fs.writeFileSync(path.join(config.home, 'agent', 'worker.md'), 'LOCAL WORKER');
+    fs.writeFileSync(path.join(config.deviceHome, 'agent', 'common.md'), 'LOCAL COMMON', { mode: 0o600 });
+    fs.writeFileSync(path.join(config.deviceHome, 'agent', 'worker.md'), 'LOCAL WORKER', { mode: 0o600 });
     const view = agentPrompt(config, 'worker', { default_prompt: 'REPLACEMENT', append_prompt: 'SETTINGS APPEND' });
     expect(view.parts.map(part => part.name)).toEqual([
       'settings.default_prompt', 'project.common', 'project.worker', 'local.common', 'local.worker', 'settings.append_prompt',
@@ -160,7 +160,7 @@ INLINE=value # comment
 test('agent env editor storage validates, round-trips and writes owner-only files', () => {
   const root = temp();
   try {
-    const config = new Config({ project: root, env: env() }); config.prepare();
+    const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) }); config.prepare();
     const saved = saveAgentEnvironment(config, 'common', { Z_LAST: 'hash # and "quote"', API_KEY: 'line 1\nline 2', EMPTY: '' });
     expect(saved.exists).toBe(true);
     expect(saved.values).toEqual({ API_KEY: 'line 1\nline 2', EMPTY: '', Z_LAST: 'hash # and "quote"' });
@@ -178,8 +178,8 @@ test('agent env editor storage validates, round-trips and writes owner-only file
 test('role env hot-load layer overrides common env', () => {
   const root = temp();
   try {
-    const config = new Config({ project: root, env: env() }); config.prepare();
-    const dir = path.join(config.home, 'agent'); fs.mkdirSync(dir, { recursive: true });
+    const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) }); config.prepare();
+    const dir = path.join(config.deviceHome, 'agent'); fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'agent.env'), 'HTTP_PROXY=http://common\nSHARED=yes\n');
     fs.writeFileSync(path.join(dir, 'research.env'), 'HTTP_PROXY=http://research\nONLY_ROLE=yes\n');
     const research = agentEnvironment(config, 'research');

@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom } from '../dom-stub.js';
+import { installDom } from './project-dom.js';
 import { makeWorld } from './dom-world.js';
 
 // 输入区父候选来自独立完整读面，选项值仍是分支名——

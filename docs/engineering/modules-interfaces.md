@@ -6,9 +6,9 @@
 
 ## 设备设置与迁移接缝
 
-[设备设置契约](device-settings.md)优先于下面旧的项目配置路径描述。既有设置 RPC 的可选 `scope` 默认 project，显式 device 管理不受项目覆盖影响；device 管理不能由 Agent token 调用。新增用户专属 `system.settings`、`settings.clear_override`、`settings.migration.preview/apply`，由 `handlers/system.js` 转发。迁移固定当前项目，不接收路径/项目选择参数，confirm 与预检 revision 必需。
+[用户工作台契约](user-workspace.md)与[显式迁移](device-settings.md)优先于下面旧的项目配置路径描述。真实 Config 设置 RPC 默认 device，显式 project 拒绝；设备配置读写用户专属，无 scope 不构成 Agent 旁路。用户 `system.settings`、`settings.migration.preview/apply` 由 `handlers/system.js` 转发，旧 `settings.clear_override` 不再清除活跃项目覆盖。迁移固定来源项目，不接收任意路径，confirm 与预检 revision 必需。
 
-`cli/settings-scope.js` 导出 `takeConfigurationScope(args)` / `scopedSettingsClient(client,scope)` / `safeConfigurationScope(value)`（安全 CLI metadata 白名单），仅在显式 --scope 时给支持它的设置请求加参数，不污染 Worker/历史。`config` 增加 `migrate` 预检与 `migrate --confirm --revision REV`；设置命令/来源/包支持 --scope，项目 prompt/env 检查与 init 不接受 scope。新接口与空闲保护回归在 `test/device-settings-interfaces.test.js`；Host 无项目、安全白名单和固定项目 scope 转发在 `test/web/device-settings-api.test.js`。
+`cli/settings-scope.js` 导出 `takeConfigurationScope(args)` / `scopedSettingsClient(client,scope)` / `safeConfigurationScope(value)`；设置命令只接受设备 scope，不污染 Worker／历史参数。`config migrate` 预检，`config migrate --confirm --revision REV` 才修改旧源。`test/device-settings-interfaces.test.js`、`device-settings-read-permissions.test.js` 覆盖默认／显式 scope 和 Agent 拒绝；`test/agent-cli-device-read-permissions.test.js` 防止 CLI prompt/env 直接读取绕过 RPC 用户权限；Host 无项目与固定项目迁移转发在 `test/web/device-settings-api.test.js`。
 
 ## CLI：`src/cli/main.js` + `src/cli/`
 
@@ -31,7 +31,7 @@
 | `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 Agent 的 Worker） | `run` |
 | `cli/commands/notice.js` | `notice list/post/answer/dismiss/read`（read 仅标已读；选择快照与重选已停用）；`post --worker` 接受整数或稳定 Worker 编号，Notice 本身的 ID 仍只接受整数 | `run` |
 | `cli/commands/branch.js` | `branch tree / show / bind / archive` | `run` |
-| `cli/commands/agent.js` | `agent show/models/set/reset` 配置 profile；`prompt/env` 查看最终组合和环境来源，`network show/set --file PATH/reset` 管理出站代理（[契约](outbound-network.md)），`init` 创建共享/本机补充；`--prompt` 只作旧版 `--append-prompt` 别名；`--config-mode lush|pi` 显式选择运行配置模式，`sources` / `resources` 分派到 `agent-sources.js`，`packages` 分派到 `agent-packages.js` | `run` |
+| `cli/commands/agent.js` | `agent show/models/set/reset` 配置 profile；用户专属 `prompt/env` 直接文件读取同样核验 token，查看最终组合和脱敏环境来源；`network show/set --file PATH/reset` 管理出站代理（[契约](outbound-network.md)），`init` 创建项目可提交约定，`init --local` 用户专属 create-only 创建设备私有补充；`--prompt` 只作旧版 `--append-prompt` 别名；`--config-mode lush|pi` 显式选择运行配置模式，`sources` / `resources` 分派到 `agent-sources.js`，`packages` 分派到 `agent-packages.js` | `run` |
 | `cli/commands/agent-sources.js` | `agent sources list/show/models ID [--refresh]/refresh [ID]/save --file PATH/remove ID/login ID`（设备码 start/poll/cancel 与备用回调私密文件）与只读 `agent resources`；用户专属，凭证不进 argv/输出 | `runSources(args,client,{json?})`、`runResources(args,client,{json?})`（[目录契约](agent-model-catalog.md)） |
 | `cli/commands/agent-packages.js` | `agent packages list/install SOURCE/remove ID/update ID`；用户专属，安装与启用分离 | `runPackages(args,client)`（兼容 context） |
 | `cli/commands/config.js` | `config show / set / reset`：读 `system.status.settings`、写 `system.configure`；用户专属，agent 调用被拒 | `run` |
@@ -49,11 +49,11 @@ Worker 身份参数（含 `spawn --parent`、`notice post --worker`）接受原�
 | 文件 | 职责 | 导出 |
 |---|---|---|
 | `rpc/protocol.js` | framing（编码、解析、帧上限）；并 re-export `Dispatcher` 保持旧 import 可用 | `MAX_FRAME`、`encode`、`errorResponse`、`parseRequest`、`Dispatcher` |
-| `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验。**唯一公开面**：未列入 `PARAMS` 的方法一律 `unknown method`。含用户专属连接模型目录 `agent.connections.models(.refresh)` 与资源安装 `agent.packages.*`，`order.submit` 预置可选 `profile` 覆盖参数 | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`MANAGER_METHODS`、`assertAllowed(method, params, actor)` |
-| `rpc/handlers/system.js` | 用户专属 `system.configure`、`system.stop_if_idle`（同步 idle 准入并关闭调度，见[服务重启](../reference/web-routes.md#服务重启)）；只读 `system.status`（兼容完整状态）与 `system.summary`（首页用持久 revision/索引聚合的无 Agent 全配置摘要，用户另有 `auto_select:{enabled,revision,editable}` 窄投影；Agent 不返回 Hook 配置）；`graph.get`；`agent.*`（含用户专属配置与环境文件，以及按需读取 version 2 Pi/Codex 软件安装状态的 `agent.status`（无账号查询），不纳入快照）；历史 `sleep.*` / `system.usage` 仍可被内部调用，但不在白名单 | `handlers` |
+| `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验。**唯一公开面**：未列入 `PARAMS` 的方法一律 `unknown method`。设备技术配置即使无scope也用户专属（含agent.config/models/resources）；notice.sync用户专属，不改变普通项目Notice／Worker安全摘要权限。含用户专属连接模型目录与资源安装，`order.submit` 可选 `profile` | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`MANAGER_METHODS`、`assertAllowed(method, params, actor)` |
+| `rpc/handlers/system.js` | 用户专属 `system.configure`、`system.stop_if_idle`（同步 idle 准入并关闭调度，见[服务重启](../reference/web-routes.md#服务重启)）；只读 `system.status`（兼容完整状态）与 `system.summary`（首页用持久 revision/索引聚合的无 Agent 全配置摘要，用户另有 `auto_select:{enabled,revision,editable,scope,policy_revision,available,error}` 设备策略窄投影；Agent 不调用／返回 Hook 配置，status 排除完整设备 profile）；`graph.get`；`agent.*`（含用户专属配置与环境文件，以及按需读取 version 2 Pi/Codex 软件安装状态的 `agent.status`（无账号查询），不纳入快照）；历史 `sleep.*` / `system.usage` 仍可被内部调用，但不在白名单 | `handlers` |
 | `rpc/handlers/task.js` | `worker.*`：只读 `lookup {number}`（把界面编号解析为 `{id,worker_number}`，不改变原整数入口）/ `graph` / `list` / `activity` / `page` / `tree` / `inspect`（异步附加 指令/child 的实时 `parent_relation:{ahead,behind}` 与 `branch_archive`）/ `history` / `history_page` / `progress_history`（用户与普通 Agent 只读，倒序冻结计划默认10、最多100条）/ `diff` / 用户专属 `code_state` / `code_tree` / `code_file` / `usage` / `transcript*`、`spawn`、agent-only 的 `integrate` / `resolve_child_divergence` / `progress.*`，共享但按身份校验的 `accept`（用户验收指令 / 直接父 Agent 确认 child），以及用户专属的 `rename {id,title}`（展示标题，见[核心 API](core-api.md#worker-自定义标题)）/ `run_settings`（显式读取有效 Worker Profile；不进入普通读面）/ `auto_merge` / `reserve` / `unreserve` / `reopen` / `sync_parent` / `resolve_sync` / `resolve` / `resolve_divergence` / `approve_merge` / `cancel` / `retry` / `cleanup` / `delete_preview` / `delete`（确认与 revision 必填） | `handlers` |
 | `rpc/handlers/quick-explanation.js` | 用户专属 `quick_explain.config/configure/start/followup/get/list`，窄参数与历史游标/页大小校验，不恢复旧解释接口 | `handlers` |
-| `rpc/handlers/notice.js` | `notice.list/page/post/answer/dismiss/read/snapshot/rechoose`；snapshot/rechoose 映射 Project 同名方法，均用户专属；list 待决优先、其次未读生命周期 info；page 的 `unread` 仅筛新生命周期告知；read 幂等、不答复也不唤醒 | `handlers` |
+| `rpc/handlers/notice.js` | `notice.list/page/post/answer/dismiss/read` 与用户专属只读 `notice.sync(cursor?,limit?)`；增量全历史初始化／delta／删除及代际reset服务全局Inbox；answer/dismiss/read可携带expected_identity并在源事务核验真实记录身份；list/page分类与read不唤醒语义保持，snapshot/rechoose已退役 | `handlers`；[同步契约](user-workspace.md#全局收件箱分区) |
 | `rpc/handlers/branch.js` | `branch.history/tree/show/bind/archive`（`branch.history` / `branch.bind` / `branch.archive` 在 `USER_ONLY`）；history 只读 main 第一父链 | `handlers` |
 | `rpc/handlers/input.js` | 历史 `input.*` / `draft.*`：源码保留，不在白名单 | `handlers` |
 | `rpc/handlers/spec.js` | 历史 `spec.*` / `plan.*`：源码保留，不在白名单 | `handlers` |
@@ -97,6 +97,7 @@ Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 
 | Web 读面与安全 | `test/web/{security,assets,read-models,project-route,core-studio,multi-project,launcher}.test.js`；assets 以一次模块图加载冒烟验证资源/CSP，并保留启动与供应资源契约 |
 | Web DOM | `test/web/dom-*.test.js`（各自 `boot()`）；模型来源真实 Firefox 专项：`bun run ./test/web/check-model-sources-browser.js`（1440/900/640/390/320px、双主题、右侧操作列、重置倒计时无裁剪、信息无重叠、详情→编辑→返回）；需 Firefox/geckodriver，仅临时 fixture、不连接用户 daemon |
 | 选择快照停用 | `test/choice-snapshot-api.test.js`（RPC/CLI 不再开放）、`test/web/choice-snapshot-api.test.js`（单项目/工作台拒绝旧入口）、`test/web/choice-snapshot-flow.test.js`（真实 HTTP→RPC→问卷答复不再快照，历史与代码不变）；Runtime 与 DOM 分区覆盖正常问卷及历史资源保护 |
+| 用户工作台后端组合 | `test/integration/user-workspace.test.js`（真实独立双 lushd、生产 Host 与 HTTP/RPC，来源动作隔离、设备偏好／配置、关闭排序后的新问题、Host 停止／显式 daemon 重启、离线读取不启动、移除来源过滤、仅未来指令默认）；所有项目／设备根临时、Agent 为 mock，不替代浏览器或真实账号验收 |
 | Notice 记录与提醒 | `test/project/{notice-page,notice-info,lifecycle-notice,notice-lifecycle-type,questionnaire}.test.js`、`test/web/{notice-records,notice-notifications,lifecycle-notice-api,overview-lifecycle-notices,dom-lifecycle-notices,settings,questionnaire}.test.js`；真实 Firefox 独立临时 fixture：`bun run ./test/web/check-notice-banner-browser.js`（精确桌面/390px 视口、WebDriver 原生触摸）与 `bun run ./test/web/check-notice-interaction.js`（CSP、键盘/PointerEvents）；两者需 Firefox/geckodriver，不连接用户 daemon |
 | 执行详情代码阅读 | `test/workspaces/code-reader.test.js`（真实临时 Git 工作区、基线/净变化、ignored/链接/外部程序/大文件/历史降级、受阻路径明确失败、长转义路径的字节分页及真实 RPC 帧预算）、`test/workspaces/code-posix.test.js`（真实 openat/readlinkat、换链竞态、FD 回收/CLOEXEC 与 Darwin loader 契约）、`test/web/code-reader-api.test.js`（用户权限、窄参数、认证、Origin、多项目路由） |
 | 执行过程阅读 | `test/transcript*.test.js`、`test/web/{transcript-reader,dom-transcript-reader,dom-transcript-view,dom-results}.test.js` |

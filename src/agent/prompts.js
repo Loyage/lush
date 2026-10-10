@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { check } from '../core/types.js';
+import { configurationHome, settingsConfigurationScope } from '../core/device-config.js';
+import { PROMPT_SUPPLEMENT_TARGETS, readPrivatePrompt } from './private-prompts.js';
 
-export const AGENT_ROLES = Object.freeze(['agent', 'planner', 'coordinator', 'worker', 'research', 'verifier', 'merger', 'explainer', 'butler', 'manager']);
+export const AGENT_ROLES = Object.freeze(PROMPT_SUPPLEMENT_TARGETS.slice(1));
 
 export const PROMPT_PARTS = Object.freeze({
   runtime: {
@@ -225,6 +227,13 @@ function optionalPart(name, title, file) {
   return content ? { name, title, source: file, content } : null;
 }
 
+function privatePart(config, target, name, title, file) {
+  // Minimum legacy fixtures keep their original local reader; real Config never falls back.
+  if (!config.deviceHome) return optionalPart(name, title, file);
+  const content = readPrivatePrompt(config, target)?.trim();
+  return content ? { name, title, source: file, content } : null;
+}
+
 function builtInParts(names, progressReporting) {
   return names.filter(name => progressReporting || name !== 'progress')
     .map(name => ({ name, title: PROMPT_PARTS[name].title, source: 'builtin', content: PROMPT_PARTS[name].content }));
@@ -242,22 +251,21 @@ export function agentPrompt(config, role, profile = {}, taskKind = null) {
   const piMode = profile.config_mode === 'pi';
   const manager = resolved === 'manager';
   check(taskKind !== 'management' || manager, 'management Workers require the manager role');
-  const localSettings = path.join(config.home, 'agent.json');
-  const settingsFile = config.deviceHome && !fs.existsSync(localSettings) ? path.join(config.deviceHome, 'agent.json') : localSettings;
+  const settingsFile = path.join(configurationHome(config, settingsConfigurationScope(config)), 'agent.json');
   const names = taskKind === 'analysis' ? ANALYSIS_PROMPT_PARTS : ROLE_PROMPT_PARTS[resolved];
   // Management never inherits a development Prompt, even a user-supplied replacement.
   const parts = !piMode && !manager && profile.default_prompt
     ? [{ name: 'settings.default_prompt', title: 'Agent 配置：替代 Prompt', source: settingsFile, content: profile.default_prompt }]
     : builtInParts(names, config.runtimeSettings?.get().progress_reporting?.value !== false);
   const projectDir = path.join(config.project, '.lush-agent');
-  const localDir = path.join(config.home, 'agent');
+  const localDir = path.join(configurationHome(config, settingsConfigurationScope(config)), 'agent');
   // Pi-default mode keeps only Lush's built-in Worker instructions; project/local Prompt overlays,
   // a replacement Prompt and an appended Prompt belong to Lush configuration and are not injected.
   if (!piMode && !manager) for (const part of [
     optionalPart('project.common', '项目共享补充：所有角色', path.join(projectDir, 'common.md')),
     optionalPart(`project.${resolved}`, `项目共享补充：${resolved}`, path.join(projectDir, `${resolved}.md`)),
-    optionalPart('local.common', '本机补充：所有角色', path.join(localDir, 'common.md')),
-    optionalPart(`local.${resolved}`, `本机补充：${resolved}`, path.join(localDir, `${resolved}.md`)),
+    privatePart(config, 'common', 'local.common', '本机补充：所有角色', path.join(localDir, 'common.md')),
+    privatePart(config, resolved, `local.${resolved}`, `本机补充：${resolved}`, path.join(localDir, `${resolved}.md`)),
     profile.append_prompt ? { name: 'settings.append_prompt', title: 'Agent 配置：追加 Prompt', source: settingsFile, content: profile.append_prompt } : null,
   ]) if (part) parts.push(part);
   const text = parts.map(part => part.name === 'settings.default_prompt' ? part.content.trim() : render(part)).join('\n\n');

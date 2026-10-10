@@ -25,8 +25,9 @@ lush [--project PATH] [--json] <command>
   hooks command remove ID --revision REV  删除未来授权，已有 Hook 引用失效
   hooks command run ID --version N --worker ID --revision REV  在所选 Worker 目录执行已授权版本（不调用 Agent）
   hooks command import --file PATH --revision REV  导入旧内联命令并停用源 Hook（用源模板或 Worker Hooks 版本）
-  hooks auto-select on|off --revision REV  启停项目 daemon 自动选择（使用 daemon_hooks.revision）
-                                      开启也答复已有问题；单选选第一项，多选/问答交给 Agent 自行判断，可能继续消耗 token
+  hooks auto-select on|off --revision REV  启停设备全局自动选择（使用 daemon_hooks.revision）
+                                      开启也答复所有在线项目已有问题；不启动停止的项目，恢复后台后生效
+                                      单选选第一项，多选/问答交给 Agent 自行判断，可能继续消耗 token
   hooks save --file PATH --revision REV  保存模板（不自动挂载或调用 Agent）
   hooks remove TEMPLATE_ID --revision REV  删除模板，不影响已有挂载实例
   hooks signal save --file PATH --revision REV  保存时间信号（使用 signals.revision，不证明额度恢复）
@@ -46,7 +47,7 @@ lush [--project PATH] [--json] <command>
   worker reopen ID                   历史已合并 Worker 恢复待验收（不调用 Agent）
   worker sync-parent ID              安全同步父提交；冲突只返回诊断
   worker resolve-sync ID             调用 Agent 解决已记录的同步冲突
-  worker clear-override ID           清除本 Worker 的独立运行覆盖，回到项目默认
+  worker clear-override ID           清除本 Worker 的独立运行覆盖，回到设备/角色默认
   worker resolve ID                  指令验收的兼容入口（等同 accept，不归档）
   worker cancel|retry ID             停止或显式重试
   worker interrupt|resume ID         请求安全点暂停 / 非阻塞继续
@@ -60,20 +61,22 @@ lush [--project PATH] [--json] <command>
   notice list|post|answer|dismiss|read    用户决策与告知已读
   notice post '标题' [--worker ID] [--body '正文']  发给指定 Worker（Agent 默认当前 Worker）
   progress plan|complete             Agent 汇报进度
-  agent show|models|set|reset|prompt|env|init|network  配置 Agent
+  agent show|models|set|reset|prompt|env|init|network  设备 Agent 配置（用户专属）
+  agent prompt ROLE / agent env ROLE  用户检查最终 Prompt / 脱敏环境来源，不向 Agent token 开放
+  agent init [ROLE] [--local]         --local 创建设备私有补充；否则创建项目可提交约定，不覆盖文件
   agent sources list|show ID|refresh [ID]|models ID [--refresh]  来源、额度与缓存模型目录
   agent sources save --file PATH|remove ID|login ID  托管连接管理与显式登录
   agent resources                          本地来源/模型/额度安全 JSON 读面（不联网）
   agent packages list|install SOURCE|remove ID|update ID  插件/Skills安装（不自动启用，可选 --scope device）
   agent set TARGET --config-mode lush|pi    默认 Lush 托管；显式 Pi 默认不混入托管设置
-  agent network show                       读取项目出站代理设置（认证不回显）
+  agent network show                       读取设备出站代理设置（认证不回显）
   agent network set --file PATH             从私有 JSON 文件保存代理，不在参数中填写密码
   agent network reset                      恢复继承后台启动环境，后续请求与 Agent 生效
   agent set TARGET --connection UUID|off --model PROVIDER/MODEL  显式选择 Pi 账号连接（不自动路由）
-  config show|set|reset              设置并发和调用限额（worker-call-limit 为单 Worker 调用上限）
-  config migrate                    预检当前项目设置迁移到设备共享；不改文件
-  config migrate --confirm --revision REV  按预检确认迁移，并保留私有备份
-  config ... / agent ... --scope device|project  选择设置层（省略保留项目兼容；Web 默认设备共享）
+  config show|set|reset              设备并发和调用限额（worker-call-limit 为单 Worker 调用上限；并发仍是每项目上限，不是整机总预算）
+  config migrate                    预检当前项目旧设置/私有 Markdown 补充；不改文件
+  config migrate --confirm --revision REV  按预检确认迁移，保留私有备份与旧 Markdown 原件
+  config ... / agent ... --scope device  可选设备 scope；省略仍选设备，project 覆盖已停用
 
 Worker ID 可用原整数或稳定编号 W5 / W5-1；编号由 daemon 解析，不是整数 ID。
 新输入按现有序列显示 O5，对应新指令 W5；派生子 Worker 为 W5-1，历史 Worker 编号不改。

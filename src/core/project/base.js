@@ -8,6 +8,7 @@ import { AgentConnectionsService } from '../agent-connections.js';
 import { AgentSelectionService } from '../agent-selection.js';
 import { AgentPackages } from '../../agent/packages.js';
 import { check } from '../types.js';
+import { DeviceAutomationSettings } from '../device-automation.js';
 
 // 构造与实例状态（config / store / provider / workspaces / running / stopping / scheduled / ancestry）。
 /** One project, a persistent task tree, and a bounded pool of disposable agents. */
@@ -41,6 +42,8 @@ export class ProjectBase {
     // Internal clock/timer seam for deterministic scheduled-Hook tests; never a public configuration field.
     this.scheduledHookOptions = options.scheduledHooks ?? {};
     this.commandHookOptions = options.commandHooks ?? {}; // internal bounded test seam, not public settings
+    this.deviceAutomation = new DeviceAutomationSettings(config);
+    this.deviceAutomationOptions = options.deviceAutomation ?? {}; // internal clock seam; no public timer settings
   }
 
   /** R-01: reject writes that would create rows while a clear is reclaiming disk. */

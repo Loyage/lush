@@ -1,9 +1,10 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom, dialogText, answerDialog } from '../dom-stub.js';
+import { installDom, dialogText, answerDialog } from './project-dom.js';
 import { makeWorld } from './dom-world.js';
 
 /** 独立 world：main 下一条静息待合并、一条还在跑，用来验证「合并所有」的候选口径与调用。 */
 const world = makeWorld();
+world.state.devicePreferences.values.taskGraphMinimal = false;
 const graph = { nodes: [
   { id: 1, parent_id: null, task_kind: 'main', role: 'agent', status: 'waiting', title: 'main', branch: 'main', children: [] },
   { id: 2, parent_id: 1, task_kind: 'order', role: 'agent', status: 'waiting', title: '实现功能', branch: 'lush/task-2',

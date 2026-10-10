@@ -181,6 +181,37 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
         status TEXT NOT NULL DEFAULT 'open', answer TEXT, kind TEXT NOT NULL DEFAULT 'question',
         source_event_id INTEGER, read_at TEXT, answer_source TEXT,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+      -- Derived, bounded Notice synchronization metadata. The Notice row remains authoritative.
+      -- Record identities survive updates and differ even when SQLite reuses an integer ID.
+      CREATE TABLE IF NOT EXISTS notice_sync_records (
+        notice_id INTEGER PRIMARY KEY, identity TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS notice_sync_changes (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT, notice_id INTEGER NOT NULL,
+        identity TEXT NOT NULL, deleted INTEGER NOT NULL CHECK(deleted IN (0,1)));
+      -- Seed only the derived identity index on first installation, never rewrite historical Notices.
+      INSERT OR IGNORE INTO notice_sync_records(notice_id,identity)
+        SELECT id,lower(hex(randomblob(16))) FROM notices
+        WHERE NOT EXISTS(SELECT 1 FROM meta WHERE key='notice_sync_epoch');
+      INSERT OR IGNORE INTO meta(key,value) VALUES ('notice_sync_epoch',lower(hex(randomblob(16))));
+      CREATE TRIGGER IF NOT EXISTS notice_sync_insert AFTER INSERT ON notices BEGIN
+        INSERT OR REPLACE INTO notice_sync_records(notice_id,identity) VALUES(NEW.id,lower(hex(randomblob(16))));
+        INSERT INTO notice_sync_changes(notice_id,identity,deleted)
+          SELECT NEW.id,identity,0 FROM notice_sync_records WHERE notice_id=NEW.id;
+        UPDATE notice_sync_records SET revision=last_insert_rowid() WHERE notice_id=NEW.id;
+        DELETE FROM notice_sync_changes WHERE seq <= (SELECT MAX(seq)-10000 FROM notice_sync_changes);
+      END;
+      CREATE TRIGGER IF NOT EXISTS notice_sync_update AFTER UPDATE ON notices BEGIN
+        INSERT INTO notice_sync_changes(notice_id,identity,deleted)
+          SELECT NEW.id,identity,0 FROM notice_sync_records WHERE notice_id=NEW.id;
+        UPDATE notice_sync_records SET revision=last_insert_rowid() WHERE notice_id=NEW.id;
+        DELETE FROM notice_sync_changes WHERE seq <= (SELECT MAX(seq)-10000 FROM notice_sync_changes);
+      END;
+      CREATE TRIGGER IF NOT EXISTS notice_sync_delete AFTER DELETE ON notices BEGIN
+        INSERT INTO notice_sync_changes(notice_id,identity,deleted)
+          SELECT OLD.id,identity,1 FROM notice_sync_records WHERE notice_id=OLD.id;
+        DELETE FROM notice_sync_records WHERE notice_id=OLD.id;
+        DELETE FROM notice_sync_changes WHERE seq <= (SELECT MAX(seq)-10000 FROM notice_sync_changes);
+      END;
       CREATE TABLE IF NOT EXISTS events (
         id INTEGER PRIMARY KEY, task_id INTEGER REFERENCES tasks(id), type TEXT NOT NULL, data TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));

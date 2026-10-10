@@ -41,7 +41,9 @@ test('user polling summary mirrors only auto-select authorization, changes revis
   const f = fixture(); f.project.kick = () => {};
   try {
     const before = summary(f);
-    expect(before.auto_select).toEqual({ enabled: false, revision: f.project.daemonHooks().revision, editable: true });
+    expect(before.auto_select).toEqual({ enabled: false, revision: f.project.daemonHooks().revision, editable: true,
+      scope: 'device', policy_revision: f.project.daemonHooks().policy_revision ?? f.project.daemonHooks().revision,
+      available: true, error: null });
     f.project.setDaemonAutoSelect(true, before.auto_select.revision);
     const enabled = summary(f);
     expect(enabled.auto_select.enabled).toBe(true);

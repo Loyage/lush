@@ -49,7 +49,8 @@ test('空态设置、文档与项目管理可用，项目系统动作保持关�
   expect(deepText(dom.node('detail'))).toContain('Markdown 渲染');
   const systemTab = dom.node('detail').querySelector('button.settings-tab[data-settings-tab="system"]');
   await systemTab.onclick();
-  expect(deepText(dom.node('detail'))).toContain('当前没有可用项目');
+  expect(deepText(dom.node('detail'))).toContain('设备');
+  expect(deepText(dom.node('detail'))).not.toContain('项目覆盖');
   expect(dom.node('detail').querySelector('[data-service-restart="project"]')).toBeNull();
 
   await openDocs();

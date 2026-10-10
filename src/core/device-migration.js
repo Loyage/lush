@@ -10,13 +10,14 @@ import { AGENT_ENV_TARGETS, parseAgentEnv } from '../agent/environment.js';
 import { readNetworkConfiguration } from '../agent/network.js';
 import { QuickExplanationSettings } from './quick-explanation.js';
 import { ConnectionFile } from '../agent/connections-file.js';
+import { PROMPT_SUPPLEMENT_TARGETS, PRIVATE_PROMPT_MAX_BYTES } from '../agent/private-prompts.js';
 
 // Revisions are process-private MACs, not publicly brute-forceable hashes of credentials/env.
 // A daemon restart requires a fresh preview; the durable journal contains no secret digests.
 const revisionKey = randomBytes(32);
 const MAX_JSON = 1024 * 1024;
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
-const PHASES = new Set(['pending', 'published', 'retired']);
+const PHASES = new Set(['pending', 'published', 'retired', 'retained']);
 const STATUS = new Set(['prepared', 'publishing', 'retiring', 'complete']);
 const definitions = [
   { key: 'runtime', kind: '系统运行参数', relative: 'settings.json', max: 8192 },
@@ -29,6 +30,8 @@ const definitions = [
     (other === 'common' ? 'agent' : other) === (target === 'common' ? 'agent' : target)))
     .map(target => ({ key: `env-${target}`, kind: 'Agent 环境变量',
       relative: path.join('agent', target === 'common' ? 'agent.env' : `${target}.env`), max: 65536 })),
+  ...PROMPT_SUPPLEMENT_TARGETS.map(target => ({ key: `prompt-${target}`, kind: `Agent 本机 Markdown 补充（${target}）`,
+    relative: path.join('agent', `${target}.md`), max: PRIVATE_PROMPT_MAX_BYTES, retain: true })),
   { key: 'credentials', kind: '模型来源与凭证', relative: path.join('credentials', 'agent-connections.json'), max: MAX_JSON },
 ];
 const byKey = new Map(definitions.map(definition => [definition.key, definition]));
@@ -72,19 +75,21 @@ function roots(config) {
 }
 function parentDirectories(home, relative, create = false) {
   const pieces = relative.split(path.sep).slice(0, -1);
-  let dir = home;
-  for (const piece of pieces) { dir = path.join(dir, piece); directory(dir, create); }
+  let dir = home; const identities = [];
+  for (const piece of pieces) { dir = path.join(dir, piece); identities.push(directory(dir, create)); }
+  return identities;
 }
 /** Bounded, no-follow snapshot with stable fd, file and parent identity. */
 function readFile(home, relative, max = MAX_JSON) {
-  directory(home); parentDirectories(home, relative);
+  const root = directory(home), parents = parentDirectories(home, relative);
   const file = path.join(home, relative), before = statMaybe(file);
   if (!before) return { body: null, fact: null };
   check(before.isFile() && !before.isSymbolicLink() && owner(before) && (before.mode & 0o777) === 0o600
     && before.nlink === 1 && before.size <= max, 'unsafe migration file');
   const fd = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
   try {
-    const opened = fs.fstatSync(fd); check(same(opened, before), 'migration file changed');
+    const opened = fs.fstatSync(fd); check(same(opened, before) && opened.mode === before.mode && opened.uid === before.uid
+      && opened.nlink === 1 && opened.size === before.size && opened.mtimeMs === before.mtimeMs && opened.ctimeMs === before.ctimeMs, 'migration file changed');
     const buffer = Buffer.alloc(max + 1); let length = 0;
     for (;;) {
       const n = fs.readSync(fd, buffer, length, buffer.length - length, null);
@@ -93,31 +98,33 @@ function readFile(home, relative, max = MAX_JSON) {
     }
     const after = fs.fstatSync(fd), current = fs.lstatSync(file);
     check(same(opened, after) && same(opened, current) && opened.size === after.size && opened.mtimeMs === after.mtimeMs
-      && opened.mode === current.mode && after.size === length, 'migration file changed');
-    directory(home); parentDirectories(home, relative);
-    const body = buffer.subarray(0, length).toString('utf8');
+      && opened.ctimeMs === after.ctimeMs && opened.mode === current.mode && after.ctimeMs === current.ctimeMs
+      && after.uid === current.uid && after.nlink === 1 && current.nlink === 1 && after.size === length, 'migration file changed');
+    check(equivalent(root, directory(home)) && equivalent(parents, parentDirectories(home, relative)), 'migration directory changed');
+    const body = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer.subarray(0, length));
     return { body, fact: { dev: current.dev, ino: current.ino, mode: current.mode, uid: current.uid, nlink: current.nlink,
-      size: current.size, mtime: current.mtimeMs, content: sign(body) } };
+      size: current.size, mtime: current.mtimeMs, ctime: current.ctimeMs, root, parents, content: sign(body) } };
   } finally { fs.closeSync(fd); }
 }
 function syncDirectory(dir) {
   const fd = fs.openSync(dir, fs.constants.O_RDONLY);
   try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
 }
-function atomicWrite(home, relative, body, max = MAX_JSON) {
+function atomicWrite(home, relative, body, max = MAX_JSON, beforePublish = () => {}) {
   check(Buffer.byteLength(body) <= max, 'migration output too large');
   directory(home, true); parentDirectories(home, relative, true);
   const destination = path.join(home, relative);
   const before = readFile(home, relative, max); // Reject unsafe destinations, including during recovery.
-  const root = directory(home);
+  const root = directory(home), parents = parentDirectories(home, relative);
   const temporary = path.join(path.dirname(destination), `.migration-${randomUUID()}.tmp`);
   let fd;
   try {
     fd = fs.openSync(temporary, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
     fs.writeFileSync(fd, body); fs.fsyncSync(fd); fs.closeSync(fd); fd = undefined;
     check(equivalent(root, directory(home)), 'migration directory changed before publication');
-    parentDirectories(home, relative);
+    check(equivalent(parents, parentDirectories(home, relative)), 'migration directory changed before publication');
     check(equivalent(before.fact, readFile(home, relative, max).fact), 'migration destination changed before publication');
+    beforePublish();
     fs.renameSync(temporary, destination); syncDirectory(path.dirname(destination));
   } finally {
     if (fd !== undefined) fs.closeSync(fd);
@@ -145,6 +152,7 @@ function resourcePaths(config, profile) {
 }
 function normalizedValue(definition, config, home, snapshot, source = false) {
   if (snapshot.body === null) return null;
+  if (definition.retain) return snapshot.body;
   if (definition.key.startsWith('env-')) return parseAgentEnv(snapshot.body, 'migration environment');
   const value = JSON.parse(snapshot.body);
   if (definition.key === 'runtime') return { version: 1, ...normalizeRuntimeSettings(value, 'migration runtime settings') };
@@ -213,14 +221,26 @@ function loadState(config, facts) {
   const snapshot = readFile(config.home, journalRelative(current.id), 65536); facts.journal = snapshot.fact;
   check(snapshot.body !== null, 'missing migration journal');
   const journal = JSON.parse(snapshot.body);
-  fields(journal, ['version', 'id', 'status', 'project', 'device_home', 'entries']);
+  fields(journal, ['version', 'id', 'status', 'project', 'device_home', 'entries', 'retained']);
   check(journal.version === 1 && journal.id === current.id && STATUS.has(journal.status)
     && journal.project === config.project && journal.device_home === config.deviceHome
     && Array.isArray(journal.entries) && journal.entries.length <= definitions.length, 'invalid migration journal');
   const keys = new Set();
   for (const entry of journal.entries) {
     fields(entry, ['key', 'phase']);
-    check(byKey.has(entry.key) && !keys.has(entry.key) && PHASES.has(entry.phase), 'invalid migration journal entry'); keys.add(entry.key);
+    check(byKey.has(entry.key) && !keys.has(entry.key) && PHASES.has(entry.phase)
+      && (entry.phase !== 'retained' || byKey.get(entry.key).retain), 'invalid migration journal entry'); keys.add(entry.key);
+  }
+  // Completed Markdown provenance survives later JSON/env/OAuth migrations. Only fixed keys/UUIDs,
+  // no contents or public digests, may select a previously verified private backup.
+  if (journal.retained !== undefined) {
+    check(Array.isArray(journal.retained) && journal.retained.length <= PROMPT_SUPPLEMENT_TARGETS.length, 'invalid retained migration metadata');
+    const retainedKeys = new Set();
+    for (const entry of journal.retained) {
+      fields(entry, ['key', 'id']);
+      check(byKey.get(entry.key)?.retain && !retainedKeys.has(entry.key) && typeof entry.id === 'string' && UUID.test(entry.id), 'invalid retained migration entry');
+      retainedKeys.add(entry.key);
+    }
   }
   return journal;
 }
@@ -255,6 +275,14 @@ function plan(config, { ignoreLocks = false } = {}) {
     if (source.body !== null) active.set(definition.key, source);
   }
   const recovering = journal && (journal.status !== 'complete' || marker.body !== null);
+  for (const entry of journal?.retained || []) {
+    const definition = byKey.get(entry.key), backup = readFile(backupHome(config, entry.id), definition.relative, definition.max);
+    check(backup.body !== null, 'missing retained migration backup');
+    facts.files[entry.key].completed_backup = backup.fact;
+    // Retained originals are inactive history, not an implicit authorization to resurrect a device file.
+    const pendingHere = recovering && journal.entries.some(row => row.key === entry.key);
+    if (!pendingHere && active.get(entry.key)?.body === backup.body) active.delete(entry.key);
+  }
   const already = journal?.status === 'complete' && !recovering && active.size === 0;
   if (already) return { config, roots: rootFacts, facts, entries, journal, marker, already: true, recovering: false, blockers, warnings };
   if (recovering) {
@@ -276,13 +304,15 @@ function plan(config, { ignoreLocks = false } = {}) {
       const output = definition.key === 'credentials' ? mergeConnections(value, target) : value;
       if (definition.key !== 'credentials') check(target === null || equivalent(target, output), 'conflicting device configuration');
       // If a source is already gone, only verified publication can justify continuing retirement.
-      check(source.body !== null || target !== null && equivalent(target, output), 'unverified retired source');
-      const body = definition.key.startsWith('env-') ? original.body : serialize(output);
+      check(source.body !== null || !definition.retain && target !== null && equivalent(target, output), 'unverified retired source');
+      const body = definition.retain || definition.key.startsWith('env-') ? original.body : serialize(output);
       check(Buffer.byteLength(body) <= definition.max, 'migration output too large');
       entries.push({ definition, original, source, destination, value, output, body,
-        action: source.body === null ? '已退役，核验完成' : target !== null && equivalent(target, output) ? '复用共享配置并退役项目覆盖' : '导入共享配置并退役项目覆盖' });
+        action: definition.retain ? (target !== null ? '复用设备补充，保留不活跃的项目原件' : '导入设备补充，保留不活跃的项目原件')
+          : source.body === null ? '已退役，核验完成' : target !== null && equivalent(target, output) ? '复用共享配置并退役项目覆盖' : '导入共享配置并退役项目覆盖' });
     } catch { blockers.push(`${definition.kind}存在冲突或无法安全读取；请先处理再重新预检。`); }
   }
+  if (selected.some(definition => definition.retain)) warnings.push('本机 Markdown 补充将影响同一设备的所有项目后续调用；仓库专属约定应保留在 .lush-agent/ 或 AGENTS.md。导入后保留旧项目原件，但不再参与调用。');
   if (statMaybe(path.join(config.home, 'pi'))) warnings.push('原项目 Pi 安装库保留；已配置资源路径转为原项目绝对路径，新安装请使用设备共享库。');
   if (!selected.length && !recovering) warnings.push('当前项目没有可迁移的设置；没有扫描其他项目。');
   if (!ignoreLocks) checkLocks(config, entries, blockers);
@@ -349,45 +379,75 @@ export function migrateDeviceSettings(config, options) {
       project: config.project, device_home: config.deviceHome,
       entries: current.entries.map(entry => ({ key: entry.definition.key, phase: 'pending' })) };
     if (!current.recovering) {
+      const retained = new Map((current.journal?.retained || []).map(entry => [entry.key, entry]));
+      for (const entry of current.entries) if (entry.definition.retain) retained.set(entry.definition.key, { key: entry.definition.key, id: journal.id });
+      if (retained.size) journal.retained = [...retained.values()];
       const backup = backupHome(config, journal.id); directory(backup, true);
       for (const entry of current.entries) atomicWrite(backup, entry.definition.relative, entry.original.body, entry.definition.max);
       writeJournal(config, journal);
       atomicWrite(config.home, stateRelative, serialize({ version: 1, id: journal.id }), 65536);
     }
     started = true;
+    const backupFacts = new Map();
+    const trackBackup = (id, definition, body) => {
+      const home = backupHome(config, id), snapshot = readFile(home, definition.relative, definition.max);
+      check(snapshot.body !== null && (body === undefined || snapshot.body === body), 'migration backup changed');
+      backupFacts.set(path.join(home, definition.relative), { home, definition, fact: snapshot.fact });
+    };
+    for (const entry of current.entries) trackBackup(journal.id, entry.definition, entry.original.body);
+    for (const retained of journal.retained || []) if (!current.entries.some(entry => entry.definition.key === retained.key))
+      trackBackup(retained.id, byKey.get(retained.key));
     if (current.entries.some(entry => entry.definition.key === 'credentials') && current.marker.body === null)
       atomicWrite(config.home, markerRelative, serialize({ version: 1, id: journal.id }), 65536);
     journal.status = 'publishing'; writeJournal(config, journal);
+    const publicationFacts = new Map();
     for (const entry of current.entries) {
       for (const lock of locks) lock.assert();
+      assertCurrent(entry, config, 'source');
       assertCurrent(entry, config, 'destination');
       const checkpoint = journal.entries.find(row => row.key === entry.definition.key);
       const target = normalized(entry.definition, config, config.deviceHome, entry.destination);
-      if (target === null || !equivalent(target, entry.output)) atomicWrite(config.deviceHome, entry.definition.relative, entry.body, entry.definition.max);
+      if (target === null || !equivalent(target, entry.output)) atomicWrite(config.deviceHome, entry.definition.relative, entry.body, entry.definition.max, () => {
+        for (const lock of locks) lock.assert();
+        assertCurrent(entry, config, 'source');
+      });
+      const published = readFile(config.deviceHome, entry.definition.relative, entry.definition.max);
+      check(equivalent(normalized(entry.definition, config, config.deviceHome, published), entry.output), 'device publication changed');
+      publicationFacts.set(entry.definition.key, published.fact);
       checkpoint.phase = 'published'; writeJournal(config, journal);
     }
     journal.status = 'retiring'; writeJournal(config, journal);
     for (const entry of current.entries) {
       for (const lock of locks) lock.assert();
       const target = readFile(config.deviceHome, entry.definition.relative, entry.definition.max);
-      check(equivalent(normalized(entry.definition, config, config.deviceHome, target), entry.output), 'device publication changed before retirement');
+      check(equivalent(target.fact, publicationFacts.get(entry.definition.key))
+        && equivalent(normalized(entry.definition, config, config.deviceHome, target), entry.output), 'device publication changed before retirement');
       assertCurrent(entry, config, 'source');
-      if (entry.source.body !== null) {
+      if (entry.source.body !== null && !entry.definition.retain) {
         fs.unlinkSync(path.join(config.home, entry.definition.relative));
         syncDirectory(path.dirname(path.join(config.home, entry.definition.relative)));
       }
-      journal.entries.find(row => row.key === entry.definition.key).phase = 'retired'; writeJournal(config, journal);
+      journal.entries.find(row => row.key === entry.definition.key).phase = entry.definition.retain ? 'retained' : 'retired'; writeJournal(config, journal);
     }
+    const verifyDelivery = () => {
+      for (const lock of locks) lock.assert();
+      for (const { home, definition, fact } of backupFacts.values())
+        check(equivalent(readFile(home, definition.relative, definition.max).fact, fact), 'migration backup changed');
+      for (const entry of current.entries) {
+        if (entry.definition.retain) assertCurrent(entry, config, 'source');
+        else check(readFile(config.home, entry.definition.relative, entry.definition.max).body === null, 'source configuration reappeared');
+        const target = readFile(config.deviceHome, entry.definition.relative, entry.definition.max);
+        check(equivalent(target.fact, publicationFacts.get(entry.definition.key))
+          && equivalent(normalized(entry.definition, config, config.deviceHome, target), entry.output), 'device terminal publication changed');
+      }
+    };
+    // Do not mark retained Markdown complete before checking its originals and private backups.
+    verifyDelivery();
     journal.status = 'complete'; writeJournal(config, journal);
     // A successful write is not sufficient authority to remove the source credential guard.
     // Re-read the durable delivery record and both sides of every handoff at the final boundary.
-    for (const lock of locks) lock.assert();
     check(equivalent(loadState(config, {}), journal), 'migration terminal journal changed');
-    for (const entry of current.entries) {
-      check(readFile(config.home, entry.definition.relative, entry.definition.max).body === null, 'source configuration reappeared');
-      const target = readFile(config.deviceHome, entry.definition.relative, entry.definition.max);
-      check(equivalent(normalized(entry.definition, config, config.deviceHome, target), entry.output), 'device terminal publication changed');
-    }
+    verifyDelivery();
     const marker = readFile(config.home, markerRelative, 65536);
     if (marker.body !== null) {
       const value = JSON.parse(marker.body); fields(value, ['version', 'id']);

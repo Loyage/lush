@@ -9,7 +9,7 @@ import { ensurePiConfiguration, piConfigDirectory, readPiConfiguration } from '.
 import { PI_CREDENTIAL_ENV_NAMES } from './status-accounts.js';
 import { agentNetworkEnvironment } from './network.js';
 import { scanDirectoryResources, scanPackageResources } from './resources.js';
-import { normalizeConfigurationScope, scopedConfiguration, configurationScope, acquireConfigurationLock } from '../core/device-config.js';
+import { settingsConfigurationScope, scopedConfiguration, configurationScope, acquireConfigurationLock } from '../core/device-config.js';
 
 /*
  * Lush-managed Pi package installation.
@@ -289,7 +289,7 @@ export function spawnPackageCommand({ command, args, env, cwd, signal, timeoutMs
 export class AgentPackages {
   constructor(config, options = {}) {
     check(config && typeof config === 'object', 'agent packages requires project configuration');
-    this.originalConfig = config; this.scope = normalizeConfigurationScope(options.scope);
+    this.originalConfig = config; this.scope = settingsConfigurationScope(config, options.scope);
     this.config = this.scope === 'device' ? scopedConfiguration(config, this.scope) : config;
     this.options = options; this.scopedManagers = new Map();
     this.run = options.run || spawnPackageCommand;
@@ -302,8 +302,8 @@ export class AgentPackages {
     this.activeMutation = null;
   }
 
-  forScope(scope = 'project') {
-    normalizeConfigurationScope(scope); this.assertOpen();
+  forScope(scope) {
+    scope = settingsConfigurationScope(this.originalConfig, scope); this.assertOpen();
     if (scope === this.scope) return this;
     if (!this.scopedManagers.has(scope)) this.scopedManagers.set(scope, new AgentPackages(this.originalConfig, { ...this.options, scope }));
     return this.scopedManagers.get(scope);
