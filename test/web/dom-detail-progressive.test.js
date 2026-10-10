@@ -101,6 +101,54 @@ test('同 Worker 刷新保留已加载历史/用量/连接/改动，不先缩回
   } finally { settle(gates); await drain(); }
 });
 
+test('同 Worker 刷新只替换最近执行步骤，不重复缓存指令且后续实时更新命中唯一行', async () => {
+  const { paintUsageLast } = await import('../../src/ui/web/assets/render-agent.js');
+  const latest = body => ({ ...usage, last: { kind: 'tool', title: 'bash', body, at: '2026-10-02T00:00:00Z' } });
+  const command = 'bun run regression-for-latest-step';
+  intercept = url => url.endsWith('/usage') ? json(latest(command)) : null;
+  await loadDetail(71); await drain();
+  expect(panel.querySelectorAll('.last-step')).toHaveLength(1);
+  for (const body of [command, 'bun run refreshed-latest-step']) {
+    const gates = slowExtras();
+    try {
+      await loadDetail(71);
+      const agent = panel.querySelector('.agent-panel');
+      const process = agent.querySelector('.block'), controls = process.querySelector('.actions');
+      const previous = agent.querySelector('.last-step');
+      expect(agent.querySelectorAll('.last-step')).toHaveLength(1);
+      gates.usage.resolve(json(latest(body))); await drain();
+      expect(agent.querySelectorAll('.last-step')).toHaveLength(1);
+      expect(agent.querySelector('.last-step')).not.toBe(previous);
+      expect(deepText(agent).split(body)).toHaveLength(2);
+      expect(agent.querySelector('.block')).toBe(process);
+      expect(process.querySelector('.actions')).toBe(controls);
+      paintUsageLast(71, latest('bun run live-latest-step'));
+      expect(agent.querySelectorAll('.last-step')).toHaveLength(1);
+      expect(deepText(agent.querySelector('.last-step'))).toContain('bun run live-latest-step');
+      expect(deepText(agent)).not.toContain(body);
+    } finally { settle(gates); await drain(); }
+  }
+});
+
+test('重复用量补丁保持最近步骤唯一，缺失步骤或读取失败时清除旧预览', async () => {
+  const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
+  const latest = { ...usage, last: { kind: 'tool', title: 'bash', body: 'bun run latest-once' } };
+  const patches = renderDetail(task(), { events: [] }, null, latest, connections, { current: () => true });
+  try {
+    for (let i = 0; i < 3; i++) {
+      patches.update('usage', latest, true);
+      expect(panel.querySelectorAll('.last-step')).toHaveLength(1);
+    }
+    patches.update('usage', usage, true);
+    expect(panel.querySelectorAll('.last-step')).toHaveLength(0);
+    patches.update('usage', latest, true);
+    expect(panel.querySelectorAll('.last-step')).toHaveLength(1);
+    patches.update('usage', null, false);
+    expect(panel.querySelectorAll('.last-step')).toHaveLength(0);
+    expect(deepText(panel)).toContain('用量不可用');
+  } finally { patches.dispose(); }
+});
+
 test('旧请求迟到或重复 dispose 不得释放新详情的几何观察器', async () => {
   const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
   const original = globalThis.ResizeObserver, observers = [];

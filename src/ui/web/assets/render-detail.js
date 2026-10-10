@@ -455,6 +455,8 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
           if (grid) grid.remove();
           const nextGrid = next.querySelector('.grid');
           if (nextGrid) (agent.querySelector('.detail-preview-content') || agent).insertBefore(nextGrid, null);
+          // Same-Worker refresh already renders the cached preview; replace it, never append a duplicate.
+          agent.querySelector('.last-step')?.remove();
           const last = next.querySelector('.last-step');
           if (last) agent.querySelector('.block').insertBefore(last, null);
           const status = agent.querySelector('.detail-usage-status');
