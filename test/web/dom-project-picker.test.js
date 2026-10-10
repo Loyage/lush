@@ -69,6 +69,8 @@ test('总览挂载项目行重启及底部界面／全部按钮，确认来源�
   expect(view.children.indexOf(restart)).toBeGreaterThan(view.children.indexOf(panel.querySelector('.project-manager-list')));
   expect(panel.querySelector('.workbench-backend-tools').children.map(node => node.textContent)).toEqual(['刷新项目状态']);
   expect(restart.querySelector('[data-service-restart="host"]').disabled).toBe(false);
+  expect(restart.querySelector('[data-service-restart="pause"]').disabled).toBe(false);
+  expect(restart.querySelector('[data-service-restart="resume"]').classList.contains('agent-call')).toBe(true);
   expect(panel.querySelector('[data-project-id="bbbbbbbbbbbbbbbb"]').disabled).toBe(true);
   const before = requests.length, pending = button.onclick();
   expect(deepText(dom.node('modal'))).toContain('/tmp/demo');

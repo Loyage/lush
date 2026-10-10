@@ -53,7 +53,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 
 ## 当前项目维护暂停
 
-项目页「全部中断／全部继续」使用用户专属无参数 `system.interrupt_all` / `system.resume_all`，经当前项目 `POST /api/action` 转发；不影响其它项目，不自动重启服务。两个动作只接受 `{method,params:{}}`（params 可省略），拒绝多余 envelope／params／query 字段和 Agent token。返回同源 `maintenance` 投影；`system.summary`／`system.status` 也提供该读面，包括维护门、暂停进度、真实在途计数、可重启与固定阻塞原因。详情与字段权威见[维护暂停契约](../engineering/project-maintenance.md)。
+项目页「全部中断／全部继续」使用用户专属无参数 `system.interrupt_all` / `system.resume_all`，经当前项目 `POST /api/action` 转发；不影响其它项目，不自动重启服务。全局后台总览在底部服务重启区域提供同名按钮：只读重核此 Host 已登记在线项目并确认固定范围，然后逐项通过 `/p/<project-id>/api/action` 调用相同接口；不新增 Host 批量 API，不启动离线项目。中途失败停止后续，报告已接受、失败／未确认与未执行范围，不自动重试或撤销；请求接受不代表已安全退出或立即运行。继续按钮及确认带 Agent 代价，与重启共用单飞和离页保护。两个动作只接受 `{method,params:{}}`（params 可省略），拒绝多余 envelope／params／query 字段和 Agent token。返回同源 `maintenance` 投影；`system.summary`／`system.status` 也提供该读面，包括维护门、暂停进度、真实在途计数、可重启与固定阻塞原因。详情与字段权威见[维护暂停契约](../engineering/project-maintenance.md)。
 
 暂停在 daemon 重启后保留；新调用（含子 Worker／管理 Agent）不得越过维护门。恢复只处理本次影响的工作，原静息父级保留等待关系，原个人暂停／待开始／失败／待验收不批量启动。运行中工具与已开始后台操作安全收尾；请求接受不表示已退出，真正服务重启仍按下面的同步空闲门重检。
 

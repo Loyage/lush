@@ -268,7 +268,7 @@ try {
   // Exercise the shared project identity typography with a long directory name,
   // including unbroken names that previously disappeared behind an ellipsis.
   await evaluate(`document.getElementById('project').textContent = 'long-project-name-for-sidebar-readability-check'`);
-  for (const theme of ['light', 'dark']) for (const width of [1440, 900, 390]) {
+  for (const theme of ['light', 'dark']) for (const width of [1440, 900, 390, 320]) {
     await resize(width);
     await evaluate(`document.documentElement.dataset.theme='${theme}'`);
     const layout = await evaluate(`({width:innerWidth,scrollWidth:document.documentElement.scrollWidth})`);
@@ -276,6 +276,7 @@ try {
     const identity = await evaluate(`(() => { const node=document.getElementById('project'), style=getComputedStyle(node); return {size:parseFloat(style.fontSize),weight:Number(style.fontWeight),whiteSpace:style.whiteSpace,width:node.clientWidth,scrollWidth:node.scrollWidth}; })()`);
     assert(identity.size >= 20 && identity.weight >= 700 && identity.whiteSpace !== 'nowrap' && identity.scrollWidth <= identity.width + 1,
       `project identity is small, clipped or not bold ${theme} ${width}: ${JSON.stringify(identity)}`);
+    assert(await evaluate(`(() => { const section=document.querySelector('.workbench-service-restart'); return ['pause','resume'].every(kind=>{const b=section?.querySelector('[data-service-restart="'+kind+'"]'); if(!b)return false;const r=b.getBoundingClientRect();return b.disabled && r.width>=44 && r.height>=44 && r.left>=0 && r.right<=innerWidth && b.parentNode.classList.contains('help-host') && b.parentNode.getAttribute('data-help');}) && section.querySelector('[data-service-restart="resume"]').classList.contains('agent-call'); })()`), `global maintenance controls missing/clipped or lack disabled help/Agent marker ${theme}/${width}`);
     await screenshot(`${theme}-${width}`);
     console.log(`PASS workbench layout ${theme}/${layout.width}`);
   }
