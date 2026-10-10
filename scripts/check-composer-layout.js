@@ -76,21 +76,25 @@ async function checkLayout(mode, theme, color, focused) {
   const layout = await execute(`const form=document.querySelector('#input-form'),band=document.querySelector('#composer-mode'),box=document.querySelector('#input');
     document.documentElement.dataset.reducedMotion='true';document.documentElement.dataset.theme='${theme}';document.documentElement.dataset.projectColor='${color}';
     box.value='打字之后仍需清楚知道输入去向';box.dispatchEvent(new Event('input'));${focused ? 'box.focus();' : 'box.blur();'}
-    const frame=getComputedStyle(form),icon=getComputedStyle(document.querySelector('#composer-mode-icon'));
+    const field=getComputedStyle(box),icon=document.querySelector('#composer-mode-icon');
+    const shell=getComputedStyle(document.querySelector('.composer'));
     const target=document.querySelector('#composer-mode-target'),targetStyle=getComputedStyle(target);
     const r=band.getBoundingClientRect(),fr=form.getBoundingClientRect(),tr=target.getBoundingClientRect();
     return {mode:form.dataset.mode,viewport:innerWidth,title:document.querySelector('#composer-mode-title').textContent,target:target.textContent,
-      behavior:document.querySelector('#composer-mode-behavior').textContent,frameStyle:frame.borderTopStyle,rail:frame.borderInlineStartWidth,
-      iconStyle:icon.borderTopStyle,targetWeight:targetStyle.fontWeight,targetOwnRow:tr.top>=document.querySelector('#composer-mode-title').getBoundingClientRect().bottom,
+      behavior:document.querySelector('#composer-mode-behavior').textContent,fieldStyle:field.borderTopStyle,fieldWidth:field.borderTopWidth,outlineStyle:field.outlineStyle,
+      outerBorderless:[form,icon,target,document.querySelector('.composer-input')].every(n=>['Top','Right','Bottom','Left'].every(edge=>getComputedStyle(n)['border'+edge+'Width']==='0px')),
+      regionTint:shell.backgroundColor,fieldBackground:getComputedStyle(document.querySelector('.composer-input')).backgroundColor,targetWeight:targetStyle.fontWeight,targetOwnRow:tr.top>=document.querySelector('#composer-mode-title').getBoundingClientRect().bottom,
       fits:r.width>0 && r.top>=0 && r.bottom<=innerHeight && fr.left>=0 && fr.right<=innerWidth && form.scrollWidth<=form.clientWidth+1
         && document.documentElement.scrollWidth<=innerWidth+1 && [...band.children].every(n=>{const cr=n.getBoundingClientRect();return cr.left>=r.left && cr.right<=r.right+1 && cr.bottom<=r.bottom+1;}),
       described:box.getAttribute('aria-describedby').includes('composer-mode-target'),
-      frameColor:frame.borderTopColor,iconColor:icon.borderTopColor,focusColor:getComputedStyle(box).outlineColor,accent:getComputedStyle(document.querySelector('#sidebar')).borderTopColor};`);
+      fieldColor:field.borderTopColor,iconColor:getComputedStyle(icon).color,accent:getComputedStyle(document.querySelector('#sidebar')).borderTopColor};`);
   assert(layout.mode === mode && layout.fits && layout.described, `clipped/inaccessible ${theme}/${color}/${mode}/${focused}: ${JSON.stringify(layout)}`);
-  assert(mode === 'create' ? layout.frameStyle === 'solid' && layout.rail === '2px' && layout.iconStyle === 'solid' && layout.title === '新建独立 Worker' && layout.target.includes('父 Worker') && layout.behavior.includes('Enter 暂存')
-    : layout.frameStyle === 'dashed' && layout.rail === '1px' && layout.iconStyle === 'dashed' && Number(layout.targetWeight) >= 700 && layout.targetOwnRow
+  assert(layout.outerBorderless && layout.fieldWidth === (focused ? '3px' : '2px') && (!focused || layout.outlineStyle === 'none')
+    && layout.regionTint !== layout.fieldBackground, `extra frame or missing regional tint/focus: ${JSON.stringify(layout)}`);
+  assert(mode === 'create' ? layout.fieldStyle === 'solid' && layout.title === '新建独立 Worker' && layout.target.includes('父 Worker') && layout.behavior.includes('Enter 暂存')
+    : layout.fieldStyle === 'dashed' && Number(layout.targetWeight) >= 700 && layout.targetOwnRow
       && layout.title === '继续当前 Worker' && layout.target.includes('W179') && layout.behavior.includes('不创建新 Worker'), `wrong structure/target: ${JSON.stringify(layout)}`);
-  assert(layout.frameColor === layout.accent && layout.iconColor === layout.accent && (!focused || layout.focusColor === layout.accent),
+  assert(layout.fieldColor === layout.accent && layout.iconColor === layout.accent,
     `mode lost project color ${theme}/${color}: ${JSON.stringify(layout)}`);
   return layout;
 }
@@ -123,15 +127,15 @@ try {
       await setViewport(width, height);
       let viewport;
       for (const focused of [false, true]) {
-        const frameColors = new Set();
+        const fieldColors = new Set(), regionTints = new Set();
         for (const color of ['green', 'blue', 'teal', 'amber', 'rose', 'slate']) {
           const layout = await checkLayout(mode, theme, color, focused); viewport = layout.viewport;
-          frameColors.add(layout.frameColor);
+          fieldColors.add(layout.fieldColor); regionTints.add(layout.regionTint);
         }
-        assert(frameColors.size === 6, `mode did not follow all six project palettes: ${theme}/${mode}`);
+        assert(fieldColors.size === 6 && regionTints.size === 6, `mode did not follow all six project palettes: ${theme}/${mode}`);
       }
       if (width === 390 || width === 1440) await Bun.write(`${output}-${mode}-${theme}-${width}.png`, Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
-      console.log(`PASS ${mode} ${theme} ${viewport}px: six palettes, focused/unfocused, persistent target and frame`);
+      console.log(`PASS ${mode} ${theme} ${viewport}px: six palettes, whole-region tint, single solid/dashed field edge, focused/unfocused target`);
     }
   }
   await setViewport(390, 844);

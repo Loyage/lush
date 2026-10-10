@@ -89,8 +89,11 @@ test('styles retain Agent-call visibility, both themes and system/application re
     const css = await (await fetch(f.url + styles[0])).text();
     expect(css).not.toContain('@import');
     expect(css).toContain(':root[data-theme="dark"]');
-    expect(css).toMatch(/\.composer form\{[^}]*border:2px solid var\(--accent\)/);
-    expect(css).toMatch(/#input-form\[data-mode="append"\]\{[^}]*border:1px dashed var\(--accent\)/);
+    expect(css).toMatch(/\.composer\{[^}]*background:var\(--accent-soft\)/);
+    expect(css).toMatch(/\.composer form\{[^}]*margin:0 auto\}/);
+    expect(css).toMatch(/#input-form \.composer-input textarea\{[^}]*border:2px solid var\(--accent\)/);
+    expect(css).toMatch(/#input-form\[data-mode="append"\] \.composer-input textarea\{[^}]*border-style:dashed/);
+    expect(css).toMatch(/#input-form \.composer-input textarea:focus\{[^}]*outline:none;[^}]*border-width:3px/);
     expect(css).toMatch(/#input-form\[data-mode="append"\] \.composer-mode-target\{[^}]*flex-basis:100%;[^}]*font-weight:700/);
     expect(css).not.toContain('--mode-color');
     expect(css).not.toContain('border-left:3px solid var(--queued)');
