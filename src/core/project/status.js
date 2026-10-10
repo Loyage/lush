@@ -50,6 +50,32 @@ export default {
     return createHash('sha256').update(JSON.stringify(facts)).digest('base64url').slice(0, 22);
   },
 
+  /** Explicit Host overview only: exact aggregates plus a small, text-bounded recent window. */
+  developmentSummary() {
+    const groups = this.store.all(`SELECT task_kind,status,count(*) AS count,
+      sum(CASE WHEN resolves_task_id IS NULL AND integration IN ('pending','review') THEN 1 ELSE 0 END) AS pending_merges,
+      sum(CASE WHEN resolves_task_id IS NULL AND integration='merging' THEN 1 ELSE 0 END) AS merging,
+      sum(CASE WHEN resolves_task_id IS NULL AND integration='conflict' THEN 1 ELSE 0 END) AS merge_conflicts
+      FROM tasks WHERE task_kind IN ('order','say','child','main','owner') GROUP BY task_kind,status`);
+    const value = { workers_total: 0, active: 0, awaiting_acceptance: 0, parent_confirmation: 0,
+      agents_running: this.running.size, pending_merges: 0, merging: 0, merge_conflicts: 0 };
+    const counts = new Map(), active = new Set(['queued','running','waiting','awaiting','paused']);
+    for (const row of groups) {
+      value.workers_total += row.count;
+      counts.set(row.status, (counts.get(row.status) || 0) + row.count);
+      const owner = ['main','owner'].includes(row.task_kind);
+      if (!owner && active.has(row.status)) value.active += row.count;
+      if (row.status === 'awaiting_acceptance') {
+        if (['order','say'].includes(row.task_kind)) value.awaiting_acceptance += row.count;
+        if (row.task_kind === 'child') value.parent_confirmation += row.count;
+      }
+      for (const key of ['pending_merges','merging','merge_conflicts']) value[key] += row[key];
+    }
+    return { ...value, counts: [...counts].map(([status, count]) => ({ status, count })),
+      recent_workers: this.store.all(`SELECT id,worker_number,display_title,substr(goal,1,200) AS goal,status,integration
+        FROM tasks WHERE task_kind IN ('order','say','child') ORDER BY id DESC LIMIT 3`) };
+  },
+
   /** Homepage summary deliberately never opens the complete Agent profile. */
   summary() { return statusView(this); },
 

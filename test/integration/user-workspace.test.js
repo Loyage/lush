@@ -83,6 +83,12 @@ test('real dual daemons and Host preserve global settings, source-only actions a
     const backends = await get(base, '/api/host/projects');
     expect(backends.projects.every(row => row.running && Number.isSafeInteger(row.summary.pid) && row.summary.pid > 0)).toBe(true);
     expect(new Set(backends.projects.map(row => row.summary.pid)).size).toBe(2);
+    for (const [index, id] of [idA, idB].entries()) {
+      const summary = backends.projects.find(row => row.id === id).summary;
+      expect(summary.development).toMatchObject({ workers_total: 2, active: 1, agents_running: 0 });
+      expect(summary.development.recent_workers).toEqual([expect.objectContaining({ id: tasks[index].id,
+        worker_number: tasks[index].worker_number, goal: index ? 'B deferred' : 'A deferred', status: 'paused' })]);
+    }
     const [one, two] = await Promise.all([pending(a, tasks[0], 'A question'), pending(b, tasks[1], 'B question')]);
     expect(one.id).toBe(two.id);
     expect(one.sync_identity).not.toBe(two.sync_identity);
@@ -91,6 +97,10 @@ test('real dual daemons and Host preserve global settings, source-only actions a
       params: { content: 'independent B instruction from global overview', branch: 'main', start: false } });
     expect(createdB.task).toMatchObject({ parent_id: tasks[1].parent_id, target_branch: 'main', task_kind: 'order', status: 'paused' });
     expect(createdB.task.id).not.toBe(tasks[1].id);
+    const refreshed = await get(base, '/api/host/projects');
+    expect(refreshed.projects.find(row => row.id === idA).summary.development.workers_total).toBe(2);
+    expect(refreshed.projects.find(row => row.id === idB).summary.development.workers_total).toBe(3);
+    expect(refreshed.projects.find(row => row.id === idB).summary.development.recent_workers[0].id).toBe(createdB.task.id);
     expect((await a.request('input.history', { limit: 100 })).items.map(row => row.id)).toEqual(beforeA);
     await post(base, `/p/${'0'.repeat(16)}/api/action`, { method: 'order.submit', params: { content: 'unknown source', branch: 'main', start: false } }, 400);
     const inbox = await get(base, '/api/host/inbox?status=open');
@@ -126,6 +136,7 @@ test('real dual daemons and Host preserve global settings, source-only actions a
     await post(base, '/api/host/inbox/action', action, 400);
     const unavailableBackends = await get(base, '/api/host/projects');
     expect(unavailableBackends.projects.find(row => row.id === idB).running).toBe(false);
+    expect(unavailableBackends.projects.find(row => row.id === idB).summary).toBeUndefined();
     const offlineSend = await fetch(`${base}/p/${idB}/api/action`, { method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: base }, body: JSON.stringify({ method: 'order.submit',
         params: { content: 'must not restart B', branch: 'main', start: false } }) });

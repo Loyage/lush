@@ -2,6 +2,7 @@ import { api } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { el } from './dom.js';
 import { projectHref, projectRoute } from './route.js';
+import { projectDevelopment } from './project-development.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 
@@ -28,9 +29,10 @@ function summaryText(row) {
   if (Number.isSafeInteger(summary.pid) && summary.pid > 0) parts.push(`PID ${summary.pid}`);
   if (summary.notices > 0) parts.push(`待决 ${summary.notices}`);
   if (summary.waiting_approval > 0) parts.push(`待批计划 ${summary.waiting_approval}`);
-  if (summary.agents_total > 0) parts.push(`执行中 ${summary.agents_total}`);
-  if (summary.pending_merges > 0) parts.push(`待合并 ${summary.pending_merges}`);
-  if (!summary.agents_total) parts.push('空闲');
+  const calls = summary.development?.agents_running ?? summary.agents_running;
+  if (Number.isSafeInteger(calls)) parts.push(calls > 0 ? `调用中 ${calls}` : '无 Agent 调用');
+  if (summary.maintenance_paused === true) parts.push('维护暂停');
+  if (!summary.development && summary.pending_merges > 0) parts.push(`待合并 ${summary.pending_merges}`);
   return parts.join(' · ');
 }
 
@@ -145,7 +147,7 @@ function projectItem(row, repaint, { compact = false, orderSlot = null, restartC
       };
       actions.append(color);
     }
-    item.append(actions);
+    item.append(projectDevelopment(row), actions);
     if (orderSlot) { orderSlot.remove(); item.append(orderSlot); }
   }
   return item;

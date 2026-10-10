@@ -7,6 +7,35 @@ import { check } from '../core/types.js';
 import { readProjectAppearance, saveProjectAppearance } from './project-appearance.js';
 import { canonicalProjectPath, readLauncherState, removeLauncherProject, projectRouteId, writeLauncherState } from './registry.js';
 
+const DEVELOPMENT_COUNTS = ['workers_total','active','awaiting_acceptance','parent_confirmation','agents_running','pending_merges','merging','merge_conflicts'];
+const count = value => Number.isSafeInteger(value) && value >= 0;
+
+/** Host is a derived read surface, not a second Worker store. Drop every non-display field. */
+function developmentView(value) {
+  if (!value || !DEVELOPMENT_COUNTS.every(key => count(value[key])) || !Array.isArray(value.counts)
+    || !Array.isArray(value.recent_workers)) return null;
+  return { ...Object.fromEntries(DEVELOPMENT_COUNTS.map(key => [key, value[key]])),
+    counts: value.counts.slice(0, 32).filter(row => typeof row.status === 'string' && row.status.length <= 40 && count(row.count))
+      .map(({ status, count }) => ({ status, count })),
+    recent_workers: value.recent_workers.slice(0, 3).filter(row => Number.isSafeInteger(row.id) && row.id > 0)
+      .map(row => ({ id: row.id,
+        worker_number: typeof row.worker_number === 'string' && /^W\d+(-\d+)*$/.test(row.worker_number) && row.worker_number.length <= 200 ? row.worker_number : null,
+        display_title: typeof row.display_title === 'string' ? row.display_title.slice(0, 200) : null,
+        goal: typeof row.goal === 'string' ? row.goal.slice(0, 200) : '',
+        status: typeof row.status === 'string' ? row.status.slice(0, 40) : '',
+        integration: typeof row.integration === 'string' ? row.integration.slice(0, 40) : '' })) };
+}
+
+async function readProjectSummary(client) {
+  try { return await client.request('system.summary', { development: true }); }
+  catch (error) {
+    // Older daemon: retain its online identity and clearly mark development details unavailable.
+    // Retry only a proven read-only parameter mismatch, never a timeout or unknown write result.
+    if (error.code !== -32602 || error.message !== 'unknown parameter') throw error;
+    return await client.request('system.summary');
+  }
+}
+
 export function createProjectHost(initialConfig = null, options = {}) {
   const launcher = !initialConfig;
   const env = options.env || process.env;
@@ -144,13 +173,17 @@ export function createProjectHost(initialConfig = null, options = {}) {
           const config = binding?.config || new Config({ project: row.project, env });
           if (!binding && !fs.existsSync(config.socket)) return { ...row, running: false };
           const status = await Promise.race([
-            (binding?.client || new UIClient(config)).request('system.summary'),
+            readProjectSummary(binding?.client || new UIClient(config)),
             new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('项目摘要读取超时')), SUMMARY_TIMEOUT_MS); timer.unref?.(); }),
           ]);
           check(status.project === row.project, 'lushd 项目身份与登记路径不符');
           summaryBackoff.delete(row.project);
+          const development = developmentView(status.development);
           return { ...row, running: true, error: null, summary: { project: status.project, revision: status.revision, provider: status.provider,
             agents_total: status.agents_total ?? 0, notices: status.notices ?? 0,
+            ...(Array.isArray(status.agents) ? { agents_running: status.agents.length } : {}),
+            ...(development ? { development } : {}),
+            ...(typeof status.maintenance?.paused === 'boolean' ? { maintenance_paused: status.maintenance.paused } : {}),
             ...(Number.isSafeInteger(status.pid) && status.pid > 0 ? { pid: status.pid } : {}),
             ...(typeof status.auto_select?.enabled === 'boolean' && typeof status.auto_select.revision === 'string'
               && status.auto_select.revision.length <= 256 ? { auto_select: { enabled: status.auto_select.enabled,

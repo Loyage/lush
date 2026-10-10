@@ -15,7 +15,24 @@
 .workbench-backend-tools{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-top:12px;min-width:0}
 .workbench-service-restart{min-width:0;margin:0;padding:16px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel)}
 .workbench-service-restart p{overflow-wrap:anywhere}.workbench-service-restart .settings-runtime-actions{flex-wrap:wrap}
+/* Override legacy remove/restart/form sizes with one overview action type scale. */
+.project-manager button{font-family:inherit;font-size:12px;font-weight:600;line-height:1.5}
 .workbench-service-restart button,.project-item-actions button{white-space:normal;min-height:44px}
+.project-manager-list .project-status{white-space:normal;overflow-wrap:anywhere;text-align:right;max-width:320px}
+.project-development{grid-column:1/-1;min-width:0;display:grid;gap:12px;border-top:1px solid var(--line-soft);padding-top:14px}
+.project-development-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.project-development-metric{min-width:0;padding:12px;background:var(--panel-2);border:1px solid var(--line-soft);border-radius:10px;display:grid;gap:4px}
+.project-development-value{font-size:26px;line-height:1.2;font-variant-numeric:tabular-nums}
+.project-development-metric small{font-size:10px;line-height:1.6;overflow-wrap:anywhere}
+.project-development-distribution{display:flex;flex-wrap:wrap;gap:6px}
+.project-development-delivery{font-variant-numeric:tabular-nums}
+.project-development-recent{min-width:0;border-top:1px solid var(--line-soft);padding-top:10px}
+.project-development-recent h3{font-size:12px;margin:0 0 6px;color:var(--muted)}
+.project-development-worker{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 10px;padding:7px 0;min-width:0}
+.project-development-worker-link{display:flex;align-items:baseline;gap:8px;flex:1;min-width:min(200px,100%);color:var(--accent);font-size:12px;text-decoration:none}
+.project-development-worker-link:hover{text-decoration:underline;text-underline-offset:3px}
+.project-development-worker-link .tid{flex:none}.project-development-worker-link>span:last-child{min-width:0;overflow-wrap:anywhere}
+@media(max-width:700px){.project-development-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.project-manager-list .project-status{text-align:left;max-width:none}}
 @media(max-width:700px){.workbench-backend-tools{display:grid;grid-template-columns:minmax(0,1fr)}.workbench-service-restart{padding:12px}}
 .project-order{grid-column:1/-1;min-width:0;border-top:1px solid var(--line-soft);padding-top:10px}
 .project-order-form{display:grid;gap:10px;margin-top:12px;min-width:0}

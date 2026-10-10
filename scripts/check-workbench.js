@@ -8,11 +8,18 @@ import { projectRouteId } from '../src/host/registry.js';
 import { readProjectAppearance, saveProjectAppearance } from '../src/host/project-appearance.js';
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lush-workbench-ui-')));
-let offline = false;
+let offline = false, richProjects = false;
+const development = { workers_total: 314, active: 5, agents_running: 2, awaiting_acceptance: 3, parent_confirmation: 4,
+  pending_merges: 7, merging: 1, merge_conflicts: 2,
+  counts: [{ status: 'running', count: 2 }, { status: 'waiting', count: 3 }, { status: 'completed', count: 309 }],
+  recent_workers: [{ id: 8, worker_number: 'W186-1', display_title: '最新开发状态与很长的自定义展示标题'.repeat(5), status: 'running', integration: 'pending' },
+    { id: 9, worker_number: null, goal: 'long-unbroken-worker-title-'.repeat(8), status: 'awaiting_acceptance', integration: 'merged' }] };
 const selected = [], fixtureProject = path.join(root, 'mock-project'), secondProject = path.join(root, 'second-project');
 for (const project of [fixtureProject, secondProject]) fs.mkdirSync(project);
 const fixtureEnv = { HOME: root, LUSH_GLOBAL_CONFIG: root };
-const entries = () => [...new Set(selected)].map(project => ({ id: projectRouteId(project), name: path.basename(project), project, running: false }));
+const entries = () => [...new Set(selected)].map((project, index) => ({ id: projectRouteId(project), name: path.basename(project), project,
+  running: richProjects && index === 0,
+  ...(richProjects && index === 0 ? { summary: { pid: 1234, notices: 6, development } } : {}) }));
 function appearance(id, body) {
   const project = entries().find(row => row.id === id)?.project;
   if (!project) throw new Error('unknown fixture project');
@@ -279,6 +286,19 @@ try {
     assert(await evaluate(`(() => { const section=document.querySelector('.workbench-service-restart'); return ['pause','resume'].every(kind=>{const b=section?.querySelector('[data-service-restart="'+kind+'"]'); if(!b)return false;const r=b.getBoundingClientRect();return b.disabled && r.width>=44 && r.height>=44 && r.left>=0 && r.right<=innerWidth && b.parentNode.classList.contains('help-host') && b.parentNode.getAttribute('data-help');}) && section.querySelector('[data-service-restart="resume"]').classList.contains('agent-call'); })()`), `global maintenance controls missing/clipped or lack disabled help/Agent marker ${theme}/${width}`);
     await screenshot(`${theme}-${width}`);
     console.log(`PASS workbench layout ${theme}/${layout.width}`);
+  }
+  richProjects = true;
+  await click('#projects-open');
+  await until(`document.querySelector('.project-development-metrics') !== null`);
+  await evaluate(`document.querySelector('.project-order > button').click()`);
+  await until(`document.querySelector('.project-order-form textarea') !== null`);
+  for (const theme of ['light', 'dark']) for (const width of [1440, 900, 390, 320]) {
+    await resize(width); await evaluate(`document.documentElement.dataset.theme='${theme}'`);
+    assert(await evaluate(`(() => { const buttons=[...document.querySelectorAll('.project-manager button')];const fonts=buttons.map(b=>{const s=getComputedStyle(b);return [s.fontFamily,s.fontSize,s.fontWeight,s.lineHeight].join('|')});return buttons.length>=10&&new Set(fonts).size===1&&fonts[0].includes('12px'); })()`), `overview action typography differs at ${theme}/${width}`);
+    assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth && document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth && [...document.querySelectorAll('.project-development,.project-development-metric,.project-development-worker-link')].every(n=>n.scrollWidth<=n.clientWidth+1)`), `development card overflow at ${theme}/${width}`);
+    assert(await evaluate(`(() => { const cards=document.querySelectorAll('.project-development');const link=cards[0].querySelector('a');link.focus();return cards[0].textContent.includes('314')&&cards[0].textContent.includes('4 个派生 Worker 待父确认')&&cards[0].textContent.includes('2 个 Agent 正在调用')&&link.href.endsWith('/#worker-8')&&link.target==='_blank'&&link.rel==='noopener'&&document.activeElement===link&&cards[1].textContent.includes('当前开发状态未确认')&&!cards[1].querySelector('.project-development-metrics'); })()`), `development state or keyboard links failed at ${theme}/${width}`);
+    await screenshot(`development-${theme}-${width}`);
+    console.log(`PASS project development cards and uniform action typography ${theme}/${width}`);
   }
   await resize(1440);
   offline = true; await navigate(origin);

@@ -43,9 +43,9 @@ test('项目管理画在主内容，不再 inert 应用或显示阻塞 gate', as
 });
 
 test('后台总览展示真实进程摘要及指令输入，不再提供处理消息按钮，刷新不丢草稿或另起后台', async () => {
-  state = { ...state, projects: [{ ...row, running: true, summary: { pid: 1234, agents_total: 2, notices: 3, pending_merges: 1 } }] };
+  state = { ...state, projects: [{ ...row, running: true, summary: { pid: 1234, agents_total: 20, agents_running: 2, notices: 3, pending_merges: 1 } }] };
   await picker.openProjectManager({ push: false });
-  const panel = dom.node('detail'); expect(deepText(panel)).toContain('PID 1234'); expect(deepText(panel)).toContain('执行中 2');
+  const panel = dom.node('detail'); expect(deepText(panel)).toContain('PID 1234'); expect(deepText(panel)).toContain('调用中 2'); expect(deepText(panel)).not.toContain('执行中 20');
   expect(deepText(panel)).toContain('在线后台 1');
   expect(panel.querySelectorAll('a').find(link => link.textContent === '处理消息')).toBeUndefined();
   const slot = panel.querySelector('.project-order'); await slot.querySelector('button').onclick();
@@ -190,6 +190,32 @@ test('已移除项目地址保留 shell，不静默绑定或回落其它项目',
   expect(picker.workbenchStatus().projectUsable).toBe(false);
   expect(globalThis.location.pathname).toBe('/p/ffffffffffffffff/');
   globalThis.location.pathname = '/';
+});
+
+test('开发卡片显示全项目指标、父确认与独立项目最近链接，刷新离线不冒充零状态', async () => {
+  const development = { workers_total: 305, active: 5, agents_running: 0, awaiting_acceptance: 2, parent_confirmation: 4,
+    pending_merges: 7, merging: 1, merge_conflicts: 3, counts: [{ status: 'waiting', count: 5 }, { status: 'completed', count: 300 }],
+    recent_workers: [{ id: 8, worker_number: 'W186-1', goal: '<script>unsafe</script>', display_title: '自定义标题', status: 'awaiting_acceptance', integration: 'merged' },
+      { id: 9, worker_number: null, goal: '历史工作', status: 'paused', integration: 'none' }] };
+  state = { ...state, projects: [{ ...row, running: true, summary: { agents_total: 90, notices: 6, development } },
+    { ...row, id: 'bbbbbbbbbbbbbbbb', running: true, summary: { notices: 0, development: { ...development,
+      recent_workers: [{ id: 8, worker_number: 'W77', goal: '另一个项目', status: 'waiting', integration: 'none' }] } } }] };
+  await picker.openProjectManager({ push: false });
+  const panel = dom.node('detail'), cards = panel.querySelectorAll('.project-development');
+  expect(cards).toHaveLength(2);
+  expect(cards[0].querySelectorAll('.project-development-value').map(node => node.textContent)).toEqual(['305','5','2','6']);
+  expect(deepText(cards[0])).toContain('0 个 Agent 正在调用');
+  expect(deepText(cards[0])).toContain('4 个派生 Worker 待父确认');
+  expect(deepText(cards[0])).toContain('已完成 300');
+  expect(deepText(cards[0])).toContain('待合并 7 · 合并中 1 · 合并冲突 3');
+  expect(deepText(cards[0])).toContain('自定义标题'); expect(deepText(cards[0])).not.toContain('<script>');
+  const first = cards[0].querySelectorAll('a'); expect(first.map(link => link.href)).toEqual([`/p/${ID}/#worker-8`, `/p/${ID}/#worker-9`]);
+  expect(first.every(link => link.target === '_blank' && link.rel === 'noopener')).toBe(true);
+  expect(deepText(first[0])).toContain('W186-1'); expect(deepText(first[1])).toContain('#9');
+  expect(deepText(cards[1])).toContain('W77'); expect(cards[1].querySelector('a').href).toBe('/p/bbbbbbbbbbbbbbbb/#worker-8');
+  state.projects[0].running = false; await picker.refreshProjectList();
+  const offline = panel.querySelector('.project-development');
+  expect(deepText(offline)).toContain('当前开发状态未确认'); expect(offline.querySelector('.project-development-metrics')).toBeNull();
 });
 
 test('无效项目地址保留 shell，不请求或回落到其它项目', async () => {

@@ -28,7 +28,7 @@
 |---|---|---|
 | `app.js` | 唯一入口：根 shell 用户工作台、项目固定 `/p/id`，旧项目设置书签引导根新标签；独立装配并释放设备偏好／策略／全局提醒观察者，仅项目装配开发与概览／正文轮询；权威偏好就绪后启动提醒；静态启动闭包和懒页面保留 boot／DOM／导航代次保护，重复 boot 不绑定旧页面或重放通知 | `boot()` |
 | `route.js` | 固定 `/p/<pid>/` 项目身份，根不冒充单项目；Host／文档根路由，未知项目不回落；设备偏好统一，preferenceScope 仅项目工作状态 | `routeContext()`、`projectRoute()`、`projectBase()`、`projectApi()`、`projectHref()`、`workspaceHref()`、`preferenceScope()` |
-| `project-picker.js` | 根后台总览：已登记项目状态／PID（无“处理消息”按钮），显式刷新保留指令表单；按需加载新指令表单；根不跳上次项目；独立窗口打开、登记/移除入口、显式后台启停，未选项目不启动快照轮询，不使主体 inert | `ensureProject()`、`openProjectManager()`、`openProjectPicker()`、`closeProjectPicker()`、`refreshProjectList()`、`workbenchStatus()` |
+| `project-picker.js` | 根后台总览：已登记项目状态／PID 与开发摘要（精确状态指标＋最近 Worker，无“处理消息”按钮），统一操作字体；显式刷新保留指令表单；按需加载新指令表单；根不跳上次项目；独立窗口打开、登记/移除入口、显式后台启停，未选项目不启动快照轮询，不使主体 inert | `ensureProject()`、`openProjectManager()`、`openProjectPicker()`、`closeProjectPicker()`、`refreshProjectList()`、`workbenchStatus()` |
 | `project-order-form.js` | 根总览按需新指令表单：固定来源项目／main，创建与开始分离、离线禁发送、跨刷新单飞、会话草稿隔离、迟到 ACK 不清新输入，未知失败不重试 | `createProjectOrderForm(row,{ownsPage}?)` → `{root,update(row)}` |
 | `styles-workbench.css` | 两种 shell、全局导航／事项／自动化与项目管理布局，双主题与窄屏 | CSS |
 | `workspace-shell.js` | 根与项目导航分离；项目只留内部页面，品牌原生新标签入口保留项目现场；收件箱计数只在根导航，不画顶部摘要 | `configureWorkspaceShell()`、`workspaceLink(id,hash,open)`、`renderGlobalInboxSummary(summary)` |
@@ -141,6 +141,7 @@
 | `detail-reading.js` | Worker 详情位置保护：以可见模块正文为几何锚点，按标题及出现次序找回模块，优先复用正文节点；补偿主体刷新、渐进补丁与异步高度变化；区分桌面详情滚动与手机页面滚动，窗口变化与显式导航不强行保持旧坐标 | `captureDetailReading(panel)`、`restoreDetailReading(panel,state)` |
 | `detail-preview.js` | Worker 详情阅读模块的统一高度预览（收起正文为 `min(400px,50dvh)`，自然高度超出 120px 才收起，余量内完整显示）、明显超长才显示展开/收起；收起且裁剪的正文底部渐隐提示后续内容，预览说明仅供读屏，短模块及展开后不渐隐；单个模块而非单条消息限高，保留完整 DOM、引用与同 Worker 刷新时的手动状态；自然正文、模块外框与限高标尺的 ResizeObserver 跟随内容和窗口宽高变化，异步增长保留阅读锚点；页面滚动更新锚点，显式展开/收起和窗口变化不被旧位置覆盖；导航释放观察器及滚动监听，不裁剪操作栏、交付、Hooks 或待决表单；键盘进入正文与引用定位自动展开，不调用 API | `limitDetailModules(panel,{taskId,from?})`、`revealDetailPreview(node)`、`disposeDetailModules(panel)` |
 | `render-detail.js` | Worker 详情整页：非终态 指令/child 的操作栏首位提供「向该 Worker 追加输入」，只切换并聚焦底部输入框，不弹窗、不调用 Agent；实际发送经 composer 的 `worker.message`，冻结不禁用追加、展示暂存条数与等待原因，暂停中的Worker仍需开始 / 继续；一句话短标题（`taskTitle`）、`render-conversation.js` 统一目标／追加输入／各轮结果的左右气泡（默认倒序，可切正序）、状态与 Worker 操作；头部用 `roleBadge` 显示专用及历史类型颜色（不显示通用 `agent` 角色标签；Agent 身份与运行信息保留），`task.route` 为真时另带「⚡ 快速路由」徽章，`task_kind='analysis'` 另带「只读分析」徽章；旧 `task.analyze` 分支分析入口已下线，不因 Worker 更名重新开放；成功收口用「验收」并回收开发资源，失败／取消／特殊历史现场另给「清理资源」入口，不伪装成果验收；另提供 `worker-delete.js` 的不可逆「删除」入口，清专属历史与资源；有可归档分支时显示（读模型 `branch_archive` 投影，复用 `branch-archive.js`，与 Worker 图同源），一起删除 worktree 与本地 ref，保留Worker和历史记录；来源摘要接收本地连接列表以显示来源名称 | `renderDetail(task, history, diff, usage, connections?, progressive?:{current,requestDiff?,signal?,loaded?})`（渐进路径返回 `{update,dispose}`，按区补齐并保护阅读状态）、`renderDetailError(taskId, message)` |
+| `project-development.js` | 总览项目卡片只读开发指标、状态分布、合并情况与最近 3 个 Worker；独立项目新标签链接直接使用显式编号，不污染根页面的项目编号缓存；离线／旧后台摘要缺失明确未确认 | `projectDevelopment(row)` |
 | `render-overview.js` | 项目概览：维护暂停／继续入口、Worker 指标、最近Worker、待决与运行中的 Agent，运行时信息默认折叠；没有旧分支图入口，也不再拉 Git 分支图 | `renderOverview(data)` |
 | `task-graph-usage.js` | Worker 卡片自身/折叠子树的运行时长、输入、输出、美元估算；消费后端完整摘要，未知明示、聚合加粗、运行闪烁及键盘帮助 | `resourceSummary(node,folded)` |
 | `task-graph-layout.js` | Worker 父子森林纯逻辑：缺失父节点作为可见根，坏数据成环不死循环；`layout_parent_id` 仅用于隐藏中间节点的布局，保留真实 `parent_id`。根与各层可见兄弟按自身关注度分档、同档创建时间倒序（ID 倒序兜底），不汇总后代或冒充 runtime 执行次序；完整规则见[Worker 图展示排序](task-graph.md#合并关系展示排序与动效) | `taskForest(graph)` |
@@ -200,7 +201,7 @@ Agent / 来源两页真实浏览器回归：`bun run check:agent-layout`（`scri
 | `src/ui/web/server.js` | Host 的 HTTP 适配器：UI 资源、认证、窄 API 路由与 `/p/<project-id>/` 项目身份路由；项目连接与发现委托 `src/host/project-host.js` | `startWeb()`（同步） 、`rememberWebProject()` |
 | `src/ui/web/static-assets.js` | 进程共享静态产物、内容版本/有界私有临时快照、预压缩/编码协商/ETag；调用方先鉴权 | `webStaticAssets()`、`createStaticAssets(options?)`、`staticEncoding(header)` |
 | `src/ui/web/build-assets.js` | 隔离 Bun 浏览器构建、动态拆包、静态闭包预加载及保序 CSS 合并，不读取项目数据 | `buildAssets(assets,outdir,version)`；同文件子进程入口 |
-| `src/host/project-host.js` | 已登记项目连接缓存与身份解析、显式按需启动；列表只探测，appearance／saveAppearance 独立管理项目辨识色、不附着 daemon | `createProjectHost()` |
+| `src/host/project-host.js` | 已登记项目连接缓存与身份解析、显式按需启动；列表只探测，显式请求有界开发摘要并白名单投影；旧 daemon 参数不支持时只读降级，appearance／saveAppearance 独立管理项目辨识色、不附着 daemon | `createProjectHost()` |
 | `src/host/user-services.js` | 用户工作台的惰性设备偏好／策略及 Inbox 适配；固定设备根、严格请求白名单、依赖注入和 Host shutdown 收口，不构造项目或模型调用 | `createUserServices(projectHost,options)` → `readPreferences/savePreferences/readAutomation/saveAutomation/listInbox/getNotice/actionInbox/close`；[工作台契约](user-workspace.md) |
 | `src/host/global-inbox.js` | 已登记／有权项目的全历史增量派生视图、私有有界缓存、来源离线／补齐状态、删除与 epoch reset；动作在线重核并转发原事务，不启动 daemon、不成为答案权威 | `GlobalInboxService(projectHost,options).list/get/action/refresh/close`；[同步契约](user-workspace.md#全局收件箱分区) |
 | `src/host/project-appearance.js` | 项目辨识色私有读写、跨进程分配锁与 revision 冲突；旧 theme 保留但不再允许修改，不启动 daemon 或读取 Worker 事实 | `readProjectAppearance()`、`saveProjectAppearance()`、`validateAppearanceUpdate()` |

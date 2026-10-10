@@ -4,7 +4,7 @@ import { normalizeConfigurationScope } from '../core/device-config.js';
 // Public API for the Worker-centred workflow. Historical rows remain on disk, but
 // Intent/Plan/Candidate and optional services cannot create new work.
 export const PARAMS = {
-  'system.status': [], 'system.summary': [], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings','scope'],
+  'system.status': [], 'system.summary': ['development'], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings','scope'],
   'system.settings': ['scope'], 'system.interrupt_all': [], 'system.resume_all': [],
   'settings.clear_override': ['kind','target'], 'settings.migration.preview': [], 'settings.migration.apply': ['revision','confirm'],
   'agent.config': ['scope'], 'agent.models': ['agent','scope'], 'agent.resources': ['scope'], 'agent.status': ['scope'], 'agent.configure': ['config','scope'],

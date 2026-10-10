@@ -87,19 +87,46 @@ test('busy stop preserves binding and identity; stop/remove cannot race or accep
 
 test('backend overview publishes validated process PID and safe unreachable diagnostics without changing Worker facts', async () => {
   const f = setup(); let pid = 1234;
-  f.binding.client.request = async method => {
-    expect(method).toBe('system.summary');
-    return { project: f.root, pid, agents_total: 2, notices: 3, pending_merges: [17], credential: 'never project this' };
+  f.binding.client.request = async (method, params) => {
+    expect(method).toBe('system.summary'); expect(params).toEqual({ development: true });
+    return { project: f.root, pid, agents_total: 2, agents: [], notices: 3, pending_merges: [17], credential: 'never project this' };
   };
   try {
     await f.host.start(f.id);
     const [running] = await f.host.projects(); expect(running.running).toBe(true);
     expect(running.summary).toMatchObject({ pid: 1234, agents_total: 2, notices: 3, pending_merges: 1 });
     expect(running.summary.credential).toBeUndefined();
+    expect(running.summary.agents_running).toBe(0);
     pid = 'invalid'; expect((await f.host.projects())[0].summary.pid).toBeUndefined();
     f.binding.client.request = async () => { throw Error('private error payload'); };
     const failed = (await f.host.projects())[0]; expect(failed.running).toBe(false); expect(failed.error).toContain('未确认');
     expect(failed.error).not.toContain('private error'); expect(f.calls).toEqual([['start', f.root]]);
+  } finally { f.close(); }
+});
+
+test('Host development projection is bounded, credential-free and does not turn old daemons offline', async () => {
+  const f = setup(), calls = [];
+  const development = { workers_total: 500, active: 4, agents_running: 1, awaiting_acceptance: 2, parent_confirmation: 7,
+    pending_merges: 130, merging: 1, merge_conflicts: 2, secret: 'private', counts: [{ status: 'paused', count: 4, secret: 'private' }],
+    recent_workers: Array.from({ length: 10 }, (_, i) => ({ id: i + 1, worker_number: 'W22-1', goal: 'x'.repeat(1000), status: 'waiting',
+      integration: 'none', profile: { env: { secret: 'private' } } })) };
+  let old = false;
+  f.binding.client.request = async (method, params) => {
+    calls.push([method, params]);
+    if (old && params) throw Object.assign(Error('unknown parameter'), { code: -32602 });
+    return { project: f.root, agents: [], maintenance: { paused: true, private: 'private' }, ...(old ? {} : { development }) };
+  };
+  try {
+    await f.host.start(f.id);
+    const row = (await f.host.projects())[0];
+    expect(row.summary.development.workers_total).toBe(500); expect(row.summary.development.pending_merges).toBe(130);
+    expect(row.summary.development.recent_workers).toHaveLength(3);
+    expect(row.summary.development.recent_workers[0].goal).toHaveLength(200);
+    expect(row.summary.maintenance_paused).toBe(true); expect(JSON.stringify(row)).not.toContain('private');
+    old = true;
+    const legacy = (await f.host.projects())[0]; expect(legacy.running).toBe(true); expect(legacy.summary.development).toBeUndefined();
+    expect(calls.slice(-2)).toEqual([['system.summary', { development: true }], ['system.summary', undefined]]);
+    expect(f.calls).toEqual([['start', f.root]]);
   } finally { f.close(); }
 });
 

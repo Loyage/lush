@@ -13,7 +13,9 @@ export const handlers = {
   'system.status'(p, params, actor) { return { ...p.status(actor === null), ...this.identity, pid: process.pid }; },
   // Polling summary has its own indexed/persistent-cursor path and never opens the full Agent profile.
   'system.summary'(p, params, actor) {
+    check(params.development === undefined || typeof params.development === 'boolean', 'development must be boolean');
     const summary = { ...p.summary(), ...this.identity, pid: process.pid };
+    if (params.development === true && actor === null) summary.development = p.developmentSummary();
     // Only the user polling surface gets this narrow authorization mirror;
     // Agent summaries still cannot read Hook configuration or receipts.
     if (actor === null) {
