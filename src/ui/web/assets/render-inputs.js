@@ -10,6 +10,7 @@ import { locatable, locateReference } from './context-references.js';
 import { ui } from './state.js';
 import { chooseCreationProfile } from './creation-profile-dialog.js';
 import { show } from './messages.js';
+import { attachTextEditor } from './text-editor.js';
 
 export const INPUT_STATUS = {
   draft: '暂存', created: '已创建·待开始', queued: '排队中', running: '执行中', waiting: '等待中',
@@ -204,6 +205,7 @@ export function openInputs({ item = null, push = true } = {}) {
     const mounted = record.kind === 'draft' && record.hook_mount;
     const editable = record.kind === 'draft' && !mounted;
     rememberWorkers(parents);
+    state.editor?.textEditor?.dispose();
     const editor = { busy: false, dirty: () => false, recordKey: keyOf(record) }; state.editor = editor;
     const current = () => ownsPage() && state.editor === editor;
     if (mounted) {
@@ -251,6 +253,10 @@ export function openInputs({ item = null, push = true } = {}) {
     const content = editable ? el('textarea') : el('pre', record.content, 'input-original');
     if (editable) { content.value = record.content; content.rows = 10; content.maxLength = 32000; content.setAttribute('aria-label', '草稿正文'); }
     panel.append(content);
+    if (editable) {
+      editor.textEditor = attachTextEditor(content);
+      panel.append(editor.textEditor.controls);
+    }
     const parent = el('select'); parent.setAttribute('aria-label', '草稿父 Worker');
     const parentHint = el('p', undefined, 'hint');
     if (editable) {
@@ -324,7 +330,7 @@ export function openInputs({ item = null, push = true } = {}) {
       mutating.push(profile.node); actions.append(profile.host);
     }
     function setBusy(busy) {
-      editor.busy = busy; if (editable) { content.disabled = busy; parent.disabled = busy; }
+      editor.busy = busy; if (editable) { content.disabled = busy; parent.disabled = busy; editor.textEditor.sync(); }
       for (const node of [...mutating, ...referenceControls]) node.disabled = busy;
     }
     async function persist() {
@@ -337,7 +343,12 @@ export function openInputs({ item = null, push = true } = {}) {
         ...(target.id !== saved.parent_id || target.branch !== saved.branch ? { branch: target.branch } : {}), expected_revision: saved.revision });
       // Update the captured revision even if navigation happened; never repaint a different page.
       saved = updated;
-      if (current()) { content.value = updated.content; references = [...updated.references]; parent.value = String(updated.parent_id); paintReferences(); setBusy(true); }
+      if (current()) {
+        // Saving moves the server revision forward, not the local body history.
+        // Only a genuinely replaced body establishes a new empty undo boundary.
+        if (content.value !== updated.content) { content.value = updated.content; editor.textEditor.reset(); }
+        references = [...updated.references]; parent.value = String(updated.parent_id); paintReferences(); setBusy(true);
+      }
     }
     async function mutate(kind) {
       if (!current() || editor.busy) return;
@@ -359,7 +370,7 @@ export function openInputs({ item = null, push = true } = {}) {
             ...(selectedParent()?.freeze || runProfile ? { defer: true } : {}), ...(runProfile ? { profile: runProfile } : {}) });
           if (!current()) return;
           if (result.deferred) {
-            state.editor = null;
+            editor.textEditor.dispose(); state.editor = null;
             panel.replaceChildren(el('h2', '预约已挂载'), el('p', '尚未创建 Worker、工作区或调用 Agent。正文、引用和运行设置已保存在父 Worker 的一次性 Hook 中；请到挂载区查看等待、取消和执行结果。此草稿在授权期间不能重复发射或改写。', 'hint'),
               button(`查看父 Worker ${workerLabel(result.parent_id)} 的 Hooks`, () => detail(result.parent_id), 'ghost hook-button', { help: '查看实际挂载与执行状态，不重复发射。' }));
             return;
@@ -368,7 +379,7 @@ export function openInputs({ item = null, push = true } = {}) {
             button(`查看 Worker ${workerLabel(result.task)}`, () => detail(result.task.id)));
         }
         if (!current()) return;
-        state.editor = null; state.items.delete(keyOf(saved)); paintList();
+        editor.textEditor?.dispose(); state.editor = null; state.items.delete(keyOf(saved)); paintList();
         if (kind === 'remove') panel.replaceChildren(el('p', '草稿已删除。', 'hint'));
         await load();
       } catch (error) {

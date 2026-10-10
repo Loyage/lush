@@ -540,6 +540,20 @@ button.notice-banner-info{border-color:var(--accent)}
   .graph-decision{padding:9px}.graph-decision-body{font-size:11px}body:has(#detail[data-view="settings"]) .composer,body:has(#detail[data-view="docs"]) .composer{display:none}.composer{position:sticky;bottom:0;padding:7px 10px calc(7px + env(safe-area-inset-bottom,0px))}.composer-heading{margin-bottom:3px}.composer-heading label{font-size:10px}.composer-target{gap:4px}.composer-target label,.composer-target .hint{display:none}.composer-target input,.composer-target select{min-width:0;max-width:none;padding:4px 7px;font-size:9px}.composer-input{margin:4px 0 5px}.composer-input textarea{margin:0}.composer textarea{min-height:34px;max-height:16vh;padding:7px 9px}.composer-actions{width:auto;flex:0 1 auto;flex-wrap:nowrap;min-width:0;max-width:100%}.composer-actions button{font-size:9px;padding:5px 7px;min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.composer-expand{max-width:34vw}.draft-toggle{font-size:9px;min-width:0;max-width:34vw;overflow:hidden;text-overflow:ellipsis}
 }
 
+/* Touch editing: controls stay readable, wrap instead of shrinking, and follow the keyboard. */
+.composer-editor-tools{margin:4px 0 8px}
+.text-editor-controls{display:flex;gap:8px;align-items:center}
+.text-editor-controls button{font-size:12px}
+@media(max-width:760px){
+  body{padding-bottom:var(--composer-keyboard-inset,0px)}
+  .composer{bottom:var(--composer-keyboard-inset,0px)}
+  .composer textarea{max-height:calc(var(--composer-visible-height,100dvh) * .25)}
+  .composer-actions{width:100%;flex-wrap:wrap;gap:6px;justify-content:flex-start}
+  .composer-actions button,.text-editor-controls button{min-height:44px;font-size:12px;padding:9px 10px;flex:none;white-space:normal;overflow:visible;text-overflow:clip}
+  .composer-actions .composer-expand,.composer-actions .composer-run-settings{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .composer-editor-tools{margin:3px 0 5px}
+}
+
 /* ---------- 统一按钮帮助提示与 Agent 触发标识（help.js / dom.js / dialog.js） ---------- */
 /* 可能 disabled 的按钮不派发鼠标事件，所以约定用外层 span.help-host 承载 data-help；
    display:contents 让它不参与布局，视觉上按钮还是原样。 */

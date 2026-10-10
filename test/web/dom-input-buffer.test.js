@@ -1,6 +1,7 @@
 import { test, expect, beforeEach, afterAll } from 'bun:test';
 import { installDom } from '../dom-stub.js';
 import { until } from '../helpers.js';
+import { editorEvent, editorInput } from './text-editor-events.js';
 
 const json = data => ({ ok: true, json: async () => data });
 const deferred = () => { let resolve, reject; const promise = new Promise((done, fail) => { resolve = done; reject = fail; }); return { promise, resolve, reject }; };
@@ -356,7 +357,7 @@ test('常驻模式条在打字、导航、父选择及阻塞状态下准确区�
   expect(target.textContent).toBe('父 Worker：main');
   expect(behavior.textContent).toContain('Enter 暂存');
   expect(behavior.textContent).toContain('待开始');
-  expect(dom.node('draft-commit').textContent).toBe('创建 Worker');
+  expect(dom.node('draft-commit').textContent).toBe('仅创建');
   dom.node('input-parent').value = 'feature/old-parent'; type('有文字也要看得见');
   expect(target.textContent).toContain('#800');
   expect(title.hidden).toBe(false);
@@ -584,7 +585,84 @@ test('创建确认仅消费提交时配置，提交中重新选择的配置和�
   expect(input().value).toBe('第二条'); expect(composerReferences()).toEqual([ref('第二条')]); expect(opened).toBeNull();
 });
 
-test('暂存不标 Agent，发送保留标识与禁用宿主帮助', async () => {
+test('共享正文工具异步装配只绑定最新初始化，正文撤销更新编辑代次而不提交', async () => {
+  const first = initComposer(), second = initComposer(), identity = ui.composerIdentity;
+  await Promise.all([first, second]);
+  expect(ui.composerIdentity).toBe(identity);
+  const controls = dom.node('composer-editor-tools');
+  expect(controls.querySelectorAll('.text-editor-controls')).toHaveLength(1);
+  expect(controls.querySelectorAll('button')).toHaveLength(2);
+  const before = ui.composerEditRevision, callCount = calls.length;
+  editorInput(input(), '可撤销正文'); expect(ui.composerEditRevision).toBe(before + 1);
+  const key = editorEvent(input(), 'keydown', { key: 'z', ctrlKey: true });
+  expect(key.defaultPrevented).toBe(true); expect(input().value).toBe('');
+  expect(ui.composerEditRevision).toBe(before + 2); expect(calls).toHaveLength(callCount);
+  editorEvent(input(), 'keydown', { key: 'z', ctrlKey: true, shiftKey: true });
+  expect(input().value).toBe('可撤销正文'); expect(ui.composerEditRevision).toBe(before + 3);
+  await initComposer(); expect(controls.querySelector('.text-editor-undo').disabled).toBe(true);
+  expect(controls.querySelector('.text-editor-redo').disabled).toBe(true);
+});
+
+test('手机普通回车只换行，桌面及 Ctrl/⌘ 组合键保持原行为；追加无新建开始入口', async () => {
+  window.matchMedia = () => ({ matches: true });
+  try {
+    type('手机正文');
+    expect(await enter()).toBe(false); expect(calls).toHaveLength(0);
+    expect(input().placeholder).toContain('回车换行');
+    expect(await enter({ ctrlKey: true })).toBe(true); expect(calls.at(-1).params.start).toBe(false);
+    type('立即开始'); await enter({ metaKey: true, shiftKey: true }); expect(calls.at(-1).params.start).toBe(true);
+    openWorker(); type('手机追加'); const count = calls.length;
+    expect(await enter()).toBe(false); expect(calls.length).toBe(count);
+    expect(dom.node('input-start').hidden).toBe(true); expect(dom.node('input-start-help').hidden).toBe(true);
+    await dom.node('input-form').onsubmit({ preventDefault() {} }); expect(calls.at(-1).method).toBe('worker.message');
+  } finally { delete window.matchMedia; }
+});
+
+test('树页定向追加保留手机换行和文字撤销，实际发送后仍留树页、不显示新建开始按钮', async () => {
+  window.matchMedia = () => ({ matches: true });
+  try {
+    activateDetailView({ view: 'task-graph', key: 'task-graph' }); ui.taskGraphIds = new Set([126]);
+    const view = ui.view; editorInput(input(), '树页正文');
+    appendToWorker({ id: 126, worker_number: 'W126', task_kind: 'order', status: 'waiting', branch: 'feature', workspace: '/tmp/fixture', goal: '树页目标' });
+    expect(dom.node('input-form').dataset.mode).toBe('append'); expect(input().value).toBe('树页正文');
+    expect(await enter()).toBe(false); expect(calls).toHaveLength(0); expect(dom.node('input-start').hidden).toBe(true);
+    editorInput(input(), '树页正文\n补充'); dom.node('composer-editor-tools').querySelector('.text-editor-undo').onclick();
+    expect(input().value).toBe('树页正文'); expect(ui.view).toBe(view);
+    await dom.node('input-form').onsubmit({ preventDefault() {} }); await Promise.resolve(); await Promise.resolve();
+    expect(calls[0]).toMatchObject({ method: 'worker.message', params: { id: 126, body: '树页正文' } });
+    expect(ui.view).toBe(view); expect(opened).toBeNull(); expect(input().value).toBe('');
+    expect(dom.node('composer-editor-tools').querySelector('.text-editor-undo').disabled).toBe(true);
+    expect(dom.node('input-form').dataset.mode).toBe('create');
+  } finally { delete window.matchMedia; }
+});
+
+test('可见发射并开始带引用及配置，共用单飞；成功消费清空历史、失败保留撤销', async () => {
+  editorInput(input(), '待发射正文'); setComposerReferences([ref('来源')]);
+  ui.composerProfile = { agent: 'pi', config_mode: 'pi' }; const gate = deferred(); intercept = () => gate.promise;
+  const send = dom.node('input-start').onclick();
+  expect(dom.node('input-start').disabled).toBe(true); expect(dom.node('draft-commit').disabled).toBe(true);
+  await dom.node('input-start').onclick(); await buffer(); expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ method: 'order.submit', params: { start: true, references: [ref('来源')], profile: { agent: 'pi', config_mode: 'pi' } } });
+  gate.resolve(json({ task: { id: 90 } })); await send;
+  const tools = dom.node('composer-editor-tools'); expect(input().value).toBe(''); expect(tools.querySelector('.text-editor-undo').disabled).toBe(true);
+  editorInput(input(), '失败不丢'); intercept = () => ({ ok: false, json: async () => ({ error: '提交失败' }) });
+  await dom.node('input-start').onclick(); expect(input().value).toBe('失败不丢');
+  expect(tools.querySelector('.text-editor-undo').disabled).toBe(false); tools.querySelector('.text-editor-undo').onclick();
+  expect(input().value).toBe(''); expect(calls).toHaveLength(2);
+});
+
+test('发射在途修改再撤销到原文也不被迟到确认清空；重新编辑丢弃重做分支', async () => {
+  editorInput(input(), '原文'); const gate = deferred(); intercept = () => gate.promise;
+  const send = dom.node('input-start').onclick(); editorInput(input(), '原文加字');
+  const tools = dom.node('composer-editor-tools'); tools.querySelector('.text-editor-undo').onclick();
+  expect(input().value).toBe('原文'); gate.resolve(json({ task: { id: 90 } })); await send;
+  expect(input().value).toBe('原文'); expect(tools.querySelector('.text-editor-redo').disabled).toBe(false);
+  editorInput(input(), '下一条'); expect(tools.querySelector('.text-editor-redo').disabled).toBe(true);
+});
+
+test('暂存和仅创建不标 Agent，发射并开始保留标识与禁用宿主帮助', async () => {
   expect(dom.node('input-buffer').classList.contains('agent-call')).toBe(false);
-  expect(dom.node('input-send-help').getAttribute('data-help')).toContain('token');
+  expect(dom.node('draft-commit').classList.contains('agent-call')).toBe(false);
+  expect(dom.node('input-send-help').getAttribute('data-help')).toContain('不调用 Agent');
+  expect(dom.node('input-start-help').getAttribute('data-help')).toContain('token');
 });

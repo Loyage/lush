@@ -1,4 +1,5 @@
 import { $, button, el } from './dom.js';
+import { attachComposerViewport, usesTouchEnter } from './composer-viewport.js';
 import { workerKind } from './worker-kind.js';
 import { action, api } from './api.js';
 import { taskTitle, isHistoricalDelivery } from './format.js';
@@ -24,7 +25,7 @@ export function runSettingsLabel() {
 }
 
 // 动态插入的按钮节点：DOM 测试的 stub 只能按 id 查静态元素，所以这里保留引用并统一经它重画。
-let runSettingsButton = null;
+let runSettingsButton = null, textEditor = null, disposeViewport = null;
 
 export function paintRunSettings() {
   if (!runSettingsButton) return;
@@ -201,6 +202,8 @@ export function syncComposer() {
   renderParentOptions();
   const target = destination(), followup = target.id != null;
   const input = $('input');
+  const touch = usesTouchEnter();
+  const enter = touch ? '回车换行 · 按钮' : 'Enter';
   const label = followup ? `Worker ${workerLabel(target.task || target.id)}` : target.task
     ? `Worker ${workerLabel(target.task)} · ${target.branch}` : selectedParentLabel() || 'main';
   $('input-form').dataset.mode = followup ? 'append' : 'create';
@@ -210,9 +213,9 @@ export function syncComposer() {
     'composer-mode-title': followup ? '继续当前 Worker' : '新建独立 Worker',
     'composer-mode-target': followup ? `追加到 ${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}` : `父 Worker：${label}`,
     'composer-mode-behavior': target.reason || (followup
-      ? `不创建新 Worker · Enter ${target.wait ? '保存' : '追加'} · 成功后回到新建 · 空白时 Esc 返回${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
-      : target.freeze ? `父分支冻结：${target.freeze.reason || '等待安全边界'} · Enter 暂存 · 点击预约后自动发射`
-        : '独立工作区 · Enter 暂存 · 点击创建后待开始'),
+      ? `不创建新 Worker · ${enter} ${target.wait ? '保存' : '追加'} · 成功后回到新建 · 空白时 Esc 返回${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
+      : target.freeze ? `父分支冻结：${target.freeze.reason || '等待安全边界'} · ${enter} 暂存 · 点击按钮预约`
+        : `独立工作区 · ${enter} 暂存 · 仅创建后待开始 / 发射并开始`),
   };
   // Keep mode/destination visible while typing, without repeating live announcements on every keystroke.
   for (const [id, text] of Object.entries(modeText)) {
@@ -220,22 +223,32 @@ export function syncComposer() {
     if (node.textContent !== text) node.textContent = text;
   }
   input.placeholder = target.reason ? `${label}：${target.reason}` : followup
-    ? `追加给 ${label} · Enter ${target.wait ? '保存，等待投递' : '发送'} · Shift+Enter 换行${target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
-    : target.freeze ? `在 ${label} 挂载预约发射 Hook · Enter 暂存 · Ctrl/⌘+Enter 预约仅创建`
-      : `在 ${label} 下创建子 Worker · Enter 暂存 · Ctrl/⌘+Enter 仅创建 · Shift+Enter 换行`;
+    ? `追加给 ${label} · ${enter} ${target.wait ? '保存，等待投递' : '发送'} · Shift+Enter 换行${target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
+    : target.freeze ? `在 ${label} 挂载预约发射 Hook · ${enter} 暂存 · Ctrl/⌘+Enter 预约仅创建`
+      : `在 ${label} 下创建子 Worker · ${enter} 暂存 · Ctrl/⌘+Enter 仅创建 · Shift+Enter 换行`;
   input.setAttribute('aria-label', input.placeholder);
   input.disabled = Boolean(target.reason);
   const disabled = Boolean(ui.composerSubmitting || target.reason) || !input.value.trim();
   $('draft-commit').disabled = disabled;
-  $('draft-commit').classList.add('agent-call');
-  $('draft-commit').textContent = followup ? '追加输入' : target.freeze ? '预约发射 Worker' : '创建 Worker';
+  $('draft-commit').classList.toggle('agent-call', followup);
+  $('draft-commit').textContent = followup ? '追加输入' : target.freeze ? '预约仅创建' : '仅创建';
   $('draft-commit').classList.toggle('hook-button', Boolean(!followup && target.freeze));
-  const help = agentHelp(target.reason || (followup
+  const description = target.reason || (followup
     ? `追加给 ${label}，不创建新 Worker；输入立即保存，冻结期间由 Worker 暂存，不打断在途交付或源侧修复，解除冻结且 Agent 静息后投递；暂停中需显式开始 / 继续。${target.queueText || target.wait || ''}`
-    : target.freeze ? `挂载到 ${label} 的可创建安全点 Hook；现在只保存正文、引用和完整运行参数，不创建 Worker 或调用 Agent。解除全部冻结并通过创建准入后，按当时父提交创建并开始；Ctrl/⌘+Enter 预约仅创建。`
-      : `在 ${label} 下创建独立 Worker；默认待开始，Ctrl/⌘+Shift+Enter 直接开始。`));
+    : target.freeze ? `挂载到 ${label} 的可创建安全点 Hook；现在只保存正文、引用和完整运行参数，不创建 Worker 或调用 Agent。解除全部冻结并通过创建准入后，按当时父提交创建待开始 Worker，不开始调用。`
+      : `在 ${label} 下仅创建独立的待开始 Worker，不调用 Agent；可进入详情配置后手动开始。`);
+  const help = followup ? agentHelp(description) : description;
   $('draft-commit').setAttribute('data-help', help);
   $('input-send-help')?.setAttribute('data-help', help);
+  const start = $('input-start'), startHost = $('input-start-help');
+  start.disabled = disabled; start.hidden = followup; startHost.hidden = followup;
+  start.textContent = target.freeze ? '预约发射并开始' : '发射并开始';
+  start.classList.toggle('hook-button', Boolean(target.freeze));
+  const startHelp = agentHelp(target.reason || (target.freeze
+    ? `在 ${label} 挂载预约：现在只保存指令、引用与运行参数；首个可创建安全点创建并开始，不保证立即执行。`
+    : `在 ${label} 下创建独立 Worker 并开始；不必先暂存，提交后留在当前页，忙碌时等待执行槽。`));
+  start.setAttribute('data-help', startHelp); startHost.setAttribute('data-help', startHelp);
+  textEditor?.sync();
   if ($('input-buffer')) { $('input-buffer').disabled = disabled; $('input-buffer').hidden = followup; }
   if ($('input-buffer-help')) $('input-buffer-help').hidden = followup;
   // Details are only for choosing the parent of a new Worker, not for changing an inbox destination.
@@ -302,7 +315,7 @@ async function submitInput(mode) {
     // Still protect edits (including edit-and-undo) and explicit inbox mode changes; view guards below only own navigation.
     const untouched = ui.composerAppendTarget === appendTarget && ui.composerEditRevision === editRevision && input.value === value
       && ui.composerReferenceRevision === referenceRevision && JSON.stringify(composerReferences()) === signature;
-    if (untouched) { input.value = ''; setComposerReferences([]); }
+    if (untouched) { input.value = ''; textEditor?.reset(); setComposerReferences([]); }
     if (target.id != null) {
       if (ui.composerTask?.id === target.id && ui.composerAppendTarget === appendTarget && inputQueue(result))
         ui.composerTask = { ...ui.composerTask, input_queue: result.input_queue };
@@ -335,7 +348,10 @@ export function buffer() { return submitInput('buffer'); }
 
 /** Enter buffers new work or appends in a Worker inbox; Shift+Enter always inserts a newline. */
 export function initComposer() {
+  textEditor?.dispose(); disposeViewport?.(); textEditor = null;
   ui.composerIdentity = {}; ui.composerEditRevision = 0; ui.syncComposer = syncComposer;
+  const identity = ui.composerIdentity, input = $('input'), editorTools = $('composer-editor-tools');
+  editorTools.replaceChildren();
   ui.composerAppendTarget = null;
   // 每次装配（含 boot 重跑）都从项目默认开始，不让上一条指令的运行设置跨会话残留。
   ui.composerProfile = null;
@@ -347,16 +363,17 @@ export function initComposer() {
   host?.querySelector?.('.composer-run-settings')?.remove?.();
   if (anchor?.parentNode) anchor.parentNode.insertBefore(runSettingsButton, anchor);
   else host?.append(runSettingsButton);
-  const sendHelp = agentHelp('发送后创建独立 Worker；默认先停在「待开始」，可配置后开始。⌘ / Ctrl+Shift+Enter 直接开始。');
+  const sendHelp = '仅创建独立的待开始 Worker，不调用 Agent；可配置后开始。';
   $('draft-commit').setAttribute('data-help', sendHelp);
   $('input-send-help')?.setAttribute('data-help', sendHelp);
   renderComposerReferences();
   $('composer-expand').onclick = () => toggleComposerDetails();
   $('composer-reset').onclick = resetComposerMode;
   if ($('input-buffer')) $('input-buffer').onclick = buffer;
+  $('input-start').onclick = () => submitInput('start');
   renderParentOptions();
   $('input-parent').onchange = syncComposer;
-  $('input-form').onsubmit = event => { event.preventDefault(); return submitInput(ui.composerStartNow ? 'start' : destination().freeze ? 'defer_start' : 'create'); };
+  $('input-form').onsubmit = event => { event.preventDefault(); return submitInput('create'); };
   $('input').oninput = () => { ui.composerEditRevision++; syncComposer(); };
   let composing = false;
   $('input').oncompositionstart = () => { composing = true; };
@@ -371,12 +388,23 @@ export function initComposer() {
     }
     if (event.key !== 'Enter') return;
     if (event.altKey) return;
-    if (!event.metaKey && !event.ctrlKey && event.shiftKey) return;
+    if (!event.metaKey && !event.ctrlKey && (event.shiftKey || usesTouchEnter())) return;
     event.preventDefault();
     if (event.repeat) return;
     if (!event.metaKey && !event.ctrlKey) return destination().id != null ? submitInput('create') : buffer();
     return submitInput(event.shiftKey ? 'start' : 'create');
   };
+  // Load the shared editor outside the static startup closure. Initialization
+  // still waits for its visible controls; stale boot generations cannot attach
+  // them to a replaced composer. No page-global state is duplicated by the helper.
+  const editorReady = import('./text-editor.js').then(({ attachTextEditor }) => {
+    if (ui.composerIdentity !== identity || $('input') !== input) return;
+    textEditor = attachTextEditor(input, { onChange: () => { ui.composerEditRevision++; syncComposer(); } });
+    editorTools.replaceChildren(textEditor.controls); textEditor.sync();
+  }).catch(error => {
+    if (ui.composerIdentity === identity) show(`正文编辑工具加载失败，请刷新页面：${error.message}`, 'error');
+  });
+  disposeViewport = attachComposerViewport(input, $('composer-shell'));
   syncComposer();
-  return loadComposerParents();
+  return Promise.all([loadComposerParents(), editorReady]);
 }

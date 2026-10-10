@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { installDom, deepText, dialogButton } from './project-dom.js';
 import { until } from '../helpers.js';
 import { makeWorld } from './dom-world.js';
+import { editorInput, editorEvent, editorSelection } from './text-editor-events.js';
 
 const json = data => ({ ok: true, json: async () => structuredClone(data) });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
@@ -361,6 +362,71 @@ test('已挂载草稿只读且禁止重复发射，取消等待挂载采用最�
   expect(calls).toHaveLength(0); await dialogButton(dom, '取消预约').onclick(); await removing;
   expect(calls.at(-1)).toEqual({ method: 'worker.hook_remove', params: { id: 1, hook_id: 'draft-mount', expected_revision: 'hooks-live' } });
   expect(editor().value).toBe('尚未执行的想法'); expect(btn('发射并开始')).toBeTruthy();
+});
+
+test('正文撤销只改本页文本，不回退已保存版本、父 Worker 或引用，再保存使用新版本', async () => {
+  await openInputs(); await openDraft(); const node = editor(); editorSelection(node, 0, 2, 'backward');
+  editorInput(node, '已保存的新正文'); parentSelect().value = '900'; parentSelect().onchange();
+  await btn('移除引用', panel()).onclick(); await btn('保存', panel()).onclick();
+  expect(calls.at(-1).params.expected_revision).toBe(3); expect(rows[0].revision).toBe(4);
+  const undo = btn('撤销'), redo = btn('重做');
+  expect(undo.disabled).toBe(false); expect(undo.type).toBe('button'); expect(undo.classList.contains('agent-call')).toBe(false);
+  expect(undo.parentNode.className).toBe('help-host');
+  await undo.onclick();
+  expect(node.value).toBe('尚未执行的想法'); expect([node.selectionStart, node.selectionEnd, node.selectionDirection]).toEqual([0, 2, 'backward']);
+  expect(parentSelect().value).toBe('900'); expect(deepText(panel())).toContain('引用快照（0）');
+  expect(rows[0].content).toBe('已保存的新正文'); expect(rows[0].revision).toBe(4); expect(calls).toHaveLength(1);
+  await btn('保存').onclick();
+  expect(calls.at(-1)).toEqual({ method: 'draft.update', params: { id: 1, expected_revision: 4, content: '尚未执行的想法', references: [] } });
+  expect(rows[0].revision).toBe(5); await redo.onclick(); expect(node.value).toBe('已保存的新正文');
+  await btn('仅创建').onclick();
+  expect(calls.slice(-2).map(call => call.method)).toEqual(['draft.update', 'order.submit']);
+  expect(calls.at(-1).params).toEqual({ draft_id: 1, expected_revision: 6, start: false });
+  expect(panel().querySelector('.text-editor-controls')).toBeNull();
+  // A detached controller cannot revive consumed text or change the new detail.
+  await undo.onclick(); expect(node.value).toBe('已保存的新正文');
+});
+
+test('历史正文撤销在保存忙碌时禁用，失败保留栈和修订；发射失败也可撤销后重新保存', async () => {
+  await openInputs(); await openDraft(); editorInput(editor(), '失败不能丢');
+  const delayed = deferred(); intercept = (_path, body) => body?.method === 'draft.update' ? delayed.promise : null;
+  const saving = btn('保存').onclick();
+  expect(btn('撤销').disabled).toBe(true); expect(btn('重做').disabled).toBe(true);
+  expect(btn('撤销').parentNode.getAttribute('data-help')).toContain('不可编辑');
+  await btn('撤销').onclick(); editorEvent(editor(), 'keydown', { key: 'z', ctrlKey: true });
+  expect(editor().value).toBe('失败不能丢'); expect(calls).toHaveLength(1);
+  delayed.resolve({ ok: false, json: async () => ({ error: '版本冲突' }) }); await saving;
+  expect(btn('撤销').disabled).toBe(false); await btn('撤销').onclick(); expect(editor().value).toBe('尚未执行的想法');
+  await btn('重做').onclick(); expect(editor().value).toBe('失败不能丢');
+  intercept = (_path, body) => body?.method === 'order.submit' ? Promise.reject(new Error('发射失败')) : null;
+  await btn('发射并开始').onclick(); expect(calls.map(call => call.method)).toEqual(['draft.update', 'draft.update', 'order.submit']);
+  expect(calls.at(-1).params.expected_revision).toBe(4); expect(btn('撤销').disabled).toBe(false);
+  await btn('撤销').onclick(); intercept = null; await btn('发射并开始').onclick();
+  expect(calls.at(-2).params.expected_revision).toBe(4); expect(calls.at(-1).params.expected_revision).toBe(5);
+  expect(text()).toContain('已发射并开始');
+});
+
+test('返回列表和刷新保留同一正文历史，重新读取或切换原始输入销毁旧正文栈', async () => {
+  await openInputs(); await openDraft(); const node = editor(), undo = btn('撤销'); editorInput(node, '本地修改');
+  const before = reads.length; await btn('← 返回历史输入').onclick(); await btn('刷新列表').onclick(); await openDraft();
+  expect(editor()).toBe(node); expect(btn('撤销')).toBe(undo); expect(reads.length).toBe(before + 1);
+  await undo.onclick(); expect(node.value).toBe('尚未执行的想法'); await btn('重做').onclick(); expect(node.value).toBe('本地修改');
+  await undo.onclick(); rows[0].content = '服务端新正文'; rows[0].revision = 9;
+  await btn('重新读取详情').onclick(); expect(editor()).not.toBe(node); expect(editor().value).toBe('服务端新正文');
+  expect(btn('撤销').disabled).toBe(true); expect(btn('重做').disabled).toBe(true);
+  await undo.onclick(); expect(node.value).toBe('尚未执行的想法'); expect(editor().value).toBe('服务端新正文');
+  await selectStatus(''); await btn('查看原文').onclick(); expect(panel().querySelector('.text-editor-controls')).toBeNull();
+});
+
+test('历史编辑输入法确认分组且正文键盘撤销不发射请求', async () => {
+  await openInputs(); await openDraft(); const node = editor();
+  editorEvent(node, 'compositionstart'); editorInput(node, '尚未执行的想法n', { isComposing: true });
+  editorInput(node, '尚未执行的想法ni', { isComposing: true }); expect(btn('撤销').disabled).toBe(true);
+  editorEvent(node, 'compositionend'); editorInput(node, '尚未执行的想法你'); await Promise.resolve();
+  const key = editorEvent(node, 'keydown', { key: 'z', metaKey: true });
+  expect(key.defaultPrevented).toBe(true); expect(node.value).toBe('尚未执行的想法'); expect(calls).toHaveLength(0);
+  editorEvent(node, 'keydown', { key: 'z', metaKey: true, shiftKey: true }); expect(node.value).toBe('尚未执行的想法你');
+  await btn('保存').onclick(); expect(calls.at(-1).params.content).toBe('尚未执行的想法你');
 });
 
 test('正在执行的草稿预约保持不可取消；失败核验也不回退为可编辑或自动重放', async () => {

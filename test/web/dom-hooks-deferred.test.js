@@ -29,14 +29,16 @@ const input = () => dom.node('input');
 const submit = () => dom.node('input-form').onsubmit({ preventDefault() {} });
 const reference = { version: 1, kind: 'text', target: {}, label: '引用', quote: '原始所见', location: {}, captured_at: '2026-01-01T00:00:00Z' };
 
-test('frozen valid main retains editable composer and complete run settings; primary action explicitly authorizes deferred start', async () => {
+test('frozen valid main retains editable composer and complete run settings; parallel actions explicitly distinguish deferred creation and start', async () => {
   await overview(); calls.length = 0;
   ui.composerProfile = { agent: 'pi', config_mode: 'pi' };
   input().value = '新的独立工作'; setComposerReferences([reference]); syncComposer();
-  expect(input().disabled).toBe(false); expect(dom.node('draft-commit').textContent).toBe('预约发射 Worker');
+  expect(input().disabled).toBe(false); expect(dom.node('draft-commit').textContent).toBe('预约仅创建');
   expect(dom.node('draft-commit').classList.contains('hook-button')).toBe(true);
   expect(dom.node('input-send-help').getAttribute('data-help')).toContain('不创建 Worker 或调用 Agent');
-  await submit(); await until(() => !ui.composerSubmitting);
+  expect(dom.node('draft-commit').classList.contains('agent-call')).toBe(false);
+  expect(dom.node('input-start').textContent).toBe('预约发射并开始');
+  await dom.node('input-start').onclick(); await until(() => !ui.composerSubmitting);
   expect(calls[0]).toEqual({ method: 'order.submit', params: { content: '新的独立工作', references: [reference], branch: 'main', start: true, defer: true, profile: { agent: 'pi', config_mode: 'pi' } } });
   // Deferred returns no task: acknowledgement must not dereference or claim a Worker was created.
   expect(input().value).toBe(''); expect(ui.composerProfile).toBeNull();
@@ -63,7 +65,7 @@ test('keyboard only-create stays explicit; input typed during flight is not clea
 test('detail stays in default creation mode; explicit frozen Worker inbox can save input', () => {
   const root = { id: 100, task_kind: 'main', status: 'waiting', branch: 'main', freeze };
   activateDetailView({ view: 'task', key: 'task-100' }); ui.selected = 100; ui.composerTask = root; input().value = '目标'; syncComposer();
-  expect(input().disabled).toBe(false); expect(dom.node('draft-commit').textContent).toBe('预约发射 Worker');
+  expect(input().disabled).toBe(false); expect(dom.node('draft-commit').textContent).toBe('预约仅创建');
   ui.composerTask = { ...root, branch_archive: { archived: true } }; syncComposer(); expect(input().disabled).toBe(false);
   ui.composerTask = { ...root, task_kind: 'order', branch: 'feature', workspace: '/tmp/feature' }; appendToWorker(ui.composerTask);
   expect(input().disabled).toBe(false); expect(input().placeholder).toContain('保存，等待投递');
