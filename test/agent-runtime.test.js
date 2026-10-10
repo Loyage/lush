@@ -190,9 +190,10 @@ test('role env hot-load layer overrides common env', () => {
   const root = temp();
   try {
     const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) }); config.prepare();
-    const dir = path.join(config.deviceHome, 'agent'); fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'agent.env'), 'HTTP_PROXY=http://common\nSHARED=yes\n');
-    fs.writeFileSync(path.join(dir, 'research.env'), 'HTTP_PROXY=http://research\nONLY_ROLE=yes\n');
+    // Device env fixtures must be private regardless of the runner's umask.
+    const dir = path.join(config.deviceHome, 'agent'); fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(dir, 'agent.env'), 'HTTP_PROXY=http://common\nSHARED=yes\n', { mode: 0o600 });
+    fs.writeFileSync(path.join(dir, 'research.env'), 'HTTP_PROXY=http://research\nONLY_ROLE=yes\n', { mode: 0o600 });
     const research = agentEnvironment(config, 'research');
     expect(research.values).toEqual({ HTTP_PROXY: 'http://research', SHARED: 'yes', ONLY_ROLE: 'yes' });
     expect(research.sources).toEqual([path.join(dir, 'agent.env'), path.join(dir, 'research.env')]);

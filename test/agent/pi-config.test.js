@@ -104,7 +104,7 @@ const keys=['DEEPSEEK_API_KEY','OPENAI_API_KEY','AWS_PROFILE','AWS_SHARED_CREDEN
 console.log(JSON.stringify({ directory, files:fs.readdirSync(directory), ambient:keys.filter(k=>process.env[k]), args:process.argv.slice(2), custom:process.env.TOOL_SERVICE_KEY, keyMatches:auth.deepseek.key==='FIXTURE-MANAGED-API-KEY', telemetry:process.env.PI_TELEMETRY }));`, { mode: 0o700 });
   f.config.env.LUSH_PI_COMMAND = fake;
   fs.mkdirSync(path.join(f.config.deviceHome, 'agent'), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(path.join(f.config.deviceHome, 'agent', 'agent.env'), 'PI_CODING_AGENT_DIR=/role-pi\nDEEPSEEK_API_KEY=ROLE-KEY\n');
+  fs.writeFileSync(path.join(f.config.deviceHome, 'agent', 'agent.env'), 'PI_CODING_AGENT_DIR=/role-pi\nDEEPSEEK_API_KEY=ROLE-KEY\n', { mode: 0o600 });
   try {
     const run = options(f); run.agent.env = { PI_CODING_AGENT_DIR: '/worker-pi', DEEPSEEK_API_KEY: 'WORKER-KEY',
       AWS_SHARED_CREDENTIALS_FILE: '/external-cloud', PI_SESSION_FILE: '/wrong-session', TOOL_SERVICE_KEY: 'explicit-tool-value' };

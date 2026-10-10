@@ -105,10 +105,11 @@ test('management credentials and task kind cannot be omitted and old unrestricte
 test('manager ignores common/role env and inherited or explicit profile env, while preserving network policy and development inheritance', async () => {
   const f = fixture();
   try {
-    const directory = path.join(f.config.deviceHome, 'agent'); fs.mkdirSync(directory, { recursive: true });
-    fs.writeFileSync(path.join(directory, 'agent.env'), 'COMMON_SENTINEL=common-development-secret\nHTTP_PROXY=http://common-env.invalid\n');
-    fs.writeFileSync(path.join(directory, 'manager.env'), 'ROLE_SENTINEL=manager-env-secret\n');
-    fs.writeFileSync(path.join(directory, 'worker.env'), 'ROLE_SENTINEL=worker-env-secret\n');
+    // Device env fixtures must be private regardless of the runner's umask.
+    const directory = path.join(f.config.deviceHome, 'agent'); fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(directory, 'agent.env'), 'COMMON_SENTINEL=common-development-secret\nHTTP_PROXY=http://common-env.invalid\n', { mode: 0o600 });
+    fs.writeFileSync(path.join(directory, 'manager.env'), 'ROLE_SENTINEL=manager-env-secret\n', { mode: 0o600 });
+    fs.writeFileSync(path.join(directory, 'worker.env'), 'ROLE_SENTINEL=worker-env-secret\n', { mode: 0o600 });
     saveNetworkConfiguration(f.config, { version: 1, mode: 'proxy', proxy_url: 'http://project-network.invalid',
       no_proxy: ['internal.invalid'], proxy_auth: null });
     const settings = new AgentSettings(f.config);

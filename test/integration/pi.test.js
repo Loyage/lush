@@ -28,8 +28,9 @@ if(context.task.task_kind === 'order') {
 console.log('fake pi completed');
 `, { mode:0o755 });
   try {
-    const agentDir = path.join(device, 'shared', 'agent'); fs.mkdirSync(agentDir, { recursive: true });
-    fs.writeFileSync(path.join(agentDir, 'agent.env'), 'TEST_SHARED=common\n');
+    // The daemon validates device directories and env files even under CI's umask 0022.
+    const agentDir = path.join(device, 'shared', 'agent'); fs.mkdirSync(agentDir, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(agentDir, 'agent.env'), 'TEST_SHARED=common\n', { mode: 0o600 });
     await cli(root,['start'], { ...deviceEnv, LUSH_PROVIDER:'pi', LUSH_PI_COMMAND:fake });
     await bindMockPiSource(root, deviceEnv);
     const input = await cli(root,['order','run'], deviceEnv);
