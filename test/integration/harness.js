@@ -18,14 +18,18 @@ export async function legacyOrder(root, content, branch = null) {
   return client.request('input.submit', { content, ...(branch ? { branch } : {}) });
 }
 
-/** New order Agents release their invocation slot instead of becoming terminal on ordinary returns. */
-export async function idle(client, taskId, calls = 1) {
-  for (let i = 0; i < 100; i++) {
-    const task = await client.request('worker.inspect', { id: taskId });
-    if (task.status === 'waiting' && task.calls >= calls && !task.agent.active) return task;
+/** Ordinary returns release the invocation slot; delivery may then advance to awaiting_acceptance. */
+export async function idle(client, taskId, calls = 1, timeout = 10000) {
+  const end = Date.now() + timeout;
+  let task;
+  do {
+    task = await client.request('worker.inspect', { id: taskId });
+    if (['waiting', 'awaiting_acceptance'].includes(task.status) && task.calls >= calls && !task.agent.active) return task;
+    if (['failed', 'cancelled', 'completed'].includes(task.status))
+      throw new Error(`worker ${taskId} stopped with ${task.status}: ${task.error || 'no error reported'}`);
     await Bun.sleep(30);
-  }
-  throw new Error('task did not become idle');
+  } while (Date.now() < end);
+  throw new Error(`worker ${taskId} did not become idle in ${timeout}ms (status=${task.status}, calls=${task.calls}, active=${task.agent.active})`);
 }
 
 export async function done(client, taskId) {

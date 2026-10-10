@@ -21,7 +21,10 @@ const systemFile = args[args.indexOf('--append-system-prompt')+1];
 const prompt = fs.readFileSync(systemFile,'utf8');
 fs.appendFileSync(path.join(process.env.LUSH_HOME,'seen.jsonl'),JSON.stringify({args, cwd:process.cwd(), project:process.env.LUSH_PROJECT, token:!!process.env.LUSH_AGENT_TOKEN, task:context.task, sharedEnv:process.env.TEST_SHARED, promptRole:prompt.includes('角色：'+context.task.role), promptHasWorkerInstructions:prompt.includes('角色：worker')})+'\\n');
 if(context.task.task_kind === 'order') {
- const proc = Bun.spawn(['lush','worker','spawn','delegated via pinned CLI','--name','delegated-work','--json'],{stdout:'pipe',stderr:'pipe'});
+ const command = context.task.calls === 1
+   ? ['lush','worker','spawn','delegated via pinned CLI','--name','delegated-work','--json']
+   : ['lush','worker','accept',String(context.children.find(child => child.status === 'awaiting_acceptance').id),'--json'];
+ const proc = Bun.spawn(command,{stdout:'pipe',stderr:'pipe'});
  const out = await new Response(proc.stdout).text(), err = await new Response(proc.stderr).text();
  if(await proc.exited) throw new Error(err); console.log(out);
 }
@@ -35,8 +38,9 @@ console.log('fake pi completed');
     await bindMockPiSource(root, deviceEnv);
     const input = await cli(root,['order','run'], deviceEnv);
     const client = new UIClient(Config.fromEnv(env(deviceEnv),root));
-    const order = await idle(client,input.task.id);
-    // A order Task stays idle after an ordinary return; it is not completed by it.
+    // Wait for the child receipt and its acknowledgement, not the parent's transient first park.
+    const order = await idle(client,input.task.id,2);
+    // An order stays idle after an ordinary return; it is not completed by it.
     expect(order.status).toBe('waiting');
     expect(order.agent).toMatchObject({ id: `agent#${input.task.id}`, role: 'agent', active: false, pid: null });
     expect(order.agent.wakes).toBeGreaterThan(0);
@@ -44,13 +48,16 @@ console.log('fake pi completed');
     const children = (await client.request('worker.list')).filter(task => task.parent_id === input.task.id && task.task_kind === 'child');
     expect(children).toHaveLength(1);
     expect(children[0].goal).toBe('delegated via pinned CLI');
-    await idle(client, children[0].id);
+    expect(children[0].status).toBe('completed');
+    expect(order.calls).toBe(2);
     const seen = fs.readFileSync(path.join(root,'.lush','seen.jsonl'),'utf8').trim().split('\n').map(JSON.parse);
-    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(seen).toHaveLength(3);
     expect(seen.every(row => row.project === root && row.token && row.sharedEnv === 'common' && row.promptRole)).toBe(true);
     const orderSeen = seen.find(row => row.task.id === input.task.id);
     expect(orderSeen.promptHasWorkerInstructions).toBe(false);
     const sessions = seen.filter(row => row.task.id === input.task.id).map(row => row.args[row.args.indexOf('--session-id')+1]);
+    expect(sessions).toHaveLength(2);
+    expect(sessions.every(session => typeof session === 'string' && session.length > 0)).toBe(true);
     expect(new Set(sessions).size).toBe(1);
   } finally { await cli(root,['stop'], deviceEnv).catch(() => {}); fs.rmSync(root,{recursive:true,force:true}); fs.rmSync(device,{recursive:true,force:true}); }
 }, 30000);
