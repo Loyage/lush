@@ -9,7 +9,7 @@
 - main 的持久根 Worker 平时静息；其它本地父分支需要显式绑定所有者。Worker从父分支已提交 tip 创建，不能带上未提交工作。普通指令即使只回答问题也有 worktree。
 - 每个新 Worker 与 Agent 一对一；子 Worker 有自己的分支与固定起点，父子关系始终表达委派。当前 version 2 交付由父 Worker 自有队列的 runtime 串行 Squash（含 main），不创建 merge Worker、不改 `parent_id`、不额外调用父 Agent 或要求 `worker.integrate`。
 
-持久预约是交付事实，Message/Event 仅通知；真实安全点固定源提交并按入队顺序排队，代码依赖优先，取得父执行位后才固定尝试基线。分歧由原 Worker 源侧修复并保留父执行位，挂起释放，恢复重新排队并固定新父基线。合并后非终态待验收，可追加输入继续同一 Worker，用户验收与归档分开。完整协议与旧 version 2 merge 身份／重挂兼容见[分支合并](merge.md)，安全父同步与历史显式恢复见[持续迭代](task-iteration.md)。
+持久预约是交付事实，Message/Event 仅通知；真实安全点固定源提交并按入队顺序排队，代码依赖优先，取得父执行位后才固定尝试基线。分歧由原 Worker 源侧修复并保留父执行位，挂起释放，恢复重新排队并固定新父基线。合并后非终态待验收，可追加输入继续同一 Worker，验收表示无异议，验收即归档，安全回收开发资源、保留完整运行历史，脏现场阻止。完整协议与旧 version 2 merge 身份／重挂兼容见[分支合并](merge.md)，安全父同步与历史显式恢复见[持续迭代](task-iteration.md)。
 
 ## 调用与交付
 

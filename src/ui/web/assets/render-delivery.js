@@ -9,14 +9,13 @@ import { isHistoricalDelivery } from './format.js';
 import { workerLabel } from './worker-label.js';
 
 const short = hash => String(hash || '').slice(0, 12);
-/** 「已合并 · 待归档」承诺的是一次还能按的归档：分支记录已归档、或 Task 已经没有分支（回收工作区与分支、
- *  旧版落地即归档都会把 tasks.branch 清成 null）时，已经没有东西可归档，标签必须跟着真实状态落地。
- *  两个入口的数据形状不同——Task 详情是 inspect 的 branch_archive，Task 图是 branch_info，所以两个都看。 */
+/** Landing, acceptance and physical reclamation remain distinct read facts, not separate user actions. */
 function archiveBadge(task) {
+  if (task.acceptance_recovery === true) return { label: '已合并 · 验收待续办', className: 'b-awaiting' };
   const archived = task.branch_info?.archived === true || task.branch_archive?.archived === true;
   return Boolean(task.branch) && !archived
-    ? { label: '已合并 · 待归档', className: 'b-awaiting' }
-    : { label: '已合并 · 已归档', className: 'b-completed' };
+    ? { label: task.accepted === true ? '已合并 · 验收待补办资源回收' : '已合并 · 待验收', className: 'b-awaiting' }
+    : { label: task.accepted === true ? '已合并 · 已验收' : '已合并 · 资源已回收', className: 'b-completed' };
 }
 
 /** Shared new-order delivery controls: the detail page and branch graph use exactly the same authorization path. */
@@ -58,7 +57,7 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
     if (canOffer && active && task.merge_readiness?.ready === true) {
       controls.append(button('合并', async () => {
         const confirmed = await confirmDialog({ title: `合并 Worker ${workerLabel(task)}？`,
-          message: '复核本轮交付与 Git 条件后冻结源 Worker 的普通开发，由父 Worker 自有队列的 runtime 按入队顺序串行处理（代码依赖优先），向父分支写入一条 Squash 提交。不创建 merge Worker、不改变父子关系，也不额外调用父 Agent；包括 main 在内无需再次人工批准。取得父执行位后才固定父基线；分歧时自动唤醒原 Worker 在源侧修复并保留该执行位。挂起释放执行位，恢复重新排队并固定新基线。条件不满足时保留本次请求意图并显示原因；不会改变跨轮保留的自动合并设置。成功后进入待验收并保留源分支与 worktree；验收与归档分开。',
+          message: '复核本轮交付与 Git 条件后冻结源 Worker 的普通开发，由父 Worker 自有队列的 runtime 按入队顺序串行处理（代码依赖优先），向父分支写入一条 Squash 提交。不创建 merge Worker、不改变父子关系，也不额外调用父 Agent；包括 main 在内无需再次人工批准。取得父执行位后才固定父基线；分歧时自动唤醒原 Worker 在源侧修复并保留该执行位。挂起释放执行位，恢复重新排队并固定新基线。条件不满足时保留本次请求意图并显示原因；不会改变跨轮保留的自动合并设置。成功后进入待验收并暂时保留源分支与 worktree；验收表示不再有异议，同时归档并回收开发资源，保留运行历史。',
           confirmLabel: '合并', agent: true,
           confirmHelp: agentHelp('请求合并本轮成果；存在分歧时唤醒原 Worker 的 Agent 处理。') });
         if (!confirmed) return;

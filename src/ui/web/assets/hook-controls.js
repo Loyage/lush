@@ -7,16 +7,18 @@ import { workerLabel } from './worker-label.js';
 import { projectBase, routeContext } from './route.js';
 
 const updating = new Set();
-export const COMPLETION_LEVELS = { off: '关闭自动链', merge: '自动到合并', accept: '自动到验收', archive: '自动到归档' };
+// Historical archive authorization is equivalent to acceptance including reclamation.
+export const COMPLETION_LEVELS = { off: '关闭自动链', merge: '自动到合并', accept: '自动到验收', archive: '自动到验收' };
 export const HOOK_STATES = { idle: '已挂载', waiting: '等待条件', running: '动作执行中', succeeded: '已执行', skipped: '已跳过', failed: '执行失败', unknown: '结果未知·需检查' };
-const rank = level => Object.keys(COMPLETION_LEVELS).indexOf(level);
+const normalizeLevel = level => level === 'archive' ? 'accept' : level;
+const rank = level => ['off', 'merge', 'accept'].indexOf(normalizeLevel(level));
 
 /** Shared stage buttons; callers decide whether selection is a draft or saved authorization. */
 export function completionLevelButtons(label, onSelect, { includeOff = true } = {}) {
   const group = el('div', undefined, 'hook-completion-levels');
   group.setAttribute('role', 'group'); group.setAttribute('aria-label', label);
   const choices = [];
-  for (const [level, text] of Object.entries({ off: '关闭', merge: '合并', accept: '验收', archive: '归档' })) {
+  for (const [level, text] of Object.entries({ off: '关闭', merge: '合并', accept: '验收' })) {
     if (!includeOff && level === 'off') continue;
     const control = button(text, () => onSelect(level), 'hook-completion-level'); control.dataset.level = level;
     control.setAttribute('aria-label', COMPLETION_LEVELS[level]);
@@ -30,7 +32,7 @@ export function completionLevelButtons(label, onSelect, { includeOff = true } = 
 export function autoCompletionControl(task, model, refresh = () => {}, ownsPage = () => true, onEditing = () => {}) {
   const scope = projectBase(), updateKey = `${scope}:${task.id}`;
   const owns = () => ownsPage() && !routeContext().invalid && projectBase() === scope;
-  let setting = model?.completion, revision = model?.revision, saved = setting?.level;
+  let setting = model?.completion, revision = model?.revision, saved = normalizeLevel(setting?.level);
   const node = el('div', undefined, 'hook-completion-control');
   const { group, choices } = completionLevelButtons(`Worker ${workerLabel(task)} 自动执行到`, save);
   const status = el('span', undefined, 'hint hook-completion-state'); status.setAttribute('role', 'status');
@@ -59,9 +61,8 @@ export function autoCompletionControl(task, model, refresh = () => {}, ownsPage 
       const blocked = busy ? '正在保存。' : reason() || (!allowed(level) ? setting?.min_level === 'merge' && level === 'off'
         ? '父 Worker 派生的 child 至少自动合并，不能关闭。' : '已交付成果只能提高自动级别补办。' : '');
       const consequence = level === 'off' ? '关闭未来自动执行，不撤回已发请求。' : level === 'merge'
-        ? '交付就绪后自动合并；分歧时可能唤醒源 Agent。' : level === 'accept'
-          ? '自动合并后验收；仅检查安全条件，不评审或保证业务质量。'
-          : '自动合并、验收并归档；删除分支及后代的 worktree/ref，保留 Worker、会话和历史，不丢弃未提交改动。';
+        ? '交付就绪后自动合并；分歧时可能唤醒源 Agent。'
+        : '自动合并后验收，表示不再有异议，同时归档并删除分支及后代的 worktree/ref，保留 Worker、会话和运行历史；脏工作区会阻止验收。不调用质量评审 Agent，不保证业务质量。';
       const help = costHelp(level, `${blocked ? `${blocked} ` : ''}${consequence}点击即保存当前 Worker 授权，高档包含前面的环节，设置不继承给子 Worker。`);
       control.setAttribute('data-help', help); host.setAttribute('data-help', help);
       host.tabIndex = control.disabled ? 0 : -1;
@@ -80,17 +81,17 @@ export function autoCompletionControl(task, model, refresh = () => {}, ownsPage 
     updating.add(updateKey); onEditing(true); paint(); node.setAttribute('aria-busy', 'true');
     let submitted = false;
     try {
-      if (level === 'archive' && !await confirmDialog({ title: '授权自动合并、验收并归档？',
-        message: '此授权只作用于当前 Worker。满足安全条件后可立即执行；归档会删除此分支及后代的 worktree/ref，保留 Worker、会话和历史，不丢弃未提交改动。自动验收不是业务质量评审。',
-        confirmLabel: '授权自动归档', danger: true, agent: mayCallAgent(),
+      if (level === 'accept' && !await confirmDialog({ title: '授权自动合并并验收？',
+        message: '此授权只作用于当前 Worker。验收表示不再有异议，同时归档并删除此分支及后代的 worktree/ref，保留 Worker、会话和运行历史，不丢弃未提交改动。满足安全条件后可立即执行，脏工作区会阻止验收。自动验收不是业务质量评审。',
+        confirmLabel: '授权自动验收', danger: true, agent: mayCallAgent(),
         confirmHelp: costHelp(level, '授权串行完成合并、验收、归档；已完成环节不重复执行，失败或结果未知时保留现场，不自动重试。') })) return;
       if (!owns()) return;
-      const result = await action('worker.completion', { id: task.id, level, expected_revision: revision });
+      const result = await action('worker.completion', { id: task.id, level, expected_revision: revision }, { refresh: false });
       submitted = true;
       if (!owns()) return;
       setting = result?.worker_id === task.id ? result.completion : null; revision = result?.revision;
       if (rank(setting?.level) < 0) { show('设置已提交，但未收到有效自动链状态；请刷新查看，勿重复提交。', 'error'); return; }
-      saved = setting.level;
+      saved = normalizeLevel(setting.level);
       show(`Worker ${workerLabel(task)} 已设置：${COMPLETION_LEVELS[saved]}。`);
     } catch (error) { if (owns()) show(`${error.message}；请刷新读取最新 Hook 版本。`, 'error'); }
     finally { updating.delete(updateKey); onEditing(false); paint(); node.removeAttribute('aria-busy'); }
@@ -128,7 +129,7 @@ export function autoMergeControl(task, refresh = () => {}, ownsPage = () => true
     if (!ownsPage() || !editable() || updating.has(updateKey)) { input.checked = saved; return; }
     const enabled = input.checked; updating.add(updateKey); paint(); host.setAttribute('aria-busy', 'true');
     try {
-      const result = await action('worker.auto_merge', { id: task.id, enabled });
+      const result = await action('worker.auto_merge', { id: task.id, enabled }, { refresh: false });
       if (!ownsPage()) return;
       setting = result.auto_merge ?? null; saved = setting?.enabled === true; input.checked = saved;
       show(setting ? `Worker ${workerLabel(task)} 已${saved ? '挂载' : '停用'}自动合并 Hook` : '设置已提交，请刷新查看 Hook 状态');

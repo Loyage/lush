@@ -13,6 +13,8 @@ export async function openWorkspaceAutomation({ push = true } = {}) {
   const root = el('div', undefined, 'workbench-view workspace-automation'); $('detail').replaceChildren(root);
   const state = { model: null, draft: null, busy: false, error: '', uncertain: false };
   const owns = () => ui.view === view && $('detail').querySelector('.workspace-automation') === root;
+  const normalizeLevel = level => level === 'archive' ? 'accept' : level;
+  const normalizedDefaults = model => ({ ...model.completion_defaults, level: normalizeLevel(model.completion_defaults.level) });
   const status = el('p', undefined, 'hint'); status.setAttribute('role', 'status');
   async function load() {
     if (state.busy) return;
@@ -21,7 +23,7 @@ export async function openWorkspaceAutomation({ push = true } = {}) {
       const model = await refreshDeviceAutomation();
       if (!owns()) return;
       if (!validDeviceAutomation(model)) throw new Error('尚未取得有效设备策略');
-      state.model = model; state.draft = { ...model.completion_defaults }; state.error = ''; state.uncertain = false;
+      state.model = model; state.draft = normalizedDefaults(model); state.error = ''; state.uncertain = false;
     } catch (error) { if (owns()) { state.error = `读取设备自动化失败：${error.message}`; state.uncertain = true; } }
     finally { state.busy = false; if (owns()) paint(); }
   }
@@ -38,12 +40,12 @@ export async function openWorkspaceAutomation({ push = true } = {}) {
       if (!owns()) return;
       if (!validDeviceAutomation(model)
         || (patch.auto_select && model.auto_select.enabled !== patch.auto_select.enabled)
-        || (patch.completion_defaults && (model.completion_defaults.enabled !== patch.completion_defaults.enabled || model.completion_defaults.level !== patch.completion_defaults.level))) {
+        || (patch.completion_defaults && (model.completion_defaults.enabled !== patch.completion_defaults.enabled || normalizeLevel(model.completion_defaults.level) !== patch.completion_defaults.level))) {
         throw new Error('保存结果未确认，请重新读取后检查，勿重复提交');
       }
       state.model = model;
       // Saving the independent automatic-selection policy must not discard an unsaved completion draft.
-      if (patch.completion_defaults) state.draft = { ...model.completion_defaults };
+      if (patch.completion_defaults) state.draft = normalizedDefaults(model);
       state.uncertain = false;
       show('设备自动化已保存；已有 Worker 的运行参数和流程授权不变。');
     } catch (error) { if (owns()) { state.uncertain = true; state.error = `${error.message}；编辑值已保留。先重新读取最新策略，勿重复提交未确认操作。`; } }
@@ -67,8 +69,8 @@ export async function openWorkspaceAutomation({ push = true } = {}) {
   }
   function defaultsCard() {
     const card = el('section', undefined, 'workspace-automation-card completion-defaults');
-    card.append(el('h2', '新指令结束后的默认流程'), el('p', '此设备所有项目之后实际创建的新指令使用同一默认授权；已有 Worker 不变，child 的锁定流程与父 Agent 验收不变。', 'hint'));
-    const draft = state.draft, saved = state.model.completion_defaults;
+    card.append(el('h2', '新指令结束后的默认流程'), el('p', '此设备所有项目之后实际创建的新指令使用同一默认授权；保存不修改已有 Worker，child 的锁定流程与父 Agent 验收不变。验收表示不再有异议，同时归档并回收 worktree/ref；保留运行历史，脏工作区会阻止验收。旧自动验收及归档授权也采用此统一语义。', 'hint'));
+    const draft = state.draft, saved = normalizedDefaults(state.model);
     const enabled = el('input'); enabled.type = 'checkbox'; enabled.checked = draft.enabled; enabled.disabled = state.busy;
     enabled.setAttribute('aria-label', '启用新指令默认自动流程');
     const label = el('label', undefined, 'hook-check'); label.append(enabled, el('span', '启用新指令默认自动流程'));
@@ -79,20 +81,20 @@ export async function openWorkspaceAutomation({ push = true } = {}) {
     const saveButton = button('保存设备默认', async () => {
       if (!owns() || state.busy || state.uncertain || !dirty()) return;
       const patch = { ...draft };
-      if (patch.enabled && patch.level === 'archive' && !await confirmDialog({ title: '授权所有项目的未来新指令自动到归档？',
-        message: '仅影响之后实际创建的新指令：交付合并后通过安全验收，归档 Worker 及后代并清理 worktree/ref；保留 Worker、会话与 Git 历史，不丢弃脏改动。自动验收不是质量评审。保存不调用已有 Agent；未来分歧可能唤醒新 Worker。',
+      if (patch.enabled && patch.level === 'accept' && !await confirmDialog({ title: '授权所有项目的未来新指令自动到验收？',
+        message: '仅影响之后实际创建的新指令：交付合并后通过安全验收，表示不再有异议，同时归档 Worker 及后代并清理 worktree/ref；保留 Worker、会话与 Git 历史，不丢弃脏改动，脏工作区会阻止验收。自动验收不是质量评审。保存不调用已有 Agent；未来分歧可能唤醒新 Worker。',
         confirmLabel: '授权并保存默认', danger: true, agent: true, confirmHelp: agentHelp('为所有项目未来新指令保存自动合并、验收及归档授权。') })) return;
       if (owns()) await save({ completion_defaults: patch });
     }, 'primary');
     const saveHost = el('span', undefined, 'help-host'); saveHost.append(saveButton);
     const summary = el('p', undefined, 'hint'); summary.setAttribute('role', 'status');
     function sync() {
-      const names = { merge: '合并', accept: '验收', archive: '归档' };
+      const names = { merge: '合并', accept: '验收' };
       for (const { level, control, host } of choices) {
         control.disabled = state.busy; control.setAttribute('aria-pressed', String(level === draft.level));
         control.classList.toggle('is-selected', level === draft.level);
-        control.classList.toggle('is-included', ['merge', 'accept', 'archive'].indexOf(level) < ['merge', 'accept', 'archive'].indexOf(draft.level));
-        const help = `选择未来新指令的默认最高环节“${names[level]}”；点击保存后才生效，不修改已有 Worker。${level === 'accept' ? '自动验收不保证业务质量。' : level === 'archive' ? '归档清理 worktree/ref，保留历史，不丢弃脏改动。' : ''}`;
+        control.classList.toggle('is-included', ['merge', 'accept'].indexOf(level) < ['merge', 'accept'].indexOf(draft.level));
+        const help = `选择未来新指令的默认最高环节“${names[level]}”；点击保存后才生效，不修改已有 Worker。${level === 'accept' ? '验收同时归档并回收 worktree/ref，保留运行历史；脏工作区会阻止验收，自动验收不保证业务质量。' : ''}`;
         control.setAttribute('data-help', help); host.setAttribute('data-help', help); host.tabIndex = control.disabled ? 0 : -1;
       }
       saveButton.disabled = state.busy || state.uncertain || !dirty();
@@ -114,7 +116,7 @@ export async function openWorkspaceAutomation({ push = true } = {}) {
     head.append(el('span', 'AUTOMATION', 'eyebrow'), el('h1', '全局自动化'), el('p', '策略跟随设备用户，实际动作仍由来源项目在安全边界执行。', 'hint'));
     const reload = button('重新读取策略', async () => {
       if (state.busy) return;
-      const dirty = state.draft && state.model && (state.draft.enabled !== state.model.completion_defaults.enabled || state.draft.level !== state.model.completion_defaults.level);
+      const dirty = state.draft && state.model && (state.draft.enabled !== state.model.completion_defaults.enabled || state.draft.level !== normalizeLevel(state.model.completion_defaults.level));
       if (dirty && !await confirmDialog({ title: '放弃未保存更改并重新读取？', message: '重新读取设备的权威默认流程，当前未保存编辑会丢失。', confirmLabel: '放弃并读取' })) return;
       if (owns()) await load();
     }, 'ghost'); reload.disabled = state.busy;

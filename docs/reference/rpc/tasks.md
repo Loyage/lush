@@ -31,16 +31,16 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 | `worker message ID 'body'` | `worker.message` | `{id, body}` |
 | `worker integrate CHILD_ID CHILD_HEAD_COMMIT` | `worker.integrate` | `{id, commit}`；agent-only |
 | `worker auto-merge ID on\|off` | `worker.auto_merge` | `{id, enabled:boolean}`；用户专属；设置跨轮保留的自动合并 hook，返回 `{task_id,changed,auto_merge}` |
-| `worker completion ID off\|merge\|accept\|archive --revision REV` | `worker.completion` | `{id,level,expected_revision}`；用户专属，串行最高级别与安全投影见 [Hooks 接口](hooks.md#最高自动级别) |
+| `worker completion ID off\|merge\|accept --revision REV` | `worker.completion` | `{id,level,expected_revision}`；用户专属，串行最高级别与安全投影见 [Hooks 接口](hooks.md#最高自动级别) |
 | `worker reserve ID merge` | `worker.reserve` | `{id, kind:'merge'}`；用户专属；显式请求本轮合并，不修改自动合并设置 |
 | `worker reserve-all BRANCH`（Web「合并所有」） | `worker.reserve_all` | `{branch}`；用户专属；把该分支下所有已静息、待合并的 指令/child 逐条走同一套预约准入并交给父 Worker 自有交付队列的 runtime 串行处理 |
 | `worker unreserve ID` | `worker.unreserve` | `{id}`；用户专属 |
 | `worker approve-merge ID COMMIT BASELINE` | `worker.approve_merge` | `{id, commit, baseline}`；用户专属 |
-| `worker accept ID` | `worker.accept` | `{id}`；用户验收指令成果（含静息无改动回答，无需先合并）/ 运行中的直接父 Agent 确认已交付 child；返回 Worker，不归档 |
+| `worker accept ID` | `worker.accept` | `{id}`；用户验收指令成果（含静息无改动回答，无需先合并）/ 运行中的直接父 Agent 确认已交付 child；返回 Worker；验收即归档，安全回收 worktree/ref 并保留运行历史 |
 | `worker reopen ID` | `worker.reopen` | `{id}`；用户专属；历史已合并Worker显式恢复待验收，返回 Worker，不调用 Agent |
 | `worker sync-parent ID` | `worker.sync_parent` | `{id}`；用户专属；返回 `{task,synced,conflict,source_commit,parent_commit,reason?}`；不调用 Agent |
 | `worker resolve-sync ID` | `worker.resolve_sync` | `{id}`；用户专属；返回 Worker，显式调用 Agent 解决已记录同步冲突 |
-| `worker resolve ID` | `worker.resolve` | `{id}`；用户专属，仅指令；委托 `worker.accept` 的兼容入口，不归档 |
+| `worker resolve ID` | `worker.resolve` | `{id}`；用户专属，仅指令；委托 `worker.accept` 的兼容入口，含安全归档回收 |
 | `worker resolve-divergence ID` | `worker.resolve_divergence` | `{id}`；用户专属 |
 | `worker resolve-child-divergence CHILD_ID` | `worker.resolve_child_divergence` | `{id}`；agent-only |
 | `worker cancel ID` | `worker.cancel` | `{id}` |
@@ -149,7 +149,7 @@ Worker 详情的原始目标直接展示预览；长模块点击「展开完整�
 
 `worker.accept` 可直接验收静息、无未交付改动的指令回答，无需请求合并或创建空 Squash。保留 `result`，结算为 `completed`；无代码交付保持 `integration='none'`，已交付轮次保留真实交付状态。验收确认成果，不等同于放弃 Worker，也不删除分支/worktree。检查运行与清理、未读消息、待决问题、未结算后代、预约/冻结、工作区与真实 Git 交付事实；失败保留现场，不自动消除待决事项。继续追问应在验收前追加输入，验收后有新要求另发指令。
 
-Web 详情与 Worker 图（含极简模式）对本轮有回答、已知顶端等于本轮基线的静息指令展示共用的「仅验收」「验收并归档」控件；未知基线/顶端、运行中、暂停或新增提交不能冒充无改动回答。控件只是候选提示，最终安全门由后端裁决，不自动把所有 waiting Worker 改成待验收。
+Web 详情与 Worker 图（含极简模式）对本轮有回答、已知顶端等于本轮基线的静息指令展示共用的「验收」控件（验收表示不再有异议，同时安全归档回收 worktree/ref，保留完整运行历史，脏现场阻止）；未知基线/顶端、运行中、暂停或新增提交不能冒充无改动回答。控件只是候选提示，最终安全门由后端裁决，不自动把所有 waiting Worker 改成待验收。
 
 原 `worker.resolve` 仅保留用户专属的指令验收兼容入口，直接委托同一个 `acceptTask`，包括已交付代码的验收；不再走独立 `finish` 收尾、不新增 `task.resolved`，统一写 `task.accepted` 并触发 `worker.accepted` Hook。重复验收幂等，旧历史事件与已完成记录不迁移。
 

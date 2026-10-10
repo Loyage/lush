@@ -21,7 +21,7 @@ Lush 的合并单位是分支谱系中的一条 `direct child → parent` 边。
 
 Git 写入前再次复核取消、可投递新输入、固定 refs、清洁度与祖先保留。`prepareTaskSquashUnsafe` 先生成未落地提交，将精确落地凭据持久化到 `reservation.landing_receipt`（含落地提交、固定源提交、父基线与树）后，`applyTaskSquashUnsafe` 受检推进父工作区/ref；Git 成功而 DB 尚未写入时，恢复只能按精确提交、父、树与目标祖先核验凭据，未知副作用不重放。接口契约见[模块地图](modules.md)。
 
-落地进入非终态 `awaiting_acceptance` / `integration='merged'`，保留原父子关系及分支/worktree/会话。追加输入继续当前 Worker；指令用户验收 / child 直接父 Agent 确认（`worker.accept`）与显式归档分开。本轮使用 `iteration_base_commit`，原始起点不改写。安全父同步只在源侧吸收固定父提交，冲突先诊断、另点 Agent；详见[持续迭代](task-iteration.md)。
+落地进入非终态 `awaiting_acceptance` / `integration='merged'`，保留原父子关系及分支/worktree/会话。追加输入继续当前 Worker；指令用户验收 / child 直接父 Agent 确认统一使用 `worker.accept`：验收即归档，受检回收开发资源并保留运行历史，脏现场阻止；[统一验收](worker-acceptance.md)规定部分失败显式续办与旧授权兼容。本轮使用 `iteration_base_commit`，原始起点不改写。安全父同步只在源侧吸收固定父提交，冲突先诊断、另点 Agent；详见[持续迭代](task-iteration.md)。
 
 ### 区分嵌套交付等待与死锁
 

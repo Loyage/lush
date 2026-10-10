@@ -29,9 +29,9 @@ test('completion defaults start disabled, read without writes, persist per devic
     f.project.completionDefaults(); f.project.hooksList();
     expect(facts(f)).toEqual(before); // No lazy meta initialization or Hook execution on reads.
     const enabled = configure(f, true, 'archive');
-    expect(enabled.completion_defaults).toMatchObject({ enabled: true, level: 'archive' });
+    expect(enabled.completion_defaults).toMatchObject({ enabled: true, level: 'accept' });
     const disabled = configure(f, false, 'archive');
-    expect(disabled.completion_defaults).toMatchObject({ enabled: false, level: 'archive' });
+    expect(disabled.completion_defaults).toMatchObject({ enabled: false, level: 'accept' });
     expect(other.project.completionDefaults()).toEqual(initial);
     const current = facts(f);
     reopened = new Store(path.join(f.config.home, 'project.db'), f.root);
@@ -94,7 +94,7 @@ test('only newly created order Workers copy defaults; existing, child, owners, m
     const one = (await f.project.order('new', null, [], null, false)).task;
     const two = (await f.project.order('nested independent order', old.branch, [], null, false)).task;
     for (const task of [one, two]) expect(settings(f, task)).toMatchObject({ version: 1, enabled: true, locked: false,
-      level: 'archive', completion: { authorization: expect.any(String), round: 0, executions: {}, notices: {} } });
+      level: 'accept', completion: { authorization: expect.any(String), round: 0, executions: {}, notices: {} } });
     expect(settings(f, one).completion.authorization).not.toBe(settings(f, two).completion.authorization);
     const newChild = await f.project.spawn(one.id, 'new child');
     expect(settings(f, child)).toEqual({ version: 1, enabled: true, locked: true });
@@ -112,7 +112,7 @@ test('only newly created order Workers copy defaults; existing, child, owners, m
     expect(f.store.all('SELECT * FROM events WHERE task_id IS NOT NULL')).toEqual(history);
     expect(settings(f, (await f.project.order('disabled', null, [], null, false)).task))
       .toEqual({ version: 1, enabled: false, locked: false });
-    expect(enabled.completion_defaults.level).toBe('archive');
+    expect(enabled.completion_defaults.level).toBe('accept');
     expect(JSON.stringify(f.project.hooksList())).not.toContain('authorization');
   } finally { await f.close(); }
 });
@@ -151,9 +151,9 @@ test('direct order creation resolves defaults after asynchronous Git preparation
     expect(f.store.all("SELECT * FROM tasks WHERE task_kind='order'")).toHaveLength(0);
     configure(f, true, 'archive'); release.resolve();
     const { task } = await creating;
-    expect(settings(f, task)).toMatchObject({ enabled: true, level: 'archive' });
+    expect(settings(f, task)).toMatchObject({ enabled: true, level: 'accept' });
     configure(f, false, 'archive');
-    expect(settings(f, task)).toMatchObject({ enabled: true, level: 'archive' });
+    expect(settings(f, task)).toMatchObject({ enabled: true, level: 'accept' });
   } finally { release.resolve(); await f.close(); }
 });
 
@@ -178,7 +178,7 @@ for (const [mountedEnabled, createdEnabled] of [[false, true], [true, false]])
       const task = f.store.task(receipt.worker_id);
       expect(task).toMatchObject({ task_kind: 'order', status: 'paused', base_commit: tip });
       expect(settings(f, task)).toMatchObject({ enabled: createdEnabled, locked: false,
-        ...(createdEnabled ? { level: 'archive', completion: { authorization: expect.any(String) } } : {}) });
+        ...(createdEnabled ? { level: 'accept', completion: { authorization: expect.any(String) } } : {}) });
       await f.project.runParentReadyHooks(source.parent_id);
       expect(f.store.all('SELECT * FROM inputs')).toHaveLength(2);
     } finally { await f.close(); }
@@ -202,8 +202,7 @@ for (const level of ['off', 'merge', 'accept', 'archive'])
       await until(() => !f.project.running.has(task.id) && (level === 'off'
         ? f.store.task(task.id).status === 'waiting'
         : level === 'merge' ? info(f, task).some(row => row.title.includes('待验收'))
-        : level === 'accept' ? info(f, task).some(row => row.title.includes('待归档'))
-        : f.store.branch(task.branch).status === 'archived' && settings(f, task).completion.executions.archive?.status === 'succeeded'), 15000);
+        : f.store.branch(task.branch).status === 'archived' && settings(f, task).completion.executions.accept?.status === 'succeeded'), 15000);
       expect(f.store.task(task.id)).toMatchObject({ status: level === 'off' ? 'waiting' : level === 'merge' ? 'awaiting_acceptance' : 'completed',
         integration: level === 'off' ? 'pending' : 'merged' });
       const events = f.store.history(task.id), merge = events.find(row => row.type === 'task.merge_integrated'),
@@ -213,9 +212,9 @@ for (const level of ['off', 'merge', 'accept', 'archive'])
         expect(accept.id).toBeGreaterThan(merge.id);
         expect(accept.data).toMatchObject({ via: 'completion_hook', accepted_by: 'user', authorization: copied.completion.authorization });
       } else expect(accept).toBeUndefined();
-      if (level === 'archive') expect(archive.id).toBeGreaterThan(accept.id); else expect(archive).toBeUndefined();
-      expect(info(f, task)).toHaveLength(level === 'archive' ? 0 : 1);
-      expect(fs.existsSync(task.workspace)).toBe(level !== 'archive');
+      if (['accept', 'archive'].includes(level)) expect(accept.id).toBeGreaterThan(archive.id); else expect(archive).toBeUndefined();
+      expect(info(f, task)).toHaveLength(['accept', 'archive'].includes(level) ? 0 : 1);
+      expect(fs.existsSync(task.workspace)).toBe(!['accept', 'archive'].includes(level));
       const count = events.length;
       f.project.scheduleTaskCompletion(task.id); await f.project.completionQueue;
       f.project.hooksList(); f.project.taskHooks(task.id);

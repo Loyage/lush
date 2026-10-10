@@ -62,8 +62,8 @@ function summary(actionItem, catalogue) {
         : actionItem.type === 'retry_worker' ? `到点时若失败则重试 ${workerLabel(actionItem.target_id, actionItem.target_worker_number)}；保留工作区，不检测额度恢复`
           : actionItem.type === 'resume_worker' ? `到点时若已暂停则继续 ${workerLabel(actionItem.target_id, actionItem.target_worker_number)}；不恢复取消或已验收的 Worker`
             : actionItem.type === 'request_merge' ? '冻结源提交并向直接父 Worker 请求合并'
-        : actionItem.type === 'accept_worker' ? '安全条件通过后自动验收；不调用质量评审 Agent，不保证业务质量'
-          : actionItem.type === 'archive_worker' ? '验收后归档分支及后代，清理 worktree/ref；保留 Worker、会话和历史，不丢弃未提交改动' : actionItem.type;
+        : actionItem.type === 'accept_worker' ? '安全条件通过后自动验收即归档，表示不再有异议，回收 worktree/ref 并保留运行历史；脏工作区会阻止验收，不调用质量评审 Agent，不保证业务质量'
+          : actionItem.type === 'archive_worker' ? '历史资源回收阶段（现已包含在验收中）：清理 worktree/ref，保留 Worker、会话和历史，不丢弃未提交改动' : actionItem.type;
 }
 function parameters(mount, catalogue = ui.hookCatalogue) {
   const content = el('details', undefined, 'hook-parameters'); content.append(el('summary', '参数与最近执行'));

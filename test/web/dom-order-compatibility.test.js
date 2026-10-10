@@ -54,8 +54,8 @@ for (const task_kind of ['order', 'say']) {
     const accepted = { ...task, status: 'awaiting_acceptance', integration: 'merged' };
     expect(isIterationTask(accepted)).toBe(true);
     const controls = iterationControls(accepted, { refresh() {} });
-    expect(buttonOf(controls, '仅验收')).toBeTruthy();
-    expect(buttonOf(controls, '验收并归档')).toBeTruthy();
+    expect(buttonOf(controls, '验收')).toBeTruthy();
+    expect(buttonOf(controls, '验收并归档')).toBeUndefined();
     activateDetailView({ view: 'task-graph' }); ui.taskGraphMinimal = false;
     renderTaskGraph({ nodes: [task], edges: [], total: 1 });
     const card = dom.node('detail').querySelector('[data-task-id="77"]');

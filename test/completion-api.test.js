@@ -102,6 +102,6 @@ test('CLI completion propagates stale-revision failure without rereading or lowe
   } };
   await expect(worker('worker', ['completion','7','archive','--revision',revision], { client, json: true })).rejects.toThrow('reload');
   expect(calls).toEqual([{ method: 'worker.completion', params: { id: 7, level: 'archive', expected_revision: revision } }]);
-  expect(HELP).toContain('worker completion ID off|merge|accept|archive --revision REV');
-  expect(HELP).toContain('不继承'); expect(HELP).toContain('不调用评审 Agent');
+  expect(HELP).toContain('worker completion ID off|merge|accept --revision REV');
+  expect(HELP).toContain('旧 archive 等价 accept'); expect(HELP).toContain('不调用评审 Agent');
 });

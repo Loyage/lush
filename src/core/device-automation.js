@@ -26,7 +26,8 @@ function normalize(value) {
 }
 function view(value) {
   return { version: 1, revision: createHash('sha256').update(JSON.stringify(value)).digest('base64url'),
-    auto_select: { ...value.auto_select }, completion_defaults: { ...value.completion_defaults } };
+    auto_select: { ...value.auto_select }, completion_defaults: { ...value.completion_defaults,
+      level: value.completion_defaults.level === 'archive' ? 'accept' : value.completion_defaults.level } };
 }
 function patchPolicy(value, patch) {
   object(patch, ['auto_select', 'completion_defaults'], 'device automation patch');
@@ -46,6 +47,7 @@ function patchPolicy(value, patch) {
     if (Object.hasOwn(patch.completion_defaults, 'level'))
       check(LEVELS.includes(patch.completion_defaults.level), 'default completion level must be merge, accept or archive');
     next.completion_defaults = { ...value.completion_defaults, ...patch.completion_defaults };
+    if (next.completion_defaults.level === 'archive') next.completion_defaults.level = 'accept';
   }
   return normalize(next);
 }

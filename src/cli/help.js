@@ -14,7 +14,7 @@ lush [--project PATH] [--json] <command>
   worker transcript ID [--follow]     查看执行记录
   worker history ID                  查看事件
   worker hooks ID                    查看已挂载 Hook、自动级别与修改版本
-  worker completion ID off|merge|accept|archive --revision REV  设置最高自动级别（用 worker hooks 的版本，不继承）
+  worker completion ID off|merge|accept --revision REV  设置最高自动级别（验收含归档回收；旧 archive 等价 accept）
                                       验收不调用评审 Agent；自动归档不丢弃未提交改动
   worker hook attach ID --file PATH --revision REV  从私有 JSON 挂载规则
   worker hook enable|disable|remove ID HOOK_ID --revision REV  启停或撤销未来动作（不撤回已执行动作）
@@ -43,12 +43,12 @@ lush [--project PATH] [--json] <command>
   worker resolve-child-divergence ID 历史解分歧子 Worker
   worker resolve-divergence ID       历史指令解分歧入口
   worker approve-merge ID COMMIT BASELINE  历史请求的用户批准入口
-  worker accept ID                   用户验收成果（含无改动回答）/ 父 Agent 确认 child（不归档）
+  worker accept ID                   验收即归档：用户验收成果 / 父 Agent 确认 child；回收 worktree/ref，保留运行历史，脏现场阻止
   worker reopen ID                   历史已合并 Worker 恢复待验收（不调用 Agent）
   worker sync-parent ID              安全同步父提交；冲突只返回诊断
   worker resolve-sync ID             调用 Agent 解决已记录的同步冲突
   worker clear-override ID           清除本 Worker 的独立运行覆盖，回到设备/角色默认
-  worker resolve ID                  指令验收的兼容入口（等同 accept，不归档）
+  worker resolve ID                  指令验收的兼容入口（等同 accept，含归档回收）
   worker cancel|retry ID             停止或显式重试
   worker interrupt|resume ID         请求安全点暂停 / 非阻塞继续
   worker cleanup ID [--keep-branch]   安全回收工作区
@@ -57,7 +57,7 @@ lush [--project PATH] [--json] <command>
 
   branch tree|show BRANCH            查看分支
   branch bind BRANCH COMMIT          显式绑定已有本地分支
-  branch archive BRANCH [--discard] [--continue]  安全归档分支；--continue 继续上次未完成的后代
+  branch archive BRANCH [--discard] [--continue]  特殊/失败现场清理资源；--discard 明确丢弃脏现场，--continue 续办后代
   notice list|post|answer|dismiss|read    用户决策与告知已读
   notice post '标题' [--worker ID] [--body '正文']  发给指定 Worker（Agent 默认当前 Worker）
   progress plan|complete             Agent 汇报进度

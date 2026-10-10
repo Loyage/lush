@@ -122,12 +122,12 @@ test('禁用的「合并已被冻结」把 data-help 放在 span.help-host 上�
   }
 });
 
-test('Task 图「归档」只带 data-help，旧分支动作入口不再渲染', async () => {
+test('Task 图历史 Worker 清理资源带帮助，旧分支动作入口不再渲染', async () => {
   activateDetailView({ view: 'task-graph' });
   renderTaskGraph({ total: 1, nodes: [{ id: 2, task_kind: 'order', role: 'agent', status: 'completed',
     title: '已完成任务', branch: 'feature', branch_info: { archivable: true, current_head: 'abc' } }] });
   const detail = dom.node('detail');
-  const archive = buttonByText(detail, '归档');
+  const archive = buttonByText(detail, '清理资源');
   expect(archive).toBeTruthy();
   expect(archive.classList.contains('agent-call')).toBe(false);
   expect(archive.getAttribute('data-help')).toBeTruthy();

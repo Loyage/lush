@@ -99,7 +99,7 @@ export default {
     const data = definitions(this);
     return { version: 1, revision: hookRevision(data), completion_defaults: this.completionDefaults(),
       daemon_hooks: this.daemonHooks(), signals: this.hookSignals(),
-      management_workers: this.managementWorkers(), triggers: HOOK_TRIGGERS, actions: HOOK_ACTIONS,
+      management_workers: this.managementWorkers(), triggers: HOOK_TRIGGERS, actions: HOOK_ACTIONS.filter(action => action.type !== 'archive_worker'),
       commands: this.shortcutCommands(), command_example: this.commandHookExample(), templates: data.templates.map(item => ({ id: item.id, ...readDefinition(this, item.definition) })) };
   },
 
@@ -167,11 +167,10 @@ export default {
     }
     if (completion) for (const [phase, name, trigger, type, threshold] of [
       ['accept', '自动验收', 'delivery.integrated', 'accept_worker', 2],
-      ['archive', '自动归档', 'worker.accepted', 'archive_worker', 3],
     ]) {
       const status = this.completionMountState(task, phase);
       mounts.splice(threshold - 1, 0, { id: `auto-${phase}`, name, trigger, mode: 'persistent',
-        enabled: ['off','merge','accept','archive'].indexOf(completion.level) >= threshold,
+        enabled: ['off','merge','accept'].indexOf(completion.level) >= threshold,
         builtin: true, locked: completion.locked, editable: false, removable: false,
         conditions: {}, actions: [{ type }], ...status,
         reason: completion.locked ? completion.reason : status.reason ?? '通过最高自动级别统一设置，仍需前一步与现有安全检查通过' });

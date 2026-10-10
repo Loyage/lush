@@ -17,10 +17,10 @@ for (const method of ['acceptTask', 'resolveTask']) {
       f.project.emitTaskHook = (id, trigger, ...rest) => { hooks.push([id, trigger]); return emit(id, trigger, ...rest); };
       const accepted = await f.project[method](task.id);
       expect(accepted).toMatchObject({ status: 'completed', integration: 'none', result: 'retained answer',
-        head_commit: task.base_commit, branch: task.branch, workspace: task.workspace });
-      expect(fs.existsSync(task.workspace)).toBe(true);
+        head_commit: task.base_commit, branch: task.branch, workspace: null });
+      expect(fs.existsSync(task.workspace)).toBe(false);
       expect(await git(f.root, 'rev-parse', 'main')).toBe(parentHead);
-      expect(await git(task.workspace, 'rev-parse', 'HEAD')).toBe(task.base_commit);
+      expect(f.store.branch(task.branch).status).toBe('archived');
       expect(f.project.inspect(task.id).accepted).toBe(true);
       await f.project[method](task.id);
       expect(hooks.filter(([id, trigger]) => id === task.id && trigger === 'worker.accepted')).toHaveLength(1);
@@ -28,7 +28,6 @@ for (const method of ['acceptTask', 'resolveTask']) {
       expect(f.store.history(task.id).some(row => ['task.resolved', 'task.merge_integrated', 'task.merge_requested'].includes(row.type))).toBe(false);
       expect(f.project.running.size).toBe(0);
       expect(f.store.task(task.id).calls).toBe(0);
-      await f.project.archiveBranch(task.branch);
       expect(fs.existsSync(task.workspace)).toBe(false);
       expect(f.store.task(task.id).result).toBe('retained answer');
       expect(await git(f.root, 'rev-parse', 'main')).toBe(parentHead);

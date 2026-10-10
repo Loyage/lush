@@ -74,7 +74,8 @@ function saveHiddenStatuses(set) { writePref('taskGraphStatuses', set); }
 /** 归档后的 Task：自己的分支已归档，或内部 merge 队列随直接父 Task 归档。
  *  任务行仍在库里，只是默认不再占主视图；这里只认读模型字段，不自己猜 Git 现状。 */
 function isArchivedTask(node) {
-  return node.branch_info?.archived === true || node.archived === true;
+  // An audited incomplete acceptance stays visible even if its root was already reclaimed.
+  return node.acceptance_recovery !== true && (node.branch_info?.archived === true || node.archived === true);
 }
 
 /** 卡片颜色口径：running 最醒目，其余按真实状态各自一色（排队 / 在等 / 待你 / 完成 / 失败 / 取消）；
@@ -267,8 +268,10 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
 
 function archiveControl(node) {
   const branch = node.branch_info;
-  if (!branch || branch.archived || !branch.archivable || isHistoricalDelivery(node) || node.status === 'awaiting_acceptance') return null;
-  return button('归档', () => runBranchArchive({ name: node.branch, subtreeBranches: branch.subtree_branches },
+  const cleanable = !['order', 'child'].includes(workerKind(node)) || ['failed', 'cancelled'].includes(node.status)
+    || (node.status === 'completed' && node.accepted !== true);
+  if (!branch || branch.archived || !branch.archivable || isHistoricalDelivery(node) || !cleanable) return null;
+  return button('清理资源', () => runBranchArchive({ name: node.branch, subtreeBranches: branch.subtree_branches },
     { refresh: loadTaskGraph }), 'ghost', { help: BRANCH_ARCHIVE_HELP });
 }
 
@@ -488,8 +491,8 @@ export function renderTaskGraph(graph) {
       renderTaskGraph(full);
       host.querySelector('[data-graph-focus="show-archived"]')?.focus({ preventScroll: true });
     };
-    toggle.append(archived, el('span', `显示已归档（${archivedCount}）`));
-    toggle.setAttribute('data-help', '归档 Worker 是用户显式归档分支后留下的记录，包含随父 Worker 归档的历史内部合并队列；这里只在当前页面显示，不写库、不改 Worker 状态，重开页面仍默认隐藏。');
+    toggle.append(archived, el('span', `显示已回收历史（${archivedCount}）`));
+    toggle.setAttribute('data-help', '显示验收即归档或显式清理资源后保留的 Worker 运行历史，包含随父 Worker 归档的历史内部合并队列。资源回收不等于工作成功，也不等于删除运行记录；这里只改变当前页面显示，不写库、不改 Worker 状态，重开页面仍默认隐藏。');
     summary.append(toggle);
   }
   const mode = el('label', undefined, 'task-graph-mode');

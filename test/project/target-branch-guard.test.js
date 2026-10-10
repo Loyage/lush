@@ -163,7 +163,7 @@ for (const level of ['merge', 'accept', 'archive']) test(`项目新指令默认 
   try {
     f.project.setCompletionDefaults(true, level, f.project.completionDefaults().revision);
     const order = (await f.project.order(`new order default ${level}`)).task;
-    expect(f.project.taskHooks(order.id).completion.level).toBe(level);
+    expect(f.project.taskHooks(order.id).completion.level).toBe(level === 'archive' ? 'accept' : level);
     f.project.stopping = false; f.project.kick();
     await until(() => f.store.task(order.id).status === 'failed' && !f.project.running.has(order.id), 10000);
     await f.project.completionQueue;

@@ -3,7 +3,7 @@ import { installDom, deepText, dialogButton } from '../dom-stub.js';
 import { until } from '../helpers.js';
 
 const json = value => ({ ok: true, json: async () => structuredClone(value) });
-const levels = ['off', 'merge', 'accept', 'archive'];
+const levels = ['off', 'merge', 'accept'];
 const catalogue = { version: 1, revision: 'catalogue-v1', templates: [], triggers: [
   { id: 'worker.delivery_ready', label: '交付就绪', description: '实际退出且成果准备好。' },
   { id: 'delivery.integrated', label: '交付落地', description: '成果已集成，不绕过验收门。' },
@@ -42,7 +42,11 @@ const { closeDialog } = await import('../../src/ui/web/assets/dialog.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
 const root = () => dom.node('detail');
 const choice = (node, level) => node.querySelector(`[data-level="${level}"]`);
-const click = (node, level) => choice(node, level).onclick();
+const click = async (node, level) => {
+  const pending = choice(node, level).onclick();
+  if (level === 'accept' && !dom.node('modal').hidden) await dialogButton(dom, '授权自动验收').onclick();
+  return pending;
+};
 const selected = node => node.querySelectorAll('.hook-completion-level').filter(button => button.getAttribute('aria-pressed') === 'true').map(button => button.dataset.level);
 function control(task = responseTask, refresh = () => {}, owns = () => true) {
   const node = autoCompletionControl(task, task.hooks, refresh, owns); root().replaceChildren(node); return node;
@@ -53,13 +57,14 @@ beforeEach(() => {
 });
 afterAll(() => { closeDialog(); dom.restore(); });
 
-test('four stages are one-click buttons with saved endpoint and included stages; management is collapsed and no directory read is needed', () => {
+test('three endpoints include reclamation in acceptance and normalize historical archive without reads', () => {
   ui.hookCatalogue = null;
-  for (const level of levels) {
+  for (const level of [...levels, 'archive']) {
+    const normalized = level === 'archive' ? 'accept' : level;
     const section = workerHooks(taskFor(level), { refresh() {} }); root().replaceChildren(section);
-    expect(section.querySelectorAll('.hook-completion-level').map(button => button.textContent)).toEqual(['关闭', '合并', '验收', '归档']);
-    expect(selected(section)).toEqual([level]);
-    expect(section.querySelectorAll('.is-included').map(button => button.dataset.level)).toEqual(levels.slice(1, levels.indexOf(level)));
+    expect(section.querySelectorAll('.hook-completion-level').map(button => button.textContent)).toEqual(['关闭', '合并', '验收']);
+    expect(selected(section)).toEqual([normalized]);
+    expect(section.querySelectorAll('.is-included').map(button => button.dataset.level)).toEqual(levels.slice(1, levels.indexOf(normalized)));
     expect(section.querySelector('select')).toBeNull(); expect(section.querySelector('input')).toBeNull();
     expect(section.querySelectorAll('button').some(button => button.textContent.includes('保存自动级别'))).toBe(false);
     const management = section.querySelector('.hook-management'); expect(Boolean(management.open)).toBe(false);
@@ -113,21 +118,22 @@ test('merged and accepted Workers can raise the level without Agent cost or old 
   }
 });
 
-test('archive confirmation describes subtree removal, preserves history and no discard; highlight stays saved until confirmed', async () => {
-  const node = control(); const saving = click(node, 'archive');
+test('acceptance confirmation describes subtree removal and retains saved highlighting until confirmed', async () => {
+  const node = control(); const saving = choice(node, 'accept').onclick();
   expect(actions).toHaveLength(0); expect(selected(node)).toEqual(['off']);
   expect(deepText(dom.node('modal'))).toContain('分支及后代的 worktree/ref');
   expect(deepText(dom.node('modal'))).toContain('不丢弃未提交改动');
-  expect(dialogButton(dom, '授权自动归档').classList.contains('agent-call')).toBe(true);
-  await dialogButton(dom, '授权自动归档').onclick(); await saving;
-  expect(actions.at(-1).params.level).toBe('archive'); expect(selected(node)).toEqual(['archive']);
+  expect(deepText(dom.node('modal'))).toContain('不再有异议');
+  expect(dialogButton(dom, '授权自动验收').classList.contains('agent-call')).toBe(true);
+  await dialogButton(dom, '授权自动验收').onclick(); await saving;
+  expect(actions.at(-1).params.level).toBe('accept'); expect(selected(node)).toEqual(['accept']);
 });
 
-test('cancelling archive never modifies saved authorization or leaves a staged selection', async () => {
-  const node = control(); const saving = click(node, 'archive');
+test('cancelling acceptance authorization never changes the saved endpoint', async () => {
+  const node = control(); const saving = choice(node, 'accept').onclick();
   await dialogButton(dom, '取消').onclick(); await saving;
   expect(actions).toHaveLength(0); expect(selected(node)).toEqual(['off']);
-  expect(choice(node, 'archive').disabled).toBe(false); expect(node.getAttribute('aria-busy')).toBeNull();
+  expect(choice(node, 'accept').disabled).toBe(false); expect(node.getAttribute('aria-busy')).toBeNull();
 });
 
 test('leaving during confirmation blocks saving, including project changes or invalid project paths before page identity updates', async () => {
@@ -135,10 +141,10 @@ test('leaving during confirmation blocks saving, including project changes or in
     dom.location.pathname = '/p/1111111111111111/'; activateDetailView({ view: 'task', key: 'task-20' });
     const identity = ui.view;
     const section = workerHooks(responseTask, { refresh() {} }); root().replaceChildren(section);
-    const saving = click(section, 'archive');
+    const saving = choice(section, 'accept').onclick();
     if (next) { dom.location.pathname = next; expect(ui.view).toBe(identity); }
     else activateDetailView({ view: 'overview' });
-    await dialogButton(dom, '授权自动归档').onclick(); await saving;
+    await dialogButton(dom, '授权自动验收').onclick(); await saving;
     expect(actions).toHaveLength(0); expect(choice(section, 'accept').disabled).toBe(true);
   }
 });

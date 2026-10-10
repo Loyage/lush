@@ -32,11 +32,11 @@ for (const level of ['off', 'merge', 'accept', 'archive']) test(`real HTTP devic
     const { task: existing } = await post(f, 'order.submit', { content: 'existing order', start: false });
     const selected = level === 'off' ? 'archive' : level;
     const result = await configure(f, level !== 'off', selected);
-    expect(result.completion_defaults).toMatchObject({ version: 1, enabled: level !== 'off', level: selected });
+    expect(result.completion_defaults).toMatchObject({ version: 1, enabled: level !== 'off', level: selected === 'archive' ? 'accept' : selected });
     expect((await get(f, `/api/worker/${existing.id}/hooks`)).completion.level).toBe('off');
     const { task } = await post(f, 'order.submit', { content: `new default ${level}`, start: false });
     publicOnly(task);
-    expect((await get(f, `/api/worker/${task.id}/hooks`)).completion.level).toBe(level);
+    expect((await get(f, `/api/worker/${task.id}/hooks`)).completion.level).toBe(level === 'archive' ? 'accept' : level);
     const original = f.store.task(task.id).auto_merge;
     // Saving a different device default must neither revoke nor raise this order's saved authorization.
     await configure(f, level === 'off', level === 'off' ? 'accept' : 'merge');
@@ -46,14 +46,14 @@ for (const level of ['off', 'merge', 'accept', 'archive']) test(`real HTTP devic
     const desired = level === 'off' ? 'waiting' : level === 'merge' ? 'awaiting_acceptance' : 'completed';
     await until(() => f.store.task(task.id).status === desired && !f.project.running.has(task.id)
       && !f.project.taskMergeBusy?.size && !f.project.completionQueued?.size
-      && (level !== 'archive' || f.store.branch(task.branch).status === 'archived'), 15000);
+      && (!['accept', 'archive'].includes(level) || f.store.branch(task.branch).status === 'archived'), 15000);
     const history = f.store.history(task.id), merged = history.find(item => item.type === 'task.merge_integrated');
     const accepted = history.find(item => item.type === 'task.accepted'), archived = history.find(item => item.type === 'branch.archive');
     expect(Boolean(merged)).toBe(level !== 'off'); expect(Boolean(accepted)).toBe(['accept', 'archive'].includes(level));
-    expect(Boolean(archived)).toBe(level === 'archive');
+    expect(Boolean(archived)).toBe(['accept', 'archive'].includes(level));
     if (accepted) { expect(accepted.id).toBeGreaterThan(merged.id); expect(accepted.data.via).toBe('completion_hook'); }
-    if (archived) expect(archived.id).toBeGreaterThan(accepted.id);
-    expect(calls).toBe(1); expect(fs.existsSync(task.workspace)).toBe(level !== 'archive');
+    if (archived) expect(accepted.id).toBeGreaterThan(archived.id);
+    expect(calls).toBe(1); expect(fs.existsSync(task.workspace)).toBe(!['accept', 'archive'].includes(level));
     if (level !== 'off') expect(await git(f.root, 'show', 'main:default-result.txt')).toBe('controlled default result');
     const privateConfig = JSON.parse(f.store.task(task.id).auto_merge);
     for (const route of ['/api/hooks', `/api/worker/${task.id}`, `/api/worker/${task.id}/hooks`, '/api/worker-graph'])
@@ -80,6 +80,6 @@ test('real HTTP defaults share the device policy revision and remain isolated be
     expect((await get(a, '/api/hooks')).completion_defaults).toEqual(changed.completion_defaults);
     expect((await get(b, '/api/hooks')).completion_defaults).toEqual(other.completion_defaults);
     const disabled = await configure(a, false, 'archive');
-    expect(disabled.completion_defaults).toMatchObject({ enabled: false, level: 'archive' });
+    expect(disabled.completion_defaults).toMatchObject({ enabled: false, level: 'accept' });
   } finally { await a.close(); await b.close(); }
 });

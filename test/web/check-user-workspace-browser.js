@@ -164,12 +164,12 @@ try {
   await execute(`Array.from(document.querySelectorAll('#detail button')).find(b=>b.textContent==='开启全局自动选择').click()`);
   assert(await wait(`document.getElementById('modal').textContent.includes('已有和新到问题')`), 'authorization omitted existing questions');
   assert(await execute(`return Array.from(document.querySelectorAll('#modal button')).find(b=>b.textContent==='授权并开启').classList.contains('agent-call')`), 'authorization omitted Agent costs');
-  await execute(`Array.from(document.querySelectorAll('#modal button')).find(b=>b.textContent==='取消').click();const c=document.querySelector('[aria-label="启用新指令默认自动流程"]');c.checked=true;c.dispatchEvent(new Event('change'));document.querySelector('[data-level="archive"]').click()`);
+  await execute(`Array.from(document.querySelectorAll('#modal button')).find(b=>b.textContent==='取消').click();const c=document.querySelector('[aria-label="启用新指令默认自动流程"]');c.checked=true;c.dispatchEvent(new Event('change'));document.querySelector('[data-level="accept"]').click()`);
   offline = true; await execute(`Array.from(document.querySelectorAll('#detail button')).find(b=>b.textContent==='重新读取策略').click()`);
   assert(await wait(`document.getElementById('modal').textContent.includes('放弃未保存更改')`), 'draft reread omitted explicit discard confirmation');
   await execute(`Array.from(document.querySelectorAll('#modal button')).find(b=>b.textContent==='放弃并读取').click()`);
   assert(await wait(`document.getElementById('detail').textContent.includes('fixture Host offline')`), 'offline failure not visible');
-  assert(await execute(`const b=Array.from(document.querySelectorAll('#detail button')).find(b=>b.textContent==='保存设备默认'),h=b.parentElement;h.focus();return b.disabled&&h===document.activeElement&&h.getAttribute('tabindex')==='0'&&h.getAttribute('data-help').includes('重新读取')&&document.querySelector('[aria-label="启用新指令默认自动流程"]').checked&&document.querySelector('[data-level="archive"]').getAttribute('aria-pressed')==='true'`), 'offline help or unsaved authorization draft lost');
+  assert(await execute(`const b=Array.from(document.querySelectorAll('#detail button')).find(b=>b.textContent==='保存设备默认'),h=b.parentElement;h.focus();return b.disabled&&h===document.activeElement&&h.getAttribute('tabindex')==='0'&&h.getAttribute('data-help').includes('重新读取')&&document.querySelector('[aria-label="启用新指令默认自动流程"]').checked&&document.querySelector('[data-level="accept"]').getAttribute('aria-pressed')==='true'`), 'offline help or unsaved authorization draft lost');
   console.log('PASS cancelled Agent authorization and focusable offline help preserve the draft'); offline = false;
   await rpc(`/session/${session}/frame`, { id: null });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/p/${projectId}/` });

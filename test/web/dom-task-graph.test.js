@@ -106,7 +106,7 @@ test('Task 图默认隐藏已归档 Task，可用「显示已归档」开关就�
     expect(toggle).toBeTruthy();
     expect(toggle.tagName).toBe('LABEL');
     expect(toggle.classList.contains('task-graph-mode')).toBe(true);
-    expect(deepText(toggle)).toContain('显示已归档（1）');
+    expect(deepText(toggle)).toContain('显示已回收历史（1）');
     expect(toggle.getAttribute('data-help')).toContain('默认隐藏');
     const checkbox = toggle.querySelector('input');
     expect(checkbox.type).toBe('checkbox');
@@ -117,7 +117,7 @@ test('Task 图默认隐藏已归档 Task，可用「显示已归档」开关就�
     expect(card).toBeTruthy();
     expect(deepText(card)).toContain('分支已归档');
     const enabled = dom.node('detail').querySelector('.task-graph-archived-toggle');
-    expect(deepText(enabled)).toContain('显示已归档（1）');
+    expect(deepText(enabled)).toContain('显示已回收历史（1）');
     expect(enabled.querySelector('input').checked).toBe(true);
     expect(document.activeElement).toBe(enabled.querySelector('input'));
     // 再点一次收回，保持默认视图。
@@ -149,7 +149,7 @@ test('Task 图：历史内部合并队列随父 Task 归档，不隐藏独立工
     expect(card(100)).toBeNull();
     expect(card(101)).toBeTruthy();
     const toggle = dom.node('detail').querySelector('.task-graph-archived-toggle');
-    expect(deepText(toggle)).toContain('显示已归档（2）');
+    expect(deepText(toggle)).toContain('显示已回收历史（2）');
     expect(toggle.getAttribute('data-help')).toContain('随父 Worker 归档');
     toggle.querySelector('input').checked = true;
     toggle.querySelector('input').onchange();
@@ -165,7 +165,7 @@ test('Task 图：历史内部合并队列随父 Task 归档，不隐藏独立工
     graph.nodes = graph.nodes.filter(node => node.id !== 99);
     await dom.node('task-graph-open').onclick();
     expect(card(100)).toBeNull();
-    expect(deepText(dom.node('detail').querySelector('.task-graph-archived-toggle'))).toContain('显示已归档（1）');
+    expect(deepText(dom.node('detail').querySelector('.task-graph-archived-toggle'))).toContain('显示已回收历史（1）');
     expect(world.state.actions).toHaveLength(actions);
   } finally {
     graph.nodes = saved; graph.total = total;
@@ -384,13 +384,14 @@ test('Task 图：表头状态图例即开关，按状态隐藏后可一键恢复
   }
 });
 
-test('Task 图：可归档分支给「归档」按钮，帮助说清含义，确认后才走 branch.archive', async () => {
-  const saved = graph.nodes[1].branch_info;
+test('Task 图：失败分支清理资源保留失败结果，确认后才走 branch.archive', async () => {
+  const saved = graph.nodes[1].branch_info, savedStatus = graph.nodes[1].status;
+  graph.nodes[1].status = 'failed';
   graph.nodes[1].branch_info = { ...(saved || {}), archived: false, current_head: 'abc456', archivable: true, subtree_branches: 0 };
   try {
     await dom.node('task-graph-open').onclick();
     const card = dom.node('detail').querySelector('[data-task-id="2"]');
-    const archive = card.querySelectorAll('button').find(node => node.textContent === '归档');
+    const archive = card.querySelectorAll('button').find(node => node.textContent === '清理资源');
     expect(archive).toBeTruthy();
     // 按钮说明归档的含义：删 worktree/ref、未提交改动会丢、Task 与会话保留、不等于删除 Task。
     const help = archive.getAttribute('data-help');
@@ -403,7 +404,7 @@ test('Task 图：可归档分支给「归档」按钮，帮助说清含义，确
     expect(dialogText(dom)).toContain('保留 Worker、会话与分支记录');
     expect(dialogText(dom)).toContain('内部合并队列随父 Worker 一起归档');
     expect(world.state.actions.some(entry => entry.method === 'branch.archive')).toBe(false);
-    await answerDialog(dom, '归档');
+    await answerDialog(dom, '清理资源');
     await pending;
     expect(world.state.actions).toContainEqual({ method: 'branch.archive', params: { branch: 'lush/task-2', discard: true } });
 
@@ -411,9 +412,9 @@ test('Task 图：可归档分支给「归档」按钮，帮助说清含义，确
     graph.nodes[1].branch_info = { ...(saved || {}), archived: false, current_head: 'abc456', archivable: false, subtree_branches: 0 };
     await dom.node('task-graph-open').onclick();
     expect(dom.node('detail').querySelector('[data-task-id="2"]')
-      .querySelectorAll('button').some(node => node.textContent === '归档')).toBe(false);
+      .querySelectorAll('button').some(node => node.textContent === '清理资源')).toBe(false);
   } finally {
-    graph.nodes[1].branch_info = saved;
+    graph.nodes[1].branch_info = saved; graph.nodes[1].status = savedStatus;
     await dom.node('task-graph-open').onclick();
   }
 });

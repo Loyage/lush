@@ -20,13 +20,13 @@ export const HOOK_TRIGGERS = Object.freeze([
   ['delivery.integrated', '交付已落地', '代码已受检合入父分支，仍待验收。'],
   ['delivery.suspended', '交付挂起', '执行位已释放，等待显式恢复。'],
   ['delivery.blocked', '交付待核验', '副作用未知，仍保留父执行位。'],
-  ['worker.accepted', 'Worker 已验收', '用户或直接父 Worker 明确验收。'],
+  ['worker.accepted', 'Worker 已验收', '用户或直接父 Worker 已确认不再有异议，开发资源已归档回收，运行历史保留。'],
   ['worker.cancelled', 'Worker 已取消', '明确取消，不删除代码现场。'],
 ].map(([id, label, description]) => Object.freeze({ id, label, description })));
 const TRIGGERS = new Set(HOOK_TRIGGERS.map(t => t.id));
 export const HOOK_ACTIONS = Object.freeze([
   { type: 'command', label: '运行快捷指令', description: '仅调用项目中明确授权的快捷指令版本，以 daemon 用户权限在挂载 Worker 的实际检出目录运行；不是沙箱，失败停用未来执行，输出不公开。', triggers: [...TRIGGERS].filter(t => !['time.scheduled','agent.failed','worker.accepted','worker.cancelled'].includes(t)), modes: ['once','persistent'], agent_call: false },
-  { type: 'accept_worker', label: '自动验收', description: '内置串行阶段：复用安全校验后代替用户确认，不调用质量评审 Agent。', triggers: ['delivery.integrated'], modes: ['persistent'], agent_call: false, builtin_only: true },
+  { type: 'accept_worker', label: '自动验收', description: '安全校验通过后代替用户确认并归档回收 worktree/ref；保留运行历史，不丢弃脏现场，不调用质量评审 Agent。', triggers: ['delivery.integrated'], modes: ['persistent'], agent_call: false, builtin_only: true },
   { type: 'archive_worker', label: '自动归档', description: '内置串行阶段：已验收后受检归档子树，不丢弃未提交修改。', triggers: ['worker.accepted'], modes: ['persistent'], agent_call: false, builtin_only: true },
   { type: 'request_merge', label: '请求合并', description: '经现有安全检查向直接父队列请求合并。', triggers: ['worker.delivery_ready'], modes: ['once','persistent'], agent_call: true },
   { type: 'create_worker', label: '预约创建 Worker', description: '在所挂载父 Worker 下创建独立工作区，按保存参数启动。', triggers: ['worker.parent_ready','time.scheduled'], modes: ['once'], modes_by_trigger: { 'time.scheduled': ['once','persistent'] }, agent_call: true },

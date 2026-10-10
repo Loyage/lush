@@ -57,6 +57,17 @@ test('agent prompt distinguishes persistent auto-merge hooks from delivery and a
   expect(prompt).not.toContain('收到 merge Task 的分歧消息');
 });
 
+test('acceptance guidance includes safe retirement and preserves parent-only authorization', () => {
+  const prompt = builtInPrompt('agent');
+  expect(prompt).toContain('验收即归档');
+  expect(prompt).toContain('脏工作区阻止验收');
+  expect(prompt).toContain('资源回收失败不能当作验收成功');
+  expect(prompt).toContain('保留 Worker、会话、结果和运行历史');
+  expect(prompt).toContain('Agent 只能确认自己直接派出的已交付 child');
+  expect(prompt).not.toContain('默认确认不自动归档');
+  expect(prompt).not.toContain('显式归档另行回收');
+});
+
 test('agent prompt pins writes to the worktree and forbids direct commits on the target branch', () => {
   for (const role of ['agent', 'worker', 'merger', 'planner']) {
     const prompt = builtInPrompt(role);

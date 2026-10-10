@@ -264,7 +264,7 @@ export default {
     return [...users];
   },
 
-  async archiveBranch(branch, { discard_worktree = false, continue: continueArchive = false, completion = null } = {}) {
+  async archiveBranch(branch, { discard_worktree = false, continue: continueArchive = false, completion = null, acceptance = null } = {}) {
     const name = String(branch ?? '').trim();
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
     const record = this.store.branch(name);
@@ -275,7 +275,11 @@ export default {
     // G-04：一次归档可能在第二条分支上撞上未知失败，库只写下了已成的部分。续办从谱系事实重算
     // 剩余活动后代，只删这些；根已归档不算错误，重复调用也不会重复删。
     let targets;
-    if (continueArchive) {
+    if (acceptance) {
+      check(!discard_worktree && !continueArchive && !completion, 'acceptance cannot discard or bypass its Git checks');
+      acceptance.guard();
+      targets = subtreeActive;
+    } else if (continueArchive) {
       check(record.status === 'archived' || record.status === 'deleted',
         `branch ${name} is still active; archive it normally instead of continuing`);
       targets = subtreeActive.filter(target => target !== name);
@@ -301,7 +305,7 @@ export default {
       .filter(row => { try { const value = JSON.parse(row.reservation); return value?.kind === 'merge' && value.status === 'requested'; } catch { return false; } });
     check(requested.length === 0,
       `branch ${requested[0]?.branch} still has an outstanding merge request from order ${workerLabel(requested[0])}; integrate or withdraw it before archiving`);
-    const guard = completion ? () => {
+    const guard = acceptance ? acceptance.guard : completion ? () => {
       const task = this.assertCompletionClaim(record.task_id, completion, 'archive');
       check(task.status === 'completed' && !discard_worktree && !continueArchive, 'automatic archive requires accepted clean work');
       for (const target of targets) this.assertBranchWritable(target, 'automatically archive it');
@@ -334,7 +338,8 @@ export default {
     }
     const cleaning = [...this.workspaces.busy].filter(id => users.has(id));
     check(cleaning.length === 0, `branch ${name} is being cleaned up (worker ${workerLabel(this.store.get('SELECT id,worker_number FROM tasks WHERE id=?', cleaning[0]) ?? { id: cleaning[0] })})`);
-    check(unfinished.length === 0, `branch ${name} still has unfinished workers: ${unfinished.map(workerLabel).join(', ')}`);
+    const blockers = acceptance ? unfinished.filter(row => row.id !== acceptance.task_id) : unfinished;
+    check(blockers.length === 0, `branch ${name} still has unfinished workers: ${blockers.map(workerLabel).join(', ')}`);
     // 子树里每条分支名下的任务行先收好：每条分支 settle 时就立刻把库改成磁盘的事实，
     // 所以第 N 条失败也不会留下「库说还在、目录已经没了」的前 N-1 条。
     const tasksByBranch = new Map(targets.map(target => [target,
@@ -356,12 +361,13 @@ export default {
         }
       });
     };
-    const expectedTips = completion ? new Map(targets.map(target => {
+    const expectedTips = acceptance ? new Map(targets.map(target => [target, acceptance.deletedRefs.has(target) ? null : acceptance.tips[target]])) : completion ? new Map(targets.map(target => {
       const owner = this.store.get('SELECT head_commit FROM tasks WHERE branch=? ORDER BY id DESC LIMIT 1', target);
       check(owner?.head_commit, 'automatic archive needs a reviewed commit for every subtree branch');
       return [target, owner.head_commit];
     })) : null;
-    const { outcomes, failed, remaining } = await this.workspaces.archiveBranches(targets, { discard_worktree, onOutcome, guard, expectedTips });
+    const archive = acceptance ? this.workspaces.archiveBranchesUnsafe.bind(this.workspaces) : this.workspaces.archiveBranches.bind(this.workspaces);
+    const { outcomes, failed, remaining } = await archive(targets, { discard_worktree, onOutcome, guard, expectedTips });
     // pi 会话文件在 <home>/sessions 下，不随 worktree 消失；把位置写进事件，将来 task 行被 clear 掉也能查回。
     const sessions = [];
     for (const outcome of outcomes) {
@@ -384,7 +390,12 @@ export default {
       if (host !== null) this.store.event(host, 'branch.archive', { branch: name, continued: continueArchive, targets,
         completed: outcomes.map(outcome => outcome.branch), failed: failed.map(outcome => ({ branch: outcome.branch, reason: outcome.reason })),
         remaining: remaining.map(outcome => outcome.branch),
-        ...(completion ? { completion_execution: completion.id, authorization: completion.authorization, round: completion.round } : {}) });
+        ...(acceptance ? { acceptance_execution: acceptance.id, outcomes: [...outcomes, ...failed] } : {}),
+        ...((completion ?? acceptance?.completion) ? {
+          completion_execution: (completion ?? acceptance.completion).id,
+          authorization: (completion ?? acceptance.completion).authorization,
+          round: (completion ?? acceptance.completion).round,
+        } : {}) });
     });
     const root = outcomes.find(outcome => outcome.branch === name) ?? failedByBranch.get(name) ?? {};
     // 顶层 worktree / ref / tip / discarded 描述的是子树根（调用方问的那条）；整棵子树看 branches。

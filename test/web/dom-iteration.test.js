@@ -6,6 +6,7 @@ const world = makeWorld();
 let syncResult;
 let failedMethod = null;
 let acceptGate = null;
+let acceptResponse = null;
 const calls = [];
 const dom = installDom({ fetch: async (url, options) => {
   if (String(url).endsWith('/api/action') && options?.body) {
@@ -14,7 +15,8 @@ const dom = installDom({ fetch: async (url, options) => {
       calls.push(request);
       if (request.method === 'worker.accept' && acceptGate) await acceptGate;
       if (request.method === failedMethod) return new Response(JSON.stringify({ error: '安全检查拒绝' }), { status: 409 });
-      return new Response(JSON.stringify(request.method === 'worker.sync_parent' ? syncResult : task));
+      return new Response(JSON.stringify(request.method === 'worker.sync_parent' ? syncResult
+        : request.method === 'worker.accept' ? acceptResponse || { ...task, status: 'completed', workspace: null } : task));
     }
   }
   return world.fetchImpl(url, options);
@@ -51,123 +53,101 @@ test('acceptance is non-terminal, visible and eligible as a parent; freezing sti
 
 const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 
-test('accept-only immediately accepts without any dialog or archive and never starts Agent', async () => {
-  let panel = render(task);
-  const accept = buttonOf(panel, '仅验收');
+test('one acceptance immediately authorizes reclamation without extra RPC or Agent call', async () => {
+  const panel = render(task), accept = buttonOf(panel, '验收');
+  expect(buttonOf(panel, '仅验收')).toBeUndefined(); expect(buttonOf(panel, '验收并归档')).toBeUndefined();
   expect(accept.classList.contains('agent-call')).toBe(false);
-  expect(accept.getAttribute('data-help')).toContain('保留分支与 worktree');
+  expect(accept.getAttribute('data-help')).toContain('不再有异议');
+  expect(accept.getAttribute('data-help')).toContain('worktree 与本地 ref');
+  expect(accept.getAttribute('data-help')).toContain('脏工作区');
   const before = calls.length;
-  const pending = accept.onclick();
-  expect(calls.at(-1)).toEqual({ method: 'worker.accept', params: { id: 70 } });
-  await pending;
+  await accept.onclick(); await accept.onclick();
+  expect(calls.slice(before)).toEqual([{ method: 'worker.accept', params: { id: 70 } }]);
   expect(dom.node('modal').hidden).toBe(true);
-  await accept.onclick();
-  await buttonOf(panel, '验收并归档').onclick();
-  expect(calls.slice(before).map(call => call.method)).toEqual(['worker.accept']);
-  panel = render({ ...task, status: 'completed' });
-  const reopen = buttonOf(panel, '继续开发'); expect(reopen.classList.contains('agent-call')).toBe(false);
-  const reopening = reopen.onclick(); expect(dialogText(dom)).toContain('不会调用 Agent');
-  await answerDialog(dom, '恢复待验收'); await reopening;
+  expect(iterationControls({ ...task, status: 'completed', accepted: true, archived: true })).toBeNull();
+  const historical = render({ ...task, status: 'completed' });
+  const reopening = buttonOf(historical, '继续开发').onclick();
+  expect(dialogText(dom)).toContain('不会调用 Agent'); await answerDialog(dom, '恢复待验收'); await reopening;
   expect(calls.at(-1)).toEqual({ method: 'worker.reopen', params: { id: 70 } });
-  expect(iterationControls({ ...task, status: 'completed', accepted: true })).toBeNull();
-  expect(iterationControls({ ...task, status: 'completed' }, { events: [{ type: 'task.accepted' }] })).toBeNull();
+  const recovery = render({ ...task, status: 'completed', accepted: true });
+  expect(deepText(recovery)).toContain('再次验收补办'); expect(buttonOf(recovery, '同步父分支')).toBeUndefined();
 });
 
-test('accept-and-archive directly accepts without a dialog, waits for success and suppresses cross-button clicks', async () => {
-  let release;
-  acceptGate = new Promise(resolve => { release = resolve; });
-  const sequence = [];
-  const panel = iterationControls({ ...task, branch_archive: { subtree_branches: 2 } },
-    { refresh: () => { sequence.push(calls.at(-1).method); } });
+test('acceptance in flight suppresses repeated clicks and never requests a separate archive', async () => {
+  let release; acceptGate = new Promise(resolve => { release = resolve; });
+  let refreshed = 0;
+  const panel = iterationControls(task, { refresh: () => { refreshed++; } });
   dom.node('detail').replaceChildren(panel);
-  const accept = buttonOf(panel, '验收并归档');
-  const before = calls.length;
+  const accept = buttonOf(panel, '验收'), before = calls.length;
   const pending = accept.onclick();
-  expect(accept.disabled).toBe(true);
+  expect(accept.disabled).toBe(true); await accept.onclick(); await flush();
   expect(calls.slice(before)).toEqual([{ method: 'worker.accept', params: { id: 70 } }]);
-  expect(dom.node('modal').hidden).toBe(true);
-  expect(accept.classList.contains('agent-call')).toBe(false);
-  expect(accept.getAttribute('data-help')).toContain('不再弹窗确认');
-  expect(accept.getAttribute('data-help')).toContain('归档失败不撤销验收');
-  expect(accept.getAttribute('data-help')).toContain('删除 worktree 与本地 ref');
-  expect(accept.getAttribute('data-help')).toContain('全部后代分支');
-  await accept.onclick(); await buttonOf(panel, '仅验收').onclick(); await flush();
-  expect(calls.slice(before)).toEqual([{ method: 'worker.accept', params: { id: 70 } }]);
-  expect(dom.node('modal').hidden).toBe(true);
   release(); acceptGate = null; await pending;
-  expect(calls.slice(before)).toEqual([
-    { method: 'worker.accept', params: { id: 70 } },
-    { method: 'branch.archive', params: { branch: task.branch, discard: true } },
-  ]);
-  expect(sequence).toEqual(['worker.accept', 'branch.archive']);
-  expect(dom.node('modal').hidden).toBe(true);
-});
-
-test('failed acceptance skips archive and can retry; archive failure never repeats or undoes acceptance', async () => {
-  const panel = render(task);
-  const accept = buttonOf(panel, '验收并归档');
-  failedMethod = 'worker.accept';
-  let before = calls.length;
-  await accept.onclick();
-  expect(dom.node('modal').hidden).toBe(true);
-  expect(accept.disabled).toBe(false);
+  expect(refreshed).toBe(1);
   expect(calls.slice(before).map(call => call.method)).toEqual(['worker.accept']);
-  expect(dom.node('error').textContent).toContain('安全检查拒绝');
-  failedMethod = 'branch.archive'; before = calls.length;
-  await accept.onclick();
-  expect(calls.slice(before).map(call => call.method)).toEqual(['worker.accept', 'branch.archive']);
-  expect(dom.node('error').textContent).toContain('安全检查拒绝');
-  await accept.onclick(); await buttonOf(panel, '仅验收').onclick();
-  expect(calls.slice(before).map(call => call.method)).toEqual(['worker.accept', 'branch.archive']);
-  expect(dom.node('modal').hidden).toBe(true);
-  failedMethod = null;
 });
 
-test('refresh failure after acceptance cannot repeat acceptance or prevent explicitly selected archive', async () => {
-  for (const label of ['仅验收', '验收并归档']) {
-    const panel = iterationControls(task, { refresh: () => { throw new Error('刷新失败'); } });
-    dom.node('detail').replaceChildren(panel);
-    const accept = buttonOf(panel, label);
-    const before = calls.length;
-    const pending = accept.onclick();
-    await pending;
-    expect(dom.node('error').textContent).toContain('刷新失败');
-    expect(dom.node('modal').hidden).toBe(true);
-    await buttonOf(panel, '仅验收').onclick(); await buttonOf(panel, '验收并归档').onclick();
-    expect(calls.slice(before).map(call => call.method)).toEqual(label === '仅验收'
-      ? ['worker.accept'] : ['worker.accept', 'branch.archive']);
-  }
+test('failed unified acceptance stays retryable and does not claim success or separately delete resources', async () => {
+  const accept = buttonOf(render(task), '验收'), before = calls.length;
+  failedMethod = 'worker.accept'; await accept.onclick();
+  expect(accept.disabled).toBe(false); expect(dom.node('error').textContent).toContain('安全检查拒绝');
+  expect(calls.slice(before).map(call => call.method)).toEqual(['worker.accept']);
+  failedMethod = null; await accept.onclick(); await accept.onclick();
+  expect(calls.slice(before).map(call => call.method)).toEqual(['worker.accept', 'worker.accept']);
 });
 
-test('detail and full/minimal graph directly execute both acceptance choices without any modal', async () => {
+test('refresh failure after successful acceptance cannot repeat the destructive mutation', async () => {
+  const panel = iterationControls(task, { refresh: () => { throw new Error('刷新失败'); } });
+  dom.node('detail').replaceChildren(panel);
+  const accept = buttonOf(panel, '验收'), before = calls.length;
+  await accept.onclick(); await accept.onclick();
+  expect(dom.node('error').textContent).toContain('验收请求已处理，但刷新失败');
+  expect(calls.slice(before).map(call => call.method)).toEqual(['worker.accept']);
+});
+
+test('detail and full/minimal graph expose one identical authoritative acceptance action', async () => {
   for (const view of ['detail', 'graph', 'minimal-graph']) {
-    for (const label of ['仅验收', '验收并归档']) {
-      ui.lastSnapshot = null;
-      ui.taskGraphMinimal = view === 'minimal-graph';
-      // A fresh fixture must not reuse controls whose previous acceptance already succeeded.
-      dom.node('detail').replaceChildren();
-      if (view === 'detail') renderDetail(task, null, null, null);
-      else {
-        activateDetailView({ view: 'task-graph' });
-        renderTaskGraph({ total: 1, nodes: [{ ...task, branch_info: { subtree_branches: 1 } }], edges: [] });
-      }
-      const panel = dom.node('detail');
-      if (view === 'minimal-graph') panel.querySelector('.task-graph-more-trigger').onclick();
-      const accept = buttonOf(panel, label);
-      expect(accept.classList.contains('agent-call')).toBe(false);
-      const before = calls.length;
-      const pending = accept.onclick();
-      expect(calls.at(-1)).toEqual({ method: 'worker.accept', params: { id: task.id } });
-      expect(dom.node('modal').hidden).toBe(true);
-      await pending;
-      expect(calls.slice(before)).toEqual(label === '仅验收'
-        ? [{ method: 'worker.accept', params: { id: task.id } }]
-        : [{ method: 'worker.accept', params: { id: task.id } },
-          { method: 'branch.archive', params: { branch: task.branch, discard: true } }]);
-      expect(dom.node('modal').hidden).toBe(true);
-    }
+    ui.lastSnapshot = null; ui.taskGraphMinimal = view === 'minimal-graph';
+    dom.node('detail').replaceChildren();
+    if (view === 'detail') renderDetail(task, null, null, null);
+    else { activateDetailView({ view: 'task-graph' });
+      renderTaskGraph({ total: 1, nodes: [{ ...task, branch_info: { subtree_branches: 1 } }], edges: [] }); }
+    const panel = dom.node('detail');
+    if (view === 'minimal-graph') panel.querySelector('.task-graph-more-trigger').onclick();
+    expect(buttonOf(panel, '仅验收')).toBeUndefined(); expect(buttonOf(panel, '验收并归档')).toBeUndefined();
+    const before = calls.length; await buttonOf(panel, '验收').onclick();
+    expect(calls.slice(before)).toEqual([{ method: 'worker.accept', params: { id: task.id } }]);
+    expect(dom.node('modal').hidden).toBe(true);
   }
   ui.taskGraphMinimal = false;
+});
+
+test('old or malformed acceptance response does not claim resources deleted or repeat the request', async () => {
+  acceptResponse = { ...task, status: 'completed' };
+  try {
+    const accept = buttonOf(render(task), '验收'), before = calls.length;
+    await accept.onclick(); await accept.onclick();
+    expect(dom.node('error').textContent).toContain('资源回收结果未确认');
+    expect(calls.slice(before).map(call => call.method)).toEqual(['worker.accept']);
+  } finally { acceptResponse = null; }
+});
+
+test('late acceptance cannot refresh or toast a different project or page', async () => {
+  for (const changeProject of [false, true]) {
+    let release, refreshed = 0;
+    dom.location.pathname = '/p/1111111111111111/';
+    activateDetailView({ view: 'task', key: 'task-70' });
+    acceptGate = new Promise(resolve => { release = resolve; });
+    const panel = iterationControls(task, { refresh: () => { refreshed++; } });
+    dom.node('detail').replaceChildren(panel);
+    const pending = buttonOf(panel, '验收').onclick();
+    if (changeProject) dom.location.pathname = '/p/2222222222222222/';
+    else activateDetailView({ view: 'overview' });
+    dom.node('error').textContent = 'new page';
+    release(); acceptGate = null; await pending;
+    expect(refreshed).toBe(0); expect(dom.node('error').textContent).toBe('new page');
+  }
+  dom.location.pathname = '/';
 });
 
 test('safe sync returns conflict diagnostics without Agent; conflict resolution is separately confirmed and purple', async () => {
@@ -248,13 +228,13 @@ test('disabled archived, busy and frozen iteration actions explain why on help-h
   expect(iterationControls({ ...task, status: 'completed', workspace: null })).toBeNull();
   expect(iterationControls({ ...task, status: 'completed', branch_info: { archived: true } })).toBeNull();
   const parent = render({ ...task, children: [{ id: 71, status: 'awaiting_acceptance' }] });
-  for (const label of ['仅验收', '验收并归档']) {
+  for (const label of ['验收']) {
     const accept = buttonOf(parent, label);
     expect(accept.disabled).toBe(true); expect(accept.parentNode.getAttribute('data-help')).toContain('后代');
   }
   for (const row of [{ ...task, branch_info: { archived: true } }, { ...task, freeze: { task_id: 99 } },
     { ...task, agent: { active: true } }]) {
-    for (const label of ['仅验收', '验收并归档']) {
+    for (const label of ['验收']) {
       const accept = buttonOf(render(row), label);
       expect(accept.disabled).toBe(true); expect(accept.parentNode.classList.contains('help-host')).toBe(true);
     }
@@ -270,15 +250,15 @@ test('detail and graph expose the same awaiting acceptance actions and continuin
   expect(buttonOf(panel, '只回收 worktree（保留分支）')).toBeUndefined();
   expect(deepText(panel)).toContain('无需你逐个验收');
   expect(buttonOf(panel, '向该 Worker 追加输入').classList.contains('agent-call')).toBe(false);
-  expect(buttonOf(panel, '仅验收')).toBeTruthy(); expect(buttonOf(panel, '验收并归档')).toBeTruthy();
+  expect(buttonOf(panel, '验收')).toBeTruthy(); expect(buttonOf(panel, '验收并归档')).toBeUndefined();
   expect(buttonOf(panel, '同步父分支')).toBeTruthy();
   expect(buttonOf(panel, '中断')).toBeUndefined(); expect(buttonOf(panel, '已解决')).toBeUndefined();
   activateDetailView({ view: 'task-graph' });
   renderTaskGraph({ total: 1, nodes: [{ ...task, branch_info: { archivable: true } }], edges: [] });
   panel = dom.node('detail').querySelector('[data-task-id="70"]');
   expect(panel.classList.contains('task-graph-awaiting_acceptance')).toBe(true);
-  expect(buttonOf(panel, '归档')).toBeUndefined();
-  expect(buttonOf(panel, '仅验收')).toBeTruthy(); expect(buttonOf(panel, '验收并归档')).toBeTruthy();
+  expect(buttonOf(panel, '清理资源')).toBeUndefined();
+  expect(buttonOf(panel, '验收')).toBeTruthy(); expect(buttonOf(panel, '验收并归档')).toBeUndefined();
   expect(buttonOf(panel, '同步父分支')).toBeTruthy();
   expect(buttonOf(panel, '向此 Worker 输入').classList.contains('agent-call')).toBe(true);
   renderDetail({ ...task, status: 'waiting', integration: 'pending', head_commit: 'c'.repeat(40),
@@ -301,7 +281,7 @@ test('unchanged returned answers share acceptance in detail and graph, including
     }),
   ];
   try {
-    for (const paint of renderers) for (const label of ['仅验收', '验收并归档']) {
+    for (const paint of renderers) for (const label of ['验收']) {
       ui.lastSnapshot = null;
       dom.node('detail').replaceChildren();
       paint();
@@ -311,8 +291,7 @@ test('unchanged returned answers share acceptance in detail and graph, including
       expect(deepText(panel)).toContain('无需先请求合并');
       const before = calls.length;
       await buttonOf(panel, label).onclick();
-      expect(calls.slice(before).map(call => call.method)).toEqual(label === '仅验收'
-        ? ['worker.accept'] : ['worker.accept', 'branch.archive']);
+      expect(calls.slice(before).map(call => call.method)).toEqual(['worker.accept']);
       expect(dom.node('modal').hidden).toBe(true);
     }
   } finally { ui.taskGraphMinimal = false; }
@@ -321,12 +300,12 @@ test('unchanged returned answers share acceptance in detail and graph, including
 test('answer acceptance requires known unchanged iteration and idle state, with guarded blockers', () => {
   const answer = { ...task, status: 'waiting', integration: 'none', reservation: null, result: 'answer only' };
   // Previously delivered commits do not make an unchanged current round ineligible.
-  expect(buttonOf(render(answer), '仅验收')).toBeTruthy();
+  expect(buttonOf(render(answer), '验收')).toBeTruthy();
   for (const override of [{ result: null }, { base_commit: null, iteration_base_commit: null },
     { head_commit: null }, { head_commit: 'c'.repeat(40) }, { task_kind: 'child' },
-    ...['queued', 'running', 'paused', 'failed', 'cancelled', 'completed'].map(status => ({ status, accepted: true }))]) {
+    ...['queued', 'running', 'paused', 'failed', 'cancelled'].map(status => ({ status, accepted: true }))]) {
     const panel = iterationControls({ ...answer, ...override });
-    expect(panel && buttonOf(panel, '仅验收')).toBeFalsy();
+    expect(panel && buttonOf(panel, '验收')).toBeFalsy();
   }
   for (const override of [{ workspace: null }, { workspace_state: 'missing' },
     { branch_info: { archived: true } }, { agent: { active: true } },
@@ -334,7 +313,7 @@ test('answer acceptance requires known unchanged iteration and idle state, with 
     ...['pending', 'requested', 'executing', 'resolving', 'suspended', 'blocked'].map(status => ({
       reservation: { version: 2, kind: 'merge', status },
     }))]) {
-    for (const label of ['仅验收', '验收并归档']) {
+    for (const label of ['验收']) {
       const button = buttonOf(render({ ...answer, ...override }), label);
       expect(button.disabled).toBe(true);
       expect(button.parentNode.classList.contains('help-host')).toBe(true);
@@ -342,7 +321,7 @@ test('answer acceptance requires known unchanged iteration and idle state, with 
   }
 });
 
-test('completed task detail uses archive as its only worktree and branch reclamation action', () => {
+test('historically accepted task offers acceptance to finish reclamation, not independent cleanup', () => {
   ui.lastSnapshot = null;
   for (const integration of ['merged', 'none', 'superseded']) {
     for (const archivable of [true, false]) {
@@ -351,12 +330,10 @@ test('completed task detail uses archive as its only worktree and branch reclama
       const panel = dom.node('detail');
       expect(buttonOf(panel, '回收工作区与分支')).toBeUndefined();
       expect(buttonOf(panel, '只回收 worktree（保留分支）')).toBeUndefined();
-      const archive = buttonOf(panel, '归档');
-      if (archivable) {
-        expect(archive).toBeTruthy();
-        expect(archive.getAttribute('data-help')).toContain('删除 worktree 与本地 ref');
-        expect(archive.classList.contains('agent-call')).toBe(false);
-      } else expect(archive).toBeUndefined();
+      expect(buttonOf(panel, '清理资源')).toBeUndefined();
+      const accept = buttonOf(panel, '验收');
+      expect(accept).toBeTruthy(); expect(accept.classList.contains('agent-call')).toBe(false);
+      expect(accept.getAttribute('data-help')).toContain('worktree 与本地 ref');
     }
   }
 });
@@ -366,8 +343,8 @@ test('delegated Tasks wait for parent confirmation, not user acceptance or mine 
   const panel = render(child);
   expect(statusOf(child).label).toBe('待父确认');
   expect(deepText(panel)).toContain('等待父 Worker #1');
-  expect(buttonOf(panel, '仅验收')).toBeUndefined();
-  expect(buttonOf(panel, '验收并归档')).toBeUndefined();
+  expect(buttonOf(panel, '验收')).toBeUndefined();
+  expect(deepText(panel)).toContain('父 Agent 验收也会归档并回收');
   expect(matchTask(child, { mine: true })).toBe(false);
   expect(matchTask(child, { mine: true, openNoticeIds: [child.id] })).toBe(true);
   ui.overviewKey = null;
@@ -376,11 +353,11 @@ test('delegated Tasks wait for parent confirmation, not user acceptance or mine 
   const acceptance = dom.node('detail').querySelectorAll('.metric').find(node => deepText(node).includes('待验收'));
   expect(acceptance.querySelector('.metric-value').textContent).toBe('0');
   renderDetail(child, null, null, null);
-  expect(buttonOf(dom.node('detail'), '仅验收')).toBeUndefined();
+  expect(buttonOf(dom.node('detail'), '验收')).toBeUndefined();
   expect(buttonOf(dom.node('detail'), '验收并归档')).toBeUndefined();
   activateDetailView({ view: 'task-graph' });
   renderTaskGraph({ total: 1, nodes: [child], edges: [] });
-  expect(buttonOf(dom.node('detail'), '仅验收')).toBeUndefined();
+  expect(buttonOf(dom.node('detail'), '验收')).toBeUndefined();
   expect(buttonOf(dom.node('detail'), '验收并归档')).toBeUndefined();
 });
 

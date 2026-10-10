@@ -276,6 +276,7 @@ export default {
       const freeze = freezes.get(row.branch ?? row.target_branch) ?? null;
       const waiting_reason = freeze && row.status !== 'running' && row.id !== freeze.task_id
         ? `冻结 · ${freeze.reason}`
+        : iterations.get(row.id)?.acceptance_recovery ? '验收资源回收未完成 · 请检查记录并显式续办'
         : row.status === 'awaiting' && notice.count ? `${notice.count} 条待你处理`
         : row.status === 'waiting' && child.active ? `等待 ${child.active} 个子Worker`
         : row.status === 'queued' && blockers.length ? `等待依赖 Worker ${blockers.map(workerLabel).join('、')}`
@@ -286,8 +287,8 @@ export default {
       const branch = row.branch ? records.get(row.branch) : null;
       // 内部 merge 队列没有自己的分支，归档跟随直接父 Task；从库里读父分支，父节点被截断也不漏掉。
       // 不沿 target_branch 或祖先传播：独立工作子 Task 仍按自己的分支归档事实判断。
-      const archived = branch?.status === 'archived' || (row.task_kind === 'merge' && !row.branch
-        && records.get(parent_branch)?.status === 'archived');
+      const archived = !iterations.get(row.id)?.acceptance_recovery && (branch?.status === 'archived' || (row.task_kind === 'merge' && !row.branch
+        && records.get(parent_branch)?.status === 'archived'));
       // 这条分支下还有多少个 order 子分支：决定卡片上「编排合并全部子 Task」入口是否有意义。
       const subtree_order = row.branch ? countOrderDescendants(row.branch) : 0;
       const mergeRun = row.branch ? activeRuns.get(row.branch) ?? null : null;

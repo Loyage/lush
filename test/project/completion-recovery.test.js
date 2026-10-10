@@ -8,8 +8,10 @@ const value = (f, task) => JSON.parse(f.store.task(task.id).auto_merge);
 const set = (f, task, level) => f.project.setTaskCompletion(task.id, level, f.project.taskHooks(task.id).revision);
 async function setup() { const f = fixture(); f.project.stopping = true; await repo(f.root); return f; }
 async function acceptIdle(f, task) {
-  f.store.update(task.id, { status: 'waiting', reservation: null });
-  await f.project.acceptTask(task.id);
+  // Exact old-format acceptance: its development resources have not yet been reclaimed.
+  await f.project.workspaces.finish(f.store.task(task.id));
+  f.store.update(task.id, { status: 'completed', reservation: null });
+  f.store.event(task.id, 'task.accepted', { head_commit: f.store.task(task.id).head_commit, accepted_by: 'user' });
 }
 function claim(f, task, phase) {
   const config = value(f, task), data = config.completion;
@@ -83,6 +85,7 @@ for (const phase of ['accept', 'archive']) test(`restart reconciles the exact ${
     f.store.update(task.id, { status: 'waiting' });
     await set(f, task, phase);
     await f.project.settleQueuedMerge(task.id); // no-change order proof
+    if (phase === 'archive') await acceptIdle(f, task); // historical tail keeps the old phase receipt
     f.project.stopping = false; f.project.scheduleTaskCompletion(task.id);
     await until(() => value(f, task).completion.executions[phase]?.status === 'succeeded', 10000);
     await f.project.completionQueue;
@@ -115,8 +118,8 @@ test('automatic archive rechecks authorization after waiting for the Git queue',
   const f = await setup(), entered = gate(), release = gate();
   try {
     const { task } = await f.project.order('archive guard'); await acceptIdle(f, task); await set(f, task, 'archive');
-    const original = f.project.workspaces.archiveBranches.bind(f.project.workspaces);
-    f.project.workspaces.archiveBranches = async (names, options) => { entered.resolve(); await release.promise; return original(names, options); };
+    const original = f.project.workspaces.archiveBranchesUnsafe.bind(f.project.workspaces);
+    f.project.workspaces.archiveBranchesUnsafe = async (names, options) => { entered.resolve(); await release.promise; return original(names, options); };
     f.project.stopping = false; f.project.scheduleTaskCompletion(task.id); await entered.promise;
     // Simulate a changed persistent identity at the awaited Git boundary. Public setters cannot edit a running claim.
     const config = value(f, task); config.completion.authorization = 'changed'; f.store.update(task.id, { auto_merge: JSON.stringify(config) });

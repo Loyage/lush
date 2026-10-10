@@ -275,7 +275,7 @@ test('热任务点击才加载执行正文，轮询增量续读并保留阅读�
   expect(world.state.transcriptAfter).toEqual(finalReads);
 });
 
-test('详情：可归档分支给「归档」按钮，帮助说清含义，确认后走 branch.archive', async () => {
+test('详情：特殊分支清理资源说明保留历史，并确认后走 branch.archive', async () => {
   const detail = dom.node('detail');
   world.state.branchArchive = { archivable: true, archived: false, subtree_branches: 0, blocking_tasks: 0 };
   try {
@@ -285,7 +285,7 @@ test('详情：可归档分支给「归档」按钮，帮助说清含义，确�
     dom.location.hash = '#worker-1';
     await dom.fire('hashchange');
     const archive = await until(
-      () => [...detail.querySelectorAll('button')].find(node => node.textContent === '归档'), 2000);
+      () => [...detail.querySelectorAll('button')].find(node => node.textContent === '清理资源'), 2000);
     expect(archive).toBeTruthy();
     // 归档的含义写在按钮帮助里：删 worktree/ref、Task 记录保留、不等于删除 Task。
     const help = archive.getAttribute('data-help');
@@ -296,7 +296,7 @@ test('详情：可归档分支给「归档」按钮，帮助说清含义，确�
     expect(dialogText(dom)).toContain('worktree 与本地 ref');
     expect(dialogText(dom)).toContain('保留 Worker、会话与分支记录');
     expect(world.state.actions.some(entry => entry.method === 'branch.archive')).toBe(false);
-    await answerDialog(dom, '归档');
+    await answerDialog(dom, '清理资源');
     await pending;
     expect(world.state.actions).toContainEqual({ method: 'branch.archive', params: { branch: 'lush/1-x', discard: true } });
     expect(world.state.actions.some(entry => entry.method === 'worker.cleanup')).toBe(false);

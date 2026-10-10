@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { check, id, TERMINAL } from '../types.js';
 import { workerLabel } from '../worker-number.js';
+import { descendantsOf } from '../genealogy.js';
 
 const bookingOf = task => task.reservation ? JSON.parse(task.reservation) : null;
 
@@ -92,15 +93,18 @@ export async function taskDeliveryState(project, task) {
   return 'pending';
 }
 
-/** Shared bounded read projection. One query per 200 Tasks, four indexed latest-event seeks each. */
+/** Shared bounded read projection. One query per 200 Tasks, indexed latest-event seeks each. */
 export function iterationViews(store, tasks) {
-  const result = new Map(tasks.map(task => [task.id, { accepted: false, parent_sync_conflict: null }]));
+  const result = new Map(tasks.map(task => [task.id, { accepted: false, parent_sync_conflict: null, acceptance_recovery: false }]));
   for (let offset = 0; offset < tasks.length; offset += 200) {
     const batch = tasks.slice(offset, offset + 200);
     const latest = new Map();
     const rows = store.all(`WITH targets(task_id) AS (VALUES ${batch.map(() => '(?)').join(',')}),
-      kinds(type) AS (VALUES ('task.accepted'),('task.reopened'),('task.parent_sync_conflict'),('task.parent_synced'))
-      SELECT targets.task_id,kinds.type,e.id,e.data FROM targets CROSS JOIN kinds JOIN events e ON e.id=(
+      kinds(type) AS (VALUES ('task.accepted'),('task.reopened'),('task.parent_sync_conflict'),('task.parent_synced'),
+        ('task.acceptance_started'),('task.acceptance_reclaimed'),('task.iteration_started'),('retry'))
+      SELECT targets.task_id,kinds.type,e.id,e.data,current.status AS current_status,current.task_kind AS current_kind,
+        current.branch AS current_branch,current.head_commit AS current_head_commit
+      FROM targets JOIN tasks current ON current.id=targets.task_id CROSS JOIN kinds JOIN events e ON e.id=(
         SELECT id FROM events INDEXED BY events_task_type_id
         WHERE task_id=targets.task_id AND type=kinds.type ORDER BY id DESC LIMIT 1
       )`, ...batch.map(task => task.id));
@@ -122,19 +126,35 @@ export function iterationViews(store, tasks) {
           reason: typeof data.reason === 'string' ? data.reason.slice(0, 4000) : '父分支同步冲突诊断需检查',
         };
       }
-      result.set(task.id, { accepted, parent_sync_conflict: conflict });
+      // The fixed unfinished receipt is the only recovery affordance. Missing paths
+      // or an archived root are not evidence, and completed side effects supersede it.
+      const start = events['task.acceptance_started'];
+      const boundary = Math.max(...['task.accepted', 'task.acceptance_reclaimed', 'task.reopened', 'task.iteration_started', 'retry']
+        .map(type => events[type]?.id ?? 0));
+      let recovery = false;
+      if (start && start.id > boundary && ['order', 'say', 'child'].includes(start.current_kind)
+        && ['waiting', 'awaiting_acceptance', 'completed'].includes(start.current_status)) {
+        try {
+          const receipt = JSON.parse(start.data);
+          recovery = typeof start.current_head_commit === 'string' && receipt?.head_commit === start.current_head_commit
+            && receipt.tips?.[start.current_branch] === start.current_head_commit
+            && Array.isArray(receipt.branches) && receipt.branches.includes(start.current_branch)
+            && Array.isArray(receipt.task_ids) && receipt.task_ids.includes(task.id);
+        } catch { /* Corrupt history cannot authorize a recovery action. */ }
+      }
+      result.set(task.id, { accepted, parent_sync_conflict: conflict, acceptance_recovery: recovery });
     }
   }
   return result;
 }
 
 export default {
-  /** Users accept their goals; a live delegator may confirm only its delivered direct child. */
+  /** Acceptance authorizes clean resource reclamation; historical records remain readable. */
   async acceptTask(taskId, actor = null, options = {}) {
     this.assertWritable('accept a worker');
     const invocation = actor === null ? null : this.running.get(id(actor));
     const authorize = task => {
-      if (options.completion) this.assertCompletionClaim(task.id, options.completion, 'accept');
+      if (options.completion) this.assertCompletionClaim(task.id, options.completion, options.completion.phase ?? 'accept');
       if (actor === null) return;
       const parent = this.store.task(id(actor));
       const run = this.running.get(parent.id);
@@ -152,8 +172,22 @@ export default {
       check(['order', 'child'].includes(task.task_kind), 'only order/child Workers can be accepted');
       authorize(task);
       assertTaskNotSyncing(this, task.id);
-      if (task.status === 'completed') return task;
-      check(['waiting', 'awaiting_acceptance'].includes(task.status), 'Worker must be idle before acceptance');
+      const historical = task.status === 'completed' && this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.accepted' LIMIT 1", task.id);
+      if (historical && [task.branch, ...descendantsOf(this.store.branches(), task.branch)]
+        .every(branch => ['archived', 'deleted'].includes(this.store.branch(branch)?.status))) return task;
+      check(['waiting', 'awaiting_acceptance'].includes(task.status) || historical, 'Worker must be idle before acceptance');
+      const previous = this.store.get("SELECT id,data FROM events WHERE task_id=? AND type='task.acceptance_started' ORDER BY id DESC LIMIT 1", task.id);
+      let attempt = previous ? { id: previous.id, ...JSON.parse(previous.data) } : null;
+      const recovered = new Map();
+      if (attempt) for (const event of this.store.all("SELECT data FROM events WHERE task_id=? AND type='branch.archive' AND json_extract(data,'$.acceptance_execution')=? ORDER BY id", task.id, attempt.id)) {
+        for (const outcome of JSON.parse(event.data).outcomes ?? []) recovered.set(outcome.branch, outcome);
+      }
+      // A known preflight failure with every original resource intact may start afresh.
+      // Missing resources without exact outcomes remain blocked, never guessed successful.
+      if (attempt && [...recovered.values()].every(outcome => outcome.worktree !== 'removed' && outcome.ref !== 'deleted')
+        && attempt.branches.every(branch => this.store.branch(branch)?.status === 'active')
+        && task.workspace && fs.existsSync(task.workspace)) { attempt = null; recovered.clear(); }
+      if (attempt) check(attempt.head_commit === task.head_commit, 'acceptance recovery commit changed; inspect resource records');
       const subtree = this.subtreeTasks(task.id);
       check(subtree.every(row => !this.running.has(row.id) && !this.workspaces.busy.has(row.id)), 'Agent or cleanup is still in flight');
       check(subtree.slice(1).every(row => TERMINAL.has(row.status)), 'accept or end descendants before accepting their parent');
@@ -166,9 +200,23 @@ export default {
         check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
         if (row.branch) {
           const record = this.store.branch(row.branch);
-          if (row.id !== task.id && TERMINAL.has(row.status) && ['archived', 'deleted'].includes(record?.status)) continue;
+          if (['archived', 'deleted'].includes(record?.status)) {
+            if (row.id !== task.id && TERMINAL.has(row.status)) continue;
+            const outcome = recovered.get(row.branch);
+            check((outcome?.reason === null || outcome?.ref === 'deleted') && attempt?.tips[row.branch] === row.head_commit,
+              'Worker resources are missing without an exact acceptance receipt; inspect before recovery');
+            check(!await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${row.branch}^{commit}`).catch(() => null),
+              'acceptance recovery branch was recreated; preserve and inspect it');
+            continue;
+          }
           this.assertBranchWritable(row.branch, 'accept it');
-          check(record?.status === 'active' && (row.id !== task.id || (row.workspace && fs.existsSync(row.workspace))),
+          if (recovered.get(row.branch)?.ref === 'deleted' && attempt?.tips[row.branch] === row.head_commit) {
+            const remainingRef = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${row.branch}^{commit}`).catch(() => null);
+            check(!remainingRef, 'acceptance recovery branch was recreated; preserve and inspect it');
+            continue;
+          }
+          const removed = recovered.get(row.branch)?.worktree === 'removed' && attempt?.tips[row.branch] === row.head_commit;
+          check(record?.status === 'active' && (row.id !== task.id || removed || (row.workspace && fs.existsSync(row.workspace))),
             'Worker branch/worktree is archived or missing');
           if (row.workspace) await this.workspaces.finish(row);
           else {
@@ -177,14 +225,17 @@ export default {
             const workspace = await this.workspaces.workspaceForBranch(row.branch);
             if (workspace) await this.workspaces.clean(workspace);
           }
-          const state = await taskDeliveryState(this, this.store.task(row.id));
+          const currentRow = this.store.task(row.id);
+          const parentReclaimed = attempt?.tips[row.branch] === currentRow.head_commit
+            && recovered.get(row.target_branch)?.ref === 'deleted';
+          const state = parentReclaimed ? currentRow.integration : await taskDeliveryState(this, currentRow);
           check(state !== 'pending', `Worker ${workerLabel(row)} has undelivered changes`);
           this.store.update(row.id, { integration: state });
         }
       }
       task = this.store.task(task.id);
       authorize(task);
-      check(['waiting', 'awaiting_acceptance'].includes(task.status), 'Worker changed during acceptance');
+      check(['waiting', 'awaiting_acceptance'].includes(task.status) || historical, 'Worker changed during acceptance');
       for (const row of this.subtreeTasks(task.id)) {
         check(row.id === task.id || TERMINAL.has(row.status), 'descendant changed during acceptance');
         check(!this.running.has(row.id) && !acceptanceUnreadMessage(this, row),
@@ -194,18 +245,71 @@ export default {
         check(!bookingOf(row) || ['integrated', 'completed', 'withdrawn'].includes(bookingOf(row).status)
           || (bookingOf(row).status === 'pending' && taskSyncDeliveryPaused(this, row.id)), 'delivery changed during acceptance');
       }
+      const branches = [task.branch, ...descendantsOf(this.store.branches(), task.branch)];
+      const active = branches.filter(branch => this.store.branch(branch)?.status === 'active');
+      const tips = attempt?.tips ?? {};
+      for (const branch of active) {
+        const owners = this.store.all('SELECT id,head_commit FROM tasks WHERE branch=? ORDER BY id', branch);
+        check(owners.length && owners.every(owner => subtree.some(row => row.id === owner.id)), 'acceptance branch subtree has unrelated resource owners');
+        const head = owners.at(-1).head_commit;
+        check(head && (!attempt || tips[branch] === head), 'acceptance recovery source changed; inspect before continuing');
+        tips[branch] = head;
+      }
+      const started = attempt ?? { id: this.store.event(task.id, 'task.acceptance_started', {
+        head_commit: task.head_commit, tips, branches, task_ids: subtree.map(row => row.id), integration: task.integration,
+      }), head_commit: task.head_commit, tips, branches, task_ids: subtree.map(row => row.id) };
+      const guard = () => {
+        const current = this.store.task(task.id);
+        authorize(current);
+        check(current.head_commit === started.head_commit && current.status === task.status, 'Worker changed during resource reclamation');
+        const names = [current.branch, ...descendantsOf(this.store.branches(), current.branch)];
+        check(names.length === started.branches.length && names.every(name => started.branches.includes(name)), 'acceptance branch subtree changed');
+        const rows = this.subtreeTasks(task.id);
+        check(rows.length === started.task_ids.length && rows.every(row => started.task_ids.includes(row.id)), 'acceptance descendants changed');
+        for (const row of rows) {
+          check(row.id === task.id || TERMINAL.has(row.status), 'descendant changed during acceptance');
+          check(!this.running.has(row.id) && !this.workspaces.busy.has(row.id), 'Agent or cleanup is still in flight');
+          assertTaskNotSyncing(this, row.id);
+          check(!acceptanceUnreadMessage(this, row), `Worker ${workerLabel(row)}: new input arrived during acceptance`);
+          check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
+          const booking = bookingOf(row);
+          check(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status)
+            || (booking.status === 'pending' && taskSyncDeliveryPaused(this, row.id)), 'delivery changed during acceptance');
+          if (row.branch) this.assertBranchWritable(row.branch, 'accept it');
+        }
+        check(this.branchResourceUsers(active).every(resourceId => {
+          const row = this.store.task(resourceId);
+          return (row.id === task.id || TERMINAL.has(row.status)) && !this.running.has(row.id) && !this.workspaces.busy.has(row.id);
+        }), 'acceptance resource users changed');
+      };
+      guard();
+      this.acceptanceBusy ??= new Set();
+      for (const row of subtree) this.acceptanceBusy.add(row.id);
+      try {
+        const result = await this.archiveBranch(task.branch, { acceptance: { id: started.id, task_id: task.id, tips, guard, completion: options.completion,
+          deletedRefs: new Set([...recovered].filter(([, outcome]) => outcome.ref === 'deleted').map(([branch]) => branch)),
+        } });
+        check(!result.failed.length && !result.remaining.length, 'acceptance resource reclamation incomplete; inspect branch.archive and retry worker.accept explicitly');
+        guard();
+      } catch (error) {
+        this.store.event(task.id, 'task.acceptance_failed', { acceptance_execution: started.id, reason: 'Resource reclamation incomplete; inspect branch.archive before explicitly retrying worker.accept' });
+        throw error;
+      } finally {
+        for (const row of subtree) this.acceptanceBusy.delete(row.id);
+      }
       this.store.transaction(() => {
         const booking = bookingOf(task);
         if (booking?.status === 'pending') this.store.event(task.id, 'task.unreserved', { reservation: booking, reason: 'accepted after parent sync' });
         this.store.update(task.id, { status: 'completed', error: null,
           ...(booking?.status === 'pending' ? { reservation: null } : {}) });
         this.store.armAgent(task.id, null);
-        this.store.event(task.id, 'task.accepted', { head_commit: task.head_commit, integration: task.integration,
-          accepted_by: actor === null ? 'user' : 'parent', parent_id: actor,
+        this.store.event(task.id, historical ? 'task.acceptance_reclaimed' : 'task.accepted', { head_commit: task.head_commit, integration: task.integration,
+          accepted_by: actor === null ? 'user' : 'parent', parent_id: actor, resources_reclaimed: true,
+          acceptance_execution: started.id,
           ...(options.completion ? { via: 'completion_hook', completion_execution: options.completion.id,
             authorization: options.completion.authorization, round: options.completion.round } : {}) });
       });
-      this.emitTaskHook(task.id, 'worker.accepted');
+      if (!historical) this.emitTaskHook(task.id, 'worker.accepted');
       this.scheduleTaskCompletion(task.id);
       return this.store.task(task.id);
     });
@@ -221,10 +325,10 @@ export default {
       check(['order', 'child'].includes(task.task_kind) && task.status === 'completed', 'only completed order/child Workers can be reopened');
       assertTaskAncestorsOpen(this, task);
       check(!this.running.has(task.id) && !this.workspaces.busy.has(task.id), 'Agent or cleanup is still in flight');
-      check(task.branch && task.workspace && fs.existsSync(task.workspace)
-        && this.store.branch(task.branch)?.status === 'active', 'archived or missing branches cannot be reopened');
       check(!this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.accepted' LIMIT 1", task.id),
         'explicitly accepted Workers cannot be reopened; start a new Worker');
+      check(task.branch && task.workspace && fs.existsSync(task.workspace)
+        && this.store.branch(task.branch)?.status === 'active', 'archived or missing branches cannot be reopened');
       check(task.integration === 'merged', 'only historical completed/merged Workers can be reopened');
       this.assertBranchWritable(task.branch, 'reopen it');
       const booking = bookingOf(task);

@@ -3,16 +3,17 @@ import { workerLabel } from '../worker-number.js';
 import { check, id, TERMINAL } from '../types.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, taskSyncDeliveryPaused } from './iteration.js';
 
-const LEVELS = ['off', 'merge', 'accept', 'archive'];
-const rank = level => LEVELS.indexOf(level);
+const LEVELS = ['off', 'merge', 'accept'];
+const normalizeLevel = level => level === 'archive' ? 'accept' : level;
+const rank = level => LEVELS.indexOf(normalizeLevel(level));
 const settings = task => task.auto_merge ? JSON.parse(task.auto_merge) : { version: 1, enabled: false, locked: false };
 const booking = task => task.reservation ? JSON.parse(task.reservation) : null;
-const levelOf = task => { const value = settings(task); return value.enabled ? LEVELS.includes(value.level) && value.level !== 'off' ? value.level : 'merge' : 'off'; };
+const levelOf = task => { const value = settings(task), level = normalizeLevel(value.level); return value.enabled ? LEVELS.includes(level) && level !== 'off' ? level : 'merge' : 'off'; };
 const now = () => new Date().toISOString();
 const ERROR = {
   merge: '自动合并暂不能继续；请查看交付诊断，处理现场或显式恢复。',
-  accept: '自动验收未通过安全检查；请检查未读输入、待决、后代、同步及 Git 交付现场，未自动重试。',
-  archive: '自动归档未完成；工作区或部分分支可能仍保留，请检查归档记录并显式处理，未自动重试。',
+  accept: '自动验收（归档并回收资源）未完成；请检查未读输入、待决、后代、同步及 Git 交付与资源回收记录，未自动重试。',
+  archive: '自动验收的历史资源回收未完成；工作区或部分分支可能仍保留，请检查归档记录并显式处理，未自动重试。',
   unknown: '后台中断，自动动作结果未知；保留现场，禁止自动重放，请检查执行与归档记录。',
 };
 function round(project, taskId) {
@@ -75,7 +76,7 @@ export default {
     const config = settings(task), level = levelOf(task), data = state(this, task), phase = phaseOf(task);
     const record = data.executions?.[phase], last = Object.values(data.executions ?? {}).at(-1) ?? null;
     let reason = null;
-    if (task.task_kind === 'child' || config.locked === true) reason = '父Worker派生的子Worker流程 Hook 已锁定，用户不能修改合并、验收或归档自动级别';
+    if (task.task_kind === 'child' || config.locked === true) reason = '父Worker派生的子Worker流程 Hook 已锁定，用户不能修改合并或验收自动级别';
     else if (['failed', 'cancelled'].includes(task.status)) reason = 'Worker 已结束，不能配置自动链';
     else if (task.branch && ['archived', 'deleted'].includes(this.store.branch(task.branch)?.status)) reason = 'Worker 已归档或回收';
     else if (['requested', 'executing', 'resolving', 'blocked', 'suspended'].includes(booking(task)?.status)) reason = '交付请求已冻结或挂起，不能调整当前自动链';
@@ -86,15 +87,18 @@ export default {
     const frozen = task.branch && this.branchFreeze(task.branch);
     if (!reason && frozen) reason = 'Worker 分支正在冻结，不能调整自动链';
     const receipt = booking(task);
-    const status = record?.status ?? (level === 'off' ? 'idle' : phase === 'archive' && rank(level) >= 3 && this.store.branch(task.branch)?.status === 'archived' ? 'succeeded' : 'waiting');
+    const stopped = Object.values(data.executions ?? {}).find(row => ['unknown', 'failed', 'running'].includes(row.status));
+    const reclaimed = task.status === 'completed' && this.store.branch(task.branch)?.status === 'archived';
+    const status = stopped?.status ?? (reclaimed ? 'succeeded' : record?.status ?? (level === 'off' ? 'idle' : 'waiting'));
     return { level, min_level: task.task_kind === 'child' || config.locked ? 'merge' : 'off', locked: task.task_kind === 'child' || config.locked === true,
-      editable: !reason, reason, phase: level === 'off' ? null : phase,
+      editable: !reason, reason, phase: level === 'off' ? null : normalizeLevel(phase),
       state: receipt?.status === 'blocked' ? 'unknown' : status, last_execution: publicExecution(last) };
   },
 
   async setTaskCompletion(taskId, level, expectedRevision) {
     this.assertWritable('configure completion Hooks');
-    check(LEVELS.includes(level), 'completion level must be off, merge, accept or archive');
+    level = normalizeLevel(level);
+    check(LEVELS.includes(level), 'completion level must be off, merge or accept (legacy archive is equivalent to accept)');
     const task = this.store.task(id(taskId)), view = this.autoCompletionView(task);
     check(view, 'only version 2 order/child Workers support completion Hooks');
     check(typeof expectedRevision === 'string' && this.taskHooks(task.id).revision === expectedRevision, 'Hook revision changed; reload before editing');
@@ -124,12 +128,12 @@ export default {
     return this.taskHooks(task.id);
   },
 
-  /** Read-only latest per-stage projection for the three built-in mounts. */
+  /** Read-only projection for merge and unified acceptance; old archive receipts remain diagnostic. */
   completionMountState(task, phase) {
-    const data = state(this, task), record = data.executions?.[phase];
+    const data = state(this, task), record = phase === 'accept' ? data.executions?.archive ?? data.executions?.accept : data.executions?.[phase];
     if (record) return { state: record.status, last_execution: publicExecution(record), reason: record.error ?? null };
-    const before = LEVELS.indexOf(phase), current = LEVELS.indexOf(phaseOf(task));
-    const done = current > before || (phase === 'archive' && this.store.branch(task.branch)?.status === 'archived');
+    const before = rank(phase), current = rank(phaseOf(task));
+    const done = current > before || (phase !== 'merge' && task.status === 'completed' && this.store.branch(task.branch)?.status === 'archived');
     return { state: done ? 'succeeded' : rank(levelOf(task)) >= before ? 'waiting' : 'idle', last_execution: null, reason: null };
   },
 
@@ -142,7 +146,7 @@ export default {
       data.notices ??= {};
       if (data.notices[key]) return this.store.get('SELECT * FROM notices WHERE id=?', data.notices[key]);
       const label = workerLabel(task);
-      const notice = this.notify(task.id, `Worker ${label} · ${stage === 'accept' ? '待验收' : stage === 'archive' ? '待归档' : '自动处理受阻'}`, body);
+      const notice = this.notify(task.id, `Worker ${label} · ${stage === 'accept' || stage === 'archive' ? '待验收' : '自动处理受阻'}`, body);
       data.notices[key] = notice.id;
       // Only four stage reminders are relevant to an authorization. Keep history in Events, not unbounded JSON.
       const keys = Object.keys(data.notices); for (const old of keys.slice(0, Math.max(0, keys.length - 8))) delete data.notices[old];
@@ -164,6 +168,7 @@ export default {
       if (phaseOf(task) === 'merge' && !['blocked','suspended'].includes(request?.status) && request?.blocked_code !== 'completion_failed') continue;
       const record = state(this, task).executions?.[phaseOf(task)];
       if (record && ['running', 'succeeded', 'failed', 'unknown'].includes(record.status)) continue;
+      if (Object.values(state(this, task).executions ?? {}).some(row => ['running', 'failed', 'unknown'].includes(row.status))) continue;
       if (task.branch && ['archived','deleted'].includes(this.store.branch(task.branch)?.status)) continue;
       this.completionQueued.add(task.id);
       const job = (this.completionQueue ?? Promise.resolve()).then(async () => {
@@ -214,12 +219,14 @@ export default {
     // An input buffered during the just-finished landing belongs to the next
     // iteration. Do not claim (or fail) automatic acceptance while it waits.
     if (this.subtreeTasks(task.id).some(row => this.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 AND delivery_hold IS NOT NULL LIMIT 1', row.id))) return;
+    if (task.status === 'completed' && this.store.branch(task.branch)?.status === 'archived') return;
     if (rank(level) < rank(phase)) {
-      this.completionNotice(task.id, phase, phase === 'accept' ? '成果交付已收口，下一步请检查并验收；验收不等于质量保证。' : 'Worker 已验收，下一步可归档工作区；历史记录和会话保留。'); return;
+      this.completionNotice(task.id, phase, '成果交付已收口，请检查并验收；验收表示不再有异议，将归档并回收 worktree/ref，保留运行历史。'); return;
     }
     let data = state(this, task);
     const previous = data.executions?.[phase];
     if (previous && ['running','succeeded','failed','unknown'].includes(previous.status)) return;
+    if (Object.values(data.executions ?? {}).some(row => ['running','failed','unknown'].includes(row.status))) return;
     check(data.authorization && settings(task).level, 'automatic acceptance/archive requires explicit user authorization');
     if (this.taskMergeBusy?.has(task.parent_id) || this.activeTaskMerge(task.parent_id)) return; // release parent ownership first
     if (this.subtreeTasks(task.id).some(row => this.running.has(row.id))) return;
@@ -232,17 +239,17 @@ export default {
     let status = 'succeeded', error = null, superseded = false;
     try {
       this.assertCompletionClaim(task.id, receipt, phase);
-      if (phase === 'accept') await this.acceptTask(task.id, null, { completion: receipt });
-      else {
-        const result = await this.archiveBranch(task.branch, { completion: receipt });
-        if (result.failed.length || result.remaining.length) { status = 'unknown'; error = ERROR.archive; }
-      }
+      await this.acceptTask(task.id, null, { completion: receipt });
     } catch {
       // An acceptance transaction is an exact proof; a thrown callback must not repeat it.
       const proof = phase === 'accept' && acceptanceProof(this, this.store.task(task.id), receipt);
       const current = state(this, this.store.task(task.id));
       superseded = !proof && phase === 'accept' && (current.round !== receipt.round || current.authorization !== receipt.authorization);
-      if (!proof) { status = phase === 'archive' && this.store.task(task.id).workspace !== task.workspace ? 'unknown' : 'failed'; error = superseded ? null : ERROR[phase]; }
+      if (!proof) {
+        const changedResources = this.store.task(task.id).workspace !== task.workspace || this.store.branch(task.branch)?.status !== 'active';
+        const partial = this.store.get("SELECT id FROM events WHERE task_id=? AND type='branch.archive' AND (json_extract(data,'$.completion_execution')=? OR json_extract(data,'$.acceptance_execution')=(SELECT max(id) FROM events WHERE task_id=? AND type='task.acceptance_started')) AND (json_array_length(json_extract(data,'$.failed'))>0 OR json_array_length(json_extract(data,'$.remaining'))>0)", task.id, receipt.id, task.id);
+        status = changedResources || partial ? 'unknown' : 'failed'; error = superseded ? null : ERROR[phase];
+      }
     } finally {
       this.store.transaction(() => {
         const live = state(this, this.store.task(task.id));
@@ -255,7 +262,7 @@ export default {
       this.completionBusy.delete(task.id);
     }
     if (error) this.completionNotice(task.id, `blocked:${phase}`, error);
-    else if (phase === 'accept') await this.runTaskCompletion(task.id); // archive or the final manual reminder, strictly after acceptance
+    else if (phase === 'accept') await this.runTaskCompletion(task.id); // Only a retained historical tail can still need work.
   },
 
   recoverTaskCompletion() {

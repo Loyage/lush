@@ -112,7 +112,7 @@ export async function runWorkerDelete(task, { refresh = () => {} } = {}) {
     }
     const confirmed = await confirmDialog({
       title: `彻底删除 Worker ${workerLabel(task)} 及全部后代？`,
-      message: '这不是归档：Worker、消息、Notice、事件、执行记录及专属会话将永久删除；列出的原始输入也会从历史输入中消失。确认即授权丢弃这些资源中的全部未提交和未合并代码，无法恢复。已合并代码、Git 提交历史和其他记录中的引用快照不会被抹除。',
+      message: '这不是验收或资源清理（它们会保留运行历史）：Worker、消息、Notice、事件、执行记录及专属会话将永久删除；列出的原始输入也会从历史输入中消失。确认即授权丢弃这些资源中的全部未提交和未合并代码，无法恢复。已合并代码、Git 提交历史和其他记录中的引用快照不会被抹除。',
       detail: previewDetail(preview), confirmLabel: '彻底删除', cancelLabel: '保留', danger: true,
       confirmHelp: WORKER_DELETE_HELP,
     });

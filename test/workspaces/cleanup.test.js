@@ -139,7 +139,7 @@ test('cleaned failed child worktree can be recreated by rebuilding its branch fr
   } finally { await f.close(); }
 });
 
-/** v2 合并落地的 order：分支、worktree 与预约都还在，等用户决定何时归档。 */
+/** v2 合并落地的 order：验收后 ref/worktree 已回收，交付预约和历史指针保留。 */
 async function squashedOrder(f, name) {
   const order = await f.project.order(name);
   fs.writeFileSync(path.join(order.task.workspace, `${name}.txt`), `${name}\n`);
@@ -156,13 +156,13 @@ async function squashedOrder(f, name) {
   return merged;
 }
 
-test('cleanup and delete survive a v2 order whose branch was archived before reclamation', async () => {
+test('cleanup and delete survive a v2 order whose acceptance already reclaimed its resources', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const merged = await squashedOrder(f, 'archived-first');
     const branch = merged.branch;
-    // 用户先显式归档分支：ref / worktree 都没了，tasks.branch 作为历史指针留下。
-    await f.project.archiveBranch(branch);
+    // helper 已显式验收：ref / worktree 都没了，tasks.branch 作为历史指针留下。
+    expect(f.store.task(merged.id).status).toBe('completed');
     expect(f.store.branch(branch).status).toBe('archived');
     expect(f.store.task(merged.id)).toMatchObject({ branch, workspace: null });
     // 再回收：以前会去 rev-parse 一个不存在的 ref 而拒绝，现在只把悬空指针同步干净。

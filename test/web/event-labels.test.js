@@ -45,6 +45,23 @@ test('自动链配置、下一人工环节和过期执行有独立中文名称�
   expect(eventLabel({ type: 'completion.execution_unknown' })).toContain('待核验');
 });
 
+test('验收资源回收的开始、未完成和历史补办有独立名称，不冒充验收完成或改写来源', () => {
+  const names = {
+    'task.acceptance_started': '开始验收资源回收（受检）',
+    'task.acceptance_failed': '验收资源回收未完成',
+    'task.acceptance_reclaimed': '已补办验收资源回收',
+  };
+  for (const [type, label] of Object.entries(names)) {
+    const source = Object.freeze({ type, data: Object.freeze({ head_commit: 'fixed-source' }) });
+    expect(Object.hasOwn(EVENTS, type)).toBe(true); expect(eventLabel(source)).toBe(label);
+    expect(source.type).toBe(type); expect(source.data.head_commit).toBe('fixed-source');
+    expect(eventLabel(source)).not.toBe(eventLabel({ type: 'task.accepted' }));
+  }
+  expect(eventLabel({ type: 'task.acceptance_started' })).not.toContain('完成');
+  expect(eventLabel({ type: 'task.acceptance_failed' })).toContain('未完成');
+  expect(eventLabel({ type: 'task.acceptance_reclaimed' })).toContain('补办');
+});
+
 test('定时提交、停机错过与动作跳过有独立名称，不冒充 Agent 已开始', () => {
   expect(eventLabel({ type: 'hook.scheduled_submitted' })).toBe('定时 Hook 已提交待执行动作');
   expect(eventLabel({ type: 'hook.schedule_missed' })).toBe('定时 Hook 已错过提交时间');

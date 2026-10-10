@@ -167,7 +167,7 @@ test('merged parent semantics stay intact: child flow Hooks remain unclipped/rea
   const panel = dom.node('detail'), hooks = panel.querySelector('.worker-hooks');
   expect(hooks.classList.contains('detail-preview')).toBe(false);
   expect(hooks.querySelector('.detail-preview-body')).toBeNull();
-  const levels = hooks.querySelectorAll('.hook-completion-level'); expect(levels).toHaveLength(4);
+  const levels = hooks.querySelectorAll('.hook-completion-level'); expect(levels).toHaveLength(3);
   for (const control of levels) { expect(control.disabled).toBe(true); await control.onclick(); }
   const decisions = [...panel.children].find(node => node.children[0]?.querySelector('h2')?.textContent === '决策记录');
   const fold = decisions.querySelector('.decision-record'); fold.open = true;

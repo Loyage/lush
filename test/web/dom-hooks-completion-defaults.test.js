@@ -30,6 +30,11 @@ const enabled = () => section().querySelector('input');
 const stages = () => section().querySelectorAll('.hook-completion-level');
 const level = () => stages().find(node => node.getAttribute('aria-pressed') === 'true')?.dataset.level;
 const save = () => button('保存设备默认', section());
+const confirmSave = async () => {
+  const pending = save().onclick();
+  if (!dom.node('modal').hidden) await dialogButton(dom, '授权并保存默认').onclick();
+  await pending;
+};
 async function edit(on, endpoint) {
   if (endpoint) await stages().find(node => node.dataset.level === endpoint).onclick();
   if (on !== undefined) { enabled().checked = on; enabled().onchange(); }
@@ -48,30 +53,31 @@ test('global defaults load once and draft selection never writes; saved scope is
   expect(reads).toEqual(['/api/host/automation']); expect(enabled().checked).toBe(false); expect(level()).toBe('merge'); expect(save().disabled).toBe(true);
   await edit(true, 'accept'); expect(posts).toHaveLength(0); expect(save().classList.contains('agent-call')).toBe(true);
   expect(save().getAttribute('data-help')).toContain('token');
-  await save().onclick(); expect(posts).toEqual([{ url: '/api/host/automation', body: { patch: { completion_defaults: { enabled: true, level: 'accept' } }, expected_revision: 'r1' } }]);
-  expect(level()).toBe('accept'); expect(save().disabled).toBe(true); expect(deepText(root())).toContain('已有 Worker 不变'); expect(deepText(root())).toContain('child');
+  await confirmSave(); expect(posts).toEqual([{ url: '/api/host/automation', body: { patch: { completion_defaults: { enabled: true, level: 'accept' } }, expected_revision: 'r1' } }]);
+  expect(level()).toBe('accept'); expect(save().disabled).toBe(true); expect(deepText(root())).toContain('保存不修改已有 Worker'); expect(deepText(root())).toContain('child');
 });
 
-test('archive draft requires explicit destructive authorization, cancellation retains draft', async () => {
-  await openWorkspaceAutomation(); await edit(true, 'archive');
+test('acceptance draft requires explicit resource-removal authorization, cancellation retains draft', async () => {
+  await openWorkspaceAutomation(); await edit(true, 'accept');
   const saving = save().onclick(); const accept = dialogButton(dom, '授权并保存默认');
   expect(accept.classList.contains('agent-call')).toBe(true); expect(accept.getAttribute('data-help')).toContain('token');
   await dialogButton(dom, '取消').onclick(); await saving;
-  expect(posts).toHaveLength(0); expect(level()).toBe('archive'); expect(enabled().checked).toBe(true);
+  expect(posts).toHaveLength(0); expect(level()).toBe('accept'); expect(enabled().checked).toBe(true);
   const confirmed = save().onclick(); await dialogButton(dom, '授权并保存默认').onclick(); await confirmed;
-  expect(posts[0].body.patch.completion_defaults.level).toBe('archive');
+  expect(posts[0].body.patch.completion_defaults.level).toBe('accept');
+  expect(deepText(root())).toContain('脏工作区会阻止验收');
 });
 
 test('failed or conflicting save preserves draft and blocks repeating an unconfirmed operation', async () => {
   await openWorkspaceAutomation(); await edit(true, 'accept'); failWrite = true;
-  await save().onclick(); expect(level()).toBe('accept'); expect(enabled().checked).toBe(true);
+  await confirmSave(); expect(level()).toBe('accept'); expect(enabled().checked).toBe(true);
   expect(deepText(root())).toContain('编辑值已保留'); expect(save().disabled).toBe(true);
   await save().onclick(); expect(posts).toHaveLength(1);
 });
 
 test('unexpected ACK shape keeps draft and never claims saved success', async () => {
   await openWorkspaceAutomation(); await edit(true, 'accept'); override = () => json({ version: 1, revision: 'broken' });
-  await save().onclick(); expect(level()).toBe('accept'); expect(save().disabled).toBe(true);
+  await confirmSave(); expect(level()).toBe('accept'); expect(save().disabled).toBe(true);
   expect(deepText(root())).toContain('响应无效');
 });
 
@@ -103,6 +109,16 @@ test('offline reload preserves draft and disables writes with accessible explana
   await button('重新读取策略').onclick();
   const toggle = button('关闭全局自动选择'); expect(toggle.disabled).toBe(true); expect(toggle.parentNode.classList.contains('help-host')).toBe(true); expect(toggle.parentNode.tabIndex).toBe(0);
   expect(deepText(root())).toContain('读取设备自动化失败'); expect(posts).toHaveLength(0);
+});
+
+test('historical archive default highlights acceptance without writes and has only two enabled endpoints', async () => {
+  model.completion_defaults = { enabled: true, level: 'archive' };
+  await openWorkspaceAutomation();
+  expect(stages().map(node => node.textContent)).toEqual(['合并', '验收']);
+  expect(level()).toBe('accept'); expect(save().disabled).toBe(true); expect(posts).toHaveLength(0);
+  expect(deepText(root())).toContain('旧自动验收及归档授权也采用此统一语义');
+  await edit(false); await save().onclick();
+  expect(posts[0].body.patch.completion_defaults).toEqual({ enabled: false, level: 'accept' });
 });
 
 test('late global read must not steal a newer project detail view', async () => {

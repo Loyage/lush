@@ -180,8 +180,11 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     // 父侧 #194：重试改为完整 Profile 弹窗（retryTask）；编号展示由 retry-dialog.js 内部沿用。
     if (await retryTask(task)) await detail(task.id);
   }, 'ghost', { agent: true, help: agentHelp('检查失败现场并调整本轮 Agent、模型来源、模型与 Prompt 后再启动一次；不会回滚此前 Agent 的文件副作用。') }));
-  // 归档与 Task 图同源（`branch.archive`）：删这条 Task 的分支与后代分支的 worktree/ref，Task 记录与历史保留。
-  if (!readOnly && task.branch_archive?.archivable && task.status !== 'awaiting_acceptance') actions.append(button('归档', () => runBranchArchive(
+  // Only failed/cancelled and historical special branches use independent resource cleanup.
+  const acceptedWorker = task.accepted === true || (history?.events || []).some(event => event.type === 'task.accepted');
+  const cleanableWorker = !['order', 'child'].includes(workerKind(task))
+    || ['failed', 'cancelled'].includes(task.status) || (task.status === 'completed' && !acceptedWorker);
+  if (!readOnly && task.branch_archive?.archivable && cleanableWorker) actions.append(button('清理资源', () => runBranchArchive(
     { name: task.branch, subtreeBranches: task.branch_archive.subtree_branches }, { refresh: () => detail(task.id) }), 'ghost',
     { help: BRANCH_ARCHIVE_HELP }));
   // 中断只是可撤销的意图；请求期间即可继续、调整下一轮设置或明确放弃。
@@ -250,7 +253,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
         : `由直接父 Agent ${workerLabel(task.parent_id, task.parent_worker_number)} 再派一个以同一固定提交为基线的解分歧子 Worker（worker resolve-child-divergence）。`;
     panel.append(el('p', archived
       ? `解分歧子 Worker 已归档，Worker、固定提交记录和会话仍保留。${retry}`
-      : `解分歧成果尚未集成：先检查工作区和固定提交。需要另试时，在 Worker 树或 Worker 详情显式归档这条子分支（删除 ref/worktree；未提交文件会丢失），${retry}不会重放本次 Agent。`,
+      : `解分歧成果尚未集成：先检查工作区和固定提交。需要另试时，在 Worker 树或 Worker 详情显式清理这条子分支资源（删除 ref/worktree；未提交文件会丢失），${retry}不会重放本次 Agent。`,
     'hint delivery-reason'));
   }
   const iteration = management ? null : iterationControls(task, { refresh: () => detail(task.id), events: history?.events || [], showParentDistance: true });

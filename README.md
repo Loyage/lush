@@ -48,7 +48,7 @@ Host 不进行跨项目调度。共享同一份 Lush 代码的不同项目互不
 - **暂存与回看**：Enter 把想法保存到项目缓冲区，Shift+Enter 换行；在「历史输入」中搜索原始指令、编辑暂存并逐条发射。暂存不创建 Worker，也不调用 Agent。见[历史输入与暂存](docs/input-history.md)。
 - **发送**：「发送」或 Ctrl/⌘+Enter 只提交输入框里这一条，创建有独立分支与 worktree 的待开始 Worker；Ctrl/⌘+Shift+Enter 创建并立即开始。不走旧 planner 或快速路由。
 - **静息与唤醒**：Agent 一轮结束后 Worker 静息但不终结；新消息、子Worker结算或用户追加说明会唤醒同一个 Worker（用户追加说明时会在本轮工具结束后收口，不打断正在执行的命令）。
-- **交付**：你直接说的话对应的指令 Worker 默认关闭自动合并，可在开发时勾选「自动合并」（跨轮保留），或在就绪后点击「合并」；Agent 派出的新 child 默认开启且不可关闭自动合并，无需逐个操作。安全点固定源提交后由父 Worker 自有队列的 runtime 串行 Squash，不创建 merge Worker、不改变父子关系，也不额外调用父 Agent。分歧由原 Worker 合入固定父基线，修复期间保留父执行位；挂起后恢复重新排队。无提交的干净 child 直接交付结果等父确认。`completed` 不等于已合并；落地保留分支和工作区，归档仍由你决定。
+- **交付**：你直接说的话对应的指令 Worker 默认关闭自动合并，可在开发时勾选「自动合并」（跨轮保留），或在就绪后点击「合并」；Agent 派出的新 child 默认开启且不可关闭自动合并，无需逐个操作。安全点固定源提交后由父 Worker 自有队列的 runtime 串行 Squash，不创建 merge Worker、不改变父子关系，也不额外调用父 Agent。分歧由原 Worker 合入固定父基线，修复期间保留父执行位；挂起后恢复重新排队。无提交的干净 child 直接交付结果等父确认。`completed` 不等于已合并；落地后暂时保留分支和工作区供继续开发；**验收即归档**，表示对工作不再有异议，安全回收 worktree 与本地分支、保留完整运行历史。脏现场阻止验收，失败／取消现场另用「清理资源」。
 - **提问**：通过 Notice 向用户询问关键决策；补充需求通过 `worker message` 送到现有 Worker。
 
 以上是当前输入路径。完整操作过程见[一条指令输入如何交付](docs/task-flow.md)；设计边界见[Worker 中心输入](docs/engineering/task-centered-input-design.md)。当前接口白名单及旧数据边界见[核心 API 收敛](docs/engineering/core-api.md)。公开入口现统一为 `lush worker`、RPC `worker.*` 与 Web Worker 路由；这是不保留旧 Task 入口别名的破坏性更名，已有数据不迁移，保留字段与事件见[更名边界](docs/engineering/core-api.md#worker-更名与兼容边界)。

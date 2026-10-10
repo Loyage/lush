@@ -28,14 +28,13 @@ for (const level of ['off', 'merge', 'accept', 'archive']) test(`completion ${le
     await configure(f, task, level); start(f);
     if (level === 'off') await until(() => f.store.task(task.id).status === 'waiting' && !f.project.running.has(task.id));
     else if (level === 'merge') await until(() => notices(f, task).some(row => row.title.includes('待验收')), 10000);
-    else if (level === 'accept') await until(() => notices(f, task).some(row => row.title.includes('待归档')), 10000);
-    else await until(() => f.store.branch(task.branch).status === 'archived' && config(f, task).completion.executions.archive.status === 'succeeded', 10000);
+    else await until(() => f.store.branch(task.branch).status === 'archived' && config(f, task).completion.executions.accept.status === 'succeeded', 10000);
     expect(f.store.task(task.id).status).toBe(level === 'off' ? 'waiting' : level === 'merge' ? 'awaiting_acceptance' : 'completed');
     expect(f.store.task(task.id).integration).toBe(level === 'off' ? 'pending' : 'merged');
     const rows = notices(f, task);
-    expect(rows).toHaveLength(level === 'archive' ? 0 : 1);
+    expect(rows).toHaveLength(['accept', 'archive'].includes(level) ? 0 : 1);
     if (level === 'off') expect(rows[0].title).toContain('本轮已结束');
-    else if (level !== 'archive') expect(rows[0].title).toContain(level === 'merge' ? '待验收' : '待归档');
+    else if (level === 'merge') expect(rows[0].title).toContain('待验收');
     const events = f.store.history(task.id);
     expect(events.some(row => row.type === 'invocation.target_branch_moved')).toBe(false);
     const merge = events.find(row => row.type === 'task.merge_integrated');
@@ -46,8 +45,8 @@ for (const level of ['off', 'merge', 'accept', 'archive']) test(`completion ${le
       expect(acceptance.id).toBeGreaterThan(merge.id);
       expect(acceptance.data).toMatchObject({ accepted_by: 'user', via: 'completion_hook' });
     } else expect(acceptance).toBeUndefined();
-    if (level === 'archive') {
-      expect(archive.id).toBeGreaterThan(acceptance.id);
+    if (['accept', 'archive'].includes(level)) {
+      expect(acceptance.id).toBeGreaterThan(archive.id);
       expect(f.store.task(task.id).workspace).toBeNull();
       expect(fs.existsSync(task.workspace)).toBe(false);
       expect(await git(f.root, 'show', 'main:work.txt')).toBe('work');
@@ -95,7 +94,7 @@ test('no-code order explicitly delivers before accepting and archiving, without 
     expect(events.find(row => row.type === 'task.delivered').data.no_changes).toBe(true);
     expect(events.find(row => row.type === 'task.accepted').id).toBeGreaterThan(events.find(row => row.type === 'task.delivered').id);
     expect(f.project.taskHooks(task.id).mounts.slice(0, 3).map(row => [row.id, row.state])).toEqual([
-      ['auto-merge', 'succeeded'], ['auto-accept', 'succeeded'], ['auto-archive', 'succeeded'],
+      ['auto-merge', 'succeeded'], ['auto-accept', 'succeeded'],
     ]);
     expect(notices(f, task)).toHaveLength(0);
   } finally { await f.close(); }
@@ -107,11 +106,11 @@ test('post-delivery upgrades continue the tail without remerging or accepting tw
     const { task } = await f.project.order('upgrade'); await configure(f, task, 'merge'); start(f);
     await delivered(f, task); await until(() => notices(f, task).length === 1);
     await configure(f, task, 'accept'); await until(() => f.store.task(task.id).status === 'completed');
-    await until(() => notices(f, task).some(row => row.title.includes('待归档')));
-    await configure(f, task, 'archive'); await until(() => f.store.branch(task.branch).status === 'archived');
+    await until(() => f.store.branch(task.branch).status === 'archived');
+    expect(f.project.autoCompletionView(f.store.task(task.id)).level).toBe('accept');
     expect(f.store.history(task.id).filter(row => row.type === 'task.merge_integrated')).toHaveLength(1);
     expect(f.store.history(task.id).filter(row => row.type === 'task.accepted')).toHaveLength(1);
-    expect(notices(f, task)).toHaveLength(2); // previous reminders remain history
+    expect(notices(f, task)).toHaveLength(1); // only the previous manual-acceptance reminder remains
     await expect(configure(f, task, 'off')).rejects.toThrow('归档');
   } finally { await f.close(); }
 });
@@ -124,7 +123,7 @@ test('revision, lock and legacy boolean routes cannot conflict with the highest 
     await configure(f, task, 'archive');
     await expect(f.project.setTaskCompletion(task.id, 'accept', stale)).rejects.toThrow('revision');
     for (const value of [true, 'all', null]) await expect(configure(f, task, value)).rejects.toThrow('level');
-    await f.project.setTaskAutoMerge(task.id, true); expect(config(f, task).level).toBe('archive');
+    await f.project.setTaskAutoMerge(task.id, true); expect(config(f, task).level).toBe('accept');
     await f.project.setTaskAutoMerge(task.id, false); expect(f.project.autoCompletionView(f.store.task(task.id)).level).toBe('off');
     await f.project.setTaskAutoMerge(task.id, true); expect(f.project.autoCompletionView(f.store.task(task.id)).level).toBe('merge');
     await configure(f, task, 'archive');
@@ -221,10 +220,13 @@ test('new input during acceptance Git checks supersedes the old claim, without d
 test('dirty automatic archive retains accepted workspace and does not replay after restart', async () => {
   const f = await setup();
   try {
-    const { task } = await f.project.order('keep dirty archive'); await configure(f, task, 'accept'); start(f);
-    await until(() => f.store.task(task.id).status === 'completed'); await f.project.completionQueue;
+    const { task } = await f.project.order('keep dirty archive');
+    // Reproduce a historical acceptance, before unified acceptance reclaimed resources.
+    await f.project.workspaces.finish(task);
+    f.store.update(task.id, { status: 'completed' });
+    f.store.event(task.id, 'task.accepted', { head_commit: f.store.task(task.id).head_commit, accepted_by: 'user' });
     fs.writeFileSync(path.join(task.workspace, 'keep.txt'), 'user changes');
-    await configure(f, task, 'archive'); await until(() => config(f, task).completion.executions.archive?.status === 'failed');
+    await configure(f, task, 'archive'); start(f); await until(() => config(f, task).completion.executions.archive?.status === 'failed');
     expect(f.store.branch(task.branch).status).toBe('active'); expect(fs.readFileSync(path.join(task.workspace, 'keep.txt'), 'utf8')).toBe('user changes');
     const count = f.store.history(task.id).filter(row => row.type === 'completion.execution_started').length;
     f.project.stopping = true; await f.project.shutdown();

@@ -33,14 +33,28 @@ test('partial device policy saves preserve the other policy and use private atom
   try {
     const first = auto(f.settings, true);
     const second = f.settings.save({ completion_defaults: { level: 'archive' } }, first.revision);
-    expect(second).toMatchObject({ auto_select: { enabled: true }, completion_defaults: { enabled: false, level: 'archive' } });
+    expect(second).toMatchObject({ auto_select: { enabled: true }, completion_defaults: { enabled: false, level: 'accept' } });
     const third = f.settings.save({ completion_defaults: { enabled: true }, auto_select: { enabled: false } }, second.revision);
-    expect(third).toMatchObject({ auto_select: { enabled: false }, completion_defaults: { enabled: true, level: 'archive' } });
+    expect(third).toMatchObject({ auto_select: { enabled: false }, completion_defaults: { enabled: true, level: 'accept' } });
     expect(new DeviceAutomationSettings({ home: f.home }).get()).toEqual(third);
     expect(fs.statSync(f.home).mode & 0o777).toBe(0o700);
     expect(fs.statSync(path.join(f.home, 'automation.json')).mode & 0o777).toBe(0o600);
     expect(fs.readdirSync(f.home)).toEqual(['automation.json']);
     expect(third).not.toHaveProperty('generation');
+  } finally { f.close(); }
+});
+
+test('legacy device archive default reads as acceptance without rewriting the saved document', () => {
+  const f = setup();
+  try {
+    auto(f.settings, false);
+    const file = path.join(f.home, 'automation.json');
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    raw.completion_defaults = { enabled: true, level: 'archive' };
+    const saved = JSON.stringify(raw) + '\n'; fs.writeFileSync(file, saved);
+    expect(f.settings.get().completion_defaults).toEqual({ enabled: true, level: 'accept' });
+    expect(fs.readFileSync(file, 'utf8')).toBe(saved);
+    expect(f.settings.get()).toEqual(f.settings.get());
   } finally { f.close(); }
 });
 

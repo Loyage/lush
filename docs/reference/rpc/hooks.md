@@ -21,7 +21,7 @@
 | `management.create` | `{name,instruction,signal_id,mode?,profile?,client_request_id?}` | `hooks management create --file PATH` |
 | `management.binding_update` | `{id,enabled,expected_revision}` | `hooks management enable\|disable ID --revision REV` |
 | `worker.hooks` | `{id}` | `worker hooks ID` |
-| `worker.completion` | `{id,level,expected_revision}` | `worker completion ID off\|merge\|accept\|archive --revision REV` |
+| `worker.completion` | `{id,level,expected_revision}` | `worker completion ID off\|merge\|accept --revision REV` |
 | `worker.hook_attach` | `{id,hook,expected_revision}` | `worker hook attach ID --file PATH --revision REV` |
 | `worker.hook_update` | `{id,hook_id,enabled?,hook?,expected_revision}`（enabled/hook 二选一） | `worker hook enable\|disable ID HOOK_ID --revision REV`；完整编辑由 Web/RPC 提供 |
 | `worker.hook_remove` | `{id,hook_id,expected_revision}` | `worker hook remove ID HOOK_ID --revision REV` |
@@ -34,7 +34,7 @@
 
 `hook` 可为新规则定义，或仅 `{template_id:'UUID'}`；后者让后台复制模板的完整私有覆盖。不得用脱敏列表重建原模板挂载。创建动作读取只有安全 `model_selection` 摘要；模板同位置创建动作省略 `profile` 表示编辑时保留原私有覆盖。
 
-挂载含 `trigger`、`mode`、`enabled`、`conditions`、安全动作摘要、`state`、`last_execution`、`editable` 与 `removable`。`removable` 与可启用状态不同：结束的 Worker 可移除未来授权，不能重新启用。`auto-merge`、`auto-accept`、`auto-archive` 是不可移除的内置挂载，通过一份最高级别授权配置；旧 `worker.auto_merge` 开关保留原准入。
+挂载含 `trigger`、`mode`、`enabled`、`conditions`、安全动作摘要、`state`、`last_execution`、`editable` 与 `removable`。`removable` 与可启用状态不同：结束的 Worker 可移除未来授权，不能重新启用。`auto-merge`、`auto-accept` 是不可移除的内置挂载（验收包含归档回收，旧 auto-archive 仅历史兼容），通过一份最高级别授权配置；旧 `worker.auto_merge` 开关保留原准入。
 
 ## 快捷指令授权
 
@@ -66,17 +66,17 @@ Hook 只引用 `{type:'command',command_id:'UUID',command_version:1}`，启用�
 
 ## 新指令默认流程
 
-`completion_defaults:{version:1,enabled,level,revision}` 是当前项目新指令默认配置，初始 disabled、level=merge。`hooks.completion_defaults` 严格接受布尔 enabled 和 `merge|accept|archive`，使用 **completion_defaults.revision**，返回完整目录；关闭仍保留 level。该版本独立于模板、daemon 自动选择及 Worker Hooks 的版本。
+`completion_defaults:{version:1,enabled,level,revision}` 是设备唯一的未来新指令默认配置，初始 disabled、level=merge。新配置为 `merge|accept`，旧 archive 等价 accept；验收即归档回收 worktree/ref，保留历史、脏现场阻止。工作台通过 Host `/api/host/automation` 保存，旧用户专属 `hooks.completion_defaults` 接口继续兼容，使用 **completion_defaults.revision** 返回完整目录；关闭仍保留 level。
 
-仅实际创建的新指令（含预约／定时，已停用的重选路线不恢复）复制授权，不改已有 Worker、不推进已有成果。child 和管理 Worker 不应用此默认，不提供设备作用域。此用户专属接口不启动 Agent；保存归档默认授权未来新指令及后代安全清理 worktree/ref，历史保留、脏现场不丢弃。单 Worker 设置仍用以下接口。
+只有实际创建的新指令（含预约／定时）复制当前默认，不改变已有 Worker 配置，不应用于 child／管理 Worker。用户决定 #418 明确允许原有自动验收授权直接采用回收语义；保存默认不调用 Agent。设备与权限边界见[用户工作台](../../engineering/user-workspace.md)。
 
 ## 最高自动级别
 
-`worker.completion` 严格接受 `off|merge|accept|archive`，高档包含之前的步骤，返回更新后的 Worker Hooks。读取当前 revision 后显式保存，不隐式继承给后代。派生 child 的 min_level 为 merge，整组流程 Hook 对用户只读；所有级别设置（含同值）与旧自动合并开关写入均拒绝。用户直接创建的指令仍可配置，即使其父不是 main。
+`worker.completion` 推荐 `off|merge|accept`，旧 archive 入参兼容等价 accept，读面规范为 accept；高档包含之前的步骤，验收即归档回收资源，返回更新后的 Worker Hooks。读取当前 revision 后显式保存，不隐式继承给后代。派生 child 的 min_level 为 merge，整组流程 Hook 对用户只读；所有级别设置（含同值）与旧自动合并开关写入均拒绝。用户直接创建的指令仍可配置，即使其父不是 main。
 
-`completion` 为 `{level,min_level,locked,editable,reason,phase,state,last_execution}`；child 的 locked:true、editable:false 表示整组流程 Hook 锁定，reason 解释用户不可修改；三个内置挂载同样锁定且不可移除。phase 是 merge/accept/archive 或 null，state 沿用 idle/waiting/running/succeeded/failed/unknown。inspect、graph、Hooks 为同源安全投影，不含私有执行／提醒收据。普通 Worker 出口去除字符串 hooks、auto_merge 和完整 retry_profile，保留安全对象和授权配置/env 字典。
+`completion` 为 `{level,min_level,locked,editable,reason,phase,state,last_execution}`；child 的 locked:true、editable:false 表示整组流程 Hook 锁定，reason 解释用户不可修改；两个内置挂载同样锁定且不可移除。phase 规范为 merge/accept 或 null，last_execution.phase 可保留历史 archive，state 沿用 idle/waiting/running/succeeded/failed/unknown。inspect、graph、Hooks 为同源安全投影，不含私有执行／提醒收据。普通 Worker 出口去除字符串 hooks、auto_merge 和完整 retry_profile，保留安全对象和授权配置/env 字典。
 
-已冻结请求、挂起、执行中、同步或 unknown 不能改级别；用户指令已合并／验收时只允许显式提高，补办仍复用原安全门。验收不做模型质量评审；归档不授权丢弃脏工作区。归档高级别失败不会重放或反向撤销验收。历史 completed 没有 task.accepted 事实时不能冒充验收。
+已冻结请求、挂起、执行中、同步或 unknown 不能改级别；用户指令已合并／验收时只允许显式提高，补办仍复用原安全门。验收不做模型质量评审，包含安全资源回收，不授权丢弃脏工作区。资源回收成功才完成统一验收；部分失败保存事实、可显式续办，失败/unknown 不自动重放。旧已验收未回收可受检补办，历史 completed 没有 task.accepted 事实不能冒充验收。
 
 动作目录中的 `accept_worker` / `archive_worker` 标 `builtin_only:true`，用于说明内置步骤，不能安装为自定义规则。配置和恢复细节见[自动链接缝](../../engineering/completion-hooks.md)。
 

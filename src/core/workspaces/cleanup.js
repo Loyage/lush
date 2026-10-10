@@ -48,8 +48,12 @@ export const methods = {
    * `remaining`。调用方（`Project#archiveBranch`）据此让库与磁盘一致，而不是抛错后留下「库说还在、
    * 磁盘已经没了」的半棵树。
    */
-  archiveBranches(branches, { discard_worktree = false, onOutcome = null, guard = null, expectedTips = null } = {}) {
-    return this.exclusive(async () => {
+  archiveBranches(branches, options = {}) {
+    return this.exclusive(() => this.archiveBranchesUnsafe(branches, options));
+  },
+
+  /** Internal: caller already owns the Git gate (unified acceptance). */
+  async archiveBranchesUnsafe(branches, { discard_worktree = false, onOutcome = null, guard = null, expectedTips = null } = {}) {
       if (guard) guard();
       const project = this.config.project;
       const names = [...new Set(branches.map(branch => String(branch ?? '').trim()))];
@@ -110,7 +114,7 @@ export const methods = {
       for (let index = 0; index < plan.length; index += 1) {
         const entry = plan[index];
         try {
-          if (expectedTips) check(await this.git(project, 'rev-parse', `refs/heads/${entry.branch}`) === entry.tip,
+          if (expectedTips) check(await this.git(project, 'rev-parse', `refs/heads/${entry.branch}`).catch(() => null) === entry.tip,
             `automatic archive source moved during inspection: ${entry.branch}`);
           if (guard) guard();
           if (entry.present) {
@@ -139,7 +143,6 @@ export const methods = {
         }
       }
       return { outcomes, failed, remaining };
-    });
   },
 
   /** 归档单条分支：`archiveBranches` 的退化情形（不带子树）。失败时按单条语义抛出原因。 */

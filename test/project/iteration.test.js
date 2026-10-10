@@ -71,10 +71,10 @@ test('multi-round Squash retains parent advances, Task identity, conversation an
     expect(final.iteration_base_commit).toBe(final.head_commit);
     await until(() => !f.project.running.has(source.id));
     const accepted = await f.project.acceptTask(source.id);
-    expect(accepted.status).toBe('completed'); expect(fs.existsSync(source.workspace)).toBe(true);
+    expect(accepted.status).toBe('completed'); expect(fs.existsSync(source.workspace)).toBe(false);
     expect(() => f.project.message(source.id, 'not without reopening')).toThrow('ended');
     await f.project.workspaces.cleanup(source.id);
-    await expect(f.project.reopenTask(source.id)).rejects.toThrow('archived');
+    await expect(f.project.reopenTask(source.id)).rejects.toThrow('accepted Workers');
   } finally { await f.close(); }
 });
 
@@ -221,7 +221,7 @@ test('accepted and archived child resources do not block later parent acceptance
     f.store.update(parent.id, { status: 'waiting' });
     await deliver(f, parent);
     await f.project.acceptTask(child.id);
-    await f.project.archiveBranch(child.branch);
+    expect(f.store.branch(child.branch).status).toBe('archived');
     expect((await f.project.acceptTask(parent.id)).status).toBe('completed');
   } finally { await f.close(); }
 });
@@ -294,8 +294,8 @@ test('historical reopen is explicit, does not call Agent, preserves rows and rej
       branch: source.branch, workspace: source.workspace, base_commit: source.base_commit, head_commit: delivered.head_commit });
     expect(f.store.runsForTask(source.id)).toHaveLength(0);
     expect(f.store.task(old.id).status).toBe('completed');
-    await f.project.acceptTask(source.id); await f.project.archiveBranch(source.branch);
-    await expect(f.project.reopenTask(source.id)).rejects.toThrow('archived');
+    await f.project.acceptTask(source.id);
+    await expect(f.project.reopenTask(source.id)).rejects.toThrow('accepted Workers');
     expect(await git(f.root, 'show-ref', '--verify', `refs/heads/${source.branch}`).catch(() => null)).toBeNull();
   } finally { await f.close(); }
 });

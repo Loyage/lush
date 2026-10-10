@@ -79,7 +79,8 @@ test('Host default writes govern only new orders, and stopping Host does not rev
     expect(saved.status).toBe(200);
     expect(f.store.task(old.id).auto_merge).toBe(old.auto_merge);
     const fresh = (await f.project.order('future', null, [], null, false)).task;
-    expect(JSON.parse(fresh.auto_merge)).toMatchObject({ enabled: true, locked: false, level: 'archive' });
+    expect(saved.value.completion_defaults).toMatchObject({ enabled: true, level: 'accept' });
+    expect(JSON.parse(fresh.auto_merge)).toMatchObject({ enabled: true, locked: false, level: 'accept' });
     const child = await f.project.spawn(fresh.id, 'child');
     expect(JSON.parse(child.auto_merge)).toEqual({ version: 1, enabled: true, locked: true });
     await f.web.stop(true);

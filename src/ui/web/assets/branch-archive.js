@@ -1,47 +1,40 @@
-/**
- * 「归档分支」这条用户动作的唯一实现：Task 图 / Task 详情两个入口共用。
- * 归档一条＝归档它整棵子树（删每条的 worktree 与本地 ref），但 Task、消息、事件、pi 会话记录都保留，
- * 所以它是「放弃这条分支代码」的记录状态，不是删除 Task。归档后分支、它名下的 Task 与历史内部合并队列不再占 Task 图主视图，
- * 可用表头「显示已归档」开关临时查看。
- *
- * 独立归档的确认走应用内弹窗（dialog.js）；「验收并归档」由点击直接授权，不再弹确认。
- * 真正的安全门在 daemon 侧的 `branch.archive`（冻结 / 未集成请求 / 活动任务 / running invocation），
- * 这里只负责把代价说清楚、发请求、把结果写进顶部提示。
+/** Explicit resource cleanup for failed/cancelled and historical special branches.
+ * Successful Worker acceptance uses worker.accept instead, never this separate mutation.
  */
 import { action } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { show } from './messages.js';
+import { ui } from './state.js';
+import { projectBase, routeContext } from './route.js';
 
-/** 「归档」的统一含义说明：两个入口共用同一句代价，改文案只改这一份。 */
-export const BRANCH_ARCHIVE_HELP = '归档这条分支及它下面的全部后代分支：删除 worktree 与本地 ref，'
-  + '未提交改动会随 worktree 一起丢失；Worker、消息、事件与会话记录都保留。归档是放弃这条分支代码的记录状态，'
-  + '历史内部合并队列随父 Worker 一起归档；不等于删除 Worker——之后可在 Worker 树表头「显示已归档」里看到它。';
+export const BRANCH_ARCHIVE_HELP = '清理这条分支及它下面的全部后代分支资源：删除 worktree 与本地 ref，'
+  + '未提交改动会随 worktree 一起丢失；Worker、消息、事件与会话记录都保留。这不是成果验收，也不等于删除 Worker。'
+  + '历史内部合并队列随父 Worker 一起归档；之后可在 Worker 树表头“显示已回收历史”里查看记录。';
 
-/** 归档一子树分支；组合动作直接先验收，验收失败则不归档；独立归档仍须确认。 */
-export async function runBranchArchive(branch, { refresh, acceptBeforeArchive = null } = {}) {
-  if (!acceptBeforeArchive) {
-    const descendants = Number(branch.subtreeBranches) || 0;
-    const scope = descendants
-      ? `会删除这条分支与它下面 ${descendants} 条后代分支的 worktree 与本地 ref`
-      : '会删除这条分支的 worktree 与本地 ref';
-    const confirmed = await confirmDialog({
-      title: `归档 ${branch.name}？`,
-      message: `${scope}，保留 Worker、会话与分支记录（记录仍可在「分支详情」与 Worker 详情里查）；历史内部合并队列随父 Worker 一起归档，未提交改动会被丢弃。`,
-      confirmLabel: '归档',
-      cancelLabel: '保留',
-      danger: true,
-      confirmHelp: BRANCH_ARCHIVE_HELP,
-    });
-    if (!confirmed) return;
-  }
+export async function runBranchArchive(branch, { refresh } = {}) {
+  const view = ui.view, scope = projectBase(), owner = globalThis.document;
+  const owns = () => ui.view === view && projectBase() === scope && !routeContext().invalid && globalThis.document === owner;
+  const descendants = Number(branch.subtreeBranches) || 0;
+  const resourceScope = descendants
+    ? `会删除这条分支与它下面 ${descendants} 条后代分支的 worktree 与本地 ref`
+    : '会删除这条分支的 worktree 与本地 ref';
+  const confirmed = await confirmDialog({
+    title: `清理 ${branch.name} 的资源？`,
+    message: `${resourceScope}，保留 Worker、会话与分支记录；历史内部合并队列随父 Worker 一起归档，未提交改动会被丢弃。这不是成果验收，原失败或取消结果不变。`,
+    confirmLabel: '清理资源', cancelLabel: '保留', danger: true, confirmHelp: BRANCH_ARCHIVE_HELP,
+  });
+  if (!confirmed || !owns()) return;
   try {
-    if (acceptBeforeArchive && !await acceptBeforeArchive()) return;
-    const result = await action('branch.archive', { branch: branch.name, discard: true });
-    const count = Number(result?.count) || 1;
-    const dropped = result?.discarded ? '，已丢弃未提交改动' : '';
-    show(count > 1
-      ? `已归档 ${branch.name} 及它下面 ${count - 1} 条后代分支（共 ${count} 条）：worktree 与本地 ref 已删${dropped}，Worker、会话与分支记录都保留`
-      : `${branch.name} 已归档（worktree ${result?.worktree ?? 'absent'}、分支 ${result?.ref ?? 'absent'}${dropped}）；Worker 与会话已保留`);
-    await refresh?.();
-  } catch (error) { show(error.message, 'error'); }
+    const result = await action('branch.archive', { branch: branch.name, discard: true }, { refresh: false });
+    if (!owns()) return;
+    if (result?.failed?.length || result?.remaining?.length) {
+      show('资源清理未全部完成；已回收部分保留记录，请检查失败现场后处理，未完成成果验收。', 'error');
+    } else {
+      const count = Number(result?.count) || 1;
+      const dropped = result?.discarded ? '，已丢弃未提交改动' : '';
+      show(`${branch.name} 及其范围内 ${count} 条分支资源已清理${dropped}；Worker、结果与运行历史保留，这不是成果验收。`);
+    }
+    try { await refresh?.(); }
+    catch (error) { if (owns()) show(`清理请求已处理，但刷新失败：${error.message}`, 'error'); }
+  } catch (error) { if (owns()) show(error.message, 'error'); }
 }

@@ -34,14 +34,14 @@ for (const level of ['off', 'merge', 'accept', 'archive']) test(`real HTTP/RPC/G
   const f = await prepared();
   try {
     const { task } = await post(f, 'order.submit', { content: `HTTP ${level}`, start: false });
-    const mounted = await configure(f, task.id, level); expect(mounted.completion.level).toBe(level);
-    expect(mounted.mounts.slice(0, 3).map(item => item.id)).toEqual(['auto-merge', 'auto-accept', 'auto-archive']);
+    const mounted = await configure(f, task.id, level); expect(mounted.completion.level).toBe(level === 'archive' ? 'accept' : level);
+    expect(mounted.mounts.map(item => item.id)).toEqual(['auto-merge', 'auto-accept']);
     privateAbsent(mounted);
     f.project.stopping = false; await post(f, 'worker.resume', { id: task.id });
     const desired = level === 'off' ? 'waiting' : level === 'merge' ? 'awaiting_acceptance' : 'completed';
     await until(() => f.store.task(task.id).status === desired && !f.project.running.has(task.id)
       && !f.project.taskMergeBusy?.size && !f.project.completionQueued?.size
-      && (level !== 'archive' || f.store.branch(task.branch).status === 'archived'), 15000);
+      && (!['accept', 'archive'].includes(level) || f.store.branch(task.branch).status === 'archived'), 15000);
     const read = await hooks(f, task.id), inspected = await get(f, `/api/worker/${task.id}`);
     expect(read.completion).toEqual(inspected.completion);
     expect((await get(f, '/api/worker-graph')).nodes.find(item => item.id === task.id).completion).toEqual(read.completion);
@@ -52,15 +52,16 @@ for (const level of ['off', 'merge', 'accept', 'archive']) test(`real HTTP/RPC/G
     const accepted = events.find(item => item.type === 'task.accepted'), archived = events.find(item => item.type === 'branch.archive');
     expect(Boolean(merged)).toBe(level !== 'off'); expect(Boolean(accepted)).toBe(['accept', 'archive'].includes(level));
     if (accepted) { expect(accepted.id).toBeGreaterThan(merged.id); expect(accepted.data.via).toBe('completion_hook'); }
-    if (archived) expect(archived.id).toBeGreaterThan(accepted.id);
+    if (archived) expect(accepted.id).toBeGreaterThan(archived.id); // Reclamation must succeed before acceptance.
+    expect(Boolean(archived)).toBe(['accept', 'archive'].includes(level));
     const allNotices = (await get(f, '/api/notices?status=all')).notices.filter(row => row.task_id === task.id && row.kind === 'info');
     expect(allNotices.filter(row => row.lifecycle_type === 'created')).toHaveLength(1);
     // The creation reminder is independent of the later completion chain and remains historical.
     const notices = allNotices.filter(row => row.lifecycle_type !== 'created');
-    expect(notices).toHaveLength(level === 'archive' ? 0 : 1);
+    expect(notices).toHaveLength(['accept', 'archive'].includes(level) ? 0 : 1);
     if (level === 'merge') expect(notices[0].title).toContain('待验收');
-    if (level === 'accept') expect(notices[0].title).toContain('待归档');
-    expect(fs.existsSync(task.workspace)).toBe(level !== 'archive');
+    expect(notices.some(notice => notice.title.includes('待归档'))).toBe(false);
+    expect(fs.existsSync(task.workspace)).toBe(!['accept', 'archive'].includes(level));
     if (level !== 'off') expect(await git(f.root, 'show', 'main:completion-http.txt')).toBe('controlled result');
     const previousCount = events.length;
     for (let i = 0; i < 3; i++) { await hooks(f, task.id); await get(f, `/api/worker/${task.id}`); }
@@ -69,7 +70,7 @@ for (const level of ['off', 'merge', 'accept', 'archive']) test(`real HTTP/RPC/G
   } finally { await f.close(); }
 });
 
-test('real HTTP manual acceptance then higher archive authorization resumes only the tail and hides raw receipts', async () => {
+test('real HTTP manual acceptance reclaims resources in one request, is idempotent and hides raw receipts', async () => {
   const f = await prepared();
   try {
     const { task } = await post(f, 'order.submit', { content: 'HTTP upgrade', start: false });
@@ -79,15 +80,45 @@ test('real HTTP manual acceptance then higher archive authorization resumes only
       && !f.project.completionQueued?.size, 15000);
     await post(f, 'worker.completion', { id: task.id, level: 'archive', expected_revision: mounted.revision }, 400);
     const accepted = await post(f, 'worker.accept', { id: task.id });
-    expect(accepted.status).toBe('completed'); expect(typeof accepted.auto_merge).not.toBe('string'); privateAbsent(accepted);
+    expect(accepted).toMatchObject({ status: 'completed', workspace: null });
+    expect(typeof accepted.auto_merge).not.toBe('string'); privateAbsent(accepted);
     await f.project.completionQueue;
-    const upgraded = await configure(f, task.id, 'archive'); expect(upgraded.completion.level).toBe('archive');
-    await until(() => f.store.branch(task.branch).status === 'archived' && !f.project.completionQueued?.size, 15000);
+    expect(f.store.branch(task.branch).status).toBe('archived'); expect(fs.existsSync(task.workspace)).toBe(false);
+    const current = await hooks(f, task.id);
+    const rejected = await post(f, 'worker.completion', { id: task.id, level: 'archive', expected_revision: current.revision }, 400);
+    expect(rejected.error).toContain('归档');
+    const repeated = await post(f, 'worker.accept', { id: task.id }); privateAbsent(repeated);
     const history = f.store.history(task.id);
     expect(history.filter(item => item.type === 'task.merge_integrated')).toHaveLength(1);
     expect(history.filter(item => item.type === 'task.accepted')).toHaveLength(1);
+    expect(history.filter(item => item.type === 'branch.archive')).toHaveLength(1);
     expect(history.find(item => item.type === 'task.accepted').data.accepted_by).toBe('user');
     expect(f.calls).toBe(1); privateAbsent(await hooks(f, task.id));
+  } finally { await f.close(); }
+});
+
+for (const level of ['accept', 'archive']) test(`real HTTP old completed ${level} authorization safely reclaims its retained resource tail`, async () => {
+  const f = await prepared();
+  try {
+    const { task } = await post(f, 'order.submit', { content: `old completed ${level}`, start: false });
+    await f.project.workspaces.finish(f.store.task(task.id));
+    const head = f.store.task(task.id).head_commit;
+    f.store.update(task.id, { status: 'completed', reservation: null, auto_merge: JSON.stringify({
+      version: 1, enabled: true, locked: false, level,
+      completion: { authorization: 'old-private-authorization', round: 0, executions: {
+        accept: { id: 999, phase: 'accept', status: 'succeeded', head_commit: head },
+      }, notices: {} },
+    }) });
+    f.store.event(task.id, 'task.accepted', { head_commit: head, accepted_by: 'user' });
+    expect((await hooks(f, task.id)).completion.level).toBe('accept');
+    f.project.stopping = false; f.project.scheduleTaskCompletion(task.id);
+    await until(() => f.store.branch(task.branch).status === 'archived' && !f.project.completionQueued?.size, 15000);
+    const inspected = await get(f, `/api/worker/${task.id}`);
+    expect(inspected).toMatchObject({ status: 'completed', workspace: null, accepted: true, acceptance_recovery: false });
+    privateAbsent(inspected, 'old-private-authorization'); privateAbsent(await hooks(f, task.id), 'old-private-authorization');
+    expect(f.store.history(task.id).filter(item => item.type === 'task.accepted')).toHaveLength(1);
+    expect(f.store.history(task.id).filter(item => item.type === 'task.acceptance_reclaimed')).toHaveLength(1);
+    expect(f.calls).toBe(0);
   } finally { await f.close(); }
 });
 

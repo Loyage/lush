@@ -36,7 +36,8 @@ test('only the live direct delegator can confirm child results; user order and o
     await expect(f.rpc.dispatch('worker.accept', { id: f.child.id, parent: f.parent.id, _token: f.token })).rejects.toThrow('unknown parameter');
     const result = await f.confirm(f.child.id);
     expect(result).toMatchObject({ status: 'completed', integration: 'none', result: 'answer' });
-    expect(fs.existsSync(f.child.workspace)).toBe(true);
+    expect(fs.existsSync(f.child.workspace)).toBe(false);
+    expect(f.store.task(f.child.id).workspace).toBeNull();
     expect(f.project.inspect(f.child.id).accepted).toBe(true);
     expect(f.store.history(f.child.id).filter(event => event.type === 'task.accepted').map(event => event.data))
       .toMatchObject([{ accepted_by: 'parent', parent_id: f.parent.id }]);
@@ -124,6 +125,6 @@ test('a parent requests revisions then confirms a no-code child without any user
     expect(f.store.task(parentId).calls).toBe(2);
     expect((await f.project.acceptTask(parentId)).status).toBe('completed');
     expect(f.store.history(parentId).find(event => event.type === 'task.accepted').data.accepted_by).toBe('user');
-    expect(fs.existsSync(f.store.task(childId).workspace)).toBe(true);
+    expect(f.store.task(childId).workspace).toBeNull();
   } finally { await f.close(); }
 });

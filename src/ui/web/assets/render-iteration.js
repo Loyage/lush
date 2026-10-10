@@ -6,15 +6,16 @@ import { agentHelp } from './help.js';
 import { show } from './messages.js';
 import { ui } from './state.js';
 import { isHistoricalDelivery } from './format.js';
-import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
 import { refresh as refreshOverview } from './navigate.js';
 import { workerLabel } from './worker-label.js';
+import { projectBase, routeContext } from './route.js';
 
 export const isIterationTask = task => ['order', 'child'].includes(workerKind(task));
-export function iterationBlocker(task) {
-  if (!task.branch || task.archived || task.branch_archive?.archived || task.branch_info?.archived)
+export function iterationBlocker(task, { forAcceptance = false } = {}) {
+  const recovery = forAcceptance && task.acceptance_recovery === true;
+  if (!task.branch || (!recovery && (task.archived || task.branch_archive?.archived || task.branch_info?.archived)))
     return '分支已归档或不可用；不会重建工作区。';
-  if (task.workspace_state === 'missing') return 'worktree 缺失；请先检查现场。';
+  if (!recovery && task.workspace_state === 'missing') return 'worktree 缺失；请先检查现场。';
   if (task.reservation?.status === 'requested' || task.freeze || task.branch_archive?.freeze)
     return 'Worker 或分支已冻结；先处理在途交付。';
   const frozen = (ui.lastSnapshot?.status?.branch_freeze || []).find(row =>
@@ -35,13 +36,18 @@ export function iterationControls(task, { refresh = () => {}, events = [], showP
   if (!isIterationTask(task) || isHistoricalDelivery(task)) return null;
   const ended = ['completed', 'failed', 'cancelled'].includes(task.status);
   const accepted = task.accepted === true || events.some(event => event.type === 'task.accepted');
+  const recovery = task.acceptance_recovery === true && !['failed', 'cancelled'].includes(task.status);
   const historical = task.status === 'completed' && task.integration === 'merged' && !accepted
     && Boolean(task.branch && task.workspace) && !task.archived
     && !task.branch_archive?.archived && !task.branch_info?.archived;
-  if (ended && !historical) return null;
+  const reclaimAccepted = task.status === 'completed' && accepted && Boolean(task.branch)
+    && !task.archived && !task.branch_archive?.archived && !task.branch_info?.archived;
+  if (ended && !historical && !reclaimAccepted && !recovery) return null;
   const panel = el('div', undefined, 'iteration-controls');
+  const view = ui.view, scope = projectBase(), owner = globalThis.document;
+  const owns = () => ui.view === view && projectBase() === scope && !routeContext().invalid && globalThis.document === owner;
   const actions = el('div', undefined, 'actions iteration-actions');
-  const blocker = iterationBlocker(task);
+  const blocker = iterationBlocker(task, { forAcceptance: recovery });
   const iterationBase = task.iteration_base_commit ?? task.base_commit;
   // A known unchanged iteration and a returned answer are candidates, not delivery proof.
   // The daemon still checks the worktree, inbox, decisions, descendants and fixed Git facts.
@@ -49,13 +55,14 @@ export function iterationControls(task, { refresh = () => {}, events = [], showP
     && (task.result != null || task.has_result === true)
     && Boolean(iterationBase && task.head_commit === iterationBase);
   const busy = task.status === 'running' || task.status === 'queued' || task.agent?.active;
-  const reason = blocker || (!task.workspace ? 'worktree 未保留；不会自动重建。' : null)
-    || (busy ? 'Agent 仍在执行；请等安全结束后操作。' : null);
+  const reason = blocker || (!recovery && !task.workspace ? 'worktree 未保留；不会自动重建。' : null)
+    || (busy ? 'Agent 仍在执行；请等安全结束后操作。' : null)
+    || (recovery && !['waiting', 'awaiting_acceptance', 'completed'].includes(task.status) ? 'Worker 尚未静息；先处理当前状态再续办验收。' : null);
   const update = async (method, message) => {
     try { await action(method, { id: task.id }); show(message); await refresh(); }
     catch (error) { show(error.message, 'error'); }
   };
-  if (historical) {
+  if (historical && !recovery) {
     actions.append(guardedAction(button('继续开发', async () => {
       if (!await confirmDialog({ title: `恢复 Worker ${workerLabel(task)}？`,
         message: '仅将保留分支与 worktree 的历史已合并 Worker 恢复为待验收。不会调用 Agent；恢复后追加输入才继续当前 Worker。已归档 Worker 不会重建。',
@@ -63,9 +70,9 @@ export function iterationControls(task, { refresh = () => {}, events = [], showP
       await update('worker.reopen', '已恢复待验收；追加输入可继续开发。');
     }, 'ghost', { help: '显式恢复历史已合并 Worker为待验收；不会调用 Agent 或重建已归档分支。' }), reason));
   } else {
-    if (task.status === 'awaiting_acceptance' || noChangeAnswer) {
+    if (task.status === 'awaiting_acceptance' || noChangeAnswer || reclaimAccepted || recovery) {
       const booking = task.reservation;
-      const deliveryReason = noChangeAnswer && booking && !['integrated', 'completed', 'withdrawn'].includes(booking.status)
+      const deliveryReason = (noChangeAnswer || recovery) && booking && !['integrated', 'completed', 'withdrawn'].includes(booking.status)
         ? '交付预约尚未结算；验收不能绕过在途交付。' : null;
       const acceptanceReason = reason || deliveryReason
         || ((task.children || []).some(child => !['completed', 'failed', 'cancelled'].includes(child.status))
@@ -73,43 +80,39 @@ export function iterationControls(task, { refresh = () => {}, events = [], showP
       const introduction = noChangeAnswer
         ? '本轮已有回答且没有新增提交，可直接验收，无需先请求合并。验收保留答案，不代表代码已合并；未读输入、待决问题或未交付改动会阻止验收。'
         : '本轮已交付，等待你验收；';
+      const acceptanceHelp = '验收表示对该 Worker 的工作不再有异议，同时归档并删除本分支及全部后代分支的 worktree 与本地 ref，保留 Worker、结果、消息、事件与会话等运行历史；脏工作区、未读输入、待决或未交付改动会阻止验收。不调用 Agent，验收后如有新要求请另发指令。';
       panel.append(el('p', task.task_kind === 'child'
-        ? `本轮已交付，等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 的 Agent 检查并确认；无需你验收。需要修改时可追加输入，分支与 worktree 保留。`
-        : `${introduction} 追加输入可继续当前 Worker，验收后如有新要求请另发指令。派生 Worker 由父 Agent 检查并确认，无需你逐个验收。选择「仅验收」保留分支与 worktree，或点击「验收并归档」直接验收并删除本分支及后代的 worktree 与本地 ref，不再弹窗确认。`, 'hint'));
+        ? recovery
+          ? `资源回收尚未完成，等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 的 Agent 根据持久记录续办验收；无需你验收，不会自动重放删除。运行历史保留。`
+          : `本轮已交付，等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 的 Agent 检查并确认；无需你验收。确认前可追加输入要求修改；父 Agent 验收也会归档并回收 worktree 与本地 ref，保留运行历史。`
+        : `${recovery ? '上次验收的资源回收未完成，运行时已保留精确续办记录；可显式续办验收，不会仅凭目录缺失推断成功或自动重放删除。' : reclaimAccepted ? '历史验收尚未回收开发资源，可再次验收补办；' : `${introduction} 追加输入可继续当前 Worker；`} ${acceptanceHelp} 派生 Worker 由父 Agent 检查并确认，无需你逐个验收。`, 'hint'));
       if (task.task_kind !== 'child') {
         let accepting = false, accepted = false;
-        const acceptTask = async () => {
-          // Keep mutation success separate from refresh failure: acceptance must not be repeated.
-          try { await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ method: 'worker.accept', params: { id: task.id } }) }); }
-          catch (error) { show(error.message, 'error'); return false; }
-          accepted = true;
-          show('验收完成；分支与工作区保留。');
-          for (const reload of [refreshOverview, refresh]) {
-            try { await reload(); }
-            catch (error) { show(error.message, 'error'); }
-          }
-          return true;
-        };
-        const accept = async archive => {
-          if (accepting || accepted) return;
+        const accept = async () => {
+          if (!owns() || accepting || accepted) return;
           accepting = true;
           try {
-            if (archive) await runBranchArchive({ name: task.branch,
-              subtreeBranches: task.branch_archive?.subtree_branches ?? task.branch_info?.subtree_branches },
-              { refresh, acceptBeforeArchive: acceptTask });
-            else await acceptTask();
+            // One authoritative mutation; never follow acceptance with branch.archive.
+            let result;
+            try { result = await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ method: 'worker.accept', params: { id: task.id } }) }); }
+            catch (error) { if (owns()) show(error.message, 'error'); return; }
+            accepted = true;
+            if (!owns()) return;
+            const reclaimed = result?.id === task.id && result.status === 'completed' && result.workspace === null;
+            show(reclaimed ? '验收完成，开发资源已归档回收；结果与运行历史保留。'
+              : '验收请求已处理，但资源回收结果未确认；请刷新并确认服务版本，勿重复提交。', reclaimed ? 'info' : 'error');
+            for (const reload of [refreshOverview, refresh]) {
+              if (!owns()) break;
+              try { await reload(); }
+              catch (error) { if (owns()) show(`验收请求已处理，但刷新失败：${error.message}`, 'error'); }
+            }
           } finally { accepting = false; }
         };
-        actions.append(
-          guardedAction(button('验收并归档', () => accept(true), undefined, {
-            help: `点击即先验收，再删除代码现场，不再弹窗确认；不调用 Agent，归档失败不撤销验收。${BRANCH_ARCHIVE_HELP}`,
-          }), acceptanceReason),
-          guardedAction(button('仅验收', () => accept(false), 'ghost', {
-            help: '点击即确认成果并结算为已完成，保留分支与 worktree；不调用 Agent，也不再询问归档。',
-          }), acceptanceReason));
+        actions.append(guardedAction(button(recovery ? '续办验收' : '验收', accept, undefined, { help: acceptanceHelp }), acceptanceReason));
       }
     }
+    if (reclaimAccepted || recovery) { panel.append(actions); return panel; }
     actions.append(guardedAction(button('同步父分支', async () => {
       try {
         const result = await action('worker.sync_parent', { id: task.id });

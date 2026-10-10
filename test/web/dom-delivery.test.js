@@ -306,30 +306,26 @@ test('failed resolving withdrawal matches locked and enabled automatic-intent pr
   expect(world.state.actions.at(-1)).toEqual({ method: 'worker.unreserve', params: { id: order.id } });
 });
 
-test('integrated merge shows 待归档 only while a branch is still left to archive', () => {
+test('integrated delivery distinguishes waiting acceptance, historical incomplete reclamation and physical recovery', () => {
   const reservation = { version: 2, kind: 'merge', status: 'integrated', commit, baseline, parent_id: 1 };
   const done = { ...order, calls: 1, status: 'completed', integration: 'merged', result: '已提交并测试',
     base_commit: baseline, head_commit: commit, reservation };
   renderDetail(done, null, null, null);
-  expect(deepText(dom.node('detail'))).toContain('已合并 · 待归档');
-  // 分支记录已归档（ref / worktree 都没了）：已经没有东西可归档，标签必须落地成「已归档」。
-  renderDetail({ ...done, branch_archive: { archivable: false, archived: true, tracked: true } }, null, null, null);
-  let panel = dom.node('detail');
-  expect(deepText(panel)).toContain('已合并 · 已归档');
-  expect(deepText(panel)).not.toContain('待归档');
-  // 回收工作区与分支 / 旧版落地即归档会把 tasks.branch 清成 null；inspect 这时不再带 branch_archive。
-  renderDetail({ ...done, branch: null }, null, null, null);
-  panel = dom.node('detail');
-  expect(deepText(panel)).toContain('已合并 · 已归档');
-  expect(deepText(panel)).not.toContain('待归档');
-  // Task 图节点给的是 branch_info（没有 branch_archive）：判据必须同时认这一份。
+  expect(deepText(dom.node('detail'))).toContain('已合并 · 待验收');
+  renderDetail({ ...done, accepted: true }, null, null, null);
+  expect(deepText(dom.node('detail'))).toContain('验收待补办资源回收');
+  for (const fields of [{ branch_archive: { archived: true } }, { branch: null }]) {
+    renderDetail({ ...done, ...fields }, null, null, null);
+    expect(deepText(dom.node('detail'))).toContain('已合并 · 资源已回收');
+    expect(deepText(dom.node('detail'))).not.toContain('待归档');
+  }
+  renderDetail({ ...done, accepted: true, branch_archive: { archived: true } }, null, null, null);
+  expect(deepText(dom.node('detail'))).toContain('已合并 · 已验收');
   const graph = graphFor(reservation, { done: true, status: 'completed' });
   graph.nodes.find(node => node.id === order.id).branch_info = { archived: true, archivable: false };
-  ui.taskGraphShowArchived = true;
-  renderGraph(graph);
-  expect(deepText(sourceRow())).toContain('已合并 · 已归档');
-  expect(deepText(sourceRow())).not.toContain('待归档');
-  ui.taskGraphShowArchived = false;
+  ui.taskGraphShowArchived = true; renderGraph(graph);
+  expect(deepText(sourceRow())).toContain('已合并 · 资源已回收');
+  expect(deepText(sourceRow())).not.toContain('待归档'); ui.taskGraphShowArchived = false;
 });
 
 test('Task graph uses the same fixed approval, never legacy branch.merge or branch showcase for new order', async () => {
@@ -462,7 +458,7 @@ test('failed resolution child links back to order and explains archive rather th
   const panel = dom.node('detail');
   expect(buttonOf(panel, '检查后重试')).toBeUndefined();
   expect(buttonOf(panel, '查看源指令 #70')).toBeTruthy();
-  expect(deepText(panel)).toContain('显式归档这条子分支');
+  expect(deepText(panel)).toContain('显式清理这条子分支资源');
   renderDetail({ ...child, divergence_resolution: { ...child.divergence_resolution, branch_status: 'archived' } }, null, null, null);
   expect(deepText(panel)).toContain('Worker、固定提交记录和会话仍保留');
   expect(deepText(panel)).toContain('返回源指令');
@@ -529,10 +525,10 @@ test('no-change answer uses shared acceptance rather than a separate resolved ac
     workspace: '/tmp/lush-answer', result: 'answer only' }, null, null, null);
   const panel = dom.node('detail');
   expect(buttonOf(panel, '已解决')).toBeUndefined();
-  expect(buttonOf(panel, '验收并归档')).toBeDefined();
-  const accept = buttonOf(panel, '仅验收');
+  expect(buttonOf(panel, '验收并归档')).toBeUndefined();
+  const accept = buttonOf(panel, '验收');
   expect(accept.classList.contains('agent-call')).toBe(false);
-  expect(accept.getAttribute('data-help')).toContain('保留分支与 worktree');
+  expect(accept.getAttribute('data-help')).toContain('保留 Worker、结果');
   const before = world.state.actions.length;
   await accept.onclick();
   expect(world.state.actions.slice(before)).toEqual([{ method: 'worker.accept', params: { id: order.id } }]);
@@ -542,7 +538,7 @@ test('no-change answer uses shared acceptance rather than a separate resolved ac
     { ...order, head_commit: null, base_commit: baseline }, { ...order, status: 'running' }]) {
     renderDetail(row, null, null, null);
     expect(buttonOf(dom.node('detail'), '已解决')).toBeUndefined();
-    expect(buttonOf(dom.node('detail'), '仅验收')).toBeUndefined();
+    expect(buttonOf(dom.node('detail'), '验收')).toBeUndefined();
   }
 });
 

@@ -85,7 +85,7 @@ export default {
   },
 
   pump() {
-    if (this.stopping || this.workerDeleteIds?.size || this.settingsMigrationApplying) return;
+    if (this.stopping || this.workerDeleteIds?.size || this.acceptanceBusy?.size || this.settingsMigrationApplying) return;
     if (!this.refreshRuntimeConfiguration()) return;
     this.releaseQueuedInputs();
     this.observeTaskHooks();

@@ -68,11 +68,11 @@ test('global completion defaults affect only actual future orders in both projec
     const oldConfig = a.store.task(old.id).auto_merge;
     const settings = new DeviceAutomationSettings({ home: a.config.deviceHome });
     const enabled = settings.save({ completion_defaults: { enabled: true, level: 'archive' } }, settings.get().revision);
-    expect(b.project.completionDefaults()).toMatchObject({ enabled: true, level: 'archive', revision: enabled.revision });
+    expect(b.project.completionDefaults()).toMatchObject({ enabled: true, level: 'accept', revision: enabled.revision });
     const one = (await a.project.order('new A', null, [], null, false)).task;
     const two = (await b.project.order('new B', null, [], null, false)).task;
     expect([one, two].map(worker => JSON.parse(worker.auto_merge))).toMatchObject([
-      { enabled: true, level: 'archive', locked: false }, { enabled: true, level: 'archive', locked: false },
+      { enabled: true, level: 'accept', locked: false }, { enabled: true, level: 'accept', locked: false },
     ]);
     expect(JSON.parse(one.auto_merge).completion.authorization).not.toBe(JSON.parse(two.auto_merge).completion.authorization);
     const child = await b.project.spawn(two.id, 'child');

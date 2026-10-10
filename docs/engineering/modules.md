@@ -68,6 +68,10 @@ W160 原交付经 W162 按 #411 适配：`appearance.js` 分离设备主题与�
 
 公开提交只使用 CLI `order` / RPC `order.submit` / `bun run order`，新 Worker 的 `task_kind='order'`。历史 `say` 仅在读/类型判定边界兼容，不迁移持久行、分支或工作区；Input / 历史输入 / 暂存名称不变。完整规则见[指令更名边界](core-api.md#指令更名与历史读取边界)。Runtime 主模块路径为 `project/order.js`（`order` / `sendOrder` / `resolveOrderDivergence`）；共享模块 `src/core/order-kind.js` 的纯函数 `normalizeOrderRecord(row)` 在 Store `get` / `all` 的只读行投影中统一历史类型，SQL 类型筛选仍兼容旧值；前端纯兼容模块为 `worker-kind.js`；浏览器发送只走 `order.submit`，类型标签统一为「指令」。
 
+## 验收即归档（W169／用户决定 #418）
+
+用户确认验收意味着不再有异议并授权回收 worktree/ref，阻止脏工作区；旧自动验收授权直接按新语义执行。成功交付只有验收一个动作，失败／取消现场另用“清理资源”，完整运行历史保留。权威契约及 Runtime／UI／父分区见[统一验收](worker-acceptance.md)，优先于旧验收与归档分离、四档自动链描述；历史 archive 值兼容，不改写历史。Runtime child 只改 core 与对应 tests，UI child 只改 assets 与 DOM tests，W169 负责接口、提示词、文档及联调。
+
 ## Worker Hooks 实施接缝
 
 用户决定 #197：以 Worker 挂载 Hook 统一预约和自动合并；项目模板集中在独立「自动化」页面（沿用 `#hooks`），首个可创建安全边界执行预约发射，自定义仅组合受控动作。[设计理念](../design/hooks.md)与[工程接口/并行职责](hooks.md)是本次实施权威接缝。Runtime、接口和前端分别遵循该契约；现有 auto_merge / reservation 保持兼容，不新增核心实体或 Host 调度。
@@ -295,7 +299,7 @@ Codex 托管登录的默认设备码与备用回调入口见[设备码登录契�
 
 ## 已合并 Worker 的多轮交付接缝
 
-[持续迭代](task-iteration.md)规定新式 指令/child 合并后的非终态 `awaiting_acceptance`、显式验收与归档分离、安全父同步及历史显式恢复。`worker.accept` 调用 `Project.acceptTask(taskId, actor=null)`：用户验收指令；运行中的直接父 Agent 可确认已交付的 child，不能验收自己、兄弟或用户创建的指令，审计 `task.accepted` 区分 `accepted_by:'user'|'parent'` 与 `parent_id`。用户仍可显式确认 child，但不再要求逐个点击；父 Worker 的后代须已结算，不能用父验收隐式掩盖未确认成果。USER_ONLY `worker.reopen/sync_parent/resolve_sync` 分别调用 `Project.reopenTask/syncTaskParent/resolveTaskSync`；验收、恢复、同步不调用 Agent，只有 resolve_sync 显式启动当前 Worker Agent。Worker 详情/图共用 `render-iteration.js`；读模型 `accepted:boolean` 防止已验收记录误重开，`parent_sync_conflict` 提供固定提交诊断。保留原始 `base_commit`，本轮用可空 `iteration_base_commit`，不批量迁移旧行。
+[持续迭代](task-iteration.md)规定新式 指令/child 合并后的非终态 `awaiting_acceptance`、统一验收（含安全归档回收）、安全父同步及历史显式恢复；资源回收与失败续办权威见[统一验收](worker-acceptance.md)。`worker.accept` 调用 `Project.acceptTask(taskId, actor=null)`：用户验收指令；运行中的直接父 Agent 可确认已交付的 child，不能验收自己、兄弟或用户创建的指令，审计 `task.accepted` 区分 `accepted_by:'user'|'parent'` 与 `parent_id`。用户仍可显式确认 child，但不再要求逐个点击；父 Worker 的后代须已结算，不能用父验收隐式掩盖未确认成果。USER_ONLY `worker.reopen/sync_parent/resolve_sync` 分别调用 `Project.reopenTask/syncTaskParent/resolveTaskSync`；验收、恢复、同步不调用 Agent，只有 resolve_sync 显式启动当前 Worker Agent。Worker 详情/图共用 `render-iteration.js`；读模型 `accepted:boolean` 防止已验收记录误重开，`parent_sync_conflict` 提供固定提交诊断。保留原始 `base_commit`，本轮用可空 `iteration_base_commit`，不批量迁移旧行。
 
 ## 展示功能已移除
 
@@ -317,7 +321,7 @@ Git 接缝新增 `prepareTaskSquashUnsafe(child,source,baseline,message)` 返回
 
 用户创建的指令由持久 hook 或显式 `worker.reserve` 授权；新 child 默认开启且锁定 hook，旧 child 不回填。运行中只保存 pending 意图。真实源安全点检查调用实际退出、消息/待决/后代结算、源 ref 与工作区后，用请求 Event ID 保存交付标识及入队顺序；无代码 child 只交结果，进入待父确认。新请求不创建 merge Worker、不重挂，目标始终是直接父分支。父 runtime 在写执行位上固定基线、串行 Squash 为一条提交；源侧修复保留执行位，失败/问卷挂起释放，恢复重新排队。不额外启动父 Agent，main/owner 静息；普通消息在每项落地边界优先调度。精确预制 SHA 和 landing_receipt 在父侧写入前保存，重启仅核对凭据，不重放未知 apply。
 
-正常落地保持委派关系与 worktree，进入 `awaiting_acceptance/integration=merged`；指令用户验收、child 直接父确认、显式归档分开。`Workspaces#squashedLanded` 让保留的已落地分支不阻塞父交付；归档仍严格核验树、源 ref、清洁度。旧 v2 merge 身份、重挂事件与历史记录保留，兼容恢复仅用明确 parent_id/匹配 audit 归位；旧落地窗只按精确单父、树、完整标题核对，未知保留错误。旧 version 1 手动审批不改。
+正常落地保持委派关系与 worktree，进入 `awaiting_acceptance/integration=merged`；指令用户验收、child 直接父确认；两者验收即归档，安全回收开发资源、保留运行历史。`Workspaces#squashedLanded` 让保留的已落地分支不阻塞父交付；归档仍严格核验树、源 ref、清洁度。旧 v2 merge 身份、重挂事件与历史记录保留，兼容恢复仅用明确 parent_id/匹配 audit 归位；旧落地窗只按精确单父、树、完整标题核对，未知保留错误。旧 version 1 手动审批不改。
 
 ### 历史 v2 重挂兼容与中断恢复
 

@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { check, id, text, TERMINAL, isPlainObject, isSettled } from '../types.js';
 import { questionnaire, questionnaireAnswer } from '../questionnaire.js';
 import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
@@ -34,6 +35,15 @@ export function settleNoticeAnswer(project, noticeId, answer, dismiss = false, s
 export default {
   message(taskId, body, sender = null) {
     const target = this.store.task(taskId); text(body, 'message');
+    check(!this.acceptanceBusy?.has(target.id), '验收正在回收开发资源；请等待结果后再处理输入');
+    const reclaim = this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.acceptance_started' ORDER BY id DESC LIMIT 1", target.id);
+    if (reclaim && !TERMINAL.has(target.status)) {
+      const partial = this.store.get(`SELECT e.id FROM events e,json_each(e.data,'$.outcomes') outcome
+        WHERE e.task_id=? AND e.type='branch.archive' AND json_extract(e.data,'$.acceptance_execution')=?
+        AND (json_extract(outcome.value,'$.worktree')='removed' OR json_extract(outcome.value,'$.ref')='deleted') LIMIT 1`, target.id, reclaim.id);
+      check(!partial && target.workspace && fs.existsSync(target.workspace),
+        '验收资源回收未完成；请检查 branch.archive 记录并显式重试 worker.accept，不接受新的开发输入');
+    }
     assertTaskNotSyncing(this, target.id);
     check(!['main','owner'].includes(target.task_kind), 'branch owner Worker is not an unrestricted Agent inbox; use an approved merge request');
     check(!TERMINAL.has(target.status), 'worker has ended; explicitly reopen a completed Worker or retry failed work');

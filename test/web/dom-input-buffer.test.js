@@ -279,6 +279,18 @@ test('冻结追加的慢确认保留新正文、修改再恢复的正文和新�
   expect(dom.node('error').textContent).toContain('祖先 Worker 已结束');
 });
 
+test('验收资源回收阶段暂时拒收追加时保留输入，提示安全结束后重试', async () => {
+  openWorker(); type('验收时刚写下的新需求');
+  intercept = () => ({ ok: false, json: async () => ({ error: 'Worker 正在验收并回收资源，请等待安全结束后重试；输入尚未保存。' }) });
+  await enter();
+  expect(input().value).toBe('验收时刚写下的新需求');
+  expect(dom.node('error').textContent).toContain('安全结束后重试');
+  expect(ui.composerSubmitting).toBe(false); expect(dom.node('input-form').dataset.mode).toBe('append');
+  expect(calls).toHaveLength(1); expect(calls[0].method).toBe('worker.message');
+  intercept = () => json({ id: 126, input_queue: { buffered: 0, reason: null } });
+  await enter(); expect(calls).toHaveLength(2); expect(input().value).toBe('');
+});
+
 test('追加单飞、失败重试、迟到导航和引用均保住正文，不静默丢附件', async () => {
   openWorker(); type('追加原文');
   const pending = deferred(); intercept = () => pending.promise;
