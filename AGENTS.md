@@ -35,7 +35,7 @@ bun run stop
 
 **lushd 与 Lush Host 是两个独立进程，改完两端代码两个都要重启。** 无 `--project` 的 Web 工作台会在选定项目后自动启动或连接 daemon；显式 `--project` 的单项目 Web 不替用户启动 daemon。`bun run daemon-restart` 只管当前项目 daemon；`bun run lush host start` 后台起的 Web 进程自己活到被杀为止，不会跟着 daemon 换版本。只重启 daemon 就去刷新页面，会看到旧 Web 进程把**新的** `app.js` 发下来、却对自己不认识的 API 路由（例如后来才加的 `/api/docs`）回 404——页面直接「打开失败」。改 `src/ui/web/` 下任何东西之后，先 `bun run lush host restart` 再看页面：它停掉端口上那个后台 Web（只认命令行确实是 Lush Web 的进程）再按当前代码起一个新的；直接再跑 `bun run lush host start` 只会幂等报告「已在运行」。重启 Web 会清空登录会话，浏览器要重新登录一次；跑的是不是这份代码用 `bun run lush host status` 看（它比的是 Web 自己记下的代码指纹），不用靠猜。`bun run doctor` 只校验 daemon 的 fingerprint，报的是 daemon 的身份，不会告诉你 Web 是不是旧进程。
 
-跑测试时，若测试彼此独立且不会争用共享状态、端口或其他资源，尽量并行运行以缩短等待；有依赖或资源冲突时再串行执行。不要在开发测试时默认操纵用户正在开发的项目。测试用临时项目目录和 mock/可控子进程；测试结束停 daemon 并清理自己的临时文件。
+测试范围与派工责任遵循[分层测试与交付](docs/contributing/README.md#分层测试与交付)：子 Worker 默认专项／受影响回归，顶层开发指令汇总后、交付 main/owner 前负责最终全量；不要求每次提交全量，影响广泛时可扩大验证。跑测试时，若测试彼此独立且不会争用共享状态、端口或其他资源，尽量并行运行以缩短等待；有依赖或资源冲突时再串行执行。不要在开发测试时默认操纵用户正在开发的项目。测试用临时项目目录和 mock/可控子进程；测试结束停 daemon 并清理自己的临时文件。
 
 ## 安全与持久化
 
