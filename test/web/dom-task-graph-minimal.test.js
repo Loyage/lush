@@ -35,6 +35,23 @@ beforeEach(async () => {
 });
 afterAll(() => dom.restore());
 
+test('两种模式的 Worker 树表头只保留实时摘要与操作，不常驻静态规则说明', async () => {
+  for (const details of [false, true]) {
+    if (details) await enableDetails();
+    const hero = dom.node('detail').querySelector('.task-graph-hero');
+    expect(hero.querySelector('h1').textContent).toBe('Worker 树');
+    expect(hero.querySelectorAll('p')).toHaveLength(1);
+    expect(hero.querySelector('p').classList.contains('task-graph-load-status')).toBe(true);
+    expect(deepText(hero)).not.toContain('连线表示');
+    expect(deepText(hero)).not.toContain('关注度排序');
+    expect(deepText(hero.querySelector('.task-graph-summary'))).toContain('图中 3 / 3 Worker');
+    expect(deepText(hero.querySelector('.task-graph-summary'))).toContain('1 待决');
+    expect(hero.querySelector('[data-status="running"]')).toBeTruthy();
+    expect(mode()).toBeTruthy();
+    expect([...hero.querySelectorAll('button')].some(button => button.textContent === '刷新')).toBe(true);
+  }
+});
+
 test('资源消耗在两种模式显示自身，折叠显示后端完整子树合计并只为运行中的统计闪烁', async () => {
   const own = { input: 121000, output: 18000, cost: 2.24, run_ms: 3661000, running: false };
   graph.nodes[0].children_total = 20;
