@@ -200,11 +200,13 @@ test('当前 Worker 追加键盘/按钮矩阵，隐藏暂存与父选择；返�
   expect(dom.node('input-buffer').hidden).toBe(true);
   expect(dom.node('composer-expand').hidden).toBe(true);
   for (const keys of [{}, { ctrlKey: true }, { metaKey: true }, { ctrlKey: true, shiftKey: true }]) {
-    type('追加要求'); await enter(keys);
+    openWorker(); type('追加要求'); await enter(keys);
     expect(calls.at(-1)).toEqual({ method: 'worker.message', params: { id: 126, body: '追加要求' } });
     expect(opened).toBe(126);
+    expect(dom.node('input-form').dataset.mode).toBe('create');
+    expect(dom.node('input-buffer').hidden).toBe(false);
   }
-  const count = calls.length; type('换行'); expect(await enter({ shiftKey: true })).toBe(false);
+  openWorker(); const count = calls.length; type('换行'); expect(await enter({ shiftKey: true })).toBe(false);
   expect(await enter({ isComposing: true })).toBe(false);
   expect(await enter({ repeat: true })).toBe(true);
   await buffer(); expect(calls).toHaveLength(count);
@@ -215,6 +217,40 @@ test('当前 Worker 追加键盘/按钮矩阵，隐藏暂存与父选择；返�
   expect(input().placeholder).toContain('在 main 下创建子 Worker');
   expect(dom.node('input-buffer').hidden).toBe(false);
   await enter({ ctrlKey: true }); expect(calls.at(-1).params.branch).toBe('main');
+});
+
+test('追加ACK自动恢复新建并保留显式父选择、焦点与运行设置；下一次Enter只暂存', async () => {
+  dom.node('input-parent').value = 'feature/old-parent';
+  ui.composerProfile = { config_mode: 'pi' };
+  openWorker({ worker_number: 'W179' }); type('一次追加'); input().focus();
+  await enter();
+  expect(ui.composerAppendTarget).toBeNull();
+  expect(dom.node('input-form').dataset.mode).toBe('create');
+  expect(dom.node('composer-reset').hidden).toBe(true);
+  expect(input().placeholder).toContain('#800');
+  expect(document.activeElement).toBe(input());
+  expect(ui.composerProfile).toEqual({ config_mode: 'pi' });
+  type('新的想法'); await enter();
+  expect(calls.map(call => call.method)).toEqual(['worker.message', 'draft.add']);
+  expect(calls[1].params.branch).toBe('feature/old-parent');
+});
+
+test('追加在途重新选择同一或不同目标、切模式、改文再撤销或改引用都不自动退出', async () => {
+  for (const change of [
+    () => appendToWorker(ui.composerTask),
+    () => { ui.selected = 127; ui.view = { id: 'task' }; appendToWorker({ ...ui.composerTask, id: 127 }); },
+    () => resetComposerMode(),
+    () => { type('修改'); type('待确认原文'); },
+    () => { setComposerReferences([ref('新引用')]); setComposerReferences([]); },
+  ]) {
+    setComposerReferences([]); openWorker(); type('待确认原文');
+    const pending = deferred(); intercept = () => pending.promise; const sending = enter();
+    change(); const target = ui.composerAppendTarget;
+    pending.resolve(json({ id: 126 })); await sending;
+    expect(ui.composerAppendTarget).toBe(target);
+    expect(input().value).toBe('待确认原文');
+    expect(dom.node('input-form').dataset.mode).toBe(target ? 'append' : 'create');
+  }
 });
 
 test('显式追加读取中/终态/只读/归档不改投 main；main 与 owner 详情默认新建独立 Worker', async () => {
@@ -253,8 +289,9 @@ test('冻结期间允许追加，常驻模式条、影子文字、帮助与成�
     expect(calls.at(-1)).toMatchObject({ method: 'worker.message', params: { id: 126, body: `新需求 ${status}` } });
     expect(dom.node('error').textContent).toContain('已保存给 Worker W153，等待投递');
     expect(input().value).toBe('');
-    expect(dom.node('composer-mode-behavior').textContent).toContain('已暂存 3 条');
-    expect(dom.node('input-form').dataset.mode).toBe('append');
+    expect(ui.composerTask.input_queue.buffered).toBe(3);
+    expect(dom.node('input-form').dataset.mode).toBe('create');
+    expect(dom.node('composer-mode-title').textContent).toBe('新建独立 Worker');
   }
   openWorker({ freeze: { reason: '兄弟 Worker 合并占用父分支' } }); type('普通分支冻结');
   expect(input().disabled).toBe(false); expect(input().placeholder).toContain('兄弟 Worker 合并');
@@ -262,7 +299,8 @@ test('冻结期间允许追加，常驻模式条、影子文字、帮助与成�
   expect(dom.node('error').textContent).toContain('投递状态暂不可用');
   expect(dom.node('error').textContent).not.toContain('已投递');
   ui.composerTask = { ...ui.composerTask, freeze: null, input_queue: { buffered: 0, reason: null } }; syncComposer();
-  expect(dom.node('input-form').dataset.mode).toBe('append'); expect(input().placeholder).toContain('Enter 发送');
+  expect(dom.node('input-form').dataset.mode).toBe('create');
+  appendToWorker(ui.composerTask); expect(input().placeholder).toContain('Enter 发送');
 });
 
 test('冻结追加的慢确认保留新正文、修改再恢复的正文和新引用，拒收不清空输入', async () => {
@@ -272,6 +310,8 @@ test('冻结追加的慢确认保留新正文、修改再恢复的正文和新�
     change(); const value = input().value, refs = composerReferences();
     pending.resolve(json({ id: 126, input_queue: { buffered: 1, reason: '等待修复结束' } })); await send;
     expect(input().value).toBe(value); expect(composerReferences()).toEqual(refs);
+    expect(dom.node('input-form').dataset.mode).toBe('append');
+    expect(ui.composerAppendTarget.id).toBe(126);
   }
   setComposerReferences([]); openWorker({ freeze: {} }); type('不要丢');
   intercept = () => ({ ok: false, json: async () => ({ error: '祖先 Worker 已结束' }) }); await enter();
@@ -327,7 +367,7 @@ test('常驻模式条在打字、导航、父选择及阻塞状态下准确区�
   expect(title.textContent).toBe('继续当前 Worker');
   expect(target.textContent).toContain('Worker #126');
   expect(target.textContent).toContain('修复当前问题');
-  expect(behavior.textContent).toBe('不创建新 Worker · Enter 追加 · 空白时 Esc 返回');
+  expect(behavior.textContent).toBe('不创建新 Worker · Enter 追加 · 成功后回到新建 · 空白时 Esc 返回');
   expect(dom.node('draft-commit').textContent).toBe('追加输入');
   type('追加文字'); expect(target.textContent).toContain('#126');
   openWorker({ status: 'paused' }); expect(behavior.textContent).toContain('需开始 / 继续');
@@ -437,6 +477,7 @@ test('慢 overview 不阻塞创建、开始、暂存、追加或预约的确认�
       expect(ui.composerProfile).toBe(['buffer', 'append'].includes(mode) ? profile : null);
       type('第二条'); expect(dom.node('draft-commit').disabled).toBe(false);
       await send(); expect(calls.at(-1).params.content ?? calls.at(-1).params.body).toBe('第二条');
+      if (mode === 'append') expect(calls.at(-1).method).toBe('order.submit');
       expect(refreshes).toBe(2); expect(ui.composerSubmitting).toBe(false);
       type('第三条正在写'); if (mode !== 'append') setComposerReferences([ref('第三条来源')]);
       const view = ui.view;
@@ -460,7 +501,8 @@ test('追加后的慢详情不占用提交锁，切回新建后下一条仍可�
     openWorker(); type('先追加'); input().focus();
     await enter(); await until(() => detailReads === 1);
     expect(detailFinished).toBe(false); expect(ui.composerSubmitting).toBe(false); expect(input().value).toBe('');
-    resetComposerMode(); type('详情读取中下一条'); setComposerReferences([ref('新来源')]);
+    expect(dom.node('input-form').dataset.mode).toBe('create');
+    type('详情读取中下一条'); setComposerReferences([ref('新来源')]);
     expect(dom.node('input-buffer').disabled).toBe(false);
     await buffer(); expect(calls).toHaveLength(2); expect(input().value).toBe('');
     type('继续编辑'); setComposerReferences([ref('继续来源')]);

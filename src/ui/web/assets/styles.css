@@ -218,16 +218,16 @@ input.pick{flex:none;width:15px;height:15px;accent-color:var(--accent);cursor:po
 /* Compose without stealing vertical space from the work: collapsed it is one input line plus one action
    line; the parent-branch field and the shortcut legend only appear after the user expands it. */
 .composer{grid-area:composer;border-top:1px solid var(--line);padding:14px clamp(22px,3.5vw,64px) calc(14px + env(safe-area-inset-bottom,0px));background:var(--panel);z-index:4}
-/* Destination is encoded by shape and hierarchy, never by the project palette. */
-.composer form{position:relative;max-width:1320px;margin:0 auto;padding:10px 12px;border:1px dashed var(--dim);border-radius:12px;background:var(--panel)}
-#input-form[data-mode="append"]{border-style:solid;border-inline-start:4px solid var(--text);background:var(--panel-2)}
+/* Project color anchors both modes; solid = default creation, dashed = temporary followup. */
+.composer form{position:relative;max-width:1320px;margin:0 auto;padding:10px 12px;border:2px solid var(--accent);border-radius:12px;background:var(--panel)}
+#input-form[data-mode="append"]{border:1px dashed var(--accent);background:var(--accent-soft)}
 .composer-heading{display:flex;align-items:center;gap:12px;margin-bottom:8px}.composer-heading label{font-size:13px;font-weight:650;color:var(--text)}.composer-caption{font-size:11px;color:var(--dim)}
 .composer-target{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 4px}.composer-target label{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}.composer-target input,.composer-target select{min-width:220px;max-width:460px;flex:1;padding:6px 9px;background:var(--bg);border:1px solid var(--line-soft);border-radius:6px;color:var(--text);font:11px ui-monospace,SFMono-Regular,Menlo,monospace}.composer-target .hint{font-size:10px}.composer-input{position:relative;margin:0 0 8px;background:var(--bg);border-radius:10px}.composer-input:focus-within{background:var(--panel)}.composer-input textarea{margin:0;display:block;width:100%;background:transparent}.composer textarea{min-height:34px;height:36px;max-height:22vh;resize:none;overflow-y:auto;padding:7px 11px;line-height:1.5;border-color:var(--line-soft);overflow-wrap:break-word;word-break:break-word}
 .composer-mode{display:flex;align-items:center;flex-wrap:wrap;gap:5px 9px;margin-bottom:8px;font-size:11px;line-height:1.5}
-.composer-mode-icon,.composer-mode strong{color:var(--text);flex:none}.composer-mode strong{font-size:12px}.composer-mode-icon{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:1px dashed var(--dim);border-radius:6px;font-size:16px;font-weight:700}.composer-mode-target{flex:1 1 160px;min-width:0;overflow-wrap:anywhere;color:var(--text)}.composer-mode-behavior{color:var(--muted);overflow-wrap:anywhere}
-#input-form[data-mode="append"] .composer-mode-icon{border-style:solid;border-color:var(--text);background:var(--text);color:var(--panel)}
+.composer-mode-icon,.composer-mode strong{color:var(--accent);flex:none}.composer-mode strong{font-size:12px}.composer-mode-icon{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:1px solid var(--accent);background:var(--accent-soft);border-radius:6px;font-size:16px;font-weight:700}.composer-mode-target{flex:1 1 160px;min-width:0;overflow-wrap:anywhere;color:var(--text)}.composer-mode-behavior{color:var(--muted);overflow-wrap:anywhere}
+#input-form[data-mode="append"] .composer-mode-icon{border-style:dashed;background:transparent}
 #input-form[data-mode="append"] .composer-mode-target{flex-basis:100%;padding:6px 9px;border:1px solid var(--line);border-radius:6px;background:var(--panel);font-size:14px;font-weight:700}
-#input-form .composer-input textarea:focus{outline-color:var(--text)}
+#input-form .composer-input textarea:focus{outline-color:var(--accent)}
 #input-form[data-blocked="true"] .composer-mode-behavior{color:var(--failed)}
 @media(max-width:680px){.composer form{padding:7px 8px}.composer-mode{gap:3px 7px;margin-bottom:5px}.composer-mode-behavior{flex-basis:100%}#input-form[data-mode="append"] .composer-mode-target{font-size:12px}}
 .composer-input textarea:focus{height:clamp(72px,16dvh,144px)}

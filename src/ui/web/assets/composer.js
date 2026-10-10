@@ -208,7 +208,7 @@ export function syncComposer() {
     'composer-mode-title': followup ? '继续当前 Worker' : '新建独立 Worker',
     'composer-mode-target': followup ? `追加到 ${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}` : `父 Worker：${label}`,
     'composer-mode-behavior': target.reason || (followup
-      ? `不创建新 Worker · Enter ${target.wait ? '保存' : '追加'} · 空白时 Esc 返回${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
+      ? `不创建新 Worker · Enter ${target.wait ? '保存' : '追加'} · 成功后回到新建 · 空白时 Esc 返回${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
       : target.freeze ? `父分支冻结：${target.freeze.reason || '等待安全边界'} · Enter 暂存 · 点击预约后自动发射`
         : '独立工作区 · Enter 暂存 · 点击创建后待开始'),
   };
@@ -304,6 +304,9 @@ async function submitInput(mode) {
     if (target.id != null) {
       if (ui.composerTask?.id === target.id && ui.composerAppendTarget === appendTarget && inputQueue(result))
         ui.composerTask = { ...ui.composerTask, input_queue: result.input_queue };
+      // A followup is temporary. Only exit after the ACK consumed this exact input;
+      // edits, references and explicit target changes made in flight retain their destination.
+      if (untouched) ui.composerAppendTarget = null;
       show(appendInputAcknowledgement(target.task, result));
     } else if (mode === 'buffer') {
       show(`已暂存输入 #${result.id}，可到「历史输入」编辑或发射；未创建 Worker、未调用 Agent。`);
@@ -318,8 +321,8 @@ async function submitInput(mode) {
         show(mode === 'start' || mode === 'defer_start' ? `已创建并开始 Worker ${workerLabel(result.task)}` : `已创建 Worker ${workerLabel(result.task)}（待开始），可配置后开始`);
       }
     }
-    update = { identity, submission, view, appendTarget,
-      // New work never owns navigation; only an explicit inbox may update its current detail.
+    update = { identity, submission, view, appendTarget: ui.composerAppendTarget,
+      // The just-sent inbox may refresh its detail after returning to creation, never re-enter append.
       detailId: target.id ?? null,
       editRevision: ui.composerEditRevision, referenceRevision: ui.composerReferenceRevision, canNavigate: untouched };
   } catch (error) { if (ui.composerIdentity === identity) show(error.message, 'error'); }

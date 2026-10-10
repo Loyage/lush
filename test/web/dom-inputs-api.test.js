@@ -19,7 +19,7 @@ afterAll(() => dom.restore());
 const root = () => dom.node('detail');
 const btn = (label, host = root()) => host.querySelectorAll('button').find(node => node.textContent === label || node.getAttribute('aria-label')?.endsWith(`：${label}`));
 
-test('真实 API：详情默认新建，显式追加 Enter 仅发消息，返回按钮恢复独立创建', async () => {
+test('真实 API：详情默认新建，显式追加 Enter 仅发消息，ACK自动恢复独立创建', async () => {
   fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
   const restore = registerNavigation({ refresh: async () => {}, detail: loadDetail });
   try {
@@ -37,8 +37,8 @@ test('真实 API：详情默认新建，显式追加 Enter 仅发消息，返回
     expect(input.value).toBe(''); expect(fixture.store.task(task.id).status).toBe('paused');
     expect(fixture.store.all('SELECT * FROM messages WHERE task_id = ? AND sender_id IS NULL', task.id).at(-1).body).toBe('后续要求');
     expect(['tasks', 'inputs', 'drafts'].map(table => fixture.store.all(`SELECT * FROM ${table}`).length)).toEqual(before);
-    expect(dom.node('input-form').dataset.mode).toBe('append');
-    dom.node('composer-reset').onclick();
+    expect(dom.node('input-form').dataset.mode).toBe('create');
+    expect(dom.node('composer-reset').hidden).toBe(true);
     input.value = '详情中独立新建'; input.oninput();
     await input.onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
     const independent = fixture.store.all("SELECT * FROM tasks WHERE goal='详情中独立新建'")[0];

@@ -85,11 +85,13 @@ async function checkLayout(mode, theme, color, focused) {
       fits:r.width>0 && r.top>=0 && r.bottom<=innerHeight && fr.left>=0 && fr.right<=innerWidth && form.scrollWidth<=form.clientWidth+1
         && document.documentElement.scrollWidth<=innerWidth+1 && [...band.children].every(n=>{const cr=n.getBoundingClientRect();return cr.left>=r.left && cr.right<=r.right+1 && cr.bottom<=r.bottom+1;}),
       described:box.getAttribute('aria-describedby').includes('composer-mode-target'),
-      signature:[frame.borderTopColor,frame.backgroundColor,icon.color,icon.backgroundColor,targetStyle.color,targetStyle.backgroundColor,getComputedStyle(box).outlineColor].join('|')};`);
+      frameColor:frame.borderTopColor,iconColor:icon.borderTopColor,focusColor:getComputedStyle(box).outlineColor,accent:getComputedStyle(document.querySelector('#sidebar')).borderTopColor};`);
   assert(layout.mode === mode && layout.fits && layout.described, `clipped/inaccessible ${theme}/${color}/${mode}/${focused}: ${JSON.stringify(layout)}`);
-  assert(mode === 'create' ? layout.frameStyle === 'dashed' && layout.iconStyle === 'dashed' && layout.title === '新建独立 Worker' && layout.target.includes('父 Worker') && layout.behavior.includes('Enter 暂存')
-    : layout.frameStyle === 'solid' && layout.rail === '4px' && layout.iconStyle === 'solid' && Number(layout.targetWeight) >= 700 && layout.targetOwnRow
+  assert(mode === 'create' ? layout.frameStyle === 'solid' && layout.rail === '2px' && layout.iconStyle === 'solid' && layout.title === '新建独立 Worker' && layout.target.includes('父 Worker') && layout.behavior.includes('Enter 暂存')
+    : layout.frameStyle === 'dashed' && layout.rail === '1px' && layout.iconStyle === 'dashed' && Number(layout.targetWeight) >= 700 && layout.targetOwnRow
       && layout.title === '继续当前 Worker' && layout.target.includes('W179') && layout.behavior.includes('不创建新 Worker'), `wrong structure/target: ${JSON.stringify(layout)}`);
+  assert(layout.frameColor === layout.accent && layout.iconColor === layout.accent && (!focused || layout.focusColor === layout.accent),
+    `mode lost project color ${theme}/${color}: ${JSON.stringify(layout)}`);
   return layout;
 }
 try {
@@ -121,12 +123,12 @@ try {
       await setViewport(width, height);
       let viewport;
       for (const focused of [false, true]) {
-        let signature;
+        const frameColors = new Set();
         for (const color of ['green', 'blue', 'teal', 'amber', 'rose', 'slate']) {
           const layout = await checkLayout(mode, theme, color, focused); viewport = layout.viewport;
-          signature ??= layout.signature;
-          assert(layout.signature === signature, `project palette changed ${mode} identity: ${theme}/${color}: ${signature} -> ${layout.signature}`);
+          frameColors.add(layout.frameColor);
         }
+        assert(frameColors.size === 6, `mode did not follow all six project palettes: ${theme}/${mode}`);
       }
       if (width === 390 || width === 1440) await Bun.write(`${output}-${mode}-${theme}-${width}.png`, Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
       console.log(`PASS ${mode} ${theme} ${viewport}px: six palettes, focused/unfocused, persistent target and frame`);
@@ -146,15 +148,15 @@ try {
   await setViewport(1440, 900);
   await execute(`const box=document.querySelector('#input');box.value='确认追加给目标';box.dispatchEvent(new Event('input'));box.focus();`);
   await enter();
-  assert(await waitFor('window.calls.some(c=>c.method==="worker.message" && c.params.id===1 && c.params.body==="确认追加给目标") && !window.ui.composerSubmitting'), 'Enter routed append incorrectly');
-  await click('#composer-reset');
+  assert(await waitFor('window.calls.some(c=>c.method==="worker.message" && c.params.id===1 && c.params.body==="确认追加给目标") && !window.ui.composerSubmitting && document.querySelector("#input-form").dataset.mode==="create"'), 'Enter append ACK did not restore creation');
+  assert(await execute(`return document.querySelector('#composer-reset').hidden && !document.querySelector('#input-buffer-help').hidden;`), 'auto-reset did not restore new-work controls');
   await execute(`const box=document.querySelector('#input');box.value='新建模式只暂存';box.dispatchEvent(new Event('input'));box.focus();`);
   await enter();
   assert(await waitFor('window.calls.some(c=>c.method==="draft.add" && c.params.content==="新建模式只暂存") && !window.ui.composerSubmitting'), 'Enter did not buffer in create mode');
   assert(await execute(`return !window.calls.some(c=>c.method==='order.submit');`), 'mode reset unexpectedly created Worker');
   await execute(`window.composer.appendToWorker(window.ui.composerTask);location.hash='#workers';`);
   assert(await waitFor('document.querySelector("#input-form").dataset.mode==="create"'), 'navigation retained stale append destination');
-  console.log(`PASS Enter routes to selected inbox / draft buffer; reset and navigation restore creation. Screenshots: ${output}-*.png`);
+  console.log(`PASS Enter routes to selected inbox, ACK automatically restores create/Enter buffer; manual reset and navigation restore creation. Screenshots: ${output}-*.png`);
   passed = true;
 } catch (error) {
   if (session) console.error('Browser diagnostic:', await execute(`return {url:location.href,ready:window.ready,error:document.querySelector('#error')?.textContent,detail:document.querySelector('#detail')?.textContent?.slice(0,1000)};`).catch(() => null));
