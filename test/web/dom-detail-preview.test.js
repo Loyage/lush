@@ -73,7 +73,7 @@ test('same Worker refresh preserves expansion even when module rebuilt; other Wo
 test('natural content observation handles lazy growth, narrow viewports and shrinking without resetting manual state', () => fixture(async ({ dom, observers, resize }) => {
   const panel = dom.node('detail'), section = block('事件时间线'); panel.append(section);
   limitDetailModules(panel, { taskId: 7 });
-  expect([...observers[0].targets]).toEqual([section.querySelector('.detail-preview-content'), section.querySelector('.detail-preview-limit'), section]);
+  expect([...observers[0].targets]).toEqual([section.querySelector('.detail-preview-content'), section.querySelector('.detail-preview-limit'), section, section.children[0]]);
   resize(section, 400, 400); expect(toggle(section).hidden).toBe(true);
   resize(section, 400, 160); expect(toggle(section).hidden).toBe(false);
   await toggle(section).click();
@@ -130,11 +130,11 @@ const task = { id: 7, worker_number: 'W7', role: 'agent', task_kind: 'order', st
   goal: '目标\n'.repeat(200), result: '结果\n'.repeat(200), created_at: at, updated_at: at,
   messages: Array.from({ length: 20 }, (_, i) => ({ id: i + 1, task_id: 7, sender_id: null, body: `消息 ${i}`, created_at: at })) };
 
-test('detail limits reading blocks only and preserves reused goal/result/message nodes and state on refresh', () => fixture(async ({ dom, resize }) => {
+test('detail limits reading blocks only and preserves reused conversation/message nodes and state on refresh', () => fixture(async ({ dom, resize }) => {
   renderDetail(task, { events: [] }, null, null);
-  const panel = dom.node('detail'), goal = panel.querySelector('.goal-panel'), result = panel.querySelector('.result-panel');
+  const panel = dom.node('detail'), result = panel.querySelector('.conversation-panel');
   const message = panel.querySelector('.task-message');
-  for (const node of [goal, result]) expect(node.classList.contains('detail-preview')).toBe(true);
+  expect(result.classList.contains('detail-preview')).toBe(true);
   const messages = [...panel.children].find(node => node.children[0]?.querySelector('h2')?.textContent === '消息');
   resize(messages); await toggle(messages).click();
   resize(result); await toggle(result).click();
@@ -143,7 +143,7 @@ test('detail limits reading blocks only and preserves reused goal/result/message
   expect(panel.querySelector('h1').textContent).toBe('用户自定义标题');
   expect(panel.querySelector('.task-actions').querySelector('.worker-rename')).toBeTruthy();
   expect(panel.querySelector('.task-actions').querySelector('.detail-preview-body')).toBeNull();
-  expect(panel.querySelector('.goal-panel')).toBe(goal); expect(panel.querySelector('.result-panel')).toBe(result);
+  expect(panel.querySelector('.conversation-panel')).toBe(result);
   expect(panel.querySelector('.task-message')).toBe(message); expect(expanded(result)).toBe(true);
   const updatedMessages = [...panel.children].find(node => node.children[0]?.querySelector('h2')?.textContent === '消息');
   expect(expanded(updatedMessages)).toBe(true); expect(deepText(updatedMessages)).toContain('新消息');

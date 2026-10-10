@@ -16,7 +16,8 @@ window.task={id:7,worker_number:'W7',role:'agent',task_kind:'order',status:'wait
   progress:{version:1,items:Array.from({length:30},(_,i)=>({key:'step'+i,label:'步骤 '+i+' '+('较长的阶段名称 '.repeat(5)),status:i<5?'completed':'pending'}))},
   children:Array.from({length:20},(_,i)=>({id:100+i,worker_number:'W7-'+(i+1),role:'agent',status:'waiting',goal:'子 Worker '+i,updated_at:at})),
   messages:Array.from({length:20},(_,i)=>({id:i+1,sender_id:null,body:'消息 '+i+'\\n\\n'+long,created_at:at}))};
-window.fixtureHistory={events:Array.from({length:50},(_,i)=>({id:i+1,type:'invocation.completed',created_at:at,data:{run_id:i+1,result:'此前结果 '+i+'\\n'+long}}))};
+window.fixtureHistory={events:[...Array.from({length:50},(_,i)=>({id:i+1,type:'invocation.completed',created_at:at,data:{run_id:i+1,result:'此前结果 '+i+'\\n'+long}})),
+  {id:80,type:'message',created_at:'2026-10-08T10:01:00Z',data:{sender:null,body:'短追加输入'},input_delivery:{status:'pending',at:null}}]};
 ui.selected=7; ui.view={id:'task',key:'7'};
 window.paint=(progressive=null)=>renderDetail(window.task,window.fixtureHistory,null,null,null,progressive);
 window.reveal=revealDetailPreview;
@@ -80,7 +81,7 @@ try {
   for (const [width, height] of [[1440,900],[390,700],[320,560]]) for (const theme of ['light','dark']) {
     await viewport(width, height);
     await execute(`document.documentElement.dataset.theme='${theme}';window.paint();`);
-    assert(await wait(`document.querySelector('.goal-panel').classList.contains('detail-preview-long')`), 'long goal not measured');
+    assert(await wait(`document.querySelector('.conversation-panel').classList.contains('detail-preview-long')`), 'long goal not measured');
     const sizes = await execute(`return [...document.querySelectorAll('.detail-preview')].map(n=>({
       title:n.querySelector('h2').textContent,body:n.querySelector('.detail-preview-body').getBoundingClientRect().height,
       limit:n.querySelector('.detail-preview-limit').getBoundingClientRect().height,
@@ -103,8 +104,15 @@ try {
       assert(size.controls === 1 && size.headerControl && !size.footerControl, 'module must have only a header toggle');
     }
     assert(await execute(`return document.querySelector('#detail').scrollWidth<=document.querySelector('#detail').clientWidth+1;`), 'horizontal page overflow');
+    assert(await execute(`const root=document.querySelector('.conversation-panel'),list=root.querySelector('.conversation-list').getBoundingClientRect();
+      const input=root.querySelector('.conversation-input'),output=root.querySelector('.conversation-output');
+      const short=[...root.querySelectorAll('.conversation-input')].find(n=>n.textContent.includes('短追加输入'));
+      return Math.abs(input.getBoundingClientRect().right-list.right)<2&&Math.abs(output.getBoundingClientRect().left-list.left)<2&&
+        input.querySelector('.conversation-avatar').textContent!==output.querySelector('.conversation-avatar').textContent&&
+        short.querySelector('.conversation-expand').hidden&&short.textContent.includes('待输入')&&
+        [...root.querySelectorAll('.conversation-long')].every(n=>n.querySelector('.conversation-body').getBoundingClientRect().height<=Math.min(260,innerHeight*.35)+1);`), 'bubble alignment, avatars or message previews');
     assert(await execute(`return !document.querySelector('.task-actions .detail-preview-body') &&
-      !document.querySelector('.goal-panel').classList.contains('detail-preview-expanded');`), 'actions clipped or expanded by default');
+      !document.querySelector('.conversation-panel').classList.contains('detail-preview-expanded');`), 'actions clipped or expanded by default');
     // Test actual clipping, not only the presence of an expand control, at each responsive limit.
     await execute(`window.boundaryProbe=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='Worker 依赖');
       window.boundaryFixed=document.createElement('div');
@@ -132,16 +140,16 @@ try {
   await viewport(1440, 900);
   assert(await wait(`window.resizeProbe.querySelector('.detail-preview-toggle').hidden`), 'height-only resize left a redundant expand control');
   await execute('window.paint();');
-  await click('.result-panel .section-title .detail-preview-toggle');
-  assert(await execute(`const n=document.querySelector('.result-panel');return n.classList.contains('detail-preview-expanded')&&
+  await click('.conversation-panel .section-title .detail-preview-toggle');
+  assert(await execute(`const n=document.querySelector('.conversation-panel');return n.classList.contains('detail-preview-expanded')&&
     n.querySelector('.detail-preview-body').getBoundingClientRect().height>1000&&n.textContent.includes('最后一段结果')&&
     getComputedStyle(n.querySelector('.detail-preview-body')).maskImage==='none';`), 'result expansion lost body or retained fade');
-  assert(await execute(`window.savedGoal=document.querySelector('.goal-panel');window.savedResult=document.querySelector('.result-panel');
-    window.savedMessage=document.querySelector('.task-message');window.paint();return document.querySelector('.result-panel')===window.savedResult&&
-    document.querySelector('.goal-panel')===window.savedGoal&&document.querySelector('.task-message')===window.savedMessage&&
+  assert(await execute(`window.savedResult=document.querySelector('.conversation-panel');
+    window.savedMessage=document.querySelector('.task-message');window.paint();return document.querySelector('.conversation-panel')===window.savedResult&&
+    document.querySelector('.task-message')===window.savedMessage&&
     window.savedResult.classList.contains('detail-preview-expanded');`), 'refresh reset reading state/nodes');
-  await click('.result-panel .section-title .detail-preview-toggle');
-  assert(await execute(`const n=document.querySelector('.result-panel');return !n.classList.contains('detail-preview-expanded')&&
+  await click('.conversation-panel .section-title .detail-preview-toggle');
+  assert(await execute(`const n=document.querySelector('.conversation-panel');return !n.classList.contains('detail-preview-expanded')&&
     n.querySelector('.detail-preview-body').getBoundingClientRect().height<=400&&
     getComputedStyle(n.querySelector('.detail-preview-body')).maskImage.includes('linear-gradient');`), 'collapse not bounded or missing fade');
   assert(await execute(`const n=document.querySelector('.agent-panel');const target=n.querySelector('.detail-preview-content button');target.focus();
@@ -156,8 +164,9 @@ try {
   for (const [width,height] of [[1440,900],[390,700],[320,560]]) for (const theme of ['light','dark']) {
     await viewport(width, height);
     await execute(`document.documentElement.dataset.theme='${theme}';window.paint();
-      window.result=document.querySelector('.result-panel');window.reveal(window.result);
-      window.anchor=window.result.querySelectorAll('.markdown p')[25];
+      window.result=document.querySelector('.conversation-panel');
+      window.reply=window.result.querySelector('.conversation-output');window.reveal(window.reply);
+      window.anchor=window.reply.querySelectorAll('.markdown p')[25];
       const panel=document.querySelector('#detail');window.page=matchMedia('(max-width:760px)').matches;
       const delta=window.anchor.getBoundingClientRect().top-(window.page?140:panel.getBoundingClientRect().top+100);
       if(window.page)window.scrollBy(0,delta);else panel.scrollTop+=delta;`);
@@ -167,18 +176,21 @@ try {
       window.anchorTop=window.anchor.getBoundingClientRect().top;
       return Math.abs(head.getBoundingClientRect().top-edge)<2&&
         !head.querySelector('button').hidden;`), `sticky result header/control ${width}/${theme}`);
+    assert(await execute(`const meta=window.reply.querySelector('.conversation-meta'),head=window.result.querySelector('.section-title');
+      return Math.abs(meta.getBoundingClientRect().top-head.getBoundingClientRect().bottom)<2&&
+        window.reply.classList.contains('conversation-expanded');`), `sticky message header ${width}/${theme}`);
     assert(await execute(`window.task={...window.task,progress:{...window.task.progress,items:window.task.progress.items.slice(0,10)}};
-      window.paint();window.result=document.querySelector('.result-panel');
+      window.paint();window.result=document.querySelector('.conversation-panel');
       return Math.abs(window.anchor.getBoundingClientRect().top-window.anchorTop)<2;`), `refresh moved reader ${width}/${theme}`);
-    await execute(`const before=document.querySelector('.goal-panel .detail-preview-content');
-      const extra=document.createElement('p');extra.textContent='异步新增内容';extra.style.height='160px';
-      window.reveal(document.querySelector('.goal-panel'));before.append(extra);`);
+    await execute(`const before=document.querySelector('.conversation-list');
+      window.extra=document.createElement('p');window.extra.textContent='异步新增内容';window.extra.style.height='160px';
+      before.prepend(window.extra);`);
     // Explicit expansion is intentional; establish a new reading position, then grow it lazily.
     await execute(`const panel=document.querySelector('#detail');const delta=window.anchor.getBoundingClientRect().top-(window.page?140:panel.getBoundingClientRect().top+100);
       if(window.page)window.scrollBy(0,delta);else panel.scrollTop+=delta;`);
     await rpc(`/session/${session}/execute/async`, { script:'requestAnimationFrame(()=>requestAnimationFrame(()=>arguments[0](true)));',args:[] });
     await execute(`window.anchorTop=window.anchor.getBoundingClientRect().top;
-      document.querySelector('.goal-panel .detail-preview-content').lastElementChild.style.height='340px';`);
+      window.extra.style.height='340px';`);
     assert(await wait(`Math.abs(window.anchor.getBoundingClientRect().top-window.anchorTop)<2`), `lazy growth moved reader ${width}/${theme}`);
     // Move close to the module end: its header must give way, not overlay the next module.
     assert(await execute(`const panel=document.querySelector('#detail');const edge=window.page?42:panel.getBoundingClientRect().top;
@@ -204,7 +216,12 @@ try {
   }
   await execute(`window.task={...window.task,id:8,worker_number:'W8'};window.paint();`);
   assert(await execute(`return [...document.querySelectorAll('.detail-preview')].every(n=>!n.classList.contains('detail-preview-expanded'));`), 'state leaked into other Worker');
-  console.log('PASS height-only resize, expand/collapse, refresh, focus, reference reveal, lazy growth and Worker isolation');
+  await execute(`window.reveal(document.querySelector('.conversation-panel'));`);
+  assert(await execute(`const root=document.querySelector('.conversation-panel'),before=[...root.querySelector('.conversation-list').children];
+    root.querySelector('.conversation-order button').click();
+    const after=[...root.querySelector('.conversation-list').children];window.paint();
+    return root.dataset.order==='asc'&&before.every((n,i)=>after[after.length-1-i]===n)&&document.querySelector('.conversation-panel').dataset.order==='asc';`), 'order change replaced messages or refresh lost selection');
+  console.log('PASS height-only resize, bubbles, message/module sticky headers, sorting, expand/collapse, refresh, focus, reference reveal, lazy growth and Worker isolation');
   passed = true;
 } finally {
   if (session) await rpc(`/session/${session}`, undefined, 'DELETE').catch(() => {});

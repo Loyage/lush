@@ -109,7 +109,7 @@ test('Worker detail links Hook message targets but leaves Shell command literals
     expect(text(previews[0])).toBe(`旧内联命令（已停止直接执行，需显式导入）：\n${command}`);
     expect(links(previews[0])).toHaveLength(0);
     expect(links(previews[1]).map(node => node.textContent)).toEqual(['W141', 'W141-1']);
-    expect(links(dom.node('detail').querySelector('.goal-text')).map(node => node.textContent)).toEqual(['W141']);
+    expect(links(dom.node('detail').querySelector('.conversation-input').querySelector('.conversation-prose')).map(node => node.textContent)).toEqual(['W141']);
   } finally { dom.restore(); }
 });
 

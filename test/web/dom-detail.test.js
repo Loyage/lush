@@ -32,7 +32,7 @@ test('概览入口与后退：点项目概览导航返回，后退到无 hash �
   // 并且这次要压栈，否则浏览器后退无处可退。
   const pushedBefore = dom.pushed();
   await dom.node('tasks').querySelector('[data-id="1"]').onclick();
-  await until(() => findByText(detail, 'Worker 目标'), 2000);
+  await until(() => detail.querySelector('.conversation-panel'), 2000);
   expect(dom.location.hash).toBe('#worker-1');
   expect(dom.pushed()).toBeGreaterThan(pushedBefore);
   expect(onOverview()).toBeNull();
@@ -45,7 +45,7 @@ test('概览入口与后退：点项目概览导航返回，后退到无 hash �
   // 浏览器后退到无 hash 的地址：也是回概览，不是停在一个点不到概览的详情上。
   dom.location.hash = '#worker-1';
   await dom.fire('hashchange');
-  await until(() => findByText(detail, 'Worker 目标'), 2000);
+  await until(() => detail.querySelector('.conversation-panel'), 2000);
   dom.location.hash = '';
   await dom.fire('hashchange');
   await until(onOverview, 2000);

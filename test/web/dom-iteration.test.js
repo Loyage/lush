@@ -371,5 +371,5 @@ test('overview counts acceptance separately, and latest result remains readable 
   const active = metrics.find(node => deepText(node).includes('进行中'));
   expect(deepText(acceptance)).toContain('1'); expect(deepText(active)).toContain('0');
   renderDetail({ ...task, result: '本轮已测试并交付', runs: [] }, null, null, null);
-  expect(deepText(dom.node('detail').querySelector('.result-panel'))).toContain('本轮已测试并交付');
+  expect(deepText(dom.node('detail').querySelector('.conversation-panel'))).toContain('本轮已测试并交付');
 });

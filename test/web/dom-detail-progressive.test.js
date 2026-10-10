@@ -214,9 +214,9 @@ test('未产出结果的 Worker 也能先打开，历史状态不会冒充已读
   intercept = url => url === '/api/worker/71' ? json(task(71, { result: undefined, runs: [], calls: 0 })) : extras(url);
   try {
     expect(await loadDetail(71)).toBe(true);
-    expect(deepText(panel.querySelector('.result-panel'))).toContain('历史加载中');
+    expect(deepText(panel.querySelector('.conversation-panel'))).toContain('历史加载中');
     gates.history.resolve(json(history)); await drain();
-    expect(deepText(panel.querySelector('.result-panel'))).toContain('此前结果正文');
+    expect(deepText(panel.querySelector('.conversation-panel'))).toContain('此前结果正文');
   } finally { settle(gates); await drain(); }
 });
 
@@ -235,10 +235,9 @@ test('历史、用量、改动和连接名补齐不替换正文、折叠、输�
   const gates = slowExtras();
   try {
     expect(await loadDetail(71)).toBe(true); openDiff();
-    const goal = panel.querySelector('.goal-panel'), result = panel.querySelector('.result-panel');
-    const body = goal.querySelector('.goal-text');
-    const goalFold = panel.querySelector('.goal-history'), resultFold = panel.querySelector('.result-history');
-    goalFold.open = true; resultFold.open = false;
+    const conversation = panel.querySelector('.conversation-panel');
+    const body = conversation.querySelector('.conversation-prose');
+    await conversation.querySelector('.conversation-order').querySelector('button').onclick();
     const input = document.createElement('input'); input.value = '未提交草稿'; panel.querySelector('.task-actions').append(input);
     input.focus(); panel.scrollTop = 435;
     dom.window.getSelection = () => ({ isCollapsed: false, anchorNode: body, focusNode: body });
@@ -248,8 +247,8 @@ test('历史、用量、改动和连接名补齐不替换正文、折叠、输�
     input.blur(); fire('selectionchange'); expect(deepText(panel)).toContain('用量加载中');
     dom.window.getSelection = () => ({ isCollapsed: true }); fire('selectionchange'); await drain();
     expect(deepText(panel)).toContain('changed.js'); expect(deepText(panel)).toContain('历史追加输入');
-    expect(panel.querySelector('.goal-panel')).toBe(goal); expect(panel.querySelector('.result-panel')).toBe(result);
-    expect(goal.querySelector('.goal-text')).toBe(body); expect(goalFold.open).toBe(true); expect(resultFold.open).toBe(false);
+    expect(panel.querySelector('.conversation-panel')).toBe(conversation);
+    expect(conversation.querySelectorAll('.conversation-prose')).toContain(body); expect(conversation.dataset.order).toBe('asc');
     expect(input.parentNode).toBe(panel.querySelector('.task-actions')); expect(input.value).toBe('未提交草稿');
     expect(panel.scrollTop).toBe(435); expect(events.get('selectionchange')?.size || 0).toBe(0);
   } finally { settle(gates); await drain(); }
@@ -259,7 +258,7 @@ test('焦点保护在 focusout 后补齐且不失去已展开预览', async () =
   const gates = slowExtras();
   try {
     await loadDetail(71); openDiff();
-    const goal = panel.querySelector('.goal-panel');
+    const goal = panel.querySelector('.conversation-panel');
     const toggle = goal.querySelector('.detail-preview-toggle'); toggle.onclick();
     const input = document.createElement('input'); panel.querySelector('.task-actions').append(input); input.focus();
     settle(gates); await drain(); expect(deepText(panel)).toContain('改动加载中');

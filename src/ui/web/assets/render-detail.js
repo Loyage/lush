@@ -12,8 +12,7 @@ import { freezeBlocker } from './merge-select.js';
 import { show } from './messages.js';
 import { detail, overview } from './navigate.js';
 import { renderAgent } from './render-agent.js';
-import { renderResults } from './render-results.js';
-import { renderGoal } from './render-goal.js';
+import { renderConversation } from './render-conversation.js';
 import { disposeDetailModules, limitDetailModules } from './detail-preview.js';
 import { captureDetailReading, restoreDetailReading } from './detail-reading.js';
 import { linkWorkerNumbers } from './worker-links.js';
@@ -82,8 +81,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   progressivePanels.get(panel)?.dispose();
   progressivePanels.delete(panel);
   const sameTask = panel.dataset.taskId === String(task.id);
-  const previousResult = sameTask ? panel.querySelector('.result-panel') : null;
-  const previousGoal = sameTask ? panel.querySelector('.goal-panel') : null;
+  const previousConversation = sameTask ? panel.querySelector('.conversation-panel') : null;
   const previousProgressHistory = sameTask ? panel.querySelector('.progress-history-panel') : null;
   const previousDiff = sameTask ? panel.querySelector('.detail-diff') : null;
   const historyFocus = previousProgressHistory && [...previousProgressHistory.querySelectorAll('summary'), ...previousProgressHistory.querySelectorAll('button')]
@@ -262,16 +260,14 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
 
   // Only reading modules below this point get height-limited previews, never actions/forms above.
   const readingStart = panel.children.length;
-  // 结果与失败原因优先于调用次数、目录等底层元数据。完整目标（goal）以 Markdown 正文排在结果之前。
-  const goal = renderGoal(task, history, previousGoal);
-  if (goal) panel.append(goal);
+  // Inputs and invocation results share one conversation, ahead of implementation metadata.
+  const conversation = renderConversation(task, history, previousConversation);
+  if (conversation) panel.append(conversation);
   const endedAt = [...(task.runs || [])].reverse().find(run => run.ended_at)?.ended_at ?? task.updated_at;
   const progress = renderTaskProgress(task.progress, { status: task.status, endedAt });
   if (progress) panel.append(progress);
   const progressHistory = renderProgressHistory(task, previousProgressHistory);
   if (progressHistory) panel.append(progressHistory);
-  const result = renderResults(task, history, previousResult);
-  if (result) panel.append(result);
   if (task.error) { const error = block('错误'); error.classList.add('error-panel'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); panel.append(error); }
   if (task.integration_error) { const error = block('合并错误'); error.classList.add('error-panel'); error.append(agentText(task.integration_error, { className: 'error', plain: 'pre' })); panel.append(error); }
 
@@ -393,8 +389,8 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   restoreDetailReading(panel, readingPosition);
   if (!progressive) return;
   // Existing explicit history pagers start their GET synchronously. Bind them to this view,
-  // including reused goal/result/progress nodes, without changing their write/action contracts.
-  if (progressive.signal) for (const area of [goal, result, progressHistory]) {
+  // including reused conversation/progress nodes, without changing their write/action contracts.
+  if (progressive.signal) for (const area of [conversation, progressHistory]) {
     for (const control of area?.querySelectorAll('button') || []) {
       const start = readingHandlers.get(control) || control.onclick;
       if (typeof start !== 'function') continue;
@@ -480,12 +476,10 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
         if (kind === 'history') {
           if (available) {
             history = value;
-            goal?.updateGoalHistory(value, task.goal_input_delivery);
-            result?.updateResultHistory?.(value);
+            conversation?.updateConversation(task, value);
             sourcePatch();
           } else {
-            goal?.updateGoalHistory({ events: [], unavailable: true });
-            result?.updateResultHistory?.({ events: [], unavailable: true });
+            conversation?.updateConversation(task, { events: [], unavailable: true });
           }
           const next = block('事件时间线', available ? String(value.events?.length || 0) : undefined);
           next.append(available && value.events?.length ? renderHistory(value.events, { running: task.status === 'running', truncated: value.truncated,

@@ -82,8 +82,9 @@ for (const state of [{ status: 'paused', agent_wakes: 0 }, { status: 'paused', a
       data: { due_at: row.created_at } }] };
     renderDetail(row, history, null, null); syncComposer();
     expect(deepText(root())).toContain('管理指令详情只读'); expect(deepText(root())).toContain('绑定启停仅在自动化页面');
-    expect(inlineText(root().querySelector('.goal-text'))).toBe(manager.goal);
-    expect(root().querySelector('.goal-text').querySelectorAll('.worker-link').map(node => node.getAttribute('href')))
+    const goal = root().querySelector('.conversation-input').querySelector('.conversation-prose');
+    expect(inlineText(goal)).toBe(manager.goal);
+    expect(goal.querySelectorAll('.worker-link').map(node => node.getAttribute('href')))
       .toEqual(['#worker-number-W10', '#worker-number-W11']);
     expect(deepText(root())).toContain(row.result);
     expect(deepText(root())).toContain('管理信号已提交待执行'); expect(deepText(root())).toContain('管理工作目录');

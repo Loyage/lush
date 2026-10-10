@@ -43,7 +43,9 @@ function preview(section, id, expanded, remember) {
         // The invisible gauge resolves the same responsive CSS height in either mode.
         const height = content.getBoundingClientRect?.().height ?? 0;
         const limit = gauge.getBoundingClientRect?.().height ?? 0;
-        const overflows = height > limit + COLLAPSE_MARGIN;
+        section.style.setProperty('--detail-heading-height', `${head.getBoundingClientRect?.().height ?? 0}px`);
+        for (const node of content.querySelectorAll('.conversation-message')) node.measureReadingContent?.(limit);
+        const overflows = (content.getBoundingClientRect?.().height ?? height) > limit + COLLAPSE_MARGIN;
         top.hidden = footer.hidden = !overflows;
         section.classList.toggle('detail-preview-long', overflows);
       },
@@ -92,7 +94,7 @@ export function limitDetailModules(panel, { taskId, from = 0 }) {
       if (current.scroll !== position.scroll) position = current;
       for (const view of views) {
         if (view.section.parentNode !== panel) {
-          observer.unobserve(view.content); observer.unobserve(view.gauge); observer.unobserve(view.section);
+          observer.unobserve(view.content); observer.unobserve(view.gauge); observer.unobserve(view.section); observer.unobserve(view.section.children[0]);
         } else view.measure();
       }
       restoreDetailReading(panel, position);
@@ -100,7 +102,7 @@ export function limitDetailModules(panel, { taskId, from = 0 }) {
     });
     // Natural content detects lazy growth; the gauge detects height-only viewport changes.
     // Neither observation changes when our own expand/collapse controls toggle.
-    for (const view of views) { observer.observe(view.content); observer.observe(view.gauge); observer.observe(view.section); }
+    for (const view of views) { observer.observe(view.content); observer.observe(view.gauge); observer.observe(view.section); observer.observe(view.section.children[0]); }
   }
   panels.set(panel, { taskId, expanded, dispose() {
     disposed = true; observer?.disconnect();
@@ -117,6 +119,7 @@ export function disposeDetailModules(panel) { panels.get(panel)?.dispose?.(); }
 export function revealDetailPreview(node) {
   for (let at = node; at; at = at.parentNode) {
     if (at.tagName === 'DETAILS') at.open = true;
+    at.revealReadingContent?.();
     const view = modules.get(at);
     if (view) { view.setExpanded(true, true); return true; }
   }

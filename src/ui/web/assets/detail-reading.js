@@ -2,8 +2,15 @@
 const inside = (root, node) => { for (let at = node; at; at = at.parentNode) if (at === root) return true; return false; };
 const rect = node => node?.getBoundingClientRect?.();
 const pageMode = () => globalThis.window?.matchMedia?.('(max-width: 760px)')?.matches === true;
-const candidatesOf = content => [...new Set(['p', 'pre', 'li', 'summary', '.task-message', '.progress-history-version']
+const candidatesOf = content => [...new Set(['p', 'pre', 'li', 'summary', '.task-message', '.progress-history-version', '.conversation-message']
   .flatMap(selector => [...content.querySelectorAll(selector)]))]
+  .filter(node => {
+    // Full message text remains in the DOM, but clipped paragraphs are not visible anchors.
+    const message = node.closest?.('.conversation-message');
+    if (!message?.classList.contains('conversation-long') || message.classList.contains('conversation-expanded') || node === message) return true;
+    const body = rect(message.querySelector('.conversation-body')), box = rect(node);
+    return !body || !box || (box.bottom > body.top && box.top < body.bottom);
+  })
   .sort((a, b) => (rect(a)?.top ?? Infinity) - (rect(b)?.top ?? Infinity));
 const sections = panel => {
   const counts = new Map();
