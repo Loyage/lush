@@ -77,15 +77,20 @@ export function iterationControls(task, { refresh = () => {}, events = [], showP
       const acceptanceReason = reason || deliveryReason
         || ((task.children || []).some(child => !['completed', 'failed', 'cancelled'].includes(child.status))
           ? '后代尚未确认或结算；派生 Worker 由其直接父 Agent 检查并确认，无需你逐个验收。' : null);
-      const introduction = noChangeAnswer
-        ? '本轮已有回答且没有新增提交，可直接验收，无需先请求合并。验收保留答案，不代表代码已合并；未读输入、待决问题或未交付改动会阻止验收。'
-        : '本轮已交付，等待你验收；';
+      const phase = noChangeAnswer
+        ? '本轮仅回答，无新增提交 · 待验收（无需先请求合并）'
+        : '本轮已交付 · 待验收';
       const acceptanceHelp = '验收表示对该 Worker 的工作不再有异议，同时归档并删除本分支及全部后代分支的 worktree 与本地 ref，保留 Worker、结果、消息、事件与会话等运行历史；脏工作区、未读输入、待决或未交付改动会阻止验收。不调用 Agent，验收后如有新要求请另发指令。';
+      // Keep the phase and exceptional facts visible; shared lifecycle rules live in help/docs.
       panel.append(el('p', task.task_kind === 'child'
         ? recovery
-          ? `资源回收尚未完成，等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 的 Agent 根据持久记录续办验收；无需你验收，不会自动重放删除。运行历史保留。`
-          : `本轮已交付，等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 的 Agent 检查并确认；无需你验收。确认前可追加输入要求修改；父 Agent 验收也会归档并回收 worktree 与本地 ref，保留运行历史。`
-        : `${recovery ? '上次验收的资源回收未完成，运行时已保留精确续办记录；可显式续办验收，不会仅凭目录缺失推断成功或自动重放删除。' : reclaimAccepted ? '历史验收尚未回收开发资源，可再次验收补办；' : `${introduction} 追加输入可继续当前 Worker；`} ${acceptanceHelp} 派生 Worker 由父 Agent 检查并确认，无需你逐个验收。`, 'hint'));
+          ? `资源回收未完成 · 等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 按持久记录续办验收`
+          : `本轮已交付 · 等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 确认`
+        : recovery
+          ? '资源回收未完成 · 已保留精确续办记录，请续办验收'
+          : reclaimAccepted
+            ? '历史验收尚未回收开发资源 · 可再次验收补办'
+            : phase, 'hint iteration-phase'));
       if (task.task_kind !== 'child') {
         let accepting = false, accepted = false;
         const accept = async () => {

@@ -44,7 +44,8 @@ for (const dirty of [false, true]) test(`real HTTP and UI accept an unchanged an
     const controls = iterationControls(before), accept = button(controls, '验收');
     dom.node('detail').append(controls);
     expect(accept).toBeTruthy(); expect(accept.disabled).toBe(false);
-    expect(deepText(controls)).toContain('归档并删除');
+    expect(accept.getAttribute('data-help')).toContain('归档并删除');
+    expect(deepText(controls)).not.toContain('归档并删除');
     await accept.onclick();
     if (dirty) {
       expect(f.store.task(task.id).status).toBe('waiting');

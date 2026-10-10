@@ -73,6 +73,48 @@ test('one acceptance immediately authorizes reclamation without extra RPC or Age
   expect(deepText(recovery)).toContain('再次验收补办'); expect(buttonOf(recovery, '同步父分支')).toBeUndefined();
 });
 
+test('phase hints show only this Worker state, keeping lifecycle consequences in button help', () => {
+  ui.lastSnapshot = null;
+  const before = calls.length;
+  for (const [fields, phase] of [
+    [{}, '本轮已交付 · 待验收'],
+    [{ status: 'waiting', reservation: null, result: 'answer' }, '本轮仅回答，无新增提交 · 待验收（无需先请求合并）'],
+    [{ status: 'completed', accepted: true }, '历史验收尚未回收开发资源 · 可再次验收补办'],
+    [{ acceptance_recovery: true }, '资源回收未完成 · 已保留精确续办记录，请续办验收'],
+    [{ task_kind: 'child', parent_id: 120, parent_worker_number: 'W12' }, '本轮已交付 · 等待父 Worker W12 确认'],
+    [{ task_kind: 'child', parent_id: 120, parent_worker_number: 'W12', acceptance_recovery: true }, '资源回收未完成 · 等待父 Worker W12 按持久记录续办验收'],
+  ]) {
+    const panel = iterationControls({ ...task, ...fields });
+    expect(panel.querySelector('.iteration-phase').textContent).toBe(phase);
+    expect(deepText(panel)).not.toContain('验收表示');
+    expect(deepText(panel)).not.toContain('追加输入可继续');
+    const accept = buttonOf(panel, fields.acceptance_recovery ? '续办验收' : '验收');
+    if (fields.task_kind === 'child') expect(accept).toBeUndefined();
+    else {
+      expect(accept.getAttribute('data-help')).toContain('本分支及全部后代分支');
+      expect(accept.getAttribute('data-help')).toContain('保留 Worker、结果、消息、事件与会话');
+      expect(accept.getAttribute('data-help')).toContain('未读输入');
+      expect(accept.getAttribute('data-help')).toContain('不调用 Agent');
+    }
+  }
+  expect(calls.length).toBe(before);
+});
+
+test('detail retains model source and current progress without repeated acceptance introduction', () => {
+  const sourceId = '11111111-1111-4111-8111-111111111111';
+  renderDetail({ ...task,
+    model_selection: { agent: 'pi', connection_id: sourceId, model: 'provider/model', explicit: true },
+    progress: { version: 1, items: [{ key: 'test', label: '验证改动', status: 'pending' }] },
+  }, { events: [] }, null, null, [{ id: sourceId, label: '我的模型来源' }]);
+  const panel = dom.node('detail');
+  expect(panel.querySelector('.iteration-phase').textContent).toBe('本轮已交付 · 待验收');
+  expect(deepText(panel.querySelector('.worker-model-source-summary'))).toContain('我的模型来源');
+  expect(deepText(panel.querySelector('.worker-model-source-summary'))).toContain('provider/model');
+  expect(deepText(panel.querySelector('.task-progress-panel'))).toContain('验证改动');
+  expect(deepText(panel)).not.toContain('验收表示对该 Worker');
+  expect(deepText(panel)).not.toContain('派生 Worker 由父 Agent 检查并确认');
+});
+
 test('acceptance in flight suppresses repeated clicks and never requests a separate archive', async () => {
   let release; acceptGate = new Promise(resolve => { release = resolve; });
   let refreshed = 0;
@@ -248,7 +290,7 @@ test('detail and graph expose the same awaiting acceptance actions and continuin
   expect(buttonOf(panel, '归档')).toBeUndefined();
   expect(buttonOf(panel, '回收工作区与分支')).toBeUndefined();
   expect(buttonOf(panel, '只回收 worktree（保留分支）')).toBeUndefined();
-  expect(deepText(panel)).toContain('无需你逐个验收');
+  expect(panel.querySelector('.iteration-phase').textContent).toBe('本轮已交付 · 待验收');
   expect(buttonOf(panel, '向该 Worker 追加输入').classList.contains('agent-call')).toBe(false);
   expect(buttonOf(panel, '验收')).toBeTruthy(); expect(buttonOf(panel, '验收并归档')).toBeUndefined();
   expect(buttonOf(panel, '同步父分支')).toBeTruthy();
@@ -344,7 +386,8 @@ test('delegated Tasks wait for parent confirmation, not user acceptance or mine 
   expect(statusOf(child).label).toBe('待父确认');
   expect(deepText(panel)).toContain('等待父 Worker #1');
   expect(buttonOf(panel, '验收')).toBeUndefined();
-  expect(deepText(panel)).toContain('父 Agent 验收也会归档并回收');
+  expect(panel.querySelector('.iteration-phase').textContent).toBe('本轮已交付 · 等待父 Worker #1 确认');
+  expect(deepText(panel)).not.toContain('归档并回收');
   expect(matchTask(child, { mine: true })).toBe(false);
   expect(matchTask(child, { mine: true, openNoticeIds: [child.id] })).toBe(true);
   ui.overviewKey = null;

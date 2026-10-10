@@ -104,5 +104,5 @@ test('recovery candidate still respects server inbox and decision checks, and ex
 test('child recovery remains a direct-parent confirmation, not user acceptance', () => {
   renderDetail({ ...task, task_kind: 'child', parent_worker_number: 'W12' }, null, null, null);
   expect(btn(root(), '验收')).toBeUndefined(); expect(btn(root(), '续办验收')).toBeUndefined();
-  expect(deepText(root())).toContain('W12'); expect(deepText(root())).toContain('持久记录续办验收');
+  expect(deepText(root())).toContain('W12'); expect(deepText(root())).toContain('按持久记录续办验收');
 });
