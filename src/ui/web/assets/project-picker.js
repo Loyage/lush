@@ -271,10 +271,10 @@ export async function openProjectManager({ push = true } = {}) {
     list.restartControls = serviceRestartControls({ ownsPage, changed: async () => {
       if (await refreshProjectList() === false) throw new Error('请显式刷新项目状态');
     } });
-    tools.append(list.restartControls.root);
+    view.append(list.restartControls.root);
     if (list.projects) paintProjects(list, list.projects);
     return list.restartControls.ready;
-  }).catch(error => { if (ownsPage()) tools.append(el('p', `重启控制加载失败：${error.message}`, 'error')); });
+  }).catch(error => { if (ownsPage()) view.append(el('p', `重启控制加载失败：${error.message}`, 'error')); });
   const request = ++managerRequest;
   try {
     const { projects = [] } = await api('/api/host/projects');

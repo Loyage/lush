@@ -57,14 +57,18 @@ test('后台总览展示真实进程摘要及指令输入，不再提供处理�
   expect(requests.slice(before).every(request => !request.options.method || request.options.method === 'GET')).toBe(true);
 });
 
-test('总览挂载项目行重启及页旁界面／全部按钮，确认来源，项目重启刷新保留指令草稿', async () => {
+test('总览挂载项目行重启及底部界面／全部按钮，确认来源，项目重启刷新保留指令草稿', async () => {
   state = { ...state, projects: [{ ...row, running: true }, { ...row, id: 'bbbbbbbbbbbbbbbb', running: false }] };
   await picker.openProjectManager({ push: false });
   const panel = dom.node('detail'), slot = panel.querySelector('.project-order'); await slot.querySelector('button').onclick();
   const input = slot.querySelector('textarea'); input.value = '重启后仍未发送'; input.oninput();
   const button = panel.querySelector(`[data-service-restart="daemon"][data-project-id="${ID}"]`);
   expect(button.parentNode.parentNode.classList.contains('project-item-actions')).toBe(true);
-  expect(panel.querySelector('.workbench-service-restart').querySelector('[data-service-restart="host"]').disabled).toBe(false);
+  const restart = panel.querySelector('.workbench-service-restart'), view = panel.querySelector('.workbench-view');
+  expect(view.children.at(-1)).toBe(restart);
+  expect(view.children.indexOf(restart)).toBeGreaterThan(view.children.indexOf(panel.querySelector('.project-manager-list')));
+  expect(panel.querySelector('.workbench-backend-tools').children.map(node => node.textContent)).toEqual(['刷新项目状态']);
+  expect(restart.querySelector('[data-service-restart="host"]').disabled).toBe(false);
   expect(panel.querySelector('[data-project-id="bbbbbbbbbbbbbbbb"]').disabled).toBe(true);
   const before = requests.length, pending = button.onclick();
   expect(deepText(dom.node('modal'))).toContain('/tmp/demo');
@@ -171,6 +175,8 @@ test('项目页刷新失败保留列表和输入，可显式重试恢复空态',
   state = { ...state, projects: [] };
   await picker.refreshProjectList();
   expect(panel.querySelectorAll('.project-item')).toHaveLength(0);
+  expect(panel.querySelector('.workbench-view').children.at(-1)).toBe(panel.querySelector('.workbench-service-restart'));
+  expect(panel.querySelector('.workbench-backend-tools').querySelector('.workbench-service-restart')).toBeNull();
   expect(deepText(panel)).toContain('还没有项目入口');
   expect(deepText(panel)).not.toContain('项目列表刷新失败');
 });
