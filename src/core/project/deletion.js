@@ -133,7 +133,7 @@ async function deletionPlan(project, rootId) {
   for (const record of project.store.branches()) if (!db.records.some(owned=>owned.branch===record.branch) && record.worktree)
     if (paths.some(candidate=>overlaps(path.resolve(candidate),path.resolve(record.worktree)))) blockers.push(`resource is shared with branch ${record.branch}`);
   for (const input of project.store.all('SELECT id,anchor_workspace FROM inputs WHERE anchor_workspace IS NOT NULL')) if (!db.inputIds.includes(input.id))
-    if (paths.some(candidate=>overlaps(path.resolve(candidate),path.resolve(input.anchor_workspace)))) blockers.push(`resource is shared with Input #${input.id}`);
+    if (paths.some(candidate=>overlaps(path.resolve(candidate),path.resolve(input.anchor_workspace)))) blockers.push(`resource is shared with Input O${input.id}`);
   for (const row of project.store.all('SELECT * FROM commit_contexts')) if (!db.ids.includes(row.task_id))
     if (files.some(file => path.resolve(row.session_path) === path.resolve(file) || path.basename(file) === `${row.commit_hash}.jsonl`))
       blockers.push(`session/checkpoint is shared with Worker ${associatedWorkerLabel(project.store, row.task_id)}`);

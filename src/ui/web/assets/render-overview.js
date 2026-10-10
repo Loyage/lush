@@ -1,6 +1,6 @@
 import { $, block, button, el, kv } from './dom.js';
 import { workerKind, workerKindLabel } from './worker-kind.js';
-import { HOT, absolute, statusOf } from './format.js';
+import { HOT, absolute, statusOf, noticeNumber } from './format.js';
 import { detail } from './navigate.js';
 import { openNotice } from './render-notices.js';
 import { ui } from './state.js';
@@ -61,7 +61,7 @@ export function renderOverview(data) {
   for (const notice of open) {
     const row = button('', () => openNotice(notice.id), 'attention-item');
     const text = el('span', undefined, 'attention-copy');
-    text.append(el('span', `Worker ${workerLabel(notice.task_id, notice.task_worker_number)} · 等待答复`, 'eyebrow'), el('strong', notice.title));
+    text.append(el('span', `Worker ${workerLabel(notice.task_id, notice.task_worker_number)} · 等待答复`, 'eyebrow'), el('strong', `${noticeNumber(notice)} · ${notice.title}`));
     row.append(el('span', '?', 'attention-icon'), text, el('span', '去处理 →', 'attention-action'));
     decisions.append(row);
   }

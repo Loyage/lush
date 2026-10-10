@@ -132,6 +132,8 @@ export function workerNumber(task) {
 }
 /** 只有已经发射的原始 Input 使用 O 编号，Draft 仍是独立暂存身份。 */
 export const inputNumber = id => `O${id ?? '?'}`;
+/** Explicit Notice kind, not status/title, determines its display prefix. */
+export const noticeNumber = notice => `${['question', 'questionnaire', 'plan'].includes(notice?.kind) ? 'D' : 'N'}${notice?.id ?? '?'}`;
 /** 中断意图与实际状态分开：颜色/筛选仍使用 status，不把请求冒充为已暂停。 */
 export function interruptReason(task) {
   if (TERMINAL_STATUS.has(task.status)) return null;

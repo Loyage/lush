@@ -10,6 +10,7 @@ import { locatable, locateReference } from './context-references.js';
 import { ui } from './state.js';
 import { chooseCreationProfile } from './creation-profile-dialog.js';
 import { show } from './messages.js';
+import { linkWorkerNumbers } from './worker-links.js';
 import { attachTextEditor } from './text-editor.js';
 
 export const INPUT_STATUS = {
@@ -44,7 +45,7 @@ function recordTime(item) {
 function statusLine(item) {
   const row = el('div', undefined, 'input-metadata');
   row.append(el('span', item.kind === 'draft' ? `草稿 #${item.id}` : `输入 ${inputNumber(item.id)}`), ...stateBadges(item), recordTime(item));
-  return row;
+  return linkWorkerNumbers(row);
 }
 function selectField(label, values) {
   const field = el('label', label, 'input-filter');
@@ -98,8 +99,15 @@ export function openInputs({ item = null, push = true } = {}) {
   function renderItem(item) {
     const card = el('li', undefined, 'input-record'); card.dataset.input = keyOf(item);
     const label = item.kind === 'draft' ? '编辑与发射' : '查看原文';
-    const row = button('', () => openItem(item), 'input-row', { help: item.kind === 'draft'
-      ? '打开完整草稿，编辑正文、引用和父 Worker；打开不会调用 Agent。' : '只读查看这条输入提交时的完整原文与引用。' });
+    const row = item.kind === 'draft' ? button('', () => openItem(item), 'input-row', { help:
+      '打开完整草稿，编辑正文、引用和父 Worker；打开不会调用 Agent。' }) : el('a', undefined, 'input-row');
+    if (item.kind !== 'draft') {
+      row.setAttribute('href', `#input-input-${item.id}`);
+      row.onclick = event => {
+        if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button > 0)) return;
+        event?.preventDefault(); return openItem(item);
+      };
+    }
     const preview = (item.content ?? '').replace(/\s+/g, ' ').trim() || '（无正文）';
     row.setAttribute('aria-label', `${item.kind === 'draft' ? `草稿 #${item.id}` : `输入 ${inputNumber(item.id)}`}，${preview.slice(0, 120)}，Worker 状态：${INPUT_STATUS[item.status] ?? INPUT_STATUS.unknown}，合并状态：${INPUT_MERGE[item.merge_status] ?? '状态未知'}：${label}`);
     const head = el('span', undefined, 'input-record-head');
@@ -125,7 +133,7 @@ export function openInputs({ item = null, push = true } = {}) {
     detailView.hidden = true; panel.hidden = true; browse.hidden = false;
     activateDetailView({ view: 'inputs' }); $('detail').scrollTop = state.listScroll;
     const row = state.editor && list.querySelector(`[data-input="${state.editor.recordKey}"]`);
-    (row?.querySelector('button') ?? search).focus({ preventScroll: true });
+    (row?.querySelector('.input-row') ?? search).focus({ preventScroll: true });
     return state.pending ?? Promise.resolve();
   }
   state.showList = showList; state.openItem = openItem;

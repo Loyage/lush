@@ -7,9 +7,9 @@
 .inputs-feedback{margin:0 2px 14px}.inputs-card>.section-title{justify-content:space-between}
 .inputs-list{list-style:none;display:flex;flex-direction:column;gap:7px;margin:0;padding:0;min-width:0}
 .input-record{min-width:0}
-button.input-row{display:grid;grid-template-rows:18px 44px 23px;gap:6px;width:100%;height:123px;min-width:0;margin:0;padding:12px 14px;text-align:left;background:var(--bg);color:var(--text);border:1px solid var(--line-soft);border-radius:9px;font-weight:400}
-button.input-row:hover{background:var(--panel-2);border-color:var(--line);filter:none;box-shadow:none}
-button.input-row:focus-visible{background:var(--accent-soft)}
+button.input-row,a.input-row{display:grid;text-decoration:none;grid-template-rows:18px 44px 23px;gap:6px;width:100%;height:123px;min-width:0;margin:0;padding:12px 14px;text-align:left;background:var(--bg);color:var(--text);border:1px solid var(--line-soft);border-radius:9px;font-weight:400}
+button.input-row:hover,a.input-row:hover{background:var(--panel-2);border-color:var(--line);filter:none;box-shadow:none}
+button.input-row:focus-visible,a.input-row:focus-visible{background:var(--accent-soft)}
 .input-record-head{display:flex;align-items:center;gap:12px;min-width:0;color:var(--muted);font-size:11px}
 .input-time{margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10px;font-variant-numeric:tabular-nums}
 .input-preview{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;height:44px;overflow:hidden;white-space:normal;overflow-wrap:anywhere;font-size:13.5px;font-weight:550;line-height:22px}
@@ -32,5 +32,5 @@ button.input-row:focus-visible{background:var(--accent-soft)}
   .inputs-filters{flex-direction:row;align-items:flex-end;gap:9px}.input-search{flex-basis:100%}.input-filter{flex:1 1 120px}
   .inputs-filters input,.inputs-filters select,.input-detail textarea,.input-detail select{font-size:16px}
   .input-detail .text-editor-controls button{min-height:44px;min-width:64px}
-  button.input-row{padding-left:10px;padding-right:10px}.input-open-label{font-size:10px}.input-detail h2{font-size:18px}
+  button.input-row,a.input-row{padding-left:10px;padding-right:10px}.input-open-label{font-size:10px}.input-detail h2{font-size:18px}
 }

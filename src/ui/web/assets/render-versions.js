@@ -4,6 +4,7 @@ import { detail } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 import { inputNumber } from './format.js';
+import { linkWorkerNumbers } from './worker-links.js';
 import { workerLabel } from './worker-label.js';
 
 const REFRESH_HELP = '重新读取当前项目 main 的最新主线历史并从第一页开始；只读 Git，不启动 Agent。';
@@ -38,7 +39,7 @@ export function renderVersionCommit(commit, { detailed = false } = {}) {
       if (task.goal_truncated) entry.append(el('p', 'Worker 目标已截断，可在详情中查看完整内容。', 'hint version-detail'));
       if (task.input) {
         const input = el('details', undefined, 'version-input version-detail');
-        input.append(el('summary', `原始指令 ${inputNumber(task.input.id)}`), el('p', text(task.input.content, '（空输入）'), 'version-order'));
+        input.append(linkWorkerNumbers(el('summary', `原始指令 ${inputNumber(task.input.id)}`)), el('p', text(task.input.content, '（空输入）'), 'version-order'));
         if (task.input.truncated || task.input.content_truncated) input.append(el('p', '原始指令内容已截断。', 'hint'));
         entry.append(input);
       }

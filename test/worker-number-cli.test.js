@@ -158,8 +158,8 @@ test('human summaries use explicit deep numbers and #id fallbacks only for Worke
   const text = capture(() => print(rows, false));
   expect(text).toContain('W5-3-2\tfailed'); expect(text).not.toContain('#205');
   expect(text).toContain('#7\tfailed'); expect(text).toContain('#9\tfailed');
-  expect(capture(() => print([{ id: 8, kind: 'info', task_id: 205, title: 'Notice' }], false))).toStartWith('8\t');
-  expect(capture(() => print([{ id: 12, flow: 'develop', content: 'Input' }], false))).toStartWith('12\t');
+  expect(capture(() => print([{ id: 8, kind: 'info', task_id: 205, title: 'Notice' }], false))).toStartWith('N8\t');
+  expect(capture(() => print([{ id: 12, flow: 'develop', content: 'Input' }], false))).toStartWith('O12\t');
   expect(rows).toEqual(snapshot); expect(JSON.parse(capture(() => print(rows, true)))).toEqual(snapshot);
   const branch = capture(() => printBranchShow({ branch: 'legacy', parent: null, task_id: 7, task_role: 'worker',
     chain: [], children: [], descendants: [] }));

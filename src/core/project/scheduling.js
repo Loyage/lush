@@ -8,6 +8,7 @@ import { AgentPreempted } from '../../agent/provider.js';
 import { validateRuntimeConnection } from '../../agent/connection-runtime.js';
 import { MISSING_PI_SOURCE_MESSAGE } from '../../agent/settings.js';
 import { workerLabel } from '../worker-number.js';
+import { noticeNumber } from '../record-number.js';
 import { receivedProgressInput } from './progress.js';
 
 /** A claimed boundary cannot be cancelled, even while the process is still exiting. */
@@ -27,7 +28,9 @@ export default {
   // Called inside the notice transaction. Only messages delivered to this invocation are consumed.
   parkForQuestion(taskId, noticeId) {
     const run = this.running.get(taskId);
-    const result = `等待用户回答待决问题 #${noticeId}。`;
+    const notice = this.store.get('SELECT id,kind FROM notices WHERE id=?', noticeId);
+    const label = noticeNumber(notice ?? { id: noticeId });
+    const result = `等待用户回答待决问题 ${label}。`;
     if (run) {
       run.parked = true;
       for (const message of run.messages || []) this.store.run('UPDATE messages SET consumed=1 WHERE id=?', message.id);
@@ -35,7 +38,7 @@ export default {
     }
     // 用户已主动暂停时不把状态改成 awaiting；待决问题保留，继续时由 pump 重新投影成 awaiting。
     if (this.store.task(taskId).status !== 'paused') this.store.update(taskId, { status: 'awaiting', result });
-    this.suspendTaskMerge(taskId, `等待用户回答问卷 #${noticeId}`);
+    this.suspendTaskMerge(taskId, `等待用户回答问卷 ${label}`);
   },
 
   hasActionableMessages(taskId) {

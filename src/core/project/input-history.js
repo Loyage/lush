@@ -12,7 +12,7 @@ export function expectedRevision(value) {
 }
 export function checkDraftRevision(draft, expected) {
   expectedRevision(expected);
-  check(draft.input_id === null, `draft ${draft.id} was already submitted as input ${draft.input_id}`);
+  check(draft.input_id === null, `draft ${draft.id} was already submitted as input O${draft.input_id}`);
   check(draft.revision === expected, `draft ${draft.id} changed; reload its latest revision`);
 }
 
@@ -42,7 +42,7 @@ export default {
   inputGet(kind, itemId) {
     check(['input','draft'].includes(kind), 'kind must be input or draft');
     const item = this.store.inputHistoryItem(kind, id(itemId));
-    check(item, `${kind} ${itemId} not found or already submitted`);
+    check(item, `${kind} ${kind === 'input' ? `O${itemId}` : itemId} not found or already submitted`);
     return { ...item, ...(kind === 'draft' ? { hook_mount: this.draftHookMount(item.id) } : {}),
       references: kind === 'draft' ? this.store.draftReferences(item.id) : this.store.inputReferences(item.id) };
   },

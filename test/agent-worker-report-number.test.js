@@ -10,6 +10,12 @@ test('user reports prefer explicit Worker numbers in built-in and Pi-default pro
       expect(text).toContain('没有编号时才回退 #内部ID');
       expect(text).toContain('不得从 id 推算 W 编号');
       expect(text).toContain('内部整数 id 仍用于 API、权限、链接与路径');
+      expect(text).toContain('原始输入展示为 O<Input ID>');
+      expect(text).toContain('question、questionnaire、历史 plan 用 D<Notice ID>');
+      expect(text).toContain('info 用 N<Notice ID>');
+      expect(text).toContain('kind 未知时保守用 N');
+      expect(text).toContain('不把 Worker 追加消息或暂存编号改成 O');
+      expect(text).toContain('CLI Notice 参数与路径仍用原整数 ID');
     }
   }
   const config = { project: '/unused-project', home: '/unused-home' };

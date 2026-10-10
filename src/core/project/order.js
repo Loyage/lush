@@ -878,7 +878,7 @@ export default {
       check(content === undefined && references.length === 0, 'draft_id cannot be combined with content or references');
       draft = this.store.draft(id(draftId));
       check(!this.draftHookMount(draft.id), 'draft is already mounted on a Hook; remove that mount before sending');
-      check(draft.input_id === null, `draft ${draft.id} was already submitted as input ${draft.input_id}`);
+      check(draft.input_id === null, `draft ${draft.id} was already submitted as input O${draft.input_id}`);
       if (buffered) {
         checkDraftRevision(draft, expectedRevision);
         check(draft.parent_id !== null, 'legacy draft has no saved parent Worker; edit it and explicitly select a parent before sending');
@@ -993,7 +993,7 @@ export default {
     } catch (error) {
       if (ruleTaskId !== null) fs.rmSync(snapshotPath(this.config.home, ruleTaskId), { force: true });
       await this.workspaces.releaseAnchor(anchor)
-        .catch(failure => console.error(`order ${inputId}: anchor cleanup failed: ${failure.message}`));
+        .catch(failure => console.error(`order O${inputId}: anchor cleanup failed: ${failure.message}`));
       throw error;
     }
   },

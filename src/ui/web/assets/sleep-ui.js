@@ -3,7 +3,8 @@ import { api, action } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { ui } from './state.js';
-import { absolute } from './format.js';
+import { absolute, noticeNumber } from './format.js';
+import { linkWorkerNumbers } from './worker-links.js';
 import { workerLabel } from './worker-label.js';
 
 const modeLabel = mode => mode === 'preferences' ? '参考以往选择' : '全通过／推荐';
@@ -91,7 +92,7 @@ export function sleepChoiceCard(choice) {
   const result = choice.result || {};
   const decision = result.decision;
   card.append(el('h3', `管家选择 #${choice.id} · ${RESULT[result.status] || result.status}`),
-    el('p', `${absolute(choice.created_at)} · ${modeLabel(choice.mode)} · Notice #${choice.notice.id} · Worker ${workerLabel(choice.notice.task_id, choice.notice.task_worker_number)}`, 'hint'),
+    el('p', `${absolute(choice.created_at)} · ${modeLabel(choice.mode)} · Notice ${noticeNumber(choice.notice)} · Worker ${workerLabel(choice.notice.task_id, choice.notice.task_worker_number)}`, 'hint'),
     el('h4', choice.notice.title));
   if (choice.notice.kind === 'questionnaire') {
     try {
@@ -112,5 +113,5 @@ export function sleepChoiceCard(choice) {
   if (decision) card.append(el('p', `${ACTION[decision.action] || decision.action} · 理由：${decision.reason}`, 'notice-body'));
   if (result.reason || result.error) card.append(el('p', result.reason || result.error, 'notice-body'));
   if (result.outcome?.merge) card.append(el('p', `合并结果：${result.outcome.merge.status}`, 'hint'));
-  return card;
+  return linkWorkerNumbers(card);
 }

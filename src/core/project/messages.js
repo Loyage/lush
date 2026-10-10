@@ -4,6 +4,7 @@ import { questionnaire, questionnaireAnswer } from '../questionnaire.js';
 import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
 import { decideTaskInput } from '../task-input-rule.js';
 import { workerLabel } from '../worker-number.js';
+import { noticeNumber } from '../record-number.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation, resumeTaskDelivery } from './iteration.js';
 
 /** Internal shared settlement; provenance is chosen by the runtime, never by RPC input. */
@@ -11,7 +12,7 @@ export function settleNoticeAnswer(project, noticeId, answer, dismiss = false, s
   check(['user', 'lush'].includes(source), 'invalid answer source');
   const notice = project.store.get('SELECT * FROM notices WHERE id=?', id(noticeId));
   check(notice && notice.status === 'open', 'notice is not open');
-  check(notice.kind !== 'plan', `notice ${notice.id} is a plan approval; use lush plan approve|reject ${notice.task_id}`);
+  check(notice.kind !== 'plan', `Notice ${noticeNumber(notice)} is a historical plan approval; notice.answer cannot approve plans`);
   if (!dismiss) {
     if (notice.kind === 'questionnaire') answer = questionnaireAnswer(notice.body, answer);
     else text(answer, 'answer');
@@ -19,13 +20,13 @@ export function settleNoticeAnswer(project, noticeId, answer, dismiss = false, s
   const stored = typeof answer === 'string' ? answer : JSON.stringify(answer);
   project.store.transaction(() => {
     project.store.run('UPDATE notices SET status=?,answer=?,answer_source=? WHERE id=?', dismiss ? 'dismissed' : 'answered', stored || '', source, notice.id);
-    project.store.message(notice.task_id, JSON.stringify({ notice_id: notice.id, title: notice.title, dismissed: dismiss,
+    project.store.message(notice.task_id, JSON.stringify({ notice_id: notice.id, notice_kind: notice.kind, title: notice.title, dismissed: dismiss,
       answer: answer || '', answer_source: source,
       ...(source === 'lush' ? { automatic: true, instruction: '此答复由 Lush 自动选择 Hook 生成，不是用户亲自决断；多选或文字答复授权 Agent 自行判断并继续。' } : {}) }));
     project.store.event(notice.task_id, 'notice.answered', { notice_id: notice.id, answer, dismiss, answer_source: source });
   });
   const owner = project.store.task(notice.task_id);
-  if (dismiss && owner.agent_wakes === 0 && owner.resolves_task_id) project.cancel(owner.id, `user dismissed notice ${notice.id}: ${notice.title}`);
+  if (dismiss && owner.agent_wakes === 0 && owner.resolves_task_id) project.cancel(owner.id, `user dismissed Notice ${noticeNumber(notice)}: ${notice.title}`);
   else project.wake(notice.task_id);
   project.scheduleTaskHooks();
   return project.store.get(`${NOTICE_SELECT} WHERE id=?`, notice.id);

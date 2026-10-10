@@ -68,8 +68,8 @@ export const methods = {
         try {
           const cleanup = await this.dropAnchor({ branch, workspace, commit, target });
           if (cleanup.status === 'absent') this.store.markBranchDeleted(branch);
-          if (cleanup.status === 'kept') console.error(`input ${inputId}: anchor cleanup kept: ${cleanup.reason}`);
-        } catch (failure) { console.error(`input ${inputId}: anchor cleanup failed: ${failure.message}`); }
+          if (cleanup.status === 'kept') console.error(`input O${inputId}: anchor cleanup kept: ${cleanup.reason}`);
+        } catch (failure) { console.error(`input O${inputId}: anchor cleanup failed: ${failure.message}`); }
         throw error;
       }
       const dirt = dirtDetail(source);

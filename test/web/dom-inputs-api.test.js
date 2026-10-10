@@ -17,7 +17,7 @@ const { renderNoticeBanner } = await import('../../src/ui/web/assets/notice-bann
 const { renderNotices } = await import('../../src/ui/web/assets/render-notices.js');
 afterAll(() => dom.restore());
 const root = () => dom.node('detail');
-const btn = (label, host = root()) => host.querySelectorAll('button').find(node => node.textContent === label || node.getAttribute('aria-label')?.endsWith(`：${label}`));
+const btn = (label, host = root()) => [...host.querySelectorAll('button'), ...host.querySelectorAll('a')].find(node => node.textContent === label || node.getAttribute('aria-label')?.endsWith(`：${label}`));
 
 test('真实 API：详情默认新建，显式追加 Enter 仅发消息，ACK自动恢复独立创建', async () => {
   fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);

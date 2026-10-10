@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { id, check } from '../../core/types.js';
-import { option, exact } from '../args.js';
+import { option, exact, print } from '../args.js';
 import { resolveWorkerId } from '../worker-number.js';
 
 export async function run(command, args, ctx) {
@@ -26,6 +26,9 @@ export async function run(command, args, ctx) {
     else if (verb === 'dismiss') { exact(args, 1); value = await client.request('notice.dismiss', { id: id(args[0]) }); }
     else if (verb === 'read') { exact(args, 1); value = await client.request('notice.read', { id: id(args[0]) }); }
     else throw new Error('unknown notice command');
+  }
+  if (!ctx.json && value && typeof value === 'object' && !Array.isArray(value) && 'kind' in value && 'id' in value) {
+    print([value], false); // Keep the full result below for questionnaire options/body and answer details.
   }
   return value;
 }

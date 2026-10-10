@@ -6,6 +6,7 @@ import { onPrefChange } from './prefs.js';
 import { projectBase } from './route.js';
 import { ui } from './state.js';
 import { show } from './messages.js';
+import { noticeNumber } from './format.js';
 
 const states = new WeakMap();
 const selecting = () => Boolean(globalThis.window?.getSelection?.()?.toString());
@@ -115,7 +116,7 @@ export function renderNoticeBanner(data) {
     const main = el('button', undefined, `notice-banner-main notice-banner-${group.kind}`);
     main.type = 'button'; main.setAttribute('data-help', group.help);
     main.append(el('span', undefined, 'notice-banner-dot'), el('span', `${group.rows.length} ${group.label}`, 'notice-banner-count'),
-      el('span', notice.title, 'notice-banner-title'), el('span', group.action, 'notice-banner-go'));
+      el('span', `${noticeNumber(notice)} · ${notice.title}`, 'notice-banner-title'), el('span', group.action, 'notice-banner-go'));
     const key = noticeIdentity(notice), reads = state.reads, operations = state.operations;
     const owns = () => state.scope === scope && projectBase() === source
       && state.reads === reads && ui.noticeReadRows === reads && state.operations === operations;

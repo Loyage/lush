@@ -58,14 +58,12 @@ test('详情头部显示对应意图编号，能点开那条意图，input_id �
   await dom.fire('hashchange');
   await until(() => head() && findByText(head(), '输入 O1'), 2000);
 
-  // 头部写着「输入 O1」（Input 用 O 编号），hover 能看到意图原文，并且是可点的。
+  // 原生链接直接打开原始 Input，不依赖 overview 是否含有关联 Worker。
   const intent = findByText(head(), '输入 O1');
-  expect(intent.title).toContain('demo');
-  expect(intent.classList.contains('intent-link')).toBe(true);
-
-  // 点击跳到这条意图的 planner 任务 #9（fixture 里 intents[0].task_id = 9）。
-  await intent.onclick();
-  expect(dom.location.hash).toBe('#worker-9');
+  expect(intent.tagName).toBe('A');
+  expect(intent.classList.contains('record-link')).toBe(true);
+  expect(intent.getAttribute('href')).toBe('#input-input-1');
+  expect(intent.getAttribute('aria-label')).toContain('原始输入 O1');
 
   // scheduler #4 的 input_id 是 null：头部不该出现「输入 O null」。
   dom.location.hash = '#worker-4';

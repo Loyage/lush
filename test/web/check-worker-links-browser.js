@@ -12,10 +12,10 @@ import {questionnairePanel} from '/assets/render-questionnaire.js';
 import {workerNumberTarget,resolveWorkerNumber} from '/assets/worker-links.js';
 import {ui} from '/assets/state.js';
 window.requests=[];window.submitted=0;
-const notice={id:7,task_id:22,status:'open',kind:'questionnaire',created_at:'now',body:JSON.stringify({version:1,questions:[{header:'方案',question:'继续 W141 吗？',options:[{label:'采用 W141-1',description:'比较 W141-1-2 与 W142 的结果'},{label:'保持现状',description:'暂不修改'}]}]})};
+const notice={id:7,task_id:22,status:'open',kind:'questionnaire',created_at:'now',body:JSON.stringify({version:1,questions:[{header:'方案',question:'继续 W141 吗？',options:[{label:'采用 W141-1',description:'比较 W141-1-2 与 W142 的结果；参考 D453、N8 和 O190'},{label:'保持现状',description:'暂不修改'}]}]})};
 window.paint=()=>root.replaceChildren(questionnairePanel(notice,{settle:()=>window.submitted++}));
 window.fetch=async url=>{requests.push(url);return Response.json({id:277,worker_number:'W141-1-2'});};
-addEventListener('hashchange',async()=>{const number=workerNumberTarget(location.hash);if(number){const id=await resolveWorkerNumber(number);history.replaceState(null,'','#worker-'+id);root.textContent='Worker detail '+id;}else paint();});
+addEventListener('hashchange',async()=>{const number=workerNumberTarget(location.hash);if(number){const id=await resolveWorkerNumber(number);history.replaceState(null,'','#worker-'+id);root.textContent='Worker detail '+id;}else if(/^#(?:notices|input-input)-[1-9]\\d*$/.test(location.hash)){root.textContent='Record detail '+location.hash;}else paint();});
 paint();window.ready=true;`;
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
   const path = new URL(req.url).pathname;
@@ -62,7 +62,7 @@ try {
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` });
   assert(await wait('window.ready'), 'fixture did not load');
-  for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [390, 844]]) {
+  for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [390, 844], [320, 780]]) {
     await rpc(`/session/${session}/window/rect`, { width, height });
     await execute(`document.documentElement.dataset.theme='${theme}';paint();`);
     assert(await execute(`const a=document.querySelector('[href="#worker-number-W141-1-2"]'),r=a.getBoundingClientRect(),s=getComputedStyle(a),probe=document.createElement('span');probe.className='c-running';document.body.append(probe);const blue=getComputedStyle(probe).color;probe.remove();return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===a&&s.textDecorationLine.includes('underline')&&s.color===blue&&document.documentElement.scrollWidth<=innerWidth&&!document.querySelector('button a');`), 'link styling/layout/hit target/nested controls failed');
@@ -73,7 +73,16 @@ try {
     await rpc(`/session/${session}/back`, {});
     assert(await wait('document.querySelector(".decision-option")'), 'back did not restore questionnaire');
     assert(await execute(`return !document.querySelector('.decision-option.selected');`), 'viewing a Worker selected an answer');
-    console.log(`PASS ${theme} ${width}x${height}: blue underline, link hit target, native navigation/back, no selection`);
+    for (const hash of ['#notices-453', '#notices-8', '#input-input-190']) {
+      assert(await execute(`const a=document.querySelector('[href="${hash}"]'),r=a.getBoundingClientRect(),s=getComputedStyle(a);return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===a&&s.textDecorationLine.includes('underline')&&!document.querySelector('button a')&&document.documentElement.scrollWidth<=innerWidth;`), 'record link layout/hit target/nested controls failed');
+      await click(`[href="${hash}"]`);
+      assert(await wait('root.textContent.includes("Record detail")'), 'native record link did not navigate');
+      assert(await execute(`return location.hash==='${hash}'&&submitted===0&&requests.length===${previous + 1};`), 'record link submitted or fetched during rendering');
+      await rpc(`/session/${session}/back`, {});
+      assert(await wait('document.querySelector(".decision-option")'), 'back did not restore record questionnaire');
+      assert(await execute(`return !document.querySelector('.decision-option.selected');`), 'record link selected an answer');
+    }
+    console.log(`PASS ${theme} ${width}x${height}: W/D/N/O blue underline, hit target, native navigation/back, no selection`);
   }
   await execute(`document.querySelector('.decision-option-select').focus();`);
   await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: ' ' }, { type: 'keyUp', value: ' ' }] }] });

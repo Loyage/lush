@@ -3,7 +3,7 @@ import { action, api } from './api.js';
 import { promptDialog } from './dialog.js';
 import { show } from './messages.js';
 import { notificationControl } from './notice-notifications.js';
-import { absolute, relative } from './format.js';
+import { absolute, relative, noticeNumber } from './format.js';
 import { detail, refresh } from './navigate.js';
 import { projectBase } from './route.js';
 import { agentHelp } from './help.js';
@@ -172,11 +172,11 @@ function paintNoticeRows(rows) {
     node.replaceChildren();
     const row = el('span', undefined, 'row');
     row.append(badge(lifecycleNotice(notice) ? unreadNotice(notice) ? '未读告知' : '已读告知' : STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'),
-      el('span', workerLabel(notice.task_id, notice.task_worker_number), 'tid'), el('span', relative(notice.created_at), 'when'));
+      el('span', noticeNumber(notice), 'tid'), el('span', workerLabel(notice.task_id, notice.task_worker_number), 'tid'), el('span', relative(notice.created_at), 'when'));
     if (answerSource(notice)) row.append(badge(answerSource(notice), 'b-neutral'));
     node.append(row, el('span', notice.title, 'goal'));
     node.setAttribute('data-help', lifecycleNotice(notice) ? '打开对应 Worker；成功加载后自动已读，不会启动 Agent 或批准合并' : `${notice.title}；发布于 ${absolute(notice.created_at)}`);
-    referenceable(node, { kind: 'notice', target: { notice_id: notice.id }, label: `事项记录 #${notice.id}`,
+    referenceable(node, { kind: 'notice', target: { notice_id: notice.id }, label: `事项记录 ${noticeNumber(notice)}`,
       quote: `${notice.title}\n${notice.body || ''}`, location: { view: 'notice-list', notice_id: notice.id } });
     return node;
   });
@@ -317,7 +317,7 @@ function buildNoticePanel(notice, task = null) {
   const section = el('section', undefined, `notice focus${notice.kind === 'info' ? ' notice-info' : ''}`);
   section.dataset.id = notice.id;
   const head = el('div', undefined, 'notice-head');
-  head.append(badge(STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'), el('span', `Worker ${workerLabel(task || notice.task_id, notice.task_worker_number)}`, 'tid'),
+  head.append(el('span', noticeNumber(notice), 'tid'), badge(STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'), el('span', `Worker ${workerLabel(task || notice.task_id, notice.task_worker_number)}`, 'tid'),
     el('span', `${relative(notice.created_at)} · ${absolute(notice.created_at)}`, 'when'));
   if (answerSource(notice)) head.append(badge(answerSource(notice), 'b-neutral'));
   section.append(head, el('h3', notice.title));
@@ -391,7 +391,7 @@ function buildNoticePanel(notice, task = null) {
     }));
     if (!inRecords) section.append(button('收起，只看 Worker 详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost',
       { help: '收起这条待决提醒，回到 Worker 详情；待决事项仍保留在列表里。' }));
-    referenceable(section, { kind: 'notice', target: { notice_id: notice.id }, label: `待定事项 #${notice.id}`,
+    referenceable(section, { kind: 'notice', target: { notice_id: notice.id }, label: `待定事项 ${noticeNumber(notice)}`,
       quote: `${notice.title}\n${notice.body || ''}`, location: { view: 'notice-detail', notice_id: notice.id, task_id: notice.task_id } });
     return section;
   }
@@ -440,7 +440,7 @@ function buildNoticePanel(notice, task = null) {
     event.preventDefault(); actions.querySelector('button').click();
   });
   section.append(...(answer ? [answer] : []), actions);
-  referenceable(section, { kind: 'notice', target: { notice_id: notice.id }, label: `待定事项 #${notice.id}`,
+  referenceable(section, { kind: 'notice', target: { notice_id: notice.id }, label: `待定事项 ${noticeNumber(notice)}`,
     quote: `${notice.title}\n${notice.body || ''}`, location: { view: 'notice-detail', notice_id: notice.id, task_id: notice.task_id } });
   return section;
 }

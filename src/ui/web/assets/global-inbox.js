@@ -2,7 +2,7 @@ import { $, badge, button, el, syncChildren } from './dom.js';
 import { api } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
-import { absolute } from './format.js';
+import { absolute, noticeNumber } from './format.js';
 import { renderMarkdown } from './markdown.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
@@ -90,7 +90,7 @@ function buildDetail(state, item) {
   root.dataset.noticeIdentity = inboxIdentity(item);
   const head = el('div', undefined, 'notice-head');
   head.append(badge(STATUS[notice.status] || notice.status, pendingNotice(notice) ? 'b-awaiting' : 'b-neutral'),
-    el('strong', item.project_name), el('span', workerLabel(notice.task_id, notice.task_worker_number), 'tid'),
+    el('strong', item.project_name), el('span', noticeNumber(notice), 'tid'), el('span', workerLabel(notice.task_id, notice.task_worker_number), 'tid'),
     el('span', absolute(notice.created_at), 'when'));
   if (['answered', 'dismissed'].includes(notice.status) && ['question', 'questionnaire'].includes(notice.kind)) head.append(badge(noticeSource(notice), 'b-neutral'));
   root.append(head, el('h2', notice.title), workerLink(item));
@@ -166,7 +166,7 @@ function paintRows(state) {
     if (node.dataset.signature !== signature) {
       node.dataset.signature = signature;
       const line = el('span', undefined, 'row');
-      line.append(badge(item.project_name, 'b-neutral'), el('span', workerLabel(item.notice.task_id, item.notice.task_worker_number), 'tid'),
+      line.append(badge(item.project_name, 'b-neutral'), el('span', noticeNumber(item.notice), 'tid'), el('span', workerLabel(item.notice.task_id, item.notice.task_worker_number), 'tid'),
         el('span', unreadNotice(item.notice) ? '未读告知' : STATUS[item.notice.status] || item.notice.status));
       if (!item.online) line.append(badge('离线缓存', 'b-neutral'));
       if (item.notice.answer_source === 'lush') line.append(badge('Lush 自动选择', 'b-neutral'));

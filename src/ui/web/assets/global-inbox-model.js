@@ -76,9 +76,9 @@ export function validateInboxPage(page) {
 export function sourceWorkerLinks(root, projectId) {
   if (!validProjectId(projectId)) throw new Error('无效的事项来源项目');
   linkWorkerNumbers(root);
-  for (const link of root.querySelectorAll('.worker-link')) {
+  for (const link of [...root.querySelectorAll('.worker-link'), ...root.querySelectorAll('.record-link')]) {
     const hash = link.getAttribute('href');
-    if (!/^#worker-number-W[1-9]\d*(?:-[1-9]\d*)*$/.test(hash || '')) continue;
+    if (!/^(?:#worker-number-W[1-9]\d*(?:-[1-9]\d*)*|#notices-[1-9]\d*|#input-input-[1-9]\d*)$/.test(hash || '')) continue;
     link.setAttribute('href', `/p/${projectId}/${hash}`);
     link.setAttribute('target', '_blank'); link.setAttribute('rel', 'noopener');
   }

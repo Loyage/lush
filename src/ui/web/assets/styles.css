@@ -56,14 +56,14 @@ button.ghost{background:transparent;color:var(--muted);border-color:var(--line)}
 button.danger{background:var(--red-soft);color:var(--failed);border-color:color-mix(in srgb,var(--failed) 25%,transparent)}button.danger:hover{border-color:var(--failed)}
 .link{background:none;border:0;border-radius:4px;padding:0;color:var(--accent);font:inherit;font-size:13px;cursor:pointer;text-align:left;overflow-wrap:anywhere}
 .link:hover{box-shadow:none;text-decoration:underline;text-underline-offset:3px}
-a.worker-link{color:var(--running);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
-a.worker-link:visited{color:var(--running)}
-a.worker-link:focus-visible{outline:2px solid var(--running);outline-offset:3px;border-radius:2px}
+a.worker-link,a.record-link{color:var(--running);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+a.worker-link:visited,a.record-link:visited{color:var(--running)}
+a.worker-link:focus-visible,a.record-link:focus-visible{outline:2px solid var(--running);outline-offset:3px;border-radius:2px}
 .decision-option-card{position:relative;display:flex;flex:1;min-width:0;flex-direction:column;gap:6px;text-align:left;padding:14px;background:var(--panel-2);color:var(--text);border:1px solid var(--line);border-radius:10px}
 .decision-option-card>span{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
 .decision-option-card:hover,.decision-option-card:focus-within,.decision-option-card.selected{border-color:var(--accent);outline:2px solid var(--accent);outline-offset:1px}
 .decision-option-card>.decision-option-select{position:absolute;inset:0;width:100%;height:100%;padding:0;background:transparent;border:0;border-radius:inherit;box-shadow:none;color:transparent}
-.decision-option-card .worker-link{position:relative;z-index:1}
+.decision-option-card .worker-link,.decision-option-card .record-link{position:relative;z-index:1}
 .decision-option-card:has(.decision-option-select:disabled){opacity:.55}
 input,textarea,select{font:inherit;color:var(--text)}
 textarea{display:block;width:100%;resize:vertical;background:var(--code);border:1px solid var(--line);border-radius:10px;padding:12px;margin:8px 0;font-size:14px}

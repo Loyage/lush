@@ -159,6 +159,20 @@ test('来源消息深链接进入待我处理中的原记录，告知不跳 Work
   expect(focus.querySelector('.notice-info')).toBeNull(); expect(world.state.actions).toHaveLength(0);
 });
 
+test('D/N 正文链接定位精确记录，不自动答复或已读，保留旧数字书签', async () => {
+  const { agentText } = await import('../../src/ui/web/assets/text.js');
+  world.state.notices = [info(462), { ...info(463), kind: 'question', status: 'answered', source_event_id: null, answer: '已确认' }];
+  world.state.actions = [];
+  for (const [number, id] of [['N462', 462], ['D463', 463]]) {
+    const link = agentText(`查看 ${number}`).querySelector('.record-link');
+    expect(link.getAttribute('href')).toBe(`#notices-${id}`);
+    dom.location.hash = link.getAttribute('href'); await dom.fire('hashchange');
+    expect(ui.noticeRecords.selected).toBe(id);
+    expect(dom.node('notice-record-detail').querySelector('.record-link').textContent).toBe(number);
+    expect(world.state.actions).toHaveLength(0);
+  }
+});
+
 const banner = () => dom.node('notice-banner');
 const known = () => banner().querySelector('.notice-banner-known');
 const event = (row, type, x, y, extra = {}) => {

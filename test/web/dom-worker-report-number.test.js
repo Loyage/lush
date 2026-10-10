@@ -87,8 +87,8 @@ test('historical butler cards label Workers independently from Notice and choice
     result: { status: 'applied' } };
   const snapshot = structuredClone(choice);
   const text = deepText(sleepChoiceCard(choice));
-  expect(text).toContain('管家选择 #12'); expect(text).toContain('Notice #19');
-  expect(text).toContain('Worker W5-3-2'); expect(text).toContain('历史正文 #205');
+  expect(text).toContain('管家选择 #12'); expect(text).toMatch(/Notice\s+D19/);
+  expect(text).toMatch(/Worker\s+W5-3-2/); expect(text).toContain('历史正文 #205');
   expect(choice).toEqual(snapshot); expect(requests).toHaveLength(0);
   choice.notice.task_worker_number = null;
   expect(deepText(sleepChoiceCard(choice))).toContain('Worker #205');

@@ -21,7 +21,7 @@
 | 文件 | 命令 | 导出 |
 |---|---|---|
 | `cli/help.js` | 帮助文本 | `HELP` |
-| `cli/args.js` | 参数解析与两种输出；数组的人类摘要优先展示持久 Worker 编号，JSON 保留整数身份 | `option`、`exact`、`print` |
+| `cli/args.js` | 参数解析与两种输出；数组的人类摘要展示持久 Worker 编号、Notice D/N 与原始 Input O 编号；暂存和消息不换号，JSON 保留整数身份 | `option`、`exact`、`print` |
 | `cli/worker-number.js` | 仅 CLI 的严格 Worker 编号解析，经 `worker.lookup` 获取真实整数 ID；格式化保留历史回退，不修改通用 `id()` | `resolveWorkerId(client,value)`、`workerLabel(task,fallback?)`、`inputNumber(inputId)` |
 | `cli/print.js` | 树 / 会话 / 用量 / 分支谱系的渲染 | `printTree`、`printTranscript`、`transcriptStepText`、`printUsage`、`printBranchTree`、`printBranchShow`、`printBranchArchive` |
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `host start|stop|restart|status`；无 `--project` 时使用全局项目启动器，显式项目时保持单项目模式；`doctor` / `host status` 分列磁盘、daemon、Web 身份并只给显式更新提示 | `run` |
@@ -29,14 +29,14 @@
 | `cli/commands/task.js` | `worker`（list / tree / inspect / spawn / message / rename ID '标题'（仅用户） / transcript [--follow] / history / wait / integrate / auto-merge ID on\|off / reserve / accept / reopen / sync-parent / resolve-sync / resolve / resolve-divergence / resolve-child-divergence / unreserve / approve-merge / cancel / retry / cleanup / delete ID [--confirm --revision REV]） | `run`、`followTranscript`、`FOLLOW_INTERVAL_MS` |
 | `cli/commands/hooks.js` | 项目 Hook 目录/模板与 Worker 挂载的用户专属 CLI，复用 `cli/private-json.js` 的有界、owner-only、no-follow 文件输入和 revision 校验；`order --defer` 由指令命令授权 | `run`、`runWorkerHook`、`runWorkerCompletion`；新增 `hooks signal save/remove` 与 `hooks management create/enable/disable`，无立即执行管理工具入口（接口以 [Hooks 接缝](hooks.md)、[时间信号与管理](hook-signals-management.md)和[自动链](completion-hooks.md)为准） |
 | `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 Agent 的 Worker） | `run` |
-| `cli/commands/notice.js` | `notice list/post/answer/dismiss/read`（read 仅标已读；选择快照与重选已停用）；`post --worker` 接受整数或稳定 Worker 编号，Notice 本身的 ID 仍只接受整数 | `run` |
+| `cli/commands/notice.js` | `notice list/post/answer/dismiss/read`（read 仅标已读；选择快照与重选已停用）；`post --worker` 接受整数或稳定 Worker 编号，Notice 的人类摘要显示 D/N 编号（单条 post/answer/dismiss/read 在完整结果前追加摘要，与 list 一致），参数仍只接受整数 | `run` |
 | `cli/commands/branch.js` | `branch tree / show / bind / archive` | `run` |
 | `cli/commands/agent.js` | `agent show/models/set/reset` 配置 profile；用户专属 `prompt/env` 直接文件读取同样核验 token，查看最终组合和脱敏环境来源；`network show/set --file PATH/reset` 管理出站代理（[契约](outbound-network.md)），`init` 创建项目可提交约定，`init --local` 用户专属 create-only 创建设备私有补充；`--prompt` 只作旧版 `--append-prompt` 别名；`--config-mode lush|pi` 显式选择运行配置模式，`sources` / `resources` 分派到 `agent-sources.js`，`packages` 分派到 `agent-packages.js` | `run` |
 | `cli/commands/agent-sources.js` | `agent sources list/show/models ID [--refresh]/refresh [ID]/save --file PATH/remove ID/login ID`（设备码 start/poll/cancel 与备用回调私密文件）与只读 `agent resources`；用户专属，凭证不进 argv/输出 | `runSources(args,client,{json?})`、`runResources(args,client,{json?})`（[目录契约](agent-model-catalog.md)） |
 | `cli/commands/agent-packages.js` | `agent packages list/install SOURCE/remove ID/update ID`；用户专属，安装与启用分离 | `runPackages(args,client)`（兼容 context） |
 | `cli/commands/config.js` | `config show / set / reset`：读 `system.status.settings`、写 `system.configure`；用户专属，agent 调用被拒 | `run` |
 
-Worker 身份参数（含 `spawn --parent`、`notice post --worker`）接受原整数及严格 `Wn(-n)*`。新编号只解析一次，经只读 `worker.lookup {number}` 核验 `{id,worker_number}` 后，既有 RPC 的 id/parent/task 参数仍发送整数；wait/follow 后续读取复用固定整数。分页游标、Notice ID 不接受 Worker 编号，整数调用不产生额外 lookup。列表 `--brief` 同时保留整数 `id` 与可空 `worker_number`，分页仍按整数。原始输入提交的人类输出显示 `O<id>` 与关联 Worker 编号，JSON 不改写身份字段。历史树、分支展示的回退标识保持不变。测试在 `test/worker-number-cli.test.js`。
+Worker 身份参数（含 `spawn --parent`、`notice post --worker`）接受原整数及严格 `Wn(-n)*`。新编号只解析一次，经只读 `worker.lookup {number}` 核验 `{id,worker_number}` 后，既有 RPC 的 id/parent/task 参数仍发送整数；wait/follow 后续读取复用固定整数。分页游标、Notice ID 不接受 Worker 编号，整数调用不产生额外 lookup。列表 `--brief` 同时保留整数 `id` 与可空 `worker_number`，分页仍按整数。原始输入提交的人类输出显示 `O<id>` 与关联 Worker 编号，JSON 不改写身份字段。历史树、分支展示的回退标识保持不变。Notice D/N 的分类只依据明确 kind：question/questionnaire/历史 plan 为 D，info 与未知为 N，不依据标题或状态；人类列表与单条结果都用该口径，`--json` 原样保留整数身份与正文。原始 Input 仍用项目现有序列 O；Draft 与追加 Message 不占用 O 号，也不换展示前缀。未注册的旧命令不机械适配。测试在 `test/worker-number-cli.test.js` 与 `test/record-number-cli.test.js`。
 
 历史命令模块（`draft.js` / `plan.js` / `spec.js` / `candidate.js` / `sleep.js`）仍在源码里，但 `COMMANDS` 不再挂载它们；`lush help` 也不列出，执行会报 `unknown command`。`package.json` 与 `scripts/ops.js` 同样不保留退休快捷入口：draft / drafts、intent / intents、ladder、timeline、usage、merge、clear，以及旧 plan/spec 的 specs / approve / reject / propose 映射。移除快捷入口不删除历史数据；`worker.usage` RPC 等仍按各自白名单提供，不以旧快捷命令存在与否判断。
 

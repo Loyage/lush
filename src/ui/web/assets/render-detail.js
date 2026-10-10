@@ -35,7 +35,7 @@ import { workerDeleteControl } from './worker-delete.js';
 import { ui } from './state.js';
 import { agentText } from './text.js';
 import { referenceable } from './context-references.js';
-import { inputNumber } from './format.js';
+import { inputNumber, noticeNumber } from './format.js';
 import { workerLabel, rememberWorkers } from './worker-label.js';
 
 const progressivePanels = new WeakMap();
@@ -59,19 +59,13 @@ function renderTaskSpecs(task) {
   for (const spec of [...specs].sort((a, b) => a.id - b.id)) section.append(specItem(spec));
   return section;
 }
-/** 详情头部的意图编号（inputs.id）：点开对应意图的 planner 详情。
- *  input_id 为空（如 scheduler）就不显示，免得出现「意图 #null」；对不上意图或它还没有 planner 任务时退化成不可点的普通 badge。 */
+/** Input identity links directly to its original record, independent of overview truncation. */
 function intentBadge(task) {
   const inputId = task.input_id;
   if (inputId === null || inputId === undefined) return null;
-  const intent = (ui.lastSnapshot?.inputs || []).find(row => row.id === inputId) || null;
-  const node = intent?.task_id ? button(`输入 ${inputNumber(inputId)}`, () => { ui.noticeFocus = null; return detail(intent.task_id); }, 'badge b-neutral') : badge(`输入 ${inputNumber(inputId)}`, 'b-neutral');
-  if (intent?.content) node.title = String(intent.content).slice(0, 200);
-  if (intent?.task_id) {
-    node.classList.add('intent-link');
-    node.title = `${node.title ? `${node.title}\n` : ''}点开看这条意图的规划与拆解`;
-    node.onclick = () => { ui.noticeFocus = null; return detail(intent.task_id); };
-  }
+  const node = el('a', `输入 ${inputNumber(inputId)}`, 'badge b-neutral record-link');
+  node.setAttribute('href', `#input-input-${inputId}`);
+  node.setAttribute('aria-label', `查看原始输入 ${inputNumber(inputId)}`);
   return node;
 }
 export function renderDetail(task, history, diff, usage, connections = null, progressive = null) {
@@ -344,7 +338,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   if (decisions.length) {
     const record = block('决策记录', String(decisions.length));
     for (const notice of decisions) {
-      if (notice.status === 'open' && !readOnly) record.append(button(`待回答：${notice.title}`, () => {
+      if (notice.status === 'open' && !readOnly) record.append(button(`待回答 ${noticeNumber(notice)}：${notice.title}`, () => {
         ui.noticeIndex.set(notice.id, notice); ui.noticeFocus = notice.id; return detail(task.id);
       }, 'ghost'));
       else {
@@ -355,7 +349,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
         fold.open = previous ? previous.open : true;
         fold.dataset.noticeId = String(notice.id); fold.dataset.signature = signature;
         const label = { open: '历史待决 · 只读', answered: '已回答', dismissed: '已忽略' }[notice.status] || notice.status;
-        fold.append(el('summary', `${notice.title} · ${label}`),
+        fold.append(el('summary', `${noticeNumber(notice)} · ${notice.title} · ${label}`),
           readOnly && notice.status === 'open' ? el('pre', notice.body) : settledDecision(notice));
         record.append(fold);
       }

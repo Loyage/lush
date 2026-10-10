@@ -55,7 +55,7 @@ await boot();
 const root = () => dom.node('detail');
 const text = () => deepText(root());
 const panel = () => root().querySelector('.input-detail');
-const btn = (label, parent = root()) => parent.querySelectorAll('button').find(node => node.textContent === label || node.getAttribute('aria-label')?.endsWith(`：${label}`));
+const btn = (label, parent = root()) => [...parent.querySelectorAll('button'), ...parent.querySelectorAll('a')].find(node => node.textContent === label || node.getAttribute('aria-label')?.endsWith(`：${label}`));
 const openDraft = () => btn('编辑与发射').onclick();
 // Module loading may need an event-loop turn before the confirmation appears.
 // Wait for the explicit UI condition, not an arbitrary sleep or an unresolved navigation promise.
@@ -126,7 +126,7 @@ test('紧凑条目只有一个详情入口，等高摘要不内嵌操作或引�
   await openInputs(); await selectStatus('');
   expect(root().querySelector('.resource-hero')).toBeTruthy(); expect(root().querySelector('.resource-tools')).toBeTruthy();
   const cards = root().querySelectorAll('.input-record');
-  expect(cards.map(card => card.querySelectorAll('button').length)).toEqual([1, 1, 1]);
+  expect(cards.map(card => card.querySelectorAll('.input-row').length)).toEqual([1, 1, 1]);
   expect(cards.every(card => card.querySelector('.input-preview').tagName === 'SPAN')).toBe(true);
   expect(cards[1].querySelector('.input-preview').textContent).not.toContain('\n');
   expect(deepText(cards[1])).toContain('摘要已截断'); expect(deepText(cards[2])).toContain('状态未知');
@@ -362,6 +362,19 @@ test('已挂载草稿只读且禁止重复发射，取消等待挂载采用最�
   expect(calls).toHaveLength(0); await dialogButton(dom, '取消预约').onclick(); await removing;
   expect(calls.at(-1)).toEqual({ method: 'worker.hook_remove', params: { id: 1, hook_id: 'draft-mount', expected_revision: 'hooks-live' } });
   expect(editor().value).toBe('尚未执行的想法'); expect(btn('发射并开始')).toBeTruthy();
+});
+
+test('O 编号原生链接保留新标签手势，直接深链接不受暂存筛选限制且不执行写动作', async () => {
+  await openInputs(); await selectStatus('');
+  const link = btn('查看原文'); expect(link.tagName).toBe('A'); expect(link.getAttribute('href')).toBe('#input-input-2');
+  let prevented = 0; const before = reads.length;
+  for (const gesture of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { button: 1 }])
+    link.onclick({ ...gesture, preventDefault: () => prevented++ });
+  expect(prevented).toBe(0); expect(reads.length).toBe(before);
+  await link.onclick({ button: 0, preventDefault: () => prevented++ });
+  expect(prevented).toBe(1); expect(panel().querySelector('.record-link').getAttribute('href')).toBe('#input-input-2');
+  activateDetailView({ view: 'overview' }); dom.location.hash = '#input-input-2'; await dom.fire('hashchange');
+  expect(deepText(panel())).toContain('原始输入 O2'); expect(calls).toHaveLength(0);
 });
 
 test('正文撤销只改本页文本，不回退已保存版本、父 Worker 或引用，再保存使用新版本', async () => {

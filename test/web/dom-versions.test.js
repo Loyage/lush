@@ -44,7 +44,7 @@ test('版本迭代平级导航、hash、页面身份、移动端与只读轮询�
   expect(dom.node('resource-panels').hidden).toBe(true); expect(dom.node('detail').hidden).toBe(false);
   expect(dom.node('sidebar').classList.contains('mobile-open')).toBe(false);
   expect(text()).toContain(sha('a')); expect(text()).toContain('2026-10-02T09:00:00Z'); expect(text()).toContain('开发者');
-  expect(text()).toContain('查看 Worker #12'); expect(text()).toContain('开发版本迭代'); expect(text()).toContain('原始指令 O7');
+  expect(text()).toContain('查看 Worker #12'); expect(text()).toContain('开发版本迭代'); expect(text()).toMatch(/原始指令\s+O7/); expect(dom.node('detail').querySelector('.record-link').getAttribute('href')).toBe('#input-input-7');
   expect(text()).toContain('原始指令\n保留换行'); expect(text()).toContain('未关联 Worker');
   expect(refresh().getAttribute('data-help')).toContain('不启动 Agent');
   expect(dom.node('detail').querySelectorAll('.agent-call')).toHaveLength(0);

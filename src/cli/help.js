@@ -58,7 +58,7 @@ lush [--project PATH] [--json] <command>
   branch tree|show BRANCH            查看分支
   branch bind BRANCH COMMIT          显式绑定已有本地分支
   branch archive BRANCH [--discard] [--continue]  特殊/失败现场清理资源；--discard 明确丢弃脏现场，--continue 续办后代
-  notice list|post|answer|dismiss|read    用户决策与告知已读
+  notice list|post|answer|dismiss|read    用户决策与告知已读（显示 D/N 编号，参数仍用整数 ID）
   notice post '标题' [--worker ID] [--body '正文']  发给指定 Worker（Agent 默认当前 Worker）
   progress plan|complete             Agent 汇报进度
   agent show|models|set|reset|prompt|env|init|network  设备 Agent 配置（用户专属）

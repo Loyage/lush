@@ -15,7 +15,7 @@ function optionCard(option, select, className, projectId = null) {
   const wording = el('div');
   wording.append(el('strong', option.label), el('span', option.description));
   linkNumbers(wording, projectId);
-  if (!wording.querySelector('.worker-link')) {
+  if (!wording.querySelector('.worker-link') && !wording.querySelector('.record-link')) {
     const choice = button('', select, className);
     choice.append(...wording.childNodes);
     choice.setAttribute('aria-pressed', String(className.includes(' selected')));

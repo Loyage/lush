@@ -1,5 +1,6 @@
 import { button, el } from './dom.js';
-import { absolute } from './format.js';
+import { absolute, noticeNumber } from './format.js';
+import { linkWorkerNumbers } from './worker-links.js';
 import { agentText, markdownEnabled } from './text.js';
 import { structuredValue } from './structured-value.js';
 import { workerLabel } from './worker-label.js';
@@ -83,7 +84,7 @@ function renderPayload(root, payload) {
 function renderDecision(root, parsed) {
   root.append(el('h3', parsed.dismissed ? '未做决定' : '已答复决策', 'message-title'));
   if (parsed.title) root.append(el('p', parsed.title, 'message-decision-title'));
-  root.append(el('p', `决策 #${parsed.notice_id}`, 'hint'));
+  root.append(linkWorkerNumbers(el('p', `事项 ${noticeNumber({ id: parsed.notice_id, kind: parsed.notice_kind })}`, 'hint')));
   if (parsed.dismissed) { root.append(el('p', '这次没有选择任何方案，不代表接受推荐项。', 'hint')); return; }
   const answer = parsed.answer;
   if (typeof answer === 'string' && answer) root.append(prose(answer));
