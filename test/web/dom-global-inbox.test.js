@@ -31,7 +31,7 @@ function withSessionStorage() {
   return { values, restore() { if (previous) Object.defineProperty(globalThis, 'sessionStorage', previous); else delete globalThis.sessionStorage; } };
 }
 
-test('global list uses Host API from a project page, separates same integer IDs, and opens source Worker in a new tab', async () => {
+test('global list uses Host API, separates same integer IDs, and links exact source records in independent project tabs', async () => {
   const requests = [], rows = [item(A), item(B)];
   const dom = installDom({ fetch: async url => { requests.push(url); return json(url.includes('/notice?') ? rows.find(row => url.includes(row.project_id)) : page(rows)); } });
   resetUiState(); dom.location.pathname = `/p/${B}/`; ui.lastSnapshot = { status: { project: '/tmp/wrong-current-project' } };
@@ -42,8 +42,18 @@ test('global list uses Host API from a project page, separates same integer IDs,
     const root = dom.node('detail');
     expect(root.querySelectorAll('.global-inbox-row')).toHaveLength(2);
     expect(new Set(root.querySelectorAll('.global-inbox-row').map(row => row.dataset.noticeIdentity)).size).toBe(2);
-    await root.querySelectorAll('.global-inbox-row')[0].onclick();
-    const focus = root.parentNode ? root : dom.node('detail');
+    for (const [index, id] of [A, B].entries()) {
+      const link = root.querySelectorAll('.global-inbox-row')[index];
+      expect(link.tagName).toBe('A');
+      expect(link.getAttribute('href')).toBe(`/p/${id}/#notices-7`);
+      expect(link.getAttribute('target')).toBe('_blank'); expect(link.getAttribute('rel')).toBe('noopener');
+      expect(link.onclick).toBeFalsy();
+    }
+    expect(root.querySelector('textarea')).toBeNull();
+    expect(requests).toHaveLength(1);
+    // Old global detail bookmarks remain readable for compatibility.
+    await openGlobalInbox({ projectId: A, noticeId: 7 });
+    const focus = dom.node('detail');
     const worker = focus.querySelector('.global-inbox-worker');
     expect(worker.getAttribute('href')).toBe(`/p/${A}/#worker-21`);
     expect(worker.getAttribute('target')).toBe('_blank'); expect(worker.getAttribute('rel')).toBe('noopener');

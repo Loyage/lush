@@ -11,7 +11,7 @@ import { questionnairePanel } from './render-questionnaire.js';
 import { notificationControl } from './notice-notifications.js';
 import { unreadNotice } from './notice-kind.js';
 import { refreshGlobalNotices } from './global-notice-notifications.js';
-import { INBOX_STATUSES, inboxHash, inboxIdentity, inboxMatches, pendingNotice, sourceWorkerLinks,
+import { INBOX_STATUSES, inboxHash, inboxProjectHref, inboxIdentity, inboxMatches, pendingNotice, sourceWorkerLinks,
   noticeSyncIdentity, sameInboxRecord, validProjectId, validateInboxItem, validateInboxPage } from './global-inbox-model.js';
 
 const LABELS = { all: '全部记录', open: '需要我决定', unread: '未读告知', automatic: '自动选择', failed: '异常与受阻' };
@@ -86,7 +86,7 @@ async function mutate(state, item, method, answer) {
 }
 
 function buildDetail(state, item) {
-  const notice = item.notice, root = el('section', undefined, 'notice focus global-inbox-detail');
+  const notice = item.notice, root = el('section', undefined, `notice focus global-inbox-detail${item.notice.kind === 'info' ? ' notice-info' : ''}`);
   root.dataset.noticeIdentity = inboxIdentity(item);
   const head = el('div', undefined, 'notice-head');
   head.append(badge(STATUS[notice.status] || notice.status, pendingNotice(notice) ? 'b-awaiting' : 'b-neutral'),
@@ -157,7 +157,10 @@ function paintRows(state) {
   const known = new Map([...state.list.children].map(node => [node.dataset.noticeIdentity, node]));
   syncChildren(state.list, rows.map(item => {
     const key = inboxIdentity(item), signature = JSON.stringify(item);
-    const node = known.get(key) || button('', () => openGlobalInbox({ projectId: item.project_id, noticeId: item.notice.id, status: state.status }), 'notice-brief global-inbox-row');
+    const node = known.get(key) || el('a', undefined, 'notice-brief global-inbox-row');
+    node.setAttribute('href', inboxProjectHref(item.project_id, item.notice.id));
+    node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener');
+    node.classList.toggle('notice-info', item.notice.kind === 'info');
     node.dataset.noticeIdentity = key;
     node.classList.toggle('selected', state.selected && inboxIdentity(state.selected) === key);
     if (node.dataset.signature !== signature) {
@@ -169,7 +172,7 @@ function paintRows(state) {
       if (item.notice.answer_source === 'lush') line.append(badge('Lush 自动选择', 'b-neutral'));
       node.replaceChildren(line, el('span', item.notice.title, 'goal'));
     }
-    node.setAttribute('data-help', '就地查看来源事项与答复，不自动标已读、不启动 Agent。');
+    node.setAttribute('data-help', '在独立项目标签定位“待我处理”中的这条消息，保留当前页面；不自动标已读、不提交答案或启动 Agent。');
     return node;
   }));
   state.footer.replaceChildren(el('p', rows.length ? `已显示 ${rows.length} 条记录` : state.page?.has_more ? '本页没有符合筛选的记录；仍可加载更早记录。' : state.page?.complete ? '没有符合筛选的记录' : '当前已同步范围内，没有符合筛选的记录。', 'hint'));
@@ -239,7 +242,7 @@ export async function openGlobalInbox({ projectId = null, noticeId = null, statu
     && location.pathname === pathname && location.hash === routeHash;
   ui.disposeDetailRequests = () => state.controller.abort();
   const root = el('div', undefined, 'workbench-view global-inbox');
-  const head = el('header', undefined, 'global-inbox-head'); head.append(el('h1', '全局收件箱'), el('p', '各项目保存原记录；这里统一查看和处理，不会自动启动已停止的项目后台。', 'hint'));
+  const head = el('header', undefined, 'global-inbox-head'); head.append(el('h1', '全局收件箱'), el('p', '各项目保存原记录；点击消息在来源项目的“待我处理”中查看和处理，不会自动启动已停止的项目后台。', 'hint'));
   const filters = el('div', undefined, 'filters');
   for (const value of INBOX_STATUSES) {
     const filter = button(LABELS[value], () => openGlobalInbox({ projectId, status: value }), 'ghost');

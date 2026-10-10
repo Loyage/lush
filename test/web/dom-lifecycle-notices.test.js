@@ -138,6 +138,27 @@ test('首次启动 Notice 深链接能加载 Task；待决通知保留问答入�
   expect(deepText(dom.node('detail'))).toContain('Task 告知 61');
 });
 
+test('来源消息深链接进入待我处理中的原记录，告知不跳 Worker 或自动已读', async () => {
+  world.state.notices = [info(62)]; world.state.actions = [];
+  dom.location.hash = '#notices-62'; await boot();
+  expect(ui.indexOpen).toBe('notices'); expect(ui.noticeRecords.selected).toBe(62);
+  expect(ui.noticeRecords.status).toBe('all'); expect(dom.location.hash).toBe('#notices-62');
+  const focus = dom.node('notice-record-detail');
+  expect(deepText(focus)).toContain('Task 告知 62');
+  expect(focus.querySelector('.notice-info')).not.toBeNull();
+  expect(dom.node('notices').querySelector('.notice-info')).not.toBeNull();
+  expect(world.state.actions).toHaveLength(0);
+  await focus.querySelectorAll('button').find(node => node.textContent === '已知').onclick();
+  expect(world.state.actions).toEqual([{ method: 'notice.read', params: { id: 62 } }]);
+  expect(dom.location.hash).toBe('#notices-62');
+  expect(focus.querySelectorAll('button').find(node => node.textContent === '已知')).toBeUndefined();
+  world.state.notices = [{ ...info(63), kind: 'question', status: 'open', source_event_id: null }];
+  world.state.actions = []; dom.location.hash = '#notices-63'; await dom.fire('hashchange');
+  expect(ui.noticeRecords.selected).toBe(63); expect(dom.location.hash).toBe('#notices-63');
+  expect(focus.querySelector('textarea')).not.toBeNull();
+  expect(focus.querySelector('.notice-info')).toBeNull(); expect(world.state.actions).toHaveLength(0);
+});
+
 const banner = () => dom.node('notice-banner');
 const known = () => banner().querySelector('.notice-banner-known');
 const event = (row, type, x, y, extra = {}) => {

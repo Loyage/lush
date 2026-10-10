@@ -168,7 +168,7 @@ function paintNoticeRows(rows) {
   const known = new Map([...container.children].map(node => [Number(node.dataset.id), node]));
   const nodes = orderList(rows, { mode: ui.sidebarSortMode, timeOf: notice => notice.created_at }).map(notice => {
     const node = known.get(notice.id) || button('', () => openNotice(notice.id), 'notice-brief'); node.dataset.id = notice.id;
-    node.className = `notice-brief${ui.noticeRecords?.selected === notice.id || ui.noticeFocus === notice.id ? ' selected' : ''}`;
+    node.className = `notice-brief${notice.kind === 'info' ? ' notice-info' : ''}${ui.noticeRecords?.selected === notice.id || ui.noticeFocus === notice.id ? ' selected' : ''}`;
     node.replaceChildren();
     const row = el('span', undefined, 'row');
     row.append(badge(lifecycleNotice(notice) ? unreadNotice(notice) ? '未读告知' : '已读告知' : STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'),
@@ -267,7 +267,7 @@ export function readNotice(notice) {
 }
 
 let noticeRequest = 0;
-export async function openNotice(noticeId) {
+export async function openNotice(noticeId, { record = false } = {}) {
   if (!positiveId(noticeId)) return;
   const request = ++noticeRequest;
   const previousView = ui.view, source = projectBase(), reads = ui.noticeReadRows;
@@ -275,7 +275,7 @@ export async function openNotice(noticeId) {
   const notice = ui.noticeIndex.get(noticeId) || await readNoticeRecord(noticeId);
   if (!ownsProject() || request !== noticeRequest || ui.view !== previousView || ui.deletedWorkerIds.has(notice.task_id)) return;
   ui.noticeIndex.set(noticeId, notice);
-  if (lifecycleNotice(notice)) {
+  if (lifecycleNotice(notice) && !record) {
     ui.noticeFocus = null;
     // loadDetail returns true only for a successfully rendered, still-current request.
     const loaded = await detail(notice.task_id);
@@ -314,7 +314,7 @@ export function noticePanel(notice, task = null) {
   return linkWorkerNumbers(buildNoticePanel(notice, task));
 }
 function buildNoticePanel(notice, task = null) {
-  const section = el('section', undefined, 'notice focus');
+  const section = el('section', undefined, `notice focus${notice.kind === 'info' ? ' notice-info' : ''}`);
   section.dataset.id = notice.id;
   const head = el('div', undefined, 'notice-head');
   head.append(badge(STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'), el('span', `Worker ${workerLabel(task || notice.task_id, notice.task_worker_number)}`, 'tid'),
@@ -326,6 +326,14 @@ function buildNoticePanel(notice, task = null) {
     else {
       section.append(el('p', notice.body || '（没有补充说明）', 'notice-body'));
       section.append(el('p', notice.answer ? `处理结果：${notice.answer}` : notice.status === 'dismissed' ? '已忽略 · 不代表批准' : '无需答复', 'notice-body'));
+    }
+    if (lifecycleNotice(notice)) {
+      if (unreadNotice(notice)) section.append(button('已知', () => readNotice(notice), 'ghost', {
+        help: '只将这条告知标为已读，不提交答案、不批准合并或调用 Agent。',
+      }));
+      section.append(button('查看 Worker', () => openNotice(notice.id), 'ghost', {
+        help: '打开来源 Worker；成功加载后将这条告知标为已读，不调用 Agent 或批准合并。',
+      }));
     }
     return section;
   }

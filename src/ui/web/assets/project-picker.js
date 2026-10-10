@@ -144,7 +144,6 @@ function projectItem(row, repaint, { compact = false, orderSlot = null } = {}) {
       };
       actions.append(color);
     }
-    const notices = el('a', '处理消息', 'ghost'); notices.href = `/#notices-project-${row.id}`; actions.prepend(notices);
     item.append(actions);
     if (orderSlot) { orderSlot.remove(); item.append(orderSlot); }
   }
@@ -248,7 +247,7 @@ export async function openProjectManager({ push = true } = {}) {
   const view = el('div', undefined, 'workbench-view project-manager');
   const head = el('header', undefined, 'workbench-hero');
   head.append(el('span', 'PROJECT BACKENDS', 'eyebrow'), el('h1', '后台总览'),
-    el('p', '总览此 Host 已登记的项目后台，处理来源项目的消息，或向在线后台发送新指令。读取不会启动后台；关闭项目标签不会停止开发。', 'hint'));
+    el('p', '总览此 Host 已登记的项目后台，或向在线后台发送新指令。消息请从全局收件箱进入来源项目处理。读取不会启动后台；关闭项目标签不会停止开发。', 'hint'));
   const summary = el('p', '正在读取后台状态…', 'hint project-roster-summary'); summary.setAttribute('role', 'status'); head.append(summary);
   const list = el('ul', undefined, 'project-list project-manager-list'); list.id = 'project-list';
   const empty = el('div', undefined, 'workbench-empty'); empty.append(el('strong', '还没有项目入口'), el('p', '输入一个绝对目录登记项目，或先浏览设置和帮助文档。'));

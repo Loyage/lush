@@ -13,12 +13,14 @@ import {initHelp} from '/assets/help.js';
 import {ui} from '/assets/state.js';
 window.requests=[];window.writes=[];window.resetDraft=()=>{ui.questionDrafts.clear();sessionStorage.clear();};
 const record={project_id:'${B}',project_name:'来源项目 B',project:'/tmp/b',online:true,checked_at:'2026-10-09T10:00:00Z',notice:{id:7,task_id:21,task_worker_number:'W162-1',status:'open',kind:'questionnaire',title:'需要决定',created_at:'2026-10-09T09:00:00Z',sync_identity:'${'1'.repeat(32)}',sync_revision:1,sync_epoch:'${'e'.repeat(32)}',body:JSON.stringify({version:1,questions:[{header:'方案',question:'决定 W162-1 的执行方案？',options:[{label:'方案 A',description:'参考 W162-1 的结果',previewHtml:'<p>来源项目 B 的静态预览</p>'},{label:'方案 B',description:'保持现状'}]}]})}};
+const info={...record,notice:{...record.notice,id:8,status:'sent',kind:'info',title:'本轮已结束',body:'告知无需答复',source_event_id:30,read_at:null}};
 window.fetch=async (url,options={})=>{
  requests.push(url);if(options.body){writes.push(JSON.parse(options.body));record.notice.status='answered';record.notice.answer=JSON.parse(options.body).answer;record.notice.answer_source='user';record.notice.sync_revision++;return Response.json(record);}
- if(url.includes('/notice?'))return Response.json(record);
- return Response.json({version:1,items:[record],cursor:null,has_more:false,complete:record.online,projects:[{id:'${B}',name:'来源项目 B',online:record.online,complete:true,checked_at:record.checked_at,error:record.online?null:'离线'}]});
+ if(url.includes('/notice?'))return Response.json(url.includes('id=8')?info:record);
+ return Response.json({version:1,items:[record,info],cursor:null,has_more:false,complete:record.online,projects:[{id:'${B}',name:'来源项目 B',online:record.online,complete:true,checked_at:record.checked_at,error:record.online?null:'离线'}]});
 };
 window.paint=async online=>{record.online=online;await openGlobalInbox({projectId:'${B}',noticeId:7,push:false});};
+window.paintInfo=()=>openGlobalInbox({projectId:'${B}',noticeId:8,push:false});
 window.helpEvents=[];for(const type of ['keydown','focusin','focusout','scroll','pointerover','pointerout','click'])document.addEventListener(type,event=>{helpEvents.push({type,key:event.key,target:event.target.tagName,text:event.target.textContent?.slice(0,32),at:performance.now()});if(helpEvents.length>40)helpEvents.shift()},true);
 initHelp();await paint(true);window.ready=true;`;
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
@@ -80,6 +82,10 @@ try {
     await rpc(`/session/${session}/window/rect`, { width, height });
     await asyncExecute(`const done=arguments[0];document.documentElement.dataset.theme='${theme}';const viewport=document.getElementById('fixture-viewport');viewport.style.width='${width}px';viewport.style.maxWidth='100%';resetDraft();paint(true).then(done);`);
     assert(await execute(`const viewport=document.getElementById('fixture-viewport');return viewport.scrollWidth<=viewport.clientWidth&&document.documentElement.scrollWidth<=innerWidth&&!document.querySelector('button a')&&document.querySelector('iframe').getAttribute('src')==='/p/${B}/api/worker/21/notice/7/preview/0/0'&&document.querySelector('.worker-link').target==='_blank'&&requests.every(url=>url.startsWith('/api/host/'));`), 'layout/source routing/CSP preview/nested control failed');
+    assert(await execute(`const rows=document.querySelectorAll('.global-inbox-row'),q=rows[0],i=rows[1];return q.tagName==='A'&&q.getAttribute('href')==='/p/${B}/#notices-7'&&i.getAttribute('href')==='/p/${B}/#notices-8'&&i.target==='_blank'&&getComputedStyle(q.querySelector('.goal')).color!==getComputedStyle(i.querySelector('.goal')).color&&getComputedStyle(q).backgroundColor!==getComputedStyle(i).backgroundColor;`), 'source record links or decision/info colors are indistinguishable');
+    const questionColor = await execute(`return getComputedStyle(document.querySelector('.global-inbox-detail')).backgroundColor;`);
+    await asyncExecute('const done=arguments[0];paintInfo().then(done);');
+    assert(await execute(`return getComputedStyle(document.querySelector('.global-inbox-detail')).backgroundColor!==${JSON.stringify(questionColor)}&&!document.querySelector('textarea')&&writes.length===0;`), 'info detail uses decision color or performs a mutation');
     await asyncExecute('const done=arguments[0];paint(false).then(done);');
     assert(await execute(`return !document.querySelector('iframe')&&detail.textContent.includes('静态预览暂不可读取')&&writes.length===0;`), 'offline preview/mutation guard failed');
     await execute(`const input=document.querySelector('textarea');input.value='离线草稿';input.dispatchEvent(new Event('input',{bubbles:true}));`);
@@ -102,14 +108,14 @@ try {
     console.log(`PASS ${theme} ${width}x${height}: layout, source links/preview, offline guard, accessible help, draft restoration`);
   }
   const original = await rpc(`/session/${session}/window`, undefined, 'GET');
-  await click('.global-inbox-worker');
+  await click('.global-inbox-row');
   const handles = await rpc(`/session/${session}/window/handles`, undefined, 'GET');
-  assert(handles.length === 2, 'Worker did not open an independent project tab');
+  assert(handles.length === 2, 'Message did not open an independent project tab');
   await rpc(`/session/${session}/window`, { handle: handles.find(handle => handle !== original) });
-  assert(await waitUrl(`http://127.0.0.1:${server.port}/p/${B}/#worker-21`), `Worker tab did not preserve source project identity: ${await rpc(`/session/${session}/url`, undefined, 'GET')}`);
+  assert(await waitUrl(`http://127.0.0.1:${server.port}/p/${B}/#notices-7`), `Message tab did not preserve source project identity: ${await rpc(`/session/${session}/url`, undefined, 'GET')}`);
   await rpc(`/session/${session}/window`, undefined, 'DELETE'); await rpc(`/session/${session}/window`, { handle: original });
   assert(await execute(`return detail.textContent.includes('离线草稿')&&writes.length===0;`), 'opening source Worker destroyed draft or answered a question');
-  console.log('PASS source Worker opens in a new project tab and preserves original draft');
+  console.log('PASS source message opens its exact project record in a new tab and preserves original draft');
   await execute(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='确认全部选择并继续 Worker').click();`);
   assert(await wait(`detail.textContent.includes('用户答复')&&!document.querySelector('textarea')`), 'durable questionnaire ACK was not applied immediately');
   assert(await execute(`return writes.length===1&&writes[0].project_id==='${B}'&&writes[0].id===7&&writes[0].method==='notice.answer'&&writes[0].expected_identity==='${'1'.repeat(32)}';`), 'questionnaire write lost source identity or ran twice');

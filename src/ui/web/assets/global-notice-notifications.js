@@ -1,7 +1,7 @@
 import { api } from './api.js';
 import { onPrefChange, pollingIntervals, readPref } from './prefs.js';
 import { noticeChannelEnabled, unreadNotice } from './notice-kind.js';
-import { inboxHash, inboxIdentity, inboxNotificationKey, pendingNotice, validateInboxItem, validateInboxPage } from './global-inbox-model.js';
+import { inboxProjectHref, inboxIdentity, inboxNotificationKey, pendingNotice, validateInboxItem, validateInboxPage } from './global-inbox-model.js';
 
 /** Legacy projections keep the existing key; real source identities distinguish reused records. */
 export async function sendGlobalNotification(item, { isCurrent = () => true } = {}) {
@@ -13,11 +13,10 @@ export async function sendGlobalNotification(item, { isCurrent = () => true } = 
     if (!enabled() || !globalThis.Notification || globalThis.isSecureContext === false || Notification.permission !== 'granted') return;
     try { if (localStorage.getItem(key)) return; } catch { /* private browsing */ }
     const notification = new Notification(`Lush · ${item.project_name}`, { body: item.notice.title.slice(0, 500), tag: key });
-    const target = `/${inboxHash(item.project_id, item.notice.id)}`;
+    const target = inboxProjectHref(item.project_id, item.notice.id);
     notification.onclick = () => {
-      // Never replace a project tab and lose its unsubmitted input.
-      if (location.pathname === '/') { globalThis.window?.focus?.(); location.hash = target.slice(1); }
-      else globalThis.window?.open?.(target, '_blank', 'noopener');
+      // Keep both the global workbench and any project's unsubmitted input intact.
+      globalThis.window?.open?.(target, '_blank', 'noopener');
       notification.close();
     };
     try { localStorage.setItem(key, '1'); } catch { /* OS tag and this observer's baseline still deduplicate */ }

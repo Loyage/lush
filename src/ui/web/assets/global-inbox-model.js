@@ -33,6 +33,11 @@ export const inboxHash = (projectId, noticeId) => {
   if (!validProjectId(projectId) || !positiveId(noticeId)) throw new Error('无效的事项来源身份');
   return `#inbox-notice-${projectId}-${noticeId}`;
 };
+/** Open the exact record in its source project's 待我处理, preserving the global tab. */
+export function inboxProjectHref(projectId, noticeId) {
+  if (!validProjectId(projectId) || !positiveId(noticeId)) throw new Error('无效的事项来源身份');
+  return `/p/${projectId}/#notices-${noticeId}`;
+}
 export const inboxMatches = (item, status) => status === 'all' || (status === 'open' ? pendingNotice(item.notice)
   : status === 'unread' ? unreadNotice(item.notice) : status === 'automatic' ? automaticNotice(item.notice)
     : status === 'failed' ? item.notice.lifecycle_type === 'failed' : false);

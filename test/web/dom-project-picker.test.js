@@ -41,12 +41,12 @@ test('项目管理画在主内容，不再 inert 应用或显示阻塞 gate', as
   expect(dom.node('detail').querySelector('a.project-open').target).toBe('_blank');
 });
 
-test('后台总览展示真实进程摘要、来源收件箱及指令输入，刷新不丢草稿或另起后台', async () => {
+test('后台总览展示真实进程摘要及指令输入，不再提供处理消息按钮，刷新不丢草稿或另起后台', async () => {
   state = { ...state, projects: [{ ...row, running: true, summary: { pid: 1234, agents_total: 2, notices: 3, pending_merges: 1 } }] };
   await picker.openProjectManager({ push: false });
   const panel = dom.node('detail'); expect(deepText(panel)).toContain('PID 1234'); expect(deepText(panel)).toContain('执行中 2');
   expect(deepText(panel)).toContain('在线后台 1');
-  expect(panel.querySelectorAll('a').find(link => link.textContent === '处理消息').href).toBe(`/#notices-project-${ID}`);
+  expect(panel.querySelectorAll('a').find(link => link.textContent === '处理消息')).toBeUndefined();
   const slot = panel.querySelector('.project-order'); await slot.querySelector('button').onclick();
   const input = slot.querySelector('textarea'); input.value = '未发送的工作'; input.oninput();
   const before = requests.length; await picker.refreshProjectList();

@@ -267,8 +267,10 @@ test('delivery uses the existing canonical-source storage key, deduplicates acro
     expect(banners).toHaveLength(1); expect(locks[0]).toBe(`lush.notice-delivered:${record.project}:7:${record.notice.created_at}`);
     expect(banners[0].title).toBe('Lush · 项目 b');
     dom.location.pathname = `/p/${A}/`; dom.location.hash = '#worker-44'; banners[0].onclick();
-    expect(opened).toEqual([[`/#inbox-notice-${B}-7`, '_blank', 'noopener']]); expect(dom.location.hash).toBe('#worker-44');
-    dom.location.pathname = '/'; banners[0].onclick(); expect(dom.location.hash).toBe(`#inbox-notice-${B}-7`);
+    expect(opened).toEqual([[`/p/${B}/#notices-7`, '_blank', 'noopener']]); expect(dom.location.hash).toBe('#worker-44');
+    dom.location.pathname = '/'; dom.location.hash = '#projects'; banners[0].onclick();
+    expect(dom.location.hash).toBe('#projects');
+    expect(opened.at(-1)).toEqual([`/p/${B}/#notices-7`, '_blank', 'noopener']);
     expect(banners[0].closed).toBe(true);
   } finally { globalThis.navigator = previousNavigator; if (saved === undefined) delete globalThis.Notification; else globalThis.Notification = saved; dom.restore(); }
 });

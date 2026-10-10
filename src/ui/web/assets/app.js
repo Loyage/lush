@@ -138,6 +138,12 @@ function onHashChange() {
   const input = /^#input-(draft|input)-([1-9]\d*)$/.exec(hash);
   if (input && Number.isSafeInteger(Number(input[2]))) return openInputs({ item: { kind: input[1], id: Number(input[2]) }, push: false });
   if (hash === '#worker-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
+  const recordId = /^#notices-([1-9]\d*)$/.exec(hash)?.[1];
+  if (recordId && Number.isSafeInteger(Number(recordId))) {
+    ui.selectNoticeFilter?.('all');
+    openResource('notices', { push: false });
+    return openNotice(Number(recordId), { record: true }).catch(report);
+  }
   const noticeId = /^#notice-([1-9]\d*)$/.exec(hash)?.[1];
   if (noticeId && Number.isSafeInteger(Number(noticeId))) return openNotice(Number(noticeId)).catch(report);
   const resourceRoute = /^#(notices|workers)$/.exec(hash)?.[1];
