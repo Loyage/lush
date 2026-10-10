@@ -1,6 +1,5 @@
 import { test, expect, beforeEach, afterAll } from 'bun:test';
-import { installDom, deepText, answerDialog, dialogText } from '../dom-stub.js';
-import { until } from '../helpers.js';
+import { installDom, deepText } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
 
 const world = makeWorld();
@@ -25,15 +24,17 @@ const { renderTaskGraph } = await import('../../src/ui/web/assets/render-task-gr
 const { appendInputBlocker, inputQueue, appendInputAcknowledgement } = await import('../../src/ui/web/assets/worker-input.js');
 const { closeDialog } = await import('../../src/ui/web/assets/dialog.js');
 const { resetPrefs } = await import('../../src/ui/web/assets/prefs.js');
+const { initComposer } = await import('../../src/ui/web/assets/composer.js');
 const task = { id: 297, worker_number: 'W153', parent_id: 1, role: 'agent', task_kind: 'order',
   goal: '冻结期间也可以追加', title: '冻结期间也可以追加', branch: 'lush/297', workspace: '/tmp/297',
   target_branch: 'main', status: 'waiting', integration: 'pending', children: [], deps: [], dependents: [] };
 const buttonOf = (root, label) => [...root.querySelectorAll('button')].find(button => button.textContent === label);
-beforeEach(() => {
+beforeEach(async () => {
   resetUiState(); resetPrefs(); closeDialog(); dom.node('modal').hidden = true;
   dom.node('detail').replaceChildren(); document.activeElement = null; calls.length = 0;
   graph = { total: 1, nodes: [task], edges: [] };
   messageResult = { ...task, input_queue: { buffered: 2, reason: '等待固定交付结束' } }; rejectMessage = false;
+  dom.node('input').value = ''; await initComposer();
 });
 afterAll(() => { closeDialog(); dom.restore(); });
 
@@ -82,8 +83,8 @@ test('详情和两种图模式保留冻结追加入口，明确显示暂存条�
     expect(panel.querySelector('.worker-input-queue').textContent).toContain('等待固定交付结束');
     expect(buttonOf(panel, '同步父分支').disabled).toBe(true);
     for (const minimal of [false, true]) {
-      const card = paintGraph(row, minimal), send = buttonOf(card, '向此 Worker 输入');
-      expect(send.disabled).not.toBe(true); expect(send.classList.contains('agent-call')).toBe(true);
+      const card = paintGraph(row, minimal), send = buttonOf(card, '追加输入');
+      expect(send.disabled).not.toBe(true); expect(send.classList.contains('agent-call')).toBe(false);
       expect(send.getAttribute('data-help')).toContain('不打断在途交付或源侧修复');
       expect(deepText(card)).toContain(minimal ? '暂存输入 2 条' : '已暂存 2 条追加输入');
       expect(deepText(card)).toContain('等待固定交付结束');
@@ -99,23 +100,27 @@ test('冻结追加可见不放开归档或已关闭祖先的追加入口', () =>
   const parent = { id: 1, worker_number: 'W12', task_kind: 'order', role: 'agent', status: 'completed', title: '已验收', branch: 'lush/1' };
   for (const minimal of [false, true]) {
     const card = paintGraph(task, minimal, [parent]);
-    const send = buttonOf(card, '向此 Worker 输入');
+    const send = buttonOf(card, '追加输入');
     expect(send.disabled).toBe(true); expect(send.parentNode.getAttribute('data-help')).toContain('W12');
   }
 });
 
-test('图追加失败重开输入框保留正文，成功确认保存但不冒充 Agent 已收到', async () => {
+test('图追加失败保留底部正文及目标，成功确认保存但不冒充 Agent 已收到', async () => {
   const card = paintGraph({ ...task, reservation: { status: 'resolving' }, input_queue: { buffered: 1, reason: '等待修复结束' } });
   rejectMessage = true;
-  const sending = buttonOf(card, '向此 Worker 输入').onclick();
-  expect(dialogText(dom)).toContain('已暂存 1 条追加输入');
-  await answerDialog(dom, '发送消息', '保住这条需求');
-  await until(() => dialogText(dom).includes('正文已保留'));
-  expect(dom.node('modal').querySelector('input').value).toBe('保住这条需求');
+  dom.node('input').value = '保住这条需求';
+  await buttonOf(card, '追加输入').onclick();
+  expect(dom.node('composer-mode-behavior').textContent).toContain('已暂存 1 条追加输入');
+  expect(calls).toHaveLength(0);
+  await dom.node('input-form').onsubmit({ preventDefault() {} });
+  expect(dom.node('input').value).toBe('保住这条需求');
+  expect(ui.composerAppendTarget).toEqual({ id: 297 });
   expect(calls).toHaveLength(1);
-  await answerDialog(dom, '发送消息', '修正后的需求'); await sending;
+  dom.node('input').value = '修正后的需求'; dom.node('input').oninput();
+  await dom.node('input-form').onsubmit({ preventDefault() {} });
   expect(calls).toHaveLength(2); expect(calls.at(-1).params.body).toBe('修正后的需求');
   expect(dom.node('error').textContent).toContain('已保存给 Worker W153，等待投递');
+  expect(dom.node('input-form').dataset.mode).toBe('create');
   expect(dom.node('modal').hidden).toBe(true);
 });
 
@@ -123,8 +128,9 @@ test('旧服务缺队列字段不展示虚构计数，图追加确认仅承诺�
   messageResult = { ...task };
   const card = paintGraph({ ...task, freeze: {} });
   expect(card.querySelector('.worker-input-queue')).toBeNull();
-  const sending = buttonOf(card, '向此 Worker 输入').onclick();
-  await answerDialog(dom, '发送消息', '继续'); await sending;
+  await buttonOf(card, '追加输入').onclick();
+  dom.node('input').value = '继续';
+  await dom.node('input-form').onsubmit({ preventDefault() {} });
   expect(dom.node('error').textContent).toContain('投递状态暂不可用');
   expect(dom.node('error').textContent).not.toContain('已投递');
 });

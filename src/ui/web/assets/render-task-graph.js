@@ -2,7 +2,7 @@ import { $, badge, button, el, roleBadge } from './dom.js';
 import { workerKind, workerKindLabel } from './worker-kind.js';
 import { api, action } from './api.js';
 import { projectBase } from './route.js';
-import { confirmDialog, promptDialog } from './dialog.js';
+import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { absolute, INTEGRATION, statusOf, interruptReason, worktreeLabel, isHistoricalDelivery } from './format.js';
 import { show } from './messages.js';
@@ -22,7 +22,8 @@ import { progressReportingEnabled, progressStats, renderGraphProgress } from './
 import { deliveryControls } from './render-delivery.js';
 import { workerHooks } from './render-hooks.js';
 import { guardedAction, iterationControls } from './render-iteration.js';
-import { appendInputBlocker, inputQueueText, inputWaitReason, appendInputAcknowledgement } from './worker-input.js';
+import { appendInputBlocker, inputQueueText } from './worker-input.js';
+import { appendToWorker } from './composer.js';
 import { workerLabel, rememberWorkers } from './worker-label.js';
 
 function syncGraphDevicePreference() {
@@ -288,28 +289,9 @@ function appendTaskActions(row, node, mergeAllByBranch, inputWorkers) {
   const deletion = workerDeleteControl(node, { refresh: loadTaskGraph });
   if (deletion) row.append(deletion);
   if (['order', 'child'].includes(workerKind(node)) && !ENDED.has(node.status) && !isHistoricalDelivery(node)) {
-    row.append(guardedAction(button('向此 Worker 输入', async () => {
-      const view = ui.view;
-      let value = '', failure = null;
-      while (ui.view === view) {
-        const body = await promptDialog({ title: `发给 Worker ${workerLabel(node)}`, label: '输入', value,
-          message: failure || inputQueueText(node) || inputWaitReason(node), confirmLabel: '发送消息',
-          confirmHelp: agentHelp('立即保存输入；冻结期间由 Worker 暂存，不打断在途交付或源侧修复，解除冻结且 Agent 静息后投递；暂停中仍需显式继续。'), agent: true });
-        if (!body || ui.view !== view) return;
-        let result;
-        try { result = await action('worker.message', { id: node.id, body }, { refresh: false }); }
-        catch (error) {
-          value = body; failure = `追加失败：${error.message}；正文已保留，可修改后重试。`;
-          if (ui.view === view) show(failure, 'error');
-          continue;
-        }
-        if (ui.view !== view) return;
-        show(appendInputAcknowledgement(node, result));
-        try { await loadTaskGraph(); }
-        catch (error) { show(`输入已保存，但页面更新失败：${error.message}；请刷新，不要重复提交。`, 'error'); }
-        return;
-      }
-    }, 'ghost', { agent: true, help: agentHelp('立即保存追加输入；冻结期间由 Worker 暂存，解除冻结且 Agent 静息后投递，不打断在途交付或源侧修复。') }), appendInputBlocker(node, inputWorkers)));
+    row.append(guardedAction(button('追加输入', () => appendToWorker(node), 'ghost', {
+      help: '将底部输入框切换为向该 Worker 追加输入，并保留已输入的正文；现在不发送、不调用 Agent。冻结期间发送的输入由 Worker 暂存，不打断在途交付或源侧修复，解除冻结且 Agent 静息后投递；暂停中仍需点「开始 / 继续」。',
+    }), appendInputBlocker(node, inputWorkers)));
   }
 }
 
@@ -610,7 +592,8 @@ export async function loadTaskGraph({ summary = false } = {}) {
   return graph;
 }
 function hasOpenActions() {
-  return Boolean($('detail').querySelector('.task-graph-actions-popover[data-open="true"]')
+  return Boolean($('detail').querySelector('.hook-compact[data-completion-editing="true"]')
+    || $('detail').querySelector('.task-graph-actions-popover[data-open="true"]')
     || (!$('modal').hidden && $('modal').children.length)
     || document.querySelector?.('dialog[open], [popover]:popover-open'));
 }

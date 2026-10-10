@@ -377,7 +377,7 @@ test('historical showcase reservations are read-only in detail and graph for eve
     const row = sourceRow();
     expect(row.querySelector('.delivery-controls')).toBeNull();
     expect(row.querySelector('.iteration-controls')).toBeNull();
-    expect(buttonOf(row, '向此 Worker 输入')).toBeUndefined();
+    expect(buttonOf(row, '追加输入')).toBeUndefined();
     expect(buttonOf(row, '归档')).toBeUndefined();
     expect(buttonOf(row, '请求合并')).toBeUndefined();
   }

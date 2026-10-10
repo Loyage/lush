@@ -1,13 +1,22 @@
 import { test, expect, beforeEach, afterAll } from 'bun:test';
-import { installDom, deepText, answerDialog, dialogText } from './project-dom.js';
+import { installDom, deepText, dialogText } from './project-dom.js';
+import { until } from '../helpers.js';
 import { makeWorld } from './dom-world.js';
 
 const world = makeWorld();
-let graph;
-const dom = installDom({ fetch: (url, options) => String(url).split('?')[0] === '/api/worker-graph'
-  ? { ok: true, json: async () => graph } : world.fetchImpl(url, options) });
+let graph, completionWrite;
+const json = value => ({ ok: true, json: async () => value });
+const dom = installDom({ fetch: (url, options) => {
+  if (String(url).split('?')[0] === '/api/worker-graph') return json(graph);
+  if (String(url).endsWith('/api/action')) {
+    const call = JSON.parse(options.body);
+    if (call.method === 'worker.completion' && completionWrite) return completionWrite(call);
+  }
+  return world.fetchImpl(url, options);
+} });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
+const { closeDialog } = await import('../../src/ui/web/assets/dialog.js');
 const { showHelp, hideHelp } = await import('../../src/ui/web/assets/help.js');
 const { renderTaskGraph, loadTaskGraph } = await import('../../src/ui/web/assets/render-task-graph.js');
 const { readPref, setPref, resetPrefs, resetDevicePreferences, refreshDevicePreferences, saveDevicePreference } = await import('../../src/ui/web/assets/prefs.js');
@@ -30,6 +39,7 @@ beforeEach(async () => {
   dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/';
   localStorage.removeItem('lush.taskGraph.collapsed');
   dom.node('detail').replaceChildren(); document.activeElement = null;
+  closeDialog(); dom.node('modal').hidden = true; completionWrite = null;
   resetPrefs(); world.state.devicePreferences.values.taskGraphMinimal = true; graph = fixture();
   await boot(); await dom.node('task-graph-open').onclick();
 });
@@ -220,7 +230,7 @@ test('切换归档显示不丢弃未提交的待决答复，也不提前改变�
   expect(input.value).toBe('我还在写');
 });
 
-test('更多操作惰性创建、沿用 Agent 帮助与原有输入弹窗，展开期间轮询不卸载菜单', async () => {
+test('更多操作惰性创建，追加输入定向到底部且保留正文，展开期间轮询不卸载菜单', async () => {
   await enable();
   const trigger = card(2).querySelector('.task-graph-more-trigger');
   const panel = card(2).querySelector('.task-graph-actions-popover');
@@ -233,8 +243,8 @@ test('更多操作惰性创建、沿用 Agent 帮助与原有输入弹窗，展�
   expect(trigger.getAttribute('aria-expanded')).toBe('true');
   graph.nodes[1].title = '新标题'; await loadTaskGraph();
   expect(card(2).querySelector('.task-graph-actions-popover')).toBe(panel);
-  const input = panel.querySelectorAll('button').find(button => button.textContent === '向此 Worker 输入');
-  expect(input.classList.contains('agent-call')).toBe(true);
+  const input = panel.querySelectorAll('button').find(button => button.textContent === '追加输入');
+  expect(input.classList.contains('agent-call')).toBe(false);
   expect(input.getAttribute('data-help')).toContain('Agent');
   showHelp(input);
   expect(dom.node('help-tip').parentNode).toBe(panel);
@@ -244,11 +254,21 @@ test('更多操作惰性创建、沿用 Agent 帮助与原有输入弹窗，展�
   // Stub 不实现 top layer；原生 Esc/点击外部/焦点顺序由真实浏览器回归覆盖。
   beforetoggle({ newState: 'closed' });
   expect(document.activeElement).toBe(trigger);
-  const sending = input.onclick();
-  expect(dialogText(dom)).toContain('发给 Worker #2');
-  await answerDialog(dom, '发送消息', '继续实现'); await sending;
-  expect(world.state.actions.at(-1)).toEqual({ method: 'worker.message', params: { id: 2, body: '继续实现' } });
+  const count = world.state.actions.length;
+  dom.node('input').value = '继续实现'; await input.onclick();
+  expect(dom.node('modal').hidden).toBe(true);
+  expect(world.state.actions.length).toBe(count);
+  expect(document.activeElement).toBe(dom.node('input'));
+  expect(ui.composerAppendTarget).toEqual({ id: 2 });
+  expect(dom.node('input-form').dataset.mode).toBe('append');
+  expect(dom.node('input').value).toBe('继续实现');
+  expect(dom.node('draft-commit').classList.contains('agent-call')).toBe(true);
+  await dom.node('input-form').onsubmit({ preventDefault() {} });
+  await loadTaskGraph();
   expect(deepText(card(2))).toContain('新标题');
+  expect(world.state.actions.at(-1)).toEqual({ method: 'worker.message', params: { id: 2, body: '继续实现' } });
+  expect(ui.view.id).toBe('task-graph');
+  expect(dom.node('input-form').dataset.mode).toBe('create');
 });
 
 test('极简菜单复用合并、待决入口且冻结时可追加，不内嵌待决表单', async () => {
@@ -261,10 +281,58 @@ test('极简菜单复用合并、待决入口且冻结时可追加，不内嵌�
   graph.nodes[1].freeze = { task_id: 99, reason: '固定提交冻结' }; renderTaskGraph(graph);
   expect(deepText(card(2))).toContain('冻结');
   card(2).querySelector('.task-graph-more-trigger').onclick();
-  const input = card(2).querySelectorAll('button').find(button => button.textContent === '向此 Worker 输入');
+  const input = card(2).querySelectorAll('button').find(button => button.textContent === '追加输入');
   expect(input.disabled).toBe(false);
-  expect(input.classList.contains('agent-call')).toBe(true);
-  expect(input.getAttribute('data-help')).toContain('冻结期间由 Worker 暂存');
+  expect(input.classList.contains('agent-call')).toBe(false);
+  expect(input.getAttribute('data-help')).toContain('冻结期间发送的输入由 Worker 暂存');
+});
+
+test('树菜单直接展开自动链，revision 写入单飞且在途轮询不卸载控件', async () => {
+  graph.nodes[1].hooks = { revision: 'chain-1', mounts: [], completion: { level: 'off', min_level: 'off', editable: true, state: 'idle' } };
+  renderTaskGraph(graph);
+  const panel = card(2).querySelector('.task-graph-actions-popover');
+  card(2).querySelector('.task-graph-more-trigger').onclick();
+  const chain = panel.querySelector('.hook-compact');
+  expect(deepText(chain)).toContain('自动链'); expect(deepText(chain)).not.toContain('Hooks');
+  const choice = level => chain.querySelectorAll('.hook-completion-level').find(button => button.dataset.level === level);
+  expect(choice('off').getAttribute('aria-pressed')).toBe('true');
+  expect(choice('merge').classList.contains('agent-call')).toBe(true);
+  const writes = []; let finish;
+  completionWrite = call => { writes.push(call); return new Promise(resolve => { finish = resolve; }); };
+  const saving = choice('merge').onclick(); await until(() => finish);
+  expect(writes).toEqual([{ method: 'worker.completion', params: { id: 2, level: 'merge', expected_revision: 'chain-1' } }]);
+  expect(choice('accept').disabled).toBe(true); await choice('merge').onclick();
+  await loadTaskGraph();
+  expect(card(2).querySelector('.task-graph-actions-popover')).toBe(panel);
+  expect(writes).toHaveLength(1);
+  graph.nodes[1].hooks = { ...graph.nodes[1].hooks, revision: 'chain-2', completion: { level: 'merge', min_level: 'off', editable: true, state: 'idle' } };
+  finish(json({ ...graph.nodes[1].hooks, worker_id: 2 })); await saving;
+  card(2).querySelector('.task-graph-more-trigger').onclick();
+  const updated = card(2).querySelector('.hook-compact');
+  expect(updated.querySelectorAll('.hook-completion-level').find(button => button.dataset.level === 'merge').getAttribute('aria-pressed')).toBe('true');
+  const accepting = updated.querySelectorAll('.hook-completion-level').find(button => button.dataset.level === 'accept').onclick();
+  expect(dialogText(dom)).toContain('worktree/ref');
+  closeDialog(); await accepting; expect(writes).toHaveLength(1);
+});
+
+test('两种树模式的自动链保留 child 只读、冻结与版本缺失门禁', async () => {
+  for (const details of [false, true]) {
+    if (details) await enableDetails();
+    for (const change of [{ task_kind: 'child' }, { reservation: { status: 'requested' } }, { missingRevision: true }]) {
+      graph.nodes[1] = { ...fixture().nodes[1], ...change, hooks: { mounts: [],
+        ...(change.missingRevision ? {} : { revision: 'chain-1' }),
+        completion: { level: 'merge', min_level: 'off', editable: true, locked: false, state: 'idle' } } };
+      renderTaskGraph(graph);
+      card(2).querySelector('.task-graph-more-trigger').onclick();
+      const levels = card(2).querySelector('.hook-compact').querySelectorAll('.hook-completion-level');
+      expect(levels).toHaveLength(3);
+      for (const control of levels) {
+        expect(control.disabled).toBe(true);
+        expect(control.parentNode.getAttribute('data-help')).toBeTruthy();
+        expect(control.parentNode.tabIndex).toBe(0);
+      }
+    }
+  }
 });
 
 test('图模式是权威设备偏好，旧项目cache不覆盖它；无localStorage仍可保存', async () => {

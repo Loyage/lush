@@ -235,10 +235,13 @@ test('project Hooks links to chain help instead of repeating documentation; buil
   expect(type.children.map(option => option.value)).not.toContain('archive_worker');
 });
 
-test('compact graph entry remains read-only and shares highest level', () => {
-  const compact = workerHooks(taskFor('accept'), { compact: true }); expect(deepText(compact)).toContain('自动链：自动到验收');
+test('compact graph entry expands the shared highest-stage controls without the Hook editor', () => {
+  const compact = workerHooks(taskFor('accept'), { compact: true }); expect(deepText(compact)).toContain('自动链');
   expect(compact.querySelector('select')).toBeNull(); expect(compact.querySelector('input')).toBeNull();
-  expect(compact.querySelector('button').classList.contains('agent-call')).toBe(false);
+  expect(compact.querySelector('.hook-management')).toBeNull();
+  expect(compact.querySelectorAll('.hook-completion-level').map(button => button.dataset.level)).toEqual(['off', 'merge', 'accept']);
+  expect(compact.querySelectorAll('.hook-completion-level').find(button => button.dataset.level === 'accept').getAttribute('aria-pressed')).toBe('true');
+  expect(compact.querySelectorAll('.hook-completion-level').find(button => button.dataset.level === 'merge').classList.contains('is-included')).toBe(true);
 });
 
 test('detail polling preserves in-flight authorization and open management, while refreshing results when idle', async () => {

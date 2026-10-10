@@ -260,7 +260,7 @@ test('detail and graph expose the same awaiting acceptance actions and continuin
   expect(buttonOf(panel, '清理资源')).toBeUndefined();
   expect(buttonOf(panel, '验收')).toBeTruthy(); expect(buttonOf(panel, '验收并归档')).toBeUndefined();
   expect(buttonOf(panel, '同步父分支')).toBeTruthy();
-  expect(buttonOf(panel, '向此 Worker 输入').classList.contains('agent-call')).toBe(true);
+  expect(buttonOf(panel, '追加输入').classList.contains('agent-call')).toBe(false);
   renderDetail({ ...task, status: 'waiting', integration: 'pending', head_commit: 'c'.repeat(40),
     merge_readiness: { ready: true, reason: null } }, null, null, null);
   expect(buttonOf(dom.node('detail'), '合并')).toBeTruthy();

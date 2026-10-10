@@ -225,7 +225,7 @@ function mountCard(task, mount, model, refresh, ownsPage, { setEditing = () => {
   row.append(parameters(mount, catalogue || ui.hookCatalogue)); return row;
 }
 
-/** Synchronous inspect projection; graph uses the same compact, non-mutating entry. */
+/** Synchronous inspect projection; graph reuses stage controls without the full Hook editor. */
 export function workerHooks(task, { refresh = () => detail(task.id), compact = false } = {}) {
   if (!['order', 'child', 'main', 'owner'].includes(workerKind(task)) || isHistoricalDelivery(task)) return null;
   const identity = ui.view, project = projectApi('/api/hooks'), ownsPage = () => ui.view === identity && sameProject(project);
@@ -237,6 +237,11 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   const items = model ? mounts : fallback;
   if (compact) {
     const row = el('div', undefined, 'hook-compact');
+    if (completion && ['order', 'child'].includes(workerKind(task))) {
+      row.append(el('strong', '自动链', 'worker-hooks-label'), autoCompletionControl(task, { ...model, completion }, refresh, ownsPage,
+        editing => { row.dataset.completionEditing = String(editing); }));
+      return row;
+    }
     row.append(button(`Hooks${model ? ` · ${items.filter(item => item.enabled).length} 已启用` : ''}`, () => detail(task.id), 'ghost hook-button',
       { help: '打开此 Worker 详情中的已挂载 Hooks；只查看，不启动 Agent。' }));
     if (['order', 'child'].includes(workerKind(task))) row.append(el('span', completion ? `自动链：${COMPLETION_LEVELS[completion.level] || '级别未知'} · ${STATES[completion.state] || completion.state || '状态未知'}`

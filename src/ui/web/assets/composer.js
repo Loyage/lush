@@ -130,9 +130,11 @@ function selectedParentLabel() {
   const option = [...select.children].find(node => node.value === select.value);
   return option?.dataset.label ?? option?.textContent ?? select.value;
 }
-/** Select the current Worker without sending anything or discarding a draft. */
+/** Select an explicitly chosen detail/tree Worker without sending or discarding a draft. */
 export function appendToWorker(task) {
-  if (ui.view?.id !== 'task' || ui.selected !== task.id) return;
+  const inDetail = ui.view?.id === 'task' && ui.selected === task.id;
+  const inGraph = ui.view?.id === 'task-graph' && ui.taskGraphIds?.has(task.id);
+  if (!inDetail && !inGraph) return;
   ui.composerTask = task;
   ui.composerAppendTarget = { id: task.id };
   syncComposer();
@@ -323,7 +325,7 @@ async function submitInput(mode) {
     }
     update = { identity, submission, view, appendTarget: ui.composerAppendTarget,
       // The just-sent inbox may refresh its detail after returning to creation, never re-enter append.
-      detailId: target.id ?? null,
+      detailId: view?.id === 'task' ? target.id ?? null : null,
       editRevision: ui.composerEditRevision, referenceRevision: ui.composerReferenceRevision, canNavigate: untouched };
   } catch (error) { if (ui.composerIdentity === identity) show(error.message, 'error'); }
   finally { if (ui.composerIdentity === identity) { ui.composerSubmitting = false; syncComposer(); } }
