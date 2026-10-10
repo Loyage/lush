@@ -2,7 +2,7 @@
 
 export const STATUS = {
   queued: { label: '排队', icon: '○' }, running: { label: '运行中', icon: '●' },
-  waiting: { label: '等子 Worker', icon: '◐' }, awaiting: { label: '等你决定', icon: '◔' },
+  waiting: { label: '静息', icon: '◐' }, awaiting: { label: '等你决定', icon: '◔' },
   paused: { label: '已暂停', icon: '⏸' },
   awaiting_acceptance: { label: '待验收', icon: '◈' },
   completed: { label: '已完成', icon: '✓' }, failed: { label: '失败', icon: '✗' }, cancelled: { label: '已取消', icon: '⊘' },

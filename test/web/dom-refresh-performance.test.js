@@ -76,7 +76,7 @@ test('waiting parent derives all child statuses; concurrency and parent number c
   const node = row(1), goal = node.querySelector('.goal');
   expect(deepText(node)).toContain('1 个在跑 · 1 个未结束');
   paint(data([parent, { ...child, status: 'completed' }]));
-  expect(deepText(node)).toContain('0 个在跑 · 0 个未结束'); expect(node.querySelector('.goal')).toBe(goal);
+  expect(deepText(node)).toContain('静息 · 等待后续事件'); expect(node.querySelector('.goal')).toBe(goal);
   paint({ ...data([{ ...parent, status: 'queued' }]), status: { concurrency: 9 } });
   expect(deepText(node)).toContain('上限 9');
   paint(data([{ ...parent, status: 'awaiting_acceptance', task_kind: 'child', parent_id: 99, parent_worker_number: 'W42' }]));
@@ -186,7 +186,7 @@ test('reference descriptors update original goal/status/number without rebuildin
   await dom.fire('contextmenu', { target: node, clientX: 1, clientY: 1, preventDefault() {} });
   await findByText(dom.node('context-menu'), '引用：Worker W71-8').onclick();
   expect(ui.composerReferences[0]).toMatchObject({ label: 'Worker W71-8', target: { task_id: 1 }, location: { view: 'task-tree', task_id: 1 } });
-  expect(ui.composerReferences[0].quote).toContain('changed original goal'); expect(ui.composerReferences[0].quote).toContain('状态：等子 Worker');
+  expect(ui.composerReferences[0].quote).toContain('changed original goal'); expect(ui.composerReferences[0].quote).toContain('状态：静息');
   expect(row(1)).toBe(node);
 });
 

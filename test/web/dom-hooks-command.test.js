@@ -128,7 +128,7 @@ test('main and example full edit use hook_update without enabled parameter, reta
   const node = main(); await btn('编辑挂载', node).onclick();
   const form = node.querySelector('.hook-form'); field(form, '快捷指令版本').value = 'tags-command:1';
   field(form, 'Hook 名称').value = '自己设计'; field(form, '触发节点').value = 'agent.failed'; field(form, '触发节点').onchange();
-  field(form, '挂载方式').value = 'once'; field(form, '等子 Worker').checked = true;
+  field(form, '挂载方式').value = 'once'; field(form, '静息').checked = true;
   expect(btn('保存挂载', node).classList.contains('agent-call')).toBe(false);
   intercept = (_path, body) => body?.method === 'worker.hook_update' ? { ok: false, json: async () => ({ error: 'revision conflict' }) } : null;
   await btn('保存挂载', node).onclick();

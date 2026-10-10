@@ -32,7 +32,7 @@ export const DEFAULT_FILTERS = Object.freeze({
 
 const SECTION_IDS = new Set(SIDEBAR_SECTIONS.map(section => section.id));
 
-const STATUS_LABEL = { queued: '排队', running: '运行中', waiting: '等子 Worker', awaiting: '等你决定', paused: '已暂停',
+const STATUS_LABEL = { queued: '排队', running: '运行中', waiting: '静息', awaiting: '等你决定', paused: '已暂停',
   awaiting_acceptance: '待验收', completed: '已完成', failed: '失败', cancelled: '已取消' };
 const SPEC_STATUS_LABEL = { pending: '排队中', planned: '已排期', dropped: '已丢弃' };
 const ROLE_LABEL = ROLE;

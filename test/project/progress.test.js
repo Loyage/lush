@@ -191,7 +191,7 @@ test('progress timing excludes waiting and surfaces it as a separate plan entry'
   expect(steps[1]).toMatchObject({ key: 'implement', status: 'pending', work_ms: 0, active_since: null });
   const wait = waiting.items.find(item => item.kind === 'wait');
   expect(wait).toMatchObject({ key: '__wait__', status: 'pending', reason: 'waiting', waiting_since: at(8 * SEC), wait_ms: 2 * SEC });
-  expect(wait.label).toContain('等待');
+  expect(wait.label).toBe('静息 · 等待后续事件');
   // 等待行插在已完成的 inspect 与当前 implement 之间，且不占计划完成度。
   expect(waiting.items.map(item => item.key)).toEqual(['inspect', '__wait__', 'implement']);
 

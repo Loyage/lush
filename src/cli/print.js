@@ -102,7 +102,8 @@ function whyText(task, children = [], parent = null) {
   const waiting = (task.deps || []).filter(dep => !settled(dep));
   if (task.status === 'running') return '在跑（占 1 个并发槽）';
   if (task.status === 'queued') return waiting.length ? `排队：等 ${waiting.map(dep => workerLabel(dep)).join('、')}` : '排队：等并发槽';
-  if (task.status === 'waiting') return `等子 Worker（${children.filter(child => child.status === 'running').length} 个在跑）`;
+  if (task.status === 'waiting') return children.some(child => !settled(child) && child.status !== 'awaiting_acceptance')
+    ? `静息 · 等子 Worker（${children.filter(child => child.status === 'running').length} 个在跑）` : '静息 · 等待后续事件';
   if (task.status === 'awaiting_acceptance') return task.task_kind === 'child'
     ? `待父 Worker ${workerLabel(parent ?? { id: task.parent_id, worker_number: task.parent_worker_number })} 确认（已交付，无需用户验收）` : '待验收（已交付，可追加输入）';
   if (task.status === 'awaiting') return '等你决定';

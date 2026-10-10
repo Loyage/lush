@@ -151,6 +151,24 @@ test('package and ops no longer advertise or dispatch retired shortcuts', async 
   expect(pkg.scripts.wait).toBe('bun ./scripts/ops.js wait');
 });
 
+test('CLI waiting label describes idle workers without inventing child waits', () => {
+  const logs = [], original = console.log;
+  console.log = (...args) => logs.push(args.join(' '));
+  const child = { id: 8, role: 'agent', task_kind: 'child', status: 'running', goal: 'child', children: [] };
+  const row = { id: 7, role: 'agent', status: 'waiting', goal: 'idle', children: [] };
+  try {
+    for (const children of [[], [{ ...child, status: 'completed' }], [{ ...child, status: 'awaiting_acceptance' }]]) {
+      logs.length = 0;
+      printTree([{ ...row, children }], { concurrency: 1, agents: [] });
+      expect(logs.join('\n')).toContain('静息 · 等待后续事件');
+      expect(logs.join('\n')).not.toContain('等子 Worker');
+    }
+    logs.length = 0;
+    printTree([{ ...row, children: [child] }], { concurrency: 1, agents: [] });
+    expect(logs.join('\n')).toContain('静息 · 等子 Worker（1 个在跑）');
+  } finally { console.log = original; }
+});
+
 test('human-readable CLI renders Worker identity and child wait labels', () => {
   const logs = [], original = console.log;
   console.log = (...args) => logs.push(args.join(' '));

@@ -105,6 +105,7 @@ test('筛选摘要：计数与条件各拼一句，顺序稳定', () => {
   expect(countText(2, 2)).toBe('匹配 2 / 共 2');
   expect(describeFilters({})).toBe('');
   expect(describeFilters({ status: 'running' })).toBe('状态：运行中');
+  expect(describeFilters({ status: 'waiting' })).toBe('状态：静息');
   expect(describeFilters({ status: ['pending', 'planned'] })).toBe('状态：排队中/已排期');
   expect(describeFilters({ role: 'worker', integration: 'unmerged', mine: true, text: 'ab' }))
     .toBe('角色：执行 · 合并：待合并 · 只看待我处理 · 关键字“ab”');

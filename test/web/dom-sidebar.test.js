@@ -196,6 +196,27 @@ test('历史分页保留全类型记录和多选条件，空态明确提示尚�
   }
 });
 
+test('waiting shows a generic idle label; child details require unsettled children', () => {
+  const snapshot = ui.lastSnapshot, filters = ui.filters.tasks;
+  const parent = { id: 90, status: 'waiting', role: 'agent', task_kind: 'order', goal: 'idle', updated_at: iso(NOW) };
+  const child = { id: 91, parent_id: 90, role: 'agent', task_kind: 'child', goal: 'child', updated_at: iso(NOW) };
+  ui.filters.tasks = {};
+  try {
+    for (const status of [null, 'completed', 'awaiting_acceptance', 'running']) {
+      renderTree({ ...snapshot, tasks: [parent, ...(status ? [{ ...child, status }] : [])] });
+      const row = dom.node('tasks').querySelector('[data-id="90"]');
+      expect(deepText(row.querySelector('.row'))).toContain('静息');
+      if (status === 'running') expect(deepText(row)).toContain('静息 · 等子 Worker：1 个在跑 · 1 个未结束');
+      else {
+        expect(deepText(row)).toContain('静息 · 等待后续事件');
+        expect(deepText(row)).not.toContain('等子 Worker');
+      }
+      const option = dom.node('task-filters').querySelector('[data-value="waiting"]');
+      expect(deepText(option)).toContain('静息');
+    }
+  } finally { ui.filters.tasks = filters; renderTree(snapshot); }
+});
+
 test('排序是左栏顶部的全局控件，不再是行动任务区块里的下拉', async () => {
   const sort = dom.node('sidebar-sort');
   // 控件是全局的：挂在左栏顶部，两个列表共用一个；带说明性 title

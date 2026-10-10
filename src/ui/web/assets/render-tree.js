@@ -71,7 +71,8 @@ function whyLine(task, index) {
   if (task.status === 'waiting') {
     const kids = index.children(task.id);
     const live = kids.filter(child => child.status === 'running').length;
-    return `等子 Worker：${live} 个在跑 · ${kids.filter(child => !TERMINAL_STATUS.has(child.status)).length} 个未结束`;
+    const pending = kids.filter(child => !TERMINAL_STATUS.has(child.status) && child.status !== 'awaiting_acceptance').length;
+    return pending ? `静息 · 等子 Worker：${live} 个在跑 · ${pending} 个未结束` : '静息 · 等待后续事件';
   }
   if (task.status === 'awaiting_acceptance') return task.task_kind === 'child'
     ? `本轮已交付，等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 确认；无需你验收` : '本轮已交付，待验收；可追加输入继续开发';

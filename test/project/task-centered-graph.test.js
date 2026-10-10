@@ -74,14 +74,20 @@ test('graph progress counts only planned work, including after all work finishes
       for (const status of ['waiting', 'awaiting', 'queued', 'completed', 'failed', 'cancelled']) {
         f.store.update(task.id, { status });
         const events = f.store.get('SELECT count(*) AS n FROM events').n;
-        const views = [await f.project.taskGraph(), await f.project.graph()];
+        const taskGraph = await f.project.taskGraph();
+        if (status === 'waiting') {
+          expect(taskGraph.nodes.find(node => node.id === task.id)).toMatchObject({
+            children_active: 0, waiting_reason: '静息 · 等待后续事件',
+          });
+        }
+        const views = [taskGraph, await f.project.graph()];
         for (const view of views) {
           const progress = view.nodes.find(node => node.id === task.id).progress;
           expect(progress).toMatchObject({ completed: allDone ? 4 : 3, total: 4 });
           if (['waiting', 'awaiting', 'queued'].includes(status)) {
             expect(progress.current).toMatchObject({ kind: 'wait', wait_ms: 2000 });
             expect(progress.current.waiting_since).toBe(at(-40000));
-            expect(progress.current.label).toBe({ waiting: '等待子Worker信号', awaiting: '等待你答复', queued: '排队等待调用槽' }[status]);
+            expect(progress.current.label).toBe({ waiting: '静息 · 等待后续事件', awaiting: '等待你答复', queued: '排队等待调用槽' }[status]);
           } else if (allDone) expect(progress.current).toBeNull();
           else expect(progress.current).toMatchObject({ key: 'commit', kind: 'step', work_ms: 7000, active_since: null });
         }

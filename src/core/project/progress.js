@@ -15,7 +15,7 @@ const elapsed = (startedAt, completedAt) => {
  * 它把任务所有非 running（等子 Task / 等用户 / 排队）的时间单独累计，让 Agent 步骤只保留真正执行的时间。
  */
 const WAIT_KEY = '__wait__';
-const WAIT_LABEL = { waiting: '等待子Worker信号', awaiting: '等待你答复', awaiting_acceptance: '等待你验收', queued: '排队等待调用槽' };
+const WAIT_LABEL = { waiting: '静息 · 等待后续事件', awaiting: '等待你答复', awaiting_acceptance: '等待你验收', queued: '排队等待调用槽' };
 const millis = value => { const at = Date.parse(value); return Number.isFinite(at) ? at : null; };
 
 /** Agent 实际被调用的区间（run 起止；未结束的 run 以 now 收口），合并重叠避免重复累计。 */

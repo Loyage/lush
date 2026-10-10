@@ -283,7 +283,7 @@ export default {
         : row.status === 'queued' ? '等待 Agent 调用槽'
         : row.status === 'awaiting_acceptance' ? (row.task_kind === 'child'
           ? `本轮已交付 · 等待父Worker ${workerLabel({ id: row.parent_id, worker_number: row.parent_worker_number })} 确认` : '本轮已交付 · 等待你验收或追加输入')
-        : row.status === 'waiting' ? '静息 · 等待新输入或子Worker信号' : null;
+        : row.status === 'waiting' ? '静息 · 等待后续事件' : null;
       const branch = row.branch ? records.get(row.branch) : null;
       // 内部 merge 队列没有自己的分支，归档跟随直接父 Task；从库里读父分支，父节点被截断也不漏掉。
       // 不沿 target_branch 或祖先传播：独立工作子 Task 仍按自己的分支归档事实判断。
