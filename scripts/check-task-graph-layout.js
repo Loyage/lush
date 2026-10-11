@@ -119,13 +119,16 @@ try {
     await execute(`document.documentElement.dataset.theme='${theme}'`);
     const layout = await execute(`
       const cards=[...document.querySelectorAll('.task-graph-card')];
-      return {heights:cards.map(n=>n.getBoundingClientRect().height),
+      return {mobile:innerWidth<=640,heights:cards.map(n=>n.getBoundingClientRect().height),
+        separated:cards.every(n=>{const summary=n.querySelector('.task-graph-minimal-summary');
+          return summary.firstElementChild.getBoundingClientRect().bottom<=n.querySelector('.task-graph-minimal-meta').getBoundingClientRect().top;}),
         overflow:cards.some(n=>{const h=n.querySelector('.task-graph-head');return h.scrollWidth>h.clientWidth+1;}),
         titleWidths:cards.map(n=>n.querySelector('.task-graph-title').getBoundingClientRect().width),
         checkbox:document.querySelector('[data-graph-focus="detail-mode"]').getBoundingClientRect().width,
         pageOverflow:document.documentElement.scrollWidth>innerWidth,
         paragraphs:document.querySelectorAll('.task-graph-goal,.task-graph-result,.task-graph-git').length};`);
-    assert(layout.heights.length===8 && layout.heights.every(h=>h===68), `nonuniform rows: ${JSON.stringify(layout)}`);
+    assert(layout.heights.length===8 && layout.heights.every(h=>layout.mobile?h>=68:h===68), `invalid responsive row heights: ${JSON.stringify(layout)}`);
+    assert(!layout.mobile || layout.separated, `mobile metadata covers progress: ${JSON.stringify(layout)}`);
     assert(!layout.overflow && !layout.pageOverflow && layout.titleWidths.every(w=>w>=48), `clipped controls: ${JSON.stringify(layout)}`);
     assert(layout.checkbox===16 && layout.paragraphs===0, 'minimal mode retained full card content');
     await click('[data-graph-focus="collapse-all"]');
@@ -157,10 +160,10 @@ try {
     const menu = await execute(`const p=document.querySelector(':popover-open');const r=p?.getBoundingClientRect();return {open:!!p,x:r?.x,y:r?.y,right:r?.right,bottom:r?.bottom,width:innerWidth,height:innerHeight,focus:p?.contains(document.activeElement)};`);
     assert(menu.open && menu.focus && menu.x>=0 && menu.y>=0 && menu.right<=menu.width && menu.bottom<=menu.height, `popover escaped viewport/focus: ${JSON.stringify(menu)}`);
     assert(await execute(`const p=document.querySelector(':popover-open');p.querySelector('.agent-call').focus();const t=document.querySelector('#help-tip');return t?.parentNode===p && !t.hidden && t.textContent.includes('Agent');`), 'Agent help was hidden behind top layer');
-    assert(await execute(`window.paint();return !!document.querySelector(':popover-open') && [...document.querySelectorAll('.task-graph-card')].every(n=>n.getBoundingClientRect().height===68);`), 'repaint discarded menu or changed row height');
+    assert(await execute(`window.paint();const heights=${JSON.stringify(layout.heights)};return !!document.querySelector(':popover-open') && [...document.querySelectorAll('.task-graph-card')].every((n,i)=>n.getBoundingClientRect().height===heights[i]);`), 'repaint discarded menu or changed row height');
     await key('\uE00C');
     assert(await execute(`return !document.querySelector(':popover-open') && document.activeElement.dataset.graphFocus==='more-2';`), 'Esc did not restore trigger focus');
-    console.log(`PASS equal-height tree and native menu ${theme} ${width}x${height}`);
+    console.log(`PASS responsive tree and native menu ${theme} ${width}x${height}`);
   }
   if (!bulkOnly) {
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });

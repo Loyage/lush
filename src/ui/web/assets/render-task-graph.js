@@ -311,18 +311,21 @@ function minimalSummary(node, queueNote, folded = new Set()) {
   const text = el('span', [count, note].filter(Boolean).join(' · '), 'task-graph-minimal-note');
   const relations = mergeRelations(node);
   line.append(interruptHint ? text : relations || text);
-  if (node.freeze && node.freeze.task_id !== node.id) line.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
-  if (isArchivedTask(node)) line.append(badge('已归档'));
+  // Desktop keeps these inline; mobile gives progress and metadata separate rows.
+  const meta = el('div', undefined, 'task-graph-minimal-meta');
+  if (node.freeze && node.freeze.task_id !== node.id) meta.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
+  if (isArchivedTask(node)) meta.append(badge('已归档'));
   const queueText = inputQueueText(node);
   if (queueText) {
     const queue = badge(`暂存输入 ${node.input_queue.buffered} 条`, 'b-awaiting worker-input-queue');
     queue.setAttribute('data-help', queueText); queue.setAttribute('aria-label', queueText); queue.tabIndex = 0;
-    line.append(queue);
+    meta.append(queue);
   }
   // 资源消耗排在合并状态标签前面；收拢时这里显示的是整棵子树的合计。
-  line.append(resourceSummary(node, folded.has(node.id)));
+  meta.append(resourceSummary(node, folded.has(node.id)));
   const merge = INTEGRATION[node.integration];
-  if (merge) line.append(badge(merge, node.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
+  if (merge) meta.append(badge(merge, node.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
+  line.append(meta);
   return line;
 }
 

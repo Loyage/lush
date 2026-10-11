@@ -655,7 +655,7 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-git .graph-diagnostics{margin-top:8px}.task-graph-card>.delivery-controls,.task-graph-card>.graph-decision{margin-top:10px}
 .task-graph-card>.agent-call{margin-top:9px}
 @media(max-width:640px){.task-graph-children{margin-left:6px;padding-left:10px}.task-graph-children>.task-graph-node::before{left:-10px;width:9px}.task-graph-card{padding:9px 11px}}
-/* 极简树固定双行，不把正文/操作仅仅藏在裁切区里；浮层走 top layer，不撑高或被树裁切。 */
+/* 极简树桌面固定双行，手机分行显示进度与消耗；浮层走 top layer，不被树裁切。 */
 .task-graph-mode{display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;white-space:nowrap}
 .task-graph-mode input{width:16px;height:16px;margin:0;flex:none}
 .task-graph-minimal .task-graph-node{margin:5px 0;min-width:300px}
@@ -666,6 +666,7 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-minimal .badge{flex:none;padding:1px 4px;font-size:10px}
 .task-graph-minimal-summary{grid-column:1;grid-row:2;display:flex;align-items:center;gap:6px;min-width:0;color:var(--muted);font-size:11px;line-height:20px}
 .task-graph-minimal-note{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.task-graph-minimal-meta{display:contents}
 /* Delivery phase is separate from Agent activity; shared tree connectors stay static. */
 .task-graph-merge-relations{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin:6px 0;color:var(--muted);font-size:12px}
 .task-graph-merge-incoming,.task-graph-merge-group,.task-graph-merge-own{display:inline;line-height:inherit}
@@ -682,4 +683,13 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-actions-title{font-size:13px;white-space:normal}
 .task-graph-actions-popover .delivery-controls,.task-graph-actions-popover .iteration-controls{margin:0}
 .task-graph-actions-popover button{white-space:normal;text-align:left}
-@media(max-width:640px){.task-graph-actions-popover{right:16px;bottom:16px}}
+@media(max-width:640px){
+  .task-graph-actions-popover{right:16px;bottom:16px}
+  .task-graph-minimal .task-graph-card{height:auto;min-height:68px;grid-template-rows:26px auto}
+  .task-graph-minimal-summary{flex-direction:column;align-items:stretch;gap:4px}
+  .task-graph-minimal-note,.task-graph-minimal-summary>.task-graph-merge-relations{flex:none;white-space:normal;overflow:visible;overflow-wrap:anywhere}
+  .task-graph-minimal-meta{display:flex;align-items:center;flex-wrap:wrap;gap:4px 6px;min-width:0}
+  .task-graph-minimal-meta>.task-graph-usage{flex:0 1 auto;min-width:0;flex-wrap:wrap;gap:0 7px;white-space:normal}
+  .task-graph-minimal-meta>.task-graph-usage>span{white-space:nowrap}
+  .task-graph-minimal .task-graph-more{grid-row:1;align-self:start}
+}

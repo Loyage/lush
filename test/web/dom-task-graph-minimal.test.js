@@ -164,8 +164,13 @@ test('资源消耗在两种模式显示自身，折叠显示后端完整子树�
   expect(deepText(summary)).toContain('↓18.0k');
   expect(deepText(summary)).toContain('$2.24');
   expect(summary.classList.contains('is-live')).toBe(false);
-  // 极简模式：消耗在第二行，紧接合并状态标签之前。
-  const placed = card(2).querySelector('.task-graph-minimal-summary').querySelector('.task-graph-usage');
+  // 极简模式：独立的元数据组让手机分行；桌面仍与进度同行，消耗紧接合并状态前。
+  const summaryLine = card(2).querySelector('.task-graph-minimal-summary');
+  const placed = summaryLine.querySelector('.task-graph-usage');
+  expect(placed.parentNode.className).toBe('task-graph-minimal-meta');
+  expect(summaryLine.children[0].className).toBe('task-graph-minimal-note');
+  expect(summaryLine.children[0].textContent).toContain('1/3 · 实现双行');
+  expect(placed.parentNode.querySelector('.task-graph-minimal-note')).toBeNull();
   expect(placed).toBeTruthy();
   const siblings = placed.parentNode.children;
   expect(siblings[siblings.indexOf(placed) + 1].textContent).toContain('待合并');
