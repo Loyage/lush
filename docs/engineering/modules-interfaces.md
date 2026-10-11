@@ -84,7 +84,7 @@ Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 
 
 测试文件必须自给自足（自己的 fixture / world / DOM stub），不要靠别的文件先跑过。
 
-`bun run test` 并行运行全部现有 Web/core 测试，不使用路径忽略模式；`test:all` 为同一完整入口，`test:serial` 保留原生 `bun test` 供聚焦串行诊断。质量 CI 执行测试与文档检查；真实浏览器专项需相应系统浏览器，不能用 DOM stub 代替。
+`bun run test` 并行运行全部现有 Web/core 测试，不使用路径忽略模式；`test:all` 为同一完整入口，`test:serial` 保留原生 `bun test` 供聚焦串行诊断。所有项目入口在 `package.json` 显式传入 `--timeout=20000`，使用 20 秒单项默认预算，不改产品／性能预算、不自动重试；显式单项／文件／追加 CLI 超时仍可覆盖，见[测试超时预算](../contributing/README.md#测试超时预算)。质量 CI 执行测试与文档检查；真实浏览器专项需相应系统浏览器，不能用 DOM stub 代替。
 
 数据规模边界只在负责该边界的后端测试完整验证；HTTP / DOM 层用小规模数据验证参数、游标、刷新和交互。批量造库使用测试事务，不关闭生产持久化或安全设置。Web 资源测试只保留模块可加载、CSP、启动落点、Agent 标识与减动效契约，不锁定精确颜色、字体或 CSS 排版。
 
@@ -113,7 +113,7 @@ Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 
 | 本地性能报告契约 | `test/read-performance.test.js`（参数 / 统计 / 原样本预算 / 输出不覆盖 / Git 身份与降级；不在通用套件重复运行大规模测量） |
 | 通用命令与 main 推送示例 | `test/project/hooks-command.test.js`、`hooks-command-invocation.test.js`（真实临时 bare remote、连续触发、冻结等待、失败/unknown 禁重放、输出/进程组/凭证及 invocation 排他）；`test/web/hooks-command-integration.test.js`（真实 HTTP→RPC→Runtime→临时 Git remote，默认关闭、同源 revision、编辑/副本/模板隔离、失败停用及删除不重装）；`test/web/dom-hooks-command.test.js`（命令授权、同源编辑与安全结果、迟到响应、独立 revision 与停用复制） |
 | 定时信号与管理跨层联调 | `test/web/hooks-management-integration.test.js`：浏览器时间转换→HTTP→真实 RPC→受控 Pi bridge→安全生命周期入口；无 Git/Input 副作用、配置保留、精确重复收据、私有投影与返回后的持久等待。仅临时项目／可控进程，不调用真实模型；接口与 DOM 分别见 `management-api.test.js`、`dom-hooks-management.test.js` |
-| 测试环境隔离 | `test/helpers.test.js`（子进程 HOME/XDG 与全局/系统 Git 配置隔离、合成 hook/签名/环境污染及退出回收；生产 Git 环境不变） |
+| 测试环境隔离 | `test/helpers.test.js`（子进程 HOME/XDG 与全局/系统 Git 配置隔离、合成 hook/签名/环境污染及退出回收；生产 Git 环境不变）；`test/test-budget.test.js`（项目测试入口预算一致性、真实串行／并行子进程超过 5 秒可完成且追加短超时仍失败） |
 | 文档 | `test/docs-check.test.js`、`test/docs-search.test.js`、`test/markdown.test.js`、`test/mermaid-docs.test.js`、`test/web/docs.test.js` |
 | 历史兼容与安全 | `test/project/order-compatibility.test.js` 覆盖旧类型只读投影、父类型、名称/路径/原话不变、混合类型唯一索引、父候选、派生、调度告知、历史落地证据与旧入口拒绝；`test/input-routes.test.js` 仅保留旧配置格式校验；`test/{butler,explainer}-provider.test.js` 保留无工具/无凭证隔离；`test/web/dom-merge.test.js` 保留旧 Notice 审批语义；历史记录读取、删除共享引用与交付恢复由各现行分区覆盖。旧 Candidate 命令、快速路由匹配、休眠批量交付面板和项目统计的成功路径测试已移除；拒绝旧公开入口由 core-api / help-guard 覆盖 |
 

@@ -7,9 +7,9 @@
   "bin": { "lush": "./bin/lush", "lush-host": "./bin/lush-host", "lushd": "./bin/lushd", "lush-agent-guard": "./bin/lush-agent-guard" },
   "exports": { ".": "./src/index.js" },
   "scripts": {
-    "test": "bun test --parallel=4",
-    "test:serial": "bun test",
-    "test:all": "bun test --parallel=4",
+    "test": "bun test --parallel=4 --timeout=20000",
+    "test:serial": "bun test --timeout=20000",
+    "test:all": "bun test --parallel=4 --timeout=20000",
     "docs:check": "bun ./scripts/docs-check.js",
     "check:workbench": "bun ./scripts/check-workbench.js",
     "check:agent-layout": "bun ./scripts/check-agent-layout.js",
