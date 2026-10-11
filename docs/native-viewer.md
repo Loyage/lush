@@ -1,6 +1,6 @@
-# 原生只读终端观看器
+# 终端内观看
 
-本文面向想在真实终端中观看 Worker 执行过程的用户。入口为 `lush worker watch`；Web「Agent → 执行过程」提供原生观看的复制命令。工程边界见[执行记录阅读器](engineering/transcript-reader.md)。
+本文面向想在真实终端中观看 Worker 执行过程的用户。入口为 `lush worker watch`；Web「Agent → 执行过程」的「终端内观看」提供复制命令。工程边界见[执行记录阅读器](engineering/transcript-reader.md)。
 
 ## 打开观看
 

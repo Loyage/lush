@@ -21,7 +21,9 @@ test('watch resolves a persistent Worker number once and passes a read-only nati
     { method: 'worker.inspect', params: { id: 360 } },
   ]);
   expect(f.views).toEqual([[f.client, 360, { after: 42, label: 'W195', env: f.environment }]]);
-  expect(HELP).toContain('worker watch ID [--after N]');
+  expect(HELP).toContain('worker watch ID [--after N]         终端内观看');
+  expect(HELP).not.toContain('原生 Pi 只读终端观看');
+  expect(HELP).not.toContain('需本机 Pi');
   expect(HELP).toContain('worker transcript ID [--after N]');
   expect(HELP).not.toContain('--follow');
 });

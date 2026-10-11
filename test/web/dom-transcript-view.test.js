@@ -153,7 +153,7 @@ test('mobile search opens on demand, keeps criteria, locates a hit and restores 
   }
 });
 
-test('agent offers only native read-only watching without the removed text follow command', async () => {
+test('agent labels watching in terminal without redundant installation or streaming hints and removed text following', async () => {
   const dom = installDom(), copied = [], previousSnapshot = ui.lastSnapshot;
   ui.lastSnapshot = null;
   const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
@@ -164,11 +164,16 @@ test('agent offers only native read-only watching without the removed text follo
     expect(deepText(panel)).not.toContain('lush worker transcript');
     expect(deepText(panel)).not.toContain('纯文本跟随');
     expect(deepText(panel)).not.toContain('复制文本命令');
-    expect(deepText(panel)).toContain('不是逐字直播');
-    const native = findByText(panel, '复制原生命令');
-    expect(native.classList.contains('agent-call')).toBe(false);
-    expect(native.getAttribute('data-help')).toContain('不调用 Agent');
-    await native.onclick();
+    expect(deepText(panel)).toContain('终端内观看');
+    expect(deepText(panel)).not.toContain('原生只读观看');
+    expect(deepText(panel)).not.toContain('复制原生命令');
+    expect(deepText(panel)).not.toContain('需本机已安装 Pi');
+    expect(deepText(panel)).not.toContain('只显示已记录步骤');
+    expect(deepText(panel)).not.toContain('不是逐字直播');
+    const copy = findByText(panel, '复制命令');
+    expect(copy.classList.contains('agent-call')).toBe(false);
+    expect(copy.getAttribute('data-help')).toContain('不调用 Agent');
+    await copy.onclick();
     expect(copied).toEqual(['lush worker watch 77']);
   } finally { ui.lastSnapshot = previousSnapshot; if (original) Object.defineProperty(globalThis, 'navigator', original); else delete globalThis.navigator; dom.restore(); }
 });
@@ -181,7 +186,7 @@ test('terminal commands bind the page project and quote special characters witho
   Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async text => copied.push(text) } }, configurable: true });
   try {
     const panel = renderAgent({ id: 77 }, { files: [] });
-    await findByText(panel, '复制原生命令').onclick();
+    await findByText(panel, '复制命令').onclick();
     const suffix = " --project '/tmp/a b'\\''c$(not-a-command);project'";
     expect(copied).toEqual([`lush worker watch 77${suffix}`]);
     // Parse only with a controlled printf: the path must remain exactly one literal argument.

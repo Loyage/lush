@@ -32,7 +32,7 @@ CLI 通过只读 `worker.lookup {number}` 找到真实整数 ID 后，再调用�
 |---|---|
 | `lush order`（指令；旧 say 无别名） | [一条指令输入如何交付](../task-flow.md) |
 | `lush worker list` / `tree` / `inspect` / `spawn` / `message` / `cancel` / `retry` / `integrate` / `reserve` / `unreserve` / `resolve` / `resolve-divergence` / `resolve-child-divergence` / `approve-merge` / `cleanup` | [Worker、Run 与 Artifact](rpc/tasks.md) |
-| `lush worker inspect` / `history` / `transcript` / `watch`（[原生只读观看](../native-viewer.md)） / `wait`（`worker.diff` / `worker.usage` 仅 RPC） | [审阅与过程读模型](rpc/inspect.md) |
+| `lush worker inspect` / `history` / `transcript` / `watch`（[终端内观看](../native-viewer.md)） / `wait`（`worker.diff` / `worker.usage` 仅 RPC） | [审阅与过程读模型](rpc/inspect.md) |
 | `lush worker cleanup [--keep-branch]` / `worker delete ID [--confirm --revision REV]` | [磁盘回收与彻底删除](rpc/maintenance.md) |
 | `lush branch tree` / `show` / `bind` / `archive` | [分支谱系](rpc/branches.md) |
 | `lush notice list` / `post` / `answer` / `dismiss` | [待决问题](rpc/notices.md) |
