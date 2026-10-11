@@ -8,6 +8,7 @@ import { absolute } from './format.js';
 import { workerLabel } from './worker-label.js';
 import { browserTimezone, hookSchedule, hookScheduleSummary, scheduledWallTime } from './hook-schedule.js';
 import { createManagementProfileForm } from './management-profile-form.js';
+import { automationModule, automationAlerts } from './automation-module.js';
 import { createSignalResetPicker } from './signal-reset-picker.js';
 
 // These mutations own their safe page projection. A failed overview refresh after a
@@ -163,7 +164,7 @@ export function createManagementForm(signals, { ownsPage = () => true } = {}) {
 }
 
 /** Keeps the page's shared editor and its draft intact across catalogue/toggle repaints. */
-export function renderSignalManagement({ catalogue, editor, ownsPage, busy, setBusy, setEditing, onCatalogue, onManagement }) {
+export function renderSignalManagement({ catalogue, editor, managerEditor = editor, folds = new Map(), canEdit = () => true, ownsPage, busy, setBusy, setEditing, onCatalogue, onManagement }) {
   const model = catalogue.signals;
   const supported = model?.version === 1 && typeof model.revision === 'string' && Array.isArray(model.items);
   const signals = supported ? model.items : [];
@@ -172,15 +173,22 @@ export function renderSignalManagement({ catalogue, editor, ownsPage, busy, setB
   const managerSection = block('管理型 Agent', String(managers.length)); managerSection.classList.add('hook-managers');
   signalSection.append(el('p', '用具名时间信号通知绑定的管理 Agent，例如「Codex 额度更新时间已到」。同一信号可绑定多个管理指令；不是实际额度已恢复的观测。', 'hint'));
   managerSection.append(el('p', '只在此处创建信号驱动的管理指令；默认输入框仍用于开发任务。独立管理提示词和受限工具，不进行代码开发、Git 提交或合并。创建与绑定不立即调用 Agent。', 'hint'));
+  function fold() {
+    signalSection.append(editor); if (managerEditor !== editor) managerSection.append(managerEditor);
+    automationModule(signalSection, 'signals', folds, supported ? `${signals.length} 个时间信号 · ${automationAlerts(signals.map(item => ({ ...item, state: item.last_execution?.status }))) || '时间到点不证明额度恢复。'}` : '时间信号接口不可用；请更新后台。');
+    automationModule(managerSection, 'management', folds, `${managers.length} 项管理指令 · ${automationAlerts(managers.map(item => ({ name: item.name, ...item.management }))) || (!supported ? '管理指令接口不可用；不回退执行。' : '仅在新信号到点后调用。')}${managers.some(item => item.management?.version !== 1 || typeof item.management?.revision !== 'string') ? ' · 含绑定状态不可用的指令；不会默认启用或重放。' : ''}`);
+    return [signalSection, managerSection];
+  }
   if (!supported) {
     signalSection.append(el('p', '时间信号接口暂不可用，请更新后台后刷新。', 'hint'));
     managerSection.append(el('p', '管理指令接口暂不可用；不会回退到开发输入或直接启动 Worker。', 'hint'));
-    return [signalSection, managerSection];
+    return fold();
   }
-  const finishEdit = () => { setEditing(false); editor.replaceChildren(); };
+  const finishEdit = (target = editor) => { setEditing(false, target === managerEditor && managerEditor !== editor ? 'management' : 'signals'); target.replaceChildren(); };
   function editSignal(initial = {}) {
-    if (!ownsPage() || busy()) return;
-    setEditing(true); let form;
+    if (!ownsPage() || busy() || !canEdit('signals')) return;
+    folds.set('signals', true); signalSection.moduleOpen = true;
+    setEditing(true, 'signals'); let form;
     const ownsForm = () => ownsPage() && editor.querySelector('.signal-form') === form.node;
     form = createSignalForm(initial, { ownsPage: ownsForm });
     editor.replaceChildren(el('h2', initial.id ? `编辑时间信号：${initial.name}` : '新建时间信号'), form.node);
@@ -197,8 +205,10 @@ export function renderSignalManagement({ catalogue, editor, ownsPage, busy, setB
     void form.loadResetTimes();
   }
   function editManagement() {
-    if (!ownsPage() || busy()) return;
-    setEditing(true); let form;
+    const editor = managerEditor;
+    if (!ownsPage() || busy() || !canEdit('management')) return;
+    folds.set('management', true); managerSection.moduleOpen = true;
+    setEditing(true, 'management'); let form;
     const ownsForm = () => ownsPage() && editor.querySelector('.management-form') === form.node;
     form = createManagementForm(signals, { ownsPage: ownsForm });
     editor.replaceChildren(el('h2', '新建管理指令'), form.node);
@@ -215,13 +225,13 @@ export function renderSignalManagement({ catalogue, editor, ownsPage, busy, setB
         form.noteSubmitted();
         const result = await submit('management.create', params); created = true;
         if (ownsForm()) {
-          finishEdit(); onManagement(result);
+          finishEdit(editor); onManagement(result);
           show(`管理指令 ${workerLabel(result.task || result)} 已创建；等待新信号，不立即调用。`);
         }
       } catch (issue) { if (ownsForm()) show(`${issue.message}；管理指令和运行设置编辑已保留，重试沿用同一创建标识。若内容已修改或结果不明，请先检查已有管理 Worker，勿另建重复指令。`, 'error'); }
       finally { setBusy(false); if (ownsForm()) { form.setBusy(false); save.disabled = created; } }
     }, 'hook-button', { agent: true, help: agentHelp('授权未来信号触发管理指令；仅保存绑定，不立即调用 Agent。') });
-    editor.append(save, button('取消编辑', () => { if (ownsForm() && !busy()) finishEdit(); }, 'ghost'));
+    editor.append(save, button('取消编辑', () => { if (ownsForm() && !busy()) finishEdit(editor); }, 'ghost'));
   }
   signalSection.append(guarded(button('新建时间信号', () => editSignal(), 'ghost hook-button', { help: '编辑具名时间与时区；打开编辑器不调用 Agent，保存前说明未来触发代价。' }), busy() ? '当前正在保存，请稍候。' : ''));
   if (!signals.length) signalSection.append(el('p', '还没有时间信号。先添加信号，再绑定管理指令。', 'hint'));
@@ -309,5 +319,5 @@ export function renderSignalManagement({ catalogue, editor, ownsPage, busy, setB
       button('查看指令、结果与调用历史', () => { if (ownsPage()) detail(task.id); }, 'ghost hook-button', { worker: task }));
     card.append(controls); managerSection.append(card);
   }
-  return [signalSection, managerSection];
+  return fold();
 }

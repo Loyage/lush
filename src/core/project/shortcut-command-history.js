@@ -2,6 +2,9 @@ import { check } from '../types.js';
 
 const finalTypes = ['shortcut.command_succeeded', 'shortcut.command_failed', 'shortcut.command_unknown'];
 const roots = ['shortcut.command_pending', 'shortcut.command_started'];
+// One bounded marker per stable root, rather than a growing JSON list or an evicting cache.
+// Markers must not expire: eviction would resurrect removed history. Original Events stay intact.
+const REMOVED_KEY = 'shortcut_command_history_removed:';
 export const commandExecutionUUID = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const positive = value => Number.isSafeInteger(value) && value > 0;
 const statuses = new Set(['pending', 'running', 'succeeded', 'failed', 'unknown']);
@@ -32,12 +35,13 @@ function timestamp(value, fallback = null) { return typeof value === 'string' &&
 const placeholders = items => items.map(() => '?').join(',');
 
 /** First claim/start is a stable cursor identity, independent of later completion or directory edits. */
-function rootRows(project, { before = null, limit = 30, execution_id = null } = {}) {
+function rootRows(project, { before = null, limit = 30, execution_id = null, includeRemoved = false } = {}) {
   const where = ["e.type IN ('shortcut.command_pending','shortcut.command_started')",
     "json_type(e.data,'$.execution_id')='text'",
     `NOT EXISTS (SELECT 1 FROM events prior WHERE prior.id<e.id AND prior.type IN ('shortcut.command_pending','shortcut.command_started')
       AND json_extract(prior.data,'$.execution_id')=json_extract(e.data,'$.execution_id'))`];
   const params = [];
+  if (!includeRemoved) { where.push('NOT EXISTS (SELECT 1 FROM meta hidden WHERE hidden.key=? || e.id)'); params.push(REMOVED_KEY); }
   if (before !== null) { where.push('e.id<?'); params.push(before); }
   if (execution_id !== null) { where.push("json_extract(e.data,'$.execution_id')=?"); params.push(execution_id); }
   return project.store.all(`SELECT e.id,e.task_id,e.type,e.data,e.created_at FROM events e WHERE ${where.join(' AND ')} ORDER BY e.id DESC LIMIT ?`, ...params, limit + 1);
@@ -77,11 +81,45 @@ export function commandHistory(project, options = {}) {
   return { version: 1, items, has_more: hasMore, next_before: hasMore ? items.at(-1).event_id : null };
 }
 
+/** Safe projection only: never rewrite the private execution slot or its authorization revision. */
+export function commandHistoryRemoved(project, executionId) {
+  if (!commandExecutionUUID(executionId)) return false;
+  const row = rootRows(project, { execution_id: executionId, limit: 1, includeRemoved: true })[0];
+  return Boolean(row && project.store.get('SELECT key FROM meta WHERE key=?', REMOVED_KEY + row.id));
+}
+
+export function removeCommandHistory(project, options = {}) {
+  check(options && typeof options === 'object' && !Array.isArray(options), 'invalid command history removal options');
+  const keys = Object.keys(options);
+  check(keys.length === 1 && (keys[0] === 'execution_id' && commandExecutionUUID(options.execution_id)
+    || keys[0] === 'clear' && options.clear === true), 'provide execution_id or clear:true');
+  let removed = 0;
+  project.store.transaction(() => {
+    let before = null;
+    for (;;) {
+      const rows = rootRows(project, { before, limit: 100, execution_id: options.execution_id ?? null }).slice(0, 100);
+      if (!rows.length) break;
+      for (const execution of views(project, rows)) {
+        const removable = ['succeeded','failed'].includes(execution.status);
+        if (options.execution_id) check(removable, 'pending, running or unknown command history cannot be removed');
+        if (!removable) continue;
+        project.store.run('INSERT INTO meta(key,value) VALUES (?,?)', REMOVED_KEY + execution.event_id, '1');
+        removed++;
+      }
+      if (options.execution_id) break;
+      before = rows.at(-1).id;
+    }
+    if (removed) project.store.event(null, 'shortcut.command_history_removed',
+      { removed_count: removed, ...(options.execution_id ? { execution_id: options.execution_id } : { clear: true }) });
+  });
+  return { removed_count: removed };
+}
+
 /** Startup only: scan bounded pages, including claims whose command was edited/deleted while in flight. */
 export function recoverCommandHistory(project, finish) {
   let before = null;
   for (;;) {
-    const rows = rootRows(project, { before, limit: 100 }).slice(0, 100);
+    const rows = rootRows(project, { before, limit: 100, includeRemoved: true }).slice(0, 100);
     if (!rows.length) return;
     for (const execution of views(project, rows)) if (['pending','running'].includes(execution.status))
       finish(execution.command_id, execution.id, execution.worker_id, 'unknown', { status: 'unknown', reason: 'interrupted' });

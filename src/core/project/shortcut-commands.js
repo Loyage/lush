@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { check, id, text, TERMINAL } from '../types.js';
 import { hookObject, hookRevision, normalizeHook, HOOK_LIMITS } from '../hooks.js';
 import { commandAdmission } from './command-hooks.js';
-import { commandHistory, executionSnapshot, recoverCommandHistory, safeCommandResult } from './shortcut-command-history.js';
+import { commandHistory, commandHistoryRemoved, removeCommandHistory, executionSnapshot, recoverCommandHistory, safeCommandResult } from './shortcut-command-history.js';
+import { assertTaskAncestorsOpen } from './iteration.js';
 
 const KEY = 'shortcut_commands';
 const empty = () => ({ version: 1, generation: 0, items: [] });
@@ -24,11 +27,58 @@ function record(data, commandId, version) {
   check(item && item.version === version, UNAVAILABLE); return item;
 }
 function normalized(value) {
-  hookObject(value, ['id','name','command'], 'shortcut command');
+  hookObject(value, ['id','name','command','default_worker_id'], 'shortcut command');
   check(value.id === undefined || uuid(value.id), 'invalid shortcut command id');
   text(value.name, 'shortcut command name'); check(value.name.length <= 120, 'shortcut command name exceeds 120 characters');
   text(value.command, 'shortcut command'); check(value.command.length <= 16000 && !value.command.includes('\0'), 'invalid shortcut command');
-  return { name: value.name, command: value.command };
+  check(value.default_worker_id === undefined || value.default_worker_id === null
+    || Number.isSafeInteger(value.default_worker_id) && value.default_worker_id > 0, 'default_worker_id must be a positive integer or null');
+  return { name: value.name, command: value.command,
+    ...(value.default_worker_id !== undefined ? { default_worker_id: value.default_worker_id } : {}) };
+}
+
+// Saving remains synchronous for existing clients and built-in bootstrap. Inspect Git's
+// on-disk checkout identities read-only here; execution still revalidates with Git under
+// the existing Workspaces serial lock immediately before spawn.
+function gitFile(file) {
+  check(fs.statSync(file).size <= 16384, 'invalid checkout identity');
+  return fs.readFileSync(file, 'utf8').trim();
+}
+function checkoutIdentity(directory) {
+  const cwd = fs.realpathSync(directory), dotGit = path.join(cwd, '.git');
+  check(fs.statSync(cwd).isDirectory(), 'invalid checkout directory');
+  let gitDir = dotGit;
+  if (!fs.statSync(dotGit).isDirectory()) {
+    const value = gitFile(dotGit); check(value.startsWith('gitdir: '), 'invalid checkout identity');
+    gitDir = path.resolve(cwd, value.slice(8));
+  }
+  gitDir = fs.realpathSync(gitDir);
+  const commonFile = path.join(gitDir, 'commondir');
+  const common = fs.existsSync(commonFile) ? fs.realpathSync(path.resolve(gitDir, gitFile(commonFile))) : gitDir;
+  return { cwd, common, head: gitFile(path.join(gitDir, 'HEAD')) };
+}
+function validateDefaultWorker(project, workerId) {
+  const task = project.store.task(id(workerId));
+  check(['main','owner','order','child'].includes(task.task_kind) && !TERMINAL.has(task.status) && task.branch,
+    'default Worker cannot execute shortcut commands');
+  check(!['archived','deleted'].includes(project.store.branch(task.branch)?.status), 'default Worker branch is unavailable');
+  assertTaskAncestorsOpen(project, task);
+  let found = false;
+  try {
+    const root = checkoutIdentity(project.config.project);
+    const candidates = task.workspace ? [task.workspace] : [root.cwd];
+    if (!task.workspace && ['main','owner'].includes(task.task_kind)) {
+      const registry = path.join(root.common, 'worktrees');
+      if (fs.existsSync(registry)) for (const entry of fs.readdirSync(registry)) {
+        try { candidates.push(path.dirname(gitFile(path.join(registry, entry, 'gitdir')))); } catch { /* unusable checkout */ }
+      }
+    }
+    found = candidates.some(directory => {
+      try { const actual = checkoutIdentity(directory); return actual.common === root.common && actual.head === `ref: refs/heads/${task.branch}`; }
+      catch { return false; }
+    });
+  } catch { /* Missing, detached or foreign directories are never replaced with main. */ }
+  check(found, 'default Worker has no real executable project checkout');
 }
 function invalidate(project, commandId = null) {
   for (const task of project.store.all('SELECT id,hooks FROM tasks WHERE hooks IS NOT NULL')) {
@@ -50,7 +100,7 @@ function invalidate(project, commandId = null) {
   }
 }
 function executionView(project, execution) {
-  if (!execution) return null;
+  if (!execution || commandHistoryRemoved(project, execution.id)) return null;
   const result = safeCommandResult(execution.command_result);
   const workerId = Number.isSafeInteger(execution.worker_id) && execution.worker_id > 0 ? execution.worker_id : null;
   const number = execution.worker_number ?? (workerId ? project.store.get('SELECT worker_number FROM tasks WHERE id=?', workerId)?.worker_number : null);
@@ -79,7 +129,8 @@ export default {
   shortcutCommands() {
     const data = read(this);
     return { version: 1, revision: revision(data), items: data.items.map(item => ({ id: item.id, name: item.name,
-      command: item.command, version: item.version, authorized: item.authorized === true, last_execution: executionView(this, item.last_execution) })) };
+      command: item.command, version: item.version, default_worker_id: item.default_worker_id ?? null,
+      authorized: item.authorized === true, last_execution: executionView(this, item.last_execution) })) };
   },
 
   saveShortcutCommand(value, expectedRevision) {
@@ -88,10 +139,11 @@ export default {
       const data = read(this); expected(data, expectedRevision);
       let item = data.items.find(item => item.id === value.id);
       check(value.id === undefined || item, 'shortcut command not found');
+      if (definition.default_worker_id != null) validateDefaultWorker(this, definition.default_worker_id);
       if (item) {
         check(item.version < Number.MAX_SAFE_INTEGER, 'shortcut command version limit reached');
         Object.assign(item, definition, { version: item.version + 1, authorized: false }); invalidate(this, item.id);
-      } else { item = { id: randomUUID(), ...definition, version: 1, authorized: false, last_execution: null }; data.items.push(item); }
+      } else { item = { id: randomUUID(), default_worker_id: null, ...definition, version: 1, authorized: false, last_execution: null }; data.items.push(item); }
       save(this, data); this.store.event(null, 'shortcut.command_saved', { command_id: item.id, version: item.version });
     });
     return this.hooksList();
@@ -135,6 +187,11 @@ export default {
   },
 
   shortcutCommandHistory(options = {}) { return commandHistory(this, options); },
+
+  removeShortcutCommandHistory(options = {}) {
+    this.assertWritable('remove shortcut command history');
+    return removeCommandHistory(this, options);
+  },
 
   /** Reopen every affected queue after durable settlement, including ancestor acceptance and parent delivery. */
   releaseShortcutCommand(workerId) {

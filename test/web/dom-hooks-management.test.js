@@ -355,12 +355,15 @@ test('pending manager requests and unknown effects remain visible, escaped and n
   expect(actions).toHaveLength(0);
 });
 
-test('late manager profile reads cannot replace a different editor or paint a different project', async () => {
+test('late manager profile reads remain in their independent editor and cannot paint a different project', async () => {
   await newManagement(); let resolve;
   intercept = path => path.endsWith('/api/agent/config') ? new Promise(done => { resolve = done; }) : null;
   const loading = btn('管理 Agent 运行设置').onclick(); await until(() => resolve);
   await btn('新建时间信号').onclick(); const form = root().querySelector('.signal-form');
-  resolve(json(settings)); await loading; expect(root().querySelector('.signal-form')).toBe(form); expect(root().querySelector('.management-profile-form')).toBeNull();
+  input('信号名称', form).value = '保留独立信号草稿';
+  resolve(json(settings)); await loading; expect(root().querySelector('.signal-form')).toBe(form); expect(form.querySelector('.management-profile-form')).toBeNull();
+  expect(root().querySelector('.hook-managers').querySelector('.management-profile-form')).toBeTruthy(); expect(input('信号名称', form).value).toBe('保留独立信号草稿');
+  await btn('取消编辑', root().querySelector('.hook-managers')).onclick();
   intercept = null; await newManagement();
   intercept = path => path.endsWith('/api/agent/config') ? new Promise(done => { resolve = done; }) : null;
   const another = btn('管理 Agent 运行设置').onclick();
@@ -467,4 +470,19 @@ test('already-consumed once bindings never offer replay, even with a future sign
   Object.assign(catalogue.management_workers[0].management, { enabled: false, state: 'succeeded', last_execution: { status: 'succeeded', finished_at: '2030-02-02T16:05:00Z' } });
   await openHooks(); expect(btn('启用管理绑定').disabled).toBe(true); expect(btn('启用管理绑定').parentNode.getAttribute('data-help')).toContain('新建管理指令');
   expect(deepText(root())).toContain('最近处理：已处理'); expect(actions).toHaveLength(0);
+});
+
+test('signal, manager and template drafts coexist in their own folding modules across an unrelated signal save', async () => {
+  await newManagement(); const management = root().querySelector('.management-form'); input('管理指令名称').value = '保留管理草稿';
+  await btn('新建时间信号').onclick(); const signalForm = root().querySelector('.signal-form'); input('信号名称').value = '保留时间草稿';
+  await btn('新建模板').onclick();
+  const templates = root().querySelector('[data-module="templates"]'), templateEditor = templates.querySelector('.hook-editor');
+  const draft = templateEditor.querySelector('input'); draft.value = '保留模板草稿';
+  for (const key of ['signals', 'management', 'templates']) await root().querySelector(`[data-module="${key}"]`).querySelector('.automation-module-toggle').onclick();
+  await btn('停用时间信号').onclick();
+  expect(root().querySelector('.management-form')).toBe(management); expect(root().querySelector('.signal-form')).toBe(signalForm);
+  expect(input('管理指令名称').value).toBe('保留管理草稿'); expect(input('信号名称').value).toBe('保留时间草稿'); expect(templateEditor.querySelector('input')).toBe(draft); expect(draft.value).toBe('保留模板草稿');
+  for (const key of ['signals', 'management', 'templates']) expect(root().querySelector(`[data-module="${key}"]`).moduleOpen).toBe(false);
+  const refreshing = btn('刷新目录').onclick(); closeDialog(); await refreshing;
+  expect(input('管理指令名称').value).toBe('保留管理草稿'); expect(input('信号名称').value).toBe('保留时间草稿');
 });

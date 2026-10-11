@@ -8,7 +8,8 @@
 
 - `hooks.command_start {id,version,worker_id,expected_revision}` → `{execution_id,execution,commands}`，Project `startShortcutCommand(id,version,workerId,expectedRevision)`。
 - `hooks.command_history {before?,limit?,execution_id?}` → `{version:1,items,has_more,next_before}`，Project `shortcutCommandHistory(options={})`。默认 limit 30，上限 100；before 是正整数事件游标；execution_id 是 UUID，按身份查询时不得带 before。
-- Web POST `/api/action` 允许 command_start；GET `/api/hooks/commands/executions` 只读转发 command_history，拒绝未知／重复参数。
+- `hooks.command_history_remove {execution_id}` 或 `{clear:true}` → `{removed_count}`，Project `removeShortcutCommandHistory(options={})`。参数严格二选一，逐条或全量移除 succeeded/failed 的公开历史，pending/running/unknown 拒绝；重复 UUID 幂等返回 0。持久隐藏标记保留原 Event，公开分页／精确查询和 commands.last_execution 不再显示移除项，启动恢复与去重仍扫描原审计，不撤回副作用或撤权。
+- Web POST `/api/action` 允许 command_start 及 command_history_remove；GET `/api/hooks/commands/executions` 只读转发 command_history，拒绝未知／重复参数。
 
 每项安全 execution：`{event_id,id,command_id,command_name,command_version,worker_id,worker_number,source,status,created_at,finished_at,command_result?}`。source 为 manual／hook／unknown（旧记录无法确认）；status 为 pending／running／succeeded／failed／unknown。command_name 为提交时名称快照；不包含 Shell 正文、env、原始错误或输出。旧事件缺名称时允许 null，不拿当前名称冒充历史。Worker 优先记录当时持久 worker_number，旧记录可只读关联；无编号才显示 #整数 ID。
 
@@ -19,7 +20,7 @@
 ## 页面与验证分区
 
 - Runtime child：project/shortcut-commands.js、command-hooks.js 及必要执行互斥／恢复接缝，新增专项 tests，modules-runtime 对应条目。实现上面 Project 方法与读模型，不改 RPC／HTTP／assets。
-- UI child：assets/shortcut-commands.js、render-hooks.js 及必要 styles、DOM tests、modules-web。自动化页内独立标签「运行与记录」「指令管理」，运行区无编辑／授权／删除按钮；管理区无执行按钮。历史分页与状态查询，pending/running 显示进行中，网络异常仅显示连接／结果未确认，不冒充失败。不自动重试 mutation；读结果只在页面身份仍一致时继续，离开停止。返回可刷新历史恢复，不依赖浏览器缓存。草稿／分页与迟到响应隔离，旧服务缺接口保守提示升级，不回退同步执行。
+- UI child：assets/shortcut-commands.js、render-hooks.js 及必要 styles、DOM tests、modules-web。自动化页内独立可缩放模块「快捷指令运行」「快捷指令管理」「运行记录」，运行区无编辑／授权／历史删除按钮，管理区无执行按钮。记录区单独提供逐条删除与清空已结束记录，确认说明保留审计、未知／活动不可删，失败不假定成功或自动重发。历史分页与状态查询，pending/running 显示进行中，网络异常仅显示连接／结果未确认，不冒充失败。不自动重试 mutation；读结果只在页面身份仍一致时继续，离开停止。返回可刷新历史恢复，不依赖浏览器缓存。默认 Worker 目录在指令管理保存，手动运行每次读新目录后预选；失效／冻结不回落 main，Hook 不用此默认。草稿／分页与迟到响应隔离，旧服务缺接口保守提示升级，不回退同步执行。
 - W192 父：registry/handlers、HTTP、CLI 可选异步入口、契约／使用文档、真实临时项目组合及最终全量测试。子默认专项与受影响回归，不要求全量。
 
 ## W192 验证

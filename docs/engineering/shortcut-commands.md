@@ -4,7 +4,7 @@
 
 ## 授权与版本
 
-快捷指令是项目 meta 的附属 versioned JSON，不新增核心实体、Host 调度或 Agent 权限。保存 `{id?,name,command}`，普通新增和修改均不授权；内置默认 `git push` 按用户追加要求在初始化时授权，Hook 仍默认停用；修改内容或名称递增正整数 `version` 并撤权。单独授权或撤权当前版本。删除使引用不可执行，不复用身份。
+快捷指令是项目 meta 的附属 versioned JSON，不新增核心实体、Host 调度或 Agent 权限。保存 `{id?,name,command,default_worker_id?}`，default_worker_id 为本项目真实 Worker 的正整数内部 ID 或 null，编辑省略保留原值、显式 null 清空；仅作为手动运行预选目录（可明确改选），Hook 始终在挂载 Worker 目录运行，不接受任意路径。普通新增和修改均不授权；内置默认 `git push` 按用户追加要求在初始化时授权，Hook 仍默认停用；修改内容、名称或默认目录递增正整数 `version` 并撤权。单独授权或撤权当前版本。删除使引用不可执行，不复用身份。
 
 Hook Shell 动作新形为 `{type:'command',command_id:UUID,command_version:正整数}`，不得提交内联 command、运行目录、额外参数或 Shell 拼接。保存模板/挂载必须检查引用存在及版本；未授权版本可保存停用配置，但启用、提交及真正 spawn 前必须核验授权与版本。修改后不自动更新已有 Hook 的引用。撤权不承诺取消已开始的副作用，不自动重放旧触发。
 
@@ -12,7 +12,7 @@ Hook Shell 动作新形为 `{type:'command',command_id:UUID,command_version:正�
 
 ## 读面与 Project 方法
 
-`hooks.list` 新增 `commands:{version:1,revision,items:[{id,name,command,version,authorized,last_execution}]}`。指令正文是用户配置，允许用户专属读面显示，不能放入错误、事件或原始输出。last_execution 可空，否则只含安全执行身份、Worker 整数 ID/持久编号、状态、时间和 command_result。每次变更/领取/收口更新 revision；模板及 Worker 自身 revision 保持独立。
+`hooks.list` 新增 `commands:{version:1,revision,items:[{id,name,command,default_worker_id,version,authorized,last_execution}]}`。指令正文是用户配置，允许用户专属读面显示，不能放入错误、事件或原始输出。last_execution 可空，否则只含安全执行身份、Worker 整数 ID/持久编号、状态、时间和 command_result。每次变更/领取/收口更新 revision；模板及 Worker 自身 revision 保持独立。
 
 - `shortcutCommands()`：只读 commands。
 - `saveShortcutCommand(command,expectedRevision)`：保存定义，返回完整 hooksList。
@@ -41,7 +41,7 @@ CLI 使用 `hooks command list`（复用 hooks.list）、`save --file PATH --rev
 
 ## 界面与分区
 
-自动化保留 `#hooks` 和主标题，小标题为「快捷指令和 Hook」。快捷指令区用独立「运行与记录」「指令管理」标签分开：前者选择指令／Worker 执行及回看历史，后者负责注册、编辑、授权/撤权和删除；Hook 编辑器只选择指令及版本，不能填写 Shell。旧命令卡片说明已停止，并提供显式导入入口。授权、执行、删除前说明实际影响；Shell 不是 Agent 调用，不染 Agent 紫色。既有模型/Agent 动作保留统一代价标识。失败保留草稿，迟到响应不覆盖新页面，旧服务缺 commands 保守禁用指令操作。
+自动化保留 `#hooks` 和主标题，小标题为「快捷指令和 Hook」。快捷指令分为独立可展开／收起的「快捷指令运行」「快捷指令管理」「运行记录」模块：运行模块选择已授权指令与 Worker，自动预选已保存的默认 Worker；管理模块注册、编辑默认目录与正文、授权/撤权和删除；记录模块查询安全历史并显式移除已结束记录（保留审计）。同页重画保留缩放状态、草稿和在途选择，折叠不隐藏必要异常摘要；Hook 编辑器只选择指令及版本，不能填写 Shell。旧命令卡片说明已停止，并提供显式导入入口。授权、执行、删除前说明实际影响；Shell 不是 Agent 调用，不染 Agent 紫色。既有模型/Agent 动作保留统一代价标识。失败保留草稿，迟到响应不覆盖新页面，旧服务缺 commands 保守禁用指令操作。
 
 - Runtime 子分区：core/hooks、project/hooks/command-hooks、新 shortcut-commands 模块、Project 装配与必要执行门；test/project 命令测试及纯定义回归。维护 modules-runtime 对应条目，不改 RPC/CLI/assets。
 - Web 子分区：assets Hook 表单/渲染/样式，快捷指令编辑与授权/执行/导入，DOM 回归；维护 modules-web 条目，不改 runtime/API。
@@ -55,6 +55,10 @@ CLI 使用 `hooks command list`（复用 hooks.list）、`save --file PATH --rev
 运行时专项另覆盖异步目录检查及 ref 基线读取期间撤权／编辑／删除、已开始命令不冒充可撤回、停止后续动作及积压触发、实际 invocation 互斥、关闭等待在途命令、私有配置与凭证／原始输出隔离、重启 unknown 不重放。父侧组合专项 **45 pass / 0 fail**，日志 `/tmp/lush-w151-logs/combined.log`。
 
 完整 `bun run test --timeout 30000`：**2582 pass / 0 fail**，336 文件；日志 `/tmp/lush-w151-logs/full-final.log`。首次全量仅两个旧内联 HTTP 联调测试失败（`/tmp/lush-w151-logs/full-initial.log`），已迁移为注册、授权及明确版本引用并新增手动／导入回归；最终完整重跑通过。未调用真实模型、连接真实推送 remote 或重启用户 daemon/Host，真实浏览器交互仍未验证。
+
+## W211／D496 目录与记录管理
+
+默认目录绑定 Worker 身份，不从分支名称猜 ID，不自动改投 main；保存核验真实目录及生命周期，执行前仍复核授权、目录、Git 与冻结／同步／实际 invocation。默认目录不是新调度或目录权限模型；详情见[异步运行与历史](shortcut-command-runs.md)。项目自动化其余 Hook、时间信号、管理指令、模板模块也可展开／收起；授权与启停有醒目颜色及文字，不冒充运行结果或 Agent 调用。
 
 ### 默认推送追加要求
 

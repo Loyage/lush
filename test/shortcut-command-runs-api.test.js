@@ -10,6 +10,7 @@ function fixture() {
   const calls = [], project = { actor: token => token ? 7 : null,
     startShortcutCommand(...args) { calls.push(['start', ...args]); return { execution_id: uuid, execution: { id: uuid, status: 'pending' } }; },
     shortcutCommandHistory(...args) { calls.push(['history', ...args]); return { version: 1, items: [], has_more: false, next_before: null }; },
+    removeShortcutCommandHistory(...args) { calls.push(['remove', ...args]); return { removed_count: 1 }; },
   };
   return { calls, project, dispatcher: new Dispatcher(project) };
 }
@@ -37,6 +38,21 @@ test('async start and history are user-only, strictly validated and never retrie
   expect(f.calls).toEqual([['start', uuid, 2, 7, 'revision'], ['history', { before: 20, limit: 5 }], ['history', { execution_id: uuid }]]);
   f.project.startShortcutCommand = () => { f.calls.push(['failed']); throw new Error('revision changed'); };
   await expect(f.dispatcher.dispatch('hooks.command_start', params)).rejects.toThrow('revision changed');
+  expect(f.calls.filter(c => c[0] === 'failed')).toHaveLength(1);
+});
+
+test('history removal is user-only, mutually exclusive, validated and not retried', async () => {
+  const f = fixture(), method = 'hooks.command_history_remove';
+  for (const value of [{}, { execution_id: 'bad' }, { execution_id: null }, { clear: false }, { clear: 'true' }, { clear: null },
+    { clear: true, execution_id: uuid }, { clear: true, before: 1 }])
+    await expect(f.dispatcher.dispatch(method, value)).rejects.toThrow();
+  await expect(f.dispatcher.dispatch(method, { clear: true, _token: 'agent' })).rejects.toThrow('requires user approval');
+  expect(f.calls).toEqual([]);
+  expect(await f.dispatcher.dispatch(method, { execution_id: uuid })).toEqual({ removed_count: 1 });
+  expect(await f.dispatcher.dispatch(method, { clear: true })).toEqual({ removed_count: 1 });
+  expect(f.calls).toEqual([['remove', { execution_id: uuid }], ['remove', { clear: true }]]);
+  f.project.removeShortcutCommandHistory = () => { f.calls.push(['failed']); throw new Error('history uncertain'); };
+  await expect(f.dispatcher.dispatch(method, { clear: true })).rejects.toThrow('history uncertain');
   expect(f.calls.filter(c => c[0] === 'failed')).toHaveLength(1);
 });
 

@@ -102,6 +102,22 @@ test('快捷指令配置授权与实际执行分开显示，未知不冒充成�
   expect(eventLabel({ type: 'shortcut.command_unknown' })).toContain('待核验');
 });
 
+test('运行记录移除的安全审计有中文标签，不冒充指令删除、取消执行或擦除审计', () => {
+  const type = 'shortcut.command_history_removed';
+  expect(Object.hasOwn(EVENTS, type)).toBe(true);
+  for (const data of [
+    { removed_count: 1, execution_id: 'c8c8c8c8-0000-4000-8000-000000000001' },
+    { removed_count: 3, clear: true },
+    { removed_count: 0, clear: true },
+  ]) {
+    const event = { type, data }, original = structuredClone(event), label = eventLabel(event);
+    expect(label).toBe('移除快捷指令运行列表记录（安全审计保留）');
+    expect(label).not.toBe(eventLabel({ type: 'shortcut.command_removed' }));
+    expect(label).not.toContain('取消'); expect(label).not.toContain('执行成功');
+    expect(event).toEqual(original);
+  }
+});
+
 test('daemon Hook events and answer provenance have explicit labels without guessing old answers', () => {
   expect(eventLabel({ type: 'hook.daemon_configured' })).toBe('调整 daemon 自动选择 Hook');
   expect(eventLabel({ type: 'hook.daemon_failed' })).toContain('失败');

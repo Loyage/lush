@@ -53,6 +53,22 @@ test('shortcut RPC rejects invalid versions, IDs and nested authority before any
   expect(f.calls).toEqual([]);
 });
 
+test('default Worker is optional, numeric or null, passed intact by RPC and private-file CLI', async () => {
+  const f = project();
+  for (const default_worker_id of [0, -1, '7', 'W211', 1.5, true, {}, Number.MAX_SAFE_INTEGER + 1])
+    await expect(f.dispatcher.dispatch('hooks.command_save', { command: { ...command, default_worker_id }, expected_revision: revision })).rejects.toThrow('default_worker_id');
+  expect(f.calls).toEqual([]);
+  for (const default_worker_id of [7, null]) {
+    const value = { ...command, default_worker_id }, c = client(), definition = file(value);
+    try {
+      await f.dispatcher.dispatch('hooks.command_save', { command: value, expected_revision: revision });
+      expect(f.calls.at(-1)).toEqual({ name: 'saveShortcutCommand', args: [value, revision] });
+      await hooks('hooks', ['command', 'save', '--file', definition.filename, '--revision', revision], { client: c });
+      expect(c.calls).toEqual([{ method: 'hooks.command_save', params: { command: value, expected_revision: revision } }]);
+    } finally { definition.close(); }
+  }
+});
+
 test('shortcut RPC supports revoke and both import sources, preserving safe result and stale failures', async () => {
   const f = project();
   await f.dispatcher.dispatch('hooks.command_authorize', { id: commandId, version: 3, authorized: false, expected_revision: revision });

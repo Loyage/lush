@@ -4,7 +4,9 @@ import { check } from '../../src/core/types.js';
 
 const id = 'ee2f98f1-fc9a-46b1-a37c-67d8595c0649', expected_revision = 'commands:revision';
 const requests = [
-  ['hooks.command_save', { command: { name: 'fixture', command: 'printf fixture' }, expected_revision }, 'saveShortcutCommand'],
+  ['hooks.command_save', { command: { name: 'fixture', command: 'printf fixture', default_worker_id: 7 }, expected_revision }, 'saveShortcutCommand'],
+  ['hooks.command_history_remove', { execution_id: id }, 'removeShortcutCommandHistory'],
+  ['hooks.command_history_remove', { clear: true }, 'removeShortcutCommandHistory'],
   ['hooks.command_authorize', { id, version: 1, authorized: true, expected_revision }, 'authorizeShortcutCommand'],
   ['hooks.command_remove', { id, expected_revision }, 'removeShortcutCommand'],
   ['hooks.command_run', { id, version: 1, worker_id: 7, expected_revision }, 'runShortcutCommand'],
@@ -45,6 +47,7 @@ test('shortcut HTTP rejects nested privilege additions and invalid identities be
   try {
     for (const command of [null, [], {}, { name: 'fixture', command: 'echo', authorized: true },
       { name: 'fixture', command: 'echo', version: 3 }, { name: 'fixture', command: 'echo', cwd: '/tmp' },
+      ...[0, -1, '7', 'W211', 1.5, true, {}].map(default_worker_id => ({ name: 'fixture', command: 'echo', default_worker_id })),
       { name: 'fixture', command: 'echo\0secret' }])
       expect((await post(f.url, 'hooks.command_save', { command, expected_revision })).status).toBe(400);
     for (const source of [null, {}, { template_id: 't', worker_id: 7, hook_id: 'h' },
@@ -57,6 +60,8 @@ test('shortcut HTTP rejects nested privilege additions and invalid identities be
     }
     expect((await post(f.url, 'hooks.command_run', { id, version: 1, worker_id: 'W151-1', expected_revision })).status).toBe(400);
     expect((await post(f.url, 'hooks.command_authorize', { id, version: 1, authorized: 'true', expected_revision })).status).toBe(400);
+    for (const params of [{}, { execution_id: 'bad' }, { clear: false }, { clear: 'true' }, { clear: true, execution_id: id }, { clear: true, force: true }])
+      expect((await post(f.url, 'hooks.command_history_remove', params)).status).toBe(400);
     expect(calls).toEqual([]);
     let attempts = 0;
     f.project.runShortcutCommand = () => { attempts++; check(false, 'Command revision changed'); };

@@ -60,7 +60,7 @@ async function runCommand(args, client) {
     const file = option(args, '--file'); exact(args, 0);
     check(file, `hooks command ${verb} requires --file PATH`);
     const value = readPrivateJson(file, 'shortcut command');
-    const keys = verb === 'save' ? ['id','name','command'] : ['template_id','worker_id','hook_id'];
+    const keys = verb === 'save' ? ['id','name','command','default_worker_id'] : ['template_id','worker_id','hook_id'];
     check(Object.keys(value).every(key => keys.includes(key)), 'unknown shortcut command parameter');
     if (verb === 'import' && Object.hasOwn(value, 'worker_id')) {
       check(!Object.hasOwn(value, 'template_id') && Object.hasOwn(value, 'hook_id'), 'invalid import source');

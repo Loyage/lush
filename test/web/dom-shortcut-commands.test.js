@@ -77,26 +77,25 @@ test('page subtitle and separate commands: opening does not authorize or run, un
   expect(calls).toHaveLength(0);
 });
 
-test('run and management tabs separate visible actions, support keyboard navigation and preserve drafts', async () => {
+test('run, management and history are independent modules; collapsing preserves drafts and keyboard controls', async () => {
   await openHooks();
-  const runs = section().querySelector('.shortcut-command-runs'), manager = section().querySelector('.shortcut-command-management');
-  expect(runs.hidden).toBe(false); expect(manager.hidden).toBe(true);
+  const runs = section().querySelector('.shortcut-run-module'), manager = section().querySelector('.shortcut-command-management'), history = section().querySelector('.shortcut-history-module');
+  expect(runs.moduleOpen).toBe(true); expect(manager.moduleOpen).toBe(true); expect(history.moduleOpen).toBe(true);
+  expect(runs.querySelector('.shortcut-execution-history')).toBeNull(); expect(runs.querySelector('[role="tab"]')).toBeNull();
   expect(btn('编辑快捷指令', runs)).toBeUndefined(); expect(btn('注册快捷指令', runs)).toBeUndefined();
   expect(btn('手动执行', manager)).toBeUndefined(); expect(btn('删除快捷指令', manager)).toBeTruthy();
-  await btn('指令管理').onclick(); expect(runs.hidden).toBe(true); expect(manager.hidden).toBe(false);
-  expect(btn('指令管理').getAttribute('aria-selected')).toBe('true');
   await btn('编辑快捷指令', manager).onclick(); const draft = field('Shell 命令'); draft.value = 'echo preserved';
-  let prevented = false;
-  btn('指令管理').onkeydown({ key: 'ArrowLeft', preventDefault() { prevented = true; } });
-  expect(prevented).toBe(true); expect(runs.hidden).toBe(false); expect(btn('运行与记录').tabIndex).toBe(0);
-  await btn('指令管理').onclick(); expect(field('Shell 命令')).toBe(draft); expect(draft.value).toBe('echo preserved'); expect(calls).toHaveLength(0);
+  const toggle = manager.querySelector('.automation-module-toggle'); toggle.focus(); await toggle.onclick();
+  expect(manager.moduleBody.hidden).toBe(true); expect(toggle.getAttribute('aria-expanded')).toBe('false'); expect(toggle.getAttribute('aria-controls')).toBe(manager.moduleBody.id);
+  expect(runs.moduleBody.hidden).toBe(false); expect(history.moduleBody.hidden).toBe(false);
+  await toggle.onclick(); expect(field('Shell 命令')).toBe(draft); expect(draft.value).toBe('echo preserved'); expect(calls).toHaveLength(0);
 });
 
-test('catalogue changes retain the history component and do not restart reads or reset the active tab', async () => {
+test('catalogue changes retain the history component and do not restart reads or reset module folds', async () => {
   await openHooks(); await until(() => section().querySelector('.shortcut-execution-records').children.length);
-  const original = section(); await btn('指令管理').onclick();
+  const original = section(), runModule = original.querySelector('.shortcut-run-module'); await runModule.querySelector('.automation-module-toggle').onclick();
   const authorizing = btn('授权当前版本').onclick(); await dialogButton(dom, '授权此版本').onclick(); await authorizing;
-  expect(section()).toBe(original); expect(btn('指令管理').getAttribute('aria-selected')).toBe('true');
+  expect(section()).toBe(original); expect(runModule.moduleOpen).toBe(false);
   expect(reads.filter(path => path.includes('/api/hooks/commands/executions'))).toHaveLength(1);
   expect(btn('撤销授权').disabled).toBe(false); expect(btn('删除快捷指令').disabled).toBe(false); expect(btn('注册快捷指令').disabled).toBe(false);
   expect(btn('手动执行').disabled).toBe(false);
@@ -108,7 +107,7 @@ test('register preserves literal multiline Shell, remains unauthorized, does not
   field('快捷指令名称').value = '新指令'; field('Shell 命令').value = text;
   expect(btn('保存快捷指令').classList.contains('agent-call')).toBe(false);
   await btn('保存快捷指令').onclick();
-  expect(calls).toEqual([{ method: 'hooks.command_save', params: { command: { name: '新指令', command: text }, expected_revision: 'commands-revision' } }]);
+  expect(calls).toEqual([{ method: 'hooks.command_save', params: { command: { name: '新指令', command: text, default_worker_id: null }, expected_revision: 'commands-revision' } }]);
   expect(deepText(section())).toContain(text); expect(root().querySelector('script')).toBeNull();
   expect(catalogue.commands.items.at(-1).authorized).toBe(false); expect(dom.node('modal').querySelector('button')).toBeNull();
   expect(section().querySelector('[data-worker-links="off"]')).toBeTruthy();
@@ -136,7 +135,7 @@ test('cancelled authorization and navigation during confirmation never submit a 
 test('editing creates a new unauthorized version without upgrading existing Hook references', async () => {
   catalogue.commands.items[0].authorized = true; await openHooks(); await btn('编辑快捷指令').onclick();
   field('Shell 命令').value = 'git push --tags'; await btn('保存快捷指令').onclick();
-  expect(calls[0].params.command).toEqual({ id: 'push-command', name: '推送', command: 'git push --tags' });
+  expect(calls[0].params.command).toEqual({ id: 'push-command', name: '推送', command: 'git push --tags', default_worker_id: null });
   expect(catalogue.commands.items[0]).toMatchObject({ version: 2, authorized: false });
   expect(catalogue.command_example.hooks.mounts[0].actions[0].command_version).toBe(1);
   expect(deepText(mainExample())).toContain('不会自动升级'); expect(btn('启用 Hook', mainExample()).disabled).toBe(true);
@@ -270,4 +269,47 @@ test('old services do not offer shortcut mutations or inline command import or e
   expect(deepText(section())).toContain('请更新后台服务'); expect(btn('注册快捷指令')).toBeUndefined();
   const importing = btn('导入为快捷指令', mainExample()); expect(importing.disabled).toBe(true); expect(importing.parentNode.classList.contains('help-host')).toBe(true);
   await importing.onclick(); expect(calls).toHaveLength(0);
+});
+
+test('management saves an explicit default child Worker or null, directory-only editing creates an unauthorized version', async () => {
+  catalogue.commands.items[0] = { ...push(), authorized: true, default_worker_id: 1 };
+  await openHooks(); await btn('编辑快捷指令').onclick();
+  const directory = field('默认执行目录 Worker'); expect(directory.value).toBe('1'); expect(directory.children.some(item => item.value === '44')).toBe(true);
+  directory.value = '44'; await btn('保存快捷指令').onclick();
+  expect(calls[0].params.command).toEqual({ id: 'push-command', name: '推送', command: 'git push', default_worker_id: 44 });
+  expect(catalogue.commands.items[0]).toMatchObject({ version: 2, authorized: false });
+  await btn('编辑快捷指令').onclick(); field('默认执行目录 Worker').value = ''; await btn('保存快捷指令').onclick();
+  expect(calls[1].params.command.default_worker_id).toBeNull(); expect(catalogue.commands.items[0].version).toBe(3);
+});
+
+test('management retains missing default identity across repaint and failure; does not silently save null or main', async () => {
+  catalogue.commands.items[0].default_worker_id = 999; await openHooks(); await btn('编辑快捷指令').onclick();
+  const directory = field('默认执行目录 Worker'), draft = field('Shell 命令'); expect(directory.value).toBe('999');
+  await btn('保存快捷指令').onclick(); expect(calls).toHaveLength(0); expect(deepText(section())).toContain('默认目录失效');
+  directory.value = '44'; draft.value = 'printf preserved';
+  await btn('编辑挂载', mainExample()).onclick(); await btn('保存挂载', mainExample()).onclick();
+  expect(field('默认执行目录 Worker')).toBe(directory); expect(directory.value).toBe('44');
+  intercept = (_path, body) => body?.method === 'hooks.command_save' ? failure('revision conflict') : null;
+  await btn('保存快捷指令').onclick(); expect(directory.value).toBe('44'); expect(draft.value).toBe('printf preserved'); expect(calls.at(-1).params.expected_revision).toBe('commands-revision');
+});
+
+test('all automation modules fold independently and retain exceptional summaries and template search on unrelated saves', async () => {
+  const mount = catalogue.command_example.hooks.mounts[0]; mount.state = 'unknown'; mount.last_execution = { status: 'unknown', error: '需要核对副作用' };
+  history = [execution({ status: 'unknown' })]; await openHooks(); await until(() => root().querySelector('.shortcut-execution'));
+  const modules = root().querySelectorAll('.automation-module'); expect(modules).toHaveLength(7);
+  const search = field('查找 Hook 模板'); search.value = '推送'; search.oninput();
+  for (const module of modules) await module.querySelector('.automation-module-toggle').onclick();
+  expect(root().querySelector('[data-module="project-hooks"]').moduleSummary.textContent).toContain('需要核对副作用');
+  expect(root().querySelector('[data-module="command-history"]').moduleSummary.textContent).toContain('结果未知');
+  const authorizing = btn('授权当前版本').onclick(); await dialogButton(dom, '授权此版本').onclick(); await authorizing;
+  for (const module of root().querySelectorAll('.automation-module')) expect(module.moduleOpen).toBe(false);
+  expect(field('查找 Hook 模板')).toBe(search); expect(search.value).toBe('推送');
+});
+
+test('command authorization and command Hook switches have distinct enable/disable classes without Agent purple', async () => {
+  catalogue.commands.items[0].authorized = true; await openHooks();
+  expect(btn('撤销授权').classList.contains('command-revoke')).toBe(true); expect(btn('启用 Hook', mainExample()).classList.contains('hook-enable')).toBe(true);
+  expect(btn('撤销授权').classList.contains('agent-call')).toBe(false); expect(btn('启用 Hook', mainExample()).classList.contains('agent-call')).toBe(false);
+  catalogue.command_example.hooks.mounts[0].enabled = true; await btn('刷新目录').onclick();
+  expect(btn('停用 Hook', mainExample()).classList.contains('hook-disable')).toBe(true);
 });

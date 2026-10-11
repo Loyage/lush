@@ -3,7 +3,8 @@ import { api, action } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { workerLabel } from './worker-label.js';
 import { absolute } from './format.js';
-import { COMMAND_WARNING, validCommands } from './shortcut-command-model.js';
+import { COMMAND_WARNING, validCommands, commandWorkers, workerDirectoryReason } from './shortcut-command-model.js';
+import { automationAlerts } from './automation-module.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const statuses = { pending: '已提交，等待执行', running: '执行中', succeeded: '执行成功', failed: '执行失败', unknown: '结果未知' };
@@ -33,15 +34,53 @@ export function createShortcutRuns({ model: initial, ownsPage, busy, setBusy, on
   const node = el('div', undefined, 'shortcut-command-runs'), choices = el('div', undefined, 'shortcut-run-choices');
   const editor = el('div', undefined, 'shortcut-run-editor hook-editor'), records = el('div', undefined, 'shortcut-execution-records');
   const message = el('p', undefined, 'hint shortcut-history-status'); message.setAttribute('role', 'status');
-  const history = el('section', undefined, 'shortcut-execution-history'); history.append(el('h3', '运行记录'),
+  const history = el('section', undefined, 'shortcut-execution-history'); history.append(
     el('p', '每次手动和 Hook 执行的安全摘要保存在项目后台，刷新或重启后仍可回看。网络超时不等于命令失败；未知结果不自动重跑。', 'hint'), message, records);
   const controls = el('div', undefined, 'actions');
   const refresh = button('刷新运行记录', () => loadHistory(), 'ghost');
   const more = button('更早运行记录', () => loadHistory(true), 'ghost'); more.hidden = true;
-  controls.append(refresh, more); history.append(controls); node.append(choices, editor, history);
+  const clearHost = el('span', undefined, 'help-host');
+  const clear = button('清空已结束记录', () => removeHistory({ clear: true }), 'ghost history-remove', { help: '仅持久移除成功或失败的列表记录；保留安全审计，不撤回命令副作用。等待、执行中和未知记录保留。' });
+  clearHost.append(clear); controls.append(refresh, more, clearHost); history.append(controls); node.append(choices, editor);
   let model = initial, disposed = false, capable = false, reading = false, sequence = 0, timer = null, observer = null;
   let pendingPost = false, pickerSequence = 0, selected = null, before = null, hasMore = false;
-  const rows = new Map(), controllers = new Set();
+  const rows = new Map(), controllers = new Set(), deletedIds = new Set();
+  let deleting = false, deleteUncertain = false, removalReceipt = '', statusListener = () => {};
+  const removable = row => ['succeeded', 'failed'].includes(row.status);
+  const deleteHelp = '仅持久移除运行列表记录，保留安全审计；不撤回命令副作用。只有成功或失败记录可删除，等待、执行中和结果未知的记录必须保留。';
+  function syncDelete(node, host, row = null) {
+    const reason = row && !removable(row) ? '等待、执行中或结果未知的记录不可删除。' : !capable ? '请先读取历史；旧后台不可用时不能删除。'
+      : deleting || busy() ? '正在确认或保存，请稍候。' : deleteUncertain ? '删除结果未确认，请显式刷新历史核对，不要盲目重发。' : null;
+    node.disabled = !!reason; host.tabIndex = reason ? 0 : -1; host.setAttribute('data-help', `${reason || ''} ${deleteHelp}`);
+  }
+  async function removeHistory(params) {
+    if (!current() || deleting || busy() || !capable || deleteUncertain) return;
+    if (params.execution_id && !removable(rows.get(params.execution_id) || {})) return;
+    deleting = true; sequence++; reading = false; stopPoll(); setBusy(true); paintRecords();
+    let acknowledged = false, submitted = false;
+    try {
+      if (!await confirmDialog({ title: params.clear ? '清空所有已结束运行记录？' : '删除这条运行记录？',
+        message: `${deleteHelp}${params.clear ? '范围包含尚未加载的已结束记录。' : ''}删除持久生效，刷新后不会恢复；此操作不取消命令、不删除 Worker 或成果。`,
+        confirmLabel: params.clear ? '清空已结束' : '删除记录', danger: true, confirmHelp: deleteHelp }) || !current()) return;
+      submitted = true;
+      const result = await action('hooks.command_history_remove', params, { refresh: false });
+      if (!current()) return;
+      if (!Number.isSafeInteger(result?.removed_count) || result.removed_count < 0 || params.execution_id && result.removed_count > 1) throw new Error('unconfirmed removal');
+      acknowledged = true;
+      if (result.removed_count > 0) for (const row of rows.values()) if (removable(row) && (params.clear || row.id === params.execution_id)) { deletedIds.add(row.id); rows.delete(row.id); }
+      removalReceipt = `已持久移除 ${result.removed_count} 条列表记录；安全审计及既有副作用保留。`;
+      message.textContent = removalReceipt; paintRecords();
+    } catch {
+      if (current()) { deleteUncertain = submitted; message.textContent = '删除请求未获确认；未假定删除成功。请刷新历史核对，不会自动重发或撤回副作用。'; }
+    } finally {
+      deleting = false; setBusy(false);
+      if (current()) {
+        paintRecords();
+        if (acknowledged) await loadHistory();
+        else if (!submitted) schedule();
+      }
+    }
+  }
   const current = () => !disposed && ownsPage();
   function dispose() {
     if (disposed) return;
@@ -56,8 +95,9 @@ export function createShortcutRuns({ model: initial, ownsPage, busy, setBusy, on
   }
   const read = (query = '') => request('/api/hooks/commands/executions' + query);
   function historyError() {
-    message.textContent = '运行记录暂不可用，连接中断或后台尚不支持此接口；请更新后台与界面服务后刷新。现有执行结果未确认，不表示命令失败，不会自动重跑。';
+    message.textContent = removalReceipt + '运行记录暂不可用，连接中断或后台尚不支持此接口；请更新后台与界面服务后刷新。现有执行结果未确认，不表示命令失败，不会自动重跑。';
     message.className = 'hint shortcut-history-status';
+    statusListener(message.textContent);
   }
   function paintRecords() {
     records.replaceChildren();
@@ -69,10 +109,15 @@ export function createShortcutRuns({ model: initial, ownsPage, busy, setBusy, on
         el('p', `开始／提交：${absolute(row.created_at)}${row.finished_at ? ` · 结束：${absolute(row.finished_at)}` : ''}`, 'hint'),
         el('p', commandResultText({ ...row.command_result, status: row.status }), ['failed', 'unknown'].includes(row.status) ? 'error' : 'hint'),
         el('p', `运行身份：${row.id}`, 'hint shortcut-execution-id'));
-      records.append(card);
+      const host = el('span', undefined, 'help-host');
+      const remove = button('删除运行记录', () => removeHistory({ execution_id: row.id }), 'ghost history-remove', { help: deleteHelp });
+      const clicked = remove.onclick; remove.onclick = async () => { await clicked(); syncDelete(remove, host, row); };
+      syncDelete(remove, host, row); host.append(remove); card.append(host); records.append(card);
     }
     if (!rows.size) records.append(el('p', '尚无运行记录。', 'hint'));
-    more.hidden = !hasMore; more.disabled = reading; refresh.disabled = reading;
+    more.hidden = !hasMore; more.disabled = reading || deleting; refresh.disabled = reading || deleting;
+    syncDelete(clear, clearHost);
+    statusListener([`${rows.size} 条已加载`, automationAlerts([...rows.values()]), message.textContent].filter(Boolean).join(' · '));
   }
   function stopPoll() { clearTimer(timer); timer = null; }
   function schedule() {
@@ -97,22 +142,22 @@ export function createShortcutRuns({ model: initial, ownsPage, busy, setBusy, on
     } catch { if (current() && epoch === sequence) historyError(); }
   }
   async function loadHistory(older = false) {
-    if (!current() || reading || older && !hasMore) return;
+    if (!current() || reading || deleting || older && !hasMore) return;
     const epoch = ++sequence; stopPoll(); reading = true; paintRecords();
     try {
       const page = await read(`?limit=30${older ? `&before=${before}` : ''}`);
       if (!current() || epoch !== sequence) return;
       if (!validPage(page) || older && (page.items.some(row => row.event_id >= before) || page.has_more && page.next_before >= before)) throw new Error('history unavailable');
-      capable = true;
+      capable = true; deleteUncertain = false;
       if (!older) rows.clear();
-      for (const row of page.items) rows.set(row.id, row);
+      for (const row of page.items) if (!deletedIds.has(row.id)) rows.set(row.id, row);
       before = page.next_before; hasMore = page.has_more;
       message.textContent = '显示后台已确认的运行状态。'; paintRecords(); paintChoices(); schedule();
     } catch { if (current() && epoch === sequence) { capable = false; historyError(); paintChoices(); } }
     finally { if (current() && epoch === sequence) { reading = false; paintRecords(); } }
   }
   function paintChoices() {
-    choices.replaceChildren(el('p', '仅执行已授权版本；注册、编辑和授权请切换到「指令管理」。', 'hint'));
+    choices.replaceChildren(el('p', '仅执行已授权版本；注册、编辑和授权位于独立「指令管理」模块。保存的默认目录自动预选，可明确改选。', 'hint'));
     if (!validCommands(model)) return;
     for (const command of model.items) {
       const card = el('article', undefined, 'hook-mount shortcut-run-command');
@@ -143,22 +188,27 @@ export function createShortcutRuns({ model: initial, ownsPage, busy, setBusy, on
       if (!live) throw new Error('selected command authorization changed');
       command = live; revision = catalogue.commands.revision;
       onCommands(catalogue.commands);
-      const candidates = [...new Map([...activity.tasks.filter(item => ['main', 'owner', 'order', 'child'].includes(item.task_kind)
-        && !['completed', 'failed', 'cancelled'].includes(item.status)), ...parents.items].map(item => [item.id, item])).values()];
+      const candidates = commandWorkers(parents, activity);
       const worker = field('执行目录 Worker'), blank = el('option', '请选择 Worker 的真实工作目录'); blank.value = ''; worker.input.append(blank);
       for (const item of candidates) {
         if (!Number.isSafeInteger(item.id) || item.id < 1 || !item.branch) continue;
-        const option = el('option', `${workerLabel(item)} · ${item.branch}${item.freeze ? ' · 冻结，暂不可执行' : ''}`);
-        option.value = String(item.id); option.disabled = !!item.freeze; worker.input.append(option);
+        const reason = workerDirectoryReason(item), option = el('option', `${workerLabel(item)} · ${item.branch}${reason ? ` · ${reason}` : ''}`);
+        option.value = String(item.id); option.disabled = !!reason; worker.input.append(option);
       }
-      const error = el('p', undefined, 'hint'); error.setAttribute('role', 'status');
+      const defaultId = command.default_worker_id ?? null;
+      if (defaultId !== null) {
+        if (!candidates.some(item => item.id === defaultId)) { const missing = el('option', `${workerLabel(defaultId)} · 保存的默认目录已失效`); missing.value = String(defaultId); missing.disabled = true; worker.input.append(missing); }
+        worker.input.value = String(defaultId);
+      } else worker.input.value = '';
+      const error = el('p', defaultId !== null && workerDirectoryReason(candidates.find(item => item.id === defaultId))
+        ? '保存的默认目录失效或冻结；已保留目标，不会清空或改投 main。请显式改选有效 Worker。' : undefined, 'hint'); error.setAttribute('role', 'status');
       const preview = el('pre', command.command, 'hook-action-preview'); preview.setAttribute('data-worker-links', 'off');
       let uncertain = false;
       const host = el('span', undefined, 'help-host');
       const execute = button('确认执行一次', async () => {
         if (!current() || pendingPost || busy() || uncertain || !capable || generation !== pickerSequence) return;
         const target = candidates.find(item => String(item.id) === worker.input.value);
-        if (!target || target.freeze) { error.textContent = '请选择未冻结的有效 Worker。'; return; }
+        if (!target || workerDirectoryReason(target)) { error.textContent = '请选择未冻结的有效 Worker；保存目标不可用时拒绝，不会改投 main。'; return; }
         pendingPost = true; setBusy(true); execute.disabled = worker.input.disabled = cancel.disabled = true; paintChoices();
         let submitted = false;
         try {
@@ -195,10 +245,12 @@ export function createShortcutRuns({ model: initial, ownsPage, busy, setBusy, on
     } catch { if (current() && generation === pickerSequence) editor.replaceChildren(el('p', '读取 Worker 失败；不会改投 main。', 'hint'),
       button('关闭手动执行', () => { pickerSequence++; selected = null; editor.replaceChildren(); }, 'ghost')); }
   }
-  function update(next) { model = next; if (current()) paintChoices(); }
+  function update(next) { model = next; if (current()) { paintChoices(); for (const card of records.querySelectorAll('.shortcut-execution')) { const control = card.querySelector('.history-remove'); if (control) syncDelete(control, control.parentNode, rows.get(card.dataset.executionId)); } syncDelete(clear, clearHost); } }
   // Navigation invalidates ownership before any further read. Abort in-flight GETs when the DOM changes.
   globalThis.addEventListener?.('pagehide', dispose);
   if (globalThis.MutationObserver) { observer = new globalThis.MutationObserver(() => { if (!current()) dispose(); }); observer.observe(document, { childList: true, subtree: true }); }
   paintChoices(); void loadHistory();
-  return { node, update, dispose, refresh: loadHistory, pending: () => pendingPost, selecting: () => selected !== null };
+  const clearClick = clear.onclick; clear.onclick = async () => { await clearClick(); syncDelete(clear, clearHost); };
+  return { node, history, update, dispose, refresh: loadHistory, pending: () => pendingPost || deleting, selecting: () => selected !== null,
+    onHistoryStatus(listener) { statusListener = listener; paintRecords(); } };
 }

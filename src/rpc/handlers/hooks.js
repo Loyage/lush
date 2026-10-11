@@ -21,8 +21,10 @@ function commandVersion(value) {
 }
 function commandDefinition(value) {
   check(isPlainObject(value), 'command must be an object');
-  check(Object.keys(value).every(key => ['id','name','command'].includes(key)), 'unknown command parameter');
+  check(Object.keys(value).every(key => ['id','name','command','default_worker_id'].includes(key)), 'unknown command parameter');
   if (value.id !== undefined) commandId(value.id);
+  if (Object.hasOwn(value, 'default_worker_id')) check(value.default_worker_id === null
+    || Number.isSafeInteger(value.default_worker_id) && value.default_worker_id > 0, 'default_worker_id must be a positive integer or null');
   text(value.name, 'command name');
   check(value.name.length <= 120, 'command name exceeds its size limit');
   text(value.command, 'Shell command');
@@ -78,6 +80,12 @@ export const handlers = {
       options.execution_id = commandId(params.execution_id);
     }
     return p.shortcutCommandHistory(options);
+  },
+  'hooks.command_history_remove'(p, params) {
+    check(Object.keys(params).filter(key => key !== '_token').length === 1
+      && (Object.hasOwn(params, 'execution_id') || params.clear === true), 'provide either execution_id or clear:true');
+    return p.removeShortcutCommandHistory(Object.hasOwn(params, 'execution_id')
+      ? { execution_id: commandId(params.execution_id) } : { clear: true });
   },
   'hooks.command_import'(p, params) {
     const expected = revision(params.expected_revision);

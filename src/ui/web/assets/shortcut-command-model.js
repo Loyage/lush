@@ -2,7 +2,23 @@
 export const COMMAND_WARNING = '任意 Shell 命令将在所选 Worker 的真实目录中，以 daemon 用户权限执行；这不是沙箱，可读取或修改文件、访问网络及凭证。不调用 Agent；原始输出不公开，未知副作用不自动重放。';
 export const validCommands = model => model?.version === 1 && typeof model.revision === 'string' && !!model.revision.trim()
   && Array.isArray(model.items) && model.items.every(item => typeof item.id === 'string' && item.id.length > 0
-    && typeof item.name === 'string' && typeof item.command === 'string' && Number.isSafeInteger(item.version) && item.version > 0 && typeof item.authorized === 'boolean');
+    && typeof item.name === 'string' && typeof item.command === 'string' && Number.isSafeInteger(item.version) && item.version > 0 && typeof item.authorized === 'boolean'
+    && (!Object.hasOwn(item, 'default_worker_id') || item.default_worker_id === null || Number.isSafeInteger(item.default_worker_id) && item.default_worker_id > 0));
+// Parent candidates are complete for creation; snapshot adds active children.
+// Keep snapshot safety facts when a parent projection only provides identity.
+export function commandWorkers(parents, snapshot) {
+  if (!Array.isArray(parents?.items) || !Array.isArray(snapshot?.tasks)) throw new Error('Worker list unavailable');
+  const map = new Map();
+  for (const item of snapshot.tasks) if (['main', 'owner', 'order', 'say', 'child'].includes(item.task_kind) && !['completed', 'failed', 'cancelled'].includes(item.status)) map.set(item.id, item);
+  for (const item of parents.items) map.set(item.id, { ...map.get(item.id), ...item });
+  return [...map.values()].filter(item => Number.isSafeInteger(item.id) && item.id > 0 && typeof item.branch === 'string' && item.branch);
+}
+export function workerDirectoryReason(item) {
+  if (!item) return '目录已失效';
+  if (item.archived || item.branch_archive?.archived || ['completed', 'failed', 'cancelled'].includes(item.status)) return '目录已失效';
+  if (item.freeze || ['requested', 'executing', 'resolving', 'blocked'].includes(item.reservation?.status)) return '冻结，暂不可执行';
+  return null;
+}
 export const legacyCommands = hook => hook.actions?.some(item => item.type === 'command' && Object.hasOwn(item, 'command'));
 export const referencedCommand = (item, catalogue) => validCommands(catalogue?.commands)
   ? catalogue.commands.items.find(command => command.id === item.command_id && command.version === item.command_version) : null;

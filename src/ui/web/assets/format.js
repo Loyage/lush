@@ -57,6 +57,7 @@ export const EVENTS = {
   'hook.command_submitted': '命令 Hook 已提交待安全执行',
   'shortcut.command_saved': '保存未授权快捷指令版本', 'shortcut.command_authorized': '调整快捷指令版本授权',
   'shortcut.command_removed': '删除快捷指令', 'shortcut.commands_imported': '导入旧命令为未授权快捷指令',
+  'shortcut.command_history_removed': '移除快捷指令运行列表记录（安全审计保留）',
   'shortcut.command_pending': '快捷指令已提交待执行',
   'shortcut.command_started': '快捷指令开始执行', 'shortcut.command_succeeded': '快捷指令执行成功',
   'shortcut.command_failed': '快捷指令执行失败', 'shortcut.command_unknown': '快捷指令结果待核验',

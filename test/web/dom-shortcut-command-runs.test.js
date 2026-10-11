@@ -35,7 +35,7 @@ async function mount() {
   let timerId = 0;
   component = createShortcutRuns({ model, ownsPage: () => owned, busy: () => busy, setBusy: value => { busy = value; }, onCommands: value => { updates.push(value); model = value; component.update(value); },
     setTimeout(fn) { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); } });
-  root().replaceChildren(component.node);
+  root().replaceChildren(component.node, component.history);
   await until(() => !btn('刷新运行记录').disabled);
 }
 async function tick() { const [id, fn] = [...timers][0] || []; expect(fn).toBeTruthy(); timers.delete(id); await fn(); }
@@ -166,4 +166,83 @@ test('refresh invalidates late exact-result queries and keeps the refreshed auth
   defaultPage = page([row({ status: 'succeeded', command_result: { exit_code: 0 } })]); await btn('刷新运行记录').onclick();
   resolve(json(page([row({ status: 'failed', command_result: { exit_code: 9 } })]))); await polling;
   expect(deepText(root())).toContain('执行成功'); expect(deepText(root())).not.toContain('退出码 9'); expect(timers.size).toBe(0);
+});
+
+test('saved default Worker is preselected on every deliberate run, including child, without changing explicit start identity', async () => {
+  model.items[0].default_worker_id = 44; await mount(); await btn('手动执行').onclick(); expect(field().value).toBe('44');
+  const starting = btn('确认执行一次').onclick(); await dialogButton(dom, '执行一次').onclick(); await starting;
+  expect(writes()[0].body.params.worker_id).toBe(44); expect(writes()[0].body.params.expected_revision).toBe('revision-before');
+});
+
+for (const id of [999, 42]) test(`unavailable saved directory ${id} is retained and refused, never cleared or routed to main`, async () => {
+  model.items[0].default_worker_id = id;
+  intercept = path => path.endsWith('/api/input-parents') ? json({ items: [{ id: 1, branch: 'main' }, { id: 42, branch: 'work', freeze: {} }] }) : null;
+  await mount(); await btn('手动执行').onclick(); expect(field().value).toBe(String(id)); expect(deepText(root())).toContain('不会清空或改投 main');
+  await btn('确认执行一次').onclick(); expect(writes()).toHaveLength(0);
+  field().value = '44'; const starting = btn('确认执行一次').onclick(); await dialogButton(dom, '执行一次').onclick(); await starting;
+  expect(writes()[0].body.params.worker_id).toBe(44);
+});
+
+for (const status of ['pending', 'running', 'unknown']) test(`${status} records have keyboard-accessible refusal help and never submit deletion`, async () => {
+  defaultPage = page([row({ status })]); await mount(); const remove = btn('删除运行记录');
+  expect(remove.disabled).toBe(true); expect(remove.parentNode.tabIndex).toBe(0); expect(remove.parentNode.getAttribute('data-help')).toContain('不可删除');
+  await remove.onclick(); expect(writes()).toHaveLength(0);
+});
+
+test('history deletion confirms safe scope, posts only execution_id, rereads and cannot resurrect a deleted UUID from stale snapshots', async () => {
+  const ended = row({ status: 'succeeded' }); defaultPage = page([ended]); await mount();
+  intercept = (_path, body) => body?.method === 'hooks.command_history_remove' ? json({ removed_count: 1 }) : null;
+  const removing = btn('删除运行记录').onclick(); expect(writes()).toHaveLength(0);
+  expect(deepText(dom.node('modal'))).toContain('保留安全审计'); expect(deepText(dom.node('modal'))).toContain('不撤回命令副作用');
+  await dialogButton(dom, '删除记录').onclick(); await removing;
+  expect(writes().map(item => item.body)).toEqual([{ method: 'hooks.command_history_remove', params: { execution_id: uuid(1) } }]);
+  expect(root().querySelector('.shortcut-execution')).toBeNull(); await btn('刷新运行记录').onclick(); expect(root().querySelector('.shortcut-execution')).toBeNull();
+});
+
+test('clear removes only succeeded/failed and includes unloaded records; pending and unknown survive', async () => {
+  defaultPage = page([row({ status: 'succeeded' }), row({ id: uuid(2), event_id: 99, status: 'failed' }), row({ id: uuid(3), event_id: 98, status: 'unknown' }), row({ id: uuid(4), event_id: 97, status: 'pending' })]);
+  await mount(); intercept = (_path, body) => body?.method === 'hooks.command_history_remove' ? json({ removed_count: 2 }) : null;
+  const clearing = btn('清空已结束记录').onclick(); expect(deepText(dom.node('modal'))).toContain('尚未加载');
+  await dialogButton(dom, '清空已结束').onclick(); await clearing;
+  expect(writes()[0].body).toEqual({ method: 'hooks.command_history_remove', params: { clear: true } });
+  expect(root().querySelectorAll('.shortcut-execution')).toHaveLength(2); expect(deepText(root())).toContain('结果未知'); expect(deepText(root())).toContain('已提交，等待执行');
+});
+
+test('cancelled removal and navigation during confirmation never post', async () => {
+  defaultPage = page([row({ status: 'failed' })]); await mount(); let removing = btn('删除运行记录').onclick(); closeDialog(); await removing; expect(writes()).toHaveLength(0);
+  removing = btn('删除运行记录').onclick(); owned = false; await dialogButton(dom, '删除记录').onclick(); await removing; expect(writes()).toHaveLength(0);
+});
+
+for (const response of [() => Promise.reject(new Error('offline SECRET')), () => json({ removed_count: '1' })]) test('unconfirmed deletion preserves the record and blocks blind resend until explicit reread', async () => {
+  defaultPage = page([row({ status: 'failed' })]); await mount(); intercept = (_path, body) => body?.method === 'hooks.command_history_remove' ? response() : null;
+  const removing = btn('删除运行记录').onclick(); await dialogButton(dom, '删除记录').onclick(); await removing;
+  expect(root().querySelector('.shortcut-execution')).toBeTruthy(); expect(deepText(root())).toContain('未假定删除成功'); expect(deepText(root())).not.toContain('SECRET');
+  expect(btn('删除运行记录').disabled).toBe(true); await btn('删除运行记录').onclick(); expect(writes()).toHaveLength(1);
+  await btn('刷新运行记录').onclick(); expect(btn('删除运行记录').disabled).toBe(false);
+});
+
+test('removal invalidates late exact-result polls before confirmation and rereads active records afterwards', async () => {
+  defaultPage = page([row({ status: 'failed', id: uuid(2), event_id: 99 }), row()]); await mount(); let resolve;
+  intercept = (path, body) => path.includes('execution_id=') ? new Promise(done => { resolve = done; }) : body?.method === 'hooks.command_history_remove' ? json({ removed_count: 1 }) : null;
+  const polling = tick(); await until(() => resolve);
+  const removing = root().querySelectorAll('button').find(item => item.textContent === '删除运行记录' && !item.disabled).onclick(); await dialogButton(dom, '删除记录').onclick(); await removing;
+  resolve(json(page([row({ status: 'succeeded' })]))); await polling;
+  expect(root().querySelectorAll('.shortcut-execution')).toHaveLength(1); expect(deepText(root())).toContain('执行中'); expect(deepText(root())).not.toContain('执行成功');
+});
+
+test('a late deletion response never paints another project or starts a post-delete read there', async () => {
+  defaultPage = page([row({ status: 'succeeded' })]); await mount(); let resolve;
+  intercept = (_path, body) => body?.method === 'hooks.command_history_remove' ? new Promise(done => { resolve = done; }) : null;
+  const removing = btn('删除运行记录').onclick(); await dialogButton(dom, '删除记录').onclick(); await until(() => resolve);
+  owned = false; component.dispose(); const next = document.createElement('p'); root().replaceChildren(next); const count = requests.length;
+  resolve(json({ removed_count: 1 })); await removing; expect(root().children).toEqual([next]); expect(requests).toHaveLength(count);
+});
+
+test('successful deletion with a failed subsequent reread remains acknowledged and never resends or resurrects the removed row', async () => {
+  defaultPage = page([row({ status: 'succeeded' })]); await mount();
+  intercept = (path, body) => body?.method === 'hooks.command_history_remove' ? json({ removed_count: 1 })
+    : path.includes('/commands/executions') ? Promise.reject(new Error('offline')) : null;
+  const removing = btn('删除运行记录').onclick(); await dialogButton(dom, '删除记录').onclick(); await removing;
+  expect(root().querySelector('.shortcut-execution')).toBeNull(); expect(deepText(root())).toContain('已持久移除 1 条'); expect(deepText(root())).toContain('运行记录暂不可用');
+  expect(writes()).toHaveLength(1); expect(btn('清空已结束记录').disabled).toBe(true);
 });
