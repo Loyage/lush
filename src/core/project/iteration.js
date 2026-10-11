@@ -24,6 +24,11 @@ export function assertTaskNotSyncing(project, taskId) {
   check(!project.taskSyncBusy?.has(taskId), 'Worker parent sync is in flight; wait for its safe point');
 }
 
+/** Resource mutations must not overtake accepted Shell work. Inbox/resume may still queue input. */
+export function assertTaskNoCommand(project, taskId) {
+  check(!project.commandHookRunning?.has(taskId), 'Worker shortcut command is pending or running; wait for its safe point');
+}
+
 /** Explicit parent sync is not delivery approval. Persist the pause in existing audit facts. */
 export function taskSyncDeliveryPaused(project, taskId) {
   const hold = project.store.get(`SELECT max(id) AS id FROM events WHERE task_id=?
@@ -167,11 +172,12 @@ export default {
     };
     authorize(this.store.task(id(taskId)));
     assertTaskNotSyncing(this, id(taskId));
+    for (const row of this.subtreeTasks(id(taskId))) assertTaskNoCommand(this, row.id);
     return this.workspaces.exclusive(async () => {
       let task = this.store.task(id(taskId));
       check(['order', 'child'].includes(task.task_kind), 'only order/child Workers can be accepted');
       authorize(task);
-      assertTaskNotSyncing(this, task.id);
+      assertTaskNotSyncing(this, task.id); assertTaskNoCommand(this, task.id);
       const historical = task.status === 'completed' && this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.accepted' LIMIT 1", task.id);
       if (historical && [task.branch, ...descendantsOf(this.store.branches(), task.branch)]
         .every(branch => ['archived', 'deleted'].includes(this.store.branch(branch)?.status))) return task;
@@ -193,7 +199,7 @@ export default {
       check(subtree.slice(1).every(row => TERMINAL.has(row.status)), 'accept or end descendants before accepting their parent');
       for (const row of subtree) {
         const booking = bookingOf(row);
-        assertTaskNotSyncing(this, row.id);
+        assertTaskNotSyncing(this, row.id); assertTaskNoCommand(this, row.id);
         check(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status)
           || (booking.status === 'pending' && taskSyncDeliveryPaused(this, row.id)), 'delivery is still in flight or reserved');
         check(!acceptanceUnreadMessage(this, row), `Worker ${workerLabel(row)}: unread input must be processed before acceptance`);
@@ -240,7 +246,7 @@ export default {
         check(row.id === task.id || TERMINAL.has(row.status), 'descendant changed during acceptance');
         check(!this.running.has(row.id) && !acceptanceUnreadMessage(this, row),
           `Worker ${workerLabel(row)}: new input arrived during acceptance`);
-        assertTaskNotSyncing(this, row.id);
+        assertTaskNotSyncing(this, row.id); assertTaskNoCommand(this, row.id);
         check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
         check(!bookingOf(row) || ['integrated', 'completed', 'withdrawn'].includes(bookingOf(row).status)
           || (bookingOf(row).status === 'pending' && taskSyncDeliveryPaused(this, row.id)), 'delivery changed during acceptance');
@@ -269,7 +275,7 @@ export default {
         for (const row of rows) {
           check(row.id === task.id || TERMINAL.has(row.status), 'descendant changed during acceptance');
           check(!this.running.has(row.id) && !this.workspaces.busy.has(row.id), 'Agent or cleanup is still in flight');
-          assertTaskNotSyncing(this, row.id);
+          assertTaskNotSyncing(this, row.id); assertTaskNoCommand(this, row.id);
           check(!acceptanceUnreadMessage(this, row), `Worker ${workerLabel(row)}: new input arrived during acceptance`);
           check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
           const booking = bookingOf(row);
@@ -279,7 +285,8 @@ export default {
         }
         check(this.branchResourceUsers(active).every(resourceId => {
           const row = this.store.task(resourceId);
-          return (row.id === task.id || TERMINAL.has(row.status)) && !this.running.has(row.id) && !this.workspaces.busy.has(row.id);
+          return (row.id === task.id || TERMINAL.has(row.status)) && !this.running.has(row.id)
+            && !this.commandHookRunning?.has(row.id) && !this.workspaces.busy.has(row.id);
         }), 'acceptance resource users changed');
       };
       guard();
@@ -318,10 +325,10 @@ export default {
   /** Explicit historical recovery; never starts a provider or recreates an archived ref. */
   async reopenTask(taskId) {
     this.assertWritable('reopen a worker');
-    assertTaskNotSyncing(this, id(taskId));
+    assertTaskNotSyncing(this, id(taskId)); assertTaskNoCommand(this, id(taskId));
     return this.workspaces.exclusive(async () => {
       const task = this.store.task(id(taskId));
-      assertTaskNotSyncing(this, task.id);
+      assertTaskNotSyncing(this, task.id); assertTaskNoCommand(this, task.id);
       check(['order', 'child'].includes(task.task_kind) && task.status === 'completed', 'only completed order/child Workers can be reopened');
       assertTaskAncestorsOpen(this, task);
       check(!this.running.has(task.id) && !this.workspaces.busy.has(task.id), 'Agent or cleanup is still in flight');

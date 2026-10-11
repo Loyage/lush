@@ -38,7 +38,7 @@ export default {
     check(!TERMINAL.has(task.status), 'ended Workers must first use worker.reopen');
     check(['waiting', 'paused', 'awaiting_acceptance'].includes(task.status),
       'Worker must be idle and not queued, running, or waiting for a user decision');
-    check(!this.running.has(task.id), 'Worker invocation is still running');
+    check(!this.running.has(task.id) && !this.commandHookRunning?.has(task.id), 'Worker invocation or shortcut command is still running');
     check(task.branch && task.workspace && task.target_branch && task.parent_id, 'Worker branch/worktree/direct parent is missing');
     const booking = bookingOf(task);
     check(!booking || ['pending', 'integrated', 'withdrawn', 'completed', 'failed', 'cancelled'].includes(booking.status),
@@ -47,11 +47,11 @@ export default {
       'Worker has an unanswered user decision');
     check(!this.hasActionableMessages(task.id), 'Worker has pending input; process it before synchronizing');
     check(this.subtreeTasks(task.id).every(child => child.id === task.id
-      || (isSettled(child) && !this.running.has(child.id))), 'Worker has active descendants');
+      || (isSettled(child) && !this.running.has(child.id) && !this.commandHookRunning?.has(child.id))), 'Worker has active descendants');
     const parent = this.store.task(task.parent_id);
     check(['main', 'owner', 'order', 'child'].includes(parent.task_kind) && !TERMINAL.has(parent.status)
       && parent.branch === task.target_branch, 'Worker parent identity no longer matches its fixed Git target');
-    check(parent.status !== 'running' && parent.status !== 'queued' && !this.running.has(parent.id),
+    check(parent.status !== 'running' && parent.status !== 'queued' && !this.running.has(parent.id) && !this.commandHookRunning?.has(parent.id),
       'parent Worker must be idle before synchronizing');
     const seen = new Set([task.id]);
     for (let ancestor = parent; ancestor; ancestor = ancestor.parent_id ? this.store.task(ancestor.parent_id) : null) {

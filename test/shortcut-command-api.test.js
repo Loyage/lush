@@ -12,7 +12,7 @@ const command = { name: 'safe fixture', command: 'printf fixture' };
 function project() {
   const calls = [];
   const p = { actor: token => token ? 7 : null };
-  for (const name of ['saveShortcutCommand','authorizeShortcutCommand','removeShortcutCommand','runShortcutCommand','importLegacyHookCommands'])
+  for (const name of ['saveShortcutCommand','authorizeShortcutCommand','removeShortcutCommand','runShortcutCommand','startShortcutCommand','shortcutCommandHistory','importLegacyHookCommands'])
     p[name] = (...args) => { calls.push({ name, args }); return { ok: true }; };
   return { p, calls, dispatcher: new Dispatcher(p) };
 }
@@ -30,8 +30,8 @@ function file(value) {
 test('shortcut RPC rejects invalid versions, IDs and nested authority before any runtime call', async () => {
   const f = project();
   for (const version of [undefined, null, 0, -1, 1.5, '3', Number.MAX_SAFE_INTEGER + 1, [], {}]) {
-    for (const method of ['hooks.command_authorize','hooks.command_run']) {
-      const params = method.endsWith('run') ? { id: commandId, version, worker_id: 7, expected_revision: revision }
+    for (const method of ['hooks.command_authorize','hooks.command_run','hooks.command_start']) {
+      const params = method.endsWith('run') || method.endsWith('start') ? { id: commandId, version, worker_id: 7, expected_revision: revision }
         : { id: commandId, version, authorized: true, expected_revision: revision };
       await expect(f.dispatcher.dispatch(method, params)).rejects.toThrow('version');
     }

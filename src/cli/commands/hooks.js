@@ -36,9 +36,25 @@ export async function run(command, args, { client }) {
 
 async function runCommand(args, client) {
   const verb = args.shift();
-  check(['list','save','authorize','revoke','remove','run','import'].includes(verb),
-    'hooks command requires list|save|authorize|revoke|remove|run|import; run lush help');
+  check(['list','save','authorize','revoke','remove','run','start','history','import'].includes(verb),
+    'hooks command requires list|save|authorize|revoke|remove|run|start|history|import; run lush help');
   if (verb === 'list') { exact(args, 0); return client.request('hooks.list'); }
+  if (verb === 'history') {
+    const before = option(args, '--before'), limit = option(args, '--limit'), execution_id = option(args, '--execution');
+    exact(args, 0);
+    const params = {};
+    for (const [key, value] of [['before', before], ['limit', limit]]) if (value !== null) {
+      check(/^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value)) && (key !== 'limit' || Number(value) <= 100),
+        `${key} must be a positive integer${key === 'limit' ? ' up to 100' : ''}`);
+      params[key] = Number(value);
+    }
+    if (execution_id !== null) {
+      check(before === null, '--execution cannot be combined with --before');
+      check(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(execution_id), 'invalid execution id');
+      params.execution_id = execution_id;
+    }
+    return client.request('hooks.command_history', params);
+  }
   const expected_revision = readRevision(args);
   if (verb === 'save' || verb === 'import') {
     const file = option(args, '--file'); exact(args, 0);
@@ -53,16 +69,16 @@ async function runCommand(args, client) {
     return client.request(`hooks.command_${verb}`, { [verb === 'save' ? 'command' : 'source']: value, expected_revision });
   }
   const rawVersion = verb === 'remove' ? null : option(args, '--version');
-  const worker = verb === 'run' ? option(args, '--worker') : null;
+  const worker = ['run','start'].includes(verb) ? option(args, '--worker') : null;
   exact(args, 1);
   check(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(args[0]), 'invalid command id');
   if (verb === 'remove') return client.request('hooks.command_remove', { id: args[0], expected_revision });
   check(typeof rawVersion === 'string' && /^[1-9]\d*$/.test(rawVersion)
     && Number.isSafeInteger(Number(rawVersion)), 'provide --version N as a positive integer');
   const version = Number(rawVersion);
-  if (verb === 'run') {
-    check(worker !== null, 'hooks command run requires --worker ID');
-    return client.request('hooks.command_run', { id: args[0], version, worker_id: await resolveWorkerId(client, worker), expected_revision });
+  if (verb === 'run' || verb === 'start') {
+    check(worker !== null, `hooks command ${verb} requires --worker ID`);
+    return client.request(`hooks.command_${verb}`, { id: args[0], version, worker_id: await resolveWorkerId(client, worker), expected_revision });
   }
   return client.request('hooks.command_authorize', { id: args[0], version, authorized: verb === 'authorize', expected_revision });
 }

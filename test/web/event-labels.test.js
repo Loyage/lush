@@ -82,12 +82,14 @@ test('命令提交、示例初始化和父侧收到合并区分触发与执行�
 });
 
 test('快捷指令配置授权与实际执行分开显示，未知不冒充成功', () => {
-  for (const type of ['saved','authorized','removed','started','succeeded','failed','unknown'].map(state => `shortcut.command_${state}`)) {
+  for (const type of ['saved','authorized','removed','pending','started','succeeded','failed','unknown'].map(state => `shortcut.command_${state}`)) {
     expect(Object.hasOwn(EVENTS, type)).toBe(true);
     expect(eventLabel({ type })).toMatch(/[\u4e00-\u9fff]/);
   }
   expect(eventLabel({ type: 'shortcut.command_saved' })).toContain('未授权');
   expect(eventLabel({ type: 'shortcut.commands_imported' })).toContain('未授权');
+  expect(eventLabel({ type: 'shortcut.command_pending' })).toBe('快捷指令已提交待执行');
+  expect(eventLabel({ type: 'shortcut.command_pending' })).not.toContain('成功');
   expect(eventLabel({ type: 'shortcut.command_failed' })).toContain('失败');
   expect(eventLabel({ type: 'shortcut.command_unknown' })).toContain('待核验');
 });

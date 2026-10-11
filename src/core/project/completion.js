@@ -81,6 +81,7 @@ export default {
     else if (task.branch && ['archived', 'deleted'].includes(this.store.branch(task.branch)?.status)) reason = 'Worker 已归档或回收';
     else if (['requested', 'executing', 'resolving', 'blocked', 'suspended'].includes(booking(task)?.status)) reason = '交付请求已冻结或挂起，不能调整当前自动链';
     else if (this.completionBusy?.has(task.id) || Object.values(data.executions ?? {}).some(row => row.status === 'running')) reason = '自动动作已领取执行，不能调整';
+    else if (this.commandHookRunning?.has(task.id)) reason = '快捷指令已领取或正在执行，等待其安全收尾';
     else if (this.taskSyncBusy?.has(task.id) || taskSyncDeliveryPaused(this, task.id)) reason = '父同步正在执行或交付已暂停';
     else if (Object.values(data.executions ?? {}).some(row => row.status === 'unknown')) reason = '自动动作结果未知；检查现场后显式处理，不能重放';
     else if (task.status === 'completed' && !accepted(this, task)) reason = '历史结算不是验收事实，不能自动归档';
@@ -161,7 +162,8 @@ export default {
     const rows = taskId === null ? this.store.all("SELECT * FROM tasks WHERE auto_merge IS NOT NULL AND task_kind IN ('order','child') AND status IN ('waiting','awaiting_acceptance','completed') ORDER BY id") : [this.store.task(taskId)];
     this.completionQueued ??= new Set();
     for (const task of rows) {
-      try { if (!this.autoMergeView(task) || levelOf(task) === 'off' || this.completionQueued.has(task.id)) continue; }
+      try { if (!this.autoMergeView(task) || levelOf(task) === 'off' || this.completionQueued.has(task.id)
+        || this.commandHookRunning?.has(task.id)) continue; }
       catch { continue; } // Corrupt historical configuration cannot stop scheduling unrelated Workers.
       // Merge is already driven by its own persistent queue; only diagnose a real stop or run its tail.
       const request = booking(task);
@@ -199,7 +201,8 @@ export default {
       && receipt?.id === claim.id && receipt.status === 'running' && receipt.authorization === claim.authorization
       && receipt.round === claim.round && receipt.head_commit === claim.head_commit && task.head_commit === claim.head_commit
       && rank(levelOf(task)) >= rank(phase), 'completion authorization or result changed');
-    check(!this.stopping && !this.running.has(task.id) && !this.taskSyncBusy?.has(task.id), 'completion invocation/sync still in flight or stopping');
+    check(!this.stopping && !this.running.has(task.id) && !this.taskSyncBusy?.has(task.id)
+      && !this.commandHookRunning?.has(task.id), 'completion invocation/sync/shortcut command still in flight or stopping');
     assertTaskAncestorsOpen(this, task);
     check(!taskSyncDeliveryPaused(this, task.id), 'completion paused by parent sync');
     return task;
@@ -207,7 +210,8 @@ export default {
 
   async runTaskCompletion(taskId) {
     let task = this.store.task(taskId), level = levelOf(task), phase = phaseOf(task);
-    if (!this.autoMergeView(task) || level === 'off' || this.stopping || this.maintenancePaused() || this.running.has(task.id)) return;
+    if (!this.autoMergeView(task) || level === 'off' || this.stopping || this.maintenancePaused() || this.running.has(task.id)
+      || this.commandHookRunning?.has(task.id)) return;
     if (phase === 'merge') {
       const request = booking(task);
       if (['blocked', 'suspended'].includes(request?.status) || (request?.blocked_code === 'completion_failed'
@@ -229,7 +233,7 @@ export default {
     if (Object.values(data.executions ?? {}).some(row => ['running','failed','unknown'].includes(row.status))) return;
     check(data.authorization && settings(task).level, 'automatic acceptance/archive requires explicit user authorization');
     if (this.taskMergeBusy?.has(task.parent_id) || this.activeTaskMerge(task.parent_id)) return; // release parent ownership first
-    if (this.subtreeTasks(task.id).some(row => this.running.has(row.id))) return;
+    if (this.subtreeTasks(task.id).some(row => this.running.has(row.id) || this.commandHookRunning?.has(row.id))) return;
     this.completionBusy ??= new Set(); this.completionBusy.add(task.id);
     const receipt = this.store.transaction(() => {
       const execution = { id: this.store.event(task.id, 'completion.execution_started', { phase, round: data.round, authorization: data.authorization, head_commit: task.head_commit }),

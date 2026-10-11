@@ -8,11 +8,16 @@ const push = () => ({ id: 'push-command', name: '推送', command: 'git push', v
 const hook = () => ({ id: 'main-push', name: '合并后推送', trigger: 'worker.merge_received', enabled: false, mode: 'persistent',
   editable: true, removable: true, builtin: false, conditions: {}, state: 'idle', last_execution: null,
   actions: [{ type: 'command', command_id: 'push-command', command_version: 1 }] });
-let catalogue, calls, intercept;
+const executionId = 'c8c8c8c8-0000-4000-8000-000000000001';
+const execution = (patch = {}) => ({ event_id: 100, id: executionId, command_id: 'push-command', command_name: '推送', command_version: 1,
+  worker_id: 42, worker_number: 'W8', source: 'manual', status: 'succeeded', created_at: '2026-10-09T00:00:00Z', finished_at: '2026-10-09T00:00:40Z', command_result: { status: 'succeeded', exit_code: 0 }, ...patch });
+const historyPage = (items = []) => ({ version: 1, items, has_more: false, next_before: null });
+let catalogue, calls, reads, history, intercept;
 const dom = installDom({ fetch: async (url, options = {}) => {
   const path = String(url), body = options.body ? JSON.parse(options.body) : null;
-  if (body) calls.push(body);
+  if (body) calls.push(body); else reads.push(path);
   const custom = intercept?.(path, body); if (custom) return custom;
+  if (path.includes('/api/hooks/commands/executions')) return json(historyPage(history));
   if (path.endsWith('/api/hooks')) return json(catalogue);
   if (path.endsWith('/api/snapshot')) return json({ tasks: [{ id: 44, branch: 'child', task_kind: 'child', status: 'waiting', worker_number: 'W8-1' }] });
   if (path.endsWith('/api/input-parents')) return json({ items: [{ id: 1, branch: 'main', worker_number: null },
@@ -28,7 +33,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
     return json(catalogue);
   }
   if (body?.method === 'hooks.command_remove') { catalogue.commands.items = []; catalogue.commands.revision = 'removed'; return json(catalogue); }
-  if (body?.method === 'hooks.command_run') return json({ execution_id: 'manual-1', command_result: { status: 'succeeded', exit_code: 0 }, commands: { ...catalogue.commands, revision: 'manual-next' } });
+  if (body?.method === 'hooks.command_start') { history = [execution()]; return json({ execution_id: executionId, execution: history[0], commands: { ...catalogue.commands, revision: 'manual-next' } }); }
   if (body?.method === 'hooks.command_import') {
     const target = body.params.source.template_id ? catalogue.templates[0] : catalogue.command_example.hooks.mounts[0];
     target.actions = hook().actions; target.enabled = false;
@@ -49,8 +54,9 @@ const section = () => root().querySelector('.shortcut-commands');
 const btn = (label, node = root()) => node.querySelectorAll('button').find(item => item.textContent === label);
 const field = (label, node = root()) => node.querySelector(`[aria-label="${label}"]`);
 const mainExample = () => root().querySelector('.command-hook-example');
+async function openRun() { await until(() => btn('手动执行') && !btn('手动执行').disabled); await btn('手动执行').onclick(); }
 beforeEach(() => {
-  closeDialog(); calls = []; intercept = null; dom.location.pathname = '/'; ui.hooksPage = null;
+  closeDialog(); ui.hooksPage?.shortcutNode?.dispose?.(); calls = []; reads = []; history = []; intercept = null; dom.location.pathname = '/'; ui.hooksPage = null;
   const mounted = hook();
   catalogue = { version: 1, revision: 'templates-revision', triggers: [{ id: 'worker.merge_received', label: '收到合并' }],
     actions: [{ type: 'command', label: '快捷指令', description: '引用授权版本', modes: ['once', 'persistent'], triggers: ['worker.merge_received'], agent_call: false }],
@@ -59,16 +65,41 @@ beforeEach(() => {
     daemon_hooks: { version: 1, revision: 'daemon-revision', mounts: [{ id: 'auto-select', enabled: true, editable: true }] } };
   activateDetailView({ view: 'overview' });
 });
-afterAll(() => { closeDialog(); dom.restore(); });
+afterAll(() => { ui.hooksPage?.shortcutNode?.dispose?.(); closeDialog(); dom.restore(); });
 
 test('page subtitle and separate commands: opening does not authorize or run, unauthorized controls explain denial', async () => {
-  await openHooks(); expect(root().querySelector('.hooks-page-subtitle').textContent).toBe('快捷指令和 Hook');
+  await openHooks(); await until(() => section().querySelector('.shortcut-execution-records').children.length); expect(root().querySelector('.hooks-page-subtitle').textContent).toBe('快捷指令和 Hook');
   expect(dom.node('view-hint').textContent).toBe('快捷指令和 Hook');
   expect(deepText(section())).toContain('不是沙箱'); expect(deepText(section())).toContain('daemon 用户权限');
   expect(btn('手动执行', section()).disabled).toBe(true); expect(btn('手动执行', section()).parentNode.getAttribute('data-help')).toContain('未授权');
   expect(btn('启用 Hook', mainExample()).disabled).toBe(true);
   await btn('手动执行', section()).onclick(); await btn('启用 Hook', mainExample()).onclick();
   expect(calls).toHaveLength(0);
+});
+
+test('run and management tabs separate visible actions, support keyboard navigation and preserve drafts', async () => {
+  await openHooks();
+  const runs = section().querySelector('.shortcut-command-runs'), manager = section().querySelector('.shortcut-command-management');
+  expect(runs.hidden).toBe(false); expect(manager.hidden).toBe(true);
+  expect(btn('编辑快捷指令', runs)).toBeUndefined(); expect(btn('注册快捷指令', runs)).toBeUndefined();
+  expect(btn('手动执行', manager)).toBeUndefined(); expect(btn('删除快捷指令', manager)).toBeTruthy();
+  await btn('指令管理').onclick(); expect(runs.hidden).toBe(true); expect(manager.hidden).toBe(false);
+  expect(btn('指令管理').getAttribute('aria-selected')).toBe('true');
+  await btn('编辑快捷指令', manager).onclick(); const draft = field('Shell 命令'); draft.value = 'echo preserved';
+  let prevented = false;
+  btn('指令管理').onkeydown({ key: 'ArrowLeft', preventDefault() { prevented = true; } });
+  expect(prevented).toBe(true); expect(runs.hidden).toBe(false); expect(btn('运行与记录').tabIndex).toBe(0);
+  await btn('指令管理').onclick(); expect(field('Shell 命令')).toBe(draft); expect(draft.value).toBe('echo preserved'); expect(calls).toHaveLength(0);
+});
+
+test('catalogue changes retain the history component and do not restart reads or reset the active tab', async () => {
+  await openHooks(); await until(() => section().querySelector('.shortcut-execution-records').children.length);
+  const original = section(); await btn('指令管理').onclick();
+  const authorizing = btn('授权当前版本').onclick(); await dialogButton(dom, '授权此版本').onclick(); await authorizing;
+  expect(section()).toBe(original); expect(btn('指令管理').getAttribute('aria-selected')).toBe('true');
+  expect(reads.filter(path => path.includes('/api/hooks/commands/executions'))).toHaveLength(1);
+  expect(btn('撤销授权').disabled).toBe(false); expect(btn('删除快捷指令').disabled).toBe(false); expect(btn('注册快捷指令').disabled).toBe(false);
+  expect(btn('手动执行').disabled).toBe(false);
 });
 
 test('register preserves literal multiline Shell, remains unauthorized, does not run or call Agent', async () => {
@@ -133,7 +164,7 @@ test('save failures preserve name, multiline draft and original revision across 
 });
 
 test('manual execution requires selecting a Worker and explicit confirmation, pins version and does not install Hook', async () => {
-  catalogue.commands.items[0].authorized = true; await openHooks(); await btn('手动执行').onclick();
+  catalogue.commands.items[0].authorized = true; await openHooks(); await openRun();
   const picker = field('执行目录 Worker'); expect(picker.children.map(option => option.textContent).join(' ')).toContain('W8');
   expect(picker.children.find(option => option.value === '43').disabled).toBe(true);
   expect(picker.children.find(option => option.value === '44').textContent).toContain('W8-1');
@@ -141,13 +172,13 @@ test('manual execution requires selecting a Worker and explicit confirmation, pi
   picker.value = '42'; const executing = btn('确认执行一次').onclick(); expect(calls).toHaveLength(0);
   expect(deepText(dom.node('modal'))).toContain('W8'); expect(dialogButton(dom, '执行一次').classList.contains('agent-call')).toBe(false);
   await dialogButton(dom, '执行一次').onclick(); await executing;
-  expect(calls).toEqual([{ method: 'hooks.command_run', params: { id: 'push-command', version: 1, worker_id: 42, expected_revision: 'commands-revision' } }]);
-  expect(dom.node('error').textContent).toContain('执行成功'); expect(dom.node('error').textContent).toContain('原始输出不公开');
+  expect(calls).toEqual([{ method: 'hooks.command_start', params: { id: 'push-command', version: 1, worker_id: 42, expected_revision: 'commands-revision' } }]);
+  expect(deepText(section())).toContain('执行成功'); expect(deepText(section())).toContain('原始输出不公开');
 });
 
 test('manual safe gate refusal keeps Worker selection and does not retry or fall back to main', async () => {
-  catalogue.commands.items[0].authorized = true; await openHooks(); await btn('手动执行').onclick(); field('执行目录 Worker').value = '42';
-  intercept = (_path, body) => body?.method === 'hooks.command_run' ? failure('分支冻结') : null;
+  catalogue.commands.items[0].authorized = true; await openHooks(); await openRun(); field('执行目录 Worker').value = '42';
+  intercept = (_path, body) => body?.method === 'hooks.command_start' ? failure('分支冻结') : null;
   const executing = btn('确认执行一次').onclick(); await dialogButton(dom, '执行一次').onclick(); await executing;
   expect(calls).toHaveLength(1); expect(calls[0].params.worker_id).toBe(42); expect(field('执行目录 Worker').value).toBe('42');
   expect(deepText(section())).toContain('不要盲目重试未知结果');
@@ -155,13 +186,13 @@ test('manual safe gate refusal keeps Worker selection and does not retry or fall
 
 test('Worker picker read failure refuses manual execution instead of guessing an internal ID', async () => {
   catalogue.commands.items[0].authorized = true; await openHooks(); intercept = path => path.endsWith('/api/input-parents') ? failure('offline') : null;
-  await btn('手动执行').onclick(); expect(deepText(section())).toContain('不会改投 main'); expect(btn('确认执行一次')).toBeUndefined(); expect(calls).toHaveLength(0);
+  await openRun(); expect(deepText(section())).toContain('不会改投 main'); expect(btn('确认执行一次')).toBeUndefined(); expect(calls).toHaveLength(0);
 });
 
 test('late manual picker and save results never repaint another project or view', async () => {
   catalogue.commands.items[0].authorized = true; await openHooks(); let resolve;
   intercept = path => path.endsWith('/api/input-parents') ? new Promise(done => { resolve = done; }) : null;
-  const reading = btn('手动执行').onclick(); await until(() => resolve);
+  const reading = openRun(); await until(() => resolve);
   activateDetailView({ view: 'overview' }); const next = document.createElement('p'); next.textContent = 'next'; root().replaceChildren(next);
   resolve(json({ items: [] })); await reading; expect(root().children).toEqual([next]);
   ui.hooksPage = null; intercept = null; await openHooks(); await btn('编辑快捷指令').onclick(); field('Shell 命令').value = 'echo changed';
@@ -172,8 +203,9 @@ test('late manual picker and save results never repaint another project or view'
 });
 
 test('deleting requires confirmation and removes future authorization, unknown execution remains visible and un-replayed', async () => {
-  catalogue.commands.items[0].last_execution = { worker_id: 42, worker_number: 'W8', status: 'unknown', created_at: '2026-10-09T00:00:00Z' };
-  await openHooks(); expect(deepText(section())).toContain('结果未知'); expect(deepText(section())).toContain('W8'); expect(calls).toHaveLength(0);
+  history = [execution({ status: 'unknown', command_result: null })];
+  await openHooks(); await until(() => section().querySelector('.shortcut-execution'));
+  expect(deepText(section())).toContain('结果未知'); expect(deepText(section())).toContain('W8'); expect(calls).toHaveLength(0);
   const removing = btn('删除快捷指令').onclick(); expect(deepText(dom.node('modal'))).toContain('引用它的 Hook 将不可执行');
   await dialogButton(dom, '删除指令').onclick(); await removing;
   expect(calls[0]).toEqual({ method: 'hooks.command_remove', params: { id: 'push-command', expected_revision: 'commands-revision' } });
@@ -205,14 +237,14 @@ test('legacy template imports use template revision, cancellation never imports 
 });
 
 test('manual child selection retains real integer identity and ignores raw output fields', async () => {
-  catalogue.commands.items[0].authorized = true; await openHooks(); await btn('手动执行').onclick(); field('执行目录 Worker').value = '44';
-  intercept = (_path, body) => body?.method === 'hooks.command_run' ? json({ execution_id: 'manual-child',
-    command_result: { status: 'failed', exit_code: 5, reason: 'output_limit', stdout: 'SECRET-STDOUT', stderr: 'SECRET-STDERR' },
+  catalogue.commands.items[0].authorized = true; await openHooks(); await openRun(); field('执行目录 Worker').value = '44';
+  intercept = (_path, body) => body?.method === 'hooks.command_start' ? json({ execution_id: executionId,
+    execution: execution({ worker_id: 44, worker_number: 'W8-1', status: 'failed', command_result: { status: 'failed', exit_code: 5, reason: 'output_limit', stdout: 'SECRET-STDOUT', stderr: 'SECRET-STDERR' } }),
     commands: { ...catalogue.commands, items: [{ ...catalogue.commands.items[0], last_execution: { worker_id: 44, worker_number: 'W8-1', status: 'failed', created_at: '2026-10-09T00:00:00Z',
       command_result: { status: 'failed', exit_code: 5, reason: 'output_limit', stdout: 'SECRET-STDOUT' } } }] } }) : null;
   const executing = btn('确认执行一次').onclick(); await dialogButton(dom, '执行一次').onclick(); await executing;
   expect(calls[0].params.worker_id).toBe(44); expect(deepText(section())).toContain('W8-1');
-  expect(deepText(section())).toContain('退出码 5'); expect(dom.node('error').textContent).toContain('输出超限');
+  expect(deepText(section())).toContain('退出码 5'); expect(deepText(section())).toContain('输出超限');
   expect(deepText(root())).not.toContain('SECRET-STDOUT'); expect(dom.node('error').textContent).not.toContain('SECRET-STDERR');
 });
 

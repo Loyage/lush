@@ -305,7 +305,7 @@ export default {
       .filter(row => { try { const value = JSON.parse(row.reservation); return value?.kind === 'merge' && value.status === 'requested'; } catch { return false; } });
     check(requested.length === 0,
       `branch ${requested[0]?.branch} still has an outstanding merge request from order ${workerLabel(requested[0])}; integrate or withdraw it before archiving`);
-    const guard = acceptance ? acceptance.guard : completion ? () => {
+    const authorizationGuard = acceptance ? acceptance.guard : completion ? () => {
       const task = this.assertCompletionClaim(record.task_id, completion, 'archive');
       check(task.status === 'completed' && !discard_worktree && !continueArchive, 'automatic archive requires accepted clean work');
       for (const target of targets) this.assertBranchWritable(target, 'automatically archive it');
@@ -313,10 +313,15 @@ export default {
         .every(target => targets.includes(target)), 'archive subtree changed while checking Git');
       check(this.branchResourceUsers(targets).every(taskId => {
         const row = this.store.task(taskId);
-        return TERMINAL.has(row.status) && !this.running.has(row.id) && !this.workspaces.busy.has(row.id);
+        return TERMINAL.has(row.status) && !this.running.has(row.id) && !this.commandHookRunning?.has(row.id) && !this.workspaces.busy.has(row.id);
       }), 'archive users changed while checking Git');
     } : null;
-    if (guard) guard();
+    const guard = () => {
+      check(this.branchResourceUsers(targets).every(taskId => !this.commandHookRunning?.has(taskId)),
+        'branch resources have a pending or running shortcut command; wait before archiving');
+      authorizationGuard?.();
+    };
+    guard();
     const state = await gitState(this.workspaces, this.config.project);
     if (guard) guard();
     check(!targets.includes(state.current_branch), `cannot archive the branch currently checked out: ${state.current_branch}`);
@@ -333,7 +338,7 @@ export default {
     const users = new Set(this.branchResourceUsers(targets));
     for (const id of users) {
       const task = this.store.get('SELECT id, worker_number, status FROM tasks WHERE id=?', id);
-      if (task && (!TERMINAL.has(task.status) || this.running.has(task.id))
+      if (task && (!TERMINAL.has(task.status) || this.running.has(task.id) || this.commandHookRunning?.has(task.id))
         && !unfinished.some(row => row.id === task.id)) unfinished.push(task);
     }
     const cleaning = [...this.workspaces.busy].filter(id => users.has(id));

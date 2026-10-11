@@ -11,6 +11,8 @@
 | `hooks.command_authorize` | `{id,version,authorized,expected_revision}` | `hooks command authorize\|revoke ID --version N --revision REV` |
 | `hooks.command_remove` | `{id,expected_revision}` | `hooks command remove ID --revision REV` |
 | `hooks.command_run` | `{id,version,worker_id,expected_revision}` | `hooks command run ID --version N --worker ID --revision REV` |
+| `hooks.command_start` | `{id,version,worker_id,expected_revision}` | `hooks command start ID --version N --worker ID --revision REV` |
+| `hooks.command_history` | `{before?,limit?,execution_id?}` | `hooks command history [--before CURSOR] [--limit N] [--execution UUID]` |
 | `hooks.command_import` | `{source,expected_revision}` | `hooks command import --file PATH --revision REV` |
 | `hooks.auto_select` | `{enabled,expected_revision}` | `hooks auto-select on\|off --revision REV` |
 | `hooks.completion_defaults` | `{enabled,level,expected_revision}` | 在自动化页面保存 |
@@ -41,6 +43,8 @@
 `commands:{version:1,revision,items}` 为当前项目 Shell 指令目录，每项含 `{id,name,command,version,authorized,last_execution}`。保存 `command:{id?,name,command}`，不得附带 authorized、version、运行目录或参数；新增未授权，修改名称或内容递增版本并撤权。指令 id 是 UUID，version 必须是正整数 JSON 数字；授权/撤权必须显式给布尔 authorized 和当前版本。保存、授权、删除和执行使用 **commands.revision**，前者返回完整 Hooks 目录。
 
 手动 `hooks.command_run` 使用 Worker 内部整数 worker_id，CLI `--worker` 可解析 W 编号。执行仅允许当前已授权版本，复用真实工作目录、Git 串行和生命周期门禁，受阻拒绝、不隐式排队重试；返回 `{execution_id,command_result,commands}`，不公开命令原始输出。不是沙箱、不调用 Agent，Shell 具有 daemon 系统用户权限。
+
+页面使用异步 `hooks.command_start`，即时返回 `{execution_id,execution,commands}`；pending 表示已接受，running 表示已开始，不等于成功。通过用户专属只读 `GET /api/hooks/commands/executions` 查询每次手动／Hook 运行安全摘要，返回 `{version:1,items,has_more,next_before}`。limit 默认 30、最多 100，before 是正整数事件游标；execution_id 是固定 UUID，不可与 before 同用。历史不保存 Shell 输出；改名、撤权或删除指令不删除已记录运行。断线仅表示结果未确认，不自动重提命令。旧同步 command_run 仍兼容，UIClient 对此调用的等待预算为 75 秒，其他请求仍为 30 秒；推荐 start／history，Git 排队与断线仍可能令同步结果未确认。完整读模型及恢复边界见[异步运行契约](../../engineering/shortcut-command-runs.md)。
 
 Hook 只引用 `{type:'command',command_id:'UUID',command_version:1}`，启用、触发和执行前复核授权版本。旧内联 Shell 不再执行；显式 `hooks.command_import` 的 source 只能是 `{worker_id,hook_id}` 或 `{template_id}`，使用源 Worker Hooks / 模板目录 revision。导入新建未授权指令、替换源引用并停用规则，保留历史、不重放旧触发；返回完整目录及 imported_command_ids、可选 worker_hooks。CLI import 文件的 worker_id 可用 W 编号，其余 Hook/模板身份不改写。
 

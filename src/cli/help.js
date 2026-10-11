@@ -23,7 +23,9 @@ lush [--project PATH] [--json] <command>
   hooks command save --file PATH --revision REV  注册/修改 Shell 指令（不授权，修改即撤权）
   hooks command authorize|revoke ID --version N --revision REV  授权/撤权指定版本（不是沙箱）
   hooks command remove ID --revision REV  删除未来授权，已有 Hook 引用失效
-  hooks command run ID --version N --worker ID --revision REV  在所选 Worker 目录执行已授权版本（不调用 Agent）
+  hooks command run ID --version N --worker ID --revision REV  同步执行已授权版本（不调用 Agent；推荐异步 start）
+  hooks command start ID --version N --worker ID --revision REV  异步提交一次，返回持久运行身份，不等 Shell 完成
+  hooks command history [--before CURSOR] [--limit N] [--execution UUID]  查看每次运行安全摘要（execution 与 before 互斥）
   hooks command import --file PATH --revision REV  导入旧内联命令并停用源 Hook（用源模板或 Worker Hooks 版本）
   hooks auto-select on|off --revision REV  启停设备全局自动选择（使用 daemon_hooks.revision）
                                       开启也答复所有在线项目已有问题；不启动停止的项目，恢复后台后生效

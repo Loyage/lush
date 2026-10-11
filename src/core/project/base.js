@@ -21,6 +21,8 @@ export class ProjectBase {
     this.quickExplanationOptions = options.quickExplanation ?? {};
     this.provider = provider || (config.provider === 'mock' ? new MockProvider() : new AgentProvider(config, this.agentSettings));
     this.workspaces = new Workspaces(config, store);
+    // Internal runtime safety seam for direct user cleanup; Workspaces alone owns no invocation/command facts.
+    this.workspaces.commandBusy = taskId => this.commandHookRunning?.has(taskId) === true;
     // 运行设置（并发上限）写盘后由 Config 回调这里重新 pump。
     this.config.onKick = () => this.kick();
     this.running = new Map(); this.stopping = false; this.scheduled = false; this.ancestry = new Map();

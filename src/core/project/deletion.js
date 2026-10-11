@@ -42,6 +42,7 @@ function databasePlan(project, rootId) {
     if (['main','owner'].includes(task.task_kind) || task.branch === 'main') blockers.push(`${workerLabel(task)}: main/owner Worker cannot be deleted`);
     if (!TERMINAL.has(task.status)) blockers.push(`${workerLabel(task)}: Worker is ${task.status}; cancel it or finish/accept it before deletion`);
     if (project.running.has(task.id)) blockers.push(`${workerLabel(task)}: invocation is still exiting; wait before deletion`);
+    if (project.commandHookRunning?.has(task.id)) blockers.push(`${workerLabel(task)}: shortcut command is pending or running; wait before deletion`);
     if (project.workspaces.busy.has(task.id)) blockers.push(`${workerLabel(task)}: worktree cleanup is in progress`);
     if (project.taskSyncBusy?.has(task.id)) blockers.push(`${workerLabel(task)}: parent synchronization is in progress`);
     if (project.workerDeleteIds?.has(task.id) && project.deletionRoot !== rootId) blockers.push(`${workerLabel(task)}: deletion is in progress`);
@@ -157,8 +158,10 @@ async function deletionPlan(project, rootId) {
 }
 
 export default {
-  deleteTaskPreview(taskId) {
+  async deleteTaskPreview(taskId) {
     const rootId = id(taskId);
+    check(boundedSubtree(this, rootId).every(task => !this.commandHookRunning?.has(task.id)),
+      'Worker shortcut command is pending or running; wait before deletion preview');
     return this.workspaces.exclusive(async () => (await deletionPlan(this,rootId)).preview);
   },
 
@@ -170,6 +173,8 @@ export default {
     this.assertWritable('delete a Worker');
     check(!this.deletionRoot, 'Worker deletion is already in progress');
     const tasks = boundedSubtree(this,rootId), ids = tasks.map(task => task.id);
+    check(ids.every(taskId => !this.commandHookRunning?.has(taskId)),
+      'Worker shortcut command is pending or running; wait before deletion');
     this.deletionRoot = rootId; this.workerDeleteIds = new Set(ids);
     try {
       await this.drainWrites();

@@ -1,5 +1,5 @@
 import { check, id, TERMINAL } from '../types.js';
-import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation, taskDeliveryState,
+import { assertTaskAncestorsOpen, assertTaskNoCommand, assertTaskNotSyncing, consumeIntegratedReservation, taskDeliveryState,
   resumeTaskDelivery, taskSyncDeliveryPaused } from './iteration.js';
 
 const reservationOf = task => task.reservation ? JSON.parse(task.reservation) : null;
@@ -71,7 +71,7 @@ export default {
     this.restoreUnrequestedTaskParent(task.id);
     task = this.store.task(task.id);
     assertTaskAncestorsOpen(this, task);
-    assertTaskNotSyncing(this, task.id);
+    assertTaskNotSyncing(this, task.id); assertTaskNoCommand(this, task.id);
     resumeTaskDelivery(this, task.id, 'explicit merge reservation');
     let previous = reservationOf(task);
     if (previous?.status === 'blocked' && previous.landing_receipt) {
@@ -137,7 +137,7 @@ export default {
     if (!codeTask(current) || reservation?.version !== 2 || reservation.status !== 'pending') return false;
     if (taskSyncDeliveryPaused(this, taskId)) return false;
     const reason = this.reservationWaitReason(current);
-    if (reason || this.running.has(taskId)) {
+    if (reason || this.running.has(taskId) || this.commandHookRunning?.has(taskId)) {
       if (reason) this.noteReservationBlocked(taskId, reason);
       return false;
     }
@@ -145,12 +145,13 @@ export default {
       if (this.maintenancePaused()) return false;
       let task = this.store.task(taskId);
       if (reservationOf(task)?.status !== 'pending' || taskSyncDeliveryPaused(this, taskId)
-        || this.taskSyncBusy?.has(taskId) || this.reservationWaitReason(task) || this.running.has(taskId)) return false;
+        || this.taskSyncBusy?.has(taskId) || this.reservationWaitReason(task) || this.running.has(taskId)
+        || this.commandHookRunning?.has(taskId)) return false;
       await this.workspaces.finish(task);
       task = this.store.task(taskId);
       const prior = reservationOf(task);
       if (prior?.version !== 2 || prior.status !== 'pending' || this.reservationWaitReason(task)
-        || taskSyncDeliveryPaused(this, task.id)) return false;
+        || taskSyncDeliveryPaused(this, task.id) || this.commandHookRunning?.has(task.id)) return false;
       assertTaskAncestorsOpen(this, task);
       const originalParent = this.store.task(task.parent_id);
       check(!prior.parent_id || prior.parent_id === task.parent_id, 'delivery parent changed');
@@ -165,6 +166,7 @@ export default {
       await this.workspaces.assertCleanBranches([task.branch]);
       check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`) === state.child_head,
         'source ref moved during safe-point inspection');
+      if (this.commandHookRunning?.has(task.id)) return false;
       if (delivery !== 'pending' && (task.task_kind === 'child' || prior.auto_merge)) {
         // No-change children and automatic follow-ups deliver a result, not an
         // empty Squash. Recheck after Git awaits so new input/disabled hooks win.
@@ -412,7 +414,8 @@ export default {
     check(!TERMINAL.has(task.status) && !TERMINAL.has(parent.status)
       && task.parent_id === parent.id && task.target_branch === parent.branch, 'delivery identities changed');
     check(!this.running.has(parent.id) && parent.status !== 'running' && !this.running.has(task.id)
-      && !this.taskSyncBusy?.has(parent.id) && !this.taskSyncBusy?.has(task.id), 'delivery invocation/sync still in flight');
+      && !this.taskSyncBusy?.has(parent.id) && !this.taskSyncBusy?.has(task.id)
+      && !this.commandHookRunning?.has(parent.id) && !this.commandHookRunning?.has(task.id), 'delivery invocation/sync/shortcut command still in flight');
     check(!this.reservationWaitReason(task), this.reservationWaitReason(task) || 'source no longer idle');
     const owner = this.activeTaskMerge(parent.id);
     check(owner?.id === task.id, 'parent execution slot changed');
@@ -466,7 +469,7 @@ export default {
   },
 
   async driveTaskMerge(parentId) {
-    if (this.stopping || this.maintenancePaused() || !parentId) return;
+    if (this.stopping || this.maintenancePaused() || !parentId || this.commandHookRunning?.has(parentId)) return;
     this.taskMergeBusy ??= new Set();
     if (this.taskMergeBusy.has(parentId)) return;
     this.taskMergeBusy.add(parentId);
@@ -499,7 +502,8 @@ export default {
         let task = this.store.task(row.id), request = reservationOf(task);
         if (!FROZEN.includes(request?.status) || request.queue_protocol !== 1) return;
         if (this.running.has(parentId) || parent.status === 'running' || this.taskSyncBusy?.has(parentId)
-          || this.running.has(task.id) || this.taskSyncBusy?.has(task.id)) return;
+          || this.running.has(task.id) || this.taskSyncBusy?.has(task.id)
+          || this.commandHookRunning?.has(parentId) || this.commandHookRunning?.has(task.id)) return;
         check(!TERMINAL.has(parent.status) && parent.branch === task.target_branch, 'delivery parent changed or ended');
         assertTaskAncestorsOpen(this, task);
         if (request.status === 'resolving' && !request.repair_ready) return;

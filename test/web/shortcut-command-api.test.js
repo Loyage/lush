@@ -8,6 +8,7 @@ const requests = [
   ['hooks.command_authorize', { id, version: 1, authorized: true, expected_revision }, 'authorizeShortcutCommand'],
   ['hooks.command_remove', { id, expected_revision }, 'removeShortcutCommand'],
   ['hooks.command_run', { id, version: 1, worker_id: 7, expected_revision }, 'runShortcutCommand'],
+  ['hooks.command_start', { id, version: 1, worker_id: 7, expected_revision }, 'startShortcutCommand'],
   ['hooks.command_import', { source: { worker_id: 7, hook_id: 'legacy' }, expected_revision }, 'importLegacyHookCommands'],
 ];
 function mocks(f) {
@@ -51,6 +52,7 @@ test('shortcut HTTP rejects nested privilege additions and invalid identities be
       expect((await post(f.url, 'hooks.command_import', { source, expected_revision })).status).toBe(400);
     for (const version of [null, 0, -1, '1', 1.5]) {
       expect((await post(f.url, 'hooks.command_run', { id, version, worker_id: 7, expected_revision })).status).toBe(400);
+      expect((await post(f.url, 'hooks.command_start', { id, version, worker_id: 7, expected_revision })).status).toBe(400);
       expect((await post(f.url, 'hooks.command_authorize', { id, version, authorized: true, expected_revision })).status).toBe(400);
     }
     expect((await post(f.url, 'hooks.command_run', { id, version: 1, worker_id: 'W151-1', expected_revision })).status).toBe(400);

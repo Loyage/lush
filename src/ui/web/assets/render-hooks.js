@@ -397,7 +397,7 @@ export async function openHooks() {
     if (!owns()) return;
     const catalogue = state.catalogue;
     const preservedExample = state.commandEditing ? root.querySelector('.command-hook-example') : null;
-    const preservedCommands = state.shortcutEditing ? root.querySelector('.shortcut-commands') : null;
+    const preservedCommands = state.shortcutNode;
     const header = el('div', undefined, 'hooks-page-header'); header.append(el('h1', '自动化'), hookHelpLink());
     const hooks = block('项目 Hooks'); hooks.classList.add('project-hooks');
     hooks.append(preservedExample || commandExample(catalogue));
@@ -410,6 +410,8 @@ export async function openHooks() {
       onCatalogue(result) { if (owns()) { state.catalogue = result; ui.hookCatalogue = result; paint(); } },
       onCommands(model) { if (owns() && validCommands(model)) { state.catalogue = { ...state.catalogue, commands: model }; ui.hookCatalogue = state.catalogue; paint(); } },
     });
+    state.shortcutNode = commands;
+    commands.updateCommands?.(catalogue.commands);
     root.replaceChildren(header, el('p', '快捷指令和 Hook', 'hooks-page-subtitle'), el('p', '模板可复用，实际挂载独立保存。管理此项目的命令授权和实际挂载；设备默认流程与自动选择在独立全局自动化页配置。', 'hint'), commands, hooks);
     root.append(...renderSignalManagement({ catalogue, editor, ownsPage: owns, busy: () => state.busy,
       setBusy(value) { state.busy = value; if (owns()) paint(); }, setEditing(value) { state.editing = value; },
@@ -424,7 +426,8 @@ export async function openHooks() {
     }));
     const controls = el('div', undefined, 'actions'); controls.append(button('新建模板', () => edit(), 'hook-button', { help: '编辑可复用规则，不启动 Agent，也不自动安装到 Worker。' }),
       button('刷新目录', async () => { if (state.busy) return; if ((state.editing || state.commandEditing || state.shortcutEditing) && !await confirmDialog({ title: '放弃未保存编辑并刷新？', message: '刷新会读取后台最新项目目录，当前未保存编辑会丢失。', confirmLabel: '放弃并刷新' })) return;
-        if (!owns()) return; state.editing = false; state.commandEditing = false; state.shortcutEditing = false; editor.replaceChildren(); await load(); }, 'ghost hook-button', { help: '显式读取最新节点和模板；未保存编辑会先确认，不进行后台自动刷新。' })); root.append(controls);
+        if (!owns()) return; state.editing = false; state.commandEditing = false; state.shortcutEditing = false;
+        state.shortcutNode?.dispose?.(); state.shortcutNode = null; editor.replaceChildren(); await load(); }, 'ghost hook-button', { help: '显式读取最新节点和模板；未保存编辑会先确认，不进行后台自动刷新。' })); root.append(controls);
     const templates = block('项目模板', String(catalogue.templates?.length || 0));
     templates.querySelector('.section-title').append(hookHelpLink());
     const search = el('input', undefined, 'hook-template-search'); search.type = 'search';

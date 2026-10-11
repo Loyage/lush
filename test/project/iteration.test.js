@@ -200,7 +200,9 @@ test('new queue input during Git acceptance checks is not hidden by historical d
     const subtreeTasks = f.project.subtreeTasks.bind(f.project);
     let scans = 0;
     f.project.subtreeTasks = id => {
-      if (++scans === 2) f.store.message(queue.id, 'new user input');
+      // Acceptance now first scans pending command claims before queuing Git.
+      // Inject on the post-Git recheck, not either of the two initial safety scans.
+      if (++scans === 3) f.store.message(queue.id, 'new user input');
       return subtreeTasks(id);
     };
     await expect(f.project.acceptTask(parent.id)).rejects.toThrow(`Worker #${queue.id}: new input`);

@@ -59,6 +59,26 @@ export const handlers = {
     const expected = revision(params.expected_revision);
     return p.runShortcutCommand(commandId(params.id), commandVersion(params.version), id(params.worker_id), expected);
   },
+  'hooks.command_start'(p, params) {
+    const expected = revision(params.expected_revision);
+    return p.startShortcutCommand(commandId(params.id), commandVersion(params.version), id(params.worker_id), expected);
+  },
+  'hooks.command_history'(p, params) {
+    const options = {};
+    if (Object.hasOwn(params, 'before')) {
+      check(Number.isSafeInteger(params.before) && params.before > 0, 'before must be a positive event cursor');
+      options.before = params.before;
+    }
+    if (Object.hasOwn(params, 'limit')) {
+      check(Number.isSafeInteger(params.limit) && params.limit >= 1 && params.limit <= 100, 'limit must be 1..100');
+      options.limit = params.limit;
+    }
+    if (Object.hasOwn(params, 'execution_id')) {
+      check(!Object.hasOwn(params, 'before'), 'execution_id cannot be combined with before');
+      options.execution_id = commandId(params.execution_id);
+    }
+    return p.shortcutCommandHistory(options);
+  },
   'hooks.command_import'(p, params) {
     const expected = revision(params.expected_revision);
     return p.importLegacyHookCommands(commandImportSource(params.source), expected);

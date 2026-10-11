@@ -10,14 +10,16 @@ const timestamp = () => new Date().toISOString();
 const FAILURE = 'Shell 命令 Hook 未完成；输出不公开。请检查命令、认证、remote 和现场，未来执行已停用，须显式恢复。';
 const UNKNOWN = '后台中断；Shell 命令可能已生效，禁止自动重放。检查现场后可显式恢复未来触发。';
 
-export function commandAdmission(project, task) {
+export function commandAdmission(project, task, ownClaim = false) {
   if (TERMINAL.has(task.status) || !task.branch || ['archived','deleted'].includes(project.store.branch(task.branch)?.status))
     return { stop: '挂载 Worker 已结束、归档或无分支，命令授权停止。' };
   try { assertTaskAncestorsOpen(project, task); } catch { return { stop: '挂载 Worker 的祖先已结束，命令授权停止。' }; }
   if (project.maintenancePaused()) return { wait: '项目维护暂停，等待显式全部继续。' };
   if (project.stopping || project.clearing || project.workerDeleteIds?.size || project.settingsMigrationApplying)
     return { wait: '项目正在停止、清理或迁移，命令等待安全点。' };
-  if (project.taskSyncBusy?.has(task.id) || project.workspaces.busy.has(task.id)) return { wait: '工作区正在同步或清理，命令等待安全点。' };
+  if (project.taskSyncBusy?.has(task.id) || project.workspaces.busy.has(task.id)
+    || project.acceptanceBusy?.has(task.id) || project.completionBusy?.has(task.id)) return { wait: '工作区正在同步、验收或清理，命令等待安全点。' };
+  if (!ownClaim && project.commandHookRunning?.has(task.id)) return { wait: 'Worker 已领取快捷指令，命令等待安全点。' };
   if (project.running.has(task.id) || task.status === 'running') return { wait: 'Agent 尚未实际退出，命令等待安全点。' };
   if (project.branchFreeze(task.branch) || project.activeTaskMerge(task.id)) return { wait: '挂载分支冻结，命令等待安全点。' };
   return {};
@@ -184,14 +186,14 @@ export default {
               try {
                 const command = this.resolveShortcutCommand(action);
                 result = await this.workspaces.runHookCommand(current, command.command, guard, { ...this.commandHookOptions, started: () => {
-                  this.store.transaction(() => { begin(); this.startShortcutExecution(action.command_id, action.command_version, taskId, shortcutExecutionId); });
+                  this.store.transaction(() => { begin(); this.startShortcutExecution(action.command_id, action.command_version, taskId, shortcutExecutionId, 'hook'); });
                   started = true; (this.commandHookRunning ??= new Set()).add(taskId);
                 } });
                 if (started) this.finishShortcutExecution(action.command_id, shortcutExecutionId, taskId, result.status, result);
               } catch (error) {
                 if (started) this.finishShortcutExecution(action.command_id, shortcutExecutionId, taskId, 'unknown');
                 throw error;
-              } finally { this.commandHookRunning?.delete(taskId); this.kick(); }
+              } finally { if (started) this.releaseShortcutCommand(taskId); }
               if (result.status === 'waiting') { waiting = true; return; }
               outcome = { command_result: result };
               this.store.transaction(() => {

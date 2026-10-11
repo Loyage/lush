@@ -8,7 +8,7 @@
 
 Hook Shell 动作新形为 `{type:'command',command_id:UUID,command_version:正整数}`，不得提交内联 command、运行目录、额外参数或 Shell 拼接。保存模板/挂载必须检查引用存在及版本；未授权版本可保存停用配置，但启用、提交及真正 spawn 前必须核验授权与版本。修改后不自动更新已有 Hook 的引用。撤权不承诺取消已开始的副作用，不自动重放旧触发。
 
-快捷指令不是沙箱。沿用现有 POSIX Shell、有界执行、非交互认证、真实 Worker 目录、Git 串行门与冻结/同步/清理/真实 invocation 核验；移除 invocation 凭证，不公开原始输出或异常。手动执行同样受上述门禁，受阻明确拒绝，不隐式排队重试。手动执行持久记录 started/result；中断未知不重放。每份指令公开最近安全执行摘要，不记录命令输出。
+快捷指令不是沙箱。沿用现有 POSIX Shell、有界执行、非交互认证、真实 Worker 目录、Git 串行门与冻结/同步/清理/真实 invocation 核验；移除 invocation 凭证，不公开原始输出或异常。手动执行同样受上述门禁，受阻明确拒绝，不隐式排队重试。手动执行持久记录 started/result；中断未知不重放。每份指令公开最近安全执行摘要，不记录命令输出。W192／决定 #457 增加即时接受的异步运行、每次手动／Hook 持久安全历史，以及独立运行与管理界面；方法与读模型见[异步运行接缝](shortcut-command-runs.md)，旧同步接口兼容。
 
 ## 读面与 Project 方法
 
@@ -41,7 +41,7 @@ CLI 使用 `hooks command list`（复用 hooks.list）、`save --file PATH --rev
 
 ## 界面与分区
 
-自动化保留 `#hooks` 和主标题，小标题为「快捷指令和 Hook」。快捷指令区负责注册、编辑、授权/撤权、删除和选择 Worker 手动执行；Hook 编辑器只选择指令及版本，不能填写 Shell。旧命令卡片说明已停止，并提供显式导入入口。授权、执行、删除前说明实际影响；Shell 不是 Agent 调用，不染 Agent 紫色。既有模型/Agent 动作保留统一代价标识。失败保留草稿，迟到响应不覆盖新页面，旧服务缺 commands 保守禁用指令操作。
+自动化保留 `#hooks` 和主标题，小标题为「快捷指令和 Hook」。快捷指令区用独立「运行与记录」「指令管理」标签分开：前者选择指令／Worker 执行及回看历史，后者负责注册、编辑、授权/撤权和删除；Hook 编辑器只选择指令及版本，不能填写 Shell。旧命令卡片说明已停止，并提供显式导入入口。授权、执行、删除前说明实际影响；Shell 不是 Agent 调用，不染 Agent 紫色。既有模型/Agent 动作保留统一代价标识。失败保留草稿，迟到响应不覆盖新页面，旧服务缺 commands 保守禁用指令操作。
 
 - Runtime 子分区：core/hooks、project/hooks/command-hooks、新 shortcut-commands 模块、Project 装配与必要执行门；test/project 命令测试及纯定义回归。维护 modules-runtime 对应条目，不改 RPC/CLI/assets。
 - Web 子分区：assets Hook 表单/渲染/样式，快捷指令编辑与授权/执行/导入，DOM 回归；维护 modules-web 条目，不改 runtime/API。

@@ -252,6 +252,7 @@ export default {
     check(this.introRunning.size === 0, 'a model explanation request is still running; clear must wait');
     check(this.store.activeBranchMergeRuns().length === 0, 'a one-click merge is in progress; finish or cancel it before clearing');
     check(this.workspaces.busy.size === 0, 'worktree cleanup is in progress; clear must wait');
+    check(!this.commandHookRunning?.size, 'shortcut commands are pending or running; clear must wait');
     check(!this.taskSyncBusy?.size, 'Worker parent synchronization is in flight; clear must wait');
     const active = this.store.activeTasks();
     check(active.length === 0,

@@ -255,8 +255,10 @@ export const methods = {
     return { id: task.id, worktree, branch: branch.status, reason: branch.reason };
   },
   /** 用户明确回收：worktree（与对照检出）加任务分支，一次做完。 */
-  cleanup(taskId, { keepBranch = false } = {}) {
+  async cleanup(taskId, { keepBranch = false } = {}) {
+    check(!this.commandBusy?.(taskId), 'Worker shortcut command is pending or running; wait before cleanup');
     return this.exclusive(async () => {
+      check(!this.commandBusy?.(taskId), 'Worker shortcut command is pending or running; wait before cleanup');
       this.busy.add(taskId);
       try {
         const task = this.store.task(taskId);

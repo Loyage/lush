@@ -47,7 +47,13 @@ button.hook-completion-level.is-selected { border-color: var(--violet-ink); back
 .hook-field textarea { resize: vertical; }
 .hooks-page-subtitle { margin: 0; color: var(--muted); font-weight: 600; }
 .shortcut-commands { min-width: 0; }
-.shortcut-command-editor { margin-block: .8rem; }
+.shortcut-command-editor, .shortcut-run-editor { margin-block: .8rem; }
+.shortcut-command-tabs { border-bottom: 1px solid var(--line); padding-block: .5rem; }
+.shortcut-command-tabs [aria-selected="true"] { background: var(--violet-soft); color: var(--violet-ink); border-color: var(--violet-ink); }
+.shortcut-command-tabs button:focus-visible { outline: 2px solid var(--violet-ink); outline-offset: 2px; }
+.shortcut-command-runs, .shortcut-command-management { min-width: 0; }
+.shortcut-execution-id, .shortcut-execution .hook-mount-head strong { overflow-wrap: anywhere; }
+.shortcut-execution-history { margin-top: 1rem; }
 .shortcut-command pre { font-family: monospace; }
 .hook-command-input { font-family: monospace; min-height: 7rem; }
 .hook-command-warning { border-left: 3px solid var(--violet-ink); padding-left: .7rem; }

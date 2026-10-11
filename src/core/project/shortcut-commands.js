@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { check, id, text, TERMINAL } from '../types.js';
 import { hookObject, hookRevision, normalizeHook, HOOK_LIMITS } from '../hooks.js';
 import { commandAdmission } from './command-hooks.js';
+import { commandHistory, executionSnapshot, recoverCommandHistory, safeCommandResult } from './shortcut-command-history.js';
 
 const KEY = 'shortcut_commands';
 const empty = () => ({ version: 1, generation: 0, items: [] });
@@ -49,16 +50,28 @@ function invalidate(project, commandId = null) {
   }
 }
 function executionView(project, execution) {
-  return execution ? { ...execution, worker_number: project.store.get('SELECT worker_number FROM tasks WHERE id=?', execution.worker_id)?.worker_number ?? null } : null;
+  if (!execution) return null;
+  const result = safeCommandResult(execution.command_result);
+  const workerId = Number.isSafeInteger(execution.worker_id) && execution.worker_id > 0 ? execution.worker_id : null;
+  const number = execution.worker_number ?? (workerId ? project.store.get('SELECT worker_number FROM tasks WHERE id=?', workerId)?.worker_number : null);
+  const date = value => typeof value === 'string' && value.length <= 40 && Number.isFinite(Date.parse(value)) ? value : null;
+  return { id: typeof execution.id === 'string' && execution.id.length <= 128 ? execution.id : null,
+    worker_id: workerId, command_version: Number.isSafeInteger(execution.command_version) && execution.command_version > 0 ? execution.command_version : null,
+    status: ['pending','running','succeeded','failed','unknown'].includes(execution.status) ? execution.status : 'unknown',
+    created_at: date(execution.created_at), finished_at: date(execution.finished_at),
+    worker_number: typeof number === 'string' && /^W\d+(?:-\d+)*$/.test(number) ? number : null,
+    ...(result ? { command_result: result } : {}) };
 }
 function executionResult(project, commandId, executionId, workerId, status, result = null) {
+  check(['succeeded','failed','unknown'].includes(status), 'invalid command execution outcome');
+  const safeResult = safeCommandResult(result), finishedAt = now();
   project.store.transaction(() => {
     const data = read(project), item = data.items.find(item => item.id === commandId);
     const execution = item?.last_execution;
     if (execution?.id === executionId) {
-      Object.assign(execution, { status, finished_at: now(), ...(result ? { command_result: result } : {}) }); save(project, data);
+      Object.assign(execution, { status, finished_at: finishedAt, ...(safeResult ? { command_result: safeResult } : {}) }); save(project, data);
     }
-    project.store.event(workerId, `shortcut.command_${status}`, { command_id: commandId, execution_id: executionId, ...(result ? { command_result: result } : {}) });
+    project.store.event(workerId, `shortcut.command_${status}`, { command_id: commandId, execution_id: executionId, finished_at: finishedAt, ...(safeResult ? { command_result: safeResult } : {}) });
   });
 }
 
@@ -121,21 +134,85 @@ export default {
     return null;
   },
 
+  shortcutCommandHistory(options = {}) { return commandHistory(this, options); },
+
+  /** Reopen every affected queue after durable settlement, including ancestor acceptance and parent delivery. */
+  releaseShortcutCommand(workerId) {
+    this.shortcutCommandClaims?.delete(workerId); this.commandHookRunning?.delete(workerId);
+    const task = this.store.task(workerId);
+    if (!this.stopping) {
+      this.scheduleTaskMerge(workerId); this.scheduleTaskMerge(task.parent_id);
+      this.scheduleTaskCompletion();
+      const settle = this.settleQueuedMerge(workerId);
+      settle.catch(() => this.noteCompletionMergeFailure(workerId));
+    }
+    this.kick();
+  },
+
+  /** Accept once, durably, without making the HTTP/RPC connection wait for Git or Shell. */
+  startShortcutCommand(commandId, version, workerId, expectedRevision) {
+    this.assertWritable('start a shortcut command');
+    const data = read(this); expected(data, expectedRevision);
+    const definition = structuredClone(record(data, commandId, version)); check(definition.authorized, UNAVAILABLE);
+    const task = this.store.task(id(workerId));
+    check(['main','owner','order','child'].includes(task.task_kind) && !TERMINAL.has(task.status), 'Worker cannot execute shortcut commands');
+    check(!this.commandHookRunning?.has(task.id), 'Worker is already executing a shortcut command');
+    const admission = commandAdmission(this, task); check(!admission.wait && !admission.stop, admission.wait ?? admission.stop);
+    const executionId = randomUUID();
+    const authorization = () => this.store.get(`SELECT max(id) AS id FROM events WHERE type IN
+      ('shortcut.command_saved','shortcut.command_authorized','shortcut.command_removed') AND json_extract(data,'$.command_id')=?`, commandId)?.id ?? 0;
+    const authorizationId = authorization();
+    const execution = executionSnapshot(this, definition, task.id, executionId, 'manual', 'pending');
+    let eventId;
+    this.store.transaction(() => {
+      data.items.find(item => item.id === commandId).last_execution = execution;
+      save(this, data);
+      eventId = this.store.event(task.id, 'shortcut.command_pending', { ...execution, execution_id: executionId });
+    });
+    (this.commandHookRunning ??= new Set()).add(task.id);
+    (this.shortcutCommandClaims ??= new Map()).set(task.id, executionId);
+    // write() enters its drain barrier synchronously. Outcomes and lock release happen inside it.
+    const job = this.write('execute an accepted shortcut command', async () => {
+      let started = false;
+      try {
+        const result = await this.workspaces.runHookCommand(task, definition.command, () => {
+          check(this.shortcutCommandClaims.get(task.id) === executionId, 'shortcut claim changed');
+          check(authorization() === authorizationId, UNAVAILABLE);
+          this.resolveShortcutCommand({ command_id: commandId, command_version: version });
+          const gate = commandAdmission(this, this.store.task(task.id), true);
+          check(!gate.wait && !gate.stop, gate.wait ?? gate.stop);
+          return true;
+        }, { ...this.commandHookOptions, started: () => {
+          this.startShortcutExecution(commandId, version, task.id, executionId, 'manual'); started = true;
+        } });
+        this.finishShortcutExecution(commandId, executionId, task.id, result.status, result);
+      } catch {
+        this.finishShortcutExecution(commandId, executionId, task.id, started ? 'unknown' : 'failed',
+          { status: started ? 'unknown' : 'failed', reason: started ? 'interrupted' : 'admission' });
+      } finally {
+        this.releaseShortcutCommand(task.id);
+      }
+    });
+    const tracked = job.catch(() => {}).finally(() => this.shortcutCommandJobs.delete(tracked));
+    (this.shortcutCommandJobs ??= new Set()).add(tracked);
+    return { execution_id: executionId, execution: { event_id: eventId, ...execution }, commands: this.shortcutCommands() };
+  },
+
   async runShortcutCommand(commandId, version, workerId, expectedRevision) {
     const data = read(this); expected(data, expectedRevision);
     const definition = structuredClone(record(data, commandId, version)); check(definition.authorized, UNAVAILABLE);
     const task = this.store.task(id(workerId));
     check(['main','owner','order','child'].includes(task.task_kind) && !TERMINAL.has(task.status), 'Worker cannot execute shortcut commands');
-    const admission = commandAdmission(this, task); check(!admission.wait && !admission.stop, admission.wait ?? admission.stop);
     check(!this.commandHookRunning?.has(task.id), 'Worker is already executing a shortcut command');
+    const admission = commandAdmission(this, task); check(!admission.wait && !admission.stop, admission.wait ?? admission.stop);
     const job = this.write('execute a shortcut command', async () => {
       let executionId = null;
       try {
         const result = await this.workspaces.runHookCommand(task, definition.command, () => {
           expected(read(this), expectedRevision);
           this.resolveShortcutCommand({ command_id: commandId, command_version: version });
-          const gate = commandAdmission(this, this.store.task(task.id)); check(!gate.wait && !gate.stop, gate.wait ?? gate.stop);
           check(!this.commandHookRunning?.has(task.id), 'Worker is already executing a shortcut command');
+          const gate = commandAdmission(this, this.store.task(task.id)); check(!gate.wait && !gate.stop, gate.wait ?? gate.stop);
           return true;
         }, { ...this.commandHookOptions, started: () => {
           const startedId = randomUUID();
@@ -143,23 +220,24 @@ export default {
           (this.commandHookRunning ??= new Set()).add(task.id);
         } });
         this.finishShortcutExecution(commandId, executionId, task.id, result.status, result);
-        return { execution_id: executionId, command_result: result, commands: this.shortcutCommands() };
+        return { execution_id: executionId, command_result: safeCommandResult(result), commands: this.shortcutCommands() };
       } catch {
         if (executionId) this.finishShortcutExecution(commandId, executionId, task.id, 'unknown');
         throw new Error(executionId ? '快捷指令执行结果未知；请检查现场，不会自动重放。' : '快捷指令未开始；请重新检查授权版本、Worker 状态与安全门。');
       } finally {
-        if (executionId) { this.commandHookRunning?.delete(task.id); this.kick(); }
+        if (executionId) this.releaseShortcutCommand(task.id);
       }
     });
     (this.shortcutCommandJobs ??= new Set()).add(job);
     try { return await job; } finally { this.shortcutCommandJobs.delete(job); }
   },
 
-  startShortcutExecution(commandId, version, workerId, executionId) {
+  startShortcutExecution(commandId, version, workerId, executionId, source = 'manual') {
     this.store.transaction(() => {
       const data = read(this), item = record(data, commandId, version); check(item.authorized, UNAVAILABLE);
-      item.last_execution = { id: executionId, worker_id: workerId, command_version: version, status: 'running', created_at: now(), finished_at: null };
-      save(this, data); this.store.event(workerId, 'shortcut.command_started', { command_id: commandId, version, execution_id: executionId });
+      const acceptedAt = item.last_execution?.id === executionId ? item.last_execution.created_at : undefined;
+      item.last_execution = executionSnapshot(this, item, workerId, executionId, source, 'running', acceptedAt);
+      save(this, data); this.store.event(workerId, 'shortcut.command_started', { ...item.last_execution, version, execution_id: executionId });
     });
   },
 
@@ -217,10 +295,13 @@ export default {
 
   recoverShortcutCommands() {
     invalidate(this);
+    recoverCommandHistory(this, (...args) => this.finishShortcutExecution(...args));
+    // Historical stores may have only a last_execution slot, without a started event.
     const data = read(this); let changed = false;
-    for (const item of data.items) if (item.last_execution?.status === 'running') {
-      Object.assign(item.last_execution, { status: 'unknown', finished_at: now() }); changed = true;
-      this.store.event(item.last_execution.worker_id, 'shortcut.command_unknown', { command_id: item.id, execution_id: item.last_execution.id });
+    for (const item of data.items) if (['pending','running'].includes(item.last_execution?.status)) {
+      const execution = item.last_execution;
+      Object.assign(execution, { status: 'unknown', finished_at: now() }); changed = true;
+      this.store.event(execution.worker_id, 'shortcut.command_unknown', { command_id: item.id, execution_id: execution.id, finished_at: execution.finished_at });
     }
     if (changed) save(this, data);
   },

@@ -97,6 +97,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/quick-explain/config` | 用户专属 `quick_explain.config`，本地解释来源、模型与 Prompt，不返回凭证 |
 | `GET /api/quick-explain/history?before=&limit=` | 用户专属 `quick_explain.list`，项目全历史摘要分页（默认 30、最多 50） |
 | `GET /api/quick-explain/ID` | 用户专属 `quick_explain.get`，结果与当时选区/来源/Prompt 快照 |
+| `GET /api/hooks/commands/executions` | 用户专属 `hooks.command_history`；before 正整数事件游标、limit 1..100、execution_id UUID（与 before 互斥），返回每次运行持久安全摘要；只读不执行命令 |
 | `GET /api/hooks` | 用户专属 `hooks.list`，节点／动作目录、安全模板、授权版本快捷指令目录 commands、daemon Hooks、时间信号与管理 Worker 投影，不接受查询参数 |
 | `GET /api/worker/ID/hooks` | 用户专属 `worker.hooks`，安全挂载、修订与最近收据，不接受查询参数 |
 | `GET /api/worker/ID` | `worker.inspect` |
@@ -132,7 +133,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 
 快捷解释另开放 `quick_explain.configure` / `quick_explain.start` / `quick_explain.followup` / `quick_explain.delete`，均为用户专属 POST action；旧 `intro.*` / `explanation.*` 仍关闭。配置使用设备唯一来源，结果和历史仍按项目隔离；未打开项目不能发起解释。使用见[快捷解释](../quick-explanation.md)，字段见[实现契约](../engineering/quick-explanation.md)。
 
-Hooks 另开放 `hooks.save/remove/auto_select/signal_save/signal_remove`、`hooks.command_save/command_authorize/command_remove/command_run/command_import`（快捷指令注册、授权、删除、手动执行与旧配置显式导入；无 GET 写入口）、`management.create/binding_update`、`worker.hook_attach/hook_update/hook_remove`，均为当前项目用户专属 action；自动选择与新指令默认流程使用同一设备策略 revision，新前端通过上面的 Host 全局接口管理；兼容 hooks mutation 不再保存另一份项目开关，见[用户工作台契约](../engineering/user-workspace.md)。
+Hooks 另开放 `hooks.save/remove/auto_select/signal_save/signal_remove`、`hooks.command_save/command_authorize/command_remove/command_run/command_start/command_import`（快捷指令注册、授权、删除、同步兼容执行／异步提交与旧配置显式导入；无 GET 写入口；持久历史只读接口见上表）、`management.create/binding_update`、`worker.hook_attach/hook_update/hook_remove`，均为当前项目用户专属 action；自动选择与新指令默认流程使用同一设备策略 revision，新前端通过上面的 Host 全局接口管理；兼容 hooks mutation 不再保存另一份项目开关，见[用户工作台契约](../engineering/user-workspace.md)。
 
 管理 Agent 的专用 `manager.query/start/retry` RPC 不进入 Web 动作白名单；用户通过自动化页面保存指令和时间信号，不从 Web 构造管理 Actor。授权范围见[时间信号与管理契约](../engineering/hook-signals-management.md)。
 
