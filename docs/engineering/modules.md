@@ -120,6 +120,14 @@ Runtime 子 Worker 负责 core Hooks、初始化、merge-queue、Workspaces 命�
 
 实现范围：persistence schema/base/tasks、project tasks/graph、RPC registry/handlers、Web server、CLI task/help、assets worker-rename/format/render-task-graph/render-detail/render-tree 与对应存储、RPC/HTTP、CLI、DOM 回归。
 
+## Worker 自动标题（W202／决定 D471）
+
+指令及 child 的当前 Agent 理解目标后，经新增 Agent-only RPC `worker.auto_title {title}` / CLI `worker auto-title '标题'` 设置自身一次性自动标题；不接受目标 ID，身份只来自有效 invocation token。新增 nullable `tasks.auto_title TEXT`，历史不回填，不批量调用模型；首次成功后不可由 Agent 更新或清除。用户 `worker.rename` 仍只修改 `display_title`，清空后恢复自动标题。展示统一按 `display_title → auto_title → goal 首行`，原始输入、正文、编号、name、Git 与会话不变。
+
+接缝：`Project.setTaskAutoTitle(taskId,title)` 经项目写门、order/child 与活动 invocation 校验；`Store.setTaskAutoTitle(taskId,title)` 条件写入 NULL 字段、不触碰 updated_at，成功同事务记录 `task.auto_titled`。返回 `{id,auto_title,changed}`，单行非空最多 60 字符。摘要／子节点／图／后台总览带 auto_title；CLI 与 Web 使用同一优先级并支持检索。Web 不开放该 mutation，Agent 不能借此获得用户 rename 权限。内置 agent Prompt 说明理解目标后生成简短标题；analysis、manager 等不获此能力，自定义替代 Prompt 不保证执行自动命名。
+
+实现分区：持久化及 core/project、RPC、CLI、Agent Prompt、Web assets 与专项测试；W202 负责最终全量和接口文档。
+
 ## Worker 用户编号接缝
 
 用户决定 #190：保留整数内部身份，为升级后新建的指令 Worker 增加不可变、可空的 `tasks.worker_number`（如 `W5`）；Agent 在已编号父 Worker 下派生的 child 使用同父创建次序（`W5-1`、`W5-1-1`）。原始 Input 展示 `O<id>`，沿用项目现有 Input 序列，允许失败或删除留下空号；暂存与追加消息不占 O 编号。在已有指令分支上提交新的 O8 仍产生 W8，不使用父的 child 序号。历史 Worker 不回填，历史未编号父节点的新派生后代继续使用旧整数编号；main/owner 保留原标识。

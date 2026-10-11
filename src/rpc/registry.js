@@ -43,7 +43,7 @@ export const PARAMS = {
   'input.history': ['cursor','limit','q','status','integration'], 'input.get': ['kind','id'], 'input.parents': [],
   'draft.add': ['content','references','branch'], 'draft.update': ['id','content','references','branch','expected_revision'],
   'draft.remove': ['id','expected_revision'],
-  'worker.rename': ['id','title'], 'worker.lookup': ['number'], 'worker.graph': ['details'], 'worker.list': ['after','limit'], 'worker.activity': ['limit','scope'],
+  'worker.auto_title': ['title'], 'worker.rename': ['id','title'], 'worker.lookup': ['number'], 'worker.graph': ['details'], 'worker.list': ['after','limit'], 'worker.activity': ['limit','scope'],
   'worker.page': ['before','limit','scope'], 'worker.tree': ['id'], 'worker.inspect': ['id'], 'worker.run_settings': ['id'],
   'worker.progress_history': ['id','before','limit'],
   'worker.history': ['id','after'], 'worker.history_page': ['id','before','limit'], 'worker.diff': ['id'], 'worker.usage': ['id'],
@@ -93,7 +93,7 @@ export const USER_ONLY = new Set([
   'notice.sync','notice.answer','notice.dismiss','notice.read','branch.bind','branch.archive',
 ]);
 export const AGENT_ONLY = new Set([
-  'worker.integrate','worker.resolve_child_divergence','progress.plan','progress.complete',
+  'worker.auto_title','worker.integrate','worker.resolve_child_divergence','progress.plan','progress.complete',
   'manager.query','manager.start','manager.retry',
 ]);
 /** Management invocations have a narrower capability than ordinary development Agents. */

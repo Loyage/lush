@@ -16,7 +16,7 @@ const reads = {
   runs_page: ['id','before','limit'], artifacts_page: ['id','before','limit'], artifact: ['id'],
 };
 const writes = {
-  rename: ['id','title'], spawn: ['parent','goal','name'], integrate: ['id','commit'], reserve: ['id','kind'], reserve_all: ['branch'],
+  auto_title: ['title'], rename: ['id','title'], spawn: ['parent','goal','name'], integrate: ['id','commit'], reserve: ['id','kind'], reserve_all: ['branch'],
   auto_merge: ['id','enabled'], completion: ['id','level','expected_revision'], hook_attach: ['id','hook','expected_revision'],
   hook_update: ['id','hook_id','enabled','hook','expected_revision'], hook_remove: ['id','hook_id','expected_revision'],
   resolve: ['id'], resolve_divergence: ['id'], accept: ['id'],
@@ -29,7 +29,7 @@ const userOnly = new Set(['run_settings','code_state','code_tree','code_file','t
   'transcript_search','runs_page','artifacts_page','artifact','hooks','hook_attach','hook_update','hook_remove',
   'reserve','reserve_all','auto_merge','completion','resolve','resolve_divergence','unreserve','approve_merge',
   'rename','cancel','retry','clear_override','cleanup','interrupt','resume','configure','reopen','sync_parent','resolve_sync','delete_preview','delete']);
-const agentOnly = new Set(['integrate','resolve_child_divergence']);
+const agentOnly = new Set(['auto_title','integrate','resolve_child_divergence']);
 const contract = { ...reads, ...writes };
 
 test('worker RPC is the complete strict public namespace with unchanged authority', () => {

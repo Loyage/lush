@@ -148,7 +148,7 @@ export function renderTree(data) {
     }
     state.updatedAt = task.updated_at;
     patchText(state.when, relative(task.updated_at));
-    patchText(state.goal, task.display_title || task.goal);
+    patchText(state.goal, task.display_title || task.auto_title || task.goal);
     const stats = progressStats(task.progress), current = stats.current;
     const progressKey = JSON.stringify([HOT.has(task.status), progressReportingEnabled(), stats.completed, stats.total,
       current && [current.label, current.kind, current.timing_unknown, current.work_ms, current.active_since,

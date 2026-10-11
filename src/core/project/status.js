@@ -72,7 +72,7 @@ export default {
       for (const key of ['pending_merges','merging','merge_conflicts']) value[key] += row[key];
     }
     return { ...value, counts: [...counts].map(([status, count]) => ({ status, count })),
-      recent_workers: this.store.all(`SELECT id,worker_number,display_title,substr(goal,1,200) AS goal,status,integration
+      recent_workers: this.store.all(`SELECT id,worker_number,display_title,auto_title,substr(goal,1,200) AS goal,status,integration
         FROM tasks WHERE task_kind IN ('order','say','child') ORDER BY id DESC LIMIT 3`) };
   },
 

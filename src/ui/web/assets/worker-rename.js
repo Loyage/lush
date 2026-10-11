@@ -15,7 +15,7 @@ export function workerRenameControl(task, { refresh = async () => {} } = {}) {
     busy = true;
     const view = ui.view, project = projectBase();
     const ownsPage = () => ui.view === view && projectBase() === project && !ui.deletedWorkerIds.has(task.id);
-    let value = task.display_title ?? task.title ?? taskTitle(task), failure = null;
+    let value = task.display_title ?? task.auto_title ?? task.title ?? taskTitle(task), failure = null;
     try {
       while (ownsPage()) {
         const title = await promptDialog({ title: `重命名 Worker ${workerLabel(task)}`, label: '标题', value,

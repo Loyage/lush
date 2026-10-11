@@ -28,6 +28,7 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 | —（Web 分页） | `worker.page` | `{before?: null, limit?: 50, scope?: 'work'|'all'}` |
 | `worker spawn 'goal' --parent ID [--name NAME]` | `worker.spawn` | `{parent, goal, name?}`；父必须是 指令/child Worker |
 | `worker rename ID '标题'` | `worker.rename` | `{id,title}`；用户专属，只改展示标题，不改变正文或执行；单行最多 200 字符，空串/null 恢复自动标题；返回 `{id,display_title}` |
+| `worker auto-title '标题'` | `worker.auto_title` | `{title}`；Agent-only，有效 invocation 只写自身 order/child；非空单行最多 60 字符，首次成功后不覆盖或清空；返回 `{id,auto_title,changed}`，Web 不开放写入口 |
 | `worker message ID 'body'` | `worker.message` | `{id, body}` |
 | `worker integrate CHILD_ID CHILD_HEAD_COMMIT` | `worker.integrate` | `{id, commit}`；agent-only |
 | `worker auto-merge ID on\|off` | `worker.auto_merge` | `{id, enabled:boolean}`；用户专属；设置跨轮保留的自动合并 hook，返回 `{task_id,changed,auto_merge}` |
@@ -51,6 +52,8 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 | —（Web 显式打开运行设置） | `worker.run_settings` | `{id}`，用户专属，仅 order/child，返回 `{profile,explicit}`；有效完整 Profile 只在此设置读面提供，不包含连接凭证、不联网 |
 | —（Web 调整运行设置） | `worker.configure` | `{id, profile}` 或 `{id, model_selection:{connection_id,model}}`，两者互斥；用户专属，`paused` 或暂停请求期间保存下一次配置，窄更新保留其他覆盖 |
 | `worker cleanup ID [--keep-branch]` | `worker.cleanup` | `{id, keep_branch?}`；见[维护](maintenance.md) |
+
+标题读面带可空 `display_title` / `auto_title`，展示按用户手动标题 → Agent 自动标题 → 原目标首行。清空手动标题恢复自动标题；追加输入不重命名。自动标题只由当前 Agent 理解目标后调用接口产生，不另起模型请求、不批量回填旧记录；不改变 goal、输入原文、编号或 Git 身份。完整权限和存储边界见[自动标题](../../engineering/core-api.md#agent-自动标题w202决定-d471)。
 
 `worker.activity` / `worker.page` 的 `scope='work'|'all'` 省略时保留旧 work 口径；Web overview 与历史分页显式请求 `all`，继续有界读取，不改Worker实体或存储层级。`GET /api/workers` 透传 scope。
 

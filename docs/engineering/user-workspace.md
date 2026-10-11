@@ -10,7 +10,7 @@
 
 ## 后台总览开发摘要（W186／决定 #446）
 
-项目卡片采用「状态指标＋最近 Worker」。Host 显式刷新时调用 `system.summary {development:true}`，用户读面才附加 `development`；普通首页轮询和 Agent 默认摘要不做新增全量聚合。`Project.developmentSummary()` 只读完整 tasks 的新式 Worker（含历史 say），返回精确 `workers_total`、`active`、`awaiting_acceptance`（指令）、`parent_confirmation`（child）、`agents_running`（真实 invocation）、`pending_merges`（pending/review）、`merging`、`merge_conflicts`、`counts:[{status,count}]`，及最多 3 条按 ID 倒序的 `recent_workers:[{id,worker_number,display_title,goal,status,integration}]`（仅指令／child，正文裁至 200 字符）。总数和状态分布包含 main/owner 及历史，进行中排除分支所有者及待验收；派生待父确认不冒称待用户验收。Host 严格白名单投影，不传 Profile、凭证或完整 Worker。旧服务缺少摘要时明确不可用，不据局部最近列表推算总数；离线不展示旧值为现状。读取仍不启动后台，不改变自动合并或验收流程。
+项目卡片采用「状态指标＋最近 Worker」。Host 显式刷新时调用 `system.summary {development:true}`，用户读面才附加 `development`；普通首页轮询和 Agent 默认摘要不做新增全量聚合。`Project.developmentSummary()` 只读完整 tasks 的新式 Worker（含历史 say），返回精确 `workers_total`、`active`、`awaiting_acceptance`（指令）、`parent_confirmation`（child）、`agents_running`（真实 invocation）、`pending_merges`（pending/review）、`merging`、`merge_conflicts`、`counts:[{status,count}]`，及最多 3 条按 ID 倒序的 `recent_workers:[{id,worker_number,display_title,auto_title,goal,status,integration}]`（仅指令／child，正文裁至 200 字符）。总数和状态分布包含 main/owner 及历史，进行中排除分支所有者及待验收；派生待父确认不冒称待用户验收。Host 严格白名单投影，不传 Profile、凭证或完整 Worker。旧服务缺少摘要时明确不可用，不据局部最近列表推算总数；离线不展示旧值为现状。读取仍不启动后台，不改变自动合并或验收流程。
 
 ## 设备配置分区
 

@@ -66,11 +66,17 @@ export async function run(command, args, ctx) {
       if (brief) check(Number.isInteger(limit) && limit > 0 && limit <= 200, '--brief limit must be 1..200');
       value = await client.request('worker.list', { after, limit: brief ? limit + 1 : limit });
       if (brief) {
-        const tasks = value.slice(0, limit).map(({ id, worker_number, parent_id, role, status, integration, goal }) => ({ id, worker_number: worker_number ?? null, parent_id, role, status, integration,
+        const tasks = value.slice(0, limit).map(({ id, worker_number, parent_id, role, status, integration, display_title, auto_title, goal }) => ({ id, worker_number: worker_number ?? null, parent_id, role, status, integration,
+          display_title: display_title ?? null, auto_title: auto_title ?? null,
           goal: goal.replace(/\s+/g, ' ').slice(0, 160), goal_truncated: goal.length >= 160 }));
         value = { tasks, has_more: value.length > limit, next_after: tasks.at(-1)?.id ?? after,
           note: '短摘要；完整目标与结果用 lush worker inspect ID。' };
       }
+    }
+    else if (verb === 'auto-title') {
+      check(Boolean(client.token), 'automatic titles require an Agent invocation');
+      exact(args, 1);
+      value = await client.request('worker.auto_title', { title: args[0] });
     }
     else if (verb === 'rename') {
       check(!client.token, 'Worker titles are user only, not an agent operation');

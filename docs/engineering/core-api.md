@@ -37,6 +37,12 @@ Input（原始输入）、历史输入、Draft（暂存）仍是各自的实体�
 
 用户专属 `worker.rename {id,title}` / Web 同名 action / CLI `worker rename ID '标题'` 只修改 `tasks.display_title` 展示元数据；不改 goal、固定 name、编号、Git 路径、会话、状态或调用，不唤醒 Agent。标题为最多 200 字符的单行文本，去除首尾空白，空串或 null 恢复自动标题。运行、冻结、终态及归档 Worker 均可调整；旧数据不回填，旧报告、输入历史及引用快照不回写。返回 `{id,display_title}`；inspect/list/page/子节点摘要带 display_title，graph.title 优先自定义标题。Web Worker 树两种模式「⋯ → 重命名」及普通详情提供应用内弹窗；管理型／退休详情维持只读。Agent 无写权限。
 
+### Agent 自动标题（W202／决定 D471）
+
+指令及 child 的当前 Agent 理解目标后调用 Agent-only `worker.auto_title {title}` / CLI `worker auto-title '标题'`，仅从有效 invocation token 确定自身，无目标 ID 参数。非空单行最多 60 字符、去除首尾空白；首次成功写入 nullable `tasks.auto_title`，后续调用返回已有值而不覆盖（`{id,auto_title,changed}`），不能清空。不增加模型请求、调度或 Git 操作，`updated_at` 不变，`task.auto_titled` Event 仅首次写入时记录。项目写门与 order/child、running／非 parked／非 aborted invocation 校验保留；manager、analysis 和用户身份均无此写能力。
+
+显示优先级为用户 `display_title` → Agent `auto_title` → 原目标首行。清空用户标题恢复该自动标题；手动重命名不被 Agent 覆盖。inspect/list/page/子节点/graph/后台摘要及输入父候选携带 auto_title，CLI/Web 显示和 Worker 检索支持它。原始 Input、goal、name、编号、Git/会话身份与历史报告/引用快照不回写。旧行新增字段为 NULL，不批量生成；标题在有实际 Agent invocation 时产生，暂停未开始、命名失败或自定义替代 Prompt 未调用时仍以原目标兜底。Web 不开放自动标题 mutation，用户 `worker.rename` 权限不变。
+
 ## 设备共享设置与兼容
 
 W116 / 待决 #261 批准设备同系统用户共享技术配置，项目/Worker 可覆盖；项目事实/历史/Git/调度及 `LUSH_HOME` 绑定不变。新增用户专属 `system.settings {scope?}`、`settings.clear_override {kind,target?}`、`settings.migration.preview {}`、`settings.migration.apply {revision,confirm:true}`。既有设置/来源/安装管理 RPC 增可选 `scope=device|project`，省略仍选 project，Agent token 不能访问 device scope；Worker 与历史接口不因此全局化。

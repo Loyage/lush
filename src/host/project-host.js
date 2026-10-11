@@ -21,6 +21,7 @@ function developmentView(value) {
       .map(row => ({ id: row.id,
         worker_number: typeof row.worker_number === 'string' && /^W\d+(-\d+)*$/.test(row.worker_number) && row.worker_number.length <= 200 ? row.worker_number : null,
         display_title: typeof row.display_title === 'string' ? row.display_title.slice(0, 200) : null,
+        auto_title: typeof row.auto_title === 'string' ? row.auto_title.slice(0, 60) : null,
         goal: typeof row.goal === 'string' ? row.goal.slice(0, 200) : '',
         status: typeof row.status === 'string' ? row.status.slice(0, 40) : '',
         integration: typeof row.integration === 'string' ? row.integration.slice(0, 40) : '' })) };

@@ -69,6 +69,24 @@ export default {
     return { id: task.id, display_title: value };
   },
 
+  /** Invocation-bound Agent metadata only; user titles remain independent and dominant. */
+  setTaskAutoTitle(taskId, title) {
+    this.assertWritable('set an automatic Worker title');
+    const task = this.store.task(id(taskId)), run = this.running.get(task.id);
+    check(['order', 'child'].includes(task.task_kind), 'automatic titles are only for order/child Workers');
+    check(task.status === 'running' && run && !run.parked && !run.controller.signal.aborted,
+      'automatic titles require an active Agent invocation');
+    check(typeof title === 'string', 'title must be text');
+    const value = title.trim();
+    check(value.length > 0 && value.length <= 60, 'automatic title must be 1..60 characters');
+    check(!/[\u0000-\u001f\u007f\u2028\u2029]/u.test(value), 'title must be a single line without control characters');
+    return this.store.transaction(() => {
+      const changed = this.store.setTaskAutoTitle(task.id, value);
+      if (changed) this.store.event(task.id, 'task.auto_titled', { auto_title: value });
+      return { id: task.id, auto_title: this.store.task(task.id).auto_title, changed };
+    });
+  },
+
   /** name is the planner's short slug for the work; it becomes the branch/worktree name and stays fixed for the task's life. */
   async spawn(parentId, goal, role = undefined, deps = [], name = null, specId = null) {
     return this.write('fork a worker', () => this.forkChildTask(parentId, goal, role, deps, name, specId));
@@ -266,7 +284,7 @@ export default {
       ...(task.role === 'planner' ? { specs: bounded(this.store.specsByPlanner(task.id), 200000) } : {}),
       ...(task.role === 'scheduler' ? { specs: bounded(this.store.specsForBatch(task.id), 200000) } : {}),
       children: bounded(this.decorate(this.store.all(`SELECT id,worker_number,parent_id,(SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
-        input_id,role,display_title,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
+        input_id,role,display_title,auto_title,substr(goal,1,200) AS goal,status,integration,layer,updated_at,
         agent_wakes,agent_last_seen_at,verifies_task_id,resolves_task_id,review_candidate_id,progress_plan,task_kind,reservation,interrupt_state
         FROM tasks WHERE parent_id=? ORDER BY id`, task.id)), 100000),
       messages: bounded(this.store.all(`${MESSAGE_SELECT} WHERE task_id=? ORDER BY id DESC LIMIT 100`, task.id), 200000),

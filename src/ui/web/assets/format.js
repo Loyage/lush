@@ -15,7 +15,7 @@ export const isHistoricalDelivery = task => task.role === 'showcase' || task.tas
   || Boolean(task.reservation?.kind && task.reservation.kind !== 'merge');
 export const ROLE = { planner: '规划', scheduler: '调度', worker: '执行', coordinator: '协调', research: '调研', verifier: '检验', merger: '解冲突', explainer: '执行介绍', butler: '管家', manager: '管理' };
 export const EVENTS = {
-  created: '创建 Worker', 'task.renamed': '调整 Worker 标题', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
+  created: '创建 Worker', 'task.auto_titled': 'Agent 生成 Worker 标题', 'task.renamed': '调整 Worker 标题', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
   'invocation.connection': '绑定账号连接', 'invocation.inputs_delivered': '输入已交给 Agent',
   'maintenance.interrupted': '接受当前项目全部中断请求', 'maintenance.resumed': '接受当前项目全部继续请求',
   'maintenance.resume_blocked': '维护暂停恢复受阻',
@@ -218,8 +218,8 @@ export function summarizeGoal(goal) {
   if (!line) return null;
   return line.length > GOAL_TITLE_LIMIT ? `${line.slice(0, GOAL_TITLE_LIMIT)}…` : line;
 }
-/** 详情页 hero 的短标题：goal 的摘要；goal 为空时退回 `任务 #id`，标题区永不留空。 */
-export const taskTitle = task => task?.display_title || (summarizeGoal(task?.goal) ?? `Worker ${workerNumber(task)}`);
+/** 展示标题：用户命名 → Agent 自动标题 → goal 首行 → Worker 编号。 */
+export const taskTitle = task => task?.display_title || task?.auto_title || (summarizeGoal(task?.goal) ?? `Worker ${workerNumber(task)}`);
 /** 一条 spec 的完整可读文本，放进 title，让人 hover 就能看全文与丢弃原因。 */
 export function specTitle(spec) {
   const info = specStatus(spec);

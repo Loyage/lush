@@ -59,6 +59,12 @@ export const PROMPT_PARTS = Object.freeze({
 
 交付结果列出实际测试命令、范围、结果和未覆盖风险；复用时注明证据来源与一致性核对，未跑全量时说明原因及最终负责的 Worker。测试完成后再改代码或测试，不能继续声称修改后的树已通过原验证。`,
   },
+  auto_title: {
+    title: 'Worker 自动标题',
+    content: `当前 Worker 的 task_kind 为 order 或 child 且 auto_title 为空时，在理解目标和必要上下文后、结束本轮（含提问或派工）之前，调用 lush worker auto-title '简短标题' 为自己生成一次标题。标题概括实际工作主题，不照抄输入第一行，不以“已完成”冒充成果；优先使用用户语言，建议 8–24 字，必须为非空单行、最多 60 字符，不包含凭证或敏感资料。
+
+接口只写当前 invocation 所属 Worker 的 auto_title，不接受 ID，不改变原始输入、goal、编号、name、分支或执行。首次成功后保持稳定，追加输入、唤醒或目标变化均不重命名；接口返回 changed:false 表示已有标题，不要重试覆盖。用户 display_title 始终优先，Agent 不得调用用户专属 worker rename；其他 task_kind 不调用此接口。不要为了取标题另开模型调用或子 Worker。`,
+  },
   progress: {
     title: '执行进度',
     content: `理解本轮目标后、开始实质工作前，用 lush progress plan KEY[:显示名]... 汇报少量、有序、用户能理解的里程碑。稳定 key 只用小写英文、数字、下划线或短横线。每一步实际完成后 lush progress complete KEY，可与同一阶段的实际命令合并调用，不为状态维护额外往返。不要提前完成，失败步骤也不能标完成。计划变化时重新提交整份计划，同 key 的已完成状态和计时会保留。漏报后越序完成会自动推进，但被跳过步骤仍是未确认完成、受影响耗时未知；补报只在确实完成时进行，不会恢复缺失的计时边界。
@@ -222,7 +228,7 @@ recommended 模式优先通过审批、选择唯一推荐项；没有推荐或�
 export const ANALYSIS_PROMPT_PARTS = Object.freeze(['runtime', 'analysis', 'progress', 'common_cli', 'completion']);
 
 export const ROLE_PROMPT_PARTS = Object.freeze({
-  agent: ['runtime', 'agent', 'testing', 'delegation_lifecycle', 'progress', 'decisions', 'common_cli', 'completion'],
+  agent: ['runtime', 'agent', 'auto_title', 'testing', 'delegation_lifecycle', 'progress', 'decisions', 'common_cli', 'completion'],
   manager: ['manager'],
   butler: ['butler'],
   explainer: ['explainer'],

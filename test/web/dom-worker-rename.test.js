@@ -106,6 +106,30 @@ test('navigation or project changes while editing prevent a stale submission; du
   expect(calls).toHaveLength(0);
 });
 
+test('generated titles render safely, remain searchable beneath manual overrides and patch without timestamp changes', async () => {
+  const row = { ...task, auto_title: '概括主题 <img onerror=alert(1)>', updated_at: '2026-10-01T00:00:00Z' };
+  expect(taskTitle(row)).toBe(row.auto_title);
+  for (const text of ['概括主题', '原始执行正文', 'W156']) expect(filterTasks([row], { text })).toEqual([row]);
+  const manual = { ...row, display_title: '用户标题' };
+  expect(taskTitle(manual)).toBe('用户标题');
+  expect(filterTasks([manual], { text: '概括主题' })).toEqual([manual]);
+  renderDetail(row, null, null, null);
+  expect(dom.node('detail').querySelector('h1').textContent).toBe(row.auto_title);
+  expect(dom.node('detail').querySelector('img')).toBeNull();
+  renderTree({ tasks: [{ ...row, auto_title: null }], notices: [], status: { concurrency: 1 } });
+  renderTree({ tasks: [row], notices: [], status: { concurrency: 1 } });
+  expect(deepText(dom.node('tasks'))).toContain(row.auto_title);
+  for (const minimal of [true, false]) {
+    dom.node('detail').replaceChildren();
+    const card = paint(minimal, { ...row, title: row.auto_title });
+    expect(deepText(card)).toContain(row.auto_title); expect(card.querySelector('img')).toBeNull();
+  }
+  const saving = workerRenameControl(row, { refresh: async () => {} }).onclick();
+  expect(dom.node('modal').querySelector('input').value).toBe(row.auto_title);
+  answerDialog(dom, '取消'); await saving;
+  expect(calls).toHaveLength(0);
+});
+
 test('custom titles render in lists and are searchable without losing original-goal search or fallback', () => {
   const row = { ...task, display_title: '容易回忆的功能' };
   expect(taskTitle(row)).toBe(row.display_title); expect(taskTitle(task)).toBe('自动标题');

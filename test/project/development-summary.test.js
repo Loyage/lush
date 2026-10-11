@@ -28,7 +28,7 @@ test('explicit development summary uses exact full-project counts, distinct acce
     expect(value.counts.find(row => row.status === 'completed').count).toBe(130);
     expect(value.recent_workers).toHaveLength(3);
     expect(value.recent_workers[0]).toMatchObject({ id: recent.id, display_title: '自定义标题', goal: '长'.repeat(200) });
-    expect(Object.keys(value.recent_workers[0]).sort()).toEqual(['id','worker_number','display_title','goal','status','integration'].sort());
+    expect(Object.keys(value.recent_workers[0]).sort()).toEqual(['id','worker_number','display_title','auto_title','goal','status','integration'].sort());
     f.project.running.clear();
     expect(summary(f)).not.toHaveProperty('development');
     expect(summary(f, { development: false })).not.toHaveProperty('development');

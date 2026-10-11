@@ -17,6 +17,7 @@
 | `lush config set concurrency|control-concurrency|call-timeout|worker-call-limit|max-depth N` | `system.configure` | `{settings}`，只带要改的键（用户专属） |
 | `lush config reset [concurrency|control-concurrency|call-timeout|worker-call-limit|max-depth|all]` | `system.configure` | `{settings}`，被重置的键传 `null`（用户专属） |
 | `lush daemon stop` | `system.stop` | `{}` |
+| `lush worker auto-title '标题'` | `worker.auto_title` | `{title}`（Agent-only，当前 order/child 首次生成自身自动标题） |
 | `lush progress plan KEY[:LABEL]...` | `progress.plan` | `{steps:[{key,label}]}`（agent-only） |
 | `lush progress complete KEY` | `progress.complete` | `{step}`（agent-only） |
 
@@ -34,6 +35,8 @@ Pi / Codex 每次 invocation 都从 daemon 获得：
 daemon 环境先整体继承给 Agent，再叠加项目[出站网络设置](../engineering/outbound-network.md)；每次 invocation 随后加载 `.lush/agent/agent.env`，再加载 `.lush/agent/<role>.env`。角色文件覆盖公共文件；自定义 `PATH` 时 Lush `bin/` 仍会前置。env 使用字面量 `NAME=value`，支持引号和 `export` 前缀，不做 shell 展开。所有 `LUSH_*` 保留给 runtime 并拒绝覆盖。Pi 调用另外移除 ambient 模型认证，并固定 Lush 私有快照的 `PI_CODING_AGENT_DIR`，不能用 daemon/env/Profile 覆盖；Codex CLI 自身认证不变。`agent env` 只报告变量名，不暴露值。Web 的 Agent 页可按需把某一个公共/角色文件读入键值表：值默认遮罩、可逐项显示；保存会按变量名排序并规范化为双引号格式，因此原文件注释与排序不会保留。空表会删除对应文件。文件写入使用原子替换、权限 `600`，目录权限 `700`；下一次 invocation 直接生效，无需重启。
 
 CLI 会把 token 放入 RPC params 的 `_token`；daemon 按 hash 反查所属 Worker，并要求该 Worker 仍是活动 invocation（在 `running` 中且未被 abort），否则报 invalid or expired agent token。`worker.spawn` 的 `parent` / `notice.post` 的 `task` 缺省为自己的 Worker，不能伪造其他父Worker；message 只能沿直接父子边。CLI progress 默认只输出短确认，`--json` 保留完整进度对象；RPC 返回不变。进度接口不接受 Worker ID，始终写 token 所属 Worker：`progress plan` 同一次工作整表替换时保留同 key 的完成态与既有计时，`progress complete` 只完成当前计划中已存在的 key。runtime 自动记录当前步骤的 `started_at`，顺序完成时写入 `completed_at` / `duration_ms`，并开始下一条待办的计时。
+
+内置开发 Agent Prompt 要求在理解目标后、结束本轮或提问／派工前，若自身 order/child 的 auto_title 为空，调用 `lush worker auto-title '标题'`，简短概括实际主题，不照抄输入首行。标题为非空单行最多 60 字符；接口不接受 ID、仅首次成功写入，此后返回已有标题，不允许覆盖或清空；用户手动 display_title 始终优先，用户 rename 权限不变。不为标题额外派工或调用模型；analysis/manager 不含此命名片段，自定义替代 Prompt 可能不执行。未生成时使用目标兜底，旧记录不批量回填。
 
 步骤实际增删、改名、换序时，Runtime 自动把被替换计划完整状态及冻结计时保存为 `progress.archived` Event。当前调用实际收到普通用户追加输入后首次 plan 会归档旧计划并重置同 key 的完成态与计时（即使步骤同形）；随后同形重复 plan 不增加历史。Notice 答案、Agent/子 Worker 消息、等待后继续调用和本轮尚未收到的新输入不重置。不要为历史额外汇报步骤或把旧步骤重复塞入新计划；历史只在详情和 `worker.progress_history {id,before?,limit?}` 只读分页出现，列表、图和调用启动进度只有当前计划。关闭进度汇报时历史也隐藏，但不删除。完整字段见[Worker 规划历史](rpc/tasks.md#规划历史)。
 

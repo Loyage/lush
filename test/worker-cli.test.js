@@ -5,6 +5,7 @@ import { main } from '../src/cli/main.js';
 import { HELP } from '../src/cli/help.js';
 import { run as worker } from '../src/cli/commands/task.js';
 import { run as notice } from '../src/cli/commands/notice.js';
+import { print } from '../src/cli/args.js';
 import { printTree, printTranscript, printBranchShow } from '../src/cli/print.js';
 import { fixture, env } from './helpers.js';
 
@@ -75,6 +76,30 @@ test('worker rename accepts numbered identity and an empty reset title, but reje
     await expect(worker('worker', args, { client, json: true })).rejects.toThrow();
   await expect(worker('worker', ['rename', '302', 'title'], { client: { ...client, token: 'active' }, json: true })).rejects.toThrow('user only');
   expect(calls).toHaveLength(3); expect(HELP).toContain("worker rename ID '标题'");
+});
+
+test('worker auto-title is Agent-only and has no target identity parameter', async () => {
+  const client = { ...recordingClient(), token: 'active' };
+  expect(await worker('worker', ['auto-title', '理解后的主题'], { client, json: true })).toEqual({ title: '理解后的主题' });
+  expect(client.calls).toEqual([{ method: 'worker.auto_title', params: { title: '理解后的主题' } }]);
+  for (const args of [['auto-title'], ['auto-title', '7', 'title'], ['auto-title', 'title', 'extra']])
+    await expect(worker('worker', args, { client, json: true })).rejects.toThrow('invalid arguments');
+  await expect(worker('worker', ['auto-title', 'title'], { client: recordingClient(), json: true })).rejects.toThrow('Agent invocation');
+  expect(client.calls).toHaveLength(1); expect(HELP).toContain("worker auto-title '标题'");
+});
+
+test('CLI Worker list and tree prefer user title then generated title without changing original goals', () => {
+  const original = console.log, output = [];
+  console.log = line => output.push(line);
+  try {
+    for (const extra of [{ auto_title: '自动概括的主题' }, { auto_title: '自动概括的主题', display_title: '手动命名' }, {}]) {
+      const row = { id: 7, worker_number: 'W202', parent_id: null, role: 'agent', status: 'waiting', goal: '原始目标', ...extra };
+      const expected = extra.display_title || extra.auto_title || row.goal;
+      print([row], false); expect(output.at(-1)).toContain(expected);
+      printTree([row]); expect(output.at(-1)).toContain(expected);
+      expect(row.goal).toBe('原始目标');
+    }
+  } finally { console.log = original; }
 });
 
 test('worker auto-merge is a strict user hook CLI, not a reservation', async () => {

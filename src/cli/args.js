@@ -17,6 +17,6 @@ export function print(value, json) {
       : 'task_id' in row && 'kind' in row && 'title' in row ? noticeNumber(row)
         : row.kind === 'input' || ('flow' in row && 'content' in row) ? inputNumber(row.id)
           : row.id ?? '-';
-    console.log(`${label}\t${row.status || row.role || ''}\t${(row.goal || row.content || row.title || JSON.stringify(row)).replaceAll('\n',' ').slice(0, 180)}`);
+    console.log(`${label}\t${row.status || row.role || ''}\t${(row.display_title || row.auto_title || row.goal || row.content || row.title || JSON.stringify(row)).replaceAll('\n',' ').slice(0, 180)}`);
   }
 }
