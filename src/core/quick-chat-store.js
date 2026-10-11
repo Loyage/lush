@@ -60,9 +60,10 @@ function latestStatus(db, conversationId) {
   return db.query('SELECT status FROM turns WHERE conversation_id=? ORDER BY id DESC LIMIT 1').get(conversationId)?.status;
 }
 
-/** Private device attachment, not the project Store. Open only for each bounded synchronous operation. */
+/** Private project attachment, not the Worker Store. Open only for each bounded synchronous operation. */
 export class QuickChatStore {
   constructor(home) {
+    check(typeof home === 'string' && path.isAbsolute(home), '快速对话必须指定私有存储目录');
     this.config = { home }; this.file = path.join(home, 'quick-chat.sqlite');
   }
   access(write, fn) {
@@ -166,7 +167,7 @@ export class QuickChatStore {
       const selected = library(db, defaultPrompt).prompts.find(row => row.id === snapshot.prompt.id);
       // Preparing a snapshot and claiming the request are separate steps. Recheck the same Prompt
       // so a concurrent edit cannot make a click run a different, unconfirmed instruction.
-      check(selected && JSON.stringify(selected) === JSON.stringify(snapshot.prompt), 'Prompt 已变化，请重新读取后发送');
+      check(selected && JSON.stringify(selected) === JSON.stringify(normalizeChatPrompt(snapshot.prompt, true)), 'Prompt 已变化，请重新读取后发送');
       this.capacity(db);
       const at = new Date().toISOString();
       const result = db.query(`INSERT INTO conversations(content,references_json,prompt_json,source_json,binding_json,model,created_at,updated_at)
@@ -254,4 +255,77 @@ export class QuickChatStore {
       db.query('DELETE FROM conversations WHERE id=?').run(id); return { removed: id };
     });
   }
+}
+
+const RETIRED_VERSION = 2;
+// Version checks alone are not enough: a legacy writer may have validated v1 before
+// waiting for its transaction. Guards also stop those already-admitted writes.
+const RETIREMENT_GUARDS = ['meta', 'conversations', 'turns'].flatMap(table =>
+  ['INSERT', 'UPDATE', 'DELETE'].map(operation => `CREATE TRIGGER retired_${table}_${operation.toLowerCase()}
+    BEFORE ${operation} ON ${table} BEGIN SELECT RAISE(ABORT,'quick chat history retired'); END;`)).join('\n');
+const retirementFailure = () => Object.assign(new Error('旧设备快速对话历史无法安全清除，请检查私有存储、数据或其他界面服务是否仍在使用；原数据未确认退役。'), { quickChatSafe: true });
+const schemaRows = db => db.query("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name").all();
+function checkRetirementSchema(db, retired) {
+  const expected = new Database(':memory:');
+  try {
+    expected.exec(SCHEMA);
+    if (retired) expected.exec(RETIREMENT_GUARDS);
+    check(JSON.stringify(schemaRows(db)) === JSON.stringify(schemaRows(expected)), 'unknown history schema');
+  } finally { expected.close(); }
+  check(db.query('PRAGMA quick_check').all().every(row => Object.values(row)[0] === 'ok')
+    && db.query('PRAGMA foreign_key_check').all().length === 0, 'corrupt history');
+}
+
+/** D510: permanently erase old device history, retaining only a guarded empty tombstone.
+ * Never unlink a live SQLite inode or let old Hosts recreate/repopulate the history.
+ * Absent roots/files are not initialized. Unknown sidecars, owners and locks fail closed.
+ */
+export function retireDeviceQuickChats(home) {
+  let db;
+  try {
+    check(typeof home === 'string' && path.isAbsolute(home), 'invalid device history root');
+    const config = { home };
+    if (!validateConfigurationDirectory(config)) return { retired: false, already_retired: false };
+    const root = fs.lstatSync(home), file = path.join(home, 'quick-chat.sqlite'), original = privateFile(file);
+    for (const suffix of ['-journal', '-wal', '-shm']) {
+      const stat = privateFile(`${file}${suffix}`);
+      check(!stat || Boolean(original) && suffix === '-journal', 'unexpected history sidecar');
+    }
+    if (!original) return { retired: false, already_retired: false };
+    db = new Database(file, { strict: true });
+    db.exec('PRAGMA busy_timeout=1000; PRAGMA foreign_keys=ON; PRAGMA trusted_schema=OFF;');
+    const assertIdentity = () => {
+      check(same(original, privateFile(file, true)) && same(root, fs.lstatSync(home)), 'history identity changed');
+      validateConfigurationDirectory(config, 'project', true);
+    };
+    assertIdentity();
+    // Do not change an unexpected journal mode or accept an unvalidated sidecar.
+    check(db.query('PRAGMA journal_mode').get().journal_mode === 'delete', 'unexpected history journal mode');
+    db.exec('PRAGMA secure_delete=ON;');
+    return db.transaction(() => {
+      assertIdentity();
+      const version = db.query('PRAGMA user_version').get().user_version;
+      check(version === 1 || version === RETIRED_VERSION, 'unknown history version');
+      const retired = version === RETIRED_VERSION;
+      checkRetirementSchema(db, retired);
+      if (retired) {
+        check(db.query('SELECT count(*) AS n FROM conversations').get().n === 0
+          && db.query('SELECT count(*) AS n FROM turns').get().n === 0
+          && db.query('SELECT key,value FROM meta').all().length === 1
+          && db.query("SELECT value FROM meta WHERE key='retired'").get()?.value === 'project-quick-chat', 'invalid retirement marker');
+      } else {
+        const running = db.query("SELECT owner_pid,owner_id FROM turns WHERE status='running'").all();
+        check(running.every(row => Number.isSafeInteger(row.owner_pid) && row.owner_pid > 0
+          && typeof row.owner_id === 'string' && row.owner_id.length > 0 && !alive(row)), 'history has an active or unknown owner');
+        // secure_delete overwrites deleted payloads; this exclusive transaction also
+        // waits for readers/writers and leaves no raw old response/Prompt in free pages.
+        db.exec("DELETE FROM turns; DELETE FROM conversations; DELETE FROM meta; DELETE FROM sqlite_sequence;");
+        db.query("INSERT INTO meta(key,value) VALUES ('retired','project-quick-chat')").run();
+        db.exec(`${RETIREMENT_GUARDS}\nPRAGMA user_version=${RETIRED_VERSION};`);
+      }
+      assertIdentity();
+      return { retired: true, already_retired: retired };
+    }).exclusive();
+  } catch { throw retirementFailure(); }
+  finally { db?.close(); }
 }

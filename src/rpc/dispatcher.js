@@ -9,7 +9,7 @@ import { handlers as noticeHandlers } from './handlers/notice.js';
 import { handlers as branchHandlers } from './handlers/branch.js';
 import { handlers as candidateHandlers } from './handlers/candidate.js';
 import { handlers as hookHandlers } from './handlers/hooks.js';
-import { handlers as quickExplanationHandlers } from './handlers/quick-explanation.js';
+import { handlers as quickChatModelHandlers } from './handlers/quick-chat-model.js';
 
 /** 合并各 handler 表：重名说明两个分区认领了同一个方法，PARAMS 里没有对应 handler 说明拆漏了。 */
 function mergeHandlers(groups) {
@@ -22,7 +22,7 @@ function mergeHandlers(groups) {
   return Object.fromEntries(Object.keys(PARAMS).map(method => [method, table[method]]));
 }
 
-export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, taskHandlers, specHandlers, noticeHandlers, branchHandlers, candidateHandlers, hookHandlers, quickExplanationHandlers]);
+export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, taskHandlers, specHandlers, noticeHandlers, branchHandlers, candidateHandlers, hookHandlers, quickChatModelHandlers]);
 
 export class Dispatcher {
   constructor(project, stopping, identity) { this.project = project; this.stopping = stopping; this.identity = identity; }

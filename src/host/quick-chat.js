@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import { check } from '../core/types.js';
 import { QuickChatStore } from '../core/quick-chat-store.js';
 import { chatFields, chatId, promptId, chatContent, normalizeChatReferences } from '../core/quick-chat-validation.js';
@@ -79,13 +80,17 @@ async function invoke(snapshot, prepared, controller, fetcher) {
   } finally { controller.signal.removeEventListener('abort', cancel); cancel(); }
 }
 
-/** Explicit user-only text calls and device-owned attachments. Never constructs a Project or daemon. */
+export { retireDeviceQuickChats } from '../core/quick-chat-store.js';
+
+/** Explicit user-only text calls with project-owned history and device models. Never constructs a Project or daemon. */
 export class QuickChatService {
   constructor(env = process.env, options = {}) {
+    check(typeof options.home === 'string' && path.isAbsolute(options.home), '快速对话必须指定项目私有存储目录');
     this.options = options;
     this.ownsSettings = !options.settingsService;
     this.settings = options.settingsService || new DeviceSettingsService(env, options.settingsOptions);
-    this.store = new QuickChatStore(this.settings.config.home);
+    check(path.resolve(options.home) !== path.resolve(this.settings.config.home), '快速对话历史不能保存在设备设置目录');
+    this.store = new QuickChatStore(path.resolve(options.home));
     this.ownerId = randomUUID(); this.store.registerOwner(this.ownerId);
     this.running = new Map(); this.closed = false; this.closing = null;
     this.persistenceError = null;

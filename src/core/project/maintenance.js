@@ -33,7 +33,7 @@ export default {
 
   maintenanceView() {
     const data = state(this);
-    const activeCalls = this.running.size + this.introRunning.size;
+    const activeCalls = this.running.size;
     // Counts describe overlapping safety barriers, not distinct jobs. A queued Git or
     // asynchronous writer still owns resources even when no Agent status says running.
     const groups = [

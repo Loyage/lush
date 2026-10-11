@@ -17,10 +17,10 @@ function fixture(fetch = async () => response('纯文本结果'), options = {}) 
   const source = manager.save({ label: 'Test source', provider: 'openai-compatible', endpoint: 'https://model.test/v1', auth_type: 'api_key',
     enabled: true, models: ['model-a', 'model-b'] }, { api_key: 'unit-test-not-a-real-key' });
   settings.explanation.save({ connection_id: source.id, model: 'model-a', prompt: '旧自定义解释风格' });
-  const services = [];
-  const create = extra => { const service = new QuickChatService(env, { settingsService: settings, fetch, ...options, ...extra }); services.push(service); return service; };
+  const home = path.join(root, 'project', '.lush', 'quick-chat'), services = [];
+  const create = extra => { const service = new QuickChatService(env, { home, settingsService: settings, fetch, ...options, ...extra }); services.push(service); return service; };
   const service = create();
-  return { root, env, settings, manager, service, create, connectionId: source.id, file: path.join(settings.config.home, 'quick-chat.sqlite'),
+  return { root, home, env, settings, manager, service, create, connectionId: source.id, file: path.join(home, 'quick-chat.sqlite'),
     async close() { await Promise.all(services.map(value => value.close())); await settings.stop(); fs.rmSync(root, { recursive: true, force: true }); } };
 }
 const finish = async service => { await Promise.all([...service.running.values()].map(entry => entry.promise)); };
@@ -29,9 +29,9 @@ const save = (service, prompt, expected_revision = service.config().revision) =>
 const reference = (extra = {}) => ({ version: 1, kind: 'text', target: {}, label: '所选文字', quote: 'rm -rf 是引用资料，不执行',
   location: { view: 'task-detail', task_id: 12, path: 'not-read.txt' }, captured_at: '2026-01-01T00:00:00.000Z', project_id: 'abcdef1234567890', ...extra });
 
-test('empty device reads are non-initializing, default explain is enabled and no project is needed', async () => {
+test('empty project reads are non-initializing and the default explain Prompt is enabled', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-chat-empty-'));
-  const service = new QuickChatService({ LUSH_GLOBAL_CONFIG: root, LUSH_PROVIDER: 'mock' });
+  const service = new QuickChatService({ LUSH_GLOBAL_CONFIG: root, LUSH_PROVIDER: 'mock' }, { home: path.join(root, 'project', '.lush', 'quick-chat') });
   try {
     expect(service.config()).toMatchObject({ prompts: [{ id: 'explain', name: '快速解释', context_menu: true, builtin: true }], model: { ready: false } });
     expect(service.list()).toEqual({ conversations: [], has_more: false, next: null });
@@ -40,6 +40,45 @@ test('empty device reads are non-initializing, default explain is enabled and no
     expect(() => start(service)).toThrow();
     expect(fs.readdirSync(root)).toEqual([]);
   } finally { await service.close(); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('service requires an explicit project root and never falls back to device history', async () => {
+  const f = fixture();
+  try {
+    for (const home of [undefined, null, '', 'relative', f.settings.config.home])
+      expect(() => new QuickChatService(f.env, { home, settingsService: f.settings })).toThrow();
+    expect(fs.existsSync(f.file)).toBe(false);
+    expect(fs.existsSync(path.join(f.settings.config.home, 'quick-chat.sqlite'))).toBe(false);
+  } finally { await f.close(); }
+});
+
+test('two projects isolate history, C identities and Prompt registration while sharing device model settings', async () => {
+  const f = fixture();
+  try {
+    const otherHome = path.join(f.root, 'other-project', '.lush', 'quick-chat'), b = f.create({ home: otherHome });
+    const custom = save(f.service, { name: '仅 A 的速记', prompt: '按 A 要点整理', context_menu: true }).prompts[1];
+    save(f.service, { id: 'explain', name: 'A 解释', prompt: 'A 风格', context_menu: false });
+    expect(b.config().prompts).toHaveLength(1);
+    expect(b.config().prompts[0]).toMatchObject({ name: '快速解释', prompt: '旧自定义解释风格', context_menu: true });
+    expect(() => start(b, 'cannot use A Prompt', { prompt_id: custom.id })).toThrow('不存在');
+    const a1 = start(f.service, 'A first', { prompt_id: custom.id }); await finish(f.service);
+    expect(b.list().conversations).toHaveLength(0); expect(() => b.get(a1.id)).toThrow('不存在');
+    const b1 = start(b, 'B first'); await finish(b);
+    expect(a1.number).toBe('C1'); expect(b1.number).toBe('C1');
+    expect(f.service.get(1).content).toBe('A first'); expect(b.get(1).content).toBe('B first');
+    f.service.action('delete', { id: 1 });
+    const a2 = start(f.service, 'A second'); await finish(f.service);
+    expect(a2.number).toBe('C2'); expect(b.get(1).content).toBe('B first');
+    f.settings.explanation.save({ connection_id: f.connectionId, model: 'model-b', prompt: '设备新风格' });
+    expect(f.service.config().model).toEqual(b.config().model);
+    expect(f.service.config().prompts[0].prompt).toBe('A 风格');
+    expect(b.config().prompts[0].prompt).toBe('设备新风格');
+    const reopened = f.create({ home: otherHome });
+    expect(reopened.get(1)).toMatchObject({ content: 'B first', model: 'model-a' });
+    const b2 = start(reopened, 'B second'); await finish(reopened);
+    expect(b2.number).toBe('C2'); expect(b2.model).toBe('model-b');
+    expect(fs.existsSync(path.join(f.settings.config.home, 'quick-chat.sqlite'))).toBe(false);
+  } finally { await f.close(); }
 });
 
 test('Prompt library preserves old style, supports only-save, builtin toggle and optimistic revisions across services', async () => {
@@ -61,7 +100,26 @@ test('Prompt library preserves old style, supports only-save, builtin toggle and
     expect(f.service.action('prompt_remove', { id: custom.id, expected_revision: closed.revision }).prompts).toHaveLength(1);
     expect(() => f.service.action('prompt_remove', { id: custom.id, expected_revision: f.service.config().revision })).toThrow('不存在');
     expect(fs.statSync(f.file).mode & 0o777).toBe(0o600);
-    expect(fs.statSync(f.settings.config.home).mode & 0o777).toBe(0o700);
+    expect(fs.statSync(f.home).mode & 0o777).toBe(0o700);
+    expect(fs.existsSync(path.join(f.settings.config.home, 'quick-chat.sqlite'))).toBe(false);
+  } finally { await f.close(); }
+});
+
+test('store admission accepts its freshly saved Prompt independent of field insertion order, but rejects edited snapshots', async () => {
+  const f = fixture();
+  try {
+    const library = f.service.store.savePrompt({ name: 'new custom', prompt: 'same saved instruction', context_menu: false },
+      f.service.config().revision, '旧自定义解释风格');
+    const prompt = library.prompts[1];
+    const snapshot = { content: 'direct stored request', references: [], prompt,
+      source: { connection_id: f.connectionId, label: 'Test source', provider: 'openai-compatible', endpoint: 'https://model.test/v1' },
+      binding: { account_key: 'a'.repeat(64), source_key: 'b'.repeat(64), revision: 'c'.repeat(64) }, model: 'model-a' };
+    const row = f.service.store.create(snapshot, '旧自定义解释风格', f.service.ownerId);
+    f.service.store.finish(row.turnId, f.service.ownerId, 'stored result');
+    expect(f.service.get(row.id).prompt).toMatchObject({ id: prompt.id, prompt: prompt.prompt });
+    expect(() => f.service.store.create({ ...snapshot, prompt: { ...prompt, prompt: 'unconfirmed change' } },
+      '旧自定义解释风格', f.service.ownerId)).toThrow('Prompt 已变化');
+    expect(f.service.list().conversations).toHaveLength(1);
   } finally { await f.close(); }
 });
 
@@ -125,10 +183,10 @@ test('C numbering persists across handles and processes; deletion cascades turns
     const b = f.create(); const next = start(b, 'b'); await finish(b);
     expect(next.number).toBe('C2'); expect(next.turns[0].id).toBeGreaterThan(lastTurn);
     const script = `import { QuickChatService } from ${JSON.stringify(path.resolve('src/host/quick-chat.js'))};
-      const s = new QuickChatService({LUSH_GLOBAL_CONFIG:process.argv[1],LUSH_PROVIDER:'mock'}, {fetch:async()=>Response.json({choices:[{message:{content:'done'}}]})});
+      const s = new QuickChatService({LUSH_GLOBAL_CONFIG:process.argv[1],LUSH_PROVIDER:'mock'}, {home:process.argv[2],fetch:async()=>Response.json({choices:[{message:{content:'done'}}]})});
       const r=s.action('start',{prompt_id:'explain',content:'subprocess'}); await Promise.all([...s.running.values()].map(x=>x.promise));
       console.log(r.number); await s.close();`;
-    const child = Bun.spawn(['bun', '-e', script, f.root], { stdout: 'pipe', stderr: 'pipe' });
+    const child = Bun.spawn(['bun', '-e', script, f.root, f.home], { stdout: 'pipe', stderr: 'pipe' });
     const output = await new Response(child.stdout).text(), stderr = await new Response(child.stderr).text();
     expect(await child.exited).toBe(0); expect(stderr).toBe(''); expect(output.trim()).toBe('C3');
     const page = b.list({ limit: 1 }); expect(page).toMatchObject({ conversations: [{ number: 'C3' }], has_more: true, next: 3 });
@@ -260,9 +318,9 @@ test('abruptly exited process requests are failed on reopening, never replayed; 
   const f = fixture();
   try {
     const script = `import { QuickChatService } from ${JSON.stringify(path.resolve('src/host/quick-chat.js'))};
-      const s = new QuickChatService({LUSH_GLOBAL_CONFIG:process.argv[1],LUSH_PROVIDER:'mock'}, {fetch:()=>new Promise(()=>{})});
+      const s = new QuickChatService({LUSH_GLOBAL_CONFIG:process.argv[1],LUSH_PROVIDER:'mock'}, {home:process.argv[2],fetch:()=>new Promise(()=>{})});
       console.log(s.action('start',{prompt_id:'explain',content:'interrupted'}).id); process.exit(0);`;
-    const child = Bun.spawn(['bun', '-e', script, f.root], { stdout: 'pipe', stderr: 'pipe' });
+    const child = Bun.spawn(['bun', '-e', script, f.root, f.home], { stdout: 'pipe', stderr: 'pipe' });
     const output = await new Response(child.stdout).text(), stderr = await new Response(child.stderr).text();
     expect(await child.exited).toBe(0); expect(stderr).toBe(''); const id = Number(output.trim());
     expect(f.service.get(id)).toMatchObject({ status: 'failed', turns: [{ error: expect.stringContaining('未自动重试') }] });
@@ -279,10 +337,10 @@ test('simultaneous live Host processes share the persistent four-call limit with
   const f = fixture(); const children = [];
   try {
     const script = `import { QuickChatService } from ${JSON.stringify(path.resolve('src/host/quick-chat.js'))};
-      const s=new QuickChatService({LUSH_GLOBAL_CONFIG:process.argv[1],LUSH_PROVIDER:'mock'}, {fetch:()=>new Promise(()=>{})});
+      const s=new QuickChatService({LUSH_GLOBAL_CONFIG:process.argv[1],LUSH_PROVIDER:'mock'}, {home:process.argv[2],fetch:()=>new Promise(()=>{})});
       const ids=[s.action('start',{prompt_id:'explain',content:'one'}).id,s.action('start',{prompt_id:'explain',content:'two'}).id];
       console.log(JSON.stringify(ids)); await new Response(Bun.stdin.stream()).text(); await s.close();`;
-    for (let i = 0; i < 2; i++) children.push(Bun.spawn(['bun', '-e', script, f.root], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' }));
+    for (let i = 0; i < 2; i++) children.push(Bun.spawn(['bun', '-e', script, f.root, f.home], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' }));
     const ids = (await Promise.all(children.map(async child => {
       const reader = child.stdout.getReader(); const chunk = await reader.read(); reader.releaseLock();
       return JSON.parse(new TextDecoder().decode(chunk.value).trim());
@@ -357,6 +415,7 @@ test('private history rejects symlinks/hardlinks/permissions/corruption and unsa
   for (const kind of ['symlink', 'hardlink', 'mode', 'corrupt', 'journal', 'wal', 'root']) {
     const f = fixture();
     try {
+      fs.mkdirSync(f.home, { recursive: true, mode: 0o700 });
       const outside = path.join(f.root, 'outside'); fs.writeFileSync(outside, 'do-not-touch', { mode: 0o600 });
       if (kind === 'symlink') fs.symlinkSync(outside, f.file);
       if (kind === 'hardlink') fs.linkSync(outside, f.file);
@@ -366,7 +425,7 @@ test('private history rejects symlinks/hardlinks/permissions/corruption and unsa
         const row = start(f.service); await finish(f.service);
         if (kind === 'journal') fs.symlinkSync(outside, `${f.file}-journal`);
         if (kind === 'wal') fs.writeFileSync(`${f.file}-wal`, '', { mode: 0o600 });
-        if (kind === 'root') fs.chmodSync(f.settings.config.home, 0o755);
+        if (kind === 'root') fs.chmodSync(f.home, 0o755);
         expect(() => f.service.get(row.id)).toThrow();
       }
       expect(() => f.service.list()).toThrow(); expect(() => start(f.service)).toThrow();

@@ -7,7 +7,7 @@ import { request } from 'node:http';
 import { makeWorld } from './dom-world.js';
 import { buildAssets } from '../../src/ui/web/build-assets.js';
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-quick-chat-browser-'));
-const output = process.env.LUSH_BROWSER_OUTPUT || '/tmp/lush-w207-2-browser'; fs.mkdirSync(output, { recursive: true });
+const output = process.env.LUSH_BROWSER_OUTPUT || '/tmp/lush-w218-1-browser'; fs.mkdirSync(output, { recursive: true });
 await buildAssets(new URL('../../src/ui/web/assets/', import.meta.url).pathname, scratch, 'e'.repeat(32));
 const html = fs.readFileSync(path.join(scratch, 'index.html'), 'utf8'), world = makeWorld(), calls = [], errors = [];
 Object.assign(world.state.quickExplanationConfig, { ready: true, reason: null, connection_id: world.state.agentConnections.connections[0].id, model: 'fixture-model' });
@@ -50,7 +50,7 @@ async function width(value) {
   await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.getElementById('viewport').style.width='${value}px'`); await frame();
   assert(await execute(`return innerWidth===${value}`), 'fixture viewport width not applied');
 }
-async function go(hash, project = false) {
+async function go(hash, project = true) {
   await rpc(`/session/${session}/frame`, { id: null });
   const route = `${project ? '/p/aaaaaaaaaaaaaaaa/' : '/'}${hash}`;
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/fixture?route=${encodeURIComponent(route)}` }); await frame();
@@ -65,11 +65,18 @@ try {
   assert(ready, 'geckodriver unavailable');
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 1200 });
-  await go('#quick-chat'); assert(await wait('document.querySelector("[data-chat-field=prompt_id]")?.options.length===3'), 'global new conversation form unavailable');
-  assert(!calls.some(value => /^\/p\//.test(value)), 'root quick chat accessed project daemon');
+  await go('#quick-chat', false); assert(await wait('document.querySelector("#detail h1")?.textContent.includes("没有可用项目")'), 'root quick chat did not require a project');
+  assert(await execute('return !document.querySelector("[data-chat-field=prompt_id]")'), 'root exposed a global conversation form');
+  await execute('const text=document.querySelector("#detail h1"),range=document.createRange();range.selectNodeContents(text);getSelection().removeAllRanges();getSelection().addRange(range);text.dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,clientX:80,clientY:90}))');
+  assert(await execute('return ![...document.querySelectorAll("#context-menu button")].some(node=>node.textContent==="快速解释"||node.textContent==="整理记录")'), 'root exposed project model actions');
+  assert(!calls.some(value => value.includes('/quick-chat/')), 'root read project chat history or Prompt library');
+  await go('#quick-chat'); assert(await wait('document.querySelector("[data-chat-field=prompt_id]")?.options.length===3'), 'project new conversation form unavailable');
+  assert(calls.filter(value => value.includes('/quick-chat/')).every(value => value.startsWith('/p/aaaaaaaaaaaaaaaa/api/quick-chat/')), 'chat API lost project identity');
+  assert(await execute('return document.querySelector("#detail a").getAttribute("href")==="/p/aaaaaaaaaaaaaaaa/#quick-chat-settings"'), 'settings link lost project identity');
   await execute('window.fixtureErrors=[];addEventListener("error",event=>fixtureErrors.push(event.message));addEventListener("unhandledrejection",event=>fixtureErrors.push(String(event.reason)))');
   await execute('const node=document.querySelector("[data-chat-field=content]");node.value="整理这一段纯文本";node.dispatchEvent(new Event("input"))');
-  await click('.quick-chat-form button.primary'); assert(await wait('location.hash==="#quick-chat-C1"&&document.querySelector("[data-chat-field=reply]")'), 'new chat did not navigate to C1');
+  await click('.quick-chat-form button.primary'); assert(await wait('location.pathname==="/p/aaaaaaaaaaaaaaaa/"&&location.hash==="#quick-chat-C1"&&document.querySelector("[data-chat-field=reply]")'), 'new chat did not navigate to project C1');
+  assert(await execute('return document.querySelector("#detail a").getAttribute("href")==="/p/aaaaaaaaaaaaaaaa/#quick-chat"'), 'history link lost project identity');
   assert(await execute('return document.querySelector(".quick-chat-thread").textContent.includes("快速对话示例")'), 'chat response missing');
   await execute('const node=document.querySelector("[data-chat-field=reply]");node.value="继续速记";node.dispatchEvent(new Event("input"))'); await click('.quick-chat-form button.primary');
   assert(await wait('document.querySelectorAll(".quick-chat-turn").length===2'), 'followup did not stay in same conversation');
@@ -92,7 +99,7 @@ try {
   const original = await rpc(`/session/${session}/window`, undefined, 'GET');
   // Actual project text selection and native contextmenu event, not a synthetic model API call.
   await execute('const text=document.querySelector("#detail h1");const range=document.createRange();range.selectNodeContents(text);getSelection().removeAllRanges();getSelection().addRange(range);text.dispatchEvent(new MouseEvent("contextmenu",{bubbles:true,clientX:80,clientY:90}))');
-  assert(await wait('[...document.querySelectorAll("#context-menu button")].some(node=>node.textContent==="整理记录")'), 'global Prompt menu missing in project');
+  assert(await wait('[...document.querySelectorAll("#context-menu button")].some(node=>node.textContent==="整理记录")'), 'project Prompt menu missing in project');
   assert(await execute('return ![...document.querySelectorAll("#context-menu button")].some(node=>node.textContent==="快速解释"||node.textContent==="仅保存备用")'), 'disabled/saved-only prompt leaked into menu');
   // The library permits 50 entries. Registered menus must remain usable near the viewport edge.
   world.state.quickChatPrompts.push(...Array.from({ length: 47 }, (_, index) => ({ id: `many-${index}`, name: `记录模板 ${index + 1}`, prompt: '整理文字', builtin: false, context_menu: true })));
@@ -104,6 +111,7 @@ try {
   assert(await execute('return document.querySelector("#composer-chat-open").getClientRects().length===0&&document.documentElement.scrollWidth<=innerWidth'), 'collapsed mobile composer overflow or extra action');
   await click('#composer-expand');
   await click('#composer-chat-open'); assert(await wait('document.querySelector("#input-form").dataset.mode==="chat"&&!document.querySelector("#draft-commit").disabled'), 'reference-only chat mode disabled');
+  assert(await execute('return document.querySelector("#composer-chat-controls a").getAttribute("href")==="/p/aaaaaaaaaaaaaaaa/#quick-chat-settings"'), 'composer settings link lost project identity');
   await click('#composer-expand');
   assert(await execute('return document.querySelector("#input-form").dataset.expanded==="false"&&document.documentElement.scrollWidth<=innerWidth&&[...document.querySelectorAll(".composer-actions button")].filter(node=>node.getClientRects().length).every(node=>{const r=node.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth})'), 'collapsed chat mode actions overflow');
   await execute('document.documentElement.dataset.theme="dark"'); await screenshot('composer-chat-dark-320');
@@ -115,9 +123,10 @@ try {
   const handles = await rpc(`/session/${session}/window/handles`, undefined, 'GET'); assert(handles.length === 2, 'user gesture did not open a new tab');
   assert(await execute('return location.pathname==="/p/aaaaaaaaaaaaaaaa/"'), 'project tab was replaced');
   await rpc(`/session/${session}/window`, { handle: handles.find(handle => handle !== original) });
-  assert(await wait('location.hash==="#quick-chat-C2"&&document.querySelector(".quick-chat-thread")'), 'new tab missing C2 detail');
+  assert(await wait('location.pathname==="/p/aaaaaaaaaaaaaaaa/"&&location.hash==="#quick-chat-C2"&&document.querySelector(".quick-chat-thread")'), 'new tab missing project C2 detail');
   await rpc(`/session/${session}/window`, undefined, 'DELETE'); await rpc(`/session/${session}/window`, { handle: original });
   assert(world.state.actions.every(value => !['order.submit', 'draft.add', 'worker.message'].includes(value.method)), 'quick chat created Agent work');
+  assert(calls.filter(value => value.includes('/quick-chat/')).every(value => value.startsWith('/p/aaaaaaaaaaaaaaaa/api/quick-chat/')), 'chat API accessed another project or old global route');
   console.log(JSON.stringify({ passed: true, compiled: true, themes: ['light','dark'], widths: [1440,390,320], conversations: [...world.state.quickChats.keys()], screenshots: output, calls: world.state.quickChatActions.map(value => value.method) }, null, 2));
 } catch (error) { errors.push(error.message); throw error; }
 finally {

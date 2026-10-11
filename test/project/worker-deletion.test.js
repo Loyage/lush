@@ -53,7 +53,7 @@ test('confirmed subtree deletion discards unmerged and dirty code, deletes input
     f.store.run('INSERT INTO input_references(input_id,segment,ordinal,payload) VALUES (?,0,0,?)',f.inputId,'{}');
     const run=f.store.startRun(f.store.task(child.id)); f.store.finishRun(run.id,'cancelled',{error:'private failure'});
     f.store.addArtifact({task_id:child.id,run_id:run.id,input_id:f.inputId,kind:'private',payload:{text:'private'}});
-    f.store.run("INSERT INTO introductions(task_id,quote,location,status,result) VALUES (?,?,?,'completed',?)",child.id,'private','worker','private result');
+    expect(f.store.get("SELECT name FROM sqlite_master WHERE name='introductions'")).toBeNull();
     f.store.message(f.task.id,'private parent message',child.id); f.store.event(child.id,'private',{text:'private'});
     f.project.cancel(f.task.id);
     const preview = await f.project.deleteTaskPreview(f.task.id);
@@ -64,7 +64,7 @@ test('confirmed subtree deletion discards unmerged and dirty code, deletes input
     expect(result.deleted.ids).toEqual([f.task.id,child.id]);
     expect(f.store.get('SELECT * FROM inputs WHERE id=?',f.inputId)).toBeNull();
     expect(f.store.get('SELECT * FROM drafts WHERE input_id=?',f.inputId)).toBeNull();
-    for (const table of ['messages','events','notices','agent_runs','artifacts','commit_contexts','introductions'])
+    for (const table of ['messages','events','notices','agent_runs','artifacts','commit_contexts'])
       expect(f.store.get(`SELECT count(*) AS count FROM ${table} WHERE task_id IN (?,?)`,f.task.id,child.id).count).toBe(0);
     for (const file of [...preview.resources.worktrees,...preview.resources.files]) expect(fs.existsSync(file)).toBe(false);
     for (const branch of preview.resources.branches) expect(await git(f.root,'branch','--list',branch)).toBe('');

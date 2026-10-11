@@ -125,7 +125,7 @@ test('Host settings cannot become a Worker, model-call, migration, arbitrary-pat
   } finally { await f.close(); }
 });
 
-test('selected project routes forward device scope without losing project identity or moving history', async () => {
+test('selected project routes forward device scope without losing identity and keep retired explanation history closed', async () => {
   const a = temp(), b = temp(), global = temp(), calls = [];
   const web = startWeb(null, 0, { env: env({ LUSH_GLOBAL_CONFIG: global }), openProject: async project => ({
     config: { project, home: path.join(project, '.lush') }, client: { async request(method, params = {}) { calls.push({ project, method, params }); return { ok: true }; } },
@@ -146,7 +146,8 @@ test('selected project routes forward device scope without losing project identi
     expect((await fetch(`${url}/p/${idA}/api/agent/config?scope=project`)).status).toBe(400);
     expect((await fetch(`${url}/p/${idA}/api/agent/config?scope=all`)).status).toBe(400);
     expect((await fetch(`${url}/p/${idA}/api/agent/config?scope=device&scope=project`)).status).toBe(400);
-    expect((await fetch(`${url}/p/${idA}/api/quick-explain/history?scope=device`)).status).toBe(400);
+    for (const route of ['history', 'history?scope=device', '7', '7?scope=device'])
+      expect((await fetch(`${url}/p/${idA}/api/quick-explain/${route}`)).status).toBe(404);
     expect((await fetch(`${url}/p/${idA}/api/agent/connections/history?id=id&scope=device`)).status).toBe(400);
     expect(calls.length).toBe(count);
   } finally { await web.stop(true); for (const dir of [a, b, global]) fs.rmSync(dir, { recursive: true, force: true }); }

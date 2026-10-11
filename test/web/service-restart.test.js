@@ -57,7 +57,9 @@ test('project restart resolves only request project identity; missing and unknow
     return { config: f.config, client: {} };
   } });
   const url = `http://127.0.0.1:${web.port}`;
-  a.project.introRunning.set(1, {}); b.project.writing = 1;
+  const active = a.store.create({ role: 'agent', name: 'restart-active', goal: 'Controlled active invocation' });
+  a.store.update(active.id, { status: 'running' });
+  a.project.running.set(active.id, {}); b.project.writing = 1;
   try {
     expect((await post(url + '/api/service/restart')).status).toBe(400);
     expect((await post(url + '/p/0000000000000000/api/service/restart')).status).toBe(400);
@@ -67,7 +69,7 @@ test('project restart resolves only request project identity; missing and unknow
     expect(second.status).toBe(400); expect((await second.json()).error).toContain('Git');
     expect(a.project.stopping).toBe(false); expect(b.project.stopping).toBe(false);
   } finally {
-    a.project.introRunning.clear(); b.project.writing = 0;
+    a.project.running.clear(); b.project.writing = 0;
     web.stop(true); await a.close(); await b.close(); fs.rmSync(global, { recursive: true, force: true });
   }
 });

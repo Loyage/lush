@@ -1,0 +1,13 @@
+.quick-chat-page{max-width:1080px;margin:0 auto;padding:20px;display:grid;gap:18px;min-width:0}
+.quick-chat-page section,.quick-chat-form,.quick-chat-turn{min-width:0;padding:16px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+.quick-chat-form{display:grid;gap:12px}.quick-chat-form label{display:grid;gap:6px;font-weight:550}
+.quick-chat-form input:not([type="checkbox"]),.quick-chat-form select,.quick-chat-form textarea{width:100%;box-sizing:border-box;min-width:0;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:9px;font:inherit}
+.quick-chat-form textarea{resize:vertical;min-height:96px;line-height:1.6}.quick-chat-form button{justify-self:start}
+.quick-chat-thread{display:grid;gap:14px}.quick-chat-content,.quick-chat-page blockquote,.quick-chat-page pre{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7;max-height:none}
+.quick-chat-speaker{font-size:12px;color:var(--muted)}.quick-chat-turn .quick-chat-content{padding:10px 12px;background:var(--bg);border-radius:8px}
+.quick-chat-history-row{padding:12px 0;border-bottom:1px solid var(--line)}.quick-chat-history-row a{white-space:normal;overflow-wrap:anywhere;display:block}
+.quick-chat-page :focus-visible{outline:2px solid var(--accent);outline-offset:2px}.quick-chat-page [hidden],.composer-chat-controls[hidden],.quick-chat-open-result[hidden]{display:none!important}
+.composer-chat-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:12px}.composer-chat-controls select{max-width:100%;min-width:120px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:6px;font:inherit}
+#input-form[data-mode="chat"] .composer-input textarea{border-style:dotted}#input-form[data-mode="chat"] .composer-mode-target{font-weight:650}
+.quick-chat-open-result{position:fixed;bottom:18px;left:18px;z-index:16;max-width:calc(100vw - 36px);padding:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);overflow-wrap:anywhere}.quick-chat-open-result a{margin-left:8px}
+@media(max-width:700px){.quick-chat-page{padding:10px}.quick-chat-page section,.quick-chat-form,.quick-chat-turn{padding:12px}.composer-chat-controls a{flex-basis:100%}}

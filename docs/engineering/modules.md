@@ -22,7 +22,7 @@
 
 修改模块前必须阅读[模块设计理念](../design/README.md)中的对应主题；执行记录相关改动先读[Agent 执行过程](../design/agent-process.md)，引用、选区引用与引用卡片定位相关改动先读[上下文引用与定位](../design/references.md)。
 
-公开面以[核心 API 收敛](core-api.md)与 `src/rpc/registry.js` 为唯一白名单。本节下面提到的 `explanation.*` / `intro.*` 历史实现已经没有公开入口（注册表里不存在），保留在源码中只为读懂旧记录与后续清理；当前可用的执行记录接口只有 `worker.transcript*`。
+公开面以[核心 API 收敛](core-api.md)与 `src/rpc/registry.js` 为唯一白名单。`explanation.*` / `intro.*` 与旧 `quick_explain` 调用／历史实现已在 W218／D510 删除，仅保留模型配置与历史无工具 Worker 的事件快照恢复；当前可用的执行记录接口只有 `worker.transcript*`。
 
 执行记录增量接口（具体约束见[阅读器](transcript-reader.md)）：
 - 用户只读 `worker.transcript_page(id,seq?,offset?)` / `GET /api/worker/<id>/transcript-page`，从 `(seq,offset)` 连续读取未裁剪的步骤文字；每页最多 50 段、96,000 字符正文，单段最多 24,000 字符，返回 `next_seq/next_offset/has_more`。兼容只读接口保留，不启动 Pi 或 PTY，不执行终端控制序列；Web 使用全屏富文本详情与分段步骤原文，不再提供终端模式。
@@ -59,13 +59,17 @@ W160 原交付经 W162 按 #411 适配：`appearance.js` 分离设备主题与�
 
 父分区负责 `src/core/device-config.js`（作用域/私有根/跨进程锁）、Host 独立设置服务、RPC/HTTP/CLI 接入、Project 转发与组合测试；配置基础分区负责 Config、RuntimeSettings、AgentSettings、网络/env、快捷解释配置及 Pi 资源存储的继承；连接/迁移分区负责有效来源并集、实际根凭证锁、作用域管理器和 `src/core/device-migration.js`；前端分区负责 assets 的作用域编辑、继承/覆盖、迁移 UI 和无项目入口。详细签名与测试隔离以工程契约为准。
 
-## 快速对话接缝（W207／D486、D487）
+## 项目级快速对话与旧解释退役（W218／D510）
 
-设备级纯文本快速对话取代新快捷解释入口，独立全局页面、新标签打开、统一 C 编号与多 Prompt 右键注册；不创建 Worker、不启动项目、不执行工具，旧项目解释历史保留。新增接口、模块导出和后台／前端／父的分区以[快速对话契约](quick-chat.md)为准。父负责 server.js、文档、跨层集成与最终全量；后台 child 仅新 QuickChatService／私有存储和专项，前端 child 仅 assets／DOM 专项。
+用户确认永久删除旧解释结果／追问与旧设备 C 对话及 Prompt 库；新快速对话历史、C 编号与 Prompt 库独立归项目，模型／凭证仍设备共用。新接缝、存储／接口与并行范围见[项目级快速对话](project-quick-chat.md)，优先于下列 W207 全局历史及旧解释保留描述。Host 仅按固定项目身份处理纯文本附属请求，不启动项目后台、不创建 Worker。
 
-## 快捷解释接缝（旧历史保留）
+## 快速对话接缝（W207／D486、D487，已由 W218 修订）
 
-用户决定 #203 恢复项目级选区阅读辅助，但不恢复旧公开 `intro.*` / `explanation.*` 或解释 Agent。新增 `quick_explain.*` 用户专属接口、独立 `#quick-explain` 设置/历史页，来源复用现有 Chat Completions API Key 连接；契约与并行分工见[快捷解释](quick-explanation.md)。新调用不创建 Worker，附属历史复用 introductions，追问轮次存于 explanation_followups 并随原解释一起删除；旧行不迁移或改写。该增补优先于下文历史服务无公开入口的描述（旧名字仍关闭）。
+W207 曾采用设备级历史与全局页；现已按 W218／D510 改为项目独立 C 历史／Prompt，模型与凭证设备共用。接口见[快速对话契约](quick-chat.md)。
+
+## 旧解释退役
+
+W218／D510 删除旧快捷解释页面、历史读写及模型调用实现，项目升级永久清除 introductions / explanation_followups，旧设备 quick-chat 历史安全退役；设备模型配置继续用于快速对话。历史 Worker／事件／执行记录不删除，不恢复旧公开 `intro.*` / `explanation.*` 或解释 Agent。
 
 ## 项目出站网络接缝
 
@@ -188,7 +192,7 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 以下仍是可调用的公共面：
 
 - CLI 命令与 `lush help` 的语义。`lush config [show]` 打印运行设置的生效值 / 环境默认值 / 是否被覆盖与设置文件路径，`lush config set call-timeout|worker-call-limit|max-depth N` 写回，`lush config reset [call-timeout|worker-call-limit|max-depth|all]` 清除覆盖；`--json` 输出与 `system.status.settings` 同一份结构化读模型。两端都是用户专属，agent 调用被拒。命令面用连字符（`call-timeout`），设置文件与 RPC 里是下划线（`call_timeout`）。
-- SQLite schema、表名、列名与 `meta.task_id_high` / `meta.input_id_high` / `meta.overview_revision` / `meta.worker_child_high:<parent_id>` / `meta.input_append_high:<input_id>` 的行为。`tasks.worker_number` 是可空、不可改写的用户编号，只由创建事务分配并按部分唯一索引约束；子序号高水位存 `meta`，不随删除或 `purge` 清除。`overview_revision` 由读模型相关表的触发器单调推进，技术聚合表 `overview_task_counts` 由 Worker 触发器维护精确 layer/status 计数，首页用两者做 O(1) 失效与统计（它不是业务实体）。`tasks.progress_plan` 附属 JSON 保存 versioned 计划，读模型统一投影为 `progress`（有 `agent_runs` 时按调用区间重算工作用时，并把非 running 的等待投影成一条 `kind:'wait'` 条目；不改写存储的 `progress_plan`）。`agents` 之外的新核心表（`agent_runs` / `artifacts`）承载每次调用与结果；`artifacts.payload` 使用同一 JSON 文本列，`run.result` 是 version 2 envelope，分开记录 invocation 完成与 `pass` / `fail` / `partial` / `unverified` 验收结论；`pass` 必须没有 `failures` / `unverified`，但可以保留 `baseline_failures` / `residual_risks`；旧 payload 不重写，读取时缺失或自相矛盾的证据明确投影为 `unknown`。历史表（`inputs` / `drafts` / `task_specs` / `review_candidates` / `introductions`）与列（`branches.showcase_reservation` / `branches.merge_run` / `tasks.review_candidate_id` / `tasks.retry_profile`）只加不改、不重写已有行，其中仅 `inputs` / `drafts` 由当前指令与新缓冲区路径继续写入，其他历史链无新的公开写入口。
+- SQLite schema、表名、列名与 `meta.task_id_high` / `meta.input_id_high` / `meta.overview_revision` / `meta.worker_child_high:<parent_id>` / `meta.input_append_high:<input_id>` 的行为。`tasks.worker_number` 是可空、不可改写的用户编号，只由创建事务分配并按部分唯一索引约束；子序号高水位存 `meta`，不随删除或 `purge` 清除。`overview_revision` 由读模型相关表的触发器单调推进，技术聚合表 `overview_task_counts` 由 Worker 触发器维护精确 layer/status 计数，首页用两者做 O(1) 失效与统计（它不是业务实体）。`tasks.progress_plan` 附属 JSON 保存 versioned 计划，读模型统一投影为 `progress`（有 `agent_runs` 时按调用区间重算工作用时，并把非 running 的等待投影成一条 `kind:'wait'` 条目；不改写存储的 `progress_plan`）。`agents` 之外的新核心表（`agent_runs` / `artifacts`）承载每次调用与结果；`artifacts.payload` 使用同一 JSON 文本列，`run.result` 是 version 2 envelope，分开记录 invocation 完成与 `pass` / `fail` / `partial` / `unverified` 验收结论；`pass` 必须没有 `failures` / `unverified`，但可以保留 `baseline_failures` / `residual_risks`；旧 payload 不重写，读取时缺失或自相矛盾的证据明确投影为 `unknown`。历史表（`inputs` / `drafts` / `task_specs` / `review_candidates`；旧 `introductions` / `explanation_followups` 已按 D510 退役删除）与列（`branches.showcase_reservation` / `branches.merge_run` / `tasks.review_candidate_id` / `tasks.retry_profile`）只加不改、不重写已有行，其中仅 `inputs` / `drafts` 由当前指令与新缓冲区路径继续写入，其他历史链无新的公开写入口。
 - `src/index.js` 的导出、`bin/*` 的行为。
 - Web 路由与 asset 路径：`server.js` 只按 basename 服务 `assets/` 下的 `.js` / `.css`，
   所以**新增前端模块不需要改 server.js**。带 `--project` 的单项目 Web 继续用无前缀的 `/api/**`；无 `--project` 的全局工作台改为**每项目一条稳定身份路由**：`/p/<project-id>/**` 下的页面、GET 与 `POST /api/action` 都按请求自带的项目身份解析（ID 由 canonical 路径派生，只在已登记集合里反查，不把 URL 片段当路径），`GET /api/snapshot` 因此不再有可被别的标签页切换的「当前项目」。宿主级路由留在无前缀：`GET /api/host`（模式、已登记列表、上次打开）、`GET /api/host/projects`（仅探测已登记目录的 lushd，返回 `running` 与有界摘要；不启动项目）、`POST /api/host/select`（登记并连接，返回路由 ID，不设全局当前项目）、`POST /api/host/remove`（只删入口并断开 Web 连接），以及「文档」视图的 `/api/docs`、`/api/docs/search-index` 与 `/api/docs/<id>`——数据源是 `src/ui/web/docs.js`，只读随代码发布的 `docs/**/*.md` 与 `README.md`，与当前项目目录无关，只按扫出来的 id 查表命中。项目读取与写动作的完整白名单见[Web 路由](../reference/web-routes.md)（`CORE_READS` / `CORE_WORKER_READ` / `CORE_DOC_READ` / `MUTATIONS`）。认证边界也在 `server.js`：项目绑定模式读取 `.lush/web.json`，全局启动器读取用户配置目录的 `web.json`；无对应配置时拒绝启动并提示手工配置，本机也必须登录，用 `/login`、`/logout` 与 HttpOnly 会话 Cookie 保护全部页面、资源和 API。`host/web-listen.js` 固定 v2 默认回环／显式 listen:public 与 v1 历史全接口兼容；全局公网配置必须提供非空 `projects` 绝对路径白名单，回环可选白名单或继续输入任意现存绝对目录。根 `GET /api/host/session` 仅返回已登录账户 `{username}`，不连接 daemon。

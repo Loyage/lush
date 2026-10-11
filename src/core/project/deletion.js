@@ -46,13 +46,6 @@ function databasePlan(project, rootId) {
     if (project.workspaces.busy.has(task.id)) blockers.push(`${workerLabel(task)}: worktree cleanup is in progress`);
     if (project.taskSyncBusy?.has(task.id)) blockers.push(`${workerLabel(task)}: parent synchronization is in progress`);
     if (project.workerDeleteIds?.has(task.id) && project.deletionRoot !== rootId) blockers.push(`${workerLabel(task)}: deletion is in progress`);
-    if (project.introRunning) {
-      const introductions = store.all('SELECT id FROM introductions WHERE task_id=?', task.id);
-      if (introductions.some(row => project.introRunning.has(row.id)))
-        blockers.push(`${workerLabel(task)}: a historical introduction request is still running`);
-      else if (introductions.some(row => store.followupList(row.id).some(item => project.introRunning.has(`followup:${item.id}`))))
-        blockers.push(`${workerLabel(task)}: a historical explanation follow-up is still running`);
-    }
     if (task.reservation) {
       try { const booking = JSON.parse(task.reservation);
         if (!['pending','integrated','withdrawn','completed','failed','cancelled','suspended'].includes(booking.status))
@@ -86,7 +79,7 @@ function databasePlan(project, rootId) {
     notices: select('notices', `task_id IN (${marks})`), events: select('events', `task_id IN (${marks})`),
     deps: select('task_deps', `task_id IN (${marks}) OR depends_on IN (${marks})`, [...ids,...ids]),
     specs: select('task_specs', `planner_task_id IN (${marks})`),
-    introductions: select('introductions', `task_id IN (${marks})`), candidates,
+    candidates,
     drafts: inputIds.length ? select('drafts', `input_id IN (${inputMarks})`, inputIds) : [],
     inputReferences: inputIds.length ? select('input_references', `input_id IN (${inputMarks})`, inputIds) : [],
   };

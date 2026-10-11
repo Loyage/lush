@@ -123,18 +123,12 @@ export function makeWorld() {
     inputParents: [],
     drafts: [],
     commits: [],
-    // explanation.start 的返回与 /api/explanation/:id 读取。
-    explanations: new Map(), explanationSeq: 0,
-    // 快速介绍：/api/intro/config 与 /api/worker/:id/intros、/api/intro/:id。
     // Task 详情归档按钮的读模型投影：测试可设 state.branchArchive 让任务 #1 带 branch_archive。
     branchArchive: null,
     quickChats: new Map(), quickChatSeq: 0, quickChatActions: [], quickChatRevision: 'chat-prompts-1',
     quickChatPrompts: [{ id: 'explain', name: '快速解释', prompt: '请简洁解释所选文字。', context_menu: true, builtin: true }],
-    quickExplanations: new Map(), quickExplanationSeq: 0,
     quickExplanationConfig: { version: 1, connection_id: null, model: '', prompt: '请简洁解释所选文字。',
       default_prompt: '请简洁解释所选文字。', ready: false, reason: '请选择解释的模型来源与模型。' },
-    intros: new Map(), introSeq: 0,
-    introConfig: { file: '/tmp/demo/.lush/quick-intro.json', base_url: '', model: '', has_key: false, key_hint: '', ready: false },
     // 一条已冻结、等待验收的 Review Candidate（挂到 Intent #2 上）。
     candidates: [
       { id: 1, input_id: 2, version: 1, branch: 'lush/demo/input-2', commit_hash: 'c0ffee123456', baseline_branch: 'main',
@@ -234,15 +228,15 @@ export function makeWorld() {
     if (path === '/api/host') return json({ mode: 'bound', projects: [{ id: 'aaaaaaaaaaaaaaaa', name: 'fixture', project: '/tmp/demo', online: true, running: true }] });
     if (path === '/api/host/projects') return json({ projects: [{ id: 'aaaaaaaaaaaaaaaa', name: 'fixture', project: '/tmp/demo', online: true, running: true }] });
     const chatConfig = () => ({ version: 1, revision: state.quickChatRevision, prompts: structuredClone(state.quickChatPrompts), model: { ...state.quickExplanationConfig } });
-    if (path === '/api/host/quick-chat/config') return json(chatConfig());
-    if (pathname === '/api/host/quick-chat/history') {
+    if (path === '/api/quick-chat/config') return json(chatConfig());
+    if (pathname === '/api/quick-chat/history') {
       const before = Number(requestUrl.searchParams.get('before')) || null, limit = Number(requestUrl.searchParams.get('limit')) || 30;
       const rows = [...state.quickChats.values()].filter(row => !before || row.id < before).sort((a,b) => b.id - a.id);
       return json({ conversations: rows.slice(0, limit).map(row => ({ ...row, prompt_name: row.prompt.name, turn_count: row.turns.length })), has_more: rows.length > limit, next: rows.slice(0, limit).at(-1)?.id ?? null });
     }
-    const chatMatch = /^\/api\/host\/quick-chat\/([1-9]\d*)$/.exec(pathname);
+    const chatMatch = /^\/api\/quick-chat\/([1-9]\d*)$/.exec(pathname);
     if (chatMatch) return json(structuredClone(state.quickChats.get(Number(chatMatch[1]))));
-    if (path === '/api/host/quick-chat/action') {
+    if (path === '/api/quick-chat/action') {
       const body = JSON.parse(options.body), p = body.params; state.quickChatActions.push(body);
       const error = message => ({ ok: false, status: 400, json: async () => ({ error: message }) });
       if (body.method === 'start') {
@@ -437,59 +431,12 @@ export function makeWorld() {
         }
         return json({ planner: body.params.id, plan_gate: intent?.plan_gate ?? null });
       }
-      if (body.method === 'explanation.start') {
-        const source = { version: 1, task_id: body.params.id, seq: body.params.seq, quote: body.params.quote, goal: 'demo',
-          captured_at: iso(NOW), step: { seq: body.params.seq, title: 'bash', body: body.params.quote }, related: [] };
-        const id = ++state.explanationSeq;
-        const explanation = { id, status: 'completed', result: '这是对执行步骤的解释示例。', error: null, source };
-        state.explanations.set(id, explanation);
-        return json(explanation);
-      }
       if (body.method === 'quick_explain.configure') {
         const patch = body.params.config || {};
         const next = { ...state.quickExplanationConfig, ...patch };
-        next.prompt = patch.prompt || next.default_prompt;
+        if (Object.hasOwn(patch, 'prompt')) next.prompt = patch.prompt || next.default_prompt;
         next.ready = Boolean(next.connection_id && next.model); next.reason = next.ready ? null : '请选择解释的模型来源与模型。';
         state.quickExplanationConfig = next; return json(next);
-      }
-      if (body.method === 'quick_explain.start') {
-        const id = ++state.quickExplanationSeq, config = state.quickExplanationConfig;
-        const source = state.agentConnections.connections.find(row => row.id === config.connection_id);
-        const record = { id, status: 'completed', result: '这是对所选文字的快捷解释示例。', error: null,
-          quote: body.params.quote, location: body.params.location, model: config.model, prompt: config.prompt,
-          source: source ? { connection_id: source.id, label: source.label, provider: source.provider, endpoint: source.endpoint } : null,
-          followups: [], created_at: iso(NOW), updated_at: iso(NOW) };
-        state.quickExplanations.set(id, record); return json(record);
-      }
-      if (body.method === 'quick_explain.followup') {
-        const record = state.quickExplanations.get(body.params.id);
-        if (!record || record.status !== 'completed' || !record.source)
-          return { ok: false, status: 400, json: async () => ({ error: '只能对已完成的解释追问' }) };
-        const turn = { id: (record.followups?.length || 0) + 1, question: body.params.question, answer: '这是对追问的示例回答。',
-          status: 'completed', error: null, truncated: false, created_at: iso(NOW), updated_at: iso(NOW) };
-        record.followups = [...(record.followups || []), turn]; record.updated_at = iso(NOW);
-        return json(record);
-      }
-      if (body.method === 'quick_explain.delete') {
-        const removed = state.quickExplanations.delete(body.params.id);
-        return removed ? json({ removed: body.params.id }) : { ok: false, status: 400, json: async () => ({ error: 'explanation not found' }) };
-      }
-      if (body.method === 'intro.configure') {
-        const patch = body.params.config || {};
-        const next = { ...state.introConfig };
-        for (const key of ['base_url', 'model']) if (Object.hasOwn(patch, key)) next[key] = patch[key] || '';
-        if (Object.hasOwn(patch, 'api_key')) { const key = patch.api_key || ''; next.has_key = Boolean(key); next.key_hint = key ? `••••${key.slice(-4)}` : ''; }
-        next.ready = Boolean(next.base_url && next.model);
-        state.introConfig = next;
-        return json(next);
-      }
-      if (body.method === 'intro.start') {
-        const id = ++state.introSeq;
-        const intro = { id, kind: 'quick', status: 'completed', result: '这是对所选文字的快速介绍示例。', error: null,
-          quote: body.params.quote, location: body.params.location, model: state.introConfig.model || 'demo-model',
-          created_at: iso(NOW), updated_at: iso(NOW) };
-        state.intros.set(id, intro);
-        return json(intro);
       }
       if (body.method === 'notice.answer' || body.method === 'notice.dismiss') {
         // 答复 / 忽略一条待决 notice：状态回写到快照，重拉后左栏、提醒条与待我处理都看得出这件事已处理。
@@ -506,35 +453,6 @@ export function makeWorld() {
     }
     let match;
     if (path === '/api/quick-explain/config') return json(state.quickExplanationConfig);
-    if (path.startsWith('/api/quick-explain/history')) {
-      const query = new URL(path, 'http://world.test').searchParams;
-      const before = Number(query.get('before') || '0'), limit = Number(query.get('limit') || '30');
-      const records = [...state.quickExplanations.values()].filter(row => !before || row.id < before).sort((a, b) => b.id - a.id);
-      const rows = records.slice(0, limit).map(({ result, prompt, error, source, followups, ...row }) =>
-        ({ ...row, quote: row.quote.slice(0, 180), followup_count: followups?.length || 0 }));
-      return json({ explanations: rows, has_more: records.length > limit, next: rows.at(-1)?.id ?? null });
-    }
-    match = /^\/api\/quick-explain\/(\d+)$/.exec(path);
-    if (match) {
-      const record = state.quickExplanations.get(Number(match[1]));
-      return record ? json(record) : { ok: false, status: 404, json: async () => ({ error: 'explanation not found' }) };
-    }
-    if (path === '/api/intro/config') return json(state.introConfig);
-    match = /^\/api\/intro\/(\d+)$/.exec(path);
-    if (match) {
-      const intro = state.intros.get(Number(match[1]));
-      return intro ? json(intro) : { ok: false, status: 404, json: async () => ({ error: 'introduction not found' }) };
-    }
-    match = /^\/api\/worker\/(\d+)\/intros$/.exec(path);
-    if (match) {
-      const rows = [...state.intros.values()].filter(row => (row.location?.task_id ?? null) === Number(match[1]));
-      return json({ introductions: rows, has_more: false, next: null });
-    }
-    match = /^\/api\/explanation\/(\d+)$/.exec(path);
-    if (match) {
-      const explanation = state.explanations.get(Number(match[1]));
-      return explanation ? json(explanation) : { ok: false, status: 404, json: async () => ({ error: 'explanation not found' }) };
-    }
     match = /^\/api\/notices(\?|$)/.exec(path);
     if (match) {
       // 待我处理 / 提醒条点击后的分页读取：按 status / before / limit 返回 {notices, cursor, has_more}。

@@ -3,8 +3,8 @@ import { show } from './messages.js';
 import { detail, resource } from './navigate.js';
 import { transcriptOpen, ui } from './state.js';
 import { modelHelp } from './help.js';
-import { explanationLocation } from './quick-explanation.js';
-import { workbenchStatus } from './project-picker.js';
+import { chatLocation, chatHref } from './quick-chat.js';
+import { projectRoute } from './route.js';
 import { revealDetailPreview } from './detail-preview.js';
 
 const MAX_REFERENCES = 12;
@@ -261,20 +261,23 @@ async function onContextMenu(event) {
   // while explanation receives the full selected text and rejects oversize instead of truncating it.
   const quote = selected ? String(window.getSelection()?.toString?.() || '').trim() : '';
   if (values.length) showMenu(event, values); else { hideMenu(); return; }
-  if (!selected) return;
+  const project = projectRoute();
+  if (!selected || !project) return;
   try {
-    const module = await import('./quick-chat.js'), config = await module.quickChatConfig();
-    if (generation !== menuGeneration || owner !== globalThis.document || $('context-menu').hidden
+    const module = await import('./quick-chat.js');
+    if (generation !== menuGeneration || owner !== globalThis.document || projectRoute() !== project) return;
+    const config = await module.quickChatConfig();
+    if (generation !== menuGeneration || owner !== globalThis.document || projectRoute() !== project || $('context-menu').hidden
       || String(window.getSelection()?.toString?.() || '').trim() !== quote) return;
     const actions = (config.prompts || []).filter(prompt => prompt.context_menu).map(prompt => ({ label: prompt.name,
-      help: modelHelp(`使用“${prompt.name}”处理所选文字（${explanationLocation(selected.location)}），保存为全局 C 对话并在新标签打开；${workbenchStatus().projectUsable ? '原项目' : '原全局'}页面保留，不创建 Worker，不执行工具`),
-      run: () => module.startSelectionChat(prompt.id, quote, selected) }));
+      help: modelHelp(`使用“${prompt.name}”处理所选文字（${chatLocation(selected.location)}），保存为当前项目 C 对话并在新标签打开；原项目页面保留，不创建 Worker，不执行工具`),
+      run: () => { if (owner === globalThis.document && projectRoute() === project) return module.startSelectionChat(prompt.id, quote, selected); } }));
     showMenu(event, values, actions);
     if (!config.model?.ready && actions.length) {
-      const note = el('a', config.model?.reason || '请先配置快速对话模型'); note.href = '/#quick-chat-settings'; note.target = '_blank'; note.rel = 'noopener'; $('context-menu').append(note);
+      const note = el('a', config.model?.reason || '请先配置快速对话模型'); note.href = chatHref('#quick-chat-settings'); note.target = '_blank'; note.rel = 'noopener'; $('context-menu').append(note);
     }
   } catch (error) {
-    if (generation === menuGeneration && owner === globalThis.document && !$('context-menu').hidden) {
+    if (generation === menuGeneration && owner === globalThis.document && projectRoute() === project && !$('context-menu').hidden) {
       $('context-menu').append(el('p', `快速对话菜单读取失败：${error.message}；引用仍可使用。`, 'hint'));
     }
   }

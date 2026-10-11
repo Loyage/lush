@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="/styles-versions.css">
 <link rel="stylesheet" href="/styles-inputs.css">
 <link rel="stylesheet" href="/styles-hooks.css">
-<link rel="stylesheet" href="/styles-quick-explanation.css">
+<link rel="stylesheet" href="/styles-quick-chat.css">
 <link rel="stylesheet" href="/styles-agent-usage.css">
 <link rel="stylesheet" href="/styles-agent-connections.css">
 <link rel="stylesheet" href="/styles-workbench.css">
@@ -66,16 +66,15 @@
   <nav class="workspace-nav" aria-label="自动动作" data-project-navigation>
     <span class="help-host" data-help="打开可用项目后才能管理项目自动化；模板不会自动安装或启动 Agent。"><button type="button" id="hooks-open" class="workspace-link" data-help="查看当前项目允许的生命周期节点、受控动作与可复用模板；实际挂载和执行结果在 Worker 详情中管理，打开不调用 Agent"><span class="nav-icon" aria-hidden="true">⌁</span><span><strong>项目自动化</strong><small>命令授权与实际挂载</small></span><span class="nav-arrow">→</span></button></span>
   </nav>
-  <nav class="workspace-nav" aria-label="项目阅读历史" data-project-navigation>
-    <button type="button" id="quick-explain-history-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">?</span><span><strong>旧解释历史</strong><small>升级前的项目阅读结果</small></span><span class="nav-arrow">→</span></button>
+  <nav class="workspace-nav" aria-label="项目快速对话" data-project-navigation>
+    <button type="button" id="quick-chat-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">◌</span><span><strong>快速对话</strong><small>项目纯文本记录与 C 编号历史</small></span><span class="nav-arrow">→</span></button>
+    <button type="button" id="quick-chat-settings-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">?</span><span><strong>快速对话设置</strong><small>项目 Prompt 库与右键菜单</small></span><span class="nav-arrow">→</span></button>
   </nav>
   <div class="nav-divider" data-global-navigation="true"><span>设备设置与帮助</span></div>
   <nav class="support-nav" aria-label="设备设置与帮助" data-global-navigation="true">
     <a id="settings-open" href="/#settings" class="workspace-link"><span class="nav-icon" aria-hidden="true">⚙</span><span><strong>设备设置</strong><small>偏好与系统运行</small></span><span class="nav-arrow">→</span></a>
     <a id="agent-status-open" href="/#agent-status" class="workspace-link" data-device-management><span class="nav-icon" aria-hidden="true">◎</span><span><strong>Agent 配置</strong><small>模型选择与工作方式</small></span><span class="nav-arrow">→</span></a>
     <a id="model-sources-open" href="/#model-sources" class="workspace-link" data-device-management><span class="nav-icon" aria-hidden="true">◈</span><span><strong>模型来源</strong><small>API、账号与额度</small></span><span class="nav-arrow">→</span></a>
-    <a id="quick-chat-open" href="/#quick-chat" class="workspace-link" data-device-management><span class="nav-icon" aria-hidden="true">◌</span><span><strong>快速对话</strong><small>纯文本记录与 C 编号历史</small></span><span class="nav-arrow">→</span></a>
-    <a id="quick-explain-open" href="/#quick-chat-settings" class="workspace-link" data-device-management><span class="nav-icon" aria-hidden="true">?</span><span><strong>快速对话设置</strong><small>Prompt 库、右键菜单与模型</small></span><span class="nav-arrow">→</span></a>
     <a id="docs-open" href="/#docs" class="workspace-link"><span class="nav-icon" aria-hidden="true">≡</span><span><strong>帮助文档</strong><small>使用流程与架构参考</small></span><span class="nav-arrow">→</span></a>
 
   </nav>
@@ -139,7 +138,7 @@
     <div class="composer-heading"><label for="input">下一步，想做什么？</label><span class="composer-caption">先暂存想法，准备好再发射</span></div>
     <div class="composer-target"><label for="input-parent">父 Worker</label><select id="input-parent" aria-describedby="input-parent-help"><option value="">main（默认父 Worker）</option></select><span id="input-parent-help" class="hint">新 Worker 从所选父 Worker 的分支创建独立 worktree</span></div>
   </div>
-  <div id="composer-chat-controls" class="composer-chat-controls" hidden><label for="composer-chat-prompt">对话 Prompt</label><select id="composer-chat-prompt"></select><a href="/#quick-chat-settings" target="_blank" rel="noopener">管理 Prompt 与模型</a></div>
+  <div id="composer-chat-controls" class="composer-chat-controls" hidden><label for="composer-chat-prompt">对话 Prompt</label><select id="composer-chat-prompt"></select><a href="#quick-chat-settings" target="_blank" rel="noopener">管理 Prompt 与模型</a></div>
   <div id="composer-references" class="composer-references" aria-label="本条输入引用的上下文" hidden></div>
   <div class="draft-panel" id="draft-panel">
     <div class="draft-body" id="draft-body"><div id="drafts"></div></div>

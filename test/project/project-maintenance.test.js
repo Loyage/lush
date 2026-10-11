@@ -201,14 +201,15 @@ test('non-safe-boundary backend returns naturally without abort; late Git cleanu
   } finally { cleanup.resolve(); await f.close(); }
 });
 
-test('ready-to-restart and overview revision reflect real model, Git, write, Hook, sync and acceptance barriers', async () => {
+test('ready-to-restart and overview revision reflect Agent, Git, write, Hook, sync and acceptance barriers', async () => {
   const f = await setup();
   try {
     f.project.stopping = false; f.project.interruptAll();
     const idle = f.project.overviewRevision();
-    f.project.introRunning.set('test', {});
+    f.project.running.set(5, { parked: true });
     expect(f.project.maintenanceView()).toMatchObject({ active_calls: 1, ready_to_restart: false });
-    f.project.introRunning.clear();
+    expect(f.project.overviewRevision()).not.toBe(idle);
+    f.project.running.clear();
     const properties = ['taskSyncBusy','acceptanceBusy','workerDeleteIds','commandHookRunning','completionBusy','lifecycleHookRunning'];
     for (const prop of properties) {
       f.project[prop] = new Set([5]);

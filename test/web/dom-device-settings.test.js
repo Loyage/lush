@@ -3,7 +3,7 @@ import { installDom, deepText, dialogButton, dialogText } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
 import { ui } from '../../src/ui/web/assets/state.js';
 import { openAgentStatus } from '../../src/ui/web/assets/render-agent-status.js';
-import { openQuickExplanationPage, openQuickExplanationHistory } from '../../src/ui/web/assets/render-quick-explanation.js';
+import { renderChatModel } from '../../src/ui/web/assets/quick-chat-model.js';
 import { openModelSources } from '../../src/ui/web/assets/render-model-sources.js';
 import { activateDetailView } from '../../src/ui/web/assets/sidebar-ui.js';
 import { settingsClient, settingsClientFor, projectSettingsAction } from '../../src/ui/web/assets/settings-api.js';
@@ -146,24 +146,16 @@ test('环境变量仅设备读取/保存，按角色文件保留编辑能力，�
   expect(detail().querySelectorAll('button').some(node => Object.hasOwn(node.dataset, 'clearOverride'))).toBe(false); onlyConfiguration();
 });
 
-test('设备快捷解释只配置，根设置链接且不读取历史/不调用模型，迟到保存不改新页', async () => {
-  dom.location.pathname = '/'; noProject = true; await openQuickExplanationPage();
+test('共用模型只配置设备来源，不读取历史/不调用模型，迟到保存不改新页', async () => {
+  const identity = activateDetailView({ view: 'quick-chat-settings' });
+  await renderChatModel({ container: detail(), ownsPage: () => ui.view === identity });
   expect(requests.map(row => row.url)).toEqual(['/api/host/settings/quick-explain/config?scope=device', '/api/host/settings/agent/connections?scope=device']);
   expect(detail().querySelector('.quick-explanation-history')).toBeNull(); expect(detail().querySelector('a').href).toBe('/#model-sources');
-  input(quickField('prompt'), '设备解释草稿'); const pending = deferred();
+  input(quickField('model'), 'fixture-model'); const pending = deferred();
   intercept = ({ params }) => params?.method === 'quick_explain.configure' ? pending.promise : null;
-  const saving = button(detail(), '保存解释设置').onclick(); activateDetailView({ view: 'docs' }); detail().replaceChildren();
+  const saving = button(detail(), '保存模型设置').onclick(); activateDetailView({ view: 'docs' }); detail().replaceChildren();
   pending.resolve(json({ ...quick.device, prompt: 'LATE-SAVE' })); await saving;
   expect(ui.view.id).toBe('docs'); expect(deepText(detail())).not.toContain('LATE-SAVE'); expect(writes.at(-1).params.scope).toBe('device'); onlyConfiguration();
-});
-
-test('快捷解释历史导出仅固定项目路由读取，根页不能创建或读取全局历史', async () => {
-  dom.location.pathname = '/'; await openQuickExplanationHistory(); expect(requests).toHaveLength(0);
-  expect(deepText(detail())).toContain('不创建全局历史');
-  activateDetailView({ view: 'overview' }); dom.location.pathname = `/p/${sourceA}/`;
-  await openQuickExplanationHistory();
-  expect(requests.map(row => row.url)).toEqual([`/p/${sourceA}/api/quick-explain/history?limit=30`]);
-  expect(ui.view.id).toBe('quick-explain-history'); expect(dom.location.hash).toBe('#quick-explain-history'); expect(writes).toHaveLength(0);
 });
 
 test('设备来源没有项目历史/伪造消费者，配置修改不按项目路由传输', async () => {

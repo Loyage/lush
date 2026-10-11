@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { SCHEMA, bindProject } from './schema.js';
+import { SCHEMA, bindProject, retireExplanationHistory } from './schema.js';
 import { normalizeOrderRecord } from '../../core/order-kind.js';
 
 /**
@@ -13,7 +13,6 @@ const ADDED_COLUMNS = {
   tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile', 'task_kind', 'reservation', 'iteration_base_commit', 'auto_merge', 'interrupt_state', 'hooks', 'worker_number', 'management', 'display_title', 'auto_title'],
   agent_runs: ['model', 'thinking'],
   notices: ['read_at', 'answer_source'],
-  introductions: ['source_snapshot'],
 };
 function addMissingColumns(db) {
   for (const [table, columns] of Object.entries(ADDED_COLUMNS)) {
@@ -64,7 +63,10 @@ export class StoreBase {
     this.db = new Database(file, { create: true });
     this.db.exec(SCHEMA);
     bindProject(this.db, project);
-    addMissingColumns(this.db);
+    try {
+      retireExplanationHistory(this.db);
+      addMissingColumns(this.db);
+    } catch (error) { this.db.close(); throw error; }
   }
   run(sql, ...params) { return this.db.query(sql).run(...params); }
   get(sql, ...params) { return normalizeOrderRecord(this.db.query(sql).get(...params)); }

@@ -235,26 +235,6 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
       CREATE INDEX IF NOT EXISTS events_task ON events(task_id, id);
       CREATE INDEX IF NOT EXISTS events_task_type_id ON events(task_id, type, id);
       CREATE INDEX IF NOT EXISTS events_type_id ON events(type, id);
-      -- 「快速介绍」记录：选中任意页面文字后直连 OpenAI 兼容 API 的只读结果。它不是 Task（没有分支、
-      -- 没有 worktree、不参与调度），只是为「解释历史」保留的一份带来源快照的模型输出。task_id 可空，
-      -- 只用于把发生在某个任务详情页上的记录归到该任务的历史里，不加外键：删任务不连带删这条阅读记录。
-      CREATE TABLE IF NOT EXISTS introductions (
-        id INTEGER PRIMARY KEY, task_id INTEGER, quote TEXT NOT NULL, location TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'running', result TEXT, error TEXT,
-        base_url TEXT, model TEXT, source_snapshot TEXT,
-        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
-      CREATE INDEX IF NOT EXISTS introductions_task ON introductions(task_id, id);
-      -- 快捷解释的追问轮次：同一条解释下的多轮问答，沿用原解释固定的来源与 Prompt 快照。
-      -- 每行是一次追问（question）与模型回答（answer）；status 与 introductions 一致。
-      -- context_truncated 记录本轮因上下文上限被截断掉了更早的追问，供界面如实提示。
-      CREATE TABLE IF NOT EXISTS explanation_followups (
-        id INTEGER PRIMARY KEY, introduction_id INTEGER NOT NULL,
-        question TEXT NOT NULL, answer TEXT, status TEXT NOT NULL DEFAULT 'running', error TEXT,
-        context_truncated INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
-      CREATE INDEX IF NOT EXISTS explanation_followups_intro ON explanation_followups(introduction_id, id);
       CREATE INDEX IF NOT EXISTS sleep_choice_notice ON events(json_extract(data,'$.notice.id'),json_extract(data,'$.notice.task_id')) WHERE type='sleep.choice.started';
       CREATE INDEX IF NOT EXISTS sleep_choice_result ON events(json_extract(data,'$.choice_id')) WHERE type='sleep.choice.finished';
       CREATE INDEX IF NOT EXISTS tasks_agent_token ON tasks(agent_token_hash);
@@ -328,6 +308,19 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
       CREATE TRIGGER IF NOT EXISTS overview_candidates_update AFTER UPDATE ON review_candidates BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
       CREATE TRIGGER IF NOT EXISTS overview_candidates_delete AFTER DELETE ON review_candidates BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
       COMMIT;`;
+
+/** W218 / D510: user-authorized retirement, only after the project binding is verified. */
+export function retireExplanationHistory(db) {
+  if (!db.query("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('introductions','explanation_followups') LIMIT 1").get()) return;
+  const previous = db.query('PRAGMA secure_delete').get().secure_delete;
+  // Clear deleted SQLite cells as well as logical rows; backups and earlier WAL snapshots are not forensic-erased.
+  db.exec('PRAGMA secure_delete=ON');
+  try {
+    db.transaction(() => {
+      db.exec('DROP TABLE IF EXISTS explanation_followups; DROP TABLE IF EXISTS introductions;');
+    }).immediate();
+  } finally { db.exec(`PRAGMA secure_delete=${previous}`); }
+}
 
 /** 打开后的验收：库属于别的项目就先 close 再抛错，错误信息与拆分前逐字相同。 */
 export function bindProject(db, project) {

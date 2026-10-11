@@ -247,6 +247,21 @@ export function createProjectHost(initialConfig = null, options = {}) {
       return { project, ...state };
     },
     async require() { check(!launcher, '请通过 /p/<project>/ 访问具体项目'); return await connect(boundProject); },
+    /** Project-owned text attachments: resolve identity without connecting or starting lushd. */
+    chatHome(id = null) {
+      check(id !== null || !launcher, '快速对话需要固定项目身份');
+      const project = id === null ? boundProject : requirePath(id);
+      const real = fs.realpathSync(project);
+      check(real === project && fs.statSync(real).isDirectory()
+        && (id === null || projectRouteId(real) === id), '快速对话项目路径已变化，请重新打开项目');
+      const home = path.join(real, '.lush');
+      try {
+        const stat = fs.lstatSync(home);
+        check(stat.isDirectory() && !stat.isSymbolicLink() && fs.realpathSync(home) === home
+          && stat.uid === process.getuid(), '快速对话项目存储目录不安全');
+      } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      return path.join(home, 'quick-chat');
+    },
     hasRoute(id) { return Boolean(routePath(id)); },
     rememberCurrent() { if (launcher && connections.size) writeLauncherState(boundProject ?? [...connections.keys()].at(-1), env); },
   };

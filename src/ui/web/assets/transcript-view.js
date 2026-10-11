@@ -5,7 +5,6 @@ import { api } from './api.js';
 import { transcriptReader, releaseTranscriptReader, pauseTranscriptReader, searchTranscriptPath, openTranscriptStep } from './transcript-reader.js';
 import { createCodeView } from './code-view.js';
 import { devicePreferencesStatus, onDevicePreferences, saveDevicePreference, onPrefChange, TRANSCRIPT_ORDER_MODES } from './prefs.js';
-import { closeExplanationPanel } from './explanations.js';
 import { statusOf } from './format.js';
 import { workerLabel } from './worker-label.js';
 
@@ -17,7 +16,6 @@ export function closeTranscriptView() {
   state.code?.dispose(); state.disposePreference?.();
   releaseTranscriptReader(state.taskId);
   removeEventListener('hashchange', state.onNavigate);
-  if (state.panel.querySelector('.reading-panel')) { closeExplanationPanel(); ui.closeQuickExplanationPanel?.(); }
   if (state.menu) { state.menu.hidden = true; (state.menuParent || document.body).append(state.menu); }
   state.panel.close?.(); state.panel.remove();
   $('project-app').inert = state.wasInert;

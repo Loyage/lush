@@ -3,7 +3,6 @@ import { installDom, deepText, findByText } from './project-dom.js';
 import { until } from '../helpers.js';
 import { makeWorld } from './dom-world.js';
 import { addComposerReference, locatable, locateReference } from '../../src/ui/web/assets/context-references.js';
-import { closeExplanationPanel } from '../../src/ui/web/assets/explanations.js';
 
 const world = makeWorld();
 const dom = installDom({ fetch: world.fetchImpl });

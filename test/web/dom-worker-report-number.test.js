@@ -2,7 +2,7 @@ import { test, expect, beforeEach, afterAll } from 'bun:test';
 import { installDom, deepText } from '../dom-stub.js';
 import { ui, resetUiState } from '../../src/ui/web/assets/state.js';
 import { workerLabel } from '../../src/ui/web/assets/worker-label.js';
-import { explanationLocation } from '../../src/ui/web/assets/quick-explanation.js';
+import { chatLocation as explanationLocation } from '../../src/ui/web/assets/quick-chat.js';
 import { renderStatistics } from '../../src/ui/web/assets/render-statistics.js';
 import { renderVerifications } from '../../src/ui/web/assets/render-verify.js';
 import { renderResolutions } from '../../src/ui/web/assets/render-resolutions.js';

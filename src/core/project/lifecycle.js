@@ -250,7 +250,6 @@ export default {
     check(!this.clearing, 'clear is already in progress');
     check(!this.sleepStatus().enabled && !this.sleepTickPromise, '请先关闭托管模式并等待管家操作结束，再清空项目');
     check(this.running.size === 0, 'an agent invocation is still unwinding; clear must wait');
-    check(this.introRunning.size === 0, 'a model explanation request is still running; clear must wait');
     check(this.store.activeBranchMergeRuns().length === 0, 'a one-click merge is in progress; finish or cancel it before clearing');
     check(this.workspaces.busy.size === 0, 'worktree cleanup is in progress; clear must wait');
     check(!this.commandHookRunning?.size, 'shortcut commands are pending or running; clear must wait');
@@ -391,9 +390,6 @@ export default {
       for (const task of this.store.tasks()) if (task.interrupt_state === 'requested')
         this.store.update(task.id, { status: 'paused', interrupt_state: null });
     });
-    // Never replay model requests. New-style interrupted explanations fail; historical rows remain unchanged.
-    this.store.quickExplanationFailRunning('项目后台曾中断，本次解释未完成，请重新发起');
-    this.store.followupFailRunning('项目后台曾中断，本次追问未完成，请重新发起');
     this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging' AND task_kind IN ('order','say','child')");
     this.recoverTaskDeliveries();
     // Older retries discarded a withdrawn booking while leaving the source under its queue.
@@ -488,8 +484,6 @@ export default {
       if (run.parked) run.controller.abort();
       else this.cancel(taskId, 'daemon stopped; inspect before retrying', 'failed');
     }
-    for (const entry of this.introRunning.values()) entry.controller.abort(new Error('daemon stopped; retry the quick intro'));
-    await Promise.allSettled([...this.introRunning.values()].map(entry => entry.promise));
     await Promise.allSettled([...this.running.values()].map(run => run.promise));
     await this.hookQueue;
     await Promise.allSettled([...(this.shortcutCommandJobs ?? [])]);

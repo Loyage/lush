@@ -5,7 +5,7 @@ import { installDom, deepText, dialogButton } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
 import { setup, fetch as httpFetch } from './harness.js';
 import { openAgentStatus } from '../../src/ui/web/assets/render-agent-status.js';
-import { openQuickExplanationPage } from '../../src/ui/web/assets/render-quick-explanation.js';
+import { renderChatModel } from '../../src/ui/web/assets/quick-chat-model.js';
 import { openModelSources } from '../../src/ui/web/assets/render-model-sources.js';
 import { settingsClient } from '../../src/ui/web/assets/settings-api.js';
 import { agentPrompt } from '../../src/agent/prompts.js';
@@ -114,11 +114,12 @@ test('真实 Host 投影可供无项目来源编辑及快捷解释保存，不�
     const document = JSON.parse(fs.readFileSync(path.join(f.config.deviceHome, 'credentials', 'agent-connections.json'), 'utf8'));
     expect(document.connections[0].label).toBe('更新临时共享来源');
     for (const key of ['configuration_scope', 'storage_scope', 'consumers', 'observation']) expect(document.connections[0]).not.toHaveProperty(key);
-    await openQuickExplanationPage();
+    await renderChatModel({ container: detail(), ownsPage: () => true });
     const connection = detail().querySelector('[data-quick-field="connection_id"]'); connection.value = saved.id; connection.onchange();
     input(detail().querySelector('[data-quick-field="model"]'), 'deepseek-chat');
-    input(detail().querySelector('[data-quick-field="prompt"]'), '临时共享解释规则'); await button(detail(), '保存解释设置').onclick();
-    expect(f.project.quickExplanationConfig('device')).toMatchObject({ ready: true, prompt: '临时共享解释规则' });
+    await button(detail(), '保存模型设置').onclick();
+    expect(f.project.quickExplanationConfig('device')).toMatchObject({ ready: true, model: 'deepseek-chat' });
+    expect(detail().querySelector('[data-quick-field="prompt"]')).toBeNull();
     expect(requests.every(row => row.url.startsWith('/api/host/settings/'))).toBe(true);
     expect(button(detail(), '刷新历史')).toBeUndefined();
   } finally { world.fetchImpl = original; }

@@ -9,24 +9,25 @@ import { DeviceSettingsService } from '../../src/host/device-settings.js';
 import { QuickChatService } from '../../src/host/quick-chat.js';
 
 // Exercise the frontend's real request/response contract against authenticated HTTP and private
-// device storage. All model responses are controlled; no daemon or real model is involved.
+// project storage with shared device model settings. All model responses are controlled; no daemon or real model is involved.
 test('frontend Prompt/composer/C followup/deletion work with real Host service and normalized snapshots', async () => {
   const root = temp(), environment = env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') });
   const settings = new DeviceSettingsService(environment), modelCalls = [], projectCalls = [];
   const source = settings.getManager().save({ label: 'DOM integration source', provider: 'openai-compatible', auth_type: 'api_key',
     endpoint: 'https://model.invalid/v1', models: ['original-model'] }, { api_key: 'synthetic-dom-test-key' });
   settings.explanation.save({ connection_id: source.id, model: 'original-model', prompt: '原解释 Prompt' });
-  const service = new QuickChatService(environment, { settingsService: settings, fetch: async (_url, init) => {
+  const home = path.join(root, 'project', '.lush', 'quick-chat');
+  const service = new QuickChatService(environment, { home, settingsService: settings, fetch: async (_url, init) => {
     modelCalls.push(JSON.parse(init.body)); return Response.json({ choices: [{ message: { content: '受控模型回复' } }] });
   } });
-  const projectHost = { launcher: true,
+  const projectHost = { launcher: true, chatHome(id) { expect(id).toBe('aaaaaaaaaaaaaaaa'); return home; },
     async require() { projectCalls.push('attach'); throw new Error('project offline'); },
     async openRoute() { projectCalls.push('start'); throw new Error('project offline'); } };
   const web = startTestWeb(null, 0, { env: environment, projectHost, deviceSettingsService: settings, quickChatService: service });
   const origin = `http://127.0.0.1:${web.port}`, world = makeWorld(), requests = [], tabs = [];
   const dom = installDom({ fetch: async (url, options = {}) => {
     const route = String(url); requests.push(route);
-    return route.startsWith('/api/host/quick-chat/') ? hostFetch(origin + route, options)
+    return route.startsWith('/p/aaaaaaaaaaaaaaaa/api/quick-chat/') ? hostFetch(origin + route, options)
       : world.fetchImpl(route.replace(/^\/p\/[a-f0-9]{16}\/api\//, '/api/'), options);
   } });
   const { ui } = await import('../../src/ui/web/assets/state.js');
@@ -37,7 +38,7 @@ test('frontend Prompt/composer/C followup/deletion work with real Host service a
   const field = name => dom.node('detail').querySelector(`[data-chat-field="${name}"]`);
   const finish = () => Promise.all([...service.running.values()].map(entry => entry.promise));
   try {
-    dom.location.pathname = '/'; await boot(); await openQuickChatSettings();
+    dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/'; await boot(); await openQuickChatSettings();
     expect(modelCalls).toHaveLength(0);
     field('name').value = '速记'; field('name').oninput();
     field('prompt').value = '  整理为笔记\n '; field('prompt').oninput();
@@ -53,13 +54,13 @@ test('frontend Prompt/composer/C followup/deletion work with real Host service a
     await openComposerChat(); dom.node('composer-chat-prompt').value = promptId; dom.node('composer-chat-prompt').onchange();
     dom.window.open = () => { const tab = { opener: {}, document: { body: {} }, location: { replace(href) { tab.href = href; } } }; tabs.push(tab); return tab; };
     await dom.node('input-form').onsubmit({ preventDefault() {} }); await finish();
-    expect(tabs[0].href).toBe('/#quick-chat-C1'); expect(tabs[0].opener).toBeNull(); expect(ui.view).toBe(originalView);
+    expect(tabs[0].href).toBe('/p/aaaaaaaaaaaaaaaa/#quick-chat-C1'); expect(tabs[0].opener).toBeNull(); expect(ui.view).toBe(originalView);
     const first = service.get(1);
     expect(first).toMatchObject({ number: 'C1', status: 'completed', model: 'original-model',
       prompt: { id: promptId, prompt: '整理为笔记' }, references: [{ project_id: 'aaaaaaaaaaaaaaaa', quote: '所见材料\n第二行' }] });
     expect(modelCalls).toHaveLength(1);
 
-    dom.location.pathname = '/'; await openQuickChatConversation(1);
+    dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/'; await openQuickChatConversation(1);
     expect(deepText(dom.node('detail'))).toContain('受控模型回复'); expect(deepText(dom.node('detail'))).toContain('DOM integration source');
     field('reply').value = '补充摘要'; field('reply').oninput();
     await dom.node('detail').querySelectorAll('button').find(node => node.textContent === '发送').onclick(); await finish();
@@ -70,7 +71,11 @@ test('frontend Prompt/composer/C followup/deletion work with real Host service a
     const deleting = findByText(dom.node('detail'), '删除对话').onclick();
     await dialogButton(dom, '删除').onclick(); await deleting;
     expect(ui.view.id).toBe('quick-chat'); expect(service.list().conversations).toEqual([]);
-    expect(projectCalls).toEqual([]); expect(requests.some(route => route.includes('/p/aaaaaaaaaaaaaaaa/api/host/quick-chat'))).toBe(false);
+    expect(projectCalls).toEqual([]);
+    expect(requests.some(route => route.includes('/api/host/quick-chat'))).toBe(false);
+    expect(requests.filter(route => route.includes('/api/quick-chat/')).every(route => route.startsWith('/p/aaaaaaaaaaaaaaaa/'))).toBe(true);
+    expect(fs.existsSync(path.join(settings.config.home, 'quick-chat.sqlite'))).toBe(false);
+    expect(fs.existsSync(path.join(home, 'quick-chat.sqlite'))).toBe(true);
     expect(world.state.actions).toEqual([]); expect(deepText(dom.node('detail'))).not.toContain('synthetic-dom-test-key');
   } finally {
     ui.disposeQuickChatPage?.(); dom.restore(); await web.stop(true); fs.rmSync(root, { recursive: true, force: true });

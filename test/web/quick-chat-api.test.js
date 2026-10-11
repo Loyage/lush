@@ -20,17 +20,18 @@ function fixture({ bound = false, failing = false } = {}) {
     close() { calls.push(['close']); },
   };
   const projectHost = { launcher: !bound,
+    chatHome(id) { if (id !== '1111111111111111' && !(bound && id === null)) throw new LushError('未知项目身份'); return path.join(root, 'project', '.lush', 'quick-chat'); },
     async require() { calls.push(['unexpected.project']); throw new Error('project offline'); },
     async openRoute() { calls.push(['unexpected.attach']); throw new Error('project offline'); } };
   const project = path.join(root, 'project'); fs.mkdirSync(project);
   const config = bound ? { project, home: path.join(project, '.lush'), env: environment } : null;
   const web = startWeb(config, 0, { env: environment, projectHost, quickChatService: service });
-  const url = `http://127.0.0.1:${web.port}/api/host/quick-chat`;
+  const url = `http://127.0.0.1:${web.port}${bound ? '' : '/p/1111111111111111'}/api/quick-chat`;
   return { calls, row, service, url, root, web,
     async close() { await web.stop(true); fs.rmSync(root, { recursive: true, force: true }); } };
 }
 
-test('quick chat root HTTP is global in launcher and bound Hosts, with exact inputs and no project attachment', async () => {
+test('quick chat HTTP uses fixed project identity in launcher and bound Hosts, with exact inputs and no daemon attachment', async () => {
   for (const bound of [false, true]) {
     const f = fixture({ bound });
     try {
@@ -72,6 +73,9 @@ test('quick chat rejects unknown, duplicate and malformed read parameters before
       expect((await fetch(target)).status).toBe(404);
       expect((await post(target, { method: 'start', params: { prompt_id: 'explain', content: 'text' } })).status).toBe(404);
     }
+    expect((await fetch(origin + '/api/quick-chat/config')).status).toBe(400);
+    expect((await fetch(origin + '/p/ffffffffffffffff/api/quick-chat/config')).status).toBe(400);
+    expect((await fetch(origin + '/api/host/quick-chat/config')).status).toBe(404);
     expect(f.calls).toEqual([]);
     await f.web.stop(true); expect(f.calls).toEqual([]);
   } finally { await f.close(); }

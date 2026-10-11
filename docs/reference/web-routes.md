@@ -43,18 +43,18 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 接口依赖失败只返回安全的未确认诊断，不公开原始认证／上游响应，也不把已提交但未确认的动作说成未执行。Host 停止关闭已实例化聚合服务，不停止项目 daemon 或撤销全局授权。
 
-## 全局快速对话（W207）
+## 项目级快速对话（W218／D510）
 
-仅根 Host 用户接口，不加 `/p/<id>` 前缀，不经过项目 RPC、设置动作或 Agent token。没有项目／项目离线也可使用；配置与读取不调用模型。沿用登录、Origin、JSON、no-store、严格字段与有界参数检查，原始上游错误不公开。
+Host 用户接口，在全局 Host 必须带已登记 `/p/<id>` 前缀；绑定 Host 允许无前缀。不经过项目 RPC 或 Agent token，不连接／启动 daemon；项目离线可用，无项目拒绝。配置与读取不调用模型，沿用登录、Origin、JSON、no-store、严格字段与有界参数检查，原始上游错误不公开。旧 `/api/host/quick-chat/**` 返回 404。
 
 | 路由 | 参数与行为 |
 |---|---|
-| `GET /api/host/quick-chat/config` | 无 query；Prompt 库／revision 和共用设备模型就绪信息 |
-| `GET /api/host/quick-chat/history?before=&limit=` | id 倒序，before 正整数、limit 1..50（默认30）；设备级 C 会话摘要 |
-| `GET /api/host/quick-chat/<id>` | 无 query；完整会话、引用、固定来源／Prompt 与全部轮次 |
-| `POST /api/host/quick-chat/action` | `{method,params}`；仅 prompt_save/prompt_remove/start/send/delete，非通用 RPC；start/send 调用模型，其余不调用 |
+| `GET /api/quick-chat/config` | 无 query；Prompt 库／revision 和共用设备模型就绪信息 |
+| `GET /api/quick-chat/history?before=&limit=` | id 倒序，before 正整数、limit 1..50（默认30）；项目级 C 会话摘要 |
+| `GET /api/quick-chat/<id>` | 无 query；完整会话、引用、固定来源／Prompt 与全部轮次 |
+| `POST /api/quick-chat/action` | `{method,params}`；仅 prompt_save/prompt_remove/start/send/delete，非通用 RPC；start/send 调用模型，其余不调用 |
 
-Prompt revision、输入与引用上限、永久 C 编号、在途保护和关闭／恢复边界以[快速对话契约](../engineering/quick-chat.md)为准。页面为 `#quick-chat`、`#quick-chat-C<id>`、`#quick-chat-settings`；旧项目解释历史不自动搬迁。
+Prompt revision、输入与引用上限、永久 C 编号、在途保护和关闭／恢复边界以[快速对话契约](../engineering/quick-chat.md)为准。页面为项目 `#quick-chat`、`#quick-chat-C<id>`、`#quick-chat-settings`；历史与 Prompt 项目独立、模型设备共用。旧解释与旧设备 C 历史按[退役契约](../engineering/project-quick-chat.md)永久清除。
 
 ## 设备设置与旧配置迁移
 
@@ -110,9 +110,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/agent/resources` | 不执行资源代码地读取当前用户和项目已安装的 Pi 扩展、Skills 与 package 资源 |
 | `GET /api/agent/network` | 用户专属 `agent.network {}`；项目网络安全投影，不返回代理用户名/密码，不联网，见[出站网络](../engineering/outbound-network.md) |
 | `GET /api/agent/environment?target=common\|ROLE` | 按需读取公共或单角色 env 文件，包含明文值；底层 `agent.environment` 为用户专属，公网模式必须先登录，页面默认遮罩 |
-| `GET /api/quick-explain/config` | 用户专属 `quick_explain.config`，本地解释来源、模型与 Prompt，不返回凭证 |
-| `GET /api/quick-explain/history?before=&limit=` | 用户专属 `quick_explain.list`，项目全历史摘要分页（默认 30、最多 50） |
-| `GET /api/quick-explain/ID` | 用户专属 `quick_explain.get`，结果与当时选区/来源/Prompt 快照 |
+| `GET /api/quick-explain/config` | 用户专属 `quick_explain.config`，设备共用纯文本对话模型设置，不返回凭证；旧解释历史路由已退役 |
 | `GET /api/hooks/commands/executions` | 用户专属 `hooks.command_history`；before 正整数事件游标、limit 1..100、execution_id UUID（与 before 互斥），返回每次运行持久安全摘要；只读不执行命令 |
 | `GET /api/hooks` | 用户专属 `hooks.list`，节点／动作目录、安全模板、授权版本快捷指令目录 commands、daemon Hooks、时间信号与管理 Worker 投影，不接受查询参数 |
 | `GET /api/worker/ID/hooks` | 用户专属 `worker.hooks`，安全挂载、修订与最近收据，不接受查询参数 |
@@ -147,7 +145,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 
 账号连接另开放 `agent.connections.save/remove/sampling/query/login.start/login.finish/device.start/device.poll/device.cancel`，均经项目的 `POST /api/action`、登录与 Origin 校验；设备码检查也是显式 action，不新增读取路由。设备授权 ID、OAuth token、回调授权码均不返回读面，不进审计事件或错误。参数和操作见[Agent 账号连接](rpc/agents.md#托管账号连接)。
 
-旧快捷解释兼容接口另开放 `quick_explain.configure` / `quick_explain.start` / `quick_explain.followup` / `quick_explain.delete`，均为用户专属 POST action；旧 `intro.*` / `explanation.*` 仍关闭。配置使用设备唯一来源，结果和历史仍按项目隔离；该旧接口仍需项目。新[快速对话](../quick-chat.md)使用上面的全局 Host 路由。旧历史见[快捷解释](../quick-explanation.md)，字段见[实现契约](../engineering/quick-explanation.md)。
+旧解释历史读面与 `quick_explain.start/followup/get/list/delete` 已退役，旧 `intro.*` / `explanation.*` 仍关闭；仅 `quick_explain.config/configure` 继续用作设备共用模型设置，不保留旧解释调用能力。新[快速对话](../quick-chat.md)使用上面的固定项目 Host 路由。
 
 Hooks 另开放 `hooks.save/remove/auto_select/signal_save/signal_remove`、`hooks.command_save/command_authorize/command_remove/command_run/command_start/command_import`（快捷指令注册、授权、删除、同步兼容执行／异步提交与旧配置显式导入；无 GET 写入口；持久历史只读接口见上表）、`management.create/binding_update`、`worker.hook_attach/hook_update/hook_remove`，均为当前项目用户专属 action；自动选择与新指令默认流程使用同一设备策略 revision，新前端通过上面的 Host 全局接口管理；兼容 hooks mutation 不再保存另一份项目开关，见[用户工作台契约](../engineering/user-workspace.md)。
 

@@ -11,7 +11,6 @@ import { liveInterval } from './live.js';
 import { onDevicePreferences, onPrefChange, pollingIntervals, readPref, saveDevicePreference, startDevicePreferencesSync } from './prefs.js';
 import { liveRefresh, refresh, applySort, applyFilters, initRefreshPolling } from './refresh.js';
 import { openTaskGraph } from './render-task-graph.js';
-import { closeQuickExplanationPanel } from './quick-explanation.js';
 import { initSidebar } from './sidebar-init.js';
 import { resetProjectMaintenance, renderProjectMaintenance } from './project-maintenance.js';
 import { activateDetailView, openResource, paintCollapsed, toggleMobileNavigation } from './sidebar-ui.js';
@@ -22,7 +21,6 @@ import { initContextReferences } from './context-references.js';
 import { hideHelp, initHelp } from './help.js';
 import { resetTranscriptReaders } from './transcript-reader.js';
 import { closeTranscriptView } from './transcript-view.js';
-import { closeExplanationPanel } from './explanations.js';
 import { ensureProject, openProjectManager, openProjectOverview, workbenchStatus } from './project-picker.js';
 import { renderAutoSelectBanner } from './auto-select-banner.js';
 import { initNoticeRecords, openNotice } from './render-notices.js';
@@ -81,7 +79,6 @@ const openHooks = () => openPage(() => import('./render-hooks.js'), module => mo
 const openQuickChatPage = () => openPage(() => import('./render-quick-chat.js'), module => module.openQuickChatPage(), 'quick-chat');
 const openQuickChatSettings = () => openPage(() => import('./render-quick-chat.js'), module => module.openQuickChatSettings(), 'quick-chat-settings');
 const openQuickChatConversation = id => openPage(() => import('./render-quick-chat.js'), module => module.openQuickChatConversation(id), 'quick-chat-conversation', { key: `quick-chat-C${id}`, hash: `#quick-chat-C${id}` });
-const openQuickExplanationHistory = () => openPage(() => import('./render-quick-explanation.js'), module => module.openQuickExplanationHistory(), 'quick-explain-history');
 const openAutomation = () => openPage(() => import('./render-workspace-automation.js'), module => module.openWorkspaceAutomation(), 'automation');
 const openGlobalInbox = (options = {}) => openPage(() => import('./global-inbox.js'), module => module.openGlobalInbox(options), 'global-inbox',
   { push: options.push, hash: options.projectId && options.noticeId ? `#inbox-notice-${options.projectId}-${options.noticeId}` : options.projectId ? `#notices-project-${options.projectId}${options.status && options.status !== 'all' ? `-${options.status}` : ''}` : options.status === 'automatic' ? '#notices-automatic' : '#notices' });
@@ -109,7 +106,7 @@ function globalPageRedirect(hash) {
   const link = el('a', '打开用户工作台页面', 'primary'); link.href = workspaceHref(hash); link.target = '_blank'; link.rel = 'noopener'; box.append(link);
   const back = el('a', '返回项目概览', 'ghost'); back.href = `\u0023`; box.append(back); $('detail').replaceChildren(box);
 }
-const deviceHash = hash => /^#(?:settings|agent-status|model-sources|model-source-[a-f0-9-]+|quick-explain|quick-chat(?:-settings|-C[1-9]\d*)?|automation|notices-(?:all|open|unread|automatic|failed)|notices-project-[a-f0-9]{16}(?:-(?:all|open|unread|automatic|failed))?|inbox-notice-[a-f0-9]{16}-[1-9]\d*)$/.test(hash);
+const deviceHash = hash => /^#(?:settings|agent-status|model-sources|model-source-[a-f0-9-]+|automation|notices-(?:all|open|unread|automatic|failed)|notices-project-[a-f0-9]{16}(?:-(?:all|open|unread|automatic|failed))?|inbox-notice-[a-f0-9]{16}-[1-9]\d*)$/.test(hash);
 let hashGeneration = 0;
 function onHashChange() {
   const generation = ++hashGeneration; hideHelp();
@@ -123,10 +120,6 @@ function onHashChange() {
     if (hash === '#model-sources') return ui.view?.id === 'model-sources' ? undefined : openSources();
     const source = /^#model-source-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.exec(hash);
     if (source) return openSources(source[1]);
-    if (hash === '#quick-explain' || hash === '#quick-chat-settings') return ui.view?.id === 'quick-chat-settings' ? undefined : openQuickChatSettings();
-    if (hash === '#quick-chat') return ui.view?.id === 'quick-chat' ? undefined : openQuickChatPage();
-    const conversation = /^#quick-chat-C([1-9]\d*)$/.exec(hash);
-    if (conversation && Number.isSafeInteger(Number(conversation[1]))) return ui.view?.key === `quick-chat-C${conversation[1]}` ? undefined : openQuickChatConversation(Number(conversation[1]));
     if (hash === '#automation' || hash === '#hooks') return ui.view?.id === 'automation' ? undefined : openAutomation();
     if (doc) return openDocsView(doc.id);
     const notice = /^#inbox-notice-([a-f0-9]{16})-([1-9]\d*)$/.exec(hash);
@@ -138,9 +131,12 @@ function onHashChange() {
     return noProjectView();
   }
   if (!workbenchStatus().projectUsable) return noProjectView();
+  if (hash === '#quick-chat-settings') return ui.view?.id === 'quick-chat-settings' ? undefined : openQuickChatSettings();
+  if (hash === '#quick-chat') return ui.view?.id === 'quick-chat' ? undefined : openQuickChatPage();
+  const conversation = /^#quick-chat-C([1-9]\d*)$/.exec(hash);
+  if (conversation && Number.isSafeInteger(Number(conversation[1]))) return ui.view?.key === `quick-chat-C${conversation[1]}` ? undefined : openQuickChatConversation(Number(conversation[1]));
   if (hash === '#hooks') return ui.view?.id === 'hooks' ? undefined : openHooks();
   if (hash === '#versions') return ui.view?.id === 'versions' ? undefined : openVersions();
-  if (hash === '#quick-explain-history') return ui.view?.id === 'quick-explain-history' ? undefined : openQuickExplanationHistory();
   if (hash === '#inputs') return openInputs({ push: false });
   const input = /^#input-(draft|input)-([1-9]\d*)$/.exec(hash);
   if (input && Number.isSafeInteger(Number(input[2]))) return openInputs({ item: { kind: input[1], id: Number(input[2]) }, push: false });
@@ -182,8 +178,6 @@ function initGlobalNavigation() {
   workspaceLink('settings-open', '#settings', openSettings);
   workspaceLink('agent-status-open', '#agent-status', openAgentStatus);
   workspaceLink('model-sources-open', '#model-sources', () => openSources());
-  workspaceLink('quick-chat-open', '#quick-chat', openQuickChatPage);
-  workspaceLink('quick-explain-open', '#quick-chat-settings', openQuickChatSettings);
   workspaceLink('docs-open', '#docs', () => openDocsView());
 }
 /** Repeated boot must dispose global and project polling separately; late imports cannot bind an older DOM. */
@@ -198,7 +192,7 @@ export async function boot() {
   if (refreshTimer !== null) clearInterval(refreshTimer); if (liveTimer !== null) clearInterval(liveTimer);
   if (hashListener !== null) globalThis.removeEventListener?.('hashchange', hashListener);
   refreshTimer = liveTimer = hashListener = null;
-  closeTranscriptView(); resetUiState(); resetTranscriptReaders(); closeExplanationPanel(); closeQuickExplanationPanel();
+  closeTranscriptView(); resetUiState(); resetTranscriptReaders();
   void loadHostSession(); // Host-only, non-blocking; details reuse the same single-flight read.
   initAppearance(); setProjectIdentity(); applyReducedMotion(readPref('reduceMotion')); configureWorkspaceShell(); initHelp(); initGlobalNavigation();
   renderAutoSelectBanner(null); renderGlobalInboxSummary(null); resetProjectMaintenance();
@@ -246,7 +240,7 @@ export async function boot() {
     if (projectRoute()) $('home').setAttribute('data-help', '在新标签打开上级用户工作台，当前项目的输入与阅读位置保留。');
     else $('home').removeAttribute('data-help');
   }
-  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'versions-open', 'hooks-open', 'quick-explain-history-open'];
+  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'versions-open', 'hooks-open', 'quick-chat-open', 'quick-chat-settings-open'];
   for (const id of projectOnly) { const target = $(id); if (target) { target.disabled = !projectReady; target.setAttribute('aria-disabled', String(!projectReady)); } }
   if ($('composer-shell')) $('composer-shell').hidden = !projectReady;
 
@@ -256,7 +250,8 @@ export async function boot() {
   if ($('versions-open')) $('versions-open').onclick = () => projectReady ? openVersions() : noProjectView();
   if ($('inputs-open')) $('inputs-open').onclick = () => projectReady ? openInputs() : noProjectView();
   if ($('input-history')) $('input-history').onclick = () => projectReady ? openInputs() : noProjectView();
-  if ($('quick-explain-history-open')) $('quick-explain-history-open').onclick = () => projectReady ? openQuickExplanationHistory() : noProjectView();
+  if ($('quick-chat-open')) $('quick-chat-open').onclick = () => projectReady ? openQuickChatPage() : noProjectView();
+  if ($('quick-chat-settings-open')) $('quick-chat-settings-open').onclick = () => projectReady ? openQuickChatSettings() : noProjectView();
   $('sidebar-toggle').onclick = () => toggleMobileNavigation();
   $('sidebar').onkeydown = event => {
     if (event.key === 'Escape' && $('sidebar').classList.contains('mobile-open')) {

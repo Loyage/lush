@@ -9,7 +9,6 @@ import { transcriptCache, transcriptOpen, ui } from '../../src/ui/web/assets/sta
 import { transcriptReader, resetTranscriptReaders } from '../../src/ui/web/assets/transcript-reader.js';
 import { initContextReferences, referenceable } from '../../src/ui/web/assets/context-references.js';
 import { closeTranscriptView } from '../../src/ui/web/assets/transcript-view.js';
-import { closeExplanationPanel } from '../../src/ui/web/assets/explanations.js';
 
 const response = value => new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } });
 

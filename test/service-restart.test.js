@@ -24,7 +24,7 @@ test('idle stop atomically closes scheduling and RPC admission without changing 
   } finally { await f.close(); }
 });
 
-test('active calls, parked unwinding calls, model requests and merge drivers reject idle stop', async () => {
+test('active calls, parked unwinding calls and merge drivers reject idle stop', async () => {
   const f = fixture();
   try {
     const { rpc, signal } = dispatcher(f);
@@ -33,9 +33,7 @@ test('active calls, parked unwinding calls, model requests and merge drivers rej
       await expect(rpc.dispatch('system.stop_if_idle')).rejects.toThrow('活动 Agent');
       f.project.running.clear();
     }
-    f.project.introRunning.set(1, {});
-    await expect(rpc.dispatch('system.stop_if_idle')).rejects.toThrow('模型调用');
-    f.project.introRunning.clear();
+    expect(f.project.introRunning).toBeUndefined();
     for (const key of ['taskMergeBusy', 'mergeRunsDriving', 'integratingIntents']) {
       f.project[key] ??= new Set(); f.project[key].add(1);
       await expect(rpc.dispatch('system.stop_if_idle')).rejects.toThrow('后台操作');
@@ -46,7 +44,7 @@ test('active calls, parked unwinding calls, model requests and merge drivers rej
     f.project.writing = 0;
     expect(signal.isRequested()).toBe(false);
     expect(f.project.stopping).toBe(false);
-  } finally { f.project.running.clear(); f.project.introRunning.clear(); await f.close(); }
+  } finally { f.project.running.clear(); await f.close(); }
 });
 
 test('queued and executing Git work prevents idle stop; rejected Git releases admission', async () => {

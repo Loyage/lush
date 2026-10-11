@@ -1,3 +1,5 @@
+import { check } from '../types.js';
+
 const SUMMARY_LIMIT = 50;
 // Fetch one extra character to detect clipping without loading entire result blobs.
 const SUMMARY_COLUMNS = `t.id,t.worker_number,t.parent_id,t.role,t.status,t.integration,t.branch,t.head_commit,
@@ -15,7 +17,12 @@ export default {
     if (task.role === 'manager' && task.task_kind === 'management') return { management: this.managementContext(task),
       invocation: { run_id: run.recordId, task_id: task.id, role: task.role } };
     if (task.role === 'butler') return { butler: this.butlerContext(task.id), invocation: { run_id: run.recordId, task_id: task.id, role: task.role } };
-    if (task.role === 'explainer') return { explanation: this.explanationContext(task.id) };
+    // Historical no-tools invocations keep their original event snapshot; no explanation API or new Worker is created.
+    if (task.role === 'explainer') {
+      const row = this.store.get("SELECT data FROM events WHERE task_id=? AND type='explanation.requested' ORDER BY id LIMIT 1", task.id);
+      check(row, 'explanation source not found');
+      return { explanation: JSON.parse(row.data) };
+    }
     const children = this.store.all(`SELECT ${SUMMARY_COLUMNS} FROM tasks t WHERE parent_id=? ORDER BY id LIMIT ?`, task.id, SUMMARY_LIMIT + 1);
     const dependencies = this.store.all(`SELECT ${SUMMARY_COLUMNS}, d.kind FROM task_deps d JOIN tasks t ON t.id=d.depends_on
       WHERE d.task_id=? ORDER BY t.id`, task.id);

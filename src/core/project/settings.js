@@ -44,7 +44,7 @@ export default {
     return previewDeviceMigration(this.config);
   },
   settingsMigrationApply(options) {
-    check(this.running.size === 0 && this.introRunning.size === 0, '项目还有活动 Agent 或模型调用，请先结束或暂停后迁移');
+    check(this.running.size === 0, '项目还有活动 Agent 或模型调用，请先结束或暂停后迁移');
     check(!this.writing && !this.clearing && !this.workspaces.pending && !this.workspaces.busy.size
       && !this.taskMergeBusy?.size && !this.mergeRunsDriving.size && !this.integratingIntents.size,
     '项目还有写入、Git 或合并操作，请稍后再迁移');

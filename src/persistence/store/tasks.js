@@ -162,9 +162,7 @@ export const tasks = {
         WHERE task_id IN (${marks})`, ...ids);
       drop('choice_rechoices', `notice_id IN (SELECT id FROM notices WHERE task_id IN (${marks}))`, ids);
       drop('choice_snapshots', `task_id IN (${marks})`, ids);
-      // Follow-up rows reference the introduction, so clear them before introductions disappear.
-      drop('explanation_followups',`introduction_id IN (SELECT id FROM introductions WHERE task_id IN (${marks}))`,ids);
-      for (const table of ['artifacts','agent_runs','notices','events','introductions','commit_contexts']) drop(table,`task_id IN (${marks})`,ids);
+      for (const table of ['artifacts','agent_runs','notices','events','commit_contexts']) drop(table,`task_id IN (${marks})`,ids);
       drop('messages',`task_id IN (${marks}) OR sender_id IN (${marks})`,[...ids,...ids]);
       drop('task_deps',`task_id IN (${marks}) OR depends_on IN (${marks})`,[...ids,...ids]);
       drop('task_specs',`planner_task_id IN (${marks})`,ids);

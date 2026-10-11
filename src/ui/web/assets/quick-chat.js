@@ -1,16 +1,30 @@
 import { api } from './api.js';
 import { $, el } from './dom.js';
 import { show } from './messages.js';
-import { projectRoute } from './route.js';
+import { projectRoute, projectBase } from './route.js';
+import { workerLabel } from './worker-label.js';
 import { ui } from './state.js';
 
-export const quickChatConfig = () => api('/api/host/quick-chat/config');
-export const quickChatAction = (method, params) => api('/api/host/quick-chat/action', {
-  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }),
-});
+export function requireChatProject() {
+  const project = projectRoute();
+  if (!project) throw new Error('快速对话需要明确的项目页面；请先打开项目。');
+  return project;
+}
+export const quickChatConfig = () => { requireChatProject(); return api('/api/quick-chat/config'); };
+export const quickChatAction = (method, params) => {
+  requireChatProject();
+  return api('/api/quick-chat/action', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }),
+  });
+};
+export function chatHref(hash = '#quick-chat') { requireChatProject(); return `${projectBase()}/${hash}`; }
+export function chatLocation(location = {}) {
+  return [location.view && `页面 ${location.view}`, location.section && `位置 ${location.section}`,
+    location.task_id != null && `Worker ${workerLabel(location.task_id, location.task_worker_number)}`, location.path].filter(Boolean).join(' · ') || '当前页面';
+}
 export function conversationHref(id) {
   if (!Number.isSafeInteger(id) || id < 1) throw new Error('对话编号无效');
-  return `/#quick-chat-C${id}`;
+  return chatHref(`#quick-chat-C${id}`);
 }
 /** Open synchronously in the user gesture, before any model/API await. */
 export function prepareConversationTab() {
@@ -21,8 +35,7 @@ export function prepareConversationTab() {
   } catch { return null; }
 }
 export function closeConversationTab(tab) { try { if (tab && !tab.closed) tab.close(); } catch {} }
-export function openConversationResult(record, tab, holder = null) {
-  const href = conversationHref(record.id);
+export function openConversationResult(record, tab, holder = null, href = conversationHref(record.id)) {
   try {
     if (tab && !tab.closed) { tab.location.replace(href); return; }
   } catch { /* The accepted conversation remains readable through the fallback link. */ }
@@ -50,10 +63,16 @@ export function chatReferences(values) {
 }
 export async function startSelectionChat(promptId, quote, reference) {
   if (!quote.trim() || quote.length > 8192) { show('选区最多 8192 字；没有截断或发送，请缩短选区。', 'error'); return; }
+  const project = requireChatProject(), base = projectBase(), owner = globalThis.document;
   const tab = prepareConversationTab();
   try {
     const record = await quickChatAction('start', { prompt_id: promptId, content: '', references: chatReferences([{ ...reference, quote }]) });
-    openConversationResult(record, tab);
+    const href = `${base}/#quick-chat-C${record.id}`;
+    if (owner === globalThis.document && projectRoute() === project) openConversationResult(record, tab, null, href);
+    else { try { tab?.location.replace(href); } catch {} }
     return record;
-  } catch (error) { closeConversationTab(tab); show(`快速对话创建未确认：${error.message}；请先核对历史，不要自动重发。`, 'error'); }
+  } catch (error) {
+    closeConversationTab(tab);
+    if (owner === globalThis.document && projectRoute() === project) show(`快速对话创建未确认：${error.message}；请先核对项目对话历史，不要自动重发。`, 'error');
+  }
 }

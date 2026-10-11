@@ -4,7 +4,8 @@ import { ui } from './state.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { modelHelp } from './help.js';
 import { confirmDialog } from './dialog.js';
-import { quickChatAction, quickChatConfig } from './quick-chat.js';
+import { quickChatAction, quickChatConfig, chatHref, conversationHref, requireChatProject, chatReferences } from './quick-chat.js';
+import { projectRoute } from './route.js';
 import { composerReferences, setComposerReferences } from './context-references.js';
 
 const statusText = status => ({ running: '回复中', completed: '已完成', failed: '失败' }[status] || '状态未知');
@@ -21,11 +22,12 @@ function keyboard(input, send) {
   };
 }
 function page(view, options = {}) {
+  const project = requireChatProject();
   ui.disposeQuickChatPage?.();
   const identity = activateDetailView({ view, ...options }), owner = globalThis.document;
   const state = { identity, disposed: false, timer: null, controller: new AbortController() };
   ui.quickChatPage = state;
-  const owns = () => !state.disposed && ui.quickChatPage === state && ui.view === identity && globalThis.document === owner;
+  const owns = () => !state.disposed && ui.quickChatPage === state && ui.view === identity && globalThis.document === owner && projectRoute() === project;
   ui.disposeQuickChatPage = () => {
     state.disposed = true; clearTimeout(state.timer); state.controller.abort(); ui.syncQuickChatReferences = null;
   };
@@ -55,12 +57,12 @@ function referencesView(values, removeReference = null) {
 export async function openQuickChatPage() {
   const { owns, root, read } = page('quick-chat');
   root.append(el('h1', '快速对话'), el('p', '纯文本记录、整理与交流，不创建 Worker、不执行工具。每段多轮对话保存为一条 C 编号历史。', 'hint'),
-    link('Prompt 与模型设置', '/#quick-chat-settings'));
+    link('Prompt 与模型设置', chatHref('#quick-chat-settings')));
   const form = el('form', undefined, 'quick-chat-form'), prompt = field('select', 'prompt_id'), input = field('textarea', 'content');
   input.rows = 4; input.maxLength = 8192; input.placeholder = '想记录、整理或了解什么？也可以仅发送引用。';
   const refs = el('div'), note = el('p', '正在读取 Prompt…', 'hint'); note.setAttribute('role', 'status');
   let config = null, sending = false, edits = 0;
-  const send = button('开始对话', submit, 'primary', { agent: true, help: modelHelp('使用所选 Prompt、正文与引用快照开始一段纯文本对话，保存在全局历史；不创建 Worker') });
+  const send = button('开始对话', submit, 'primary', { agent: true, help: modelHelp('使用所选 Prompt、正文与引用快照开始一段纯文本对话，保存在当前项目历史；不创建 Worker') });
   send.onclick = submit;
   const sendHost = el('span', undefined, 'help-host'); sendHost.setAttribute('data-help', modelHelp('等待配置就绪或当前请求结束；只直连模型，不调用 Agent')); sendHost.append(send);
   const sync = () => {
@@ -79,12 +81,12 @@ export async function openQuickChatPage() {
     const content = input.value, captured = composerReferences(), referenceRevision = ui.composerReferenceRevision, revision = edits, chosen = prompt.value;
     sending = true; sync();
     try {
-      const record = await quickChatAction('start', { prompt_id: chosen, content: content.trim(), references: captured });
+      const record = await quickChatAction('start', { prompt_id: chosen, content: content.trim(), references: chatReferences(captured) });
       if (!owns()) return;
       const untouched = revision === edits && input.value === content && prompt.value === chosen && ui.composerReferenceRevision === referenceRevision;
       note.textContent = `对话 ${record.number} 已创建。`;
       if (untouched) { input.value = ''; setComposerReferences([]); return openQuickChatConversation(record.id); }
-      const opened = link(`打开已创建的对话 ${record.number}（新标签）`, `/#quick-chat-C${record.id}`); opened.target = '_blank'; opened.rel = 'noopener'; root.append(opened);
+      const opened = link(`打开已创建的对话 ${record.number}（新标签）`, conversationHref(record.id)); opened.target = '_blank'; opened.rel = 'noopener'; root.append(opened);
       note.textContent += ' 你随后编辑的内容保留在此页，未发送；可点击链接查看已创建对话。';
     } catch (error) { if (owns()) note.textContent = `创建未确认：${error.message}；内容保留，请先核对历史，不要自动重发。`; }
     finally { sending = false; sync(); }
@@ -97,12 +99,12 @@ export async function openQuickChatPage() {
     if (!owns() || loading) return;
     const ticket = ++generation; loading = true; more.disabled = true;
     try {
-      const data = await read(`/api/host/quick-chat/history?limit=30${append && before ? `&before=${before}` : ''}`);
+      const data = await read(`/api/quick-chat/history?limit=30${append && before ? `&before=${before}` : ''}`);
       if (!owns() || ticket !== generation) return;
       if (!append) rows.replaceChildren();
       for (const record of data.conversations || []) {
         const item = el('article', undefined, 'quick-chat-history-row');
-        item.append(link(`${record.number} · ${statusText(record.status)} · ${record.content || record.prompt_name || '引用对话'}`, `/#quick-chat-C${record.id}`),
+        item.append(link(`${record.number} · ${statusText(record.status)} · ${record.content || record.prompt_name || '引用对话'}`, conversationHref(record.id)),
           el('p', `${record.prompt_name || 'Prompt 未知'} · ${record.model || '模型未知'} · ${record.turn_count || 0} 轮 · ${record.created_at || ''}`, 'hint'));
         rows.append(item);
       }
@@ -122,7 +124,7 @@ export async function openQuickChatPage() {
 
 export async function openQuickChatConversation(id) {
   const { state, owns, root, read } = page('quick-chat-conversation', { key: `quick-chat-C${id}`, title: `快速对话 C${id}`, hash: `#quick-chat-C${id}` });
-  root.append(el('h1', `快速对话 C${id}`), link('全部对话 / 新对话', '/#quick-chat'));
+  root.append(el('h1', `快速对话 C${id}`), link('全部对话 / 新对话', chatHref()));
   const metadata = el('section'), thread = el('div', undefined, 'quick-chat-thread'), note = el('p', '', 'hint'); note.setAttribute('role', 'status');
   const input = field('textarea', 'reply'); input.rows = 4; input.maxLength = 8192; input.placeholder = '继续这段纯文本对话';
   let record = null, sending = false, reading = false, edits = 0, readGeneration = 0, renderedSignature = null;
@@ -156,7 +158,7 @@ export async function openQuickChatConversation(id) {
   }
   async function load() {
     if (!owns() || reading || sending) return; reading = true; const generation = readGeneration;
-    try { const next = await read(`/api/host/quick-chat/${id}`); if (!owns() || generation !== readGeneration) return; record = next; paint(); note.textContent = record.status === 'running' ? '当前轮进行中，关闭页面不取消调用。' : record.status === 'failed' ? '本轮失败；已有消息保留，可以明确发送新消息继续。' : ''; }
+    try { const next = await read(`/api/quick-chat/${id}`); if (!owns() || generation !== readGeneration) return; record = next; paint(); note.textContent = record.status === 'running' ? '当前轮进行中，关闭页面不取消调用。' : record.status === 'failed' ? '本轮失败；已有消息保留，可以明确发送新消息继续。' : ''; }
     catch (error) { if (owns() && generation === readGeneration) note.textContent = `对话读取失败：${error.message}；可刷新重试。`; }
     finally { reading = false; clearTimeout(state.timer); if (owns() && !sending && (record?.status === 'running' || record && signature() !== renderedSignature)) state.timer = setTimeout(load, 1200); }
   }
@@ -185,8 +187,8 @@ export async function openQuickChatConversation(id) {
 
 export async function openQuickChatSettings() {
   const { owns, root } = page('quick-chat-settings');
-  root.append(el('h1', '快速对话设置'), link('对话历史 / 新对话', '/#quick-chat'),
-    el('p', '所有 Prompt 共用设备模型。保存不调用模型；注册到右键菜单后，点击该动作才发起纯文本对话。', 'hint'));
+  root.append(el('h1', '快速对话设置'), link('对话历史 / 新对话', chatHref()),
+    el('p', 'Prompt 库与右键注册只属于当前项目，所有项目共用设备模型。保存不调用模型；注册到右键菜单后，点击该动作才发起纯文本对话。', 'hint'));
   const library = el('section', undefined, 'quick-chat-library'), models = el('section'); root.append(library, models);
   let config = null, saving = false, edits = 0;
   const picker = field('select', 'edit_prompt'), name = field('input', 'name'), body = field('textarea', 'prompt'), menu = field('input', 'context_menu');
@@ -244,7 +246,7 @@ export async function openQuickChatSettings() {
     catch (error) { if (owns()) note.textContent = `删除失败：${error.message}；请保留编辑并重新读取。`; }
     finally { saving = false; if (owns()) sync(); }
   }
-  sync(); await Promise.all([reload(), import('./render-quick-explanation.js').then(module => {
-    if (owns()) return module.openQuickExplanationPage({ container: models, ownsPage: owns, modelOnly: true });
+  sync(); await Promise.all([reload(), import('./quick-chat-model.js').then(module => {
+    if (owns()) return module.renderChatModel({ container: models, ownsPage: owns });
   })]);
 }

@@ -18,7 +18,7 @@ const { boot } = await import('../../src/ui/web/assets/app.js');
 const field = name => dom.node('detail').querySelector(`[data-chat-field="${name}"]`);
 const ref = () => ({ version: 1, kind: 'text', target: {}, quote: '引用内容\n第二行', label: '所选文字', location: { view: 'docs' }, captured_at: '2026-10-01T00:00:00Z' });
 const json = data => ({ ok: true, status: 200, json: async () => data });
-const actionCalls = () => calls.filter(call => call.url === '/api/host/quick-chat/action').map(call => JSON.parse(call.options.body));
+const actionCalls = () => calls.filter(call => call.url === '/p/aaaaaaaaaaaaaaaa/api/quick-chat/action').map(call => JSON.parse(call.options.body));
 const record = (id = 1, extra = {}) => ({ id, number: `C${id}`, status: 'completed', content: '初次问题', references: [ref()],
   prompt: { id: 'explain', name: '当时的 Prompt', prompt: '原 Prompt 正文' }, model: 'original-model', source: { label: '原来源', endpoint: 'https://old.invalid' },
   turns: [{ id: 1, content: '初次问题', result: '模型回答\n第二行', status: 'completed', truncated: false }], ...extra });
@@ -53,7 +53,7 @@ test('引用后切换第三输入模式，选择 Prompt 不调用模型；仅引
   expect(dom.node('draft-commit').disabled).toBe(false);
   await dom.node('input-form').onsubmit({ preventDefault() {} });
   expect(actionCalls()).toEqual([{ method: 'start', params: { prompt_id: 'saved', content: '', references: [{ ...ref(), project_id: 'aaaaaaaaaaaaaaaa' }] } }]);
-  expect(world.state.actions).toHaveLength(0); expect(tabs).toHaveLength(1); expect(tabs[0].opener).toBeNull(); expect(tabs[0].href).toBe('/#quick-chat-C1');
+  expect(world.state.actions).toHaveLength(0); expect(tabs).toHaveLength(1); expect(tabs[0].opener).toBeNull(); expect(tabs[0].href).toBe('/p/aaaaaaaaaaaaaaaa/#quick-chat-C1');
   expect(dom.location.pathname).toBe(oldPath); expect(ui.view).toBe(oldView); expect(composerReferences()).toHaveLength(0);
 });
 
@@ -89,17 +89,17 @@ test('快速对话双击单飞，预开标签在请求前；迟到 ACK 不清掉
   await dom.node('input-form').onsubmit({ preventDefault() {} }); expect(actionCalls()).toHaveLength(1);
   dom.node('input').value = '新文字'; dom.node('input').oninput(); addComposerReference(ref());
   done(json(record(8))); await sending;
-  expect(dom.node('input').value).toBe('新文字'); expect(composerReferences()).toHaveLength(1); expect(tabs[0].href).toBe('/#quick-chat-C8');
+  expect(dom.node('input').value).toBe('新文字'); expect(composerReferences()).toHaveLength(1); expect(tabs[0].href).toBe('/p/aaaaaaaaaaaaaaaa/#quick-chat-C8');
 });
 
 test('快速对话请求失败保留原文引用并关闭占位页，标签拦截仍提供可见链接不重发', async () => {
   await openComposerChat(); dom.node('input').value = '保留我'; dom.node('input').oninput(); addComposerReference(ref());
   intercept = url => url.endsWith('/quick-chat/action') ? Promise.reject(new Error('来源不可用')) : null;
   await dom.node('input-form').onsubmit({ preventDefault() {} }); expect(dom.node('input').value).toBe('保留我'); expect(composerReferences()).toHaveLength(1); expect(tabs[0].closed).toBe(true);
-  expect(dom.node('error').textContent).toContain('先核对全局历史');
+  expect(dom.node('error').textContent).toContain('先核对项目对话历史');
   intercept = null; dom.window.open = () => null;
   await dom.node('input-form').onsubmit({ preventDefault() {} });
-  expect(dom.node('quick-chat-open-result').hidden).toBe(false); expect(dom.node('quick-chat-open-result').querySelector('a').href).toBe('/#quick-chat-C1');
+  expect(dom.node('quick-chat-open-result').hidden).toBe(false); expect(dom.node('quick-chat-open-result').querySelector('a').href).toBe('/p/aaaaaaaaaaaaaaaa/#quick-chat-C1');
   expect(actionCalls()).toHaveLength(2);
 });
 
@@ -112,13 +112,16 @@ test('中文输入法、触屏回车与 Shift+Enter 不误发，桌面 Enter 仅
   expect(actionCalls()[0].method).toBe('start'); expect(world.state.actions).toHaveLength(0);
 });
 
-test('根和离线项目的选区右键使用全局库，只注册开启的 Prompt，无选区不调用', async () => {
-  dom.location.pathname = '/'; dom.location.hash = ''; intercept = url => url === '/api/host' ? json({ mode: 'host', projects: [] }) : null; await boot(); calls.length = 0;
+test('根选区无模型入口，已登记离线项目仍使用本项目 Prompt，只注册开启项', async () => {
+  dom.location.pathname = '/'; dom.location.hash = ''; await boot(); calls.length = 0;
   const target = dom.document.createElement('p'); target.textContent = '页面文字'; dom.setSelection('原选区\n第二行');
   await dom.fire('contextmenu', { target, preventDefault() {} }); const menu = dom.node('context-menu');
+  expect(findByText(menu, '快速解释')).toBeNull(); expect(calls.some(call => call.url.includes('quick-chat'))).toBe(false);
+  dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/'; intercept = url => url === '/api/host' ? json({ mode: 'host', projects: [{ id: 'aaaaaaaaaaaaaaaa', running: false }] }) : null; await boot(); calls.length = 0;
+  await dom.fire('contextmenu', { target, preventDefault() {} });
   expect(findByText(menu, '快速解释')).toBeTruthy(); expect(findByText(menu, '速记整理')).toBeTruthy(); expect(findByText(menu, '仅保存')).toBeNull();
-  await findByText(menu, '速记整理').onclick(); expect(actionCalls()).toHaveLength(1); expect(actionCalls()[0].params.references[0].quote).toBe('原选区\n第二行'); expect(tabs[0].href).toBe('/#quick-chat-C1');
-  expect(calls.some(call => /^\/p\//.test(call.url))).toBe(false);
+  await findByText(menu, '速记整理').onclick(); expect(actionCalls()).toHaveLength(1); expect(actionCalls()[0].params.references[0].quote).toBe('原选区\n第二行'); expect(tabs[0].href).toBe('/p/aaaaaaaaaaaaaaaa/#quick-chat-C1');
+  expect(calls.filter(call => call.url.includes('quick-chat')).every(call => call.url.startsWith('/p/aaaaaaaaaaaaaaaa/api/quick-chat/'))).toBe(true);
   world.state.quickChatPrompts[0].context_menu = false;
   await dom.fire('contextmenu', { target, preventDefault() {} }); expect(findByText(menu, '快速解释')).toBeNull();
   dom.setSelection(''); await dom.fire('contextmenu', { target, preventDefault() {} }); expect(findByText(menu, '速记整理')).toBeNull();
@@ -135,14 +138,13 @@ test('超长选区拒绝原文发送而非截断；菜单迟到配置不能重�
   expect(dom.node('context-menu').hidden).toBe(true);
 });
 
-test('根历史有界分页和 C 编号，普通链接打开独立详情，旧书签引导新设置', async () => {
-  dom.location.pathname = '/';
+test('项目历史有界分页和 C 编号，详情与设置深链接不跳全局', async () => {
   for (let id = 1; id <= 35; id++) world.state.quickChats.set(id, record(id));
   await openQuickChatPage(); expect(dom.node('detail').querySelectorAll('.quick-chat-history-row')).toHaveLength(30);
   await findByText(dom.node('detail'), '加载更早对话').onclick(); expect(dom.node('detail').querySelectorAll('.quick-chat-history-row')).toHaveLength(35);
-  expect(dom.node('detail').querySelector('.quick-chat-history-row').querySelector('a').href).toBe('/#quick-chat-C35');
+  expect(dom.node('detail').querySelector('.quick-chat-history-row').querySelector('a').href).toBe('/p/aaaaaaaaaaaaaaaa/#quick-chat-C35');
   dom.location.hash = '#quick-chat-C35'; await dom.fire('hashchange'); expect(ui.view.key).toBe('quick-chat-C35'); expect(deepText(dom.node('detail'))).toContain('快速对话 C35');
-  dom.location.hash = '#quick-explain'; await dom.fire('hashchange'); expect(ui.view.id).toBe('quick-chat-settings'); expect(deepText(dom.node('detail'))).toContain('Prompt 库');
+  dom.location.hash = '#quick-chat-settings'; await dom.fire('hashchange'); expect(ui.view.id).toBe('quick-chat-settings'); expect(deepText(dom.node('detail'))).toContain('Prompt 库');
 });
 
 test('独立对话显示来源、Prompt、引用和完整轮次；追问留在 C 编号且在途编辑保留', async () => {
@@ -189,7 +191,7 @@ test('旧刷新响应不能覆盖新消息确认，对话仍按确认后的状�
   expect(deepText(dom.node('detail'))).toContain('新消息'); expect(deepText(dom.node('detail'))).toContain('继续对话示例');
 });
 
-test('对话删除先确认，取消不发请求，成功返回全局历史', async () => {
+test('对话删除先确认，取消不发请求，成功返回项目历史', async () => {
   world.state.quickChats.set(1, record()); await openQuickChatConversation(1);
   let deleting = findByText(dom.node('detail'), '删除对话').onclick(); await dialogButton(dom, '保留').onclick(); await deleting; expect(actionCalls()).toHaveLength(0);
   deleting = findByText(dom.node('detail'), '删除对话').onclick(); await dialogButton(dom, '删除').onclick(); await deleting;
@@ -218,8 +220,8 @@ test('Prompt 版本冲突保留编辑，保存 ACK 保留在途新编辑，共�
   await findByText(dom.node('detail'), '保存模型设置').onclick(); expect(world.state.actions.at(-1).params.config).not.toHaveProperty('prompt');
 });
 
-test('根新建对话接收全局引用，无项目可开始；在途新编辑不被详情跳转吞掉', async () => {
-  dom.location.pathname = '/'; await openQuickChatPage(); addComposerReference(ref()); expect(findByText(dom.node('detail'), '开始对话').disabled).toBe(false);
+test('项目新建对话接收引用；在途新编辑不被详情跳转吞掉', async () => {
+  await openQuickChatPage(); addComposerReference(ref()); expect(findByText(dom.node('detail'), '开始对话').disabled).toBe(false);
   let resolve; intercept = url => url.endsWith('/quick-chat/action') ? new Promise(done => { resolve = done; }) : null;
   const pending = findByText(dom.node('detail'), '开始对话').onclick(); await until(() => resolve);
   field('content').value = '下一段'; field('content').oninput(); resolve(json(record(7))); await pending;
@@ -251,8 +253,8 @@ test('Prompt 显式重读期间切换选择和编辑不被迟到配置覆盖，�
   expect(actionCalls()[0].params).toMatchObject({ expected_revision: 'new-read-revision', prompt: { id: 'saved', name: '重读时编辑', prompt: '新的未保存正文', context_menu: true } });
 });
 
-test('根新建引用可逐项移除，数量/字节上限可补救；历史引用保持只读', async () => {
-  dom.location.pathname = '/'; await openQuickChatPage(); const send = findByText(dom.node('detail'), '开始对话');
+test('项目新建引用可逐项移除，数量/字节上限可补救；历史引用保持只读', async () => {
+  await openQuickChatPage(); const send = findByText(dom.node('detail'), '开始对话');
   expect(send.disabled).toBe(true); addComposerReference(ref()); expect(send.disabled).toBe(false);
   const remove = findByText(dom.node('detail'), '移除引用'); expect(remove.getAttribute('data-help')).toContain('不调用模型'); expect(remove.classList.contains('agent-call')).toBe(false);
   await remove.onclick(); expect(composerReferences()).toHaveLength(0); expect(send.disabled).toBe(true); expect(actionCalls()).toHaveLength(0);
@@ -278,8 +280,8 @@ test('执行详情选区调用被弹窗拦截时，顶层内有可见链接且�
     dom.window.open = () => null; dom.setSelection('执行详情中的选区');
     await dom.fire('contextmenu', { target, preventDefault() {} }); await findByText(dom.node('context-menu'), '快速解释').onclick();
     const local = panel.querySelector('[data-chat-result="true"]'); expect(local).toBeTruthy(); expect(local.hidden).toBe(false);
-    expect(local.querySelector('a').href).toBe('/#quick-chat-C1'); expect(local.querySelector('a').target).toBe('_blank'); expect(local.querySelector('a').rel).toBe('noopener');
-    expect(outer.querySelector('a').href).toBe('/#quick-chat-C1'); expect(actionCalls()).toHaveLength(1);
+    expect(local.querySelector('a').href).toBe('/p/aaaaaaaaaaaaaaaa/#quick-chat-C1'); expect(local.querySelector('a').target).toBe('_blank'); expect(local.querySelector('a').rel).toBe('noopener');
+    expect(outer.querySelector('a').href).toBe('/p/aaaaaaaaaaaaaaaa/#quick-chat-C1'); expect(actionCalls()).toHaveLength(1);
     expect(ui.view).toBe(originalView); expect(viewport.scrollTop).toBe(120); expect(dom.node('input').value).toBe('原项目输入'); expect(dom.window.getSelection().toString()).toBe('执行详情中的选区');
     closeTranscriptView(); expect(dom.document.body.querySelector('[data-chat-result="true"]')).toBeNull(); expect(ui.transcriptView).toBeNull();
     expect(outer.parentNode).toBe(dom.document.body); expect(outer.hidden).toBe(false); expect(dom.node('detail').scrollTop).toBe(240); expect(actionCalls()).toHaveLength(1);

@@ -1,4 +1,5 @@
 import { $, button, el } from './dom.js';
+import { projectRoute } from './route.js';
 import { attachComposerViewport, usesTouchEnter } from './composer-viewport.js';
 import { workerKind } from './worker-kind.js';
 import { action, api } from './api.js';
@@ -205,14 +206,18 @@ export function toggleComposerDetails(force) {
   if (ui.composerExpanded) return loadComposerParents();
 }
 export async function openComposerChat() {
-  const mode = { config: null, promptId: '', error: null };
+  if (!projectRoute()) { show('快速对话需要明确的项目页面。', 'error'); return; }
+  const mode = { config: null, promptId: '', error: null, project: projectRoute() };
   const identity = ui.composerIdentity;
   ui.composerAppendTarget = null; ui.composerChatMode = mode; syncComposer(); $('input').focus();
   try {
     const module = await import('./quick-chat.js');
+    if (ui.composerIdentity !== identity || ui.composerChatMode !== mode || projectRoute() !== mode.project) return;
     const config = await module.quickChatConfig();
-    if (ui.composerIdentity !== identity || ui.composerChatMode !== mode) return;
-    chatModule = module; mode.config = config;
+    if (ui.composerIdentity !== identity || ui.composerChatMode !== mode || projectRoute() !== mode.project) return;
+    chatModule = module;
+    const settings = $('composer-chat-controls').querySelector('a'); if (settings) settings.href = module.chatHref('#quick-chat-settings');
+    mode.config = config;
     const select = $('composer-chat-prompt'); select.replaceChildren();
     for (const prompt of config.prompts || []) { const node = el('option', prompt.name); node.value = prompt.id; select.append(node); }
     mode.promptId = config.prompts?.[0]?.id || ''; select.value = mode.promptId;
@@ -223,13 +228,13 @@ function syncChatComposer() {
   const mode = ui.composerChatMode, input = $('input'), config = mode.config;
   $('input-form').dataset.mode = 'chat'; $('input-form').dataset.blocked = 'false';
   $('composer-mode-icon').textContent = '◌'; $('composer-mode-title').textContent = '快速对话 · 新对话';
-  $('composer-mode-target').textContent = '全局 C 编号历史 · 纯文本交流 · 不创建 Worker';
+  $('composer-mode-target').textContent = '当前项目 C 编号历史 · 纯文本交流 · 不创建 Worker';
   $('composer-mode-behavior').textContent = mode.error || (config ? config.model?.ready
     ? '选择 Prompt 不调用模型 · 发送后新标签打开对话 · 原页面保留'
     : config.model?.reason || '请先配置模型来源' : '正在读取 Prompt…');
   input.disabled = false; input.placeholder = '输入对引用的要求，或仅发送引用 · Shift+Enter 换行'; input.setAttribute('aria-label', input.placeholder);
   const disabled = ui.composerSubmitting || !config?.model?.ready || !mode.promptId || (!input.value.trim() && !composerReferences().length);
-  const help = modelHelp('使用所选 Prompt、正文和引用快照开始一段全局纯文本对话，新标签打开；不创建 Worker、不执行工具。');
+  const help = modelHelp('使用所选 Prompt、正文和引用快照开始一段项目纯文本对话，新标签打开；不创建 Worker、不执行工具。');
   const send = $('draft-commit'); send.disabled = Boolean(disabled); send.textContent = '开始对话'; send.classList.add('agent-call'); send.classList.remove('hook-button'); send.setAttribute('data-help', help); $('input-send-help')?.setAttribute('data-help', help);
   $('input-start').hidden = true; $('input-start-help').hidden = true;
   $('input-buffer').hidden = true; $('input-buffer-help').hidden = true;
@@ -243,18 +248,21 @@ async function submitChat() {
   const value = input.value, references = composerReferences(), editRevision = ui.composerEditRevision, referenceRevision = ui.composerReferenceRevision, promptId = mode.promptId;
   if (!value.trim() && !references.length) return;
   if (value.length > 8192) { show('快速对话内容最多 8192 字；输入与引用保留。', 'error'); return; }
+  if (projectRoute() !== mode.project) return;
+  const href = chatModule.chatHref('#quick-chat-C'), owner = globalThis.document;
   const tab = chatModule.prepareConversationTab(); ui.composerSubmitting = true; syncComposer();
   try {
     const record = await chatModule.quickChatAction('start', { prompt_id: promptId, content: value.trim(), references: chatModule.chatReferences(references) });
     // Delivery owns its pre-opened tab even if the original project navigated away in flight.
-    chatModule.openConversationResult(record, tab);
-    if (ui.composerIdentity !== identity) return;
+    if (owner === globalThis.document && projectRoute() === mode.project) chatModule.openConversationResult(record, tab, null, `${href}${record.id}`);
+    else { try { tab?.location.replace(`${href}${record.id}`); } catch {} }
+    if (ui.composerIdentity !== identity || owner !== globalThis.document || projectRoute() !== mode.project) return;
     const untouched = ui.composerChatMode === mode && mode.promptId === promptId && input.value === value
       && ui.composerEditRevision === editRevision && ui.composerReferenceRevision === referenceRevision;
     if (untouched) { input.value = ''; textEditor?.reset(); setComposerReferences([]); }
   } catch (error) {
     chatModule.closeConversationTab(tab);
-    if (ui.composerIdentity === identity) show(`创建对话未确认：${error.message}；输入保留，请先核对全局历史，不要自动重发。`, 'error');
+    if (ui.composerIdentity === identity && owner === globalThis.document && projectRoute() === mode.project) show(`创建对话未确认：${error.message}；输入保留，请先核对项目对话历史，不要自动重发。`, 'error');
   } finally { if (ui.composerIdentity === identity) { ui.composerSubmitting = false; syncComposer(); } }
 }
 export function syncComposer() {

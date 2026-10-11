@@ -15,14 +15,14 @@ for (const role of [...Object.keys(config.resolved), 'manager']) config.resolved
 const source = { id, label: '用于验证布局的长名称模型来源 '.repeat(4), provider: 'openai-compatible', enabled: true, auth_type: 'api_key',
   endpoint: `https://example.invalid/${'long-endpoint/'.repeat(12)}v1`, models: ['vendor/chat', 'vendor/second-model'], default_model: 'vendor/chat', credential: { status: 'configured' } };
 const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-${['styles.css', 'styles-core.css', 'styles-agent-status.css', 'styles-agent-connections.css', 'styles-hooks.css', 'styles-quick-explanation.css'].map(name => `<link rel="stylesheet" href="/assets/${name}">`).join('')}
+${['styles.css', 'styles-core.css', 'styles-agent-status.css', 'styles-agent-connections.css', 'styles-hooks.css', 'styles-quick-chat.css'].map(name => `<link rel="stylesheet" href="/assets/${name}">`).join('')}
 </head><body style="margin:0;padding:12px;box-sizing:border-box"><div id="detail"></div><div id="modal" hidden></div><div id="error"></div>
 <script type="module">
 import { createAgentConnectionPicker } from '/assets/agent-connection-picker.js';
 import { createProfileForm } from '/assets/agent-profile-form.js';
 import { createManagementProfileForm } from '/assets/management-profile-form.js';
 import { renderAgentSettings } from '/assets/render-settings.js';
-import { openQuickExplanationPage } from '/assets/render-quick-explanation.js';
+import { renderChatModel } from '/assets/quick-chat-model.js';
 window.errors=[];addEventListener('error',e=>errors.push(e.message));addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
 const config=${JSON.stringify(config)};
 const attach=(name,node)=>{const section=document.createElement('section');section.dataset.fixture=name;const title=document.createElement('h2');title.textContent=name;section.append(title,node);document.body.append(section);return section;};
@@ -32,7 +32,7 @@ const manager=createManagementProfileForm(config);attach('管理Agent',manager.n
 const backend=document.createElement('select');backend.value='';const opt=document.createElement('option');opt.value='pi';backend.append(opt);backend.value='pi';
 const model=document.createElement('input');model.value=config.default.model;
 const picker=createAgentConnectionPicker({backend,model,connectionId:config.default.connection_id});attach('共享模型选择器',picker.node);await picker.load();
-await openQuickExplanationPage();document.querySelector('#detail').dataset.fixture='快捷解释';
+await renderChatModel({container:document.querySelector('#detail'),ownsPage:()=>true});document.querySelector('#detail').dataset.fixture='快捷解释';
 window.forms={form,manager,picker};window.ready=true;
 </script></body></html>`;
 const calls = [];
@@ -112,7 +112,7 @@ try {
       if(document.documentElement.scrollWidth>innerWidth)errors.push('expanded horizontal overflow');
       advanced.open=false;
       if(document.documentElement.scrollWidth>innerWidth)errors.push('horizontal overflow');
-      return {errors,groups:groups.length,browserErrors:window.errors,configurationError:document.querySelector('.quick-explanation-settings')?.textContent.includes('配置读取失败')};`);
+      return {errors,groups:groups.length,browserErrors:window.errors,configurationError:document.querySelector('.quick-chat-model')?.textContent.includes('配置读取失败')};`);
     assert(result.groups === 5 && !result.errors.length && !result.browserErrors.length, `${theme} ${width}: ${JSON.stringify(result)}`);
     console.log(`PASS ${theme} ${width}px: five model groups, adjacent controls, explicit labels, draft/selection sync, no overflow`);
   }

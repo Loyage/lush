@@ -1,7 +1,6 @@
 import { Workspaces } from '../workspaces.js';
 import { AgentProvider, MockProvider } from '../../agent/provider.js';
 import { AgentSettings } from '../../agent/settings.js';
-import { QuickIntroSettings } from '../quick-intro.js';
 import { QuickExplanationSettings } from '../quick-explanation.js';
 import { AgentUsageService } from '../agent-usage.js';
 import { AgentConnectionsService } from '../agent-connections.js';
@@ -16,9 +15,7 @@ export class ProjectBase {
   constructor(config, store, provider = null, options = {}) {
     this.config = config; this.store = store;
     this.agentSettings = new AgentSettings(config);
-    this.quickIntro = new QuickIntroSettings(config);
     this.quickExplanationSettings = new QuickExplanationSettings(config);
-    this.quickExplanationOptions = options.quickExplanation ?? {};
     this.provider = provider || (config.provider === 'mock' ? new MockProvider() : new AgentProvider(config, this.agentSettings));
     this.workspaces = new Workspaces(config, store);
     // Internal runtime safety seam for direct user cleanup; Workspaces alone owns no invocation/command facts.
@@ -30,8 +27,6 @@ export class ProjectBase {
     this.clearing = false;
     // 已经获准、正在跨 await 的异步写入；clear 先等它们收尾再 purge。
     this.writing = 0; this.writeIdle = Promise.resolve(); this.writeIdleResolve = null;
-    // 直连模型的「快速介绍」不是任务，不进 running；单独记在跑的那次调用，shutdown 时 abort 并等它落库。
-    this.introRunning = new Map();
     this.integratingIntents = new Set();
     // 一键合并的异步驱动状态：driving 表示某目标正有一轮在跑，避免同目标重复驱动。
     this.mergeRunsDriving = new Set();
