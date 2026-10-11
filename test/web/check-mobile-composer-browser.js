@@ -57,12 +57,17 @@ try{
   for(const theme of ['light','dark'])for(const [width,height]of [[320,700],[390,844],[760,700],[1440,900]]){
     await resize(width,height);await execute(`document.documentElement.dataset.theme='${theme}';window.touch=${width<=760};document.querySelector('#input').focus();`);
     assert(await wait(`document.querySelector('#input').getBoundingClientRect().bottom<=innerHeight+1`),'focus did not expose input');
-    assert(await execute(`return document.documentElement.scrollWidth<=innerWidth&&Array.from(document.querySelectorAll('.composer-actions button,.text-editor-controls button')).filter(b=>!b.hidden).every(b=>{const r=b.getBoundingClientRect();return r.right<=innerWidth+1&&(innerWidth>760||r.height>=44)});`),`clipped/small controls ${width} ${theme}`);
+    assert(await execute(`return document.querySelector('#composer-editor-tools').hidden&&document.querySelector('.text-editor-undo').getClientRects().length===0;`),`editor controls visible by default ${width} ${theme}`);
+    await click('#composer-expand');
+    assert(await execute(`return !document.querySelector('#composer-editor-tools').hidden&&document.querySelector('.text-editor-undo').getClientRects().length>0;`),`editor controls not expanded ${width} ${theme}`);
+    assert(await execute(`return document.documentElement.scrollWidth<=innerWidth&&Array.from(document.querySelectorAll('.composer-actions button,.text-editor-controls button')).filter(b=>b.getClientRects().length).every(b=>{const r=b.getBoundingClientRect();return r.right<=innerWidth+1&&(innerWidth>760||r.height>=44)});`),`clipped/small controls ${width} ${theme}`);
+    await click('#composer-expand');
     console.log(`PASS focus, wrapped controls, themes ${theme} ${width}x${height}`);
   }
   await resize(390,844);await execute(`window.touch=true;document.querySelector('#input').focus();`);
   await keys(['a','b','\uE007','c']);
   assert(await execute(`return document.querySelector('#input').value==='ab\\nc'&&window.calls.length===0`),'touch Enter did not insert native newline');
+  await click('#composer-expand');
   await click('.text-editor-undo');assert(await execute(`return document.querySelector('#input').value==='ab\\n'&&window.calls.length===0`),'undo submitted or restored wrong text');
   await click('.text-editor-redo');assert(await execute(`return document.querySelector('#input').value==='ab\\nc'`),'redo failed');
   await execute(`window.keyboard(420);document.querySelector('#input').focus();`);
@@ -72,7 +77,11 @@ try{
   assert(await execute(`return window.calls.length===1&&window.calls[0].method==='order.submit'&&window.calls[0].params.start===true&&document.querySelector('.text-editor-undo').disabled`),'start mode or history cleanup failed');
   await execute(`window.keyboard(innerHeight);window.frozen(true);document.querySelector('#input').focus();`);await keys(['x']);await click('#draft-commit');
   assert(await wait(`window.calls.length===2`),'deferred create not submitted');assert(await execute(`return window.calls[1].params.defer===true&&window.calls[1].params.start===false`),'frozen only-create accidentally starts');
-  await execute(`window.frozen(false);window.append();`);await keys(['z','\uE007']);
+  await click('#composer-expand');
+  await execute(`window.frozen(false);window.append();`);
+  await click('#composer-expand');
+  assert(await execute(`return !document.querySelector('#composer-editor-tools').hidden&&document.querySelector('#composer-details').hidden;`),'append more does not expose editor or exposes parent');
+  await execute(`document.querySelector('#input').focus();`);await keys(['z','\uE007']);
   assert(await execute(`return window.calls.length===2&&document.querySelector('#input-start').hidden`),'append enter sends or extra start remains');await click('#draft-commit');
   assert(await wait(`window.calls.length===3`),'append not submitted');assert(await execute(`return window.calls[2].method==='worker.message'`),'append created worker');
   console.log('PASS explicit start, only-create reservation, append mode and consumed undo history');

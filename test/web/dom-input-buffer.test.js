@@ -15,7 +15,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   }
   throw new Error(`Unexpected ${url}`);
 } });
-const { initComposer, buffer, syncComposer, loadComposerParents, appendToWorker, resetComposerMode } = await import('../../src/ui/web/assets/composer.js');
+const { initComposer, buffer, syncComposer, loadComposerParents, appendToWorker, resetComposerMode, toggleComposerDetails } = await import('../../src/ui/web/assets/composer.js');
 const { setComposerReferences, composerReferences } = await import('../../src/ui/web/assets/context-references.js');
 const { resetUiState, ui } = await import('../../src/ui/web/assets/state.js');
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
@@ -199,7 +199,18 @@ test('当前 Worker 追加键盘/按钮矩阵，隐藏暂存与父选择；返�
   openWorker();
   expect(input().placeholder).toContain('追加给 Worker #126');
   expect(dom.node('input-buffer').hidden).toBe(true);
-  expect(dom.node('composer-expand').hidden).toBe(true);
+  expect(dom.node('composer-expand').hidden).toBe(false);
+  const expand = dom.node('composer-expand'), tools = dom.node('composer-editor-tools');
+  toggleComposerDetails(false);
+  expect(tools.hidden).toBe(true);
+  expect(expand.getAttribute('data-help')).toContain('不改变追加目标');
+  await expand.onclick();
+  expect(tools.hidden).toBe(false);
+  expect(dom.node('composer-details').hidden).toBe(true);
+  expect(dom.node('composer-shortcuts').hidden).toBe(true);
+  expect(expand.getAttribute('aria-expanded')).toBe('true');
+  await expand.onclick();
+  expect(tools.hidden).toBe(true);
   for (const keys of [{}, { ctrlKey: true }, { metaKey: true }, { ctrlKey: true, shiftKey: true }]) {
     openWorker(); type('追加要求'); await enter(keys);
     expect(calls.at(-1)).toEqual({ method: 'worker.message', params: { id: 126, body: '追加要求' } });

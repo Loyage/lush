@@ -2,6 +2,7 @@ import { test, expect, afterAll } from 'bun:test';
 import { installDom } from './project-dom.js';
 import { until } from '../helpers.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
+import { editorEvent, editorInput } from './text-editor-events.js';
 
 // 输入区折叠 / 展开：默认只留一行输入 + 一行操作，父 Task 与快捷键说明点开才出现；
 // 折叠态仍能看到展开控件，以及已选父 Task 的痕迹。
@@ -23,10 +24,14 @@ afterAll(() => dom.restore());
 test('输入区默认折叠，展开后才出现父 Task 与快捷键，折叠态留下父 Task 痕迹', async () => {
   const details = dom.node('composer-details');
   const shortcuts = dom.node('composer-shortcuts');
+  const tools = dom.node('composer-editor-tools');
   const expand = dom.node('composer-expand');
   // 默认折叠：不依赖用户任何操作，父 Task 与快捷键都不可见。
   expect(details.hidden).toBe(true);
   expect(shortcuts.hidden).toBe(true);
+  expect(tools.hidden).toBe(true);
+  expect(tools.querySelector('.text-editor-undo')).not.toBeNull();
+  expect(tools.querySelector('.text-editor-redo')).not.toBeNull();
   expect(expand.getAttribute('aria-expanded')).toBe('false');
   expect(expand.getAttribute('data-help')).toContain('父 Worker');
   expect(expand.getAttribute('data-help')).toContain('快捷键');
@@ -38,10 +43,12 @@ test('输入区默认折叠，展开后才出现父 Task 与快捷键，折叠�
   expect(expand.getAttribute('aria-expanded')).toBe('true');
   expect(details.hidden).toBe(false);
   expect(shortcuts.hidden).toBe(false);
+  expect(tools.hidden).toBe(false);
   expect(expand.textContent).toContain('收起');
   await expand.onclick();
   expect(details.hidden).toBe(true);
   expect(shortcuts.hidden).toBe(true);
+  expect(tools.hidden).toBe(true);
 
   // 选中父 Task 后，折叠态在展开控件上留下可见痕迹（避免不知情地提交到别的分支）。
   // 完整父候选读面独立于有界 overview。
@@ -51,6 +58,27 @@ test('输入区默认折叠，展开后才出现父 Task 与快捷键，折叠�
   dom.node('input-parent').onchange({});
   expect(expand.textContent).toContain('#1');
   expect(expand.getAttribute('data-help')).toContain('#1');
+});
+
+test('收起编辑按钮不影响快捷键，展开/收起与轮询保留正文历史', async () => {
+  const input = dom.node('input'), tools = dom.node('composer-editor-tools'), expand = dom.node('composer-expand');
+  const original = input.value;
+  editorInput(input, '正文编辑');
+  editorEvent(input, 'keydown', { key: 'z', ctrlKey: true });
+  expect(input.value).toBe(original);
+  expect(tools.hidden).toBe(true);
+  await expand.onclick();
+  tools.querySelector('.text-editor-redo').onclick();
+  expect(input.value).toBe('正文编辑');
+  await dom.intervalFor(1500)();
+  expect(tools.hidden).toBe(false);
+  await expand.onclick();
+  await dom.intervalFor(1500)();
+  expect(tools.hidden).toBe(true);
+  await expand.onclick();
+  tools.querySelector('.text-editor-undo').onclick();
+  expect(input.value).toBe(original);
+  await expand.onclick();
 });
 
 test('引用卡片始终可见，1.5s 轮询不改变输入区折叠态', async () => {

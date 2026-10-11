@@ -137,12 +137,12 @@
   <div class="composer-input">
     <textarea id="input" rows="1" maxlength="32000" aria-describedby="composer-mode-title composer-mode-target composer-mode-behavior" aria-label="输入开发需求或研究问题" placeholder="在 main 下创建子 Worker · Enter 暂存 · Ctrl/⌘+Enter 仅创建 · Shift+Enter 换行"></textarea>
   </div>
-  <div id="composer-editor-tools" class="composer-editor-tools" aria-label="正文编辑操作"></div>
+  <div id="composer-editor-tools" class="composer-editor-tools" aria-label="正文编辑操作" hidden></div>
   <div class="composer-foot">
     <span id="composer-shortcuts" class="hint composer-shortcuts" hidden><kbd>⌘ / Ctrl ↵</kbd> 待开始 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ⇧ ↵</kbd> 直接运行 <span class="shortcut-separator">/</span> <kbd>Enter</kbd> 暂存 <span class="shortcut-separator">/</span> <kbd>Shift+Enter</kbd> 换行</span>
     <span class="composer-actions">
 
-      <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details" data-help="展开：可以选择父 Worker，并查看键盘快捷键">⌃ 更多</button>
+      <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details composer-editor-tools composer-shortcuts" data-help="展开：显示正文的撤销与重做按钮，可以选择父 Worker，并查看键盘快捷键">⌃ 更多</button>
 
       <button type="button" id="composer-reset" class="ghost" data-help="回到新建独立 Worker 模式，保留正文与引用；输入空白且没有引用时也可按 Esc 返回。" hidden>回到新建 Worker</button>
       <button type="button" id="input-history" class="ghost">历史输入</button>
