@@ -33,8 +33,8 @@
 | `dashboard-accounts-group.js` | 唯一额度窗口的紧凑列表／账号小面板，内部来源保留可信度、异常及单项刷新，不独立排版；无读取或查询副作用 | `ACCOUNT_GROUP_ID`、`renderAccountGroup(row,options)` |
 | `dashboard-layout-model.js` | 旧所选账户位置只读计算统一窗口的 6×16 初始布局，保存项目与历史字段不改写；内存种子与显式窗口坐标优先 | `dashboardAccountLayout(layout,selectedIds,inherited?)` |
 | `project-dashboard-content.js` | 项目内容开关、语义指标、来源 Notice 最近列表与 Worker／输入／版本快捷链接；在线项目有界只读消息，不已读或答复 | `PROJECT_CARD_SECTIONS`、`PROJECT_CARD_DEFAULTS`、`loadProjectCardMessages(rows,options)`、`projectDashboardContent(row,options)` |
-| `project-board.js`／`styles-project-board.css` | 响应式 12 列卡片网格、项目辨识色只读、编辑模式拖动／缩放／键盘替代、碰撞避让；消费设备布局，不写浏览器权威顺序 | `createProjectBoard({ownsPage,request,renderCard,onLayoutChange})` → `{root,update,setEditing,getLayout}`；CSS |
-| `dashboard-cards.js`／`styles-dashboard-cards.css` | 设备账户精简余额与内容开关、来源缺失／未知／历史口径；只读缓存与显式指定账户有界刷新，配置读模型校验 | `readDashboardConfig(options?)`、`loadDashboardConnections()`、`loadAccountCards(options?)`、`renderAccountCard(row,options?)`、`refreshAccountCards(ids,options?)`；兼容 `createDashboardCardSettings` 不再挂载管理页；CSS |
+| `project-board.js`／`styles-project-board.css` | 响应式 12 列卡片网格、项目辨识色只读、编辑模式拖动／缩放／键盘替代；以保存高度为下限测量自然展开内容并避让，显示投影不写回设备或浏览器权威顺序 | `createProjectBoard({ownsPage,request,renderCard,onLayoutChange})` → `{root,update,setEditing,getLayout}`；CSS |
+| `dashboard-cards.js`／`styles-dashboard-cards.css` | 设备账户窗口简称／已用比例、紧凑重置与账户名旁观测年龄，列表／小面板自然展开；内容开关、来源缺失／未知／历史口径；只读缓存与显式指定账户有界刷新，配置读模型校验 | `readDashboardConfig(options?)`、`loadDashboardConnections()`、`loadAccountCards(options?)`、`renderAccountCard(row,options?)`、`refreshAccountCards(ids,options?)`；兼容 `createDashboardCardSettings` 不再挂载管理页；CSS |
 | `project-order-form.js` | 独立项目管理页按需新指令表单：固定来源项目／main，创建与开始分离、离线禁发送、跨刷新单飞、会话草稿隔离、迟到 ACK 不清新输入，未知失败不重试 | `createProjectOrderForm(row,{ownsPage}?)` → `{root,update(row)}` |
 | `styles-workbench.css` | 两种 shell、全局导航／事项／自动化与项目管理布局，双主题与窄屏 | CSS |
 | `workspace-shell.js` | 根与项目导航分离；项目只留内部页面，品牌原生新标签入口保留项目现场；收件箱计数只在根导航，不画顶部摘要 | `configureWorkspaceShell()`、`workspaceLink(id,hash,open)`、`renderGlobalInboxSummary(summary)` |

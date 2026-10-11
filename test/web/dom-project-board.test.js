@@ -54,6 +54,7 @@ test('device layout contract, normal display and GET-only project appearance pre
   expect(calls).toEqual([{ url: `/api/host/projects/${ids[0]}/appearance`, options: { method: 'GET' } }]);
   component.setEditing(true); expect(handle(item).hidden).toBe(false); expect(resize(item).hidden).toBe(false);
   expect(handle(item).getAttribute('data-help')).toContain('方向键'); expect(handle(item).getAttribute('aria-describedby')).toBeTruthy();
+  expect(resize(item).getAttribute('data-help')).toContain('最小高度');
 });
 
 test('reserved accounts identity defaults to 6x16, never aliases project colors and retains legacy cards', async () => {
@@ -175,7 +176,7 @@ test('short pointer, secondary pointer, vertical touch, cancellation, lost captu
   pointer(control, 'down', { isPrimary: false }); pointer(control, 'move', { clientX: 200 }); pointer(control, 'up');
   pointer(control, 'down'); pointer(control, 'move', { clientX: 22 }); pointer(control, 'up');
   pointer(control, 'down', { pointerType: 'touch' }); expect(pointer(control, 'move', { pointerType: 'touch', clientX: 22, clientY: 150 })).toBe(false); pointer(control, 'up');
-  for (const cancel of ['cancel', 'lost', 'escape', 'blur', 'pagehide', 'disabled']) {
+  for (const cancel of ['cancel', 'lost', 'escape', 'blur', 'disabled']) {
     component.setEditing(true); pointer(control, 'down'); pointer(control, 'move', { clientX: 220, clientY: 68 });
     if (cancel === 'lost') control.onlostpointercapture({ pointerId: 1 });
     else if (cancel === 'escape') key(control, 'Escape');
@@ -241,17 +242,76 @@ test('ResizeObserver defers projection writes, cancels resize-time gestures and 
     expect(component.root.style['--board-columns']).toBeUndefined(); frames.shift()();
     expect(component.root.style['--board-columns']).toBe('1'); pointer(control, 'up');
     expect(component.getLayout()).toEqual(original); expect(edits).toHaveLength(0);
-    owns = false; observed(); frames.shift()(); expect(disconnected).toBe(1);
+    const beforeDisconnect = disconnected;
+    owns = false; observed(); expect(frames).toHaveLength(0); expect(disconnected).toBe(beforeDisconnect + 1);
   } finally { globalThis.ResizeObserver = savedObserver; globalThis.requestAnimationFrame = savedFrame; }
 });
 
-test('accounts skip project colors and caller content remains intact inside a keyboard-scrollable region', async () => {
+test('intrinsic heights grow beyond persisted bounds, push only collisions and shrink without saving', async () => {
+  let height = 2400;
+  const edits = [], component = board({ onLayoutChange: value => edits.push(value) });
+  const saved = [cell(ids[0], 0, 0, 6, 6), cell(ids[1], 6, 0, 6, 6), cell(ids[2], 0, 6, 6, 6)];
+  await component.update(rows.slice(0, 3), { layout: saved });
+  const first = component.root.children[0];
+  first.querySelector('.project-board-content').getBoundingClientRect = () => ({ height });
+  component.setEditing(false);
+  expect(first.style['grid-row']).toBe('1 / span 101');
+  expect(component.root.children[1].style['grid-row']).toBe('1 / span 6');
+  expect(component.root.children[2].style['grid-row']).toBe('102 / span 6');
+  height = 40; component.setEditing(false);
+  expect(first.style['grid-row']).toBe('1 / span 6');
+  expect(component.root.children[2].style['grid-row']).toBe('7 / span 6');
+  expect(component.getLayout()).toEqual(saved); expect(edits).toHaveLength(0);
+});
+
+test('content/late observer measurements coalesce, removed nodes unobserve and pagehide cleans every observer', async () => {
+  const originals = { ResizeObserver: globalThis.ResizeObserver, MutationObserver: globalThis.MutationObserver,
+    requestAnimationFrame: globalThis.requestAnimationFrame, cancelAnimationFrame: globalThis.cancelAnimationFrame };
+  let resizeCallback, mutationCallback, resizeDisconnects = 0, mutationDisconnects = 0, cancelled = 0;
+  const watched = new Set(), frames = [];
+  globalThis.ResizeObserver = class {
+    constructor(callback) { resizeCallback = callback; }
+    observe(node) { watched.add(node); }
+    disconnect() { watched.clear(); resizeDisconnects++; }
+  };
+  globalThis.MutationObserver = class { constructor(callback) { mutationCallback = callback; } observe() {} disconnect() { mutationDisconnects++; } };
+  globalThis.requestAnimationFrame = callback => { frames.push(callback); return frames.length; };
+  globalThis.cancelAnimationFrame = () => { cancelled++; };
+  try {
+    const edits = [], component = board({ onLayoutChange: value => edits.push(value) });
+    const saved = [cell(ids[0], 0, 0, 12, 6), cell(ids[1], 0, 6, 12, 6)];
+    await component.update(rows.slice(0, 2), { layout: saved }); frames.shift()();
+    component.root.contains = node => component.root.querySelectorAll('.project-board-content').includes(node);
+    const oldContent = component.root.children[0].querySelector('.project-board-content');
+    expect(watched.has(oldContent)).toBe(true);
+    oldContent.getBoundingClientRect = () => ({ height: 400 });
+    resizeCallback(); mutationCallback([{ target: oldContent }]); resizeCallback();
+    expect(frames).toHaveLength(1); frames.shift()();
+    expect(component.root.children[1].style['grid-row']).toBe('19 / span 6');
+    expect(component.getLayout()).toEqual(saved); expect(edits).toHaveLength(0);
+    await component.update([rows[1]]); expect(watched.has(oldContent)).toBe(false);
+    resizeCallback([{ target: oldContent }]); expect(frames).toHaveLength(1); frames.shift()();
+    expect(component.root.children[0].style['grid-row']).toBe('7 / span 6');
+    resizeCallback(); const before = resizeDisconnects;
+    await dom.fire('pagehide', { persisted: true });
+    expect(resizeDisconnects).toBe(before + 1); expect(mutationDisconnects).toBe(1); expect(cancelled).toBe(1);
+    expect(watched.size).toBe(0); frames.shift()(); expect(edits).toHaveLength(0);
+    component.root.isConnected = true;
+    await dom.fire('pageshow', { persisted: true });
+    expect(watched.size).toBe(2); frames.shift()();
+    component.setEditing(true); key(handle(component.root.children[0]), 'ArrowDown');
+    expect(edits).toHaveLength(1);
+    await dom.fire('pagehide'); expect(watched.size).toBe(0); expect(mutationDisconnects).toBe(2);
+  } finally { Object.assign(globalThis, originals); }
+});
+
+test('accounts skip project colors and caller content remains intact without an inner scroll tab stop', async () => {
   const { renderAccountCard } = await import('../../src/ui/web/assets/dashboard-cards.js'); const requests = [];
   const account = { id: accountId, type: 'account', connection_id: accountId.slice(8), connection: { label: '账户名称', provider: 'deepseek', observation: { status: 'available', resources: [{ kind: 'balance', unit: 'USD', remaining: 12.5 }] } } };
   const component = board({ renderCard: renderAccountCard, request: async url => requests.push(url) }); await component.update([account]);
   const item = component.root.children[0]; expect(deepText(item)).toContain('12.5 USD'); expect(handle(item).getAttribute('aria-label')).toContain('账户名称');
   expect(item.querySelector('.project-board-palette').hidden).toBe(true); expect(item.dataset.boardColor).toBeUndefined(); expect(requests).toHaveLength(0);
-  expect(item.querySelector('.project-board-content').getAttribute('tabindex')).toBe('0');
+  expect(item.querySelector('.project-board-content').getAttribute('tabindex')).toBeNull();
 });
 
 test('parent dashboard controller saves committed grid drafts explicitly and cancels to the device snapshot', async () => {
@@ -303,8 +363,10 @@ test('late appearance responses cannot repaint refresh, removed card, account sw
   const switched = component.update([rows[0]]); await component.update([{ id: ids[0], type: 'account' }]); pending[3]({ id: ids[0], appearance: { version: 1, color: 'rose' } }); await switched;
   expect(component.root.children[0].dataset.boardColor).toBeUndefined();
   const abandoned = component.update([rows[0]]); owns = false; pending[4]({ id: ids[0], appearance: { version: 1, color: 'rose' } }); await abandoned; expect(component.root.children[0].dataset.boardColor).toBeUndefined();
-  owns = true; const replaced = component.update([rows[0]]); globalThis.document = {}; pending[5]({ id: ids[0], appearance: { version: 1, color: 'rose' } }); await replaced;
-  expect(component.root.children[0].dataset.boardColor).toBeUndefined();
+  owns = true;
+  const replacement = board({ request: () => new Promise(resolve => pending.push(resolve)) });
+  const replaced = replacement.update([rows[0]]); globalThis.document = {}; pending[5]({ id: ids[0], appearance: { version: 1, color: 'rose' } }); await replaced;
+  expect(replacement.root.children[0].dataset.boardColor).toBeUndefined();
 });
 
 test('reused caller card unwraps content and removes only previous board decorations', async () => {
@@ -314,7 +376,7 @@ test('reused caller card unwraps content and removes only previous board decorat
   expect(item.querySelectorAll('.project-board-palette')).toHaveLength(1); expect(item.querySelectorAll('button')).toHaveLength(3); expect(item.dataset.boardColor).toBeUndefined();
 });
 
-test('palette CSS matches identity colors without semantic overrides; grid, scrolling and motion rules exist', async () => {
+test('palette CSS matches identity colors without semantic overrides; intrinsic content and motion rules exist', async () => {
   const css = await Bun.file(new URL('../../src/ui/web/assets/styles-project-board.css', import.meta.url)).text();
   const existing = await Bun.file(new URL('../../src/ui/web/assets/styles-appearance.css', import.meta.url)).text();
   for (const color of ['green', 'blue', 'teal', 'amber', 'rose', 'slate']) {
@@ -322,12 +384,17 @@ test('palette CSS matches identity colors without semantic overrides; grid, scro
     expect(css).toContain(`data-board-color="${color}"]{--board-light:${original[1]};--board-dark:${original[2]}}`);
   }
   expect(css).not.toMatch(/--(?:accent|violet|running|waiting|completed|failed)\s*:/);
-  for (const rule of ['grid-auto-rows:24px', 'overflow:auto', 'right:54px', 'touch-action:pan-y', 'prefers-reduced-motion:reduce', 'data-reduced-motion="true"']) expect(css).toContain(rule);
+  for (const rule of ['grid-auto-rows:24px', 'overflow:visible', 'right:54px', 'touch-action:pan-y', 'prefers-reduced-motion:reduce', 'data-reduced-motion="true"']) expect(css).toContain(rule);
   // A stub cannot compute layout: protect the real-browser regression's shell
   // reset against .project-item alignment and the later account renderer rules.
   const shell = css.split('.project-board>li.project-board-card{')[1]?.split('}')[0];
   expect(shell).toBeTruthy();
-  for (const rule of ['grid-template-columns:minmax(0,1fr)', 'grid-template-rows:minmax(0,1fr)', 'align-items:stretch', 'gap:0', 'overflow:hidden', 'padding:0', 'min-height:0']) expect(shell).toContain(rule);
+  for (const rule of ['grid-template-columns:minmax(0,1fr)', 'grid-template-rows:minmax(0,1fr)', 'align-items:stretch', 'gap:0', 'overflow:visible', 'padding:0', 'min-height:0']) expect(shell).toContain(rule);
   const viewport = css.split('.project-board-content{')[1]?.split('}')[0];
-  for (const rule of ['box-sizing:border-box', 'max-height:100%', 'align-self:stretch', 'overflow:auto', 'min-height:0']) expect(viewport).toContain(rule);
+  for (const rule of ['box-sizing:border-box', 'align-self:start', 'overflow:visible', 'min-height:0']) expect(viewport).toContain(rule);
+  expect(viewport).not.toContain('max-height');
+  const workspace = await Bun.file(new URL('../../src/ui/web/assets/styles-workbench.css', import.meta.url)).text();
+  for (const rule of ['.project-board .project-development-metric .metric-label{font-size:11px}',
+    '.project-board .project-development-distribution .chip{font-size:10px',
+    '.project-board .project-development-worker .chip{font-size:10px}']) expect(workspace).toContain(rule);
 });

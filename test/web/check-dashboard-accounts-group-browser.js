@@ -1,5 +1,5 @@
 // Standalone: bun run test/web/check-dashboard-accounts-group-browser.js
-// Account renderer with the real board shell/styles; parent W204 owns controller/modal/CSP integration.
+// Account renderer with the real board shell/styles; W212 owns controller/modal/CSP integration.
 // No daemon, credentials or provider/model calls.
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -24,9 +24,9 @@ const board=createProjectBoard({renderCard:row=>{
  const settings=document.createElement('button');settings.className='fixture-settings dashboard-card-settings';settings.textContent='⚙';settings.dataset.help='模拟父级窗口设置入口';host.append(settings);root.prepend(host);
  return root;
 }});board.root.id='board';document.querySelector('#mount').append(board.root);window.board=board;
-window.mount=(mode='list')=>{
+window.mount=(mode='list',height=16)=>{
  const accounts=Array.from({length:100},(_,i)=>account(i+1));accounts[5].connection=null;
- void board.update([{id:'accounts',type:'accounts',name:'额度与余额',accounts,mode}],{layout:[{id:'accounts',x:0,y:0,w:12,h:16}]});
+ void board.update([{id:'accounts',type:'accounts',name:'额度与余额',accounts,mode}],{layout:[{id:'accounts',x:0,y:0,w:12,h:height}]});
  window.group=board.root.firstElementChild;return window.group;
 };window.mount();window.ready=true;
 </script></body></html>`;
@@ -54,6 +54,7 @@ async function rpc(path, body, method = 'POST') {
   const data = JSON.parse(result.text); if (result.status >= 400) throw Error(JSON.stringify(data)); return data.value;
 }
 const execute = script => rpc(`/session/${session}/execute/sync`, { script, args: [] });
+const settle = () => rpc(`/session/${session}/execute/async`, { script: 'const done=arguments[0];let n=0;const tick=()=>++n===6?done(true):requestAnimationFrame(tick);requestAnimationFrame(tick);', args: [] });
 const assert = (condition, message) => { if (!condition) throw Error(message); };
 async function enterViewport() {
   const frame = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#viewport' });
@@ -72,8 +73,9 @@ try {
   assert(await rpc(`/session/${session}/execute/async`, { script: 'const done=arguments[0];let n=0;const check=()=>window.ready?done(true):++n>100?done(false):setTimeout(check,20);check();', args: [] }), 'fixture failed to load');
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) for (const mode of ['list', 'tiles']) {
     await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='${width}px';`); await enterViewport();
-    for (const container of [0, 240]) for (const height of [140, 360]) for (const editing of [false, true]) {
-      await execute(`document.documentElement.dataset.theme='${theme}';window.mount('${mode}');document.querySelector('#board').style.width='${container ? `${container}px` : '100%'}';window.board.setEditing(${editing});window.group.style.height='${height}px';document.querySelectorAll('details').forEach(d=>d.open=true);`);
+    for (const container of [0, 240]) for (const height of [6, 16]) for (const editing of [false, true]) {
+      await execute(`document.documentElement.dataset.theme='${theme}';document.querySelector('#board').style.width='${container ? `${container}px` : '100%'}';window.mount('${mode}',${height});window.board.setEditing(${editing});document.querySelectorAll('details').forEach(d=>d.open=true);`);
+      await settle();
       const result = await execute(`
         const errors=[...window.errors],root=window.group,region=root.querySelector('.project-board-content'),cards=[...root.querySelectorAll('.dashboard-account-card')];
         const bounds=region.getBoundingClientRect();
@@ -88,21 +90,26 @@ try {
           if(button.disabled){const host=button.parentNode;if(!host.dataset.help||host.tabIndex!==0)errors.push('disabled help missing');}
           for(const part of card.querySelectorAll('progress,p,details')){const b=part.getBoundingClientRect();if(b.right>r.right+.5||b.left<r.left-.5)errors.push('content clipped');}
         }
-        const last=cards.at(-1),button=last.querySelector('button');button.scrollIntoView({block:'nearest'});
-        const b=button.getBoundingClientRect();if(b.top<bounds.top-.5||b.bottom>bounds.bottom+.5)errors.push('last source refresh unreachable');
-        const end=last.querySelector('.dashboard-account-metric:last-child').lastElementChild;end.scrollIntoView({block:'end'});
-        const e=end.getBoundingClientRect();if(e.top<bounds.top-.5||e.bottom>bounds.bottom+.5)errors.push('last metric unreachable');
-        if(region.scrollHeight<=region.clientHeight||region.scrollTop<=0)errors.push('no native vertical scroll');
+        const last=cards.at(-1),button=last.querySelector('button');
+        const b=button.getBoundingClientRect();if(b.top<bounds.top-.5||b.bottom>bounds.bottom+.5)errors.push('last source refresh outside expanded card');
+        const end=last.querySelector('.dashboard-account-metric:last-child').lastElementChild;
+        const e=end.getBoundingClientRect();if(e.top<bounds.top-.5||e.bottom>bounds.bottom+.5)errors.push('last metric outside expanded card');
+        const items=root.querySelector('.dashboard-accounts-items');
+        for(const part of [region,items]){if(part.scrollHeight>part.clientHeight+1||['auto','scroll'].includes(getComputedStyle(part).overflowY))errors.push('nested vertical scroll');}
+        if(root.getBoundingClientRect().height<=384)errors.push('content did not expand minimum height');
         if(region.scrollWidth>region.clientWidth+1||document.documentElement.scrollWidth>innerWidth)errors.push('horizontal overflow');
         if(cards.length!==100)errors.push('source dropped');
         if(root.querySelectorAll('.dashboard-account-metric').length!==490)errors.push('metric dropped');
         return {errors,network:window.network,firstHeight:cards[0].getBoundingClientRect().height,regionWidth:bounds.width,rootHeight:root.getBoundingClientRect().height,regionHeight:bounds.height,scrollHeight:region.scrollHeight,scrollTop:region.scrollTop,itemsHeight:root.querySelector('.dashboard-accounts-items').getBoundingClientRect().height};`);
       assert(!result.errors.length && !result.network.length, `${theme} ${width} ${mode} container=${container || 'full'} height=${height} editing=${editing}: ${JSON.stringify(result)}`);
-      console.log(`PASS ${theme} ${width}px ${mode} window=${Math.round(result.regionWidth)}x${height} editing=${editing}: 100 sources, all metrics reachable, no overlap/network`);
+      console.log(`PASS ${theme} ${width}px ${mode} width=${Math.round(result.regionWidth)} min-rows=${height} editing=${editing}: 100 sources, all metrics flat, no nested scroll/overlap/network`);
     }
   }
   await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='1440px';`); await enterViewport();
-  const density = await execute(`document.querySelector('#board').style.width='100%';window.board.setEditing(false);window.mount('list');const list=group.querySelector('.dashboard-account-card').getBoundingClientRect().height;window.mount('tiles');const tiles=group.querySelector('.dashboard-account-card').getBoundingClientRect().height;return {list,tiles};`);
+  await execute(`document.querySelector('#board').style.width='100%';window.board.setEditing(false);window.mount('list')`); await settle();
+  const list = await execute(`return group.querySelector('.dashboard-account-card').getBoundingClientRect().height`);
+  await execute(`window.mount('tiles')`); await settle();
+  const density = { list, tiles: await execute(`return group.querySelector('.dashboard-account-card').getBoundingClientRect().height`) };
   assert(density.list < density.tiles, `list was not compact: ${JSON.stringify(density)}`);
   await execute(`window.mount('list');group.querySelector('.dashboard-account-refresh').focus();`);
   await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }] }] });

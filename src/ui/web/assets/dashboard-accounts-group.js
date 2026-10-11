@@ -17,8 +17,8 @@ export function renderAccountGroup(row, { mode = 'list', sections, sectionsForAc
   const accounts = Array.isArray(row.accounts) ? row.accounts : [];
   const items = el('ul', undefined, 'dashboard-accounts-items');
   items.setAttribute('aria-label', '已选择的账户来源');
-  // Native focus/scroll keeps the last source reachable in a small, fixed-height window.
-  items.setAttribute('tabindex', '0'); root.append(items);
+  // The board grows to the full list; source actions retain native focus order.
+  root.append(items);
   if (!accounts.length) items.append(el('li', '未选择账户来源', 'dashboard-card-note dashboard-accounts-empty'));
   for (const account of accounts) {
     const specific = typeof sectionsForAccount === 'function' ? sectionsForAccount(account) : undefined;

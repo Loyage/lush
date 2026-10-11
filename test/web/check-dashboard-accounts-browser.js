@@ -8,8 +8,9 @@ const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
 const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-dashboard-cards.css">
 <style>body{margin:0;padding:12px}#cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:12px;padding:0;list-style:none}</style>
-</head><body><ul id="cards"></ul><script type="module">
+</head><body><ul id="cards"></ul><ul id="groups" style="list-style:none;margin:0;padding:0"></ul><script type="module">
 import {renderAccountCard} from '/assets/dashboard-cards.js';
+import {renderAccountGroup} from '/assets/dashboard-accounts-group.js';
 window.errors=[];addEventListener('error',e=>errors.push(e.message));addEventListener('unhandledrejection',e=>errors.push(String(e.reason)));
 window.network=[];window.fetch=async(url)=>{network.push(url);throw Error('unexpected network');};window.refreshed=[];
 const metric=(extra={})=>({id:'plan',kind:'quota',scope:'account',label:'订阅额度',unit:'%',remaining:75,used_percent:25,reset_at:'2020-01-01T00:00:00Z',window_seconds:18000,...extra});
@@ -22,7 +23,9 @@ mount(row(connection('b',{observation:{status:'unknown',source:'none',checked_at
 mount(row(connection('c',{observation:{status:'error',source:'usage_api',resources:[]},last_success:{checked_at:'2026-10-01T00:00:00Z',observation}})),{sections:['history','quota','balance','reset','observed','details','provenance']});
 mount(row(connection('d',{observation:{...observation,status:'partial'}})));
 mount(row(connection('e',{enabled:false})),{sections:[]});
-mount({id:'account:deleted',connection_id:'deleted',connection:null});window.ready=true;
+mount({id:'account:deleted',connection_id:'deleted',connection:null});
+for(const mode of ['list','tiles'])document.querySelector('#groups').append(renderAccountGroup({id:'accounts',name:'额度与余额',accounts:[row(connection(mode+'-a')),row(connection(mode+'-b',{label:'很长的账户名称'.repeat(14),observation:{...observation,status:'partial'}})),row(connection(mode+'-c'))]}, {mode,refresh:async id=>refreshed.push(id),refreshAll:async()=>{},sections:['quota','balance','reset','observed','details']}));
+window.ready=true;
 </script></body></html>`;
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
   const path = new URL(req.url).pathname;
@@ -71,20 +74,29 @@ try {
       const errors=[...window.errors],cards=[...document.querySelectorAll('.dashboard-account-card')];
       for(const card of cards){
         const r=card.getBoundingClientRect(),h=card.querySelector('h3').getBoundingClientRect(),button=card.querySelector('button'),b=button.getBoundingClientRect();
-        if(h.right>b.left+.5||b.right>r.right||b.left<r.left||b.height<44)errors.push('header clipping/overlap');
+        if(h.right>b.left+.5||b.right>r.right||b.left<r.left||b.height<44||b.width<44)errors.push('header clipping/overlap');
+        const age=card.querySelector('.dashboard-account-age');if(age){const a=age.getBoundingClientRect();if(a.right>b.left+.5||a.bottom>r.bottom+.5)errors.push('age clipping');}
         if(card.scrollWidth>card.clientWidth)errors.push('card overflow');
-        for(const child of card.querySelectorAll('progress,details,p')){const c=child.getBoundingClientRect();if(c.right>r.right+.5||c.left<r.left-.5)errors.push('content clipping');}
+        if(getComputedStyle(card).overflowY!=='visible'||card.scrollHeight>card.clientHeight+1)errors.push('internally scrolling account');
+        for(const child of card.querySelectorAll('progress,details,p')){const c=child.getBoundingClientRect();if(c.right>r.right+.5||c.left<r.left-.5||c.bottom>r.bottom+.5)errors.push('content clipping');}
+        for(const summary of card.querySelectorAll('summary'))if(summary.getBoundingClientRect().height<44)errors.push('small detail touch target');
         if(button.disabled){const host=button.parentNode;if(!host.dataset.help||host.tabIndex!==0)errors.push('missing disabled help');host.focus();if(document.activeElement!==host)errors.push('disabled help not focusable');}
       }
       const first=cards[0].textContent;
-      if(first.includes('模型端点')||first.includes('观测成功')||first.includes('指标详情'))errors.push('default not compact');
+      if(first.includes('模型端点')||first.includes('观测成功')||first.includes('指标详情')||first.includes('上次观测')||first.includes('剩余')||first.includes('小时窗口'))errors.push('default not compact');
+      if(!first.includes('5h · 25%')||!first.includes('到期待刷新')||!cards[0].querySelector('.dashboard-account-identity .dashboard-account-age'))errors.push('missing compact reading/age');
       if(!cards[1].textContent.includes('尚无观测'))errors.push('fake observation');
       if(!cards[2].textContent.includes('历史成功观测（非当前值）'))errors.push('unmarked history');
       if(!cards[3].textContent.includes('部分指标可用'))errors.push('missing partial');
+      for(const group of document.querySelectorAll('.dashboard-accounts-group')){
+        const items=group.querySelector('.dashboard-accounts-items'),last=items.lastElementChild;
+        if(getComputedStyle(items).overflowY!=='visible'||items.scrollHeight>items.clientHeight+1)errors.push('internally scrolling list');
+        if(last.getBoundingClientRect().bottom>group.getBoundingClientRect().bottom+.5)errors.push('last account clipped');
+      }
       if(document.documentElement.scrollWidth>innerWidth)errors.push('horizontal overflow');
       return {errors,network:window.network,count:cards.length};`);
-    assert(!result.errors.length && !result.network.length && result.count === 6, `${theme} ${width}: ${JSON.stringify(result)}`);
-    console.log(`PASS ${theme} ${width}px: compact/unknown/failed/partial/disabled/deleted cards, expanded details, no clipping or network`);
+    assert(!result.errors.length && !result.network.length && result.count === 12, `${theme} ${width}: ${JSON.stringify(result)}`);
+    console.log(`PASS ${theme} ${width}px: dense cards + list/tiles, 44px controls, expanded details, natural height, no clipping or network`);
   }
   await execute(`document.querySelector('.dashboard-account-refresh').focus();`);
   await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }] }] });

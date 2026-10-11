@@ -47,7 +47,7 @@
 @media(prefers-reduced-motion:reduce){.workbench-view *{scroll-behavior:auto!important}}
 /* The dashboard is a panel, not a second page hero. Keep settings outside movable cards. */
 #view-toolbar[hidden]{display:none}
-.workbench-view.project-overview{max-width:none;padding:clamp(12px,2vw,28px);gap:16px}
+.workbench-view.project-overview{max-width:none;padding:clamp(8px,1.4vw,18px);gap:10px;font-size:11px;line-height:1.45}
 .dashboard-toolbar{display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
 .dashboard-toolbar button,.dashboard-settings-panel button{min-height:44px;white-space:normal}
 .dashboard-toolbar button[hidden]{display:none}
@@ -76,15 +76,31 @@
 .project-board .dashboard-card-settings{width:44px;height:44px;min-height:44px;padding:8px;font-size:19px;background:var(--panel);border-color:var(--line-soft)}
 .project-board .project-development-metric{border-color:color-mix(in srgb,var(--tone) 32%,var(--line-soft));background:color-mix(in srgb,var(--tint) 70%,var(--panel))}
 .project-board .project-development-value{color:var(--tone)}
-.project-dashboard-content{min-width:0;display:grid;gap:12px}
-.project-dashboard-messages{min-width:0;display:grid;gap:6px;border-top:1px solid var(--line-soft);padding-top:10px}
+.project-dashboard-content{min-width:0;display:grid;gap:6px}
+.project-dashboard-messages{min-width:0;display:grid;gap:4px;border-top:1px solid var(--line-soft);padding-top:6px}
 .project-dashboard-section-head{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px}
 .project-dashboard-section-head h3{margin:0;font-size:12px;color:var(--muted)}
 .project-dashboard-section-head a,.project-dashboard-shortcuts a{color:var(--accent);text-underline-offset:3px}
-.project-dashboard-message{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;min-width:0;padding:9px;border:1px solid color-mix(in srgb,var(--tone) 25%,var(--line));border-radius:8px;background:var(--tint);color:var(--tone);text-decoration:none;font-size:12px}
+.project-dashboard-message{display:flex;align-items:baseline;gap:4px;flex-wrap:wrap;min-width:0;min-height:44px;box-sizing:border-box;padding:5px 7px;border:1px solid color-mix(in srgb,var(--tone) 25%,var(--line));border-radius:8px;background:var(--tint);color:var(--tone);text-decoration:none;font-size:11px}
 .project-dashboard-message strong{flex:1;min-width:80px;overflow-wrap:anywhere;font-weight:500}
 .project-dashboard-message small{font-size:10px}
 .project-dashboard-message:hover{text-decoration:underline;text-underline-offset:3px}
-.project-dashboard-shortcuts{display:flex;flex-wrap:wrap;gap:8px;border-top:1px solid var(--line-soft);padding-top:10px;font-size:12px}
-.project-dashboard-shortcuts a{padding:7px 9px;border:1px solid var(--line-soft);border-radius:8px;background:var(--panel)}
+.project-dashboard-shortcuts{display:flex;flex-wrap:wrap;gap:4px;border-top:1px solid var(--line-soft);padding-top:6px;font-size:11px}
+.project-dashboard-shortcuts a{box-sizing:border-box;display:flex;align-items:center;min-height:44px;padding:5px 7px;border:1px solid var(--line-soft);border-radius:6px;background:var(--panel)}
+/* Project information scale is scoped to overview cards, not management/forms. */
+.project-board .project-development{gap:6px;padding-top:6px}
+.project-board .project-development-metrics{gap:5px}
+.project-board .project-development-metric{padding:6px 7px;gap:2px;border-radius:6px}
+.project-board .project-development-value{font-size:20px;line-height:1.15}
+.project-board .project-development-metric .metric-label{font-size:11px}
+.project-board .hint{font-size:11px;line-height:1.45}
+.project-board .project-development-metric small{font-size:10px;line-height:1.4}
+.project-board .project-development-distribution{gap:4px}
+.project-board .project-development-distribution .chip{font-size:10px;padding:2px 5px}
+.project-board .project-development-recent{padding-top:6px}
+.project-board .project-development-recent h3,.project-board .project-dashboard-section-head h3{font-size:11px;margin-bottom:3px}
+.project-board .project-development-worker{gap:3px 6px;padding:3px 0}
+.project-board .project-development-worker-link{box-sizing:border-box;min-height:44px;align-items:center;gap:5px;font-size:11px}
+.project-board .project-development-worker .chip{font-size:10px}
+.project-overview .dashboard-toolbar button{font-size:11px}
 @media(max-width:700px){.dashboard-settings-panel{padding:12px}.dashboard-option{width:100%}.dashboard-settings-actions button{flex:1}.project-dashboard-shortcuts a{min-height:44px;display:flex;align-items:center}.dashboard-toolbar{justify-content:flex-end}}

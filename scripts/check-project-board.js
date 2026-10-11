@@ -17,6 +17,9 @@ import {createProjectBoard} from '/assets/project-board.js';
 import {projectDevelopment} from '/assets/project-development.js';
 import {renderAccountCard} from '/assets/dashboard-cards.js';
 window.browserErrors=[];window.cspErrors=[];window.edits=[];window.owns=true;
+window.fixtureObservers=[];
+for(const name of ['ResizeObserver','MutationObserver']){const Native=globalThis[name];globalThis[name]=class extends Native{constructor(callback){super(callback);this.observing=false;fixtureObservers.push(this);}observe(...args){this.observing=true;super.observe(...args);}disconnect(){this.observing=false;super.disconnect();}};}
+window.flat=()=>{const rects=[...board.root.children].map(c=>c.getBoundingClientRect());return rects.every((a,i)=>rects.every((b,j)=>i===j||a.right<=b.left||a.left>=b.right||a.bottom<=b.top||a.top>=b.bottom))&&[...board.root.querySelectorAll('.project-board-content')].every(c=>c.scrollHeight<=c.clientHeight+1&&c.scrollWidth<=c.clientWidth+1);};
 addEventListener('error',e=>browserErrors.push(e.message));addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));
 addEventListener('securitypolicyviolation',e=>cspErrors.push(e.violatedDirective+':'+e.blockedURI));
 window.rows=${JSON.stringify(ids)}.map((id,i)=>({id,name:'项目 '+i+' '+('long-name-'.repeat(10)),running:true,summary:{development:{workers_total:20,active:2,agents_running:1,awaiting_acceptance:3,parent_confirmation:4,pending_merges:7,merging:1,merge_conflicts:2,counts:[{status:'running',count:2}],recent_workers:[]}}}));
@@ -34,7 +37,7 @@ function renderCard(row){
   item.classList.add('project-item');
   const link=document.createElement('a');link.className='project-open';link.href='/p/'+row.id+'/';link.target='_blank';
   const title=document.createElement('strong');title.textContent=row.name;link.append(title);item.append(link,projectDevelopment(row));
-  for(let i=0;i<20;i++){const p=document.createElement('p');p.textContent='可滚动内容 '+i;item.append(p);}
+  for(let i=0;i<20;i++){const p=document.createElement('p');p.textContent='平铺内容 '+i;item.append(p);}
   const tail=document.createElement('a');tail.className='fixture-tail';tail.href='#tail';tail.textContent='末尾可达入口';item.append(tail);
  }
  const settings=document.createElement('button');settings.className='ghost dashboard-card-settings';settings.textContent='⚙';settings.setAttribute('aria-label','卡片设置');
@@ -111,9 +114,10 @@ try {
     await asyncExecute('const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));');
     const result = await execute(`const cards=[...board.root.children],rects=cards.map(c=>c.getBoundingClientRect());return {width:innerWidth,overflow:document.documentElement.scrollWidth-innerWidth,columns:getComputedStyle(board.root).getPropertyValue('--board-columns').trim(),bounds:rects.every(r=>r.left>=0&&r.right<=innerWidth+1),height:rects[0].height,ink:getComputedStyle(cards[0]).getPropertyValue('--board-ink').trim(),running:getComputedStyle(cards[0]).getPropertyValue('--running').trim(),agent:getComputedStyle(cards[0]).getPropertyValue('--violet').trim(),saved:JSON.stringify(board.getLayout())===JSON.stringify(device),handles:[...board.root.querySelectorAll('.project-board-handle,.project-board-resize')].every(c=>getComputedStyle(c).display==='none'),scroll:cards[0].querySelector('.project-board-content').scrollHeight>cards[0].querySelector('.project-board-content').clientHeight};`);
     const vertical = await execute(`return [...board.root.children].map(card=>{const r=card.getBoundingClientRect(),content=card.querySelector('.project-board-content'),c=content.getBoundingClientRect(),style=getComputedStyle(card);return {id:card.dataset.projectId,height:r.height,contentHeight:c.height,inside:c.top>=r.top-1&&c.bottom<=r.bottom+1&&c.left>=r.left-1&&c.right<=r.right+1,display:style.display,align:style.alignItems,padding:style.padding};});`);
+    assert(await execute('return flat();'), `overlap/inner scroll ${theme}/${width}`);
     assert(vertical.every(card=>card.inside), `vertical container overflow ${theme}/${width}: ${JSON.stringify(vertical)}`);
-    assert(result.width === width && result.overflow <= 1 && result.bounds && result.saved && result.handles && result.scroll, `display/scroll/device invariant ${theme}/${width}: ${JSON.stringify(result)}`);
-    assert(result.columns === (width === 1440 ? '12' : '1') && Math.abs(result.height - (12 * 24 - 12)) <= 1, `grid CSSOM failed under CSP: ${JSON.stringify(result)}`);
+    assert(result.width === width && result.overflow <= 1 && result.bounds && result.saved && result.handles && !result.scroll, `display/scroll/device invariant ${theme}/${width}: ${JSON.stringify(result)}`);
+    assert(result.columns === (width === 1440 ? '12' : '1') && result.height > (12 * 24 - 12), `grid CSSOM failed under CSP: ${JSON.stringify(result)}`);
     assert(result.ink === (theme === 'light' ? '#147457' : '#8ddbb4'), 'identity palette changed');
     assert(result.running === (theme === 'light' ? '#287ba6' : '#79c9f0') && result.agent === (theme === 'light' ? '#7955b4' : '#c1a4f3'), 'identity changed semantic colors');
     assert(await execute(`const content=board.root.children[0].querySelector('.project-board-content');content.scrollTop=content.scrollHeight;const r=content.getBoundingClientRect(),tail=content.querySelector('.fixture-tail').getBoundingClientRect();return tail.top>=r.top&&tail.bottom<=r.bottom;`), `tail content is unreachable ${theme}/${width}`);
@@ -121,10 +125,9 @@ try {
     assert(await execute(`return [...board.root.children].every(card=>{const h=card.querySelector('.project-board-handle').getBoundingClientRect(),s=card.querySelector('.dashboard-card-settings').getBoundingClientRect();return h.right<=s.left+.5&&h.width>=44&&s.width>=44;});`), 'editing handle overlaps actual caller settings host');
     assert(await execute(`const card=board.root.lastElementChild,header=card.querySelector('.dashboard-account-header'),name=header.querySelector('h3').getBoundingClientRect(),refresh=header.querySelector('button').getBoundingClientRect(),h=card.querySelector('.project-board-handle').getBoundingClientRect();return name.right<=refresh.left+.5&&refresh.right<=h.left+.5&&refresh.height>=44&&card.querySelector('.project-board-content').clientHeight>0;`), 'account refresh overlaps editing controls or has no scroll viewport');
     await screenshot(`editing-${theme}-${width}`); await execute('board.setEditing(false);');
-    await screenshot(`${theme}-${width}`); console.log(`PASS ${theme}/${width}: grid, device coordinates, settings hit areas, scroll reachability`);
+    await screenshot(`${theme}-${width}`); console.log(`PASS ${theme}/${width}: auto-height grid, device coordinates, settings hit areas, no inner scroll`);
   }
-  // A genuinely short grid cell must constrain both real project-item renderers
-  // and the later account stylesheet, even with all history/details expanded.
+  // Saved h is only a minimum, including real renderers with all details open.
   await execute(`window.shortLayout=device.map(cell=>({...cell,h:6}));window.richRows=structuredClone(rows);const account=richRows.at(-1);account.connection.last_success={checked_at:'2026-10-01T09:00:00Z',observation:{...account.connection.observation,resources:Array.from({length:12},(_,i)=>({id:'metric-'+i,label:'长指标名称 '+('name-'.repeat(8)),kind:i%2?'quota':'balance',scope:'account',unit:i%2?'%':'USD',remaining:12.5,total:100,used:87.5,used_percent:87.5,window_seconds:18000,reset_at:'2099-01-01T00:00:00Z',models:['model/'+('long-model-'.repeat(20))]}))}};account.connection.observation={status:'error',source:'usage_api',error_code:'rate_limited',resources:[]};`);
   await asyncExecute('const done=arguments[0];board.update(richRows,{layout:shortLayout}).then(()=>done(true));');
   for (const theme of ['light', 'dark']) for (const width of [320, 390, 1440]) {
@@ -133,12 +136,25 @@ try {
     await execute(`document.documentElement.dataset.theme='${theme}';board.setEditing(${editing});board.root.querySelectorAll('details').forEach(details=>details.open=true);window.scrollTo(0,0);`);
     await asyncExecute('const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));');
     const result = await execute(`return [...board.root.children].map(card=>{const content=card.querySelector('.project-board-content');content.scrollTop=0;content.scrollLeft=0;const r=card.getBoundingClientRect(),c=content.getBoundingClientRect(),style=getComputedStyle(card),pastBottom=r.bottom+2<innerHeight?document.elementFromPoint(r.left+r.width/2,r.bottom+2):null;return {id:card.dataset.projectId,height:r.height,contentHeight:c.height,inside:c.top>=r.top&&c.bottom<=r.bottom+.5&&c.left>=r.left&&c.right<=r.right+.5,display:style.display,padding:style.padding,columns:style.gridTemplateColumns.split(' ').length,scrollable:content.scrollHeight>content.clientHeight,paintsOutside:pastBottom!==null&&card.contains(pastBottom),outerOverflow:card.scrollHeight>card.clientHeight+1};});`);
-    assert(result.every(card=>Math.abs(card.height-132)<1&&card.inside&&card.scrollable&&card.display==='grid'&&card.padding==='0px'&&card.columns===1&&!card.paintsOutside&&!card.outerOverflow), `short expanded content escaped grid ${theme}/${width}: ${JSON.stringify(result)}`);
-    assert(await execute(`return [...board.root.children].every(card=>{const content=card.querySelector('.project-board-content');content.scrollTop=content.scrollHeight;const tail=content.querySelector('.fixture-tail')||content.querySelector('.dashboard-account-old').lastElementChild.lastElementChild.lastElementChild;const r=content.getBoundingClientRect(),t=tail.getBoundingClientRect();return t.bottom>=r.top&&t.bottom<=r.bottom+1&&content.scrollTop>0;});`), `expanded history/project tail unreachable ${theme}/${width}`);
+    assert(result.every(card=>card.height>132&&card.inside&&!card.scrollable&&card.display==='grid'&&card.padding==='0px'&&card.columns===1&&!card.paintsOutside&&!card.outerOverflow), `short expanded content escaped grid ${theme}/${width}: ${JSON.stringify(result)}`);
+    assert(await execute(`return [...board.root.children].every(card=>{const content=card.querySelector('.project-board-content');content.scrollTop=content.scrollHeight;const tail=content.querySelector('.fixture-tail')||content.querySelector('.dashboard-account-old').lastElementChild.lastElementChild.lastElementChild;const r=content.getBoundingClientRect(),t=tail.getBoundingClientRect();return t.bottom>=r.top&&t.bottom<=r.bottom+1&&content.scrollTop===0;});`), `expanded history/project tail unreachable ${theme}/${width}`);
     assert(await execute(`return document.documentElement.scrollWidth<=innerWidth+1&&JSON.stringify(board.getLayout())===JSON.stringify(shortLayout);`), 'short-card overflow or responsive coordinate mutation');
-    await screenshot(`short-expanded-${editing ? 'editing' : 'display'}-${theme}-${width}`); console.log(`PASS short/expanded ${theme}/${width}/${editing ? 'editing' : 'display'}: vertical containment, native scroll, all history/details reachable`);
+    await screenshot(`short-expanded-${editing ? 'editing' : 'display'}-${theme}-${width}`); console.log(`PASS short/expanded ${theme}/${width}/${editing ? 'editing' : 'display'}: auto growth, no inner scroll, all history/details visible`);
     }
   }
+  // At rest, observers must stop scheduling reads rather than form an rAF loop.
+  assert(await asyncExecute(`const done=arguments[0];setTimeout(()=>{const content=board.root.children[0].querySelector('.project-board-content'),original=content.getBoundingClientRect.bind(content);let reads=0;content.getBoundingClientRect=()=>{reads++;return original();};setTimeout(()=>{delete content.getBoundingClientRect;done(reads===0);},200);},100);`), 'idle board observer/read loop');
+  // Intrinsic measurements also respond to details closing and late content
+  // insertion without any board.update(), and restore collision positions.
+  await execute(`window.expandedHeight=board.root.lastElementChild.getBoundingClientRect().height;board.root.querySelectorAll('details').forEach(d=>d.open=false);`);
+  await asyncExecute('const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));');
+  assert(await execute('return flat()&&board.root.lastElementChild.getBoundingClientRect().height<expandedHeight;'), 'details closing failed to shrink');
+  await execute(`window.beforeLateHeight=board.root.children[0].getBoundingClientRect().height;const p=document.createElement('p');p.textContent='晚到内容 '.repeat(600);p.className='fixture-late';board.root.children[0].querySelector('.project-board-content').append(p);`);
+  await asyncExecute('const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));');
+  assert(await execute('return flat()&&board.root.children[0].getBoundingClientRect().height>beforeLateHeight&&JSON.stringify(board.getLayout())===JSON.stringify(shortLayout);'), 'late content failed to grow/push without persistence');
+  await execute(`document.querySelector('.fixture-late').remove();`);
+  await asyncExecute('const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));');
+  assert(await execute('return flat()&&board.root.children[0].getBoundingClientRect().height===beforeLateHeight;'), 'late content removal failed to shrink');
   // Unified identity with a controlled multi-account renderer; actual account
   // list/tiles styling belongs to the account module and is tested by its owner.
   const groupReads = reads.length;
@@ -150,20 +166,20 @@ try {
       await asyncExecute('const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));');
       for (const editing of [false, true]) {
         await execute(`board.setEditing(${editing});`);
-        assert(await execute(`const card=board.root.children[0],content=card.querySelector('.project-board-content'),r=card.getBoundingClientRect(),c=content.getBoundingClientRect();return board.getLayout()[0].id==='accounts'&&Math.abs(r.height-132)<1&&c.top>=r.top&&c.bottom<=r.bottom+.5&&content.scrollHeight>content.clientHeight&&card.scrollHeight<=card.clientHeight+1&&card.scrollWidth<=card.clientWidth+1&&document.documentElement.scrollWidth<=innerWidth+1&&!card.hasAttribute('data-board-color')&&card.querySelector('.project-board-palette').hidden&&[...card.querySelectorAll('.project-board-handle,.project-board-resize')].every(button=>button.hidden===${!editing}&&button.disabled===${!editing});`), `short accounts containment/edit gate failed ${mode}/${theme}/${width}/${editing}`);
+        assert(await execute(`const card=board.root.children[0],content=card.querySelector('.project-board-content'),r=card.getBoundingClientRect(),c=content.getBoundingClientRect();return board.getLayout()[0].id==='accounts'&&r.height>132&&c.top>=r.top&&c.bottom<=r.bottom+.5&&content.scrollHeight<=content.clientHeight+1&&card.scrollHeight<=card.clientHeight+1&&card.scrollWidth<=card.clientWidth+1&&document.documentElement.scrollWidth<=innerWidth+1&&!card.hasAttribute('data-board-color')&&card.querySelector('.project-board-palette').hidden&&[...card.querySelectorAll('.project-board-handle,.project-board-resize')].every(button=>button.hidden===${!editing}&&button.disabled===${!editing});`), `short accounts containment/edit gate failed ${mode}/${theme}/${width}/${editing}`);
         assert(await execute(`const content=board.root.children[0].querySelector('.project-board-content');return [...content.querySelectorAll('.fixture-group-entry')].every(entry=>{entry.scrollIntoView({block:'nearest',inline:'nearest'});const r=content.getBoundingClientRect(),e=entry.getBoundingClientRect();return e.top>=r.top-.5&&e.bottom<=r.bottom+.5&&e.left>=r.left-.5&&e.right<=r.right+.5;});`), `not all 32 account entries reachable ${mode}/${theme}/${width}/${editing}`);
       }
-      await screenshot(`accounts-${mode}-${theme}-${width}`); console.log(`PASS accounts ${mode}/${theme}/${width}: 132px containment, all 32 entries reachable, explicit edit gate`);
+      await screenshot(`accounts-${mode}-${theme}-${width}`); console.log(`PASS accounts ${mode}/${theme}/${width}: automatic full height, all 32 entries reachable, explicit edit gate`);
     }
   }
   assert(reads.length===groupReads, 'reserved accounts requested project appearance');
   await bidi('browsingContext.setViewport', { context, viewport: { width: 1440, height: 900 }, devicePixelRatio: 1 });
   await asyncExecute('const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));');
-  await execute(`board.setEditing(false);const content=board.root.children[0].querySelector('.project-board-content');content.scrollTop=0;content.focus();`);
-  await key('\uE00F'); assert(await asyncExecute(`const done=arguments[0];setTimeout(()=>done(board.root.children[0].querySelector('.project-board-content').scrollTop>0),200);`), 'group native keyboard scrolling failed');
+  await execute(`board.setEditing(false);window.scrollTo(0,0);document.activeElement.blur();`);
+  await key('\uE00F'); assert(await asyncExecute(`const done=arguments[0];setTimeout(()=>done(scrollY>0&&board.root.children[0].querySelector('.project-board-content').scrollTop===0),200);`), 'group page keyboard scrolling failed');
   await execute(`board.setEditing(true);`); await drag('.project-board-resize', 115, 48);
   await execute(`board.root.children[0].querySelector('.project-board-resize').focus();`); await key('\uE013'); await key('\uE013');
-  assert(await execute(`const card=board.root.children[0],content=card.querySelector('.project-board-content'),r=card.getBoundingClientRect(),c=content.getBoundingClientRect();return board.getLayout()[0].id==='accounts'&&board.getLayout()[0].h===6&&Math.abs(r.height-132)<1&&c.bottom<=r.bottom+.5&&card.scrollHeight<=card.clientHeight+1&&edits.at(-1)[0].id==='accounts';`), 'group mouse/keyboard resize broke containment or callback identity');
+  assert(await execute(`const card=board.root.children[0],content=card.querySelector('.project-board-content'),r=card.getBoundingClientRect(),c=content.getBoundingClientRect();return board.getLayout()[0].id==='accounts'&&board.getLayout()[0].h===6&&r.height>132&&c.bottom<=r.bottom+.5&&card.scrollHeight<=card.clientHeight+1&&edits.at(-1)[0].id==='accounts';`), 'group mouse/keyboard resize broke containment or callback identity');
   await asyncExecute('const done=arguments[0];board.update(rows,{layout:device}).then(()=>{board.setEditing(false);window.edits=[];done(true);});');
   assert(await execute(`return matchMedia('(prefers-reduced-motion: reduce)').matches&&getComputedStyle(board.root.children[0]).transitionDuration==='0s';`), 'OS reduced-motion ignored');
   await execute(`document.documentElement.dataset.reducedMotion='true';`); assert(await execute(`return getComputedStyle(board.root.children[0]).transitionDuration==='0s';`), 'device reduced-motion ignored');
@@ -181,15 +197,15 @@ try {
   await drag('.project-board-resize', -115, -144);
   await execute(`board.root.children[0].querySelector('.project-board-resize').focus();`);
   await key('\uE013'); await key('\uE013');
-  assert(await execute(`const card=board.root.children[0],content=card.querySelector('.project-board-content'),r=card.getBoundingClientRect(),c=content.getBoundingClientRect();return board.getLayout()[0].h===6&&Math.abs(r.height-132)<1&&c.top>=r.top&&c.bottom<=r.bottom+.5&&content.scrollHeight>content.clientHeight&&card.scrollHeight<=card.clientHeight+1;`), 'real mouse/keyboard shrinking escaped the grid');
-  await execute(`board.setEditing(false);const content=board.root.children[0].querySelector('.project-board-content');content.scrollTop=0;content.focus();window.beforeKeyboardScroll=content.scrollTop;`);
+  assert(await execute(`const card=board.root.children[0],content=card.querySelector('.project-board-content'),r=card.getBoundingClientRect(),c=content.getBoundingClientRect();return board.getLayout()[0].h===6&&r.height>132&&c.top>=r.top&&c.bottom<=r.bottom+.5&&content.scrollHeight<=content.clientHeight+1&&card.scrollHeight<=card.clientHeight+1;`), 'real mouse/keyboard shrinking escaped the grid');
+  await execute(`board.setEditing(false);document.activeElement.blur();window.scrollTo(0,0);`);
   await key('\uE00F');
-  assert(await asyncExecute(`const done=arguments[0];setTimeout(()=>done(board.root.children[0].querySelector('.project-board-content').scrollTop>beforeKeyboardScroll),200);`), 'native keyboard PageDown cannot scroll short card');
+  assert(await asyncExecute(`const done=arguments[0];setTimeout(()=>done(scrollY>0&&board.root.children[0].querySelector('.project-board-content').scrollTop===0),200);`), 'native keyboard PageDown cannot scroll overview');
   await execute('board.setEditing(true);window.saved=board.getLayout();window.count=edits.length;');
   await drag('.project-board-handle', 0, 160, 'touch'); assert(await execute(`return edits.length===count&&JSON.stringify(board.getLayout())===JSON.stringify(saved);`), 'vertical touch saved a drag');
-  console.log('LIMIT Firefox WebDriver touch pan may not scroll physically; uncancelled pan-y intent and native inner scroll verified, hardware touch remains untested.');
+  console.log('LIMIT Firefox WebDriver touch pan may not scroll physically; uncancelled pan-y intent and native page scroll verified, hardware touch remains untested.');
   // Explicit cancellation events and stale handlers supplement real input coverage.
-  for (const cancel of ['pointercancel', 'lostpointercapture', 'pagehide']) {
+  for (const cancel of ['pointercancel', 'lostpointercapture']) {
     await execute(`const h=board.root.children[0].querySelector('.project-board-handle');h.dispatchEvent(new PointerEvent('pointerdown',{pointerId:42,button:0,clientX:20,clientY:20}));h.dispatchEvent(new PointerEvent('pointermove',{pointerId:42,clientX:240,clientY:68,cancelable:true}));${cancel === 'pagehide' ? "dispatchEvent(new Event('pagehide'));" : `h.dispatchEvent(new PointerEvent('${cancel}',{pointerId:42}));`}h.dispatchEvent(new PointerEvent('pointerup',{pointerId:42}));`);
     assert(await execute('return edits.length===count&&JSON.stringify(board.getLayout())===JSON.stringify(saved);'), `cancel ${cancel} saved preview`);
   }
@@ -198,8 +214,11 @@ try {
   assert(await execute(`stale.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown'}));return edits.length===count&&JSON.stringify(board.getLayout())===JSON.stringify(device);`), 'stale generation/device reread failed');
   await asyncExecute('const done=arguments[0];mount(device).then(()=>done(true));');
   assert(await execute(`return JSON.stringify(board.getLayout())===JSON.stringify(device)&&!board.root.lastElementChild.hasAttribute('data-board-color')&&board.root.lastElementChild.textContent.includes('12.5 USD');`), 'remount/account content isolation failed');
-  await execute(`board.setEditing(true);window.owns=false;board.root.querySelector('.project-board-handle').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown'}));`);
+  await asyncExecute('const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));');
+  assert(await execute('return fixtureObservers.filter(o=>o.observing).length===2;'), 'removed board retained observers');
+  await execute(`board.setEditing(true);dispatchEvent(new Event('pagehide'));window.owns=false;board.root.querySelector('.project-board-handle').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown'}));`);
   assert(await execute('return edits.length===window.count;'), `abandoned page committed: ${JSON.stringify(await execute('return {edits:edits.length,count:window.count,owns:window.owns,last:edits.at(-1)};'))}`);
+  assert(await execute('return fixtureObservers.every(o=>!o.observing);'), 'pagehide retained observers');
   assert(writes.length === 0 && reads.every(id => ids.includes(id)), 'unexpected mutation/account appearance');
   assert(await execute('return browserErrors.length===0&&cspErrors.length===0;'), `browser/CSP errors: ${JSON.stringify(await execute('return {browserErrors,cspErrors};'))}`);
   console.log(`PASS real keyboard, mouse move/resize, touch intent, cancellation, device reread, CSP CSSOM. Logs/screenshots: ${output}`);

@@ -71,14 +71,15 @@ test('全部结构化指标独立展示，不限两项、不混币种、分类�
   expect(root.querySelectorAll('progress')).toHaveLength(3);
   const content = deepText(root);
   for (const expected of ['部分指标可用', '12.5 USD', '80 CNY', 'Key 预算', '套餐额度', '模型额度',
-    '总量 10 USD', '已用 3 USD', '原始已用比例：30 %', '1 小时窗口', '7 天（周）窗口', 'vendor/a', '重置：', '到期待刷新', '百分比不是实际 token']) expect(content).toContain(expected);
+    '总量 10 USD', '已用 3 USD', '原始已用比例：30 %', '1 小时窗口', '7 天（周）窗口', 'vendor/a', '重置时间：', '到期待刷新', '百分比不是实际 token']) expect(content).toContain(expected);
   expect(root.querySelectorAll('progress').map(node => node.value)).toEqual([30, 40, 25]);
 });
 
 test('未知数值不填零、不画伪进度，不按窗口顺序推断期限', () => {
   const root = renderAccountCard(row(connection({ observation: observation({ resources: [metric({ kind: 'quota', remaining: null })] }) })));
-  const content = deepText(root); expect(content).toContain('剩余 未知 USD'); expect(content).not.toContain('剩余 0');
-  expect(content).toContain('已用比例未知'); expect(content).toContain('窗口时长未知'); expect(content).toContain('重置时间未知');
+  const content = deepText(root); expect(content).toContain('未知 USD'); expect(content).not.toContain('0 USD');
+  expect(content).toContain('比例未知'); expect(content).toContain('窗口未知'); expect(content).toContain('重置未知');
+  expect(root.querySelector('.dashboard-account-reading').querySelector('strong').getAttribute('aria-label')).toBe('已用比例未知');
   expect(root.querySelectorAll('progress')).toHaveLength(0);
 });
 
@@ -87,7 +88,8 @@ test('比例推导仅用结构化数值，0为真实零，超范围原值不被�
     metric({ kind: 'quota', remaining: 0, total: 10 }), metric({ id: 'odd', kind: 'quota', used_percent: 120 }),
     metric({ id: 'bad', kind: 'quota', remaining: NaN, total: Infinity, used: '0' }),
   ] }) })));
-  const content = deepText(root); expect(content).toContain('剩余 0 USD'); expect(content).toContain('已用 100%'); expect(content).toContain('已用 120%');
+  const content = deepText(root); expect(content).toContain('0 USD'); expect(content).toContain('100%'); expect(content).toContain('120%');
+  expect(root.querySelectorAll('progress').map(node => node.getAttribute('aria-valuetext'))).toEqual(['已用 100%', '已用 120%']);
   expect(root.querySelectorAll('progress').map(node => node.value)).toEqual([100, 100]);
 });
 
@@ -105,7 +107,7 @@ test('source:none的列表读取时间不冒充观测时间，未知状态也不
   const root = renderAccountCard(row(connection({ observation: observation({ status: 'unknown', source: 'none', checked_at: at }),
     last_success: { checked_at: at, observation: observation() } })), { sections: ['observed', 'history'] });
   const current = root.querySelector('.dashboard-account-observation');
-  expect(deepText(current)).toContain('时间未知（尚无观测）'); expect(deepText(current)).toContain('未知不等于零');
+  expect(root.querySelector('.dashboard-account-age').textContent).toBe('尚无观测'); expect(deepText(current)).toContain('未知不等于零');
   expect(current.querySelectorAll('.dashboard-account-metric')).toHaveLength(0);
   expect(deepText(root.querySelector('.dashboard-account-old'))).toContain('历史成功观测（非当前值）');
 });
@@ -225,8 +227,9 @@ test('默认账户卡精简，仅关键读数时间与刷新，不带成功状�
   const root = renderAccountCard(row(connection({ observation: observation({ resources: [metric(), metric({ id: 'plan', kind: 'quota', used_percent: 40,
     window_seconds: 18000, reset_at: '2099-01-01T00:00:00Z' })] }) })), { refresh: async () => {} });
   const content = deepText(root);
-  for (const expected of ['个人账户', '12.5 USD', '已用 40%', '5 小时窗口', '重置：', '上次观测：', '刷新']) expect(content).toContain(expected);
-  for (const absent of ['观测成功', '模型端点', '仅展示设备缓存', '指标详情', '观测来源', '原始已用比例', '不代表额度已恢复']) expect(content).not.toContain(absent);
+  for (const expected of ['个人账户', '12.5 USD', '40%', '5h', '↻', '刷新']) expect(content).toContain(expected);
+  for (const absent of ['观测成功', '模型端点', '仅展示设备缓存', '指标详情', '观测来源', '原始已用比例', '不代表额度已恢复', '上次观测', '已用 ', '剩余 未知', '小时窗口']) expect(content).not.toContain(absent);
+  expect(root.querySelector('.dashboard-account-identity').querySelector('.dashboard-account-age')).not.toBeNull();
   expect(root.querySelectorAll('progress')).toHaveLength(1); expect(root.querySelectorAll('details')).toHaveLength(0);
   expect(button(root, '刷新').disabled).toBe(false); expect(root.querySelectorAll('.agent-call')).toHaveLength(0);
 });
@@ -246,10 +249,10 @@ test('账户内容开关独立控制余额额度重置详细来源与旧值', ()
   let root = renderAccountCard(entry, { sections: ['balance'] });
   expect(deepText(root)).toContain('现金余额'); expect(deepText(root)).not.toContain('Key 预算'); expect(root.querySelectorAll('progress')).toHaveLength(0);
   root = renderAccountCard(entry, { sections: ['quota'] });
-  expect(deepText(root)).not.toContain('现金余额'); expect(deepText(root)).toContain('Key 预算'); expect(deepText(root)).not.toContain('重置：');
+  expect(deepText(root)).not.toContain('现金余额'); expect(deepText(root)).toContain('Key 预算'); expect(root.querySelector('.dashboard-account-reset')).toBeNull();
   expect(root.querySelectorAll('progress')).toHaveLength(1);
   root = renderAccountCard(entry, { sections: ['reset'] });
-  expect(deepText(root)).toContain('到期待刷新'); expect(deepText(root)).not.toContain('已用 20%'); expect(deepText(root)).not.toContain('剩余');
+  expect(deepText(root)).toContain('到期待刷新'); expect(deepText(root)).not.toContain('20%'); expect(deepText(root)).not.toContain('剩余');
   root = renderAccountCard(entry, { sections: ['details', 'provenance'] });
   expect(deepText(root)).toContain('模型端点：https://api.deepseek.com'); expect(deepText(root)).toContain('原始已用比例：20 %');
   expect(deepText(root)).toContain('观测来源'); expect(deepText(root)).toContain('范围：API Key 预算');
@@ -497,6 +500,60 @@ test('总览读取迟到不能替换刚打开的管理页，账户请求不自�
   delayed.resolve(json(config)); await pending;
   expect(dom.node('detail').dataset.view).toBe('project-management'); expect(dom.node('detail').querySelector('.project-board')).toBeNull();
   expect(writes()).toHaveLength(0);
+});
+
+test('窗口简称只按结构化期限，套餐不重复剩余比例与指标名，金额仍明确类型单位', () => {
+  for (const [seconds, expected] of [[18000, '5h'], [604800, '7d'], [7200, '2h'], [120, '2m'], [61, '61s'], [null, '窗口未知'], [0, '窗口未知'], [-1, '窗口未知'], [1.5, '窗口未知']]) {
+    const root = renderAccountCard(row(connection({ observation: observation({ resources: [metric({ id: 'plan', kind: 'quota', scope: 'account', label: '原始套餐指标', unit: '%', remaining: null, used_percent: 32, window_seconds: seconds })] }) })));
+    const metricNode = root.querySelector('.dashboard-account-metric');
+    expect(deepText(metricNode)).toContain(expected); expect(deepText(metricNode)).toContain('32%');
+    expect(deepText(metricNode)).not.toContain('剩余'); expect(deepText(metricNode)).not.toContain('未知 %'); expect(deepText(metricNode)).not.toContain('原始套餐指标');
+    expect(metricNode.getAttribute('aria-label')).toBe('套餐额度 · 原始套餐指标');
+    expect(metricNode.querySelector('strong').getAttribute('aria-label')).toBe('已用 32%');
+  }
+  const root = renderAccountCard(row(connection({ observation: observation({ resources: [metric({ remaining: null }), metric({ id: 'key', kind: 'quota', scope: 'key', total: 10, used: 2, remaining: 8 })] }) })));
+  expect(deepText(root)).toContain('现金余额'); expect(deepText(root)).toContain('未知 USD'); expect(deepText(root)).toContain('Key 预算'); expect(deepText(root)).toContain('8 USD');
+  expect(root.querySelector('.dashboard-account-value').getAttribute('aria-label')).toBe('Key 预算剩余 8 USD');
+});
+
+test('重置倒计时与缓存年龄紧凑且不把到期或未来时间伪装成额度恢复/新观测', () => {
+  const original = Date.now, now = Date.parse(at); Date.now = () => now;
+  try {
+    for (const [delta, expected] of [[60001, '↻ 2m'], [3660000, '↻ 1h 1m'], [176400000, '↻ 2d 1h'], [0, '到期待刷新'], [-1, '到期待刷新']]) {
+      const root = renderAccountCard(row(connection({ observation: observation({ resources: [metric({ kind: 'quota', scope: 'account', unit: '%', used_percent: 32, reset_at: new Date(now + delta).toISOString() })] }) })));
+      expect(root.querySelector('.dashboard-account-reset').textContent).toBe(expected);
+      expect(root.querySelector('progress').value).toBe(32); expect(deepText(root)).not.toContain('已恢复');
+    }
+    for (const [delta, expected] of [[0, '刚刚'], [180000, '3m前'], [7200000, '2h前'], [172800000, '2d前'], [-60000, '时间在未来']]) {
+      const root = renderAccountCard(row(connection({ observation: observation({ checked_at: new Date(now - delta).toISOString() }) })));
+      const age = root.querySelector('.dashboard-account-identity').querySelector('.dashboard-account-age'); expect(age.textContent).toBe(expected);
+      expect(age.getAttribute('aria-label')).toBe(`观测距今：${expected}`); expect(root.querySelector('.dashboard-account-observation').querySelector('.dashboard-account-age')).toBeNull();
+    }
+    for (const checked_at of [null, 'bad']) {
+      const root = renderAccountCard(row(connection({ observation: observation({ checked_at }) })));
+      expect(root.querySelector('.dashboard-account-age').textContent).toBe('时间未知');
+    }
+    const none = renderAccountCard(row(connection({ observation: observation({ status: 'unknown', source: 'none', checked_at: at }) })));
+    expect(none.querySelector('.dashboard-account-age').textContent).toBe('尚无观测');
+  } finally { Date.now = original; }
+});
+
+test('没有结构化总量不从剩余百分数臆造比例，推导溢出也不产生无限进度', () => {
+  const root = renderAccountCard(row(connection({ observation: observation({ resources: [
+    metric({ kind: 'quota', scope: 'account', unit: '%', remaining: 80, total: null, used_percent: null }),
+    metric({ id: 'overflow', kind: 'quota', used: 1e308, total: 1e-308 }),
+  ] }) })));
+  expect(root.querySelectorAll('progress')).toHaveLength(0); expect(deepText(root)).toContain('比例未知'); expect(deepText(root)).not.toContain('Infinity');
+});
+
+test('账户列表小面板自然展开且无内部滚动，字体密集与44px操作区保留', () => {
+  const css = fs.readFileSync(new URL('../../src/ui/web/assets/styles-dashboard-cards.css', import.meta.url), 'utf8');
+  for (const selector of ['.dashboard-accounts-items', '.dashboard-accounts-group .dashboard-account-embedded', '.dashboard-account-content']) {
+    const rule = css.split('\n').find(line => line.startsWith(`${selector}{`));
+    expect(rule).toContain('overflow:visible'); expect(rule).not.toContain('overflow:auto'); expect(rule).not.toContain('overflow:scroll');
+  }
+  expect(css).not.toContain('scrollbar-gutter'); expect(css).toContain('min-height:44px'); expect(css).toContain('min-width:44px');
+  expect(css).not.toContain('font-size:18px;line-height');
 });
 
 test('源码不引入管理台或浏览器持久化，CSS沿用双主题token并包含320px适用窄屏规则', () => {

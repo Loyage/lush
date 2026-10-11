@@ -108,8 +108,10 @@ for (const mode of ['list', 'tiles']) test(`${mode}同名来源仍独立，多�
   expect(root.querySelectorAll('.dashboard-account-card').map(row => row.dataset.connectionId)).toEqual([id(1), id(2)]);
   expect(root.querySelectorAll('.dashboard-account-metric')).toHaveLength(10); expect(root.querySelectorAll('progress')).toHaveLength(6);
   const text = deepText(root);
-  for (const phrase of ['短窗口', '周窗口', '现金余额', '10 USD', 'Key 预算', '3 USD', '模型额度', '剩余 未知 tokens', '已用比例未知', '到期待刷新']) expect(text).toContain(phrase);
-  for (const phrase of ['观测成功', '模型端点', '合计', '总余额']) expect(text).not.toContain(phrase);
+  for (const phrase of ['5h', '25%', '7d', '40%', '现金余额', '10 USD', 'Key 预算', '3 USD', '模型额度', '未知 tokens', '比例未知', '到期待刷新']) expect(text).toContain(phrase);
+  for (const phrase of ['观测成功', '模型端点', '合计', '总余额', '短窗口', '周窗口', '上次观测', '小时窗口', '剩余 未知 %']) expect(text).not.toContain(phrase);
+  expect(root.querySelectorAll('.dashboard-account-identity').map(node => node.querySelector('.dashboard-account-age')).filter(Boolean)).toHaveLength(2);
+  expect(root.querySelectorAll('.dashboard-account-metric')[0].getAttribute('aria-label')).toContain('短窗口');
   for (const selector of ['.project-board-handle', '.project-board-resize', '.dashboard-card-settings', '.agent-call']) expect(root.querySelectorAll(selector)).toHaveLength(0);
   expect(root.querySelectorAll('.dashboard-account-content')).toHaveLength(2); expect(requests).toHaveLength(0);
 });

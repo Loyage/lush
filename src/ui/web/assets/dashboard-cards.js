@@ -1,7 +1,7 @@
 import { el } from './dom.js';
 import { api } from './api.js';
 import { settingsClient } from './settings-api.js';
-import { usageWindow, usageErrorLabels, relative } from './format.js';
+import { usageWindow, usageErrorLabels } from './format.js';
 
 const PROVIDERS = { deepseek: 'DeepSeek', openrouter: 'OpenRouter', zai: 'Z.AI', 'kimi-coding': 'Kimi Coding',
   'openai-codex': 'Codex 订阅', 'openai-compatible': '自定义 OpenAI 兼容 API' };
@@ -107,43 +107,85 @@ export async function refreshAccountCards(ids, { ownsPage = () => true } = {}) {
   return { connections, errors: selected.filter(id => errors.has(id)).map(id => ({ id, error: errors.get(id) })) };
 }
 
+/** Compact labels use only supplied durations; position and provider names are not evidence. */
+function windowShort(seconds) {
+  if (!Number.isSafeInteger(seconds) || seconds <= 0) return '窗口未知';
+  for (const [size, suffix] of [[86400, 'd'], [3600, 'h'], [60, 'm']]) {
+    if (seconds % size === 0) return `${seconds / size}${suffix}`;
+  }
+  return `${seconds}s`;
+}
+function observedAge(observation) {
+  if (observation?.source === 'none') return '尚无观测';
+  const at = Date.parse(observation?.checked_at), delta = Date.now() - at;
+  if (!Number.isFinite(delta)) return '时间未知';
+  if (delta < 0) return '时间在未来';
+  if (delta < 60000) return '刚刚';
+  if (delta < 3600000) return `${Math.floor(delta / 60000)}m前`;
+  if (delta < 86400000) return `${Math.floor(delta / 3600000)}h前`;
+  return `${Math.floor(delta / 86400000)}d前`;
+}
+function resetCountdown(value) {
+  const delta = Date.parse(value) - Date.now();
+  if (!Number.isFinite(delta)) return '重置未知';
+  if (delta <= 0) return '到期待刷新';
+  const minutes = Math.ceil(delta / 60000), hours = Math.floor(minutes / 60);
+  const duration = hours >= 24 ? `${Math.floor(hours / 24)}d${hours % 24 ? ` ${hours % 24}h` : ''}`
+    : hours ? `${hours}h${minutes % 60 ? ` ${minutes % 60}m` : ''}` : `${minutes}m`;
+  return `↻ ${duration}`;
+}
 function renderMetric(resource, sections) {
   const kind = resource.kind === 'balance' ? '现金余额' : resource.scope === 'key' ? 'Key 预算'
     : resource.scope === 'account' ? '套餐额度' : '模型额度';
   const root = el('section', undefined, 'dashboard-account-metric');
   root.dataset.metricId = text(resource.id, 'unknown');
-  root.append(el('h4', `${kind} · ${text(resource.label, '未命名指标')}`));
-  const unit = text(resource.unit, '单位未知');
-  const showValue = sections.has(resource.kind === 'quota' ? 'quota' : 'balance');
+  root.setAttribute('aria-label', `${kind} · ${text(resource.label, '未命名指标')}`);
+  const unit = text(resource.unit, '单位未知'), quota = resource.kind === 'quota';
+  const showValue = sections.has(quota ? 'quota' : 'balance');
+  let percent = finite(resource.used_percent) ? resource.used_percent : null;
+  if (percent === null && finite(resource.total) && resource.total > 0) {
+    if (finite(resource.used)) percent = resource.used / resource.total * 100;
+    else if (finite(resource.remaining)) percent = (resource.total - resource.remaining) / resource.total * 100;
+    if (!finite(percent)) percent = null;
+  }
+  const heading = el('h4', undefined, 'dashboard-account-reading');
+  if (quota) {
+    heading.append(el('span', `${resource.scope === 'account' ? '' : `${kind} · `}${windowShort(resource.window_seconds)}`));
+    if (showValue) {
+      heading.append(el('span', ' · '));
+      const reading = el('strong', percent === null ? '比例未知' : `${amount(percent)}%`);
+      reading.setAttribute('aria-label', percent === null ? '已用比例未知' : `已用 ${amount(percent)}%`); heading.append(reading);
+    }
+  } else {
+    heading.append(el('span', kind));
+    if (showValue) heading.append(el('span', ' · '), el('strong', `${amount(resource.remaining)} ${unit}`));
+  }
+  root.append(heading);
   if (showValue) {
-    const remaining = el('p', undefined, 'dashboard-account-value');
-    remaining.append(el('strong', `剩余 ${amount(resource.remaining)} ${unit}`)); root.append(remaining);
-    if (resource.kind === 'quota') {
-      let percent = finite(resource.used_percent) ? resource.used_percent : null;
-      if (percent === null && finite(resource.total) && resource.total > 0) {
-        if (finite(resource.used)) percent = resource.used / resource.total * 100;
-        else if (finite(resource.remaining)) percent = (resource.total - resource.remaining) / resource.total * 100;
-      }
-      if (percent !== null) {
-        const value = el('p', undefined, 'dashboard-account-value');
-        value.append(el('strong', `已用 ${amount(percent)}%`)); root.append(value);
-        // Native progress avoids inline styles under the existing CSP; raw out-of-range percentages remain visible.
-        const bar = el('progress', undefined, 'dashboard-account-progress'); bar.max = 100; bar.value = Math.max(0, Math.min(100, percent));
-        bar.setAttribute('aria-label', `${text(resource.label, '额度')}已用比例`); root.append(bar);
-      } else note(root, '已用比例未知');
-      note(root, usageWindow(resource.window_seconds));
+    // Percentage windows do not need a second, redundant remaining-percent line.
+    if (quota && unit !== '%') {
+      const remaining = el('p', undefined, 'dashboard-account-value');
+      remaining.append(el('strong', `${amount(resource.remaining)} ${unit}`));
+      remaining.setAttribute('aria-label', `${kind}剩余 ${amount(resource.remaining)} ${unit}`); root.append(remaining);
+    }
+    if (quota && percent !== null) {
+      // Native progress avoids inline styles under CSP; out-of-range raw readings remain visible.
+      const bar = el('progress', undefined, 'dashboard-account-progress'); bar.max = 100; bar.value = Math.max(0, Math.min(100, percent));
+      bar.setAttribute('aria-label', `${text(resource.label, '额度')}已用比例`);
+      bar.setAttribute('aria-valuetext', `已用 ${amount(percent)}%`); root.append(bar);
     }
   }
-  if (sections.has('reset') && resource.kind === 'quota') {
-    const resetAt = Date.parse(resource.reset_at);
-    note(root, Number.isFinite(resetAt) ? `重置：${time(resource.reset_at)}${resetAt <= Date.now() ? ' · 到期待刷新' : ''}` : '重置时间未知');
+  if (sections.has('reset') && quota) {
+    const reset = el('p', resetCountdown(resource.reset_at), 'dashboard-card-note dashboard-account-reset');
+    reset.setAttribute('aria-label', `额度重置：${reset.textContent}`); root.append(reset);
   }
   if (sections.has('details')) {
     const details = el('details', undefined, 'dashboard-account-metric-details'); details.append(el('summary', '指标详情'));
+    note(details, `指标：${kind} · ${text(resource.label, '未命名指标')}`);
     note(details, `范围：${SCOPES[resource.scope] || '范围未知'} · 单位：${unit}`);
-    note(details, `总量 ${amount(resource.total)} ${unit} · 已用 ${amount(resource.used)} ${unit}`);
+    note(details, `剩余 ${amount(resource.remaining)} ${unit} · 总量 ${amount(resource.total)} ${unit} · 已用 ${amount(resource.used)} ${unit}`);
     note(details, `原始已用比例：${amount(resource.used_percent)} %`);
-    if (resource.kind === 'balance') { note(details, usageWindow(resource.window_seconds)); note(details, `重置时间：${time(resource.reset_at)}`); }
+    note(details, usageWindow(resource.window_seconds)); note(details, `重置时间：${time(resource.reset_at)}`);
     if (unit === '%') note(details, '百分比不是实际 token、请求总量或金额。');
     if (Array.isArray(resource.models) && resource.models.length) note(details, `适用模型：${resource.models.join('、')}`);
     root.append(details);
@@ -154,11 +196,6 @@ function renderObservation(observation, sections) {
   observation ||= {};
   const root = el('div', undefined, 'dashboard-account-observation');
   if (observation.status !== 'available') note(root, STATUSES[observation.status] || '观测状态未知；未知不等于零', true);
-  if (sections.has('observed')) {
-    // source:none may carry a list read timestamp; it is not a sample.
-    note(root, `上次观测：${observation.source === 'none' ? '时间未知（尚无观测）'
-      : Number.isFinite(Date.parse(observation.checked_at)) ? relative(observation.checked_at) : '时间未知'}`);
-  }
   if (sections.has('provenance')) {
     note(root, `观测来源：${SOURCES[observation.source] || '未知来源'}`);
     if (observation.source !== 'none') note(root, `观测时间：${time(observation.checked_at)}`);
@@ -182,7 +219,14 @@ export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, o
   root.dataset.cardId = row.id; root.dataset.cardType = 'account'; root.dataset.connectionId = row.connection_id;
   const connection = row.connection;
   const header = el('header', undefined, 'dashboard-account-header');
-  header.append(el('h3', connection ? text(connection.label, '未命名账户') : '账户来源已删除或不可用'));
+  const identity = el('div', undefined, 'dashboard-account-identity');
+  identity.append(el('h3', connection ? text(connection.label, '未命名账户') : '账户来源已删除或不可用'));
+  if (connection && selected.has('observed')) {
+    // source:none may carry a list read timestamp; it is not a sample.
+    const age = el('span', observedAge(connection.observation), 'dashboard-account-age');
+    age.setAttribute('aria-label', `观测距今：${age.textContent}`); identity.append(age);
+  }
+  header.append(identity);
   const refreshHost = el('span', undefined, 'help-host'), refreshButton = el('button', '刷新', 'dashboard-account-refresh');
   refreshButton.type = 'button'; refreshHost.append(refreshButton); header.append(refreshHost); root.append(header);
   const content = embedded ? el('div', undefined, 'dashboard-account-content') : root;
