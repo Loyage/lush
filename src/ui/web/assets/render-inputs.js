@@ -90,7 +90,7 @@ export function openInputs({ item = null, push = true } = {}) {
   const panel = el('section', undefined, 'input-detail resource-card'); panel.hidden = true; panel.setAttribute('aria-label', '输入原文与编辑'); panel.setAttribute('tabindex', '-1');
   detailView.append(breadcrumb, panel);
   const more = controlsButton('加载更多', () => load(true), { help: '按当前搜索和筛选条件，继续读取更早的输入记录。' }); more.node.hidden = true;
-  const reload = controlsButton('刷新列表', () => load(), { className: 'ghost', help: '重新读取列表的最新状态；不会覆盖尚未保存的草稿编辑，详情需单独重新读取。' });
+  const reload = controlsButton('刷新列表', () => load(), { className: 'ghost', help: '重新读取列表的最新状态，不会覆盖尚未保存的草稿编辑。' });
   filters.append(searchLabel, status.field, merge.field, searchButton, reload.host);
   const pagination = el('div', undefined, 'inputs-pagination'); pagination.append(more.host);
   browse.append(header, filters, feedback, listCard, pagination);
@@ -184,7 +184,7 @@ export function openInputs({ item = null, push = true } = {}) {
       showDetail(item, push); panel.focus({ preventScroll: true }); return;
     }
     if (state.editor?.busy) { restoreRoute(); return; }
-    if (state.editor?.dirty() && !await confirmDialog({ title: '放弃尚未保存的编辑？', message: '切换或重新读取会丢弃当前本地编辑；服务器上保存的草稿不变。', confirmLabel: '放弃编辑', danger: true })) {
+    if (state.editor?.dirty() && !await confirmDialog({ title: '放弃尚未保存的编辑？', message: '切换会丢弃当前本地编辑；服务器上保存的草稿不变。', confirmLabel: '放弃编辑', danger: true })) {
       if (current()) restoreRoute(); return;
     }
     if (!current()) return;
@@ -209,6 +209,7 @@ export function openInputs({ item = null, push = true } = {}) {
   }
 
   function renderEditor(record, parents) {
+    panel.onkeydown = null;
     let saved = record, references = [...record.references], runProfile = null;
     const mounted = record.kind === 'draft' && record.hook_mount;
     const editable = record.kind === 'draft' && !mounted;
@@ -244,15 +245,14 @@ export function openInputs({ item = null, push = true } = {}) {
         finally { editor.busy = false; }
       }, { help: '核验后只移除等待中的挂载，释放草稿；不会丢弃已产生的 Worker 或消息。', className: 'ghost hook-button' });
       cancel.node.disabled = true; cancel.host.tabIndex = 0; row.append(cancel.host);
-      row.append(button('重新读取详情', () => { if (!editor.busy) return openItem(record, { reread: true }); }, 'ghost', { help: '读取草稿与挂载的最新事实，不重试或重复发射。' }));
       void api(`/api/worker/${mounted.parent_id}/hooks`).then(hooks => {
         if (!current()) return;
         const hook = hooks.mounts?.find(item => item.id === mounted.hook_id);
-        const reason = !hook ? '挂载已不在当前读面，请重新读取详情或查看父 Worker。' : hook.removable === true ? null : hook.reason;
+        const reason = !hook ? '挂载已不在当前读面，请查看父 Worker 的 Hooks。' : hook.removable === true ? null : hook.reason;
         cancel.node.disabled = !hook || (hook.removable ?? hook.editable) !== true || hook.locked || hook.state === 'running';
         stateLine.textContent = reason || (cancel.node.disabled ? '当前挂载不能取消；请检查实际执行状态。' : '可取消等待中的挂载，取消后恢复草稿编辑。');
         cancel.host.setAttribute('data-help', `${stateLine.textContent} 仅移除等待中的一次性 Hook，不删除已创建 Worker。`);
-      }).catch(error => { if (current()) stateLine.textContent = `核验失败：${error.message}；取消入口保持禁用，请重新读取。`; });
+      }).catch(error => { if (current()) stateLine.textContent = `核验失败：${error.message}；取消入口保持禁用，请查看父 Worker 的 Hooks。`; });
       return;
     }
     panel.replaceChildren(el('h2', editable ? `暂存输入 #${record.id}` : `原始输入 ${inputNumber(record.id)}`), statusLine(record));
@@ -262,8 +262,11 @@ export function openInputs({ item = null, push = true } = {}) {
     if (editable) { content.value = record.content; content.rows = 10; content.maxLength = 32000; content.setAttribute('aria-label', '草稿正文'); }
     panel.append(content);
     if (editable) {
-      editor.textEditor = attachTextEditor(content);
+      editor.textEditor = attachTextEditor(content, { onChange: () => syncSave() });
       panel.append(editor.textEditor.controls);
+      const shortcuts = el('p', 'Ctrl/⌘+S 保存 · Ctrl/⌘+Z 撤销 · Ctrl/⌘+Shift+Z 或 Ctrl+Y 重做 · Enter 换行', 'hint');
+      shortcuts.id = 'draft-editor-shortcuts'; content.setAttribute('aria-describedby', shortcuts.id);
+      panel.append(shortcuts);
     }
     const parent = el('select'); parent.setAttribute('aria-label', '草稿父 Worker');
     const parentHint = el('p', undefined, 'hint');
@@ -281,6 +284,7 @@ export function openInputs({ item = null, push = true } = {}) {
     } else panel.append(el('p', `父 Worker：${record.parent_id ? workerLabel(record.parent_id, record.parent_worker_number) : '未知'} · 输入分支：${record.branch ?? '未知'}`, 'hint'));
     const refs = el('div', undefined, 'input-references'); panel.append(refs);
     const mutating = [], referenceControls = [];
+    let saveControl = null, composing = false;
     function paintReferences() {
       referenceControls.length = 0;
       refs.replaceChildren(el('h3', `引用快照（${references.length}）`));
@@ -302,12 +306,27 @@ export function openInputs({ item = null, push = true } = {}) {
         const restore = controlsButton('恢复已保存引用', () => { if (!editor.busy && current()) { references = [...saved.references]; paintReferences(); } });
         referenceControls.push(restore.node); refs.append(restore.host);
       }
+      syncSave();
     }
-    paintReferences();
-    const initialParent = () => saved.parent_id ? String(saved.parent_id) : '';
+    const initialParent = () => !saved.parent_id ? '' : parents.some(task => task.id === saved.parent_id && task.branch === saved.branch)
+      ? String(saved.parent_id) : `missing:${saved.parent_id}`;
     editor.editKey = () => JSON.stringify([saved.revision, content.value, parent.value, references, runProfile]);
     const contentDirty = () => editable && (content.value !== saved.content || parent.value !== initialParent() || JSON.stringify(references) !== JSON.stringify(saved.references));
     editor.dirty = () => contentDirty() || runProfile !== null;
+    function syncSave() {
+      if (!saveControl) return;
+      saveControl.node.disabled = editor.busy || composing || !contentDirty();
+      const reason = editor.busy ? '正在处理，请稍候。' : composing ? '请先完成输入法候选确认。' : !contentDirty() ? '当前内容与已保存的草稿一致。' : '';
+      saveControl.host.tabIndex = saveControl.node.disabled ? 0 : -1;
+      if (reason) saveControl.host.setAttribute('data-help', reason);
+      else saveControl.host.removeAttribute('data-help');
+    }
+    if (editable) {
+      content.oninput = syncSave;
+      content.oncompositionstart = () => { composing = true; syncSave(); };
+      content.oncompositionend = () => { composing = false; syncSave(); };
+    }
+    paintReferences();
     const selectedParent = () => parents.find(task => String(task.id) === parent.value);
     const launchControls = new Map();
     const paintParent = () => {
@@ -316,7 +335,7 @@ export function openInputs({ item = null, push = true } = {}) {
         ? `父分支冻结：${frozen.reason || '等待安全边界'}。发射将挂载一次性 Hook，先保存正文、引用与运行设置；首个可创建安全点才创建工作区。`
         : '发射时从这个父 Worker 的分支创建独立工作区。' : '原父 Worker 缺失或不可用，必须重新选择并保存后才能发射。';
       for (const [kind, control] of launchControls) {
-        control.node.textContent = kind === 'start' ? (frozen ? '预约发射并开始' : '发射并开始') : (frozen ? '预约仅创建' : '仅创建');
+        control.node.textContent = kind === 'start' ? (frozen ? '预约发射并开始' : '发射并开始') : (frozen ? '预约发射' : '发射');
         control.node.classList.toggle('hook-button', Boolean(frozen));
         const help = frozen ? `只挂载到父 Worker ${workerLabel(target)}；不立即创建或调用 Agent。通过创建准入后${kind === 'start' ? '创建并开始' : '创建待开始 Worker'}，代码基线在创建时固定。`
           : kind === 'start' ? '先保存编辑，再将这一条草稿创建为独立 Worker 并立即开始；不执行其它暂存输入。' : '先保存编辑，再创建待开始的 Worker 和工作区；不调用 Agent。';
@@ -324,7 +343,7 @@ export function openInputs({ item = null, push = true } = {}) {
         control.node.setAttribute('data-help', kind === 'start' ? agentHelp(help) : help);
       }
     };
-    parent.onchange = paintParent; paintParent();
+    parent.onchange = () => { paintParent(); syncSave(); }; paintParent();
     const actions = el('div', undefined, 'input-actions'); panel.append(actions);
     if (editable) {
       const profile = controlsButton('运行设置：预约时冻结项目默认', async () => {
@@ -340,12 +359,13 @@ export function openInputs({ item = null, push = true } = {}) {
     function setBusy(busy) {
       editor.busy = busy; if (editable) { content.disabled = busy; parent.disabled = busy; editor.textEditor.sync(); }
       for (const node of [...mutating, ...referenceControls]) node.disabled = busy;
+      syncSave();
     }
     async function persist() {
       if (!content.value.trim()) throw new Error('草稿正文不能为空。');
       const target = selectedParent();
       if (!target) throw new Error('请选择可用的父 Worker，并保存后再发射。');
-      if (saved.revision !== null && !Number.isInteger(saved.revision)) throw new Error('草稿缺少版本号，请重新读取。');
+      if (saved.revision !== null && !Number.isInteger(saved.revision)) throw new Error('草稿缺少版本号，请先复制编辑内容再刷新页面。');
       if (!contentDirty()) return;
       const updated = await action('draft.update', { id: saved.id, content: content.value, references,
         ...(target.id !== saved.parent_id || target.branch !== saved.branch ? { branch: target.branch } : {}), expected_revision: saved.revision });
@@ -359,7 +379,7 @@ export function openInputs({ item = null, push = true } = {}) {
       }
     }
     async function mutate(kind) {
-      if (!current() || editor.busy) return;
+      if (!current() || editor.busy || (kind === 'save' && (composing || !contentDirty()))) return;
       setBusy(true); message.setAttribute('role', 'status');
       try {
         if (kind === 'remove') {
@@ -375,7 +395,7 @@ export function openInputs({ item = null, push = true } = {}) {
           }
           // No content/branch/references here: the server atomically consumes the saved revision.
           const result = await action('order.submit', { draft_id: saved.id, expected_revision: saved.revision, start: kind === 'start',
-            ...(selectedParent()?.freeze || runProfile ? { defer: true } : {}), ...(runProfile ? { profile: runProfile } : {}) });
+            ...(selectedParent()?.freeze || runProfile ? { defer: true } : {}), ...(runProfile ? { profile: runProfile } : {}) }, { refresh: false });
           if (!current()) return;
           if (result.deferred) {
             editor.textEditor.dispose(); state.editor = null;
@@ -383,32 +403,52 @@ export function openInputs({ item = null, push = true } = {}) {
               button(`查看父 Worker ${workerLabel(result.parent_id)} 的 Hooks`, () => detail(result.parent_id), 'ghost hook-button', { help: '查看实际挂载与执行状态，不重复发射。' }));
             return;
           }
-          panel.replaceChildren(el('h2', kind === 'start' ? '已发射并开始' : '已创建·待开始'),
-            button(`查看 Worker ${workerLabel(result.task)}`, () => detail(result.task.id)));
+          // The acknowledged draft is consumed even if the follow-up detail read fails.
+          // Replace this history entry so Back cannot reopen the now-submitted draft.
+          const item = { kind: 'input', id: result.id };
+          state.items.delete(keyOf(saved)); paintList();
+          editor.textEditor.dispose(); state.editor = null;
+          showDetail(item, false); window.history.replaceState?.(null, '', `#input-input-${item.id}`);
+          renderEditor({ ...saved, ...item, content: result.content ?? saved.content, references: result.references ?? saved.references,
+            revision: null, hook_mount: null, task_id: result.task.id, task_worker_number: result.task.worker_number,
+            created_at: result.task.created_at ?? null, status: kind === 'create' ? 'created' : result.task.status ?? 'unknown',
+            integration: result.task.integration ?? 'none', merge_status: 'none' }, []);
+          show(kind === 'start' ? '已发射并开始。' : '已发射，Worker 待开始。');
+          await openItem(item, { push: false, reread: true });
+          await load(); return;
         }
         if (!current()) return;
         editor.textEditor?.dispose(); state.editor = null; state.items.delete(keyOf(saved)); paintList();
         if (kind === 'remove') panel.replaceChildren(el('p', '草稿已删除。', 'hint'));
         await load();
       } catch (error) {
-        if (current()) { message.textContent = `操作失败：${error.message}。编辑内容保留；如版本冲突，请复制编辑内容后重新读取。`; message.setAttribute('role', 'alert'); }
+        if (current()) { message.textContent = `操作失败：${error.message}。编辑内容保留；如版本冲突，请先复制编辑内容，再刷新页面读取最新版本。`; message.setAttribute('role', 'alert'); }
       } finally { if (current()) setBusy(false); }
     }
     if (editable) {
       for (const [label, kind, opts] of [
         ['发射并开始', 'start', { agent: true, help: agentHelp('先保存编辑，再将这一条草稿创建为独立 Worker 并立即开始；不执行其它暂存输入。') }],
-        ['仅创建', 'create', { help: '先保存编辑，再创建待开始的 Worker 和工作区；不调用 Agent，可进入 Worker 配置后手动开始。' }],
-        ['保存', 'save', {}],
+        ['发射', 'create', { help: '先保存编辑，再创建待开始的 Worker 和工作区；不调用 Agent，可进入 Worker 配置后手动开始。' }],
+        ['保存', 'save', { className: 'input-save' }],
         ['删除草稿', 'remove', { help: '经确认后永久删除这条未发送草稿及其引用；已发送输入不可删除。', className: 'danger' }],
       ]) {
         const control = controlsButton(label, () => mutate(kind), opts); mutating.push(control.node); actions.append(control.host);
         if (['start', 'create'].includes(kind)) launchControls.set(kind, control);
+        if (kind === 'save') {
+          saveControl = control; control.host.className = 'help-host';
+          control.node.setAttribute('aria-keyshortcuts', 'Control+s Meta+s');
+        }
       }
-      paintParent();
+      paintParent(); syncSave();
+      panel.onkeydown = event => {
+        if (!current() || panel.hidden || !state.activeItem || event.defaultPrevented
+          || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key?.toLowerCase() !== 's') return;
+        event.preventDefault();
+        if (event.isComposing || event.keyCode === 229 || composing) return;
+        return mutate('save');
+      };
     }
     if (record.task_id) actions.append(button(`查看 Worker ${workerLabel(record.task_id, record.task_worker_number)}`, () => detail(record.task_id)));
-    const reread = controlsButton('重新读取详情', () => openItem(record, { reread: true }), { help: '读取最新原文、版本号和父 Worker 候选；如有未保存编辑，会先确认是否放弃。' });
-    mutating.push(reread.node); actions.append(reread.host);
   }
   const loaded = load();
   return item ? Promise.all([loaded, openItem(item, { push })]) : loaded;

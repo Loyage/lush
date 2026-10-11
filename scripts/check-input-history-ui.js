@@ -99,7 +99,7 @@ async function checkComposerMode(mode, theme, width) {
       described:box.getAttribute('aria-describedby').includes('composer-mode-behavior')};`);
   assert(layout.theme===theme && layout.mode===mode && layout.fits && layout.childrenFit && layout.described, `mode band clipped/inaccessible ${mode} ${theme} ${width}: ${JSON.stringify(layout)}`);
   assert(mode==='create'
-    ? layout.title==='新建独立 Worker' && layout.target.includes('父 Worker') && layout.behavior.includes('Enter 暂存') && layout.button==='创建 Worker'
+    ? layout.title==='新建独立 Worker' && layout.target.includes('父 Worker') && layout.behavior.includes('Enter 暂存') && layout.button==='仅创建'
     : layout.title==='继续当前 Worker' && layout.target.includes('Worker #1') && layout.behavior.includes('不创建新 Worker') && layout.behavior.includes('Enter 追加') && layout.button==='追加输入', `wrong mode copy: ${JSON.stringify(layout)}`);
   console.log(`PASS persistent ${mode} mode band ${theme} ${layout.viewport}px viewport (${layout.color})`);
 }
@@ -170,15 +170,30 @@ try {
   assert(await execute(`const input=document.querySelector('#input');input.value='网络期间的新想法';input.dispatchEvent(new Event('input'));window.hold();return window.calls.length===2;`), 'repeated Enter duplicated request');
   assert(await waitFor('!document.querySelector("#input-buffer").disabled'), 'buffer not released');
   assert(await execute(`return document.querySelector('#input').value==='网络期间的新想法';`), 'new text lost');
-  await execute(`document.querySelector('.input-detail textarea').value='浏览器里编辑的原文';document.querySelector('.input-detail .agent-call').scrollIntoView({block:'center'});`);
+  assert(await execute(`return document.querySelector('.input-save').disabled && ![...document.querySelectorAll('.input-detail button')].some(n=>n.textContent==='重新读取详情'||n.textContent==='仅创建');`), 'clean draft/save or button copy incorrect');
+  await execute(`const box=document.querySelector('.input-detail textarea');box.value='快捷键保存的草稿';box.dispatchEvent(new Event('input',{bubbles:true}));box.focus();window.beforeSaveCalls=window.calls.length;`);
+  assert(await execute(`return !document.querySelector('.input-save').disabled;`), 'editing did not enable save');
+  await keys([{type:'keyDown',value:'\uE009'},{type:'keyDown',value:'s'},{type:'keyUp',value:'s'},{type:'keyUp',value:'\uE009'}]);
+  assert(await waitFor('window.calls.length===window.beforeSaveCalls+1 && document.querySelector(".input-save").disabled && !document.querySelector(".input-detail textarea").disabled'), 'real Ctrl+S did not save/disable');
+  assert(await execute(`return window.calls.at(-1).method==='draft.update' && window.rows.find(row=>row.id===1).content==='快捷键保存的草稿';`), 'save shortcut fired an order');
+  await keys([{type:'keyDown',value:'\uE009'},{type:'keyDown',value:'s'},{type:'keyUp',value:'s'},{type:'keyUp',value:'\uE009'}]);
+  assert(await execute(`return window.calls.length===window.beforeSaveCalls+1;`), 'clean save key sent another mutation');
+  await keys([{type:'keyDown',value:'\uE009'},{type:'keyDown',value:'z'},{type:'keyUp',value:'z'},{type:'keyUp',value:'\uE009'}]);
+  assert(await execute(`return !document.querySelector('.input-save').disabled;`), 'undo after save did not enable save');
+  await keys([{type:'keyDown',value:'\uE009'},{type:'keyDown',value:'\uE008'},{type:'keyDown',value:'z'},{type:'keyUp',value:'z'},{type:'keyUp',value:'\uE008'},{type:'keyUp',value:'\uE009'}]);
+  assert(await execute(`return document.querySelector('.input-save').disabled;`), 'redo to saved content did not disable save');
+  console.log('PASS real draft Ctrl+S, clean-save suppression and undo/redo dirty state');
+  await execute(`const box=document.querySelector('.input-detail textarea');box.value='浏览器里编辑的原文';box.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.input-detail .agent-call').scrollIntoView({block:'center'});`);
   await press('\uE008'); // Establish real keyboard modality without scrolling away from the target.
   await execute(`const node=document.querySelector('.input-detail .agent-call');node.blur();node.focus({preventScroll:true});`);
   assert(await waitFor('!!document.querySelector("#help-tip") && !document.querySelector("#help-tip").hidden'), 'Agent keyboard help did not appear after dwell');
   const help = await execute(`const node=document.querySelector('.input-detail .agent-call'),tip=document.querySelector('#help-tip');return {focused:document.activeElement===node,visible:!!tip&&!tip.hidden,text:tip?.textContent};`);
   assert(help.focused && help.visible && help.text.includes('token'), `Agent focus help missing: ${JSON.stringify(help)}`);
   await click('.input-detail .agent-call');
-  assert(await waitFor('document.querySelector(".input-detail").textContent.includes("已发射并开始")'), 'draft was not fired');
-  assert(await execute(`const calls=window.calls.slice(-2);return calls[0].method==='draft.update' && calls[1].method==='order.submit' && calls[1].params.expected_revision===2 && calls[1].params.start===true && !('content' in calls[1].params);`), 'save/fire contract invalid');
+  assert(await waitFor('location.hash==="#input-input-1" && !document.querySelector(".input-detail textarea") && document.querySelector(".input-detail").textContent.includes("浏览器里编辑的原文")'), 'fired draft did not convert to readonly Order');
+  await rpc(`/session/${session}/back`, {});
+  assert(await waitFor('location.hash==="#inputs" && !document.querySelector(".inputs-browse").hidden'), 'Back reopened consumed draft instead of list');
+  assert(await execute(`const calls=window.calls.slice(-2);return calls[0].method==='draft.update' && calls[1].method==='order.submit' && calls[1].params.expected_revision===3 && calls[1].params.start===true && !('content' in calls[1].params);`), 'save/fire contract invalid');
   assert(await execute(`return document.querySelectorAll('img').length===0;`), 'unsafe input rendered as markup');
   await execute(`document.querySelector('#input').value='';document.querySelector('#input').dispatchEvent(new Event('input'));`);
   await execute(`location.hash='#worker-1';`);

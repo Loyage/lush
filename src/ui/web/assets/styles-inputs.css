@@ -23,6 +23,7 @@ button.input-row:focus-visible,a.input-row:focus-visible{background:var(--accent
 .input-original,.input-quote{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7;font-family:inherit}
 .input-original{max-height:none;overflow:visible;font-size:14px;margin:16px 0}
 .input-actions{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin-top:18px}
+.input-actions .input-save:disabled{background:var(--panel-2);color:var(--muted);border-color:var(--line);opacity:1}
 .input-detail textarea{display:block;width:100%;resize:vertical;min-height:180px;max-height:65vh;margin:14px 0;font:inherit;line-height:1.6}
 .input-detail .text-editor-controls{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin:-4px 0 14px}
 .input-detail select{width:100%}.input-references h3{font-size:13px;color:var(--muted);margin-top:20px}

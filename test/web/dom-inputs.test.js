@@ -204,18 +204,23 @@ test('完整详情修订用于编辑保存，父 Task 来自完整列表，保�
   expect(editor().value).toBe('修改后的正文\n保留换行'); expect(deepText(panel())).toContain('已保存');
   await btn('发射并开始', panel()).onclick();
   expect(calls.at(-1)).toEqual({ method: 'order.submit', params: { draft_id: 1, expected_revision: 4, start: true } });
-  expect(text()).toContain('已发射并开始'); expect(root().querySelectorAll('.input-record')).toHaveLength(0);
+  expect(text()).toContain('原始输入 O3'); expect(editor()).toBeNull();
+  expect(dom.location.hash).toBe('#input-input-3'); expect(deepText(panel())).toContain('修改后的正文');
+  expect(root().querySelectorAll('.input-record')).toHaveLength(0);
   await btn('← 返回历史输入').onclick(); await selectStatus('');
   expect(root().querySelectorAll('.input-record').some(card => card.dataset.input === 'draft:1')).toBe(false);
   expect(root().querySelectorAll('.input-record').filter(card => card.dataset.input === 'input:3')).toHaveLength(1);
 });
 
-test('仅创建先保存再以新版本发射，不带正文/branch；关联 Task 导航不调用 Agent', async () => {
+test('发射先保存再以新版本创建待开始 Worker，不带正文/branch；关联 Task 导航不调用 Agent', async () => {
   await openInputs(); await openDraft(); editor().value = '新正文';
-  await btn('仅创建', panel()).onclick();
+  await btn('发射', panel()).onclick();
   expect(calls.map(call => call.method)).toEqual(['draft.update', 'order.submit']);
   expect(calls[0].params).not.toHaveProperty('branch');
   expect(calls[1].params).toEqual({ draft_id: 1, expected_revision: 4, start: false });
+  expect(dom.location.hash).toBe('#input-input-3'); expect(dom.node('view-title').textContent).toBe('原始输入 O3');
+  expect(editor()).toBeNull(); expect(deepText(panel())).toContain('新正文');
+  expect(deepText(panel())).toContain('当时所见'); expect(deepText(panel())).toContain('已创建·待开始');
   let opened; const restore = registerNavigation({ detail: async id => { opened = id; } });
   try { await btn('查看 Worker #33', panel()).onclick(); expect(opened).toBe(33); } finally { restore(); }
   expect(calls).toHaveLength(2);
@@ -236,7 +241,7 @@ test('编辑/发射单飞，保存失败保留全部本地编辑并且不发射'
   await openInputs(); await openDraft(); editor().value = '不能丢的编辑'; parentSelect().value = '900'; await btn('移除引用', panel()).onclick();
   const delayed = deferred(); intercept = (_path, body) => body?.method === 'draft.update' ? delayed.promise : null;
   const first = btn('发射并开始', panel()).onclick();
-  await btn('仅创建', panel()).onclick(); await btn('保存', panel()).onclick(); await btn('删除草稿', panel()).onclick();
+  await btn('发射', panel()).onclick(); await btn('保存', panel()).onclick(); await btn('删除草稿', panel()).onclick();
   expect(calls).toHaveLength(1); expect(editor().disabled).toBe(true);
   delayed.resolve({ ok: false, json: async () => ({ error: 'revision conflict' }) }); await first;
   expect(editor().value).toBe('不能丢的编辑'); expect(parentSelect().value).toBe('900'); expect(deepText(panel())).toContain('引用快照（0）');
@@ -280,7 +285,7 @@ test('删除草稿走应用内确认，取消无动作、确认单飞且使用�
   expect(text()).toContain('草稿已删除'); expect(root().querySelectorAll('.input-record')).toHaveLength(0);
 });
 
-test('列表查询/详情迟到响应与离页返回身份保护；编辑期间详情迟到不覆盖', async () => {
+test('列表查询/详情迟到响应与离页返回身份保护；切换期间新编辑不覆盖', async () => {
   const pending = deferred(); intercept = path => path === '/api/inputs' ? pending.promise : null;
   const old = openInputs(); activateDetailView({ view: 'settings' }); root().replaceChildren(document.createTextNode('设置页')); pending.resolve(json({ items: rows, next_cursor: null })); await old;
   expect(text()).toBe('设置页');
@@ -289,9 +294,9 @@ test('列表查询/详情迟到响应与离页返回身份保护；编辑期间�
   const opening = openDraft(); await btn('查看原文').onclick(); late.resolve(json(fixture())); await opening;
   expect(deepText(panel())).toContain('原始输入 O2'); expect(editor()).toBe(null);
   intercept = null; await openDraft();
-  const reread = deferred(); intercept = path => path === '/api/input/draft/1' ? reread.promise : null;
-  const loading = btn('重新读取详情', panel()).onclick(); editor().value = '请求期间的新编辑';
-  reread.resolve(json(fixture('draft', 1, { content: '服务端更新' }))); await loading;
+  const pendingSwitch = deferred(); intercept = path => path === '/api/input/input/2' ? pendingSwitch.promise : null;
+  const loading = btn('查看原文').onclick(); editor().value = '请求期间的新编辑';
+  pendingSwitch.resolve(json(fixture('input', 2))); await loading;
   expect(editor().value).toBe('请求期间的新编辑'); expect(deepText(panel())).toContain('未覆盖当前编辑');
 });
 
@@ -314,8 +319,8 @@ test('文本安全、Agent 标识和帮助宿主，静态导航与快捷键提�
   expect(root().querySelectorAll('img')).toHaveLength(0);
   const start = btn('发射并开始', panel()); expect(start.classList.contains('agent-call')).toBe(true); expect(start.getAttribute('data-help')).toContain('token');
   expect(start.parentNode.classList.contains('help-host')).toBe(true);
-  expect(btn('仅创建', panel()).classList.contains('agent-call')).toBe(false);
-  for (const label of ['仅创建', '删除草稿', '移除引用']) expect(btn(label, panel()).getAttribute('data-help')).toBeTruthy();
+  expect(btn('发射', panel()).classList.contains('agent-call')).toBe(false);
+  for (const label of ['发射', '删除草稿', '移除引用']) expect(btn(label, panel()).getAttribute('data-help')).toBeTruthy();
   const html = readFileSync('src/ui/web/assets/index.html', 'utf8');
   expect(html.indexOf('id="inputs-open"')).toBeLessThan(html.indexOf('<span>设备设置与帮助</span>'));
   expect(html).toContain('<kbd>Enter</kbd> 暂存'); expect(html).toContain('<kbd>Shift+Enter</kbd> 换行'); expect(html).toContain('/styles-inputs.css');
@@ -327,7 +332,7 @@ test('冻结父 Worker 的草稿发射挂载一次性 Hook，保留修订与引�
     intercept = (_path, body) => body?.method === 'order.submit' ? json({ deferred: true, parent_id: 1, hook_id: 'draft-once' }) : null;
     await openInputs(); await openDraft();
     expect(btn('预约发射并开始').classList.contains('agent-call')).toBe(true);
-    expect(btn('预约仅创建').getAttribute('data-help')).toContain('不立即创建或调用 Agent');
+    expect(btn('预约发射').getAttribute('data-help')).toContain('不立即创建或调用 Agent');
     await btn('预约发射并开始').onclick();
     expect(calls.at(-1)).toEqual({ method: 'order.submit', params: { draft_id: 1, expected_revision: 3, start: true, defer: true } });
     expect(deepText(panel())).toContain('尚未创建 Worker'); expect(btn('查看父 Worker #1 的 Hooks')).toBeTruthy();
@@ -343,6 +348,7 @@ test('草稿可以显式选择完整运行设置，父可写时也使用 defer �
   const mode = dom.node('modal').querySelector('[data-retry-field="config_mode"]'); mode.value = 'pi'; mode.onchange();
   await dialogButton(dom, '使用这份设置').onclick(); await configuring;
   expect(btn('运行设置：Pi 默认配置')).toBeTruthy(); expect(calls).toHaveLength(0);
+  expect(btn('保存').disabled).toBe(true);
   await btn('保存').onclick(); expect(calls).toHaveLength(0); expect(deepText(panel())).toContain('发射或预约时才写入');
   await btn('发射并开始').onclick();
   expect(calls.at(-1)).toEqual({ method: 'order.submit', params: { draft_id: 1, expected_revision: 3, start: true, defer: true, profile: { agent: 'pi', config_mode: 'pi' } } });
@@ -392,7 +398,7 @@ test('正文撤销只改本页文本，不回退已保存版本、父 Worker 或
   await btn('保存').onclick();
   expect(calls.at(-1)).toEqual({ method: 'draft.update', params: { id: 1, expected_revision: 4, content: '尚未执行的想法', references: [] } });
   expect(rows[0].revision).toBe(5); await redo.onclick(); expect(node.value).toBe('已保存的新正文');
-  await btn('仅创建').onclick();
+  await btn('发射').onclick();
   expect(calls.slice(-2).map(call => call.method)).toEqual(['draft.update', 'order.submit']);
   expect(calls.at(-1).params).toEqual({ draft_id: 1, expected_revision: 6, start: false });
   expect(panel().querySelector('.text-editor-controls')).toBeNull();
@@ -416,16 +422,18 @@ test('历史正文撤销在保存忙碌时禁用，失败保留栈和修订；�
   expect(calls.at(-1).params.expected_revision).toBe(4); expect(btn('撤销').disabled).toBe(false);
   await btn('撤销').onclick(); intercept = null; await btn('发射并开始').onclick();
   expect(calls.at(-2).params.expected_revision).toBe(4); expect(calls.at(-1).params.expected_revision).toBe(5);
-  expect(text()).toContain('已发射并开始');
+  expect(text()).toContain('原始输入 O3'); expect(editor()).toBeNull();
 });
 
-test('返回列表和刷新保留同一正文历史，重新读取或切换原始输入销毁旧正文栈', async () => {
+test('返回列表和刷新保留同一正文历史，离页重开或切换原始输入销毁旧正文栈', async () => {
   await openInputs(); await openDraft(); const node = editor(), undo = btn('撤销'); editorInput(node, '本地修改');
   const before = reads.length; await btn('← 返回历史输入').onclick(); await btn('刷新列表').onclick(); await openDraft();
   expect(editor()).toBe(node); expect(btn('撤销')).toBe(undo); expect(reads.length).toBe(before + 1);
   await undo.onclick(); expect(node.value).toBe('尚未执行的想法'); await btn('重做').onclick(); expect(node.value).toBe('本地修改');
   await undo.onclick(); rows[0].content = '服务端新正文'; rows[0].revision = 9;
-  await btn('重新读取详情').onclick(); expect(editor()).not.toBe(node); expect(editor().value).toBe('服务端新正文');
+  expect(btn('重新读取详情')).toBeUndefined();
+  activateDetailView({ view: 'overview' }); await openInputs({ item: { kind: 'draft', id: 1 } });
+  expect(editor()).not.toBe(node); expect(editor().value).toBe('服务端新正文');
   expect(btn('撤销').disabled).toBe(true); expect(btn('重做').disabled).toBe(true);
   await undo.onclick(); expect(node.value).toBe('尚未执行的想法'); expect(editor().value).toBe('服务端新正文');
   await selectStatus(''); await btn('查看原文').onclick(); expect(panel().querySelector('.text-editor-controls')).toBeNull();
@@ -440,6 +448,82 @@ test('历史编辑输入法确认分组且正文键盘撤销不发射请求', as
   expect(key.defaultPrevented).toBe(true); expect(node.value).toBe('尚未执行的想法'); expect(calls).toHaveLength(0);
   editorEvent(node, 'keydown', { key: 'z', metaKey: true, shiftKey: true }); expect(node.value).toBe('尚未执行的想法你');
   await btn('保存').onclick(); expect(calls.at(-1).params.content).toBe('尚未执行的想法你');
+});
+
+test('保存状态比较正文、父 Worker 与引用；恢复原值或保存成功后禁用，撤销重做及时同步', async () => {
+  await openInputs(); await openDraft(); const save = btn('保存'), node = editor();
+  expect(save.disabled).toBe(true); expect(save.parentNode.className).toBe('help-host');
+  expect(save.parentNode.getAttribute('data-help')).toContain('一致');
+  expect(save.getAttribute('aria-keyshortcuts')).toBe('Control+s Meta+s');
+  expect(deepText(panel())).toContain('Ctrl/⌘+S 保存');
+  expect(btn('重新读取详情')).toBeUndefined(); expect(btn('仅创建')).toBeUndefined();
+  editorInput(node, '编辑后'); expect(save.disabled).toBe(false); expect(save.parentNode.getAttribute('data-help')).toBe(null);
+  await btn('撤销').onclick(); expect(save.disabled).toBe(true);
+  await btn('重做').onclick(); expect(save.disabled).toBe(false);
+  editorInput(node, rows[0].content); expect(save.disabled).toBe(true);
+  parentSelect().value = '900'; parentSelect().onchange(); expect(save.disabled).toBe(false);
+  parentSelect().value = '1'; parentSelect().onchange(); expect(save.disabled).toBe(true);
+  await btn('移除引用').onclick(); expect(save.disabled).toBe(false);
+  await btn('恢复已保存引用').onclick(); expect(save.disabled).toBe(true);
+  editorInput(node, '保存后'); await save.onclick(); expect(save.disabled).toBe(true);
+  await btn('撤销').onclick(); expect(save.disabled).toBe(false);
+  await btn('重做').onclick(); expect(save.disabled).toBe(true);
+  const before = calls.length; await save.onclick(); expect(calls).toHaveLength(before);
+});
+
+const saveKey = (props = {}) => editorEvent(panel(), 'keydown', { target: editor(), key: 's', ctrlKey: true, ...props });
+test('Ctrl/⌘+S 只保存可编辑详情，干净/忙碌时不请求，失败可重试且不发射', async () => {
+  await openInputs(); await openDraft();
+  expect(saveKey().defaultPrevented).toBe(true); expect(calls).toHaveLength(0);
+  editorInput(editor(), '组合键保存');
+  const delayed = deferred(); intercept = (_path, body) => body?.method === 'draft.update' ? delayed.promise : null;
+  expect(saveKey({ key: 'S', ctrlKey: false, metaKey: true }).defaultPrevented).toBe(true);
+  expect(btn('保存').disabled).toBe(true); expect(saveKey().defaultPrevented).toBe(true); expect(calls).toHaveLength(1);
+  delayed.resolve({ ok: false, json: async () => ({ error: '版本冲突' }) });
+  await until(() => !btn('保存').disabled);
+  expect(editor().value).toBe('组合键保存'); expect(deepText(panel())).toContain('复制编辑内容，再刷新页面');
+  intercept = null; saveKey(); await until(() => btn('保存').disabled && !editor().disabled);
+  expect(calls.map(call => call.method)).toEqual(['draft.update', 'draft.update']);
+  expect(calls.at(-1).params.expected_revision).toBe(3);
+  await btn('← 返回历史输入').onclick(); expect(saveKey().defaultPrevented).toBe(false);
+  await openDraft(); const oldPanel = panel(); activateDetailView({ view: 'overview' });
+  expect(editorEvent(oldPanel, 'keydown', { key: 's', ctrlKey: true }).defaultPrevented).toBe(false);
+  expect(calls).toHaveLength(2);
+});
+
+test('保存快捷键忽略输入法和其他组合，普通 Enter 与发射组合键不创建 Worker', async () => {
+  await openInputs(); await openDraft(); editorInput(editor(), '快捷键编辑');
+  for (const props of [{ isComposing: true }, { keyCode: 229 }]) expect(saveKey(props).defaultPrevented).toBe(true);
+  for (const props of [{ altKey: true }, { shiftKey: true }, { ctrlKey: false }, { key: 'Enter' }, { key: 'Enter', shiftKey: true }])
+    expect(saveKey(props).defaultPrevented).toBe(false);
+  editorEvent(editor(), 'compositionstart'); expect(btn('保存').disabled).toBe(true);
+  saveKey(); expect(calls).toHaveLength(0);
+  editorEvent(editor(), 'compositionend'); expect(btn('保存').disabled).toBe(false);
+  saveKey(); await until(() => !editor().disabled);
+  expect(calls.map(call => call.method)).toEqual(['draft.update']);
+  await selectStatus(''); await btn('查看原文').onclick(); expect(saveKey().defaultPrevented).toBe(false);
+});
+
+test('发射 ACK 后详情读取失败仍转为只读 Order，保留原文引用，不重提成功请求', async () => {
+  await openInputs(); await openDraft(); editorInput(editor(), 'ACK 后原文');
+  intercept = path => path === '/api/input/input/3' ? Promise.reject(new Error('详情离线')) : null;
+  await btn('发射').onclick();
+  expect(dom.location.hash).toBe('#input-input-3'); expect(editor()).toBeNull();
+  expect(deepText(panel())).toContain('ACK 后原文'); expect(deepText(panel())).toContain('当时所见');
+  expect(deepText(panel())).toContain('读取失败：详情离线'); expect(deepText(panel())).not.toContain('操作失败');
+  expect(btn('发射')).toBeUndefined(); expect(btn('保存')).toBeUndefined();
+  expect(calls.map(call => call.method)).toEqual(['draft.update', 'order.submit']);
+});
+
+test('发射成功后迟到 Order 详情不能把返回列表或离页的用户拉回来', async () => {
+  await openInputs(); await openDraft(); const late = deferred();
+  intercept = path => path === '/api/input/input/3' ? late.promise : null;
+  const launching = btn('发射').onclick(); await until(() => reads.some(path => path.endsWith('/api/input/input/3')));
+  expect(dom.location.hash).toBe('#input-input-3'); expect(editor()).toBeNull();
+  await btn('← 返回历史输入').onclick();
+  late.resolve(json(fixture('input', 3))); await launching;
+  expect(dom.location.hash).toBe('#inputs'); expect(panel().hidden).toBe(true);
+  expect(calls.map(call => call.method)).toEqual(['order.submit']);
 });
 
 test('正在执行的草稿预约保持不可取消；失败核验也不回退为可编辑或自动重放', async () => {

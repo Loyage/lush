@@ -96,7 +96,7 @@ test('真实 API：默认只读暂存，手动切换才显示已提交历史', a
   } finally { await fixture.close(); }
 });
 
-test('真实 API 串联：Enter 暂存、空筛选/正文检索、保存修订与仅创建、原文引用只读', async () => {
+test('真实 API 串联：Enter 暂存、空筛选/正文检索、保存修订与发射、自动转为原文详情', async () => {
   fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
   const restore = registerNavigation({ refresh: async () => {} });
   try {
@@ -124,7 +124,10 @@ test('真实 API 串联：Enter 暂存、空筛选/正文检索、保存修订�
     panel.querySelector('textarea').value = '已保存的最终输入';
     await btn('保存', panel).onclick(); expect(deepText(panel)).toContain('已保存。');
     const saved = fixture.store.all('SELECT * FROM drafts')[0]; expect(saved.revision).toBe(2);
-    await btn('仅创建', panel).onclick(); expect(deepText(panel)).toContain('已创建·待开始');
+    await btn('发射', panel).onclick(); expect(deepText(panel)).toContain('已创建·待开始');
+    expect(dom.location.hash).toMatch(/^#input-input-\d+$/);
+    expect(panel.querySelector('textarea')).toBe(null); expect(deepText(panel)).toContain('已保存的最终输入');
+    expect(deepText(panel)).toContain('引用快照'); expect(deepText(panel)).toContain('捕获时所见');
     expect(fixture.store.all("SELECT * FROM tasks WHERE task_kind='order'")).toHaveLength(1);
     expect(fixture.store.all("SELECT * FROM tasks WHERE task_kind='order'")[0].status).toBe('paused');
     expect(root().querySelectorAll('.input-record')).toHaveLength(1);
