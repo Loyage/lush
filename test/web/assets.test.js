@@ -70,6 +70,9 @@ test('HTML ships startup controls, read-only navigation and collapsed composer',
       'notice-banner', 'toast', 'error', 'toast-close', 'modal', 'input-parent', 'draft-commit']) {
       expect(html).toContain(`id="${id}"`);
     }
+    // Inherit opt-out in both the composer and lazily created text controls.
+    expect(html).toMatch(/<body\b[^>]*\bspellcheck="false"/);
+    expect(html).not.toMatch(/\bspellcheck="true"/);
     expect(html).toContain('action="/logout"');
     expect(html).toMatch(/<div id="composer-details"[^>]*hidden/);
     expect(html).toMatch(/id="composer-expand"[^>]*aria-expanded="false"[^>]*aria-controls="composer-details composer-editor-tools composer-shortcuts"/);
