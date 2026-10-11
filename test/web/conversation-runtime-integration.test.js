@@ -64,6 +64,12 @@ test('logged-in conversation renders original O, frozen durable A and historical
     const historical = root.querySelectorAll('.conversation-message').find(node => node.dataset.conversationKey === `input:${oldEvent.id}`);
     expect(historical.querySelector('.conversation-kind').textContent).toBe(`追加输入 · 消息 #${oldId}`);
     expect(root.querySelector('.conversation-output').querySelector('.conversation-avatar').textContent).toBe('🤖');
+    const communications = root.querySelector('[data-conversation-filter="other"]');
+    communications.checked = true; communications.onchange();
+    // Numbered/frozen appends and their joined routing/buffering events are still one user entry each.
+    expect(root.querySelectorAll('.conversation-input')).toHaveLength(3);
+    expect(root.querySelectorAll('.conversation-other')).toHaveLength(0);
+    expect(frozen.querySelector('.conversation-kind').textContent).toBe(`追加输入 · A${task.input_id}-2`);
     expect(f.store.unreadPage(task.id).messages.some(message => message.id === appended.id)).toBe(false);
     expect(f.store.get('SELECT append_number FROM messages WHERE id=?', oldId).append_number).toBeNull();
   } finally { resetUiState(); dom?.restore(); await f.close(); }

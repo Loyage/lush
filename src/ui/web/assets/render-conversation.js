@@ -6,6 +6,7 @@ import { loadHostSession, usernameInitial } from './host-session.js';
 import { loadHistory } from './api.js';
 import { referenceable } from './context-references.js';
 import { workerLabel } from './worker-label.js';
+import { renderTaskMessageBody } from './render-task-message.js';
 
 const followup = event => event.type === 'message' && event.data?.sender === null && typeof event.data.body === 'string'
   && !event.data.signal_type && !event.message?.signal_type;
@@ -37,7 +38,7 @@ export function renderConversation(task, history = {}, previous = null) {
   const visible = { input: true, output: true, other: false };
   const filters = el('div', undefined, 'conversation-filters');
   filters.setAttribute('role', 'group'); filters.setAttribute('aria-label', '对话显示内容');
-  for (const [side, text] of [['input', '用户输入'], ['output', 'Worker 输出'], ['other', '其他输入']]) {
+  for (const [side, text] of [['input', '用户输入'], ['output', 'Worker 输出'], ['other', '系统与 Worker 通信']]) {
     const label = el('label'), checkbox = el('input');
     checkbox.type = 'checkbox'; checkbox.checked = visible[side]; checkbox.dataset.conversationFilter = side;
     checkbox.onchange = () => { visible[side] = checkbox.checked; paint(); };
@@ -95,7 +96,11 @@ export function renderConversation(task, history = {}, previous = null) {
       rendered.set(entry.key, node);
     }
     if (node.bodySignature !== signature) {
-      node.querySelector('.conversation-body').replaceChildren(agentText(entry.text, { className: 'conversation-prose', plain: 'div' }));
+      const content = entry.side === 'other' ? el('div', undefined, 'conversation-prose conversation-communication')
+        : agentText(entry.text, { className: 'conversation-prose', plain: 'div' });
+      if (entry.side === 'other') content.append(renderTaskMessageBody({ body: entry.text }));
+      node.classList.toggle('conversation-failed', Boolean(content.querySelector('.message-failed')));
+      node.querySelector('.conversation-body').replaceChildren(content);
       node.bodySignature = signature;
       const long = entry.text.length > 1200 || entry.text.split('\n').length > 12;
       node.classList.toggle('conversation-long', long);
@@ -121,10 +126,10 @@ export function renderConversation(task, history = {}, previous = null) {
     if (entry.key === latestKey) refs.push({ kind: 'result', target: { task_id: current.id, section: 'result' },
       label: `Worker 结果 ${workerLabel(current)}`, quote: entry.text, location: { view: 'task-detail', task_id: current.id, section: 'result' } });
     if (entry.eventId) refs.push({ kind: 'history_event', target: { task_id: current.id, event_id: entry.eventId },
-      label: `${entry.side === 'input' ? '追加输入' : entry.side === 'other' ? '其他输入' : '历史结果'} ${workerLabel(current)} · 事件 #${entry.eventId}`,
+      label: `${entry.side === 'input' ? '追加输入' : entry.side === 'other' ? '系统与 Worker 通信' : '历史结果'} ${workerLabel(current)} · 事件 #${entry.eventId}`,
       quote: entry.text, location: { view: 'task-detail', task_id: current.id, section: 'history' } });
     if (entry.side === 'other' && entry.messageId != null) refs.push({ kind: 'message', target: { task_id: current.id, message_id: entry.messageId },
-      label: `Worker ${workerLabel(current)} 的其他输入`, quote: entry.text, location: { view: 'task-detail', task_id: current.id, section: 'messages' } });
+      label: `Worker ${workerLabel(current)} 的系统与 Worker 通信`, quote: entry.text, location: { view: 'task-detail', task_id: current.id, section: 'messages' } });
     referenceable(node, refs);
     return node;
   }
@@ -158,7 +163,7 @@ export function renderConversation(task, history = {}, previous = null) {
     if (typeof message.body !== 'string') return;
     const key = message.id != null ? `other:message:${message.id}` : `other:event:${eventId}`;
     const old = others.get(key);
-    others.set(key, { ...old, key, side: 'other', kind: '其他输入', text: message.body,
+    others.set(key, { ...old, key, side: 'other', kind: message.sender_id != null ? 'Worker 通信' : '系统通信', text: message.body,
       messageId: message.id, eventId: eventId ?? old?.eventId, senderId: message.sender_id,
       senderNumber: message.sender_worker_number ?? old?.senderNumber, at: message.created_at ?? old?.at,
       sequence: eventId ?? old?.sequence ?? message.id });
@@ -180,7 +185,10 @@ export function renderConversation(task, history = {}, previous = null) {
     for (const event of page.events || []) {
       if (event.type === 'message' && event.data?.sender != null && typeof event.data.body === 'string') {
         addOther({ id: event.data.message_id, sender_id: event.data.sender, body: event.data.body, created_at: event.created_at }, event.id);
-      } else if (event.message && (event.message.task_id == null || event.message.task_id === current.id) && !followup(event)) {
+      } else if (event.message && (event.message.task_id == null || event.message.task_id === current.id) && !followup(event)
+        && (event.message.sender_id != null || event.message.signal_type || event.type === 'task.signal')) {
+        // Routing/buffering events also carry the original user message. An attached body alone
+        // is not evidence of system communication, even when it happens to contain JSON.
         addOther(event.message, event.id);
       }
       if (followup(event)) inputs.set(event.id, { key: `input:${event.id}`, eventId: event.id, messageId: event.data.message_id ?? event.message?.id,

@@ -118,6 +118,16 @@ export function renderTaskMessage(message, taskId, previous = null) {
     const time = el('time', absolute(message.created_at)); time.setAttribute('datetime', message.created_at); meta.append(time);
   }
   root.append(meta);
+  const content = renderTaskMessageBody(message);
+  for (const name of ['message-system', 'message-failed']) root.classList.toggle(name, content.classList.contains(name));
+  root.append(content);
+  return root;
+}
+
+/** Shared semantic body without sender/time chrome; the original message remains authoritative. */
+export function renderTaskMessageBody(message) {
+  const text = String(message.body ?? '');
+  const root = el('div', undefined, 'task-message-content');
   let parsed;
   try { parsed = JSON.parse(text); } catch { /* malformed JSON is text, not a repaired object */ }
   const signal = signalView(parsed);
