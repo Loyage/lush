@@ -17,6 +17,8 @@ const strings = value => Array.isArray(value) && value.every(item => typeof item
 function validatePreview(preview, taskId) {
   if (preview?.id !== taskId || typeof preview.revision !== 'string' || !preview.revision
     || typeof preview.can_delete !== 'boolean' || !strings(preview.blockers) || !strings(preview.warnings)
+    || (preview.force_available !== undefined && typeof preview.force_available !== 'boolean')
+    || (preview.force !== undefined && typeof preview.force !== 'boolean')
     || !Array.isArray(preview.workers) || !preview.workers.length
     || !preview.workers.every(row => Number.isSafeInteger(row.id) && row.id > 0 && typeof row.goal === 'string' && typeof row.status === 'string')
     || !preview.workers.some(row => row.id === taskId)
@@ -103,23 +105,38 @@ export async function runWorkerDelete(task, { refresh = () => {} } = {}) {
   const current = () => ui.view === view && location.pathname === project;
   pending.add(task.id);
   try {
-    const preview = await api(`/api/worker/${task.id}/delete-preview`);
+    let preview = await api(`/api/worker/${task.id}/delete-preview`);
     if (!current()) return false;
     validatePreview(preview, task.id);
+    let force = false;
+    if ((!preview.can_delete || preview.blockers.length) && preview.force_available === true) {
+      const proceed = await confirmDialog({
+        title: `普通删除受阻：Worker ${workerLabel(task)}`,
+        message: '可改用强制删除：不确认对应未登记检出目录的 Git 归属，直接丢弃其全部残留代码与 Worker 历史。活动调用、共享资源、main/owner 和项目外路径保护仍有效。下一步将重新预检并列出完整删除范围，最终确认前不会删除。',
+        detail: preview.blockers.join('\n'), confirmLabel: '预检强制删除', cancelLabel: '保留', danger: true,
+        confirmHelp: '重新预检强制删除范围；允许丢弃对应未登记检出的全部残留代码，最终确认前不删除资源。',
+      });
+      if (!proceed || !current()) return false;
+      preview = await api(`/api/worker/${task.id}/delete-preview?force=true`);
+      if (!current()) return false;
+      validatePreview(preview, task.id);
+      if (preview.force !== true) throw new Error('强制删除预检模式不匹配');
+      force = true;
+    }
     if (!preview.can_delete || preview.blockers.length) {
       show(`暂不能删除 Worker ${workerLabel(task)}：${preview.blockers.join('\n') || '未通过资源安全检查。'}`, 'error');
       return false;
     }
     const confirmed = await confirmDialog({
-      title: `彻底删除 Worker ${workerLabel(task)} 及全部后代？`,
+      title: `${force ? '强制' : '彻底'}删除 Worker ${workerLabel(task)} 及全部后代？`,
       message: '这不是验收或资源清理（它们会保留运行历史）：Worker、消息、Notice、事件、执行记录及专属会话将永久删除；列出的原始输入也会从历史输入中消失。确认即授权丢弃这些资源中的全部未提交和未合并代码，无法恢复。已合并代码、Git 提交历史和其他记录中的引用快照不会被抹除。',
-      detail: previewDetail(preview), confirmLabel: '彻底删除', cancelLabel: '保留', danger: true,
+      detail: previewDetail(preview), confirmLabel: force ? '强制删除' : '彻底删除', cancelLabel: '保留', danger: true,
       confirmHelp: WORKER_DELETE_HELP,
     });
     if (!confirmed || !current()) return false;
     // action() refreshes before returning; delete must evict caches/navigate away FIRST.
     await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ method: 'worker.delete', params: { id: task.id, revision: preview.revision, confirm: true } }) });
+      body: JSON.stringify({ method: 'worker.delete', params: { id: task.id, revision: preview.revision, confirm: true, ...(force ? { force: true } : {}) } }) });
     forgetWorkers(preview);
     show(`已彻底删除 ${preview.workers.length} 条 Worker 及其专属资源。`);
     if (!current()) return true;

@@ -201,7 +201,7 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 ## 用户确认的 Worker 彻底删除接缝
 
-新增用户专属 `worker.delete_preview {id}` / `GET /api/worker/<id>/delete-preview` 与 `worker.delete {id,revision,confirm:true}`。预检只读返回 `{id,revision,can_delete,blockers:string[],workers:[{id,goal,status}],inputs:[{id}],resources:{worktrees:string[],branches:string[],files:string[]},warnings:string[]}`；列表必须覆盖真实删除范围，过大可明确拒绝而不能静默截断。`revision` 固定本次数据库范围及磁盘资源状态；删除在串行 Git 边界内重检，不一致拒绝并要求重新确认。确认本身授权丢弃范围内未提交/未合并代码，不另设 discard 选项。
+新增用户专属 `worker.delete_preview {id,force?}` / `GET /api/worker/<id>/delete-preview[?force=true]` 与 `worker.delete {id,revision,confirm:true,force?}`。预检只读返回 `{id,revision,can_delete,blockers:string[],workers:[{id,goal,status}],inputs:[{id}],resources:{worktrees:string[],branches:string[],files:string[]},warnings:string[]}`；列表必须覆盖真实删除范围，过大可明确拒绝而不能静默截断。`revision` 固定本次数据库范围及磁盘资源状态；删除在串行 Git 边界内重检，不一致拒绝并要求重新确认。确认本身授权丢弃范围内未提交/未合并代码，不另设 discard 选项。W194／D460：boolean `force:true` 仅放宽私有 worktrees 中精确运行时命名的未登记检出 `.git` 归属证明，其他保护不变；普通预检可返回 `force_available:true`，强制预检返回 `force:true` 并列出丢弃残留代码警告，revision 固定 force 模式，Web 先强制预检再最终确认。
 
 范围是 Worker 与全部真实后代，清除专属消息/Notice/事件/Run/Artifact/会话/规则/上下文索引/报告等，无剩余使用者的 Input 与已发射 Draft 一并删除；整棵树须已终态且 invocation 已实际退出，不隐式取消，main/owner 不可删除。外部依赖、共享资源、交付冻结、未知路径归属应拒绝并说明，绝不操作 canonical 检出或其他 Worker 资源。资源检索覆盖登记元数据及 Git worktree 现状；文件删除限制在项目 home 的可信专属路径。清理完成后才事务删库，失败保留可诊断、可继续的 Worker，不冒充彻底成功；不撤销已合并代码，不改写 Git 历史或其他记录中的引用快照，ID 不复用。
 

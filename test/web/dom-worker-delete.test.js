@@ -12,7 +12,7 @@ const freshPreview = () => ({ id: 70, revision: 'fixed-revision-1', can_delete: 
   resources: { worktrees: ['/tmp/example/.lush/worktrees/70-typo', '/tmp/example/.lush/worktrees/71-child'],
     branches: ['lush/example/70-typo', 'lush/example/71-child'], files: ['/tmp/example/.lush/sessions/task-70-input.md'] },
   warnings: ['这条分支有未合并提交。'] });
-let preview, failure, previewGate, deleteGate, readGate, transcriptGate, noticeAckGate, noticeReply;
+let preview, forcePreview, failure, previewGate, deleteGate, readGate, transcriptGate, noticeAckGate, noticeReply;
 let requests = [], paths = [], navigation = [], restoreNavigation;
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status });
 const dom = installDom({ fetch: async (url, options) => {
@@ -20,9 +20,10 @@ const dom = installDom({ fetch: async (url, options) => {
   paths.push(pathname);
   const path = pathname.replace(/^\/p\/[a-f0-9]{16}(?=\/)/, '');
   if (path === '/api/worker/70/delete-preview') {
-    requests.push({ method: 'preview' });
+    const force = new URL(String(url), 'http://local').searchParams.get('force') === 'true';
+    requests.push({ method: 'preview', ...(force ? { force: true } : {}) });
     if (previewGate) await previewGate;
-    return failure === 'preview' ? json({ error: '资源归属无法确认' }, 409) : json(preview);
+    return failure === 'preview' ? json({ error: '资源归属无法确认' }, 409) : json(force ? forcePreview : preview);
   }
   if (path === '/api/action' && options?.body) {
     const request = JSON.parse(options.body);
@@ -72,7 +73,7 @@ function detailView() {
 }
 beforeEach(() => {
   closeDialog(); dom.node('modal').hidden = true; resetUiState(); dom.location.pathname = '/'; dom.location.hash = '';
-  preview = freshPreview(); failure = null; previewGate = null; deleteGate = null; readGate = null; transcriptGate = null;
+  preview = freshPreview(); forcePreview = { ...freshPreview(), force: true, revision: 'force-revision' }; failure = null; previewGate = null; deleteGate = null; readGate = null; transcriptGate = null;
   noticeAckGate = null; noticeReply = null;
   requests = []; paths = []; navigation = [];
   restoreNavigation = registerNavigation({
@@ -105,6 +106,39 @@ test('detail, full graph and minimal more menu share a non-Agent deletion with c
     await answerDialog(dom, '保留'); await pending;
   }
   expect(deletions()).toEqual([]);
+});
+
+test('force fallback re-previews and confirms complete residual scope with a mode-bound revision', async () => {
+  preview.can_delete = false; preview.force_available = true;
+  preview.blockers = ['unregistered checkout has unknown ownership: orphan'];
+  forcePreview.warnings = ['强制删除未登记检出目录：全部残留代码会丢弃'];
+  const control = detailView(), pending = control.onclick(); await flush();
+  expect(dialogText(dom)).toContain('普通删除受阻');
+  expect(deletions()).toHaveLength(0);
+  const next = buttonOf(dom.node('modal'), '预检强制删除');
+  expect(next.getAttribute('data-help')).toContain('最终确认前不删除');
+  expect(next.classList.contains('agent-call')).toBe(false);
+  await answerDialog(dom, '预检强制删除'); await flush();
+  expect(dialogText(dom)).toContain('全部残留代码');
+  expect(dialogText(dom)).toContain('71-child');
+  expect(deletions()).toHaveLength(0);
+  await answerDialog(dom, '强制删除'); await pending;
+  expect(requests.filter(row => row.method === 'preview')).toEqual([{ method: 'preview' }, { method: 'preview', force: true }]);
+  expect(deletions()).toEqual([{ method: 'worker.delete', params: { id: 70, revision: 'force-revision', confirm: true, force: true } }]);
+});
+
+test('force fallback cancellation, fresh blockers and mismatched modes never delete', async () => {
+  for (const mode of ['cancel-first', 'cancel-final', 'blocked', 'mismatch']) {
+    preview.can_delete = false; preview.force_available = true; preview.blockers = ['unknown checkout'];
+    forcePreview = { ...freshPreview(), force: true, revision: 'force-revision' };
+    if (mode === 'blocked') { forcePreview.can_delete = false; forcePreview.blockers = ['shared resource']; }
+    if (mode === 'mismatch') delete forcePreview.force;
+    const pending = detailView().onclick(); await flush();
+    await answerDialog(dom, mode === 'cancel-first' ? '保留' : '预检强制删除'); await flush();
+    if (mode === 'cancel-final') await answerDialog(dom, '保留');
+    await pending;
+    expect(deletions()).toHaveLength(0); expect(ui.deletedWorkerIds.size).toBe(0);
+  }
 });
 
 test('main/owner cannot be deleted; active and stopping workers have focusable manual-cancel help', async () => {

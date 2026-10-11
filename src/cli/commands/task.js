@@ -176,6 +176,8 @@ export async function run(command, args, ctx) {
         value = await client.request('worker.approve_merge', { id: await resolveWorkerId(client, args[0]), commit: args[1], baseline: args[2] });
       } else if (verb === 'delete') {
         check(!client.token, 'Worker deletion is user only, not an agent operation');
+        const force = args.includes('--force');
+        if (force) args.splice(args.indexOf('--force'), 1);
         const confirm = args.includes('--confirm');
         if (confirm) args.splice(args.indexOf('--confirm'), 1);
         const revision = option(args, '--revision');
@@ -184,7 +186,7 @@ export async function run(command, args, ctx) {
         check(!confirm || (typeof revision === 'string' && revision.length > 0),
           'first run worker delete ID to inspect resources; then confirm with --confirm --revision REV');
         value = await client.request(confirm ? 'worker.delete' : 'worker.delete_preview',
-          { id: await resolveWorkerId(client, args[0]), ...(confirm ? { revision, confirm: true } : {}) });
+          { id: await resolveWorkerId(client, args[0]), ...(confirm ? { revision, confirm: true } : {}), ...(force ? { force: true } : {}) });
       } else if (verb === 'cleanup') {
         const keepBranch = args.includes('--keep-branch');
         if (keepBranch) args.splice(args.indexOf('--keep-branch'), 1);

@@ -61,7 +61,7 @@ export const PARAMS = {
   'worker.resolve_child_divergence': ['id'], 'worker.unreserve': ['id'],
   'worker.approve_merge': ['id','commit','baseline'], 'worker.message': ['id','body'],
   'worker.cancel': ['id'], 'worker.retry': ['id','profile'], 'worker.clear_override': ['id'], 'worker.cleanup': ['id','keep_branch'],
-  'worker.delete_preview': ['id'], 'worker.delete': ['id','revision','confirm'],
+  'worker.delete_preview': ['id','force'], 'worker.delete': ['id','revision','confirm','force'],
   'worker.interrupt': ['id'], 'worker.resume': ['id','profile'], 'worker.configure': ['id','profile','model_selection'],
   'progress.plan': ['steps'], 'progress.complete': ['step'],
   'notice.list': [], 'notice.page': ['status','before','limit'], 'notice.sync': ['cursor','limit'],

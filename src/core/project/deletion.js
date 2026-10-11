@@ -114,9 +114,9 @@ function databasePlan(project, rootId) {
   return { ids, inputIds, tasks, inputs, records, contexts, choices, blockers, data };
 }
 
-async function deletionPlan(project, rootId) {
+async function deletionPlan(project, rootId, force = false) {
   const db = databasePlan(project, rootId), blockers = db.blockers;
-  const git = await project.workspaces.workerDeletionResourcesUnsafe(db.tasks, db.inputs, db.records, blockers);
+  const git = await project.workspaces.workerDeletionResourcesUnsafe(db.tasks, db.inputs, db.records, blockers, { force });
   const choiceRefs = [];
   for (const choice of db.choices) {
     const ref = `refs/lush/choice-snapshots/${choice.notice_id}`;
@@ -148,25 +148,33 @@ async function deletionPlan(project, rootId) {
   const filePlan = [];
   for (const file of files) try { filePlan.push({ path:file, fingerprint:deletionFingerprint(project.config,file) }); } catch (error) { blockers.push(error.message); }
   const uniqueBlockers = [...new Set(blockers)];
-  const snapshot = { data: db.data, git, choiceRefs, files:filePlan };
+  const snapshot = { data: db.data, git, choiceRefs, files:filePlan, force };
   const preview = { id:rootId, revision:deletionHash(snapshot), can_delete:uniqueBlockers.length === 0, blockers:uniqueBlockers,
     workers:db.tasks.map(task => ({ id:task.id, worker_number:task.worker_number, goal:task.goal.slice(0,400), status:task.status })),
     inputs:db.inputs.map(input => ({id:input.id})), resources:{ worktrees:git.worktrees.map(tree => tree.path),
-      branches:[...git.branches.map(entry => entry.branch), ...choiceRefs.filter(entry => entry.tip).map(entry => entry.ref)], files:filePlan.map(file => file.path) }, warnings };
+      branches:[...git.branches.map(entry => entry.branch), ...choiceRefs.filter(entry => entry.tip).map(entry => entry.ref)], files:filePlan.map(file => file.path) }, warnings: force
+        ? [...warnings, ...git.forceCandidates.map(file => `强制删除未登记检出目录（不确认其 Git 归属，全部残留代码会丢弃）：${file}`)] : warnings,
+    ...(force ? { force: true } : {}) };
+  if (!force && git.forceCandidates.length) {
+    const forced = await deletionPlan(project, rootId, true);
+    preview.force_available = forced.preview.can_delete;
+  }
   check(Buffer.byteLength(JSON.stringify(preview)) < 192000, 'deletion preview is too large; delete smaller subtrees first');
   return { db, git, choiceRefs, files:filePlan, preview };
 }
 
 export default {
-  async deleteTaskPreview(taskId) {
+  async deleteTaskPreview(taskId, { force = false } = {}) {
+    check(typeof force === 'boolean', 'force must be a boolean');
     const rootId = id(taskId);
     check(boundedSubtree(this, rootId).every(task => !this.commandHookRunning?.has(task.id)),
       'Worker shortcut command is pending or running; wait before deletion preview');
-    return this.workspaces.exclusive(async () => (await deletionPlan(this,rootId)).preview);
+    return this.workspaces.exclusive(async () => (await deletionPlan(this,rootId,force)).preview);
   },
 
   /** Mandatory explicit confirmation + fixed preview. Failures retain identity and ownership metadata for retry. */
-  async deleteTask(taskId, {revision, confirm} = {}) {
+  async deleteTask(taskId, {revision, confirm, force = false} = {}) {
+    check(typeof force === 'boolean', 'force must be a boolean');
     const rootId = id(taskId);
     check(confirm === true && typeof revision === 'string' && /^[0-9a-f]{64}$/.test(revision),
       'deletion requires confirm=true and the revision from worker.delete_preview');
@@ -179,7 +187,7 @@ export default {
     try {
       await this.drainWrites();
       return await this.workspaces.exclusive(async () => {
-        const plan = await deletionPlan(this,rootId);
+        const plan = await deletionPlan(this,rootId,force);
         check(plan.preview.can_delete, plan.preview.blockers.join('; '));
         check(plan.preview.revision === revision, 'deletion scope or resources changed; preview and confirm again');
         const dbRevision = deletionHash(plan.db.data);
@@ -205,7 +213,7 @@ export default {
         guard();
         for (const file of [...plan.git.worktrees.map(tree=>tree.path),...plan.files.map(file=>file.path)])
           check(!present(file), `resource remains after cleanup: ${file}`);
-        const remaining = await this.workspaces.workerDeletionResourcesUnsafe(plan.db.tasks,plan.db.inputs,plan.db.records,[]);
+        const remaining = await this.workspaces.workerDeletionResourcesUnsafe(plan.db.tasks,plan.db.inputs,plan.db.records,[],{force});
         check(!remaining.worktrees.length && !remaining.branches.some(entry=>entry.tip), 'Git resources remain after cleanup; preview again');
         guard();
         for (const file of plan.git.worktrees.map(tree=>tree.path)) {

@@ -17,7 +17,7 @@ function worktreeRecords(text) {
 
 export const methods = {
   /** Git queue caller owns serialization. Metadata alone is never proof of worktree identity. */
-  async workerDeletionResourcesUnsafe(tasks, inputs, records, blockers) {
+  async workerDeletionResourcesUnsafe(tasks, inputs, records, blockers, { force = false } = {}) {
     const project = this.config.project, home = this.config.home;
     const allWorktrees = worktreeRecords(await this.gitOutput(project, 'worktree', 'list', '--porcelain', '-z'));
     const branches = new Set(records.map(record => record.branch));
@@ -52,7 +52,7 @@ export const methods = {
       try { tip = await this.git(project, 'rev-parse', '--verify', `refs/heads/${branch}`); } catch { /* missing */ }
       if (tip || records.some(record => record.branch === branch)) branchPlan.push({ branch, tip });
     }
-    const treePlan = [];
+    const treePlan = [], forceCandidates = [];
     for (const file of [...paths].sort()) {
       const tree = allWorktrees.find(entry => entry.path === file);
       try {
@@ -76,13 +76,16 @@ export const methods = {
           }
         } else {
           check(generatedPaths.has(resolved), `unregistered directory has unknown Worker ownership: ${file}`);
-          check(!present(path.join(file, '.git')), `unregistered checkout has unknown ownership: ${file}`);
+          if (present(path.join(file, '.git'))) {
+            if (!managementDirectory) forceCandidates.push(file);
+            check(force && !managementDirectory, `unregistered checkout has unknown ownership: ${file}`);
+          }
         }
         treePlan.push({ path: file, registered: Boolean(tree), head: tree?.head ?? null, branch: tree?.branch ?? null,
           fingerprint: deletionFingerprint(this.config, file) });
       } catch (error) { blockers.push(error.message); }
     }
-    return { branches: branchPlan, worktrees: treePlan };
+    return { branches: branchPlan, worktrees: treePlan, forceCandidates };
   },
 
   /** Explicit confirmed abandonment only. No reset, prune, branch -D, or shell interpolation. */

@@ -20,8 +20,16 @@ W169／决定 #418：**验收即归档**，`worker.accept` 受检回收分支子
 |---|---|---|
 | `worker delete ID` | `worker.delete_preview` | `{id}`，只读预检 |
 | `worker delete ID --confirm --revision REV` | `worker.delete` | `{id,revision,confirm:true}`，确认预检范围 |
+| `worker delete ID --force` | `worker.delete_preview` | `{id,force:true}`，强制删除预检 |
+| `worker delete ID --force --confirm --revision REV` | `worker.delete` | `{id,force:true,revision,confirm:true}`，确认强制删除范围 |
 
 预检返回 `{id,revision,can_delete,blockers,workers,inputs,resources,warnings}`。`workers` 列出将删除的整棵子树，`inputs` 列出不再被其他 Worker 使用的原始输入，`resources` 分 worktrees / branches / files 展示实际发现的资源。CLI 第一次只预检；检查输出后，把其中的 revision 带入第二条确认命令。范围或资源状态改变时拒绝旧 revision，必须重新预检和确认；不允许只传 ID 绕过确认。
+
+### 强制删除残留检出
+
+W194／D460：普通预检因对应的未登记检出目录带 `.git` 而受阻时，若其余安全检查通过，返回 `force_available:true`。Web 会提供「预检强制删除」，重新列出完整范围后再用「强制删除」最终确认；不会调用 Agent。CLI 使用上表中的 `--force` 两步命令。强制预检返回 `force:true`，提示将删除的未登记检出目录；其 revision 与普通预检不通用，确认请求必须同样带 `force:true`。
+
+强制模式仅允许丢弃按 Worker/Input 精确运行时命名推导、位于项目私有 `worktrees` 根下的未登记检出目录，不再要求其 `.git` 归属可证明；其全部残留代码（含另一个仓库的未提交/未合并代码）与 Worker 子树历史会永久删除。它不是仅删除数据库记录：磁盘清理失败仍保留 Worker 身份，需重新预检再确认。任意未知目录、根/祖先符号链接、项目外路径、其他分支检出、锁定 worktree、main/owner、共享资源、外部依赖、活动调用和交付冻结仍会阻止操作。不会顺着残留 `.git` 指针删除目录外的仓库资源。
 
 整棵子树必须已终态且调用完全退出。活动 Worker 请先手动取消，等待停止再删除；main / owner 不可删除，外部依赖、共享资源、交付冻结与无法确认归属的路径会阻止操作并说明原因。
 

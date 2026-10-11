@@ -102,7 +102,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/hooks` | 用户专属 `hooks.list`，节点／动作目录、安全模板、授权版本快捷指令目录 commands、daemon Hooks、时间信号与管理 Worker 投影，不接受查询参数 |
 | `GET /api/worker/ID/hooks` | 用户专属 `worker.hooks`，安全挂载、修订与最近收据，不接受查询参数 |
 | `GET /api/worker/ID` | `worker.inspect` |
-| `GET /api/worker/ID/delete-preview` | 用户专属 `worker.delete_preview {id}`，只读完整删除范围和资源清单，不接受查询参数 |
+| `GET /api/worker/ID/delete-preview` | 用户专属 `worker.delete_preview {id,force?}`，只读完整删除范围和资源清单，仅接受单个 `force=true` 查询参数以强制预检对应残留检出 |
 | `GET /api/worker/ID/history?after=N` | `worker.history` |
 | `GET /api/worker/ID/history-page?before=N&limit=N` | `worker.history_page` |
 | `GET /api/worker/ID/progress-history?before=N&limit=N` | `worker.progress_history`（倒序规划快照，默认10、最多100条） |

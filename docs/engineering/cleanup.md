@@ -31,6 +31,6 @@
 
 ## 与彻底删除的区别
 
-`worker.delete_preview` 先列出完整 Worker 子树、原始输入与实际专属资源，用户用固定 revision 最终确认后 `worker.delete` 才丢弃未交付代码现场并清除专属历史；活动调用、外部依赖、共享资源、冻结和未知路径归属均拒绝。它不保留仅作历史的专属分支谱系行：有范围外后代指向时先拒绝，绝不留下孤立谱系。归档与 cleanup 的保留行为不变。HTTP / CLI 与失败重试说明见[彻底删除 Worker](../reference/rpc/maintenance.md#彻底删除-worker)。
+`worker.delete_preview` 先列出完整 Worker 子树、原始输入与实际专属资源，用户用固定 revision 最终确认后 `worker.delete` 才丢弃未交付代码现场并清除专属历史；活动调用、外部依赖、共享资源、冻结和未知路径归属默认均拒绝。W194／D460 新增用户显式 `force:true` 预检与确认，仅放宽项目私有 worktrees 内精确运行时命名的未登记检出 `.git` 归属证明，连同全部残留代码删除；其他保护不放宽，强制/普通 revision 不通用，失败不丢弃 Worker 身份。它不保留仅作历史的专属分支谱系行：有范围外后代指向时先拒绝，绝不留下孤立谱系。归档与 cleanup 的保留行为不变。HTTP / CLI 与失败重试说明见[彻底删除 Worker](../reference/rpc/maintenance.md#彻底删除-worker)。
 
 相关：[批准合并](merge.md)、[分支谱系](branch-genealogy.md)、[磁盘回收](../reference/rpc/maintenance.md)。

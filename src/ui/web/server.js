@@ -556,8 +556,11 @@ export function startWeb(config, port = 4318, options = {}) {
           }
           const deletePreview = /^\/api\/worker\/(\d+)\/delete-preview$/.exec(url.pathname);
           if (deletePreview) {
-            check([...url.searchParams].length === 0, 'delete preview accepts no query parameters');
-            return json(await client.request('worker.delete_preview', { id: Number(deletePreview[1]) }));
+            const query = [...url.searchParams];
+            check(query.length === 0 || (query.length === 1 && query[0][0] === 'force' && query[0][1] === 'true'),
+              'delete preview accepts only force=true');
+            return json(await client.request('worker.delete_preview', { id: Number(deletePreview[1]),
+              ...(query.length ? { force: true } : {}) }));
           }
           const codeRead = /^\/api\/worker\/(\d+)\/(code-state|code-tree|code-file)$/.exec(url.pathname);
           if (codeRead) {

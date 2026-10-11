@@ -7,7 +7,7 @@ const reads = {
   lookup: ['number'], graph: ['details'], list: ['after','limit'], activity: ['limit','scope'], page: ['before','limit','scope'],
   tree: ['id'], inspect: ['id'], run_settings: ['id'], hooks: ['id'], history: ['id','after'], history_page: ['id','before','limit'],
   progress_history: ['id','before','limit'],
-  delete_preview: ['id'], diff: ['id'], usage: ['id'], code_state: ['id','scope','after','limit'],
+  delete_preview: ['id','force'], diff: ['id'], usage: ['id'], code_state: ['id','scope','after','limit'],
   code_tree: ['id','scope','path','query','changed','after','limit','revision'],
   code_file: ['id','scope','path','view','side','offset','limit','context','revision'],
   transcript: ['id','after','limit'], transcript_latest: ['id','after','before','limit'],
@@ -23,7 +23,7 @@ const writes = {
   reopen: ['id'], sync_parent: ['id'], resolve_sync: ['id'], resolve_child_divergence: ['id'],
   unreserve: ['id'], approve_merge: ['id','commit','baseline'], message: ['id','body'],
   cancel: ['id'], retry: ['id','profile'], clear_override: ['id'], cleanup: ['id','keep_branch'], interrupt: ['id'],
-  resume: ['id','profile'], configure: ['id','profile','model_selection'], delete: ['id','revision','confirm'],
+  resume: ['id','profile'], configure: ['id','profile','model_selection'], delete: ['id','revision','confirm','force'],
 };
 const userOnly = new Set(['run_settings','code_state','code_tree','code_file','transcript_latest','transcript_page','transcript_step',
   'transcript_search','runs_page','artifacts_page','artifact','hooks','hook_attach','hook_update','hook_remove',
@@ -47,7 +47,7 @@ test('worker RPC is the complete strict public namespace with unchanged authorit
     else expect(assertAllowed(method, {}, null)).toBeNull();
     if (userOnly.has(verb)) expect(() => assertAllowed(method, {}, 42)).toThrow('requires user approval');
     else expect(assertAllowed(method, {}, 42)).toBe(42);
-    expect(() => assertAllowed(method, { force: true }, null)).toThrow('unknown parameter');
+    expect(() => assertAllowed(method, keys.includes('force') ? { discard: true } : { force: true }, null)).toThrow('unknown parameter');
     expect(HANDLERS[`task.${verb}`]).toBeUndefined();
   }
   // Renaming never re-enables retired services.

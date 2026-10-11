@@ -24,10 +24,10 @@ test('delete HTTP endpoints retain login, Origin, exact parameters and explicit 
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(await response.json()).toEqual({ id: 7, revision, can_delete: true });
-    for (const suffix of ['?confirm=true','?revision=x','?_token=forged','?path=/etc','?id=8'])
+    for (const suffix of ['?confirm=true','?revision=x','?_token=forged','?path=/etc','?id=8', '?force=false', '?force=1', '?force=true&force=true', '?force=true&path=/etc'])
       expect((await fetch(f.url + '/api/worker/7/delete-preview' + suffix, { headers: { Cookie } })).status).toBe(400);
     for (const params of [{ id: 7 }, { id: 7, confirm: true }, { id: 7, revision, confirm: false },
-      { id: 7, revision, confirm: true, force: true }, { id: 7, revision, confirm: true, _token: 'forged' }])
+      { id: 7, revision, confirm: true, force: 'true' }, { id: 7, revision, confirm: true, _token: 'forged' }])
       expect((await post(f.url, params, { Cookie })).status).toBe(400);
     expect((await post(f.url, { id: 7 }, { Cookie }, 'worker.delete_preview')).status).toBe(400);
     expect((await post(f.url, { id: 7, revision, confirm: true }, { Cookie, Origin: 'https://evil.invalid' })).status).toBe(403);
@@ -38,6 +38,13 @@ test('delete HTTP endpoints retain login, Origin, exact parameters and explicit 
     expect(deletion.status).toBe(200);
     expect(await deletion.json()).toEqual({ deleted: { ids: [7] } });
     expect(calls.at(-1)).toEqual(['delete', 7, { confirm: true, revision }]);
+    f.project.deleteTaskPreview = (id, options) => { calls.push(['force-preview', id, options]); return { id, force: true, revision }; };
+    expect((await fetch(f.url + '/api/worker/7/delete-preview?force=true')).status).toBe(401);
+    expect((await post(f.url, { id: 7, revision, confirm: true, force: true }, { Cookie, Origin: 'https://evil.invalid' })).status).toBe(403);
+    const forced = await fetch(f.url + '/api/worker/7/delete-preview?force=true', { headers: { Cookie } });
+    expect(forced.status).toBe(200); expect(calls.at(-1)).toEqual(['force-preview', 7, { force: true }]);
+    expect((await post(f.url, { id: 7, revision, confirm: true, force: true }, { Cookie })).status).toBe(200);
+    expect(calls.at(-1)).toEqual(['delete', 7, { confirm: true, revision, force: true }]);
   } finally { await f.close(); }
 });
 
@@ -79,6 +86,26 @@ test('HTTP deletion clears a real temporary Git subtree, original Input and excl
     expect(fs.existsSync(unrelated)).toBe(true);
     expect(await git(f.root, 'show', 'main:file.txt')).toBe('base');
     expect(f.store.nextTaskId()).toBeGreaterThan(child.id);
+  } finally { await f.close(); }
+}, 15000);
+
+test('HTTP force preflight and confirmation reclaim a real unregistered residual checkout', async () => {
+  const f = await setup(); f.project.stopping = true;
+  try {
+    await repo(f.root); const { task } = await f.project.order('orphan checkout'); f.project.cancel(task.id);
+    await git(f.root, 'worktree', 'remove', task.workspace);
+    fs.mkdirSync(task.workspace); await git(task.workspace, 'init');
+    fs.writeFileSync(path.join(task.workspace, 'unmerged.txt'), 'discard');
+    const normal = await (await fetch(f.url + `/api/worker/${task.id}/delete-preview`)).json();
+    expect(normal.can_delete).toBe(false); expect(normal.force_available).toBe(true);
+    const preview = await (await fetch(f.url + `/api/worker/${task.id}/delete-preview?force=true`)).json();
+    expect(preview.force).toBe(true); expect(preview.can_delete).toBe(true);
+    expect(preview.resources.worktrees).toContain(task.workspace);
+    expect((await post(f.url, { id: task.id, force: true, confirm: true, revision: normal.revision })).status).toBe(400);
+    expect(fs.existsSync(task.workspace)).toBe(true);
+    const result = await post(f.url, { id: task.id, force: true, confirm: true, revision: preview.revision });
+    expect(result.status).toBe(200); expect((await result.json()).deleted.ids).toEqual([task.id]);
+    expect(fs.existsSync(task.workspace)).toBe(false);
   } finally { await f.close(); }
 }, 15000);
 

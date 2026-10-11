@@ -58,6 +58,8 @@ lush [--project PATH] [--json] <command>
   worker cleanup ID [--keep-branch]   安全回收工作区
   worker delete ID                   只读预检删除范围、资源与阻塞原因
   worker delete ID --confirm --revision REV  确认彻底删除（丢弃未交付代码）
+  worker delete ID --force           强制删除预检（允许对应残留检出归属未知）
+  worker delete ID --force --confirm --revision REV  确认强制删除记录与残留代码
 
   branch tree|show BRANCH            查看分支
   branch bind BRANCH COMMIT          显式绑定已有本地分支
