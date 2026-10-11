@@ -86,6 +86,16 @@ const asyncExecute = script => rpc(`/session/${session}/execute/async`, { script
 const wait = condition => asyncExecute(`const done=arguments[0];let n=0;const check=()=>(${condition})?done(true):++n>150?done(false):setTimeout(check,30);check();`);
 const assert = (value, message) => { if (!value) throw Error(message); };
 const clickText = text => execute(`const button=[...document.querySelectorAll('#modal button, #detail button')].find(b=>b.textContent===${JSON.stringify(text)}&&!b.disabled);if(!button)throw Error('missing button');button.click();`);
+async function assertToolbarAlignment(context) {
+  const geometry = await execute(`const toolbar=document.querySelector('.dashboard-toolbar'),origin=toolbar.getBoundingClientRect();
+    return [...toolbar.querySelectorAll('button')].filter(b=>!b.hidden).map(b=>{const r=b.getBoundingClientRect();
+      return {label:b.textContent,height:r.height,top:r.top-origin.top,width:r.width,fontSize:getComputedStyle(b).fontSize};});`);
+  assert(geometry.length >= 3 && geometry.every(button => Math.abs(button.height - 44) < 1
+    && Math.abs(button.top / 52 - Math.round(button.top / 52)) < .02),
+    `toolbar height/row alignment ${context}: ${JSON.stringify(geometry)}`);
+  assert(geometry.some(button => button.label === '⚙' && button.width === 44 && button.fontSize === '20px'),
+    `settings icon size ${context}: ${JSON.stringify(geometry)}`);
+}
 async function frame() {
   const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#viewport' }); await rpc(`/session/${session}/frame`, { id: element });
 }
@@ -105,10 +115,12 @@ try {
     assert(await execute(`return document.getElementById('view-toolbar').hidden&&!document.querySelector('#detail h1')&&document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth&&[...document.querySelectorAll('.project-board-card')].every(c=>{const r=c.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1})`), `panel/overflow ${theme}/${width}`);
     assert(await execute(`return getComputedStyle(document.querySelector('.project-development-metric .metric-label')).fontSize==='11px'&&getComputedStyle(document.querySelector('.project-development-distribution .chip')).fontSize==='10px'&&getComputedStyle(document.querySelector('.project-development-worker .chip')).fontSize==='10px'&&new Set([...document.querySelectorAll('.project-development-value')].map(e=>getComputedStyle(e).color)).size===3&&document.querySelector('.project-dashboard-message.tone-amber').href.endsWith('/p/${P}/#notices-19')&&document.querySelector('.project-dashboard-message.tone-blue').href.endsWith('/p/${P}/#notices-20')`), 'metric tones or source Notice links failed');
     assert(await execute(`const cards=[...document.querySelectorAll('.project-board-card')],rects=cards.map(c=>c.getBoundingClientRect());return cards.every((card,i)=>{const c=rects[i],content=card.querySelector('.project-board-content'),s=content.getBoundingClientRect();return content.scrollHeight<=content.clientHeight+1&&s.top>=c.top&&s.bottom<=c.bottom+1&&s.left>=c.left&&s.right<=c.right+1&&rects.every((r,j)=>i===j||c.right<=r.left||c.left>=r.right||c.bottom<=r.top||c.top>=r.bottom)})`), `vertical card containment ${theme}/${width}`);
+    await assertToolbarAlignment(`${theme}/${width}/view`);
     await execute(`window.dashboardBefore=[...document.querySelectorAll('.project-board-card')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]});document.querySelector('.dashboard-settings-open').click()`);
     assert(await execute(`return document.querySelector('.dashboard-settings-panel').hidden===false&&!document.querySelector('.dashboard-settings-panel input[data-project-id="${Q}"]').checked&&[...document.querySelectorAll('.dashboard-settings-panel input')].length===4&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth`), `settings layout ${width}`);
     assert(await execute(`const modal=document.getElementById('modal'),r=modal.querySelector('.modal-card').getBoundingClientRect();return !modal.hidden&&!document.querySelector('#detail .dashboard-settings-panel')&&r.left>=0&&r.right<=innerWidth+1&&r.top>=0&&r.bottom<=innerHeight+1&&[...document.querySelectorAll('.project-board-card')].every((c,i)=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height].every((v,k)=>Math.abs(v-dashboardBefore[i][k])<1)})`), `dialog moved cards or escaped viewport ${theme}/${width}`);
     await clickText('取消'); await clickText('编辑布局');
+    await assertToolbarAlignment(`${theme}/${width}/edit`);
     assert(await execute(`return [...document.querySelectorAll('.project-board-card')].every(c=>{const a=c.querySelector('.dashboard-card-settings').getBoundingClientRect(),b=c.querySelector('.project-board-handle').getBoundingClientRect();return b.width>=44&&a.width>=44&&b.right<=a.left+1})`), `settings/edit overlap ${width}`);
     await clickText('取消布局');
     if (width <= 760) {
