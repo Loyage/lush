@@ -1,6 +1,6 @@
 # 验收即归档（W169／用户决定 #418）
 
-本文是统一验收、归档语义的实施契约，优先于旧的“仅验收／验收并归档”、四档自动链与验收后单独归档描述。本次实际验证见末节，不能将契约或测试冒充用户业务质量验收。
+本文是统一验收、归档语义的实施契约；W197／用户决定 #462 增加父级安全批量验收，优先于旧的父 Agent 收口前逐个确认要求，以及“仅验收／验收并归档”、四档自动链与验收后单独归档描述。本次实际验证见末节，不能将契约或测试冒充用户业务质量验收。
 
 ## 用户含义与保留范围
 
@@ -11,11 +11,19 @@
 - 验收严格阻止脏工作区，不默许丢弃未提交改动；消息（含暂存输入）、待决、后代、冻结、同步、实际 invocation 退出及交付检查不放宽。
 - 归档范围继续沿用受检的分支子树，不删除 canonical 检出或其他 Worker 仍使用的共享资源。已验收／已回收的子 Worker 不阻止父级验收。无代码改动也需回收其开发资源。
 
+## 父级安全批量验收（W197／用户决定 #462）
+
+- 父 Agent 必须检查子成果、测试及交付事实，完成集成验证；不得仅因合并成功、本轮交付或准备收口就逐个验收 child。默认保留 `awaiting_acceptance`、分支、worktree 和会话，后续需求通过 `worker.message` 交给同一个 child。
+- 用户验收父 Worker，或父 Worker 按用户已授权的自动到验收流程执行时，同一安全动作可纳入已交付的多级派生 child 委派链。用户独立创建的指令不被连带验收；失败／取消后代沿用原维护语义，不冒充成果验收。
+- 全批次仍检查实际调用退出、交付预约、未读／暂存输入、待决、脏现场、未交付提交、冻结、同步及共享资源。活动或尚未交付的后代仍阻塞；不是仅将待验收状态视为终态。
+- 单独提前验收 child 只应在用户明确要求回收，或整个相关目标已稳定结束、不会再追加工作且确有回收必要时考虑。有疑问就保留；父 Agent 只能将自己的直接 child 作为单独验收目标，不扩大指令／自己／兄弟的权限。
+- 批量回收成功后才结算本次纳入的 child、记录逐 Worker 验收与父级批次来源。部分失败保留精确批次收据，显式续办，不因目录缺失猜成功；残缺批次不能接收追加开发输入或另行验收绕过根批次恢复。
+
 ## 运行时与失败语义
 
 `acceptTask` 是统一动作的权威入口。Git 操作串行执行，资源检查与删除过程中复核身份、消息和授权；不能在仍活跃的 invocation 中删检出，也不能通过嵌套排队造成 Git gate 死锁。
 
-只有回收成功才宣称此次统一验收完成并发出 `task.accepted`／`worker.accepted`。受检回收使用 `task.acceptance_started`、`task.acceptance_failed` 审计；旧已验收记录补办成功写 `task.acceptance_reclaimed`，不重写旧验收事件。`branch.archive.outcomes` 留逐资源移除事实。资源删除部分失败时逐资源保留磁盘事实、诊断及可继续的审计，不把 partial/unknown 冒充成功；恢复依据精确持久收据，不靠目录不存在猜测，不因 daemon 重启自动重放未知删除。显式重试须能续办失败范围而不重新删除已完成资源。
+只有回收成功才宣称此次统一验收完成并发出 `task.accepted`／`worker.accepted`。受检回收使用 `task.acceptance_started`、`task.acceptance_failed` 审计；旧已验收记录补办成功写 `task.acceptance_reclaimed`，不重写旧验收事件。父级批量 `task.acceptance_started` 收据固定 `accepting_task_ids` 与 `rows`，成功子验收带 `via:'parent_acceptance'`、`acceptance_root_id`、`delegator_id` 和共享 `acceptance_execution`，可追溯确认来源但不冒充 child 独立获得自动验收级别。`branch.archive.outcome` 逐资源持久保存 `{acceptance_execution,outcomes}`，`branch.archive.outcomes` 保留原总账；单项回收事实不是整批验收成功。资源删除部分失败时逐资源保留磁盘事实、诊断及可继续的审计，不把 partial/unknown 冒充成功；恢复依据精确持久收据，不靠目录不存在猜测，不因 daemon 重启自动重放未知删除。显式重试须能续办失败范围而不重新删除已完成资源。
 
 inspect／graph 同源增加 `acceptance_recovery:boolean`：仅据当前轮未完成验收的精确持久 started/failed 审计投影，不凭目录缺失猜测。true 只表示可显示显式续办候选，实际请求仍复核安全门；根资源已删除而后代失败时不应被普通已归档过滤隐藏或由 workspace 缺失禁用。
 
@@ -27,7 +35,7 @@ inspect／graph 同源增加 `acceptance_recovery:boolean`：仅据当前轮未�
 
 旧存储/API 的 `archive` 值继续兼容作为 `accept` 的等价授权，不机械改写历史记录；公开读面宜规范为 `accept`，旧私有执行收据与未知结果仍须尊重，不得因此绕过恢复检查或重复执行。旧自动归档已授权行为保留。旧已验收未回收的 accept 授权可安全补办回收；失败/unknown 不自动重试。
 
-child 的配置仍锁定、默认自动合并，由直接父 Agent 检查确认；不把子 Worker 提升为自动验收，不继承父授权。Agent 不可修改结束级别。`worker.accept` 参数继续为 id，`branch.archive` 保留低层／特殊现场清理兼容入口，CLI 文案解释统一语义。
+child 的配置仍锁定、默认自动合并，由直接父 Agent 检查成果，但默认保留待验收现场供追加需求；检查通过不等于立即执行验收回收。父级验收可安全纳入已交付的派生 child，不把子 Worker 提升为自动验收，不继承父授权。Agent 不可修改结束级别。`worker.accept` 参数继续为 id，`branch.archive` 保留低层／特殊现场清理兼容入口，CLI 文案解释统一语义。
 
 ## 分区与验证
 

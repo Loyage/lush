@@ -310,7 +310,7 @@ Codex 托管登录的默认设备码与备用回调入口见[设备码登录契�
 
 ## 已合并 Worker 的多轮交付接缝
 
-[持续迭代](task-iteration.md)规定新式 指令/child 合并后的非终态 `awaiting_acceptance`、统一验收（含安全归档回收）、安全父同步及历史显式恢复；资源回收与失败续办权威见[统一验收](worker-acceptance.md)。`worker.accept` 调用 `Project.acceptTask(taskId, actor=null)`：用户验收指令；运行中的直接父 Agent 可确认已交付的 child，不能验收自己、兄弟或用户创建的指令，审计 `task.accepted` 区分 `accepted_by:'user'|'parent'` 与 `parent_id`。用户仍可显式确认 child，但不再要求逐个点击；父 Worker 的后代须已结算，不能用父验收隐式掩盖未确认成果。USER_ONLY `worker.reopen/sync_parent/resolve_sync` 分别调用 `Project.reopenTask/syncTaskParent/resolveTaskSync`；验收、恢复、同步不调用 Agent，只有 resolve_sync 显式启动当前 Worker Agent。Worker 详情/图共用 `render-iteration.js`；读模型 `accepted:boolean` 防止已验收记录误重开，`parent_sync_conflict` 提供固定提交诊断。保留原始 `base_commit`，本轮用可空 `iteration_base_commit`，不批量迁移旧行。
+[持续迭代](task-iteration.md)规定新式 指令/child 合并后的非终态 `awaiting_acceptance`、统一验收（含安全归档回收）、安全父同步及历史显式恢复；资源回收与失败续办权威见[统一验收](worker-acceptance.md)。`worker.accept` 调用 `Project.acceptTask(taskId, actor=null)`：用户验收指令；运行中的直接父 Agent 可确认已交付的 child，不能验收自己、兄弟或用户创建的指令，审计 `task.accepted` 区分 `accepted_by:'user'|'parent'` 与 `parent_id`。用户仍可显式确认 child，但不再要求逐个点击；父 Agent 检查成果后默认保留 child 供追加需求，父级验收可安全纳入已交付的派生 child 委派链，不连带验收独立指令，未读输入、待决、活动调用与未交付改动等安全门不放宽。USER_ONLY `worker.reopen/sync_parent/resolve_sync` 分别调用 `Project.reopenTask/syncTaskParent/resolveTaskSync`；验收、恢复、同步不调用 Agent，只有 resolve_sync 显式启动当前 Worker Agent。Worker 详情/图共用 `render-iteration.js`；读模型 `accepted:boolean` 防止已验收记录误重开，`parent_sync_conflict` 提供固定提交诊断。保留原始 `base_commit`，本轮用可空 `iteration_base_commit`，不批量迁移旧行。
 
 ## 展示功能已移除
 

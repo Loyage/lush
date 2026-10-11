@@ -36,7 +36,7 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 | `worker reserve-all BRANCH`（Web「合并所有」） | `worker.reserve_all` | `{branch}`；用户专属；把该分支下所有已静息、待合并的 指令/child 逐条走同一套预约准入并交给父 Worker 自有交付队列的 runtime 串行处理 |
 | `worker unreserve ID` | `worker.unreserve` | `{id}`；用户专属 |
 | `worker approve-merge ID COMMIT BASELINE` | `worker.approve_merge` | `{id, commit, baseline}`；用户专属 |
-| `worker accept ID` | `worker.accept` | `{id}`；用户验收指令成果（含静息无改动回答，无需先合并）/ 运行中的直接父 Agent 确认已交付 child；返回 Worker；验收即归档，安全回收 worktree/ref 并保留运行历史 |
+| `worker accept ID` | `worker.accept` | `{id}`；用户验收指令成果（含静息无改动回答，无需先合并）并可一并安全验收已交付派生 child / 运行中的直接父 Agent 可单独验收直接 child（默认保留供追加需求）；返回 Worker；验收即归档，安全回收 worktree/ref 并保留运行历史 |
 | `worker reopen ID` | `worker.reopen` | `{id}`；用户专属；历史已合并Worker显式恢复待验收，返回 Worker，不调用 Agent |
 | `worker sync-parent ID` | `worker.sync_parent` | `{id}`；用户专属；返回 `{task,synced,conflict,source_commit,parent_commit,reason?}`；不调用 Agent |
 | `worker resolve-sync ID` | `worker.resolve_sync` | `{id}`；用户专属；返回 Worker，显式调用 Agent 解决已记录同步冲突 |
@@ -117,7 +117,7 @@ Worker 详情的原始目标直接展示预览；长模块点击「展开完整�
 
 ## 多轮交付、验收与父同步
 
-当前 指令/child 的 version 2 预约由父 Worker 自有队列的 runtime 串行 Squash（含 main），不创建 merge Worker、不改 `parent_id`、不额外调用父 Agent；落地后保持原父子关系并进入非终态 `awaiting_acceptance`，不是 `completed`。追加 `worker.message` 继续同一 Worker；验收 `worker.accept` 才结算为 completed，归档仍须显式操作且待验收时不得直接归档；派生 child 的成果由其运行中的直接父 Agent 检查后 `worker.accept` 确认，无需用户逐个验收；父 Agent 不能验收指令、自己或兄弟。无代码改动的 child 也先交付结果、等父确认。验收父 Worker 不隐式确认后代，未决问题、未读输入、未交付改动与未结算后代仍阻止确认。原始 `base_commit` 保留，本轮基线用可空 `iteration_base_commit`。`accepted:boolean`（依据 `task.accepted` 事件，`accepted_by:'user'|'parent'` 区分用户验收与父确认）和 `parent_sync_conflict:{source_commit,parent_commit,reason}|null` 由 inspect/Worker 图投影。
+当前 指令/child 的 version 2 预约由父 Worker 自有队列的 runtime 串行 Squash（含 main），不创建 merge Worker、不改 `parent_id`、不额外调用父 Agent；落地后保持原父子关系并进入非终态 `awaiting_acceptance`，不是 `completed`。追加 `worker.message` 继续同一 Worker；验收 `worker.accept` 才结算为 completed，验收同时安全归档回收；派生 child 的成果由直接父 Agent 检查，但默认保留工作区和会话供追加需求，尽量随父 Worker 一并安全验收，无需用户逐个操作。父 Agent 只能将直接 child 作为单独验收目标，不能验收指令、自己或兄弟。无代码改动的 child 也先交付结果、保留现场。验收父 Worker 可一并纳入已交付的派生 child 委派链，不连带验收独立指令；未决问题、未读／暂存输入、脏现场、未交付改动、活动后代与在途交付仍阻止验收；批量部分失败按精确持久收据显式续办，unknown 不自动重放。详见[统一验收](../../engineering/worker-acceptance.md)。原始 `base_commit` 保留，本轮基线用可空 `iteration_base_commit`。`accepted:boolean`（依据 `task.accepted` 事件，`accepted_by:'user'|'parent'` 区分用户验收与父确认）和 `parent_sync_conflict:{source_commit,parent_commit,reason}|null` 由 inspect/Worker 图投影。
 
 `worker.inspect` 的异步 RPC 读面为有分支的 指令/child 附加 `parent_relation:{ahead,behind}`，只读实时本地 `branch` 与 `target_branch` 的固定提交对：ahead 为 Worker 独有提交数，behind 为父目标独有提交数；不使用原始 base 或存储的 head。无 ref、读取失败或无效计数为 null。详情在「同步父分支」旁显示红色「领先 N」与绿色「落后 M」及 commit 单位，包含 0；旧服务缺字段显示距离未知。刷新详情会重读，不调用 Agent，不改变 Git 或 Worker 状态。
 

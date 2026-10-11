@@ -68,6 +68,14 @@ test('验收资源回收的开始、未完成和历史补办有独立名称，�
   expect(eventLabel({ type: 'task.acceptance_reclaimed' })).toContain('补办');
 });
 
+test('single-resource reclamation receipts do not claim whole-batch acceptance completion', () => {
+  const event = Object.freeze({ type: 'branch.archive.outcome', data: Object.freeze({ acceptance_execution: 12 }) });
+  expect(eventLabel(event)).toBe('记录单项资源回收结果（非整批验收完成）');
+  expect(eventLabel(event)).not.toBe(eventLabel({ type: 'task.accepted' }));
+  expect(event.type).toBe('branch.archive.outcome');
+  expect(event.data.acceptance_execution).toBe(12);
+});
+
 test('定时提交、停机错过与动作跳过有独立名称，不冒充 Agent 已开始', () => {
   expect(eventLabel({ type: 'hook.scheduled_submitted' })).toBe('定时 Hook 已提交待执行动作');
   expect(eventLabel({ type: 'hook.schedule_missed' })).toBe('定时 Hook 已错过提交时间');

@@ -104,7 +104,8 @@ export const methods = {
             }
           }
         }
-        plan.push({ branch, tip, workspace, present, worktree: 'absent', ref: tip === null ? 'absent' : 'kept', discarded: false });
+        const identity = present ? fs.statSync(workspace) : null;
+        plan.push({ branch, tip, workspace, present, identity, worktree: 'absent', ref: tip === null ? 'absent' : 'kept', discarded: false });
       }
 
       if (guard) guard();
@@ -116,11 +117,29 @@ export const methods = {
         try {
           if (expectedTips) check(await this.git(project, 'rev-parse', `refs/heads/${entry.branch}`).catch(() => null) === entry.tip,
             `automatic archive source moved during inspection: ${entry.branch}`);
+          // Do not apply an old removal plan to a checkout that was detached, moved,
+          // replaced or newly registered during asynchronous inspection.
+          if (expectedTips) {
+            const currentRecords = (await this.gitOutput(project, 'worktree', 'list', '--porcelain', '-z'))
+              .split('\0\0').map(record => record.split('\0'));
+            const metadata = currentRecords.find(fields => fields.includes(`branch refs/heads/${entry.branch}`));
+            const workspace = metadata?.find(field => field.startsWith('worktree '))?.slice('worktree '.length) ?? null;
+            check(workspace === entry.workspace, `acceptance worktree registration changed: ${entry.branch}`);
+            check(!metadata?.some(field => field === 'locked' || field.startsWith('locked ') || field === 'prunable' || field.startsWith('prunable ')),
+              `acceptance worktree became locked or prunable: ${entry.branch}`);
+            const identity = workspace && fs.existsSync(workspace) ? fs.statSync(workspace) : null;
+            check(Boolean(identity) === entry.present && (!identity || (identity.dev === entry.identity.dev && identity.ino === entry.identity.ino)),
+              `acceptance worktree identity changed: ${entry.branch}`);
+          }
           if (guard) guard();
           if (entry.present) {
             if (discard_worktree) entry.discarded = (await this.porcelain(entry.workspace)) !== '';
             await this.git(project, 'worktree', 'remove', ...(discard_worktree ? ['--force'] : []), entry.workspace);
             entry.worktree = 'removed';
+            // Persist this irreversible fact before the next await/ref mutation. An
+            // interrupted parent batch can explicitly resume from the exact receipt.
+            if (expectedTips && onOutcome) await onOutcome({ branch: entry.branch, worktree: entry.worktree,
+              ref: entry.ref, tip: entry.tip, discarded: entry.discarded, reason: 'Ref reclamation pending' });
           }
           if (entry.tip !== null) {
             // 走到这里通常已经被上面的 remove 解除了检出；分支被别处检出时不能删，否则那个 HEAD 会失效。

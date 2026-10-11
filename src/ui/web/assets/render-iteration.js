@@ -75,17 +75,18 @@ export function iterationControls(task, { refresh = () => {}, events = [], showP
       const deliveryReason = (noChangeAnswer || recovery) && booking && !['integrated', 'completed', 'withdrawn'].includes(booking.status)
         ? '交付预约尚未结算；验收不能绕过在途交付。' : null;
       const acceptanceReason = reason || deliveryReason
-        || ((task.children || []).some(child => !['completed', 'failed', 'cancelled'].includes(child.status))
-          ? '后代尚未确认或结算；派生 Worker 由其直接父 Agent 检查并确认，无需你逐个验收。' : null);
+        || ((task.children || []).some(child => !['completed', 'failed', 'cancelled'].includes(child.status)
+          && !(workerKind(child) === 'child' && child.status === 'awaiting_acceptance'))
+          ? '后代尚未交付或有独立指令未验收；先处理相关工作，已交付的派生 child 可随父 Worker 一并安全验收。' : null);
       const phase = noChangeAnswer
         ? '本轮仅回答，无新增提交 · 待验收（无需先请求合并）'
         : '本轮已交付 · 待验收';
-      const acceptanceHelp = '验收表示对该 Worker 的工作不再有异议，同时归档并删除本分支及全部后代分支的 worktree 与本地 ref，保留 Worker、结果、消息、事件与会话等运行历史；脏工作区、未读输入、待决或未交付改动会阻止验收。不调用 Agent，验收后如有新要求请另发指令。';
+      const acceptanceHelp = '验收表示对该 Worker 的工作不再有异议，一并安全验收已交付的派生 child（不连带验收独立指令），同时归档并删除本分支及全部后代分支的 worktree 与本地 ref，保留 Worker、结果、消息、事件与会话等运行历史；脏工作区、未读输入、待决或未交付改动会阻止验收。不调用 Agent，验收后如有新要求请另发指令。';
       // Keep the phase and exceptional facts visible; shared lifecycle rules live in help/docs.
       panel.append(el('p', task.task_kind === 'child'
         ? recovery
           ? `资源回收未完成 · 等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 按持久记录续办验收`
-          : `本轮已交付 · 等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 确认`
+          : `本轮已交付 · 保留供父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 追加需求，随父级验收`
         : recovery
           ? '资源回收未完成 · 已保留精确续办记录，请续办验收'
           : reclaimAccepted

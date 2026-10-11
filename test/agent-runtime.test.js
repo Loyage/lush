@@ -63,7 +63,7 @@ test('acceptance guidance includes safe retirement and preserves parent-only aut
   expect(prompt).toContain('脏工作区阻止验收');
   expect(prompt).toContain('资源回收失败不能当作验收成功');
   expect(prompt).toContain('保留 Worker、会话、结果和运行历史');
-  expect(prompt).toContain('Agent 只能确认自己直接派出的已交付 child');
+  expect(prompt).toContain('Agent 只能单独验收自己直接派出的已交付 child');
   expect(prompt).not.toContain('默认确认不自动归档');
   expect(prompt).not.toContain('显式归档另行回收');
 });

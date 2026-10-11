@@ -343,7 +343,8 @@ export default {
     }
     const cleaning = [...this.workspaces.busy].filter(id => users.has(id));
     check(cleaning.length === 0, `branch ${name} is being cleaned up (worker ${workerLabel(this.store.get('SELECT id,worker_number FROM tasks WHERE id=?', cleaning[0]) ?? { id: cleaning[0] })})`);
-    const blockers = acceptance ? unfinished.filter(row => row.id !== acceptance.task_id) : unfinished;
+    // The unified entry fixed and validated these delivered participants under this same Git gate.
+    const blockers = acceptance ? unfinished.filter(row => !acceptance.task_ids.has(row.id)) : unfinished;
     check(blockers.length === 0, `branch ${name} still has unfinished workers: ${blockers.map(workerLabel).join(', ')}`);
     // 子树里每条分支名下的任务行先收好：每条分支 settle 时就立刻把库改成磁盘的事实，
     // 所以第 N 条失败也不会留下「库说还在、目录已经没了」的前 N-1 条。
@@ -353,8 +354,11 @@ export default {
       const tasks = tasksByBranch.get(outcome.branch) ?? [];
       this.store.transaction(() => {
         // 目录已经删了，tasks.workspace 不能再指着一个不存在的路径；branch 字段是历史，必须留着。
+        if (acceptance) this.store.event(acceptance.task_id, 'branch.archive.outcome', {
+          acceptance_execution: acceptance.id, outcomes: [outcome],
+        });
         if (outcome.worktree === 'removed') {
-          for (const task of tasks) {
+          for (const task of tasks.filter(task => this.store.task(task.id).workspace !== null)) {
             this.store.update(task.id, { workspace: null });
             this.store.event(task.id, 'workspace.removed', { branch: outcome.branch, workspace: null });
           }

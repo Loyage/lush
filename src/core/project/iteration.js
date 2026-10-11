@@ -6,17 +6,18 @@ import { descendantsOf } from '../genealogy.js';
 const bookingOf = task => task.reservation ? JSON.parse(task.reservation) : null;
 
 /** A completed runtime queue has no Agent inbox. Keep its settled sources' diagnostics as history. */
-function acceptanceUnreadMessage(project, task) {
+function acceptanceUnreadMessage(project, task, acceptingIds = new Set()) {
   const idleQueue = task.task_kind === 'merge' && task.name === 'merge'
     && task.status === 'completed' && !task.branch;
   return project.store.get(`SELECT m.id FROM messages m WHERE m.task_id=? AND m.consumed=0
     AND NOT (? AND m.sender_id IS NOT NULL
       AND EXISTS (SELECT 1 FROM tasks source WHERE source.id=m.sender_id
-        AND source.status IN ('completed','failed','cancelled'))
+        AND (source.status IN ('completed','failed','cancelled')
+          OR (source.status='awaiting_acceptance' AND source.id IN (SELECT value FROM json_each(?)))))
       AND EXISTS (SELECT 1 FROM events e WHERE e.task_id=m.sender_id
         AND e.type='task.reparented_for_merge'
         AND json_extract(e.data,'$.to')=? AND json_extract(e.data,'$.from')=?))
-    ORDER BY m.id LIMIT 1`, task.id, idleQueue ? 1 : 0, task.id, task.parent_id);
+    ORDER BY m.id LIMIT 1`, task.id, idleQueue ? 1 : 0, idleQueue ? JSON.stringify([...acceptingIds]) : '[]', task.id, task.parent_id);
 }
 
 export function assertTaskNotSyncing(project, taskId) {
@@ -153,6 +154,43 @@ export function iterationViews(store, tasks) {
   return result;
 }
 
+/** Only uninterrupted child delegation chains participate; independent orders need their own acceptance. */
+function acceptanceChildren(rows, rootId) {
+  const byId = new Map(rows.map(row => [row.id, row]));
+  const delegated = row => {
+    const seen = new Set();
+    while (row.id !== rootId) {
+      if (row.task_kind !== 'child' || seen.has(row.id)) return false;
+      seen.add(row.id); row = byId.get(row.parent_id);
+      if (!row) return false;
+    }
+    return true;
+  };
+  return rows.filter(row => row.id !== rootId && row.status === 'awaiting_acceptance' && delegated(row));
+}
+
+/** A partial parent batch must be resumed at its root, never split into child acceptances. */
+function assertNoPartialParentAcceptance(project, taskId) {
+  const partial = project.store.get(`WITH RECURSIVE ancestors(id,parent_id) AS (
+    SELECT id,parent_id FROM tasks WHERE id=?
+    UNION SELECT t.id,t.parent_id FROM tasks t JOIN ancestors a ON t.id=a.parent_id
+  ) SELECT e.task_id FROM ancestors a JOIN events e ON e.task_id=a.id AND e.type='task.acceptance_started'
+    WHERE e.task_id<>?
+    AND EXISTS (SELECT 1 FROM json_each(e.data,'$.accepting_task_ids') participant WHERE participant.value=?)
+    AND NOT EXISTS (SELECT 1 FROM events settled WHERE settled.task_id=e.task_id AND settled.id>e.id
+      AND settled.type IN ('task.accepted','task.acceptance_reclaimed','task.iteration_started','task.reopened','retry'))
+    AND EXISTS (SELECT 1 FROM events receipt,json_each(receipt.data,'$.outcomes') outcome
+      WHERE receipt.task_id=e.task_id AND receipt.type IN ('branch.archive','branch.archive.outcome')
+      AND json_extract(receipt.data,'$.acceptance_execution')=e.id
+      AND (json_extract(outcome.value,'$.worktree')='removed' OR json_extract(outcome.value,'$.ref')='deleted'))
+    ORDER BY e.id DESC LIMIT 1`, taskId, taskId, taskId);
+  check(!partial, `partial parent acceptance must resume at its root Worker ${partial ? workerLabel(project.store.task(partial.task_id)) : ''}`);
+}
+
+const acceptanceIdentity = row => ({ id: row.id, parent_id: row.parent_id, task_kind: row.task_kind,
+  status: row.status, branch: row.branch, target_branch: row.target_branch });
+const sameIdentity = (row, fixed) => Object.entries(fixed).every(([key, value]) => row[key] === value);
+
 export default {
   /** Acceptance authorizes clean resource reclamation; historical records remain readable. */
   async acceptTask(taskId, actor = null, options = {}) {
@@ -171,21 +209,25 @@ export default {
       check(['awaiting_acceptance', 'completed'].includes(task.status), 'child must be delivered before parent confirmation');
     };
     authorize(this.store.task(id(taskId)));
+    assertNoPartialParentAcceptance(this, id(taskId));
     assertTaskNotSyncing(this, id(taskId));
     for (const row of this.subtreeTasks(id(taskId))) assertTaskNoCommand(this, row.id);
     return this.workspaces.exclusive(async () => {
       let task = this.store.task(id(taskId));
       check(['order', 'child'].includes(task.task_kind), 'only order/child Workers can be accepted');
       authorize(task);
+      assertNoPartialParentAcceptance(this, task.id);
       assertTaskNotSyncing(this, task.id); assertTaskNoCommand(this, task.id);
       const historical = task.status === 'completed' && this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.accepted' LIMIT 1", task.id);
-      if (historical && [task.branch, ...descendantsOf(this.store.branches(), task.branch)]
+      if (historical && this.subtreeTasks(task.id).every(row => TERMINAL.has(row.status)
+        && !this.running.has(row.id) && !this.workspaces.busy.has(row.id))
+        && [task.branch, ...descendantsOf(this.store.branches(), task.branch)]
         .every(branch => ['archived', 'deleted'].includes(this.store.branch(branch)?.status))) return task;
       check(['waiting', 'awaiting_acceptance'].includes(task.status) || historical, 'Worker must be idle before acceptance');
       const previous = this.store.get("SELECT id,data FROM events WHERE task_id=? AND type='task.acceptance_started' ORDER BY id DESC LIMIT 1", task.id);
       let attempt = previous ? { id: previous.id, ...JSON.parse(previous.data) } : null;
       const recovered = new Map();
-      if (attempt) for (const event of this.store.all("SELECT data FROM events WHERE task_id=? AND type='branch.archive' AND json_extract(data,'$.acceptance_execution')=? ORDER BY id", task.id, attempt.id)) {
+      if (attempt) for (const event of this.store.all("SELECT data FROM events WHERE task_id=? AND type IN ('branch.archive','branch.archive.outcome') AND json_extract(data,'$.acceptance_execution')=? ORDER BY id", task.id, attempt.id)) {
         for (const outcome of JSON.parse(event.data).outcomes ?? []) recovered.set(outcome.branch, outcome);
       }
       // A known preflight failure with every original resource intact may start afresh.
@@ -196,13 +238,27 @@ export default {
       if (attempt) check(attempt.head_commit === task.head_commit, 'acceptance recovery commit changed; inspect resource records');
       const subtree = this.subtreeTasks(task.id);
       check(subtree.every(row => !this.running.has(row.id) && !this.workspaces.busy.has(row.id)), 'Agent or cleanup is still in flight');
-      check(subtree.slice(1).every(row => TERMINAL.has(row.status)), 'accept or end descendants before accepting their parent');
+      const children = acceptanceChildren(subtree, task.id);
+      const acceptingIds = new Set([task.id, ...children.map(row => row.id)]);
+      const identities = new Map(subtree.map(row => [row.id, acceptanceIdentity(row)]));
+      check(subtree.slice(1).every(row => TERMINAL.has(row.status) || acceptingIds.has(row.id)),
+        'accept or end descendants before accepting their parent; only delivered child delegation chains can be accepted together');
+      if (attempt) {
+        const fixedIds = attempt.accepting_task_ids ?? [task.id];
+        check(fixedIds.length === acceptingIds.size && fixedIds.every(rowId => acceptingIds.has(rowId)),
+          'acceptance recovery participants changed; inspect resource records');
+        check(attempt.task_ids.length === subtree.length && subtree.every(row => attempt.task_ids.includes(row.id)),
+          'acceptance recovery descendants changed');
+        if (attempt.rows) check(subtree.every(row => sameIdentity(row, attempt.rows.find(fixed => fixed.id === row.id) ?? { id: null })),
+          'acceptance recovery Worker changed; inspect resource records');
+      }
+      for (const child of children) check(child.branch && child.head_commit, 'delivered child has no inspectable resource identity');
       for (const row of subtree) {
         const booking = bookingOf(row);
         assertTaskNotSyncing(this, row.id); assertTaskNoCommand(this, row.id);
         check(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status)
           || (booking.status === 'pending' && taskSyncDeliveryPaused(this, row.id)), 'delivery is still in flight or reserved');
-        check(!acceptanceUnreadMessage(this, row), `Worker ${workerLabel(row)}: unread input must be processed before acceptance`);
+        check(!acceptanceUnreadMessage(this, row, acceptingIds), `Worker ${workerLabel(row)}: unread input must be processed before acceptance`);
         check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
         if (row.branch) {
           const record = this.store.branch(row.branch);
@@ -222,7 +278,7 @@ export default {
             continue;
           }
           const removed = recovered.get(row.branch)?.worktree === 'removed' && attempt?.tips[row.branch] === row.head_commit;
-          check(record?.status === 'active' && (row.id !== task.id || removed || (row.workspace && fs.existsSync(row.workspace))),
+          check(record?.status === 'active' && (!acceptingIds.has(row.id) || removed || (row.workspace && fs.existsSync(row.workspace))),
             'Worker branch/worktree is archived or missing');
           if (row.workspace) await this.workspaces.finish(row);
           else {
@@ -243,8 +299,8 @@ export default {
       authorize(task);
       check(['waiting', 'awaiting_acceptance'].includes(task.status) || historical, 'Worker changed during acceptance');
       for (const row of this.subtreeTasks(task.id)) {
-        check(row.id === task.id || TERMINAL.has(row.status), 'descendant changed during acceptance');
-        check(!this.running.has(row.id) && !acceptanceUnreadMessage(this, row),
+        check(identities.has(row.id) && sameIdentity(row, identities.get(row.id)), 'descendant changed during acceptance');
+        check(!this.running.has(row.id) && !acceptanceUnreadMessage(this, row, acceptingIds),
           `Worker ${workerLabel(row)}: new input arrived during acceptance`);
         assertTaskNotSyncing(this, row.id); assertTaskNoCommand(this, row.id);
         check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
@@ -263,7 +319,11 @@ export default {
       }
       const started = attempt ?? { id: this.store.event(task.id, 'task.acceptance_started', {
         head_commit: task.head_commit, tips, branches, task_ids: subtree.map(row => row.id), integration: task.integration,
+        accepting_task_ids: [...acceptingIds], rows: subtree.map(row => ({ ...identities.get(row.id),
+          head_commit: this.store.task(row.id).head_commit, integration: this.store.task(row.id).integration })),
       }), head_commit: task.head_commit, tips, branches, task_ids: subtree.map(row => row.id) };
+      const fixedRows = attempt?.rows ?? subtree.map(row => ({ ...identities.get(row.id),
+        head_commit: this.store.task(row.id).head_commit, integration: this.store.task(row.id).integration }));
       const guard = () => {
         const current = this.store.task(task.id);
         authorize(current);
@@ -273,10 +333,10 @@ export default {
         const rows = this.subtreeTasks(task.id);
         check(rows.length === started.task_ids.length && rows.every(row => started.task_ids.includes(row.id)), 'acceptance descendants changed');
         for (const row of rows) {
-          check(row.id === task.id || TERMINAL.has(row.status), 'descendant changed during acceptance');
+          check(sameIdentity(row, fixedRows.find(fixed => fixed.id === row.id) ?? { id: null }), 'descendant changed during acceptance');
           check(!this.running.has(row.id) && !this.workspaces.busy.has(row.id), 'Agent or cleanup is still in flight');
           assertTaskNotSyncing(this, row.id); assertTaskNoCommand(this, row.id);
-          check(!acceptanceUnreadMessage(this, row), `Worker ${workerLabel(row)}: new input arrived during acceptance`);
+          check(!acceptanceUnreadMessage(this, row, acceptingIds), `Worker ${workerLabel(row)}: new input arrived during acceptance`);
           check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
           const booking = bookingOf(row);
           check(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status)
@@ -285,7 +345,7 @@ export default {
         }
         check(this.branchResourceUsers(active).every(resourceId => {
           const row = this.store.task(resourceId);
-          return (row.id === task.id || TERMINAL.has(row.status)) && !this.running.has(row.id)
+          return (acceptingIds.has(row.id) || TERMINAL.has(row.status)) && !this.running.has(row.id)
             && !this.commandHookRunning?.has(row.id) && !this.workspaces.busy.has(row.id);
         }), 'acceptance resource users changed');
       };
@@ -293,7 +353,7 @@ export default {
       this.acceptanceBusy ??= new Set();
       for (const row of subtree) this.acceptanceBusy.add(row.id);
       try {
-        const result = await this.archiveBranch(task.branch, { acceptance: { id: started.id, task_id: task.id, tips, guard, completion: options.completion,
+        const result = await this.archiveBranch(task.branch, { acceptance: { id: started.id, task_id: task.id, task_ids: acceptingIds, tips, guard, completion: options.completion,
           deletedRefs: new Set([...recovered].filter(([, outcome]) => outcome.ref === 'deleted').map(([branch]) => branch)),
         } });
         check(!result.failed.length && !result.remaining.length, 'acceptance resource reclamation incomplete; inspect branch.archive and retry worker.accept explicitly');
@@ -304,20 +364,29 @@ export default {
       } finally {
         for (const row of subtree) this.acceptanceBusy.delete(row.id);
       }
+      // Settle all successful participants together, only after the complete resource tree is reclaimed.
+      // Failed/cancelled/historical descendants keep their original outcomes and acceptance facts.
       this.store.transaction(() => {
-        const booking = bookingOf(task);
-        if (booking?.status === 'pending') this.store.event(task.id, 'task.unreserved', { reservation: booking, reason: 'accepted after parent sync' });
-        this.store.update(task.id, { status: 'completed', error: null,
-          ...(booking?.status === 'pending' ? { reservation: null } : {}) });
-        this.store.armAgent(task.id, null);
-        this.store.event(task.id, historical ? 'task.acceptance_reclaimed' : 'task.accepted', { head_commit: task.head_commit, integration: task.integration,
-          accepted_by: actor === null ? 'user' : 'parent', parent_id: actor, resources_reclaimed: true,
-          acceptance_execution: started.id,
-          ...(options.completion ? { via: 'completion_hook', completion_execution: options.completion.id,
-            authorization: options.completion.authorization, round: options.completion.round } : {}) });
+        for (const rowId of acceptingIds) {
+          const row = this.store.task(rowId), booking = bookingOf(row);
+          if (booking?.status === 'pending') this.store.event(row.id, 'task.unreserved', { reservation: booking, reason: 'accepted after parent sync' });
+          this.store.update(row.id, { status: 'completed', error: null,
+            ...(booking?.status === 'pending' ? { reservation: null } : {}) });
+          this.store.armAgent(row.id, null);
+          this.store.event(row.id, row.id === task.id && historical ? 'task.acceptance_reclaimed' : 'task.accepted', {
+            head_commit: row.head_commit, integration: row.integration,
+            accepted_by: actor === null ? 'user' : 'parent', parent_id: actor, resources_reclaimed: true,
+            acceptance_execution: started.id,
+            ...(row.id !== task.id ? { via: 'parent_acceptance', acceptance_root_id: task.id, delegator_id: row.parent_id } : {}),
+            ...(options.completion ? { via: row.id === task.id ? 'completion_hook' : 'parent_acceptance',
+              completion_execution: options.completion.id, authorization: options.completion.authorization,
+              round: options.completion.round } : {}) });
+        }
       });
-      if (!historical) this.emitTaskHook(task.id, 'worker.accepted');
-      this.scheduleTaskCompletion(task.id);
+      for (const rowId of acceptingIds) {
+        if (rowId !== task.id || !historical) this.emitTaskHook(rowId, 'worker.accepted');
+        this.scheduleTaskCompletion(rowId);
+      }
       return this.store.task(task.id);
     });
   },

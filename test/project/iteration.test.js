@@ -128,7 +128,7 @@ test('no-change delegated delivery waits for parent confirmation and is not a hi
   } finally { await f.close(); }
 });
 
-test('delivered unaccepted descendants do not block parent delivery, but must be accepted before parent completion', async () => {
+test('delivered unaccepted child descendants do not block parent delivery and are accepted with their parent', async () => {
   const f = setup(); await repo(f.root);
   try {
     const { task: parent } = await f.project.order('parent'); f.store.update(parent.id, { status: 'waiting' });
@@ -141,9 +141,9 @@ test('delivered unaccepted descendants do not block parent delivery, but must be
     expect(f.project.reservationWaitReason(f.store.task(parent.id))).toBeNull();
     await deliver(f, parent);
     expect(f.store.task(parent.id).status).toBe('awaiting_acceptance');
-    await expect(f.project.acceptTask(parent.id)).rejects.toThrow('descendants');
-    await f.project.acceptTask(child.id);
     await f.project.acceptTask(parent.id);
+    expect(f.store.history(child.id).find(event => event.type === 'task.accepted').data)
+      .toMatchObject({ accepted_by: 'user', via: 'parent_acceptance', acceptance_root_id: parent.id });
     await expect(f.project.reopenTask(child.id)).rejects.toThrow('parent has ended');
     await expect(f.project.reopenTask(parent.id)).rejects.toThrow('accepted Workers cannot be reopened');
     expect(f.store.task(child.id).status).toBe('completed');
@@ -171,15 +171,13 @@ test('settled source diagnostics in an idle runtime merge queue do not block par
     f.store.run('UPDATE messages SET consumed=1 WHERE task_id=?', parent.id);
     f.store.update(parent.id, { status: 'waiting' });
     await deliver(f, parent);
-    await expect(f.project.acceptTask(parent.id)).rejects.toThrow('descendants');
-    await f.project.acceptTask(child.id);
     // Real user input and unaudited senders remain blockers, even on a completed queue.
     for (const sender of [null, parent.id]) {
       const message = f.store.message(queue.id, 'must not be silently ignored', sender);
       await expect(f.project.acceptTask(parent.id)).rejects.toThrow(`Worker #${queue.id}: unread input`);
       f.store.run('UPDATE messages SET consumed=1 WHERE id=?', message);
     }
-    // A normal completed child's inbox must not receive the queue exemption.
+    // A normal delivered child's inbox must not receive the queue exemption.
     const childInput = f.store.message(child.id, 'unprocessed input');
     await expect(f.project.acceptTask(parent.id)).rejects.toThrow(`Worker ${child.worker_number}: unread input`);
     f.store.run('UPDATE messages SET consumed=1 WHERE id=?', childInput);

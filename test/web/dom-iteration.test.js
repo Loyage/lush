@@ -81,7 +81,7 @@ test('phase hints show only this Worker state, keeping lifecycle consequences in
     [{ status: 'waiting', reservation: null, result: 'answer' }, '本轮仅回答，无新增提交 · 待验收（无需先请求合并）'],
     [{ status: 'completed', accepted: true }, '历史验收尚未回收开发资源 · 可再次验收补办'],
     [{ acceptance_recovery: true }, '资源回收未完成 · 已保留精确续办记录，请续办验收'],
-    [{ task_kind: 'child', parent_id: 120, parent_worker_number: 'W12' }, '本轮已交付 · 等待父 Worker W12 确认'],
+    [{ task_kind: 'child', parent_id: 120, parent_worker_number: 'W12' }, '本轮已交付 · 保留供父 Worker W12 追加需求，随父级验收'],
     [{ task_kind: 'child', parent_id: 120, parent_worker_number: 'W12', acceptance_recovery: true }, '资源回收未完成 · 等待父 Worker W12 按持久记录续办验收'],
   ]) {
     const panel = iterationControls({ ...task, ...fields });
@@ -283,6 +283,35 @@ test('disabled archived, busy and frozen iteration actions explain why on help-h
   }
 });
 
+test('delivered children permit parent acceptance in detail and both graph modes without another mutation', async () => {
+  const parent = { ...task, children: [{ id: 71, task_kind: 'child', status: 'awaiting_acceptance' }] };
+  const painters = [() => renderDetail(parent, null, null, null), ...[false, true].map(minimal => () => {
+    activateDetailView({ view: 'task-graph' }); ui.taskGraphMinimal = minimal;
+    renderTaskGraph({ total: 1, nodes: [parent], edges: [] });
+  })];
+  try {
+    for (const paint of painters) {
+      ui.lastSnapshot = null; dom.node('detail').replaceChildren(); paint();
+      const panel = dom.node('detail');
+      panel.querySelector('.task-graph-more-trigger')?.onclick();
+      const accept = buttonOf(panel, '验收');
+      expect(accept.disabled).toBe(false);
+      expect(accept.classList.contains('agent-call')).toBe(false);
+      expect(accept.getAttribute('data-help')).toContain('一并安全验收已交付的派生 child');
+      expect(accept.getAttribute('data-help')).toContain('不连带验收独立指令');
+      const before = calls.length; await accept.onclick(); await accept.onclick();
+      expect(calls.slice(before)).toEqual([{ method: 'worker.accept', params: { id: task.id } }]);
+    }
+  } finally { ui.taskGraphMinimal = false; }
+  for (const child of [{ task_kind: 'order', status: 'awaiting_acceptance' },
+    { task_kind: 'say', status: 'awaiting_acceptance' }, { status: 'awaiting_acceptance' },
+    ...['queued', 'running', 'waiting', 'paused'].map(status => ({ task_kind: 'child', status }))]) {
+    const accept = buttonOf(render({ ...parent, children: [{ id: 71, ...child }] }), '验收');
+    expect(accept.disabled).toBe(true);
+    expect(accept.parentNode.getAttribute('data-help')).toContain('后代尚未交付或有独立指令未验收');
+  }
+});
+
 test('detail and graph expose the same awaiting acceptance actions and continuing delivery', () => {
   ui.lastSnapshot = null;
   renderDetail({ ...task, branch_archive: { archivable: true } }, null, null, null);
@@ -384,9 +413,9 @@ test('delegated Tasks wait for parent confirmation, not user acceptance or mine 
   const child = { ...task, task_kind: 'child', integration: 'none', reservation: null };
   const panel = render(child);
   expect(statusOf(child).label).toBe('待父确认');
-  expect(deepText(panel)).toContain('等待父 Worker #1');
+  expect(deepText(panel)).toContain('保留供父 Worker #1 追加需求，随父级验收');
   expect(buttonOf(panel, '验收')).toBeUndefined();
-  expect(panel.querySelector('.iteration-phase').textContent).toBe('本轮已交付 · 等待父 Worker #1 确认');
+  expect(panel.querySelector('.iteration-phase').textContent).toBe('本轮已交付 · 保留供父 Worker #1 追加需求，随父级验收');
   expect(deepText(panel)).not.toContain('归档并回收');
   expect(matchTask(child, { mine: true })).toBe(false);
   expect(matchTask(child, { mine: true, openNoticeIds: [child.id] })).toBe(true);

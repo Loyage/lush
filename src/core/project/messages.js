@@ -38,11 +38,20 @@ export default {
   message(taskId, body, sender = null, userAppend = true) {
     const target = this.store.task(taskId); text(body, 'message');
     check(!this.acceptanceBusy?.has(target.id), '验收正在回收开发资源；请等待结果后再处理输入');
-    const reclaim = this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.acceptance_started' ORDER BY id DESC LIMIT 1", target.id);
+    // A parent batch receipt owns the entire participant set. Partial reclamation must
+    // not let an intact child restart inside a delegation tree whose parent ref is gone.
+    const reclaim = this.store.get(`WITH RECURSIVE ancestors(id,parent_id) AS (
+      SELECT id,parent_id FROM tasks WHERE id=?
+      UNION SELECT t.id,t.parent_id FROM tasks t JOIN ancestors a ON t.id=a.parent_id
+    ) SELECT e.id,e.task_id FROM ancestors a JOIN events e ON e.task_id=a.id AND e.type='task.acceptance_started'
+      WHERE (e.task_id=? OR EXISTS (SELECT 1 FROM json_each(e.data,'$.accepting_task_ids') participant WHERE participant.value=?))
+      AND NOT EXISTS (SELECT 1 FROM events settled WHERE settled.task_id=e.task_id AND settled.id>e.id
+        AND settled.type IN ('task.accepted','task.acceptance_reclaimed','task.iteration_started','task.reopened','retry'))
+      ORDER BY e.id DESC LIMIT 1`, target.id, target.id, target.id);
     if (reclaim && !TERMINAL.has(target.status)) {
       const partial = this.store.get(`SELECT e.id FROM events e,json_each(e.data,'$.outcomes') outcome
-        WHERE e.task_id=? AND e.type='branch.archive' AND json_extract(e.data,'$.acceptance_execution')=?
-        AND (json_extract(outcome.value,'$.worktree')='removed' OR json_extract(outcome.value,'$.ref')='deleted') LIMIT 1`, target.id, reclaim.id);
+        WHERE e.task_id=? AND e.type IN ('branch.archive','branch.archive.outcome') AND json_extract(e.data,'$.acceptance_execution')=?
+        AND (json_extract(outcome.value,'$.worktree')='removed' OR json_extract(outcome.value,'$.ref')='deleted') LIMIT 1`, reclaim.task_id, reclaim.id);
       check(!partial && target.workspace && fs.existsSync(target.workspace),
         '验收资源回收未完成；请检查 branch.archive 记录并显式重试 worker.accept，不接受新的开发输入');
     }
