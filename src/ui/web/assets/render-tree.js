@@ -1,5 +1,6 @@
 import { $, button, el, roleBadge, routeBadge, syncChildren } from './dom.js';
 import { api } from './api.js';
+import { bindWorkerPreview } from './entity-preview.js';
 import { projectBase } from './route.js';
 import { DEP_HELP, HOT, INTEGRATION, ROLE, STATUS, TERMINAL_STATUS, absolute, depsOf, relative, statusOf, interruptReason, waitingDeps } from './format.js';
 import { filterUi, roleOption, statusOption, uniqueValues } from './filters-ui.js';
@@ -164,8 +165,8 @@ export function renderTree(data) {
     if (integrationText) patchText(state.integration, integrationText);
     syncChildren(node, [state.row, state.goal, ...(state.progress ? [state.progress] : []),
       ...(why ? [state.reason] : []), ...(integrationText ? [state.integration] : [])]);
-    const title = `${task.goal}\n更新于 ${absolute(task.updated_at)}`;
-    if (node.title !== title) node.title = title;
+    if (node.title) node.title = '';
+    bindWorkerPreview(node, task);
     const referenceKey = JSON.stringify([task.id, label, task.goal, status.label, task.role]);
     if (state.referenceKey !== referenceKey) {
       state.referenceKey = referenceKey;

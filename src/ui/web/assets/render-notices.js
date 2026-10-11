@@ -332,7 +332,7 @@ function buildNoticePanel(notice, task = null) {
         help: '只将这条告知标为已读，不提交答案、不批准合并或调用 Agent。',
       }));
       section.append(button('查看 Worker', () => openNotice(notice.id), 'ghost', {
-        help: '打开来源 Worker；成功加载后将这条告知标为已读，不调用 Agent 或批准合并。',
+        worker: task || notice.task_id,
       }));
     }
     return section;
@@ -433,7 +433,7 @@ function buildNoticePanel(notice, task = null) {
       { agent: true, help: agentHelp('把你的答复发给该 Worker 的 Agent，它会继续当前工作。') }),
     button('忽略', dismiss, 'ghost', { help: '忽略这条待决事项，不代表批准；它不会再出现在待处理列表。' }));
   actions.append(button(inRecords ? '查看 Worker 上下文' : '收起，只看 Worker 详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost',
-    inRecords ? undefined : { help: '收起这条待决提醒，回到 Worker 详情；待决事项仍保留在列表里。' }));
+    inRecords ? { worker: task || notice.task_id } : { help: '收起这条待决提醒，回到 Worker 详情；待决事项仍保留在列表里。' }));
   if (answer) answer.addEventListener('keydown', event => {
     if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return;
     if (!event.metaKey && !event.ctrlKey) return;

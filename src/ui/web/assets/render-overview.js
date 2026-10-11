@@ -48,7 +48,7 @@ export function renderOverview(data) {
   if (!tasks.length) work.append(el('p', '还没有 Worker。在底部输入框描述目标即可开始。', 'empty-state compact'));
   for (const task of [...tasks].sort((a, b) => b.id - a.id).slice(0, 20)) {
     const row = el('div', undefined, 'branch-row');
-    row.append(el('span', workerLabel(task), 'tid'), button(task.goal || workerKindLabel(task), () => detail(task.id), 'link'),
+    row.append(el('span', workerLabel(task), 'tid'), button(task.goal || workerKindLabel(task), () => detail(task.id), 'link', { worker: task }),
       el('span', statusOf(task).label, `chip c-${task.status}`));
     if (task.branch) row.append(el('span', task.branch, 'meta mono'));
     work.append(row);
@@ -70,7 +70,7 @@ export function renderOverview(data) {
   const agents = block('运行中的 Agent', `${data.status.agents?.length ?? 0} / ${data.status.concurrency ?? 1}`);
   for (const agent of data.status.agents || []) {
     const row = el('div', undefined, 'row');
-    row.append(el('span', '●', 'dot c-running'), button(`查看 Worker ${workerLabel(agent.task_id, agent.task_worker_number)}`, () => detail(agent.task_id), 'link'),
+    row.append(el('span', '●', 'dot c-running'), button(`查看 Worker ${workerLabel(agent.task_id, agent.task_worker_number)}`, () => detail(agent.task_id), 'link', { worker: agent.task_id }),
       el('span', agent.pid ? `pid ${agent.pid}` : 'pid 待上报', 'when'));
     agents.append(row);
   }

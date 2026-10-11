@@ -97,7 +97,7 @@ function parameters(mount, catalogue = ui.hookCatalogue) {
       content.append(el('p', `命令结果：${STATES[result.status] || result.status}${result.exit_code !== null && result.exit_code !== undefined ? ` · 退出码 ${result.exit_code}` : ''}${result.reason === 'timeout' ? ' · 超时（最长 60 秒）' : result.reason === 'output_limit' ? ' · 输出超限（64 KiB）' : result.reason === 'spawn' ? ' · 无法启动命令' : ''}；原始输出不公开。`, 'hint'));
     }
     if (last.error) content.append(el('p', last.error, last.status === 'skipped' ? 'hint' : 'error'));
-    if (last.worker_id) content.append(button(`查看创建的 Worker ${workerLabel(last.worker_id, last.worker_number)}`, () => detail(last.worker_id), 'ghost hook-button'));
+    if (last.worker_id) content.append(button(`查看创建的 Worker ${workerLabel(last.worker_id, last.worker_number)}`, () => detail(last.worker_id), 'ghost hook-button', { worker: last.worker_id }));
   } else content.append(el('p', '还没有执行记录。', 'hint'));
   return content;
 }
@@ -243,7 +243,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
       return row;
     }
     row.append(button(`Hooks${model ? ` · ${items.filter(item => item.enabled).length} 已启用` : ''}`, () => detail(task.id), 'ghost hook-button',
-      { help: '打开此 Worker 详情中的已挂载 Hooks；只查看，不启动 Agent。' }));
+      { worker: task }));
     if (['order', 'child'].includes(workerKind(task))) row.append(el('span', completion ? `自动链：${COMPLETION_LEVELS[completion.level] || '级别未知'} · ${STATES[completion.state] || completion.state || '状态未知'}`
       : task.auto_merge ? `自动合并 ${task.auto_merge.enabled ? '已启用' : '未启用'}` : '自动合并状态未知', 'hint'));
     return row;
@@ -398,7 +398,7 @@ export async function openHooks() {
         // Runtime observations can advance the mount revision after the mutation response.
         // Read the authoritative catalogue before offering the next edit/toggle.
         async () => { if (owns()) await load(); }, owns, { catalogue, scope: '仅 main Worker', busy: () => state.busy || state.commandEditing, setEditing(value) { state.commandEditing = value; state.editing = value; } }));
-      section.querySelector('.project-hook').append(button('查看 main Worker Hooks', () => detail(example.worker_id), 'ghost hook-button', { help: '只打开此规则所挂载的 main Worker；两个入口管理同一挂载。' }));
+      section.querySelector('.project-hook').append(button('查看 main Worker Hooks', () => detail(example.worker_id), 'ghost hook-button', { worker: example.worker_id }));
     }
     const template = catalogue.templates?.find(item => item.id === example?.template_id);
     if (template) section.querySelector('.project-hook').append(button('编辑来源模板', () => edit(template), 'ghost hook-button', { help: '只编辑模板，已经挂载在 main 上的实例不会改变。' }),

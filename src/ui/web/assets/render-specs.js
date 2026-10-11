@@ -35,7 +35,7 @@ export function specItem(spec) {
   if (spec.status === 'planned' && spec.task_id !== null && spec.task_id !== undefined) {
     const taskRow = el('span', undefined, 'spec-task');
     taskRow.append(el('span', `Worker ${workerLabel(spec.task_id, spec.task_worker_number)}`, 'tid'),
-      button('查看 Worker', () => { ui.noticeFocus = null; return detail(spec.task_id); }, 'link'));
+      button('查看 Worker', () => { ui.noticeFocus = null; return detail(spec.task_id); }, 'link', { worker: spec.task_id }));
     item.append(taskRow);
   }
   item.title = specTitle(spec);

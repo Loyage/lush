@@ -132,7 +132,7 @@ export function renderLadder(data) {
         sync();
       };
       boxes.set(candidate.id, box);
-      row.append(box, el('span', `#${candidate.id}`, 'tid'), button(candidate.goal, () => detail(candidate.id), 'link'),
+      row.append(box, el('span', `#${candidate.id}`, 'tid'), button(candidate.goal, () => detail(candidate.id), 'link', { worker: candidate }),
         el('span', PHASE[candidate.phase] || candidate.phase || candidate.integration, `delivery-phase ${candidate.ready ? 'b-completed' : 'b-awaiting'}`));
       line.append(row);
       if (candidate.merge_id && candidate.merge_id !== candidate.id) {
@@ -169,7 +169,7 @@ export function renderMergeResult(entry) {
       el('span', `#${row.id}`, 'tid'));
     if (row.source_task_id && row.source_task_id !== row.id) line.append(el('span', `通过解冲突 Worker #${row.source_task_id}`, 'meta'));
     if (row.status === 'conflict' && row.resolution_task_id) {
-      line.append(el('span', `已开解冲突 Worker #${row.resolution_task_id}`, 'meta'), button('查看解冲突 Worker', () => detail(row.resolution_task_id), 'link'));
+      line.append(el('span', `已开解冲突 Worker #${row.resolution_task_id}`, 'meta'), button('查看解冲突 Worker', () => detail(row.resolution_task_id), 'link', { worker: row.resolution_task_id }));
     } else if (row.error && row.status !== 'merged') line.append(el('span', row.error, 'meta'));
     if (row.status === 'merged') line.append(el('span', row.included ? '已随前一项进入目标分支' : '已进入目标分支', 'meta'));
     section.append(line);

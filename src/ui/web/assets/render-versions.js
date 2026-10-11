@@ -34,7 +34,7 @@ export function renderVersionCommit(commit, { detailed = false } = {}) {
     for (const task of tasks) {
       const entry = el('section', undefined, 'version-task');
       entry.append(button(`查看 Worker ${workerLabel(task)}`, () => detail(task.id), 'version-task-link',
-        { help: '打开这次交付对应的 Worker 详情，查看开发过程与结果；不启动 Agent。' }),
+        { worker: task }),
       el('p', text(task.goal, '（无 Worker 目标）'), 'version-goal version-detail'));
       if (task.goal_truncated) entry.append(el('p', 'Worker 目标已截断，可在详情中查看完整内容。', 'hint version-detail'));
       if (task.input) {

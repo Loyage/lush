@@ -26,7 +26,7 @@ export function renderVerifications(task) {
   for (const item of verifications) {
     const card = el('div', undefined, 'verify');
     const row = el('div', undefined, 'row');
-    row.append(statusBadge(item), el('span', workerLabel(item), 'tid'), button('查看检验 Worker', () => detail(item.id), 'link'),
+    row.append(statusBadge(item), el('span', workerLabel(item), 'tid'), button('查看检验 Worker', () => detail(item.id), 'link', { worker: item }),
       el('span', `${relative(item.updated_at)} · ${absolute(item.updated_at)}`, 'when'));
     card.append(row);
     if (item.baseline_commit) card.append(el('p', `对照基线 ${short(item.baseline_commit)}`, 'hint'));

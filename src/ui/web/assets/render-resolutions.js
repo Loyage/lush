@@ -14,7 +14,7 @@ export function renderResolutions(task) {
     const line = el('div', undefined, 'row');
     line.append(el('span', workerLabel(row), 'tid'), el('span', `${statusOf(row).icon} ${statusOf(row).label}`, `dot c-${row.status}`),
       badge(INTEGRATION[row.integration] || row.integration, row.integration === 'merged' ? 'b-completed' : 'b-awaiting'),
-      button('查看', () => detail(row.id), 'link'), el('span', row.head_commit ? short(row.head_commit) : '', 'when'));
+      button('查看', () => detail(row.id), 'link', { worker: row }), el('span', row.head_commit ? short(row.head_commit) : '', 'when'));
     section.append(line);
   }
   return section;

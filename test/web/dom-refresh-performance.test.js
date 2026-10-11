@@ -62,7 +62,10 @@ test('status/title/role/route/dependency/progress/reference fields patch despite
   paint(data([next]));
   expect(row(1)).toBe(node); expect(node.querySelector('.goal')).toBe(goal); expect(node.querySelector('.when')).toBe(when);
   for (const text of ['renamed', '中断请求中', '调研', '快速路由', 'W42-2', 'test label', '1/2', '冲突待处理']) expect(deepText(node)).toContain(text);
-  expect(node.title).toContain('new source goal'); expect(node.dataset.ref).toContain('task-1');
+  expect(node.title).toBe('');
+  expect(node.getAttribute('data-preview-text')).toContain('new source goal');
+  expect(node.getAttribute('data-preview-text')).toContain('renamed');
+  expect(node.dataset.ref).toContain('task-1');
   const progress = node.querySelector('.task-progress-compact');
   paint(data([{ ...next, updated_at: new Date().toISOString() }]));
   expect(node.querySelector('.task-progress-compact')).toBe(progress);

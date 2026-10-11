@@ -237,7 +237,8 @@ test('Task 卡片同屏展示工作状态、进度、结果、Git 诊断、待�
   expect(hooks).toBeTruthy();
   expect(hooks.querySelector('.auto-merge-toggle')).toBeNull();
   expect(hooks.querySelector('button').classList.contains('agent-call')).toBe(false);
-  expect(hooks.querySelector('button').getAttribute('data-help')).toContain('不启动 Agent');
+  expect(hooks.querySelector('button').getAttribute('data-preview-worker')).toBe('2');
+  expect(hooks.querySelector('button').getAttribute('data-preview-text')).toContain('实现功能 附带验收条件');
 });
 
 test('Task 图：卡片按真实状态配色，一键编排入口已下线', async () => {

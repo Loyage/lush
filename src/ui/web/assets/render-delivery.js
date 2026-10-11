@@ -143,7 +143,7 @@ export function deliveryControls(task, { refresh = () => {} } = {}) {
       }, 'ghost', { help: '只撤销尚未开始的预约；不会取消正在运行的 Agent，也不会删除提交。' }));
     }
     if (reservation.resolution_child_id) actions.append(button(`查看解分歧 ${workerLabel(reservation.resolution_child_id)}`,
-      () => detail(reservation.resolution_child_id), 'link'));
+      () => detail(reservation.resolution_child_id), 'link', { worker: reservation.resolution_child_id }));
     if (reservation.kind === 'merge' && reservation.status === 'requested') {
       panel.append(el('span', `源 ${reservation.commit} · 父基线 ${reservation.baseline}`, 'mono delivery-commits'));
       if (['main', 'owner'].includes(task.parent_task_kind)) actions.append(button('批准固定提交合入父分支', async () => {

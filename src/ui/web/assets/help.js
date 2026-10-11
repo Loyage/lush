@@ -11,6 +11,8 @@
  * 监听挂在 document 级做事件委托，按钮随视图重画也不必逐个重绑；`initHelp()` 可重复调用，
  * 重复装配前会先摘掉上一轮监听。计时器可注入（`setHelpTimers`），DOM 测试用假时钟推进长按判定。
  */
+import { entityPreviewTarget, previewPlaceholder, loadEntityPreview } from './entity-preview.js';
+
 export const AGENT_NOTE = '会调用 Agent：需要较长时间并消耗 token';
 
 /**
@@ -48,12 +50,15 @@ let pressOrigin = null;
 let suppressTimer = null;
 let suppressClick = false;
 let suppressTarget = null;
+let previewGeneration = 0;
 let described = null; // { node, previous }：当前挂了 aria-describedby 的目标与它原来的值
 
 const node = id => globalThis.document?.getElementById?.(id) ?? null;
 
 /** 取元素上的帮助文本；空串 / 纯空白视为没有帮助，不显示提示。 */
 function helpText(target) {
+  const preview = entityPreviewTarget(target);
+  if (preview) return target.getAttribute?.('data-preview-text') || previewPlaceholder(preview);
   const value = target?.dataset?.help;
   return value === undefined || value === null ? '' : String(value).trim();
 }
@@ -62,7 +67,16 @@ function helpText(target) {
 function closestHelp(from) {
   for (let at = from; at; at = at.parentNode ?? at.parentElement ?? null) {
     if (at === globalThis.document?.body) break;
-    if (helpText(at)) return at;
+    if (helpText(at)) {
+      // Native titles on links or nested badges must not race the object preview.
+      if (entityPreviewTarget(at)) {
+        for (let child = from; child; child = child.parentNode ?? child.parentElement) {
+          child.removeAttribute?.('title');
+          if (child === at) break;
+        }
+      }
+      return at;
+    }
   }
   return null;
 }
@@ -131,10 +145,24 @@ export function showHelp(target) {
   if (described && described.node !== target) restoreDescribed();
   if (!described) described = { node: target, previous: target.getAttribute?.('aria-describedby') ?? null };
   target.setAttribute?.('aria-describedby', TIP_ID);
+  const generation = ++previewGeneration;
+  const preview = entityPreviewTarget(target);
+  if (preview && !target.getAttribute?.('data-preview-text')) {
+    const doc = globalThis.document;
+    const current = () => generation === previewGeneration && globalThis.document === doc && described?.node === target
+      && !tip.hidden && target.isConnected !== false && doc.body?.contains?.(target) !== false
+      && JSON.stringify(entityPreviewTarget(target)) === JSON.stringify(preview);
+    void loadEntityPreview(preview).then(text => {
+      if (current()) { tip.textContent = text; place(target, tip); }
+    }, () => {
+      if (current()) { tip.textContent = previewPlaceholder(preview).replace('正在读取简介…', '简介暂不可用，可移开后重试'); place(target, tip); }
+    });
+  }
 }
 
 /** 隐藏提示并解除 aria-describedby；导航 / 重渲染前可主动调用。 */
 export function hideHelp() {
+  ++previewGeneration;
   clearDelay();
   clearPress();
   clearSuppress(); // 提示都收了，再扣着下一次 click 只会误伤后续正常操作。

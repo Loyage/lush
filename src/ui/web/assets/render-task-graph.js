@@ -4,6 +4,7 @@ import { api, action } from './api.js';
 import { projectBase } from './route.js';
 import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
+import { bindWorkerPreview } from './entity-preview.js';
 import { absolute, INTEGRATION, statusOf, interruptReason, worktreeLabel, isHistoricalDelivery } from './format.js';
 import { show } from './messages.js';
 import { detail } from './navigate.js';
@@ -164,7 +165,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
     toggle.setAttribute('aria-expanded', String(!folded.has(node.id)));
     head.append(toggle);
   }
-  const title = button(`${workerLabel(node)} ${node.title}`, () => detail(node.id), 'ghost');
+  const title = button(`${workerLabel(node)} ${node.title}`, () => detail(node.id), 'ghost', { worker: node });
   title.classList.add('task-graph-title');
   title.dataset.graphFocus = `title-${node.id}`;
   head.append(title, ...(minimal || node.role === 'agent' ? [] : [roleBadge(node.role)]), badge(node.status === 'waiting' && !node.children_active && !interruptReason(node) ? '静息' : statusOf(node).label,
@@ -199,7 +200,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
 
   const facts = el('div', undefined, 'task-graph-facts');
   if (node.resolves_task_id) facts.append(button(`正在解决 Worker ${workerLabel(node.resolves_task_id)}`, () => detail(node.resolves_task_id), 'ghost',
-    { help: '这是被修复的源 Worker；父子连线表示负责收敛的 Worker，不会改写已终结源 Worker 的血缘。' }));
+    { worker: node.resolves_task_id }));
   if (node.branch) facts.append(el('span', `分支：${node.branch}`, 'mono'));
   if (node.target_branch) facts.append(el('span', `父分支：${node.target_branch}`, 'mono'));
   if (node.base_commit) facts.append(el('span', `Worker 基线：${node.base_commit.slice(0, 12)}`, 'mono'));
@@ -259,7 +260,7 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
       const pending = el('div', undefined, 'graph-decision');
       pending.append(el('strong', node.notice.title || '等待你回答问卷'),
         el('p', '这条待决事项需要在 Worker 详情完成问卷；图中不会把选项误当作普通文字答复。', 'hint'),
-        button('打开待决事项', () => detail(node.id), 'ghost', { help: '到 Worker 详情查看完整问题与选项并答复。' }));
+        button('打开待决事项', () => detail(node.id), 'ghost', { worker: node }));
       row.append(pending);
     }
   }
@@ -337,16 +338,16 @@ function taskActionsMenu(node, mergeAllByBranch, inputWorkers) {
   const trigger = el('button', '⋯', 'ghost task-graph-more-trigger');
   trigger.type = 'button';
   trigger.setAttribute('popovertarget', panel.id);
-  trigger.setAttribute('data-help', '打开这条 Worker 的更多操作；可重命名、追加输入、处理交付或进入详情，不展开 Worker 条目。');
+  bindWorkerPreview(trigger, node);
   trigger.onclick = () => {
     if (panel.dataset.open === 'true') return;
     const heading = el('strong', `${workerLabel(node)} ${node.title}`, 'task-graph-actions-title');
     const close = button('关闭', () => panel.hidePopover(), 'ghost');
     close.setAttribute('autofocus', '');
-    panel.replaceChildren(heading, close, button('打开 Worker 详情', () => detail(node.id), 'ghost'),
+    panel.replaceChildren(heading, close, button('打开 Worker 详情', () => detail(node.id), 'ghost', { worker: node }),
       workerRenameControl(node, { refresh: loadTaskGraph }));
     if (node.notice) panel.append(button('打开待决事项', () => detail(node.id), 'ghost',
-      { help: '到 Worker 详情查看完整问题与选项并答复。' }));
+      { worker: node }));
     const queueText = inputQueueText(node);
     if (queueText) panel.append(el('p', queueText, 'hint worker-input-queue'));
     appendTaskActions(panel, node, mergeAllByBranch, inputWorkers);

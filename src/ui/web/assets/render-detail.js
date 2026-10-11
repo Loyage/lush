@@ -210,7 +210,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     }, 'danger', { help: '放弃这条 Worker 及它下面的全部子 Worker，工作区与分支保留；这是不可恢复的终态操作。' }));
   }
   if (task.divergence_resolution) {
-    actions.append(button(`查看源指令 ${workerLabel(task.parent_id, task.parent_worker_number)}`, () => detail(task.parent_id), 'link'));
+    actions.append(button(`查看源指令 ${workerLabel(task.parent_id, task.parent_worker_number)}`, () => detail(task.parent_id), 'link', { worker: task.parent_id }));
   }
   const clearOverride = management ? null : clearOverrideControl(task, () => detail(task.id));
   if (clearOverride) actions.append(clearOverride);
@@ -324,7 +324,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     for (const child of task.children) {
       const row = el('div', undefined, 'row');
       row.append(el('span', statusOf(child).icon, `dot c-${child.status}`), el('span', workerLabel(child), 'tid'));
-      const jump = button(`${child.goal}`, () => detail(child.id), 'link');
+      const jump = button(`${child.goal}`, () => detail(child.id), 'link', { worker: child });
       row.append(jump, el('span', relative(child.updated_at), 'when'));
       referenceable(row, [
         { kind: 'task', target: { task_id: child.id }, label: `Worker ${workerLabel(child)}`, quote: child.goal, location: { view: 'task-detail', task_id: child.id } },

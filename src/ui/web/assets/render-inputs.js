@@ -12,6 +12,7 @@ import { chooseCreationProfile } from './creation-profile-dialog.js';
 import { show } from './messages.js';
 import { linkWorkerNumbers } from './worker-links.js';
 import { attachTextEditor } from './text-editor.js';
+import { inputPreviewText } from './entity-preview.js';
 
 export const INPUT_STATUS = {
   draft: '暂存', created: '已创建·待开始', queued: '排队中', running: '执行中', waiting: '等待中',
@@ -103,6 +104,7 @@ export function openInputs({ item = null, push = true } = {}) {
       '打开完整草稿，编辑正文、引用和父 Worker；打开不会调用 Agent。' }) : el('a', undefined, 'input-row');
     if (item.kind !== 'draft') {
       row.setAttribute('href', `#input-input-${item.id}`);
+      row.setAttribute('data-preview-text', inputPreviewText(item));
       row.onclick = event => {
         if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button > 0)) return;
         event?.preventDefault(); return openItem(item);
@@ -225,7 +227,7 @@ export function openInputs({ item = null, push = true } = {}) {
         panel.append(el('p', '挂载身份格式不兼容；请检查服务版本，不会把草稿当作可编辑。', 'error')); return;
       }
       const row = el('div', undefined, 'input-actions'); panel.append(row);
-      row.append(button(`查看父 Worker ${workerLabel(mounted.parent_id, record.parent_worker_number)} 的 Hooks`, () => detail(mounted.parent_id), 'ghost hook-button', { help: '查看实际等待条件和执行结果，不重复发射。' }));
+      row.append(button(`查看父 Worker ${workerLabel(mounted.parent_id, record.parent_worker_number)} 的 Hooks`, () => detail(mounted.parent_id), 'ghost hook-button', { worker: mounted.parent_id }));
       const stateLine = el('p', '正在核验可取消状态…', 'hint'); panel.append(stateLine);
       const cancel = controlsButton('取消预约挂载', async () => {
         if (!current() || editor.busy || cancel.node.disabled) return;
@@ -400,7 +402,7 @@ export function openInputs({ item = null, push = true } = {}) {
           if (result.deferred) {
             editor.textEditor.dispose(); state.editor = null;
             panel.replaceChildren(el('h2', '预约已挂载'), el('p', '尚未创建 Worker、工作区或调用 Agent。正文、引用和运行设置已保存在父 Worker 的一次性 Hook 中；请到挂载区查看等待、取消和执行结果。此草稿在授权期间不能重复发射或改写。', 'hint'),
-              button(`查看父 Worker ${workerLabel(result.parent_id)} 的 Hooks`, () => detail(result.parent_id), 'ghost hook-button', { help: '查看实际挂载与执行状态，不重复发射。' }));
+              button(`查看父 Worker ${workerLabel(result.parent_id)} 的 Hooks`, () => detail(result.parent_id), 'ghost hook-button', { worker: result.parent_id }));
             return;
           }
           // The acknowledged draft is consumed even if the follow-up detail read fails.
@@ -448,7 +450,7 @@ export function openInputs({ item = null, push = true } = {}) {
         return mutate('save');
       };
     }
-    if (record.task_id) actions.append(button(`查看 Worker ${workerLabel(record.task_id, record.task_worker_number)}`, () => detail(record.task_id)));
+    if (record.task_id) actions.append(button(`查看 Worker ${workerLabel(record.task_id, record.task_worker_number)}`, () => detail(record.task_id), undefined, { worker: record.task_id }));
   }
   const loaded = load();
   return item ? Promise.all([loaded, openItem(item, { push })]) : loaded;

@@ -25,7 +25,7 @@ function taskLink(task, key, number = undefined) {
   const id = typeof task === 'object' ? task.id : task;
   const label = workerLabel(task, number);
   const link = button(label, () => detail(id), 'ghost task-graph-merge-link',
-    { help: `打开 Worker ${label} 的已有详情，不调用 Agent。` });
+    { worker: task });
   link.dataset.graphFocus = key;
   return link;
 }

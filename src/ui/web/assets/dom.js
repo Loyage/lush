@@ -1,6 +1,7 @@
 // DOM 原语：建节点、按钮、区块与徽章。
 import { ROLE, statusOf } from './format.js';
 import { show } from './messages.js';
+import { bindWorkerPreview } from './entity-preview.js';
 
 export const $ = id => document.getElementById(id);
 export const el = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
@@ -9,6 +10,7 @@ export function button(text, fn, className, options = {}) {
   // 帮助与 Agent 触发标识是可选的第 4 参：老的三参调用完全不受影响。
   if (options.help) node.setAttribute('data-help', options.help);
   if (options.agent) node.classList.add('agent-call');
+  if (options.worker) bindWorkerPreview(node, options.worker);
   node.onclick = async () => { node.disabled = true; try { await fn(); } catch (error) { show(error.message, 'error'); } finally { node.disabled = false; } };
   return node;
 }

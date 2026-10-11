@@ -306,7 +306,7 @@ export function renderSignalManagement({ catalogue, editor, ownsPage, busy, setB
       help: binding.enabled ? '撤销未来和未开始操作的授权；不强杀当前调用、不撤回已完成操作。' : agentHelp('授权新的时间信号触发管理指令，不重放已处理的信号。'),
     });
     controls.append(guarded(toggle, busy() ? '当前正在保存，请稍候。' : !binding.enabled ? managementEnableReason(binding) : ''),
-      button('查看指令、结果与调用历史', () => { if (ownsPage()) detail(task.id); }, 'ghost hook-button', { help: '只读打开此管理 Worker 的指令、结果、历史与执行过程，不运行、不合并、不验收。' }));
+      button('查看指令、结果与调用历史', () => { if (ownsPage()) detail(task.id); }, 'ghost hook-button', { worker: task }));
     card.append(controls); managerSection.append(card);
   }
   return [signalSection, managerSection];

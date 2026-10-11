@@ -35,7 +35,7 @@ function candidateActions(intent) {
   if (!intent.candidate_id) return actions.children.length ? actions : null;
   if (intent.candidate_report_task_id && intent.candidate_status === 'preparing') {
     actions.append(button(`查看历史检验 Worker #${intent.candidate_report_task_id}`,
-      () => detail(intent.candidate_report_task_id), 'link'));
+      () => detail(intent.candidate_report_task_id), 'link', { worker: intent.candidate_report_task_id }));
   } else if (intent.candidate_report_task_id && ['ready','accepted','integrated'].includes(intent.candidate_status)) {
     const report = el('a', '打开结果报告', 'link');
     report.href = projectApi(`/api/worker/${intent.candidate_report_task_id}/report`); report.target = '_blank'; report.rel = 'noopener';
