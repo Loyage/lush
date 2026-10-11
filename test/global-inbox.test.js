@@ -7,6 +7,7 @@ import { createProjectHost } from '../src/host/project-host.js';
 import { projectRouteId, writeLauncherState } from '../src/host/registry.js';
 import { handlers } from '../src/rpc/handlers/notice.js';
 import { assertAllowed } from '../src/rpc/registry.js';
+import { fetch, startTestWeb } from './web/auth-fixture.js';
 
 function add(source, title, options = {}) {
   return Number(source.store.run('INSERT INTO notices(task_id,title,body,kind,status,source_event_id,answer_source,answer,created_at) VALUES (?,?,?,?,?,?,?,?,?)',
@@ -76,8 +77,7 @@ test('Host routes compose real inbox synchronization and exact-identity source a
     const [a, b] = f.sources;
     const first = add(a, 'A question'), second = add(b, 'B question');
     expect(first).toBe(second);
-    const { startWeb } = await import('../src/ui/web/server.js');
-    server = startWeb(null, 0, { env: f.environment, projectHost: f.host, authConfig: null,
+    server = startTestWeb(null, 0, { env: f.environment, projectHost: f.host,
       userServiceOptions: { inboxOptions: { backoffMs: 0 } } });
     const base = `http://127.0.0.1:${server.port}`;
     const post = body => fetch(`${base}/api/host/inbox/action`, { method: 'POST',

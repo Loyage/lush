@@ -42,7 +42,7 @@ test('详情页首位入口只切换底部输入框；实际发送按钮带 Agen
   activateDetailView({ view: 'task', key: 'task-900' }); ui.selected = 900;
   renderDetail(followupTask, null, null, null);
   const entry = dom.node('detail').querySelector('.task-actions').children[0];
-  expect(entry.textContent).toBe('向该 Worker 追加输入');
+  expect(entry.textContent).toBe('追加输入');
   expect(entry.classList.contains('agent-call')).toBe(false);
   expect(entry.getAttribute('data-help')).toContain('现在不发送、不调用 Agent');
   expect(dom.node('input-form').dataset.mode).toBe('create');
@@ -68,13 +68,13 @@ test('追加空白不发送；返回按钮不发请求，暂停任务追加不�
   activateDetailView({ view: 'task', key: 'task-900' }); ui.selected = 900;
   renderDetail({ ...followupTask, task_kind: 'child', status: 'paused' }, null, null, null);
   const before = world.state.actions.length;
-  buttonByText(dom.node('detail'), '向该 Worker 追加输入').onclick();
+  buttonByText(dom.node('detail'), '追加输入').onclick();
   expect(dom.node('composer-mode-behavior').textContent).toContain('开始 / 继续');
   dom.node('input').value = '  \n ';
   await dom.node('input-form').onsubmit({ preventDefault() {} });
   dom.node('composer-reset').onclick();
   expect(world.state.actions.length).toBe(before);
-  buttonByText(dom.node('detail'), '向该 Worker 追加输入').onclick();
+  buttonByText(dom.node('detail'), '追加输入').onclick();
   dom.node('input').value = '下一步检查边界情况';
   await dom.node('input-form').onsubmit({ preventDefault() {} });
   expect(world.state.actions.slice(before)).toEqual([
@@ -82,11 +82,11 @@ test('追加空白不发送；返回按钮不发请求，暂停任务追加不�
   ]);
   for (const status of ['completed', 'failed', 'cancelled']) {
     renderDetail({ ...followupTask, status }, null, null, null);
-    expect(buttonByText(dom.node('detail'), '向该 Worker 追加输入')).toBeNull();
+    expect(buttonByText(dom.node('detail'), '追加输入')).toBeNull();
   }
   for (const task_kind of ['main', 'owner', 'analysis', 'merge']) {
     renderDetail({ ...followupTask, task_kind }, null, null, null);
-    expect(buttonByText(dom.node('detail'), '向该 Worker 追加输入')).toBeNull();
+    expect(buttonByText(dom.node('detail'), '追加输入')).toBeNull();
   }
 });
 

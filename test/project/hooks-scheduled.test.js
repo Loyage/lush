@@ -159,6 +159,10 @@ test('daily message is repeated only by clock, never by lifecycle edges or repea
     f.advance(86400000); await f.flush();
     expect(f.store.get('SELECT count(*) AS n FROM messages WHERE task_id=?', f.job.id).n).toBe(2);
     expect(f.view(f.job, mount).last_execution.due_at).toBe('2030-01-02T00:01:00.000Z');
+    expect(f.store.unread(f.job.id).map(row => row.append_number)).toEqual([null, null]);
+    expect(f.store.get('SELECT value FROM meta WHERE key=?', `input_append_high:${f.job.input_id}`)).toBeNull();
+    f.project.message(f.job.id, 'explicit user append');
+    expect(f.store.unread(f.job.id).at(-1).append_number).toBe(`A${f.job.input_id}-1`);
   } finally { await f.close(); }
 });
 

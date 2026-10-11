@@ -199,9 +199,9 @@ try {
   await execute(`location.hash='#worker-1';`);
   assert(await waitFor('document.querySelector("#detail").dataset.taskId==="1"'), 'Worker detail did not open');
   assert(await execute(`return document.querySelector('#composer-mode-title').textContent==='新建独立 Worker';`), 'navigation implicitly entered append mode');
-  await execute(`window.appendAgain=()=>{const entry=[...document.querySelectorAll('.task-actions button')].find(n=>n.textContent==='向该 Worker 追加输入');if(!entry)throw Error('append entry missing');entry.click();};window.appendAgain();`);
+  await execute(`window.appendAgain=()=>{const entry=[...document.querySelectorAll('.task-actions button')].find(n=>n.textContent==='追加输入');if(!entry)throw Error('append entry missing');entry.click();};window.appendAgain();`);
   assert(await waitFor('document.querySelector("#input").placeholder.includes("追加给 Worker #1")'), 'explicit Worker destination did not activate');
-  assert(await execute(`return document.querySelector('#input-buffer-help').hidden && document.querySelector('#composer-expand').hidden && document.querySelector('#input').placeholder.includes('需开始 / 继续');`), 'followup controls/pause hint incorrect');
+  assert(await execute(`return document.querySelector('#input-buffer-help').hidden && !document.querySelector('#composer-expand').hidden && document.querySelector('#composer-details').hidden && document.querySelector('#composer-shortcuts').hidden && document.querySelector('#input').placeholder.includes('需开始 / 继续');`), 'followup controls/pause hint incorrect');
   for (const theme of ['light', 'dark']) for (const [width, height] of [[1440, 900], [900, 700], [390, 844]]) {
     await rpc(`/session/${session}/window/rect`, { width, height });
     await setTheme(theme);
@@ -249,7 +249,7 @@ try {
   assert(await waitFor('document.querySelector("#input").placeholder.includes("在 main 下创建子 Worker")'), 'list did not restore main');
   await execute(`location.hash='#worker-1';`);
   assert(await waitFor('document.querySelector("#detail").dataset.taskId==="1" && document.querySelector("#composer-mode-title").textContent==="新建独立 Worker"'), 'terminal Worker navigation changed creation mode');
-  assert(await execute(`return !document.querySelector('#input').disabled && ![...document.querySelectorAll('.task-actions button')].some(n=>n.textContent==='向该 Worker 追加输入');`), 'terminal Worker offered append or blocked independent creation');
+  assert(await execute(`return !document.querySelector('#input').disabled && ![...document.querySelectorAll('.task-actions button')].some(n=>n.textContent==='追加输入');`), 'terminal Worker offered append or blocked independent creation');
   await execute(`location.hash='#workers';`);
   assert(await waitFor('!document.querySelector("#input").disabled && document.querySelector("#input").placeholder.includes("在 main 下创建子 Worker")'), 'back navigation did not restore main');
   console.log('PASS real browser Worker followup Enter/button routing, paused hint, terminal guard and navigation restoration');

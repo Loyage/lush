@@ -255,16 +255,28 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   if (completion) row.append(autoCompletionControl(task, { ...model, completion }, refresh, ownsPage,
     editing => { section.dataset.completionEditing = String(editing); }));
   else if (['order', 'child'].includes(workerKind(task))) row.append(autoMergeControl(task, refresh, ownsPage));
-  const alerts = items.filter(item => !BUILTIN_STEPS[item.id] && (['running', 'failed', 'unknown', 'skipped'].includes(item.state) || item.pending_due_at));
+  const alerts = items.filter(item => (!BUILTIN_STEPS[item.id] || !completion) && (['running', 'failed', 'unknown', 'skipped'].includes(item.state) || item.pending_due_at));
   for (const mount of alerts) {
-    const alert = el('span', `${mount.name}：${STATES[mount.state]}`, 'hint hook-mount-alert');
+    const diagnostic = ['failed', 'unknown'].includes(mount.state) ? mount.last_execution?.error || mount.reason : null;
+    const alert = el('span', `${mount.name}：${STATES[mount.state] || '状态未知'}${diagnostic ? ` · ${diagnostic}` : ''}`, 'hint hook-mount-alert');
     alert.setAttribute('data-help', mount.last_execution?.error || mount.reason || STATES[mount.state]); alert.tabIndex = 0;
     if (['failed', 'unknown'].includes(mount.state)) alert.classList.add('error');
     row.append(alert);
   }
-  const management = el('details', undefined, 'hook-management');
-  const customCount = items.filter(item => !item.builtin && !BUILTIN_STEPS[item.id]).length;
-  management.append(el('summary', `管理${customCount ? ` · ${customCount}` : ''}`));
+  const management = el('div', undefined, 'hook-management');
+  management.id = `worker-hooks-management-${task.id}`;
+  const toggle = button('展开', () => { management.open = !management.open; }, 'ghost hook-management-toggle');
+  toggle.setAttribute('aria-controls', management.id);
+  // Keep one open-state seam for detail refreshes and programmatic editor expansion.
+  Object.defineProperty(management, 'open', {
+    get: () => !management.hidden,
+    set(value) {
+      management.hidden = !value;
+      toggle.textContent = value ? '收起' : '展开';
+      toggle.setAttribute('aria-expanded', String(Boolean(value)));
+    },
+  });
+  management.open = false;
   if (!model) management.append(el('p', '完整挂载列表暂不可用；请更新服务或刷新。', 'hint'));
   if (!items.length) management.append(el('p', '此 Worker 尚未挂载 Hook。', 'hint'));
   const groups = new Map(); for (const mount of items) { const group = groups.get(mount.trigger) || []; group.push(mount); groups.set(mount.trigger, group); }
@@ -330,7 +342,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   }, 'ghost hook-button', { help: '打开受控规则编辑器或选择项目模板；打开不调用 Agent，确认挂载前会说明动作代价。' });
   controls.append(guarded(attach, !writable ? '挂载列表不可用、Worker 已结束或分支已归档；请先处理后刷新。' : null),
     button('项目自动化与模板', () => openHooks(), 'ghost hook-button', { help: '查看当前项目的节点、动作和模板；不会自动挂载到 Worker。' }));
-  management.append(controls, editor); row.append(management); section.append(row); return section;
+  management.append(controls, editor); row.append(toggle, management); section.append(row); return section;
 }
 async function promptRisk() {
   return confirmDialog({ title: '使用替换内置规则的 Prompt？', message: '这份自定义 Prompt 可能影响 Worker 权限、协作、工作区安全和交付协议；作用于所配置动作的新建或重试／继续目标 Worker。',

@@ -378,7 +378,7 @@ export default {
               else {
                 const target = this.store.task(action.target_id);
                 check(target.id === task.id || target.parent_id === task.id || task.parent_id === target.id, 'Hook relationship changed');
-                this.message(target.id, action.body); // user-authorized rule, still uses ordinary target safety checks
+                this.message(target.id, action.body, null, false); // runtime rule, still uses ordinary target safety checks
               }
               this.recordHookAction(taskId, hookId, executionId, index, outcome);
             });

@@ -110,9 +110,15 @@ test('Worker management is collapsed, groups actual mounts by node and keeps fai
   activateDetailView({ view: 'task', key: 'task-20' });
   const section = workerHooks(task, { refresh() {} }); root().replaceChildren(section);
   const management = section.querySelector('.hook-management');
-  expect(Boolean(management.open)).toBe(false);
+  expect(Boolean(management.open)).toBe(false); expect(management.hidden).toBe(true);
+  const toggle = section.querySelector('.hook-management-toggle');
+  expect(toggle.tagName).toBe('BUTTON'); expect(toggle.textContent).toBe('展开');
+  expect(toggle.classList.contains('agent-call')).toBe(false);
+  expect(toggle.getAttribute('aria-controls')).toBe(management.id);
+  await toggle.onclick(); expect(management.open).toBe(true); expect(toggle.textContent).toBe('收起');
+  await toggle.onclick(); expect(management.hidden).toBe(true); expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(management.querySelectorAll('.hook-trigger-group')).toHaveLength(2);
-  expect(section.querySelector('.hook-mount-alert').textContent).toBe('异常告知：执行失败');
+  expect(section.querySelector('.hook-mount-alert').textContent).toBe('异常告知：执行失败 · 动作未完成');
   expect(section.querySelector('.hook-mount-alert').getAttribute('data-help')).toBe('动作未完成');
   expect(deepText(section)).not.toContain('不是任意一轮返回');
   expect(section.querySelectorAll('.hook-trigger-group')).toHaveLength(2);

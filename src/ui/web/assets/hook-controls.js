@@ -34,7 +34,7 @@ export function autoCompletionControl(task, model, refresh = () => {}, ownsPage 
   const owns = () => ownsPage() && !routeContext().invalid && projectBase() === scope;
   let setting = model?.completion, revision = model?.revision, saved = normalizeLevel(setting?.level);
   const node = el('div', undefined, 'hook-completion-control');
-  const { group, choices } = completionLevelButtons(`Worker ${workerLabel(task)} 自动执行到`, save);
+  const { group, choices } = completionLevelButtons(`Worker ${workerLabel(task)} 完工后自动处理到`, save);
   const status = el('span', undefined, 'hint hook-completion-state'); status.setAttribute('role', 'status');
   const ended = ['failed', 'cancelled'].includes(task.status);
   const delivered = ['completed', 'awaiting_acceptance'].includes(task.status);
@@ -71,7 +71,7 @@ export function autoCompletionControl(task, model, refresh = () => {}, ownsPage 
     }
     const diagnostic = setting?.last_execution?.error;
     status.textContent = busy ? '正在保存…' : diagnostic || (['running', 'failed', 'unknown'].includes(setting?.state)
-      ? HOOK_STATES[setting.state] : reason());
+      ? HOOK_STATES[setting.state] : rank(setting?.level) < 0 || typeof revision !== 'string' ? '自动链状态未知，请刷新。' : '');
     status.hidden = !status.textContent;
     status.classList.toggle('error', ['failed', 'unknown'].includes(setting?.state));
     status.setAttribute('data-help', status.textContent); status.tabIndex = status.hidden ? -1 : 0;
@@ -101,7 +101,7 @@ export function autoCompletionControl(task, model, refresh = () => {}, ownsPage 
     // button() restores its generic enabled state; reapply the authorization gate afterwards.
     const clicked = control.onclick; control.onclick = async () => { await clicked(); paint(); };
   }
-  node.append(el('span', '自动到', 'hook-completion-label'), group, status); paint(); return node;
+  node.append(el('span', '完工后自动处理到', 'hook-completion-label'), group, status); paint(); return node;
 }
 
 /** Built-in persistent hook; existing API and locked-child authorization remain unchanged. */

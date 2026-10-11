@@ -16,7 +16,7 @@
 
 以下操作使用用户自己的系统 SSH，与 Lush 无内置连接或安装流程。
 
-保持远端 Host 的回环模式。先检查对应作用域是否已有 `web.json`；存在时说明它会启用认证和全接口监听，不为了隧道自动删除原配置。
+保持远端 Host 的回环模式，本机与隧道也必须登录。先检查对应作用域的 `web.json`：新 `version:2` 缺省 `listen` 或 `listen:"loopback"` 为回环；历史 `version:1` 仍是全接口监听并警告，未经用户确认不自动升级或删除。无配置时须先按下节手工创建，Host 不提供默认账号或首次设置页。
 
 在远端 Lush 源码目录启动显式单项目后台（已有服务先查状态，不重复换版本）：
 
@@ -33,11 +33,11 @@ bun run lush host status --project /srv/projects/demo
 ssh -N -L 127.0.0.1:4318:127.0.0.1:4318 user@remote-machine
 ```
 
-无认证回环 Host 的转发端口使用同一 `4318`，保持 Host/Origin 身份一致；如需不同端口，用户应配置带明确 origin 的认证入口，而不是禁用同源校验。先验证远端 HTTP，再在客户端浏览器打开 `http://127.0.0.1:4318`；用户自行保持隧道运行。断开只断入口，不停止项目 daemon。
+回环 Host 的转发端口建议使用同一 `4318`，保持 Host/Origin 身份一致；如需不同端口，用户应在 `origin` 登记实际浏览器地址，而不是禁用同源校验。先验证远端 HTTP，再在客户端浏览器打开 `http://127.0.0.1:4318`；用户自行保持隧道运行。断开只断入口，不停止项目 daemon。
 
 ## 3. 配置认证与项目范围
 
-用于用户确认的 HTTP 或 HTTPS 入口。**创建认证文件会使 Host 监听 `0.0.0.0`**；启动前确认防火墙和允许来源。推荐由 HTTPS 代理隔离后台 HTTP 端口；用户选择直接 HTTP 时明确记录明文风险，不阻拦其选择，也不关闭认证或同源保护。
+用于所有访问，包括本机和 SSH 隧道。缺少所选作用域配置时 Host 拒绝启动并提示手工创建；不提供默认密码或首次设置页。**新 `version:2` 配置默认回环**；显式 `listen:"public"` 才监听 `0.0.0.0`，公开前确认防火墙和允许来源。旧 `version:1` 保留原公网监听，不自动重写已有 hash 文件；经用户确认手工将 version 改成 2 可收缩为回环。v1 不接受 listen，v2 的 listen 只接受 loopback/public。推荐由 HTTPS 代理隔离后台 HTTP 端口；用户选择直接 HTTP 时明确记录明文风险，不阻拦其选择，也不关闭认证或同源保护。
 
 | 模式 | 认证文件位置 |
 |---|---|
@@ -51,7 +51,8 @@ ssh -N -L 127.0.0.1:4318:127.0.0.1:4318 user@remote-machine
 
 ```json
 {
-  "version": 1,
+  "version": 2,
+  "listen": "loopback",
   "username": "your-name",
   "password": "REPLACE-WITH-PRIVATE-PASSWORD",
   "origin": "https://lush.example.com"
@@ -60,7 +61,7 @@ ssh -N -L 127.0.0.1:4318:127.0.0.1:4318 user@remote-machine
 
 必须替换示例密码，实际密码去掉首尾空白后为 12–1024 字符，不把模板密码投入使用。首次启动会把 `password` 原子替换成 scrypt `password_hash`；已有 hash 不得同时添加 `password`。
 
-多项目启动器在上述字段基础上必须增加非空白名单，例如：
+多项目启动器公网监听时必须增加非空白名单；回环可省略以允许登记任意现存绝对目录，也可主动提供同样的白名单，例如：
 
 ```json
 "projects": ["/srv/projects/demo", "/srv/projects/another"]
@@ -104,7 +105,7 @@ location / {
 
 交付 Host 根地址、访问方式、项目范围、配置文件路径、监听 / 网络隔离结果、实际验收与缺项、日志、启动 / 重启 / 停止命令；报告不含密码、Cookie、密钥或 hash。
 
-HTTPS 回退需用户批准并恢复对应配置 / 代理 / 网络规则；移走认证文件后必须重启 Host 才会变回回环模式，不自动删除认证或项目状态。仅停止入口用匹配作用域的 `bun run lush host stop`，停止 daemon 则需单独按项目确认。不要删除 `.lush/`、客户端 Cookie 或用户 SSH 密钥作为清理。
+HTTPS 回退需用户批准并恢复对应配置 / 代理 / 网络规则；缩小监听用 `version:2` 的 `listen:"loopback"` 并重启 Host，不移走认证文件（缺少时只会拒绝启动）。不自动删除认证或项目状态。仅停止入口用匹配作用域的 `bun run lush host stop`，停止 daemon 则需单独按项目确认。不要删除 `.lush/`、客户端 Cookie 或用户 SSH 密钥作为清理。
 
 ---
 

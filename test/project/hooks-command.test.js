@@ -55,6 +55,21 @@ test('command actions validate exact references, modes and fields and reject inl
   for (const trigger of ['agent.failed','worker.accepted','worker.cancelled']) expect(() => normalizeHook(hook({ trigger }))).toThrow('not allowed');
 });
 
+test('command Hook follow-up message is runtime input, not a numbered user append', async () => {
+  const f = await setup();
+  try {
+    const job = (await f.project.order('job', 'main', [], null, false)).task;
+    const mount = attach(f, job, rule('true', { mode: 'once', actions: [{ type: 'command', command: 'true' },
+      { type: 'message', target_id: job.id, body: 'command follow-up' }] }));
+    emit(f, job); await f.project.hookQueue;
+    retiredHook(f.project, job.id, mount.id);
+    expect(f.store.unread(job.id)[0]).toMatchObject({ body: 'command follow-up', sender_id: null, append_number: null });
+    expect(f.store.get('SELECT value FROM meta WHERE key=?', `input_append_high:${job.input_id}`)).toBeNull();
+    f.project.message(job.id, 'user append');
+    expect(f.store.unread(job.id).at(-1).append_number).toBe(`A${job.input_id}-1`);
+  } finally { await f.close(); }
+});
+
 test('startup installs exactly one disabled persistent template/main mount; reads and deletion never reinstall', async () => {
   const f = fixture(); f.project.kick = () => {};
   try {

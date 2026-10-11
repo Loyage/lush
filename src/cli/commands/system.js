@@ -5,14 +5,22 @@ import { daemon } from '../daemon.js';
 import { ROOT, codeIdentity } from '../../identity.js';
 import { check } from '../../core/types.js';
 import { exact } from '../args.js';
+import { webListenHost } from '../../host/web-listen.js';
 
 const DEFAULT_WEB_PORT = 4318;
 const HOST_START = ['host:start', 'host:restart'];
 const HOST_COMMANDS = [...HOST_START, 'host:stop', 'host:status'];
 
-/** 对应作用域的 web.json 存在即公网模式。 */
+/** 只投影监听选择；认证校验与秘密处理在 server.js 启动前完成。 */
 function publicWeb(config) {
-  return fs.existsSync(path.join(config.home, 'web.json'));
+  const file = path.join(config.home, 'web.json');
+  if (!fs.existsSync(file)) return false;
+  const stat = fs.lstatSync(file);
+  check(stat.isFile() && !stat.isSymbolicLink() && stat.uid === process.getuid() && (stat.mode & 0o077) === 0, `unsafe Web auth file: ${file} (owner-only chmod 600 required)`);
+  let value;
+  try { value = JSON.parse(fs.readFileSync(file, 'utf8')); }
+  catch { throw new Error(`invalid JSON in ${file}`); }
+  return webListenHost(value) === '0.0.0.0';
 }
 function webUrl(config, port) {
   return `http://${publicWeb(config) ? '0.0.0.0' : '127.0.0.1'}:${port}`;
@@ -73,7 +81,7 @@ async function serveWeb(config, port) {
     process.exit(code);
   };
   try { server = web.startWeb(config.launcher ? null : config, port, { env: config.env,
-    authConfig: publicMode ? config : null, restartHost: supervised ? () => shutdown(75) : null }); }
+    authConfig: config, restartHost: supervised ? () => shutdown(75) : null }); }
   catch (error) {
     // 端口被占最常见的原因就是上一次的 Web 还活着。Bun 只说「Is port XX in use?」，
     // 这里补上是谁占的、以及换成本地代码的那条命令。
@@ -88,7 +96,7 @@ async function serveWeb(config, port) {
     process.on('disconnect', () => shutdown()); // supervisor died: do not leave an orphaned Host
     process.send({ type: 'host-ready', port: server.port });
   }
-  console.log(`Lush ${config.project || '项目启动器'}\n${webUrl(config, server.port)}${publicMode ? '\n公网监听，需登录；直接 HTTP 访问存在明文传输与篡改风险，建议自行配置 HTTPS 或端口转发。' : ''}`);
+  console.log(`Lush ${config.project || '项目启动器'}\n${webUrl(config, server.port)}${publicMode ? '\n公网监听，需登录；直接 HTTP 访问存在明文传输与篡改风险，建议自行配置 HTTPS 或端口转发。' : '\n回环监听，需登录。'}`);
 }
 
 /**

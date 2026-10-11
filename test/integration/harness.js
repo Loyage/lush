@@ -1,13 +1,20 @@
 import http from 'node:http';
 import { ROOT } from '../../src/identity.js';
 import { env } from '../helpers.js';
+import path from 'node:path';
+import { provisionWebAuth, registerWebClient } from '../web/auth-fixture.js';
 
 // 本分区共享的准备工作：每次调用都起新的 CLI / 客户端，不保留模块级可变状态。
 export async function cli(root, args, extra = {}) {
+  const auth = args[0] === 'host' && ['start', 'restart'].includes(args[1])
+    ? provisionWebAuth({ home: path.join(root, '.lush') }) : null;
   const proc = Bun.spawn([process.execPath,'run','scripts/ops.js',...args,'--project',root,'--json'], { cwd: ROOT, env: env(extra), stdout:'pipe',stderr:'pipe' });
   const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(),new Response(proc.stderr).text(),proc.exited]);
   if (code) throw new Error(`${args.join(' ')}: ${stderr} ${stdout}`);
-  return JSON.parse(stdout);
+  const result = JSON.parse(stdout);
+  if (args[0] === 'host' && ['start', 'restart', 'stop'].includes(args[1]))
+    registerWebClient(`http://127.0.0.1:${result.port}`, result.running ? auth : null);
+  return result;
 }
 
 /** Explicitly exercise the retained planner protocol; normal CLI order uses order.submit. */
@@ -76,7 +83,7 @@ export async function waitForWeb(port, expected = true, timeout = 10000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
     const status = await httpStatus(port).catch(() => null);
-    if (expected ? status === 200 : status === null) return status;
+    if (expected ? status === 303 : status === null) return status;
     await Bun.sleep(30);
   }
   throw new Error(`web on port ${port} did not ${expected ? 'answer' : 'go away'} in ${timeout}ms`);

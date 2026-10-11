@@ -9,7 +9,7 @@ import { fetch } from '../web/harness.js';
 import { installDom, deepText } from '../dom-stub.js';
 import { serviceRestartControls, waitForHostRestart } from '../../src/ui/web/assets/service-restart.js';
 import { projectRouteId, writeLauncherState } from '../../src/host/registry.js';
-import { startWeb } from '../../src/ui/web/server.js';
+import { startTestWeb as startWeb } from '../web/auth-fixture.js';
 import { isLocked } from '../../src/daemon/locking.js';
 
 const post = (url, body = {}, headers = {}) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });

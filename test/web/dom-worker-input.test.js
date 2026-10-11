@@ -75,7 +75,7 @@ test('详情和两种图模式保留冻结追加入口，明确显示暂存条�
     const row = { ...task, reservation: { version: 2, kind: 'merge', status }, freeze: { reason: '固定交付中' },
       input_queue: { buffered: 2, reason: '等待固定交付结束' } };
     renderDetail(row, null, null, null);
-    const panel = dom.node('detail'), append = buttonOf(panel, '向该 Worker 追加输入');
+    const panel = dom.node('detail'), append = buttonOf(panel, '追加输入');
     expect(append.disabled).not.toBe(true);
     expect(append.classList.contains('agent-call')).toBe(false); // Mode selection does not invoke an Agent.
     expect(append.getAttribute('data-help')).toContain('解除冻结且 Agent 静息');
@@ -95,7 +95,7 @@ test('详情和两种图模式保留冻结追加入口，明确显示暂存条�
 
 test('冻结追加可见不放开归档或已关闭祖先的追加入口', () => {
   renderDetail({ ...task, archived: true }, null, null, null);
-  const append = buttonOf(dom.node('detail'), '向该 Worker 追加输入');
+  const append = buttonOf(dom.node('detail'), '追加输入');
   expect(append.disabled).toBe(true); expect(append.parentNode.getAttribute('data-help')).toContain('归档');
   const parent = { id: 1, worker_number: 'W12', task_kind: 'order', role: 'agent', status: 'completed', title: '已验收', branch: 'lush/1' };
   for (const minimal of [false, true]) {

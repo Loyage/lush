@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { startWeb } from '../../src/ui/web/server.js';
+import { startTestWeb as startWeb } from './auth-fixture.js';
 import { projectRouteId } from '../../src/host/registry.js';
 import { env, temp } from '../helpers.js';
 import { fetch as httpFetch } from './harness.js';

@@ -1,6 +1,7 @@
 // One entry, two spaces: device user workspace at root, project work at an explicit /p/<id>/ route.
 import { $, el } from './dom.js';
 import { api } from './api.js';
+import { loadHostSession } from './host-session.js';
 import { setProjectIdentity } from './project-identity.js';
 import { initAppearance, refreshTheme } from './appearance.js';
 import { show } from './messages.js';
@@ -190,6 +191,7 @@ export async function boot() {
   if (hashListener !== null) globalThis.removeEventListener?.('hashchange', hashListener);
   refreshTimer = liveTimer = hashListener = null;
   closeTranscriptView(); resetUiState(); resetTranscriptReaders(); closeExplanationPanel(); closeQuickExplanationPanel();
+  void loadHostSession(); // Host-only, non-blocking; details reuse the same single-flight read.
   initAppearance(); setProjectIdentity(); applyReducedMotion(readPref('reduceMotion')); configureWorkspaceShell(); initHelp(); initGlobalNavigation();
   renderAutoSelectBanner(null); renderGlobalInboxSummary(null); resetProjectMaintenance();
   disposePreferences = startDevicePreferencesSync();

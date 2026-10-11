@@ -12,12 +12,12 @@ const links = html => [...html.matchAll(/(?:src|<link rel="stylesheet" href)="(\
 const imports = source => [...source.matchAll(/\b(?:from\s*|import\s*)["'](\.[^"']+)["']/g)].map(row => row[1]);
 const request = encoding => new Request('http://localhost/', { headers: encoding ? { 'Accept-Encoding': encoding } : {} });
 
-async function graph(url, pending) {
+async function graph(url, pending, headers = {}) {
   const seen = new Map();
   while (pending.length) {
     const name = pending.shift();
     if (seen.has(name)) continue;
-    const response = await fetch(url + name);
+    const response = await fetch(url + name, { headers });
     expect(response.status).toBe(200);
     const source = await response.text(); seen.set(name, source);
     if (name.endsWith('.js')) for (const imported of imports(source)) pending.push(new URL(imported, `http://localhost${name}`).pathname);
@@ -187,9 +187,7 @@ test('temporary authenticated Host ships fewer cold modules, compressed immutabl
       for (const imported of imports(source)) pending.push(new URL(imported, `http://localhost${name}`).pathname);
     }
     // Native source graph remains available for pre-bundle HTML, but is no longer the shipped startup graph.
-    const legacyWeb = startWeb(null, 0, { authConfig: null, env: { ...process.env, LUSH_GLOBAL_CONFIG: global } });
-    let legacy;
-    try { legacy = await graph(`http://127.0.0.1:${legacyWeb.port}`, ['/app.js', '/appearance.js']); } finally { await legacyWeb.stop(true); }
+    const legacy = await graph(url, ['/app.js', '/appearance.js'], headers);
     // User decision #410: retain the absolute 24-JS cap; the expanded workspace uses a 4x native-graph comparison.
     expect(legacy.size).toBeGreaterThan(50); expect(cold.size).toBeLessThan(25); expect(cold.size).toBeLessThan(legacy.size / 4);
     const preloads = [...html.matchAll(/<link rel="modulepreload" href="([^"]+)"/g)].map(row => row[1]);

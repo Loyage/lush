@@ -12,7 +12,7 @@ Lush 的工作不只是请求模型，还要读取项目、创建 Git worktree�
 
 ## 浏览器与 Host
 
-Lush 仅提供 Web UI。后台准备 Bun、Git、已认证的 Pi/Codex 与 Lush 代码，浏览器用独立标签访问项目；不需要 Electron 或打包开发依赖。
+Lush 仅提供 Web UI。后台准备 Bun、Git、已认证的 Pi/Codex 与 Lush 代码，并手工配置 Host 的 `web.json` 登录账号；无配置时拒绝启动，没有默认密码或首次设置页。浏览器本机也必须登录，用独立标签访问项目；不需要 Electron 或打包开发依赖。
 
 ## 多项目与单项目有什么区别
 
@@ -33,7 +33,7 @@ Lush 仅提供 Web UI。后台准备 Bun、Git、已认证的 Pi/Codex 与 Lush 
 
 ## 默认只在本机使用的原因
 
-未配置公网认证的 Host 只监听回环地址，适合可信的本机用户。Agent 拥有当前用户的操作系统权限，Lush 不是不可信代码的安全沙箱。
+新 `version:2` 登录配置默认只监听回环地址，适合可信的本机用户；登录与监听范围分开，不能为免登录删除认证。旧 `version:1` 配置仍监听全接口，需要用户手工升级才能缩小暴露。配置模板与权限见[Host 配置指导](remote-host-agent.md#3-配置认证与项目范围)。Agent 拥有当前用户的操作系统权限，Lush 不是不可信代码的安全沙箱。
 
 需要从另一设备访问时，应明确选择[远程 Host 方案](remote-host.md)：自行配置 SSH 隧道、IP/端口 HTTP 或域名 HTTPS。HTTP 允许但有明文泄露风险，推荐 HTTPS 或自建隧道。不要仅把端口暴露到局域网，也不要用关闭防火墙作为快捷配置。
 

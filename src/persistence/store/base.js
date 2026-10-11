@@ -9,7 +9,7 @@ import { normalizeOrderRecord } from '../../core/order-kind.js';
 const ADDED_COLUMNS = {
   inputs: ['anchor_branch', 'anchor_commit', 'anchor_workspace', 'anchor_target_branch'],
   branches: ['summary', 'showcase_reservation', 'merge_run'],
-  messages: ['signal_type', 'signal_key', 'delivery_hold'],
+  messages: ['signal_type', 'signal_key', 'delivery_hold', 'append_number'],
   tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile', 'task_kind', 'reservation', 'iteration_base_commit', 'auto_merge', 'interrupt_state', 'hooks', 'worker_number', 'management', 'display_title'],
   agent_runs: ['model', 'thinking'],
   notices: ['read_at', 'answer_source'],
@@ -44,6 +44,9 @@ function addMissingColumns(db) {
     WHERE source_event_id IS NOT NULL`).run();
   db.query(`CREATE INDEX IF NOT EXISTS notices_lifecycle_unread ON notices(id)
     WHERE kind='info' AND status='sent' AND source_event_id IS NOT NULL AND read_at IS NULL`).run();
+  // Only explicit user appends get a stable display identity; historical messages remain NULL.
+  db.query(`CREATE UNIQUE INDEX IF NOT EXISTS messages_append_number ON messages(append_number)
+    WHERE append_number IS NOT NULL`).run();
   // Old free-text messages have NULL keys, so a partial unique index adds no new restriction to history.
   db.query(`CREATE UNIQUE INDEX IF NOT EXISTS messages_signal_once ON messages(task_id,sender_id,signal_key)
     WHERE signal_key IS NOT NULL`).run();

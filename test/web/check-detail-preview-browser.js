@@ -1,8 +1,10 @@
 // Real Firefox layout regression with a static fixture; no user daemon, project writes or model calls.
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { request } from 'node:http';
+import { randomBytes } from 'node:crypto';
+import { startWeb } from '../../src/ui/web/server.js';
 const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
 const html = (await Bun.file(join(assets, 'index.html')).text()).replace('<script type="module" src="/app.js"></script>', '');
 const fixture = html.replace('</body>', `<script type="module">
@@ -25,16 +27,37 @@ window.paint=(progressive=null)=>renderDetail(window.task,window.fixtureHistory,
 window.reveal=revealDetailPreview;
 window.paint(); window.ready=true;
 </script></body>`);
-const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) {
-  const path = new URL(req.url).pathname;
+const temp = await mkdtemp(join(tmpdir(), 'lush-w198-preview-'));
+const username = 'Preview浏览器账号', password = randomBytes(24).toString('base64url');
+let authServer;
+// Keep the layout fixture controlled, but put every fixture/asset read behind real Host auth.
+const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
+  if (!authServer) return new Response('fixture initializing', { status: 503 });
+  const url = new URL(req.url), path = url.pathname;
+  const headers = new Headers(req.headers); headers.delete('host');
+  const upstream = `http://127.0.0.1:${authServer.port}`;
+  if (['/login', '/logout', '/api/host/session'].includes(path)) return fetch(upstream + path + url.search, {
+    method: req.method, headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : await req.arrayBuffer(), redirect: 'manual',
+  });
+  const gate = await fetch(upstream + '/api/host', { headers, redirect: 'manual' });
+  if (gate.status === 401) return path.startsWith('/api/') ? gate : new Response(null, {
+    status: 303, headers: { Location: `/login?next=${encodeURIComponent(path + url.search)}` },
+  });
+  if (!gate.ok) return gate;
   if (path === '/host') return new Response('<!doctype html><iframe id="fixture" src="/" style="border:0;width:1440px;height:900px"></iframe>', { headers: { 'Content-Type': 'text/html' } });
   if (path === '/') return new Response(fixture, { headers: { 'Content-Type': 'text/html' } });
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.slice(1))));
   return new Response('not found', { status: 404 });
 } });
+const env = { HOME: temp, LUSH_GLOBAL_CONFIG: temp };
+// New login configuration must keep the real authentication gate on loopback.
+await writeFile(join(temp, 'web.json'), JSON.stringify({ version: 2, username, password,
+  origin: `http://127.0.0.1:${server.port}` }), { mode: 0o600 });
+authServer = startWeb({ home: temp, env }, 0, { env,
+  projectHost: { launcher: false, status: async () => ({ mode: 'bound', projects: [] }) } });
+if (authServer.hostname !== '127.0.0.1') throw new Error('v2 preview authentication must stay loopback');
 const reservation = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') });
 const port = reservation.port; reservation.stop(true);
-const temp = await mkdtemp(join(tmpdir(), 'lush-w136-preview-'));
 const log = join(temp, 'geckodriver.log');
 const driver = Bun.spawn(['geckodriver', '--host', '127.0.0.1', '--port', String(port)], {
   env: { ...process.env, MOZ_HEADLESS: '1' }, stdout: Bun.file(log), stderr: Bun.file(log),
@@ -77,7 +100,14 @@ try {
   assert(ready, 'geckodriver timeout');
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox',
     'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
-  await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/host` });
+  const origin = `http://127.0.0.1:${server.port}`;
+  assert((await fetch(origin + '/host', { redirect: 'manual' })).status === 303, 'preview must require login');
+  await rpc(`/session/${session}/url`, { url: origin + '/host' });
+  assert(await wait(`document.querySelector('form[action="/login"]')`), 'preview login form missing');
+  await execute(`document.querySelector('[name="username"]').value=${JSON.stringify(username)};
+    document.querySelector('[name="password"]').value=${JSON.stringify(password)};`);
+  await click('form[action="/login"] button[type="submit"]');
+  assert(await wait(`document.querySelector('#fixture') && location.pathname==='/host'`), 'preview login did not restore fixture');
   await viewport(1440, 900);
   assert(await wait('window.ready'), 'fixture failed to load');
   for (const [width, height] of [[1440,900],[390,700],[320,560]]) for (const theme of ['light','dark']) {
@@ -234,6 +264,6 @@ try {
   passed = true;
 } finally {
   if (session) await rpc(`/session/${session}`, undefined, 'DELETE').catch(() => {});
-  driver.kill(); await driver.exited; server.stop(true);
+  driver.kill(); await driver.exited; server.stop(true); await authServer.stop(true);
   if (passed) await rm(temp, { recursive: true, force: true }); else console.error('Browser failure log:', log);
 }

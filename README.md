@@ -57,7 +57,7 @@ Host 不进行跨项目调度。共享同一份 Lush 代码的不同项目互不
 
 Lush 仅提供 Web UI。在 Lush 源码目录执行 `bun run lush host start`，用浏览器打开工作台，再在项目管理中打开独立项目标签。
 
-Host 默认只监听回环。开发远程项目时，由用户在服务器准备并运行 Lush，再自行选择 SSH 端口转发、IP 加端口或域名访问；Lush 不管理这些网络与部署配置。Host 允许 HTTP，但明文传输可能泄露密码、会话及项目内容，推荐 HTTPS 或用户自建 SSH 隧道。见[远程 Host](docs/deployment/remote-host.md)与[部署索引](docs/deployment/README.md)。
+Host 本机也必须登录；缺少对应作用域的 `web.json` 时拒绝启动，不提供默认账号或首次设置页。新 `version:2` 认证配置默认只监听回环，显式 `listen:"public"` 才全接口监听；旧 `version:1` 保留原公网监听并警告。开发远程项目时，由用户在服务器准备并运行 Lush，再自行选择 SSH 端口转发、IP 加端口或域名访问；Lush 不管理这些网络与部署配置。Host 允许 HTTP，但明文传输可能泄露密码、会话及项目内容，推荐 HTTPS 或用户自建 SSH 隧道。见[远程 Host](docs/deployment/remote-host.md)与[部署索引](docs/deployment/README.md)。
 
 ## 部署文档：用户与 Agent 各一份
 

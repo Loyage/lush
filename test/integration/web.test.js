@@ -4,6 +4,33 @@ import { temp, env } from '../helpers.js';
 import { ROOT } from '../../src/identity.js';
 import { cli, freePort, httpStatus, waitForWeb } from './harness.js';
 
+test('Host CLI rejects missing scoped login config and does not create a default account', async () => {
+  const root = temp(), global = temp(), port = freePort();
+  try {
+    for (const projectArgs of [[], ['--project', root]]) {
+      const proc = Bun.spawn([process.execPath, 'run', 'scripts/ops.js', 'host', 'start', String(port), '--foreground', ...projectArgs, '--json'],
+        { cwd: ROOT, env: env({ LUSH_GLOBAL_CONFIG: global }), stdout: 'pipe', stderr: 'pipe' });
+      const [stdout, stderr, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+      expect(code).not.toBe(0); expect(stderr + stdout).toContain('请手工创建');
+      expect(fs.existsSync(`${projectArgs.length ? root + '/.lush' : global}/web.json`)).toBe(false);
+      expect(await httpStatus(port).catch(() => null)).toBeNull();
+    }
+  } finally { for (const dir of [root, global]) fs.rmSync(dir, { recursive: true, force: true }); }
+}, 30000);
+
+test('v2 explicit public listening agrees between Host and CLI status', async () => {
+  const root = temp(), port = freePort();
+  fs.mkdirSync(`${root}/.lush`);
+  fs.writeFileSync(`${root}/.lush/web.json`, JSON.stringify({ version: 2, listen: 'public', username: 'owner', password: 'v2-public-test-password' }), { mode: 0o600 });
+  try {
+    const first = await cli(root, ['host', 'start', String(port)]);
+    expect(first.url).toBe(`http://0.0.0.0:${port}`);
+    expect((await cli(root, ['host', 'status', String(port)])).url).toBe(first.url);
+    expect(await httpStatus(port)).toBe(303);
+    expect(JSON.parse(fs.readFileSync(`${root}/.lush/web.json`, 'utf8'))).toMatchObject({ version: 2, listen: 'public' });
+  } finally { await cli(root, ['host', 'stop', String(port)]).catch(() => {}); fs.rmSync(root, { recursive: true, force: true }); }
+}, 30000);
+
 function alive(pid) {
   try { process.kill(pid, 0); return true; } catch (error) { return error.code === 'EPERM'; }
 }
@@ -15,7 +42,7 @@ test('web 后台起：重复启动幂等、host restart 换进程、host stop �
   const port = freePort();
   try {
     const first = await cli(root, ['host', 'start', String(port)]);
-    expect(first).toMatchObject({ port, running: true, already_running: false, code_match: true, listeners_known: true });
+    expect(first).toMatchObject({ port, running: true, already_running: false, code_match: true, listeners_known: true, url: `http://127.0.0.1:${port}` });
     expect(first.pid).toBeGreaterThan(0);
     expect(first.log).toBe(`${root}/.lush/host.log`);
     expect(first.current_code.fingerprint).toBe(first.host_code.fingerprint);
@@ -27,7 +54,7 @@ test('web 后台起：重复启动幂等、host restart 换进程、host stop �
     const again = await cli(root, ['host', 'start', String(port)]);
     expect(again.already_running).toBe(true);
     expect(again.pid).toBe(first.pid);
-    expect(await httpStatus(port)).toBe(200);
+    expect(await httpStatus(port)).toBe(303);
 
     const status = await cli(root, ['host', 'status', String(port)]);
     expect(status).toMatchObject({ port, running: true, pid: first.pid, code_match: true });

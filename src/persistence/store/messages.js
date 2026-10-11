@@ -8,6 +8,21 @@ export const MESSAGE_SELECT = `SELECT m.*,
 /** 收件箱。 */
 export const messages = {
   message(taskId, body, sender = null, hold = null) { return Number(this.run('INSERT INTO messages(task_id,sender_id,body,delivery_hold) VALUES (?,?,?,?)', taskId, sender, body, hold).lastInsertRowid); },
+  /** Explicit user worker.message only; NULL sender alone does not establish user provenance. */
+  appendMessage(taskId, body, hold = null) {
+    // Immediate locking also serializes independent Store connections before reading the Input.
+    return this.db.transaction(() => {
+      const { input_id: inputId } = this.task(taskId);
+      if (inputId === null) return this.message(taskId, body, null, hold);
+      const key = `input_append_high:${id(inputId)}`;
+      const high = Number(this.get('SELECT value FROM meta WHERE key=?', key)?.value ?? 0);
+      check(Number.isSafeInteger(high) && high >= 0 && high < Number.MAX_SAFE_INTEGER, 'Input append number limit reached');
+      const next = high + 1;
+      this.run('INSERT INTO meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', key, String(next));
+      return Number(this.run('INSERT INTO messages(task_id,body,delivery_hold,append_number) VALUES (?,?,?,?)',
+        taskId, body, hold, `A${inputId}-${next}`).lastInsertRowid);
+    }).immediate();
+  },
   /** A keyed child→parent signal is durable and idempotent; ordinary messages keep NULL signal fields. */
   signal(taskId, senderId, type, key, body) {
     const inserted = this.run(`INSERT OR IGNORE INTO messages(task_id,sender_id,body,signal_type,signal_key)

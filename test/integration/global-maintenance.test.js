@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
 import { writeLauncherState, projectRouteId } from '../../src/host/registry.js';
-import { startWeb } from '../../src/ui/web/server.js';
+import { startTestWeb as startWeb } from '../web/auth-fixture.js';
 import { serviceRestartControls } from '../../src/ui/web/assets/service-restart.js';
 import { isLocked } from '../../src/daemon/locking.js';
 import { installDom, deepText } from '../dom-stub.js';

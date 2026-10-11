@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { setup, fetch } from './harness.js';
-import { startWeb } from '../../src/ui/web/server.js';
+import { startTestWeb as startWeb } from './auth-fixture.js';
 import { projectRouteId } from '../../src/host/registry.js';
 import { check } from '../../src/core/types.js';
 
@@ -92,7 +92,7 @@ test('completion HTTP requires an authenticated owner session and same-origin su
 });
 
 test('project-prefixed completion mutation stays on its explicit Host project', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-completion-host-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-test-completion-host-'));
   const a = path.join(root, 'a'), b = path.join(root, 'b'); fs.mkdirSync(a); fs.mkdirSync(b);
   const calls = [], web = startWeb(null, 0, { env: { HOME: root, XDG_CONFIG_HOME: path.join(root, 'config') },
     async openProject(project) { return { config: { project, home: path.join(project, '.lush') }, client: {

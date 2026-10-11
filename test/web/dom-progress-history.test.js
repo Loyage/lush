@@ -28,7 +28,8 @@ const more = dom => history(dom).querySelector('.progress-history-controls').que
 const response = value => ({ ok: true, json: async () => value });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 async function fixture(run, fetchImpl = () => { throw new Error('unexpected fetch'); }) {
-  const dom = installDom({ fetch: fetchImpl }); resetUiState();
+  const dom = installDom({ fetch: (url, options) => String(url) === '/api/host/session'
+    ? response({ username: null }) : fetchImpl(url, options) }); resetUiState();
   ui.view = { id: 'task', key: 'task-7' };
   try { await run(dom); } finally { resetUiState(); dom.restore(); }
 }

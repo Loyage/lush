@@ -206,7 +206,7 @@ export default {
               begin(); let outcome = {};
               if (gate.skip) outcome = { skipped: true, reason: gate.skip };
               else if (action.type === 'notify') outcome = { notice_id: this.notify(taskId, action.title, action.body).id };
-              else if (action.type === 'message') this.message(action.target_id, action.body);
+              else if (action.type === 'message') this.message(action.target_id, action.body, null, false);
               else if (action.type === 'retry_worker') this.retry(action.target_id, action.profile ?? null);
               else if (action.type === 'resume_worker') this.resumeTask(action.target_id, action.profile ?? null);
               else check(false, 'unsupported scheduled action');

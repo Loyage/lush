@@ -30,7 +30,7 @@ test('真实 API：详情默认新建，显式追加 Enter 仅发消息，ACK自
     const before = ['tasks', 'inputs', 'drafts'].map(table => fixture.store.all(`SELECT * FROM ${table}`).length);
     const input = dom.node('input'); expect(dom.node('input-form').dataset.mode).toBe('create');
     expect(input.placeholder).toContain('在 main 下创建子 Worker');
-    btn('向该 Worker 追加输入').onclick();
+    btn('追加输入').onclick();
     expect(input.placeholder).toContain(`追加给 Worker ${task.worker_number ?? `#${task.id}`}`);
     expect(input.placeholder).toContain('需开始 / 继续');
     input.value = '后续要求'; input.oninput(); await input.onkeydown({ key: 'Enter', preventDefault() {} });

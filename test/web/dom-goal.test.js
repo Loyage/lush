@@ -23,11 +23,11 @@ test('one conversation shows original goal, explicit user followups and results;
     expect(deepText(conversation)).toContain('原始目标'); expect(conversation.querySelector('strong')).toBeTruthy();
     expect(conversation.querySelectorAll('.conversation-input')).toHaveLength(3);
     expect(conversation.querySelectorAll('.conversation-output')).toHaveLength(1);
-    expect(conversation.querySelectorAll('.conversation-avatar').map(node => node.textContent)).toEqual(['W', '人', '人', '人']);
+    expect(conversation.querySelectorAll('.conversation-avatar').map(node => node.textContent)).toEqual(['🤖', '?', '?', '?']);
     for (const text of ['Agent 消息', '决策答复', '系统信号', '仅属于收件箱']) expect(deepText(conversation)).not.toContain(text);
     const entries = conversation.querySelectorAll('.conversation-message');
     expect(entries.map(node => node.dataset.conversationKey)).toEqual(['latest', 'input:2', 'input:1', 'goal']);
-    expect(deepText(entries[1])).toContain('用户'); expect(deepText(entries[0]).replace(/\s+/g, ' ')).toContain('Worker W182');
+    expect(deepText(entries[1])).toContain('账号名称未知'); expect(deepText(entries[0]).replace(/\s+/g, ' ')).toContain('Worker W182');
     expect(entries[1].dataset.ref).toContain('event-2');
     expect(conversation.querySelectorAll('details')).toHaveLength(0);
     renderDetail(task, { events: [...history.events, event(6, '新的输入')] }, null, null);
@@ -76,6 +76,7 @@ test('content checkboxes default to user/Worker, keep communication distinct and
 test('one pager loads both directions of history, retries failure and retains older pages across refresh', async () => {
   const requests = []; let fail = true;
   const dom = installDom({ fetch: async url => {
+    if (String(url) === '/api/host/session') return new Response(JSON.stringify({ username: null }));
     requests.push(String(url));
     if (fail) return new Response(JSON.stringify({ error: 'offline' }), { status: 500 });
     if (String(url).includes('before=50')) return new Response(JSON.stringify({ events: [event(25, 'Agent 消息', 8)], cursor: 20, has_more: true }));

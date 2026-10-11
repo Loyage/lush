@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { temp, env } from '../helpers.js';
 import { fetch } from './harness.js';
-import { startWeb } from '../../src/ui/web/server.js';
+import { startTestWeb as startWeb } from './auth-fixture.js';
 import { createAppearance } from '../../src/ui/web/assets/appearance.js';
 import { writeLauncherState, projectRouteId } from '../../src/host/registry.js';
 
@@ -18,7 +18,6 @@ function setup({ authenticated = false, bound = false, mock = false } = {}) {
   const config = bound ? { project: projects[0], home: path.join(projects[0], '.lush'), env: environment } : null;
   const oldMock = { launcher: true, status: async () => ({ projects: [] }), projects: async () => [], hasRoute: () => false };
   const web = startWeb(config, 0, { env: environment, ...(mock ? { projectHost: oldMock } : {}),
-    ...(bound ? { authConfig: null } : {}),
     openProject: async () => { calls.push('start'); throw new Error('unexpected daemon start'); },
     attachProject: async () => { calls.push('attach'); throw new Error('unexpected daemon attach'); } });
   const base = `http://127.0.0.1:${web.port}`;

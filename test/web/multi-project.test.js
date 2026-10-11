@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { temp } from '../helpers.js';
 import { fetch } from './harness.js';
-import { startWeb } from '../../src/ui/web/server.js';
+import { startTestWeb as startWeb } from './auth-fixture.js';
 import { projectRouteId, readLauncherState } from '../../src/host/registry.js';
 
 /**

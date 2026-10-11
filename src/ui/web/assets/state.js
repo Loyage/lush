@@ -14,6 +14,7 @@ export function saveFiltersPref() { writePref('filters', ui.filters); }
  * 新字段加在这里就行，不用改别的文件。
  */
 export const ui = {
+  hostSession: { status: 'unread', username: null, pending: null }, // 当前 UI 会话的 Host 登录账号，仅内存。
   view: null, // 当前页面身份；仅 sidebar-ui.js 写入，异步响应据此判断是否仍拥有画布。
   /** 左栏：折叠状态（Set of section id）与三组筛选条件，都持久化到 localStorage。 */
   collapsed: readCollapsedPref(),
@@ -83,6 +84,7 @@ export const mergeSelection = new Set();
  * 上一个文件留下的哨兵（signature）会让新 DOM 上的第一次轮询直接 return，什么都不画。
  */
 export function resetUiState() {
+  ui.hostSession = { status: 'unread', username: null, pending: null };
   ui.quickExplanationPage = null;
   ui.view = null; ui.inputsPage = null; ui.hooksPage = null; ui.hookCatalogue = null; ui.hookCataloguePending = null; ui.deletedWorkerIds = new Set(); ui.workerNumbers = new Map();
   ui.composerParents = []; ui.composerIdentity = null; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerError = null; ui.syncComposer = null; ui.composerEditRevision = 0; ui.composerReferenceRevision = 0;

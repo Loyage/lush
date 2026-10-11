@@ -27,12 +27,13 @@ button.hook-completion-level.agent-call { background: transparent; color: var(--
 .hook-completion-level.is-included { box-shadow: inset 0 -2px var(--violet-ink); }
 button.hook-completion-level.is-selected { border-color: var(--violet-ink); background: var(--violet-soft); color: var(--violet-ink); font-weight: 700; }
 .hook-completion-level[disabled] { opacity: .65; }
-.hook-completion-level:focus-visible, .hook-management > summary:focus-visible { outline: 2px solid var(--violet-ink); outline-offset: 2px; }
+.hook-completion-level:focus-visible, .hook-management-toggle:focus-visible { outline: 2px solid var(--violet-ink); outline-offset: 2px; }
 .hook-completion-state, .hook-mount-alert { max-width: 24rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; }
 .hook-completion-state[hidden] { display: none; }
-.hook-management { margin-left: auto; min-width: 0; }
-.hook-management > summary { cursor: pointer; color: var(--muted); font-size: .85rem; white-space: nowrap; }
-.hook-management[open] { flex-basis: 100%; margin-left: 0; }
+.hook-management-toggle { margin-left: auto; }
+.hook-management { flex-basis: 100%; min-width: 0; }
+.hook-management[hidden] { display: none; }
+.hook-completion-state.error, .hook-mount-alert.error { max-width: none; white-space: normal; overflow-wrap: anywhere; overflow: visible; }
 @media (max-width: 600px) { .worker-hooks-row { gap: .4rem; } .hook-completion-control { gap: .35rem; } .hook-completion-level { padding-inline: .4rem; } }
 .hook-parameters { margin-top: .6rem; }
 .hook-parameters summary { cursor: pointer; }

@@ -62,6 +62,8 @@ git -C /home/alice/projects/demo config --get user.email
 
 ## 4. 启动与选择 Agent
 
+先按[Host 认证配置指导](remote-host-agent.md#3-配置认证与项目范围)手工创建 WSL 用户所选作用域的 owner-only `web.json`，使用新 `version:2` 默认回环。本机也必须登录，无配置时拒绝启动，不提供默认密码。
+
 从实际 Lush 源码目录执行下面命令，把两个示例路径换成已确认路径。采用显式单项目模式，避免误选项目；不修改 `LUSH_PROJECT` / `LUSH_HOME` 等绑定变量。发现继承环境与目标冲突时先报告，让用户在独立终端按正确作用域启动。
 
 ```bash
@@ -97,7 +99,7 @@ curl --fail --silent --show-error --output /dev/null http://127.0.0.1:4318/
 (Invoke-WebRequest -Uri http://localhost:4318/ -UseBasicParsing).StatusCode
 ```
 
-用 Windows 浏览器打开 `http://localhost:4318`，确认项目页面能读取状态。没有 Windows 执行 / 浏览器权限时，请用户验证并记录反馈，不能自行报通过。
+未登录的 HTTP 根路径会跳转 `/login`；能打开登录页不等于项目验收。用 Windows 浏览器打开 `http://localhost:4318`，由用户登录后确认项目页面能读取状态。没有 Windows 执行 / 浏览器权限时，请用户验证并记录反馈，不能自行报通过。
 
 | 现象 | 优先检查 |
 |---|---|

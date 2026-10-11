@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { webStaticAssets } from './static-assets.js';
+import { webListenHost } from '../../host/web-listen.js';
 import { canonicalProjectPath, launcherWebConfig, projectRouteId } from '../../host/registry.js';
 import { createProjectHost } from '../../host/project-host.js';
 import { createUserServices } from '../../host/user-services.js';
@@ -30,7 +31,7 @@ const CORE_DOC_READ = /^\/api\/docs\/[a-z0-9._-]+$/;
  *  主页面 CSP 不会作用于这个独立文档，所以这里必须自己收紧。 */
 const REPORT_CSP = "sandbox allow-scripts; frame-ancestors 'self'; default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'";
 const PAGE_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
-const LOGIN_CSP = "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+const LOGIN_CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 function secretEqual(left, right) {
   const a = createHash('sha256').update(String(left)).digest();
@@ -50,24 +51,24 @@ function verifyPassword(password, encoded) {
   const actual = scryptSync(password, salt, expected.length);
   return expected.length > 0 && timingSafeEqual(actual, expected);
 }
-/** web.json 出现即表示显式开启公网模式；首次启动会把临时明文密码原地换成 scrypt hash。
- *  全局启动器还必须列出可打开的项目，避免一个公网入口变成任意本机目录选择器。 */
+/** 所有 Host 必须配置认证；v2 默认回环，v1 保持历史公网监听。
+ *  首次启动把临时明文密码换成 scrypt hash；公网启动器必须限制项目范围。 */
 function loadAuth(config, { launcher = false } = {}) {
   const file = path.join(config.home, AUTH_FILE);
-  if (!fs.existsSync(file)) return null;
+  check(fs.existsSync(file), `缺少 Web 登录配置 ${file}；请手工创建 owner-only (chmod 600) 的 web.json，使用 version:2、username 和 password (12-1024 字符)。不提供默认账号或首次设置页。`);
   const stat = fs.lstatSync(file);
   check(!stat.isSymbolicLink() && stat.isFile() && stat.uid === process.getuid(), `unsafe Web auth file: ${file}`);
   check((stat.mode & 0o077) === 0, `${file} must only be readable by its owner (chmod 600)`);
   let value;
   try { value = JSON.parse(fs.readFileSync(file, 'utf8')); }
   catch { throw new Error(`invalid JSON in ${file}`); }
-  check(value && value.version === 1, `${file} must have version 1`);
+  const hostname = webListenHost(value);
   check(typeof value.username === 'string' && value.username === value.username.trim() && value.username.length >= 1 && value.username.length <= 128,
     `${file} username must be 1-128 characters without surrounding whitespace`);
   check(value.origin === undefined || typeof value.origin === 'string', `${file} origin must be a string`);
   check(value.origins === undefined || Array.isArray(value.origins), `${file} origins must be an array of strings`);
   let projects = null;
-  if (launcher) {
+  if (launcher && (hostname === '0.0.0.0' || value.projects !== undefined)) {
     check(Array.isArray(value.projects) && value.projects.length > 0, `${file} projects must be a non-empty array of allowed project paths`);
     projects = [...new Set(value.projects.map(entry => canonicalProjectPath(entry, config.env)))];
   }
@@ -88,7 +89,7 @@ function loadAuth(config, { launcher = false } = {}) {
     const secret = value.password.trim();
     check(secret.length >= 12 && secret.length <= 1024, `${file} password must be 12-1024 characters`);
     password_hash = passwordHash(secret);
-    const replacement = JSON.stringify({ version: 1, username: value.username, ...(projects ? { projects } : {}), ...(origins.length ? { origin: origins[0], ...(origins.length > 1 ? { origins: origins.slice(1) } : {}) } : {}), password_hash }, null, 2) + '\n';
+    const replacement = JSON.stringify({ version: value.version, ...(value.listen !== undefined ? { listen: value.listen } : {}), username: value.username, ...(projects ? { projects } : {}), ...(origins.length ? { origin: origins[0], ...(origins.length > 1 ? { origins: origins.slice(1) } : {}) } : {}), password_hash }, null, 2) + '\n';
     const temporary = `${file}.${process.pid}.tmp`;
     try {
       fs.writeFileSync(temporary, replacement, { mode: 0o600, flag: 'wx' });
@@ -96,7 +97,7 @@ function loadAuth(config, { launcher = false } = {}) {
       fs.chmodSync(file, 0o600);
     } finally { fs.rmSync(temporary, { force: true }); }
   } else check(/^scrypt\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/.test(password_hash), `${file} has an invalid password_hash`);
-  return { username: value.username, password_hash, origins, projects,
+  return { username: value.username, password_hash, origins, projects, hostname, version: value.version,
     config_hint: launcher ? '全局 Web 配置 web.json' : '.lush/web.json' };
 }
 function cookieValue(request, name) {
@@ -122,7 +123,7 @@ function escapeHtml(value) {
   return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 }
 function loginPage(error = '', next = '/') {
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lush · 登录</title><style>
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lush · 登录</title><link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22/%3E"><style>
 :root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color-scheme:dark;color:#e6efe9;background:#0f1613}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.login{width:min(380px,100%);padding:28px;background:#161f1a;border:1px solid #27362d;border-radius:12px}.login h1{margin:0 0 4px;color:#8fd6a9;font-size:24px}.login p{margin:0 0 20px;color:#93a89b;font-size:13px}.login label{display:block;margin:12px 0 5px;font-size:13px}.login input{width:100%;padding:10px;border:1px solid #27362d;border-radius:7px;background:#0f1613;color:#e6efe9;font:inherit}.login button{width:100%;margin-top:20px;padding:10px;border:0;border-radius:7px;background:#8fd6a9;color:#12211a;font:inherit;font-weight:600;cursor:pointer}.error{color:#ffb4ac!important}.warning{margin-top:16px!important;font-size:11px!important}
 </style></head><body><main class="login"><h1>Lush</h1><p>登录后访问项目 Web UI</p>${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ''}<form method="post" action="/login"><input type="hidden" name="next" value="${escapeHtml(safeNext(next))}"><label for="username">账号</label><input id="username" name="username" autocomplete="username" required autofocus><label for="password">密码</label><input id="password" name="password" type="password" autocomplete="current-password" required><button type="submit">登录</button></form><p class="warning">公网访问请在本服务前配置 HTTPS 反向代理，避免账号密码被明文传输。</p></main></body></html>`;
 }
@@ -178,7 +179,8 @@ export function startWeb(config, port = 4318, options = {}) {
   const env = options.env || config?.env || process.env;
   const launcher = !config;
   const authConfig = options.authConfig === undefined ? (config || launcherWebConfig(env)) : options.authConfig;
-  const auth = authConfig ? loadAuth(authConfig, { launcher }) : null;
+  check(authConfig, 'Web 登录配置不可禁用；请手工配置对应作用域的 web.json');
+  const auth = loadAuth(authConfig, { launcher });
   const projectHost = options.projectHost || createProjectHost(config, { ...options, env, allowedProjects: launcher ? auth?.projects : null });
   // Build once before listening; preserve the synchronous startWeb -> Bun server contract.
   const staticAssets = webStaticAssets();
@@ -194,12 +196,12 @@ export function startWeb(config, port = 4318, options = {}) {
     check(isPlainObject(body) && Object.keys(body).length === 0, 'restart body must be an empty object; paths and agent tokens are not accepted');
   };
   const server = Bun.serve({
-    hostname: auth ? '0.0.0.0' : '127.0.0.1', port, maxRequestBodySize: 128 * 1024,
+    hostname: auth.hostname, port, maxRequestBodySize: 128 * 1024,
     async fetch(request, server) {
       const url = new URL(request.url);
       const host = request.headers.get('host');
       const localHosts = [`127.0.0.1:${server.port}`, `localhost:${server.port}`];
-      if (!host || url.host !== host || (!auth && !localHosts.includes(host))) return new Response('Invalid host', { status: 403 });
+      if (!host || url.host !== host || (auth.hostname === '127.0.0.1' && !localHosts.includes(host) && !auth.origins.some(origin => new URL(origin).host === host))) return new Response('Invalid host', { status: 403 });
       const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
         'Content-Security-Policy': PAGE_CSP };
       const json = (body, status = 200, extra = {}) => Response.json(body, { status, headers: { ...headers, ...extra } });
@@ -208,18 +210,18 @@ export function startWeb(config, port = 4318, options = {}) {
         console.warn(`[web] blocked cross-site ${request.method} ${url.pathname} (host=${host} ${seen})`);
         // 登录提交被挡最容易发生在反向代理后面：直接告诉用户去哪儿改，而不是甩一行 403 文本。
         if (request.method === 'POST' && url.pathname === '/login') return new Response(loginPage(`请求被判定为跨站（host=${host}）。如果通过反向代理/域名访问，请在${auth?.config_hint || '.lush/web.json'}里写上对外地址，例如 "origin": "https://lush.example.com"。`), { status: 403, headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': LOGIN_CSP } });
-        return new Response('Cross-site access denied', { status: 403 });
+        return new Response('Cross-site access denied', { status: 403, headers });
       }
       const token = cookieValue(request, SESSION_COOKIE);
       const expires = token && sessions.get(token);
-      const authenticated = !auth || (expires && expires > Date.now());
+      const authenticated = expires && expires > Date.now();
       if (token && expires && expires <= Date.now()) sessions.delete(token);
 
       if (request.method === 'GET' && url.pathname === '/login') {
-        if (!auth || authenticated) return new Response(null, { status: 303, headers: { Location: '/' } });
+        if (authenticated) return new Response(null, { status: 303, headers: { Location: '/', ...headers } });
         return new Response(loginPage('', url.searchParams.get('next')), { headers: { ...headers, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': LOGIN_CSP } });
       }
-      if (request.method === 'POST' && url.pathname === '/login' && auth) {
+      if (request.method === 'POST' && url.pathname === '/login') {
         const type = request.headers.get('content-type')?.split(';')[0];
         if (type !== 'application/x-www-form-urlencoded') return json({ error: 'form encoding required' }, 400);
         const remote = server.requestIP(request)?.address || 'unknown';
@@ -257,6 +259,13 @@ export function startWeb(config, port = 4318, options = {}) {
       }
 
       try {
+        // Session identity is root-only and never attaches a project or instantiates device services.
+        if (/^\/p\/[a-z0-9]{16}\/api\/host\/session$/.test(url.pathname)) return json({ error: 'not found' }, 404);
+        if (url.pathname === '/api/host/session') {
+          if (request.method !== 'GET') return json({ error: 'not found' }, 404);
+          userQuery(url, []);
+          return json({ username: auth.username });
+        }
         // ---- 宿主级路由：启动器等不属于任何项目的接口先于项目路由匹配 ----
         if (['/api/host/preferences', '/api/host/automation'].includes(url.pathname)) {
           const preference = url.pathname.endsWith('/preferences');
@@ -640,7 +649,8 @@ export function startWeb(config, port = 4318, options = {}) {
     await Promise.allSettled([stopped, deviceSettings?.stop(), userServices?.close()]);
   };
   WEB_HOSTS.set(server, projectHost);
-  if (auth) console.warn('[web] 公网 HTTP 监听已启用；直接通过 HTTP 访问会明文传输账号密码、会话和项目数据，存在窃听与篡改风险。建议由用户配置 HTTPS 反向代理或 SSH 端口转发；HTTP 不会因此被拒绝。');
+  if (auth.version === 1) console.warn('[web] 旧版 version:1 web.json 保留全接口监听；改为 version:2 可默认仅监听回环，公网需显式 listen:"public"。');
+  if (auth.hostname === '0.0.0.0') console.warn('[web] 公网 HTTP 监听已启用；直接通过 HTTP 访问会明文传输账号密码、会话和项目数据，存在窃听与篡改风险。建议由用户配置 HTTPS 反向代理或 SSH 端口转发；HTTP 不会因此被拒绝。');
   return server;
 }
 

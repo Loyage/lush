@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import { setup, fetch } from './harness.js';
 import { temp, env } from '../helpers.js';
-import { startWeb } from '../../src/ui/web/server.js';
+import { startTestWeb as startWeb } from './auth-fixture.js';
 import { projectRouteId, writeLauncherState } from '../../src/host/registry.js';
 
 const post = (url, body = {}, extra = {}) => fetch(url, {

@@ -44,7 +44,7 @@ for (const task_kind of ['order', 'say']) {
     expect(dom.node('input-form').dataset.mode).toBe('create');
     expect(dom.node('input-buffer').hidden).toBe(false);
     renderDetail(task, null, null, null);
-    buttonOf(dom.node('detail'), '向该 Worker 追加输入').onclick();
+    buttonOf(dom.node('detail'), '追加输入').onclick();
     expect(dom.node('input').placeholder).toContain('追加给 Worker #77');
     expect(dom.node('input-buffer').hidden).toBe(true);
     expect(buttonOf(dom.node('detail'), '已解决')).toBeUndefined();

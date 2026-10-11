@@ -24,7 +24,10 @@ function noSnapshot(root) {
 for (const status of ['answered', 'dismissed']) for (const source of ['user', 'lush'])
   test(`${status}/${source} history remains read-only without snapshot or reselection controls`, () => {
     const requests = [], record = notice(status, source), original = structuredClone(record);
-    const dom = installDom({ fetch: async url => { requests.push(url); throw new Error('must not request snapshots'); } });
+    const dom = installDom({ fetch: async url => {
+      if (String(url) === '/api/host/session') return Response.json({ username: null });
+      requests.push(url); throw new Error('must not request snapshots');
+    } });
     resetUiState();
     try {
       const replay = settledDecision(record), panel = noticePanel(record);

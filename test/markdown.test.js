@@ -1,11 +1,11 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
-import http from 'node:http';
+import { fetch } from './web/auth-fixture.js';
 import { fixture } from './helpers.js';
 import { RPCServer } from '../src/rpc/server.js';
 import { Dispatcher } from '../src/rpc/protocol.js';
 import { createSignal } from '../src/signal.js';
-import { startWeb } from '../src/ui/web/server.js';
+import { startTestWeb as startWeb } from './web/auth-fixture.js';
 import { renderMarkdown, parseMarkdown, safeUrl, MAX_MARKDOWN_LENGTH } from '../src/ui/web/assets/markdown.js';
 
 /* ---------------- 一个最小的 document 替身：只实现 markdown.js 用到的 API ---------------- */
@@ -157,14 +157,6 @@ test('over-long text falls back to plain text with the original content', () => 
 });
 
 /* ---------------- Web 静态资源 ---------------- */
-const fetch = (url, options = {}) => new Promise((resolve, reject) => {
-  const request = http.request(url, { method: options.method || 'GET', headers: options.headers }, response => {
-    const chunks = [];
-    response.on('data', chunk => chunks.push(chunk));
-    response.on('end', () => resolve(new Response(Buffer.concat(chunks), { status: response.statusCode, headers: response.headers })));
-  });
-  request.on('error', reject); request.end(options.body);
-});
 async function setup() {
   const f = fixture(), signal = createSignal();
   const rpc = new RPCServer(f.config.socket, new Dispatcher(f.project, signal, {})); await rpc.start();

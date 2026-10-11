@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { setup, fetch } from './harness.js';
-import { startWeb } from '../../src/ui/web/server.js';
+import { startTestWeb as startWeb } from './auth-fixture.js';
 import { projectRouteId } from '../../src/host/registry.js';
 import { check } from '../../src/core/types.js';
 
@@ -238,7 +238,7 @@ test('order.submit HTTP explicitly forwards defer, start and profile without cre
 });
 
 test('Host project-prefixed Hooks routes keep each request on its explicit project', async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-hooks-host-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-test-hooks-host-'));
   const a = path.join(root, 'a'), b = path.join(root, 'b'); fs.mkdirSync(a); fs.mkdirSync(b);
   const calls = [], env = { HOME: root, XDG_CONFIG_HOME: path.join(root,'config') };
   const web = startWeb(null, 0, { env, async openProject(project) {

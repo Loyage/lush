@@ -6,7 +6,7 @@ import { cli } from './harness.js';
 import { fetch } from '../web/harness.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
-import { startWeb } from '../../src/ui/web/server.js';
+import { startTestWeb as startWeb } from '../web/auth-fixture.js';
 import { projectRouteId, writeLauncherState, removeLauncherProject } from '../../src/host/registry.js';
 
 // Actual independent lushd processes, production Host services and HTTP/RPC. All

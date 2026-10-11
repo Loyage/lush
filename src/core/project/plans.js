@@ -49,7 +49,7 @@ export default {
       this.store.event(planner.id, 'plan.rejected', { reason, specs: specs.map(spec => spec.id) });
     });
     // 唤醒它重拆：理由走普通收件箱，下一轮 invocation 开头会把这个闸门清掉。
-    this.message(planner.id, `上一轮拆解被驳回：${reason}\n\n请据此重拆，并重新写 spec（旧的那批已作废）。`);
+    this.message(planner.id, `上一轮拆解被驳回：${reason}\n\n请据此重拆，并重新写 spec（旧的那批已作废）。`, null, false);
     return { planner: planner.id, plan_gate: 'rejected', dropped_specs: specs.map(spec => spec.id) };
   },
 

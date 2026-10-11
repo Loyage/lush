@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { startWeb } from '../../src/ui/web/server.js';
+import { startTestWeb as startWeb } from './auth-fixture.js';
 import { createUserServices } from '../../src/host/user-services.js';
 import { projectRouteId } from '../../src/host/registry.js';
 import { env, temp } from '../helpers.js';
@@ -89,7 +89,7 @@ test('bound single-project Host exposes device services without attaching its pr
     }
     expect((await post(`${f.url}/api/host/automation`, { patch: { auto_select: { enabled: true } }, expected_revision: 'auto-v1' })).status).toBe(200);
     expect(f.calls.some(row => row[0].startsWith('unexpected'))).toBe(false);
-    expect(fs.existsSync(path.join(f.root, 'a', '.lush'))).toBe(false);
+    expect(fs.readdirSync(path.join(f.root, 'a', '.lush'))).toEqual(['web.json']);
   } finally { await f.close(); }
 });
 

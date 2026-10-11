@@ -34,7 +34,8 @@ export function settleNoticeAnswer(project, noticeId, answer, dismiss = false, s
 
 /** 收件箱、notice、答复。 */
 export default {
-  message(taskId, body, sender = null) {
+  // Runtime-generated Hook/legacy plan messages explicitly opt out of user append numbering.
+  message(taskId, body, sender = null, userAppend = true) {
     const target = this.store.task(taskId); text(body, 'message');
     check(!this.acceptanceBusy?.has(target.id), '验收正在回收开发资源；请等待结果后再处理输入');
     const reclaim = this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.acceptance_started' ORDER BY id DESC LIMIT 1", target.id);
@@ -66,8 +67,11 @@ export default {
         if (sender === null) resumeTaskDelivery(this, target.id, 'new user input');
         consumeIntegratedReservation(this, target, 'new input');
       }
-      const messageId = this.store.message(target.id, body, sender, held ? 'frozen' : null);
-      this.store.event(target.id, 'message', { sender, body, message_id: messageId });
+      const messageId = sender === null && userAppend
+        ? this.store.appendMessage(target.id, body, held ? 'frozen' : null)
+        : this.store.message(target.id, body, sender, held ? 'frozen' : null);
+      const { append_number } = this.store.get('SELECT append_number FROM messages WHERE id=?', messageId);
+      this.store.event(target.id, 'message', { sender, body, message_id: messageId, append_number });
       if (held) this.store.event(target.id, 'task.input_buffered', { message_id: messageId });
       else if (sender === null) this.store.event(target.id, 'task.input_routed', { message_id: messageId,
         delivery: routing.decision.delivery, source: routing.decision.source, error: routing.error });

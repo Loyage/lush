@@ -5,7 +5,7 @@ import { RPCServer } from '../../src/rpc/server.js';
 import { Dispatcher } from '../../src/rpc/protocol.js';
 import { createSignal } from '../../src/signal.js';
 import { UIClient } from '../../src/ui/client.js';
-import { startWeb } from '../../src/ui/web/server.js';
+import { startTestWeb as startWeb } from './auth-fixture.js';
 import { projectRouteId, writeLauncherState } from '../../src/host/registry.js';
 import { fetch } from './harness.js';
 

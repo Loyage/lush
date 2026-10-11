@@ -4,7 +4,7 @@ import { setup, fetch } from './harness.js';
 import { env, temp } from '../helpers.js';
 import { UIClient } from '../../src/ui/client.js';
 import { LushError } from '../../src/core/types.js';
-import { startWeb } from '../../src/ui/web/server.js';
+import { startTestWeb as startWeb } from './auth-fixture.js';
 import { projectRouteId, writeLauncherState } from '../../src/host/registry.js';
 
 const methods = ['system.interrupt_all', 'system.resume_all'];

@@ -217,7 +217,7 @@ export default {
                 else if (action.type === 'message') {
                   const target = this.store.task(action.target_id);
                   check(target.id === current.id || target.parent_id === current.id || current.parent_id === target.id, 'Hook relationship changed');
-                  this.message(target.id, action.body);
+                  this.message(target.id, action.body, null, false);
                 } else check(false, 'unsupported command Hook action');
                 this.recordHookAction(taskId, hookId, executionId, index, outcome);
                 const snapshot = read(this.store.task(taskId)); delete snapshot.mounts.find(m => m.id === hookId).command_started_index; save(this, taskId, snapshot);

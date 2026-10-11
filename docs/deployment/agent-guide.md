@@ -28,7 +28,7 @@ bun install --frozen-lockfile     # 在 Lush 源码目录；当前无第三方�
 
 ## 2. 启动
 
-下面命令在 Lush 源码目录执行，所有路径和模型占位符必须替换。显式单项目 Host 不启动 daemon，因此先 `start`；不得修改项目绑定变量绕过继承环境冲突。已有服务先检查身份，未经同意不重启或强杀。下面两种 Host 启动命令择一。
+先按[认证配置指导](remote-host-agent.md#3-配置认证与项目范围)手工创建所选作用域的 owner-only `web.json`（新配置 `version:2` 默认回环）。本机也必须登录；缺少配置时 Host 拒绝启动，无默认账号或首次设置页。不得把模板密码用于真实部署。下面命令在 Lush 源码目录执行，所有路径和模型占位符必须替换。显式单项目 Host 不启动 daemon，因此先 `start`；不得修改项目绑定变量绕过继承环境冲突。已有服务先检查身份，未经同意不重启或强杀。下面两种 Host 启动命令择一。
 
 `start` 只启动某个项目的 daemon；无 `--project` 的 `host` 是全局多项目工作台，先展示主体，明确打开项目时才启动或连接对应 daemon。每个已打开项目有自己的地址 `/p/<project-id>/`，不同窗口 / 标签各自保持自己的项目；从项目列表移除只隐藏入口并断开 Web 连接，不停止 daemon。
 
@@ -63,7 +63,7 @@ bun run lush --project /absolute/path/to/my-project agent prompt worker
 
 本机部署默认只监听回环。用户需要跨设备访问时，先读[远程 Host 用户说明](remote-host.md)，再按[远程 Host Agent 指导](remote-host-agent.md)自行配置 SSH、IP/端口 HTTP 或域名 HTTPS；认证模板、配置路径与代理步骤只在该指导维护。
 
-注意：创建 `web.json` 会启用认证并使 Host 监听 `0.0.0.0`，启动前必须确认网络暴露范围。HTTP 可用但有明文凭证和会话风险，应警告并推荐 HTTPS 或自建 SSH 隧道。不自动更改现有公网配置；完整安全约束见[HTTP 与认证](../reference/http.md)。
+注意：新 `version:2` 的 `web.json` 默认回环，仅显式 `listen:"public"` 才监听 `0.0.0.0`；旧 `version:1` 保留公网监听并警告。所有模式均需登录，启动前必须确认网络暴露范围。HTTP 可用但有明文凭证和会话风险，应警告并推荐 HTTPS 或自建 SSH 隧道。不自动更改现有公网配置；完整安全约束见[HTTP 与认证](../reference/http.md)。
 
 ## 5. 运行配置
 

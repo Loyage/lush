@@ -100,7 +100,7 @@ test('child flow Hooks are read-only even with an old editable projection; focus
         await click(node, level);
       }
       expect(selected(node)).toEqual(['merge']); expect(actions).toHaveLength(0);
-      expect(deepText(node)).toContain('流程 Hook 已锁定');
+      expect(node.querySelector('.hook-completion-state').hidden).toBe(true); // Routine lock explanation stays in help-host.
     }
   }
 });
@@ -179,7 +179,7 @@ test('freeze, running, unknown, failures, archives and missing revision cannot b
     const node = control(taskFor('merge', option));
     for (const level of levels) { expect(choice(node, level).disabled).toBe(true); expect(choice(node, level).parentNode.tabIndex).toBe(0); await click(node, level); }
     expect(actions).toHaveLength(0); expect(node.querySelector('script')).toBeNull();
-    expect(node.querySelector('.hook-completion-state').hidden).toBe(false);
+    expect(node.querySelector('.hook-completion-state').hidden).toBe(!['running', 'unknown'].includes(option.completion?.state));
   }
   const missing = taskFor(); delete missing.hooks.revision;
   expect(choice(control(missing), 'accept').disabled).toBe(true);
@@ -254,7 +254,10 @@ test('detail polling preserves in-flight authorization and open management, whil
     let resolve;
     intercept = (_path, body) => body?.method === 'worker.completion' ? new Promise(done => { resolve = done; }) : null;
     renderDetail(responseTask, null, null, null);
-    const section = root().querySelector('.worker-hooks'); section.querySelector('.hook-management').open = true;
+    const section = root().querySelector('.worker-hooks');
+    const toggle = section.querySelector('.hook-management-toggle');
+    expect(toggle.textContent).toBe('展开'); expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    await toggle.onclick(); expect(toggle.textContent).toBe('收起'); expect(section.querySelector('.hook-management').hidden).toBe(false);
     const saving = click(section, 'accept'); await until(() => resolve);
     expect(section.dataset.completionEditing).toBe('true');
     renderDetail({ ...responseTask, hooks: { ...responseTask.hooks, revision: 'mount-v2' } }, null, null, null);
@@ -263,7 +266,10 @@ test('detail polling preserves in-flight authorization and open management, whil
     expect(section.dataset.completionEditing).toBe('false');
     renderDetail(responseTask, null, null, null);
     expect(root().querySelector('.worker-hooks')).not.toBe(section); expect(root().querySelector('.hook-management').open).toBe(true);
-    root().querySelector('.hook-management').open = false; renderDetail(responseTask, null, null, null);
+    expect(root().querySelector('.hook-management-toggle').textContent).toBe('收起');
+    expect(root().querySelector('.hook-management-toggle').getAttribute('aria-expanded')).toBe('true');
+    await root().querySelector('.hook-management-toggle').onclick(); renderDetail(responseTask, null, null, null);
     expect(Boolean(root().querySelector('.hook-management').open)).toBe(false);
+    expect(root().querySelector('.hook-management-toggle').textContent).toBe('展开');
   } finally { restore(); }
 });

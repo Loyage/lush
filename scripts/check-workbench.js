@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { request } from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { startWeb } from '../src/ui/web/server.js';
 import { projectRouteId } from '../src/host/registry.js';
 import { readProjectAppearance, saveProjectAppearance } from '../src/host/project-appearance.js';
@@ -34,7 +35,11 @@ const projectHost = {
   openRoute: async () => { throw new Error('fixture project daemon offline'); },
   appearance: id => appearance(id), saveAppearance: (id, body) => appearance(id, body),
 };
-const server = startWeb(null, 0, { env: { HOME: root, LUSH_GLOBAL_CONFIG: root }, projectHost });
+const username = 'Workbench浏览器账号', password = randomBytes(24).toString('base64url');
+// Exercise mandatory login with v2's default loopback listener in a disposable fixture.
+fs.writeFileSync(path.join(root, 'web.json'), JSON.stringify({ version: 2, username, password }), { mode: 0o600 });
+const server = startWeb(null, 0, { env: fixtureEnv, projectHost });
+if (server.hostname !== '127.0.0.1') throw new Error('v2 workbench fixture must stay loopback');
 const origin = `http://127.0.0.1:${server.port}`;
 const reservation = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') });
 const port = reservation.port; reservation.stop(true);
@@ -76,6 +81,15 @@ async function click(selector) {
   await rpc(`/session/${session}/element/${element['element-6066-11e4-a52e-4f735466cecf']}/click`, {});
 }
 const navigate = url => rpc(`/session/${session}/url`, { url });
+async function login(next = '/') {
+  await navigate(`${origin}/login?next=${encodeURIComponent(next)}`);
+  await until(`document.querySelector('form[action="/login"]') !== null`);
+  await evaluate(`(() => { document.querySelector('[name="username"]').value=${JSON.stringify(username)};
+    document.querySelector('[name="password"]').value=${JSON.stringify(password)}; return true; })()`);
+  await click('form[action="/login"] button[type="submit"]');
+  await until(`location.pathname !== '/login' && !document.querySelector('form[action="/login"]')`);
+}
+
 async function resize(width) {
   await rpc(`/session/${session}/window/rect`, { width, height: 900 });
   // Firefox's desktop window has a minimum width; set the content viewport explicitly
@@ -114,7 +128,8 @@ try {
   };
   await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
   await bidi('session.subscribe', { events: ['log.entryAdded', 'network.beforeRequestSent'] });
-  await resize(1440); await navigate(origin);
+  assert((await fetch(`${origin}/api/host`)).status === 401, 'fixture Host must require login');
+  await resize(1440); await login();
   await until(`document.querySelector('#detail .project-manager') !== null`);
   const resources = () => evaluate(`performance.getEntriesByType('resource').filter(row=>/\\/web-[a-f0-9]{32}-.*\\.(?:js|css)$/.test(new URL(row.name).pathname)).map(row=>({name:new URL(row.name).pathname,transfer:row.transferSize,encoded:row.encodedBodySize,decoded:row.decodedBodySize}))`);
   const cold = await resources();
@@ -219,7 +234,7 @@ try {
   const secondBrowser = await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } });
   extraSession = secondBrowser.sessionId; session = extraSession;
   try {
-    await navigate(`${origin}/p/${projectRouteId(fixtureProject)}/`);
+    await login(`/p/${projectRouteId(fixtureProject)}/`);
     await until(`document.documentElement.dataset.projectColor === 'rose' && document.documentElement.dataset.theme === 'dark'`);
     assert(await evaluate(`document.title === 'mock-project · Lush' && document.getElementById('theme-toggle').hidden`), 'independent browser did not share device theme/project identity');
     await navigate(`${origin}/#settings`);
@@ -259,8 +274,10 @@ try {
   }
   await resize(1440);
   // New-project allocation avoids the first project's current color; reopening remains stable.
-  const registered = await fetch(`${origin}/api/host/select`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: secondProject }) });
-  assert(registered.ok, 'second fixture project registration failed');
+  const registered = await rpc(`/session/${session}/execute/async`, { args: [], script: `const done=arguments[0];
+    fetch('/api/host/select', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project:${JSON.stringify(secondProject)}})})
+      .then(response=>done(response.ok)).catch(()=>done(false));` });
+  assert(registered, 'authenticated second fixture project registration failed');
   await navigate(`${origin}/p/${projectRouteId(secondProject)}/`);
   await until(`document.title === 'second-project · Lush' && document.documentElement.dataset.projectColor === 'green'`);
   await navigate(`${origin}/p/${projectRouteId(fixtureProject)}/`);
@@ -327,7 +344,7 @@ try {
   currentPort = port;
   if (session) await rpc(`/session/${session}`, undefined, 'DELETE').catch(() => {});
   if (driver) { driver.kill('SIGTERM'); await driver.exited; }
-  server.stop(true);
+  await server.stop(true);
   if (passed) fs.rmSync(root, { recursive: true, force: true });
   else console.error(`Browser fixture diagnostics retained: ${root}`);
 }

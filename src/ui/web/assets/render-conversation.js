@@ -1,11 +1,16 @@
 import { block, button, el, syncChildren } from './dom.js';
 import { agentText, markdownEnabled } from './text.js';
-import { absolute } from './format.js';
+import { absolute, inputNumber } from './format.js';
+import { ui } from './state.js';
+import { loadHostSession, usernameInitial } from './host-session.js';
 import { loadHistory } from './api.js';
 import { referenceable } from './context-references.js';
 import { workerLabel } from './worker-label.js';
 
-const followup = event => event.type === 'message' && event.data?.sender === null && typeof event.data.body === 'string';
+const followup = event => event.type === 'message' && event.data?.sender === null && typeof event.data.body === 'string'
+  && !event.data.signal_type && !event.message?.signal_type;
+const appendNumber = value => typeof value === 'string' && /^A[1-9]\d*-[1-9]\d*$/.test(value) ? value : null;
+const originalNumber = id => Number.isSafeInteger(id) && id > 0 ? inputNumber(id) : null;
 const time = at => Number.isFinite(Date.parse(at)) ? Date.parse(at) : null;
 const inputTime = delivery => delivery?.status === 'delivered' && time(delivery.at) !== null
   ? `输入时间：${absolute(delivery.at)}` : delivery?.status === 'pending' ? '待输入' : '输入时间未知';
@@ -21,6 +26,7 @@ export function renderConversation(task, history = {}, previous = null) {
     && !(task.messages || []).some(message => message.sender_id != null || message.signal_type)
     && !(history.events || []).some(event => followup(event) || event.type === 'message' || event.message || event.type === 'invocation.completed')
     && !history.loading && !history.unavailable && !history.has_more && !history.truncated) return null;
+  const session = ui.hostSession, ownerDocument = globalThis.document, view = ui.view;
   const root = block('对话'); root.classList.add('conversation-panel'); root.conversationTaskId = task.id;
   const head = root.querySelector('.section-title');
   const count = el('span', '', 'count'), ordering = el('div', undefined, 'conversation-order');
@@ -58,7 +64,7 @@ export function renderConversation(task, history = {}, previous = null) {
       node = el('article', undefined, `conversation-message conversation-${entry.side}`);
       node.dataset.conversationKey = entry.key;
       const meta = el('div', undefined, 'conversation-meta');
-      const avatar = el('span', entry.side === 'input' ? '人' : entry.side === 'other' ? '信' : 'W', `conversation-avatar avatar-${entry.side}`);
+      const avatar = el('span', entry.side === 'input' ? '?' : entry.side === 'other' ? '信' : '🤖', `conversation-avatar avatar-${entry.side}`);
       avatar.setAttribute('aria-hidden', 'true');
       meta.append(avatar, el('strong', '', 'conversation-sender'), el('span', '', 'conversation-kind'), el('time', '', 'conversation-time'));
       const body = el('div', undefined, 'conversation-body');
@@ -96,10 +102,14 @@ export function renderConversation(task, history = {}, previous = null) {
       node.querySelector('.conversation-expand').hidden = !long;
       node.updateExpansion();
     }
-    node.querySelector('.conversation-sender').textContent = entry.side === 'input' ? '用户'
+    const username = ui.hostSession.status === 'ready' ? ui.hostSession.username : null;
+    node.querySelector('.conversation-avatar').textContent = entry.side === 'input' ? usernameInitial(username) : entry.side === 'other' ? '信' : '🤖';
+    node.querySelector('.conversation-sender').textContent = entry.side === 'input' ? username || '账号名称未知'
       : entry.side === 'other' ? entry.senderId != null ? `Worker ${workerLabel(entry.senderId, entry.senderNumber)}` : '系统'
         : `Worker ${workerLabel(current)}`;
-    node.querySelector('.conversation-kind').textContent = entry.kind;
+    const number = entry.key === 'goal' ? originalNumber(current.input_id) : entry.appendNumber;
+    node.querySelector('.conversation-kind').textContent = entry.side === 'input'
+      ? `${entry.kind}${number ? ` · ${number}` : entry.key !== 'goal' ? entry.messageId != null ? ` · 消息 #${entry.messageId}` : ' · 追加编号未知' : ''}` : entry.kind;
     const at = entry.side === 'input' ? entry.delivery?.at : entry.at;
     const clock = node.querySelector('.conversation-time');
     clock.textContent = entry.side === 'input' ? inputTime(entry.delivery)
@@ -173,7 +183,9 @@ export function renderConversation(task, history = {}, previous = null) {
       } else if (event.message && (event.message.task_id == null || event.message.task_id === current.id) && !followup(event)) {
         addOther(event.message, event.id);
       }
-      if (followup(event)) inputs.set(event.id, { key: `input:${event.id}`, eventId: event.id, messageId: event.data.message_id,
+      if (followup(event)) inputs.set(event.id, { key: `input:${event.id}`, eventId: event.id, messageId: event.data.message_id ?? event.message?.id,
+        appendNumber: appendNumber(event.data.append_number) || appendNumber(event.message?.append_number)
+          || appendNumber((current.messages || []).find(message => message.id === event.data.message_id)?.append_number),
         side: 'input', kind: '追加输入', text: event.data.body, at: event.created_at, delivery: event.input_delivery, sequence: event.id });
       if (event.type === 'invocation.completed' && typeof event.data?.result === 'string' && event.data.result) {
         const key = event.data.run_id ? `run:${event.data.run_id}` : `event:${event.id}`;
@@ -182,7 +194,11 @@ export function renderConversation(task, history = {}, previous = null) {
       }
     }
     const deliveries = new Map((page.events || []).flatMap(event => event.input_deliveries || []).map(delivery => [delivery.message_id, delivery]));
-    for (const entry of inputs.values()) if (deliveries.has(entry.messageId)) entry.delivery = deliveries.get(entry.messageId);
+    const messages = new Map((current.messages || []).map(message => [message.id, message]));
+    for (const entry of inputs.values()) {
+      if (deliveries.has(entry.messageId)) entry.delivery = deliveries.get(entry.messageId);
+      entry.appendNumber ||= appendNumber(messages.get(entry.messageId)?.append_number);
+    }
     // A refresh contributes its newest page without losing the oldest already-loaded cursor.
     if (page.cursor != null && (cursor == null || page.cursor <= cursor)) {
       cursor = page.cursor; hasMore = Boolean(page.truncated || page.has_more);
@@ -190,5 +206,9 @@ export function renderConversation(task, history = {}, previous = null) {
     paint();
   };
   root.updateConversation(task, history);
+  // Patch this conversation only, never redraw/navigate or accept a previous boot's response.
+  if (session.status === 'unread' || session.status === 'loading') void loadHostSession().then(() => {
+    if (ui.hostSession === session && globalThis.document === ownerDocument && ui.view === view) paint();
+  });
   return root;
 }

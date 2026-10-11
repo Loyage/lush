@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { RPCClient } from '../../src/rpc/client.js';
 import { PARAMS, USER_ONLY, assertAllowed } from '../../src/rpc/registry.js';
-import { startWeb } from '../../src/ui/web/server.js';
+import { startTestWeb as startWeb } from './auth-fixture.js';
 import { projectRouteId } from '../../src/host/registry.js';
 import { temp } from '../helpers.js';
 import { setup, fetch } from './harness.js';
