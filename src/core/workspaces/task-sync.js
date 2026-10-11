@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { check, LushError } from '../types.js';
+import { assertConvergenceMemberReceipt } from './delivery-publish.js';
 
 const oid = value => typeof value === 'string' && /^[0-9a-f]{40,64}$/.test(value);
 const bookingOf = task => task.reservation ? JSON.parse(task.reservation) : null;
@@ -43,13 +44,14 @@ export const methods = {
     return workspace;
   },
 
-  /** Squash receipts establish an equivalent-tree base, not a fabricated Git ancestor. */
+  /** Exact receipts map the delivered increment (legacy equivalent tree or multi-source), never a fabricated Git ancestor. */
   async taskSyncBase(task, source, parent) {
     const project = this.config.project;
     const receipt = this.store.get("SELECT data FROM events WHERE task_id=? AND type='task.merge_integrated' ORDER BY id DESC LIMIT 1", task.id);
     let landed = receipt ? JSON.parse(receipt.data) : null;
     if (!landed) {
       const booking = bookingOf(task);
+      check(!(booking?.version === 3 && booking.status === 'integrated'), 'convergence member receipt is missing');
       if (booking?.status === 'integrated' && booking.commit && booking.landed_commit)
         landed = { source_commit: booking.commit, commit: booking.landed_commit, parent_id: booking.parent_id };
     }
@@ -58,7 +60,8 @@ export const methods = {
         'delivery receipt does not match the current direct parent');
       check(await this.isAncestor(project, landed.source_commit, source)
         && await this.isAncestor(project, landed.commit, parent), 'delivery source/parent history no longer contains its fixed receipt');
-      check(await this.git(project, 'rev-parse', `${landed.source_commit}^{tree}`)
+      if (landed.convergence === true) await assertConvergenceMemberReceipt(this, task, landed);
+      else check(await this.git(project, 'rev-parse', `${landed.source_commit}^{tree}`)
         === await this.git(project, 'rev-parse', `${landed.commit}^{tree}`), 'delivery receipt trees differ');
       // A later successful sync recorded a real parent ancestor. Use that newer baseline;
       // otherwise replay only changes since the delivered source, never the old squash delta.

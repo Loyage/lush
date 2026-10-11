@@ -68,7 +68,11 @@ export const PARAMS = {
   'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer','expected_identity'],
   'notice.dismiss': ['id','expected_identity'], 'notice.read': ['id','expected_identity'],
   'branch.history': ['cursor','limit'], 'branch.version_graph': ['delivery','cursor','limit'], 'branch.tree': [], 'branch.show': ['branch'], 'branch.bind': ['branch','commit'],
-  'branch.archive': ['branch','discard','continue'], 'graph.get': [],
+  'branch.archive': ['branch','discard','continue'],
+  'branch.convergence': ['branch'], 'branch.convergence_list': [],
+  'branch.convergence_set': ['branch','enabled','validation','expected_revision'],
+  'branch.convergence_runs': ['branch','before','limit'], 'branch.convergence_retry': ['id','expected_revision'],
+  'graph.get': [],
 };
 export const USER_ONLY = new Set([
   'system.settings','settings.clear_override','settings.migration.preview','settings.migration.apply',
@@ -91,6 +95,7 @@ export const USER_ONLY = new Set([
   'worker.cancel','worker.retry','worker.clear_override','worker.cleanup','worker.interrupt','worker.resume','worker.configure','worker.run_settings',
   'worker.rename','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.delete_preview','worker.delete',
   'notice.sync','notice.answer','notice.dismiss','notice.read','branch.bind','branch.archive',
+  'branch.convergence','branch.convergence_list','branch.convergence_set','branch.convergence_runs','branch.convergence_retry',
 ]);
 export const AGENT_ONLY = new Set([
   'worker.auto_title','worker.integrate','worker.resolve_child_divergence','progress.plan','progress.complete',
@@ -98,6 +103,13 @@ export const AGENT_ONLY = new Set([
 ]);
 /** Management invocations have a narrower capability than ordinary development Agents. */
 export const MANAGER_METHODS = new Set(['manager.query','manager.start','manager.retry','worker.lookup']);
+/** Integration invocations can inspect fixed work and ask/report for themselves, never deliver or spawn. */
+export const INTEGRATION_METHODS = new Set([
+  'notice.post','progress.plan','progress.complete',
+  'system.status','system.summary',
+  'worker.lookup','worker.inspect','worker.diff','worker.history','worker.history_page','worker.transcript',
+  'branch.tree','branch.show','graph.get','notice.list','notice.page',
+]);
 
 export function assertAllowed(method, params, actor) {
   check(isPlainObject(params), 'params must be an object');

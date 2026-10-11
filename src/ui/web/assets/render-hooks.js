@@ -14,6 +14,7 @@ import { workerLabel } from './worker-label.js';
 import { hookScheduleSummary, scheduledWallTime } from './hook-schedule.js';
 import { renderSignalManagement } from './hook-signals.js';
 import { renderShortcutCommands } from './shortcut-commands.js';
+import { renderBranchConvergence } from './branch-convergence.js';
 import { commandReferencesIssue, commandSummary, legacyCommands, validCommands } from './shortcut-command-model.js';
 
 import { automationModule, automationAlerts } from './automation-module.js';
@@ -417,7 +418,12 @@ export async function openHooks() {
     const focused = document.activeElement, selection = focused && typeof focused.selectionStart === 'number'
       ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] : null;
     // Busy changes do not require a full redraw: every mutation checks this shared gate.
-    if (state.paintedCatalogue === catalogue && (state.busy || state.paintedBusy === state.busy)) { state.shortcutNode?.updateCommands?.(catalogue.commands); return; }
+    if (state.paintedCatalogue === catalogue && (state.busy || state.paintedBusy === state.busy)) {
+      state.shortcutNode?.updateCommands?.(catalogue.commands);
+      state.convergenceNode?.updateCommands?.(catalogue.commands);
+      state.convergenceNode?.syncControls?.();
+      return;
+    }
     for (const card of root.querySelectorAll('.hook-mount')) {
       const key = card.dataset.hookId || card.dataset.templateId;
       if (key) state.details.set(key, card.querySelector('details')?.open === true);
@@ -438,6 +444,10 @@ export async function openHooks() {
     });
     state.shortcutNode = commands;
     commands.updateCommands?.(catalogue.commands);
+    const convergence = state.convergenceNode || renderBranchConvergence({ catalogue, ownsPage: owns, busy: () => state.busy,
+      setBusy(value) { state.busy = value; if (owns()) paint(); }, setEditing(value) { state.convergenceEditing = value; } });
+    state.convergenceNode = convergence;
+    convergence.updateCommands?.(catalogue.commands);
     const mounts = catalogue.command_example?.hooks?.mounts;
     const commandProblem = mounts?.map(mount => commandReferencesIssue(mount, catalogue, mount.enabled)).filter(Boolean).join('；');
     automationModule(hooks, 'project-hooks', state.folds, [automationAlerts(mounts), commandProblem].filter(Boolean).join('；')
@@ -454,9 +464,11 @@ export async function openHooks() {
       } },
     });
     const controls = el('div', undefined, 'actions'); controls.append(button('新建模板', () => edit(), 'hook-button', { help: '编辑可复用规则，不启动 Agent，也不自动安装到 Worker。' }),
-      button('刷新目录', async () => { if (state.busy) return; if ((state.templateEditing || state.signalsEditing || state.managementEditing || state.commandEditing || state.shortcutEditing) && !await confirmDialog({ title: '放弃未保存编辑并刷新？', message: '刷新会读取后台最新项目目录，当前未保存编辑会丢失。', confirmLabel: '放弃并刷新' })) return;
+      button('刷新目录', async () => { if (state.busy) return; if ((state.templateEditing || state.signalsEditing || state.managementEditing || state.commandEditing || state.shortcutEditing || state.convergenceEditing) && !await confirmDialog({ title: '放弃未保存编辑并刷新？', message: '刷新会读取后台最新项目目录，当前未保存编辑会丢失。', confirmLabel: '放弃并刷新' })) return;
         if (!owns()) return; state.templateEditing = false; state.signalsEditing = false; state.managementEditing = false; state.commandEditing = false; state.shortcutEditing = false;
-        state.shortcutNode?.dispose?.(); state.shortcutNode = null; editor.replaceChildren(); signalEditor.replaceChildren(); managerEditor.replaceChildren(); state.paintedCatalogue = null; await load(); }, 'ghost hook-button', { help: '显式读取最新节点和模板；未保存编辑会先确认，不进行后台自动刷新。' }));
+        state.shortcutNode?.dispose?.(); state.shortcutNode = null;
+        state.convergenceNode?.dispose?.(); state.convergenceNode = null; state.convergenceEditing = false;
+        editor.replaceChildren(); signalEditor.replaceChildren(); managerEditor.replaceChildren(); state.paintedCatalogue = null; await load(); }, 'ghost hook-button', { help: '显式读取最新节点和模板；未保存编辑会先确认，不进行后台自动刷新。' }));
     const templates = block('项目模板', String(catalogue.templates?.length || 0));
     templates.querySelector('.section-title').append(hookHelpLink());
     search.type = 'search';
@@ -496,7 +508,7 @@ export async function openHooks() {
       const key = card.dataset.hookId || card.dataset.templateId, details = card.querySelector('details');
       if (key && details && state.details.has(key)) details.open = state.details.get(key);
     }
-    syncChildren(root, [header, el('p', '快捷指令和 Hook', 'hooks-page-subtitle'), el('p', '模板可复用，实际挂载独立保存。管理此项目的命令授权和实际挂载；设备默认流程与自动选择在独立全局自动化页配置。', 'hint'), commands, hooks, ...signals, controls, templates]);
+    syncChildren(root, [header, el('p', '快捷指令和 Hook', 'hooks-page-subtitle'), el('p', '模板可复用，实际挂载独立保存。管理此项目的命令授权和实际挂载；设备默认流程与自动选择在独立全局自动化页配置。', 'hint'), commands, convergence, hooks, ...signals, controls, templates]);
     // Moving a retained editor/search into a fresh module must not discard keyboard focus or caret.
     let ancestor = focused;
     while (ancestor && ancestor !== root) ancestor = ancestor.parentNode;

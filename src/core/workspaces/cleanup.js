@@ -209,6 +209,13 @@ export const methods = {
       }
       return { id: task.id, worktree: 'absent', branch: 'absent', reason: null };
     }
+    // Internal helpers are fixed private outputs, not source members or equivalent-tree squashes.
+    if (task.task_kind === 'integration') {
+      if (keepBranch) return { id: task.id, worktree: task.workspace ? 'kept' : 'absent',
+        branch: task.branch ? 'kept' : 'absent', reason: 'kept by --keep-branch' };
+      check(typeof this.archiveConvergenceHelperUnsafe === 'function', 'integration resource proof is unavailable; preserve the private worktree');
+      return this.archiveConvergenceHelperUnsafe(task);
+    }
     // A squash deliberately does not make the source commit an ancestor of the parent.
     // Verify the exact landed tree and ref instead of applying the old ancestry cleanup rule.
     const booking = task.reservation ? JSON.parse(task.reservation) : null;

@@ -19,13 +19,13 @@ const AUTH_FILE = 'web.json';
 const SESSION_COOKIE = 'lush_session';
 const SESSION_SECONDS = 12 * 60 * 60;
 const WEB_HOSTS = new WeakMap();
-const MUTATIONS = new Set(['settings.clear_override','settings.migration.apply','quick_explain.configure','agent.network.configure','agent.configure','agent.environment.configure','agent.usage.configure','agent.connections.save','agent.connections.remove','agent.connections.sampling','agent.connections.query','agent.connections.models.refresh','agent.connections.login.start','agent.connections.login.finish','agent.connections.device.start','agent.connections.device.cancel','agent.connections.device.poll','agent.packages.install','agent.packages.remove','agent.packages.update','system.configure','system.interrupt_all','system.resume_all','hooks.save','hooks.remove','hooks.command_save','hooks.command_authorize','hooks.command_remove','hooks.command_run','hooks.command_start','hooks.command_history_remove','hooks.command_import','hooks.auto_select','hooks.completion_defaults','hooks.signal_save','hooks.signal_remove','management.create','management.binding_update','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove','order.submit','draft.add','draft.update','draft.remove','worker.spawn','worker.message','worker.rename','worker.auto_merge','worker.reserve','worker.reserve_all','worker.resolve','worker.accept','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.resolve_divergence','worker.unreserve','worker.approve_merge','worker.cancel','worker.retry','worker.clear_override','worker.interrupt','worker.resume','worker.configure','worker.cleanup','worker.delete','notice.answer','notice.dismiss','notice.read','branch.archive']);
+const MUTATIONS = new Set(['settings.clear_override','settings.migration.apply','quick_explain.configure','agent.network.configure','agent.configure','agent.environment.configure','agent.usage.configure','agent.connections.save','agent.connections.remove','agent.connections.sampling','agent.connections.query','agent.connections.models.refresh','agent.connections.login.start','agent.connections.login.finish','agent.connections.device.start','agent.connections.device.cancel','agent.connections.device.poll','agent.packages.install','agent.packages.remove','agent.packages.update','system.configure','system.interrupt_all','system.resume_all','hooks.save','hooks.remove','hooks.command_save','hooks.command_authorize','hooks.command_remove','hooks.command_run','hooks.command_start','hooks.command_history_remove','hooks.command_import','hooks.auto_select','hooks.completion_defaults','hooks.signal_save','hooks.signal_remove','management.create','management.binding_update','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove','order.submit','draft.add','draft.update','draft.remove','worker.spawn','worker.message','worker.rename','worker.auto_merge','worker.reserve','worker.reserve_all','worker.resolve','worker.accept','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.resolve_divergence','worker.unreserve','worker.approve_merge','worker.cancel','worker.retry','worker.clear_override','worker.interrupt','worker.resume','worker.configure','worker.cleanup','worker.delete','notice.answer','notice.dismiss','notice.read','branch.archive','branch.convergence_set','branch.convergence_retry']);
 const QUICK_CHAT_PARAMS = new Map([
   ['prompt_save', ['prompt', 'expected_revision']], ['prompt_remove', ['id', 'expected_revision']],
   ['start', ['prompt_id', 'content', 'references']], ['send', ['id', 'content']], ['delete', ['id']],
 ]);
 const CORE_INPUT_READ = /^\/api\/input\/(draft|input)\/([1-9]\d*)$/;
-const CORE_READS = new Set(['/api/settings/runtime','/api/settings/migration','/api/quick-explain/config','/api/hooks','/api/hooks/commands/executions','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/worker-lookup','/api/notices','/api/worker-graph','/api/versions','/api/version-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
+const CORE_READS = new Set(['/api/branch-convergence','/api/branch-convergence/runs','/api/settings/runtime','/api/settings/migration','/api/quick-explain/config','/api/hooks','/api/hooks/commands/executions','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/worker-lookup','/api/notices','/api/worker-graph','/api/versions','/api/version-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
 const CORE_WORKER_READ = /^\/api\/worker\/\d+(?:\/(?:hooks|history|history-page|reading-page|reading-record|progress-history|run-settings|delete-preview|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的 Worker 读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/worker\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
@@ -487,6 +487,24 @@ export function startWeb(config, port = 4318, options = {}) {
             check(!url.search, 'explanation config accepts no query parameters');
             return json(await client.request('quick_explain.config'));
           }
+          if (url.pathname === '/api/branch-convergence' || url.pathname === '/api/branch-convergence/runs') {
+            const runs = url.pathname.endsWith('/runs'), params = {};
+            for (const [key, value] of url.searchParams) {
+              check((runs ? ['branch','before','limit'] : ['branch']).includes(key) && !Object.hasOwn(params, key),
+                'unknown or duplicate branch convergence query parameter');
+              if (key === 'branch') params.branch = value;
+              else {
+                check(/^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value))
+                  && (key !== 'limit' || Number(value) <= 50), 'convergence cursor and limit must be positive integers (limit up to 50)');
+                params[key] = Number(value);
+              }
+            }
+            if (runs) {
+              check(Object.hasOwn(params, 'branch'), 'convergence runs requires branch');
+              return json(await client.request('branch.convergence_runs', params));
+            }
+            return json(await client.request(Object.hasOwn(params, 'branch') ? 'branch.convergence' : 'branch.convergence_list', params));
+          }
           if (url.pathname === '/api/hooks') {
             check(!url.search, 'Hooks list accepts no query parameters');
             return json(await client.request('hooks.list'));
@@ -718,6 +736,12 @@ export function startWeb(config, port = 4318, options = {}) {
               'project maintenance action accepts only method and params');
             check(params === undefined || isPlainObject(params) && Object.keys(params).length === 0,
               'project maintenance params must be an empty object; paths and agent tokens are not accepted');
+          }
+          if (method === 'branch.convergence_set' || method === 'branch.convergence_retry') {
+            check(!url.search, 'branch convergence action accepts no query parameters');
+            check(isPlainObject(body) && Object.keys(body).every(key => ['method','params'].includes(key)),
+              'branch convergence action accepts only method and params');
+            check(isPlainObject(params) && !Object.hasOwn(params, '_token'), 'branch convergence params must be an object without agent tokens');
           }
           check(!params?._token, 'agent tokens are not accepted by Web UI');
           return json(await client.request(method, params));

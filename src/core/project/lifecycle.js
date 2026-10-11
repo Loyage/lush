@@ -192,12 +192,21 @@ export default {
   cancel(taskId, reason = 'cancelled by user', status = 'cancelled') {
     const task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
+    if (task.task_kind === 'integration') {
+      check(this.cancelConvergenceIntegration, 'integration lifecycle is unavailable; preserve its private worktree');
+      return this.cancelConvergenceIntegration(task.id, reason, status);
+    }
     check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; cancel individual order Workers instead');
     if (TERMINAL.has(task.status)) return task;
     const mergeBooking = task.reservation ? JSON.parse(task.reservation) : null;
     const inbound = this.activeTaskMerge(task.id);
+    check(!this.activeConvergenceLanding?.(task.id), 'convergence may have modified this branch; preserve its publication gate before cancelling');
     check(!inbound || !JSON.parse(inbound.reservation).landing_receipt,
       'child landing may have modified this branch; inspect its blocked execution slot before cancelling');
+    if (mergeBooking?.version === 3 && !['integrated', 'withdrawn'].includes(mergeBooking.status)) {
+      check(this.withdrawConvergenceMember, 'convergence withdrawal is unavailable; preserve its source');
+      this.withdrawConvergenceMember(task.id, reason);
+    }
     if (mergeBooking?.version === 2 && mergeBooking.kind === 'merge'
       && ['pending','requested','executing','resolving','suspended','blocked'].includes(mergeBooking.status)) {
       check(!mergeBooking.landing_receipt, 'merge is applying or reconciling a Git update; wait for its safe point');
@@ -315,6 +324,7 @@ export default {
     check(!this.workspaces.busy.has(task.id), 'worktree cleanup is in progress; retry shortly');
     check(task.role !== 'butler', '管家决定不允许重放；请手动处理原 Notice');
     check(task.task_kind !== 'management', 'management invocations do not replay; create a new authorized instruction');
+    check(task.task_kind !== 'integration', 'internal integration attempts do not replay; inspect and explicitly retry their convergence run');
     const divergenceChild = task.task_kind === 'child' && this.store.get(
       "SELECT id FROM events WHERE task_id=? AND type='task.divergence_resolution_requested' LIMIT 1", task.id);
     check(!divergenceChild, '解分歧子Worker不重放未知文件副作用：先检查现场，显式归档旧分支，再从源指令重新派独立子Worker');
@@ -385,13 +395,14 @@ export default {
       }
       // Never replay an invocation with unknown filesystem side effects.
       for (const task of this.store.tasks()) if ((task.status === 'running' || task.interrupt_state === 'resuming')
-        && ['order','child','analysis'].includes(task.task_kind))
+        && ['order','child','analysis','integration'].includes(task.task_kind))
         this.cancel(task.id, 'daemon interrupted; inspect worktree and explicitly retry', 'failed');
       for (const task of this.store.tasks()) if (task.interrupt_state === 'requested')
         this.store.update(task.id, { status: 'paused', interrupt_state: null });
     });
     this.store.run("UPDATE tasks SET integration='review',integration_error='merge interrupted; inspect git history manually' WHERE integration='merging' AND task_kind IN ('order','say','child')");
     this.recoverTaskDeliveries();
+    this.recoverConvergence?.();
     // Older retries discarded a withdrawn booking while leaving the source under its queue.
     // Restore the audited owner before wake/settlement; no approval or invocation is recreated.
     for (const task of this.store.tasks()) if (['order','child'].includes(task.task_kind)) {
@@ -431,6 +442,7 @@ export default {
       if (requested) {
         const booking = JSON.parse(task.reservation);
         if (booking.version === 2) this.scheduleTaskMerge(booking.parent_id);
+        else if (booking.version === 3) this.scheduleConvergence?.(booking.parent_id);
         else void this.recheckRequestedMerge(task.id).catch(error =>
           this.noteReservationBlocked(task.id, error.message));
       }
@@ -470,6 +482,7 @@ export default {
 
   async shutdown() {
     this.stopping = true;
+    for (const job of this.convergenceJobs?.values() ?? []) job.controller.abort(new Error('daemon stopped'));
     this.stopScheduledHookTimer();
     this.stopMaintenanceMonitor();
     this.stopRuntimeSettingsMonitor();
@@ -488,6 +501,7 @@ export default {
     await this.hookQueue;
     await Promise.allSettled([...(this.shortcutCommandJobs ?? [])]);
     await this.completionQueue;
+    await Promise.allSettled([...(this.convergenceJobs?.values() ?? [])].map(job => job.promise));
     await this.workspaces.queue;
     await usageStopped;
     await connectionsStopped;

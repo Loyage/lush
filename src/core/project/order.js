@@ -13,7 +13,7 @@ function storedReservation(raw) {
   let value;
   try { value = JSON.parse(raw); }
   catch { throw new Error('reservation state is invalid; inspect worker before changing it'); }
-  check(value && typeof value === 'object' && !Array.isArray(value) && [1,2].includes(value.version)
+  check(value && typeof value === 'object' && !Array.isArray(value) && [1,2,3].includes(value.version)
     && value.kind === 'merge' && typeof value.status === 'string',
   'reservation state is invalid; inspect worker before changing it');
   return value;
@@ -551,7 +551,7 @@ export default {
     // Deferred inputs cannot invalidate an already-fixed attempt, but do block a
     // fresh delivery until the Worker has admitted and processed its next wave.
     const booking = storedReservation(task.reservation);
-    const fixed = booking?.version === 2 && ['requested','executing','resolving','blocked'].includes(booking.status);
+    const fixed = [2, 3].includes(booking?.version) && ['requested','executing','resolving','blocked'].includes(booking.status);
     if (this.hasActionableMessages(task.id) || (!fixed && this.taskInputQueue(task).buffered))
       return '还有未处理的消息或子Worker信号，需先交给 Agent';
     return null;
@@ -694,6 +694,10 @@ export default {
     // the user explicitly switch it off (with the same readiness gate) instead.
     check(!automatic?.enabled || !requested.reservation || !JSON.parse(requested.reservation).auto_merge,
       '请关闭自动合并开关，不要通过撤销请求关闭持久 hook');
+    if (requested.reservation && JSON.parse(requested.reservation)?.version === 3) {
+      check(this.withdrawConvergenceMember, 'convergence withdrawal is unavailable; preserve the fixed source');
+      return this.withdrawConvergenceMember(requested.id);
+    }
     if (['order','child'].includes(requested.task_kind) && requested.reservation
       && JSON.parse(requested.reservation)?.version === 2) {
       const booking = JSON.parse(requested.reservation);

@@ -23,13 +23,20 @@ export const messages = {
         taskId, body, hold, `A${inputId}-${next}`).lastInsertRowid);
     }).immediate();
   },
-  /** A keyed child→parent signal is durable and idempotent; ordinary messages keep NULL signal fields. */
+  /** Keyed child→parent and system→parent signals are durable; NULL senders also need exact idempotence. */
   signal(taskId, senderId, type, key, body) {
-    const inserted = this.run(`INSERT OR IGNORE INTO messages(task_id,sender_id,body,signal_type,signal_key)
-      VALUES (?,?,?,?,?)`, taskId, senderId, body, type, key).changes === 1;
-    const row = this.get('SELECT * FROM messages WHERE task_id=? AND sender_id=? AND signal_key=?', taskId, senderId, key);
-    if (!row || row.signal_type !== type || row.body !== body) throw new Error(`signal key ${key} already has different content`);
-    return { id: row.id, inserted };
+    // SQLite UNIQUE does not deduplicate NULL. Lock before the lookup across independent connections.
+    return this.db.transaction(() => {
+      let row = this.get('SELECT * FROM messages WHERE task_id=? AND sender_id IS ? AND signal_key=?', taskId, senderId, key);
+      let inserted = false;
+      if (!row) {
+        inserted = this.run(`INSERT OR IGNORE INTO messages(task_id,sender_id,body,signal_type,signal_key)
+          VALUES (?,?,?,?,?)`, taskId, senderId, body, type, key).changes === 1;
+        row = this.get('SELECT * FROM messages WHERE task_id=? AND sender_id IS ? AND signal_key=?', taskId, senderId, key);
+      }
+      if (!row || row.signal_type !== type || row.body !== body) throw new Error(`signal key ${key} already has different content`);
+      return { id: row.id, inserted };
+    }).immediate();
   },
   unread(taskId) { return this.all(`${MESSAGE_SELECT} WHERE task_id=? AND consumed=0 ORDER BY id`, taskId); },
   /**

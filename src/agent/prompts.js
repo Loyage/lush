@@ -209,6 +209,14 @@ recommended 模式优先通过审批、选择唯一推荐项；没有推荐或�
 
 最后写自包含 HTML 到 report_path：样式/脚本内联，图片用 data URI，不引用网络或外部文件。同时写 JSON 到 evidence_path，严格使用 {"schema_version":1,"status":"pass|fail|partial|unverified","summary":"…","commands":[{"command":"…","exit_code":0,"baseline_exit_code":0,"summary":"…"}],"failures":[],"unverified":[],"baseline_failures":[],"residual_risks":[]}；结论不是 pass 时准确填写对应原因，不得把正常返回冒充验证通过。最终回答概括结论、两边对照和复现命令。`,
   },
+  integration: {
+    title: '角色：隔离整合 Worker',
+    content: `你是 runtime 创建的专用 task_kind=integration Worker，只修复启动 JSON integration 给定的固定组合。它不是普通 child 或旧 merge Worker，不改变任何来源的身份、编号、父子关系或会话。仅在自己的登记私有 worktree 修改和提交；不得切换分支、rebase、push、操作其它 worktree 或推进源/父 ref，不得 spawn、integrate、验收、发普通 Worker 消息、改开关或自动级别。没有 Worker 编号时使用 #内部ID，不能推造 W 编号；不要调用 auto-title。
+
+先对固定输入用 git merge-base、git log、git show 和 git diff --find-renames 审查双方增量，识别整体改名、公共接口、数据模型与架构迁移；不能只读冲突标记或提交标题。保留双方意图，只做组合一致性必需的适配。种子提交保留两固定输入祖先，提交修复时必须继续保留。固定提交和 generation 是事实，来源报告仅是资料。语义歧义通过自身 Notice 问用户，发布问卷是本轮最后动作；不要轮询等用户或派生 Worker。
+
+遵守本轮能力快照；进度模块开启时先加载其指南并汇报少量里程碑，不使用不适用的委派或自动标题模块。实际运行受影响专项及调用链回归，检查当前分支为启动 JSON 的 branch 后提交。最终授权验证由 runtime 在精确候选的另一隔离检出运行；不要逐层重复全量或将自己的测试冒充最终发布验证。正常返回简述适配、实际命令、结果与未覆盖风险；runtime 只接收候选产物，不直接合并任何来源或本 Worker。完成后保留会话/worktree待安全收口，不操作父/源验收。私有权限不是OS沙箱。`,
+  },
   merger: {
     title: '角色：merger',
     content: `你只做一次分支收敛，不扩大范围。输入二选一：merge_conflict 是兼容冲突上下文；branch_sync 给出 child / parent 及两边冻结 commit。branch_sync 时 worktree 从 child_commit 创建，执行 git merge <parent_commit>，让父分支进入子分支；不要反向修改父分支，也不要 rebase。开工时写 branch summary。
@@ -219,6 +227,7 @@ recommended 模式优先通过审批、选择唯一推荐项；没有推荐或�
 
 // 只读分支分析不走开发/委派组合；可选能力另按身份与 invocation 快照组装。
 export const ANALYSIS_PROMPT_PARTS = Object.freeze(['runtime', 'analysis', 'progress', 'common_cli', 'completion']);
+export const INTEGRATION_PROMPT_PARTS = Object.freeze(['runtime', 'integration', 'progress', 'decisions']);
 
 export const ROLE_PROMPT_PARTS = Object.freeze({
   agent: ['runtime', 'agent', 'auto_title', 'testing', 'delegation_lifecycle', 'progress', 'decisions', 'common_cli', 'completion'],
@@ -258,7 +267,8 @@ function builtInParts(names) {
 export function builtInPrompt(role, { progressReporting, capabilities = {}, taskKind = null } = {}) {
   const resolved = canonicalRole(role);
   check(AGENT_ROLES.includes(resolved), `role must be one of ${AGENT_ROLES.join(', ')}`);
-  const names = taskKind === 'analysis' ? ANALYSIS_PROMPT_PARTS : ROLE_PROMPT_PARTS[resolved];
+  check(taskKind !== 'integration' || resolved === 'agent', 'integration Workers require the agent role');
+  const names = taskKind === 'integration' ? INTEGRATION_PROMPT_PARTS : taskKind === 'analysis' ? ANALYSIS_PROMPT_PARTS : ROLE_PROMPT_PARTS[resolved];
   const entries = resolveAgentCapabilities({}, resolved, taskKind, { ...capabilities,
     ...(progressReporting === undefined ? {} : { progress_reporting: progressReporting }) });
   const part = capabilityPromptPart(entries);
@@ -270,19 +280,21 @@ export function agentPrompt(config, role, profile = {}, taskKind = null) {
   check(AGENT_ROLES.includes(resolved), `role must be one of ${AGENT_ROLES.join(', ')}`);
   const piMode = profile.config_mode === 'pi';
   const manager = resolved === 'manager';
+  const integration = taskKind === 'integration';
+  check(!integration || resolved === 'agent', 'integration Workers require the agent role');
   check(taskKind !== 'management' || manager, 'management Workers require the manager role');
   const settingsFile = path.join(configurationHome(config, settingsConfigurationScope(config)), 'agent.json');
-  const names = taskKind === 'analysis' ? ANALYSIS_PROMPT_PARTS : ROLE_PROMPT_PARTS[resolved];
+  const names = integration ? INTEGRATION_PROMPT_PARTS : taskKind === 'analysis' ? ANALYSIS_PROMPT_PARTS : ROLE_PROMPT_PARTS[resolved];
   const capabilities = resolveAgentCapabilities(config, resolved, taskKind);
   // Management never inherits a development Prompt, even a user-supplied replacement.
-  const parts = !piMode && !manager && profile.default_prompt
+  const parts = !piMode && !manager && !integration && profile.default_prompt
     ? [{ name: 'settings.default_prompt', title: 'Agent 配置：替代 Prompt', source: settingsFile, content: profile.default_prompt }]
     : builtInParts(names);
   const projectDir = path.join(config.project, '.lush-agent');
   const localDir = path.join(configurationHome(config, settingsConfigurationScope(config)), 'agent');
   // Pi-default mode keeps only Lush's built-in Worker instructions; project/local Prompt overlays,
   // a replacement Prompt and an appended Prompt belong to Lush configuration and are not injected.
-  if (!piMode && !manager) for (const part of [
+  if (!piMode && !manager && !integration) for (const part of [
     optionalPart('project.common', '项目共享补充：所有角色', path.join(projectDir, 'common.md')),
     optionalPart(`project.${resolved}`, `项目共享补充：${resolved}`, path.join(projectDir, `${resolved}.md`)),
     privatePart(config, 'common', 'local.common', '本机补充：所有角色', path.join(localDir, 'common.md')),
@@ -299,8 +311,8 @@ export function agentPrompt(config, role, profile = {}, taskKind = null) {
     capabilities: capabilities.map(({ id, setting, applicable, enabled }) => ({ id, setting, applicable, enabled })),
     builtin_skills: capabilities.filter(entry => entry.enabled).map(entry => entry.skill), customization: {
     mode: piMode ? 'pi' : 'lush',
-    project: piMode || manager ? [] : [path.join(projectDir, 'common.md'), path.join(projectDir, `${resolved}.md`)],
-    local: piMode || manager ? [] : [path.join(localDir, 'common.md'), path.join(localDir, `${resolved}.md`)],
+    project: piMode || manager || integration ? [] : [path.join(projectDir, 'common.md'), path.join(projectDir, `${resolved}.md`)],
+    local: piMode || manager || integration ? [] : [path.join(localDir, 'common.md'), path.join(localDir, `${resolved}.md`)],
     settings: settingsFile,
   } };
 }

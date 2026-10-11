@@ -16,6 +16,9 @@ export default {
   async invocationContext(task, run) {
     if (task.role === 'manager' && task.task_kind === 'management') return { management: this.managementContext(task),
       invocation: { run_id: run.recordId, task_id: task.id, role: task.role } };
+    if (task.task_kind === 'integration') return { integration: this.convergenceIntegrationContext(task),
+      invocation: { run_id: run.recordId, task_id: task.id, role: task.role },
+      open_notices: this.store.all("SELECT * FROM notices WHERE task_id=? AND status='open'", task.id) };
     if (task.role === 'butler') return { butler: this.butlerContext(task.id), invocation: { run_id: run.recordId, task_id: task.id, role: task.role } };
     // Historical no-tools invocations keep their original event snapshot; no explanation API or new Worker is created.
     if (task.role === 'explainer') {

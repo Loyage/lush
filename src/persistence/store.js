@@ -15,15 +15,18 @@ import { candidates } from './store/candidates.js';
 import { references } from './store/references.js';
 import { agentUsage } from './store/agent-usage.js';
 import { agentConnections } from './store/agent-connections.js';
+import { convergence, ensureConvergenceColumns } from './store/convergence.js';
 
 /**
  * 持久化入口：只做装配，实现按职责住在 src/persistence/store/ 下。
  * 每个职责模块导出一个方法对象（方法体里照旧用 this），这里并进原型；
  * 重名＝拆分出错，立刻抛错，不静默覆盖。
  */
-export class Store extends StoreBase {}
+export class Store extends StoreBase {
+  constructor(...args) { super(...args); ensureConvergenceColumns(this.db); }
+}
 
-for (const [module, mixin] of Object.entries({ tasks, specs, deps, messages, events, reading, verification, drafts, inputHistory, references, timeline, branches, runs, candidates, agentUsage, agentConnections })) {
+for (const [module, mixin] of Object.entries({ tasks, specs, deps, messages, events, reading, verification, drafts, inputHistory, references, timeline, branches, runs, candidates, agentUsage, agentConnections, convergence })) {
   for (const name of Object.keys(mixin)) {
     if (Object.prototype.hasOwnProperty.call(Store.prototype, name)) {
       throw new Error(`duplicate Store method ${name} (${module}.js)`);

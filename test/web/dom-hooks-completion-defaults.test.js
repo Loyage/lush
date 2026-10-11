@@ -15,6 +15,7 @@ beforeEach(() => {
     if (body) posts.push({ url, body }); else reads.push(url);
     if (override) return override(url, body);
     if (url.endsWith('/api/hooks')) return json({ version: 1, revision: 'hooks', triggers: [], actions: [], templates: [], commands: [], completion_defaults: { enabled: true, level: 'archive', revision: 'old' }, auto_select: { enabled: true, revision: 'old-auto' } });
+    if (url.endsWith('/api/branch-convergence')) return json({ version: 1, items: [], count: 0, truncated: false });
     if (url !== '/api/host/automation') throw Error(`unexpected ${url}`);
     if (body) { if (failWrite) return json({ error: '版本冲突' }, 409); model = { ...model, ...body.patch, revision: 'r2' }; }
     else if (failRead) throw Error('Host offline');
@@ -45,7 +46,7 @@ test('project Hooks retain actual mounts but remove both project-wide editors', 
   expect(section()).toBeNull(); expect(button('开启后台自动选择')).toBeUndefined();
   expect(root().querySelectorAll('a').some(link => link.href === '/#automation' && link.target === '_blank')).toBe(true);
   expect(root().querySelectorAll('a').some(link => link.href === '/#doc-docs-hooks' && link.target === '_blank')).toBe(true);
-  expect(reads).toEqual(['/p/1111111111111111/api/hooks']); expect(posts).toHaveLength(0);
+  expect(reads).toEqual(['/p/1111111111111111/api/hooks', '/p/1111111111111111/api/branch-convergence']); expect(posts).toHaveLength(0);
 });
 
 test('global defaults load once and draft selection never writes; saved scope is device-wide', async () => {

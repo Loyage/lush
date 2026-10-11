@@ -24,6 +24,25 @@ test('所有源码中直接写入的事件类型都有中文名称，避免新�
   }
 });
 
+test('归并准备、辅助产物和资源事件都有中文标签，不冒充来源落地或独立指令验收', () => {
+  for (const type of ['branch.convergence_configured', ...[
+    'queue_failed', 'member_fixed', 'batch_fixed', 'baseline_refixed', 'repair_attempt_fixed',
+    'integration_created', 'integration_ready', 'integration_settled', 'integration_stopped',
+    'landing_prepared', 'withdrawal_requested', 'helper_reclaimed', 'helper_cleanup_failed',
+  ].map(name => `convergence.${name}`)]) {
+    const event = Object.freeze({ type, data: Object.freeze({ run_id: 42, generation: 2 }) });
+    expect(Object.hasOwn(EVENTS, type)).toBe(true); expect(eventLabel(event)).toMatch(/[\u4e00-\u9fff]/);
+    expect(event.type).toBe(type); expect(event.data.generation).toBe(2);
+    expect(eventLabel(event)).not.toBe(eventLabel({ type: 'task.merge_integrated' }));
+    expect(eventLabel(event)).not.toBe(eventLabel({ type: 'task.accepted' }));
+  }
+  expect(eventLabel({ type: 'convergence.integration_ready' })).toContain('待实际退出');
+  expect(eventLabel({ type: 'convergence.integration_settled' })).toContain('非父分支落地');
+  expect(eventLabel({ type: 'convergence.integration_stopped' })).toContain('请求');
+  expect(eventLabel({ type: 'convergence.landing_prepared' })).toContain('未确认落地');
+  expect(eventLabel({ type: 'convergence.helper_cleanup_failed' })).toContain('未完成');
+});
+
 test('项目维护事件只承诺接受请求，不冒充已经停止或运行', () => {
   expect(eventLabel({ type: 'maintenance.interrupted' })).toBe('接受当前项目全部中断请求');
   expect(eventLabel({ type: 'maintenance.resumed' })).toBe('接受当前项目全部继续请求');

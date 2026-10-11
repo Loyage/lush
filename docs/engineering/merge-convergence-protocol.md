@@ -1,6 +1,6 @@
 # 归并合并方案：算法与持久协议
 
-本篇定义 W205／D482 的拟议技术协议，**尚未实现，不是当前 API 契约**。不新增核心业务实体；归并运行、节点与成员都是父 Worker 的交付技术记录。当前入口为 `project/merge-queue.js`、`workspaces/merge.js` 与 `workspaces/task-sync.js`，计划分区见[实施方案](merge-convergence-rollout.md)。
+本篇定义 W205／D482 的目标技术协议，**不等于首版全部能力或当前 API 契约**。不新增核心业务实体；归并运行、节点与成员都是父 Worker 的交付技术记录。首版已实现固定批次与协议 v3，默认关闭；当前接口及限制以[实施接缝](merge-convergence-implementation.md#首版实现与明确限制)为准，实际模块见[Runtime 地图](merge-convergence-runtime.md)。动态扩批、单目标验证晋级槽、自动语义风险识别与预算调优仍是后续设计，不应当作既有功能。
 
 阅读路线：[产品与理念](../design/merge-convergence.md) → **算法与架构（本篇）** → [异常与迭代](merge-convergence-cases.md) → [实施与验证](merge-convergence-rollout.md)。
 

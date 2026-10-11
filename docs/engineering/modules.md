@@ -35,6 +35,14 @@
 
 [产品方案](../design/merge-convergence.md)与[算法协议](merge-convergence-protocol.md)、[异常边界](merge-convergence-cases.md)、[实施分区](merge-convergence-rollout.md)提出固定交付成果归并、单批发布、按需专用整合 Worker 和无已知依赖就绪批次先行。原 Worker 不重挂、不互改源分支；共享批次来源收据须同时适配同步、迭代、验收、Hook 与删除保护。拟议文件/技术表/API 尚不存在，实施前另行固定精确接口；本节不改变当前 v2 父自有队列、Agent 权限或历史协议，不授权当前 Worker 创建整合身份或操作其他分支。
 
+## 分支归并首版接缝（W205／D482／D512）
+
+[产品方案](../design/merge-convergence.md)、[算法协议](merge-convergence-protocol.md)与[异常边界](merge-convergence-cases.md)保留完整方向；当前已实现的精确公共方法、默认关闭开关、RPC/HTTP/CLI、Web 读面与明确限制以[实施接缝](merge-convergence-implementation.md)为准。实际文件与导出见[Runtime 归并地图](merge-convergence-runtime.md)。原 Worker 不重挂、不互改源分支；协议 v3 的固定批次、隔离整合/验证、单父发布和多源来源收据贯通同步、迭代、验收、Hook 与删除保护，旧 v1/v2 在途不转换。
+
+分支策略仅用户可改，必须选择已授权快捷指令的精确版本；不提高 Worker 自动合并/验收授权。仅 runtime 内部工厂创建 `integration`，普通 Agent 不获得创建整合身份、操作其他分支或修改策略权限。动态扩批、批次内部自动拆分和吞吐/模型质量保证不属于首版。
+
+分区：Runtime owns core/persistence/agent 与其 Git/调度/生命周期接缝；Interface owns RPC/CLI/server 与协议 tests；UI owns assets/DOM；W205 owns 文档、真实跨模块集成与最终代码树全量。不默认操纵用户服务；部署和重启需在用户确认的安全点进行。
+
 ## 工作台改造接缝
 
 用户已确认：仅保留 Web UI，启动直接进入主体，每项目独立浏览器标签，关闭页面后后台继续；服务器部署与网络访问由用户管理，Lush 不管理 SSH 或远端产物。修改启动、环境与项目入口前阅读[工作台设计](../design/workbench.md)；文件分工与新增接口以[工作台接入契约](workbench.md)为准。该接缝优先于旧项目闸门描述；逐步交付不得宣称尚未验收能力。

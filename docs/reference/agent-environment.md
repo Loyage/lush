@@ -59,4 +59,6 @@ Worker 详情统一使用「调整运行设置」选择模型来源，不再提�
 
 以下操作限用户：system.stop、system.configure、agent.configure、agent.environment、agent.environment.configure、agent.network、agent.network.configure、agent.connections.*（包括读取、查询与登录）、order.submit、worker.transcript_latest / transcript_page / transcript_step / transcript_search、worker.auto_merge / reserve / unreserve / resolve / resolve_divergence / approve_merge / cancel / retry / cleanup、notice.answer / dismiss、branch.bind / archive。`agent.environment` 虽是读取接口，但会返回明文密钥，因此同样拒绝 agent token。CLI 另禁止 agent 启动 daemon、Web 或阻塞等待。
 
+专用整合 Worker（`task_kind='integration'`）另有默认拒绝的 RPC 窄白名单，只允许安全只读和自身 Notice／进度，不能派工、发消息、交付、验收或修改归并策略。身份取自有效 invocation 对应的 Store 事实，不依赖 Prompt；普通 Agent 与管理 Agent 权限不变。精确能力见[分支归并接口](rpc/convergence.md#专用整合-worker-的-rpc-能力)。
+
 本地用户可以不带 token 调用 RPC，这是明确的信任边界，不是多用户 ACL。能执行任意本机命令的恶意 agent 也能绕过环境约定；需要真正沙箱时应另加 OS 隔离。

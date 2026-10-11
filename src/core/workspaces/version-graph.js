@@ -60,7 +60,7 @@ function parse(raw) {
 
 export const methods = {
   /** Internal fixed-object range only; public RPC never accepts these SHA fields. */
-  async versionGraphPage({ delivery = null, tip, base = null, landed, parent_base = null, cursor, limit = 50, event_max = 0 } = {}) {
+  async versionGraphPage({ delivery = null, tip, base = null, landed, parent_base = null, convergence = null, cursor, limit = 50, event_max = 0 } = {}) {
     check(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100, 'version graph limit must be 1..100');
     const snapshot = cursor === undefined ? null : decode(this, cursor, delivery);
     const active = activeReaders.get(this) ?? 0;
@@ -98,7 +98,23 @@ export const methods = {
         await read.git(['cat-file', '-e', `${parent_base}^{commit}`]);
         const sourceTree = (await read.git(['rev-parse', `${tip}^{tree}`])).toString().trim();
         const landedTree = (await read.git(['rev-parse', `${landed}^{tree}`])).toString().trim();
-        check(sourceTree === landedTree, 'delivery is not traceable: source and landing trees disagree');
+        if (convergence === null) {
+          check(sourceTree === landedTree, 'delivery is not traceable: source and landing trees disagree');
+        } else {
+          // Project has bound the immutable shared receipt to this exact member. Verify objects
+          // with the same sterile reader as legacy graphs: never trust replace refs or live tips.
+          check(convergence.commit === landed && convergence.baseline === parent_base && graphOID(convergence.tree)
+            && convergence.tree === landedTree && graphOID(convergence.evidence?.commit)
+            && Array.isArray(convergence.members) && convergence.members.length > 0 && convergence.members.length <= 8
+            && convergence.members.some(member => member.source === tip), 'delivery is not traceable: invalid convergence mapping');
+          const evidence = convergence.evidence.commit;
+          check((await read.git(['rev-parse', `${evidence}^{tree}`])).toString().trim() === landedTree,
+            'delivery is not traceable: convergence evidence tree disagrees');
+          for (const input of [parent_base, ...convergence.members.map(member => member.source)]) {
+            check(graphOID(input), 'delivery is not traceable: invalid convergence input');
+            await read.git(['merge-base', '--is-ancestor', input, evidence]);
+          }
+        }
         exclude = [...new Set([base, parent_base])];
       }
       check(!snapshot || snapshot.tip === tip && snapshot.base === base && JSON.stringify(snapshot.exclude) === JSON.stringify(exclude),

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { check, id, TERMINAL } from '../types.js';
 import { workerLabel } from '../worker-number.js';
+import { convergenceResourceReason } from '../convergence-resources.js';
 import { deletionHash, deletionFingerprint, deletionPath, present, workerFiles } from '../deletion-resources.js';
 
 const warnings = ['删除不可撤销；确认即授权丢弃所列工作区中的未提交改动和未合并代码。',
@@ -45,6 +46,8 @@ function databasePlan(project, rootId) {
     if (project.commandHookRunning?.has(task.id)) blockers.push(`${workerLabel(task)}: shortcut command is pending or running; wait before deletion`);
     if (project.workspaces.busy.has(task.id)) blockers.push(`${workerLabel(task)}: worktree cleanup is in progress`);
     if (project.taskSyncBusy?.has(task.id)) blockers.push(`${workerLabel(task)}: parent synchronization is in progress`);
+    const convergenceReason = convergenceResourceReason(project, task);
+    if (convergenceReason) blockers.push(`${workerLabel(task)}: ${convergenceReason}`);
     if (project.workerDeleteIds?.has(task.id) && project.deletionRoot !== rootId) blockers.push(`${workerLabel(task)}: deletion is in progress`);
     if (task.reservation) {
       try { const booking = JSON.parse(task.reservation);
@@ -59,6 +62,7 @@ function databasePlan(project, rootId) {
     if (chosen.has(task.verifies_task_id) || chosen.has(task.resolves_task_id)) blockers.push(`referenced by Worker ${workerLabel(task)}`);
     if (branchNames.has(task.branch) || branchNames.has(task.target_branch)) blockers.push(`branch is used by Worker ${workerLabel(task)}`);
   }
+  if (store.deliveryHistoryBlockers) blockers.push(...store.deliveryHistoryBlockers(ids));
   for (const row of store.all(`SELECT id FROM drafts WHERE input_id IS NULL AND parent_id IN (${marks})`,...ids))
     blockers.push(`unsubmitted draft #${row.id} still selects this Worker as its parent`);
   for (const row of store.all(`SELECT * FROM task_deps WHERE depends_on IN (${marks}) AND task_id NOT IN (${marks})`, ...ids, ...ids))

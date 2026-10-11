@@ -1,5 +1,6 @@
 import { check } from '../types.js';
 import { graphOID } from '../workspaces/version-graph.js';
+import { convergenceMemberReceipt } from '../workspaces/delivery-publish.js';
 
 const data = "CASE WHEN json_valid(e.data) THEN e.data ELSE '{}' END";
 const projection = `e.id AS event_id, e.type, e.task_id, substr(e.data,1,8193) AS event_data,
@@ -54,9 +55,17 @@ function fixedRange(project, row) {
       parent_base = values[0];
     }
   }
+  let convergence = null;
+  if (receipt.convergence === true) {
+    try {
+      // Identity only: never substitute the current HEAD or iteration baseline for fixed evidence.
+      convergence = convergenceMemberReceipt(project.workspaces, project.store.task(row.task_id), receipt);
+      parent_base = convergence.baseline;
+    } catch { return { reason: '归并交付缺少可信的精确批次与成员收据' }; }
+  }
   if (parent_base === null && receipt.commit === receipt.source_commit)
     return { reason: '无新落点的交付缺少固定父基线审计' };
-  return { tip: receipt.source_commit, base, landed: receipt.commit, parent_base, reason: null };
+  return { tip: receipt.source_commit, base, landed: receipt.commit, parent_base, convergence, reason: null };
 }
 function taskProjection(row, range) {
   textBounds(row);

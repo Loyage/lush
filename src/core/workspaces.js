@@ -13,12 +13,16 @@ import { methods as versionGraphMethods } from './workspaces/version-graph.js';
 import { methods as deletionMethods } from './workspaces/deletion.js';
 import { methods as choiceSnapshotMethods } from './workspaces/choice-snapshot.js';
 import { methods as commandMethods } from './workspaces/command.js';
+import { methods as deliveryObjectMethods } from './workspaces/delivery-objects.js';
+import { methods as deliveryPublishMethods } from './workspaces/delivery-publish.js';
+import { methods as deliveryValidationMethods } from './workspaces/delivery-validation.js';
 
 /** All Lush git mutations are serialized. Forced abandonment requires explicit user confirmation. */
 export class Workspaces extends WorkspacesBase {}
 
 // 一个职责一个方法对象，这里只做装配：重名（含与 base 的成员重名）就是拆分出错，立刻抛错。
 for (const [module, mixin] of Object.entries({
+  deliveryObjects: deliveryObjectMethods, deliveryPublish: deliveryPublishMethods, deliveryValidation: deliveryValidationMethods,
   command: commandMethods, refGuard: refGuardMethods, choiceSnapshot: choiceSnapshotMethods, deletion: deletionMethods, git: gitMethods, history: historyMethods, versionGraph: versionGraphMethods, worktree: worktreeMethods, code: codeMethods, diff: diffMethods, merge: mergeMethods, cleanup: cleanupMethods, safety: safetyMethods, taskSync: taskSyncMethods,
 })) {
   for (const [name, method] of Object.entries(mixin)) {

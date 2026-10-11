@@ -307,6 +307,68 @@ export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA b
       CREATE TRIGGER IF NOT EXISTS overview_candidates_insert AFTER INSERT ON review_candidates BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
       CREATE TRIGGER IF NOT EXISTS overview_candidates_update AFTER UPDATE ON review_candidates BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
       CREATE TRIGGER IF NOT EXISTS overview_candidates_delete AFTER DELETE ON review_candidates BEGIN UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='overview_revision'; END;
+      -- Delivery batches are technical records owned by their real parent, not new Worker identities.
+      -- Only the real parent owns record lifetime. Source/helper ids are immutable snapshots:
+      -- deleting a settled independent Worker must not cascade or lock another member's evidence.
+      CREATE TABLE IF NOT EXISTS delivery_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        parent_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE RESTRICT,
+        target_branch TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'preparing' CHECK(state IN
+          ('preparing','resolving','awaiting','validating','ready','landing','integrated','failed','blocked','withdrawn','stale')),
+        generation INTEGER NOT NULL DEFAULT 1 CHECK(generation>0),
+        baseline TEXT, candidate_commit TEXT, candidate_tree TEXT,
+        validation TEXT, validation_result TEXT, landing_receipt TEXT,
+        integration_worker_id INTEGER, integration_worker_number TEXT,
+        data TEXT NOT NULL DEFAULT '{}', error TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+      CREATE INDEX IF NOT EXISTS delivery_runs_parent_state ON delivery_runs(parent_id,state,id);
+      CREATE INDEX IF NOT EXISTS delivery_runs_branch_id ON delivery_runs(target_branch,id DESC);
+      CREATE INDEX IF NOT EXISTS delivery_runs_branch_state ON delivery_runs(target_branch,state);
+      CREATE INDEX IF NOT EXISTS delivery_runs_helper ON delivery_runs(integration_worker_id)
+        WHERE integration_worker_id IS NOT NULL;
+      CREATE TABLE IF NOT EXISTS delivery_members (
+        run_id INTEGER NOT NULL REFERENCES delivery_runs(id) ON DELETE CASCADE,
+        task_id INTEGER NOT NULL, worker_number TEXT, title TEXT,
+        delivery_id INTEGER NOT NULL CHECK(delivery_id>0),
+        enqueue_seq INTEGER NOT NULL CHECK(enqueue_seq>0),
+        source_branch TEXT NOT NULL, source_commit TEXT NOT NULL, base_commit TEXT,
+        ordinal INTEGER NOT NULL CHECK(ordinal>=0 AND ordinal<8),
+        active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+        PRIMARY KEY(run_id,delivery_id), UNIQUE(run_id,task_id), UNIQUE(run_id,ordinal));
+      CREATE UNIQUE INDEX IF NOT EXISTS delivery_members_active_task ON delivery_members(task_id) WHERE active=1;
+      CREATE UNIQUE INDEX IF NOT EXISTS delivery_members_active_delivery ON delivery_members(delivery_id) WHERE active=1;
+      CREATE INDEX IF NOT EXISTS delivery_members_task ON delivery_members(task_id,run_id);
+      CREATE TABLE IF NOT EXISTS delivery_nodes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id INTEGER NOT NULL REFERENCES delivery_runs(id) ON DELETE CASCADE,
+        generation INTEGER NOT NULL CHECK(generation>0), node_key TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'planned' CHECK(state IN
+          ('planned','computing','conflict','ready','resolving','awaiting','failed','stale')),
+        data TEXT NOT NULL DEFAULT '{}', result TEXT,
+        helper_id INTEGER, helper_worker_number TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+        UNIQUE(run_id,generation,node_key));
+      CREATE INDEX IF NOT EXISTS delivery_nodes_run_state ON delivery_nodes(run_id,generation,state,id);
+      CREATE INDEX IF NOT EXISTS delivery_nodes_helper ON delivery_nodes(helper_id) WHERE helper_id IS NOT NULL;
+      -- Application gates also check invocation/resource exit. This DB backstop protects active
+      -- references even when a low-level delete is called without the Project preflight.
+      CREATE TRIGGER IF NOT EXISTS delivery_tasks_delete_guard BEFORE DELETE ON tasks BEGIN
+        SELECT CASE WHEN
+          EXISTS (SELECT 1 FROM delivery_members m JOIN delivery_runs r ON r.id=m.run_id
+            WHERE m.task_id=OLD.id AND (m.active=1 OR r.state='landing'
+              OR (r.state='blocked' AND r.landing_receipt IS NOT NULL)))
+          OR EXISTS (SELECT 1 FROM delivery_runs r WHERE r.integration_worker_id=OLD.id
+            AND (r.state NOT IN ('integrated','withdrawn','stale')
+              OR OLD.status NOT IN ('completed','failed','cancelled','awaiting_acceptance')))
+          OR EXISTS (SELECT 1 FROM delivery_nodes n JOIN delivery_runs r ON r.id=n.run_id
+            WHERE n.helper_id=OLD.id AND (r.state='landing' OR (r.state='blocked' AND r.landing_receipt IS NOT NULL)
+              OR (n.generation=r.generation AND r.state NOT IN ('integrated','withdrawn','stale'))
+              OR OLD.status NOT IN ('completed','failed','cancelled','awaiting_acceptance')))
+          THEN RAISE(ABORT,'active convergence delivery references Worker') END;
+      END;
       COMMIT;`;
 
 /** W218 / D510: user-authorized retirement, only after the project binding is verified. */

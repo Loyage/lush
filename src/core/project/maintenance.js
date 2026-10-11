@@ -39,7 +39,7 @@ export default {
     const groups = [
       [this.writing + Number(this.clearing) + Number(Boolean(this.settingsMigrationApplying)), '等待项目后台写操作收尾'],
       [this.workspaces.pending + this.workspaces.busy.size, '等待 Git 操作收尾'],
-      [(this.taskMergeBusy?.size ?? 0) + this.mergeRunsDriving.size + this.integratingIntents.size, '等待交付或合并收尾'],
+      [(this.taskMergeBusy?.size ?? 0) + (this.convergenceJobs?.size ?? 0) + (this.convergenceDrivers?.size ?? 0) + this.mergeRunsDriving.size + this.integratingIntents.size, '等待交付或合并收尾'],
       [(this.taskSyncBusy?.size ?? 0) + (this.acceptanceBusy?.size ?? 0) + (this.workerDeleteIds?.size ?? 0), '等待同步或资源回收收尾'],
       [(this.lifecycleHookRunning?.size ?? 0) + (this.lifecycleHookQueued?.size ?? 0)
         + (this.scheduledHookQueued?.size ?? 0) + (this.commandHookQueued?.size ?? 0)
@@ -68,7 +68,7 @@ export default {
     this.store.transaction(() => {
       for (const [id, run] of this.running) {
         const task = this.store.task(id);
-        if (run.parked || TERMINAL.has(task.status) || !['order','child','management'].includes(task.task_kind)) continue;
+        if (run.parked || TERMINAL.has(task.status) || !['order','child','management','integration'].includes(task.task_kind)) continue;
         const participant = { id, run_id: run.recordId ?? null, invocation_id: run.signalId, state: 'pending' };
         participants.push(participant);
         this.mountInterruptionNotice(task, participant, batchId);
@@ -253,7 +253,7 @@ export default {
       } else if (task.status === 'paused' || task.interrupt_state) {
         // A syncing/frozen target stays paused; do not bypass the ordinary guard.
         try {
-          this.resumeTask(id);
+          this.resumeTask(id, null, task.task_kind === 'integration');
           const run = this.running.get(id);
           if (run) run.maintenancePause = false;
         }

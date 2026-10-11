@@ -67,7 +67,7 @@ bun run stop
 
 修改 Hook、自动合并开关、预约发射、生命周期触发或挂载/模板界面前，先读 `docs/design/hooks.md` 与 `docs/engineering/hooks.md`，合并／验收最高级别另读 `docs/engineering/completion-hooks.md` 与 `docs/engineering/worker-acceptance.md`（W169／决定 #418，验收即归档；W197／决定 #462，默认保留 child、父级安全批量验收，优先于旧分离语义及收口前逐个验收要求）。Hook 是 Worker 附属能力，不能绕过既有冻结、权限、Git 和调用边界；未知副作用不得因重启自动重放。
 
-实施归并合并前，另读 `docs/design/merge-convergence.md` 及其算法、异常、实施交叉链接（W205／D482）。这是尚未实现的设计方案，不替代当前 v2 队列，不授权当前 Agent 创建整合身份、改变交付/验收权限或操作其他分支；精确接口须在实施时先固定。
+实施归并合并前，另读 `docs/design/merge-convergence.md` 及其算法、异常、实施交叉链接（W205／D482）。首版按目标分支选择协议 v3，默认关闭；精确接口和未实现愿景以 `docs/engineering/merge-convergence-implementation.md` 为准，模块见 `docs/engineering/merge-convergence-runtime.md`。原 v1/v2 在途不迁移；仅 runtime 工厂可创建绑定固定节点的 `integration` 身份，不授权普通 Agent 创建整合身份、改变交付/验收权限或操作其他分支。
 
 修改 Agent 内置能力、Skills 注入或能力开关前，先读 `docs/design/agent-capabilities.md` 与 `docs/engineering/agent-capabilities.md`：W217／D509 采用薄入口与按需 CLI 指南，设备全局开关仅控制后续注入和主动使用，不关闭核心安全、实际调度或已有子 Worker 交付。
 

@@ -10,8 +10,15 @@
 | `branch show BRANCH\|TASK_ID` | `branch.show` | `{branch}` | 用户与 agent，只读 |
 | `branch bind BRANCH COMMIT` | `branch.bind` | `{branch, commit}`（本地分支的固定 HEAD） | 用户专属 |
 | `branch archive BRANCH [--discard] [--continue]` | `branch.archive` | `{branch, discard?, continue?}` | 用户专属 |
+| `branch convergence list` | `branch.convergence_list` | `{}` | 用户专属，只读 |
+| `branch convergence show BRANCH` | `branch.convergence` | `{branch}` | 用户专属，只读 |
+| `branch convergence on/off BRANCH ...` | `branch.convergence_set` | `{branch,enabled,validation,expected_revision}` | 用户专属 |
+| `branch convergence runs BRANCH ...` | `branch.convergence_runs` | `{branch,before?,limit?}` | 用户专属，只读 |
+| `branch convergence retry RUN_ID --revision REV` | `branch.convergence_retry` | `{id,expected_revision}` | 用户专属 |
 
 谱系是创建时显式写下的 `parent → child`，不是 commit graph 或Worker树。`branch.bind` 确认一条非 main 的本地分支及当前固定 HEAD，为它新建静息 `owner` 根 Worker；重复绑定、错误 HEAD、缺失 ref、相关旧Worker仍活动或已归档/删除的历史记录均拒绝。已有旧 Worker 与 `branches.task_id` 均不改写；`branch.tree/show` 当前所有者投影显示新 owner，但旧 Worker 仍可按 id 查看。只有绑定后，新指令才能挂到那条分支；owner 不接受任意消息或运行不受限 Agent。daemon 启动时已有本地 main ref 则自动确保同一个静息根；无 ref 时不会凭空造 main。
+
+分支归并是默认关闭、按真实目标分支保存的独立策略，不改变谱系或 Worker 自动权限；精确参数、返回结构、CLI 选项与失败边界见[分支归并接口](convergence.md)。
 
 ## branch.history
 

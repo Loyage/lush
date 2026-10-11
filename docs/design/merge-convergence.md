@@ -1,8 +1,10 @@
 # 归并合并：并行准备，单点落地
 
-本文是 W205 的功能设计方案，面向用户与实现者。用户在 D482 明确选择：每批一个目标分支提交、按需创建专用整合 Worker、允许无已知依赖的就绪组合先交付。**方案尚未实现，不改变当前权限、队列或历史协议。**
+本文是 W205 的功能设计方案，面向用户与实现者。用户在 D482 明确选择：每批一个目标分支提交、按需创建专用整合 Worker、允许无已知依赖的就绪组合先交付。**首版代码已实现按目标分支选择的新协议；默认关闭，不改变 Worker 授权或历史协议。**
 
-阅读路线：**产品与理念（本篇）** → [算法与架构](../engineering/merge-convergence-protocol.md) → [异常与迭代](../engineering/merge-convergence-cases.md) → [实施与验证](../engineering/merge-convergence-rollout.md)。当前实现仍以[分支合并](../engineering/merge.md)为准。
+阅读路线：**产品与理念（本篇）** → [算法与架构](../engineering/merge-convergence-protocol.md) → [异常与迭代](../engineering/merge-convergence-cases.md) → [实施与验证](../engineering/merge-convergence-rollout.md)。默认关闭的旧路径仍见[分支合并](../engineering/merge.md)；首版现状见[实施接缝](../engineering/merge-convergence-implementation.md#首版实现与明确限制)。
+
+A205-1／D512 已要求开发首版：按目标分支选择开启、默认关闭，选择已授权快捷指令验证组合，包含专用整合 Worker。首版接口以[实施接缝](../engineering/merge-convergence-implementation.md)为准，该分支开关要求优先于下文最终统一入口的愿景；下文保留长期产品愿景；动态扩批、阻塞批次内部拆分与更完整的交付摘要不属于首版。代码合入不等于正在运行的 daemon/Host 已更新，部署需用户在安全点重启。
 
 ## 结论
 

@@ -38,18 +38,18 @@ export default {
     }
     // 用户已主动暂停时不把状态改成 awaiting；待决问题保留，继续时由 pump 重新投影成 awaiting。
     if (this.store.task(taskId).status !== 'paused') this.store.update(taskId, { status: 'awaiting', result });
-    this.suspendTaskMerge(taskId, `等待用户回答问卷 ${label}`);
+    if (this.store.task(taskId).task_kind !== 'integration') this.suspendTaskMerge(taskId, `等待用户回答问卷 ${label}`);
   },
 
   hasActionableMessages(taskId) {
-    if (!this.store.get("SELECT id FROM messages WHERE task_id=? AND consumed=0 AND (delivery_hold IS NULL OR delivery_hold='released') AND (signal_key IS NULL OR signal_key NOT LIKE 'merge-v2:%') LIMIT 1", taskId)) return false;
+    if (!this.store.get("SELECT id FROM messages WHERE task_id=? AND consumed=0 AND (delivery_hold IS NULL OR delivery_hold='released') AND (signal_key IS NULL OR (signal_key NOT LIKE 'merge-v2:%' AND signal_key NOT LIKE 'merge-v3:%')) LIMIT 1", taskId)) return false;
     const task = this.store.get('SELECT role,task_kind FROM tasks WHERE id=?', taskId);
     if (!(task.role === 'coordinator' || ['order','child'].includes(task.task_kind)) || !this.store.get(`SELECT id FROM tasks WHERE parent_id=?
       AND status NOT IN ('completed','failed','cancelled','awaiting_acceptance') LIMIT 1`, taskId)) return true;
     // Only runtime-attested success receipts wait; explicit messages remain urgent.
     // Runtime merge requests never wake the development Agent, even alongside a receipt.
     return Boolean(this.store.get(`SELECT m.id FROM messages m WHERE m.task_id=? AND m.consumed=0
-      AND (m.delivery_hold IS NULL OR m.delivery_hold='released') AND (m.signal_key IS NULL OR m.signal_key NOT LIKE 'merge-v2:%')
+      AND (m.delivery_hold IS NULL OR m.delivery_hold='released') AND (m.signal_key IS NULL OR (m.signal_key NOT LIKE 'merge-v2:%' AND m.signal_key NOT LIKE 'merge-v3:%'))
       AND NOT EXISTS (SELECT 1 FROM events e WHERE e.task_id=m.task_id
         AND (e.type='child.completed' OR (? AND e.type='task.signal' AND json_extract(e.data,'$.signal') IN ('child.completed','merge.completed')))
         AND json_extract(e.data,'$.message_id')=m.id) LIMIT 1`, taskId, ['order','child'].includes(task.task_kind) ? 1 : 0));
@@ -62,11 +62,12 @@ export default {
       return;
     }
     if (['main','owner','merge','management'].includes(task.task_kind)) return; // runtime-driven roots and merge orchestration never run providers
+    if (task.task_kind === 'integration' && !this.convergenceIntegrationReady?.(task)) return;
     try { assertTaskAncestorsOpen(this, task); } catch { return; }
     if (task.status === 'awaiting_acceptance' && !this.hasActionableMessages(task.id)) return;
     if (task.status === 'paused' || task.interrupt_state === 'requested') return; // 用户暂停意愿不被消息唤醒
-    if (task.reservation && JSON.parse(task.reservation)?.version === 2
-      && ['requested','executing','blocked'].includes(JSON.parse(task.reservation).status)) return; // only designated repair may run
+    if (task.reservation && [2, 3].includes(JSON.parse(task.reservation)?.version)
+      && ['requested','executing','blocked', ...(JSON.parse(task.reservation).version === 3 ? ['resolving'] : [])].includes(JSON.parse(task.reservation).status)) return; // only designated repair may run
     if (task.reservation && JSON.parse(task.reservation).status === 'suspended'
       && !this.questionPending(task.id) && this.hasActionableMessages(task.id)) this.resumeQueuedTaskMerge(task.id);
     if (!TERMINAL.has(task.status) && !this.running.has(task.id)) {
@@ -98,7 +99,7 @@ export default {
       if (this.hasActionableMessages(taskId)) this.wake(taskId);
     }
     // Legacy planner/spec rows are retained on disk but no longer scheduled.
-    const queued = this.store.all("SELECT * FROM tasks WHERE status='queued' AND task_kind IN ('order','say','child','management') ORDER BY id");
+    const queued = this.store.all("SELECT * FROM tasks WHERE status='queued' AND task_kind IN ('order','say','child','management','integration') ORDER BY id");
     const dependencies = this.store.depMap(queued.map(task => task.id));
     const freezes = new Map(this.branchFreeze().map(info => [info.branch, info]));
     const taskBranch = task => {
@@ -113,8 +114,9 @@ export default {
       return null;
     };
     for (const task of queued) {
-      if (!['order','child','management'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
+      if (!['order','child','management','integration'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
       if (task.task_kind === 'management' && !this.managementReady(task)) continue;
+      if (task.task_kind === 'integration' && !this.convergenceIntegrationReady?.(task)) continue;
       if (['main','owner','merge'].includes(task.task_kind)) continue; // Bound parent roots and merge orchestration do not run unrestricted providers.
       if (this.running.has(task.id) || this.commandHookRunning?.has(task.id) || this.taskSyncBusy?.has(task.id) || this.choiceRouteCreating(task.id)) continue;
       try { assertTaskAncestorsOpen(this, task); } catch { continue; }
@@ -127,7 +129,8 @@ export default {
       const deliveryRepair = task.reservation ? JSON.parse(task.reservation) : null;
       const designatedRepair = deliveryRepair?.status === 'resolving' && frozen?.task_id === task.id
         && this.activeTaskMerge(deliveryRepair.parent_id)?.id === task.id;
-      if (frozen && !designatedRepair && !(resolution && (frozen.task_id === task.id || frozen.kind === 'merge_all'))
+      // A live integration attempt writes only its registered private checkout, even when its parent subtree is frozen.
+      if (frozen && task.task_kind !== 'integration' && !designatedRepair && !(resolution && (frozen.task_id === task.id || frozen.kind === 'merge_all'))
         && !(task.role === 'merger' && (frozen.task_id === task.id || frozen.kind === 'merge_all'))) continue;
       if (resolution && this.running.has(JSON.parse(resolution.data).parent_task_id)) continue;
       if (this.questionPending(task.id)) { this.store.update(task.id, { status: 'awaiting' }); continue; }
@@ -179,6 +182,7 @@ export default {
         }
         // The credential is valid only while this invocation owns the task.
         this.store.armAgent(task.id, null);
+        if (task.task_kind === 'integration') this.onConvergenceIntegrationExit?.(task.id);
         // A child can settle after its parent parked but before this cleanup.
         // Recheck both deferred admission and the inbox after actual ownership release.
         if (!this.stopping) this.releaseTaskInputs(task.id);
@@ -234,13 +238,12 @@ export default {
    */
   interrupt(taskId, reason = 'interrupted by user', maintenance = false) {
     const task = this.store.task(taskId);
-    if (!maintenance) {
-      assertTaskNotSyncing(this, task.id);
-      this.forgetMaintenanceWorker(task.id);
-    }
+    if (!maintenance) assertTaskNotSyncing(this, task.id);
     check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; interrupt individual order Workers instead');
-    check(['order','child'].includes(task.task_kind), 'only order/child Workers can be paused');
+    check(['order','child'].includes(task.task_kind) || (maintenance && task.task_kind === 'integration'),
+      'only order/child Workers can be paused');
     check(!TERMINAL.has(task.status), 'worker has ended; retry it or submit a new input');
+    if (!maintenance) this.forgetMaintenanceWorker(task.id);
     if (task.status === 'paused' || task.interrupt_state === 'requested') return task;
     const booking = task.reservation ? JSON.parse(task.reservation) : null;
     check(maintenance || !(booking?.version === 2 && ['requested','executing','blocked'].includes(booking.status)),
@@ -352,12 +355,14 @@ export default {
   },
 
   /** 继续立即接受：未认领则撤销请求；已认领则排队，内部等待旧 invocation 真实退出。 */
-  resumeTask(taskId, profile = null) {
+  resumeTask(taskId, profile = null, maintenanceIntegration = false) {
     this.assertWritable('resume a worker');
+    check(!maintenanceIntegration || (this.maintenancePaused() && profile === null), 'integration resume is maintenance-only');
     const task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
     assertTaskAncestorsOpen(this, task);
-    check(['order','child'].includes(task.task_kind), 'only order/child Workers can be resumed');
+    check(['order','child'].includes(task.task_kind) || (maintenanceIntegration && task.task_kind === 'integration'),
+      'only order/child Workers can be resumed');
     // Duplicate resume is harmless, including a stale UI click after release.
     if (!task.interrupt_state && ['running','queued'].includes(task.status)) return task;
     check(task.status === 'paused' || task.interrupt_state, 'only paused workers can be resumed');
@@ -403,6 +408,8 @@ export default {
     if (!run) throw new LushError('invalid or expired agent token');
     check(!['explainer','butler'].includes(task.role), 'isolated agents have no RPC capability');
     check(task.status === 'running' && !run.parked && !run.controller.signal.aborted, 'agent worker is no longer active');
+    if (task.task_kind === 'integration') check(!run.invocationEnded && this.convergenceIntegrationReady?.(task),
+      'integration invocation no longer owns the fixed attempt');
     this.store.touchAgent(task.id);
     return task.id;
   },
@@ -494,7 +501,7 @@ export default {
       // retry_profile contains system instructions and local resource paths. It is runtime
       // configuration, not task data, so do not copy it into the provider's untrusted input JSON.
       const { retry_profile: _retryProfile, management: _privateManagement, ...providerTask } = this.progressView(task);
-      const forkPointer = task.base_commit ? this.store.get(
+      const forkPointer = task.task_kind !== 'integration' && task.base_commit ? this.store.get(
         'SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', task.base_commit) : null;
       const connectionRuntime = agent.connection_id ? await this.agentConnections.prepareRuntime(agent.connection_id) : null;
       if (connectionRuntime) {
@@ -504,6 +511,12 @@ export default {
           account_key: connectionRuntime.account_key, model: agent.model });
       }
       if (run.controller.signal.aborted) throw new Error(abortMessage());
+      if (task.task_kind === 'integration') {
+        check(this.convergenceIntegrationReady(task), 'integration attempt changed before provider start');
+        for (const member of context.integration.members) check(await this.workspaces.git(this.config.project,
+          'rev-parse', '--verify', `refs/heads/${member.source_branch}^{commit}`) === member.source_commit,
+        'integration fixed source ref moved before provider start');
+      }
       // Match exact transitions on this ref, including a parent's own invocation that
       // finishes before its child. Neither a global write counter nor end-state running
       // membership proves who advanced a target branch.
@@ -562,6 +575,12 @@ export default {
             + '没有完整的 daemon 写入或所属 Worker 调用期观测记录连接基线与现状；不能据此断言是当前 Worker 越界。'
             + '本次调用按失败处理并保留现场，请检查分支移动来源和交付记录后再继续。');
         }
+      }
+      if (task.task_kind === 'integration') {
+        check(this.convergenceIntegrationReady(this.store.task(task.id)), 'integration attempt changed during invocation');
+        for (const member of context.integration.members) check(await this.workspaces.git(this.config.project,
+          'rev-parse', '--verify', `refs/heads/${member.source_branch}^{commit}`) === member.source_commit,
+        'integration fixed source ref moved during invocation');
       }
       // G-02: re-check the pinned tree after the invocation. Drift or dirt means the evidence no longer
       // describes the frozen commit, so the invocation fails instead of being recorded as a pass.
@@ -625,6 +644,10 @@ export default {
       }
       if (this.store.children(taskId).some(child => !isSettled(child))) {
         this.store.update(taskId, { status: 'waiting' }); return;
+      }
+      if (task.task_kind === 'integration') {
+        await this.completeConvergenceIntegration(taskId, run.recordId);
+        return;
       }
       if (['order','child'].includes(task.task_kind)) {
         if (run.syncResolved) {

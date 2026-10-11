@@ -1,5 +1,5 @@
 import { check } from '../core/types.js';
-import { PARAMS, MANAGER_METHODS, assertAllowed } from './registry.js';
+import { PARAMS, MANAGER_METHODS, INTEGRATION_METHODS, assertAllowed } from './registry.js';
 import { publicResult } from './public-result.js';
 import { handlers as systemHandlers } from './handlers/system.js';
 import { handlers as inputHandlers } from './handlers/input.js';
@@ -35,6 +35,10 @@ export class Dispatcher {
     const actorTask = actor === null || actor === undefined ? null : p.store?.task(actor);
     check(!(actorTask?.role === 'manager' || actorTask?.task_kind === 'management') || MANAGER_METHODS.has(method),
       'management agents can only query, start or retry Workers through their dedicated tools');
+    // Capability comes from the authenticated Store identity, not role labels, prompts or caller params.
+    // New public methods remain denied until explicitly reviewed for the isolated integration helper.
+    check(actorTask?.task_kind !== 'integration' || INTEGRATION_METHODS.has(method),
+      'integration agents can only inspect work and post notices or report progress for themselves');
     check(!this.stopping?.isRequested?.() || ['system.status', 'system.summary'].includes(method),
       '项目后台正在停止，请稍后再试');
     return publicResult(await HANDLERS[method].call(this, p, params, actor), method);

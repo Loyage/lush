@@ -62,6 +62,7 @@ export default {
     check(!target.branch || this.store.branch(target.branch)?.status === 'active', 'archived Workers cannot receive new work');
     if (sender !== null) {
       const from = this.store.task(sender);
+      check(from.task_kind !== 'integration', 'internal integration Workers cannot issue ordinary development messages');
       check(target.parent_id === from.id || from.parent_id === target.id, 'agents may message only a direct parent or child');
     }
     // Buffer behind the whole freeze, including source repair and parent-side landings.

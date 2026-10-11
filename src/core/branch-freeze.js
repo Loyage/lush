@@ -44,8 +44,17 @@ export function branchFreeze(store) {
     // 损坏的 reservation 不参与冻结：它自己阻塞不了写，必须保持可检查、可撤销。
     try { request = JSON.parse(task.reservation); } catch { continue; }
     if (!request || request.kind !== 'merge'
-      || !(request.status === 'requested' || (request.version === 2 && ['executing','resolving','blocked'].includes(request.status)))) continue;
-    if (request.version === 2 && request.queue_protocol === 1) {
+      || !(request.status === 'requested' || ([2, 3].includes(request.version) && ['executing','resolving','blocked'].includes(request.status)))) continue;
+    if (request.version === 3) {
+      // Preparation, validation and private integration do not own the parent writer.
+      const run = request.run_id && store.deliveryRun ? store.deliveryRun(request.run_id) : null;
+      const info = { kind: 'convergence', task_id: task.id, task_worker_number: task.worker_number,
+        run_id: request.run_id ?? null, generation: request.generation ?? null, commit: request.commit ?? null,
+        reason: `Worker ${workerLabel(task)} 的固定成果正在归并（${run?.state ?? request.status}）` };
+      add(task.branch, info);
+      if (run?.state === 'landing' || (run?.state === 'blocked' && run.landing_receipt)
+        || (!run && request.run_id && ['executing', 'blocked'].includes(request.status))) add(task.target_branch, info);
+    } else if (request.version === 2 && request.queue_protocol === 1) {
       // Queued work freezes only its source. The current attempt owns the parent writer slot.
       const info = { kind: 'delivery', task_id: task.id, task_worker_number: task.worker_number, commit: request.commit ?? null,
         attempt_id: request.attempt_id ?? null,

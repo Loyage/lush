@@ -63,6 +63,13 @@ lush [--project PATH] [--json] <command>
 
   branch tree|show BRANCH            查看分支
   branch bind BRANCH COMMIT          显式绑定已有本地分支
+  branch convergence list           查看活动所有者分支归并策略（默认关闭，仅用户）
+  branch convergence show BRANCH    读取单分支策略与保存 revision
+  branch convergence on BRANCH --command UUID --version N --revision REV  用已授权验证指令版本开启，不隐式授权
+  branch convergence off BRANCH --revision REV  关闭未来新交付归并，保留验证引用，不撤销已开始的归并
+  branch convergence runs BRANCH [--before N --limit N]  查看归并批次（默认20，最多50）
+  branch convergence retry RUN_ID --revision REV  显式重试可恢复批次，可能调用整合 Agent；未知落地不重放
+                                      开启／重试可能产生 Agent 费用；只影响目标分支，不提高 Worker 自动权限
   branch archive BRANCH [--discard] [--continue]  特殊/失败现场清理资源；--discard 明确丢弃脏现场，--continue 续办后代
   notice list|post|answer|dismiss|read    用户决策与告知已读（显示 D/N 编号，参数仍用整数 ID）
   notice post '标题' [--worker ID] [--body '正文']  发给指定 Worker（Agent 默认当前 Worker）

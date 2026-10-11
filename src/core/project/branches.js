@@ -5,6 +5,7 @@ import { buildForest, parentOf, childrenOf, ancestorsOf, descendantsOf, chainOf,
 import { slugify } from '../naming.js';
 import { workerLabel } from '../worker-number.js';
 import { sessionFiles } from '../transcript.js';
+import { convergenceResourceReason } from '../convergence-resources.js';
 
 /** 分支谱系一次最多画这么多节点；超过就截断并在结果里说明（只读视图不该拖垮 daemon）。 */
 export const BRANCH_NODE_LIMIT = 500;
@@ -269,6 +270,9 @@ export default {
     check(name.length > 0 && name.length <= 512, 'branch name must be non-empty text');
     const record = this.store.branch(name);
     check(record, `${name} is not a registered branch; run 'lush branch import' first`);
+    for (const task of this.store.all('SELECT * FROM tasks WHERE branch=?', name)) {
+      const reason = convergenceResourceReason(this, task); check(!reason, reason);
+    }
     // 已经归档／回收过的分支不再归档一次（记录已是终态），但也不拦着其余的。
     const subtreeActive = [name, ...descendantsOf(this.store.branches(), name)]
       .filter(target => this.store.branch(target)?.status === 'active');

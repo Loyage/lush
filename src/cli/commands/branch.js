@@ -1,5 +1,5 @@
 import { check } from '../../core/types.js';
-import { exact } from '../args.js';
+import { exact, option } from '../args.js';
 import { printBranchTree, printBranchShow, printBranchImport, printBranchArchive, printBranchSummary, printMergeAllPlan, printMergeAllResult, printMergeCancel, printOrchestratePlan, printOrchestrateResult, printOrchestrateCancel } from '../print.js';
 
 /** branch：分支谱系（谁从谁创建出来），与 Worker 树、commit graph 都是不同维度。 */
@@ -7,7 +7,8 @@ export async function run(command, args, ctx) {
   const { client, json } = ctx;
   let value;
   const verb = args.shift();
-  check(['tree','show','bind','archive'].includes(verb), 'unknown branch command; use tree, show, bind or archive');
+  if (verb === 'convergence') return runConvergence(args, client);
+  check(['tree','show','bind','archive'].includes(verb), 'unknown branch command; use tree, show, bind, archive or convergence');
   if (verb === 'tree') {
     const verbose = args.includes('--verbose');
     if (verbose) args.splice(args.indexOf('--verbose'), 1);
@@ -77,4 +78,65 @@ export async function run(command, args, ctx) {
     check(false, 'unknown branch command; use tree, show, import, bind, merge, sync, catchup, merge-plan, merge-all, merge-cancel, orchestrate-plan, orchestrate, orchestrate-cancel, archive or summary');
   }
   return value;
+}
+
+function readConvergenceRevision(args) {
+  const revision = option(args, '--revision');
+  check(typeof revision === 'string' && revision.length > 0 && revision.length <= 256
+    && revision === revision.trim() && !/[\x00-\x1f\x7f]/.test(revision),
+  'first read branch convergence show/runs, then provide --revision REV');
+  return revision;
+}
+function convergenceBranch(value) {
+  check(typeof value === 'string' && value.length > 0 && value.length <= 512 && value === value.trim()
+    && !/[\s\x00-\x1f\x7f~^:?*\[\\]/.test(value) && !value.includes('..') && !value.includes('@{')
+    && !value.includes('//') && !value.startsWith('/') && !value.startsWith('-') && !value.startsWith('refs/')
+    && !value.endsWith('/') && !value.endsWith('.') && value !== '@'
+    && !/^[0-9a-f]{40,64}$/i.test(value)
+    && value.split('/').every(part => !part.startsWith('.') && !part.endsWith('.lock')),
+  'branch must be an exact local branch name, not a ref expression');
+  return value;
+}
+function convergenceNumber(value, label, max = Number.MAX_SAFE_INTEGER) {
+  check(typeof value === 'string' && /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value))
+    && Number(value) <= max, `${label} must be a positive integer${max === 50 ? ' up to 50' : ''}`);
+  return Number(value);
+}
+function commandId(value) {
+  check(typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value), 'invalid command id');
+  return value;
+}
+async function runConvergence(args, client) {
+  check(!client.token, 'branch convergence is user only, not an agent operation');
+  const verb = args.shift();
+  check(['list','show','on','off','runs','retry'].includes(verb), 'branch convergence requires list|show|on|off|runs|retry; run lush help');
+  if (verb === 'list') { exact(args, 0); return client.request('branch.convergence_list'); }
+  if (verb === 'show') { exact(args, 1); return client.request('branch.convergence', { branch: convergenceBranch(args[0]) }); }
+  if (verb === 'runs') {
+    const before = option(args, '--before'), limit = option(args, '--limit'); exact(args, 1);
+    const params = { branch: convergenceBranch(args[0]) };
+    if (before !== null) params.before = convergenceNumber(before, 'before');
+    if (limit !== null) params.limit = convergenceNumber(limit, 'limit', 50);
+    return client.request('branch.convergence_runs', params);
+  }
+  const expected_revision = readConvergenceRevision(args);
+  if (verb === 'retry') {
+    exact(args, 1);
+    return client.request('branch.convergence_retry', { id: convergenceNumber(args[0], 'run id'), expected_revision });
+  }
+  if (verb === 'on') {
+    const command = option(args, '--command'), version = option(args, '--version'); exact(args, 1);
+    return client.request('branch.convergence_set', { branch: convergenceBranch(args[0]), enabled: true,
+      validation: { command_id: commandId(command), command_version: convergenceNumber(version, 'command version') }, expected_revision });
+  }
+  exact(args, 1);
+  const branch = convergenceBranch(args[0]);
+  const current = await client.request('branch.convergence', { branch });
+  check(current?.branch === branch && current.revision === expected_revision, 'branch convergence revision changed; reload before editing');
+  check(current.validation === null || current.validation && typeof current.validation === 'object', 'invalid branch convergence validation read');
+  const validation = current.validation === null ? null : {
+    command_id: commandId(current.validation.command_id),
+    command_version: convergenceNumber(String(current.validation.command_version), 'command version'),
+  };
+  return client.request('branch.convergence_set', { branch, enabled: false, validation, expected_revision });
 }

@@ -47,6 +47,16 @@ button.hook-completion-level.is-selected { border-color: var(--violet-ink); back
 .hook-field input, .hook-field select, .hook-field textarea { width: 100%; box-sizing: border-box; }
 .hook-field textarea { resize: vertical; }
 .hooks-page-subtitle { margin: 0; color: var(--muted); font-weight: 600; }
+.branch-convergence { min-width: 0; }
+.convergence-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: .8rem; }
+.convergence-editor .convergence-toggle { grid-column: 1 / -1; display: flex; align-items: center; gap: .5rem; }
+.convergence-editor input[type="checkbox"] { width: auto; }
+.convergence-history { margin-top: 1rem; min-width: 0; }
+.convergence-members { padding-left: 1.2rem; }
+.convergence-worker-link, .convergence-feedback, .convergence-run-error { overflow-wrap: anywhere; }
+.convergence-evidence summary { cursor: pointer; }
+.convergence-sha { font-family: monospace; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .convergence-editor { grid-template-columns: minmax(0, 1fr); } }
 .shortcut-commands { min-width: 0; }
 .shortcut-command-editor, .shortcut-run-editor { margin-block: .8rem; }
 .shortcut-commands { display: grid; gap: 1rem; }

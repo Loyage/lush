@@ -1,4 +1,8 @@
 import * as types from '../types.js';
+import fs from 'node:fs';
+import { assertConvergenceMemberReceipt, assertConvergenceEvidenceObjects } from './delivery-publish.js';
+import { convergenceJSON } from '../convergence-contract.js';
+import { convergenceHelperContext } from '../convergence-resources.js';
 const { check, LushError } = types;
 // The additive lifecycle mixin can land independently of this Git module.
 const isSettled = task => types.isSettled?.(task) ?? (['completed', 'failed', 'cancelled'].includes(task.status)
@@ -90,6 +94,100 @@ async function verifyFastForward(workspaces, branch, commit, workspace) {
   check(await workspaces.git(workspaces.config.project, 'rev-parse', '--verify', `refs/heads/${branch}^{commit}`) === commit, message);
 }
 
+function helperIdle(workspaces, taskId, runId) {
+  check(typeof workspaces.convergenceHelperIdle === 'function', 'integration actual-exit guard is unavailable');
+  const idle = workspaces.convergenceHelperIdle(taskId, runId);
+  if (idle && typeof idle.then === 'function') Promise.resolve(idle).catch(() => {});
+  check(idle === true, 'integration invocation or related work has not actually exited');
+}
+
+/** Fixed infrastructure output, never a fictitious delivery member or byte-equivalent Squash. */
+async function helperProof(workspaces, taskId, onto = null) {
+  const store = workspaces.store, task = store.task(taskId), context = convergenceHelperContext(store, task);
+  check(task.task_kind === 'integration' && context && context.run_id > 0 && context.node_id > 0 && context.generation > 0,
+    'integration creation identity is missing');
+  const run = store.deliveryRun(context.run_id), node = store.deliveryNode(context.node_id);
+  check(run && node && node.run_id === run.id && node.generation === context.generation && node.helper_id === task.id
+    && run.generation >= context.generation && run.parent_id === task.parent_id && run.target_branch === task.target_branch,
+  'integration node or direct-parent binding changed');
+  check(['integrated','withdrawn','stale'].includes(run.state) && store.deliveryMembers(run.id, true).length === 0,
+    'integration resources are still in use');
+  check(['awaiting_acceptance','completed','failed','cancelled'].includes(task.status), 'integration Worker is not quiescent');
+  check(!store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", task.id)
+    && store.unread(task.id).length === 0, 'integration input or decisions remain unresolved');
+  helperIdle(workspaces, task.id, run.id);
+  const record = store.branch(task.branch), parent = store.task(task.parent_id);
+  check(task.branch && record?.status === 'active' && record.task_id === task.id
+    && record.parent_relation === 'recorded' && record.parent === run.target_branch && parent.branch === run.target_branch,
+  'integration branch ownership changed');
+  const reviewed = task.head_commit ?? task.base_commit;
+  check(oid(reviewed), 'integration output identity is missing');
+  const data = convergenceJSON(node.data, {}), output = convergenceJSON(node.result);
+  const readyRow = store.get("SELECT data FROM events WHERE task_id=? AND type='convergence.integration_ready' ORDER BY id DESC LIMIT 1", task.id);
+  const ready = convergenceJSON(readyRow?.data);
+  const readyOutput = ready?.run_id === run.id && ready.node_id === node.id && ready.generation === context.generation
+    && (ready.commit ?? ready.head_commit) === reviewed && output?.commit === reviewed && oid(output.tree)
+    && (!ready.tree || ready.tree === output.tree);
+  const seed = context.seed_commit ?? data.seed_commit;
+  const obsolete = ['withdrawn','stale'].includes(run.state) || run.generation !== context.generation;
+  check(readyOutput || (obsolete && oid(seed) && reviewed === seed && task.base_commit === seed),
+    'integration branch contains unknown output or edits');
+  if (readyOutput) check(await workspaces.commitTree(reviewed) === output.tree, 'integration output tree differs from its fixed receipt');
+  const project = workspaces.config.project;
+  let landed = null, state = 'none';
+  if (!obsolete) {
+    check(run.state === 'integrated' && readyOutput && node.state === 'ready', 'integration output is not published');
+    const landing = convergenceJSON(run.landing_receipt), root = convergenceJSON(run.data, {}).root_commit;
+    check(landing?.run_id === run.id && landing.generation === run.generation && landing.parent === run.target_branch
+      && landing.baseline === run.baseline && landing.commit === run.candidate_commit && landing.tree === run.candidate_tree && oid(root),
+    'integration publication mapping changed');
+    await assertConvergenceEvidenceObjects(workspaces, landing);
+    check(await workspaces.isAncestor(project, reviewed, root) && await workspaces.commitTree(root) === landing.tree,
+      'integration output is not in the exact final root');
+    if (landing.evidence) check(await workspaces.isAncestor(project, root, landing.evidence.commit),
+      'integration root is not retained by the exact evidence keeper');
+    const target = onto ?? await workspaces.git(project, 'rev-parse', '--verify', `refs/heads/${run.target_branch}^{commit}`);
+    check(await workspaces.isAncestor(project, landing.commit, target), 'integration publication is not on the inspected parent');
+    landed = landing.commit; state = 'merged';
+  }
+  check(await workspaces.git(project, 'rev-parse', '--verify', `refs/heads/${task.branch}^{commit}`) === reviewed,
+    'integration branch moved');
+  const workspace = await workspaces.workspaceForBranch(task.branch);
+  let identity = null;
+  if (task.workspace) {
+    check(workspace && !fs.lstatSync(workspace).isSymbolicLink() && fs.realpathSync(workspace) === fs.realpathSync(task.workspace)
+      && fs.realpathSync(workspace) !== fs.realpathSync(project), 'integration worktree ownership changed');
+    identity = fs.statSync(workspace);
+    check(fs.realpathSync(await workspaces.git(workspace, 'rev-parse', '--show-toplevel')) === fs.realpathSync(workspace),
+      'integration worktree root changed');
+    const common = await workspaces.git(workspace, 'rev-parse', '--path-format=absolute', '--git-common-dir');
+    const expectedCommon = await workspaces.git(project, 'rev-parse', '--path-format=absolute', '--git-common-dir');
+    check(fs.realpathSync(common) === fs.realpathSync(expectedCommon), 'integration worktree repository changed');
+  } else check(workspace === null, 'integration acquired an unregistered checkout');
+  await workspaces.assertCleanBranches([task.branch]);
+  check(await workspaces.git(project, 'rev-parse', '--verify', `refs/heads/${task.branch}^{commit}`) === reviewed,
+    'integration branch changed during inspection');
+  // Synchronous facts are rechecked after all asynchronous Git checks, and again before deletion.
+  const fingerprint = () => JSON.stringify([store.task(task.id), convergenceHelperContext(store, store.task(task.id)),
+    store.deliveryRun(run.id), store.deliveryNode(node.id), store.deliveryMembers(run.id, true),
+    store.get("SELECT data FROM events WHERE task_id=? AND type='convergence.integration_ready' ORDER BY id DESC LIMIT 1", task.id),
+    store.branch(task.branch), store.task(parent.id).branch]);
+  const expected = JSON.stringify([task, context, run, node, [], readyRow, record, parent.branch]);
+  const guard = () => {
+    helperIdle(workspaces, task.id, run.id);
+    if (identity) {
+      const current = fs.statSync(workspace);
+      check(!fs.lstatSync(workspace).isSymbolicLink() && current.dev === identity.dev && current.ino === identity.ino,
+        'integration worktree directory changed during inspection');
+    }
+    check(fingerprint() === expected, 'integration identity or evidence changed during inspection');
+    check(!store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", task.id)
+      && store.unread(task.id).length === 0, 'integration input or decisions changed');
+  };
+  guard();
+  return { state, task, context, commit: reviewed, landed, workspace, guard };
+}
+
 /** 分支关系、批准合并的预检与落地。 */
 export const methods = {
   /** 尚未落成/完成分支、但未来可能改变 child 的任务，也必须阻止 child 提前向上交付。 */
@@ -121,6 +219,9 @@ export const methods = {
     if (!branch || !onto) return false;
     const record = this.store.branch(branch);
     if (!record || record.status !== 'active' || record.task_id === null || record.task_id === undefined) return false;
+    const owner = this.store.get('SELECT * FROM tasks WHERE id=?', record.task_id);
+    if (!owner) return false;
+    if (owner.task_kind === 'integration') return (await this.convergenceHelperState(owner, onto)) !== 'pending';
     // Receipts survive reopening and replacement of the current delivery reservation.
     const receipt = this.store.get("SELECT data FROM events WHERE task_id=? AND type='task.merge_integrated' ORDER BY id DESC LIMIT 1", record.task_id);
     let source, landed;
@@ -129,6 +230,10 @@ export const methods = {
         const data = JSON.parse(receipt.data);
         const parent = this.store.get('SELECT branch FROM tasks WHERE id=?', data.parent_id);
         if (parent?.branch !== record.parent) return false;
+        if (data.convergence === true) {
+          const task = this.store.task(record.task_id);
+          await assertConvergenceMemberReceipt(this, task, data);
+        }
         source = data.source_commit; landed = data.commit;
       } else {
         const task = this.store.get('SELECT reservation FROM tasks WHERE id=?', record.task_id);
@@ -164,12 +269,25 @@ export const methods = {
     const blockers = this.branchTaskBlockers(child);
     // 归档的分支没有本地 ref，不再是任何分支的 blocker；这里显式排除，别名不依赖 rev-parse 失败。
     for (const descendant of this.store.branches().filter(row => row.parent === child && !['deleted', 'archived'].includes(row.status))) {
+      const owner = descendant.task_id === null ? null : this.store.get('SELECT * FROM tasks WHERE id=?', descendant.task_id);
       let head = null;
-      try { head = await this.git(project, 'rev-parse', '--verify', `refs/heads/${descendant.branch}^{commit}`); } catch { continue; }
+      try { head = await this.git(project, 'rev-parse', '--verify', `refs/heads/${descendant.branch}^{commit}`); }
+      catch { if (owner?.task_kind === 'integration') blockers.push(descendant.branch); continue; }
+      if (owner?.task_kind === 'integration') {
+        if (await this.squashedLanded(descendant.branch, childHead)) continue;
+        blockers.push(descendant.branch); continue;
+      }
       if (await this.isAncestor(project, head, childHead)) continue;
       // Squash 落地的子分支祖先关系看不到，但成果已在 childHead 里；ref 未漂移就不算 blocker。
       if (await this.squashedLanded(descendant.branch, childHead)) continue;
       blockers.push(descendant.branch);
+    }
+    const childOwner = record.task_id === null ? null : this.store.get('SELECT * FROM tasks WHERE id=?', record.task_id);
+    if (childOwner?.task_kind === 'integration') {
+      const helperState = await this.convergenceHelperState(childOwner, parentHead);
+      return { child, parent: record.parent, child_head: childHead, parent_head: parentHead,
+        status: helperState === 'pending' ? 'diverged' : 'integrated',
+        ahead: helperState === 'pending' ? ahead : 0, behind: helperState === 'pending' ? behind : 0, blockers };
     }
     // 自己就是已 Squash 落地、尚未归档的分支：按 integrated 报告，不谎报分歧；Squash 后没有要再收拢的独有提交。
     if (status !== 'integrated' && await this.squashedLanded(child, parentHead)) {
@@ -364,13 +482,57 @@ export const methods = {
     return { commit, already_integrated: false };
   },
 
-  /** Delete the source ref after squash only when its reviewed tree survives in the target. */
+  /** Read-only infrastructure projection. Missing Runtime exit evidence always fails closed. */
+  async convergenceHelperState(task, onto = null) {
+    try { return (await helperProof(this, task.id, onto)).state; } catch { return 'pending'; }
+  },
+
+  /** Internal auxiliary reclamation, caller owns the Git gate; never claims ordinary member delivery. */
+  async archiveConvergenceHelperUnsafe(task, source = task.head_commit ?? task.base_commit) {
+    check(task.task_kind === 'integration', 'only infrastructure helpers use this archive proof');
+    const proof = await helperProof(this, task.id);
+    check(task.branch === proof.task.branch && task.workspace === proof.task.workspace && source === proof.commit,
+      'integration archive identity changed');
+    proof.guard();
+    if (proof.workspace) {
+      await this.git(this.config.project, 'worktree', 'remove', proof.workspace);
+      this.store.event(task.id, 'workspace.removed', { workspace: proof.workspace, convergence_helper: true });
+      // Persist partial removal, but do not pretend ref reclamation or acceptance succeeded.
+      this.store.update(task.id, { workspace: null });
+    }
+    // The original guard includes workspace identity; re-prove against the now registered partial state.
+    const finalProof = await helperProof(this, task.id);
+    check(finalProof.commit === proof.commit && finalProof.state === proof.state && finalProof.workspace === null,
+      'integration archive evidence changed after worktree removal');
+    check(!await this.checkedOut(proof.task.branch), 'integration branch is still checked out');
+    finalProof.guard();
+    await this.git(this.config.project, 'update-ref', '-d', `refs/heads/${proof.task.branch}`, proof.commit);
+    this.store.markBranchArchived(proof.task.branch);
+    this.store.update(task.id, { branch: null });
+    this.store.event(task.id, 'task.archived', { branch: proof.task.branch, source_commit: proof.commit,
+      landed_commit: proof.landed, convergence_helper: true, run_id: proof.context.run_id,
+      node_id: proof.context.node_id, generation: proof.context.generation, derivative_state: proof.state });
+    return { id: task.id, worktree: proof.workspace ? 'removed' : 'absent', branch: 'removed', reason: null,
+      state: proof.state, source_commit: proof.commit, landed_commit: proof.landed };
+  },
+
+  /** Delete only with legacy equivalent-tree proof or an exact settled multi-source member mapping. */
   async archiveSquashedTaskUnsafe(task, source, landed) {
+    if (task.task_kind === 'integration') return this.archiveConvergenceHelperUnsafe(task, source);
     check(task.integration === 'merged' && task.branch && task.target_branch, 'only integrated workers can be archived');
     const project = this.config.project;
     const tip = await this.git(project, 'rev-parse', `refs/heads/${task.branch}`);
     check(tip === source, 'source branch moved; keep it for inspection');
-    check(await this.git(project, 'rev-parse', `${source}^{tree}`) === await this.git(project, 'rev-parse', `${landed}^{tree}`),
+    const row = this.store.get("SELECT data FROM events WHERE task_id=? AND type='task.merge_integrated' ORDER BY id DESC LIMIT 1", task.id);
+    let memberReceipt = null;
+    try { memberReceipt = row ? JSON.parse(row.data) : null; } catch { throw new LushError('malformed delivery receipt; keep the source branch for inspection'); }
+    let booking = null;
+    try { booking = task.reservation ? JSON.parse(task.reservation) : null; } catch { throw new LushError('malformed delivery reservation; keep the source branch for inspection'); }
+    check(!(booking?.version === 3 && memberReceipt?.convergence !== true), 'convergence archive requires an exact member receipt');
+    if (memberReceipt?.convergence === true) {
+      check(memberReceipt.source_commit === source && memberReceipt.commit === landed, 'convergence archive source differs from its member receipt');
+      await assertConvergenceMemberReceipt(this, task, memberReceipt);
+    } else check(await this.git(project, 'rev-parse', `${source}^{tree}`) === await this.git(project, 'rev-parse', `${landed}^{tree}`),
       'squash tree differs from source; keep the source branch');
     check(await this.isAncestor(project, landed, `refs/heads/${task.target_branch}`),
       'the squash commit is no longer on the target branch');

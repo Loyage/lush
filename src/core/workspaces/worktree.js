@@ -18,6 +18,7 @@ export const methods = {
     this.store.update(task.id, { workspace, branch, base_commit: commit, target_branch: parentBranch });
     this.store.recordBranch({ branch, parent: parentBranch, created_from_commit: commit,
       task_id: task.id, worktree: workspace });
+    if (task.task_kind === 'integration') deletionPath(this.config, workspace);
     fs.mkdirSync(path.dirname(workspace), { recursive: true });
     await this.git(project, 'worktree', 'add', '-b', branch, workspace, commit);
     this.store.event(task.id, 'task.forked', { parent_id: task.parent_id, commit, branch, workspace });
@@ -138,6 +139,29 @@ export const methods = {
       this.store.update(task.id, { workspace: dir });
       return dir;
     }
+    if (task.task_kind === 'integration') return this.exclusive(async () => {
+      task = this.store.task(task.id);
+      const expected = path.join(this.config.home, 'worktrees', taskLabel(task.id, task.name));
+      const events = this.store.all("SELECT data FROM events WHERE task_id=? AND type='convergence.integration_created' ORDER BY id LIMIT 2", task.id);
+      const fixed = events.length === 1 ? JSON.parse(events[0].data) : null;
+      check(task.role === 'agent' && fixed?.worker_id === task.id && fixed.seed_commit === task.base_commit,
+        'integration Worker has no fixed creation receipt');
+      check(task.workspace === expected && expected !== this.config.project && fs.existsSync(expected),
+        'integration Worker requires its registered private worktree; never fall back to canonical');
+      deletionPath(this.config, expected);
+      const registration = this.store.branch(task.branch);
+      check(registration?.status === 'active' && registration.task_id === task.id
+        && registration.worktree === expected && registration.parent === task.target_branch
+        && registration.created_from_commit === fixed.seed_commit, 'integration worktree registration changed');
+      check(fs.realpathSync(await this.git(expected, 'rev-parse', '--show-toplevel')) === expected,
+        'integration workspace is not its exact worktree root');
+      check(await this.git(expected, 'symbolic-ref', '--short', 'HEAD') === task.branch, 'integration worktree branch changed');
+      const common = await this.git(expected, 'rev-parse', '--path-format=absolute', '--git-common-dir');
+      const original = await this.git(this.config.project, 'rev-parse', '--path-format=absolute', '--git-common-dir');
+      check(fs.realpathSync(common) === fs.realpathSync(original), 'integration workspace belongs to another repository');
+      check(await this.isAncestor(expected, fixed.seed_commit, 'HEAD'), 'integration worktree lost its fixed seed');
+      return expected;
+    });
     if (task.task_kind === 'main') return this.config.project;
     // 只读分析：分支最新提交的分离检出，**不创建也不占用任何分支**，所以分析师无法推进任何 ref。
     // 与 verifier 的对照检出同一套路：目录是派生的，invocation 结束就回收。

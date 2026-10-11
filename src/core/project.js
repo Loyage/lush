@@ -48,6 +48,13 @@ import autoSelectMethods from './project/auto-select.js';
 import hookSignalMethods from './project/hook-signals.js';
 import managementMethods from './project/management.js';
 import completionMethods from './project/completion.js';
+import convergencePolicyMethods from './project/convergence-policy.js';
+import convergenceQueueMethods from './project/convergence-queue.js';
+import convergencePrepareMethods from './project/convergence-prepare.js';
+import convergenceLandMethods from './project/convergence-land.js';
+import convergenceSafetyMethods from './project/convergence-safety.js';
+import convergenceWorkerMethods from './project/convergence-workers.js';
+import convergenceAcceptanceMethods from './project/convergence-acceptance.js';
 
 /**
  * Project 由若干职责模块拼装：每个模块（`src/core/project/*.js`）导出一个方法对象，
@@ -57,6 +64,9 @@ import completionMethods from './project/completion.js';
  * 这是有意为之：运行时与各 mixin 都不依赖可枚举性，故意不为「更像 class」而改成 defineProperty。
  */
 const MIXINS = [
+  ['convergencePolicy', convergencePolicyMethods], ['convergenceQueue', convergenceQueueMethods],
+  ['convergencePrepare', convergencePrepareMethods], ['convergenceLand', convergenceLandMethods], ['convergenceSafety', convergenceSafetyMethods],
+  ['convergenceWorkers', convergenceWorkerMethods], ['convergenceAcceptance', convergenceAcceptanceMethods],
   ['maintenance', maintenanceMethods], ['sleep', sleepMethods], ['status', statusMethods], ['agents', agentMethods], ['deps', depsMethods], ['inputs', inputsMethods], ['order', orderMethods], ['drafts', draftsMethods], ['references', referencesMethods],
   ['specs', specsMethods], ['plans', plansMethods], ['tasks', tasksMethods], ['progress', progressMethods], ['tree', treeMethods],
   ['timeline', timelineMethods], ['messages', messagesMethods], ['inputQueue', inputQueueMethods], ['choiceSnapshots', choiceSnapshotMethods], ['merge', mergeMethods], ['mergeQueue', mergeQueueMethods], ['mergeAll', mergeAllMethods], ['orchestrate', orchestrateMethods], ['verify', verifyMethods],

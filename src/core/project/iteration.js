@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import { check, id, TERMINAL } from '../types.js';
 import { workerLabel } from '../worker-number.js';
 import { descendantsOf } from '../genealogy.js';
+import { convergenceResourceReason, convergenceHelperDeliveryState } from '../convergence-resources.js';
+import { assertConvergenceMemberReceipt } from '../workspaces/delivery-publish.js';
 
 const bookingOf = task => task.reservation ? JSON.parse(task.reservation) : null;
 
@@ -28,6 +30,8 @@ export function assertTaskNotSyncing(project, taskId) {
 /** Resource mutations must not overtake accepted Shell work. Inbox/resume may still queue input. */
 export function assertTaskNoCommand(project, taskId) {
   check(!project.commandHookRunning?.has(taskId), 'Worker shortcut command is pending or running; wait for its safe point');
+  const task = project.store.task(taskId);
+  if (task.task_kind === 'integration') { const reason = convergenceResourceReason(project, task); check(!reason, reason); }
 }
 
 /** Explicit parent sync is not delivery approval. Persist the pause in existing audit facts. */
@@ -72,11 +76,16 @@ export function consumeIntegratedReservation(project, task, reason) {
 
 /** Read fixed-commit delivery evidence; mutation-sensitive callers hold the Git lock. */
 export async function taskDeliveryState(project, task) {
+  if (task.task_kind === 'integration') return convergenceHelperDeliveryState(project, task);
   const head = task.head_commit;
   check(head && task.branch && task.target_branch, 'Worker has no inspectable delivery branch');
   const parent = await project.workspaces.git(project.config.project, 'rev-parse', '--verify', `refs/heads/${task.target_branch}^{commit}`);
   const event = project.store.get("SELECT data FROM events WHERE task_id=? AND type='task.merge_integrated' ORDER BY id DESC LIMIT 1", task.id);
   const receipt = event ? JSON.parse(event.data) : bookingOf(task);
+  if (receipt?.convergence === true) {
+    try { await assertConvergenceMemberReceipt(project.workspaces, task, receipt); }
+    catch { return 'pending'; } // Lost/drifted batch evidence is not a delivered source, even with an equivalent tree.
+  } else if (bookingOf(task)?.version === 3 && bookingOf(task)?.status === 'integrated') return 'pending';
   const source = receipt?.source_commit ?? receipt?.commit;
   const landed = receipt?.source_commit ? receipt.commit : receipt?.landed_commit;
   const landedSurvives = landed && await project.workspaces.isAncestor(project.config.project, landed, parent);
@@ -222,7 +231,10 @@ export default {
       if (historical && this.subtreeTasks(task.id).every(row => TERMINAL.has(row.status)
         && !this.running.has(row.id) && !this.workspaces.busy.has(row.id))
         && [task.branch, ...descendantsOf(this.store.branches(), task.branch)]
-        .every(branch => ['archived', 'deleted'].includes(this.store.branch(branch)?.status))) return task;
+        .every(branch => ['archived', 'deleted'].includes(this.store.branch(branch)?.status))) {
+        await this.reclaimConvergenceAfterAcceptanceUnsafe([task.id]);
+        return task;
+      }
       check(['waiting', 'awaiting_acceptance'].includes(task.status) || historical, 'Worker must be idle before acceptance');
       const previous = this.store.get("SELECT id,data FROM events WHERE task_id=? AND type='task.acceptance_started' ORDER BY id DESC LIMIT 1", task.id);
       let attempt = previous ? { id: previous.id, ...JSON.parse(previous.data) } : null;
@@ -240,6 +252,7 @@ export default {
       check(subtree.every(row => !this.running.has(row.id) && !this.workspaces.busy.has(row.id)), 'Agent or cleanup is still in flight');
       const children = acceptanceChildren(subtree, task.id);
       const acceptingIds = new Set([task.id, ...children.map(row => row.id)]);
+      for (const helper of this.convergenceAcceptanceHelpers(subtree, acceptingIds)) acceptingIds.add(helper.id);
       const identities = new Map(subtree.map(row => [row.id, acceptanceIdentity(row)]));
       check(subtree.slice(1).every(row => TERMINAL.has(row.status) || acceptingIds.has(row.id)),
         'accept or end descendants before accepting their parent; only delivered child delegation chains can be accepted together');
@@ -292,7 +305,7 @@ export default {
             && recovered.get(row.target_branch)?.ref === 'deleted';
           const state = parentReclaimed ? currentRow.integration : await taskDeliveryState(this, currentRow);
           check(state !== 'pending', `Worker ${workerLabel(row)} has undelivered changes`);
-          this.store.update(row.id, { integration: state });
+          if (row.task_kind !== 'integration') this.store.update(row.id, { integration: state });
         }
       }
       task = this.store.task(task.id);
@@ -373,7 +386,8 @@ export default {
           this.store.update(row.id, { status: 'completed', error: null,
             ...(booking?.status === 'pending' ? { reservation: null } : {}) });
           this.store.armAgent(row.id, null);
-          this.store.event(row.id, row.id === task.id && historical ? 'task.acceptance_reclaimed' : 'task.accepted', {
+          this.store.event(row.id, row.task_kind === 'integration' ? 'convergence.helper_reclaimed'
+            : row.id === task.id && historical ? 'task.acceptance_reclaimed' : 'task.accepted', {
             head_commit: row.head_commit, integration: row.integration,
             accepted_by: actor === null ? 'user' : 'parent', parent_id: actor, resources_reclaimed: true,
             acceptance_execution: started.id,
@@ -384,9 +398,11 @@ export default {
         }
       });
       for (const rowId of acceptingIds) {
+        if (this.store.task(rowId).task_kind === 'integration') continue;
         if (rowId !== task.id || !historical) this.emitTaskHook(rowId, 'worker.accepted');
         this.scheduleTaskCompletion(rowId);
       }
+      await this.reclaimConvergenceAfterAcceptanceUnsafe([...acceptingIds]);
       return this.store.task(task.id);
     });
   },

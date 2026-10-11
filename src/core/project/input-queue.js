@@ -7,8 +7,9 @@ const bookingOf = task => task.reservation ? JSON.parse(task.reservation) : null
 export default {
   inputFreezeReason(task, freezes = null) {
     if (this.maintenancePaused()) return '项目维护暂停；输入已保存，等待显式全部继续';
+    if (task.task_kind === 'integration') return '整合身份绑定固定节点；普通追加要求已保存，不改变当前尝试，Notice 答复可继续该节点。';
     const booking = bookingOf(task);
-    if (booking?.version === 2 && ['requested','executing','resolving','blocked'].includes(booking.status))
+    if ([2, 3].includes(booking?.version) && ['requested','executing','resolving','blocked'].includes(booking.status))
       return booking.status === 'blocked' ? '交付落地待核验；输入已保存，等待安全解冻'
         : '当前固定交付尚未结束；输入已保存，等待交付解冻';
     const branch = task.branch ?? task.target_branch;
@@ -38,7 +39,7 @@ export default {
 
   releaseTaskInputs(taskId, freezes = null) {
     const task = this.store.task(taskId);
-    if (['main','owner','merge','management'].includes(task.task_kind) || this.inputQueueWaitReason(task, freezes)) return false;
+    if (['main','owner','merge','management','integration'].includes(task.task_kind) || this.inputQueueWaitReason(task, freezes)) return false;
     const held = this.store.all("SELECT id,body,sender_id,delivery_hold FROM messages WHERE task_id=? AND consumed=0 AND delivery_hold IN ('frozen','routing') ORDER BY id LIMIT 50", taskId);
     if (!held.length) return false;
     // Rules are trusted repository code. Persist their claim BEFORE running them: a

@@ -28,6 +28,21 @@ function managementTask(task) {
   return manager;
 }
 
+function integrationTask(config, task, context, cwd) {
+  if (task.task_kind !== 'integration') return false;
+  const fixed = context?.integration;
+  const expectedRoot = path.join(config.home, 'worktrees') + path.sep;
+  if (task.role !== 'agent' || !task.workspace || cwd !== task.workspace
+    || !path.resolve(cwd).startsWith(expectedRoot) || fs.realpathSync(cwd) !== path.resolve(cwd)
+    || fs.realpathSync(cwd) === fs.realpathSync(config.project)
+    || fixed?.version !== 1 || fixed.worker_id !== task.id || fixed.seed_commit !== task.base_commit
+    || !Number.isSafeInteger(fixed.run_id) || fixed.run_id <= 0 || !Number.isSafeInteger(fixed.node_id) || fixed.node_id <= 0
+    || !Number.isSafeInteger(fixed.generation) || fixed.generation <= 0) {
+    throw new Error('integration provider requires its fixed private worktree and context');
+  }
+  return true;
+}
+
 /** 在可验证的安全边界上被抢占的 invocation：不是失败、也不是超时/取消，调度器按此单独记账。 */
 export class AgentPreempted extends Error {
   constructor(details = {}) {
@@ -157,7 +172,10 @@ export class PiProvider {
     if (piMode && agent.agent !== 'pi') throw new Error('Pi default mode requires the Pi backend');
     if (!piMode && !agent?.connection_id) throw new Error(MISSING_PI_SOURCE_MESSAGE);
     const manager = managementTask(task);
-    if (manager && (typeof token !== 'string' || !token.trim())) throw new Error('manager requires a current invocation token');
+    const integration = integrationTask(config, task, context, cwd);
+    if (integration && choiceFork) throw new Error('integration Worker cannot inherit a choice/source session');
+    if ((manager || integration) && (typeof token !== 'string' || !token.trim()))
+      throw new Error(`${manager ? 'manager' : 'integration Worker'} requires a current invocation token`);
     const explaining = task.role === 'explainer';
     const isolated = explaining || task.role === 'butler';
     if (isolated && piMode) throw new Error('explainer/butler requires Lush configuration');
@@ -188,7 +206,7 @@ export class PiProvider {
     const sessionId = manager ? `lush-manager-${task.id}${piMode ? '-pi' : ''}`
       : piMode ? `lush-task-${task.id}-pi` : `lush-task-${task.id}`;
     const existing = fs.readdirSync(files.sessions).some(name => name.endsWith(`_${sessionId}.jsonl`));
-    const fork = !manager && !piMode && !existing && Boolean(choiceFork || forkPointer);
+    const fork = !manager && !integration && !piMode && !existing && Boolean(choiceFork || forkPointer);
     if (choiceFork) {
       if (manager || piMode || choiceFork.file !== choiceForkPath(config.home, task.id)) throw new Error('invalid choice fork mode or ownership');
       readChoiceFile(config.home, choiceFork.file, choiceFork.digest);
@@ -257,6 +275,7 @@ export class CodexProvider {
   async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, onInputDelivered, agent }) {
     const config = this.config;
     if (managementTask(task)) throw new Error('manager requires Pi restricted management tools; the legacy Codex CLI backend is not supported');
+    integrationTask(config, task, context, cwd);
     if (['explainer','butler'].includes(task.role)) throw new Error('isolated agents require Pi no-tools mode');
     const files = sessionFiles(config, task, context, messages, agent, messagesPage);
     if (Object.keys(agent.soft_budget || {}).length) throw new Error('soft_budget is supported only by Pi');

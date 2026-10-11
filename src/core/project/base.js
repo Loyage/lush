@@ -23,6 +23,13 @@ export class ProjectBase {
     // 运行设置写盘后由 Config 回调这里重新检查后续调用准入。
     this.config.onKick = () => this.kick();
     this.running = new Map(); this.stopping = false; this.scheduled = false; this.ancestry = new Map();
+    // Integration acceptance/branch proofs must distinguish a stored return from actual invocation exit.
+    this.workspaces.convergenceHelperBusy = taskId => this.running.has(taskId)
+      || this.commandHookRunning?.has(taskId) === true;
+    this.workspaces.convergenceHelperIdle = (taskId, runId) => Number.isSafeInteger(taskId) && taskId > 0
+      && Number.isSafeInteger(runId) && runId > 0 && !this.running.has(taskId)
+      && !this.commandHookRunning?.has(taskId) && !this.taskSyncBusy?.has(taskId)
+      && !this.convergenceJobs?.has(runId);
     // R-01：清空进入异步回收后，新的写入口先被拒，purge 不会删掉「已经成功返回」的数据。
     this.clearing = false;
     // 已经获准、正在跨 await 的异步写入；clear 先等它们收尾再 purge。

@@ -1,4 +1,4 @@
-import { check } from '../../core/types.js';
+import { check, isPlainObject } from '../../core/types.js';
 import { workerLabel } from '../../core/worker-number.js';
 
 /**
@@ -35,12 +35,61 @@ function ownBranch(p, actor) {
   return input?.anchor_branch ?? null;
 }
 
-/** branch.* —— 显式记录的分支创建谱系：只读视图 + 用户显式 import（import 会写 store，所以是 USER_ONLY）。 */
+function convergenceBranch(value) {
+  check(typeof value === 'string' && value.length > 0 && value.length <= 512 && value === value.trim()
+    && !/[\s\x00-\x1f\x7f~^:?*\[\\]/.test(value) && !value.includes('..') && !value.includes('@{')
+    && !value.includes('//') && !value.startsWith('/') && !value.startsWith('-') && !value.startsWith('refs/')
+    && !value.endsWith('/') && !value.endsWith('.') && value !== '@'
+    && !/^[0-9a-f]{40,64}$/i.test(value)
+    && value.split('/').every(part => !part.startsWith('.') && !part.endsWith('.lock')),
+  'branch must be an exact local branch name, not a ref expression');
+  return value;
+}
+function convergenceRevision(value) {
+  check(typeof value === 'string' && value.length > 0 && value.length <= 256
+    && value === value.trim() && !/[\x00-\x1f\x7f]/.test(value),
+  'expected_revision must be a convergence read revision');
+  return value;
+}
+function convergenceInteger(value, name, max = Number.MAX_SAFE_INTEGER) {
+  check(Number.isSafeInteger(value) && value > 0 && value <= max, `${name} must be a positive integer${max === 50 ? ' up to 50' : ''}`);
+  return value;
+}
+function convergenceValidation(value) {
+  if (value === null) return null;
+  check(isPlainObject(value), 'validation must be null or a command reference');
+  check(Object.keys(value).length === 2 && Object.keys(value).every(key => ['command_id','command_version'].includes(key)),
+    'validation accepts only command_id and command_version');
+  check(typeof value.command_id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.command_id),
+    'invalid validation command id');
+  convergenceInteger(value.command_version, 'command_version');
+  return value;
+}
+
+/** branch.*：谱系/历史只读；绑定、归档及归并策略遵守各自用户权限，不提供通用 ref 写入口。 */
 export const handlers = {
   'branch.history'(p, params, actor) { return p.branchHistory(params); },
   'branch.version_graph'(p, params, actor) { return p.branchVersionGraph(params); },
   'branch.tree'(p, params, actor) { return p.branchTree(); },
   'branch.show'(p, params, actor) { return p.branchShow(params.branch); },
+  'branch.convergence'(p, params) { return p.branchConvergence(convergenceBranch(params.branch)); },
+  'branch.convergence_list'(p) { return p.branchConvergenceList(); },
+  'branch.convergence_set'(p, params) {
+    const branch = convergenceBranch(params.branch), expected = convergenceRevision(params.expected_revision);
+    check(typeof params.enabled === 'boolean', 'enabled must be a boolean');
+    const validation = convergenceValidation(params.validation);
+    check(!params.enabled || validation !== null, 'enabled convergence requires a validation command reference');
+    return p.setBranchConvergence(branch, params.enabled, validation, expected);
+  },
+  'branch.convergence_runs'(p, params) {
+    const branch = convergenceBranch(params.branch);
+    const before = params.before === undefined || params.before === null ? null : convergenceInteger(params.before, 'before');
+    const limit = params.limit === undefined ? 20 : convergenceInteger(params.limit, 'limit', 50);
+    return p.branchConvergenceRuns(branch, before, limit);
+  },
+  'branch.convergence_retry'(p, params) {
+    return p.retryBranchConvergence(convergenceInteger(params.id, 'id'), convergenceRevision(params.expected_revision));
+  },
   'branch.import'(p, params, actor) { return p.branchImport(); },
   'branch.bind'(p, params, actor) { return p.bindBranch(params.branch, params.commit); },
   'branch.merge'(p, params, actor) { return p.approveBranchMerge(params.branch); },

@@ -23,6 +23,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (body) actions.push(body); else reads.push(path);
   const custom = intercept?.(path, body); if (custom) return custom;
   if (path.endsWith('/api/hooks')) return json(catalogue);
+  if (path.endsWith('/api/branch-convergence')) return json({ version: 1, items: [], count: 0, truncated: false });
   if (path.endsWith('/api/agent/config')) return json(settings);
   if (path.endsWith('/api/agent/connections')) return json({ version: 1, connections: [source] });
   if (path.includes('/api/agent/connections/models')) return json({ version: 1, status: 'cached', models: [] });
@@ -58,7 +59,7 @@ afterAll(() => { closeDialog(); restoreNavigation(); dom.restore(); });
 
 test('Hooks page separates time signals and manager instructions from development, with safe source and history projections', async () => {
   await openHooks();
-  expect(actions).toHaveLength(0); expect(reads).toEqual(['/api/hooks']);
+  expect(actions).toHaveLength(0); expect(reads).toEqual(['/api/hooks', '/api/branch-convergence']);
   expect(deepText(root())).toContain('默认输入框仍用于开发任务');
   expect(deepText(root())).toContain('不是实际额度已恢复的观测');
   expect(deepText(root())).toContain('每天 00:05 · Asia/Shanghai');
@@ -138,7 +139,7 @@ test('all 64 enabled compact authorizations remain individually visible and revo
   expect(root().querySelectorAll('.management-goal-truncated')).toHaveLength(64);
   expect(root().querySelectorAll('.management-actions-truncated')).toHaveLength(64);
   expect(root().querySelectorAll('button').filter(item => item.textContent === '停用管理绑定' && !item.disabled)).toHaveLength(64);
-  expect(reads).toEqual(['/api/hooks']); expect(actions).toHaveLength(0);
+  expect(reads).toEqual(['/api/hooks', '/api/branch-convergence']); expect(actions).toHaveLength(0);
   await btn('停用管理绑定').onclick();
   expect(actions).toEqual([{ method: 'management.binding_update', params: { id: 200, enabled: false, expected_revision: 'binding-1' } }]);
 });
@@ -232,7 +233,7 @@ test('manager creation defaults to once, explicitly authorizes later invocation 
   const confirm = dialogButton(dom, '授权并创建管理指令'); expect(confirm.classList.contains('agent-call')).toBe(true);
   await confirm.onclick(); await creating;
   expect(actions).toEqual([{ method: 'management.create', params: { client_request_id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/), name: '自动开跑', instruction: '重试失败的 W11', signal_id: 'reset', mode: 'once' } }]);
-  expect(reads).toEqual(['/api/hooks']); expect(btn('新建管理指令').disabled).toBe(false);
+  expect(reads).toEqual(['/api/hooks', '/api/branch-convergence']); expect(btn('新建管理指令').disabled).toBe(false);
   expect(ui.hooksPage.catalogue.management_workers.map(item => item.id)).toEqual([201, 200]);
 });
 
@@ -343,7 +344,7 @@ test('manager binding toggles use its own revision, preserve selected model and 
   expect(btn('启用管理绑定').classList.contains('agent-call')).toBe(true);
   const enabling = btn('启用管理绑定').onclick(); await dialogButton(dom, '授权并启用绑定').onclick(); await enabling;
   expect(actions[1]).toEqual({ method: 'management.binding_update', params: { id: 200, enabled: true, expected_revision: 'binding-2' } });
-  expect(deepText(root())).toContain('openai-codex/codex-model'); expect(reads).toEqual(['/api/hooks']);
+  expect(deepText(root())).toContain('openai-codex/codex-model'); expect(reads).toEqual(['/api/hooks', '/api/branch-convergence']);
 });
 
 test('pending manager requests and unknown effects remain visible, escaped and non-replayable', async () => {
