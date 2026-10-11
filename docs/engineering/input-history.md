@@ -68,4 +68,6 @@
 - `bun scripts/check-input-history-ui.js`：Firefox/geckodriver 临时 fixture，验证双主题 1440/900/500px 实际视口的等高列表/详情布局、浏览器后退与键盘交互；Firefox 将请求的 390px 窗口限制为 500px 视口，不据此声称验证了 390px。
 - `bun run scripts/check-composer-layout.js`：实际 `/p/<id>/` 项目页和 fixture API；Firefox 验证只有 textarea 区分新建实线／追加虚线，表单／图标／目标条无外框，整个输入区域统一项目色染色、聚焦不叠加描边且保留线型、常驻加粗目标、两种模式均沿用六种项目配色、双主题、聚焦／失焦、长标题、冻结／阻塞目标保留、Enter 真实投递、追加 ACK 自动恢复新建及导航退出。用真实 iframe 浏览上下文绕过 Firefox 顶层最小窗口限制，实际测试 1440/900/390px 视口；不连接 daemon 或模型，运行后清理服务与浏览器进程。
 
+- `bun run test/web/check-mobile-composer-browser.js`：隔离 Firefox fixture，以真实 iframe 验证 320/390/760px 手机与 1440px 桌面、双主题、项目配色下的常驻单行页头、两列 44px 等高导航、事项／Worker 跳转后收起、矮屏全局菜单独立滚动、默认四按钮单行与预约按钮不溢出、展开次要入口及手机回车／撤销／追加／创建语义。软键盘通过 VisualViewport 模拟，不等同于 iOS／Android 真机验收。
+
 缓冲区上限 500 条。无已绑定父 Worker 或 detached HEAD 时，暂存需先明确选择有效父Worker；失败保留输入，不自动新建任意 owner。当前不提供批量发射、Worker 追加消息的全局检索或原始 Input 改写。

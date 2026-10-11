@@ -14,7 +14,7 @@ import { openTaskGraph } from './render-task-graph.js';
 import { closeQuickExplanationPanel } from './quick-explanation.js';
 import { initSidebar } from './sidebar-init.js';
 import { resetProjectMaintenance, renderProjectMaintenance } from './project-maintenance.js';
-import { activateDetailView, openResource, paintCollapsed } from './sidebar-ui.js';
+import { activateDetailView, openResource, paintCollapsed, toggleMobileNavigation } from './sidebar-ui.js';
 import { resetUiState, ui } from './state.js';
 import { initComposer } from './composer.js';
 import { SORT_MODES } from './tree-order.js';
@@ -251,9 +251,11 @@ export async function boot() {
   if ($('inputs-open')) $('inputs-open').onclick = () => projectReady ? openInputs() : noProjectView();
   if ($('input-history')) $('input-history').onclick = () => projectReady ? openInputs() : noProjectView();
   if ($('quick-explain-history-open')) $('quick-explain-history-open').onclick = () => projectReady ? openQuickExplanationHistory() : noProjectView();
-  $('sidebar-toggle').onclick = () => {
-    const open = $('sidebar').classList.toggle('mobile-open'); $('sidebar-toggle').setAttribute('aria-expanded', String(open));
-    $('sidebar-toggle').textContent = open ? '收起菜单' : '导航菜单';
+  $('sidebar-toggle').onclick = () => toggleMobileNavigation();
+  $('sidebar').onkeydown = event => {
+    if (event.key === 'Escape' && $('sidebar').classList.contains('mobile-open')) {
+      event.preventDefault(); toggleMobileNavigation(false); $('sidebar-toggle').focus();
+    }
   };
   $('task-graph-open').onclick = () => projectReady ? openTaskGraph().catch(report) : noProjectView();
   $('view-back').onclick = () => { if ($('view-back').disabled) return; if (typeof window.history.back === 'function') return window.history.back(); return goOverview(); };

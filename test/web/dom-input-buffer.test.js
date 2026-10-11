@@ -203,14 +203,18 @@ test('当前 Worker 追加键盘/按钮矩阵，隐藏暂存与父选择；返�
   const expand = dom.node('composer-expand'), tools = dom.node('composer-editor-tools');
   toggleComposerDetails(false);
   expect(tools.hidden).toBe(true);
+  expect(dom.node('input-form').dataset.expanded).toBe('false');
+  expect(expand.getAttribute('data-help')).toContain('历史输入');
   expect(expand.getAttribute('data-help')).toContain('不改变追加目标');
   await expand.onclick();
   expect(tools.hidden).toBe(false);
+  expect(dom.node('input-form').dataset.expanded).toBe('true');
   expect(dom.node('composer-details').hidden).toBe(true);
   expect(dom.node('composer-shortcuts').hidden).toBe(true);
   expect(expand.getAttribute('aria-expanded')).toBe('true');
   await expand.onclick();
   expect(tools.hidden).toBe(true);
+  expect(dom.node('input-form').dataset.expanded).toBe('false');
   for (const keys of [{}, { ctrlKey: true }, { metaKey: true }, { ctrlKey: true, shiftKey: true }]) {
     openWorker(); type('追加要求'); await enter(keys);
     expect(calls.at(-1)).toEqual({ method: 'worker.message', params: { id: 126, body: '追加要求' } });

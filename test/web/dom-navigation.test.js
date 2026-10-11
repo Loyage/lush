@@ -45,6 +45,28 @@ test('左栏只做导航：任务索引在右侧成为独立页面，任务详�
   expect(dom.node('detail').hidden).toBe(true);
 });
 
+test('手机菜单开关保留输入与页面，Escape 收起并归还焦点，跳转同步单行页名', async () => {
+  await dom.node('overview-open').onclick();
+  const view = ui.view, toggle = dom.node('sidebar-toggle');
+  dom.node('input').value = '菜单不能丢掉这条输入';
+  toggle.onclick();
+  expect(dom.node('sidebar').classList.contains('mobile-open')).toBe(true);
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  expect(ui.view).toBe(view);
+  let prevented = false;
+  dom.node('sidebar').onkeydown({ key: 'Escape', preventDefault: () => { prevented = true; } });
+  expect(prevented).toBe(true);
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(document.activeElement).toBe(toggle);
+  expect(dom.node('input').value).toBe('菜单不能丢掉这条输入');
+  toggle.onclick();
+  await dom.node('side-nav').querySelector('[data-side="tasks"]').onclick();
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(dom.node('mobile-view-title').textContent).toBe('Worker 列表');
+  expect(dom.node('input').value).toBe('菜单不能丢掉这条输入');
+  dom.node('input').value = '';
+});
+
 test('右侧固定返回按钮在没有原生 history.back 的宿主里安全回落到概览', async () => {
   await dom.node('side-nav').querySelector('[data-side="tasks"]').onclick();
   expect(dom.node('view-title').textContent).toBe('Worker 列表');

@@ -26,20 +26,24 @@
 <main>
 <aside id="sidebar" aria-label="项目导航">
   <div class="rail-identity">
+    <div class="rail-heading">
     <div class="brand"><a id="home" href="/#projects" class="home" aria-label="Lush · 用户工作台"><span class="brand-mark" aria-hidden="true">L</span><strong>Lush<span class="brand-caption">WORKER STUDIO</span></strong></a></div>
     <div class="rail-context"><span id="host-context" class="eyebrow">工作台</span><strong id="project">未打开项目</strong></div>
+    <span id="mobile-view-title" class="mobile-view-title">项目概览</span>
+    <button type="button" id="sidebar-toggle" class="ghost" aria-expanded="false" aria-controls="navigation-menu">导航菜单</button>
+    </div>
+  </div>
+  <div id="navigation-menu" class="navigation-menu">
     <div class="rail-tools">
       <span id="agents"></span><span id="connection" role="status">连接中…</span>
       <button type="button" id="project-switch" class="ghost" hidden>切换项目</button>
       <span class="help-host" tabindex="0" data-help="主题为设备统一偏好；等待权威配置读取后可修改。"><button type="button" id="theme-toggle" class="ghost theme-toggle" aria-label="切换主题">◐ 主题</button></span>
       <form class="logout" method="post" action="/logout"><button type="submit" class="ghost">退出</button></form>
     </div>
-  </div>
   <section id="sleep-banner" class="sleep-banner" aria-live="polite" hidden></section>
   <div class="nav-intro">
     <span id="nav-space-eyebrow" class="eyebrow">USER WORKSPACE</span>
     <strong id="nav-space-label">用户工作台</strong>
-    <button type="button" id="sidebar-toggle" class="ghost" aria-expanded="false" aria-controls="side-nav">导航菜单</button>
   </div>
   <div class="nav-divider" data-global-navigation="true"><span>工作台</span></div>
   <nav class="workspace-nav workbench-nav" aria-label="工作台管理" data-global-navigation="true">
@@ -75,6 +79,7 @@
 
   </nav>
   <div class="sidebar-footer"><span class="brand-spark">✳</span> 以 Worker 组织成果。<span>派子 Worker · 审阅 · 人工合并</span></div>
+  </div>
 </aside>
 <div class="content-shell">
   <div id="view-toolbar" class="view-toolbar">
@@ -122,7 +127,7 @@
   </section>
 </div>
 </main>
-<div class="composer" id="composer-shell"><form id="input-form" data-mode="create">
+<div class="composer" id="composer-shell"><form id="input-form" data-mode="create" data-expanded="false">
   <div id="composer-mode" class="composer-mode" role="status" aria-live="polite" aria-atomic="true">
     <span id="composer-mode-icon" class="composer-mode-icon" aria-hidden="true">＋</span>
     <strong id="composer-mode-title">新建独立 Worker</strong>
@@ -145,7 +150,7 @@
     <span id="composer-shortcuts" class="hint composer-shortcuts" hidden><kbd>⌘ / Ctrl ↵</kbd> 待开始 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ⇧ ↵</kbd> 直接运行 <span class="shortcut-separator">/</span> <kbd>Enter</kbd> 暂存 <span class="shortcut-separator">/</span> <kbd>Shift+Enter</kbd> 换行</span>
     <span class="composer-actions">
 
-      <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details composer-editor-tools composer-shortcuts" data-help="展开：显示正文的撤销与重做按钮，可以选择父 Worker，并查看键盘快捷键">⌃ 更多</button>
+      <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details composer-editor-tools composer-shortcuts" data-help="展开正文编辑、历史输入、运行设置、父 Worker 与快捷键">⌃ 更多</button>
 
       <button type="button" id="composer-reset" class="ghost" data-help="回到新建独立 Worker 模式，保留正文与引用；输入空白且没有引用时也可按 Esc 返回。" hidden>回到新建 Worker</button>
       <button type="button" id="input-history" class="ghost">历史输入</button>

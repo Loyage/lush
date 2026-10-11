@@ -26,6 +26,7 @@ function node(id) { return globalThis.document?.getElementById?.(id) ?? null; }
 
 export function setViewChrome(title, context = '项目', hint = '', { root = false } = {}) {
   const titleNode = node('view-title'); if (titleNode) titleNode.textContent = title;
+  const mobileTitle = node('mobile-view-title'); if (mobileTitle) mobileTitle.textContent = title;
   const contextNode = node('view-context'); if (contextNode) contextNode.textContent = context;
   const hintNode = node('view-hint'); if (hintNode) hintNode.textContent = hint;
   // Browser-tab identity is owned by project-identity.js, not the current panel.
@@ -73,11 +74,21 @@ function activate(id, { key = id, title, context, hint, push = true, hash } = {}
     const base = `${globalThis.location?.pathname || '/'}${globalThis.location?.search || ''}`;
     globalThis.window?.history?.pushState?.(null, '', target || base);
   }
-  node('sidebar')?.classList?.remove('mobile-open');
-  const toggle = node('sidebar-toggle');
-  if (toggle) { toggle.setAttribute('aria-expanded', 'false'); toggle.textContent = '导航菜单'; }
+  toggleMobileNavigation(false);
   ui.syncComposer?.();
   return ui.view;
+}
+
+/** The mobile header stays outside the scrollable menu; opening it never changes the page. */
+export function toggleMobileNavigation(force) {
+  const sidebar = node('sidebar'), toggle = node('sidebar-toggle');
+  if (!sidebar || !toggle) return false;
+  const open = force ?? !sidebar.classList.contains('mobile-open');
+  sidebar.classList.toggle('mobile-open', open);
+  toggle.setAttribute('aria-expanded', String(open));
+  toggle.textContent = open ? '收起菜单' : '导航菜单';
+  if (!open && node('navigation-menu')?.contains?.(globalThis.document?.activeElement)) toggle.focus();
+  return open;
 }
 
 /** 通用画布页面返回身份令牌；异步完成后先比较 ui.view。 */

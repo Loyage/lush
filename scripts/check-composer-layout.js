@@ -113,7 +113,7 @@ try {
   assert(await waitFor('window.ready && window.ui.composerTask?.id===1'), 'project app/detail did not load');
   assert(await execute(`return document.querySelector('#input-form').dataset.mode==='create';`), 'detail implicitly entered append mode');
   // Enter append using the actual visible mode-selection control, not a synthetic destination.
-  await execute(`const entry=[...document.querySelectorAll('.task-actions button')].find(n=>n.textContent==='向该 Worker 追加输入');if(!entry)throw Error('append entry missing');entry.id='fixture-append';`);
+  await execute(`const entry=[...document.querySelectorAll('.task-actions button')].find(n=>n.textContent==='追加输入');if(!entry)throw Error('append entry missing');entry.id='fixture-append';`);
   await click('#fixture-append');
   assert(await waitFor('document.querySelector("#input-form").dataset.mode==="append"'), 'explicit entry did not select Worker');
   for (const mode of ['append', 'create']) {

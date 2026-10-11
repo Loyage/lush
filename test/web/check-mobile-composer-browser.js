@@ -9,6 +9,8 @@ const script = `<script type="module">
 import {initComposer,appendToWorker,syncComposer} from '/composer.js';
 import {ui} from '/state.js';
 import {registerNavigation} from '/navigate.js';
+import {initSidebar} from '/sidebar-init.js';
+import {toggleMobileNavigation,activateDetailView,setNavCount} from '/sidebar-ui.js';
 const nativeMatch=window.matchMedia.bind(window);window.touch=false;
 window.matchMedia=q=>q==='(pointer: coarse)'?{matches:window.touch}:nativeMatch(q);
 const viewport=new EventTarget();Object.assign(viewport,{height:innerHeight,offsetTop:0,scale:1});
@@ -19,6 +21,14 @@ window.fetch=async(url,options)=>{if(String(url).endsWith('/api/input-parents'))
 const body=JSON.parse(options.body);window.calls.push(body);if(window.defer)await new Promise(r=>window.release=r);
 if(window.fail)return Response.json({error:'fixture failure'},{status:500});return Response.json({id:4,task:{id:8,worker_number:'W8'}});};
 registerNavigation({refresh:async()=>{},detail:async()=>{}});ui.view={id:'overview'};
+document.documentElement.dataset.lushSpace='project';
+document.querySelector('#project').textContent='手机体验项目';
+initSidebar();setNavCount('notices',1234);setNavCount('tasks',12345);
+document.querySelector('#sidebar-toggle').onclick=()=>toggleMobileNavigation();
+window.page=()=>activateDetailView({view:'overview'});
+window.menu=()=>toggleMobileNavigation(true);
+window.space=value=>{document.documentElement.dataset.lushSpace=value;document.querySelector('#composer-shell').hidden=value==='global';};
+for(const id of ['notices','tasks'])document.querySelector('#side-'+id+'-body').innerHTML='<div style="height:1800px">Scrollable resource content</div>';
 document.querySelector('#detail').innerHTML='<h1>Long content</h1><div style="height:1800px">Scrollable content</div>';
 window.append=()=>{ui.view={id:'task'};ui.selected=8;appendToWorker({id:8,worker_number:'W8',task_kind:'order',status:'waiting',branch:'feature',workspace:'/tmp/fixture',goal:'追加目标'});};
 window.frozen=value=>{ui.composerParents=[{id:1,branch:'main',...(value?{freeze:{reason:'fixture freeze'}}:{})}];syncComposer();};
@@ -55,14 +65,38 @@ try{
   await rpc(`/session/${session}/window/rect`,{width:1600,height:1100});await rpc(`/session/${session}/url`,{url:`http://127.0.0.1:${server.port}/`});
   await resize(390,844);assert(await wait('window.ready'),'fixture load failed');
   for(const theme of ['light','dark'])for(const [width,height]of [[320,700],[390,844],[760,700],[1440,900]]){
-    await resize(width,height);await execute(`document.documentElement.dataset.theme='${theme}';window.touch=${width<=760};document.querySelector('#input').focus();`);
+    await resize(width,height);await execute(`document.documentElement.dataset.theme='${theme}';document.documentElement.dataset.projectColor='blue';window.touch=${width<=760};document.querySelector('#input').focus();`);
     assert(await wait(`document.querySelector('#input').getBoundingClientRect().bottom<=innerHeight+1`),'focus did not expose input');
     assert(await execute(`return document.querySelector('#composer-editor-tools').hidden&&document.querySelector('.text-editor-undo').getClientRects().length===0;`),`editor controls visible by default ${width} ${theme}`);
+    assert(await execute(`const visible=Array.from(document.querySelectorAll('.composer-actions button')).filter(b=>b.getClientRects().length);const r=visible.map(b=>b.getBoundingClientRect());return innerWidth>760||visible.length===4&&r.every(b=>Math.abs(b.top-r[0].top)<1&&b.height===36&&b.left>=0&&b.right<=innerWidth);`),`default actions not one compact row ${width} ${theme}`);
     await click('#composer-expand');
     assert(await execute(`return !document.querySelector('#composer-editor-tools').hidden&&document.querySelector('.text-editor-undo').getClientRects().length>0;`),`editor controls not expanded ${width} ${theme}`);
-    assert(await execute(`return document.documentElement.scrollWidth<=innerWidth&&Array.from(document.querySelectorAll('.composer-actions button,.text-editor-controls button')).filter(b=>b.getClientRects().length).every(b=>{const r=b.getBoundingClientRect();return r.right<=innerWidth+1&&(innerWidth>760||r.height>=44)});`),`clipped/small controls ${width} ${theme}`);
+    assert(await execute(`return document.documentElement.scrollWidth<=innerWidth&&Array.from(document.querySelectorAll('.composer-actions button,.text-editor-controls button')).filter(b=>b.getClientRects().length).every(b=>{const r=b.getBoundingClientRect();return r.right<=innerWidth+1&&(innerWidth>760||r.height>=36)});`),`clipped/small controls ${width} ${theme}`);
     await click('#composer-expand');
-    console.log(`PASS focus, wrapped controls, themes ${theme} ${width}x${height}`);
+    console.log(`PASS focus, compact default/expanded controls, themes ${theme} ${width}x${height}`);
+    if(width<=760){
+      await execute('window.frozen(true);');
+      assert(await execute(`const r=Array.from(document.querySelectorAll('.composer-actions button')).filter(b=>b.getClientRects().length).map(b=>b.getBoundingClientRect());return r.length===4&&r.every(b=>Math.abs(b.top-r[0].top)<1&&b.left>=0&&b.right<=innerWidth);`),`reservation buttons wrap/overflow ${width}`);
+      await execute('window.frozen(false);document.querySelector("#input").blur();window.scrollTo(0,700);');
+      assert(await execute(`const r=document.querySelector('.rail-heading').getBoundingClientRect();return Math.abs(document.querySelector('#sidebar').getBoundingClientRect().top)<1&&r.height===52&&document.querySelector('#sidebar-toggle').getBoundingClientRect().right<=innerWidth;`),`header not pinned ${width} ${theme}`);
+      await click('#sidebar-toggle');
+      assert(await execute(`const buttons=Array.from(document.querySelectorAll('#navigation-menu .workspace-link,#navigation-menu .nav-item')).filter(b=>b.getClientRects().length);return document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')==='true'&&buttons.length===8&&buttons.every(b=>{const r=b.getBoundingClientRect();return r.height===44&&r.width<=innerWidth/2&&r.left>=0&&r.right<=innerWidth;});`),`inconsistent navigation cards ${width} ${theme}`);
+      await execute(`const r=document.querySelector('#navigation-menu').getBoundingClientRect(),header=document.querySelector('#sidebar').getBoundingClientRect();if(Math.abs(r.top-header.bottom)>1)throw Error('menu overlaps project header');`);
+      if(width===390)await Bun.write(`/tmp/w206-mobile-nav-${theme}.png`,Buffer.from(await rpc(`/session/${session}/screenshot`,undefined,'GET'),'base64'));
+      for(const id of ['notices','tasks']){
+        await click('[data-side="'+id+'"].nav-item');
+        assert(await execute(`return document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')==='false'&&!document.querySelector('#side-${id}').hidden&&document.querySelector('#mobile-view-title').textContent===document.querySelector('#view-title').textContent;`),`resource navigation did not close/update header ${id}`);
+        await execute('window.scrollTo(0,700)');await click('#sidebar-toggle');
+        assert(await execute(`return Math.abs(document.querySelector('#sidebar').getBoundingClientRect().top)<1;`),`resource header disappeared ${id}`);
+      }
+      await resize(width,320);
+      await execute('window.page();window.space("global");window.menu();');
+      const menuGeometry=await execute(`const m=document.querySelector('#navigation-menu');m.scrollTop=m.scrollHeight;return {scroll:m.scrollHeight,height:m.clientHeight,bottom:m.getBoundingClientRect().bottom,viewport:innerHeight,links:Array.from(m.querySelectorAll('.workspace-link')).filter(b=>b.getClientRects().length).length,top:document.querySelector('#sidebar').getBoundingClientRect().top};`);
+      assert(menuGeometry.scroll>menuGeometry.height&&menuGeometry.bottom<=menuGeometry.viewport+1&&menuGeometry.links===9&&Math.abs(menuGeometry.top)<1,`global menu not independently scrollable ${width}: ${JSON.stringify(menuGeometry)}`);
+      await execute('window.space("project");window.page();window.scrollTo(0,0);');
+      await resize(width,height);
+      console.log(`PASS pinned header, equal navigation cards, resource jumps, global scrollable menu ${theme} ${width}`);
+    }
   }
   await resize(390,844);await execute(`window.touch=true;document.querySelector('#input').focus();`);
   await keys(['a','b','\uE007','c']);

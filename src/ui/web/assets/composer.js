@@ -148,6 +148,7 @@ export function resetComposerMode() {
 }
 export function paintComposerDetails() {
   const open = Boolean(ui.composerExpanded), followup = Boolean(ui.composerAppendTarget);
+  $('input-form').dataset.expanded = String(open);
   if ($('composer-details')) $('composer-details').hidden = !open || followup;
   if ($('composer-shortcuts')) $('composer-shortcuts').hidden = !open || followup;
   if ($('composer-editor-tools')) $('composer-editor-tools').hidden = !open;
@@ -156,8 +157,8 @@ export function paintComposerDetails() {
   const parent = followup ? null : selectedParentLabel();
   toggle.setAttribute('aria-expanded', String(open));
   toggle.setAttribute('data-help', open ? '收起：只留输入与操作按钮。' : followup
-    ? '展开：显示正文的撤销与重做按钮；不改变追加目标。'
-    : `展开：显示正文的撤销与重做按钮，可以选择父 Worker，并查看键盘快捷键${parent ? `（当前父 Worker：${parent}）` : ''}。`);
+    ? '展开：显示正文的撤销与重做按钮、历史输入；不改变追加目标。'
+    : `展开：显示正文的撤销与重做按钮、历史输入、运行设置，可以选择父 Worker，并查看键盘快捷键${parent ? `（当前父 Worker：${parent}）` : ''}。`);
   toggle.textContent = open ? '⌃ 收起' : (parent ? `⌃ 更多 · 父 Worker：${parent}` : '⌃ 更多');
 }
 export function renderParentOptions() {

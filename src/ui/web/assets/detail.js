@@ -1,7 +1,7 @@
 import { $ } from './dom.js';
 import { api, isReadAbort, loadConnectionNames, loadHistory, projectApi, withReadSignal } from './api.js';
 import { renderDetail, renderDetailError } from './render-detail.js';
-import { activateDetailView, setViewChrome } from './sidebar-ui.js';
+import { activateDetailView, setViewChrome, toggleMobileNavigation } from './sidebar-ui.js';
 import { transcriptCache, transcriptOpen, ui } from './state.js';
 import { appendTranscriptSteps, fetchTranscriptAfter, loadTranscript } from './render-transcript.js';
 import { liveTarget } from './live.js';
@@ -118,9 +118,7 @@ export async function loadDetail(taskId) {
   // Preserve reading moves made while the request was in flight, including the history renderer's anchor correction.
   if (navigated) $('detail').scrollTop = 0;
   if (navigated && window.matchMedia?.('(max-width: 760px)')?.matches) {
-    $('sidebar').classList.remove('mobile-open');
-    $('sidebar-toggle').setAttribute('aria-expanded', 'false');
-    $('sidebar-toggle').textContent = '导航菜单';
+    toggleMobileNavigation(false);
     $('detail').scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
   const tree = $('tasks').querySelector(`[data-id="${taskId}"]`);
