@@ -16,14 +16,14 @@ function fixture() {
     close() { fs.rmSync(root, { recursive: true, force: true }); } };
 }
 
-test('v1 reads as complete v2 without rewriting bytes or metadata and only explicit save upgrades it', () => {
+test('v1 reads as complete v3 without rewriting bytes or metadata and only explicit save upgrades it', () => {
   const f = fixture(), selected = account();
   try {
     fs.mkdirSync(f.config.deviceHome, { mode: 0o700 });
     const source = JSON.stringify({ version: 1, cards: [selected] }, null, 4) + '\n';
     fs.writeFileSync(f.file, source, { mode: 0o600 });
     const stat = fs.statSync(f.file), model = readDashboardSettings(f.config);
-    expect(model).toMatchObject({ version: 2, cards: [selected], hidden_projects: [], layout: [], content: [] });
+    expect(model).toMatchObject({ version: 3, cards: [selected], hidden_projects: [], layout: [], content: [], account_view: 'list' });
     expect(readDashboardSettings(f.config)).toEqual(model);
     expect(fs.readFileSync(f.file, 'utf8')).toBe(source);
     const after = fs.statSync(f.file);
@@ -31,7 +31,7 @@ test('v1 reads as complete v2 without rewriting bytes or metadata and only expli
     const upgraded = saveDashboardSettings(f.config, { hidden_projects: [project] }, model.revision);
     expect(upgraded.cards).toEqual([selected]); expect(upgraded.hidden_projects).toEqual([project]);
     expect(upgraded.revision).not.toBe(model.revision);
-    expect(JSON.parse(fs.readFileSync(f.file, 'utf8'))).toEqual({ version: 2, cards: [selected], hidden_projects: [project], layout: [], content: [] });
+    expect(JSON.parse(fs.readFileSync(f.file, 'utf8'))).toEqual({ version: 3, cards: [selected], hidden_projects: [project], layout: [], content: [], account_view: 'list' });
     expect(fs.existsSync(f.config.home)).toBe(false);
   } finally { f.close(); }
 });
@@ -118,7 +118,7 @@ test('strict bounded patch validation rejects invalid geometry, identities and t
   } finally { f.close(); }
 });
 
-test('v2 persisted invalid layouts and content fail closed without rewriting or returning stored secrets', () => {
+test('v3 persisted invalid layouts and content fail closed without rewriting or returning stored secrets', () => {
   const f = fixture();
   try {
     const current = saveDashboardSettings(f.config, { cards: [] }, readDashboardSettings(f.config).revision);

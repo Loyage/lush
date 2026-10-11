@@ -18,11 +18,11 @@ W210／D492 已移除 Worker 并发额度功能：设备设置、CLI 及状态�
 
 项目卡片采用「状态指标＋最近 Worker」。Host 显式刷新时调用 `system.summary {development:true}`，用户读面才附加 `development`；普通首页轮询和 Agent 默认摘要不做新增全量聚合。`Project.developmentSummary()` 只读完整 tasks 的新式 Worker（含历史 say），返回精确 `workers_total`、`active`、`awaiting_acceptance`（指令）、`parent_confirmation`（child）、`agents_running`（真实 invocation）、`pending_merges`（pending/review）、`merging`、`merge_conflicts`、`counts:[{status,count}]`，及最多 3 条按 ID 倒序的 `recent_workers:[{id,worker_number,display_title,auto_title,goal,status,integration}]`（仅指令／child，正文裁至 200 字符）。总数和状态分布包含 main/owner 及历史，进行中排除分支所有者及待验收；派生待父确认不冒称待用户验收。Host 严格白名单投影，不传 Profile、凭证或完整 Worker。旧服务缺少摘要时明确不可用，不据局部最近列表推算总数；离线不展示旧值为现状。读取仍不启动后台，不改变自动合并或验收流程。
 
-## 总览面板与管理分离（W204／决定 #481）
+## 总览面板与管理分离（W204／D481、D500）
 
-根 `#projects` 改为无大标题的可定制面板，全局与每卡设置都位于当前页，内容、位置及尺寸设备共享，网格吸附和碰撞避让。`#project-management` 仍承接目录登记、后台维护、配色编辑与新建 Worker，不再挂载总览卡片设置。进入面板只读；账户查询仅由单卡或全局刷新显式触发，后者只查已摆放账户。
+根 `#projects` 改为无大标题的可定制面板，全局与每卡设置都在当前页弹窗打开；所选账户统一为一个额度窗口，支持列表／账号小面板。内容、位置及尺寸设备共享，布局仅全局按钮开启，网格吸附和碰撞避让。`#project-management` 仍承接目录登记、后台维护、配色编辑与新建 Worker，不再挂载总览卡片设置。进入面板只读；账户查询仅由单卡或全局刷新显式触发，后者只查已摆放账户。
 
-配置 v2、partial patch、v1 只读兼容、消息有界读取、布局尺寸、模块分工与验证责任的权威契约见[总览面板](dashboard-panel.md)。此决定优先于 W199／决定 #467、#468 的只读瀑布流、浏览器独立顺序与管理页配置位置；设备私有存储、来源身份、安全读面、失败未知与不启动离线后台的边界保持。
+配置 v3、partial patch、v1/v2 只读兼容、消息有界读取、布局尺寸、模块分工与验证责任的权威契约见[总览面板](dashboard-panel.md)。此决定优先于 W199／决定 #467、#468 的只读瀑布流、浏览器独立顺序与管理页配置位置；设备私有存储、来源身份、安全读面、失败未知与不启动离线后台的边界保持。
 
 ## 设备配置分区
 

@@ -11,7 +11,7 @@ afterEach(() => dom.restore());
 function renderCard(row) {
   const item = document.createElement('li'), link = document.createElement('a');
   link.textContent = row.name; link.href = `/p/${row.id}/`; link.target = '_blank'; link.className = 'project-open';
-  item.append(link); return item;
+  item.className = 'project-item'; item.append(link); return item;
 }
 function board(options = {}) {
   return createProjectBoard({ renderCard, request: async url => ({ id: url.split('/')[4], appearance: null }), ...options });
@@ -54,6 +54,47 @@ test('device layout contract, normal display and GET-only project appearance pre
   expect(calls).toEqual([{ url: `/api/host/projects/${ids[0]}/appearance`, options: { method: 'GET' } }]);
   component.setEditing(true); expect(handle(item).hidden).toBe(false); expect(resize(item).hidden).toBe(false);
   expect(handle(item).getAttribute('data-help')).toContain('方向键'); expect(handle(item).getAttribute('aria-describedby')).toBeTruthy();
+});
+
+test('reserved accounts identity defaults to 6x16, never aliases project colors and retains legacy cards', async () => {
+  const reads = [], component = board({ request: async url => {
+    reads.push(url); return { id: url.split('/')[4], appearance: { version: 1, color: 'rose' } };
+  } });
+  await component.update([rows[0], { id: 'accounts', type: 'accounts' }, { id: accountId, type: 'account' },
+    { id: 'accounts', type: 'accounts' }, { id: 'accounts:extra', type: 'accounts' }, { id: 'ACCOUNTS', type: 'accounts' }]);
+  expect(component.getLayout()).toEqual([cell(ids[0]), cell('accounts', 6), cell(accountId, 0, 16, 4, 10)]);
+  expect(reads).toEqual([`/api/host/projects/${ids[0]}/appearance`]);
+  const group = component.root.children[1]; expect(group.dataset.projectId).toBe('accounts');
+  expect(group.dataset.boardColor).toBeUndefined(); expect(group.querySelector('.project-board-palette').hidden).toBe(true);
+  expect(handle(group).getAttribute('aria-label')).toContain('账户额度');
+  for (const control of group.querySelectorAll('button')) { expect(control.hidden).toBe(true); expect(control.disabled).toBe(true); }
+  component.setEditing(true); expect(handle(group).hidden).toBe(false); expect(resize(group).disabled).toBe(false);
+  component.setEditing(false); expect(handle(group).hidden).toBe(true); expect(resize(group).disabled).toBe(true);
+  // Even misleading caller types cannot turn the reserved non-project identity
+  // into /projects/accounts/appearance, nor revive a previous project response.
+  await component.update([{ id: 'accounts', type: 'project', name: '统一额度' }]); expect(reads).toHaveLength(1);
+  expect(component.root.children[0].dataset.boardColor).toBeUndefined();
+});
+
+test('accounts group shares canonical reconciliation, collision edits, resize bounds and responsive projection', async () => {
+  const edits = [], component = board({ onLayoutChange: value => edits.push(value) });
+  const mixed = [{ id: 'accounts', type: 'accounts', name: '所有账号' }, rows[0]];
+  component.root.getBoundingClientRect = () => ({ width: 1188 });
+  const device = [cell('accounts', 0, 0, 6, 6), cell(ids[0], 6, 0, 6, 6)];
+  await component.update(mixed, { layout: device }); component.setEditing(true);
+  const group = component.root.children[0]; key(handle(group), 'ArrowRight');
+  expect(component.getLayout()).toEqual([cell('accounts', 1, 0, 6, 6), cell(ids[0], 6, 6, 6, 6)]);
+  expect(edits[0]).toEqual(component.getLayout()); expect(edits[0]).toHaveLength(2);
+  pointer(resize(group), 'down'); pointer(resize(group), 'move', { clientX: 10000, clientY: 10000 }); pointer(resize(group), 'up');
+  expect(component.getLayout()[0]).toEqual(cell('accounts', 1, 0, 11, 80)); assertLayout(component.getLayout());
+  await component.update(mixed, { layout: device }); expect(component.getLayout()).toEqual(device);
+  component.root.getBoundingClientRect = () => ({ width: 390 }); await component.update(mixed);
+  expect(component.root.style['--board-columns']).toBe('1'); expect(component.root.children[0].style['grid-column']).toBe('1 / span 1');
+  expect(component.getLayout()).toEqual(device); expect(edits).toHaveLength(2);
+  const many = Array.from({ length: 300 }, (_, index) => ({ id: (index + 1).toString(16).padStart(16, '0') }));
+  await component.update([mixed[0], ...many], { layout: [] });
+  expect(component.getLayout()).toHaveLength(300); expect(component.getLayout()[0].id).toBe('accounts');
+  expect(component.getLayout().filter(value => value.id === 'accounts')).toHaveLength(1);
 });
 
 test('legacy browser order is never read, imported or written, even with denied storage', async () => {
@@ -282,4 +323,11 @@ test('palette CSS matches identity colors without semantic overrides; grid, scro
   }
   expect(css).not.toMatch(/--(?:accent|violet|running|waiting|completed|failed)\s*:/);
   for (const rule of ['grid-auto-rows:24px', 'overflow:auto', 'right:54px', 'touch-action:pan-y', 'prefers-reduced-motion:reduce', 'data-reduced-motion="true"']) expect(css).toContain(rule);
+  // A stub cannot compute layout: protect the real-browser regression's shell
+  // reset against .project-item alignment and the later account renderer rules.
+  const shell = css.split('.project-board>li.project-board-card{')[1]?.split('}')[0];
+  expect(shell).toBeTruthy();
+  for (const rule of ['grid-template-columns:minmax(0,1fr)', 'grid-template-rows:minmax(0,1fr)', 'align-items:stretch', 'gap:0', 'overflow:hidden', 'padding:0', 'min-height:0']) expect(shell).toContain(rule);
+  const viewport = css.split('.project-board-content{')[1]?.split('}')[0];
+  for (const rule of ['box-sizing:border-box', 'max-height:100%', 'align-self:stretch', 'overflow:auto', 'min-height:0']) expect(viewport).toContain(rule);
 });

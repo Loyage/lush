@@ -13,7 +13,7 @@
 | 文件 | 职责 | 导出 / 接入 |
 |---|---|---|
 | `core/device-config.js` | 真实 Config 技术设置只选设备根，显式 project 拒绝；低层选根仅供迁移／独立旧根；保留项目身份、私有权限及跨进程锁 | `settingsConfigurationScope`、`normalizeConfigurationScope`、`configurationHome`、`scopedConfiguration`、`configurationScope`、`documentConfigurationScope`、`validateConfigurationDirectory`、`ensureConfigurationDirectory`、`acquireConfigurationLock`、`withConfigurationWriteLock` |
-| `core/dashboard-settings.js` | 设备共享看板类型／账户选择，仅来源 ID；私有只读与原子发布、revision／共享写锁、严格有界去重，不存余额或凭证，不联网 | `normalizeDashboardCards(cards)`、`readDashboardSettings(config)`、`saveDashboardSettings(config,cards,expectedRevision)` |
+| `core/dashboard-settings.js` | 设备共享总览 v3：账户选择、统一额度窗口 list／tiles、项目隐藏、布局及内容；v1/v2 只读兼容、partial patch、revision／共享写锁和私有原子发布，保留旧账户数据，不存余额或凭证、不联网 | `normalizeDashboardCards(cards)`、`normalizeDashboardPatch(patch)`、`readDashboardSettings(config)`、`saveDashboardSettings(config,patchOrCardsArray,expectedRevision)`；[总览契约](dashboard-panel.md) |
 | `core/device-preferences.js` | 设备偏好白名单、默认、只读模型、canonical values revision 与共享写锁内私有原子保存；不读浏览器缓存 | `PREFERENCE_DEFAULTS`、`readDevicePreferences(config)`、`saveDevicePreferences(config,patch,expectedRevision)` |
 | `core/device-automation.js` | 默认关闭的设备唯一自动选择／未来指令默认流程；同一 settings-write 锁排序授权保存与最终同步答复事务 | `DeviceAutomationSettings(config).get/save/withPolicy` |
 | `core/quick-explanation-policy.js` | Project 与无项目 Host 共用只读配置就绪校验，不联网 | `explanationReadiness(connection,profile,requireModel?)` |

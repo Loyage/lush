@@ -34,3 +34,29 @@
 .dashboard-card-settings-actions button{min-height:44px;white-space:normal}
 .dashboard-card-settings-status{margin:0;font-size:12px;line-height:1.8;overflow-wrap:anywhere}
 @media(max-width:640px){.project-item.dashboard-account-card,.project-manager-list .project-item.dashboard-account-card{padding:14px;gap:10px}.dashboard-card-choices{padding:10px}.dashboard-card-choice{padding:9px}.dashboard-card-settings-actions button{flex:1 1 auto}.dashboard-account-header h3{font-size:18px}}
+/* A single board window; inner source rows never reserve settings or drag-handle space. */
+.project-item.dashboard-accounts-group{display:flex;flex-direction:column;align-items:stretch;gap:10px;box-sizing:border-box;min-width:0;min-height:0;max-width:100%;padding:14px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:var(--radius);overflow-wrap:anywhere}
+.project-board>.project-item.dashboard-accounts-group{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);align-items:stretch;padding:0}
+.dashboard-accounts-header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;min-width:0;padding-right:44px}
+.project-board-editing .dashboard-accounts-group .dashboard-accounts-header{padding-right:88px}
+.dashboard-accounts-header h2{flex:1 1 100px;margin:0;min-width:0;font-size:18px;line-height:1.4;overflow-wrap:anywhere}
+.dashboard-accounts-header .help-host{display:inline-flex;flex:none;min-width:0}
+.dashboard-accounts-refresh{min-height:44px;white-space:normal}
+.dashboard-accounts-header .help-host:focus-visible,.dashboard-accounts-refresh:focus-visible,.dashboard-accounts-items:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.dashboard-accounts-items{container-type:inline-size;container-name:dashboard-accounts;display:grid;grid-template-columns:minmax(0,1fr);align-content:start;gap:0;list-style:none;margin:0;padding:0;min-width:0;min-height:0;flex:1;overflow:auto;scrollbar-gutter:stable;overscroll-behavior:auto}
+.dashboard-accounts-group .dashboard-account-embedded{display:grid;grid-template-columns:minmax(0,1fr);align-content:start;gap:6px;min-width:0;max-width:100%;margin:0;padding:10px 0;background:transparent;border:0;border-bottom:1px solid var(--line-soft);border-radius:0;box-shadow:none}
+.dashboard-accounts-group .dashboard-accounts-items .dashboard-account-header{padding-right:0;gap:8px;align-items:center}
+.dashboard-accounts-group .dashboard-account-header h3{font-size:14px;line-height:1.5}
+.dashboard-account-content{display:grid;align-content:start;gap:4px;min-width:0}
+.dashboard-accounts-group .dashboard-account-observation{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));align-items:start;gap:6px;min-width:0}
+.dashboard-accounts-group .dashboard-account-observation>.dashboard-card-note,.dashboard-accounts-group .dashboard-account-observation>.dashboard-card-warning{grid-column:1/-1}
+.dashboard-accounts-group .dashboard-account-metric{gap:3px;padding:6px;background:transparent;border:0;border-left:2px solid var(--line-soft);border-radius:0}
+.dashboard-accounts-group .dashboard-account-metric h4{font-size:12px}
+.dashboard-accounts-group .dashboard-account-value{font-size:13px}
+.dashboard-accounts-group .dashboard-card-note,.dashboard-accounts-group .dashboard-card-warning{font-size:11px;line-height:1.5}
+.dashboard-accounts-group .dashboard-account-old{padding:6px;margin:0}
+.dashboard-accounts-group[data-account-view="tiles"] .dashboard-accounts-items{grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:10px}
+.dashboard-accounts-group[data-account-view="tiles"] .dashboard-account-embedded{padding:10px;border:1px solid var(--line-soft);border-radius:10px;background:var(--panel-2)}
+.dashboard-accounts-group[data-account-view="tiles"] .dashboard-account-observation{grid-template-columns:minmax(0,1fr)}
+.dashboard-accounts-empty{grid-column:1/-1;padding:12px 0}
+@container dashboard-accounts (min-width:600px){.dashboard-accounts-group[data-account-view="list"] .dashboard-account-embedded{grid-template-columns:minmax(160px,.8fr) minmax(0,3fr);column-gap:14px}.dashboard-accounts-group[data-account-view="list"] .dashboard-account-header{align-self:start}.dashboard-accounts-group[data-account-view="list"] .dashboard-account-observation{grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr))}}

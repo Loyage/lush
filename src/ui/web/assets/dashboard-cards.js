@@ -19,19 +19,20 @@ const time = value => typeof value === 'string' && Number.isFinite(Date.parse(va
 const successful = observation => ['available', 'partial'].includes(observation?.status);
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
 const projectId = value => typeof value === 'string' && /^[a-f0-9]{16}$/.test(value);
-const cardId = value => projectId(value) || (typeof value === 'string' && value.startsWith('account:') && uuid(value.slice(8)));
+const cardId = value => value === 'accounts' || projectId(value) || (typeof value === 'string' && value.startsWith('account:') && uuid(value.slice(8)));
 const fields = (value, allowed) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(key => allowed.includes(key));
 const uniqueIds = rows => new Set(rows.map(row => row?.id)).size === rows.length;
 const note = (parent, value, warning = false) => parent.append(el('p', value, warning ? 'dashboard-card-warning' : 'dashboard-card-note'));
 const stalePage = () => new DOMException('账户卡片页面已离开', 'AbortError');
 function validateConfig(value) {
-  if (![1, 2].includes(value?.version) || typeof value.revision !== 'string' || !value.revision || !Array.isArray(value.cards) || value.cards.length > 100
+  if (![1, 2, 3].includes(value?.version) || typeof value.revision !== 'string' || !value.revision || !Array.isArray(value.cards) || value.cards.length > 100
     || value.cards.some(card => !fields(card, ['type', 'connection_id']) || card.type !== 'account' || !uuid(card.connection_id))
     || new Set(value.cards.map(card => card.connection_id)).size !== value.cards.length) {
     throw new Error('卡片配置响应无效；未将其视为无卡片');
   }
   const { hidden_projects = [], layout = [], content = [] } = value;
-  if ((value.version === 2 && !['hidden_projects', 'layout', 'content'].every(key => Array.isArray(value[key])))
+  if ((value.version >= 2 && !['hidden_projects', 'layout', 'content'].every(key => Array.isArray(value[key])))
+    || (value.version === 3 && !['list', 'tiles'].includes(value.account_view))
     || ![hidden_projects, layout, content].every(Array.isArray)
     || [hidden_projects, layout, content].some(items => items.length > 300)
     || hidden_projects.some(id => !projectId(id))
@@ -41,10 +42,10 @@ function validateConfig(value) {
       || item.x < 0 || item.x > 11 || item.y < 0 || item.y > 4095 || item.w < 1 || item.w > 12
       || item.x + item.w > 12 || item.h < 6 || item.h > 80)
     || content.some(item => !fields(item, ['id', 'sections']) || !cardId(item.id) || !Array.isArray(item.sections)
-      || item.sections.some(section => !(item.id.startsWith('account:') ? ACCOUNT_SECTIONS : PROJECT_SECTIONS).has(section)))) {
+      || item.sections.some(section => !(item.id === 'accounts' || item.id.startsWith('account:') ? ACCOUNT_SECTIONS : PROJECT_SECTIONS).has(section)))) {
     throw new Error('卡片配置响应无效；未将其视为无卡片');
   }
-  return { version: value.version, revision: value.revision,
+  return { version: value.version, revision: value.revision, account_view: value.version === 3 ? value.account_view : 'list',
     cards: value.cards.map(({ connection_id }) => ({ type: 'account', connection_id })),
     hidden_projects: [...hidden_projects], layout: layout.map(item => ({ ...item })),
     content: content.map(item => ({ ...item, sections: [...item.sections] })) };
@@ -175,15 +176,17 @@ function renderObservation(observation, sections) {
 }
 
 /** Lightweight renderer. Parent owns refresh/repaint so this node never applies late list snapshots. */
-export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, ownsPage = () => true } = {}) {
+export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, ownsPage = () => true, embedded = false } = {}) {
   const selected = new Set(Array.isArray(sections) ? sections.filter(section => ACCOUNT_SECTIONS.has(section)) : DEFAULT_SECTIONS);
-  const root = el('li', undefined, 'project-item dashboard-account-card');
+  const root = el('li', undefined, embedded ? 'dashboard-account-card dashboard-account-embedded' : 'project-item dashboard-account-card');
   root.dataset.cardId = row.id; root.dataset.cardType = 'account'; root.dataset.connectionId = row.connection_id;
   const connection = row.connection;
   const header = el('header', undefined, 'dashboard-account-header');
   header.append(el('h3', connection ? text(connection.label, '未命名账户') : '账户来源已删除或不可用'));
   const refreshHost = el('span', undefined, 'help-host'), refreshButton = el('button', '刷新', 'dashboard-account-refresh');
   refreshButton.type = 'button'; refreshHost.append(refreshButton); header.append(refreshHost); root.append(header);
+  const content = embedded ? el('div', undefined, 'dashboard-account-content') : root;
+  if (embedded) root.append(content);
   let busy = false;
   const blocker = !connection ? '来源已删除或不可用，无法查询。' : connection.enabled === false ? '来源已停用，请先在模型来源中启用。'
     : typeof refresh !== 'function' ? '当前页面未提供账户刷新操作。' : null;
@@ -196,27 +199,27 @@ export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, o
     if (blocker || busy || !ownsPage()) return;
     busy = true; syncRefresh();
     try { await refresh(row.connection_id); }
-    catch (error) { if (ownsPage()) note(root, error.message || '账户刷新失败', true); }
+    catch (error) { if (ownsPage()) note(content, typeof error?.message === 'string' && error.message ? error.message : '账户刷新失败', true); }
     finally { busy = false; if (ownsPage()) syncRefresh(); }
   };
   syncRefresh();
   if (!connection) {
-    if (selected.has('provenance')) note(root, `所选来源：${row.connection_id}`);
+    if (selected.has('provenance')) note(content, `所选来源：${row.connection_id}`);
     return root;
   }
-  if (connection.enabled === false) note(root, '来源已停用', true);
+  if (connection.enabled === false) note(content, '来源已停用', true);
   if (selected.has('provenance')) {
-    note(root, PROVIDERS[connection.provider] || text(connection.provider, '服务商未知'));
-    note(root, `模型端点：${text(connection.endpoint, '端点未知')}`);
+    note(content, PROVIDERS[connection.provider] || text(connection.provider, '服务商未知'));
+    note(content, `模型端点：${text(connection.endpoint, '端点未知')}`);
   }
-  root.append(renderObservation(connection.observation, selected));
+  content.append(renderObservation(connection.observation, selected));
   const previous = connection.last_success;
   if (!successful(connection.observation) && successful(previous?.observation)) {
     if (selected.has('history')) {
       const old = el('details', undefined, 'dashboard-account-old'); old.append(el('summary', '历史成功观测（非当前值）'));
       note(old, `历史成功时间：${time(previous.checked_at || previous.observation.checked_at)}；不能作为当前余额。`, true);
-      old.append(renderObservation(previous.observation, new Set([...DEFAULT_SECTIONS, ...selected]))); root.append(old);
-    } else note(root, '有历史成功观测（非当前值）', true);
+      old.append(renderObservation(previous.observation, new Set([...DEFAULT_SECTIONS, ...selected]))); content.append(old);
+    } else note(content, '有历史成功观测（非当前值）', true);
   }
   return root;
 }

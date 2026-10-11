@@ -259,22 +259,22 @@ test('账户内容开关独立控制余额额度重置详细来源与旧值', ()
 test('v2配置保留全部字段，父传双快照无GET，单快照只读缺失资源；v1缺省数组兼容', async () => {
   config = { ...config, version: 2, hidden_projects: ['abcdef0123456789'], layout: [{ id: `account:${ids[0]}`, x: 0, y: 2, w: 4, h: 6 }],
     content: [{ id: `account:${ids[0]}`, sections: [] }] };
-  expect(await readDashboardConfig()).toEqual(config); expect(await loadDashboardConnections()).toEqual(connections);
+  expect(await readDashboardConfig()).toEqual({ ...config, account_view: 'list' }); expect(await loadDashboardConnections()).toEqual(connections);
   requests.length = 0;
   expect(await loadAccountCards({ config, connections })).toHaveLength(2); expect(requests).toHaveLength(0);
   await loadAccountCards({ config }); expect(requests.map(entry => entry.url)).toEqual(['/api/host/settings/agent/connections?scope=device']);
   requests.length = 0; await loadAccountCards({ connections }); expect(requests.map(entry => entry.url)).toEqual(['/api/host/dashboard']);
   config = { version: 1, revision: 'old', cards: [] };
-  expect(await readDashboardConfig()).toEqual({ ...config, hidden_projects: [], layout: [], content: [] });
+  expect(await readDashboardConfig()).toEqual({ ...config, hidden_projects: [], layout: [], content: [], account_view: 'list' });
 });
 
 test('保存ACK传value仅本地校验，保留v2字段且不修改原应答；v1缺省数组仍兼容', async () => {
   const ack = { ...config, version: 2, hidden_projects: ['abcdef0123456789'],
     layout: [{ id: `account:${ids[0]}`, x: 1, y: 2, w: 4, h: 6 }], content: [{ id: `account:${ids[0]}`, sections: [] }] };
-  const validated = await readDashboardConfig({ value: ack }); expect(validated).toEqual(ack);
+  const validated = await readDashboardConfig({ value: ack }); expect(validated).toEqual({ ...ack, account_view: 'list' });
   validated.cards.length = 0; validated.hidden_projects.length = 0; validated.layout[0].x = 9; validated.content[0].sections.push('balance');
   expect(ack.cards).toHaveLength(2); expect(ack.hidden_projects).toHaveLength(1); expect(ack.layout[0].x).toBe(1); expect(ack.content[0].sections).toEqual([]);
-  expect(await readDashboardConfig({ value: config })).toEqual({ ...config, hidden_projects: [], layout: [], content: [] });
+  expect(await readDashboardConfig({ value: config })).toEqual({ ...config, hidden_projects: [], layout: [], content: [], account_view: 'list' });
   expect(requests).toHaveLength(0);
 });
 
@@ -289,7 +289,7 @@ test('无效保存ACK不偷偷GET或当空配置，v2缺失字段与错误结构
   expect(requests).toHaveLength(0);
 });
 
-test('父真实v2存储GET与partial保存ACK可由账户接口本地消费，无HTTP二次读取', async () => {
+test('父真实v3存储GET与partial保存ACK可由账户接口本地消费，无HTTP二次读取', async () => {
   const { readDashboardSettings, saveDashboardSettings } = await import('../../src/core/dashboard-settings.js');
   const home = fs.mkdtempSync(join(tmpdir(), 'lush-account-v2-ack-'));
   try {
@@ -311,7 +311,7 @@ test('固定父v2契约严格校验12列布局和分类型内容键，拒绝旧p
   const valid = { ...config, version: 2, hidden_projects: [],
     layout: [{ id: 'abcdef0123456789', x: 11, y: 4095, w: 1, h: 80 }],
     content: [{ id: 'abcdef0123456789', sections: ['metrics', 'messages'] }, { id: `account:${ids[0]}`, sections: ['quota', 'history'] }] };
-  expect(await readDashboardConfig({ value: valid })).toEqual(valid);
+  expect(await readDashboardConfig({ value: valid })).toEqual({ ...valid, account_view: 'list' });
   const layout = valid.layout[0];
   for (const item of [{ ...layout, id: 'project:abcdef0123456789' }, { ...layout, x: 12 }, { ...layout, y: 4096 },
     { ...layout, x: 0, w: 13 }, { ...layout, w: 2 }, { ...layout, h: 5 }, { ...layout, h: 81 }, { ...layout, extra: true }]) {
@@ -446,7 +446,8 @@ test('总览身份变更保护迟到账户配置读取，不将旧来源挂回�
   const { openProjectOverview } = await import('../../src/ui/web/assets/project-picker.js');
   const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
   const pending = openProjectOverview({ push: false }); await reading;
-  const root = dom.node('detail').querySelector('.dashboard-settings-panel'); expect(root).not.toBeNull();
+  const root = dom.node('detail').querySelector('.project-overview'); expect(root).not.toBeNull();
+  expect(dom.node('detail').querySelector('.dashboard-settings-panel')).toBeNull();
   const before = deepText(root); activateDetailView({ view: 'settings', push: false });
   dom.node('detail').replaceChildren(); delayed.resolve(json(config)); await pending;
   expect(deepText(root)).toBe(before); expect(root.querySelectorAll('input')).toHaveLength(0);
@@ -461,13 +462,13 @@ test('全局总览混排项目与账户，提供设置及显式刷新，配色�
   const { openProjectOverview } = await import('../../src/ui/web/assets/project-picker.js');
   await openProjectOverview({ push: false });
   const panel = dom.node('detail'), board = panel.querySelector('.project-board');
-  expect(panel.dataset.view).toBe('projects'); expect(board.children).toHaveLength(3);
+  expect(panel.dataset.view).toBe('projects'); expect(board.children).toHaveLength(2);
   expect(board.querySelector('[data-project-id="abcdef0123456789"]').getAttribute('data-board-color')).toBe('rose');
   expect(board.querySelectorAll('.dashboard-account-card')).toHaveLength(2);
   expect(panel.querySelector('.project-manager-form')).toBeNull(); expect(panel.querySelector('.project-order')).toBeNull();
   expect(panel.querySelector('.workbench-service-restart')).toBeNull(); expect(panel.querySelector('section.dashboard-card-settings')).toBeNull();
   expect(panel.querySelector('.dashboard-settings-open')).not.toBeNull();
-  expect(panel.querySelectorAll('.dashboard-card-settings')).toHaveLength(3);
+  expect(panel.querySelectorAll('.dashboard-card-settings')).toHaveLength(2);
   expect(panel.querySelectorAll('button').some(node => node.textContent === '刷新全部')).toBe(true);
   expect(panel.querySelectorAll('.project-board-handle').every(node => node.hidden && node.disabled)).toBe(true);
   expect(board.querySelector('.project-open').target).toBe('_blank'); expect(writes()).toHaveLength(0);

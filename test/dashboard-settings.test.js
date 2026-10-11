@@ -18,7 +18,7 @@ test('dashboard selection is read-only when absent, device-authoritative, dedupl
   const f = fixture();
   try {
     const before = readDashboardSettings(f.config), selected = card();
-    expect(before).toMatchObject({ version: 2, cards: [], hidden_projects: [], layout: [], content: [] }); expect(before.revision).toMatch(/^[a-f0-9]{64}$/);
+    expect(before).toMatchObject({ version: 3, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list' }); expect(before.revision).toMatch(/^[a-f0-9]{64}$/);
     expect(fs.existsSync(f.config.deviceHome)).toBe(false);
     const next = saveDashboardSettings(f.config, [selected, { ...selected, connection_id: selected.connection_id.toUpperCase() }], before.revision);
     expect(next.cards).toEqual([selected]); expect(next.revision).not.toBe(before.revision);
@@ -28,7 +28,7 @@ test('dashboard selection is read-only when absent, device-authoritative, dedupl
     expect(fs.existsSync(f.config.home)).toBe(false);
     expect(fs.statSync(f.config.deviceHome).mode & 0o777).toBe(0o700);
     expect(fs.statSync(f.file).mode & 0o777).toBe(0o600);
-    expect(JSON.parse(fs.readFileSync(f.file, 'utf8'))).toEqual({ version: 2, cards: [selected], hidden_projects: [], layout: [], content: [] });
+    expect(JSON.parse(fs.readFileSync(f.file, 'utf8'))).toEqual({ version: 3, cards: [selected], hidden_projects: [], layout: [], content: [], account_view: 'list' });
     expect(fs.readdirSync(f.config.deviceHome)).toEqual(['dashboard.json']);
     // No source exists: its identity is still retained for a frontend placeholder, without credential reads.
     const cleared = saveDashboardSettings(f.config, [], readDashboardSettings(f.config).revision);

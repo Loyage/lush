@@ -238,16 +238,17 @@ try {
   await click('.dashboard-settings-open');
   await until(`document.querySelectorAll('.dashboard-settings-panel input[data-connection-id]').length===2&&!document.querySelector('.dashboard-settings-panel input').disabled`);
   for (const id of accountIds) await click(`.dashboard-settings-panel input[data-connection-id="${id}"]`);
-  await click('.dashboard-settings-actions button');
+  await evaluate(`(()=>{const mode=document.querySelector('.dashboard-account-view');mode.value='tiles';mode.dispatchEvent(new Event('change'));return true})()`);
+  await click('#modal .modal-confirm');
   await until(`document.querySelector('.dashboard-status').textContent==='已保存'&&!document.querySelector('.dashboard-settings-open').disabled`);
-  await until(`document.querySelectorAll('.project-board-card').length===3&&document.querySelector('[data-board-color="rose"]')`);
+  await until(`document.querySelectorAll('.project-board-card').length===2&&document.querySelector('[data-board-color="rose"]')`);
   assert(await evaluate(`document.querySelectorAll('.dashboard-account-card').length===2&&document.getElementById('detail').textContent.includes('12.5 USD')&&!document.querySelector('.project-order')&&[...document.querySelectorAll('.project-board-handle')].every(b=>b.hidden&&b.disabled)`), 'dashboard mixed cards or non-editing boundary failed');
   await click('.dashboard-layout-edit');
-  const accountHandle = await rpc(`/session/${session}/element`, { using: 'css selector', value: '.dashboard-account-card .project-board-resize[data-corner="east"]' });
-  await rpc(`/session/${session}/element/${accountHandle['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE014' });
+  const accountHandle = await rpc(`/session/${session}/element`, { using: 'css selector', value: '.dashboard-accounts-group .project-board-resize[data-corner="east"]' });
+  await rpc(`/session/${session}/element/${accountHandle['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE012' });
   await click('.dashboard-layout-save');
   await until(`document.querySelector('.dashboard-status').textContent==='已保存'&&!document.querySelector('.dashboard-settings-open').disabled`);
-  const sharedAccountColumn = await evaluate(`document.querySelector('[data-project-id="account:${accountIds[0]}"]').style.gridColumn`);
+  const sharedAccountColumn = await evaluate(`document.querySelector('[data-project-id="accounts"]').style.gridColumn`);
   assert(sharedAccountColumn.includes('span 5')&&await evaluate(`localStorage.getItem('lush.host.project-board.order.v1')===null`), 'assembled keyboard resize was not saved to device layout');
   await rpc(`/session/${session}/window`, { handle: child });
   await until(`document.documentElement.dataset.theme === 'dark'`);
@@ -272,11 +273,11 @@ try {
   try {
     // This independent session has no primary-session BiDi socket; native desktop sizing suffices.
     await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 }); await login('/#projects');
-    await until(`document.querySelectorAll('.dashboard-account-card').length===2&&document.querySelectorAll('.project-board-card').length===3`);
-    assert(await evaluate(`document.querySelector('[data-project-id="account:${accountIds[0]}"]').style.gridColumn===${JSON.stringify(sharedAccountColumn)}&&localStorage.getItem('lush.host.project-board.order.v1')===null`), 'second browser failed to share device card selection and layout');
+    await until(`document.querySelectorAll('.dashboard-account-card').length===2&&document.querySelectorAll('.project-board-card').length===2`);
+    assert(await evaluate(`document.querySelector('[data-project-id="accounts"]').style.gridColumn===${JSON.stringify(sharedAccountColumn)}&&document.querySelector('.dashboard-accounts-group').dataset.accountView==='tiles'&&localStorage.getItem('lush.host.project-board.order.v1')===null`), 'second browser failed to share device card selection and layout');
     await click('.dashboard-settings-open');
     await until(`document.querySelectorAll('.dashboard-settings-panel input[data-connection-id]').length===2&&!document.querySelector('.dashboard-settings-panel input').disabled`);
-    await click(`.dashboard-settings-panel input[data-connection-id="${accountIds[1]}"]`); await click('.dashboard-settings-actions button');
+    await click(`.dashboard-settings-panel input[data-connection-id="${accountIds[1]}"]`); await click('#modal .modal-confirm');
     await until(`document.querySelector('.dashboard-status').textContent==='已保存'&&!document.querySelector('.dashboard-settings-open').disabled`);
     await navigate(`${origin}/p/${projectRouteId(fixtureProject)}/`);
     await until(`document.documentElement.dataset.projectColor === 'rose' && document.documentElement.dataset.theme === 'dark'`);

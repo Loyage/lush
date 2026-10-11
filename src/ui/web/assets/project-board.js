@@ -1,6 +1,6 @@
 import { PROJECT_COLORS } from './project-colors.js';
 
-const validId = id => typeof id === 'string' && /^(?:[a-f0-9]{16}|account:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/.test(id);
+const validId = id => typeof id === 'string' && /^(?:accounts|[a-f0-9]{16}|account:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/.test(id);
 const isProjectRow = row => /^[a-f0-9]{16}$/.test(row.id) && (row.type == null || row.type === 'project');
 const colors = new Set(PROJECT_COLORS.map(color => color.id));
 const copy = layout => layout.map(cell => ({ ...cell }));
@@ -70,6 +70,8 @@ function reconcile(rows, saved, compact = false) {
 
 /**
  * Caller-owned content, device-owned 12-column layout; no browser persistence.
+ * The reserved accounts id/type represents the unified quota card (default 6x16)
+ * and never requests project appearance; legacy account:<UUID> cards still work.
  * update(rows,{layout}) replaces the device snapshot (including []/null reset).
  * update(rows) preserves this page's layout and reconciles added/removed ids.
  * Only committed pointer/keyboard edits call onLayoutChange with the full array.
@@ -244,7 +246,8 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
       }
       item.removeAttribute('data-board-color'); item.setAttribute('data-project-id', id); item.classList.add('project-board-card');
       const project = isProjectRow(row);
-      const name = row.name || (row.type === 'account' ? row.connection?.label || '账户来源已删除或不可用' : '未命名项目');
+      const name = row.name || (row.type === 'accounts' ? '账户额度'
+        : row.type === 'account' ? row.connection?.label || '账户来源已删除或不可用' : '未命名项目');
       const content = node('div', undefined, 'project-board-content');
       content.setAttribute('tabindex', '0'); content.setAttribute('role', 'region'); content.setAttribute('aria-label', `${name}卡片内容`);
       for (const child of [...item.childNodes]) { child.remove(); content.append(child); }

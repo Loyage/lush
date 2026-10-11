@@ -1,13 +1,17 @@
 import { api } from './api.js';
 import { el } from './dom.js';
+import { formDialog, closeDialog } from './dialog.js';
+import { show as showMessage } from './messages.js';
 import { createProjectBoard } from './project-board.js';
-import { readDashboardConfig, loadDashboardConnections, loadAccountCards, renderAccountCard, refreshAccountCards } from './dashboard-cards.js';
+import { readDashboardConfig, loadDashboardConnections, loadAccountCards, refreshAccountCards } from './dashboard-cards.js';
+import { ACCOUNT_GROUP_ID, renderAccountGroup } from './dashboard-accounts-group.js';
+import { dashboardAccountLayout } from './dashboard-layout-model.js';
 import { loadProjectCardMessages, PROJECT_CARD_SECTIONS, PROJECT_CARD_DEFAULTS } from './project-dashboard-content.js';
 
 const ACCOUNT_SECTIONS = [['quota', '额度条'], ['balance', '余额'], ['reset', '额度重置时间'], ['observed', '上次刷新'],
   ['details', '指标详情'], ['history', '历史成功观测'], ['provenance', '来源信息']];
 const ACCOUNT_DEFAULTS = ['quota', 'balance', 'reset', 'observed'];
-const defaults = row => row.type === 'account' ? ACCOUNT_DEFAULTS : PROJECT_CARD_DEFAULTS;
+const defaults = row => ['account', 'accounts'].includes(row.type) ? ACCOUNT_DEFAULTS : PROJECT_CARD_DEFAULTS;
 const cardName = row => row.type === 'account' ? row.connection?.label || '账户来源不可用' : row.name || '未命名项目';
 const plain = value => value && typeof value === 'object' && !Array.isArray(value);
 
@@ -19,8 +23,8 @@ export function createDashboardPanel({ ownsPage = () => true, renderProject }) {
   const refresh = el('button', '刷新全部', 'ghost'); refresh.type = 'button';
   refresh.dataset.help = '重新读取项目状态与消息，并联网查询已摆放账户的额度；不会启动离线后台或调用模型。';
   const settings = el('button', '⚙', 'ghost dashboard-settings-open'); settings.type = 'button';
-  settings.setAttribute('aria-label', '设置总览卡片'); settings.dataset.help = '选择要摆放的项目和账户卡片，或开启网格布局编辑；设置保存在此 Host 设备。';
-  settings.setAttribute('aria-expanded', 'false');
+  settings.setAttribute('aria-label', '设置总览卡片'); settings.dataset.help = '在弹窗选择要展示的项目和账户；设置保存在此 Host 设备，不改变卡片排版。';
+  settings.setAttribute('aria-expanded', 'false'); settings.setAttribute('aria-haspopup', 'dialog');
   const edit = el('button', '编辑布局', 'ghost dashboard-layout-edit'); edit.type = 'button';
   edit.dataset.help = '开启卡片拖动和边角缩放，位置与尺寸按网格吸附并自动避让；保存后同设备浏览器共享。';
   const saveLayout = el('button', '保存布局', 'primary dashboard-layout-save'), cancelLayout = el('button', '取消布局', 'ghost dashboard-layout-cancel');
@@ -29,24 +33,28 @@ export function createDashboardPanel({ ownsPage = () => true, renderProject }) {
   for (const control of [refresh, settings, edit, saveLayout, cancelLayout]) {
     const host = el('span', undefined, 'help-host'); host.append(control); actionHosts.set(control, host); toolbar.append(host);
   }
-  const status = el('p', '正在读取卡片…', 'dashboard-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+  // Status projection is stable; visible feedback belongs to the existing toast/modal, never the grid flow.
+  const status = el('p', '正在读取卡片…', 'dashboard-status'); status.setAttribute('aria-hidden', 'true');
   const editor = el('section', undefined, 'dashboard-settings-panel'); editor.hidden = true;
   editor.setAttribute('aria-label', '总览设置'); editor.setAttribute('tabindex', '-1');
   const empty = el('div', undefined, 'workbench-empty'); empty.hidden = true;
   empty.append(el('strong', '还没有卡片'), el('p', '使用设置按钮选择项目或账户。'));
-  let config = null, projects = [], connections = [], rows = [], messages = new Map();
+  let config = null, projects = [], connections = [], rows = [], messages = new Map(), inheritedAccountLayout = null;
   let busy = false, editing = false, layoutDirty = false, layoutDraft = [], failedWrite = false;
-  let generation = 0, formSave = null, formSaveHost = null, formControls = [], currentEditor = null;
+  let generation = 0, formSave = null, formSaveHost = null, formControls = [], currentEditor = null, editorStatus = null, editorObserver = null;
   const active = () => ownsPage() && root.parentNode != null;
   const sectionsFor = row => config?.content.find(item => item.id === row.id)?.sections ?? defaults(row);
   const board = createProjectBoard({ ownsPage: active, request: api,
     renderCard(row) {
       const sections = sectionsFor(row);
-      const item = row.type === 'account' ? renderAccountCard(row, { sections, ownsPage: active, refresh: id => updateInformation([id]) })
-        : renderProject(row, { sections, messages: messages.get(row.id) });
+      const item = row.type === 'accounts' ? renderAccountGroup(row, {
+        mode: config.account_view, sections, ownsPage: () => active() && !busy,
+        sectionsForAccount: account => config.content.find(item => item.id === ACCOUNT_GROUP_ID)?.sections ?? sectionsFor(account),
+        refresh: id => updateInformation([id]), refreshAll: () => updateInformation(),
+      }) : renderProject(row, { sections, messages: messages.get(row.id) });
       const control = el('button', '⚙', 'ghost dashboard-card-settings'); control.type = 'button';
-      control.setAttribute('aria-label', `设置${cardName(row)}卡片`);
-      control.dataset.help = '选择此卡片展示的内容，或开启布局编辑后拖动位置与大小；不修改项目或账号运行配置。';
+      control.setAttribute('aria-label', `设置${cardName(row)}卡片`); control.setAttribute('aria-haspopup', 'dialog');
+      control.dataset.help = '在弹窗选择此卡片展示的内容；排版使用页面编辑布局按钮，不修改项目或账号运行配置。';
       control.onclick = () => { if (active() && !busy) openCardSettings(row); };
       const host = el('span', undefined, 'help-host dashboard-card-settings-host'); host.append(control); item.prepend(host);
       return item;
@@ -57,9 +65,11 @@ export function createDashboardPanel({ ownsPage = () => true, renderProject }) {
       setStatus('布局尚未保存。');
     },
   });
-  root.append(toolbar, status, editor, empty, board.root);
+  root.append(toolbar, status, empty, board.root);
   function setStatus(text = '', error = false) {
     status.textContent = text; status.hidden = !text; status.classList.toggle('error', error);
+    if (editorStatus) { editorStatus.textContent = text; editorStatus.hidden = !text; editorStatus.classList.toggle('error', error); }
+    else showMessage(text, error ? 'error' : 'info');
   }
   function syncControls() {
     for (const control of [refresh, settings, edit, saveLayout, cancelLayout]) {
@@ -85,11 +95,12 @@ export function createDashboardPanel({ ownsPage = () => true, renderProject }) {
       if (busy) { host.dataset.help = '正在刷新或保存，请等待响应。'; host.setAttribute('tabindex', '0'); }
       else { delete host.dataset.help; host.removeAttribute('tabindex'); }
     }
-    for (const card of board.root.querySelectorAll('.dashboard-account-card')) {
-      const control = card.querySelector('.dashboard-account-refresh');
-      if (!control) continue;
-      const row = rows.find(row => row.id === card.dataset.projectId);
-      const blocked = !row?.connection || row.connection.enabled === false;
+    for (const control of [...board.root.querySelectorAll('.dashboard-account-refresh'), ...board.root.querySelectorAll('.dashboard-accounts-refresh')]) {
+      const card = control.parentNode.parentNode.parentNode;
+      const connection = connections.find(row => row.id === card.dataset.connectionId);
+      const blocked = control.classList.contains('dashboard-accounts-refresh')
+        ? !config?.cards.some(row => connections.some(connection => connection.id === row.connection_id && connection.enabled !== false))
+        : !connection || connection.enabled === false;
       control.disabled = busy || blocked;
       const host = control.parentNode;
       if (control.disabled) {
@@ -104,34 +115,56 @@ export function createDashboardPanel({ ownsPage = () => true, renderProject }) {
     const selected = new Set(config?.hidden_projects || []);
     const accounts = config ? await loadAccountCards({ ownsPage: active, config, connections }) : [];
     if (!active()) return;
-    rows = config ? [...projects.filter(row => !selected.has(row.id)), ...accounts] : [];
+    rows = config ? [...projects.filter(row => !selected.has(row.id)), ...(accounts.length
+      ? [{ id: ACCOUNT_GROUP_ID, type: 'accounts', name: '额度与余额', accounts }] : [])] : [];
     empty.hidden = !config || rows.length > 0;
-    await board.update(rows, { layout: editing ? layoutDraft : config?.layout || [] });
-    if (active()) syncControls();
+    const layout = dashboardAccountLayout(config?.layout || [], config?.cards.map(card => card.connection_id) || [], inheritedAccountLayout);
+    await board.update(rows, { layout: editing ? layoutDraft : layout });
+    if (active()) {
+      inheritedAccountLayout = board.getLayout().find(cell => cell.id === ACCOUNT_GROUP_ID) || inheritedAccountLayout;
+      syncControls();
+    }
   }
+  const ownsDialog = () => globalThis.document?.getElementById('modal')?.querySelector('.dashboard-settings-panel') === editor;
   function closeEditor() {
+    if (ownsDialog()) closeDialog();
+    editorObserver?.disconnect(); editorObserver = null;
     editor.hidden = true; settings.setAttribute('aria-expanded', 'false');
-    currentEditor = null; formControls = []; formSave = null; formSaveHost = null;
+    currentEditor = null; formControls = []; formSave = null; formSaveHost = null; editorStatus = null;
   }
   function focusEditorTrigger(previous) {
     const control = previous?.kind === 'card'
       ? board.root.querySelector(`[data-project-id="${previous.id}"]`)?.querySelector('.dashboard-card-settings') : null;
-    (control || settings).focus?.();
+    if (control) control.focus?.({ preventScroll: true }); else settings.focus?.();
   }
   function editorFrame(title) {
+    editorObserver?.disconnect(); editorObserver = null;
     editor.replaceChildren(); editor.hidden = false; settings.setAttribute('aria-expanded', 'true');
     formControls = [];
-    const header = el('header', undefined, 'dashboard-settings-header'); header.append(el('h2', title));
-    const close = el('button', '关闭', 'ghost'); close.type = 'button';
-    close.onclick = () => { if (!busy) { const previous = currentEditor; closeEditor(); focusEditorTrigger(previous); } };
-    header.append(close); editor.append(header);
+    editorStatus = el('p', failedWrite ? status.textContent : '', 'dashboard-settings-status');
+    editorStatus.hidden = !failedWrite; editorStatus.setAttribute('role', 'status'); editor.append(editorStatus);
     const reload = el('button', '重新读取设置', 'ghost'); reload.type = 'button';
     reload.dataset.help = '丢弃当前未保存的卡片选择、内容和布局，重新读取设备配置；不会联网查询余额。';
     reload.onclick = () => reloadSettings(); formControls.push(reload);
-    const save = el('button', '保存', 'primary'); save.type = 'button'; formSave = save;
-    const saveHost = el('span', undefined, 'help-host'); saveHost.append(save); formSaveHost = saveHost;
-    const actions = el('div', undefined, 'dashboard-settings-actions'); actions.append(saveHost, reload); editor.append(actions);
-    return { actions, save };
+    // Keep draft construction independent from modal submission and its request gate.
+    const save = {};
+    const actions = el('div', undefined, 'dashboard-settings-actions'); actions.append(reload); editor.append(actions);
+    const show = () => {
+      const identity = currentEditor;
+      void formDialog({ title, content: editor, confirmLabel: '保存', cardClass: 'dashboard-settings-modal',
+        canConfirm: () => active() && !busy && !!config && !failedWrite,
+        onConfirm: () => save.onclick(),
+      }).then(() => {
+        if (currentEditor !== identity) return;
+        closeEditor(); if (active()) focusEditorTrigger(identity);
+      });
+      formSave = globalThis.document.getElementById('modal').querySelector('.modal-confirm'); formSaveHost = formSave.parentNode;
+      if (globalThis.MutationObserver && root.parentNode) {
+        editorObserver = new MutationObserver(() => { if (!active() && currentEditor === identity) closeEditor(); });
+        editorObserver.observe(root.parentNode, { childList: true, attributes: true });
+      }
+    };
+    return { actions, save, show };
   }
   function checkbox(parent, label, checked, change, data = {}) {
     const host = el('label', undefined, 'dashboard-option'), input = el('input'); input.type = 'checkbox'; input.checked = checked;
@@ -141,52 +174,61 @@ export function createDashboardPanel({ ownsPage = () => true, renderProject }) {
   }
   function openSettings() {
     if (!config || busy) return;
-    const { actions, save } = editorFrame('卡片设置'); currentEditor = { kind: 'global' };
+    const { actions, save, show } = editorFrame('面板设置'); currentEditor = { kind: 'global' };
     const visible = new Set(projects.filter(row => !config.hidden_projects.includes(row.id)).map(row => row.id));
-    const accounts = new Set(config.cards.map(card => card.connection_id));
     const projectChoices = el('fieldset'); projectChoices.append(el('legend', '项目'));
     for (const row of projects) checkbox(projectChoices, row.name || row.project || row.id, visible.has(row.id),
       checked => checked ? visible.add(row.id) : visible.delete(row.id), { projectId: row.id });
     if (!projects.length) projectChoices.append(el('p', '暂无已登记项目', 'hint'));
-    const accountChoices = el('fieldset'); accountChoices.append(el('legend', '账户'));
+    editor.insertBefore(projectChoices, actions);
+    const accountPatch = accountSettings(actions);
+    save.onclick = () => savePatch({ ...accountPatch(),
+      hidden_projects: [...new Set([...config.hidden_projects.filter(id => !projects.some(row => row.id === id)),
+        ...projects.filter(row => !visible.has(row.id)).map(row => row.id)])] });
+    show(); syncControls(); editor.focus?.();
+  }
+  function accountSettings(actions) {
+    const accounts = new Set(config.cards.map(card => card.connection_id));
+    const accountChoices = el('fieldset'); accountChoices.append(el('legend', '额度来源'));
     const byId = new Map(connections.map(connection => [connection.id, connection]));
     for (const id of accounts) if (!byId.has(id)) byId.set(id, null);
     for (const [id, connection] of byId) checkbox(accountChoices, connection?.label || `来源已删除：${id}`, accounts.has(id),
       checked => checked ? accounts.add(id) : accounts.delete(id), { connectionId: id });
     if (!byId.size) accountChoices.append(el('p', '在模型来源中添加账户', 'hint'));
-    editor.insertBefore(projectChoices, actions); editor.insertBefore(accountChoices, actions);
-    save.onclick = () => savePatch({ cards: [...accounts].map(connection_id => ({ type: 'account', connection_id })),
-      hidden_projects: [...new Set([...config.hidden_projects.filter(id => !projects.some(row => row.id === id)),
-        ...projects.filter(row => !visible.has(row.id)).map(row => row.id)])] }, { close: true });
-    syncControls(); editor.focus?.();
+    editor.insertBefore(accountChoices, actions);
+    const styles = el('fieldset'); styles.append(el('legend', '显示方式'));
+    const mode = el('select', undefined, 'dashboard-account-view'); mode.setAttribute('aria-label', '额度显示方式');
+    for (const [value, label] of [['list', '紧凑列表'], ['tiles', '账号小面板']]) {
+      const option = el('option', label); option.value = value; mode.append(option);
+    }
+    let selectedMode = config.account_view || 'list'; mode.value = selectedMode;
+    mode.onchange = () => { if (!busy && active()) selectedMode = mode.value; };
+    formControls.push(mode); styles.append(mode); editor.insertBefore(styles, actions);
+    return () => ({ cards: [...accounts].map(connection_id => ({ type: 'account', connection_id })), account_view: selectedMode });
   }
   function openCardSettings(row) {
     if (!config || busy) return;
-    const { actions, save } = editorFrame(cardName(row)); currentEditor = { kind: 'card', id: row.id };
+    const { actions, save, show } = editorFrame(cardName(row)); currentEditor = { kind: 'card', id: row.id };
     const selected = new Set(sectionsFor(row));
     const choices = el('fieldset'); choices.append(el('legend', '展示内容'));
-    for (const [key, label] of row.type === 'account' ? ACCOUNT_SECTIONS : PROJECT_CARD_SECTIONS) {
+    for (const [key, label] of row.type === 'accounts' ? ACCOUNT_SECTIONS : PROJECT_CARD_SECTIONS) {
       checkbox(choices, label, selected.has(key), checked => checked ? selected.add(key) : selected.delete(key), { section: key });
     }
-    const resize = el('button', '调整位置与大小', 'ghost'); resize.type = 'button';
-    resize.dataset.help = '开启网格布局编辑，拖动卡片手柄与边角调整；也支持键盘操作。';
-    resize.onclick = () => { if (!busy) { closeEditor(); startEditing(row.id); } }; formControls.push(resize);
-    editor.insertBefore(choices, actions); actions.append(resize);
-    save.onclick = () => savePatch({ content: [...config.content.filter(item => item.id !== row.id), { id: row.id, sections: [...selected] }] }, { close: true });
-    syncControls(); editor.focus?.();
+    const accountPatch = row.type === 'accounts' ? accountSettings(actions) : () => ({});
+    editor.insertBefore(choices, actions);
+    save.onclick = () => savePatch({ ...accountPatch(), content: [...config.content.filter(item => item.id !== row.id), { id: row.id, sections: [...selected] }] });
+    show(); syncControls(); editor.focus?.();
   }
-  function startEditing(id) {
+  function startEditing() {
     if (!config || busy || failedWrite) return;
     closeEditor(); editing = true; layoutDirty = false; layoutDraft = board.getLayout(); syncControls();
     setStatus('拖动手柄或边角调整，完成后保存布局。');
-    const item = id ? board.root.querySelector(`[data-project-id="${id}"]`) : board.root;
-    item?.querySelector('.project-board-handle')?.focus?.();
+    board.root.querySelector('.project-board-handle')?.focus?.();
   }
-  async function savePatch(patch, { close = false, finishLayout = false } = {}) {
+  async function savePatch(patch, { finishLayout = false } = {}) {
     if (!active() || busy || !config || failedWrite) return false;
     busy = true; syncControls(); setStatus('正在保存…');
     let acknowledged = false;
-    const previousEditor = currentEditor;
     try {
       const next = await api('/api/host/dashboard', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...patch, expected_revision: config.revision }) });
@@ -195,7 +237,6 @@ export function createDashboardPanel({ ownsPage = () => true, renderProject }) {
       config = await readDashboardConfig({ value: next });
       acknowledged = true;
       if (!active()) return false;
-      if (close) closeEditor();
       if (finishLayout) { editing = false; layoutDirty = false; }
       failedWrite = false;
       const missing = projects.filter(row => !config.hidden_projects.includes(row.id)
@@ -210,12 +251,12 @@ export function createDashboardPanel({ ownsPage = () => true, renderProject }) {
         setStatus(acknowledged ? `设置已保存；展示更新失败：${error.message}。请刷新，不必再次保存。`
           : `保存未确认：${error.message}；编辑已保留，请先重新读取设置核对。`, true);
       }
-      return false;
+      return acknowledged;
     } finally {
       busy = false;
       if (active()) {
         syncControls();
-        if (acknowledged) { if (finishLayout) edit.focus?.(); else if (close) focusEditorTrigger(previousEditor); }
+        if (acknowledged && finishLayout) edit.focus?.();
       }
     }
   }
@@ -227,7 +268,7 @@ export function createDashboardPanel({ ownsPage = () => true, renderProject }) {
     try {
       const next = await readDashboardConfig();
       if (!active()) return;
-      config = next; failedWrite = false; editing = false; layoutDirty = false;
+      config = next; failedWrite = false; editing = false; layoutDirty = false; inheritedAccountLayout = null;
       await paint(); loaded = true;
       setStatus('已重新读取设备设置');
     } catch (error) { if (active()) setStatus(`设置读取失败：${error.message}；原编辑已保留。`, true); }
@@ -235,7 +276,7 @@ export function createDashboardPanel({ ownsPage = () => true, renderProject }) {
       busy = false;
       if (active()) {
         // Build controls after releasing the request gate, retaining failed drafts otherwise.
-        if (loaded && config && previousEditor) {
+        if (loaded && config && previousEditor && previousEditor === currentEditor && ownsDialog()) {
           if (previousEditor.kind === 'global') openSettings();
           else { const row = rows.find(row => row.id === previousEditor.id); if (row) openCardSettings(row); else closeEditor(); }
         }

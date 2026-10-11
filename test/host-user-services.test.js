@@ -22,7 +22,7 @@ test('dashboard validates before lazy construction and shutdown rejects late req
 test('concurrent dashboard reads share one lazy instance and invalid cards never reach an injected writer', async () => {
   let supplied = 0, closes = 0;
   const calls = [], selected = { type: 'account', connection_id: '12345678-1234-1234-1234-123456789abc' };
-  const model = { version: 2, revision: dashboardRevision, cards: [selected], hidden_projects: [], layout: [], content: [] };
+  const model = { version: 3, revision: dashboardRevision, cards: [selected], hidden_projects: [], layout: [], content: [], account_view: 'list' };
   const dependency = { get() { calls.push('get'); return model; },
     save(patch, revision) { calls.push([patch, revision]); return model; }, close() { closes++; } };
   const services = createUserServices({}, { env: environment, get dashboardService() { supplied++; return dependency; } });
@@ -37,14 +37,16 @@ test('concurrent dashboard reads share one lazy instance and invalid cards never
   expect(closes).toBe(1);
 });
 
-test('v2 requests validate every patch field before lazy construction and forward only supplied fields', async () => {
+test('v3 requests validate every patch field before lazy construction and forward only supplied fields', async () => {
   let initialized = 0;
   const calls = [], id = '0123456789abcdef';
   const services = createUserServices({}, { env: environment,
     get dashboardService() { initialized++; return { save(patch, expected) { calls.push([patch, expected]); return patch; } }; } });
   try {
     const row = { id, x: 0, y: 0, w: 12, h: 6 };
-    for (const patch of [{}, { layout: null }, { layout: [{ ...row, w: 13 }] }, { layout: [row, row] },
+    for (const patch of [{}, ...[null, true, 1, '', 'LIST', 'grid', [], {}].map(account_view => ({ account_view })),
+      { content: [{ id: 'accounts', sections: ['metrics'] }] }, { hidden_projects: ['accounts'] },
+      { layout: [{ ...row, id: 'Accounts' }] }, { layout: null }, { layout: [{ ...row, w: 13 }] }, { layout: [row, row] },
       { hidden_projects: ['0123456789ABCDEF'] }, { content: [{ id, sections: ['quota'] }] },
       { content: [{ id, sections: [], token: 'PRIVATE' }] }, { cards: [], layout: [{ ...row, h: 81 }] }]) {
       await expect(services.saveDashboard({ ...patch, expected_revision: dashboardRevision })).rejects.toThrow();
@@ -56,9 +58,13 @@ test('v2 requests validate every patch field before lazy construction and forwar
     expect(await services.saveDashboard({ layout: [row], expected_revision: dashboardRevision })).toEqual({ layout: [row] });
     expect(await services.saveDashboard({ content: [{ id, sections: [] }], hidden_projects: [id, id],
       expected_revision: dashboardRevision })).toEqual({ content: [{ id, sections: [] }], hidden_projects: [id] });
+    expect(await services.saveDashboard({ account_view: 'tiles', expected_revision: dashboardRevision })).toEqual({ account_view: 'tiles' });
+    const reserved = { layout: [{ ...row, id: 'accounts' }], content: [{ id: 'accounts', sections: ['quota', 'reset'] }], account_view: 'list' };
+    expect(await services.saveDashboard({ ...reserved, expected_revision: dashboardRevision })).toEqual(reserved);
     expect(initialized).toBe(2);
     expect(calls).toEqual([[{ layout: [row] }, dashboardRevision],
-      [{ hidden_projects: [id], content: [{ id, sections: [] }] }, dashboardRevision]]);
+      [{ hidden_projects: [id], content: [{ id, sections: [] }] }, dashboardRevision],
+      [{ account_view: 'tiles' }, dashboardRevision], [reserved, dashboardRevision]]);
   } finally { await services.close(); }
 });
 

@@ -7,11 +7,12 @@ import { validateConfigurationDirectory, withConfigurationWriteLock } from './de
 const MAX_BYTES = 256 * 1024;
 const MAX_CARDS = 100;
 const MAX_ITEMS = 300;
-const PATCH_FIELDS = ['cards', 'hidden_projects', 'layout', 'content'];
+const V2_FIELDS = ['cards', 'hidden_projects', 'layout', 'content'];
+const PATCH_FIELDS = [...V2_FIELDS, 'account_view'];
 const PROJECT_ID = /^[a-f0-9]{16}$/;
 const PROJECT_SECTIONS = ['metrics', 'distribution', 'delivery', 'recent', 'messages', 'shortcuts'];
 const ACCOUNT_SECTIONS = ['quota', 'balance', 'reset', 'observed', 'details', 'history', 'provenance'];
-const empty = () => ({ version: 2, cards: [], hidden_projects: [], layout: [], content: [] });
+const empty = () => ({ version: 3, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list' });
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const same = (a, b) => a.dev === b.dev && a.ino === b.ino;
 function fields(value, allowed) {
@@ -39,7 +40,7 @@ export function normalizeDashboardCards(cards) {
   return result;
 }
 function identity(value) {
-  check(typeof value === 'string' && (PROJECT_ID.test(value)
+  check(typeof value === 'string' && (value === 'accounts' || PROJECT_ID.test(value)
     || (value.startsWith('account:') && UUID.test(value.slice(8)))), 'invalid dashboard card identity');
   return value.toLowerCase();
 }
@@ -81,13 +82,17 @@ export function normalizeDashboardPatch(patch) {
   });
   if (Object.hasOwn(patch, 'content')) result.content = uniqueRows(patch.content, 'content', row => {
     fields(row, ['id', 'sections']);
-    const id = identity(row.id), allowed = id.startsWith('account:') ? ACCOUNT_SECTIONS : PROJECT_SECTIONS;
+    const id = identity(row.id), allowed = id === 'accounts' || id.startsWith('account:') ? ACCOUNT_SECTIONS : PROJECT_SECTIONS;
     check(Array.isArray(row.sections), 'invalid dashboard content sections');
     for (const section of row.sections) {
       check(typeof section === 'string' && allowed.includes(section), 'invalid dashboard content sections');
     }
     return { id, sections: [...new Set(row.sections)] };
   });
+  if (Object.hasOwn(patch, 'account_view')) {
+    check(patch.account_view === 'list' || patch.account_view === 'tiles', 'invalid dashboard account_view');
+    result.account_view = patch.account_view;
+  }
   return result;
 }
 function load(config) {
@@ -112,8 +117,13 @@ function load(config) {
       fields(data, ['version', 'cards']);
       return { ...empty(), cards: normalizeDashboardCards(data.cards) };
     }
+    if (data.version === 2) {
+      fields(data, ['version', ...V2_FIELDS]);
+      const { version, ...patch } = data;
+      return { ...empty(), ...normalizeDashboardPatch(patch) };
+    }
     fields(data, ['version', ...PATCH_FIELDS]);
-    check(data.version === 2, 'invalid dashboard version');
+    check(data.version === 3, 'invalid dashboard version');
     const { version, ...patch } = data;
     return { version, ...normalizeDashboardPatch(patch) };
   } catch { throw new Error('dashboard settings cannot be safely read'); }
