@@ -14,6 +14,7 @@ import * as branch from './commands/branch.js';
 import * as agent from './commands/agent.js';
 import * as config from './commands/config.js';
 import * as hooks from './commands/hooks.js';
+import * as skills from './commands/skills.js';
 
 export { HELP };
 
@@ -32,6 +33,7 @@ for (const [module, names] of [
   [agent, ['agent']],
   [config, ['config']],
   [hooks, ['hooks']],
+  [skills, ['skills']],
 ]) {
   for (const name of names) {
     check(!COMMANDS.has(name), `duplicate command handler: ${name}`);
@@ -58,6 +60,13 @@ export async function main(argv = process.argv.slice(2)) {
   }
   const handler = COMMANDS.get(command);
   if (!handler) throw new Error(`unknown command: ${command}; run lush help`);
+  // Built-in guides contain only public code resources. Return before project discovery, settings,
+  // sockets or credentials so this works outside a project and with an offline/malformed device root.
+  if (command === 'skills') {
+    const value = await handler(command, args, { json });
+    if (value !== undefined) print(value, json);
+    return;
+  }
   const globalWeb = command.startsWith('host:') && !projectPath && !process.env.LUSH_PROJECT;
   const selectedConfig = globalWeb ? launcherWebConfig(process.env) : Config.fromEnv(process.env, process.cwd(), projectPath);
   const client = globalWeb

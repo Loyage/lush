@@ -15,6 +15,7 @@
 8. [快速对话](quick-chat.md)：全局纯文本交流、引用与右键 Prompt、独立 C 对话历史；[旧解释历史](quick-explanation.md)保留在原项目。
 9. [全部中断、重启与全部继续](project-maintenance.md)：当前项目持久维护暂停、安全重启窗口和父子 Worker 的恢复安排。
 10. [终端内观看](native-viewer.md)：Pi 原生渲染、滚动与工具展开；只看已记录步骤，不启动 Agent 或逐字直播。
+11. [Agent 能力开关与 Skills](agent-capabilities.md)：全局选择进度、委派、自动标题和上下文检索，薄入口与按需 CLI 指南。
 
 ## 理解与修改系统
 

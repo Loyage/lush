@@ -78,6 +78,34 @@ test('Host removes active concurrency settings without erasing legacy values or 
   } finally { await f.close(); }
 });
 
+test('Host edits four capability booleans with private atomic storage and no project startup', async () => {
+  const f = host(), keys = ['progress_reporting', 'worker_delegation', 'worker_auto_title', 'context_retrieval'];
+  try {
+    const empty = await (await fetch(`${f.url}/api/host/settings/runtime`)).json();
+    for (const key of keys) expect(empty[key]).toEqual({ value: true, default: true, overridden: false, source: 'default' });
+    expect(fs.existsSync(path.join(f.global, 'shared'))).toBe(false);
+    for (const key of keys) {
+      const saved = await action(f.url, 'system.configure', { settings: { [key]: false } });
+      expect(saved.status).toBe(200);
+      expect((await saved.json())[key]).toMatchObject({ value: false, default: true, overridden: true, source: 'device' });
+    }
+    const file = path.join(f.global, 'shared', 'settings.json'), before = fs.readFileSync(file, 'utf8');
+    expect(JSON.parse(before)).toEqual({ version: 1, ...Object.fromEntries(keys.map(key => [key, false])) });
+    for (const key of keys) for (const value of ['false', 0, {}, []]) {
+      const rejected = await action(f.url, 'system.configure', { settings: { [key]: value } });
+      expect(rejected.status).toBe(400); expect(await rejected.text()).not.toContain(file);
+      expect(fs.readFileSync(file, 'utf8')).toBe(before);
+    }
+    expect((await action(f.url, 'system.configure', { settings: Object.fromEntries(keys.map(key => [key, null])) })).status).toBe(200);
+    const reset = await (await fetch(`${f.url}/api/host/settings/runtime`)).json();
+    for (const key of keys) expect(reset[key]).toEqual({ value: true, default: true, overridden: false, source: 'default' });
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ version: 1 });
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(fs.readdirSync(path.dirname(file))).toEqual(['settings.json']);
+    expect(f.opened()).toBe(0); expect(fs.existsSync(path.join(f.root, '.lush'))).toBe(false);
+  } finally { await f.close(); }
+});
+
 test('Host settings cannot become a Worker, model-call, migration, arbitrary-path or token gateway', async () => {
   const f = host();
   try {
@@ -136,6 +164,29 @@ test('shared management requires Host authentication even when no project is sel
     const Cookie = login.headers.get('set-cookie').split(';')[0];
     expect((await fetch(`${url}/api/host/settings/runtime`, { headers: { Cookie } })).status).toBe(200);
   } finally { await web.stop(true); fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('Host Agent preview input reads all current capabilities through a scope-neutral runtime adapter', async () => {
+  const root = temp(), service = new DeviceSettingsService(env({ LUSH_GLOBAL_CONFIG: root }));
+  const keys = ['progress_reporting', 'worker_delegation', 'worker_auto_title', 'context_retrieval'];
+  try {
+    expect(service.runtime.config.deviceHome).toBeNull();
+    const initial = service.agents.config.runtimeSettings.get('device');
+    for (const key of keys) expect(initial[key].value).toBe(true);
+    expect(fs.existsSync(path.join(root, 'shared'))).toBe(false);
+    await service.request('system.configure', { settings: Object.fromEntries(keys.map(key => [key, false])) });
+    // Read again rather than capture a constructor snapshot; both get and save previews use this adapter.
+    const input = service.agents.config.runtimeSettings.get('device');
+    for (const key of keys) expect(input[key]).toMatchObject({ value: false, default: true, overridden: true });
+    expect((await service.request('agent.config')).options.default_prompts.agent).not.toContain('lush progress');
+    const profile = { version: 1, default: { agent: 'pi', config_mode: 'lush', extensions: [], skills: [] }, roles: {} };
+    expect((await service.request('agent.configure', { config: profile })).options.default_prompts.agent).not.toContain('lush progress');
+    await service.request('system.configure', { settings: { worker_auto_title: null, context_retrieval: null } });
+    const restored = service.agents.config.runtimeSettings.get('device');
+    expect(restored.worker_delegation.value).toBe(false); expect(restored.worker_auto_title.value).toBe(true); expect(restored.context_retrieval.value).toBe(true);
+    expect(service.config.project).toBeNull();
+    expect((await service.request('agent.config')).configuration_scope.project_home).toBeNull();
+  } finally { await service.stop(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 test('Host saves use current shared runtime defaults and reject project-relative resources without a project', async () => {

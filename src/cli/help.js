@@ -67,6 +67,7 @@ lush [--project PATH] [--json] <command>
   notice list|post|answer|dismiss|read    用户决策与告知已读（显示 D/N 编号，参数仍用整数 ID）
   notice post '标题' [--worker ID] [--body '正文']  发给指定 Worker（Agent 默认当前 Worker）
   progress plan|complete             Agent 汇报进度
+  skills list|get ID                  内置能力按需指南（支持 --json；无需项目/daemon，不读取设备配置）
   agent show|models|set|reset|prompt|env|init|network  设备 Agent 配置（用户专属）
   agent prompt ROLE / agent env ROLE  用户检查最终 Prompt / 脱敏环境来源，不向 Agent token 开放
   agent init [ROLE] [--local]         --local 创建设备私有补充；否则创建项目可提交约定，不覆盖文件

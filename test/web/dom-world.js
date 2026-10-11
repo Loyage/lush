@@ -75,13 +75,16 @@ export function makeWorld() {
       ],
     },
     currentBranch: 'main',
-    // 运行设置（并发上限）：system.status.settings 的镜像；/api/action 的 system.configure 改写它。
+    // 运行设置：system.status.settings 的镜像；/api/action 的 system.configure 改写它。
     runtimeSettings: {
       file: '/tmp/demo/.lush/settings.json',
       call_timeout: { value: 900, default: 900, overridden: false },
       task_call_limit: { value: 24, default: 24, overridden: false },
       max_depth: { value: 8, default: 8, overridden: false },
       progress_reporting: { value: true, default: true, overridden: false },
+      worker_delegation: { value: true, default: true, overridden: false },
+      worker_auto_title: { value: true, default: true, overridden: false },
+      context_retrieval: { value: true, default: true, overridden: false },
       input_routes: { value: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }],
         default: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }], overridden: false },
     },
@@ -343,7 +346,7 @@ export function makeWorld() {
         // 运行设置的热更新：null 清除覆盖（回退环境默认），数字/前缀表写为覆盖值；与核心同语义。
         const patch = body.params.settings || {};
         const next = { ...state.runtimeSettings };
-        for (const key of ['call_timeout', 'task_call_limit', 'max_depth', 'progress_reporting']) {
+        for (const key of ['call_timeout', 'task_call_limit', 'max_depth', 'progress_reporting', 'worker_delegation', 'worker_auto_title', 'context_retrieval']) {
           if (!Object.hasOwn(patch, key)) continue;
           next[key] = patch[key] === null
             ? { ...next[key], value: next[key].default, overridden: false }

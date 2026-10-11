@@ -72,6 +72,31 @@ test('真实设备运行设置混合环境默认，无项目编辑层，保存/�
   expectLegacyPreserved(legacy);
 });
 
+test('真实四项能力开关使用 Host partial patch，保持旧项目历史设置并恢复默认', async () => {
+  const keys = ['progress_reporting', 'worker_delegation', 'worker_auto_title', 'context_retrieval'];
+  const legacy = writeLegacy('settings.json', JSON.stringify({ version: 1, worker_delegation: true, progress_reporting: true }) + '\n');
+  await system();
+  const number = detail().querySelector('[data-runtime-input="call_timeout"]'); input(number, '777');
+  for (const key of keys) {
+    const toggle = detail().querySelector(`[data-runtime-input="${key}"]`); expect(toggle.checked).toBe(true);
+    toggle.checked = false; await toggle.onchange(); expect(toggle.checked).toBe(false);
+    expect(f.config.runtimeSettings.get()[key]).toMatchObject({ value: false, source: 'device', overridden: true });
+    expect(detail().querySelector('[data-runtime-input="call_timeout"]')).toBe(number); expect(number.value).toBe('777');
+    expectLegacyPreserved(legacy);
+  }
+  const writes = requests.filter(row => row.options.method === 'POST').map(row => ({ url: row.url, body: JSON.parse(row.options.body) }));
+  expect(writes).toEqual(keys.map(key => ({ url: '/api/host/settings/action', body: {
+    method: 'system.configure', params: { settings: { [key]: false }, scope: 'device' },
+  } })));
+  await detail().querySelector('[data-capability-reset=""]').onclick();
+  for (const key of keys) {
+    expect(detail().querySelector(`[data-runtime-input="${key}"]`).checked).toBe(true);
+    expect(f.config.runtimeSettings.get()[key]).toMatchObject({ value: true, source: 'default', overridden: false });
+  }
+  expectLegacyPreserved(legacy);
+  expect(deepText(detail())).toContain('不是权限隔离'); expect(deepText(detail())).toContain('当前调用与已有子 Worker');
+});
+
 test('真实 Host 投影可供无项目来源编辑及快捷解释保存，不将只读字段写回凭证文档', async () => {
   const saved = await saveSource();
   const profile = f.project.agentConfig('device');

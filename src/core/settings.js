@@ -6,16 +6,17 @@ import { check, isPlainObject, LushError } from './types.js';
 import { DEFAULT_INPUT_ROUTES, normalizeInputRoutes } from './input-routes.js';
 
 /**
- * 设备运行设置：调用限额、进度开关与历史路由表。
+ * 设备运行设置：调用限额、Agent 能力开关与历史路由表。
  *
  * 值存在所选作用域的 settings.json，0600，跨进程锁 + 原子替换，
  * 读时校验 uid / symlink / 大小 / 字段。区别是运行设置是**热更新**的——写盘成功后调用方
  * 把有效值同步进内存并重新 kick，修改后续调用设置不需要重启 daemon。
  *
  * 有效值 = 设备存储值 ?? 环境默认值（LUSH_CALL_TIMEOUT / LUSH_TASK_CALLS / LUSH_MAX_DEPTH 的启动值）；
- * progress_reporting 为布尔开关，默认 true；未被覆盖的键不写进文件，也不用假值填充。
+ * Agent 能力开关默认 true；未被覆盖的键不写进文件，也不用假值填充。
  */
-export const RUNTIME_SETTINGS_KEYS = ['call_timeout', 'task_call_limit', 'max_depth', 'progress_reporting', 'input_routes'];
+const BOOLEAN_KEYS = ['progress_reporting', 'worker_delegation', 'worker_auto_title', 'context_retrieval'];
+export const RUNTIME_SETTINGS_KEYS = ['call_timeout', 'task_call_limit', 'max_depth', ...BOOLEAN_KEYS, 'input_routes'];
 // Read compatibility only: preserve exact historical values on unrelated writes, never expose or apply them.
 const RETIRED_KEYS = ['concurrency', 'control_concurrency'];
 const retiredSettings = value => Object.fromEntries(RETIRED_KEYS.filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
@@ -48,7 +49,7 @@ export function normalizeRuntimeSettings(value, file = 'runtime settings') {
   for (const key of RUNTIME_SETTINGS_KEYS) {
     const entry = value[key];
     if (entry === undefined || entry === null) continue;
-    if (key === 'progress_reporting') {
+    if (BOOLEAN_KEYS.includes(key)) {
       check(typeof entry === 'boolean', `${key} in ${file} must be a boolean`);
       stored[key] = entry; continue;
     }
@@ -68,7 +69,7 @@ export class RuntimeSettings {
       call_timeout: config.timeoutDefault,
       task_call_limit: config.maxCallsDefault,
       max_depth: config.maxDepthDefault,
-      progress_reporting: true,
+      ...Object.fromEntries(BOOLEAN_KEYS.map(key => [key, true])),
       input_routes: DEFAULT_INPUT_ROUTES.map(route => ({ ...route })),
     };
   }

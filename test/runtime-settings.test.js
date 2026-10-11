@@ -61,6 +61,9 @@ test('runtime settings file is atomic, owner-only, and falls back to env default
       task_call_limit: { value: 24, default: 24, overridden: false, source: 'default' },
       max_depth: { value: 8, default: 8, overridden: false, source: 'default' },
       progress_reporting: { value: true, default: true, overridden: false, source: 'default' },
+      worker_delegation: { value: true, default: true, overridden: false, source: 'default' },
+      worker_auto_title: { value: true, default: true, overridden: false, source: 'default' },
+      context_retrieval: { value: true, default: true, overridden: false, source: 'default' },
       input_routes: { value: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }],
         default: [{ prefix: '开发', target: 'worker' }, { prefix: '解释', target: 'research' }], overridden: false, source: 'default' } });
     expect(fs.existsSync(file)).toBe(false);

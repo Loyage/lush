@@ -17,6 +17,10 @@
 
 旧 `concurrency`／`control_concurrency` 设置保留在文件中但不再生效；旧 `LUSH_CONCURRENCY`／`LUSH_CONTROL_CONCURRENCY` 环境变量忽略，CLI、设置页及状态不再提供这些字段。调用超时、单 Worker 调用次数和最大委派深度仍可配置，详见[移除并发槽](engineering/global-slots.md)。
 
+## Agent 内置能力
+
+全局「设置 → 系统 → Agent 能力」提供进度汇报、子 Worker 委派、自动标题和上下文检索四个开关，默认开启，已有进度值保留。设置影响所有项目后续调用的短入口及 Skill 加载，不撤销底层 API 权限，不中断当前调用或已有 child；最低安全与交付协议仍必需。使用、按需指南 CLI 与第三方资源区别见[Agent 能力开关](agent-capabilities.md)。
+
 ## 本机 Prompt 补充与项目约定
 
 设备私有补充为设备根 `agent/common.md` 和受支持角色 `.md`。缺文件不创建目录，也不回退旧项目 `.lush/agent/*.md`。`agent init --local` 由用户执行，使用共享写锁、只创建缺失文件；公开权限、外来所有者、链接和超限文件会被拒绝，不自动修复或覆盖。

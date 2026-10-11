@@ -175,7 +175,13 @@ export class AgentSettings {
   get(scope) {
     scope = settingsConfigurationScope(this.config, scope);
     const selection = this.selection(scope), stored = selection.stored;
-    const progressReporting = this.config.runtimeSettings?.get(scope)?.progress_reporting?.value ?? this.config.progressReporting;
+    // One settings read for every role preview, matching invocation capability snapshots.
+    const runtime = this.config.runtimeSettings?.get(scope);
+    const progressReporting = runtime?.progress_reporting?.value ?? this.config.progressReporting;
+    const capabilities = Object.fromEntries(Object.entries(runtime ?? {})
+      .filter(([, entry]) => typeof entry?.value === 'boolean')
+      .map(([key, entry]) => [key, entry.value]));
+    const promptOptions = { progressReporting: progressReporting !== false, capabilities };
     const resolved = {};
     for (const role of AGENT_ROLES) {
       resolved[role] = { ...(stored.roles[role] || stored.default) };
@@ -195,8 +201,8 @@ export class AgentSettings {
         thinking: Object.fromEntries(Object.entries(THINKING_LEVELS).map(([key, values]) => [key, [...values]])),
         models: Object.fromEntries(Object.entries(MODEL_PRESETS).map(([key, values]) => [key, [...values]])),
         // Compatibility field for older clients; role-aware clients use default_prompts.
-        default_prompt: builtInPrompt('planner', { progressReporting: progressReporting !== false }),
-        default_prompts: Object.fromEntries(AGENT_ROLES.map(role => [role, builtInPrompt(role, { progressReporting: progressReporting !== false })])),
+        default_prompt: builtInPrompt('planner', promptOptions),
+        default_prompts: Object.fromEntries(AGENT_ROLES.map(role => [role, builtInPrompt(role, promptOptions)])),
       },
     };
   }

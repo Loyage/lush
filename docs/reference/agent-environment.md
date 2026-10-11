@@ -6,6 +6,7 @@
 |---|---|---|
 | `lush status` | `system.status` | `{}` |
 | `lush agent show` | `agent.config` | `{}` |
+| `lush skills list/get ID` | 本地只读命令 | 读取内置公开指南，不读设备私密设置，不需 daemon |
 | `lush agent models pi|codex` | `agent.models` | `{agent}` |
 | `lush agent set/reset …` | `agent.configure` | `{config}`（用户专属） |
 | `lush agent prompt ROLE` | 本地命令 | 按片段查看最终 Prompt 与来源 |
@@ -25,7 +26,7 @@
 
 W210／D492 已移除 Worker 并发槽：旧盘上 `concurrency`／`control_concurrency` 留存但不生效，旧 `LUSH_CONCURRENCY`／`LUSH_CONTROL_CONCURRENCY` 忽略；公开配置写入拒绝这些键，状态与时间线不再投影并发额度。依赖、冻结、维护及同 Worker 的真实退出屏障仍限制准入。
 
-系统设置 → 系统 →「进度汇报」提供设备级开关，默认开启，经用户专属 `system.configure {settings:{progress_reporting:boolean}}` 保存至同一份设置文件；`null` 恢复默认开启。关闭后所有 Worker 进度区块（含图上的等待汇报占位）隐藏，已有计划不删除，再开启可继续查看；后续调用的内置 Prompt 与配置预览不再包含进度片段或命令示例，analysis 与 Pi 默认模式同样遵循。正在运行的调用、自定义 Prompt / 补充和已有会话原文不改写，进度 RPC 保留兼容在途调用。设置热更新不需要重启。
+全局设置 → 系统 →「Agent 能力」提供四项设备级开关：`progress_reporting`、`worker_delegation`、`worker_auto_title`、`context_retrieval`，均默认开启，经用户专属 `system.configure {settings:{KEY:boolean}}` partial patch 保存，`null` 恢复默认。后续调用与内置配置预览只提供已开启能力的薄入口及按需指南；关闭状态明确告知 Agent 不主动使用。Pi 两模式和 Codex 共用入口，角色适用范围与[能力指南](../agent-capabilities.md)一致。开关不撤销 API 权限，不中断当前调用或已有 child，核心安全、后代收尾及最低验证责任保留；自定义 Prompt / 补充和已有会话原文不改写。关闭进度还沿用隐藏进度区块及规划历史的行为，已有记录不删除。保存设置本身不要求重启。
 
 Pi / Codex 每次 invocation 都从 daemon 获得：
 
@@ -38,7 +39,7 @@ daemon 环境先整体继承给 Agent，再叠加项目[出站网络设置](../e
 
 CLI 会把 token 放入 RPC params 的 `_token`；daemon 按 hash 反查所属 Worker，并要求该 Worker 仍是活动 invocation（在 `running` 中且未被 abort），否则报 invalid or expired agent token。`worker.spawn` 的 `parent` / `notice.post` 的 `task` 缺省为自己的 Worker，不能伪造其他父Worker；message 只能沿直接父子边。CLI progress 默认只输出短确认，`--json` 保留完整进度对象；RPC 返回不变。进度接口不接受 Worker ID，始终写 token 所属 Worker：`progress plan` 同一次工作整表替换时保留同 key 的完成态与既有计时，`progress complete` 只完成当前计划中已存在的 key。runtime 自动记录当前步骤的 `started_at`，顺序完成时写入 `completed_at` / `duration_ms`，并开始下一条待办的计时。
 
-内置开发 Agent Prompt 要求在理解目标后、结束本轮或提问／派工前，若自身 order/child 的 auto_title 为空，调用 `lush worker auto-title '标题'`，简短概括实际主题，不照抄输入首行。标题为非空单行最多 60 字符；接口不接受 ID、仅首次成功写入，此后返回已有标题，不允许覆盖或清空；用户手动 display_title 始终优先，用户 rename 权限不变。不为标题额外派工或调用模型；analysis/manager 不含此命名片段，自定义替代 Prompt 可能不执行。未生成时使用目标兜底，旧记录不批量回填。
+开启自动标题能力后，内置开发 Agent 短入口要求按需读取命名指南，在理解目标后、结束本轮或提问／派工前，若自身 order/child 的 auto_title 为空，调用 `lush worker auto-title '标题'`，简短概括实际主题，不照抄输入首行。标题为非空单行最多 60 字符；接口不接受 ID、仅首次成功写入，此后返回已有标题，不允许覆盖或清空；用户手动 display_title 始终优先，用户 rename 权限不变。不为标题额外派工或调用模型；analysis/manager 不含此命名片段，自定义替代 Prompt 及模型漏读指南可能影响执行。关闭该能力不清除已有标题；未生成时使用目标兜底，旧记录不批量回填。
 
 步骤实际增删、改名、换序时，Runtime 自动把被替换计划完整状态及冻结计时保存为 `progress.archived` Event。当前调用实际收到普通用户追加输入后首次 plan 会归档旧计划并重置同 key 的完成态与计时（即使步骤同形）；随后同形重复 plan 不增加历史。Notice 答案、Agent/子 Worker 消息、等待后继续调用和本轮尚未收到的新输入不重置。不要为历史额外汇报步骤或把旧步骤重复塞入新计划；历史只在详情和 `worker.progress_history {id,before?,limit?}` 只读分页出现，列表、图和调用启动进度只有当前计划。关闭进度汇报时历史也隐藏，但不删除。完整字段见[Worker 规划历史](rpc/tasks.md#规划历史)。
 
@@ -54,7 +55,7 @@ Worker 详情统一使用「调整运行设置」选择模型来源，不再提�
 
 `agent.models` 对 Pi 只用独立配置的 auth-free、禁网络 SDK 元数据（`source=local`），没有元数据声明或 SDK 时返回未验证预设及 `warning`，不执行 `pi --list-models` 或读取外部认证。Codex 仍按需调用 `codex debug models`。配置页的 Pi 模型选择只用当前来源；目录、预设和手填模型都不保证上游请求可用。
 
-`system.status` 的 `agent_config` 返回规范化配置、每类角色的 resolved profile 与 Web 可用选项；`settings` 是运行设置的读写镜像（读自 `system.status`，写走用户专属的 `system.configure`）：`{file, call_timeout:{value,default,overridden}, task_call_limit:{value,default,overridden}, max_depth:{value,default,overridden}, progress_reporting:{value,default:true,overridden}}`，顶层 `call_timeout` / `task_call_limit` / `max_depth` 仍是生效值，环境变量只提供默认值。`agents` 只列运行中的 agent，并显示该次实际 backend / model / thinking，另有 `agents_total`（每个活动 Worker 一个 Agent）与 `agents_idle`（已 park、未在跑的，含尚未首次唤醒的）。`pending_merges` 以原 worker 为稳定项统计 `integration=pending/review/conflict`，不把它的 resolver 再重复计数；完整交付阶段、实际 `source_task_id` 与 blockers 由内部 `ladder().groups` 读模型投影；旧 `task.ladder` 已下线，不是公开 RPC。`merge_freeze` 列出正被未解决冲突冻结的目标分支。agent 身份本身（id / 唤醒次数 / 上次动手时间）可以跨唤醒读取，但它不是可寻址的执行句柄：用户操作一律按 Worker ID 进行。
+`system.status` 的 `agent_config` 返回规范化配置、每类角色的 resolved profile 与 Web 可用选项；`settings` 是运行设置的读写镜像（读自 `system.status`，写走用户专属的 `system.configure`）：`{file, call_timeout:{value,default,overridden}, task_call_limit:{value,default,overridden}, max_depth:{value,default,overridden}, progress_reporting:{value,default:true,overridden}, worker_delegation:{value,default:true,overridden}, worker_auto_title:{value,default:true,overridden}, context_retrieval:{value,default:true,overridden}}`，顶层 `call_timeout` / `task_call_limit` / `max_depth` 仍是生效值，环境变量只提供默认值。`agents` 只列运行中的 agent，并显示该次实际 backend / model / thinking，另有 `agents_total`（每个活动 Worker 一个 Agent）与 `agents_idle`（已 park、未在跑的，含尚未首次唤醒的）。`pending_merges` 以原 worker 为稳定项统计 `integration=pending/review/conflict`，不把它的 resolver 再重复计数；完整交付阶段、实际 `source_task_id` 与 blockers 由内部 `ladder().groups` 读模型投影；旧 `task.ladder` 已下线，不是公开 RPC。`merge_freeze` 列出正被未解决冲突冻结的目标分支。agent 身份本身（id / 唤醒次数 / 上次动手时间）可以跨唤醒读取，但它不是可寻址的执行句柄：用户操作一律按 Worker ID 进行。
 
 以下操作限用户：system.stop、system.configure、agent.configure、agent.environment、agent.environment.configure、agent.network、agent.network.configure、agent.connections.*（包括读取、查询与登录）、order.submit、worker.transcript_latest / transcript_page / transcript_step / transcript_search、worker.auto_merge / reserve / unreserve / resolve / resolve_divergence / approve_merge / cancel / retry / cleanup、notice.answer / dismiss、branch.bind / archive。`agent.environment` 虽是读取接口，但会返回明文密钥，因此同样拒绝 agent token。CLI 另禁止 agent 启动 daemon、Web 或阻塞等待。
 

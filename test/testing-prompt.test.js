@@ -92,9 +92,10 @@ test('read-only and isolated roles do not inherit development full-suite respons
     for (const role of ['research', 'manager', 'butler', 'explainer', 'verifier']) {
       expect(builtInPrompt(role)).not.toContain('## 分层测试与验证责任');
     }
-    // Explicit user replacement remains a replacement, not a hidden injected policy.
+    // Replacement still removes the built-in workflow; only the current capability suffix is added.
     const replaced = agentPrompt(config, 'agent', { default_prompt: 'CUSTOM RULES' });
     expect(replaced.parts.some(part => part.name === 'testing')).toBe(false);
-    expect(replaced.text).toBe('CUSTOM RULES');
+    expect(replaced.parts[0].content).toBe('CUSTOM RULES');
+    expect(replaced.text).toStartWith('CUSTOM RULES\n\n## 可选 Agent 能力');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

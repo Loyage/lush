@@ -13,8 +13,15 @@ test('two real temporary daemons use device-only settings while daemons and proj
     const [sa, sb] = await Promise.all([cli(a, ['start'], settingsEnv), cli(b, ['start'], settingsEnv)]);
     expect(sa.pid).not.toBe(sb.pid);
     const ca = new UIClient(Config.fromEnv(env(settingsEnv), a)), cb = new UIClient(Config.fromEnv(env(settingsEnv), b));
-    await ca.request('system.configure', { settings: { call_timeout: 50, progress_reporting: false }, scope: 'device' });
-    expect((await cb.request('system.settings')).call_timeout).toMatchObject({ value: 50, source: 'device', overridden: true });
+    const capabilityKeys = ['progress_reporting', 'worker_delegation', 'worker_auto_title', 'context_retrieval'];
+    await ca.request('system.configure', { settings: { call_timeout: 50, ...Object.fromEntries(capabilityKeys.map(key => [key, false])) }, scope: 'device' });
+    const capabilityModel = await cb.request('system.settings');
+    expect(capabilityModel.call_timeout).toMatchObject({ value: 50, source: 'device', overridden: true });
+    for (const key of capabilityKeys) expect(capabilityModel[key]).toMatchObject({ value: false, default: true, source: 'device', overridden: true });
+    await cb.request('system.configure', { settings: { worker_auto_title: null } });
+    const resetCapability = await ca.request('system.settings');
+    expect(resetCapability.worker_auto_title).toMatchObject({ value: true, source: 'default', overridden: false });
+    expect(resetCapability.worker_delegation.value).toBe(false);
     await cb.request('system.configure', { settings: { call_timeout: 20 } });
     await ca.request('system.configure', { settings: { call_timeout: 70 }, scope: 'device' });
     expect((await cb.request('system.settings')).call_timeout).toMatchObject({ value: 70, source: 'device' });

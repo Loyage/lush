@@ -12,6 +12,7 @@
 - [上下文引用与定位](references.md)：把用户当下所见（选区、语义节点）低成本带进下一步，并就地获得只读解释。
 - [按钮帮助与 Agent 触发标识](ui-guidance.md)：让按钮含义与“会调用 Agent”的代价一眼可见。
 - [Agent 配置与模型来源](agent-model-settings.md)：分离设备默认工作方式与调用资源，保留单 Worker 的明确来源选择。
+- [Agent 能力模块](agent-capabilities.md)：W217／D509，必需核心与可选工作能力分离，薄 Skill 入口、按需 CLI 指南及设备全局启停。
 - [账号资源连接器](account-resources.md)：区分账号、端点、现金/Key预算/套餐窗口，托管凭证且显式选择，不把查询失败当耗尽。
 - [Worker Hooks](hooks.md)：统一触发节点、挂载配置、预约发射与受控自定义动作。
 - [归并合并方案](merge-convergence.md)：W205／D482，固定成果并行归并、单批受检发布与独立 Worker 体验；尚未实现，不替代当前合并协议。

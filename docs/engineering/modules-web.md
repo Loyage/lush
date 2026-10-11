@@ -11,6 +11,10 @@
 
 设备唯一配置、全局收件箱和自动化以[用户工作台契约](user-workspace.md)为准。`host/device-settings.js` 管理技术配置，`host/user-services.js` 提供偏好／自动化／收件箱／总览卡片根接口，均不构造伪项目或启动停止的 daemon。`settings-api.js` 导出 `settingsClient(scope='device')`、`settingsClientFor(model)`（固定根 Host API，project 拒绝）、`projectSettingsAction(method,params,projectId)`（仅固定登记来源迁移，不接收任意路径）。`settings-scope.js` 只保留 `scopeLabel/scopeImpact`、`draftFingerprint`、`scopeSummary`，没有覆盖选择／清除按钮。`settings-migration.js` 导出 `renderSettingsMigration({ownsPage,onMigrated})`，根页选择登记来源并固定 `/p/id` 预检／确认；条目、警告和阻塞通用展示，区分 Markdown 原件保留不活跃与 JSON/env/凭证退役。所有异步配置编辑保留草稿及页面身份保护，历史／消费者仍归项目。
 
+## Agent 能力开关（W217／D509）
+
+`render-settings.js` 的全局系统页提供“Agent 能力”分组：progress_reporting、worker_delegation、worker_auto_title、context_retrieval 四个独立开关及恢复默认。复用根 Host settingsClient 的 system.configure partial patch，不加载 Agent 注册表；保存不立即调用 Agent。保存中四项与恢复按钮 single-flight 禁用并用 help-host 解释，失败恢复真实已保存值，迟到成功不重画离开的页面、再次进入重读。能力保存不重画其它运行字段，保留未保存数字草稿。关闭仅影响后续调用的注入和主动使用，不改变权限或既有 child 交付；旧进度隐藏语义与 data-runtime-input 保持。契约见[内置能力](agent-capabilities.md)，专项见 `test/agent-capability-settings.test.js`、`test/web/dom-agent-capabilities.test.js` 与 `test/web/device-settings-api.test.js`。
+
 **三个必须遵守的接缝：**
 
 - **`app.js` 导出 `boot()`**，并在被当作模块加载时执行一次 `await boot()`。

@@ -41,7 +41,7 @@ test('two projects share private device supplements while repository conventions
   for (const config of f.configs) write(config.home, 'agent/common.md', 'INACTIVE LEGACY');
   for (const [config, own, other] of [[f.a, 'REPOSITORY A', 'REPOSITORY B'], [f.b, 'REPOSITORY B', 'REPOSITORY A']]) {
     const view = agentPrompt(config, 'worker', { default_prompt: 'WORKER REPLACEMENT', append_prompt: 'WORKER APPEND' });
-    expect(view.parts.map(part => part.name)).toEqual(['settings.default_prompt', 'project.common', 'local.common', 'local.worker', 'settings.append_prompt']);
+    expect(view.parts.map(part => part.name)).toEqual(['settings.default_prompt', 'project.common', 'local.common', 'local.worker', 'settings.append_prompt', 'capabilities']);
     expect(view.text).toContain(own); expect(view.text).not.toContain(other); expect(view.text).not.toContain('INACTIVE LEGACY');
     for (const text of ['WORKER REPLACEMENT', 'PERSONAL COMMON', 'PERSONAL WORKER', 'WORKER APPEND']) expect(view.text).toContain(text);
     expect(view.customization.local).toEqual(['common.md', 'worker.md'].map(name => path.join(f.deviceHome, 'agent', name)));

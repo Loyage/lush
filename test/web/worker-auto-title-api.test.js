@@ -150,13 +150,12 @@ test('old rows gain nullable auto_title without generating titles or altering hi
 test('built-in Agent prompt requests semantic once-only titles but analysis/management do not', () => {
   for (const progressReporting of [true, false]) {
     const prompt = builtInPrompt('agent', { progressReporting });
-    expect(prompt).toContain("lush worker auto-title '简短标题'");
-    expect(prompt).toContain('不照抄输入第一行');
-    expect(prompt).toContain('首次成功后保持稳定');
-    expect(prompt).toContain('不要为了取标题另开模型调用');
+    expect(prompt).toContain('lush skills get auto-title');
+    expect(prompt).toContain('auto_title 为空时');
+    expect(prompt).not.toContain("lush worker auto-title '简短标题'");
   }
   expect(builtInPrompt('manager')).not.toContain('lush worker auto-title');
   const config = { project: '/tmp/lush-title-prompt', home: '/tmp/lush-title-prompt/.lush' };
   expect(agentPrompt(config, 'agent', {}, 'analysis').text).not.toContain('lush worker auto-title');
-  expect(agentPrompt(config, 'agent', { config_mode: 'pi' }, 'order').text).toContain('lush worker auto-title');
+  expect(agentPrompt(config, 'agent', { config_mode: 'pi' }, 'order').text).toContain('lush skills get auto-title');
 });

@@ -55,7 +55,10 @@ export class DeviceSettingsService {
   constructor(env = process.env, options = {}) {
     this.config = settingsConfig(env);
     this.runtime = new RuntimeSettings(this.config);
-    this.agents = new AgentSettings({ ...this.config, deviceHome: this.config.home });
+    // Host runtime is already rooted at the device directory (deviceHome is null).
+    // AgentSettings uses device scope, so adapt its reads without passing that scope into runtime.
+    this.agents = new AgentSettings({ ...this.config, deviceHome: this.config.home,
+      runtimeSettings: { get: () => this.runtime.get() } });
     this.explanation = new QuickExplanationSettings(this.config);
     this.options = options;
     this.manager = null; this.packages = null; this.pending = new Set(); this.closed = false;

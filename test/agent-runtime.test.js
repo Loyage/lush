@@ -12,7 +12,7 @@ test('agent prompts are composed from role-specific named parts', () => {
     const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) });
     const planner = agentPrompt(config, 'planner');
     expect(planner.parts.map(part => part.name)).toEqual([
-      'runtime', 'planner', 'role_catalog', 'dependencies', 'planner_cli', 'progress', 'decisions', 'common_cli', 'completion',
+      'runtime', 'planner', 'role_catalog', 'dependencies', 'planner_cli', 'decisions', 'common_cli', 'completion', 'capabilities',
     ]);
     expect(planner.text).toContain('角色：planner');
     expect(planner.text).not.toContain('角色：worker');
@@ -37,7 +37,8 @@ test('agent prompt distinguishes persistent auto-merge hooks from delivery and a
   const prompt = builtInPrompt('agent');
   expect(prompt).toContain('自动合并设置跨追加开发轮次保留');
   expect(prompt).toContain('默认开启不可关闭的自动合并 hook');
-  expect(prompt).toContain('lush worker spawn');
+  expect(prompt).toContain('lush skills get delegation');
+  expect(prompt).not.toContain("lush worker spawn '目标'");
   expect(prompt).toContain('lush worker accept');
   expect(prompt).toContain('LUSH_TASK_ID');
   expect(prompt).toContain('Worker 数据仍使用 task 字段');
@@ -145,7 +146,7 @@ test('settings replacement, project/local overlays and settings append have expl
     fs.writeFileSync(path.join(config.deviceHome, 'agent', 'worker.md'), 'LOCAL WORKER', { mode: 0o600 });
     const view = agentPrompt(config, 'worker', { default_prompt: 'REPLACEMENT', append_prompt: 'SETTINGS APPEND' });
     expect(view.parts.map(part => part.name)).toEqual([
-      'settings.default_prompt', 'project.common', 'project.worker', 'local.common', 'local.worker', 'settings.append_prompt',
+      'settings.default_prompt', 'project.common', 'project.worker', 'local.common', 'local.worker', 'settings.append_prompt', 'capabilities',
     ]);
     for (const [left, right] of [['REPLACEMENT','PROJECT COMMON'],['PROJECT COMMON','PROJECT WORKER'],['PROJECT WORKER','LOCAL COMMON'],['LOCAL COMMON','LOCAL WORKER'],['LOCAL WORKER','SETTINGS APPEND']]) {
       expect(view.text.indexOf(left)).toBeLessThan(view.text.indexOf(right));

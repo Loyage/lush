@@ -40,7 +40,8 @@
 
 | 文件 | 职责 | 导出 |
 |---|---|---|
-| `agent/prompts.js` | 按角色组合内置、项目 `.lush-agent/` 约定、设备本机 Markdown 与设备 `agent.json`；旧项目私有补充不再活跃，Worker 完整参数与 manager/Pi-default 隔离保持；通用 CLI／委派规则见[消息准入](../reference/rpc/tasks.md#追加消息的准入与失败处理) | `AGENT_ROLES`、`PROMPT_PARTS`、`ROLE_PROMPT_PARTS`、`builtInPrompt(role,{progressReporting=true}={})`、`agentPrompt(config,role,profile,taskKind?)` |
+| `agent/prompts.js` | 组合必需核心、项目约定、设备补充及自定义 Prompt；可选流程只注入薄入口与本轮启停政策，不重复长指南，旧私有补充不回退；manager/Pi-default 隔离与消息准入保持 | `AGENT_ROLES`、`PROMPT_PARTS`、`ROLE_PROMPT_PARTS`、`builtInPrompt(role,{progressReporting?,capabilities?,taskKind?}={})`（缺省开启；capabilities 为设置键到布尔值）、`agentPrompt(config,role,profile,taskKind?)`（新增 `capabilities` 安全政策与 `builtin_skills` 路径快照） |
+| `agent/capabilities.js` / `agent/skills/lush-*/` | 四项固定内置能力，按角色/task_kind 与一次设备设置读取生成薄入口及标准 Skill 路径；SKILL.md 薄入口指向当前 CLI 固定 guide.md，不执行代码或读取凭证；关闭仅控制主动使用，核心交付保留 | `AGENT_CAPABILITIES`、`listCapabilityGuides()`、`capabilityGuide(id)`、`resolveAgentCapabilities(config,role,taskKind?,settings?)`、`capabilityPromptPart(entries)`；[能力契约](agent-capabilities.md) |
 | `agent/private-prompts.js` | 固定设备补充目标、UTF-8／字节／私有权限／链接及 fd/父路径身份校验；缺文件只读不初始化，CLI create-only 使用共享 settings-write 锁 | `PROMPT_SUPPLEMENT_TARGETS`、`PRIVATE_PROMPT_MAX_BYTES`、`readPrivatePrompt(config,target)`、`initPrivatePrompts(config,role?)`；[设备补充契约](user-workspace.md#设备配置分区) |
 | `agent/connections*.js` | 项目多账号凭证的私有文件、安全 OAuth 登录/刷新和结构化资源查询；固定审查 MIT 来源，认证私密结果不返回 RPC。`catalog(id)` 只读本地模型目录，`catalogRefresh(id)` 走经审核列表接口或 Pi 本地元数据并丢弃迟到结果 | `ConnectionManager`（字段/接口见[连接器契约](agent-connections.md)） |
 | `agent/connections-observations.js` | 连接实际存储根的最新安全余额缓存（设备共享根跨项目复用），按连接 ID / 账号 / 来源隔离；owner-only、原子替换、跨进程锁、时间单调、有界最新成功值；不存项目历史或消费者 | `ConnectionObservationFile.get(key)` / `put(key,observation)`；Manager `cachedObservation(id)` / `recordObservation(id,account_key,source_key,observation)` |
@@ -72,13 +73,15 @@
 | `agent/pi-runtime.js` | 内置 Pi extension；仅对实际绑定的 Codex 模型/端点采集白名单套餐头，写有界安全临时文件供进程退出吸收；记录 invocation 身份、工具边界写本轮 Pi entry 指针；软预算提醒与安全抢占（turn_end 原子认领 request→stop、调用 ctx.abort 阻止自动续轮） | 默认导出 `lushRuntime(pi)` |
 | `bin/lush-agent-guard` | invocation 进程组守卫；stdin EOF 只终止本调用子树，stdout/stderr 保持 Agent 原文。内部可选 `--input-delivery-fd=3` 在真正启动 Agent 命令后通过独立 FD 3 回传固定确认（不传给 Agent，不混入输出）；命令启动失败不确认 | 内部进程入口，无公开 CLI |
 | `agent/fork.js` / `bin/git` | 固定提交的 Pi 指针截取单分支 checkpoint 供 Pi `--fork`；Agent 的 Git commit adapter 登记成功提交的指针，其余 Git 命令透传 | `forkCheckpoint`、`readCommitPointer`；`bin/git` 为 Agent PATH 入口 |
-| `agent/guide.js` | 旧调用方兼容出口；内置 Prompt 的事实来源是 `prompts.js` | `GUIDE` |
+| `agent/guide.js` | 旧调用方兼容出口；核心组合由 prompts.js 提供，可选指南由 capabilities.js 固定注册表提供 | `GUIDE` |
 | `core/transcript-reader.js` | 完整Worker会话的流式检索、按类型／工具／失败过滤、步骤分段原文与同会话调用 ID 配对；单行超过 16 MiB 明确报不完整，不受快速视图前 8 MiB 的范围限制 | `searchTranscript(config,taskId,options)`、`transcriptStep(config,taskId,seq,offset)`、`transcriptPage(config,taskId,seq?,offset?)`（连续完整文字，有界分段） |
 | `core/transcript.js` | 兼容快速记录与用量投影；保留调用身份；与全文读面共享步骤投影；`readTranscriptLatest` 另做一次完整的异步流式扫描，尾部不受前 8 MiB 窗口限制，只保留 `limit` 大小的环形窗口与当前 token 批次 | `projectRecord(record,max?)`、`readTranscript`、`readTranscriptLatest(config,taskId,{after,before,limit})`、`readUsage`、`sessionFiles`、`transcriptReadStats` |
 | `core/usage-statistics.js` | 项目完整会话的异步流式只读统计；有限 LRU 精简用量缓存、并发扫描单飞、时间过滤、UTC 分桶、provider/model 汇总与覆盖说明 | `readUsageStatistics(config,options,metadata?)`、`readWorkerResources(config,tasks,runs?)`（完整 Worker 自身/子树消耗与工作时长摘要；字段见 modules.md） |
 | `core/usage-attribution.js` | 使用显式身份或唯一 Run 时间区间生成有界 Worker / role / invocation 统计（内部字段仍为 `task`），无法确认时保留 unknown | `usageAttribution(metadata)` |
 
-manager 的 Provider 接缝优先于普通 Pi 描述：使用独立 `lush-manager-ID[-pi]` 会话、不 fork／加载上下文文件／开发资源，只加载可信 runtime 与管理工具。其 Pi 默认模式仍保留机器认证／网络环境，但不加载机器扩展／Skills；独立 Codex CLI 拒绝管理调用。完整隔离边界见[管理契约](hook-signals-management.md)。对应回归为 `test/agent/management-{provider,tools}.test.js`、`test/project/management-{runtime,safety,session-integration}.test.js`。
+manager 的 Provider 接缝优先于普通 Pi 描述：使用独立 `lush-manager-ID[-pi]` 会话、不 fork／加载上下文文件／开发资源，只加载可信 runtime 与管理工具。其 Pi 默认模式仍保留机器认证／网络环境，但不加载机器扩展／Skills；独立 Codex CLI 拒绝管理调用。完整隔离边界见[管理契约](hook-signals-management.md)。Provider 复用 agentPrompt 返回的同一 `builtin_skills` 快照，Pi 的 Lush 与 Pi-default 普通调用通过显式 `--skill` 加载已开启内置入口；隔离角色不加载，Codex 仅使用相同薄入口与 CLI 指南。专项 `test/agent/capabilities.test.js` 覆盖注册表、启停、角色、替代 Prompt、同快照参数与离线 CLI。
+
+对应回归为 `test/agent/management-{provider,tools}.test.js`、`test/project/management-{runtime,safety,session-integration}.test.js`。
 
 ## 运行设置：`src/core/settings.js`
 
@@ -86,7 +89,7 @@ manager 的 Provider 接缝优先于普通 Pi 描述：使用独立 `lush-manage
 
 | 文件 | 职责 | 导出 |
 |---|---|---|
-| `core/settings.js` | 运行设置的存储与校验：数字键 `call_timeout`（1..86400）、`task_call_limit`（1..1000）、`max_depth`（1..64），默认开启的布尔键 `progress_reporting`，`null` 清除该键；历史 `input_routes`、`concurrency`、`control_concurrency` 只在存储中保留，不提供公开写入口或生效投影；读时校验 uid / symlink / 大小 / 字段，写用临时文件加 rename 原子替换（`0600`）；`get()` 给出生效值 / 环境默认值 / 是否被覆盖与文件路径，`save(patch)` 先校验再落盘 | `RUNTIME_SETTINGS_KEYS`、`RUNTIME_SETTINGS_LIMITS`、`normalizeRuntimeSettings()`、`RuntimeSettings` |
+| `core/settings.js` | 运行设置的存储与校验：数字键 `call_timeout`（1..86400）、`task_call_limit`（1..1000）、`max_depth`（1..64），默认开启的布尔键 `progress_reporting`、`worker_delegation`、`worker_auto_title`、`context_retrieval`，`null` 清除该键；历史 `input_routes`、`concurrency`、`control_concurrency` 只在存储中保留，不提供公开写入口或生效投影；读时校验 uid / symlink / 大小 / 字段，写用临时文件加 rename 原子替换（`0600`）；`get()` 给出生效值 / 环境默认值 / 是否被覆盖与文件路径，`save(patch)` 先校验再落盘 | `RUNTIME_SETTINGS_KEYS`、`RUNTIME_SETTINGS_LIMITS`、`normalizeRuntimeSettings()`、`RuntimeSettings` |
 
 ## 快速介绍设置（历史）：`src/core/quick-intro.js`
 

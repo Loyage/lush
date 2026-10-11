@@ -38,7 +38,7 @@ test('disabled prompts and previews omit all built-in progress instructions in e
   const root = temp();
   try {
     const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) });
-    expect(agentPrompt(config, 'agent').text).toContain('lush progress plan');
+    expect(agentPrompt(config, 'agent').text).toContain('lush skills get progress');
     config.configureRuntime({ progress_reporting: false });
     const settings = new AgentSettings(config);
     for (const role of AGENT_ROLES) {
@@ -46,18 +46,20 @@ test('disabled prompts and previews omit all built-in progress instructions in e
         for (const kind of [null, 'analysis']) {
           const prompt = agentPrompt(config, role, { config_mode: mode }, kind);
           expect(prompt.parts.some(part => part.name === 'progress')).toBe(false);
-          expect(prompt.text).not.toMatch(/lush progress|进度/);
+          expect(prompt.text).not.toContain('lush progress');
+          expect(prompt.text).not.toContain('lush skills get progress');
+          expect(prompt.builtin_skills.some(file => file.includes('/lush-progress/'))).toBe(false);
         }
       }
-      expect(builtInPrompt(role, { progressReporting: false })).not.toMatch(/lush progress|进度/);
-      expect(settings.get().options.default_prompts[role]).not.toMatch(/lush progress|进度/);
+      expect(builtInPrompt(role, { progressReporting: false })).not.toContain('lush skills get progress');
+      expect(settings.get().options.default_prompts[role]).not.toContain('lush skills get progress');
     }
     expect(settings.get().options.default_prompt).not.toContain('lush progress');
     // Do not silently rewrite user-owned prompts.
     expect(agentPrompt(config, 'agent', { default_prompt: 'MY PROMPT', append_prompt: 'MY APPEND' }).text).toContain('MY APPEND');
     config.configureRuntime({ progress_reporting: true });
-    expect(agentPrompt(config, 'agent').text).toContain('lush progress complete');
-    expect(settings.get().options.default_prompts.agent).toContain('lush progress plan');
+    expect(agentPrompt(config, 'agent').text).toContain('lush skills get progress');
+    expect(settings.get().options.default_prompts.agent).toContain('lush skills get progress');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

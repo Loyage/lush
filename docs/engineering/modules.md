@@ -10,6 +10,10 @@
 
 分区：配置基础负责技术配置／凭证收敛及 `core/device-preferences.js`；Runtime 负责 `core/device-automation.js` 与项目策略执行；Inbox 负责 `host/global-inbox.js` 与 Notice 增量同步；UI 负责 assets／index 和 DOM；父负责 server.js、HTTP／双项目组合与文档。公开面与新模块导出按工程契约，不跨分区修改。同一文件所需跨区适配由父整合；测试使用临时项目和设备根。
 
+## Agent 内置能力插件接缝（W217／D509）
+
+[设计理念](../design/agent-capabilities.md)与[工程契约](agent-capabilities.md)固定四个模块：progress、delegation、auto-title、context。沿用设备 RuntimeSettings，新增默认开启的 worker_delegation／worker_auto_title／context_retrieval，progress_reporting 兼容旧值。开关仅控制后续 Agent 注入和主动使用，不改变权限、实际调度或已有后代交付。`src/agent/capabilities.js` 连接注册表、薄 Skills、固定 CLI 指南与 Prompt/provider；RuntimeSettings 提供设备唯一设置，全局设置页提供四个独立开关。
+
 ## 移除 Worker 并发槽（W210／D492）
 
 用户在 D492 改为删除 Worker 并发额度功能，取代 D491 全局槽池方向及旧的每项目上限描述。实施边界与分区见[移除并发槽](global-slots.md)。不新增共享槽模块、设备资源文件或 Host API；运行准入不受并发配额限制，既有依赖、冻结、维护与真实退出安全门不变。旧配置值保留但不生效，公开设置与 UI/CLI 移除对应字段及槽显示。
@@ -179,7 +183,7 @@ Runtime `project/scheduling.js` 提供 `taskRunSettings(id)`；RPC registry/hand
 
 ## 当前公开面
 
-Worker 更名中的公开入口与保留字段、事件、内部路径边界见[核心 API 收敛](core-api.md#worker-更名与兼容边界)。精简后的 RPC / CLI / Web 白名单以[核心 API 收敛](core-api.md)和 `src/rpc/registry.js` 为准：`system.*`、`agent.*`、`order.submit`、`worker.*`（含 `spawn` / `integrate` / `auto_merge` / `reserve` / `resolve*` / `unreserve` / `approve_merge` / `message` / `cancel` / `retry` / `interrupt` / `resume` / `configure` / `cleanup` 与只读读面）、`progress.*`、`notice.*`、`branch.tree/show/bind/archive`、`graph.get`。用户专属输入缓冲与检索另开放 `input.history/get/parents`、`draft.add/update/remove`，`order.submit` 支持带版本的单条草稿发射，见[历史输入接口](input-history.md)。CLI 只注册 `daemon` / `status` / `doctor` / `log` / `web*` / `order` / `worker` / `progress` / `notice` / `branch` / `agent` / `config`；其余命令模块（draft / intent / spec / plan / candidate / sleep）不再挂载，handlers 中未列入白名单的方法一律返回 `unknown method`。
+Worker 更名中的公开入口与保留字段、事件、内部路径边界见[核心 API 收敛](core-api.md#worker-更名与兼容边界)。精简后的 RPC / CLI / Web 白名单以[核心 API 收敛](core-api.md)和 `src/rpc/registry.js` 为准：`system.*`、`agent.*`、`order.submit`、`worker.*`（含 `spawn` / `integrate` / `auto_merge` / `reserve` / `resolve*` / `unreserve` / `approve_merge` / `message` / `cancel` / `retry` / `interrupt` / `resume` / `configure` / `cleanup` 与只读读面）、`progress.*`、`notice.*`、`branch.tree/show/bind/archive`、`graph.get`。用户专属输入缓冲与检索另开放 `input.history/get/parents`、`draft.add/update/remove`，`order.submit` 支持带版本的单条草稿发射，见[历史输入接口](input-history.md)。CLI 只注册 `daemon` / `status` / `doctor` / `log` / `host` / `order` / `worker` / `progress` / `notice` / `branch` / `agent` / `config` / `hooks` / `skills`；其余命令模块（draft / intent / spec / plan / candidate / sleep）不再挂载，handlers 中未列入白名单的方法一律返回 `unknown method`。
 
 以下仍是可调用的公共面：
 
@@ -263,9 +267,9 @@ Runtime 子 Worker 负责 `project/progress.js`、`project/tasks.js`、必要 sc
 
 ## 可选进度汇报
 
-项目级运行设置 `progress_reporting` 为布尔值，默认 `true`，由系统设置经用户专属 `system.configure` 保存，`null` 恢复默认。`Config.progressReporting` 随启动与热更新同步；概览 revision 纳入开关，确保其他页面/客户端及时刷新。关闭时 Runtime 的 `progressView` 投影 `progress:null`，不删除已有计划；后续 invocation 与 Agent 配置预览不再包含内置进度片段或 CLI 示例（包括 analysis 与 Pi 默认模式）。自定义 Prompt / 项目补充和既有会话原文不改写，正在运行的调用不打断，进度 RPC 保留以兼容在途调用。
+设备唯一运行设置 `progress_reporting` 为布尔值，默认 `true`，由全局系统设置经用户专属 `system.configure` 保存，`null` 恢复默认。`Config.progressReporting` 随启动与热更新同步；概览 revision 纳入开关，确保其他页面/客户端及时刷新。关闭时 Runtime 的 `progressView` 投影 `progress:null`，不删除已有计划；后续 invocation 与 Agent 配置预览不再包含内置进度片段或 CLI 示例（包括 analysis 与 Pi 默认模式）。自定义 Prompt / 项目补充和既有会话原文不改写，正在运行的调用不打断，进度 RPC 保留以兼容在途调用。
 
-`builtInPrompt(role,{progressReporting=true}={})` 按开关组合内置片段。Web `render-progress.js` 新增 `progressReportingEnabled()`，从项目快照读取开关，统一隐藏详情、紧凑摘要与完整图进度（含未汇报占位）；极简图也不再显示计划摘要或等待汇报文案。
+W217／D509 将进度指引改为薄 Skill 入口及 CLI 按需指南，归入全局四项 Agent 能力。`builtInPrompt(role,{progressReporting?,capabilities?,taskKind?}={})` 组合必需核心与可选入口；Agent 配置预览一次读取设备开关，Host 使用同设备根的作用域适配读器，接口见[能力契约](agent-capabilities.md)。Web `render-progress.js` 新增 `progressReportingEnabled()`，从项目快照读取开关，统一隐藏详情、紧凑摘要与完整图进度（含未汇报占位）；极简图也不再显示计划摘要或等待汇报文案。
 
 ## 进展漏报的计时接缝
 

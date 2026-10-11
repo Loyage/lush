@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { agentPrompt } from './prompts.js';
+import { AGENT_CAPABILITIES } from './capabilities.js';
 import { workerLabel } from '../core/worker-number.js';
 import { agentEnvironment, emptyAgentEnvironment } from './environment.js';
 import { agentNetworkEnvironment, mergeNetworkEnvironment, redactNetworkText } from './network.js';
@@ -19,6 +20,7 @@ const MAX_RESULT = 256000;
 const PI_RUNTIME = fileURLToPath(new URL('./pi-runtime.js', import.meta.url));
 const PI_MANAGEMENT = fileURLToPath(new URL('./pi-management.js', import.meta.url));
 const MANAGEMENT_TOOLS = 'manager_query,manager_start,manager_retry';
+const BUILTIN_SKILL_LOCATIONS = new Set(AGENT_CAPABILITIES.flatMap(({ skill }) => [skill, path.dirname(skill)]));
 
 function managementTask(task) {
   const manager = task.role === 'manager';
@@ -80,7 +82,7 @@ function sessionFiles(config, task, context, messages, agent, messagesPage = nul
   const environment = manager || agent.config_mode === 'pi' ? emptyAgentEnvironment(task.role) : agentEnvironment(config, task.role);
   // Development task overrides remain the innermost layer and never enter the input JSON.
   const values = agentNetworkEnvironment(config, environment.values, manager ? {} : agent.env || {});
-  return { sessions, promptFile, systemFile, environment: { ...environment, values } };
+  return { sessions, promptFile, systemFile, builtinSkills: prompt.builtin_skills, environment: { ...environment, values } };
 }
 
 async function spawnAgent(command, args, { config, cwd, token, signal, onSpawn, onInputDelivered = null, onPreempt = null, onStdout = null, extraEnv = {} }) {
@@ -171,11 +173,16 @@ export class PiProvider {
     else if (piMode) args.push('--extension', PI_RUNTIME);
     else {
       for (const extension of agent.extensions || []) args.push('--extension', extension);
-      for (const skill of agent.skills || []) args.push('--skill', skill);
+      // Known built-in paths are controlled by the invocation policy, not by a stale profile selection.
+      // All third-party paths remain explicit and unchanged, including their own similarly named skills.
+      for (const skill of agent.skills || []) if (!BUILTIN_SKILL_LOCATIONS.has(skill)) args.push('--skill', skill);
       args.push('--extension', PI_RUNTIME);
       // Project Pi configuration could otherwise redirect a managed credential to another endpoint.
       args.push('--no-approve');
     }
+    // These trusted built-in Skill stubs use exactly the policy snapshot already written to systemFile.
+    // Do not reread live settings here, and never load development skills for isolated roles.
+    if (!manager && !isolated) for (const skill of files.builtinSkills) args.push('--skill', skill);
     // Never resume another mode's session: Pi-default mode gets its own session id and never forks a
     // checkpoint recorded by a Lush-mode invocation that pinned a different model or system prompt.
     const sessionId = manager ? `lush-manager-${task.id}${piMode ? '-pi' : ''}`
