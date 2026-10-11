@@ -53,6 +53,12 @@ bun run stop
 - 消息只在 invocation 之间送达。注意「父Worker刚 park、子Worker刚完成、running Map 还未清理」之间的 lost-wakeup 竞态。
 - 重启不自动重放有未知副作用的调用；不迁移、不覆盖磁盘上已有的数据。
 
+## 文档维护与阅读
+
+默认不新增或扩写文档，开发优先；必要文档按[分级维护规则](docs/contributing/documentation.md#维护分级与时机)随改动交付，不拖到整个项目结束，也不把每次开发写成文档任务。普通修复、内部调整、测试过程与临时派工保留在代码、测试、提交或 Worker 记录中。内部改名、搬家和签名调整不一律要求先改模块地图；跨 Worker 协作先在派工目标或消息中约定接口与文件范围。
+
+按改动范围阅读下列对应理念和关键边界，先定位文件／符号，再读工程文档的相关章节；不因索引或交叉链接而递归通读全部文档。涉及权限、持久化、Git、生命周期或公共接口时，必须读清相关约束，发现冲突或信息不足再扩大调查。
+
 ## 模块
 
 修改模块前必须先读 `docs/design/README.md` 中的对应设计理念；执行记录、工具渲染、检索与选区解释必须先读 `docs/design/agent-process.md`；引用、选区引用、引用卡片定位与快照/现状取舍必须先读 `docs/design/references.md`；改 Web 按钮文案、图标、样式，或新增会调用 Agent 的按钮前，必须先读 `docs/design/ui-guidance.md`——所有会调用 Agent 的按钮必须带 `agent-call` 紫色标识与 `agentHelp` 提示，含义不直观的按钮必须带 `data-help`，禁用按钮用外层 `.help-host` 承载。修改输入框、暂存、历史输入检索与状态投影前，必须先读 `docs/design/input-history.md`。修改通知、告知设置、已读与滑动消除交互前，必须先读 `docs/design/notices.md`。理念指导取舍，模块地图规定职责与接口，不得只看功能清单而忽略用户目标。
@@ -81,7 +87,7 @@ bun run stop
 - `src/host/`：整机 Host 的登记、连接和进程生命周期。
 - `src/cli/` / `src/ui/web/`：命令行和浏览器界面；Web server 是 Host 的 HTTP 适配器。
 
-上面是粗粒度分区；每个文件负责什么、导出什么、哪个分区可以并行改，权威入口只有 `docs/engineering/modules.md`，细表按它链接的 Runtime、Web、CLI / RPC / 测试短章维护。
+上面是粗粒度分区；职责与跨模块边界从 `docs/engineering/modules.md` 定位，再按需进入 Runtime、Web、CLI / RPC / 测试短章。精确导出与实现细节以源码和测试为准；地图仅在长期职责、关键入口或跨模块契约变化时同步必要内容，不作为逐文件改动日志。
 
 `src/identity.js` 的 fingerprint 覆盖整个 src、bin 和 package.json。相同路径但 fingerprint 不同表示 daemon 仍运行旧代码；重启正确项目才生效。
 
