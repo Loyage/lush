@@ -27,6 +27,7 @@
 - [Git 边界](git-boundary.md)
 - [分支谱系](branch-genealogy.md)
 - [分支合并](merge.md)
+- [归并合并方案](../design/merge-convergence.md)：尚未实现；[算法与协议](merge-convergence-protocol.md)、[异常与迭代](merge-convergence-cases.md)、[实施与验证](merge-convergence-rollout.md)。
 - [工作区与分支回收](cleanup.md)
 
 ## 接口与开发边界

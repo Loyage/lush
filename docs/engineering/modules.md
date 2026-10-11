@@ -24,6 +24,10 @@
 - 用户只读 `worker.transcript_search(id,query?,kind?,tool?,errors?,after?,limit?)` 与 `worker.transcript_step(id,seq,offset?)`：前者跨完整 Worker 会话检索、分页摘要，后者按步骤读取分段原文及关联上下文；HTTP 用 `/api/worker/<id>/transcript-search`、`transcript-step`。
 - 终端观看不新增 RPC：原生 `lush worker watch ID [--after N]` 使用 `worker.transcript_page` 连续完整分段读取；Pi 组件仅 CLI 显式观看时按需加载，不创建 AgentSession、不执行工具、不写会话、不加载用户扩展，退出只停止观看。纯文本 `lush worker transcript ID [--after N] --follow` 保持原义：先按 `worker.transcript` 分页打印已有记录，再用 `worker.transcript_latest` 以游标轮询新步骤。两者仅用户可运行，`--json` 不适用；原生观看还须真实 TTY。限制见[观看器](../native-viewer.md)。
 
+## 归并合并拟议接缝（W205／D482，尚未实现）
+
+[产品方案](../design/merge-convergence.md)与[算法协议](merge-convergence-protocol.md)、[异常边界](merge-convergence-cases.md)、[实施分区](merge-convergence-rollout.md)提出固定交付成果归并、单批发布、按需专用整合 Worker 和无已知依赖就绪批次先行。原 Worker 不重挂、不互改源分支；共享批次来源收据须同时适配同步、迭代、验收、Hook 与删除保护。拟议文件/技术表/API 尚不存在，实施前另行固定精确接口；本节不改变当前 v2 父自有队列、Agent 权限或历史协议，不授权当前 Worker 创建整合身份或操作其他分支。
+
 ## 工作台改造接缝
 
 用户已确认：仅保留 Web UI，启动直接进入主体，每项目独立浏览器标签，关闭页面后后台继续；服务器部署与网络访问由用户管理，Lush 不管理 SSH 或远端产物。修改启动、环境与项目入口前阅读[工作台设计](../design/workbench.md)；文件分工与新增接口以[工作台接入契约](workbench.md)为准。该接缝优先于旧项目闸门描述；逐步交付不得宣称尚未验收能力。

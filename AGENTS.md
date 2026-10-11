@@ -59,6 +59,8 @@ bun run stop
 
 修改 Hook、自动合并开关、预约发射、生命周期触发或挂载/模板界面前，先读 `docs/design/hooks.md` 与 `docs/engineering/hooks.md`，合并／验收最高级别另读 `docs/engineering/completion-hooks.md` 与 `docs/engineering/worker-acceptance.md`（W169／决定 #418，验收即归档；W197／决定 #462，默认保留 child、父级安全批量验收，优先于旧分离语义及收口前逐个验收要求）。Hook 是 Worker 附属能力，不能绕过既有冻结、权限、Git 和调用边界；未知副作用不得因重启自动重放。
 
+实施归并合并前，另读 `docs/design/merge-convergence.md` 及其算法、异常、实施交叉链接（W205／D482）。这是尚未实现的设计方案，不替代当前 v2 队列，不授权当前 Agent 创建整合身份、改变交付/验收权限或操作其他分支；精确接口须在实施时先固定。
+
 修改账号连接、凭证托管、余额/套餐观测、显式连接绑定与被动响应反馈前，先读 `docs/design/account-resources.md`；字段与模块边界见 `docs/engineering/agent-connections.md`，旧状态/历史兼容见 `docs/engineering/agent-usage.md`。私有权限不是沙箱，不得把凭证或原始认证响应放进读 API、会话或错误。
 
 修改全局页面、共享设置、Notice 聚合或设备自动化前，先读 `docs/design/user-workspace.md` 与 `docs/engineering/user-workspace.md`：W162／决定 #402 取消技术设置的项目覆盖、保留 Worker 显式参数，自动选择与未来新指令默认流程设备统一；Host 只聚合／转发来源项目 Notice，不成为权威库或跨项目调度器。旧配置迁移另读 `docs/design/device-settings.md` 与 `docs/engineering/device-settings.md` 的安全边界：`LUSH_HOME` 不改成全局目录，迁移必须显式预检／确认。
