@@ -12,7 +12,7 @@ export function makeWorld() {
     devicePreferences: { version: 1, revision: 'preferences-1', values: Object.fromEntries(DEVICE_PREF_NAMES.map(name =>
       [name, typeof PREF_DEFS[name].default === 'function' ? PREF_DEFS[name].default() : PREF_DEFS[name].default])) },
     deviceAutomation: { version: 1, revision: 'automation-1', auto_select: { enabled: false }, completion_defaults: { enabled: false, level: 'merge' } },
-    dashboard: { version: 1, revision: 'dashboard-1', cards: [] },
+    dashboard: { version: 2, revision: 'dashboard-1', cards: [], hidden_projects: [], layout: [], content: [] },
     // 折叠态「最近一次执行」：usage.last 带精确 tokens，chip 与执行过程同口径显示。
     usageLast: { at: iso(NOW - 1000), kind: 'tool', title: 'bash', body: 'ls -la',
       tokens: { input: 300, output: 40, cache_read: 9600, cache_write: 0, reasoning: 9, total: 9940, cost: 0.001, exact: true, turn: true } },
@@ -235,7 +235,8 @@ export function makeWorld() {
       if (options.method === 'POST') {
         const body = JSON.parse(options.body);
         if (body.expected_revision !== state.dashboard.revision) return { ok: false, status: 409, json: async () => ({ error: 'revision conflict' }) };
-        state.dashboard = { version: 1, revision: `${state.dashboard.revision}-next`, cards: structuredClone(body.cards) };
+        const { expected_revision, ...patch } = body;
+        state.dashboard = { ...state.dashboard, ...structuredClone(patch), version: 2, revision: `${state.dashboard.revision}-next` };
       }
       return json(structuredClone(state.dashboard));
     }
@@ -286,6 +287,7 @@ export function makeWorld() {
       state.actions.push(body);
       if (body.method === 'worker.auto_merge') return json({ task_id: body.params.id, changed: true,
         auto_merge: { enabled: body.params.enabled, locked: false, editable: true, reason: null } });
+      if (body.method === 'agent.connections.query') return json(state.agentConnections);
       if (body.method === 'agent.usage.configure') {
         state.agentUsageConfig = body.params.config;
         return json(state.agentUsageConfig);

@@ -4,7 +4,7 @@ import { ui } from './state.js';
 const RESOURCE_META = new Map(SIDEBAR_SECTIONS.map(section => [section.id, section]));
 const PAGES = {
   projects: ['全局总览', '用户工作台', '项目与账户 · 你的卡片看板'],
-  'project-management': ['项目管理', '用户工作台', '目录入口、后台维护与总览卡片配置'],
+  'project-management': ['项目管理', '用户工作台', '目录入口与后台维护'],
   'global-inbox': ['全局收件箱', '用户工作台', '所有有权访问项目的待答问题与告知'],
   automation: ['全局自动化', '用户工作台', '设备自动选择 · 未来新指令默认流程'],
   'workspace-link': ['独立用户工作台', '项目工作', '全局页面在独立标签打开'],
@@ -25,6 +25,7 @@ const PAGES = {
 function node(id) { return globalThis.document?.getElementById?.(id) ?? null; }
 
 export function setViewChrome(title, context = '项目', hint = '', { root = false } = {}) {
+  const toolbar = node('view-toolbar'); if (toolbar) toolbar.hidden = ui.view?.id === 'projects';
   const titleNode = node('view-title'); if (titleNode) titleNode.textContent = title;
   const mobileTitle = node('mobile-view-title'); if (mobileTitle) mobileTitle.textContent = title;
   const contextNode = node('view-context'); if (contextNode) contextNode.textContent = context;

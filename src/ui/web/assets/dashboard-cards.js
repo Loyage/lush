@@ -1,12 +1,15 @@
 import { el } from './dom.js';
 import { api } from './api.js';
 import { settingsClient } from './settings-api.js';
-import { usageWindow, usageErrorLabels } from './format.js';
+import { usageWindow, usageErrorLabels, relative } from './format.js';
 
 const PROVIDERS = { deepseek: 'DeepSeek', openrouter: 'OpenRouter', zai: 'Z.AI', 'kimi-coding': 'Kimi Coding',
   'openai-codex': 'Codex 订阅', 'openai-compatible': '自定义 OpenAI 兼容 API' };
-const STATUSES = { available: '观测成功', partial: '部分指标可用', error: '查询失败（不代表余额为零或资源耗尽）',
-  unknown: '尚未取得当前数据；未知不等于零', unsupported: '此来源不支持查询', unconfigured: '缺少查询凭证' };
+const STATUSES = { partial: '部分指标可用', error: '查询失败',
+  unknown: '当前数据未知；未知不等于零', unsupported: '不支持查询', unconfigured: '缺少查询凭证' };
+const DEFAULT_SECTIONS = ['quota', 'balance', 'reset', 'observed'];
+const ACCOUNT_SECTIONS = new Set([...DEFAULT_SECTIONS, 'details', 'history', 'provenance']);
+const PROJECT_SECTIONS = new Set(['metrics', 'distribution', 'delivery', 'recent', 'messages', 'shortcuts']);
 const SOURCES = { usage_api: '专用余额 / 额度接口', client_rpc: '原生客户端协议', response_headers: '正常模型响应（调用结束后采集）', none: '尚无观测来源' };
 const SCOPES = { account: '账号共享', key: 'API Key 预算', model: '模型专属' };
 const finite = value => typeof value === 'number' && Number.isFinite(value);
@@ -15,21 +18,43 @@ const amount = value => finite(value) ? value.toLocaleString(undefined, { maximu
 const time = value => typeof value === 'string' && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleString() : '时间未知';
 const successful = observation => ['available', 'partial'].includes(observation?.status);
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
+const projectId = value => typeof value === 'string' && /^[a-f0-9]{16}$/.test(value);
+const cardId = value => projectId(value) || (typeof value === 'string' && value.startsWith('account:') && uuid(value.slice(8)));
+const fields = (value, allowed) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(key => allowed.includes(key));
+const uniqueIds = rows => new Set(rows.map(row => row?.id)).size === rows.length;
 const note = (parent, value, warning = false) => parent.append(el('p', value, warning ? 'dashboard-card-warning' : 'dashboard-card-note'));
 const stalePage = () => new DOMException('账户卡片页面已离开', 'AbortError');
 function validateConfig(value) {
-  if (value?.version !== 1 || typeof value.revision !== 'string' || !value.revision || !Array.isArray(value.cards)
-    || value.cards.some(card => card?.type !== 'account' || !uuid(card.connection_id))
+  if (![1, 2].includes(value?.version) || typeof value.revision !== 'string' || !value.revision || !Array.isArray(value.cards) || value.cards.length > 100
+    || value.cards.some(card => !fields(card, ['type', 'connection_id']) || card.type !== 'account' || !uuid(card.connection_id))
     || new Set(value.cards.map(card => card.connection_id)).size !== value.cards.length) {
     throw new Error('卡片配置响应无效；未将其视为无卡片');
   }
-  return { version: 1, revision: value.revision, cards: value.cards.map(({ connection_id }) => ({ type: 'account', connection_id })) };
+  const { hidden_projects = [], layout = [], content = [] } = value;
+  if ((value.version === 2 && !['hidden_projects', 'layout', 'content'].every(key => Array.isArray(value[key])))
+    || ![hidden_projects, layout, content].every(Array.isArray)
+    || [hidden_projects, layout, content].some(items => items.length > 300)
+    || hidden_projects.some(id => !projectId(id))
+    || !uniqueIds(layout) || !uniqueIds(content)
+    || layout.some(item => !fields(item, ['id', 'x', 'y', 'w', 'h']) || !cardId(item.id)
+      || !['x', 'y', 'w', 'h'].every(key => Number.isInteger(item[key]))
+      || item.x < 0 || item.x > 11 || item.y < 0 || item.y > 4095 || item.w < 1 || item.w > 12
+      || item.x + item.w > 12 || item.h < 6 || item.h > 80)
+    || content.some(item => !fields(item, ['id', 'sections']) || !cardId(item.id) || !Array.isArray(item.sections)
+      || item.sections.some(section => !(item.id.startsWith('account:') ? ACCOUNT_SECTIONS : PROJECT_SECTIONS).has(section)))) {
+    throw new Error('卡片配置响应无效；未将其视为无卡片');
+  }
+  return { version: value.version, revision: value.revision,
+    cards: value.cards.map(({ connection_id }) => ({ type: 'account', connection_id })),
+    hidden_projects: [...hidden_projects], layout: layout.map(item => ({ ...item })),
+    content: content.map(item => ({ ...item, sections: [...item.sections] })) };
 }
-async function readConfig() {
-  try { return validateConfig(await api('/api/host/dashboard')); }
+/** Validate a supplied save ACK locally; only a call without value reads Host configuration. */
+export async function readDashboardConfig(options = {}) {
+  try { return validateConfig(Object.hasOwn(options, 'value') ? options.value : await api('/api/host/dashboard')); }
   catch (error) { throw new Error(`卡片配置读取失败：${error.message}`); }
 }
-async function readConnections() {
+export async function loadDashboardConnections() {
   try {
     const value = await settingsClient('device').read('/api/agent/connections');
     if (!Array.isArray(value?.connections) || value.connections.some(row => !uuid(row?.id))
@@ -39,87 +64,159 @@ async function readConnections() {
 }
 
 /** Reads only Host configuration and device cache; no provider query, model calls or browser persistence. */
-export async function loadAccountCards({ ownsPage = () => true } = {}) {
+export async function loadAccountCards({ ownsPage = () => true, config, connections } = {}) {
   if (!ownsPage()) throw stalePage();
-  const [config, connections] = await Promise.all([readConfig(), readConnections()]);
+  const [snapshot, sources] = await Promise.all([
+    config === undefined ? readDashboardConfig() : validateConfig(config),
+    connections === undefined ? loadDashboardConnections() : connections,
+  ]);
   if (!ownsPage()) throw stalePage();
-  const byId = new Map(connections.map(connection => [connection.id, connection]));
-  return config.cards.map(card => ({ id: `account:${card.connection_id}`, ...card, connection: byId.get(card.connection_id) || null }));
+  const byId = new Map(sources.map(connection => [connection.id, connection]));
+  return snapshot.cards.map(card => ({ id: `account:${card.connection_id}`, ...card, connection: byId.get(card.connection_id) || null }));
 }
 
-function renderMetric(resource) {
-  const kind = resource.kind === 'balance' ? '现金余额' : resource.scope === 'key' ? 'Key 预算（非现金余额）'
-    : resource.scope === 'account' ? '套餐 / 额度（非现金余额）' : '模型额度（非现金余额）';
+/** Query only explicitly placed accounts. Never apply the full list snapshots returned by parallel actions. */
+export async function refreshAccountCards(ids, { ownsPage = () => true } = {}) {
+  if (!ownsPage()) throw stalePage();
+  if (!Array.isArray(ids) || ids.some(id => !uuid(id))) throw new Error('刷新账户必须指定有效来源 ID');
+  const selected = [...new Set(ids)], errors = new Map(), client = settingsClient('device');
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(3, selected.length) }, async () => {
+    while (ownsPage() && cursor < selected.length) {
+      const id = selected[cursor++];
+      try {
+        const result = await client.action('agent.connections.query', { id });
+        const source = result?.connections?.find(connection => connection.id === id);
+        if (!source) errors.set(id, '查询响应中未找到该来源');
+        else if (source.observation?.status !== 'available') errors.set(id, STATUSES[source.observation?.status] || '观测状态未知');
+      } catch (error) { errors.set(id, typeof error?.message === 'string' && error.message ? error.message : '账户查询失败'); }
+    }
+  }));
+  if (!ownsPage()) throw stalePage();
+  const connections = await loadDashboardConnections();
+  if (!ownsPage()) throw stalePage();
+  // The reread is authoritative, including a concurrent disable/removal or a normalized observation failure.
+  const byId = new Map(connections.map(connection => [connection.id, connection]));
+  for (const id of selected) {
+    const source = byId.get(id);
+    if (!source) errors.set(id, '来源已删除或不可用');
+    else if (source.enabled === false) errors.set(id, '来源已停用');
+    else if (source.observation?.status !== 'available' && !errors.has(id)) errors.set(id, STATUSES[source.observation?.status] || '观测状态未知');
+  }
+  return { connections, errors: selected.filter(id => errors.has(id)).map(id => ({ id, error: errors.get(id) })) };
+}
+
+function renderMetric(resource, sections) {
+  const kind = resource.kind === 'balance' ? '现金余额' : resource.scope === 'key' ? 'Key 预算'
+    : resource.scope === 'account' ? '套餐额度' : '模型额度';
   const root = el('section', undefined, 'dashboard-account-metric');
   root.dataset.metricId = text(resource.id, 'unknown');
-  root.append(el('h4', text(resource.label, '未命名指标')));
-  note(root, `${kind} · ${SCOPES[resource.scope] || '范围未知'}`);
+  root.append(el('h4', `${kind} · ${text(resource.label, '未命名指标')}`));
   const unit = text(resource.unit, '单位未知');
-  const remaining = el('p', undefined, 'dashboard-account-value');
-  remaining.append(el('strong', `剩余 ${amount(resource.remaining)} ${unit}`)); root.append(remaining);
-  let percent = finite(resource.used_percent) ? resource.used_percent : null;
-  if (percent === null && finite(resource.total) && resource.total > 0) {
-    if (finite(resource.used)) percent = resource.used / resource.total * 100;
-    else if (finite(resource.remaining)) percent = (resource.total - resource.remaining) / resource.total * 100;
+  const showValue = sections.has(resource.kind === 'quota' ? 'quota' : 'balance');
+  if (showValue) {
+    const remaining = el('p', undefined, 'dashboard-account-value');
+    remaining.append(el('strong', `剩余 ${amount(resource.remaining)} ${unit}`)); root.append(remaining);
+    if (resource.kind === 'quota') {
+      let percent = finite(resource.used_percent) ? resource.used_percent : null;
+      if (percent === null && finite(resource.total) && resource.total > 0) {
+        if (finite(resource.used)) percent = resource.used / resource.total * 100;
+        else if (finite(resource.remaining)) percent = (resource.total - resource.remaining) / resource.total * 100;
+      }
+      if (percent !== null) {
+        const value = el('p', undefined, 'dashboard-account-value');
+        value.append(el('strong', `已用 ${amount(percent)}%`)); root.append(value);
+        // Native progress avoids inline styles under the existing CSP; raw out-of-range percentages remain visible.
+        const bar = el('progress', undefined, 'dashboard-account-progress'); bar.max = 100; bar.value = Math.max(0, Math.min(100, percent));
+        bar.setAttribute('aria-label', `${text(resource.label, '额度')}已用比例`); root.append(bar);
+      } else note(root, '已用比例未知');
+      note(root, usageWindow(resource.window_seconds));
+    }
   }
-  if (resource.kind === 'quota') {
-    if (percent !== null) {
-      const value = el('p', undefined, 'dashboard-account-value');
-      value.append(el('strong', `已用 ${amount(percent)}%`)); root.append(value);
-      // Native progress avoids inline styles under the existing CSP. Out-of-range raw values remain visible above.
-      const bar = el('progress', undefined, 'dashboard-account-progress'); bar.max = 100; bar.value = Math.max(0, Math.min(100, percent));
-      bar.setAttribute('aria-label', `${text(resource.label, '额度')}已用比例`); root.append(bar);
-    } else note(root, '已用比例未知；不绘制进度条');
-    note(root, usageWindow(resource.window_seconds));
-    note(root, resource.reset_at ? `重置时间：${time(resource.reset_at)}（到期不代表额度已恢复）` : '重置时间未知');
+  if (sections.has('reset') && resource.kind === 'quota') {
+    const resetAt = Date.parse(resource.reset_at);
+    note(root, Number.isFinite(resetAt) ? `重置：${time(resource.reset_at)}${resetAt <= Date.now() ? ' · 到期待刷新' : ''}` : '重置时间未知');
   }
-  const details = el('details', undefined, 'dashboard-account-metric-details'); details.append(el('summary', '指标口径与原始读数'));
-  note(details, `单位：${unit} · 总量 ${amount(resource.total)} ${unit} · 已用 ${amount(resource.used)} ${unit}`);
-  note(details, `原始已用比例：${amount(resource.used_percent)} %`);
-  if (resource.kind === 'balance') {
-    note(details, usageWindow(resource.window_seconds)); note(details, `重置时间：${time(resource.reset_at)}`);
+  if (sections.has('details')) {
+    const details = el('details', undefined, 'dashboard-account-metric-details'); details.append(el('summary', '指标详情'));
+    note(details, `范围：${SCOPES[resource.scope] || '范围未知'} · 单位：${unit}`);
+    note(details, `总量 ${amount(resource.total)} ${unit} · 已用 ${amount(resource.used)} ${unit}`);
+    note(details, `原始已用比例：${amount(resource.used_percent)} %`);
+    if (resource.kind === 'balance') { note(details, usageWindow(resource.window_seconds)); note(details, `重置时间：${time(resource.reset_at)}`); }
+    if (unit === '%') note(details, '百分比不是实际 token、请求总量或金额。');
+    if (Array.isArray(resource.models) && resource.models.length) note(details, `适用模型：${resource.models.join('、')}`);
+    root.append(details);
   }
-  if (unit === '%') note(details, '百分比不是实际 token、请求总量或金额。');
-  if (Array.isArray(resource.models) && resource.models.length) note(details, `适用模型：${resource.models.join('、')}`);
-  root.append(details); return root;
+  return root;
 }
-function renderObservation(observation) {
+function renderObservation(observation, sections) {
   observation ||= {};
   const root = el('div', undefined, 'dashboard-account-observation');
-  note(root, STATUSES[observation.status] || '观测状态未知；未知不等于零', !successful(observation));
-  // The list API may stamp an unobserved source:none row with its read time. Do not call that a real sample.
-  note(root, `缓存观测时间：${observation.source === 'none' ? '时间未知（尚无观测）' : time(observation.checked_at)} · 来源：${SOURCES[observation.source] || '未知来源'}`);
-  if (observation.error_code) note(root, usageErrorLabels[observation.error_code] || '本次未取得完整数据，不能据此判断余额为零。', true);
-  if (observation.reason) note(root, observation.reason);
+  if (observation.status !== 'available') note(root, STATUSES[observation.status] || '观测状态未知；未知不等于零', true);
+  if (sections.has('observed')) {
+    // source:none may carry a list read timestamp; it is not a sample.
+    note(root, `上次观测：${observation.source === 'none' ? '时间未知（尚无观测）'
+      : Number.isFinite(Date.parse(observation.checked_at)) ? relative(observation.checked_at) : '时间未知'}`);
+  }
+  if (sections.has('provenance')) {
+    note(root, `观测来源：${SOURCES[observation.source] || '未知来源'}`);
+    if (observation.source !== 'none') note(root, `观测时间：${time(observation.checked_at)}`);
+    if (observation.error_code) note(root, usageErrorLabels[observation.error_code] || '未取得完整数据', true);
+    if (observation.reason) note(root, observation.reason);
+  }
   if (successful(observation)) {
     const resources = Array.isArray(observation.resources) ? observation.resources.filter(resource => ['balance', 'quota'].includes(resource?.kind)) : [];
     if (!resources.length) note(root, '暂无可展示指标；未知不等于零', true);
-    for (const resource of resources) root.append(renderMetric(resource));
+    for (const resource of resources) {
+      if (sections.has(resource.kind) || sections.has('details') || (resource.kind === 'quota' && sections.has('reset'))) root.append(renderMetric(resource, sections));
+    }
   }
   return root;
 }
 
-/** Lightweight standalone renderer: do not import the account management console into the overview. */
-export function renderAccountCard(row) {
+/** Lightweight renderer. Parent owns refresh/repaint so this node never applies late list snapshots. */
+export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, ownsPage = () => true } = {}) {
+  const selected = new Set(Array.isArray(sections) ? sections.filter(section => ACCOUNT_SECTIONS.has(section)) : DEFAULT_SECTIONS);
   const root = el('li', undefined, 'project-item dashboard-account-card');
   root.dataset.cardId = row.id; root.dataset.cardType = 'account'; root.dataset.connectionId = row.connection_id;
   const connection = row.connection;
   const header = el('header', undefined, 'dashboard-account-header');
-  header.append(el('span', '账户余额', 'dashboard-card-kicker'), el('h3', connection ? text(connection.label, '未命名账户') : '账户来源已删除或不可用'));
-  root.append(header);
-  if (!connection) {
-    note(root, `所选来源：${row.connection_id}`); note(root, '无法读取该来源；保留卡片占位，可在卡片管理中移除。', true); return root;
+  header.append(el('h3', connection ? text(connection.label, '未命名账户') : '账户来源已删除或不可用'));
+  const refreshHost = el('span', undefined, 'help-host'), refreshButton = el('button', '刷新', 'dashboard-account-refresh');
+  refreshButton.type = 'button'; refreshHost.append(refreshButton); header.append(refreshHost); root.append(header);
+  let busy = false;
+  const blocker = !connection ? '来源已删除或不可用，无法查询。' : connection.enabled === false ? '来源已停用，请先在模型来源中启用。'
+    : typeof refresh !== 'function' ? '当前页面未提供账户刷新操作。' : null;
+  function syncRefresh() {
+    refreshButton.disabled = !!blocker || busy;
+    if (refreshButton.disabled) { refreshHost.dataset.help = blocker || '账户刷新尚未完成，请勿重复请求。'; refreshHost.setAttribute('tabindex', '0'); }
+    else { delete refreshHost.dataset.help; refreshHost.removeAttribute('tabindex'); }
   }
-  note(header, `${PROVIDERS[connection.provider] || text(connection.provider, '服务商未知')}${connection.enabled === false ? ' · 来源已停用' : ''}`);
-  note(root, `模型端点：${text(connection.endpoint, '端点未知')}`);
-  note(root, '仅展示设备缓存，读取总览不联网查询；数值不保证当前仍有额度。');
-  root.append(renderObservation(connection.observation));
+  refreshButton.onclick = async () => {
+    if (blocker || busy || !ownsPage()) return;
+    busy = true; syncRefresh();
+    try { await refresh(row.connection_id); }
+    catch (error) { if (ownsPage()) note(root, error.message || '账户刷新失败', true); }
+    finally { busy = false; if (ownsPage()) syncRefresh(); }
+  };
+  syncRefresh();
+  if (!connection) {
+    if (selected.has('provenance')) note(root, `所选来源：${row.connection_id}`);
+    return root;
+  }
+  if (connection.enabled === false) note(root, '来源已停用', true);
+  if (selected.has('provenance')) {
+    note(root, PROVIDERS[connection.provider] || text(connection.provider, '服务商未知'));
+    note(root, `模型端点：${text(connection.endpoint, '端点未知')}`);
+  }
+  root.append(renderObservation(connection.observation, selected));
   const previous = connection.last_success;
   if (!successful(connection.observation) && successful(previous?.observation)) {
-    const old = el('details', undefined, 'dashboard-account-old');
-    old.append(el('summary', '历史成功观测（非当前值）'));
-    note(old, `历史成功时间：${time(previous.checked_at || previous.observation.checked_at)}；不能作为当前余额。`, true);
-    old.append(renderObservation(previous.observation)); root.append(old);
+    if (selected.has('history')) {
+      const old = el('details', undefined, 'dashboard-account-old'); old.append(el('summary', '历史成功观测（非当前值）'));
+      note(old, `历史成功时间：${time(previous.checked_at || previous.observation.checked_at)}；不能作为当前余额。`, true);
+      old.append(renderObservation(previous.observation, new Set([...DEFAULT_SECTIONS, ...selected]))); root.append(old);
+    } else note(root, '有历史成功观测（非当前值）', true);
   }
   return root;
 }
@@ -173,7 +270,7 @@ export function createDashboardCardSettings({ ownsPage = () => true } = {}) {
     if (!active() || busy) return;
     busy = true; sync(); setStatus('正在重新读取设备配置与账户缓存…');
     try {
-      const [next, sources] = await Promise.all([readConfig(), readConnections()]);
+      const [next, sources] = await Promise.all([readDashboardConfig(), loadDashboardConnections()]);
       if (!active()) return;
       config = next; connections = sources; selected = new Set(next.cards.map(card => card.connection_id)); conflict = false;
       paintChoices(); setStatus('已读取设备共享配置；未写入任何更改。');
@@ -195,7 +292,7 @@ export function createDashboardCardSettings({ ownsPage = () => true } = {}) {
       setStatus('卡片选择已保存到设备。');
       // The ACK is authoritative. A failed cache reread must never invite resubmitting this successful write.
       try {
-        const sources = await readConnections();
+        const sources = await loadDashboardConnections();
         if (!active()) return;
         connections = sources; paintChoices(); setStatus('卡片选择已保存到设备；账户缓存已重新读取。');
       } catch (error) { if (active()) { paintChoices(); setStatus(`卡片选择已保存到设备；后续${error.message}，现有账户展示可能过期。请重新读取，不必再次保存。`, true); } }

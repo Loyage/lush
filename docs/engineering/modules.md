@@ -32,9 +32,9 @@
 
 用户已确认：仅保留 Web UI，启动直接进入主体，每项目独立浏览器标签，关闭页面后后台继续；服务器部署与网络访问由用户管理，Lush 不管理 SSH 或远端产物。修改启动、环境与项目入口前阅读[工作台设计](../design/workbench.md)；文件分工与新增接口以[工作台接入契约](workbench.md)为准。该接缝优先于旧项目闸门描述；逐步交付不得宣称尚未验收能力。
 
-## 总览卡片与独立项目管理（W199）
+## 总览面板与独立项目管理（W204）
 
-决定 #467／#468：根 `#projects` 纯展示瀑布流项目／账户卡片，项目色只读复用，拖动顺序浏览器本地；`#project-management` 承接功能性操作。设备共享账户卡片选择通过新增 `core/dashboard-settings.js`（`readDashboardSettings`／`saveDashboardSettings`）、Host user-services 与 `/api/host/dashboard` 管理，账户缓存仍归原设备连接服务，不复制凭证／余额、不联网、不调度。精确契约见[用户工作台](user-workspace.md#总览卡片与管理分离w199决定-467468)，前端分工见[Web 地图](modules-web.md)。本节位置约定优先于下文历史总览维护入口；安全边界不变。
+决定 #481：根 `#projects` 提供项目／账户面板，页面和每卡设置就地配置内容、网格吸附位置与尺寸，设备共享；项目辨识色只读复用，指标保留语义色。`#project-management` 只承接项目登记与维护。`core/dashboard-settings.js`（`readDashboardSettings`／`saveDashboardSettings`／`normalizeDashboardPatch`）、Host user-services 与 `/api/host/dashboard` 提供 v2 partial patch、v1 只读兼容与 revision 保护；账户缓存仍归原设备连接服务，仅显式刷新已摆放账户时联网，不复制凭证／余额、不调度。精确契约见[总览面板](dashboard-panel.md)，前端分工见[Web 地图](modules-web.md)。本节取代 W199 的瀑布流／本地顺序约定，优先于下文历史总览维护入口；安全边界不变。
 
 ## 项目外观与标签页身份（W160）
 

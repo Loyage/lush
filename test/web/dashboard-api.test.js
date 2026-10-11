@@ -7,6 +7,7 @@ import { env, temp } from '../helpers.js';
 import { fetch, startTestWeb } from './auth-fixture.js';
 
 const card = () => ({ type: 'account', connection_id: randomUUID() });
+const dashboardRevision = 'a'.repeat(64);
 const post = (url, body, headers = {}) => fetch(url, { method: 'POST',
   headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
 function fixture({ authenticated = false, dashboardService, bound = false } = {}) {
@@ -36,12 +37,25 @@ test('two Hosts and a restarted bound Host share only device card identities wit
     const response = await fetch(f.url + route);
     expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('no-store');
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
-    const initial = await response.json(); expect(initial).toMatchObject({ version: 1, cards: [] });
+    const initial = await response.json(); expect(initial).toMatchObject({ version: 2, cards: [], hidden_projects: [], layout: [], content: [] });
     expect(fs.existsSync(path.join(f.global, 'shared'))).toBe(false);
     const selected = card();
     const save = await post(f.url + route, { cards: [selected, selected], expected_revision: initial.revision });
-    expect(save.status).toBe(200); const next = await save.json(); expect(next.cards).toEqual([selected]);
+    expect(save.status).toBe(200); let next = await save.json(); expect(next.cards).toEqual([selected]);
     expect(await (await fetch(second + route)).json()).toEqual(next);
+    const id = '0123456789abcdef', layout = [{ id, x: 11, y: 4095, w: 1, h: 80 }];
+    const customized = await post(second + route, { hidden_projects: [id, id], layout,
+      content: [{ id, sections: ['messages', 'shortcuts'] }], expected_revision: next.revision });
+    expect(customized.status).toBe(200); next = await customized.json();
+    expect(next).toMatchObject({ version: 2, cards: [selected], hidden_projects: [id], layout,
+      content: [{ id, sections: ['messages', 'shortcuts'] }] });
+    expect(await (await fetch(f.url + route)).json()).toEqual(next);
+    const contentOnly = await post(f.url + route, { content: [{ id, sections: [] }], expected_revision: next.revision });
+    expect(contentOnly.status).toBe(200); next = await contentOnly.json();
+    expect(next).toMatchObject({ cards: [selected], hidden_projects: [id], layout, content: [{ id, sections: [] }] });
+    const cardsOnly = await post(second + route, { cards: [], expected_revision: next.revision });
+    expect(cardsOnly.status).toBe(200); next = await cardsOnly.json();
+    expect(next).toMatchObject({ cards: [], hidden_projects: [id], layout, content: [{ id, sections: [] }] });
     const stale = await post(second + route, { cards: [], expected_revision: initial.revision });
     expect(stale.status).toBe(400); const conflict = (await stale.json()).error;
     expect(conflict).toContain('可能版本已变更'); expect(conflict).toContain('重新读取');
@@ -52,6 +66,32 @@ test('two Hosts and a restarted bound Host share only device card identities wit
     // Mandatory login may provision .lush/web.json, but no project daemon state.
     expect(fs.readdirSync(path.join(f.root, 'project'))).toEqual(['.lush']);
     expect(fs.readdirSync(path.join(f.root, 'project', '.lush'))).toEqual(['web.json']);
+    expect(f.calls).toEqual([]);
+  } finally { await f.close(); }
+});
+
+test('HTTP v1 reads do not migrate, inspect credentials or attach a project and explicit v2 save preserves deleted sources', async () => {
+  const f = fixture(), selected = card(), home = path.join(f.global, 'shared'), file = path.join(home, 'dashboard.json');
+  try {
+    fs.mkdirSync(home, { mode: 0o700 });
+    fs.mkdirSync(path.join(home, 'credentials'), { mode: 0o700 });
+    const credentialFile = path.join(home, 'credentials', 'agent-connections.json');
+    fs.writeFileSync(credentialFile, 'PRIVATE MALFORMED CREDENTIALS', { mode: 0o600 });
+    const source = JSON.stringify({ version: 1, cards: [selected] });
+    fs.writeFileSync(file, source, { mode: 0o600 });
+    const before = fs.statSync(file), url = f.url + '/api/host/dashboard';
+    const response = await fetch(url); expect(response.status).toBe(200);
+    const model = await response.json();
+    expect(model).toMatchObject({ version: 2, cards: [selected], hidden_projects: [], layout: [], content: [] });
+    expect(fs.readFileSync(file, 'utf8')).toBe(source);
+    expect(fs.statSync(file).ino).toBe(before.ino); expect(fs.statSync(file).mtimeMs).toBe(before.mtimeMs);
+    const id = `account:${selected.connection_id}`;
+    const saved = await post(url, { layout: [{ id, x: 0, y: 0, w: 12, h: 6 }],
+      content: [{ id, sections: ['quota', 'balance', 'reset'] }], expected_revision: model.revision });
+    expect(saved.status).toBe(200); const next = await saved.json(); expect(next.cards).toEqual([selected]);
+    expect(next.content).toEqual([{ id, sections: ['quota', 'balance', 'reset'] }]);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8')).version).toBe(2);
+    expect(fs.readFileSync(credentialFile, 'utf8')).toBe('PRIVATE MALFORMED CREDENTIALS');
     expect(f.calls).toEqual([]);
   } finally { await f.close(); }
 });
@@ -68,6 +108,15 @@ test('dashboard HTTP rejects all query, token, unknown field and malformed card 
     for (const query of ['?scope=device', '?scope=project', '?_token=abc', '?x=1&x=2', '?project_id=abc']) {
       expect((await fetch(url + query)).status).toBe(400);
       expect((await post(url + query, { cards: [], expected_revision: 'v1' })).status).toBe(400);
+    }
+    const row = { id: '0123456789abcdef', x: 0, y: 0, w: 12, h: 6 };
+    for (const patch of [{}, { hidden_projects: null }, { hidden_projects: ['0123456789ABCDEF'] },
+      { hidden_projects: Array(301).fill(row.id) }, { layout: [row, row] }, { layout: [{ ...row, h: 5 }] },
+      { layout: [{ ...row, y: 4096 }] }, { layout: [{ ...row, x: 11, w: 2 }] },
+      { layout: [{ ...row, id: 'account:invalid' }] }, { layout: [{ ...row, credential: 'PRIVATE' }] },
+      { content: [{ id: row.id, sections: ['quota'] }] }, { content: [{ id: `account:${selected.connection_id}`, sections: ['metrics'] }] },
+      { content: [{ id: row.id, sections: [null] }] }, { content: [{ id: row.id, sections: [] }, { id: row.id, sections: [] }] }]) {
+      expect((await post(url, { ...patch, expected_revision: dashboardRevision })).status).toBe(400);
     }
     for (const body of [null, [], {}, { cards: [] }, { expected_revision: 'v1' }, { cards: [], expected_revision: null },
       { cards: [], expected_revision: 'v1', _token: 'private' }, { cards: [], expected_revision: 'v1', project: '/tmp' },
@@ -88,8 +137,8 @@ test('dashboard HTTP rejects all query, token, unknown field and malformed card 
 
 test('dashboard requires login and preserves Origin/Host gates before service reads or writes', async () => {
   const calls = [], f = fixture({ authenticated: true, dashboardService: {
-    get() { calls.push('get'); return { version: 1, revision: 'v1', cards: [] }; },
-    save(cards) { calls.push('save'); return { version: 1, revision: 'v2', cards }; },
+    get() { calls.push('get'); return { version: 2, revision: dashboardRevision, cards: [], hidden_projects: [], layout: [], content: [] }; },
+    save(patch) { calls.push('save'); return { version: 2, revision: dashboardRevision, hidden_projects: [], layout: [], content: [], ...patch }; },
   } });
   try {
     const url = f.url + '/api/host/dashboard';
@@ -102,7 +151,7 @@ test('dashboard requires login and preserves Origin/Host gates before service re
       body: 'username=owner&password=dashboard-test-password' });
     expect(login.status).toBe(303); const Cookie = login.headers.get('set-cookie').split(';')[0];
     expect((await fetch(url, { headers: { Cookie } })).status).toBe(200);
-    expect((await post(url, { cards: [], expected_revision: 'v1' }, { Cookie })).status).toBe(200);
+    expect((await post(url, { cards: [], expected_revision: dashboardRevision }, { Cookie })).status).toBe(200);
     expect((await fetch(url, { headers: { Cookie, Origin: 'https://evil.invalid' } })).status).toBe(403);
     expect(calls).toEqual(['get', 'save']);
   } finally { await f.close(); }
@@ -122,7 +171,7 @@ test('dashboard injected service failures are safely projected and Host stop clo
   try {
     const url = f.url + '/api/host/dashboard';
     const read = await fetch(url); expect(read.status).toBe(400); expect(await read.text()).not.toContain('PRIVATE');
-    const save = await post(url, { cards: [], expected_revision: 'v1' });
+    const save = await post(url, { cards: [], expected_revision: dashboardRevision });
     expect(save.status).toBe(400); const body = await save.json(); expect(body.error).not.toContain('PRIVATE');
     expect(body.error).toContain('操作未确认'); expect(body.error).toContain('可能版本已变更');
     expect(body.error).toContain('保留编辑');

@@ -10,6 +10,9 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (path === '/api/host/select') return Response.json({ id: ID });
   if (path === '/api/host/projects') return projectListResponse?.() ?? Response.json({ projects: state.projects });
   if (path === '/api/host') return Response.json(state);
+  if (path === '/api/host/dashboard') return Response.json({ version: 2, revision: 'picker-config', cards: [], hidden_projects: [], layout: [], content: [] });
+  if (path === '/api/host/settings/agent/connections?scope=device') return Response.json({ connections: [], configuration_scope: { selected: 'device', source: 'device', project_override: false } });
+  if (/^\/p\/[a-f0-9]{16}\/api\/notices\?/.test(path)) return Response.json({ notices: [], has_more: false });
   if (path === '/api/host/projects/start' || path === '/api/host/projects/stop' || path === '/api/host/remove') return Response.json({ ok: true });
   if (path === `/p/${ID}/api/service/restart`) return Response.json({ restarted: true, pid: 124 });
   return Response.json({ error: 'not mocked' }, { status: 404 });
@@ -218,7 +221,7 @@ test('开发卡片显示全项目指标、父确认与独立项目最近链接�
   expect(deepText(offline)).toContain('当前开发状态未确认'); expect(offline.querySelector('.project-development-metrics')).toBeNull();
 });
 
-test('只读总览复用新版 Worker 标题优先级，仍按项目身份打开最近记录', async () => {
+test('总览复用新版 Worker 标题优先级，仍按项目身份打开最近记录', async () => {
   const development = { workers_total: 3, active: 0, agents_running: 0, awaiting_acceptance: 0, parent_confirmation: 0,
     pending_merges: 0, merging: 0, merge_conflicts: 0, counts: [], recent_workers: [
       { id: 8, worker_number: 'W186-1', display_title: '用户命名', auto_title: '不应覆盖用户标题', goal: '旧目标', status: 'completed' },

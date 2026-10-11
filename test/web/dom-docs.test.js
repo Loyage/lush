@@ -113,7 +113,8 @@ test('根帮助只受全局轮询，返回项目入口；无来源的Worker地�
   expect(deepText(dom.node('detail'))).toContain('模块地图');
   expect(deepText(dom.node('detail'))).not.toContain('项目概览');
   await dom.node('home').onclick();
-  expect(deepText(dom.node('detail'))).toContain('全局总览');
+  expect(dom.node('detail').querySelector('.project-board')).not.toBeNull();
+  expect(dom.node('view-toolbar').hidden).toBe(true);
   expect(dom.node('detail').dataset.view).toBe('projects');
   await openDocs('docs-engineering-modules');
   dom.location.hash = '#worker-1'; await dom.fire('hashchange');

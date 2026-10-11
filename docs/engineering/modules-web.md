@@ -28,9 +28,11 @@
 |---|---|---|
 | `app.js` | 唯一入口：根 shell 用户工作台、项目固定 `/p/id`，旧项目设置书签引导根新标签；独立装配并释放设备偏好／策略／全局提醒观察者，仅项目装配开发与概览／正文轮询；权威偏好就绪后启动提醒；静态启动闭包和懒页面保留 boot／DOM／导航代次保护，重复 boot 不绑定旧页面或重放通知 | `boot()` |
 | `route.js` | 固定 `/p/<pid>/` 项目身份，根不冒充单项目；Host／文档根路由，未知项目不回落；设备偏好统一，preferenceScope 仅项目工作状态 | `routeContext()`、`projectRoute()`、`projectBase()`、`projectApi()`、`projectHref()`、`workspaceHref()`、`preferenceScope()` |
-| `project-picker.js` | 根纯展示卡片总览，按需加载瀑布流与账户卡片；独立项目管理承接登记／刷新／配色／指令／后台维护，刷新保留草稿；打开项目独立标签，读不启动后台 | `ensureProject()`、`openProjectOverview()`、`openProjectManager()`、`openProjectPicker()`、`closeProjectPicker()`、`refreshProjectList()`、`workbenchStatus()` |
-| `project-board.js`／`styles-project-board.css` | 通用类型卡片瀑布流、项目辨识色只读、拖动及键盘排序、浏览器布局持久化，双主题窄屏与减动效 | `createProjectBoard({ownsPage,request,renderCard})` → `{root,update}`；CSS |
-| `dashboard-cards.js`／`styles-dashboard-cards.css` | 设备托管账户余额卡片、删除来源占位与缓存失败口径；独立管理页共享配置，revision 冲突保留编辑，不联网查询 | `loadAccountCards({ownsPage}?)`、`renderAccountCard(row)`、`createDashboardCardSettings({ownsPage}?)` → `{root,ready,reload,dispose}`；CSS |
+| `project-picker.js` | 根无标题面板按需加载总览控制器；独立项目管理承接登记／刷新／配色／指令／后台维护，不挂载卡片设置，刷新保留草稿；打开项目独立标签，读不启动后台 | `ensureProject()`、`openProjectOverview()`、`openProjectManager()`、`openProjectPicker()`、`closeProjectPicker()`、`refreshProjectList()`、`workbenchStatus()` |
+| `dashboard-panel.js` | 总览唯一配置 revision／卡片与内容设置／设备布局保存，显式刷新项目消息及已摆放账户；草稿、ACK、并发与离页保护 | `createDashboardPanel({ownsPage,renderProject})` → `{root,ready,refresh,state}`；[契约](dashboard-panel.md) |
+| `project-dashboard-content.js` | 项目内容开关、语义指标、来源 Notice 最近列表与 Worker／输入／版本快捷链接；在线项目有界只读消息，不已读或答复 | `PROJECT_CARD_SECTIONS`、`PROJECT_CARD_DEFAULTS`、`loadProjectCardMessages(rows,options)`、`projectDashboardContent(row,options)` |
+| `project-board.js`／`styles-project-board.css` | 响应式 12 列卡片网格、项目辨识色只读、编辑模式拖动／缩放／键盘替代、碰撞避让；消费设备布局，不写浏览器权威顺序 | `createProjectBoard({ownsPage,request,renderCard,onLayoutChange})` → `{root,update,setEditing,getLayout}`；CSS |
+| `dashboard-cards.js`／`styles-dashboard-cards.css` | 设备账户精简余额与内容开关、来源缺失／未知／历史口径；只读缓存与显式指定账户有界刷新，配置读模型校验 | `readDashboardConfig(options?)`、`loadDashboardConnections()`、`loadAccountCards(options?)`、`renderAccountCard(row,options?)`、`refreshAccountCards(ids,options?)`；兼容 `createDashboardCardSettings` 不再挂载管理页；CSS |
 | `project-order-form.js` | 独立项目管理页按需新指令表单：固定来源项目／main，创建与开始分离、离线禁发送、跨刷新单飞、会话草稿隔离、迟到 ACK 不清新输入，未知失败不重试 | `createProjectOrderForm(row,{ownsPage}?)` → `{root,update(row)}` |
 | `styles-workbench.css` | 两种 shell、全局导航／事项／自动化与项目管理布局，双主题与窄屏 | CSS |
 | `workspace-shell.js` | 根与项目导航分离；项目只留内部页面，品牌原生新标签入口保留项目现场；收件箱计数只在根导航，不画顶部摘要 | `configureWorkspaceShell()`、`workspaceLink(id,hash,open)`、`renderGlobalInboxSummary(summary)` |

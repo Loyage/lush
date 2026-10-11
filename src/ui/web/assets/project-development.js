@@ -3,7 +3,7 @@ import { STATUS, INTEGRATION, taskTitle, workerNumber } from './format.js';
 import { projectHref } from './route.js';
 
 /** Read-only project card: full-project counts never inferred from the recent window. */
-export function projectDevelopment(row) {
+export function projectDevelopment(row, { sections = ['metrics', 'distribution', 'delivery', 'recent'] } = {}) {
   const root = el('section', undefined, 'project-development');
   root.setAttribute('aria-label', `${row.name || '项目'}开发状态`);
   const summary = row.running === true && !row.error ? row.summary?.development : null;
@@ -44,6 +44,8 @@ export function projectDevelopment(row) {
     if (task.integration && task.integration !== 'none') item.append(el('span', INTEGRATION[task.integration] || '合并状态未知', 'chip'));
     recent.append(item);
   }
-  root.append(metrics, distribution, delivery, recent);
+  for (const [key, section] of [['metrics', metrics], ['distribution', distribution], ['delivery', delivery], ['recent', recent]]) {
+    if (sections.includes(key)) root.append(section);
+  }
   return root;
 }

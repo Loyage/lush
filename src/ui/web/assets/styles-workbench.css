@@ -45,3 +45,38 @@
 .project-order-actions button{white-space:normal}
 .project-order-status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;overflow-wrap:anywhere}
 @media(prefers-reduced-motion:reduce){.workbench-view *{scroll-behavior:auto!important}}
+/* The dashboard is a panel, not a second page hero. Keep settings outside movable cards. */
+#view-toolbar[hidden]{display:none}
+.workbench-view.project-overview{max-width:none;padding:clamp(12px,2vw,28px);gap:16px}
+.dashboard-toolbar{display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.dashboard-toolbar button,.dashboard-settings-panel button{min-height:44px;white-space:normal}
+.dashboard-toolbar button[hidden]{display:none}
+.dashboard-toolbar .dashboard-settings-open{width:44px;padding:8px;font-size:20px}
+.dashboard-status{margin:0;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.dashboard-status.error{color:var(--failed)}
+.dashboard-status[hidden],.dashboard-settings-panel[hidden],.project-overview .workbench-empty[hidden]{display:none}
+.dashboard-settings-panel{display:grid;gap:14px;min-width:0;padding:18px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);box-shadow:var(--shadow)}
+.dashboard-settings-header{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.dashboard-settings-header h2{margin:0;font-size:17px;overflow-wrap:anywhere}
+.dashboard-settings-panel fieldset{display:flex;flex-wrap:wrap;gap:8px;min-width:0;margin:0;padding:12px;border:1px solid var(--line-soft);border-radius:10px}
+.dashboard-settings-panel legend{font-size:12px;font-weight:600;padding:0 5px}
+.dashboard-option{display:flex;align-items:center;gap:8px;min-height:44px;max-width:100%;padding:6px 10px;border:1px solid var(--line-soft);border-radius:8px;overflow-wrap:anywhere;cursor:pointer;font-size:12px}
+.dashboard-option input{width:18px;height:18px;flex:none;accent-color:var(--accent)}
+.dashboard-option:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.dashboard-settings-actions{display:flex;flex-wrap:wrap;gap:8px}
+.project-board .dashboard-card-settings-host{position:absolute;right:10px;top:10px;z-index:2;display:block}
+.project-board .dashboard-card-settings{width:44px;height:44px;min-height:44px;padding:8px;font-size:19px;background:var(--panel);border-color:var(--line-soft)}
+.project-board .project-development-metric{border-color:color-mix(in srgb,var(--tone) 32%,var(--line-soft));background:color-mix(in srgb,var(--tint) 70%,var(--panel))}
+.project-board .project-development-value{color:var(--tone)}
+.project-dashboard-content{min-width:0;display:grid;gap:12px}
+.project-dashboard-messages{min-width:0;display:grid;gap:6px;border-top:1px solid var(--line-soft);padding-top:10px}
+.project-dashboard-section-head{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px}
+.project-dashboard-section-head h3{margin:0;font-size:12px;color:var(--muted)}
+.project-dashboard-section-head a,.project-dashboard-shortcuts a{color:var(--accent);text-underline-offset:3px}
+.project-dashboard-message{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;min-width:0;padding:9px;border:1px solid color-mix(in srgb,var(--tone) 25%,var(--line));border-radius:8px;background:var(--tint);color:var(--tone);text-decoration:none;font-size:12px}
+.project-dashboard-message strong{flex:1;min-width:80px;overflow-wrap:anywhere;font-weight:500}
+.project-dashboard-message small{font-size:10px}
+.project-dashboard-message:hover{text-decoration:underline;text-underline-offset:3px}
+.project-dashboard-shortcuts{display:flex;flex-wrap:wrap;gap:8px;border-top:1px solid var(--line-soft);padding-top:10px;font-size:12px}
+.project-dashboard-shortcuts a{padding:7px 9px;border:1px solid var(--line-soft);border-radius:8px;background:var(--panel)}
+@media(max-width:700px){.dashboard-settings-panel{padding:12px}.dashboard-option{width:100%}.dashboard-settings-actions button{flex:1}.project-dashboard-shortcuts a{min-height:44px;display:flex;align-items:center}.dashboard-toolbar{justify-content:flex-end}}

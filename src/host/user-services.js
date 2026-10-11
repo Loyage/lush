@@ -54,7 +54,7 @@ export function createUserServices(projectHost, options = {}) {
   const dashboard = lazy(async () => {
     if (options.dashboardService) return options.dashboardService;
     const { readDashboardSettings, saveDashboardSettings } = await import('../core/dashboard-settings.js');
-    return { get: () => readDashboardSettings(config), save: (cards, expected) => saveDashboardSettings(config, cards, expected) };
+    return { get: () => readDashboardSettings(config), save: (patch, expected) => saveDashboardSettings(config, patch, expected) };
   });
   const automation = lazy(async () => {
     if (options.automationService) return options.automationService;
@@ -91,11 +91,12 @@ export function createUserServices(projectHost, options = {}) {
     },
     async readDashboard() { return invoke(dashboard, 'get', [], dashboardError); },
     async saveDashboard(body) {
-      fields(body, ['cards', 'expected_revision'], 'dashboard request', ['cards', 'expected_revision']);
-      revision(body.expected_revision);
-      const { normalizeDashboardCards } = await import('../core/dashboard-settings.js');
-      const cards = normalizeDashboardCards(body.cards);
-      return invoke(dashboard, 'save', [cards, body.expected_revision], dashboardSaveError);
+      fields(body, ['cards', 'hidden_projects', 'layout', 'content', 'expected_revision'], 'dashboard request', ['expected_revision']);
+      const { expected_revision, ...patch } = body;
+      const { normalizeDashboardPatch } = await import('../core/dashboard-settings.js');
+      const normalized = normalizeDashboardPatch(patch);
+      check(typeof expected_revision === 'string' && /^[a-f0-9]{64}$/.test(expected_revision), 'dashboard revision is required');
+      return invoke(dashboard, 'save', [normalized, expected_revision], dashboardSaveError);
     },
     async readAutomation() { return invoke(automation, 'get', [], automationError); },
     async saveAutomation(body) {

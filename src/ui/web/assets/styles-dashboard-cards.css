@@ -1,12 +1,14 @@
 /* Standalone account cards and explicit device selection; all colours follow the shared theme tokens. */
-.project-item.dashboard-account-card,.project-manager-list .project-item.dashboard-account-card{display:flex;flex-direction:column;align-items:stretch;gap:12px;min-width:0;max-width:100%;padding:20px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow-wrap:anywhere}
-.dashboard-account-header{display:grid;gap:6px;min-width:0}
-.dashboard-card-kicker{font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--accent)}
-.dashboard-account-header h3{margin:0;font-size:20px;line-height:1.35}
+.project-item.dashboard-account-card,.project-manager-list .project-item.dashboard-account-card{display:flex;flex-direction:column;align-items:stretch;gap:10px;min-width:0;max-width:100%;padding:16px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow-wrap:anywhere}
+.dashboard-account-header{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
+.dashboard-account-header h3{margin:0;font-size:18px;line-height:1.35;min-width:0;overflow-wrap:anywhere}
+.dashboard-account-refresh{flex:none;min-height:44px}
+.dashboard-account-header .help-host{display:inline-flex;flex:none;min-width:0}
+.dashboard-account-refresh:focus-visible,.dashboard-account-header .help-host:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .dashboard-card-note,.dashboard-card-warning{margin:0;font-size:12px;line-height:1.7;color:var(--muted);overflow-wrap:anywhere}
 .dashboard-card-warning{color:var(--awaiting)}
 .dashboard-account-observation{display:grid;gap:8px;min-width:0}
-.dashboard-account-metric{display:grid;gap:7px;padding:12px;background:var(--panel-2);border:1px solid var(--line-soft);border-radius:10px;min-width:0}
+.dashboard-account-metric{display:grid;gap:5px;padding:10px;background:var(--panel-2);border:1px solid var(--line-soft);border-radius:10px;min-width:0}
 .dashboard-account-metric h4{margin:0;font-size:13px;line-height:1.5}
 .dashboard-account-value{margin:0;font-size:15px;font-variant-numeric:tabular-nums;line-height:1.5;color:var(--text)}
 .dashboard-account-progress{display:block;width:100%;max-width:100%;height:9px;accent-color:var(--accent);border:0;border-radius:8px;overflow:hidden;background:var(--line)}

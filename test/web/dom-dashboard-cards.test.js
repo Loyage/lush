@@ -1,5 +1,7 @@
 import { afterAll, beforeEach, expect, test } from 'bun:test';
 import fs from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { installDom, deepText } from '../dom-stub.js';
 
 const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333'];
@@ -21,7 +23,7 @@ const dom = installDom({ fetch: async (url, options) => {
     if (options?.method === 'POST') {
       const body = JSON.parse(options.body);
       if (body.expected_revision !== config.revision) return fail('dashboard revision conflict');
-      config = { version: 1, revision: `${config.revision}-next`, cards: body.cards }; return json(config);
+      config = { ...config, revision: `${config.revision}-next`, cards: body.cards }; return json(config);
     }
     return json(config);
   }
@@ -29,7 +31,7 @@ const dom = installDom({ fetch: async (url, options) => {
     configuration_scope: { selected: 'device', source: 'device', project_override: false } });
   throw new Error(`unexpected fetch ${url}`);
 } });
-const { loadAccountCards, renderAccountCard, createDashboardCardSettings } = await import('../../src/ui/web/assets/dashboard-cards.js');
+const { readDashboardConfig, loadDashboardConnections, loadAccountCards, renderAccountCard, refreshAccountCards, createDashboardCardSettings } = await import('../../src/ui/web/assets/dashboard-cards.js');
 const { resetUiState } = await import('../../src/ui/web/assets/state.js');
 afterAll(() => dom.restore());
 beforeEach(() => {
@@ -54,7 +56,7 @@ test('多账户各有稳定ID，不按服务商合并，只读Host设备缓存�
   expect(writes()).toHaveLength(0);
   const root = renderAccountCard(rows[0]); expect(root.tagName).toBe('LI');
   expect(root.classList.contains('project-item')).toBe(true); expect(root.dataset.cardId).toBe(rows[0].id);
-  const content = deepText(root); expect(content).toContain('个人账户'); expect(content).toContain('DeepSeek');
+  const content = deepText(root); expect(content).toContain('个人账户'); expect(content).not.toContain('DeepSeek');
   expect(content).toContain('现金余额'); expect(content).toContain('12.5 USD'); expect(content).not.toContain('999');
 });
 
@@ -64,12 +66,12 @@ test('全部结构化指标独立展示，不限两项、不混币种、分类�
     metric({ id: 'key', kind: 'quota', scope: 'key', label: 'Key消费', unit: 'USD', remaining: 7, total: 10, used: 3, used_percent: 30, window_seconds: 3600, reset_at: at, models: ['vendor/a'] }),
     metric({ id: 'plan', kind: 'quota', scope: 'account', label: '套餐窗口', unit: '%', remaining: 60, used_percent: 40, window_seconds: 604800, reset_at: at }),
     metric({ id: 'model', kind: 'quota', scope: 'model', label: '模型token', unit: 'tokens', remaining: 150, total: 200, used: 50 }),
-  ] }) })));
+  ] }) })), { sections: ['quota', 'balance', 'reset', 'observed', 'details', 'provenance'] });
   expect(root.querySelectorAll('.dashboard-account-metric')).toHaveLength(5);
   expect(root.querySelectorAll('progress')).toHaveLength(3);
   const content = deepText(root);
-  for (const expected of ['部分指标可用', '12.5 USD', '80 CNY', 'Key 预算（非现金余额）', '套餐 / 额度（非现金余额）', '模型额度（非现金余额）',
-    '总量 10 USD', '已用 3 USD', '原始已用比例：30 %', '1 小时窗口', '7 天（周）窗口', 'vendor/a', '重置时间：', '到期不代表额度已恢复', '百分比不是实际 token']) expect(content).toContain(expected);
+  for (const expected of ['部分指标可用', '12.5 USD', '80 CNY', 'Key 预算', '套餐额度', '模型额度',
+    '总量 10 USD', '已用 3 USD', '原始已用比例：30 %', '1 小时窗口', '7 天（周）窗口', 'vendor/a', '重置：', '到期待刷新', '百分比不是实际 token']) expect(content).toContain(expected);
   expect(root.querySelectorAll('progress').map(node => node.value)).toEqual([30, 40, 25]);
 });
 
@@ -91,8 +93,8 @@ test('比例推导仅用结构化数值，0为真实零，超范围原值不被�
 
 test('失败不展示当前值，不拿历史成功冒充现状；历史折叠且有时间口径', () => {
   const root = renderAccountCard(row(connection({ observation: observation({ status: 'error', error_code: 'rate_limited', resources: [metric({ remaining: 999 })] }),
-    last_success: { checked_at: at, observation: observation() } })));
-  expect(deepText(root)).toContain('查询失败（不代表余额为零或资源耗尽）'); expect(deepText(root)).toContain('HTTP 429');
+    last_success: { checked_at: at, observation: observation() } })), { sections: ['quota', 'balance', 'observed', 'history', 'provenance'] });
+  expect(deepText(root)).toContain('查询失败'); expect(deepText(root)).toContain('HTTP 429');
   expect(deepText(root)).not.toContain('999 USD');
   const old = root.querySelector('.dashboard-account-old'); expect(old).not.toBeNull(); expect(old.open).not.toBe(true);
   expect(deepText(old)).toContain('历史成功观测（非当前值）'); expect(deepText(old)).toContain('12.5 USD');
@@ -101,7 +103,7 @@ test('失败不展示当前值，不拿历史成功冒充现状；历史折叠�
 
 test('source:none的列表读取时间不冒充观测时间，未知状态也不把旧成功显示为当前', () => {
   const root = renderAccountCard(row(connection({ observation: observation({ status: 'unknown', source: 'none', checked_at: at }),
-    last_success: { checked_at: at, observation: observation() } })));
+    last_success: { checked_at: at, observation: observation() } })), { sections: ['observed', 'history'] });
   const current = root.querySelector('.dashboard-account-observation');
   expect(deepText(current)).toContain('时间未知（尚无观测）'); expect(deepText(current)).toContain('未知不等于零');
   expect(current.querySelectorAll('.dashboard-account-metric')).toHaveLength(0);
@@ -219,35 +221,239 @@ test('离页总览读取不返回旧结果，未拥有页面不请求；dispose�
   expect(panel.root.querySelectorAll('input')).toHaveLength(0);
 });
 
-test('固定父基线的独立项目管理动态接入卡片设置，保留设备读写契约', async () => {
+test('默认账户卡精简，仅关键读数时间与刷新，不带成功状态端点和长解释', () => {
+  const root = renderAccountCard(row(connection({ observation: observation({ resources: [metric(), metric({ id: 'plan', kind: 'quota', used_percent: 40,
+    window_seconds: 18000, reset_at: '2099-01-01T00:00:00Z' })] }) })), { refresh: async () => {} });
+  const content = deepText(root);
+  for (const expected of ['个人账户', '12.5 USD', '已用 40%', '5 小时窗口', '重置：', '上次观测：', '刷新']) expect(content).toContain(expected);
+  for (const absent of ['观测成功', '模型端点', '仅展示设备缓存', '指标详情', '观测来源', '原始已用比例', '不代表额度已恢复']) expect(content).not.toContain(absent);
+  expect(root.querySelectorAll('progress')).toHaveLength(1); expect(root.querySelectorAll('details')).toHaveLength(0);
+  expect(button(root, '刷新').disabled).toBe(false); expect(root.querySelectorAll('.agent-call')).toHaveLength(0);
+});
+
+test('sections空数组隐藏可选内容但保留名称异常历史标识和刷新', () => {
+  let root = renderAccountCard(row(), { sections: [], refresh: async () => {} });
+  expect(deepText(root).replace(/\s/g, '')).toBe('个人账户刷新'); expect(root.querySelectorAll('.dashboard-account-metric')).toHaveLength(0);
+  root = renderAccountCard(row(connection({ observation: observation({ status: 'error', resources: [metric({ remaining: 999 })] }),
+    last_success: { checked_at: at, observation: observation() } })), { sections: [], refresh: async () => {} });
+  expect(deepText(root)).toContain('查询失败'); expect(deepText(root)).toContain('历史成功观测（非当前值）');
+  expect(deepText(root)).not.toContain('12.5'); expect(deepText(root)).not.toContain('999'); expect(deepText(root)).not.toContain('上次观测');
+});
+
+test('账户内容开关独立控制余额额度重置详细来源与旧值', () => {
+  const entry = row(connection({ observation: observation({ resources: [metric(), metric({ id: 'plan', kind: 'quota', scope: 'key', used_percent: 20,
+    window_seconds: 3600, reset_at: at })] }) }));
+  let root = renderAccountCard(entry, { sections: ['balance'] });
+  expect(deepText(root)).toContain('现金余额'); expect(deepText(root)).not.toContain('Key 预算'); expect(root.querySelectorAll('progress')).toHaveLength(0);
+  root = renderAccountCard(entry, { sections: ['quota'] });
+  expect(deepText(root)).not.toContain('现金余额'); expect(deepText(root)).toContain('Key 预算'); expect(deepText(root)).not.toContain('重置：');
+  expect(root.querySelectorAll('progress')).toHaveLength(1);
+  root = renderAccountCard(entry, { sections: ['reset'] });
+  expect(deepText(root)).toContain('到期待刷新'); expect(deepText(root)).not.toContain('已用 20%'); expect(deepText(root)).not.toContain('剩余');
+  root = renderAccountCard(entry, { sections: ['details', 'provenance'] });
+  expect(deepText(root)).toContain('模型端点：https://api.deepseek.com'); expect(deepText(root)).toContain('原始已用比例：20 %');
+  expect(deepText(root)).toContain('观测来源'); expect(deepText(root)).toContain('范围：API Key 预算');
+  expect(root.querySelectorAll('.dashboard-account-metric-details')).toHaveLength(2);
+});
+
+test('v2配置保留全部字段，父传双快照无GET，单快照只读缺失资源；v1缺省数组兼容', async () => {
+  config = { ...config, version: 2, hidden_projects: ['abcdef0123456789'], layout: [{ id: `account:${ids[0]}`, x: 0, y: 2, w: 4, h: 6 }],
+    content: [{ id: `account:${ids[0]}`, sections: [] }] };
+  expect(await readDashboardConfig()).toEqual(config); expect(await loadDashboardConnections()).toEqual(connections);
+  requests.length = 0;
+  expect(await loadAccountCards({ config, connections })).toHaveLength(2); expect(requests).toHaveLength(0);
+  await loadAccountCards({ config }); expect(requests.map(entry => entry.url)).toEqual(['/api/host/settings/agent/connections?scope=device']);
+  requests.length = 0; await loadAccountCards({ connections }); expect(requests.map(entry => entry.url)).toEqual(['/api/host/dashboard']);
+  config = { version: 1, revision: 'old', cards: [] };
+  expect(await readDashboardConfig()).toEqual({ ...config, hidden_projects: [], layout: [], content: [] });
+});
+
+test('保存ACK传value仅本地校验，保留v2字段且不修改原应答；v1缺省数组仍兼容', async () => {
+  const ack = { ...config, version: 2, hidden_projects: ['abcdef0123456789'],
+    layout: [{ id: `account:${ids[0]}`, x: 1, y: 2, w: 4, h: 6 }], content: [{ id: `account:${ids[0]}`, sections: [] }] };
+  const validated = await readDashboardConfig({ value: ack }); expect(validated).toEqual(ack);
+  validated.cards.length = 0; validated.hidden_projects.length = 0; validated.layout[0].x = 9; validated.content[0].sections.push('balance');
+  expect(ack.cards).toHaveLength(2); expect(ack.hidden_projects).toHaveLength(1); expect(ack.layout[0].x).toBe(1); expect(ack.content[0].sections).toEqual([]);
+  expect(await readDashboardConfig({ value: config })).toEqual({ ...config, hidden_projects: [], layout: [], content: [] });
+  expect(requests).toHaveLength(0);
+});
+
+test('无效保存ACK不偷偷GET或当空配置，v2缺失字段与错误结构拒绝', async () => {
+  const valid = { ...config, version: 2, hidden_projects: [], layout: [], content: [] };
+  for (const value of [undefined, null, {}, { ...valid, cards: [config.cards[0], config.cards[0]] },
+    { ...config, version: 2 }, { ...valid, hidden_projects: ['wrong-id'] },
+    { ...valid, layout: [{ id: `account:${ids[0]}`, x: 0, y: 0, w: 0, h: 1 }] },
+    { ...valid, content: [{ id: `account:${ids[0]}`, sections: 'quota' }] }]) {
+    await expect(readDashboardConfig({ value })).rejects.toThrow('卡片配置响应无效');
+  }
+  expect(requests).toHaveLength(0);
+});
+
+test('父真实v2存储GET与partial保存ACK可由账户接口本地消费，无HTTP二次读取', async () => {
+  const { readDashboardSettings, saveDashboardSettings } = await import('../../src/core/dashboard-settings.js');
+  const home = fs.mkdtempSync(join(tmpdir(), 'lush-account-v2-ack-'));
+  try {
+    fs.chmodSync(home, 0o700);
+    const device = { home }, initial = readDashboardSettings(device);
+    expect(await readDashboardConfig({ value: initial })).toEqual(initial);
+    const ack = await saveDashboardSettings(device, { cards: [{ type: 'account', connection_id: ids[0] }],
+      hidden_projects: ['abcdef0123456789'], layout: [{ id: `account:${ids[0]}`, x: 0, y: 1, w: 4, h: 8 }],
+      content: [{ id: `account:${ids[0]}`, sections: [] }, { id: 'abcdef0123456789', sections: ['messages'] }] }, initial.revision);
+    const next = await saveDashboardSettings(device, { cards: config.cards }, ack.revision);
+    expect(await readDashboardConfig({ value: next })).toEqual(next);
+    expect(next.layout).toEqual(ack.layout); expect(next.content).toEqual(ack.content); expect(next.hidden_projects).toEqual(ack.hidden_projects);
+    const rows = await loadAccountCards({ config: next, connections }); expect(rows.map(row => row.connection_id)).toEqual(ids.slice(0, 2));
+    expect(requests).toHaveLength(0);
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+test('固定父v2契约严格校验12列布局和分类型内容键，拒绝旧project前缀及越界应答', async () => {
+  const valid = { ...config, version: 2, hidden_projects: [],
+    layout: [{ id: 'abcdef0123456789', x: 11, y: 4095, w: 1, h: 80 }],
+    content: [{ id: 'abcdef0123456789', sections: ['metrics', 'messages'] }, { id: `account:${ids[0]}`, sections: ['quota', 'history'] }] };
+  expect(await readDashboardConfig({ value: valid })).toEqual(valid);
+  const layout = valid.layout[0];
+  for (const item of [{ ...layout, id: 'project:abcdef0123456789' }, { ...layout, x: 12 }, { ...layout, y: 4096 },
+    { ...layout, x: 0, w: 13 }, { ...layout, w: 2 }, { ...layout, h: 5 }, { ...layout, h: 81 }, { ...layout, extra: true }]) {
+    await expect(readDashboardConfig({ value: { ...valid, layout: [item] } })).rejects.toThrow('卡片配置响应无效');
+  }
+  for (const content of [[{ id: 'abcdef0123456789', sections: ['quota'] }], [{ id: `account:${ids[0]}`, sections: ['messages'] }],
+    [{ id: 'invalid', sections: [] }], [valid.content[0], valid.content[0]]]) {
+    await expect(readDashboardConfig({ value: { ...valid, content } })).rejects.toThrow('卡片配置响应无效');
+  }
+  await expect(readDashboardConfig({ value: { ...valid, layout: [layout, layout] } })).rejects.toThrow('卡片配置响应无效');
+  expect(requests).toHaveLength(0);
+});
+
+test('旧账户选择组件只patch cards与revision，不提交或覆盖v2布局内容项目字段', async () => {
+  config = { ...config, version: 2, hidden_projects: ['abcdef0123456789'], layout: [{ id: 'abcdef0123456789', x: 0, y: 0, w: 4, h: 6 }],
+    content: [{ id: `account:${ids[0]}`, sections: ['balance'] }] };
+  const original = structuredClone(config), panel = await settings(); select(panel.root, ids[1], false);
+  await button(panel.root, '保存卡片选择').click();
+  expect(Object.keys(JSON.parse(writes()[0].options.body)).sort()).toEqual(['cards', 'expected_revision']);
+  for (const key of ['hidden_projects', 'layout', 'content']) expect(config[key]).toEqual(original[key]);
+});
+
+test('单卡刷新只回调指定来源、单飞，无页面权限不调用，迟到失败不写旧DOM', async () => {
+  const delayed = deferred(), called = [];
+  const root = renderAccountCard(row(), { ownsPage: () => current, refresh: async id => { called.push(id); await delayed.promise; throw new Error('late error'); } });
+  const refresh = button(root, '刷新'), pending = refresh.click();
+  expect(called).toEqual([ids[0]]); expect(refresh.disabled).toBe(true); expect(refresh.parentNode.dataset.help).toContain('尚未完成');
+  await refresh.click(); expect(called).toHaveLength(1);
+  const before = deepText(root); current = false; delayed.resolve(); await pending;
+  expect(deepText(root)).toBe(before); await refresh.click(); expect(called).toHaveLength(1); expect(requests).toHaveLength(0);
+});
+
+test('刷新缺失回调、已停用和已删除按钮有可聚焦禁用help-host', async () => {
+  for (const entry of [row(), row(connection({ enabled: false })), { id: `account:${ids[0]}`, connection_id: ids[0], connection: null }]) {
+    const called = []; const root = renderAccountCard(entry, entry.connection?.enabled === true ? {} : { refresh: async id => called.push(id) });
+    const refresh = button(root, '刷新'); expect(refresh.disabled).toBe(true); expect(refresh.parentNode.classList.contains('help-host')).toBe(true);
+    expect(refresh.parentNode.dataset.help).toBeTruthy(); expect(refresh.parentNode.getAttribute('tabindex')).toBe('0');
+    await refresh.click(); expect(called).toHaveLength(0);
+  }
+});
+
+test('显式账户刷新仅查去重指定ID，最多3并发；最终独立重读不采用action整份list', async () => {
+  const selected = [...ids, ...[4, 5, 6].map(n => `${n}${n}${n}${n}${n}${n}${n}${n}-${n}${n}${n}${n}-4${n}${n}${n}-8${n}${n}${n}-${String(n).repeat(12)}`)];
+  connections = selected.map((id, index) => connection({ id, observation: observation({ resources: [metric({ remaining: index + 10 })] }) }));
+  const waiting = new Map(), started = []; let active = 0, maxActive = 0;
+  intercept = (url, options) => {
+    if (url !== '/api/host/settings/action') return;
+    const body = JSON.parse(options.body); expect(body.method).toBe('agent.connections.query'); expect(body.params.scope).toBe('device');
+    const id = body.params.id; started.push(id); active++; maxActive = Math.max(maxActive, active);
+    const pending = deferred(); waiting.set(id, pending);
+    return pending.promise.then(() => { active--; return json({ connections: selected.map(id => connection({ id, observation: observation({ resources: [metric({ remaining: 999 })] }) })) }); });
+  };
+  const pending = refreshAccountCards([selected[0], ...selected]); await new Promise(setImmediate);
+  expect(started).toEqual(selected.slice(0, 3));
+  waiting.get(selected[2]).resolve(); await new Promise(setImmediate); expect(started).toEqual(selected.slice(0, 4));
+  waiting.get(selected[0]).resolve(); waiting.get(selected[1]).resolve(); await new Promise(setImmediate);
+  expect(started).toEqual(selected);
+  for (const id of selected.slice(3)) waiting.get(id).resolve();
+  const result = await pending; expect(maxActive).toBe(3); expect(result.errors).toEqual([]);
+  expect(result.connections).toEqual(connections); expect(result.connections[0].observation.resources[0].remaining).toBe(10);
+  expect(requests.filter(entry => entry.url.includes('/agent/connections?'))).toHaveLength(1);
+  expect(writes()).toHaveLength(6); expect(writes().every(entry => JSON.parse(entry.options.body).params.id)).toBe(true);
+});
+
+test('单项拒绝不阻其他刷新，异常/不支持/未配置/部分/未知观测独立报告', async () => {
+  for (const status of ['error', 'unsupported', 'unconfigured', 'partial', 'unknown']) {
+    requests.length = 0;
+    connections = [connection(), connection({ id: ids[1], observation: observation({ status }) }), connection({ id: ids[2] })];
+    intercept = (url, options) => {
+      if (url !== '/api/host/settings/action') return;
+      if (JSON.parse(options.body).params.id === ids[0]) return Promise.reject(new Error('query rejected'));
+      return json({ connections });
+    };
+    const result = await refreshAccountCards(ids); expect(writes()).toHaveLength(3);
+    expect(result.connections).toEqual(connections); expect(result.errors.map(entry => entry.id)).toEqual(ids.slice(0, 2));
+    expect(result.errors[0].error).toContain('query rejected'); expect(result.errors[1].error).toBeTruthy();
+  }
+});
+
+test('异常抛出值不泄漏原对象，刷新errors.error始终是安全字符串', async () => {
+  intercept = url => url === '/api/host/settings/action' ? Promise.reject({ message: { raw_response: 'private' } }) : undefined;
+  const result = await refreshAccountCards([ids[0]]);
+  expect(result.errors).toEqual([{ id: ids[0], error: '账户查询失败' }]); expect(writes()).toHaveLength(1);
+});
+
+test('刷新查询结果不冒充缓存，独立重读失败明确拒绝、不自动重试', async () => {
+  intercept = url => url === '/api/host/settings/action' ? json({ connections }) : url.includes('/agent/connections?') ? fail('cache unavailable') : undefined;
+  await expect(refreshAccountCards([ids[0]])).rejects.toThrow('设备账户 / 余额缓存读取失败');
+  expect(writes()).toHaveLength(1); expect(requests).toHaveLength(2);
+});
+
+test('页面失效不开始排队查询或后读，迟到后读拒绝，不返回旧连接', async () => {
+  const selected = [...ids, '44444444-4444-4444-8444-444444444444'], waiting = deferred();
+  intercept = url => url === '/api/host/settings/action' ? waiting.promise : undefined;
+  const pending = refreshAccountCards(selected, { ownsPage: () => current });
+  expect(writes()).toHaveLength(3); current = false; waiting.resolve(json({ connections }));
+  await expect(pending).rejects.toMatchObject({ name: 'AbortError' }); expect(requests).toHaveLength(3);
+  current = true; requests.length = 0; const delayedRead = deferred();
+  intercept = url => url === '/api/host/settings/action' ? json({ connections }) : url.includes('/agent/connections?') ? delayedRead.promise : undefined;
+  const reading = refreshAccountCards([ids[0]], { ownsPage: () => current }); await new Promise(setImmediate);
+  expect(requests).toHaveLength(2); current = false; delayedRead.resolve(json({ connections,
+    configuration_scope: { selected: 'device', source: 'device', project_override: false } }));
+  await expect(reading).rejects.toMatchObject({ name: 'AbortError' });
+});
+
+test('刷新未拥有页面或错误IDs不请求，无id绝不查询；空列表只读缓存', async () => {
+  current = false; await expect(refreshAccountCards(ids, { ownsPage: () => current })).rejects.toMatchObject({ name: 'AbortError' });
+  current = true;
+  for (const bad of [undefined, null, [''], [ids[0], 'invalid']]) await expect(refreshAccountCards(bad)).rejects.toThrow('必须指定有效来源');
+  expect(requests).toHaveLength(0); expect((await refreshAccountCards([])).errors).toEqual([]); expect(writes()).toHaveLength(0);
+});
+
+test('独立项目管理不挂载或读取总览设置，设置只属于总览面板', async () => {
   intercept = url => url === '/api/host/projects' ? json({ projects: [] })
     : url === '/api/host' ? json({ mode: 'bound', projects: [], restart_supported: false }) : undefined;
   const { openProjectManager } = await import('../../src/ui/web/assets/project-picker.js');
   await openProjectManager({ push: false }); await new Promise(setImmediate);
-  const root = dom.node('detail').querySelector('.dashboard-card-settings');
-  expect(dom.node('detail').dataset.view).toBe('project-management'); expect(root).not.toBeNull();
-  expect(checkbox(root, ids[0]).checked).toBe(true); expect(writes()).toHaveLength(0);
-  select(root, ids[1], false); await button(root, '保存卡片选择').click();
-  expect(config.cards).toEqual([{ type: 'account', connection_id: ids[0] }]);
-  expect(writes().map(entry => entry.url)).toEqual(['/api/host/dashboard']);
+  expect(dom.node('detail').dataset.view).toBe('project-management');
+  expect(dom.node('detail').querySelector('.dashboard-card-settings')).toBeNull();
+  expect(dom.node('detail').querySelector('.dashboard-settings-panel')).toBeNull();
+  expect(requests.some(entry => entry.url === '/api/host/dashboard')).toBe(false);
+  expect(writes()).toHaveLength(0);
 });
 
-test('父管理页身份变更保护迟到账户设置读取，不将旧来源挂回新页面', async () => {
-  const delayed = deferred();
-  intercept = url => url === '/api/host/projects' ? json({ projects: [] })
-    : url === '/api/host' ? json({ mode: 'bound', projects: [], restart_supported: false })
-      : url === '/api/host/dashboard' ? delayed.promise : undefined;
-  const { openProjectManager } = await import('../../src/ui/web/assets/project-picker.js');
-  const { ui } = await import('../../src/ui/web/assets/state.js');
-  await openProjectManager({ push: false }); await new Promise(setImmediate);
-  const root = dom.node('detail').querySelector('.dashboard-card-settings'); expect(root).not.toBeNull();
-  const before = deepText(root); ui.view = { id: 'settings', key: 'new-page' };
-  dom.node('detail').replaceChildren(); delayed.resolve(json(config)); await new Promise(setImmediate);
+test('总览身份变更保护迟到账户配置读取，不将旧来源挂回新页面', async () => {
+  const delayed = deferred(); let started;
+  const reading = new Promise(resolve => { started = resolve; });
+  intercept = url => {
+    if (url === '/api/host/projects') return json({ projects: [] });
+    if (url === '/api/host/dashboard') { started(); return delayed.promise; }
+  };
+  const { openProjectOverview } = await import('../../src/ui/web/assets/project-picker.js');
+  const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
+  const pending = openProjectOverview({ push: false }); await reading;
+  const root = dom.node('detail').querySelector('.dashboard-settings-panel'); expect(root).not.toBeNull();
+  const before = deepText(root); activateDetailView({ view: 'settings', push: false });
+  dom.node('detail').replaceChildren(); delayed.resolve(json(config)); await pending;
   expect(deepText(root)).toBe(before); expect(root.querySelectorAll('input')).toHaveLength(0);
-  expect(dom.node('detail').querySelector('.dashboard-card-settings')).toBeNull(); expect(writes()).toHaveLength(0);
+  expect(dom.node('detail').querySelector('.dashboard-settings-panel')).toBeNull(); expect(writes()).toHaveLength(0);
 });
 
-test('全局总览混排项目与账户，配色只读并无管理/刷新/新指令操作', async () => {
+test('全局总览混排项目与账户，提供设置及显式刷新，配色只读且无后台管理/新指令操作', async () => {
   const projectId = 'abcdef0123456789';
   intercept = url => url === '/api/host/projects' ? json({ projects: [{ id: projectId, name: '彩色项目', project: '/tmp/demo', running: false }] })
     : url === `/api/host/projects/${projectId}/appearance` ? json({ id: projectId, appearance: { version: 1, color: 'rose' } })
@@ -259,8 +465,11 @@ test('全局总览混排项目与账户，配色只读并无管理/刷新/新指
   expect(board.querySelector('[data-project-id="abcdef0123456789"]').getAttribute('data-board-color')).toBe('rose');
   expect(board.querySelectorAll('.dashboard-account-card')).toHaveLength(2);
   expect(panel.querySelector('.project-manager-form')).toBeNull(); expect(panel.querySelector('.project-order')).toBeNull();
-  expect(panel.querySelector('.workbench-service-restart')).toBeNull(); expect(panel.querySelector('.dashboard-card-settings')).toBeNull();
-  expect(panel.querySelectorAll('button').every(node => node.classList.contains('project-board-handle'))).toBe(true);
+  expect(panel.querySelector('.workbench-service-restart')).toBeNull(); expect(panel.querySelector('section.dashboard-card-settings')).toBeNull();
+  expect(panel.querySelector('.dashboard-settings-open')).not.toBeNull();
+  expect(panel.querySelectorAll('.dashboard-card-settings')).toHaveLength(3);
+  expect(panel.querySelectorAll('button').some(node => node.textContent === '刷新全部')).toBe(true);
+  expect(panel.querySelectorAll('.project-board-handle').every(node => node.hidden && node.disabled)).toBe(true);
   expect(board.querySelector('.project-open').target).toBe('_blank'); expect(writes()).toHaveLength(0);
   expect(requests.filter(entry => entry.url.endsWith('/appearance')).map(entry => entry.url)).toEqual([`/api/host/projects/${projectId}/appearance`]);
 });
@@ -271,7 +480,7 @@ test('项目列表不可达仍显示已配置账户，不把失败默认为无�
   await openProjectOverview({ push: false });
   const panel = dom.node('detail');
   expect(panel.querySelectorAll('.dashboard-account-card')).toHaveLength(2);
-  expect(deepText(panel)).toContain('项目卡片暂不可用'); expect(panel.querySelector('.workbench-empty')).toBeNull();
+  expect(deepText(panel)).toContain('项目状态读取失败'); expect(panel.querySelector('.workbench-empty').hidden).toBe(true);
   expect(writes()).toHaveLength(0);
 });
 

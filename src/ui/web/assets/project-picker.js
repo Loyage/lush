@@ -2,7 +2,6 @@ import { api } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { el } from './dom.js';
 import { projectHref, projectRoute } from './route.js';
-import { projectDevelopment } from './project-development.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
 
@@ -251,12 +250,12 @@ function managerForm() {
 }
 
 export async function openProjectManager({ push = true } = {}) {
-  const identity = activateDetailView({ view: 'project-management', title: '项目管理', context: '工作台', hint: '目录入口、后台维护与总览卡片配置', push, hash: '#project-management' });
+  const identity = activateDetailView({ view: 'project-management', title: '项目管理', context: '工作台', hint: '目录入口与后台维护', push, hash: '#project-management' });
   const panel = node('detail');
   const view = el('div', undefined, 'workbench-view project-manager');
   const head = el('header', undefined, 'workbench-hero');
   head.append(el('span', 'PROJECT MANAGEMENT', 'eyebrow'), el('h1', '项目管理'),
-    el('p', '登记项目、管理后台与配置总览卡片，也可向在线项目发送新指令。读取不会启动后台；维护操作仍需显式确认。', 'hint'));
+    el('p', '登记项目、管理后台，也可向在线项目发送新指令。读取不会启动后台；维护操作仍需显式确认。', 'hint'));
   const summary = el('p', '正在读取后台状态…', 'hint project-roster-summary'); summary.setAttribute('role', 'status'); head.append(summary);
   const list = el('ul', undefined, 'project-list project-manager-list'); list.id = 'project-list';
   const empty = el('div', undefined, 'workbench-empty'); empty.append(el('strong', '还没有项目入口'), el('p', '输入一个绝对目录登记项目，或先浏览设置和帮助文档。'));
@@ -269,16 +268,10 @@ export async function openProjectManager({ push = true } = {}) {
   view.append(empty, list); panel?.replaceChildren(view);
   const owner = document;
   const ownsPage = () => owner === globalThis.document && identity === ui.view && node('detail')?.querySelector('.project-manager-list') === list;
-  // Only the management page mounts functional controls.
-  const cardSettings = el('section', undefined, 'dashboard-settings-slot');
-  view.insertBefore(cardSettings, list);
-  void import('./dashboard-cards.js').then(({ createDashboardCardSettings }) => {
+  // Project lifecycle controls stay here; dashboard preferences belong to the dashboard.
+  const controlsReady = Promise.all([import('./service-restart.js'), import('./project-development.js')]).then(([{ serviceRestartControls }, { projectDevelopment }]) => {
     if (!ownsPage()) return;
-    const settings = createDashboardCardSettings({ ownsPage }); cardSettings.append(settings.root);
-    return settings.ready;
-  }).catch(error => { if (ownsPage()) cardSettings.append(el('p', `卡片配置暂不可用：${error.message}`, 'error')); });
-  const controlsReady = import('./service-restart.js').then(({ serviceRestartControls }) => {
-    if (!ownsPage()) return;
+    list.renderDevelopment = projectDevelopment;
     list.restartControls = serviceRestartControls({ ownsPage, changed: async () => {
       if (await refreshProjectList() === false) throw new Error('请显式刷新项目状态');
     } });
@@ -286,7 +279,6 @@ export async function openProjectManager({ push = true } = {}) {
     if (list.projects) paintProjects(list, list.projects);
     return list.restartControls.ready;
   }).catch(error => { if (ownsPage()) view.append(el('p', `重启控制加载失败：${error.message}`, 'error')); });
-  list.renderDevelopment = projectDevelopment;
   const request = ++managerRequest;
   try {
     const { projects = [] } = await api('/api/host/projects');
@@ -299,41 +291,25 @@ export async function openProjectManager({ push = true } = {}) {
   }
 }
 
-/** Pure dashboard: read once on entry, never mount management actions or query balances. */
+/** Reads on entry; network balance queries and shared preference writes require explicit actions. */
 export async function openProjectOverview({ push = true } = {}) {
-  const identity = activateDetailView({ view: 'projects', title: '全局总览', context: '工作台', hint: '项目与账户 · 你的卡片看板', push, hash: '#projects' });
-  const owner = globalThis.document, panel = node('detail');
-  const view = el('div', undefined, 'workbench-view project-overview');
-  const head = el('header', undefined, 'workbench-hero');
-  head.append(el('span', 'YOUR WORKSPACE', 'eyebrow'), el('h1', '全局总览'),
-    el('p', '拖动卡片整理你的工作台。项目管理与卡片配置在独立管理页。', 'hint'));
-  const loading = el('p', '正在读取卡片…', 'hint'); loading.setAttribute('role', 'status');
-  view.append(head, loading); panel?.replaceChildren(view);
-  const request = ++managerRequest;
-  const ownsPage = () => owner === globalThis.document && identity === ui.view
-    && request === managerRequest && view.parentNode === panel;
+  const identity = activateDetailView({ view: 'projects', title: '', context: '', hint: '', push, hash: '#projects' });
+  const owner = globalThis.document, panel = node('detail'), request = ++managerRequest;
+  const loading = el('p', '正在读取卡片…', 'hint'); loading.setAttribute('role', 'status'); panel?.replaceChildren(loading);
+  let view = null;
+  const ownsPage = () => owner === globalThis.document && identity === ui.view && request === managerRequest
+    && (view ? view.parentNode === panel : loading.parentNode === panel);
   try {
-    const [{ createProjectBoard }, accounts] = await Promise.all([
-      import('./project-board.js'), import('./dashboard-cards.js'),
+    const [{ createDashboardPanel }, { projectDashboardContent }] = await Promise.all([
+      import('./dashboard-panel.js'), import('./project-dashboard-content.js'),
     ]);
     if (!ownsPage()) return;
-    const results = await Promise.allSettled([api('/api/host/projects'), accounts.loadAccountCards({ ownsPage })]);
-    if (!ownsPage()) return;
-    const rows = [];
-    if (results[0].status === 'fulfilled') rows.push(...(results[0].value.projects || []));
-    else view.append(el('p', '项目卡片暂不可用，请到项目管理核对后台状态。', 'error'));
-    if (results[1].status === 'fulfilled') rows.push(...results[1].value);
-    else view.append(el('p', `账户卡片未确认：${results[1].reason.message}`, 'error'));
-    const board = createProjectBoard({ ownsPage, request: api,
-      renderCard: row => row.type === 'account' ? accounts.renderAccountCard(row)
-        : projectItem(row, refreshProjectList, { displayOnly: true, renderDevelopment: projectDevelopment }),
+    const dashboard = createDashboardPanel({ ownsPage,
+      renderProject: (row, options) => projectItem(row, refreshProjectList, { displayOnly: true,
+        renderDevelopment: value => projectDashboardContent(value, options) }),
     });
-    loading.remove(); view.append(board.root);
-    if (!rows.length && results.every(result => result.status === 'fulfilled')) {
-      const empty = el('div', undefined, 'workbench-empty');
-      empty.append(el('strong', '还没有总览卡片'), el('p', '在项目管理中登记项目，或添加账户余额卡片。')); view.append(empty);
-    }
-    await board.update(rows);
+    view = dashboard.root; panel.replaceChildren(view);
+    await dashboard.ready();
   } catch (error) { if (ownsPage()) { loading.textContent = `卡片暂不可用：${error.message}`; loading.className = 'error'; } }
 }
 

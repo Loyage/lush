@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { createUserServices } from '../src/host/user-services.js';
 
 const environment = { LUSH_GLOBAL_CONFIG: '/tmp/lush-unused-user-services' };
+const dashboardRevision = 'a'.repeat(64);
 
 test('dashboard validates before lazy construction and shutdown rejects late requests without escaping its lifecycle', async () => {
   let initialized = 0, calls = 0, closed = 0;
@@ -21,19 +22,44 @@ test('dashboard validates before lazy construction and shutdown rejects late req
 test('concurrent dashboard reads share one lazy instance and invalid cards never reach an injected writer', async () => {
   let supplied = 0, closes = 0;
   const calls = [], selected = { type: 'account', connection_id: '12345678-1234-1234-1234-123456789abc' };
-  const model = { version: 1, revision: 'v1', cards: [selected] };
+  const model = { version: 2, revision: dashboardRevision, cards: [selected], hidden_projects: [], layout: [], content: [] };
   const dependency = { get() { calls.push('get'); return model; },
-    save(cards, revision) { calls.push([cards, revision]); return model; }, close() { closes++; } };
+    save(patch, revision) { calls.push([patch, revision]); return model; }, close() { closes++; } };
   const services = createUserServices({}, { env: environment, get dashboardService() { supplied++; return dependency; } });
   try {
     expect(await Promise.all([services.readDashboard(), services.readDashboard()])).toEqual([model, model]);
     expect(supplied).toBe(2);
-    expect(await services.saveDashboard({ cards: [selected, selected], expected_revision: 'v1' })).toEqual(model);
-    expect(calls).toEqual(['get', 'get', [[selected], 'v1']]);
+    expect(await services.saveDashboard({ cards: [selected, selected], expected_revision: dashboardRevision })).toEqual(model);
+    expect(calls).toEqual(['get', 'get', [{ cards: [selected] }, dashboardRevision]]);
     await expect(services.saveDashboard({ cards: [{ ...selected, credential: 'private' }], expected_revision: 'v1' })).rejects.toThrow('invalid');
     expect(calls).toHaveLength(3);
   } finally { await services.close(); }
   expect(closes).toBe(1);
+});
+
+test('v2 requests validate every patch field before lazy construction and forward only supplied fields', async () => {
+  let initialized = 0;
+  const calls = [], id = '0123456789abcdef';
+  const services = createUserServices({}, { env: environment,
+    get dashboardService() { initialized++; return { save(patch, expected) { calls.push([patch, expected]); return patch; } }; } });
+  try {
+    const row = { id, x: 0, y: 0, w: 12, h: 6 };
+    for (const patch of [{}, { layout: null }, { layout: [{ ...row, w: 13 }] }, { layout: [row, row] },
+      { hidden_projects: ['0123456789ABCDEF'] }, { content: [{ id, sections: ['quota'] }] },
+      { content: [{ id, sections: [], token: 'PRIVATE' }] }, { cards: [], layout: [{ ...row, h: 81 }] }]) {
+      await expect(services.saveDashboard({ ...patch, expected_revision: dashboardRevision })).rejects.toThrow();
+    }
+    for (const expected_revision of ['v1', '', null, 1, 'A'.repeat(64)]) {
+      await expect(services.saveDashboard({ layout: [], expected_revision })).rejects.toThrow('revision');
+    }
+    expect(initialized).toBe(0);
+    expect(await services.saveDashboard({ layout: [row], expected_revision: dashboardRevision })).toEqual({ layout: [row] });
+    expect(await services.saveDashboard({ content: [{ id, sections: [] }], hidden_projects: [id, id],
+      expected_revision: dashboardRevision })).toEqual({ content: [{ id, sections: [] }], hidden_projects: [id] });
+    expect(initialized).toBe(2);
+    expect(calls).toEqual([[{ layout: [row] }, dashboardRevision],
+      [{ hidden_projects: [id], content: [{ id, sections: [] }] }, dashboardRevision]]);
+  } finally { await services.close(); }
 });
 
 test('shutdown during lazy initialization closes the new instance without admitting its operation', async () => {
