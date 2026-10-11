@@ -6,14 +6,18 @@ afterAll(() => dom.restore());
 const A = 'aaaaaaaaaaaaaaaa', B = 'bbbbbbbbbbbbbbbb', C = 'cccccccccccccccc';
 const row = (id, running = true) => ({ id, running, name: `项目${id[0]}`, project: `/tmp/${id[0]}` });
 const rows = [row(A), row(B), row(C, false)];
+const batchId = id => `00000000-0000-4000-8000-${id === A ? '000000000001' : '000000000002'}`;
+const maintenance = (id, patch = {}) => ({ paused: true, phase: 'pausing', ready_to_restart: false,
+  batch_id: batchId(id), completion_state: 'pending', completion_notice_id: null, ...patch });
 const button = (section, kind) => section.root.querySelector(`[data-service-restart="${kind}"]`);
 const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 function fixture(options = {}) {
   const calls = [];
-  const section = serviceRestartControls({ confirm: async () => true, request: async (url, opts) => {
+  const section = serviceRestartControls({ confirm: async () => true, schedule: () => 1, unschedule: () => {}, request: async (url, opts) => {
     calls.push([url, opts]);
-    return url === '/api/host' ? { restart_supported: true, pid: 1 } : { projects: rows };
+    return url === '/api/host' ? { restart_supported: true, pid: 1 } : opts?.method === 'POST'
+      ? maintenance(url.includes(A) ? A : B) : { projects: rows };
   }, ...options });
   section.updateProjects(rows);
   return { section, calls };
@@ -85,7 +89,7 @@ for (const [kind, method] of [['pause', 'system.interrupt_all'], ['resume', 'sys
       if (url === '/api/host') return { restart_supported: true };
       if (url === '/api/host/projects') return { projects: [row(A), row(B), row(C)] };
       if (url.includes(B)) throw new Error('写入超时');
-      return {};
+      return maintenance(A);
     } }); await section.ready; await button(section, kind).onclick();
     expect(calls.filter(([, opts]) => opts?.method === 'POST').map(([url]) => url)).toEqual([`/p/${A}/api/action`, `/p/${B}/api/action`]);
     expect(deepText(section.root)).toContain('已接受 1 个项目');

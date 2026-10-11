@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { check, id, TERMINAL } from '../types.js';
-import { HOOK_LIMITS, HOOK_TRIGGERS, HOOK_ACTIONS, normalizeHook, publicHookDefinition, hookConditionsMatch, hookRevision, hookObject } from '../hooks.js';
+import { HOOK_LIMITS, HOOK_TRIGGERS, HOOK_ACTIONS, normalizeHook, publicHookDefinition, hookConditionsMatch, hookRevision, hookObject, interruptNotifyHook } from '../hooks.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing } from './iteration.js';
 import { inheritedRunProfile } from './internal.js';
 import { nextHookRun } from '../hook-schedule.js';
@@ -57,6 +57,7 @@ function definition(project, raw, task = null) {
   }
   const value = normalizeHook(raw);
   project.validateShortcutHook(value);
+  if (task && value.trigger === 'project.interrupted') check(['main','owner'].includes(task.task_kind), 'project interruption Hooks require main/owner');
   value.actions = value.actions.map(action => {
     if (action.type === 'create_worker') {
       if (task) check(['main','owner','order'].includes(task.task_kind), 'this Worker cannot create independent order Workers');
@@ -144,8 +145,8 @@ export default {
   taskHooks(taskId) {
     const task = this.store.task(id(taskId)), data = parse(task), automatic = this.autoMergeView(task);
     const available = ownerAvailable(this, task);
-    const mounts = data.mounts.map(m => ({ id: m.id, ...readDefinition(this, m), builtin: false, locked: false,
-      editable: (available || (ownerAvailable(this, task, true) && (scheduledSelfRetry(m, task) || (m.schedule && m.enabled)))) && m.state !== 'running', removable: ['main','owner','order','child'].includes(task.task_kind) && m.state !== 'running', reason: m.state === 'running' ? 'Hook 已领取执行，不能修改' : !available && !(ownerAvailable(this, task, true) && scheduledSelfRetry(m, task)) ? 'Worker 已结束或归档' : this.shortcutHookIssue(m) ?? m.reason ?? null,
+    const mounts = data.mounts.map(m => ({ id: m.id, ...readDefinition(this, m), builtin: Boolean(m.signal_binding), locked: Boolean(m.signal_binding),
+      editable: !m.signal_binding && (available || (ownerAvailable(this, task, true) && (scheduledSelfRetry(m, task) || (m.schedule && m.enabled)))) && m.state !== 'running', removable: (!m.signal_binding || (!m.enabled && ['unknown','skipped'].includes(m.state))) && ['main','owner','order','child'].includes(task.task_kind) && m.state !== 'running', reason: m.state === 'running' ? 'Hook 已领取执行，不能修改' : !available && !(ownerAvailable(this, task, true) && scheduledSelfRetry(m, task)) ? 'Worker 已结束或归档' : this.shortcutHookIssue(m) ?? m.reason ?? null,
       state: m.state, last_execution: readExecution(this, m.last_execution),
       ...(hasCommand(m) ? { pending_count: m.command_pending ?? 0 } : {}),
       ...(m.schedule ? { next_run_at: m.next_run_at ?? null, pending_due_at: m.pending_due_at ?? null } : {}),
@@ -202,6 +203,7 @@ export default {
     const editing = hook !== null && hook !== undefined;
     check(editing ? enabled === undefined || enabled === null : typeof enabled === 'boolean', 'provide either a complete Hook or enabled, not both');
     const task = this.store.task(id(taskId)), existing = parse(task).mounts.find(m => m.id === hookId);
+    check(!existing?.signal_binding, 'batch interruption Hook is managed by the runtime');
     check(!editing || !existing?.maintenance_pending, 'Hook has a pending execution; finish or remove it before editing');
     editable(this, task, existing, !enabled); checkRevision(revision(this, task), expectedRevision);
     if (hookId === 'auto-merge') {
@@ -274,6 +276,8 @@ export default {
     check(hookId !== 'auto-merge', 'built-in automatic merge cannot be removed; use its persistent switch');
     this.store.transaction(() => {
       const data = parse(this.store.task(task.id)), index = data.mounts.findIndex(m => m.id === hookId); check(index >= 0, 'Hook mount not found');
+      check(!data.mounts[index].signal_binding || (!data.mounts[index].enabled && ['unknown','skipped'].includes(data.mounts[index].state)),
+        'batch interruption Hook is managed by the runtime');
       check(data.mounts[index].state !== 'running', 'Hook is executing; wait for its result');
       data.mounts.splice(index, 1);
       if (data.mounts.length) save(this, task.id, data); else this.store.update(task.id, { hooks: null });
@@ -306,6 +310,7 @@ export default {
     const task = this.store.task(taskId); if (!task.hooks) return;
     const data = parse(task), mounts = data.mounts.filter(m => m.trigger === trigger && (hasCommand(m)
       ? m.enabled && !['failed','unknown'].includes(m.state) && !(m.mode === 'once' && m.state === 'succeeded') : eligible(m)) && hookConditionsMatch(m, task)
+      && (!m.signal_binding || (sourceId && m.signal_binding.invocation_id === JSON.parse(this.store.get('SELECT data FROM events WHERE id=?', sourceId)?.data ?? '{}').invocation_id))
       && (!pendingOnly || m.mode === 'once' || !m.last_execution));
     if (!mounts.length) return;
     const eventId = sourceId ?? this.store.event(task.id, 'hook.triggered', { trigger });
@@ -326,7 +331,8 @@ export default {
   },
 
   queueLifecycleTaskHook(taskId, hookId, executionId) {
-    if (this.stopping || this.maintenancePaused()) return;
+    const mount = parse(this.store.task(taskId)).mounts.find(m => m.id === hookId);
+    if (this.stopping || (this.maintenancePaused() && !interruptNotifyHook(mount))) return;
     const key = `${taskId}:${hookId}:${executionId}`, queued = this.lifecycleHookQueued ??= new Set();
     if (queued.has(key)) return;
     queued.add(key);
@@ -334,12 +340,13 @@ export default {
       this.hookBatchCount = ((this.hookBatchCount ?? 0) + 1) % HOOK_LIMITS.batch;
       if (this.hookBatchCount === 0) await new Promise(resolve => setImmediate(resolve));
       await this.runTaskHook(taskId, hookId, executionId);
-    }).finally(() => queued.delete(key));
+    }).finally(() => { queued.delete(key); this.observeMaintenanceCompletion(); });
     this.hookQueue = job.catch(() => {});
   },
 
   async runTaskHook(taskId, hookId, executionId) {
-    if (this.stopping || this.maintenancePaused()) return;
+    const initial = parse(this.store.task(taskId)).mounts.find(m => m.id === hookId);
+    if (this.stopping || (this.maintenancePaused() && !interruptNotifyHook(initial))) return;
     const key = `${taskId}:${hookId}:${executionId}`;
     (this.lifecycleHookRunning ??= new Set()).add(key);
     let actionType = null;
@@ -353,7 +360,7 @@ export default {
           if (mount.receipts.some(receipt => receipt.index === index)) continue;
           actionType = action.type;
           if (this.stopping) return;
-          if (this.maintenancePaused()) {
+          if (this.maintenancePaused() && !interruptNotifyHook(mount)) {
             const data = parse(task), current = data.mounts.find(m => m.id === hookId);
             current.state = 'waiting'; current.maintenance_pending = true;
             current.last_execution.status = 'waiting'; delete current.action_started_index;

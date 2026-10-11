@@ -30,6 +30,15 @@ test('项目维护事件只承诺接受请求，不冒充已经停止或运行',
   expect(eventLabel({ type: 'maintenance.resume_blocked' })).toContain('受阻');
 });
 
+test('中断完成信号与接受中断请求分开，不冒充继续或重启', () => {
+  expect(eventLabel({ type: 'worker.interrupted' })).toBe('Worker 中断完成信号');
+  expect(eventLabel({ type: 'project.interrupted' })).toBe('项目中断完成');
+  expect(eventLabel({ type: 'project.interrupted' })).not.toBe(eventLabel({ type: 'maintenance.interrupted' }));
+  expect(eventLabel({ type: 'maintenance.cancelled' })).toBe('维护中断批次已撤销');
+  expect(eventLabel({ type: 'maintenance.unknown' })).toBe('维护中断结果待核验');
+  for (const type of ['maintenance.cancelled','maintenance.unknown']) expect(eventLabel({ type })).not.toContain('完成');
+});
+
 test('动态结算与批量合并状态事件也有中文名称', () => {
   for (const type of ['completed', 'failed', 'cancelled', ...['merge.run', 'merge.orchestrate'].flatMap(prefix =>
     ['started', 'paused', 'completed', 'failed', 'cancelled'].map(status => `${prefix}.${status}`)),

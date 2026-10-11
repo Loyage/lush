@@ -376,7 +376,8 @@ test('active management Agent pauses at a safe point, preserving occurrence and 
     await pauseExit(f, manager.id);
     expect(f.project.managementView(manager.id)).toMatchObject({ enabled: true, state: 'queued', pending_signal: { id: occurrence.id } });
     expect(f.store.get('SELECT status FROM agent_runs WHERE task_id=?', manager.id).status).toBe('preempted');
-    expect(f.project.maintenanceView().ready_to_restart).toBe(true);
+    await f.project.hookQueue;
+    expect(f.project.maintenanceView()).toMatchObject({ ready_to_restart: true, completion_state: 'completed' });
     f.project.resumeAll(); await until(() => f.provider.calls.filter(row => row.task.id === manager.id).length === 2);
     expect(call(f, manager.id).context.management.signal.id).toBe(occurrence.id);
     const result = f.project.requestManagementAction(manager.id, 'start', target.id);

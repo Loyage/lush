@@ -106,6 +106,25 @@ test('declarative editor constrains action compatibility, one-shot creation, con
   expect(form.node.querySelectorAll('.hook-action')).toHaveLength(4); expect(btn('添加动作', form.node).disabled).toBe(true);
 });
 
+test('backend interruption catalogue supplies labels and notify-only actions without model costs or UI-invented triggers', () => {
+  const interrupted = ['worker.interrupted', 'project.interrupted'];
+  const supplied = { ...catalogue,
+    triggers: [...catalogue.triggers, ...interrupted.map(id => ({ id, label: id === 'worker.interrupted' ? '中断完成信号' : '项目中断完成',
+      description: '安全收尾完成后纯告知；不继续、不重启、不调用 Agent。' }))],
+    actions: catalogue.actions.map(action => ({ ...action, triggers: action.type === 'notify' ? []
+      : action.triggers.length ? action.triggers : catalogue.triggers.map(trigger => trigger.id) })),
+  };
+  for (const trigger of interrupted) {
+    const form = createHookForm(supplied, { initial: { name: '完成提醒', trigger,
+      actions: [{ type: 'notify', title: '中断完成', body: '请核对后显式重启。' }] } });
+    expect(form.node.querySelector('[aria-label="动作类型"]').children.map(option => option.value)).toEqual(['notify']);
+    expect(deepText(form.node)).toContain('不调用 Agent'); expect(form.agentCall()).toBe(false);
+    expect(form.validate()).toBe(''); expect(form.collect().trigger).toBe(trigger);
+  }
+  const old = createHookForm(catalogue);
+  expect(old.node.querySelector('[aria-label="触发节点"]').children.map(option => option.value)).not.toContain('worker.interrupted');
+});
+
 test('Worker management is collapsed, groups actual mounts by node and keeps failure alerts visible outside it', async () => {
   activateDetailView({ view: 'task', key: 'task-20' });
   const section = workerHooks(task, { refresh() {} }); root().replaceChildren(section);

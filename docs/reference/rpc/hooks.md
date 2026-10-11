@@ -39,6 +39,10 @@
 
 挂载含 `trigger`、`mode`、`enabled`、`conditions`、安全动作摘要、`state`、`last_execution`、`editable` 与 `removable`。`removable` 与可启用状态不同：结束的 Worker 可移除未来授权，不能重新启用。`auto-merge`、`auto-accept` 是不可移除的内置挂载（验收包含归档回收，旧 auto-archive 仅历史兼容），通过一份最高级别授权配置；旧 `worker.auto_merge` 开关保留原准入。
 
+## 中断完成节点
+
+目录新增 `worker.interrupted` 与 main／owner 的 `project.interrupted`，分别为本次用户安全中断真实退出、项目维护批次全部安全收尾；首版仅允许一次性／持续 `notify`，维护期间可执行纯告知，其它动作不可安装。节点不是 RPC，未新增任意事件发射权限；自动挂载及精确来源去重见[中断完成契约](../../engineering/interrupt-completion.md)。
+
 ## 快捷指令授权
 
 `commands:{version:1,revision,items}` 为当前项目 Shell 指令目录，每项含 `{id,name,command,default_worker_id,version,authorized,last_execution}`。保存 `command:{id?,name,command,default_worker_id?}`，default_worker_id 为本项目真实 Worker 内部正整数 ID 或 null；省略时编辑保留原值，null 清空。Web 手动运行预选此 Worker，可明确改选；RPC/CLI run/start 仍要求显式 worker_id。Hook 不采用此默认，仍在挂载 Worker 目录运行。不接受任意路径、authorized、version 或额外参数；新增未授权，修改名称、内容或默认 Worker 递增版本并撤权。指令 id 是 UUID，version 必须是正整数 JSON 数字；授权/撤权必须显式给布尔 authorized 和当前版本。保存、授权、删除和执行使用 **commands.revision**，前者返回完整 Hooks 目录。

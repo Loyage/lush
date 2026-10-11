@@ -24,6 +24,10 @@ W210／D492 已移除 Worker 并发额度功能：设备设置、CLI 及状态�
 
 配置 v3、partial patch、v1/v2 只读兼容、消息有界读取、布局尺寸、模块分工与验证责任的权威契约见[总览面板](dashboard-panel.md)。此决定优先于 W199／决定 #467、#468 的只读瀑布流、浏览器独立顺序与管理页配置位置；设备私有存储、来源身份、安全读面、失败未知与不启动离线后台的边界保持。
 
+## 全局中断完成提醒（W216／D508）
+
+项目维护投影与 Worker／项目两层 Hook 新节点见[中断完成信号](interrupt-completion.md)。Host `/api/host/projects` 为每项附加严格白名单 `summary.maintenance`，保留原 `maintenance_paused`；畸形／旧字段不提供成功证据，不启动离线项目。浏览器只读观察本次确认固定范围与精确批次，全部已完成且当前空闲再提醒，不自动重启／继续，不拥有项目权威事实。来源 info Notice 在项目保存，离页停止观察，关闭页面不承诺推送。
+
 ## 设备配置分区
 
 配置基础 Worker 负责 `src/config.js`、`src/core/device-config.js`、`settings.js`、`device-migration.js`、`quick-explanation.js` 的设置类、`src/agent/` 配置／环境／网络／连接／Pi／资源／包模块、`core/agent-connections.js`、project 设置／Agent／快捷解释／包 wrappers、设置类 RPC handlers、CLI scope／config／Agent 接入及相关测试。不改 project 自动化、Host、Web assets、server.js 或 RPC registry。

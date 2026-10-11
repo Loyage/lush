@@ -273,6 +273,7 @@ export default {
     state.state = 'queued'; state.reason = '项目维护暂停，等待显式全部继续。';
     saveManagement(this, taskId, state);
     this.store.update(taskId, { status: 'queued' });
+    return true;
   },
 
   completeManagementInvocation(taskId, runId) {

@@ -11,12 +11,24 @@ import { temp, repo, env } from '../helpers.js';
 import { cli, idle } from './harness.js';
 import { fetch } from '../web/harness.js';
 
+async function interruptionComplete(client) {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const maintenance = (await client.request('system.summary')).maintenance;
+    if (maintenance.completion_state === 'completed' && maintenance.ready_to_restart) return maintenance;
+    if (['unknown','cancelled'].includes(maintenance.completion_state))
+      throw new Error(`interruption did not complete: ${maintenance.completion_state}`);
+    await Bun.sleep(20);
+  }
+  throw new Error('interruption completion evidence did not settle');
+}
+
 test('全局中断→项目后台重启→全部继续真实双daemon，保留维护门，不启动原待开始／离线／未登记项目', async () => {
   const roots = [temp(), temp(), temp(), temp()], device = temp(), dom = installDom();
   const extra = { LUSH_GLOBAL_CONFIG: device }, environment = env(extra);
   const configs = roots.map(project => new Config({ project, env: environment }));
   const clients = configs.map(config => new UIClient(config));
-  let web;
+  let web, section;
   try {
     await Promise.all(roots.map(root => repo(root)));
     const before = await Promise.all([0, 1, 3].map(index => cli(roots[index], ['daemon', 'start'], extra)));
@@ -28,7 +40,7 @@ test('全局中断→项目后台重启→全部继续真实双daemon，保留�
       const response = await fetch(url + route, options), result = await response.json();
       if (!response.ok) throw new Error(result.error); return result;
     };
-    const section = serviceRestartControls({ request, confirm: async options => {
+    section = serviceRestartControls({ request, confirm: async options => {
       if (options.title.startsWith('全部')) {
         expect(options.detail).toContain(roots[0]); expect(options.detail).toContain(roots[1]);
         expect(options.detail).not.toContain(roots[2]); expect(options.detail).not.toContain(roots[3]);
@@ -39,6 +51,28 @@ test('全局中断→项目后台重启→全部继续真实双daemon，保留�
     const button = kind => section.root.querySelector(`[data-service-restart="${kind}"]`);
     expect(button('all').disabled).toBe(true); expect(button('pause').disabled).toBe(false);
     await button('pause').onclick(); expect(deepText(section.root)).toContain('请求已接受');
+    const batches = await Promise.all(clients.slice(0, 2).map(interruptionComplete));
+    expect(batches[0].batch_id).not.toBe(batches[1].batch_id); // Project-local evidence is never a global integer identity.
+    const listed = (await request('/api/host/projects')).projects;
+    for (let i = 0; i < 2; i++) {
+      const batch = batches[i];
+      expect(batch.batch_id).toMatch(/^[0-9a-f-]{36}$/i);
+      expect(batch.completion_notice_id).toBeGreaterThan(0);
+      expect(listed.find(row => row.id === projectRouteId(roots[i])).summary.maintenance).toMatchObject({
+        paused: true, ready_to_restart: true, batch_id: batch.batch_id,
+        completion_state: 'completed', completion_notice_id: batch.completion_notice_id,
+      });
+      const notice = (await clients[i].request('notice.page', { before: batch.completion_notice_id + 1, limit: 1 })).notices[0];
+      expect(notice).toMatchObject({ id: batch.completion_notice_id, kind: 'info' });
+      expect(notice.task_id).toBeGreaterThan(0);
+      const duplicate = await clients[i].request('system.interrupt_all');
+      expect(duplicate).toMatchObject({ batch_id: batch.batch_id, completion_notice_id: batch.completion_notice_id });
+    }
+    const reminderDeadline = Date.now() + 5000;
+    while (!deepText(section.root).includes('已全部安全中断') && Date.now() < reminderDeadline) await Bun.sleep(20);
+    expect(deepText(section.root)).toContain('2 个项目已全部安全中断');
+    expect(deepText(section.root)).toContain('重启按钮仍会重新检查');
+    expect(calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(2);
     const queued = [], staged = [];
     for (const client of clients.slice(0, 2)) {
       expect((await client.request('system.summary')).maintenance).toMatchObject({ paused: true, ready_to_restart: true });
@@ -49,12 +83,16 @@ test('全局中断→项目后台重启→全部继续真实双daemon，保留�
       const restart = section.projectControl({ id: projectRouteId(roots[i]), name: '项目', project: roots[i], running: true }).querySelector('button');
       await restart.onclick();
       const summary = await clients[i].request('system.summary');
-      expect(summary.pid).not.toBe(before[i].pid); expect(summary.maintenance.paused).toBe(true);
+      expect(summary.pid).not.toBe(before[i].pid);
+      expect(summary.maintenance).toMatchObject({ paused: true, batch_id: batches[i].batch_id,
+        completion_state: 'completed', completion_notice_id: batches[i].completion_notice_id });
       expect(await clients[i].request('worker.inspect', { id: queued[i].id })).toMatchObject({ status: 'queued', calls: 0 });
     }
     await button('resume').onclick(); expect(deepText(section.root)).toContain('请求已接受');
     for (let i = 0; i < 2; i++) {
-      expect((await clients[i].request('system.summary')).maintenance.paused).toBe(false);
+      expect((await clients[i].request('system.summary')).maintenance).toMatchObject({
+        paused: false, batch_id: batches[i].batch_id, completion_state: 'cancelled', completion_notice_id: null,
+      });
       expect((await idle(clients[i], queued[i].id)).calls).toBe(1);
       expect(await clients[i].request('worker.inspect', { id: staged[i].id })).toMatchObject({ status: 'paused', calls: 0 });
     }
@@ -70,7 +108,7 @@ test('全局中断→项目后台重启→全部继续真实双daemon，保留�
     ]);
     expect(writes.some(([route]) => route.startsWith('/api/host/'))).toBe(false);
   } finally {
-    dom.restore(); await web?.stop(true);
+    section?.dispose(); dom.restore(); await web?.stop(true);
     await Promise.all(roots.map(root => cli(root, ['daemon', 'stop'], extra).catch(() => {})));
     expect(configs.every(config => !isLocked(config.home))).toBe(true);
     for (const root of [...roots, device]) fs.rmSync(root, { recursive: true, force: true });

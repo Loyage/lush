@@ -20,6 +20,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
 afterAll(() => dom.restore());
 
 const picker = await import('../../src/ui/web/assets/project-picker.js');
+const { ui } = await import('../../src/ui/web/assets/state.js');
 const ID = 'a1b2c3d4e5f60718';
 const row = { id: ID, project: '/tmp/demo', name: 'demo', connected: false, running: false, last: true, error: null };
 
@@ -84,6 +85,22 @@ test('总览挂载项目行重启及底部界面／全部按钮，确认来源�
   const all = panel.querySelector('[data-service-restart="all"]'), confirmAll = all.onclick();
   await Bun.sleep(0); expect(deepText(dom.node('modal'))).toContain('1 个在线项目');
   await dialogButton(dom, '取消').onclick(); await confirmAll;
+});
+
+test('管理页重开即使页面key未变也清理旧控制器，旧按钮不再写入，新控制器有独立代际', async () => {
+  state = { ...state, projects: [{ ...row, running: true }] };
+  await picker.openProjectManager({ push: false });
+  const previous = ui.disposeServiceRestart;
+  const old = dom.node('detail').querySelector('[data-service-restart="pause"]');
+  expect(typeof previous).toBe('function');
+  await picker.openProjectManager({ push: false });
+  expect(ui.disposeServiceRestart).not.toBe(previous);
+  const before = requests.length; await old.onclick();
+  expect(requests).toHaveLength(before);
+  const fresh = dom.node('detail').querySelector('[data-service-restart="pause"]');
+  expect(fresh).not.toBe(old); expect(fresh.disabled).toBe(false);
+  await picker.refreshProjectList();
+  expect(requests.at(-1).options.signal).toBeInstanceOf(AbortSignal);
 });
 
 test('新增项目同步预约窗口，异步 select 后不清空当前输入', async () => {

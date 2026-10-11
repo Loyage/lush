@@ -130,6 +130,41 @@ test('Host development projection is bounded, credential-free and does not turn 
   } finally { f.close(); }
 });
 
+test('Host maintenance projection retains exact batch evidence and drops invalid or private state without starting a daemon', async () => {
+  const f = setup(), batch = '18e1ad01-8e50-4e68-aac5-5aa2c7d43bf9';
+  const complete = { paused: true, phase: 'paused', ready_to_restart: true, batch_id: batch,
+    completion_state: 'completed', completion_notice_id: 42 };
+  let maintenance = { ...complete, affected: [{ id: 5, token: 'private' }], hooks: 'private', blockers: ['private'] };
+  f.binding.client.request = async () => ({ project: f.root, maintenance });
+  try {
+    await f.host.openRoute(f.id);
+    expect((await f.host.projects())[0].summary.maintenance).toEqual(complete);
+    expect(JSON.stringify(await f.host.projects())).not.toContain('private');
+    maintenance = { ...complete, ready_to_restart: false, phase: 'pausing' };
+    expect((await f.host.projects())[0].summary.maintenance).toMatchObject({ ready_to_restart: false, phase: 'pausing' });
+    for (const patch of [{ batch_id: undefined }, { batch_id: '../private' }, { batch_id: 'a'.repeat(10000) },
+      { completion_state: undefined }, { completion_state: 'ready' }, { completion_state: null },
+      { completion_notice_id: null }, { completion_notice_id: -1 }, { completion_notice_id: '42' },
+      { ready_to_restart: 'true' }, { phase: 'ready' }, { paused: 1 }]) {
+      maintenance = { ...complete, ...patch };
+      const row = (await f.host.projects())[0];
+      expect(row.running).toBe(true); expect(row.summary.maintenance).toBeUndefined();
+    }
+    for (const completion_state of ['pending','cancelled','unknown']) {
+      maintenance = { ...complete, completion_state, completion_notice_id: null };
+      expect((await f.host.projects())[0].summary.maintenance).toEqual(maintenance);
+    }
+    maintenance = { paused: false, phase: 'running', ready_to_restart: true, batch_id: null,
+      completion_state: null, completion_notice_id: null };
+    expect((await f.host.projects())[0].summary.maintenance).toEqual(maintenance);
+    maintenance = { paused: true }; // Legacy daemon: keep online/paused, never invent completion evidence.
+    const legacy = (await f.host.projects())[0];
+    expect(legacy.running).toBe(true); expect(legacy.summary.maintenance_paused).toBe(true);
+    expect(legacy.summary.maintenance).toBeUndefined();
+    expect(f.calls).toEqual([['attach', f.root]]);
+  } finally { f.close(); }
+});
+
 test('public project controls honor only allowed project registry', async () => {
   const f = setup({ allowedProjects: [] });
   try {

@@ -27,6 +27,20 @@ function developmentView(value) {
         integration: typeof row.integration === 'string' ? row.integration.slice(0, 40) : '' })) };
 }
 
+/** Completion evidence is batch-scoped; missing/invalid fields are not a ready signal. */
+function maintenanceView(value) {
+  if (!value || typeof value.paused !== 'boolean' || typeof value.ready_to_restart !== 'boolean'
+    || !['running','pausing','paused'].includes(value.phase)
+    || !(value.batch_id === null || typeof value.batch_id === 'string'
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.batch_id))
+    || ![null,'pending','completed','cancelled','unknown'].includes(value.completion_state)
+    || !(value.completion_notice_id === null || Number.isSafeInteger(value.completion_notice_id) && value.completion_notice_id > 0)
+    || (value.completion_state === null) !== (value.batch_id === null)
+    || value.completion_state === 'completed' && value.completion_notice_id === null) return null;
+  return { paused: value.paused, phase: value.phase, ready_to_restart: value.ready_to_restart,
+    batch_id: value.batch_id, completion_state: value.completion_state, completion_notice_id: value.completion_notice_id };
+}
+
 async function readProjectSummary(client) {
   try { return await client.request('system.summary', { development: true }); }
   catch (error) {
@@ -179,12 +193,13 @@ export function createProjectHost(initialConfig = null, options = {}) {
           ]);
           check(status.project === row.project, 'lushd 项目身份与登记路径不符');
           summaryBackoff.delete(row.project);
-          const development = developmentView(status.development);
+          const development = developmentView(status.development), maintenance = maintenanceView(status.maintenance);
           return { ...row, running: true, error: null, summary: { project: status.project, revision: status.revision, provider: status.provider,
             agents_total: status.agents_total ?? 0, notices: status.notices ?? 0,
             ...(Array.isArray(status.agents) ? { agents_running: status.agents.length } : {}),
             ...(development ? { development } : {}),
             ...(typeof status.maintenance?.paused === 'boolean' ? { maintenance_paused: status.maintenance.paused } : {}),
+            ...(maintenance ? { maintenance } : {}),
             ...(Number.isSafeInteger(status.pid) && status.pid > 0 ? { pid: status.pid } : {}),
             ...(typeof status.auto_select?.enabled === 'boolean' && typeof status.auto_select.revision === 'string'
               && status.auto_select.revision.length <= 256 ? { auto_select: { enabled: status.auto_select.enabled,

@@ -182,7 +182,7 @@ export async function refreshProjectList() {
   if (identity?.id !== 'project-management' || !list) return;
   const request = ++managerRequest;
   try {
-    const { projects = [] } = await api('/api/host/projects');
+    const { projects = [] } = await api('/api/host/projects', { signal: AbortSignal.timeout(10000) });
     if (request !== managerRequest || identity !== ui.view) return;
     paintProjects(list, projects);
     if (empty) {
@@ -250,6 +250,7 @@ function managerForm() {
 }
 
 export async function openProjectManager({ push = true } = {}) {
+  ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null;
   const identity = activateDetailView({ view: 'project-management', title: '项目管理', context: '工作台', hint: '目录入口与后台维护', push, hash: '#project-management' });
   const panel = node('detail');
   const view = el('div', undefined, 'workbench-view project-manager');
@@ -275,6 +276,7 @@ export async function openProjectManager({ push = true } = {}) {
     list.restartControls = serviceRestartControls({ ownsPage, changed: async () => {
       if (await refreshProjectList() === false) throw new Error('请显式刷新项目状态');
     } });
+    ui.disposeServiceRestart = list.restartControls.dispose;
     view.append(list.restartControls.root);
     if (list.projects) paintProjects(list, list.projects);
     return list.restartControls.ready;

@@ -390,6 +390,10 @@ Git 接缝新增 `prepareTaskSquashUnsafe(child,source,baseline,message)` 返回
 
 “全部中断／全部继续”采用持久项目维护门、只恢复本次影响的调用、保留父子原等待关系。接口、状态投影、分区与验证要求见[当前项目维护暂停](project-maintenance.md)。Runtime 负责 core／persistence 和 runtime tests，Interfaces 负责 RPC／server 与 API tests，UI 负责 assets／DOM，W173 负责其它文档及组合验证；不改变单 Worker 中断的非级联语义，不自动重启服务，也不跨项目调度。
 
+## 中断完成信号接缝（W216／D508）
+
+Worker 真实安全中断与项目维护批次就绪分为两个 notify-only Hook 节点；维护期间只放行纯告知。附属批次／调用身份、来源 Notice、容量原子拒绝、动态就绪与 Host 白名单、全局固定范围观察见[中断完成契约](interrupt-completion.md)。Runtime 保存权威批次与完成信号，Host 只投影来源证据，Web 汇总固定范围；不自动重启或继续。
+
 ## 可撤销中断与非阻塞继续接缝
 
 用户已确认：中断只在安全点停止，不再用 30 秒宽限期强杀。新增可空 `tasks.interrupt_state TEXT`，旧行不回填；读面（详情、列表、Worker 图）提供 `interrupt_state: 'requested'|'resuming'|null`。`requested` 表示用户希望暂停，当前 invocation 仍可安全执行工具与 RPC，真实状态保持 running；静息 Worker 直接 paused。`worker.resume` 接受 requested/paused/resuming：未认领请求则撤销暂停（仍有用户消息抢占时保留），已认领或旧调用收尾则记 queued/resuming，由内部等待真实退出后再次准入，绝不重叠调用。重复中断/继续幂等。运行设置仍在暂停意愿期间可保存，下一次 invocation 生效，不暗中改当前调用。

@@ -227,6 +227,7 @@ export default {
         break;
       }
     }
+    this.invalidateMaintenanceWorker(task.id, status);
     // Children first; the event loop cannot schedule their parents until this synchronous cascade ends.
     for (const child of this.store.children(task.id)) if (!TERMINAL.has(child.status)) this.cancel(child.id, reason);
     this.running.get(task.id)?.controller.abort(new Error(reason));
@@ -359,6 +360,7 @@ export default {
     this.recoverChoiceSnapshots();
     this.scheduledHookRecoveryClock = this.hookClock();
     this.recoveringHooks = true;
+    this.recoverMaintenanceBatch();
     this.hookRecoveredWorkers = new Set();
     this.agentUsage.start();
     this.agentConnections.start();
@@ -473,6 +475,7 @@ export default {
   async shutdown() {
     this.stopping = true;
     this.stopScheduledHookTimer();
+    this.stopMaintenanceMonitor();
     this.stopRuntimeSettingsMonitor();
     this.stopDeviceAutomationMonitor();
     const usageStopped = this.agentUsage.stop();

@@ -42,6 +42,10 @@
 
 用户追加需求与决定 #270 引入项目内具名时间信号及独立管理 Worker；并非放开开发 Agent 的用户专属权限。产品授权、数据字段、专用受限工具、RPC 和分区见[时间信号与管理契约](hook-signals-management.md)。此前定时 Worker 规则继续原行为；管理 Worker 首版仅查询、开始／继续及重试失败，不负责开发／Git 交付。
 
+## 中断完成信号（W216／D508）
+
+`worker.interrupted` 与 main／owner 上的 `project.interrupted` 分别表示本次调用安全中断真正生效、当前项目维护批次全部安全收尾。两个新节点首版仅允许纯 `notify`，在维护期间可立即执行；普通 Hook 仍等维护解除。批次／调用绑定、自动一次性挂载、容量原子拒绝、未知副作用及全局汇总契约见[中断完成信号](interrupt-completion.md)。不能把 Worker 完成或旧成功通知冒充当前可重启。
+
 ## 触发目录
 
 目录由后端统一提供，前端不得自行制造触发名称。每个节点返回 `{id,label,description}`。
@@ -53,6 +57,8 @@
 | `agent.failed` | 异常、超时或重启观测到孤儿调用；未知副作用不重放 |
 | `agent.paused` | 用户安全暂停实际生效 |
 | `agent.preempted` | 新输入安全抢占实际生效，不冒充失败 |
+| `worker.interrupted` | 用户中断已生效且当前 invocation 真正退出；仅纯告知 |
+| `project.interrupted` | 项目维护批次已确认安全收尾及真实空闲；挂在 main／owner，仅纯告知 |
 | `worker.delivery_ready` | Agent 完成工作且后代、消息、待决已收口；合并动作仍复核 Git |
 | `worker.frozen` | 整体分支写冻结从无到有 |
 | `worker.unfrozen` | 最后一项分支写冻结释放 |

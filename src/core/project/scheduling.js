@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { check, TERMINAL, LushError, isSettled, isPlainObject } from '../types.js';
@@ -134,10 +134,11 @@ export default {
       // A queued task whose dependencies are not settled stays queued; finish() re-kicks when they are.
       if ((dependencies.get(task.id) || []).some(edge => !TERMINAL.has(edge.status))) continue;
       const run = { role: task.role, controller: new AbortController(), token: randomBytes(32).toString('hex'), pid: null, promise: null, recordId: null,
-        deliveryAttempt: designatedRepair ? deliveryRepair.attempt_id : null };
+        deliveryAttempt: designatedRepair ? deliveryRepair.attempt_id : null, signalId: randomUUID() };
       this.running.set(task.id, run);
       this.store.armAgent(task.id, tokenHash(run.token));
       run.promise = this.invoke(task.id, run).catch(error => {
+        run.invocationFailed = true;
         console.error(`worker ${task.id}: ${error.stack || error}`);
       }).finally(async () => {
         // Publish actual pause / release resume intent only after the invocation
@@ -195,6 +196,8 @@ export default {
           }
         }
         this.scheduleTaskCompletion(task.id);
+        this.settleInterruptionSignal(task.id, run);
+        this.observeMaintenanceCompletion();
         this.kick();
       });
     }
@@ -245,6 +248,12 @@ export default {
     const run = this.running.get(task.id);
     if (run) run.resumeRequested = false;
     const active = run && !run.invocationEnded && !run.parked && !run.controller.signal.aborted && !run.boundaryClaimed && !claimedStop(this, task.id, run);
+    if (run && !run.controller.signal.aborted && !run.parked && (active
+      || (run.pauseBoundaryRequested && (run.boundaryClaimed || claimedStop(this, task.id, run)))
+      || (run.invocationEnded && run.providerReturned))) {
+      run.interruptionRequested = true;
+      run.pauseBoundaryRequested = true;
+    }
     this.store.transaction(() => {
       this.store.update(task.id, { ...(active ? { interrupt_state: 'requested' }
         : { status: 'paused', interrupt_state: null }), error: null });
@@ -362,6 +371,7 @@ export default {
       cancelled = !run.boundaryClaimed && !claimedStop(this, task.id, run);
       if (cancelled && run.inputPreemptRequested) this.requestPreempt(task.id, 'user message');
     }
+    this.cancelInterruptionSignal(task.id, run);
     if (run) run.resumeRequested = !cancelled;
     this.store.transaction(() => {
       this.store.update(task.id, { status: cancelled ? 'running' : 'queued',
@@ -528,6 +538,7 @@ export default {
           onSpawn: pid => { run.pid = pid; }, onPreempt: () => { run.boundaryClaimed = true; }, messages, messagesPage, api: this,
           context, forkPointer, choiceFork,
         });
+        run.providerReturned = true;
       } finally {
         run.invocationEnded = true;
         clearTimeout(timer);
@@ -589,7 +600,11 @@ export default {
       });
       // 暂停中的 Task 即使本轮正常返回也只保留结果，不自动推进状态；用户点「继续」时才恢复调度。
       if (this.store.task(taskId).status === 'paused' || this.store.task(taskId).interrupt_state || run.resumeRequested) return;
-      if (task.task_kind === 'management') { this.completeManagementInvocation(taskId, run.recordId); return; }
+      if (task.task_kind === 'management') {
+        if (run.maintenancePause && this.maintenancePaused()) run.managementPaused = this.pauseManagementInvocation(taskId, run.recordId) === true;
+        else this.completeManagementInvocation(taskId, run.recordId);
+        return;
+      }
       if (task.role === 'butler') await this.completeButler(taskId, result);
       if (TERMINAL.has(this.store.task(taskId).status)) return;
       // Deliver actionable arrivals next time; ordinary coordinator receipts wait for the wave.
@@ -658,12 +673,13 @@ export default {
       this.finish(taskId, 'completed', result);
     } catch (error) {
       run.invocationEnded = true;
+      run.invocationFailed = !(error instanceof AgentPreempted);
       // 安全抢占：Agent 在本轮工具都结束后自行收尾，不是失败、不是超时也不是取消。
       // 工作区按现状保留，这条输入下一轮就会被读到；不重建、不重放本轮已发生的副作用。
       if (taskId && this.store.task(taskId).task_kind === 'management') {
         if (error instanceof AgentPreempted && run.maintenancePreemptRequested && !run.controller.signal.aborted) {
           if (run.recordId) this.store.finishRun(run.recordId, 'preempted', { error: 'project maintenance safe boundary' });
-          this.pauseManagementInvocation(taskId, run.recordId);
+          run.managementPaused = this.pauseManagementInvocation(taskId, run.recordId) === true;
           this.store.event(taskId, 'invocation.preempted', { run_id: run.recordId, ...error.details });
           return;
         }

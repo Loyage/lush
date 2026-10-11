@@ -3,6 +3,7 @@ import { block, el } from './dom.js';
 import { confirmDialog } from './dialog.js';
 import { projectHref } from './route.js';
 import { agentHelp } from './help.js';
+import { readPref } from './prefs.js';
 
 // One foreground operation, including confirmation, across overview generations.
 let restarting = false;
@@ -11,6 +12,41 @@ const POST = { method: 'POST', headers: { 'Content-Type': 'application/json' }, 
 const login = () => location.assign(`/login?next=${encodeURIComponent(location.pathname + location.search + location.hash)}`);
 const projectName = row => `${row.name || '未命名项目'}（${row.project || row.id}）`;
 const online = row => row.running === true && !row.error;
+const positiveId = value => Number.isSafeInteger(value) && value > 0;
+const uuid = value => typeof value === 'string' && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value);
+const validBatch = value => value && typeof value.paused === 'boolean' && typeof value.ready_to_restart === 'boolean'
+  && ['running', 'pausing', 'paused'].includes(value.phase) && uuid(value.batch_id)
+  && ['pending', 'completed', 'cancelled', 'unknown'].includes(value.completion_state)
+  && (value.completion_notice_id === null || positiveId(value.completion_notice_id));
+
+// ACKs identify accepted batches only. Readiness always comes from a fresh source observation.
+function sourceRows(planned, rows) {
+  if (!Array.isArray(rows)) throw new Error('项目状态读面无效');
+  const latest = new Map();
+  for (const row of rows) {
+    if (latest.has(row.id)) throw new Error('项目状态包含重复身份');
+    latest.set(row.id, row);
+  }
+  for (const row of planned) {
+    const source = latest.get(row.id);
+    if (!source || typeof row.project !== 'string' || !row.project || source.project !== row.project || !online(source)) {
+      throw new Error(`${projectName(row)} 已移除、路径变化或不可达`);
+    }
+  }
+  return latest;
+}
+function observeBatch(batch, rows) {
+  const latest = sourceRows(batch.planned, rows);
+  let ready = 0;
+  for (const { row, ack } of batch.accepted) {
+    const maintenance = latest.get(row.id).summary?.maintenance;
+    if (!validBatch(maintenance)) throw new Error(`${projectName(row)} 缺少有效批次字段（旧后台或状态未知）`);
+    if (!maintenance.paused || maintenance.batch_id !== ack.batch_id
+      || ['cancelled', 'unknown'].includes(maintenance.completion_state)) throw new Error(`${projectName(row)} 批次已变化、撤销或结果未知`);
+    if (maintenance.completion_state === 'completed' && positiveId(maintenance.completion_notice_id) && maintenance.ready_to_restart) ready++;
+  }
+  return ready;
+}
 
 // Host probes are deliberately unprefixed, and every request as well as the entire recovery is bounded.
 export async function waitForHostRestart(pid, { fetchHost = () => fetch('/api/host', { signal: AbortSignal.timeout(2000) }),
@@ -31,15 +67,71 @@ export async function waitForHostRestart(pid, { fetchHost = () => fetch('/api/ho
 
 /** Global overview controls. Project identities are explicit, never the current page's project. */
 export function serviceRestartControls({ request = api, confirm = confirmDialog, recover = waitForHostRestart,
-  reload = () => location.reload(), ownsPage = () => true, changed = async () => {} } = {}) {
+  reload = () => location.reload(), ownsPage = () => true, changed = async () => {},
+  schedule = (fn, ms) => setTimeout(fn, ms), unschedule = id => clearTimeout(id), now = Date.now,
+  observationTimeout = 15 * 60 * 1000 } = {}) {
   const root = block('服务重启'); root.classList.add('workbench-service-restart');
-  root.append(el('p', '可先全部中断已登记的在线项目，等待调用安全退出后重启，再显式全部继续。中断与继续不自动重启服务、不启动离线项目；继续可能调用 Agent。项目后台也可在对应项目行独立重启。', 'settings-note'));
+  root.append(el('p', '可先全部中断已登记的在线项目；本页只读观测本次固定批次，全部安全中断且当前可重启时提醒，最多观测 15 分钟。离页或刷新页面会停止观测；页面关闭后不承诺推送，来源项目告知可留存。重启与继续仍需分别显式操作，不启动离线项目；继续可能调用 Agent。', 'settings-note'));
   const status = el('p', '正在读取界面服务状态…', 'settings-note');
   status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   const actions = el('div', undefined, 'settings-runtime-actions');
   const entries = new Map();
-  let host = null, projects = null;
-  const pauseHelp = '暂停此 Host 已登记在线项目的新 Agent 调用，包括子 Worker；当前调用在安全点收尾，不强杀工具。维护暂停在后台重启后保留，不自动重启服务、不启动离线项目。';
+  let host = null, projects = null, disposed = false, batch = null, timer = null, probe = null, epoch = 0;
+  let observing = false, reading = false, statusTouched = false, operationScope = null;
+  const active = () => !disposed && ownsPage();
+  const stopObservation = () => {
+    ++epoch; observing = false;
+    if (timer !== null) unschedule(timer);
+    timer = null; probe?.abort(); probe = null;
+  };
+  const dispose = () => { disposed = true; stopObservation(); globalThis.removeEventListener?.('pagehide', dispose); };
+  globalThis.addEventListener?.('pagehide', dispose);
+  const stopped = reason => {
+    stopObservation();
+    if (!active()) return;
+    status.className = 'settings-error'; status.setAttribute('aria-live', 'polite');
+    status.textContent = `本次全部中断观测已停止：${reason}。不能确认全部安全中断且可重启；已接受 ${batch?.accepted.length || 0}/${batch?.planned.length || 0} 个项目的请求仍保留，不自动重试、继续或重启。请刷新核对来源项目；页面关闭后不承诺推送，来源项目告知可留存。`;
+  };
+  const paintObservation = ready => {
+    const complete = ready === batch.planned.length;
+    // Muting reminders does not hide the operation's factual status or mutate source Notices.
+    const remind = readPref('noticeChannels').idle?.banner !== false;
+    status.className = complete && remind ? 'settings-note maintenance-ready' : 'settings-note';
+    status.setAttribute('aria-live', remind ? 'polite' : 'off');
+    // Do not announce an unchanged completion every two seconds.
+    if (complete && batch.readyCount !== ready) batch.readyObservedAt = now();
+    batch.readyCount = ready;
+    const scope = `固定范围：${batch.planned.map(projectName).join('、')}。`;
+    const message = complete
+      ? `本次固定范围 ${ready} 个项目已全部安全中断，当前观测可重启。重启按钮仍会重新检查；未自动重启、继续或写入。首次就绪观测 ${new Date(batch.readyObservedAt).toLocaleTimeString()}。${scope}`
+      : `本次 ${batch.accepted.length} 个项目的中断请求已接受；仍需安全收尾或等待后台工作退出，当前 ${ready}/${batch.planned.length} 个项目安全中断且可重启。未重启任何服务。${scope}`;
+    if (status.textContent !== message) status.textContent = message;
+  };
+  const poll = async generation => {
+    if (generation !== epoch) return;
+    timer = null;
+    if (!active()) { stopObservation(); return; }
+    if (now() >= batch.deadline) { stopped('有界观测已超时，请显式刷新核对'); return; }
+    // Even an aborted transport that settles late must not overlap another source probe.
+    if (reading) { timer = schedule(() => poll(generation), 2000); return; }
+    const controller = new AbortController(); probe = controller; reading = true;
+    try {
+      const value = await request('/api/host/projects', { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]) });
+      if (generation !== epoch || !active()) return;
+      if (now() >= batch.deadline) { stopped('有界观测已超时，请显式刷新核对'); return; }
+      paintObservation(observeBatch(batch, value?.projects));
+    } catch (error) {
+      if (generation === epoch && active()) stopped(error.message);
+      return;
+    } finally { reading = false; if (probe === controller) probe = null; }
+    if (generation === epoch && active()) timer = schedule(() => poll(generation), 2000);
+  };
+  const startObservation = () => {
+    stopObservation(); observing = true; batch.deadline = now() + observationTimeout;
+    const generation = epoch;
+    timer = schedule(() => poll(generation), 0);
+  };
+  const pauseHelp = '暂停此 Host 已登记在线项目的新 Agent 调用，包括子 Worker；当前调用在安全点收尾，不强杀工具。保存本次项目批次并只读等待就绪提醒，旧后台或部分失败不能确认全部完成。维护暂停在后台重启后保留，不自动重启服务、不启动离线项目。';
   const resumeHelp = agentHelp('解除此 Host 已登记在线项目的维护暂停，只恢复本次影响的工作及待执行工作；原先单独暂停、待开始或失败的 Worker 不自动启动，父子等待关系保留。不启动离线项目。');
   const daemonHelp = '只安全重启此项目后台；存在活动 Agent、模型调用或 Git 工作时拒绝，不强杀、不取消 Worker，也不影响其他项目。';
   const hostHelp = '只重启当前界面服务，不停止任何项目后台；连接此 Host 的所有页面会短暂断开，可能需要重新登录。请先保存未发送的输入。';
@@ -76,12 +168,15 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
     }
   };
   paintCurrent = paint;
-  const checkPage = () => { if (!ownsPage()) throw new Error('已离开项目管理；未继续执行后续操作。请回到项目管理核对状态。'); };
+  const checkPage = () => {
+    if (!active()) throw new Error('已离开项目管理；未继续执行后续操作。请回到项目管理核对状态。');
+    if (operationScope) sourceRows(operationScope, projects);
+  };
   const post = async (route, body = POST.body) => { checkPage(); return request(route, { ...POST, body, signal: AbortSignal.timeout(30000) }); };
   const run = async (target, entry = null) => {
     const maintenance = target === 'pause' || target === 'resume';
     const verb = target === 'pause' ? '中断' : '继续';
-    if (!ownsPage() || restarting || (maintenance ? !projects?.some(online) : target !== 'daemon' && host?.restart_supported !== true)
+    if (!active() || restarting || (maintenance ? !projects?.some(online) : target !== 'daemon' && host?.restart_supported !== true)
       || (entry && (!entry.present || !online(entry.row)))) return;
     restarting = true; paint();
     const completed = [];
@@ -97,8 +192,10 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
         planned = value.projects.filter(online).map(row => {
           projectHref(row.id); // Reject malformed identities before any mutation.
           if (ids.has(row.id)) throw new Error('后台列表包含重复项目，未执行操作');
+          if (maintenance && (typeof row.project !== 'string' || !row.project)) throw new Error('项目路径身份缺失，未执行维护操作');
           ids.add(row.id); return { ...row };
         });
+        projects = value.projects; paint();
       }
       if (maintenance && !planned.length) { status.textContent = '没有已确认在线的项目；未执行维护请求，不会启动离线项目。'; return; }
       const help = maintenance ? target === 'pause' ? pauseHelp : resumeHelp : target === 'all' ? allHelp : entry ? daemonHelp : hostHelp;
@@ -108,50 +205,63 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
         detail: scope, confirmLabel: maintenance ? `全部${verb}` : '确认重启', confirmHelp: help, agent: target === 'resume' });
       if (!accepted) return;
       checkPage();
-      status.className = 'settings-note';
+      stopObservation(); statusTouched = true;
+      batch = target === 'pause' ? { planned, accepted: [], deadline: null } : null;
+      operationScope = maintenance ? planned : null;
+      status.className = 'settings-note'; status.setAttribute('aria-live', 'polite');
       if (!maintenance && target !== 'daemon') {
         host = await request('/api/host', { signal: AbortSignal.timeout(4000) });
         checkPage();
         if (host.restart_supported !== true) throw new Error(unsupportedHelp);
       }
       for (const row of planned) {
-        current = row;
+        checkPage(); current = row;
         status.textContent = `正在${maintenance ? verb : '重启'} ${projectName(row)}…（已完成 ${completed.length}/${planned.length}）`;
-        if (maintenance) await post(projectHref(row.id, '/api/action'), JSON.stringify({
-          method: target === 'pause' ? 'system.interrupt_all' : 'system.resume_all', params: {},
-        }));
-        else await post(projectHref(row.id, '/api/service/restart'));
-        completed.push(row); current = null;
+        if (maintenance) {
+          const ack = await post(projectHref(row.id, '/api/action'), JSON.stringify({
+            method: target === 'pause' ? 'system.interrupt_all' : 'system.resume_all', params: {},
+          }));
+          completed.push(row); current = null;
+          if (target === 'pause') {
+            // Keep every accepted result, including malformed/unknown ACKs. Never retry it.
+            batch.accepted.push({ row, ack: ack && typeof ack === 'object' ? { ...ack } : ack });
+            if (!validBatch(ack) || !ack.paused || ['cancelled', 'unknown'].includes(ack.completion_state)) {
+              throw new Error(`${projectName(row)} 已接受请求但缺少可观测批次或结果未知，停止后续提交`);
+            }
+          }
+        } else { await post(projectHref(row.id, '/api/service/restart')); completed.push(row); current = null; }
       }
       if (maintenance || target === 'daemon') {
         status.textContent = maintenance ? `${completed.length} 个项目的全部${verb}请求已接受：${completed.map(projectName).join('、')}。${target === 'pause'
           ? '当前调用仍需安全收尾；可重启状态以后台检查为准，暂停在重启后保留。'
           : '只恢复本次影响的工作及待执行工作，仍按父子等待关系与安全门调度，不代表已经运行。'} 未重启任何服务。`
           : `${projectName(planned[0])} 后台已重启；其他项目与界面服务未重启。`;
-        if (ownsPage()) {
+        if (active()) {
           try { await changed(); }
-          catch (error) { if (ownsPage()) status.textContent += ` 列表刷新失败：${error.message}；不要重复${maintenance ? '提交维护请求' : '重启'}。`; }
+          catch (error) { if (active()) status.textContent += ` 列表刷新失败：${error.message}；不要重复${maintenance ? '提交维护请求' : '重启'}。`; }
+          if (target === 'pause' && active()) startObservation();
         }
       } else {
         status.textContent = `已完成 ${completed.length} 个项目后台重启，正在重启界面服务并等待恢复连接…`;
         hostAttempted = true;
         await post('/api/host/restart');
-        if (await recover(host.pid) && ownsPage()) reload();
+        if (await recover(host.pid) && active()) reload();
       }
     } catch (error) {
       // Never infer that a timed-out write did not happen; never retry a mutation.
-      if (ownsPage()) {
-        status.className = 'settings-error';
+      stopObservation();
+      if (active()) {
+        statusTouched = true; status.className = 'settings-error';
         const done = completed.length ? `已成功重启 ${completed.length} 个项目后台：${completed.map(projectName).join('、')}。` : '没有已确认成功的项目后台重启。';
         const failed = current ? `${projectName(current)} 重启失败或结果未确认；后续 ${planned.length - completed.length - 1} 个项目未执行，界面服务未重启。`
           : hostAttempted ? '界面服务重启或恢复失败／未确认。' : '未继续重启后续项目或界面服务。';
         status.textContent = maintenance
           ? `已接受 ${completed.length} 个项目的全部${verb}请求${completed.length ? `：${completed.map(projectName).join('、')}` : ''}。${current
             ? `${projectName(current)} 请求失败或结果未确认；后续 ${planned.length - completed.length - 1} 个项目未执行。`
-            : '未继续提交后续请求。'} ${error.message} 未重启任何服务。请刷新核对状态，不自动重试或撤销已接受的请求。`
+            : `后续 ${planned.length - completed.length} 个项目未执行。`} ${error.message} 未重启任何服务。${target === 'pause' ? '不能确认全部安全中断且可重启，' : ''}请刷新核对状态，不自动重试或撤销已接受的请求。`
           : `${done} ${failed} ${error.message} 请核对状态后再操作，不要盲目重复重启已完成的后台。`;
       }
-    } finally { restarting = false; paint(); paintCurrent(); }
+    } finally { operationScope = null; restarting = false; paint(); paintCurrent(); }
   };
   hostControl.button.onclick = () => run('host'); allControl.button.onclick = () => run('all');
   pauseControl.button.onclick = () => run('pause'); resumeControl.button.onclick = () => run('resume');
@@ -172,17 +282,29 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
     const latest = new Map(rows.map(row => [row.id, row]));
     for (const [id, entry] of entries) { entry.present = latest.has(id); if (entry.present) entry.row = latest.get(id); }
     paint();
+    // Explicit list refresh invalidates a stale ready banner; it never starts a new write or observation.
+    if (observing && batch && active()) {
+      // A newer explicit refresh supersedes an in-flight probe, even if its response arrives later.
+      stopObservation();
+      try {
+        if (now() >= batch.deadline) throw new Error('有界观测已超时，请显式刷新核对');
+        paintObservation(observeBatch(batch, rows));
+        observing = true;
+        const generation = epoch;
+        timer = schedule(() => poll(generation), 2000);
+      } catch (error) { stopped(error.message); }
+    }
   };
   paint();
   const ready = request('/api/host', { signal: AbortSignal.timeout(4000) }).then(value => {
-    if (!ownsPage()) return;
+    if (!active()) return;
     host = value;
-    if (!restarting) status.textContent = host?.restart_supported === true ? '重启前会确认项目与界面影响范围；后台忙碌时拒绝，不强杀。' : unsupportedHelp;
+    if (!restarting && !statusTouched) status.textContent = host?.restart_supported === true ? '重启前会确认项目与界面影响范围；后台忙碌时拒绝，不强杀。' : unsupportedHelp;
     paint();
   }).catch(error => {
-    if (!ownsPage()) return;
-    if (!restarting) { status.className = 'settings-error'; status.textContent = `无法读取界面服务状态：${error.message}`; }
+    if (!active()) return;
+    if (!restarting && !statusTouched) { status.className = 'settings-error'; status.textContent = `无法读取界面服务状态：${error.message}`; }
     paint();
   });
-  return { root, projectControl, updateProjects, ready };
+  return { root, projectControl, updateProjects, ready, dispose };
 }
