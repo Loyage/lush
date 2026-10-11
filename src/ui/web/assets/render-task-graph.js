@@ -459,23 +459,20 @@ export function renderTaskGraph(graph) {
   }, 'ghost task-graph-status-reset', { help: '清除状态筛选，重新显示所有状态的 Worker。' }));
   if (decisions) summary.append(badge(`${decisions} 待决`, 'b-awaiting'));
   if (archivedCount) {
-    const toggle = el('label', undefined, 'task-graph-mode task-graph-archived-toggle');
-    const archived = el('input');
-    archived.type = 'checkbox';
-    archived.checked = ui.taskGraphShowArchived;
-    archived.dataset.graphFocus = 'show-archived';
-    archived.onchange = () => {
+    const toggle = button(`显示已回收历史（${archivedCount}）`, () => {
       if (hasPendingInput()) {
-        archived.checked = ui.taskGraphShowArchived;
         show('请先提交或清空正在编辑的待决答复，再切换归档显示。');
         return;
       }
-      ui.taskGraphShowArchived = archived.checked;
+      ui.taskGraphShowArchived = !ui.taskGraphShowArchived;
       renderTaskGraph(full);
       host.querySelector('[data-graph-focus="show-archived"]')?.focus({ preventScroll: true });
-    };
-    toggle.append(archived, el('span', `显示已回收历史（${archivedCount}）`));
-    toggle.setAttribute('data-help', '显示验收即归档或显式清理资源后保留的 Worker 运行历史，包含随父 Worker 归档的历史内部合并队列。资源回收不等于工作成功，也不等于删除运行记录；这里只改变当前页面显示，不写库、不改 Worker 状态，重开页面仍默认隐藏。');
+    }, 'badge task-graph-status-toggle task-graph-archived-toggle', {
+      help: '点击切换已回收历史的显隐，包含验收即归档或显式清理资源后保留的 Worker 运行历史，以及随父 Worker 归档的历史内部合并队列。资源回收不等于工作成功，也不等于删除运行记录；这里只改变当前页面显示，不写库、不改 Worker 状态，重开页面仍默认隐藏。',
+    });
+    toggle.dataset.graphFocus = 'show-archived';
+    toggle.setAttribute('aria-pressed', String(ui.taskGraphShowArchived));
+    if (!ui.taskGraphShowArchived) toggle.classList.add('is-off');
     summary.append(toggle);
   }
   const mode = el('label', undefined, 'task-graph-mode');

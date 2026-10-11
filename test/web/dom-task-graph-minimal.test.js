@@ -179,13 +179,13 @@ test('极简与完整视图共用折叠、状态筛选和归档开关', async ()
   graph.nodes[2].archived = true;
   renderTaskGraph(graph);
   expect(card(3)).toBeNull();
-  const archived = dom.node('detail').querySelector('.task-graph-archived-toggle').querySelector('input');
-  archived.checked = true; archived.onchange();
+  const archived = dom.node('detail').querySelector('.task-graph-archived-toggle');
+  await archived.onclick();
   expect(deepText(card(3))).toContain('已归档');
   expect(document.activeElement.dataset.graphFocus).toBe('show-archived');
   await enableDetails();
   expect(document.activeElement).toBe(mode());
-  expect(dom.node('detail').querySelector('.task-graph-archived-toggle').querySelector('input').checked).toBe(true);
+  expect(dom.node('detail').querySelector('.task-graph-archived-toggle').getAttribute('aria-pressed')).toBe('true');
   expect(card(3)).toBeTruthy();
 });
 
@@ -221,9 +221,11 @@ test('切换归档显示不丢弃未提交的待决答复，也不提前改变�
   renderTaskGraph(graph);
   const input = card(3).querySelector('textarea');
   input.value = '我还在写';
-  const archived = dom.node('detail').querySelector('.task-graph-archived-toggle').querySelector('input');
-  archived.checked = true; archived.onchange();
-  expect(archived.checked).toBe(false);
+  const archived = dom.node('detail').querySelector('.task-graph-archived-toggle');
+  await archived.onclick();
+  expect(archived.getAttribute('aria-pressed')).toBe('false');
+  expect(archived.classList.contains('is-off')).toBe(true);
+  expect(archived.disabled).toBe(false);
   expect(ui.taskGraphShowArchived).toBe(false);
   expect(card(2)).toBeNull();
   expect(card(3).querySelector('textarea')).toBe(input);
