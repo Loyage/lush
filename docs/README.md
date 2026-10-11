@@ -12,7 +12,7 @@
 6. [Agent 配置与运行设置](reference/agent-configuration.md)：Lush/Pi 双模式、来源和额度 CLI、模型缓存与插件/Skills 管理；[Agent 账号连接](reference/rpc/agents.md#托管账号连接)：多账号资源、密钥/OAuth登录、显式 Pi 连接选择和额度历史；[共享模型选择接口](engineering/managed-model-selection.md)说明兼容 API 与未来策略扩展边界。
 
 7. [项目出站网络代理](engineering/outbound-network.md)：项目后台与 Agent 的代理范围、私有配置、三种模式和远端执行位置；不同于模型端点或 Host 入站代理。
-8. [快捷解释](quick-explanation.md)：选中文字右键解释、独立来源/Prompt 设置与项目历史（旧介绍 Agent 入口仍关闭）。
+8. [快速对话](quick-chat.md)：全局纯文本交流、引用与右键 Prompt、独立 C 对话历史；[旧解释历史](quick-explanation.md)保留在原项目。
 9. [全部中断、重启与全部继续](project-maintenance.md)：当前项目持久维护暂停、安全重启窗口和父子 Worker 的恢复安排。
 10. [原生只读终端观看器](native-viewer.md)：Pi 原生渲染、滚动与工具展开；只看已记录步骤，不启动 Agent 或逐字直播。
 

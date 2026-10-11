@@ -78,9 +78,11 @@ W116 / 待决 #261 批准设备同系统用户共享技术配置，项目/Worker
 
 服务维护另有用户专属的 `system.stop_if_idle {}`：daemon 同步拒绝有活动调用或 Git/合并工作的重启请求，准入后封闭新调度并正常停止。Host 的项目重启入口负责等待退出、启动新进程；Host 自身重启独立进行，不停止项目。完整 HTTP 与返回字段见[服务重启](../reference/web-routes.md#服务重启)。
 
-## 快捷解释
+## 快速对话与旧快捷解释
 
-新增用户专属 `quick_explain.config/configure/start/followup/get/list/delete`，仅用于项目内所选文字的直连模型阅读辅助，不创建 Worker、Input、分支或 Agent invocation；`followup` 在同一条解释上追加多轮追问，沿用原来源/Prompt 快照。来源复用现有受支持 Chat Completions API Key 连接；独立设置与全历史页为 `#quick-explain`。旧 `intro.*` / `explanation.*` 仍无公开入口，不恢复旧解释 Agent。配置、历史与安全边界见[快捷解释契约](quick-explanation.md)。
+新快速对话仅通过根 Host 用户 API `/api/host/quick-chat/**`，不新增项目 RPC 或 Agent API，不创建 Worker／Input。全局 C 历史、Prompt 管理、固定模型快照与请求安全以[快速对话契约](quick-chat.md)为准；旧 `#quick-explain` 设置书签引导新设置，旧项目历史保持。
+
+兼容的用户专属 `quick_explain.config/configure/start/followup/get/list/delete`，仅用于项目内所选文字的直连模型阅读辅助，不创建 Worker、Input、分支或 Agent invocation；`followup` 在同一条解释上追加多轮追问，沿用原来源/Prompt 快照。来源复用现有受支持 Chat Completions API Key 连接；旧项目历史入口为 `#quick-explain-history`。旧 `intro.*` / `explanation.*` 仍无公开入口，不恢复旧解释 Agent。配置、历史与安全边界见[快捷解释契约](quick-explanation.md)。
 
 ## 移除与磁盘边界
 

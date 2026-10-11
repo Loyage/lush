@@ -78,7 +78,9 @@ const openSettings = () => openPage(() => import('./render-settings.js'), module
 const openAgentStatus = () => openPage(() => import('./render-agent-status.js'), module => module.openAgentStatus(), 'agent-status');
 const openVersions = () => openPage(() => import('./render-versions.js'), module => module.openVersions(), 'versions');
 const openHooks = () => openPage(() => import('./render-hooks.js'), module => module.openHooks(), 'hooks');
-const openQuickExplanationPage = () => openPage(() => import('./render-quick-explanation.js'), module => module.openQuickExplanationPage(), 'quick-explain');
+const openQuickChatPage = () => openPage(() => import('./render-quick-chat.js'), module => module.openQuickChatPage(), 'quick-chat');
+const openQuickChatSettings = () => openPage(() => import('./render-quick-chat.js'), module => module.openQuickChatSettings(), 'quick-chat-settings');
+const openQuickChatConversation = id => openPage(() => import('./render-quick-chat.js'), module => module.openQuickChatConversation(id), 'quick-chat-conversation', { key: `quick-chat-C${id}`, hash: `#quick-chat-C${id}` });
 const openQuickExplanationHistory = () => openPage(() => import('./render-quick-explanation.js'), module => module.openQuickExplanationHistory(), 'quick-explain-history');
 const openAutomation = () => openPage(() => import('./render-workspace-automation.js'), module => module.openWorkspaceAutomation(), 'automation');
 const openGlobalInbox = (options = {}) => openPage(() => import('./global-inbox.js'), module => module.openGlobalInbox(options), 'global-inbox',
@@ -107,7 +109,7 @@ function globalPageRedirect(hash) {
   const link = el('a', '打开用户工作台页面', 'primary'); link.href = workspaceHref(hash); link.target = '_blank'; link.rel = 'noopener'; box.append(link);
   const back = el('a', '返回项目概览', 'ghost'); back.href = `\u0023`; box.append(back); $('detail').replaceChildren(box);
 }
-const deviceHash = hash => /^#(?:settings|agent-status|model-sources|model-source-[a-f0-9-]+|quick-explain|automation|notices-(?:all|open|unread|automatic|failed)|notices-project-[a-f0-9]{16}(?:-(?:all|open|unread|automatic|failed))?|inbox-notice-[a-f0-9]{16}-[1-9]\d*)$/.test(hash);
+const deviceHash = hash => /^#(?:settings|agent-status|model-sources|model-source-[a-f0-9-]+|quick-explain|quick-chat(?:-settings|-C[1-9]\d*)?|automation|notices-(?:all|open|unread|automatic|failed)|notices-project-[a-f0-9]{16}(?:-(?:all|open|unread|automatic|failed))?|inbox-notice-[a-f0-9]{16}-[1-9]\d*)$/.test(hash);
 let hashGeneration = 0;
 function onHashChange() {
   const generation = ++hashGeneration; hideHelp();
@@ -121,7 +123,10 @@ function onHashChange() {
     if (hash === '#model-sources') return ui.view?.id === 'model-sources' ? undefined : openSources();
     const source = /^#model-source-([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i.exec(hash);
     if (source) return openSources(source[1]);
-    if (hash === '#quick-explain') return ui.view?.id === 'quick-explain' ? undefined : openQuickExplanationPage();
+    if (hash === '#quick-explain' || hash === '#quick-chat-settings') return ui.view?.id === 'quick-chat-settings' ? undefined : openQuickChatSettings();
+    if (hash === '#quick-chat') return ui.view?.id === 'quick-chat' ? undefined : openQuickChatPage();
+    const conversation = /^#quick-chat-C([1-9]\d*)$/.exec(hash);
+    if (conversation && Number.isSafeInteger(Number(conversation[1]))) return ui.view?.key === `quick-chat-C${conversation[1]}` ? undefined : openQuickChatConversation(Number(conversation[1]));
     if (hash === '#automation' || hash === '#hooks') return ui.view?.id === 'automation' ? undefined : openAutomation();
     if (doc) return openDocsView(doc.id);
     const notice = /^#inbox-notice-([a-f0-9]{16})-([1-9]\d*)$/.exec(hash);
@@ -177,7 +182,8 @@ function initGlobalNavigation() {
   workspaceLink('settings-open', '#settings', openSettings);
   workspaceLink('agent-status-open', '#agent-status', openAgentStatus);
   workspaceLink('model-sources-open', '#model-sources', () => openSources());
-  workspaceLink('quick-explain-open', '#quick-explain', openQuickExplanationPage);
+  workspaceLink('quick-chat-open', '#quick-chat', openQuickChatPage);
+  workspaceLink('quick-explain-open', '#quick-chat-settings', openQuickChatSettings);
   workspaceLink('docs-open', '#docs', () => openDocsView());
 }
 /** Repeated boot must dispose global and project polling separately; late imports cannot bind an older DOM. */

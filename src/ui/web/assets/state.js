@@ -29,6 +29,7 @@ export const ui = {
   statisticsOpen: false, statisticsFilters: null,
   agentStatusPage: null, // 页面与查询身份；仅进入 Agent 状态和手动刷新时取数。
   versionsPage: null, // main 历史固定 tip、分页与请求身份；仅显式读取。
+  quickChatPage: null, disposeQuickChatPage: null, syncQuickChatReferences: null, composerChatMode: null,
   quickExplanationPage: null, closeQuickExplanationPanel: null, // 项目解释页身份与阅读浮层清理接缝。
   inputsPage: null, // 全库输入搜索、分页与本地编辑；不受 overview 轮询影响。
   hooksPage: null, hookCatalogue: null, hookCataloguePending: null,
@@ -85,6 +86,7 @@ export const mergeSelection = new Set();
  */
 export function resetUiState() {
   ui.hostSession = { status: 'unread', username: null, pending: null };
+  ui.disposeQuickChatPage?.(); ui.quickChatPage = null; ui.disposeQuickChatPage = null; ui.syncQuickChatReferences = null; ui.composerChatMode = null;
   ui.quickExplanationPage = null;
   ui.view = null; ui.inputsPage = null; ui.hooksPage = null; ui.hookCatalogue = null; ui.hookCataloguePending = null; ui.deletedWorkerIds = new Set(); ui.workerNumbers = new Map();
   ui.composerParents = []; ui.composerIdentity = null; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerError = null; ui.syncComposer = null; ui.composerEditRevision = 0; ui.composerReferenceRevision = 0;

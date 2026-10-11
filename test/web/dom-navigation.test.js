@@ -82,7 +82,7 @@ test('项目所有全局入口都在独立根标签打开，保留输入、选�
   dom.window.open = href => { opened.push(href); return null; };
   dom.node('input').value = '未发送输入'; dom.node('detail').scrollTop = 140; dom.setSelection('阅读选区');
   try {
-    for (const [id, hash] of [['projects', 'projects'], ['settings', 'settings'], ['global-inbox', 'notices'], ['automation', 'automation'], ['model-sources', 'model-sources'], ['agent-status', 'agent-status'], ['quick-explain', 'quick-explain'], ['docs', 'docs']]) {
+    for (const [id, hash] of [['projects', 'projects'], ['settings', 'settings'], ['global-inbox', 'notices'], ['automation', 'automation'], ['model-sources', 'model-sources'], ['agent-status', 'agent-status'], ['quick-chat', 'quick-chat'], ['quick-explain', 'quick-chat-settings'], ['docs', 'docs']]) {
       await dom.node(`${id}-open`).onclick(); expect(opened.at(-1)).toBe(`/#${hash}`);
       expect(dom.node(`${id}-open`).target).toBe('_blank'); expect(ui.view.id).toBe('overview');
       expect(dom.node('input').value).toBe('未发送输入'); expect(dom.node('detail').scrollTop).toBe(140); expect(dom.window.getSelection().toString()).toBe('阅读选区');
@@ -283,7 +283,7 @@ test('直接链接启动复用同一路由，重复 boot 不复制导航', async
     expectSelected(id);
     expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(2);
   }
-  for (const hash of ['#settings', '#agent-status', '#model-sources', '#automation', '#docs', '#quick-explain']) {
+  for (const hash of ['#settings', '#agent-status', '#model-sources', '#automation', '#docs', '#quick-explain', '#quick-chat', '#quick-chat-settings', '#quick-chat-C1', '#quick-chat-C35']) {
     dom.location.hash = hash; await boot(); expect(ui.view.id).toBe('workspace-link');
     expect(dom.node('detail').querySelector('a').href).toBe(`/${hash}`);
     expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(2);

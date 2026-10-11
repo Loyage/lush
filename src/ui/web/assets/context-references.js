@@ -2,8 +2,8 @@ import { $, button, el } from './dom.js';
 import { show } from './messages.js';
 import { detail, resource } from './navigate.js';
 import { transcriptOpen, ui } from './state.js';
-import { startQuickExplanation } from './quick-explanation.js';
 import { modelHelp } from './help.js';
+import { explanationLocation } from './quick-explanation.js';
 import { workbenchStatus } from './project-picker.js';
 import { revealDetailPreview } from './detail-preview.js';
 
@@ -11,7 +11,7 @@ const MAX_REFERENCES = 12;
 const MAX_QUOTE = 8192;
 const MAX_REFERENCE_BYTES = 48 * 1024;
 const descriptors = new WeakMap();
-let handlers = null;
+let handlers = null, menuGeneration = 0;
 
 const textOf = node => String(node?.innerText ?? node?.textContent ?? '').replace(/\s+/g, ' ').trim();
 const parentOf = node => node?.parentElement ?? node?.parentNode ?? null;
@@ -168,6 +168,7 @@ export function renderComposerReferences() {
     chip.append(label, remove); return chip;
   }));
   holder.hidden = ui.composerReferences.length === 0;
+  ui.syncComposer?.(); ui.syncQuickChatReferences?.();
 }
 
 let flashNode = null, flashTimer = null;
@@ -233,22 +234,24 @@ export async function locateReference(reference) {
   flashLocated(found);
   return true;
 }
-function hideMenu() { const menu = $('context-menu'); if (menu) menu.hidden = true; }
+function hideMenu() { menuGeneration++; const menu = $('context-menu'); if (menu) menu.hidden = true; }
 function showMenu(event, values, introduce = null) {
   const menu = $('context-menu');
   if (!menu || !values.length) return;
   menu.replaceChildren(...values.map(value => button(`引用：${value.label}`, () => { addComposerReference(value); hideMenu(); }, 'context-action')));
-  if (introduce) menu.prepend(button(introduce.label, () => { hideMenu(); void introduce.run(); }, 'context-action',
-    { agent: true, help: introduce.help }));
+  for (const entry of [...(introduce || [])].reverse()) menu.prepend(button(entry.label, () => { hideMenu(); return entry.run(); }, 'context-action',
+    { agent: true, help: entry.help }));
   const width = Number(globalThis.innerWidth || 0), height = Number(globalThis.innerHeight || 0);
   const left = width ? Math.min(event.clientX ?? 0, Math.max(8, width - 370)) : (event.clientX ?? 0);
-  const top = height ? Math.min(event.clientY ?? 0, Math.max(8, height - 260)) : (event.clientY ?? 0);
+  const top = height ? Math.min(event.clientY ?? 0, Math.max(8, height - 268)) : (event.clientY ?? 0);
   // Keep the source selection intact when clicking an action with the mouse.
   menu.onmousedown = event => event.preventDefault?.();
   menu.style.left = `${Math.max(8, left)}px`; menu.style.top = `${Math.max(8, top)}px`; menu.hidden = false;
   event.preventDefault?.();
 }
-function onContextMenu(event) {
+async function onContextMenu(event) {
+  const generation = ++menuGeneration, owner = globalThis.document;
+  if (excluded(event.target)) { hideMenu(); return; }
   const selected = selectionReference(event.target);
   const semantic = semanticOptions(event.target);
   const generic = genericReference(event.target);
@@ -257,10 +260,24 @@ function onContextMenu(event) {
   // Only an actual selection can trigger a model call. References retain their bounded snapshot,
   // while explanation receives the full selected text and rejects oversize instead of truncating it.
   const quote = selected ? String(window.getSelection()?.toString?.() || '').trim() : '';
-  const introduce = selected && workbenchStatus().projectUsable ? { label: '解释',
-    help: modelHelp('只将所选文字与页面位置发送给快捷解释配置中的 API，结果保存在当前项目历史；不创建 Worker'),
-    run: () => startQuickExplanation(quote, selected.location) } : null;
-  if (values.length) showMenu(event, values, introduce); else hideMenu();
+  if (values.length) showMenu(event, values); else { hideMenu(); return; }
+  if (!selected) return;
+  try {
+    const module = await import('./quick-chat.js'), config = await module.quickChatConfig();
+    if (generation !== menuGeneration || owner !== globalThis.document || $('context-menu').hidden
+      || String(window.getSelection()?.toString?.() || '').trim() !== quote) return;
+    const actions = (config.prompts || []).filter(prompt => prompt.context_menu).map(prompt => ({ label: prompt.name,
+      help: modelHelp(`使用“${prompt.name}”处理所选文字（${explanationLocation(selected.location)}），保存为全局 C 对话并在新标签打开；${workbenchStatus().projectUsable ? '原项目' : '原全局'}页面保留，不创建 Worker，不执行工具`),
+      run: () => module.startSelectionChat(prompt.id, quote, selected) }));
+    showMenu(event, values, actions);
+    if (!config.model?.ready && actions.length) {
+      const note = el('a', config.model?.reason || '请先配置快速对话模型'); note.href = '/#quick-chat-settings'; note.target = '_blank'; note.rel = 'noopener'; $('context-menu').append(note);
+    }
+  } catch (error) {
+    if (generation === menuGeneration && owner === globalThis.document && !$('context-menu').hidden) {
+      $('context-menu').append(el('p', `快速对话菜单读取失败：${error.message}；引用仍可使用。`, 'hint'));
+    }
+  }
 }
 function onClick(event) { if (!inside(event.target, $('context-menu'))) hideMenu(); }
 function onKeydown(event) { if (event.key === 'Escape') hideMenu(); }

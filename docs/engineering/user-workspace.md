@@ -6,7 +6,11 @@
 
 每项目一个 lushd；`Config.home`、`LUSH_HOME`、Store、Git 和 Worker 身份不改变。设备根沿用 `launcherStateDir(env)/shared`。Host 只管理用户配置、聚合读面与来源转发，不持有 Worker 权威事实、不调度跨项目工作。
 
-项目统一使用 `/p/<project-id>/` 页面；根页面为用户工作台，即便 Host 以单项目模式启动。既有单项目无前缀 API 可保持兼容，但新前端不以根路径冒充项目身份。根 hash 保留 `#projects`、`#notices`、`#settings`、`#agent-status`、`#model-sources`、`#quick-explain`、`#automation` 和文档；项目页旧设备设置 hash 引导独立根页面，不在项目 shell 编辑设置。
+项目统一使用 `/p/<project-id>/` 页面；根页面为用户工作台，即便 Host 以单项目模式启动。既有单项目无前缀 API 可保持兼容，但新前端不以根路径冒充项目身份。根 hash 保留 `#projects`、`#notices`、`#settings`、`#agent-status`、`#model-sources`、`#quick-chat`、`#quick-chat-settings`、`#automation` 和文档；`#quick-explain` 引导新对话配置，项目页旧设备设置 hash 引导独立根页面，不在项目 shell 编辑设置。
+
+## 全局快速对话（W207／D486、D487）
+
+[快速对话契约](quick-chat.md)增加设备级 C 纯文本历史及直接模型请求，由独立 Host 服务承接，没有项目时也可用。该入口不持有／改变 Worker 权威事实，不调度项目、不启动 daemon、不执行工具；模型技术配置继续设备唯一。项目旧解释历史保留，不能与新 C 历史混同。下面历史分区中“历史／模型调用都留项目”不适用于这一明确增补。
 
 ## 后台总览开发摘要（W186／决定 #446）
 

@@ -30,6 +30,7 @@ const row = (id, extra = {}) => ({ id, status: 'completed', quote: `原文 ${id}
 beforeEach(async () => {
   intercept = null; closeQuickExplanationPanel(); closeTranscriptView(); dom.setSelection(''); dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/'; dom.location.hash = '';
   world.state.quickExplanations.clear(); world.state.quickExplanationSeq = 0; world.state.actions.length = 0;
+  world.state.quickChats.clear(); world.state.quickChatSeq = 0; world.state.quickChatActions.length = 0;
   Object.assign(world.state.quickExplanationConfig, { connection_id: null, model: '', prompt: '请简洁解释所选文字。', ready: false, reason: '请选择解释的模型来源与模型。' });
   world.state.agentConnections.connections = [{ id: '11111111-1111-4111-8111-111111111111', label: '测试 Lush API', provider: 'openai-compatible', auth_type: 'api_key',
     endpoint: 'https://models.invalid/v1', enabled: true, models: ['fixture-model', 'second-model'], credential: { status: 'configured' } }];
@@ -37,16 +38,16 @@ beforeEach(async () => {
 });
 afterAll(() => { closeQuickExplanationPanel(); closeTranscriptView(); dom.restore(); });
 
-test('根快捷解释导航只加载设备配置；项目历史入口独立，不调用模型', async () => {
+test('根快捷解释导航升级为快速对话设置；旧项目历史入口独立，不调用模型', async () => {
   dom.location.pathname = '/'; dom.location.hash = ''; await boot(); calls.length = 0;
   await dom.node('quick-explain-open').onclick();
-  expect(dom.location.hash).toBe('#quick-explain'); expect(ui.view.id).toBe('quick-explain');
-  expect(dom.node('quick-explain-open').getAttribute('aria-current')).toBe('page');
-  expect(dom.node('view-title').textContent).toBe('快捷解释配置');
-  expect(calls.map(call => call.url)).toEqual(['/api/host/settings/quick-explain/config?scope=device', '/api/host/settings/agent/connections?scope=device']);
+  expect(dom.location.hash).toBe('#quick-chat-settings'); expect(ui.view.id).toBe('quick-chat-settings');
+  expect(dom.node('view-title').textContent).toBe('快速对话设置');
+  expect(calls.map(call => call.url)).toEqual(['/api/host/quick-chat/config', '/api/host/settings/quick-explain/config?scope=device', '/api/host/settings/agent/connections?scope=device']);
   expect(world.state.actions).toHaveLength(0); expect(deepText(dom.node('detail'))).not.toContain('还没有解释记录');
   activateDetailView({ view: 'overview' }); dom.location.hash = '#quick-explain'; await dom.fire('hashchange');
-  expect(ui.view.id).toBe('quick-explain'); expect(field('prompt').value).toBe('请简洁解释所选文字。');
+  expect(ui.view.id).toBe('quick-chat-settings'); expect(dom.node('detail').querySelector('[data-chat-field="edit_prompt"]')).toBeTruthy();
+  expect(world.state.quickChatActions).toHaveLength(0);
 });
 
 test('来源只显示受支持的启用 API Key，模型候选保持手输并保存物理 ID 与自定义 Prompt', async () => {
@@ -103,11 +104,13 @@ test('任意非语义选区右键解释直连新 API，保留引用、原页面�
   expect(explain.classList.contains('agent-call')).toBe(true); expect(explain.getAttribute('data-help')).toContain('会直连你配置的模型');
   expect(deepText(menu)).toContain('引用：所选文字');
   let preserved = false; menu.onmousedown({ preventDefault() { preserved = true; } }); expect(preserved).toBe(true);
-  const view = ui.view; await explain.onclick(); await until(() => panel() && deepText(panel()).includes('快捷解释示例'));
+  const view = ui.view; await explain.onclick(); expect(world.state.quickChats.size).toBe(1);
   expect(ui.view).toBe(view); expect(dom.window.getSelection().toString()).toBe('选中的原文\n第二行');
-  expect(world.state.actions.map(action => action.method)).toEqual(['quick_explain.start']);
-  expect(world.state.actions[0].params.quote).toBe('选中的原文\n第二行');
-  expect(world.state.actions[0].params.location.view).toBe('overview');
+  expect(world.state.actions).toHaveLength(0);
+  expect(world.state.quickChatActions.map(action => action.method)).toEqual(['start']);
+  expect(world.state.quickChatActions[0].params.references[0].quote).toBe('选中的原文\n第二行');
+  expect(world.state.quickChatActions[0].params.references[0].location.view).toBe('overview');
+  expect(dom.node('quick-chat-open-result').querySelector('a').href).toBe('/#quick-chat-C1');
   dom.setSelection(''); await dom.fire('contextmenu', { target, preventDefault() {} }); expect(findByText(menu, '解释')).toBeNull();
 });
 
@@ -121,18 +124,17 @@ test('父侧折叠改动概览展开后的文件选区仍可解释，不发送�
   const disclosure = diff.querySelector('.diff-files'); expect(disclosure.open).not.toBe(true);
   disclosure.open = true; const target = disclosure.querySelector('.path');
   dom.setSelection('src/example.js'); await dom.fire('contextmenu',{ target,preventDefault() {} });
-  const explain = findByText(dom.node('context-menu'),'解释'); expect(explain).toBeTruthy(); explain.onclick();
-  await until(() => world.state.actions.some(action => action.method === 'quick_explain.start'));
-  expect(world.state.actions).toHaveLength(1);
-  expect(world.state.actions[0].params.quote).toBe('src/example.js');
-  expect(world.state.actions[0].params).not.toHaveProperty('id');
+  const explain = findByText(dom.node('context-menu'),'解释'); expect(explain).toBeTruthy(); await explain.onclick();
+  expect(world.state.quickChatActions).toHaveLength(1); expect(world.state.actions).toHaveLength(0);
+  expect(world.state.quickChatActions[0].params.references[0].quote).toBe('src/example.js');
+  expect(world.state.quickChatActions[0].params).not.toHaveProperty('id');
 });
 
 test('超长选区和输入控件选区不发送；未配置显示设置入口不发模型请求', async () => {
   ready(); const target = dom.document.createElement('p'); target.textContent = '页面文字';
   dom.setSelection('x'.repeat(8193)); await dom.fire('contextmenu', { target, preventDefault() {} });
-  findByText(dom.node('context-menu'), '解释').onclick(); await until(() => panel());
-  expect(deepText(panel())).toContain('没有截断或发送'); expect(world.state.actions).toHaveLength(0);
+  await findByText(dom.node('context-menu'), '解释').onclick();
+  expect(dom.node('error').textContent).toContain('没有截断或发送'); expect(world.state.quickChatActions).toHaveLength(0); expect(world.state.actions).toHaveLength(0);
   const input = dom.document.createElement('textarea'); input.textContent = '不可发出的输入';
   await dom.fire('contextmenu', { target: input, preventDefault() {} }); expect(dom.node('context-menu').hidden).toBe(true);
   world.state.quickExplanationConfig.ready = false;
@@ -224,12 +226,14 @@ test('running 读取计时器在关闭及 boot 清理；正文不变不重绘选
   } finally { closeQuickExplanationPanel(); globalThis.setTimeout = originalSet; globalThis.clearTimeout = originalClear; }
 });
 
-test('未选项目可管理快捷解释配置，但菜单或模型调用仍不读取项目 API', async () => {
+test('未选项目可使用全局快速对话菜单，旧快捷解释调用仍不读取项目 API', async () => {
   intercept = url => url === '/api/host' ? json({ mode: 'host', projects: [] }) : url === '/api/host/projects' ? json({ projects: [] }) : null;
   dom.location.pathname = '/'; dom.location.hash = ''; await boot(); calls.length = 0;
   expect(dom.node('quick-explain-open').disabled).toBe(false);
   const target = dom.document.createElement('p'); target.textContent = '全局文档'; dom.setSelection('选中文字');
-  await dom.fire('contextmenu', { target, preventDefault() {} }); expect(findByText(dom.node('context-menu'), '解释')).toBeNull();
+  await dom.fire('contextmenu', { target, preventDefault() {} }); expect(findByText(dom.node('context-menu'), '快速解释')).toBeTruthy();
+  expect(calls.map(call => call.url)).toEqual(['/api/host/quick-chat/config']);
+  calls.length = 0;
   await startQuickExplanation('选中文字', { view: 'docs' }); expect(deepText(panel())).toContain('请先打开'); expect(calls).toHaveLength(0);
 });
 

@@ -9,7 +9,7 @@ import { createUserServices } from '../../host/user-services.js';
 import { validateAppearanceUpdate } from '../../host/project-appearance.js';
 import { docsIndex, docsSearchIndex, readDoc } from './docs.js';
 import { previewResponse } from './notice-preview.js';
-import { check, id, isPlainObject } from '../../core/types.js';
+import { check, id, isPlainObject, LushError } from '../../core/types.js';
 import { restartProjectDaemon } from '../../host/service-control.js';
 import { DeviceSettingsService, DEVICE_SETTINGS_READS, DEVICE_SETTINGS_ACTIONS } from '../../host/device-settings.js';
 import { normalizeConfigurationScope } from '../../core/device-config.js';
@@ -20,6 +20,10 @@ const SESSION_COOKIE = 'lush_session';
 const SESSION_SECONDS = 12 * 60 * 60;
 const WEB_HOSTS = new WeakMap();
 const MUTATIONS = new Set(['settings.clear_override','settings.migration.apply','quick_explain.configure','quick_explain.start','quick_explain.followup','quick_explain.delete','agent.network.configure','agent.configure','agent.environment.configure','agent.usage.configure','agent.connections.save','agent.connections.remove','agent.connections.sampling','agent.connections.query','agent.connections.models.refresh','agent.connections.login.start','agent.connections.login.finish','agent.connections.device.start','agent.connections.device.cancel','agent.connections.device.poll','agent.packages.install','agent.packages.remove','agent.packages.update','system.configure','system.interrupt_all','system.resume_all','hooks.save','hooks.remove','hooks.command_save','hooks.command_authorize','hooks.command_remove','hooks.command_run','hooks.command_start','hooks.command_import','hooks.auto_select','hooks.completion_defaults','hooks.signal_save','hooks.signal_remove','management.create','management.binding_update','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove','order.submit','draft.add','draft.update','draft.remove','worker.spawn','worker.message','worker.rename','worker.auto_merge','worker.reserve','worker.reserve_all','worker.resolve','worker.accept','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.resolve_divergence','worker.unreserve','worker.approve_merge','worker.cancel','worker.retry','worker.clear_override','worker.interrupt','worker.resume','worker.configure','worker.cleanup','worker.delete','notice.answer','notice.dismiss','notice.read','branch.archive']);
+const QUICK_CHAT_PARAMS = new Map([
+  ['prompt_save', ['prompt', 'expected_revision']], ['prompt_remove', ['id', 'expected_revision']],
+  ['start', ['prompt_id', 'content', 'references']], ['send', ['id', 'content']], ['delete', ['id']],
+]);
 const CORE_INPUT_READ = /^\/api\/input\/(draft|input)\/([1-9]\d*)$/;
 const CORE_QUICK_EXPLAIN_READ = /^\/api\/quick-explain\/[1-9]\d*$/;
 const CORE_READS = new Set(['/api/settings/runtime','/api/settings/migration','/api/quick-explain/config','/api/quick-explain/history','/api/hooks','/api/hooks/commands/executions','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/worker-lookup','/api/notices','/api/worker-graph','/api/versions','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
@@ -187,9 +191,28 @@ export function startWeb(config, port = 4318, options = {}) {
   const sessions = new Map();
   const failures = new Map();
   let hostRestarting = false;
-  let deviceSettings = null, userServices = null;
+  let deviceSettings = null, userServices = null, quickChat = null, quickChatClosing = false;
   const getDeviceSettings = () => deviceSettings ||= options.deviceSettingsService || new DeviceSettingsService(env, options.deviceSettingsOptions);
   const getUserServices = () => userServices ||= createUserServices(projectHost, { ...options.userServiceOptions, env });
+  // No SQLite, model connection or project attachment until a validated chat request needs it.
+  const getQuickChat = () => {
+    check(!quickChatClosing, '快速对话服务正在停止');
+    return quickChat ||= Promise.resolve().then(async () => {
+      if (options.quickChatService) return options.quickChatService;
+      const { QuickChatService } = await import('../../host/quick-chat.js');
+      return new QuickChatService(env, { ...options.quickChatOptions, settingsService: getDeviceSettings() });
+    });
+  };
+  const chatRequest = async (method, ...args) => {
+    try {
+      const service = await getQuickChat();
+      check(!quickChatClosing, '快速对话服务正在停止');
+      return await service[method](...args);
+    } catch (error) {
+      if (error instanceof LushError || error?.quickChatSafe === true) throw error;
+      throw new Error('快速对话操作未确认，请保留输入并刷新历史核对；不要自动重试。');
+    }
+  };
   const emptyJson = async request => {
     check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');
     const body = await request.json();
@@ -265,6 +288,37 @@ export function startWeb(config, port = 4318, options = {}) {
           if (request.method !== 'GET') return json({ error: 'not found' }, 404);
           userQuery(url, []);
           return json({ username: auth.username });
+        }
+        // Quick conversations are root-only user history, never a project RPC or Agent endpoint.
+        if (/^\/p\/[a-z0-9]{16}\/api\/host\/quick-chat(?:\/|$)/.test(url.pathname)) return json({ error: 'not found' }, 404);
+        if (url.pathname.startsWith('/api/host/quick-chat/')) {
+          const suffix = url.pathname.slice('/api/host/quick-chat/'.length);
+          if (request.method === 'GET' && suffix === 'config') {
+            userQuery(url, []);
+            return json(await chatRequest('config'));
+          }
+          if (request.method === 'GET' && suffix === 'history') {
+            const query = userQuery(url, ['before', 'limit']);
+            if (Object.hasOwn(query, 'before')) query.before = id(query.before);
+            if (Object.hasOwn(query, 'limit')) {
+              query.limit = id(query.limit);
+              check(query.limit <= 50, 'quick chat limit must be 1..50');
+            }
+            return json(await chatRequest('list', query));
+          }
+          if (request.method === 'GET' && /^[1-9]\d*$/.test(suffix)) {
+            userQuery(url, []);
+            return json(await chatRequest('get', id(suffix)));
+          }
+          if (request.method === 'POST' && suffix === 'action') {
+            const body = await userBody(request, url);
+            check(isPlainObject(body) && Object.keys(body).every(key => ['method', 'params'].includes(key))
+              && QUICK_CHAT_PARAMS.has(body.method), 'quick chat method not allowed');
+            check(isPlainObject(body.params) && Object.keys(body.params).every(key => QUICK_CHAT_PARAMS.get(body.method).includes(key)),
+              'invalid quick chat parameters; paths and agent tokens are not accepted');
+            return json(await chatRequest('action', body.method, body.params));
+          }
+          return json({ error: 'not found' }, 404);
         }
         // ---- 宿主级路由：启动器等不属于任何项目的接口先于项目路由匹配 ----
         if (['/api/host/preferences', '/api/host/automation', '/api/host/dashboard'].includes(url.pathname)) {
@@ -652,8 +706,12 @@ export function startWeb(config, port = 4318, options = {}) {
   });
   const stop = server.stop.bind(server);
   server.stop = async closeActiveConnections => {
+    quickChatClosing = true;
     const stopped = stop(closeActiveConnections);
-    await Promise.allSettled([stopped, deviceSettings?.stop(), userServices?.close()]);
+    // Chat owns in-flight model requests, but may borrow the settings connection manager.
+    // Wait for its shutdown before stopping that shared dependency, including lazy construction.
+    await Promise.allSettled([stopped, quickChat?.then(service => service.close()), userServices?.close()]);
+    await Promise.allSettled([deviceSettings?.stop()]);
   };
   WEB_HOSTS.set(server, projectHost);
   if (auth.version === 1) console.warn('[web] 旧版 version:1 web.json 保留全接口监听；改为 version:2 可默认仅监听回环，公网需显式 listen:"public"。');

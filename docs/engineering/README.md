@@ -36,7 +36,7 @@
 - [用户工作台与设备唯一配置](user-workspace.md)：独立全局页面、设备策略、跨项目收件箱及本次分区接口。
 - [界面与传输](interface.md)
 - [执行记录阅读器](transcript-reader.md)：摘要、调用配对、完整翻找与无工具解释 Agent。
-- [快捷解释](quick-explanation.md)：项目选区直连模型、私有配置与来源/Prompt 快照；[使用说明](../quick-explanation.md)。
+- [快速对话](quick-chat.md)：全局 C 对话、Prompt 管理、Host 直连与私有历史；[使用说明](../quick-chat.md)。[旧快捷解释契约](quick-explanation.md)保留项目历史边界。
 - [模块地图总览](modules.md)
 - [Runtime 与持久化模块](modules-runtime.md)
 - [Web 前端模块](modules-web.md)

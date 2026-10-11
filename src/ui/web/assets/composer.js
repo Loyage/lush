@@ -8,7 +8,7 @@ import { show } from './messages.js';
 import { detail, refresh } from './navigate.js';
 import { ui } from './state.js';
 import { composerReferences, renderComposerReferences, setComposerReferences } from './context-references.js';
-import { agentHelp } from './help.js';
+import { agentHelp, modelHelp } from './help.js';
 import { confirmDialog, closeDialog, formDialog } from './dialog.js';
 import { createProfileForm } from './agent-profile-form.js';
 import { normalizeConfigMode } from './agent-config-mode.js';
@@ -25,12 +25,12 @@ export function runSettingsLabel() {
 }
 
 // 动态插入的按钮节点：DOM 测试的 stub 只能按 id 查静态元素，所以这里保留引用并统一经它重画。
-let runSettingsButton = null, textEditor = null, disposeViewport = null;
+let runSettingsButton = null, textEditor = null, disposeViewport = null, chatModule = null;
 
 export function paintRunSettings() {
   if (!runSettingsButton) return;
   runSettingsButton.textContent = runSettingsLabel();
-  runSettingsButton.hidden = $('input-form')?.dataset.mode === 'append';
+  runSettingsButton.hidden = ['append', 'chat'].includes($('input-form')?.dataset.mode);
 }
 
 /**
@@ -137,17 +137,19 @@ export function appendToWorker(task) {
   const inGraph = ui.view?.id === 'task-graph' && ui.taskGraphIds?.has(task.id);
   if (!inDetail && !inGraph) return;
   ui.composerTask = task;
+  ui.composerChatMode = null;
   ui.composerAppendTarget = { id: task.id };
   syncComposer();
   $('input').focus();
 }
 export function resetComposerMode() {
+  ui.composerChatMode = null;
   ui.composerAppendTarget = null;
   syncComposer();
   $('input').focus();
 }
 export function paintComposerDetails() {
-  const open = Boolean(ui.composerExpanded), followup = Boolean(ui.composerAppendTarget);
+  const open = Boolean(ui.composerExpanded), followup = Boolean(ui.composerAppendTarget || ui.composerChatMode);
   $('input-form').dataset.expanded = String(open);
   if ($('composer-details')) $('composer-details').hidden = !open || followup;
   if ($('composer-shortcuts')) $('composer-shortcuts').hidden = !open || followup;
@@ -157,8 +159,8 @@ export function paintComposerDetails() {
   const parent = followup ? null : selectedParentLabel();
   toggle.setAttribute('aria-expanded', String(open));
   toggle.setAttribute('data-help', open ? '收起：只留输入与操作按钮。' : followup
-    ? '展开：显示正文的撤销与重做按钮、历史输入；不改变追加目标。'
-    : `展开：显示正文的撤销与重做按钮、历史输入、运行设置，可以选择父 Worker，并查看键盘快捷键${parent ? `（当前父 Worker：${parent}）` : ''}。`);
+    ? ui.composerChatMode ? '展开：显示正文的撤销与重做按钮、历史输入；不改变快速对话 Prompt。' : '展开：显示正文的撤销与重做按钮、历史输入与快速对话入口；不改变追加目标。'
+    : `展开：显示正文的撤销与重做按钮、历史输入、运行设置与快速对话入口，可以选择父 Worker，并查看键盘快捷键${parent ? `（当前父 Worker：${parent}）` : ''}。`);
   toggle.textContent = open ? '⌃ 收起' : (parent ? `⌃ 更多 · 父 Worker：${parent}` : '⌃ 更多');
 }
 export function renderParentOptions() {
@@ -202,8 +204,63 @@ export function toggleComposerDetails(force) {
   paintComposerDetails();
   if (ui.composerExpanded) return loadComposerParents();
 }
+export async function openComposerChat() {
+  const mode = { config: null, promptId: '', error: null };
+  const identity = ui.composerIdentity;
+  ui.composerAppendTarget = null; ui.composerChatMode = mode; syncComposer(); $('input').focus();
+  try {
+    const module = await import('./quick-chat.js');
+    const config = await module.quickChatConfig();
+    if (ui.composerIdentity !== identity || ui.composerChatMode !== mode) return;
+    chatModule = module; mode.config = config;
+    const select = $('composer-chat-prompt'); select.replaceChildren();
+    for (const prompt of config.prompts || []) { const node = el('option', prompt.name); node.value = prompt.id; select.append(node); }
+    mode.promptId = config.prompts?.[0]?.id || ''; select.value = mode.promptId;
+  } catch (error) { if (ui.composerIdentity === identity && ui.composerChatMode === mode) mode.error = `配置读取失败：${error.message}；可退出后重新打开。`; }
+  if (ui.composerIdentity === identity && ui.composerChatMode === mode) syncComposer();
+}
+function syncChatComposer() {
+  const mode = ui.composerChatMode, input = $('input'), config = mode.config;
+  $('input-form').dataset.mode = 'chat'; $('input-form').dataset.blocked = 'false';
+  $('composer-mode-icon').textContent = '◌'; $('composer-mode-title').textContent = '快速对话 · 新对话';
+  $('composer-mode-target').textContent = '全局 C 编号历史 · 纯文本交流 · 不创建 Worker';
+  $('composer-mode-behavior').textContent = mode.error || (config ? config.model?.ready
+    ? '选择 Prompt 不调用模型 · 发送后新标签打开对话 · 原页面保留'
+    : config.model?.reason || '请先配置模型来源' : '正在读取 Prompt…');
+  input.disabled = false; input.placeholder = '输入对引用的要求，或仅发送引用 · Shift+Enter 换行'; input.setAttribute('aria-label', input.placeholder);
+  const disabled = ui.composerSubmitting || !config?.model?.ready || !mode.promptId || (!input.value.trim() && !composerReferences().length);
+  const help = modelHelp('使用所选 Prompt、正文和引用快照开始一段全局纯文本对话，新标签打开；不创建 Worker、不执行工具。');
+  const send = $('draft-commit'); send.disabled = Boolean(disabled); send.textContent = '开始对话'; send.classList.add('agent-call'); send.classList.remove('hook-button'); send.setAttribute('data-help', help); $('input-send-help')?.setAttribute('data-help', help);
+  $('input-start').hidden = true; $('input-start-help').hidden = true;
+  $('input-buffer').hidden = true; $('input-buffer-help').hidden = true;
+  $('composer-reset').hidden = false; $('composer-chat-controls').hidden = false;
+  $('composer-chat-prompt').disabled = !config || ui.composerSubmitting;
+  $('composer-chat-open').hidden = true; $('composer-expand').hidden = false; paintRunSettings(); textEditor?.sync();
+}
+async function submitChat() {
+  const mode = ui.composerChatMode, identity = ui.composerIdentity, input = $('input');
+  if (!mode || ui.composerSubmitting || !mode.config?.model?.ready || !chatModule || !mode.promptId) return;
+  const value = input.value, references = composerReferences(), editRevision = ui.composerEditRevision, referenceRevision = ui.composerReferenceRevision, promptId = mode.promptId;
+  if (!value.trim() && !references.length) return;
+  if (value.length > 8192) { show('快速对话内容最多 8192 字；输入与引用保留。', 'error'); return; }
+  const tab = chatModule.prepareConversationTab(); ui.composerSubmitting = true; syncComposer();
+  try {
+    const record = await chatModule.quickChatAction('start', { prompt_id: promptId, content: value.trim(), references: chatModule.chatReferences(references) });
+    // Delivery owns its pre-opened tab even if the original project navigated away in flight.
+    chatModule.openConversationResult(record, tab);
+    if (ui.composerIdentity !== identity) return;
+    const untouched = ui.composerChatMode === mode && mode.promptId === promptId && input.value === value
+      && ui.composerEditRevision === editRevision && ui.composerReferenceRevision === referenceRevision;
+    if (untouched) { input.value = ''; textEditor?.reset(); setComposerReferences([]); }
+  } catch (error) {
+    chatModule.closeConversationTab(tab);
+    if (ui.composerIdentity === identity) show(`创建对话未确认：${error.message}；输入保留，请先核对全局历史，不要自动重发。`, 'error');
+  } finally { if (ui.composerIdentity === identity) { ui.composerSubmitting = false; syncComposer(); } }
+}
 export function syncComposer() {
   renderParentOptions();
+  if (ui.composerChatMode) return syncChatComposer();
+  $('composer-chat-controls').hidden = true; $('composer-chat-open').hidden = false;
   const target = destination(), followup = target.id != null;
   const input = $('input');
   const touch = usesTouchEnter();
@@ -290,6 +347,7 @@ async function updateAfterSubmit({ identity, submission, view, appendTarget, det
 
 /** One flight across buffering, button submission and all keyboard shortcuts. */
 async function submitInput(mode) {
+  if (ui.composerChatMode) return submitChat();
   const input = $('input'), value = input.value, content = value.trim();
   if (ui.composerSubmitting || !content) return;
   const identity = ui.composerIdentity, editRevision = ui.composerEditRevision, view = ui.view;
@@ -353,7 +411,7 @@ export function initComposer() {
   ui.composerIdentity = {}; ui.composerEditRevision = 0; ui.syncComposer = syncComposer;
   const identity = ui.composerIdentity, input = $('input'), editorTools = $('composer-editor-tools');
   editorTools.replaceChildren();
-  ui.composerAppendTarget = null;
+  ui.composerAppendTarget = null; ui.composerChatMode = null;
   // 每次装配（含 boot 重跑）都从项目默认开始，不让上一条指令的运行设置跨会话残留。
   ui.composerProfile = null;
   runSettingsButton = button(runSettingsLabel(), () => openComposerRunSettings(), 'ghost composer-run-settings', { help: RUN_SETTINGS_HELP });
@@ -370,6 +428,8 @@ export function initComposer() {
   renderComposerReferences();
   $('composer-expand').onclick = () => toggleComposerDetails();
   $('composer-reset').onclick = resetComposerMode;
+  $('composer-chat-open').onclick = openComposerChat;
+  $('composer-chat-prompt').onchange = () => { if (ui.composerChatMode) { ui.composerChatMode.promptId = $('composer-chat-prompt').value; ui.composerEditRevision++; syncComposer(); } };
   if ($('input-buffer')) $('input-buffer').onclick = buffer;
   $('input-start').onclick = () => submitInput('start');
   renderParentOptions();
@@ -382,7 +442,7 @@ export function initComposer() {
   $('input').onkeydown = event => {
     if (composing || event.isComposing || event.keyCode === 229) return;
     if (event.key === 'Escape') {
-      if (ui.composerAppendTarget && !event.repeat && !$('input').value.trim() && !composerReferences().length) {
+      if ((ui.composerAppendTarget || ui.composerChatMode) && !event.repeat && !$('input').value.trim() && !composerReferences().length) {
         event.preventDefault(); resetComposerMode();
       }
       return;
@@ -392,6 +452,7 @@ export function initComposer() {
     if (!event.metaKey && !event.ctrlKey && (event.shiftKey || usesTouchEnter())) return;
     event.preventDefault();
     if (event.repeat) return;
+    if (ui.composerChatMode) return submitChat();
     if (!event.metaKey && !event.ctrlKey) return destination().id != null ? submitInput('create') : buffer();
     return submitInput(event.shiftKey ? 'start' : 'create');
   };

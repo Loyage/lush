@@ -52,7 +52,11 @@ W160 原交付经 W162 按 #411 适配：`appearance.js` 分离设备主题与�
 
 父分区负责 `src/core/device-config.js`（作用域/私有根/跨进程锁）、Host 独立设置服务、RPC/HTTP/CLI 接入、Project 转发与组合测试；配置基础分区负责 Config、RuntimeSettings、AgentSettings、网络/env、快捷解释配置及 Pi 资源存储的继承；连接/迁移分区负责有效来源并集、实际根凭证锁、作用域管理器和 `src/core/device-migration.js`；前端分区负责 assets 的作用域编辑、继承/覆盖、迁移 UI 和无项目入口。详细签名与测试隔离以工程契约为准。
 
-## 快捷解释接缝
+## 快速对话接缝（W207／D486、D487）
+
+设备级纯文本快速对话取代新快捷解释入口，独立全局页面、新标签打开、统一 C 编号与多 Prompt 右键注册；不创建 Worker、不启动项目、不执行工具，旧项目解释历史保留。新增接口、模块导出和后台／前端／父的分区以[快速对话契约](quick-chat.md)为准。父负责 server.js、文档、跨层集成与最终全量；后台 child 仅新 QuickChatService／私有存储和专项，前端 child 仅 assets／DOM 专项。
+
+## 快捷解释接缝（旧历史保留）
 
 用户决定 #203 恢复项目级选区阅读辅助，但不恢复旧公开 `intro.*` / `explanation.*` 或解释 Agent。新增 `quick_explain.*` 用户专属接口、独立 `#quick-explain` 设置/历史页，来源复用现有 Chat Completions API Key 连接；契约与并行分工见[快捷解释](quick-explanation.md)。新调用不创建 Worker，附属历史复用 introductions，追问轮次存于 explanation_followups 并随原解释一起删除；旧行不迁移或改写。该增补优先于下文历史服务无公开入口的描述（旧名字仍关闭）。
 
