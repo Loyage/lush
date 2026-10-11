@@ -98,6 +98,16 @@ export async function run(command, args, ctx) {
       const name = option(args, '--name');
       exact(args, 1);
       value = await client.request('worker.spawn', { parent: await resolveWorkerId(client, parent), goal: args[0], ...(name ? { name } : {}) });
+    } else if (verb === 'watch') {
+      check(client.token == null, 'native watching is user only; agents must end their invocation');
+      check(!json, 'native watching requires a real terminal; --json is not supported');
+      const after = Number(option(args, '--after', '0')); exact(args, 1);
+      check(Number.isSafeInteger(after) && after >= 0 && after < Number.MAX_SAFE_INTEGER, 'invalid transcript cursor');
+      const taskId = await resolveWorkerId(client, args[0]);
+      const task = await client.request('worker.inspect', { id: taskId });
+      const watch = ctx.watchWorker ?? (await import('../native-watch.js')).watchWorker;
+      await watch(client, taskId, { after, label: task.worker_number || `#${taskId}`, env: client.config?.env });
+      return;
     } else if (verb === 'transcript') {
       const follow = args.includes('--follow');
       if (follow) args.splice(args.indexOf('--follow'), 1);

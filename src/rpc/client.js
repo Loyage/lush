@@ -10,15 +10,23 @@ import { encode, MAX_FRAME } from './protocol.js';
  */
 export const NOT_EXECUTED_CODE = -32022;
 
+function cancellationError() {
+  const error = new Error('RPC cancelled; a dispatched request may have run; inspect before retrying');
+  error.name = 'AbortError';
+  return error;
+}
+
 export class RPCClient {
   constructor(path, timeout = 130) {
     this.path = path;
     this.timeout = timeout;
   }
 
-  async request(method, params = {}) {
+  async request(method, params = {}, { signal = null } = {}) {
+    // Cancellation closes only this client connection, not a dispatched daemon operation.
+    if (signal?.aborted) throw cancellationError();
     const frame = encode({ jsonrpc: '2.0', id: 1, method, params });
-    let writer = null;
+    let writer = null, socketHandle = null;
     let buffer = Buffer.alloc(0);
     let settled = false;
     let timer = null;
@@ -34,22 +42,36 @@ export class RPCClient {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
       action();
     };
+    const onAbort = () => finish(() => {
+      writer?.fail();
+      try { socketHandle?.terminate(); } catch { /* already closed */ }
+      rejectLine(cancellationError());
+    });
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) onAbort();
 
-    timer = setTimeout(() => {
+    if (!settled) timer = setTimeout(() => {
       finish(() => {
         writer?.end();
         rejectLine(new LushError('RPC timed out; the daemon invocation may still be running; inspect before retrying', -32021));
       });
     }, this.timeout * 1000);
-    timer.unref?.();
+    timer?.unref?.();
 
+    const connectionFailed = err => finish(() => rejectLine(new LushError(
+      `cannot connect to lushd at ${this.path}; run 'lush daemon start' (${err.message})`, -32004)));
     try {
-      await Bun.connect({
+      // Do not await connect before awaiting the response: abort must also release
+      // a request whose connect is still pending. A late open must not send its frame.
+      if (!settled) Bun.connect({
         unix: this.path,
         socket: {
           open: (handle) => {
+            socketHandle = handle;
+            if (settled) { handle.terminate(); return; }
             writer = createWriter(handle);
             try {
               writer.write(frame);
@@ -58,6 +80,7 @@ export class RPCClient {
             }
           },
           data: (handle, chunk) => {
+            if (settled) return;
             buffer = Buffer.concat([buffer, Buffer.from(chunk)]);
             if (buffer.length > MAX_FRAME) {
               finish(() => { writer.end(); rejectLine(new LushError('daemon response too large')); });
@@ -76,11 +99,8 @@ export class RPCClient {
           error: (_handle, err) => finish(() => rejectLine(err)),
           drain: () => writer?.drain(),
         },
-      });
-    } catch (err) {
-      finish(() => rejectLine(new LushError(
-        `cannot connect to lushd at ${this.path}; run 'lush daemon start' (${err.message})`, -32004)));
-    }
+      }).catch(connectionFailed);
+    } catch (err) { connectionFailed(err); }
 
     const raw = await line;
     let response;

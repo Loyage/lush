@@ -81,15 +81,22 @@ export function renderAgent(task, usage) {
   controls.append(button('打开执行详情', () => openTranscriptView(task.id), 'ghost',
     { help: '全屏阅读执行记录，可切换正序和倒序、搜索完整历史；只读，不执行命令，也不调用 Agent' }));
   process.append(controls);
-  // 终端里观看执行过程的等价命令：展示出来并可复制，真正跟随由 CLI 负责，不只是复制一串提示。
-  const command = `lush worker transcript ${task.id} --follow`;
-  const commandRow = el('div', undefined, 'terminal-command');
-  commandRow.append(el('span', '终端命令', 'hint'), el('code', command, 'mono'),
-    button('复制命令', async () => {
-      const ok = await copyText(command);
-      show(ok ? '已复制终端命令；在终端运行即可跟随执行过程' : '复制失败，请手动选中命令复制', ok ? 'info' : 'error');
-    }, 'ghost', { help: '把这条命令复制到剪贴板；它只读取执行记录，不会在页面里执行，也不会调用 Agent' }));
-  process.append(commandRow);
+  // 两种终端读面都只复制命令；项目来自本页固定来源，单引号避免路径成为 Shell 代码。
+  const project = ui.lastSnapshot?.status?.project;
+  const projectArg = typeof project === 'string' && project ? ` --project '${project.replaceAll("'", "'\\''")}'` : '';
+  for (const [label, command, copyLabel] of [
+    ['原生只读观看', `lush worker watch ${task.id}${projectArg}`, '复制原生命令'],
+    ['纯文本跟随', `lush worker transcript ${task.id} --follow${projectArg}`, '复制文本命令'],
+  ]) {
+    const commandRow = el('div', undefined, 'terminal-command');
+    commandRow.append(el('span', label, 'hint'), el('code', command, 'mono'),
+      button(copyLabel, async () => {
+        const ok = await copyText(command);
+        show(ok ? '已复制；请在项目所在机器的终端运行，只读观看执行过程' : '复制失败，请手动选中命令复制', ok ? 'info' : 'error');
+      }, 'ghost', { help: '只复制命令；需在项目所在机器运行，不在页面执行，不调用 Agent，也不停止 Worker' }));
+    process.append(commandRow);
+  }
+  process.append(el('p', '原生观看需本机已安装 Pi；只显示已记录步骤，不是逐字直播。', 'hint'));
   if (usage?.last) process.append(lastStepRow(usage.last));
   section.classList.add('agent-panel');
   section.append(process);

@@ -153,13 +153,39 @@ test('mobile search opens on demand, keeps criteria, locates a hit and restores 
   }
 });
 
-test('agent retains the copyable terminal follow command', async () => {
-  const dom = installDom(), copied = [];
+test('agent offers native read-only watching and retains the text follow command', async () => {
+  const dom = installDom(), copied = [], previousSnapshot = ui.lastSnapshot;
+  ui.lastSnapshot = null;
   const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async text => { copied.push(text); } } }, configurable: true });
   try {
     const panel = renderAgent({ id: 77 }, { files: [] });
+    expect(deepText(panel)).toContain('lush worker watch 77');
     expect(deepText(panel)).toContain('lush worker transcript 77 --follow');
-    await findByText(panel, '复制命令').onclick(); expect(copied).toEqual(['lush worker transcript 77 --follow']);
-  } finally { if (original) Object.defineProperty(globalThis, 'navigator', original); else delete globalThis.navigator; dom.restore(); }
+    expect(deepText(panel)).toContain('不是逐字直播');
+    const native = findByText(panel, '复制原生命令'), text = findByText(panel, '复制文本命令');
+    expect(native.classList.contains('agent-call')).toBe(false);
+    expect(native.getAttribute('data-help')).toContain('不调用 Agent');
+    await native.onclick(); await text.onclick();
+    expect(copied).toEqual(['lush worker watch 77', 'lush worker transcript 77 --follow']);
+  } finally { ui.lastSnapshot = previousSnapshot; if (original) Object.defineProperty(globalThis, 'navigator', original); else delete globalThis.navigator; dom.restore(); }
+});
+
+test('terminal commands bind the page project and quote special characters without executing anything', async () => {
+  const dom = installDom(), copied = [], previousSnapshot = ui.lastSnapshot;
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const project = "/tmp/a b'c$(not-a-command);project";
+  ui.lastSnapshot = { status: { project } };
+  Object.defineProperty(globalThis, 'navigator', { value: { clipboard: { writeText: async text => copied.push(text) } }, configurable: true });
+  try {
+    const panel = renderAgent({ id: 77 }, { files: [] });
+    await findByText(panel, '复制原生命令').onclick();
+    await findByText(panel, '复制文本命令').onclick();
+    const suffix = " --project '/tmp/a b'\\''c$(not-a-command);project'";
+    expect(copied).toEqual([`lush worker watch 77${suffix}`, `lush worker transcript 77 --follow${suffix}`]);
+    // Parse only with a controlled printf: the path must remain exactly one literal argument.
+    const process = Bun.spawn(['bash', '-c', `printf '%s'${suffix.replace(' --project', '')}`], { stdout: 'pipe', stderr: 'pipe' });
+    const [out, err, code] = await Promise.all([new Response(process.stdout).text(), new Response(process.stderr).text(), process.exited]);
+    expect({ out, err, code }).toEqual({ out: project, err: '', code: 0 });
+  } finally { ui.lastSnapshot = previousSnapshot; if (original) Object.defineProperty(globalThis, 'navigator', original); else delete globalThis.navigator; dom.restore(); }
 });
