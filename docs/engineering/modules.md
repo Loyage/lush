@@ -22,7 +22,7 @@
 - `worker.transcript` 是主读面：步骤增量保留 `call_id` / `tool_name` / `is_error`；同一会话内按调用 ID 配对。
 - 用户只读 `worker.transcript_latest(id,after?,before?,limit?)` / `GET /api/worker/<id>/transcript-latest`：对 Worker 全部会话做一次完整流式扫描，返回满足 `seq > after` 且 `seq < before`（默认 0 / 0 表示不设边界）的最新 `limit`（1..200，默认 100）步，按 `seq` 升序；每步的 4,000 字符裁剪与 `exact` / `batch` token 口径与 `worker.transcript` 完全一致。返回 `next` / `oldest` / `has_older` 供 `before` 往回翻页，`truncated` 在单行超 16 MiB 时置真而不冒充空结果。
 - 用户只读 `worker.transcript_search(id,query?,kind?,tool?,errors?,after?,limit?)` 与 `worker.transcript_step(id,seq,offset?)`：前者跨完整 Worker 会话检索、分页摘要，后者按步骤读取分段原文及关联上下文；HTTP 用 `/api/worker/<id>/transcript-search`、`transcript-step`。
-- 终端观看不新增 RPC：原生 `lush worker watch ID [--after N]` 使用 `worker.transcript_page` 连续完整分段读取；Pi 组件仅 CLI 显式观看时按需加载，不创建 AgentSession、不执行工具、不写会话、不加载用户扩展，退出只停止观看。纯文本 `lush worker transcript ID [--after N] --follow` 保持原义：先按 `worker.transcript` 分页打印已有记录，再用 `worker.transcript_latest` 以游标轮询新步骤。两者仅用户可运行，`--json` 不适用；原生观看还须真实 TTY。限制见[观看器](../native-viewer.md)。
+- 终端观看不新增 RPC：原生 `lush worker watch ID [--after N]` 使用 `worker.transcript_page` 连续完整分段读取；Pi 组件仅 CLI 显式观看时按需加载，不创建 AgentSession、不执行工具、不写会话、不加载用户扩展，退出只停止观看。纯文本持续跟随已删除；`lush worker transcript ID [--after N]` 保留单次查询，不轮询。原生观看仅用户可运行，不支持 `--json` 且须真实 TTY；单次查询仍供用户与 Agent 使用，也支持 JSON。限制见[观看器](../native-viewer.md)。
 
 ## 归并合并拟议接缝（W205／D482，尚未实现）
 

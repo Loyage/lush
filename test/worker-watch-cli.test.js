@@ -22,7 +22,8 @@ test('watch resolves a persistent Worker number once and passes a read-only nati
   ]);
   expect(f.views).toEqual([[f.client, 360, { after: 42, label: 'W195', env: f.environment }]]);
   expect(HELP).toContain('worker watch ID [--after N]');
-  expect(HELP).toContain('worker transcript ID [--follow]');
+  expect(HELP).toContain('worker transcript ID [--after N]');
+  expect(HELP).not.toContain('--follow');
 });
 
 test('watch falls back to an internal ID label without inventing a W number', async () => {

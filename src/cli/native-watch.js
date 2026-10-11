@@ -1,5 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { loadNativePi } from './native-pi.js';
+import { loadNativePi, watchTerminalColors } from './native-pi.js';
 
 export const WATCH_LIMITS = Object.freeze({ body: 128 * 1024, history: 4 * 1024 * 1024, records: 2000, lines: 50000 });
 const fail = message => { throw new Error(message); };
@@ -66,12 +66,34 @@ const pairKey = step => step.call_id && typeof step.call_id === 'string' && type
 export class NativeRecordView {
   constructor(runtime, ui, terminal, quit, limits = WATCH_LIMITS, label = '', after = 0) {
     this.runtime = runtime; this.ui = ui; this.terminal = terminal; this.quit = quit; this.limits = limits; this.label = label; this.after = after;
-    this.items = []; this.pairs = new Map(); this.expanded = false; this.following = true; this.top = 0;
-    this.anchor = null; this.help = false; this.status = '读取已有记录…'; this.cache = null; this.height = 1; this.total = 0;
+    this.items = []; this.pairs = new Map(); this.expanded = false;
+    this.anchor = null; this.help = false; this.status = '读取已有记录…'; this.cache = null;
+    this.scroll = new runtime.tui.ScrollView(this, { follow: 'end', primary: true, scrollbar: 'always',
+      scrollbarTrackStyle: text => runtime.appearance?.theme.fg('scrollbarTrack', text) ?? text,
+      scrollbarThumbStyle: text => runtime.appearance?.theme.fg('scrollbarThumb', text) ?? text });
+    const line = get => ({ invalidate() {}, render: width => [runtime.tui.truncateToWidth(get(), width)] });
+    this.header = line(() => `Lush ${this.label} · 只读 Pi${this.after ? ` · 已跳过前 ${this.after} 步` : ''} · ${this.following ? '跟随' : '暂停阅读'} · ${this.status}`);
+    this.footer = line(() => this.help
+      ? '滚轮/↑↓/j k/PgUp/PgDn/Home：滚动 · f/End：跟随 · 空格：暂停 · Ctrl-O：工具 · q/Esc/Ctrl-C：退出（Worker继续）'
+      : '完成记录，非逐字流 · 滚轮/PgUp翻页 · Ctrl-O展开 · ?帮助 · q退出');
+    // Pi owns the viewport, mouse routing and scrollbar; fixed chrome consumes at most two rows.
+    this.root = new runtime.tui.VStack([
+      { component: this.header, basis: 1, shrink: 0, visible: viewport => viewport.height >= 2 },
+      { component: this.scroll, basis: 0, grow: 1, minSize: 1 },
+      { component: this.footer, basis: 1, shrink: 0, visible: viewport => viewport.height >= 4 },
+    ]);
   }
-  invalidate() { this.cache = null; for (const item of this.items) item.component?.invalidate(); }
+  get following() { return this.scroll.isFollowingEnd; }
+  get top() { return this.scroll.scrollTop; }
+  captureAnchor() {
+    if (this.following || this.anchor) return;
+    const line = this.cache?.lines[this.top];
+    if (line) this.anchor = { seq: line.seq, row: line.row };
+  }
+  invalidate() { this.captureAnchor(); this.cache = null; for (const item of this.items) item.component?.invalidate(); }
   text(text) { return new this.runtime.tui.Text(text, 0, 0); }
   add(record) {
+    this.captureAnchor();
     const step = { ...record, body: sanitizeTerminalText(record.body), title: sanitizeTerminalText(record.title),
       tool_name: sanitizeTerminalText(record.tool_name), file: sanitizeTerminalText(record.file) };
     const item = { step, key: pairKey(record), component: null, hidden: false, result: null };
@@ -98,7 +120,8 @@ export class NativeRecordView {
     else if (['text', 'thinking'].includes(step.kind)) {
       const content = step.kind === 'thinking' ? { type: 'thinking', thinking: step.body } : { type: 'text', text: step.body };
       // Projection has no model/usage/stopReason: do not invent those record facts.
-      container.addChild(new pi.AssistantMessageComponent({ role: 'assistant', content: [content] }));
+      const message = { role: 'assistant', content: [content] };
+      container.addChild(this.runtime.assistant ? this.runtime.assistant(message) : new pi.AssistantMessageComponent(message));
     } else if (step.kind === 'tool') {
       const args = safeArgs(step.body);
       if (args) {
@@ -125,28 +148,31 @@ export class NativeRecordView {
     const { matchesKey } = this.runtime.tui;
     if (data === 'q' || matchesKey(data, 'ctrl+c') || matchesKey(data, 'escape')) { this.quit(); return; }
     if (matchesKey(data, 'ctrl+o')) {
-      this.expanded = !this.expanded;
+      this.captureAnchor(); this.expanded = !this.expanded;
       for (const item of this.items) item.tool?.setExpanded(this.expanded);
       this.cache = null;
     } else if (data === '?' || data === 'h') this.help = !this.help;
-    else if (data === 'f' || matchesKey(data, 'end')) { this.following = true; this.anchor = null; }
-    else if (data === ' ' || data === 'p') { this.following = !this.following; }
-    else {
+    else if (data === 'f' || matchesKey(data, 'end')) { this.anchor = null; this.scroll.scrollToEnd(); }
+    else if (data === ' ' || data === 'p') {
+      this.anchor = null;
+      if (this.following) this.scroll.scrollTo(this.top, { disableFollow: true });
+      else this.scroll.scrollToEnd();
+    } else {
       let move = 0;
       if (matchesKey(data, 'up') || data === 'k') move = -1;
       if (matchesKey(data, 'down') || data === 'j') move = 1;
-      if (matchesKey(data, 'pageUp')) move = -this.height;
-      if (matchesKey(data, 'pageDown')) move = this.height;
-      if (matchesKey(data, 'home')) move = -this.total;
-      if (!move) return;
-      this.following = false;
-      this.top = Math.max(0, Math.min(Math.max(0, this.total - this.height), this.top + move));
-      this.rememberAnchor();
+      if (matchesKey(data, 'pageUp')) move = -Math.max(1, this.scroll.viewportHeight - 1);
+      if (matchesKey(data, 'pageDown')) move = Math.max(1, this.scroll.viewportHeight - 1);
+      this.anchor = null;
+      if (matchesKey(data, 'home')) this.scroll.scrollTo(0, { disableFollow: true });
+      else if (move) this.scroll.scrollBy(move);
+      else return;
     }
     this.ui.requestRender();
   }
   layout(width) {
     if (this.cache?.width === width) return this.cache.lines;
+    this.captureAnchor();
     const lines = [];
     for (const item of this.items) {
       if (item.hidden) continue;
@@ -155,38 +181,26 @@ export class NativeRecordView {
       for (let row = 0; row < rendered.length; row++) lines.push({ seq: item.step.seq, row, text: rendered[row] });
     }
     this.cache = { width, lines };
+    if (this.anchor) {
+      // Record-local rows survive earlier growth, pair replacement and width reflow. If the
+      // anchored independent result was paired away, locate its call rather than jump to bottom.
+      const paired = this.items.find(item => item.result?.seq === this.anchor.seq);
+      const seq = paired?.step.seq ?? this.anchor.seq;
+      let at = lines.findIndex(line => line.seq === seq && line.row >= this.anchor.row);
+      if (at < 0) at = lines.findLastIndex(line => line.seq === seq);
+      if (at >= 0) {
+        this.scroll.updateLayout(lines.length, this.scroll.viewportHeight, () => this.ui.requestRender());
+        this.scroll.scrollTo(at, { disableFollow: true });
+      }
+      this.anchor = null;
+    }
     return lines;
   }
-  rememberAnchor() { const line = this.cache?.lines[this.top]; this.anchor = line ? { seq: line.seq, row: line.row } : null; }
   render(width) {
-    // Errors are caught by the watcher before scheduling a TUI render; bounded layout also handles resize.
-    let lines;
-    try { lines = this.layout(width); } catch (error) { this.quit(error); lines = []; }
-    const { truncateToWidth } = this.runtime.tui;
-    const chrome = [
-      `Lush ${this.label} · 只读 Pi 观看器 · ${this.following ? '跟随' : '暂停阅读'} · ${this.status}`,
-      'completed-records：完成记录，非逐字流；投影不含 details/图片/模型用量。',
-      '↑↓/j k PgUp/PgDn Home：滚动 · f/End：跟随 · 空格/p：暂停 · Ctrl-O：工具展开 · ?：帮助 · q/Esc/Ctrl-C：退出',
-    ];
-    if (this.help) {
-      chrome.splice(2, 1, '↑↓/j k：逐行滚动', 'PgUp/PgDn：翻页 · Home：开头', 'f/End：恢复跟随', '空格/p：暂停跟随',
-        'Ctrl-O：展开/折叠全部工具', 'q/Esc/Ctrl-C：只退出读器', '?/h：开关帮助', 'Worker 不会停止；不执行日志命令。');
-    }
-    if (this.after > 0) chrome.splice(1, 0, `已跳过前 ${this.after} 步（未读取/未显示）；从 seq ${this.after + 1} 观看。`);
-    const rows = Math.max(1, this.terminal.rows || 24);
-    const header = chrome.slice(0, Math.max(0, rows - 1));
-    this.height = Math.max(1, rows - header.length); this.total = lines.length;
-    if (this.following) this.top = Math.max(0, lines.length - this.height);
-    else if (this.anchor) {
-      const at = lines.findIndex(line => line.seq === this.anchor.seq && line.row >= this.anchor.row);
-      if (at >= 0) this.top = at;
-    }
-    this.top = Math.min(this.top, Math.max(0, lines.length - 1));
-    this.rememberAnchor();
-    const output = [...header.map(line => truncateToWidth(line, width)),
-      ...lines.slice(this.top, this.top + this.height).map(line => truncateToWidth(line.text, width))];
-    while (output.length < rows) output.push('');
-    return output;
+    // This is the bounded document, not a second manually cropped viewport. Native ScrollView
+    // handles clipping, wheel/drag input and layout. Keep even one-column layouts safe.
+    try { return this.layout(width).map(line => this.runtime.tui.truncateToWidth(line.text, width)); }
+    catch (error) { this.quit(error); return []; }
   }
 }
 
@@ -226,7 +240,7 @@ export async function watchWorker(client, taskId, options = {}) {
   if (options.signal?.aborted) stop();
   const interrupt = () => stop();
   process.on('SIGINT', interrupt); process.on('SIGTERM', interrupt);
-  let ui, terminal, started = false, fatal = null;
+  let ui, terminal, colors, started = false, fatal = null;
   const limits = { ...WATCH_LIMITS, ...options.limits };
   for (const [key, value] of Object.entries(limits)) {
     if (!Object.hasOwn(WATCH_LIMITS, key) || !Number.isSafeInteger(value) || value <= 0 || value > WATCH_LIMITS[key]) {
@@ -239,12 +253,26 @@ export async function watchWorker(client, taskId, options = {}) {
     const runtime = await cancellable(options.runtime || loadNativePi(options.env || client.config?.env || process.env), controller.signal);
     if (controller.signal.aborted) return;
     terminal = options.terminal || new runtime.tui.ProcessTerminal();
-    const TUI = runtime.tui.TuiMainScreen || runtime.tui.TUI;
-    ui = new TUI(terminal);
+    // Exit keys belong to the viewer even when native search/selection has input focus.
+    // Wrap only Terminal.start's input callback; other terminal operations keep their receiver.
+    const displayTerminal = new Proxy(terminal, { get(target, key) {
+      if (key === 'start') return (onInput, onResize) => target.start(data => {
+        if (data === 'q' || runtime.tui.matchesKey(data, 'ctrl+c') || runtime.tui.matchesKey(data, 'escape')) stop();
+        else onInput(data);
+      }, onResize);
+      const value = Reflect.get(target, key, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    } });
+    ui = new runtime.tui.TuiAltScreen(displayTerminal, false, undefined, { wheelScrollLines: 'auto', copyOnSelect: false });
     const view = new NativeRecordView(runtime, ui, terminal, error => { if (error) fatal = error; stop(); }, limits,
       sanitizeTerminalText(options.label || `#${taskId}`), after);
     const assembler = new RecordAssembler(limits, after);
-    ui.addChild(view); ui.setFocus(view); started = true; ui.start();
+    ui.setLayoutRoot(view.root); ui.setFocus(view); started = true; ui.start();
+    if (controller.signal.aborted) return;
+    if (runtime.appearance) {
+      colors = watchTerminalColors(runtime, ui, () => { view.invalidate(); ui.requestRender(); }, error => { fatal = error; stop(); });
+      await cancellable(colors.ready, controller.signal);
+    }
     let seq = after + 1, offset = 0;
     const sleep = options.sleep || ((ms, signal) => delay(ms, undefined, { signal }));
     while (!controller.signal.aborted) {
@@ -259,7 +287,7 @@ export async function watchWorker(client, taskId, options = {}) {
         || (page.has_more && page.steps.length === 0)) fail('执行记录分页游标未连续推进');
       seq = page.next_seq; offset = page.next_offset;
       view.status = page.has_more ? `读取历史 · ${assembler.count} 条` : assembler.count ? `等待新记录 · ${assembler.count} 条` : '尚无完成记录，继续等待…';
-      view.layout(Math.max(1, terminal.columns || 80)); ui.requestRender();
+      view.layout(view.scroll.getContentWidth(Math.max(1, terminal.columns || 80))); ui.requestRender();
       // Yield even during a long initial scan so q/Ctrl-C/resize remain responsive.
       await cancellable(sleep(page.has_more ? 0 : options.intervalMs ?? 1000, controller.signal), controller.signal);
     }
@@ -268,8 +296,13 @@ export async function watchWorker(client, taskId, options = {}) {
     controller.abort();
     options.signal?.removeEventListener('abort', externalAbort);
     process.off('SIGINT', interrupt); process.off('SIGTERM', interrupt);
+    try { colors?.dispose(); } catch (error) { if (!fatal) fatal = error; }
     if (started) {
-      try { ui.stop(); } catch (error) { terminal?.stop(); if (!fatal) fatal = error; }
+      try { ui.stop({ preserveScreen: true }); }
+      catch (error) {
+        if (!fatal) fatal = error;
+        try { terminal?.stop(); } catch { /* Preserve the original cleanup failure. */ }
+      }
     }
   }
   if (fatal) throw new Error(sanitizeTerminalText(fatal.message || fatal));

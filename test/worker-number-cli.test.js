@@ -78,7 +78,7 @@ test('failed or mismatched lookups never forward a Worker action', async () => {
   await expect(worker('worker', ['inspect', 'W5-1'], { client, json: true })).rejects.toThrow('not found');
 });
 
-test('numbered wait resolves once and forbidden agent wait/follow do not resolve', async () => {
+test('numbered wait resolves once and forbidden agent wait does not resolve', async () => {
   const client = clientFor({ id: 205, status: 'completed' });
   expect(await worker('worker', ['wait', 'W5-1'], { client, json: true })).toEqual({ id: 205, status: 'completed' });
   expect(client.calls).toEqual([
@@ -86,20 +86,15 @@ test('numbered wait resolves once and forbidden agent wait/follow do not resolve
   ]);
   const forbidden = clientFor(); forbidden.token = 'live';
   await expect(worker('worker', ['wait', 'W5-1'], { client: forbidden, json: true })).rejects.toThrow('must end');
-  await expect(worker('worker', ['transcript', 'W5-1', '--follow'], { client: forbidden, json: false })).rejects.toThrow('must end');
+  await expect(worker('worker', ['transcript', 'W5-1', '--follow'], { client: forbidden, json: false })).rejects.toThrow('已移除');
   expect(forbidden.calls).toEqual([]);
 });
 
-test('numbered transcript follow uses the resolved integer rather than number components', async () => {
-  const client = clientFor({ files: [], steps: [], next: 9, has_more: false, truncated: false });
-  const original = process.stderr.write;
-  process.stderr.write = () => true;
-  try { await worker('worker', ['transcript', 'W5-1', '--after', '9', '--follow'], { client, json: false }); }
-  finally { process.stderr.write = original; }
-  expect(client.calls).toEqual([
-    { method: 'worker.lookup', params: { number: 'W5-1' } },
-    { method: 'worker.transcript', params: { id: 205, after: 9, limit: 200 } },
-  ]);
+test('removed text follow rejects numbered identity before lookup or record reading', async () => {
+  const client = clientFor();
+  await expect(worker('worker', ['transcript', 'W5-1', '--after', '9', '--follow'], { client, json: false }))
+    .rejects.toThrow('已移除');
+  expect(client.calls).toEqual([]);
 });
 
 test('notice --worker resolves Worker identity but notice IDs remain integers', async () => {

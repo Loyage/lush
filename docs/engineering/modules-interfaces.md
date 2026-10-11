@@ -26,9 +26,9 @@
 | `cli/print.js` | 树 / 会话 / 用量 / 分支谱系的渲染 | `printTree`、`printTranscript`、`transcriptStepText`、`printUsage`、`printBranchTree`、`printBranchShow`、`printBranchArchive` |
 | `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `host start|stop|restart|status`；无 `--project` 时使用全局项目启动器，显式项目时保持单项目模式；`doctor` / `host status` 分列磁盘、daemon、Web 身份并只给显式更新提示 | `run` |
 | `cli/commands/intent.js` | `order`（新输入的唯一入口），`--profile-file PATH` 从 owner-only 普通 JSON 文件读取完整运行覆盖 | `run` |
-| `cli/native-watch.js` | 真实终端中的原生 Pi 只读观看器：通过既有 `worker.transcript_page` 连续分段读取，不创建 AgentSession／Pi 子进程、不写会话、不执行工具；有界历史与正文、滚动／展开／退出、single-flight 跟随与清理 | `watchWorker(client,taskId,options?)`、`WATCH_LIMITS`、`RecordAssembler`、`NativeRecordView`、`sanitizeTerminalText` |
-| `cli/native-pi.js` | 仅显式观看时定位本机 Pi 包并加载公开 TUI／原生消息和内置工具渲染组件；缺失／不兼容明确拒绝，无 daemon 依赖、无自动安装、不加载用户扩展 | `loadNativePi(env?)`、`resolveNativePi(env?)` |
-| `cli/commands/task.js` | `worker`（list / tree / inspect / spawn / message / auto-title '标题'（仅活动自身 Agent，一次性） / rename ID '标题'（仅用户） / watch ID（原生只读终端，仅用户） / transcript [--follow] / history / wait / integrate / auto-merge ID on\|off / reserve / accept / reopen / sync-parent / resolve-sync / resolve / resolve-divergence / resolve-child-divergence / unreserve / approve-merge / cancel / retry / cleanup / delete ID [--force] [--confirm --revision REV]） | `run`、`followTranscript`、`FOLLOW_INTERVAL_MS` |
+| `cli/native-watch.js` | 真实终端中的原生 Pi 只读观看器：通过既有 `worker.transcript_page` 连续分段读取，不创建 AgentSession／Pi 子进程、不写会话、不执行工具；有界历史与正文，原生 `TuiAltScreen` / `ScrollView` 全屏滚动、常驻滚动条、阅读锚点、展开／退出、single-flight 跟随与清理 | `watchWorker(client,taskId,options?)`、`WATCH_LIMITS`、`RecordAssembler`、`NativeRecordView`、`sanitizeTerminalText` |
+| `cli/native-pi.js` | 仅显式观看时定位本机 Pi 包并加载公开 TUI／原生消息和内置工具渲染组件；校验随包 `theme.js` 的非包根颜色接缝，保留 system 主题，100ms 有界配色查询／晚响应与切换刷新、对比回退及代码背景；缺失／不兼容明确拒绝，无 daemon 依赖、无自动安装、不加载用户扩展 | `loadNativePi(env?)`、`resolveNativePi(env?)`、`fallbackTerminalColors(env?,scheme?)`、`watchTerminalColors(runtime,ui,onChange,onError?,timers?)` |
+| `cli/commands/task.js` | `worker`（list / tree / inspect / spawn / message / auto-title '标题'（仅活动自身 Agent，一次性） / rename ID '标题'（仅用户） / watch ID（原生只读终端，仅用户） / transcript（单次查询） / history / wait / integrate / auto-merge ID on\|off / reserve / accept / reopen / sync-parent / resolve-sync / resolve / resolve-divergence / resolve-child-divergence / unreserve / approve-merge / cancel / retry / cleanup / delete ID [--force] [--confirm --revision REV]） | `run` |
 | `cli/commands/hooks.js` | 项目 Hook 目录/模板与 Worker 挂载的用户专属 CLI，复用 `cli/private-json.js` 的有界、owner-only、no-follow 文件输入和 revision 校验；`order --defer` 由指令命令授权 | `run`、`runWorkerHook`、`runWorkerCompletion`；新增 `hooks signal save/remove` 与 `hooks management create/enable/disable`，无立即执行管理工具入口（接口以 [Hooks 接缝](hooks.md)、[时间信号与管理](hook-signals-management.md)和[自动链](completion-hooks.md)为准） |
 | `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 Agent 的 Worker） | `run` |
 | `cli/commands/notice.js` | `notice list/post/answer/dismiss/read`（read 仅标已读；选择快照与重选已停用）；`post --worker` 接受整数或稳定 Worker 编号，Notice 的人类摘要显示 D/N 编号（单条 post/answer/dismiss/read 在完整结果前追加摘要，与 list 一致），参数仍只接受整数 | `run` |
@@ -78,7 +78,7 @@ Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 
 
 | 文件 | 职责 | 导出 / 命令 |
 |---|---|---|
-| `scripts/check-native-viewer.js` | 显式本机 Pi + POSIX/python3 PTY 集成专项：真实 CLI/Unix RPC、原生组件、滚动/工具展开/resize、停滞读取退出与 raw mode 恢复；仅临时项目/受控 RPC，不启动 daemon/Agent/模型，保留日志，常规全量不依赖全局 Pi | `bun run scripts/check-native-viewer.js` |
+| `scripts/check-native-viewer.js` | 显式本机 Pi + POSIX/python3 PTY 集成专项：真实 CLI/Unix RPC、原生组件、滚轮/键盘翻页/代码背景/晚到配色/工具展开/resize、停滞读取退出与 raw mode/主屏/终端模式恢复；仅临时项目/受控 RPC，不启动 daemon/Agent/模型，保留日志，常规全量不依赖全局 Pi | `bun run scripts/check-native-viewer.js` |
 | `scripts/ops.js` | `package.json` 便捷命令分派到现行 CLI；只保留可用别名，不恢复退休命令 | 命令行入口，无导出；其余命令透传 `main` 校验 |
 | `scripts/measure-read-performance.js` | 临时 fixture 的同进程读面 / DOM stub / 事件循环重复采样，逐样本保留既有预算，代码及 OS / Bun / Git 身份与显式 JSON 输出；无 CI / 生产改动 | `parseOptions(args)`、`summarize(values)`、`collectEnvironment(root?,env?)`、`buildReport(samples,environment,startedAt,finishedAt)`、`writeReport(report,output)`、`THRESHOLDS`；`bun run measure:read-performance [--samples N] [--output PATH]`，契约见[本地读取性能报告](../contributing/read-performance.md) |
 

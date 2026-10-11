@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadNativePi, resolveNativePi } from '../src/cli/native-pi.js';
+import { loadNativePi, resolveNativePi, fallbackTerminalColors, watchTerminalColors } from '../src/cli/native-pi.js';
 
 function installation({ compatible = true, incomplete = false, layout = 'global' } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-native-pi-'));
@@ -15,6 +15,7 @@ function installation({ compatible = true, incomplete = false, layout = 'global'
   write(path.join(pkg, 'dist/index.js'), compatible ? `
     export class AssistantMessageComponent {} export class UserMessageComponent {} export class ToolExecutionComponent {}
     export function initTheme(name, watcher) { if(name !== 'system' || watcher) throw Error('unsafe theme'); }
+    export function getMarkdownTheme() { return {}; }
     export function createAgentSession() { throw Error('viewer cannot create Agent'); }
     ${names.map(name => `export function create${name}ToolDefinition() { return {
       execute() { throw Error('viewer cannot execute'); }, renderShell: 'default',
@@ -22,10 +23,17 @@ function installation({ compatible = true, incomplete = false, layout = 'global'
       renderResult() { return {render:()=>['native result']}; }
     }; }`).join('\n')}
   ` : 'export const obsolete = true;');
+  write(path.join(pkg, 'dist/modes/interactive/theme/theme.js'), `
+    export function setTerminalColors() {} export function setTerminalColorScheme() {} export function detectTerminalTheme() {}
+    export const theme = { getBgAnsi: ()=>'background', bg:(_token,text)=>text, fg:(_token,text)=>text };
+  `);
   const tui = path.join(pkg, 'node_modules', '@earendil-works', 'pi-tui');
   write(path.join(tui, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-tui', type: 'module', main: 'index.js' }));
   write(path.join(tui, 'index.js'), `
-    export class ProcessTerminal {} export class TuiMainScreen {}
+    export class ProcessTerminal {}
+    export class TuiAltScreen { setLayoutRoot() {} addInputListener() {} onTerminalColorSchemeChange() {} setTerminalColorSchemeNotifications() {} }
+    export class ScrollView { getContentWidth() {} updateLayout() {} scrollTo() {} scrollBy() {} scrollToEnd() {} }
+    export class VStack {}
     export class Text { constructor(text){this.text=text;} render(){return [this.text];} }
     export class Container { constructor(){this.children=[];} addChild(c){this.children.push(c);} render(w){return this.children.flatMap(c=>c.render(w));} }
     export function matchesKey() {} export function truncateToWidth() {} export function visibleWidth() {}
@@ -72,6 +80,16 @@ test('missing executable/module and standalone binary give friendly offline erro
     }
     expect(fs.readdirSync(root)).toEqual(['pi']);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a Pi install without the system palette seam or native fullscreen refuses before terminal entry', async () => {
+  for (const missingFile of ['dist/modes/interactive/theme/theme.js', 'node_modules/@earendil-works/pi-tui/index.js']) {
+    const f = installation();
+    try {
+      fs.writeFileSync(path.join(f.pkg, missingFile), 'export const obsolete = true;');
+      await expect(loadNativePi(f.env)).rejects.toThrow('不兼容');
+    } finally { f.dispose(); }
+  }
 });
 
 test('incompatible or incomplete installations are refused without importing unknown execution code', async () => {

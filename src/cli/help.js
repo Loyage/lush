@@ -13,7 +13,7 @@ lush [--project PATH] [--json] <command>
   worker rename ID '标题'            只改展示标题；空标题恢复自动标题（仅用户）
   worker message ID '说明'            给现有 Worker 追加消息
   worker watch ID [--after N]         原生 Pi 只读终端观看（仅用户；需本机 Pi；q/Esc/Ctrl-C 退出）
-  worker transcript ID [--follow]     纯文本执行记录；--follow 持续追加
+  worker transcript ID [--after N]    单次查询执行记录
   worker history ID                  查看事件
   worker hooks ID                    查看已挂载 Hook、自动级别与修改版本
   worker completion ID off|merge|accept --revision REV  设置最高自动级别（验收含归档回收；旧 archive 等价 accept）

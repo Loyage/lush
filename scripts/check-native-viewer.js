@@ -25,7 +25,7 @@ const session = path.join(root, '.lush', 'sessions', '2026-10-11_fixture_lush-ta
 const record = message => JSON.stringify({ type: 'message', timestamp: '2026-10-11T00:00:00Z', message }) + '\n';
 const initial = record({ role: 'user', content: '中文用户：只读观看测试' })
   + record({ role: 'assistant', content: [{ type: 'thinking', thinking: '检查接口，不调用模型。' },
-    { type: 'text', text: '## 原生观看\n**正文**\n' + Array.from({ length: 40 }, (_, i) => `历史行 ${i}`).join('\n') },
+    { type: 'text', text: '## 原生观看\n**正文**\n```js\nconst nativeCode = 123;\n```\n' + Array.from({ length: 40 }, (_, i) => `历史行 ${i}`).join('\n') },
     { type: 'toolCall', id: 'fixture-call', name: 'bash', arguments: { command: 'echo fixture-native' } }] })
   + record({ role: 'toolResult', toolCallId: 'fixture-call', toolName: 'bash', isError: false,
     content: [{ type: 'text', text: 'fixture-native\n' + Array.from({ length: 15 }, (_, i) => `工具输出 ${i}`).join('\n') + '\n\x1b]52;c;INJECTED_CONTROL\x07' }] });
@@ -53,7 +53,7 @@ const server = Bun.listen({ unix: config.socket, socket: {
 } });
 
 const driver = String.raw`
-import os, sys, pty, termios, fcntl, struct, subprocess, select, time, signal, json
+import os, sys, pty, termios, fcntl, struct, subprocess, select, time, signal, json, re
 bun, cli, project, scenario, logfile = sys.argv[1:]
 master, slave = pty.openpty()
 original = termios.tcgetattr(slave)
@@ -65,6 +65,27 @@ def setup():
     fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
 process = subprocess.Popen([bun, cli, 'worker', 'watch', 'W195', '--project', project], stdin=slave, stdout=slave, stderr=slave, preexec_fn=setup)
 captured = bytearray()
+def background_before(needle, section):
+    at = section.rfind(needle.encode())
+    assert at >= 0, 'expected visible code/output did not reach PTY'
+    background = None
+    for match in re.finditer(rb'\x1b\[([0-9;]*)m', section[:at]):
+        values = [int(v) for v in match.group(1).split(b';') if v] or [0]
+        i = 0
+        while i < len(values):
+            value = values[i]
+            if value in (0, 49): background = None
+            elif 40 <= value <= 47 or 100 <= value <= 107: background = (value,)
+            elif value in (38, 48) and i + 1 < len(values):
+                count = 4 if values[i + 1] == 2 else 2
+                if value == 48: background = tuple(values[i:i + count + 1])
+                i += count
+            i += 1
+    assert background is not None, 'code/tool output was rendered without a background'
+    return background
+def background_changed(needle, section, original):
+    try: return background_before(needle, section) != original
+    except AssertionError: return False
 def read_until(predicate, seconds=10):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
@@ -82,19 +103,37 @@ try:
     read_until(lambda: '只读 Pi'.encode() in captured)
     if scenario == 'normal':
         read_until(lambda: '最新到达'.encode() in captured)
+        assert b'\x1b[?1049h' in captured and b'\x1b[?1006h' in captured, 'native fullscreen/mouse mode was not enabled'
+        assert b'\x1b]10;?' in captured and b'\x1b]11;?' in captured, 'terminal palette was not queried'
         captured_at = len(captured)
-        os.write(master, b'k')
+        os.write(master, b'\x1b[<64;20;10M')
         read_until(lambda: '暂停阅读'.encode() in captured[captured_at:])
+        captured_at = len(captured)
+        os.write(master, b'\x1b[5~')
+        read_until(lambda: '历史行'.encode() in captured[captured_at:])
         captured_at = len(captured)
         os.write(master, b'\x0f')
         os.write(master, b'\x1b[F')
         read_until(lambda: '工具输出 14'.encode() in captured[captured_at:])
+        background_before('工具输出 14', bytes(captured[captured_at:]))
         captured_at = len(captured)
         os.write(master, b'\x1b[H')
-        read_until(lambda: '中文用户'.encode() in captured[captured_at:])
+        read_until(lambda: 'nativeCode'.encode() in captured[captured_at:])
+        assert '中文用户'.encode() in captured[captured_at:], 'Home did not reveal oldest input'
+        dark = background_before('nativeCode', bytes(captured[captured_at:]))
+        # Real PTY has no terminal to answer OSC: exercise fallback, then a late light-color reply.
+        captured_at = len(captured)
+        os.write(master, b'\x1b]10;rgb:1818/1818/1818\x07\x1b]11;rgb:ffff/ffff/ffff\x07')
+        read_until(lambda: background_changed('nativeCode', bytes(captured[captured_at:]), dark))
+        light = background_before('nativeCode', bytes(captured[captured_at:]))
+        assert light != dark, 'late light terminal palette did not repaint code background'
         captured_at = len(captured)
         size(16, 32); os.kill(process.pid, signal.SIGWINCH)
-        read_until(lambda: len(captured) > captured_at)
+        read_until(lambda: '中文用户'.encode() in captured[captured_at:])
+        assert '中文用户'.encode() in captured[captured_at:], 'resize pulled paused reading to the end'
+        captured_at = len(captured)
+        os.write(master, b'\x1b[6~')
+        read_until(lambda: '历史行'.encode() in captured[captured_at:])
         os.write(master, b'\x1b[F')
     else:
         read_until(lambda: os.path.exists(os.path.join(project, 'read-started')))
@@ -110,7 +149,10 @@ try:
     assert restored[:2] == original[:2] and restored[3:] == original[3:], 'raw terminal flags were not restored: before=' + repr(original) + ' after=' + repr(restored)
     assert b'INJECTED_CONTROL' not in captured, 'log OSC reached terminal'
     assert b'lush:' not in captured, 'CLI emitted an error'
-    print(json.dumps({'scenario': scenario, 'exit_ms': round(elapsed * 1000), 'raw_mode_restored': True, 'bytes': len(captured)}))
+    assert b'\x1b[?1049l' in captured, 'exit did not restore main screen'
+    assert b'\x1b[?1006l' in captured and b'\x1b[?2031l' in captured, 'exit left mouse/theme notifications enabled'
+    print(json.dumps({'scenario': scenario, 'exit_ms': round(elapsed * 1000), 'raw_mode_restored': True,
+        'main_screen_restored': True, 'fullscreen_wheel_and_code_background': scenario == 'normal', 'bytes': len(captured)}))
 finally:
     if process.poll() is None:
         process.kill(); process.wait()

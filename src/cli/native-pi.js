@@ -112,21 +112,33 @@ function checkInstallation(entry) {
 /** Lazy, presentation only. No sessions, settings, resource discovery or custom extensions. */
 export async function loadNativePi(env = process.env) {
   const entry = resolveNativePi(env);
-  let pi, tui;
+  let pi, tui, themeApi;
   try {
     checkInstallation(entry);
     pi = await import(pathToFileURL(entry).href);
     const tuiEntry = createRequire(entry).resolve(TUI_PACKAGE);
     tui = await import(pathToFileURL(tuiEntry).href);
+    // Pi 1.0's root exports components, but its terminal-derived system palette setters
+    // live in this shipped presentation module. Refuse versions missing this narrow seam.
+    themeApi = await import(pathToFileURL(path.join(path.dirname(entry), 'modes/interactive/theme/theme.js')).href);
   } catch { throw incompatible(); }
   const requiredPi = ['AssistantMessageComponent', 'UserMessageComponent', 'ToolExecutionComponent', 'initTheme',
-    'createReadToolDefinition', 'createBashToolDefinition', 'createEditToolDefinition', 'createWriteToolDefinition'];
-  const requiredTui = ['ProcessTerminal', 'Text', 'Container', 'matchesKey', 'truncateToWidth', 'visibleWidth'];
+    'getMarkdownTheme', 'createReadToolDefinition', 'createBashToolDefinition', 'createEditToolDefinition', 'createWriteToolDefinition'];
+  const requiredTui = ['ProcessTerminal', 'TuiAltScreen', 'ScrollView', 'VStack', 'Text', 'Container', 'matchesKey', 'truncateToWidth', 'visibleWidth'];
+  const requiredTheme = ['setTerminalColors', 'setTerminalColorScheme', 'detectTerminalTheme'];
   if (requiredPi.some(key => typeof pi[key] !== 'function') || requiredTui.some(key => typeof tui[key] !== 'function')
-    || typeof (tui.TuiMainScreen || tui.TUI) !== 'function') throw incompatible();
+    || requiredTheme.some(key => typeof themeApi[key] !== 'function')
+    || ['setLayoutRoot', 'addInputListener', 'onTerminalColorSchemeChange', 'setTerminalColorSchemeNotifications']
+      .some(key => typeof tui.TuiAltScreen.prototype[key] !== 'function')
+    || ['getContentWidth', 'updateLayout', 'scrollTo', 'scrollBy', 'scrollToEnd']
+      .some(key => typeof tui.ScrollView.prototype[key] !== 'function')) throw incompatible();
   try {
     // System is reserved: unlike named themes it never loads a user's theme file or watcher.
+    // A guessed foreground must not be announced as an actual terminal default: Pi
+    // would emit SGR 39 for panel titles, which could be black on a guessed dark panel.
+    themeApi.setTerminalColors({ background: fallbackTerminalColors(env).background });
     pi.initTheme('system', false);
+    if (['getBgAnsi', 'bg', 'fg'].some(key => typeof themeApi.theme?.[key] !== 'function')) throw incompatible();
     const renderers = new Map();
     for (const name of ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls']) {
       const factory = pi[`create${name[0].toUpperCase()}${name.slice(1)}ToolDefinition`];
@@ -146,6 +158,94 @@ export async function loadNativePi(env = process.env) {
       }
       renderers.set(name, Object.freeze(renderer));
     }
-    return { pi, tui, renderers, entry };
+    const appearance = {
+      apply(colors, scheme) {
+        themeApi.setTerminalColorScheme(scheme);
+        themeApi.setTerminalColors({ background: fallbackTerminalColors(env, themeApi.detectTerminalTheme(colors, scheme, env)).background, ...colors });
+        pi.initTheme('system', false);
+      },
+      theme: themeApi.theme,
+    };
+    const assistant = message => {
+      // The native component accepts a Markdown theme. Add only code-panel backgrounds;
+      // preserve Pi's own Markdown parsing, language highlighting and text rendering.
+      const markdown = pi.getMarkdownTheme(), bg = text => appearance.theme.bg('toolSuccessBg', text);
+      const component = new pi.AssistantMessageComponent(message, false, {
+        ...markdown,
+        codeBlock: text => bg(markdown.codeBlock(text)),
+        codeBlockBorder: text => bg(markdown.codeBlockBorder(text)),
+        highlightCode: (code, language) => markdown.highlightCode(code, language).map(bg),
+      });
+      return {
+        invalidate() { component.invalidate(); },
+        render(width) {
+          const prefix = appearance.theme.getBgAnsi('toolSuccessBg');
+          return component.render(width).map(line => line.includes(prefix)
+            ? prefix + line.replace(/\x1b\[(?:0|49)m/g, reset => reset + prefix)
+              + ' '.repeat(Math.max(0, width - tui.visibleWidth(line))) + '\x1b[49m'
+            : line);
+        },
+      };
+    };
+    return { pi, tui, renderers, entry, appearance, assistant };
   } catch { throw incompatible(); }
+}
+
+/** Explicit fallback seeds the reserved system theme's contrast calculation, rather than
+ * loading a named dark/light theme that a user may override. Unknown terminals default dark;
+ * COLORFGBG or a native appearance notification can provide a light fallback. */
+export function fallbackTerminalColors(env = process.env, scheme) {
+  const index = Number((env.COLORFGBG || '').split(';').at(-1));
+  const light = scheme ? scheme === 'light' : Boolean(env.COLORFGBG) && Number.isInteger(index) && index >= 7 && index <= 15 && index !== 8;
+  return light ? { foreground: { r: 24, g: 24, b: 24 }, background: { r: 255, g: 255, b: 255 } }
+    : { foreground: { r: 229, g: 229, b: 231 }, background: { r: 0, g: 0, b: 0 } };
+}
+
+/** Native OSC queries, without TUI's uncancellable pending-query timer. ProcessTerminal splits
+ * terminal sequences; the listener consumes only complete color/DA replies, never log text.
+ * One 100ms startup budget, then late colors still apply. All listeners/timers are disposable. */
+export function watchTerminalColors(runtime, ui, onChange, onError = () => {}, timers = { setTimeout, clearTimeout }) {
+  let active = true, timer, scheme, reported = {}, palette = [], readyResolve;
+  const ready = new Promise(resolve => { readyResolve = resolve; });
+  const apply = () => {
+    if (!active) return;
+    try {
+      runtime.appearance.apply({ ...reported, ...(Array.from({ length: 16 }, (_, i) => palette[i]).every(Boolean) ? { palette: [...palette] } : {}) }, scheme);
+      onChange();
+    } catch (error) { onError(error); }
+  };
+  const settle = () => { timers.clearTimeout(timer); timer = undefined; readyResolve(); };
+  const query = () => {
+    timers.clearTimeout(timer);
+    timer = timers.setTimeout(() => { timer = undefined; apply(); readyResolve(); }, 100);
+    ui.terminal.write('\x1b]10;?\x1b\\\x1b]11;?\x1b\\'
+      + Array.from({ length: 16 }, (_, i) => `\x1b]4;${i};?\x1b\\`).join('') + '\x1b[c');
+  };
+  const unsubscribe = ui.addInputListener(data => {
+    const match = /^\x1b\](?:(10|11)|4;(\d{1,3}));([^\x07\x1b]{1,32})(?:\x07|\x1b\\)$/i.exec(data);
+    const value = match?.[3];
+    const channels = value?.startsWith('#') && /^(?:#[0-9a-f]{6}|#[0-9a-f]{12})$/i.test(value)
+      ? value.slice(1).match(new RegExp(`.{${(value.length - 1) / 3}}`, 'g'))
+      : /^(?:rgb:)?[0-9a-f]{1,4}\/[0-9a-f]{1,4}\/[0-9a-f]{1,4}$/i.test(value || '') ? value.replace(/^rgb:/i, '').split('/') : null;
+    if (channels) {
+      const rgb = Object.fromEntries(['r', 'g', 'b'].map((key, i) => [key, Math.round(parseInt(channels[i], 16) / (16 ** channels[i].length - 1) * 255)]));
+      if (match[1]) reported[match[1] === '10' ? 'foreground' : 'background'] = rgb;
+      else if (Number(match[2]) < 16) palette[Number(match[2])] = rgb;
+      apply(); return { consume: true };
+    }
+    if (/^\x1b\[(?:\?|>)[\d;]*c$/.test(data)) { settle(); return { consume: true }; }
+    // Invalid color replies are still protocol, not keyboard actions (notably Escape).
+    if (/^\x1b\](?:10|11|4);/.test(data)) return { consume: true };
+    return undefined;
+  });
+  const unsubscribeScheme = ui.onTerminalColorSchemeChange(value => {
+    scheme = value; reported = {}; palette = []; apply(); query();
+  });
+  const dispose = () => {
+    if (!active) return;
+    active = false; settle(); unsubscribe(); unsubscribeScheme(); ui.setTerminalColorSchemeNotifications(false);
+  };
+  try { ui.setTerminalColorSchemeNotifications(true); query(); }
+  catch (error) { dispose(); throw error; }
+  return { ready, dispose };
 }

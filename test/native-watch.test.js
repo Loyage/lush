@@ -21,17 +21,41 @@ function fixture() {
   }
   const terminal = { rows: 16, columns: 80, started: 0, stopped: 0,
     start(input, resize) { this.started++; this.input = input; this.resize = resize; }, stop() { this.stopped++; } };
+  // Dependency-free fixture for the public layout API. Real Pi layout/mouse routing is
+  // covered by opt-in smoke; unit fixtures focus on read, pairing and record-local anchors.
+  class ScrollView {
+    constructor(child) { this.child = child; this.scrollTop = 0; this.viewportHeight = 0; this.isFollowingEnd = true; this.contentHeight = 0; }
+    getContentWidth(width) { return width > 1 ? width - 1 : width; }
+    updateLayout(height, viewport) {
+      this.contentHeight = height; this.viewportHeight = viewport;
+      this.scrollTop = this.isFollowingEnd ? Math.max(0, height - viewport) : Math.min(this.scrollTop, Math.max(0, height - viewport));
+    }
+    scrollTo(top, options = {}) {
+      this.scrollTop = Math.max(0, Math.min(Math.max(0, this.contentHeight - this.viewportHeight), top));
+      this.isFollowingEnd = !options.disableFollow && this.scrollTop === Math.max(0, this.contentHeight - this.viewportHeight);
+    }
+    scrollToEnd() { this.scrollTo(this.contentHeight); }
+    scrollBy(delta) { this.scrollTo(this.scrollTop + delta); }
+  }
+  class VStack { constructor(entries) { this.entries = entries; } }
+  const screen = (view, width = terminal.columns) => {
+    const height = Math.max(1, terminal.rows - (terminal.rows >= 2 ? 1 : 0) - (terminal.rows >= 4 ? 1 : 0));
+    const lines = view.render(view.scroll.getContentWidth(width));
+    view.scroll.updateLayout(lines.length, height);
+    return [...(terminal.rows >= 2 ? view.header.render(width) : []), ...lines.slice(view.top, view.top + height),
+      ...(terminal.rows >= 4 ? view.footer.render(width) : [])];
+  };
   class TUI {
-    constructor(term) { this.terminal = term; instances.push(this); } addChild(view) { this.view = view; } setFocus(view) { this.focus = view; }
+    constructor(term) { this.terminal = term; instances.push(this); } setLayoutRoot(root) { this.root = root; } setFocus(view) { this.focus = this.view = view; }
     start() { this.terminal.start(data => this.focus.handleInput(data), () => this.requestRender()); this.requestRender(); }
-    requestRender() { this.output = this.view.render(this.terminal.columns); }
-    stop() { this.stopped = true; this.terminal.stop(); }
+    requestRender() { this.output = screen(this.view); }
+    stop(options) { this.stopOptions = options; this.stopped = true; this.terminal.stop(); }
   }
   const keyMap = { 'ctrl+c': '\x03', escape: '\x1b', 'ctrl+o': '\x0f', up: '\x1b[A', down: '\x1b[B',
     pageUp: '\x1b[5~', pageDown: '\x1b[6~', home: '\x1b[H', end: '\x1b[F' };
   const runtime = { pi: { UserMessageComponent: User, AssistantMessageComponent: Assistant, ToolExecutionComponent: Tool },
-    tui: { Text, Container, TuiMainScreen: TUI, matchesKey: (data, key) => data === keyMap[key], truncateToWidth: text => text }, renderers: new Map() };
-  return { runtime, terminal, instances, tools, messages, options: { runtime, terminal, stdin: { isTTY: true }, stdout: { isTTY: true } } };
+    tui: { Text, Container, ScrollView, VStack, TuiAltScreen: TUI, matchesKey: (data, key) => data === keyMap[key], truncateToWidth: text => text }, renderers: new Map() };
+  return { runtime, terminal, instances, tools, messages, screen, options: { runtime, terminal, stdin: { isTTY: true }, stdout: { isTTY: true } } };
 }
 function segment(seq, body, extra = {}) { return { seq, kind: 'text', title: '回答', file: 'a.jsonl', line: seq, body, body_length: body.length, offset: 0, ...extra }; }
 function page(steps, seq, offset = 0, more = false) { return { steps, next_seq: seq, next_offset: offset, has_more: more, files: [] }; }
@@ -63,8 +87,8 @@ test('after starts exactly at after+1, reassembles pages and persistently disclo
   expect(view.items.map(item => item.step.seq)).toEqual([8, 9]);
   expect(view.items[0].hidden).toBe(false); expect(view.items[0].result).toBeNull();
   expect(f.tools).toEqual([]); expect(f.messages[0].content[0].text).toBe('abcd');
-  expect(view.render(80).join('\n')).toContain('已跳过前 7 步');
-  view.handleInput('?'); expect(view.render(80).join('\n')).toContain('已跳过前 7 步');
+  expect(view.header.render(80).join('\n')).toContain('已跳过前 7 步');
+  view.handleInput('?'); expect(view.header.render(80).join('\n')).toContain('已跳过前 7 步');
 });
 
 test('after empty scans keep the explicit future cursor instead of guessing newest or exiting', async () => {
@@ -185,8 +209,8 @@ test('viewer exit through real UIClient closes the fixed-parent cancellable sock
 });
 
 test('terminal startup failure cleans raw terminal and signal handlers', async () => {
-  const f = fixture(), Original = f.runtime.tui.TuiMainScreen;
-  f.runtime.tui.TuiMainScreen = class extends Original { start() { super.start(); throw Error('terminal startup failed'); } };
+  const f = fixture(), Original = f.runtime.tui.TuiAltScreen;
+  f.runtime.tui.TuiAltScreen = class extends Original { start() { super.start(); throw Error('terminal startup failed'); } };
   const before = process.listenerCount('SIGINT');
   await expect(watchWorker(reader([]), 1, f.options)).rejects.toThrow('terminal startup failed');
   expect(f.terminal.stopped).toBe(1); expect(process.listenerCount('SIGINT')).toBe(before);
@@ -285,11 +309,27 @@ test('Ctrl-O expands tools; navigation pauses and anchors old content through ap
   const f = fixture(), ui = { requestRender() {} }, view = new NativeRecordView(f.runtime, ui, f.terminal, () => {}, WATCH_LIMITS, 'W7');
   for (let seq = 1; seq <= 20; seq++) view.add(segment(seq, `record-${seq}`));
   view.add(segment(21, '{"command":"ls"}', { kind: 'tool', tool_name: 'bash' }));
-  view.render(80); view.handleInput('\x0f'); expect(view.items.at(-1).tool.expanded).toBe(true);
-  view.handleInput('\x1b[H'); const before = view.render(80).slice(3); expect(view.following).toBe(false);
-  view.add(segment(22, 'new')); expect(view.render(80).slice(3)).toEqual(before);
+  f.screen(view, 80); view.handleInput('\x0f'); expect(view.items.at(-1).tool.expanded).toBe(true);
+  view.handleInput('\x1b[H'); const before = f.screen(view, 80).slice(1, -1); expect(view.following).toBe(false);
+  view.add(segment(22, 'new')); expect(f.screen(view, 80).slice(1, -1)).toEqual(before);
   f.terminal.columns = 24; f.terminal.rows = 12; view.invalidate();
-  expect(view.render(24).join('\n')).toContain('record-1');
-  view.handleInput('?'); expect(view.render(24).join('\n')).toContain('Ctrl-O');
+  expect(f.screen(view, 24).join('\n')).toContain('record-1');
+  view.handleInput('?'); expect(f.screen(view, 24).join('\n')).toContain('Ctrl-O');
   view.handleInput('f'); expect(view.following).toBe(true);
+});
+
+test('SIGTERM releases only the reader; fullscreen cleanup preserves the preexisting main screen', async () => {
+  const f = fixture(), c = reader([page([], 1)]), before = process.listenerCount('SIGTERM');
+  await watchWorker(c, 1, { ...f.options, sleep: async () => { process.emit('SIGTERM'); } });
+  expect(c.requests).toHaveLength(1); expect(f.terminal.stopped).toBe(1);
+  expect(f.instances[0].stopOptions).toEqual({ preserveScreen: true });
+  expect(process.listenerCount('SIGTERM')).toBe(before);
+});
+
+test('fullscreen stop failure still restores the raw terminal and reports a sanitized error', async () => {
+  const f = fixture(), Original = f.runtime.tui.TuiAltScreen;
+  f.runtime.tui.TuiAltScreen = class extends Original { stop() { throw Error('stop\x1b]52;c;secret\x07 failed'); } };
+  await expect(watchWorker(reader([page([], 1)]), 1, { ...f.options, sleep: async () => { f.terminal.input('q'); } }))
+    .rejects.toThrow('stop failed');
+  expect(f.terminal.stopped).toBe(1);
 });

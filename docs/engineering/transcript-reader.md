@@ -106,9 +106,9 @@ W182／用户决定 #440：`render-conversation.js` 将原始目标、明确来�
 
 对话整体沿用模块预览与吸顶；每条明显超长的消息另提供「展开消息 / 收起消息」，正文预览为 `min(260px,35dvh)`，自然高度超过上限 60px 才裁剪。完整 Markdown／原文始终保留在 DOM，展开不增加纵向滚动条；消息头在展开的对话内贴模块标题下方，随自己的气泡离开。键盘聚焦或引用定位先显露消息及整个模块。
 
-在真实终端里可以用原生只读 `lush worker watch ID [--after N]` 或原有纯文本 `lush worker transcript ID --follow`；Web「Agent」块分别提供复制入口，已知来源时固定并 Shell 引用 `--project`。原生观看器使用 Pi 公开渲染组件及 `worker.transcript_page` 连续分段读面；只读取已完成记录，不新增 RPC、AgentSession、Pi 子进程、模型调用或执行入口，不写会话、不加载用户扩展，具体边界与上限见[原生观看器](../native-viewer.md)。
+在真实终端里使用原生只读 `lush worker watch ID [--after N]`；Web「Agent」块提供复制入口，已知来源时固定并 Shell 引用 `--project`。原生观看器使用 Pi 公开渲染组件及 `worker.transcript_page` 连续分段读面；只读取已完成记录，不新增 RPC、AgentSession、Pi 子进程、模型调用或执行入口，不写会话、不加载用户扩展，具体边界与上限见[原生观看器](../native-viewer.md)。
 
-纯文本跟随仍先用兼容读面 `worker.transcript` 分页打印已有记录，再用 `worker.transcript_latest` 以 `after` 为游标轮询新步骤，直到 Ctrl-C；一次轮询读到整页上限（200 步）时明确提示中间可能还有未显示的记录，不冒充已全部显示。两条命令仅用户可运行，agent token 会被拒绝，`--json` 不适用；原生观看还须真实 TTY。
+纯文本持续跟随的 CLI、Web 入口与循环实现已删除，不保留兼容别名。`lush worker transcript ID [--after N]` 仍是单次查询，供用户／Agent 使用且支持 JSON；不会轮询。原生观看仅用户可运行，agent token 会被拒绝，`--json` 不适用且须真实 TTY。`worker.transcript_latest` 继续服务 Web 阅读器，不因删除 CLI 跟随而移除后端读面。
 
 ## 专用解释 Agent（历史实现）
 
