@@ -29,7 +29,7 @@ test('one conversation shows original goal, explicit user followups and results;
     expect(entries.map(node => node.dataset.conversationKey)).toEqual(['latest', 'input:2', 'input:1', 'goal']);
     expect(deepText(entries[1])).toContain('账号名称未知'); expect(deepText(entries[0]).replace(/\s+/g, ' ')).toContain('Worker W182');
     expect(entries[1].dataset.ref).toContain('event-2');
-    expect(conversation.querySelectorAll('details')).toHaveLength(0);
+    expect(conversation.querySelectorAll('.message-original')).toHaveLength(4);
     renderDetail(task, { events: [...history.events, event(6, '新的输入')] }, null, null);
     expect(panel.querySelector('.conversation-panel')).toBe(conversation);
     expect(conversation.querySelectorAll('.conversation-message')[0]).toBe(entries[0]);
@@ -38,7 +38,7 @@ test('one conversation shows original goal, explicit user followups and results;
 });
 
 test('content checkboxes default to user/Worker, keep communication distinct and retain choices/nodes across refresh', async () => {
-  const dom = installDom({ fetch: async () => new Response(JSON.stringify({ events: [event(8, '较早通信', 9)], cursor: 8, has_more: false })) });
+  const dom = installDom({ fetch: async () => new Response(JSON.stringify({ events: [event(8, '较早通信', 9)], messages: [], event_cursor: 0, message_cursor: 0, has_more_events: false, has_more_messages: false })) });
   try {
     const incoming = { id: 43, task_id: 7, sender_id: 8, sender_worker_number: 'W185-1', body: 'Agent 消息', created_at: at };
     const outgoing = { id: 44, task_id: 8, sender_id: 7, body: '发给其他 Worker', created_at: at };
@@ -60,7 +60,7 @@ test('content checkboxes default to user/Worker, keep communication distinct and
     expect(deepText(root)).not.toContain('发给其他 Worker');
     toggle(0, false); toggle(1, false);
     expect(root.querySelectorAll('.conversation-input')).toHaveLength(0); expect(root.querySelectorAll('.conversation-output')).toHaveLength(0);
-    await findByText(root, '加载更早对话').onclick();
+    await findByText(root, '加载更早输入与结果').onclick();
     expect(deepText(root)).toContain('较早通信');
     renderConversation(current, history, root);
     expect(filters.map(node => node.checked)).toEqual([false, false, true]);
@@ -79,24 +79,24 @@ test('one pager loads both directions of history, retries failure and retains ol
     if (String(url) === '/api/host/session') return new Response(JSON.stringify({ username: null }));
     requests.push(String(url));
     if (fail) return new Response(JSON.stringify({ error: 'offline' }), { status: 500 });
-    if (String(url).includes('before=50')) return new Response(JSON.stringify({ events: [event(25, 'Agent 消息', 8)], cursor: 20, has_more: true }));
+    if (!String(url).includes('before_event=20')) return new Response(JSON.stringify({ events: [event(25, 'Agent 消息', 8)], messages: [], event_cursor: 20, message_cursor: 0, has_more_events: true, has_more_messages: false }));
     return new Response(JSON.stringify({ events: [event(1, '<script>old</script>\n第二行'), event(2, '旧输入'),
-      { id: 3, type: 'invocation.completed', created_at: at, data: { run_id: 1, result: '更早结果' } }], cursor: 1, has_more: false }));
+      { id: 3, type: 'invocation.completed', created_at: at, data: { run_id: 1, result: '更早结果' } }], messages: [], event_cursor: 0, message_cursor: 0, has_more_events: false, has_more_messages: false }));
   } });
   try {
     const history = { events: [event(30, '新输入')], cursor: 50, truncated: true };
     const root = renderConversation(task, history);
     expect(requests).toHaveLength(0);
-    await findByText(root, '加载更早对话').onclick(); expect(deepText(root)).toContain('offline');
+    await findByText(root, '加载更早输入与结果').onclick(); expect(deepText(root)).toContain('offline');
     fail = false;
-    await findByText(root, '加载更早对话').onclick();
-    expect(requests.filter(url => url.includes('before=50'))).toHaveLength(2);
-    await findByText(root, '加载更早对话').onclick();
-    expect(requests.some(url => url.includes('before=20'))).toBe(true);
+    await findByText(root, '加载更早输入与结果').onclick();
+    expect(requests.filter(url => url.endsWith('/reading-page?'))).toHaveLength(2);
+    await findByText(root, '加载更早输入与结果').onclick();
+    expect(requests.some(url => url.includes('before_event=20') && url.includes('before_message=0'))).toBe(true);
     expect(root.querySelector('script')).toBeNull(); expect(deepText(root)).toContain('<script>old</script>');
-    expect(deepText(root)).toContain('更早结果'); expect(deepText(root)).toContain('已读取全部对话历史');
+    expect(deepText(root)).toContain('更早结果'); expect(deepText(root)).toContain('历史已遍历');
     expect(renderConversation(task, history, root)).toBe(root);
-    expect(findByText(root, '加载更早对话').hidden).toBe(true);
+    expect(findByText(root, '加载更早输入与结果').hidden).toBe(true);
     await findByText(root, '正序').onclick();
     expect(root.dataset.order).toBe('asc'); expect(findByText(root, '正序').getAttribute('aria-pressed')).toBe('true');
     const nodes = [...root.querySelector('.conversation-list').children];
@@ -136,7 +136,8 @@ test('long messages retain full DOM, collapse independently and reveal before re
     const root = dom.node('detail').querySelector('.conversation-panel');
     const entry = root.querySelectorAll('.conversation-input')[0], body = entry.querySelector('.conversation-prose');
     expect(entry.classList.contains('conversation-long')).toBe(true);
-    expect(deepText(body).replace(/\s+/g, '')).toBe(long.replace(/\s+/g, ''));
+    const original = body.querySelector('.message-original'); original.open = true; for (const listener of original.listeners.toggle || []) listener();
+    expect(original.querySelector('pre').textContent).toBe(long);
     const toggle = entry.querySelector('.conversation-expand');
     expect(toggle.getAttribute('aria-controls')).toBe(entry.querySelector('.conversation-body').id);
     await toggle.onclick(); expect(toggle.getAttribute('aria-expanded')).toBe('true');

@@ -86,6 +86,14 @@ W218／D510 删除旧快捷解释页面、历史读写及模型调用实现，�
    这样搬家只是剪切粘贴，方法体一行都不用改，`this.store` / `this.running` 照旧。
 3. **一个分区只改自己分区里的文件。** 跨分区修改先与负责的 Worker 在派工目标或消息中约定接口和文件范围，不擅自伸手；仅稳定的长期职责或跨模块契约变化需要随交付更新地图。
 
+## 输入与结果整合接缝（W214／D507）
+
+W214-1 负责 Web 详情、引用定位与跨层专项；其后台 child 只修改 Store/RPC/HTTP 读面及对应测试、Runtime/接口地图和公开契约。最终跨模块集成及全量由顶层 W214 负责。独立「消息」模块在阅读和引用能力齐备后删除，不删除存储记录或改变消息投递、生命周期、权限。
+
+新增用户专属只读 `worker.reading_page {id,before_event?,before_message?,limit?,query?}` 与 `worker.reading_record {id,kind,record_id,offset?}`，HTTP 后缀 `reading-page` / `reading-record`。前者分别按 Event/Message ID 倒序扫描有界窗口（默认每类 50 条，最多 100），返回 `{events,messages,event_cursor,message_cursor,has_more_events,has_more_messages,scanned_events,scanned_messages,scope}`；null/省略从最新开始，0 表示该类耗尽。query 为大小写不敏感连续子串，针对完整解码后的可读正文匹配；即使无命中也返回实际扫描游标和范围，不后台扫描。正文最多 24,000 字符，超出附 `text_truncated/total_chars`，不删除或静默跳过大行。事件保留分类所需 data 字段、消息／run ID、投递证据及已知来源；`notice.answered` 以 Event 的 `answer_source` 为依据，缺证据保守标未知，不能从收件箱 JSON 外观推断身份。收件箱覆盖所有收到的消息，包括无关联事件的旧行。
+
+后者验证 record 属于当前 Worker，kind 为 event/message，按 24,000 字符返回 `{text,offset,next_offset,has_more,total_chars}`，读取 Event 的 body/result/answer（结构化 answer 序列化）或 Message.body。边界按 JavaScript UTF-16 字符位置一致；无法完整读取必须明确拒绝，不把超限当无命中。新读面不依赖 inspect 最近100条或旧 bounded history。Web 本地关键词只筛选已加载完整正文；显式全历史搜索分批使用 query 读面，取消／离页作废旧响应，报告已扫描范围、未读取／不完整记录及失败；命中长正文通过 record 入口续读并保留引用。
+
 ## 指令命名接缝
 
 公开提交只使用 CLI `order` / RPC `order.submit` / `bun run order`，新 Worker 的 `task_kind='order'`。历史 `say` 仅在读/类型判定边界兼容，不迁移持久行、分支或工作区；Input / 历史输入 / 暂存名称不变。完整规则见[指令更名边界](core-api.md#指令更名与历史读取边界)。Runtime 主模块路径为 `project/order.js`（`order` / `sendOrder` / `resolveOrderDivergence`）；共享模块 `src/core/order-kind.js` 的纯函数 `normalizeOrderRecord(row)` 在 Store `get` / `all` 的只读行投影中统一历史类型，SQL 类型筛选仍兼容旧值；前端纯兼容模块为 `worker-kind.js`；浏览器发送只走 `order.submit`，类型标签统一为「指令」。

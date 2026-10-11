@@ -22,7 +22,7 @@ function fold(label, content, className = '') {
   node.append(el('summary', label));
   let loaded = false;
   node.addEventListener('toggle', () => {
-    if (node.open && !loaded) { loaded = true; node.append(content()); }
+    if (node.open && !loaded) { loaded = true; if (node.children.length === 1) node.append(content()); }
   });
   return node;
 }
@@ -130,17 +130,20 @@ export function renderTaskMessageBody(message) {
   const root = el('div', undefined, 'task-message-content');
   let parsed;
   try { parsed = JSON.parse(text); } catch { /* malformed JSON is text, not a repaired object */ }
-  const signal = signalView(parsed);
-  if (signal) {
+  const signal = message.trustEnvelope === false ? null : signalView(parsed);
+  if (message.decision) {
+    root.classList.add('message-system');
+    renderDecision(root, { ...message.decision, answer: parsed ?? text });
+  } else if (signal) {
     root.classList.add('message-system');
     if (signal.failed) root.classList.add('message-failed');
     root.append(el('h3', signal.title, 'message-title')); renderPayload(root, signal.payload);
-  } else if (record(parsed) && Number.isSafeInteger(parsed.notice_id) && typeof parsed.dismissed === 'boolean' && own(parsed, 'answer')) {
+  } else if (message.trustEnvelope !== false && record(parsed) && Number.isSafeInteger(parsed.notice_id) && typeof parsed.dismissed === 'boolean' && own(parsed, 'answer')) {
     root.classList.add('message-system'); renderDecision(root, parsed);
   } else if (record(parsed) || Array.isArray(parsed)) {
     root.append(el('h3', '结构化消息', 'message-title'), structuredValue(text, { openRoot: true }));
   } else if (text) root.append(prose(text));
   else root.append(el('p', '（空消息）', 'hint'));
-  root.append(fold('查看完整原文', () => el('pre', text, 'raw-value'), 'message-original'));
+  root.append(fold(message.originalLabel || '查看完整原文', () => el('pre', text, 'raw-value'), 'message-original'));
   return root;
 }

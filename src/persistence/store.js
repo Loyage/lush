@@ -4,6 +4,7 @@ import { specs } from './store/specs.js';
 import { deps } from './store/deps.js';
 import { messages } from './store/messages.js';
 import { events } from './store/events.js';
+import { reading } from './store/reading.js';
 import { verification } from './store/verification.js';
 import { drafts } from './store/drafts.js';
 import { inputHistory } from './store/input-history.js';
@@ -22,7 +23,7 @@ import { agentConnections } from './store/agent-connections.js';
  */
 export class Store extends StoreBase {}
 
-for (const [module, mixin] of Object.entries({ tasks, specs, deps, messages, events, verification, drafts, inputHistory, references, timeline, branches, runs, candidates, agentUsage, agentConnections })) {
+for (const [module, mixin] of Object.entries({ tasks, specs, deps, messages, events, reading, verification, drafts, inputHistory, references, timeline, branches, runs, candidates, agentUsage, agentConnections })) {
   for (const name of Object.keys(mixin)) {
     if (Object.prototype.hasOwnProperty.call(Store.prototype, name)) {
       throw new Error(`duplicate Store method ${name} (${module}.js)`);

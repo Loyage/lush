@@ -131,7 +131,9 @@ try {
       headerControl:!!n.querySelector('.section-title>.detail-preview-toggle'),
       footerControl:!!n.querySelector('.detail-preview-footer .detail-preview-toggle'),
       natural:n.querySelector('.detail-preview-content').getBoundingClientRect().height}));`);
-    assert(sizes.length >= 8, 'missing reading modules');
+    assert(sizes.length >= 7, 'missing reading modules');
+    assert(await execute(`return ![...document.querySelectorAll('#detail h2')].some(n=>n.textContent==='消息')&&
+      document.querySelector('.conversation-panel h2').textContent==='输入与结果';`), 'independent message module was not integrated');
     for (const size of sizes) {
       const long = size.natural > size.limit + 120;
       assert(size.limit <= 400 && Math.abs(size.body - (long ? size.limit : size.natural)) <= 1,
@@ -184,8 +186,8 @@ try {
     n.querySelector('.detail-preview-body').getBoundingClientRect().height>1000&&n.textContent.includes('最后一段结果')&&
     getComputedStyle(n.querySelector('.detail-preview-body')).maskImage==='none';`), 'result expansion lost body or retained fade');
   assert(await execute(`window.savedResult=document.querySelector('.conversation-panel');
-    window.savedMessage=document.querySelector('.task-message');window.paint();return document.querySelector('.conversation-panel')===window.savedResult&&
-    document.querySelector('.task-message')===window.savedMessage&&
+    window.savedMessage=document.querySelector('.conversation-message');window.paint();return document.querySelector('.conversation-panel')===window.savedResult&&
+    document.querySelector('.conversation-message')===window.savedMessage&&
     window.savedResult.classList.contains('detail-preview-expanded');`), 'refresh reset reading state/nodes');
   await click('.conversation-panel .section-title .detail-preview-toggle');
   assert(await execute(`const n=document.querySelector('.conversation-panel');return !n.classList.contains('detail-preview-expanded')&&
@@ -193,8 +195,11 @@ try {
     getComputedStyle(n.querySelector('.detail-preview-body')).maskImage.includes('linear-gradient');`), 'collapse not bounded or missing fade');
   assert(await execute(`const n=document.querySelector('.agent-panel');const target=n.querySelector('.detail-preview-content button');target.focus();
     return n.classList.contains('detail-preview-expanded')&&document.activeElement===target;`), 'keyboard focus stayed clipped');
-  assert(await execute(`const n=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='消息');
-    const last=n.querySelectorAll('.task-message')[19];window.reveal(last);return n.classList.contains('detail-preview-expanded');`), 'reference reveal failed');
+  assert(await execute(`const n=document.querySelector('.conversation-panel');
+    n.revealConversationReference({kind:'message',target:{message_id:20}});
+    const last=n.querySelector('[data-ref~="message-20"]');window.reveal(last);
+    return n.classList.contains('detail-preview-expanded')&&last.classList.contains('conversation-expanded')&&last.textContent.includes('来源不明');`), 'hidden message reference reveal failed');
+  await execute(`document.querySelector('[data-conversation-filter="other"]').click();`);
   await execute(`const short=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='Worker 依赖');
     window.short=short;const extra=document.createElement('p');extra.textContent='新增历史\\n'.repeat(300);extra.style.whiteSpace='pre-wrap';
     short.querySelector('.detail-preview-content').append(extra);`);
@@ -211,10 +216,12 @@ try {
       if(window.page)window.scrollBy(0,delta);else panel.scrollTop+=delta;`);
     await rpc(`/session/${session}/execute/async`, { script:'requestAnimationFrame(()=>requestAnimationFrame(()=>arguments[0](true)));',args:[] });
     assert(await execute(`const head=window.result.querySelector('.section-title');
-      const edge=window.page?42:document.querySelector('#detail').getBoundingClientRect().top;
+      const edge=window.page?parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--mobile-header-height')):document.querySelector('#detail').getBoundingClientRect().top;
       window.anchorTop=window.anchor.getBoundingClientRect().top;
+      window.stickyDiagnostic={top:head.getBoundingClientRect().top,edge,height:head.getBoundingClientRect().height,
+        module:window.result.getBoundingClientRect().toJSON(),anchor:window.anchorTop,hidden:head.querySelector('button').hidden};
       return Math.abs(head.getBoundingClientRect().top-edge)<2&&
-        !head.querySelector('button').hidden;`), `sticky result header/control ${width}/${theme}`);
+        !head.querySelector('button').hidden;`), `sticky result header/control ${width}/${theme}: ${JSON.stringify(await execute('return window.stickyDiagnostic;'))}`);
     assert(await execute(`const meta=window.reply.querySelector('.conversation-meta'),head=window.result.querySelector('.section-title');
       return Math.abs(meta.getBoundingClientRect().top-head.getBoundingClientRect().bottom)<2&&
         window.reply.classList.contains('conversation-expanded');`), `sticky message header ${width}/${theme}`);
@@ -232,7 +239,7 @@ try {
       window.extra.style.height='340px';`);
     assert(await wait(`Math.abs(window.anchor.getBoundingClientRect().top-window.anchorTop)<2`), `lazy growth moved reader ${width}/${theme}`);
     // Move close to the module end: its header must give way, not overlay the next module.
-    assert(await execute(`const panel=document.querySelector('#detail');const edge=window.page?42:panel.getBoundingClientRect().top;
+    assert(await execute(`const panel=document.querySelector('#detail');const edge=window.page?parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--mobile-header-height')):panel.getBoundingClientRect().top;
       const delta=window.result.getBoundingClientRect().bottom-edge-10;
       if(window.page)window.scrollBy(0,delta);else panel.scrollTop+=delta;
       return window.result.querySelector('.section-title').getBoundingClientRect().bottom<=window.result.getBoundingClientRect().bottom+1;`), 'sticky header escaped module');
@@ -241,8 +248,9 @@ try {
       return !window.result.classList.contains('detail-preview-expanded')&&box.bottom>0&&box.top<innerHeight;`), 'sticky collapse left control offscreen');
     // Supplemental history/use patches above a late module must preserve the same paragraph.
     await execute(`window.patches=window.paint({current:()=>true});
-      window.messages=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='消息');
-      window.reveal(window.messages);window.messageAnchor=window.messages.querySelectorAll('.task-message')[10].querySelectorAll('p')[5];
+      window.messages=document.querySelector('.conversation-panel');
+      window.reveal(window.messages);const reply=window.messages.querySelector('.conversation-output');window.reveal(reply);
+      window.messageAnchor=reply.querySelectorAll('.markdown p')[25];
       const panel=document.querySelector('#detail');const delta=window.messageAnchor.getBoundingClientRect().top-(window.page?140:panel.getBoundingClientRect().top+100);
       if(window.page)window.scrollBy(0,delta);else panel.scrollTop+=delta;`);
     await rpc(`/session/${session}/execute/async`, { script:'requestAnimationFrame(()=>requestAnimationFrame(()=>arguments[0](true)));',args:[] });

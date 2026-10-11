@@ -55,6 +55,16 @@ export async function action(method, params, options = {}) {
   return result;
 }
 
+/** Complete reading pages deliberately have no bounded legacy fallback. */
+export function loadReadingPage(taskId, params = {}, options) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) if (value != null) query.set(key, String(value));
+  return api(`/api/worker/${taskId}/reading-page?${query}`, options);
+}
+export function loadReadingRecord(taskId, kind, recordId, offset = 0, options) {
+  return api(`/api/worker/${taskId}/reading-record?kind=${kind}&record_id=${recordId}&offset=${offset}`, options);
+}
+
 export async function loadHistory(taskId, before = null, options) {
   // Capture a synchronous helper scope so the legacy fallback stays cancellable after await.
   if (startingReadSignal && !options?.signal) options = { ...options, signal: startingReadSignal };

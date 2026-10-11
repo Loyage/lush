@@ -22,7 +22,6 @@ import { workerHooks } from './render-hooks.js';
 import { guardedAction, iterationControls } from './render-iteration.js';
 import { appendInputBlocker, inputQueueText } from './worker-input.js';
 import { renderHistory } from './render-history.js';
-import { renderTaskMessage } from './render-task-message.js';
 import { formatProgressDuration, renderTaskProgress } from './render-progress.js';
 import { renderProgressHistory } from './render-progress-history.js';
 import { noticePanel } from './render-notices.js';
@@ -83,7 +82,6 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const readingPosition = sameTask ? captureDetailReading(panel) : null;
   const previousHooks = sameTask ? panel.querySelector('.worker-hooks[data-hook-editing="true"]') || panel.querySelector('.worker-hooks[data-completion-editing="true"]') : null;
   const hookManagementOpen = sameTask && panel.querySelector('.hook-management')?.open === true;
-  const previousMessages = new Map(sameTask ? [...panel.querySelectorAll('.task-message')].map(node => [node.dataset.messageId, node]) : []);
   const previousDecisions = new Map(sameTask ? [...panel.querySelectorAll('.decision-record')].map(node => [node.dataset.noticeId, node]) : []);
   panel.dataset.view = 'task'; panel.dataset.taskId = String(task.id); panel.replaceChildren();
   referenceable(panel, { kind: 'task', target: { task_id: task.id }, label: `Worker ${workerLabel(task)}`,
@@ -356,16 +354,6 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     }
     panel.append(record);
   }
-  if (task.messages?.length) {
-    const messages = block('消息', String(task.messages.length));
-    for (const message of task.messages) {
-      const item = renderTaskMessage(message, task.id, previousMessages.get(String(message.id)));
-      referenceable(item, { kind: 'message', target: { task_id: task.id, message_id: message.id }, label: `Worker ${workerLabel(task)} 的消息`,
-        quote: message.body, location: { view: 'task-detail', task_id: task.id, section: 'messages' } });
-      messages.append(item);
-    }
-    panel.append(messages);
-  }
   let events = null;
   if (progressive || history?.events?.length) {
     events = block('事件时间线', history?.loading ? undefined : String(history.events.length));
@@ -373,11 +361,31 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
       cursor: history.cursor, onMore: history.onMore, taskId: task.id }));
     panel.append(events);
   }
+  if (conversation) {
+    conversation.referencedHistoryEvents ||= new Map();
+    conversation.attachReferencedHistoryEvent = event => {
+      if (event.task_id != null && event.task_id !== task.id) return null;
+      if (!events) { events = block('事件时间线'); events.append(renderHistory([], { taskId: task.id })); panel.append(events); }
+      let timeline = events.querySelector('.timeline');
+      if (!timeline) { timeline = renderHistory([], { taskId: task.id }); (events.querySelector('.detail-preview-content') || events).append(timeline); }
+      const token = `event-${event.id}`;
+      const existing = [...timeline.children].find(node => String(node.dataset.ref || '').split(/\s+/).includes(token));
+      if (existing) return existing;
+      conversation.referencedHistoryEvents.set(event.id, event);
+      const item = renderHistory([event], { taskId: task.id }).children[0];
+      const later = [...timeline.children].find(node => Number(/(?:^|\s)event-(\d+)(?:\s|$)/.exec(node.dataset.ref || '')?.[1]) > event.id);
+      timeline.insertBefore(item, later || null);
+      if (event.limitations?.length) item.append(el('p', '事件元数据采用有界预览；限制：' + event.limitations.join('、'), 'hint'));
+      return item;
+    };
+    for (const event of conversation.referencedHistoryEvents.values()) conversation.attachReferencedHistoryEvent(event);
+  }
   linkWorkerNumbers(panel);
   limitDetailModules(panel, { taskId: task.id, from: readingStart });
   if (progressHistory && historyFocus && document.activeElement !== historyFocus) historyFocus.focus({ preventScroll: true });
   restoreDetailReading(panel, readingPosition);
   if (!progressive) return;
+  conversation?.bindConversationLifetime(progressive.signal, progressive.current);
   // Existing explicit history pagers start their GET synchronously. Bind them to this view,
   // including reused conversation/progress nodes, without changing their write/action contracts.
   if (progressive.signal) for (const area of [conversation, progressHistory]) {
@@ -477,6 +485,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
           next.append(available && value.events?.length ? renderHistory(value.events, { running: task.status === 'running', truncated: value.truncated,
             cursor: value.cursor, onMore: value.onMore, taskId: task.id }) : el('p', available ? '暂无历史事件。' : '历史不可用；读取失败。', 'hint'));
           events = replace(events, next);
+          for (const event of conversation?.referencedHistoryEvents?.values() || []) conversation.attachReferencedHistoryEvent(event);
         }
         linkWorkerNumbers(panel);
         limitDetailModules(panel, { taskId: task.id, from: readingStart });

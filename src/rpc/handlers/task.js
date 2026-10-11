@@ -31,6 +31,8 @@ export const handlers = {
   'worker.progress_history'(p, params) {
     return p.progressHistory(id(params.id), { before: params.before ?? null, limit: params.limit ?? 10 });
   },
+  'worker.reading_page'(p, { id: taskId, _token, ...options }) { return p.store.readingPage(id(taskId), options); },
+  'worker.reading_record'(p, { id: taskId, _token, ...options }) { return p.store.readingRecord(id(taskId), options); },
   'worker.history'(p, params, actor) {
     p.store.task(params.id);
     const after = Number(params.after ?? 0);

@@ -133,10 +133,10 @@ const task = { id: 7, worker_number: 'W7', role: 'agent', task_kind: 'order', st
 test('detail limits reading blocks only and preserves reused conversation/message nodes and state on refresh', () => fixture(async ({ dom, resize }) => {
   renderDetail(task, { events: [] }, null, null);
   const panel = dom.node('detail'), result = panel.querySelector('.conversation-panel');
-  const message = panel.querySelector('.task-message');
+  expect(panel.querySelector('.task-message')).toBeNull();
+  const communication = result.querySelector('[data-conversation-filter="other"]'); communication.checked = true; communication.onchange();
+  const message = result.querySelector('[data-conversation-key="other:message:1"]');
   expect(result.classList.contains('detail-preview')).toBe(true);
-  const messages = [...panel.children].find(node => node.children[0]?.querySelector('h2')?.textContent === '消息');
-  resize(messages); await toggle(messages).click();
   resize(result); await toggle(result).click();
   expect(panel.querySelector('.task-actions').querySelector('.detail-preview-body')).toBeNull();
   renderDetail({ ...task, display_title: '用户自定义标题', messages: [...task.messages, { id: 21, body: '新消息', sender_id: null }] }, { events: [] }, null, null);
@@ -144,9 +144,8 @@ test('detail limits reading blocks only and preserves reused conversation/messag
   expect(panel.querySelector('.task-actions').querySelector('.worker-rename')).toBeTruthy();
   expect(panel.querySelector('.task-actions').querySelector('.detail-preview-body')).toBeNull();
   expect(panel.querySelector('.conversation-panel')).toBe(result);
-  expect(panel.querySelector('.task-message')).toBe(message); expect(expanded(result)).toBe(true);
-  const updatedMessages = [...panel.children].find(node => node.children[0]?.querySelector('h2')?.textContent === '消息');
-  expect(expanded(updatedMessages)).toBe(true); expect(deepText(updatedMessages)).toContain('新消息');
+  expect(result.querySelector('[data-conversation-key="other:message:1"]')).toBe(message); expect(expanded(result)).toBe(true);
+  expect(panel.querySelector('.task-message')).toBeNull(); expect(deepText(result)).toContain('新消息');
   const ids = panel.querySelectorAll('.detail-preview-body').map(node => node.id);
   expect(new Set(ids).size).toBe(ids.length);
 }));

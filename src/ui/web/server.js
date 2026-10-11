@@ -26,7 +26,7 @@ const QUICK_CHAT_PARAMS = new Map([
 ]);
 const CORE_INPUT_READ = /^\/api\/input\/(draft|input)\/([1-9]\d*)$/;
 const CORE_READS = new Set(['/api/settings/runtime','/api/settings/migration','/api/quick-explain/config','/api/hooks','/api/hooks/commands/executions','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/worker-lookup','/api/notices','/api/worker-graph','/api/versions','/api/version-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
-const CORE_WORKER_READ = /^\/api\/worker\/\d+(?:\/(?:hooks|history|history-page|progress-history|run-settings|delete-preview|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
+const CORE_WORKER_READ = /^\/api\/worker\/\d+(?:\/(?:hooks|history|history-page|reading-page|reading-record|progress-history|run-settings|delete-preview|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的 Worker 读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/worker\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
 const CORE_DOC_READ = /^\/api\/docs\/[a-z0-9._-]+$/;
@@ -665,6 +665,20 @@ export function startWeb(config, port = 4318, options = {}) {
             id: Number(progressHistory[1]), before: url.searchParams.get('before'),
             limit: url.searchParams.get('limit') ?? 10,
           }));
+          const inputReading = /^\/api\/worker\/(\d+)\/(reading-page|reading-record)$/.exec(url.pathname);
+          if (inputReading) {
+            const method = 'worker.' + inputReading[2].replace('-', '_'), params = { id: Number(inputReading[1]) };
+            const allowed = inputReading[2] === 'reading-page' ? ['before_event','before_message','limit','query'] : ['kind','record_id','offset'];
+            for (const [key, value] of url.searchParams) {
+              check(allowed.includes(key) && !Object.hasOwn(params, key), 'unknown or duplicate reading query parameter');
+              if (['query','kind'].includes(key)) params[key] = value;
+              else {
+                check(/^(0|[1-9]\d*)$/.test(value), 'invalid reading numeric query parameter');
+                params[key] = Number(value);
+              }
+            }
+            return json(await client.request(method, params));
+          }
           const historyPage = /^\/api\/worker\/(\d+)\/history-page$/.exec(url.pathname);
           if (historyPage) return json(await client.request('worker.history_page', {
             id: Number(historyPage[1]), before: url.searchParams.has('before') ? Number(url.searchParams.get('before')) : null,

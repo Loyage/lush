@@ -229,7 +229,12 @@ export async function locateReference(reference) {
   let root = null;
   try { root = await navigateForReference(reference); }
   catch (error) { show(`定位失败：${error.message}`, 'error'); return false; }
-  const found = await waitForRef(root, token);
+  let revealed = null;
+  if (['message', 'history_event', 'result'].includes(reference.kind)) {
+    try { revealed = await root?.querySelector('.conversation-panel')?.revealConversationReference?.(reference); }
+    catch (error) { show(`定位读取失败：${error.message}`, 'error'); return false; }
+  }
+  const found = revealed || await waitForRef(root, token);
   if (!found) { show(`找不到这条引用的目标：${reference.label || token}。它可能已被移除或归档。`, 'error'); return false; }
   flashLocated(found);
   return true;

@@ -115,17 +115,17 @@ test('连接名称仅内存公开投影；项目/boot 隔离、成功 action 失
 
 test('显式历史分页沿用当前详情取消信号，复用按钮刷新后重新绑定且取消不 toast', async () => {
   let older = deferred();
-  handler = ({ url }) => url.includes('/history-page?') ? older.promise : url.endsWith('/history-page') ? json({ events: [], cursor: 10, truncated: true }) : null;
+  handler = ({ url }) => url.includes('/reading-page?') ? older.promise : url.endsWith('/history-page') ? json({ events: [], cursor: 10, truncated: true }) : null;
   await loadDetail(7); await drain(); const more = panel.querySelector('.conversation-more');
-  const reading = more.onclick(); await drain(); const first = requests.findLast(row => row.url.includes('/history-page?'));
+  const reading = more.onclick(); await drain(); const first = requests.findLast(row => row.url.includes('/reading-page?'));
   expect(first.options.signal).toBeTruthy();
   await loadDetail(7); await drain(); expect(first.options.signal.aborted).toBe(true);
   expect(panel.querySelector('.conversation-more')).toBe(more);
-  older.resolve(json({ events: [], cursor: null, truncated: false })); await reading;
+  older.resolve(json({ events: [], messages: [], has_more_events: false, has_more_messages: false })); await reading;
   older = deferred(); const next = more.onclick(); await drain();
-  const current = requests.findLast(row => row.url.includes('/history-page?')); expect(current.options.signal.aborted).toBe(false);
+  const current = requests.findLast(row => row.url.includes('/reading-page?')); expect(current.options.signal.aborted).toBe(false);
   activateDetailView({ view: 'settings' }); expect(current.options.signal.aborted).toBe(true);
-  older.resolve(json({ events: [], cursor: null, truncated: false })); await next;
+  older.resolve(json({ events: [], messages: [], has_more_events: false, has_more_messages: false })); await next;
   expect(dom.node('error').textContent).toBe('');
 });
 

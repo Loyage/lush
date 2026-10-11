@@ -29,12 +29,13 @@ test('automatic decisions and their inbox messages are never described as coming
   const list = renderHistory([
     { id: 1, type: 'notice.answered', created_at: at, data: { notice_id: 9, answer_source: 'lush',
       answer: { answers: [{ question: '方案？', labels: ['第一项'], custom: '' }] } } },
-    { id: 2, type: 'task.signal', created_at: at, data: { message_id: 4 },
+    { id: 2, type: 'legacy.message', created_at: at, data: { message_id: 4 },
       message: { task_id: 23, sender_id: null, body } },
     { id: 3, type: 'notice.answered', created_at: at, data: { answer_source: 'user', answer: '我的选择' } },
   ], { taskId: 23 });
   const text = deepText(list);
-  expect(text).toContain('Lush 自动选择'); expect(text).toContain('来自 Lush 自动选择');
+  expect(text).toContain('Lush 自动选择'); expect(text).toContain('来源不明');
+  expect(text).not.toContain('来自 Lush 自动选择');
   expect(text).toContain('用户答复'); expect(text).toContain('方案？：第一项');
   expect(text).not.toContain('来自你');
 });

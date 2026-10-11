@@ -113,7 +113,9 @@ test('详情集成保留消息引用原文，刷新／追加消息保留已有�
   const task = { id: 1, task_kind: 'main', role: 'agent', status: 'waiting', goal: '管理主分支',
     created_at: at, updated_at: at, messages: [signal('child.completed', { result: '结果正文' })] };
   renderDetail(task, {}, null, null);
-  const card = dom.node('detail').querySelector('.task-message');
+  const filter = dom.node('detail').querySelector('[data-conversation-filter="other"]'); filter.checked = true; filter.onchange();
+  const card = dom.node('detail').querySelector('[data-conversation-key="other:message:17"]');
+  expect(dom.node('detail').querySelector('.task-message')).toBeNull();
   initContextReferences();
   await dom.fire('contextmenu', { target: card, clientX: 10, clientY: 20, preventDefault() {} });
   await findByText(dom.node('context-menu'), '引用：Worker #1 的消息').onclick();
@@ -123,7 +125,7 @@ test('详情集成保留消息引用原文，刷新／追加消息保留已有�
   expect(descriptor.quote).toBe(task.messages[0].body);
   expand(card.querySelector('.message-original'));
   renderDetail({ ...task, messages: [...task.messages, { ...message('新增消息'), id: 18 }] }, {}, null, null);
-  expect(dom.node('detail').querySelector('.task-message')).toBe(card);
+  expect(dom.node('detail').querySelector('[data-conversation-key="other:message:17"]')).toBe(card);
   expect(card.querySelector('.message-original').open).toBe(true);
   const changed = { ...task.messages[0], body: '新的正文' };
   expect(renderTaskMessage(changed, 1, card)).not.toBe(card);

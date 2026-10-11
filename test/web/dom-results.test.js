@@ -43,17 +43,17 @@ test('input/output timeline sorts by real timestamps rather than IDs, and both o
 });
 
 test('pagination retains output text, references and cursor when task result changes or latest page refreshes', async () => {
-  const dom = installDom({ fetch: async () => new Response(JSON.stringify({ events: [event(1, 'older')], cursor: 1, has_more: false })) });
+  const dom = installDom({ fetch: async () => new Response(JSON.stringify({ events: [event(1, 'older')], messages: [], event_cursor: 1, message_cursor: 0, has_more_events: false, has_more_messages: false })) });
   try {
     const task = { id: 7, result: 'latest', runs: [run(3, 'latest')] };
     const root = renderConversation(task, { events: [event(3, 'latest')], cursor: 50, has_more: true });
-    await findByText(root, '加载更早对话').onclick();
+    await findByText(root, '加载更早输入与结果').onclick();
     const older = root.querySelectorAll('.conversation-message').find(node => node.dataset.conversationKey === 'run:1');
     expect(older.dataset.ref).toBe('event-101');
     root.updateConversation({ ...task, result: 'new latest', runs: [run(4, 'new latest')] }, { events: [event(4, 'new latest')], cursor: 80, has_more: true });
     expect(keys(root)).toEqual(['run:4', 'run:3', 'run:1']);
     expect(root.querySelectorAll('.conversation-message')[2]).toBe(older);
-    expect(findByText(root, '加载更早对话').hidden).toBe(true);
+    expect(findByText(root, '加载更早输入与结果').hidden).toBe(true);
     expect(deepText(root)).toContain('older');
   } finally { dom.restore(); }
 });

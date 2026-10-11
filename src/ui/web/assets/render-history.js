@@ -9,15 +9,16 @@ import { workerLabel } from './worker-label.js';
  * 事件引用的消息正文：直接看得到 Agent 之间说了什么，而不是只有 message_id。
  * 信号是 versioned JSON 信封，展开 payload 用结构化视图；普通消息按 Agent 输出渲染，原文由结构化视图保留。
  */
-function messageContent({ body, task_id: to, sender_id: from, signal_type: signalType, task_worker_number: toNumber, sender_worker_number: fromNumber } = {}, taskId = null) {
+function messageContent({ body, task_id: to, sender_id: from, signal_type: signalType, task_worker_number: toNumber,
+  sender_worker_number: fromNumber, userEvidence = false, systemEvidence = false } = {}, taskId = null) {
   const text = String(body ?? '');
   const wrap = el('div', undefined, 'timeline-message');
   const outgoing = from !== null && from !== undefined && from === taskId;
   let parsed = null;
   try { parsed = JSON.parse(text); } catch { /* 普通文本消息 */ }
-  const automatic = !from && Number.isInteger(parsed?.notice_id) && parsed.answer_source === 'lush';
-  const who = automatic ? '来自 Lush 自动选择' : outgoing ? `发给 Worker ${workerLabel(to, toNumber)}` : from ? `来自 Worker ${workerLabel(from, fromNumber)}` : '来自你';
-  const signal = typeof parsed?.signal === 'string' ? parsed.signal : signalType;
+  const who = outgoing ? `发给 Worker ${workerLabel(to, toNumber)}` : from != null ? `来自 Worker ${workerLabel(from, fromNumber)}`
+    : userEvidence ? '来自你' : signalType || systemEvidence ? '系统' : '来源不明';
+  const signal = signalType;
   wrap.append(el('div', `${who}${signal ? ` · 信号 ${signal}` : ''}`, 't-from'));
   const payload = parsed && typeof parsed === 'object' && parsed.payload && typeof parsed.payload === 'object' ? parsed.payload : null;
   if (payload && Object.keys(payload).length) wrap.append(structuredValue(JSON.stringify(payload), { openRoot: true }));
@@ -38,7 +39,7 @@ function eventItem(event, { hot = false, taskId = null } = {}) {
   if (event.type === 'invocation.started') body = `第 ${data.call ?? '?'} 次调用${data.cwd ? ` · ${data.cwd}` : ''}`;
   else if (event.type === 'invocation.completed' || event.type === 'completed' || event.type === 'failed') { body = String(data.result || data.error || '').slice(0, 600); agent = true; }
   else if (event.type === 'created') body = `${ROLE[data.role] || data.role}${data.parent_id ? ` ← ${workerLabel(data.parent_id)}` : ' · 根 Worker'}`;
-  else if (event.type === 'message') { rich = messageContent({ body: data.body, task_id: taskId, sender_id: data.sender }, taskId); body = String(data.body || ''); }
+  else if (event.type === 'message') { rich = messageContent({ body: data.body, task_id: taskId, sender_id: data.sender, userEvidence: data.sender === null }, taskId); body = String(data.body || ''); }
   else if (event.type === 'notice.opened') body = data.title || '';
   else if (event.type === 'notice.answered') body = data.dismiss ? '已忽略' : Array.isArray(data.answer?.answers)
     ? data.answer.answers.map(a => `${a.question}：${a.custom || a.labels.join('、')}`).join('\n') : String(data.answer || '');
@@ -52,7 +53,7 @@ function eventItem(event, { hot = false, taskId = null } = {}) {
   else if (event.type === 'merged' || event.type === 'merge.approved') body = short(data.commit);
   else if (event.type === 'merge.failed') body = data.error || '';
   // 子任务完成/请求合并等信号事件只存 message_id，后端已把被引用的消息正文附在 event.message 上。
-  else if (event.message) { rich = messageContent(event.message, taskId); body = String(event.message.body || ''); }
+  else if (event.message) { rich = messageContent({ ...event.message, systemEvidence: event.type === 'task.signal' }, taskId); body = String(event.message.body || ''); }
   else body = Object.keys(data).length ? JSON.stringify(data).slice(0, 300) : '';
   if (rich) item.append(rich);
   else if (body) item.append(agent ? agentText(body, { className: 't-body' }) : el('div', body, 't-body'));

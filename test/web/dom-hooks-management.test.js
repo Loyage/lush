@@ -43,8 +43,9 @@ const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js'
 const { syncComposer } = await import('../../src/ui/web/assets/composer.js');
 const restoreNavigation = registerNavigation({ refresh: async () => {}, detail: id => { detailCalls.push(id); } });
 const root = () => dom.node('detail');
-// Concatenate inline text without deepText's artificial inter-node spaces.
-const inlineText = node => node.childNodes.length ? node.childNodes.map(inlineText).join('') : node.textContent;
+// Compare actual inline prose, excluding the separate original-text reading control.
+const inlineText = node => node.classList?.contains('message-original') ? ''
+  : node.childNodes.length ? node.childNodes.map(inlineText).join('') : node.textContent;
 const btn = (label, node = root()) => node.querySelectorAll('button').find(item => item.textContent === label);
 const input = (label, node = root()) => node.querySelector(`[aria-label="${label}"]`);
 const newManagement = async () => {
