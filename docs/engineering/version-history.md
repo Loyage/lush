@@ -1,56 +1,33 @@
-# 版本迭代：main 主线与 Worker 追溯
+# 版本迭代：main 提交图与固定交付
 
-## 用户目标与边界
+本文说明 `#versions` 页面的展示与追溯边界。页面用于理解已进入 main 的功能及其开发提交，不提供 Git 写操作、提交级 diff 或 Agent 调用。公共字段、参数、权限与大小限制统一见[分支 RPC](../reference/rpc/branches.md#branchversion_graph)。
 
-用户要按落地顺序理解哪些指令 / 功能进入 main，而不是把侧分支开发时间误认成上线时间。独立只读页面 `#versions`，标题「版本迭代」，位于工作导航组。用户已选择第一父链提交列表与 Worker 追溯；首期不增加提交级 diff、不执行 Agent、不提供 Git 写操作。
+## 提交图与固定交付下钻
 
-- 从本项目 `refs/heads/main` 读取第一父链，最新在前，有界分页。直接提交、根提交与历史合并都保留。
-- Git 是提交事实来源，SQLite 的精确交付记录是 Worker 关联证据。按完整 SHA 匹配已成功进入 main 的交付记录，不根据提交标题、当前 Worker HEAD 或时间猜测。
-- 同一 Worker 的多次交付各自保留；只合入父 Worker、尚未进入 main 的子 Worker 不冒充 main 的独立落点。没有证据时明确显示「未关联 Worker」，不回填或改写历史数据。
-- 原始指令来自 Input 的原始内容，和 Worker 当前目标分开。关联 Worker 可跳转既有详情。
-- 无 main 时返回明确的空状态；Git 错误不伪装成空历史。刷新重新读取最新 main；分页固定首屏 tip，期间 main 前进不重复或漏页。无关或失效游标明确报错。
+- 默认显示 `refs/heads/main` 的完整可达 Git 图，按拓扑顺序子先父后。节点是一条提交，旁边显示短 SHA、提交摘要、时间与精确关联的 Worker 编号；无编号回退 `#内部ID`。
+- 连线来自真实父提交 SHA，不把 Worker 委派关系或相邻记录当作 Git 边。尚未进入 main 的分支不混入主图；未加载或范围外的父边以虚线边界说明。
+- 点击节点在版本页内打开对应的固定交付轮次；有多个 Worker 关联时明确选择。子 Worker 的 Squash 落点可继续下钻其原始交付。独立“查看 Worker”入口仍打开既有详情。
+- 返回上层／main 复用已读图，保留模式、指令展开、滚动和焦点。显式刷新重读当前范围，分页固定首次读取的 tip；不自动轮询。
+- 无 main 显示空态；读取失败保留旧图并明确提示，不能伪装成空历史。离页、刷新或切换图后，迟到响应不得覆盖新页面。
+
+## 精确追溯
+
+Git 提供提交事实，成功交付 Event 提供 Worker 关联。仅按完整落地 SHA 与明确父目标匹配，不按标题、时间或当前 Worker HEAD 猜测；普通 main 提交没有证据时显示“未关联 Worker”。
+
+交付图使用成功事件中的固定源提交。首轮从创建基线开始，后轮从此前成功交付的固定源提交开始，并排除本轮父侧已有提交，避免同步父分支带入的其它功能冒充本轮开发。源与落点树、基线祖先关系和父侧证据均须核验；不读取可变的 reservation 或 iteration 基线作为替代。
+
+普通源开发提交可显示当前交付 Worker 归属，但没有独立交付事件，不递归打开自己。子交付关联必须证明它落在该 Worker 的分支上且早于所选交付。历史记录缺少固定证据、基线不可信或 Git 对象已回收时，明确不可追溯，不回退到当前分支。
+
+原 `branch.history` / `GET /api/versions` 第一父链读协议保留兼容，页面使用 `branch.version_graph` / `GET /api/version-graph`；两者游标不可混用。旧 `merged` 记录仍可精确关联，但缺少可靠的固定源与父基线时不提供下钻。
 
 ## 简易与详情展示
 
-页面每次进入默认简易模式：以紧凑卡片显示提交摘要（最多两行）、时间和对应 Worker 入口；无精确关联时保留「未关联 Worker」。减少卡片内边距与间距，让同样高度容纳更多历史版本。
+每次进入默认简易模式：紧凑显示短 SHA、最多两行摘要、时间和 Worker 入口。勾选“详情模式”后显示完整摘要、SHA、作者、Worker 目标、可折叠原始指令与固定 tip／开发基线。模式切换仅改变本地展示，不请求或重建卡片；分页、刷新、失败和图间返回保留当前模式，离页再进入恢复简易。
 
-勾选页头「详情模式」后显示完整摘要、完整 SHA、作者、关联证据说明、Worker 目标与可折叠原始指令，以及本次历史固定的 main tip。取消勾选恢复简易模式；切换仅改变本地展示，不请求历史、不调用 Agent、不重建已有卡片，原始指令的展开状态保留。分页、显式刷新和读取失败均保留当前模式，离页再进入恢复默认简易模式；不新增持久化偏好或后端字段。
+提交文本与原始指令均以安全文本呈现。节点支持键盘操作，双主题与窄屏不得因 SHA、摘要或详情展开产生横向溢出。
 
-## 跨分区契约
+## 实现与验证入口
 
-新增用户专属只读 RPC `branch.history({cursor?,limit?})`，HTTP `GET /api/versions?cursor=...&limit=...`；Host 仅向已解析项目 daemon 转发，项目路由前缀与鉴权沿用现有边界。无 CLI 新命令。limit 默认 50，范围 1..100。
+Git 固定图读取位于 `src/core/workspaces/version-graph.js`，成功事件关联位于 `src/core/project/version-graph.js`；旧第一父链读面分别保留在 `history.js` 与 `version-history.js`。前端入口为 `src/ui/web/assets/render-versions.js`，真实 SHA 泳道计算位于 `version-graph-layout.js`，样式为 `styles-versions.css`。
 
-返回：
-
-```js
-{
-  branch: 'main',
-  tip: '完整 SHA 或 null',
-  commits: [{
-    commit: '完整 SHA', short_commit: '短 SHA', parents: ['完整 SHA'],
-    subject: '提交摘要', author: { name: '作者名' }, committed_at: 'ISO 时间',
-    association: 'verified', // 或 unassociated
-    tasks: [{
-      id: 12, goal: 'Worker 目标', task_kind: 'order',
-      input: { id: 7, content: '原始指令' }, // 无 Input 时 null
-      evidence: 'task.merge_integrated' // 证据种类
-    }]
-  }],
-  cursor: '不透明后续页游标或 null',
-  has_more: false
-}
-```
-
-`tip` 无 main 时为 null；其余字段类型固定。cursor 与 has_more 表示下一页。Git 读取在 Workspaces 边界内，不接受任意 ref/路径或 Git 参数；游标需严格验证，不信任调用方 SHA 属于 main 第一父链。游标使用 daemon 内签名，重启后旧游标明确失效，页面刷新重新开始。Git 输出上限 4 MiB、响应上限 512 KiB，超限明确报错，不静默截断文字或冒充空结果。
-
-主要证据为 `task.merge_integrated` 的完整落地 SHA 与 main 父 Worker；旧 `merged` 事件只在明确 `parent='main'`，或确认为旧协议且 `legacy=true`、Worker 的目标为 main 时兼容，返回 `evidence='merged'`。所有关联还必须命中实际第一父链提交。旧 no-ff 事件可能只记录侧分支源 SHA，不能把它猜成对应 merge commit；缺失明确 main 目标的事件保持未关联。不得使用当前 HEAD、标题或时间推断。更多旧事件证据必须测试其精确提交和 main 目标校验。
-
-## 文件职责
-
-- 后端：`src/core/workspaces/history.js` 负责 Git 主线读取；`src/core/project/version-history.js` 负责准确交付证据与 Worker/Input 投影；现有入口 mixin、RPC branch handler/registry、Web server 接入。
-- 前端：`src/ui/web/assets/render-versions.js` 负责加载、刷新、分页、空态/失败态和关联展示；导航与路由由现有 app/sidebar-ui 装配；样式可独立 `styles-versions.css`。迟到响应不得覆盖新页面或后一次刷新。
-- 后端与前端分别维护相关测试及所属模块地图；父Worker负责整体验证。
-
-验收重点：真实 Git 第一父链、跨页一致性、多轮交付、未关联普通提交、伪造标题、非 main 交付、缺失 main、鉴权/项目隔离、导航唯一选中、失败重试与异步竞态。所有测试只使用临时项目或 mock，不操作用户 daemon/Host。
-
-真实浏览器验证入口 `bun scripts/check-versions-layout.js` 使用 Firefox / geckodriver、临时 Git 项目和实际 Project 读模型，验证简易模式默认与密度、模式切换不重新读取、双模式下的双主题与桌面/窄屏无横向溢出、指令展开状态保留、Worker 跳转接缝、固定 tip 分页和显式刷新。脚本退出清理自有进程与临时项目，截图留在输出目录，失败保留日志；不启动 Agent 或用户服务。
+`bun scripts/check-versions-layout.js` 使用 Firefox／geckodriver、临时 Git 项目与实际 Project 读模型，覆盖真实分叉／汇合、固定 Squash 源与子交付下钻、缓存返回、固定 tip 分页、刷新、双主题和桌面／窄屏布局。脚本清理自有进程与临时项目，保留截图和失败日志，不启动 Agent 或用户服务。

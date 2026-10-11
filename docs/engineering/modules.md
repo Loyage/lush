@@ -312,7 +312,7 @@ Codex 托管登录的默认设备码与备用回调入口见[设备码登录契�
 
 ## main 版本迭代
 
-用户已确认的[版本迭代契约](version-history.md)规定只读 `branch.history(cursor?,limit?)` / `GET /api/versions` 与工作分组的 `#versions` 页面：第一父链有界分页，固定 tip，以精确交付证据关联 Worker / 原始指令，不凭标题猜测，不新增提交级 diff 或 Git 写操作。Git、Project/RPC 与前端分别遵循该文档的字段和职责边界。
+`#versions` 显示 main 完整可达 Git 图，并按精确成功交付 Event 下钻固定轮次／子交付；图线只表示真实 Git parents，不按标题或可变 HEAD 猜归属。Git／Project 的图读模块与前端 `render-versions.js` 分担固定读取、关联和交互；旧第一父链接口保留兼容。展示边界见[版本迭代](version-history.md)，公共协议以[分支 RPC](../reference/rpc/branches.md#branchversion_graph)为准，无 Git 写操作或 Agent 调用。
 
 ## 页面导航与全类型 Worker 列表
 

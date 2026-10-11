@@ -38,6 +38,7 @@ function ownBranch(p, actor) {
 /** branch.* —— 显式记录的分支创建谱系：只读视图 + 用户显式 import（import 会写 store，所以是 USER_ONLY）。 */
 export const handlers = {
   'branch.history'(p, params, actor) { return p.branchHistory(params); },
+  'branch.version_graph'(p, params, actor) { return p.branchVersionGraph(params); },
   'branch.tree'(p, params, actor) { return p.branchTree(); },
   'branch.show'(p, params, actor) { return p.branchShow(params.branch); },
   'branch.import'(p, params, actor) { return p.branchImport(); },

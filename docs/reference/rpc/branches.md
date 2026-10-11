@@ -5,6 +5,7 @@
 | CLI | RPC | 参数 | 权限 |
 |---|---|---|---|
 | 无 CLI 命令；Web「版本迭代」 | `branch.history` | `{cursor?, limit?}`（默认 50，1..100） | 用户专属，只读 |
+| 无 CLI 命令；Web「版本迭代」提交图 | `branch.version_graph` | `{delivery?, cursor?, limit?}`（limit 默认 50，1..100；delivery 为成功交付 Event ID） | 用户专属，只读 |
 | `branch tree [--verbose]` | `branch.tree` | `{}` | 用户与 agent，只读 |
 | `branch show BRANCH\|TASK_ID` | `branch.show` | `{branch}` | 用户与 agent，只读 |
 | `branch bind BRANCH COMMIT` | `branch.bind` | `{branch, commit}`（本地分支的固定 HEAD） | 用户专属 |
@@ -14,13 +15,25 @@
 
 ## branch.history
 
-只读项目 `refs/heads/main` 的第一父链，最新提交在前。返回 `branch/tip/commits/cursor/has_more`；每项包含完整和短 SHA、父提交、摘要、作者名、提交时间、`association` 与关联的 Worker/原始 Input。完整字段见[版本迭代契约](../../engineering/version-history.md)。没有 main 时 `tip:null,commits:[]`，读取失败明确报错。
+只读项目 `refs/heads/main` 的第一父链，最新提交在前。返回 `branch/tip/commits/cursor/has_more`；每项包含完整和短 SHA、父提交、摘要、作者名、提交时间、`association` 与关联的 Worker/原始 Input。页面展示与追溯边界见[版本迭代](../../engineering/version-history.md)。没有 main 时 `tip:null,commits:[]`，读取失败明确报错。
 
 只匹配完整 SHA 的成功交付事件：`task.merge_integrated` 仅在事件明确提供整数 `parent_id` 且该父 Worker 属于 main 时关联。缺失、null、字符串、布尔值或浮点类型的父 ID 均保守未关联，不回退Worker当前目标。旧 `merged` 事件要求 `parent=main`，或明确 `legacy:true`、Worker 属于旧协议（`task_kind` 为空）且Worker固定目标为 main。新 指令/child 等不能借 legacy 标记回退目标。历史 no-ff 事件只有源 SHA 时，不猜为 main 的合并落点。不凭提交标题、当前 Worker HEAD 或时间猜测；无证据显示未关联，多次交付分别保留。
 
 分页游标带本 daemon 实例的签名，固定首屏 main tip 和第一父链上的下一提交；main 前进或改写后仍读取该已取样历史，不混入新提交。daemon 重启、换项目/实例、修改游标或对象清理后须刷新，不能把任意 SHA 伪造成游标。请求不接受 branch/ref/cwd，HTTP 拒绝未知/重复查询字段。
 
 Git 读取共享 15 秒截止时间，stdout 上限 4 MiB；每页最多 100 次提交，关联审计最多 1000 条，Worker 目标最多 16,384 字符、原始指令最多 131,072 字符，JSON 响应最多 512 KiB。超过界限明确报错，不静默截断；页总量超限时可降低 limit。
+
+## branch.version_graph
+
+`GET /api/version-graph` 使用同名参数，沿用固定项目路由与登录／Origin 边界。省略 `delivery` 返回 main 完整可达提交图，按拓扑顺序子先父后；指定正整数成功交付 Event ID 返回该轮固定源图，不读取当前 Worker 分支。`delivery` 不等于 Worker ID，也不等于 Event 正文中的预约 `delivery_id`。未知／重复查询字段拒绝，无 Agent、CLI 新命令或写操作。
+
+返回 `{scope,branch,tip,base,worker,delivery,commits,cursor,has_more}`，其中 main 的 `base/worker/delivery` 为 null；无 main 时 tip 为 null、commits 为空。delivery 的 worker 为 `{id,worker_number,goal}`。commits 保留 history 的完整 SHA／真实 parents／摘要／作者／时间／association／tasks；tasks 另带 `delivery_id`、`delivery_available` 与 `delivery_unavailable_reason`。普通源提交可关联当前 Worker，但 `evidence:'delivery.source',delivery_id:null,delivery_available:false`，不得递归打开自己。真实子交付使用其成功 Event ID，与真实 Git parents 区分；完整展示契约见[版本迭代](../../engineering/version-history.md)。
+
+当前固定源证据为 `task.merge_integrated` 的 `source_commit/commit`、整数 `parent_id` 与 `squash:true`。首轮用创建 base_commit，后轮用此前成功交付的固定源 SHA；此前成功事件缺少源 SHA 时不得跳过猜基线。固定父基线优先匹配成功 Event 的 attempt_id 与此前 `merge.baseline_fixed` 审计；普通单父 Squash 可从精确落点的第一父取得，无新落点的交付缺审计则不可追溯。读取验证基线是源祖先、源与落点树相等、审计与落点父一致，并排除开发基线与父基线的可达提交。父同步提交保留真实 parents，父侧已有功能不冒充本轮开发。
+
+main 精确关联沿用 history 的目标校验；delivery 图只关联明确交付给该 Worker、且早于本次成功 Event 的记录，不按当前委派关系或标题猜归属。旧 `merged` 仍可精确关联，但其现存格式缺少可靠的固定源／父基线组合，返回不可下钻原因；对象缺失、错误 Event、基线不可信时请求明确失败，不回退当前 HEAD、reservation 或 iteration_base_commit。
+
+签名游标固定图身份、tip、base、排除范围、拓扑偏移与 Event 高水位；main 前进后旧页不重复／漏页，显式刷新读取新图。换范围／项目／实例、修改游标或 daemon 重启均须刷新，旧 history 游标不能复用。Git 使用隔离配置／只读对象库，禁用替换、外部过滤、notes 与 lazy fetch；15 秒共享截止时间、4 MiB stdout、最多 4 个并发读取。每页上限 100 个提交／1000 条关联审计，Worker／Input 文本和 512 KiB 响应上限同 history，超限报错而不裁剪。
 
 ## branch.tree / branch.show
 

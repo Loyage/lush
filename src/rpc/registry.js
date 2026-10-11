@@ -68,13 +68,13 @@ export const PARAMS = {
   'notice.list': [], 'notice.page': ['status','before','limit'], 'notice.sync': ['cursor','limit'],
   'notice.post': ['task','title','body','questions'], 'notice.answer': ['id','answer','expected_identity'],
   'notice.dismiss': ['id','expected_identity'], 'notice.read': ['id','expected_identity'],
-  'branch.history': ['cursor','limit'], 'branch.tree': [], 'branch.show': ['branch'], 'branch.bind': ['branch','commit'],
+  'branch.history': ['cursor','limit'], 'branch.version_graph': ['delivery','cursor','limit'], 'branch.tree': [], 'branch.show': ['branch'], 'branch.bind': ['branch','commit'],
   'branch.archive': ['branch','discard','continue'], 'graph.get': [],
 };
 export const USER_ONLY = new Set([
   'system.settings','settings.clear_override','settings.migration.preview','settings.migration.apply',
   'system.stop','system.stop_if_idle','system.interrupt_all','system.resume_all','system.configure','agent.config','agent.models','agent.resources','agent.configure','agent.status','agent.environment','agent.environment.configure','agent.network','agent.network.configure',
-  'branch.history','worker.code_state','worker.code_tree','worker.code_file',
+  'branch.history','branch.version_graph','worker.code_state','worker.code_tree','worker.code_file',
   'agent.usage.config','agent.usage.configure','agent.usage.history','agent.selection.resources',
   'agent.connections.list','agent.connections.save','agent.connections.remove','agent.connections.sampling',
   'agent.connections.query','agent.connections.history','agent.connections.login.start','agent.connections.login.finish',

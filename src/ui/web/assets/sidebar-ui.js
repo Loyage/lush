@@ -15,7 +15,7 @@ const PAGES = {
   unavailable: ['项目不可用', '工作台', '项目离线时仍可使用环境、设置与帮助'],
   overview: ['项目概览', '工作', '需求、执行进展与最新成果'],
   'task-graph': ['Worker 树', '工作', 'Worker 父子关系 · Agent、分支与 worktree'],
-  versions: ['版本迭代', '工作', 'main 主线历史 · 提交与 Worker / 指令追溯'],
+  versions: ['版本迭代', '工作', 'main Git 提交图 · 固定 Worker 交付追溯'],
   hooks: ['项目自动化', '工作', 'Shell 授权 · 时间信号 · 实际挂载 · 项目模板'],
   inputs: ['历史输入', '工作', '暂存想法 · 全库原始输入检索与发射'],
   statistics: ['用量统计', '交付与用量', 'Token 用量与预计花费 · 非实际账单'],

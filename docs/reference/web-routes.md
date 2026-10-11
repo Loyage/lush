@@ -97,6 +97,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/notices?status=&before=&limit=` | `notice.page`：全部类型事项与处理结果的按需分页；过滤掉旧 `plan` 类型；参数和留档语义见[待决问题](rpc/notices.md) |
 | `GET /api/worker-graph` | Worker 父子读面（`worker.graph`） |
 | `GET /api/versions?cursor=&limit=` | 用户专属只读 `branch.history`，main 第一父链、固定 tip 分页与精确 Worker/原始指令关联；见 [分支 RPC](rpc/branches.md#branchhistory) |
+| `GET /api/version-graph?delivery=&cursor=&limit=` | 用户专属只读 `branch.version_graph`，省略 delivery 读取完整 main 可达图；delivery 为正整数成功交付 Event ID。固定图范围签名分页，未知／重复字段、token、非正整数字段拒绝；沿用登录／Origin／固定项目路由，不接受 POST action，见 [分支 RPC](rpc/branches.md#branchversion_graph) |
 | `GET /api/worker/<id>/run-settings` | `worker.run_settings {id}`；显式读取已有有效 Profile，用户专属/no-store，无查询参数，不含连接凭证 |
 | `GET /api/agent/config` | `agent.config` |
 | `GET /api/agent/status` | 用户专属 `agent.status {}`，version 2 Pi/Codex 软件路径、版本与可用性；显式诊断/刷新时读取，不读取配置/认证、不联网或启动模型，详见 [Agent 状态](rpc/agents.md) |

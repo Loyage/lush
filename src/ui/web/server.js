@@ -26,7 +26,7 @@ const QUICK_CHAT_PARAMS = new Map([
 ]);
 const CORE_INPUT_READ = /^\/api\/input\/(draft|input)\/([1-9]\d*)$/;
 const CORE_QUICK_EXPLAIN_READ = /^\/api\/quick-explain\/[1-9]\d*$/;
-const CORE_READS = new Set(['/api/settings/runtime','/api/settings/migration','/api/quick-explain/config','/api/quick-explain/history','/api/hooks','/api/hooks/commands/executions','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/worker-lookup','/api/notices','/api/worker-graph','/api/versions','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
+const CORE_READS = new Set(['/api/settings/runtime','/api/settings/migration','/api/quick-explain/config','/api/quick-explain/history','/api/hooks','/api/hooks/commands/executions','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/worker-lookup','/api/notices','/api/worker-graph','/api/versions','/api/version-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
 const CORE_WORKER_READ = /^\/api\/worker\/\d+(?:\/(?:hooks|history|history-page|progress-history|run-settings|delete-preview|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的 Worker 读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/worker\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
@@ -578,6 +578,15 @@ export function startWeb(config, port = 4318, options = {}) {
             const details = url.searchParams.get('details');
             check(details === null || details === '0' || details === '1', 'details must be 0 or 1');
             return json(await client.request('worker.graph', details === null ? {} : { details: details === '1' }));
+          }
+          if (url.pathname === '/api/version-graph') {
+            const params = {};
+            for (const [key, value] of url.searchParams) {
+              check(['delivery','cursor','limit'].includes(key) && !(key in params), 'unknown or duplicate version graph query parameter');
+              if (key !== 'cursor') check(/^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value)), 'version graph delivery and limit must be positive integers');
+              params[key] = key === 'cursor' ? value : Number(value);
+            }
+            return json(await client.request('branch.version_graph', params));
           }
           if (url.pathname === '/api/versions') {
             const params = {};
