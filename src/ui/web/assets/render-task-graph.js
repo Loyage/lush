@@ -500,7 +500,34 @@ export function renderTaskGraph(graph) {
   mode.classList.add('help-host'); mode.tabIndex = 0;
   mode.setAttribute('data-help', '勾选后展开 Worker 的目标、结果、进度、分支诊断与操作；取消勾选回到默认的极简双行展示。仅改变显示，所有项目共享设备偏好。');
   checkbox.disabled = !devicePreferencesStatus().ready || devicePreferencesStatus().saving || Boolean(devicePreferencesStatus().error);
-  hero.append(summary, mode, button('刷新', () => loadTaskGraph().catch(graphFailure), 'ghost'),
+  // Include descendants hidden by a folded ancestor, but keep filtered/archived
+  // branches outside this view unchanged. Use the same safe forest as the cards.
+  const branches = [], pendingBranches = [...forest];
+  while (pendingBranches.length) {
+    const node = pendingBranches.pop();
+    if (node.children.length) { branches.push(node.id); pendingBranches.push(...node.children); }
+  }
+  const bulkFold = folded => {
+    if (hasPendingInput()) {
+      show('请先提交或清空正在编辑的待决答复，再批量展开或折叠 Worker。');
+      return;
+    }
+    const next = collapsed();
+    for (const id of branches) { if (folded) next.add(id); else next.delete(id); }
+    save(next); renderTaskGraph(full);
+  };
+  const foldControls = el('div', undefined, 'task-graph-fold-controls');
+  foldControls.setAttribute('role', 'group'); foldControls.setAttribute('aria-label', 'Worker 树展开与折叠');
+  for (const [folded, label, key] of [[false, '全部展开', 'expand-all'], [true, '全部折叠', 'collapse-all']]) {
+    const control = button(label, () => bulkFold(folded), 'ghost', {
+      help: `${folded ? '折叠' : '展开'}当前已加载树中的全部子 Worker 层级；保留状态筛选、归档显示和详情模式，不改变 Worker 状态或调用 Agent。`,
+    });
+    control.dataset.graphFocus = key; control.disabled = branches.length === 0;
+    const helpHost = el('span', undefined, 'help-host');
+    helpHost.setAttribute('data-help', branches.length ? control.getAttribute('data-help') : '当前筛选范围没有可展开或折叠的子 Worker 层级。');
+    helpHost.append(control); foldControls.append(helpHost);
+  }
+  hero.append(summary, mode, foldControls, button('刷新', () => loadTaskGraph().catch(graphFailure), 'ghost'),
     el('p', undefined, 'hint task-graph-load-status'));
   box.append(hero);
   if (view.truncated) box.append(el('p', `只显示最近及活动的 ${nodes.length} / ${graph.total} 条 Worker；父节点可能在截断范围外。`, 'hint'));

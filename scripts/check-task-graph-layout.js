@@ -4,10 +4,12 @@ import { tmpdir } from 'node:os';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { request } from 'node:http';
 const assets = new URL('../src/ui/web/assets/', import.meta.url).pathname;
+const bulkOnly = process.argv.includes('--bulk-only');
 const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/styles.css"></head>
 <body><div id="detail"></div><div id="modal" hidden></div><div id="error"></div><script type="module">
 import { renderTaskGraph, loadTaskGraph, openTaskGraph } from '/assets/render-task-graph.js';
 import { ui } from '/assets/state.js';
+import { DEVICE_PREF_NAMES, prefsSnapshot, refreshDevicePreferences } from '/assets/prefs.js';
 import { initHelp } from '/assets/help.js';
 initHelp();
 import { registerNavigation } from '/assets/navigate.js';
@@ -34,9 +36,18 @@ window.graph.nodes[0].merge_queue={counts:{resolving:1,requested:7,blocked:1},to
 window.graph.nodes[1].reservation={version:2,kind:'merge',queue_protocol:1,parent_id:1,status:'resolving'};
 ui.view={id:'task-graph'}; window.paint=()=>renderTaskGraph(window.graph);
 window.refreshGraph=loadTaskGraph; window.openGraph=openTaskGraph; window.ui=ui;
-window.fetch=async(url)=>new URL(url,location.href).pathname==='/api/worker-graph'
-  ?Response.json(window.graph):Response.json({error:'no route '+url},{status:404});
-window.paint(); window.ready=true;
+const defaults=prefsSnapshot();
+let deviceValues=Object.fromEntries(DEVICE_PREF_NAMES.map(name=>[name,defaults[name]]));
+window.fetch=async(url,options={})=>{
+  const pathname=new URL(url,location.href).pathname;
+  if(pathname==='/api/worker-graph') return Response.json(window.graph);
+  if(pathname==='/api/host/preferences') {
+    if(options.body) deviceValues={...deviceValues,...JSON.parse(options.body).patch};
+    return Response.json({version:1,revision:JSON.stringify(deviceValues),values:deviceValues});
+  }
+  return Response.json({error:'no route '+url},{status:404});
+};
+await refreshDevicePreferences(); window.paint(); window.ready=true;
 </script></body></html>`;
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
   const path = new URL(request.url).pathname;
@@ -117,10 +128,31 @@ try {
     assert(layout.heights.length===8 && layout.heights.every(h=>h===68), `nonuniform rows: ${JSON.stringify(layout)}`);
     assert(!layout.overflow && !layout.pageOverflow && layout.titleWidths.every(w=>w>=48), `clipped controls: ${JSON.stringify(layout)}`);
     assert(layout.checkbox===16 && layout.paragraphs===0, 'minimal mode retained full card content');
-    await click('.task-graph-archived-toggle span');
-    assert(await execute(`const checkbox=document.querySelector('[data-graph-focus="show-archived"]');return checkbox.checked && checkbox.getBoundingClientRect().width===16 && document.activeElement===checkbox && !!document.querySelector('[data-task-id="99"]') && document.documentElement.scrollWidth<=innerWidth;`), 'archived label did not enable the matching checkbox');
+    await click('[data-graph-focus="collapse-all"]');
+    assert(await execute(`return document.querySelectorAll('.task-graph-card').length===1
+      && document.activeElement.dataset.graphFocus==='collapse-all'
+      && JSON.parse(localStorage.getItem('lush.taskGraph.collapsed')).sort().join(',')==='1,2';`), 'bulk collapse lost nested branches or focus');
+    await click('[data-graph-focus="expand-all"]');
+    assert(await execute(`return document.querySelectorAll('.task-graph-card').length===8
+      && document.activeElement.dataset.graphFocus==='expand-all'
+      && document.documentElement.scrollWidth<=innerWidth;`), 'bulk expand did not restore all levels or overflowed toolbar');
+    await click('[data-graph-focus="show-archived"]');
+    assert(await execute(`const toggle=document.querySelector('[data-graph-focus="show-archived"]');return toggle.tagName==='BUTTON' && toggle.getAttribute('aria-pressed')==='true' && document.activeElement===toggle && !!document.querySelector('[data-task-id="99"]') && document.documentElement.scrollWidth<=innerWidth;`), 'archived tag did not reveal history or preserve focus');
     await key(' ');
-    assert(await execute(`return !document.querySelector('[data-graph-focus="show-archived"]').checked && !document.querySelector('[data-task-id="99"]');`), 'Space did not disable archived display');
+    assert(await execute(`const toggle=document.querySelector('[data-graph-focus="show-archived"]');return toggle.getAttribute('aria-pressed')==='false' && toggle.classList.contains('is-off') && !document.querySelector('[data-task-id="99"]');`), 'Space did not disable archived display');
+    if (bulkOnly) {
+      await click('[data-graph-focus="detail-mode"]');
+      await click('[data-graph-focus="collapse-all"]');
+      assert(await execute(`return document.querySelectorAll('.task-graph-card').length===1
+        && document.querySelector('[data-graph-focus="detail-mode"]').checked;`), 'detail-mode bulk collapse failed');
+      await click('[data-graph-focus="expand-all"]');
+      assert(await execute(`return document.querySelectorAll('.task-graph-card').length===8
+        && document.activeElement.dataset.graphFocus==='expand-all'
+        && document.documentElement.scrollWidth<=innerWidth;`), 'detail-mode bulk expand failed');
+      await click('[data-graph-focus="detail-mode"]');
+      console.log(`PASS bulk tree controls, both modes, focus and toolbar ${theme} ${width}x${height}`);
+      continue;
+    }
     await click('[data-task-id="2"] .task-graph-more-trigger');
     const menu = await execute(`const p=document.querySelector(':popover-open');const r=p?.getBoundingClientRect();return {open:!!p,x:r?.x,y:r?.y,right:r?.right,bottom:r?.bottom,width:innerWidth,height:innerHeight,focus:p?.contains(document.activeElement)};`);
     assert(menu.open && menu.focus && menu.x>=0 && menu.y>=0 && menu.right<=menu.width && menu.bottom<=menu.height, `popover escaped viewport/focus: ${JSON.stringify(menu)}`);
@@ -130,6 +162,7 @@ try {
     assert(await execute(`return !document.querySelector(':popover-open') && document.activeElement.dataset.graphFocus==='more-2';`), 'Esc did not restore trigger focus');
     console.log(`PASS equal-height tree and native menu ${theme} ${width}x${height}`);
   }
+  if (!bulkOnly) {
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await click('[data-task-id="2"] .task-graph-more-trigger');
   await key('\uE004');
@@ -198,10 +231,11 @@ try {
       && !document.querySelector('.task-graph-load-status').textContent.includes('加载中')));
   `, args: [] }), 'enrichment did not fill resource values');
   console.log('PASS real progressive loading, slow enrichment, cache reopen and single flight');
+  }
   await execute(`document.documentElement.dataset.theme='light';`);
-  const screenshotPath = process.argv[2] || '/tmp/lush-task-graph-layout.png';
+  const screenshotPath = bulkOnly ? '/tmp/lush-task-graph-bulk-layout.png' : process.argv[2] || '/tmp/lush-task-graph-layout.png';
   await Bun.write(screenshotPath, Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
-  console.log(`PASS keyboard, outside dismissal, dialog handoff, detail navigation and persistence; screenshot: ${screenshotPath}`);
+  console.log(`${bulkOnly ? 'PASS bulk toolbar' : 'PASS keyboard, outside dismissal, dialog handoff, detail navigation and persistence'}; screenshot: ${screenshotPath}`);
   passed = true;
 } catch (error) {
   console.error(`Browser check failed; geckodriver log: ${log}`); throw error;

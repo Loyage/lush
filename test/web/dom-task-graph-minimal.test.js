@@ -45,6 +45,95 @@ beforeEach(async () => {
 });
 afterAll(() => dom.restore());
 
+const bulkControl = key => dom.node('detail').querySelector(`[data-graph-focus="${key}"]`);
+const nestedFixture = () => {
+  graph.nodes.push(
+    { id: 4, parent_id: 2, task_kind: 'child', role: 'agent', title: '第二层', status: 'waiting' },
+    { id: 5, parent_id: 4, task_kind: 'child', role: 'agent', title: '第三层', status: 'waiting' });
+  graph.total = graph.nodes.length; renderTaskGraph(graph);
+};
+
+for (const details of [false, true]) test(`全部展开／折叠覆盖隐藏的深层分支，保留焦点、刷新和显示模式（详情=${details}）`, async () => {
+  if (details) await enableDetails();
+  nestedFixture(); const requests = dom.requests.length, writes = world.state.actions.length;
+  const collapse = bulkControl('collapse-all'); collapse.focus(); await collapse.onclick();
+  expect(dom.node('detail').querySelectorAll('.task-graph-card')).toHaveLength(1);
+  expect([...readPref('taskGraphCollapsed')].sort()).toEqual([1, 2, 4]);
+  expect(document.activeElement).toBe(bulkControl('collapse-all'));
+  expect(card(1).querySelector('[data-graph-focus="fold-1"]').getAttribute('aria-expanded')).toBe('false');
+  expect(mode().checked).toBe(details); expect(dom.requests).toHaveLength(requests); expect(world.state.actions).toHaveLength(writes);
+  await loadTaskGraph(); expect(dom.node('detail').querySelectorAll('.task-graph-card')).toHaveLength(1);
+  const expand = bulkControl('expand-all'); expand.focus(); await expand.onclick();
+  expect(dom.node('detail').querySelectorAll('.task-graph-card')).toHaveLength(5);
+  expect([...readPref('taskGraphCollapsed')]).toEqual([]); expect(document.activeElement).toBe(bulkControl('expand-all'));
+  for (const id of [1, 2, 4]) expect(card(id).querySelector(`[data-graph-focus="fold-${id}"]`).getAttribute('aria-expanded')).toBe('true');
+  await bulkControl('collapse-all').onclick(); await boot(); await dom.node('task-graph-open').onclick();
+  expect(dom.node('detail').querySelectorAll('.task-graph-card')).toHaveLength(1);
+  await bulkControl('expand-all').onclick(); expect(card(5)).toBeTruthy();
+  expect(mode().checked).toBe(details); expect(world.state.actions).toHaveLength(writes);
+});
+
+test('批量操作不取消状态／归档筛选，不改隐藏和图外分支的偏好，折叠按项目隔离', async () => {
+  graph.nodes.push(
+    { id: 7, parent_id: 1, task_kind: 'order', role: 'agent', title: '筛掉的父节点', status: 'completed' },
+    { id: 8, parent_id: 7, task_kind: 'child', role: 'agent', title: '筛掉的子节点', status: 'completed' },
+    { id: 9, parent_id: 1, task_kind: 'order', role: 'agent', title: '已归档', status: 'waiting', archived: true },
+    { id: 10, parent_id: 9, task_kind: 'child', role: 'agent', title: '已归档子节点', status: 'waiting', archived: true });
+  graph.total = graph.nodes.length;
+  setPref('taskGraphStatuses', new Set(['completed'])); setPref('taskGraphCollapsed', new Set([7, 999]));
+  renderTaskGraph(graph); await bulkControl('collapse-all').onclick();
+  expect([...readPref('taskGraphCollapsed')].sort((a, b) => a - b)).toEqual([1, 7, 999]);
+  await bulkControl('expand-all').onclick();
+  expect([...readPref('taskGraphCollapsed')].sort((a, b) => a - b)).toEqual([7, 999]);
+  expect([...readPref('taskGraphStatuses')]).toEqual(['completed']); expect(ui.taskGraphShowArchived).toBe(false);
+  for (const id of [7, 8, 9, 10]) expect(card(id)).toBeNull();
+  await bulkControl('show-archived').onclick();
+  expect(card(9)).toBeTruthy(); expect(card(10)).toBeTruthy();
+  await bulkControl('collapse-all').onclick();
+  expect([...readPref('taskGraphCollapsed')].sort((a, b) => a - b)).toEqual([1, 7, 9, 999]);
+  expect(bulkControl('show-archived').getAttribute('aria-pressed')).toBe('true');
+  await bulkControl('expand-all').onclick();
+  expect(card(10)).toBeTruthy(); expect([...readPref('taskGraphCollapsed')].sort((a, b) => a - b)).toEqual([7, 999]);
+  expect(ui.taskGraphShowArchived).toBe(true); expect([...readPref('taskGraphStatuses')]).toEqual(['completed']);
+  await bulkControl('show-archived').onclick(); expect(card(9)).toBeNull(); expect(card(10)).toBeNull();
+  await bulkControl('collapse-all').onclick();
+  dom.location.pathname = '/p/bbbbbbbbbbbbbbbb/'; renderTaskGraph(graph);
+  expect(card(2)).toBeTruthy(); expect([...readPref('taskGraphCollapsed')]).toEqual([]);
+  await bulkControl('expand-all').onclick();
+  dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/'; renderTaskGraph(graph);
+  expect(card(2)).toBeNull(); expect([...readPref('taskGraphCollapsed')]).toContain(1);
+});
+
+test('正在编辑的待决答复阻止批量操作，不丢草稿、不写偏好或调用 Agent', async () => {
+  await enableDetails(); const input = card(3).querySelector('textarea');
+  input.value = '尚未提交的答复'; const tree = dom.node('detail').querySelector('.task-graph'), writes = world.state.actions.length;
+  for (const key of ['collapse-all', 'expand-all']) {
+    bulkControl(key).onclick();
+    expect(dom.node('error').textContent).toContain('待决答复');
+    expect(dom.node('detail').querySelector('.task-graph')).toBe(tree); expect(card(3).querySelector('textarea')).toBe(input);
+    expect(input.value).toBe('尚未提交的答复'); expect([...readPref('taskGraphCollapsed')]).toEqual([]);
+  }
+  expect(world.state.actions).toHaveLength(writes);
+});
+
+test('空图或无子层级禁用批量按钮并提供外层帮助；截断图仍可操作已加载层级', async () => {
+  for (const nodes of [[], [graph.nodes[1]]]) {
+    renderTaskGraph({ nodes, total: nodes.length, truncated: false });
+    for (const key of ['expand-all', 'collapse-all']) {
+      const control = bulkControl(key); expect(control.disabled).toBe(true);
+      expect(control.parentNode.classList.contains('help-host')).toBe(true);
+      expect(control.parentNode.getAttribute('data-help')).toContain('没有可展开或折叠');
+      expect(control.classList.contains('agent-call')).toBe(false);
+    }
+  }
+  graph.truncated = true; graph.total = 500; renderTaskGraph(graph);
+  expect(bulkControl('collapse-all').disabled).toBe(false);
+  expect(bulkControl('collapse-all').getAttribute('data-help')).toContain('当前已加载');
+  await bulkControl('collapse-all').onclick(); expect(card(2)).toBeNull();
+  await bulkControl('expand-all').onclick(); expect(card(2)).toBeTruthy();
+  expect(deepText(dom.node('detail'))).toContain('500');
+});
+
 test('两种模式的 Worker 树表头只保留实时摘要与操作，不常驻静态规则说明', async () => {
   for (const details of [false, true]) {
     if (details) await enableDetails();
