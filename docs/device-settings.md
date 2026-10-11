@@ -6,7 +6,7 @@
 
 偏好、系统运行参数、Agent 默认与角色配置、模型来源和凭证、出站网络、Agent 环境变量、安装库、Pi 基础配置和快捷解释配置只有一份设备权威，**不支持项目覆盖**。没有项目在线时仍可管理设备配置；设备设置不伪造跨项目调用历史或实际消费者。
 
-- 修改设备配置影响各项目的后续读取／调用，不热切换在途调用快照。并发参数仍是每项目上限，不是整机总预算。
+- 修改设备配置影响各项目的后续读取／调用，不热切换在途调用快照。Worker 不再有项目或设备并发额度；依赖、冻结、维护及真实退出等安全准入保持。
 - 完整 Worker 显式运行参数仍优先，child 继承规则不变；保存设备设置不改写已有 Worker。
 - 环境变量按设备通用 → 设备角色 → Worker 显式变量叠加，旧项目 env 不再参与运行。
 - 模型来源只取设备库；旧项目连接即使同 ID 也不形成覆盖。缺设备配置时需要配置或显式迁移，不能回退到旧凭证。
@@ -14,6 +14,8 @@
 - 数据库、Worker、输入草稿、Git、会话、调用／解释历史及采样执行仍归项目。采样使用设备技术配置，Host 不代替项目运行采样或调度 Worker。
 
 主题、阅读、排序和提醒等偏好也由设备后端保存；浏览器缓存不能自动覆盖权威值。项目名称、标签标题及辨识配色保留；配色在用户工作台的「项目」页管理，不构成项目主题覆盖，旧项目 theme 留存但不生效。当前选区、滚动、节点折叠和筛选属于工作状态，不跨项目同步。浏览器通知权限是客户端能力：设备提醒开关不替其它浏览器授予权限，权限被拒绝也不撤销设备开关。
+
+旧 `concurrency`／`control_concurrency` 设置保留在文件中但不再生效；旧 `LUSH_CONCURRENCY`／`LUSH_CONTROL_CONCURRENCY` 环境变量忽略，CLI、设置页及状态不再提供这些字段。调用超时、单 Worker 调用次数和最大委派深度仍可配置，详见[移除并发槽](engineering/global-slots.md)。
 
 ## 本机 Prompt 补充与项目约定
 
@@ -40,7 +42,7 @@ CLI 设置命令省略 scope 也选择设备；可选 `--scope device`，显式 
 
 ```bash
 bun run lush config show
-bun run lush config set concurrency 4
+bun run lush config set call-timeout 3600
 bun run lush agent show
 bun run lush agent sources list
 bun run lush agent packages list

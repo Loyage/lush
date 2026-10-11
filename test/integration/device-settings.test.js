@@ -13,15 +13,20 @@ test('two real temporary daemons use device-only settings while daemons and proj
     const [sa, sb] = await Promise.all([cli(a, ['start'], settingsEnv), cli(b, ['start'], settingsEnv)]);
     expect(sa.pid).not.toBe(sb.pid);
     const ca = new UIClient(Config.fromEnv(env(settingsEnv), a)), cb = new UIClient(Config.fromEnv(env(settingsEnv), b));
-    await ca.request('system.configure', { settings: { concurrency: 5, progress_reporting: false }, scope: 'device' });
-    expect((await cb.request('system.settings')).concurrency).toMatchObject({ value: 5, source: 'device', overridden: true });
-    await cb.request('system.configure', { settings: { concurrency: 2 } });
-    await ca.request('system.configure', { settings: { concurrency: 7 }, scope: 'device' });
-    expect((await cb.request('system.settings')).concurrency).toMatchObject({ value: 7, source: 'device' });
-    await expect(cb.request('system.configure', { settings: { concurrency: 2 }, scope: 'project' })).rejects.toThrow('no longer');
-    expect((await cb.request('system.settings', { scope: 'device' })).concurrency.value).toBe(7);
-    await cb.request('system.configure', { settings: { concurrency: null } });
-    expect((await cb.request('system.status')).settings.concurrency.value).toBe(8);
+    await ca.request('system.configure', { settings: { call_timeout: 50, progress_reporting: false }, scope: 'device' });
+    expect((await cb.request('system.settings')).call_timeout).toMatchObject({ value: 50, source: 'device', overridden: true });
+    await cb.request('system.configure', { settings: { call_timeout: 20 } });
+    await ca.request('system.configure', { settings: { call_timeout: 70 }, scope: 'device' });
+    expect((await cb.request('system.settings')).call_timeout).toMatchObject({ value: 70, source: 'device' });
+    await expect(cb.request('system.configure', { settings: { call_timeout: 20 }, scope: 'project' })).rejects.toThrow('no longer');
+    expect((await cb.request('system.settings', { scope: 'device' })).call_timeout.value).toBe(70);
+    await cb.request('system.configure', { settings: { call_timeout: null } });
+    expect((await cb.request('system.status')).settings.call_timeout.value).toBe(10800);
+    for (const client of [ca, cb]) for (const key of ['concurrency', 'control_concurrency']) {
+      expect((await client.request('system.settings'))).not.toHaveProperty(key);
+      expect((await client.request('system.status'))).not.toHaveProperty(key);
+      await expect(client.request('system.configure', { settings: { [key]: 1 } })).rejects.toThrow('unknown field');
+    }
     await ca.request('agent.configure', { scope: 'device', config: { version: 1, default: { agent: 'pi', config_mode: 'pi' }, roles: {} } });
     const agents = await cb.request('agent.config');
     expect(agents.configuration_scope).toMatchObject({ selected: 'device', source: 'device', project_override: false });

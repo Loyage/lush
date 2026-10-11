@@ -11,7 +11,7 @@ import { check } from '../types.js';
 import { DeviceAutomationSettings } from '../device-automation.js';
 
 // 构造与实例状态（config / store / provider / workspaces / running / stopping / scheduled / ancestry）。
-/** One project, a persistent task tree, and a bounded pool of disposable agents. */
+/** One project, a persistent Worker tree, and disposable invocations behind safety gates. */
 export class ProjectBase {
   constructor(config, store, provider = null, options = {}) {
     this.config = config; this.store = store;
@@ -23,7 +23,7 @@ export class ProjectBase {
     this.workspaces = new Workspaces(config, store);
     // Internal runtime safety seam for direct user cleanup; Workspaces alone owns no invocation/command facts.
     this.workspaces.commandBusy = taskId => this.commandHookRunning?.has(taskId) === true;
-    // 运行设置（并发上限）写盘后由 Config 回调这里重新 pump。
+    // 运行设置写盘后由 Config 回调这里重新检查后续调用准入。
     this.config.onKick = () => this.kick();
     this.running = new Map(); this.stopping = false; this.scheduled = false; this.ancestry = new Map();
     // R-01：清空进入异步回收后，新的写入口先被拒，purge 不会删掉「已经成功返回」的数据。

@@ -55,19 +55,20 @@ async function saveSource() {
 }
 
 test('真实设备运行设置混合环境默认，无项目编辑层，保存/重置只修改设备文件', async () => {
-  const legacy = writeLegacy('settings.json', JSON.stringify({ version: 1, concurrency: 11 }) + '\n');
-  const device = settingsClient(); await device.action('system.configure', { settings: { concurrency: 5 } });
+  const legacy = writeLegacy('settings.json', JSON.stringify({ version: 1, concurrency: 11, call_timeout: 11 }) + '\n');
+  const device = settingsClient(); await device.action('system.configure', { settings: { call_timeout: 500 } });
   await system(); expect(deepText(detail())).toContain('设备设置与环境 / 内置默认');
   expect(detail().querySelector('select[data-settings-scope=""]')).toBeNull();
-  expect(detail().querySelector('[data-runtime-source="concurrency"]').textContent).toBe('设备配置');
-  expect(detail().querySelector('input[data-runtime-input="concurrency"]').value).toBe('5');
-  input(detail().querySelector('input[data-runtime-input="concurrency"]'), '7');
+  expect(detail().querySelector('[data-runtime-source="call_timeout"]').textContent).toBe('设备配置');
+  expect(detail().querySelector('input[data-runtime-input="call_timeout"]').value).toBe('500');
+  expect(detail().querySelector('[data-runtime-input="concurrency"]')).toBeNull();
+  input(detail().querySelector('input[data-runtime-input="call_timeout"]'), '700');
   await detail().querySelector('button[data-runtime-action="save"]').onclick();
-  expect(f.config.runtimeSettings.get('device').concurrency.value).toBe(7);
+  expect(f.config.runtimeSettings.get('device').call_timeout.value).toBe(700);
   expectLegacyPreserved(legacy);
   await detail().querySelector('button[data-runtime-action="reset"]').onclick();
-  expect(f.config.runtimeSettings.get('device').concurrency).toMatchObject({ value: f.config.concurrencyDefault, source: 'default', overridden: false });
-  expect(detail().querySelector('input[data-runtime-input="concurrency"]').value).toBe(String(f.config.concurrencyDefault));
+  expect(f.config.runtimeSettings.get('device').call_timeout).toMatchObject({ value: f.config.timeoutDefault, source: 'default', overridden: false });
+  expect(detail().querySelector('input[data-runtime-input="call_timeout"]').value).toBe(String(f.config.timeoutDefault));
   expectLegacyPreserved(legacy);
 });
 
@@ -120,7 +121,7 @@ test('真实迁移拒绝空预检和变更后的 revision；新预检确认后�
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 }); fs.writeFileSync(file, body, { mode: 0o600 });
     return { file, body };
   });
-  const legacy = writeLegacy('settings.json', JSON.stringify({ version: 1, concurrency: 6 }) + '\n');
+  const legacy = writeLegacy('settings.json', JSON.stringify({ version: 1, call_timeout: 600 }) + '\n');
   const legacyEnv = writeLegacy(path.join('agent', 'agent.env'), 'MIGRATED_VALUE=legacy\n');
   expect(f.project.agentEnvironment('common', 'device').values).toEqual({});
   await button(detail(), '预检迁移范围').onclick();
@@ -128,7 +129,7 @@ test('真实迁移拒绝空预检和变更后的 revision；新预检确认后�
   expect(deepText(detail())).toContain(path.join(f.config.deviceHome, 'settings.json'));
   const itemsText = detail().querySelectorAll('.settings-migration-item').map(node => deepText(node)).join('\n');
   for (const convention of conventions) { expect(itemsText).not.toContain(convention.file); expect(deepText(detail())).not.toContain(convention.body); expectLegacyPreserved(convention); }
-  const changed = writeLegacy('settings.json', JSON.stringify({ version: 1, concurrency: 7 }) + '\n');
+  const changed = writeLegacy('settings.json', JSON.stringify({ version: 1, call_timeout: 700 }) + '\n');
   const stale = button(detail(), '确认迁移到设备设置').onclick(); await dialogButton(dom, '备份并迁移').onclick(); await stale;
   expect(deepText(detail())).toContain('迁移未确认完成');
   expect(button(detail(), '确认迁移到设备设置').disabled).toBe(true);
@@ -149,7 +150,7 @@ test('真实迁移拒绝空预检和变更后的 revision；新预检确认后�
   expect(fs.existsSync(path.join(f.config.home, 'settings.json'))).toBe(false);
   // The device setting is explicitly stored, not an inherited project override.
   const model = f.config.runtimeSettings.get('device');
-  expect(model.concurrency).toMatchObject({ value: 7, source: 'device', overridden: true });
+  expect(model.call_timeout).toMatchObject({ value: 700, source: 'device', overridden: true });
   expect(model.configuration_scope).toMatchObject({ selected: 'device', project_override: false });
   const pointer = JSON.parse(fs.readFileSync(path.join(f.config.home, 'device-migration', 'current.json'), 'utf8'));
   const journalHome = path.join(f.config.home, 'device-migration', pointer.id), backup = path.join(journalHome, 'files');

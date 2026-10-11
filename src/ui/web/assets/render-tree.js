@@ -61,14 +61,14 @@ function depChips(task) {
     return chip;
   });
 }
-/** 此刻为什么没在干活：等依赖 / 等槽 / 等子任务 / 等你决定。四种拼起来才是完整的并行-串行关系。 */
+/** 已知等待原因优先；queued 可能受依赖、冻结或安全准入门限制。 */
 function whyLine(task, index) {
   const interruptHint = interruptReason(task);
   if (interruptHint) return interruptHint;
   const waiting = waitingDeps(task);
-  if (task.status === 'running') return `运行中 · 占 1 个并发槽`;
+  if (task.status === 'running') return '运行中';
   if (task.status === 'queued' && waiting.length) return `排队：等 ${waiting.map(dep => workerLabel(dep)).join('、')} 结束`;
-  if (task.status === 'queued') return `排队：没有依赖、但没有空槽（上限 ${index.concurrency}）`;
+  if (task.status === 'queued') return '排队：等待运行准入或安全边界';
   if (task.status === 'waiting') {
     const kids = index.children(task.id);
     const live = kids.filter(child => child.status === 'running').length;
@@ -113,7 +113,7 @@ export function renderTree(data) {
   filterUi.taskRole?.sync(roles.map(roleOption), ui.filters.tasks.role);
   const statuses = [...new Set([...Object.keys(STATUS), ...uniqueValues(data.tasks, 'status')])];
   filterUi.taskStatus?.sync(statuses.map(statusOption), ui.filters.tasks.status);
-  const index = { concurrency: data.status.concurrency ?? 1, children: taskId => fullByParent.get(taskId) || [] };
+  const index = { children: taskId => fullByParent.get(taskId) || [] };
   const ordered = [];
   for (const task of orderTasks(visible, { mode: ui.sidebarSortMode, openNoticeIds })) {
     const node = known.get(task.id) || button('', () => { ui.noticeFocus = null; return detail(task.id); }, 'task');

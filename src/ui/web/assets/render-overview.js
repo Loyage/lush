@@ -15,7 +15,8 @@ export function renderOverview(data) {
   const acceptance = tasks.filter(task => task.status === 'awaiting_acceptance' && workerKind(task) === 'order');
   const parentConfirmation = tasks.filter(task => task.status === 'awaiting_acceptance' && task.task_kind === 'child');
   const active = tasks.filter(task => HOT.has(task.status) && task.status !== 'awaiting_acceptance' && !['main','owner'].includes(task.task_kind));
-  const key = JSON.stringify([data.revision, tasks.map(task => `${task.id}:${task.worker_number ?? ''}:${task.updated_at}`), open.map(notice => notice.id)]);
+  const key = JSON.stringify([data.revision, tasks.map(task => `${task.id}:${task.worker_number ?? ''}:${task.updated_at}`), open.map(notice => notice.id),
+    data.status.agents]);
   if (key === ui.overviewKey) return;
   ui.overviewKey = key;
   const panel = $('detail');
@@ -34,7 +35,7 @@ export function renderOverview(data) {
   const metrics = el('div', undefined, 'metrics');
   for (const [label, value, note, tone] of [
     ['Worker', tasks.length, '指令、子 Worker 与分支所有者', 'blue'],
-    ['进行中', active.length, `${data.status.agents?.length ?? 0} 个 Agent 正在调用`, 'violet'],
+    ['进行中', active.length, `本项目 ${data.status.agents?.length ?? 0} 个 Agent 正在调用`, 'violet'],
     ['待验收', acceptance.length, `${parentConfirmation.length} 个派生 Worker 待父确认，无需你验收`, 'violet'],
     ['待我处理', open.length, open.length ? '需要你的答复' : '没有待答复问题', 'green'],
   ]) {
@@ -67,7 +68,7 @@ export function renderOverview(data) {
   }
   panel.append(decisions);
 
-  const agents = block('运行中的 Agent', `${data.status.agents?.length ?? 0} / ${data.status.concurrency ?? 1}`);
+  const agents = block('本项目运行中的 Agent', String(data.status.agents?.length ?? 0));
   for (const agent of data.status.agents || []) {
     const row = el('div', undefined, 'row');
     row.append(el('span', '●', 'dot c-running'), button(`查看 Worker ${workerLabel(agent.task_id, agent.task_worker_number)}`, () => detail(agent.task_id), 'link', { worker: agent.task_id }),
@@ -80,7 +81,6 @@ export function renderOverview(data) {
   const info = block('运行时');
   const grid = el('div', undefined, 'grid');
   grid.append(kv('项目', data.status.project, 'mono'), kv('provider', data.status.provider || '—'),
-    kv('并发额度', String(data.status.concurrency ?? '—')),
     kv('版本', [data.status.version, data.status.fingerprint].filter(Boolean).join(' · ') || '—', 'mono'),
     kv('状态目录', data.status.home || '—', 'mono'), kv('启动', absolute(data.status.started_at) || '—'));
   info.append(grid);

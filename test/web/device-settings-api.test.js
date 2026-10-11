@@ -24,8 +24,11 @@ test('unselected Host edits runtime, Agent, sources, network and explanation wit
     const runtime = await fetch(`${f.url}/api/host/settings/runtime`);
     expect(runtime.status).toBe(200); expect(runtime.headers.get('cache-control')).toBe('no-store');
     expect((await runtime.json()).configuration_scope).toMatchObject({ selected: 'device', project_home: null });
-    expect((await action(f.url, 'system.configure', { settings: { concurrency: 3 } })).status).toBe(200);
-    expect((await (await fetch(`${f.url}/api/host/settings/runtime`)).json()).concurrency).toMatchObject({ value: 3, source: 'device' });
+    expect((await action(f.url, 'system.configure', { settings: { call_timeout: 300 } })).status).toBe(200);
+    const savedRuntime = await (await fetch(`${f.url}/api/host/settings/runtime`)).json();
+    expect(savedRuntime.call_timeout).toMatchObject({ value: 300, source: 'device' });
+    expect(savedRuntime).not.toHaveProperty('concurrency');
+    expect(savedRuntime).not.toHaveProperty('control_concurrency');
     const agent = await action(f.url, 'agent.configure', { config: { version: 1, default: { agent: 'pi', config_mode: 'pi' }, roles: {} } });
     expect(agent.status).toBe(200);
     expect((await (await fetch(`${f.url}/api/host/settings/agent/config`)).json()).default.config_mode).toBe('pi');
@@ -48,6 +51,33 @@ test('unselected Host edits runtime, Agent, sources, network and explanation wit
   } finally { await f.close(); }
 });
 
+test('Host removes active concurrency settings without erasing legacy values or creating a slot service', async () => {
+  const f = host();
+  const shared = path.join(f.global, 'shared'), file = path.join(shared, 'settings.json');
+  try {
+    const empty = await (await fetch(`${f.url}/api/host/settings/runtime`)).json();
+    expect(empty).not.toHaveProperty('concurrency');
+    expect(empty).not.toHaveProperty('control_concurrency');
+    expect(fs.existsSync(shared)).toBe(false);
+    fs.mkdirSync(shared, { recursive: true, mode: 0o700 });
+    const legacy = { version: 1, concurrency: 1, control_concurrency: 1 };
+    fs.writeFileSync(file, JSON.stringify(legacy), { mode: 0o600 });
+    for (const key of ['concurrency', 'control_concurrency']) {
+      expect((await action(f.url, 'system.configure', { settings: { [key]: 1 } })).status).toBe(400);
+      expect((await action(f.url, 'system.configure', { settings: { [key]: null } })).status).toBe(400);
+    }
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual(legacy);
+    expect((await action(f.url, 'system.configure', { settings: { call_timeout: 300 } })).status).toBe(200);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ ...legacy, call_timeout: 300 });
+    const current = await (await fetch(`${f.url}/api/host/settings/runtime`)).json();
+    expect(current).not.toHaveProperty('concurrency');
+    expect(current).not.toHaveProperty('control_concurrency');
+    expect((await fetch(`${f.url}/api/host/slots`)).status).toBe(404);
+    expect(fs.readdirSync(shared)).toEqual(['settings.json']);
+    expect(f.opened()).toBe(0);
+  } finally { await f.close(); }
+});
+
 test('Host settings cannot become a Worker, model-call, migration, arbitrary-path or token gateway', async () => {
   const f = host();
   try {
@@ -61,7 +91,7 @@ test('Host settings cannot become a Worker, model-call, migration, arbitrary-pat
       const response = await fetch(`${f.url}/api/host/settings/${suffix}`); expect([400, 404]).toContain(response.status);
     }
     expect((await fetch(`${f.url}/api/host/settings/runtime`, { headers: { Origin: 'https://evil.invalid' } })).status).toBe(403);
-    expect((await post(`${f.url}/api/host/settings/action`, { method: 'system.configure', params: { settings: { concurrency: 2 }, scope: 'device' } }, { Origin: 'https://evil.invalid' })).status).toBe(403);
+    expect((await post(`${f.url}/api/host/settings/action`, { method: 'system.configure', params: { settings: { call_timeout: 300 }, scope: 'device' } }, { Origin: 'https://evil.invalid' })).status).toBe(403);
     expect((await fetch(`${f.url}/api/host/settings/action`, { method: 'POST', body: '{}' })).status).toBe(400);
     expect(f.opened()).toBe(0);
   } finally { await f.close(); }
@@ -101,7 +131,7 @@ test('shared management requires Host authentication even when no project is sel
   const url = `http://127.0.0.1:${web.port}`;
   try {
     expect((await fetch(`${url}/api/host/settings/runtime`)).status).toBe(401);
-    expect((await action(url, 'system.configure', { settings: { concurrency: 2 } })).status).toBe(401);
+    expect((await action(url, 'system.configure', { settings: { call_timeout: 300 } })).status).toBe(401);
     const login = await fetch(`${url}/login`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'username=owner&password=test-device-settings-password' });
     const Cookie = login.headers.get('set-cookie').split(';')[0];
     expect((await fetch(`${url}/api/host/settings/runtime`, { headers: { Cookie } })).status).toBe(200);

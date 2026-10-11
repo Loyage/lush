@@ -33,8 +33,6 @@ const openAgent = async () => {
 };
 const systemBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '运行状态') || null;
-const runtimeBlock = () => [...panel().querySelectorAll('.block')]
-  .find(node => node.querySelector('h2')?.textContent === '并发额度') || null;
 const limitsBlock = () => [...panel().querySelectorAll('.block')]
   .find(node => node.querySelector('h2')?.textContent === '调用与拆解限额') || null;
 const environmentBlock = () => [...panel().querySelectorAll('.block')]
@@ -427,21 +425,10 @@ test('系统页：只读展示 daemon 状态与项目路径，运行设置改为
   expect(panel().querySelector('.agent-network-block')).toBeTruthy();
   expect(deepText(panel())).toContain('不是模型端点');
 
-  const runtime = runtimeBlock();
-  expect(runtime).toBeTruthy();
-  const input = key => runtime.querySelector(`input[data-runtime-input="${key}"]`);
-  const stateText = key => runtime.querySelector(`[data-runtime-state="${key}"]`).textContent;
-  expect(input('concurrency').value).toBe('2');
-  expect(input('control_concurrency').value).toBe('1');
-  expect(input('concurrency').max).toBe('64');
-  expect(input('control_concurrency').max).toBe('16');
-  expect(stateText('concurrency')).toContain('生效 2');
-  expect(stateText('concurrency')).toContain('环境默认 2');
-  expect(runtime.querySelector('[data-runtime-source="concurrency"]').textContent).toBe('环境默认');
-  expect(runtime.querySelector('[data-runtime-source="control_concurrency"]').textContent).toBe('环境默认');
-  expect(runtime.querySelector('.settings-path').textContent).toBe('/tmp/demo/.lush/settings.json');
-  expect(runtime.querySelector('button[data-runtime-action="save"]')).toBeTruthy();
-  expect(runtime.querySelector('button[data-runtime-action="reset"]')).toBeTruthy();
+  expect(panel().querySelector('[data-runtime-input="concurrency"]')).toBeNull();
+  expect(panel().querySelector('[data-runtime-input="control_concurrency"]')).toBeNull();
+  expect(deepText(panel())).not.toContain('并发额度');
+  expect(panel().querySelector('.settings-path').textContent).toBe('/tmp/demo/.lush/settings.json');
 
   const limits = limitsBlock();
   expect(limits).toBeTruthy();
@@ -457,56 +444,6 @@ test('系统页：只读展示 daemon 状态与项目路径，运行设置改为
   expect(limits.querySelector('[data-runtime-source="max_depth"]').textContent).toBe('环境默认');
   expect(limits.querySelector('button[data-runtime-action="save"]')).toBeTruthy();
   expect(limits.querySelector('button[data-runtime-action="reset"]')).toBeTruthy();
-});
-
-test('系统页：保存写回并发额度并立即反映到快照；越界或非整数在页面报错且不落盘', async () => {
-  await openSystem();
-  let runtime = runtimeBlock();
-  runtime.querySelector('input[data-runtime-input="concurrency"]').value = '8';
-  runtime.querySelector('input[data-runtime-input="control_concurrency"]').value = '5';
-  await runtime.querySelector('button[data-runtime-action="save"]').onclick();
-
-  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { scope: 'device', settings: { concurrency: 8, control_concurrency: 5 } } });
-  expect(world.state.runtimeSettings.concurrency).toEqual({ value: 8, default: 2, overridden: true });
-  expect(world.state.runtimeSettings.control_concurrency).toEqual({ value: 5, default: 1, overridden: true });
-  // 内存里立刻镜像到快照，不必等下一次轮询。
-  expect(state.ui.lastSnapshot).toBeNull(); // 根设备页不伪造项目运行快照
-  runtime = runtimeBlock();
-  expect(runtime.querySelector('input[data-runtime-input="concurrency"]').value).toBe('8');
-  expect(runtime.querySelector('[data-runtime-source="concurrency"]').textContent).toBe('设备配置');
-
-  // 越界（65 > 64）：页面报错、不发写请求、磁盘状态保持上一次成功写入的值。
-  const before = world.state.actions.length;
-  runtime.querySelector('input[data-runtime-input="concurrency"]').value = '65';
-  await runtime.querySelector('button[data-runtime-action="save"]').onclick();
-  expect(world.state.actions.length).toBe(before);
-  expect(world.state.runtimeSettings.concurrency.value).toBe(8);
-  expect(runtimeBlock().querySelector('.settings-error').hidden).toBe(false);
-  expect(runtimeBlock().querySelector('.settings-error').textContent).toContain('1 到 64');
-
-  // 非整数同样被拦下（先把上一个越界值改回合法值，否则先撞上执行通道的错）。
-  const blocked = runtimeBlock();
-  blocked.querySelector('input[data-runtime-input="concurrency"]').value = '8';
-  blocked.querySelector('input[data-runtime-input="control_concurrency"]').value = '2.5';
-  await blocked.querySelector('button[data-runtime-action="save"]').onclick();
-  expect(world.state.actions.length).toBe(before);
-  expect(world.state.runtimeSettings.control_concurrency.value).toBe(5);
-  expect(runtimeBlock().querySelector('.settings-error').textContent).toContain('1 到 16');
-});
-
-test('系统页：恢复环境默认清除两个覆盖', async () => {
-  await openSystem();
-  const runtime = runtimeBlock();
-  runtime.querySelector('input[data-runtime-input="concurrency"]').value = '7';
-  await runtime.querySelector('button[data-runtime-action="save"]').onclick();
-  expect(world.state.runtimeSettings.concurrency.overridden).toBe(true);
-
-  await runtimeBlock().querySelector('button[data-runtime-action="reset"]').onclick();
-  expect(world.state.actions.at(-1)).toEqual({ method: 'system.configure', params: { scope: 'device', settings: { concurrency: null, control_concurrency: null } } });
-  expect(world.state.runtimeSettings.concurrency).toEqual({ value: 2, default: 2, overridden: false });
-  expect(world.state.runtimeSettings.control_concurrency).toEqual({ value: 1, default: 1, overridden: false });
-  expect(runtimeBlock().querySelector('input[data-runtime-input="control_concurrency"]').value).toBe('1');
-  expect(runtimeBlock().querySelector('[data-runtime-source="concurrency"]').textContent).toBe('环境默认');
 });
 
 test('系统页：保存写回调用与拆解限额并立即反映到快照；越界在页面报错且不落盘', async () => {
@@ -548,7 +485,7 @@ test('系统页：调用与拆解限额可恢复环境默认', async () => {
 test('系统页：无项目快照也可编辑唯一设备配置，不显示项目服务控制', async () => {
   await openSystem(); state.ui.lastSnapshot = null;
   expect(() => renderSettings()).not.toThrow();
-  expect(systemBlock()).toBeNull(); expect(runtimeBlock()).toBeTruthy();
+  expect(systemBlock()).toBeNull(); expect(limitsBlock()).toBeTruthy();
   expect(panel().querySelector('.service-restart-controls')).toBeNull();
   expect(deepText(panel())).toContain('项目运行状态、历史与后台控制在项目工作页管理');
   expect(dom.intervalFor(1500)).toBeUndefined();

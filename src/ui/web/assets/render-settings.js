@@ -821,10 +821,6 @@ export function renderAgentSettings(settings, repaint, { ownsPage = () => true, 
 }
 
 // 运行设置可在浏览器里改写；范围与核心 RUNTIME_SETTINGS_LIMITS 一致，单位只用于展示。
-const CONCURRENCY_FIELDS = [
-  { key: 'concurrency', label: '执行通道', max: 64, unit: '' },
-  { key: 'control_concurrency', label: '控制通道', max: 16, unit: '' },
-];
 const LIMIT_FIELDS = [
   { key: 'call_timeout', label: '单次调用超时', max: 86400, unit: '秒' },
   { key: 'task_call_limit', label: '单 Worker 调用上限', max: 1000, unit: '次' },
@@ -904,12 +900,9 @@ function systemTab() {
   const paint = runtime => {
     if (!owns()) return;
     state.loaded = true;
-    const concurrency = block('并发额度');
-    concurrency.append(el('p', '所有项目使用同一并发上限；这是每个项目的上限，不是整机总预算。降低上限不取消在跑 Worker，后续准入读取新配置。', 'settings-note'),
-      runtimeFieldsEditor(runtime, CONCURRENCY_FIELDS, plain, '并发额度', client, paint, owns),
-      row('设置文件', '设备唯一运行设置的保存位置。', el('code', plain(runtime.file), 'settings-path')));
     const limits = block('调用与拆解限额');
-    limits.append(runtimeFieldsEditor(runtime, LIMIT_FIELDS, plain, '调用与拆解限额', client, paint, owns));
+    limits.append(runtimeFieldsEditor(runtime, LIMIT_FIELDS, plain, '调用与拆解限额', client, paint, owns),
+      row('设置文件', '设备唯一运行设置的保存位置。', el('code', plain(runtime.file), 'settings-path')));
     const reporting = block('进度汇报'), enabled = runtime.progress_reporting?.value !== false;
     const input = el('input'); input.type = 'checkbox'; input.checked = enabled; input.dataset.runtimeInput = 'progress_reporting';
     input.setAttribute('aria-label', '启用进度汇报');
@@ -929,7 +922,7 @@ function systemTab() {
     state.migration ||= renderSettingsMigration({ ownsPage: owns, onMigrated: async () => {
       state.loaded = false; const value = await client.read('/api/settings/runtime'); if (owns()) paint(value);
     } });
-    state.node.replaceChildren(scopeSummary(runtime), concurrency, limits, reporting, state.network, state.migration,
+    state.node.replaceChildren(scopeSummary(runtime), limits, reporting, state.network, state.migration,
       el('p', '项目运行状态、历史与后台控制在项目工作页管理；本页不会因配置读取启动项目。', 'settings-note'));
   };
   function load() {

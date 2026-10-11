@@ -67,14 +67,12 @@ bun run lush --project /absolute/path/to/my-project agent prompt worker
 
 ## 5. 运行配置
 
-环境变量只提供默认值；并发额度与调用 / 拆解限额可被 `<project>/.lush/settings.json` 覆盖，改后立即生效、不需要重启。
+环境变量只提供默认值；调用 / 拆解限额可被设备根 `shared/settings.json` 覆盖，改后立即生效、不需要重启。Worker 并发额度功能已移除：旧盘上并发值保留但忽略，`LUSH_CONCURRENCY`／`LUSH_CONTROL_CONCURRENCY` 不再读取或校验；既有依赖、冻结及实际退出等安全门保留。
 
 | 环境变量 | 默认值 | 用途 |
 |---|---|---|
 | `LUSH_PROJECT` | 从 cwd 发现 | 显式项目目录；设置后 Web 也进入单项目绑定模式 |
 | `LUSH_PROVIDER` | `pi` | 首次未写项目配置时的 Agent：`pi` / `codex`；`mock` 为离线测试模式 |
-| `LUSH_CONCURRENCY` | `8` | worker / research / verifier 执行槽的环境默认值 |
-| `LUSH_CONTROL_CONCURRENCY` | `2` | planner 等控制面槽的环境默认值，不被执行面占用 |
 | `LUSH_CALL_TIMEOUT` | `10800` | 单次模型调用超时秒数（3 小时） |
 | `LUSH_TASK_CALLS` | `24` | 单 Worker invocation 总上限 |
 | `LUSH_MAX_DEPTH` | `8` | Worker树最大层数 |
@@ -97,7 +95,7 @@ bun run lush --project /absolute/path/to/my-project config
 ```text
 <project>/.lush/
 ├── project.json       不可跨目录复用的项目绑定
-├── settings.json      运行设置（并发额度、调用/拆解限额、快速路由前缀）的覆盖；不存在表示全部使用环境默认
+├── settings.json      历史项目运行设置，仅作显式迁移来源；有效技术设置在设备根
 ├── project.db         SQLite：inputs / drafts / tasks / task_specs / task_deps / agent_runs / artifacts / review_candidates / messages / notices / events / branches
 ├── sessions/          每个 Worker 的独立 Pi session 与当前输入文件
 ├── worktrees/         worker 工作区、每条输入的聚合分支检出、检验期间临时对照检出

@@ -27,7 +27,7 @@ test('confirmed RPC migration switches legacy project files to device-only runti
     source.project.agentConnections.manager = manager;
     const row = manager.save({ label: 'Migration source', provider: 'deepseek',
       auth_type: 'api_key', models: ['deepseek-chat'] }, { api_key: 'migration-private-key' });
-    new RuntimeSettings(legacy).save({ concurrency: 3, progress_reporting: false });
+    new RuntimeSettings(legacy).save({ call_timeout: 300, progress_reporting: false });
     new AgentSettings(legacy).save({ version: 1, default: { agent: 'pi', config_mode: 'lush',
       connection_id: row.id, model: 'deepseek/deepseek-chat', extensions: ['./extension.mjs'], skills: [] }, roles: {} });
     saveAgentEnvironment(legacy, 'common', { MIGRATION_VALUE: 'migration-private-env' });
@@ -51,7 +51,7 @@ test('confirmed RPC migration switches legacy project files to device-only runti
     expect(other.project.agentConnectionHistory(row.id, 7).series).toEqual([]);
 
     for (const f of [source, other]) {
-      expect(f.project.runtimeSettings().concurrency).toMatchObject({ value: 3, source: 'device', overridden: true });
+      expect(f.project.runtimeSettings().call_timeout).toMatchObject({ value: 300, source: 'device', overridden: true });
       expect(f.project.agentConfig().configuration_scope).toMatchObject({ source: 'device', project_override: false });
       expect(f.project.agentSettings.resolve('agent')).toMatchObject({ connection_id: row.id,
         extensions: [path.join(source.root, 'extension.mjs')] });

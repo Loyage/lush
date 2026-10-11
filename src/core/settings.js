@@ -6,20 +6,20 @@ import { check, isPlainObject, LushError } from './types.js';
 import { DEFAULT_INPUT_ROUTES, normalizeInputRoutes } from './input-routes.js';
 
 /**
- * 设备默认 / 项目覆盖的运行设置：并发、调用限额、进度开关与历史路由表。
+ * 设备运行设置：调用限额、进度开关与历史路由表。
  *
  * 值存在所选作用域的 settings.json，0600，跨进程锁 + 原子替换，
  * 读时校验 uid / symlink / 大小 / 字段。区别是运行设置是**热更新**的——写盘成功后调用方
- * 把有效值同步进内存并重新 kick，所以调高并发、放宽超时不需要重启 daemon。
+ * 把有效值同步进内存并重新 kick，修改后续调用设置不需要重启 daemon。
  *
- * 项目有效值 = 项目存储值 ?? 设备存储值 ?? 环境默认值（LUSH_CONCURRENCY / LUSH_CONTROL_CONCURRENCY /
- * LUSH_CALL_TIMEOUT / LUSH_TASK_CALLS / LUSH_MAX_DEPTH 的启动值）；
+ * 有效值 = 设备存储值 ?? 环境默认值（LUSH_CALL_TIMEOUT / LUSH_TASK_CALLS / LUSH_MAX_DEPTH 的启动值）；
  * progress_reporting 为布尔开关，默认 true；未被覆盖的键不写进文件，也不用假值填充。
  */
-export const RUNTIME_SETTINGS_KEYS = ['concurrency', 'control_concurrency', 'call_timeout', 'task_call_limit', 'max_depth', 'progress_reporting', 'input_routes'];
+export const RUNTIME_SETTINGS_KEYS = ['call_timeout', 'task_call_limit', 'max_depth', 'progress_reporting', 'input_routes'];
+// Read compatibility only: preserve exact historical values on unrelated writes, never expose or apply them.
+const RETIRED_KEYS = ['concurrency', 'control_concurrency'];
+const retiredSettings = value => Object.fromEntries(RETIRED_KEYS.filter(key => Object.hasOwn(value, key)).map(key => [key, value[key]]));
 export const RUNTIME_SETTINGS_LIMITS = {
-  concurrency: { env: 'LUSH_CONCURRENCY', fallback: 8, max: 64 },
-  control_concurrency: { env: 'LUSH_CONTROL_CONCURRENCY', fallback: 2, max: 16 },
   call_timeout: { env: 'LUSH_CALL_TIMEOUT', fallback: 10800, max: 86400 },
   task_call_limit: { env: 'LUSH_TASK_CALLS', fallback: 24, max: 1000 },
   max_depth: { env: 'LUSH_MAX_DEPTH', fallback: 8, max: 64 },
@@ -38,13 +38,13 @@ function copySetting(key, value) {
   return STRUCTURED_KEYS.has(key) ? value.map(route => ({ ...route })) : value;
 }
 
-/** 校验并归一化一份存储内容：只保留被显式覆盖的键；null 视为未覆盖（清除该键）。 */
+/** Validate active stored keys; retain retired fields verbatim for historical storage/migration only. */
 export function normalizeRuntimeSettings(value, file = 'runtime settings') {
   check(isPlainObject(value), `${file} must be an object`);
   if (value.version !== undefined) check(value.version === 1, `${file} must use version 1`);
-  check(Object.keys(value).every(key => key === 'version' || RUNTIME_SETTINGS_KEYS.includes(key)),
+  check(Object.keys(value).every(key => key === 'version' || RUNTIME_SETTINGS_KEYS.includes(key) || RETIRED_KEYS.includes(key)),
     `${file} has an unknown field`);
-  const stored = {};
+  const stored = retiredSettings(value);
   for (const key of RUNTIME_SETTINGS_KEYS) {
     const entry = value[key];
     if (entry === undefined || entry === null) continue;
@@ -63,10 +63,8 @@ export class RuntimeSettings {
   constructor(config) {
     this.config = config;
     this.file = path.join(configurationHome(config, settingsConfigurationScope(config)), 'settings.json');
-    // 环境默认值由 Config 在读取设置文件之前校验好（LUSH_* 非法仍然在构造时抛错）。
+    // 活跃环境默认值由 Config 在读取设置文件之前校验好；退役的并发环境变量不再参与。
     this.defaults = {
-      concurrency: config.concurrencyDefault,
-      control_concurrency: config.controlConcurrencyDefault,
       call_timeout: config.timeoutDefault,
       task_call_limit: config.maxCallsDefault,
       max_depth: config.maxDepthDefault,
@@ -119,7 +117,7 @@ export class RuntimeSettings {
         default: copySetting(key, inherited), overridden, source };
     }
     model.configuration_scope = configurationScope(this.config, scope,
-      sources.size === 1 ? [...sources][0] : 'mixed', scope === 'project' && Object.keys(stored).length > 0);
+      sources.size === 1 ? [...sources][0] : 'mixed', scope === 'project' && RUNTIME_SETTINGS_KEYS.some(key => Object.hasOwn(stored, key)));
     return model;
   }
 

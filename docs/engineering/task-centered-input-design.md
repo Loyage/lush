@@ -13,7 +13,7 @@
 
 ## 调用与交付
 
-- Worker 身份、收件箱与工作区跨 invocation 保留；等待子Worker/用户时释放并发槽。用户追加输入先落库，在已验证的安全点抢占（Pi 的 `turn_end`），否则轮末交付。硬中断的未知副作用不自动重放。一次性 Agent token 只对本轮有效。
+- Worker 身份、收件箱与工作区跨 invocation 保留；等待子Worker/用户时结束本轮 invocation，不继续运行 Agent。用户追加输入先落库，在已验证的安全点抢占（Pi 的 `turn_end`），否则轮末交付。硬中断的未知副作用不自动重放。一次性 Agent token 只对本轮有效。
 ## 历史 version 1 交付
 
 以下固定提交人工批准的语义只适用于历史 version 1，不是当前父自有队列的准入：

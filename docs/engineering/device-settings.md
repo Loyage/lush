@@ -4,6 +4,8 @@ W162／用户决定 #402 取消技术配置的项目覆盖、统一设备设置�
 
 本契约落实 W116 / 用户待决 #261，范围内优先于旧文档“所有设置与模型凭证仅属于项目”的描述。理念见[设备共享设置](../design/device-settings.md)。每项目一个 daemon 与项目事实隔离不变。
 
+W210／D492 取消 Worker 并发额度功能：`concurrency`／`control_concurrency` 旧设置只保留存储历史，不再形成活跃值或公开写入口；对应旧环境变量忽略。调用超时／次数／委派深度等非并发设置与显式迁移安全边界不变，见[移除并发槽](global-slots.md)。
+
 ## 存储与兼容
 
 `Config.deviceHome` = `path.join(launcherStateDir(config.env), 'shared')`；不修改 `Config.home` / `LUSH_HOME`。设备目录不属于某项目的 Git/worktree。无项目 Host 使用独立设置服务，不构造 Project、Store 或虚假项目 daemon。

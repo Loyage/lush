@@ -40,7 +40,8 @@ test('explicit project binding overrides cwd and inherited global home is reject
   try {
     expect(Config.fromEnv(env({LUSH_PROJECT:a}),b).project).toBe(a);
     expect(() => Config.fromEnv(env({LUSH_HOME:path.join(a,'wrong')}),a)).toThrow('LUSH_HOME');
-    expect(() => Config.fromEnv(env({LUSH_CONCURRENCY:'2x'}),a)).toThrow('integer');
+    expect(() => Config.fromEnv(env({LUSH_CONCURRENCY:'2x', LUSH_CONTROL_CONCURRENCY:'0'}),a)).not.toThrow();
+    expect(() => Config.fromEnv(env({LUSH_CALL_TIMEOUT:'2x'}),a)).toThrow('integer');
   } finally { fs.rmSync(a,{recursive:true,force:true}); fs.rmSync(b,{recursive:true,force:true}); }
 });
 

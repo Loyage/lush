@@ -76,7 +76,7 @@ function compactProgress(progress) {
     updated_at: progress.updated_at };
 }
 
-/** 汇总 status 里算「活动」的口径：任务还占着槽、等槽或等用户。 */
+/** 汇总 status 里算「活动」的口径：Worker 在运行、等待准入或等用户。 */
 const ACTIVE_STATUSES = new Set(['running', 'queued', 'waiting', 'awaiting']);
 /** 一句话标题的上限：超出截断加省略号，别让整段 goal 撑爆界面。 */
 const TITLE_LIMIT = 60;
@@ -280,7 +280,7 @@ export default {
         : row.status === 'awaiting' && notice.count ? `${notice.count} 条待你处理`
         : row.status === 'waiting' && child.active ? `等待 ${child.active} 个子Worker`
         : row.status === 'queued' && blockers.length ? `等待依赖 Worker ${blockers.map(workerLabel).join('、')}`
-        : row.status === 'queued' ? '等待 Agent 调用槽'
+        : row.status === 'queued' ? '等待运行准入或安全边界'
         : row.status === 'awaiting_acceptance' ? (row.task_kind === 'child'
           ? `本轮已交付 · 等待父Worker ${workerLabel({ id: row.parent_id, worker_number: row.parent_worker_number })} 确认` : '本轮已交付 · 等待你验收或追加输入')
         : row.status === 'waiting' ? '静息 · 等待后续事件' : null;

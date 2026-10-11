@@ -14,16 +14,18 @@
 | Web「Agent 配置 → 高级项 → 环境变量」 | `agent.environment` / `agent.environment.configure` | `{target}` / `{target,values}`（读写都限用户） |
 | `lush agent init [ROLE] [--local]` | 本地命令 | 创建共享或本机 Prompt 补充文件 |
 | `lush config [show]` | `system.status`（读 `settings`） | `{}` |
-| `lush config set concurrency|control-concurrency|call-timeout|worker-call-limit|max-depth N` | `system.configure` | `{settings}`，只带要改的键（用户专属） |
-| `lush config reset [concurrency|control-concurrency|call-timeout|worker-call-limit|max-depth|all]` | `system.configure` | `{settings}`，被重置的键传 `null`（用户专属） |
+| `lush config set call-timeout|worker-call-limit|max-depth N` | `system.configure` | `{settings}`，只带要改的键（用户专属） |
+| `lush config reset [call-timeout|worker-call-limit|max-depth|all]` | `system.configure` | `{settings}`，被重置的键传 `null`（用户专属） |
 | `lush daemon stop` | `system.stop` | `{}` |
 | `lush worker auto-title '标题'` | `worker.auto_title` | `{title}`（Agent-only，当前 order/child 首次生成自身自动标题） |
 | `lush progress plan KEY[:LABEL]...` | `progress.plan` | `{steps:[{key,label}]}`（agent-only） |
 | `lush progress complete KEY` | `progress.complete` | `{step}`（agent-only） |
 
-项目级运行设置存在 `.lush/settings.json`（version 1，权限 `600`）：环境变量 `LUSH_CONCURRENCY` / `LUSH_CONTROL_CONCURRENCY` / `LUSH_CALL_TIMEOUT` / `LUSH_TASK_CALLS` / `LUSH_MAX_DEPTH` 只是各自的默认值，被文件里显式覆盖的键取代，范围分别是 1..64、1..16、1..86400、1..1000、1..64；写盘后同步内存并重新准入，下一次调度 / 调用 / 拆解立即生效，不需要重启 daemon。命令面用连字符（`control-concurrency` / `call-timeout` / `worker-call-limit` / `max-depth`），设置文件与 RPC 里是下划线（`control_concurrency` / `call_timeout` / `task_call_limit` / `max_depth`）；`worker-call-limit` 特别映射到保留的 `task_call_limit`，并非 `worker_call_limit`，旧 CLI 名不留别名。见[更名边界](../engineering/core-api.md#worker-更名与兼容边界)。
+设备运行设置存在 `<deviceHome>/settings.json`（version 1，权限 `600`）：环境变量 `LUSH_CALL_TIMEOUT` / `LUSH_TASK_CALLS` / `LUSH_MAX_DEPTH` 只是各自的默认值，被文件里显式覆盖的键取代，范围分别是 1..86400、1..1000、1..64；写盘后同步内存并重新准入，下一次调度 / 调用 / 拆解立即生效，不需要重启 daemon。命令面用连字符（`call-timeout` / `worker-call-limit` / `max-depth`），设置文件与 RPC 里是下划线（`call_timeout` / `task_call_limit` / `max_depth`）；`worker-call-limit` 特别映射到保留的 `task_call_limit`，并非 `worker_call_limit`，旧 CLI 名不留别名。见[更名边界](../engineering/core-api.md#worker-更名与兼容边界)。
 
-系统设置 → 系统 →「进度汇报」提供项目级开关，默认开启，经用户专属 `system.configure {settings:{progress_reporting:boolean}}` 保存至同一份设置文件；`null` 恢复默认开启。关闭后所有 Worker 进度区块（含图上的等待汇报占位）隐藏，已有计划不删除，再开启可继续查看；后续调用的内置 Prompt 与配置预览不再包含进度片段或命令示例，analysis 与 Pi 默认模式同样遵循。正在运行的调用、自定义 Prompt / 补充和已有会话原文不改写，进度 RPC 保留兼容在途调用。设置热更新不需要重启。
+W210／D492 已移除 Worker 并发槽：旧盘上 `concurrency`／`control_concurrency` 留存但不生效，旧 `LUSH_CONCURRENCY`／`LUSH_CONTROL_CONCURRENCY` 忽略；公开配置写入拒绝这些键，状态与时间线不再投影并发额度。依赖、冻结、维护及同 Worker 的真实退出屏障仍限制准入。
+
+系统设置 → 系统 →「进度汇报」提供设备级开关，默认开启，经用户专属 `system.configure {settings:{progress_reporting:boolean}}` 保存至同一份设置文件；`null` 恢复默认开启。关闭后所有 Worker 进度区块（含图上的等待汇报占位）隐藏，已有计划不删除，再开启可继续查看；后续调用的内置 Prompt 与配置预览不再包含进度片段或命令示例，analysis 与 Pi 默认模式同样遵循。正在运行的调用、自定义 Prompt / 补充和已有会话原文不改写，进度 RPC 保留兼容在途调用。设置热更新不需要重启。
 
 Pi / Codex 每次 invocation 都从 daemon 获得：
 
@@ -52,7 +54,7 @@ Worker 详情统一使用「调整运行设置」选择模型来源，不再提�
 
 `agent.models` 对 Pi 只用独立配置的 auth-free、禁网络 SDK 元数据（`source=local`），没有元数据声明或 SDK 时返回未验证预设及 `warning`，不执行 `pi --list-models` 或读取外部认证。Codex 仍按需调用 `codex debug models`。配置页的 Pi 模型选择只用当前来源；目录、预设和手填模型都不保证上游请求可用。
 
-`system.status` 的 `agent_config` 返回规范化配置、每类角色的 resolved profile 与 Web 可用选项；`settings` 是运行设置的读写镜像（读自 `system.status`，写走用户专属的 `system.configure`）：`{file, concurrency:{value,default,overridden}, control_concurrency:{value,default,overridden}, call_timeout:{value,default,overridden}, task_call_limit:{value,default,overridden}, max_depth:{value,default,overridden}, progress_reporting:{value,default:true,overridden}}`，顶层 `concurrency` / `control_concurrency` / `call_timeout` / `task_call_limit` / `max_depth` 仍是生效值，环境变量只提供默认值。`agents` 只列运行中的 agent，并显示该次实际 backend / model / thinking，另有 `agents_total`（每个活动 Worker 一个 Agent）与 `agents_idle`（已 park、未在跑的，含尚未首次唤醒的）。`pending_merges` 以原 worker 为稳定项统计 `integration=pending/review/conflict`，不把它的 resolver 再重复计数；完整交付阶段、实际 `source_task_id` 与 blockers 由内部 `ladder().groups` 读模型投影；旧 `task.ladder` 已下线，不是公开 RPC。`merge_freeze` 列出正被未解决冲突冻结的目标分支。agent 身份本身（id / 唤醒次数 / 上次动手时间）可以跨唤醒读取，但它不是可寻址的执行句柄：用户操作一律按 Worker ID 进行。
+`system.status` 的 `agent_config` 返回规范化配置、每类角色的 resolved profile 与 Web 可用选项；`settings` 是运行设置的读写镜像（读自 `system.status`，写走用户专属的 `system.configure`）：`{file, call_timeout:{value,default,overridden}, task_call_limit:{value,default,overridden}, max_depth:{value,default,overridden}, progress_reporting:{value,default:true,overridden}}`，顶层 `call_timeout` / `task_call_limit` / `max_depth` 仍是生效值，环境变量只提供默认值。`agents` 只列运行中的 agent，并显示该次实际 backend / model / thinking，另有 `agents_total`（每个活动 Worker 一个 Agent）与 `agents_idle`（已 park、未在跑的，含尚未首次唤醒的）。`pending_merges` 以原 worker 为稳定项统计 `integration=pending/review/conflict`，不把它的 resolver 再重复计数；完整交付阶段、实际 `source_task_id` 与 blockers 由内部 `ladder().groups` 读模型投影；旧 `task.ladder` 已下线，不是公开 RPC。`merge_freeze` 列出正被未解决冲突冻结的目标分支。agent 身份本身（id / 唤醒次数 / 上次动手时间）可以跨唤醒读取，但它不是可寻址的执行句柄：用户操作一律按 Worker ID 进行。
 
 以下操作限用户：system.stop、system.configure、agent.configure、agent.environment、agent.environment.configure、agent.network、agent.network.configure、agent.connections.*（包括读取、查询与登录）、order.submit、worker.transcript_latest / transcript_page / transcript_step / transcript_search、worker.auto_merge / reserve / unreserve / resolve / resolve_divergence / approve_merge / cancel / retry / cleanup、notice.answer / dismiss、branch.bind / archive。`agent.environment` 虽是读取接口，但会返回明文密钥，因此同样拒绝 agent token。CLI 另禁止 agent 启动 daemon、Web 或阻塞等待。
 

@@ -45,7 +45,7 @@ export const handlers = {
     return { stopping: true };
   },
   'system.timeline'(p, params, actor) { return p.timeline({ limit: params.limit }); },
-  // 用户专属写操作：把运行设置（并发上限）的热更新暴露给 CLI / Web，agent 不得调用。
+  // 用户专属写操作：把运行设置（调用 / 委派限额及进度开关）的热更新暴露给 CLI / Web，agent 不得调用。
   'system.configure'(p, params, actor) {
     check(!Object.hasOwn(params.settings ?? {}, 'input_routes'), 'legacy input routes are no longer configurable');
     return p.configureRuntimeSettings(params.settings, params.scope);

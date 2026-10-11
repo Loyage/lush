@@ -32,14 +32,14 @@ test('Project adapters share one authority, reject project overrides, and retain
   const global = temp(), a = projectFixture(undefined, { LUSH_GLOBAL_CONFIG: global }),
     b = projectFixture(undefined, { LUSH_GLOBAL_CONFIG: global });
   try {
-    a.project.configureRuntimeSettings({ concurrency: 6, progress_reporting: false });
+    a.project.configureRuntimeSettings({ call_timeout: 6, progress_reporting: false });
     expect(b.project.refreshRuntimeConfiguration()).toBe(true);
-    expect(b.config.concurrency).toBe(6);
+    expect(b.config.timeout).toBe(6);
     expect(b.project.agentConfig().options.default_prompts.agent).not.toContain('lush progress');
-    b.project.configureRuntimeSettings({ concurrency: 9 });
-    a.project.refreshRuntimeConfiguration(); expect(a.config.concurrency).toBe(9);
-    expect(a.project.runtimeSettings().concurrency.source).toBe('device');
-    expect(() => b.project.configureRuntimeSettings({ concurrency: 2 }, 'project')).toThrow('no longer');
+    b.project.configureRuntimeSettings({ call_timeout: 9 });
+    a.project.refreshRuntimeConfiguration(); expect(a.config.timeout).toBe(9);
+    expect(a.project.runtimeSettings().call_timeout.source).toBe('device');
+    expect(() => b.project.configureRuntimeSettings({ call_timeout: 2 }, 'project')).toThrow('no longer');
     a.project.configureAgents(profile('shared'));
     expect(b.project.agentConfig().default.model).toBe('shared');
     expect(() => b.project.configureAgents(profile('local'), 'project')).toThrow('no longer');
@@ -50,7 +50,7 @@ test('Project adapters share one authority, reject project overrides, and retain
     expect(b.project.agentEnvironment('common').values.SHARED).toBe('yes');
     const file = path.join(a.config.deviceHome, 'settings.json'); fs.chmodSync(file, 0o644);
     expect(b.project.refreshRuntimeConfiguration()).toBe(false);
-    expect(b.project.runtimeSettingsUnavailable).toBe(true); expect(b.config.concurrency).toBe(9);
+    expect(b.project.runtimeSettingsUnavailable).toBe(true); expect(b.config.timeout).toBe(9);
     fs.chmodSync(file, 0o600); expect(b.project.refreshRuntimeConfiguration()).toBe(true);
     expect(a.config.env.LUSH_HOME).toBe(a.config.home); expect(b.config.env.LUSH_HOME).toBe(b.config.home);
   } finally { await Promise.all([a.close(), b.close()]); fs.rmSync(global, { recursive: true, force: true }); }
@@ -82,7 +82,8 @@ test('ordinary device reads do not initialize the root or consult unsafe legacy 
       fs.writeFileSync(path.join(f.a.home, file), 'LEGACY PRIVATE invalid JSON');
     new AgentSettings(f.a).get(); new QuickExplanationSettings(f.a).read();
     readNetworkConfiguration(f.a); readAgentEnvironment(f.a, 'common');
-    expect(f.a.runtimeSettings.get().concurrency.value).toBe(3);
+    expect(f.a.runtimeSettings.get().call_timeout.value).toBe(10800);
+    expect(f.a.runtimeSettings.get()).not.toHaveProperty('concurrency');
     expect(fs.existsSync(f.a.deviceHome)).toBe(false);
     expect(f.a.deviceHome).toBe(f.b.deviceHome); expect(f.a.home).not.toBe(f.b.home);
     for (const read of [() => f.a.runtimeSettings.get('project'), () => new AgentSettings(f.a).get('project'),
@@ -98,11 +99,11 @@ test('runtime settings reload device edits, legacy source stays untouched and nu
   const f = fixture();
   try {
     const legacy = path.join(f.b.home, 'settings.json'); json(legacy, { version: 1, concurrency: 2 });
-    f.a.configureRuntime({ concurrency: 7, call_timeout: 60, progress_reporting: false });
-    f.b.refreshRuntimeSettings(); expect(f.b.concurrency).toBe(7); expect(f.b.timeout).toBe(60);
-    expect(f.b.runtimeSettings.get().concurrency).toMatchObject({ value: 7, default: 3, source: 'device', overridden: true });
-    f.b.configureRuntime({ concurrency: 9 }); f.a.refreshRuntimeSettings(); expect(f.a.concurrency).toBe(9);
-    f.b.configureRuntime({ concurrency: null }); expect(f.b.concurrency).toBe(3);
+    f.a.configureRuntime({ call_timeout: 60, progress_reporting: false });
+    f.b.refreshRuntimeSettings(); expect(f.b.timeout).toBe(60);
+    expect(f.b.runtimeSettings.get().call_timeout).toMatchObject({ value: 60, default: 10800, source: 'device', overridden: true });
+    f.b.configureRuntime({ call_timeout: 90 }); f.a.refreshRuntimeSettings(); expect(f.a.timeout).toBe(90);
+    f.b.configureRuntime({ call_timeout: null }); expect(f.b.timeout).toBe(10800);
     expect(JSON.parse(fs.readFileSync(legacy)).concurrency).toBe(2);
     expect(f.b.runtimeSettings.get().configuration_scope.project_override).toBe(false);
   } finally { f.close(); }
@@ -241,7 +242,7 @@ test('no-project model and resource discovery uses a config-root cwd and exclude
   try {
     const lock = acquireConfigurationLock(f.a, 'device');
     try {
-      expect(() => f.a.runtimeSettings.save({ concurrency: 4 }, 'device')).toThrow('busy');
+      expect(() => f.a.runtimeSettings.save({ call_timeout: 4 }, 'device')).toThrow('busy');
       expect(() => new AgentSettings(f.a).save(profile('blocked'), 'device')).toThrow('busy');
       expect(() => saveNetworkConfiguration(f.a, network(), 'device')).toThrow();
       expect(() => new QuickExplanationSettings(f.a).save({}, 'device')).toThrow();

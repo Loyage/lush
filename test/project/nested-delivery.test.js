@@ -12,10 +12,10 @@ async function commit(cwd, name) {
 }
 
 // A parent may continue its own work while two children have requested delivery.
-// Once it exits, a designated child repair must run even with a single Agent slot;
+// Once it exits, a designated child repair must run regardless of retired Agent quota values;
 // neither the parent's pending upward reservation nor held ordinary input may
 // turn the writer freeze into a parent/child circular wait.
-for (const concurrency of [1, 3]) test(`nested deliveries progress after parent exit and buffered input (${concurrency} slots)`, async () => {
+for (const concurrency of [1, 3]) test(`nested deliveries progress after parent exit and buffered input (retired quota ${concurrency})`, async () => {
   const firstParent = gate(), secondParent = gate(), thirdParent = gate(), repairReturn = gate();
   const calls = [], repairs = [];
   const f = fixture({ resolve() { return { agent: 'mock' }; }, async run(ctx) {

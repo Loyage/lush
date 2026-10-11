@@ -44,7 +44,7 @@ export async function run(command, args, ctx) {
       check(args.length <= 1, 'tree accepts an optional ID');
       const request = args.length ? { id: await resolveWorkerId(client, args[0]) } : {};
       if (!json) {
-        // 树本身看不出并发槽与排队，所以顺带问一句 status，让"为什么没在跑"也有答案。
+        // 树本身看不出真实调用与排队，所以顺带问一句 status，让"为什么没在跑"也有答案。
         const [tree, status] = await Promise.all([client.request('worker.tree', request), client.request('system.status')]);
         printTree(tree, status); return;
       }

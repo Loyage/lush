@@ -123,9 +123,9 @@ test('real dual daemons and Host preserve global settings, source-only actions a
       expected_revision: preferences.revision });
     expect(saved.values).toMatchObject({ theme: 'dark', markdown: false });
     await post(base, '/api/host/settings/action', { method: 'system.configure',
-      params: { settings: { concurrency: 3 }, scope: 'device' } });
-    for (const client of [a, b]) expect((await client.request('system.settings')).concurrency)
-      .toMatchObject({ value: 3, source: 'device' });
+      params: { settings: { call_timeout: 300 }, scope: 'device' } });
+    for (const client of [a, b]) expect((await client.request('system.settings')).call_timeout)
+      .toMatchObject({ value: 300, source: 'device' });
     for (const root of f.roots) expect(fs.existsSync(path.join(root, '.lush', 'settings.json'))).toBe(false);
 
     await cli(rootB, ['stop'], f.extra);

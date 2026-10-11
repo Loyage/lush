@@ -10,7 +10,6 @@ import { clear, show } from './messages.js';
 import { detail, registerNavigation } from './navigate.js';
 import { syncComposer } from './composer.js';
 import { loadTaskGraph } from './render-task-graph.js';
-import { slotGauge } from './gauge.js';
 import { paintUsageLast } from './render-agent.js';
 import { renderNotices } from './render-notices.js';
 import { renderNoticeBanner } from './notice-banner.js';
@@ -153,7 +152,6 @@ async function runRefresh(session, currentResponse) {
     refreshTreeTimes();
     const noticeBefore = ui.noticeFocus;
     if (changed) {
-      $('agents').replaceChildren(slotGauge(data));
       renderTree(data); renderNotices(data); renderNoticeBanner(data); syncComposer();
     }
     // Enabled system reminders continue in hidden tabs, but heavy view reads stay paused.

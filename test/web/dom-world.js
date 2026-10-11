@@ -78,8 +78,6 @@ export function makeWorld() {
     // 运行设置（并发上限）：system.status.settings 的镜像；/api/action 的 system.configure 改写它。
     runtimeSettings: {
       file: '/tmp/demo/.lush/settings.json',
-      concurrency: { value: 2, default: 2, overridden: false },
-      control_concurrency: { value: 1, default: 1, overridden: false },
       call_timeout: { value: 900, default: 900, overridden: false },
       task_call_limit: { value: 24, default: 24, overridden: false },
       max_depth: { value: 8, default: 8, overridden: false },
@@ -173,7 +171,6 @@ export function makeWorld() {
     updated_at: iso(NOW - 500), agent_wakes: 0, agent_last_seen_at: null, verifies_task_id: null, resolves_task_id: null };
   const snapshot = () => ({
     status: { project: '/tmp/demo', home: '/tmp/demo/.lush', provider: 'mock',
-      concurrency: state.runtimeSettings.concurrency.value, control_concurrency: state.runtimeSettings.control_concurrency.value,
       settings: state.runtimeSettings,
       call_timeout: state.runtimeSettings.call_timeout.value, task_call_limit: state.runtimeSettings.task_call_limit.value,
       max_depth: state.runtimeSettings.max_depth.value, agent_config: state.agentConfig, intro_config: state.introConfig, agents: [], agents_idle: 0, agents_total: 0,
@@ -182,7 +179,7 @@ export function makeWorld() {
       // 拆解队列的计数与批次摘要（和 system.status 同形）
       specs: { pending: 1, planned: 1, dropped: 0, batches: [{ id: 4, status: 'queued', role: 'scheduler', count: 1 }] },
       version: '0.2.0', fingerprint: 'abc', started_at: iso(NOW - 60000) },
-    timeline: { now: iso(NOW), concurrency: 2, start: iso(NOW - 60000), end: iso(NOW), clamped: false, truncated: false, tasks: [] },
+    timeline: { now: iso(NOW), start: iso(NOW - 60000), end: iso(NOW), clamped: false, truncated: false, tasks: [] },
     ladder: { target_branch: 'main', current_branch: state.currentBranch, truncated: false, nodes: [
       { id: 2, role: 'worker', goal: '合并我', branch: 'lush/2-x', target_branch: 'main', integration: 'pending', deps: [], covered_by: [], level: 0 },
       { id: 3, role: 'worker', goal: '另一个待合的', branch: 'lush/3-x', target_branch: 'release', integration: 'review', deps: [], covered_by: [], level: 0 },
@@ -346,7 +343,7 @@ export function makeWorld() {
         // 运行设置的热更新：null 清除覆盖（回退环境默认），数字/前缀表写为覆盖值；与核心同语义。
         const patch = body.params.settings || {};
         const next = { ...state.runtimeSettings };
-        for (const key of ['concurrency', 'control_concurrency', 'call_timeout', 'task_call_limit', 'max_depth', 'progress_reporting']) {
+        for (const key of ['call_timeout', 'task_call_limit', 'max_depth', 'progress_reporting']) {
           if (!Object.hasOwn(patch, key)) continue;
           next[key] = patch[key] === null
             ? { ...next[key], value: next[key].default, overridden: false }

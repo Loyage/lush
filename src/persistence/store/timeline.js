@@ -13,7 +13,7 @@ export const timeline = {
       WHERE task_id IN (${holes}) AND type IN ('invocation.started','invocation.completed','completed','failed','cancelled')
       ORDER BY task_id, id`, ...taskIds);
   },
-  /** 这些任务的子任务存活区间：父任务停着不动时，可能是在等子任务，而不是在等槽。 */
+  /** 这些任务的子任务存活区间：父任务停着不动时，可能是在等子任务，而不是普通准入等待。 */
   childSpans(taskIds) {
     if (!taskIds.length) return [];
     const holes = taskIds.map(() => '?').join(',');

@@ -89,7 +89,7 @@ export function printOrchestrateCancel(result) {
 /* ---------- 并行/串行关系：Worker 树、交付队列、时间轴 ---------- */
 const DEP_MARK = { code: '⛓', order: '⏳' };
 const DEP_WORD = { code: '基线', order: '顺序' };
-const WAIT_LABEL = { dep: '等依赖', children: '等子 Worker', user: '等你决定', slot: '等并发槽', setup: '没跑起来就结束' };
+const WAIT_LABEL = { dep: '等依赖', children: '等子 Worker', user: '等你决定', admission: '等运行准入', setup: '没跑起来就结束' };
 const INTEGRATION_WORD = { pending: '待合并', review: '待复查', merging: '合并中', merged: '已合并', conflict: '冲突待处理', superseded: '已作废' };
 const oneLine = (value, max = 60) => String(value ?? '').replace(/\s+/g, ' ').slice(0, max);
 const indent = depth => '  '.repeat(depth);
@@ -100,8 +100,8 @@ function depLabels(task) {
 /** 此刻为什么没在干活；和 Web 树里那行是同一套说法。 */
 function whyText(task, children = [], parent = null) {
   const waiting = (task.deps || []).filter(dep => !settled(dep));
-  if (task.status === 'running') return '在跑（占 1 个并发槽）';
-  if (task.status === 'queued') return waiting.length ? `排队：等 ${waiting.map(dep => workerLabel(dep)).join('、')}` : '排队：等并发槽';
+  if (task.status === 'running') return '在跑';
+  if (task.status === 'queued') return waiting.length ? `排队：等 ${waiting.map(dep => workerLabel(dep)).join('、')}` : '排队：等运行准入或安全边界';
   if (task.status === 'waiting') return children.some(child => !settled(child) && child.status !== 'awaiting_acceptance')
     ? `静息 · 等子 Worker（${children.filter(child => child.status === 'running').length} 个在跑）` : '静息 · 等待后续事件';
   if (task.status === 'awaiting_acceptance') return task.task_kind === 'child'
@@ -135,8 +135,8 @@ export function printTree(value, status) {
   const collect = node => { flat.push(node); for (const child of node.children || []) collect(child); };
   roots.forEach(collect);
   const byId = new Map(flat.map(task => [task.id, task]));
-  const ready = flat.filter(task => task.status === 'queued' && !(task.deps || []).some(dep => !settled(dep))).length;
-  console.log(`并发上限 ${status?.concurrency ?? '?'} · ${status?.agents?.length ?? '?'} 个在跑 · ${ready} 个在等槽 · ${flat.length} 个 Worker`);
+  const queued = flat.filter(task => task.status === 'queued').length;
+  console.log(`${status?.agents?.length ?? '?'} 个在跑 · ${queued} 个排队 · ${flat.length} 个 Worker`);
   console.log('⛓ = 分支基线（必须先合上游）  ⏳ = 只等上游结束  ‖ = 兄弟之间无依赖，可同时跑');
   const walk = (node, depth) => {
     const children = node.children || [];
@@ -269,7 +269,7 @@ export function printTimeline(page) {
   const width = Math.max(24, Math.min((process.stdout.columns || 100) - 34, 96));
   const cell = at => Math.max(0, Math.min(width, Math.round(((at - start) / span) * width)));
   const stamp = at => new Date(at).toTimeString().slice(0, 8);
-  console.log(`${stamp(start)} → ${stamp(end)} · 并发上限 ${page.concurrency}${page.clamped ? ' · 窗口已截断' : ''}${page.truncated ? ' · 更早的 Worker 未列出' : ''}`);
+  console.log(`${stamp(start)} → ${stamp(end)}${page.clamped ? ' · 窗口已截断' : ''}${page.truncated ? ' · 更早的 Worker 未列出' : ''}`);
   for (const task of page.tasks) {
     const track = Array(width).fill('·');
     // 只看得到方格的变化：毫秒级的调度延迟不画，也不进"在等什么"的说明。

@@ -79,7 +79,7 @@ lush [--project PATH] [--json] <command>
   agent network set --file PATH             从私有 JSON 文件保存代理，不在参数中填写密码
   agent network reset                      恢复继承后台启动环境，后续请求与 Agent 生效
   agent set TARGET --connection UUID|off --model PROVIDER/MODEL  显式选择 Pi 账号连接（不自动路由）
-  config show|set|reset              设备并发和调用限额（worker-call-limit 为单 Worker 调用上限；并发仍是每项目上限，不是整机总预算）
+  config show|set|reset              设备调用和拆解限额（call-timeout、worker-call-limit、max-depth）
   config migrate                    预检当前项目旧设置/私有 Markdown 补充；不改文件
   config migrate --confirm --revision REV  按预检确认迁移，保留私有备份与旧 Markdown 原件
   config ... / agent ... --scope device  可选设备 scope；省略仍选设备，project 覆盖已停用

@@ -1,4 +1,4 @@
-// Scoped settings Firefox fixture: temporary HTTP/profile only; no daemon, accounts or models.
+// Device-only settings Firefox fixture: temporary HTTP/profile only; no daemon, accounts or models.
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -87,6 +87,8 @@ try {
     }
     calls.push(new URL(request.url).pathname);
     const scoped = value => ({...value, configuration_scope:{selected:url.searchParams.get('scope') || 'project', source:'device', project_override:false}});
+    if (url.pathname === '/api/host/projects') return Response.json({ projects: [] });
+    if (url.pathname === '/api/host/preferences') return Response.json(world.state.devicePreferences);
     if (url.pathname === '/api/settings/runtime') return Response.json(scoped(world.state.runtimeSettings));
     if (url.pathname === '/api/quick-explain/config') return Response.json(scoped(world.state.quickExplanationConfig));
     if (url.pathname === '/api/agent/environment') return Response.json(scoped({target:'common',values:{},file:'/fixture/agent.env'}));
@@ -121,38 +123,38 @@ try {
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` }); await waitFor('window.ready');
-  async function scope(value) {
-    await execute(`const s=document.querySelector('[data-settings-scope]');s.value='${value}';return s.onchange()`);
-  }
   async function layout(name, width) {
-    const result=await execute(`const p=document.querySelector('.model-sources-page,.agent-status-page,.settings-view,.quick-explanation-page'),s=p.querySelector('.settings-scope-control');return {page:p.scrollWidth-p.clientWidth,root:document.documentElement.scrollWidth-innerWidth,flex:getComputedStyle(s).display,controls:[...p.querySelectorAll('input,select,textarea')].filter(n=>n.getClientRects().length).every(n=>n.getBoundingClientRect().right<=${width}+1)};`);
-    assert(result.page<=1 && result.root<=1 && result.controls && result.flex==='flex', `Scoped layout ${name}: ${JSON.stringify(result)}`);
+    const result=await execute(`const p=document.querySelector('.model-sources-page,.agent-status-page,.settings-view,.quick-explanation-page');return {page:p.scrollWidth-p.clientWidth,root:document.documentElement.scrollWidth-innerWidth,noScope:!p.querySelector('[data-settings-scope]'),controls:[...p.querySelectorAll('input,select,textarea')].filter(n=>n.getClientRects().length).every(n=>n.getBoundingClientRect().right<=${width}+1)};`);
+    assert(result.page<=1 && result.root<=1 && result.controls && result.noScope, `Device layout ${name}: ${JSON.stringify(result)}`);
     await screenshot(name);
   }
-  for (const theme of ['light','dark']) for (const width of [1440,900,390]) {
+  for (const theme of ['light','dark']) for (const width of [1440,900,390,320]) {
     await rpc(`/session/${session}/window/rect`,{width,height:950});
     await execute(`document.documentElement.dataset.theme='${theme}';document.documentElement.style.width='${width}px';window.scrollTo(0,0);return window.openSources()`);
     await waitFor('document.querySelectorAll(".model-source-row").length===3');
-    assert(await execute(`return document.querySelector('[data-settings-scope]').value==='device' && document.querySelector('.model-source-row').textContent.includes('设备共享')`), 'Device source scope missing');
+    assert(await execute(`return !document.querySelector('[data-settings-scope]') && document.querySelector('.model-source-row').textContent.includes('设备共享')`), 'Device-only source boundary missing');
     await layout(`sources-${theme}-${width}`,width);
     await execute('return window.openConfig()'); await waitFor('document.querySelector("[data-agent-field=append_prompt]")');
     await execute(`const p=document.querySelector('[data-agent-field=append_prompt]');p.value='device-draft';p.dispatchEvent(new Event('input',{bubbles:true}));`);
-    await scope('project'); await execute(`document.querySelector('[data-agent-field=append_prompt]').value='project-draft'`);
-    await scope('device'); assert(await execute(`return document.querySelector('[data-agent-field=append_prompt]').value==='device-draft'`), 'Agent scope switch lost draft');
+    await execute(`return document.querySelector('[data-agent-tab=status]').onclick()`);
+    await execute(`return document.querySelector('[data-agent-tab=settings]').onclick()`);
+    assert(await execute(`return document.querySelector('[data-agent-field=append_prompt]').value==='device-draft'`), 'Agent tab switch lost draft');
     await layout(`agent-${theme}-${width}`,width);
-    await execute('return window.openSystem()'); await waitFor('document.querySelector("[data-runtime-input=concurrency]")'); await layout(`runtime-${theme}-${width}`,width);
-    console.log(`PASS scoped source/Agent/runtime Firefox ${theme}/${width}`);
+    await execute('return window.openSystem()'); await waitFor('document.querySelector("[data-runtime-input=call_timeout]")');
+    assert(await execute(`return !document.querySelector('[data-runtime-input="concurrency"],[data-runtime-input="control_concurrency"]') && !document.querySelector('.settings-view').textContent.includes('并发额度')`), 'Removed concurrency settings remain visible');
+    await layout(`runtime-${theme}-${width}`,width);
+    console.log(`PASS device-only source/Agent/runtime Firefox ${theme}/${width}`);
   }
   await fetch(`http://127.0.0.1:${server.port}/test/mode?global=true`,{method:'POST'});
   calls.length=0; await execute('return window.ensureProject()');
-  for (const [name,entry,ready] of [['sources','openSources','.model-source-row'],['agent','openConfig','[data-agent-field=append_prompt]'],['explain','openExplain','[data-quick-field=prompt]'],['runtime','openSystem','[data-runtime-input=concurrency]']]) {
+  for (const [name,entry,ready] of [['sources','openSources','.model-source-row'],['agent','openConfig','[data-agent-field=append_prompt]'],['explain','openExplain','[data-quick-field=prompt]'],['runtime','openSystem','[data-runtime-input=call_timeout]']]) {
     await execute(`return window.${entry}()`); await waitFor(`document.querySelector('${ready}')`);
-    assert(await execute(`return document.querySelector('[data-settings-scope]').disabled && !document.querySelector('.legacy-usage-history,.agent-connection-consumers,.settings-migration,[data-service-restart="project"]')`), `No-project boundary ${name}`);
-    await layout(`host-${name}`,390);
+    assert(await execute(`return !document.querySelector('[data-settings-scope]') && !document.querySelector('.legacy-usage-history,.agent-connection-consumers,[data-service-restart="project"]') && [...document.querySelectorAll('[data-migration-action="preview"],[data-migration-action="apply"]')].every(n=>n.disabled)`), `No-project boundary ${name}`);
+    await layout(`host-${name}`,320);
   }
-  assert(calls.every(route=>route.startsWith('/api/host/settings/')),`No-project API leaked: ${calls.join(',')}`);
+  assert(calls.every(route=>route.startsWith('/api/host/settings/') || ['/api/host/projects','/api/host/preferences'].includes(route)),`No-project API leaked: ${calls.join(',')}`);
   assert(await execute('return window.browserErrors.length===0'),'Browser emitted errors');
-  passed=true;console.log(`PASS scoped Firefox drafts, metadata, responsive light/dark views and no-project Host-only configuration. Screenshots: ${output}`);
+  passed=true;console.log(`PASS device-only Firefox drafts, no concurrency controls, responsive light/dark views and no-project Host-only configuration. Screenshots: ${output}`);
 } catch (error) {
   if (session) await screenshot('failure').catch(() => {});
   console.error(`Device settings browser failure; full logs: ${logs}`); throw error;

@@ -180,10 +180,10 @@ test('设备系统参数无项目快照仍可编辑，没有继承/清覆盖/项
   noProject = true; ui.lastSnapshot = null; await system();
   expect(detail().querySelector('select[data-settings-scope=""]')).toBeNull(); expect(detail().querySelectorAll('button').some(node => Object.hasOwn(node.dataset, 'clearOverride'))).toBe(false);
   expect(detail().querySelector('[data-system-field="project"]')).toBeNull(); expect(detail().querySelector('.service-restart-controls')).toBeNull();
-  const field = detail().querySelector('[data-runtime-input="concurrency"]'); input(field, '7');
-  await detail().querySelector('[data-runtime-action="save"]').onclick(); expect(runtime.device.concurrency.value).toBe(7);
-  expect(writes.at(-1)).toEqual({ method: 'system.configure', params: { scope: 'device', settings: { concurrency: 7, control_concurrency: 1 } } });
-  expect(runtime.project.concurrency.value).toBe(2); expect(ui.lastSnapshot).toBeNull(); onlyConfiguration();
+  const field = detail().querySelector('[data-runtime-input="call_timeout"]'); input(field, '700');
+  await detail().querySelector('[data-runtime-action="save"]').onclick(); expect(runtime.device.call_timeout.value).toBe(700);
+  expect(writes.at(-1)).toEqual({ method: 'system.configure', params: { scope: 'device', settings: { call_timeout: 700, task_call_limit: 24, max_depth: 8 } } });
+  expect(runtime.project.call_timeout.value).toBe(900); expect(ui.lastSnapshot).toBeNull(); onlyConfiguration();
 });
 
 const migrationPanel = async () => { const root = renderSettingsMigration(); detail().replaceChildren(root); await root.ready; return root; };

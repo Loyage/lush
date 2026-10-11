@@ -112,9 +112,6 @@ export default {
       }
       return null;
     };
-    let controlRunning = [...this.running.values()].filter(run => ['planner','scheduler'].includes(run.role)).length;
-    let butlerRunning = [...this.running.values()].filter(run => run.role === 'butler').length;
-    let executionRunning = this.running.size - controlRunning - butlerRunning;
     for (const task of queued) {
       if (!['order','child','management'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
       if (task.task_kind === 'management' && !this.managementReady(task)) continue;
@@ -136,12 +133,8 @@ export default {
       if (this.questionPending(task.id)) { this.store.update(task.id, { status: 'awaiting' }); continue; }
       // A queued task whose dependencies are not settled stays queued; finish() re-kicks when they are.
       if ((dependencies.get(task.id) || []).some(edge => !TERMINAL.has(edge.status))) continue;
-      const control = ['planner','scheduler'].includes(task.role);
-      const butler = task.role === 'butler';
-      if (butler ? butlerRunning >= 1 : control ? controlRunning >= this.config.controlConcurrency : executionRunning >= this.config.concurrency) continue;
       const run = { role: task.role, controller: new AbortController(), token: randomBytes(32).toString('hex'), pid: null, promise: null, recordId: null,
         deliveryAttempt: designatedRepair ? deliveryRepair.attempt_id : null };
-      if (butler) butlerRunning += 1; else if (control) controlRunning += 1; else executionRunning += 1;
       this.running.set(task.id, run);
       this.store.armAgent(task.id, tokenHash(run.token));
       run.promise = this.invoke(task.id, run).catch(error => {

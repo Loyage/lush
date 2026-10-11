@@ -87,7 +87,7 @@ test('graph progress counts only planned work, including after all work finishes
           if (['waiting', 'awaiting', 'queued'].includes(status)) {
             expect(progress.current).toMatchObject({ kind: 'wait', wait_ms: 2000 });
             expect(progress.current.waiting_since).toBe(at(-40000));
-            expect(progress.current.label).toBe({ waiting: '静息 · 等待后续事件', awaiting: '等待你答复', queued: '排队等待调用槽' }[status]);
+            expect(progress.current.label).toBe({ waiting: '静息 · 等待后续事件', awaiting: '等待你答复', queued: '排队等待依赖或运行准入' }[status]);
           } else if (allDone) expect(progress.current).toBeNull();
           else expect(progress.current).toMatchObject({ key: 'commit', kind: 'step', work_ms: 7000, active_since: null });
         }

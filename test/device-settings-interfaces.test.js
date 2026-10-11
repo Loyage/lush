@@ -7,8 +7,7 @@ import { fixture, temp } from './helpers.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const model = { file: '/private/shared/settings.json', concurrency: { value: 3, default: 8, overridden: true },
-  control_concurrency: { value: 2, default: 2, overridden: false }, call_timeout: { value: 900, default: 900, overridden: false },
+const model = { file: '/private/shared/settings.json', call_timeout: { value: 900, default: 900, overridden: false },
   task_call_limit: { value: 24, default: 24, overridden: false }, max_depth: { value: 8, default: 8, overridden: false },
   input_routes: { value: [], default: [], overridden: false } };
 
@@ -35,7 +34,7 @@ test('RPC forwards explicit scope separately from full profiles and credentials'
   const dispatcher = new Dispatcher(p);
   const cases = [
     ['system.settings', { scope: 'device' }, 'runtimeSettings', ['device']],
-    ['system.configure', { settings: { concurrency: 3 }, scope: 'device' }, 'configureRuntimeSettings', [{ concurrency: 3 }, 'device']],
+    ['system.configure', { settings: { call_timeout: 3 }, scope: 'device' }, 'configureRuntimeSettings', [{ call_timeout: 3 }, 'device']],
     ['agent.config', { scope: 'device' }, 'agentConfig', ['device']],
     ['agent.configure', { config: { version: 1 }, scope: 'device' }, 'configureAgents', [{ version: 1 }, 'device']],
     ['agent.network.configure', { config: { mode: 'direct' }, scope: 'device' }, 'configureAgentNetwork', [{ mode: 'direct' }, 'device']],
@@ -57,8 +56,8 @@ test('CLI explicit scope is opt-in and migration confirmation carries the prefli
   const calls = [], client = { token: null, request: async (method, params) => { calls.push({ method, params }); return model; } };
   await runConfig('config', ['show', '--scope', 'device'], { client, json: true });
   expect(calls.pop()).toEqual({ method: 'system.settings', params: { scope: 'device' } });
-  await runConfig('config', ['set', 'concurrency', '3', '--scope', 'device'], { client, json: true });
-  expect(calls.pop()).toEqual({ method: 'system.configure', params: { settings: { concurrency: 3 }, scope: 'device' } });
+  await runConfig('config', ['set', 'call-timeout', '3', '--scope', 'device'], { client, json: true });
+  expect(calls.pop()).toEqual({ method: 'system.configure', params: { settings: { call_timeout: 3 }, scope: 'device' } });
   await runConfig('config', ['migrate'], { client, json: true });
   expect(calls.pop()).toEqual({ method: 'settings.migration.preview', params: undefined });
   await runConfig('config', ['migrate', '--confirm', '--revision', 'fixed-revision'], { client, json: true });
@@ -104,7 +103,7 @@ test('source project migration refuses live calls, Git work, writes and account 
     f.project.agentConnections.isBusy = () => true;
     expect(() => f.project.settingsMigrationApply({ revision: 'r', confirm: true })).toThrow('登录');
     f.project.settingsMigrationApplying = true;
-    expect(() => f.project.configureRuntimeSettings({ concurrency: 1 })).toThrow('migration');
+    expect(() => f.project.configureRuntimeSettings({ call_timeout: 1 })).toThrow('migration');
     f.project.settingsMigrationApplying = false;
   } finally { f.project.running.clear(); f.project.writing = 0; f.project.workspaces.pending = 0; await f.close(); }
 });

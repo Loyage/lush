@@ -150,17 +150,18 @@ test('ordinary timed Hook and project time signal share one bounded timer withou
   } finally { await f.close(); }
 });
 
-test('management admission respects the existing execution lane capacity rather than starting a separate unbounded control pool', async () => {
+test('management admission has no execution quota while another Worker is running', async () => {
   let calls = 0;
   const f = await prepared(({ task }) => { if (task.role === 'manager') calls += 1; return 'done'; });
   try {
-    f.config.configureRuntime({ concurrency: 1 });
     const manager = f.manager(f.signal());
     f.project.running.set(f.target.id, { role: 'agent', controller: new AbortController(), promise: Promise.resolve() });
     f.advance(60000); f.flush(); f.project.pump();
-    expect(calls).toBe(0); expect(f.project.managementView(manager.id).state).toBe('queued');
-    f.project.running.delete(f.target.id); await f.run();
-    expect(calls).toBe(1); expect(f.store.task(manager.id).status).toBe('completed');
+    await until(() => calls === 1);
+    expect(f.project.running.has(f.target.id)).toBe(true);
+    await until(() => f.store.task(manager.id).status === 'completed' && !f.project.running.has(manager.id));
+    expect(calls).toBe(1);
+    f.project.running.delete(f.target.id);
   } finally { f.project.running.delete(f.target.id); await f.close(); }
 });
 

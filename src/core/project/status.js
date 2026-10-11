@@ -15,11 +15,8 @@ function statusView(project, agentConfig = null) {
     maintenance: project.maintenanceView(),
     provider: project.config.provider === 'mock' ? 'mock' : (agentConfig?.default?.agent ?? project.config.provider),
     ...(agentConfig ? { agent_config: agentConfig } : {}),
-    concurrency: project.config.concurrency, control_concurrency: project.config.controlConcurrency,
-    // 并发上限是可在运行时改写的项目级设置：这里给出存储 / 生效值的只读镜像。
-    // 顶层 concurrency / control_concurrency 仍表示当前生效值。
     settings: project.runtimeSettings(),
-    // 软件配置的只读镜像：并发与调用 / 拆解限额都可在运行时改写；顶层仍是当前生效值，
+    // 软件配置的只读镜像：调用 / 拆解限额可在运行时改写；顶层仍是当前生效值，
     // 来源（环境默认 / 是否被覆盖 / 设置文件）在 settings 里。
     // pi 的两项覆写未设置时是空字符串，交给界面显示「pi 默认」，不在这里编造 pi 自己的默认模型 / provider。
     call_timeout: project.config.timeout, task_call_limit: project.config.maxCalls, max_depth: project.config.maxDepth,
@@ -45,7 +42,7 @@ export default {
   overviewRevision() {
     const cursor = this.store.get("SELECT value FROM meta WHERE key='overview_revision'")?.value ?? '0';
     const facts = [cursor, [...this.running.keys()].sort((a, b) => a - b),
-      this.config.concurrency, this.config.controlConcurrency, this.config.progressReporting,
+      this.config.progressReporting,
       this.deviceAutomationRevision(), this.maintenanceView()];
     return createHash('sha256').update(JSON.stringify(facts)).digest('base64url').slice(0, 22);
   },

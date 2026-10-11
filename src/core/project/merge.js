@@ -166,7 +166,7 @@ export default {
    * 解冲突任务不在原任务的子树里（终态任务不允许有活动后代），用 resolves_task_id 关联；
    * 它的 worktree 以目标分支顶端为基线，agent 把那次审阅过的提交并进来解冲突，产物是一个合并提交，
    * 所以批准时能 --ff-only 落地：审阅过的树就是落地的树，不会再有第二轮冲突。
-   * 任务先预置成 awaiting（不占并发槽、不烧 token），答复那条 notice 才开工，忽略则整件事撤销。
+   * 任务先预置成 awaiting（不运行 Agent、不烧 token），答复那条 notice 才开工，忽略则整件事撤销。
    */
   openResolution(taskId, conflict) {
     const task = this.store.task(taskId);

@@ -73,7 +73,7 @@ test('status/title/role/route/dependency/progress/reference fields patch despite
   expect(node.querySelector('.task-progress-compact')).toBeNull();
 });
 
-test('waiting parent derives all child statuses; concurrency and parent number changes are dependencies', () => {
+test('waiting parent derives all child statuses; safe admission and parent number changes stay accurate', () => {
   const parent = task(1, { status: 'waiting' }), child = task(2, { parent_id: 1 });
   ui.filters.tasks.text = 'goal 1'; paint(data([parent, child]));
   const node = row(1), goal = node.querySelector('.goal');
@@ -81,7 +81,8 @@ test('waiting parent derives all child statuses; concurrency and parent number c
   paint(data([parent, { ...child, status: 'completed' }]));
   expect(deepText(node)).toContain('静息 · 等待后续事件'); expect(node.querySelector('.goal')).toBe(goal);
   paint({ ...data([{ ...parent, status: 'queued' }]), status: { concurrency: 9 } });
-  expect(deepText(node)).toContain('上限 9');
+  expect(deepText(node)).toContain('等待运行准入或安全边界');
+  expect(deepText(node)).not.toContain('上限 9');
   paint(data([{ ...parent, status: 'awaiting_acceptance', task_kind: 'child', parent_id: 99, parent_worker_number: 'W42' }]));
   expect(deepText(node)).toContain('W42 确认');
 });

@@ -84,9 +84,10 @@ test('设置页的 Agent / 系统按钮按标准补 data-help', async () => {
   expect(buttonOf(panel, '恢复默认 Prompt').getAttribute('data-help')).toContain('保存');
   expect(buttonOf(panel, '单独配置').getAttribute('data-help')).toContain('独立配置');
 
-  // 系统页：并发额度的「恢复环境默认」会立即改写运行参数，必须说清后果。
+  // 系统页：调用与拆解限额的重置仍须解释后果，不恢复已移除的并发设置。
   await openSettings(); await tabOf('system').onclick();
-  expect(buttonOf(panel, '恢复环境默认').getAttribute('data-help')).toContain('并发');
+  expect(buttonOf(panel, '恢复环境默认').getAttribute('data-help')).toContain('调用与拆解限额');
+  expect(deepText(panel)).not.toContain('并发额度');
   tabOf('interface').onclick();
   expect(deepText(panel)).toContain('Markdown 渲染');
 });

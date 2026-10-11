@@ -11,6 +11,10 @@
 
 分区：配置基础负责技术配置／凭证收敛及 `core/device-preferences.js`；Runtime 负责 `core/device-automation.js` 与项目策略执行；Inbox 负责 `host/global-inbox.js` 与 Notice 增量同步；UI 负责 assets／index 和 DOM；父负责 server.js、HTTP／双项目组合与文档。公开面与新模块导出按工程契约，不跨分区修改。同一文件所需跨区适配由父整合；测试使用临时项目和设备根。
 
+## 移除 Worker 并发槽（W210／D492）
+
+用户在 D492 改为删除 Worker 并发额度功能，取代 D491 全局槽池方向及旧的每项目上限描述。实施边界与分区见[移除并发槽](global-slots.md)。不新增共享槽模块、设备资源文件或 Host API；运行准入不受并发配额限制，既有依赖、冻结、维护与真实退出安全门不变。旧配置值保留但不生效，公开设置与 UI/CLI 移除对应字段及槽显示。
+
 ## 设计方向与执行记录接缝
 
 修改模块前必须阅读[模块设计理念](../design/README.md)中的对应主题；执行记录相关改动先读[Agent 执行过程](../design/agent-process.md)，引用、选区引用与引用卡片定位相关改动先读[上下文引用与定位](../design/references.md)。
@@ -181,7 +185,7 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
 
 以下仍是可调用的公共面：
 
-- CLI 命令与 `lush help` 的语义。`lush config [show]` 打印运行设置的生效值 / 环境默认值 / 是否被覆盖与设置文件路径，`lush config set concurrency|control-concurrency|call-timeout|worker-call-limit|max-depth N` 写回，`lush config reset [concurrency|control-concurrency|call-timeout|worker-call-limit|max-depth|all]` 清除覆盖；`--json` 输出与 `system.status.settings` 同一份结构化读模型。两端都是用户专属，agent 调用被拒。命令面用连字符（`control-concurrency`），设置文件与 RPC 里是下划线（`control_concurrency`）。
+- CLI 命令与 `lush help` 的语义。`lush config [show]` 打印运行设置的生效值 / 环境默认值 / 是否被覆盖与设置文件路径，`lush config set call-timeout|worker-call-limit|max-depth N` 写回，`lush config reset [call-timeout|worker-call-limit|max-depth|all]` 清除覆盖；`--json` 输出与 `system.status.settings` 同一份结构化读模型。两端都是用户专属，agent 调用被拒。命令面用连字符（`call-timeout`），设置文件与 RPC 里是下划线（`call_timeout`）。
 - SQLite schema、表名、列名与 `meta.task_id_high` / `meta.input_id_high` / `meta.overview_revision` / `meta.worker_child_high:<parent_id>` / `meta.input_append_high:<input_id>` 的行为。`tasks.worker_number` 是可空、不可改写的用户编号，只由创建事务分配并按部分唯一索引约束；子序号高水位存 `meta`，不随删除或 `purge` 清除。`overview_revision` 由读模型相关表的触发器单调推进，技术聚合表 `overview_task_counts` 由 Worker 触发器维护精确 layer/status 计数，首页用两者做 O(1) 失效与统计（它不是业务实体）。`tasks.progress_plan` 附属 JSON 保存 versioned 计划，读模型统一投影为 `progress`（有 `agent_runs` 时按调用区间重算工作用时，并把非 running 的等待投影成一条 `kind:'wait'` 条目；不改写存储的 `progress_plan`）。`agents` 之外的新核心表（`agent_runs` / `artifacts`）承载每次调用与结果；`artifacts.payload` 使用同一 JSON 文本列，`run.result` 是 version 2 envelope，分开记录 invocation 完成与 `pass` / `fail` / `partial` / `unverified` 验收结论；`pass` 必须没有 `failures` / `unverified`，但可以保留 `baseline_failures` / `residual_risks`；旧 payload 不重写，读取时缺失或自相矛盾的证据明确投影为 `unknown`。历史表（`inputs` / `drafts` / `task_specs` / `review_candidates` / `introductions`）与列（`branches.showcase_reservation` / `branches.merge_run` / `tasks.review_candidate_id` / `tasks.retry_profile`）只加不改、不重写已有行，其中仅 `inputs` / `drafts` 由当前指令与新缓冲区路径继续写入，其他历史链无新的公开写入口。
 - `src/index.js` 的导出、`bin/*` 的行为。
 - Web 路由与 asset 路径：`server.js` 只按 basename 服务 `assets/` 下的 `.js` / `.css`，
@@ -199,7 +203,7 @@ Worker 更名中的公开入口与保留字段、事件、内部路径边界见[
   这是换版的正路。`doctor` / `lush host status` 只读这些状态，把当前磁盘、daemon、Web 的代码目录 / 版本 / 指纹
   分开报告；不一致只产生带项目与端口的更新提示，不触发重启。
 - 环境变量与 agent capability 语义（`LUSH_PROJECT` / `LUSH_HOME` / `LUSH_TASK_ID` / `LUSH_AGENT_TOKEN`）。`LUSH_TASK_ID` 是与当前 agent 直接绑定的 Worker，不是 Worker 树上的 `tasks.parent_id`；进度 RPC 仍以一次性 token 解析出的 actor 为准，不信任环境变量中的 ID。项目级 Agent 配置固定写在 `<project>/.lush/agent.json`：默认配置 + planner / coordinator / worker / research / verifier / merger / explainer / butler 八类角色覆盖（专用角色不再有公开创建入口，但配置读取与历史调用仍可用）；写入原子替换，运行中的 invocation 不打断，下一次调用动态读取并生效。每份 profile 分 `default_prompt` 与 `append_prompt`：前者非空时替换该角色的内置组合（UI 明确警告能力、权限与交付协议可能失效），后者追加在共享/本机文件补充之后；旧 `prompt` 字段按 `append_prompt` 兼容读取。内置规则由 `PROMPT_PARTS` 按角色组合；再叠加可提交的 `.lush-agent/{common,ROLE}.md` 与本机 `.lush/agent/{common,ROLE}.md`。Agent 子进程环境在 daemon 环境之上热加载 `.lush/agent/agent.env` 和角色 env，`LUSH_*` 不可覆盖；Web 键值编辑器把文件规范化为 owner-only 的 `NAME="value"`，空表删除对应文件。profile 另存 `extensions` / `skills` 路径列表，只给普通 Pi invocation 以显式参数加载，Codex 与无工具 explainer / butler 保留配置但不使用。
-- 项目级运行设置固定写在 `<home>/settings.json`（version 1，权限 `600`），唯一读写入口是 `src/core/settings.js` 的 `RuntimeSettings`；目前有数字键 `concurrency`（1..64）、`control_concurrency`（1..16）、`call_timeout`（1..86400）、`task_call_limit`（1..1000）、`max_depth`（1..64），`null` / 缺键表示回退默认。`LUSH_CONCURRENCY` / `LUSH_CONTROL_CONCURRENCY` / `LUSH_CALL_TIMEOUT` / `LUSH_TASK_CALLS` / `LUSH_MAX_DEPTH` 只提供各自的默认值；daemon 启动时读出生效值，运行时写盘后同步内存并重新准入，不需要重启。历史设置键 `input_routes` 与旧提交路径一起保留在文件中，但不再有公开写入口，也不影响新指令。
+- 设备运行设置固定写在 `<deviceHome>/settings.json`（version 1，权限 `600`），唯一读写入口是 `src/core/settings.js` 的 `RuntimeSettings`；目前有数字键 `call_timeout`（1..86400）、`task_call_limit`（1..1000）、`max_depth`（1..64），`null` / 缺键表示回退默认。`LUSH_CALL_TIMEOUT` / `LUSH_TASK_CALLS` / `LUSH_MAX_DEPTH` 只提供各自的默认值；daemon 启动时读出生效值，运行时写盘后同步内存并重新准入，不需要重启。历史设置键 `input_routes` 与旧提交路径一起保留在文件中，但不再有公开写入口，也不影响新指令。`concurrency`／`control_concurrency` 旧盘上值保留但忽略，旧并发环境变量也不再读取或校验；不再按并发槽限制 Worker 准入。
 - `src/core/genealogy.js`（分支谱系的纯逻辑：`buildForest` / `pruneHidden` / `parentOf` / `childrenOf` / `ancestorsOf` /
   `descendantsOf` / `rootOf` / `chainOf`）与 `types.js` / `naming.js` 一样是共享纯模块：不碰 git、不写盘、
   不渲染，只被 `project/branches.js` 与 `test/branch-tree.test.js` 使用。`naming.js` 导出 `slugify` /

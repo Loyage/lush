@@ -1,10 +1,10 @@
 import { check } from '../types.js';
 import { settingsConfigurationScope } from '../device-config.js';
 
-const runtimeFacts = config => JSON.stringify([config.concurrency, config.controlConcurrency, config.timeout,
+const runtimeFacts = config => JSON.stringify([config.timeout,
   config.maxCalls, config.maxDepth, config.progressReporting, config.inputRoutes]);
 
-/** Device defaults are per-project admission limits, never a machine-wide scheduler. */
+/** Device defaults affect later calls; no Worker concurrency quota or machine-wide scheduler. */
 export default {
   refreshRuntimeConfiguration() {
     if (typeof this.config.refreshRuntimeSettings !== 'function') return true;

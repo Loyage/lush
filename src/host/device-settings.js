@@ -46,8 +46,8 @@ function settingsConfig(env) {
     check(Number.isInteger(value) && value >= 1 && value <= spec.max, `${spec.env} is invalid`);
     defaults[key] = value;
   }
-  Object.assign(config, { concurrencyDefault: defaults.concurrency, controlConcurrencyDefault: defaults.control_concurrency,
-    timeoutDefault: defaults.call_timeout, maxCallsDefault: defaults.task_call_limit, maxDepthDefault: defaults.max_depth });
+  Object.assign(config, { timeoutDefault: defaults.call_timeout,
+    maxCallsDefault: defaults.task_call_limit, maxDepthDefault: defaults.max_depth });
   return config;
 }
 
