@@ -12,6 +12,16 @@
 
 项目卡片采用「状态指标＋最近 Worker」。Host 显式刷新时调用 `system.summary {development:true}`，用户读面才附加 `development`；普通首页轮询和 Agent 默认摘要不做新增全量聚合。`Project.developmentSummary()` 只读完整 tasks 的新式 Worker（含历史 say），返回精确 `workers_total`、`active`、`awaiting_acceptance`（指令）、`parent_confirmation`（child）、`agents_running`（真实 invocation）、`pending_merges`（pending/review）、`merging`、`merge_conflicts`、`counts:[{status,count}]`，及最多 3 条按 ID 倒序的 `recent_workers:[{id,worker_number,display_title,auto_title,goal,status,integration}]`（仅指令／child，正文裁至 200 字符）。总数和状态分布包含 main/owner 及历史，进行中排除分支所有者及待验收；派生待父确认不冒称待用户验收。Host 严格白名单投影，不传 Profile、凭证或完整 Worker。旧服务缺少摘要时明确不可用，不据局部最近列表推算总数；离线不展示旧值为现状。读取仍不启动后台，不改变自动合并或验收流程。
 
+## 总览卡片与管理分离（W199／决定 #467、#468）
+
+根 `#projects` 专注展示：已登记项目的多列瀑布流卡片使用各项目辨识色，拖动及键盘重排的顺序仅在当前浏览器保存；无配色时中性显示，只读不初始化。根 `#project-management` 承接目录登记、显式刷新、启停／中断／重启、配色编辑和新建 Worker，沿用现有安全边界。
+
+可扩展卡片类型首版提供 `account`：每个选中的设备托管模型来源账户单独一张卡片，与项目混排；打开总览只读最新余额／额度缓存，不联网查询，不混加币种或套餐，失败／未知不填零。配置由 Host 设备保存，浏览器间共享，布局顺序仍各自独立。
+
+新增 `GET /api/host/dashboard` 返回 `{version:1,revision,cards:[{type:'account',connection_id}]}`；`POST` 接受 `{cards,expected_revision}`。严格白名单、有界去重、revision 乐观锁、设备私有原子写入及共享写锁；读缺省不创建文件、不读取凭证、不启动 daemon。配置仅保存来源 ID，不存余额或秘密；来源被删除时保留可诊断占位，管理页允许移除。前端只读 Host 设备连接列表复用既有安全缓存。
+
+分区：卡片布局 child 负责新增 `project-board.js`／`styles-project-board.css`；设备配置 child 负责新增 `core/dashboard-settings.js`、Host user-services／HTTP 窄路由与专项；账户 UI child 负责新增 `dashboard-cards.js`／`styles-dashboard-cards.css` 与专项。W199 负责导航／管理迁移、模块地图与文档、真实组合验证及最终全量。
+
 ## 设备配置分区
 
 配置基础 Worker 负责 `src/config.js`、`src/core/device-config.js`、`settings.js`、`device-migration.js`、`quick-explanation.js` 的设置类、`src/agent/` 配置／环境／网络／连接／Pi／资源／包模块、`core/agent-connections.js`、project 设置／Agent／快捷解释／包 wrappers、设置类 RPC handlers、CLI scope／config／Agent 接入及相关测试。不改 project 自动化、Host、Web assets、server.js 或 RPC registry。

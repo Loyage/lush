@@ -4,7 +4,7 @@ import { confirmDialog } from './dialog.js';
 import { readPref, readStored, scopedKey, writeStored } from './prefs.js';
 import { PI_THINKING_LEVELS } from './agent-config-mode.js';
 import { renderUsageSeries } from './render-agent-usage.js';
-import { usageErrorLabels, usageWindow } from './usage-window.js';
+import { usageErrorLabels, usageWindow } from './format.js';
 import { scopeLabel, scopeImpact } from './settings-scope.js';
 import { workerLabel } from './worker-label.js';
 

@@ -28,6 +28,10 @@
 
 用户已确认：仅保留 Web UI，启动直接进入主体，每项目独立浏览器标签，关闭页面后后台继续；服务器部署与网络访问由用户管理，Lush 不管理 SSH 或远端产物。修改启动、环境与项目入口前阅读[工作台设计](../design/workbench.md)；文件分工与新增接口以[工作台接入契约](workbench.md)为准。该接缝优先于旧项目闸门描述；逐步交付不得宣称尚未验收能力。
 
+## 总览卡片与独立项目管理（W199）
+
+决定 #467／#468：根 `#projects` 纯展示瀑布流项目／账户卡片，项目色只读复用，拖动顺序浏览器本地；`#project-management` 承接功能性操作。设备共享账户卡片选择通过新增 `core/dashboard-settings.js`（`readDashboardSettings`／`saveDashboardSettings`）、Host user-services 与 `/api/host/dashboard` 管理，账户缓存仍归原设备连接服务，不复制凭证／余额、不联网、不调度。精确契约见[用户工作台](user-workspace.md#总览卡片与管理分离w199决定-467468)，前端分工见[Web 地图](modules-web.md)。本节位置约定优先于下文历史总览维护入口；安全边界不变。
+
 ## 项目外观与标签页身份（W160）
 
 W162／决定 #411 修订 W160：主题为设备唯一偏好，旧项目 theme 留存但不生效；保留项目身份的预设配色＋侧栏染色、状态色与 Agent 紫色语义。设备 `system|light|dark` 中 system 仍跟随各客户端系统。项目页标题为「项目名 · Lush」，根工作台为「Lush」。

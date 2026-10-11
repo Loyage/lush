@@ -83,7 +83,7 @@ function projectOrderSlot(row, list) {
   slot.append(toggle, message); return slot;
 }
 
-function projectItem(row, repaint, { compact = false, orderSlot = null, restartControls = null } = {}) {
+function projectItem(row, repaint, { compact = false, displayOnly = false, orderSlot = null, restartControls = null, renderDevelopment } = {}) {
   const item = el('li', undefined, 'project-item');
   const link = el('a', undefined, 'project-open');
   link.href = projectHref(row.id); link.target = '_blank'; link.rel = 'noopener';
@@ -112,7 +112,8 @@ function projectItem(row, repaint, { compact = false, orderSlot = null, restartC
   };
   const status = el('span', summaryText(row), `project-status${row.error ? ' error' : ''}`);
   item.append(link, status);
-  if (!compact) {
+  if (displayOnly && renderDevelopment) item.append(renderDevelopment(row));
+  if (!compact && !displayOnly) {
     const actions = el('span', undefined, 'project-item-actions');
     if (controlCapability()) {
       const kind = row.running ? 'stop' : 'start';
@@ -147,7 +148,8 @@ function projectItem(row, repaint, { compact = false, orderSlot = null, restartC
       };
       actions.append(color);
     }
-    item.append(projectDevelopment(row), actions);
+    if (renderDevelopment) item.append(renderDevelopment(row));
+    item.append(actions);
     if (orderSlot) { orderSlot.remove(); item.append(orderSlot); }
   }
   return item;
@@ -160,7 +162,7 @@ function paintProjects(list, projects) {
   list.replaceChildren(...projects.map(row => {
     const slot = previous.get(row.id) || projectOrderSlot(row, list);
     slot.row = row; next.set(row.id, slot);
-    return projectItem(row, refreshProjectList, { orderSlot: slot, restartControls: list.restartControls });
+    return projectItem(row, refreshProjectList, { orderSlot: slot, restartControls: list.restartControls, renderDevelopment: list.renderDevelopment });
   }));
   list.orderSlots = next;
   for (const slot of next.values()) slot.control?.update(slot.row);
@@ -172,13 +174,13 @@ function paintProjects(list, projects) {
   }
 }
 
-/** 仅刷新已打开的后台总览；只探测已登记项目，不启动后台或清空目录与指令输入。 */
+/** 仅刷新已打开的项目管理；只探测已登记项目，不启动后台或清空目录与指令输入。 */
 export async function refreshProjectList() {
   const identity = ui.view;
   const panel = node('detail');
   const list = panel?.querySelector('.project-manager-list');
   const empty = panel?.querySelector('.workbench-empty');
-  if (identity?.id !== 'projects' || !list) return;
+  if (identity?.id !== 'project-management' || !list) return;
   const request = ++managerRequest;
   try {
     const { projects = [] } = await api('/api/host/projects');
@@ -249,12 +251,12 @@ function managerForm() {
 }
 
 export async function openProjectManager({ push = true } = {}) {
-  const identity = activateDetailView({ view: 'projects', title: '后台总览', context: '工作台', hint: '已登记项目后台、消息与独立 Worker', push, hash: '#projects' });
+  const identity = activateDetailView({ view: 'project-management', title: '项目管理', context: '工作台', hint: '目录入口、后台维护与总览卡片配置', push, hash: '#project-management' });
   const panel = node('detail');
   const view = el('div', undefined, 'workbench-view project-manager');
   const head = el('header', undefined, 'workbench-hero');
-  head.append(el('span', 'PROJECT BACKENDS', 'eyebrow'), el('h1', '后台总览'),
-    el('p', '总览此 Host 已登记的项目后台，或向在线后台发送新指令。消息请从全局收件箱进入来源项目处理。读取不会启动后台；关闭项目标签不会停止开发。', 'hint'));
+  head.append(el('span', 'PROJECT MANAGEMENT', 'eyebrow'), el('h1', '项目管理'),
+    el('p', '登记项目、管理后台与配置总览卡片，也可向在线项目发送新指令。读取不会启动后台；维护操作仍需显式确认。', 'hint'));
   const summary = el('p', '正在读取后台状态…', 'hint project-roster-summary'); summary.setAttribute('role', 'status'); head.append(summary);
   const list = el('ul', undefined, 'project-list project-manager-list'); list.id = 'project-list';
   const empty = el('div', undefined, 'workbench-empty'); empty.append(el('strong', '还没有项目入口'), el('p', '输入一个绝对目录登记项目，或先浏览设置和帮助文档。'));
@@ -267,7 +269,14 @@ export async function openProjectManager({ push = true } = {}) {
   view.append(empty, list); panel?.replaceChildren(view);
   const owner = document;
   const ownsPage = () => owner === globalThis.document && identity === ui.view && node('detail')?.querySelector('.project-manager-list') === list;
-  // Load only when the overview opens; project pages and device settings do not mount controls.
+  // Only the management page mounts functional controls.
+  const cardSettings = el('section', undefined, 'dashboard-settings-slot');
+  view.insertBefore(cardSettings, list);
+  void import('./dashboard-cards.js').then(({ createDashboardCardSettings }) => {
+    if (!ownsPage()) return;
+    const settings = createDashboardCardSettings({ ownsPage }); cardSettings.append(settings.root);
+    return settings.ready;
+  }).catch(error => { if (ownsPage()) cardSettings.append(el('p', `卡片配置暂不可用：${error.message}`, 'error')); });
   const controlsReady = import('./service-restart.js').then(({ serviceRestartControls }) => {
     if (!ownsPage()) return;
     list.restartControls = serviceRestartControls({ ownsPage, changed: async () => {
@@ -277,6 +286,7 @@ export async function openProjectManager({ push = true } = {}) {
     if (list.projects) paintProjects(list, list.projects);
     return list.restartControls.ready;
   }).catch(error => { if (ownsPage()) view.append(el('p', `重启控制加载失败：${error.message}`, 'error')); });
+  list.renderDevelopment = projectDevelopment;
   const request = ++managerRequest;
   try {
     const { projects = [] } = await api('/api/host/projects');
@@ -287,6 +297,44 @@ export async function openProjectManager({ push = true } = {}) {
   } catch (error) {
     if (request === managerRequest && ownsPage()) { empty.hidden = false; empty.querySelector('strong').textContent = '项目列表暂时不可用'; empty.querySelector('p').textContent = error.message; }
   }
+}
+
+/** Pure dashboard: read once on entry, never mount management actions or query balances. */
+export async function openProjectOverview({ push = true } = {}) {
+  const identity = activateDetailView({ view: 'projects', title: '全局总览', context: '工作台', hint: '项目与账户 · 你的卡片看板', push, hash: '#projects' });
+  const owner = globalThis.document, panel = node('detail');
+  const view = el('div', undefined, 'workbench-view project-overview');
+  const head = el('header', undefined, 'workbench-hero');
+  head.append(el('span', 'YOUR WORKSPACE', 'eyebrow'), el('h1', '全局总览'),
+    el('p', '拖动卡片整理你的工作台。项目管理与卡片配置在独立管理页。', 'hint'));
+  const loading = el('p', '正在读取卡片…', 'hint'); loading.setAttribute('role', 'status');
+  view.append(head, loading); panel?.replaceChildren(view);
+  const request = ++managerRequest;
+  const ownsPage = () => owner === globalThis.document && identity === ui.view
+    && request === managerRequest && view.parentNode === panel;
+  try {
+    const [{ createProjectBoard }, accounts] = await Promise.all([
+      import('./project-board.js'), import('./dashboard-cards.js'),
+    ]);
+    if (!ownsPage()) return;
+    const results = await Promise.allSettled([api('/api/host/projects'), accounts.loadAccountCards({ ownsPage })]);
+    if (!ownsPage()) return;
+    const rows = [];
+    if (results[0].status === 'fulfilled') rows.push(...(results[0].value.projects || []));
+    else view.append(el('p', '项目卡片暂不可用，请到项目管理核对后台状态。', 'error'));
+    if (results[1].status === 'fulfilled') rows.push(...results[1].value);
+    else view.append(el('p', `账户卡片未确认：${results[1].reason.message}`, 'error'));
+    const board = createProjectBoard({ ownsPage, request: api,
+      renderCard: row => row.type === 'account' ? accounts.renderAccountCard(row)
+        : projectItem(row, refreshProjectList, { displayOnly: true, renderDevelopment: projectDevelopment }),
+    });
+    loading.remove(); view.append(board.root);
+    if (!rows.length && results.every(result => result.status === 'fulfilled')) {
+      const empty = el('div', undefined, 'workbench-empty');
+      empty.append(el('strong', '还没有总览卡片'), el('p', '在项目管理中登记项目，或添加账户余额卡片。')); view.append(empty);
+    }
+    await board.update(rows);
+  } catch (error) { if (ownsPage()) { loading.textContent = `卡片暂不可用：${error.message}`; loading.className = 'error'; } }
 }
 
 /** 旧浮层入口改为主内容项目管理；不再 inert 整个应用。 */

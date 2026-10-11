@@ -1,6 +1,6 @@
 import { block, button, el } from './dom.js';
 import { api } from './api.js';
-import { usageWindow, usageErrorLabels } from './usage-window.js';
+import { usageWindow, usageErrorLabels } from './format.js';
 
 const list = value => Array.isArray(value) ? value : [];
 const finite = value => typeof value === 'number' && Number.isFinite(value);

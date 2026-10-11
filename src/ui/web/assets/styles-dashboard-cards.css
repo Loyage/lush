@@ -1,0 +1,34 @@
+/* Standalone account cards and explicit device selection; all colours follow the shared theme tokens. */
+.project-item.dashboard-account-card,.project-manager-list .project-item.dashboard-account-card{display:flex;flex-direction:column;align-items:stretch;gap:12px;min-width:0;max-width:100%;padding:20px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow-wrap:anywhere}
+.dashboard-account-header{display:grid;gap:6px;min-width:0}
+.dashboard-card-kicker{font-size:10px;font-weight:700;letter-spacing:.12em;color:var(--accent)}
+.dashboard-account-header h3{margin:0;font-size:20px;line-height:1.35}
+.dashboard-card-note,.dashboard-card-warning{margin:0;font-size:12px;line-height:1.7;color:var(--muted);overflow-wrap:anywhere}
+.dashboard-card-warning{color:var(--awaiting)}
+.dashboard-account-observation{display:grid;gap:8px;min-width:0}
+.dashboard-account-metric{display:grid;gap:7px;padding:12px;background:var(--panel-2);border:1px solid var(--line-soft);border-radius:10px;min-width:0}
+.dashboard-account-metric h4{margin:0;font-size:13px;line-height:1.5}
+.dashboard-account-value{margin:0;font-size:15px;font-variant-numeric:tabular-nums;line-height:1.5;color:var(--text)}
+.dashboard-account-progress{display:block;width:100%;max-width:100%;height:9px;accent-color:var(--accent);border:0;border-radius:8px;overflow:hidden;background:var(--line)}
+.dashboard-account-progress::-webkit-progress-bar{background:var(--line);border-radius:8px}
+.dashboard-account-progress::-webkit-progress-value{background:var(--accent);border-radius:8px}
+.dashboard-account-progress::-moz-progress-bar{background:var(--accent);border-radius:8px}
+.dashboard-account-metric-details,.dashboard-account-old{min-width:0;border-top:1px solid var(--line-soft);padding-top:8px}
+.dashboard-account-metric-details summary,.dashboard-account-old summary{cursor:pointer;font-size:12px;line-height:1.6;color:var(--muted);padding:4px 0;overflow-wrap:anywhere}
+.dashboard-account-metric-details[open],.dashboard-account-old[open]{display:grid;gap:8px}
+.dashboard-account-old{padding:10px;border:1px dashed var(--line);border-radius:10px}
+.dashboard-card-settings{max-width:920px;min-width:0;display:grid;gap:16px;color:var(--text)}
+.dashboard-card-settings h2{margin:0;font-size:22px}
+.dashboard-card-choices{margin:0;min-width:0;padding:14px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius)}
+.dashboard-card-choices legend{padding:0 6px;font-size:13px;font-weight:650}
+.dashboard-card-choice-list{display:grid;gap:8px}
+.dashboard-card-choice{display:flex;align-items:flex-start;gap:10px;padding:10px;border:1px solid var(--line-soft);border-radius:9px;cursor:pointer;min-width:0}
+.dashboard-card-choice input{flex:none;width:18px;height:18px;margin:3px 0 0;accent-color:var(--accent)}
+.dashboard-card-choice span{display:grid;gap:4px;min-width:0;overflow-wrap:anywhere}
+.dashboard-card-choice strong{font-size:13px;line-height:1.5}
+.dashboard-card-choice small{font-size:11px;line-height:1.7;color:var(--muted)}
+.dashboard-card-choice:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.dashboard-card-settings-actions{display:flex;flex-wrap:wrap;gap:10px}
+.dashboard-card-settings-actions button{min-height:44px;white-space:normal}
+.dashboard-card-settings-status{margin:0;font-size:12px;line-height:1.8;overflow-wrap:anywhere}
+@media(max-width:640px){.project-item.dashboard-account-card,.project-manager-list .project-item.dashboard-account-card{padding:14px;gap:10px}.dashboard-card-choices{padding:10px}.dashboard-card-choice{padding:9px}.dashboard-card-settings-actions button{flex:1 1 auto}.dashboard-account-header h3{font-size:18px}}

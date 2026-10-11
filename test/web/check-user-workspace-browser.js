@@ -104,7 +104,7 @@ try {
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/fixture` }); await frame();
   assert(await wait(`document.getElementById('detail').dataset.view==='projects'&&!document.getElementById('theme-toggle').disabled`), 'root boot failed');
-  const pages = [['projects', 'projects'], ['settings', 'settings'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['quick-explain', 'quick-explain'], ['automation', 'automation'], ['global-inbox', 'global-inbox']];
+  const pages = [['projects', 'projects'], ['project-management', 'project-management'], ['settings', 'settings'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['quick-explain', 'quick-explain'], ['automation', 'automation'], ['global-inbox', 'global-inbox']];
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null });
     // WebDriver keyboard activation can scroll the outer iframe fixture as well as
@@ -116,7 +116,7 @@ try {
       assert(await wait(`document.getElementById('detail').dataset.view==='${view}'&&!document.getElementById('detail').textContent.includes('正在加载页面')`), `global ${id} chunk failed`);
       assert(await execute(`return document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth&&!document.querySelector('button a')&&document.getElementById('composer-shell').hidden&&document.documentElement.dataset.lushSpace==='global'`), `global ${id} layout or partition failed at ${width}/${theme}`);
     }
-    await execute(`document.getElementById('projects-open').click()`);
+    await execute(`document.getElementById('project-management-open').click()`);
     assert(await wait(`document.querySelector('.project-order > button')`), 'backend overview has no source instruction entry');
     await execute(`document.querySelector('.project-order > button').click()`);
     assert(await wait(`document.querySelector('.project-order-form textarea')`), 'lazy source instruction form did not load');
@@ -125,7 +125,7 @@ try {
     await execute(`Array.from(document.querySelectorAll('#detail button')).find(b=>b.textContent==='刷新项目状态').click()`);
     assert(await wait(`document.querySelector('.project-order-form textarea')?.value==='浏览器会话中的独立指令'`), 'overview refresh lost source draft');
     assert(await wait(`document.querySelector('[data-service-restart="host"]')&&!document.querySelector('[data-service-restart="host"]').disabled&&!document.querySelector('[data-service-restart="daemon"]').disabled`), 'overview restart controls did not mount');
-    assert(await execute(`return document.querySelector('[data-service-restart="daemon"]').closest('.project-item')&&document.querySelector('[data-service-restart="host"]').closest('.workbench-service-restart')&&!document.querySelector('.workbench-service-restart .agent-call')&&!document.querySelector('#project-maintenance')&&!Array.from(document.querySelectorAll('#detail a,#detail button')).some(node=>node.textContent==='处理消息')&&document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth`), `restart layout or scope failed at ${width}/${theme}`);
+    assert(await execute(`return document.querySelector('[data-service-restart="daemon"]').closest('.project-item')&&document.querySelector('[data-service-restart="host"]').closest('.workbench-service-restart')&&!document.querySelector('[data-service-restart="all"]').classList.contains('agent-call')&&document.querySelector('[data-service-restart="resume"]').classList.contains('agent-call')&&!document.querySelector('#project-maintenance')&&!Array.from(document.querySelectorAll('#detail a,#detail button')).some(node=>node.textContent==='处理消息')&&document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth`), `restart layout or scope failed at ${width}/${theme}`);
     assert(await execute(`const restart=document.querySelector('.workbench-service-restart'),list=document.querySelector('.project-manager-list'),tools=document.querySelector('.workbench-backend-tools');return restart.parentElement.lastElementChild===restart&&!tools.contains(restart)&&restart.getBoundingClientRect().top>=list.getBoundingClientRect().bottom&&restart.getBoundingClientRect().top>tools.getBoundingClientRect().bottom`), `restart controls are not separated at the bottom at ${width}/${theme}`);
     const restartBefore = restartWrites.length;
     // A real keyboard activation, not a direct call into the controller.

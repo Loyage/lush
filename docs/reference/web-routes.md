@@ -16,9 +16,10 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 ## 宿主级路由
 
-- `GET /`、`/app.js`、`/styles.css`、`/assets/**`：Web 资源（无项目前缀）。全局模式下 `/` 是可在未选项目时使用的完整主体，`#projects` / `#environments` 管理项目与环境；`/p/<id>/` 是该项目的工作台。
+- `GET /`、`/app.js`、`/styles.css`、`/assets/**`：Web 资源（无项目前缀）。全局模式下 `/` 是可在未选项目时使用的完整主体，`#projects` 展示项目与账户卡片，`#project-management` 管理项目入口／后台与卡片配置；`/p/<id>/` 是该项目的工作台。
 - `GET /api/host/session`：仅根路径、无查询参数，已登录后只返回 `{username}`（当前 Host 登录配置的账户名）。保留 Origin 校验、认证和 no-store，不返回密码/hash、Cookie/token 或路径，不连接或启动任何 daemon；未登录 401，注销/到期后旧 Cookie 失效。不是历史输入作者或多用户账户接口。
 - `GET /api/host`：返回 `mode`、上次打开的项目（`last_project` / `last_project_id`）与已登记项目列表（`projects`，含 `connected` / `last`；`mode` 为 `host` 或 `bound`）。只报告上次落点，不因此自动启动或连接任何 daemon。另返回当前服务进程的 `pid` 与 `restart_supported`；嵌入式 Host 不支持进程重启时为 `false`。
+- `GET /api/host/dashboard`：设备共享总览卡片选择，返回 `{version:1,revision,cards:[{type:'account',connection_id}]}`，缺省为空；`POST` 同路径接受 `{cards,expected_revision}`，用户专属、严格字段／revision／私有文件校验。只保存来源 ID，余额来自现有设备连接安全缓存，读取不启动后台或查询账号。
 - `GET /api/host/projects`：项目列表对已登记目录检查项目 socket，并对可达的 lushd 有界读取 `system.summary`，返回 `running` 与摘要（可含已验证的正整数 `pid`、实际 `agents_running`、维护暂停、待决数，以及 `development` 的全项目状态指标和最近 3 条 Worker；详见[开发摘要契约](../engineering/user-workspace.md#后台总览开发摘要w186决定-446)）。新 Host 只在显式总览读取请求 `development:true`；旧 daemon 不支持参数时只读降级，开发摘要缺失明确不可用，不能把 `agents_total` 当作真实调用数；`connected` 仅表示 Host 已打开连接，二者不是同一状态。读取列表不会启动任何 lushd，未登记项目不会被扫描；单个项目失败只影响自己那一行。
 - `GET /api/host/projects/<id>/appearance`：只读项目外观元数据，不启动 daemon；返回 `{id,name,project,appearance}`，未初始化时 appearance 为 null。`POST` 同路径接受 `{initialize:true}` 或 `{color,expected_revision}`，首次分配尽量不重复的预设色，保存须匹配 revision。#411：项目 `.lush/appearance.json` 的旧 theme 留存但不生效，兼容回传相同 theme、改变拒绝；配色在用户工作台管理，设备主题另走 preferences API；只认已登记／白名单身份，拒绝路径、token、未知字段和 query，沿用认证／Origin／JSON／no-store。详见[项目外观契约](../engineering/workbench.md#项目外观w160)。
 - `POST /api/host/select`：仅全局模式可用，JSON `{project}` 必须是现存目录的绝对路径（公网模式还必须在白名单内）；登记该项目、按需启动 / 连接 daemon，返回该项目稳定路由 ID（`id`）。它不再设置全局「当前项目」，页面归属由前端跳到 `/p/<id>/` 决定。
@@ -54,7 +55,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 
 ## 当前项目维护暂停
 
-项目页「全部中断／全部继续」使用用户专属无参数 `system.interrupt_all` / `system.resume_all`，经当前项目 `POST /api/action` 转发；不影响其它项目，不自动重启服务。全局后台总览在底部服务重启区域提供同名按钮：只读重核此 Host 已登记在线项目并确认固定范围，然后逐项通过 `/p/<project-id>/api/action` 调用相同接口；不新增 Host 批量 API，不启动离线项目。中途失败停止后续，报告已接受、失败／未确认与未执行范围，不自动重试或撤销；请求接受不代表已安全退出或立即运行。继续按钮及确认带 Agent 代价，与重启共用单飞和离页保护。两个动作只接受 `{method,params:{}}`（params 可省略），拒绝多余 envelope／params／query 字段和 Agent token。返回同源 `maintenance` 投影；`system.summary`／`system.status` 也提供该读面，包括维护门、暂停进度、真实在途计数、可重启与固定阻塞原因。详情与字段权威见[维护暂停契约](../engineering/project-maintenance.md)。
+项目页「全部中断／全部继续」使用用户专属无参数 `system.interrupt_all` / `system.resume_all`，经当前项目 `POST /api/action` 转发；不影响其它项目，不自动重启服务。全局项目管理在底部服务重启区域提供同名按钮：只读重核此 Host 已登记在线项目并确认固定范围，然后逐项通过 `/p/<project-id>/api/action` 调用相同接口；不新增 Host 批量 API，不启动离线项目。中途失败停止后续，报告已接受、失败／未确认与未执行范围，不自动重试或撤销；请求接受不代表已安全退出或立即运行。继续按钮及确认带 Agent 代价，与重启共用单飞和离页保护。两个动作只接受 `{method,params:{}}`（params 可省略），拒绝多余 envelope／params／query 字段和 Agent token。返回同源 `maintenance` 投影；`system.summary`／`system.status` 也提供该读面，包括维护门、暂停进度、真实在途计数、可重启与固定阻塞原因。详情与字段权威见[维护暂停契约](../engineering/project-maintenance.md)。
 
 暂停在 daemon 重启后保留；新调用（含子 Worker／管理 Agent）不得越过维护门。恢复只处理本次影响的工作，原静息父级保留等待关系，原个人暂停／待开始／失败／待验收不批量启动。运行中工具与已开始后台操作安全收尾；请求接受不表示已退出，真正服务重启仍按下面的同步空闲门重检。
 
@@ -62,7 +63,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 
 两个入口必须使用同源、已登录的 JSON `{}` 请求；不得传项目路径、强制停止选项或 Agent token。它们不经过通用 `/api/action`。
 
-入口在全局工作台 `/#projects`「后台总览」，不在设备设置或项目工作页：每个项目行有「重启项目后台」，旁边有「重启界面服务」「全部重启」。W176／决定 #434：「全部重启」包含此 Host 已登记的所有在线项目后台和当前界面服务，不涵盖未登记或离线项目。先只读刷新项目列表，确认中列出固定项目名称／路径和数量；确认后新上线的项目不加入。再次检查 Host 能力，逐个调用带固定项目身份的重启接口，全部成功后才重启 Host。不新增接口或跨项目调度。任一项目忙碌或失败时停止后续步骤、不重启界面，就地报告已完成、失败／未确认和未执行范围，不自动重试；写入超时不能当作没有生效。Host 不支持按钮重启时禁用界面／全部按钮，项目行仍可独立重启；离线项目行禁用。独立项目重启成功只刷新总览，保留目录与未发送指令；Host 重启仍会断开全部连接页面，可能丢失未发送输入并要求重新登录。
+入口在全局工作台 `/#project-management`「项目管理」，不在设备设置或项目工作页：每个项目行有「重启项目后台」，旁边有「重启界面服务」「全部重启」。W176／决定 #434：「全部重启」包含此 Host 已登记的所有在线项目后台和当前界面服务，不涵盖未登记或离线项目。先只读刷新项目列表，确认中列出固定项目名称／路径和数量；确认后新上线的项目不加入。再次检查 Host 能力，逐个调用带固定项目身份的重启接口，全部成功后才重启 Host。不新增接口或跨项目调度。任一项目忙碌或失败时停止后续步骤、不重启界面，就地报告已完成、失败／未确认和未执行范围，不自动重试；写入超时不能当作没有生效。Host 不支持按钮重启时禁用界面／全部按钮，项目行仍可独立重启；离线项目行禁用。独立项目重启成功只刷新项目管理，保留目录与未发送指令；Host 重启仍会断开全部连接页面，可能丢失未发送输入并要求重新登录。
 
 - `POST /api/host/restart`：宿主级，无项目前缀；返回 `{restarting:true}` 后当前 Host worker 退出，由它的 supervisor 在原端口启动全新进程，加载磁盘代码。不停止任何项目 daemon。影响连接此 Host 的全部页面，登录会话会清空；前端可有界读取 `/api/host`，等 `pid` 改变或 401 后重新登录。仅通过 `bin/lush-host` 启动的受监督 Host 支持该操作；直接嵌入 `startWeb()` / 直接 CLI 前台调试默认不支持。
 - `POST /api/service/restart`：项目级，全局模式必须带 `/p/<project-id>` 前缀。Host 调用用户专属、无参数的 RPC `system.stop_if_idle`；daemon 同步检查 invocation（包括尚未退栈的已停驻调用）、模型调用、排队及执行中的 Git 工作、合并与后台写入，忙碌即拒绝。准入后封闭调度与新 RPC 写入，返回 `{stopping:true}` 并正常退出。Host 等项目锁释放后启动新 daemon，返回 `{restarted:true,project,pid}`；不强杀、不自动重放调用，也不操作其他项目。重复点击会被拒绝；停止/启动超时报错并保留日志，需检查项目 `.lush/daemon.log`。

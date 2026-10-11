@@ -3,7 +3,8 @@ import { ui } from './state.js';
 
 const RESOURCE_META = new Map(SIDEBAR_SECTIONS.map(section => [section.id, section]));
 const PAGES = {
-  projects: ['后台总览', '用户工作台', '已登记项目后台、消息与独立 Worker'],
+  projects: ['全局总览', '用户工作台', '项目与账户 · 你的卡片看板'],
+  'project-management': ['项目管理', '用户工作台', '目录入口、后台维护与总览卡片配置'],
   'global-inbox': ['全局收件箱', '用户工作台', '所有有权访问项目的待答问题与告知'],
   automation: ['全局自动化', '用户工作台', '设备自动选择 · 未来新指令默认流程'],
   'workspace-link': ['独立用户工作台', '项目工作', '全局页面在独立标签打开'],

@@ -1,7 +1,7 @@
 import { el, button } from './dom.js';
 import { api } from './api.js';
 import { absolute } from './format.js';
-import { usageWindow } from './usage-window.js';
+import { usageWindow } from './format.js';
 import { scheduledWallTime } from './hook-schedule.js';
 
 /** Local public observations only: never query providers or infer the next reset. */

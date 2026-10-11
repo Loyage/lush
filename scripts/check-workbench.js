@@ -7,6 +7,7 @@ import { randomBytes } from 'node:crypto';
 import { startWeb } from '../src/ui/web/server.js';
 import { projectRouteId } from '../src/host/registry.js';
 import { readProjectAppearance, saveProjectAppearance } from '../src/host/project-appearance.js';
+import { DeviceSettingsService } from '../src/host/device-settings.js';
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lush-workbench-ui-')));
 let offline = false, richProjects = false;
@@ -35,10 +36,26 @@ const projectHost = {
   openRoute: async () => { throw new Error('fixture project daemon offline'); },
   appearance: id => appearance(id), saveAppearance: (id, body) => appearance(id, body),
 };
+// Only the public account cache is controlled; all card configuration persistence is real.
+const accountIds = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
+const accountRows = accountIds.map((id, index) => ({ id, label: index ? '工作账户' : '个人账户', provider: 'deepseek', enabled: true,
+  storage_scope: 'device', endpoint: 'https://api.deepseek.com', observation: {
+    status: index ? 'error' : 'available', source: 'usage_api', checked_at: '2026-10-01T09:00:00Z',
+    resources: index ? [] : [{ id: 'cash', kind: 'balance', scope: 'account', label: '账户现金', unit: 'USD', remaining: 12.5 },
+      { id: 'plan', kind: 'quota', scope: 'account', label: '套餐额度', unit: '%', remaining: 60, used_percent: 40, window_seconds: 604800 }],
+  } }));
+const deviceSettings = new DeviceSettingsService(fixtureEnv), deviceCalls = [];
+const deviceRequest = deviceSettings.request.bind(deviceSettings);
+deviceSettings.request = (method, params) => {
+  deviceCalls.push(method);
+  if (method === 'agent.connections.list') return Promise.resolve(deviceSettings.view({ version: 1, connections: accountRows }));
+  if (method === 'agent.connections.query') throw new Error('fixture must not query a provider');
+  return deviceRequest(method, params);
+};
 const username = 'Workbench浏览器账号', password = randomBytes(24).toString('base64url');
 // Exercise mandatory login with v2's default loopback listener in a disposable fixture.
 fs.writeFileSync(path.join(root, 'web.json'), JSON.stringify({ version: 2, username, password }), { mode: 0o600 });
-const server = startWeb(null, 0, { env: fixtureEnv, projectHost });
+const server = startWeb(null, 0, { env: fixtureEnv, projectHost, deviceSettingsService: deviceSettings });
 if (server.hostname !== '127.0.0.1') throw new Error('v2 workbench fixture must stay loopback');
 const origin = `http://127.0.0.1:${server.port}`;
 const reservation = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') });
@@ -101,7 +118,9 @@ async function screenshot(name) {
   fs.writeFileSync(path.join(root, `${name}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
 }
 try {
-  driver = Bun.spawn(['geckodriver', '--host', '127.0.0.1', '--port', String(port)], {
+  const bidiReservation = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') });
+  const bidiPort = bidiReservation.port; bidiReservation.stop(true);
+  driver = Bun.spawn(['geckodriver', '--host', '127.0.0.1', '--port', String(port), '--websocket-port', String(bidiPort)], {
     env: { ...process.env, MOZ_HEADLESS: '1' }, stdout: Bun.file(path.join(root, 'geckodriver.log')), stderr: Bun.file(path.join(root, 'geckodriver.log')),
   });
   let ready = false;
@@ -130,14 +149,14 @@ try {
   await bidi('session.subscribe', { events: ['log.entryAdded', 'network.beforeRequestSent'] });
   assert((await fetch(`${origin}/api/host`)).status === 401, 'fixture Host must require login');
   await resize(1440); await login();
-  await until(`document.querySelector('#detail .project-manager') !== null`);
+  await until(`document.querySelector('#detail .project-overview .project-board') !== null`);
   const resources = () => evaluate(`performance.getEntriesByType('resource').filter(row=>/\\/web-[a-f0-9]{32}-.*\\.(?:js|css)$/.test(new URL(row.name).pathname)).map(row=>({name:new URL(row.name).pathname,transfer:row.transferSize,encoded:row.encodedBodySize,decoded:row.decodedBodySize}))`);
   const cold = await resources();
   assert(cold.length > 0 && cold.some(row => row.transfer > 0), 'cold load has no measurable static transfers');
   assert(!cold.some(row => row.name.includes('-render-settings-')), 'settings chunk was fetched before opening its page');
   // Normal revisit, not an explicit reload that Firefox can revalidate even fresh HTTP assets.
   await navigate(`${origin}/?cache-check=1`);
-  await until(`document.querySelector('#detail .project-manager') !== null`);
+  await until(`document.querySelector('#detail .project-overview .project-board') !== null`);
   const warm = await resources();
   const coldNames = new Set(cold.map(row => row.name)), reused = warm.filter(row => coldNames.has(row.name));
   assert(reused.length > 0 && reused.every(row => row.transfer === 0), `repeat navigation did not reuse versioned browser resources: ${JSON.stringify({ cold, warm })}`);
@@ -148,7 +167,7 @@ try {
   }));
   captureReload = true;
   await rpc(`/session/${session}/refresh`, {});
-  await until(`document.querySelector('#detail .project-manager') !== null`);
+  await until(`document.querySelector('#detail .project-overview .project-board') !== null`);
   captureReload = false;
   const reloaded = (await resources()).filter(row => coldNames.has(row.name));
   assert(reloaded.length > 0, 'reload did not report the versioned static resources');
@@ -159,7 +178,7 @@ try {
   }));
   assert(await evaluate(`!document.getElementById('project-app').hasAttribute('inert')`), 'workbench is blocked by project gate');
   assert(await evaluate(`document.querySelector('.composer').hidden || getComputedStyle(document.querySelector('.composer')).display === 'none'`), 'empty workbench shows active composer');
-  for (const [id, fragment] of [['settings-open', 'settings'], ['docs-open', 'docs'], ['projects-open', 'projects']]) {
+  for (const [id, fragment] of [['settings-open', 'settings'], ['docs-open', 'docs'], ['project-management-open', 'project-management']]) {
     await click(`#${id}`);
     await until(`location.hash === '#${fragment}'`);
     await until(`!document.getElementById('detail').textContent.includes('正在加载')`);
@@ -193,7 +212,7 @@ try {
     if ((await rpc(`/session/${session}/url`, undefined, 'GET')) === `${origin}/#projects`) break;
     await Bun.sleep(40);
   }
-  await until(`document.querySelector('#detail .project-manager') !== null`);
+  await until(`document.querySelector('#detail .project-overview .project-board') !== null`);
   await click('#settings-open');
   await until(`document.querySelector('input.pref-radio[data-value="dark"]') && !document.querySelector('input.pref-radio[data-value="dark"]').disabled`);
   async function setDeviceTheme(theme) {
@@ -203,7 +222,7 @@ try {
     await until(`document.documentElement.dataset.theme==='${theme}' && !document.querySelector('input.pref-radio[data-value="${theme}"]').disabled`);
   }
   async function setProjectColor(color) {
-    await rpc(`/session/${session}/window`, { handle: settingsWindow }); await resize(1440); await click('#projects-open');
+    await rpc(`/session/${session}/window`, { handle: settingsWindow }); await resize(1440); await click('#project-management-open');
     await until(`document.querySelector('.project-color-open') !== null`); await click('.project-color-open');
     await until(`document.querySelector('input[data-project-color="${color}"]') && !document.querySelector('input[data-project-color="${color}"]').disabled`);
     await click(`input[data-project-color="${color}"]`);
@@ -214,6 +233,18 @@ try {
     await until(`document.documentElement.dataset.projectColor==='${color}' && document.title==='mock-project · Lush'`);
   }
   await setDeviceTheme('dark'); await setProjectColor('rose');
+  await rpc(`/session/${session}/window`, { handle: settingsWindow }); await click('#project-management-open');
+  await until(`document.querySelectorAll('.dashboard-card-choice input').length===2&&!document.querySelector('.dashboard-card-choice input').disabled`);
+  for (const id of accountIds) await click(`.dashboard-card-choice input[data-connection-id="${id}"]`);
+  await click('.dashboard-card-settings-actions button');
+  await until(`document.querySelector('.dashboard-card-settings-status').textContent.includes('已保存到设备')&&!document.querySelector('.dashboard-card-settings-actions button').disabled`);
+  await click('#projects-open');
+  await until(`document.querySelectorAll('.project-board-card').length===3&&document.querySelector('[data-board-color="rose"]')`);
+  assert(await evaluate(`document.querySelectorAll('.dashboard-account-card').length===2&&document.getElementById('detail').textContent.includes('12.5 USD')&&[...document.querySelectorAll('#detail button')].every(b=>b.classList.contains('project-board-handle'))`), 'dashboard mixed account/project cards or pure-display boundary failed');
+  const accountHandle = await rpc(`/session/${session}/element`, { using: 'css selector', value: '.dashboard-account-card .project-board-handle' });
+  await rpc(`/session/${session}/element/${accountHandle['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE011' });
+  assert(await evaluate(`document.querySelector('.project-board').firstElementChild.dataset.projectId.startsWith('account:')&&localStorage.getItem('lush.host.project-board.order.v1')`), 'assembled mixed-card keyboard order was not persisted');
+  await rpc(`/session/${session}/window`, { handle: child });
   await until(`document.documentElement.dataset.theme === 'dark'`);
   assert(await evaluate(`document.title === 'mock-project · Lush'`), 'global settings lost project-tab identity');
   const firstAppearance = readProjectAppearance(fixtureProject);
@@ -234,7 +265,14 @@ try {
   const secondBrowser = await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } });
   extraSession = secondBrowser.sessionId; session = extraSession;
   try {
-    await login(`/p/${projectRouteId(fixtureProject)}/`);
+    await login('/#projects');
+    await until(`document.querySelectorAll('.dashboard-account-card').length===2&&document.querySelectorAll('.project-board-card').length===3`);
+    assert(await evaluate(`document.querySelector('.project-board').firstElementChild.dataset.projectId===${JSON.stringify(projectRouteId(fixtureProject))}&&localStorage.getItem('lush.host.project-board.order.v1')===null`), 'second browser failed to share selection independently of layout');
+    await click('#project-management-open');
+    await until(`document.querySelectorAll('.dashboard-card-choice input').length===2&&!document.querySelector('.dashboard-card-choice input').disabled`);
+    await click(`.dashboard-card-choice input[data-connection-id="${accountIds[1]}"]`); await click('.dashboard-card-settings-actions button');
+    await until(`document.querySelector('.dashboard-card-settings-status').textContent.includes('已保存到设备')&&!document.querySelector('.dashboard-card-settings-actions button').disabled`);
+    await navigate(`${origin}/p/${projectRouteId(fixtureProject)}/`);
     await until(`document.documentElement.dataset.projectColor === 'rose' && document.documentElement.dataset.theme === 'dark'`);
     assert(await evaluate(`document.title === 'mock-project · Lush' && document.getElementById('theme-toggle').hidden`), 'independent browser did not share device theme/project identity');
     await navigate(`${origin}/#settings`);
@@ -306,6 +344,16 @@ try {
   }
   richProjects = true;
   await click('#projects-open');
+  await until(`document.querySelectorAll('.project-board-card').length===3&&document.querySelectorAll('.dashboard-account-card').length===1&&document.querySelector('.project-development-metrics')`);
+  for (const theme of ['light', 'dark']) for (const width of [1440, 900, 390, 320]) {
+    await resize(width); await evaluate(`document.documentElement.dataset.theme='${theme}'`);
+    assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth&&[...document.querySelectorAll('.project-board-card,.dashboard-account-header,.dashboard-account-metric')].every(n=>n.scrollWidth<=n.clientWidth+1)&&[...document.querySelectorAll('#detail button')].every(b=>b.classList.contains('project-board-handle'))`), `assembled mixed dashboard overflow or management action at ${theme}/${width}`);
+    await screenshot(`dashboard-${theme}-${width}`);
+    console.log(`PASS assembled project/account dashboard ${theme}/${width}`);
+  }
+  assert(!deviceCalls.includes('agent.connections.query'), 'dashboard read queried a provider');
+  console.log('PASS real Host shared card selection across two Firefox profiles with independent local layout');
+  await resize(1440); await click('#project-management-open');
   await until(`document.querySelector('.project-development-metrics') !== null`);
   await evaluate(`document.querySelector('.project-order > button').click()`);
   await until(`document.querySelector('.project-order-form textarea') !== null`);
@@ -319,7 +367,7 @@ try {
   }
   await resize(1440);
   offline = true; await navigate(origin);
-  await until(`document.readyState === 'complete' && document.querySelector('#detail .project-manager') !== null`);
+  await until(`document.readyState === 'complete' && document.querySelector('#detail .project-overview') !== null`);
   assert(await evaluate(`document.getElementById('connection').textContent === 'Host 离线' && !document.getElementById('project-app').hasAttribute('inert')`), 'offline Host lost shell');
   await click('#settings-open');
   await until(`location.hash === '#settings' && document.getElementById('detail').textContent.includes('Markdown 渲染')`);

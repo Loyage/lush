@@ -35,7 +35,7 @@ test('空根路径使用主内容项目管理，发布 shell 没有阻塞 gate',
   expect(html).not.toContain('id="project-list-panel"');
   expect(html).not.toContain('id="project-list"');
   expect(html).toContain('<strong id="project">未打开项目</strong>');
-  expect(dom.node('detail').dataset.view).toBe('projects');
+  expect(dom.node('detail').dataset.view).toBe('project-management');
   expect(deepText(dom.node('detail'))).toContain('还没有项目入口');
   expect(dom.node('project-app').getAttribute('inert')).toBeNull();
   expect(calls.every(call => call.method === 'GET')).toBe(true);
@@ -56,7 +56,7 @@ test('空态设置、文档与项目管理可用，项目系统动作保持关�
   await openDocs();
   expect(dom.node('detail').dataset.view).toBe('docs');
   await picker.openProjectManager({ push: false });
-  expect(dom.node('detail').dataset.view).toBe('projects');
-  expect(deepText(dom.node('detail'))).toContain('后台总览');
+  expect(dom.node('detail').dataset.view).toBe('project-management');
+  expect(deepText(dom.node('detail'))).toContain('项目管理');
   expect(calls.every(call => call.method === 'GET')).toBe(true);
 });

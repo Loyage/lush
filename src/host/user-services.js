@@ -51,6 +51,11 @@ export function createUserServices(projectHost, options = {}) {
     const { readDevicePreferences, saveDevicePreferences } = await import('../core/device-preferences.js');
     return { get: () => readDevicePreferences(config), save: (patch, expected) => saveDevicePreferences(config, patch, expected) };
   });
+  const dashboard = lazy(async () => {
+    if (options.dashboardService) return options.dashboardService;
+    const { readDashboardSettings, saveDashboardSettings } = await import('../core/dashboard-settings.js');
+    return { get: () => readDashboardSettings(config), save: (cards, expected) => saveDashboardSettings(config, cards, expected) };
+  });
   const automation = lazy(async () => {
     if (options.automationService) return options.automationService;
     const { DeviceAutomationSettings } = await import('../core/device-automation.js');
@@ -71,6 +76,8 @@ export function createUserServices(projectHost, options = {}) {
     catch { throw new Error(message); }
   }
   const preferenceError = '设备偏好操作未确认，请重新读取设置并检查私有文件权限后重试。';
+  const dashboardError = '总览卡片操作未确认，请重新读取设置并检查私有文件权限后重试。';
+  const dashboardSaveError = '总览卡片保存操作未确认，可能版本已变更，请保留编辑并重新读取设置、检查私有文件权限后重试。';
   const automationError = '全局自动化操作未确认，请重新读取策略并检查私有文件权限后重试。';
   const inboxError = '收件箱操作未确认，请刷新记录并检查来源项目的后台状态；已提交的动作不能据此视为未执行。';
   return {
@@ -81,6 +88,14 @@ export function createUserServices(projectHost, options = {}) {
       check(Object.keys(body.patch).length > 0, 'preferences patch cannot be empty');
       revision(body.expected_revision);
       return invoke(preferences, 'save', [body.patch, body.expected_revision], preferenceError);
+    },
+    async readDashboard() { return invoke(dashboard, 'get', [], dashboardError); },
+    async saveDashboard(body) {
+      fields(body, ['cards', 'expected_revision'], 'dashboard request', ['cards', 'expected_revision']);
+      revision(body.expected_revision);
+      const { normalizeDashboardCards } = await import('../core/dashboard-settings.js');
+      const cards = normalizeDashboardCards(body.cards);
+      return invoke(dashboard, 'save', [cards, body.expected_revision], dashboardSaveError);
     },
     async readAutomation() { return invoke(automation, 'get', [], automationError); },
     async saveAutomation(body) {
@@ -127,7 +142,7 @@ export function createUserServices(projectHost, options = {}) {
     },
     close() {
       closed = true;
-      return closing ||= Promise.allSettled([preferences.close(), automation.close(), inbox.close()]);
+      return closing ||= Promise.allSettled([preferences.close(), dashboard.close(), automation.close(), inbox.close()]);
     },
   };
 }

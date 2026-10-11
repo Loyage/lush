@@ -23,7 +23,7 @@ import { hideHelp, initHelp } from './help.js';
 import { resetTranscriptReaders } from './transcript-reader.js';
 import { closeTranscriptView } from './transcript-view.js';
 import { closeExplanationPanel } from './explanations.js';
-import { ensureProject, openProjectManager, workbenchStatus } from './project-picker.js';
+import { ensureProject, openProjectManager, openProjectOverview, workbenchStatus } from './project-picker.js';
 import { renderAutoSelectBanner } from './auto-select-banner.js';
 import { initNoticeRecords, openNotice } from './render-notices.js';
 import { workerNumberTarget, resolveWorkerNumber } from './worker-links.js';
@@ -94,7 +94,7 @@ function noProjectView() {
   if (ui.view !== identity) return;
   const box = el('div', undefined, 'workbench-view');
   box.append(el('h1', '当前地址没有可用项目'), el('p', '设备设置、全局收件箱、项目入口与帮助仍可使用。', 'hint'));
-  const link = el('a', '打开项目入口', 'ghost'); link.href = '/#projects'; link.target = '_blank'; link.rel = 'noopener'; box.append(link);
+  const link = el('a', '打开项目入口', 'ghost'); link.href = '/#project-management'; link.target = '_blank'; link.rel = 'noopener'; box.append(link);
   $('detail').replaceChildren(box);
 }
 /** Old in-project setting bookmarks lead to the real global page; never silently replace the project tab. */
@@ -112,9 +112,10 @@ let hashGeneration = 0;
 function onHashChange() {
   const generation = ++hashGeneration; hideHelp();
   const hash = location.hash, project = projectRoute(), doc = docsTarget(hash);
-  if (project && (deviceHash(hash) || hash === '#projects' || doc)) return globalPageRedirect(hash);
+  if (project && (deviceHash(hash) || (hash === '#projects' || hash === '#project-management') || doc)) return globalPageRedirect(hash);
   if (!project) {
-    if (!hash || hash === '#projects') return openProjectManager({ push: false });
+    if (!hash || hash === '#projects') return openProjectOverview({ push: false });
+    if (hash === '#project-management') return openProjectManager({ push: false });
     if (hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
     if (hash === '#agent-status') return ui.view?.id === 'agent-status' ? undefined : openAgentStatus();
     if (hash === '#model-sources') return ui.view?.id === 'model-sources' ? undefined : openSources();
@@ -169,7 +170,8 @@ function startTimers() {
   refreshTimer = setInterval(refresh, pollingIntervals().snapshot); liveTimer = setInterval(liveRefresh, liveInterval());
 }
 function initGlobalNavigation() {
-  workspaceLink('projects-open', '#projects', () => openProjectManager());
+  workspaceLink('projects-open', '#projects', () => openProjectOverview());
+  workspaceLink('project-management-open', '#project-management', () => openProjectManager());
   workspaceLink('global-inbox-open', '#notices', () => openGlobalInbox());
   workspaceLink('automation-open', '#automation', openAutomation);
   workspaceLink('settings-open', '#settings', openSettings);
@@ -230,8 +232,8 @@ export async function boot() {
   if (projectRoute() && !projectReady) { if (!currentProject) $('project').textContent = '项目不可用'; $('connection').textContent = context.host?.mode === 'offline' ? 'Host 离线' : '项目身份不可用'; }
   else if (!projectRoute() && context.host?.mode === 'offline') $('connection').textContent = 'Host 离线';
   initContextReferences(); initHelp();
-  const goOverview = () => projectReady ? overview().catch(report) : projectRoute() ? noProjectView() : openProjectManager();
-  workspaceLink('home', '#projects', () => openProjectManager());
+  const goOverview = () => projectReady ? overview().catch(report) : projectRoute() ? noProjectView() : openProjectOverview();
+  workspaceLink('home', '#projects', () => openProjectOverview());
   $('overview-open').onclick = goOverview;
   if ($('home')) {
     $('home').setAttribute('aria-label', 'Lush · 用户工作台');

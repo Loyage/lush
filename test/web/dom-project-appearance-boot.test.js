@@ -30,7 +30,7 @@ test('startup applies Host project title and persisted color without waiting for
   expect(calls.filter(row => row.options?.method === 'POST')).toHaveLength(0);
 });
 
-test('switching project boot changes title/color; workbench clears them and does not call project appearance', async () => {
+test('switching project boot changes title/color; workbench clears shell color and only GETs each card appearance', async () => {
   dom.location.pathname = `/p/${ids[1]}/`; await boot();
   expect(dom.document.title).toBe('project-1 · Lush');
   expect(dom.document.documentElement.dataset.projectColor).toBe('rose');
@@ -38,7 +38,11 @@ test('switching project boot changes title/color; workbench clears them and does
   dom.location.pathname = '/'; await boot();
   expect(dom.document.title).toBe('Lush');
   expect(dom.document.documentElement.dataset.projectColor).toBeUndefined();
-  expect(calls.slice(before).some(row => /\/appearance$/.test(row.path))).toBe(false);
+  expect(calls.slice(before).filter(row => /\/appearance$/.test(row.path)).map(row => row.path).sort())
+    .toEqual(ids.map(id => `/api/host/projects/${id}/appearance`).sort());
+  expect(calls.slice(before).some(row => row.options?.method === 'POST')).toBe(false);
+  expect(dom.node('detail').querySelector(`[data-project-id="${ids[0]}"]`).getAttribute('data-board-color')).toBe('blue');
+  expect(dom.node('detail').querySelector(`[data-project-id="${ids[1]}"]`).getAttribute('data-board-color')).toBe('rose');
 });
 
 test('single-project root remains a device workspace; project color failure does not block device settings', async () => {
@@ -46,7 +50,10 @@ test('single-project root remains a device workspace; project color failure does
   expect(dom.document.title).toBe('Lush');
   expect(dom.node('theme-toggle').disabled).toBe(false);
   expect(dom.document.documentElement.dataset.projectColor).toBeUndefined();
-  expect(calls.slice(before).some(row => /\/appearance$/.test(row.path))).toBe(false);
+  expect(calls.slice(before).filter(row => /\/appearance$/.test(row.path))).toHaveLength(2);
+  expect(calls.slice(before).some(row => row.options?.method === 'POST')).toBe(false);
+  expect(dom.node('detail').querySelectorAll('.project-board-card').filter(node => node.getAttribute('data-board-color') !== null)).toHaveLength(0);
+  expect(dom.node('detail').querySelectorAll('.project-board-palette').map(node => node.textContent)).toEqual(['配色未确认', '配色未确认']);
   await dom.node('settings-open').onclick();
   await dom.node('detail').querySelector('button.settings-tab[data-settings-tab="interface"]').onclick();
   expect(dom.node('detail').querySelector('input.pref-radio[data-value="dark"]').disabled).toBe(false);

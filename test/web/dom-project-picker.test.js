@@ -37,8 +37,8 @@ test('项目管理画在主内容，不再 inert 应用或显示阻塞 gate', as
   await picker.ensureProject();
   await picker.openProjectManager({ push: false });
   expect(dom.node('project-app').getAttribute('inert')).toBeNull();
-  expect(dom.node('detail').dataset.view).toBe('projects');
-  expect(deepText(dom.node('detail'))).toContain('后台总览');
+  expect(dom.node('detail').dataset.view).toBe('project-management');
+  expect(deepText(dom.node('detail'))).toContain('项目管理');
   expect(dom.node('detail').querySelector('a.project-open').target).toBe('_blank');
 });
 
@@ -216,6 +216,23 @@ test('开发卡片显示全项目指标、父确认与独立项目最近链接�
   state.projects[0].running = false; await picker.refreshProjectList();
   const offline = panel.querySelector('.project-development');
   expect(deepText(offline)).toContain('当前开发状态未确认'); expect(offline.querySelector('.project-development-metrics')).toBeNull();
+});
+
+test('只读总览复用新版 Worker 标题优先级，仍按项目身份打开最近记录', async () => {
+  const development = { workers_total: 3, active: 0, agents_running: 0, awaiting_acceptance: 0, parent_confirmation: 0,
+    pending_merges: 0, merging: 0, merge_conflicts: 0, counts: [], recent_workers: [
+      { id: 8, worker_number: 'W186-1', display_title: '用户命名', auto_title: '不应覆盖用户标题', goal: '旧目标', status: 'completed' },
+      { id: 9, worker_number: 'W186-2', auto_title: '自动卡片标题', goal: '不应显示的原目标', status: 'completed' },
+      { id: 10, worker_number: null, goal: '历史目标兜底', status: 'completed' },
+    ] };
+  state = { ...state, projects: [{ ...row, running: true, summary: { notices: 0, development } }] };
+  globalThis.location.pathname = '/';
+  await picker.openProjectOverview({ push: false });
+  const panel = dom.node('detail'), links = panel.querySelectorAll('.project-development-worker-link');
+  expect(links.map(link => deepText(link))).toEqual(['W186-1 用户命名', 'W186-2 自动卡片标题', '#10 历史目标兜底']);
+  expect(links.map(link => link.href)).toEqual([`/p/${ID}/#worker-8`, `/p/${ID}/#worker-9`, `/p/${ID}/#worker-10`]);
+  expect(panel.querySelector('.project-order')).toBeNull();
+  expect(panel.querySelector('.workbench-service-restart')).toBeNull();
 });
 
 test('无效项目地址保留 shell，不请求或回落到其它项目', async () => {

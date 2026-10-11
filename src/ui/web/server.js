@@ -267,15 +267,19 @@ export function startWeb(config, port = 4318, options = {}) {
           return json({ username: auth.username });
         }
         // ---- 宿主级路由：启动器等不属于任何项目的接口先于项目路由匹配 ----
-        if (['/api/host/preferences', '/api/host/automation'].includes(url.pathname)) {
-          const preference = url.pathname.endsWith('/preferences');
+        if (['/api/host/preferences', '/api/host/automation', '/api/host/dashboard'].includes(url.pathname)) {
+          const methods = {
+            '/api/host/preferences': ['readPreferences', 'savePreferences'],
+            '/api/host/automation': ['readAutomation', 'saveAutomation'],
+            '/api/host/dashboard': ['readDashboard', 'saveDashboard'],
+          }[url.pathname];
           if (request.method === 'GET') {
             userQuery(url, []);
-            return json(await getUserServices()[preference ? 'readPreferences' : 'readAutomation']());
+            return json(await getUserServices()[methods[0]]());
           }
           if (request.method === 'POST') {
             const body = await userBody(request, url);
-            return json(await getUserServices()[preference ? 'savePreferences' : 'saveAutomation'](body));
+            return json(await getUserServices()[methods[1]](body));
           }
           return json({ error: 'not found' }, 404);
         }

@@ -76,7 +76,7 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
     }
   };
   paintCurrent = paint;
-  const checkPage = () => { if (!ownsPage()) throw new Error('已离开后台总览；未继续执行后续操作。请回到总览核对状态。'); };
+  const checkPage = () => { if (!ownsPage()) throw new Error('已离开项目管理；未继续执行后续操作。请回到项目管理核对状态。'); };
   const post = async (route, body = POST.body) => { checkPage(); return request(route, { ...POST, body, signal: AbortSignal.timeout(30000) }); };
   const run = async (target, entry = null) => {
     const maintenance = target === 'pause' || target === 'resume';
