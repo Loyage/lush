@@ -4,7 +4,7 @@
 
 ## 输入与分支归属
 
-- 用户可先在 Web 暂存想法，正文、引用与父 Worker 身份持久保存但不创建工作区或调用 Agent；发射单条暂存才进入指令，详见[历史输入接口](input-history.md)。
+- 用户可先在 Web 暂存想法，正文、引用与父 Worker 身份持久保存但不创建工作区或调用 Agent；发射只挂载单条需求，条件满足且安全准入后才创建指令；新建与追加统一支持这套流程，详见[历史输入接口](input-history.md)和[条件发射](conditional-emission.md)。
 - `order TEXT` 一次提交一条 Input，直接创建拥有分支/worktree 的指令 Worker；不创建 planner/scheduler，也不匹配旧 `input_routes`。引用作为输入附件保留，不混进正文。
 - main 的持久根 Worker 平时静息；其它本地父分支需要显式绑定所有者。Worker从父分支已提交 tip 创建，不能带上未提交工作。普通指令即使只回答问题也有 worktree。
 - 每个新 Worker 与 Agent 一对一；子 Worker 有自己的分支与固定起点，父子关系始终表达委派。当前 version 2 交付由父 Worker 自有队列的 runtime 串行 Squash（含 main），不创建 merge Worker、不改 `parent_id`、不额外调用父 Agent 或要求 `worker.integrate`。

@@ -6,7 +6,10 @@ lush [--project PATH] [--json] <command>
   status                             项目与 Worker 状态
   host start|stop|restart|status [PORT]  整机 Lush Host（Web 工作台入口）
 
-  order '目标' [--branch NAME] [--profile-file PATH] [--defer]  提交指令；--defer 授权父冻结时挂载预约发射
+  order '目标' [--branch NAME] [--profile-file PATH] [--defer]  发射：可靠挂载，父 runtime 空闲时创建并开始；--defer 保留兼容
+    [--after-settled ID|Wn] [--after-merged ID|Wn] [--quiet] [--exclusive]  条件全部满足后准入；Worker 条件可重复
+    [--append ID|Wn] [--buffer]  追加输入也可暂存或条件发射；--buffer 仅保存，不调用 Agent
+  order '管理需求' --management [--profile-file PATH]  当前项目管理 Agent；危险操作须用户确认，不创建开发 Worker
   worker list|tree|inspect ID         查看 Worker
   worker spawn '目标' --parent ID [--name NAME]  在指令/child 下派 agent 子 Worker
   worker auto-title '标题'           为自身生成一次自动标题（仅活动指令/子 Agent）
@@ -96,11 +99,11 @@ lush [--project PATH] [--json] <command>
   config ... / agent ... --scope device  可选设备 scope；省略仍选设备，project 覆盖已停用
 
 Worker ID 可用原整数或稳定编号 W5 / W5-1；编号由 daemon 解析，不是整数 ID。
-新输入按现有序列显示 O5，对应新指令 W5；派生子 Worker 为 W5-1，历史 Worker 编号不改。
+实际新建的原始输入显示 O5，对应新指令 W5；挂载未创建及追加不造 O；派生子 Worker 为 W5-1，历史编号不改。
 输入与子 Worker 编号允许跳号且不复用；分页游标、Notice ID 仍为整数。
 
-新指令只走 order；旧 Intent/Plan/Candidate、展示、介绍、托管、草稿和批量合并不再提供 API。
+新指令只走 order；旧 Intent/Plan/Candidate、展示、介绍、托管、旧草稿命令和旧批量合并入口不再提供。
 Hook 配置与读面为用户专属；JSON 文件须为 owner-only 普通文件。写入前先读取对应 revision，多标签过期版本拒绝。
-预约只保存授权参数，不创建 Worker / worktree；父可创建时才发射，按启动设置调用 Agent，可能耗时并消耗 token。
+发射先保存输入及授权收据，不保证立即创建 Worker / worktree；条件满足且父安全准入后才创建并开始，可能耗时并消耗 token。
 旧数据不迁移；仅用户明确确认 worker delete 时清除所选 Worker 的专属历史与资源。
 `;

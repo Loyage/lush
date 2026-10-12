@@ -93,6 +93,7 @@ export default {
     if (!this.refreshRuntimeConfiguration()) return;
     this.releaseQueuedInputs();
     this.observeTaskHooks();
+    this.scheduleInputEmissions();
     this.scheduleTaskCompletion();
     for (const taskId of this.taskSyncWakePending ?? []) if (!this.taskSyncBusy?.has(taskId)) {
       this.taskSyncWakePending.delete(taskId);
@@ -115,6 +116,7 @@ export default {
     };
     for (const task of queued) {
       if (!['order','child','management','integration'].includes(task.task_kind)) continue; // Old tasks stay untouched on disk.
+      if (['order','child'].includes(task.task_kind) && this.inputExclusiveReason(task)) continue;
       if (task.task_kind === 'management' && !this.managementReady(task)) continue;
       if (task.task_kind === 'integration' && !this.convergenceIntegrationReady?.(task)) continue;
       if (['main','owner','merge'].includes(task.task_kind)) continue; // Bound parent roots and merge orchestration do not run unrestricted providers.

@@ -8,7 +8,7 @@ const submitCalls = [];
 const dom = installDom({ fetch: async (url, options) => {
   if (String(url) === '/api/action') {
     const body = JSON.parse(options.body);
-    if (body.method === 'order.submit') {
+    if (body.method === 'input.emit') {
       submitCalls.push(body);
       if (pending) await pending.promise;
       if (fail) return Response.json({ error: 'send failed' }, { status: 400 });
@@ -42,10 +42,11 @@ test('Web 直接发送只发当前正文：防重复、保留并发编辑与其�
   dom.node('input').value = 'new thought';
   pending.resolve(); await sent; pending = null;
   expect(submitCalls).toHaveLength(1);
-  expect(submitCalls[0]).toEqual({ method: 'order.submit', params: { content: 'small fix', references: [], start: false, branch: 'release/next' } });
+  expect(submitCalls[0]).toMatchObject({ method: 'input.emit', params: { content: 'small fix', references: [], branch: 'release/next' } });
+  expect(submitCalls[0].params).not.toHaveProperty('start');
   expect(dom.node('input').value).toBe('new thought');
   expect(world.state.drafts.map(row => row.id)).toEqual([11]);
-  expect(dom.node('error').textContent).toContain('待开始');
+  expect(dom.node('error').textContent).toContain('等待安全准入');
   await overview(); // The prior send opened its Worker; explicitly return to new-Worker mode.
   fail = true;
   await dom.node('input-form').onsubmit({ preventDefault() {} });

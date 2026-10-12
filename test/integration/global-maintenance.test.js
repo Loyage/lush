@@ -8,7 +8,7 @@ import { serviceRestartControls } from '../../src/ui/web/assets/service-restart.
 import { isLocked } from '../../src/daemon/locking.js';
 import { installDom, deepText } from '../dom-stub.js';
 import { temp, repo, env } from '../helpers.js';
-import { cli, idle } from './harness.js';
+import { cli, idle, emittedTask } from './harness.js';
 import { fetch } from '../web/harness.js';
 
 async function interruptionComplete(client) {
@@ -76,7 +76,9 @@ test('全局中断→项目后台重启→全部继续真实双daemon，保留�
     const queued = [], staged = [];
     for (const client of clients.slice(0, 2)) {
       expect((await client.request('system.summary')).maintenance).toMatchObject({ paused: true, ready_to_restart: true });
-      queued.push((await client.request('order.submit', { content: 'queued during global maintenance' })).task);
+      const receipt = await client.request('order.submit', { content: 'queued during global maintenance' });
+      expect(receipt).toMatchObject({ emitted: true, dispatch: { state: 'queued' } }); expect(receipt.task).toBeUndefined();
+      queued.push(receipt);
       staged.push((await client.request('order.submit', { content: 'do not start staged', start: false })).task);
     }
     for (let i = 0; i < 2; i++) {
@@ -86,14 +88,16 @@ test('全局中断→项目后台重启→全部继续真实双daemon，保留�
       expect(summary.pid).not.toBe(before[i].pid);
       expect(summary.maintenance).toMatchObject({ paused: true, batch_id: batches[i].batch_id,
         completion_state: 'completed', completion_notice_id: batches[i].completion_notice_id });
-      expect(await clients[i].request('worker.inspect', { id: queued[i].id })).toMatchObject({ status: 'queued', calls: 0 });
+      expect(await clients[i].request('input.get', { kind: 'draft', id: queued[i].draft_id })).toMatchObject({ dispatch: { state: 'queued' }, task_id: null });
+      expect((await clients[i].request('worker.list')).filter(task => task.goal === 'queued during global maintenance')).toHaveLength(0);
     }
     await button('resume').onclick(); expect(deepText(section.root)).toContain('请求已接受');
     for (let i = 0; i < 2; i++) {
       expect((await clients[i].request('system.summary')).maintenance).toMatchObject({
         paused: false, batch_id: batches[i].batch_id, completion_state: 'cancelled', completion_notice_id: null,
       });
-      expect((await idle(clients[i], queued[i].id)).calls).toBe(1);
+      const task = await emittedTask(clients[i], queued[i]);
+      expect((await idle(clients[i], task.id)).calls).toBe(1);
       expect(await clients[i].request('worker.inspect', { id: staged[i].id })).toMatchObject({ status: 'paused', calls: 0 });
     }
     expect(isLocked(configs[2].home)).toBe(false);

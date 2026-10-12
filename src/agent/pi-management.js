@@ -1,4 +1,4 @@
-/** Trusted Pi extension: three management tools, no model-controlled command or RPC method. */
+/** Trusted Pi extension: isolated management tools; capability calls remain policy-gated in the daemon. */
 import cp from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,7 +6,8 @@ import { managementInvocation, validateManagementRPC } from './management-rpc.js
 import { builtInPrompt } from './prompts.js';
 
 const HELPER = fileURLToPath(new URL('./management-rpc.js', import.meta.url));
-export const MANAGEMENT_TOOL_NAMES = Object.freeze(['manager_query', 'manager_start', 'manager_retry']);
+export const MANAGEMENT_TOOL_NAMES = Object.freeze(['manager_query', 'manager_start', 'manager_retry',
+  'manager_catalog', 'manager_history', 'manager_call']);
 const workerSchema = { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'string', pattern: '^W[1-9][0-9]*(?:-[1-9][0-9]*)*$' }],
   description: '当前项目 Worker 的内部整数 ID 或精确持久编号（如 W117、W117-1），不能猜测编号。' };
 const MAX_OUTPUT = 256 * 1024;
@@ -103,6 +104,34 @@ export function registerManagementTools(pi, request = managementRPCRequest, env 
       },
     });
   }
+  const resultView = result => {
+    const text = JSON.stringify(result);
+    if (typeof text !== 'string' || Buffer.byteLength(text) > MAX_OUTPUT) throw new Error('management response exceeds its bound');
+    return { content: [{ type: 'text', text }], details: result };
+  };
+  pi.registerTool({ name: 'manager_catalog', label: '管理能力目录', exposure: 'model-only',
+    description: '列出当前 Lush 全部公开功能及可自动执行、需用户确认、不可用的真实边界；目录不是授权。',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    async execute(_id, params, signal) { return resultView(await call('manager.catalog', params, signal)); },
+  });
+  pi.registerTool({ name: 'manager_history', label: '运行优化诊断材料', exposure: 'model-only',
+    description: '分页读取项目调用状态、耗时、模型与事件数量，供流程优化诊断；不读取原始工具参数、输出、提示词或凭证。',
+    parameters: { type: 'object', properties: { id: { type: 'integer', minimum: 1 }, before: { type: 'integer', minimum: 1 },
+      limit: { type: 'integer', minimum: 1, maximum: 100 } }, additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    async execute(_id, params, signal) { return resultView(await call('manager.history', params, signal)); },
+  });
+  pi.registerTool({ name: 'manager_call', label: '提交受控管理操作', exposure: 'model-only',
+    description: '调用目录中经过审核的当前项目管理能力。危险操作只提交精确用户确认请求，不执行授权；模型不可自行批准。设备设置须用户指令和 scope 参数明确指定。返回 unknown 不重放。',
+    parameters: { type: 'object', properties: { method: { type: 'string', maxLength: 128 },
+      params: { type: 'object', description: '目录中所选能力的参数；不传 token、凭证、环境变量或私有 Prompt。' },
+      request_id: { type: 'string', minLength: 1, maxLength: 128 } }, required: ['method','params'], additionalProperties: false },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    async execute(toolCallId, params, signal) {
+      return resultView(await call('manager.call', { ...params, request_id: params.request_id ?? toolCallId }, signal));
+    },
+  });
   const restrict = () => pi.setActiveTools([...MANAGEMENT_TOOL_NAMES]);
   pi.on('session_start', restrict);
   pi.on('before_agent_start', () => {
@@ -113,7 +142,7 @@ export function registerManagementTools(pi, request = managementRPCRequest, env 
   });
   // Even a malicious/resumed model tool call cannot reach an inactive built-in or nested tool.
   pi.on('tool_call', event => {
-    if (!MANAGEMENT_TOOL_NAMES.includes(event.toolName)) return { block: true, reason: '管理型 Agent 只允许查询、开始／继续和重试失败工具。' };
+    if (!MANAGEMENT_TOOL_NAMES.includes(event.toolName)) return { block: true, reason: '管理型 Agent 只允许可信管理工具，不开放文件、Shell 或未审核 RPC。' };
   });
 }
 

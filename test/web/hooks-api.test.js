@@ -216,23 +216,28 @@ test('order.submit HTTP explicitly forwards defer, start and profile without cre
   const result = { deferred: true, parent_id: 1, hook_id: 'deferred-1', hooks: workerView };
   f.project.order = (...args) => { calls.push(args); return result; };
   f.project.submitBufferedDraft = (...args) => { calls.push(args); return result; };
+  const emission = { emitted: true, draft_id: 2, mode: 'order', dispatch: { state: 'queued' } };
+  f.project.emitBufferedInput = options => { calls.push(options); return emission; };
   try {
     const profile = { agent: 'pi', config_mode: 'pi' };
     const response = await post(f.url, 'order.submit', { content: 'goal', branch: 'main', start: false, profile, defer: true });
     expect(response.status).toBe(200); expect(await response.json()).toEqual(result);
     expect(calls[0]).toEqual(['goal','main',[],null,false,undefined,profile,true]);
     expect((await post(f.url, 'order.submit', { draft_id: 2, expected_revision: 3, defer: true })).status).toBe(200);
-    expect(calls[1]).toEqual([2,3,true,true,null]);
+    expect(calls[1]).toEqual({ draft_id: 2, expected_revision: 3 });
     const deferredDraft = await post(f.url, 'order.submit', { draft_id: 2, expected_revision: 3, profile, start: false, defer: true });
     expect(deferredDraft.status).toBe(200); expect(await deferredDraft.json()).toEqual(result);
     expect(calls[2]).toEqual([2,3,false,true,profile]);
-    expect((await post(f.url, 'order.submit', { draft_id: 2, expected_revision: 3, profile })).status).toBe(400);
-    expect((await post(f.url, 'order.submit', { draft_id: 2, expected_revision: 3, profile, defer: false })).status).toBe(400);
+    const emitted = await post(f.url, 'order.submit', { draft_id: 2, expected_revision: 3, profile });
+    expect(emitted.status).toBe(200); expect(await emitted.json()).toEqual(emission);
+    expect(calls[3]).toEqual({ draft_id: 2, expected_revision: 3, profile });
+    expect((await post(f.url, 'order.submit', { draft_id: 2, expected_revision: 3, profile, start: false })).status).toBe(400);
+    expect((await post(f.url, 'order.submit', { draft_id: 2, expected_revision: 3, profile, start: false, defer: false })).status).toBe(400);
     expect((await post(f.url, 'order.submit', { draft_id: 2, expected_revision: 3, profile: [], defer: true })).status).toBe(400);
     expect((await post(f.url, 'order.submit', { draft_id: 2, expected_revision: 3, content: 'changed', profile, defer: true })).status).toBe(400);
     expect((await post(f.url, 'order.submit', { content: 'goal', defer: 'true' })).status).toBe(400);
     expect((await post(f.url, 'order.submit', { content: 'goal', defer: true, _token: 'agent' })).status).toBe(400);
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(4);
   } finally { await f.close(); }
 });
 

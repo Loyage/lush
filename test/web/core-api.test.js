@@ -29,7 +29,9 @@ test('Web exposes order and worker reads, not legacy mutations or pages', async 
     expect((await fetch(f.url + '/api/graph')).status).toBe(404);
     expect((await fetch(f.url + '/api/overview')).status).toBe(200);
     expect((await fetch(f.url + '/api/snapshot')).status).toBe(200);
-    const sent = await post('order.submit', { content: '新目标' });
+    // Exercise the explicit compatibility creation path here; durable emission
+    // and delayed Worker admission have their own runtime/HTTP integration tests.
+    const sent = await post('order.submit', { content: '新目标', start: false });
     expect(sent.status).toBe(200);
     const created = await sent.json();
     expect(created.task.task_kind).toBe('order');

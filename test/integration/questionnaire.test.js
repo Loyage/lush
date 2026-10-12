@@ -4,7 +4,7 @@ import path from 'node:path';
 import { temp, env, repo, until } from '../helpers.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
-import { cli, idle } from './harness.js';
+import { cli, idle, emittedTask } from './harness.js';
 import { bindMockPiSource } from './pi-runtime-fixture.js';
 
 // A real process that intentionally never exits after posting: runtime, not model compliance, must stop it.
@@ -29,8 +29,9 @@ if (context.task.calls === 1) {
     await repo(root);
     await cli(root, ['start'], { LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake });
     await bindMockPiSource(root);
-    const { task } = await cli(root, ['order', 'choose a layout']);
+    const receipt = await cli(root, ['order', 'choose a layout']);
     let client = new UIClient(Config.fromEnv(env(), root));
+    const task = await emittedTask(client, receipt);
     let waiting;
     for (let i = 0; i < 400; i++) {
       waiting = await client.request('worker.inspect', { id: task.id });

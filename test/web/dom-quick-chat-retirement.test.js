@@ -65,12 +65,12 @@ test('退役后暂存、新建与显式追加仍走原有普通通道，引用�
   await buffer(); expect(world.state.actions.at(-1)).toMatchObject({ method: 'draft.add', params: { content: '先暂存', references: [reference] } });
   input.value = '新建指令'; input.oninput();
   await dom.node('input-form').onsubmit({ preventDefault() {} });
-  expect(world.state.actions.at(-1)).toMatchObject({ method: 'order.submit', params: { content: '新建指令', start: false } });
+  expect(world.state.actions.at(-1)).toMatchObject({ method: 'input.emit', params: { content: '新建指令' } });
   activateDetailView({ view: 'task' }); ui.selected = 1;
   appendToWorker({ id: 1, worker_number: 'W1', task_kind: 'order', status: 'waiting', branch: 'lush/1-x' });
   expect(dom.node('input-form').dataset.mode).toBe('append'); input.value = '继续开发'; input.oninput();
   await dom.node('input-form').onsubmit({ preventDefault() {} });
-  expect(world.state.actions.at(-1)).toMatchObject({ method: 'worker.message', params: { id: 1, body: '继续开发' } });
+  expect(world.state.actions.at(-1)).toMatchObject({ method: 'input.emit', params: { mode: 'append', target_id: 1, content: '继续开发' } });
   expect(dom.node('input-form').dataset.mode).toBe('create'); expect(calls.some(retiredRequest)).toBe(false);
 });
 

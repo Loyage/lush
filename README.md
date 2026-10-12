@@ -47,7 +47,8 @@ Host 不进行跨项目调度。共享同一份 Lush 代码的不同项目互不
 
 ## 一条输入怎么走
 
-- **暂存与回看**：Enter 把想法保存到项目缓冲区，Shift+Enter 换行；在「历史输入」中搜索原始指令、编辑暂存并逐条发射。暂存不创建 Worker，也不调用 Agent。见[历史输入与暂存](docs/input-history.md)。
+- **暂存与条件发射**：新建与追加均可暂存、编辑、条件发射；发射先可靠挂载，条件满足且安全准入后才创建／投递，不保证立即有 Worker。可等待 Worker 收尾、成果进入 main、彻底静息，并另选独占开发。见[历史输入与暂存](docs/input-history.md)。
+- **管理 Lush**：显式管理输入安排隔离管理 Agent，诊断当前项目运行摘要、管理草稿和条件；危险操作必须用户确认，不创建开发 Worker、不提供任意文件／Shell 工具。
 - **发送**：「发送」或 Ctrl/⌘+Enter 只提交输入框里这一条，创建有独立分支与 worktree 的待开始 Worker；Ctrl/⌘+Shift+Enter 创建并立即开始。不走旧 planner 或快速路由。
 - **静息与唤醒**：Agent 一轮结束后 Worker 静息但不终结；新消息、子Worker结算或用户追加说明会唤醒同一个 Worker（用户追加说明时会在本轮工具结束后收口，不打断正在执行的命令）。
 - **交付**：你直接说的话对应的指令 Worker 默认关闭自动合并，可在开发时勾选「自动合并」（跨轮保留），或在就绪后点击「合并」；Agent 派出的新 child 默认开启且不可关闭自动合并，无需逐个操作。安全点固定源提交后由父 Worker 自有队列的 runtime 串行 Squash，不创建 merge Worker、不改变父子关系，也不额外调用父 Agent。分歧由原 Worker 合入固定父基线，修复期间保留父执行位；挂起后恢复重新排队。无提交的干净 child 直接交付结果等父确认。`completed` 不等于已合并；落地后暂时保留分支和工作区供继续开发；**验收即归档**，表示对工作不再有异议，安全回收 worktree 与本地分支、保留完整运行历史。脏现场阻止验收，失败／取消现场另用「清理资源」。
@@ -71,6 +72,6 @@ Host 本机也必须登录；缺少对应作用域的 `web.json` 时拒绝启动
 
 - [文档总览](docs/README.md)：完整文档地图与推荐阅读顺序。
 - [一条指令输入如何交付](docs/task-flow.md)：当前输入与交付流程。
-- [Worker 中心输入](docs/engineering/task-centered-input-design.md)：指令 / 子Worker / 预约的设计边界。
+- [Worker 中心输入](docs/engineering/task-centered-input-design.md)：指令 / 子Worker 的设计边界；[条件发射](docs/engineering/conditional-emission.md)记录挂载、安全准入及独占。
 - [核心 API 收敛](docs/engineering/core-api.md)：当前公开接口和旧数据边界。
 - [核心架构](docs/core-architecture.md)：Worker、Agent 与 Git 交付边界。

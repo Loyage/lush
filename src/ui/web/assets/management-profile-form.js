@@ -42,7 +42,7 @@ export function createManagementProfileForm(settings, { ownsPage = () => true } 
   model.setAttribute('aria-label', '管理 Agent 模型名称');
   picker.actions.append(fill);
   managed.append(picker.node, field('管理 Agent 思考深度', thinking));
-  node.append(field('管理 Agent 配置模式', mode), el('p', '管理 Agent 使用独立提示词及查询／开始／重试工具，不加载开发 Prompt、扩展、Skills 或环境变量。仅支持 Pi 后端；可在 Pi 中选择 Codex 模型来源。管理来源与目标 Worker 的账号独立，不自动切换账号。', 'hint'), managed,
+  node.append(field('管理 Agent 配置模式', mode), el('p', '管理 Agent 使用独立提示词及可信项目管理工具；取消、删除、回收和敏感设置等危险操作须用户确认。不加载开发 Prompt、扩展、Skills 或环境变量。仅支持 Pi 后端；可在 Pi 中选择 Codex 模型来源。管理来源与目标 Worker 的账号独立，不自动切换账号。', 'hint'), managed,
     el('p', 'Pi 默认配置模式使用执行机器的模型与认证，但仍限制为管理工具，不继承开发上下文。此表单只保存后续调用设置，不立即调用 Agent。', 'hint'));
   mode.onchange = applyMode; applyMode(); picker.sync();
   return { node, picker, ready: Promise.resolve(),

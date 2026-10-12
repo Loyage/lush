@@ -4,7 +4,7 @@ import { detail } from './navigate.js';
 import { confirmDialog } from './dialog.js';
 import { show, clear } from './messages.js';
 import { agentHelp } from './help.js';
-import { absolute } from './format.js';
+import { absolute, noticeNumber } from './format.js';
 import { workerLabel } from './worker-label.js';
 import { browserTimezone, hookSchedule, hookScheduleSummary, scheduledWallTime } from './hook-schedule.js';
 import { createManagementProfileForm } from './management-profile-form.js';
@@ -283,9 +283,10 @@ export function renderSignalManagement({ catalogue, editor, managerEditor = edit
     }
     head.append(badge(binding.mode === 'persistent' ? '持续' : '一次性'), badge(binding.enabled ? '授权启用' : '授权停用'), badge(label(binding.state)));
     const source = signals.find(item => item.id === binding.signal_id);
-    card.append(el('p', `绑定信号：${source?.name || '原信号已移除'}${source && !source.enabled ? '（信号停用）' : ''}`, 'hint'));
+    card.append(el('p', binding.origin === 'input' ? '来源：即时管理输入，不等待时间信号。'
+      : `绑定信号：${source?.name || '原信号已移除'}${source && !source.enabled ? '（信号停用）' : ''}`, 'hint'));
     if (binding.reason) card.append(el('p', binding.reason, ['failed', 'unknown'].includes(binding.state) ? 'error' : 'hint'));
-    if (binding.pending_signal) card.append(el('p', `已提交信号 #${binding.pending_signal.id || binding.pending_signal.occurrence_id || '?'}：${instant(binding.pending_signal.due_at, source?.schedule?.timezone)}；等待槽或安全点，不保证准点开跑。`, 'hint'));
+    if (binding.pending_signal) card.append(el('p', `${binding.origin === 'input' ? '已提交管理输入' : '已提交信号'} #${binding.pending_signal.id || binding.pending_signal.occurrence_id || '?'}：${instant(binding.pending_signal.due_at, source?.schedule?.timezone)}；等待槽或安全点，不保证准点开跑。`, 'hint'));
     const last = binding.last_execution;
     if (last) card.append(el('p', `最近处理：${label(last.status)} · ${absolute(last.finished_at || last.started_at || last.submitted_at || last.created_at || last.due_at)}`, 'hint'),
       ...(last.reason || last.error ? [el('p', last.reason || last.error, 'hint')] : []));
@@ -299,6 +300,15 @@ export function renderSignalManagement({ catalogue, editor, managerEditor = edit
       const count = Number.isSafeInteger(execution.actions_count) && execution.actions_count >= displayed.length
         ? `显示 ${displayed.length} / ${execution.actions_count} 项` : '仅显示部分';
       card.append(el('p', `操作摘要：${count}；完整操作记录请查看下方详情与调用历史。`, 'hint management-actions-truncated'));
+    }
+    const capabilities = execution?.control_calls || [], shownCapabilities = capabilities.slice(0, 32);
+    const capabilityStates = { pending_confirmation: '待用户确认（尚未执行）', approved: '授权已通过，等待安全点',
+      running: '正在执行', succeeded: '已执行', rejected: '未获授权', failed: '未执行，预检或授权已变化', unknown: '结果待核验，不自动重放' };
+    for (const receipt of shownCapabilities) card.append(el('p', `管理能力 ${receipt.method}：${capabilityStates[receipt.status] || '状态未知'}${Number.isSafeInteger(receipt.notice_id) ? ` · 确认提醒 ${noticeNumber({ id: receipt.notice_id })}` : ''}${receipt.reason ? ` · ${receipt.reason}` : ''}`, 'hint'));
+    if (execution?.control_calls_truncated || capabilities.length > shownCapabilities.length) {
+      const count = Number.isSafeInteger(execution.control_calls_count) && execution.control_calls_count >= shownCapabilities.length
+        ? `显示 ${shownCapabilities.length} / ${execution.control_calls_count} 项` : '仅显示部分';
+      card.append(el('p', `管理能力摘要：${count}；完整记录请查看下方详情与调用历史。`, 'hint management-capabilities-truncated'));
     }
     if (task.model_selection) card.append(el('p', `管理调用来源：${task.model_selection.config_mode === 'pi' ? '执行机器 Pi 默认配置' : [task.model_selection.agent, task.model_selection.connection_id && `来源 ${task.model_selection.connection_id}`, task.model_selection.model, task.model_selection.thinking].filter(Boolean).join(' · ') || '已固定角色默认'}`, 'hint'));
     const controls = el('div', undefined, 'actions');

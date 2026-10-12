@@ -217,6 +217,39 @@ test('分支观测与未归因移动不冒充写入者证明，历史事件名�
   expect(eventLabel({ type: 'invocation.target_branch_moved' })).toBe('目标分支被越过交付直接推进');
 });
 
+test('即时管理与受控能力新事件区分提交/授权/执行，未知不冒充失败或重放', () => {
+  for (const type of ['input_submitted', 'capability_requested', 'capability_confirmation',
+    'capability_started', 'capability_completed', 'capability_failed'].map(name => `management.${name}`)) {
+    expect(Object.hasOwn(EVENTS, type)).toBe(true); expect(eventLabel({ type })).toMatch(/[\u4e00-\u9fff]/);
+  }
+  expect(eventLabel({ type: 'management.input_submitted' })).toContain('待调用');
+  expect(eventLabel({ type: 'management.capability_requested' })).not.toContain('已执行');
+  expect(eventLabel({ type: 'management.capability_confirmation' })).toContain('不代表已执行');
+  const source = Object.freeze({ type: 'management.capability_failed', data: Object.freeze({ status: 'unknown', receipt_id: 42 }) });
+  expect(eventLabel(source)).toContain('待核验'); expect(eventLabel(source)).toContain('不自动重放');
+  expect(source.data.status).toBe('unknown'); expect(source.data.receipt_id).toBe(42);
+});
+
+test('条件发射七类事件中文命名区分挂载/派发，不冒充Agent执行或验收', () => {
+  const types = ['emitted', 'condition_satisfied', 'dispatch_started', 'dispatch_succeeded',
+    'dispatch_failed', 'emission_cancelled', 'exclusive_released'].map(type => `input.${type}`);
+  for (const type of types) {
+    const source = Object.freeze({ type, data: Object.freeze({ draft_id: 42, input_id: 8, worker_id: 700 }) });
+    expect(Object.hasOwn(EVENTS, type)).toBe(true); expect(eventLabel(source)).toMatch(/[\u4e00-\u9fff]/);
+    expect(eventLabel(source)).not.toBe(eventLabel({ type: 'invocation.inputs_delivered' }));
+    expect(eventLabel(source)).not.toBe(eventLabel({ type: 'task.accepted' }));
+    expect(source.type).toBe(type); expect(source.data.draft_id).toBe(42);
+  }
+  expect(eventLabel({ type: 'input.emitted' })).toContain('可靠挂载');
+  expect(eventLabel({ type: 'input.emitted' })).toContain('不代表已创建');
+  expect(eventLabel({ type: 'input.condition_satisfied' })).toContain('信号已满足');
+  expect(eventLabel({ type: 'input.dispatch_started' })).toContain('准入');
+  expect(eventLabel({ type: 'input.dispatch_succeeded' })).toContain('派发');
+  expect(eventLabel({ type: 'input.dispatch_failed' })).toContain('失败');
+  expect(eventLabel({ type: 'input.emission_cancelled' })).toContain('未执行');
+  expect(eventLabel({ type: 'input.exclusive_released' })).toContain('占用已释放');
+});
+
 test('暂存和解除暂存不冒充 Agent 已收到追加输入', () => {
   expect(eventLabel({ type: 'task.input_buffered' })).toBe('追加输入已暂存，等待投递');
   expect(eventLabel({ type: 'task.input_released' })).toBe('追加输入已解除暂存，等待 Agent 接收');

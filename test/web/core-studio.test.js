@@ -19,8 +19,15 @@ test('固定项目工作页在核心 API 下可加载、发送指令并打开 Wo
   expect(deepText(dom.node('detail'))).toContain('WORKER / 目标与交付');
   expect(deepText(dom.node('detail'))).not.toContain('TASK /');
   expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(2);
+  f.project.stopping = true;
   dom.node('input').value = '从原界面发送目标';
   await dom.node('input-form').onsubmit({ preventDefault() {} });
+  expect(dom.node('error').textContent).toContain('尚不代表 Worker 已创建或开始');
+  expect(f.store.all("SELECT id FROM tasks WHERE task_kind='order'")).toHaveLength(0);
+  const mounted = (await (await localFetch(f.url + '/api/inputs')).json()).items.find(row => row.kind === 'draft');
+  expect(mounted.dispatch.state).toBe('queued');
+  f.project.stopping = false; await f.project.drainInputEmissions();
+  expect(f.project.inputEmissionResult(mounted.id).dispatch.state).toBe('succeeded');
   const overview = await (await localFetch(f.url + '/api/overview')).json();
   const task = overview.tasks.find(row => row.goal === '从原界面发送目标');
   expect(task?.task_kind ?? dom.node('error').textContent).toBe('order');

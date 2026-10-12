@@ -89,7 +89,7 @@ for (const [method, params, target] of mutations) {
 test('order.submit and worker.inspect use the same final output boundary', async () => {
   const rawTask = row(), rawInspect = row(publicHooks);
   const result = { id: 1, content: 'goal', task: rawTask, nested: { child: rawTask } };
-  const p = { actor: () => null, order: () => result, inspect: () => rawInspect };
+  const p = { actor: () => null, emitBufferedInput: () => result, inspect: () => rawInspect };
   const dispatcher = new Dispatcher(p);
   const order = await dispatcher.dispatch('order.submit', { content: 'goal' });
   assertPrivateAbsent(order); expect(order.task).toEqual(order.nested.child);

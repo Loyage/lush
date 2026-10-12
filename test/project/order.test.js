@@ -394,9 +394,11 @@ test('order.submit is user-only and the legacy input.submit path remains closed'
     // Buffered draft submission cannot override the saved body or ownership.
     await expect(dispatcher.dispatch('order.submit', { content: 'x', draft_id: 1 })).rejects.toThrow('cannot be combined');
     await expect(dispatcher.dispatch('input.submit', { content: 'legacy request' })).rejects.toThrow('unknown method');
-    const sent = await dispatcher.dispatch('order.submit', { content: 'new request' });
-    expect(sent.task.task_kind).toBe('order');
-    expect(sent.content).toBe('new request');
+    const mounted = await dispatcher.dispatch('order.submit', { content: 'new request' });
+    expect(mounted).toMatchObject({ emitted: true, mode: 'order', dispatch: { state: 'queued' } });
+    expect(mounted.task).toBeUndefined();
+    expect(f.project.inputGet('draft', mounted.draft_id).content).toBe('new request');
+    expect(f.store.all('SELECT * FROM inputs')).toHaveLength(0);
     await expect(dispatcher.dispatch('order.submit', { content: 'bad', _token: 'fake' })).rejects.toThrow();
   } finally { await f.close(); }
 });

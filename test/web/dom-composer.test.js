@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from 'bun:test';
-import { installDom } from './project-dom.js';
+import { installDom, dialogButton } from './project-dom.js';
 import { until } from '../helpers.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 import { editorEvent, editorInput } from './text-editor-events.js';
@@ -94,19 +94,15 @@ test('引用卡片始终可见，1.5s 轮询不改变输入区折叠态', async 
   setComposerReferences([]);
 });
 
-test('⌘/Ctrl+Enter 创建待开始，⌘/Ctrl+Shift+Enter 直接运行', async () => {
-  const lastSend = () => [...world.state.actions].reverse().find(row => row.method === 'order.submit');
-  const fire = async (shift, content) => {
-    await overview();
-    dom.node('input').value = content;
-    dom.node('input').oninput({});
-    await dom.node('input').onkeydown({ key: 'Enter', metaKey: true, shiftKey: shift, isComposing: false, preventDefault() {} });
-    await until(() => lastSend()?.params.content === content && !ui.composerSubmitting);
-  };
-  await fire(false, '先暂存的目标');
-  expect(lastSend().params.start).toBe(false);
-  await fire(true, '立即运行的目标');
-  expect(lastSend().params.start).toBe(true);
+test('⌘/Ctrl+Enter 可靠发射，⌘/Ctrl+Shift+Enter 打开条件发射', async () => {
+  await overview(); dom.node('input').value = '等待安全准入'; dom.node('input').oninput({});
+  await dom.node('input').onkeydown({ key: 'Enter', metaKey: true, preventDefault() {} });
+  const last = world.state.actions.findLast(row => row.method === 'input.emit');
+  expect(last.params.content).toBe('等待安全准入'); expect(last.params).not.toHaveProperty('start');
+  dom.node('input').value = '条件选择'; dom.node('input').oninput({});
+  const pending = dom.node('input').onkeydown({ key: 'Enter', metaKey: true, shiftKey: true, preventDefault() {} });
+  expect(dialogButton(dom, '条件发射')).toBeTruthy();
+  await dialogButton(dom, '取消').onclick(); await pending; expect(dom.node('input').value).toBe('条件选择');
 });
 
 test('真实 refresh 慢 overview：确认立即清空解锁，继续暂存与输入不被旧创建导航抢走', async () => {
@@ -165,9 +161,9 @@ test('真实 refresh：创建及立即开始不读取新 Worker 详情、不跳�
   intercept = url => { if (url === '/api/worker/99') reads++; };
   try {
     const view = ui.view, hash = dom.location.hash;
-    for (const shiftKey of [false, true]) {
+    for (const ctrlKey of [false, true]) {
       dom.node('input').value = '发射不打开 detail'; dom.node('input').oninput(); dom.node('input').focus();
-      await dom.node('input').onkeydown({ key: 'Enter', ctrlKey: true, shiftKey, preventDefault() {} });
+      await dom.node('input').onkeydown({ key: 'Enter', ctrlKey, metaKey: !ctrlKey, preventDefault() {} });
       await until(() => !ui.busy); await Promise.resolve();
       expect(ui.composerSubmitting).toBe(false); expect(dom.node('input').value).toBe('');
       expect(ui.view).toBe(view); expect(dom.location.hash).toBe(hash); expect(ui.selected).toBeNull();

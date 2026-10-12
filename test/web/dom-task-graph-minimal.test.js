@@ -362,7 +362,7 @@ test('更多操作惰性创建，追加输入定向到底部且保留正文，�
   await dom.node('input-form').onsubmit({ preventDefault() {} });
   await loadTaskGraph();
   expect(deepText(card(2))).toContain('新标题');
-  expect(world.state.actions.at(-1)).toEqual({ method: 'worker.message', params: { id: 2, body: '继续实现' } });
+  expect(world.state.actions.at(-1)).toMatchObject({ method: 'input.emit', params: { mode: 'append', target_id: 2, content: '继续实现' } });
   expect(ui.view.id).toBe('task-graph');
   expect(dom.node('input-form').dataset.mode).toBe('create');
 });

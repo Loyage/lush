@@ -6,6 +6,7 @@ import { Config } from '../../src/config.js';
 import { PiProvider, CodexProvider, AgentProvider } from '../../src/agent/provider.js';
 import { AgentSettings } from '../../src/agent/settings.js';
 import { agentPrompt, builtInPrompt } from '../../src/agent/prompts.js';
+import { MANAGEMENT_TOOL_NAMES } from '../../src/agent/pi-management.js';
 import { saveNetworkConfiguration } from '../../src/agent/network.js';
 import { env, temp } from '../helpers.js';
 import { managedPiRun } from './managed-runtime-fixture.js';
@@ -15,7 +16,47 @@ const MANAGEMENT = fileURLToPath(new URL('../../src/agent/pi-management.js', imp
 
 function fixture() {
   const root = temp(), fake = path.join(root, 'fake-pi');
-  fs.writeFileSync(fake, `#!/usr/bin/env bun\nconsole.log(JSON.stringify({args:process.argv.slice(2),env:process.env}));\n`, { mode: 0o755 });
+  // Controlled CLI: load the actual trusted extension, apply the Provider's
+  // --tools selection, then observe its lifecycle tool sets. No model calls.
+  fs.writeFileSync(fake, `#!/usr/bin/env bun
+const args = process.argv.slice(2);
+const builtins = ['read','bash','write','edit','codemode','tool_search','mcp__shell__exec','untrusted_tool'];
+const tools = new Map(builtins.map(name => [name, { name }])), handlers = new Map();
+let active = [...builtins];
+const pi = {
+  registerTool(tool) { tools.set(tool.name, tool); },
+  on(name, handler) { handlers.set(name, handler); },
+  setActiveTools(names) { active = names.filter(name => tools.has(name)); },
+  getActiveTools() { return [...active]; },
+};
+const extensions = args.filter((_, i) => args[i - 1] === '--extension');
+if (extensions.includes(${JSON.stringify(MANAGEMENT)})) (await import(${JSON.stringify(MANAGEMENT)})).default(pi);
+const registered = [...tools.keys()].filter(name => !builtins.includes(name));
+const selection = args.indexOf('--tools');
+if (selection !== -1) pi.setActiveTools(args[selection + 1].split(','));
+const cliActive = pi.getActiveTools();
+await handlers.get('session_start')?.();
+const sessionActive = pi.getActiveTools();
+// A resumed session or another tool must not expand the next model's tools.
+pi.setActiveTools([...active, ...builtins]);
+const before = await handlers.get('before_agent_start')?.({ systemPrompt: 'UNTRUSTED OVERLAY' });
+const modelActive = pi.getActiveTools();
+const blocked = Object.fromEntries(await Promise.all(builtins.map(async toolName =>
+  [toolName, (await handlers.get('tool_call')?.({ toolName, parentToolCallId: 'resumed/nested' }))?.block === true])));
+const results = [];
+if (JSON.parse(process.env.LUSH_RUNTIME_CONTEXT).test_tools) {
+  for (const [name, params] of [
+    ['manager_catalog', {}], ['manager_history', { limit: 2 }],
+    ['manager_call', { method: 'worker.cancel', params: { id: 99 }, request_id: 'fixed-operation' }],
+  ]) {
+    if (!modelActive.includes(name) || (await handlers.get('tool_call')?.({ toolName: name }))?.block)
+      throw Error('requested management tool is inactive');
+    results.push((await tools.get(name).execute('probe-' + name, params, new AbortController().signal)).details);
+  }
+}
+console.log(JSON.stringify({ args, env: process.env, registered, cliActive, sessionActive, modelActive,
+  blocked, forcedSystemPrompt: before?.systemPrompt, results }));
+`, { mode: 0o755 });
   const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device'), LUSH_PROVIDER: 'pi', LUSH_PI_COMMAND: fake,
     LUSH_MANAGER_BUN: '/malicious-ambient-bun', LUSH_MANAGER_RPC_SOCKET: '/malicious-ambient-socket' }) }); config.prepare();
   return { root, config, options: { task: { id: 50, role: 'manager', task_kind: 'management', goal: '开始 W117' },
@@ -35,7 +76,12 @@ for (const mode of ['lush', 'pi']) test(`manager ${mode} uses an isolated system
       expect(result.args).toContain(flag);
     for (const flag of ['--append-system-prompt', '--fork', '--skill', '--no-tools']) expect(result.args).not.toContain(flag);
     expect(result.args.filter((_, i, a) => a[i - 1] === '--extension')).toEqual([RUNTIME, MANAGEMENT]);
-    expect(result.args[result.args.indexOf('--tools') + 1]).toBe('manager_query,manager_start,manager_retry');
+    expect(result.args[result.args.indexOf('--tools') + 1]).toBe(MANAGEMENT_TOOL_NAMES.join(','));
+    // Explicit names catch a shared constant accidentally regressing to the legacy three.
+    const expectedTools = ['manager_query','manager_start','manager_retry','manager_catalog','manager_history','manager_call'];
+    for (const names of [result.registered, result.cliActive, result.sessionActive, result.modelActive]) expect(names).toEqual(expectedTools);
+    expect(Object.values(result.blocked).every(Boolean)).toBe(true);
+    expect(result.forcedSystemPrompt).toBe(builtInPrompt('manager'));
     expect(result.args[result.args.indexOf('--session-id') + 1]).toBe(`lush-manager-50${mode === 'pi' ? '-pi' : ''}`);
     expect(result.args).not.toContain('/untrusted-ext'); expect(result.args).not.toContain('/untrusted-skill');
     expect(result.env.LUSH_AGENT_TOKEN).toBe('one-invocation-token');
@@ -49,6 +95,41 @@ for (const mode of ['lush', 'pi']) test(`manager ${mode} uses an isolated system
     if (mode === 'pi') { expect(result.args).not.toContain('--model'); expect(result.args).not.toContain('--thinking'); }
     else expect(result.args[result.args.indexOf('--model') + 1]).toBe('openai-codex/gpt-5.4');
   } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
+
+for (const mode of ['lush', 'pi']) test(`manager ${mode} Provider activates catalogue/history/call and reaches only its invocation-authenticated bridge`, async () => {
+  const f = fixture(), calls = [];
+  fs.mkdirSync(path.dirname(f.config.socket), { recursive: true });
+  const listener = Bun.listen({ unix: f.config.socket, socket: {
+    open(socket) { socket.data = ''; },
+    data(socket, data) {
+      socket.data += Buffer.from(data).toString();
+      const end = socket.data.indexOf('\n'); if (end < 0) return;
+      const request = JSON.parse(socket.data.slice(0, end)); socket.data = socket.data.slice(end + 1);
+      calls.push(request);
+      const result = request.method === 'manager.catalog' ? { methods: [{ method: 'worker.cancel', access: 'confirmation' }] }
+        : request.method === 'manager.history' ? { runs: [], cursor: null }
+        : { status: 'pending_confirmation', receipt_id: 17, notice_id: 18 };
+      socket.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }) + '\n');
+    },
+  } });
+  try {
+    const options = { ...f.options, context: { invocation: { run_id: 12, test_tools: true } } };
+    const configured = mode === 'lush' ? managedPiRun(options) : { ...options, agent: { ...options.agent, config_mode: 'pi' } };
+    const result = JSON.parse(await new PiProvider(f.config).run(configured));
+    expect(result.modelActive).toEqual([...MANAGEMENT_TOOL_NAMES]);
+    expect(calls.map(({ method, params }) => ({ method, params }))).toEqual([
+      { method: 'manager.catalog', params: { _token: 'one-invocation-token' } },
+      { method: 'manager.history', params: { limit: 2, _token: 'one-invocation-token' } },
+      { method: 'manager.call', params: { method: 'worker.cancel', params: { id: 99 }, request_id: 'fixed-operation', _token: 'one-invocation-token' } },
+    ]);
+    expect(result.results).toEqual([{ methods: [{ method: 'worker.cancel', access: 'confirmation' }] },
+      { runs: [], cursor: null }, { status: 'pending_confirmation', receipt_id: 17, notice_id: 18 }]);
+    expect(JSON.stringify(result.results)).not.toContain('one-invocation-token');
+  } finally {
+    listener.stop(true); fs.rmSync(f.config.socket, { force: true });
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
 });
 
 test('manager Prompt ignores project/common/development overlays and keeps operational guardrails despite malicious text', () => {

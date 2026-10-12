@@ -279,6 +279,7 @@ export default {
         assertTaskNotSyncing(this, row.id); assertTaskNoCommand(this, row.id);
         waitCheck(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status)
           || (booking.status === 'pending' && taskSyncDeliveryPaused(this, row.id)), 'delivery is still in flight or reserved');
+        waitCheck(!this.pendingAppendEmission(row.id), `Worker ${workerLabel(row)}: mounted append input must be dispatched or cancelled before acceptance`);
         waitCheck(!acceptanceUnreadMessage(this, row, acceptingIds), `Worker ${workerLabel(row)}: unread input must be processed before acceptance`);
         waitCheck(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
         if (row.branch) {
@@ -368,6 +369,7 @@ export default {
           const booking = bookingOf(row);
           check(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status)
             || (booking.status === 'pending' && taskSyncDeliveryPaused(this, row.id)), 'delivery changed during acceptance');
+          waitCheck(!this.pendingAppendEmission(row.id), `Worker ${workerLabel(row)}: mounted append input must be dispatched or cancelled before acceptance`);
           if (row.branch) this.assertBranchWritable(row.branch, 'accept it');
         }
         check(this.branchResourceUsers(active).every(resourceId => {

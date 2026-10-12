@@ -10,10 +10,10 @@ const dom = installDom({ fetch: (url, options = {}) => {
   if (String(url).startsWith('/api/worker-graph')) return json(graph);
   if (String(url).endsWith('/api/action')) {
     const call = JSON.parse(options.body);
-    if (call.method === 'worker.message') {
+    if (call.method === 'input.emit') {
       calls.push(call);
       if (rejectMessage) { rejectMessage = false; return { ok: false, json: async () => ({ error: '暂时无法提交' }) }; }
-      return json(messageResult);
+      return json({ emitted: true, draft_id: 9, mode: 'append', dispatch: { state: 'queued' } });
     }
   }
   return world.fetchImpl(url, options);
@@ -118,8 +118,9 @@ test('图追加失败保留底部正文及目标，成功确认保存但不冒�
   expect(calls).toHaveLength(1);
   dom.node('input').value = '修正后的需求'; dom.node('input').oninput();
   await dom.node('input-form').onsubmit({ preventDefault() {} });
-  expect(calls).toHaveLength(2); expect(calls.at(-1).params.body).toBe('修正后的需求');
-  expect(dom.node('error').textContent).toContain('已保存给 Worker W153，等待投递');
+  expect(calls).toHaveLength(2); expect(calls.at(-1).params.content).toBe('修正后的需求');
+  expect(calls.at(-1).params).toMatchObject({ mode: 'append', target_id: 297 });
+  expect(dom.node('error').textContent).toContain('尚不代表 Agent 已收到');
   expect(dom.node('input-form').dataset.mode).toBe('create');
   expect(dom.node('modal').hidden).toBe(true);
 });
@@ -131,6 +132,6 @@ test('旧服务缺队列字段不展示虚构计数，图追加确认仅承诺�
   await buttonOf(card, '追加输入').onclick();
   dom.node('input').value = '继续';
   await dom.node('input-form').onsubmit({ preventDefault() {} });
-  expect(dom.node('error').textContent).toContain('投递状态暂不可用');
+  expect(dom.node('error').textContent).toContain('已可靠挂载');
   expect(dom.node('error').textContent).not.toContain('已投递');
 });

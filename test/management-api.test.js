@@ -62,8 +62,8 @@ test('management tools pass only validated actor/action/target; Project must enf
   expect(calls).toHaveLength(4);
 });
 
-test('Dispatcher narrows every manager token to four methods without changing ordinary development Agents', async () => {
-  expect([...MANAGER_METHODS]).toEqual(['manager.query','manager.start','manager.retry','worker.lookup']);
+test('Dispatcher narrows every manager token to dedicated reviewed methods without changing ordinary development Agents', async () => {
+  expect([...MANAGER_METHODS]).toEqual(['manager.query','manager.start','manager.retry','manager.catalog','manager.history','manager.call','worker.lookup']);
   const calls = [];
   let identity = { role: 'manager', task_kind: 'management' };
   const p = {

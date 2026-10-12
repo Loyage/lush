@@ -63,7 +63,9 @@ test('HTTP frozen append is persisted, rendered and delivered only after the fix
     const append = [...dom.node('detail').querySelectorAll('button')].find(button => button.textContent === '追加输入');
     expect(append.disabled).toBe(false); // Selecting append mode itself does not call an Agent.
     await append.click();
-    expect(dom.node('input').disabled).toBe(false); expect(dom.node('input').placeholder).toContain('等待投递');
+    expect(dom.node('input').disabled).toBe(false);
+    expect(dom.node('input').placeholder).toContain('Enter 暂存');
+    expect(dom.node('input').placeholder).toContain('等待交付解冻');
     resetUiState(); dom.restore(); dom = null;
     landing.resolve(); await received.promise;
     expect(calls).toEqual([['first additional requirement', 'second additional requirement']]);

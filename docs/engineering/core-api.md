@@ -55,8 +55,9 @@ W116 / 待决 #261 批准设备同系统用户共享技术配置，项目/Worker
 
 ## 核心工作流
 
-- `order.submit`：一条用户输入创建一个有独立分支/worktree 的指令 Worker；显式 `defer:true` 且父冻结时则先保存父可创建安全点的一次性 Hook，返回预约而非 task，真正创建时才固定基线；父可写时仍直接创建。`start:false`（Web 主发送默认）只创建为 `paused`（Web 显示「待开始」）且不调用 Agent；`start:true`（缺省）立即排队运行。main 自动确立静息 owner；其它现有本地分支须先 `branch.bind` 固定 HEAD。
-- `input.history` / `input.get` / `input.parents` 与 `draft.add` / `draft.update` / `draft.remove`：用户专属历史输入与持久缓冲区；草稿通过 `order.submit {draft_id,expected_revision,start?}` 发射，不恢复旧 planner 或批量提交。字段、版本检查与分页见[历史输入接口](input-history.md)。
+- `input.emit` / `order.submit` 缺省及 `start:true`：先持久挂载当前输入，返回 `{emitted:true,draft_id,dispatch}`，不保证立即有 task。条件全部满足且父 runtime 真正空闲、安全可写时，才从当时父提交创建并开始独立 Worker；main/owner 不为准入调用模型。显式 `order.submit {start:false}` 保留旧仅创建 paused 路径，不是发射。main 自动确立静息 owner，其它本地分支须先 `branch.bind`；历史 create_worker Hook 与内部 order/sendOrder 不迁移。
+- `input.history` / `input.get` / `input.parents` 与 `draft.add` / `draft.update` / `draft.remove`：用户专属历史输入与持久缓冲区；新建与追加统一支持版本草稿、条件及发射，追加只关联 Message/A 编号，不造 O。`input.emission_cancel` / `input.exclusive_release` 分别撤销未执行输入或释放独占，不删除成果、不重放 unknown。字段见[历史输入接口](input-history.md)及[条件发射](conditional-emission.md)。
+- `management.submit`：即时创建隔离 role=manager/task_kind=management 的管理身份，无开发 Input/Git 工作区；manager.catalog/history/call 等专用 Agent-only 入口只允许真实管理 invocation。能力可发现不等于授权，危险操作必须用户精确确认；普通 Agent 不扩权。隔离、scope 与未知恢复见[管理型 Worker](hook-signals-management.md)。
 - `hooks.list/save/remove`、`worker.hooks/hook_attach/hook_update/hook_remove`：用户专属受控模板与挂载，Worker详情展示为「自动化」；自动合并是内置Hook，收据与私有定义持久化，未知副作用不重放。目标策略由受保护 `delivery-handler` 挂载与 `integrate_deliveries` 工具表达，`worker.hooks.convergence` 保留同源配置兼容读面；工具操作身份区分请求提交与真实完成，不新增任意调用 RPC。见[Hooks工程契约](hooks.md)。
 - `branch.convergence`／`branch.convergence_list`／`branch.convergence_set`／`branch.convergence_runs`／`branch.convergence_retry`／`branch.convergence_defaults`／`branch.convergence_defaults_set`：全部用户专属，管理目标分支归并挂载／启停、未来order／child默认与批次历史；main初始挂载关闭，新固定归并不强制最终验证快捷指令。具体参数与旧在途兼容见[归并接口](../reference/rpc/convergence.md)。
 - `worker.completion {id,level,expected_revision}`：用户专属的最高自动级别 off/merge/accept，旧 archive 兼容等价 accept；按合并 → 安全验收（含子树资源回收）串行推进；高级别不继承，派生 child 的流程 Hook 整体只读（含旧开关入口），默认自动合并、由直接父 Agent 检查成果并保留供追加需求，尽量随父级安全批量验收；用户指令交付后可显式提高补办。成功自动环节不告知，只提示下一人工环节；失败/unknown 不重放。见[自动链接缝](completion-hooks.md)。
@@ -82,7 +83,7 @@ W116 / 待决 #261 批准设备同系统用户共享技术配置，项目/Worker
 
 项目网络另有用户专属 `agent.network {}` / `agent.network.configure {config}`，CLI `agent network show|set --file PATH|reset`；后台账号请求与后续 Agent 调用共享默认网络，代理认证只写、安全读模型不含秘密，不增加整机调度。字段与协议边界见[项目出站网络代理](outbound-network.md)。
 
-项目维护暂停提供用户专属、无参数 `system.interrupt_all {}` / `system.resume_all {}`，Web 复用当前项目 action；Agent／管理 Agent 不可调用。持久维护门暂停本项目新调用，保留父子原等待关系，仅恢复本次影响的工作，不批量开始原待开始／个人暂停或重试失败；不改变单 Worker 中断的非级联语义，不自动重启或跨项目。`system.summary`／`system.status` 增加安全 `maintenance` 投影，精确字段与恢复边界见[维护暂停契约](project-maintenance.md)。
+项目维护暂停提供用户专属、无参数 `system.interrupt_all {}` / `system.resume_all {}`，Web 复用当前项目 action；普通 Agent 不可调用，管理 Agent 仅能通过受控代理请求用户确认，不得直调。持久维护门暂停本项目新调用，保留父子原等待关系，仅恢复本次影响的工作，不批量开始原待开始／个人暂停或重试失败；不改变单 Worker 中断的非级联语义，不自动重启或跨项目。`system.summary`／`system.status` 增加安全 `maintenance` 投影，精确字段与恢复边界见[维护暂停契约](project-maintenance.md)。
 
 服务维护另有用户专属的 `system.stop_if_idle {}`：daemon 同步拒绝有活动调用或 Git/合并工作的重启请求，准入后封闭新调度并正常停止。Host 的项目重启入口负责等待退出、启动新进程；Host 自身重启独立进行，不停止项目。完整 HTTP 与返回字段见[服务重启](../reference/web-routes.md#服务重启)。
 

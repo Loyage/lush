@@ -44,7 +44,7 @@ export default {
       [(this.lifecycleHookRunning?.size ?? 0) + (this.lifecycleHookQueued?.size ?? 0)
         + (this.scheduledHookQueued?.size ?? 0) + (this.commandHookQueued?.size ?? 0)
         + (this.commandHookRunning?.size ?? 0) + (this.completionQueued?.size ?? 0)
-        + (this.completionBusy?.size ?? 0), '等待自动化动作收尾'],
+        + (this.completionBusy?.size ?? 0) + (this.managementControlJobs?.size ?? 0), '等待自动化动作收尾'],
     ];
     const pendingOperations = groups.reduce((sum, [count]) => sum + count, 0);
     const ready = !this.stopping && activeCalls === 0 && pendingOperations === 0;

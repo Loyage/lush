@@ -13,7 +13,12 @@ const history = `WITH source AS (
     t.id AS original_task_id
   FROM inputs i LEFT JOIN tasks t ON t.id=i.task_id
   UNION ALL
-  SELECT 'draft',d.id,d.content,d.created_at,NULL,d.parent_id,NULL,p.worker_number,p.branch,'draft','none',d.revision,'{}',NULL
+  SELECT 'draft',d.id,d.content,d.created_at,NULL,d.parent_id,NULL,p.worker_number,p.branch,
+    CASE json_extract(d.emission,'$.state')
+      WHEN 'waiting_conditions' THEN 'waiting_conditions' WHEN 'queued' THEN 'emitted'
+      WHEN 'dispatching' THEN 'emitted' WHEN 'succeeded' THEN 'sent'
+      WHEN 'failed' THEN 'emission_failed' WHEN 'unknown' THEN 'unknown_dispatch' ELSE 'draft' END,
+    'none',d.revision,'{}',NULL
   FROM drafts d LEFT JOIN tasks p ON p.id=d.parent_id WHERE d.input_id IS NULL
 ), projected AS (
   SELECT *,CASE

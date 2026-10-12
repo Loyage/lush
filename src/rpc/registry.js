@@ -31,13 +31,18 @@ export const PARAMS = {
   'hooks.signal_save': ['signal','expected_revision'], 'hooks.signal_remove': ['id','expected_revision'],
   'management.create': ['name','instruction','signal_id','mode','profile','client_request_id'],
   'management.binding_update': ['id','enabled','expected_revision'],
+  'management.submit': ['instruction','profile','client_request_id'],
+  'manager.catalog': [], 'manager.history': ['id','before','limit'], 'manager.call': ['method','params','request_id'],
   'manager.query': ['id'], 'manager.start': ['id'], 'manager.retry': ['id'],
   'worker.hooks': ['id'], 'worker.completion': ['id','level','expected_revision'],
   'worker.hook_attach': ['id','hook','expected_revision'],
   'worker.hook_update': ['id','hook_id','enabled','hook','expected_revision'], 'worker.hook_remove': ['id','hook_id','expected_revision'],
   'order.submit': ['content','branch','references','start','draft_id','expected_revision','profile','defer'],
   'input.history': ['cursor','limit','q','status','integration'], 'input.get': ['kind','id'], 'input.parents': [],
-  'draft.add': ['content','references','branch'], 'draft.update': ['id','content','references','branch','expected_revision'],
+  'input.emit': ['content','references','branch','mode','target_id','conditions','exclusive','profile','client_request_id','draft_id','expected_revision'],
+  'input.emission_cancel': ['draft_id','expected_revision'], 'input.exclusive_release': ['draft_id','expected_revision'],
+  'draft.add': ['content','references','branch','mode','target_id','conditions','exclusive'],
+  'draft.update': ['id','content','references','branch','expected_revision','mode','target_id','conditions','exclusive'],
   'draft.remove': ['id','expected_revision'],
   'worker.auto_title': ['title'], 'worker.rename': ['id','title'], 'worker.lookup': ['number'], 'worker.graph': ['details','hidden_statuses','include_archived','cursor','scope'], 'worker.list': ['after','limit'], 'worker.activity': ['limit','scope'],
   'worker.page': ['before','limit','scope'], 'worker.tree': ['id'], 'worker.inspect': ['id'], 'worker.run_settings': ['id'],
@@ -84,9 +89,9 @@ export const USER_ONLY = new Set([
   'agent.connections.models','agent.connections.models.refresh',
   'agent.packages.list','agent.packages.install','agent.packages.remove','agent.packages.update',
   'hooks.command_save','hooks.command_export','hooks.command_authorize','hooks.command_remove','hooks.command_history','hooks.command_history_remove','hooks.command_import',
-  'hooks.signal_save','hooks.signal_remove','management.create','management.binding_update',
+  'hooks.signal_save','hooks.signal_remove','management.create','management.binding_update','management.submit',
   'hooks.list','hooks.save','hooks.remove','hooks.auto_select','hooks.completion_defaults','worker.hooks','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove',
-  'input.history','input.get','input.parents','draft.add','draft.update','draft.remove',
+  'input.history','input.get','input.parents','input.emit','input.emission_cancel','input.exclusive_release','draft.add','draft.update','draft.remove',
   'order.submit','worker.transcript_latest','worker.transcript_page','worker.transcript_step','worker.transcript_search',
   'worker.runs_page','worker.artifacts_page','worker.artifact','worker.reading_page','worker.reading_record','worker.relations',
   'worker.reserve','worker.reserve_all','worker.auto_merge','worker.resolve','worker.resolve_divergence','worker.unreserve','worker.approve_merge',
@@ -97,10 +102,10 @@ export const USER_ONLY = new Set([
 ]);
 export const AGENT_ONLY = new Set([
   'worker.auto_title','worker.integrate','worker.resolve_child_divergence','progress.plan','progress.complete',
-  'manager.query','manager.start','manager.retry',
+  'manager.query','manager.start','manager.retry','manager.catalog','manager.history','manager.call',
 ]);
 /** Management invocations have a narrower capability than ordinary development Agents. */
-export const MANAGER_METHODS = new Set(['manager.query','manager.start','manager.retry','worker.lookup']);
+export const MANAGER_METHODS = new Set(['manager.query','manager.start','manager.retry','manager.catalog','manager.history','manager.call','worker.lookup']);
 /** Integration invocations can inspect fixed work and ask/report for themselves, never deliver or spawn. */
 export const INTEGRATION_METHODS = new Set([
   'notice.post','progress.plan','progress.complete',

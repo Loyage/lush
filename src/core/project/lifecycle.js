@@ -427,6 +427,7 @@ export default {
       }
     }
     this.recoverTaskHooks();
+    this.recoverInputEmissions();
     this.recoverTaskCompletion();
     this.kick();
     // Re-arm only persisted hooks; NULL historical settings never acquire new intent.
@@ -506,6 +507,10 @@ export default {
     }
     await Promise.allSettled([...this.running.values()].map(run => run.promise));
     await this.hookQueue;
+    await this.inputEmissionQueue;
+    // A confirmed management operation may outlive its model invocation.
+    // Keep its Store and private workspace alive until the real effect settles.
+    await Promise.allSettled([...(this.managementControlJobs ?? [])]);
     await this.completionQueue;
     await Promise.allSettled([...(this.convergenceJobs?.values() ?? [])].map(job => job.promise));
     await this.workspaces.queue;

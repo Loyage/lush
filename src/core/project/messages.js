@@ -25,9 +25,15 @@ export function settleNoticeAnswer(project, noticeId, answer, dismiss = false, s
       ...(source === 'lush' ? { automatic: true, instruction: '此答复由 Lush 自动选择 Hook 生成，不是用户亲自决断；多选或文字答复授权 Agent 自行判断并继续。' } : {}) }));
     project.store.event(notice.task_id, 'notice.answered', { notice_id: notice.id, answer, dismiss, answer_source: source });
   });
+  // Management authorization is consumed by the runtime, never by asking a model
+  // to execute the operation again. The resolver recognizes an exact durable receipt
+  // and schedules its own guarded action after the answer transaction has committed.
+  const managed = project.resolveManagementConfirmation?.(notice.id) === true;
   const owner = project.store.task(notice.task_id);
-  if (dismiss && owner.agent_wakes === 0 && owner.resolves_task_id) project.cancel(owner.id, `user dismissed Notice ${noticeNumber(notice)}: ${notice.title}`);
-  else project.wake(notice.task_id);
+  if (!managed) {
+    if (dismiss && owner.agent_wakes === 0 && owner.resolves_task_id) project.cancel(owner.id, `user dismissed Notice ${noticeNumber(notice)}: ${notice.title}`);
+    else project.wake(notice.task_id);
+  }
   project.scheduleTaskHooks();
   return project.store.get(`${NOTICE_SELECT} WHERE id=?`, notice.id);
 }

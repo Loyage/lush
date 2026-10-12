@@ -2,7 +2,8 @@
 import path from 'node:path';
 import { RPCClient } from '../rpc/client.js';
 
-export const MANAGEMENT_RPC_METHODS = Object.freeze(['manager.query', 'manager.start', 'manager.retry', 'worker.lookup']);
+export const MANAGEMENT_RPC_METHODS = Object.freeze(['manager.query', 'manager.start', 'manager.retry', 'worker.lookup',
+  'manager.catalog', 'manager.history', 'manager.call']);
 
 export function managementInvocation(env = process.env) {
   let context;
@@ -19,7 +20,20 @@ export function validateManagementRPC(method, params) {
   if (!MANAGEMENT_RPC_METHODS.includes(method) || !params || typeof params !== 'object' || Array.isArray(params))
     throw new Error('unsupported management request');
   const keys = Object.keys(params);
-  if (method === 'worker.lookup') {
+  if (method === 'manager.catalog') {
+    if (keys.length) throw new Error('catalog accepts no parameters');
+  } else if (method === 'manager.history') {
+    if (keys.some(key => !['id','before','limit'].includes(key))
+      || ['id','before'].some(key => params[key] !== undefined && (!Number.isSafeInteger(params[key]) || params[key] <= 0))
+      || params.limit !== undefined && (!Number.isSafeInteger(params.limit) || params.limit < 1 || params.limit > 100))
+      throw new Error('invalid history parameters');
+  } else if (method === 'manager.call') {
+    if (keys.some(key => !['method','params','request_id'].includes(key)) || typeof params.method !== 'string'
+      || params.method.length > 128 || !params.params || typeof params.params !== 'object' || Array.isArray(params.params)
+      || params.request_id !== undefined && (typeof params.request_id !== 'string' || !params.request_id
+        || params.request_id.length > 128 || params.request_id !== params.request_id.trim() || /[\x00-\x1f\x7f]/.test(params.request_id))
+      || Buffer.byteLength(JSON.stringify(params)) > 40000) throw new Error('invalid reviewed capability request');
+  } else if (method === 'worker.lookup') {
     if (keys.length !== 1 || keys[0] !== 'number' || typeof params.number !== 'string' || !/^W[1-9]\d*(?:-[1-9]\d*)*$/.test(params.number))
       throw new Error('invalid Worker number');
   } else if (method === 'manager.query' && !keys.length) {
@@ -41,7 +55,7 @@ if (import.meta.main) {
     let input = '';
     for await (const chunk of process.stdin) {
       input += chunk.toString();
-      if (Buffer.byteLength(input) > 4096) throw new Error('management request too large');
+      if (Buffer.byteLength(input) > 48000) throw new Error('management request too large');
     }
     const request = JSON.parse(input);
     if (!request || Object.keys(request).some(key => !['method', 'params'].includes(key))) throw new Error('invalid management request');

@@ -25,6 +25,22 @@ export async function legacyOrder(root, content, branch = null) {
   return client.request('input.submit', { content, ...(branch ? { branch } : {}) });
 }
 
+/** Await real asynchronous input admission in an isolated test daemon, never infer a Worker from the ACK. */
+export async function emittedTask(client, receipt, timeout = 10000) {
+  if (receipt.emitted !== true || !Number.isSafeInteger(receipt.draft_id)) throw new Error('expected a durable emission receipt');
+  const end = Date.now() + timeout;
+  let record;
+  do {
+    record = await client.request('input.get', { kind: 'draft', id: receipt.draft_id });
+    if (record.dispatch?.state === 'succeeded' && Number.isSafeInteger(record.dispatch.worker_id))
+      return client.request('worker.inspect', { id: record.dispatch.worker_id });
+    if (['failed','unknown','cancelled'].includes(record.dispatch?.state))
+      throw new Error(`test emission stopped with ${record.dispatch.state}: ${record.dispatch.reason}`);
+    await Bun.sleep(30);
+  } while (Date.now() < end);
+  throw new Error(`test emission did not create a Worker (state=${record?.dispatch?.state})`);
+}
+
 /** Ordinary returns release the invocation slot; delivery may then advance to awaiting_acceptance. */
 export async function idle(client, taskId, calls = 1, timeout = 10000) {
   const end = Date.now() + timeout;

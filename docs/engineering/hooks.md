@@ -40,7 +40,7 @@
 
 ## 时间信号与管理型 Worker 增补
 
-用户追加需求与决定 #270 引入项目内具名时间信号及独立管理 Worker；并非放开开发 Agent 的用户专属权限。产品授权、数据字段、专用受限工具、RPC 和分区见[时间信号与管理契约](hook-signals-management.md)。此前定时 Worker 规则继续原行为；管理 Worker 首版仅查询、开始／继续及重试失败，不负责开发／Git 交付。
+用户追加需求与决定 #270 引入项目内具名时间信号及独立管理 Worker；并非放开开发 Agent 的用户专属权限。产品授权、数据字段、专用受限工具和 RPC 见[时间信号与管理契约](hook-signals-management.md)。此前定时 Worker 规则继续原行为；管理输入还可即时安排，能力分级且危险操作须用户确认，仍不负责开发／Git 交付。
 
 ## 中断完成信号（W216／D508）
 
@@ -142,13 +142,13 @@ Worker 详情展示为「自动化」。来源结束规则与目标交付处理�
 
 `worker.inspect` 的 `hooks` 是同一读面（不得把私有 JSON 原样展开）；`input.parents` 每项新增 `freeze`（可空）供输入按钮解释预约，不删除有效但冻结的父候选。
 
-`order.submit` 新增 `defer?:boolean`。未指定保持原创建语义；显式 true 允许冻结父保存一次性创建 Hook；父当前可写时仍直接创建并应用运行覆盖。末位 Project `order/sendOrder` 增加 `defer=false`，`submitBufferedDraft(draftId,revision,start=true,defer=false,profile=null)` 同样透传。仅当 `defer:true` 才允许 `draft_id+profile`，正文/引用/父仍只能取版本草稿；非 defer 草稿保持旧拒绝。挂载返回 `{deferred:true,parent_id,hook_id,hooks}`，不返回虚构 task；直接创建仍返回真实 task。`input.get(draft)` 增加 `hook_mount:{parent_id,hook_id,state}|null`；占用的 draft 拒绝编辑、删除和重复发射。创建成功才回写真实 input_id；等待／明确失败挂载停用或移除可释放版本占用，unknown 仅停用不释放，须检查现场后移除。占用关联保存在 Hook 附属 draft 身份，不引入第二套 Input 状态机。
+公开 `order.submit` 缺省/start:true 现统一可靠挂载输入，收据、条件、准入与恢复见[条件发射](conditional-emission.md)，不再要求显式 defer。显式 start:false 仍走仅创建原语；内部 Project order/sendOrder、submitBufferedDraft 及历史 create_worker Hook 保留原 defer 行为，不迁移旧挂载。旧 hook_mount 占用仍保护版本与正文，成功才关联 input_id；等待／明确失败时可释放，unknown 不因重启重放。新的条件信号使用受保护 input_signal 挂载，不能借普通启停／删除绕过草稿占用，须经 input.emission_cancel 或 input.exclusive_release。
 
 `editable` 与 `removable` 分开：启用/停用沿用活动 Worker 准入；父已取消、验收或归档时，未运行的自定义挂载仍可移除，释放 Draft 授权，不写分支、不复活 Worker。运行中的挂载及内置自动合并不可移除。
 
 ## CLI
 
-用户专属 CLI：`hooks list`、`hooks save --file PATH --revision REV`、`hooks remove TEMPLATE_ID --revision REV`；`worker hooks ID`、`worker hook attach ID --file PATH --revision REV`、`worker hook enable|disable|remove ID HOOK_ID --revision REV`；`order --defer` 显式允许冻结期间预约。定义文件必须是有界、owner-only、非链接 JSON，revision 从对应读面取得，不提供跳过乐观锁的快捷入口。
+用户专属 CLI：`hooks list`、`hooks save --file PATH --revision REV`、`hooks remove TEMPLATE_ID --revision REV`；`worker hooks ID`、`worker hook attach ID --file PATH --revision REV`、`worker hook enable|disable|remove ID HOOK_ID --revision REV`；`order --defer` 保留旧参数兼容，新发射缺省即可靠挂载，条件用 --after-settled/--after-merged/--quiet，独占用 --exclusive。定义文件必须是有界、owner-only、非链接 JSON，revision 从对应读面取得，不提供跳过乐观锁的快捷入口。
 
 CLI 的挂载 Worker 身份遵循父侧编号接缝：允许整数或 `Wn(-n)*`，经 `worker.lookup` 转成真实整数后调用原 RPC；Hook UUID、模板 UUID、`message.target_id` 仍保持原身份。Web Hook 标签用持久编号，创建收据补安全 `worker_number`、消息动作读面补 `target_worker_number`；仅做投影，不回写定义、收据或历史行，不从整数猜编号。消息目标表单明确要求内部整数 ID；读面附属标签不能当作定义字段回传。
 

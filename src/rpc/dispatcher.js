@@ -24,7 +24,16 @@ function mergeHandlers(groups) {
 export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, taskHandlers, specHandlers, noticeHandlers, branchHandlers, candidateHandlers, hookHandlers]);
 
 export class Dispatcher {
-  constructor(project, stopping, identity) { this.project = project; this.stopping = stopping; this.identity = identity; }
+  constructor(project, stopping, identity) {
+    this.project = project; this.stopping = stopping; this.identity = identity;
+    // This trusted callback is never a public RPC. The management engine records
+    // reviewed capabilities / exact user confirmations before reaching it.
+    project.managementDispatch = async (method, params) => {
+      assertAllowed(method, params, null);
+      check(!this.stopping?.isRequested?.(), '项目后台正在停止，请稍后再试');
+      return publicResult(await HANDLERS[method].call(this, project, params, null), method);
+    };
+  }
   async dispatch(method, params = {}) {
     // 身份解析交给 registry：只有白名单与未知参数都过了才去查 token（actor() 会写 agent_last_seen_at）。
     const actor = assertAllowed(method, params, () => this.project.actor(params._token));
@@ -33,7 +42,7 @@ export class Dispatcher {
     // ordinary Agent surface (e.g. notice.post/progress/message) merely for having a token.
     const actorTask = actor === null || actor === undefined ? null : p.store?.task(actor);
     check(!(actorTask?.role === 'manager' || actorTask?.task_kind === 'management') || MANAGER_METHODS.has(method),
-      'management agents can only query, start or retry Workers through their dedicated tools');
+      'management agents can only use their dedicated reviewed management tools');
     // Capability comes from the authenticated Store identity, not role labels, prompts or caller params.
     // New public methods remain denied until explicitly reviewed for the isolated integration helper.
     check(actorTask?.task_kind !== 'integration' || INTEGRATION_METHODS.has(method),

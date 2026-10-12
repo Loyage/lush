@@ -57,9 +57,8 @@ test('详情页首位入口只切换底部输入框；实际发送按钮带 Agen
   renderDetail(followupTask, null, null, null);
   expect(dom.node('input').value).toBe('先补充测试\n再调整实现');
   await dom.node('input-form').onsubmit({ preventDefault() {} });
-  expect(world.state.actions.slice(before)).toEqual([
-    { method: 'worker.message', params: { id: 900, body: '先补充测试\n再调整实现' } },
-  ]);
+  expect(world.state.actions.slice(before)).toHaveLength(1);
+  expect(world.state.actions.at(-1)).toMatchObject({ method: 'input.emit', params: { mode: 'append', target_id: 900, content: '先补充测试\n再调整实现' } });
 });
 
 test('追加空白不发送；返回按钮不发请求，暂停任务追加不会自动继续', async () => {
@@ -77,9 +76,8 @@ test('追加空白不发送；返回按钮不发请求，暂停任务追加不�
   buttonByText(dom.node('detail'), '追加输入').onclick();
   dom.node('input').value = '下一步检查边界情况';
   await dom.node('input-form').onsubmit({ preventDefault() {} });
-  expect(world.state.actions.slice(before)).toEqual([
-    { method: 'worker.message', params: { id: 900, body: '下一步检查边界情况' } },
-  ]);
+  expect(world.state.actions.slice(before)).toHaveLength(1);
+  expect(world.state.actions.at(-1)).toMatchObject({ method: 'input.emit', params: { mode: 'append', target_id: 900, content: '下一步检查边界情况' } });
   for (const status of ['completed', 'failed', 'cancelled']) {
     renderDetail({ ...followupTask, status }, null, null, null);
     expect(buttonByText(dom.node('detail'), '追加输入')).toBeNull();

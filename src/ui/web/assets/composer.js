@@ -13,33 +13,37 @@ import { confirmDialog, closeDialog, formDialog } from './dialog.js';
 import { createProfileForm } from './agent-profile-form.js';
 import { normalizeConfigMode } from './agent-config-mode.js';
 import { workerLabel } from './worker-label.js';
-import { appendInputBlocker, inputQueue, inputQueueText, inputWaitReason, appendInputAcknowledgement } from './worker-input.js';
+import { appendInputBlocker, inputQueueText, inputWaitReason } from './worker-input.js';
+import { createEmissionConditions, emissionAcknowledgement, emissionRequestId } from './emission-form.js';
+import { createManagementProfileForm } from './management-profile-form.js';
 
 // 本条指令可选的运行设置：只打开设置，不调用 Agent；派生 Worker 由后端自动继承。
 export const RUN_SETTINGS_HELP = '打开本条指令的运行设置：先选由 Lush 掌握配置，还是交给执行机器上用户自己的 Pi 默认配置。只打开设置，不调用 Agent；派生 Worker 自动继承本次选择，不逐个确认。';
 
 /** 运行设置按钮文案：未选择覆盖时明确显示沿用项目默认。 */
 export function runSettingsLabel() {
+  if (ui.composerManagement) return `管理运行设置：${ui.composerManagementProfile ? '本条已选择' : '管理默认'}`;
   if (!ui.composerProfile) return '运行设置：项目默认';
   return `运行设置：${normalizeConfigMode(ui.composerProfile.config_mode) === 'pi' ? 'Pi 默认配置' : 'Lush 配置'}`;
 }
 
 // 动态插入的按钮节点：DOM 测试的 stub 只能按 id 查静态元素，所以这里保留引用并统一经它重画。
-let runSettingsButton = null, textEditor = null, disposeViewport = null;
+let runSettingsButton = null, managementResultButton = null, textEditor = null, disposeViewport = null;
 
 export function paintRunSettings() {
   if (!runSettingsButton) return;
   runSettingsButton.textContent = runSettingsLabel();
+  runSettingsButton.setAttribute('data-help', ui.composerManagement ? '设置独立管理 Agent 的模型来源与思考深度；不加载开发 Prompt、环境变量或扩展，只打开设置，不调用 Agent。' : RUN_SETTINGS_HELP);
   runSettingsButton.hidden = $('input-form')?.dataset.mode === 'append';
 }
 
 /**
  * 打开「本条指令的运行设置」弹窗：完整 Profile（Lush）或 Pi 默认模式，确认后只存在本次会话里，
- * 随下一次 order.submit 一起发送；取消或「恢复项目默认」不改变已有输入。
+ * 随下一次 input.emit 一起发送；取消或「恢复项目默认」不改变已有输入。
  */
 export async function openComposerRunSettings() {
-  const view = ui.view;
-  const ownsPage = () => ui.view === view;
+  const view = ui.view, managementMode = Boolean(ui.composerManagement);
+  const ownsPage = () => ui.view === view && Boolean(ui.composerManagement) === managementMode;
   if (!ownsPage()) return;
   let settings = ui.lastSnapshot?.status?.agent_config;
   if (!settings) {
@@ -47,6 +51,16 @@ export async function openComposerRunSettings() {
     catch (error) { show(`无法读取项目 Agent 配置：${error.message}`, 'error'); return; }
   }
   if (!ownsPage() || !settings) return;
+  if (ui.composerManagement) {
+    const form = createManagementProfileForm(settings, { ownsPage });
+    await form.ready;
+    if (!ownsPage()) return;
+    const confirmed = await formDialog({ title: '管理 Agent 运行设置', content: form.node,
+      confirmLabel: '使用这份管理设置', confirmHelp: '只选择管理调用的模型来源，不加载开发 Prompt、环境变量或扩展。',
+      onConfirm: () => { const error = form.validate(); if (error) { show(error, 'error'); return false; } return ownsPage(); } });
+    if (!confirmed || !ownsPage()) return;
+    ui.composerManagementProfile = form.collect(); paintRunSettings(); return;
+  }
   const role = 'agent';
   const base = { ...(settings.resolved?.[role] || settings.default || {}) };
   const initial = ui.composerProfile ? { ...ui.composerProfile } : { ...base, config_mode: normalizeConfigMode(base.config_mode) };
@@ -136,12 +150,14 @@ export function appendToWorker(task) {
   const inDetail = ui.view?.id === 'task' && ui.selected === task.id;
   const inGraph = ui.view?.id === 'task-graph' && ui.taskGraphIds?.has(task.id);
   if (!inDetail && !inGraph) return;
+  ui.composerManagement = false; ui.composerConditions = []; ui.composerExclusive = false;
   ui.composerTask = task;
   ui.composerAppendTarget = { id: task.id };
   syncComposer();
   $('input').focus();
 }
 export function resetComposerMode() {
+  ui.composerManagement = false; ui.composerConditions = []; ui.composerExclusive = false;
   ui.composerAppendTarget = null;
   syncComposer();
   $('input').focus();
@@ -171,7 +187,7 @@ export function renderParentOptions() {
   const previous = select.value;
   const placeholder = el('option', 'main（默认父 Worker）'); placeholder.value = '';
   const options = tasks.map(task => {
-    const option = el('option', `${workerLabel(task)} ${taskTitle(task)} · ${task.branch}${task.freeze ? ' · 冻结，可预约' : ''}`);
+    const option = el('option', `${workerLabel(task)} ${taskTitle(task)} · ${task.branch}${task.freeze ? ' · 冻结，可挂载' : ''}`);
     option.value = task.branch; option.dataset.label = `${workerLabel(task)} ${taskTitle(task)}`;
     return option;
   });
@@ -204,60 +220,66 @@ export function toggleComposerDetails(force) {
 }
 export function syncComposer() {
   renderParentOptions();
-  const target = destination(), followup = target.id != null;
+  const management = Boolean(ui.composerManagement);
+  const target = management ? {} : destination(), followup = target.id != null;
   const input = $('input');
   const touch = usesTouchEnter();
   const enter = touch ? '回车换行 · 按钮' : 'Enter';
   const label = followup ? `Worker ${workerLabel(target.task || target.id)}` : target.task
     ? `Worker ${workerLabel(target.task)} · ${target.branch}` : selectedParentLabel() || 'main';
-  $('input-form').dataset.mode = followup ? 'append' : 'create';
+  $('input-form').dataset.mode = management ? 'management' : followup ? 'append' : 'create';
   $('input-form').dataset.blocked = String(Boolean(target.reason));
   const modeText = {
-    'composer-mode-icon': followup ? '↳' : '＋',
-    'composer-mode-title': followup ? '继续当前 Worker' : '新建独立 Worker',
-    'composer-mode-target': followup ? `追加到 ${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}` : `父 Worker：${label}`,
-    'composer-mode-behavior': target.reason || (followup
-      ? `不创建新 Worker · ${enter} ${target.wait ? '保存' : '追加'} · 成功后回到新建 · 空白时 Esc 返回${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
-      : target.freeze ? `父分支冻结：${target.freeze.reason || '等待安全边界'} · ${enter} 暂存 · 点击按钮预约`
-        : `独立工作区 · ${enter} 暂存 · 仅创建后待开始 / 发射并开始`),
+    'composer-mode-icon': management ? '⚙' : followup ? '↳' : '＋',
+    'composer-mode-title': management ? '管理 Lush' : followup ? '继续当前 Worker' : '新建独立 Worker',
+    'composer-mode-target': management ? '当前项目 · 独立管理 Agent · 不创建开发 Worker' : followup ? `追加到 ${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}` : `父 Worker：${label}`,
+    'composer-mode-behavior': target.reason || (management
+      ? '解析管理需求与运行历史 · 危险操作先确认 · Ctrl/⌘+Enter 提交管理'
+      : followup ? `不创建新 Worker · ${enter} 暂存 · Ctrl/⌘+Enter 发射追加 · 成功后回到新建${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
+        : `${enter} 暂存 · 发射先可靠挂载，父 runtime 空闲后创建并开始${target.freeze ? ` · ${target.freeze.reason || '父分支冻结，等待安全边界'}` : ''}`),
   };
   // Keep mode/destination visible while typing, without repeating live announcements on every keystroke.
   for (const [id, text] of Object.entries(modeText)) {
     const node = $(id);
     if (node.textContent !== text) node.textContent = text;
   }
-  input.placeholder = target.reason ? `${label}：${target.reason}` : followup
-    ? `追加给 ${label} · ${enter} ${target.wait ? '保存，等待投递' : '发送'} · Shift+Enter 换行${target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
-    : target.freeze ? `在 ${label} 挂载预约发射 Hook · ${enter} 暂存 · Ctrl/⌘+Enter 预约仅创建`
-      : `在 ${label} 下创建子 Worker · ${enter} 暂存 · Ctrl/⌘+Enter 仅创建 · Shift+Enter 换行`;
+  input.placeholder = target.reason ? `${label}：${target.reason}` : management
+    ? '描述 Lush 管理需求或运行优化诊断 · 不开发项目 · Ctrl/⌘+Enter 提交'
+    : followup ? `追加给 ${label} · ${enter} 暂存 · Ctrl/⌘+Enter 发射 · Shift+Enter 换行${target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 需开始 / 继续后处理' : ''}`
+      : `向 ${label} 发射输入 · ${enter} 暂存 · Ctrl/⌘+Enter 发射 · Shift+Enter 换行`;
   input.setAttribute('aria-label', input.placeholder);
   input.disabled = Boolean(target.reason);
   const disabled = Boolean(ui.composerSubmitting || target.reason) || !input.value.trim();
   $('draft-commit').disabled = disabled;
-  $('draft-commit').classList.toggle('agent-call', followup);
-  $('draft-commit').textContent = followup ? '追加输入' : target.freeze ? '预约仅创建' : '仅创建';
-  $('draft-commit').classList.toggle('hook-button', Boolean(!followup && target.freeze));
-  const description = target.reason || (followup
-    ? `追加给 ${label}，不创建新 Worker；输入立即保存，冻结期间由 Worker 暂存，不打断在途交付或源侧修复，解除冻结且 Agent 静息后投递；暂停中需显式开始 / 继续。${target.queueText || target.wait || ''}`
-    : target.freeze ? `挂载到 ${label} 的可创建安全点 Hook；现在只保存正文、引用和完整运行参数，不创建 Worker 或调用 Agent。解除全部冻结并通过创建准入后，按当时父提交创建待开始 Worker，不开始调用。`
-      : `在 ${label} 下仅创建独立的待开始 Worker，不调用 Agent；可进入详情配置后手动开始。`);
-  const help = followup ? agentHelp(description) : description;
+  $('draft-commit').classList.add('agent-call');
+  $('draft-commit').textContent = management ? '提交管理需求' : followup ? '发射追加' : '发射';
+  $('draft-commit').classList.toggle('hook-button', Boolean(!management && target.freeze));
+  const description = target.reason || (management
+    ? '创建并安排独立管理 Agent，分析当前项目运行历史、草稿与 Hook 等管理需求；取消、回收、删除和敏感设置等危险操作须用户确认，不提供开发工具。'
+    : followup ? `将追加输入可靠挂载给 ${label}，安全准入后持久投递；冻结不打断交付或源侧修复，暂停中仍需显式继续。`
+      : `将输入可靠挂载给 ${label}，父 runtime 空闲且通过安全准入时才创建并开始独立 Worker；不保证立即出现在 Worker 树。`);
+  const help = agentHelp(description);
   $('draft-commit').setAttribute('data-help', help);
   $('input-send-help')?.setAttribute('data-help', help);
   const start = $('input-start'), startHost = $('input-start-help');
-  start.disabled = disabled; start.hidden = followup; startHost.hidden = followup;
-  start.textContent = target.freeze ? '预约发射并开始' : '发射并开始';
-  start.classList.toggle('hook-button', Boolean(target.freeze));
-  const startHelp = agentHelp(target.reason || (target.freeze
-    ? `在 ${label} 挂载预约：现在只保存指令、引用与运行参数；首个可创建安全点创建并开始，不保证立即执行。`
-    : `在 ${label} 下创建独立 Worker 并开始；不必先暂存，提交后留在当前页，忙碌时等待执行槽。`));
+  start.disabled = disabled; start.hidden = management; startHost.hidden = management;
+  start.textContent = '条件发射';
+  start.classList.add('hook-button', 'agent-call');
+  const startHelp = agentHelp(target.reason || '选择多个 Worker 收尾/合入 main、目标树静息或独占条件；全部满足后发射，再等待安全准入。确认时保存一次性授权，不保证立即创建或投递。');
   start.setAttribute('data-help', startHelp); startHost.setAttribute('data-help', startHelp);
   textEditor?.sync();
-  if ($('input-buffer')) { $('input-buffer').disabled = disabled; $('input-buffer').hidden = followup; }
-  if ($('input-buffer-help')) $('input-buffer-help').hidden = followup;
+  if ($('input-buffer')) { $('input-buffer').disabled = disabled; $('input-buffer').hidden = management; }
+  if ($('input-buffer-help')) {
+    $('input-buffer-help').hidden = management;
+    const bufferHelp = followup ? `暂存正文和追加目标 ${label}，不创建 Worker、不投递消息、不调用 Agent；稍后可在历史输入编辑条件并发射。` : '暂存正文、引用、父 Worker 与条件，不创建 Worker 或工作区，不调用 Agent。';
+    $('input-buffer-help').setAttribute('data-help', bufferHelp); $('input-buffer')?.setAttribute('data-help', bufferHelp);
+  }
+  if ($('composer-management')) $('composer-management').textContent = management ? '回到开发输入' : '管理 Lush';
   // More also exposes text editing in inbox mode, without showing parent selection.
   $('composer-expand').hidden = false;
-  $('composer-reset').hidden = !followup;
+  $('composer-reset').hidden = !followup && !management;
+  if (management) { $('composer-details').hidden = true; $('composer-shortcuts').hidden = true; }
+  if (managementResultButton) managementResultButton.hidden = !management || !Number.isSafeInteger(ui.composerManagementResult?.id);
   paintRunSettings();
 }
 
@@ -295,47 +317,51 @@ async function submitInput(mode) {
   const identity = ui.composerIdentity, editRevision = ui.composerEditRevision, view = ui.view;
   const appendTarget = ui.composerAppendTarget;
   const referenceRevision = ui.composerReferenceRevision;
-  const creationProfile = ui.composerProfile;
+  const management = Boolean(ui.composerManagement);
+  const creationProfile = management ? ui.composerManagementProfile : ui.composerProfile;
   const references = composerReferences(), signature = JSON.stringify(references);
-  const target = destination(), branch = target.branch;
+  const target = management ? {} : destination(), branch = target.branch;
   if (target.reason) { show(target.reason, 'error'); return; }
-  if (target.id != null && mode === 'buffer') return;
+  if (management && mode === 'buffer') return;
+  const conditions = ui.composerConditions || [], exclusive = !management && target.id == null && Boolean(ui.composerExclusive);
+  const requestDefinition = JSON.stringify([content, references, branch, target.id, management, creationProfile, conditions, exclusive]);
+  if (identity.requestDefinition !== requestDefinition) { identity.requestDefinition = requestDefinition; identity.requestId = emissionRequestId(); }
   const submission = {}; identity.submission = submission;
   let update = null;
   ui.composerSubmitting = true; syncComposer();
   try {
-    if (target.id != null && references.length) throw new Error('追加输入暂不支持引用附件；引用已保留，请先移除引用，或回到新建 Worker 模式暂存 / 创建带引用的新 Worker。');
+    if ((target.id != null || management) && references.length) throw new Error(`${management ? '管理需求' : '追加输入'}暂不支持引用附件；原文与引用已保留，请先移除引用或回到新建模式。`);
     if (branch && branch !== 'main' && !target.task && !ui.composerParents?.some(task => task.branch === branch)) throw new Error('所选父 Worker 已不可用，请展开输入区重新选择。');
-    const params = { content, references, ...(branch ? { branch } : {}) };
-    const result = target.id != null
-      ? await action('worker.message', { id: target.id, body: content }, { refresh: false })
-      : await action(mode === 'buffer' ? 'draft.add' : 'order.submit', mode === 'buffer' ? params
-        : { ...params, start: mode === 'start' || mode === 'defer_start', ...(target.freeze ? { defer: true } : {}), ...(creationProfile ? { profile: creationProfile } : {}) }, { refresh: false });
+    const params = { content, references, ...(branch ? { branch } : {}),
+      ...(target.id != null ? { mode: 'append', target_id: target.id } : {}),
+      ...(conditions.length ? { conditions } : {}), ...(exclusive ? { exclusive: true } : {}) };
+    const result = management
+      ? await action('management.submit', { instruction: content, client_request_id: identity.requestId, ...(creationProfile ? { profile: creationProfile } : {}) }, { refresh: false })
+      : await action(mode === 'buffer' ? 'draft.add' : 'input.emit', mode === 'buffer' ? params
+        : { ...params, client_request_id: identity.requestId, ...(creationProfile && target.id == null ? { profile: creationProfile } : {}) }, { refresh: false });
     if (ui.composerIdentity !== identity) return;
+    if (management && (result.management !== true || !Number.isSafeInteger(result.task?.id)))
+      throw new Error('管理响应缺少可靠记录身份；请核对服务版本与管理历史，不会自动重试。');
+    if (!management && mode !== 'buffer' && (result.emitted !== true || !Number.isSafeInteger(result.draft_id)))
+      throw new Error('发射响应缺少可靠挂载收据；请核对服务版本与历史输入，原文保留，不会自动重试。');
     // The composer survives page navigation: consume unchanged submitted content even after a page switch.
     // Still protect edits (including edit-and-undo) and explicit inbox mode changes; view guards below only own navigation.
-    const untouched = ui.composerAppendTarget === appendTarget && ui.composerEditRevision === editRevision && input.value === value
+    const untouched = Boolean(ui.composerManagement) === management && ui.composerAppendTarget === appendTarget && ui.composerEditRevision === editRevision && input.value === value
       && ui.composerReferenceRevision === referenceRevision && JSON.stringify(composerReferences()) === signature;
-    if (untouched) { input.value = ''; textEditor?.reset(); setComposerReferences([]); }
-    if (target.id != null) {
-      if (ui.composerTask?.id === target.id && ui.composerAppendTarget === appendTarget && inputQueue(result))
-        ui.composerTask = { ...ui.composerTask, input_queue: result.input_queue };
-      // A followup is temporary. Only exit after the ACK consumed this exact input;
-      // edits, references and explicit target changes made in flight retain their destination.
-      if (untouched) ui.composerAppendTarget = null;
-      show(appendInputAcknowledgement(target.task, result));
+    if (untouched) { input.value = ''; textEditor?.reset(); setComposerReferences([]); ui.composerConditions = []; ui.composerExclusive = false; identity.requestDefinition = null; }
+    if (management) {
+      if (ui.composerManagementProfile === creationProfile) ui.composerManagementProfile = null;
+      ui.composerManagementResult = result.task || null;
+      show(`管理需求已提交${result.task?.id ? ` #${result.task.id}` : ''}，独立管理 Agent 将处理；未创建开发 Worker，危险操作须确认。`);
     } else if (mode === 'buffer') {
+      if (target.id != null && untouched) ui.composerAppendTarget = null;
       show(`已暂存输入 #${result.id}，可到「历史输入」编辑或发射；未创建 Worker、未调用 Agent。`);
       ui.inputsPage?.added?.();
     } else {
-      // Only consume the submitted selection; a newly edited override belongs to the next input.
-      if (ui.composerProfile === creationProfile) ui.composerProfile = null;
-      paintRunSettings();
-      if (result.deferred) {
-        show(`已在父 Worker ${workerLabel(result.parent_id)} 挂载预约 Hook；尚未创建 Worker。首个可创建安全点将${mode === 'start' || mode === 'defer_start' ? '创建并开始' : '仅创建'}。`);
-      } else {
-        show(mode === 'start' || mode === 'defer_start' ? `已创建并开始 Worker ${workerLabel(result.task)}` : `已创建 Worker ${workerLabel(result.task)}（待开始），可配置后开始`);
-      }
+      if (target.id != null && untouched) ui.composerAppendTarget = null;
+      if (target.id == null && ui.composerProfile === creationProfile) ui.composerProfile = null;
+      paintRunSettings(); show(emissionAcknowledgement(result, target.id != null));
+      ui.inputsPage?.added?.();
     }
     update = { identity, submission, view, appendTarget: ui.composerAppendTarget,
       // The just-sent inbox may refresh its detail after returning to creation, never re-enter append.
@@ -346,14 +372,30 @@ async function submitInput(mode) {
   if (update) void updateAfterSubmit(update);
 }
 export function buffer() { return submitInput('buffer'); }
+export async function conditionallyEmit() {
+  if (ui.composerSubmitting || ui.composerManagement) return;
+  const identity = ui.composerIdentity, view = ui.view, appendTarget = ui.composerAppendTarget;
+  const current = () => ui.composerIdentity === identity && ui.view === view && ui.composerAppendTarget === appendTarget && !ui.composerManagement;
+  const form = createEmissionConditions({ conditions: ui.composerConditions || [], exclusive: ui.composerExclusive,
+    mode: appendTarget ? 'append' : 'order', ownsPage: current });
+  const accepted = await formDialog({ title: '设置条件发射', content: form.node, confirmLabel: '条件发射', agent: true,
+    confirmHelp: agentHelp('保存一次性条件授权；全部满足后可靠发射，再等待父 runtime 或目标 Worker 的安全准入。') });
+  if (!accepted || !current()) return;
+  const error = form.validate(); if (error) { show(error, 'error'); return; }
+  const options = form.collect();
+  if (!options.conditions.length && !options.exclusive) { show('请至少选择一个发射条件，或使用普通发射。', 'error'); return; }
+  ui.composerConditions = options.conditions; ui.composerExclusive = options.exclusive;
+  return submitInput('emit');
+}
 
-/** Enter buffers new work or appends in a Worker inbox; Shift+Enter always inserts a newline. */
+/** Enter buffers development/append work; Ctrl+Enter emits, Ctrl+Shift+Enter edits conditions. */
 export function initComposer() {
   textEditor?.dispose(); disposeViewport?.(); textEditor = null;
   ui.composerIdentity = {}; ui.composerEditRevision = 0; ui.syncComposer = syncComposer;
   const identity = ui.composerIdentity, input = $('input'), editorTools = $('composer-editor-tools');
   editorTools.replaceChildren();
-  ui.composerAppendTarget = null;
+  ui.composerAppendTarget = null; ui.composerManagement = false; ui.composerManagementProfile = null;
+  ui.composerConditions = []; ui.composerExclusive = false;
   // 每次装配（含 boot 重跑）都从项目默认开始，不让上一条指令的运行设置跨会话残留。
   ui.composerProfile = null;
   runSettingsButton = button(runSettingsLabel(), () => openComposerRunSettings(), 'ghost composer-run-settings', { help: RUN_SETTINGS_HELP });
@@ -364,14 +406,22 @@ export function initComposer() {
   host?.querySelector?.('.composer-run-settings')?.remove?.();
   if (anchor?.parentNode) anchor.parentNode.insertBefore(runSettingsButton, anchor);
   else host?.append(runSettingsButton);
-  const sendHelp = '仅创建独立的待开始 Worker，不调用 Agent；可配置后开始。';
+  host?.querySelector?.('.composer-management')?.remove?.();
+  const managementButton = button('管理 Lush', () => {
+    ui.composerManagement = !ui.composerManagement; ui.composerAppendTarget = null; ui.composerConditions = []; ui.composerExclusive = false; ui.composerEditRevision++; syncComposer(); $('input').focus();
+  }, 'ghost composer-management', { help: '切换为当前项目的独立管理 Agent 输入；切换不调用 Agent，保留文字与引用。危险操作须用户确认。' });
+  managementButton.id = 'composer-management'; host?.append(managementButton);
+  host?.querySelector?.('.composer-management-result')?.remove?.();
+  managementResultButton = button('查看最近管理记录', () => { if (Number.isSafeInteger(ui.composerManagementResult?.id)) return detail(ui.composerManagementResult.id); }, 'ghost composer-management-result');
+  managementResultButton.hidden = true; host?.append(managementResultButton);
+  const sendHelp = agentHelp('将输入可靠挂载，父 runtime 空闲且通过安全准入后创建并开始；不保证立即创建。');
   $('draft-commit').setAttribute('data-help', sendHelp);
   $('input-send-help')?.setAttribute('data-help', sendHelp);
   renderComposerReferences();
   $('composer-expand').onclick = () => toggleComposerDetails();
   $('composer-reset').onclick = resetComposerMode;
   if ($('input-buffer')) $('input-buffer').onclick = buffer;
-  $('input-start').onclick = () => submitInput('start');
+  $('input-start').onclick = conditionallyEmit;
   renderParentOptions();
   $('input-parent').onchange = syncComposer;
   $('input-form').onsubmit = event => { event.preventDefault(); return submitInput('create'); };
@@ -389,11 +439,12 @@ export function initComposer() {
     }
     if (event.key !== 'Enter') return;
     if (event.altKey) return;
-    if (!event.metaKey && !event.ctrlKey && (event.shiftKey || usesTouchEnter())) return;
+    if (!event.metaKey && !event.ctrlKey && (event.shiftKey || usesTouchEnter() || ui.composerManagement)) return;
     event.preventDefault();
     if (event.repeat) return;
-    if (!event.metaKey && !event.ctrlKey) return destination().id != null ? submitInput('create') : buffer();
-    return submitInput(event.shiftKey ? 'start' : 'create');
+    if (!event.metaKey && !event.ctrlKey) return ui.composerManagement ? undefined : buffer();
+    if (event.shiftKey && !ui.composerManagement) return conditionallyEmit();
+    return submitInput('emit');
   };
   // Load the shared editor outside the static startup closure. Initialization
   // still waits for its visible controls; stale boot generations cannot attach

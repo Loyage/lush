@@ -11,7 +11,7 @@ const dom = installDom({ fetch: (url, options = {}) => {
   const path = String(url);
   if (failSubmit && path === '/api/action') {
     const body = JSON.parse(options.body);
-    if (body.method === 'order.submit') return Promise.reject(new Error('网络失败'));
+    if (body.method === 'input.emit') return Promise.reject(new Error('网络失败'));
   }
   return world.fetchImpl(url, options);
 } });
@@ -26,7 +26,7 @@ afterAll(() => dom.restore());
 const CONNECTION = '11111111-1111-4111-8111-111111111111';
 const button = () => dom.node('composer-shell').querySelector('.composer-run-settings');
 const runSettingsButton = button();
-const lastOrder = () => [...world.state.actions].reverse().find(row => row.method === 'order.submit');
+const lastOrder = () => [...world.state.actions].reverse().find(row => row.method === 'input.emit');
 const createWorker = async content => {
   dom.node('input').value = content; dom.node('input').oninput({});
   await dom.node('input-form').onsubmit({ preventDefault() {} });
@@ -54,7 +54,7 @@ test('运行设置入口默认沿用项目默认，只打开设置、不调用 A
   expect(deepText(modal)).toContain('Pi 默认配置');
   expect(modal.querySelector('[data-retry-field="config_mode"]').value).toBe('lush');
   expect(dialogButton(dom, '使用这份设置').classList.contains('agent-call')).toBe(false);
-  expect(world.state.actions.filter(row => row.method === 'order.submit')).toHaveLength(0);
+  expect(world.state.actions.filter(row => row.method === 'input.emit')).toHaveLength(0);
   await dialogButton(dom, '取消').onclick();
   expect(button().textContent).toBe('运行设置：项目默认');
 });
@@ -139,6 +139,23 @@ test('追加输入模式隐藏运行设置入口，返回概览后恢复', async
   expect(button().hidden).toBe(false);
 });
 
+test('管理模式使用隔离配置表单，默认沿用manager，不发送开发Prompt/env', async () => {
+  await overview(); world.state.actions.length = 0;
+  ui.composerProfile = { env: { SHOULD_NOT_LEAK: 'private' }, default_prompt: '开发规则' };
+  await dom.node('composer-shell').querySelector('.composer-management').onclick();
+  void button().onclick(); await until(() => dialogButton(dom, '使用这份管理设置'));
+  const modal = dom.node('modal'); expect(modal.querySelector('[data-retry-field="default_prompt"]')).toBeNull();
+  expect(deepText(modal)).toContain('危险操作须用户确认');
+  const mode = modal.querySelector('[aria-label="管理 Agent 配置模式"]'); mode.value = 'pi'; mode.onchange();
+  await dialogButton(dom, '使用这份管理设置').onclick();
+  dom.node('input').value = '分析运行效率'; dom.node('input').oninput();
+  await dom.node('input-form').onsubmit({ preventDefault() {} });
+  const sent = world.state.actions.findLast(row => row.method === 'management.submit');
+  expect(sent.params.profile).toEqual({ agent: 'pi', config_mode: 'pi' });
+  expect(sent.params).not.toHaveProperty('env'); expect(sent.params).not.toHaveProperty('default_prompt');
+  await dom.node('composer-shell').querySelector('.composer-management').onclick(); ui.composerProfile = null;
+});
+
 test('运行设置可按来源默认一键填入模型与思考深度，未读来源给出提示且不调用 Agent', async () => {
   const connection = world.state.agentConnections.connections[0];
   connection.default_model = 'second-model'; connection.default_thinking = 'high';
@@ -154,7 +171,7 @@ test('运行设置可按来源默认一键填入模型与思考深度，未读�
     await dialogButton(dom, '填入来源默认（模型 + 思考深度）').onclick();
     expect(modal.querySelector('[data-retry-field="model"]').value).toBe('openai-compatible/second-model');
     expect(modal.querySelector('[data-retry-field="thinking"]').value).toBe('high');
-    expect(world.state.actions.filter(row => row.method === 'order.submit')).toHaveLength(0);
+    expect(world.state.actions.filter(row => row.method === 'input.emit')).toHaveLength(0);
     await dialogButton(dom, '取消').onclick();
   } finally {
     delete connection.default_model; delete connection.default_thinking;

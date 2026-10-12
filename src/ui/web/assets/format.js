@@ -67,6 +67,11 @@ export const EVENTS = {
   'hook.signal_emitted': '时间信号已发出', 'hook.signal_missed': '时间信号已错过发出时刻',
   'management.created': '创建管理型 Worker', 'management.binding_updated': '调整管理信号绑定',
   'management.signal_skipped': '管理信号已跳过', 'management.signal_submitted': '管理信号已提交待执行',
+  'management.input_submitted': '管理输入已提交待调用',
+  'management.capability_requested': '管理能力请求已记录',
+  'management.capability_confirmation': '管理操作授权已处理（不代表已执行）',
+  'management.capability_started': '开始执行管理能力', 'management.capability_completed': '管理能力已执行',
+  'management.capability_failed': '管理能力操作未完成',
   'management.invocation_started': '管理 Agent 开始调用', 'management.action_submitted': '管理操作已提交待安全点',
   'management.action_skipped': '管理操作已跳过', 'management.action_completed': '管理操作已执行',
   'management.settled': '管理信号处理已收口', 'management.failed': '管理信号处理失败', 'management.unknown': '管理结果未知，待核验',
@@ -137,6 +142,10 @@ export const EVENTS = {
   'preempt.requested': '请求安全中断调用',
   'notice.read': '提醒已读', 'dep.added': '添加依赖关系', 'explanation.requested': '请求执行步骤介绍',
   'input.draft': '输入已关联暂存记录', 'input.anchor': '已固定输入代码基线', 'input.route': '输入已按前缀分派',
+  'input.emitted': '输入已可靠挂载（不代表已创建）', 'input.condition_satisfied': '输入条件信号已满足',
+  'input.dispatch_started': '开始输入准入与派发', 'input.dispatch_succeeded': '输入已成功派发',
+  'input.dispatch_failed': '输入派发失败', 'input.emission_cancelled': '未执行的发射已撤销',
+  'input.exclusive_released': '独占开发占用已释放',
   'main.bound': '已绑定主分支', 'branch.bound': '已绑定分支', 'branch.merged': '分支已合并',
   'branch.sync.requested': '请求同步分支', 'branch.caught_up': '分支已追上父分支',
   'branch.archived': '分支已归档', 'branch.archive': '执行分支归档',
@@ -165,6 +174,7 @@ export function eventLabel(event) {
       case 'unknown': return '自动化操作结果待核验（未知副作用不重放）';
     }
   }
+  if (event.type === 'management.capability_failed' && event.data?.status === 'unknown') return '管理能力执行结果待核验（不自动重放）';
   if (event.type === 'invocation.target_branch_moved' && event.data?.reason === 'unattributed_ref_movement') return '目标分支存在未归因的移动';
   if (event.type === 'notice.opened' && event.data?.kind === 'info') return '提醒';
   if (event.type === 'notice.answered' && event.data?.answer_source === 'lush') return 'Lush 自动选择';

@@ -147,13 +147,17 @@ export default {
   taskHooks(taskId) {
     const task = this.store.task(id(taskId)), data = parse(task), automatic = this.autoMergeView(task);
     const available = ownerAvailable(this, task);
-    const mounts = data.mounts.map(m => ({ id: m.id, kind: 'rule', ...readDefinition(this, m),
+    const mounts = data.mounts.filter(m => !m.input_signal).map(m => ({ id: m.id, kind: 'rule', ...readDefinition(this, m),
       operation: m.receipts?.find(r => r.operation_id)?.operation_id ? this.mergeRequestOperationView(task, m.receipts.find(r => r.operation_id).operation_id) : null, builtin: Boolean(m.signal_binding), locked: Boolean(m.signal_binding),
       editable: !m.signal_binding && (available || (ownerAvailable(this, task, true) && (scheduledSelfRetry(m, task) || (m.schedule && m.enabled)))) && m.state !== 'running', removable: (!m.signal_binding || (!m.enabled && ['unknown','skipped'].includes(m.state))) && ['main','owner','order','say','child'].includes(task.task_kind) && m.state !== 'running', reason: m.state === 'running' ? 'Hook 已领取执行，不能修改' : !available && !(ownerAvailable(this, task, true) && scheduledSelfRetry(m, task)) ? 'Worker 已结束或归档' : this.shortcutHookIssue(m) ?? m.reason ?? null,
       state: m.state, last_execution: readExecution(this, m.last_execution),
       ...(hasCommand(m) ? { pending_count: m.command_pending ?? 0 } : {}),
       ...(m.schedule ? { next_run_at: m.next_run_at ?? null, pending_due_at: m.pending_due_at ?? null } : {}),
       ...(m.actions.find(a => a.type === 'create_worker')?.profile ? { model_selection: publicHookDefinition(m).actions.find(a => a.type === 'create_worker').model_selection } : {}) }));
+    for (const mount of data.mounts.filter(m => m.input_signal)) mounts.push({ id: mount.id, kind: 'input_signal', name: mount.name,
+      trigger: mount.trigger, mode: 'once', enabled: mount.enabled, builtin: true, locked: true, editable: false, removable: false,
+      conditions: {}, actions: mount.actions, state: mount.state, last_execution: mount.last_execution,
+      reason: '条件发射信号由输入意图管理；在草稿页撤销待发射输入。' });
     if (automatic) {
       const booking = task.reservation ? JSON.parse(task.reservation) : null;
       mounts.unshift({ id: 'auto-merge', kind: 'rule', operation: this.mergeRequestOperationView(task), name: '自动合并', trigger: 'worker.delivery_ready', mode: 'persistent',
@@ -217,6 +221,7 @@ export default {
     check(hookId !== 'delivery-handler', 'delivery handler is protected; use the branch convergence setter');
     const task = this.store.task(id(taskId)), existing = parse(task).mounts.find(m => m.id === hookId);
     check(!existing?.signal_binding, 'batch interruption Hook is managed by the runtime');
+    check(!existing?.input_signal, 'input condition signal is managed by its emission; cancel the input instead');
     check(!editing || !existing?.maintenance_pending, 'Hook has a pending execution; finish or remove it before editing');
     editable(this, task, existing, !enabled); checkRevision(revision(this, task), expectedRevision);
     if (hookId === 'auto-merge') {
@@ -290,6 +295,7 @@ export default {
     check(hookId !== 'auto-merge', 'built-in automatic merge cannot be removed; use its persistent switch');
     this.store.transaction(() => {
       const data = parse(this.store.task(task.id)), index = data.mounts.findIndex(m => m.id === hookId); check(index >= 0, 'Hook mount not found');
+      check(!data.mounts[index].input_signal, 'input condition signal is managed by its emission; cancel the input instead');
       check(!data.mounts[index].signal_binding || (!data.mounts[index].enabled && ['unknown','skipped'].includes(data.mounts[index].state)),
         'batch interruption Hook is managed by the runtime');
       check(data.mounts[index].state !== 'running', 'Hook is executing; wait for its result');
@@ -322,7 +328,7 @@ export default {
     if (trigger === 'time.scheduled' || this.stopping || this.clearing || this.workerDeleteIds?.size) return;
     if (this.recoveringHooks) { (this.hookRecoveryEvents ??= []).push([taskId, trigger, sourceId]); return; }
     const task = this.store.task(taskId); if (!task.hooks) return;
-    const data = parse(task), mounts = data.mounts.filter(m => m.trigger === trigger && (hasCommand(m)
+    const data = parse(task), mounts = data.mounts.filter(m => !m.input_signal && m.trigger === trigger && (hasCommand(m)
       ? m.enabled && !['failed','unknown'].includes(m.state) && !(m.mode === 'once' && m.state === 'succeeded') : eligible(m)) && hookConditionsMatch(m, task)
       && (!m.signal_binding || (sourceId && m.signal_binding.invocation_id === JSON.parse(this.store.get('SELECT data FROM events WHERE id=?', sourceId)?.data ?? '{}').invocation_id))
       && (!pendingOnly || m.mode === 'once' || !m.last_execution));
@@ -490,6 +496,7 @@ export default {
       // A new one-shot mount can be attached while a parent is already writable.
       if (current.parent && (parentBoundary || !this.taskMergeBusy?.has(task.id))) this.emitTaskHook(task.id, 'worker.parent_ready', null, previous.parent === true);
     }
+    this.scheduleInputEmissions();
     this.observeScheduledTaskHooks(taskId);
     for (const task of tasks) for (const mount of parse(this.store.task(task.id)).mounts) {
       if (hasCommand(mount)) this.queueCommandTaskHook(task.id, mount.id);
@@ -515,6 +522,7 @@ export default {
     this.initializeCommandHookExample();
     for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL')) {
       for (const mount of parse(task).mounts) {
+        if (mount.input_signal) continue;
         if (mount.state === 'waiting' && mount.actions.some(a => a.type === 'prompt_command') && mount.last_execution) {
           this.finishTaskHook(task.id, mount.id, mount.last_execution.id, 'unknown', '后台中断；提示词创建结果未知，禁止自动重放。'); continue;
         }

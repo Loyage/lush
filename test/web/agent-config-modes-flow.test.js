@@ -48,6 +48,13 @@ test('HTTP rejects invalid backend/mode before creating any Worker or Input', as
     expect(wrongType.status).toBe(400);
     const draft = await post({ draft_id: 1, expected_revision: 1, profile: { agent: 'pi', config_mode: 'pi' } });
     expect(draft.status).toBe(400);
-    expect((await draft.json()).error).toContain('cannot be combined');
+    // A valid profile is now allowed on the versioned emission path; this
+    // missing draft is rejected before any input or development work is consumed.
+    expect((await draft.json()).error).toContain('draft 1 not found');
+    const saved = await f.project.addBufferedDraft('saved idea', [], 'main');
+    const badProfile = await post({ draft_id: saved.id, expected_revision: saved.revision, profile: { agent: 'codex', config_mode: 'pi' } });
+    expect(badProfile.status).toBe(400);
+    expect(f.project.inputGet('draft', saved.id)).toMatchObject({ content: 'saved idea', revision: saved.revision, status: 'draft' });
+    expect(f.store.all('SELECT id FROM inputs')).toHaveLength(0); expect(f.store.tasks()).toHaveLength(before);
   } finally { await f.close(); }
 });

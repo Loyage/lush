@@ -96,6 +96,7 @@ export default {
     this.assertWritable('delegate a worker');
     const parent = this.store.task(parentId);
     assertTaskNotSyncing(this, parent.id);
+    check(!this.inputExclusiveReason(parent), this.inputExclusiveReason(parent));
     check(!['main','owner'].includes(parent.task_kind), 'branch owner Workers accept new order Workers, not unrestricted spawned work');
     check(parent.task_kind !== 'analysis', 'read-only analysis Workers do not delegate; ask a new question instead');
     const taskKind = ['order','child'].includes(parent.task_kind) ? 'child' : null;
@@ -144,6 +145,7 @@ export default {
     return this.workspaces.exclusive(async () => {
       const liveParent = this.store.task(parent.id);
       assertTaskNotSyncing(this, liveParent.id);
+      check(!this.inputExclusiveReason(liveParent), this.inputExclusiveReason(liveParent));
       assertTaskAncestorsOpen(this, liveParent);
       check(!TERMINAL.has(liveParent.status) && liveParent.branch === parent.branch, 'parent changed before fork');
       const commit = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${parent.branch}^{commit}`);

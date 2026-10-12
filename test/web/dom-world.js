@@ -359,6 +359,8 @@ export function makeWorld() {
       if (body.method === 'draft.update') { const draft = state.drafts.find(row => row.id === body.params.id); if (draft) { draft.content = body.params.content; if (body.params.references !== undefined) draft.references = body.params.references; } return json({ id: draft?.id, content: draft?.content, references: draft?.references || [] }); }
       if (body.method === 'draft.remove') { state.drafts = state.drafts.filter(row => row.id !== body.params.id); return json({ id: body.params.id }); }
       if (body.method === 'draft.add') { const draft = { id: state.drafts.length ? Math.max(...state.drafts.map(row => row.id)) + 1 : 1, content: body.params.content, references: body.params.references || [], created_at: iso(NOW) }; state.drafts = [...state.drafts, draft]; return json(draft); }
+      if (body.method === 'input.emit') return json({ emitted: true, draft_id: 99, mode: body.params.mode || 'order', dispatch: { state: 'queued' } });
+      if (body.method === 'management.submit') return json({ management: true, task: { id: 98, role: 'manager', task_kind: 'management' } });
       if (body.method === 'order.submit') {
         const draft = body.params.draft_id === undefined ? null : state.drafts.find(row => row.id === body.params.draft_id);
         if (draft) state.drafts = state.drafts.filter(row => row.id !== draft.id);

@@ -4,7 +4,7 @@ import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
 import { projectRouteId } from '../../src/host/registry.js';
 import { temp, repo, env } from '../helpers.js';
-import { cli, freePort, idle } from './harness.js';
+import { cli, freePort, idle, emittedTask } from './harness.js';
 import { fetch } from '../web/harness.js';
 
 const post = async (url, body = {}) => {
@@ -31,9 +31,12 @@ test('maintenance survives daemon and Host process replacement, queues new paren
     const client = new UIClient(new Config({ project: root, env: env(isolated) }));
     const web = await cli(root, ['host', 'start', String(port)], isolated), url = `http://127.0.0.1:${port}`;
     const action = (method, params = {}) => post(`${url}/p/${projectRouteId(root)}/api/action`, { method, params });
+    const parent = (await action('order.submit', { content: 'existing parent', start: false })).task;
     expect(await action('system.interrupt_all')).toMatchObject({ paused: true, phase: 'paused', ready_to_restart: true });
-    const parent = (await action('order.submit', { content: 'queued during maintenance' })).task;
+    await action('worker.resume', { id: parent.id });
     const child = await action('worker.spawn', { parent: parent.id, goal: 'child held by project gate' });
+    const mounted = await action('order.submit', { content: 'mounted during maintenance' });
+    expect(mounted).toMatchObject({ emitted: true, dispatch: { state: 'queued' } }); expect(mounted.task).toBeUndefined();
     const staged = (await action('order.submit', { content: 'do not begin staged', start: false })).task;
     for (const row of [parent, child]) expect(await client.request('worker.inspect', { id: row.id })).toMatchObject({ status: 'queued', calls: 0 });
     const restarted = await post(url + '/api/service/restart');
@@ -46,7 +49,11 @@ test('maintenance survives daemon and Host process replacement, queues new paren
     for (const row of [parent, child]) expect(await client.request('worker.inspect', { id: row.id })).toMatchObject({ status: 'queued', calls: 0 });
     expect(await client.request('worker.inspect', { id: staged.id })).toMatchObject({ status: 'paused', calls: 0 });
     expect((await cli(other, ['daemon', 'status'], isolated)).pid).toBe(untouched.pid);
+    expect(await client.request('input.get', { kind: 'draft', id: mounted.draft_id })).toMatchObject({ task_id: null, dispatch: { state: 'queued' } });
+    expect((await client.request('worker.list')).some(task => task.goal === 'mounted during maintenance')).toBe(false);
     expect(await action('system.resume_all')).toMatchObject({ paused: false });
+    const emitted = await emittedTask(client, mounted);
+    expect((await idle(client, emitted.id)).calls).toBe(1);
     expect((await idle(client, parent.id)).calls).toBeGreaterThan(0);
     expect((await client.request('worker.inspect', { id: child.id })).calls).toBe(1);
     expect(await client.request('worker.inspect', { id: staged.id })).toMatchObject({ status: 'paused', calls: 0 });

@@ -1,14 +1,14 @@
 # 时间信号与管理型 Worker
 
-本章是用户追加需求与决定 #270 的实现契约，补充 [Hooks 接缝](hooks.md)；设计入口是 [Worker Hooks](../design/hooks.md)。先前决定 #266 的一次性／每日、显式时区、停机错过跳过、已提交项等待安全点和未知副作用不重放继续适用。
+本章记录时间信号及即时管理输入的权限、隔离和恢复契约（W240 / D565），补充 [Hooks 接缝](hooks.md)；设计入口是 [Worker Hooks](../design/hooks.md)。先前决定 #266 的一次性／每日、显式时区、停机错过跳过、已提交项等待安全点和未知副作用不重放继续适用。
 
 ## 产品和授权
 
-「自动化」页面（沿用 `#hooks`）包含两个独立区域：时间信号、管理指令。用户保存具名时间信号（例如「Codex 额度更新时间已到」），创建管理型 Worker，写「开始 Wxx」／「重试失败的 Wxx」，选择信号及一次性／持续绑定。一个信号可绑定多个管理 Worker。默认一次性；创建、绑定不调用 Agent，信号到来才持久排队，不保证 Agent 准点获得槽。默认开发输入框、order.submit 和开发 Worker 流程不变。
+「自动化」页面（沿用 `#hooks`）包含两个独立区域：时间信号、管理指令。用户保存具名时间信号（例如「Codex 额度更新时间已到」），创建管理型 Worker，写「开始 Wxx」／「重试失败的 Wxx」，选择信号及一次性／持续绑定。一个信号可绑定多个管理 Worker。默认一次性；创建、绑定不调用 Agent，信号到来才持久排队，不保证 Agent 准点获得槽。主输入框还可显式切换「管理 Lush」，通过 `management.submit` 即时排队，不要求时间信号；开发输入的可靠挂载另见[条件发射](conditional-emission.md)。
 
 信号只说明时间已到，不是实际额度恢复的观测，不自动查询／切换账号，不跨项目、不启动停止的 daemon。管理 Worker 的模型／来源由用户明确选择或创建时冻结项目管理角色有效默认；不把目标 Worker 的 Codex 账号自动当作管理 Agent 的来源。
 
-用户决定 #270：管理型 Agent 首版仅可查询当前项目、开始／继续 paused 的开发 Worker、重试 failed 的开发 Worker。目标可为当前项目任意 order/child，不限父子，但不得复活 completed/cancelled、已验收／归档或祖先关闭的任务。不增加追加输入、创建开发任务、取消、中断、合并、验收、归档、删除、配置账号／Hook／服务的权限。
+管理 Agent 可发现全部当前 RPC 能力，但执行权限由 `src/rpc/management-policy.js` 明确分为安全读取、低风险自动执行、用户确认和不可用。查询诊断、有界调用历史、草稿编辑、条件发射、合法追加、开始／继续和重试可自动执行；取消、中断、合并、验收回收、删除、Shell 授权、敏感配置及服务操作须持久预检，由用户确认精确请求后经原引擎执行。普通开发 Agent 不因此扩权，不可复活终态、已归档或祖先关闭的工作。
 
 ### 订阅刷新时间填入
 
@@ -20,11 +20,11 @@ Web 的时间信号编辑器按需 GET `/api/agent/connections`，仅读取当�
 
 管理工作仍用 Worker / Run / Artifact / Message / Event，不新增核心业务实体。新记录 role='manager', task_kind='management'；指令放 goal，不伪造开发 Input，不建立 Git 分支，不加入自动合并／验收链。management Worker 可以没有 worker_number，Hooks 卡片按名称与内部 ID 定位；普通目标的 W 编号解析规则保持不变。
 
-Workspace 是项目 .lush 下专属 management 目录，不是 canonical 项目或任意开发 worktree。Workspaces.ensure/finish 明确识别此类型，不跑 Git clean/commit。Provider 使用独立 manager 提示词、独立会话，不能继承开发提示词、项目 AGENTS 或分支 checkpoint。管理调用只使用可信的查询／开始／重试工具；不加载用户扩展／skills、不提供 read/bash/write/edit 或任意 Shell 工具，运行时扩展的连接观测／安全停止接缝保留。没有专用受限工具适配的旧 Codex CLI 后端拒绝管理调用；Pi 中使用 Codex 模型／连接不受此限制。mock／可控测试 provider 可用。
+Workspace 是项目 .lush 下专属 management 目录，不是 canonical 项目或任意开发 worktree。Workspaces.ensure/finish 明确识别此类型，不跑 Git clean/commit。Provider 使用独立 manager 提示词、独立会话，不能继承开发提示词、项目 AGENTS 或分支 checkpoint。管理调用只使用可信的查询／开始／重试／能力目录／安全历史／受控操作工具；不加载用户扩展／skills、不提供 read/bash/write/edit 或任意 Shell 工具，运行时扩展的连接观测／安全停止接缝保留。没有专用受限工具适配的旧 Codex CLI 后端拒绝管理调用；Pi 中使用 Codex 模型／连接不受此限制。mock／可控测试 provider 可用。
 
 管理 Provider 不读取 Lush 公共／角色 env 文件，也不注入继承或显式 profile.env；机器运行环境、项目出站网络策略和所选托管连接的必要管道仍保留。管理提示词忽略开发 Prompt 补充和覆盖，普通开发调用的环境继承不变。
 
-这是工具和 RPC 能力隔离，不声称提供操作系统沙箱。普通开发 Agent 的权限、USER_ONLY 方法以及每轮 token 的 hash / running / abort 核验保持不变。管理方法要求合法 invocation actor 且 role/task_kind/绑定/当前 occurrence 全部通过后端核验，不能靠 Prompt 宣称授权。Dispatcher 按 Store 中真实管理身份把该 token 可调用方法严格限制为 manager.query/start/retry 与 worker.lookup，不能借普通 Agent 可用的 notice/progress/message 等方法扩权。
+这是工具和 RPC 能力隔离，不声称提供操作系统沙箱。普通开发 Agent 的权限、USER_ONLY 方法以及每轮 token 的 hash / running / abort 核验保持不变。管理方法要求合法 invocation actor 且 role/task_kind/绑定/当前 occurrence 全部通过后端核验，不能靠 Prompt 宣称授权。Dispatcher 按 Store 中真实管理身份把该 token 可调用方法严格限制为 manager.query/start/retry/catalog/history/call 与 worker.lookup，不能借普通 Agent 可用的 notice/progress/message 等方法扩权。
 
 ## 数据与时间
 
@@ -38,7 +38,7 @@ Workspace 是项目 .lush 下专属 management 目录，不是 canonical 项目�
 
 临时冻结、同步、清理、正在退出的旧目标调用只阻塞受控请求。管理工具返回已提交待安全点，不要求模型等待／轮询；后端持久请求在首个安全点执行，不再次调用模型来重发。目标状态不适用／永久不可用记录 skipped。安全门通过后动作异常不是可自动重试的临时 gate。开始／重试沿用目标已保存配置，不接收 profile、不切账号；仍通过原生命周期入口。
 
-## 接口（父负责适配）
+## 接口
 
 `hooks.list` 保留既有字段，新增：
 - `signals:{version:1,revision,items:[{id,name,enabled,schedule,next_run_at,last_due_at,last_execution}]}`，只读安全投影。
@@ -49,21 +49,26 @@ Workspace 是项目 .lush 下专属 management 目录，不是 canonical 项目�
 - `hooks.signal_remove {id,expected_revision}` → Project.removeHookSignal(id,expectedRevision)，返回 hooksList。已启用或尚未收口的绑定引用时拒绝移除；已停止的 failed/unknown 历史诊断不永久锁住信号，保留可读历史。
 - `management.create {name,instruction,signal_id,mode?,profile?,client_request_id?}` → Project.createManagementWorker(options)，返回 `{task:安全 Worker}`。默认 mode='once'。profile 是写入私有设置，读取裁去；保存失败保留编辑内容，禁止立即调用 Agent。可选 client_request_id 是去重身份，非空、trim 后不变、最多 128 字符、无控制字符；Web 每份表单固定一个 key、失败重试不换 key。同 key 同原提交定义（省略 profile 仍视为原始省略）返回原 Worker，不因 signal 已发出或默认来源变化而重建；同 key 不同定义拒绝，并发／重启后保留去重。定义 fingerprint 与 key 放私有附属状态，不作为授权。mutation 已成功而后续 refresh 失败必须显示成功／刷新诊断，不能自动重做创建；无 key 客户端收到未知断连须先检查历史，不盲目重试。
 - `management.binding_update {id,enabled,expected_revision}` → Project.updateManagementBinding(id,enabled,expectedRevision)，返回安全 Worker。用于停用／重新启用授权；已 consumed 的一次性或 unknown／失败必须另建管理指令，不借启用重放。
+- `management.submit {instruction,profile?,client_request_id?}` → Project.submitManagementInstruction(options)，返回 `{management:true,task:安全 Worker}`；即时创建独立管理身份并排队，不创建开发 Input 或 Git 分支。请求 key 与精确原定义去重，旧信号绑定不迁移。
 
 专用 Agent-only RPC（只由受限管理工具使用，不为 Web 或普通开发 Agent开放用户方法）：
 - `manager.query {id?}` → Project.managementQuery(actorId,id?)。无 id 返回有界当前项目目标摘要；有 id 返回单目标安全诊断。工具层可用既有 worker.lookup 将 W 编号解析为整数 ID。
 - `manager.start {id}` → Project.requestManagementAction(actorId,'start',id)。
 - `manager.retry {id}` → Project.requestManagementAction(actorId,'retry',id)。
+- `manager.catalog {}`：返回当前项目能力目录、参数及 `read|automatic|confirmation|unavailable` 分级和限制，不赋予泛化用户权限。
+- `manager.history {id?,before?,limit?}`：有界调用状态、模型、耗时、事件计数，limit 1..100，返回 items/next_cursor；不读取原始提示词、工具参数／输出、会话或凭证，流程诊断仅基于这份安全摘要。
+- `manager.call {method,params,request_id?}`：可信受控代理，检查注册参数、私有字段、作用域和管理身份；写操作按精确请求指纹去重。`system.diagnostics` 是当前项目安全只读采集，返回 token／估算费用速率和覆盖不足，不开放跨项目 Host 聚合或原始会话。已移除的手动快捷指令 run/start 不进入目录、不保留执行别名。返回安全 `{receipt_id,method,status,notice_id?,reason?,result?}`；需用户确认时返回 `pending_confirmation`，不是操作已完成。
 
 受控动作返回 `{status:'succeeded'|'waiting'|'skipped'|'unknown',target_id,target_worker_number,reason?,receipt_id}`（尚未创建新动作的校验失败可拒绝）。成功仅表示生命周期操作已提交／排队，不冒充目标业务成功或额度已恢复。每项操作先记录授权、触发身份和收据，禁用后拒绝新操作。
 
 普通 worker.inspect 及所有公开 RPC/HTTP 出口不得泄漏字符串 management 私有 JSON 或 retry_profile。管理型 Worker 在自动化页面显示历史／结果入口，不假装有分支可合并。配置 revision 不因时钟 tick 变化而让未改配置的表单失效。跨项目迟到响应使用现有自动化页面项目身份守卫，不串页；延迟安排 Agent 的按钮使用 agent-call 与 agentHelp。
 
-## 实施分区与验证
+## 确认、作用域与恢复
 
-- Runtime 子 Worker：core/project management + signals、统一有界 timer、恢复、调度／生命周期／Workspaces、Store 新附属列和安全 projection、必要管理读面，runtime tests；不修改 agent/provider/prompts/settings、RPC/CLI/Web、文档。
-- Provider 子 Worker：manager Prompt、role/settings、Pi 可信受限工具扩展和 provider 参数隔离、Provider/Prompt tests；不修改 core/RPC/Web/文档。先读 Pi 扩展文档及交叉参考；SDK extension 只用项目可信代码，不引入 daemon/CLI 运行时依赖。
-- Web 子 Worker：Hooks 信号编辑与管理指令创建／停用／状态／历史入口、DOM tests；不修改 core/agent/RPC/CLI/文档。使用本契约字段和上述 action。
-- 父 Worker：RPC／HTTP／CLI入口适配、文档／模块地图、跨区集成测试及最终验证。
+危险操作先保存精确方法／参数、目标快照与资源预检，发布管理授权 Notice；普通自动选择必须跳过。只有 `answer_source='user'` 的固定问卷答复可授权，dismiss、模型答复、参数或目标变化都不是批准。用户答复在事务后由 `resolveManagementConfirmation` 安排可信执行，不再调用管理模型。目标、脏现场、冻结及 revision 等安全门仍由原引擎复核；模型不能代理答复自身或其它管理授权。
 
-测试只用临时项目、mock／受控 provider，不调用真实模型、不重启用户服务。覆盖时间提交、共享信号、一／持续、忙时单项待执行、停止／重启／unknown、重复动作、冻结后安全执行、失效目标、非法 Actor／旧 token、开发输入无变化、私有投影、页面迟到响应和按钮标识。真实 Codex 额度恢复、真实模型理解自然语言及真实浏览器行为另行验收。
+`tasks.management.control_calls` 保存确认／执行收据；批准但暂受阻的操作等待安全点，已经 started/running 而结果未知的操作重启标 unknown，不自动重放。`managementControlJobs` 计入维护忙碌和停机 drain；待用户确认或 unknown 不靠定时轮询。资源回收与服务停机沿用真实入口，`system.stop_if_idle` 因管理执行自身占忙而明确不可用，不伪装成功。
+
+作用域仅当前项目，无跨项目、任意 Shell、read/write/edit 或凭证工具。设备共享设置须指令明确提出设备／全局操作且工具带 `scope:'device'`；device-only 旧别名也要求该授权元数据，不传给普通 handler。私有 env、Prompt、凭证、原始会话及需交互认证／设置迁移的能力保留目录但不可用，指向用户界面。管理模型不得创建其它管理身份或改变自身授权。只读结果再次做秘密字段和字节裁剪，公开 inspect 不暴露 control_calls 原参数、预检指纹或私有 JSON。
+
+验证使用临时项目与受控 Provider：`test/project/management-control.test.js` 覆盖权限分级、确认、旧 token、scope、冻结、unknown 和私有投影；Provider/工具测试验证可信工具白名单与隔离；真实 HTTP/RPC/Git 联调覆盖管理草稿到条件发射和用户确认执行。不调用真实模型、不重启用户服务；真实自然语言理解、额度恢复和物理浏览器行为仍需另行验收。

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { temp, repo, env } from '../helpers.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
-import { cli, idle } from './harness.js';
+import { cli, idle, emittedTask } from './harness.js';
 import { bindMockPiSource } from './pi-runtime-fixture.js';
 
 test('pi subprocess receives project/task capability, pinned CLI, persistent session path and performs delegation', async () => {
@@ -38,14 +38,16 @@ console.log('fake pi completed');
     await bindMockPiSource(root, deviceEnv);
     const input = await cli(root,['order','run'], deviceEnv);
     const client = new UIClient(Config.fromEnv(env(deviceEnv),root));
+    expect(input).toMatchObject({ emitted: true }); expect(input.task).toBeUndefined();
+    const task = await emittedTask(client, input);
     // Wait for the child receipt and its acknowledgement, not the parent's transient first park.
-    const order = await idle(client,input.task.id,2);
+    const order = await idle(client,task.id,2);
     // An order stays idle after an ordinary return; it is not completed by it.
     expect(order.status).toBe('waiting');
-    expect(order.agent).toMatchObject({ id: `agent#${input.task.id}`, role: 'agent', active: false, pid: null });
+    expect(order.agent).toMatchObject({ id: `agent#${task.id}`, role: 'agent', active: false, pid: null });
     expect(order.agent.wakes).toBeGreaterThan(0);
     expect(order.agent.last_seen_at).toBeTruthy();
-    const children = (await client.request('worker.list')).filter(task => task.parent_id === input.task.id && task.task_kind === 'child');
+    const children = (await client.request('worker.list')).filter(task => task.parent_id === order.id && task.task_kind === 'child');
     expect(children).toHaveLength(1);
     expect(children[0].goal).toBe('delegated via pinned CLI');
     expect(children[0].status).toBe('completed');
@@ -53,9 +55,9 @@ console.log('fake pi completed');
     const seen = fs.readFileSync(path.join(root,'.lush','seen.jsonl'),'utf8').trim().split('\n').map(JSON.parse);
     expect(seen).toHaveLength(3);
     expect(seen.every(row => row.project === root && row.token && row.sharedEnv === 'common' && row.promptRole)).toBe(true);
-    const orderSeen = seen.find(row => row.task.id === input.task.id);
+    const orderSeen = seen.find(row => row.task.id === task.id);
     expect(orderSeen.promptHasWorkerInstructions).toBe(false);
-    const sessions = seen.filter(row => row.task.id === input.task.id).map(row => row.args[row.args.indexOf('--session-id')+1]);
+    const sessions = seen.filter(row => row.task.id === task.id).map(row => row.args[row.args.indexOf('--session-id')+1]);
     expect(sessions).toHaveLength(2);
     expect(sessions.every(session => typeof session === 'string' && session.length > 0)).toBe(true);
     expect(new Set(sessions).size).toBe(1);

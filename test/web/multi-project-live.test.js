@@ -55,7 +55,16 @@ test('两个真实项目的 daemon 同时连在一个全局 Web 下，A 的写�
   try {
     expect((await post('/api/host/select', { project: a.root })).status).toBe(200);
     expect((await post('/api/host/select', { project: b.root })).status).toBe(200);
-    expect((await post(`/p/${idA}/api/action`, { method: 'order.submit', params: { content: 'A only' } })).status).toBe(200);
+    a.project.stopping = true;
+    const response = await post(`/p/${idA}/api/action`, { method: 'order.submit', params: { content: 'A only' } });
+    expect(response.status).toBe(200);
+    const receipt = await response.json(); expect(receipt).toMatchObject({ emitted: true, dispatch: { state: 'queued' } });
+    expect(receipt.task).toBeUndefined();
+    expect(a.project.inputGet('draft', receipt.draft_id).content).toBe('A only');
+    expect(b.store.all('SELECT id FROM drafts')).toHaveLength(0);
+    expect(a.store.all("SELECT id FROM tasks WHERE task_kind='order'")).toHaveLength(0);
+    a.project.stopping = false; await a.project.drainInputEmissions();
+    expect(a.project.inputEmissionResult(receipt.draft_id).dispatch.state).toBe('succeeded');
 
     const snapA = await (await fetch(`${url}/p/${idA}/api/snapshot`)).json();
     const snapB = await (await fetch(`${url}/p/${idB}/api/snapshot`)).json();

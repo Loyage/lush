@@ -98,6 +98,9 @@ export default {
         if (!model.auto_select.enabled || this.stopping || this.clearing || this.workerDeleteIds?.size || this.settingsMigrationApplying) return false;
         const notice = this.store.get('SELECT * FROM notices WHERE id=?', noticeId);
         if (!notice || notice.status !== 'open' || !['question', 'questionnaire'].includes(notice.kind)) return false;
+        // A device preference cannot grant a management Agent dangerous user powers.
+        // Keep the exact receipt-backed confirmation open for an explicit human answer.
+        if (this.isManagementConfirmationNotice?.(notice.id)) return false;
         const receipt = state(this), identity = noticeIdentity(notice);
         if (receipt.blocked.length === MAX_FAILURES || receipt.blocked.some(row => row.identity === identity)) return false;
         const task = this.store.task(notice.task_id);

@@ -19,7 +19,7 @@ afterAll(() => dom.restore());
 const root = () => dom.node('detail');
 const btn = (label, host = root()) => [...host.querySelectorAll('button'), ...host.querySelectorAll('a')].find(node => node.textContent === label || node.getAttribute('aria-label')?.endsWith(`：${label}`));
 
-test('真实 API：详情默认新建，显式追加 Enter 仅发消息，ACK自动恢复独立创建', async () => {
+test('真实 API：详情默认新建，显式追加 Ctrl+Enter 可靠挂载且 ACK 恢复新建', async () => {
   fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
   const restore = registerNavigation({ refresh: async () => {}, detail: loadDetail });
   try {
@@ -29,29 +29,28 @@ test('真实 API：详情默认新建，显式追加 Enter 仅发消息，ACK自
     await loadDetail(task.id);
     const before = ['tasks', 'inputs', 'drafts'].map(table => fixture.store.all(`SELECT * FROM ${table}`).length);
     const input = dom.node('input'); expect(dom.node('input-form').dataset.mode).toBe('create');
-    expect(input.placeholder).toContain('在 main 下创建子 Worker');
+    expect(input.placeholder).toContain('向 main 发射输入');
     btn('追加输入').onclick();
     expect(input.placeholder).toContain(`追加给 Worker ${task.worker_number ?? `#${task.id}`}`);
     expect(input.placeholder).toContain('需开始 / 继续');
-    input.value = '后续要求'; input.oninput(); await input.onkeydown({ key: 'Enter', preventDefault() {} });
+    input.value = '后续要求'; input.oninput(); await input.onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
     expect(input.value).toBe(''); expect(fixture.store.task(task.id).status).toBe('paused');
-    expect(fixture.store.all('SELECT * FROM messages WHERE task_id = ? AND sender_id IS NULL', task.id).at(-1).body).toBe('后续要求');
-    expect(['tasks', 'inputs', 'drafts'].map(table => fixture.store.all(`SELECT * FROM ${table}`).length)).toEqual(before);
+    // Stopped fixture runtime cannot dispatch: ACK is only a durable mount, not an Agent delivery.
+    expect(fixture.store.all('SELECT * FROM messages WHERE task_id = ? AND sender_id IS NULL', task.id)).toHaveLength(0);
+    expect(['tasks', 'inputs', 'drafts'].map(table => fixture.store.all(`SELECT * FROM ${table}`).length)).toEqual([before[0], before[1], before[2] + 1]);
     expect(dom.node('input-form').dataset.mode).toBe('create');
     expect(dom.node('composer-reset').hidden).toBe(true);
     input.value = '详情中独立新建'; input.oninput();
     await input.onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
-    const independent = fixture.store.all("SELECT * FROM tasks WHERE goal='详情中独立新建'")[0];
-    expect(independent.parent_id).toBe(task.parent_id);
-    expect(independent.parent_id).not.toBe(task.id);
-    expect(independent.status).toBe('paused');
-    expect(fixture.store.all('SELECT * FROM messages WHERE task_id = ? AND sender_id IS NULL', task.id)).toHaveLength(1);
+    expect(fixture.store.all("SELECT * FROM tasks WHERE goal='详情中独立新建'")).toHaveLength(0);
+    expect(fixture.store.all('SELECT * FROM drafts')).toHaveLength(before[2] + 2);
+    expect(fixture.store.all('SELECT * FROM messages WHERE task_id = ? AND sender_id IS NULL', task.id)).toHaveLength(0);
     expect(dom.node('input-form').dataset.mode).toBe('create');
-    activateDetailView({ view: 'overview' }); expect(input.placeholder).toContain('在 main 下创建子 Worker');
+    activateDetailView({ view: 'overview' }); expect(input.placeholder).toContain('向 main 发射输入');
   } finally { restore(); await fixture.close(); }
 });
 
-test('真实 API：输入框创建后原页告知，主动查看才跳转且不会开始 Agent', async () => {
+test('真实 API：发射确认留在原页，不伪造已创建告知或 Agent 调用', async () => {
   fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
   let details = 0;
   const restore = registerNavigation({ refresh: async () => {
@@ -63,18 +62,13 @@ test('真实 API：输入框创建后原页告知，主动查看才跳转且不�
     const view = activateDetailView({ view: 'overview' }), hash = dom.location.hash;
     const input = dom.node('input'); input.value = '留在原页的真实创建'; input.oninput(); input.focus();
     await dom.node('input-form').onsubmit({ preventDefault() {} });
-    await until(() => dom.node('notice-banner').querySelector('.notice-banner-info'));
-    const task = fixture.store.all("SELECT * FROM tasks WHERE task_kind='order'")[0];
-    expect(deepText(dom.node('notice-banner'))).toContain(`Worker ${task.worker_number} 待开始`);
+    expect(fixture.store.all("SELECT * FROM tasks WHERE task_kind='order'")).toHaveLength(0);
+    expect(fixture.store.all('SELECT * FROM drafts')).toHaveLength(1);
+    expect(dom.node('error').textContent).toContain('尚不代表 Worker 已创建');
     expect(ui.view).toBe(view); expect(dom.location.hash).toBe(hash); expect(details).toBe(0);
     expect(input.value).toBe(''); expect(document.activeElement).toBe(input);
-    const [notice] = fixture.store.all('SELECT * FROM notices WHERE task_id=?', task.id);
-    expect(notice.read_at).toBeNull();
-    await dom.node('notice-banner').querySelector('.notice-banner-info').onclick();
-    await until(() => ui.lastSnapshot.notices.find(row => row.id === notice.id)?.read_at);
-    expect(details).toBe(1); expect(ui.selected).toBe(task.id); expect(dom.location.hash).toBe(`#worker-${task.id}`);
-    expect(fixture.store.task(task.id)).toMatchObject({ status: 'paused', calls: 0, agent_wakes: 0 });
-    expect(fixture.store.get('SELECT read_at FROM notices WHERE id=?', notice.id).read_at).toBeTruthy();
+    expect(fixture.store.all("SELECT * FROM notices WHERE title LIKE '%待开始%'")).toHaveLength(0);
+    expect(fixture.store.all('SELECT * FROM agent_runs')).toHaveLength(0);
   } finally { restore(); await fixture.close(); }
 });
 
@@ -96,7 +90,7 @@ test('真实 API：默认只读暂存，手动切换才显示已提交历史', a
   } finally { await fixture.close(); }
 });
 
-test('真实 API 串联：Enter 暂存、空筛选/正文检索、保存修订与发射、自动转为原文详情', async () => {
+test('真实 API 串联：Enter 暂存、全库检索、保存修订与挂载、保留待准入原文', async () => {
   fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
   const restore = registerNavigation({ refresh: async () => {} });
   try {
@@ -124,16 +118,16 @@ test('真实 API 串联：Enter 暂存、空筛选/正文检索、保存修订�
     panel.querySelector('textarea').value = '已保存的最终输入';
     await btn('保存', panel).onclick(); expect(deepText(panel)).toContain('已保存。');
     const saved = fixture.store.all('SELECT * FROM drafts')[0]; expect(saved.revision).toBe(2);
-    await btn('发射', panel).onclick(); expect(deepText(panel)).toContain('已创建·待开始');
-    expect(dom.location.hash).toMatch(/^#input-input-\d+$/);
+    await btn('发射', panel).onclick(); expect(deepText(panel)).toContain('等待准入');
+    expect(dom.location.hash).toMatch(/^#input-draft-\d+$/);
     expect(panel.querySelector('textarea')).toBe(null); expect(deepText(panel)).toContain('已保存的最终输入');
     expect(deepText(panel)).toContain('引用快照'); expect(deepText(panel)).toContain('捕获时所见');
-    expect(fixture.store.all("SELECT * FROM tasks WHERE task_kind='order'")).toHaveLength(1);
-    expect(fixture.store.all("SELECT * FROM tasks WHERE task_kind='order'")[0].status).toBe('paused');
+    expect(fixture.store.all("SELECT * FROM tasks WHERE task_kind='order'")).toHaveLength(0);
+    expect(fixture.store.all('SELECT * FROM agent_runs')).toHaveLength(0);
     expect(root().querySelectorAll('.input-record')).toHaveLength(1);
-    expect(root().querySelector('.input-record').dataset.input).toMatch(/^input:/);
+    expect(root().querySelector('.input-record').dataset.input).toMatch(/^draft:/);
     await btn('← 返回历史输入').onclick();
-    await btn('查看原文').onclick();
+    await btn('编辑与发射').onclick();
     expect(panel.querySelector('textarea')).toBe(null); expect(deepText(panel)).toContain('已保存的最终输入');
     expect(deepText(panel)).toContain('引用快照'); expect(deepText(panel)).toContain('捕获时所见');
     expect(root().querySelector('img')).toBe(null);

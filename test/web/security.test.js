@@ -11,14 +11,18 @@ import { fetch, setup } from './harness.js';
 
 // 项目作用域、只读路由白名单、跨源 / 伪造 Host / 非 JSON / 任意 RPC 拒绝。
 
-test('bound project APIs remain scoped, submit immediately and expose no Service views', async () => {
+test('bound project APIs remain scoped, durably mount then dispatch inputs, and expose no Service views', async () => {
   const f = await setup(); await repo(f.root);
   try {
     const page = await fetch(`${f.url}/p/${projectRouteId(f.root)}/`); const html = await page.text();
     expect(html).toContain('Worker 列表'); expect(html).not.toContain('Service');
     expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
+    f.project.stopping = true;
     const submit = await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'order.submit',params:{content:'web request'}})});
     expect(submit.status).toBe(200);
+    const receipt = await submit.json(); expect(receipt).toMatchObject({ emitted: true, dispatch: { state: 'queued' } });
+    expect(receipt.task).toBeUndefined(); expect(f.store.all('SELECT id FROM inputs')).toHaveLength(0);
+    f.project.stopping = false; await f.project.drainInputEmissions();
     const snapshot = await (await fetch(f.url+'/api/snapshot')).json();
     expect(snapshot.status.project).toBe(f.root);
     // 概览读模型只投影 order/child/main/owner：旧 inputs / timeline / ladder 都不再下发。

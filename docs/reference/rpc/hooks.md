@@ -21,6 +21,7 @@
 | `hooks.signal_save` | `{signal,expected_revision}` | `hooks signal save --file PATH --revision REV` |
 | `hooks.signal_remove` | `{id,expected_revision}` | `hooks signal remove SIGNAL_ID --revision REV` |
 | `management.create` | `{name,instruction,signal_id,mode?,profile?,client_request_id?}` | `hooks management create --file PATH` |
+| `management.submit` | `{instruction,profile?,client_request_id?}` | `order '管理需求' --management`（即时管理，无需时间信号） |
 | `management.binding_update` | `{id,enabled,expected_revision}` | `hooks management enable\|disable ID --revision REV` |
 | `worker.hooks` | `{id}` | `worker hooks ID` |
 | `worker.completion` | `{id,level,expected_revision}` | `worker completion ID off\|merge\|accept --revision REV` |
@@ -82,7 +83,7 @@ Shell Hook 引用 `{type:'command',command_id:'UUID',command_version:1}`；提�
 
 `management.create` 返回 `{task}`；创建新 role='manager'/task_kind='management' 的无 Git 管理 Worker，保存后等待 signal_id，不立即启动 Agent。默认 mode='once'，可显式 persistent。Web 表单固定 client_request_id 去重；同 key 同定义重试返回原 Worker，同 key 改定义拒绝。key 非空、最多 128 字符、无首尾空白／控制字符；CLI 文件可显式提供，未提供时响应丢失应先检查历史，不盲目重做创建。management_workers 是有界列表，附安全 management 对象和 model_selection；完整 profile 仅写，不回读。启停使用 **management.revision**。已消费一次性／失败／未知不可重新启用重放，需要另建指令。普通 mutation/inspect 出口剔除字符串 management 私有 JSON。
 
-专用受限工具使用 Agent-only `manager.query {id?}` / `manager.start {id}` / `manager.retry {id}`，不在 Web POST action 或用户 CLI 管理执行入口开放。后端另强制核验当前 invocation 的管理角色、绑定和 occurrence，普通开发 Agent 不能调用。目标是内部整数 ID，工具通过 worker.lookup 解析 W 编号。开始仅处理 paused，重试仅 failed；无 profile 参数、不切账号。受阻返回已持久 waiting，安全点执行，不让模型循环重发。
+专用受限工具使用 Agent-only `manager.query {id?}` / `manager.start {id}` / `manager.retry {id}`，并提供 `manager.catalog {}`、`manager.history {id?,before?,limit?}`、`manager.call {method,params,request_id?}`；均不在 Web POST action 或用户 CLI 管理执行入口开放。能力分级与用户精确确认见[管理契约](../../engineering/hook-signals-management.md)。后端另强制核验当前 invocation 的管理角色、绑定和 occurrence，普通开发 Agent 不能调用。目标是内部整数 ID，工具通过 worker.lookup 解析 W 编号。开始仅处理 paused，重试仅 failed；无 profile 参数、不切账号。受阻返回已持久 waiting，安全点执行，不让模型循环重发。
 
 产品授权、动作收据和恢复规则见[时间信号与管理契约](../../engineering/hook-signals-management.md)。
 
@@ -139,12 +140,8 @@ Shell Hook 引用 `{type:'command',command_id:'UUID',command_version:1}`；提�
 
 定时挂载新增 schedule、next_run_at、pending_due_at；last_execution 可带 due_at、status:'skipped' 和诊断。`can_attach` 给实际挂载能力，失败 order/child 仅允许定时自重试（可组合 notify），不是开放终态 Worker 的所有动作。到点持久提交，不保证 Agent 准点开始；临时门禁保留等待。停机未提交过期时间跳过、不补跑，已提交未执行项恢复继续，未知副作用不重放。详见[使用流程](../../hooks.md#定时-hook到点提交尽早开始)。
 
-## 预约指令与草稿
+## 条件发射与兼容创建
 
-- `order.submit {content,branch?,references?,start?,profile?,defer:true}` 或 CLI `bun run lush order '指令' --defer [--branch BRANCH]`。
-- 草稿：`order.submit {draft_id,expected_revision,start?,defer:true,profile?}`。只有显式预约才允许草稿附加运行覆盖；不得混入 content、references 或 branch。
-- 父冻结时返回 `{deferred:true,parent_id,hook_id,hooks}`，**没有 `task`**，由父可创建安全点执行；父当前可写时仍直接创建，返回真实 `task`，显式覆盖同样生效。仅创建模式用 RPC `start:false` 或 Web 显式按钮。
-- `input.parents.items` 包含有效的冻结父 Worker 和 `freeze`；只读候选不是最终创建许可。
-- 草稿 `input.get` 返回 `hook_mount:{parent_id,hook_id,state}|null`；占用中的草稿拒绝编辑、删除和重复发射。
+`input.emit`、`order.submit` 缺省及 start:true 均先返回持久挂载收据 `{emitted:true,draft_id,dispatch}`，不保证有 task，条件及父安全准入由 runtime 独立推进；`--defer` 保留参数兼容，不要求用户因冻结换发射模式。显式 start:false 仍仅创建，历史 create_worker Hook 不迁移。版本草稿可附运行覆盖，但不能混入正文、引用、条件或去向覆盖。
 
-正常直接提交及草稿发射没有 `defer:true` 时行为不变；最终创建仍核验当前父身份、冻结、Git 与草稿版本。执行未知或明确失败不会因重启自动重试。
+`input.parents.items` 保留有效冻结父及 freeze，只读候选不是最终创建许可。条件发射对应受保护 input_signal Hook，多个条件全部满足；草稿挂载中不能编辑／删除。撤销或独占释放必须走对应输入 API，不能借普通 Hook 编辑绕过占用。精确参数、读面与恢复见[历史输入接口](../../engineering/input-history.md)和[条件发射](../../engineering/conditional-emission.md)。

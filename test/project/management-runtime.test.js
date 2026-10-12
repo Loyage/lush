@@ -71,7 +71,7 @@ test('one shared signal invokes independent managers and each once binding settl
     expect(options.cwd).toBe(path.join(f.config.home, 'management', String(options.task.id)));
     expect(options.task.management).toBeUndefined(); expect(options.task.retry_profile).toBeUndefined();
     expect(options.forkPointer).toBeNull();
-    expect(options.context.management.authorization.operations).toEqual(['query','start','retry']);
+    expect(options.context.management.authorization.operations).toEqual(['query','start','retry','catalog','history','call']);
     seen.push(options.context.management.signal.id); return 'queried signal';
   });
   try {

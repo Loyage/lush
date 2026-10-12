@@ -9,6 +9,7 @@ import { normalizeOrderRecord } from '../../core/order-kind.js';
 const ADDED_COLUMNS = {
   inputs: ['anchor_branch', 'anchor_commit', 'anchor_workspace', 'anchor_target_branch'],
   branches: ['summary', 'showcase_reservation', 'merge_run'],
+  drafts: ['input_options', 'emission'],
   messages: ['signal_type', 'signal_key', 'delivery_hold', 'append_number'],
   tasks: ['review_candidate_id', 'progress_plan', 'showcase', 'retry_profile', 'task_kind', 'reservation', 'iteration_base_commit', 'auto_merge', 'interrupt_state', 'hooks', 'worker_number', 'management', 'display_title', 'auto_title'],
   agent_runs: ['model', 'thinking'],
@@ -33,6 +34,15 @@ function addMissingColumns(db) {
   for (const column of ['parent_id', 'revision']) {
     if (!draftColumns.has(column)) db.query(`ALTER TABLE drafts ADD COLUMN ${column} INTEGER`).run();
   }
+  db.query(`CREATE INDEX IF NOT EXISTS drafts_emission_pending ON drafts(id)
+    WHERE emission IS NOT NULL AND json_extract(emission,'$.state') IN ('waiting_conditions','queued','dispatching')`).run();
+  db.query(`CREATE INDEX IF NOT EXISTS drafts_emission_exclusive ON drafts(id)
+    WHERE emission IS NOT NULL AND json_extract(emission,'$.exclusive_active')=1`).run();
+  db.query(`CREATE INDEX IF NOT EXISTS drafts_append_target ON drafts(json_extract(input_options,'$.target_id'),id)
+    WHERE json_extract(input_options,'$.mode')='append' AND json_extract(emission,'$.state')
+      IN ('waiting_conditions','queued','dispatching','unknown')`).run();
+  db.query(`CREATE UNIQUE INDEX IF NOT EXISTS events_input_emit_request ON events(json_extract(data,'$.request_key'))
+    WHERE type='input.emitted' AND json_extract(data,'$.request_key') IS NOT NULL`).run();
   // Nullable numeric quota metadata: old observations stay unknown, never backfilled from local usage.
   const usageColumns = new Set(db.query('PRAGMA table_info(agent_usage_points)').all().map(row => row.name));
   if (!usageColumns.has('used_percent')) db.query('ALTER TABLE agent_usage_points ADD COLUMN used_percent REAL').run();

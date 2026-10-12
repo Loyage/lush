@@ -29,7 +29,7 @@ function server(root, handle) {
   } });
 }
 
-test('the management extension registers only three model-only tools and blocks all other tools including resumed/nested calls', () => {
+test('the management extension registers only reviewed model-only tools and blocks all other tools including resumed/nested calls', () => {
   const root = temp();
   try {
     const f = harness(invocation(root), async () => ({}));
@@ -73,6 +73,28 @@ test('trusted tools resolve real W numbers and call only the bound manager metho
       await expect(f.tools.get('manager_start').execute('bad', params)).rejects.toThrow();
     expect(calls.length).toBe(4);
     expect(JSON.stringify(result)).not.toContain('invocation-token');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('reviewed catalogue, history and capability tools keep the bound invocation and reject malformed transport parameters', async () => {
+  const root = temp(), calls = [];
+  try {
+    const f = harness(invocation(root), async (method, params, _signal, bound) => {
+      calls.push({ method, params, token: bound.LUSH_AGENT_TOKEN }); return { status: 'pending_confirmation', notice_id: 15 };
+    });
+    await f.tools.get('manager_catalog').execute('catalog', {});
+    await f.tools.get('manager_history').execute('history', { id: 99, before: 4, limit: 2 });
+    const receipt = await f.tools.get('manager_call').execute('fixed-tool-id', { method: 'worker.cancel', params: { id: 99 } });
+    expect(receipt.details.status).toBe('pending_confirmation');
+    expect(calls).toEqual([
+      { method: 'manager.catalog', params: {}, token: 'invocation-token' },
+      { method: 'manager.history', params: { id: 99, before: 4, limit: 2 }, token: 'invocation-token' },
+      { method: 'manager.call', params: { method: 'worker.cancel', params: { id: 99 }, request_id: 'fixed-tool-id' }, token: 'invocation-token' },
+    ]);
+    await expect(f.tools.get('manager_catalog').execute('bad', { _token: 'user' })).rejects.toThrow();
+    await expect(f.tools.get('manager_history').execute('bad', { limit: 101 })).rejects.toThrow();
+    await expect(f.tools.get('manager_call').execute('bad', { method: 'worker.cancel', params: { id: 99 }, _token: 'user' })).rejects.toThrow();
+    expect(calls).toHaveLength(3);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

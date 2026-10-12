@@ -70,7 +70,7 @@ test('idle stop and maintenance readiness share Hook, synchronization and reclam
     expect(f.project.maintenanceView()).toMatchObject({ paused: false, ready_to_restart: true });
     for (const key of ['commandHookRunning', 'commandHookQueued', 'lifecycleHookRunning', 'lifecycleHookQueued',
       'scheduledHookQueued', 'taskSyncBusy', 'acceptanceBusy', 'workerDeleteIds', 'completionQueued',
-      'completionBusy']) {
+      'completionBusy', 'managementControlJobs']) {
       f.project[key] ??= new Set(); f.project[key].add('test');
       expect(f.project.maintenanceView().ready_to_restart).toBe(false);
       await expect(rpc.dispatch('system.stop_if_idle')).rejects.toThrow('后台操作');
@@ -84,6 +84,21 @@ test('idle stop and maintenance readiness share Hook, synchronization and reclam
     expect(f.project.maintenanceView().ready_to_restart).toBe(true);
     expect(await rpc.dispatch('system.stop_if_idle')).toEqual({ stopping: true });
   } finally { await f.close(); }
+});
+
+test('shutdown waits for confirmed management effects even without a model invocation', async () => {
+  const f = fixture(), effect = gate();
+  try {
+    f.project.managementControlJobs = new Set([effect.promise]);
+    expect(f.project.running.size).toBe(0);
+    expect(f.project.maintenanceView().ready_to_restart).toBe(false);
+    let settled = false;
+    const stopping = f.project.shutdown().then(() => { settled = true; });
+    await Promise.resolve(); await Promise.resolve();
+    expect(f.project.stopping).toBe(true); expect(settled).toBe(false);
+    effect.resolve(); await stopping;
+    expect(settled).toBe(true);
+  } finally { effect.resolve(); f.project.managementControlJobs?.clear(); await f.close(); }
 });
 
 test('idle shutdown is user-only and has no parameters', () => {

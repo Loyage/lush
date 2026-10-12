@@ -69,7 +69,7 @@ test('history projects all task states independently of current delivery, preser
     f.store.message(created.taskId, 'only in a followup', null);
     expect(f.project.inputHistory({ q: 'only in a followup' }).items).toEqual([]);
     const d = await f.call('draft.add', { content: 'submitted once' });
-    await f.call('order.submit', { draft_id: d.id, expected_revision: d.revision });
+    await f.call('order.submit', { draft_id: d.id, expected_revision: d.revision, start: false });
     expect(f.project.inputHistory({ q: 'submitted once' }).items.map(item => item.kind)).toEqual(['input']);
   } finally { await f.close(); }
 });
@@ -108,7 +108,7 @@ test('full-body literal search and exact filters precede stable bounded cursor p
   } finally { await f.close(); }
 });
 
-test('buffer remembers parent identity across branch switches, freezes baseline only at firing, preserves references and supports create-only/default start', async () => {
+test('buffer remembers parent identity across branch switches, preserves references, and distinguishes creation from mounted default emission', async () => {
   const f = await setup();
   try {
     const d = await f.call('draft.add', { content: '  exact\nbody  ', references: [reference] });
@@ -129,12 +129,14 @@ test('buffer remembers parent identity across branch switches, freezes baseline 
     expect(another.parent_id).toBe(owner.id);
     const reassigned = await f.call('draft.update', { id: another.id, content: 'new parent', branch: 'main', references: [], expected_revision: 1 });
     expect(reassigned.parent_id).toBe(d.parent_id);
-    const started = await f.call('order.submit', { draft_id: another.id, expected_revision: 2 });
-    expect(started.task.status).toBe('queued');
+    const mounted = await f.call('order.submit', { draft_id: another.id, expected_revision: 2 });
+    expect(mounted).toMatchObject({ emitted: true, draft_id: another.id, parent_id: d.parent_id, dispatch: { state: 'queued' } });
+    expect(mounted.task).toBeUndefined();
+    expect(f.project.inputGet('draft', another.id)).toMatchObject({ content: 'new parent', references: [], dispatch: { state: 'queued' } });
   } finally { await f.close(); }
 });
 
-test('strict revision locking rejects overwrite/delete/fire races and never reuses deleted draft ids', async () => {
+test('strict revision locking rejects overwrite/delete/create-only races and never reuses deleted draft ids', async () => {
   const f = await setup();
   try {
     const d = await f.call('draft.add', { content: 'first' });
@@ -146,7 +148,7 @@ test('strict revision locking rejects overwrite/delete/fire races and never reus
     await f.call('draft.remove', { id: d.id, expected_revision: 2 });
     const next = await f.call('draft.add', { content: 'next' });
     expect(next.id).toBeGreaterThan(d.id);
-    const results = await Promise.allSettled([1,2].map(() => f.call('order.submit', { draft_id: next.id, expected_revision: 1 })));
+    const results = await Promise.allSettled([1,2].map(() => f.call('order.submit', { draft_id: next.id, expected_revision: 1, start: false })));
     expect(results.filter(row => row.status === 'fulfilled')).toHaveLength(1);
     expect(f.store.all('SELECT * FROM inputs')).toHaveLength(1);
     const branches = await git(f.root, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/lush/');
@@ -154,14 +156,37 @@ test('strict revision locking rejects overwrite/delete/fire races and never reus
   } finally { await f.close(); }
 });
 
-for (const action of ['edit','delete','parent_ended']) test(`async anchor race: ${action} prevents stale submission and removes its checkout`, async () => {
+test('default RPC emission retries share a persistent receipt, keep drafts visible, and lock edits without creating a Worker', async () => {
+  const f = await setup();
+  try {
+    const draft = await f.call('draft.add', { content: 'reliable mounted idea', references: [reference] });
+    const receipts = await Promise.all([1, 2].map(() => f.call('order.submit', { draft_id: draft.id, expected_revision: 1 })));
+    expect(receipts[0]).toEqual(receipts[1]);
+    expect(receipts[0]).toMatchObject({ emitted: true, draft_id: draft.id, dispatch: { state: 'queued' } });
+    expect(f.project.inputHistory({ q: draft.content, status: 'emitted' }).items).toHaveLength(1);
+    expect(f.project.inputGet('draft', draft.id).references).toEqual([reference]);
+    expect(f.store.all('SELECT * FROM inputs')).toHaveLength(0);
+    expect(f.store.all("SELECT * FROM tasks WHERE task_kind='order'")).toHaveLength(0);
+    await expect(f.call('draft.update', { id: draft.id, content: 'replace', expected_revision: 1 })).rejects.toThrow('cancel its emission');
+    await expect(f.call('draft.remove', { id: draft.id, expected_revision: 1 })).rejects.toThrow('cancel its emission');
+    const reopened = new Store(path.join(f.config.home, 'project.db'), f.root);
+    try {
+      expect(JSON.parse(reopened.draft(draft.id).emission).state).toBe('queued');
+      expect(reopened.draft(draft.id).input_id).toBeNull();
+    } finally { reopened.close(); }
+    expect((await f.call('input.emission_cancel', { draft_id: draft.id, expected_revision: 1 })).dispatch.state).toBe('cancelled');
+    expect((await f.call('draft.update', { id: draft.id, content: 'still mine', expected_revision: 1 })).revision).toBe(2);
+  } finally { await f.close(); }
+});
+
+for (const action of ['edit','delete','parent_ended']) test(`create-only anchor race: ${action} prevents stale submission and removes its checkout`, async () => {
   const f = await setup();
   try {
     const d = await f.call('draft.add', { content: 'original', references: [reference] });
     const ready = gate(), resume = gate(), original = f.project.anchorInput.bind(f.project);
     let anchor;
     f.project.anchorInput = async (...args) => { const result = await original(...args); anchor = result.anchor; ready.resolve(); await resume.promise; return result; };
-    const pending = f.call('order.submit', { draft_id: d.id, expected_revision: 1 });
+    const pending = f.call('order.submit', { draft_id: d.id, expected_revision: 1, start: false });
     const failure = pending.then(() => null, error => error);
     await ready.promise;
     if (action === 'edit') await f.call('draft.update', { id: d.id, content: 'edited', expected_revision: 1 });
@@ -188,14 +213,14 @@ test('legacy drafts remain unowned/unversioned on reopen, require explicit paren
     expect(unowned.parent_id).toBeNull();
     const owned = await f.call('draft.update', { id: legacy.id, content: 'legacy ready', branch: 'main', expected_revision: 1 });
     expect(owned.parent_id).toBe(fresh.parent_id);
-    await f.call('order.submit', { draft_id: legacy.id, expected_revision: 2 });
+    await f.call('order.submit', { draft_id: legacy.id, expected_revision: 2, start: false });
     reopened = new Store(path.join(f.config.home, 'project.db'), f.root);
     expect(reopened.draft(legacy.id).input_id).not.toBeNull(); reopened.close();
     // Real old schema: added numeric fields remain NULL without rewriting content/timestamps.
     const oldPath = path.join(f.root, 'old.db'), db = new Database(oldPath);
     db.exec("CREATE TABLE drafts(id INTEGER PRIMARY KEY,content TEXT NOT NULL,input_id INTEGER,created_at TEXT NOT NULL); INSERT INTO drafts VALUES(7,'untouched',NULL,'old stamp')"); db.close();
     const upgraded = new Store(oldPath, f.root);
-    expect(upgraded.draft(7)).toEqual({ id: 7, content: 'untouched', input_id: null, created_at: 'old stamp', parent_id: null, revision: null }); upgraded.close();
+    expect(upgraded.draft(7)).toEqual({ id: 7, content: 'untouched', input_id: null, created_at: 'old stamp', parent_id: null, revision: null, input_options: null, emission: null }); upgraded.close();
   } finally { await f.close(); }
 });
 
@@ -217,7 +242,7 @@ test('parent choices enumerate beyond overview, omit ended/missing/archived ance
     const owner = await f.project.bindBranch('missing-later', await git(f.root, 'rev-parse', 'main'));
     const missing = await f.call('draft.add', { content: 'missing ref', branch: owner.branch });
     await git(f.root, 'branch', '-d', owner.branch);
-    await expect(f.call('order.submit', { draft_id: missing.id, expected_revision: 1 })).rejects.toThrow('does not exist');
+    await expect(f.call('order.submit', { draft_id: missing.id, expected_revision: 1, start: false })).rejects.toThrow('does not exist');
     expect((await f.call('input.parents')).items.map(item => item.id)).not.toContain(owner.id);
     f.store.transaction(() => {
       for (let i = 0; i < 2001; i++) {
@@ -246,7 +271,7 @@ test('new RPC methods are user-only, strictly validate params, and legacy planne
   } finally { await f.close(); }
 });
 
-test('buffering tolerates temporary parent invocation/sync/freeze but firing uses full admission', async () => {
+test('buffering and emission tolerate temporary parent invocation/sync/freeze; creation still uses full admission', async () => {
   const f = await setup();
   try {
     const parent = await f.project.order('busy parent', 'main', [], null, false);
@@ -257,8 +282,11 @@ test('buffering tolerates temporary parent invocation/sync/freeze but firing use
     const draft = await f.call('draft.add', { content: 'save my idea', branch: parent.task.branch });
     expect(draft.parent_id).toBe(parent.task.id);
     expect((await f.call('input.parents')).items.map(row => row.id)).toContain(parent.task.id);
-    await expect(f.call('order.submit', { draft_id: draft.id, expected_revision: 1 })).rejects.toThrow('temporarily frozen');
-    expect(f.project.inputGet('draft', draft.id).content).toBe('save my idea');
+    await expect(f.call('order.submit', { draft_id: draft.id, expected_revision: 1, start: false })).rejects.toThrow('temporarily frozen');
+    const mounted = await f.call('order.submit', { draft_id: draft.id, expected_revision: 1 });
+    expect(mounted).toMatchObject({ emitted: true, parent_id: parent.task.id, dispatch: { state: 'queued' } });
+    expect(f.project.inputGet('draft', draft.id)).toMatchObject({ content: 'save my idea', dispatch: { state: 'queued' } });
+    expect(f.store.draft(draft.id).input_id).toBeNull();
     f.project.assertBranchWritable = original;
     f.project.taskSyncBusy.clear();
   } finally { await f.close(); }
@@ -271,9 +299,13 @@ test('draft start=false does not invoke an Agent; default start runs the normal 
     const d = await call('draft.add', { content: 'create only' });
     const paused = await call('order.submit', { draft_id: d.id, expected_revision: 1, start: false });
     const next = await call('draft.add', { content: 'actually run' });
-    const running = await call('order.submit', { draft_id: next.id, expected_revision: 1 });
-    await until(() => f.store.task(running.task.id).status === 'waiting');
-    expect(f.store.task(running.task.id).calls).toBe(1);
+    const mounted = await call('order.submit', { draft_id: next.id, expected_revision: 1 });
+    expect(mounted.emitted).toBe(true);
+    expect(mounted.task).toBeUndefined();
+    await until(() => f.project.inputGet('draft', next.id).dispatch.state === 'succeeded');
+    const dispatch = f.project.inputGet('draft', next.id).dispatch;
+    await until(() => f.store.task(dispatch.worker_id).status === 'waiting');
+    expect(f.store.task(dispatch.worker_id).calls).toBe(1);
     expect(f.store.task(paused.task.id)).toMatchObject({ status: 'paused', calls: 0 });
   } finally { await f.close(); }
 });
@@ -288,7 +320,7 @@ test('Git error after creating a self-owned anchor cleans it and leaves the buff
       if (args[0] === 'worktree' && args[1] === 'add') throw new Error('simulated Git failure after creation');
       return result;
     };
-    await expect(f.call('order.submit', { draft_id: d.id, expected_revision: 1 })).rejects.toThrow('simulated Git');
+    await expect(f.call('order.submit', { draft_id: d.id, expected_revision: 1, start: false })).rejects.toThrow('simulated Git');
     expect(f.project.inputGet('draft', d.id)).toEqual(d);
     expect(f.store.all('SELECT * FROM inputs')).toHaveLength(0);
     expect(await git(f.root, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/lush/')).toBe('');

@@ -37,12 +37,15 @@ export function managementView(task, project) {
     submitted_at: value.submitted_at, started_at: value.started_at ?? null, finished_at: value.finished_at ?? null,
     status: value.status ?? state.state, ...(value.reason ? { reason: value.reason } : {}),
     actions: (value.actions ?? []).map(action => ({ receipt_id: action.receipt_id, action: action.action, target_id: action.target_id,
-      target_worker_number: action.target_worker_number ?? null, status: action.status, ...(action.reason ? { reason: action.reason } : {}) })) } : null;
+      target_worker_number: action.target_worker_number ?? null, status: action.status, ...(action.reason ? { reason: action.reason } : {}) })),
+    control_calls: (value.control_calls ?? []).map(call => ({ receipt_id: call.receipt_id, method: call.method,
+      status: call.status, notice_id: call.notice_id ?? null, ...(call.reason ? { reason: call.reason } : {}) })) } : null;
   const enableReason = managementEnableReason(project, task, state);
   return { version: 1, revision: managementRevision(task, state), signal_id: state.signal_id, mode: state.mode,
+    origin: state.origin ?? 'signal',
     enabled: state.enabled, can_enable: enableReason === null, state: state.state,
     reason: !state.enabled && enableReason ? enableReason : state.reason ?? null,
-    pending_signal: execution(state.pending_signal ? { ...state.pending_signal, actions: state.receipts } : null),
+    pending_signal: execution(state.pending_signal ? { ...state.pending_signal, actions: state.receipts, control_calls: state.control_calls ?? [] } : null),
     last_execution: execution(state.last_execution) };
 }
 // Hooks is an authorization control surface, not the full instruction/receipt reader. Compact every
@@ -53,6 +56,8 @@ function compactExecution(execution) {
   const actions = execution.actions ?? [];
   return { ...execution, name: compactText(execution.name, 64), reason: compactText(execution.reason, 128),
     actions_count: actions.length, actions_truncated: actions.length > 2,
+    control_calls_count: execution.control_calls?.length ?? 0, control_calls_truncated: (execution.control_calls?.length ?? 0) > 2,
+    control_calls: (execution.control_calls ?? []).slice(0, 2),
     actions: actions.slice(0, 2).map(action => ({ ...action, reason: compactText(action.reason, 96),
       target_worker_number: action.target_worker_number?.length > 128 ? null : action.target_worker_number,
       ...(action.target_worker_number?.length > 128 ? { target_worker_number_truncated: true } : {}) })) };

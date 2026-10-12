@@ -36,6 +36,13 @@ async function post(f, method, params = {}, status = 200) {
   const value = await response.json(); expect(response.status).toBe(status); return value;
 }
 const snapshot = async f => (await fetch(f.url + '/api/snapshot')).json();
+async function queuedWorker(f, content) {
+  // Set up existing queued work through the retained user-only creation and
+  // resume APIs; the runtime is stopped so the test can construct its child tree.
+  const { task } = await post(f, 'order.submit', { content, start: false });
+  await post(f, 'worker.resume', { id: task.id });
+  return f.store.task(task.id);
+}
 const call = (p, id) => p.calls.findLast(row => row.task.id === id);
 async function exitAtBoundary(f, p, id) {
   const dir = path.join(f.config.home, 'preempt');
@@ -51,11 +58,11 @@ test('maintenance buttons preserve a multi-level child wait and only resume the 
   const previousView = ui.view;
   try {
     await repo(f.root);
-    const parent = (await post(f, 'order.submit', { content: 'parent waits for children' })).task;
+    const parent = await queuedWorker(f, 'parent waits for children');
     const child = await f.project.spawn(parent.id, 'child waits for grandchild');
     const leaf = await f.project.spawn(child.id, 'grandchild working');
     const staged = (await post(f, 'order.submit', { content: 'not started', start: false })).task;
-    const personal = (await post(f, 'order.submit', { content: 'personally paused' })).task;
+    const personal = await queuedWorker(f, 'personally paused');
     await post(f, 'worker.interrupt', { id: personal.id });
     f.store.update(parent.id, { status: 'waiting' }); f.store.update(child.id, { status: 'waiting' });
     f.project.stopping = false; f.project.kick(); await until(() => provider.calls.length === 1);
@@ -77,14 +84,18 @@ test('maintenance buttons preserve a multi-level child wait and only resume the 
     expect(deepText(host)).toContain('等待安全退出');
     const busy = await fetch(f.url + '/api/service/restart', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     expect(busy.status).toBe(400); expect(f.project.stopping).toBe(false);
-    const queued = (await post(f, 'order.submit', { content: 'new during maintenance' })).task;
+    const queued = await post(f, 'order.submit', { content: 'new during maintenance' });
+    expect(queued).toMatchObject({ emitted: true, dispatch: { state: 'queued' } }); expect(queued.task).toBeUndefined();
     f.project.pump(); expect(provider.calls).toHaveLength(1);
+    expect(f.store.all("SELECT id FROM tasks WHERE goal='new during maintenance'")).toHaveLength(0);
     await exitAtBoundary(f, provider, leaf.id); await paint();
     expect((await snapshot(f)).status.maintenance).toMatchObject({ phase: 'paused', ready_to_restart: true });
     expect(deepText(host)).toContain('当前可重启');
     await button('全部继续').onclick();
     await until(() => provider.calls.length === 3);
-    expect(provider.calls.map(row => row.task.id).sort((a, b) => a - b)).toEqual([leaf.id, leaf.id, queued.id].sort((a, b) => a - b));
+    const dispatched = f.project.inputEmissionResult(queued.draft_id).dispatch;
+    expect(dispatched.state).toBe('succeeded');
+    expect(provider.calls.map(row => row.task.id).sort((a, b) => a - b)).toEqual([leaf.id, leaf.id, dispatched.worker_id].sort((a, b) => a - b));
     for (const row of [staged, personal]) expect(f.store.task(row.id).status).toBe('paused');
     for (const row of [parent, child]) expect(f.store.task(row.id).status).toBe('waiting');
     call(provider, leaf.id).done.resolve('grandchild delivered');
@@ -99,7 +110,7 @@ test('safe daemon reconstruction retains maintenance over real RPC and restores 
   let reopened, rpc;
   try {
     await repo(f.root);
-    const task = (await post(f, 'order.submit', { content: 'restart maintenance' })).task;
+    const task = await queuedWorker(f, 'restart maintenance');
     const staged = (await post(f, 'order.submit', { content: 'remain staged', start: false })).task;
     f.project.stopping = false; f.project.kick(); await until(() => provider.calls.length === 1);
     expect(await post(f, 'system.interrupt_all')).toMatchObject({ paused: true, phase: 'pausing', affected_count: 1 });

@@ -1,8 +1,9 @@
 import { check, id, text, TERMINAL } from '../types.js';
 import { assertTaskAncestorsOpen } from './iteration.js';
 import { workerLabel } from '../worker-number.js';
+import { normalizeInputOptions, inputOptions, emissionLocked, inputEmission } from './input-emission-data.js';
 
-const STATUSES = new Set(['draft','created','queued','running','waiting','awaiting','paused','awaiting_acceptance','completed','failed','cancelled','unknown']);
+const STATUSES = new Set(['draft','waiting_conditions','emitted','sent','emission_failed','unknown_dispatch','created','queued','running','waiting','awaiting','paused','awaiting_acceptance','completed','failed','cancelled','unknown']);
 const MERGES = new Set(['merging','blocked','merged','none']);
 const MAX_PARENTS = 2000;
 
@@ -35,15 +36,21 @@ export default {
     const rows = this.store.inputHistoryRows({ q, status, integration, cursor: after, limit });
     const more = rows.length > limit, items = rows.slice(0, limit), last = items.at(-1);
     const mounts = items.some(item => item.kind === 'draft') ? this.draftHookMountMap() : new Map();
-    return { items: items.map(item => item.kind === 'draft' ? { ...item, hook_mount: mounts.get(item.id) ?? null } : item), next_cursor: more ? Buffer.from(JSON.stringify({ version: 1, created_at: last.created_at,
+    return { items: items.map(item => item.kind === 'draft' ? { ...item, ...this.draftEmissionView(this.store.draft(item.id)), hook_mount: mounts.get(item.id) ?? null } : item), next_cursor: more ? Buffer.from(JSON.stringify({ version: 1, created_at: last.created_at,
       kind: last.kind, id: last.id, filters })).toString('base64url') : null };
   },
 
   inputGet(kind, itemId) {
     check(['input','draft'].includes(kind), 'kind must be input or draft');
-    const item = this.store.inputHistoryItem(kind, id(itemId));
+    let item = this.store.inputHistoryItem(kind, id(itemId));
+    if (!item && kind === 'draft') {
+      const draft = this.store.draft(id(itemId));
+      // New emission receipts remain addressable after conversion to an original Input.
+      if (draft.input_id && inputEmission(draft)) item = { ...this.store.inputHistoryItem('input', draft.input_id),
+        kind: 'draft', id: draft.id, revision: draft.revision, parent_id: draft.parent_id, input_id: draft.input_id };
+    }
     check(item, `${kind} ${kind === 'input' ? `O${itemId}` : itemId} not found or already submitted`);
-    return { ...item, ...(kind === 'draft' ? { hook_mount: this.draftHookMount(item.id) } : {}),
+    return { ...item, ...(kind === 'draft' ? { ...this.draftEmissionView(this.store.draft(item.id)), hook_mount: this.draftHookMount(item.id) } : {}),
       references: kind === 'draft' ? this.store.draftReferences(item.id) : this.store.inputReferences(item.id) };
   },
 
@@ -84,37 +91,45 @@ export default {
     return { items: items.map(item => ({ ...item, freeze: this.branchFreeze(item.branch) })) };
   },
 
-  addBufferedDraft(content, references = [], branch = undefined) {
+  addBufferedDraft(content, references = [], branch = undefined, options = {}) {
     return this.write('buffer a draft', async () => {
       text(content, 'draft');
       const normalized = this.normalizeReferences(references);
-      const parent = await this.inputParent(branch);
+      const settings = normalizeInputOptions(this, options);
+      const target = settings.mode === 'append' ? this.assertAppendInputTarget(settings.target_id) : null;
+      const parent = target ? this.inputRoot(target) : await this.inputParent(branch);
       this.assertWritable('buffer a draft');
       return this.store.transaction(() => {
         this.assertInputParent(parent.id, parent.branch);
         check(this.store.draftCount() < 500, 'too many buffered drafts; submit or remove some first');
         const draft = this.store.addDraft(content);
-        this.store.run('UPDATE drafts SET parent_id=?,revision=1 WHERE id=?', parent.id, draft.id);
+        this.store.run('UPDATE drafts SET parent_id=?,revision=1,input_options=? WHERE id=?', parent.id, JSON.stringify(settings), draft.id);
         this.store.setDraftReferences(draft.id, normalized);
         return this.inputGet('draft', draft.id);
       });
     });
   },
 
-  updateBufferedDraft(draftId, content, references, branch, revision) {
+  updateBufferedDraft(draftId, content, references, branch, revision, options = {}) {
     expectedRevision(revision);
     return this.write('edit a draft', async () => {
       text(content, 'draft');
       const draft = this.store.draft(id(draftId));
       check(!this.draftHookMount(draft.id), 'draft is mounted on a Hook; remove the mount before editing');
+      check(!emissionLocked(draft), 'draft has a mounted input; cancel its emission before editing');
       checkDraftRevision(draft, revision);
       const normalized = references === undefined ? null : this.normalizeReferences(references);
-      const parent = branch === undefined ? null : await this.inputParent(branch);
+      const settings = normalizeInputOptions(this, options, inputOptions(draft));
+      const target = settings.mode === 'append' ? this.assertAppendInputTarget(settings.target_id) : null;
+      const parent = target ? this.inputRoot(target) : branch === undefined ? null : await this.inputParent(branch);
       this.assertWritable('edit a draft');
       return this.store.transaction(() => {
-        checkDraftRevision(this.store.draft(draft.id), revision);
+        const live = this.store.draft(draft.id);
+        checkDraftRevision(live, revision);
+        check(!emissionLocked(live) && !this.draftHookMount(live.id), 'draft was mounted while editing; cancel its emission first');
         if (parent) this.assertInputParent(parent.id, parent.branch);
         this.store.updateDraft(draft.id, content);
+        this.store.run('UPDATE drafts SET input_options=? WHERE id=?', JSON.stringify(settings), draft.id);
         if (parent) this.store.run('UPDATE drafts SET parent_id=? WHERE id=?', parent.id, draft.id);
         if (normalized !== null) this.store.setDraftReferences(draft.id, normalized);
         return this.inputGet('draft', draft.id);
@@ -127,6 +142,7 @@ export default {
     return this.store.transaction(() => {
       const draft = this.store.draft(id(draftId));
       check(!this.draftHookMount(draft.id), 'draft is mounted on a Hook; remove the mount before deleting');
+      check(!emissionLocked(draft), 'draft has a mounted input; cancel its emission before deleting');
       checkDraftRevision(draft, revision);
       this.store.run('DELETE FROM drafts WHERE id=?', draft.id);
       return { id: draft.id };

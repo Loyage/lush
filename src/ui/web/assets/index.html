@@ -128,7 +128,7 @@
     <span id="composer-mode-icon" class="composer-mode-icon" aria-hidden="true">＋</span>
     <strong id="composer-mode-title">新建独立 Worker</strong>
     <span id="composer-mode-target" class="composer-mode-target">父 Worker：main</span>
-    <span id="composer-mode-behavior" class="composer-mode-behavior">独立工作区 · Enter 暂存 · 点击创建后待开始</span>
+    <span id="composer-mode-behavior" class="composer-mode-behavior">Enter 暂存 · 发射先可靠挂载，父 runtime 空闲后创建并开始</span>
   </div>
   <div id="composer-details" class="composer-details" hidden>
     <div class="composer-heading"><label for="input">下一步，想做什么？</label><span class="composer-caption">先暂存想法，准备好再发射</span></div>
@@ -139,11 +139,11 @@
     <div class="draft-body" id="draft-body"><div id="drafts"></div></div>
   </div>
   <div class="composer-input">
-    <textarea id="input" rows="1" maxlength="32000" aria-describedby="composer-mode-title composer-mode-target composer-mode-behavior" aria-label="输入开发需求或研究问题" placeholder="在 main 下创建子 Worker · Enter 暂存 · Ctrl/⌘+Enter 仅创建 · Shift+Enter 换行"></textarea>
+    <textarea id="input" rows="1" maxlength="32000" aria-describedby="composer-mode-title composer-mode-target composer-mode-behavior" aria-label="输入开发需求或研究问题" placeholder="向 main 发射输入 · Enter 暂存 · Ctrl/⌘+Enter 发射 · Shift+Enter 换行"></textarea>
   </div>
   <div id="composer-editor-tools" class="composer-editor-tools" aria-label="正文编辑操作" hidden></div>
   <div class="composer-foot">
-    <span id="composer-shortcuts" class="hint composer-shortcuts" hidden><kbd>⌘ / Ctrl ↵</kbd> 待开始 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ⇧ ↵</kbd> 直接运行 <span class="shortcut-separator">/</span> <kbd>Enter</kbd> 暂存 <span class="shortcut-separator">/</span> <kbd>Shift+Enter</kbd> 换行</span>
+    <span id="composer-shortcuts" class="hint composer-shortcuts" hidden><kbd>⌘ / Ctrl ↵</kbd> 发射 <span class="shortcut-separator">/</span> <kbd>⌘ / Ctrl ⇧ ↵</kbd> 条件发射 <span class="shortcut-separator">/</span> <kbd>Enter</kbd> 暂存 <span class="shortcut-separator">/</span> <kbd>Shift+Enter</kbd> 换行</span>
     <span class="composer-actions">
 
       <button type="button" id="composer-expand" class="ghost composer-expand" aria-expanded="false" aria-controls="composer-details composer-editor-tools composer-shortcuts" data-help="展开正文编辑、历史输入、运行设置、父 Worker 与快捷键">⌃ 更多</button>
@@ -151,8 +151,8 @@
       <button type="button" id="composer-reset" class="ghost" data-help="回到新建独立 Worker 模式，保留正文与引用；输入空白且没有引用时也可按 Esc 返回。" hidden>回到新建 Worker</button>
       <button type="button" id="input-history" class="ghost">历史输入</button>
       <span class="help-host" id="input-buffer-help" data-help="保存正文、引用和父 Worker 到输入缓冲区；不创建 Worker 或工作区，不调用 Agent。"><button type="button" id="input-buffer" data-help="保存正文、引用和父 Worker 到输入缓冲区；不创建 Worker 或工作区，不调用 Agent。">暂存</button></span>
-      <span class="help-host" id="input-send-help"><button type="submit" id="draft-commit">仅创建</button></span>
-      <span class="help-host" id="input-start-help"><button type="button" id="input-start" class="agent-call">发射并开始</button></span>
+      <span class="help-host" id="input-send-help"><button type="submit" id="draft-commit" class="agent-call">发射</button></span>
+      <span class="help-host" id="input-start-help"><button type="button" id="input-start" class="agent-call">条件发射</button></span>
     </span>
   </div>
 </form></div>

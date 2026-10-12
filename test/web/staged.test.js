@@ -38,7 +38,15 @@ test('web resume is idempotent for queued work but refuses idle work without a p
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }),
   });
   try {
-    const created = await (await post('order.submit', { content: '直接开始', start: true })).json();
+    // Mount while stopped, then admit creation but keep the invocation scheduler
+    // controlled so resume's idempotency is tested on a real queued Worker.
+    const receipt = await (await post('order.submit', { content: '直接开始', start: true })).json();
+    expect(receipt).toMatchObject({ emitted: true, dispatch: { state: 'queued' } }); expect(receipt.task).toBeUndefined();
+    f.project.kick = () => {}; f.project.stopping = false;
+    await f.project.drainInputEmissions(); f.project.stopping = true;
+    const dispatch = f.project.inputEmissionResult(receipt.draft_id).dispatch;
+    expect(dispatch.state).toBe('succeeded');
+    const created = { task: f.store.task(dispatch.worker_id) };
     expect(created.task.status).toBe('queued');
     const again = await post('worker.resume', { id: created.task.id });
     expect(again.status).toBe(200);

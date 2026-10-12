@@ -110,12 +110,12 @@ test('输入框创建或立即开始后留在版本页，保留模式、历史�
   reset(); await openVersions(); const before = paths.length;
   const view = ui.view, state = ui.versionsPage, cards = dom.node('detail').querySelectorAll('.version-commit');
   const order = cards[0].querySelector('.version-input'); order.open = true;
-  for (const detailed of [false, true]) for (const start of [false, true]) {
+  for (const detailed of [false, true]) for (const ctrl of [false, true]) {
     toggleMode(detailed);
     const input = dom.node('input'); input.value = '从版本页发射，不打断历史阅读'; input.oninput(); input.focus();
-    await input.onkeydown({ key: 'Enter', ctrlKey: true, shiftKey: start, preventDefault() {} });
+    await input.onkeydown({ key: 'Enter', ctrlKey: ctrl, metaKey: !ctrl, preventDefault() {} });
     await until(() => !ui.busy); await Promise.resolve();
-    expect(world.state.actions.at(-1)).toMatchObject({ method: 'order.submit', params: { start } });
+    expect(world.state.actions.at(-1)).toMatchObject({ method: 'input.emit', params: { content: '从版本页发射，不打断历史阅读' } });
     expect(ui.view).toBe(view); expect(dom.location.hash).toBe('#versions');
     expect(ui.versionsPage).toBe(state); expect(mode().checked).toBe(detailed);
     expect(dom.node('detail').querySelectorAll('.version-commit')).toEqual(cards);

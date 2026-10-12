@@ -286,20 +286,22 @@ test('order --defer is explicit and preserves a complete private profile', async
   } finally { f.close(); }
 });
 
-test('order.submit validates defer and forwards it for direct and versioned draft submission', () => {
+test('order.submit defaults to durable emission while explicit legacy creation validates defer', () => {
   const calls = [], project = { order(...args) { calls.push(['order', args]); return { deferred: args.at(-1) }; },
-    submitBufferedDraft(...args) { calls.push(['draft', args]); return { deferred: args.at(-1) }; } };
+    submitBufferedDraft(...args) { calls.push(['draft', args]); return { deferred: args.at(-1) }; },
+    emitBufferedInput(options) { calls.push(['emit', options]); return { emitted: true }; } };
   const profile = { agent: 'pi', config_mode: 'pi' };
   expect(HANDLERS['order.submit'](project, { content: 'goal', profile, start: false, defer: true })).toEqual({ deferred: true });
   expect(calls.at(-1)).toEqual(['order', ['goal', null, [], null, false, undefined, profile, true]]);
   HANDLERS['order.submit'](project, { draft_id: 2, expected_revision: 3, start: false, defer: true });
   expect(calls.at(-1)).toEqual(['draft', [2, 3, false, true, null]]);
-  HANDLERS['order.submit'](project, { content: 'plain' }); expect(calls.at(-1)[1].at(-1)).toBe(false);
+  expect(HANDLERS['order.submit'](project, { content: 'plain' })).toEqual({ emitted: true });
+  expect(calls.at(-1)).toEqual(['emit', { content: 'plain' }]);
   for (const defer of ['true', null, 1, {}, []]) expect(() => HANDLERS['order.submit'](project, { content: 'x', defer })).toThrow('defer must be boolean');
   HANDLERS['order.submit'](project, { draft_id: 2, expected_revision: 3, profile, defer: true });
-  expect(calls.at(-1)).toEqual(['draft', [2, 3, true, true, profile]]);
+  expect(calls.at(-1)).toEqual(['emit', { draft_id: 2, expected_revision: 3, profile }]);
   for (const defer of [undefined, false]) expect(() => HANDLERS['order.submit'](project,
-    { draft_id: 2, expected_revision: 3, profile, defer })).toThrow('draft_id cannot be combined');
+    { draft_id: 2, expected_revision: 3, profile, defer, start: false })).toThrow('draft_id cannot be combined');
   for (const forbidden of [{ content: 'new' }, { references: [] }, { branch: 'other' }]) expect(() => HANDLERS['order.submit'](project,
     { draft_id: 2, expected_revision: 3, profile, defer: true, ...forbidden })).toThrow('draft_id cannot be combined');
   for (const invalidProfile of [null, [], 'profile']) expect(() => HANDLERS['order.submit'](project,

@@ -30,7 +30,8 @@ test('HTTP mutation envelopes, order.submit and inspect do not expose private Wo
       expect(result.task).toEqual({ id: 7, task_kind: 'order', status: 'paused' });
       expect(result.child.hooks).toEqual(publicHooks);
     }
-    const order = await post(f.url, 'order.submit', { content: 'goal' });
+    // Worker envelopes use the explicit creation path; default emission returns a durable receipt.
+    const order = await post(f.url, 'order.submit', { content: 'goal', start: false });
     expect(order.status).toBe(200); const result = await order.json(); noPrivate(result);
     expect(result.id).toBe(1); expect(result.content).toBe('goal'); expect(result.child.hooks).toEqual(publicHooks);
     const inspect = await fetch(f.url + '/api/worker/7');

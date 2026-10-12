@@ -1,7 +1,9 @@
 import { check, id, text, isPlainObject, TERMINAL, bounded } from '../types.js';
 import { assertTaskAncestorsOpen } from './iteration.js';
 import { hookRevision } from '../hooks.js';
-import { inheritedRunProfile, tokenHash } from './internal.js';
+import { inheritedRunProfile } from './internal.js';
+import { assertManager } from './management-auth.js';
+import controlMethods, { managementControlPending } from './management-control.js';
 import { MANAGEMENT_LIMITS, managementState, saveManagement, managementTime, managementRevision,
   managementView, managementWorkers, managementEnableReason } from './management-data.js';
 
@@ -21,15 +23,6 @@ function creationFingerprint(options) {
     ...(options.profile === undefined ? {} : { profile: options.profile }) });
   check(Buffer.byteLength(JSON.stringify(definition)) <= MANAGEMENT_LIMITS.bytes, 'management definition exceeds 128 KiB');
   return hookRevision(definition);
-}
-function assertManager(project, actorId) {
-  const task = project.store.task(id(actorId)), state = managementState(task), run = project.running.get(task.id);
-  check(task.role === 'manager' && task.task_kind === 'management' && state?.version === 1, 'only a management Worker can use management tools');
-  check(task.status === 'running' && run && !run.parked && !run.invocationEnded && !run.controller.signal.aborted
-    && typeof run.token === 'string' && task.agent_token_hash === tokenHash(run.token), 'management invocation is not active');
-  check(state.enabled && state.state === 'running' && state.pending_signal?.phase === 'started'
-    && state.pending_signal.run_id === run.recordId, 'management binding or signal authorization is not active');
-  return { task, state };
 }
 function targetGate(project, target, action) {
   if (!target || !['order','child'].includes(target.task_kind)) return { skip: '目标不存在或不是可管理的开发 Worker。' };
@@ -66,6 +59,7 @@ function queryView(project, target) {
 }
 
 export default {
+  ...controlMethods,
   managementWorkers() { return managementWorkers(this); },
   managementView(taskOrId) { return managementView(typeof taskOrId === 'object' ? taskOrId : this.store.task(taskOrId), this); },
 
@@ -88,8 +82,9 @@ export default {
         return this.inspect(existing.id); // Even emitted/removed signals or changed defaults cannot hide a saved receipt.
       }
     }
-    const signal = this.hookSignals().items.find(item => item.id === options.signal_id);
-    check(signal?.enabled && signal.next_run_at && Date.parse(signal.next_run_at) > this.hookClock(), 'choose an enabled future signal');
+    const immediate = options.signal_id === null;
+    const signal = immediate ? null : this.hookSignals().items.find(item => item.id === options.signal_id);
+    check(immediate || signal?.enabled && signal.next_run_at && Date.parse(signal.next_run_at) > this.hookClock(), 'choose an enabled future signal');
     check(this.store.get("SELECT count(*) AS n FROM tasks WHERE task_kind='management' AND json_extract(management,'$.enabled')=1").n < MANAGEMENT_LIMITS.active,
       'active management binding limit reached');
     check(this.store.get("SELECT count(*) AS n FROM tasks WHERE status NOT IN ('completed','failed','cancelled')").n < 1000, 'too many active workers');
@@ -101,12 +96,16 @@ export default {
     const task = this.store.transaction(() => {
       const task = this.store.create({ role: 'manager', task_kind: 'management', input_id: null,
         goal: options.instruction, name: options.name.trim() });
-      this.store.update(task.id, { status: 'waiting', retry_profile: profile ? JSON.stringify(profile) : null });
-      saveManagement(this, task.id, { version: 1, config_revision: 1, signal_id: signal.id, mode, enabled: true,
-        state: 'waiting', reason: '等待下一信号；不保证 Agent 准点获得运行槽。', consumed: false,
-        pending_signal: null, last_execution: null, receipts: [],
+      check(!immediate || mode === 'once', 'immediate management input is once only');
+      this.store.update(task.id, { status: immediate ? 'queued' : 'waiting', retry_profile: profile ? JSON.stringify(profile) : null });
+      const occurrence = immediate ? this.store.event(task.id, 'management.input_submitted', { mode: 'once' }) : null;
+      saveManagement(this, task.id, { version: 1, config_revision: 1, signal_id: signal?.id ?? null, mode, enabled: true,
+        origin: immediate ? 'input' : 'signal',
+        state: immediate ? 'queued' : 'waiting', reason: immediate ? '管理输入已提交，等待运行槽。' : '等待下一信号；不保证 Agent 准点获得运行槽。', consumed: false,
+        pending_signal: immediate ? { id: occurrence, signal_id: null, name: '管理输入', due_at: managementTime(this), submitted_at: managementTime(this), phase: 'pending' } : null,
+        last_execution: null, receipts: [], control_calls: [],
         ...(requestId === undefined ? {} : { client_request_id: requestId, creation_fingerprint: fingerprint }) });
-      this.store.event(task.id, 'management.created', { signal_id: signal.id, mode });
+      this.store.event(task.id, 'management.created', { signal_id: signal?.id ?? null, mode, origin: immediate ? 'input' : 'signal' });
       return this.store.task(task.id);
     });
     this.armScheduledHookTimer();
@@ -160,7 +159,7 @@ export default {
         due_at: signal.due_at, reason: '已有调用或待执行操作，本次信号不堆积。' });
       return;
     }
-    state.pending_signal = { ...signal, phase: 'pending' }; state.state = 'queued'; state.receipts = [];
+    state.pending_signal = { ...signal, phase: 'pending' }; state.state = 'queued'; state.receipts = []; state.control_calls = [];
     state.reason = '信号已提交，等待 Agent 运行槽。';
     saveManagement(this, task.id, state);
     this.store.update(task.id, { status: 'queued', error: null });
@@ -186,7 +185,8 @@ export default {
     const state = managementState(task);
     return { instruction: task.goal, signal: state.pending_signal ? { id: state.pending_signal.id,
       signal_id: state.pending_signal.signal_id, name: state.pending_signal.name, due_at: state.pending_signal.due_at } : null,
-      authorization: { scope: 'current_project', operations: ['query','start','retry'], target_kinds: ['order','child'],
+      authorization: { scope: 'current_project', operations: ['query','start','retry','catalog','history','call'],
+        dangerous_operations: 'exact_user_confirmation', device_scope: 'explicit_instruction_and_parameter', target_kinds: ['order','child'],
         start_status: 'paused', retry_status: 'failed' }, management: managementView(task, this) };
   },
 
@@ -204,7 +204,7 @@ export default {
     const target = this.store.task(id(targetId));
     const previous = state.receipts.find(receipt => receipt.action === action && receipt.target_id === target.id);
     if (previous) return receiptView(previous);
-    check(state.receipts.length < MANAGEMENT_LIMITS.actions, 'management occurrence action limit reached');
+    check(state.receipts.length + (state.control_calls?.length ?? 0) < MANAGEMENT_LIMITS.actions, 'management occurrence action limit reached');
     const receipt = this.store.transaction(() => {
       const receiptId = this.store.event(task.id, 'management.action_submitted', { occurrence_id: state.pending_signal.id, action, target_id: target.id });
       const receipt = { receipt_id: receiptId, action, target_id: target.id, target_worker_number: target.worker_number,
@@ -258,6 +258,7 @@ export default {
       AND json_extract(management,'$.enabled')=1 AND json_extract(management,'$.pending_signal') IS NOT NULL ORDER BY id`)) {
       const state = managementState(task);
       if (!state.enabled || !state.pending_signal) continue;
+      this.drainManagementCapabilities(task.id);
       for (const receipt of state.receipts) if (receipt.status === 'waiting') this.executeManagementAction(task.id, receipt.receipt_id);
       this.settleManagementOccurrence(task.id);
     }
@@ -267,7 +268,8 @@ export default {
   pauseManagementInvocation(taskId, runId) {
     const task = this.store.task(taskId), state = managementState(task);
     if (state?.pending_signal?.run_id !== runId || state.pending_signal.phase !== 'started' || !state.enabled) return;
-    check(!state.receipts.some(receipt => ['running','unknown'].includes(receipt.status)), 'management effect is unknown; inspect before continuing');
+    check(!state.receipts.some(receipt => ['running','unknown'].includes(receipt.status))
+      && !(state.control_calls ?? []).some(call => ['running','unknown'].includes(call.status)), 'management effect is unknown; inspect before continuing');
     state.pending_signal.phase = 'pending';
     delete state.pending_signal.run_id; delete state.pending_signal.started_at;
     state.state = 'queued'; state.reason = '项目维护暂停，等待显式全部继续。';
@@ -290,11 +292,16 @@ export default {
     const task = this.store.task(taskId), state = managementState(task);
     if (!state?.pending_signal || state.pending_signal.phase !== 'returned'
       || state.receipts.some(receipt => ['waiting','running'].includes(receipt.status))) return;
-    if (state.receipts.some(receipt => receipt.status === 'unknown')) { this.failManagementOccurrence(taskId, 'unknown'); return; }
-    const skipped = state.receipts.some(receipt => receipt.status === 'skipped') || !state.enabled;
+    if (managementControlPending(state)) {
+      this.store.update(taskId, { status: (state.control_calls ?? []).some(call => call.status === 'pending_confirmation') ? 'awaiting' : 'waiting' });
+      return;
+    }
+    if ((state.control_calls ?? []).some(call => call.status === 'unknown') || state.receipts.some(receipt => receipt.status === 'unknown')) { this.failManagementOccurrence(taskId, 'unknown'); return; }
+    const skipped = state.receipts.some(receipt => receipt.status === 'skipped')
+      || (state.control_calls ?? []).some(call => ['failed','rejected'].includes(call.status)) || !state.enabled;
     this.store.transaction(() => {
       state.last_execution = { ...state.pending_signal, status: skipped ? 'skipped' : 'succeeded',
-        finished_at: managementTime(this), actions: state.receipts };
+        finished_at: managementTime(this), actions: state.receipts, control_calls: state.control_calls ?? [] };
       state.pending_signal = null;
       state.consumed = state.mode === 'once';
       if (state.consumed) state.enabled = false;
@@ -326,9 +333,10 @@ export default {
   recoverManagementWorkers() {
     for (const task of this.store.all(`SELECT id,management FROM tasks WHERE task_kind='management'
       AND json_extract(management,'$.pending_signal') IS NOT NULL ORDER BY id`)) {
-      const state = managementState(task);
+      this.recoverManagementCapabilities(task.id);
+      const state = managementState(this.store.task(task.id));
       if (!state.pending_signal || ['failed','unknown'].includes(state.state)) continue;
-      let unknown = false;
+      let unknown = (state.control_calls ?? []).some(call => call.status === 'unknown');
       for (const receipt of state.receipts) if (receipt.status === 'running') {
         const proof = this.store.get(`SELECT id FROM events WHERE task_id=? AND type='management.action_completed'
           AND json_extract(data,'$.receipt_id')=? AND json_extract(data,'$.occurrence_id')=?

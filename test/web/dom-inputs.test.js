@@ -18,7 +18,7 @@ const calls = [], reads = [], world = makeWorld();
 const dom = installDom({ fetch: async (url, options = {}) => {
   const route = new URL(String(url), 'http://localhost'), path = route.pathname.replace(/^\/p\/[^/]+/, '');
   const body = options.body ? JSON.parse(options.body) : null;
-  if (body && ['draft.update', 'draft.remove', 'order.submit'].includes(body.method)) {
+  if (body && ['draft.update', 'draft.remove', 'input.emit', 'input.emission_cancel', 'input.exclusive_release'].includes(body.method)) {
     calls.push(body); const intercepted = intercept?.(path, body, route); if (intercepted) return intercepted;
     const { method, params } = body, old = rows.find(row => row.kind === 'draft' && row.id === (params.id ?? params.draft_id));
     if (params.expected_revision !== old?.revision) return { ok: false, json: async () => ({ error: 'revision conflict' }) };
@@ -27,9 +27,10 @@ const dom = installDom({ fetch: async (url, options = {}) => {
       if (params.branch) old.parent_id = parents.find(parent => parent.branch === params.branch)?.id;
       return json(old);
     }
-    rows = rows.filter(row => row !== old);
-    if (method === 'order.submit') { rows.unshift(fixture('input', 3, { content: old.content, task_id: 33, status: params.start ? 'queued' : 'created', merge_status: 'none', integration: 'none' })); return json({ id: 3, task: { id: 33 } }); }
-    return json({ id: old.id });
+    if (method === 'input.emit') { old.dispatch = { state: 'queued' }; return json({ emitted: true, draft_id: old.id, dispatch: old.dispatch }); }
+    if (method === 'input.emission_cancel') { old.dispatch = { state: 'cancelled' }; return json(old); }
+    if (method === 'input.exclusive_release') { old.dispatch.exclusive_active = false; old.dispatch.can_release_exclusive = false; return json(old); }
+    rows = rows.filter(row => row !== old); return json({ id: old.id });
   }
   if (path === '/api/input-parents' || path === '/api/inputs' || path.startsWith('/api/input/')) {
     reads.push(String(url)); const intercepted = intercept?.(path, null, route); if (intercepted) return intercepted;
@@ -41,6 +42,8 @@ const dom = installDom({ fetch: async (url, options = {}) => {
     const [, kind, id] = /\/api\/input\/(draft|input)\/(\d+)/.exec(path);
     return json(rows.find(row => row.kind === kind && row.id === Number(id)));
   }
+  if (path === '/api/workers') { reads.push(String(url)); return intercept?.(path, body, route) || json({ tasks: [{ id: 901, worker_number: 'W777', goal: '面板重构' }], has_more: false }); }
+  if (path === '/api/worker-lookup') return json({ id: 901, worker_number: 'W777' });
   if (path === '/api/agent/config') return json(world.state.agentConfig);
   if (/\/api\/worker\/\d+\/hooks$/.test(path)) return intercept?.(path, body, route) || json({ version: 1, revision: 'hooks-v1', mounts: [] });
   if (body?.method === 'worker.hook_remove') { calls.push(body); return intercept?.(path, body, route) || json({ version: 1, revision: 'hooks-v2', mounts: [] }); }
@@ -78,6 +81,26 @@ beforeEach(() => {
   activateDetailView({ view: 'overview' }); dom.location.pathname = '/p/aaaaaaaaaaaaaaaa/';
 });
 afterAll(() => dom.restore());
+
+test('已发射却缺少dispatch或版本的草稿保守只读，不提供重复发射/编辑', async () => {
+  for (const change of [{ status: 'emitted' }, { revision: undefined }, { mode: 'management' }]) {
+    rows = [fixture('draft', 1, change)]; await openInputs(); await selectStatus(''); await openDraft();
+    expect(panel().querySelector('textarea')).toBeNull(); expect(deepText(panel())).toContain('只读待核验');
+    expect(btn('发射', panel())).toBeUndefined(); expect(calls).toHaveLength(0);
+  }
+});
+
+test('发射读面的五种新增状态都可显式筛选，不退回未知或当前Worker状态', async () => {
+  const statuses = { waiting_conditions: '等待条件', emitted: '已发射', sent: '已追加', emission_failed: '发射失败', unknown_dispatch: '发射结果待核验' };
+  rows = Object.keys(statuses).map((status, index) => fixture('draft', index + 1, { status, content: `输入${index}` }));
+  await openInputs();
+  for (const [status, label] of Object.entries(statuses)) {
+    const option = form().querySelector('select').children.find(node => node.value === status); expect(option.textContent).toBe(label);
+    await selectStatus(status); expect(root().querySelectorAll('.input-record')).toHaveLength(1);
+    expect(new URL(reads.at(-1), 'http://localhost').searchParams.get('status')).toBe(status);
+    expect(deepText(root().querySelector('.input-record'))).toContain(label);
+  }
+});
 
 test('未提交关键词不因即时筛选、刷新或分页生效，IME 不提交；清空保留状态', async () => {
   pageCursor = 'next'; await openInputs();
@@ -217,29 +240,30 @@ test('完整详情修订用于编辑保存，父 Task 来自完整列表，保�
   await btn('移除引用', panel()).onclick(); expect(deepText(panel())).toContain('引用快照（0）');
   await btn('恢复已保存引用', panel()).onclick(); expect(deepText(panel())).toContain('当时所见');
   await btn('移除引用', panel()).onclick(); await btn('保存', panel()).onclick();
-  expect(calls).toEqual([{ method: 'draft.update', params: { id: 1, expected_revision: 3, content: '修改后的正文\n保留换行', references: [], branch: 'feature/old' } }]);
+  expect(calls).toEqual([{ method: 'draft.update', params: { id: 1, expected_revision: 3, content: '修改后的正文\n保留换行', references: [], branch: 'feature/old', conditions: [], exclusive: false } }]);
   expect(editor().value).toBe('修改后的正文\n保留换行'); expect(deepText(panel())).toContain('已保存');
-  await btn('发射并开始', panel()).onclick();
-  expect(calls.at(-1)).toEqual({ method: 'order.submit', params: { draft_id: 1, expected_revision: 4, start: true } });
-  expect(text()).toContain('原始输入 O3'); expect(editor()).toBeNull();
-  expect(dom.location.hash).toBe('#input-input-3'); expect(deepText(panel())).toContain('修改后的正文');
-  expect(root().querySelectorAll('.input-record')).toHaveLength(0);
+  await btn('发射', panel()).onclick();
+  expect(calls.at(-1)).toMatchObject({ method: 'input.emit', params: { draft_id: 1, expected_revision: 4 } });
+  expect(calls.at(-1).params.client_request_id).toBeTruthy();
+  expect(editor()).toBeNull(); expect(dom.location.hash).toBe('#input-draft-1');
+  expect(deepText(panel())).toContain('修改后的正文'); expect(deepText(panel())).toContain('等待准入');
   await btn('← 返回历史输入').onclick(); await selectStatus('');
-  expect(root().querySelectorAll('.input-record').some(card => card.dataset.input === 'draft:1')).toBe(false);
-  expect(root().querySelectorAll('.input-record').filter(card => card.dataset.input === 'input:3')).toHaveLength(1);
+  expect(root().querySelectorAll('.input-record').some(card => card.dataset.input === 'draft:1')).toBe(true);
 });
 
-test('发射先保存再以新版本创建待开始 Worker，不带正文/branch；关联 Task 导航不调用 Agent', async () => {
-  await openInputs(); await openDraft(); editor().value = '新正文';
-  await btn('发射', panel()).onclick();
-  expect(calls.map(call => call.method)).toEqual(['draft.update', 'order.submit']);
-  expect(calls[0].params).not.toHaveProperty('branch');
-  expect(calls[1].params).toEqual({ draft_id: 1, expected_revision: 4, start: false });
-  expect(dom.location.hash).toBe('#input-input-3'); expect(dom.node('view-title').textContent).toBe('原始输入 O3');
-  expect(editor()).toBeNull(); expect(deepText(panel())).toContain('新正文');
-  expect(deepText(panel())).toContain('当时所见'); expect(deepText(panel())).toContain('已创建·待开始');
+test('发射先保存再以新版本挂载，ACK 不冒充已创建，实际成功刷新后可查看 Worker', async () => {
+  await openInputs(); await openDraft(); editor().value = '新正文'; await btn('发射', panel()).onclick();
+  expect(calls.map(call => call.method)).toEqual(['draft.update', 'input.emit']); expect(calls[0].params).not.toHaveProperty('branch');
+  expect(calls[1].params).toMatchObject({ draft_id: 1, expected_revision: 4 }); expect(calls[1].params).not.toHaveProperty('start');
+  expect(dom.location.hash).toBe('#input-draft-1'); expect(editor()).toBeNull(); expect(deepText(panel())).toContain('新正文');
+  expect(deepText(panel())).toContain('当时所见'); expect(deepText(panel())).toContain('不代表 Worker 已创建');
+  rows[0].dispatch = { state: 'succeeded', input_id: 3, worker_id: 33, worker_number: 'W33' };
+  rows.unshift(fixture('input', 3, { content: '新正文', task_id: 33, task_worker_number: 'W33', status: 'queued' }));
+  await btn('刷新发射状态').onclick(); expect(deepText(panel())).toContain('已投递');
+  await btn('刷新发射状态').onclick();
+  expect(dom.location.hash).toBe('#input-input-3'); expect(text()).toContain('原始输入 O3');
   let opened; const restore = registerNavigation({ detail: async id => { opened = id; } });
-  try { await btn('查看 Worker #33', panel()).onclick(); expect(opened).toBe(33); } finally { restore(); }
+  try { await btn('查看 Worker W33', panel()).onclick(); expect(opened).toBe(33); } finally { restore(); }
   expect(calls).toHaveLength(2);
 });
 
@@ -248,7 +272,7 @@ test('旧草稿或失效父 Task 不回退默认；必须显式重选保存', as
     rows[0] = fixture('draft', 1, { ...identity, revision: null }); activateDetailView({ view: 'overview' }); await openInputs(); await openDraft();
     expect(deepText(panel())).toContain('必须重新选择');
     if (identity.parent_id) expect(parentSelect().value).toBe('missing:555');
-    calls.length = 0; await btn('发射并开始', panel()).onclick(); expect(calls).toHaveLength(0);
+    calls.length = 0; await btn('发射', panel()).onclick(); expect(calls).toHaveLength(0);
     parentSelect().value = '1'; await btn('保存', panel()).onclick();
     expect(calls[0].params.branch).toBe('main'); expect(calls[0].params.expected_revision).toBe(null);
   }
@@ -257,7 +281,7 @@ test('旧草稿或失效父 Task 不回退默认；必须显式重选保存', as
 test('编辑/发射单飞，保存失败保留全部本地编辑并且不发射', async () => {
   await openInputs(); await openDraft(); editor().value = '不能丢的编辑'; parentSelect().value = '900'; await btn('移除引用', panel()).onclick();
   const delayed = deferred(); intercept = (_path, body) => body?.method === 'draft.update' ? delayed.promise : null;
-  const first = btn('发射并开始', panel()).onclick();
+  const first = btn('发射', panel()).onclick();
   await btn('发射', panel()).onclick(); await btn('保存', panel()).onclick(); await btn('删除草稿', panel()).onclick();
   expect(calls).toHaveLength(1); expect(editor().disabled).toBe(true);
   delayed.resolve({ ok: false, json: async () => ({ error: 'revision conflict' }) }); await first;
@@ -285,11 +309,13 @@ test('保存 500、离线或远端删除后，轮询与刷新仍保留文字/父
 
 test('保存成功但发射失败保留更新修订，重试不会重复保存旧内容', async () => {
   await openInputs(); await openDraft(); editor().value = '已经保存的编辑';
-  intercept = (_path, body) => body?.method === 'order.submit' ? Promise.reject(new Error('父分支暂时被冻结')) : null;
-  await btn('发射并开始', panel()).onclick();
-  expect(editor().value).toBe('已经保存的编辑'); expect(calls.map(call => call.method)).toEqual(['draft.update', 'order.submit']);
-  intercept = null; await btn('发射并开始', panel()).onclick();
-  expect(calls.map(call => call.method)).toEqual(['draft.update', 'order.submit', 'order.submit']); expect(calls.at(-1).params.expected_revision).toBe(4);
+  intercept = (_path, body) => body?.method === 'input.emit' ? Promise.reject(new Error('父分支暂时被冻结')) : null;
+  await btn('发射', panel()).onclick();
+  expect(editor().value).toBe('已经保存的编辑'); expect(calls.map(call => call.method)).toEqual(['draft.update', 'input.emit']);
+  const requestId = calls.at(-1).params.client_request_id;
+  intercept = null; await btn('发射', panel()).onclick();
+  expect(calls.map(call => call.method)).toEqual(['draft.update', 'input.emit', 'input.emit']); expect(calls.at(-1).params.expected_revision).toBe(4);
+  expect(calls.at(-1).params.client_request_id).toBe(requestId);
 });
 
 test('删除草稿走应用内确认，取消无动作、确认单飞且使用详情版本', async () => {
@@ -334,9 +360,9 @@ test('文本安全、Agent 标识和帮助宿主，静态导航与快捷键提�
   rows[0].content = attack; rows[0].references = [{ ...reference, label: attack, quote: attack }];
   await openInputs(); await openDraft(); expect(editor().value).toBe(attack); expect(deepText(panel())).toContain(attack);
   expect(root().querySelectorAll('img')).toHaveLength(0);
-  const start = btn('发射并开始', panel()); expect(start.classList.contains('agent-call')).toBe(true); expect(start.getAttribute('data-help')).toContain('token');
+  const start = btn('条件发射', panel()); expect(start.classList.contains('agent-call')).toBe(true); expect(start.getAttribute('data-help')).toContain('token');
   expect(start.parentNode.classList.contains('help-host')).toBe(true);
-  expect(btn('发射', panel()).classList.contains('agent-call')).toBe(false);
+  expect(btn('发射', panel()).classList.contains('agent-call')).toBe(true);
   for (const label of ['发射', '删除草稿', '移除引用']) expect(btn(label, panel()).getAttribute('data-help')).toBeTruthy();
   const html = readFileSync('src/ui/web/assets/index.html', 'utf8');
   expect(html.indexOf('id="inputs-open"')).toBeLessThan(html.indexOf('<span>设备设置与帮助</span>'));
@@ -346,29 +372,29 @@ test('文本安全、Agent 标识和帮助宿主，静态导航与快捷键提�
 test('冻结父 Worker 的草稿发射挂载一次性 Hook，保留修订与引用且不读取不存在的 task', async () => {
   parents[0].freeze = { reason: '父队列执行中' };
   try {
-    intercept = (_path, body) => body?.method === 'order.submit' ? json({ deferred: true, parent_id: 1, hook_id: 'draft-once' }) : null;
     await openInputs(); await openDraft();
-    expect(btn('预约发射并开始').classList.contains('agent-call')).toBe(true);
-    expect(btn('预约发射').getAttribute('data-help')).toContain('不立即创建或调用 Agent');
-    await btn('预约发射并开始').onclick();
-    expect(calls.at(-1)).toEqual({ method: 'order.submit', params: { draft_id: 1, expected_revision: 3, start: true, defer: true } });
-    expect(deepText(panel())).toContain('尚未创建 Worker'); expect(btn('查看父 Worker #1 的 Hooks')).toBeTruthy();
+    expect(btn('发射').classList.contains('agent-call')).toBe(true);
+    expect(btn('条件发射').getAttribute('data-help')).toContain('安全准入');
+    await btn('发射').onclick();
+    expect(calls.at(-1)).toMatchObject({ method: 'input.emit', params: { draft_id: 1, expected_revision: 3 } });
+    expect(calls.at(-1).params).not.toHaveProperty('defer'); expect(deepText(panel())).toContain('不代表 Worker 已创建');
     expect(rows[0].references).toEqual([reference]); expect(rows[0].revision).toBe(3);
   } finally { delete parents[0].freeze; }
 });
 
-test('草稿可以显式选择完整运行设置，父可写时也使用 defer 授权传入覆盖，普通保存不写私有参数', async () => {
+test('草稿可以显式选择完整运行设置，只在 input.emit 传入配置覆盖，普通保存不写私有参数', async () => {
   await openInputs(); await openDraft();
-  const configuring = btn('运行设置：预约时冻结项目默认').onclick();
+  const configuring = btn('运行设置：发射时冻结默认').onclick();
   try { await until(() => dialogButton(dom, '使用这份设置')); }
   catch (error) { throw new Error(`${error.message}; toast=${dom.node('error').textContent}; modal=${deepText(dom.node('modal'))}`); }
   const mode = dom.node('modal').querySelector('[data-retry-field="config_mode"]'); mode.value = 'pi'; mode.onchange();
   await dialogButton(dom, '使用这份设置').onclick(); await configuring;
   expect(btn('运行设置：Pi 默认配置')).toBeTruthy(); expect(calls).toHaveLength(0);
   expect(btn('保存').disabled).toBe(true);
-  await btn('保存').onclick(); expect(calls).toHaveLength(0); expect(deepText(panel())).toContain('发射或预约时才写入');
-  await btn('发射并开始').onclick();
-  expect(calls.at(-1)).toEqual({ method: 'order.submit', params: { draft_id: 1, expected_revision: 3, start: true, defer: true, profile: { agent: 'pi', config_mode: 'pi' } } });
+  await btn('保存').onclick(); expect(calls).toHaveLength(0); expect(deepText(panel())).toContain('发射时才写入');
+  await btn('发射').onclick();
+  expect(calls.at(-1)).toMatchObject({ method: 'input.emit', params: { draft_id: 1, expected_revision: 3, profile: { agent: 'pi', config_mode: 'pi' } } });
+  expect(calls.at(-1).params).not.toHaveProperty('defer');
 });
 
 test('已挂载草稿只读且禁止重复发射，取消等待挂载采用最新 Hook 修订并恢复编辑', async () => {
@@ -379,12 +405,12 @@ test('已挂载草稿只读且禁止重复发射，取消等待挂载采用最�
     return null;
   };
   await openInputs(); await openDraft(); await until(() => !btn('取消预约挂载').disabled);
-  expect(editor()).toBeNull(); expect(btn('发射并开始')).toBeUndefined(); expect(btn('删除草稿')).toBeUndefined();
+  expect(editor()).toBeNull(); expect(btn('发射')).toBeUndefined(); expect(btn('删除草稿')).toBeUndefined();
   expect(deepText(panel())).toContain('不可编辑、删除或重复发射');
   const removing = btn('取消预约挂载').onclick(); await until(() => dialogButton(dom, '取消预约'));
   expect(calls).toHaveLength(0); await dialogButton(dom, '取消预约').onclick(); await removing;
   expect(calls.at(-1)).toEqual({ method: 'worker.hook_remove', params: { id: 1, hook_id: 'draft-mount', expected_revision: 'hooks-live' } });
-  expect(editor().value).toBe('尚未执行的想法'); expect(btn('发射并开始')).toBeTruthy();
+  expect(editor().value).toBe('尚未执行的想法'); expect(btn('发射')).toBeTruthy();
 });
 
 test('O 编号原生链接保留新标签手势，直接深链接不受暂存筛选限制且不执行写动作', async () => {
@@ -413,11 +439,11 @@ test('正文撤销只改本页文本，不回退已保存版本、父 Worker 或
   expect(parentSelect().value).toBe('900'); expect(deepText(panel())).toContain('引用快照（0）');
   expect(rows[0].content).toBe('已保存的新正文'); expect(rows[0].revision).toBe(4); expect(calls).toHaveLength(1);
   await btn('保存').onclick();
-  expect(calls.at(-1)).toEqual({ method: 'draft.update', params: { id: 1, expected_revision: 4, content: '尚未执行的想法', references: [] } });
+  expect(calls.at(-1)).toEqual({ method: 'draft.update', params: { id: 1, expected_revision: 4, content: '尚未执行的想法', references: [], conditions: [], exclusive: false } });
   expect(rows[0].revision).toBe(5); await redo.onclick(); expect(node.value).toBe('已保存的新正文');
   await btn('发射').onclick();
-  expect(calls.slice(-2).map(call => call.method)).toEqual(['draft.update', 'order.submit']);
-  expect(calls.at(-1).params).toEqual({ draft_id: 1, expected_revision: 6, start: false });
+  expect(calls.slice(-2).map(call => call.method)).toEqual(['draft.update', 'input.emit']);
+  expect(calls.at(-1).params).toMatchObject({ draft_id: 1, expected_revision: 6 });
   expect(panel().querySelector('.text-editor-controls')).toBeNull();
   // A detached controller cannot revive consumed text or change the new detail.
   await undo.onclick(); expect(node.value).toBe('已保存的新正文');
@@ -434,12 +460,12 @@ test('历史正文撤销在保存忙碌时禁用，失败保留栈和修订；�
   delayed.resolve({ ok: false, json: async () => ({ error: '版本冲突' }) }); await saving;
   expect(btn('撤销').disabled).toBe(false); await btn('撤销').onclick(); expect(editor().value).toBe('尚未执行的想法');
   await btn('重做').onclick(); expect(editor().value).toBe('失败不能丢');
-  intercept = (_path, body) => body?.method === 'order.submit' ? Promise.reject(new Error('发射失败')) : null;
-  await btn('发射并开始').onclick(); expect(calls.map(call => call.method)).toEqual(['draft.update', 'draft.update', 'order.submit']);
+  intercept = (_path, body) => body?.method === 'input.emit' ? Promise.reject(new Error('发射失败')) : null;
+  await btn('发射').onclick(); expect(calls.map(call => call.method)).toEqual(['draft.update', 'draft.update', 'input.emit']);
   expect(calls.at(-1).params.expected_revision).toBe(4); expect(btn('撤销').disabled).toBe(false);
-  await btn('撤销').onclick(); intercept = null; await btn('发射并开始').onclick();
+  await btn('撤销').onclick(); intercept = null; await btn('发射').onclick();
   expect(calls.at(-2).params.expected_revision).toBe(4); expect(calls.at(-1).params.expected_revision).toBe(5);
-  expect(text()).toContain('原始输入 O3'); expect(editor()).toBeNull();
+  expect(text()).toContain('等待准入'); expect(editor()).toBeNull();
 });
 
 test('返回列表和刷新保留同一正文历史，离页重开或切换原始输入销毁旧正文栈', async () => {
@@ -521,26 +547,126 @@ test('保存快捷键忽略输入法和其他组合，普通 Enter 与发射组�
   await selectStatus(''); await btn('查看原文').onclick(); expect(saveKey().defaultPrevented).toBe(false);
 });
 
-test('发射 ACK 后详情读取失败仍转为只读 Order，保留原文引用，不重提成功请求', async () => {
-  await openInputs(); await openDraft(); editorInput(editor(), 'ACK 后原文');
-  intercept = path => path === '/api/input/input/3' ? Promise.reject(new Error('详情离线')) : null;
-  await btn('发射').onclick();
-  expect(dom.location.hash).toBe('#input-input-3'); expect(editor()).toBeNull();
+test('发射 ACK 后状态读取失败保持锁定原文与引用，不重提成功请求', async () => {
+  await openInputs(); await openDraft(); editorInput(editor(), 'ACK 后原文'); await btn('发射').onclick();
+  intercept = path => path === '/api/input/draft/1' ? Promise.reject(new Error('详情离线')) : null;
+  await btn('刷新发射状态').onclick();
+  expect(dom.location.hash).toBe('#input-draft-1'); expect(editor()).toBeNull();
   expect(deepText(panel())).toContain('ACK 后原文'); expect(deepText(panel())).toContain('当时所见');
   expect(deepText(panel())).toContain('读取失败：详情离线'); expect(deepText(panel())).not.toContain('操作失败');
   expect(btn('发射')).toBeUndefined(); expect(btn('保存')).toBeUndefined();
-  expect(calls.map(call => call.method)).toEqual(['draft.update', 'order.submit']);
+  expect(calls.map(call => call.method)).toEqual(['draft.update', 'input.emit']);
 });
 
-test('发射成功后迟到 Order 详情不能把返回列表或离页的用户拉回来', async () => {
-  await openInputs(); await openDraft(); const late = deferred();
-  intercept = path => path === '/api/input/input/3' ? late.promise : null;
-  const launching = btn('发射').onclick(); await until(() => reads.some(path => path.endsWith('/api/input/input/3')));
-  expect(dom.location.hash).toBe('#input-input-3'); expect(editor()).toBeNull();
-  await btn('← 返回历史输入').onclick();
-  late.resolve(json(fixture('input', 3))); await launching;
-  expect(dom.location.hash).toBe('#inputs'); expect(panel().hidden).toBe(true);
-  expect(calls.map(call => call.method)).toEqual(['order.submit']);
+test('发射后迟到状态读取不能把返回列表或离页用户拉回来', async () => {
+  await openInputs(); await openDraft(); await btn('发射').onclick(); const late = deferred();
+  intercept = path => path === '/api/input/draft/1' ? late.promise : null;
+  const loading = btn('刷新发射状态').onclick(); await until(() => reads.filter(path => path.endsWith('/api/input/draft/1')).length === 2);
+  expect(editor()).toBeNull(); await btn('← 返回历史输入').onclick();
+  late.resolve(json(rows[0])); await loading;
+  expect(dom.location.hash).toBe('#inputs'); expect(panel().hidden).toBe(true); expect(calls.map(call => call.method)).toEqual(['input.emit']);
+});
+
+test('追加草稿保持真实目标、暂存版本和条件，不造 O 或静默改投父', async () => {
+  rows[0] = fixture('draft', 1, { mode: 'append', target_id: 501, target_worker_number: 'W99', references: [] });
+  await openInputs(); await openDraft(); expect(deepText(panel())).toContain('W99');
+  expect(panel().querySelector('[aria-label="草稿父 Worker"]')).toBeNull();
+  expect(panel().querySelector('[aria-label="独占开发：静息后开始，直到本轮交付收口"]')).toBeNull();
+  editorInput(editor(), '追加正文'); await btn('保存').onclick();
+  expect(calls.at(-1).params).toMatchObject({ mode: 'append', target_id: 501, expected_revision: 3 });
+  await btn('发射追加').onclick(); expect(calls.at(-1).method).toBe('input.emit'); expect(editor()).toBeNull();
+  expect(deepText(panel())).toContain('追加目标：W99'); expect(deepText(panel())).not.toContain('原始输入 O');
+  rows[0].dispatch = { state: 'succeeded', message_id: 888, append_number: 'A99-2' }; await btn('刷新发射状态').onclick();
+  expect(deepText(panel())).toContain('A99-2'); expect(dom.location.hash).toBe('#input-draft-1');
+});
+
+test('多个条件与独占保存同一版本，Worker 目录分页和编号使用真实身份', async () => {
+  await openInputs(); await openDraft(); const conditions = panel().querySelector('.emission-conditions');
+  let pages = 0; intercept = (path, _body, route) => path === '/api/workers' ? (++pages === 1
+    ? json({ tasks: [{ id: 903, worker_number: 'W230', goal: '第一份' }], has_more: true, cursor: 900 })
+    : json({ tasks: [{ id: 203, worker_number: 'W17', goal: '更早重构' }], has_more: false })) : null;
+  await btn('加载 Worker', conditions).onclick(); await btn('加载更早 Worker', conditions).onclick();
+  expect(reads.at(-1)).toContain('before=900');
+  const select = conditions.querySelector('[aria-label="条件 Worker"]'); select.value = '203';
+  await btn('添加 Worker 条件', conditions).onclick();
+  conditions.querySelector('[aria-label="等待事件"]').value = 'worker_settled'; await btn('添加 Worker 条件', conditions).onclick();
+  conditions.querySelector('[aria-label="等待目标树彻底静息后发射"]').checked = true;
+  conditions.querySelector('[aria-label="独占开发：静息后开始，直到本轮交付收口"]').checked = true;
+  await btn('条件发射').onclick();
+  expect(calls[0].params).toMatchObject({ conditions: [{ kind: 'worker_merged', worker_id: 203 }, { kind: 'worker_settled', worker_id: 203 }, { kind: 'parent_quiet' }], exclusive: true });
+  expect(calls[1].params.expected_revision).toBe(4); expect(calls[1].params).not.toHaveProperty('conditions');
+  expect(editor()).toBeNull(); expect(deepText(panel())).toContain('W17');
+});
+
+test('条件数量包含独占隐含的静息，避免授权第17项，错误保留草稿', async () => {
+  rows[0].conditions = Array.from({ length: 16 }, (_, i) => ({ kind: 'worker_merged', worker_id: 901 + i }));
+  await openInputs(); await openDraft();
+  const exclusive = panel().querySelector('[aria-label="独占开发：静息后开始，直到本轮交付收口"]');
+  exclusive.checked = true; exclusive.onchange(); await btn('保存').onclick();
+  expect(calls).toHaveLength(0); expect(text()).toContain('含独占隐含的静息条件'); expect(editor().value).toBe(rows[0].content);
+  await btn('移除条件').onclick(); await btn('保存').onclick();
+  expect(calls.at(-1).params.conditions).toHaveLength(15); expect(calls.at(-1).params.exclusive).toBe(true);
+});
+
+test('未满足条件可经确认撤销，未知/执行中保守禁用；撤销失败保留原挂载', async () => {
+  rows[0].dispatch = { state: 'waiting_conditions', reason: '等待 W777 合入 main' };
+  await openInputs(); await openDraft(); expect(editor()).toBeNull(); expect(deepText(panel())).toContain('等待 W777');
+  const cancelling = btn('撤销条件发射').onclick(); await until(() => dialogButton(dom, '撤销条件发射'));
+  await dialogButton(dom, '撤销条件发射').onclick(); await cancelling;
+  expect(calls.at(-1)).toEqual({ method: 'input.emission_cancel', params: { draft_id: 1, expected_revision: 3 } });
+  expect(editor().value).toBe(rows[0].content);
+  for (const state of ['dispatching','unknown','succeeded']) {
+    activateDetailView({ view: 'overview' }); rows[0].dispatch = { state }; await openInputs(); await openDraft();
+    expect(btn('撤销条件发射').disabled).toBe(true); const before = calls.length;
+    await btn('撤销条件发射').onclick(); expect(calls).toHaveLength(before); expect(editor()).toBeNull();
+  }
+});
+
+test('发射收据没有最新revision时必须刷新，不用保存前版本猜测取消CAS', async () => {
+  await openInputs(); await openDraft(); await btn('发射').onclick();
+  expect(btn('撤销条件发射').disabled).toBe(true); expect(btn('撤销条件发射').parentNode.getAttribute('data-help')).toContain('不猜测版本');
+  const before = calls.length; await btn('撤销条件发射').onclick(); expect(calls).toHaveLength(before);
+  await btn('刷新发射状态').onclick(); expect(btn('撤销条件发射').disabled).toBe(false);
+});
+
+test('独占释放仅按安全投影启用；关联Input后仍保持草稿释放入口，不把未知读面当授权', async () => {
+  rows[0].exclusive = true; rows[0].dispatch = { state: 'succeeded', input_id: 2 };
+  await openInputs(); await openDraft(); expect(btn('释放独占').disabled).toBe(true);
+  rows[0].dispatch.exclusive_active = true; rows[0].dispatch.can_release_exclusive = true;
+  await btn('刷新发射状态').onclick(); expect(btn('释放独占').disabled).toBe(false);
+  const releasing = btn('释放独占').onclick(); await until(() => dialogButton(dom, '释放独占'));
+  await dialogButton(dom, '释放独占').onclick(); await releasing;
+  expect(calls.at(-1)).toEqual({ method: 'input.exclusive_release', params: { draft_id: 1, expected_revision: 3 } });
+  expect(btn('释放独占').disabled).toBe(true); expect(calls.some(row => row.method === 'worker.cancel')).toBe(false);
+});
+
+test('独占active不覆盖明确can_release=false，dispatching即使错误投影true仍不可释放', async () => {
+  for (const dispatch of [{ state: 'succeeded', exclusive_active: true, can_release_exclusive: false },
+    { state: 'dispatching', exclusive_active: true, can_release_exclusive: true }]) {
+    rows[0].exclusive = true; rows[0].dispatch = dispatch;
+    await openInputs({ item: { kind: 'draft', id: 1 } });
+    await btn('刷新发射状态').onclick(); expect(btn('释放独占').disabled).toBe(true);
+    await btn('释放独占').onclick(); expect(calls).toHaveLength(0);
+  }
+});
+
+test('独占草稿读取实际Input后保留关联；返回草稿必须读新版本再释放', async () => {
+  rows[0].exclusive = true; rows[0].dispatch = { state: 'succeeded', input_id: 2, exclusive_active: true };
+  await openInputs(); await openDraft(); await btn('查看已创建原文 O2').onclick();
+  expect(editor()).toBeNull(); expect(deepText(panel())).toContain('此原文关联发射草稿 #1');
+  expect(btn('释放独占')).toBeUndefined(); expect(btn('查看发射草稿 #1 · 条件与独占').classList.contains('agent-call')).toBe(false);
+  rows[0].revision = 9;
+  await btn('查看发射草稿 #1 · 条件与独占').onclick(); expect(btn('释放独占').disabled).toBe(false);
+  const releasing = btn('释放独占').onclick(); await dialogButton(dom, '释放独占');
+  await dialogButton(dom, '释放独占').onclick(); await releasing;
+  expect(calls.at(-1)).toEqual({ method: 'input.exclusive_release', params: { draft_id: 1, expected_revision: 9 } });
+});
+
+test('只读Input没有已知发射关联时不猜草稿id，不自动扫描历史', async () => {
+  await openInputs({ item: { kind: 'input', id: 2 } });
+  expect(deepText(panel())).not.toContain('此原文关联');
+  expect(panel().querySelectorAll('button').some(node => node.textContent.includes('发射草稿'))).toBe(false);
+  expect(reads.some(url => /\/api\/input\/draft\//.test(url))).toBe(false); expect(calls).toHaveLength(0);
 });
 
 test('正在执行的草稿预约保持不可取消；失败核验也不回退为可编辑或自动重放', async () => {

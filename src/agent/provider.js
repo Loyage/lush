@@ -13,13 +13,14 @@ import { choiceForkPath, readChoiceFile } from './choice-context.js';
 import { createRuntimeConnection, readRuntimeObservations } from './connection-runtime.js';
 import { defaultPiEnvironment, isolatedPiEnvironment } from './pi-config.js';
 import { MISSING_PI_SOURCE_MESSAGE } from './settings.js';
+import { MANAGEMENT_TOOL_NAMES } from './pi-management.js';
 
 const BIN = fileURLToPath(new URL('../../bin', import.meta.url));
 const GUARD = path.join(BIN, 'lush-agent-guard');
 const MAX_RESULT = 256000;
 const PI_RUNTIME = fileURLToPath(new URL('./pi-runtime.js', import.meta.url));
 const PI_MANAGEMENT = fileURLToPath(new URL('./pi-management.js', import.meta.url));
-const MANAGEMENT_TOOLS = 'manager_query,manager_start,manager_retry';
+const MANAGEMENT_TOOLS = MANAGEMENT_TOOL_NAMES.join(',');
 const BUILTIN_SKILL_LOCATIONS = new Set(AGENT_CAPABILITIES.flatMap(({ skill }) => [skill, path.dirname(skill)]));
 
 function managementTask(task) {

@@ -24,6 +24,6 @@ export const drafts = {
     return this.draft(draft.id);
   },
   /** Buffered drafts in input order; submitted ones keep their input_id as the audit link. */
-  openDrafts() { return this.all('SELECT * FROM drafts WHERE input_id IS NULL ORDER BY id'); },
-  draftCount() { return this.get('SELECT count(*) AS n FROM drafts WHERE input_id IS NULL').n; },
+  openDrafts() { return this.all("SELECT * FROM drafts WHERE input_id IS NULL AND coalesce(json_extract(emission,'$.state'),'draft')<>'succeeded' ORDER BY id"); },
+  draftCount() { return this.get("SELECT count(*) AS n FROM drafts WHERE input_id IS NULL AND coalesce(json_extract(emission,'$.state'),'draft')<>'succeeded'").n; },
 };

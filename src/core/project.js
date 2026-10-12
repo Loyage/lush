@@ -38,6 +38,8 @@ import codeMethods from './project/code.js';
 import historyMethods from './project/version-history.js';
 import versionGraphMethods from './project/version-graph.js';
 import inputHistoryMethods from './project/input-history.js';
+import inputEmissionMethods from './project/input-emissions.js';
+import inputEmissionSafetyMethods from './project/input-emission-safety.js';
 import agentPackagesMethods from './project/agent-packages.js';
 import deletionMethods from './project/deletion.js';
 import hookMethods from './project/hooks.js';
@@ -65,6 +67,7 @@ import convergenceAcceptanceMethods from './project/convergence-acceptance.js';
  * 这是有意为之：运行时与各 mixin 都不依赖可枚举性，故意不为「更像 class」而改成 defineProperty。
  */
 const MIXINS = [
+  ['inputEmissions', inputEmissionMethods], ['inputEmissionSafety', inputEmissionSafetyMethods],
   ['convergencePolicy', convergencePolicyMethods], ['convergenceQueue', convergenceQueueMethods],
   ['convergencePrepare', convergencePrepareMethods], ['convergenceLand', convergenceLandMethods], ['convergenceSafety', convergenceSafetyMethods],
   ['convergenceWorkers', convergenceWorkerMethods], ['convergenceAcceptance', convergenceAcceptanceMethods],

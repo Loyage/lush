@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import { temp, repo, env, git } from '../helpers.js';
 import { Config } from '../../src/config.js';
 import { UIClient } from '../../src/ui/client.js';
-import { cli, idle } from './harness.js';
+import { cli, idle, emittedTask } from './harness.js';
 
-test('real daemons: project isolation, duplicate start, immediate input, restart persistence', async () => {
+test('real daemons: project isolation, duplicate start, mounted input admission, restart persistence', async () => {
   const a = temp(), b = temp(); await repo(a); await repo(b);
   try {
     const sa = await cli(a,['start']), sb = await cli(b,['start']);
@@ -27,8 +27,10 @@ test('real daemons: project isolation, duplicate start, immediate input, restart
     expect(diagnosis.update_hints).toEqual([]);
     expect((await cli(a,['start'])).already_running).toBe(true);
     const input = await cli(a,['order','original input']);
-    expect((await idle(ca,input.task.id)).status).toBe('waiting');
-    const booked = await ca.request('worker.reserve', { id: input.task.id, kind: 'merge' });
+    expect(input).toMatchObject({ emitted: true }); expect(input.task).toBeUndefined();
+    const task = await emittedTask(ca, input);
+    expect((await idle(ca,task.id)).status).toBe('waiting');
+    const booked = await ca.request('worker.reserve', { id: task.id, kind: 'merge' });
     expect(booked.reservation.status).toBe('pending');
     expect((await cb.request('worker.list')).filter(task => task.task_kind === 'order')).toEqual([]);
     const before = await ca.request('worker.tree');
@@ -37,8 +39,8 @@ test('real daemons: project isolation, duplicate start, immediate input, restart
     // Recovery may recheck a pending reservation and refresh its task timestamp without changing its meaning.
     before[0].children[0].updated_at = after[0].children[0].updated_at;
     expect(after).toEqual(before);
-    expect((await ca.request('worker.inspect', { id: input.task.id })).reservation).toEqual(booked.reservation);
-    expect((await ca.request('worker.unreserve', { id: input.task.id })).changed).toBe(true);
+    expect((await ca.request('worker.inspect', { id: task.id })).reservation).toEqual(booked.reservation);
+    expect((await ca.request('worker.unreserve', { id: task.id })).changed).toBe(true);
     expect((await ca.request('worker.list')).filter(task => task.task_kind === 'main')).toMatchObject([{
       id: main.id, status: 'waiting', input_id: null,
     }]);

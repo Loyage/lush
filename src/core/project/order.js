@@ -7,6 +7,7 @@ import { forkCheckpoint } from '../../agent/fork.js';
 import { checkDraftRevision } from './input-history.js';
 import { profileEvent } from './internal.js';
 import { workerLabel } from '../worker-number.js';
+import { emissionLocked } from './input-emission-data.js';
 
 function storedReservation(raw) {
   if (raw === null) return null;
@@ -878,7 +879,7 @@ export default {
   },
 
   /** The body of order(); runs under the clear gate so an anchor created before a clear cannot commit after its purge. */
-  async sendOrder(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined, profile = null, defer = false, hookReceipt = null, creationGuard = null, shortcutReceipt = null) {
+  async sendOrder(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined, profile = null, defer = false, hookReceipt = null, creationGuard = null, shortcutReceipt = null, emissionReceipt = null) {
     // Only explicit deferred draft submission can carry a creation-time run-settings override.
     check(defer || draftId === null || draftId === undefined || profile === null || profile === undefined,
       'a buffered draft cannot carry run settings unless explicit deferred submission is authorized');
@@ -888,6 +889,7 @@ export default {
       check(content === undefined && references.length === 0, 'draft_id cannot be combined with content or references');
       draft = this.store.draft(id(draftId));
       check(!this.draftHookMount(draft.id), 'draft is already mounted on a Hook; remove that mount before sending');
+      check(!emissionLocked(draft), 'draft has a mounted input; dispatch it through the input queue');
       check(draft.input_id === null, `draft ${draft.id} was already submitted as input O${draft.input_id}`);
       if (buffered) {
         checkDraftRevision(draft, expectedRevision);
@@ -911,6 +913,7 @@ export default {
     const owner = this.store.all("SELECT * FROM tasks WHERE branch=? AND task_kind IN ('main','owner','order','say') ORDER BY id", target);
     check(owner.length === 1, `branch ${target} needs exactly one explicitly bound Worker before order`);
     const parent = owner[0];
+    check(!this.inputExclusiveReason(parent.id, emissionReceipt?.draft_id), this.inputExclusiveReason(parent.id, emissionReceipt?.draft_id));
     if (buffered) check(parent.id === draft.parent_id, 'saved parent Worker changed; edit the draft before sending');
     assertTaskNotSyncing(this, parent.id);
     check(!TERMINAL.has(parent.status), `parent worker ${workerLabel(parent)} has ended; select an active parent Worker`);
@@ -921,6 +924,7 @@ export default {
     // Recheck inside the Git writer queue, not only before waiting to acquire it.
     const { inputId, anchor } = await this.anchorInput(target, () => {
       this.assertWritable('send this order');
+      check(!this.inputExclusiveReason(parent.id, emissionReceipt?.draft_id), this.inputExclusiveReason(parent.id, emissionReceipt?.draft_id));
       creationGuard?.();
       this.assertInputParent(parent.id, target);
       assertTaskNotSyncing(this, parent.id);
@@ -935,6 +939,7 @@ export default {
       this.assertWritable('send this order');
       const result = this.store.transaction(() => {
         const current = this.store.task(parent.id);
+        check(!this.inputExclusiveReason(parent.id, emissionReceipt?.draft_id), this.inputExclusiveReason(parent.id, emissionReceipt?.draft_id));
         creationGuard?.();
         this.assertBranchWritable(target, 'create a new worker on it');
         if (buffered) this.assertInputParent(draft.parent_id, target);
@@ -992,6 +997,8 @@ export default {
           }
           this.store.event(hookOwner.id, 'hook.worker_created', { ...hookReceipt, worker_id: task.id, input_id: inputId });
         }
+        if (emissionReceipt) this.recordInputDispatch(emissionReceipt.draft_id, emissionReceipt.dispatch_id,
+          { input_id: inputId, worker_id: task.id, worker_number: task.worker_number ?? null });
         if (shortcutReceipt) this.finishShortcutExecution(shortcutReceipt.command_id, shortcutReceipt.execution_id,
           shortcutReceipt.worker_id, 'succeeded', null,
           { created_worker_id: task.id, created_worker_number: task.worker_number, input_id: inputId });

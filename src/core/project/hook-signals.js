@@ -79,7 +79,8 @@ export default {
       AND json_extract(management,'$.enabled')=1 AND json_extract(management,'$.pending_signal') IS NOT NULL`)) {
       const binding = managementState(task);
       if (binding.enabled && binding.pending_signal && (binding.pending_signal.phase === 'pending'
-        || (binding.receipts ?? []).some(receipt => receipt.status === 'waiting'))) deadline = Math.min(deadline, clock + 1000);
+        || (binding.receipts ?? []).some(receipt => receipt.status === 'waiting')
+        || (binding.control_calls ?? []).some(call => call.status === 'approved'))) deadline = Math.min(deadline, clock + 1000);
     }
     return deadline;
   },

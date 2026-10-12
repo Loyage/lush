@@ -72,6 +72,32 @@ test('Hooks page separates time signals and manager instructions from developmen
   expect(root().querySelectorAll('button').some(item => ['合并', '验收', '归档'].includes(item.textContent))).toBe(false);
 });
 
+test('即时管理来源与受控能力收据正确投影，确认不冒充执行，不显示私有参数', async () => {
+  const binding = catalogue.management_workers[0].management;
+  Object.assign(binding, { origin: 'input', signal_id: null, state: 'waiting_actions', pending_signal: {
+    id: 50, due_at: signal.next_run_at, actions: [], control_calls_count: 4, control_calls_truncated: true,
+    control_calls: [{ method: 'worker.cancel', status: 'pending_confirmation', notice_id: 40, params: { env: { PRIVATE: 'MUST_NOT_DISPLAY' } } },
+      { method: 'input.emit', status: 'unknown' }],
+  } });
+  await openHooks(); const text = deepText(root());
+  expect(text).toContain('来源：即时管理输入，不等待时间信号'); expect(text).not.toContain('原信号已移除');
+  expect(text).toContain('已提交管理输入 #50'); expect(text).toContain('待用户确认（尚未执行）');
+  // Receipt projection does not contain Notice kind: do not infer D from pending_confirmation.
+  expect(text).toContain('确认提醒 N40'); expect(text).not.toContain('D40');
+  expect(text).toContain('结果待核验，不自动重放'); expect(text).toContain('管理能力摘要：显示 2 / 4 项');
+  expect(text).not.toContain('MUST_NOT_DISPLAY'); expect(actions).toHaveLength(0);
+  expect(root().querySelector('.management-capabilities-truncated')).toBeTruthy();
+});
+
+test('受控能力历史独立展示安全状态，无原文或主动调用', async () => {
+  catalogue.management_workers[0].management.last_execution = { actions: [], status: 'succeeded',
+    control_calls: [{ method: 'input.emit', status: 'approved' }, { method: 'worker.cancel', status: 'rejected' },
+      { method: 'worker.delete', status: 'failed' }, { method: 'draft.add', status: 'succeeded' }] };
+  await openHooks(); const text = deepText(root());
+  for (const label of ['授权已通过，等待安全点', '未获授权', '未执行，预检或授权已变化', '管理能力 draft.add：已执行']) expect(text).toContain(label);
+  expect(actions).toHaveLength(0);
+});
+
 for (const state of [{ status: 'paused', agent_wakes: 0 }, { status: 'paused', agent_wakes: 1 }, { status: 'failed' },
   { status: 'running' }, { status: 'running', interrupt_state: 'requested' }, { status: 'queued', interrupt_state: 'resuming' }]) {
   test(`management detail is strictly read-only for ${state.status}/${state.interrupt_state || state.agent_wakes || 'idle'}`, async () => {

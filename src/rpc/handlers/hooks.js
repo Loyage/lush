@@ -131,6 +131,18 @@ export const handlers = {
       ...(params.mode === undefined ? {} : { mode: params.mode }), ...(params.profile === undefined ? {} : { profile: params.profile }),
       ...(client_request_id === undefined ? {} : { client_request_id }) }) };
   },
+  'management.submit'(p, params) {
+    const { _token: _privateToken, ...options } = params;
+    return p.submitManagementInstruction(options);
+  },
+  'manager.catalog'(p, params, actor) { return p.managementCapabilityCatalog(id(actor)); },
+  'manager.history'(p, params, actor) {
+    const { _token: _privateToken, ...options } = params;
+    return p.managementHistory(id(actor), options);
+  },
+  'manager.call'(p, params, actor) {
+    return p.callManagementCapability(id(actor), params.method, params.params ?? {}, params.request_id);
+  },
   'management.binding_update'(p, params) {
     const expected = revision(params.expected_revision);
     check(typeof params.enabled === 'boolean', 'enabled must be a boolean');
