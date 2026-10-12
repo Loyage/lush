@@ -120,7 +120,7 @@ export function setNavCount(id, count) { const target = ui.navCounts.get(id); if
 export function selectNav(id) {
   const buttons = new Map(ui.navButtons);
   for (const key of Object.keys(PAGES)) { const target = node(`${key}-open`); if (target) buttons.set(key, target); }
-  const selected = id === 'quick-chat-conversation' ? 'quick-chat' : id;
+  const selected = ['quick-chat-settings', 'quick-chat-conversation'].includes(id) ? 'quick-chat' : id;
   for (const [key, target] of buttons) {
     target.classList.toggle('selected', key === selected);
     target.setAttribute('aria-current', key === selected ? 'page' : 'false');

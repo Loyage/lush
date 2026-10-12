@@ -38,14 +38,15 @@ test('无项目的快速对话深链接不读取历史/Prompt，直接调用也�
   await openComposerChat(); expect(ui.composerChatMode).toBeNull();
 });
 
-test('对话和设置导航属于项目，详情唯一选中对话导航，所有 C1 链接固定当前项目', async () => {
+test('项目快速对话仅有一个侧栏入口，设置和详情都选中它，C1 链接固定当前项目', async () => {
   world.state.quickChats.set(1, row()); await dom.node('quick-chat-open').onclick();
   expect(ui.view.id).toBe('quick-chat'); expect(dom.node('quick-chat-open').getAttribute('aria-current')).toBe('page');
   expect(dom.node('detail').querySelector('.quick-chat-history-row').querySelector('a').href).toBe(`/p/${a}/#quick-chat-C1`);
-  await dom.node('quick-chat-settings-open').onclick(); expect(ui.view.id).toBe('quick-chat-settings');
-  expect(dom.node('quick-chat-settings-open').getAttribute('aria-current')).toBe('page'); expect(dom.node('quick-chat-open').classList.contains('selected')).toBe(false);
+  expect(dom.node('detail').querySelector('[data-subpage="settings"]').href).toBe(`/p/${a}/#quick-chat-settings`);
+  dom.location.hash = '#quick-chat-settings'; await dom.fire('hashchange'); expect(ui.view.id).toBe('quick-chat-settings');
+  expect(dom.node('quick-chat-open').getAttribute('aria-current')).toBe('page'); expect(dom.node('quick-chat-open').classList.contains('selected')).toBe(true);
   dom.location.hash = '#quick-chat-C1'; await dom.fire('hashchange'); expect(ui.view.key).toBe('quick-chat-C1');
-  expect(dom.node('quick-chat-open').classList.contains('selected')).toBe(true); expect(dom.node('quick-chat-settings-open').classList.contains('selected')).toBe(false);
+  expect(dom.node('quick-chat-open').classList.contains('selected')).toBe(true); expect(dom.node('quick-chat-open').getAttribute('aria-current')).toBe('page');
   expect(conversationHref(1)).toBe(`/p/${a}/#quick-chat-C1`);
   dom.location.pathname = `/p/${b}/`; expect(conversationHref(1)).toBe(`/p/${b}/#quick-chat-C1`);
 });

@@ -77,5 +77,5 @@ test('旧解释资源和导航彻底删除，对话导航仅在项目工作区',
   expect(html).toContain('/styles-quick-chat.css');
   for (const name of ['explanations.js', 'quick-explanation.js', 'render-quick-explanation.js', 'styles-quick-explanation.css'])
     expect(fs.existsSync(new URL(`../../src/ui/web/assets/${name}`, import.meta.url))).toBe(false);
-  expect(dom.node('quick-chat-open').disabled).toBe(false); expect(dom.node('quick-chat-settings-open').disabled).toBe(false);
+  expect(dom.node('quick-chat-open').disabled).toBe(false); expect(html).not.toContain('quick-chat-settings-open');
 });

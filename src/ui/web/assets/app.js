@@ -243,7 +243,7 @@ export async function boot() {
     if (projectRoute()) $('home').setAttribute('data-help', '在新标签打开上级用户工作台，当前项目的输入与阅读位置保留。');
     else $('home').removeAttribute('data-help');
   }
-  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'versions-open', 'hooks-open', 'quick-chat-open', 'quick-chat-settings-open'];
+  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'versions-open', 'hooks-open', 'quick-chat-open'];
   for (const id of projectOnly) { const target = $(id); if (target) { target.disabled = !projectReady; target.setAttribute('aria-disabled', String(!projectReady)); } }
   if ($('composer-shell')) $('composer-shell').hidden = !projectReady;
 
@@ -254,7 +254,6 @@ export async function boot() {
   if ($('inputs-open')) $('inputs-open').onclick = () => projectReady ? openInputs() : noProjectView();
   if ($('input-history')) $('input-history').onclick = () => projectReady ? openInputs() : noProjectView();
   if ($('quick-chat-open')) $('quick-chat-open').onclick = () => projectReady ? openQuickChatPage() : noProjectView();
-  if ($('quick-chat-settings-open')) $('quick-chat-settings-open').onclick = () => projectReady ? openQuickChatSettings() : noProjectView();
   $('sidebar-toggle').onclick = () => toggleMobileNavigation();
   $('sidebar').onkeydown = event => {
     if (event.key === 'Escape' && $('sidebar').classList.contains('mobile-open')) {

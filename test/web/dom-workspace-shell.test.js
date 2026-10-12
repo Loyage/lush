@@ -60,7 +60,7 @@ test('entry HTML exposes independent global anchors and project-only work naviga
   for (const id of ['projects-open', 'global-inbox-open', 'settings-open', 'automation-open']) expect(html).toMatch(new RegExp(`<a id="${id}" href="/#`));
   expect(html).toContain('data-project-navigation'); expect(html).not.toContain('quick-explain-history-open');
   expect(html).toMatch(/<nav[^>]*data-project-navigation>[\s\S]*?<button[^>]*id="quick-chat-open"/);
-  expect(html).toContain('id="quick-chat-settings-open"');
+  expect(html).not.toContain('id="quick-chat-settings-open"');
   expect(html).toContain('data-global-navigation="true"'); expect(html).not.toContain('id="global-inbox-summary"');
   expect(html).toContain('<a id="home" href="/#projects"');
   expect(html).not.toContain('项目可覆盖'); expect(html).not.toContain('项目可按需覆盖');
