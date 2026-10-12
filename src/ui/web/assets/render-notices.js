@@ -28,6 +28,7 @@ const answerSource = notice => ['answered', 'dismissed'].includes(notice.status)
 export function initNoticeRecords() {
   const host = $('side-notices-body');
   if (!host) return;
+  ui.noticeRecords?.disposeHeading?.();
   const state = ui.noticeRecords = { status: 'open', rows: [], page: null, request: 0, selected: null, task: null, signature: null,
     observedRevision: ui.lastSnapshot?.revision ?? null, stale: false, loadedPages: 0, query: '' };
   const tools = el('div', undefined, 'resource-tools');
@@ -52,7 +53,23 @@ export function initNoticeRecords() {
   const focus = $('notice-record-detail') || el('div'); focus.id = 'notice-record-detail'; focus.replaceChildren();
   host.replaceChildren(tools, $('notices'), footer, focus);
   const root = $('side-notices'), card = root?.querySelector('.resource-card');
-  listSurface({ root, tools, card, heading: card?.querySelector('.section-title'), body: $('notices'), pagination: footer });
+  const heading = card?.querySelector('.section-title');
+  listSurface({ root, tools, card, heading, body: $('notices'), pagination: footer });
+  // The record heading sticks below the list heading, including when its text wraps.
+  state.observeHeading = () => {
+    state.disposeHeading?.();
+    if (!heading || !card) return;
+    let active = true;
+    const measure = () => {
+      if (!active) return;
+      const height = heading.getBoundingClientRect?.().height;
+      if (height > 0) card.style.setProperty('--notice-list-heading-height', `${height}px`);
+    };
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    state.disposeHeading = () => { active = false; observer?.disconnect(); };
+    observer?.observe(heading); measure();
+  };
+  state.observeHeading();
   ui.loadNoticeRecords = () => loadNoticeRecords();
 }
 

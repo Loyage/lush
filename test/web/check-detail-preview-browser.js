@@ -11,7 +11,8 @@ const fixture = html.replace('</body>', `<script type="module">
 import { renderDetail } from '/render-detail.js';
 import { revealDetailPreview } from '/detail-preview.js';
 import { ui } from '/state.js';
-import { noticePanel } from '/render-notices.js';
+import { initNoticeRecords, noticePanel } from '/render-notices.js';
+import { activateDetailView } from '/sidebar-ui.js';
 import { block, el } from '/dom.js';
 import { enhanceModule, observeModules, disposeModules, revealModule } from '/shared-module.js';
 const at='2026-10-08T10:00:00Z';
@@ -46,16 +47,20 @@ window.makeNoticeModule=(kind,scope)=>{
   document.documentElement.dataset.reducedMotion='true';
   disposeModules(document.querySelector('#detail'));ui.noticeModuleStates=new Map();
   const panel=document.querySelector(scope==='records'?'#resource-panels':'#detail');
-  document.querySelector('#detail').hidden=scope==='records';
-  document.querySelector('#resource-panels').hidden=scope!=='records';
-  document.querySelector('#side-notices').hidden=false;
+  if(scope==='records'){
+    document.querySelector('#side-notices .side-name').textContent='事项与决策记录';
+    const list=el('div');list.id='notices';document.querySelector('#side-notices-body').replaceChildren(list);
+    initNoticeRecords();
+  }
+  activateDetailView({view:scope==='records'?'notices':'task',push:false});
   const notice={id:778,task_id:7,task_worker_number:'W7',kind,status:kind==='info'?'sent':'answered',answer_source:'user',
     created_at:at,title:'已回答决策的长标题与连续标识 '+('LongDecisionTitle'.repeat(12)),
     body:kind==='info'?long:window.task.notices[0].body,answer:window.task.notices[0].answer};
-  const section=noticePanel(notice),host=scope==='records'?document.querySelector('#side-notices-body'):panel;
+  const section=noticePanel(notice),host=scope==='records'?document.querySelector('#notice-record-detail'):panel;
   host.replaceChildren(section);section.querySelector('.module-content').append(el('p',long));
   const tail=el('div');tail.style.height='1400px';host.append(tail);
-  panel.scrollTop=0;window.scrollTo(0,0);window.noticeFixture={panel,section,head:section.querySelector('.notice-head')};
+  panel.scrollTop=0;window.scrollTo(0,0);window.noticeFixture={panel,section,head:section.querySelector('.notice-head'),
+    listHead:scope==='records'?document.querySelector('#side-notices .ui-list-heading'):null};
 };
 window.paint(); window.ready=true;
 </script></body>`);
@@ -359,10 +364,10 @@ try {
       await execute(`const {panel,head}=window.noticeFixture;window.noticeStickyTop=head.getBoundingClientRect().top;
         if(matchMedia('(max-width:760px)').matches)window.scrollBy(0,200);else panel.scrollTop+=200;`);
       await rpc(`/session/${session}/execute/async`,{script:'requestAnimationFrame(()=>requestAnimationFrame(()=>arguments[0](true)));',args:[]});
-      assert(await execute(`const {panel,section,head}=window.noticeFixture,style=getComputedStyle(head),box=head.getBoundingClientRect();
+      assert(await execute(`const {panel,section,head,listHead}=window.noticeFixture,style=getComputedStyle(head),box=head.getBoundingClientRect();
         const mobile=matchMedia('(max-width:760px)').matches;
-        const edge=mobile?parseFloat(style.top):panel.getBoundingClientRect().top;
-        const inset=mobile?2:parseFloat(getComputedStyle(panel).paddingTop);
+        const edge=listHead?listHead.getBoundingClientRect().bottom:mobile?parseFloat(style.top):panel.getBoundingClientRect().top;
+        const inset=listHead||mobile?2:parseFloat(getComputedStyle(panel).paddingTop);
         window.noticeStickyDiagnostic={top:box.top,previous:window.noticeStickyTop,edge,inset,bottom:box.bottom,
           sectionBottom:section.getBoundingClientRect().bottom,scroll:window.scrollY,panelScroll:panel.scrollTop};
         return style.position==='sticky'&&Math.abs(box.top-window.noticeStickyTop)<2&&box.top>=edge-1&&
@@ -373,6 +378,13 @@ try {
         return section.querySelector('.module-body').hidden&&box.bottom>0&&box.top<innerHeight&&head.textContent.includes('LongDecisionTitle');`), 'Notice collapse lost title/control');
       await execute(`window.noticeFixture.head.querySelector('.module-toggle').click();`);
       assert(await execute(`return !window.noticeFixture.section.querySelector('.module-body').hidden;`),'Notice failed to re-expand');
+      if(scope==='records'){
+        await execute(`window.noticeFixture.listHead.querySelector('.side-name').textContent='事项与决策记录 · 标题换行后的记录范围和已加载状态';`);
+        await execute(`const {panel}=window.noticeFixture;if(matchMedia('(max-width:760px)').matches)window.scrollBy(0,300);else panel.scrollTop+=300;`);
+        assert(await wait(`(()=>{const {head,listHead}=window.noticeFixture,h=head.getBoundingClientRect(),p=listHead.getBoundingClientRect();
+          return Math.abs(h.top-p.bottom)<2&&listHead.contains(document.elementFromPoint(p.left+p.width/2,p.top+p.height/2));})()`),
+          `Notice must avoid resized list heading ${width}/${theme}/${kind}`);
+      }
     }
   console.log('PASS Notice tinted sticky headings, metadata/title wrapping and fold controls: desktop/mobile, light/dark, records/detail, decision/info');
   passed = true;

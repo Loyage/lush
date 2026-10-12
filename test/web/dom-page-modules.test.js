@@ -5,7 +5,7 @@ import { ui, resetUiState } from '../../src/ui/web/assets/state.js';
 import { pageBlocks, pageModules, disposePageModules } from '../../src/ui/web/assets/page-modules.js';
 import { activateDetailView } from '../../src/ui/web/assets/sidebar-ui.js';
 import { enhanceModule } from '../../src/ui/web/assets/shared-module.js';
-import { noticePanel } from '../../src/ui/web/assets/render-notices.js';
+import { initNoticeRecords, noticePanel } from '../../src/ui/web/assets/render-notices.js';
 import { renderOverview } from '../../src/ui/web/assets/render-overview.js';
 
 async function fixture(run) {
@@ -88,6 +88,24 @@ test('answered decision headings separate metadata from title and preserve fold 
   await head.querySelector('.module-toggle').onclick(); expect(body.hidden).toBe(true);
   expect(head.querySelector('h3')).toBe(title); expect(deepText(meta)).toContain('已回答');
   await head.querySelector('.module-toggle').onclick(); expect(body.hidden).toBe(false);
+}));
+
+test('Notice list heading height follows wrapping and its observer releases on navigation and reset', () => fixture(({ dom, observers }) => {
+  const root = dom.node('side-notices'), card = el('div', undefined, 'resource-card'), head = el('div', undefined, 'section-title');
+  let height = 41; head.getBoundingClientRect = () => ({ height });
+  card.append(head, dom.node('side-notices-body')); root.append(card);
+  initNoticeRecords();
+  const first = observers.at(-1);
+  expect(first.targets.has(head)).toBe(true); expect(card.style.getPropertyValue('--notice-list-heading-height')).toBe('41px');
+  height = 82; first.callback(); expect(card.style.getPropertyValue('--notice-list-heading-height')).toBe('82px');
+  height = 0; first.callback(); expect(card.style.getPropertyValue('--notice-list-heading-height')).toBe('82px');
+  activateDetailView({ view: 'docs', push: false }); expect(first.disconnected).toBe(true);
+  height = 60; first.callback(); expect(card.style.getPropertyValue('--notice-list-heading-height')).toBe('82px');
+  activateDetailView({ view: 'notices', push: false });
+  const resumed = observers.at(-1); expect(resumed).not.toBe(first);
+  expect(resumed.targets.has(head)).toBe(true); expect(card.style.getPropertyValue('--notice-list-heading-height')).toBe('60px');
+  initNoticeRecords(); expect(resumed.disconnected).toBe(true);
+  const rebuilt = observers.at(-1); resetUiState(); expect(rebuilt.disconnected).toBe(true);
 }));
 
 test('folded forms keep live failures outside the hidden body and release summary observers', () => fixture(async ({ panel }) => {

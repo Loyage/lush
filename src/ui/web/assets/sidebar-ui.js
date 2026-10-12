@@ -45,7 +45,7 @@ export function setViewChrome(title, context = '项目', hint = '', { root = fal
 /** 页面身份是唯一导航状态；旧读标记在此统一投影，面板不得各自设置。 */
 function activate(id, { key = id, title, context, hint, push = true, hash } = {}) {
   const changed = ui.view?.key !== key;
-  if (changed) { ui.disposePageModules?.(); ui.disposeTaskGraph?.(); ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.disposeQuickChatPage?.(); ui.view = { id, key }; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerChatMode = null; ui.composerError = null; }
+  if (changed) { ui.noticeRecords?.disposeHeading?.(); ui.disposePageModules?.(); ui.disposeTaskGraph?.(); ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.disposeQuickChatPage?.(); ui.view = { id, key }; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerChatMode = null; ui.composerError = null; }
   const resource = RESOURCE_META.get(id);
   ui.indexOpen = resource ? id : null;
   ui.docsOpen = id === 'docs';
@@ -73,6 +73,7 @@ function activate(id, { key = id, title, context, hint, push = true, hash } = {}
   for (const section of SIDEBAR_SECTIONS) {
     const page = node(`side-${section.id}`); if (page) page.hidden = section.id !== id;
   }
+  if (changed && id === 'notices') ui.noticeRecords?.observeHeading?.();
   selectNav(id === 'task' ? 'tasks' : id);
   const meta = resource ? [resource.long, '工作', resource.description] : PAGES[id] || ['项目', '工作', ''];
   setViewChrome(title ?? meta[0], context ?? meta[1], hint ?? meta[2], { root: id === 'overview' || id === 'projects' });

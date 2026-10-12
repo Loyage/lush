@@ -5,6 +5,10 @@
 .ui-list-page .ui-list-card{min-width:0;padding:18px 20px;border:1px solid var(--line-soft);border-radius:var(--radius);background:var(--panel);box-shadow:var(--shadow)}
 .ui-list-page .ui-list-heading{position:sticky;top:-32px;z-index:3;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--panel);margin:0 0 12px;padding:8px 0;box-shadow:0 1px 0 var(--line-soft)}
 .resource-panels .ui-list-heading{top:-30px}
+/* Notice records have two sticky levels; the child must not cover the list title. */
+#side-notices{--notice-list-heading-top:-30px}
+#side-notices .ui-list-heading{top:var(--notice-list-heading-top);z-index:4}
+#side-notices .notice.ui-module{--module-sticky-top:calc(var(--notice-list-heading-top) + var(--notice-list-heading-height,40px));--module-mobile-sticky-top:var(--module-sticky-top)}
 .ui-list-heading h2{margin:0;font-size:15px}
 .ui-list-heading .count{margin-left:auto}
 .ui-list-body{min-width:0}
@@ -21,6 +25,7 @@
   .ui-list-tools>.filters{flex-basis:100%}
   .ui-list-page .ui-list-card{padding:10px}
   .ui-list-page .ui-list-heading,.resource-panels .ui-list-heading{top:42px}
+  #side-notices{--notice-list-heading-top:var(--mobile-header-height,42px)}
   .ui-list-page .ui-list-entry{padding:10px}
   .ui-list-pagination button{min-height:40px}
 }
