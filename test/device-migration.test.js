@@ -80,7 +80,7 @@ test('preview is read-only and contains scope/impact but no settings, credential
   const original = fs.readFileSync(f.manager.file.file);
   const view = previewDeviceMigration(f.config);
   expect(view).toMatchObject({ version: 1, can_migrate: true, blockers: [], already_migrated: false });
-  expect(view.revision).toMatch(/^[a-f0-9]{64}$/); expect(view.items).toHaveLength(7);
+  expect(view.revision).toMatch(/^[a-f0-9]{64}$/); expect(view.items).toHaveLength(6);
   expect(view.items.map(item => item.kind)).toContain('模型来源与凭证');
   expect(view.warnings.some(value => value.includes('安装库保留'))).toBe(true);
   expect(fs.existsSync(f.config.deviceHome)).toBe(false);
@@ -99,10 +99,11 @@ test('successful migration preserves IDs/references and private backups, removes
   expect(agent.default.connection_id).toBe(row.id);
   expect(agent.default.extensions).toEqual([path.join(f.config.project, 'extension.mjs')]);
   expect(agent.default.skills).toEqual([path.join(f.root, 'skills', 'demo')]);
-  expect(read(f.config.deviceHome, 'quick-explanation.json').connection_id).toBe(row.id);
+  expect(fs.existsSync(path.join(f.config.deviceHome, 'quick-explanation.json'))).toBe(false);
+  expect(read(f.config.home, 'quick-explanation.json').connection_id).toBe(row.id);
   expect(read(f.config.deviceHome, path.join('credentials', 'agent-connections.json')).connections[0].id).toBe(row.id);
   expect((await f.runtime.prepareRuntime(row.id)).credential.key).toBe('private-api-key');
-  for (const relative of ['settings.json', 'agent.json', 'network.json', 'quick-explanation.json', path.join('agent', 'agent.env'),
+  for (const relative of ['settings.json', 'agent.json', 'network.json', path.join('agent', 'agent.env'),
     path.join('agent', 'worker.env'), path.join('credentials', 'agent-connections.json')]) {
     expect(fs.existsSync(path.join(f.config.home, relative))).toBe(false);
     expect(fs.existsSync(path.join(result.backup, relative))).toBe(true);
@@ -260,7 +261,7 @@ test('same OAuth account with distinct refresh credentials remains separate by U
     expect(shared.every(row => row.credential.accountId === credential.accountId)).toBe(true);
     expect(new Set(shared.map(row => row.credential.refresh)).size).toBe(expected.length);
     expect(fs.existsSync(f.manager.file.file)).toBe(false);
-    expect(read(f.config.deviceHome, 'quick-explanation.json').connection_id).toBe(first.id);
+    expect(fs.existsSync(path.join(f.config.deviceHome, 'quick-explanation.json'))).toBe(false);
     expect(read(f.config.deviceHome, 'agent.json').default.connection_id).toBe(first.id);
     noSecrets(result);
   }
@@ -287,7 +288,7 @@ test('confirm and opaque revision are required, unknown parameters/paths are rej
   expect(() => migrateDeviceSettings(f.config, { revision: preview.revision, confirm: true })).toThrow('过期');
   expect(fs.existsSync(f.config.deviceHome)).toBe(false);
   const next = previewDeviceMigration(f.config); expect(next.revision).not.toBe(preview.revision);
-  write(f.config.deviceHome, 'quick-explanation.json', { version: 1, model: 'different', prompt: 'Other' });
+  write(f.config.deviceHome, 'network.json', { version: 1, mode: 'direct', no_proxy: [] });
   expect(() => migrateDeviceSettings(f.config, { revision: next.revision, confirm: true })).toThrow('过期');
 });
 
@@ -531,6 +532,30 @@ test('a completed project can explicitly migrate a new compatible override witho
   expect(second.backup).not.toBe(first.backup);
   expect(fs.existsSync(path.join(first.backup, 'settings.json'))).toBe(true);
   expect(fs.existsSync(path.join(second.backup, 'settings.json'))).toBe(true);
+});
+
+test('historical quick-profile journal remains readable but never republishes its backup', () => {
+  for (const interrupted of [false, true]) {
+    const f = fixture(); write(f.config.home, 'settings.json', { version: 1, call_timeout: 120 });
+    const first = apply(f), pointer = read(f.config.home, 'device-migration/current.json');
+    const relative = path.join('device-migration', pointer.id, 'journal.json'), journal = read(f.config.home, relative);
+    journal.entries.push({ key: 'quick', phase: interrupted ? 'pending' : 'retired' });
+    if (interrupted) journal.status = 'retiring';
+    write(f.config.home, relative, journal);
+    write(first.backup, 'quick-explanation.json', { version: 1, model: 'must-not-republish', prompt: 'old backup retained' });
+    if (interrupted) {
+      write(f.config.home, 'quick-explanation.json', { version: 1, model: 'old', prompt: 'private' });
+      expect(previewDeviceMigration(f.config).blockers.join(' ')).toContain('退役');
+      write(f.config.home, 'quick-explanation.json', { version: 2, retired: 'quick-chat' });
+      write(f.config.deviceHome, 'quick-explanation.json', { version: 2, retired: 'quick-chat' });
+    }
+    const preview = previewDeviceMigration(f.config); expect(preview.can_migrate).toBe(true);
+    expect(preview.items.some(item => item.source.endsWith('quick-explanation.json'))).toBe(false);
+    const result = apply(f, preview); expect(result.already_migrated).toBe(!interrupted);
+    expect(read(first.backup, 'quick-explanation.json').model).toBe('must-not-republish');
+    if (interrupted) expect(read(f.config.deviceHome, 'quick-explanation.json')).toEqual({ version: 2, retired: 'quick-chat' });
+    else expect(fs.existsSync(path.join(f.config.deviceHome, 'quick-explanation.json'))).toBe(false);
+  }
 });
 
 test('no-source preview/apply never creates a device root or pretends that a migration occurred', () => {

@@ -18,7 +18,6 @@ export const PARAMS = {
   'agent.connections.device.start': ['id','scope'], 'agent.connections.device.poll': ['id','login_id','scope'], 'agent.connections.device.cancel': ['id','login_id','scope'],
   'agent.connections.models': ['id','scope'], 'agent.connections.models.refresh': ['id','scope'],
   'agent.packages.list': ['scope'], 'agent.packages.install': ['source','scope'], 'agent.packages.remove': ['id','scope'], 'agent.packages.update': ['id','scope'],
-  'quick_explain.config': ['scope'], 'quick_explain.configure': ['config','scope'],
   'hooks.list': [], 'hooks.save': ['template','expected_revision'], 'hooks.remove': ['id','expected_revision'],
   'hooks.command_save': ['command','expected_revision'],
   'hooks.command_export': ['id','version'],
@@ -86,7 +85,6 @@ export const USER_ONLY = new Set([
   'agent.connections.device.start','agent.connections.device.poll','agent.connections.device.cancel',
   'agent.connections.models','agent.connections.models.refresh',
   'agent.packages.list','agent.packages.install','agent.packages.remove','agent.packages.update',
-  'quick_explain.config','quick_explain.configure',
   'hooks.command_save','hooks.command_export','hooks.command_authorize','hooks.command_remove','hooks.command_run','hooks.command_start','hooks.command_history','hooks.command_history_remove','hooks.command_import',
   'hooks.signal_save','hooks.signal_remove','management.create','management.binding_update',
   'hooks.list','hooks.save','hooks.remove','hooks.auto_select','hooks.completion_defaults','worker.hooks','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove',
@@ -118,7 +116,7 @@ export function assertAllowed(method, params, actor) {
   if (!Object.hasOwn(PARAMS, method)) throw new LushError(`unknown method: ${method}`, -32601);
   check(Object.keys(params).every(key => key === '_token' || PARAMS[method].includes(key)), 'unknown parameter');
   const who = typeof actor === 'function' ? actor() : actor;
-  if (['system.', 'agent.', 'quick_explain.'].some(prefix => method.startsWith(prefix)) && Object.hasOwn(params, 'scope')) {
+  if (['system.', 'agent.'].some(prefix => method.startsWith(prefix)) && Object.hasOwn(params, 'scope')) {
     normalizeConfigurationScope(params.scope);
     check(params.scope !== 'device' || who === null, 'device settings require user approval, not an agent');
   }

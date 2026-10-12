@@ -2,7 +2,6 @@ import { test, expect, beforeEach, afterAll } from 'bun:test';
 import { installDom, deepText } from '../dom-stub.js';
 import { ui, resetUiState } from '../../src/ui/web/assets/state.js';
 import { workerLabel } from '../../src/ui/web/assets/worker-label.js';
-import { chatLocation as explanationLocation } from '../../src/ui/web/assets/quick-chat.js';
 import { renderStatistics } from '../../src/ui/web/assets/render-statistics.js';
 import { renderVerifications } from '../../src/ui/web/assets/render-verify.js';
 import { renderResolutions } from '../../src/ui/web/assets/render-resolutions.js';
@@ -30,18 +29,6 @@ test('statistics Worker and invocation attribution use explicit deep labels and 
   expect(text).toContain('W5-3-2 · agent'); expect(text).not.toContain('#205');
   expect(text).toContain('#47 · worker'); expect(text).toContain('W8-1 · agent · run 19');
   expect(data).toEqual(snapshot); expect(requests).toHaveLength(0);
-});
-
-test('quick explanation source labels use metadata/cache only, remain project scoped and leave locations untouched', () => {
-  const location = { view: 'task', section: 'result', task_id: 205, task_worker_number: 'W5-3-2', path: 'src/code.js' };
-  const snapshot = structuredClone(location);
-  expect(explanationLocation(location)).toContain('Worker W5-3-2');
-  expect(explanationLocation({ task_id: 205 })).toBe('Worker W5-3-2');
-  expect(location).toEqual(snapshot);
-  dom.location.pathname = '/p/bbbbbbbbbbbbbbbb/';
-  expect(explanationLocation({ task_id: 205 })).toBe('Worker #205');
-  expect(explanationLocation({ task_id: 47, task_worker_number: null })).toBe('Worker #47');
-  expect(requests).toHaveLength(0);
 });
 
 test('verification and resolution labels prefer metadata while reference targets and navigation stay integer', async () => {

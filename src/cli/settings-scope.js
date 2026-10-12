@@ -29,7 +29,7 @@ export function scopedSettingsClient(client, scope) {
   check(scope === 'device', 'project configuration overrides are no longer supported; use device settings');
   const scoped = Object.create(client);
   scoped.request = (method, params) => client.request(method,
-    PARAMS[method]?.includes('scope') && /^(agent|system|quick_explain)\./.test(method)
+    PARAMS[method]?.includes('scope') && /^(agent|system)\./.test(method)
       ? { ...params, scope } : params);
   return scoped;
 }

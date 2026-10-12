@@ -125,10 +125,6 @@ export function makeWorld() {
     commits: [],
     // Task 详情归档按钮的读模型投影：测试可设 state.branchArchive 让任务 #1 带 branch_archive。
     branchArchive: null,
-    quickChats: new Map(), quickChatSeq: 0, quickChatActions: [], quickChatRevision: 'chat-prompts-1',
-    quickChatPrompts: [{ id: 'explain', name: '快速解释', prompt: '请简洁解释所选文字。', context_menu: true, builtin: true }],
-    quickExplanationConfig: { version: 1, connection_id: null, model: '', prompt: '请简洁解释所选文字。',
-      default_prompt: '请简洁解释所选文字。', ready: false, reason: '请选择解释的模型来源与模型。' },
     // 一条已冻结、等待验收的 Review Candidate（挂到 Intent #2 上）。
     candidates: [
       { id: 1, input_id: 2, version: 1, branch: 'lush/demo/input-2', commit_hash: 'c0ffee123456', baseline_branch: 'main',
@@ -220,50 +216,13 @@ export function makeWorld() {
     if (pathname === '/api/runtime') pathname = '/api/settings/runtime';
     const path = pathname + requestUrl.search;
     const json = data => {
-      const scoped = requestScope && ['/api/settings/runtime', '/api/agent/config', '/api/agent/connections', '/api/agent/network', '/api/agent/environment', '/api/quick-explain/config'].includes(pathname)
+      const scoped = requestScope && ['/api/settings/runtime', '/api/agent/config', '/api/agent/connections', '/api/agent/network', '/api/agent/environment'].includes(pathname)
         ? { ...data, configuration_scope: { selected: requestScope, source: requestScope, project_override: requestScope === 'project',
           device_home: '/fixture/device/shared', project_home: '/tmp/demo/.lush' } } : data;
       return { ok: true, status: 200, json: async () => scoped };
     };
     if (path === '/api/host') return json({ mode: 'bound', projects: [{ id: 'aaaaaaaaaaaaaaaa', name: 'fixture', project: '/tmp/demo', online: true, running: true }] });
     if (path === '/api/host/projects') return json({ projects: [{ id: 'aaaaaaaaaaaaaaaa', name: 'fixture', project: '/tmp/demo', online: true, running: true }] });
-    const chatConfig = () => ({ version: 1, revision: state.quickChatRevision, prompts: structuredClone(state.quickChatPrompts), model: { ...state.quickExplanationConfig } });
-    if (path === '/api/quick-chat/config') return json(chatConfig());
-    if (pathname === '/api/quick-chat/history') {
-      const before = Number(requestUrl.searchParams.get('before')) || null, limit = Number(requestUrl.searchParams.get('limit')) || 30;
-      const rows = [...state.quickChats.values()].filter(row => !before || row.id < before).sort((a,b) => b.id - a.id);
-      return json({ conversations: rows.slice(0, limit).map(row => ({ ...row, prompt_name: row.prompt.name, turn_count: row.turns.length })), has_more: rows.length > limit, next: rows.slice(0, limit).at(-1)?.id ?? null });
-    }
-    const chatMatch = /^\/api\/quick-chat\/([1-9]\d*)$/.exec(pathname);
-    if (chatMatch) return json(structuredClone(state.quickChats.get(Number(chatMatch[1]))));
-    if (path === '/api/quick-chat/action') {
-      const body = JSON.parse(options.body), p = body.params; state.quickChatActions.push(body);
-      const error = message => ({ ok: false, status: 400, json: async () => ({ error: message }) });
-      if (body.method === 'start') {
-        if (!state.quickExplanationConfig.ready) return error('请先配置快速对话模型');
-        const id = ++state.quickChatSeq, prompt = state.quickChatPrompts.find(row => row.id === p.prompt_id);
-        if (!prompt) return error('Prompt 不存在');
-        const row = { id, number: `C${id}`, content: p.content, references: structuredClone(p.references || []), prompt: structuredClone(prompt),
-          source: { connection_id: state.quickExplanationConfig.connection_id, label: '测试 Lush API', provider: 'openai-compatible', endpoint: 'https://models.invalid/v1' }, model: state.quickExplanationConfig.model,
-          status: 'completed', created_at: iso(NOW), updated_at: iso(NOW), turns: [{ id: 1, content: p.content, result: '快速对话示例', status: 'completed', error: null, truncated: false }] };
-        state.quickChats.set(id, row); return json(structuredClone(row));
-      }
-      if (body.method === 'send') {
-        const row = state.quickChats.get(p.id); if (!row || row.status === 'running') return error('对话不可发送');
-        row.turns.push({ id: row.turns.length + 1, content: p.content, result: '继续对话示例', status: 'completed', truncated: false }); return json(structuredClone(row));
-      }
-      if (body.method === 'delete') { const row = state.quickChats.get(p.id); if (row?.status === 'running') return error('回复中不能删除'); state.quickChats.delete(p.id); return json({ removed: p.id }); }
-      if (['prompt_save', 'prompt_remove'].includes(body.method)) {
-        if (p.expected_revision !== state.quickChatRevision) return error('revision conflict');
-        if (body.method === 'prompt_save') {
-          const existing = state.quickChatPrompts.find(row => row.id === p.prompt.id), id = existing?.id || p.prompt.id || `custom-${state.quickChatPrompts.length}`;
-          const row = { ...p.prompt, id, builtin: existing?.builtin || false };
-          if (existing) state.quickChatPrompts.splice(state.quickChatPrompts.indexOf(existing), 1, row); else state.quickChatPrompts.push(row);
-        } else { if (p.id === 'explain') return error('不能删除内置 Prompt'); state.quickChatPrompts = state.quickChatPrompts.filter(row => row.id !== p.id); }
-        state.quickChatRevision += '-next'; return json(chatConfig());
-      }
-      return error('unknown chat action');
-    }
     if (path === '/api/host/dashboard') {
       if (options.method === 'POST') {
         const body = JSON.parse(options.body);
@@ -431,13 +390,6 @@ export function makeWorld() {
         }
         return json({ planner: body.params.id, plan_gate: intent?.plan_gate ?? null });
       }
-      if (body.method === 'quick_explain.configure') {
-        const patch = body.params.config || {};
-        const next = { ...state.quickExplanationConfig, ...patch };
-        if (Object.hasOwn(patch, 'prompt')) next.prompt = patch.prompt || next.default_prompt;
-        next.ready = Boolean(next.connection_id && next.model); next.reason = next.ready ? null : '请选择解释的模型来源与模型。';
-        state.quickExplanationConfig = next; return json(next);
-      }
       if (body.method === 'notice.answer' || body.method === 'notice.dismiss') {
         // 答复 / 忽略一条待决 notice：状态回写到快照，重拉后左栏、提醒条与待我处理都看得出这件事已处理。
         const status = body.method === 'notice.dismiss' ? 'dismissed' : 'answered';
@@ -452,7 +404,6 @@ export function makeWorld() {
       return json({});
     }
     let match;
-    if (path === '/api/quick-explain/config') return json(state.quickExplanationConfig);
     match = /^\/api\/notices(\?|$)/.exec(path);
     if (match) {
       // 待我处理 / 提醒条点击后的分页读取：按 status / before / limit 返回 {notices, cursor, has_more}。

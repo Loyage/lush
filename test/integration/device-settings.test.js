@@ -43,9 +43,8 @@ test('two real temporary daemons use device-only settings while daemons and proj
     expect((await cb.request('agent.environment', { target: 'common' })).values.SHARED_TEST_VALUE).toBe('shared');
     await ca.request('agent.network.configure', { scope: 'device', config: { version: 1, mode: 'direct', no_proxy: [] } });
     expect((await cb.request('agent.network')).configuration_scope.source).toBe('device');
-    await ca.request('quick_explain.configure', { scope: 'device', config: { prompt: 'Shared test explanation' } });
-    expect(await cb.request('quick_explain.config')).toMatchObject({ prompt: 'Shared test explanation', ready: false,
-      configuration_scope: { source: 'device' } });
+    await expect(ca.request('quick_explain.configure', { scope: 'device', config: { prompt: 'Shared test explanation' } })).rejects.toThrow('unknown method');
+    await expect(cb.request('quick_explain.config')).rejects.toThrow('unknown method');
     for (const root of [a, b]) {
       expect(fs.existsSync(path.join(root, '.lush', 'project.db'))).toBe(true);
       expect(fs.existsSync(path.join(root, '.lush', 'agent.json'))).toBe(false);

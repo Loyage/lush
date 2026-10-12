@@ -67,11 +67,10 @@ export default {
   clearSettingsOverride(kind, target) {
     settingsConfigurationScope(this.config, 'project');
     check(!this.stopping, 'project is stopping');
-    check(['agent', 'network', 'quick_explain', 'environment'].includes(kind), 'unknown configuration override kind');
+    check(['agent', 'network', 'environment'].includes(kind), 'unknown configuration override kind');
     check(kind === 'environment' || target === undefined, 'only environment accepts a target');
     return this.write('clear project configuration override', async () => {
       if (kind === 'agent') { this.agentSettings.clearOverride(); return this.agentConfig(); }
-      if (kind === 'quick_explain') { this.quickExplanationSettings.clearOverride(); return this.quickExplanationConfig(); }
       if (kind === 'network') {
         const { clearNetworkOverride } = await import('../../agent/network.js');
         clearNetworkOverride(this.config); return this.agentNetwork();

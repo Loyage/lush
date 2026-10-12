@@ -10,7 +10,7 @@ W210／D492 取消 Worker 并发额度功能：`concurrency`／`control_concurre
 
 `Config.deviceHome` = `path.join(launcherStateDir(config.env), 'shared')`；不修改 `Config.home` / `LUSH_HOME`。设备目录不属于某项目的 Git/worktree。无项目 Host 使用独立设置服务，不构造 Project、Store 或虚假项目 daemon。
 
-共享文件沿用现有私有格式：`settings.json`、`agent.json`、`network.json`、`quick-explanation.json`、`agent/*.env`、`credentials/agent-connections.json`、`pi/`。目录 0700、秘密文件 0600；安全读取、无 symlink/foreign owner、有限大小、原子替换与跨进程锁。已有 `.lush` 文件继续按项目覆盖读取，不因打开/重启自动迁移。
+共享文件沿用现有私有格式：`settings.json`、`agent.json`、`network.json`、`agent/*.env`、`credentials/agent-connections.json`、`pi/`。目录 0700、秘密文件 0600；安全读取、无 symlink/foreign owner、有限大小、原子替换与跨进程锁。已有 `.lush` 文件继续按项目覆盖读取，不因打开/重启自动迁移。
 
 为保持既有 RPC/CLI 兼容，现有设置接口未给 `scope` 时仍选 `project`；新 Web 设置管理默认显式传 `device`。`project` 读取为有效项目配置（本地覆盖 → 共享 → 既有环境/内置默认）；`device` 忽略本地覆盖，读写设备层。`device` 保存不能因当前项目有覆盖而落错层。Worker 运行总读取有效项目配置。
 
@@ -28,7 +28,7 @@ configuration_scope: {
 }
 ```
 
-运行设置每键另附 `source:'device'|'project'|'default'`，保持 `value/default/overridden` 兼容字段；project 默认值为共享有效值，清除单键时回到共享。Agent、网络、快捷解释是整个文档覆盖（UI 解释这一点）；通用/角色环境变量按设备 common、设备 role、项目 common、项目 role、Worker env 顺序叠加，不允许覆盖 LUSH_*。
+运行设置每键另附 `source:'device'|'project'|'default'`，保持 `value/default/overridden` 兼容字段；project 默认值为共享有效值，清除单键时回到共享。Agent、网络是整个文档覆盖（UI 解释这一点）；通用/角色环境变量按设备 common、设备 role、项目 common、项目 role、Worker env 顺序叠加，不允许覆盖 LUSH_*。
 
 ## 共享配置基础接口（基础分区）
 
@@ -47,7 +47,6 @@ configuration_scope: {
 - `AgentSettings.get(scope)` / `save(value,scope)` / `clearOverride()`；`resolve(role)` 仍取有效项目配置。
 - `readNetworkConfiguration(config,scope)` / `saveNetworkConfiguration(config,value,scope)` / `clearNetworkOverride(config)`；networkSnapshot 总取项目有效配置。
 - `readAgentEnvironment(config,target,scope)` / `saveAgentEnvironment(config,target,values,scope)`；增加 `clearAgentEnvironmentOverride(config,target)`；运行时按上述多层叠加。
-- `QuickExplanationSettings.read(scope)` / `preview(patch,scope)` / `save(profile,scope)` / `clearOverride()`；纯 profile 的 read/preview/save 不混入 metadata（避免现有字段白名单拒绝），metadata 由 Project/Host 投影。
 - Pi 基础配置/安装库使用 `scopedConfiguration` 明确选根。运行保留现有本地 pi 设置和显式旧资源路径的兼容；新共享安装通过 device scope 操作，调用快照和会话仍留项目 home。跨进程安装/更新需协调，不能让多个 daemon 同时修改共享库。
 - 提供 `clearRuntimeOverrides(patch?)` 或沿用各键 null 清除，不删除未知历史键。
 
@@ -82,15 +81,15 @@ configuration_scope: {
 
 ## RPC、Host 与 CLI（父分区）
 
-现有 `system.configure`、`agent.config/configure`、`agent.environment(.configure)`、`agent.network(.configure)`、`quick_explain.config/configure`、模型来源管理与包管理接口允许可选 `scope`。system runtime 读面新增 `system.settings {scope?}`，避免为设备编辑读取全项目快照。
+现有 `system.configure`、`agent.config/configure`、`agent.environment(.configure)`、`agent.network(.configure)`、模型来源管理与包管理接口允许可选 `scope`。system runtime 读面新增 `system.settings {scope?}`，避免为设备编辑读取全项目快照。
 
 新 USER_ONLY：
 
-- `settings.clear_override {kind,target?}`，kind 为 `agent|network|quick_explain|environment`，environment 必须给 target；runtime 按键 null 清除。
+- `settings.clear_override {kind,target?}`，kind 为 `agent|network|environment`，environment 必须给 target；runtime 按键 null 清除。
 - `settings.migration.preview {}`。
 - `settings.migration.apply {revision,confirm}`。
 
-Host 提供 `GET /api/host/settings/<suffix>`，suffix 复用设置读路由：`runtime`、`agent/config`、`agent/models`、`agent/resources`、`agent/status`、`agent/environment?target=`、`agent/network`、`agent/connections`、`agent/connections/models?id=`、`agent/packages`、`quick-explain/config`。无项目仅展示共享配置，必须 device scope。
+Host 提供 `GET /api/host/settings/<suffix>`，suffix 复用设置读路由：`runtime`、`agent/config`、`agent/models`、`agent/resources`、`agent/status`、`agent/environment?target=`、`agent/network`、`agent/connections`、`agent/connections/models?id=`、`agent/packages`。无项目仅展示共享配置，必须 device scope。
 
 `POST /api/host/settings/action {method,params}` 只白名单共享设置 mutation，与现有方法名一致；强制 params.scope=device，不接受 Project/Worker/历史/模型调用/迁移/清除项目覆盖方法，也不接受路径/token。复用登录、Origin、JSON/no-store 校验，停止 Host 取消在途登录/网络/包安装。不为接口启动 daemon。
 
@@ -102,9 +101,9 @@ CLI 设置命令支持 `--scope device|project`（默认 project 保持兼容）
 
 设置页面作用域默认 device；“设备共享 / 本项目覆盖”显式切换，不把 Worker 编辑或历史接口切到 device。新增 `settings-api.js` 封装设置读取/动作：有项目可走既有项目 route+scope，无项目走上述 host/settings endpoints。不要全局改变 api.js action 的 Worker 语义。
 
-Agent 配置、系统运行/网络、快捷解释配置都提供作用域与继承/覆盖说明、清除项目覆盖入口。模型来源 device 默认总览；project 视图显示有效连接及旧来源作用域，避免误导共享修改。设置切换保留草稿，迟到响应不得污染另一作用域。
+Agent 配置、系统运行/网络配置都提供作用域与继承/覆盖说明、清除项目覆盖入口。模型来源 device 默认总览；project 视图显示有效连接及旧来源作用域，避免误导共享修改。设置切换保留草稿，迟到响应不得污染另一作用域。
 
-无项目时这些导航可用；项目服务控制、旧余额/快捷解释历史、实际消费者保留项目限制。无项目快捷解释配置能保存，但本轮不增加无项目模型调用/历史服务（明确说明需项目保存历史）。#411 协调 W160 [工作台接缝](workbench.md)：主题等偏好设备唯一，项目辨识色单独持久保存并在用户工作台管理；旧项目 theme 留存但不生效。
+无项目时这些导航可用；项目服务控制、旧余额历史、实际消费者保留项目限制。#411 协调 W160 [工作台接缝](workbench.md)：主题等偏好设备唯一，项目辨识色单独持久保存并在用户工作台管理；旧项目 theme 留存但不生效。
 
 系统设置新增“迁移当前项目设置到设备共享”预检与显式确认，展示 items/blockers/warnings，携带 revision/confirm。迁移不调用 Agent，破坏性清除覆盖与迁移按钮有 data-help，禁用外层 help-host。
 

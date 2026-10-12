@@ -38,11 +38,11 @@ Object.assign(world.state.agentConfig.default, { agent: 'pi', connection_id: ids
 for (const role of Object.keys(world.state.agentConfig.resolved)) world.state.agentConfig.resolved[role] = { ...world.state.agentConfig.default };
 for (const row of world.state.agentConnections.connections) row.storage_scope='device';
 const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-search-field.css"><link rel="stylesheet" href="/assets/styles-core.css"><link rel="stylesheet" href="/assets/styles-agent-status.css"><link rel="stylesheet" href="/assets/styles-agent-connections.css"><link rel="stylesheet" href="/assets/styles-agent-usage.css"><link rel="stylesheet" href="/assets/styles-quick-chat.css"></head>
+<link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-search-field.css"><link rel="stylesheet" href="/assets/styles-core.css"><link rel="stylesheet" href="/assets/styles-agent-status.css"><link rel="stylesheet" href="/assets/styles-agent-connections.css"><link rel="stylesheet" href="/assets/styles-agent-usage.css"></head>
 <body><div id="detail"></div><div id="modal" hidden></div><div id="error"></div><script type="module">
 window.browserErrors=[];addEventListener('error',e=>browserErrors.push(e.message));addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));
 import {openAgentStatus} from '/assets/render-agent-status.js';import {openModelSources} from '/assets/render-model-sources.js';
-import {ensureProject} from '/assets/project-picker.js';import {openSettings} from '/assets/render-settings.js';import {renderChatModel} from '/assets/quick-chat-model.js';await ensureProject();window.ensureProject=ensureProject;window.openSystem=async()=>{openSettings();return document.querySelector('[data-settings-tab=system]').onclick()};window.openExplain=()=>renderChatModel({container:document.querySelector('#detail'),ownsPage:()=>true});window.openConfig=openAgentStatus;window.openSources=openModelSources;await openModelSources();window.ready=true;
+import {ensureProject} from '/assets/project-picker.js';import {openSettings} from '/assets/render-settings.js';await ensureProject();window.ensureProject=ensureProject;window.openSystem=async()=>{openSettings();return document.querySelector('[data-settings-tab=system]').onclick()};window.openConfig=openAgentStatus;window.openSources=openModelSources;await openModelSources();window.ready=true;
 </script></body></html>`;
 let server, driver, session, base, passed = false, diagnosisFails = false, noProjectMode = false;
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
@@ -91,7 +91,6 @@ try {
     if (url.pathname === '/api/host/projects') return Response.json({ projects: [] });
     if (url.pathname === '/api/host/preferences') return Response.json(world.state.devicePreferences);
     if (url.pathname === '/api/settings/runtime') return Response.json(scoped(world.state.runtimeSettings));
-    if (url.pathname === '/api/quick-explain/config') return Response.json(scoped(world.state.quickExplanationConfig));
     if (url.pathname === '/api/agent/environment') return Response.json(scoped({target:'common',values:{},file:'/fixture/agent.env'}));
     if (url.pathname === '/api/agent/status') return diagnosisFails
       ? Response.json({ error: 'Fixture software check failed' }, { status: 503 })
@@ -130,7 +129,7 @@ try {
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` }); await waitFor('window.ready');
   async function layout(name, width) {
-    const result=await execute(`const p=document.querySelector('.model-sources-page,.agent-status-page,.settings-view,.quick-chat-model');return {page:p.scrollWidth-p.clientWidth,root:document.documentElement.scrollWidth-innerWidth,noScope:!p.querySelector('[data-settings-scope]'),controls:[...p.querySelectorAll('input,select,textarea')].filter(n=>n.getClientRects().length).every(n=>n.getBoundingClientRect().right<=${width}+1)};`);
+    const result=await execute(`const p=document.querySelector('.model-sources-page,.agent-status-page,.settings-view');return {page:p.scrollWidth-p.clientWidth,root:document.documentElement.scrollWidth-innerWidth,noScope:!p.querySelector('[data-settings-scope]'),controls:[...p.querySelectorAll('input,select,textarea')].filter(n=>n.getClientRects().length).every(n=>n.getBoundingClientRect().right<=${width}+1)};`);
     assert(result.page<=1 && result.root<=1 && result.controls && result.noScope, `Device layout ${name}: ${JSON.stringify(result)}`);
     await screenshot(name);
   }
@@ -169,7 +168,7 @@ try {
   }
   await fetch(`http://127.0.0.1:${server.port}/test/mode?global=true`,{method:'POST'});
   calls.length=0; await execute('return window.ensureProject()');
-  for (const [name,entry,ready] of [['sources','openSources','.model-source-row'],['agent','openConfig','[data-agent-field=append_prompt]'],['chat-model','openExplain','[data-quick-field=model]'],['runtime','openSystem','[data-runtime-input=call_timeout]']]) {
+  for (const [name,entry,ready] of [['sources','openSources','.model-source-row'],['agent','openConfig','[data-agent-field=append_prompt]'],['runtime','openSystem','[data-runtime-input=call_timeout]']]) {
     await execute(`return window.${entry}()`); await waitFor(`document.querySelector('${ready}')`);
     assert(await execute(`return !document.querySelector('[data-settings-scope]') && !document.querySelector('.legacy-usage-history,.agent-connection-consumers,[data-service-restart="project"]') && [...document.querySelectorAll('[data-migration-action="preview"],[data-migration-action="apply"]')].every(n=>n.disabled)`), `No-project boundary ${name}`);
     await layout(`host-${name}`,320);

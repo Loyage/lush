@@ -1,21 +1,16 @@
 import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { PARAMS, USER_ONLY, assertAllowed } from '../../src/rpc/registry.js';
+import { PARAMS, assertAllowed } from '../../src/rpc/registry.js';
 import { startTestWeb, fetch } from './auth-fixture.js';
 import { temp, env } from '../helpers.js';
 
-const retired = ['quick_explain.start', 'quick_explain.followup', 'quick_explain.get', 'quick_explain.list', 'quick_explain.delete',
+const retired = ['quick_explain.config', 'quick_explain.configure', 'quick_explain.start', 'quick_explain.followup', 'quick_explain.get', 'quick_explain.list', 'quick_explain.delete',
   'intro.start', 'intro.get', 'intro.list', 'explanation.start', 'explanation.get', 'explanation.list'];
 
-test('old explanation RPC history and calls are gone; only shared model configuration remains', () => {
-  expect(Object.keys(PARAMS).filter(method => method.startsWith('quick_explain.')).sort()).toEqual(['quick_explain.config', 'quick_explain.configure']);
-  for (const method of retired) expect(() => assertAllowed(method, {}, null)).toThrow('unknown method');
-  for (const method of ['quick_explain.config', 'quick_explain.configure']) {
-    expect(USER_ONLY.has(method)).toBe(true);
-    expect(() => assertAllowed(method, {}, 42)).toThrow('requires user approval');
-    expect(() => assertAllowed(method, { extra: true }, null)).toThrow('unknown parameter');
-  }
+test('all dedicated explanation RPC including model configuration is gone', () => {
+  expect(Object.keys(PARAMS).filter(method => method.startsWith('quick_explain.'))).toEqual([]);
+  for (const method of retired) for (const actor of [null, 42]) expect(() => assertAllowed(method, {}, actor)).toThrow('unknown method');
 });
 
 test('retired explanation HTTP cannot reach an old daemon in bound or launcher mode', async () => {
@@ -28,7 +23,7 @@ test('retired explanation HTTP cannot reach an old daemon in bound or launcher m
     const web = startTestWeb(bound ? { project, home: path.join(project, '.lush'), env: environment } : null, 0, { env: environment, projectHost });
     const origin = `http://127.0.0.1:${web.port}`, base = origin + (bound ? '' : '/p/1111111111111111');
     try {
-      for (const suffix of ['history', 'history?before=9&limit=2', '7', '0', 'start', 'followup', 'delete']) {
+      for (const suffix of ['config', 'config?scope=device', 'history', 'history?before=9&limit=2', '7', '0', 'start', 'followup', 'delete']) {
         const response = await fetch(base + '/api/quick-explain/' + suffix);
         expect(response.status).toBe(404); expect(response.headers.get('cache-control')).toBe('no-store');
         expect((await fetch(base + '/api/quick-explain/' + suffix, { anonymous: true })).status).toBe(401);

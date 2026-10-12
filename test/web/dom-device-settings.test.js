@@ -3,7 +3,6 @@ import { installDom, deepText, dialogButton, dialogText } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
 import { ui } from '../../src/ui/web/assets/state.js';
 import { openAgentStatus } from '../../src/ui/web/assets/render-agent-status.js';
-import { renderChatModel } from '../../src/ui/web/assets/quick-chat-model.js';
 import { openModelSources } from '../../src/ui/web/assets/render-model-sources.js';
 import { activateDetailView } from '../../src/ui/web/assets/sidebar-ui.js';
 import { settingsClient, settingsClientFor, projectSettingsAction } from '../../src/ui/web/assets/settings-api.js';
@@ -14,7 +13,7 @@ import { renderSettingsMigration } from '../../src/ui/web/assets/settings-migrat
 const sourceA = 'aaaaaaaaaaaaaaaa', sourceB = 'bbbbbbbbbbbbbbbb';
 let projects;
 const world = makeWorld(), requests = [], writes = [];
-let intercept, noProject, seq = 0, agents, quick, runtime, networks, environments, sources, migration;
+let intercept, noProject, seq = 0, agents, runtime, networks, environments, sources, migration;
 const json = (value, status = 200) => ({ ok: status < 400, status, json: async () => structuredClone(value) });
 const metadata = (selected, override = selected === 'project') => ({ selected, source: override ? 'project' : 'device',
   project_override: override, device_home: '/fixture/device/shared', project_home: '/fixture/project/.lush' });
@@ -34,14 +33,12 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (path === '/api/settings/runtime') return json(runtime[scope]);
   if (path === '/api/agent/network') return json(networks[scope]);
   if (path === '/api/agent/environment') return json(environments[scope]);
-  if (path === '/api/quick-explain/config') return json(quick[scope]);
   if (path === '/api/agent/connections') return json({ ...world.state.agentConnections, connections: scope === 'device' ? sources.slice(0, 1) : sources,
     configuration_scope: metadata(scope) });
   if (path === '/api/settings/migration') return json(migration);
   if ((path === '/api/action' || path === '/api/host/settings/action') && params) {
     const { method, params: p } = params;
     if (method === 'agent.configure') { agents[scope] = { ...agents[scope], ...p.config }; return json(agents[scope]); }
-    if (method === 'quick_explain.configure') { quick[scope] = { ...quick[scope], ...p.config, ready: true }; return json(quick[scope]); }
     if (method === 'agent.network.configure') { networks[scope] = { ...networks[scope], ...p.config }; return json(networks[scope]); }
     if (method === 'agent.environment.configure') { environments[scope] = { ...environments[scope], values: p.values }; return json(environments[scope]); }
     if (method === 'system.configure') { for (const [key, value] of Object.entries(p.settings)) runtime[scope][key] = { ...runtime[scope][key],
@@ -57,7 +54,6 @@ const { ensureProject } = await import('../../src/ui/web/assets/project-picker.j
 const detail = () => dom.node('detail');
 const button = (root, label) => root.querySelectorAll('button').find(node => node.textContent === label);
 const agentField = name => detail().querySelector(`[data-agent-target="default"]`).querySelector(`[data-agent-field="${name}"]`);
-const quickField = name => detail().querySelector(`[data-quick-field="${name}"]`);
 const sourceField = name => detail().querySelector(`[data-connection-field="${name}"]`);
 const input = (node, value) => { node.value = value; node.oninput?.(); for (const listener of node.listeners.input || []) listener(); };
 const system = async () => { await openSettings(); await detail().querySelector('button.settings-tab[data-settings-tab="system"]').onclick(); };
@@ -68,12 +64,11 @@ beforeEach(async () => {
   sources = [structuredClone(world.state.agentConnections.connections[0]), { ...structuredClone(world.state.agentConnections.connections[0]),
     id: '22222222-2222-4222-8222-222222222222', label: '旧项目来源', storage_scope: 'project' }];
   sources[0].storage_scope = 'device'; sources[0].label = '共享来源'; sources[0].models = ['fixture-model'];
-  agents = {}; quick = {}; runtime = {}; networks = {}; environments = {};
+  agents = {}; runtime = {}; networks = {}; environments = {};
   for (const scope of ['device', 'project']) {
     agents[scope] = { ...structuredClone(world.state.agentConfig), configuration_scope: metadata(scope) };
     agents[scope].default = { ...agents[scope].default, agent: 'pi', model: 'openai-compatible/fixture-model', connection_id: sources[0].id, append_prompt: `${scope}-prompt` };
     agents[scope].roles = {};
-    quick[scope] = { ...structuredClone(world.state.quickExplanationConfig), connection_id: sources[0].id, model: 'fixture-model', prompt: `${scope}-explain`, configuration_scope: metadata(scope) };
     runtime[scope] = { ...structuredClone(world.state.runtimeSettings), configuration_scope: metadata(scope) };
     for (const entry of Object.values(runtime[scope])) if (entry && Object.hasOwn(entry, 'value')) entry.source = scope;
     networks[scope] = { version: 1, mode: 'proxy', proxy_url: `http://${scope}.invalid:8080`, no_proxy: [], has_proxy_auth: false,
@@ -144,18 +139,6 @@ test('环境变量仅设备读取/保存，按角色文件保留编辑能力，�
   await env.querySelector('[data-env-action="save"]').onclick();
   expect(writes.at(-1)).toMatchObject({ method: 'agent.environment.configure', params: { scope: 'device', target: 'common', values: { CUSTOM_SETTING: '设备变量更新' } } });
   expect(detail().querySelectorAll('button').some(node => Object.hasOwn(node.dataset, 'clearOverride'))).toBe(false); onlyConfiguration();
-});
-
-test('共用模型只配置设备来源，不读取历史/不调用模型，迟到保存不改新页', async () => {
-  const identity = activateDetailView({ view: 'quick-chat-settings' });
-  await renderChatModel({ container: detail(), ownsPage: () => ui.view === identity });
-  expect(requests.map(row => row.url)).toEqual(['/api/host/settings/quick-explain/config?scope=device', '/api/host/settings/agent/connections?scope=device']);
-  expect(detail().querySelector('.quick-explanation-history')).toBeNull(); expect(detail().querySelector('a').href).toBe('/#model-sources');
-  input(quickField('model'), 'fixture-model'); const pending = deferred();
-  intercept = ({ params }) => params?.method === 'quick_explain.configure' ? pending.promise : null;
-  const saving = button(detail(), '保存模型设置').onclick(); activateDetailView({ view: 'docs' }); detail().replaceChildren();
-  pending.resolve(json({ ...quick.device, prompt: 'LATE-SAVE' })); await saving;
-  expect(ui.view.id).toBe('docs'); expect(deepText(detail())).not.toContain('LATE-SAVE'); expect(writes.at(-1).params.scope).toBe('device'); onlyConfiguration();
 });
 
 test('设备来源没有项目历史/伪造消费者，配置修改不按项目路由传输', async () => {

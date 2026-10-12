@@ -4,7 +4,6 @@ import path from 'node:path';
 import { Config } from '../src/config.js';
 import { AgentSettings } from '../src/agent/settings.js';
 import { agentPrompt } from '../src/agent/prompts.js';
-import { QuickExplanationSettings, DEFAULT_EXPLANATION_PROMPT } from '../src/core/quick-explanation.js';
 import { readNetworkConfiguration, saveNetworkConfiguration, clearNetworkOverride, networkSnapshot, agentNetworkEnvironment } from '../src/agent/network.js';
 import { readAgentEnvironment, saveAgentEnvironment, clearAgentEnvironmentOverride, agentEnvironment } from '../src/agent/environment.js';
 import { ensurePiConfiguration } from '../src/agent/pi-config.js';
@@ -80,14 +79,14 @@ test('ordinary device reads do not initialize the root or consult unsafe legacy 
   try {
     for (const file of ['settings.json', 'agent.json', 'network.json', 'quick-explanation.json'])
       fs.writeFileSync(path.join(f.a.home, file), 'LEGACY PRIVATE invalid JSON');
-    new AgentSettings(f.a).get(); new QuickExplanationSettings(f.a).read();
+    new AgentSettings(f.a).get();
     readNetworkConfiguration(f.a); readAgentEnvironment(f.a, 'common');
     expect(f.a.runtimeSettings.get().call_timeout.value).toBe(10800);
     expect(f.a.runtimeSettings.get()).not.toHaveProperty('concurrency');
     expect(fs.existsSync(f.a.deviceHome)).toBe(false);
     expect(f.a.deviceHome).toBe(f.b.deviceHome); expect(f.a.home).not.toBe(f.b.home);
     for (const read of [() => f.a.runtimeSettings.get('project'), () => new AgentSettings(f.a).get('project'),
-      () => new QuickExplanationSettings(f.a).read('project'), () => readNetworkConfiguration(f.a, 'project'),
+      () => readNetworkConfiguration(f.a, 'project'),
       () => readAgentEnvironment(f.a, 'common', 'project')]) expect(read).toThrow('no longer');
     await expect(discoverAgentResources(f.a, {}, 'project')).rejects.toThrow('no longer');
     await expect(discoverAgentModels(f.a, 'pi', 'project')).rejects.toThrow('no longer');
@@ -159,13 +158,9 @@ test('network saves share private auth while in-flight snapshots stay frozen', (
   } finally { f.close(); }
 });
 
-test('quick explanation and environment use device authority; Worker env remains highest precedence', () => {
+test('environment uses device authority; Worker env remains highest precedence', () => {
   const f = fixture();
   try {
-    const a = new QuickExplanationSettings(f.a), b = new QuickExplanationSettings(f.b);
-    a.save({ connection_id: null, model: 'one', prompt: 'Shared' }); expect(b.read().model).toBe('one');
-    expect(b.configurationScope()).toMatchObject({ selected: 'device', project_override: false });
-    expect(() => b.clearOverride()).toThrow('no longer');
     saveAgentEnvironment(f.a, 'common', { VALUE: 'common', SHARED: 'yes' });
     saveAgentEnvironment(f.a, 'agent', { VALUE: 'role' });
     fs.mkdirSync(path.join(f.b.home, 'agent'), { mode: 0o700 });
@@ -245,7 +240,6 @@ test('no-project model and resource discovery uses a config-root cwd and exclude
       expect(() => f.a.runtimeSettings.save({ call_timeout: 4 }, 'device')).toThrow('busy');
       expect(() => new AgentSettings(f.a).save(profile('blocked'), 'device')).toThrow('busy');
       expect(() => saveNetworkConfiguration(f.a, network(), 'device')).toThrow();
-      expect(() => new QuickExplanationSettings(f.a).save({}, 'device')).toThrow();
       expect(() => saveAgentEnvironment(f.a, 'common', { KEY: 'not-written' }, 'device')).toThrow('busy');
     } finally { lock.release(); }
     expect(fs.readdirSync(f.a.deviceHome)).toEqual([]);
@@ -283,7 +277,6 @@ test('no-project model and resource discovery uses a config-root cwd and exclude
     expect(new AgentSettings(local).resolve('agent').model).toBe('project-only');
     expect(() => new AgentSettings(local).get('device')).toThrow('unavailable');
     expect(() => f.a.runtimeSettings.get('other')).toThrow();
-    expect(() => new QuickExplanationSettings(local).read('device')).toThrow();
     expect(() => saveAgentEnvironment(local, 'common', {}, 'device')).toThrow('unavailable');
     expect(fs.existsSync(f.a.deviceHome)).toBe(false);
   } finally { f.close(); }

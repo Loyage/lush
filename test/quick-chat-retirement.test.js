@@ -3,27 +3,21 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { Database } from 'bun:sqlite';
-import { QuickChatStore } from '../src/core/quick-chat-store.js';
-import { retireDeviceQuickChats } from '../src/host/quick-chat.js';
+import { retireChatHistory as retireDeviceQuickChats } from '../src/core/retired-chat.js';
+import { seedChat } from './retired-chat-fixture.js';
 
-const SECRET = 'obsolete-device-response-SENTINEL-73a2';
-const PROMPT = 'obsolete-device-prompt-SENTINEL-d93a';
+const SECRET = 'obsolete-response-SENTINEL';
+const PROMPT = 'obsolete-prompt-SENTINEL';
 function fixture({ running = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-chat-retirement-'));
-  const home = path.join(root, 'shared'), store = new QuickChatStore(home), owner = 'retirement-test-owner';
-  store.registerOwner(owner);
-  const library = store.readLibrary('default'), updated = store.savePrompt({ id: 'explain', name: 'Old Prompt', prompt: PROMPT, context_menu: true }, library.revision, 'default');
-  const { id, turnId } = store.create({ content: 'old device input', references: [], prompt: updated.prompts[0],
-    source: { connection_id: 'source', label: 'source', provider: 'openai-compatible', endpoint: 'https://model.test/v1' },
-    binding: { account_key: 'a'.repeat(64), source_key: 'b'.repeat(64), revision: 'c'.repeat(64) }, model: 'model-a' }, 'default', owner);
-  if (!running) store.finish(turnId, owner, SECRET.repeat(5000));
+  const home = path.join(root, 'shared'), file = seedChat(home, { running });
   const outside = path.join(root, 'outside'); fs.writeFileSync(outside, 'outside-never-delete', { mode: 0o600 });
-  return { root, home, store, owner, id, turnId, file: store.file, outside,
-    close() { store.unregisterOwner(owner); fs.rmSync(root, { recursive: true, force: true }); } };
+  return { root, home, file, turnId: 1, outside,
+    close() { fs.rmSync(root, { recursive: true, force: true }); } };
 }
 const safeFailure = action => {
   let caught; try { action(); } catch (error) { caught = error; }
-  expect(caught?.quickChatSafe).toBe(true); expect(caught.message).toContain('无法安全清除');
+  expect(caught).toBeInstanceOf(Error); expect(caught.message).toContain('无法安全清除');
   expect(caught.message).not.toContain(SECRET); expect(caught.message).not.toContain(PROMPT);
   return caught;
 };
@@ -46,9 +40,8 @@ test('retirement securely deletes all old responses/Prompts and leaves an idempo
   const f = fixture();
   let waitingWriter;
   try {
-    const projectHome = path.join(f.root, 'project', '.lush', 'quick-chat'), projectStore = new QuickChatStore(projectHome);
-    projectStore.savePrompt({ name: 'project retained', prompt: 'not retired', context_menu: false }, projectStore.readLibrary('base').revision, 'base');
-    const projectBytes = fs.readFileSync(projectStore.file);
+    const projectHome = path.join(f.root, 'project', '.lush', 'quick-chat'), projectFile = seedChat(projectHome);
+    const projectBytes = fs.readFileSync(projectFile);
     fs.writeFileSync(path.join(f.home, 'settings.json'), 'device-settings-retained', { mode: 0o600 });
     waitingWriter = new Database(f.file);
     expect(waitingWriter.query('PRAGMA user_version').get().user_version).toBe(1);
@@ -62,15 +55,13 @@ test('retirement securely deletes all old responses/Prompts and leaves an idempo
     } finally { db.close(); }
     expect(fs.readFileSync(f.file).includes(Buffer.from(SECRET))).toBe(false);
     expect(fs.readFileSync(f.file).includes(Buffer.from(PROMPT))).toBe(false);
-    expect(fs.readFileSync(f.file).includes(Buffer.from('old device input'))).toBe(false);
+    expect(fs.readFileSync(f.file).includes(Buffer.from('obsolete-content-SENTINEL'))).toBe(false);
     expect(() => waitingWriter.transaction(() => waitingWriter.query("INSERT INTO meta(key,value) VALUES ('prompts',?)").run(PROMPT)).immediate()).toThrow('retired');
     for (const sql of ['INSERT INTO conversations DEFAULT VALUES', 'INSERT INTO turns DEFAULT VALUES',
       "UPDATE meta SET value='changed' WHERE key='retired'", "DELETE FROM meta WHERE key='retired'"])
       expect(() => waitingWriter.exec(sql)).toThrow('retired');
-    expect(() => f.store.readLibrary('base')).toThrow();
-    expect(() => f.store.savePrompt({ name: 'recreate', prompt: 'no', context_menu: false }, 'invalid', 'base')).toThrow();
     expect(retireDeviceQuickChats(f.home)).toEqual({ retired: true, already_retired: true });
-    expect(fs.readFileSync(projectStore.file)).toEqual(projectBytes);
+    expect(fs.readFileSync(projectFile)).toEqual(projectBytes);
     expect(fs.readFileSync(path.join(f.home, 'settings.json'), 'utf8')).toBe('device-settings-retained');
     expect(fs.readFileSync(f.outside, 'utf8')).toBe('outside-never-delete');
   } finally { waitingWriter?.close(); f.close(); }
@@ -95,7 +86,7 @@ test('live local or foreign owners and unknown owner metadata refuse retirement 
 test('dead owner claims are erased, not replayed or exposed as recoverable conversations', () => {
   const f = fixture({ running: true });
   try {
-    f.store.unregisterOwner(f.owner);
+    const dead = new Database(f.file); dead.exec('UPDATE turns SET owner_pid=2147483647'); dead.close();
     expect(retireDeviceQuickChats(f.home).retired).toBe(true);
     const db = new Database(f.file, { readonly: true });
     try { expect(db.query('SELECT * FROM turns').all()).toEqual([]); } finally { db.close(); }

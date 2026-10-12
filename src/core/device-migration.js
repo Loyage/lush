@@ -8,7 +8,6 @@ import { normalizeRuntimeSettings } from './settings.js';
 import { AgentSettings, AGENT_ROLES } from '../agent/settings.js';
 import { AGENT_ENV_TARGETS, parseAgentEnv } from '../agent/environment.js';
 import { readNetworkConfiguration } from '../agent/network.js';
-import { QuickExplanationSettings } from './quick-explanation.js';
 import { ConnectionFile } from '../agent/connections-file.js';
 import { PROMPT_SUPPLEMENT_TARGETS, PRIVATE_PROMPT_MAX_BYTES } from '../agent/private-prompts.js';
 
@@ -23,7 +22,6 @@ const definitions = [
   { key: 'runtime', kind: '系统运行参数', relative: 'settings.json', max: 8192 },
   { key: 'agent', kind: 'Agent 配置', relative: 'agent.json', max: 256 * 1024 },
   { key: 'network', kind: '出站网络', relative: 'network.json', max: 65536 },
-  { key: 'quick', kind: '快捷解释配置', relative: 'quick-explanation.json', max: 65536 },
   // Legacy common and the current agent role both resolve to agent/agent.env.
   // Migrate physical files once, not once per UI target/role alias.
   ...AGENT_ENV_TARGETS.filter((target, index, targets) => index === targets.findIndex(other =>
@@ -34,7 +32,10 @@ const definitions = [
     relative: path.join('agent', `${target}.md`), max: PRIVATE_PROMPT_MAX_BYTES, retain: true })),
   { key: 'credentials', kind: '模型来源与凭证', relative: path.join('credentials', 'agent-connections.json'), max: MAX_JSON },
 ];
-const byKey = new Map(definitions.map(definition => [definition.key, definition]));
+// Historical journals may mention the retired dedicated profile. Accept that identity for
+// read-only provenance, never as an import source or publication target.
+const byKey = new Map([...definitions.map(definition => [definition.key, definition]),
+  ['quick', { key: 'quick', relative: 'quick-explanation.json', max: 65536 }]]);
 const sign = value => createHmac('sha256', revisionKey).update(JSON.stringify(value)).digest('hex');
 const stable = value => JSON.stringify(sort(value));
 function sort(value) {
@@ -172,7 +173,6 @@ function normalizedValue(definition, config, home, snapshot, source = false) {
     return { version: 1, mode: view.mode, proxy_url: view.proxy_url, no_proxy: view.no_proxy,
       proxy_auth: view.has_proxy_auth ? value.proxy_auth : null };
   }
-  if (definition.key === 'quick') return { version: 1, ...new QuickExplanationSettings({ home, deviceHome: null }).read() };
   if (definition.key === 'credentials') return connectionFile(home).read();
   throw new Error('invalid migration definition');
 }
@@ -224,7 +224,7 @@ function loadState(config, facts) {
   fields(journal, ['version', 'id', 'status', 'project', 'device_home', 'entries', 'retained']);
   check(journal.version === 1 && journal.id === current.id && STATUS.has(journal.status)
     && journal.project === config.project && journal.device_home === config.deviceHome
-    && Array.isArray(journal.entries) && journal.entries.length <= definitions.length, 'invalid migration journal');
+    && Array.isArray(journal.entries) && journal.entries.length <= byKey.size, 'invalid migration journal');
   const keys = new Set();
   for (const entry of journal.entries) {
     fields(entry, ['key', 'phase']);
@@ -289,7 +289,15 @@ function plan(config, { ignoreLocks = false } = {}) {
     warnings.push('存在未完成迁移；本次确认只按已核验的备份和磁盘事实继续，不自动重放。');
     check([...active.keys()].every(key => journal.entries.some(entry => entry.key === key)), 'new config after interrupted migration');
   }
-  const selected = recovering ? journal.entries.map(entry => byKey.get(entry.key)) : definitions.filter(definition => active.has(definition.key));
+  if (recovering && journal.entries.some(entry => entry.key === 'quick')) {
+    for (const [side, home] of [['source', config.home], ['destination', config.deviceHome]]) {
+      const snapshot = readFile(home, 'quick-explanation.json', 65536);
+      facts.files.quick ||= {}; facts.files.quick[side] = snapshot.fact;
+      if (snapshot.body !== null && !equivalent(JSON.parse(snapshot.body), { version: 2, retired: 'quick-chat' }))
+        blockers.push('未完成迁移包含已退役的快速对话配置；请先用新版显式启动/绑定本项目完成安全清理，不会重新导入旧备份。');
+    }
+  }
+  const selected = recovering ? journal.entries.filter(entry => entry.key !== 'quick').map(entry => byKey.get(entry.key)) : definitions.filter(definition => active.has(definition.key));
   for (const definition of selected) {
     try {
       const backup = recovering ? readFile(backupHome(config, journal.id), definition.relative, definition.max) : null;
@@ -399,6 +407,7 @@ export function migrateDeviceSettings(config, options) {
       trackBackup(retained.id, byKey.get(retained.key));
     if (current.entries.some(entry => entry.definition.key === 'credentials') && current.marker.body === null)
       atomicWrite(config.home, markerRelative, serialize({ version: 1, id: journal.id }), 65536);
+    if (current.recovering) for (const entry of journal.entries) if (entry.key === 'quick') entry.phase = 'retired';
     journal.status = 'publishing'; writeJournal(config, journal);
     const publicationFacts = new Map();
     for (const entry of current.entries) {
@@ -431,6 +440,8 @@ export function migrateDeviceSettings(config, options) {
     }
     const verifyDelivery = () => {
       for (const lock of locks) lock.assert();
+      if (current.facts.files.quick) for (const [side, home] of [['source', config.home], ['destination', config.deviceHome]])
+        check(equivalent(readFile(home, 'quick-explanation.json', 65536).fact, current.facts.files.quick[side]), 'retired profile changed');
       for (const { home, definition, fact } of backupFacts.values())
         check(equivalent(readFile(home, definition.relative, definition.max).fact, fact), 'migration backup changed');
       for (const entry of current.entries) {

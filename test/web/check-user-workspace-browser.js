@@ -104,7 +104,7 @@ try {
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/fixture` }); await frame();
   assert(await wait(`document.getElementById('detail').dataset.view==='projects'&&!document.getElementById('theme-toggle').disabled`), 'root boot failed');
-  const pages = [['projects', 'projects'], ['project-management', 'project-management'], ['settings', 'settings'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['quick-explain', 'quick-explain'], ['automation', 'automation'], ['global-inbox', 'global-inbox']];
+  const pages = [['projects', 'projects'], ['project-management', 'project-management'], ['settings', 'settings'], ['agent-status', 'agent-status'], ['model-sources', 'model-sources'], ['automation', 'automation'], ['global-inbox', 'global-inbox']];
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null });
     // WebDriver keyboard activation can scroll the outer iframe fixture as well as
@@ -216,6 +216,16 @@ try {
   await rpc(`/session/${session}/frame`, { id: null });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/p/${projectId}/` });
   assert(await wait(`document.getElementById('detail').dataset.view==='overview'`), 'explicit project boot failed');
+  assert(await execute(`return !document.querySelector('#quick-chat-open,#composer-chat-open,#composer-chat-controls,.quick-chat-page')&&document.querySelector('#input-form').dataset.mode==='create'`), 'retired quick chat entry or mode remains');
+  for (const hash of ['#quick-chat', '#quick-chat-settings', '#quick-chat-C1']) {
+    await execute(`document.getElementById('input').value='退役链接不能丢掉普通输入';location.hash=${JSON.stringify(hash)}`);
+    assert(await wait(`location.hash===''&&document.querySelector('#detail .overview-hero')&&document.getElementById('detail').dataset.view==='overview'&&document.getElementById('input').value==='退役链接不能丢掉普通输入'`), 'retired conversation link reopened a page or lost input');
+  }
+  await execute(`const text=document.querySelector('#detail h2,#detail p');const range=document.createRange();range.selectNodeContents(text);getSelection().removeAllRanges();getSelection().addRange(range);text.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,cancelable:true,clientX:10,clientY:20}))`);
+  assert(await execute(`const menu=document.querySelector('#context-menu');return !menu.hidden&&menu.querySelectorAll('button').length>0&&Array.from(menu.querySelectorAll('button')).every(node=>node.textContent.startsWith('引用：'))&&!menu.querySelector('.agent-call')`), 'selection menu still offers a model action');
+  await execute(`document.body.dispatchEvent(new MouseEvent('click',{bubbles:true}));getSelection().removeAllRanges()`);
+  assert(!calls.some(path => /quick[-_]chat|quick[-_]explain/.test(path)) && !assetCalls.some(path => /quick-chat/.test(path)), 'retired chat API or chunk fetched');
+  console.log('PASS retired chat navigation/deep links/model actions, ordinary input and text references preserved');
   await execute(`document.getElementById('input').value='未提交输入';const d=document.getElementById('detail');d.scrollTop=120;const range=document.createRange();range.selectNodeContents(document.getElementById('view-title'));getSelection().removeAllRanges();getSelection().addRange(range);window.before={scroll:d.scrollTop,quote:getSelection().toString(),view:d.dataset.view};document.getElementById('sidebar-toggle').click()`);
   assert(await execute(`return Array.from(document.querySelectorAll('[data-global-navigation]')).every(node=>getComputedStyle(node).display==='none')&&!document.getElementById('global-inbox-summary')&&document.getElementById('project-switch').hidden`), 'project sidebar still exposes global pages');
   const original = await rpc(`/session/${session}/window`, undefined, 'GET'); await click('#home');
@@ -227,7 +237,7 @@ try {
   assert(await execute(`return document.getElementById('input').value==='未提交输入'&&document.getElementById('detail').dataset.view===before.view&&document.getElementById('detail').scrollTop===before.scroll&&getSelection().toString()===before.quote`), 'native global link destroyed project input, reading position or selection');
   console.log('PASS independent global tab preserves project identity, draft, selection and reading position'); passed = true;
 } catch (error) {
-  let snapshot; try { snapshot = await execute(`return {url:location.href,theme:document.documentElement.dataset.theme,themeButton:{disabled:document.getElementById('theme-toggle')?.disabled,rect:document.getElementById('theme-toggle')?.getBoundingClientRect().toJSON()},modalHidden:document.getElementById('modal')?.hidden,active:document.activeElement?.outerHTML?.slice(0,300),count:document.getElementById('global-inbox-count')?.textContent,timers:window.fixtureObserverTimers?.size,stacks:Array.from(window.fixtureObserverTimers?.values()||[]),events:window.fixtureTimerEvents?.slice(-25),sent:window.sentNotifications,error:document.getElementById('error')?.textContent}`); } catch {}
+  let snapshot; try { snapshot = await execute(`return {url:location.href,input:document.getElementById('input')?.value,before:window.before,current:{scroll:document.getElementById('detail')?.scrollTop,quote:getSelection().toString(),view:document.getElementById('detail')?.dataset.view},theme:document.documentElement.dataset.theme,themeButton:{disabled:document.getElementById('theme-toggle')?.disabled,rect:document.getElementById('theme-toggle')?.getBoundingClientRect().toJSON()},modalHidden:document.getElementById('modal')?.hidden,active:document.activeElement?.outerHTML?.slice(0,300),count:document.getElementById('global-inbox-count')?.textContent,timers:window.fixtureObserverTimers?.size,stacks:Array.from(window.fixtureObserverTimers?.values()||[]),events:window.fixtureTimerEvents?.slice(-25),sent:window.sentNotifications,error:document.getElementById('error')?.textContent}`); } catch {}
   console.error(`Browser failure; geckodriver log: ${log}; snapshot: ${JSON.stringify(snapshot)}; mock requests: ${JSON.stringify(calls.slice(-15))}`); throw error;
 }
 finally { if (session) { try { await rpc(`/session/${session}`, undefined, 'DELETE'); } catch {} } driver.kill(); await driver.exited; server.stop(true); if (passed) await rm(temp, { recursive: true, force: true }); }

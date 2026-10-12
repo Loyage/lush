@@ -1,19 +1,22 @@
-# 项目级快速对话与旧解释退役
+# 快速对话退役与专用数据清理
 
-W218／用户决定 D510 覆盖 W207 的全局历史与旧解释保留约定。
+本章规定快速对话整体删除后的兼容与清理边界。W235／用户决定 D555 明确要求同时安全清除专用历史、Prompt 库和模型配置，不保留旧功能入口。
 
-## 固定实施边界
+## 功能与兼容
 
-- 删除旧解释页面、历史读写及模型解释调用实现。项目数据库打开并核验项目绑定后，事务删除 `introductions` 与 `explanation_followups` 表及旧结果／追问；secure_delete 不承诺擦除备份或之前的 WAL 快照；不删除 Worker、Input、执行记录、事件或引用快照，不改历史身份。
-- 首次合法项目对话请求前，清除设备根 `quick-chat.sqlite` 中的旧全局对话及 Prompt 库，不导入、不分配项目；仅在私有文件／schema 校验、SQLite 排他锁与无活动 owner 条件满足时 secure_delete 清空内容。保留空 v2 退役文件与写阻断触发器，防止旧 Host 或先前已准入写者重建旧历史。不存在资源不创建，异常拒绝并明确报告，可由后续显式请求重试，不能删除任意路径／链接／活跃文件。
-- 每项目持久历史、Prompt 库、右键注册与 C 高水位独立。模型选择、凭证与网络继续设备共用；固定首轮模型／Prompt／来源与无工具边界不变。
-- 项目附属存储位于 `<project>/.lush/quick-chat/quick-chat.sqlite`，子目录私有，避免要求既有整个 `.lush` 根改变权限。
-- Host 承接明确用户请求，不启动 daemon、不读引用目标、不创建 Worker。保留从项目输入／选区在新标签打开项目对话的现场保护。全局页面不提供对话或右键模型动作。
+- 删除快速对话页面、输入框对话模式、选区右键模型动作、Prompt 管理、直连模型服务和专用模型配置。
+- 全部 `/api/quick-chat/**`、`/api/host/quick-chat/**`、`/api/quick-explain/**`（含 Host 设置路径与项目前缀）关闭；`quick_explain.*`、`intro.*`、`explanation.*` 不保留公开调用、历史或配置别名。
+- 正常输入的新建／追加模式、文本引用与来源定位、Agent 模型来源／凭证仍保留。
+- 不删除 Worker、Input、消息、事件、执行记录、Git 或引用快照，不改写历史编号；历史无工具 Worker 的只读恢复兼容继续保留。
 
-## 接口
+## 清理范围与安全
 
-项目身份只来自已登记 `/p/<id>/`（绑定 Host 允许无前缀项目 API）。项目 API 为 `/api/quick-chat/config`、`history`、`<id>`、`action`，方法／字段沿用 [原契约](quick-chat.md)；旧 `/api/host/quick-chat/*` 关闭。页 hash 沿用 `#quick-chat`、`#quick-chat-C<id>`、`#quick-chat-settings`，必须位于项目页；链接携带来源项目 base。模型设置复用现有设备设置接口，不扩大项目覆盖。
+仅清理所属项目与设备的专用资源：项目 `<project>/.lush/quick-chat/quick-chat.sqlite`、设备私有 shared 根的旧 `quick-chat.sqlite`、项目及设备的 `quick-explanation.json`。不扫描其他项目，不把旧 Prompt 或对话导入任何新存储，也不再把专用配置纳入设备设置迁移。
 
-`QuickChatService(env=process.env, options={})` 新增必需 `options.home`，其值为项目私有 quick-chat 目录，不再以设备 home 保存历史；无 home 拒绝构造。其他方法不变。旧设备文件清理独立导出 `retireDeviceQuickChats(home)`（home 是设备私有 shared 根），必须幂等、安全拒绝活跃／不可信文件且保留诊断。
+实现入口为 `src/core/retired-chat.js`。daemon 在 Store 核验项目绑定后、开放 RPC 前执行；Host 在单项目启动或首次核验已登记项目绑定时执行。全局列表不枚举清理，失败不会由旧页轮询自动重放，修复后须显式启动／选择项目重试。开发测试使用临时项目，不直接操作用户当前存储。资源不存在时不为退役创建历史库。
 
-Host 项目身份解析新增 `projectHost.chatHome(id)`，只读核对登记、白名单与 canonical 路径并返回上述项目私有目录，不创建目录或连接后台；不接受用户路径。
+清理必须核验目录／文件归属与私有权限，拒绝符号链接、硬链接、外来所有者、损坏或未知 schema；SQLite 清理必须持锁且确认无活跃调用 owner，不能抢未知锁或强删仍在使用的文件。存在 WAL／SHM 或孤立 journal 时拒绝，只有已知 DELETE-mode 历史可退役。异常保留清晰诊断与可恢复现场，不把未确认清理报告为成功；各资源独立提交，失败前已完成的清理不回滚。SQLite 保留空 v2 库和写阻断触发器，JSON 保留 `{version:2,retired:'quick-chat'}` 标记，防止旧 Host／设置写者重建内容。
+
+旧设备迁移的完成 journal 保持只读兼容；在途 journal 若含旧专用配置，须先退役源／目标，再显式继续其他配置，不重新发布旧备份。历史备份不在本次清理范围内。
+
+项目数据库打开并核验绑定后，继续事务删除已退役的 `introductions`、`explanation_followups` 表及旧结果／追问。`secure_delete` 不承诺擦除备份、外部副本或此前的 WAL 快照；专用数据清理不扩大为其他历史的删除授权。

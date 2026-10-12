@@ -576,12 +576,12 @@ button.notice-banner-info{border-color:var(--accent)}
   .composer-actions{width:100%;flex-wrap:nowrap;gap:6px;justify-content:flex-end}
   .composer-actions button{min-height:36px;font-size:12px;padding:6px 8px;flex:none;white-space:nowrap;overflow:visible;text-overflow:clip}
   .text-editor-controls button{min-height:36px;font-size:12px;padding:6px 10px}
-  #input-form[data-expanded="false"] #input-history,#input-form[data-expanded="false"] .composer-run-settings,#input-form[data-expanded="false"] #composer-chat-open{display:none}
+  #input-form[data-expanded="false"] #input-history,#input-form[data-expanded="false"] .composer-run-settings{display:none}
   #input-form[data-expanded="false"] .composer-expand{max-width:60px;overflow:hidden;text-overflow:ellipsis}
   #input-form[data-expanded="true"] .composer-actions{flex-wrap:wrap}
   .composer-actions .composer-expand,.composer-actions .composer-run-settings{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  #input-form[data-mode="append"] .composer-actions,#input-form[data-mode="chat"] .composer-actions{flex-wrap:wrap}
-  #input-form[data-mode="append"] #composer-reset,#input-form[data-mode="chat"] #composer-reset{max-width:100%;white-space:normal}
+  #input-form[data-mode="append"] .composer-actions{flex-wrap:wrap}
+  #input-form[data-mode="append"] #composer-reset{max-width:100%;white-space:normal}
   #input-form:has(.hook-button) .composer-actions{gap:4px}
   #input-form:has(.hook-button) .composer-actions button{font-size:11px;padding:6px}
   #input-form:has(.hook-button) .composer-expand{max-width:44px}

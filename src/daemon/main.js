@@ -8,6 +8,7 @@ import { Dispatcher } from '../rpc/protocol.js';
 import { RPCServer } from '../rpc/server.js';
 import { createSignal } from '../signal.js';
 import { codeIdentity } from '../identity.js';
+import { retireProjectChat } from '../core/retired-chat.js';
 
 export async function serve(config) {
   config.prepare();
@@ -19,6 +20,7 @@ export async function serve(config) {
   try {
     fs.rmSync(config.socket, { force: true });
     store = new Store(path.join(config.home, 'project.db'), config.project);
+    retireProjectChat(config);
     project = new Project(config, store);
     // Establish the logical main owner before RPC accepts new order; this never starts an Agent.
     await project.bootstrapMain();

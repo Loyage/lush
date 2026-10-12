@@ -18,7 +18,7 @@ function host(options = {}) {
     async close() { await web.stop(true); fs.rmSync(root, { recursive: true, force: true }); } };
 }
 
-test('unselected Host edits runtime, Agent, sources, network and explanation without a Project or daemon', async () => {
+test('unselected Host edits runtime, Agent, sources and network without a Project or daemon', async () => {
   const f = host();
   try {
     const runtime = await fetch(`${f.url}/api/host/settings/runtime`);
@@ -40,7 +40,7 @@ test('unselected Host edits runtime, Agent, sources, network and explanation wit
     expect(list.connections[0].id).toBe(source.id); expect(list.connections[0].consumers).toEqual([]);
     expect(list.history_available).toBe(false); expect(JSON.stringify(list)).not.toContain('PRIVATE');
     const explanation = await action(f.url, 'quick_explain.configure', { config: { connection_id: source.id, model: 'deepseek-chat', prompt: '简洁解释' } });
-    expect(explanation.status).toBe(200); expect((await explanation.json()).ready).toBe(true);
+    expect(explanation.status).toBe(400);
     const proxy = await action(f.url, 'agent.network.configure', { config: { version: 1, mode: 'proxy', proxy_url: 'http://127.0.0.1:7897', no_proxy: [],
       proxy_auth: { username: 'PRIVATE-USER', password: 'PRIVATE-PASSWORD' } } });
     expect(proxy.status).toBe(200); expect(await proxy.text()).not.toContain('PRIVATE');
@@ -137,7 +137,6 @@ test('selected project routes forward device scope without losing identity and k
       [a, `/p/${idA}/api/settings/runtime?scope=device`, 'system.settings', { scope: 'device' }],
       [b, `/p/${idB}/api/agent/config?scope=device`, 'agent.config', { scope: 'device' }],
       [a, `/p/${idA}/api/agent/environment?scope=device&target=common`, 'agent.environment', { scope: 'device', target: 'common' }],
-      [b, `/p/${idB}/api/quick-explain/config?scope=device`, 'quick_explain.config', { scope: 'device' }],
       [a, `/p/${idA}/api/settings/migration`, 'settings.migration.preview', {}],
     ]) {
       expect((await fetch(url + route)).status).toBe(200); expect(calls.at(-1)).toEqual({ project, method, params });
@@ -146,7 +145,7 @@ test('selected project routes forward device scope without losing identity and k
     expect((await fetch(`${url}/p/${idA}/api/agent/config?scope=project`)).status).toBe(400);
     expect((await fetch(`${url}/p/${idA}/api/agent/config?scope=all`)).status).toBe(400);
     expect((await fetch(`${url}/p/${idA}/api/agent/config?scope=device&scope=project`)).status).toBe(400);
-    for (const route of ['history', 'history?scope=device', '7', '7?scope=device'])
+    for (const route of ['config', 'config?scope=device', 'history', 'history?scope=device', '7', '7?scope=device'])
       expect((await fetch(`${url}/p/${idA}/api/quick-explain/${route}`)).status).toBe(404);
     expect((await fetch(`${url}/p/${idA}/api/agent/connections/history?id=id&scope=device`)).status).toBe(400);
     expect(calls.length).toBe(count);

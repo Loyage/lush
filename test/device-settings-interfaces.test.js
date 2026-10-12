@@ -28,7 +28,7 @@ test('RPC forwards explicit scope separately from full profiles and credentials'
   const calls = [], p = { actor: () => null };
   for (const name of ['runtimeSettings', 'configureRuntimeSettings', 'agentConfig', 'configureAgents', 'agentNetwork',
     'configureAgentNetwork', 'agentEnvironment', 'configureAgentEnvironment', 'agentConnectionsList', 'saveAgentConnection',
-    'quickExplanationConfig', 'configureQuickExplanation', 'agentPackages', 'settingsMigrationApply', 'settingsMigrationPreview', 'clearSettingsOverride']) {
+    'agentPackages', 'settingsMigrationApply', 'settingsMigrationPreview', 'clearSettingsOverride']) {
     p[name] = (...args) => { calls.push({ name, args }); return { ok: true }; };
   }
   const dispatcher = new Dispatcher(p);
@@ -41,8 +41,6 @@ test('RPC forwards explicit scope separately from full profiles and credentials'
     ['agent.environment.configure', { target: 'common', values: { FOO: 'bar' }, scope: 'device' }, 'configureAgentEnvironment', ['common', { FOO: 'bar' }, 'device']],
     ['agent.connections.list', { scope: 'device' }, 'agentConnectionsList', ['device']],
     ['agent.connections.save', { connection: { id: 'id' }, credential: { api_key: 'KEY' }, scope: 'device' }, 'saveAgentConnection', [{ id: 'id' }, { api_key: 'KEY' }, 'device']],
-    ['quick_explain.config', { scope: 'device' }, 'quickExplanationConfig', ['device']],
-    ['quick_explain.configure', { config: { model: 'm' }, scope: 'project' }, 'configureQuickExplanation', [{ model: 'm' }, 'project']],
     ['agent.packages.list', { scope: 'device' }, 'agentPackages', ['device']],
     ['settings.migration.apply', { revision: 'r', confirm: true }, 'settingsMigrationApply', [{ revision: 'r', confirm: true }]],
     ['settings.clear_override', { kind: 'environment', target: 'common' }, 'clearSettingsOverride', ['environment', 'common']],

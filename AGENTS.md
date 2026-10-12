@@ -63,7 +63,7 @@ bun run stop
 
 修改模块前必须先读 `docs/design/README.md` 中的对应设计理念；执行记录、工具渲染、检索与选区解释必须先读 `docs/design/agent-process.md`；引用、选区引用、引用卡片定位与快照/现状取舍必须先读 `docs/design/references.md`；改 Web 按钮文案、图标、样式，或新增会调用 Agent 的按钮前，必须先读 `docs/design/ui-guidance.md`——所有会调用 Agent 的按钮必须带 `agent-call` 紫色标识与 `agentHelp` 提示，含义不直观的按钮必须带 `data-help`，禁用按钮用外层 `.help-host` 承载。修改输入框、暂存、历史输入检索与状态投影前，必须先读 `docs/design/input-history.md`。修改通知、告知设置、已读与滑动消除交互前，必须先读 `docs/design/notices.md`。理念指导取舍，模块地图规定职责与接口，不得只看功能清单而忽略用户目标。
 
-修改快速对话、Prompt 管理、右键模型动作和输入框对话模式前，先读 `docs/design/quick-chat.md` 与 `docs/engineering/quick-chat.md`：W218／D510 的 C 对话历史与 Prompt 库按项目独立，由 Host 按固定项目身份保存，模型与凭证仍设备共用；纯文本直连、不创建 Worker、不解析引用目标。旧解释结果／追问及旧设备 C 历史永久退役，安全清理边界见 `docs/engineering/project-quick-chat.md`。
+快速对话、Prompt 库、选区右键模型动作与专用模型配置已整体删除（W235／D555）；不得恢复旧调用或配置入口。专用数据安全清理边界见 `docs/engineering/project-quick-chat.md`；保留正常文本引用、Agent 模型来源／凭证与历史 Worker／执行记录。
 
 修改 Hook、自动合并开关、预约发射、生命周期触发或挂载/模板界面前，先读 `docs/design/hooks.md` 与 `docs/engineering/hooks.md`，合并／验收最高级别另读 `docs/engineering/completion-hooks.md` 与 `docs/engineering/worker-acceptance.md`（W169／决定 #418，验收即归档；W197／决定 #462，默认保留 child、父级安全批量验收，优先于旧分离语义及收口前逐个验收要求）。Hook 是 Worker 附属能力，不能绕过既有冻结、权限、Git 和调用边界；未知副作用不得因重启自动重放。
 

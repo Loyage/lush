@@ -6,8 +6,6 @@ import { configurationScope, validateConfigurationDirectory } from '../core/devi
 import { AgentSettings } from '../agent/settings.js';
 import { readAgentEnvironment, saveAgentEnvironment } from '../agent/environment.js';
 import { readNetworkConfiguration, saveNetworkConfiguration } from '../agent/network.js';
-import { QuickExplanationSettings, DEFAULT_EXPLANATION_PROMPT } from '../core/quick-explanation.js';
-import { explanationReadiness } from '../core/quick-explanation-policy.js';
 import { ConnectionManager } from '../agent/connections.js';
 import { AgentPackages } from '../agent/packages.js';
 import { discoverAgentModels } from '../agent/models.js';
@@ -24,10 +22,10 @@ export const DEVICE_SETTINGS_READS = new Map([
   ['agent/network', ['agent.network', []]], ['agent/connections', ['agent.connections.list', []]],
   ['agent/connections/models', ['agent.connections.models', ['id']]],
   ['agent/selection/resources', ['agent.selection.resources', []]],
-  ['agent/packages', ['agent.packages.list', []]], ['quick-explain/config', ['quick_explain.config', []]],
+  ['agent/packages', ['agent.packages.list', []]],
 ]);
 export const DEVICE_SETTINGS_ACTIONS = new Set([
-  'system.configure', 'agent.configure', 'agent.environment.configure', 'agent.network.configure', 'quick_explain.configure',
+  'system.configure', 'agent.configure', 'agent.environment.configure', 'agent.network.configure',
   'agent.connections.save', 'agent.connections.remove', 'agent.connections.sampling', 'agent.connections.query',
   'agent.connections.models.refresh', 'agent.connections.login.start', 'agent.connections.login.finish',
   'agent.connections.device.start', 'agent.connections.device.poll', 'agent.connections.device.cancel',
@@ -59,7 +57,6 @@ export class DeviceSettingsService {
     // AgentSettings uses device scope, so adapt its reads without passing that scope into runtime.
     this.agents = new AgentSettings({ ...this.config, deviceHome: this.config.home,
       runtimeSettings: { get: () => this.runtime.get() } });
-    this.explanation = new QuickExplanationSettings(this.config);
     this.options = options;
     this.manager = null; this.packages = null; this.pending = new Set(); this.closed = false;
   }
@@ -104,13 +101,6 @@ export class DeviceSettingsService {
     }
     return this.connectionList();
   }
-  explanationConfig() {
-    const profile = this.explanation.read();
-    const connection = this.getManager().config().connections.find(row => row.id === profile.connection_id);
-    const reason = explanationReadiness(connection, profile);
-    return this.view({ version: 1, ...profile, default_prompt: DEFAULT_EXPLANATION_PROMPT, ready: reason === null, reason,
-      configuration_scope: this.explanation.configurationScope?.() });
-  }
   async perform(method, p) {
     validateConfigurationDirectory(this.config);
     switch (method) {
@@ -134,17 +124,6 @@ export class DeviceSettingsService {
       case 'agent.environment.configure': return this.view(saveAgentEnvironment({ ...this.config, deviceHome: this.config.home }, p.target, p.values, 'device'));
       case 'agent.network': return this.view(readNetworkConfiguration(this.config));
       case 'agent.network.configure': return this.view(saveNetworkConfiguration(this.config, p.config));
-      case 'quick_explain.config': return this.explanationConfig();
-      case 'quick_explain.configure': {
-        const profile = this.explanation.preview(p.config);
-        if (profile.connection_id) {
-          const connection = this.getManager().config().connections.find(row => row.id === profile.connection_id);
-          const reason = explanationReadiness(connection, profile, false);
-          check(!reason, reason || '解释来源无效');
-          if (profile.model && connection.models?.length) check(connection.models.includes(profile.model), '解释模型不在来源范围内');
-        }
-        this.explanation.save(profile); return this.explanationConfig();
-      }
       case 'agent.connections.list': return this.connectionList();
       case 'agent.selection.resources': {
         const list = this.connectionList();

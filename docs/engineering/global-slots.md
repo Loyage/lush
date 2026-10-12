@@ -7,7 +7,7 @@
 - 各项目 daemon 在原有就绪与安全门内启动 Worker；不再按 running.size 或执行／控制／后台角色的槽额度阻止准入。
 - 依赖、分支冻结、合并串行、项目维护、真实 invocation 退出及同 Worker 不重叠等安全约束不变。取消并发额度不等于绕过这些保护。
 - 移除活跃 `concurrency`／`control_concurrency` 配置、CLI 设置及相关读面。旧设置文件中的对应值只保留历史，不再生效、不自动删除或迁移；旧 `LUSH_CONCURRENCY`／`LUSH_CONTROL_CONCURRENCY` 环境变量不再参与配置或校验。
-- 保留调用超时、单 Worker 调用次数、最大委派深度及非 Worker 的网络／读取／纯文本直接模型调用资源预算（包括快速对话的独立准入保护）。这些不是用户要求删除的 Worker 并发槽功能。
+- 保留调用超时、单 Worker 调用次数、最大委派深度及非 Worker 的网络／读取资源预算。这些不是用户要求删除的 Worker 并发槽功能。
 - 不新增设备共享资源文件、领取／释放机制、Host 跨项目调度或 `/api/host/slots` API。
 
 ## 界面与公开面

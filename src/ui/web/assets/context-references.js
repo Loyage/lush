@@ -2,16 +2,13 @@ import { $, button, el } from './dom.js';
 import { show } from './messages.js';
 import { detail, resource } from './navigate.js';
 import { transcriptOpen, ui } from './state.js';
-import { modelHelp } from './help.js';
-import { chatLocation, chatHref } from './quick-chat.js';
-import { projectRoute } from './route.js';
 import { revealDetailPreview } from './detail-preview.js';
 
 const MAX_REFERENCES = 12;
 const MAX_QUOTE = 8192;
 const MAX_REFERENCE_BYTES = 48 * 1024;
 const descriptors = new WeakMap();
-let handlers = null, menuGeneration = 0;
+let handlers = null;
 
 const textOf = node => String(node?.innerText ?? node?.textContent ?? '').replace(/\s+/g, ' ').trim();
 const parentOf = node => node?.parentElement ?? node?.parentNode ?? null;
@@ -168,7 +165,7 @@ export function renderComposerReferences() {
     chip.append(label, remove); return chip;
   }));
   holder.hidden = ui.composerReferences.length === 0;
-  ui.syncComposer?.(); ui.syncQuickChatReferences?.();
+  ui.syncComposer?.();
 }
 
 let flashNode = null, flashTimer = null;
@@ -239,13 +236,11 @@ export async function locateReference(reference) {
   flashLocated(found);
   return true;
 }
-function hideMenu() { menuGeneration++; const menu = $('context-menu'); if (menu) menu.hidden = true; }
-function showMenu(event, values, introduce = null) {
+function hideMenu() { const menu = $('context-menu'); if (menu) menu.hidden = true; }
+function showMenu(event, values) {
   const menu = $('context-menu');
   if (!menu || !values.length) return;
   menu.replaceChildren(...values.map(value => button(`引用：${value.label}`, () => { addComposerReference(value); hideMenu(); }, 'context-action')));
-  for (const entry of [...(introduce || [])].reverse()) menu.prepend(button(entry.label, () => { hideMenu(); return entry.run(); }, 'context-action',
-    { agent: true, help: entry.help }));
   const width = Number(globalThis.innerWidth || 0), height = Number(globalThis.innerHeight || 0);
   const left = width ? Math.min(event.clientX ?? 0, Math.max(8, width - 370)) : (event.clientX ?? 0);
   const top = height ? Math.min(event.clientY ?? 0, Math.max(8, height - 268)) : (event.clientY ?? 0);
@@ -254,38 +249,14 @@ function showMenu(event, values, introduce = null) {
   menu.style.left = `${Math.max(8, left)}px`; menu.style.top = `${Math.max(8, top)}px`; menu.hidden = false;
   event.preventDefault?.();
 }
-async function onContextMenu(event) {
-  const generation = ++menuGeneration, owner = globalThis.document;
+function onContextMenu(event) {
   if (excluded(event.target)) { hideMenu(); return; }
   const selected = selectionReference(event.target);
   const semantic = semanticOptions(event.target);
   const generic = genericReference(event.target);
   const values = selected ? [selected, ...semantic] : [...semantic];
   if (generic && !values.some(value => value.kind === 'text' && value.quote === generic.quote)) values.push(generic);
-  // Only an actual selection can trigger a model call. References retain their bounded snapshot,
-  // while explanation receives the full selected text and rejects oversize instead of truncating it.
-  const quote = selected ? String(window.getSelection()?.toString?.() || '').trim() : '';
-  if (values.length) showMenu(event, values); else { hideMenu(); return; }
-  const project = projectRoute();
-  if (!selected || !project) return;
-  try {
-    const module = await import('./quick-chat.js');
-    if (generation !== menuGeneration || owner !== globalThis.document || projectRoute() !== project) return;
-    const config = await module.quickChatConfig();
-    if (generation !== menuGeneration || owner !== globalThis.document || projectRoute() !== project || $('context-menu').hidden
-      || String(window.getSelection()?.toString?.() || '').trim() !== quote) return;
-    const actions = (config.prompts || []).filter(prompt => prompt.context_menu).map(prompt => ({ label: prompt.name,
-      help: modelHelp(`使用“${prompt.name}”处理所选文字（${chatLocation(selected.location)}），保存为当前项目 C 对话并在新标签打开；原项目页面保留，不创建 Worker，不执行工具`),
-      run: () => { if (owner === globalThis.document && projectRoute() === project) return module.startSelectionChat(prompt.id, quote, selected); } }));
-    showMenu(event, values, actions);
-    if (!config.model?.ready && actions.length) {
-      const note = el('a', config.model?.reason || '请先配置快速对话模型'); note.href = chatHref('#quick-chat-settings'); note.target = '_blank'; note.rel = 'noopener'; $('context-menu').append(note);
-    }
-  } catch (error) {
-    if (generation === menuGeneration && owner === globalThis.document && projectRoute() === project && !$('context-menu').hidden) {
-      $('context-menu').append(el('p', `快速对话菜单读取失败：${error.message}；引用仍可使用。`, 'hint'));
-    }
-  }
+  if (values.length) showMenu(event, values); else hideMenu();
 }
 function onClick(event) { if (!inside(event.target, $('context-menu'))) hideMenu(); }
 function onKeydown(event) { if (event.key === 'Escape') hideMenu(); }

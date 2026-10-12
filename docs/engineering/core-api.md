@@ -86,11 +86,11 @@ W116 / 待决 #261 批准设备同系统用户共享技术配置，项目/Worker
 
 服务维护另有用户专属的 `system.stop_if_idle {}`：daemon 同步拒绝有活动调用或 Git/合并工作的重启请求，准入后封闭新调度并正常停止。Host 的项目重启入口负责等待退出、启动新进程；Host 自身重启独立进行，不停止项目。完整 HTTP 与返回字段见[服务重启](../reference/web-routes.md#服务重启)。
 
-## 项目级快速对话与旧解释退役
+## 快速对话与旧解释退役
 
-快速对话通过 Host 用户 API `/p/<id>/api/quick-chat/**`（绑定 Host 可无前缀），不新增项目 RPC 或 Agent API，不创建 Worker／Input，不连接／启动 daemon。C 历史与 Prompt 库项目独立，模型／凭证设备共用；接口与安全以[快速对话契约](quick-chat.md)为准。
+快速对话功能已整体移除（W235／D555）。全部 `/api/quick-chat/**`、`/api/host/quick-chat/**`、`/api/quick-explain/**` 与 `quick_explain.*`、`intro.*`、`explanation.*` 调用、历史及配置入口关闭，不保留别名。
 
-W218／D510 删除旧解释历史、页面及调用接口；旧 `intro.*` / `explanation.*` 与 `quick_explain.start/followup/get/list/delete` 均关闭，只保留用户专属 `quick_explain.config/configure` 作为共用模型设置内部接口。旧解释结果／追问及旧设备 C 对话／Prompt 库永久清除，不删除 Worker、Input、执行记录或事件；[退役契约](project-quick-chat.md)是旧行不删除约定的明确例外。
+用户明确授权永久清理专用历史、Prompt 库及模型配置；[退役契约](project-quick-chat.md)规定安全清理边界，是专用内容不删除约定的明确例外。正常 Agent 模型来源／凭证、Worker、Input、执行记录、事件及引用快照不删除；历史无工具 Worker 只读恢复兼容仍保留。
 
 ## 移除与磁盘边界
 

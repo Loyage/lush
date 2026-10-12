@@ -1,7 +1,6 @@
 import { Workspaces } from '../workspaces.js';
 import { AgentProvider, MockProvider } from '../../agent/provider.js';
 import { AgentSettings } from '../../agent/settings.js';
-import { QuickExplanationSettings } from '../quick-explanation.js';
 import { AgentUsageService } from '../agent-usage.js';
 import { AgentConnectionsService } from '../agent-connections.js';
 import { AgentSelectionService } from '../agent-selection.js';
@@ -15,7 +14,6 @@ export class ProjectBase {
   constructor(config, store, provider = null, options = {}) {
     this.config = config; this.store = store;
     this.agentSettings = new AgentSettings(config);
-    this.quickExplanationSettings = new QuickExplanationSettings(config);
     this.provider = provider || (config.provider === 'mock' ? new MockProvider() : new AgentProvider(config, this.agentSettings));
     this.workspaces = new Workspaces(config, store);
     // Internal runtime safety seam for direct user cleanup; Workspaces alone owns no invocation/command facts.

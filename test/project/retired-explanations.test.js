@@ -2,13 +2,12 @@ import { test, expect } from 'bun:test';
 import path from 'node:path';
 import { Database } from 'bun:sqlite';
 import { fixture } from '../helpers.js';
-import { install, connection } from './agent-connection-fixture.js';
 import { Store } from '../../src/persistence/store.js';
 import { retireExplanationHistory } from '../../src/persistence/store/schema.js';
 import { Dispatcher, HANDLERS } from '../../src/rpc/dispatcher.js';
-import { PARAMS, USER_ONLY, assertAllowed } from '../../src/rpc/registry.js';
+import { PARAMS, USER_ONLY } from '../../src/rpc/registry.js';
 
-const removed = ['quick_explain.start', 'quick_explain.followup', 'quick_explain.get', 'quick_explain.list', 'quick_explain.delete',
+const removed = ['quick_explain.config', 'quick_explain.configure', 'quick_explain.start', 'quick_explain.followup', 'quick_explain.get', 'quick_explain.list', 'quick_explain.delete',
   'intro.start', 'intro.get', 'intro.list', 'intro.config', 'intro.configure', 'explanation.start', 'explanation.get', 'explanation.list'];
 const legacyTables = `
 CREATE TABLE introductions(id INTEGER PRIMARY KEY, task_id INTEGER, quote TEXT NOT NULL, location TEXT NOT NULL,
@@ -52,45 +51,14 @@ test('old explanation RPC and direct runtime/store entry points are gone before 
   } finally { await f.close(); }
 });
 
-test('shared chat model configuration still validates source/model, is user-only and never calls a model', async () => {
-  const f = fixture(); const { manager } = install(f);
+test('dedicated chat configuration is absent without changing Agent settings', async () => {
+  const f = fixture();
   try {
-    expect(f.project.quickExplanationConfig().ready).toBe(false);
-    const original = f.project.agentSettings.readStored();
-    manager.connections[0].models = ['vendor/model'];
-    for (const patch of [{ connection_id: 'missing' }, { connection_id: 'conn-one', model: 'wrong' }])
-      expect(() => f.project.configureQuickExplanation(patch)).toThrow();
-    const dispatcher = new Dispatcher(f.project);
-    expect(await dispatcher.dispatch('quick_explain.configure', { config: { connection_id: 'conn-one', model: 'vendor/model', prompt: 'test prompt' } }))
-      .toMatchObject({ ready: true, model: 'vendor/model', prompt: 'test prompt' });
-    expect(await dispatcher.dispatch('quick_explain.config')).toMatchObject({ ready: true, configuration_scope: { selected: 'device' } });
-    expect(f.project.agentSettings.readStored()).toEqual(original);
-    for (const method of ['quick_explain.config', 'quick_explain.configure']) expect(() => assertAllowed(method, {}, 42)).toThrow('requires user approval');
-    expect(() => f.project.quickExplanationConfig('project')).toThrow('project configuration overrides');
-    manager.connections[0].enabled = false; expect(f.project.quickExplanationConfig().reason).toContain('禁用');
-    manager.connections[0] = connection({ provider: 'openai-codex', auth_type: 'oauth' });
-    expect(() => f.project.configureQuickExplanation({ connection_id: 'conn-one' })).toThrow('OAuth');
-    manager.connections[0] = connection({ provider: 'kimi-coding' });
-    expect(() => f.project.configureQuickExplanation({ connection_id: 'conn-one' })).toThrow('协议');
-    expect(f.project.configureQuickExplanation({ connection_id: null, model: null, prompt: null }).ready).toBe(false);
-    manager.connections[0] = connection({ credential: { status: 'unconfigured' } });
-    f.project.quickExplanationSettings.save({ connection_id: 'conn-one', model: 'vendor/model' });
-    expect(f.project.quickExplanationConfig().reason).toContain('API Key');
-    expect(manager.calls).toBe(0); expect(f.store.tasks()).toEqual([]); absent(f.store.db);
-  } finally { await f.close(); }
-});
-
-test('retained model settings still obey clear, deletion and shutdown write gates', async () => {
-  const f = fixture(); install(f);
-  try {
-    f.project.clearing = true;
-    expect(() => f.project.configureQuickExplanation({ prompt: 'new' })).toThrow('clear');
-    f.project.clearing = false; f.project.workerDeleteIds = new Set([1]);
-    expect(() => f.project.configureQuickExplanation({ prompt: 'new' })).toThrow('deletion');
-    f.project.workerDeleteIds.clear(); f.project.stopping = true;
-    expect(() => f.project.configureQuickExplanation({ prompt: 'new' })).toThrow('stopping');
+    const before = f.project.agentSettings.readStored();
+    for (const name of ['quickExplanationConfig', 'configureQuickExplanation', 'quickExplanationSettings']) expect(f.project[name]).toBeUndefined();
+    expect(f.project.agentSettings.readStored()).toEqual(before);
     absent(f.store.db);
-  } finally { f.project.clearing = false; f.project.workerDeleteIds?.clear(); await f.close(); }
+  } finally { await f.close(); }
 });
 
 test('upgrade removes every old explanation and follow-up but preserves development and historical no-tools records', async () => {

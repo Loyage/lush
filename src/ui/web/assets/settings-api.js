@@ -1,7 +1,7 @@
 import { api } from './api.js';
 
-const READS = /^\/api\/(?:settings\/runtime|quick-explain\/config|agent\/(?:config|status|connections|connections\/models|network|environment|models|selection\/resources|packages|resources))$/;
-const ACTIONS = /^(?:system\.configure|agent\.configure|agent\.(?:network|environment)\.configure|agent\.packages\.(?:install|remove|update)|quick_explain\.configure|agent\.connections\.(?:save|remove|query|sampling|models\.refresh|device\.(?:start|poll|cancel)|login\.(?:start|finish)))$/;
+const READS = /^\/api\/(?:settings\/runtime|agent\/(?:config|status|connections|connections\/models|network|environment|models|selection\/resources|packages|resources))$/;
+const ACTIONS = /^(?:system\.configure|agent\.configure|agent\.(?:network|environment)\.configure|agent\.packages\.(?:install|remove|update)|agent\.connections\.(?:save|remove|query|sampling|models\.refresh|device\.(?:start|poll|cancel)|login\.(?:start|finish)))$/;
 
 /** Device configuration always belongs to Host, even when the current project is offline. */
 export function settingsClient(scope = 'device') {
@@ -19,7 +19,7 @@ export function settingsClient(scope = 'device') {
     read: async url => {
       const value = await api(urlFor(url));
       const path = new URL(url, 'http://lush.invalid').pathname;
-      if (['/api/settings/runtime', '/api/agent/config', '/api/agent/connections', '/api/agent/network', '/api/agent/environment', '/api/quick-explain/config'].includes(path)
+      if (['/api/settings/runtime', '/api/agent/config', '/api/agent/connections', '/api/agent/network', '/api/agent/environment'].includes(path)
         && (value?.configuration_scope?.selected !== 'device' || value.configuration_scope.project_override === true
           || !['device', 'default', 'mixed'].includes(value.configuration_scope.source))) {
         throw new Error('Host 未确认设备设置来源，请更新界面服务；未修改任何配置');

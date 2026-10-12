@@ -30,7 +30,6 @@ export const ui = {
   agentStatusPage: null, // 页面与查询身份；仅进入 Agent 状态和手动刷新时取数。
   versionsPage: null, // main 历史固定 tip、分页与请求身份；仅显式读取。
   disposeServiceRestart: null, // 项目管理代际结束时取消只读批次观测，不撤销已接受请求。
-  quickChatPage: null, disposeQuickChatPage: null, syncQuickChatReferences: null, composerChatMode: null,
   inputsPage: null, // 全库输入搜索、分页与本地编辑；不受 overview 轮询影响。
   hooksPage: null, hookCatalogue: null, hookCataloguePending: null,
   composerParents: [], composerIdentity: null, composerTask: null, composerAppendTarget: null, composerError: null, syncComposer: null, composerEditRevision: 0, composerReferenceRevision: 0,
@@ -88,7 +87,6 @@ export function resetUiState() {
   ui.disposePageModules?.(); ui.disposePageModules = null;
   ui.hostSession = { status: 'unread', username: null, pending: null };
   ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null;
-  ui.disposeQuickChatPage?.(); ui.quickChatPage = null; ui.disposeQuickChatPage = null; ui.syncQuickChatReferences = null; ui.composerChatMode = null;
   ui.view = null; ui.inputsPage = null; ui.hooksPage = null; ui.hookCatalogue = null; ui.hookCataloguePending = null; ui.deletedWorkerIds = new Set(); ui.workerNumbers = new Map();
   ui.composerParents = []; ui.composerIdentity = null; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerError = null; ui.syncComposer = null; ui.composerEditRevision = 0; ui.composerReferenceRevision = 0;
   ui.selected = null; ui.selectedRevision = null; ui.busy = false; ui.offline = false;

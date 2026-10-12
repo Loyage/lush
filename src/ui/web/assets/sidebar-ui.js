@@ -9,9 +9,6 @@ const PAGES = {
   'global-inbox': ['全局收件箱', '用户工作台', '所有有权访问项目的待答问题与告知'],
   automation: ['全局自动化', '用户工作台', '设备自动选择 · 未来新指令默认流程'],
   'workspace-link': ['独立用户工作台', '项目工作', '全局页面在独立标签打开'],
-  'quick-chat': ['快速对话', '当前项目', '纯文本交流与记录 · 项目 C 编号历史'],
-  'quick-chat-settings': ['快速对话设置', '当前项目', '项目 Prompt 库、右键注册与设备共用模型'],
-  'quick-chat-conversation': ['快速对话', '当前项目', '同一段多轮对话 · 无 Agent 工具'],
   unavailable: ['项目不可用', '工作台', '项目离线时仍可使用环境、设置与帮助'],
   overview: ['项目概览', '工作', '需求、执行进展与最新成果'],
   'task-graph': ['Worker 树', '工作', 'Worker 父子关系 · Agent、分支与 worktree'],
@@ -45,7 +42,7 @@ export function setViewChrome(title, context = '项目', hint = '', { root = fal
 /** 页面身份是唯一导航状态；旧读标记在此统一投影，面板不得各自设置。 */
 function activate(id, { key = id, title, context, hint, push = true, hash } = {}) {
   const changed = ui.view?.key !== key;
-  if (changed) { ui.noticeRecords?.disposeHeading?.(); ui.disposePageModules?.(); ui.disposeTaskGraph?.(); ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.disposeQuickChatPage?.(); ui.view = { id, key }; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerChatMode = null; ui.composerError = null; }
+  if (changed) { ui.noticeRecords?.disposeHeading?.(); ui.disposePageModules?.(); ui.disposeTaskGraph?.(); ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.view = { id, key }; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerError = null; }
   const resource = RESOURCE_META.get(id);
   ui.indexOpen = resource ? id : null;
   ui.docsOpen = id === 'docs';
@@ -121,10 +118,9 @@ export function setNavCount(id, count) { const target = ui.navCounts.get(id); if
 export function selectNav(id) {
   const buttons = new Map(ui.navButtons);
   for (const key of Object.keys(PAGES)) { const target = node(`${key}-open`); if (target) buttons.set(key, target); }
-  const selected = ['quick-chat-settings', 'quick-chat-conversation'].includes(id) ? 'quick-chat' : id;
   for (const [key, target] of buttons) {
-    target.classList.toggle('selected', key === selected);
-    target.setAttribute('aria-current', key === selected ? 'page' : 'false');
+    target.classList.toggle('selected', key === id);
+    target.setAttribute('aria-current', key === id ? 'page' : 'false');
   }
 }
 export function navTo(id) { return openResource(id); }

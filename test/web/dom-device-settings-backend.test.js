@@ -5,7 +5,6 @@ import { installDom, deepText, dialogButton } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
 import { setup, fetch as httpFetch } from './harness.js';
 import { openAgentStatus } from '../../src/ui/web/assets/render-agent-status.js';
-import { renderChatModel } from '../../src/ui/web/assets/quick-chat-model.js';
 import { openModelSources } from '../../src/ui/web/assets/render-model-sources.js';
 import { settingsClient } from '../../src/ui/web/assets/settings-api.js';
 import { agentPrompt } from '../../src/agent/prompts.js';
@@ -22,7 +21,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (raw.startsWith(`/p/${registeredSource}/api/`)) return httpFetch(f.url + raw, options);
   if (raw.startsWith('/api/host/') || raw.startsWith('/api/settings/')
     || /^\/api\/agent\/(config|connections|environment|network)(?:[/?]|$)/.test(raw)
-    || raw.startsWith('/api/quick-explain/config') || raw === '/api/action') return httpFetch(f.url + raw, options);
+    || raw === '/api/action') return httpFetch(f.url + raw, options);
   return world.fetchImpl(raw, options);
 } });
 const { boot } = await import('../../src/ui/web/assets/app.js');
@@ -97,7 +96,7 @@ test('真实四项能力开关使用 Host partial patch，保持旧项目历史�
   expect(deepText(detail())).toContain('不是权限隔离'); expect(deepText(detail())).toContain('当前调用与已有子 Worker');
 });
 
-test('真实 Host 投影可供无项目来源编辑及快捷解释保存，不将只读字段写回凭证文档', async () => {
+test('真实 Host 投影可供无项目来源编辑，不将只读字段写回凭证文档', async () => {
   const saved = await saveSource();
   const profile = f.project.agentConfig('device');
   await settingsClient().action('agent.configure', { config: { version: 1, default: { ...profile.default, agent: 'pi', config_mode: 'pi' }, roles: {} } });
@@ -114,12 +113,6 @@ test('真实 Host 投影可供无项目来源编辑及快捷解释保存，不�
     const document = JSON.parse(fs.readFileSync(path.join(f.config.deviceHome, 'credentials', 'agent-connections.json'), 'utf8'));
     expect(document.connections[0].label).toBe('更新临时共享来源');
     for (const key of ['configuration_scope', 'storage_scope', 'consumers', 'observation']) expect(document.connections[0]).not.toHaveProperty(key);
-    await renderChatModel({ container: detail(), ownsPage: () => true });
-    const connection = detail().querySelector('[data-quick-field="connection_id"]'); connection.value = saved.id; connection.onchange();
-    input(detail().querySelector('[data-quick-field="model"]'), 'deepseek-chat');
-    await button(detail(), '保存模型设置').onclick();
-    expect(f.project.quickExplanationConfig('device')).toMatchObject({ ready: true, model: 'deepseek-chat' });
-    expect(detail().querySelector('[data-quick-field="prompt"]')).toBeNull();
     expect(requests.every(row => row.url.startsWith('/api/host/settings/'))).toBe(true);
     expect(button(detail(), '刷新历史')).toBeUndefined();
   } finally { world.fetchImpl = original; }

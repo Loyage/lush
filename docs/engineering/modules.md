@@ -22,7 +22,7 @@
 
 修改模块前必须阅读[模块设计理念](../design/README.md)中的对应主题；执行记录相关改动先读[Agent 执行过程](../design/agent-process.md)，引用、选区引用与引用卡片定位相关改动先读[上下文引用与定位](../design/references.md)。
 
-公开面以[核心 API 收敛](core-api.md)与 `src/rpc/registry.js` 为唯一白名单。`explanation.*` / `intro.*` 与旧 `quick_explain` 调用／历史实现已在 W218／D510 删除，仅保留模型配置与历史无工具 Worker 的事件快照恢复；当前可用的执行记录接口只有 `worker.transcript*`。
+公开面以[核心 API 收敛](core-api.md)与 `src/rpc/registry.js` 为唯一白名单。`explanation.*` / `intro.*` / `quick_explain.*` 及快速对话调用／历史／专用模型配置已删除，仅保留历史无工具 Worker 的事件快照恢复；当前可用的执行记录接口只有 `worker.transcript*`。
 
 执行记录增量接口（具体约束见[阅读器](transcript-reader.md)）：
 - 用户只读 `worker.transcript_page(id,seq?,offset?)` / `GET /api/worker/<id>/transcript-page`，从 `(seq,offset)` 连续读取未裁剪的步骤文字；每页最多 50 段、96,000 字符正文，单段最多 24,000 字符，返回 `next_seq/next_offset/has_more`。兼容只读接口保留，不启动 Pi 或 PTY，不执行终端控制序列；Web 使用全屏富文本详情与分段步骤原文，不再提供终端模式。
@@ -65,19 +65,11 @@ W160 原交付经 W162 按 #411 适配：`appearance.js` 分离设备主题与�
 
 用户 W116 / 待决 #261 确认同设备同系统用户共享设置，项目/Worker 可覆盖；当前项目作为显式首次迁移来源，成功后源项目改为继承，其他旧项目保留覆盖，新项目直接继承。范围内以[设备共享设置理念](../design/device-settings.md)与[工程契约](device-settings.md)为准，优先于下文旧的全项目私有设置描述。项目 home、DB、Worker、历史、Git 与调度绑定不变，不引入跨项目调度。
 
-父分区负责 `src/core/device-config.js`（作用域/私有根/跨进程锁）、Host 独立设置服务、RPC/HTTP/CLI 接入、Project 转发与组合测试；配置基础分区负责 Config、RuntimeSettings、AgentSettings、网络/env、快捷解释配置及 Pi 资源存储的继承；连接/迁移分区负责有效来源并集、实际根凭证锁、作用域管理器和 `src/core/device-migration.js`；前端分区负责 assets 的作用域编辑、继承/覆盖、迁移 UI 和无项目入口。详细签名与测试隔离以工程契约为准。
+父分区负责 `src/core/device-config.js`（作用域/私有根/跨进程锁）、Host 独立设置服务、RPC/HTTP/CLI 接入、Project 转发与组合测试；配置基础分区负责 Config、RuntimeSettings、AgentSettings、网络/env 及 Pi 资源存储的继承；连接/迁移分区负责有效来源并集、实际根凭证锁、作用域管理器和 `src/core/device-migration.js`；前端分区负责 assets 的作用域编辑、继承/覆盖、迁移 UI 和无项目入口。详细签名与测试隔离以工程契约为准。
 
-## 项目级快速对话与旧解释退役（W218／D510）
+## 快速对话退役（W235／D555）
 
-用户确认永久删除旧解释结果／追问与旧设备 C 对话及 Prompt 库；新快速对话历史、C 编号与 Prompt 库独立归项目，模型／凭证仍设备共用。新接缝、存储／接口与并行范围见[项目级快速对话](project-quick-chat.md)，优先于下列 W207 全局历史及旧解释保留描述。Host 仅按固定项目身份处理纯文本附属请求，不启动项目后台、不创建 Worker。
-
-## 快速对话接缝（W207／D486、D487，已由 W218 修订）
-
-W207 曾采用设备级历史与全局页；现已按 W218／D510 改为项目独立 C 历史／Prompt，模型与凭证设备共用。接口见[快速对话契约](quick-chat.md)。
-
-## 旧解释退役
-
-W218／D510 删除旧快捷解释页面、历史读写及模型调用实现，项目升级永久清除 introductions / explanation_followups，旧设备 quick-chat 历史安全退役；设备模型配置继续用于快速对话。历史 Worker／事件／执行记录不删除，不恢复旧公开 `intro.*` / `explanation.*` 或解释 Agent。
+快速对话页面、输入模式、右键模型动作、Prompt 库、直连服务及专用模型配置整体删除。用户明确授权安全清理专用数据，精确边界见[退役契约](project-quick-chat.md)。历史 Worker／Input／事件／执行记录与引用快照不删除，不恢复旧公开调用或配置入口。
 
 ## 项目出站网络接缝
 

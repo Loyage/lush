@@ -76,9 +76,6 @@ const openSettings = () => openPage(() => import('./render-settings.js'), module
 const openAgentStatus = () => openPage(() => import('./render-agent-status.js'), module => module.openAgentStatus(), 'agent-status');
 const openVersions = () => openPage(() => import('./render-versions.js'), module => module.openVersions(), 'versions');
 const openHooks = (subpage = 'settings') => openPage(() => import('./render-hooks.js'), module => module.openHooks({ subpage }), 'hooks', { hash: subpage === 'history' ? '#hooks-history' : '#hooks' });
-const openQuickChatPage = () => openPage(() => import('./render-quick-chat.js'), module => module.openQuickChatPage(), 'quick-chat');
-const openQuickChatSettings = () => openPage(() => import('./render-quick-chat.js'), module => module.openQuickChatSettings(), 'quick-chat-settings');
-const openQuickChatConversation = id => openPage(() => import('./render-quick-chat.js'), module => module.openQuickChatConversation(id), 'quick-chat-conversation', { key: `quick-chat-C${id}`, hash: `#quick-chat-C${id}` });
 const openAutomation = () => openPage(() => import('./render-workspace-automation.js'), module => module.openWorkspaceAutomation(), 'automation');
 const openGlobalInbox = (options = {}) => openPage(() => import('./global-inbox.js'), module => module.openGlobalInbox(options), 'global-inbox',
   { push: options.push, hash: options.projectId && options.noticeId ? `#inbox-notice-${options.projectId}-${options.noticeId}` : options.projectId ? `#notices-project-${options.projectId}${options.status && options.status !== 'all' ? `-${options.status}` : ''}` : options.status === 'automatic' ? '#notices-automatic' : '#notices' });
@@ -131,10 +128,6 @@ function onHashChange() {
     return noProjectView();
   }
   if (!workbenchStatus().projectUsable) return noProjectView();
-  if (hash === '#quick-chat-settings') return ui.view?.id === 'quick-chat-settings' ? undefined : openQuickChatSettings();
-  if (hash === '#quick-chat') return ui.view?.id === 'quick-chat' ? undefined : openQuickChatPage();
-  const conversation = /^#quick-chat-C([1-9]\d*)$/.exec(hash);
-  if (conversation && Number.isSafeInteger(Number(conversation[1]))) return ui.view?.key === `quick-chat-C${conversation[1]}` ? undefined : openQuickChatConversation(Number(conversation[1]));
   if (hash === '#hooks' || hash === '#hooks-history') {
     const subpage = hash === '#hooks-history' ? 'history' : 'settings';
     return ui.view?.id === 'hooks' && ui.hooksPage?.subpage === subpage ? undefined : openHooks(subpage);
@@ -243,7 +236,7 @@ export async function boot() {
     if (projectRoute()) $('home').setAttribute('data-help', '在新标签打开上级用户工作台，当前项目的输入与阅读位置保留。');
     else $('home').removeAttribute('data-help');
   }
-  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'versions-open', 'hooks-open', 'quick-chat-open'];
+  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'versions-open', 'hooks-open'];
   for (const id of projectOnly) { const target = $(id); if (target) { target.disabled = !projectReady; target.setAttribute('aria-disabled', String(!projectReady)); } }
   if ($('composer-shell')) $('composer-shell').hidden = !projectReady;
 
@@ -253,7 +246,6 @@ export async function boot() {
   if ($('versions-open')) $('versions-open').onclick = () => projectReady ? openVersions() : noProjectView();
   if ($('inputs-open')) $('inputs-open').onclick = () => projectReady ? openInputs() : noProjectView();
   if ($('input-history')) $('input-history').onclick = () => projectReady ? openInputs() : noProjectView();
-  if ($('quick-chat-open')) $('quick-chat-open').onclick = () => projectReady ? openQuickChatPage() : noProjectView();
   $('sidebar-toggle').onclick = () => toggleMobileNavigation();
   $('sidebar').onkeydown = event => {
     if (event.key === 'Escape' && $('sidebar').classList.contains('mobile-open')) {

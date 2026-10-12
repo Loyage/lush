@@ -9,7 +9,7 @@ import { createUserServices } from '../../host/user-services.js';
 import { validateAppearanceUpdate } from '../../host/project-appearance.js';
 import { docsIndex, docsSearchIndex, readDoc } from './docs.js';
 import { previewResponse } from './notice-preview.js';
-import { check, id, isPlainObject, LushError } from '../../core/types.js';
+import { check, id, isPlainObject } from '../../core/types.js';
 import { restartProjectDaemon } from '../../host/service-control.js';
 import { DeviceSettingsService, DEVICE_SETTINGS_READS, DEVICE_SETTINGS_ACTIONS } from '../../host/device-settings.js';
 import { normalizeConfigurationScope } from '../../core/device-config.js';
@@ -20,13 +20,9 @@ const AUTH_FILE = 'web.json';
 const SESSION_COOKIE = 'lush_session';
 const SESSION_SECONDS = 12 * 60 * 60;
 const WEB_HOSTS = new WeakMap();
-const MUTATIONS = new Set(['settings.clear_override','settings.migration.apply','quick_explain.configure','agent.network.configure','agent.configure','agent.environment.configure','agent.usage.configure','agent.connections.save','agent.connections.remove','agent.connections.sampling','agent.connections.query','agent.connections.models.refresh','agent.connections.login.start','agent.connections.login.finish','agent.connections.device.start','agent.connections.device.cancel','agent.connections.device.poll','agent.packages.install','agent.packages.remove','agent.packages.update','system.configure','system.interrupt_all','system.resume_all','hooks.save','hooks.remove','hooks.command_save','hooks.command_authorize','hooks.command_remove','hooks.command_run','hooks.command_start','hooks.command_history_remove','hooks.command_import','hooks.auto_select','hooks.completion_defaults','hooks.signal_save','hooks.signal_remove','management.create','management.binding_update','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove','order.submit','draft.add','draft.update','draft.remove','worker.spawn','worker.message','worker.rename','worker.auto_merge','worker.reserve','worker.reserve_all','worker.resolve','worker.accept','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.resolve_divergence','worker.unreserve','worker.approve_merge','worker.cancel','worker.retry','worker.clear_override','worker.interrupt','worker.resume','worker.configure','worker.cleanup','worker.delete','notice.answer','notice.dismiss','notice.read','branch.archive','branch.convergence_set','branch.convergence_defaults_set','branch.convergence_retry']);
-const QUICK_CHAT_PARAMS = new Map([
-  ['prompt_save', ['prompt', 'expected_revision']], ['prompt_remove', ['id', 'expected_revision']],
-  ['start', ['prompt_id', 'content', 'references']], ['send', ['id', 'content']], ['delete', ['id']],
-]);
+const MUTATIONS = new Set(['settings.clear_override','settings.migration.apply','agent.network.configure','agent.configure','agent.environment.configure','agent.usage.configure','agent.connections.save','agent.connections.remove','agent.connections.sampling','agent.connections.query','agent.connections.models.refresh','agent.connections.login.start','agent.connections.login.finish','agent.connections.device.start','agent.connections.device.cancel','agent.connections.device.poll','agent.packages.install','agent.packages.remove','agent.packages.update','system.configure','system.interrupt_all','system.resume_all','hooks.save','hooks.remove','hooks.command_save','hooks.command_authorize','hooks.command_remove','hooks.command_run','hooks.command_start','hooks.command_history_remove','hooks.command_import','hooks.auto_select','hooks.completion_defaults','hooks.signal_save','hooks.signal_remove','management.create','management.binding_update','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove','order.submit','draft.add','draft.update','draft.remove','worker.spawn','worker.message','worker.rename','worker.auto_merge','worker.reserve','worker.reserve_all','worker.resolve','worker.accept','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.resolve_divergence','worker.unreserve','worker.approve_merge','worker.cancel','worker.retry','worker.clear_override','worker.interrupt','worker.resume','worker.configure','worker.cleanup','worker.delete','notice.answer','notice.dismiss','notice.read','branch.archive','branch.convergence_set','branch.convergence_defaults_set','branch.convergence_retry']);
 const CORE_INPUT_READ = /^\/api\/input\/(draft|input)\/([1-9]\d*)$/;
-const CORE_READS = new Set(['/api/branch-convergence','/api/branch-convergence/defaults','/api/branch-convergence/runs','/api/settings/runtime','/api/settings/migration','/api/quick-explain/config','/api/hooks','/api/hooks/commands/executions','/api/hooks/commands/export','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/worker-lookup','/api/notices','/api/worker-graph','/api/versions','/api/version-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
+const CORE_READS = new Set(['/api/branch-convergence','/api/branch-convergence/defaults','/api/branch-convergence/runs','/api/settings/runtime','/api/settings/migration','/api/hooks','/api/hooks/commands/executions','/api/hooks/commands/export','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/worker-lookup','/api/notices','/api/worker-graph','/api/versions','/api/version-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
 const CORE_WORKER_READ = /^\/api\/worker\/\d+(?:\/(?:hooks|relations|history|history-page|reading-page|reading-record|progress-history|run-settings|delete-preview|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的 Worker 读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/worker\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
@@ -191,40 +187,9 @@ export function startWeb(config, port = 4318, options = {}) {
   const sessions = new Map();
   const failures = new Map();
   let hostRestarting = false;
-  let deviceSettings = null, userServices = null, quickChatClosing = false, deviceChatRetirement = null;
-  const quickChats = new Map();
+  let deviceSettings = null, userServices = null;
   const getDeviceSettings = () => deviceSettings ||= options.deviceSettingsService || new DeviceSettingsService(env, options.deviceSettingsOptions);
   const getUserServices = () => userServices ||= createUserServices(projectHost, { ...options.userServiceOptions, env });
-  // Only a validated, project-identified request opens text attachments; never attach lushd.
-  const getQuickChat = projectId => {
-    check(!quickChatClosing, '快速对话服务正在停止');
-    const home = projectHost.chatHome(projectId);
-    if (!quickChats.has(home)) {
-      check(!options.quickChatService || quickChats.size === 0, '注入的快速对话服务只允许绑定一个项目');
-      quickChats.set(home, Promise.resolve().then(async () => {
-        const { QuickChatService, retireDeviceQuickChats } = await import('../../host/quick-chat.js');
-        const settings = getDeviceSettings();
-        // Retirement is idempotent, refuses active/unsafe legacy history, and never imports it.
-        // Do not cache a rejection forever: an explicit later request may succeed after old Hosts stop.
-        const retirement = deviceChatRetirement ||= Promise.resolve().then(() => retireDeviceQuickChats(settings.config.home));
-        try { await retirement; } catch (error) { deviceChatRetirement = null; throw error; }
-        check(!quickChatClosing, '快速对话服务正在停止');
-        if (options.quickChatService) return options.quickChatService;
-        return new QuickChatService(env, { ...options.quickChatOptions, home, settingsService: settings });
-      }).catch(error => { quickChats.delete(home); throw error; }));
-    }
-    return quickChats.get(home);
-  };
-  const chatRequest = async (projectId, method, ...args) => {
-    try {
-      const service = await getQuickChat(projectId);
-      check(!quickChatClosing, '快速对话服务正在停止');
-      return await service[method](...args);
-    } catch (error) {
-      if (error instanceof LushError || error?.quickChatSafe === true) throw error;
-      throw new Error('快速对话操作未确认，请保留输入并刷新历史核对；不要自动重试。');
-    }
-  };
   const emptyJson = async request => {
     check(request.headers.get('content-type')?.split(';')[0] === 'application/json', 'application/json required');
     const body = await request.json();
@@ -301,8 +266,8 @@ export function startWeb(config, port = 4318, options = {}) {
           userQuery(url, []);
           return json({ username: auth.username });
         }
-        // Old global chat history and actions are retired, including project-prefixed aliases.
-        if (/^(?:\/p\/[a-z0-9]{16})?\/api\/host\/quick-chat(?:\/|$)/.test(url.pathname)) return json({ error: 'not found' }, 404);
+        // Retired paths cannot attach projects or forward to an older daemon.
+        if (/^(?:\/p\/[a-z0-9]{16})?\/api\/(?:host\/(?:settings\/)?)?(?:quick-chat|quick-explain)(?:\/|$)/.test(url.pathname)) return json({ error: 'not found' }, 404);
         // ---- 宿主级路由：启动器等不属于任何项目的接口先于项目路由匹配 ----
         if (['/api/host/preferences', '/api/host/automation', '/api/host/dashboard'].includes(url.pathname)) {
           const methods = {
@@ -412,35 +377,6 @@ export function startWeb(config, port = 4318, options = {}) {
           // 旧页面发出的无项目身份请求：拒绝并提示刷新，绝不用另一标签页选中的项目代答。
           return json({ error: '缺少项目身份：全局 Web 的项目读写必须经 /p/<project>/ 路由；请刷新页面或从项目列表重新打开' }, 400);
         }
-        // Text conversations are project attachments served by Host even when lushd is offline.
-        if (url.pathname.startsWith('/api/quick-chat/')) {
-          const projectId = prefix?.[1] ?? null, suffix = url.pathname.slice('/api/quick-chat/'.length);
-          if (request.method === 'GET' && suffix === 'config') {
-            userQuery(url, []);
-            return json(await chatRequest(projectId, 'config'));
-          }
-          if (request.method === 'GET' && suffix === 'history') {
-            const query = userQuery(url, ['before', 'limit']);
-            if (Object.hasOwn(query, 'before')) query.before = id(query.before);
-            if (Object.hasOwn(query, 'limit')) { query.limit = id(query.limit); check(query.limit <= 50, 'quick chat limit must be 1..50'); }
-            return json(await chatRequest(projectId, 'list', query));
-          }
-          if (request.method === 'GET' && /^[1-9]\d*$/.test(suffix)) {
-            userQuery(url, []);
-            return json(await chatRequest(projectId, 'get', id(suffix)));
-          }
-          if (request.method === 'POST' && suffix === 'action') {
-            const body = await userBody(request, url);
-            check(isPlainObject(body) && Object.keys(body).every(key => ['method', 'params'].includes(key))
-              && QUICK_CHAT_PARAMS.has(body.method), 'quick chat method not allowed');
-            check(isPlainObject(body.params) && Object.keys(body.params).every(key => QUICK_CHAT_PARAMS.get(body.method).includes(key)),
-              'invalid quick chat parameters; paths and agent tokens are not accepted');
-            return json(await chatRequest(projectId, 'action', body.method, body.params));
-          }
-          return json({ error: 'not found' }, 404);
-        }
-        // Retired history never attaches a project or reaches a legacy daemon.
-        if (/^\/api\/quick-explain\/(?:history|[0-9]+|start|followup|delete)(?:\/|$)/.test(url.pathname)) return json({ error: 'not found' }, 404);
         const binding = projectApi ? (prefix ? await projectHost.openRoute(prefix[1]) : await projectHost.require()) : null;
         const client = binding?.client;
         if (request.method === 'POST' && url.pathname === '/api/service/restart') {
@@ -488,10 +424,6 @@ export function startWeb(config, port = 4318, options = {}) {
               params[key] = key === 'limit' ? Number(value) : value;
             }
             return json(await client.request('input.history', params));
-          }
-          if (url.pathname === '/api/quick-explain/config') {
-            check(!url.search, 'explanation config accepts no query parameters');
-            return json(await client.request('quick_explain.config'));
           }
           if (url.pathname === '/api/branch-convergence/defaults') {
             check(!url.search, 'branch convergence defaults accepts no query parameters');
@@ -789,11 +721,8 @@ export function startWeb(config, port = 4318, options = {}) {
   });
   const stop = server.stop.bind(server);
   server.stop = async closeActiveConnections => {
-    quickChatClosing = true;
     const stopped = stop(closeActiveConnections);
-    // Chat owns in-flight model requests, but may borrow the settings connection manager.
-    // Wait for its shutdown before stopping that shared dependency, including lazy construction.
-    await Promise.allSettled([stopped, ...[...quickChats.values()].map(pending => pending.then(service => service.close())), userServices?.close()]);
+    await Promise.allSettled([stopped, userServices?.close()]);
     await Promise.allSettled([deviceSettings?.stop()]);
   };
   WEB_HOSTS.set(server, projectHost);

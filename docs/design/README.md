@@ -8,8 +8,7 @@
 - [工作台与开发环境](workbench.md)：主体先于项目启动，区分环境、接入方式、项目与后台生命周期。
 - [设备共享设置](device-settings.md)：同设备用户配置一次，只保留 Worker 显式运行参数；旧配置迁移显式确认，项目事实与历史隔离。
 - [Agent 执行过程](agent-process.md)：让用户更好使用、更好理解、更好查找 Agent 的执行过程。
-- [快速对话](quick-chat.md)：W218／D510，项目级纯文本速记、独立 Prompt 与 C 编号、设备共用模型，不创建 Worker，旧解释退役。
-- [上下文引用与定位](references.md)：把用户当下所见（选区、语义节点）低成本带进下一步，并就地获得只读解释。
+- [上下文引用与定位](references.md)：把用户当下所见（选区、语义节点）低成本带进下一条指令，并定位来源。
 - [按钮帮助与 Agent 触发标识](ui-guidance.md)：让按钮含义与“会调用 Agent”的代价一眼可见。
 - [Agent 配置与模型来源](agent-model-settings.md)：分离设备默认工作方式与调用资源，保留单 Worker 的明确来源选择。
 - [Agent 能力模块](agent-capabilities.md)：W217／D509，必需核心与可选工作能力分离，薄 Skill 入口、按需 CLI 指南及设备全局启停。

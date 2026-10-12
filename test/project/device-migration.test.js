@@ -7,7 +7,6 @@ import { DeviceSettingsService } from '../../src/host/device-settings.js';
 import { ConnectionManager } from '../../src/agent/connections.js';
 import { AgentSettings } from '../../src/agent/settings.js';
 import { RuntimeSettings } from '../../src/core/settings.js';
-import { QuickExplanationSettings } from '../../src/core/quick-explanation.js';
 import { saveAgentEnvironment } from '../../src/agent/environment.js';
 import { saveNetworkConfiguration } from '../../src/agent/network.js';
 
@@ -32,7 +31,6 @@ test('confirmed RPC migration switches legacy project files to device-only runti
       connection_id: row.id, model: 'deepseek/deepseek-chat', extensions: ['./extension.mjs'], skills: [] }, roles: {} });
     saveAgentEnvironment(legacy, 'common', { MIGRATION_VALUE: 'migration-private-env' });
     saveNetworkConfiguration(legacy, { version: 1, mode: 'direct', no_proxy: [] });
-    new QuickExplanationSettings(legacy).save({ connection_id: row.id, model: 'deepseek-chat', prompt: 'Shared explanation' });
     await source.project.agentConnections.query(row.id);
     const history = source.project.agentConnectionHistory(row.id, 7);
     expect(history.series).toHaveLength(1);
@@ -57,13 +55,11 @@ test('confirmed RPC migration switches legacy project files to device-only runti
         extensions: [path.join(source.root, 'extension.mjs')] });
       expect(f.project.agentEnvironment('common').values.MIGRATION_VALUE).toBe('migration-private-env');
       expect(f.project.agentNetwork().configuration_scope.source).toBe('device');
-      expect(f.project.quickExplanationConfig()).toMatchObject({ connection_id: row.id, ready: true,
-        configuration_scope: { source: 'device', project_override: false } });
       expect(f.project.agentConnectionsList().connections[0]).toMatchObject({ id: row.id, storage_scope: 'device' });
       expect(fs.existsSync(path.join(f.config.home, 'credentials', 'agent-connections.json'))).toBe(false);
     }
     expect((await host.request('agent.config')).default.connection_id).toBe(row.id);
-    expect((await host.request('quick_explain.config')).ready).toBe(true);
+    await expect(host.request('quick_explain.config')).rejects.toThrow('not allowed');
     const hostConnections = await host.request('agent.connections.list');
     expect(hostConnections).toMatchObject({ history_available: false, consumers_scope: 'none' });
     expect(hostConnections.connections[0]).toMatchObject({ id: row.id, storage_scope: 'device', consumers: [] });
@@ -72,7 +68,7 @@ test('confirmed RPC migration switches legacy project files to device-only runti
       expect(JSON.stringify(value)).not.toContain('migration-private-key');
       expect(JSON.stringify(value)).not.toContain('migration-private-env');
     }
-    for (const relative of ['agent.json', 'quick-explanation.json', path.join('credentials', 'agent-connections.json')]) {
+    for (const relative of ['agent.json', path.join('credentials', 'agent-connections.json')]) {
       const stored = JSON.parse(fs.readFileSync(path.join(source.config.deviceHome, relative), 'utf8'));
       expect(stored).not.toHaveProperty('configuration_scope');
       if (stored.connections) expect(stored.connections[0]).not.toHaveProperty('storage_scope');

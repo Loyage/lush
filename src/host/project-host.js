@@ -5,6 +5,7 @@ import { UIClient } from '../ui/client.js';
 import { startProjectDaemon, stopProjectDaemon } from './service-control.js';
 import { check } from '../core/types.js';
 import { readProjectAppearance, saveProjectAppearance } from './project-appearance.js';
+import { retireProjectChat } from '../core/retired-chat.js';
 import { canonicalProjectPath, readLauncherState, removeLauncherProject, projectRouteId, writeLauncherState } from './registry.js';
 
 const DEVELOPMENT_COUNTS = ['workers_total','active','awaiting_acceptance','parent_confirmation','agents_running','pending_merges','merging','merge_conflicts'];
@@ -73,10 +74,15 @@ export function createProjectHost(initialConfig = null, options = {}) {
   const inflight = new Map();
   const stopping = new Set();
   const failures = new Map();
+  // Failed retirement is not retried by stale-page polling; only explicit select/start may retry.
+  const retirementFailures = new Map();
   /** 摘要读取的退避：不可达项目不每轮重试，但不影响其它项目的行。 */
   const summaryBackoff = new Map();
   const SUMMARY_TIMEOUT_MS = 4000, SUMMARY_BACKOFF_MS = 60_000;
-  if (initialConfig) connections.set(boundProject, { config: initialConfig, client: new UIClient(initialConfig) });
+  if (initialConfig) {
+    retireProjectChat(initialConfig);
+    connections.set(boundProject, { config: initialConfig, client: new UIClient(initialConfig) });
+  }
 
   /** 已登记项目：公网模式只认白名单（不退化为仅控制选择器）；本地全局模式认启动器列表；单项目模式只有自己。 */
   function registry() {
@@ -106,6 +112,7 @@ export function createProjectHost(initialConfig = null, options = {}) {
   /** Only explicit select/start may launch a daemon; API attachment never does. */
   async function connect(project, start = false) {
     check(!stopping.has(project), '项目后台正在停止，请稍后再试');
+    check(start || !retirementFailures.has(project), retirementFailures.get(project));
     const pending = inflight.get(project);
     if (pending) {
       await pending;
@@ -118,6 +125,9 @@ export function createProjectHost(initialConfig = null, options = {}) {
     const attempt = (async () => {
       const next = await (start ? openProject : attachProject)(project);
       check(next?.config && next?.client, 'project opener returned an invalid binding');
+      check(next.config.project === project, 'project opener binding mismatch');
+      try { retireProjectChat(next.config); retirementFailures.delete(project); }
+      catch (error) { retirementFailures.set(project, error.message); throw error; }
       connections.set(project, next);
       failures.delete(project);
       summaryBackoff.delete(project);
@@ -247,21 +257,6 @@ export function createProjectHost(initialConfig = null, options = {}) {
       return { project, ...state };
     },
     async require() { check(!launcher, '请通过 /p/<project>/ 访问具体项目'); return await connect(boundProject); },
-    /** Project-owned text attachments: resolve identity without connecting or starting lushd. */
-    chatHome(id = null) {
-      check(id !== null || !launcher, '快速对话需要固定项目身份');
-      const project = id === null ? boundProject : requirePath(id);
-      const real = fs.realpathSync(project);
-      check(real === project && fs.statSync(real).isDirectory()
-        && (id === null || projectRouteId(real) === id), '快速对话项目路径已变化，请重新打开项目');
-      const home = path.join(real, '.lush');
-      try {
-        const stat = fs.lstatSync(home);
-        check(stat.isDirectory() && !stat.isSymbolicLink() && fs.realpathSync(home) === home
-          && stat.uid === process.getuid(), '快速对话项目存储目录不安全');
-      } catch (error) { if (error.code !== 'ENOENT') throw error; }
-      return path.join(home, 'quick-chat');
-    },
     hasRoute(id) { return Boolean(routePath(id)); },
     rememberCurrent() { if (launcher && connections.size) writeLauncherState(boundProject ?? [...connections.keys()].at(-1), env); },
   };

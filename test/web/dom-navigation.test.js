@@ -93,7 +93,7 @@ test('项目所有全局入口都在独立根标签打开，保留输入、选�
 });
 
 const navEntries = () => [
-  ...['overview', 'task-graph', 'versions', 'inputs', 'hooks', 'quick-chat', 'agent-status', 'model-sources', 'settings', 'docs'].map(id => [id, dom.node(`${id}-open`)]),
+  ...['overview', 'task-graph', 'versions', 'inputs', 'hooks', 'agent-status', 'model-sources', 'settings', 'docs'].map(id => [id, dom.node(`${id}-open`)]),
   ...[...ui.navButtons.entries()],
 ];
 const routeHash = id => id === 'overview' ? '' : `#${id === 'tasks' ? 'workers' : id === 'task-graph' ? 'worker-graph' : id}`;
@@ -279,10 +279,10 @@ test('任务列表：角色胶囊带 role-<role> 类，快速路由任务整行�
 });
 
 test('直接链接启动复用同一路由，重复 boot 不复制导航', async () => {
-  for (const id of ['task-graph', 'versions', 'inputs', 'hooks', 'quick-chat', 'quick-chat-settings', 'tasks']) {
+  for (const id of ['task-graph', 'versions', 'inputs', 'hooks', 'tasks']) {
     dom.location.hash = routeHash(id);
     await boot();
-    expectSelected(id === 'quick-chat-settings' ? 'quick-chat' : id);
+    expectSelected(id);
     expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(2);
   }
   for (const [hash, subpage] of [['#hooks-history', 'history'], ['#hooks', 'settings'], ['#hooks-history', 'history']]) {
