@@ -8,7 +8,7 @@ import { noticeSyncIdentity, sameInboxRecord, validateInboxItem } from './global
 import { projectHref } from './route.js';
 import { renderAccountGroup } from './dashboard-accounts-group.js';
 import { WIDGET_NAMES, GLOBAL_LINKS, PROJECT_LINKS, widgetSlots, reflowWidgetPage } from './dashboard-widget-model.js';
-import { onlineDashboardProject, pendingDashboardNotice } from './project-dashboard-content.js';
+import { onlineDashboardProject, pendingDashboardNotice, loadProjectMessageGroup } from './project-dashboard-content.js';
 
 const link = (text, href, className) => {
   const node = el('a', text, className); node.href = href; node.target = '_blank'; node.rel = 'noopener'; return node;
@@ -63,10 +63,33 @@ export function createWidgetRenderer({ ownsPage = () => true, canAct = ownsPage,
     }
     if (row.sections.includes('delivery')) body.append(el('p', `待合并 ${summary.pending_merges ?? '—'} · 合并中 ${summary.merging ?? '—'} · 冲突 ${summary.merge_conflicts ?? '—'}`, 'project-development-delivery'));
   }
-  function messageLines(root, body, row, current) {
+  async function nextInfo(row, model) {
+    const group = model.groups.unread;
+    const active = () => owner === globalThis.document && ownsPage() && messages().get(row.project_id) === model
+      && [...messagePaints.values()].some(paint => paint.project_id === row.project_id && paint.current());
+    if (!group.needNext || group.loadingNext || !active()) return;
+    group.needNext = false; group.loadingNext = true; group.nextError = null;
+    const epoch = group.ackVersion || 0;
+    const repaint = () => { for (const paint of messagePaints.values()) if (paint.project_id === row.project_id) paint(); };
+    repaint();
+    try {
+      const next = await loadProjectMessageGroup(row.source, 'unread', { ownsPage: active });
+      if (!active() || epoch !== (group.ackVersion || 0)) { group.needNext = true; return; }
+      Object.assign(group, next, { error: false });
+      model.notices = [...new Map([...model.notices, ...next.notices].map(notice => [notice.id, notice])).values()];
+      model.complete = Object.values(model.groups).every(group => !group.error && !group.has_more);
+      model.error = Object.values(model.groups).some(group => group.error);
+    } catch {
+      if (active()) group.nextError = '下一条读取失败（当前已知已确认）';
+      else if (ownsPage() && messages().get(row.project_id) === model) group.needNext = true;
+    } finally { group.loadingNext = false; repaint(); }
+  }
+  function messageLines(root, body, row, current, { viewKey = row.id, footer: showFooter = true } = {}) {
     const model = messages().get(row.project_id);
-    const error = el('span', undefined, 'dashboard-widget-error'); error.hidden = true;
-    const footer = el('footer', undefined, 'dashboard-widget-footer'); footer.append(link('查看全部', projectHref(row.project_id, '/#notices')), error); root.append(footer);
+    const error = el('span', undefined, `dashboard-widget-error${showFooter ? '' : ' dashboard-widget-title'}`); error.hidden = true;
+    if (showFooter) {
+      const footer = el('footer', undefined, 'dashboard-widget-footer'); footer.append(link('查看全部', projectHref(row.project_id, '/#notices')), error); root.append(footer);
+    }
     const paint = () => {
       body.replaceChildren();
       for (const [key, title] of [['open', '待答'], ['unread', '告知']]) {
@@ -85,9 +108,10 @@ export function createWidgetRenderer({ ownsPage = () => true, canAct = ownsPage,
             const host = el('span', undefined, 'help-host'), button = el('button', '已知', 'ghost dashboard-widget-notice-read'); button.type = 'button';
             button.dataset.help = '仅标记当前这条告知已读，不答复问题、不调用 Agent。'; host.append(button); line.append(host);
             const id = `${row.project_id}:${notice.id}:${notice.sync_identity || notice.created_at}`;
-            const sync = () => { button.disabled = readLocks.has(id) || !canAct(); if (button.disabled) { host.dataset.help = '此告知请求在途或页面忙碌，请等待确认。'; host.setAttribute('tabindex', '0'); } else { delete host.dataset.help; host.removeAttribute('tabindex'); } };
+            const sourceReady = typeof row.source?.project === 'string' && !!row.source.project && typeof notice.created_at === 'string' && !!notice.created_at;
+            const sync = () => { button.disabled = !sourceReady || group.loadingNext || readLocks.has(id) || !canAct(); if (button.disabled) { host.dataset.help = !sourceReady ? '来源身份未确认，请刷新后核验；不会提交已知。' : '此告知请求在途或页面忙碌，请等待确认。'; host.setAttribute('tabindex', '0'); } else { delete host.dataset.help; host.removeAttribute('tabindex'); } };
             button.onclick = async () => {
-              if (!current() || !canAct() || readLocks.has(id) || group.notices[0] !== notice || !unreadNotice(notice)) return;
+              if (!sourceReady || group.loadingNext || !current() || !canAct() || readLocks.has(id) || group.notices[0] !== notice || !unreadNotice(notice)) return;
               readLocks.set(id, true); for (const update of actionSync.values()) update(); error.hidden = true;
               try {
                 const original = { project_id: row.project_id, project: row.source.project, notice };
@@ -96,22 +120,42 @@ export function createWidgetRenderer({ ownsPage = () => true, canAct = ownsPage,
                   body: JSON.stringify({ project_id: row.project_id, id: notice.id, method: 'notice.read', ...(identity ? { expected_identity: identity } : {}) }) }));
                 if (!sameInboxRecord(original, receipt) || receipt.project !== original.project || receipt.notice.task_id !== notice.task_id || receipt.notice.kind !== 'info' || !receipt.notice.read_at) throw new Error('告知确认与来源不一致，请刷新核对');
                 if (owner !== globalThis.document || !ownsPage()) return;
-                group.notices = group.notices.filter(item => item.id !== notice.id); group.total = Math.max(group.notices.length, (group.total || 0) - 1);
-                model.notices = model.notices.filter(item => item.id !== notice.id);
+                // A concurrent refresh may have replaced the model while this write was in flight.
+                for (const snapshot of new Set([model, messages().get(row.project_id)])) {
+                  if (!snapshot) continue;
+                  const matches = item => item.kind === 'info' && sameInboxRecord(original, { project_id: row.project_id, notice: item });
+                  const currentGroup = snapshot.groups?.unread;
+                  if (currentGroup) {
+                    currentGroup.ackVersion = (currentGroup.ackVersion || 0) + 1;
+                    const removed = currentGroup.notices.filter(matches).length;
+                    currentGroup.notices = currentGroup.notices.filter(item => !matches(item));
+                    if (removed) {
+                      currentGroup.total = Math.max(currentGroup.notices.length, (currentGroup.total || 0) - removed);
+                      if (!currentGroup.notices.length && (currentGroup.total > 0 || currentGroup.has_more)) currentGroup.needNext = true;
+                    } else if (snapshot !== model) currentGroup.needNext = true;
+                  }
+                  snapshot.notices = snapshot.notices.filter(item => !matches(item));
+                }
                 for (const repaint of messagePaints.values()) repaint();
+                const snapshot = messages().get(row.project_id);
+                if (snapshot?.groups?.unread?.needNext) await nextInfo(row, snapshot);
               } catch (failure) { if (current()) { error.textContent = `已知失败：${failure.message}`; error.hidden = false; } }
               finally { readLocks.delete(id); for (const update of actionSync.values()) update(); }
-            }; actionSync.set(`${row.id}:${key}`, () => { if (current()) sync(); }); sync();
+            }; actionSync.set(`${viewKey}:${key}`, () => { if (current()) sync(); }); sync();
           }
-        } else line.append(el('span', confirmed ? (group.total || (!group.exact && group.has_more) ? '最新记录未加载' : '暂无') : '未确认', 'dashboard-widget-title'));
+        } else line.append(el('span', confirmed ? (group.loadingNext ? '读取中…' : group.nextError || (group.total || (!group.exact && group.has_more) ? '最新记录未加载' : '暂无')) : '未确认', 'dashboard-widget-title'));
+        if (key === 'unread' && !showFooter) line.append(error);
         body.append(line);
       }
+      if (model?.groups?.unread?.needNext && current()) queueMicrotask(() => { void nextInfo(row, model); });
     };
-    messagePaints.set(row.id, () => { if (current()) paint(); });
+    const repaint = () => { if (current()) paint(); };
+    repaint.project_id = row.project_id; repaint.current = current; messagePaints.set(viewKey, repaint);
     paint();
   }
-  function workers(root, body, row, state, geometry, current) {
-    let capacity = widgetSlots('workers', geometry);
+  function workers(root, body, row, state, geometry, current, options = {}) {
+    const capacityFor = options.capacityFor || (geometry => widgetSlots('workers', geometry));
+    let capacity = capacityFor(geometry);
     const slots = el('div', undefined, 'dashboard-widget-slots'); body.append(slots);
     const paint = () => {
       const page = state.pages[state.index]; slots.replaceChildren(); slots.dataset.slotCount = String(capacity);
@@ -138,7 +182,8 @@ export function createWidgetRenderer({ ownsPage = () => true, canAct = ownsPage,
           else return loadTracked(page.cursor, index);
         } });
       footer.children[1].classList.toggle('dashboard-widget-error', !!state.error);
-      footer.append(link('全部 Worker', projectHref(row.project_id, '/#workers')));
+      if (options.onFooter) options.onFooter(footer);
+      else footer.append(link('全部 Worker', projectHref(row.project_id, '/#workers')));
     };
     async function load(before, index) {
       if (capacity === 0 || !onlineDashboardProject(row.source) || !current() || state.busy) return;
@@ -160,7 +205,7 @@ export function createWidgetRenderer({ ownsPage = () => true, canAct = ownsPage,
       void pending.finally(() => { if (state.pending === pending) state.pending = null; }); return pending;
     }
     function resize(next) {
-      const nextCapacity = widgetSlots('workers', next);
+      const nextCapacity = capacityFor(next);
       if (state.capacity === nextCapacity) return;
       const page = state.pages[state.index];
       const before = page ? page.before : state.reload ? state.reload.before : state.loadingBefore ?? null;
@@ -217,5 +262,8 @@ export function createWidgetRenderer({ ownsPage = () => true, canAct = ownsPage,
     };
     paint();
   }
-  return { render, syncActions() { for (const sync of actionSync.values()) sync(); }, resetWorkers() { for (const state of pages.values()) if (state.type === 'workers') { state.epoch++; state.abort?.abort(); state.pages = []; state.index = 0; state.busy = false; state.pending = null; state.error = null; state.reload = null; state.loadingBefore = null; } } };
+  return { render, mountMessages: messageLines,
+    repaintMessages(viewKey) { messagePaints.get(viewKey)?.(); },
+    mountWorkers(root, body, row, options) { return workers(root, body, row, stateFor(row), options.geometry, options.current, options); },
+    syncActions() { for (const sync of actionSync.values()) sync(); }, resetWorkers() { for (const state of pages.values()) if (state.type === 'workers') { state.epoch++; state.abort?.abort(); state.pages = []; state.index = 0; state.busy = false; state.pending = null; state.error = null; state.reload = null; state.loadingBefore = null; } } };
 }

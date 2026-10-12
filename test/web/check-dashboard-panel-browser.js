@@ -14,7 +14,7 @@ await mkdir(output, { recursive: true });
 const assets = join(temp, 'assets');
 await buildAssets(new URL('../../src/ui/web/assets/', import.meta.url).pathname, assets, 'd'.repeat(32));
 const entry = await Bun.file(join(assets, 'index.html')).text();
-const config = { deviceHome: join(temp, 'shared') }, P = 'aaaaaaaaaaaaaaaa', Q = 'bbbbbbbbbbbbbbbb';
+const config = { deviceHome: join(temp, 'shared') }, P = 'aaaaaaaaaaaaaaaa', Q = 'bbbbbbbbbbbbbbbb', R = 'cccccccccccccccc';
 const ids = Array.from({ length: 100 }, (_, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`);
 const world = makeWorld(), calls = [], queries = [], saves = [], reads = [];
 const resources = Array.from({ length: 8 }, (_, i) => ({ id: `quota-${i}`, kind: i === 7 ? 'balance' : 'quota', scope: 'account',
@@ -26,18 +26,21 @@ const workers = Array.from({ length: 12 }, (_, i) => ({ id: 30 - i, worker_numbe
 const development = { workers_total: 31, active: 2, agents_running: 1, awaiting_acceptance: 3, parent_confirmation: 2, pending_merges: 1,
   merging: 0, merge_conflicts: 0, counts: [{ status: 'running', count: 2 }, { status: 'waiting', count: 5 }], recent_workers: workers.slice(0, 3) };
 const projects = [{ id: P, name: '项目A', project: '/fixture/project-a', running: true, summary: { notices: 4, development } },
-  { id: Q, name: '项目B', project: '/fixture/project-b', running: false }];
+  { id: Q, name: '项目B', project: '/fixture/project-b', running: false },
+  { id: R, name: '纯导航项目', project: '/fixture/project-c', running: true }];
 const question = { id: 19, task_id: 27, task_worker_number: 'W234-1', kind: 'questionnaire', status: 'open', title: '待答 ' + '具体决策'.repeat(60), body: '', created_at: '2026-10-01T00:00:00Z' };
-const infos = [20, 18, 16].map(id => ({ id, task_id: 27, task_worker_number: 'W234-1', kind: 'info', status: 'sent', source_event_id: id,
+const infos = [20, 18, 16, 14, 12].map(id => ({ id, task_id: 27, task_worker_number: 'W234-1', kind: 'info', status: 'sent', source_event_id: id,
   read_at: null, title: `告知${id} ` + '变化信息'.repeat(60), body: '', created_at: '2026-10-01T00:00:00Z', sync_identity: id.toString(16).padStart(32, '0'), sync_epoch: 'e'.repeat(32), sync_revision: 1 }));
 let sourceState = 'normal', rejectRead = false;
 const widgets = ['status', 'messages', 'workers', 'accounts', 'shortcuts'].map(type => newWidget(type, `widget:${type}`, ['status', 'messages', 'workers'].includes(type) ? P : null));
 widgets.find(w => w.type === 'accounts').connection_ids = ids.slice(0, 4);
-widgets.find(w => w.type === 'shortcuts').links = ['notices', 'project-management', 'model-sources', 'settings'].map(target => ({ scope: 'global', target, project_id: null }));
-widgets.push(newWidget('messages', 'widget:messages-2', P));
+widgets.find(w => w.type === 'shortcuts').links = ['notices', 'project-management', 'model-sources', 'settings'].map(target => ({ scope: 'global', target, project_id: null }))
+  .concat([P, R].flatMap(project_id => ['workers', 'inputs', 'versions', 'notices'].map(target => ({ scope: 'project', target, project_id }))));
+widgets.push(newWidget('messages', 'widget:messages-2', P), newWidget('messages', 'widget:offline', Q));
 const layout = [{ id: 'widget:status', x: 0, y: 0, w: 4, h: 10 }, { id: 'widget:messages', x: 4, y: 0, w: 4, h: 10 },
   { id: 'widget:workers', x: 8, y: 0, w: 4, h: 12 }, { id: 'widget:accounts', x: 0, y: 12, w: 6, h: 14 },
-  { id: 'widget:shortcuts', x: 6, y: 12, w: 6, h: 10 }, { id: 'widget:messages-2', x: 6, y: 22, w: 6, h: 10 }];
+  { id: 'widget:shortcuts', x: 6, y: 12, w: 6, h: 10 }, { id: 'widget:messages-2', x: 6, y: 22, w: 6, h: 10 },
+  { id: Q, x: 6, y: 0, w: 6, h: 24 }, { id: R, x: 6, y: 24, w: 6, h: 10 }];
 saveDashboardSettings(config, { widgets, layout }, readDashboardSettings(config).revision);
 const csp = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'";
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
@@ -61,7 +64,8 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
     if (path === `/p/${P}/api/notices`) {
       if (sourceState === 'error') return Response.json({ error: 'controlled read failure' }, { status: 503 });
       const all = sourceState === 'empty' ? [] : url.searchParams.get('status') === 'open' ? [question] : infos.filter(n => !n.read_at);
-      return Response.json({ notices: all, total: url.searchParams.get('status') === 'open' && all.length ? 4 : all.length, cursor: all.at(-1)?.id || null, has_more: false });
+      const page = all.slice(0, 3);
+      return Response.json({ notices: page, total: url.searchParams.get('status') === 'open' && all.length ? 4 : all.length, cursor: page.at(-1)?.id || null, has_more: all.length > page.length });
     }
     if (path === '/api/host/inbox/action') {
       const body = await req.json(); reads.push(body);
@@ -99,7 +103,7 @@ const assert = (value, message) => { if (!value) throw Error(message); };
 const clickText = text => execute(`const b=[...document.querySelectorAll('#modal button,#detail button')].find(b=>b.textContent===${JSON.stringify(text)}&&!b.disabled);if(!b)throw Error('missing button '+${JSON.stringify(text)});b.click();`);
 async function frame() { const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#viewport' }); await rpc(`/session/${session}/frame`, { id: element }); }
 async function screenshot(name) { await writeFile(join(output, name + '.png'), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64')); }
-async function ready() { assert(await wait("document.querySelectorAll('.dashboard-widget').length>=6&&!document.querySelector('.dashboard-settings-open').disabled&&!document.querySelector('.dashboard-widget-workers').textContent.includes('读取中')"), 'panel ready timeout'); await settle(); }
+async function ready() { assert(await wait("document.querySelectorAll('.dashboard-widget').length===4&&!document.querySelector('.dashboard-settings-open').disabled&&!document.querySelector('[data-card-id=\"aaaaaaaaaaaaaaaa\"]').textContent.includes('读取中')"), 'panel ready timeout'); await settle(); }
 async function containment(context) {
   const problems = await execute(`const problems=[],cards=[...document.querySelectorAll('.dashboard-widget')],rects=cards.map(c=>c.getBoundingClientRect());
     for(const [i,c] of cards.entries()){const r=rects[i],content=c.querySelector('.project-board-content');
@@ -119,26 +123,39 @@ try {
   for (const theme of ['light', 'dark']) for (const width of [1440, 1040, 900, 640, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.getElementById('viewport').style.width='${width}px'`); await frame();
     await execute(`document.documentElement.dataset.theme='${theme}'`); await settle(); await containment(`${theme}/${width}`);
-    assert(await execute(`return document.querySelectorAll('.dashboard-widget-messages .dashboard-widget-message').length===4&&[...document.querySelectorAll('.project-dashboard-message')].every(a=>a.target==='_blank'&&a.rel==='noopener'&&a.href.includes('/p/${P}/#notices-')&&getComputedStyle(a).flexWrap==='nowrap')&&[...document.querySelectorAll('.dashboard-account-reading')].every(h=>h.getBoundingClientRect().height>=14&&h.textContent.includes('25%'))`), 'message source links/two rows');
+    assert(await execute(`return document.querySelectorAll('.dashboard-project-messages .dashboard-widget-message').length===4&&[...document.querySelectorAll('.project-dashboard-message')].every(a=>a.target==='_blank'&&a.rel==='noopener'&&a.href.includes('/p/')&&getComputedStyle(a).flexWrap==='nowrap')&&document.querySelector('[data-card-id="${P}"] .dashboard-widget-body').getBoundingClientRect().height===436&&document.querySelector('[data-card-id="${P}"]').dataset.workerSlots==='3'&&[...document.querySelectorAll('.dashboard-account-reading')].every(h=>h.getBoundingClientRect().height>=14&&h.textContent.includes('25%'))`), 'aggregate body/source links/two rows');
+    assert(await execute(`const nav=document.querySelector('[data-card-id="${P}"] .dashboard-project-direct-links');return nav.querySelectorAll('a').length===4&&(innerWidth!==1440||getComputedStyle(nav).display!=='none')&&document.querySelector('[data-card-id="${R}"] .dashboard-widget-body').querySelectorAll('a').length===2&&(innerWidth!==1440||getComputedStyle(document.querySelector('.dashboard-global-direct-links')).display!=='none')`), 'flat project/global navigation or bounded pure navigation missing');
     await screenshot(`${theme}-${width}`);
     await execute(`window.before=JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}));document.querySelector('.dashboard-settings-open').click()`);
     assert(await execute(`const r=document.querySelector('#modal .modal-card').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&r.top>=0&&r.bottom<=innerHeight+1&&window.before===JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}))`), 'modal moved grid/overflow'); await clickText('取消');
-    await clickText('编辑布局'); await containment(`${theme}/${width}/editing`); await clickText('取消布局');
+    await clickText('编辑布局'); await containment(`${theme}/${width}/editing`);
+    assert(await execute("return getComputedStyle(document.querySelector('.dashboard-global-direct-links')).display==='none'&&[...document.querySelectorAll('.dashboard-project-direct-links')].every(n=>getComputedStyle(n).display==='none')"), 'editing navigation must use bounded fallback');
+    await clickText('取消布局');
     console.log(`PASS assembled ${theme}/${width}: fixed containment, source links, settings and editing`);
   }
   // Real account and Worker pages; no implicit writes/provider queries.
-  await execute("document.querySelector('[data-card-id=\"widget:accounts\"] .dashboard-widget-pagination > span:last-child button').click()");
-  assert(await wait("document.querySelector('[data-card-id=\"widget:accounts\"]').textContent.includes('账户3')"), 'account next page');
-  await execute("document.querySelector('[data-card-id=\"widget:workers\"] .dashboard-widget-pagination > span:nth-child(3) button').click()");
-  assert(await wait("document.querySelector('[data-card-id=\"widget:workers\"]').textContent.includes('第 2 页')"), 'Worker next page'); await containment('paged');
+  await execute("document.querySelector('[data-card-id=\"accounts\"] .dashboard-widget-pagination > span:nth-child(3) button').click()");
+  assert(await wait("document.querySelector('[data-card-id=\"accounts\"]').textContent.includes('账户3')"), 'account next page');
+  await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-widget-pagination > span:nth-child(3) button').click()`);
+  assert(await wait(`document.querySelector('[data-card-id="${P}"]').textContent.includes('第 2 页')`), 'Worker next page');
+  await execute(`document.querySelector('[data-card-id="${R}"] .dashboard-widget-pagination > span:nth-child(3) button').click()`);
+  assert(await execute(`return document.querySelector('[data-card-id="${R}"] .dashboard-widget-body').textContent.includes('版本迭代')`), 'pure navigation page'); await containment('paged');
   await execute("document.querySelector('.dashboard-account-details').click()"); assert(await wait("!document.getElementById('modal').hidden"), 'resource details'); await clickText('关闭');
   rejectRead = true; await execute("document.querySelector('.dashboard-widget-notice-read').click()");
-  assert(await wait("document.querySelector('.dashboard-widget-messages').textContent.includes('已知失败')"), 'failed read not reported');
+  assert(await wait("document.querySelector('.dashboard-project-messages').textContent.includes('已知失败')"), 'failed read not reported');
   assert(infos[0].read_at === null && reads.length === 1, 'failed read removed notice'); await containment('notice read failure'); rejectRead = false;
-  await execute("document.querySelector('.dashboard-widget-notice-read').click()");
-  assert(await wait("[...document.querySelectorAll('.dashboard-widget-messages')].every(c=>c.textContent.includes('告知18')&&!c.textContent.includes('告知20'))"), 'read ACK not synchronized across cards');
+  await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-project-details').click()`);
+  await execute("document.querySelector('#modal .dashboard-widget-notice-read').click()");
+  assert(await wait(`document.querySelector('[data-card-id="${P}"]').textContent.includes('告知18')&&document.querySelector('#modal').textContent.includes('告知18')&&!document.querySelector('[data-card-id="${P}"]').textContent.includes('告知20')`), 'read ACK not synchronized across card/details');
   assert(reads.length === 2 && reads.every(r => r.method === 'notice.read' && r.project_id === P && r.expected_identity), 'read escaped source/identity');
-  await containment('read ACK');
+  await clickText('关闭'); await containment('read ACK');
+  const beforeContinuation = calls.filter(c => c.path.includes('status=unread')).length;
+  for (const id of [18, 16]) {
+    await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-widget-notice-read').click()`);
+    assert(await wait(`!document.querySelector('[data-card-id="${P}"]').textContent.includes('告知${id}')`), 'ACK continuation timeout');
+  }
+  assert(await wait(`document.querySelector('[data-card-id="${P}"]').textContent.includes('告知14')`), 'three-record continuation missing');
+  assert(calls.filter(c => c.path.includes('status=unread')).length === beforeContinuation + 1, 'continuation must read only this source');
   // Fixed business-state transitions, including long error/source text.
   for (const state of ['empty', 'error', 'offline', 'normal']) {
     sourceState = state; projects[0].running = state !== 'offline'; projects[0].error = state === 'error' ? '受控来源错误'.repeat(50) : null;
@@ -148,19 +165,26 @@ try {
   assert(queries.every(id => ids.slice(0, 4).includes(id)), 'refresh queried unplaced source');
   // Real controller keyboard geometry save + shared private writer + reload.
   await rpc(`/session/${session}/frame`, { id: null }); await execute("document.getElementById('viewport').style.width='1440px'"); await frame(); await settle(); await clickText('编辑布局');
-  const resize = await rpc(`/session/${session}/element`, { using: 'css selector', value: '[data-card-id="widget:workers"] .project-board-resize[data-corner="east"]' });
+  const resize = await rpc(`/session/${session}/element`, { using: 'css selector', value: '[data-card-id="aaaaaaaaaaaaaaaa"] .project-board-resize[data-corner="east"]' });
   const beforeSave = saves.length; await rpc(`/session/${session}/element/${resize['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE015' });
   assert(saves.length === beforeSave, 'resize saved implicitly'); await clickText('保存布局'); await ready();
-  assert(saves.length === beforeSave + 1 && readDashboardSettings(config).layout.find(c => c.id === 'widget:workers').h === 13, 'keyboard geometry not saved');
+  assert(saves.length === beforeSave + 1 && readDashboardSettings(config).layout.find(c => c.id === P).h === 25, 'keyboard geometry not saved');
   await rpc(`/session/${session}/refresh`, {}); await frame(); await ready();
-  assert(await execute("return document.querySelector('[data-card-id=\"widget:workers\"]').style.gridRow.includes('span 13')"), 'reload lost geometry');
+  assert(await execute(`return document.querySelector('[data-card-id="${P}"]').style.gridRow.includes('span 25')`), 'reload lost geometry');
+  assert(JSON.stringify(readDashboardSettings(config).widgets) === JSON.stringify(widgets), 'layout-only changed original v4 members');
   // A hundred sources still only occupy the selected fixed page, even with 8 resources each.
   const current = readDashboardSettings(config); current.widgets.find(w => w.type === 'accounts').connection_ids = ids;
   saveDashboardSettings(config, { widgets: current.widgets }, current.revision); await rpc(`/session/${session}/refresh`, {}); await frame(); await ready();
-  assert(await execute("return document.querySelectorAll('.dashboard-account-embedded').length===2&&document.querySelectorAll('.dashboard-account-metric-slot').length===4&&document.querySelector('[data-card-id=\"widget:accounts\"]').textContent.includes('50')"), '100 sources not paged'); await containment('100 sources');
-  const small = readDashboardSettings(config); small.layout.find(c => c.id === 'widget:accounts').h = 10;
+  assert(await execute("return document.querySelectorAll('.dashboard-account-embedded').length===2&&document.querySelectorAll('.dashboard-account-metric-slot').length===4&&document.querySelector('[data-card-id=\"accounts\"]').textContent.includes('50')"), '100 sources not paged'); await containment('100 sources');
+  const boundary = readDashboardSettings(config); boundary.layout.find(c => c.id === 'accounts').h = 17;
+  saveDashboardSettings(config, { layout: boundary.layout }, boundary.revision); await rpc(`/session/${session}/refresh`, {}); await frame(); await ready();
+  assert(await execute("return document.querySelectorAll('.dashboard-account-embedded').length===2"), 'h17 exceeds exact 268px body budget'); await containment('h17 accounts');
+  const small = readDashboardSettings(config); small.layout.find(c => c.id === 'accounts').h = 10;
+  Object.assign(small.layout.find(c => c.id === P), { w: 4, h: 10 });
   saveDashboardSettings(config, { layout: small.layout }, small.revision); await rpc(`/session/${session}/refresh`, {}); await frame(); await ready();
-  assert(await execute("return document.querySelectorAll('.dashboard-account-embedded').length===1"), 'minimum account geometry must have one source');
+  assert(await execute(`const card=document.querySelector('[data-card-id="${P}"]');return document.querySelectorAll('.dashboard-account-embedded').length===1&&card.querySelectorAll('.dashboard-widget-body .dashboard-widget-message').length===2&&!card.querySelector('.dashboard-widget-body .project-development-metrics')&&card.dataset.workerSlots==='0'`), 'minimum project priority/one account slot');
+  await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-project-details').click()`);
+  assert(await wait(`document.querySelector('#modal .project-development-metrics')&&document.querySelectorAll('#modal .project-development-worker').length===3&&document.querySelector('#modal a[href="/p/${P}/#workers"]')&&!document.querySelector('#modal').textContent.includes('读取中')`), 'minimum project details omitted selected content/recent snapshot/full-history entry'); await clickText('关闭');
   const connections = world.state.agentConnections.connections;
   for (const state of ['error', 'unknown', 'partial', 'disabled']) {
     connections[0].enabled = state !== 'disabled'; connections[0].observation.status = state === 'disabled' ? 'available' : state;
@@ -170,8 +194,13 @@ try {
       await execute(`document.documentElement.dataset.theme='${theme}'`); await settle(); await containment(`account state ${state}/${theme}/${width}`);
     }
   }
+  await clickText('编辑布局');
+  for (const theme of ['light', 'dark']) for (const width of [1440, 1040, 640, 390, 320]) {
+    await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.getElementById('viewport').style.width='${width}px'`); await frame();
+    await execute(`document.documentElement.dataset.theme='${theme}'`); await settle(); await containment(`minimum project/accounts ${theme}/${width}`); await screenshot(`minimum-${theme}-${width}`);
+  }
   assert(await execute("return !window.fixtureErrors.length"), 'JS/CSP error: ' + JSON.stringify(await execute('return window.fixtureErrors')));
-  console.log(`PASS real controller: account/Worker paging, bounded metrics/modal, read failure+ACK multi-card identity, business-state geometry, explicit device save/reload and 100-source stress. Logs/screenshots: ${output}`);
+  console.log(`PASS restored controller: flat/paged navigation, account/Worker paging, h17 boundary, minimum project priority/details, read failure+ACK identity+continuation, business-state geometry, raw-member-preserving device save/reload and 100-source stress. Logs/screenshots: ${output}`);
   console.log('LIMIT Firefox headless/controlled source APIs; physical touch, Chromium/Safari and real providers unverified.');
 } catch (error) { if (session) { try { await screenshot('failure'); console.error(await execute("return [...document.querySelectorAll('.dashboard-widget')].map(c=>({id:c.dataset.cardId,text:c.textContent.slice(0,300),html:c.innerHTML.slice(0,500)}))")); } catch {} } throw error; }
 finally { if (session) { try { await rpc(`/session/${session}`, undefined, 'DELETE'); } catch {} } driver.kill(); await driver.exited; server.stop(true); await rm(temp, { recursive: true, force: true }); }

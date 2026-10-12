@@ -242,7 +242,7 @@ export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, o
   refreshHost.append(refreshButton); header.append(refreshHost); root.append(header);
   const content = embedded ? el('div', undefined, 'dashboard-account-content') : root;
   if (embedded) root.append(content);
-  let busy = false;
+  let busy = false, boundedPaint = null;
   const blocker = !connection ? '来源已删除或不可用，无法查询。' : connection.enabled === false ? '来源已停用，请先在模型来源中启用。'
     : typeof refresh !== 'function' ? '当前页面未提供账户刷新操作。' : null;
   function syncRefresh() {
@@ -252,14 +252,28 @@ export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, o
   }
   refreshButton.onclick = async () => {
     if (blocker || busy || !ownsPage()) return;
-    busy = true; syncRefresh();
+    busy = true; if (boundedPaint) boundedPaint(); syncRefresh();
     try { await refresh(row.connection_id); }
-    catch (error) { if (ownsPage()) note(content, typeof error?.message === 'string' && error.message ? error.message : '账户刷新失败', true); }
+    catch (error) {
+      if (ownsPage()) {
+        const message = typeof error?.message === 'string' && error.message ? error.message : '账户刷新失败';
+        if (boundedPaint) boundedPaint(`刷新失败：${message}（缓存观测）`); else note(content, message, true);
+      }
+    }
     finally { busy = false; if (ownsPage()) syncRefresh(); }
   };
   syncRefresh();
   if (!connection) {
-    if (selected.has('provenance')) note(content, `所选来源：${row.connection_id}`);
+    if (bounded) {
+      const metrics = el('div', undefined, 'dashboard-account-metrics-bounded');
+      for (let i = 0; i < 2; i++) { const slot = el('div', undefined, 'dashboard-account-metric-slot'); if (i === 0) note(slot, '来源已删除或不可用', true); else slot.setAttribute('aria-hidden', 'true'); metrics.append(slot); }
+      content.append(metrics);
+      if (selected.has('provenance') || selected.has('details')) {
+        const details = el('button', '详情', 'ghost dashboard-account-details'); details.type = 'button';
+        details.onclick = () => { if (ownsPage()) { const body = el('div'); note(body, `所选来源：${row.connection_id}`); void formDialog({ title: '来源已删除或不可用', content: body, confirmLabel: '关闭' }); } };
+        header.append(details);
+      }
+    } else if (selected.has('provenance')) note(content, `所选来源：${row.connection_id}`);
     return root;
   }
   if (!bounded && connection.enabled === false) note(content, '来源已停用', true);
@@ -272,36 +286,42 @@ export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, o
     const warnings = [];
     if (connection.enabled === false) warnings.push('来源已停用');
     if (observation.status !== 'available') warnings.push(observation.status === 'unknown' ? '观测未知' : STATUSES[observation.status] || '观测未知');
-    if (!successful(observation) && successful(connection.last_success?.observation)) warnings.push('有历史观测（非当前值）');
+    const historical = !successful(observation) && successful(connection.last_success?.observation);
+    if (historical) warnings.push('有历史观测（非当前值）');
     if (warnings.length) {
       const warning = el('small', warnings.join(' · '), 'dashboard-account-state');
       warning.dataset.help = warning.textContent; identity.append(warning);
     }
     const resources = (successful(observation) && Array.isArray(observation.resources) ? observation.resources : []).filter(resource => ['quota', 'balance'].includes(resource?.kind)
       && (selected.has(resource.kind) || (resource.kind === 'quota' && selected.has('reset'))));
+    const unconfirmedMetrics = successful(observation) && !resources.length && ['quota', 'balance', 'reset'].some(key => selected.has(key));
     const metrics = el('div', undefined, 'dashboard-account-metrics-bounded'); content.append(metrics);
-    for (let i = 0; i < 2; i++) {
-      const resource = resources[i];
-      const slot = resource ? renderMetric(resource, new Set([...selected].filter(key => !['details', 'history', 'provenance'].includes(key))), true) : el('div');
-      slot.classList.add('dashboard-account-metric-slot');
-      if (!resource) slot.setAttribute('aria-hidden', 'true');
-      metrics.append(slot);
-    }
-    if (successful(observation) && !resources.length && ['quota', 'balance', 'reset'].some(key => selected.has(key))) {
-      const slot = metrics.children[0]; slot.removeAttribute('aria-hidden'); note(slot, '指标未确认', true);
-    }
-    if (resources.length > 2 || ['details', 'history', 'provenance'].some(key => selected.has(key))) {
-      const details = el('button', '详情', 'ghost dashboard-account-details'); details.type = 'button';
-      details.onclick = () => {
-        if (!ownsPage()) return;
-        const body = el('div'); body.append(renderObservation(observation, selected));
-        if (selected.has('history') && successful(connection.last_success?.observation)) {
-          note(body, '历史成功观测（非当前值）', true); body.append(renderObservation(connection.last_success.observation, selected));
-        }
-        if (selected.has('provenance')) { note(body, PROVIDERS[connection.provider] || '服务商未知'); note(body, text(connection.endpoint, '端点未知')); }
-        void formDialog({ title: text(connection.label, '账户详情'), content: body, confirmLabel: '关闭' });
-      }; header.append(details);
-    }
+    let failure = null;
+    const details = el('button', '详情', 'ghost dashboard-account-details'); details.type = 'button';
+    details.onclick = () => {
+      if (!ownsPage()) return;
+      const body = el('div'); if (failure) note(body, failure, true); body.append(renderObservation(observation, selected));
+      if (selected.has('history') && successful(connection.last_success?.observation)) {
+        note(body, '历史成功观测（非当前值）', true); body.append(renderObservation(connection.last_success.observation, selected));
+      }
+      if (selected.has('provenance')) { note(body, PROVIDERS[connection.provider] || '服务商未知'); note(body, text(connection.endpoint, '端点未知')); }
+      void formDialog({ title: text(connection.label, '账户详情'), content: body, confirmLabel: '关闭' });
+    };
+    boundedPaint = error => {
+      failure = error || null;
+      const warning = failure || (unconfirmedMetrics ? '指标未确认' : null), capacity = warning ? 1 : 2;
+      metrics.replaceChildren();
+      for (let i = 0; i < 2; i++) {
+        const resource = resources[i - (capacity === 1 ? 1 : 0)];
+        const slot = capacity === 1 && i === 0 || !resource ? el('div') : renderMetric(resource, new Set([...selected].filter(key => !['details', 'history', 'provenance'].includes(key))), true);
+        slot.classList.add('dashboard-account-metric-slot');
+        if (capacity === 1 && i === 0) note(slot, warning, true);
+        else if (!resource) slot.setAttribute('aria-hidden', 'true'); metrics.append(slot);
+      }
+      if (resources.length > capacity || warnings.length || warning || ['details', 'history', 'provenance'].some(key => selected.has(key))) { if (!details.parentNode) header.append(details); }
+      else details.remove();
+    };
+    boundedPaint();
     return root;
   }
   content.append(renderObservation(connection.observation, selected));

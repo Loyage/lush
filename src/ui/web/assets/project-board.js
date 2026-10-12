@@ -8,9 +8,12 @@ const projectId = row => isWidget(row) ? (/^[a-f0-9]{16}$/.test(row.project_id |
   : /^[a-f0-9]{16}$/.test(row.id) && (row.type == null || row.type === 'project') ? row.id : null;
 const defaultsFor = row => {
   const type = widgetType(row);
-  const [w, h] = isWidget(row) ? (Object.hasOwn(widgetSizes, type) ? widgetSizes[type] : [4, 8]) : row.type === 'account' ? [4, 10] : [6, 16];
+  const [w, h] = isWidget(row) ? (Object.hasOwn(widgetSizes, type) ? widgetSizes[type] : [4, 8]) : row.type === 'account' ? [4, 10] : row.id === 'accounts' ? [6, 16] : [6, 24];
   return { id: row.id, w, h, minW: isWidget(row) ? 4 : 1, minH: isWidget(row) ? ['accounts', 'messages', 'status'].includes(type) ? 10 : 8 : 6 };
 };
+// Legacy device cells remain canonical as saved. A fixed display lower bound
+// reserves header/footer and one useful slot, independent of business state.
+const displayMinimum = cell => cell.id.startsWith('widget:') ? { minW: 1, minH: 6 } : { minW: 4, minH: 10 };
 const colors = new Set(PROJECT_COLORS.map(color => color.id));
 const copy = layout => layout.map(cell => ({ ...cell }));
 const clamp = (value, min, max, fallback) => Math.max(min, Math.min(max, Number.isFinite(value) ? Math.round(value) : fallback));
@@ -124,9 +127,10 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
   };
   function projection(source) {
     return [...source].sort((a, b) => a.y - b.y || a.x - b.x || a.id.localeCompare(b.id)).map(cell => {
-      // Keep a usable footer and 44px edit controls at the 600px breakpoint.
-      const w = columns === 12 ? cell.w : columns === 1 ? 1 : Math.max(cell.id.startsWith('widget:') ? 3 : 1, Math.round(cell.w * columns / 12));
-      return { ...cell, x: Math.min(columns - w, Math.floor(cell.x * columns / 12)), y: columns === 12 ? cell.y : 0, w };
+      const minimum = displayMinimum(cell);
+      // Keep 44px edit and navigation controls usable even for old tiny cells.
+      const w = columns === 12 ? Math.max(cell.w, minimum.minW) : columns === 1 ? 1 : Math.max(3, Math.round(cell.w * columns / 12));
+      return { ...cell, x: Math.min(columns - w, Math.floor(cell.x * columns / 12)), y: columns === 12 ? cell.y : 0, w, h: Math.max(cell.h, minimum.minH) };
     });
   }
   function paint(source = layout) {
@@ -146,7 +150,7 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
     }
     for (const [id, entry] of entries) {
       const cell = source.find(value => value.id === id);
-      const label = `${entry.name}：列 ${cell.x + 1}，行 ${cell.y + 1}，宽 ${cell.w}，高 ${cell.h}`;
+      const label = positionLabel(entry, cell);
       for (const control of entry.controls) {
         if (control.hidden !== !editing) control.hidden = !editing;
         if (control.disabled !== !editing) control.disabled = !editing;
@@ -223,8 +227,23 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
   function changed(candidate, baseline = layout) {
     return candidate.some((cell, at) => ['id', 'x', 'y', 'w', 'h'].some(key => cell[key] !== baseline[at]?.[key]));
   }
-  function adjust(id, desired) {
-    const target = bounded(desired, { ...defaultsFor(entries.get(id).row), ...layout.find(cell => cell.id === id) });
+  function positionLabel(entry, cell) {
+    const saved = `${entry.name}：列 ${cell.x + 1}，行 ${cell.y + 1}，宽 ${cell.w}，高 ${cell.h}`;
+    const shown = entry.geometry;
+    return changed([cell], [shown]) ? `${saved}；显示投影列 ${shown.x + 1}，行 ${shown.y + 1}，宽 ${shown.w}，高 ${shown.h}` : saved;
+  }
+  function resizeBase(cell) {
+    const defaults = defaultsFor(entries.get(cell.id).row), minimum = displayMinimum(cell);
+    return bounded(cell, { ...defaults, ...cell,
+      minW: Math.max(defaults.minW, minimum.minW), minH: Math.max(defaults.minH, minimum.minH) });
+  }
+  function adjust(id, desired, resize = false) {
+    // Moving a legacy cell only changes position, not its saved dimensions.
+    // Explicit resizing starts from the visible fixed lower bound.
+    const current = layout.find(cell => cell.id === id), defaults = defaultsFor(entries.get(id).row);
+    const minimum = resize ? displayMinimum(current) : { minW: 1, minH: 6 };
+    const target = bounded(desired, { ...defaults, ...current,
+      minW: Math.max(defaults.minW, minimum.minW), minH: Math.max(defaults.minH, minimum.minH) });
     let result = [target];
     try { for (const cell of layout) if (cell.id !== id) result.push(place(cell, result)); }
     catch (error) {
@@ -239,7 +258,7 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
     if (!active() || !editing || !changed(candidate)) return;
     layout = candidate; paint();
     const cell = layout.find(cell => cell.id === entry.id);
-    entry.feedback.textContent = `${entry.name}：列 ${cell.x + 1}，行 ${cell.y + 1}，宽 ${cell.w}，高 ${cell.h}。`;
+    entry.feedback.textContent = `${positionLabel(entry, cell)}。`;
     onLayoutChange?.(getLayout());
   }
   function attach(entry, epoch) {
@@ -254,17 +273,18 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
         const delta = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
         if (!delta) return;
         event.preventDefault(); clearGesture();
-        const cell = layout.find(value => value.id === id), desired = { ...cell };
-        if (resize || event.shiftKey) { desired.w = clamp(cell.w + delta[0], 1, 12 - cell.x, cell.w); desired.h += delta[1]; }
+        const resizeIntent = resize || Boolean(event.shiftKey);
+        const saved = layout.find(value => value.id === id), cell = resizeIntent ? resizeBase(saved) : saved, desired = { ...cell };
+        if (resizeIntent) { desired.w = clamp(cell.w + delta[0], 1, 12 - cell.x, cell.w); desired.h += delta[1]; }
         else { desired.x += delta[0]; desired.y += delta[1]; }
-        commit(adjust(id, desired), entry);
+        commit(adjust(id, desired, resizeIntent), entry);
       };
       control.onpointerdown = event => {
         if (!current() || event.isPrimary === false || event.button !== 0 || gesture) return;
         measure();
         const cancel = () => clearGesture();
         gesture = { id, control, pointerId: event.pointerId, x: event.clientX, y: event.clientY,
-          cell: { ...layout.find(cell => cell.id === id) }, dragging: false, candidate: null, cancel };
+          cell: resize ? resizeBase(layout.find(cell => cell.id === id)) : { ...layout.find(cell => cell.id === id) }, dragging: false, candidate: null, cancel };
         globalThis.addEventListener?.('pagehide', cancel); globalThis.addEventListener?.('blur', cancel);
         try { control.setPointerCapture(event.pointerId); } catch {}
       };
@@ -285,7 +305,7 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
           desired.h += vertical;
           if (west) desired.x = state.cell.x + state.cell.w - desired.w;
         } else { desired.x += horizontal; desired.y += vertical; }
-        state.candidate = adjust(id, desired); paint(state.candidate);
+        state.candidate = adjust(id, desired, resize); paint(state.candidate);
       };
       control.onpointerup = event => {
         const state = gesture;
@@ -306,7 +326,7 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
   async function update(rows, options = {}) {
     if (!active()) return;
     const epoch = ++generation;
-    // A newer explicit render must not inherit an older in-flight snapshot.
+    // Do not let a newer explicit render inherit an older in-flight snapshot.
     appearancePending.clear();
     clearGesture();
     const focused = [...entries.values()].find(entry => entry.controls.includes(owner.activeElement));

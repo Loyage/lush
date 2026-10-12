@@ -56,7 +56,8 @@ test('single-project root remains a device workspace; project color failure does
   expect(calls.slice(before).filter(row => /\/appearance$/.test(row.path))).toHaveLength(2);
   expect(calls.slice(before).some(row => row.options?.method === 'POST')).toBe(false);
   expect(dom.node('detail').querySelectorAll('.project-board-card').filter(node => node.getAttribute('data-board-color') !== null)).toHaveLength(0);
-  expect(dom.node('detail').querySelectorAll('.project-board-palette').filter(node => !node.hidden).map(node => node.textContent)).toEqual(Array(6).fill('配色未确认'));
+  expect(dom.node('detail').querySelectorAll('.project-board-palette').filter(node => !node.hidden).map(node => node.textContent)).toEqual(Array(ids.length).fill('配色未确认'));
+  expect(dom.node('detail').querySelectorAll('.dashboard-project-card')).toHaveLength(ids.length);
   await dom.node('settings-open').onclick();
   await dom.node('detail').querySelector('button.settings-tab[data-settings-tab="interface"]').onclick();
   expect(dom.node('detail').querySelector('input.pref-radio[data-value="dark"]').disabled).toBe(false);

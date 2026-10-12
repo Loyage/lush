@@ -48,8 +48,7 @@
 @media(prefers-reduced-motion:reduce){.workbench-view *{scroll-behavior:auto!important}}
 /* The dashboard is a panel, not a second page hero. Keep settings outside movable cards. */
 #view-toolbar[hidden]{display:none}
-.workbench-view.project-overview{--accent:#465fff;--accent-soft:#eef2ff;--line:#e4e7ec;--line-soft:#eef0f3;--panel:#fff;--panel-2:#f9fafb;--muted:#667085;--text:#1d2939;max-width:none;min-width:0;box-sizing:border-box;min-height:100%;padding:clamp(8px,1.4vw,20px);gap:10px;font-size:12px;line-height:1.4;background:#f3f5f9}
-:root[data-theme="dark"] .workbench-view.project-overview{--accent:#8093ff;--accent-soft:#242e52;--line:#344054;--line-soft:#283347;--panel:#1d2939;--panel-2:#202d40;--muted:#98a2b3;--text:#f2f4f7;background:#101828}
+.workbench-view.project-overview{max-width:none;min-width:0;box-sizing:border-box;padding:clamp(8px,1.4vw,18px);gap:10px;font-size:11px;line-height:1.45}
 .dashboard-toolbar{display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
 .dashboard-toolbar button,.dashboard-settings-panel button{min-height:44px;white-space:normal}
 /* Keep text and icon controls on the same 44px row, independent of font metrics. */
@@ -92,6 +91,25 @@
 .project-dashboard-message:hover{text-decoration:underline;text-underline-offset:3px}
 .project-dashboard-shortcuts{display:flex;flex-wrap:wrap;gap:4px;border-top:1px solid var(--line-soft);padding-top:6px;font-size:11px}
 .project-dashboard-shortcuts a{box-sizing:border-box;display:flex;align-items:center;min-height:44px;padding:5px 7px;border:1px solid var(--line-soft);border-radius:6px;background:var(--panel)}
+/* Bounded legacy project sections: never wrap message/action rows or clip controls.
+   Renderers select row capacity and page whole lists before inserting them. */
+.project-board .project-dashboard-content{gap:6px;min-height:0}
+.project-board .dashboard-widget-body .project-development{margin-top:0}
+.project-board .project-development-value{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-board .project-dashboard-message{align-items:center;flex-wrap:nowrap;height:44px;min-height:44px;padding:0 6px;gap:4px;white-space:nowrap}
+.project-board .project-dashboard-message strong{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
+.project-board .project-dashboard-message .tid{flex:none;font-size:10px;white-space:nowrap}
+.project-board .project-dashboard-message small{flex:0 1 auto;min-width:0;max-width:55px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-board .project-development-distribution{flex-wrap:nowrap;min-width:0}
+.project-board .project-development-distribution .chip{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-board .project-development-delivery{margin:0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px}
+.project-board .project-development-worker{align-items:center;flex-wrap:nowrap;min-height:44px;box-sizing:border-box;padding:0;gap:4px}
+.project-board .project-development-worker-link{min-width:0}
+.project-board .project-development-worker-link>span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
+.project-board .project-development-worker-link .tid{max-width:40%;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-board .project-development-worker>.chip{flex:none;max-width:80px;white-space:nowrap}
+.project-board .project-dashboard-shortcuts{flex-wrap:nowrap;min-width:0;gap:4px}
+.project-board .project-dashboard-shortcuts a{min-width:0;flex:1;justify-content:center;padding:4px;font-size:11px;white-space:nowrap}
 /* Project information scale is scoped to overview cards, not management/forms. */
 .project-board .project-development{gap:6px;padding-top:6px}
 .project-board .project-development-metrics{gap:5px}
@@ -107,5 +125,23 @@
 .project-board .project-development-worker{gap:3px 6px;padding:3px 0}
 .project-board .project-development-worker-link{box-sizing:border-box;min-height:44px;align-items:center;gap:5px;font-size:11px}
 .project-board .project-development-worker .chip{font-size:10px}
+/* Fixed aggregate budget: 92 + 44 + 44 + 92 + four 6px gaps = 296px.
+   At h24, the remaining 140px holds three 44px Worker rows with 4px gaps.
+   Section headings/extra notes belong to the renderer's full detail view. */
+.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development{margin-top:0;padding-top:0;border-top:0;gap:6px;min-height:0}
+.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-metrics{box-sizing:border-box;height:92px;min-height:92px;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(3,minmax(0,1fr));gap:4px}
+.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-metric{box-sizing:border-box;min-height:0;display:flex;align-items:center;justify-content:space-between;gap:4px;padding:1px 6px}
+.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-metric .metric-label{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-value{flex:0 1 auto;max-width:65%;min-width:0}
+.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-distribution{box-sizing:border-box;height:44px;min-height:44px;align-items:center}
+.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-delivery{box-sizing:border-box;height:44px;min-height:44px;line-height:44px}
+.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-dashboard-messages{box-sizing:border-box;height:92px;min-height:92px;align-content:start;padding-top:0;border-top:0;gap:4px}
+.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-recent{display:grid;align-content:start;gap:4px;min-height:0;padding-top:0;border-top:0}
+.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body .project-development-worker{height:44px;min-height:44px;padding:0}
 .project-overview .dashboard-toolbar button{font-size:11px}
+.project-overview{container-type:inline-size;container-name:dashboard-overview}
+.dashboard-global-direct-links{display:none;align-items:center;gap:4px;min-width:0;margin-right:auto}
+.dashboard-global-direct-links a{display:flex;align-items:center;min-height:44px;padding:4px 6px;box-sizing:border-box;white-space:nowrap;color:var(--accent);font-size:11px;text-decoration:none}
+.dashboard-global-direct-links a:hover{text-decoration:underline}
+@container dashboard-overview (min-width:1000px){.project-overview:not(.dashboard-layout-editing) .dashboard-global-direct-links{display:flex}.project-overview:not(.dashboard-layout-editing):has(.dashboard-global-direct-links a) .dashboard-navigation-open{display:none}}
 @media(max-width:700px){.dashboard-settings-panel{padding:12px}.dashboard-option{width:100%}.dashboard-settings-actions button{flex:1}.project-dashboard-shortcuts a{min-height:44px;display:flex;align-items:center}.dashboard-toolbar{justify-content:flex-end}}

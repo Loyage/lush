@@ -69,20 +69,22 @@
 @container dashboard-accounts (min-width:600px){.dashboard-accounts-group[data-account-view="list"] .dashboard-account-embedded{grid-template-columns:minmax(140px,.8fr) minmax(0,3fr);column-gap:8px}.dashboard-accounts-group[data-account-view="list"] .dashboard-account-header{align-self:start}.dashboard-accounts-group[data-account-view="list"] .dashboard-account-observation{grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr))}}
 /* Fixed widgets: renderers own row capacity/pagination, CSS owns stable slots.
    Only text is ellipsized; interactive rows and footer controls remain visible. */
-.project-board>.dashboard-widget .project-board-content{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:44px minmax(0,1fr) 44px;gap:6px;padding-bottom:10px}
+.project-board>.dashboard-widget .project-board-content,.project-board .project-board-content:has(>.dashboard-widget-body){display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:44px minmax(0,1fr) 44px;gap:6px;padding-bottom:12px}
 .project-board-editing .dashboard-widget-footer{padding-inline:44px}
 .project-board .dashboard-widget-footer>span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-board .dashboard-widget-header{display:flex;align-items:center;gap:8px;min-width:0;padding-right:44px}
 .project-board-editing .dashboard-widget-header{padding-right:92px}
-.project-board .dashboard-widget-title{margin:0;min-width:0;flex:1;font-size:13px;font-weight:650;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-board .dashboard-widget-header>.project-open{flex:1;min-width:0}
+.project-board-editing .dashboard-widget-header .project-open{padding-right:0}
+.project-board .dashboard-widget-title{margin:0;min-width:0;flex:1;font-size:14px;font-weight:650;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-board .dashboard-widget-body{min-width:0;min-height:0;display:grid;align-content:start;gap:6px;overflow:visible}
-/* Status has no pagination: use the footer reservation for actual state. */
+/* Preserve the fixed parent's legacy status widget while D552 uses project IDs. */
 .project-board>.dashboard-widget[data-widget-type="status"] .project-board-content{grid-template-rows:44px minmax(0,1fr)}
 .project-board .dashboard-widget[data-widget-type="status"] .project-development-distribution{flex-wrap:nowrap;min-width:0;overflow:hidden}
 .project-board .dashboard-widget[data-widget-type="status"] .project-development-distribution .chip{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-board .dashboard-widget .project-development-delivery{margin:0;min-width:0;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-board .dashboard-widget-source-error{min-width:0;max-width:35%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:var(--failed)}
-.project-board .dashboard-widget-footer{display:flex;align-items:center;justify-content:space-between;gap:4px;min-width:0;min-height:44px;border-top:1px solid var(--line-soft);font-size:11px;color:var(--muted)}
+.project-board .dashboard-widget-footer{display:flex;align-items:center;justify-content:space-between;gap:4px;min-width:0;min-height:44px;border-top:1px solid var(--line-soft);font-size:11px;color:var(--muted);container-type:inline-size;container-name:dashboard-project-footer}
 .project-board .dashboard-widget-footer a{color:var(--accent);text-decoration:none}
 .project-board .dashboard-widget-footer a:hover{text-decoration:underline}
 .project-board .dashboard-widget-footer button:not(.agent-call){background:var(--panel);color:var(--muted);border:1px solid var(--line);border-radius:8px}
@@ -114,11 +116,10 @@
 .project-board .dashboard-widget-slot>a,.project-board .dashboard-widget-worker a,.project-board .dashboard-widget-links a{display:flex;align-items:center;gap:4px;box-sizing:border-box;min-height:44px;min-width:0;flex:1;color:var(--accent);text-decoration:none}
 .project-board .dashboard-widget-worker .dashboard-widget-title,.project-board .dashboard-widget-links .dashboard-widget-title{font-size:12px;font-weight:500}
 .project-board .dashboard-widget-worker .tid{flex:none;font-size:11px}
-.project-board .dashboard-widget-message{display:flex;align-items:center;gap:6px;min-width:0;min-height:44px;box-sizing:border-box;padding:0 6px;border:1px solid color-mix(in srgb,var(--tone,var(--accent)) 24%,var(--line));border-radius:8px;background:var(--tint,var(--accent-soft));color:var(--tone,var(--accent));font-size:12px}
+.project-board .dashboard-widget-message{display:flex;align-items:center;gap:6px;min-width:0;height:44px;min-height:44px;box-sizing:border-box;padding:0 6px;border:0;border-radius:8px;box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--tone,var(--accent)) 24%,var(--line));background:var(--tint,var(--accent-soft));color:var(--tone,var(--accent));font-size:11px}
 .project-board .dashboard-widget-message a{display:flex;align-items:center;gap:4px;min-width:0;min-height:44px;flex:1;color:inherit;text-decoration:none}
 .project-board .dashboard-widget-message .dashboard-widget-title{font-size:12px;font-weight:500}
-.project-board .dashboard-widget-message .tid{flex:0 0 auto;min-width:0;white-space:nowrap;font-size:10px}
-/* Legacy project-card links wrap and have their own border; widget summaries do not. */
+.project-board .dashboard-widget-message .tid{flex:none;min-width:0;white-space:nowrap;font-size:10px}
 .project-board .dashboard-widget-message .project-dashboard-message{flex-wrap:nowrap;align-items:center;height:44px;min-height:44px;padding:0;border:0;border-radius:0;background:transparent;white-space:nowrap;overflow:hidden}
 .project-board .dashboard-widget-message .project-dashboard-message strong{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal}
 .project-board .dashboard-widget-message .project-dashboard-message small{flex:0 1 auto;min-width:0;max-width:55px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -127,16 +128,22 @@
 .project-board .dashboard-widget-pagination{display:flex;align-items:center;justify-content:flex-end;gap:4px;min-width:0;flex:1}
 .project-board .dashboard-widget-pagination>span{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-board .dashboard-widget-pagination button{flex:none}
-.project-board .dashboard-widget[data-widget-type="accounts"] .dashboard-accounts-items{display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:88px;align-content:start;gap:4px;list-style:none;margin:0;padding:0;min-width:0;min-height:0}
-.project-board .dashboard-widget[data-widget-type="accounts"] .dashboard-widget-slot{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:44px 38px;gap:4px;min-height:0;height:88px;margin:0;padding:0;background:transparent;border:0;border-bottom:1px solid var(--line-soft);border-radius:0;box-shadow:none}
-.project-board .dashboard-widget[data-widget-type="accounts"] .dashboard-account-header{height:44px;min-width:0;padding-right:0;gap:4px}
-.project-board .dashboard-widget[data-widget-type="accounts"] .dashboard-account-identity{flex:1;flex-wrap:nowrap;align-items:center;min-width:0;gap:4px}
-.project-board .dashboard-widget[data-widget-type="accounts"] .dashboard-account-header h3{flex:1;min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.project-board .dashboard-widget[data-widget-type="accounts"] .dashboard-account-age{max-width:60px;min-width:0;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.project-board .dashboard-widget[data-widget-type="accounts"] .dashboard-account-state{max-width:70px;min-width:0;font-size:10px;color:var(--failed);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.project-board .dashboard-widget[data-widget-type="accounts"] .dashboard-account-header button{flex:none;box-sizing:border-box;min-width:44px;min-height:44px;padding:4px;font-size:11px}
-.project-board .dashboard-widget[data-widget-type="accounts"] .dashboard-account-metrics-bounded{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:38px;gap:6px;min-width:0;min-height:0}
-.project-board .dashboard-widget[data-widget-type="accounts"] .dashboard-account-metric-slot{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 5px;gap:2px;height:38px;min-width:0;min-height:0;margin:0;padding:0;background:transparent;border:0;border-radius:0}
-.project-board .dashboard-account-metric-slot h4,.project-board .dashboard-account-metric-slot .dashboard-account-value{margin:0;min-width:0;font-size:11px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-accounts-items{display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:88px;align-content:start;gap:4px;list-style:none;margin:0;padding:0;min-width:0;min-height:0}
+.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-widget-slot{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:44px 38px;gap:4px;min-height:0;height:88px;margin:0;padding:0;background:transparent;border:0;border-bottom:1px solid var(--line-soft);border-radius:0;box-shadow:none}
+.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-header{height:44px;min-width:0;padding-right:0;gap:4px}
+.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-identity{flex:1;flex-wrap:nowrap;align-items:center;min-width:0;gap:4px}
+.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-header h3{flex:1;min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-age{max-width:60px;min-width:0;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-state{max-width:70px;min-width:0;font-size:10px;color:var(--failed);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-header button{flex:none;box-sizing:border-box;min-width:44px;min-height:44px;padding:4px;font-size:11px}
+.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-metrics-bounded{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:38px;gap:6px;min-width:0;min-height:0}
+.project-board :is(.dashboard-widget[data-widget-type="accounts"],.dashboard-accounts-group) .dashboard-account-metric-slot{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 5px;gap:2px;height:38px;min-width:0;min-height:0;margin:0;padding:0;background:transparent;border:0;border-radius:0}
 .project-board .dashboard-account-metric-slot .dashboard-account-reset-inline{display:block;min-width:0;font-size:10px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-board .dashboard-account-metric-slot h4,.project-board .dashboard-account-metric-slot .dashboard-account-value{margin:0;min-width:0;font-size:11px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .project-board .dashboard-account-metric-slot .dashboard-card-note,.project-board .dashboard-account-metric-slot .dashboard-card-warning{margin:0;min-width:0;font-size:11px;line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Direct navigation uses only fixed reserved rows; details remain the narrow fallback. */
+.project-board .dashboard-project-direct-links{display:none;border:0;padding:0;gap:4px;flex:none}
+.project-board .dashboard-project-direct-links a{flex:none;min-height:44px;padding:4px 6px;white-space:nowrap;font-size:11px}
+.project-board .dashboard-widget-body .dashboard-project-navigation-slots{display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:44px;gap:4px;border:0;margin:0;padding:0;min-height:0}
+.project-board .dashboard-project-navigation-slots a{min-width:0;min-height:44px;box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@container dashboard-project-footer (min-width:480px){.project-board:not(.project-board-editing) .dashboard-project-direct-links{display:flex}}

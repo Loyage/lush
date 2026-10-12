@@ -75,7 +75,7 @@ export function reflowWidgetPage(state, capacity) {
 /** Fixed slot capacity depends on geometry, not business count or label length. */
 export function widgetSlots(type, geometry = WIDGET_SIZES[type]) {
   const h = Number.isFinite(geometry?.h) ? geometry.h : WIDGET_SIZES[type].h;
-  // Fixed shell: margin12 + border2 + padding20 + header/footer88 + gaps12.
-  const body = Math.max(0, h * 24 - 134), rowHeight = type === 'accounts' ? 88 : 44;
+  // Original shell: margin12 + border6 + padding22 + header/footer88 + gaps12.
+  const body = Math.max(0, h * 24 - 140), rowHeight = type === 'accounts' ? 88 : 44;
   return Math.max(0, Math.min(12, Math.floor((body + 4) / (rowHeight + 4))));
 }

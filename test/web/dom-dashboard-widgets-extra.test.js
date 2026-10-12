@@ -96,7 +96,9 @@ test('zero-capacity projections retain full navigation, never request limit=0, a
   const account = newWidget('accounts', 'widget:zero-accounts'); account.connection_ids = Array.from({ length: 5 }, (_, i) => `${i + 1}1111111-1111-4111-8111-111111111111`);
   const accounts = mount(renderer, account, { w: 6, h: 18 }); await accounts.querySelector('.dashboard-widget-pagination').querySelectorAll('button')[1].onclick();
   const anchor = accounts.querySelector('.dashboard-account-card').dataset.connectionId;
-  accounts.dashboardGeometryChange({ w: 4, h: 8 }); expect(accounts.querySelectorAll('.dashboard-widget-slot')).toHaveLength(0); expect(accounts.querySelector('.dashboard-widget-fullpage').href).toBe('/#model-sources');
+  accounts.dashboardGeometryChange({ w: 4, h: 8 }); expect(accounts.querySelectorAll('.dashboard-widget-slot')).toHaveLength(0);
+  expect(accounts.querySelector('.dashboard-widget-footer').querySelectorAll('button')).toHaveLength(3);
+  await accounts.querySelector('.dashboard-accounts-details').onclick(); expect(dom.node('modal').querySelector('a').href).toBe('/#model-sources'); closeDialog();
   accounts.dashboardGeometryChange({ w: 6, h: 14 }); expect(accounts.querySelectorAll('.dashboard-account-card').map(row => row.dataset.connectionId)).toContain(anchor);
   const shortcut = newWidget('shortcuts', 'widget:zero-links'); shortcut.links = ['notices', 'settings', 'model-sources', 'docs'].map(target => ({ scope: 'global', target, project_id: null }));
   const shortcuts = mount(renderer, shortcut, { w: 4, h: 6 }); expect(shortcuts.querySelectorAll('.dashboard-widget-slot')).toHaveLength(0);

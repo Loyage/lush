@@ -27,7 +27,7 @@ function pointer(control, type, extras = {}) {
   control[`onpointer${type}`]({ pointerId: 1, pointerType: 'mouse', button: 0, isPrimary: true, clientX: 20, clientY: 20,
     preventDefault() { prevented = true; }, ...extras }); return prevented;
 }
-const cell = (id, x = 0, y = 0, w = 6, h = 16) => ({ id, x, y, w, h });
+const cell = (id, x = 0, y = 0, w = 6, h = 24) => ({ id, x, y, w, h });
 function assertLayout(layout) {
   expect(layout.length).toBeLessThanOrEqual(300);
   for (const a of layout) {
@@ -63,7 +63,7 @@ test('reserved accounts identity defaults to 6x16, never aliases project colors 
   } });
   await component.update([rows[0], { id: 'accounts', type: 'accounts' }, { id: accountId, type: 'account' },
     { id: 'accounts', type: 'accounts' }, { id: 'accounts:extra', type: 'accounts' }, { id: 'ACCOUNTS', type: 'accounts' }]);
-  expect(component.getLayout()).toEqual([cell(ids[0]), cell('accounts', 6), cell(accountId, 0, 16, 4, 10)]);
+  expect(component.getLayout()).toEqual([cell(ids[0]), cell('accounts', 6, 0, 6, 16), cell(accountId, 6, 16, 4, 10)]);
   expect(reads).toEqual([`/api/host/projects/${ids[0]}/appearance`]);
   const group = component.root.children[1]; expect(group.dataset.projectId).toBe('accounts'); expect(group.dataset.boardId).toBe('accounts');
   expect(group.dataset.boardColor).toBeUndefined(); expect(group.querySelector('.project-board-palette').hidden).toBe(true);
@@ -174,6 +174,39 @@ test('account widgets reserve a complete fixed source slot; board preserves moun
   expect(item.querySelectorAll('.project-board-content')).toHaveLength(1); expect(item.dashboardReady).toBe(ready);
 });
 
+test('legacy project and unified account defaults stay fixed; tiny saved geometry gets a state-independent display floor without writes', async () => {
+  const edits = [], rendered = [], component = board({ onLayoutChange: value => edits.push(value), renderCard: (row, { geometry }) => {
+    rendered.push({ ...geometry }); return renderCard(row);
+  } });
+  const aggregate = [{ ...rows[0], type: 'project' }, { id: 'accounts', type: 'accounts' }];
+  await component.update(aggregate); expect(component.getLayout()).toEqual([cell(ids[0]), cell('accounts', 6, 0, 6, 16)]);
+  const tiny = [cell(ids[0], 0, 0, 1, 6), cell('accounts', 1, 0, 1, 6)];
+  await component.update(aggregate, { layout: tiny }); expect(component.getLayout()).toEqual(tiny);
+  expect(rendered.slice(-2)).toEqual([cell(ids[0], 0, 0, 4, 10), cell('accounts', 1, 10, 4, 10)]);
+  component.root.getBoundingClientRect = () => ({ width: 390 }); await component.update(aggregate);
+  expect(component.getLayout()).toEqual(tiny); expect(edits).toHaveLength(0);
+  expect(component.root.children.every(item => item.style['grid-column'] === '1 / span 1')).toBe(true);
+  expect(aggregate.map(row => row.geometry.h)).toEqual([10, 10]);
+  component.root.getBoundingClientRect = () => ({ width: 640 }); await component.update(aggregate);
+  expect(aggregate.map(row => row.geometry.w)).toEqual([3, 3]); expect(component.getLayout()).toEqual(tiny);
+  component.setEditing(true); key(handle(component.root.children[0]), 'ArrowDown');
+  expect(component.getLayout()[0]).toEqual(cell(ids[0], 0, 1, 1, 6)); expect(edits).toHaveLength(1);
+  expect(handle(component.root.children[0]).getAttribute('aria-label')).toContain('显示投影');
+  key(resize(component.root.children[0]), 'ArrowDown');
+  expect(component.getLayout()[0]).toEqual(cell(ids[0], 0, 1, 4, 11)); expect(edits).toHaveLength(2);
+});
+
+test('same source initial appearance is single-flight; later render epochs cannot inherit the old pending response', async () => {
+  const reads = [], pending = [], component = board({ request: url => { reads.push(url); return new Promise(resolve => pending.push(resolve)); } });
+  const same = ['status', 'messages'].map(type => ({ id: `widget:${type}`, type, project_id: ids[0] }));
+  const old = component.update(same); expect(reads).toHaveLength(1);
+  const newer = component.update(same); expect(reads).toHaveLength(2);
+  pending[1]({ id: ids[0], appearance: { version: 1, color: 'blue' } }); await newer;
+  pending[0]({ id: ids[0], appearance: { version: 1, color: 'rose' } }); await old;
+  expect(component.root.children.every(item => item.dataset.boardColor === 'blue')).toBe(true);
+  await component.update(same); expect(reads).toHaveLength(2);
+});
+
 test('legacy browser order is never read, imported or written, even with denied storage', async () => {
   globalThis.localStorage = { getItem() { throw new Error('must not read'); }, setItem() { throw new Error('must not write'); } };
   const component = board(); await component.update(rows); component.setEditing(true);
@@ -186,7 +219,7 @@ test('reasonable deterministic defaults, additions, removals, duplicate/unsafe i
   const component = board(); await component.update([rows[0], rows[1], account, rows[0], { id: '../bad' }, { id: 'account:a' }]);
   expect(component.getLayout().map(value => value.id)).toEqual([ids[0], ids[1], accountId]);
   expect(component.getLayout().slice(0, 2)).toEqual([cell(ids[0]), cell(ids[1], 6)]);
-  expect(component.getLayout()[2]).toEqual(cell(accountId, 0, 16, 4, 10)); assertLayout(component.getLayout());
+  expect(component.getLayout()[2]).toEqual(cell(accountId, 0, 24, 4, 10)); assertLayout(component.getLayout());
   const original = component.getLayout(); await component.update([rows[1], account, rows[2]]);
   expect(component.getLayout()[0]).toEqual(original[1]); expect(component.getLayout()[1]).toEqual(original[2]); assertLayout(component.getLayout());
   const many = Array.from({ length: 301 }, (_, index) => ({ id: (index + 1).toString(16).padStart(16, '0') }));
@@ -214,9 +247,9 @@ test('keyboard moves and resizes with collision avoidance, boundary clamping and
   const item = component.root.children[0]; expect(key(handle(item), 'ArrowRight')).toBe(true);
   expect(component.getLayout()).toEqual([cell(ids[0], 1, 0, 6, 6), cell(ids[1], 6, 6, 6, 6)]);
   expect(edits).toHaveLength(1); expect(edits[0]).toEqual(component.getLayout());
-  key(handle(item), 'ArrowDown', { shiftKey: true }); expect(component.getLayout()[0].h).toBe(7);
+  key(handle(item), 'ArrowDown', { shiftKey: true }); expect(component.getLayout()[0].h).toBe(11);
   key(resize(item), 'ArrowRight'); expect(component.getLayout()[0].w).toBe(7);
-  expect(deepText(item)).toContain('宽 7，高 7');
+  expect(deepText(item)).toContain('宽 7，高 11');
   expect(key(handle(item), 'ArrowRight', { ctrlKey: true })).toBe(false);
   expect(key(handle(item), 'ArrowRight', { isComposing: true })).toBe(false);
   await component.update([rows[0]], { layout: [cell(ids[0], 0, 4095, 12, 80)] });
@@ -230,20 +263,20 @@ test('mouse preview snaps to 12-column/24px grid and commits once, not during po
   await component.update([rows[0]], { layout: [cell(ids[0], 0, 0, 3, 6)] }); component.setEditing(true);
   component.root.getBoundingClientRect = () => ({ width: 1188 }); const control = handle(component.root.children[0]);
   pointer(control, 'down'); expect(pointer(control, 'move', { clientX: 169, clientY: 56 })).toBe(true);
-  expect(component.root.children[0].style['grid-column']).toBe('2 / span 3'); expect(component.root.children[0].style['grid-row']).toBe('3 / span 6');
+  expect(component.root.children[0].style['grid-column']).toBe('2 / span 4'); expect(component.root.children[0].style['grid-row']).toBe('3 / span 10');
   expect(component.getLayout()[0]).toEqual(cell(ids[0], 0, 0, 3, 6)); expect(edits).toHaveLength(0);
   pointer(control, 'up'); expect(edits).toEqual([[cell(ids[0], 1, 2, 3, 6)]]);
   pointer(control, 'up'); expect(edits).toHaveLength(1);
 });
 
-test('both bottom corners resize, bounded at 1..12/6..80 with collision avoidance', async () => {
+test('both bottom corners resize from the visible legacy minimum, bounded at 4..12/10..80', async () => {
   const component = board(); await component.update(rows.slice(0, 2), { layout: [cell(ids[0], 2, 0, 3, 8), cell(ids[1], 6, 0, 6, 6)] });
   component.setEditing(true); component.root.getBoundingClientRect = () => ({ width: 1188 });
   let control = resize(component.root.children[0]); pointer(control, 'down'); pointer(control, 'move', { clientX: 10000, clientY: 10000 }); pointer(control, 'up');
   expect(component.getLayout()[0]).toEqual(cell(ids[0], 2, 0, 10, 80)); assertLayout(component.getLayout());
   await component.update([rows[0]], { layout: [cell(ids[0], 2, 0, 3, 8)] });
   control = component.root.children[0].querySelectorAll('.project-board-resize')[1]; pointer(control, 'down'); pointer(control, 'move', { clientX: -180, clientY: 68 }); pointer(control, 'up');
-  expect(component.getLayout()[0]).toEqual(cell(ids[0], 0, 0, 5, 10));
+  expect(component.getLayout()[0]).toEqual(cell(ids[0], 0, 0, 6, 12));
 });
 
 test('short pointer, secondary pointer, vertical touch, cancellation, lost capture and blur never save', async () => {
@@ -298,7 +331,7 @@ test('responsive display projection does not mutate or save canonical coordinate
   const edits = [], component = board({ onLayoutChange: value => edits.push(value) }); let width = 1200;
   component.root.getBoundingClientRect = () => ({ width }); const device = [cell(ids[0], 0, 0), cell(ids[1], 6, 0)];
   await component.update(rows.slice(0, 2), { layout: device }); width = 390; await component.update(rows.slice(0, 2));
-  expect(component.root.style['--board-columns']).toBe('1'); expect(component.root.children[1].style['grid-row']).toBe('17 / span 16');
+  expect(component.root.style['--board-columns']).toBe('1'); expect(component.root.children[1].style['grid-row']).toBe('25 / span 24');
   expect(component.getLayout()).toEqual(device); width = 720; await component.update(rows.slice(0, 2)); expect(component.root.style['--board-columns']).toBe('6');
   expect(component.root.children[1].style['grid-column']).toBe('4 / span 3'); expect(component.getLayout()).toEqual(device);
   width = 1200; await component.update(rows.slice(0, 2)); expect(component.root.children[1].style['grid-column']).toBe('7 / span 6'); expect(edits).toHaveLength(0);
@@ -341,12 +374,12 @@ test('content heights never change fixed rows or neighbor coordinates or save', 
   const first = component.root.children[0];
   first.querySelector('.project-board-content').getBoundingClientRect = () => { contentReads++; return { height }; };
   component.setEditing(false);
-  expect(first.style['grid-row']).toBe('1 / span 6');
-  expect(component.root.children[1].style['grid-row']).toBe('1 / span 6');
-  expect(component.root.children[2].style['grid-row']).toBe('7 / span 6');
+  expect(first.style['grid-row']).toBe('1 / span 10');
+  expect(component.root.children[1].style['grid-row']).toBe('1 / span 10');
+  expect(component.root.children[2].style['grid-row']).toBe('11 / span 10');
   height = 40; component.setEditing(false);
-  expect(first.style['grid-row']).toBe('1 / span 6');
-  expect(component.root.children[2].style['grid-row']).toBe('7 / span 6');
+  expect(first.style['grid-row']).toBe('1 / span 10');
+  expect(component.root.children[2].style['grid-row']).toBe('11 / span 10');
   expect(component.getLayout()).toEqual(saved); expect(edits).toHaveLength(0); expect(contentReads).toBe(0);
 });
 
@@ -374,11 +407,11 @@ test('only board resize schedules projection; content mutations do not, pagehide
     mutationCallback([{ target: oldContent }]); expect(frames).toHaveLength(0);
     resizeCallback(); mutationCallback([{ target: oldContent }]); resizeCallback();
     expect(frames).toHaveLength(1); frames.shift()();
-    expect(component.root.children[1].style['grid-row']).toBe('7 / span 6');
+    expect(component.root.children[1].style['grid-row']).toBe('11 / span 10');
     expect(component.getLayout()).toEqual(saved); expect(edits).toHaveLength(0);
     await component.update([rows[1]]); expect(watched.has(oldContent)).toBe(false);
     resizeCallback([{ target: oldContent }]); expect(frames).toHaveLength(1); frames.shift()();
-    expect(component.root.children[0].style['grid-row']).toBe('7 / span 6');
+    expect(component.root.children[0].style['grid-row']).toBe('7 / span 10');
     resizeCallback(); const before = resizeDisconnects;
     await dom.fire('pagehide', { persisted: true });
     expect(resizeDisconnects).toBe(before + 1); expect(mutationDisconnects).toBe(1); expect(cancelled).toBe(1);
@@ -413,7 +446,8 @@ test('parent dashboard controller saves committed grid drafts explicitly and can
       if (options.method === 'POST') {
         const body = JSON.parse(options.body); writes.push(body);
         expect(body.expected_revision).toBe(config.revision);
-        config = { ...config, layout: body.layout, widgets: body.widgets, revision: 'grid-saved' };
+        const { expected_revision, ...patch } = body;
+        config = { ...config, ...patch, revision: 'grid-saved' };
       }
       return Response.json(config);
     }
@@ -428,7 +462,8 @@ test('parent dashboard controller saves committed grid drafts explicitly and can
   button('编辑布局').onclick(); key(handle(panel.root.querySelector('.project-board-card')), 'ArrowDown');
   expect(writes).toHaveLength(0); expect(panel.state().layoutDirty).toBe(true);
   await button('保存布局').onclick(); expect(writes).toHaveLength(1);
-  expect(writes[0].layout).toEqual([legacy, cell(widgetId, 2, 5, 4, 10)]); expect(writes[0].widgets).toEqual([widget]); expect(panel.state().editing).toBe(false);
+  expect(writes[0].layout).toEqual([cell(widgetId, 2, 4, 4, 10), cell(ids[0], 2, 5, 4, 8)]);
+  expect(writes[0]).not.toHaveProperty('widgets'); expect(config.widgets).toEqual([widget]); expect(panel.state().editing).toBe(false);
   button('编辑布局').onclick(); key(handle(panel.root.querySelector('.project-board-card')), 'ArrowDown');
   await button('取消布局').onclick(); expect(writes).toHaveLength(1);
   expect(panel.root.querySelector('.project-board-card').style['grid-row']).toBe('6 / span 10');
@@ -475,6 +510,7 @@ test('palette CSS matches identity colors without semantic overrides; fixed shel
     expect(css).toContain(`data-board-color="${color}"]{--board-light:${original[1]};--board-dark:${original[2]}}`);
   }
   expect(css).not.toMatch(/--(?:accent|violet|running|waiting|completed|failed)\s*:/);
+  for (const original of ['border-top:5px solid var(--board-ink)', 'border-radius:10px', 'background:color-mix(in srgb,var(--board-ink) 8%,var(--panel))', 'box-shadow:0 5px 18px', '.project-board .project-open strong{font-size:14px']) expect(css).toContain(original);
   for (const rule of ['grid-auto-rows:24px', 'overflow:visible', 'right:54px', 'touch-action:pan-y', 'prefers-reduced-motion:reduce', 'data-reduced-motion="true"']) expect(css).toContain(rule);
   // A stub cannot compute layout: protect the real-browser regression's shell
   // reset against .project-item alignment and the later account renderer rules.
@@ -487,6 +523,18 @@ test('palette CSS matches identity colors without semantic overrides; fixed shel
   const widgetCss = await Bun.file(new URL('../../src/ui/web/assets/styles-dashboard-cards.css', import.meta.url)).text();
   for (const rule of ['.dashboard-widget-slots', '.dashboard-widget-slot', '.dashboard-widget-pagination', '.dashboard-widget-message', '.dashboard-widget-count', '.dashboard-widget-notice-read', '.dashboard-widget-worker', '.dashboard-widget-links', '.dashboard-account-metrics-bounded', '.dashboard-account-metric-slot', 'grid-auto-rows:88px', 'grid-template-rows:44px 38px']) expect(widgetCss).toContain(rule);
   const workspace = await Bun.file(new URL('../../src/ui/web/assets/styles-workbench.css', import.meta.url)).text();
+  const overview = workspace.split('.workbench-view.project-overview{')[1].split('}')[0];
+  expect(overview).toContain('font-size:11px'); expect(overview).not.toContain('--accent:'); expect(overview).not.toContain('background:');
+  const block = selector => workspace.split(`${selector}{`)[1].split('}')[0];
+  // D552 aggregate rules must not resize the fixed parent's independent status widget.
+  const aggregateRoot = '.project-board>[data-board-id]:not([data-board-id^="widget:"]) .dashboard-widget-body';
+  const aggregateMetrics = block(`${aggregateRoot} .project-development-metrics`);
+  for (const rule of ['height:92px', 'grid-template-columns:repeat(2,minmax(0,1fr))', 'grid-template-rows:repeat(3,minmax(0,1fr))', 'gap:4px']) expect(aggregateMetrics).toContain(rule);
+  expect(block(`${aggregateRoot} .project-development-metric`)).toContain('padding:1px 6px');
+  for (const section of ['distribution', 'delivery', 'worker']) expect(block(`${aggregateRoot} .project-development-${section}`)).toContain('height:44px');
+  const messages = block(`${aggregateRoot} .project-dashboard-messages`);
+  for (const rule of ['height:92px', 'padding-top:0', 'border-top:0']) expect(messages).toContain(rule);
+  expect(block(`${aggregateRoot} .project-development-recent`)).toContain('gap:4px');
   for (const rule of ['.project-board .project-development-metric .metric-label{font-size:11px}',
     '.project-board .project-development-distribution .chip{font-size:10px',
     '.project-board .project-development-worker .chip{font-size:10px}']) expect(workspace).toContain(rule);

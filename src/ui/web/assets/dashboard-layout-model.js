@@ -1,4 +1,23 @@
 import { WIDGET_SIZES } from './dashboard-widget-model.js';
+import { AGGREGATE_SIZES } from './dashboard-widget-aggregate-model.js';
+
+/** Grouped geometry is a read-only projection; independent member cells remain untouched. */
+export function dashboardAggregateLayout(config, rows) {
+  const saved = config?.layout || [], result = [];
+  for (const row of rows) {
+    const own = saved.find(cell => cell.id === row.id);
+    if (own) { result.push({ ...own }); continue; }
+    const members = new Set((config?.widgets || []).filter(widget => row.type === 'accounts' ? widget.type === 'accounts'
+      : widget.project_id === row.id || widget.links.some(link => link.scope === 'project' && link.project_id === row.id)).map(widget => widget.id));
+    const candidates = saved.filter(cell => members.has(cell.id) || (row.type === 'accounts' && row.connection_ids.some(id => cell.id === `account:${id}`)));
+    const anchor = candidates.sort((a, b) => a.y - b.y || a.x - b.x)[0];
+    if (anchor) {
+      const size = AGGREGATE_SIZES[row.type];
+      result.push({ id: row.id, x: Math.min(anchor.x, 12 - size.w), y: anchor.y, ...size });
+    }
+  }
+  return result;
+}
 
 /** Read-only projection; only an explicit settings/layout write publishes these cells. */
 export function dashboardWidgetLayout(layout, widgets) {

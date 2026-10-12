@@ -19,52 +19,86 @@ addEventListener('securitypolicyviolation',e=>violations.push(e.violatedDirectiv
 window.observers=[];
 for(const name of ['ResizeObserver','MutationObserver']){const Native=globalThis[name];globalThis[name]=class extends Native{constructor(callback){super(callback);observers.push(this);this.active=false;}observe(...args){this.active=true;super.observe(...args);}disconnect(){this.active=false;super.disconnect();}};}
 const make=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
-window.rows=['status','messages','workers','accounts','shortcuts'].map(type=>({id:'widget:'+type,widget_type:type,project_id:type==='accounts'||type==='shortcuts'?null:'1111111111111111',name:type+' '+('长标题'.repeat(80)),state:'empty',count:0}));
-window.device=[{id:'widget:status',x:0,y:0,w:4,h:10},{id:'widget:messages',x:4,y:0,w:4,h:10},{id:'widget:workers',x:8,y:0,w:4,h:10},{id:'widget:accounts',x:0,y:10,w:6,h:14},{id:'widget:shortcuts',x:6,y:10,w:4,h:8}];
+window.rows=['1111111111111111','2222222222222222','3333333333333333'].map((id,i)=>({id,type:'project',name:'项目 '+i+' · '+('长标题'.repeat(80)),state:'empty',count:0}));
+rows.push({id:'accounts',type:'accounts',name:'账户额度',state:'empty',count:0});
+window.device=rows.map((row,i)=>({id:row.id,x:i%2*6,y:Math.floor(i/2)*24,w:6,h:row.type==='accounts'?16:24}));
 function fill(row,geometry,item){
  const body=item.querySelector('.dashboard-widget-body');body.replaceChildren();
- const capacity=Math.min(3,Math.max(0,Math.floor((geometry.h*24-12-2-20-100)/(row.widget_type==='accounts'?92:48))));
- const count=Math.min(row.count,capacity);item.querySelector('.fixture-count').textContent=row.count?'1 / '+Math.max(1,Math.ceil(row.count/Math.max(1,capacity))):'0';
- if(!capacity)return;
- if(row.state==='empty'||row.state==='error'||row.state==='offline'){
-  const p=make('p',undefined,row.state==='empty'?'dashboard-widget-empty':'dashboard-widget-error');p.append(make('span',row.state==='empty'?'暂无消息':row.state+' · '+'来源未确认'.repeat(60)));body.append(p);return;
- }
- const list=make('ul',undefined,row.widget_type==='accounts'?'dashboard-accounts-items':row.widget_type==='shortcuts'?'dashboard-widget-links':'dashboard-widget-slots');
- for(let i=0;i<count;i++){
-  const li=make('li',undefined,'dashboard-widget-slot');
-  if(row.widget_type==='accounts'){
+ const budget=geometry.h*24-140;
+ const capacity=row.type==='accounts'?Math.min(3,Math.max(1,Math.floor((budget+4)/92))):Math.max(0,Math.floor((budget-292)/48));
+ item.querySelector('.dashboard-widget-pagination').hidden=row.type==='project'&&!capacity;
+ const pages=Math.max(1,Math.ceil((row.type==='accounts'?Math.min(100,row.count):row.count)/Math.max(1,capacity)));row.page=Math.max(1,Math.min(row.page||1,pages));
+ item.querySelector('.fixture-count').textContent=row.count?row.page+' / '+pages:'0';
+ if(row.type==='accounts'){
+  const list=make('ul',undefined,'dashboard-accounts-items');
+  for(let i=0;i<capacity;i++){
+   const li=make('li',undefined,'dashboard-account-card dashboard-account-embedded dashboard-widget-slot');
    const header=make('header',undefined,'dashboard-account-header'),identity=make('div',undefined,'dashboard-account-identity');
-   identity.append(make('h3','账号 '+i+' · '+('长账号'.repeat(60))),make('small','3分钟前','dashboard-account-age'));header.append(identity);
-   for(const text of ['↻','详情']){const button=make('button',text);button.type='button';button.dataset.help=text==='↻'?'只查询本账户的额度':'打开该账户全部资源详情';header.append(button);}
+   identity.append(make('h3','账号 '+i+' · '+('长账号'.repeat(60))),make('small','3分钟前','dashboard-account-age'));
+   if(['empty','error','offline'].includes(row.state))identity.append(make('small',row.state==='empty'?'未知':row.state+'未确认','dashboard-account-state'));
+   header.append(identity);
+   for(const text of ['↻','详情']){const button=make('button',text);button.type='button';button.dataset.help=text==='↻'?'只查询本账户的额度':'打开全部资源详情，不调用模型';header.append(button);}
    const metrics=make('div',undefined,'dashboard-account-metrics-bounded');
    for(let j=0;j<2;j++){
+    // Match the real metric node: heading (reading + reset) and progress,
+    // not an extra wrapper with a second fake value row.
     const metric=make('section',undefined,'dashboard-account-metric dashboard-account-metric-slot');
-    metric.append(make('h4',j?'现金余额 · '+('余额'.repeat(80)):'5小时窗口'),make('p',j?'$12.50':'已用37%','dashboard-account-value'));
-    const p=make('progress',undefined,'dashboard-account-progress');p.max=100;p.value=37;p.setAttribute('aria-label',j?'现金余额观测':'套餐已用37%');metric.append(p);metrics.append(metric);
+    const unknown=['empty','error','offline'].includes(row.state);
+    const heading=make('h4',unknown?(j?'现金 · 未确认':'5小时 · 未确认'):j?'现金 · $12.50 '+('长币种'.repeat(80)):'5小时 · 已用37%');heading.append(make('small',unknown?'—':'重置 3h','dashboard-account-reset-inline'));metric.append(heading);
+    const p=make('progress',undefined,'dashboard-account-progress');p.max=100;if(!unknown)p.value=37;p.setAttribute('aria-label',unknown?'额度未确认':j?'现金余额观测':'套餐已用37%');metric.append(p);metrics.append(metric);
    }
-   li.append(header,metrics);
-  }else{
-   if(row.widget_type==='messages')li.classList.add('dashboard-widget-message','tone-info');
-   else if(row.widget_type==='workers')li.classList.add('dashboard-widget-worker');
-   const a=make('a');a.href='/source/'+row.widget_type+'/'+i;
-   if(row.widget_type==='workers')a.append(make('span','W123-1-1','tid'));
-   a.append(make('strong','超长消息/入口 '+('具体差异信息'.repeat(row.state==='long'?80:2)),'dashboard-widget-title'));li.append(a);
-   if(row.widget_type==='messages'){
-    li.prepend(make('span',String(row.count),'dashboard-widget-count'));const ack=make('button','已知','dashboard-widget-notice-read');ack.type='button';ack.onclick=()=>{row.count=Math.max(0,row.count-1);fill(row,geometry,item);};li.append(ack);
-   }
+   li.append(header,metrics);list.append(li);
+  }
+  body.append(list);return;
+ }
+ const content=make('div',undefined,'project-dashboard-content');
+ const unknown=['error','offline'].includes(row.state);
+ // Priority is geometry-only: h10 reserves both message rows; additional
+ // selected sections are reachable through the footer's full-page entry.
+ let remaining=budget-92;
+ if(remaining>=98){
+  const development=make('section',undefined,'project-development'),metrics=make('div',undefined,'project-development-metrics');
+  for(const [label,value,tone] of [['Worker',row.count,'blue'],['调用',row.count?2:0,'violet'],['待验收',row.count?3:0,'violet'],['待决',row.count,'amber'],['失败',row.count?1:0,'amber'],['合并',row.count?4:0,'green']]){
+   const metric=make('div',undefined,'project-development-metric tone-'+tone);metric.append(make('span',label,'metric-label'),make('strong',unknown?'—':String(value),'project-development-value'));metrics.append(metric);
+  }
+  development.append(metrics);remaining-=98;
+  if(remaining>=50){const distribution=make('div',undefined,'project-development-distribution');distribution.append(make('span',unknown?'未确认':'运行 2','chip tone-blue'),make('span',unknown?'未确认':'待验收 3','chip tone-violet'));development.append(distribution);remaining-=50;}
+  if(remaining>=50){development.append(make('p',unknown?'未确认':'待合并4 · 合并中1 · 冲突1','project-development-delivery'));remaining-=50;}
+  content.append(development);
+ }
+ const messages=make('section',undefined,'project-dashboard-messages'),list=make('ul',undefined,'dashboard-widget-slots');
+ for(const kind of ['open','unread']){
+  const li=make('li',undefined,'dashboard-widget-slot dashboard-widget-message '+(kind==='open'?'tone-amber':'tone-blue'));
+  li.append(make('span',unknown?'—':String(row.count),'dashboard-widget-count'));
+  const a=make('a',undefined,'project-dashboard-message');a.href='/source/'+row.id+'/'+kind;
+  a.append(make('span',kind==='open'?'D123':'N123','tid'),make('strong',row.state==='empty'?'—':unknown?'来源未确认':('最新标题'.repeat(row.state==='long'?80:3))),make('small','W123-1-1-1-1-1-1'));li.append(a);
+  if(kind==='unread'){
+   const ack=make('button','已知','dashboard-widget-notice-read');ack.type='button';ack.disabled=unknown||!row.count;
+   ack.onclick=()=>{row.count=Math.max(0,row.count-1);fill(row,geometry,item);};
+   const host=make('span',undefined,'help-host');if(ack.disabled)host.dataset.help=unknown?'来源尚未确认，不能标记已知':'当前没有未读告知';host.append(ack);li.append(host);
   }
   list.append(li);
  }
- body.append(list);
+ messages.append(list);content.append(messages);
+ if(capacity){
+  const recent=make('section',undefined,'project-development-recent');
+  if(!row.count){const empty=make('p',undefined,'dashboard-widget-empty');empty.append(make('span','—'));recent.append(empty);}
+  for(let i=0;i<Math.min(row.count,capacity);i++){
+   const worker=make('div',undefined,'project-development-worker dashboard-widget-slot'),link=make('a',undefined,'project-development-worker-link');link.href='/source/'+row.id+'/worker/'+((row.page-1)*capacity+i);link.append(make('span','W123-1-'+(i+1),'tid'),make('span','当前成果 '+('超长Worker'.repeat(60))));worker.append(link,make('span','运行','chip tone-blue'));recent.append(worker);
+  }
+  content.append(recent);
+ }
+ body.append(content);
 }
 function renderCard(row,{geometry}){
- const item=make('li',undefined,'project-item dashboard-widget');item.dataset.widgetType=row.widget_type;item.dataset.cardId=row.id;
+ const item=make('li',undefined,'project-item dashboard-widget'+(row.type==='accounts'?' dashboard-accounts-group':''));item.dataset.widgetType=row.type;item.dataset.cardId=row.id;
  item.dashboardReady=async()=>{if(!item.isConnected)throw Error('ready before mount');};
- const head=make('header',undefined,'dashboard-widget-header');head.append(make('h2',row.name,'dashboard-widget-title'));
+ const head=make('header',undefined,'dashboard-widget-header'+(row.type==='accounts'?' dashboard-accounts-header':''));
+ if(row.type==='project'){const a=make('a',undefined,'project-open');a.href='/source/'+row.id;a.append(make('strong',row.name));head.append(a);}else head.append(make('h2',row.name,'dashboard-widget-title'));
  const body=make('div',undefined,'dashboard-widget-body'),foot=make('footer',undefined,'dashboard-widget-footer');
  const pagination=make('nav',undefined,'dashboard-widget-pagination');pagination.setAttribute('aria-label','卡片分页');const count=make('span','0','fixture-count');pagination.append(count);
- for(const text of ['‹','›']){const button=make('button',text);button.type='button';button.dataset.help=text==='‹'?'查看前一页卡片内容':'查看后一页卡片内容';pagination.append(button);}foot.append(pagination);
- const open=make('a','打开');open.href='/source/'+row.widget_type;foot.append(open);
+ for(const text of ['‹','›']){const button=make('button',text);button.type='button';button.dataset.help=text==='‹'?'查看前一页卡片内容':'查看后一页卡片内容';button.onclick=()=>{row.page=(row.page||1)+(text==='‹'?-1:1);fill(row,row.geometry,item);};pagination.append(button);}foot.append(pagination);
+ const open=make('a','打开');open.href='/source/'+row.id;foot.append(open);
  const host=make('span',undefined,'help-host dashboard-card-settings-host'),settings=make('button','⚙','dashboard-card-settings');settings.type='button';settings.setAttribute('aria-label','卡片设置');settings.dataset.help='选择卡片显示的信息';host.append(settings);
  item.append(head,body,foot,host);fill(row,geometry,item);return item;
 }
@@ -78,7 +112,16 @@ window.check=()=>{
   if(card.scrollWidth>card.clientWidth+1||card.scrollHeight>card.clientHeight+1)problems.push('card overflow '+card.dataset.boardId);
   for(const n of card.querySelectorAll('a,button,progress')){if(n.hidden||getComputedStyle(n).display==='none')continue;const b=n.getBoundingClientRect();
    if(b.width>0&&(b.left<r.left-.5||b.right>r.right+.5||b.top<r.top-.5||b.bottom>r.bottom+.5))problems.push('hidden/outside control '+n.textContent);
+   const slot=n.closest('.dashboard-widget-slot,.dashboard-account-metric-slot');
+   if(slot){const s=slot.getBoundingClientRect();if(b.left<s.left-.5||b.right>s.right+.5||b.top<s.top-.5||b.bottom>s.bottom+.5)problems.push('control escaped fixed slot '+n.textContent);}
   }
+  const body=card.querySelector('.dashboard-widget-body');
+  if(Math.abs(body.getBoundingClientRect().height-(Number(card.style.gridRow.split('span ')[1])*24-140))>.5)problems.push('shell budget');
+  const expected={'.project-development-metrics':92,'.project-development-distribution':44,'.project-development-delivery':44,'.project-dashboard-messages':92,'.project-development-worker':44};
+  for(const [selector,height] of Object.entries(expected))for(const n of body.querySelectorAll(selector))if(Math.abs(n.getBoundingClientRect().height-height)>.5)problems.push('section budget '+selector);
+  const metrics=body.querySelector('.project-development-metrics');if(metrics&&metrics.children.length!==6)problems.push('metric count');
+  for(const n of body.querySelectorAll('.project-development-metric'))if(Math.abs(n.getBoundingClientRect().height-28)>.5||getComputedStyle(n.querySelector('.project-development-value')).fontSize!=='20px'||getComputedStyle(n.querySelector('.metric-label')).fontSize!=='11px')problems.push('six-metric density');
+  if(body.scrollHeight>body.clientHeight+1)problems.push('body slots overflow '+JSON.stringify({height:body.clientHeight,scroll:body.scrollHeight,parts:[...body.firstElementChild.children].map(n=>({class:n.className,height:n.getBoundingClientRect().height}))}));
   const content=card.querySelector('.project-board-content');if(content.scrollTop!==0||content.scrollHeight>content.clientHeight+1)problems.push('inner scroll');
  }
  for(let i=0;i<rects.length;i++)for(let j=i+1;j<rects.length;j++){const a=rects[i],b=rects[j];if(a.left<b.right&&a.right>b.left&&a.top<b.bottom&&a.bottom>b.top)problems.push('overlap');}
@@ -129,7 +172,8 @@ try {
     if (url.pathname === '/fixture.js') return new Response(fixture, { headers: { 'Content-Type': 'text/javascript' } });
     if (url.pathname === '/fixture.css') return new Response(css, { headers: { 'Content-Type': 'text/css' } });
     if (/^\/assets\/[\w.-]+\.(js|css)$/.test(url.pathname)) return new Response(Bun.file(path.join(assets, path.basename(url.pathname))));
-    if (url.pathname === '/api/host/projects/1111111111111111/appearance') { reads.push(url.pathname); return Response.json({ id: '1111111111111111', appearance: { version: 1, color: 'blue' } }); }
+    const appearance = /^\/api\/host\/projects\/([123]{16})\/appearance$/.exec(url.pathname);
+    if (appearance) { reads.push(url.pathname); return Response.json({ id: appearance[1], appearance: { version: 1, color: { '1': 'green', '2': 'blue', '3': 'rose' }[appearance[1][0]] } }); }
     if (url.pathname === '/favicon.ico') return new Response('', { status: 204 });
     unexpected.push(url.pathname); return new Response('', { status: 404 });
   } });
@@ -151,6 +195,8 @@ try {
     await bidi('browsingContext.setViewport', { context, viewport: { width, height: 900 }, devicePixelRatio: 1 });
     await execute(`document.documentElement.dataset.theme='${theme}';window.scrollTo(0,0);`); await settle();
     const baseline = await execute('return snapshot();');
+    const palette=await execute('const s=getComputedStyle(board.root.children[0]);return {ink:s.getPropertyValue("--board-ink").trim(),running:s.getPropertyValue("--running").trim(),agent:s.getPropertyValue("--violet").trim(),main:getComputedStyle(document.querySelector("main")).backgroundColor};');
+    assert(palette.ink===(theme==='light'?'#147457':'#8ddbb4')&&palette.running===(theme==='light'?'#287ba6':'#79c9f0')&&palette.agent===(theme==='light'?'#7955b4':'#c1a4f3')&&palette.main==='rgba(0, 0, 0, 0)', `original identity/semantic/Agent palette ${JSON.stringify(palette)}`);
     const initialGeometryCalls = await execute('return geometryChanges.length;');
     for (const [state, count] of [['empty', 0], ['one', 1], ['many', 100], ['long', 500], ['error', 100], ['offline', 100]]) {
       await asyncExecute(`const done=arguments[0];refresh('${state}',${count}).then(()=>done(true));`); await settle();
@@ -159,32 +205,46 @@ try {
       assert(!result.problems.length, `${theme}/${width}/${state}: ${JSON.stringify(result.problems)}`);
       assert(JSON.stringify(result.layout) === JSON.stringify(await execute('return device;')), 'responsive projection persisted');
       assert(result.calls === initialGeometryCalls, 'content update fired geometry callback');
+      if(state==='many')assert(await execute('return [...board.root.querySelectorAll("[data-widget-type=project]")].every(c=>c.querySelectorAll(".project-development-worker").length===3&&c.querySelector(".project-development-recent").getBoundingClientRect().height===140);'), `h24 three Worker slots ${theme}/${width}`);
       if (state === 'long') await screenshot(`populated-${theme}-${width}`);
     }
     for (const editing of [true, false]) {
       await execute(`board.setEditing(${editing});`); await settle();
       assert(await execute('return check().length===0;'), `editing hidden/overflow controls ${theme}/${width}: ${JSON.stringify(await execute('return check();'))}`);
       assert(await execute(`return [...board.root.querySelectorAll('.project-board-handle,.project-board-resize')].every(b=>b.hidden===${!editing}&&b.disabled===${!editing});`), 'editing gate');
-      assert(await execute(`return [...board.root.children].every(c=>getComputedStyle(c).borderRadius==='12px'&&getComputedStyle(c).transitionDuration==='0s');`), 'card radius/reduced motion');
+      assert(await execute(`return [...board.root.children].every(c=>getComputedStyle(c).borderRadius==='10px'&&getComputedStyle(c).borderTopWidth==='5px'&&getComputedStyle(c).transitionDuration==='0s');`), 'card radius/reduced motion');
     }
-    await screenshot(`${theme}-${width}`); console.log(`PASS ${theme}/${width}: fixed empty→one→many→long→error/offline, paged resources, no horizontal overflow or hidden controls`);
+    await screenshot(`${theme}-${width}`);
+    await asyncExecute('const done=arguments[0];board.update(rows,{layout:device.map(c=>({...c,w:4,h:8}))}).then(()=>done(true));'); await settle();
+    const small=await execute('return snapshot();');
+    for(const editing of [false,true]){
+      await execute(`board.setEditing(${editing});`);
+      for(const [state,count] of [['empty',0],['one',1],['many',100],['long',500],['error',100],['offline',100]]){
+        await asyncExecute(`const done=arguments[0];refresh('${state}',${count}).then(()=>done(true));`);await settle();
+        const minimum=await execute('return {rects:snapshot(),problems:check(),intact:[...board.root.querySelectorAll("[data-widget-type=project]")].every(c=>c.querySelectorAll(".dashboard-widget-message").length===2&&c.querySelector(".dashboard-widget-footer a").getBoundingClientRect().height===44)};');
+        assert(!minimum.problems.length&&minimum.intact&&JSON.stringify(minimum.rects)===JSON.stringify(small), `h10 messages/footer ${theme}/${width}/${editing}/${state}: ${JSON.stringify(minimum.problems)}`);
+      }
+    }
+    await screenshot(`minimum-${theme}-${width}`);
+    await execute('board.setEditing(false);');await asyncExecute('const done=arguments[0];board.update(rows,{layout:device}).then(()=>done(true));');await settle();
+    console.log(`PASS ${theme}/${width}: h24 six metrics/3 Worker rows, h10 two messages/footer, fixed empty→one→many→long→error/offline, bounded controls and CSP`);
   }
   assert(reads.length === initialReads, 'appearance cache reread on content update');
   await bidi('browsingContext.setViewport', { context, viewport: { width: 1440, height: 900 }, devicePixelRatio: 1 }); await settle();
   await asyncExecute('const done=arguments[0];board.update(rows,{layout:device.map(c=>({...c,w:4,h:8}))}).then(()=>refresh("long",500)).then(()=>done(true));'); await settle();
   for (const editing of [false, true]) {
     await execute(`board.setEditing(${editing});`);
-    assert(await execute('return check().length===0&&[...board.root.children].every(c=>c.getBoundingClientRect().height===(["accounts","messages","status"].includes(c.dataset.widgetType)?228:180)&&c.querySelector(".dashboard-widget-footer a").getBoundingClientRect().height===44);'), 'minimum geometry lost accessible controls');
+    assert(await execute('return check().length===0&&[...board.root.children].every(c=>c.getBoundingClientRect().height===228&&c.querySelector(".dashboard-widget-footer a").getBoundingClientRect().height===44);'), 'minimum geometry lost accessible controls');
   }
   await asyncExecute('const done=arguments[0];board.update(rows,{layout:device}).then(()=>done(true));'); await settle();
-  await execute('board.setEditing(true);board.root.children[0].querySelector(".project-board-handle").focus();');
-  await key('\uE014'); assert(await execute('return edits.length===1&&board.getLayout()[0].x===1&&board.getLayout()[1].y===10;'), 'keyboard collision');
-  await key('\uE015', true); assert(await execute('return edits.length===2&&board.getLayout()[0].h===11;'), 'keyboard fixed resize');
+  await execute('board.root.lastElementChild.querySelector(".dashboard-widget-pagination button:last-child").click();window.accountPage=rows.at(-1).page;board.setEditing(true);board.root.children[0].querySelector(".project-board-handle").focus();');
+  await key('\uE014'); assert(await execute('return edits.length===1&&board.getLayout()[0].x===1&&board.getLayout()[1].y===24;'), 'keyboard collision');
+  await key('\uE015', true); assert(await execute('return edits.length===2&&board.getLayout()[0].h===25;'), 'keyboard fixed resize');
   await asyncExecute('const done=arguments[0];board.update(rows,{layout:device}).then(()=>done(true));');
   await drag('.project-board-handle', 115, 48); assert(await execute('return edits.length===3&&board.getLayout()[0].x===1&&board.getLayout()[0].y===2;'), 'mouse snap');
-  await drag('.project-board-resize', 115, 48); assert(await execute('return edits.length===4&&board.getLayout()[0].w===5&&board.getLayout()[0].h===12;'), 'mouse resize');
+  await drag('.project-board-resize', 115, 48); assert(await execute('return edits.length===4&&board.getLayout()[0].w===7&&board.getLayout()[0].h===26;'), 'mouse resize');
   await drag('.project-board-handle', 115, 24, 'touch'); assert(await execute('return edits.length===5;'), 'touch horizontal drag');
-  assert(await execute('return check().length===0;'), 'edit collision/containment');
+  assert(await execute('return check().length===0&&rows.at(-1).page===accountPage;'), 'edit collision/containment/page preservation');
   await execute('window.saved=board.getLayout();window.count=edits.length;');
   await drag('.project-board-handle', 0, 160, 'touch'); assert(await execute('return edits.length===count&&JSON.stringify(board.getLayout())===JSON.stringify(saved);'), 'vertical touch committed');
   for (const cancel of ['pointercancel', 'lostpointercapture', 'Escape']) {

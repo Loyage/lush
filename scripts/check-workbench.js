@@ -8,6 +8,7 @@ import { startWeb } from '../src/ui/web/server.js';
 import { projectRouteId } from '../src/host/registry.js';
 import { readProjectAppearance, saveProjectAppearance } from '../src/host/project-appearance.js';
 import { DeviceSettingsService } from '../src/host/device-settings.js';
+import { readDashboardSettings } from '../src/core/dashboard-settings.js';
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lush-workbench-ui-')));
 let offline = false, richProjects = false;
@@ -236,14 +237,11 @@ try {
   await rpc(`/session/${session}/window`, { handle: settingsWindow }); await click('#projects-open');
   await until(`document.querySelector('.dashboard-settings-open')&&!document.querySelector('.dashboard-settings-open').disabled`);
   await click('.dashboard-settings-open');
-  await until(`document.querySelector('.dashboard-widget-add')&&!document.querySelector('.dashboard-widget-add').disabled`);
-  await evaluate(`(()=>{const type=document.querySelector('.dashboard-widget-type');type.value='accounts';type.dispatchEvent(new Event('change'));return true})()`);
-  await click('.dashboard-widget-add');
-  await evaluate(`(()=>{document.querySelector('details[data-widget-id="widget:accounts-1"]').open=true;return true})()`);
+  await until(`document.querySelectorAll('.dashboard-settings-panel input[data-connection-id]').length===2&&!document.querySelector('.dashboard-settings-panel input').disabled`);
   for (const id of accountIds) await click(`.dashboard-settings-panel input[data-connection-id="${id}"]`);
   await click('#modal .modal-confirm');
   await until(`document.querySelector('.dashboard-status').textContent==='已保存'&&!document.querySelector('.dashboard-settings-open').disabled`);
-  await until(`document.querySelectorAll('.project-board-card').length===5&&document.querySelector('[data-board-color="rose"]')`);
+  await until(`document.querySelectorAll('.project-board-card').length===2&&document.querySelector('[data-board-color="rose"]')`);
   assert(await evaluate(`document.querySelectorAll('.dashboard-account-card').length===2&&document.getElementById('detail').textContent.includes('12.5 USD')&&!document.querySelector('.project-order')&&[...document.querySelectorAll('.project-board-handle')].every(b=>b.hidden&&b.disabled)`), 'dashboard mixed cards or non-editing boundary failed');
   await click('.dashboard-layout-edit');
   const accountHandle = await rpc(`/session/${session}/element`, { using: 'css selector', value: '.dashboard-accounts-group .project-board-resize[data-corner="east"]' });
@@ -252,6 +250,8 @@ try {
   await until(`document.querySelector('.dashboard-status').textContent==='已保存'&&!document.querySelector('.dashboard-settings-open').disabled`);
   const sharedAccountColumn = await evaluate(`document.querySelector('[data-widget-type="accounts"]').style.gridColumn`);
   assert(sharedAccountColumn.includes('span 5')&&await evaluate(`localStorage.getItem('lush.host.project-board.order.v1')===null`), 'assembled keyboard resize was not saved to device layout');
+  const confirmedDashboard = readDashboardSettings({ deviceHome: deviceSettings.config.home });
+  assert(confirmedDashboard.widgets === null && confirmedDashboard.layout.some(cell => cell.id === 'accounts' && cell.w === 5), 'legacy selection/layout save silently materialized widgets');
   await rpc(`/session/${session}/window`, { handle: child });
   await until(`document.documentElement.dataset.theme === 'dark'`);
   assert(await evaluate(`document.title === 'mock-project · Lush'`), 'global settings lost project-tab identity');
@@ -275,11 +275,10 @@ try {
   try {
     // This independent session has no primary-session BiDi socket; native desktop sizing suffices.
     await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 }); await login('/#projects');
-    await until(`document.querySelectorAll('.dashboard-account-card').length===2&&document.querySelectorAll('.project-board-card').length===5`);
+    await until(`document.querySelectorAll('.dashboard-account-card').length===2&&document.querySelectorAll('.project-board-card').length===2`);
     assert(await evaluate(`document.querySelector('[data-widget-type="accounts"]').style.gridColumn===${JSON.stringify(sharedAccountColumn)}&&localStorage.getItem('lush.host.project-board.order.v1')===null`), 'second browser failed to share device card selection and layout');
     await click('.dashboard-settings-open');
     await until(`document.querySelectorAll('.dashboard-settings-panel input[data-connection-id]').length===2&&!document.querySelector('.dashboard-settings-panel input').disabled`);
-    await evaluate(`(()=>{document.querySelector('details[data-widget-id="widget:accounts-1"]').open=true;return true})()`);
     await click(`.dashboard-settings-panel input[data-connection-id="${accountIds[1]}"]`); await click('#modal .modal-confirm');
     await until(`document.querySelector('.dashboard-status').textContent==='已保存'&&!document.querySelector('.dashboard-settings-open').disabled`);
     await navigate(`${origin}/p/${projectRouteId(fixtureProject)}/`);
@@ -358,7 +357,7 @@ try {
   }
   richProjects = true;
   await resize(1440); await click('#projects-open');
-  await until(`document.querySelectorAll('.project-board-card').length===5&&document.querySelectorAll('.dashboard-account-card').length===1&&document.querySelector('.project-development-metrics')`);
+  await until(`document.querySelectorAll('.project-board-card').length===3&&document.querySelectorAll('.dashboard-account-card').length===1&&document.querySelector('.project-development-metrics')`);
   for (const theme of ['light', 'dark']) for (const width of [1440, 900, 390, 320]) {
     await resize(width); await evaluate(`document.documentElement.dataset.theme='${theme}'`);
     assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth&&[...document.querySelectorAll('.project-board-card,.dashboard-account-header,.dashboard-account-metric')].every(n=>n.scrollWidth<=n.clientWidth+1)&&!document.querySelector('.project-order')&&[...document.querySelectorAll('.project-board-handle')].every(b=>b.hidden&&b.disabled)`), `assembled mixed dashboard overflow or management action at ${theme}/${width}`);

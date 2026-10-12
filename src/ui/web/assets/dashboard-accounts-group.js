@@ -1,5 +1,6 @@
 import { el } from './dom.js';
 import { dashboardIcon } from './dashboard-icons.js';
+import { formDialog } from './dialog.js';
 import { renderAccountCard } from './dashboard-cards.js';
 import { widgetSlots, reflowWidgetPage } from './dashboard-widget-model.js';
 import { widgetPagination } from './dashboard-widget-pagination.js';
@@ -39,11 +40,18 @@ export function renderAccountGroup(row, { mode = 'list', sections, sectionsForAc
     }
     if (bounded) {
       footer = widgetPagination(root, { previous: capacity > 0 && state.index > 0, next: capacity > 0 && (state.index + 1) * capacity < accounts.length,
-        label: capacity ? `${accounts.length ? state.index + 1 : 0} / ${Math.ceil(accounts.length / capacity)} · ${accounts.length}` : `— · ${accounts.length}`,
+        label: state.error || (capacity ? `${accounts.length ? state.index + 1 : 0} / ${Math.ceil(accounts.length / capacity)} · ${accounts.length}` : `— · ${accounts.length}`),
         onPrevious: () => { if (capacity > 0 && ownsPage() && state.index > 0) { state.index--; paint(); } },
         onNext: () => { if (capacity > 0 && ownsPage() && (state.index + 1) * capacity < accounts.length) { state.index++; paint(); } } });
       if (capacity === 0) {
-        const more = el('a', '模型来源', 'dashboard-widget-fullpage'); more.href = '/#model-sources'; more.target = '_blank'; more.rel = 'noopener'; footer.append(more);
+        const details = el('button', '全部来源', 'ghost dashboard-accounts-details'); details.type = 'button';
+        details.onclick = () => {
+          if (!ownsPage()) return;
+          const content = el('ul', undefined, 'dashboard-accounts-details-list');
+          for (const account of accounts) content.append(renderAccountCard(account, { sections: sectionsForAccount?.(account) ?? sections }));
+          const more = el('a', '模型来源'); more.href = '/#model-sources'; more.target = '_blank'; more.rel = 'noopener'; content.append(more);
+          void formDialog({ title: '额度与余额', content, confirmLabel: '关闭' });
+        }; footer.append(details);
       }
     }
   }
@@ -65,9 +73,15 @@ export function renderAccountGroup(row, { mode = 'list', sections, sectionsForAc
   }
   button.onclick = async () => {
     if (blocker || busy || !ownsPage()) return;
-    busy = true; sync();
+    busy = true; state.error = null; if (bounded) paint(); sync();
     try { await refreshAll(); }
-    catch (error) { if (ownsPage()) items.prepend(el('li', typeof error?.message === 'string' && error.message ? error.message : '全组刷新失败', 'dashboard-card-warning')); }
+    catch (error) {
+      if (ownsPage()) {
+        const message = typeof error?.message === 'string' && error.message ? error.message : '全组刷新失败';
+        if (bounded) { state.error = message; paint(); }
+        else items.prepend(el('li', message, 'dashboard-card-warning'));
+      }
+    }
     finally { busy = false; if (ownsPage()) sync(); }
   };
   sync();

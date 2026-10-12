@@ -37,5 +37,7 @@ test('geometry is read-only legacy projection, explicit widget geometry wins, sl
   expect(widgetSlots('accounts')).toBe(2); expect(widgetSlots('workers')).toBe(2); expect(widgetSlots('shortcuts')).toBe(1);
   for (const type of ['accounts', 'workers', 'shortcuts']) expect(widgetSlots(type, { h: 80 })).toBeLessThanOrEqual(12);
   expect(widgetSlots('accounts', { h: 8 })).toBe(0); expect(widgetSlots('accounts', { h: 10 })).toBe(1);
+  expect(widgetSlots('accounts', { h: 16 })).toBe(2); expect(widgetSlots('accounts', { h: 17 })).toBe(2);
+  expect(widgetSlots('accounts', { h: 18 })).toBe(3);
   expect(widgetSlots('workers', { h: 8 })).toBe(1); expect(widgetSlots('shortcuts', { h: 8 })).toBe(1);
 });

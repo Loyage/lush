@@ -6,12 +6,14 @@ import { formDialog, closeDialog } from './dialog.js';
 import { show as showMessage } from './messages.js';
 import { createProjectBoard } from './project-board.js';
 import { readDashboardConfig, loadDashboardConnections, refreshAccountCards } from './dashboard-cards.js';
-import { dashboardWidgetLayout } from './dashboard-layout-model.js';
-import { loadProjectCardMessages } from './project-dashboard-content.js';
-import { dashboardWidgets, widgetRows, placedAccountIds, newWidget, validateWidgets, WIDGET_NAMES, WIDGET_SECTIONS, GLOBAL_LINKS, PROJECT_LINKS } from './dashboard-widget-model.js';
-import { createWidgetRenderer } from './dashboard-widget-render.js';
+import { dashboardAggregateLayout } from './dashboard-layout-model.js';
+import { loadProjectCardMessages, PROJECT_CARD_SECTIONS } from './project-dashboard-content.js';
+import { WIDGET_SECTIONS, GLOBAL_LINKS, PROJECT_LINKS } from './dashboard-widget-model.js';
+import { aggregateRows, aggregateProjectIds, aggregateAccountIds, aggregateLinks, aggregateSections,
+  selectAggregateProject, selectAggregateAccounts, toggleAggregateSection, toggleAggregateLink } from './dashboard-widget-aggregate-model.js';
+import { createAggregateRenderer, dashboardNavigation } from './dashboard-widget-aggregate-render.js';
 
-const cardName = row => row.name || WIDGET_NAMES[row.type];
+const cardName = row => row.name || '未命名项目';
 const plain = value => value && typeof value === 'object' && !Array.isArray(value);
 
 /** One revision owner for all device-shared card selection, content and layout writes. */
@@ -23,14 +25,18 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   const refresh = el('button', '刷新全部', 'ghost'); refresh.type = 'button';
   refresh.dataset.help = '重新读取项目状态与消息，并联网查询已摆放账户的额度；不会启动离线后台或调用模型。';
   const settings = el('button', undefined, 'ghost dashboard-settings-open'); settings.type = 'button'; settings.append(dashboardIcon('settings'));
-  settings.setAttribute('aria-label', '设置总览卡片'); settings.dataset.help = '添加、移除或编辑独立信息卡片与来源；保存后同设备浏览器共享。';
+  settings.setAttribute('aria-label', '设置总览卡片'); settings.dataset.help = '选择面板展示的项目、账户与常用入口；保存后同设备浏览器共享。';
   settings.setAttribute('aria-expanded', 'false'); settings.setAttribute('aria-haspopup', 'dialog');
   const edit = el('button', '编辑布局', 'ghost dashboard-layout-edit'); edit.type = 'button';
   edit.dataset.help = '开启卡片拖动和边角缩放，位置与尺寸按网格吸附并自动避让；保存后同设备浏览器共享。';
   const saveLayout = el('button', '保存布局', 'primary dashboard-layout-save'), cancelLayout = el('button', '取消布局', 'ghost dashboard-layout-cancel');
   saveLayout.type = cancelLayout.type = 'button'; saveLayout.hidden = cancelLayout.hidden = true;
+  const navigation = el('button', '常用入口', 'ghost dashboard-navigation-open'); navigation.type = 'button'; navigation.hidden = true;
+  navigation.dataset.help = '展开已选择的全局导航入口，原生新标签打开，不启动后台或调用 Agent。';
+  const directNavigation = el('nav', undefined, 'dashboard-global-direct-links');
+  directNavigation.setAttribute('aria-label', '常用入口'); toolbar.append(directNavigation);
   const actionHosts = new Map();
-  for (const control of [refresh, settings, edit, saveLayout, cancelLayout]) {
+  for (const control of [refresh, settings, navigation, edit, saveLayout, cancelLayout]) {
     const host = el('span', undefined, 'help-host'); host.append(control); actionHosts.set(control, host); toolbar.append(host);
   }
   // Status projection is stable; visible feedback belongs to the existing toast/modal, never the grid flow.
@@ -38,17 +44,17 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   const editor = el('section', undefined, 'dashboard-settings-panel'); editor.hidden = true;
   editor.setAttribute('aria-label', '总览设置'); editor.setAttribute('tabindex', '-1');
   const empty = el('div', undefined, 'workbench-empty'); empty.hidden = true;
-  empty.append(el('strong', '还没有卡片'), el('p', '使用设置按钮添加卡片。'));
+  empty.append(el('strong', '还没有卡片'), el('p', '使用设置按钮选择项目或账户。'));
   let config = null, projects = [], connections = [], rows = [], messages = new Map();
   let busy = false, editing = false, layoutDirty = false, layoutDraft = [], failedWrite = false;
   let generation = 0, formSave = null, formSaveHost = null, formControls = [], currentEditor = null, editorStatus = null, editorObserver = null;
+  let navigationRevision = null;
   const active = () => owner === globalThis.document && ownsPage() && root.parentNode != null;
-  const widgets = () => config ? dashboardWidgets(config, projects) : [];
-  const renderer = createWidgetRenderer({ ownsPage: active, canAct: () => active() && !busy && !editing,
+  const renderer = createAggregateRenderer({ ownsPage: active, canAct: () => active() && !busy && !editing,
     messages: () => messages, refresh: id => updateInformation([id]), refreshAccounts: ids => updateInformation(ids) });
   const board = createBoard({ ownsPage: active, request: api,
     renderCard(row, options = {}) {
-      const item = renderer.render(row, options);
+      const item = renderer.render(row, { ...options, mode: config.account_view });
       const control = el('button', undefined, 'ghost dashboard-card-settings'); control.type = 'button'; control.append(dashboardIcon('settings'));
       control.setAttribute('aria-label', `设置${cardName(row)}卡片`); control.setAttribute('aria-haspopup', 'dialog');
       control.dataset.help = '在弹窗选择此卡片展示的内容；排版使用页面编辑布局按钮，不修改项目或账号运行配置。';
@@ -76,7 +82,13 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   }
   function syncControls() {
     if (busy || editing) cardGesture.hide();
-    for (const control of [refresh, settings, edit, saveLayout, cancelLayout]) {
+    navigation.hidden = !config || aggregateLinks(config).length === 0;
+    root.classList.toggle('dashboard-layout-editing', editing);
+    if (config?.revision !== navigationRevision) {
+      navigationRevision = config?.revision;
+      directNavigation.replaceChildren(...(config ? [...dashboardNavigation(aggregateLinks(config)).children] : []));
+    }
+    for (const control of [refresh, settings, navigation, edit, saveLayout, cancelLayout]) {
       control.disabled = busy || (control !== refresh && !config) || (failedWrite && [edit, saveLayout].includes(control));
       const host = actionHosts.get(control);
       if (control.disabled) {
@@ -118,12 +130,10 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   }
   async function paint() {
     if (!active()) return;
-    rows = widgetRows(widgets(), projects, connections);
-    if (config && config.widgets == null && !config.content.some(item => item.id === 'accounts')) {
-      for (const row of rows.filter(row => row.type === 'accounts')) row.accountSections = Object.fromEntries(config.content.filter(item => item.id.startsWith('account:')).map(item => [item.id, item.sections]));
-    }
+    rows = config ? aggregateRows(config, projects, connections) : [];
+    if (rows.length > 300) throw new Error('项目来源超过网格 300 张上限；配置与选择原样保留，请在设置减少展示来源');
     empty.hidden = !config || rows.length > 0;
-    const layout = dashboardWidgetLayout(config?.layout || [], rows);
+    const layout = dashboardAggregateLayout(config, rows);
     cardGesture.hide();
     await board.update(rows, { layout: editing ? layoutDraft : layout });
     if (active()) {
@@ -185,79 +195,79 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     input.value = value; input.onchange = () => { if (!busy && active()) change(input.value); };
     host.append(el('span', label), input); parent.append(host); formControls.push(input); return input;
   }
-  function editWidget(parent, widget) {
-    if (widget.project_id !== null) {
-      const choices = projects.map(row => [row.id, row.name || row.id]);
-      if (!choices.some(([id]) => id === widget.project_id)) choices.push([widget.project_id, '来源项目不可用']);
-      select(parent, '来源项目', choices, widget.project_id, id => { widget.project_id = id; }, 'dashboard-widget-project');
+  function linkChoices(parent, id, changes) {
+    const links = el('fieldset'); links.append(el('legend', id ? '项目入口' : '常用入口'));
+    const picked = aggregateLinks(config, id, { selectedOnly: id === null });
+    for (const [target, label] of id ? PROJECT_LINKS : GLOBAL_LINKS) {
+      const item = { scope: id ? 'project' : 'global', target, project_id: id };
+      const initial = picked.some(link => link.target === target);
+      checkbox(links, label, initial, selected => {
+        if (selected === initial) changes.delete(target); else changes.set(target, { item, selected });
+      }, { linkScope: item.scope, linkTarget: target, projectId: id || '' });
     }
-    const choices = el('fieldset'); choices.append(el('legend', '展示内容'));
-    for (const [key, label] of WIDGET_SECTIONS[widget.type]) checkbox(choices, label, widget.sections.includes(key), checked => {
-      widget.sections = checked ? [...widget.sections, key] : widget.sections.filter(section => section !== key);
-    }, { section: key }); parent.append(choices);
-    if (widget.type === 'accounts') {
-      const sources = el('fieldset'); sources.append(el('legend', '账户来源'));
-      const byId = new Map(connections.map(connection => [connection.id, connection]));
-      for (const id of widget.connection_ids) if (!byId.has(id)) byId.set(id, null);
-      for (const [id, connection] of byId) checkbox(sources, connection?.label || `来源已删除：${id}`, widget.connection_ids.includes(id), checked => {
-        widget.connection_ids = checked ? [...widget.connection_ids, id] : widget.connection_ids.filter(value => value !== id);
-      }, { connectionId: id }); parent.append(sources);
-    }
-    if (widget.type === 'shortcuts') {
-      const links = el('fieldset'); links.append(el('legend', '导航入口'));
-      const byId = new Map(projects.map(row => [row.id, row.name || row.id]));
-      for (const item of widget.links) if (item.scope === 'project' && !byId.has(item.project_id)) byId.set(item.project_id, '来源项目不可用');
-      const available = [...GLOBAL_LINKS.map(([target, label]) => [{ scope: 'global', target, project_id: null }, label]),
-        ...[...byId].flatMap(([project_id, name]) => PROJECT_LINKS.map(([target, label]) => [{ scope: 'project', target, project_id }, `${name} · ${label}`]))];
-      for (const [item, label] of available) {
-        const matches = value => value.scope === item.scope && value.target === item.target && value.project_id === item.project_id;
-        checkbox(links, label, widget.links.some(matches), checked => { widget.links = checked ? [...widget.links, item] : widget.links.filter(value => !matches(value)); }, { linkScope: item.scope, linkTarget: item.target, projectId: item.project_id || '' });
-      }
-      parent.append(links);
-    }
+    parent.append(links);
+  }
+  function settingsPatch(next) {
+    const patch = {};
+    for (const key of ['cards', 'hidden_projects', 'content', 'account_view', 'widgets']) if (JSON.stringify(next[key]) !== JSON.stringify(config[key])) patch[key] = next[key];
+    // An unchanged explicit save still checks the original revision; it does not materialize widgets.
+    return Object.keys(patch).length ? patch : { account_view: next.account_view };
+  }
+  function accountSettings(actions, selectedSections = null) {
+    const chosen = new Set(aggregateAccountIds(config));
+    const choices = el('fieldset'); choices.append(el('legend', '额度来源'));
+    const byId = new Map(connections.map(connection => [connection.id, connection]));
+    for (const id of chosen) if (!byId.has(id)) byId.set(id, null);
+    for (const [id, source] of byId) checkbox(choices, source?.label || `来源已删除：${id}`, chosen.has(id), selected => {
+      if (selected) chosen.add(id); else chosen.delete(id);
+    }, { connectionId: id });
+    editor.insertBefore(choices, actions);
+    const styles = el('fieldset'); styles.append(el('legend', '显示方式'));
+    let mode = config.account_view;
+    select(styles, '额度显示方式', [['list', '紧凑列表'], ['tiles', '账号小面板']], mode, value => { mode = value; }, 'dashboard-account-view');
+    editor.insertBefore(styles, actions);
+    return next => { selectAggregateAccounts(next, [...chosen], selectedSections ? [...selectedSections] : null); next.account_view = mode; };
   }
   function openSettings() {
     if (!config || busy) return;
     const { actions, save, show } = editorFrame('面板设置'); currentEditor = { kind: 'global' };
-    let draft = widgets();
-    const list = el('div', undefined, 'dashboard-widget-settings-list'); editor.insertBefore(list, actions);
-    const paintList = () => {
-      list.replaceChildren();
-      for (const widget of draft) {
-        const entry = el('details', undefined, 'dashboard-widget-setting'); entry.dataset.widgetId = widget.id;
-        const source = projects.find(row => row.id === widget.project_id);
-        entry.append(el('summary', source ? `${source.name || '项目'} · ${WIDGET_NAMES[widget.type]}` : WIDGET_NAMES[widget.type]));
-        editWidget(entry, widget);
-        const remove = el('button', '移除卡片', 'ghost dashboard-widget-remove'); remove.type = 'button';
-        remove.dataset.help = '保存后仅从共享面板移除此卡片，不删除项目、账户或历史配置。';
-        remove.onclick = () => { if (!busy && active()) { draft = draft.filter(row => row.id !== widget.id); paintList(); } }; entry.append(remove); formControls.push(remove); list.append(entry);
-      }
+    const selected = new Set(aggregateProjectIds(config, projects)), byId = new Map(projects.map(row => [row.id, row.name || row.id]));
+    for (const id of selected) if (!byId.has(id)) byId.set(id, `来源已移除：${id}`);
+    const choices = el('fieldset'); choices.append(el('legend', '项目'));
+    for (const [id, name] of byId) checkbox(choices, name, selected.has(id), checked => {
+      if (checked) selected.add(id); else selected.delete(id);
+    }, { projectId: id });
+    editor.insertBefore(choices, actions);
+    const applyAccounts = accountSettings(actions), navigationChanges = new Map(), navigationChoices = el('div');
+    linkChoices(navigationChoices, null, navigationChanges); editor.insertBefore(navigationChoices, actions);
+    save.onclick = () => {
+      const next = structuredClone(config);
+      for (const id of byId.keys()) selectAggregateProject(next, projects, id, selected.has(id));
+      applyAccounts(next);
+      for (const change of navigationChanges.values()) toggleAggregateLink(next, projects, change.item, change.selected);
+      return savePatch(settingsPatch(next));
     };
-    const add = el('fieldset'); add.append(el('legend', '添加卡片'));
-    let type = 'status', project = projects[0]?.id || null;
-    select(add, '卡片类型', Object.entries(WIDGET_NAMES), type, value => { type = value; }, 'dashboard-widget-type');
-    select(add, '来源项目', projects.map(row => [row.id, row.name || row.id]), project || '', value => { project = value; }, 'dashboard-widget-add-project');
-    const create = el('button', '添加卡片', 'ghost dashboard-widget-add'); create.type = 'button';
-    create.onclick = () => {
-      if (busy || !active()) return;
-      if (draft.length >= 100) { setStatus('最多摆放 100 张卡片，请先移除不需要的卡片。', true); return; }
-      if (['status', 'messages', 'workers'].includes(type) && !project) { setStatus('请选择已登记的来源项目。', true); return; }
-      let sequence = 1; while (draft.some(row => row.id === `widget:${type}-${sequence}`) || config.layout.some(row => row.id === `widget:${type}-${sequence}`)) sequence++;
-      draft.push(newWidget(type, `widget:${type}-${sequence}`, ['status', 'messages', 'workers'].includes(type) ? project : null)); paintList();
-    };
-    add.append(create); formControls.push(create); editor.insertBefore(add, actions); paintList();
-    save.onclick = () => savePatch({ widgets: draft }); show(); syncControls(); editor.focus?.();
+    show(); syncControls(); editor.focus?.();
   }
   function openCardSettings(row) {
     if (!config || busy) return;
     const { actions, save, show } = editorFrame(cardName(row)); currentEditor = { kind: 'card', id: row.id };
-    const draft = widgets(); const widget = draft.find(item => item.id === row.id); if (!widget) return;
-    const choices = el('div'); editWidget(choices, widget); editor.insertBefore(choices, actions);
-    const remove = el('button', '移除卡片', 'ghost dashboard-widget-remove'); remove.type = 'button';
-    remove.dataset.help = '保存后仅从共享面板移除此卡片，不删除来源项目、账户或旧配置。';
-    let removed = false; remove.onclick = () => { if (!busy && active()) { removed = true; choices.hidden = true; remove.disabled = true; } };
-    actions.prepend(remove); formControls.push(remove);
-    save.onclick = () => savePatch({ widgets: removed ? draft.filter(item => item.id !== row.id) : draft }); show(); syncControls(); editor.focus?.();
+    const initial = new Set(aggregateSections(config, row.id)), selected = new Set(initial);
+    const choices = el('fieldset'); choices.append(el('legend', '展示内容'));
+    for (const [key, label] of row.type === 'accounts' ? WIDGET_SECTIONS.accounts : PROJECT_CARD_SECTIONS) checkbox(choices, label, selected.has(key), checked => {
+      if (checked) selected.add(key); else selected.delete(key);
+    }, { section: key });
+    editor.insertBefore(choices, actions);
+    const applyAccounts = row.type === 'accounts' ? accountSettings(actions, selected) : () => {}, navigationChanges = new Map();
+    if (row.type === 'project') { const links = el('div'); linkChoices(links, row.id, navigationChanges); editor.insertBefore(links, actions); }
+    save.onclick = () => {
+      const next = structuredClone(config); applyAccounts(next);
+      for (const [key] of row.type === 'accounts' ? WIDGET_SECTIONS.accounts : PROJECT_CARD_SECTIONS) if (key !== 'shortcuts' && selected.has(key) !== initial.has(key)) toggleAggregateSection(next, row.id, key, selected.has(key));
+      for (const change of navigationChanges.values()) toggleAggregateLink(next, projects, change.item, change.selected);
+      if (row.type === 'project' && selected.has('shortcuts') !== initial.has('shortcuts')) toggleAggregateSection(next, row.id, 'shortcuts', selected.has('shortcuts'));
+      return savePatch(settingsPatch(next));
+    };
+    show(); syncControls(); editor.focus?.();
   }
   function startEditing() {
     if (!config || busy || failedWrite) return;
@@ -267,15 +277,15 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   }
   async function savePatch(patch, { finishLayout = false } = {}) {
     if (!active() || busy || !config || failedWrite) return false;
-    try { patch.widgets = validateWidgets(patch.widgets || widgets()); }
-    catch (error) { setStatus(error.message, true); return false; }
-    // Preserve every legacy field. Publishing widgets and their current geometry is one revision-guarded write.
-    if (!patch.layout) {
-      const displayed = board.getLayout();
-      const seeds = dashboardWidgetLayout(config.layout, patch.widgets).filter(cell => !displayed.some(item => item.id === cell.id));
-      patch.layout = [...config.layout.filter(cell => !displayed.some(item => item.id === cell.id) && !seeds.some(item => item.id === cell.id)), ...displayed, ...seeds];
+    busy = true; syncControls();
+    try { await readDashboardConfig({ value: { ...config, ...patch, version: 4, widgets: Object.hasOwn(patch, 'widgets') ? patch.widgets : config.widgets ?? null } }); }
+    catch (error) {
+      busy = false;
+      if (active()) { setStatus(`配置未发送：${error.message}；选择原样保留，请减少来源或入口后保存。`, true); syncControls(); }
+      return false;
     }
-    busy = true; syncControls(); setStatus('正在保存…');
+    if (!active()) { busy = false; return false; }
+    setStatus('正在保存…');
     let acknowledged = false;
     try {
       const next = await api('/api/host/dashboard', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -283,14 +293,13 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
       if (!active()) return false;
       // Reuse the same strict read validator without a second HTTP request.
       const acknowledgedConfig = await readDashboardConfig({ value: next });
-      if (acknowledgedConfig.version !== 4 || acknowledgedConfig.widgets === null) throw new Error('保存响应不是完整 v4 独立卡片确认');
+      if (acknowledgedConfig.version !== 4) throw new Error('保存响应不是完整 v4 确认');
       config = acknowledgedConfig;
       acknowledged = true;
       if (!active()) return false;
       if (finishLayout) { editing = false; layoutDirty = false; }
       failedWrite = false;
-      const sources = new Set(widgets().filter(row => row.type === 'messages' && row.sections.includes('messages')).map(row => row.project_id));
-      const missing = projects.filter(row => sources.has(row.id) && !messages.has(row.id));
+      const missing = aggregateRows(config, projects, connections).filter(row => row.type === 'project' && row.sections.includes('messages') && !messages.has(row.id));
       const added = await loadProjectCardMessages(missing, { ownsPage: active });
       if (!active()) return true;
       for (const [id, model] of added) messages.set(id, model);
@@ -345,7 +354,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
         catch (error) { errors.push(`设置：${error.message}`); }
       }
       if (!current()) return;
-      const placed = placedAccountIds(widgets());
+      const placed = config ? aggregateAccountIds(config) : [];
       const selectedIds = ids ? ids.filter(id => placed.includes(id)) : placed;
       const results = await Promise.allSettled([api('/api/host/projects'), initial
         ? loadDashboardConnections() : refreshAccountCards(selectedIds, { ownsPage: current })]);
@@ -372,8 +381,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
           observation: { status: 'error', source: 'none', resources: [], reason: '账户缓存读取失败，当前值未确认。' } }));
       }
       if (!current()) return;
-      const sources = new Set(widgets().filter(row => row.type === 'messages' && row.sections.includes('messages')).map(row => row.project_id));
-      const messageRows = projects.filter(row => sources.has(row.id));
+      const messageRows = config ? aggregateRows(config, projects, connections).filter(row => row.type === 'project' && row.sections.includes('messages')) : [];
       messages = await loadProjectCardMessages(messageRows, { ownsPage: current });
       renderer.resetWorkers();
       if (!current()) return;
@@ -385,7 +393,10 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   refresh.onclick = () => updateInformation();
   settings.onclick = () => { if (!active() || busy) return; if (editor.hidden) openSettings(); else { closeEditor(); settings.focus?.(); } };
   edit.onclick = () => startEditing();
-  saveLayout.onclick = () => savePatch({ widgets: widgets(), layout: [...config.layout.filter(item => !rows.some(row => row.id === item.id)), ...layoutDraft] }, { finishLayout: true });
+  navigation.onclick = () => {
+    if (active() && !busy && config) void formDialog({ title: '常用入口', content: dashboardNavigation(aggregateLinks(config)), confirmLabel: '关闭' });
+  };
+  saveLayout.onclick = () => savePatch({ layout: [...config.layout.filter(item => !rows.some(row => row.id === item.id)), ...layoutDraft] }, { finishLayout: true });
   cancelLayout.onclick = async () => {
     if (!active() || busy) return;
     editing = false; layoutDirty = false; await paint();
