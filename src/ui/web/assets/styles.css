@@ -626,6 +626,9 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 /* 状态图例兼作开关：复用 .badge 的外观，只补开关语义的交互与关闭态。 */
 .task-graph-status-toggle:hover{filter:none;box-shadow:none;background:color-mix(in srgb,currentColor 14%,transparent)}
 .task-graph-status-toggle[aria-pressed="false"]{opacity:.45;border-style:dashed;text-decoration:line-through}
+/* 历史开关不是状态色图例：明确文字色，隐藏时也须保持可读。 */
+.task-graph-archived-toggle{color:var(--text)}
+.task-graph-archived-toggle[aria-pressed="false"]{opacity:1}
 .task-graph-status-reset{font-size:10px;padding:2px 7px}
 .task-graph-usage{display:inline-flex;gap:7px;align-items:center;white-space:nowrap;flex:none;font-size:11px;font-weight:400;font-variant-numeric:tabular-nums;color:var(--text)}
 .task-graph-usage-input{color:var(--completed)}
