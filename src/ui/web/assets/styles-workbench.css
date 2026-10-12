@@ -54,7 +54,8 @@
 /* Keep text and icon controls on the same 44px row, independent of font metrics. */
 .dashboard-toolbar button{display:inline-flex;align-items:center;justify-content:center;flex:none;height:44px}
 .dashboard-toolbar button[hidden]{display:none}
-.project-overview .dashboard-toolbar .dashboard-settings-open{width:44px;padding:8px;font-size:20px;line-height:1}
+.project-overview .dashboard-toolbar .dashboard-settings-open{display:grid;place-items:center;width:44px;padding:0;line-height:1}
+.dashboard-settings-open svg,.dashboard-card-settings svg,.dashboard-account-refresh svg,.dashboard-accounts-refresh svg{display:block;flex:none}
 .dashboard-status{margin:0;font-size:12px;color:var(--muted);overflow-wrap:anywhere}
 .dashboard-status.error{color:var(--failed)}
 /* The status latch feeds toast/modal feedback, not an extra row that moves cards after ACK. */
@@ -76,7 +77,7 @@
 .dashboard-settings-status[hidden]{display:none}
 .dashboard-account-view{box-sizing:border-box;width:100%;max-width:320px;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font:inherit}
 .project-board .dashboard-card-settings-host{position:absolute;right:10px;top:10px;z-index:2;display:block}
-.project-board .dashboard-card-settings{width:44px;height:44px;min-height:44px;padding:8px;font-size:19px;background:var(--panel);border-color:var(--line-soft)}
+.project-board .dashboard-card-settings{display:grid;place-items:center;width:44px;height:44px;min-height:44px;max-width:none;padding:0;background:var(--panel);border-color:var(--line-soft)}
 .project-board .project-development-metric{border-color:color-mix(in srgb,var(--tone) 32%,var(--line-soft));background:color-mix(in srgb,var(--tint) 70%,var(--panel))}
 .project-board .project-development-value{color:var(--tone)}
 .project-dashboard-content{min-width:0;display:grid;gap:6px}

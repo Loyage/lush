@@ -48,6 +48,7 @@ test('总览没有标题与介绍，页面和每卡有设置，进入只读且�
   expect(deepText(panel)).not.toContain('YOUR WORKSPACE'); expect(deepText(panel)).not.toContain('全局总览');
   expect(panel.querySelector('.dashboard-settings-open')).not.toBeNull();
   expect(panel.querySelectorAll('.dashboard-card-settings')).toHaveLength(3);
+  expect(panel.querySelectorAll('.dashboard-card-settings-host').every(host => host.hidden)).toBe(true);
   expect(button('刷新全部')).not.toBeUndefined(); expect(writes()).toHaveLength(0);
   expect(panel.querySelector('.project-order')).toBeNull(); expect(panel.querySelector('.workbench-service-restart')).toBeNull();
   requests = []; await openProjectManager({ push: false });
@@ -77,8 +78,8 @@ test('每卡内容设置独立共享，空内容保留名称和设置按钮而�
   await button('保存').onclick(); expect(config.content).toEqual([{ id: P, sections: [] }]);
   const next = dom.node('detail').querySelector(`[data-project-id="${P}"]`);
   expect(deepText(next)).toContain('项目A'); expect(next.querySelector('.project-dashboard-content').children).toHaveLength(0);
-  expect(next.querySelector('.dashboard-card-settings')).not.toBeNull();
-  expect(dom.document.activeElement).toBe(next.querySelector('.dashboard-card-settings'));
+  expect(next.querySelector('.dashboard-card-settings-host').hidden).toBe(true);
+  expect(dom.document.activeElement).toBe(next);
   await openProjectOverview({ push: false });
   expect(dom.node('detail').querySelector(`[data-project-id="${P}"]`).querySelector('.project-dashboard-messages')).toBeNull();
 });
@@ -122,7 +123,7 @@ test('全局刷新只查询摆放账户，单卡只查自己，且离线项目�
   expect(requests.at(-1).method).toBe('GET');
   config.cards.push({ type: 'account', connection_id: B }); await openProjectOverview({ push: false });
   requests = []; const account = dom.node('detail').querySelector(`[data-card-id="account:${B}"]`);
-  const refresh = account.querySelectorAll('button').find(node => node.textContent === '刷新'); expect(refresh).not.toBeUndefined();
+  const refresh = account.querySelector('.dashboard-account-refresh'); expect(refresh).not.toBeUndefined();
   await refresh.onclick(); expect(writes().map(entry => entry.body.params.id)).toEqual([B]);
 });
 
@@ -147,7 +148,7 @@ test('统一额度弹窗选择来源/模式/内容，保留旧逐来源内容；
   const next = dom.node('detail').querySelector('[data-project-id="accounts"]');
   expect(next.dataset.accountView).toBe('tiles'); expect(next.querySelectorAll('.dashboard-account-card')).toHaveLength(1);
   expect(next.querySelectorAll('.dashboard-account-metric')).toHaveLength(0);
-  expect(dom.document.activeElement).toBe(next.querySelector('.dashboard-card-settings'));
+  expect(dom.document.activeElement).toBe(next);
   expect(requests.filter(entry => entry.path.endsWith('/appearance')).every(entry => !entry.path.includes('accounts'))).toBe(true);
   requests = []; await next.querySelector('.dashboard-accounts-refresh').onclick();
   expect(writes().map(entry => entry.body.params.id)).toEqual([B]);

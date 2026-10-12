@@ -1,6 +1,6 @@
 // Compiled assembled dashboard, real device configuration in a temporary directory,
 // controlled project/connection APIs. No daemon, real credentials, provider or model calls.
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { request } from 'node:http';
@@ -89,11 +89,11 @@ const clickText = text => execute(`const button=[...document.querySelectorAll('#
 async function assertToolbarAlignment(context) {
   const geometry = await execute(`const toolbar=document.querySelector('.dashboard-toolbar'),origin=toolbar.getBoundingClientRect();
     return [...toolbar.querySelectorAll('button')].filter(b=>!b.hidden).map(b=>{const r=b.getBoundingClientRect();
-      return {label:b.textContent,height:r.height,top:r.top-origin.top,width:r.width,fontSize:getComputedStyle(b).fontSize};});`);
+      const icon=b.querySelector('svg')?.getBoundingClientRect();return {label:b.getAttribute('aria-label')||b.textContent,height:r.height,top:r.top-origin.top,width:r.width,centered:!icon||(Math.abs((icon.left+icon.right-r.left-r.right)/2)<1&&Math.abs((icon.top+icon.bottom-r.top-r.bottom)/2)<1)};});`);
   assert(geometry.length >= 3 && geometry.every(button => Math.abs(button.height - 44) < 1
     && Math.abs(button.top / 52 - Math.round(button.top / 52)) < .02),
     `toolbar height/row alignment ${context}: ${JSON.stringify(geometry)}`);
-  assert(geometry.some(button => button.label === '⚙' && button.width === 44 && button.fontSize === '20px'),
+  assert(geometry.some(button => button.label === '设置总览卡片' && button.width === 44 && button.centered),
     `settings icon size ${context}: ${JSON.stringify(geometry)}`);
 }
 async function frame() {
@@ -108,6 +108,13 @@ try {
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/fixture` }); await frame();
   assert(await wait(`document.querySelectorAll('.project-board-card').length===2&&!document.querySelector('.dashboard-settings-open').disabled`), 'compiled dashboard failed to load');
   assert(queries.length === 0 && saves.length === 0, 'entering dashboard queried providers or wrote defaults');
+  assert(await execute(`return [...document.querySelectorAll('.dashboard-card-settings-host')].every(h=>h.hidden)&&getComputedStyle(document.querySelector('.project-board')).backgroundImage==='none'`), 'settings/grid must not be visible in view mode');
+  await execute(`document.querySelector('[data-project-id="${P}"]').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:99,isPrimary:true,button:0,clientX:20,clientY:20}))`);
+  assert(await wait(`!document.querySelector('[data-project-id="${P}"] .dashboard-card-settings-host').hidden`), 'long press did not reveal settings');
+  assert(await execute(`const c=document.querySelector('[data-project-id="${P}"]');let prevented=false;c.addEventListener('click',()=>prevented=true,{once:true});const result=c.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));return !result&&!prevented&&document.getElementById('modal').hidden`), 'release click was not suppressed');
+  await execute(`document.querySelector('[data-project-id="${P}"] .dashboard-card-settings').click()`);
+  assert(await wait(`!document.getElementById('modal').hidden`), 'revealed settings did not open');
+  await clickText('取消');
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.getElementById('viewport').style.width='${width}px';window.scrollTo(0,0)`); await frame();
     await execute(`document.documentElement.dataset.theme='${theme}';`);
@@ -116,12 +123,14 @@ try {
     assert(await execute(`return getComputedStyle(document.querySelector('.project-development-metric .metric-label')).fontSize==='11px'&&getComputedStyle(document.querySelector('.project-development-distribution .chip')).fontSize==='10px'&&getComputedStyle(document.querySelector('.project-development-worker .chip')).fontSize==='10px'&&new Set([...document.querySelectorAll('.project-development-value')].map(e=>getComputedStyle(e).color)).size===3&&document.querySelector('.project-dashboard-message.tone-amber').href.endsWith('/p/${P}/#notices-19')&&document.querySelector('.project-dashboard-message.tone-blue').href.endsWith('/p/${P}/#notices-20')`), 'metric tones or source Notice links failed');
     assert(await execute(`const cards=[...document.querySelectorAll('.project-board-card')],rects=cards.map(c=>c.getBoundingClientRect());return cards.every((card,i)=>{const c=rects[i],content=card.querySelector('.project-board-content'),s=content.getBoundingClientRect();return content.scrollHeight<=content.clientHeight+1&&s.top>=c.top&&s.bottom<=c.bottom+1&&s.left>=c.left&&s.right<=c.right+1&&rects.every((r,j)=>i===j||c.right<=r.left||c.left>=r.right||c.bottom<=r.top||c.top>=r.bottom)})`), `vertical card containment ${theme}/${width}`);
     await assertToolbarAlignment(`${theme}/${width}/view`);
+    assert(await execute(`return [...document.querySelectorAll('.dashboard-account-refresh,.dashboard-accounts-refresh')].every(b=>{const r=b.getBoundingClientRect(),h=b.parentNode.parentNode.getBoundingClientRect(),s=b.querySelector('svg').getBoundingClientRect();return b.textContent===''&&b.getAttribute('aria-label')&&b.dataset.help&&r.width===(matchMedia('(pointer:coarse)').matches?44:28)&&r.left>=h.left&&r.right<=h.right+1&&Math.abs((s.left+s.right-r.left-r.right)/2)<1&&Math.abs((s.top+s.bottom-r.top-r.bottom)/2)<1})`), `compact centered refresh icons ${theme}/${width}`);
     await execute(`window.dashboardBefore=[...document.querySelectorAll('.project-board-card')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]});document.querySelector('.dashboard-settings-open').click()`);
     assert(await execute(`return document.querySelector('.dashboard-settings-panel').hidden===false&&!document.querySelector('.dashboard-settings-panel input[data-project-id="${Q}"]').checked&&[...document.querySelectorAll('.dashboard-settings-panel input')].length===4&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth`), `settings layout ${width}`);
     assert(await execute(`const modal=document.getElementById('modal'),r=modal.querySelector('.modal-card').getBoundingClientRect();return !modal.hidden&&!document.querySelector('#detail .dashboard-settings-panel')&&r.left>=0&&r.right<=innerWidth+1&&r.top>=0&&r.bottom<=innerHeight+1&&[...document.querySelectorAll('.project-board-card')].every((c,i)=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height].every((v,k)=>Math.abs(v-dashboardBefore[i][k])<1)})`), `dialog moved cards or escaped viewport ${theme}/${width}`);
     await clickText('取消'); await clickText('编辑布局');
     await assertToolbarAlignment(`${theme}/${width}/edit`);
-    assert(await execute(`return [...document.querySelectorAll('.project-board-card')].every(c=>{const a=c.querySelector('.dashboard-card-settings').getBoundingClientRect(),b=c.querySelector('.project-board-handle').getBoundingClientRect();return b.width>=44&&a.width>=44&&b.right<=a.left+1})`), `settings/edit overlap ${width}`);
+    assert(await execute(`const board=document.querySelector('.project-board'),style=getComputedStyle(board);return style.backgroundImage!=='none'&&style.backgroundSize.endsWith('24px')&&[...board.children].every(c=>c.querySelector('.dashboard-card-settings-host').hidden&&c.querySelector('.project-board-handle').getBoundingClientRect().width>=44)`), `editing grid/controls ${width}`);
+    if (theme === 'light' && [1440,320].includes(width)) await writeFile(join(output, `dashboard-edit-${width}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
     await clickText('取消布局');
     if (width <= 760) {
       assert(await execute(`const r=document.querySelector('.rail-heading').getBoundingClientRect();return r.height===52&&document.getElementById('mobile-view-title').textContent===''&&document.getElementById('sidebar-toggle').getBoundingClientRect().right<=innerWidth`), 'compact parent header or title-free dashboard failed');
@@ -141,7 +150,7 @@ try {
   assert(saves.length === 0, 'keyboard resize saved implicitly'); await clickText('保存布局');
   assert(await wait(`!document.querySelector('.dashboard-settings-open').disabled&&document.querySelector('.dashboard-status').textContent==='已保存'`), 'layout save failed');
   assert(readDashboardSettings(config).layout.find(item => item.id === P)?.w === 7, 'device layout did not persist keyboard resize');
-  await execute(`document.querySelector('[data-project-id="${P}"] .dashboard-card-settings').click()`);
+  await execute(`const c=document.querySelector('[data-project-id="${P}"]');c.focus();c.dispatchEvent(new KeyboardEvent('keydown',{key:'F10',shiftKey:true,bubbles:true}));const b=c.querySelector('.dashboard-card-settings');if(c.querySelector('.dashboard-card-settings-host').hidden||document.activeElement!==b)throw Error('keyboard entry hidden or unfocused');b.click()`);
   await execute(`const checkbox=document.querySelector('.dashboard-settings-panel input[data-section="messages"]');checkbox.checked=false;checkbox.dispatchEvent(new Event('change'));`);
   await clickText('保存'); assert(await wait(`!document.querySelector('.dashboard-settings-open').disabled&&document.getElementById('modal').hidden`), 'content save failed');
   assert(await execute(`return !document.querySelector('[data-project-id="${P}"] .project-dashboard-messages')`), 'content switch did not hide messages');
@@ -152,7 +161,7 @@ try {
   assert(await execute(`return document.querySelector('[data-project-id="${P}"]').style.gridColumn.includes('span 7')&&!document.querySelector('[data-project-id="${P}"] .project-dashboard-messages')`), 'device layout/content did not survive reload');
   assert(queries.length === 1, 'reload implicitly queried accounts');
   // Group selection/mode keeps saved x/width, allowing intrinsic height to grow.
-  await execute(`window.groupBefore=document.querySelector('[data-project-id="accounts"]').getBoundingClientRect().toJSON();document.querySelector('[data-project-id="accounts"] .dashboard-card-settings').click()`);
+  await execute(`const c=document.querySelector('[data-project-id="accounts"]');window.groupBefore=c.getBoundingClientRect().toJSON();c.focus();c.dispatchEvent(new KeyboardEvent('keydown',{key:'F10',shiftKey:true,bubbles:true}));const b=c.querySelector('.dashboard-card-settings');if(c.querySelector('.dashboard-card-settings-host').hidden||document.activeElement!==b)throw Error('keyboard entry hidden or unfocused');b.click()`);
   await execute(`const mode=document.querySelector('.dashboard-account-view');mode.value='tiles';mode.dispatchEvent(new Event('change'));const b=document.querySelector('input[data-connection-id="${B}"]');b.checked=true;b.dispatchEvent(new Event('change'))`);
   await clickText('保存'); assert(await wait(`document.getElementById('modal').hidden&&document.querySelector('.dashboard-accounts-group').dataset.accountView==='tiles'&&document.querySelectorAll('.dashboard-account-embedded').length===2`), 'group mode/source save failed');
   assert(await execute(`const r=document.querySelector('[data-project-id="accounts"]').getBoundingClientRect();return ['x','width'].every(k=>Math.abs(r[k]-groupBefore[k])<1)&&document.querySelectorAll('.project-board-card').length===2&&document.querySelectorAll('.dashboard-accounts-group .dashboard-card-settings').length===1`), 'group settings moved window or added independent source cards');

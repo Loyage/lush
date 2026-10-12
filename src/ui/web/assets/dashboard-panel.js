@@ -1,4 +1,6 @@
 import { api } from './api.js';
+import { dashboardIcon } from './dashboard-icons.js';
+import { createCardSettingsGesture } from './dashboard-card-gesture.js';
 import { el } from './dom.js';
 import { formDialog, closeDialog } from './dialog.js';
 import { show as showMessage } from './messages.js';
@@ -22,7 +24,7 @@ export function createDashboardPanel({ ownsPage = () => true, renderProject }) {
   const toolbar = el('div', undefined, 'dashboard-toolbar');
   const refresh = el('button', '刷新全部', 'ghost'); refresh.type = 'button';
   refresh.dataset.help = '重新读取项目状态与消息，并联网查询已摆放账户的额度；不会启动离线后台或调用模型。';
-  const settings = el('button', '⚙', 'ghost dashboard-settings-open'); settings.type = 'button';
+  const settings = el('button', undefined, 'ghost dashboard-settings-open'); settings.type = 'button'; settings.append(dashboardIcon('settings'));
   settings.setAttribute('aria-label', '设置总览卡片'); settings.dataset.help = '在弹窗选择要展示的项目和账户；设置保存在此 Host 设备，不改变卡片排版。';
   settings.setAttribute('aria-expanded', 'false'); settings.setAttribute('aria-haspopup', 'dialog');
   const edit = el('button', '编辑布局', 'ghost dashboard-layout-edit'); edit.type = 'button';
@@ -52,11 +54,13 @@ export function createDashboardPanel({ ownsPage = () => true, renderProject }) {
         sectionsForAccount: account => config.content.find(item => item.id === ACCOUNT_GROUP_ID)?.sections ?? sectionsFor(account),
         refresh: id => updateInformation([id]), refreshAll: () => updateInformation(),
       }) : renderProject(row, { sections, messages: messages.get(row.id) });
-      const control = el('button', '⚙', 'ghost dashboard-card-settings'); control.type = 'button';
+      const control = el('button', undefined, 'ghost dashboard-card-settings'); control.type = 'button'; control.append(dashboardIcon('settings'));
       control.setAttribute('aria-label', `设置${cardName(row)}卡片`); control.setAttribute('aria-haspopup', 'dialog');
       control.dataset.help = '在弹窗选择此卡片展示的内容；排版使用页面编辑布局按钮，不修改项目或账号运行配置。';
-      control.onclick = () => { if (active() && !busy) openCardSettings(row); };
-      const host = el('span', undefined, 'help-host dashboard-card-settings-host'); host.append(control); item.prepend(host);
+      control.onclick = () => { if (active() && !busy) { cardGesture.hide(); openCardSettings(row); } };
+      const host = el('span', undefined, 'help-host dashboard-card-settings-host'); host.hidden = true; host.append(control); item.prepend(host);
+      item.setAttribute('tabindex', '0');
+      item.setAttribute('aria-description', '长按卡片空白处显示设置入口；键盘可按 Shift + F10，Esc 收起。');
       return item;
     },
     onLayoutChange(layout) {
@@ -66,12 +70,14 @@ export function createDashboardPanel({ ownsPage = () => true, renderProject }) {
     },
   });
   root.append(toolbar, status, empty, board.root);
+  const cardGesture = createCardSettingsGesture(board.root, { active, canReveal: () => !!config && !busy && !editing && editor.hidden });
   function setStatus(text = '', error = false) {
     status.textContent = text; status.hidden = !text; status.classList.toggle('error', error);
     if (editorStatus) { editorStatus.textContent = text; editorStatus.hidden = !text; editorStatus.classList.toggle('error', error); }
     else showMessage(text, error ? 'error' : 'info');
   }
   function syncControls() {
+    if (busy || editing) cardGesture.hide();
     for (const control of [refresh, settings, edit, saveLayout, cancelLayout]) {
       control.disabled = busy || (control !== refresh && !config) || (failedWrite && [edit, saveLayout].includes(control));
       const host = actionHosts.get(control);
@@ -119,6 +125,7 @@ export function createDashboardPanel({ ownsPage = () => true, renderProject }) {
       ? [{ id: ACCOUNT_GROUP_ID, type: 'accounts', name: '额度与余额', accounts }] : [])] : [];
     empty.hidden = !config || rows.length > 0;
     const layout = dashboardAccountLayout(config?.layout || [], config?.cards.map(card => card.connection_id) || [], inheritedAccountLayout);
+    cardGesture.hide();
     await board.update(rows, { layout: editing ? layoutDraft : layout });
     if (active()) {
       inheritedAccountLayout = board.getLayout().find(cell => cell.id === ACCOUNT_GROUP_ID) || inheritedAccountLayout;
@@ -134,10 +141,11 @@ export function createDashboardPanel({ ownsPage = () => true, renderProject }) {
   }
   function focusEditorTrigger(previous) {
     const control = previous?.kind === 'card'
-      ? board.root.querySelector(`[data-project-id="${previous.id}"]`)?.querySelector('.dashboard-card-settings') : null;
+      ? board.root.querySelector(`[data-project-id="${previous.id}"]`) : null;
     if (control) control.focus?.({ preventScroll: true }); else settings.focus?.();
   }
   function editorFrame(title) {
+    cardGesture.hide();
     editorObserver?.disconnect(); editorObserver = null;
     editor.replaceChildren(); editor.hidden = false; settings.setAttribute('aria-expanded', 'true');
     formControls = [];

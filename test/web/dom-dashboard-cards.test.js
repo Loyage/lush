@@ -41,7 +41,7 @@ beforeEach(() => {
   dom.location.pathname = '/';
 });
 const row = (entry = connection()) => ({ id: `account:${entry.id}`, type: 'account', connection_id: entry.id, connection: entry });
-const button = (root, label) => root.querySelectorAll('button').find(node => node.textContent === label);
+const button = (root, label) => root.querySelectorAll('button').find(node => node.textContent === label || node.getAttribute('aria-label') === label);
 const checkbox = (root, id = ids[0]) => root.querySelector(`input[data-connection-id="${id}"]`);
 const select = (root, id, value) => { const input = checkbox(root, id); input.checked = value; input.onchange(); };
 const writes = () => requests.filter(entry => entry.options?.method === 'POST');
@@ -227,7 +227,7 @@ test('默认账户卡精简，仅关键读数时间与刷新，不带成功状�
   const root = renderAccountCard(row(connection({ observation: observation({ resources: [metric(), metric({ id: 'plan', kind: 'quota', used_percent: 40,
     window_seconds: 18000, reset_at: '2099-01-01T00:00:00Z' })] }) })), { refresh: async () => {} });
   const content = deepText(root);
-  for (const expected of ['个人账户', '12.5 USD', '40%', '5h', '↻', '刷新']) expect(content).toContain(expected);
+  for (const expected of ['个人账户', '12.5 USD', '40%', '5h', '↻']) expect(content).toContain(expected);
   for (const absent of ['观测成功', '模型端点', '仅展示设备缓存', '指标详情', '观测来源', '原始已用比例', '不代表额度已恢复', '上次观测', '已用 ', '剩余 未知', '小时窗口']) expect(content).not.toContain(absent);
   expect(root.querySelector('.dashboard-account-identity').querySelector('.dashboard-account-age')).not.toBeNull();
   expect(root.querySelectorAll('progress')).toHaveLength(1); expect(root.querySelectorAll('details')).toHaveLength(0);
@@ -236,7 +236,9 @@ test('默认账户卡精简，仅关键读数时间与刷新，不带成功状�
 
 test('sections空数组隐藏可选内容但保留名称异常历史标识和刷新', () => {
   let root = renderAccountCard(row(), { sections: [], refresh: async () => {} });
-  expect(deepText(root).replace(/\s/g, '')).toBe('个人账户刷新'); expect(root.querySelectorAll('.dashboard-account-metric')).toHaveLength(0);
+  expect(deepText(root).replace(/\s/g, '')).toBe('个人账户');
+  expect(button(root, '刷新').querySelector('svg')).not.toBeNull();
+  expect(button(root, '刷新').dataset.help).toContain('此账户'); expect(root.querySelectorAll('.dashboard-account-metric')).toHaveLength(0);
   root = renderAccountCard(row(connection({ observation: observation({ status: 'error', resources: [metric({ remaining: 999 })] }),
     last_success: { checked_at: at, observation: observation() } })), { sections: [], refresh: async () => {} });
   expect(deepText(root)).toContain('查询失败'); expect(deepText(root)).toContain('历史成功观测（非当前值）');

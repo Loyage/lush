@@ -1,4 +1,5 @@
 import { el } from './dom.js';
+import { dashboardIcon } from './dashboard-icons.js';
 import { renderAccountCard } from './dashboard-cards.js';
 
 export const ACCOUNT_GROUP_ID = 'accounts';
@@ -11,7 +12,8 @@ export function renderAccountGroup(row, { mode = 'list', sections, sectionsForAc
   const header = el('header', undefined, 'dashboard-accounts-header');
   header.append(el('h2', typeof row.name === 'string' && row.name ? row.name : '额度与余额'));
   const host = el('span', undefined, 'help-host');
-  const button = el('button', '刷新额度', 'dashboard-accounts-refresh'); button.type = 'button';
+  const button = el('button', undefined, 'ghost dashboard-accounts-refresh'); button.type = 'button';
+  button.append(dashboardIcon('refresh')); button.setAttribute('aria-label', '刷新额度');
   button.dataset.help = '仅刷新此额度窗已选择的账户来源，不查询其他账户或调用模型。';
   host.append(button); header.append(host); root.append(header);
   const accounts = Array.isArray(row.accounts) ? row.accounts : [];

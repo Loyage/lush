@@ -1,4 +1,5 @@
 import { el } from './dom.js';
+import { dashboardIcon } from './dashboard-icons.js';
 import { api } from './api.js';
 import { settingsClient } from './settings-api.js';
 import { usageWindow, usageErrorLabels } from './format.js';
@@ -227,8 +228,11 @@ export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, o
     age.setAttribute('aria-label', `观测距今：${age.textContent}`); identity.append(age);
   }
   header.append(identity);
-  const refreshHost = el('span', undefined, 'help-host'), refreshButton = el('button', '刷新', 'dashboard-account-refresh');
-  refreshButton.type = 'button'; refreshHost.append(refreshButton); header.append(refreshHost); root.append(header);
+  const refreshHost = el('span', undefined, 'help-host'), refreshButton = el('button', undefined, 'ghost dashboard-account-refresh');
+  refreshButton.type = 'button'; refreshButton.append(dashboardIcon('refresh'));
+  refreshButton.setAttribute('aria-label', '刷新');
+  refreshButton.dataset.help = '仅联网查询此账户的额度和余额，不查询其他账户或调用模型。';
+  refreshHost.append(refreshButton); header.append(refreshHost); root.append(header);
   const content = embedded ? el('div', undefined, 'dashboard-account-content') : root;
   if (embedded) root.append(content);
   let busy = false;

@@ -20,8 +20,8 @@ const observation={status:'available',source:'usage_api',checked_at:'2026-10-01T
 const account=n=>({id:'account:'+id(n),type:'account',connection_id:id(n),connection:{id:id(n),label:n===1?'很长的账号名称'.repeat(8):'同名账号 '+n,provider:'openrouter',enabled:n!==5,observation:n===2?{status:'unknown',source:'none',checked_at:'2026-10-01T00:00:00Z',resources:[]}:n===3?{status:'error',source:'usage_api',resources:[]}:n===4?{...observation,status:'partial'}:observation,last_success:n===3?{checked_at:'2026-01-01T00:00:00Z',observation}:null}});
 const board=createProjectBoard({renderCard:row=>{
  const root=renderAccountGroup(row,{mode:row.mode,refresh:async id=>refreshed.push(id),refreshAll:async()=>all++,sectionsForAccount:row=>row.connection_id===id(3)?['quota','balance','observed','history','details','provenance']:undefined});
- const host=document.createElement('span');host.className='help-host dashboard-card-settings-host';
- const settings=document.createElement('button');settings.className='fixture-settings dashboard-card-settings';settings.textContent='⚙';settings.dataset.help='模拟父级窗口设置入口';host.append(settings);root.prepend(host);
+ const host=document.createElement('span');host.className='help-host dashboard-card-settings-host';host.hidden=true;
+ const settings=document.createElement('button');settings.className='fixture-settings dashboard-card-settings';settings.textContent='⚙';settings.hidden=true;settings.dataset.help='模拟父级窗口设置入口';host.append(settings);root.prepend(host);
  return root;
 }});board.root.id='board';document.querySelector('#mount').append(board.root);window.board=board;
 window.mount=(mode='list',height=16)=>{
@@ -85,7 +85,7 @@ try {
         for(const card of cards){
           const r=card.getBoundingClientRect(),header=card.querySelector('.dashboard-account-header'),h=header.querySelector('h3').getBoundingClientRect(),button=header.querySelector('button'),b=button.getBoundingClientRect();
           if(getComputedStyle(header).paddingRight!=='0px')errors.push('inner inherited header reserve');
-          if(overlap(h,b)||b.right>r.right+.5||b.left<r.left-.5||b.height<44)errors.push('inner header clipping/overlap');
+          if(overlap(h,b)||b.right>r.right+.5||b.left<r.left-.5||b.height<(matchMedia('(pointer:coarse)').matches?44:28))errors.push('inner header clipping/overlap');
           if(card.scrollWidth>card.clientWidth+1)errors.push('card horizontal overflow');
           if(button.disabled){const host=button.parentNode;if(!host.dataset.help||host.tabIndex!==0)errors.push('disabled help missing');}
           for(const part of card.querySelectorAll('progress,p,details')){const b=part.getBoundingClientRect();if(b.right>r.right+.5||b.left<r.left-.5)errors.push('content clipped');}

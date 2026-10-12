@@ -4,7 +4,9 @@
 .dashboard-account-identity{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 6px;min-width:0}
 .dashboard-account-header h3{margin:0;font-size:13px;line-height:1.35;min-width:0;overflow-wrap:anywhere}
 .dashboard-account-age{font-size:11px;line-height:1.35;color:var(--muted);font-variant-numeric:tabular-nums}
-.dashboard-account-refresh{flex:none;min-width:44px;min-height:44px;padding:4px 8px;font-size:11px}
+.dashboard-account-refresh,.dashboard-accounts-refresh{display:grid;place-items:center;flex:none;width:28px;height:28px;min-width:28px;min-height:28px;padding:0;border:0;background:transparent;color:var(--muted);line-height:1}
+.dashboard-account-refresh:hover,.dashboard-accounts-refresh:hover{background:var(--panel-2);color:var(--text)}
+@media(pointer:coarse){.dashboard-account-refresh,.dashboard-accounts-refresh{width:44px;height:44px;min-width:44px;min-height:44px}}
 .dashboard-account-header .help-host{display:inline-flex;flex:none;min-width:0}
 .dashboard-account-refresh:focus-visible,.dashboard-account-header .help-host:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .dashboard-card-note,.dashboard-card-warning{margin:0;font-size:11px;line-height:1.4;color:var(--muted);overflow-wrap:anywhere}
@@ -44,11 +46,10 @@
 /* One board window; source rows never reserve settings or drag-handle space. */
 .project-item.dashboard-accounts-group{display:flex;flex-direction:column;align-items:stretch;gap:5px;box-sizing:border-box;min-width:0;min-height:0;max-width:100%;padding:10px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:var(--radius);overflow:visible;overflow-wrap:anywhere}
 .project-board>.project-item.dashboard-accounts-group{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto;align-items:stretch;padding:0}
-.dashboard-accounts-header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:5px;min-width:0;padding-right:44px}
+.dashboard-accounts-header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:5px;min-width:0;padding-right:0}
 .project-board-editing .dashboard-accounts-group .dashboard-accounts-header{padding-right:88px}
 .dashboard-accounts-header h2{flex:1 1 100px;margin:0;min-width:0;font-size:14px;line-height:1.35;overflow-wrap:anywhere}
 .dashboard-accounts-header .help-host{display:inline-flex;flex:none;min-width:0}
-.dashboard-accounts-refresh{min-width:44px;min-height:44px;padding:4px 8px;font-size:11px;white-space:normal}
 .dashboard-accounts-header .help-host:focus-visible,.dashboard-accounts-refresh:focus-visible,.dashboard-accounts-items:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .dashboard-accounts-items{container-type:inline-size;container-name:dashboard-accounts;display:grid;grid-template-columns:minmax(0,1fr);align-content:start;gap:0;list-style:none;margin:0;padding:0;min-width:0;min-height:0;overflow:visible}
 .dashboard-accounts-group .dashboard-account-embedded{display:grid;grid-template-columns:minmax(0,1fr);align-content:start;gap:3px;min-width:0;max-width:100%;height:auto;max-height:none;margin:0;padding:4px 0;background:transparent;border:0;border-bottom:1px solid var(--line-soft);border-radius:0;box-shadow:none;overflow:visible}

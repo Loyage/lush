@@ -74,7 +74,7 @@ try {
       const errors=[...window.errors],cards=[...document.querySelectorAll('.dashboard-account-card')];
       for(const card of cards){
         const r=card.getBoundingClientRect(),h=card.querySelector('h3').getBoundingClientRect(),button=card.querySelector('button'),b=button.getBoundingClientRect();
-        if(h.right>b.left+.5||b.right>r.right||b.left<r.left||b.height<44||b.width<44)errors.push('header clipping/overlap');
+        if(h.right>b.left+.5||b.right>r.right||b.left<r.left||b.height<(matchMedia('(pointer:coarse)').matches?44:28)||b.width<(matchMedia('(pointer:coarse)').matches?44:28))errors.push('header clipping/overlap');
         const age=card.querySelector('.dashboard-account-age');if(age){const a=age.getBoundingClientRect();if(a.right>b.left+.5||a.bottom>r.bottom+.5)errors.push('age clipping');}
         if(card.scrollWidth>card.clientWidth)errors.push('card overflow');
         if(getComputedStyle(card).overflowY!=='visible'||card.scrollHeight>card.clientHeight+1)errors.push('internally scrolling account');
@@ -96,7 +96,7 @@ try {
       if(document.documentElement.scrollWidth>innerWidth)errors.push('horizontal overflow');
       return {errors,network:window.network,count:cards.length};`);
     assert(!result.errors.length && !result.network.length && result.count === 12, `${theme} ${width}: ${JSON.stringify(result)}`);
-    console.log(`PASS ${theme} ${width}px: dense cards + list/tiles, 44px controls, expanded details, natural height, no clipping or network`);
+    console.log(`PASS ${theme} ${width}px: dense cards + list/tiles, compact icon controls + touch sizing, expanded details, natural height, no clipping or network`);
   }
   await execute(`document.querySelector('.dashboard-account-refresh').focus();`);
   await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }] }] });
