@@ -19,6 +19,8 @@ test('old inbox-only user Event and arbitrary historical Event references load e
     const initial = f.store.historyPage(task.id); expect(initial.events.some(event => event.id === eventId)).toBe(false);
     renderDetail(task, initial, null, null); const panel = dom.node('detail'), root = panel.querySelector('.conversation-panel');
     expect(calls).toHaveLength(0);
+    expect(root.attachReferencedHistoryEvent).toBeUndefined();
+    expect(panel.querySelectorAll('h2').map(node => node.textContent)).not.toContain('事件时间线');
     const input = await root.revealConversationReference({ kind: 'history_event', target: { task_id: task.id, event_id: eventId } });
     expect(input).toBeTruthy(); expect(deepText(input)).toContain('历史原文只有收件箱有');
     expect(input.dataset.ref).toContain(`message-${messageId}`); expect(input.dataset.ref).toContain(`event-${eventId}`);
@@ -26,10 +28,13 @@ test('old inbox-only user Event and arbitrary historical Event references load e
     expect(calls).toHaveLength(1); expect(calls[0]).toContain('before_message=0'); expect(calls[0]).toContain(`before_event=${eventId + 1}`);
     const event = await root.revealConversationReference({ kind: 'history_event', target: { task_id: task.id, event_id: reservedId } });
     expect(event.dataset.ref).toBe(`event-${reservedId}`); expect(deepText(event)).toContain('历史事件准确定位');
+    expect(root.querySelector(`[data-conversation-key="history:${reservedId}"]`)).toBe(event);
+    expect(event.expanded).toBe(true);
     expect(calls).toHaveLength(2); expect(calls[1]).toContain('limit=1');
     renderDetail({ ...task, display_title: '刷新后的标题' }, initial, null, null);
     expect(panel.querySelector('.conversation-panel')).toBe(root); expect(root.querySelector(`[data-conversation-key="input:${eventId}"]`)).toBe(input);
-    expect(panel.querySelector(`[data-ref="event-${reservedId}"]`)).toBeTruthy();
+    expect(panel.querySelector(`[data-ref="event-${reservedId}"]`)).toBe(event);
+    expect(panel.querySelectorAll('h2').map(node => node.textContent)).not.toContain('事件时间线');
     const fromMessage = await root.revealConversationReference({ kind: 'message', target: { task_id: task.id, message_id: messageId } });
     expect(fromMessage).toBe(input); expect(calls).toHaveLength(2);
     expect(f.store.get('SELECT consumed FROM messages WHERE id=?', messageId).consumed).toBe(0);
@@ -60,7 +65,7 @@ test('whole-history search reaches past 100 records and preview, preserves ungue
     await findByText(input, '继续读取正文').onclick();
     const original = input.querySelector('.message-original'); original.open = true; for (const listener of original.listeners.toggle || []) listener();
     expect(original.querySelector('pre').textContent).toBe(body);
-    const show = root.querySelector('[data-conversation-filter="other"]'); show.checked = true; show.onchange();
+    const show = root.querySelector('[data-conversation-filter="other"]'); show.onclick();
     expect(root.querySelector(`[data-conversation-key="other:message:${rawId}"]`).querySelector('.conversation-sender').textContent).toBe('来源不明');
     expect(root.querySelector(`[data-conversation-key="other:event:${decisionId}"]`).querySelector('.conversation-sender').textContent).toBe('用户答复');
     keyword.value = '不存在的词'; keyword.listeners.keydown[0]({ key: 'Enter', preventDefault() {} }); await findByText(root, '查找全部历史').onclick();

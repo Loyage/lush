@@ -30,7 +30,8 @@ function workerRow(worker, relation, current = false) {
     row.classList.add('is-current'); row.setAttribute('aria-current', 'true');
     row.append(el('span', taskTitle(worker), 'worker-relation-title'));
   } else row.append(button(taskTitle(worker), () => detail(worker.id), 'link worker-relation-title', { worker }));
-  row.append(statusBadge(worker));
+  if (worker.status) row.append(statusBadge(worker));
+  else row.append(el('span', '状态不可用', 'hint'));
   if (INTEGRATION[worker.integration]) row.append(badge(INTEGRATION[worker.integration], worker.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
   referenceable(row, [
     { kind: 'task', target: { task_id: worker.id }, label: `Worker ${workerLabel(worker)}`, quote: worker.goal,
@@ -41,7 +42,18 @@ function workerRow(worker, relation, current = false) {
   return row;
 }
 
-/** One parent, the selected Worker, and only direct children. No status/archive filtering. */
+function dependencyGroup(edges, title, empty) {
+  const group = el('div', undefined, 'worker-relation-dependencies');
+  group.append(el('h3', title));
+  if (!edges?.length) group.append(el('p', empty, 'hint'));
+  for (const edge of edges || []) {
+    const row = workerRow(edge, edge.kind === 'code' ? '代码基线（code）' : '仅顺序（control）');
+    group.append(row);
+  }
+  return group;
+}
+
+/** Direct family tree and both dependency directions, without status/archive filtering. */
 export function renderWorkerRelations(task, { data = null, current = () => true, signal } = {}) {
   const section = block('Worker 关系'); section.classList.add('worker-relations');
   const body = el('div', undefined, 'worker-relations-body'); section.append(body);
@@ -50,6 +62,7 @@ export function renderWorkerRelations(task, { data = null, current = () => true,
   const alive = epoch => epoch === generation && active() && !readSignal?.aborted;
   const paint = () => {
     body.replaceChildren();
+    body.append(el('h3', '父子关系'));
     const tree = el('ul', undefined, 'worker-relation-tree');
     tree.setAttribute('aria-label', '直接父 Worker、当前 Worker 与直接子 Worker');
     const selected = el('li'); selected.append(workerRow(task, '当前 Worker', true));
@@ -84,6 +97,8 @@ export function renderWorkerRelations(task, { data = null, current = () => true,
       body.append(button('重试读取关系', retry, 'ghost worker-relations-retry'));
     }
     for (const control of body.querySelectorAll('.worker-relations-more, .worker-relations-retry')) control.disabled = loading;
+    body.append(dependencyGroup(task.deps, '本 Worker 依赖', '本 Worker 不依赖其他 Worker。'),
+      dependencyGroup(task.dependents, '依赖本 Worker', '没有 Worker 在等它。'));
   };
   async function more() {
     if (loading || !state?.children.has_more) return;

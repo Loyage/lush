@@ -31,8 +31,8 @@ test('real reading projections integrate with parent input identity, reference l
     const original = input.querySelector('.message-original'); original.open = true;
     for (const listener of original.listeners.toggle || []) listener();
     expect(original.querySelector('pre').textContent).toBe(text);
-    await findByText(root, '加载更早输入与结果').onclick();
-    const other = root.querySelector('[data-conversation-filter="other"]'); other.checked = true; other.onchange();
+    await findByText(root, '加载更早时间线').onclick();
+    const other = root.querySelector('[data-conversation-filter="other"]'); other.onclick();
     expect(root.querySelector(`[data-conversation-key="other:message:${orphanId}"]`).querySelector('.conversation-sender').textContent).toBe('来源不明');
     expect(root.querySelector(`[data-conversation-key="other:event:${answerId}"]`).querySelector('.conversation-sender').textContent).toBe('Lush 自动选择');
     expect(root.querySelectorAll('.conversation-other')).toHaveLength(2);

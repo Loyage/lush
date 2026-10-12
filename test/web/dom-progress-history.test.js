@@ -38,7 +38,11 @@ test('current plan comes first; historical versions fold independently with date
   renderDetail(task, null, null, null);
   const panel = dom.node('detail'), section = history(dom), folds = versions(dom);
   const current = panel.querySelector('.task-progress-panel');
-  expect(panel.children.indexOf(current)).toBeLessThan(panel.children.indexOf(section));
+  expect(current.querySelector('.progress-history-panel')).toBe(section);
+  expect(current.querySelector('h2').textContent).toBe('计划');
+  expect(current.querySelectorAll('h2')).toHaveLength(1);
+  expect(section.tagName).toBe('DETAILS'); expect(Boolean(section.open)).toBe(false);
+  expect(current.querySelector('.task-progress-list')).toBeTruthy();
   expect(folds.map(node => Boolean(node.open))).toEqual([false, false]);
   expect(deepText(folds[0].querySelector('summary'))).not.toContain('旧实现');
   expect(folds[0].querySelector('summary').textContent).toContain('收到追加输入');
@@ -49,7 +53,8 @@ test('current plan comes first; historical versions fold independently with date
   expect(deepText(folds[0])).toContain('旧实现 20');
   folds[1].open = true; folds[0].open = false;
   expect(folds[1].open).toBe(true);
-  expect(section.querySelectorAll('.detail-preview-body')).toHaveLength(1);
+  expect(current.querySelectorAll('.detail-preview-body')).toHaveLength(1);
+  expect(section.querySelectorAll('.detail-preview-body')).toHaveLength(0);
   expect(more(dom).getAttribute('data-help')).toContain('不调用 Agent');
 }));
 
@@ -111,17 +116,25 @@ test('same Worker refresh retains loaded pages, open versions, module expansion,
     await more(dom).click();
     const panel = dom.node('detail'), section = history(dom), fold = versions(dom)[0], focus = fold.querySelector('summary');
     fold.open = true;
-    await section.querySelector('.detail-preview-toggle').click();
+    section.open = true;
+    await panel.querySelector('.task-progress-panel').querySelector('.detail-preview-toggle').click();
     focus.focus(); panel.scrollTop = 250;
     panel.getBoundingClientRect = () => ({ top: 0, bottom: 600 });
     let top = -20;
-    section.getBoundingClientRect = () => ({ top: top - 40, bottom: top + 400 });
+    const bounds = () => ({ top: top - 40, bottom: top + 400 });
+    panel.querySelector('.task-progress-panel').getBoundingClientRect = bounds;
+    const append = panel.append.bind(panel);
+    panel.append = (...nodes) => {
+      for (const node of nodes) if (node?.classList?.contains('task-progress-panel')) node.getBoundingClientRect = bounds;
+      append(...nodes);
+    };
     fold.getBoundingClientRect = () => ({ top, bottom: top + 100 });
     const replace = panel.replaceChildren.bind(panel);
     panel.replaceChildren = (...nodes) => { document.activeElement = null; top = 20; replace(...nodes); };
     renderDetail({ ...task, progress_history: page([21, 20]) }, null, null, null);
     expect(history(dom)).toBe(section); expect(versions(dom)[1]).toBe(fold);
-    expect(fold.open).toBe(true); expect(section.classList.contains('detail-preview-expanded')).toBe(true);
+    expect(fold.open).toBe(true); expect(section.open).toBe(true);
+    expect(panel.querySelector('.task-progress-panel').classList.contains('detail-preview-expanded')).toBe(true);
     expect(document.activeElement).toBe(focus); expect(panel.scrollTop).toBe(290);
     expect(versions(dom).map(node => node.dataset.progressHistoryId)).toEqual(['21', '20', '19', '18', '17']);
     await more(dom).click();

@@ -24,7 +24,10 @@ window.task={id:7,worker_number:'W7',role:'agent',task_kind:'order',status:'wait
   messages:Array.from({length:20},(_,i)=>({id:i+1,sender_id:null,body:'消息 '+i+'\\n\\n'+long,created_at:at}))};
 window.fixtureHistory={events:[...Array.from({length:50},(_,i)=>({id:i+1,type:'invocation.completed',created_at:at,data:{run_id:i+1,result:'此前结果 '+i+'\\n'+long}})),
   {id:80,type:'message',created_at:'2026-10-08T10:01:00Z',data:{sender:null,body:'短追加输入'},input_delivery:{status:'pending',at:null}},
-  {id:81,type:'message',created_at:'2026-10-08T10:02:00Z',data:{sender:100,body:'来自子 Worker 的通信',message_id:81}}]};
+  {id:81,type:'message',created_at:'2026-10-08T10:02:00Z',data:{sender:100,body:'来自子 Worker 的通信',message_id:81}},
+  {id:82,type:'invocation.started',created_at:'2026-10-08T10:03:00Z',data:{call:2}},
+  {id:83,type:'merge.failed',created_at:'2026-10-08T10:04:00Z',data:{error:'合并失败诊断',commit:'abcdef',hooks:{credential:'PRIVATE-TIMELINE'}}},
+  {id:84,type:'progress.completed',created_at:'2026-10-08T10:05:00Z',data:{key:'inspect'}}]};
 ui.selected=7; ui.view={id:'task',key:'7'};
 window.paint=(progressive=null)=>renderDetail(window.task,window.fixtureHistory,null,null,null,progressive);
 window.reveal=revealDetailPreview;
@@ -143,13 +146,19 @@ try {
     await viewport(width, height);
     await execute(`document.documentElement.dataset.theme='${theme}';window.paint();`);
     assert(await wait(`document.querySelector('.conversation-panel').classList.contains('detail-preview-long')`), 'long goal not measured');
-    assert(await execute(`const root=document.querySelector('.conversation-panel'),filters=[...root.querySelectorAll('.conversation-filters input')];
-      if(filters.length!==3||!filters[0].checked||!filters[1].checked||filters[2].checked||root.querySelector('.conversation-other'))return false;
-      filters[2].click();const message=root.querySelector('.conversation-other');
-      if(!message?.textContent.includes('来自子 Worker 的通信')||!message.textContent.includes('Worker W7-1'))return false;
-      window.paint();if(!filters[2].checked||document.querySelector('.conversation-other')!==message)return false;
-      filters[2].click();return !root.querySelector('.conversation-other')&&document.querySelector('.decision-record').open;
-    `), 'conversation filters, communication provenance, refresh or default decision expansion');
+    assert(await execute(`return (async()=>{const root=document.querySelector('.conversation-panel'),filters=[...root.querySelectorAll('.conversation-filter')];
+      const other=root.querySelector('[data-conversation-filter="other"]');
+      if(filters.length!==8||filters.slice(0,6).some(n=>n.getAttribute('aria-pressed')!=='true')||other.getAttribute('aria-pressed')!=='false'||root.querySelector('.conversation-other'))throw new Error('filters '+JSON.stringify(filters.map(n=>[n.textContent,n.getAttribute('aria-pressed')])));
+      await other.onclick();const message=root.querySelector('.conversation-other');
+      if(!message?.textContent.includes('来自子 Worker 的通信')||!message.textContent.includes('Worker W7-1'))throw new Error('communication '+message?.textContent);
+      const failure=root.querySelector('[data-conversation-key="history:83"]');
+      if(!failure?.textContent.includes('合并失败诊断')||failure.textContent.includes('PRIVATE-TIMELINE')||getComputedStyle(failure.querySelector('.conversation-event-details')).display!=='none')throw new Error('event '+failure?.className+' '+failure?.textContent);
+      await failure.querySelector('.conversation-expand').onclick();
+      if(getComputedStyle(failure.querySelector('.conversation-event-details')).display==='none')throw new Error('event expand '+failure.className);
+      window.paint();if(other.getAttribute('aria-pressed')!=='true'||document.querySelector('.conversation-other')!==message||!failure.classList.contains('conversation-expanded'))throw new Error('refresh '+failure.className);
+      await failure.querySelector('.conversation-expand').onclick();
+      await other.onclick();if(root.querySelector('.conversation-other')||!document.querySelector('.decision-record').open)throw new Error('final '+other.getAttribute('aria-pressed')+' '+!!root.querySelector('.conversation-other')+' decision='+document.querySelector('.decision-record').open);return true;
+    })();`), 'timeline filters, compact event expansion, private metadata, communication provenance or refresh');
     const sizes = await execute(`return [...document.querySelectorAll('.detail-preview')].map(n=>({
       title:n.querySelector('h2').textContent,body:n.querySelector('.detail-preview-body').getBoundingClientRect().height,
       limit:n.querySelector('.detail-preview-limit').getBoundingClientRect().height,
@@ -162,7 +171,7 @@ try {
       natural:n.querySelector('.detail-preview-content').getBoundingClientRect().height}));`);
     assert(sizes.length >= 7, 'missing reading modules');
     assert(await execute(`return ![...document.querySelectorAll('#detail h2')].some(n=>n.textContent==='消息')&&
-      document.querySelector('.conversation-panel h2').textContent==='输入与结果';`), 'independent message module was not integrated');
+      document.querySelector('.conversation-panel h2').textContent==='时间线';`), 'independent message module was not integrated');
     for (const size of sizes) {
       const long = size.natural > size.limit + 120;
       assert(size.limit <= 400 && Math.abs(size.body - (long ? size.limit : size.natural)) <= 1,
@@ -184,7 +193,7 @@ try {
     assert(await execute(`return !document.querySelector('.task-actions .detail-preview-body') &&
       !document.querySelector('.conversation-panel').classList.contains('detail-preview-expanded');`), 'actions clipped or expanded by default');
     // Test actual clipping, not only the presence of an expand control, at each responsive limit.
-    await execute(`window.boundaryProbe=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='Worker 依赖');
+    await execute(`window.boundaryProbe=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='状态');
       window.boundaryFixed=document.createElement('div');
       window.boundaryProbe.querySelector('.detail-preview-content').replaceChildren(window.boundaryFixed);`);
     for (const excess of [1, 119, 120, 121, 120]) {
@@ -201,7 +210,7 @@ try {
     console.log('PASS bounded modules, clipped-only fade, accessible note and 120px margin', width, height, theme);
   }
   await viewport(1440, 900);
-  await execute(`window.resizeProbe=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='Worker 依赖');
+  await execute(`window.resizeProbe=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='状态');
     const fixed=document.createElement('div');fixed.style.height='400px';fixed.textContent='短模块高度响应测试';
     window.resizeProbe.querySelector('.detail-preview-content').replaceChildren(fixed);`);
   assert(await wait(`window.resizeProbe.querySelector('.detail-preview-toggle').hidden`), '400px module should fit a tall viewport');
@@ -229,7 +238,7 @@ try {
     const last=n.querySelector('[data-ref~="message-20"]');window.reveal(last);
     return n.classList.contains('detail-preview-expanded')&&last.classList.contains('conversation-expanded')&&last.textContent.includes('来源不明');`), 'hidden message reference reveal failed');
   await execute(`document.querySelector('[data-conversation-filter="other"]').click();`);
-  await execute(`const short=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='Worker 依赖');
+  await execute(`const short=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='状态');
     window.short=short;const extra=document.createElement('p');extra.textContent='新增历史\\n'.repeat(300);extra.style.whiteSpace='pre-wrap';
     short.querySelector('.detail-preview-content').append(extra);`);
   assert(await wait(`window.short.classList.contains('detail-preview-long')&&!window.short.querySelector('.detail-preview-toggle').hidden`), 'lazy growth did not expose expand control');

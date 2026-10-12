@@ -47,13 +47,13 @@ test('pagination retains output text, references and cursor when task result cha
   try {
     const task = { id: 7, result: 'latest', runs: [run(3, 'latest')] };
     const root = renderConversation(task, { events: [event(3, 'latest')], cursor: 50, has_more: true });
-    await findByText(root, '加载更早输入与结果').onclick();
+    await root.querySelector('.conversation-more').onclick();
     const older = root.querySelectorAll('.conversation-message').find(node => node.dataset.conversationKey === 'run:1');
     expect(older.dataset.ref).toBe('event-101');
     root.updateConversation({ ...task, result: 'new latest', runs: [run(4, 'new latest')] }, { events: [event(4, 'new latest')], cursor: 80, has_more: true });
     expect(keys(root)).toEqual(['run:4', 'run:3', 'run:1']);
     expect(root.querySelectorAll('.conversation-message')[2]).toBe(older);
-    expect(findByText(root, '加载更早输入与结果').hidden).toBe(true);
+    expect(root.querySelector('.conversation-more').hidden).toBe(true);
     expect(deepText(root)).toContain('older');
   } finally { dom.restore(); }
 });

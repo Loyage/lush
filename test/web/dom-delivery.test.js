@@ -392,7 +392,8 @@ test('historical showcase Tasks retain generic results without reports, previews
   const panel = dom.node('detail');
   expect(deepText(panel)).toContain('历史任务结果');
   expect(deepText(panel)).toContain('中断原因');
-  expect(deepText(panel)).toContain('detached worktree：/tmp/legacy-view');
+  expect(deepText(panel.querySelector('.code-context'))).toContain('目录路径 /tmp/legacy-view');
+  expect(panel.querySelectorAll('h2').map(node => node.textContent)).not.toContain('工作区');
   expect(panel.querySelector('iframe')).toBeNull();
   expect(panel.querySelector('.role-showcase')).toBeNull();
   expect(panel.querySelector('.showcase-panel')).toBeNull();

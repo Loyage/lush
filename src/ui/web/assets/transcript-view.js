@@ -25,7 +25,7 @@ export function closeTranscriptView() {
 }
 
 /** Fullscreen rich reader; the existing bounded transcript projection remains authoritative. */
-export async function openTranscriptView(taskId, seq) {
+export async function openTranscriptView(taskId, seq, { mode = 'transcript' } = {}) {
   closeTranscriptView();
   const panel = el('dialog', undefined, 'transcript-dialog');
   panel.setAttribute('aria-label', `Worker ${workerLabel(taskId)} 执行详情`);
@@ -125,7 +125,7 @@ export async function openTranscriptView(taskId, seq) {
       if (state.code) { state.code.root.hidden = true; await state.code.setActive(false); }
       if (current !== state || state.mode !== 'transcript') return;
       transcriptOpen.add(taskId);
-      if (!state.filtered && transcriptCache.get(taskId)?.order && transcriptCache.get(taskId).order !== transcriptOrder()) await loadTranscript(taskId);
+      if (!state.filtered && (!transcriptCache.has(taskId) || (transcriptCache.get(taskId)?.order && transcriptCache.get(taskId).order !== transcriptOrder()))) await loadTranscript(taskId);
     }
   }
   const layout = el('div', undefined, 'transcript-layout');
@@ -223,6 +223,7 @@ export async function openTranscriptView(taskId, seq) {
   document.body.append(panel); panel.showModal?.(); $('project-app').inert = true;
   back.focus?.({ preventScroll: true });
   holder.replaceChildren(...transcriptContent(taskId));
+  if (mode === 'code') { await switchMode('code'); return; }
   try {
     if (!transcriptCache.has(taskId)) await loadTranscript(taskId);
     if (current !== state) return;

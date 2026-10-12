@@ -144,12 +144,12 @@ export function renderGraphProgress(progress, { running = false, status = null }
   return node;
 }
 
-export function renderTaskProgress(progress, { status = null, endedAt = null, historical = false } = {}) {
+export function renderTaskProgress(progress, { status = null, endedAt = null, historical = false, embedded = false } = {}) {
   if (!progressReportingEnabled()) return null;
   const stats = progressStats(progress);
   if (!stats.total) return null;
   const terminal = !historical && TERMINAL.has(status);
-  const section = block(historical ? '当时计划' : 'Worker 计划', `${stats.completed}/${stats.total}`);
+  const section = embedded ? el('div') : block(historical ? '当时计划' : '计划', `${stats.completed}/${stats.total}`);
   section.classList.add('task-progress-panel');
   if (historical) section.classList.add('is-historical');
   if (terminal) section.classList.add('is-terminal', `is-terminal-${status}`);

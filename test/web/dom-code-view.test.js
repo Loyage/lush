@@ -2,6 +2,7 @@ import { test, expect } from 'bun:test';
 import { installDom, deepText, findByText, allByTag } from '../dom-stub.js';
 import { until } from '../helpers.js';
 import { createCodeView } from '../../src/ui/web/assets/code-view.js';
+import { renderDiff } from '../../src/ui/web/assets/render-diff.js';
 import { openTranscriptView, closeTranscriptView } from '../../src/ui/web/assets/transcript-view.js';
 import { resetTranscriptReaders } from '../../src/ui/web/assets/transcript-reader.js';
 import { transcriptCache, transcriptOpen, ui } from '../../src/ui/web/assets/state.js';
@@ -366,6 +367,86 @@ test('a clean refresh clears obsolete dirty badges and special files remain meta
   } finally { code.dispose(); dom.restore(); }
 });
 
+test('detail code entry directly reuses the full reader, including unchanged files, without transcript or model reads', async () => {
+  const f = fixture(), dom = installDom({ fetch: f.fetch });
+  const task = { id: 72, calls: 0, workspace: '/tmp/work/72', branch: 'lush/task-72', target_branch: 'main' };
+  const section = renderDiff(null, task.id, task); dom.node('detail').append(section); ui.selected = task.id;
+  try {
+    expect(f.calls).toHaveLength(0);
+    expect(deepText(section)).toContain('/tmp/work/72');
+    expect(section.querySelector('.agent-call')).toBeNull();
+    await section.querySelector('.code-reader-open').onclick();
+    const panel = dom.document.body.querySelector('.transcript-dialog');
+    expect(ui.transcriptView.mode).toBe('code'); expect(transcriptOpen.has(task.id)).toBe(false);
+    expect(f.calls.some(url => /transcript|action/.test(url.pathname))).toBe(false);
+    expect(findFile(panel, 'README.md')).toBeTruthy();
+    await findFile(panel, 'README.md').onclick();
+    expect(deepText(panel)).toContain('literal()');
+    await findFile(panel, changedFile.path).onclick(); expect(panel.querySelector('.code-hunk')).toBeTruthy();
+    await click(panel, '执行记录');
+    expect(f.calls.filter(url => url.pathname.includes('/transcript'))).toHaveLength(1);
+  } finally { closeTranscriptView(); transcriptCache.delete(task.id); resetTranscriptReaders(); ui.selected = null; dom.restore(); }
+});
+
+for (const exit of ['close', 'navigate']) {
+  test(`direct code entry ${exit} aborts an initial sample, restores detail focus and ignores a late response`, async () => {
+    const f = fixture(), dom = installDom({ fetch: f.fetch });
+    const task = { id: 72, calls: 0 }, section = renderDiff(null, task.id, task);
+    dom.node('detail').append(section); dom.node('detail').scrollTop = 177; dom.node('project-app').inert = false;
+    const entry = section.querySelector('.code-reader-open'); entry.focus(); ui.selected = task.id;
+    let finish, signal;
+    f.override((url, options) => url.pathname.endsWith('/code-state') ? new Promise(resolve => {
+      signal = options.signal; finish = () => resolve(response(f.state()));
+    }) : undefined);
+    const opening = entry.onclick();
+    try {
+      await until(() => Boolean(finish));
+      const panel = ui.transcriptView.panel, root = panel.querySelector('.code-view'), before = deepText(root);
+      const probe = dom.intervals.at(-1).handler;
+      expect(signal.aborted).toBe(false); expect(dom.node('project-app').inert).toBe(true);
+      if (exit === 'close') await click(panel, '返回 Worker');
+      else { dom.location.hash = '#worker-73'; await dom.fire('hashchange'); }
+      expect(signal.aborted).toBe(true); expect(ui.transcriptView).toBeNull(); expect(transcriptOpen.has(task.id)).toBe(false);
+      expect(dom.document.body.querySelector('.transcript-dialog')).toBeNull();
+      expect(dom.node('project-app').inert).toBe(false); expect(dom.document.activeElement).toBe(entry);
+      expect(dom.node('detail').scrollTop).toBe(177);
+      finish(); await opening;
+      expect(deepText(root)).toBe(before); expect(ui.transcriptView).toBeNull();
+      const count = f.calls.length; probe(); expect(f.calls).toHaveLength(count);
+      expect(f.calls.some(url => /transcript|action/.test(url.pathname))).toBe(false);
+    } finally {
+      finish?.(); await opening; closeTranscriptView(); transcriptCache.delete(task.id);
+      resetTranscriptReaders(); ui.selected = null; dom.restore();
+    }
+  });
+}
+
+test('switching from direct code mode cancels a file read and only reads records after explicit selection', async () => {
+  const f = fixture(), dom = installDom({ fetch: f.fetch }); const id = 72; ui.selected = id;
+  let pending, finish, signal;
+  try {
+    await openTranscriptView(id, undefined, { mode: 'code' });
+    const panel = ui.transcriptView.panel, root = panel.querySelector('.code-view');
+    f.override((url, options) => url.pathname.endsWith('/code-file') ? new Promise(resolve => {
+      signal = options.signal; finish = () => resolve(response(f.file(url.searchParams)));
+    }) : undefined);
+    pending = findFile(panel, changedFile.path).onclick(); await until(() => Boolean(finish));
+    expect(f.calls.some(url => /transcript/.test(url.pathname))).toBe(false);
+    await click(panel, '执行记录');
+    expect(signal.aborted).toBe(true); expect(root.hidden).toBe(true); expect(ui.transcriptView.mode).toBe('transcript');
+    expect(transcriptOpen.has(id)).toBe(true);
+    expect(f.calls.filter(url => /transcript/.test(url.pathname))).toHaveLength(1);
+    finish(); await pending; expect(root.querySelector('.code-hunk')).toBeNull();
+    f.override(null); await click(panel, '代码与改动');
+    expect(panel.querySelector('.code-view')).toBe(root); expect(root.hidden).toBe(false);
+    expect(root.querySelector('.code-hunk')).toBeTruthy(); expect(transcriptOpen.has(id)).toBe(false);
+    expect(f.calls.filter(url => /transcript/.test(url.pathname))).toHaveLength(1);
+  } finally {
+    finish?.(); await pending; closeTranscriptView(); transcriptCache.delete(id);
+    resetTranscriptReaders(); ui.selected = null; dom.restore();
+  }
+});
+
 test('execution tabs retain transcript and code scroll/content, stop hidden transcript reads, and path search resets filters', async () => {
   const f = fixture(), dom = installDom({ fetch: f.fetch }); const id = 1072; ui.selected = id;
   transcriptCache.set(id, { order: 'desc', steps: [{ seq: 1, kind: 'text', body: 'original record', file: 'a' }], files: ['a'], next: 1, oldest: 1 });
@@ -373,6 +454,7 @@ test('execution tabs retain transcript and code scroll/content, stop hidden tran
     await openTranscriptView(id);
     const panel = dom.document.body.querySelector('.transcript-dialog');
     expect(f.calls).toHaveLength(0);
+    expect(ui.transcriptView.mode).toBe('transcript'); expect(panel.querySelector('.code-view')).toBeNull();
     const transcript = panel.querySelector('.transcript-viewport'); transcript.scrollTop = 240;
     await click(panel, '代码与改动');
     expect(transcriptOpen.has(id)).toBe(false); expect(panel.querySelector('.transcript-layout').hidden).toBe(true);

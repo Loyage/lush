@@ -82,7 +82,7 @@ test('运行中 task 在任务树和详情显示计划完成度与当前步骤',
   dom.location.hash = '#worker-1';
   await dom.fire('hashchange');
   const detail = dom.node('detail');
-  await until(() => findByText(detail, 'Worker 计划'), 2000);
+  await until(() => findByText(detail, '计划'), 2000);
   const panel = detail.querySelector('.task-progress-panel');
   expect(deepText(panel)).toContain('1/3');
   expect(deepText(panel)).toContain('确认现状');

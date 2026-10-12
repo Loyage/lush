@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import { installDom, deepText } from '../dom-stub.js';
 import { renderDiff } from '../../src/ui/web/assets/render-diff.js';
 
-test('改动概览默认只显示文件数与整体 +/-，文件明细收拢后按需展开', () => {
+test('代码与提交默认只显示文件数与整体 +/-，文件明细收拢后按需展开', () => {
   const dom = installDom();
   try {
     const diff = {
@@ -16,7 +16,7 @@ test('改动概览默认只显示文件数与整体 +/-，文件明细收拢后�
     };
     const section = renderDiff(diff, 7);
     const text = deepText(section);
-    expect(text).toContain('改动概览');
+    expect(text).toContain('代码与提交');
     // 汇总行数取服务端在截断前计算的 added/deleted，而不是可见列表的条数。
     expect(text).toContain('600 个 · +120 −45');
     expect(text).toContain('2 个 · +3 −1');
@@ -43,7 +43,7 @@ test('没有文件改动时不渲染可展开的文件明细', () => {
       files: [], pending: [], commits: [],
     }, 7);
     expect(section.querySelector('.diff-files')).toBeNull();
-    expect(deepText(section)).toContain('改动概览');
+    expect(deepText(section)).toContain('代码与提交');
   } finally { dom.restore(); }
 });
 
@@ -52,6 +52,6 @@ test('没有工作区时仍显示提示而不是明细结构', () => {
   try {
     const section = renderDiff(null, 7);
     expect(section.querySelector('.diff-files')).toBeNull();
-    expect(deepText(section)).toContain('尚无工作区');
+    expect(deepText(section)).toContain('改动不可用：尚无可读取的工作区');
   } finally { dom.restore(); }
 });

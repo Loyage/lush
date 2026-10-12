@@ -6,7 +6,7 @@ import { appendToWorker } from './composer.js';
 import { configureTask, retryTask } from './retry-dialog.js';
 import { clearOverrideControl, modelSourceSummary } from './worker-model-source.js';
 import { workerRenameControl } from './worker-rename.js';
-import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, edgeLabel, relative, resolverOf, runWorkMs, statusOf, interruptReason, taskTitle, worktreeLabel, isHistoricalDelivery } from './format.js';
+import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, relative, resolverOf, runWorkMs, statusOf, interruptReason, taskTitle, isHistoricalDelivery } from './format.js';
 import { agentHelp } from './help.js';
 import { freezeBlocker } from './merge-select.js';
 import { show } from './messages.js';
@@ -22,7 +22,6 @@ import { deliveryControls } from './render-delivery.js';
 import { workerHooks } from './render-hooks.js';
 import { guardedAction, iterationControls } from './render-iteration.js';
 import { appendInputBlocker, inputQueueText } from './worker-input.js';
-import { renderHistory } from './render-history.js';
 import { formatProgressDuration, renderTaskProgress } from './render-progress.js';
 import { renderProgressHistory } from './render-progress-history.js';
 import { noticePanel } from './render-notices.js';
@@ -41,13 +40,6 @@ import { workerLabel, rememberWorkers } from './worker-label.js';
 const progressivePanels = new WeakMap();
 const readingHandlers = new WeakMap();
 const freezeOf = task => freezeBlocker(task.target_branch, task, ui.lastSnapshot?.status?.merge_freeze || []);
-/** 任务依赖：本任务等谁、谁在等它。 */
-function renderDeps(task) {
-  const section = block('Worker 依赖');
-  section.append(el('p', task.deps?.length ? `本 Worker 等这些结算：${task.deps.map(edgeLabel).join('、')}` : '本 Worker 不依赖其他 Worker。', 'hint'));
-  section.append(el('p', task.dependents?.length ? `这些 Worker 在等它：${task.dependents.map(edgeLabel).join('、')}` : '没有 Worker 在等它。', 'hint'));
-  return section;
-}
 /** planner 这一轮写下的拆解 / scheduler 这一批取走的 spec：只读，和左侧队列同一套行。 */
 function renderTaskSpecs(task) {
   const specs = task.specs || [];
@@ -258,10 +250,13 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const conversation = renderConversation(task, history, previousConversation);
   if (conversation) panel.append(conversation);
   const endedAt = [...(task.runs || [])].reverse().find(run => run.ended_at)?.ended_at ?? task.updated_at;
-  const progress = renderTaskProgress(task.progress, { status: task.status, endedAt });
-  if (progress) panel.append(progress);
+  let progress = renderTaskProgress(task.progress, { status: task.status, endedAt });
   const progressHistory = renderProgressHistory(task, previousProgressHistory);
-  if (progressHistory) panel.append(progressHistory);
+  if (progressHistory) {
+    progress ||= block('计划');
+    progress.append(progressHistory);
+  }
+  if (progress) panel.append(progress);
   if (task.error) { const error = block('错误'); error.classList.add('error-panel'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); panel.append(error); }
   if (task.integration_error) { const error = block('合并错误'); error.classList.add('error-panel'); error.append(agentText(task.integration_error, { className: 'error', plain: 'pre' })); panel.append(error); }
 
@@ -286,15 +281,8 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   grid.append(kv('最后更新', `${absolute(task.updated_at)} · ${relative(task.updated_at)}`));
   stats.append(grid); panel.append(stats);
   if (task.specs) panel.append(renderTaskSpecs(task));
-  panel.append(renderDeps(task));
   if ((task.resolutions || []).length) panel.append(renderResolutions(task));
 
-  if (task.branch || task.workspace) {
-    const workspace = block('工作区');
-    const text = [task.branch, task.workspace && `${worktreeLabel(task)}：${task.workspace}`].filter(Boolean).join('\n');
-    workspace.append(el('p', text, 'mono'));
-    panel.append(workspace);
-  }
   let diffSection = null, diffBody = null;
   const progressiveDiff = Boolean(progressive?.requestDiff);
   const loadDiff = () => {
@@ -304,17 +292,22 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     if (!diffSection.dataset.signature) diffBody.append(el('p', '改动加载中…', 'hint detail-diff-status'));
     return progressive.requestDiff();
   };
-  if (!management) {
-    diffSection = progressiveDiff ? previousDiff || block('改动概览') : progressive ? block('改动概览') : renderDiff(diff, task.id);
+  {
+    // The read-only code reader is independent of invocation count and development actions.
+    diffSection = progressiveDiff ? previousDiff || renderDiff(diff, task.id, task, { loading: !diff })
+      : renderDiff(diff, task.id, task, { loading: Boolean(progressive && !diff) });
     if (progressiveDiff) {
       diffSection.classList.add('detail-diff');
-      if (!previousDiff) diffSection.append(el('div', undefined, 'detail-diff-body'));
+      if (previousDiff) {
+        const nextContext = renderDiff(null, task.id, task).querySelector('.code-context');
+        diffSection.querySelector('.code-context')?.replaceChildren(...nextContext.childNodes);
+      }
       diffBody = diffSection.querySelector('.detail-diff-body');
       diffSection.dataset.state = 'idle';
       diffBody.querySelector('.detail-diff-status')?.remove();
       if (!diffSection.dataset.signature) diffBody.append(el('p', '改动加载中…', 'hint detail-diff-status'));
       queueMicrotask(loadDiff);
-    } else if (progressive) diffSection.append(el('p', '改动加载中…', 'hint'));
+    }
     panel.append(diffSection);
   }
   if (task.role === 'verifier' || task.verifications?.length || (task.role === 'worker' && task.status === 'completed' && task.workspace && task.head_commit)) panel.append(renderVerifications(task));
@@ -344,32 +337,6 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
       }
     }
     panel.append(record);
-  }
-  let events = null;
-  if (progressive || history?.events?.length) {
-    events = block('事件时间线', history?.loading ? undefined : String(history.events.length));
-    events.append(history?.loading ? el('p', '历史加载中…', 'hint') : renderHistory(history.events, { running: task.status === 'running', truncated: history.truncated,
-      cursor: history.cursor, onMore: history.onMore, taskId: task.id }));
-    panel.append(events);
-  }
-  if (conversation) {
-    conversation.referencedHistoryEvents ||= new Map();
-    conversation.attachReferencedHistoryEvent = event => {
-      if (event.task_id != null && event.task_id !== task.id) return null;
-      if (!events) { events = block('事件时间线'); events.append(renderHistory([], { taskId: task.id })); panel.append(events); }
-      let timeline = events.querySelector('.timeline');
-      if (!timeline) { timeline = renderHistory([], { taskId: task.id }); (events.querySelector('.detail-preview-content') || events).append(timeline); }
-      const token = `event-${event.id}`;
-      const existing = [...timeline.children].find(node => String(node.dataset.ref || '').split(/\s+/).includes(token));
-      if (existing) return existing;
-      conversation.referencedHistoryEvents.set(event.id, event);
-      const item = renderHistory([event], { taskId: task.id }).children[0];
-      const later = [...timeline.children].find(node => Number(/(?:^|\s)event-(\d+)(?:\s|$)/.exec(node.dataset.ref || '')?.[1]) > event.id);
-      timeline.insertBefore(item, later || null);
-      if (event.limitations?.length) item.append(el('p', '事件元数据采用有界预览；限制：' + event.limitations.join('、'), 'hint'));
-      return item;
-    };
-    for (const event of conversation.referencedHistoryEvents.values()) conversation.attachReferencedHistoryEvent(event);
   }
   linkWorkerNumbers(panel);
   limitDetailModules(panel, { taskId: task.id, from: readingStart });
@@ -449,15 +416,17 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
           status.textContent = available ? (value?.files?.length ? '' : '未记录会话用量。') : '用量不可用；未读取到数据。';
         }
         if (kind === 'diff' && diffSection) {
-          const next = available && value ? renderDiff(value, task.id) : block('改动概览');
-          if (!available || !value) next.append(el('p', available ? '改动不可用：尚无可读取的工作区。' : '改动不可用；读取失败。', 'hint'));
+          const next = renderDiff(available ? value : null, task.id, task, { unavailable: !available });
           if (progressiveDiff) {
-            // The module already has a heading; keep only the rendered diff content.
-            next.querySelector('.section-title')?.remove();
+            // Preserve the single heading and explicit code entry; patch only the summary.
             const filesOpen = diffBody.querySelector('.diff-files')?.open === true;
             const signature = JSON.stringify([value, available]);
             diffBody.querySelector('.detail-diff-status')?.remove();
-            if (diffSection.dataset.signature !== signature) diffBody.replaceChildren(next);
+            if (diffSection.dataset.signature !== signature) {
+              const content = next.querySelector('.detail-diff-body');
+              content.classList.remove('detail-diff-body'); content.classList.add('detail-diff-content');
+              diffBody.replaceChildren(content);
+            }
             diffSection.dataset.signature = signature;
             if (filesOpen && diffBody.querySelector('.diff-files')) diffBody.querySelector('.diff-files').open = true;
             diffSection.dataset.state = available ? 'ready' : 'failed';
@@ -473,11 +442,6 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
           } else {
             conversation?.updateConversation(task, { events: [], unavailable: true });
           }
-          const next = block('事件时间线', available ? String(value.events?.length || 0) : undefined);
-          next.append(available && value.events?.length ? renderHistory(value.events, { running: task.status === 'running', truncated: value.truncated,
-            cursor: value.cursor, onMore: value.onMore, taskId: task.id }) : el('p', available ? '暂无历史事件。' : '历史不可用；读取失败。', 'hint'));
-          events = replace(events, next);
-          for (const event of conversation?.referencedHistoryEvents?.values() || []) conversation.attachReferencedHistoryEvent(event);
         }
         linkWorkerNumbers(panel);
         limitDetailModules(panel, { taskId: task.id, from: readingStart });

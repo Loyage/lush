@@ -88,14 +88,15 @@ try {
     console.log('PASS history layout', width, height);
   }
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
+  await click('.progress-history-panel > summary');
   await click('.progress-history-version summary');
   assert(await execute(`window.old=document.querySelector('.progress-history-version');window.oldText=window.old.textContent;
     window.tick();return window.old.open&&window.old.textContent===window.oldText&&
     !document.querySelector('.progress-history-panel .is-running-duration');`), 'expanded history is not frozen');
-  assert(await wait(`!document.querySelector('.progress-history-panel .detail-preview-toggle').hidden`), 'expanded history has no full-reading control');
+  assert(await wait(`!document.querySelector('#detail > .task-progress-panel .detail-preview-toggle').hidden`), 'expanded plan has no full-reading control');
   // Focusing the native summary can already reveal the whole module for keyboard accessibility.
-  if (!await execute(`return document.querySelector('.progress-history-panel').classList.contains('detail-preview-expanded');`)) {
-    await click('.progress-history-panel .detail-preview-toggle');
+  if (!await execute(`return document.querySelector('#detail > .task-progress-panel').classList.contains('detail-preview-expanded');`)) {
+    await click('#detail > .task-progress-panel .detail-preview-toggle');
   }
   await click('.progress-history-controls button');
   assert(await wait(`document.querySelectorAll('.progress-history-version').length===13`), 'real history pagination failed');

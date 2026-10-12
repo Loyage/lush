@@ -58,6 +58,30 @@ test('reading RPC/HTTP reads real Store records, preserve decoded text and fail 
   } finally { f.project.running.clear(); await f.close(); }
 });
 
+test('legacy RPC and initial HTTP history use the same safe projection and UTF16 continuation as reading-page', async () => {
+  const f = await setup(), task = create(f);
+  try {
+    const body = 'x'.repeat(23999) + '😀TailMatch', messageId = f.store.message(task.id, body);
+    const eventId = f.store.event(task.id, 'message', { sender: null, message_id: messageId, hooks: { secret: 'PRIVATE-HOOK' },
+      retry_profile: 'PRIVATE-PROFILE', auto_merge: 'PRIVATE-MERGE', nested: { management: 'PRIVATE-MANAGEMENT', keep: 'allowed' } });
+    f.store.event(task.id, 'invocation.inputs_delivered', { message_ids: [messageId] });
+    f.store.run('INSERT INTO events(task_id,type,data) VALUES (?,?,?)', task.id, 'failed', '{broken');
+    const rpc = new RPCClient(f.config.socket), legacy = await rpc.request('worker.history', { id: task.id });
+    const first = await (await fetch(f.url + `/api/worker/${task.id}/history-page`)).json();
+    const reading = await (await fetch(f.url + `/api/worker/${task.id}/reading-page?before_message=0`)).json();
+    expect(first.events).toEqual(legacy); expect(first.events).toEqual([...reading.events].reverse());
+    expect(JSON.stringify(first)).not.toContain('PRIVATE'); expect(first.events.at(-1).error).toBe('invalid_event_json');
+    const input = first.events.find(event => event.id === eventId);
+    expect(input.message.body).toBe('x'.repeat(23999)); expect(input.message.total_chars).toBe(body.length);
+    expect(input.input_delivery.status).toBe('delivered');
+    const tail = await (await fetch(f.url + `/api/worker/${task.id}/reading-record?kind=event&record_id=${eventId}&offset=23999`)).json();
+    expect(input.message.body + tail.text).toBe(body); expect(tail.has_more).toBe(false);
+    const precise = await rpc.request('worker.history_page', { id: task.id, before: eventId + 1, limit: 1 });
+    expect(precise.events[0]).toEqual(input);
+    expect(f.store.get('SELECT consumed FROM messages WHERE id=?', messageId).consumed).toBe(0);
+  } finally { await f.close(); }
+});
+
 test('reading requires Web login and overview never automatically scans history', async () => {
   const f = await setup({ auth: { username: 'owner', password: 'test-password' } }), a = create(f);
   let reads = 0; const original = f.store.readingPage;

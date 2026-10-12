@@ -85,8 +85,8 @@ test('original O uses actual Input; append A uses durable event/message evidence
       expect(entry(root, `input:${id}`).querySelector('.conversation-kind').textContent).toBe(`追加输入 · ${label}`);
     }
     expect(entry(root, 'input:6')).toBeUndefined();
-    const others = root.querySelectorAll('input').find(node => node.dataset.conversationFilter === 'other');
-    others.checked = true; others.onchange();
+    const others = root.querySelector('[data-conversation-filter="other"]');
+    others.onclick();
     expect(root.querySelector('.conversation-other').querySelector('.conversation-sender').textContent).toBe('系统');
     expect(root.querySelector('.conversation-other').querySelector('.conversation-avatar').textContent).toBe('信');
     const originalProse = entry(root, 'input:3').querySelector('.conversation-prose');

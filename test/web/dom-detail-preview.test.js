@@ -138,7 +138,7 @@ test('detail limits reading blocks only and preserves reused conversation/messag
   renderDetail(task, { events: [] }, null, null);
   const panel = dom.node('detail'), result = panel.querySelector('.conversation-panel');
   expect(panel.querySelector('.task-message')).toBeNull();
-  const communication = result.querySelector('[data-conversation-filter="other"]'); communication.checked = true; communication.onchange();
+  const communication = result.querySelector('[data-conversation-filter="other"]'); communication.onclick();
   const message = result.querySelector('[data-conversation-key="other:message:1"]');
   expect(result.classList.contains('detail-preview')).toBe(true);
   resize(result); await toggle(result).click();

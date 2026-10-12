@@ -11,7 +11,7 @@ const page = extra => ({ events: [], messages: [], event_cursor: 0, message_curs
 const incoming = (id, body, extra = {}) => ({ id, task_id: 7, body, sender_id: null, created_at: at, ...extra });
 const userEvent = (id, messageId, body) => ({ id, type: 'message', created_at: at,
   data: { sender: null, message_id: messageId, body }, input_delivery: { status: 'pending', at: null } });
-const showOthers = root => { const checkbox = root.querySelector('[data-conversation-filter="other"]'); checkbox.checked = true; checkbox.onchange(); };
+const showOthers = root => { const toggle = root.querySelector('[data-conversation-filter="other"]'); if (toggle.getAttribute('aria-pressed') !== 'true') toggle.onclick(); };
 const type = (root, text) => { const input = root.querySelector('.conversation-search').querySelector('input'); input.value = text; input.listeners.input[0](); input.listeners.keydown[0]({ key: 'Enter', preventDefault() {} }); };
 const fixture = async (fetch, run) => {
   const dom = installDom({ fetch }); resetUiState(); ui.hostSession = { status: 'ready', username: '测试用户' };
@@ -25,8 +25,9 @@ test('inputs/results contain isolated messages, known user appends, proved decis
     { id: 21, type: 'notice.answered', created_at: at, data: { notice_id: 508, answer: '自动决定', answer_source: 'lush' } },
     { id: 22, type: 'notice.answered', created_at: at, data: { notice_id: 509, answer: '历史决定' } },
   ] });
-  expect(root.querySelector('h2').textContent).toBe('输入与结果');
-  expect(root.querySelectorAll('.conversation-other')).toHaveLength(0);
+  expect(root.querySelector('h2').textContent).toBe('时间线');
+  expect(root.querySelectorAll('.conversation-other')).toHaveLength(3);
+  expect(root.querySelector('[data-conversation-filter="decision"]').getAttribute('aria-pressed')).toBe('true');
   expect(root.querySelectorAll('.conversation-input')).toHaveLength(2);
   expect(root.querySelector('[data-conversation-key="input:message:2"]').dataset.ref).toContain('message-2');
   showOthers(root);
@@ -134,7 +135,7 @@ test('message and event reference navigation reads only the precise row and reve
   }, async () => {
     const root = renderConversation(task); type(root, '不存在');
     const message = await root.revealConversationReference({ kind: 'message', target: { task_id: 7, message_id: 101 } });
-    expect(message.dataset.ref).toContain('message-101'); expect(message.expanded).toBe(true); expect(root.querySelector('[data-conversation-filter="other"]').checked).toBe(true);
+    expect(message.dataset.ref).toContain('message-101'); expect(message.expanded).toBe(true); expect(root.querySelector('[data-conversation-filter="other"]').getAttribute('aria-pressed')).toBe('true');
     expect(root.querySelector('.conversation-search').querySelector('input').value).toBe('');
     const event = await root.revealConversationReference({ kind: 'history_event', target: { task_id: 7, event_id: 202 } });
     expect(event.dataset.ref).toContain('event-202'); expect(reads).toHaveLength(2);

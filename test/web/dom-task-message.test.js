@@ -113,7 +113,8 @@ test('详情集成保留消息引用原文，刷新／追加消息保留已有�
   const task = { id: 1, task_kind: 'main', role: 'agent', status: 'waiting', goal: '管理主分支',
     created_at: at, updated_at: at, messages: [signal('child.completed', { result: '结果正文' })] };
   renderDetail(task, {}, null, null);
-  const filter = dom.node('detail').querySelector('[data-conversation-filter="other"]'); filter.checked = true; filter.onchange();
+  const filter = dom.node('detail').querySelector('[data-conversation-filter="other"]'); filter.onclick();
+  expect(filter.getAttribute('aria-pressed')).toBe('true');
   const card = dom.node('detail').querySelector('[data-conversation-key="other:message:17"]');
   expect(dom.node('detail').querySelector('.task-message')).toBeNull();
   initContextReferences();

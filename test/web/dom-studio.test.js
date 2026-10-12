@@ -76,13 +76,13 @@ test('task goal becomes the page heading and results precede implementation meta
   expect(panel.dataset.view).toBe('task');
   // hero 的 h1 只放一句话短标题。
   expect(panel.querySelector('h1').textContent).toBe('更清晰的项目工作台');
-  // 完整 goal 与结果统一在“输入与结果”中，默认最新在前。
+  // 完整 goal 与结果统一在“时间线”中，默认最新在前。
   const goalPanel = panel.querySelector('.conversation-panel');
   expect(goalPanel).toBeTruthy();
-  expect(deepText(goalPanel)).toContain('输入与结果');
+  expect(deepText(goalPanel)).toContain('时间线');
   expect(deepText(goalPanel)).toContain('更清晰的项目工作台');
   const text = deepText(panel);
-  expect(text.indexOf('输入与结果')).toBeLessThan(text.indexOf('已完成主题切换'));
+  expect(text.indexOf('时间线')).toBeLessThan(text.indexOf('已完成主题切换'));
   expect(text.indexOf('已完成主题切换')).toBeLessThan(text.indexOf('调用次数'));
   expect(panel.querySelector('.breadcrumb')).toBeTruthy();
 });

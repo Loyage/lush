@@ -16,9 +16,11 @@ test('large results do not inflate task listings and event history stays paginat
     const client = new RPCClient(f.config.socket);
     const tasks = await client.request('worker.list'); expect(tasks[0].result).toBeUndefined();
     const first = await client.request('worker.history',{id:task.id});
-    expect(first.length).toBeLessThan(11);
+    expect(first).toHaveLength(11);
+    const outputs = first.filter(event => event.type === 'output');
+    expect(outputs.every(event => event.text_truncated && event.total_chars === 250000 && event.data.result.length === 24000)).toBe(true);
     const second = await client.request('worker.history',{id:task.id,after:first.at(-1).id});
-    expect(second[0].id).toBeGreaterThan(first.at(-1).id);
+    expect(second).toEqual([]);
     expect((await client.request('worker.inspect',{id:task.id})).result.length).toBe(250000);
   } finally { await f.close(); }
 });

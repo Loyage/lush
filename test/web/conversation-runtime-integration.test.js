@@ -65,7 +65,7 @@ test('logged-in conversation renders original O, frozen durable A and historical
     expect(historical.querySelector('.conversation-kind').textContent).toBe(`追加输入 · 消息 #${oldId}`);
     expect(root.querySelector('.conversation-output').querySelector('.conversation-avatar').textContent).toBe('🤖');
     const communications = root.querySelector('[data-conversation-filter="other"]');
-    communications.checked = true; communications.onchange();
+    communications.onclick();
     // Numbered/frozen appends and their joined routing/buffering events are still one user entry each.
     expect(root.querySelectorAll('.conversation-input')).toHaveLength(3);
     expect(root.querySelectorAll('.conversation-other')).toHaveLength(0);

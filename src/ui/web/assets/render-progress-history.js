@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { block, button, el, syncChildren } from './dom.js';
+import { button, el, syncChildren } from './dom.js';
 import { absolute } from './format.js';
 import { progressReportingEnabled, progressStats, renderTaskProgress } from './render-progress.js';
 import { projectBase } from './route.js';
@@ -16,7 +16,7 @@ function mergeItems(state, items) {
     fold.dataset.progressHistoryId = String(item.id);
     const stats = progressStats(item.progress);
     fold.append(el('summary', `计划记录 #${item.id} · ${absolute(item.archived_at)} · ${REASONS[item.reason] || '计划更新'} · ${stats.completed}/${stats.total}`));
-    const progress = renderTaskProgress(item.progress, { historical: true });
+    const progress = renderTaskProgress(item.progress, { historical: true, embedded: true });
     fold.append(progress || el('p', '该版本没有可展示的步骤。', 'hint'));
     state.records.set(item.id, fold);
   }
@@ -31,7 +31,7 @@ function paintControls(state) {
   state.note.className = state.error ? 'error progress-history-status' : 'hint progress-history-status';
 }
 
-/** Current plan stays separate; archived versions are collapsed, immutable and never live-ticked. */
+/** Nested in the plan module; reuse this collapsed history and its immutable versions on refresh. */
 export function renderProgressHistory(task, previous = null) {
   if (!progressReportingEnabled()) return null;
   const page = task.progress_history;
@@ -40,7 +40,8 @@ export function renderProgressHistory(task, previous = null) {
   if (state?.taskId !== task.id) state = null;
   if (!state && !page.items.length && !page.has_more) return null;
   if (!state) {
-    const section = block('过往计划'); section.classList.add('progress-history-panel');
+    const section = el('details', undefined, 'progress-history-panel');
+    section.append(el('summary', '过往计划'));
     const list = el('div', undefined, 'progress-history-list');
     const controls = el('div', undefined, 'progress-history-controls');
     const note = el('p', undefined, 'hint progress-history-status'); note.setAttribute('role', 'status');

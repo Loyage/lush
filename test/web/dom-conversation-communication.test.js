@@ -17,7 +17,7 @@ const at = '2026-10-11T06:00:00Z';
 const task = { id: 7, worker_number: 'W201', input_id: 201, goal: '目标', created_at: at };
 const showCommunication = root => {
   const filter = root.querySelector('[data-conversation-filter="other"]');
-  filter.checked = true; filter.onchange();
+  if (filter.getAttribute('aria-pressed') !== 'true') filter.onclick();
 };
 const expand = node => { node.open = true; for (const handler of node.listeners.toggle || []) handler(); };
 const user = (id, body) => ({ id, task_id: 7, sender_id: null, body, created_at: at });
