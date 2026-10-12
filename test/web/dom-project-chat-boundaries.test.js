@@ -50,6 +50,26 @@ test('对话和设置导航属于项目，详情唯一选中对话导航，所�
   dom.location.pathname = `/p/${b}/`; expect(conversationHref(1)).toBe(`/p/${b}/#quick-chat-C1`);
 });
 
+test('快速对话设置与历史子页面顶部互相切换，详情归属历史且导航不调用模型', async () => {
+  world.state.quickChats.set(1, row());
+  const root = dom.node('detail');
+  const check = current => {
+    const page = root.querySelector('.quick-chat-page'), nav = page.children[0];
+    expect(nav.classList.contains('page-subnav')).toBe(true);
+    expect(nav.getAttribute('aria-label')).toBe('快速对话子页面');
+    expect(nav.children.map(link => link.textContent)).toEqual(['设置', '历史记录']);
+    expect(nav.querySelector('[aria-current="page"]').dataset.subpage).toBe(current);
+    expect(nav.querySelector('[data-subpage="settings"]').href).toBe(`/p/${a}/#quick-chat-settings`);
+    expect(nav.querySelector('[data-subpage="history"]').href).toBe(`/p/${a}/#quick-chat`);
+  };
+  dom.location.hash = '#quick-chat'; await dom.fire('hashchange'); check('history');
+  expect(root.querySelector('.quick-chat-history')).not.toBeNull(); expect(root.querySelector('.quick-chat-library')).toBeNull();
+  dom.location.hash = '#quick-chat-settings'; await dom.fire('hashchange'); check('settings');
+  expect(root.querySelector('.quick-chat-history')).toBeNull(); expect(root.querySelector('.quick-chat-library')).not.toBeNull();
+  dom.location.hash = '#quick-chat-C1'; await dom.fire('hashchange'); check('history');
+  expect(world.state.quickChatActions).toHaveLength(0);
+});
+
 test('两项目相同 C1 通过独立项目 API 读取，迟到 A 读取不能显示到 B', async () => {
   intercept = url => url.endsWith('/api/quick-chat/1') ? json(row(url.startsWith(`/p/${a}/`) ? 'A 独立历史' : 'B 独立历史')) : null;
   await openQuickChatConversation(1); expect(deepText(dom.node('detail'))).toContain('A 独立历史');

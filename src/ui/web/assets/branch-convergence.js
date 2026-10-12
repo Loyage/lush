@@ -273,11 +273,18 @@ export function renderBranchConvergence({ catalogue, ownsPage, busy = () => fals
   };
   branch.onchange = () => selectBranch(branch.value);
   const toggle = field('对新交付开启归并', enabled); toggle.classList.add('convergence-toggle');
-  editor.append(field('目标分支', branch), field('最终验证快捷指令', command), toggle);
+  const validationField = field('最终验证快捷指令', command);
+  editor.append(field('目标分支', branch), validationField, toggle);
   const controls = el('div', undefined, 'actions'); controls.append(saveHost, refreshHost);
   history.append(el('h3', '当前与历史批次'), historyStatus, list, moreHost);
-  node.append(el('p', '按目标分支设置，默认关闭、不继承。只处理交付到所选分支的新固定成果；不修改 Worker 自动合并或验收授权。', 'hint'),
-    editor, status, summary, feedback, el('p', '选择已授权指令的精确版本作为组合后的最终验证；未配置、失败或授权失效时不落地。关闭不撤回已固定交付。', 'hint'), controls, history);
+  const introduction = el('p', '按目标分支设置，默认关闭、不继承。只处理交付到所选分支的新固定成果；不修改 Worker 自动合并或验收授权。', 'hint');
+  const validationNote = el('p', '选择已授权指令的精确版本作为组合后的最终验证；未配置、失败或授权失效时不落地。关闭不撤回已固定交付。', 'hint');
+  node.append(introduction, editor, status, summary, feedback, validationNote, controls, history);
+  node.setSubpage = subpage => {
+    const isHistory = subpage === 'history';
+    history.hidden = !isHistory;
+    for (const child of [validationField, toggle, saveHost, introduction, validationNote]) child.hidden = isHistory;
+  };
   node.updateCommands = next => { commands = next; if (owns()) { paintCommands(); sync(); } };
   node.syncControls = sync;
   node.dispose = () => { disposed = true; ++generation; ++listRequest; ++historyRequest; };

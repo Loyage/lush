@@ -45,6 +45,9 @@ export function renderShortcutCommands(options) {
   automationModule(historyModule, 'command-history', folds);
   runs.onHistoryStatus(text => { historyModule.moduleSummary.textContent = text; });
   section.append(runModule, management, historyModule);
+  section.setSubpage = subpage => {
+    for (const child of section.children) child.hidden = child === historyModule ? subpage !== 'history' : subpage === 'history';
+  };
   section.updateCommands = next => { if (validCommands(next)) { latest = next; runs.update(next); paintManagement(); runModule.moduleSummary.textContent = management.moduleSummary.textContent = summary(); } };
   section.dispose = () => runs.dispose();
   return section;
@@ -128,7 +131,7 @@ function renderManagement({ model, ownsPage, busy, setBusy, setEditing, onCatalo
         ? '保存的默认目录不可用；不会清空或改投 main，请显式改选。' : '绑定当前项目具体 Worker；无默认目录时每次运行手动选择。';
     } catch { if (ownsPage() && editor.querySelector('[aria-label="默认执行目录 Worker"]') === directory.input) directoryStatus.textContent = '目录读取失败；已有选择保留，不能保存未核验的目录，可显式选择无默认目录。'; }
   }
-  management.append(el('p', '管理定义和版本授权；运行和记录是同页独立模块。保存不执行，修改即撤权。', 'hint'),
+  management.append(el('p', '管理定义和版本授权；执行结果在历史记录子页面查看。保存不执行，修改即撤权。', 'hint'),
     control('注册快捷指令', () => edit(), '注册当前项目的 Shell 指令；保存不授权也不执行。', () => editing ? '请先保存或取消当前编辑。' : null));
   for (const command of model.items) {
     const card = el('article', undefined, 'hook-mount shortcut-command'); card.dataset.commandId = command.id;

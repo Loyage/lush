@@ -75,7 +75,7 @@ async function openPage(load, open, view, options = {}) {
 const openSettings = () => openPage(() => import('./render-settings.js'), module => module.openSettings(), 'settings');
 const openAgentStatus = () => openPage(() => import('./render-agent-status.js'), module => module.openAgentStatus(), 'agent-status');
 const openVersions = () => openPage(() => import('./render-versions.js'), module => module.openVersions(), 'versions');
-const openHooks = () => openPage(() => import('./render-hooks.js'), module => module.openHooks(), 'hooks');
+const openHooks = (subpage = 'settings') => openPage(() => import('./render-hooks.js'), module => module.openHooks({ subpage }), 'hooks', { hash: subpage === 'history' ? '#hooks-history' : '#hooks' });
 const openQuickChatPage = () => openPage(() => import('./render-quick-chat.js'), module => module.openQuickChatPage(), 'quick-chat');
 const openQuickChatSettings = () => openPage(() => import('./render-quick-chat.js'), module => module.openQuickChatSettings(), 'quick-chat-settings');
 const openQuickChatConversation = id => openPage(() => import('./render-quick-chat.js'), module => module.openQuickChatConversation(id), 'quick-chat-conversation', { key: `quick-chat-C${id}`, hash: `#quick-chat-C${id}` });
@@ -135,7 +135,10 @@ function onHashChange() {
   if (hash === '#quick-chat') return ui.view?.id === 'quick-chat' ? undefined : openQuickChatPage();
   const conversation = /^#quick-chat-C([1-9]\d*)$/.exec(hash);
   if (conversation && Number.isSafeInteger(Number(conversation[1]))) return ui.view?.key === `quick-chat-C${conversation[1]}` ? undefined : openQuickChatConversation(Number(conversation[1]));
-  if (hash === '#hooks') return ui.view?.id === 'hooks' ? undefined : openHooks();
+  if (hash === '#hooks' || hash === '#hooks-history') {
+    const subpage = hash === '#hooks-history' ? 'history' : 'settings';
+    return ui.view?.id === 'hooks' && ui.hooksPage?.subpage === subpage ? undefined : openHooks(subpage);
+  }
   if (hash === '#versions') return ui.view?.id === 'versions' ? undefined : openVersions();
   if (hash === '#inputs') return openInputs({ push: false });
   const input = /^#input-(draft|input)-([1-9]\d*)$/.exec(hash);

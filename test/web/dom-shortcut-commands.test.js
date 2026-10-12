@@ -91,6 +91,44 @@ test('run, management and history are independent modules; collapsing preserves 
   await toggle.onclick(); expect(field('Shell 命令')).toBe(draft); expect(draft.value).toBe('echo preserved'); expect(calls).toHaveLength(0);
 });
 
+test('automation top subpages separate settings and history, retaining edits, folds and loaded records without mutations', async () => {
+  history = [execution()]; await openHooks();
+  await until(() => section().querySelector('.shortcut-execution-records').children.length);
+  const page = root().querySelector('.hooks-page'), nav = page.children[0], original = section();
+  expect(nav.classList.contains('page-subnav')).toBe(true);
+  expect(nav.children.map(link => link.textContent)).toEqual(['设置', '历史记录']);
+  const runModule = original.querySelector('.shortcut-run-module'), manager = original.querySelector('.shortcut-command-management'), records = original.querySelector('.shortcut-history-module');
+  expect(records.hidden).toBe(true); expect(runModule.hidden).toBe(false); expect(manager.hidden).toBe(false);
+  await btn('编辑快捷指令', manager).onclick(); const draft = field('Shell 命令'); draft.value = 'echo retained';
+  await manager.querySelector('.automation-module-toggle').onclick();
+  const readsBefore = reads.length;
+  let prevented = false; await nav.querySelector('[data-subpage="history"]').onclick({ preventDefault() { prevented = true; } });
+  expect(prevented).toBe(true); expect(dom.location.hash).toBe('#hooks-history');
+  expect(nav.querySelector('[aria-current="page"]').dataset.subpage).toBe('history');
+  expect(records.hidden).toBe(false); expect(runModule.hidden).toBe(true); expect(manager.hidden).toBe(true);
+  expect(root().querySelector('.project-hooks').hidden).toBe(true); expect(root().querySelector('[data-module="templates"]').hidden).toBe(true);
+  expect(root().querySelector('.automation-history').hidden).toBe(false);
+  await nav.querySelector('[data-subpage="settings"]').onclick({ preventDefault() {} });
+  expect(dom.location.hash).toBe('#hooks'); expect(section()).toBe(original); expect(field('Shell 命令')).toBe(draft);
+  expect(draft.value).toBe('echo retained'); expect(manager.moduleOpen).toBe(false); expect(records.hidden).toBe(true);
+  expect(reads).toHaveLength(readsBefore); expect(calls).toHaveLength(0);
+  await nav.querySelector('[data-subpage="history"]').onclick({ ctrlKey: true, preventDefault() { throw new Error('modified navigation must remain native'); } });
+  expect(dom.location.hash).toBe('#hooks');
+});
+
+test('history refresh failures retain records and hidden unsaved settings instead of discarding the page', async () => {
+  history = [execution()]; await openHooks();
+  await until(() => section().querySelector('.shortcut-execution-records').children.length);
+  await btn('编辑快捷指令').onclick(); const draft = field('Shell 命令'); draft.value = 'echo not saved';
+  await openHooks({ subpage: 'history' });
+  const loaded = section().querySelector('.shortcut-execution-records');
+  intercept = path => path.endsWith('/api/hooks') ? failure('offline') : null;
+  await btn('刷新记录', root().querySelector('.automation-history')).onclick();
+  expect(section().querySelector('.shortcut-execution-records')).toBe(loaded);
+  expect(root().querySelector('.automation-history').hidden).toBe(false);
+  await openHooks(); expect(field('Shell 命令')).toBe(draft); expect(draft.value).toBe('echo not saved'); expect(calls).toHaveLength(0);
+});
+
 test('catalogue changes retain the history component and do not restart reads or reset module folds', async () => {
   await openHooks(); await until(() => section().querySelector('.shortcut-execution-records').children.length);
   const original = section(), runModule = original.querySelector('.shortcut-run-module'); await runModule.querySelector('.automation-module-toggle').onclick();

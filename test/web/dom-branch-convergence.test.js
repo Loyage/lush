@@ -79,6 +79,25 @@ test('project automation includes independent default-off branch policy and dire
   expect(node.querySelectorAll('input')).toHaveLength(1); expect(reads.some(path => path.includes('/api/host/automation'))).toBe(false);
 });
 
+test('automation history displays branch batches without editable policy and retains the unsaved policy on return', async () => {
+  runs = [run({ state: 'failed' })]; await openHooks();
+  const node = root().querySelector('.branch-convergence'); await node.ready;
+  choose(); enable();
+  await openHooks({ subpage: 'history' });
+  expect(node.querySelector('.convergence-history').hidden).toBe(false);
+  expect(field('最终验证快捷指令').parentNode.hidden).toBe(true);
+  expect(field('对新交付开启归并').parentNode.hidden).toBe(true);
+  expect(btn('保存分支归并设置').parentNode.hidden).toBe(true);
+  expect(field('目标分支').parentNode.hidden).toBe(false);
+  expect(deepText(node.querySelector('.convergence-runs'))).toContain('失败');
+  const readsBefore = reads.length;
+  await openHooks();
+  expect(node.querySelector('.convergence-history').hidden).toBe(true);
+  expect(field('最终验证快捷指令').value).toBe(`${id}:1`); expect(field('对新交付开启归并').checked).toBe(true);
+  expect(field('最终验证快捷指令').parentNode.hidden).toBe(false); expect(btn('保存分支归并设置').disabled).toBe(false);
+  expect(reads).toHaveLength(readsBefore); expect(actions).toHaveLength(0);
+});
+
 test('only explicitly authorized exact command versions are selectable, no Shell input or implicit authorization', async () => {
   const node = await component(); const options = field('最终验证快捷指令').children;
   expect(options.map(item => item.value)).toEqual(['', `${id}:1`]);

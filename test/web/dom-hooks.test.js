@@ -65,6 +65,34 @@ test('Hooks page reads catalogue, explains costs and saves templates without mou
   expect(actions.some(call => call.method.startsWith('worker.'))).toBe(false);
 });
 
+test('automation history deep link remains selected through a late catalogue read and shows bounded execution diagnostics', async () => {
+  let resolve;
+  intercept = path => path.endsWith('/api/hooks') ? new Promise(done => { resolve = done; }) : null;
+  const loading = openHooks(); await until(() => resolve);
+  const switching = root().querySelector('[data-subpage="history"]').onclick({ preventDefault() {} });
+  resolve(json({ ...catalogue, command_example: { worker_id: 1, hook_id: 'main-log', hooks: { worker_id: 1, revision: 'r', mounts: [{ ...model.mounts[1], id: 'main-log' }] } },
+    signals: { version: 1, revision: 's', items: [{ id: 'signal', name: '信号快照', enabled: false, schedule: { kind: 'once', at: '2026-01-01T00:00:00Z', timezone: 'UTC' }, last_execution: { status: 'skipped', created_at: '2026-01-01T00:00:00Z', reason: '已错过' } }] },
+    management_workers: [{ id: 30, worker_number: 'W9', name: '管理快照', goal: '检查项目', management: { version: 1, revision: 'm', enabled: false, state: 'unknown', last_execution: { status: 'unknown', created_at: '2026-01-01T00:00:00Z', error: '<script>未知副作用</script>' } } }],
+  }));
+  await loading; await switching;
+  expect(dom.location.hash).toBe('#hooks-history');
+  expect(root().querySelector('.page-subnav').querySelector('[aria-current="page"]').dataset.subpage).toBe('history');
+  const history = root().querySelector('.automation-history'); expect(history.hidden).toBe(false);
+  for (const text of ['动作未完成', '信号快照', '已错过', '管理快照', '未知副作用']) expect(deepText(history)).toContain(text);
+  expect(history.querySelector('script')).toBeNull(); expect(history.querySelectorAll('input')).toHaveLength(0);
+  expect(btn('查看指令、结果与调用历史', history).getAttribute('data-preview-text')).toContain('W9');
+  expect(root().querySelector('.project-hooks').hidden).toBe(true); expect(actions).toHaveLength(0);
+});
+
+test('automation read failures retain top subpage navigation and read-only retry', async () => {
+  intercept = path => path.endsWith('/api/hooks') ? Promise.reject(new Error('offline')) : null;
+  await openHooks({ subpage: 'history' });
+  expect(root().querySelector('.hooks-page').children[0].classList.contains('page-subnav')).toBe(true);
+  expect(deepText(root())).toContain('offline');
+  await root().querySelector('[data-subpage="settings"]').onclick({ preventDefault() {} });
+  expect(dom.location.hash).toBe('#hooks'); expect(actions).toHaveLength(0);
+});
+
 test('template catalogue scales with search by name, trigger and action while keeping mounts separate', async () => {
   catalogue.templates = Array.from({ length: 50 }, (_, index) => ({ id: `template-${index}`, name: `规则 ${index}`,
     trigger: 'agent.failed', mode: 'once', enabled: false, actions: [{ type: 'notify', title: '告知', body: '正文' }] }));

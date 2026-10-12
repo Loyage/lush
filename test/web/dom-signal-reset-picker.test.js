@@ -38,8 +38,8 @@ beforeEach(() => { connections = [connection()]; reads = []; actions = []; inter
 afterAll(() => dom.restore());
 
 test('automation navigation keeps #hooks; source cache loads only when opening the signal editor and saves a plain exact once schedule', async () => {
-  await openHooks(); expect(dom.location.hash).toBe('#hooks'); expect(root().querySelector('h1').textContent).toBe('自动化');
-  expect(dom.node('view-title').textContent).toBe('自动化'); expect(reads).toEqual(['/api/hooks', '/api/branch-convergence']);
+  await openHooks(); expect(dom.location.hash).toBe('#hooks'); expect(root().querySelector('h1').textContent).toBe('项目自动化');
+  expect(dom.node('view-title').textContent).toBe('项目自动化'); expect(reads).toEqual(['/api/hooks', '/api/branch-convergence']);
   expect(reads).not.toContain('/api/agent/connections'); expect(actions).toHaveLength(0);
   await btn('新建时间信号').onclick();
   await until(() => !input('订阅额度刷新时间').disabled);

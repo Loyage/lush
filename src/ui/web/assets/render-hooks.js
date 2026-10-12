@@ -15,6 +15,7 @@ import { hookScheduleSummary, scheduledWallTime } from './hook-schedule.js';
 import { renderSignalManagement } from './hook-signals.js';
 import { renderShortcutCommands } from './shortcut-commands.js';
 import { renderBranchConvergence } from './branch-convergence.js';
+import { pageSubnav } from './page-subnav.js';
 import { commandReferencesIssue, commandSummary, legacyCommands, validCommands } from './shortcut-command-model.js';
 
 import { automationModule, automationAlerts } from './automation-module.js';
@@ -353,14 +354,33 @@ async function promptRisk() {
 }
 
 /** Explicit project-local template management, separate from actual Worker attachments. */
-export async function openHooks() {
-  const view = activateDetailView({ view: 'hooks', title: '自动化', context: '工作', hint: '快捷指令和 Hook', hash: '#hooks' });
+export async function openHooks({ subpage = 'settings' } = {}) {
+  subpage = subpage === 'history' ? 'history' : 'settings';
+  const view = activateDetailView({ view: 'hooks', title: '项目自动化', context: '工作', hint: '快捷指令和 Hook', hash: subpage === 'history' ? '#hooks-history' : '#hooks' });
   const project = projectApi('/api/hooks'), owner = globalThis.document;
   const ownsPage = () => owner === globalThis.document && ui.view === view && sameProject(project);
-  if (ui.hooksPage?.view === view && ui.hooksPage.project === project) return ui.hooksPage.pending;
-  const state = { view, project, pending: null, catalogue: null, templateEditing: false, signalsEditing: false, managementEditing: false, busy: false, templateQuery: '', folds: new Map(), details: new Map() }; ui.hooksPage = state;
+  if (ui.hooksPage?.view === view && ui.hooksPage.project === project) {
+    ui.hooksPage.switchSubpage(subpage); return ui.hooksPage.pending;
+  }
+  ui.hooksPage?.shortcutNode?.dispose?.(); ui.hooksPage?.convergenceNode?.dispose?.();
+  const state = { view, project, subpage, pending: null, catalogue: null, templateEditing: false, signalsEditing: false, managementEditing: false, busy: false, templateQuery: '', folds: new Map(), details: new Map() }; ui.hooksPage = state;
   const owns = () => ownsPage() && ui.hooksPage === state;
   const root = el('div', undefined, 'hooks-page'); $('detail').replaceChildren(root);
+  const subnav = pageSubnav('项目自动化子页面', [
+    { id: 'settings', label: '设置', href: '#hooks' },
+    { id: 'history', label: '历史记录', href: '#hooks-history' },
+  ], subpage, next => owns() ? openHooks({ subpage: next }) : undefined);
+  state.switchSubpage = next => {
+    state.subpage = next;
+    for (const link of subnav.children) {
+      const selected = link.dataset.subpage === next;
+      link.classList.toggle('active', selected); link.setAttribute('aria-current', selected ? 'page' : 'false');
+    }
+    for (const node of state.settingsNodes || []) node.hidden = next === 'history';
+    if (state.historyNode) state.historyNode.hidden = next !== 'history';
+    state.shortcutNode?.setSubpage?.(next); state.convergenceNode?.setSubpage?.(next);
+  };
+  root.append(subnav);
   const editor = el('div', undefined, 'hook-editor');
   const signalEditor = el('div', undefined, 'hook-editor'), managerEditor = el('div', undefined, 'hook-editor');
   const search = el('input', undefined, 'hook-template-search');
@@ -389,7 +409,11 @@ export async function openHooks() {
   }
   async function load() {
     try { const catalogue = await api('/api/hooks'); if (!owns()) return; state.catalogue = catalogue; ui.hookCatalogue = catalogue; paint(); }
-    catch (error) { if (owns()) { root.replaceChildren(el('h1', '自动化'), el('p', `读取失败：${error.message}`, 'error'), button('重新读取', load, 'ghost')); } }
+    catch (error) {
+      if (!owns()) return;
+      if (state.catalogue) show(`读取失败：${error.message}；已加载记录与未保存编辑保留。`, 'error');
+      else root.replaceChildren(subnav, el('h1', '项目自动化'), el('p', `读取失败：${error.message}`, 'error'), button('重新读取', load, 'ghost'));
+    }
   }
   function commandExample(catalogue) {
     const section = el('div', undefined, 'command-hook-example');
@@ -430,7 +454,7 @@ export async function openHooks() {
     }
     const preservedExample = state.commandEditing ? root.querySelector('.command-hook-example') : null;
     const preservedCommands = state.shortcutNode;
-    const header = el('div', undefined, 'hooks-page-header'); header.append(el('h1', '自动化'), hookHelpLink());
+    const header = el('div', undefined, 'hooks-page-header'); header.append(el('h1', '项目自动化'), hookHelpLink());
     const hooks = block('项目 Hooks'); hooks.classList.add('project-hooks');
     hooks.append(preservedExample || commandExample(catalogue));
     const global = el('a', '设备级自动选择与新指令默认流程 →', 'hook-help-link');
@@ -508,7 +532,29 @@ export async function openHooks() {
       const key = card.dataset.hookId || card.dataset.templateId, details = card.querySelector('details');
       if (key && details && state.details.has(key)) details.open = state.details.get(key);
     }
-    syncChildren(root, [header, el('p', '快捷指令和 Hook', 'hooks-page-subtitle'), el('p', '模板可复用，实际挂载独立保存。管理此项目的命令授权和实际挂载；设备默认流程与自动选择在独立全局自动化页配置。', 'hint'), commands, convergence, hooks, ...signals, controls, templates]);
+    const subtitle = el('p', '快捷指令和 Hook', 'hooks-page-subtitle');
+    const introduction = el('p', '模板可复用，实际挂载独立保存。管理此项目的命令授权和实际挂载；设备默认流程与自动选择在独立全局自动化页配置。', 'hint');
+    const history = block('Hook、信号与管理记录'); history.classList.add('automation-history');
+    history.append(el('p', '这里展示项目目录提供的最近执行快照；快捷指令与归并批次可在各自记录区分页查看。其他 Worker 的完整 Hook 与调用历史仍在其详情中。', 'hint'),
+      button('刷新记录', () => owns() && !state.busy ? load() : undefined, 'ghost'));
+    const observations = [
+      ...(mounts || []).map(item => ({ name: item.name, scope: 'main Hook', last: item.last_execution, state: item.state })),
+      ...(catalogue.signals?.items || []).map(item => ({ name: item.name, scope: '时间信号', last: item.last_execution })),
+      ...(catalogue.management_workers || []).map(item => ({ name: item.name || workerLabel(item), scope: '管理指令', last: item.management?.last_execution, state: item.management?.state, task: item })),
+    ];
+    for (const item of observations) {
+      const card = el('article', undefined, 'hook-execution');
+      card.append(el('h3', `${item.scope} · ${item.name}`));
+      if (item.last) card.append(el('p', `${STATES[item.last.status] || item.last.status || '状态未知'} · ${absolute(item.last.finished_at || item.last.created_at || item.last.started_at || item.last.due_at)}`, 'hint'));
+      else card.append(el('p', STATES[item.state] || '暂无执行记录', 'hint'));
+      if (item.last?.error || item.last?.reason) card.append(el('p', item.last.error || item.last.reason, 'error'));
+      if (item.task) card.append(button('查看指令、结果与调用历史', () => owns() ? detail(item.task.id) : undefined, 'ghost hook-button', { worker: item.task }));
+      history.append(card);
+    }
+    if (!observations.length) history.append(el('p', '暂无 Hook、信号与管理记录。', 'hint'));
+    state.settingsNodes = [introduction, hooks, ...signals, controls, templates]; state.historyNode = history;
+    syncChildren(root, [subnav, header, subtitle, introduction, commands, convergence, hooks, ...signals, controls, templates, history]);
+    state.switchSubpage(state.subpage);
     // Moving a retained editor/search into a fresh module must not discard keyboard focus or caret.
     let ancestor = focused;
     while (ancestor && ancestor !== root) ancestor = ancestor.parentNode;

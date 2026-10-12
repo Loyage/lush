@@ -283,6 +283,11 @@ test('直接链接启动复用同一路由，重复 boot 不复制导航', async
     expectSelected(id);
     expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(2);
   }
+  for (const [hash, subpage] of [['#hooks-history', 'history'], ['#hooks', 'settings'], ['#hooks-history', 'history']]) {
+    dom.location.hash = hash; await boot(); expectSelected('hooks');
+    expect(ui.hooksPage.subpage).toBe(subpage);
+    expect(dom.node('detail').querySelector('.page-subnav').querySelector('[aria-current="page"]').dataset.subpage).toBe(subpage);
+  }
   for (const hash of ['#settings', '#agent-status', '#model-sources', '#automation', '#docs']) {
     dom.location.hash = hash; await boot(); expect(ui.view.id).toBe('workspace-link');
     expect(dom.node('detail').querySelector('a').href).toBe(`/${hash}`);

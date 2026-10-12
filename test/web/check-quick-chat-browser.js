@@ -22,6 +22,9 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   if (pathname.startsWith('/api/') || /^\/p\/[a-f0-9]{16}\/api\//.test(pathname)) {
     calls.push(pathname + url.search);
     const logical = pathname.replace(/^\/p\/[a-f0-9]{16}(?=\/api\/)/, '') + url.search;
+    if (logical === '/api/hooks') return Response.json({ version: 1, revision: 'hooks-fixture', triggers: [], actions: [], templates: [], commands: { version: 1, revision: 'commands-fixture', items: [] } });
+    if (logical.startsWith('/api/hooks/commands/executions')) return Response.json({ version: 1, items: [], has_more: false, next_before: null });
+    if (logical === '/api/branch-convergence') return Response.json({ version: 1, items: [], count: 0, truncated: false });
     const value = await world.fetchImpl(logical, { method: req.method, ...(req.method === 'POST' ? { body: await req.text() } : {}) });
     return Response.json(await value.json(), { status: value.status || (value.ok ? 200 : 400) });
   }
@@ -76,7 +79,7 @@ try {
   await execute('window.fixtureErrors=[];addEventListener("error",event=>fixtureErrors.push(event.message));addEventListener("unhandledrejection",event=>fixtureErrors.push(String(event.reason)))');
   await execute('const node=document.querySelector("[data-chat-field=content]");node.value="整理这一段纯文本";node.dispatchEvent(new Event("input"))');
   await click('.quick-chat-form button.primary'); assert(await wait('location.pathname==="/p/aaaaaaaaaaaaaaaa/"&&location.hash==="#quick-chat-C1"&&document.querySelector("[data-chat-field=reply]")'), 'new chat did not navigate to project C1');
-  assert(await execute('return document.querySelector("#detail a").getAttribute("href")==="/p/aaaaaaaaaaaaaaaa/#quick-chat"'), 'history link lost project identity');
+  assert(await execute('return document.querySelector(".page-subnav [data-subpage=history]").getAttribute("href")==="/p/aaaaaaaaaaaaaaaa/#quick-chat"'), 'history link lost project identity');
   assert(await execute('return document.querySelector(".quick-chat-thread").textContent.includes("快速对话示例")'), 'chat response missing');
   await execute('const node=document.querySelector("[data-chat-field=reply]");node.value="继续速记";node.dispatchEvent(new Event("input"))'); await click('.quick-chat-form button.primary');
   assert(await wait('document.querySelectorAll(".quick-chat-turn").length===2'), 'followup did not stay in same conversation');
@@ -89,11 +92,26 @@ try {
       await screenshot(`conversation-${theme}-${viewport}`);
     }
   }
-  await go('#quick-chat-settings'); assert(await wait('document.querySelector("[data-chat-field=edit_prompt]")?.options.length===4'), 'Prompt settings unavailable');
+  await click('.page-subnav [data-subpage=settings]'); assert(await wait('location.hash==="#quick-chat-settings"&&document.querySelector("[data-chat-field=edit_prompt]")?.options.length===4'), 'top settings navigation unavailable');
+  assert(await execute('return document.querySelector(".quick-chat-page").firstElementChild.matches(".page-subnav")&&document.querySelector(".page-subnav [aria-current=page]").dataset.subpage==="settings"&&!document.querySelector(".quick-chat-history")'), 'settings and history are not separate subpages');
+  await click('.page-subnav [data-subpage=history]'); assert(await wait('location.hash==="#quick-chat"&&document.querySelector(".quick-chat-history")'), 'top history navigation unavailable');
+  await click('.page-subnav [data-subpage=settings]'); assert(await wait('document.querySelector("[data-chat-field=edit_prompt]")?.options.length===4'), 'Prompt settings unavailable');
   await execute('const picker=document.querySelector("[data-chat-field=edit_prompt]");picker.value="explain";picker.dispatchEvent(new Event("change"));const menu=document.querySelector("[data-chat-field=context_menu]");menu.checked=false;menu.dispatchEvent(new Event("change"))');
   await click('.quick-chat-library form button:not(.danger)'); assert(await wait('document.querySelector(".quick-chat-library").textContent.includes("Prompt 已保存")'), 'Prompt save failed');
   assert(world.state.quickChatPrompts[0].context_menu === false, 'builtin menu toggle not saved');
   await width(320); await execute('document.documentElement.dataset.theme="dark"'); await screenshot('settings-dark-320');
+  await go('#hooks-history'); assert(await wait('document.querySelector(".shortcut-history-module")&&!document.querySelector(".shortcut-history-module").hidden'), 'automation history deep link unavailable');
+  assert(await execute('return document.querySelector(".hooks-page").firstElementChild.matches(".page-subnav")&&document.querySelector(".shortcut-command-management").hidden&&document.querySelector(".project-hooks").hidden'), 'automation settings leaked into history');
+  await click('.page-subnav [data-subpage=settings]'); assert(await wait('location.hash==="#hooks"&&!document.querySelector(".shortcut-command-management").hidden'), 'automation settings switch unavailable');
+  await execute('[...document.querySelectorAll(".shortcut-command-management button")].find(node=>node.textContent==="注册快捷指令").click()');
+  await execute(`document.querySelector('[aria-label="快捷指令名称"]').value="保留编辑";document.querySelector('[aria-label="Shell 命令"]').value="echo retained"`);
+  await click('.page-subnav [data-subpage=history]'); await click('.page-subnav [data-subpage=settings]');
+  assert(await execute(`return document.querySelector('[aria-label="Shell 命令"]').value==="echo retained"`), 'automation tab switch lost unsaved edits');
+  for (const viewport of [1440, 390, 320]) {
+    await width(viewport); assert(await execute('return document.documentElement.scrollWidth<=innerWidth+1'), `automation settings overflow ${viewport}`);
+    await click('.page-subnav [data-subpage=history]'); assert(await execute('return document.documentElement.scrollWidth<=innerWidth+1'), `automation history overflow ${viewport}`);
+    await screenshot(`automation-history-${viewport}`); await click('.page-subnav [data-subpage=settings]');
+  }
   await go('', true); assert(await wait('document.querySelector("#composer-shell").hidden===false&&document.querySelector("#detail h1")'), 'project composer unavailable');
   await width(320);
   const original = await rpc(`/session/${session}/window`, undefined, 'GET');

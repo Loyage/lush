@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { ui } from './state.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { modelHelp } from './help.js';
+import { pageSubnav } from './page-subnav.js';
 import { confirmDialog } from './dialog.js';
 import { quickChatAction, quickChatConfig, chatHref, conversationHref, requireChatProject, chatReferences } from './quick-chat.js';
 import { projectRoute } from './route.js';
@@ -54,10 +55,16 @@ function referencesView(values, removeReference = null) {
   return box;
 }
 
+function chatSubnav(current) {
+  return pageSubnav('快速对话子页面', [
+    { id: 'settings', label: '设置', href: chatHref('#quick-chat-settings') },
+    { id: 'history', label: '历史记录', href: chatHref() },
+  ], current);
+}
+
 export async function openQuickChatPage() {
   const { owns, root, read } = page('quick-chat');
-  root.append(el('h1', '快速对话'), el('p', '纯文本记录、整理与交流，不创建 Worker、不执行工具。每段多轮对话保存为一条 C 编号历史。', 'hint'),
-    link('Prompt 与模型设置', chatHref('#quick-chat-settings')));
+  root.append(chatSubnav('history'), el('h1', '快速对话'), el('p', '纯文本记录、整理与交流，不创建 Worker、不执行工具。每段多轮对话保存为一条 C 编号历史。', 'hint'));
   const form = el('form', undefined, 'quick-chat-form'), prompt = field('select', 'prompt_id'), input = field('textarea', 'content');
   input.rows = 4; input.maxLength = 8192; input.placeholder = '想记录、整理或了解什么？也可以仅发送引用。';
   const refs = el('div'), note = el('p', '正在读取 Prompt…', 'hint'); note.setAttribute('role', 'status');
@@ -124,7 +131,7 @@ export async function openQuickChatPage() {
 
 export async function openQuickChatConversation(id) {
   const { state, owns, root, read } = page('quick-chat-conversation', { key: `quick-chat-C${id}`, title: `快速对话 C${id}`, hash: `#quick-chat-C${id}` });
-  root.append(el('h1', `快速对话 C${id}`), link('全部对话 / 新对话', chatHref()));
+  root.append(chatSubnav('history'), el('h1', `快速对话 C${id}`), link('全部对话 / 新对话', chatHref()));
   const metadata = el('section'), thread = el('div', undefined, 'quick-chat-thread'), note = el('p', '', 'hint'); note.setAttribute('role', 'status');
   const input = field('textarea', 'reply'); input.rows = 4; input.maxLength = 8192; input.placeholder = '继续这段纯文本对话';
   let record = null, sending = false, reading = false, edits = 0, readGeneration = 0, renderedSignature = null;
@@ -187,7 +194,7 @@ export async function openQuickChatConversation(id) {
 
 export async function openQuickChatSettings() {
   const { owns, root } = page('quick-chat-settings');
-  root.append(el('h1', '快速对话设置'), link('对话历史 / 新对话', chatHref()),
+  root.append(chatSubnav('settings'), el('h1', '快速对话设置'),
     el('p', 'Prompt 库与右键注册只属于当前项目，所有项目共用设备模型。保存不调用模型；注册到右键菜单后，点击该动作才发起纯文本对话。', 'hint'));
   const library = el('section', undefined, 'quick-chat-library'), models = el('section'); root.append(library, models);
   let config = null, saving = false, edits = 0;
