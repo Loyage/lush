@@ -40,7 +40,7 @@ test('records HTTP endpoint forwards filters and continuation cursors across sto
   } finally { await f.close(); }
 });
 
-test('decision panel loads history, preserves edits across polls, answers inline and renders history read-only', async () => {
+test('decision detail loads history, preserves edits across polls, settles in place and renders history read-only', async () => {
   let rows = [
     { ...base, id: 5, title: '待决问题', status: 'open' },
     { ...base, id: 4, title: '旧答案', status: 'answered', answer: '保留设计 A' },
@@ -74,28 +74,30 @@ test('decision panel loads history, preserves edits across polls, answers inline
   try {
     renderNotices(snapshot()); await loadNoticeRecords();
     await openNotice(5);
-    const focus = dom.node('notice-record-detail');
+    const focus = dom.node('detail').querySelector('.notice-record-detail');
     const textarea = focus.querySelector('textarea'); textarea.value = '用户的选择';
     renderNotices(snapshot()); await loadNoticeRecords({ preserve: true });
     expect(focus.querySelector('textarea')).toBe(textarea);
     expect(textarea.value).toBe('用户的选择');
     await findByText(focus, '回复并继续 Worker').onclick();
     expect(calls.at(-1)).toEqual({ method: 'notice.answer', params: { id: 5, answer: '用户的选择' } });
-    expect(ui.indexOpen).toBe('notices');
+    expect(ui.indexOpen).toBeNull(); expect(ui.view.id).toBe('notice');
+    expect(globalThis.location.hash).toBe('#notices-5');
     expect(deepText(focus)).toContain('用户的选择'); expect(focus.querySelector('textarea')).toBeNull();
     await findByText(dom.node('side-notices-body'), '全部记录').onclick();
     await findByText(dom.node('notice-pagination'), '加载更早记录').onclick();
     expect(deepText(dom.node('notices'))).toContain('被忽略');
-    await openNotice(4); expect(deepText(focus)).toContain('保留设计 A');
-    await openNotice(3); expect(deepText(focus)).toContain('不代表批准'); expect(focus.querySelector('textarea')).toBeNull();
-    await openNotice(2); await findByText(focus, '批准并开发').onclick();
+    const currentFocus = () => dom.node('detail').querySelector('.notice-record-detail');
+    await openNotice(4); expect(deepText(currentFocus())).toContain('保留设计 A');
+    await openNotice(3); expect(deepText(currentFocus())).toContain('不代表批准'); expect(currentFocus().querySelector('textarea')).toBeNull();
+    await openNotice(2); await findByText(currentFocus(), '批准并开发').onclick();
     expect(calls.at(-1).method).toBe('plan.approve');
     expect(calls.at(-1).params.id).toBe(2);
     // A remotely settled record immediately loses its write controls.
     rows[0].status = 'open'; await openNotice(5);
     rows[0].status = 'dismissed'; renderNotices(snapshot());
     await loadNoticeRecords({ preserve: true });
-    expect(focus.querySelector('textarea')).toBeNull();
+    expect(currentFocus().querySelector('textarea')).toBeNull();
   } finally { ui.noticeRecords = null; restoreNav(); dom.restore(); }
 });
 
@@ -122,16 +124,20 @@ test('revision marks old pages stale without background reads; explicit reload p
     await loadNoticeRecords({ more: true });
     expect(ui.noticeRecords.rows).toHaveLength(6);
     await openNotice(8);
-    const input = dom.node('notice-record-detail').querySelector('textarea'); input.value = '不要丢弃这个答案';
+    const input = dom.node('detail').querySelector('.notice-record-detail').querySelector('textarea'); input.value = '不要丢弃这个答案';
     const list = dom.node('notices'); list.scrollTop = 77;
     rows.find(row => row.id === 3).status = 'answered';
     const beforePoll = reads;
     renderNotices(snapshot(2)); renderNotices(snapshot(2));
     expect(reads).toBe(beforePoll);
+    // Returning to the list exposes staleness; the independent detail is not a list page.
+    const { openResource } = await import('../../src/ui/web/assets/sidebar-ui.js');
+    openResource('notices'); await until(() => !ui.noticeRecords.pending);
+    renderNotices(snapshot(2));
     expect(deepText(dom.node('notice-pagination'))).toContain('列表可能已过期');
     expect(ui.noticeRecords.rows.find(row => row.id === 3).status).toBe('open');
     expect(list.scrollTop).toBe(77);
-    expect(dom.node('notice-record-detail').querySelector('textarea')).toBe(input);
+    expect(input.value).toBe('不要丢弃这个答案');
     const reload = findByText(dom.node('notice-pagination'), '刷新已加载记录');
     expect(reload.dataset.help).toContain('不会提交答案');
     expect(reload.className).not.toContain('agent-call');
@@ -140,9 +146,8 @@ test('revision marks old pages stale without background reads; explicit reload p
     expect(ui.noticeRecords.loadedPages).toBe(2);
     expect(ui.noticeRecords.rows).toHaveLength(6);
     expect(ui.noticeRecords.rows.some(row => row.id === 3)).toBe(false);
-    expect(ui.noticeRecords.selected).toBe(8);
+    expect(ui.noticePage.id).toBe(8);
     expect(ui.noticeRecords.stale).toBe(false);
-    expect(dom.node('notice-record-detail').querySelector('textarea')).toBe(input);
     expect(input.value).toBe('不要丢弃这个答案');
     expect(list.scrollTop).toBe(77);
     // A revision arriving during the explicit read must not falsely clear staleness.
@@ -194,23 +199,25 @@ test('Notice writes cannot navigate away from a newer page; failures also preser
   }
 });
 
-test('Notice settlement does not replace another selection on the same records page', async () => {
+test('Notice settlement does not replace a newer decision detail', async () => {
   let release;
   const pending = new Promise(resolve => { release = resolve; });
   const dom = installDom({ fetch: async url => {
     if (url === '/api/action') return pending;
     throw new Error(`stale record read ${url}`);
   } });
-  resetUiState(); initNoticeRecords(); ui.indexOpen = 'notices'; ui.noticeRecords.selected = 5;
+  resetUiState(); initNoticeRecords();
+  const view = activateDetailView({ view: 'notice', key: 'notice-5' });
+  ui.noticePage = { id: 5, view };
   const restoreNav = registerNavigation({ refresh: async () => {}, detail: async () => { throw new Error('unexpected navigation'); } });
   try {
     const panel = noticePanel({ ...base, id: 5, title: '问题', status: 'open' });
     const sending = findByText(panel, '忽略').onclick();
-    ui.noticeRecords.selected = 4; ui.detailDirty = true;
-    dom.node('notice-record-detail').replaceChildren(document.createTextNode('另一个问题的编辑'));
+    activateDetailView({ view: 'notice', key: 'notice-4' }); ui.noticePage = { id: 4, view: ui.view }; ui.detailDirty = true;
+    dom.node('detail').replaceChildren(document.createTextNode('另一个问题的编辑'));
     release({ ok: true, json: async () => ({ id: 5, status: 'dismissed' }) }); await sending;
-    expect(ui.noticeRecords.selected).toBe(4); expect(ui.detailDirty).toBe(true);
-    expect(deepText(dom.node('notice-record-detail'))).toBe('另一个问题的编辑');
+    expect(ui.noticePage.id).toBe(4); expect(ui.detailDirty).toBe(true);
+    expect(deepText(dom.node('detail'))).toBe('另一个问题的编辑');
   } finally { ui.noticeRecords = null; restoreNav(); dom.restore(); }
 });
 

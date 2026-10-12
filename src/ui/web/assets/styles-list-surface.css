@@ -8,7 +8,6 @@
 /* Notice records have two sticky levels; the child must not cover the list title. */
 #side-notices{--notice-list-heading-top:-30px}
 #side-notices .ui-list-heading{top:var(--notice-list-heading-top);z-index:4}
-#side-notices .notice.ui-module{--module-sticky-top:calc(var(--notice-list-heading-top) + var(--notice-list-heading-height,40px));--module-mobile-sticky-top:var(--module-sticky-top)}
 .ui-list-heading h2{margin:0;font-size:15px}
 .ui-list-heading .count{margin-left:auto}
 .ui-list-body{min-width:0}

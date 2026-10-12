@@ -45,7 +45,7 @@ function previewDetail(preview) {
 function forgetWorkers(preview) {
   const ids = new Set(preview.workers.map(row => row.id));
   const inputIds = new Set(preview.inputs.map(row => row.id));
-  const notices = [...ui.noticeIndex.values(), ...(ui.noticeRecords?.rows || []), ...(ui.lastSnapshot?.notices || [])]
+  const notices = [...ui.noticeIndex.values(), ...(ui.noticePage?.notice ? [ui.noticePage.notice] : []), ...(ui.noticeRecords?.rows || []), ...(ui.lastSnapshot?.notices || [])]
     .filter(row => ids.has(row.task_id));
   for (const notice of notices) {
     ui.noticeIndex.delete(notice.id);
@@ -58,10 +58,12 @@ function forgetWorkers(preview) {
   if (ui.noticeRecords) {
     const state = ui.noticeRecords;
     state.rows = state.rows.filter(row => !ids.has(row.task_id));
-    if (ids.has(state.task?.id) || notices.some(row => row.id === state.selected)) {
-      state.selected = null; state.task = null;
-    }
-    state.signature = null; state.page = null; state.request++; state.pending = false;
+    state.page = null; state.request++; state.pending = false;
+  }
+  if (ids.has(ui.noticePage?.notice?.task_id)) {
+    ui.noticePage.controller?.abort();
+    if (ui.view === ui.noticePage.view) $('detail').replaceChildren(el('p', '该事项的来源 Worker 已删除。', 'hint'));
+    ui.noticePage = null;
   }
   if (ids.has(ui.transcriptView?.taskId)) closeTranscriptView();
   if (ids.has(Number($('detail').dataset.taskId))) {

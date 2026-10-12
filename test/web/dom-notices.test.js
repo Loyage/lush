@@ -30,7 +30,9 @@ test('待定事项包含 plan，概览保留原有普通问题入口', async () 
   expect(deepText(rows[0])).toContain('普通问题');
   expect(deepText(panel)).toContain('计划待批');
   await rows[0].onclick();
-  expect(dom.location.hash).toBe('#worker-4');
+  expect(dom.location.hash).toBe('#notices-5');
+  expect(deepText(dom.node('detail'))).toContain('普通问题');
+  expect(dom.node('resource-panels').hidden).toBe(true);
 });
 
 test('「只看待我处理」包含计划审批，与待决页面一致', async () => {

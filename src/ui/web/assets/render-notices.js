@@ -7,7 +7,7 @@ import { absolute, relative, noticeNumber } from './format.js';
 import { detail, refresh } from './navigate.js';
 import { projectBase } from './route.js';
 import { agentHelp } from './help.js';
-import { setNavCount } from './sidebar-ui.js';
+import { activateDetailView, openResource, setNavCount, setViewChrome } from './sidebar-ui.js';
 import { orderList } from './tree-order.js';
 import { ui } from './state.js';
 import { referenceable } from './context-references.js';
@@ -28,15 +28,14 @@ const answerSource = notice => ['answered', 'dismissed'].includes(notice.status)
 export function initNoticeRecords() {
   const host = $('side-notices-body');
   if (!host) return;
-  ui.noticeRecords?.disposeHeading?.();
-  const state = ui.noticeRecords = { status: 'open', rows: [], page: null, request: 0, selected: null, task: null, signature: null,
+  const state = ui.noticeRecords = { status: 'open', rows: [], page: null, request: 0,
     observedRevision: ui.lastSnapshot?.revision ?? null, stale: false, loadedPages: 0, query: '' };
   const tools = el('div', undefined, 'resource-tools');
   const filters = el('div', undefined, 'filters');
   const selectFilter = value => {
-    state.status = value; state.page = null; state.rows = []; state.choices = []; state.selected = null; state.signature = null;
+    state.status = value; state.page = null; state.rows = []; state.choices = [];
     state.stale = false; state.loadedPages = 0; state.request++; state.pending = false;
-    $('notices')?.replaceChildren(); $('notice-record-detail')?.replaceChildren();
+    $('notices')?.replaceChildren();
     for (const node of filters.children) node.setAttribute('aria-pressed', String(node.dataset.noticeFilter === value));
   };
   ui.selectNoticeFilter = selectFilter;
@@ -50,31 +49,15 @@ export function initNoticeRecords() {
   } });
   tools.append(state.searchControl.root, filters, notificationControl());
   const footer = $('notice-pagination') || el('div'); footer.id = 'notice-pagination'; footer.replaceChildren();
-  const focus = $('notice-record-detail') || el('div'); focus.id = 'notice-record-detail'; focus.replaceChildren();
-  host.replaceChildren(tools, $('notices'), footer, focus);
+  host.replaceChildren(tools, $('notices'), footer);
   const root = $('side-notices'), card = root?.querySelector('.resource-card');
   const heading = card?.querySelector('.section-title');
   listSurface({ root, tools, card, heading, body: $('notices'), pagination: footer });
-  // The record heading sticks below the list heading, including when its text wraps.
-  state.observeHeading = () => {
-    state.disposeHeading?.();
-    if (!heading || !card) return;
-    let active = true;
-    const measure = () => {
-      if (!active) return;
-      const height = heading.getBoundingClientRect?.().height;
-      if (height > 0) card.style.setProperty('--notice-list-heading-height', `${height}px`);
-    };
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
-    state.disposeHeading = () => { active = false; observer?.disconnect(); };
-    observer?.observe(heading); measure();
-  };
-  state.observeHeading();
-  ui.loadNoticeRecords = () => loadNoticeRecords();
+  ui.loadNoticeRecords = () => state.page ? Promise.resolve() : loadNoticeRecords();
 }
 
-async function readNoticeRecord(id) {
-  const page = await api(`/api/notices?before=${Number(id) + 1}&limit=1`);
+async function readNoticeRecord(id, options) {
+  const page = await api(`/api/notices?before=${Number(id) + 1}&limit=1`, options);
   const notice = page.notices?.find(row => row.id === id);
   if (!notice) throw new Error('该事项记录已不存在');
   return notice;
@@ -91,7 +74,6 @@ export async function loadNoticeRecords({ more = false, preserve = false, reload
   const pagesToRead = reload ? Math.max(1, state.loadedPages) : 1;
   let cursor = more && state.page?.has_more ? `&before=${state.page.cursor}` : '';
   try {
-    const selected = state.selected;
     const notices = [];
     let page, pagesRead = 0;
     // Only a user-requested reload revisits older pages. Freeze the loaded-page
@@ -104,13 +86,6 @@ export async function loadNoticeRecords({ more = false, preserve = false, reload
       cursor = `&before=${page.cursor}`;
     } while (pagesRead < pagesToRead && page.has_more);
     page = { ...page, notices: [...new Map(notices.map(row => [row.id, row])).values()] };
-    // A settled old question may have fallen outside both the snapshot and this filtered page.
-    const current = selected && !page.notices?.some(row => row.id === selected) ? await readNoticeRecord(selected) : null;
-    if (ui.noticeRecords !== state || request !== state.request) return;
-    if (current && selected === state.selected) {
-      ui.noticeIndex.set(current.id, current);
-      state.rows = state.rows.map(row => row.id === current.id ? current : row);
-    }
     if (!Array.isArray(page.notices)) throw new Error('请重启 Web 与 daemon 以加载 notice 历史');
     page.notices = page.notices.filter(row => !ui.deletedWorkerIds.has(row.task_id))
       .map(row => ui.noticeReadRows.get(noticeIdentity(row)) || row)
@@ -129,7 +104,6 @@ export async function loadNoticeRecords({ more = false, preserve = false, reload
     for (const row of state.rows) ui.noticeIndex.set(row.id, row);
     paintNoticeRows(state.rows);
     paintNoticeFooter(state);
-    paintRecordFocus();
   } catch (error) {
     if (ui.noticeRecords === state && request === state.request) {
       paintNoticeFooter(state);
@@ -167,7 +141,6 @@ async function loadButlerChoices(state, { more, preserve }) {
       : page.choices;
     if (!preserve || !state.page) state.page = page;
     $('notices').replaceChildren(...state.choices.map(sleepChoiceCard));
-    $('notice-record-detail').replaceChildren();
     const footer = $('notice-pagination');
     footer.replaceChildren(el('p', `已显示 ${state.choices.length} 条管家选择；代理决定不等于你亲自确认。`, 'hint'));
     if (state.page.has_more) footer.append(button('加载更早选择', () => loadNoticeRecords({ more: true }), 'ghost'));
@@ -177,17 +150,19 @@ async function loadButlerChoices(state, { more, preserve }) {
 }
 
 function paintRecordFocus() {
-  const state = ui.noticeRecords;
-  const target = $('notice-record-detail');
-  if (!target || !state?.selected || state.status === 'butler') return;
-  const notice = ui.noticeIndex.get(state.selected);
-  if (!notice) return;
+  const state = ui.noticePage;
+  if (!state?.current() || !state.notice) return;
+  const notice = ui.noticeIndex.get(state.id) || state.notice;
+  if (ui.deletedWorkerIds.has(notice.task_id)) return;
+  state.notice = notice;
+  const number = noticeNumber(notice), title = number.startsWith('D') ? '决策详情' : '告知详情';
+  setViewChrome(`${title} · ${number}`, '工作', notice.title);
   const signature = JSON.stringify(notice);
   // Polls must not erase an in-progress reply; a remotely settled record is read-only immediately.
   if (signature === state.signature) return;
   state.signature = signature;
   ui.detailDirty = false;
-  target.replaceChildren(noticePanel(notice, state.task));
+  state.focus.replaceChildren(noticePanel(notice, state.task));
 }
 
 function searchedNoticeRows(rows) {
@@ -200,8 +175,13 @@ function paintNoticeRows(rows) {
   const container = $('notices');
   const known = new Map([...container.children].map(node => [Number(node.dataset.id), node]));
   const nodes = orderList(rows, { mode: ui.sidebarSortMode, timeOf: notice => notice.created_at }).map(notice => {
-    const node = known.get(notice.id) || button('', () => openNotice(notice.id), 'notice-brief'); node.dataset.id = notice.id;
-    node.className = `notice-brief${notice.kind === 'info' ? ' notice-info' : ' notice-question'}${ui.noticeRecords?.selected === notice.id || ui.noticeFocus === notice.id ? ' selected' : ''}`;
+    const node = known.get(notice.id) || el('a', undefined, 'notice-brief'); node.dataset.id = notice.id;
+    node.setAttribute('href', `#notices-${notice.id}`);
+    node.onclick = event => {
+      if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button > 0)) return;
+      event?.preventDefault(); return openNotice(notice.id, { record: true });
+    };
+    node.className = `notice-brief${notice.kind === 'info' ? ' notice-info' : ' notice-question'}`;
     listEntry(node);
     node.replaceChildren();
     const row = el('span', undefined, 'row');
@@ -209,7 +189,7 @@ function paintNoticeRows(rows) {
       el('span', noticeNumber(notice), 'tid'), el('span', workerLabel(notice.task_id, notice.task_worker_number), 'tid'), el('span', relative(notice.created_at), 'when'));
     if (answerSource(notice)) row.append(badge(answerSource(notice), 'b-neutral'));
     node.append(row, el('span', notice.title, 'goal'));
-    node.setAttribute('data-help', lifecycleNotice(notice) ? '打开对应 Worker；成功加载后自动已读，不会启动 Agent 或批准合并' : `${notice.title}；发布于 ${absolute(notice.created_at)}`);
+    node.setAttribute('data-help', '打开这条记录的独立详情页；不自动答复、标记已读或启动 Agent。');
     referenceable(node, { kind: 'notice', target: { notice_id: notice.id }, label: `事项记录 ${noticeNumber(notice)}`,
       quote: `${notice.title}\n${notice.body || ''}`, location: { view: 'notice-list', notice_id: notice.id } });
     return node;
@@ -225,7 +205,7 @@ export function renderNotices(data) {
   // 告知与决策分开计数，不把 info 当作需要答复的问题。
   const open = data.notices.filter(notice => notice.status === 'open');
   const unread = data.notices.filter(unreadNotice);
-  ui.noticeIndex = new Map([...(ui.noticeRecords?.rows || []), ...data.notices].map(notice => [notice.id, notice]));
+  ui.noticeIndex = new Map([...(ui.noticeRecords?.rows || []), ...(ui.noticePage?.notice ? [ui.noticePage.notice] : []), ...data.notices].map(notice => [notice.id, notice]));
   // notice 可能被 CLI 或另一个标签页答复/忽略；关掉了就不再展开。
   if (ui.noticeFocus !== null && ui.noticeIndex.get(ui.noticeFocus)?.status !== 'open') ui.noticeFocus = null;
   $('notice-count').textContent = unread.length ? `${open.length} 待决 · ${unread.length} 告知` : open.length ? String(open.length) : '无';
@@ -235,7 +215,7 @@ export function renderNotices(data) {
     return;
   }
   paintRecordFocus();
-  if (ui.indexOpen === 'notices' && ui.noticeRecords) {
+  if (ui.noticeRecords) {
     // Preserve loaded older pages. Snapshot updates their status without discarding history.
     const state = ui.noticeRecords;
     if (data.revision !== undefined && data.revision !== state.observedRevision) {
@@ -249,7 +229,9 @@ export function renderNotices(data) {
       const rows = ui.noticeRecords.rows.filter(row => noticeMatches(row, ui.noticeRecords.status));
       paintNoticeRows(rows);
       paintNoticeFooter(state);
-    } else if (!ui.noticeRecords.pending) void loadNoticeRecords();
+    } else if (ui.indexOpen === 'notices') {
+      if (!ui.noticeRecords.pending) void loadNoticeRecords();
+    } else paintNoticeRows([...open, ...unread]);
     return;
   }
   paintNoticeRows([...open, ...unread]);
@@ -301,15 +283,15 @@ export function readNotice(notice) {
 }
 
 let noticeRequest = 0;
-export async function openNotice(noticeId, { record = false } = {}) {
+export async function openNotice(noticeId, { record = false, push = true } = {}) {
   if (!positiveId(noticeId)) return;
   const request = ++noticeRequest;
   const previousView = ui.view, source = projectBase(), reads = ui.noticeReadRows;
   const ownsProject = () => source === projectBase() && ui.noticeReadRows === reads;
-  const notice = ui.noticeIndex.get(noticeId) || await readNoticeRecord(noticeId);
-  if (!ownsProject() || request !== noticeRequest || ui.view !== previousView || ui.deletedWorkerIds.has(notice.task_id)) return;
-  ui.noticeIndex.set(noticeId, notice);
-  if (lifecycleNotice(notice) && !record) {
+  const notice = record ? null : ui.noticeIndex.get(noticeId) || await readNoticeRecord(noticeId);
+  if (!ownsProject() || request !== noticeRequest || ui.view !== previousView || (notice && ui.deletedWorkerIds.has(notice.task_id))) return;
+  if (notice) ui.noticeIndex.set(noticeId, notice);
+  if (notice && lifecycleNotice(notice) && !record) {
     ui.noticeFocus = null;
     // loadDetail returns true only for a successfully rendered, still-current request.
     const loaded = await detail(notice.task_id);
@@ -319,31 +301,54 @@ export async function openNotice(noticeId, { record = false } = {}) {
     await readNotice(notice);
     return;
   }
-  if (ui.indexOpen === 'notices' && ui.noticeRecords) {
-    const state = ui.noticeRecords;
-    if (state.status === 'butler') {
-      state.status = 'open'; state.page = null; state.rows = [];
-      $('side-notices-body').querySelectorAll('button').forEach(node => {
-        if (node.dataset.noticeFilter) node.setAttribute('aria-pressed', String(node.dataset.noticeFilter === 'open'));
-      });
-      void loadNoticeRecords();
-    }
-    state.selected = noticeId; state.signature = null;
-    return Promise.all([api(`/api/worker/${notice.task_id}`), readNoticeRecord(noticeId)]).then(([task, current]) => {
-      if (!ownsProject() || ui.noticeRecords !== state || state.selected !== noticeId || ui.indexOpen !== 'notices'
-        || ui.deletedWorkerIds.has(notice.task_id)) return;
-      state.task = task;
-      ui.noticeIndex.set(noticeId, current);
-      paintRecordFocus();
-      $('notice-record-detail')?.scrollIntoView?.({ block: 'nearest' });
-    }).catch(error => show(error.message, 'error'));
+  const old = ui.noticePage;
+  const reuse = old?.id === noticeId && old.current();
+  const view = activateDetailView({ view: 'notice', key: `notice-${noticeId}`, title: '事项详情', context: '工作',
+    hint: '原始问题与处理结果', hash: `#notices-${noticeId}`, push });
+  ui.noticeFocus = null;
+  const state = reuse ? old : { id: noticeId, view, notice: null, task: null, signature: null };
+  ui.noticePage = state;
+  state.current = () => ownsProject() && ui.noticePage === state && ui.view === view;
+  state.controller?.abort(); state.controller = new AbortController();
+  const current = () => state.current() && request === noticeRequest;
+  ui.disposeDetailRequests = () => state.controller.abort();
+  if (!reuse) {
+    const root = el('div', undefined, 'notice-detail-page');
+    const tools = el('div', undefined, 'actions');
+    const back = el('a', '返回待我处理', 'ghost'); back.setAttribute('href', '#notices');
+    back.onclick = event => {
+      if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button > 0)) return;
+      event?.preventDefault(); return openResource('notices');
+    };
+    state.worker = el('a', '查看 Worker 上下文', 'ghost'); state.worker.hidden = true;
+    state.worker.onclick = event => {
+      if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button > 0)) return;
+      event?.preventDefault(); return detail(state.notice.task_id);
+    };
+    tools.append(back, state.worker, button('刷新记录', () => openNotice(noticeId, { record: true }), 'ghost'));
+    state.focus = el('div', undefined, 'notice-record-detail'); state.focus.id = 'notice-record-detail';
+    state.message = el('p', '正在读取事项…', 'hint'); state.message.setAttribute('role', 'status');
+    root.append(tools, state.message, state.focus); $('detail').replaceChildren(root);
   }
-  ui.noticeFocus = noticeId;
-  return detail(notice.task_id);
+  try {
+    const row = await readNoticeRecord(noticeId, { signal: state.controller.signal });
+    if (!current() || ui.deletedWorkerIds.has(row.task_id)) return;
+    const task = await api(`/api/worker/${row.task_id}`, { signal: state.controller.signal });
+    if (!current() || ui.deletedWorkerIds.has(row.task_id)) return;
+    state.task = task; state.notice = ui.noticeReadRows.get(noticeIdentity(row)) || row;
+    state.worker.setAttribute('href', `#worker-${row.task_id}`); state.worker.hidden = false;
+    ui.noticeIndex.set(noticeId, state.notice); state.message.replaceChildren(); paintRecordFocus();
+    return true;
+  } catch (error) {
+    if (current() && error.name !== 'AbortError') {
+      state.message.replaceChildren(el('span', `事项读取失败：${error.message}`, 'error'),
+        button('重试读取', () => openNotice(noticeId, { record: true }), 'ghost'));
+    }
+  }
 }
 
 /* ---------- detail ---------- */
-/** 右侧顶部的 notice：完整正文 + 回复框，下面继续跟它所属任务的详情。 */
+/** 独立事项详情与 Worker 内待决提醒共用原始正文、答复和历史回放。 */
 export function noticePanel(notice, task = null) {
   const section = buildNoticePanel(notice, task), head = section.querySelector('.notice-head'), title = section.querySelector('h3');
   const meta = el('div', undefined, 'notice-meta');
@@ -378,24 +383,23 @@ function buildNoticePanel(notice, task = null) {
     }
     return section;
   }
-  const inRecords = ui.indexOpen === 'notices' && ui.noticeRecords?.selected === notice.id;
+  const inRecords = ui.view?.id === 'notice' && ui.noticePage?.id === notice.id;
   // Writes still refresh shared data, but their follow-up must not navigate a newer page
   // or replace another selected Notice (which can share the same page identity).
   const actionIdentity = () => {
-    const view = ui.view, request = noticeRequest, records = ui.noticeRecords;
-    const status = records?.status, selected = records?.selected;
-    return () => ui.view === view && noticeRequest === request
-      && (!inRecords || (ui.noticeRecords === records && records?.status === status && records?.selected === selected));
+    const view = ui.view, request = noticeRequest, page = ui.noticePage, source = projectBase(), reads = ui.noticeReadRows;
+    return () => ui.view === view && noticeRequest === request && source === projectBase() && reads === ui.noticeReadRows
+      && (!inRecords || (ui.noticePage === page && page?.id === notice.id));
   };
   const refreshRecord = async ownsPage => {
     if (!ownsPage()) return;
     ui.detailDirty = false;
     if (!inRecords) return detail(notice.task_id);
     const current = await readNoticeRecord(notice.id);
-    ui.noticeIndex.set(current.id, current);
     if (!ownsPage()) return;
+    ui.noticeIndex.set(current.id, current);
+    ui.noticePage.notice = current;
     paintRecordFocus();
-    await loadNoticeRecords();
   };
   const completedElsewhere = () => show('事项已处理；保留当前页面。');
   if (notice.kind === 'plan') {
@@ -423,15 +427,15 @@ function buildNoticePanel(notice, task = null) {
       if (inRecords) { await refreshRecord(ownsPage); return; }
       const next = [...ui.noticeIndex.values()].filter(row => row.id !== notice.id && row.status === 'open').sort((a, b) => a.id - b.id)[0];
       ui.noticeFocus = next?.id ?? null;
-      try { if (next) await openNotice(next.id); else await detail(notice.task_id); }
+      try { await detail(next?.task_id ?? notice.task_id); }
       catch (error) { $('error').textContent = `答案已提交，详情刷新失败：${error.message}`; }
     };
     section.append(questionnairePanel(notice, {
       settle: answer => settled('notice.answer', { id: notice.id, answer }),
       dismiss: () => settled('notice.dismiss', { id: notice.id }),
     }));
-    if (!inRecords) section.append(button('收起，只看 Worker 详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost',
-      { help: '收起这条待决提醒，回到 Worker 详情；待决事项仍保留在列表里。' }));
+    section.append(button(inRecords ? '查看 Worker 上下文' : '收起，只看 Worker 详情', () => { ui.noticeFocus = null; ui.detailDirty = false; return detail(notice.task_id); }, 'ghost',
+      inRecords ? { worker: task || notice.task_id } : { help: '收起这条待决提醒，回到 Worker 详情；待决事项仍保留在列表里。' }));
     referenceable(section, { kind: 'notice', target: { notice_id: notice.id }, label: `待定事项 ${noticeNumber(notice)}`,
       quote: `${notice.title}\n${notice.body || ''}`, location: { view: 'notice-detail', notice_id: notice.id, task_id: notice.task_id } });
     return section;

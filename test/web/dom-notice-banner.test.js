@@ -3,7 +3,7 @@ import { installDom, deepText, allByTag } from './project-dom.js';
 import { makeWorld, NOW, iso } from './dom-world.js';
 
 // 全局常驻待决提醒条：与左栏「待我处理」同口径（status === "open"）汇总，任何页面可见，
-// 点击进入 #notices 并定位最新一条；结算后计数下降，归零隐藏。
+// 点击进入最新一条的独立详情页；结算后计数下降，归零隐藏。
 const world = makeWorld();
 const dom = installDom({ fetch: world.fetchImpl });
 const notice = (id, status, title, kind = 'question', taskId = 4) => ({ id, task_id: taskId, kind, title, body: '请回答', status, created_at: iso(NOW - id * 100) });
@@ -36,16 +36,15 @@ test('提醒条汇总全部待决 notice，与左栏同口径；归零后 hidden
   expect(deepText(banner())).not.toContain('最新问题');
 });
 
-test('点击提醒条进入待我处理并定位最新一条', async () => {
+test('点击提醒条进入最新一条独立详情', async () => {
   world.state.notices = [notice(8, 'answered', '已答复的问题'), notice(6, 'open', '计划待批', 'plan', 1), notice(9, 'open', '最新问题')];
   await dom.intervalFor(1500)();
   await bannerButton().onclick();
-  expect(dom.location.hash).toBe('#notices');
-  // 记录面板已定位并选中最新一条（id 9）。
+  expect(dom.location.hash).toBe('#notices-9');
   await dom.intervalFor(1500)();
-  const selected = dom.node('notices').querySelectorAll('.notice-brief').find(row => row.classList.contains('selected'));
-  expect(Number(selected?.dataset.id)).toBe(9);
-  expect(deepText(dom.node('notice-record-detail'))).toContain('最新问题');
+  expect(dom.node('detail').hidden).toBe(false);
+  expect(dom.node('resource-panels').hidden).toBe(true);
+  expect(deepText(dom.node('detail').querySelector('.notice-record-detail'))).toContain('最新问题');
 });
 
 test('经 notice.answer / notice.dismiss 结算后计数下降，归零隐藏', async () => {
@@ -56,8 +55,9 @@ test('经 notice.answer / notice.dismiss 结算后计数下降，归零隐藏', 
 
   // 打开最新一条，写答复 -> notice.answer 结算，计数降到 1。
   await bannerButton().onclick();
-  dom.node('notice-record-detail').querySelector('textarea').value = '就这么办';
-  const answer = allByTag(dom.node('notice-record-detail'), 'button').find(node => node.textContent === '回复并继续 Worker');
+  const focus = () => dom.node('detail').querySelector('.notice-record-detail');
+  focus().querySelector('textarea').value = '就这么办';
+  const answer = allByTag(focus(), 'button').find(node => node.textContent === '回复并继续 Worker');
   await answer.onclick();
   expect(world.state.notices.find(row => row.id === 11).status).toBe('answered');
   expect(banner().hidden).toBe(false);
@@ -66,7 +66,7 @@ test('经 notice.answer / notice.dismiss 结算后计数下降，归零隐藏', 
 
   // 再打开剩下这条并忽略 -> notice.dismiss 结算，归零隐藏。
   await bannerButton().onclick();
-  const dismiss = allByTag(dom.node('notice-record-detail'), 'button').find(node => node.textContent === '忽略');
+  const dismiss = allByTag(focus(), 'button').find(node => node.textContent === '忽略');
   await dismiss.onclick();
   expect(world.state.notices.find(row => row.id === 10).status).toBe('dismissed');
   expect(banner().hidden).toBe(true);

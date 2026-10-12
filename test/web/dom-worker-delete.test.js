@@ -177,7 +177,9 @@ test('one fixed revision is submitted once; success purges subtree caches before
   const notice = { id: 8, task_id: 70, created_at: 'now', kind: 'questionnaire' };
   ui.lastSnapshot = { revision: 'old', status: { project: '/tmp/example' }, tasks: [task, child, { id: 90 }], notices: [notice], inputs: [{ id: 57 }, { id: 80 }] };
   ui.noticeIndex.set(8, notice); ui.noticeFocus = 8;
-  ui.noticeRecords = { rows: [notice], task, selected: 8, signature: 'old' };
+  ui.noticeRecords = { rows: [notice] };
+  ui.noticePage = { id: 8, notice, task, view: { id: 'notice', key: 'notice-8' }, controller: new AbortController() };
+  const pageController = ui.noticePage.controller;
   ui.questionDrafts.set('lush.decision:/tmp/example:8:now', { answers: [] });
   ui.taskHistory = [task, child, { id: 90 }]; ui.taskHistoryPage = { cursor: 70 };
   for (const id of [70, 71, 90]) { transcriptCache.set(id, { steps: [] }); transcriptOpen.add(id); mergeSelection.add(id); ui.taskGraphIds.add(id); }
@@ -195,7 +197,8 @@ test('one fixed revision is submitted once; success purges subtree caches before
   expect([...ui.deletedWorkerIds]).toEqual([70, 71]); expect(control.disabled).toBe(true);
   expect(ui.taskHistory.map(row => row.id)).toEqual([90]); expect(ui.taskHistoryPage).toBeNull();
   expect([...transcriptCache.keys()]).toEqual([90]); expect([...transcriptOpen]).toEqual([90]); expect([...mergeSelection]).toEqual([90]);
-  expect(ui.noticeIndex.has(8)).toBe(false); expect(ui.noticeRecords.rows).toEqual([]); expect(ui.noticeRecords.task).toBeNull();
+  expect(ui.noticeIndex.has(8)).toBe(false); expect(ui.noticeRecords.rows).toEqual([]); expect(ui.noticePage).toBeNull();
+  expect(pageController.signal.aborted).toBe(true);
   expect(ui.noticeFocus).toBeNull(); expect(ui.questionDrafts.size).toBe(0);
   expect([...ui.stepToggle.keys()]).toEqual(['90:1']); expect(ui.lastSnapshot.tasks.map(row => row.id)).toEqual([90]);
   expect(ui.lastSnapshot.inputs.map(row => row.id)).toEqual([80]); expect(ui.lastSnapshot.revision).toBeUndefined();

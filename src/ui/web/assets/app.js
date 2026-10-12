@@ -139,9 +139,7 @@ function onHashChange() {
   if (hash === '#worker-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
   const recordId = /^#notices-([1-9]\d*)$/.exec(hash)?.[1];
   if (recordId && Number.isSafeInteger(Number(recordId))) {
-    ui.selectNoticeFilter?.('all');
-    openResource('notices', { push: false });
-    return openNotice(Number(recordId), { record: true }).catch(report);
+    return openNotice(Number(recordId), { record: true, push: false }).catch(report);
   }
   const noticeId = /^#notice-([1-9]\d*)$/.exec(hash)?.[1];
   if (noticeId && Number.isSafeInteger(Number(noticeId))) return openNotice(Number(noticeId)).catch(report);

@@ -134,19 +134,20 @@ test('首次启动 Notice 深链接能加载 Task；待决通知保留问答入�
   world.state.notices = [{ ...info(61), kind: 'question', status: 'open', source_event_id: null }];
   world.state.actions = []; await update();
   dom.location.hash = '#notice-61'; await dom.fire('hashchange');
-  expect(ui.noticeFocus).toBe(61); expect(world.state.actions).toHaveLength(0);
+  expect(ui.noticePage.id).toBe(61); expect(ui.view.id).toBe('notice'); expect(world.state.actions).toHaveLength(0);
   expect(deepText(dom.node('detail'))).toContain('Task 告知 61');
 });
 
-test('来源消息深链接进入待我处理中的原记录，告知不跳 Worker 或自动已读', async () => {
+test('来源消息深链接进入独立详情，告知不跳 Worker 或自动已读', async () => {
   world.state.notices = [info(62)]; world.state.actions = [];
   dom.location.hash = '#notices-62'; await boot();
-  expect(ui.indexOpen).toBe('notices'); expect(ui.noticeRecords.selected).toBe(62);
-  expect(ui.noticeRecords.status).toBe('all'); expect(dom.location.hash).toBe('#notices-62');
-  const focus = dom.node('notice-record-detail');
+  expect(ui.indexOpen).toBeNull(); expect(ui.noticePage.id).toBe(62); expect(ui.view.id).toBe('notice');
+  expect(dom.node('resource-panels').hidden).toBe(true); expect(dom.node('detail').hidden).toBe(false);
+  expect(dom.location.hash).toBe('#notices-62');
+  const focus = dom.node('detail').querySelector('.notice-record-detail');
   expect(deepText(focus)).toContain('Task 告知 62');
   expect(focus.querySelector('.notice-info')).not.toBeNull();
-  expect(dom.node('notices').querySelector('.notice-info')).not.toBeNull();
+  expect(dom.node('side-notices-body').querySelector('.notice-record-detail')).toBeNull();
   expect(world.state.actions).toHaveLength(0);
   await focus.querySelectorAll('button').find(node => node.textContent === '已知').onclick();
   expect(world.state.actions).toEqual([{ method: 'notice.read', params: { id: 62 } }]);
@@ -154,9 +155,9 @@ test('来源消息深链接进入待我处理中的原记录，告知不跳 Work
   expect(focus.querySelectorAll('button').find(node => node.textContent === '已知')).toBeUndefined();
   world.state.notices = [{ ...info(63), kind: 'question', status: 'open', source_event_id: null }];
   world.state.actions = []; dom.location.hash = '#notices-63'; await dom.fire('hashchange');
-  expect(ui.noticeRecords.selected).toBe(63); expect(dom.location.hash).toBe('#notices-63');
-  expect(focus.querySelector('textarea')).not.toBeNull();
-  expect(focus.querySelector('.notice-info')).toBeNull(); expect(world.state.actions).toHaveLength(0);
+  expect(ui.noticePage.id).toBe(63); expect(dom.location.hash).toBe('#notices-63');
+  expect(dom.node('detail').querySelector('.notice-record-detail').querySelector('textarea')).not.toBeNull();
+  expect(dom.node('detail').querySelector('.notice-record-detail').querySelector('.notice-info')).toBeNull(); expect(world.state.actions).toHaveLength(0);
 });
 
 test('D/N 正文链接定位精确记录，不自动答复或已读，保留旧数字书签', async () => {
@@ -167,8 +168,8 @@ test('D/N 正文链接定位精确记录，不自动答复或已读，保留旧�
     const link = agentText(`查看 ${number}`).querySelector('.record-link');
     expect(link.getAttribute('href')).toBe(`#notices-${id}`);
     dom.location.hash = link.getAttribute('href'); await dom.fire('hashchange');
-    expect(ui.noticeRecords.selected).toBe(id);
-    expect(dom.node('notice-record-detail').querySelector('.record-link').textContent).toBe(number);
+    expect(ui.noticePage.id).toBe(id); expect(ui.view.id).toBe('notice');
+    expect(dom.node('detail').querySelector('.notice-record-detail').querySelector('.record-link').textContent).toBe(number);
     expect(world.state.actions).toHaveLength(0);
   }
 });

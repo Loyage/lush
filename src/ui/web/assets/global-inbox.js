@@ -177,7 +177,7 @@ function paintRows(state) {
       if (item.notice.answer_source === 'lush') line.append(badge('Lush 自动选择', 'b-neutral'));
       node.replaceChildren(line, el('span', item.notice.title, 'goal'));
     }
-    node.setAttribute('data-help', '在独立项目标签定位“待我处理”中的这条消息，保留当前页面；不自动标已读、不提交答案或启动 Agent。');
+    node.setAttribute('data-help', '在独立项目标签打开这条消息的详情页，保留当前页面；不自动标已读、不提交答案或启动 Agent。');
     return node;
   }));
   state.footer.replaceChildren(el('p', rows.length ? `已显示 ${rows.length} / ${state.rows.length} 条已加载记录` : '当前已加载记录中没有匹配；不代表所有项目全库无结果，可继续加载或刷新。', 'hint'));
@@ -247,7 +247,7 @@ export async function openGlobalInbox({ projectId = null, noticeId = null, statu
     && location.pathname === pathname && location.hash === routeHash;
   ui.disposeDetailRequests = () => state.controller.abort();
   const root = el('div', undefined, 'workbench-view global-inbox');
-  const head = el('header', undefined, 'global-inbox-head'); head.append(el('h1', '全局收件箱'), el('p', '各项目保存原记录；点击消息在来源项目的“待我处理”中查看和处理，不会自动启动已停止的项目后台。', 'hint'));
+  const head = el('header', undefined, 'global-inbox-head'); head.append(el('h1', '全局收件箱'), el('p', '各项目保存原记录；点击消息在来源项目的独立详情页查看和处理，不会自动启动已停止的项目后台。', 'hint'));
   const filters = el('div', undefined, 'filters');
   for (const value of INBOX_STATUSES) {
     const filter = button(LABELS[value], () => openGlobalInbox({ projectId, status: value, query: state.query }), 'ghost');
