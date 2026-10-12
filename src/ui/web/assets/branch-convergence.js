@@ -6,6 +6,7 @@ import { show } from './messages.js';
 import { absolute } from './format.js';
 import { workerLabel } from './worker-label.js';
 import { bindWorkerPreview } from './entity-preview.js';
+import { deliveryHandlerCard, isDeliveryHandler } from './automation-tools.js';
 import { validConvergencePolicy as validPolicy, convergenceDefaultsEditor, CONVERGENCE_COMPATIBILITY as COMPATIBILITY,
   CONVERGENCE_ENABLE_HELP as ENABLE_HELP, CONVERGENCE_DISABLE_HELP as DISABLE_HELP } from './convergence-policy-controls.js';
 
@@ -74,8 +75,10 @@ export function renderConvergenceRun(run, { retry, unavailable = () => null } = 
 }
 
 /** Page-owned, retained component; no background polling or implicit command authorization. */
-export function renderBranchConvergence({ ownsPage, busy = () => false, setBusy = () => {}, setEditing = () => {} }) {
-  const node = block('归并合并'); node.classList.add('branch-convergence');
+export function renderBranchConvergence({ ownsPage, catalogue = null, busy = () => false, setBusy = () => {}, setEditing = () => {} }) {
+  const node = block('目标交付处理策略'); node.classList.add('branch-convergence');
+  const targetCard = el('div', undefined, 'delivery-handler-host');
+  let handler = null, handlerError = '';
   const branch = el('select'), mounted = el('input'), enabled = el('input'); mounted.type = enabled.type = 'checkbox';
   const status = el('p', '正在读取分支…', 'hint convergence-policy-status'); status.setAttribute('role', 'status');
   const feedback = el('p', undefined, 'convergence-feedback'); feedback.setAttribute('role', 'status');
@@ -85,7 +88,7 @@ export function renderBranchConvergence({ ownsPage, busy = () => false, setBusy 
   const historyStatus = el('p', undefined, 'hint convergence-history-status'); historyStatus.setAttribute('role', 'status');
   const list = el('div', undefined, 'convergence-runs');
   const drafts = new Map(), acknowledgedRetries = new Set();
-  let disposed = false, generation = 0, listRequest = 0, historyRequest = 0, selected = '', model = null, draft = null;
+  let disposed = false, generation = 0, listRequest = 0, historyRequest = 0, handlerRequest = 0, selected = '', model = null, draft = null;
   let loaded = false, loading = false, saving = false, runsLoading = false, cursor = null, hasMore = false, cards = [], defaultsEditing = false;
   const owns = () => !disposed && ownsPage();
   const current = (target, request) => owns() && target === selected && request === generation;
@@ -127,6 +130,14 @@ export function renderBranchConvergence({ ownsPage, busy = () => false, setBusy 
       ? ACTIVE_STATES.filter(key => counts[key] > 0).map(key => `${CONVERGENCE_STATES[key]} ${counts[key]}`).join(' · ') || '当前没有活动归并批次。'
       : '完整批次统计不可用，不从当前页记录推断。';
     if (model?.reason) feedback.textContent = model.reason;
+    const focused = document.activeElement;
+    let ancestor = focused; while (ancestor && ancestor !== targetCard) ancestor = ancestor.parentNode;
+    const restoreFocus = ancestor === targetCard;
+    const card = deliveryHandlerCard({ mount: handler, policy: model, legacy: !catalogue?.actions?.some(item => item.type === 'integrate_deliveries') });
+    if (handlerError) card.append(el('p', handlerError, 'error'));
+    card.append(editor, status, summary, feedback, policyNote, controls);
+    targetCard.replaceChildren(card);
+    if (restoreFocus && document.activeElement !== focused) focused.focus({ preventScroll: true });
     sync();
   }
   async function loadRuns(morePage = false, target = selected, request = generation) {
@@ -150,10 +161,23 @@ export function renderBranchConvergence({ ownsPage, busy = () => false, setBusy 
       return false;
     } finally { if (current(target, request) && historyId === historyRequest) { runsLoading = false; sync(); } }
   }
+  async function loadHandler(target, request) {
+    if (!current(target, request) || !model || !catalogue?.actions?.some(item => item.type === 'integrate_deliveries')) return;
+    const owner = model.owner_id, observation = ++handlerRequest;
+    const latest = () => current(target, request) && observation === handlerRequest && model?.owner_id === owner;
+    try {
+      const hooks = await api(`/api/worker/${owner}/hooks`);
+      if (!latest()) return;
+      if (hooks?.worker_id !== owner || !Array.isArray(hooks.mounts)) throw new Error('目标系统挂载读面不兼容');
+      handler = hooks.mounts.find(isDeliveryHandler) || null;
+      handlerError = handler ? '' : '目标系统挂载尚未提供，不推断真实操作结果。';
+    } catch (error) { if (latest()) handlerError = `目标操作读取失败：${error.message}；不推断成功或重放操作。`; }
+    if (latest()) paintPolicy();
+  }
   async function selectBranch(target, { reset = false } = {}) {
     if (!owns() || !target) return;
-    selected = target; branch.value = target; const request = ++generation; ++historyRequest;
-    model = null; draft = null; loading = true; runsLoading = false; cursor = null; hasMore = false; cards = []; list.replaceChildren(); feedback.textContent = ''; historyStatus.textContent = '';
+    selected = target; branch.value = target; const request = ++generation; ++historyRequest; ++handlerRequest;
+    model = null; draft = null; handler = null; handlerError = ''; loading = true; runsLoading = false; cursor = null; hasMore = false; cards = []; list.replaceChildren(); feedback.textContent = ''; historyStatus.textContent = '';
     if (reset) drafts.delete(target);
     paintPolicy();
     try {
@@ -162,7 +186,7 @@ export function renderBranchConvergence({ ownsPage, busy = () => false, setBusy 
       if (!validPolicy(policy, target)) throw new Error(COMPATIBILITY);
       model = policy; const previous = drafts.get(target); draft = dirtyDraft(previous) ? previous : newDraft(policy);
       drafts.set(target, draft); paintPolicy();
-      await loadRuns(false, target, request);
+      await Promise.all([loadRuns(false, target, request), loadHandler(target, request)]);
     } catch (error) { if (current(target, request)) { feedback.textContent = `配置读取失败：${error.message}；不使用默认值覆盖已有配置。`; feedback.className = 'error convergence-feedback'; } }
     finally { if (current(target, request)) { loading = false; paintPolicy(); } }
   }
@@ -192,14 +216,15 @@ export function renderBranchConvergence({ ownsPage, busy = () => false, setBusy 
         return;
       }
       if (!validPolicy(result, target)) { model = draft = null; drafts.delete(target); throw new Error('保存已确认，但返回配置不兼容，请只读刷新核查，不要重复保存。'); }
-      model = result; draft = newDraft(result); drafts.set(target, draft);
+      model = result; draft = newDraft(result); drafts.set(target, draft); handler = null;
       feedback.className = 'convergence-feedback hint'; feedback.textContent = '归并设置已保存；关闭不撤回已固定交付，移除不删除历史或自动重装。'; paintPolicy(); show(feedback.textContent);
       // Keep the acknowledged model/draft even if the authoritative post-save read fails.
       try {
         const fresh = await api(`/api/branch-convergence?branch=${encodeURIComponent(target)}`);
         if (!current(target, request)) return;
         if (!validPolicy(fresh, target)) throw new Error(COMPATIBILITY);
-        model = fresh; draft = newDraft(fresh); drafts.set(target, draft); paintPolicy();
+        model = fresh; draft = newDraft(fresh); drafts.set(target, draft); handler = null; paintPolicy();
+        await loadHandler(target, request);
         if (await loadRuns(false, target, request) === false && current(target, request)) {
           feedback.className = 'error convergence-feedback'; feedback.textContent = '设置已保存，但批次刷新失败；请只读刷新记录，不要重复保存。';
         }
@@ -254,16 +279,19 @@ export function renderBranchConvergence({ ownsPage, busy = () => false, setBusy 
   editor.append(field('目标分支', branch), mountedField, toggle);
   const controls = el('div', undefined, 'actions'); controls.append(saveHost, refreshHost);
   history.append(el('h3', '当前与历史批次'), historyStatus, list, moreHost);
-  const introduction = el('p', '实际挂载与未来默认独立管理；项目页与 Worker 自动化修改同一目标分支策略。不改变自动合并或验收授权。', 'hint');
-  const policyNote = el('p', 'main 初始挂载且关闭，其他未配置 Worker 不挂载。关闭或移除只影响未来交付，已固定批次和历史保留；移除后不自动重装。', 'hint');
-  node.append(introduction, editor, status, summary, feedback, policyNote, controls, defaults, history);
+  const introduction = el('p', '自动化工具 integrate_deliveries 的目标处理策略：普通串行或归并。实际归并挂载与未来默认独立管理；项目页与 Worker 自动化修改同一目标分支策略。不改变自动合并或验收授权。', 'hint');
+  const policyNote = el('p', 'main 初始归并挂载关闭，其他未配置 Worker 不挂载归并。关闭或移除归并只选择普通串行处理，不停止合法交付；已固定批次和历史保留，移除后不自动重装。', 'hint');
+  node.append(introduction, targetCard, defaults, history);
+  paintPolicy();
   node.setSubpage = subpage => {
     const isHistory = subpage === 'history';
     history.hidden = !isHistory;
     for (const child of [mountedField, toggle, saveHost, introduction, policyNote, defaults]) child.hidden = isHistory;
   };
   node.syncControls = sync;
-  node.dispose = () => { disposed = true; ++generation; ++listRequest; ++historyRequest; };
+  node.updateCatalogue = value => { const changed = catalogue !== value; catalogue = value;
+    if (changed && catalogue?.actions?.some(item => item.type === 'integrate_deliveries') && model) loadHandler(selected, generation); };
+  node.dispose = () => { disposed = true; ++generation; ++listRequest; ++historyRequest; ++handlerRequest; };
   for (const control of [save, refresh, more]) { const click = control.onclick; control.onclick = async () => { await click(); sync(); }; }
   sync(); node.ready = loadBranches(); return node;
 }

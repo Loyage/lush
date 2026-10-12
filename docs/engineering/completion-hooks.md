@@ -14,8 +14,10 @@ W162／决定 #402 的新指令结束流程仍为设备唯一默认值，只有�
 
 ## 串行与失败保护
 
-1. `worker.delivery_ready`：安全点请求合并，沿用父队列、冻结、源侧固定基线修复和 Git gate。无代码改动经过交付核验后跳过空 Squash。
+1. `worker.delivery_ready`：通过统一 `request_merge` 工具在安全点请求合并，沿用父队列、冻结、源侧固定基线修复和 Git gate。目标 `integrate_deliveries` 在固定事务选定普通串行／归并策略；无代码改动经过交付核验后跳过空 Squash。
 2. `delivery.integrated`：至少 accept 的授权执行统一 `acceptTask`，核验实际退出、后代、消息（含暂存输入）、待决、同步、共享使用者、分支提交和清洁度；可按[父级批量验收](worker-acceptance.md)纳入已交付的派生 child，不连带验收独立指令；受检回收成功后才记录本次各 Worker 的 `task.accepted` 并触发 `worker.accepted`。
+
+自动验收通过同一系统工具分发接入 `accept_worker`；操作身份与安全读面见[工具契约](hooks.md#系统工具与持久操作)。先持久提交，临时调用／输入／待决／后代／冻结／脏现场等删除前阻塞保留 waiting，解除后在安全点重新核验同一操作，不制造新的授权或删除成功事实。只有完整预检通过才领取资源回收；开始副作用后的失败／unknown 仍禁止自动重放。手动验收仍即时返回原准入错误，不变成隐式排队。
 
 资源回收沿用分支子树范围，不启用 discard_worktree，不删除仍使用的检出或 canonical 资源。预检新输入可以中止验收，真正删除期间新请求须明确拒绝且保留客户端输入以便重试，不能吞掉已持久的消息。
 

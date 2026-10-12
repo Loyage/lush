@@ -168,7 +168,7 @@ test('child identity locks historical flow settings without rewriting saved auth
   } finally { await f.close(); }
 });
 
-for (const obstacle of ['message', 'decision', 'child', 'dirty', 'freeze']) test(`automatic acceptance preserves ${obstacle} and stops once with a safe diagnostic`, async () => {
+for (const obstacle of ['message', 'decision', 'child', 'dirty', 'freeze']) test(`automatic acceptance preserves ${obstacle} as a safe preflight wait`, async () => {
   const f = await setup();
   try {
     const { task } = await f.project.order(obstacle); await configure(f, task, 'merge'); start(f); await delivered(f, task);
@@ -187,14 +187,15 @@ for (const obstacle of ['message', 'decision', 'child', 'dirty', 'freeze']) test
       f.store.update(child.id, { status: 'completed', target_branch: task.branch,
         reservation: JSON.stringify({ version: 1, kind: 'merge', status: 'requested' }) });
     }
-    start(f); await until(() => config(f, task).completion.executions.accept?.status === 'failed');
+    start(f); await until(() => config(f, task).completion.executions.accept?.status === 'waiting');
+    await f.project.completionQueue;
     expect(f.store.task(task.id).status).toBe('awaiting_acceptance');
     expect(fs.existsSync(task.workspace)).toBe(true);
     expect(f.store.history(task.id).some(row => row.type === 'task.accepted')).toBe(false);
     expect(JSON.stringify(f.project.taskHooks(task.id))).not.toContain('SECRET_MUST_NOT_APPEAR');
-    const diagnostics = notices(f, task).filter(row => row.title.includes('受阻')); expect(diagnostics).toHaveLength(1);
+    const diagnostics = notices(f, task).filter(row => row.title.includes('受阻')); expect(diagnostics).toHaveLength(0);
     f.project.scheduleTaskCompletion(task.id); await f.project.completionQueue;
-    expect(notices(f, task).filter(row => row.title.includes('受阻'))).toHaveLength(1);
+    expect(notices(f, task).filter(row => row.title.includes('受阻'))).toHaveLength(0);
     if (obstacle === 'message') expect(f.store.get('SELECT body FROM messages WHERE task_id=? AND consumed=0', task.id).body).toBe('must not lose');
   } finally { await f.close(); }
 });
@@ -226,7 +227,8 @@ test('dirty automatic archive retains accepted workspace and does not replay aft
     f.store.update(task.id, { status: 'completed' });
     f.store.event(task.id, 'task.accepted', { head_commit: f.store.task(task.id).head_commit, accepted_by: 'user' });
     fs.writeFileSync(path.join(task.workspace, 'keep.txt'), 'user changes');
-    await configure(f, task, 'archive'); start(f); await until(() => config(f, task).completion.executions.archive?.status === 'failed');
+    await configure(f, task, 'archive'); start(f); await until(() => config(f, task).completion.executions.archive?.status === 'waiting');
+    await f.project.completionQueue;
     expect(f.store.branch(task.branch).status).toBe('active'); expect(fs.readFileSync(path.join(task.workspace, 'keep.txt'), 'utf8')).toBe('user changes');
     const count = f.store.history(task.id).filter(row => row.type === 'completion.execution_started').length;
     f.project.stopping = true; await f.project.shutdown();

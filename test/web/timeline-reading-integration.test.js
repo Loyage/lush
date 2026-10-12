@@ -5,6 +5,30 @@ import { resetUiState, ui } from '../../src/ui/web/assets/state.js';
 import { renderConversation } from '../../src/ui/web/assets/render-conversation.js';
 import { projectHistoryEvent } from '../../src/persistence/store/reading.js';
 
+test('automation operation status survives real history and reading projections without hidden failures or completion claims on submission', async () => {
+  const f = await setup();
+  const task = f.store.create({ role: 'agent', task_kind: 'order', goal: 'automation timeline integration' });
+  const submitted = f.store.event(task.id, 'automation.operation_submitted', { tool: 'request_merge', worker_id: task.id, round: 0 });
+  const failed = f.store.event(task.id, 'automation.operation_finished', { tool: 'request_merge', operation_id: submitted, status: 'failed', hooks: { private: 'PRIVATE-CONFIG' } });
+  const target = f.store.event(task.id, 'delivery.requested', { tool: 'integrate_deliveries', delivery_id: submitted, strategy: 'serial' });
+  const before = f.store.all('SELECT * FROM events');
+  const dom = installDom(); resetUiState();
+  try {
+    const response = await httpFetch(`${f.url}/api/worker/${task.id}/reading-page?before_message=0`);
+    expect(response.status).toBe(200); const page = await response.json();
+    expect(JSON.stringify(page)).not.toContain('PRIVATE-CONFIG');
+    for (const events of [f.store.history(task.id), page.events]) {
+      const root = renderConversation(task, { events });
+      expect(root.querySelector(`[data-conversation-key="history:${submitted}"]`).entry.kind).toBe('自动化操作请求已提交');
+      const failure = root.querySelector(`[data-conversation-key="history:${failed}"]`);
+      expect(failure.dataset.timelineCategory).toBe('failure'); expect(failure.entry.metadata.status).toBe('failed');
+      expect(deepText(failure)).toContain('不自动重放');
+      expect(root.querySelector(`[data-conversation-key="history:${target}"]`).entry.kind).toContain('未新增授权');
+    }
+    expect(f.store.all('SELECT * FROM events')).toEqual(before); expect(f.project.running.size).toBe(0);
+  } finally { resetUiState(); dom.restore(); await f.close(); }
+});
+
 // Real Host -> RPC -> Store -> DOM. First-screen adapter uses the same projection exported for historyPage.
 test('real timeline reads generic long error, full-history metadata/type hits and arbitrary references without external timeline', async () => {
   const f = await setup(), calls = [];

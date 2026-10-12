@@ -198,7 +198,7 @@ export default {
   assertCompletionClaim(taskId, claim, phase) {
     const task = this.store.task(taskId), data = state(this, task), receipt = data.executions?.[phase];
     check(claim && data.authorization === claim.authorization && data.round === claim.round
-      && receipt?.id === claim.id && receipt.status === 'running' && receipt.authorization === claim.authorization
+      && receipt?.id === claim.id && ['waiting','running'].includes(receipt.status) && receipt.authorization === claim.authorization
       && receipt.round === claim.round && receipt.head_commit === claim.head_commit && task.head_commit === claim.head_commit
       && rank(levelOf(task)) >= rank(phase), 'completion authorization or result changed');
     check(!this.stopping && !this.running.has(task.id) && !this.taskSyncBusy?.has(task.id)
@@ -211,7 +211,7 @@ export default {
   async runTaskCompletion(taskId) {
     let task = this.store.task(taskId), level = levelOf(task), phase = phaseOf(task);
     if (!this.autoMergeView(task) || level === 'off' || this.stopping || this.maintenancePaused() || this.running.has(task.id)
-      || this.commandHookRunning?.has(task.id)) return;
+      || this.completionBusy?.has(task.id) || this.commandHookRunning?.has(task.id)) return;
     if (phase === 'merge') {
       const request = booking(task);
       if (['blocked', 'suspended'].includes(request?.status) || (request?.blocked_code === 'completion_failed'
@@ -236,15 +236,24 @@ export default {
     if (this.subtreeTasks(task.id).some(row => this.running.has(row.id) || this.commandHookRunning?.has(row.id))) return;
     this.completionBusy ??= new Set(); this.completionBusy.add(task.id);
     const receipt = this.store.transaction(() => {
-      const execution = { id: this.store.event(task.id, 'completion.execution_started', { phase, round: data.round, authorization: data.authorization, head_commit: task.head_commit }),
-        phase, round: data.round, authorization: data.authorization, head_commit: task.head_commit, status: 'running', created_at: now(), finished_at: null };
+      const execution = previous ?? { id: this.store.event(task.id, 'completion.execution_submitted', { phase, round: data.round, authorization: data.authorization, head_commit: task.head_commit }),
+        phase, round: data.round, authorization: data.authorization, head_commit: task.head_commit, status: 'waiting', created_at: now(), finished_at: null };
       data.executions ??= {}; data.executions[phase] = execution; persist(this, task.id, data); return execution;
     });
-    let status = 'succeeded', error = null, superseded = false;
+    let status = 'succeeded', error = null, superseded = false, started = false;
     try {
       this.assertCompletionClaim(task.id, receipt, phase);
-      await this.acceptTask(task.id, null, { completion: receipt });
-    } catch {
+      await this.dispatchAutomationOperation('accept_worker', task.id, { options: { completion: receipt, beginCompletion: () => {
+        this.store.transaction(() => {
+          this.assertCompletionClaim(task.id, receipt, phase);
+          const live = state(this, this.store.task(task.id));
+          live.executions[phase].status = 'running'; persist(this, task.id, live);
+          this.store.event(task.id, 'completion.execution_started', { phase, execution_id: receipt.id, round: receipt.round,
+            authorization: receipt.authorization, head_commit: receipt.head_commit });
+        });
+        started = true;
+      } } });
+    } catch (cause) {
       // An acceptance transaction is an exact proof; a thrown callback must not repeat it.
       const proof = phase === 'accept' && acceptanceProof(this, this.store.task(task.id), receipt);
       const current = state(this, this.store.task(task.id));
@@ -252,21 +261,25 @@ export default {
       if (!proof) {
         const changedResources = this.store.task(task.id).workspace !== task.workspace || this.store.branch(task.branch)?.status !== 'active';
         const partial = this.store.get("SELECT id FROM events WHERE task_id=? AND type='branch.archive' AND (json_extract(data,'$.completion_execution')=? OR json_extract(data,'$.acceptance_execution')=(SELECT max(id) FROM events WHERE task_id=? AND type='task.acceptance_started')) AND (json_array_length(json_extract(data,'$.failed'))>0 OR json_array_length(json_extract(data,'$.remaining'))>0)", task.id, receipt.id, task.id);
-        status = changedResources || partial ? 'unknown' : 'failed'; error = superseded ? null : ERROR[phase];
+        const temporarilyBlocked = cause.acceptance_wait || this.stopping || this.maintenancePaused()
+          || this.subtreeTasks(task.id).some(row => this.running.has(row.id) || this.workspaces.busy.has(row.id)
+            || this.taskSyncBusy?.has(row.id) || this.commandHookRunning?.has(row.id));
+        status = changedResources || partial ? 'unknown' : !started && temporarilyBlocked ? 'waiting' : 'failed';
+        error = superseded || status === 'waiting' ? null : ERROR[phase];
       }
     } finally {
       this.store.transaction(() => {
         const live = state(this, this.store.task(task.id));
         if (superseded) this.store.event(task.id, 'completion.execution_superseded', { phase, execution_id: receipt.id, round: receipt.round });
         else if (live.executions?.[phase]?.id === receipt.id) {
-          Object.assign(live.executions[phase], { status, finished_at: now(), ...(error ? { error } : {}) }); persist(this, task.id, live);
-          this.store.event(task.id, `completion.execution_${status}`, { phase, execution_id: receipt.id, round: receipt.round, authorization: receipt.authorization, error });
+          Object.assign(live.executions[phase], { status, finished_at: status === 'waiting' ? null : now(), ...(error ? { error } : {}) }); persist(this, task.id, live);
+          if (status !== 'waiting') this.store.event(task.id, `completion.execution_${status}`, { phase, execution_id: receipt.id, round: receipt.round, authorization: receipt.authorization, error });
         }
       });
       this.completionBusy.delete(task.id);
     }
     if (error) this.completionNotice(task.id, `blocked:${phase}`, error);
-    else if (phase === 'accept') await this.runTaskCompletion(task.id); // Only a retained historical tail can still need work.
+    else if (phase === 'accept' && status === 'succeeded') await this.runTaskCompletion(task.id); // Only a retained historical tail can still need work.
   },
 
   recoverTaskCompletion() {

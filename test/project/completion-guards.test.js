@@ -63,7 +63,7 @@ test('a new subtree branch at the Git boundary is not silently left behind by au
   } finally { release.resolve(); await f.close(); }
 });
 
-test('known failure is not silently retried, but manual acceptance may complete the authorized archive tail', async () => {
+test('dirty preflight waits without claiming deletion; manual acceptance may complete the authorized tail', async () => {
   const f = await setup();
   try {
     const { task } = await f.project.order('manual recovery');
@@ -71,12 +71,13 @@ test('known failure is not silently retried, but manual acceptance may complete 
     await f.project.settleQueuedMerge(task.id);
     fs.writeFileSync(path.join(task.workspace, 'dirty.txt'), 'keep');
     await set(f, task, 'archive'); f.project.stopping = false; f.project.scheduleTaskCompletion(task.id);
-    await until(() => value(f, task).completion.executions.accept?.status === 'failed');
+    await until(() => value(f, task).completion.executions.accept?.status === 'waiting');
+    await f.project.completionQueue;
     expect(f.store.task(task.id).status).toBe('awaiting_acceptance');
     fs.unlinkSync(path.join(task.workspace, 'dirty.txt'));
     await f.project.acceptTask(task.id);
     await until(() => f.store.branch(task.branch).status === 'archived');
-    expect(value(f, task).completion.executions.accept.status).toBe('failed'); // failure history remains honest
+    expect(value(f, task).completion.executions.accept.status).toBe('waiting'); // no automatic deletion was claimed
     expect(value(f, task).completion.executions.archive).toBeUndefined(); // manual unified acceptance already reclaimed resources
     expect(f.store.history(task.id).filter(row => row.type === 'task.accepted')).toHaveLength(1);
   } finally { await f.close(); }

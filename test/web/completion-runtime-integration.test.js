@@ -35,7 +35,8 @@ for (const level of ['off', 'merge', 'accept', 'archive']) test(`real HTTP/RPC/G
   try {
     const { task } = await post(f, 'order.submit', { content: `HTTP ${level}`, start: false });
     const mounted = await configure(f, task.id, level); expect(mounted.completion.level).toBe(level === 'archive' ? 'accept' : level);
-    expect(mounted.mounts.map(item => item.id)).toEqual(['auto-merge', 'auto-accept']);
+    expect(mounted.mounts.filter(item => ['auto-merge', 'auto-accept'].includes(item.id)).map(item => item.id))
+      .toEqual(['auto-merge', 'auto-accept']);
     privateAbsent(mounted);
     f.project.stopping = false; await post(f, 'worker.resume', { id: task.id });
     const desired = level === 'off' ? 'waiting' : level === 'merge' ? 'awaiting_acceptance' : 'completed';
@@ -130,7 +131,9 @@ test('real HTTP locks child flow Hooks without inheriting parent level and rejec
     const child = await post(f, 'worker.spawn', { parent: task.id, goal: 'independent child' });
     const childHooks = await hooks(f, child.id);
     expect(childHooks.completion).toMatchObject({ level: 'merge', min_level: 'merge', locked: true, editable: false });
-    expect(childHooks.mounts.slice(0, 3).every(item => item.locked && !item.editable && !item.removable)).toBe(true);
+    const flowMounts = childHooks.mounts.filter(item => ['auto-merge', 'auto-accept'].includes(item.id));
+    expect(flowMounts).toHaveLength(2);
+    expect(flowMounts.every(item => item.locked && !item.editable && !item.removable)).toBe(true);
     const original = f.store.task(child.id), history = f.store.history(child.id);
     for (const level of ['off', 'merge', 'accept', 'archive']) {
       const error = await post(f, 'worker.completion', { id: child.id, level, expected_revision: childHooks.revision }, 400);

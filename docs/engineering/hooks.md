@@ -63,6 +63,7 @@
 | `worker.frozen` | 整体分支写冻结从无到有 |
 | `worker.unfrozen` | 最后一项分支写冻结释放 |
 | `worker.parent_ready` | 当前父 Worker 已通过创建准入，预约发射使用此节点 |
+| `delivery.requested` | 目标接收已授权且已固定的交付；处理策略已在固定事务选定，仅系统处理器使用，不允许自定义挂载 |
 | `worker.merge_received` | 子 Worker 的交付成功合入当前父 Worker，在父侧触发 |
 | `worker.awaiting` / `worker.resumed` | 待决出现／解除 |
 | `delivery.integrated` / `delivery.suspended` / `delivery.blocked` | 交付落地／挂起释放执行位／未知现场保留执行位 |
@@ -94,7 +95,32 @@
 
 持久化采用附属 versioned JSON（如 `tasks.hooks`、项目模板 `meta`），不新增核心业务实体。现有 `tasks.auto_merge` / `tasks.reservation` 保持兼容，自动合并投影为内置挂载 `id:'auto-merge'`，触发为 `worker.delivery_ready`，持续、启用、锁定/可编辑原因复用 `autoMergeView`。派生 child 的合并—验收—归档流程 Hook 整体对用户只读，旧开关及挂载入口也不能修改；其他受控自定义规则保留原权限。此阶段不批量迁移历史行。
 
-Worker详情展示为「自动化」；目标归并挂载／启停单独投影在 `worker.hooks.convergence`，不加入通用actions／mounts，也不改变child锁定结束流程。项目页与详情修改同一分支策略；main一次初始化挂载关闭、未来新Worker默认及旧配置兼容见[归并实施契约](merge-convergence-implementation.md)。
+Worker 详情展示为「自动化」。来源结束规则与目标交付处理器使用同一工具目录和安全操作读面；`worker.hooks.convergence` 保留为目标分支配置的同源兼容面，不另保存授权。项目页与详情修改同一分支策略，child 的结束流程锁定不变；main 的归并配置初始挂载关闭，未来默认与旧配置兼容见[归并实施契约](merge-convergence-implementation.md)。
+
+## 系统工具与持久操作
+
+`request_merge`、`accept_worker`、`integrate_deliveries` 在动作目录中标记 `execution:'operation'`，由同一内部工具分发接入现有交付与验收引擎。通用 Hook 与内置来源规则请求交付使用同一工具。该内部入口不是公共 RPC，不增加 Agent、管理 Worker 或 Shell 的权限。
+
+- `request_merge`：来源本轮交付就绪时提交合并意图；Hook 动作成功只证明请求提交，不证明交付完成。无代码成果仍可合法交付，不制造空 Squash。
+- `accept_worker`：受既有最高级别或显式验收授权约束，仍 `builtin_only:true`；复用统一安全验收，不允许自定义安装、丢弃脏现场或连带验收独立指令。
+- `integrate_deliveries`：`builtin_only:true`、`scope:'target'`，策略目录为 `strategies:['serial','converge']`。仅处理同目标已授权交付，不提高来源自动级别。策略在固定交付事务内复核目标及配置版本；已固定操作不因后续开关变化改路由。
+
+适用目标的 `mounts` 含不可普通编辑／复制／移除的 `id:'delivery-handler', kind:'delivery_handler'`；动作是 `{type:'integrate_deliveries',strategy}`。处理器持续启用；归并关闭或未挂载时为 `serial`，不是停止所有合并。现有 `branch.convergence*` 与 `worker.completion` 继续作为配置入口，模板不能安装受保护工具。
+
+系统工具挂载的 `operation` 为 null 或以下安全摘要：
+
+```js
+{
+  version: 1, id: '固定操作身份', tool: 'request_merge',
+  status: 'submitted', // submitted | waiting | running | succeeded | failed | unknown
+  worker_id: 7,
+  delivery_id: 123, // 以下关联字段按真实证据可选
+  run_id: 4, generation: 2, round: 0, strategy: 'converge',
+  created_at: 'ISO 时间', finished_at: 'ISO 时间', error: '安全诊断'
+}
+```
+
+操作关联本轮、授权及精确持久收据，不能用当前可变分支、目录配置或旧轮成功推断完成。`succeeded` 表示对应真实交付处理／验收已收口；不证明测试或业务质量。读取不得推进队列、发射事件、安装配置或恢复副作用；原 v1/v2 与旧 v3 command 在途继续原协议，未知结果不得自动重放。
 
 ## Project / RPC / HTTP
 
@@ -110,7 +136,7 @@ Worker详情展示为「自动化」；目标归并挂载／启停单独投影�
 | `worker.hook_update` | `id`, `hook_id`, `enabled` 或完整 `hook`（互斥）, `expected_revision` | `updateTaskHook(id,hookId,enabled,expectedRevision,hook=null)` | POST action |
 | `worker.hook_remove` | `id`, `hook_id`, `expected_revision` | `removeTaskHook(id,hookId,expectedRevision)` | POST action |
 
-`hooks.list` 返回 `{version:1,revision,triggers,actions,templates}`；actions 目录包含 `{type,label,description,triggers,modes,agent_call}`，`modes` 是支持的 `once|persistent` 数组，组合规则只能使用全部动作都支持的模式；templates 为 `{id,...安全定义}`。
+`hooks.list` 返回 `{version:1,revision,triggers,actions,templates}`；actions 目录包含 `{type,label,description,triggers,modes,agent_call,builtin_only?,execution?,scope?,strategies?}`，`modes` 是支持的 `once|persistent` 数组，组合规则只能使用全部动作都支持的模式；templates 为 `{id,...安全定义}`。
 
 `worker.hooks` 和所有挂载修改返回 `{version:1,worker_id,revision,mounts}`。每项为 `{id,name,trigger,mode,enabled,builtin,locked,editable,removable,reason,conditions,actions,state,last_execution,model_selection?}`；state 为 `idle|waiting|running|succeeded|failed|unknown`；last_execution 可空，否则为 `{id,trigger,status,created_at,finished_at,error?,worker_id?,worker_number?,input_id?}`，其中 error 仅为安全诊断。revision 为不透明字符串；所有修改要求读面给定的 expected_revision，过期拒绝并保留客户端编辑。
 

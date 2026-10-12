@@ -19,7 +19,8 @@ function writeDefinitions(project, state) {
   check(Buffer.byteLength(JSON.stringify(state)) <= 4 * HOOK_LIMITS.bytes, 'Hook template library exceeds 512 KiB');
   project.store.run("INSERT INTO meta(key,value) VALUES ('hook_templates',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", JSON.stringify(state));
 }
-function revision(project, task) { return hookRevision({ hooks: task.hooks ?? null, automatic: project.autoMergeView(task), completion: task.auto_merge ?? null }); }
+function revision(project, task) { return hookRevision({ hooks: task.hooks ?? null, automatic: project.autoMergeView(task), completion: task.auto_merge ?? null,
+  handler: project.taskConvergenceView(task)?.revision ?? null }); }
 function readDefinition(project, value) {
   const view = publicHookDefinition(value);
   if (project.shortcutHookIssue(value)) view.enabled = false;
@@ -146,7 +147,8 @@ export default {
   taskHooks(taskId) {
     const task = this.store.task(id(taskId)), data = parse(task), automatic = this.autoMergeView(task);
     const available = ownerAvailable(this, task);
-    const mounts = data.mounts.map(m => ({ id: m.id, ...readDefinition(this, m), builtin: Boolean(m.signal_binding), locked: Boolean(m.signal_binding),
+    const mounts = data.mounts.map(m => ({ id: m.id, kind: 'rule', ...readDefinition(this, m),
+      operation: m.receipts?.find(r => r.operation_id)?.operation_id ? this.mergeRequestOperationView(task, m.receipts.find(r => r.operation_id).operation_id) : null, builtin: Boolean(m.signal_binding), locked: Boolean(m.signal_binding),
       editable: !m.signal_binding && (available || (ownerAvailable(this, task, true) && (scheduledSelfRetry(m, task) || (m.schedule && m.enabled)))) && m.state !== 'running', removable: (!m.signal_binding || (!m.enabled && ['unknown','skipped'].includes(m.state))) && ['main','owner','order','say','child'].includes(task.task_kind) && m.state !== 'running', reason: m.state === 'running' ? 'Hook 已领取执行，不能修改' : !available && !(ownerAvailable(this, task, true) && scheduledSelfRetry(m, task)) ? 'Worker 已结束或归档' : this.shortcutHookIssue(m) ?? m.reason ?? null,
       state: m.state, last_execution: readExecution(this, m.last_execution),
       ...(hasCommand(m) ? { pending_count: m.command_pending ?? 0 } : {}),
@@ -154,7 +156,7 @@ export default {
       ...(m.actions.find(a => a.type === 'create_worker')?.profile ? { model_selection: publicHookDefinition(m).actions.find(a => a.type === 'create_worker').model_selection } : {}) }));
     if (automatic) {
       const booking = task.reservation ? JSON.parse(task.reservation) : null;
-      mounts.unshift({ id: 'auto-merge', name: '自动合并', trigger: 'worker.delivery_ready', mode: 'persistent',
+      mounts.unshift({ id: 'auto-merge', kind: 'rule', operation: this.mergeRequestOperationView(task), name: '自动合并', trigger: 'worker.delivery_ready', mode: 'persistent',
         enabled: automatic.enabled, builtin: true, locked: automatic.locked, editable: automatic.editable, removable: false, reason: automatic.reason,
         conditions: {}, actions: [{ type: 'request_merge' }], state: booking?.status === 'integrated' ? 'succeeded'
           : ['executing','resolving','blocked'].includes(booking?.status) ? 'running' : automatic.enabled ? 'waiting' : 'idle',
@@ -171,13 +173,22 @@ export default {
       ['accept', '自动验收', 'delivery.integrated', 'accept_worker', 2],
     ]) {
       const status = this.completionMountState(task, phase);
-      mounts.splice(threshold - 1, 0, { id: `auto-${phase}`, name, trigger, mode: 'persistent',
+      mounts.splice(threshold - 1, 0, { id: `auto-${phase}`, kind: 'rule', operation: this.acceptanceOperationView(task), name, trigger, mode: 'persistent',
         enabled: ['off','merge','accept'].indexOf(completion.level) >= threshold,
         builtin: true, locked: completion.locked, editable: false, removable: false,
         conditions: {}, actions: [{ type }], ...status,
         reason: completion.locked ? completion.reason : status.reason ?? '通过最高自动级别统一设置，仍需前一步与现有安全检查通过' });
     }
-    return { version: 1, worker_id: task.id, revision: revision(this, task), completion, convergence: this.taskConvergenceView(task), can_attach: ownerAvailable(this, task, true), mounts };
+    const convergence = this.taskConvergenceView(task);
+    if (convergence) {
+      const operation = this.deliveryHandlerOperationView(task);
+      mounts.splice(automatic ? 2 : 0, 0, { id: 'delivery-handler', kind: 'delivery_handler', name: '交付处理器', trigger: 'delivery.requested', mode: 'persistent',
+        enabled: true, builtin: true, locked: true, editable: false, removable: false,
+        conditions: {}, actions: [{ type: 'integrate_deliveries', strategy: convergence.enabled ? 'converge' : 'serial' }],
+        operation, state: operation?.status ?? 'idle', last_execution: null,
+        reason: '目标唯一处理器始终处理合法交付；通过分支归并设置调整未来策略，关闭归并仍串行合并。' });
+    }
+    return { version: 1, worker_id: task.id, revision: revision(this, task), completion, convergence, can_attach: ownerAvailable(this, task, true), mounts };
   },
 
   attachTaskHook(taskId, raw, expectedRevision) {
@@ -203,6 +214,7 @@ export default {
   async updateTaskHook(taskId, hookId, enabled, expectedRevision, hook = null) {
     const editing = hook !== null && hook !== undefined;
     check(editing ? enabled === undefined || enabled === null : typeof enabled === 'boolean', 'provide either a complete Hook or enabled, not both');
+    check(hookId !== 'delivery-handler', 'delivery handler is protected; use the branch convergence setter');
     const task = this.store.task(id(taskId)), existing = parse(task).mounts.find(m => m.id === hookId);
     check(!existing?.signal_binding, 'batch interruption Hook is managed by the runtime');
     check(!editing || !existing?.maintenance_pending, 'Hook has a pending execution; finish or remove it before editing');
@@ -274,6 +286,7 @@ export default {
     const task = this.store.task(id(taskId));
     check(['main','owner','order','say','child'].includes(task.task_kind), 'this Worker does not support Hooks');
     checkRevision(revision(this, task), expectedRevision);
+    check(hookId !== 'delivery-handler', 'delivery handler cannot be removed; use the branch convergence setter');
     check(hookId !== 'auto-merge', 'built-in automatic merge cannot be removed; use its persistent switch');
     this.store.transaction(() => {
       const data = parse(this.store.task(task.id)), index = data.mounts.findIndex(m => m.id === hookId); check(index >= 0, 'Hook mount not found');
@@ -389,6 +402,8 @@ export default {
             outcome = { worker_id: result.task.id, input_id: result.id };
           } else if (action.type === 'request_merge') {
             check(this.mergeReadiness(task)?.ready, 'source is not delivery-ready'); await this.requestTaskMerge(task.id);
+            const operation = this.mergeRequestOperationView(this.store.task(task.id));
+            if (operation) outcome = { operation_id: Number(operation.id.split(':')[1]) };
           } else {
             // These DB-only effects and their receipts commit atomically, so restart cannot duplicate them.
             this.store.transaction(() => {

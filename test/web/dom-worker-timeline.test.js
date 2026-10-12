@@ -123,6 +123,39 @@ test('key management activity is visible by default with exact Chinese labels, s
   expect(submitted.dataset.ref).toContain('event-2'); expect(submitted.entry.metadata.management).toBeUndefined();
 }));
 
+test('unified automation submissions stay visible as delivery facts and explicit failed or unknown outcomes remain failure facts', () => fixture(async () => {
+  const events = [
+    event(1, 'automation.operation_submitted', { tool: 'request_merge' }),
+    event(2, 'automation.operation_submitted', { tool: 'accept_worker' }),
+    event(3, 'delivery.requested', { tool: 'integrate_deliveries', strategy: 'serial', delivery_id: 31 }),
+    event(4, 'completion.execution_submitted', { phase: 'accept' }),
+    event(5, 'automation.operation_finished', { tool: 'request_merge', status: 'succeeded' }),
+    event(6, 'automation.operation_finished', { tool: 'accept_worker', status: 'failed' }),
+    event(7, 'automation.operation_finished', { tool: 'request_merge', status: 'unknown' }),
+    event(8, 'automation.operation_submitted', { tool: 'future_tool' }),
+  ];
+  const root = renderConversation(task, { events });
+  expect(toggle(root, 'delivery').textContent).toBe('交付与合并 5');
+  expect(toggle(root, 'failure').textContent).toBe('失败与受阻 2');
+  expect(toggle(root, 'detail').textContent).toBe('细粒度事件 1');
+  for (let id = 1; id <= 7; id++) {
+    const node = root.querySelector(`[data-conversation-key="history:${id}"]`);
+    expect(node).toBeTruthy(); expect(node.dataset.timelineCategory).toBe(id <= 5 ? 'delivery' : 'failure');
+    expect(node.dataset.ref).toContain(`event-${id}`);
+    if (id <= 4) for (const claim of ['已完成', '成功', '已合入']) expect(node.entry.kind).not.toContain(claim);
+  }
+  expect(root.querySelector('[data-conversation-key="history:8"]')).toBeNull();
+  expect(deepText(root)).toContain('未新增授权');
+  expect(root.querySelector('[data-conversation-key="history:5"]').entry.kind).toContain('不代表代码合入或测试通过');
+  for (const id of [6, 7]) expect(root.querySelector(`[data-conversation-key="history:${id}"]`).entry.kind).not.toContain('已完成');
+  expect(root.querySelector('[data-conversation-key="history:6"]').entry.kind).toContain('失败');
+  expect(root.querySelector('[data-conversation-key="history:7"]').entry.kind).toContain('待核验');
+  await toggle(root, 'delivery').onclick(); root.updateConversation(task, { events });
+  expect(keys(root)).toEqual(['history:7', 'history:6', 'goal']);
+  expect(toggle(root, 'delivery').getAttribute('aria-pressed')).toBe('false');
+  expect(toggle(root, 'failure').getAttribute('aria-pressed')).toBe('true');
+}));
+
 test('complete known long results deduplicate the latest bubble but independent identical runs remain; user evidence leaves hidden communication category', () => fixture(async () => {
   const text = '结果'.repeat(20000);
   const root = renderConversation({ ...task, result: text }, { events: [event(1, 'invocation.completed', { run_id: 10, result: text }),

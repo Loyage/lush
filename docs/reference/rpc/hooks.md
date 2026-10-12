@@ -32,13 +32,21 @@
 
 读取 HTTP：`GET /api/hooks`、`GET /api/worker/ID/hooks`，不接受查询参数。写入通过已登录、同源的 `POST /api/action {method,params}`，不是通用 RPC 代理。
 
-目录返回 `{version:1,revision,triggers,actions,templates,commands,daemon_hooks,completion_defaults,signals,management_workers,command_example}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,completion,can_attach,mounts}`。CLI 的 Worker 参数接受内部整数或 `Wn(-n)*`，先经 `worker.lookup` 解析；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
+目录返回 `{version:1,revision,triggers,actions,templates,commands,daemon_hooks,completion_defaults,signals,management_workers,command_example}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,completion,convergence,can_attach,mounts}`。CLI 的 Worker 参数接受内部整数或 `Wn(-n)*`，先经 `worker.lookup` 解析；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
 
 `revision` 是不透明字符串，必须先读并随写请求携带；过期返回错误，不覆盖并发修改。模板 `id` 与挂载 `hook_id` 是不同身份。
 
 `hook` 可为新规则定义，或仅 `{template_id:'UUID'}`；后者让后台复制模板的完整私有覆盖。不得用脱敏列表重建原模板挂载。创建动作读取只有安全 `model_selection` 摘要；模板同位置创建动作省略 `profile` 表示编辑时保留原私有覆盖。
 
 挂载含 `trigger`、`mode`、`enabled`、`conditions`、安全动作摘要、`state`、`last_execution`、`editable` 与 `removable`。`removable` 与可启用状态不同：结束的 Worker 可移除未来授权，不能重新启用。`auto-merge`、`auto-accept` 是不可移除的内置挂载（验收包含归档回收，旧 auto-archive 仅历史兼容），通过一份最高级别授权配置；旧 `worker.auto_merge` 开关保留原准入。
+
+## 系统工具操作读面
+
+`actions` 目录中的 `request_merge`、`accept_worker`、`integrate_deliveries` 标 `execution:'operation'`。后两者仅系统挂载；`integrate_deliveries` 另提供 `scope:'target', strategies:['serial','converge']`。这不是任意工具调用 RPC，也不开放 Agent 安装规则或提高自动级别。
+
+适用目标的 `mounts` 包含受保护 `id:'delivery-handler', kind:'delivery_handler'`，节点 `delivery.requested` 表示接收已授权交付，不创建新授权。处理器持续启用，归并关闭／未挂载时为普通串行；目标配置继续使用 `branch.convergence*`，来源授权继续使用 `worker.completion`。
+
+系统工具挂载可含 `operation:null|{version,id,tool,status,worker_id,delivery_id?,run_id?,generation?,round?,strategy?,created_at?,finished_at?,error?}`。status 为 `submitted|waiting|running|succeeded|failed|unknown`，id 为固定字符串身份，所有关联来自真实收据。Hook 的 request_merge 成功只证明请求提交；对应 operation 成功才证明本轮交付收口，可能是无代码结果交付，不能推断产生了合并提交或测试通过。公开摘要不含授权秘密、完整 profile 或原始错误；读取无副作用，未知结果不自动重放。完整语义见[工具与持久操作](../../engineering/hooks.md#系统工具与持久操作)。
 
 ## 中断完成节点
 

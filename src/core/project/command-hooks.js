@@ -210,6 +210,8 @@ export default {
               outcome = { worker_id: result.task.id, input_id: result.id };
             } else if (action.type === 'request_merge') {
               begin(); check(this.mergeReadiness(current)?.ready, 'source no longer ready'); await this.requestTaskMerge(taskId);
+              const operation = this.mergeRequestOperationView(this.store.task(taskId));
+              if (operation) outcome = { operation_id: Number(operation.id.split(':')[1]) };
             } else {
               this.store.transaction(() => {
                 begin();

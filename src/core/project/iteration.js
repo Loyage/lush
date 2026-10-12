@@ -203,7 +203,15 @@ const sameIdentity = (row, fixed) => Object.entries(fixed).every(([key, value]) 
 export default {
   /** Acceptance authorizes clean resource reclamation; historical records remain readable. */
   async acceptTask(taskId, actor = null, options = {}) {
+    return this.dispatchAutomationOperation('accept_worker', taskId, { actor, options });
+  },
+
+  async acceptWorkerOperation(taskId, actor = null, options = {}) {
     this.assertWritable('accept a worker');
+    const waitCheck = (condition, message) => {
+      if (!condition && options.completion) { const error = new Error(message); error.acceptance_wait = true; throw error; }
+      check(condition, message);
+    };
     const invocation = actor === null ? null : this.running.get(id(actor));
     const authorize = task => {
       if (options.completion) this.assertCompletionClaim(task.id, options.completion, options.completion.phase ?? 'accept');
@@ -249,12 +257,12 @@ export default {
         && task.workspace && fs.existsSync(task.workspace)) { attempt = null; recovered.clear(); }
       if (attempt) check(attempt.head_commit === task.head_commit, 'acceptance recovery commit changed; inspect resource records');
       const subtree = this.subtreeTasks(task.id);
-      check(subtree.every(row => !this.running.has(row.id) && !this.workspaces.busy.has(row.id)), 'Agent or cleanup is still in flight');
+      waitCheck(subtree.every(row => !this.running.has(row.id) && !this.workspaces.busy.has(row.id)), 'Agent or cleanup is still in flight');
       const children = acceptanceChildren(subtree, task.id);
       const acceptingIds = new Set([task.id, ...children.map(row => row.id)]);
       for (const helper of this.convergenceAcceptanceHelpers(subtree, acceptingIds)) acceptingIds.add(helper.id);
       const identities = new Map(subtree.map(row => [row.id, acceptanceIdentity(row)]));
-      check(subtree.slice(1).every(row => TERMINAL.has(row.status) || acceptingIds.has(row.id)),
+      waitCheck(subtree.slice(1).every(row => TERMINAL.has(row.status) || acceptingIds.has(row.id)),
         'accept or end descendants before accepting their parent; only delivered child delegation chains can be accepted together');
       if (attempt) {
         const fixedIds = attempt.accepting_task_ids ?? [task.id];
@@ -269,10 +277,10 @@ export default {
       for (const row of subtree) {
         const booking = bookingOf(row);
         assertTaskNotSyncing(this, row.id); assertTaskNoCommand(this, row.id);
-        check(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status)
+        waitCheck(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status)
           || (booking.status === 'pending' && taskSyncDeliveryPaused(this, row.id)), 'delivery is still in flight or reserved');
-        check(!acceptanceUnreadMessage(this, row, acceptingIds), `Worker ${workerLabel(row)}: unread input must be processed before acceptance`);
-        check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
+        waitCheck(!acceptanceUnreadMessage(this, row, acceptingIds), `Worker ${workerLabel(row)}: unread input must be processed before acceptance`);
+        waitCheck(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", row.id), 'open decisions block acceptance');
         if (row.branch) {
           const record = this.store.branch(row.branch);
           if (['archived', 'deleted'].includes(record?.status)) {
@@ -284,6 +292,7 @@ export default {
               'acceptance recovery branch was recreated; preserve and inspect it');
             continue;
           }
+          waitCheck(!this.branchFreeze(row.branch), 'Worker branch is frozen; wait for its safe point');
           this.assertBranchWritable(row.branch, 'accept it');
           if (recovered.get(row.branch)?.ref === 'deleted' && attempt?.tips[row.branch] === row.head_commit) {
             const remainingRef = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${row.branch}^{commit}`).catch(() => null);
@@ -293,8 +302,13 @@ export default {
           const removed = recovered.get(row.branch)?.worktree === 'removed' && attempt?.tips[row.branch] === row.head_commit;
           check(record?.status === 'active' && (!acceptingIds.has(row.id) || removed || (row.workspace && fs.existsSync(row.workspace))),
             'Worker branch/worktree is archived or missing');
-          if (row.workspace) await this.workspaces.finish(row);
-          else {
+          if (row.workspace) {
+            try { await this.workspaces.finish(row); }
+            catch (error) {
+              if (options.completion && await this.workspaces.git(row.workspace, 'status', '--porcelain').catch(() => '')) error.acceptance_wait = true;
+              throw error;
+            }
+          } else {
             const head = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${row.branch}^{commit}`);
             check(head === row.head_commit, `descendant Worker ${workerLabel(row)} branch moved`);
             const workspace = await this.workspaces.workspaceForBranch(row.branch);
@@ -362,6 +376,11 @@ export default {
             && !this.commandHookRunning?.has(row.id) && !this.workspaces.busy.has(row.id);
         }), 'acceptance resource users changed');
       };
+      guard();
+      // Completion submission is not execution: claim the deletion only after
+      // the ordinary Git/input/descendant preflight has passed. Waiting can resume;
+      // once resource effects start, failed/unknown actions must not replay.
+      options.beginCompletion?.();
       guard();
       this.acceptanceBusy ??= new Set();
       for (const row of subtree) this.acceptanceBusy.add(row.id);

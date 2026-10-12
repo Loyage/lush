@@ -72,7 +72,11 @@ export const EVENTS = {
   'management.settled': '管理信号处理已收口', 'management.failed': '管理信号处理失败', 'management.unknown': '管理结果未知，待核验',
   'hooks.template_saved': '保存 Hook 模板', 'hooks.template_removed': '删除 Hook 模板',
   'task.auto_merge_changed': '调整自动合并 Hook', 'task.merge_parent_restored': '已恢复原父 Worker',
+  'automation.operation_submitted': '自动化操作请求已提交',
+  'automation.operation_finished': '自动化操作已结束（结果待核验，不自动重放）',
+  'delivery.requested': '目标已接收已授权交付（未新增授权）',
   'task.completion_changed': '调整自动处理级别', 'completion.reminder': '提示下一人工环节',
+  'completion.execution_submitted': '自动处理动作已提交待安全执行',
   'completion.execution_started': '开始执行自动处理', 'completion.execution_superseded': '过期自动动作已作废',
   'completion.execution_succeeded': '自动处理执行成功', 'completion.execution_failed': '自动处理执行失败',
   'completion.execution_unknown': '自动处理结果待核验',
@@ -152,6 +156,15 @@ export const EVENTS = {
 };
 /** 中文名是阅读投影，保留原始 type；未知事件明确标注，不猜测含义。 */
 export function eventLabel(event) {
+  if (event.type === 'automation.operation_finished') {
+    // Only explicit recorded results refine the neutral finish label. Do not
+    // expose arbitrary diagnostics or infer a code merge from operation success.
+    switch (event.data?.status) {
+      case 'succeeded': return '自动化操作已完成（不代表代码合入或测试通过）';
+      case 'failed': return '自动化操作失败（不自动重放）';
+      case 'unknown': return '自动化操作结果待核验（未知副作用不重放）';
+    }
+  }
   if (event.type === 'invocation.target_branch_moved' && event.data?.reason === 'unattributed_ref_movement') return '目标分支存在未归因的移动';
   if (event.type === 'notice.opened' && event.data?.kind === 'info') return '提醒';
   if (event.type === 'notice.answered' && event.data?.answer_source === 'lush') return 'Lush 自动选择';

@@ -333,15 +333,43 @@ test('management retains missing default identity across repaint and failure; do
 
 test('all automation modules fold independently and retain exceptional summaries and template search on unrelated saves', async () => {
   const mount = catalogue.command_example.hooks.mounts[0]; mount.state = 'unknown'; mount.last_execution = { status: 'unknown', error: '需要核对副作用' };
+  catalogue.templates.push({ ...hook(), id: 'reminder-template', name: '提醒', actions: [{ type: 'notify', body: '提醒正文' }] });
   history = [execution({ status: 'unknown' })]; await openHooks(); await until(() => root().querySelector('.shortcut-execution'));
-  const modules = root().querySelectorAll('.automation-module'); expect(modules).toHaveLength(7);
+  const moduleKeys = ['command-run', 'command-management', 'command-history', 'project-hooks', 'signals', 'management', 'templates', 'tools'];
+  const modules = root().querySelectorAll('.automation-module');
+  expect(modules).toHaveLength(8); expect(modules.map(module => module.dataset.module).sort()).toEqual([...moduleKeys].sort());
+  const tools = root().querySelector('[data-module="tools"]'), toolSummary = tools.moduleSummary.textContent;
+  expect(deepText(tools.moduleBody)).toContain('command'); expect(toolSummary).toContain('1 个工具');
+  // Each module, including the tool directory, changes only its own fold state.
+  for (const module of modules) {
+    const toggle = module.querySelector('.automation-module-toggle');
+    await toggle.onclick();
+    expect(module.moduleBody.hidden).toBe(true); expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.getAttribute('aria-controls')).toBe(module.moduleBody.id);
+    for (const other of modules.filter(item => item !== module)) expect(other.moduleOpen).toBe(true);
+    await toggle.onclick(); expect(module.moduleBody.hidden).toBe(false);
+  }
   const search = field('查找 Hook 模板'); search.value = '推送'; search.listeners.keydown[0]({ key: 'Enter', preventDefault() {} });
+  const retainedSummariesAndSearch = () => {
+    expect(root().querySelector('[data-module="tools"]').moduleSummary.textContent).toBe(toolSummary);
+    expect(root().querySelector('[data-module="project-hooks"]').moduleSummary.textContent).toContain('需要核对副作用');
+    expect(root().querySelector('[data-module="command-history"]').moduleSummary.textContent).toContain('结果未知');
+    for (const key of ['tools', 'project-hooks', 'command-history']) expect(root().querySelector(`[data-module="${key}"]`).moduleSummary.hidden).toBe(false);
+    expect(field('查找 Hook 模板')).toBe(search); expect(search.value).toBe('推送');
+    expect(root().querySelector('[data-template-id="push-template"]').hidden).toBe(false);
+    expect(root().querySelector('[data-template-id="reminder-template"]').hidden).toBe(true);
+  };
   for (const module of modules) await module.querySelector('.automation-module-toggle').onclick();
-  expect(root().querySelector('[data-module="project-hooks"]').moduleSummary.textContent).toContain('需要核对副作用');
-  expect(root().querySelector('[data-module="command-history"]').moduleSummary.textContent).toContain('结果未知');
+  retainedSummariesAndSearch();
   const authorizing = btn('授权当前版本').onclick(); await dialogButton(dom, '授权此版本').onclick(); await authorizing;
-  for (const module of root().querySelectorAll('.automation-module')) expect(module.moduleOpen).toBe(false);
-  expect(field('查找 Hook 模板')).toBe(search); expect(search.value).toBe('推送');
+  const refreshedModules = root().querySelectorAll('.automation-module');
+  expect(refreshedModules.map(module => module.dataset.module).sort()).toEqual([...moduleKeys].sort());
+  for (const module of refreshedModules) {
+    expect(module.moduleOpen).toBe(false); expect(module.moduleBody.hidden).toBe(true);
+    expect(module.querySelector('.automation-module-toggle').getAttribute('aria-expanded')).toBe('false');
+  }
+  retainedSummariesAndSearch();
+  expect(calls).toEqual([{ method: 'hooks.command_authorize', params: { id: 'push-command', version: 1, authorized: true, expected_revision: 'commands-revision' } }]);
 });
 
 test('command authorization and command Hook switches have distinct enable/disable classes without Agent purple', async () => {

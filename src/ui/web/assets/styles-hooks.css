@@ -47,7 +47,11 @@ button.hook-completion-level.is-selected { border-color: var(--violet-ink); back
 .hook-field input, .hook-field select, .hook-field textarea { width: 100%; box-sizing: border-box; }
 .hook-field textarea { resize: vertical; }
 .hooks-page-subtitle { margin: 0; color: var(--muted); font-weight: 600; }
-.branch-convergence { min-width: 0; }
+.branch-convergence, .automation-tools, .delivery-handler-host { min-width: 0; }
+.hook-tool { padding-block: .7rem; border-bottom: 1px solid var(--line); }
+.hook-tool code, .hook-operation, .hook-operation-alert, .delivery-handler p { overflow-wrap: anywhere; }
+.hook-operation p { white-space: pre-wrap; }
+.worker-hooks > .delivery-handler { margin-bottom: 0; }
 .worker-convergence-control { max-width: 100%; }
 .convergence-worker-status { overflow-wrap: anywhere; }
 button.convergence-disable.is-selected { border-color: var(--line); background: var(--panel); color: var(--text); }

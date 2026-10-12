@@ -21,6 +21,7 @@ import { pageSubnav } from './page-subnav.js';
 import { commandReferencesIssue, commandSummary, legacyCommands, validCommands, PROMPT_WARNING } from './shortcut-command-model.js';
 
 import { automationModule, automationAlerts } from './automation-module.js';
+import { isDeliveryHandler, hookResultLabel, renderOperation, operationAlert, deliveryHandlerCard, renderAutomationTools } from './automation-tools.js';
 
 const pending = new Set();
 function hookHelpLink() {
@@ -32,7 +33,7 @@ function projectHookCard(name, scope, className) {
   head.append(el('h2', name), badge(scope, 'hook-scope'), hookHelpLink()); card.append(head); return card;
 }
 function sameProject(project) { try { return projectApi('/api/hooks') === project; } catch { return false; } }
-const callsAgent = mount => (mount.actions || []).some(a => ['message', 'request_merge', 'retry_worker', 'resume_worker', 'prompt_command'].includes(a.type) || (a.type === 'create_worker' && a.start !== false));
+const callsAgent = mount => (mount.actions || []).some(a => ['message', 'request_merge', 'integrate_deliveries', 'retry_worker', 'resume_worker', 'prompt_command'].includes(a.type) || (a.type === 'create_worker' && a.start !== false));
 const failedSelfTemplate = (template, workerId) => template.trigger === 'time.scheduled'
   && template.actions?.some(a => a.type === 'retry_worker' && a.target_id === workerId)
   && template.actions.every(a => a.type === 'notify' || (a.type === 'retry_worker' && a.target_id === workerId));
@@ -67,7 +68,8 @@ function summary(actionItem, catalogue) {
       : actionItem.type === 'message' ? `追加消息到 ${workerLabel(actionItem.target_id, actionItem.target_worker_number)}：${actionItem.body || ''}`
         : actionItem.type === 'retry_worker' ? `到点时若失败则重试 ${workerLabel(actionItem.target_id, actionItem.target_worker_number)}；保留工作区，不检测额度恢复`
           : actionItem.type === 'resume_worker' ? `到点时若已暂停则继续 ${workerLabel(actionItem.target_id, actionItem.target_worker_number)}；不恢复取消或已验收的 Worker`
-            : actionItem.type === 'request_merge' ? '冻结源提交并向直接父 Worker 请求合并'
+            : actionItem.type === 'request_merge' ? '冻结源提交并向直接父 Worker 请求合并；请求提交完成不等于本轮交付完成'
+            : actionItem.type === 'integrate_deliveries' ? `接收目标的已授权交付，使用${actionItem.strategy === 'converge' ? '归并' : actionItem.strategy === 'serial' ? '普通串行' : '尚未确认的'}处理策略；不提高来源授权`
         : actionItem.type === 'accept_worker' ? '安全条件通过后自动验收即归档，表示不再有异议，回收 worktree/ref 并保留运行历史；脏工作区会阻止验收，不调用质量评审 Agent，不保证业务质量'
           : actionItem.type === 'archive_worker' ? '历史资源回收阶段（现已包含在验收中）：清理 worktree/ref，保留 Worker、会话和历史，不丢弃未提交改动' : actionItem.type;
 }
@@ -97,7 +99,7 @@ function parameters(mount, catalogue = ui.hookCatalogue) {
   const last = mount.last_execution;
   if (last) {
     const promptExecution = last.kind === 'prompt' || mount.actions?.some(item => item.type === 'prompt_command');
-    content.append(el('p', `最近执行：${STATES[last.status] || last.status} · ${absolute(last.finished_at || last.created_at)}`, 'hint'));
+    content.append(el('p', `最近 Hook 动作：${hookResultLabel(mount, last.status) || STATES[last.status] || last.status} · ${absolute(last.finished_at || last.created_at)}`, 'hint'));
     if (last.due_at && mount.schedule) content.append(el('p', `原定提交：${scheduledLabel(last.due_at, mount.schedule.timezone)}`, 'hint'));
     if (last.command_result && !promptExecution) {
       const result = last.command_result;
@@ -111,8 +113,9 @@ function parameters(mount, catalogue = ui.hookCatalogue) {
     // history instead uses worker_id for the parent and created_worker_id for the result.
     const createdId = last.created_worker_id ?? (last.kind === 'prompt' ? null : last.worker_id);
     const createdNumber = last.created_worker_id ? last.created_worker_number : last.worker_number;
-    if (Number.isSafeInteger(createdId) && createdId > 0) content.append(button(`查看创建的 Worker ${workerLabel(createdId, createdNumber)}`, () => detail(createdId), 'ghost hook-button', { worker: createdId }));
+    if (!mount.actions?.some(item => ['request_merge', 'accept_worker', 'integrate_deliveries'].includes(item.type)) && Number.isSafeInteger(createdId) && createdId > 0) content.append(button(`查看创建的 Worker ${workerLabel(createdId, createdNumber)}`, () => detail(createdId), 'ghost hook-button', { worker: createdId }));
   } else content.append(el('p', '还没有执行记录。', 'hint'));
+  const operation = renderOperation(mount); if (operation) content.append(operation);
   return content;
 }
 function importButton(source, revision, ownsPage, refresh, { busy = () => false, setEditing = () => {}, unavailable = null, catalogue = null } = {}) {
@@ -139,11 +142,12 @@ function importButton(source, revision, ownsPage, refresh, { busy = () => false,
 }
 const BUILTIN_STEPS = { 'auto-merge': { number: 1 }, 'auto-accept': { number: 2 }, 'auto-archive': { number: 3 } };
 function mountCard(task, mount, model, refresh, ownsPage, { setEditing = () => {}, catalogue = null, busy = () => false, scope = null } = {}) {
+  if (isDeliveryHandler(mount)) return deliveryHandlerCard({ mount, policy: model?.convergence });
   const row = el('article', undefined, 'hook-mount'); row.dataset.hookId = mount.id;
   const head = el('div', undefined, 'hook-mount-head');
   const step = BUILTIN_STEPS[mount.id];
   if (step) head.append(badge(`第 ${step.number} 步`));
-  head.append(el('strong', mount.name), badge(mount.mode === 'persistent' ? '持续' : '一次性'), badge(mount.enabled ? '启用' : '停用'), badge(STATES[mount.state] || mount.state || '已挂载'));
+  head.append(el('strong', mount.name), badge(mount.mode === 'persistent' ? '持续' : '一次性'), badge(mount.enabled ? '启用' : '停用'), badge(hookResultLabel(mount, mount.state) || STATES[mount.state] || mount.state || '已挂载'));
   if (mount.locked) head.append(badge('锁定'));
   if (scope) { row.classList.add('project-hook'); head.append(badge(scope, 'hook-scope'), hookHelpLink()); }
   row.append(head);
@@ -269,14 +273,21 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   if (completion) row.append(autoCompletionControl(task, { ...model, completion }, refresh, ownsPage,
     editing => { section.dataset.completionEditing = String(editing); }));
   else if (['order', 'child'].includes(workerKind(task))) row.append(autoMergeControl(task, refresh, ownsPage));
+  let handlerCard;
   const convergence = workerConvergenceControl(task, { ownsPage, refresh,
+    onPolicyChange(policy) { handlerCard?.updatePolicy(policy); },
     onEditing(value) { section.dataset.convergenceEditing = String(value); },
     busy: () => section.dataset.hookEditing === 'true' || section.dataset.completionEditing === 'true' });
-  if (convergence) row.append(convergence);
+  const handler = items.find(isDeliveryHandler);
+  if (convergence && !handler) row.append(convergence);
+  for (const mount of items) {
+    const diagnostic = operationAlert(mount);
+    if (diagnostic && !isDeliveryHandler(mount)) row.append(el('span', `${mount.name}：${diagnostic}`, 'error hook-operation-alert'));
+  }
   const alerts = items.filter(item => (!BUILTIN_STEPS[item.id] || !completion) && (['running', 'failed', 'unknown', 'skipped'].includes(item.state) || item.pending_due_at));
   for (const mount of alerts) {
     const diagnostic = ['failed', 'unknown'].includes(mount.state) ? mount.last_execution?.error || mount.reason : null;
-    const alert = el('span', `${mount.name}：${STATES[mount.state] || '状态未知'}${diagnostic ? ` · ${diagnostic}` : ''}`, 'hint hook-mount-alert');
+    const alert = el('span', `${mount.name}：${hookResultLabel(mount, mount.state) || STATES[mount.state] || '状态未知'}${diagnostic ? ` · ${diagnostic}` : ''}`, 'hint hook-mount-alert');
     alert.setAttribute('data-help', mount.last_execution?.error || mount.reason || STATES[mount.state]); alert.tabIndex = 0;
     if (['failed', 'unknown'].includes(mount.state)) alert.classList.add('error');
     row.append(alert);
@@ -297,7 +308,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   management.open = false;
   if (!model) management.append(el('p', '完整挂载列表暂不可用；请更新服务或刷新。', 'hint'));
   if (!items.length) management.append(el('p', '此 Worker 尚未挂载 Hook。', 'hint'));
-  const groups = new Map(); for (const mount of items) { const group = groups.get(mount.trigger) || []; group.push(mount); groups.set(mount.trigger, group); }
+  const groups = new Map(); for (const mount of items.filter(item => !isDeliveryHandler(item))) { const group = groups.get(mount.trigger) || []; group.push(mount); groups.set(mount.trigger, group); }
   const phaseOrder = ['worker.delivery_ready', 'delivery.integrated', 'worker.accepted'];
   const labels = { 'worker.delivery_ready': 'Agent 完成工作后 · 交付就绪', 'delivery.integrated': '合并完成后 · 已集成', 'worker.accepted': '验收完成后', 'worker.merge_received': '此 Worker 成功收到一次合并后' };
   for (const [trigger, group] of [...groups].sort(([a], [b]) => (phaseOrder.includes(a) ? phaseOrder.indexOf(a) : 3) - (phaseOrder.includes(b) ? phaseOrder.indexOf(b) : 3))) {
@@ -360,7 +371,9 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   }, 'ghost hook-button', { help: '打开受控规则编辑器或选择项目模板；打开不调用 Agent，确认挂载前会说明动作代价。' });
   controls.append(guarded(attach, !writable ? '挂载列表不可用、Worker 已结束或分支已归档；请先处理后刷新。' : null),
     button('项目自动化与模板', () => openHooks(), 'ghost hook-button', { help: '查看当前项目的节点、动作和模板；不会自动挂载到 Worker。' }));
-  management.append(controls, editor); row.append(toggle, management); section.append(row); return section;
+  management.append(controls, editor); row.append(toggle, management); section.append(row);
+  if (handler) { handlerCard = deliveryHandlerCard({ mount: handler, policy: model?.convergence, control: convergence }); section.append(handlerCard); }
+  return section;
 }
 async function promptRisk() {
   return confirmDialog({ title: '使用替换内置规则的 Prompt？', message: '这份自定义 Prompt 可能影响 Worker 权限、协作、工作区安全和交付协议；作用于所配置动作的新建或重试／继续目标 Worker。',
@@ -460,7 +473,7 @@ export async function openHooks({ subpage = 'settings' } = {}) {
     // Busy changes do not require a full redraw: every mutation checks this shared gate.
     if (state.paintedCatalogue === catalogue && (state.busy || state.paintedBusy === state.busy)) {
       state.shortcutNode?.updateCommands?.(catalogue.commands, catalogue);
-      state.convergenceNode?.syncControls?.();
+      state.convergenceNode?.updateCatalogue?.(catalogue); state.convergenceNode?.syncControls?.();
       return;
     }
     for (const card of root.querySelectorAll('.hook-mount')) {
@@ -483,9 +496,9 @@ export async function openHooks({ subpage = 'settings' } = {}) {
     });
     state.shortcutNode = commands;
     commands.updateCommands?.(catalogue.commands, catalogue);
-    const convergence = state.convergenceNode || renderBranchConvergence({ ownsPage: owns, busy: () => state.busy,
+    const convergence = state.convergenceNode || renderBranchConvergence({ ownsPage: owns, catalogue, busy: () => state.busy,
       setBusy(value) { state.busy = value; if (owns()) paint(); }, setEditing(value) { state.convergenceEditing = value; } });
-    state.convergenceNode = convergence;
+    state.convergenceNode = convergence; convergence.updateCatalogue?.(catalogue);
     const mounts = catalogue.command_example?.hooks?.mounts;
     const commandProblem = mounts?.map(mount => commandReferencesIssue(mount, catalogue, mount.enabled)).filter(Boolean).join('；');
     automationModule(hooks, 'project-hooks', state.folds, [automationAlerts(mounts), commandProblem].filter(Boolean).join('；')
@@ -550,15 +563,16 @@ export async function openHooks({ subpage = 'settings' } = {}) {
     history.append(el('p', '这里展示项目目录提供的最近执行快照；快捷指令与归并批次可在各自记录区分页查看。其他 Worker 的完整 Hook 与调用历史仍在其详情中。', 'hint'),
       button('刷新记录', () => owns() && !state.busy ? load() : undefined, 'ghost'));
     const observations = [
-      ...(mounts || []).map(item => ({ name: item.name, scope: 'main Hook', last: item.last_execution, state: item.state, prompt: item.actions?.some(action => action.type === 'prompt_command') })),
+      ...(mounts || []).filter(item => !isDeliveryHandler(item)).map(item => ({ name: item.name, scope: 'main Hook', last: item.last_execution, state: item.state, mount: item, prompt: item.actions?.some(action => action.type === 'prompt_command') })),
       ...(catalogue.signals?.items || []).map(item => ({ name: item.name, scope: '时间信号', last: item.last_execution })),
       ...(catalogue.management_workers || []).map(item => ({ name: item.name || workerLabel(item), scope: '管理指令', last: item.management?.last_execution, state: item.management?.state, task: item })),
     ];
     for (const item of observations) {
       const card = el('article', undefined, 'hook-execution');
       card.append(el('h3', `${item.scope} · ${item.name}`));
-      if (item.last) card.append(el('p', `${STATES[item.last.status] || item.last.status || '状态未知'} · ${absolute(item.last.finished_at || item.last.created_at || item.last.started_at || item.last.due_at)}`, 'hint'));
+      if (item.last) card.append(el('p', `${hookResultLabel(item.mount, item.last.status) || STATES[item.last.status] || item.last.status || '状态未知'} · ${absolute(item.last.finished_at || item.last.created_at || item.last.started_at || item.last.due_at)}`, 'hint'));
       else card.append(el('p', STATES[item.state] || '暂无执行记录', 'hint'));
+      const operation = renderOperation(item.mount || {}); if (operation) card.append(operation);
       if (item.last?.error || item.last?.reason) card.append(el('p', item.last.error || item.last.reason, 'error'));
       if (item.last && (item.prompt || item.last.kind === 'prompt' || item.last.created_worker_id)) {
         card.append(el('p', item.last.status === 'succeeded' ? '提示词已创建／提交 Agent Worker，不是 Agent 工作完成。' : '提示词创建状态；未知结果不自动重试。', 'hint'));
@@ -569,7 +583,8 @@ export async function openHooks({ subpage = 'settings' } = {}) {
     }
     if (!observations.length) history.append(el('p', '暂无 Hook、信号与管理记录。', 'hint'));
     state.settingsNodes = [introduction, hooks, ...signals, controls, templates]; state.historyNode = history;
-    syncChildren(root, [subnav, header, subtitle, introduction, commands, convergence, hooks, ...signals, controls, templates, history]);
+    const tools = renderAutomationTools(catalogue, state.folds);
+    syncChildren(root, [subnav, header, subtitle, introduction, commands, tools, convergence, hooks, ...signals, controls, templates, history]);
     state.switchSubpage(state.subpage);
     // Moving a retained editor/search into a fresh module must not discard keyboard focus or caret.
     let ancestor = focused;

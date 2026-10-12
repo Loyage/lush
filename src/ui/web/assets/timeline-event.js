@@ -18,7 +18,11 @@ const lifecycle = new Set(['created', 'completed', 'cancelled', 'retry', 'invoca
   'management.invocation_started', 'management.action_submitted', 'management.action_skipped', 'management.action_completed', 'management.settled']);
 export function timelineEventCategory(event) {
   const type = event.type || '';
-  if (event.error || /(?:failed|failure|conflict|blocked|divergence|unknown|timeout|unavailable)/.test(type)) return 'failure';
+  if (event.error || /(?:failed|failure|conflict|blocked|divergence|unknown|timeout|unavailable)/.test(type)
+    || type === 'automation.operation_finished' && ['failed', 'unknown'].includes(event.data?.status)) return 'failure';
+  if (['automation.operation_submitted', 'automation.operation_finished'].includes(type)
+    && ['request_merge', 'accept_worker', 'integrate_deliveries'].includes(event.data?.tool)
+    || ['delivery.requested', 'completion.execution_submitted'].includes(type)) return 'delivery';
   if (type === 'notice.opened' && event.data?.kind === 'info') return 'detail';
   if (/^(?:notice\.(?:opened|answered|reselected)|plan\.(?:proposed|approved|rejected))$/.test(type)) return 'decision';
   if (/^(?:merge\.|convergence\.|resolution\.|child\.(?:integrat|integration)|worker\.merge_|task\.(?:merge_|divergence_|delivery_|acceptance_))/.test(type)

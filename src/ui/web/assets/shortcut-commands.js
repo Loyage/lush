@@ -29,7 +29,7 @@ export function renderShortcutCommands(options) {
   const historyModule = block('运行记录'); historyModule.classList.add('shortcut-history-module'); historyModule.append(runs.history);
   const summary = () => `${latest.items.length} 项 · ${latest.items.filter(item => item.authorized).length} 已授权；授权和 Hook 启停独立。`;
   automationModule(runModule, 'command-run', folds, summary()); automationModule(management, 'command-management', folds, summary()); automationModule(historyModule, 'command-history', folds);
-  runs.onHistoryStatus(text => { historyModule.moduleSummary.textContent = text; }); section.append(runModule, management, historyModule);
+  runs.onHistoryStatus(text => { historyModule.moduleSummary.textContent = text; historyModule.moduleSummary.hidden = !text; }); section.append(runModule, management, historyModule);
   section.setSubpage = subpage => { for (const child of section.children) child.hidden = child === historyModule ? subpage !== 'history' : subpage === 'history'; };
   section.updateCommands = (next, nextCatalogue = null) => { if (validCommands(next)) { latest = next; runs.update(next); manager.updateCommands(next, nextCatalogue); runModule.moduleSummary.textContent = management.moduleSummary.textContent = summary(); } };
   section.dispose = () => runs.dispose(); return section;

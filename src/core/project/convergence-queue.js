@@ -72,6 +72,10 @@ export default {
   },
 
   scheduleConvergence(parentId) {
+    if (parentId) return this.dispatchAutomationOperation('integrate_deliveries', parentId, { engine: 'converge' });
+  },
+
+  scheduleConvergenceOperation(parentId) {
     if (!parentId || this.stopping || this.clearing || this.maintenancePaused()) return;
     (this.convergenceWakePending ??= new Set()).add(parentId);
     queueMicrotask(() => this.driveConvergence(parentId).catch(() => {

@@ -11,11 +11,11 @@ export const validConvergencePolicy = (value, branch = value?.branch) => common(
   && Number.isSafeInteger(value.owner_id) && value.owner_id > 0 && (value.mounted || !value.enabled);
 export const validConvergenceDefaults = common;
 export const CONVERGENCE_ENABLE_HELP = agentHelp('开启目标分支的新交付归并；冲突时可能创建整合 Worker，每批形成一个单父 Squash 提交。不改变 Worker 自动合并或验收授权，不自动运行最终验证快捷指令。');
-export const CONVERGENCE_DISABLE_HELP = '关闭未来归并；已固定批次继续收口，不撤回交付或删除历史，不改变 Worker 自动合并或验收授权。';
+export const CONVERGENCE_DISABLE_HELP = '关闭未来归并，目标系统工具仍以普通串行处理合法的已授权交付；已固定批次继续收口，不撤回交付或删除历史，不改变 Worker 自动合并或验收授权。';
 export const CONVERGENCE_COMPATIBILITY = '归并自动化数据不可用或版本不兼容，请更新项目后台与界面服务后重新读取。';
 
-/** Same branch policy as the project editor, deliberately separate from completion and mounts. */
-export function workerConvergenceControl(task, { ownsPage, refresh, onEditing = () => {}, busy = () => false }) {
+/** Same target strategy as the protected delivery handler; completion authorization stays independent. */
+export function workerConvergenceControl(task, { ownsPage, refresh, onEditing = () => {}, onPolicyChange = () => {}, busy = () => false }) {
   const policy = task.hooks?.convergence;
   if (policy === null) return null;
   const node = el('div', undefined, 'hook-completion-control worker-convergence-control');
@@ -55,7 +55,7 @@ export function workerConvergenceControl(task, { ownsPage, refresh, onEditing = 
       if (!validConvergencePolicy(result, task.branch) || result.owner_id !== task.id) {
         acknowledgedUnknown = true; throw new Error('保存已确认，但返回策略不兼容；请只读刷新核查。');
       }
-      model = result; paint(); show('归并设置已保存；不改变自动合并或验收授权。');
+      model = result; onPolicyChange(model); paint(); show('归并设置已保存；不改变自动合并或验收授权。');
       try { await refresh(); } catch (error) { if (ownsPage()) show(`归并设置已保存，但刷新失败：${error.message}；不要重复提交。`, 'error'); }
     } catch (error) { if (ownsPage()) show(acknowledged ? error.message : `保存失败：${error.message}；版本冲突请刷新，原策略保留。`, 'error'); }
     finally { saving = false; onEditing(false); paint(); }

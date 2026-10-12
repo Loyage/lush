@@ -80,6 +80,43 @@ test('自动链配置、下一人工环节和过期执行有独立中文名称�
   expect(eventLabel({ type: 'completion.execution_unknown' })).toContain('待核验');
 });
 
+test('统一自动化请求和目标接收事件只说明提交与既有授权，不冒充开始或完成', () => {
+  const names = {
+    'automation.operation_submitted': '自动化操作请求已提交',
+    'completion.execution_submitted': '自动处理动作已提交待安全执行',
+    'delivery.requested': '目标已接收已授权交付（未新增授权）',
+  };
+  for (const [type, label] of Object.entries(names)) {
+    const source = Object.freeze({ type, data: Object.freeze({ tool: 'request_merge', status: 'succeeded', operation_id: 12 }) });
+    expect(Object.hasOwn(EVENTS, type)).toBe(true); expect(eventLabel(source)).toBe(label);
+    for (const claim of ['成功', '完成', '已开始', '已合入']) expect(eventLabel(source)).not.toContain(claim);
+    expect(source.type).toBe(type); expect(source.data.operation_id).toBe(12);
+  }
+});
+
+test('自动化操作结束按明确安全状态展示，成功不证明代码合入，失败和未知不重放', () => {
+  const type = 'automation.operation_finished';
+  expect(Object.hasOwn(EVENTS, type)).toBe(true);
+  const labels = {
+    succeeded: '自动化操作已完成（不代表代码合入或测试通过）',
+    failed: '自动化操作失败（不自动重放）',
+    unknown: '自动化操作结果待核验（未知副作用不重放）',
+  };
+  for (const [status, label] of Object.entries(labels)) {
+    const source = Object.freeze({ type, data: Object.freeze({ status, tool: 'request_merge', error: 'PRIVATE_DIAGNOSTIC', operation_id: 12 }) });
+    expect(eventLabel(source)).toBe(label); expect(eventLabel(source)).not.toContain('PRIVATE_DIAGNOSTIC');
+    expect(eventLabel(source)).not.toContain('成功'); expect(eventLabel(source)).not.toContain('已合入');
+    if (status !== 'succeeded') expect(eventLabel(source)).not.toContain('完成');
+    expect(source.data.status).toBe(status); expect(source.data.operation_id).toBe(12);
+  }
+  for (const data of [undefined, {}, { result: 'succeeded' }, ...['submitted', 'waiting', 'running', 'future', 'constructor', '__proto__'].map(status => ({ status }))]) {
+    const source = { type, ...(data ? { data } : {}) }, before = structuredClone(source);
+    expect(eventLabel(source)).toBe(EVENTS[type]); expect(eventLabel(source)).toContain('待核验');
+    expect(eventLabel(source)).not.toContain('成功'); expect(eventLabel(source)).not.toContain('完成');
+    expect(source).toEqual(before);
+  }
+});
+
 test('验收资源回收的开始、未完成和历史补办有独立名称，不冒充验收完成或改写来源', () => {
   const names = {
     'task.acceptance_started': '开始验收资源回收（受检）',

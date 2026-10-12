@@ -66,6 +66,10 @@ export default {
   },
 
   async requestTaskMerge(taskId) {
+    return this.dispatchAutomationOperation('request_merge', taskId);
+  },
+
+  async requestMergeOperation(taskId) {
     let task = this.store.task(id(taskId));
     check(codeTask(task), 'only order/child code Workers can request a merge');
     this.restoreUnrequestedTaskParent(task.id);
@@ -128,6 +132,7 @@ export default {
       const { auto_merge: _automatic, ...explicit } = intent;
       this.store.update(task.id, { reservation: JSON.stringify(explicit) });
     }
+    this.ensureMergeRequestOperation(task.id);
     if (previous?.status === 'suspended') this.resumeQueuedTaskMerge(task.id);
     if (FROZEN.includes(previous?.status)) this.scheduleTaskMerge(previous.parent_id);
     else await this.settleQueuedMerge(task.id);
@@ -135,6 +140,10 @@ export default {
   },
 
   async settleQueuedMerge(taskId) {
+    return this.dispatchAutomationOperation('request_merge', taskId, { automatic: true });
+  },
+
+  async settleQueuedMergeOperation(taskId) {
     if (this.maintenancePaused()) return false;
     const current = this.store.task(taskId);
     const reservation = reservationOf(current);
@@ -151,6 +160,8 @@ export default {
       if (reservationOf(task)?.status !== 'pending' || taskSyncDeliveryPaused(this, taskId)
         || this.taskSyncBusy?.has(taskId) || this.reservationWaitReason(task) || this.running.has(taskId)
         || this.commandHookRunning?.has(taskId)) return false;
+      this.ensureMergeRequestOperation(taskId);
+      task = this.store.task(taskId);
       await this.workspaces.finish(task);
       task = this.store.task(taskId);
       const prior = reservationOf(task);
@@ -178,9 +189,12 @@ export default {
           const live = this.store.task(task.id), current = reservationOf(live);
           if (current?.version !== 2 || current.status !== 'pending' || live.head_commit !== task.head_commit
             || this.reservationWaitReason(live) || taskSyncDeliveryPaused(this, live.id)) return false;
-          this.store.update(task.id, { reservation: null, status: 'awaiting_acceptance', integration: delivery });
           const settled = this.store.event(task.id, 'task.delivered', { result: task.result, commit: task.head_commit, no_changes: true });
+          this.dispatchAutomationOperation('integrate_deliveries', originalParent.id, { phase: 'pin',
+            selection: this.deliveryHandlerSelection(originalParent), deliveryId: settled, sourceId: task.id, noChanges: true });
+          this.store.update(task.id, { reservation: null, status: 'awaiting_acceptance', integration: delivery });
           this.store.event(task.id, 'task.unreserved', { reservation: prior, reason: 'no changes' });
+          this.finishNoChangeMergeOperation(task.id, current, settled);
           this.recordCompletionDelivery(task.id, settled, true);
           if (task.task_kind === 'child') {
             const key = `child:${task.id}:delivery:${settled}`;
@@ -199,8 +213,8 @@ export default {
         this.noteReservationBlocked(task.id, '没有尚未合入的提交；请继续工作或显式结束这条 Worker');
         return false;
       }
-      const policy = this.convergencePolicy?.(originalParent.branch);
-      const deltaBase = policy?.enabled ? await this.workspaces.taskSyncBase(task, state.child_head, state.parent_head) : null;
+      const selection = this.deliveryHandlerSelection(originalParent);
+      const deltaBase = selection.strategy === 'converge' ? await this.workspaces.taskSyncBase(task, state.child_head, state.parent_head) : null;
       this.store.transaction(() => {
         const live = this.store.task(task.id), pinned = reservationOf(live);
         check(pinned?.version === 2 && pinned.status === 'pending' && live.status === 'waiting'
@@ -210,14 +224,14 @@ export default {
         'merge reservation changed during request');
         const { blocked_reason: _reason, blocked_code: _code, parent_commit: _parentCommit, ...ready } = pinned;
         const deliveryId = this.store.event(task.id, 'merge.enqueued', { parent_id: originalParent.id, commit: state.child_head });
-        const currentPolicy = this.convergencePolicy?.(originalParent.branch);
-        check((currentPolicy?.enabled === true) === (policy?.enabled === true)
-          && currentPolicy?.generation === policy?.generation,
-          'convergence policy changed during safe-point inspection');
-        const version = currentPolicy?.enabled ? 3 : 2;
+        const handler = this.dispatchAutomationOperation('integrate_deliveries', originalParent.id,
+          { phase: 'pin', selection, deliveryId, sourceId: task.id });
+        const currentPolicy = handler.policy;
+        const version = handler.strategy === 'converge' ? 3 : 2;
         const request = { ...ready, version, queue_protocol: version === 3 ? 3 : 1,
           status: 'requested', commit: state.child_head,
           delivery_id: deliveryId, enqueue_seq: deliveryId, parent_id: originalParent.id,
+          handler_operation_id: handler.operation_id,
           ...(version === 3 ? { verification_mode: 'agent', validation: null, base_commit: deltaBase,
             convergence_policy_generation: currentPolicy.generation } : {}),
           requested_at: new Date().toISOString() };
@@ -370,6 +384,10 @@ export default {
 
   /** Dispatch the parent's merge signal without waking its development Agent. */
   scheduleTaskMerge(parentId) {
+    if (parentId) return this.dispatchAutomationOperation('integrate_deliveries', parentId);
+  },
+
+  scheduleDeliveryHandlerOperation(parentId) {
     if (this.stopping || this.maintenancePaused() || !parentId) return;
     this.scheduleConvergence?.(parentId);
     // A signal delivered while the driver awaits Git must survive a busy early return.
