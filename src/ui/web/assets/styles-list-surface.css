@@ -1,0 +1,26 @@
+/* Lists share chrome and interaction surfaces; record metadata remains page-specific. */
+.ui-list-page{min-width:0;max-width:1180px}
+.ui-list-page .ui-list-tools{display:flex;flex-direction:row;flex-wrap:wrap;gap:10px 12px;align-items:flex-end;min-width:0;padding:12px;border:1px solid var(--line-soft);border-radius:var(--radius);background:var(--panel);margin:0 0 14px}
+.ui-list-tools>.filters{flex:1;min-width:0;margin:0}
+.ui-list-page .ui-list-card{min-width:0;padding:18px 20px;border:1px solid var(--line-soft);border-radius:var(--radius);background:var(--panel);box-shadow:var(--shadow)}
+.ui-list-page .ui-list-heading{position:sticky;top:-32px;z-index:3;display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--panel);margin:0 0 12px;padding:8px 0;box-shadow:0 1px 0 var(--line-soft)}
+.resource-panels .ui-list-heading{top:-30px}
+.ui-list-heading h2{margin:0;font-size:15px}
+.ui-list-heading .count{margin-left:auto}
+.ui-list-body{min-width:0}
+.agent-connections-panel.ui-list-page{max-width:none}
+.ui-list-page .ui-list-entry{width:100%;min-width:0;margin:0 0 8px;padding:12px 14px;border:1px solid var(--line-soft);border-radius:9px;background:var(--bg);color:var(--text);text-align:left;font-weight:400;text-decoration:none}
+.ui-list-page .ui-list-entry:hover{background:var(--panel-2);border-color:var(--line);box-shadow:none;filter:none}
+.ui-list-page .ui-list-entry:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ui-list-page .ui-list-entry.selected{border-color:var(--accent);background:var(--accent-soft)}
+.ui-list-page .ui-list-entry.notice-question{background:var(--amber-soft)}
+.ui-list-page .ui-list-entry.notice-info{background:var(--blue-soft)}
+.ui-list-pagination{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:14px 0 0}
+@media(max-width:760px){
+  .ui-list-page .ui-list-tools{align-items:stretch;gap:9px;padding:10px}
+  .ui-list-tools>.filters{flex-basis:100%}
+  .ui-list-page .ui-list-card{padding:10px}
+  .ui-list-page .ui-list-heading,.resource-panels .ui-list-heading{top:42px}
+  .ui-list-page .ui-list-entry{padding:10px}
+  .ui-list-pagination button{min-height:40px}
+}

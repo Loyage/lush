@@ -64,8 +64,12 @@ async function go(hash, project = true) {
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/fixture?route=${encodeURIComponent(route)}` }); await frame();
 }
 async function click(selector) {
+  // Native WebDriver scrolling only considers the viewport, not the sticky composer.
+  await execute(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center',behavior:'instant'})`);
+  await rpc(`/session/${session}/execute/async`, { script: 'const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));', args: [] });
   const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: selector });
-  return rpc(`/session/${session}/element/${element['element-6066-11e4-a52e-4f735466cecf']}/click`, {});
+  try { return await rpc(`/session/${session}/element/${element['element-6066-11e4-a52e-4f735466cecf']}/click`, {}); }
+  catch (error) { throw new Error(`native click ${selector}: ${error.message}`); }
 }
 async function screenshot(name) { const data = await rpc(`/session/${session}/screenshot`, undefined, 'GET'); fs.writeFileSync(path.join(output, name + '.png'), Buffer.from(data, 'base64')); }
 try {
@@ -99,7 +103,13 @@ try {
   }
   await click('.page-subnav [data-subpage=settings]'); assert(await wait('location.hash==="#quick-chat-settings"&&document.querySelector("[data-chat-field=edit_prompt]")?.options.length===4'), 'top settings navigation unavailable');
   assert(await execute('return document.querySelector(".quick-chat-page").firstElementChild.matches(".page-subnav")&&document.querySelector(".page-subnav [aria-current=page]").dataset.subpage==="settings"&&!document.querySelector(".quick-chat-history")'), 'settings and history are not separate subpages');
+  await execute('window.promptDraftNode=document.querySelector("[data-chat-field=name]");promptDraftNode.value="折叠仍保留的 Prompt";promptDraftNode.dispatchEvent(new Event("input"))');
+  await click('.quick-chat-library .module-toggle');
+  assert(await execute('const library=document.querySelector(".quick-chat-library"),note=[...library.querySelectorAll("[role=status]")].find(n=>!n.classList.contains("module-summary"));return library.classList.contains("module-fold")&&!library.classList.contains("module-preview")&&library.querySelector(".module-body").hidden&&note.parentNode===library&&note.getBoundingClientRect().height>0&&document.querySelector(".page-subnav").getBoundingClientRect().height>0'), 'shared Prompt fold hid live status or subpage navigation');
+  await click('.quick-chat-library .module-toggle');
+  assert(await execute('return document.querySelector("[data-chat-field=name]")===promptDraftNode&&promptDraftNode.value==="折叠仍保留的 Prompt"&&document.documentElement.scrollWidth<=innerWidth+1'), 'shared folding discarded Prompt draft or overflowed');
   await click('.page-subnav [data-subpage=history]'); assert(await wait('location.hash==="#quick-chat"&&document.querySelector(".quick-chat-history")'), 'top history navigation unavailable');
+  assert(await execute('const history=document.querySelector(".quick-chat-history");return history.classList.contains("ui-list-card")&&history.querySelector(".ui-list-heading")&&history.querySelector(".quick-chat-history-row").classList.contains("ui-list-entry")'), 'subpage history lost shared list chrome');
   await click('.page-subnav [data-subpage=settings]'); assert(await wait('document.querySelector("[data-chat-field=edit_prompt]")?.options.length===4'), 'Prompt settings unavailable');
   await execute('const picker=document.querySelector("[data-chat-field=edit_prompt]");picker.value="explain";picker.dispatchEvent(new Event("change"));const menu=document.querySelector("[data-chat-field=context_menu]");menu.checked=false;menu.dispatchEvent(new Event("change"))');
   await click('.quick-chat-library form button:not(.danger)'); assert(await wait('document.querySelector(".quick-chat-library").textContent.includes("Prompt 已保存")'), 'Prompt save failed');

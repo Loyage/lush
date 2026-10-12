@@ -335,7 +335,7 @@ test('all automation modules fold independently and retain exceptional summaries
   const mount = catalogue.command_example.hooks.mounts[0]; mount.state = 'unknown'; mount.last_execution = { status: 'unknown', error: '需要核对副作用' };
   history = [execution({ status: 'unknown' })]; await openHooks(); await until(() => root().querySelector('.shortcut-execution'));
   const modules = root().querySelectorAll('.automation-module'); expect(modules).toHaveLength(7);
-  const search = field('查找 Hook 模板'); search.value = '推送'; search.oninput();
+  const search = field('查找 Hook 模板'); search.value = '推送'; search.listeners.keydown[0]({ key: 'Enter', preventDefault() {} });
   for (const module of modules) await module.querySelector('.automation-module-toggle').onclick();
   expect(root().querySelector('[data-module="project-hooks"]').moduleSummary.textContent).toContain('需要核对副作用');
   expect(root().querySelector('[data-module="command-history"]').moduleSummary.textContent).toContain('结果未知');

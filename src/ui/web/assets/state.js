@@ -85,6 +85,7 @@ export const mergeSelection = new Set();
  * 上一个文件留下的哨兵（signature）会让新 DOM 上的第一次轮询直接 return，什么都不画。
  */
 export function resetUiState() {
+  ui.disposePageModules?.(); ui.disposePageModules = null;
   ui.hostSession = { status: 'unread', username: null, pending: null };
   ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null;
   ui.disposeQuickChatPage?.(); ui.quickChatPage = null; ui.disposeQuickChatPage = null; ui.syncQuickChatReferences = null; ui.composerChatMode = null;
@@ -96,7 +97,7 @@ export function resetUiState() {
   ui.draftSignature = null; ui.draftEditing = null; ui.draftIds = []; ui.draftPanelOpen = false; ui.composerExpanded = false; ui.composerSubmitting = false; ui.composerStartNow = false; ui.composerReferences = [];
   ui.intentSignature = null; ui.specSignature = null;
   ui.noticeReadPending = new Map(); ui.noticeReadRows = new Map();
-  ui.noticeFocus = null; ui.noticeIndex = new Map(); ui.questionDrafts = new Map(); ui.noticeRecords = null; ui.loadNoticeRecords = null; ui.selectNoticeFilter = null;
+  ui.noticeFocus = null; ui.noticeModuleStates = new Map(); ui.noticeIndex = new Map(); ui.questionDrafts = new Map(); ui.noticeRecords = null; ui.loadNoticeRecords = null; ui.selectNoticeFilter = null;
   ui.lastSnapshot = null; ui.taskHistory = []; ui.taskHistoryPage = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
   ui.taskGraphFetchedAt = 0; ui.taskGraphIds = new Set(); ui.taskGraphPage = null; ui.taskGraphShowArchived = false;
   ui.taskGraphFilesExpanded = new Set(); ui.taskGraphMinimal = readPref('taskGraphMinimal');

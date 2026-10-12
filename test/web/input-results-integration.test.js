@@ -52,7 +52,7 @@ test('whole-history search reaches past 100 records and preview, preserves ungue
   resetUiState(); ui.hostSession = { status: 'ready', username: '测试用户' };
   try {
     const root = renderConversation(task), keyword = root.querySelector('.conversation-search').querySelector('input');
-    keyword.value = 'TailNeedle'; keyword.oninput(); expect(calls).toHaveLength(0);
+    keyword.value = 'TailNeedle'; keyword.listeners.keydown[0]({ key: 'Enter', preventDefault() {} }); expect(calls).toHaveLength(0);
     await findByText(root, '查找全部历史').onclick(); expect(calls).toHaveLength(4);
     expect(deepText(root)).toContain('查找完成'); expect(deepText(root)).toContain('已扫描 158 个事件、157 条消息');
     const input = root.querySelector('.conversation-input'); expect(input.dataset.ref).toContain(`event-${inputId}`);
@@ -63,7 +63,7 @@ test('whole-history search reaches past 100 records and preview, preserves ungue
     const show = root.querySelector('[data-conversation-filter="other"]'); show.checked = true; show.onchange();
     expect(root.querySelector(`[data-conversation-key="other:message:${rawId}"]`).querySelector('.conversation-sender').textContent).toBe('来源不明');
     expect(root.querySelector(`[data-conversation-key="other:event:${decisionId}"]`).querySelector('.conversation-sender').textContent).toBe('用户答复');
-    keyword.value = '不存在的词'; keyword.oninput(); await findByText(root, '查找全部历史').onclick();
+    keyword.value = '不存在的词'; keyword.listeners.keydown[0]({ key: 'Enter', preventDefault() {} }); await findByText(root, '查找全部历史').onclick();
     expect(deepText(root)).toContain('历史正文无命中'); expect(deepText(root)).toContain('已扫描 158 个事件、157 条消息');
     f.store.run('INSERT INTO events(task_id,type,data) VALUES (?,?,?)', task.id, 'old', '{broken');
     await findByText(root, '查找全部历史').onclick();

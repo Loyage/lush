@@ -31,6 +31,32 @@ function withSessionStorage() {
   return { values, restore() { if (previous) Object.defineProperty(globalThis, 'sessionStorage', previous); else delete globalThis.sessionStorage; } };
 }
 
+test('local inbox search stays applied through refresh, filtering and older pages; empty matches never claim full-library absence', async () => {
+  const requests = [];
+  const dom = installDom({ fetch: async url => {
+    requests.push(url);
+    return json(String(url).includes('before=') ? page([item(B, question(6, { title: '命中旧记录' }))])
+      : page([item(A, question(7, { title: '首页' }))], { has_more: true, cursor: 'older' }));
+  } }); resetUiState();
+  try {
+    await openGlobalInbox(); let root = dom.node('detail'), search = root.querySelector('.search-field-input');
+    input(search, '命中'); expect(root.querySelectorAll('.global-inbox-row')).toHaveLength(1);
+    await button(root, '刷新记录').onclick(); expect(root.querySelectorAll('.global-inbox-row')).toHaveLength(1);
+    search.listeners.keydown[0]({ key: 'Enter', isComposing: true, preventDefault() {} });
+    expect(root.querySelectorAll('.global-inbox-row')).toHaveLength(1);
+    search.listeners.keydown[0]({ key: 'Enter', preventDefault() {} });
+    expect(root.querySelectorAll('.global-inbox-row')).toHaveLength(0); expect(deepText(root)).toContain('不代表所有项目全库无结果');
+    search.value = '未提交新词'; input(search, search.value);
+    await button(root, '加载更早记录').onclick(); expect(root.querySelectorAll('.global-inbox-row')).toHaveLength(1);
+    expect(deepText(root.querySelector('.global-inbox-list'))).toContain('命中旧记录');
+    await button(root, '需要我决定').onclick(); root = dom.node('detail');
+    expect(root.querySelector('.search-field-input').value).toBe('命中');
+    expect(root.querySelectorAll('.global-inbox-row')).toHaveLength(0);
+    await button(root, '清空').onclick(); expect(root.querySelectorAll('.global-inbox-row')).toHaveLength(1);
+    expect(requests.every(url => !String(url).includes('query=') && !String(url).includes('q='))).toBe(true);
+  } finally { dom.restore(); resetUiState(); }
+});
+
 test('global list uses Host API, separates same integer IDs, and links exact source records in independent project tabs', async () => {
   const requests = [], rows = [item(A), item(B)];
   const dom = installDom({ fetch: async url => { requests.push(url); return json(url.includes('/notice?') ? rows.find(row => url.includes(row.project_id)) : page(rows)); } });

@@ -37,7 +37,7 @@ Object.assign(world.state.agentConfig.default, { agent: 'pi', connection_id: ids
 for (const role of Object.keys(world.state.agentConfig.resolved)) world.state.agentConfig.resolved[role] = { ...world.state.agentConfig.default };
 for (const row of world.state.agentConnections.connections) row.storage_scope = 'device';
 const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-core.css"><link rel="stylesheet" href="/assets/styles-agent-status.css"><link rel="stylesheet" href="/assets/styles-agent-connections.css"><link rel="stylesheet" href="/assets/styles-agent-usage.css"></head>
+<link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-search-field.css"><link rel="stylesheet" href="/assets/styles-core.css"><link rel="stylesheet" href="/assets/styles-agent-status.css"><link rel="stylesheet" href="/assets/styles-agent-connections.css"><link rel="stylesheet" href="/assets/styles-agent-usage.css"></head>
 <body><div id="detail"></div><div id="modal" hidden></div><div id="error"></div><script type="module">
 window.browserErrors=[];addEventListener('error',e=>browserErrors.push(e.message));addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));
 import {openAgentStatus} from '/assets/render-agent-status.js';import {openModelSources} from '/assets/render-model-sources.js';

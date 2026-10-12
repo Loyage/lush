@@ -4,6 +4,7 @@ import { ui } from './state.js';
 import { renderAgentSettings } from './render-settings.js';
 import { settingsClient } from './settings-api.js';
 import { scopeSummary } from './settings-scope.js';
+import { pageBlocks, replacePageContent } from './page-modules.js';
 
 const REFRESH_HELP = '只检查执行机器上 Pi / Codex 软件的命令、安装路径、版本与可用性；不联网、不读取账号或凭证、不启动 Agent 或模型调用。';
 const list = value => Array.isArray(value) ? value : [];
@@ -28,6 +29,7 @@ export function renderAgentStatus(data) {
   note(root, '安装路径可能是全局目录；软件可用不代表账号已认证或模型可调用。');
   for (const warning of list(data.warnings)) note(root, warning, true);
   for (const agent of ['pi', 'codex']) root.append(softwareSection(data.software.find(item => item.agent === agent)));
+  pageBlocks(root, 'agent-diagnostics', 'preview', section => section.querySelector('.agent-status-warning')?.textContent || '');
   return root;
 }
 
@@ -55,7 +57,7 @@ export function openAgentStatus() {
       if (!active()) return;
       if (config) pane.config = { ...config, configuration_scope: { ...config.configuration_scope, selected: scope } };
       scopeInfo.replaceChildren(scopeSummary(pane.config, scope));
-      settings.replaceChildren(scopeInfo, renderAgentSettings(pane.config, repaint, { ownsPage: active, connections: pane.connections }));
+      replacePageContent(settings, scopeInfo, renderAgentSettings(pane.config, repaint, { ownsPage: active, connections: pane.connections }));
       pane.rendered = true;
     };
     function loadConfig() {
@@ -81,7 +83,7 @@ export function openAgentStatus() {
         try {
           const data = await client.read('/api/agent/status'); if (!active()) return;
           if (!compatible(data)) throw new Error(COMPATIBILITY_ERROR);
-          pane.data = data; result.replaceChildren(renderAgentStatus(data)); feedback.textContent = '检查完成，结果已缓存；页面信息不会自动刷新。';
+          pane.data = data; replacePageContent(result, renderAgentStatus(data)); feedback.textContent = '检查完成，结果已缓存；页面信息不会自动刷新。';
         } catch (error) {
           if (active()) { feedback.textContent = `检查失败：${error.message}${pane.data ? '。以下保留上次检查结果，并非最新状态。' : ''}`; feedback.setAttribute('role', 'alert'); }
         } finally { pane.pending = null; if (active()) { refresh.disabled = false; refresh.textContent = pane.data ? '刷新软件检查' : '重新检查'; status.setAttribute('aria-busy', 'false'); } }

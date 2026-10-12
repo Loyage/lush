@@ -36,7 +36,7 @@ test('real reading projections integrate with parent input identity, reference l
     expect(root.querySelector(`[data-conversation-key="other:message:${orphanId}"]`).querySelector('.conversation-sender').textContent).toBe('来源不明');
     expect(root.querySelector(`[data-conversation-key="other:event:${answerId}"]`).querySelector('.conversation-sender').textContent).toBe('Lush 自动选择');
     expect(root.querySelectorAll('.conversation-other')).toHaveLength(2);
-    const keyword = root.querySelector('.conversation-search').querySelector('input'); keyword.value = 'tailneedle'; keyword.oninput();
+    const keyword = root.querySelector('.conversation-search').querySelector('input'); keyword.value = 'tailneedle'; keyword.listeners.keydown[0]({ key: 'Enter', preventDefault() {} });
     await findByText(root, '查找全部历史').onclick();
     expect(deepText(root)).toContain('查找完成');
     expect(root.querySelectorAll('.conversation-input')).toHaveLength(1);

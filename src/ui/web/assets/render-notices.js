@@ -15,6 +15,9 @@ import { questionnairePanel } from './render-questionnaire.js';
 import { settledDecision } from './choice-snapshot.js';
 import { sleepChoiceCard } from './sleep-ui.js';
 import { lifecycleNotice, unreadNotice, noticeMatches, positiveId, noticeIdentity } from './notice-kind.js';
+import { searchField, noticeSearchText } from './search-field.js';
+import { listEntry, listSurface } from './list-surface.js';
+import { enhanceModule } from './shared-module.js';
 import { workerLabel } from './worker-label.js';
 import { linkWorkerNumbers } from './worker-links.js';
 
@@ -26,7 +29,7 @@ export function initNoticeRecords() {
   const host = $('side-notices-body');
   if (!host) return;
   const state = ui.noticeRecords = { status: 'open', rows: [], page: null, request: 0, selected: null, task: null, signature: null,
-    observedRevision: ui.lastSnapshot?.revision ?? null, stale: false, loadedPages: 0 };
+    observedRevision: ui.lastSnapshot?.revision ?? null, stale: false, loadedPages: 0, query: '' };
   const tools = el('div', undefined, 'resource-tools');
   const filters = el('div', undefined, 'filters');
   const selectFilter = value => {
@@ -41,10 +44,15 @@ export function initNoticeRecords() {
     tab.dataset.noticeFilter = value;
     tab.setAttribute('aria-pressed', String(value === 'open')); filters.append(tab);
   }
-  tools.append(filters, notificationControl());
+  state.searchControl = searchField({ label: '搜索事项记录', placeholder: '标题、正文、答复或编号', scope: '范围：当前筛选已加载记录；加载更早后继续按已提交词筛选，不是全库检索', onSubmit: value => {
+    state.query = value.toLocaleLowerCase(); paintNoticeRows(state.rows.filter(row => noticeMatches(row, state.status))); paintNoticeFooter(state);
+  } });
+  tools.append(state.searchControl.root, filters, notificationControl());
   const footer = $('notice-pagination') || el('div'); footer.id = 'notice-pagination'; footer.replaceChildren();
   const focus = $('notice-record-detail') || el('div'); focus.id = 'notice-record-detail'; focus.replaceChildren();
   host.replaceChildren(tools, $('notices'), footer, focus);
+  const root = $('side-notices'), card = root?.querySelector('.resource-card');
+  listSurface({ root, tools, card, heading: card?.querySelector('.section-title'), body: $('notices'), pagination: footer });
   ui.loadNoticeRecords = () => loadNoticeRecords();
 }
 
@@ -116,7 +124,9 @@ export async function loadNoticeRecords({ more = false, preserve = false, reload
 
 function paintNoticeFooter(state) {
   const footer = $('notice-pagination');
-  footer.replaceChildren(el('p', state.rows.length ? `已显示 ${state.rows.length} 条记录` : '没有符合条件的记录', 'hint'));
+  const rows = state.rows.filter(row => noticeMatches(row, state.status));
+  const count = searchedNoticeRows(rows).length;
+  footer.replaceChildren(el('p', count ? `已显示 ${count} / ${rows.length} 条已加载记录` : '当前筛选已加载记录中没有匹配；不代表全库无结果。', 'hint'));
   if (state.status === 'automatic') footer.append(el('p', '仅显示 Lush 自动选择处理的问答；不代表用户亲自决断。关闭自动选择后，记录仍保留。', 'hint'));
   if (state.stale) {
     const warning = el('p', '列表可能已过期；旧页未自动重查，打开事项时会核验当前状态。', 'hint');
@@ -163,12 +173,19 @@ function paintRecordFocus() {
   target.replaceChildren(noticePanel(notice, state.task));
 }
 
+function searchedNoticeRows(rows) {
+  const query = ui.noticeRecords?.query || '';
+  return rows.filter(row => !query || noticeSearchText(row).includes(query));
+}
+
 function paintNoticeRows(rows) {
+  rows = searchedNoticeRows(rows);
   const container = $('notices');
   const known = new Map([...container.children].map(node => [Number(node.dataset.id), node]));
   const nodes = orderList(rows, { mode: ui.sidebarSortMode, timeOf: notice => notice.created_at }).map(notice => {
     const node = known.get(notice.id) || button('', () => openNotice(notice.id), 'notice-brief'); node.dataset.id = notice.id;
-    node.className = `notice-brief${notice.kind === 'info' ? ' notice-info' : ''}${ui.noticeRecords?.selected === notice.id || ui.noticeFocus === notice.id ? ' selected' : ''}`;
+    node.className = `notice-brief${notice.kind === 'info' ? ' notice-info' : ' notice-question'}${ui.noticeRecords?.selected === notice.id || ui.noticeFocus === notice.id ? ' selected' : ''}`;
+    listEntry(node);
     node.replaceChildren();
     const row = el('span', undefined, 'row');
     row.append(badge(lifecycleNotice(notice) ? unreadNotice(notice) ? '未读告知' : '已读告知' : STATUS[notice.status] || notice.status, notice.status === 'open' ? 'b-awaiting' : 'b-neutral'),
@@ -311,7 +328,12 @@ export async function openNotice(noticeId, { record = false } = {}) {
 /* ---------- detail ---------- */
 /** 右侧顶部的 notice：完整正文 + 回复框，下面继续跟它所属任务的详情。 */
 export function noticePanel(notice, task = null) {
-  return linkWorkerNumbers(buildNoticePanel(notice, task));
+  const section = buildNoticePanel(notice, task), head = section.querySelector('.notice-head'), title = section.querySelector('h3');
+  head.classList.add('section-title'); head.insertBefore(title, null);
+  ui.noticeModuleStates ||= new Map();
+  enhanceModule(section, { key: `notice-${notice.id}`, mode: 'fold', states: ui.noticeModuleStates,
+    summary: `${STATUS[notice.status] || notice.status}${notice.status === 'open' && notice.kind !== 'info' ? ' · 等待明确答复，收起不表示已处理' : ''}` });
+  return linkWorkerNumbers(section);
 }
 function buildNoticePanel(notice, task = null) {
   const section = el('section', undefined, `notice focus${notice.kind === 'info' ? ' notice-info' : ''}`);

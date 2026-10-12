@@ -6,6 +6,7 @@ import { show } from './messages.js';
 import { PREF_NAMES, POLLING_MODES, THEME_VALUES, TOAST_MODES, TRANSCRIPT_ORDER_MODES, onPrefChange, readPref } from './prefs.js';
 import * as devicePreferences from './prefs.js';
 import { activateDetailView } from './sidebar-ui.js';
+import { pageBlocks, pageModules, replacePageContent } from './page-modules.js';
 import { ui } from './state.js';
 import { SORT_MODES } from './tree-order.js';
 import { notificationControl } from './notice-notifications.js';
@@ -299,7 +300,7 @@ function profileEditor(settings, profile, target, title, subtitle, repaint, owns
   const client = settingsClientFor(settings);
   let packagesCatalog = packagesCatalogs.get(client.key);
   const card = el('section', undefined, 'agent-profile'); card.dataset.agentTarget = target;
-  const head = el('div', undefined, 'agent-profile-head');
+  const head = el('div', undefined, 'agent-profile-head section-title');
   const copy = el('div'); copy.append(el('h3', title), el('p', subtitle, 'settings-note'));
   head.append(copy, el('span', target === 'default' ? '设备默认' : '独立覆盖', 'badge b-neutral')); card.append(head);
 
@@ -813,10 +814,17 @@ export function renderAgentSettings(settings, repaint, { ownsPage = () => true, 
     else list.append(inheritedRole(settings, item.id, repaint, names, ownsPage));
   }
   const advanced = el('details', undefined, 'agent-config-advanced'), environmentHost = el('div', undefined, 'agent-env-host');
-  const repaintEnvironment = () => { if (ownsPage()) environmentHost.replaceChildren(environmentEditor(settings, repaintEnvironment, ownsPage)); };
+  const repaintEnvironment = () => { if (ownsPage()) {
+    replacePageContent(environmentHost, environmentEditor(settings, repaintEnvironment, ownsPage));
+    pageBlocks(environmentHost, 'agent-environment', 'fold');
+  } };
   environmentHost.resume = repaintEnvironment; repaintEnvironment();
   advanced.append(el('summary', '高级配置：Agent 环境变量'), environmentHost);
   roles.append(list); content.append(roles, advanced);
+  pageModules(content, { scope: 'agent-settings', entries: [
+    ...[...content.children].filter(section => section.classList.contains('block')).map(section => ({ section, key: section.querySelector('h2').textContent, mode: 'fold' })),
+    { section: content.querySelector('.agent-profile'), key: 'default-profile', mode: 'fold' },
+  ] });
   return content;
 }
 
@@ -969,8 +977,9 @@ function systemTab() {
     state.migration ||= renderSettingsMigration({ ownsPage: owns, onMigrated: async () => {
       state.loaded = false; const value = await client.read('/api/settings/runtime'); if (owns()) paint(value);
     } });
-    state.node.replaceChildren(scopeSummary(runtime), limits, capabilities, state.network, state.migration,
+    replacePageContent(state.node, scopeSummary(runtime), limits, capabilities, state.network, state.migration,
       el('p', '项目运行状态、历史与后台控制在项目工作页管理；本页不会因配置读取启动项目。', 'settings-note'));
+    pageBlocks(state.node, 'settings-system', 'fold');
   };
   function load() {
     if (state.loaded) return Promise.resolve(); if (state.pending) return state.pending;
@@ -1005,7 +1014,8 @@ export function renderSettings() {
     el('p', '界面偏好与运行配置统一保存在执行机器的同一用户设备设置中，项目不再单独覆盖。项目辨识配色在工作台的项目管理页调整。Agent 配置、模型来源与快捷解释各有独立设备页面。', 'hint'));
   head.append(intro); view.append(head, tabBar());
   view.append(activeTab === 'interface' ? interfaceTab() : systemTab());
-  panel.replaceChildren(view);
+  if (activeTab === 'interface') pageBlocks(view.querySelector('.settings-tab-panel'), 'settings-interface', 'fold');
+  replacePageContent(panel, view);
   return activeTab === 'system' ? systemPage?.pending : undefined;
 }
 

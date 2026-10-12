@@ -79,6 +79,9 @@ test('左栏：两个区块的导航计数与索引、折叠开关、行动任�
   const keyword = filters.querySelector('.filter-input');
   keyword.value = '不存在的关键字';
   await keyword.listeners.input[0]();
+  await completed.listeners.change[0]();
+  expect(tasks.querySelectorAll('.task')).toHaveLength(2);
+  await keyword.listeners.keydown[0]({ key: 'Enter', preventDefault() {} });
   expect(tasks.querySelectorAll('.task')).toHaveLength(0);
   expect(deepText(tasks)).toContain('没有符合筛选的条目');
   // 还原筛选，证明「取消条件 = 回到改造前的列表」
@@ -145,7 +148,7 @@ test('平铺列表即时多选、搜索、轮询与偏好重载：不补祖先�
     expect(box(0, 'all').checked).toBe(true);
     expect(ids()).toEqual([12, 11, 10]);
     const keyword = dom.node('task-filters').querySelector('.filter-input');
-    keyword.value = '#11'; await keyword.listeners.input[0]();
+    keyword.value = '#11'; await keyword.listeners.keydown[0]({ key: 'Enter', preventDefault() {} });
     expect(ids()).toEqual([11]);
     keyword.value = ''; await keyword.listeners.input[0]();
     await change(1, 'all', true);

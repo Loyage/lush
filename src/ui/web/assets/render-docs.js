@@ -8,6 +8,7 @@
 import { $, block, button, el } from './dom.js';
 import { renderMarkdown } from './markdown.js';
 import { clearMermaidDiagrams, refreshMermaidDiagrams, renderMermaidDiagrams } from './mermaid-docs.js';
+import { searchField } from './search-field.js';
 import { searchDocs } from './docs-search.js';
 
 const pathHint = value => el('span', value, 'when mono');
@@ -28,7 +29,7 @@ function docsHead(title, onOpen) {
   return head;
 }
 
-/** 目录页：按分组列出全部文档；第一次输入查询时才拉全文索引。 */
+/** 目录页：按分组列出全部文档；首次提交查询时才拉全文索引。 */
 export function renderDocsIndex(docs, onOpen, options = {}) {
   const panel = $('detail');
   panel.dataset.view = 'docs';   // 左栏高亮与进场动画都跟着这个属性走，和 graph / task 同一套
@@ -39,13 +40,11 @@ export function renderDocsIndex(docs, onOpen, options = {}) {
   head.append(el('span', '帮助文档', 'tid-lg'));
   panel.append(head, el('p', '这些是随当前代码发布的文档：先看总体架构与使用说明，再按需查 Worker 流程与接口参考。文档之间的相对链接可以直接点开。', 'hint'));
 
-  const search = el('div', undefined, 'doc-search');
-  const input = el('input');
-  input.type = 'search'; input.placeholder = '搜索标题、正文、命令或源码路径…'; input.value = options.query || '';
-  input.setAttribute('aria-label', '搜索文档内容');
+  const control = searchField({ label: '搜索文档内容', placeholder: '搜索标题、正文、命令或源码路径…', scope: '范围：全部发布文档正文', value: options.query || '', onSubmit: () => run() });
+  const search = control.root, input = control.input;
   const status = el('span', '输入关键字搜索全部文档', 'hint doc-search-status');
   const results = el('div', undefined, 'doc-search-results'); results.hidden = true;
-  search.append(input, status); panel.append(search, results);
+  search.append(status); panel.append(search, results);
 
   const catalog = el('div', undefined, 'doc-catalog');
   const groups = [];
@@ -66,25 +65,24 @@ export function renderDocsIndex(docs, onOpen, options = {}) {
   catalog.append(el('p', `共 ${docs.length} 篇。内容来自仓库的 docs/ 与 README.md，改完文件刷新页面即可看到。`, 'hint doc-foot'));
   panel.append(catalog);
 
-  let revision = 0, first = null;
+  let revision = 0;
   const run = async () => {
-    const query = input.value.trim(), current = ++revision;
+    const query = control.applied, current = ++revision;
     options.onQuery?.(query);
     if (!query) {
-      catalog.hidden = false; results.hidden = true; results.replaceChildren(); first = null;
+      catalog.hidden = false; results.hidden = true; results.replaceChildren();
       status.textContent = '输入关键字搜索全部文档'; return;
     }
-    catalog.hidden = true; results.hidden = false; results.replaceChildren(); first = null;
+    catalog.hidden = true; results.hidden = false; results.replaceChildren();
     status.textContent = '正在建立搜索索引…';
     try {
       const index = await options.loadSearch();
-      if (current !== revision) return;
+      if (current !== revision || search.parentNode !== panel) return;
       const matches = searchDocs(index, query);
       status.textContent = matches.length ? `找到 ${matches.length} 篇相关文档` : '没有找到相关文档';
       for (const match of matches) {
         const row = el('article', undefined, 'doc-search-result');
         const open = button(match.title, () => onOpen(match.id), 'link');
-        if (!first) first = open;
         const meta = el('div', undefined, 'doc-search-meta');
         meta.append(el('span', match.group, 'badge b-neutral'), pathHint(match.path));
         row.append(open, meta);
@@ -92,15 +90,11 @@ export function renderDocsIndex(docs, onOpen, options = {}) {
         results.append(row);
       }
     } catch (error) {
-      if (current !== revision) return;
+      if (current !== revision || search.parentNode !== panel) return;
       status.textContent = `搜索索引加载失败：${error.message}`;
     }
   };
-  input.addEventListener('input', () => { void run(); });
-  input.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { input.value = ''; void run(); }
-    else if (event.key === 'Enter' && first) { event.preventDefault(); first.click(); }
-  });
+
   if (input.value) void run();
 }
 

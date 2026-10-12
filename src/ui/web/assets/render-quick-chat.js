@@ -7,6 +7,8 @@ import { pageSubnav } from './page-subnav.js';
 import { confirmDialog } from './dialog.js';
 import { quickChatAction, quickChatConfig, chatHref, conversationHref, requireChatProject, chatReferences } from './quick-chat.js';
 import { projectRoute } from './route.js';
+import { pageModules } from './page-modules.js';
+import { listEntry, listSurface } from './list-surface.js';
 import { composerReferences, setComposerReferences } from './context-references.js';
 
 const statusText = status => ({ running: '回复中', completed: '已完成', failed: '失败' }[status] || '状态未知');
@@ -101,7 +103,9 @@ export async function openQuickChatPage() {
   const history = el('section', undefined, 'quick-chat-history'), rows = el('div'), historyNote = el('p', '', 'hint');
   let before = null, loading = false, generation = 0;
   const more = button('加载更早对话', () => loadHistory(true), 'ghost'); more.hidden = true;
-  history.append(el('h2', '对话历史'), button('刷新历史', () => loadHistory(false), 'ghost'), historyNote, rows, more); root.append(history);
+  const historyHeading = el('div', undefined, 'section-title'); historyHeading.append(el('h2', '对话历史'), button('刷新历史', () => loadHistory(false), 'ghost'));
+  history.append(historyHeading, historyNote, rows, more); root.append(history);
+  listSurface({ root, card: history, heading: historyHeading, body: rows });
   async function loadHistory(append) {
     if (!owns() || loading) return;
     const ticket = ++generation; loading = true; more.disabled = true;
@@ -110,7 +114,7 @@ export async function openQuickChatPage() {
       if (!owns() || ticket !== generation) return;
       if (!append) rows.replaceChildren();
       for (const record of data.conversations || []) {
-        const item = el('article', undefined, 'quick-chat-history-row');
+        const item = listEntry(el('article', undefined, 'quick-chat-history-row'));
         item.append(link(`${record.number} · ${statusText(record.status)} · ${record.content || record.prompt_name || '引用对话'}`, conversationHref(record.id)),
           el('p', `${record.prompt_name || 'Prompt 未知'} · ${record.model || '模型未知'} · ${record.turn_count || 0} 轮 · ${record.created_at || ''}`, 'hint'));
         rows.append(item);
@@ -205,7 +209,8 @@ export async function openQuickChatSettings() {
   save.onclick = savePrompt; remove.onclick = removePrompt;
   const blocked = el('span', undefined, 'help-host'); blocked.setAttribute('data-help', '内置快速解释不能删除，可以取消“注册到右键菜单”；读取或保存期间不能删除。'); blocked.append(remove);
   const form = el('form', undefined, 'quick-chat-form'); form.append(label('编辑 Prompt', picker), label('名称', name), label('Prompt 正文', body), label('注册到右键菜单', menu), save, blocked, note);
-  form.onsubmit = event => { event.preventDefault(); return savePrompt(); }; library.append(el('h2', 'Prompt 库'), form);
+  form.onsubmit = event => { event.preventDefault(); return savePrompt(); };
+  const heading = el('div', undefined, 'section-title'); heading.append(el('h2', 'Prompt 库')); library.append(heading, form);
   const selected = () => config?.prompts?.find(value => value.id === picker.value);
   const sync = () => { save.disabled = saving || !config || !name.value.trim() || !body.value.trim(); remove.disabled = saving || !selected() || Boolean(selected()?.builtin); };
   function fill() { const value = selected(); name.value = value?.name || ''; body.value = value?.prompt || ''; menu.checked = value?.context_menu ?? false; edits++; sync(); }
@@ -253,6 +258,8 @@ export async function openQuickChatSettings() {
     catch (error) { if (owns()) note.textContent = `删除失败：${error.message}；请保留编辑并重新读取。`; }
     finally { saving = false; if (owns()) sync(); }
   }
+  const [promptModule] = pageModules(library, { scope: 'quick-chat-prompts', entries: [{ section: library, key: 'library', mode: 'fold' }] });
+  library.insertBefore(note, promptModule.body);
   sync(); await Promise.all([reload(), import('./quick-chat-model.js').then(module => {
     if (owns()) return module.renderChatModel({ container: models, ownsPage: owns });
   })]);

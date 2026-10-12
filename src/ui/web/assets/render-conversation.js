@@ -1,5 +1,6 @@
 import { block, button, el, syncChildren } from './dom.js';
 import { agentText, markdownEnabled } from './text.js';
+import { searchField } from './search-field.js';
 import { absolute, inputNumber } from './format.js';
 import { ui } from './state.js';
 import { loadHostSession, usernameInitial } from './host-session.js';
@@ -47,12 +48,11 @@ export function renderConversation(task, history = {}, previous = null) {
   const asc = button('正序', () => { direction = 'asc'; paint(); }, 'ghost', { help: '按时间从早到晚阅读已加载的输入和结果，只改变显示顺序，不调用 Agent。' });
   const desc = button('倒序', () => { direction = 'desc'; paint(); }, 'ghost', { help: '按时间从晚到早阅读已加载的输入和结果，只改变显示顺序，不调用 Agent。' });
   ordering.append(asc, desc); head.append(count, ordering);
-  const search = el('div', undefined, 'conversation-search'), keyword = el('input');
-  keyword.type = 'search'; keyword.placeholder = '关键词：即时筛选已加载完整正文'; keyword.setAttribute('aria-label', '筛选输入与结果');
-  keyword.oninput = () => {
-    cancelRead(); query = keyword.value.trim().toLowerCase(); remoteQuery = null; remoteHits.clear();
+  const search = el('div', undefined, 'conversation-search');
+  const searchControl = searchField({ label: '筛选输入与结果', placeholder: '搜索已加载完整正文', scope: '范围：已加载完整正文；独立历史检索按钮可继续查未加载记录', onSubmit: value => {
+    cancelRead(); query = value.toLowerCase(); remoteQuery = null; remoteHits.clear();
     status.textContent = '仅筛选已加载完整正文；未加载或未读完的记录不计为无命中。'; paint();
-  };
+  } });
   const findAll = button('查找全部历史', () => scanAll(), 'ghost', {
     help: '显式分批检索此 Worker 的全部收件箱与事件正文，可取消；不读取执行过程、不启动 Agent，不自动后台扫描。',
   });
@@ -60,7 +60,7 @@ export function renderConversation(task, history = {}, previous = null) {
     cancelRead(); status.textContent = `查找已取消，范围未完成：已扫描 ${scannedEvents} 个事件、${scannedMessages} 条消息；已读取的内容保留。`; paint();
   }, 'ghost'); cancel.hidden = true;
   const findHost = el('span', undefined, 'help-host'); findHost.setAttribute('data-help', '正在读取时可取消查找；取消只停止本页读取，不删除已加载记录。'); findHost.append(findAll);
-  search.append(keyword, findHost, cancel);
+  search.append(searchControl.root, findHost, cancel);
   const more = button('加载更早输入与结果', () => loadMore(), 'ghost conversation-more');
   const moreHost = el('span', undefined, 'help-host'); moreHost.setAttribute('data-help', '逐批读取更早的收件箱与事件；其他读取进行中时请先取消或等待。'); moreHost.append(more);
   root.append(filters, search, list, status, moreHost);
@@ -377,7 +377,7 @@ export function renderConversation(task, history = {}, previous = null) {
     }
     if (reference.kind === 'result') { const data = entries(); entry = data.all.find(item => item.key === data.latestKey); }
     if (!entry) return fallback ? root.attachReferencedHistoryEvent?.(fallback) ?? null : null;
-    cancelRead(); query = ''; keyword.value = ''; remoteQuery = null; remoteHits.clear();
+    cancelRead(); query = ''; searchControl.setValue(''); remoteQuery = null; remoteHits.clear();
     visible[entry.side] = true; checkboxes[entry.side].checked = true; paint();
     const node = rendered.get(entry.key); node?.revealReadingContent(); return node;
   };

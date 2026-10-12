@@ -40,8 +40,8 @@ test('fullscreen sidebar and rich match bodies correspond, retain pairing and ra
     const viewport = panel.querySelector('.transcript-viewport');
     expect(sidebar.parentNode).toBe(viewport.parentNode); expect(holder.parentNode).toBe(viewport);
     const form = sidebar.querySelector('form'), inputs = form.querySelectorAll('input');
-    expect(form.querySelector('.transcript-query-row').querySelector('input').type).toBe('search');
-    expect(form.querySelector('button').type).toBe('submit'); expect(form.querySelector('button').onclick).toBeUndefined();
+    expect(form.querySelector('.search-field-row').querySelector('input').type).toBe('search');
+    expect(form.querySelector('button').type).toBe('button'); expect(typeof form.querySelector('button').onclick).toBe('function');
     inputs[0].value = 'not submitted';
     expect(calls).toHaveLength(0);
     panel.onkeydown({ key: 'F', ctrlKey: true, shiftKey: true, preventDefault() {} });

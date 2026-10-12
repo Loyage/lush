@@ -41,6 +41,7 @@ window.fetch=async(url,options={})=>{
 await import('/app.js');
 window.ui=(await import('/state.js')).ui;window.world=world;
 window.detailApi=(await import('/detail.js')).loadDetail;
+window.commonNav=(await import('/sidebar-ui.js')).openResource;
 const {renderNotices}=await import('/render-notices.js');const {renderNoticeBanner}=await import('/notice-banner.js');
 window.paintNotices=()=>{window.ui.lastSnapshot={...window.ui.lastSnapshot,notices:world.state.notices};renderNotices(window.ui.lastSnapshot);renderNoticeBanner(window.ui.lastSnapshot);};
 window.releaseReads=()=>{window.holdRefresh=false;window.holdSupplements=false;
@@ -127,10 +128,18 @@ try {
       badgesFit:rows.every(n=>[...n.querySelectorAll('.badge')].every(b=>b.getBoundingClientRect().right<=n.getBoundingClientRect().right-8))};`);
     assert(!layout.overflow && !layout.clipped && !layout.previewScrollers && layout.badgesFit, `list overflow ${theme} ${width}: ${JSON.stringify(layout)}`);
     assert(layout.heights.every(h=>Math.abs(h-layout.heights[0])<0.1) && layout.buttons.every(n=>n===0), `rows are not equal-height/native buttons: ${JSON.stringify(layout)}`);
-    console.log(`PASS equal-height input rows ${theme} ${layout.viewport}px viewport: ${layout.heights.join('/')}px`);
+    assert(await execute(`const root=document.querySelector('.inputs-page'),heading=root.querySelector('.ui-list-heading'),search=root.querySelector('.search-field');return root.classList.contains('ui-list-page')&&getComputedStyle(heading).position==='sticky'&&search.querySelector('.search-field-submit').textContent==='搜索'&&search.querySelector('.search-field-clear').textContent==='清空'&&search.scrollWidth<=search.clientWidth+1;`), 'history did not adopt shared chrome/search or controls overflow');
+    console.log(`PASS equal-height input rows and shared list/search chrome ${theme} ${layout.viewport}px viewport: ${layout.heights.join('/')}px`);
   }
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
   await setTheme('light');
+  for (const page of ['tasks','notices']) {
+    await execute(`window.commonNav('${page}')`);
+    assert(await waitFor(`!document.querySelector('#side-${page}').hidden`), `resource ${page} did not open`);
+    assert(await execute(`const root=document.querySelector('#side-${page}'),heading=root.querySelector('.ui-list-heading'),search=root.querySelector('.search-field');return root.classList.contains('ui-list-page')&&heading&&getComputedStyle(heading).position==='sticky'&&root.querySelector('.ui-list-body')&&search&&search.querySelector('.search-field-submit').textContent==='搜索'&&search.querySelector('.search-field-clear').textContent==='清空';`), `${page} did not reuse list/search foundation`);
+  }
+  await execute(`location.hash='#inputs'`);
+  assert(await waitFor(`document.querySelector('.inputs-page')&&!document.querySelector('.inputs-browse').hidden&&document.querySelectorAll('.input-record').length===4`), 'return to history did not preserve records');
   const listScreenshot = (process.argv[2] || '/tmp/lush-input-history-ui.png').replace(/\.png$/, '-list.png');
   await Bun.write(listScreenshot, Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
   await click('.input-record button');
@@ -146,7 +155,7 @@ try {
     const layout = await execute(`const panel=document.querySelector('.input-detail'),box=panel.querySelector('textarea'),composer=document.querySelector('.composer');
       return {viewport:innerWidth,pageOverflow:document.documentElement.scrollWidth>innerWidth+1,editorWidth:box.getBoundingClientRect().width,
       detailOverflow:panel.scrollWidth>panel.clientWidth+1,composerOverflow:composer.scrollWidth>composer.clientWidth+1,
-      controls:[...composer.querySelectorAll('.composer-actions button')].filter(n=>!n.hidden).map(n=>{const r=n.getBoundingClientRect();return {text:n.textContent,width:r.width,x:r.x,right:r.right};})};`);
+      controls:[...composer.querySelectorAll('.composer-actions button')].filter(n=>!n.hidden&&n.getClientRects().length>0).map(n=>{const r=n.getBoundingClientRect();return {text:n.textContent,width:r.width,x:r.x,right:r.right};})};`);
     assert(!layout.pageOverflow && !layout.detailOverflow && !layout.composerOverflow && layout.editorWidth >= 200, `layout overflow ${theme} ${width}: ${JSON.stringify(layout)}`);
     assert(layout.controls.every(c => c.width >= 20 && c.x >= 0 && c.right <= layout.viewport), `composer controls clipped: ${JSON.stringify(layout)}`);
     const focus = await execute(`const box=document.querySelector('#input');box.blur();const collapsed=box.getBoundingClientRect().height;
@@ -183,10 +192,13 @@ try {
   await keys([{type:'keyDown',value:'\uE009'},{type:'keyDown',value:'\uE008'},{type:'keyDown',value:'z'},{type:'keyUp',value:'z'},{type:'keyUp',value:'\uE008'},{type:'keyUp',value:'\uE009'}]);
   assert(await execute(`return document.querySelector('.input-save').disabled;`), 'redo to saved content did not disable save');
   console.log('PASS real draft Ctrl+S, clean-save suppression and undo/redo dirty state');
-  await execute(`const box=document.querySelector('.input-detail textarea');box.value='浏览器里编辑的原文';box.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.input-detail .agent-call').scrollIntoView({block:'center'});`);
+  await execute(`const box=document.querySelector('.input-detail textarea');box.value='浏览器里编辑的原文';box.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.input-detail .agent-call').scrollIntoView({block:'center',behavior:'instant'});`);
+  // Flush the deliberate scroll and park the pointer away from old hover targets before testing keyboard dwell.
+  await rpc(`/session/${session}/actions`, { actions: [{ type: 'pointer', id: 'mouse', parameters: { pointerType: 'mouse' }, actions: [{ type: 'pointerMove', duration: 0, origin: 'viewport', x: 1, y: 1 }] }] });
+  await rpc(`/session/${session}/execute/async`, { script: 'const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));', args: [] });
   await press('\uE008'); // Establish real keyboard modality without scrolling away from the target.
   await execute(`const node=document.querySelector('.input-detail .agent-call');node.blur();node.focus({preventScroll:true});`);
-  assert(await waitFor('!!document.querySelector("#help-tip") && !document.querySelector("#help-tip").hidden'), 'Agent keyboard help did not appear after dwell');
+  assert(await waitFor('!!document.querySelector("#help-tip") && !document.querySelector("#help-tip").hidden && document.querySelector("#help-tip").textContent.includes("token")'), 'Agent keyboard help did not appear after dwell');
   const help = await execute(`const node=document.querySelector('.input-detail .agent-call'),tip=document.querySelector('#help-tip');return {focused:document.activeElement===node,visible:!!tip&&!tip.hidden,text:tip?.textContent};`);
   assert(help.focused && help.visible && help.text.includes('token'), `Agent focus help missing: ${JSON.stringify(help)}`);
   await click('.input-detail .agent-call');

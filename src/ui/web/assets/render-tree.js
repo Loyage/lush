@@ -12,6 +12,7 @@ import { orderTasks, treeParent } from './tree-order.js';
 import { referenceable } from './context-references.js';
 import { progressReportingEnabled, progressStats, refreshProgressDurations, renderCompactProgress } from './render-progress.js';
 import { workerLabel, rememberWorkers } from './worker-label.js';
+import { listEntry } from './list-surface.js';
 
 // DOM-owned state is discarded with the node on boot/project changes. Signatures describe
 // rendered dependencies, not updated_at (child status/progress/config can change independently).
@@ -116,10 +117,10 @@ export function renderTree(data) {
   const index = { children: taskId => fullByParent.get(taskId) || [] };
   const ordered = [];
   for (const task of orderTasks(visible, { mode: ui.sidebarSortMode, openNoticeIds })) {
-    const node = known.get(task.id) || button('', () => { ui.noticeFocus = null; return detail(task.id); }, 'task');
+    const node = known.get(task.id) || listEntry(button('', () => { ui.noticeFocus = null; return detail(task.id); }, 'task'));
     const integration = INTEGRATION[task.integration];
     if (Number(node.dataset.id) !== task.id) node.dataset.id = task.id;
-    const className = `task s-${task.status}${ui.selected === task.id ? ' selected' : ''}${task.route ? ' route-flagged' : ''}`;
+    const className = `task ui-list-entry s-${task.status}${ui.selected === task.id ? ' selected' : ''}${task.route ? ' route-flagged' : ''}`;
     if (node.className !== className) node.className = className;
     let state = rowState.get(node);
     if (!state) {

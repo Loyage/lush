@@ -1,21 +1,17 @@
-import { el, button } from './dom.js';
+import { enhanceModule } from './shared-module.js';
 
-/** Page-owned information zoom. Hiding a body never discards its editor or selection. */
-export function automationModule(section, key, states = new Map(), summary = '') {
-  if (section.moduleBody) { section.moduleSummary.textContent = summary; return section; }
+/** Compatibility wrapper: explicit editor folding, never automatic height clipping. */
+export function automationModule(section, key, states = undefined, summary = '') {
+  const view = enhanceModule(section, { key, mode: 'fold', states, summary, id: `automation-module-${key}` });
+  view.states.set(key, view.expanded);
   section.classList.add('automation-module'); section.dataset.module = key;
-  const head = section.querySelector('.section-title');
-  const body = el('div', undefined, 'automation-module-body'); body.id = `automation-module-${key}`;
-  const status = el('p', summary, 'hint automation-module-summary'); status.setAttribute('role', 'status');
-  for (const child of [...section.children]) if (child !== head) { child.remove(); body.append(child); }
-  const toggle = button('收起', () => { section.moduleOpen = !section.moduleOpen; }, 'ghost automation-module-toggle');
-  toggle.setAttribute('aria-controls', body.id);
-  Object.defineProperty(section, 'moduleOpen', {
-    get: () => !body.hidden,
-    set(value) { states.set(key, !!value); body.hidden = !value; toggle.textContent = value ? '收起' : '展开'; toggle.setAttribute('aria-expanded', String(!!value)); },
+  view.body.classList.add('automation-module-body'); view.summary.classList.add('automation-module-summary');
+  view.toggle.classList.add('automation-module-toggle');
+  if (!Object.getOwnPropertyDescriptor(section, 'moduleOpen')) Object.defineProperty(section, 'moduleOpen', {
+    get: () => view.expanded,
+    set: value => view.setExpanded(value),
   });
-  head.append(toggle); section.append(status, body); section.moduleBody = body; section.moduleSummary = status;
-  section.moduleOpen = states.get(key) ?? true;
+  section.moduleBody = view.body; section.moduleSummary = view.summary;
   return section;
 }
 

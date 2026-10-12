@@ -1,4 +1,5 @@
 import { el, button } from './dom.js';
+import { searchField } from './search-field.js';
 import { api } from './api.js';
 import { STEP } from './format.js';
 import { ui } from './state.js';
@@ -57,24 +58,26 @@ function readerState(taskId) {
   const root = el('section', undefined, 'transcript-reader');
   root.setAttribute('aria-label', '执行记录全文查找');
   const form = el('form', undefined, 'transcript-search');
-  const query = el('input'); query.type = 'search'; query.placeholder = '搜索完整执行记录'; query.setAttribute('aria-label', '执行记录全文关键词'); query.maxLength = 500;
+  const queryControl = searchField({ maxLength: 500, escapeClear: false, label: '执行记录全文关键词', placeholder: '搜索完整执行记录', scope: '范围：当前 Worker 全部完整会话，包含未加载记录', onSubmit: (_value, { reason }) => {
+    if (reason === 'submit') toolControl.setValue(tool.value);
+    return restart();
+  } });
   const kind = el('select'); kind.setAttribute('aria-label', '消息类型');
   for (const [value, label] of [['', '所有类型'], ...Object.entries(STEP)]) { const option = el('option', label); option.value = value; kind.append(option); }
-  const tool = el('input'); tool.placeholder = '工具名，例如 bash'; tool.setAttribute('aria-label', '工具名'); tool.maxLength = 100;
+  const toolControl = searchField({ hint: '', escapeClear: false, label: '工具名', placeholder: '工具名，例如 bash', maxLength: 100, onSubmit: () => restart() });
+  const tool = toolControl.input;
   const errors = el('input'); errors.type = 'checkbox'; const errorLabel = el('label', '只看失败'); errorLabel.prepend(errors);
-  // Keep submission native; button() temporarily disables itself in onclick.
-  const submit = el('button', '搜索', 'ghost'); submit.type = 'submit';
-  const queryRow = el('div', undefined, 'transcript-query-row'); queryRow.append(query, submit);
-  const filters = el('div', undefined, 'transcript-search-filters'); filters.append(kind, tool, errorLabel);
+  const submit = queryControl.submitButton;
+  const filters = el('div', undefined, 'transcript-search-filters'); filters.append(kind, toolControl.root, errorLabel);
   const hint = el('p', 'Enter 搜索 · Ctrl/⌘+Shift+F 聚焦搜索框；包含未加载记录。', 'hint transcript-search-hint');
-  form.append(queryRow, filters, hint);
+  form.append(queryControl.root, filters, hint);
   const results = el('div', undefined, 'transcript-search-results'); results.setAttribute('aria-label', '搜索命中摘要');
   root.append(form, results);
   // locate 由 render-transcript.js 注入，让命中停在富文本执行过程里。
   const state = { root, version: 0, locate: null, onPage: null, onStart: null, onError: null, onClear: null }; readers.set(taskId, state);
   const clear = button('返回全部记录', () => {
     state.version++; submit.disabled = false; root.setAttribute('aria-busy', 'false'); results.replaceChildren();
-    query.value = ''; kind.value = ''; tool.value = ''; errors.checked = false;
+    queryControl.setValue(''); kind.value = ''; toolControl.setValue(''); errors.checked = false;
     state.onClear?.();
   }, 'ghost');
   clear.hidden = true; root.append(clear); state.clear = clear;
@@ -123,15 +126,17 @@ function readerState(taskId) {
     finally { if (version === state.version) { searching = false; submit.disabled = false; root.setAttribute('aria-busy', 'false'); } }
   };
   state.searchPath = path => {
-    query.value = path; kind.value = ''; tool.value = ''; errors.checked = false;
+    queryControl.setValue(path); kind.value = ''; toolControl.setValue(''); errors.checked = false;
     criteria = { query: path, kind: '', tool: '', errors: 'false' };
     cursors = [0]; pageIndex = 0;
     return search(0);
   };
-  form.onsubmit = event => {
-    event.preventDefault(); criteria = { query: query.value.trim(), kind: kind.value, tool: tool.value.trim(), errors: String(errors.checked) };
-    cursors = [0]; pageIndex = 0; void search(0);
-  };
+  function restart() {
+    criteria = { query: queryControl.applied, kind: kind.value, tool: toolControl.applied, errors: String(errors.checked) };
+    cursors = [0]; pageIndex = 0; return search(0);
+  }
+  queryControl.bindForm(form);
+  kind.onchange = errors.onchange = restart;
   return state;
 }
 export function transcriptReader(taskId, { locate, onPage, onStart, onError, onClear } = {}) {

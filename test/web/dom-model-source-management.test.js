@@ -48,7 +48,7 @@ const button = (root, label) => root.querySelectorAll('button').find(node => nod
 const field = (root, key) => root.querySelector(`[data-connection-field="${key}"]`);
 const row = (root, id) => root.querySelector(`[data-source-id="${id}"]`);
 const card = (root, id) => root.querySelector(`[data-connection-id="${id}"]`);
-const change = (input, value) => { input.value = value; input.oninput?.(); };
+const change = (input, value) => { input.value = value; input.oninput?.(); if (input.dataset.connectionField === 'source-search') input.listeners.keydown[0]({ key: 'Enter', preventDefault() {} }); };
 const actions = method => requests.filter(entry => entry.action?.method === `agent.connections.${method}`).map(entry => entry.action);
 function clock() {
   let now = Date.parse(at), next = 0; const timers = new Map();
@@ -67,6 +67,19 @@ async function editSource(p, id) {
 afterAll(() => dom.restore());
 afterEach(() => { for (const p of panels.splice(0)) p.dispose(); ui.modelSourcesPage?.connections.dispose(); ui.modelSourcesPage = null; dom.document.hidden = false; });
 beforeEach(() => { data = fixture(); current = true; intercept = null; requests.length = 0; ui.view = null; });
+
+test('source filters and refresh use only applied text, clear keeps provider filter, and IME never searches', async () => {
+  const p = await panel(), input = field(p.node, 'source-search');
+  input.value = '不存在'; input.listeners.input[0]();
+  field(p.node, 'source-enabled').value = 'enabled'; field(p.node, 'source-enabled').onchange();
+  expect(p.node.querySelectorAll('.model-source-row')).toHaveLength(4);
+  await p.load(); expect(p.node.querySelectorAll('.model-source-row')).toHaveLength(4);
+  input.listeners.keydown[0]({ key: 'Enter', keyCode: 229, preventDefault() {} });
+  expect(p.node.querySelectorAll('.model-source-row')).toHaveLength(4);
+  input.listeners.keydown[0]({ key: 'Enter', preventDefault() {} }); expect(p.node.querySelectorAll('.model-source-row')).toHaveLength(0);
+  await button(p.node, '清空').onclick(); expect(p.node.querySelectorAll('.model-source-row')).toHaveLength(4);
+  expect(field(p.node, 'source-enabled').value).toBe('enabled');
+});
 
 test('overview stays compact, per-source detail retains full settings/resources/consumers; filters stay local', async () => {
   const p = await panel({ now: () => Date.parse(at) });

@@ -1,4 +1,5 @@
 import { el, button } from './dom.js';
+import { searchField } from './search-field.js';
 
 export function fileStatusText(entry) {
   const labels = [];
@@ -16,12 +17,10 @@ export function fileStatusText(entry) {
 export function createCodeTree({ request, onSelect, onStale }) {
   const root = el('aside', undefined, 'code-sidebar'); root.setAttribute('aria-label', '项目文件浏览器');
   const form = el('form', undefined, 'code-tree-filter');
-  const query = el('input'); query.type = 'search'; query.placeholder = '按文件名或路径筛选'; query.maxLength = 500; query.setAttribute('aria-label', '文件路径筛选');
-  const submit = el('button', '筛选', 'ghost'); submit.type = 'submit';
-  const queryRow = el('div', undefined, 'transcript-query-row'); queryRow.append(query, submit);
+  const searchControl = searchField({ maxLength: 500, escapeClear: false, label: '文件路径筛选', placeholder: '按文件名或路径筛选', scope: '范围：项目可读文件路径（不是文件正文）', onSubmit: () => filter() });
   const changed = el('input'); changed.type = 'checkbox';
   const changedLabel = el('label', '仅看改动（含未提交）'); changedLabel.prepend(changed);
-  form.append(queryRow, changedLabel, el('p', '包含未改文件；不列 ignored、.git、.lush。', 'hint'));
+  form.append(searchControl.root, changedLabel, el('p', '包含未改文件；不列 ignored、.git、.lush。', 'hint'));
   const scroller = el('div', undefined, 'code-tree-scroll');
   const changeGroup = el('details', undefined, 'code-change-group'); changeGroup.open = true;
   const changeTitle = el('summary', '改动文件'); const changeList = el('div'); changeGroup.append(changeTitle, changeList);
@@ -119,11 +118,11 @@ export function createCodeTree({ request, onSelect, onStale }) {
     pageTail(changeList, snapshot, () => moreChanges(snapshot.next));
   }
   async function filter() {
-    term = query.value.trim(); onlyChanged = changed.checked; epoch++; tree.replaceChildren();
+    term = searchControl.applied; onlyChanged = changed.checked; epoch++; tree.replaceChildren();
     treeTitle.textContent = term ? '路径匹配结果' : '项目目录';
     if (snapshot?.availability === 'available') await loadDirectory('', tree);
   }
-  form.onsubmit = event => { event.preventDefault(); void filter(); };
+  searchControl.bindForm(form);
   changed.onchange = filter;
   return {
     root,

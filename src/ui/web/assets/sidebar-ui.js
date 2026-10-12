@@ -1,5 +1,6 @@
 import { SIDEBAR_SECTIONS } from './sidebar.js';
 import { ui } from './state.js';
+import { listSurface } from './list-surface.js';
 
 const RESOURCE_META = new Map(SIDEBAR_SECTIONS.map(section => [section.id, section]));
 const PAGES = {
@@ -44,7 +45,7 @@ export function setViewChrome(title, context = '项目', hint = '', { root = fal
 /** 页面身份是唯一导航状态；旧读标记在此统一投影，面板不得各自设置。 */
 function activate(id, { key = id, title, context, hint, push = true, hash } = {}) {
   const changed = ui.view?.key !== key;
-  if (changed) { ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.disposeQuickChatPage?.(); ui.view = { id, key }; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerChatMode = null; ui.composerError = null; }
+  if (changed) { ui.disposePageModules?.(); ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.disposeQuickChatPage?.(); ui.view = { id, key }; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerChatMode = null; ui.composerError = null; }
   const resource = RESOURCE_META.get(id);
   ui.indexOpen = resource ? id : null;
   ui.docsOpen = id === 'docs';
@@ -62,6 +63,11 @@ function activate(id, { key = id, title, context, hint, push = true, hash } = {}
       // 切换立即反馈，不把上一页伪装成正在加载的新页面。
       if (!resource) detail.textContent = '正在加载…';
     }
+  }
+  if (resource) {
+    const page = node(`side-${id}`), body = node(id);
+    const card = page?.querySelector('.resource-card'), heading = card?.querySelector('.section-title');
+    listSurface({ root: page, card, heading, body, tools: page?.querySelector('.resource-tools'), pagination: node('notice-pagination') });
   }
   const resources = node('resource-panels'); if (resources) { resources.hidden = !resource; if (changed) resources.scrollTop = 0; }
   for (const section of SIDEBAR_SECTIONS) {

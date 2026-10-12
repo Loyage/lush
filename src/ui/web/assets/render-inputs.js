@@ -12,6 +12,8 @@ import { chooseCreationProfile } from './creation-profile-dialog.js';
 import { show } from './messages.js';
 import { linkWorkerNumbers } from './worker-links.js';
 import { attachTextEditor } from './text-editor.js';
+import { searchField } from './search-field.js';
+import { listEntry, listSurface } from './list-surface.js';
 import { inputPreviewText } from './entity-preview.js';
 
 export const INPUT_STATUS = {
@@ -73,12 +75,10 @@ export function openInputs({ item = null, push = true } = {}) {
   const header = el('header', undefined, 'resource-hero');
   header.append(el('span', 'INPUTS', 'resource-kicker'), el('h1', '历史输入'), el('p', '查找原始输入与暂存想法，点开查看完整原文、引用或编辑草稿。Worker 追加消息请到对应 Worker 查看。'));
   const filters = el('form', undefined, 'inputs-filters resource-tools');
-  const searchLabel = el('label', '搜索原文', 'input-search');
-  const search = el('input'); search.type = 'search'; search.placeholder = '搜索全库输入正文'; search.setAttribute('aria-label', '搜索全库输入正文');
-  searchLabel.append(search);
+  const searchControl = searchField({ label: '搜索原文', placeholder: '搜索全库输入正文', scope: '范围：项目全库原始输入与未提交草稿', onSubmit: () => searchNow() });
+  const search = searchControl.input;
   const status = selectField('Worker 状态', INPUT_STATUS), merge = selectField('合并状态', INPUT_MERGE);
   status.select.value = state.query.status;
-  const searchButton = el('button', '搜索'); searchButton.type = 'submit';
   const feedback = el('p', undefined, 'inputs-feedback hint'); feedback.setAttribute('role', 'status');
   const list = el('ol', undefined, 'inputs-list'); list.setAttribute('aria-label', '输入记录');
   const listCard = el('section', undefined, 'resource-card inputs-card');
@@ -92,10 +92,11 @@ export function openInputs({ item = null, push = true } = {}) {
   detailView.append(breadcrumb, panel);
   const more = controlsButton('加载更多', () => load(true), { help: '按当前搜索和筛选条件，继续读取更早的输入记录。' }); more.node.hidden = true;
   const reload = controlsButton('刷新列表', () => load(), { className: 'ghost', help: '重新读取列表的最新状态，不会覆盖尚未保存的草稿编辑。' });
-  filters.append(searchLabel, status.field, merge.field, searchButton, reload.host);
+  filters.append(searchControl.root, status.field, merge.field, reload.host);
   const pagination = el('div', undefined, 'inputs-pagination'); pagination.append(more.host);
   browse.append(header, filters, feedback, listCard, pagination);
   root.append(browse, detailView); $('detail').replaceChildren(root);
+  listSurface({ root, tools: filters, card: listCard, heading: listHead, body: list, pagination });
 
   function renderItem(item) {
     const card = el('li', undefined, 'input-record'); card.dataset.input = keyOf(item);
@@ -118,7 +119,7 @@ export function openInputs({ item = null, push = true } = {}) {
     const openLabel = el('span', `${item.content_truncated ? '摘要已截断 · ' : ''}${label} →`, 'input-open-label');
     summary.append(...stateBadges(item, true), openLabel);
     row.append(head, el('span', preview, 'input-preview'), summary);
-    card.append(row); return card;
+    card.append(listEntry(row)); return card;
   }
   function paintList() {
     list.replaceChildren(...[...state.items.values()].map(renderItem)); count.textContent = String(state.items.size);
@@ -165,12 +166,12 @@ export function openInputs({ item = null, push = true } = {}) {
   }
   const searchNow = () => {
     // Empty selects mean no restriction; the RPC validates enum values and must not receive ''.
-    state.query = { q: search.value.trim(),
+    state.query = { q: searchControl.applied,
       ...(status.select.value ? { status: status.select.value } : {}),
       ...(merge.select.value ? { integration: merge.select.value } : {}) };
     return load();
   };
-  filters.onsubmit = event => { event.preventDefault(); return searchNow(); };
+  searchControl.bindForm(filters);
   status.select.onchange = searchNow; merge.select.onchange = searchNow;
   state.added = () => { if (ownsPage()) void load(); };
 

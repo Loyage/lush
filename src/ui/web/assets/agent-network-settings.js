@@ -1,5 +1,6 @@
 /** Device outbound policy editor; credentials live only in current inputs. */
 import { block, button, el } from './dom.js';
+import { pageModules } from './page-modules.js';
 import { settingsClient } from './settings-api.js';
 import { scopeSummary, scopeImpact, scopeLabel } from './settings-scope.js';
 
@@ -59,12 +60,17 @@ export function renderNetworkSettings({ ownsPage = () => true, scope } = {}) {
         }
       } finally { if (generation === state.generation) state.busy = false; }
     }, 'ghost', { help: '只读取设备代理的安全配置；重新读取会丢弃网络表单草稿，不读取代理认证，也不联网测试或调用 Agent。' });
+    const mount = () => {
+      const [view] = pageModules(section, { scope: 'settings-network', entries: [{ section, key: 'network', mode: 'fold' }] });
+      // This live feedback retains its node and stays visible even if the form is folded.
+      section.insertBefore(feedback, view.body);
+    };
     load.type = 'button'; load.disabled = state.busy;
     const loadHost = el('span', undefined, 'help-host'); loadHost.setAttribute('data-help', load.getAttribute('data-help'));
     loadHost.append(load); section.append(loadHost);
     if (!state.model) {
       section.append(el('p', '点击“读取网络设置”后编辑。代理认证仅可写入，已保存的用户名和密码不会返回浏览器。', 'settings-note'), feedback);
-      return;
+      mount(); return;
     }
     section.append(scopeSummary(state.model, client.scope));
     const draft = state.draft;
@@ -130,7 +136,7 @@ export function renderNetworkSettings({ ownsPage = () => true, scope } = {}) {
         }
       } finally { if (generation === state.generation) state.busy = false; }
     }, 'primary'); save.type = 'button'; save.disabled = state.busy;
-    section.append(form, save, feedback);
+    section.append(form, save, feedback); mount();
   }
   section.clearSecrets = () => { for (const input of secretInputs) input.value = ''; };
   section.resume = () => { if (active()) paint(); };

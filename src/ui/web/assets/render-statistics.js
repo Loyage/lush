@@ -1,6 +1,7 @@
 import { $, block, button, el, kv } from './dom.js';
 import { api } from './api.js';
 import { activateDetailView } from './sidebar-ui.js';
+import { pageBlocks, replacePageContent } from './page-modules.js';
 import { ui } from './state.js';
 import { statisticsDefaults, statisticsDates, statisticsQuery, statisticsToday } from './statistics-range.js';
 import { workerLabel } from './worker-label.js';
@@ -146,6 +147,7 @@ export function renderStatistics(data) {
   if (data.attribution?.unknown_role_requests || data.attribution?.unknown_run_requests) {
     root.append(el('p', `历史归因不完整：${data.attribution.unknown_role_requests} 条角色未知，${data.attribution.unknown_run_requests} 条 invocation 未知。未知记录仍计入总量，不按相邻 Worker 猜测。`, 'usage-warning'));
   }
+  pageBlocks(root, 'statistics', 'preview', section => [...section.querySelectorAll('.hint')].filter(node => node.textContent.includes('仅显示')).map(node => node.textContent).join('；'));
   return root;
 }
 
@@ -238,7 +240,7 @@ export async function openStatistics() {
       const params = statisticsQuery(filters);
       const data = await api(`/api/usage?${params}`);
       if (id !== requestId || ui.view !== view) return;
-      results.replaceChildren(renderStatistics(data));
+      replacePageContent(results, renderStatistics(data));
     } catch (cause) {
       if (id !== requestId || ui.view !== view) return;
       results.replaceChildren(); error.textContent = `统计失败：${cause.message}`;

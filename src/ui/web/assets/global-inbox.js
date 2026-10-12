@@ -6,6 +6,8 @@ import { absolute, noticeNumber } from './format.js';
 import { renderMarkdown } from './markdown.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
+import { searchField, noticeSearchText } from './search-field.js';
+import { listEntry, listSurface } from './list-surface.js';
 import { workerLabel } from './worker-label.js';
 import { questionnairePanel } from './render-questionnaire.js';
 import { notificationControl } from './notice-notifications.js';
@@ -153,14 +155,17 @@ function paintSelected(state) {
 }
 function paintRows(state) {
   if (!state.current()) return;
-  const rows = state.rows.filter(item => (!state.projectId || state.projectId === item.project_id) && inboxMatches(item, state.status));
+  const rows = state.rows.filter(item => (!state.projectId || state.projectId === item.project_id) && inboxMatches(item, state.status)
+    && (!state.query || `${item.project_name} ${noticeSearchText(item.notice)}`.toLocaleLowerCase().includes(state.query)));
   const known = new Map([...state.list.children].map(node => [node.dataset.noticeIdentity, node]));
   syncChildren(state.list, rows.map(item => {
     const key = inboxIdentity(item), signature = JSON.stringify(item);
     const node = known.get(key) || el('a', undefined, 'notice-brief global-inbox-row');
     node.setAttribute('href', inboxProjectHref(item.project_id, item.notice.id));
     node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener');
+    listEntry(node);
     node.classList.toggle('notice-info', item.notice.kind === 'info');
+    node.classList.toggle('notice-question', item.notice.kind !== 'info');
     node.dataset.noticeIdentity = key;
     node.classList.toggle('selected', state.selected && inboxIdentity(state.selected) === key);
     if (node.dataset.signature !== signature) {
@@ -175,7 +180,7 @@ function paintRows(state) {
     node.setAttribute('data-help', '在独立项目标签定位“待我处理”中的这条消息，保留当前页面；不自动标已读、不提交答案或启动 Agent。');
     return node;
   }));
-  state.footer.replaceChildren(el('p', rows.length ? `已显示 ${rows.length} 条记录` : state.page?.has_more ? '本页没有符合筛选的记录；仍可加载更早记录。' : state.page?.complete ? '没有符合筛选的记录' : '当前已同步范围内，没有符合筛选的记录。', 'hint'));
+  state.footer.replaceChildren(el('p', rows.length ? `已显示 ${rows.length} / ${state.rows.length} 条已加载记录` : '当前已加载记录中没有匹配；不代表所有项目全库无结果，可继续加载或刷新。', 'hint'));
   if (state.page?.has_more) state.footer.append(button('加载更早记录', () => loadRows(state, true), 'ghost'));
 }
 function paintSources(state, projects, complete) {
@@ -227,14 +232,14 @@ async function loadSelected(state, noticeId) {
 }
 
 /** Root Host view; source actions never use the page's current project or integer-only notice cache. */
-export async function openGlobalInbox({ projectId = null, noticeId = null, status = 'all', push = true } = {}) {
+export async function openGlobalInbox({ projectId = null, noticeId = null, status = 'all', push = true, query = '' } = {}) {
   if ((projectId !== null && !validProjectId(projectId)) || !INBOX_STATUSES.includes(status)
     || (noticeId !== null && (!Number.isSafeInteger(noticeId) || noticeId <= 0 || !projectId))) throw new Error('无效的全局收件箱地址');
   const hash = noticeId ? inboxHash(projectId, noticeId) : projectId ? `#notices-project-${projectId}${status === 'all' ? '' : `-${status}`}` : status === 'all' ? '#notices' : `#notices-${status}`;
   const view = activateDetailView({ view: 'global-inbox', key: `global-inbox:${status}:${projectId || ''}:${noticeId || ''}`,
     title: '全局收件箱', context: '用户工作台', hint: '所有可访问项目的待决、告知与自动选择记录', hash, push });
   ui.globalInboxPage?.controller.abort();
-  const state = { view, status, projectId, cache: currentCache(), controller: new AbortController(),
+  const state = { view, status, projectId, query: query.trim().toLocaleLowerCase(), cache: currentCache(), controller: new AbortController(),
     rows: [], selected: null, selectedSignature: null, page: null, listRequest: 0, focusRequest: 0, listBusy: false };
   ui.globalInboxPage = state;
   const owner = globalThis.document, pathname = location.pathname, routeHash = location.hash;
@@ -245,17 +250,23 @@ export async function openGlobalInbox({ projectId = null, noticeId = null, statu
   const head = el('header', undefined, 'global-inbox-head'); head.append(el('h1', '全局收件箱'), el('p', '各项目保存原记录；点击消息在来源项目的“待我处理”中查看和处理，不会自动启动已停止的项目后台。', 'hint'));
   const filters = el('div', undefined, 'filters');
   for (const value of INBOX_STATUSES) {
-    const filter = button(LABELS[value], () => openGlobalInbox({ projectId, status: value }), 'ghost');
+    const filter = button(LABELS[value], () => openGlobalInbox({ projectId, status: value, query: state.query }), 'ghost');
     filter.setAttribute('aria-pressed', String(value === status)); filters.append(filter);
   }
-  if (projectId) filters.append(button('查看所有项目', () => openGlobalInbox({ status }), 'ghost'));
+  if (projectId) filters.append(button('查看所有项目', () => openGlobalInbox({ status, query: state.query }), 'ghost'));
   const refresh = button('刷新记录', () => Promise.all([loadRows(state), noticeId ? loadSelected(state, noticeId) : Promise.resolve()]), 'ghost');
-  const tools = el('div', undefined, 'resource-tools'); tools.append(filters, refresh, notificationControl());
+  const search = searchField({ label: '搜索收件箱', placeholder: '项目、标题、正文、答复或编号', value: query,
+    scope: '范围：当前已加载／缓存记录，不是跨项目全库检索；加载更早后继续按已提交词筛选',
+    onSubmit: value => { state.query = value.toLocaleLowerCase(); paintRows(state); } });
+  const tools = el('div', undefined, 'resource-tools'); tools.append(search.root, filters, refresh, notificationControl());
   state.sources = el('div', undefined, 'global-inbox-sources');
   state.message = el('p', '', 'hint'); state.message.setAttribute('role', 'status');
   state.list = el('div', undefined, 'global-inbox-list'); state.footer = el('div', undefined, 'global-inbox-footer');
   state.focus = el('div', undefined, 'global-inbox-focus');
-  root.append(head, tools, state.sources, state.message, state.list, state.footer, state.focus);
+  const card = el('section'), heading = el('div', undefined, 'section-title'); heading.append(el('h2', '事项记录'));
+  card.append(heading, state.list);
+  root.append(head, tools, state.sources, state.message, card, state.footer, state.focus);
+  listSurface({ root, tools, card, heading, body: state.list, pagination: state.footer });
   $('detail').replaceChildren(root);
   await Promise.all([loadRows(state), noticeId ? loadSelected(state, noticeId) : Promise.resolve()]);
 }

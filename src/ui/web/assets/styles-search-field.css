@@ -1,0 +1,17 @@
+/* One shared control; pages retain their own list/reader layouts. */
+.search-field{flex:1 1 auto;width:100%;min-width:0;max-width:100%;margin-block:6px;color:var(--muted)}
+.search-field-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;min-width:0}
+.search-field .search-field-label{display:flex;flex:1 1 160px;flex-direction:column;align-items:stretch;gap:6px;min-width:0;margin:0;white-space:normal}
+.search-field-title{font-size:12px;line-height:1.4}
+.search-field .search-field-label>input.search-field-input{flex:none;box-sizing:border-box;width:100%;min-width:0;max-width:none;height:36px;padding:7px 10px;margin:0;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font:inherit;font-size:13px}
+.search-field .search-field-label>input.search-field-input:focus{outline:2px solid var(--accent);outline-offset:1px}
+.search-field .search-field-row>button{flex:none;min-height:36px;padding:7px 10px;margin:0;font-size:12px;white-space:nowrap}
+.search-field-help{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+.search-field-status{color:var(--muted)}
+.search-field[hidden],.search-field-help[hidden]{display:none}
+#task-filters .search-field .search-field-input{padding:7px 10px}
+.transcript-search-filters>.search-field{grid-column:1 / -1}
+@media(max-width:760px){.search-field .search-field-label>input.search-field-input{font-size:16px}}
+@media(max-width:400px){.search-field-row{gap:6px}.search-field-help{gap:2px 8px}}
+/* A narrow dedicated reader can scroll the complete search area when draft hints grow. */
+@media(max-width:360px){.transcript-sidebar .transcript-reader{overflow:auto}.transcript-sidebar .transcript-search-results{flex:none;overflow:visible}}

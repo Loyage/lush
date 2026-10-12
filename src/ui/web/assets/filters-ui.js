@@ -1,4 +1,5 @@
 import { el, syncChildren } from './dom.js';
+import { searchField } from './search-field.js';
 import { ROLE, STATUS, SPEC_STATUS } from './format.js';
 
 // 选项随数据变化的筛选控件（角色 / planner / 意图状态）
@@ -64,14 +65,10 @@ export function filterMulti(label, options, value, onChange) {
   sync(options, value);
   return { wrap, sync };
 }
-export function filterInput(value, onChange) {
-  const wrap = el('label', undefined, 'filter filter-text');
-  const input = el('input', undefined, 'filter-input');
-  input.type = 'search'; input.value = value; input.placeholder = '关键字';
-  input.setAttribute('aria-label', '按关键字筛选');
-  input.addEventListener('input', () => onChange(input.value));
-  wrap.append(input);
-  return { wrap, input };
+export function filterInput(value, onChange, options = {}) {
+  const control = searchField({ label: '关键词', scope: '范围：已加载记录', value, onSubmit: onChange, ...options });
+  control.root.classList.add('filter-text'); control.input.classList.add('filter-input');
+  return control;
 }
 export const roleOption = value => ({ value, label: ROLE[value] || value });
 export const statusOption = value => ({ value, label: STATUS[value]?.label || value });

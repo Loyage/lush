@@ -58,7 +58,8 @@ export function initSidebar() {
   const taskIntegration = filterSelect('合并', [{ value: 'all', label: '全部' }, { value: 'unmerged', label: '待合并' }, { value: 'merged', label: '已合并' }],
     ui.filters.tasks.integration, value => { ui.filters.tasks.integration = value; applyFilters(); });
   const taskMine = filterToggle('只看待我处理', ui.filters.tasks.mine, value => { ui.filters.tasks.mine = value; applyFilters(); });
-  const taskText = filterInput(ui.filters.tasks.text, value => { ui.filters.tasks.text = value; applyFilters(); });
+  const taskText = filterInput(ui.filters.tasks.text, value => { ui.filters.tasks.text = value; applyFilters(); },
+    { label: '搜索 Worker 目标或编号', scope: '范围：overview 已加载 Worker，不是全库' });
   taskText.input.placeholder = '搜索 Worker 目标或 #编号';
   taskText.input.setAttribute('aria-label', '搜索 Worker 目标或编号');
   const extras = el('div', undefined, 'task-filter-extras');

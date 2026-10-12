@@ -158,7 +158,8 @@ test('text decisions and history rows display server-projected answer source and
       { ...notice(12), kind: 'question', body: '旧问题', status: 'answered', answer: '第一项', answer_source: null },
     ];
     for (const record of records) {
-      const root = noticePanel(record); expect(root.querySelector('textarea')).toBeNull(); expect(root.querySelector('button')).toBeNull();
+      const root = noticePanel(record); expect(root.querySelector('textarea')).toBeNull(); expect(root.querySelector('.module-content').querySelector('button')).toBeNull();
+      expect(root.querySelector('.module-toggle').getAttribute('aria-expanded')).toBe('true');
       expect(deepText(root)).toContain(record.answer_source === 'lush' ? 'Lush 自动选择' : record.answer_source === 'user' ? '用户答复' : '答复来源未记录');
     }
     ui.indexOpen = 'notices'; ui.noticeRecords = { status: 'answered', rows: records, page: { has_more: false }, selected: null };

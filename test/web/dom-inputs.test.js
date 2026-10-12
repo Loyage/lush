@@ -79,6 +79,22 @@ beforeEach(() => {
 });
 afterAll(() => dom.restore());
 
+test('未提交关键词不因即时筛选、刷新或分页生效，IME 不提交；清空保留状态', async () => {
+  pageCursor = 'next'; await openInputs();
+  const input = form().querySelector('input'); input.value = '未提交'; input.listeners.input[0]();
+  await selectStatus(''); await btn('刷新列表').onclick(); await btn('加载更多').onclick();
+  expect(reads.every(url => !new URL(url, 'http://localhost').searchParams.get('q'))).toBe(true);
+  input.listeners.keydown[0]({ key: 'Enter', isComposing: true, preventDefault() {} });
+  expect(new URL(reads.at(-1), 'http://localhost').searchParams.get('q')).toBe('');
+  input.value = '想法'; await form().onsubmit({ preventDefault() {} });
+  expect(new URL(reads.at(-1), 'http://localhost').searchParams.get('q')).toBe('想法');
+  input.value = '新草稿词'; await selectStatus('draft');
+  expect(new URL(reads.at(-1), 'http://localhost').searchParams.get('q')).toBe('想法');
+  await btn('清空').onclick();
+  expect(new URL(reads.at(-1), 'http://localhost').searchParams.get('status')).toBe('draft');
+  expect(new URL(reads.at(-1), 'http://localhost').searchParams.get('q')).toBe('');
+});
+
 test('工作导航 #inputs、输入区入口、独立状态与只读原文，轮询不覆盖编辑', async () => {
   await dom.node('inputs-open').onclick();
   expect(dom.location.hash).toBe('#inputs'); expect(dom.node('inputs-open').getAttribute('aria-current')).toBe('page');
@@ -105,6 +121,7 @@ test('默认暂存筛选用于搜索、刷新和分页，主动切换后保留�
   form().querySelector('input').value = '想法'; await form().onsubmit({ preventDefault() {} });
   expect(reads.every(url => new URL(url, 'http://localhost').searchParams.get('status') === 'draft')).toBe(true);
   form().querySelector('input').value = '';
+  await form().querySelector('input').listeners.input[0]();
   await selectStatus('awaiting_acceptance');
   expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual(['input:2']);
   await btn('查看原文').onclick(); await btn('← 返回历史输入').onclick(); await openInputs();

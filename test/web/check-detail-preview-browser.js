@@ -11,6 +11,8 @@ const fixture = html.replace('</body>', `<script type="module">
 import { renderDetail } from '/render-detail.js';
 import { revealDetailPreview } from '/detail-preview.js';
 import { ui } from '/state.js';
+import { block, el } from '/dom.js';
+import { enhanceModule, observeModules, disposeModules, revealModule } from '/shared-module.js';
 const at='2026-10-08T10:00:00Z';
 const long=Array.from({length:50},(_,i)=>'段落 '+i+'：这是一段较长的正文，预览应保留格式，后续内容仍然完整存在。').join('\\n\\n');
 window.task={id:7,worker_number:'W7',role:'agent',task_kind:'order',status:'waiting',calls:1,
@@ -25,6 +27,16 @@ window.fixtureHistory={events:[...Array.from({length:50},(_,i)=>({id:i+1,type:'i
 ui.selected=7; ui.view={id:'task',key:'7'};
 window.paint=(progressive=null)=>renderDetail(window.task,window.fixtureHistory,null,null,null,progressive);
 window.reveal=revealDetailPreview;
+window.makeSharedModules=()=>{
+  const panel=document.querySelector('#detail');disposeModules(panel);panel.dataset.view='settings';
+  const wrapper=el('div'),reading=block('普通阅读模块'),form=block('表单与待答问卷');
+  const prose=el('div');prose.innerHTML=Array.from({length:80},(_,i)=>'<p>阅读段落 '+i+' '+('共用预览与页面滚动。'.repeat(8))+'</p>').join('');
+  reading.append(prose);const editor=el('textarea');editor.value='未保存草稿';form.append(editor,el('div'));
+  form.lastElementChild.style.height='1600px';wrapper.append(reading,form);panel.replaceChildren(wrapper);
+  window.sharedStates=new Map();window.sharedReading=enhanceModule(reading,{key:'reading',states:window.sharedStates,summary:'读取失败诊断保留在正文外'});
+  window.sharedForm=enhanceModule(form,{key:'form',mode:'fold',states:window.sharedStates,summary:'等待回答 · 副作用未知'});
+  window.sharedEditor=editor;window.sharedReveal=revealModule;window.sharedDispose=observeModules(panel,[window.sharedReading,window.sharedForm]);
+};
 window.paint(); window.ready=true;
 </script></body>`);
 const temp = await mkdtemp(join(tmpdir(), 'lush-w198-preview-'));
@@ -269,6 +281,39 @@ try {
     const after=[...root.querySelector('.conversation-list').children];window.paint();
     return root.dataset.order==='asc'&&before.every((n,i)=>after[after.length-1-i]===n)&&document.querySelector('.conversation-panel').dataset.order==='asc';`), 'order change replaced messages or refresh lost selection');
   console.log('PASS height-only resize, bubbles, message/module sticky headers, sorting, expand/collapse, refresh, focus, reference reveal, lazy growth and Worker isolation');
+  for (const [width,height] of [[1440,900],[390,700],[320,560]]) for (const theme of ['light','dark']) {
+    await viewport(width,height);
+    await execute(`document.documentElement.dataset.theme='${theme}';window.makeSharedModules();`);
+    assert(await wait(`window.sharedReading.section.classList.contains('module-long')`),'shared preview not measured');
+    assert(await execute(`const v=window.sharedReading,f=window.sharedForm;
+      return Math.abs(v.body.getBoundingClientRect().height-v.gauge.getBoundingClientRect().height)<1&&
+        getComputedStyle(v.body).maskImage.includes('linear-gradient')&&v.summary.parentNode===v.section&&!v.summary.hidden&&
+        !f.body.hidden&&f.body.getBoundingClientRect().height>1600&&!f.section.classList.contains('module-long')&&
+        getComputedStyle(f.body).maskImage==='none'&&document.querySelector('#detail').scrollWidth<=document.querySelector('#detail').clientWidth+1;`),'shared modes, summary or width regression');
+    await execute(`window.sharedReading.toggle.click();`);
+    assert(await execute(`const v=window.sharedReading;return v.expanded&&getComputedStyle(v.body).maskImage==='none'&&
+      v.body.getBoundingClientRect().height>1000&&getComputedStyle(v.body).overflowY==='visible';`),'shared expansion introduced inner scrolling');
+    await execute(`window.sharedAnchor=window.sharedReading.content.querySelectorAll('p')[30];
+      const panel=document.querySelector('#detail');window.sharedPage=matchMedia('(max-width:760px)').matches;
+      const delta=window.sharedAnchor.getBoundingClientRect().top-(window.sharedPage?140:panel.getBoundingClientRect().top+100);
+      if(window.sharedPage)window.scrollBy(0,delta);else panel.scrollTop+=delta;`);
+    await rpc(`/session/${session}/execute/async`,{script:'requestAnimationFrame(()=>requestAnimationFrame(()=>arguments[0](true)));',args:[]});
+    assert(await execute(`const v=window.sharedReading,panel=document.querySelector('#detail');
+      const edge=window.sharedPage?parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--mobile-header-height')):panel.getBoundingClientRect().top;
+      window.sharedTop=window.sharedAnchor.getBoundingClientRect().top;
+      return Math.abs(v.head.getBoundingClientRect().top-edge)<2;`),'ordinary module heading not sticky');
+    await execute(`const extra=document.createElement('div');extra.style.height='180px';window.sharedReading.content.prepend(extra);`);
+    assert(await wait(`Math.abs(window.sharedAnchor.getBoundingClientRect().top-window.sharedTop)<2`),'shared observer moved visible reader');
+    await execute(`window.sharedReading.toggle.click();`);
+    assert(await execute(`const v=window.sharedReading,box=v.head.getBoundingClientRect();return !v.expanded&&box.bottom>0&&box.top<innerHeight;`),'shared collapse lost header');
+    assert(await execute(`const f=window.sharedForm;window.sharedEditor.focus();f.setExpanded(false);
+      return f.body.hidden&&!f.summary.hidden&&document.activeElement===f.toggle&&window.sharedEditor.value==='未保存草稿';`),'explicit fold lost draft, focus or summary');
+    await execute(`window.sharedForm.toggle.click();window.sharedReveal(window.sharedAnchor);`);
+    assert(await execute(`return !window.sharedForm.body.hidden&&window.sharedEditor===window.sharedForm.content.querySelector('textarea')&&
+      window.sharedReading.expanded&&window.sharedReading.section.querySelectorAll('.module-body').length===1;`),'shared reference/fold node retention');
+    console.log('PASS shared ordinary module geometry, sticky heading, anchor, preview/fold, draft/focus and summaries',width,height,theme);
+  }
+  await execute(`window.sharedDispose();document.querySelector('#detail').replaceChildren();`);
   passed = true;
 } finally {
   if (session) await rpc(`/session/${session}`, undefined, 'DELETE').catch(() => {});

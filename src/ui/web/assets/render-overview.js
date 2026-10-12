@@ -6,6 +6,8 @@ import { openNotice } from './render-notices.js';
 import { ui } from './state.js';
 import { workerLabel, rememberWorkers } from './worker-label.js';
 import { projectMaintenanceRegion } from './project-maintenance.js';
+import { pageBlocks } from './page-modules.js';
+import { captureModuleReading, restoreModuleReading } from './module-reading.js';
 
 /** Worker-first homepage using the existing studio layout, without old Intent/Plan/Candidate controls. */
 export function renderOverview(data) {
@@ -20,6 +22,7 @@ export function renderOverview(data) {
   if (key === ui.overviewKey) return;
   ui.overviewKey = key;
   const panel = $('detail');
+  const reading = captureModuleReading(panel);
   const expanded = new Set([...panel.querySelectorAll('details[data-fold]')].filter(node => node.open).map(node => node.dataset.fold));
   const maintenance = projectMaintenanceRegion(data.status.maintenance, { offline: Boolean(ui.offline) });
   const focus = document.activeElement;
@@ -86,4 +89,6 @@ export function renderOverview(data) {
   info.append(grid);
   const runtime = el('details', undefined, 'disclosure'); runtime.dataset.fold = 'runtime'; runtime.open = expanded.has('runtime');
   runtime.append(el('summary', '运行时与项目配置'), info); panel.append(runtime);
+  pageBlocks(panel, 'overview');
+  restoreModuleReading(panel, reading);
 }

@@ -1,4 +1,7 @@
 import { block, button, el, kv } from './dom.js';
+import { searchField } from './search-field.js';
+import { listEntry, listSurface } from './list-surface.js';
+import { pageBlocks } from './page-modules.js';
 import { api } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { readPref, readStored, scopedKey, writeStored } from './prefs.js';
@@ -249,7 +252,8 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   const layout = el('div', undefined, 'model-source-layout');
   const listPane = el('section', undefined, 'model-source-list'); listPane.setAttribute('aria-label', '模型来源列表');
   const filters = el('div', undefined, 'model-source-filters');
-  const search = field(filters, '搜索来源', 'source-search', 'search', '', '按名称、端点、服务商或模型搜索。');
+  const searchControl = searchField({ label: '搜索来源', placeholder: '名称、端点、服务商或模型', scope: '范围：当前目录全部模型来源（本地配置与缓存）', onSubmit: () => paintRows() });
+  const search = searchControl.input; search.dataset.connectionField = 'source-search'; filters.append(searchControl.root);
   const providerFilter = select(filters, '服务商', 'source-provider', [['', '全部服务商'], ...PROVIDERS]);
   const enabledFilter = select(filters, '连接状态', 'source-enabled', [['', '全部状态'], ['enabled', '启用'], ['disabled', '停用']]);
   const stateFilter = select(filters, '认证 / 观测', 'source-state', [['', '全部认证与观测'], ['attention', '需处理'], ['configured', '凭证已配置（未验证）'], ['unconfigured', '凭证未配置'], ['expired', '凭证已过期'], ['error', '查询失败'], ['unknown', '观测未知'], ['available', '观测成功'], ['partial', '部分可用'], ['unsupported', '不支持查询']]);
@@ -259,7 +263,9 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
   const selectionCount = el('strong', '已选 0 个连接');
   const listFeedback = el('p', undefined, 'hint'); listFeedback.setAttribute('role', 'status');
   const sourceRows = el('div', undefined, 'model-source-rows');
-  listPane.append(sourceRows, statistics, listFeedback, filters, batchToolbar, batchFeedback);
+  const listHeading = el('div', undefined, 'section-title'); listHeading.append(el('h2', '模型来源目录'));
+  listPane.append(listHeading, sourceRows, statistics, listFeedback, filters, batchToolbar, batchFeedback);
+  listSurface({ root: node, tools: filters, card: listPane, heading: listHeading, body: sourceRows });
   const detailPane = el('aside', undefined, 'model-source-detail'); detailPane.setAttribute('aria-label', '模型来源操作面板'); detailPane.hidden = !connectionId;
   // Non-modal: the overview stays operable; do not claim aria-modal or trap focus.
   let panelTrigger = null, triggerSource = '', triggerLabel = '', panelKind = connectionId ? 'detail' : '', dirty = false;
@@ -582,14 +588,14 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
       if (parent.parentNode === sourceRows) focusId = parent.dataset.sourceId;
     }
     const focusLabel = focused?.textContent, focusField = focused?.dataset?.connectionField;
-    const term = search.value.trim().toLocaleLowerCase();
+    const term = searchControl.applied.toLocaleLowerCase();
     const all = array(data?.connections);
     filtered = all.filter(row => (!providerFilter.value || row.provider === providerFilter.value)
       && (!enabledFilter.value || Boolean(row.enabled) === (enabledFilter.value === 'enabled'))
       && (!stateFilter.value || (stateFilter.value === 'attention' ? attention(row) : row.credential?.status === stateFilter.value || row.observation?.status === stateFilter.value))
       && (!term || [row.label, row.provider, PROVIDERS.find(([id]) => id === row.provider)?.[1], row.endpoint, ...array(row.models), row.default_model].join(' ').toLocaleLowerCase().includes(term)));
     sourceRows.replaceChildren(...filtered.map(connection => {
-      const row = el('article', undefined, 'model-source-row'); row.dataset.sourceId = connection.id;
+      const row = listEntry(el('article', undefined, 'model-source-row')); row.dataset.sourceId = connection.id;
       const identity = el('div', undefined, 'model-source-identity');
       const check = field(identity, text(connection.label, '未命名来源'), 'select-source', 'checkbox', selected.has(connection.id));
       check.setAttribute('aria-label', `选择 ${connection.label}`);
@@ -641,7 +647,7 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
     const control = helped(label, () => runBatch(kind), kind === 'refresh' ? null : '先确认连接范围，再逐项保存启用状态；不更换秘密、不删除，保留端点、模型和默认设定。');
     control.children[0].dataset.batchAction = kind; batchToolbar.append(control);
   }
-  search.oninput = paintRows; providerFilter.onchange = enabledFilter.onchange = stateFilter.onchange = paintRows;
+  providerFilter.onchange = enabledFilter.onchange = stateFilter.onchange = paintRows;
   function paintCards() {
     const nodes = [];
     for (const connection of array(data?.connections)) {
@@ -708,7 +714,9 @@ export function createAgentConnections({ ownsPage, connectionId = '', setTimeout
           await load(true); message('连接已删除，历史保留，可按原连接 ID 读取。');
         } catch { message('删除未完成；请重新读取本地连接确认状态。', true); }
       }, '删除设备连接和凭证，需确认；不会删除观测历史或外部客户端凭证。', 'ghost danger'));
-      card.append(connectionSection, resourceSection, consumerSection, actions); nodes.push(card);
+      card.append(connectionSection, resourceSection, consumerSection, actions);
+      pageBlocks(card, `model-source-${connection.id}`, 'preview', section => [...section.querySelectorAll('.agent-status-warning')].map(node => node.textContent).join('；'));
+      nodes.push(card);
     }
     if (!nodes.length) nodes.push(el('p', '暂无项目账号连接。添加连接不会自动迁移或替换原 CLI 登录。', 'hint'));
     cards.replaceChildren(...nodes);

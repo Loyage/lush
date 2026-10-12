@@ -6,6 +6,7 @@ import { agentHelp } from './help.js';
 import { show } from './messages.js';
 import { completionLevelButtons } from './hook-controls.js';
 import { refreshDeviceAutomation, saveDeviceAutomation, validDeviceAutomation } from './workspace-automation.js';
+import { pageModules } from './page-modules.js';
 
 export async function openWorkspaceAutomation({ push = true } = {}) {
   const view = activateDetailView({ view: 'automation', title: '全局自动化', context: '用户工作台',
@@ -87,7 +88,7 @@ export async function openWorkspaceAutomation({ push = true } = {}) {
       if (owns()) await save({ completion_defaults: patch });
     }, 'primary');
     const saveHost = el('span', undefined, 'help-host'); saveHost.append(saveButton);
-    const summary = el('p', undefined, 'hint'); summary.setAttribute('role', 'status');
+    const summary = el('p', undefined, 'hint automation-saved'); summary.setAttribute('role', 'status');
     function sync() {
       const names = { merge: '合并', accept: '验收' };
       for (const { level, control, host } of choices) {
@@ -123,7 +124,19 @@ export async function openWorkspaceAutomation({ push = true } = {}) {
     reload.setAttribute('data-help', '只读取得最新设备策略，不调用 Agent。存在未保存更改时会先明确确认是否放弃。');
     head.append(guarded(reload, state.busy ? '正在读取或保存设备策略，请稍候。' : null)); root.replaceChildren(head);
     if (state.error) { const error = el('p', state.error, 'error'); error.setAttribute('role', 'alert'); root.append(error); }
-    if (state.model) root.append(autoSelectCard(), defaultsCard());
+    if (state.model) {
+      const cards = [autoSelectCard(), defaultsCard()];
+      for (const card of cards) {
+        const heading = el('div', undefined, 'section-title'), title = card.querySelector('h2');
+        card.insertBefore(heading, title); heading.insertBefore(title, null);
+      }
+      root.append(...cards);
+      const views = pageModules(root, { scope: 'workspace-automation', entries: cards.map((section, index) => ({ section, key: String(index), mode: 'fold' })) });
+      for (const view of views) {
+        const saved = view.content.querySelector('.automation-saved');
+        if (saved) view.section.insertBefore(saved, view.body);
+      }
+    }
     else if (!state.error) { status.textContent = '正在读取设备策略…'; root.append(status); }
     root.append(el('p', '仓库 Shell 命令授权、推送、时间信号与实际 Worker Hook 挂载仍在各项目“项目自动化”管理；这里不会复制它们的授权。', 'hint'));
   }

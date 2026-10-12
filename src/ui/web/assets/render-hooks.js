@@ -1,4 +1,5 @@
 import { $, el, button, badge, block, syncChildren } from './dom.js';
+import { searchField } from './search-field.js';
 import { api, action, projectApi } from './api.js';
 import { ui } from './state.js';
 import { activateDetailView } from './sidebar-ui.js';
@@ -388,7 +389,9 @@ export async function openHooks({ subpage = 'settings' } = {}) {
   root.append(subnav);
   const editor = el('div', undefined, 'hook-editor');
   const signalEditor = el('div', undefined, 'hook-editor'), managerEditor = el('div', undefined, 'hook-editor');
-  const search = el('input', undefined, 'hook-template-search');
+  const searchControl = searchField({ label: '查找 Hook 模板', placeholder: '按名称、触发节点或动作查找模板', scope: '范围：当前项目目录全部模板', onSubmit: value => { state.templateQuery = value; applyTemplateSearch(); } });
+  const search = searchControl.input; search.classList.add('hook-template-search');
+  let applyTemplateSearch = () => {};
   function edit(initial = {}, copying = false) {
     if (!owns() || state.busy || state.templateEditing) return;
     state.folds.set('templates', true);
@@ -498,17 +501,14 @@ export async function openHooks({ subpage = 'settings' } = {}) {
         editor.replaceChildren(); signalEditor.replaceChildren(); managerEditor.replaceChildren(); state.paintedCatalogue = null; await load(); }, 'ghost hook-button', { help: '显式读取最新节点和模板；未保存编辑会先确认，不进行后台自动刷新。' }));
     const templates = block('项目模板', String(catalogue.templates?.length || 0));
     templates.querySelector('.section-title').append(hookHelpLink());
-    search.type = 'search';
-    search.placeholder = '按名称、触发节点或动作查找模板'; search.setAttribute('aria-label', '查找 Hook 模板');
+
     const cards = [], empty = el('p', '没有匹配的模板。', 'hint'); empty.hidden = true;
-    search.value = state.templateQuery;
-    search.oninput = () => {
-      state.templateQuery = search.value;
-      const query = search.value.trim().toLowerCase(); let count = 0;
+    applyTemplateSearch = () => {
+      const query = searchControl.applied.toLowerCase(); let count = 0;
       for (const { card, text } of cards) { card.hidden = !text.includes(query); if (!card.hidden) count++; }
       empty.hidden = count !== 0 || !query;
     };
-    if (catalogue.templates?.length) templates.append(search);
+    if (catalogue.templates?.length) templates.append(searchControl.root);
     if (!catalogue.templates?.length) templates.append(el('p', '还没有模板。自动合并是 Worker 内置 Hook，不需要创建模板。', 'hint'));
     for (const template of catalogue.templates || []) {
       const card = projectHookCard(template.name, '模板 · 尚未挂载', 'hook-template'); card.dataset.templateId = template.id;
@@ -529,7 +529,7 @@ export async function openHooks({ subpage = 'settings' } = {}) {
           } catch (error) { if (owns()) show(error.message, 'error'); } finally { state.busy = false; if (owns()) paint(); }
         }, 'ghost hook-button', { help: '经确认删除模板，不撤销已挂载的规则或执行成果。' })); card.append(buttons); templates.append(card);
     }
-    search.oninput(); templates.append(empty, editor);
+    applyTemplateSearch(); templates.append(empty, editor);
     automationModule(templates, 'templates', state.folds, `${catalogue.templates?.length || 0} 个可复用模板；保存不挂载、不执行。${catalogue.templates?.some(legacyCommands) ? '含已停用的旧内联命令，需显式导入。' : ''}`);
     for (const card of [...hooks.querySelectorAll('.hook-mount'), ...templates.querySelectorAll('.hook-mount')]) {
       const key = card.dataset.hookId || card.dataset.templateId, details = card.querySelector('details');

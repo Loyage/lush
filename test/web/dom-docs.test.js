@@ -69,6 +69,8 @@ test('文档视图：左栏入口进目录，点条目读正文，相对链接�
   expect(search.placeholder).toContain('搜索');
   search.value = 'Project 入口';
   search.listeners.input[0]();
+  expect(seenRequests.filter(path => path === '/api/docs/search-index')).toHaveLength(0);
+  search.listeners.keydown[0]({ key: 'Enter', preventDefault() {} });
   await Bun.sleep(5);
   expect(deepText(dom.node('detail'))).toContain('找到 1 篇相关文档');
   expect(deepText(dom.node('detail'))).toContain('数据流');

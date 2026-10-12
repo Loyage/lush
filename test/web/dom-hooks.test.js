@@ -100,15 +100,29 @@ test('template catalogue scales with search by name, trigger and action while ke
   const search = root().querySelector('[aria-label="查找 Hook 模板"]');
   const cards = () => root().querySelectorAll('.hook-template');
   expect(cards()).toHaveLength(50);
-  search.value = '规则 49'; search.oninput();
+  const submit = () => search.listeners.keydown[0]({ key: 'Enter', preventDefault() {} });
+  search.value = '规则 49'; search.listeners.input[0](); expect(cards().filter(card => !card.hidden)).toHaveLength(50); submit();
   expect(cards().filter(card => !card.hidden)).toHaveLength(1);
   expect(deepText(cards().find(card => !card.hidden))).toContain('模板 · 尚未挂载');
   expect(root().querySelector('.project-hooks').querySelectorAll('.project-hook')).toHaveLength(1);
   for (const query of ['agent.failed', 'notify']) {
-    search.value = query; search.oninput(); expect(cards().every(card => !card.hidden)).toBe(true);
+    search.value = query; submit(); expect(cards().every(card => !card.hidden)).toBe(true);
   }
-  search.value = '不存在'; search.oninput(); expect(cards().every(card => card.hidden)).toBe(true);
-  search.value = ''; search.oninput(); expect(cards().every(card => !card.hidden)).toBe(true);
+  search.value = '尚未提交新词'; search.listeners.input[0]();
+  const templates = root().querySelector('[data-module="templates"]');
+  await templates.querySelector('.module-toggle').onclick();
+  expect(templates.moduleBody.hidden).toBe(true);
+  await root().querySelector('[data-subpage="history"]').onclick({ preventDefault() {} });
+  expect(templates.hidden).toBe(true); expect(root().querySelector('.automation-history').hidden).toBe(false);
+  await root().querySelector('[data-subpage="settings"]').onclick({ preventDefault() {} });
+  expect(templates.hidden).toBe(false); expect(templates.moduleBody.hidden).toBe(true);
+  expect(root().querySelector('[aria-label="查找 Hook 模板"]')).toBe(search); expect(search.value).toBe('尚未提交新词');
+  expect(cards().every(card => !card.hidden)).toBe(true); expect(actions).toHaveLength(0);
+  await templates.querySelector('.module-toggle').onclick();
+  await root().querySelectorAll('button').find(node => node.textContent === '刷新目录').onclick();
+  expect(cards().every(card => !card.hidden)).toBe(true); expect(search.value).toBe('尚未提交新词');
+  search.value = '不存在'; submit(); expect(cards().every(card => card.hidden)).toBe(true);
+  search.value = ''; search.listeners.input[0](); expect(cards().every(card => !card.hidden)).toBe(true);
   expect(actions).toHaveLength(0);
 });
 

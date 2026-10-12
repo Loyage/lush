@@ -38,7 +38,7 @@ Object.assign(world.state.agentConfig.default, { agent: 'pi', connection_id: ids
 for (const role of Object.keys(world.state.agentConfig.resolved)) world.state.agentConfig.resolved[role] = { ...world.state.agentConfig.default };
 for (const row of world.state.agentConnections.connections) row.storage_scope='device';
 const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-core.css"><link rel="stylesheet" href="/assets/styles-agent-status.css"><link rel="stylesheet" href="/assets/styles-agent-connections.css"><link rel="stylesheet" href="/assets/styles-agent-usage.css"><link rel="stylesheet" href="/assets/styles-quick-chat.css"></head>
+<link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-search-field.css"><link rel="stylesheet" href="/assets/styles-core.css"><link rel="stylesheet" href="/assets/styles-agent-status.css"><link rel="stylesheet" href="/assets/styles-agent-connections.css"><link rel="stylesheet" href="/assets/styles-agent-usage.css"><link rel="stylesheet" href="/assets/styles-quick-chat.css"></head>
 <body><div id="detail"></div><div id="modal" hidden></div><div id="error"></div><script type="module">
 window.browserErrors=[];addEventListener('error',e=>browserErrors.push(e.message));addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));
 import {openAgentStatus} from '/assets/render-agent-status.js';import {openModelSources} from '/assets/render-model-sources.js';
@@ -142,11 +142,16 @@ try {
     await layout(`sources-${theme}-${width}`,width);
     await execute('return window.openConfig()'); await waitFor('document.querySelector("[data-agent-field=append_prompt]")');
     await execute(`const p=document.querySelector('[data-agent-field=append_prompt]');p.value='device-draft';p.dispatchEvent(new Event('input',{bubbles:true}));`);
+    assert(await execute(`const m=document.querySelector('.agent-profile');return m.classList.contains('module-fold')&&!m.classList.contains('module-preview')&&m.querySelector('.module-toggle').getAttribute('aria-controls')===m.querySelector('.module-body').id;`), 'Agent form did not adopt explicit-only common folding');
+    await execute(`return document.querySelector('.agent-profile .module-toggle').onclick()`);
+    assert(await execute(`return document.querySelector('.agent-profile .module-body').hidden&&document.querySelector('[data-agent-field=append_prompt]').value==='device-draft';`), 'fold discarded an Agent draft');
+    await execute(`return document.querySelector('.agent-profile .module-toggle').onclick()`);
     await execute(`return document.querySelector('[data-agent-tab=status]').onclick()`);
     await execute(`return document.querySelector('[data-agent-tab=settings]').onclick()`);
     assert(await execute(`return document.querySelector('[data-agent-field=append_prompt]').value==='device-draft'`), 'Agent tab switch lost draft');
     await layout(`agent-${theme}-${width}`,width);
     await execute('return window.openSystem()'); await waitFor('document.querySelector("[data-runtime-input=call_timeout]")');
+    assert(await execute(`return [...document.querySelectorAll('.settings-scope-pane>.block')].every(n=>n.classList.contains('module-fold')&&!n.classList.contains('module-preview'));`), 'runtime forms are not explicit folds');
     assert(await execute(`return !document.querySelector('[data-runtime-input="concurrency"],[data-runtime-input="control_concurrency"]') && !document.querySelector('.settings-view').textContent.includes('并发额度')`), 'Removed concurrency settings remain visible');
     assert(await execute(`return ${JSON.stringify(capabilityKeys)}.every(key=>{const n=document.querySelector('[data-runtime-input="'+key+'"]');return n?.type==='checkbox'&&n.getAttribute('aria-label')?.startsWith('启用')}) && document.querySelector('.settings-view').textContent.includes('不是权限隔离')`), 'Four capability switches or their effect explanation are missing');
     const previous = await execute(`const n=document.querySelector('[data-runtime-input=progress_reporting]');n.focus();return n.checked`);

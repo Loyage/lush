@@ -12,7 +12,7 @@ const incoming = (id, body, extra = {}) => ({ id, task_id: 7, body, sender_id: n
 const userEvent = (id, messageId, body) => ({ id, type: 'message', created_at: at,
   data: { sender: null, message_id: messageId, body }, input_delivery: { status: 'pending', at: null } });
 const showOthers = root => { const checkbox = root.querySelector('[data-conversation-filter="other"]'); checkbox.checked = true; checkbox.onchange(); };
-const type = (root, text) => { const input = root.querySelector('.conversation-search').querySelector('input'); input.value = text; input.oninput(); };
+const type = (root, text) => { const input = root.querySelector('.conversation-search').querySelector('input'); input.value = text; input.listeners.input[0](); input.listeners.keydown[0]({ key: 'Enter', preventDefault() {} }); };
 const fixture = async (fetch, run) => {
   const dom = installDom({ fetch }); resetUiState(); ui.hostSession = { status: 'ready', username: '测试用户' };
   try { await run(dom); } finally { resetUiState(); dom.restore(); }

@@ -86,7 +86,7 @@ try {
   const indexPath = path.join(await git(workspace, 'rev-parse', '--absolute-git-dir'), 'index');
   const originalIndex = fs.readFileSync(indexPath);
   const step = { seq: 1, kind: 'text', title: '回答', file: 'fixture', body: 'Reading src/reader.js', excerpt: 'src/reader.js' };
-  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/styles.css"></head>
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-search-field.css"></head>
   <body><div id="project-app"><div id="detail"></div></div><div id="context-menu"></div>
   <script type="module">
   import { openTranscriptView } from '/assets/transcript-view.js';
@@ -172,7 +172,7 @@ try {
   // Native clicking the header action may scroll it into view; that movement is not a lost scroll position.
   await clickText('在执行记录中搜索此路径');
   await waitFor('document.querySelector(".transcript-match [data-seq]")', 'path search in records');
-  assert(await execute(`return document.querySelector('.transcript-query-row input').value==='src/reader.js'`), 'path search query incorrect');
+  assert(await execute(`return document.querySelector('.transcript-search .search-field-input').value==='src/reader.js'`), 'path search query incorrect');
   await click('#execution-tab-code-101');
   await waitFor('document.querySelectorAll(".code-file-entry").length>=5', 'tree restored after records');
   assert(await execute(`return window.savedFile===document.querySelector('.code-content-segment')`), 'path search roundtrip replaced selected file body');
