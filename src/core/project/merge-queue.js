@@ -214,12 +214,11 @@ export default {
         check((currentPolicy?.enabled === true) === (policy?.enabled === true)
           && currentPolicy?.generation === policy?.generation,
           'convergence policy changed during safe-point inspection');
-        if (currentPolicy?.enabled) this.resolveShortcutCommand(currentPolicy.validation);
         const version = currentPolicy?.enabled ? 3 : 2;
         const request = { ...ready, version, queue_protocol: version === 3 ? 3 : 1,
           status: 'requested', commit: state.child_head,
           delivery_id: deliveryId, enqueue_seq: deliveryId, parent_id: originalParent.id,
-          ...(version === 3 ? { validation: currentPolicy.validation, base_commit: deltaBase,
+          ...(version === 3 ? { verification_mode: 'agent', validation: null, base_commit: deltaBase,
             convergence_policy_generation: currentPolicy.generation } : {}),
           requested_at: new Date().toISOString() };
         // A parent baseline belongs to an attempt, never to an enqueue.

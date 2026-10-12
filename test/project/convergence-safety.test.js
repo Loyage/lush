@@ -46,7 +46,8 @@ async function prepared(f, count = 1) {
     tasks.push(f.store.task(task.id));
   }
   const run = { id: 10, parent_id: tasks[0].parent_id, target_branch: 'main', state: 'preparing', generation: 1,
-    baseline: await git(f.root, 'rev-parse', 'main'), landing_receipt: null, data: '{}' };
+    baseline: await git(f.root, 'rev-parse', 'main'), landing_receipt: null,
+    validation: { command_id: 'historical-command', command_version: 1 }, data: '{}' };
   protocolStore(f, run, tasks.map((task, ordinal) => ({ run_id: 10, task_id: task.id, source_branch: task.branch,
     source_commit: task.head_commit, delivery_id: ordinal + 101, enqueue_seq: ordinal + 101, active: 1, ordinal })));
   return { tasks, run };

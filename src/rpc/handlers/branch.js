@@ -56,7 +56,7 @@ function convergenceInteger(value, name, max = Number.MAX_SAFE_INTEGER) {
   return value;
 }
 function convergenceValidation(value) {
-  if (value === null) return null;
+  if (value === undefined || value === null) return value;
   check(isPlainObject(value), 'validation must be null or a command reference');
   check(Object.keys(value).length === 2 && Object.keys(value).every(key => ['command_id','command_version'].includes(key)),
     'validation accepts only command_id and command_version');
@@ -77,9 +77,16 @@ export const handlers = {
   'branch.convergence_set'(p, params) {
     const branch = convergenceBranch(params.branch), expected = convergenceRevision(params.expected_revision);
     check(typeof params.enabled === 'boolean', 'enabled must be a boolean');
-    const validation = convergenceValidation(params.validation);
-    check(!params.enabled || validation !== null, 'enabled convergence requires a validation command reference');
-    return p.setBranchConvergence(branch, params.enabled, validation, expected);
+    const validation = convergenceValidation(params.validation), mounted = params.mounted === undefined ? true : params.mounted;
+    check(typeof mounted === 'boolean', 'mounted must be a boolean');
+    check(mounted || !params.enabled, 'enabled convergence must be mounted');
+    return p.setBranchConvergence(branch, params.enabled, validation, expected, mounted);
+  },
+  'branch.convergence_defaults'(p) { return p.branchConvergenceDefaults(); },
+  'branch.convergence_defaults_set'(p, params) {
+    check(typeof params.mounted === 'boolean', 'mounted must be a boolean');
+    check(typeof params.enabled === 'boolean', 'enabled must be a boolean');
+    return p.setBranchConvergenceDefaults(params.mounted, params.enabled, convergenceRevision(params.expected_revision));
   },
   'branch.convergence_runs'(p, params) {
     const branch = convergenceBranch(params.branch);

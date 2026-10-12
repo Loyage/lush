@@ -7,6 +7,7 @@ import { AgentPreempted } from '../../src/agent/provider.js';
 /** Native Delivery Store: exercise fixed-input/generation guards, not a permissive duplicate schema. */
 function deliveryFixture(store, base, seed, members) {
   const run = store.createDeliveryRun({ parent_id: base.parentId, target_branch: 'main', baseline: base.commit,
+    validation: { command_id: '00000000-0000-4000-8000-000000000001', command_version: 1 },
     members: members.map(member => ({ ...member, enqueue_seq: member.delivery_id, base_commit: base.commit })) });
   expect(run.id).toBe(1);
   const node = store.createDeliveryNode({ run_id: run.id, generation: run.generation, node_key: 'pair:1:0', state: 'conflict',

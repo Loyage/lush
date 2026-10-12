@@ -94,6 +94,8 @@
 
 持久化采用附属 versioned JSON（如 `tasks.hooks`、项目模板 `meta`），不新增核心业务实体。现有 `tasks.auto_merge` / `tasks.reservation` 保持兼容，自动合并投影为内置挂载 `id:'auto-merge'`，触发为 `worker.delivery_ready`，持续、启用、锁定/可编辑原因复用 `autoMergeView`。派生 child 的合并—验收—归档流程 Hook 整体对用户只读，旧开关及挂载入口也不能修改；其他受控自定义规则保留原权限。此阶段不批量迁移历史行。
 
+Worker详情展示为「自动化」；目标归并挂载／启停单独投影在 `worker.hooks.convergence`，不加入通用actions／mounts，也不改变child锁定结束流程。项目页与详情修改同一分支策略；main一次初始化挂载关闭、未来新Worker默认及旧配置兼容见[归并实施契约](merge-convergence-implementation.md)。
+
 ## Project / RPC / HTTP
 
 以下新增 RPC 全部用户专属，包括读面；Agent 不能借 Hook 安装获得用户权限。输入参数严格白名单。

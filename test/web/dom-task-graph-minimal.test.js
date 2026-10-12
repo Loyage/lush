@@ -389,7 +389,8 @@ test('树菜单直接展开自动链，revision 写入单飞且在途轮询不�
   const panel = card(2).querySelector('.task-graph-actions-popover');
   card(2).querySelector('.task-graph-more-trigger').onclick();
   const chain = panel.querySelector('.hook-compact');
-  expect(deepText(chain)).toContain('自动链'); expect(deepText(chain)).not.toContain('Hooks');
+  expect(deepText(chain)).toContain('自动化'); expect(deepText(chain)).not.toContain('Hooks');
+  expect(chain.getAttribute('aria-label')).toBe('Worker 自动化');
   const choice = level => chain.querySelectorAll('.hook-completion-level').find(button => button.dataset.level === level);
   expect(choice('off').getAttribute('aria-pressed')).toBe('true');
   expect(choice('merge').classList.contains('agent-call')).toBe(true);

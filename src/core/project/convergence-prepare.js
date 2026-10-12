@@ -1,5 +1,5 @@
 import { check } from '../types.js';
-import { CONVERGENCE_LIMITS, convergenceJSON, convergenceBooking } from '../convergence-contract.js';
+import { CONVERGENCE_LIMITS, convergenceJSON, convergenceBooking, convergenceVerificationMode } from '../convergence-contract.js';
 import { convergenceTopology } from '../convergence-plan.js';
 
 const now = () => new Date().toISOString();
@@ -14,6 +14,7 @@ export default {
       check(!run.landing_receipt, 'landing effects must be reconciled before changing the baseline');
       check(!run.integration_worker_id || !this.running.has(run.integration_worker_id), 'integration invocation is still exiting');
       const data = convergenceJSON(run.data, {});
+      const mode = convergenceVerificationMode(data.verification_mode, run.validation);
       check(explicit || (data.baseline_attempts ?? 0) < CONVERGENCE_LIMITS.baseline_attempts, 'convergence baseline retry bound reached');
       const baseline = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${parent.branch}^{commit}`);
       for (const member of members) {
@@ -41,7 +42,8 @@ export default {
             ...(refreshPlan ? { plan: refreshPlan, previous_root: { node_id: oldRoot.id, generation, commit: fixedOutput.commit } }
               : explicit ? { plan: convergenceTopology(members), previous_root: null } : {}),
             baseline_attempts: explicit ? 0 : (data.baseline_attempts ?? 0) + 1,
-            ...(explicit ? { repair_attempts: 0, authorization_id: this.convergenceAuthorizationStamp(convergenceJSON(run.validation)) } : {}) }) }, generation);
+            ...(explicit ? { repair_attempts: 0,
+              ...(mode === 'command' ? { authorization_id: this.convergenceAuthorizationStamp(convergenceJSON(run.validation)) } : {}) } : {}) }) }, generation);
         for (const member of members) {
           const task = this.store.task(member.task_id), booking = convergenceBooking(task);
           this.store.update(task.id, { integration_error: null,
@@ -207,6 +209,15 @@ export default {
     // The exact single-parent publication object is what the authorized command tests.
     this.store.updateDeliveryRun(runId, { candidate_commit: receipt.commit, candidate_tree: receipt.tree,
       data: JSON.stringify({ ...convergenceJSON(run.data, {}), prepared_receipt: receipt, root_commit: output.commit }) }, generation);
+    if (convergenceVerificationMode(convergenceJSON(run.data, {}).verification_mode, run.validation) === 'agent') {
+      check(!signal?.aborted, 'convergence preparation interrupted');
+      this.assertConvergenceRun(runId, generation, ['preparing']);
+      this.assertConvergenceAuthorization(this.store.deliveryRun(runId));
+      // Ready means safely prepared for publication, not tested/passed by runtime.
+      this.setConvergenceState(runId, generation, 'ready', { error: null });
+      await this.publishConvergence(runId);
+      return;
+    }
     let checkout = null;
     try {
       checkout = await this.workspaces.exclusive(() => this.workspaces.createConvergenceValidationUnsafe({

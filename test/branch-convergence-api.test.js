@@ -9,10 +9,12 @@ const validation = { command_id: commandId, command_version: 2 };
 const cases = [
   ['branch.convergence', ['branch'], { branch: 'main' }, 'branchConvergence', ['main']],
   ['branch.convergence_list', [], {}, 'branchConvergenceList', []],
-  ['branch.convergence_set', ['branch','enabled','validation','expected_revision'],
-    { branch: 'main', enabled: true, validation, expected_revision: revision }, 'setBranchConvergence', ['main', true, validation, revision]],
+  ['branch.convergence_set', ['branch','enabled','validation','expected_revision','mounted'],
+    { branch: 'main', enabled: true, validation, expected_revision: revision }, 'setBranchConvergence', ['main', true, validation, revision, true]],
   ['branch.convergence_runs', ['branch','before','limit'], { branch: 'main', before: 15, limit: 3 }, 'branchConvergenceRuns', ['main', 15, 3]],
   ['branch.convergence_retry', ['id','expected_revision'], { id: 9, expected_revision: revision }, 'retryBranchConvergence', [9, revision]],
+  ['branch.convergence_defaults', [], {}, 'branchConvergenceDefaults', []],
+  ['branch.convergence_defaults_set', ['mounted','enabled','expected_revision'], { mounted: true, enabled: true, expected_revision: revision }, 'setBranchConvergenceDefaults', [true, true, revision]],
 ];
 for (const [method, keys, params, target, expected] of cases) {
   test(`${method}: exact user-only registry and forwarding`, async () => {
@@ -55,16 +57,18 @@ test('convergence setter rejects invalid flags, revisions and nested command fie
   for (const expected_revision of [undefined, null, 1, '', [], {}, ' padded ', 'bad\nrevision', 'x'.repeat(257)]) {
     await expect(dispatcher.dispatch('branch.convergence_set', { ...valid, expected_revision })).rejects.toThrow('expected_revision');
   }
-  for (const value of [undefined, [], 'bun run test', 2, {}, { command_id: commandId }, { command_version: 2 },
+  for (const value of [[], 'bun run test', 2, {}, { command_id: commandId }, { command_version: 2 },
     { ...validation, command: 'unsafe' }, { ...validation, authorized: true }, { ...validation, cwd: '/tmp' },
     { ...validation, command_id: 'test' }, { ...validation, command_id: 2 },
     ...[0,-1,1.1,'2',true,Number.MAX_SAFE_INTEGER + 1].map(command_version => ({ ...validation, command_version }))]) {
     await expect(dispatcher.dispatch('branch.convergence_set', { ...valid, validation: value })).rejects.toThrow();
   }
-  await expect(dispatcher.dispatch('branch.convergence_set', { ...valid, validation: null })).rejects.toThrow('requires a validation');
+  for (const mounted of [null, 'true', 1, [], {}])
+    await expect(dispatcher.dispatch('branch.convergence_set', { ...valid, mounted })).rejects.toThrow('mounted');
+  await expect(dispatcher.dispatch('branch.convergence_set', { ...valid, mounted: false })).rejects.toThrow('must be mounted');
   expect(writes).toBe(0);
-  await dispatcher.dispatch('branch.convergence_set', { ...valid, enabled: false, validation: null });
-  await dispatcher.dispatch('branch.convergence_set', { ...valid, enabled: false });
+  await dispatcher.dispatch('branch.convergence_set', { ...valid, validation: null });
+  await dispatcher.dispatch('branch.convergence_set', { branch: 'main', enabled: true, expected_revision: revision });
   expect(writes).toBe(2);
 });
 
@@ -123,7 +127,7 @@ test('convergence CLI forwards list, show, on, history and retry without creatin
     { method: 'branch.convergence_set', params: cases[2][2] }, { method: 'branch.convergence_runs', params: { branch: 'main' } },
     { method: 'branch.convergence_runs', params: cases[3][2] }, { method: 'branch.convergence_retry', params: cases[4][2] },
   ]);
-  expect(HELP).toContain('branch convergence on BRANCH'); expect(HELP).toContain('默认关闭');
+  expect(HELP).toContain('branch convergence on BRANCH'); expect(HELP).toContain('挂载且关闭');
   expect(HELP).toContain('不隐式授权'); expect(HELP).toContain('整合 Agent');
 });
 
@@ -145,7 +149,7 @@ test('CLI rejects missing/duplicate/foreign options, invalid revisions and numer
   for (const args of [[], ['unknown'], ['list','main'], ['list','--revision',revision], ['show'], ['show','--version'],
     ['show','main','--revision',revision], ['off','main'], ['off','main','--revision',revision,'--command',commandId],
     ['off','main','--revision',revision,'--version','2'], [...on,'--revision',revision], [...on,'--command',commandId],
-    [...on,'--version','2'], ['on','main','--revision',revision], ['on','main','--command','test','--version','2','--revision',revision],
+    [...on,'--version','2'], ['on','main','--command',commandId,'--revision',revision], ['on','main','--command','test','--version','2','--revision',revision],
     ['runs','main','--before','0'], ['runs','main','--limit','51'], ['runs','main','--limit','2','--limit','3'],
     ['runs','main','--before','1e2'], ['retry','W9','--revision',revision], ['retry','1.1','--revision',revision],
     ['retry','9','--revision',' padded '], ['retry','9','--revision',''], ['retry','9','--revision',revision,'--limit','2'],
@@ -158,7 +162,8 @@ test('CLI rejects missing/duplicate/foreign options, invalid revisions and numer
 test('all convergence CLI verbs reject Agent clients locally, including reads', async () => {
   const c = clientStub(); c.token = 'invocation-token';
   for (const args of [['list'], ['show','main'], ['on','main','--command',commandId,'--version','2','--revision',revision],
-    ['off','main','--revision',revision], ['runs','main'], ['retry','9','--revision',revision]]) {
+    ['off','main','--revision',revision], ['mount','main','--revision',revision], ['remove','main','--revision',revision],
+    ['defaults','show'], ['defaults','set','--mounted','true','--enabled','true','--revision',revision], ['runs','main'], ['retry','9','--revision',revision]]) {
     await expect(cli(args, c)).rejects.toThrow('user only');
   }
   expect(c.calls).toEqual([]);

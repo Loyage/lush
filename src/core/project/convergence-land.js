@@ -1,5 +1,5 @@
 import { check, TERMINAL } from '../types.js';
-import { convergenceJSON, convergenceBooking } from '../convergence-contract.js';
+import { convergenceJSON, convergenceBooking, convergenceVerificationMode } from '../convergence-contract.js';
 
 const fixed = ['requested', 'executing', 'resolving', 'blocked'];
 
@@ -90,9 +90,11 @@ export default {
         let receipt = convergenceJSON(run.landing_receipt);
         if (!receipt) {
           this.assertConvergenceAuthorization(run);
-          const evidence = convergenceJSON(run.validation_result);
-          check(evidence?.state === 'passed' && evidence.tested_commit === run.candidate_commit
-            && evidence.tested_tree === run.candidate_tree, 'exact final convergence tree has not passed validation');
+          if (convergenceVerificationMode(convergenceJSON(run.data, {}).verification_mode, run.validation) === 'command') {
+            const evidence = convergenceJSON(run.validation_result);
+            check(evidence?.state === 'passed' && evidence.tested_commit === run.candidate_commit
+              && evidence.tested_tree === run.candidate_tree, 'exact final convergence tree has not passed validation');
+          } else check(run.validation_result === null, 'agent convergence cannot claim runtime command validation');
           const tip = await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${parent.branch}`);
           this.assertConvergenceRun(runId, run.generation, ['ready']);
           if (tip !== run.baseline) { refix = true; return; }

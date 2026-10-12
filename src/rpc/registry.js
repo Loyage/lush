@@ -70,7 +70,8 @@ export const PARAMS = {
   'branch.history': ['cursor','limit'], 'branch.version_graph': ['delivery','cursor','limit'], 'branch.tree': [], 'branch.show': ['branch'], 'branch.bind': ['branch','commit'],
   'branch.archive': ['branch','discard','continue'],
   'branch.convergence': ['branch'], 'branch.convergence_list': [],
-  'branch.convergence_set': ['branch','enabled','validation','expected_revision'],
+  'branch.convergence_set': ['branch','enabled','validation','expected_revision','mounted'],
+  'branch.convergence_defaults': [], 'branch.convergence_defaults_set': ['mounted','enabled','expected_revision'],
   'branch.convergence_runs': ['branch','before','limit'], 'branch.convergence_retry': ['id','expected_revision'],
   'graph.get': [],
 };
@@ -95,7 +96,7 @@ export const USER_ONLY = new Set([
   'worker.cancel','worker.retry','worker.clear_override','worker.cleanup','worker.interrupt','worker.resume','worker.configure','worker.run_settings',
   'worker.rename','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.delete_preview','worker.delete',
   'notice.sync','notice.answer','notice.dismiss','notice.read','branch.bind','branch.archive',
-  'branch.convergence','branch.convergence_list','branch.convergence_set','branch.convergence_runs','branch.convergence_retry',
+  'branch.convergence','branch.convergence_list','branch.convergence_set','branch.convergence_defaults','branch.convergence_defaults_set','branch.convergence_runs','branch.convergence_retry',
 ]);
 export const AGENT_ONLY = new Set([
   'worker.auto_title','worker.integrate','worker.resolve_child_divergence','progress.plan','progress.complete',

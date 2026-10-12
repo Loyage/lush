@@ -109,7 +109,16 @@ function commandId(value) {
 async function runConvergence(args, client) {
   check(!client.token, 'branch convergence is user only, not an agent operation');
   const verb = args.shift();
-  check(['list','show','on','off','runs','retry'].includes(verb), 'branch convergence requires list|show|on|off|runs|retry; run lush help');
+  check(['list','show','on','off','mount','remove','defaults','runs','retry'].includes(verb), 'branch convergence requires list|show|on|off|mount|remove|defaults|runs|retry; run lush help');
+  if (verb === 'defaults') {
+    const action = args.shift();
+    if (action === 'show') { exact(args, 0); return client.request('branch.convergence_defaults'); }
+    check(action === 'set', 'branch convergence defaults requires show|set');
+    const expected_revision = readConvergenceRevision(args);
+    const mounted = option(args, '--mounted'), enabled = option(args, '--enabled'); exact(args, 0);
+    check(['true','false'].includes(mounted) && ['true','false'].includes(enabled), '--mounted and --enabled must be true|false');
+    return client.request('branch.convergence_defaults_set', { mounted: mounted === 'true', enabled: enabled === 'true', expected_revision });
+  }
   if (verb === 'list') { exact(args, 0); return client.request('branch.convergence_list'); }
   if (verb === 'show') { exact(args, 1); return client.request('branch.convergence', { branch: convergenceBranch(args[0]) }); }
   if (verb === 'runs') {
@@ -126,17 +135,23 @@ async function runConvergence(args, client) {
   }
   if (verb === 'on') {
     const command = option(args, '--command'), version = option(args, '--version'); exact(args, 1);
+    check((command === null) === (version === null), 'provide both --command and --version for a legacy reference');
     return client.request('branch.convergence_set', { branch: convergenceBranch(args[0]), enabled: true,
-      validation: { command_id: commandId(command), command_version: convergenceNumber(version, 'command version') }, expected_revision });
+      ...(command === null ? {} : { validation: { command_id: commandId(command), command_version: convergenceNumber(version, 'command version') } }), expected_revision });
   }
   exact(args, 1);
   const branch = convergenceBranch(args[0]);
+  if (verb === 'remove')
+    return client.request('branch.convergence_set', { branch, mounted: false, enabled: false, expected_revision });
   const current = await client.request('branch.convergence', { branch });
   check(current?.branch === branch && current.revision === expected_revision, 'branch convergence revision changed; reload before editing');
+  if (verb === 'mount')
+    return client.request('branch.convergence_set', { branch, mounted: true, enabled: current.enabled === true, expected_revision });
   check(current.validation === null || current.validation && typeof current.validation === 'object', 'invalid branch convergence validation read');
   const validation = current.validation === null ? null : {
     command_id: commandId(current.validation.command_id),
     command_version: convergenceNumber(String(current.validation.command_version), 'command version'),
   };
-  return client.request('branch.convergence_set', { branch, enabled: false, validation, expected_revision });
+  return client.request('branch.convergence_set', { branch, enabled: false, validation, expected_revision,
+    ...(typeof current.mounted === 'boolean' ? { mounted: current.mounted } : {}) });
 }

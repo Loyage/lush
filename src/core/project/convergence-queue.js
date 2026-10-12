@@ -1,6 +1,6 @@
 import { check, id, TERMINAL } from '../types.js';
 import { assertTaskAncestorsOpen, taskSyncDeliveryPaused } from './iteration.js';
-import { CONVERGENCE_LIMITS, convergenceBooking, convergenceJSON } from '../convergence-contract.js';
+import { CONVERGENCE_LIMITS, convergenceBooking, convergenceJSON, convergenceVerificationMode } from '../convergence-contract.js';
 import { selectConvergenceMembers, convergenceTopology } from '../convergence-plan.js';
 
 const preparing = ['preparing', 'ready'];
@@ -15,9 +15,10 @@ export default {
   },
 
   assertConvergenceAuthorization(run) {
+    const data = convergenceJSON(run.data, {});
+    if (convergenceVerificationMode(data.verification_mode, run.validation) === 'agent') return null;
     const reference = convergenceJSON(run.validation);
     const command = this.resolveShortcutCommand(reference);
-    const data = convergenceJSON(run.data, {});
     check(data.authorization_id === this.convergenceAuthorizationStamp(reference), 'convergence command authorization changed');
     return command;
   },
@@ -30,6 +31,7 @@ export default {
     check(!TERMINAL.has(parent.status) && parent.branch === run.target_branch
       && ['main', 'owner', 'order', 'child'].includes(parent.task_kind), 'convergence parent changed');
     const members = this.store.deliveryMembers(run.id, true);
+    const mode = convergenceVerificationMode(convergenceJSON(run.data, {}).verification_mode, run.validation);
     check(members.length >= 1 && members.length <= CONVERGENCE_LIMITS.members, 'convergence membership changed');
     for (const member of members) {
       const task = this.store.task(member.task_id), booking = convergenceBooking(task);
@@ -37,6 +39,10 @@ export default {
         && booking.commit === member.source_commit && task.head_commit === member.source_commit
         && task.branch === member.source_branch && task.target_branch === parent.branch && task.parent_id === parent.id
         && ['order', 'child'].includes(task.task_kind) && !TERMINAL.has(task.status), 'convergence source identity changed');
+      if (mode === 'agent' || booking.verification_mode !== undefined) {
+        check(convergenceVerificationMode(booking.verification_mode, booking.validation) === mode,
+          'convergence member verification mode changed');
+      }
       check(!this.running.has(task.id) && !this.taskSyncBusy?.has(task.id) && !this.commandHookRunning?.has(task.id)
         && !this.workerDeleteIds?.has(task.id) && !this.reservationWaitReason(task)
         && !taskSyncDeliveryPaused(this, task.id), 'convergence source is not safely idle');
@@ -92,12 +98,14 @@ export default {
         for (const taskId of upstream) if (this.store.get('SELECT integration FROM tasks WHERE id=?', taskId)?.integration === 'merged') landed.add(taskId);
         candidates.push({ task_id: task.id, delivery_id: booking.delivery_id, enqueue_seq: booking.enqueue_seq,
           source_branch: task.branch, source_commit: booking.commit, base_commit: booking.base_commit ?? null,
+          verification_mode: convergenceVerificationMode(booking.verification_mode, booking.validation),
           validation: booking.validation, reservation: task.reservation });
       }
       const ready = selectConvergenceMembers(candidates, dependencies, landed);
       if (!ready.length) return null;
-      // Different pinned command versions never silently share a validation claim.
-      const selected = ready.filter(member => sameValidation(member.validation, ready[0].validation));
+      // Agent verification and legacy pinned command versions are separate fixed batches.
+      const selected = ready.filter(member => member.verification_mode === ready[0].verification_mode
+        && sameValidation(member.validation, ready[0].validation));
       const baseline = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${parent.branch}^{commit}`);
       for (const member of selected) {
         await this.workspaces.assertCleanBranches([member.source_branch]);
@@ -115,8 +123,10 @@ export default {
         }
         const plan = convergenceTopology(selected), validation = selected[0].validation;
         const run = this.store.createDeliveryRun({ parent_id: parent.id, target_branch: parent.branch, baseline,
-          validation: JSON.stringify(validation), members: selected.map(({ validation, reservation, ...member }) => member),
-          data: JSON.stringify({ plan, authorization_id: this.convergenceAuthorizationStamp(validation),
+          validation: validation === null ? null : JSON.stringify(validation),
+          members: selected.map(({ verification_mode, validation, reservation, ...member }) => member),
+          data: JSON.stringify({ plan, verification_mode: selected[0].verification_mode,
+            ...(selected[0].verification_mode === 'command' ? { authorization_id: this.convergenceAuthorizationStamp(validation) } : {}),
             baseline_attempts: 0, repair_attempts: 0 }) });
         for (const member of selected) {
           const task = this.store.task(member.task_id), booking = convergenceBooking(task);
@@ -212,7 +222,8 @@ export default {
           AND json_extract(e.data,'$.run_id')=?)`, run.id);
       check(helpers.every(task => !this.running.has(task.id)), 'integration invocation is still exiting');
       check(helpers.every(task => !this.questionPending(task.id)), 'answer integration questions before retrying');
-      this.resolveShortcutCommand(convergenceJSON(run.validation));
+      if (convergenceVerificationMode(convergenceJSON(run.data, {}).verification_mode, run.validation) === 'command')
+        this.resolveShortcutCommand(convergenceJSON(run.validation));
       this.assertConvergenceRun(run.id, run.generation, ['failed', 'awaiting', 'stale']);
       await this.refreshConvergenceBaseline(run.id, run.generation, true);
       this.scheduleConvergence(run.parent_id);

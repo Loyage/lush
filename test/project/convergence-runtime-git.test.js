@@ -6,7 +6,7 @@ import { convergenceJSON } from '../../src/core/convergence-contract.js';
 import { taskDeliveryState } from '../../src/core/project/iteration.js';
 
 /** Assembled Project/Store/Workspaces, real merge-tree/CAS and real isolated Shell; no helper/provider claim. */
-async function setup(count = 2, command = 'test -z "$LUSH_AGENT_TOKEN" && case "$PWD" in */.lush/convergence-validation/*) test -f alpha.txt && test -f beta.txt ;; *) exit 21 ;; esac') {
+async function setup(count = 2, command = 'test -z "$LUSH_AGENT_TOKEN" && case "$PWD" in */.lush/convergence-validation/*) test -f alpha.txt && test -f beta.txt ;; *) exit 21 ;; esac', mode = 'command') {
   const f = fixture(); f.project.kick = () => {};
   // Control scheduling, not the coordinator/Git/command methods: fixed calls below run completely.
   f.project.scheduleTaskMerge = () => {}; f.project.scheduleConvergence = () => {};
@@ -24,13 +24,20 @@ async function setup(count = 2, command = 'test -z "$LUSH_AGENT_TOKEN" && case "
     await git(task.workspace, 'add', '.'); await git(task.workspace, 'commit', '-m', `source ${i}`);
     f.store.update(task.id, { status: 'waiting' });
     await f.project.requestTaskMerge(task.id);
-    expect(convergenceJSON(f.store.task(task.id).reservation).version).toBe(3);
+    expect(convergenceJSON(f.store.task(task.id).reservation)).toMatchObject({ version: 3, verification_mode: 'agent', validation: null });
+    // Simulate already-fixed historical v3 requests; new booking never chooses command verification.
+    if (mode === 'command') pinLegacy(f, task.id, entry);
     sources.push(f.store.task(task.id));
   }
   const baseline = await git(f.root, 'rev-parse', 'main');
   const run = await f.project.formConvergenceBatch(sources[0].parent_id);
   return { ...f, sources, baseline, run, entry };
   } catch (error) { await f.close(); throw error; }
+}
+
+function pinLegacy(f, taskId, entry) {
+  const { verification_mode, ...booking } = convergenceJSON(f.store.task(taskId).reservation);
+  f.store.update(taskId, { reservation: JSON.stringify({ ...booking, validation: { command_id: entry.id, command_version: 1 } }) });
 }
 
 test('two real fixed deliveries converge, validate exact isolated single-parent object, land once, and retain source refs', async () => {
@@ -64,6 +71,7 @@ test('two real fixed deliveries converge, validate exact isolated single-parent 
     fs.writeFileSync(path.join(again.workspace, 'alpha.txt'), 'source 0 round two\n');
     await git(again.workspace, 'add', '.'); await git(again.workspace, 'commit', '-m', 'second increment');
     await f.project.requestTaskMerge(again.id);
+    pinLegacy(f, again.id, f.entry);
     const second = await f.project.formConvergenceBatch(run.parent_id);
     expect(second.id).not.toBe(run.id); expect(f.store.deliveryMembers(second.id)).toHaveLength(1);
     expect(f.store.deliveryMembers(second.id)[0].base_commit).toBe(again.head_commit);
@@ -181,6 +189,7 @@ test('real v2 and v3 share enqueue priority and parent ownership, while switchin
     fs.writeFileSync(path.join(next.workspace, 'alpha.txt'), 'independent next round\n');
     await git(next.workspace, 'add', '.'); await git(next.workspace, 'commit', '-m', 'next fixed round');
     f.store.update(next.id, { status: 'waiting' }); await f.project.requestTaskMerge(next.id);
+    pinLegacy(f, next.id, f.entry);
     const blocked = await f.project.formConvergenceBatch(f.run.parent_id);
     await f.project.prepareConvergenceRun(blocked.id, 1, new AbortController().signal);
     expect(f.store.deliveryRun(blocked.id).state).toBe('ready');

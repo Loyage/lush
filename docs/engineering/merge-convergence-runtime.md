@@ -20,9 +20,9 @@
 
 | 文件 | 职责 | 主要方法 |
 |---|---|---|
-| `core/project/convergence-policy.js` | 真实目标与唯一活动所有者、默认关闭、精确授权引用和 revision；有界安全只读投影 | `branchConvergence`、`branchConvergenceList`、`setBranchConvergence`、`branchConvergenceRuns`、`convergencePolicy`、`convergenceRunView`；具名 `safeConvergenceError`、`convergenceRunRevision`、`convergenceRunView` |
+| `core/project/convergence-policy.js` | 真实目标与唯一所有者、挂载／启停、项目新Worker默认与main一次初始化；旧验证引用兼容、revision与同源安全投影 | `branchConvergence`、`branchConvergenceList`、`setBranchConvergence`、`branchConvergenceDefaults`、`setBranchConvergenceDefaults`、`branchConvergenceRuns`、`convergencePolicy`、`taskConvergenceView`；运行投影 `convergenceRunView` |
 | `core/project/convergence-queue.js` | 有界事件驱动领取/准备，来源静息与固定身份守卫；精确版本/授权事件戳；显式重试 | `scheduleConvergence`、`driveConvergence`、`formConvergenceBatch`、`startConvergenceJob`、`assertConvergenceRun`、`assertConvergenceAuthorization`、`convergenceAuthorizationStamp`、`setConvergenceState`、`retryBranchConvergence` |
-| `core/project/convergence-prepare.js` | 固定叶子/双项对象，隔离最终命令，基线刷新与不可变整合新尝试 | `prepareConvergenceRun`、`refreshConvergenceBaseline`、`forkConvergenceRepairGeneration`、`requestConvergenceRepair`、`convergenceIntegrationCapacity`、`wakeConvergenceAfterIntegration` |
+| `core/project/convergence-prepare.js` | 固定叶子／双项对象，新Agent验证模式不执行Shell、旧command模式保留隔离命令；基线刷新与不可变整合新尝试 | `prepareConvergenceRun`、`refreshConvergenceBaseline`、`forkConvergenceRepairGeneration`、`requestConvergenceRepair`、`convergenceIntegrationCapacity`、`wakeConvergenceAfterIntegration` |
 | `core/project/convergence-land.js` | 新旧队列共用真实父发布门，持久精确收据，整批 DB 结算和一次父 Hook | `activeConvergenceLanding`、`nextConvergenceLanding`、`convergenceCanPublish`、`publishConvergence`、`finalizeConvergence` |
 | `core/project/convergence-workers.js` | 仅内部工厂创建 integration，冻结输入/配置、登记私有 worktree；实际退出后才能晋级 | `createConvergenceIntegration`、`convergenceIntegrationReady`、`convergenceIntegrationContext`、`completeConvergenceIntegration`、`onConvergenceIntegrationExit` |
 | `core/project/convergence-safety.js` | generation 先失效再撤回/取消；安全退出后释放来源；重启不重放未知动作 | `convergenceHelpers`、`assertConvergenceResourcesFree`、`cancelConvergenceIntegration`、`withdrawConvergenceMember`、`drainConvergenceWithdrawals`、`recoverConvergence` |
@@ -38,7 +38,7 @@
 | `core/workspaces/delivery-publish.js` | 单父受检候选；锁定来源并 CAS 更新目标与 evidence ref，检出/来源身份校验；只读恢复证明 | `prepareConvergencePublishUnsafe`、`applyConvergencePublishUnsafe`、`verifyConvergencePublishUnsafe`；具名 `convergenceWriteGuard`、`assertConvergenceEvidenceObjects`、纯 `convergenceMemberReceipt`、`assertConvergenceMemberReceipt` |
 | `core/workspaces/delivery-validation.js` | 登记精确临时检出、独立 Shell、环境剥离、取消/超时/输出界限、前后清洁度与授权守卫、安全回收 | `createConvergenceValidationUnsafe`、`runConvergenceValidation`、`removeConvergenceValidationUnsafe`；具名 `convergenceValidationEnvironment`、`executeConvergenceValidation` |
 
-`core/workspaces.js` 注册三组方法。ref/worktree 创建、回收与真实发布仍经 Git 串行队列，Shell 不跨进程持有它。候选单父提交在测试前固定；`validation_result.state='passed'` 必须关联精确候选 SHA/tree，不能用来源测试、UI 展示或 helper 报告代替。
+`core/workspaces.js` 注册三组方法。ref/worktree 创建、回收与真实发布仍经 Git 串行队列，Shell 不跨进程持有它。新请求明确 `verification_mode:'agent', validation:null`，运行data固定同一模式，不创建命令检出或通过证据；旧command模式的 `validation_result.state='passed'` 必须关联精确候选SHA/tree，不可用来源测试或helper报告代替。缺失／损坏旧引用不能转成免命令路径；不同模式分批。
 
 发布 receipt 含真实 parent、baseline、tree、commit、workspace、run/generation、完整固定成员及 evidence ref/commit。成员树通常不等于批次树；`workspaces/merge.js` 的 `squashedLanded`、归档和 helper 内部释放，以及 `task-sync.js` / `project/iteration.js` 的增量基点与交付判断都用精确成员映射，不用树相等或 patch-id 推断。
 
@@ -49,7 +49,7 @@
 - `project/version-graph.js` / `workspaces/version-graph.js`：复用 `delivery-publish.js` 的纯成员收据核验，将 v3 组合树与单源树分开；保留旧协议树相等门，隔离 Git 对象读取核验批次落点／证据和来源祖先。
 - `project/scheduling.js/context.js`：固定 helper 上下文、能力／Skills 快照、无 Worker 并发额度的安全准入、一次性 invocation token；收回 token 和 `running` 后才接受产物，旧 generation 不推进新尝试。
 - `agent/prompts.js/provider.js`、`workspaces/worktree.js`：integration 只在登记私有工作区运行，不继承源 checkpoint，不回落 canonical。Prompt 不代替 RPC/写入守卫，也不是 OS 沙箱。
-- `rpc/dispatcher.js`：integration 默认拒绝，仅明确安全只读及自身 Notice/进度允许；五个 `branch.convergence*` 全部 USER_ONLY，详见[能力表](../reference/rpc/convergence.md#专用整合-worker-的-rpc-能力)。
+- `rpc/dispatcher.js`：integration 默认拒绝，仅明确安全只读及自身 Notice/进度允许；所有 `branch.convergence*`（含项目defaults）均USER_ONLY，详见[能力表](../reference/rpc/convergence.md#专用整合-worker-的-rpc-能力)。
 - `project/lifecycle.js/deletion.js/iteration.js`、`workspaces/cleanup.js` 与 Store 删除：在用成员/辅助/共享证据受保护；独立来源可单独验收或删除，不能连带关闭兄弟指令。
 - `project/convergence-land.js`：一批一次 `worker.merge_received`，成员各自交付结算/自动环节；不批量授权验收。
 
@@ -61,6 +61,6 @@
 - Runtime 与 SQLite：`test/project/convergence-*.test.js`；真实调用生命周期含受控 provider 的 assembled-workers，覆盖权限、问卷、退出、撤回、修复、多轮与辅助回收。
 - Git/进程边界：`test/workspaces/convergence-*.test.js`；真实对象、CAS、锁、收据、增量、输出与授权中断，不操作用户队列。
 - Provider/权限：`test/agent/convergence-provider.test.js`、`test/integration-rpc-permissions.test.js`。
-- 公共面：`test/branch-convergence-api.test.js`、`test/web/branch-convergence-api.test.js`；真实 HTTP→RPC→Runtime→Git/Shell 在 `test/web/branch-convergence-integration.test.js`，UI 在 `test/web/dom-branch-convergence.test.js`。
+- 公共面：`test/branch-convergence-api.test.js`、`test/web/branch-convergence-api.test.js`；真实 HTTP→RPC→Runtime→Git 与旧Shell兼容在 `test/web/branch-convergence-integration.test.js`，实际挂载／默认／Worker同源投影在 `test/web/convergence-automation-integration.test.js`，UI 在 `test/web/dom-branch-convergence.test.js`。
 
-专项由分区负责人负责；顶层 W205 在收齐最终代码树后运行完整 `bun run test`。受控模型/DOM 不能证明实际模型质量、视觉与吞吐，限制以[首版接缝](merge-convergence-implementation.md#首版实现与明确限制)为准。
+专项由分区负责人负责；顶层 W205 在收齐最终代码树后运行完整 `bun run test`。受控模型/DOM 不能证明实际模型质量、视觉与吞吐，限制以[首版接缝](merge-convergence-implementation.md#限制与验证)为准。

@@ -28,7 +28,7 @@ test('integration has mandatory purpose-specific Prompt without delegation, auto
     fs.writeFileSync(path.join(f.root, '.lush-agent', 'agent.md'), 'OVERLAY THAT DELEGATES');
     const prompt = agentPrompt(f.config, 'agent', { default_prompt: 'REPLACE AND DELEGATE', append_prompt: 'DEVELOPER APPEND' }, 'integration');
     expect(prompt.parts.every(part => part.source === 'builtin')).toBe(true);
-    for (const text of ['角色：隔离整合 Worker', '不改变任何来源', 'git diff --find-renames', '最终授权验证由 runtime', '不得 spawn', '不要调用 auto-title', '不是OS沙箱'])
+    for (const text of ['角色：隔离整合 Worker', '不改变任何来源', 'git diff --find-renames', 'Agent 自己负责专项', '不执行最终验证快捷指令', '不能宣称 runtime 自动运行全量', '历史 command 模式', '不得 spawn', '不要调用 auto-title', '不是OS沙箱'])
       expect(prompt.text).toContain(text);
     for (const text of ['REPLACE AND DELEGATE', 'DEVELOPER APPEND', 'OVERLAY THAT DELEGATES', '角色：agent', 'lush worker spawn', 'lush worker auto-title'])
       expect(prompt.text).not.toContain(text);

@@ -1,5 +1,5 @@
 import { check, id, TERMINAL } from '../types.js';
-import { convergenceJSON, CONVERGENCE_LIMITS } from '../convergence-contract.js';
+import { convergenceJSON, convergenceVerificationMode, CONVERGENCE_LIMITS } from '../convergence-contract.js';
 import { inheritedRunProfile, profileEvent } from './internal.js';
 import { assertTaskAncestorsOpen } from './iteration.js';
 
@@ -28,6 +28,9 @@ function fixedContext(project, task) {
     && task.parent_id === run.parent_id && task.target_branch === run.target_branch
     && task.base_commit === fixed.seed_commit && fixed.baseline === run.baseline,
   'integration Worker belongs to a stale or changed attempt');
+  const mode = convergenceVerificationMode(convergenceJSON(run.data, {}).verification_mode, run.validation);
+  check(fixed.verification_mode === undefined ? mode === 'command' : fixed.verification_mode === mode,
+    'integration verification mode changed');
   const data = convergenceJSON(node.data, {});
   check(data.left === fixed.left && data.right === fixed.right && data.seed_commit === fixed.seed_commit
     && (data.base ?? null) === fixed.base && fixed.parent_id === run.parent_id && fixed.target_branch === run.target_branch
@@ -100,6 +103,7 @@ export default {
         this.store.update(helper.id, { status: 'paused', ...(inherited ? { retry_profile: JSON.stringify(inherited) } : {}) });
         const fixed = { version: 1, worker_id: helper.id, run_id: run.id, node_id: node.id, generation: run.generation,
           parent_id: parent.id, target_branch: run.target_branch, baseline: run.baseline,
+          verification_mode: convergenceVerificationMode(convergenceJSON(run.data, {}).verification_mode, run.validation),
           base: data.base ?? null, left: data.left, right: data.right, seed_commit: data.seed_commit,
           reason: ['validation', 'validation_failed'].includes(data.reason) ? 'validation'
             : data.reason === 'semantic' ? 'semantic' : 'conflict',
@@ -151,7 +155,10 @@ export default {
         report: report.slice(0, 1500), report_truncated: report.length > 1500 };
     }), checks: ['审查固定输入的共同祖先以来增量、改名、公共接口与语义，而不只读冲突标记。',
       '仅修改自己的登记工作区，保留两侧固定输入祖先；不推进源或父ref、不委派或发送普通消息。',
-      '实际运行受影响专项与回归并提交，歧义通过自身Notice请求决定；最终授权命令由runtime执行。',
+      'Agent负责实际运行受影响专项与调用链回归并提交，歧义通过自身Notice请求决定；不得宣称runtime自动运行全量。',
+      ...(fixed.verification_mode === 'agent'
+        ? ['此固定请求由Agent自主验证，runtime不执行最终验证快捷指令；就绪与发布不代表测试通过。']
+        : ['此历史固定请求仍由runtime执行精确候选的隔离授权命令；不可将专项测试冒充最终发布验证。']),
       '产物继续参与归并，不代表任何来源或本Worker已经合入父分支。'] };
   },
 

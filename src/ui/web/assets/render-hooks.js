@@ -15,6 +15,7 @@ import { hookScheduleSummary, scheduledWallTime } from './hook-schedule.js';
 import { renderSignalManagement } from './hook-signals.js';
 import { renderShortcutCommands } from './shortcut-commands.js';
 import { renderBranchConvergence } from './branch-convergence.js';
+import { workerConvergenceControl } from './convergence-policy-controls.js';
 import { pageSubnav } from './page-subnav.js';
 import { commandReferencesIssue, commandSummary, legacyCommands, validCommands } from './shortcut-command-model.js';
 
@@ -240,25 +241,29 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
     enabled: task.auto_merge?.enabled === true, builtin: true, locked: task.auto_merge?.locked === true, state: 'idle', reason: task.auto_merge?.reason, actions: [{ type: 'request_merge' }] }] : [];
   const items = model ? mounts : fallback;
   if (compact) {
-    const row = el('div', undefined, 'hook-compact');
+    const row = el('div', undefined, 'hook-compact'); row.setAttribute('aria-label', 'Worker 自动化');
     if (completion && ['order', 'child'].includes(workerKind(task))) {
-      row.append(el('strong', '自动链', 'worker-hooks-label'), autoCompletionControl(task, { ...model, completion }, refresh, ownsPage,
+      row.append(el('strong', '自动化', 'worker-hooks-label'), autoCompletionControl(task, { ...model, completion }, refresh, ownsPage,
         editing => { row.dataset.completionEditing = String(editing); }));
       return row;
     }
-    row.append(button(`Hooks${model ? ` · ${items.filter(item => item.enabled).length} 已启用` : ''}`, () => detail(task.id), 'ghost hook-button',
+    row.append(button(`自动化${model ? ` · ${items.filter(item => item.enabled).length} 已启用` : ''}`, () => detail(task.id), 'ghost hook-button',
       { worker: task }));
     if (['order', 'child'].includes(workerKind(task))) row.append(el('span', completion ? `自动链：${COMPLETION_LEVELS[completion.level] || '级别未知'} · ${STATES[completion.state] || completion.state || '状态未知'}`
       : task.auto_merge ? `自动合并 ${task.auto_merge.enabled ? '已启用' : '未启用'}` : '自动合并状态未知', 'hint'));
     return row;
   }
   const section = el('section', undefined, 'block worker-hooks');
-  section.setAttribute('aria-label', 'Worker Hooks');
+  section.setAttribute('aria-label', 'Worker 自动化');
   const row = el('div', undefined, 'worker-hooks-row');
-  row.append(el('strong', 'Hooks', 'worker-hooks-label'));
+  row.append(el('strong', '自动化', 'worker-hooks-label'));
   if (completion) row.append(autoCompletionControl(task, { ...model, completion }, refresh, ownsPage,
     editing => { section.dataset.completionEditing = String(editing); }));
   else if (['order', 'child'].includes(workerKind(task))) row.append(autoMergeControl(task, refresh, ownsPage));
+  const convergence = workerConvergenceControl(task, { ownsPage, refresh,
+    onEditing(value) { section.dataset.convergenceEditing = String(value); },
+    busy: () => section.dataset.hookEditing === 'true' || section.dataset.completionEditing === 'true' });
+  if (convergence) row.append(convergence);
   const alerts = items.filter(item => (!BUILTIN_STEPS[item.id] || !completion) && (['running', 'failed', 'unknown', 'skipped'].includes(item.state) || item.pending_due_at));
   for (const mount of alerts) {
     const diagnostic = ['failed', 'unknown'].includes(mount.state) ? mount.last_execution?.error || mount.reason : null;
@@ -429,7 +434,7 @@ export async function openHooks({ subpage = 'settings' } = {}) {
         // Runtime observations can advance the mount revision after the mutation response.
         // Read the authoritative catalogue before offering the next edit/toggle.
         async () => { if (owns()) await load(); }, owns, { catalogue, scope: '仅 main Worker', busy: () => state.busy || state.commandEditing, setEditing(value) { state.commandEditing = value; } }));
-      section.querySelector('.project-hook').append(button('查看 main Worker Hooks', () => detail(example.worker_id), 'ghost hook-button', { worker: example.worker_id }));
+      section.querySelector('.project-hook').append(button('查看 main Worker 自动化', () => detail(example.worker_id), 'ghost hook-button', { worker: example.worker_id }));
     }
     const template = catalogue.templates?.find(item => item.id === example?.template_id);
     if (template) section.querySelector('.project-hook').append(button('编辑来源模板', () => edit(template), 'ghost hook-button', { help: '只编辑模板，已经挂载在 main 上的实例不会改变。' }),
@@ -444,7 +449,6 @@ export async function openHooks({ subpage = 'settings' } = {}) {
     // Busy changes do not require a full redraw: every mutation checks this shared gate.
     if (state.paintedCatalogue === catalogue && (state.busy || state.paintedBusy === state.busy)) {
       state.shortcutNode?.updateCommands?.(catalogue.commands);
-      state.convergenceNode?.updateCommands?.(catalogue.commands);
       state.convergenceNode?.syncControls?.();
       return;
     }
@@ -468,10 +472,9 @@ export async function openHooks({ subpage = 'settings' } = {}) {
     });
     state.shortcutNode = commands;
     commands.updateCommands?.(catalogue.commands);
-    const convergence = state.convergenceNode || renderBranchConvergence({ catalogue, ownsPage: owns, busy: () => state.busy,
+    const convergence = state.convergenceNode || renderBranchConvergence({ ownsPage: owns, busy: () => state.busy,
       setBusy(value) { state.busy = value; if (owns()) paint(); }, setEditing(value) { state.convergenceEditing = value; } });
     state.convergenceNode = convergence;
-    convergence.updateCommands?.(catalogue.commands);
     const mounts = catalogue.command_example?.hooks?.mounts;
     const commandProblem = mounts?.map(mount => commandReferencesIssue(mount, catalogue, mount.enabled)).filter(Boolean).join('；');
     automationModule(hooks, 'project-hooks', state.folds, [automationAlerts(mounts), commandProblem].filter(Boolean).join('；')

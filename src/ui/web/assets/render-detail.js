@@ -80,7 +80,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const historyFocus = previousProgressHistory && [...previousProgressHistory.querySelectorAll('summary'), ...previousProgressHistory.querySelectorAll('button')]
     .find(node => node === document.activeElement);
   const readingPosition = sameTask ? captureDetailReading(panel) : null;
-  const previousHooks = sameTask ? panel.querySelector('.worker-hooks[data-hook-editing="true"]') || panel.querySelector('.worker-hooks[data-completion-editing="true"]') : null;
+  const previousHooks = sameTask ? panel.querySelector('.worker-hooks[data-hook-editing="true"]') || panel.querySelector('.worker-hooks[data-completion-editing="true"]') || panel.querySelector('.worker-hooks[data-convergence-editing="true"]') : null;
   const hookManagementOpen = sameTask && panel.querySelector('.hook-management')?.open === true;
   const previousDecisions = new Map(sameTask ? [...panel.querySelectorAll('.decision-record')].map(node => [node.dataset.noticeId, node]) : []);
   panel.dataset.view = 'task'; panel.dataset.taskId = String(task.id); panel.replaceChildren();

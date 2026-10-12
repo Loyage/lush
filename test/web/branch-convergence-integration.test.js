@@ -5,7 +5,8 @@ import { repo, git } from '../helpers.js';
 import { setup, fetch } from './harness.js';
 import { convergenceJSON } from '../../src/core/convergence-contract.js';
 
-// Real authenticated HTTP -> socket RPC -> Project/SQLite -> Git/isolated Shell.
+// Real authenticated HTTP -> socket RPC -> Project/SQLite -> Git.
+// Only explicitly seeded legacy fixed deliveries retain the isolated Shell gate.
 // Scheduling alone is controlled: no user services, live queues or model calls.
 async function get(f, suffix) {
   const response = await fetch(f.url + suffix);
@@ -52,6 +53,13 @@ async function source(f, file, content) {
   await post(f, 'worker.reserve', { id: task.id, kind: 'merge' });
   const fixed = f.store.task(task.id);
   expect(convergenceJSON(fixed.reservation).version).toBe(3);
+  expect(convergenceJSON(fixed.reservation)).toMatchObject({ verification_mode: 'agent', validation: null });
+  if (f.legacy) {
+    // Simulate a delivery fixed by the older daemon, not a new request under the updated policy.
+    const { verification_mode, ...booking } = convergenceJSON(fixed.reservation);
+    f.store.update(task.id, { reservation: JSON.stringify({ ...booking, validation: reference(f.entry) }) });
+    return f.store.task(task.id);
+  }
   return fixed;
 }
 async function unchanged(f, sources) {
@@ -61,23 +69,23 @@ async function unchanged(f, sources) {
   }
 }
 
-test('real HTTP authorization and revisions gate one validated batch without changing Worker automatic permissions', async () => {
+test('real HTTP enables a mounted batch without a validation command or changing Worker automatic permissions', async () => {
   const f = await prepare();
   try {
-    // A shortcut's default Worker must not redirect validation away from the isolated candidate.
+    // Keeping a historical shortcut reference must not cause execution of that command.
     expect(f.entry.default_worker_id).toBe(f.store.get("SELECT id FROM tasks WHERE task_kind='main'").id);
     const initial = await policy(f);
-    expect(initial).toMatchObject({ enabled: false, validation: null });
+    expect(initial).toMatchObject({ mounted: true, enabled: false, validation: null });
     const count = f.store.get('SELECT count(*) AS n FROM events').n;
     expect((await get(f, '/api/branch-convergence')).items[0]).toEqual(initial);
     expect((await runs(f)).items).toEqual([]);
     expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(count);
-    await post(f, 'branch.convergence_set', { branch: 'main', enabled: true, validation: reference(f.entry),
-      expected_revision: initial.revision }, 400);
-    expect((await policy(f)).enabled).toBe(false);
-    await authorize(f, true);
-    const enabled = await configure(f, true);
-    expect(enabled.validation).toMatchObject({ ...reference(f.entry), authorized: true });
+    const enabled = await post(f, 'branch.convergence_set', { branch: 'main', mounted: true, enabled: true,
+      expected_revision: initial.revision });
+    expect(enabled).toMatchObject({ mounted: true, enabled: true, validation: null });
+    const shell = f.project.workspaces.runConvergenceValidation;
+    let shellCalls = 0;
+    f.project.workspaces.runConvergenceValidation = async () => { ++shellCalls; throw new Error('new deliveries must not run a validation command'); };
     await post(f, 'branch.convergence_set', { branch: 'main', enabled: false, validation: null,
       expected_revision: initial.revision }, 400);
     const sources = [await source(f, 'alpha.txt', 'alpha'), await source(f, 'beta.txt', 'beta')];
@@ -89,7 +97,10 @@ test('real HTTP authorization and revisions gate one validated batch without cha
     expect((await configure(f, false)).enabled).toBe(false);
     await f.project.prepareConvergenceRun(batch.id, 1, new AbortController().signal);
     const delivered = (await runs(f)).items[0];
-    expect(delivered).toMatchObject({ state: 'integrated', validation: { state: 'passed', command_name: f.entry.name } });
+    expect(delivered).toMatchObject({ state: 'integrated', validation: null });
+    expect(f.store.deliveryRun(batch.id).validation_result).toBeNull();
+    expect(shellCalls).toBe(0);
+    f.project.workspaces.runConvergenceValidation = shell;
     expect(delivered.commit).toBe(await git(f.root, 'rev-parse', 'main'));
     expect(await git(f.root, 'show', '-s', '--format=%P', delivered.commit)).toBe(f.baseline);
     expect(await git(f.root, 'rev-list', '--count', `${f.baseline}..main`)).toBe('1');
@@ -130,8 +141,9 @@ test('real HTTP authorization and revisions gate one validated batch without cha
   } finally { await f.close(); }
 });
 
-test('real HTTP retry keeps a revoked fixed delivery unpublished and requires current authorization plus exact run revision', async () => {
+test('real HTTP retains authorization and revision gates for a legacy fixed command-verified delivery', async () => {
   const f = await prepare();
+  f.legacy = true;
   try {
     await authorize(f, true); await configure(f, true);
     const sources = [await source(f, 'alpha.txt', 'alpha'), await source(f, 'beta.txt', 'beta')];
@@ -181,7 +193,7 @@ test('real HTTP shows an isolated conflict helper while a later unrelated ready 
     await f.project.prepareConvergenceRun(ready.id, 1, new AbortController().signal);
     const history = await get(f, '/api/branch-convergence/runs?branch=main&limit=1');
     expect(history).toMatchObject({ has_more: true, next_before: ready.id });
-    expect(history.items[0]).toMatchObject({ id: ready.id, state: 'integrated', validation: { state: 'passed' } });
+    expect(history.items[0]).toMatchObject({ id: ready.id, state: 'integrated', validation: null });
     const older = await get(f, `/api/branch-convergence/runs?branch=main&limit=1&before=${history.next_before}`);
     expect(older.items[0]).toMatchObject({ id: conflict.id, state: 'resolving', integration_worker: { id: helper.id } });
     expect(fs.readFileSync(path.join(f.root, 'file.txt'), 'utf8')).toBe('base\n');

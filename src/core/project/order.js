@@ -46,7 +46,10 @@ export default {
   async ensureMainTask() {
     const existing = this.store.all("SELECT * FROM tasks WHERE task_kind='main' AND branch='main' ORDER BY id");
     check(existing.length <= 1, 'main branch has more than one owning worker');
-    if (existing.length) return existing[0];
+    if (existing.length) {
+      this.initializeMainConvergence(existing[0]);
+      return existing[0];
+    }
     let commit = null;
     try {
       await this.workspaces.git(this.config.project, 'show-ref', '--verify', 'refs/heads/main');
@@ -56,6 +59,7 @@ export default {
     return this.store.transaction(() => {
       const root = this.store.create({ role: 'agent', goal: '管理 main 分支及子Worker合并请求', name: 'main', task_kind: 'main' });
       this.store.update(root.id, { status: 'waiting', branch: 'main', base_commit: commit, head_commit: commit });
+      this.initializeMainConvergence(this.store.task(root.id));
       this.store.event(root.id, 'main.bound', { branch: 'main', commit });
       return this.store.task(root.id);
     });
@@ -341,6 +345,7 @@ export default {
         const child = this.store.create({ parent_id: terminal ? parent.id : live.id, input_id: live.input_id,
           role: 'agent', task_kind: 'child', name: `resolve-${live.id}`, goal,
           ...(terminal ? { resolves_task_id: live.id } : {}) });
+        this.initializeNewWorkerConvergence(child);
         this.store.update(child.id, { base_commit: state.child_head, target_branch: live.branch });
         this.store.event(child.id, 'task.divergence_resolution_requested', { source_task_id: live.id,
           source_commit: state.child_head, parent_task_id: parent.id, parent_branch: parent.branch,
@@ -511,6 +516,7 @@ export default {
         check(this.store.activeTasks().length < 1000, 'too many active workers');
         const repair = this.store.create({ parent_id: owner.id, input_id: owner.input_id, role: 'agent',
           task_kind: 'child', name: `resolve-${current.id}`, goal });
+        this.initializeNewWorkerConvergence(repair);
         this.store.update(repair.id, { base_commit: state.child_head, target_branch: owner.branch });
         this.store.event(repair.id, 'task.divergence_resolution_requested', { source_task_id: current.id,
           source_commit: state.child_head, parent_task_id: owner.id, parent_branch: owner.branch,
@@ -957,6 +963,7 @@ export default {
           auto_merge: JSON.stringify(this.newOrderCompletionConfig()),
           base_commit: anchor.commit, target_branch: target, ...(start ? {} : { status: 'paused' }),
           ...(runProfile ? { retry_profile: JSON.stringify(runProfile) } : {}) });
+        this.initializeNewWorkerConvergence(this.store.task(task.id));
         if (runProfile) this.store.event(task.id, 'task.configured', { ...profileEvent(runProfile), profile_override: true, via: 'order' });
         if (rule !== null) {
           ruleTaskId = task.id;

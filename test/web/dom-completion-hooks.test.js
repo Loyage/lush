@@ -236,7 +236,8 @@ test('project Hooks links to chain help instead of repeating documentation; buil
 });
 
 test('compact graph entry expands the shared highest-stage controls without the Hook editor', () => {
-  const compact = workerHooks(taskFor('accept'), { compact: true }); expect(deepText(compact)).toContain('自动链');
+  const compact = workerHooks(taskFor('accept'), { compact: true }); expect(deepText(compact)).toContain('自动化');
+  expect(compact.getAttribute('aria-label')).toBe('Worker 自动化');
   expect(compact.querySelector('select')).toBeNull(); expect(compact.querySelector('input')).toBeNull();
   expect(compact.querySelector('.hook-management')).toBeNull();
   expect(compact.querySelectorAll('.hook-completion-level').map(button => button.dataset.level)).toEqual(['off', 'merge', 'accept']);

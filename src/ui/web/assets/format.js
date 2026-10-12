@@ -100,6 +100,7 @@ export const EVENTS = {
   'merge.conflict': '合并冲突', 'merge.resolved': '冲突已解决', 'merge.conflict.abandoned': '放弃解冲突',
   'resolution.superseded': '解冲突作废', 'resolution.merged': '冲突修复已合入', 'resolution.finalize_failed': '冲突修复收尾失败',
   'branch.convergence_configured': '调整目标分支归并策略',
+  'branch.convergence_defaults_configured': '保存未来新 Worker 归并默认设置',
   'convergence.queue_failed': '归并调度未完成',
   'convergence.member_fixed': '已固定归并交付成员', 'convergence.batch_fixed': '已固定归并批次',
   'convergence.baseline_refixed': '已重新固定归并父基线',

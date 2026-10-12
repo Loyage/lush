@@ -176,7 +176,7 @@ export default {
         conditions: {}, actions: [{ type }], ...status,
         reason: completion.locked ? completion.reason : status.reason ?? '通过最高自动级别统一设置，仍需前一步与现有安全检查通过' });
     }
-    return { version: 1, worker_id: task.id, revision: revision(this, task), completion, can_attach: ownerAvailable(this, task, true), mounts };
+    return { version: 1, worker_id: task.id, revision: revision(this, task), completion, convergence: this.taskConvergenceView(task), can_attach: ownerAvailable(this, task, true), mounts };
   },
 
   attachTaskHook(taskId, raw, expectedRevision) {

@@ -1,5 +1,5 @@
 import { check, TERMINAL } from '../types.js';
-import { convergenceJSON, convergenceBooking } from '../convergence-contract.js';
+import { convergenceJSON, convergenceBooking, convergenceVerificationMode } from '../convergence-contract.js';
 import { convergenceTopology } from '../convergence-plan.js';
 import { convergenceHelperContext, convergenceResourceReason } from '../convergence-resources.js';
 
@@ -121,7 +121,17 @@ export default {
       if (!parent.id) continue;
       for (const run of this.store.deliveryRuns(parent.id, null, 1000)) {
         if (done.includes(run.state)) continue;
-        if (run.state === 'validating') {
+        let mode;
+        try { mode = convergenceVerificationMode(convergenceJSON(run.data, {}).verification_mode, run.validation); }
+        catch {
+          // Unknown publication effects retain their gate; damaged modes never become免测授权.
+          this.setConvergenceState(run.id, run.generation, run.landing_receipt ? 'blocked' : 'failed', {
+            error: '归并验证模式损坏；现场保留，请显式检查。' });
+          continue;
+        }
+        if (run.state === 'validating' && mode === 'agent') {
+          this.setConvergenceState(run.id, run.generation, 'failed', { error: 'Agent归并不应进入命令验证阶段；现场保留，请显式检查。' });
+        } else if (run.state === 'validating') {
           const evidence = convergenceJSON(run.validation_result, {});
           this.setConvergenceState(run.id, run.generation, 'failed', { error: '后台曾中断最终验证；结果未知，不自动重放。',
             validation_result: JSON.stringify({ ...evidence, state: 'unknown', error: '最终验证中断，需显式检查。' }) });

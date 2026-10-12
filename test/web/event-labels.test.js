@@ -25,7 +25,7 @@ test('所有源码中直接写入的事件类型都有中文名称，避免新�
 });
 
 test('归并准备、辅助产物和资源事件都有中文标签，不冒充来源落地或独立指令验收', () => {
-  for (const type of ['branch.convergence_configured', ...[
+  for (const type of ['branch.convergence_configured', 'branch.convergence_defaults_configured', ...[
     'queue_failed', 'member_fixed', 'batch_fixed', 'baseline_refixed', 'repair_attempt_fixed',
     'integration_created', 'integration_ready', 'integration_settled', 'integration_stopped',
     'landing_prepared', 'withdrawal_requested', 'helper_reclaimed', 'helper_cleanup_failed',
@@ -36,6 +36,7 @@ test('归并准备、辅助产物和资源事件都有中文标签，不冒充�
     expect(eventLabel(event)).not.toBe(eventLabel({ type: 'task.merge_integrated' }));
     expect(eventLabel(event)).not.toBe(eventLabel({ type: 'task.accepted' }));
   }
+  expect(eventLabel({ type: 'branch.convergence_defaults_configured' })).toBe('保存未来新 Worker 归并默认设置');
   expect(eventLabel({ type: 'convergence.integration_ready' })).toContain('待实际退出');
   expect(eventLabel({ type: 'convergence.integration_settled' })).toContain('非父分支落地');
   expect(eventLabel({ type: 'convergence.integration_stopped' })).toContain('请求');

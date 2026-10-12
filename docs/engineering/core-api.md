@@ -57,7 +57,8 @@ W116 / 待决 #261 批准设备同系统用户共享技术配置，项目/Worker
 
 - `order.submit`：一条用户输入创建一个有独立分支/worktree 的指令 Worker；显式 `defer:true` 且父冻结时则先保存父可创建安全点的一次性 Hook，返回预约而非 task，真正创建时才固定基线；父可写时仍直接创建。`start:false`（Web 主发送默认）只创建为 `paused`（Web 显示「待开始」）且不调用 Agent；`start:true`（缺省）立即排队运行。main 自动确立静息 owner；其它现有本地分支须先 `branch.bind` 固定 HEAD。
 - `input.history` / `input.get` / `input.parents` 与 `draft.add` / `draft.update` / `draft.remove`：用户专属历史输入与持久缓冲区；草稿通过 `order.submit {draft_id,expected_revision,start?}` 发射，不恢复旧 planner 或批量提交。字段、版本检查与分页见[历史输入接口](input-history.md)。
-- `hooks.list/save/remove`、`worker.hooks/hook_attach/hook_update/hook_remove`：用户专属受控模板与挂载；自动合并是内置 Hook，执行收据与私有定义持久化，未知副作用不自动重放。见 [Hooks 工程契约](hooks.md)及 [接口参考](../reference/rpc/hooks.md)。
+- `hooks.list/save/remove`、`worker.hooks/hook_attach/hook_update/hook_remove`：用户专属受控模板与挂载，Worker详情展示为「自动化」；自动合并是内置Hook，收据与私有定义持久化，未知副作用不重放。`worker.hooks.convergence`另提供目标归并策略安全投影，不加入通用Hook动作。见[Hooks工程契约](hooks.md)。
+- `branch.convergence`／`branch.convergence_list`／`branch.convergence_set`／`branch.convergence_runs`／`branch.convergence_retry`／`branch.convergence_defaults`／`branch.convergence_defaults_set`：全部用户专属，管理目标分支归并挂载／启停、未来order／child默认与批次历史；main初始挂载关闭，新固定归并不强制最终验证快捷指令。具体参数与旧在途兼容见[归并接口](../reference/rpc/convergence.md)。
 - `worker.completion {id,level,expected_revision}`：用户专属的最高自动级别 off/merge/accept，旧 archive 兼容等价 accept；按合并 → 安全验收（含子树资源回收）串行推进；高级别不继承，派生 child 的流程 Hook 整体只读（含旧开关入口），默认自动合并、由直接父 Agent 检查成果并保留供追加需求，尽量随父级安全批量验收；用户指令交付后可显式提高补办。成功自动环节不告知，只提示下一人工环节；失败/unknown 不重放。见[自动链接缝](completion-hooks.md)。
 - `worker.spawn`：只可在活动 指令/child 下派 agent 子 Worker；不再接受 role、deps 或 spec。
 - `worker.message` / `notice.post` / `notice.answer` / `notice.dismiss`：继续沟通和决策。普通消息仍受目标生命周期与直接父子权限限制，main/owner 不是普通收件箱；冻结期间合法消息由 Worker 持久暂存，整体解冻且 Agent 实际退出后投递；发送失败不自动重投，见[消息准入与失败处理](../reference/rpc/tasks.md#追加消息的准入与失败处理)。

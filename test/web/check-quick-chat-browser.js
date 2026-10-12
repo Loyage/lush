@@ -13,6 +13,9 @@ const html = fs.readFileSync(path.join(scratch, 'index.html'), 'utf8'), world = 
 Object.assign(world.state.quickExplanationConfig, { ready: true, reason: null, connection_id: world.state.agentConnections.connections[0].id, model: 'fixture-model' });
 world.state.quickChatPrompts.push({ id: 'notes', name: '整理记录', prompt: '整理为纯文本记录', builtin: false, context_menu: true },
   { id: 'saved', name: '仅保存备用', prompt: '备用模板', builtin: false, context_menu: false });
+const convergenceDefaults = { version: 1, mounted: false, enabled: false, revision: 'defaults-fixture', editable: true, reason: null };
+const convergencePolicy = { version: 1, branch: 'main', owner_id: 1, mounted: true, enabled: false, validation: null,
+  revision: 'convergence-fixture', editable: true, reason: null, counts: { preparing: 0, resolving: 0, awaiting: 0, validating: 0, ready: 0, landing: 0, failed: 0, blocked: 0 } };
 const csp = { 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'" };
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   const url = new URL(req.url), pathname = url.pathname;
@@ -24,7 +27,9 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
     const logical = pathname.replace(/^\/p\/[a-f0-9]{16}(?=\/api\/)/, '') + url.search;
     if (logical === '/api/hooks') return Response.json({ version: 1, revision: 'hooks-fixture', triggers: [], actions: [], templates: [], commands: { version: 1, revision: 'commands-fixture', items: [] } });
     if (logical.startsWith('/api/hooks/commands/executions')) return Response.json({ version: 1, items: [], has_more: false, next_before: null });
-    if (logical === '/api/branch-convergence') return Response.json({ version: 1, items: [], count: 0, truncated: false });
+    if (logical === '/api/branch-convergence') return Response.json({ version: 1, items: [convergencePolicy], defaults: convergenceDefaults, count: 1, truncated: false });
+    if (logical === '/api/branch-convergence?branch=main') return Response.json(convergencePolicy);
+    if (logical.startsWith('/api/branch-convergence/runs?')) return Response.json({ version: 1, branch: 'main', items: [], has_more: false, next_before: null });
     const value = await world.fetchImpl(logical, { method: req.method, ...(req.method === 'POST' ? { body: await req.text() } : {}) });
     return Response.json(await value.json(), { status: value.status || (value.ok ? 200 : 400) });
   }
@@ -103,6 +108,8 @@ try {
   await go('#hooks-history'); assert(await wait('document.querySelector(".shortcut-history-module")&&!document.querySelector(".shortcut-history-module").hidden'), 'automation history deep link unavailable');
   assert(await execute('return document.querySelector(".hooks-page").firstElementChild.matches(".page-subnav")&&document.querySelector(".shortcut-command-management").hidden&&document.querySelector(".project-hooks").hidden'), 'automation settings leaked into history');
   await click('.page-subnav [data-subpage=settings]'); assert(await wait('location.hash==="#hooks"&&!document.querySelector(".shortcut-command-management").hidden'), 'automation settings switch unavailable');
+  assert(await wait(`document.querySelector('[aria-label="对新交付开启归并"]')?.disabled===false`), 'main convergence policy unavailable');
+  assert(await execute(`return document.querySelector('[aria-label="在目标分支挂载归并"]').checked&&!document.querySelector('[aria-label="最终验证快捷指令"]')&&!document.querySelector('.convergence-defaults').hidden`), 'mounted policy/defaults contract lost');
   await execute('[...document.querySelectorAll(".shortcut-command-management button")].find(node=>node.textContent==="注册快捷指令").click()');
   await execute(`document.querySelector('[aria-label="快捷指令名称"]').value="保留编辑";document.querySelector('[aria-label="Shell 命令"]').value="echo retained"`);
   await click('.page-subnav [data-subpage=history]'); await click('.page-subnav [data-subpage=settings]');
@@ -110,6 +117,7 @@ try {
   for (const viewport of [1440, 390, 320]) {
     await width(viewport); assert(await execute('return document.documentElement.scrollWidth<=innerWidth+1'), `automation settings overflow ${viewport}`);
     await click('.page-subnav [data-subpage=history]'); assert(await execute('return document.documentElement.scrollWidth<=innerWidth+1'), `automation history overflow ${viewport}`);
+    assert(await execute(`return document.querySelector('.convergence-defaults').hidden&&document.querySelector('[aria-label="在目标分支挂载归并"]').parentNode.hidden&&document.querySelector('[aria-label="对新交付开启归并"]').parentNode.hidden&&!document.querySelector('.convergence-history').hidden`), 'convergence settings leaked into history');
     await screenshot(`automation-history-${viewport}`); await click('.page-subnav [data-subpage=settings]');
   }
   await go('', true); assert(await wait('document.querySelector("#composer-shell").hidden===false&&document.querySelector("#detail h1")'), 'project composer unavailable');

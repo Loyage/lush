@@ -1,6 +1,6 @@
 # 归并合并方案：异常、迭代与恢复
 
-本篇覆盖 W205／D482 的目标边界行为，**不代表所有场景均已实现**。首版固定批次、撤回、隔离整合、多源收据与恢复已落到代码；阻塞批次内部拆分、零变化的专门抵消解释与细粒度费用预算仍未实现，实际状态枚举和限制见[实施接缝](merge-convergence-implementation.md#首版实现与明确限制)。归并不放宽[消息](modules.md#冻结期间的-worker-追加输入w153--决定-376)、[验收](worker-acceptance.md)与[未知副作用](git-boundary.md)的安全原则；需要替换的现有假设列在[实施方案](merge-convergence-rollout.md)。
+本篇覆盖 W205／D482 的目标边界行为，**不代表所有场景均已实现**。首版固定批次、撤回、隔离整合、多源收据与恢复已落到代码；阻塞批次内部拆分、零变化的专门抵消解释与细粒度费用预算仍未实现，下文组合命令验证场景保留为旧command协议／历史方案；新Agent模式不强制最终验证命令，实际状态、挂载与在途兼容见[实施接缝](merge-convergence-implementation.md)。归并不放宽[消息](modules.md#冻结期间的-worker-追加输入w153--决定-376)、[验收](worker-acceptance.md)与[未知副作用](git-boundary.md)的安全原则；需要替换的现有假设列在[实施方案](merge-convergence-rollout.md)。
 
 阅读路线：[产品与理念](../design/merge-convergence.md) → [算法与架构](merge-convergence-protocol.md) → **异常与迭代（本篇）** → [实施与验证](merge-convergence-rollout.md)。
 

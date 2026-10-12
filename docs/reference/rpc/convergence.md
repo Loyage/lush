@@ -4,19 +4,21 @@
 
 ## 权限与参数
 
-以下五个 RPC **全部用户专属**，包括读取；Agent token 不得读取策略、修改开关或重试。所有请求拒绝未知字段，不提供任意 cwd、project、ref、Shell 或 profile 参数。
+以下 RPC **全部用户专属**，包括读取；Agent token 不得读取策略、修改开关或重试。所有请求拒绝未知字段，不提供任意 cwd、project、ref、Shell 或 profile 参数。
 
 | RPC | 参数 | 返回 |
 |---|---|---|
-| `branch.convergence_list` | 无 | `{version:1,items,count,truncated}` |
+| `branch.convergence_list` | 无 | `{version:1,items,count,truncated,defaults}` |
 | `branch.convergence` | `{branch}` | 单分支策略 |
-| `branch.convergence_set` | `{branch,enabled,validation,expected_revision}` | 保存后的单分支策略 |
+| `branch.convergence_set` | `{branch,mounted?,enabled,validation?,expected_revision}` | 保存后的单分支策略 |
+| `branch.convergence_defaults` | 无 | 项目新 Worker 默认 |
+| `branch.convergence_defaults_set` | `{mounted,enabled,expected_revision}` | 保存后的项目默认 |
 | `branch.convergence_runs` | `{branch,before?,limit?}` | `{version:1,branch,items,next_before,has_more}` |
 | `branch.convergence_retry` | `{id,expected_revision}` | 更新后的单个运行摘要 |
 
 - `branch` 为精确本地分支名（最多512字符），须有活动 main/owner/order/child 所有者；拒绝 SHA、tag 和 ref 表达式，不隐式解析 `HEAD`。
-- `enabled` 必须为 JSON 布尔值，不接受字符串或整数替代。
-- `validation` 必须显式为 null 或严格 `{command_id,command_version}`：ID 为现有快捷指令 UUID，版本为正安全整数。启用不允许 null；实际授权由 Runtime 核验，不隐式创建、授权或升级指令。
+- `mounted` 与 `enabled` 必须为 JSON 布尔值，不接受字符串或整数替代。分支 setter 省略 mounted 时兼容为 true；未挂载不能启用。项目 defaults 两字段均必填，mounted:false 可记住 enabled:true，但不执行。
+- `validation` 可省略（保留历史引用），或显式 null／严格 `{command_id,command_version}`：UUID与正安全整数版本。仅兼容保存历史引用；开启不要求验证指令、存在或授权，不隐式创建、执行或升级指令。
 - `expected_revision` 必须为最近读面的非空、不透明 revision（最多256字符）；不可自行拼接、跨分支复用或自动改用新值。过期时拒绝并重新读取。
 - runs 的 `before` 可省略/null，否则为正安全整数运行 ID；`limit` 可省略（20），否则为整数1..50。RPC 数值字段不接受数字字符串。
 - retry 的 `id` 必须为正安全整数，不接受 W 编号或字符串。landing/blocked 的未知现场不得盲重放；是否可恢复由 Runtime 核验。
@@ -26,8 +28,8 @@
 ```js
 {
   version: 1, branch, owner_id, owner_worker_number: null,
-  enabled: false,
-  validation: null, // 或 {command_id,command_version,name,authorized}
+  mounted: false, enabled: false,
+  validation: null, // 仅历史兼容：或 {command_id,command_version,name,authorized}
   revision, editable: true, reason: null,
   counts: {
     preparing:0, resolving:0, awaiting:0, validating:0,
@@ -36,11 +38,13 @@
 }
 ```
 
-每分支默认关闭、不继承。main 开启只影响目标为 main 的之后新固定交付，不提高 Worker 自动合并/验收级别。关闭保留原验证引用，不撤销已固定的新协议批次；已有在途旧协议不转换。
+main 在初始化时一次性挂载且关闭；其他未配置 Worker 未挂载。项目页与 Worker 详情「自动化」修改同一实际策略；已有保存的旧策略视为已挂载，保留启停和引用。移除保留墓碑、历史且不重装。main 开启只影响之后交付到 main 的新固定成果，不提高来源 Worker 自动合并／验收级别；关闭／移除不撤销已固定批次。
 
 未配置分支读取不写默认行、不启动 Agent 或运行命令。revision 在未配置时也稳定。counts 来源于完整持久活动事实，不从分页列表或 Worker 图推算。list 最多500个活动所有者分支，main优先，其他稳定按名称排序，超限显式 truncated。
 
-验证引用的 `authorized` 表示当前授权；撤权、改版或删除不静默换成最新版。最终指令在登记的隔离检出执行且不携带 Agent token；隔离不是操作系统沙箱。验证失败、超时或授权失效阻止发布。
+项目默认读面为 `{version:1,mounted,enabled,revision,editable,reason}`，初始 mounted:false、enabled:false，只在之后实际创建 order／child 时复制，不从父继承、不回写已有；未默认挂载时可以记住开启偏好，实际未挂载实例仍关闭。list.defaults与独立默认读取同源，default revision不能用于分支setter。
+
+新固定预约明确 `verification_mode:'agent', validation:null`，不执行组合验证命令、不制造通过证据；验证由开发／整合Agent负责，顶层全量责任不变。旧已固定command运行保留原授权、隔离验证与精确候选证据门；新旧模式不混批。历史引用authorized只表示当前授权，不自动升级版本；缺失或损坏旧验证引用不能转成免命令授权。
 
 ## 运行摘要
 
@@ -76,22 +80,27 @@ Runtime 内部创建的 `task_kind='integration'` 使用 invocation 临时 token
 ## CLI
 
 ```bash
-lush branch convergence list
-lush branch convergence show main
-lush branch convergence on main --command UUID --version 2 --revision REV
-lush branch convergence off main --revision REV
-lush branch convergence runs main --before 15 --limit 20
-lush branch convergence retry 9 --revision RUN_REV
+bun run lush branch convergence list
+bun run lush branch convergence show main
+bun run lush branch convergence mount main --revision REV
+bun run lush branch convergence on main --revision REV
+bun run lush branch convergence off main --revision REV
+bun run lush branch convergence remove main --revision REV
+bun run lush branch convergence defaults show
+bun run lush branch convergence defaults set --mounted true --enabled false --revision DEFAULT_REV
+bun run lush branch convergence runs main --before 15 --limit 20
+bun run lush branch convergence retry 9 --revision RUN_REV
 ```
 
-支持通用 `--project PATH` / `--json`，输出沿用现有 JSON 约定。命令选项仅对对应子命令有效，未知、重复或缺值选项拒绝。先用现有快捷指令授权入口授权精确版本；on 本身不授权。off 先读取现有引用，仅保留 ID/版本，再以用户提供的 revision 保存；读取发现版本变化或写入竞态时拒绝，不静默刷新 revision。
+支持通用 `--project PATH` / `--json`，输出沿用现有 JSON 约定。命令选项仅对对应子命令有效，未知、重复或缺值选项拒绝。on无需command/version；旧可选 `--command UUID --version N`仅兼容保存引用，不表示执行验证。mount为未挂载目标提供关闭挂载，保留已有挂载的启用状态；remove移除未来挂载但不删历史；off关闭且保持挂载状态／引用。先读取当前策略或defaults获取各自revision，写入竞态拒绝，不静默刷新revision。
 
-开启／重试可能调用专用整合 Agent 并产生费用。CLI 同样在本地拒绝 Agent 客户端，包括三个读取命令。
+开启／重试可能调用专用整合 Agent 并产生费用。CLI 同样在本地拒绝 Agent 客户端，包括读取命令。
 
 ## HTTP
 
 - `GET /api/branch-convergence` 返回 list；加单个 `branch` 查询返回该策略。
+- `GET /api/branch-convergence/defaults` 无查询参数，返回项目默认。
 - `GET /api/branch-convergence/runs?branch=main&before=15&limit=20` 返回运行分页；branch 必填，数字查询须为正整数字面量，limit最多50。
-- 修改只经 `POST /api/action` 的 `branch.convergence_set` / `branch.convergence_retry`；JSON envelope 仅 `{method,params}`，params 必须为对象，禁止 query、多余字段及任何 `_token` 值。
+- 修改只经 `POST /api/action` 的 `branch.convergence_set`／`branch.convergence_defaults_set`／`branch.convergence_retry`；JSON envelope 仅 `{method,params}`，params 必须为对象，禁止 query、多余字段及任何 `_token` 值。
 
-GET 拒绝未知或重复查询字段；三个读取 RPC 不在 action 白名单，也无 GET 修改入口。全部复用登录、Origin、no-store 和项目绑定；全局 Host 必须使用 `/p/<project-id>` 前缀，未知身份不回退，读写均不通过此入口拉起已停止 daemon。详见[Web 路由](../web-routes.md)。
+GET 拒绝未知或重复查询字段；读取 RPC 不在 action 白名单，也无 GET 修改入口。全部复用登录、Origin、no-store 和项目绑定；全局 Host 必须使用 `/p/<project-id>` 前缀，未知身份不回退，读写均不通过此入口拉起已停止 daemon。详见[Web 路由](../web-routes.md)。

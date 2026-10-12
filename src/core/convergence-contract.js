@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { check } from './types.js';
 
 /** Internal Runtime contract for W205. No RPC/CLI mutation is defined by this module. */
 export const CONVERGENCE_LIMITS = Object.freeze({
@@ -26,6 +27,19 @@ export function convergenceRevision(value) {
 export function convergenceJSON(value, fallback = null) {
   if (typeof value !== 'string') return value ?? fallback;
   try { return JSON.parse(value); } catch { return fallback; }
+}
+
+/** Missing mode is legacy command verification, never implicit permission to skip it. */
+export function convergenceVerificationMode(mode, validation) {
+  check(mode === undefined || mode === 'command' || mode === 'agent', 'invalid convergence verification mode');
+  if (mode === 'agent') {
+    check(validation === null || validation === 'null', 'agent convergence requires explicit validation:null');
+    return 'agent';
+  }
+  const reference = convergenceJSON(validation, false);
+  check(reference && typeof reference.command_id === 'string' && Number.isSafeInteger(reference.command_version)
+    && reference.command_version > 0, 'legacy convergence requires a fixed validation command');
+  return 'command';
 }
 
 export function convergenceBooking(task) {

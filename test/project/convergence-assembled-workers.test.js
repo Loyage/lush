@@ -6,7 +6,7 @@ import { convergenceJSON } from '../../src/core/convergence-contract.js';
 import { Dispatcher } from '../../src/rpc/dispatcher.js';
 
 /** Fully assembled scheduler/factory/SQL/Git/real validation, in-process controlled provider only. */
-async function setup(provider, command = "test \"$(cat file.txt)\" = 'left plus right'", nested = false) {
+async function setup(provider, command = "test \"$(cat file.txt)\" = 'left plus right'", nested = false, legacy = false) {
   const f = fixture(provider, { LUSH_CONCURRENCY: '1' });
   const kick = f.project.kick.bind(f.project), mergeWake = f.project.scheduleTaskMerge.bind(f.project),
     convergenceWake = f.project.scheduleConvergence.bind(f.project);
@@ -27,7 +27,15 @@ async function setup(provider, command = "test \"$(cat file.txt)\" = 'left plus 
       fs.writeFileSync(path.join(task.workspace, 'file.txt'), text + '\n');
       await git(task.workspace, 'add', '.'); await git(task.workspace, 'commit', '-m', text);
       f.store.update(task.id, { status: 'waiting' }); await f.project.requestTaskMerge(task.id);
+      if (legacy) {
+        const { verification_mode, ...booking } = convergenceJSON(f.store.task(task.id).reservation);
+        f.store.update(task.id, { reservation: JSON.stringify({ ...booking, validation: { command_id: entry.id, command_version: 1 } }) });
+      }
       sources.push(f.store.task(task.id));
+    }
+    if (!legacy) {
+      f.project.workspaces.createConvergenceValidationUnsafe = () => { throw new Error('agent mode must not create command checkout'); };
+      f.project.workspaces.runConvergenceValidation = () => { throw new Error('agent mode must not execute command'); };
     }
     const baseline = await git(f.root, 'rev-parse', target);
     const run = await f.project.formConvergenceBatch(sources[0].parent_id);
@@ -48,6 +56,8 @@ test('assembled content-conflict helper repairs only its private checkout and pr
   const f = await setup({ run: async ({ task, cwd, context, token: credential, api }) => {
     token = credential; helperId = task.id;
     expect(task.task_kind).toBe('integration'); expect(context.integration.reason).toBe('conflict');
+    expect(context.integration.verification_mode).toBe('agent');
+    expect(context.integration.checks.join(' ')).toContain('Agent自主验证');
     expect(context.integration.members).toHaveLength(2);
     expect(api.running.has(task.id)).toBe(true);
     const rpc = new Dispatcher(api), auth = { _token: credential };
@@ -79,7 +89,8 @@ test('assembled content-conflict helper repairs only its private checkout and pr
     expect(convergenceJSON(node.result).via).toBe('integration');
     expect(await git(f.root, 'rev-parse', 'main')).toBe(f.baseline); await unchanged(f);
     await f.project.prepareConvergenceRun(f.run.id, 1, new AbortController().signal);
-    expect(f.store.deliveryRun(f.run.id).state).toBe('integrated');
+    expect(f.store.deliveryRun(f.run.id)).toMatchObject({ state: 'integrated', validation: null, validation_result: null });
+    expect((await f.project.branchConvergenceRuns('main')).items[0].validation).toBeNull();
     expect(fs.readFileSync(path.join(f.root, 'file.txt'), 'utf8')).toBe('left plus right\n');
     expect(f.store.get("SELECT count(*) AS n FROM events WHERE type='worker.merge_received'").n).toBe(1);
     expect(f.store.get("SELECT count(*) AS n FROM tasks WHERE task_kind='integration'").n).toBe(1);
@@ -192,7 +203,7 @@ test('real validation failure creates a second fixed generation/helper and passe
     }
     await git(cwd, 'add', '.'); await git(cwd, 'commit', '-m', `controlled repair ${calls}`);
     return 'fixed private output';
-  } }, "test \"$(cat file.txt)\" = 'left plus right' && test -f validation-fix.txt");
+  } }, "test \"$(cat file.txt)\" = 'left plus right' && test -f validation-fix.txt", false, true);
   try {
     await f.project.prepareConvergenceRun(f.run.id, 1, new AbortController().signal);
     const firstHelper = f.store.deliveryRun(f.run.id).integration_worker_id;
@@ -276,6 +287,54 @@ test('last source acceptance retains partial helper cleanup and explicitly resum
     expect(f.store.task(helperId)).toMatchObject({ workspace: null, branch: null, status: 'completed' });
     expect(await git(f.root, 'rev-parse', 'main')).toBe(landed);
     expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='task.accepted'", f.sources[1].id).n).toBe(1);
+  } finally { await f.close(); }
+});
+
+test('agent baseline refresh conflict uses a second immutable helper, retains prior repairs and publishes without Shell', async () => {
+  let calls = 0;
+  const f = await setup({ run: async ({ cwd, context }) => {
+    calls++;
+    expect(context.integration.verification_mode).toBe('agent');
+    expect(context.integration.generation).toBe(calls);
+    expect(fs.readFileSync(path.join(cwd, 'file.txt'), 'utf8')).toContain('<<<<<<<');
+    if (calls === 1) fs.writeFileSync(path.join(cwd, 'paid-repair.txt'), 'preserve this adaptation\n');
+    else expect(fs.readFileSync(path.join(cwd, 'paid-repair.txt'), 'utf8')).toBe('preserve this adaptation\n');
+    fs.writeFileSync(path.join(cwd, 'file.txt'), calls === 1 ? 'left plus right\n' : 'left plus right plus parent\n');
+    await git(cwd, 'diff', '--check');
+    await git(cwd, 'add', '.'); await git(cwd, 'commit', '-m', `agent regression checked repair ${calls}`);
+    return 'fixed combination checked';
+  } });
+  try {
+    await f.project.prepareConvergenceRun(f.run.id, 1, new AbortController().signal);
+    const firstHelper = f.store.deliveryRun(f.run.id).integration_worker_id;
+    f.start(); await exited(f, firstHelper); f.stopScheduling();
+    const firstNode = f.store.deliveryNodes(f.run.id, 1).find(node => node.helper_id === firstHelper);
+    const firstOutput = convergenceJSON(firstNode.result);
+    const publish = f.project.publishConvergence.bind(f.project); f.project.publishConvergence = async () => false;
+    await f.project.prepareConvergenceRun(f.run.id, 1, new AbortController().signal);
+    expect(f.store.deliveryRun(f.run.id).state).toBe('ready');
+    fs.writeFileSync(path.join(f.root, 'file.txt'), 'new parent intent\n');
+    await git(f.root, 'add', '.'); await git(f.root, 'commit', '-m', 'parent changes while batch waits');
+    const newBaseline = await git(f.root, 'rev-parse', 'main');
+    f.project.publishConvergence = publish;
+    expect(await publish(f.run.id)).toBe(false);
+    await f.project.prepareConvergenceRun(f.run.id, 2, new AbortController().signal);
+    const secondHelper = f.store.deliveryRun(f.run.id).integration_worker_id;
+    expect(secondHelper).not.toBe(firstHelper);
+    expect(f.project.convergenceIntegrationContext(f.store.task(secondHelper))).toMatchObject({
+      generation: 2, base: f.baseline, baseline: newBaseline, left: newBaseline, right: firstOutput.commit, verification_mode: 'agent',
+    });
+    expect(f.store.deliveryNode(firstNode.id)).toEqual(firstNode);
+    f.start(); await exited(f, secondHelper); f.stopScheduling();
+    await f.project.prepareConvergenceRun(f.run.id, 2, new AbortController().signal);
+    const final = f.store.deliveryRun(f.run.id);
+    expect(final).toMatchObject({ state: 'integrated', validation: null, validation_result: null });
+    expect(calls).toBe(2);
+    expect(await git(f.root, 'show', '-s', '--format=%P', final.candidate_commit)).toBe(newBaseline);
+    expect(await f.project.workspaces.isAncestor(f.root, firstOutput.commit, convergenceJSON(final.data).root_commit)).toBe(true);
+    expect(fs.readFileSync(path.join(f.root, 'paid-repair.txt'), 'utf8')).toBe('preserve this adaptation\n');
+    expect(fs.readFileSync(path.join(f.root, 'file.txt'), 'utf8')).toBe('left plus right plus parent\n');
+    await unchanged(f);
   } finally { await f.close(); }
 });
 

@@ -1,6 +1,6 @@
 # 归并合并方案：实施、验证与收益评估
 
-本篇将 W205／D482 的设计拆成可验证的改造步骤。**首版代码已实现，但下面保留完整目标路线；测试清单与性能门槛不是自动通过的证据。** 当前能力、默认关闭策略和未实现项见[实施接缝](merge-convergence-implementation.md#首版实现与明确限制)，实际文件与导出见[Runtime 地图](merge-convergence-runtime.md)。
+本篇将 W205／D482 的设计拆成可验证的改造步骤。**首版代码已实现，但下面保留完整目标路线；测试清单与性能门槛不是自动通过的证据。** 下文最终命令验证性能门槛为旧command协议／历史方案；当前Agent模式不强制最终验证命令，挂载、默认与未实现项见[实施接缝](merge-convergence-implementation.md)，实际文件与导出见[Runtime 地图](merge-convergence-runtime.md)。
 
 阅读路线：[产品与理念](../design/merge-convergence.md) → [算法与架构](merge-convergence-protocol.md) → [异常与迭代](merge-convergence-cases.md) → **实施与验证（本篇）**。
 

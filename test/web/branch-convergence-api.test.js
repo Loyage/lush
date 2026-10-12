@@ -73,8 +73,8 @@ test('convergence HTTP setters and retry preserve explicit command version and r
     expect(await (await post(f.url, 'branch.convergence_set', mutation)).json()).toEqual(policy);
     expect(await (await post(f.url, 'branch.convergence_set', { ...mutation, enabled: false })).json()).toEqual(policy);
     expect(await (await post(f.url, 'branch.convergence_retry', { id: 9, expected_revision: revision })).json()).toEqual(run);
-    expect(calls).toEqual([{ name: 'setBranchConvergence', args: ['main',true,validation,revision] },
-      { name: 'setBranchConvergence', args: ['main',false,validation,revision] },
+    expect(calls).toEqual([{ name: 'setBranchConvergence', args: ['main',true,validation,revision,true] },
+      { name: 'setBranchConvergence', args: ['main',false,validation,revision,true] },
       { name: 'retryBranchConvergence', args: [9,revision] }]);
   } finally { await f.close(); }
 });
@@ -86,7 +86,7 @@ test('convergence mutations reject malformed authorization, envelope/query field
       expect((await post(f.url, 'branch.convergence_set', { ...mutation, _token: token })).status).toBe(400);
       expect((await post(f.url, 'branch.convergence_retry', { id: 9, expected_revision: revision, _token: token })).status).toBe(400);
     }
-    for (const params of [{ ...mutation, enabled: 'true' }, { ...mutation, validation: null },
+    for (const params of [{ ...mutation, enabled: 'true' }, { ...mutation, mounted: false },
       { ...mutation, validation: { ...validation, command: 'unsafe' } }, { ...mutation, validation: { ...validation, authorized: true } },
       { ...mutation, validation: { ...validation, command_version: '2' } }, { ...mutation, expected_revision: '' },
       { ...mutation, expected_revision: null }, { ...mutation, cwd: '/tmp' }]) {
@@ -162,7 +162,7 @@ test('Host convergence APIs stay on explicit projects and never start a daemon t
     expect((await fetch(ub + '/api/branch-convergence/runs?branch=main&limit=1')).status).toBe(200);
     expect((await post(ua, 'branch.convergence_set', mutation)).status).toBe(200);
     expect((await post(ub, 'branch.convergence_retry', { id: 9, expected_revision: revision })).status).toBe(200);
-    expect(ca).toEqual([{ name: 'branchConvergenceList', args: [] }, { name: 'setBranchConvergence', args: ['main',true,validation,revision] }]);
+    expect(ca).toEqual([{ name: 'branchConvergenceList', args: [] }, { name: 'setBranchConvergence', args: ['main',true,validation,revision,true] }]);
     expect(cb).toEqual([{ name: 'branchConvergenceRuns', args: ['main',null,1] }, { name: 'retryBranchConvergence', args: [9,revision] }]);
     for (const base of [url, `${url}/p/${'0'.repeat(16)}`]) {
       expect((await fetch(base + '/api/branch-convergence')).status).toBe(400);

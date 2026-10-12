@@ -154,6 +154,7 @@ export default {
           this.store.update(liveParent.id, { status: 'waiting' });
         }
         const created = this.store.create({ parent_id: parent.id, input_id: inheritedInput, role, goal, name: slug, task_kind: taskKind });
+        this.initializeNewWorkerConvergence(created);
         // Freeze the parent's effective run settings (mode/source/model/budget) for the child: the
         // current invocation wins, then its task-local override, then the effective default.
         const inherited = inheritedRunProfile(this, liveParent, this.running.get(liveParent.id) ?? null);

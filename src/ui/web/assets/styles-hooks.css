@@ -48,6 +48,13 @@ button.hook-completion-level.is-selected { border-color: var(--violet-ink); back
 .hook-field textarea { resize: vertical; }
 .hooks-page-subtitle { margin: 0; color: var(--muted); font-weight: 600; }
 .branch-convergence { min-width: 0; }
+.worker-convergence-control { max-width: 100%; }
+.convergence-worker-status { overflow-wrap: anywhere; }
+button.convergence-disable.is-selected { border-color: var(--line); background: var(--panel); color: var(--text); }
+.convergence-defaults { display: grid; gap: .7rem; padding-block: 1rem; margin-top: 1rem; border-top: 1px solid var(--line); min-width: 0; }
+.convergence-defaults h3, .convergence-defaults p { margin: 0; overflow-wrap: anywhere; }
+.convergence-defaults .hook-field { display: flex; align-items: center; gap: .5rem; }
+.convergence-defaults input[type="checkbox"] { width: auto; }
 .convergence-editor { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: .8rem; }
 .convergence-editor .convergence-toggle { grid-column: 1 / -1; display: flex; align-items: center; gap: .5rem; }
 .convergence-editor input[type="checkbox"] { width: auto; }

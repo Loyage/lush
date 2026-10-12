@@ -47,13 +47,22 @@ test('unconfigured branch reads/list/history are pure and revisions bind the rea
   } finally { await f.close(); }
 });
 
-test('policy enable requires exact authorized reference, persists per branch, and does not rewrite already-fixed deliveries', async () => {
+test('agent-mode internal policies may omit optional validation metadata without breaking safe Hook reads', async () => {
+  const f = await setup();
+  try {
+    f.project.convergencePolicy = () => ({ version: 1, mounted: true, enabled: true, generation: 1 });
+    f.project.resolveShortcutCommand = () => { throw new Error('agent policy read must not resolve a command'); };
+    const view = await f.project.branchConvergence('main');
+    expect(view).toMatchObject({ mounted: true, enabled: true, validation: null });
+    expect(f.project.taskHooks(f.main.id).convergence).toEqual(view);
+  } finally { await f.close(); }
+});
+
+test('policy enable accepts legacy references without authorization, persists per branch, and does not rewrite already-fixed deliveries', async () => {
   const f = await setup(); try {
     await branch(f, 'feature'); const ref = command(f, false), old = await f.project.branchConvergence('main');
     const source = member(f); f.store.update(source.task_id, { reservation: '{"version":2,"kind":"merge","status":"requested"}' });
     const before = f.store.task(source.task_id).reservation;
-    await expect(f.project.setBranchConvergence('main', true, ref, old.revision)).rejects.toThrow('授权');
-    await expect(f.project.setBranchConvergence('main', true, null, old.revision)).rejects.toThrow('requires');
     f.project.authorizeShortcutCommand(ref.command_id, ref.command_version, true, f.project.shortcutCommands().revision);
     const set = await f.project.setBranchConvergence('main', true, ref, old.revision);
     expect(set.validation).toEqual({ ...ref, name: '组合测试', authorized: true }); expect(set.enabled).toBe(true);
@@ -74,14 +83,16 @@ test('revocation/edit/delete never upgrades stored versions, but off can retain 
     await f.project.setBranchConvergence('main', true, ref, initial.revision);
     f.project.authorizeShortcutCommand(ref.command_id, 1, false, f.project.shortcutCommands().revision);
     let view = await f.project.branchConvergence('main'); expect(view.validation.authorized).toBe(false);
-    await expect(f.project.setBranchConvergence('main', true, ref, view.revision)).rejects.toThrow('授权');
+    view = await f.project.setBranchConvergence('main', true, undefined, view.revision);
+    expect(view.validation).toEqual({ ...ref, name: '组合测试', authorized: false });
     f.project.saveShortcutCommand({ id: ref.command_id, name: '版本二', command: 'true' }, f.project.shortcutCommands().revision);
     view = await f.project.branchConvergence('main'); expect(view.validation).toEqual({ ...ref, name: null, authorized: false });
     view = await f.project.setBranchConvergence('main', false, ref, view.revision); expect(view.validation.command_version).toBe(1);
     f.project.removeShortcutCommand(ref.command_id, f.project.shortcutCommands().revision);
     const off = await f.project.setBranchConvergence('main', false, ref, view.revision); expect(off.validation.authorized).toBe(false);
-    await expect(f.project.setBranchConvergence('main', false, { command_id: '00000000-0000-0000-0000-000000000001', command_version: 1 }, off.revision)).rejects.toThrow('不存在');
-    expect((await f.project.setBranchConvergence('main', false, null, off.revision)).validation).toBeNull();
+    const missing = await f.project.setBranchConvergence('main', true, { command_id: '00000000-0000-0000-0000-000000000001', command_version: 1 }, off.revision);
+    expect(missing.validation.authorized).toBe(false);
+    expect((await f.project.setBranchConvergence('main', false, null, missing.revision)).validation).toBeNull();
   } finally { await f.close(); }
 });
 
@@ -119,7 +130,7 @@ test('branch owner changes invalidate revisions and cannot inherit an older owne
   } finally { await f.close(); }
 });
 
-test('setter rechecks live ownership and command authorization after asynchronous Git admission', async () => {
+test('setter rechecks live ownership after asynchronous Git admission without requiring command authorization', async () => {
   const f = await setup(); try {
     const ref = command(f), before = await f.project.branchConvergence('main');
     const original = f.project.workspaces.git.bind(f.project.workspaces); let revoke = true;
@@ -128,8 +139,8 @@ test('setter rechecks live ownership and command authorization after asynchronou
       if (revoke && args.includes('for-each-ref')) { revoke = false; f.project.authorizeShortcutCommand(ref.command_id, 1, false, f.project.shortcutCommands().revision); }
       return value;
     };
-    await expect(f.project.setBranchConvergence('main', true, ref, before.revision)).rejects.toThrow('授权');
-    expect(f.store.get('SELECT value FROM meta WHERE key=?', CONVERGENCE_POLICY_PREFIX + 'main')).toBeNull();
+    const enabled = await f.project.setBranchConvergence('main', true, ref, before.revision);
+    expect(enabled).toMatchObject({ mounted: true, enabled: true, validation: { ...ref, authorized: false } });
     f.project.workspaces.git = original; await branch(f, 'feature'); const view = await f.project.branchConvergence('feature');
     const own = f.store.get("SELECT id FROM tasks WHERE branch='feature'"); let closeOwner = true;
     f.project.workspaces.git = async (...args) => {
@@ -185,7 +196,7 @@ test('list bounds rows at 500, keeps main first and reports the full eligible co
     const list = await f.project.branchConvergenceList(); expect(list).toMatchObject({ count: 503, truncated: true });
     expect(list.items).toHaveLength(500); expect(list.items[0].branch).toBe('main'); expect(list.items[1].branch).toBe('branch-0000');
     expect(list.items.at(-1).branch).toBe('branch-0498');
-    expect(f.store.get('SELECT count(*) AS n FROM meta WHERE key LIKE ?', CONVERGENCE_POLICY_PREFIX + '%').n).toBe(0);
+    expect(f.store.get('SELECT count(*) AS n FROM meta WHERE key LIKE ?', CONVERGENCE_POLICY_PREFIX + '%').n).toBe(1);
   } finally { await f.close(); }
 });
 

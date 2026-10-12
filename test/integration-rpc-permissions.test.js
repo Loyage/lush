@@ -122,7 +122,7 @@ test('task_kind rather than a role label decides capability, preserving ordinary
   const d = new Dispatcher(p);
   await expect(d.dispatch('progress.plan', { steps: ['inspect'] })).rejects.toThrow('agent only');
   await d.dispatch('branch.convergence_set', { branch: 'main', enabled: false, validation: null, expected_revision: 'read-revision' });
-  expect(calls).toEqual([['set','main',false,null,'read-revision']]);
+  expect(calls).toEqual([['set','main',false,null,'read-revision',true]]);
 });
 
 function controlled() {
