@@ -38,10 +38,12 @@ const legacy = route => route.replace(/^workers/, 'tasks').replace(/^worker-grap
 
 async function hostFixture(workerNumber = undefined) {
   const a = temp(), b = temp(), global = temp(), calls = [];
+  let noticePage = null;
   const web = startWeb(null, 0, { env: env({ LUSH_GLOBAL_CONFIG: global }), openProject: async project => ({
     config: { project, home: path.join(project, '.lush') },
     client: { async request(method, params = {}) {
       calls.push({ project, method, params });
+      if (method === 'notice.page' && noticePage) return noticePage;
       if (method === 'notice.page') return { notices: [{ id: 8, task_id: 7, kind: 'questionnaire',
         body: JSON.stringify({ questions: [{ options: [{ previewHtml: '<p>safe preview</p>' }] }] }) }] };
       if (method === 'worker.inspect') return { id: 7, worker_number: workerNumber, task_kind: 'order', role: 'verifier' };
@@ -52,7 +54,7 @@ async function hostFixture(workerNumber = undefined) {
   for (const project of [a, b]) await fetch(url + '/api/host/select', { method: 'POST',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project }) });
   calls.length = 0;
-  return { a, b, web, calls, url, urlA: `${url}/p/${projectRouteId(a)}`, urlB: `${url}/p/${projectRouteId(b)}`,
+  return { a, b, web, calls, url, setNoticePage(value) { noticePage = value; }, urlA: `${url}/p/${projectRouteId(a)}`, urlB: `${url}/p/${projectRouteId(b)}`,
     close() { web.stop(true); for (const dir of [a, b, global]) fs.rmSync(dir, { recursive: true, force: true }); } };
 }
 
@@ -77,6 +79,36 @@ test('worker HTTP reads forward only the new namespace with unchanged typed para
     expect((await fetch(`${f.url}/api/workers`)).status).toBe(400);
     expect((await fetch(`${f.url}/p/${'0'.repeat(16)}/api/workers`)).status).toBe(400);
     expect(f.calls).toHaveLength(before);
+  } finally { f.close(); }
+});
+
+test('Notice HTTP count matches non-plan projection and preserves filtered empty-page cursors', async () => {
+  const f = await hostFixture();
+  const plan = { id: 10, task_id: 7, kind: 'plan', status: 'open' };
+  const question = { id: 9, task_id: 7, kind: 'question', status: 'open' };
+  try {
+    f.setNoticePage({ notices: [plan, question], cursor: 9, has_more: true, limit: 2, total: 8, non_plan_total: 5 });
+    const response = await fetch(`${f.urlA}/api/notices?status=open&limit=2`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toMatchObject({ notices: [question], total: 5, cursor: 9, has_more: true });
+    expect(f.calls.at(-1)).toEqual({ project: f.a, method: 'notice.page', params: { status: 'open', before: null, limit: 2 } });
+    f.setNoticePage({ notices: [plan], cursor: 10, has_more: true, limit: 1, total: 8, non_plan_total: 5 });
+    expect(await (await fetch(`${f.urlA}/api/notices?status=open&limit=1`)).json())
+      .toMatchObject({ notices: [], total: 5, cursor: 10, has_more: true });
+    // Even if this page has no plans, an old daemon's whole-status total may
+    // include plans on other pages. Never claim it is the Web count.
+    for (const count of [undefined, -1, 1.5, '5']) {
+      f.setNoticePage({ notices: [question], cursor: 9, has_more: true, limit: 1, total: 8,
+        ...(count !== undefined ? { non_plan_total: count } : {}) });
+      const page = await (await fetch(`${f.urlB}/api/notices?status=open&before=10&limit=1`)).json();
+      expect(page).not.toHaveProperty('total');
+      expect(page).toMatchObject({ notices: [question], cursor: 9, has_more: true });
+      expect(f.calls.at(-1).project).toBe(f.b);
+    }
+    f.setNoticePage({ notices: [], cursor: null, has_more: false, limit: 1, total: 3, non_plan_total: 0 });
+    expect(await (await fetch(`${f.urlA}/api/notices?status=open&limit=1`)).json())
+      .toMatchObject({ notices: [], total: 0, has_more: false });
   } finally { f.close(); }
 });
 

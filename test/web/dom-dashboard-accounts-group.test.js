@@ -54,6 +54,24 @@ test('父真实v3存储及partial ACK保留tiles群组与逐来源设置，可�
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 
+test('真实v4完整ACK兼容widgets/null/空面板及来源规范化，重复导航不被前端误拒绝', async () => {
+  const { mkdtempSync, chmodSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os'), { join } = await import('node:path');
+  const { readDashboardSettings, saveDashboardSettings } = await import('../../src/core/dashboard-settings.js');
+  const { newWidget } = await import('../../src/ui/web/assets/dashboard-widget-model.js');
+  const home = mkdtempSync(join(tmpdir(), 'lush-widget-v4-reader-'));
+  try {
+    chmodSync(home, 0o700); const device = { home }, initial = readDashboardSettings(device);
+    expect(initial.version).toBe(4); expect((await readDashboardConfig({ value: initial })).widgets).toBeNull();
+    const accountWidget = newWidget('accounts', 'widget:account'); accountWidget.connection_ids = [id(1).toUpperCase()];
+    const links = newWidget('shortcuts', 'widget:links'); links.links = Array.from({ length: 2 }, () => ({ scope: 'global', target: 'settings', project_id: null }));
+    const ack = await saveDashboardSettings(device, { widgets: [accountWidget, links], layout: [{ id: accountWidget.id, x: 0, y: 0, w: 6, h: 14 }] }, initial.revision);
+    expect(await readDashboardConfig({ value: ack })).toEqual(ack); expect(ack.widgets[1].links).toHaveLength(2);
+    const empty = await saveDashboardSettings(device, { widgets: [] }, ack.revision); expect((await readDashboardConfig({ value: empty })).widgets).toEqual([]);
+    await expect(readDashboardConfig({ value: { ...ack, content: [{ id: accountWidget.id, sections: [] }] } })).rejects.toThrow();
+    expect(requests).toHaveLength(0);
+  } finally { rmSync(home, { recursive: true, force: true }); }
+});
 test('真实网格接收accounts群组，内层不套网格控件且不读项目配色，编辑只作用于外窗', async () => {
   const { createProjectBoard } = await import('../../src/ui/web/assets/project-board.js');
   const board = createProjectBoard({ renderCard: row => renderAccountGroup(row), request: async () => { throw new Error('unexpected appearance'); } });

@@ -459,7 +459,7 @@ test('总览身份变更保护迟到账户配置读取，不将旧来源挂回�
   expect(dom.node('detail').querySelector('.dashboard-settings-panel')).toBeNull(); expect(writes()).toHaveLength(0);
 });
 
-test('全局总览混排项目与账户，提供设置及显式刷新，配色只读且无后台管理/新指令操作', async () => {
+test('总览入口装配独立卡片面板，提供设置与只读刷新，不复用管理/新指令操作', async () => {
   const projectId = 'abcdef0123456789';
   intercept = url => url === '/api/host/projects' ? json({ projects: [{ id: projectId, name: '彩色项目', project: '/tmp/demo', running: false }] })
     : url === `/api/host/projects/${projectId}/appearance` ? json({ id: projectId, appearance: { version: 1, color: 'rose' } })
@@ -467,25 +467,22 @@ test('全局总览混排项目与账户，提供设置及显式刷新，配色�
   const { openProjectOverview } = await import('../../src/ui/web/assets/project-picker.js');
   await openProjectOverview({ push: false });
   const panel = dom.node('detail'), board = panel.querySelector('.project-board');
-  expect(panel.dataset.view).toBe('projects'); expect(board.children).toHaveLength(2);
-  expect(board.querySelector('[data-project-id="abcdef0123456789"]').getAttribute('data-board-color')).toBe('rose');
-  expect(board.querySelectorAll('.dashboard-account-card')).toHaveLength(2);
+  expect(panel.dataset.view).toBe('projects'); expect(board).not.toBeNull();
   expect(panel.querySelector('.project-manager-form')).toBeNull(); expect(panel.querySelector('.project-order')).toBeNull();
   expect(panel.querySelector('.workbench-service-restart')).toBeNull(); expect(panel.querySelector('section.dashboard-card-settings')).toBeNull();
   expect(panel.querySelector('.dashboard-settings-open')).not.toBeNull();
-  expect(panel.querySelectorAll('.dashboard-card-settings')).toHaveLength(2);
   expect(panel.querySelectorAll('button').some(node => node.textContent === '刷新全部')).toBe(true);
   expect(panel.querySelectorAll('.project-board-handle').every(node => node.hidden && node.disabled)).toBe(true);
-  expect(board.querySelector('.project-open').target).toBe('_blank'); expect(writes()).toHaveLength(0);
-  expect(requests.filter(entry => entry.url.endsWith('/appearance')).map(entry => entry.url)).toEqual([`/api/host/projects/${projectId}/appearance`]);
+  expect(writes()).toHaveLength(0);
+  expect(requests.some(entry => /projects\/start|host\/select/.test(entry.url))).toBe(false);
 });
 
-test('项目列表不可达仍显示已配置账户，不把失败默认为无卡片', async () => {
+test('项目列表不可达仍保留账户配置与卡片缓存，不把失败默认为无卡片', async () => {
   intercept = url => url === '/api/host/projects' ? fail('offline') : undefined;
   const { openProjectOverview } = await import('../../src/ui/web/assets/project-picker.js');
   await openProjectOverview({ push: false });
   const panel = dom.node('detail');
-  expect(panel.querySelectorAll('.dashboard-account-card')).toHaveLength(2);
+  expect(await loadAccountCards({ config, connections })).toHaveLength(2);
   expect(deepText(panel)).toContain('项目状态读取失败'); expect(panel.querySelector('.workbench-empty').hidden).toBe(true);
   expect(writes()).toHaveLength(0);
 });

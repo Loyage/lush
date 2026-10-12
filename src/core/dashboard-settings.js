@@ -8,11 +8,17 @@ const MAX_BYTES = 256 * 1024;
 const MAX_CARDS = 100;
 const MAX_ITEMS = 300;
 const V2_FIELDS = ['cards', 'hidden_projects', 'layout', 'content'];
-const PATCH_FIELDS = [...V2_FIELDS, 'account_view'];
+const V3_FIELDS = [...V2_FIELDS, 'account_view'];
+const PATCH_FIELDS = [...V3_FIELDS, 'widgets'];
 const PROJECT_ID = /^[a-f0-9]{16}$/;
 const PROJECT_SECTIONS = ['metrics', 'distribution', 'delivery', 'recent', 'messages', 'shortcuts'];
 const ACCOUNT_SECTIONS = ['quota', 'balance', 'reset', 'observed', 'details', 'history', 'provenance'];
-const empty = () => ({ version: 3, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list' });
+const WIDGET_ID = /^widget:[a-z0-9][a-z0-9-]{0,79}$/;
+const WIDGET_SECTIONS = { status: ['metrics', 'distribution', 'delivery'], messages: ['messages'], workers: ['recent'],
+  accounts: ACCOUNT_SECTIONS, shortcuts: ['shortcuts'] };
+const GLOBAL_TARGETS = ['notices', 'project-management', 'model-sources', 'settings', 'agent-status', 'automation', 'docs'];
+const PROJECT_TARGETS = ['workers', 'inputs', 'versions', 'notices'];
+const empty = () => ({ version: 4, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null });
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const same = (a, b) => a.dev === b.dev && a.ino === b.ino;
 function fields(value, allowed) {
@@ -38,6 +44,47 @@ export function normalizeDashboardCards(cards) {
     seen.add(connection_id); result.push({ type: 'account', connection_id });
   }
   return result;
+}
+/** Independent cards contain only source identities and allow missing/deleted sources. */
+export function normalizeDashboardWidgets(widgets) {
+  if (widgets === null) return null; // Read-only legacy projection, distinct from an explicitly empty board.
+  check(Array.isArray(widgets) && widgets.length <= MAX_CARDS, 'dashboard widgets must be null or an array of at most 100 cards');
+  const seen = new Set();
+  return Array.from(widgets, widget => {
+    fields(widget, ['id', 'type', 'project_id', 'connection_ids', 'links', 'sections']);
+    const { id, type, project_id } = widget;
+    check(typeof id === 'string' && WIDGET_ID.test(id), 'invalid dashboard widget identity');
+    check(!seen.has(id), 'duplicate dashboard widget identity');
+    seen.add(id);
+    check(typeof type === 'string' && Object.hasOwn(WIDGET_SECTIONS, type), 'invalid dashboard widget type');
+    const projectCard = ['status', 'messages', 'workers'].includes(type);
+    check(projectCard ? typeof project_id === 'string' && PROJECT_ID.test(project_id) : project_id === null,
+      'invalid dashboard widget project identity');
+    check(Array.isArray(widget.connection_ids) && widget.connection_ids.length <= (type === 'accounts' ? 100 : 0),
+      'invalid dashboard widget connections');
+    const connection_ids = [...new Set(Array.from(widget.connection_ids, connection => {
+      check(typeof connection === 'string' && UUID.test(connection), 'dashboard widget requires a connection UUID');
+      return connection.toLowerCase();
+    }))];
+    check(Array.isArray(widget.links) && widget.links.length <= (type === 'shortcuts' ? 24 : 0), 'invalid dashboard widget links');
+    const links = Array.from(widget.links, link => {
+      fields(link, ['scope', 'target', 'project_id']);
+      check(link.scope === 'global' || link.scope === 'project', 'invalid dashboard shortcut scope');
+      check(typeof link.target === 'string' && (link.scope === 'global' ? GLOBAL_TARGETS : PROJECT_TARGETS).includes(link.target),
+        'invalid dashboard shortcut target');
+      check(link.scope === 'global' ? link.project_id === null : typeof link.project_id === 'string' && PROJECT_ID.test(link.project_id),
+        'invalid dashboard shortcut project identity');
+      return { scope: link.scope, target: link.target, project_id: link.project_id };
+    });
+    check(Array.isArray(widget.sections), 'invalid dashboard widget sections');
+    for (const section of widget.sections) {
+      check(typeof section === 'string' && WIDGET_SECTIONS[type].includes(section), 'invalid dashboard widget sections');
+    }
+    return { id, type, project_id, connection_ids, links, sections: [...new Set(widget.sections)] };
+  });
+}
+function layoutIdentity(value) {
+  return typeof value === 'string' && WIDGET_ID.test(value) ? value : identity(value);
 }
 function identity(value) {
   check(typeof value === 'string' && (value === 'accounts' || PROJECT_ID.test(value)
@@ -75,7 +122,7 @@ export function normalizeDashboardPatch(patch) {
   }
   if (Object.hasOwn(patch, 'layout')) result.layout = uniqueRows(patch.layout, 'layout', row => {
     fields(row, ['id', 'x', 'y', 'w', 'h']);
-    const id = identity(row.id), { x, y, w, h } = row;
+    const id = layoutIdentity(row.id), { x, y, w, h } = row;
     check(integer(x, 0, 11) && integer(y, 0, 4095) && integer(w, 1, 12) && x + w <= 12
       && integer(h, 6, 80), 'invalid dashboard layout geometry');
     return { id, x, y, w, h };
@@ -89,6 +136,7 @@ export function normalizeDashboardPatch(patch) {
     }
     return { id, sections: [...new Set(row.sections)] };
   });
+  if (Object.hasOwn(patch, 'widgets')) result.widgets = normalizeDashboardWidgets(patch.widgets);
   if (Object.hasOwn(patch, 'account_view')) {
     check(patch.account_view === 'list' || patch.account_view === 'tiles', 'invalid dashboard account_view');
     result.account_view = patch.account_view;
@@ -117,15 +165,13 @@ function load(config) {
       fields(data, ['version', 'cards']);
       return { ...empty(), cards: normalizeDashboardCards(data.cards) };
     }
-    if (data.version === 2) {
-      fields(data, ['version', ...V2_FIELDS]);
-      const { version, ...patch } = data;
-      return { ...empty(), ...normalizeDashboardPatch(patch) };
-    }
-    fields(data, ['version', ...PATCH_FIELDS]);
-    check(data.version === 3, 'invalid dashboard version');
+    check([2, 3, 4].includes(data.version), 'invalid dashboard version');
+    fields(data, ['version', ...(data.version === 2 ? V2_FIELDS : data.version === 3 ? V3_FIELDS : PATCH_FIELDS)]);
     const { version, ...patch } = data;
-    return { version, ...normalizeDashboardPatch(patch) };
+    const normalized = normalizeDashboardPatch(patch);
+    // Old documents retain their own strict identity rules; reading is not a migration.
+    if (version < 4) for (const row of normalized.layout) identity(row.id);
+    return { ...empty(), ...normalized };
   } catch { throw new Error('dashboard settings cannot be safely read'); }
   finally { if (fd !== undefined) fs.closeSync(fd); }
 }

@@ -13,6 +13,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (path === '/api/host/dashboard') return Response.json({ version: 2, revision: 'picker-config', cards: [], hidden_projects: [], layout: [], content: [] });
   if (path === '/api/host/settings/agent/connections?scope=device') return Response.json({ connections: [], configuration_scope: { selected: 'device', source: 'device', project_override: false } });
   if (/^\/p\/[a-f0-9]{16}\/api\/notices\?/.test(path)) return Response.json({ notices: [], has_more: false });
+  if (/^\/p\/[a-f0-9]{16}\/api\/workers\?/.test(path)) return Response.json({ tasks: state.workerPage || [], has_more: false });
   if (path === '/api/host/projects/start' || path === '/api/host/projects/stop' || path === '/api/host/remove') return Response.json({ ok: true });
   if (path === `/p/${ID}/api/service/restart`) return Response.json({ restarted: true, pid: 124 });
   return Response.json({ error: 'not mocked' }, { status: 404 });
@@ -245,12 +246,17 @@ test('总览复用新版 Worker 标题优先级，仍按项目身份打开最近
       { id: 9, worker_number: 'W186-2', auto_title: '自动卡片标题', goal: '不应显示的原目标', status: 'completed' },
       { id: 10, worker_number: null, goal: '历史目标兜底', status: 'completed' },
     ] };
-  state = { ...state, projects: [{ ...row, running: true, summary: { notices: 0, development } }] };
+  state = { ...state, workerPage: development.recent_workers, projects: [{ ...row, running: true, summary: { notices: 0, development } }] };
   globalThis.location.pathname = '/';
-  await picker.openProjectOverview({ push: false });
-  const panel = dom.node('detail'), links = panel.querySelectorAll('.project-development-worker-link');
-  expect(links.map(link => deepText(link))).toEqual(['W186-1 用户命名', 'W186-2 自动卡片标题', '#10 历史目标兜底']);
-  expect(links.map(link => link.href)).toEqual([`/p/${ID}/#worker-8`, `/p/${ID}/#worker-9`, `/p/${ID}/#worker-10`]);
+  const { createWidgetRenderer } = await import('../../src/ui/web/assets/dashboard-widget-render.js');
+  const { newWidget, widgetRows } = await import('../../src/ui/web/assets/dashboard-widget-model.js');
+  const renderer = createWidgetRenderer(), widget = newWidget('workers', 'widget:titles', ID);
+  const card = renderer.render(widgetRows([widget], state.projects, [])[0], { geometry: { w: 4, h: 12 } });
+  const panel = dom.node('detail'); panel.replaceChildren(card); await card.dashboardReady();
+  const links = card.querySelectorAll('a.dashboard-widget-title');
+  expect(links.map(link => deepText(link))).toEqual(['#10 历史目标兜底', 'W186-2 自动卡片标题', 'W186-1 用户命名']);
+  expect(links.map(link => link.href)).toEqual([`/p/${ID}/#worker-10`, `/p/${ID}/#worker-9`, `/p/${ID}/#worker-8`]);
+  expect(requests.at(-1).path).toBe(`/p/${ID}/api/workers?scope=work&limit=3`);
   expect(panel.querySelector('.project-order')).toBeNull();
   expect(panel.querySelector('.workbench-service-restart')).toBeNull();
 });

@@ -10,31 +10,45 @@ export const PROJECT_CARD_SECTIONS = [
   ['recent', '最近 Worker'], ['messages', '待决与未读告知'], ['shortcuts', '快捷入口'],
 ];
 export const PROJECT_CARD_DEFAULTS = PROJECT_CARD_SECTIONS.map(([key]) => key);
-const pending = notice => notice?.status === 'open' && ['question', 'questionnaire', 'plan'].includes(notice.kind);
-const online = row => row.running === true && !row.error;
+export const pendingDashboardNotice = notice => notice?.status === 'open' && ['question', 'questionnaire', 'plan'].includes(notice.kind);
+export const onlineDashboardProject = row => row.running === true && !row.error;
 
 /** Bounded, source-specific reads: never start an offline daemon or mark records read. */
 export async function loadProjectCardMessages(rows, { ownsPage = () => true } = {}) {
+  rows = [...new Map(rows.map(row => [row.id, row])).values()];
   const messages = new Map();
   let index = 0;
   async function next() {
     while (ownsPage() && index < rows.length) {
       const row = rows[index++];
-      if (!online(row)) { messages.set(row.id, { offline: true, notices: [], complete: false }); continue; }
+      if (!onlineDashboardProject(row)) { messages.set(row.id, { offline: true, notices: [], complete: false }); continue; }
       const results = await Promise.allSettled(['open', 'unread'].map(async status => {
-        const page = await api(projectHref(row.id, `/api/notices?status=${status}&limit=3`));
-        if (!Array.isArray(page?.notices) || typeof page.has_more !== 'boolean'
-          || page.notices.some(notice => !positiveId(notice?.id) || !positiveId(notice?.task_id))) {
-          throw new Error('消息读面未确认');
+        let page, before = null;
+        // Old Web servers filter plan after pagination. Follow a bounded empty page
+        // without pretending it proves zero matching records or loading all history.
+        for (let attempt = 0; attempt < 3 && ownsPage(); attempt++) {
+          page = await api(projectHref(row.id, `/api/notices?status=${status}&limit=3${before ? `&before=${before}` : ''}`));
+          if (!Array.isArray(page?.notices) || page.notices.length > 3 || typeof page.has_more !== 'boolean'
+            || page.notices.some(notice => !positiveId(notice?.id) || !positiveId(notice?.task_id))
+            || (Object.hasOwn(page, 'total') && (!Number.isSafeInteger(page.total) || page.total < page.notices.length))) throw new Error('消息读面未确认');
+          if (page.notices.length || page.total === 0 || !page.has_more || !positiveId(page.cursor) || (before && page.cursor >= before)) break;
+          before = page.cursor;
         }
         return page;
       }));
       if (!ownsPage()) return;
-      const notices = new Map();
-      for (const result of results) if (result.status === 'fulfilled') {
-        for (const notice of result.value.notices) if (pending(notice) || unreadNotice(notice)) notices.set(notice.id, notice);
+      const notices = new Map(), groups = {};
+      for (const [i, result] of results.entries()) {
+        const status = ['open', 'unread'][i];
+        if (result.status !== 'fulfilled') { groups[status] = { notices: [], total: null, exact: false, error: true }; continue; }
+        const page = result.value;
+        // Unknown kinds remain visible, but never acquire question semantics or read actions.
+        const items = page.notices.filter(notice => status === 'open' ? notice.status === 'open' : unreadNotice(notice)).sort((a, b) => b.id - a.id);
+        const exact = Number.isSafeInteger(page.total) && page.total >= items.length;
+        groups[status] = { notices: items, total: exact ? page.total : items.length, exact, has_more: page.has_more, cursor: page.cursor };
+        for (const notice of items) notices.set(notice.id, notice);
       }
-      messages.set(row.id, { notices: [...notices.values()],
+      messages.set(row.id, { notices: [...notices.values()], groups,
         complete: results.every(result => result.status === 'fulfilled' && !result.value.has_more),
         error: results.some(result => result.status === 'rejected') });
     }
@@ -50,7 +64,7 @@ function messageSection(row, model) {
   heading.append(el('h3', '消息'));
   const more = el('a', '查看全部'); more.href = projectHref(row.id, '/#notices'); more.target = '_blank'; more.rel = 'noopener';
   heading.append(more); root.append(heading);
-  if (!online(row) || model?.offline) root.append(el('p', '后台未运行或不可达，消息未确认。', 'hint'));
+  if (!onlineDashboardProject(row) || model?.offline) root.append(el('p', '后台未运行或不可达，消息未确认。', 'hint'));
   else if (!model) root.append(el('p', '消息尚未读取。', 'hint'));
   else {
     for (const notice of model.notices) {

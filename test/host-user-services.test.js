@@ -68,6 +68,28 @@ test('v3 requests validate every patch field before lazy construction and forwar
   } finally { await services.close(); }
 });
 
+test('v4 Host widget patches normalize before lazy initialization and preserve partial-field forwarding', async () => {
+  let initialized = 0;
+  const calls = [], connection = '12345678-1234-1234-1234-123456789abc';
+  const services = createUserServices({}, { env: environment,
+    get dashboardService() { initialized++; return { save(patch, revision) { calls.push([patch, revision]); return patch; } }; } });
+  const card = { id: 'widget:accounts', type: 'accounts', project_id: null, connection_ids: [], links: [], sections: [] };
+  try {
+    for (const widgets of [undefined, {}, [null], [{ ...card, secret: 'PRIVATE' }], [{ ...card, connection_ids: ['invalid'] }],
+      [{ ...card, project_id: '0123456789abcdef' }], [{ ...card, links: [{ scope: 'global', target: 'docs', project_id: null }] }]]) {
+      await expect(services.saveDashboard({ widgets, expected_revision: dashboardRevision })).rejects.toThrow();
+    }
+    expect(initialized).toBe(0);
+    const normalized = { ...card, connection_ids: [connection], sections: ['quota'] };
+    expect(await services.saveDashboard({ widgets: [{ ...card, connection_ids: [connection.toUpperCase(), connection], sections: ['quota', 'quota'] }],
+      expected_revision: dashboardRevision })).toEqual({ widgets: [normalized] });
+    expect(await services.saveDashboard({ widgets: [], expected_revision: dashboardRevision })).toEqual({ widgets: [] });
+    expect(await services.saveDashboard({ widgets: null, expected_revision: dashboardRevision })).toEqual({ widgets: null });
+    expect(calls).toEqual([[{ widgets: [normalized] }, dashboardRevision], [{ widgets: [] }, dashboardRevision], [{ widgets: null }, dashboardRevision]]);
+    expect(initialized).toBe(2);
+  } finally { await services.close(); }
+});
+
 test('shutdown during lazy initialization closes the new instance without admitting its operation', async () => {
   const calls = [];
   const services = createUserServices({ hasRoute: () => false }, { env: environment,

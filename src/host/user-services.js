@@ -91,7 +91,7 @@ export function createUserServices(projectHost, options = {}) {
     },
     async readDashboard() { return invoke(dashboard, 'get', [], dashboardError); },
     async saveDashboard(body) {
-      fields(body, ['cards', 'hidden_projects', 'layout', 'content', 'account_view', 'expected_revision'], 'dashboard request', ['expected_revision']);
+      fields(body, ['cards', 'hidden_projects', 'layout', 'content', 'account_view', 'widgets', 'expected_revision'], 'dashboard request', ['expected_revision']);
       const { expected_revision, ...patch } = body;
       const { normalizeDashboardPatch } = await import('../core/dashboard-settings.js');
       const normalized = normalizeDashboardPatch(patch);

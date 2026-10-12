@@ -302,14 +302,9 @@ export async function openProjectOverview({ push = true } = {}) {
   const ownsPage = () => owner === globalThis.document && identity === ui.view && request === managerRequest
     && (view ? view.parentNode === panel : loading.parentNode === panel);
   try {
-    const [{ createDashboardPanel }, { projectDashboardContent }] = await Promise.all([
-      import('./dashboard-panel.js'), import('./project-dashboard-content.js'),
-    ]);
+    const { createDashboardPanel } = await import('./dashboard-panel.js');
     if (!ownsPage()) return;
-    const dashboard = createDashboardPanel({ ownsPage,
-      renderProject: (row, options) => projectItem(row, refreshProjectList, { displayOnly: true,
-        renderDevelopment: value => projectDashboardContent(value, options) }),
-    });
+    const dashboard = createDashboardPanel({ ownsPage });
     view = dashboard.root; panel.replaceChildren(view);
     await dashboard.ready();
   } catch (error) { if (ownsPage()) { loading.textContent = `卡片暂不可用：${error.message}`; loading.className = 'error'; } }

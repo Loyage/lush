@@ -1,34 +1,44 @@
-// Compiled assembled dashboard, real device configuration in a temporary directory,
-// controlled project/connection APIs. No daemon, real credentials, provider or model calls.
+// Compiled real panel + grid + private v4 writer, isolated controlled source APIs.
+// No user daemon/Host, real credentials, provider queries or model calls.
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { request } from 'node:http';
 import { buildAssets } from '../../src/ui/web/build-assets.js';
 import { readDashboardSettings, saveDashboardSettings } from '../../src/core/dashboard-settings.js';
+import { newWidget } from '../../src/ui/web/assets/dashboard-widget-model.js';
 import { makeWorld } from './dom-world.js';
-const temp = await mkdtemp(join(tmpdir(), 'lush-dashboard-panel-browser-'));
-const output = process.argv[2] || temp;
+const temp = await mkdtemp(join(tmpdir(), 'lush-widget-panel-'));
+const output = process.argv[2] || join(tmpdir(), 'lush-widget-panel-results');
 await mkdir(output, { recursive: true });
 const assets = join(temp, 'assets');
 await buildAssets(new URL('../../src/ui/web/assets/', import.meta.url).pathname, assets, 'd'.repeat(32));
 const entry = await Bun.file(join(assets, 'index.html')).text();
-const config = { deviceHome: join(temp, 'shared') };
-const P = 'aaaaaaaaaaaaaaaa', Q = 'bbbbbbbbbbbbbbbb';
-const A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-222222222222';
-const initial = readDashboardSettings(config);
-saveDashboardSettings(config, { cards: [{ type: 'account', connection_id: A }], hidden_projects: [Q] }, initial.revision);
-const world = makeWorld(), calls = [], queries = [], saves = [];
-const development = { workers_total: 31, active: 2, agents_running: 1, awaiting_acceptance: 3, parent_confirmation: 2,
-  pending_merges: 1, merging: 0, merge_conflicts: 0, counts: [{ status: 'running', count: 2 }],
-  recent_workers: [{ id: 27, worker_number: 'W204-1', auto_title: '真实来源链接', status: 'waiting', integration: 'none' }] };
-world.state.agentConnections.connections = [A, B].map((id, i) => ({ id, label: `账户 ${i + 1}`, provider: 'deepseek', enabled: true,
-  observation: { status: 'available', source: 'usage_api', checked_at: '2026-10-01T00:00:00Z', resources: [
-    { id: 'quota', kind: 'quota', scope: 'account', label: '5h', unit: '%', remaining: 75, used_percent: 25,
-      reset_at: '2028-10-01T00:00:00Z', window_seconds: 18000 },
-    { id: 'cash', kind: 'balance', scope: 'account', label: '账户现金', unit: 'USD', remaining: 12.5 } ] } }));
-const projects = [{ id: P, name: '项目卡片', project: '/fixture/project-a', running: true, summary: { notices: 1, development } },
-  { id: Q, name: '离线项目', project: '/fixture/project-b', running: false }];
+const config = { deviceHome: join(temp, 'shared') }, P = 'aaaaaaaaaaaaaaaa', Q = 'bbbbbbbbbbbbbbbb';
+const ids = Array.from({ length: 100 }, (_, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`);
+const world = makeWorld(), calls = [], queries = [], saves = [], reads = [];
+const resources = Array.from({ length: 8 }, (_, i) => ({ id: `quota-${i}`, kind: i === 7 ? 'balance' : 'quota', scope: 'account',
+  label: `窗口${i} ${'较长指标名称'.repeat(10)}`, unit: i === 7 ? 'USD' : '%', remaining: i === 7 ? 12.5 : 75, used_percent: i === 7 ? null : 25,
+  reset_at: '2028-10-01T00:00:00Z', window_seconds: 18000 }));
+world.state.agentConnections.connections = ids.map((id, i) => ({ id, label: `账户${i + 1} ${'长名称'.repeat(16)}`, provider: 'deepseek', enabled: true,
+  observation: { status: 'available', source: 'usage_api', checked_at: '2026-10-01T00:00:00Z', resources } }));
+const workers = Array.from({ length: 12 }, (_, i) => ({ id: 30 - i, worker_number: `W234-${i + 1}`, auto_title: '当前工作 ' + '具体变化'.repeat(30), status: 'waiting', integration: 'none' }));
+const development = { workers_total: 31, active: 2, agents_running: 1, awaiting_acceptance: 3, parent_confirmation: 2, pending_merges: 1,
+  merging: 0, merge_conflicts: 0, counts: [{ status: 'running', count: 2 }, { status: 'waiting', count: 5 }], recent_workers: workers.slice(0, 3) };
+const projects = [{ id: P, name: '项目A', project: '/fixture/project-a', running: true, summary: { notices: 4, development } },
+  { id: Q, name: '项目B', project: '/fixture/project-b', running: false }];
+const question = { id: 19, task_id: 27, task_worker_number: 'W234-1', kind: 'questionnaire', status: 'open', title: '待答 ' + '具体决策'.repeat(60), body: '', created_at: '2026-10-01T00:00:00Z' };
+const infos = [20, 18, 16].map(id => ({ id, task_id: 27, task_worker_number: 'W234-1', kind: 'info', status: 'sent', source_event_id: id,
+  read_at: null, title: `告知${id} ` + '变化信息'.repeat(60), body: '', created_at: '2026-10-01T00:00:00Z', sync_identity: id.toString(16).padStart(32, '0'), sync_epoch: 'e'.repeat(32), sync_revision: 1 }));
+let sourceState = 'normal', rejectRead = false;
+const widgets = ['status', 'messages', 'workers', 'accounts', 'shortcuts'].map(type => newWidget(type, `widget:${type}`, ['status', 'messages', 'workers'].includes(type) ? P : null));
+widgets.find(w => w.type === 'accounts').connection_ids = ids.slice(0, 4);
+widgets.find(w => w.type === 'shortcuts').links = ['notices', 'project-management', 'model-sources', 'settings'].map(target => ({ scope: 'global', target, project_id: null }));
+widgets.push(newWidget('messages', 'widget:messages-2', P));
+const layout = [{ id: 'widget:status', x: 0, y: 0, w: 4, h: 10 }, { id: 'widget:messages', x: 4, y: 0, w: 4, h: 10 },
+  { id: 'widget:workers', x: 8, y: 0, w: 4, h: 12 }, { id: 'widget:accounts', x: 0, y: 12, w: 6, h: 14 },
+  { id: 'widget:shortcuts', x: 6, y: 12, w: 6, h: 10 }, { id: 'widget:messages-2', x: 6, y: 22, w: 6, h: 10 }];
+saveDashboardSettings(config, { widgets, layout }, readDashboardSettings(config).revision);
 const csp = "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'";
 const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
   const url = new URL(req.url), path = url.pathname;
@@ -41,180 +51,127 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
     if (path === '/api/host') return Response.json({ mode: 'bound', projects, restart_supported: false });
     if (path === '/api/host/projects') return Response.json({ projects });
     if (path === '/api/host/dashboard') {
-      if (req.method === 'POST') {
-        const { expected_revision, ...patch } = await req.json(); saves.push(patch);
-        try { return Response.json(saveDashboardSettings(config, patch, expected_revision)); }
-        catch { return Response.json({ error: 'revision changed' }, { status: 400 }); }
-      }
+      if (req.method === 'POST') { const { expected_revision, ...patch } = await req.json(); saves.push(patch);
+        try { return Response.json(saveDashboardSettings(config, patch, expected_revision)); } catch { return Response.json({ error: 'revision changed' }, { status: 400 }); } }
       return Response.json(readDashboardSettings(config));
     }
     if (path.endsWith('/appearance')) return Response.json({ id: path.split('/')[4], appearance: { version: 1, color: 'rose' } });
-    if (path === `/p/${P}/api/notices`) return Response.json({ notices: url.searchParams.get('status') === 'open' ? [{ id: 19, task_id: 27,
-      task_worker_number: 'W204-1', kind: 'questionnaire', status: 'open', title: '等待决定' }] : [{ id: 20, task_id: 27,
-      task_worker_number: 'W204-1', kind: 'info', status: 'sent', source_event_id: 8, read_at: null, title: '交付告知' }], has_more: false });
-    if (path === '/api/host/settings/action') {
-      const body = await req.json();
-      if (body.method === 'agent.connections.query') {
-        queries.push(body.params.id);
-        const source = world.state.agentConnections.connections.find(connection => connection.id === body.params.id);
-        if (source) source.observation.checked_at = new Date().toISOString();
-        return Response.json({ ...world.state.agentConnections, configuration_scope: { selected: 'device', source: 'device', project_override: false } });
-      }
-      const response = await world.fetchImpl(path, { method: req.method, body: JSON.stringify(body) }); return Response.json(await response.json());
+    if (path === `/p/${P}/api/workers`) { const before = Number(url.searchParams.get('before') || Infinity), limit = Number(url.searchParams.get('limit')); const all = workers.filter(w => w.id < before), page = all.slice(0, limit);
+      return Response.json({ tasks: page.slice().reverse(), cursor: page.at(-1)?.id || null, has_more: all.length > page.length, limit }); }
+    if (path === `/p/${P}/api/notices`) {
+      if (sourceState === 'error') return Response.json({ error: 'controlled read failure' }, { status: 503 });
+      const all = sourceState === 'empty' ? [] : url.searchParams.get('status') === 'open' ? [question] : infos.filter(n => !n.read_at);
+      return Response.json({ notices: all, total: url.searchParams.get('status') === 'open' && all.length ? 4 : all.length, cursor: all.at(-1)?.id || null, has_more: false });
     }
+    if (path === '/api/host/inbox/action') {
+      const body = await req.json(); reads.push(body);
+      if (rejectRead) return Response.json({ error: 'controlled read failure' }, { status: 503 });
+      const notice = infos.find(n => n.id === body.id);
+      if (body.project_id !== P || body.method !== 'notice.read' || body.expected_identity !== notice?.sync_identity) return Response.json({ error: 'identity mismatch' }, { status: 400 });
+      notice.read_at = '2026-10-12T10:00:00Z';
+      return Response.json({ project_id: P, project_name: '项目A', project: projects[0].project, online: true, notice });
+    }
+    if (path === '/api/host/settings/action') { const body = await req.json();
+      if (body.method === 'agent.connections.query') { queries.push(body.params.id); return Response.json({ ...world.state.agentConnections, configuration_scope: { selected: 'device', source: 'device', project_override: false } }); }
+      const res = await world.fetchImpl(path, { method: req.method, body: JSON.stringify(body) }); return Response.json(await res.json()); }
     const response = await world.fetchImpl(path + url.search, { method: req.method, ...(req.method === 'POST' ? { body: await req.text() } : {}) });
     return Response.json(await response.json(), { status: response.status || 200 });
   }
   if (/^\/[\w.-]+\.(js|css)$/.test(path)) return new Response(Bun.file(join(assets, path.slice(1))));
   return new Response('not found', { status: 404 });
 } });
-const reservation = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') });
-const port = reservation.port; reservation.stop(true);
-const driver = Bun.spawn(['geckodriver', '--host', '127.0.0.1', '--port', String(port)], { env: { ...process.env, MOZ_HEADLESS: '1' },
-  stdout: Bun.file(join(output, 'dashboard-driver.log')), stderr: Bun.file(join(output, 'dashboard-driver.log')) });
-let session, passed = false;
+const reservation = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') }), port = reservation.port;
+reservation.stop(true);
+const driver = Bun.spawn(['geckodriver', '--host', '127.0.0.1', '--port', String(port)], { env: { ...process.env, MOZ_HEADLESS: '1' }, stdout: Bun.file(join(output, 'driver.log')), stderr: Bun.file(join(output, 'driver.log')) });
+let session;
 async function rpc(path, body, method = 'POST') {
   const response = await new Promise((resolve, reject) => {
     const req = request(`http://127.0.0.1:${port}${path}`, { method, headers: { 'Content-Type': 'application/json' } }, res => {
-      let text = ''; res.setEncoding('utf8'); res.on('data', chunk => text += chunk); res.on('end', () => resolve({ status: res.statusCode, text })); res.on('error', reject);
+      let text = ''; res.setEncoding('utf8'); res.on('data', c => text += c); res.on('end', () => resolve({ status: res.statusCode, text })); res.on('error', reject);
     }); req.on('error', reject); req.setTimeout(60000, () => req.destroy(Error('WebDriver timeout'))); req.end(body === undefined ? undefined : JSON.stringify(body));
-  });
-  const result = JSON.parse(response.text); if (response.status >= 400) throw Error(JSON.stringify(result)); return result.value;
+  }); const data = JSON.parse(response.text); if (response.status >= 400) throw Error(JSON.stringify(data)); return data.value;
 }
 const execute = script => rpc(`/session/${session}/execute/sync`, { script, args: [] });
 const asyncExecute = script => rpc(`/session/${session}/execute/async`, { script, args: [] });
-const wait = condition => asyncExecute(`const done=arguments[0];let n=0;const check=()=>(${condition})?done(true):++n>150?done(false):setTimeout(check,30);check();`);
+const wait = condition => asyncExecute(`const done=arguments[0];let n=0;const check=()=>(${condition})?done(true):++n>180?done(false):setTimeout(check,30);check();`);
+const settle = () => asyncExecute('const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>done(true))));');
 const assert = (value, message) => { if (!value) throw Error(message); };
-const clickText = text => execute(`const button=[...document.querySelectorAll('#modal button, #detail button')].find(b=>b.textContent===${JSON.stringify(text)}&&!b.disabled);if(!button)throw Error('missing button');button.click();`);
-async function assertToolbarAlignment(context) {
-  const geometry = await execute(`const toolbar=document.querySelector('.dashboard-toolbar'),origin=toolbar.getBoundingClientRect();
-    return [...toolbar.querySelectorAll('button')].filter(b=>!b.hidden).map(b=>{const r=b.getBoundingClientRect();
-      const icon=b.querySelector('svg')?.getBoundingClientRect();return {label:b.getAttribute('aria-label')||b.textContent,height:r.height,top:r.top-origin.top,width:r.width,centered:!icon||(Math.abs((icon.left+icon.right-r.left-r.right)/2)<1&&Math.abs((icon.top+icon.bottom-r.top-r.bottom)/2)<1)};});`);
-  assert(geometry.length >= 3 && geometry.every(button => Math.abs(button.height - 44) < 1
-    && Math.abs(button.top / 52 - Math.round(button.top / 52)) < .02),
-    `toolbar height/row alignment ${context}: ${JSON.stringify(geometry)}`);
-  assert(geometry.some(button => button.label === '设置总览卡片' && button.width === 44 && button.centered),
-    `settings icon size ${context}: ${JSON.stringify(geometry)}`);
-}
-async function frame() {
-  const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#viewport' }); await rpc(`/session/${session}/frame`, { id: element });
+const clickText = text => execute(`const b=[...document.querySelectorAll('#modal button,#detail button')].find(b=>b.textContent===${JSON.stringify(text)}&&!b.disabled);if(!b)throw Error('missing button '+${JSON.stringify(text)});b.click();`);
+async function frame() { const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#viewport' }); await rpc(`/session/${session}/frame`, { id: element }); }
+async function screenshot(name) { await writeFile(join(output, name + '.png'), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64')); }
+async function ready() { assert(await wait("document.querySelectorAll('.dashboard-widget').length>=6&&!document.querySelector('.dashboard-settings-open').disabled&&!document.querySelector('.dashboard-widget-workers').textContent.includes('读取中')"), 'panel ready timeout'); await settle(); }
+async function containment(context) {
+  const problems = await execute(`const problems=[],cards=[...document.querySelectorAll('.dashboard-widget')],rects=cards.map(c=>c.getBoundingClientRect());
+    for(const [i,c] of cards.entries()){const r=rects[i],content=c.querySelector('.project-board-content');
+      if(c.scrollWidth>c.clientWidth+1||c.scrollHeight>c.clientHeight+1)problems.push(c.dataset.cardId+':overflow '+c.scrollHeight+'/'+c.clientHeight);
+      if(content.scrollHeight>content.clientHeight+1)problems.push(c.dataset.cardId+':content overflow '+content.scrollHeight+'/'+content.clientHeight);
+      for(const slot of c.querySelectorAll('.dashboard-account-card,.dashboard-widget-slot'))if(slot.scrollHeight>slot.clientHeight+1)problems.push(c.dataset.cardId+':slot overflow '+slot.scrollHeight+'/'+slot.clientHeight);
+      for(const e of c.querySelectorAll('a,button,progress')){if(!e.getClientRects().length)continue;const b=e.getBoundingClientRect();if(b.left<r.left-.5||b.right>r.right+.5||b.top<r.top-.5||b.bottom>r.bottom+.5)problems.push(c.dataset.cardId+':outside '+e.textContent);}
+      for(let j=i+1;j<rects.length;j++){const s=rects[j];if(r.left<s.right&&r.right>s.left&&r.top<s.bottom&&r.bottom>s.top)problems.push('overlap');}}
+    if(document.documentElement.scrollWidth>innerWidth+1)problems.push('page width');return problems;`);
+  assert(!problems.length, `${context}: ${JSON.stringify(problems)}`);
 }
 try {
-  let started = false;
-  for (let i = 0; i < 100; i++) { try { await rpc('/status', undefined, 'GET'); started = true; break; } catch {} if (driver.exitCode !== null) throw Error('geckodriver exited'); await Bun.sleep(100); }
-  assert(started, 'driver startup timeout');
-  session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
-  await rpc(`/session/${session}/window/rect`, { width: 1600, height: 1000 });
-  await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/fixture` }); await frame();
-  assert(await wait(`document.querySelectorAll('.project-board-card').length===2&&!document.querySelector('.dashboard-settings-open').disabled`), 'compiled dashboard failed to load');
-  assert(queries.length === 0 && saves.length === 0, 'entering dashboard queried providers or wrote defaults');
-  assert(await execute(`return [...document.querySelectorAll('.dashboard-card-settings-host')].every(h=>h.hidden)&&getComputedStyle(document.querySelector('.project-board')).backgroundImage==='none'`), 'settings/grid must not be visible in view mode');
-  await execute(`document.querySelector('[data-project-id="${P}"]').dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:99,isPrimary:true,button:0,clientX:20,clientY:20}))`);
-  assert(await wait(`!document.querySelector('[data-project-id="${P}"] .dashboard-card-settings-host').hidden`), 'long press did not reveal settings');
-  assert(await execute(`const c=document.querySelector('[data-project-id="${P}"]');let prevented=false;c.addEventListener('click',()=>prevented=true,{once:true});const result=c.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}));return !result&&!prevented&&document.getElementById('modal').hidden`), 'release click was not suppressed');
-  await execute(`document.querySelector('[data-project-id="${P}"] .dashboard-card-settings').click()`);
-  assert(await wait(`!document.getElementById('modal').hidden`), 'revealed settings did not open');
-  await clickText('取消');
-  for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
-    await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.getElementById('viewport').style.width='${width}px';window.scrollTo(0,0)`); await frame();
-    await execute(`document.documentElement.dataset.theme='${theme}';`);
-    await asyncExecute('const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));');
-    assert(await execute(`return document.getElementById('view-toolbar').hidden&&!document.querySelector('#detail h1')&&document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth&&[...document.querySelectorAll('.project-board-card')].every(c=>{const r=c.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1})`), `panel/overflow ${theme}/${width}`);
-    assert(await execute(`return getComputedStyle(document.querySelector('.project-development-metric .metric-label')).fontSize==='11px'&&getComputedStyle(document.querySelector('.project-development-distribution .chip')).fontSize==='10px'&&getComputedStyle(document.querySelector('.project-development-worker .chip')).fontSize==='10px'&&new Set([...document.querySelectorAll('.project-development-value')].map(e=>getComputedStyle(e).color)).size===3&&document.querySelector('.project-dashboard-message.tone-amber').href.endsWith('/p/${P}/#notices-19')&&document.querySelector('.project-dashboard-message.tone-blue').href.endsWith('/p/${P}/#notices-20')`), 'metric tones or source Notice links failed');
-    assert(await execute(`const cards=[...document.querySelectorAll('.project-board-card')],rects=cards.map(c=>c.getBoundingClientRect());return cards.every((card,i)=>{const c=rects[i],content=card.querySelector('.project-board-content'),s=content.getBoundingClientRect();return content.scrollHeight<=content.clientHeight+1&&s.top>=c.top&&s.bottom<=c.bottom+1&&s.left>=c.left&&s.right<=c.right+1&&rects.every((r,j)=>i===j||c.right<=r.left||c.left>=r.right||c.bottom<=r.top||c.top>=r.bottom)})`), `vertical card containment ${theme}/${width}`);
-    await assertToolbarAlignment(`${theme}/${width}/view`);
-    assert(await execute(`return [...document.querySelectorAll('.dashboard-account-refresh,.dashboard-accounts-refresh')].every(b=>{const r=b.getBoundingClientRect(),h=b.parentNode.parentNode.getBoundingClientRect(),s=b.querySelector('svg').getBoundingClientRect();return b.textContent===''&&b.getAttribute('aria-label')&&b.dataset.help&&r.width===(matchMedia('(pointer:coarse)').matches?44:28)&&r.left>=h.left&&r.right<=h.right+1&&Math.abs((s.left+s.right-r.left-r.right)/2)<1&&Math.abs((s.top+s.bottom-r.top-r.bottom)/2)<1})`), `compact centered refresh icons ${theme}/${width}`);
-    await execute(`window.dashboardBefore=[...document.querySelectorAll('.project-board-card')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]});document.querySelector('.dashboard-settings-open').click()`);
-    assert(await execute(`return document.querySelector('.dashboard-settings-panel').hidden===false&&!document.querySelector('.dashboard-settings-panel input[data-project-id="${Q}"]').checked&&[...document.querySelectorAll('.dashboard-settings-panel input')].length===4&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth`), `settings layout ${width}`);
-    assert(await execute(`const modal=document.getElementById('modal'),r=modal.querySelector('.modal-card').getBoundingClientRect();return !modal.hidden&&!document.querySelector('#detail .dashboard-settings-panel')&&r.left>=0&&r.right<=innerWidth+1&&r.top>=0&&r.bottom<=innerHeight+1&&[...document.querySelectorAll('.project-board-card')].every((c,i)=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height].every((v,k)=>Math.abs(v-dashboardBefore[i][k])<1)})`), `dialog moved cards or escaped viewport ${theme}/${width}`);
-    await clickText('取消'); await clickText('编辑布局');
-    await assertToolbarAlignment(`${theme}/${width}/edit`);
-    assert(await execute(`const board=document.querySelector('.project-board'),style=getComputedStyle(board);return style.backgroundImage!=='none'&&style.backgroundSize.endsWith('24px')&&[...board.children].every(c=>c.querySelector('.dashboard-card-settings-host').hidden&&c.querySelector('.project-board-handle').getBoundingClientRect().width>=44)`), `editing grid/controls ${width}`);
-    if (theme === 'light' && [1440,320].includes(width)) await writeFile(join(output, `dashboard-edit-${width}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
-    await clickText('取消布局');
-    if (width <= 760) {
-      assert(await execute(`const r=document.querySelector('.rail-heading').getBoundingClientRect();return r.height===52&&document.getElementById('mobile-view-title').textContent===''&&document.getElementById('sidebar-toggle').getBoundingClientRect().right<=innerWidth`), 'compact parent header or title-free dashboard failed');
-      await execute(`document.getElementById('sidebar-toggle').click();document.getElementById('project-management-open').click()`);
-      assert(await wait(`document.querySelector('.project-manager-list')&&!document.getElementById('view-toolbar').hidden&&document.getElementById('mobile-view-title').textContent==='项目管理'&&document.getElementById('sidebar-toggle').getAttribute('aria-expanded')==='false'`), 'mobile management navigation did not restore page chrome/close menu');
-      await execute(`document.getElementById('sidebar-toggle').click();document.getElementById('projects-open').click()`);
-      assert(await wait(`document.querySelectorAll('.project-board-card').length===2&&!document.querySelector('.dashboard-settings-open').disabled&&document.getElementById('view-toolbar').hidden&&document.getElementById('mobile-view-title').textContent===''&&document.getElementById('sidebar-toggle').getAttribute('aria-expanded')==='false'`), 'mobile return did not restore dashboard/close menu');
-    }
-    console.log(`PASS compiled panel ${theme}/${width}: header-free, semantic colors, source messages, settings and editing hit areas`);
+  let started = false; for (let i = 0; i < 100; i++) { try { await rpc('/status', undefined, 'GET'); started = true; break; } catch {} if (driver.exitCode !== null) throw Error('driver exited'); await Bun.sleep(100); }
+  assert(started, 'driver timeout'); session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
+  await rpc(`/session/${session}/window/rect`, { width: 1600, height: 1000 }); await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/fixture` }); await frame(); await ready();
+  assert(!queries.length && !saves.length && !reads.length, 'entry performs a mutation/provider query');
+  for (const theme of ['light', 'dark']) for (const width of [1440, 1040, 900, 640, 390, 320]) {
+    await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.getElementById('viewport').style.width='${width}px'`); await frame();
+    await execute(`document.documentElement.dataset.theme='${theme}'`); await settle(); await containment(`${theme}/${width}`);
+    assert(await execute(`return document.querySelectorAll('.dashboard-widget-messages .dashboard-widget-message').length===4&&[...document.querySelectorAll('.project-dashboard-message')].every(a=>a.target==='_blank'&&a.rel==='noopener'&&a.href.includes('/p/${P}/#notices-')&&getComputedStyle(a).flexWrap==='nowrap')&&[...document.querySelectorAll('.dashboard-account-reading')].every(h=>h.getBoundingClientRect().height>=14&&h.textContent.includes('25%'))`), 'message source links/two rows');
+    await screenshot(`${theme}-${width}`);
+    await execute(`window.before=JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}));document.querySelector('.dashboard-settings-open').click()`);
+    assert(await execute(`const r=document.querySelector('#modal .modal-card').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&r.top>=0&&r.bottom<=innerHeight+1&&window.before===JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}))`), 'modal moved grid/overflow'); await clickText('取消');
+    await clickText('编辑布局'); await containment(`${theme}/${width}/editing`); await clickText('取消布局');
+    console.log(`PASS assembled ${theme}/${width}: fixed containment, source links, settings and editing`);
   }
-  // Persist a keyboard resize through the actual controller and the actual private device writer.
-  await rpc(`/session/${session}/frame`, { id: null }); await execute("document.getElementById('viewport').style.width='1440px'"); await frame();
-  await clickText('编辑布局');
-  const resize = await rpc(`/session/${session}/element`, { using: 'css selector', value: `[data-project-id="${P}"] .project-board-resize[data-corner="east"]` });
-  await execute(`document.querySelector('[data-project-id="${P}"] .project-board-resize').focus()`);
-  await rpc(`/session/${session}/element/${resize['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE014' });
-  assert(saves.length === 0, 'keyboard resize saved implicitly'); await clickText('保存布局');
-  assert(await wait(`!document.querySelector('.dashboard-settings-open').disabled&&document.querySelector('.dashboard-status').textContent==='已保存'`), 'layout save failed');
-  assert(readDashboardSettings(config).layout.find(item => item.id === P)?.w === 7, 'device layout did not persist keyboard resize');
-  await execute(`const c=document.querySelector('[data-project-id="${P}"]');c.focus();c.dispatchEvent(new KeyboardEvent('keydown',{key:'F10',shiftKey:true,bubbles:true}));const b=c.querySelector('.dashboard-card-settings');if(c.querySelector('.dashboard-card-settings-host').hidden||document.activeElement!==b)throw Error('keyboard entry hidden or unfocused');b.click()`);
-  await execute(`const checkbox=document.querySelector('.dashboard-settings-panel input[data-section="messages"]');checkbox.checked=false;checkbox.dispatchEvent(new Event('change'));`);
-  await clickText('保存'); assert(await wait(`!document.querySelector('.dashboard-settings-open').disabled&&document.getElementById('modal').hidden`), 'content save failed');
-  assert(await execute(`return !document.querySelector('[data-project-id="${P}"] .project-dashboard-messages')`), 'content switch did not hide messages');
-  await clickText('刷新全部'); assert(await wait(`!document.querySelector('.dashboard-settings-open').disabled`), 'global refresh failed');
-  assert(queries.length === 1 && queries[0] === A, 'global refresh included unplaced account');
-  await rpc(`/session/${session}/refresh`, {}); await frame();
-  assert(await wait(`document.querySelectorAll('.project-board-card').length===2&&!document.querySelector('.dashboard-settings-open').disabled`), 'reload failed');
-  assert(await execute(`return document.querySelector('[data-project-id="${P}"]').style.gridColumn.includes('span 7')&&!document.querySelector('[data-project-id="${P}"] .project-dashboard-messages')`), 'device layout/content did not survive reload');
-  assert(queries.length === 1, 'reload implicitly queried accounts');
-  // Group selection/mode keeps saved x/width, allowing intrinsic height to grow.
-  await execute(`const c=document.querySelector('[data-project-id="accounts"]');window.groupBefore=c.getBoundingClientRect().toJSON();c.focus();c.dispatchEvent(new KeyboardEvent('keydown',{key:'F10',shiftKey:true,bubbles:true}));const b=c.querySelector('.dashboard-card-settings');if(c.querySelector('.dashboard-card-settings-host').hidden||document.activeElement!==b)throw Error('keyboard entry hidden or unfocused');b.click()`);
-  await execute(`const mode=document.querySelector('.dashboard-account-view');mode.value='tiles';mode.dispatchEvent(new Event('change'));const b=document.querySelector('input[data-connection-id="${B}"]');b.checked=true;b.dispatchEvent(new Event('change'))`);
-  await clickText('保存'); assert(await wait(`document.getElementById('modal').hidden&&document.querySelector('.dashboard-accounts-group').dataset.accountView==='tiles'&&document.querySelectorAll('.dashboard-account-embedded').length===2`), 'group mode/source save failed');
-  assert(await execute(`const r=document.querySelector('[data-project-id="accounts"]').getBoundingClientRect();return ['x','width'].every(k=>Math.abs(r[k]-groupBefore[k])<1)&&document.querySelectorAll('.project-board-card').length===2&&document.querySelectorAll('.dashboard-accounts-group .dashboard-card-settings').length===1`), 'group settings moved window or added independent source cards');
-  assert(readDashboardSettings(config).account_view === 'tiles' && queries.length === 1, 'mode not shared or settings queried providers');
-  const individual = await rpc(`/session/${session}/element`, { using: 'css selector', value: `[data-card-id="account:${B}"] .dashboard-account-refresh` });
-  await rpc(`/session/${session}/element/${individual['element-6066-11e4-a52e-4f735466cecf']}/click`, {});
-  assert(await wait(`!document.querySelector('.dashboard-settings-open').disabled`), 'single source refresh failed');
-  assert(queries.length === 2 && queries[1] === B, 'single source refreshed siblings');
-  await execute(`document.querySelector('.dashboard-accounts-refresh').click()`);
-  assert(await wait(`!document.querySelector('.dashboard-settings-open').disabled`), 'group refresh failed');
-  assert(queries.length === 4 && queries.slice(2).sort().join() === [A,B].sort().join(), 'group refresh escaped chosen sources');
-  // Stress the real compiled board + real account CSS, not a simplified caller renderer.
-  const originalLayout = readDashboardSettings(config).layout;
-  const base = world.state.agentConnections.connections[0];
-  const extra = Array.from({ length: 98 }, (_, i) => ({ ...structuredClone(base), id: `00000000-0000-4000-8000-${String(i+3).padStart(12,'0')}`, label: `缓存账户${i+3}` }));
-  world.state.agentConnections.connections.push(...extra);
-  world.state.agentConnections.connections[1] = { ...world.state.agentConnections.connections[1],
-    last_success: { checked_at: '2026-09-01T00:00:00Z', observation: structuredClone(base.observation) },
-    observation: { status: 'error', source: 'none', resources: [], reason: '受控读取失败' } };
-  let latest = readDashboardSettings(config);
-  saveDashboardSettings(config, { cards: [A,B,...extra.map(c=>c.id)].map(connection_id=>({type:'account',connection_id})),
-    content: [...latest.content.filter(c=>c.id!=='accounts'), {id:'accounts',sections:['quota','balance','reset','observed','details','history','provenance']}] }, latest.revision);
-  await rpc(`/session/${session}/refresh`, {}); await frame();
-  assert(await wait(`document.querySelectorAll('.dashboard-account-embedded').length===100&&!document.querySelector('.dashboard-settings-open').disabled`), '100-source group load failed');
-  await clickText('编辑布局');
-  const short = await rpc(`/session/${session}/element`, { using:'css selector', value:'[data-project-id="accounts"] .project-board-resize[data-corner="east"]' });
-  await rpc(`/session/${session}/element/${short['element-6066-11e4-a52e-4f735466cecf']}/value`, { text:'\uE013'.repeat(10) });
-  await clickText('保存布局'); assert(await wait(`!document.querySelector('.dashboard-settings-open').disabled`), 'short group layout save failed');
-  assert(readDashboardSettings(config).layout.find(c=>c.id==='accounts').h===6, 'group keyboard height did not persist');
-  for (const mode of ['list','tiles']) {
-    latest = readDashboardSettings(config); saveDashboardSettings(config, {account_view:mode}, latest.revision);
-    await rpc(`/session/${session}/refresh`, {}); await frame();
-    assert(await wait(`document.querySelectorAll('.dashboard-account-embedded').length===100&&!document.querySelector('.dashboard-settings-open').disabled`), 'stress reload failed');
-    for (const theme of ['light','dark']) for (const width of [1440,390,320]) {
-      await rpc(`/session/${session}/frame`, {id:null}); await execute(`document.getElementById('viewport').style.width='${width}px'`); await frame();
-      await execute(`document.documentElement.dataset.theme='${theme}';document.querySelectorAll('.dashboard-accounts-group details').forEach(d=>d.open=true)`);
-      await asyncExecute('const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));');
-      assert(await execute(`const g=document.querySelector('[data-project-id="accounts"]'),r=g.getBoundingClientRect(),s=g.querySelector('.project-board-content'),b=s.getBoundingClientRect();s.scrollTop=s.scrollHeight;const last=g.querySelectorAll('.dashboard-account-embedded')[99],metric=last.querySelectorAll('.dashboard-account-metric');const end=metric[metric.length-1].getBoundingClientRect();return r.height>144&&b.top>=r.top&&b.bottom<=r.bottom+1&&s.scrollHeight<=s.clientHeight+1&&s.scrollTop===0&&end.bottom<=b.bottom+1&&end.bottom>b.top&&document.documentElement.scrollWidth<=innerWidth&&g.querySelector('.dashboard-account-old').open&&g.querySelectorAll('.dashboard-card-settings').length===1&&g.dataset.accountView===${JSON.stringify(mode)}`), `actual short group containment/reachability ${mode}/${theme}/${width}`);
-      console.log(`PASS actual compiled short group ${mode}/${theme}/${width}: 100 sources, expanded details/history, full natural height and final metric visible`);
+  // Real account and Worker pages; no implicit writes/provider queries.
+  await execute("document.querySelector('[data-card-id=\"widget:accounts\"] .dashboard-widget-pagination > span:last-child button').click()");
+  assert(await wait("document.querySelector('[data-card-id=\"widget:accounts\"]').textContent.includes('账户3')"), 'account next page');
+  await execute("document.querySelector('[data-card-id=\"widget:workers\"] .dashboard-widget-pagination > span:nth-child(3) button').click()");
+  assert(await wait("document.querySelector('[data-card-id=\"widget:workers\"]').textContent.includes('第 2 页')"), 'Worker next page'); await containment('paged');
+  await execute("document.querySelector('.dashboard-account-details').click()"); assert(await wait("!document.getElementById('modal').hidden"), 'resource details'); await clickText('关闭');
+  rejectRead = true; await execute("document.querySelector('.dashboard-widget-notice-read').click()");
+  assert(await wait("document.querySelector('.dashboard-widget-messages').textContent.includes('已知失败')"), 'failed read not reported');
+  assert(infos[0].read_at === null && reads.length === 1, 'failed read removed notice'); await containment('notice read failure'); rejectRead = false;
+  await execute("document.querySelector('.dashboard-widget-notice-read').click()");
+  assert(await wait("[...document.querySelectorAll('.dashboard-widget-messages')].every(c=>c.textContent.includes('告知18')&&!c.textContent.includes('告知20'))"), 'read ACK not synchronized across cards');
+  assert(reads.length === 2 && reads.every(r => r.method === 'notice.read' && r.project_id === P && r.expected_identity), 'read escaped source/identity');
+  await containment('read ACK');
+  // Fixed business-state transitions, including long error/source text.
+  for (const state of ['empty', 'error', 'offline', 'normal']) {
+    sourceState = state; projects[0].running = state !== 'offline'; projects[0].error = state === 'error' ? '受控来源错误'.repeat(50) : null;
+    await execute("window.before=JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}));document.querySelector('.dashboard-toolbar button').click()"); await ready();
+    assert(await execute("return window.before===JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}))"), 'state changed fixed grid'); await containment(state);
+  }
+  assert(queries.every(id => ids.slice(0, 4).includes(id)), 'refresh queried unplaced source');
+  // Real controller keyboard geometry save + shared private writer + reload.
+  await rpc(`/session/${session}/frame`, { id: null }); await execute("document.getElementById('viewport').style.width='1440px'"); await frame(); await settle(); await clickText('编辑布局');
+  const resize = await rpc(`/session/${session}/element`, { using: 'css selector', value: '[data-card-id="widget:workers"] .project-board-resize[data-corner="east"]' });
+  const beforeSave = saves.length; await rpc(`/session/${session}/element/${resize['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE015' });
+  assert(saves.length === beforeSave, 'resize saved implicitly'); await clickText('保存布局'); await ready();
+  assert(saves.length === beforeSave + 1 && readDashboardSettings(config).layout.find(c => c.id === 'widget:workers').h === 13, 'keyboard geometry not saved');
+  await rpc(`/session/${session}/refresh`, {}); await frame(); await ready();
+  assert(await execute("return document.querySelector('[data-card-id=\"widget:workers\"]').style.gridRow.includes('span 13')"), 'reload lost geometry');
+  // A hundred sources still only occupy the selected fixed page, even with 8 resources each.
+  const current = readDashboardSettings(config); current.widgets.find(w => w.type === 'accounts').connection_ids = ids;
+  saveDashboardSettings(config, { widgets: current.widgets }, current.revision); await rpc(`/session/${session}/refresh`, {}); await frame(); await ready();
+  assert(await execute("return document.querySelectorAll('.dashboard-account-embedded').length===2&&document.querySelectorAll('.dashboard-account-metric-slot').length===4&&document.querySelector('[data-card-id=\"widget:accounts\"]').textContent.includes('50')"), '100 sources not paged'); await containment('100 sources');
+  const small = readDashboardSettings(config); small.layout.find(c => c.id === 'widget:accounts').h = 10;
+  saveDashboardSettings(config, { layout: small.layout }, small.revision); await rpc(`/session/${session}/refresh`, {}); await frame(); await ready();
+  assert(await execute("return document.querySelectorAll('.dashboard-account-embedded').length===1"), 'minimum account geometry must have one source');
+  const connections = world.state.agentConnections.connections;
+  for (const state of ['error', 'unknown', 'partial', 'disabled']) {
+    connections[0].enabled = state !== 'disabled'; connections[0].observation.status = state === 'disabled' ? 'available' : state;
+    connections[1].observation.status = state; await clickText('刷新全部'); await ready();
+    for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
+      await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.getElementById('viewport').style.width='${width}px'`); await frame();
+      await execute(`document.documentElement.dataset.theme='${theme}'`); await settle(); await containment(`account state ${state}/${theme}/${width}`);
     }
   }
-  assert(queries.length===4, 'cached stress/reload queried providers');
-  latest=readDashboardSettings(config); saveDashboardSettings(config,{cards:[A,B].map(connection_id=>({type:'account',connection_id})),layout:originalLayout,account_view:'tiles'},latest.revision);
-  await execute(`document.querySelector('.dashboard-settings-open').click();document.getElementById('project-management-open').click()`);
-  assert(await wait(`document.querySelector('.project-manager-list')&&document.getElementById('modal').hidden`), 'navigation failed to dismiss owned settings dialog');
-  assert(await execute(`return !document.querySelector('.dashboard-settings-panel')&&!document.querySelector('section.dashboard-card-settings')&&!document.getElementById('view-toolbar').hidden`), 'settings remained in management or title toolbar failed to return');
-  assert(!calls.some(call => call.path.includes(`/p/${Q}/api/notices`) || /projects\/start|host\/select/.test(call.path)), 'offline background was queried/started');
-  assert(await execute('return fixtureErrors.length===0'), `browser/CSP errors: ${JSON.stringify(await execute('return fixtureErrors'))}`);
-  console.log('PASS actual device layout/content persistence, native keyboard resizing, selected-account refresh, reload and management separation; no CSP/runtime errors');
-  passed = true;
-} finally {
-  if (session) await rpc(`/session/${session}`, undefined, 'DELETE').catch(() => {});
-  driver.kill(); await driver.exited; server.stop(true);
-  if (passed && output !== temp) await rm(temp, { recursive: true, force: true });
-  else console.log(`fixture artifacts: ${temp}`);
-}
+  assert(await execute("return !window.fixtureErrors.length"), 'JS/CSP error: ' + JSON.stringify(await execute('return window.fixtureErrors')));
+  console.log(`PASS real controller: account/Worker paging, bounded metrics/modal, read failure+ACK multi-card identity, business-state geometry, explicit device save/reload and 100-source stress. Logs/screenshots: ${output}`);
+  console.log('LIMIT Firefox headless/controlled source APIs; physical touch, Chromium/Safari and real providers unverified.');
+} catch (error) { if (session) { try { await screenshot('failure'); console.error(await execute("return [...document.querySelectorAll('.dashboard-widget')].map(c=>({id:c.dataset.cardId,text:c.textContent.slice(0,300),html:c.innerHTML.slice(0,500)}))")); } catch {} } throw error; }
+finally { if (session) { try { await rpc(`/session/${session}`, undefined, 'DELETE'); } catch {} } driver.kill(); await driver.exited; server.stop(true); await rm(temp, { recursive: true, force: true }); }

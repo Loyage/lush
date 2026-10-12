@@ -48,7 +48,8 @@
 @media(prefers-reduced-motion:reduce){.workbench-view *{scroll-behavior:auto!important}}
 /* The dashboard is a panel, not a second page hero. Keep settings outside movable cards. */
 #view-toolbar[hidden]{display:none}
-.workbench-view.project-overview{max-width:none;padding:clamp(8px,1.4vw,18px);gap:10px;font-size:11px;line-height:1.45}
+.workbench-view.project-overview{--accent:#465fff;--accent-soft:#eef2ff;--line:#e4e7ec;--line-soft:#eef0f3;--panel:#fff;--panel-2:#f9fafb;--muted:#667085;--text:#1d2939;max-width:none;min-width:0;box-sizing:border-box;min-height:100%;padding:clamp(8px,1.4vw,20px);gap:10px;font-size:12px;line-height:1.4;background:#f3f5f9}
+:root[data-theme="dark"] .workbench-view.project-overview{--accent:#8093ff;--accent-soft:#242e52;--line:#344054;--line-soft:#283347;--panel:#1d2939;--panel-2:#202d40;--muted:#98a2b3;--text:#f2f4f7;background:#101828}
 .dashboard-toolbar{display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
 .dashboard-toolbar button,.dashboard-settings-panel button{min-height:44px;white-space:normal}
 /* Keep text and icon controls on the same 44px row, independent of font metrics. */

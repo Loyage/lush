@@ -3,6 +3,8 @@ import { dashboardIcon } from './dashboard-icons.js';
 import { api } from './api.js';
 import { settingsClient } from './settings-api.js';
 import { usageWindow, usageErrorLabels } from './format.js';
+import { widgetId, validateWidgets } from './dashboard-widget-model.js';
+import { formDialog } from './dialog.js';
 
 const PROVIDERS = { deepseek: 'DeepSeek', openrouter: 'OpenRouter', zai: 'Z.AI', 'kimi-coding': 'Kimi Coding',
   'openai-codex': 'Codex 订阅', 'openai-compatible': '自定义 OpenAI 兼容 API' };
@@ -20,20 +22,22 @@ const time = value => typeof value === 'string' && Number.isFinite(Date.parse(va
 const successful = observation => ['available', 'partial'].includes(observation?.status);
 const uuid = value => typeof value === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
 const projectId = value => typeof value === 'string' && /^[a-f0-9]{16}$/.test(value);
-const cardId = value => value === 'accounts' || projectId(value) || (typeof value === 'string' && value.startsWith('account:') && uuid(value.slice(8)));
+const contentId = value => value === 'accounts' || projectId(value) || (typeof value === 'string' && value.startsWith('account:') && uuid(value.slice(8)));
+const cardId = value => widgetId(value) || contentId(value);
 const fields = (value, allowed) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).every(key => allowed.includes(key));
 const uniqueIds = rows => new Set(rows.map(row => row?.id)).size === rows.length;
 const note = (parent, value, warning = false) => parent.append(el('p', value, warning ? 'dashboard-card-warning' : 'dashboard-card-note'));
 const stalePage = () => new DOMException('账户卡片页面已离开', 'AbortError');
 function validateConfig(value) {
-  if (![1, 2, 3].includes(value?.version) || typeof value.revision !== 'string' || !value.revision || !Array.isArray(value.cards) || value.cards.length > 100
+  if (![1, 2, 3, 4].includes(value?.version) || typeof value.revision !== 'string' || !value.revision || !Array.isArray(value.cards) || value.cards.length > 100
     || value.cards.some(card => !fields(card, ['type', 'connection_id']) || card.type !== 'account' || !uuid(card.connection_id))
     || new Set(value.cards.map(card => card.connection_id)).size !== value.cards.length) {
     throw new Error('卡片配置响应无效；未将其视为无卡片');
   }
   const { hidden_projects = [], layout = [], content = [] } = value;
   if ((value.version >= 2 && !['hidden_projects', 'layout', 'content'].every(key => Array.isArray(value[key])))
-    || (value.version === 3 && !['list', 'tiles'].includes(value.account_view))
+    || (value.version >= 3 && !['list', 'tiles'].includes(value.account_view))
+    || (value.version === 4 && !Object.hasOwn(value, 'widgets'))
     || ![hidden_projects, layout, content].every(Array.isArray)
     || [hidden_projects, layout, content].some(items => items.length > 300)
     || hidden_projects.some(id => !projectId(id))
@@ -42,11 +46,12 @@ function validateConfig(value) {
       || !['x', 'y', 'w', 'h'].every(key => Number.isInteger(item[key]))
       || item.x < 0 || item.x > 11 || item.y < 0 || item.y > 4095 || item.w < 1 || item.w > 12
       || item.x + item.w > 12 || item.h < 6 || item.h > 80)
-    || content.some(item => !fields(item, ['id', 'sections']) || !cardId(item.id) || !Array.isArray(item.sections)
+    || content.some(item => !fields(item, ['id', 'sections']) || !contentId(item.id) || !Array.isArray(item.sections)
       || item.sections.some(section => !(item.id === 'accounts' || item.id.startsWith('account:') ? ACCOUNT_SECTIONS : PROJECT_SECTIONS).has(section)))) {
     throw new Error('卡片配置响应无效；未将其视为无卡片');
   }
-  return { version: value.version, revision: value.revision, account_view: value.version === 3 ? value.account_view : 'list',
+  return { version: value.version, revision: value.revision, account_view: value.version >= 3 ? value.account_view : 'list',
+    ...(value.version === 4 ? { widgets: validateWidgets(value.widgets) } : {}),
     cards: value.cards.map(({ connection_id }) => ({ type: 'account', connection_id })),
     hidden_projects: [...hidden_projects], layout: layout.map(item => ({ ...item })),
     content: content.map(item => ({ ...item, sections: [...item.sections] })) };
@@ -135,7 +140,7 @@ function resetCountdown(value) {
     : hours ? `${hours}h${minutes % 60 ? ` ${minutes % 60}m` : ''}` : `${minutes}m`;
   return `↻ ${duration}`;
 }
-function renderMetric(resource, sections) {
+function renderMetric(resource, sections, compact = false) {
   const kind = resource.kind === 'balance' ? '现金余额' : resource.scope === 'key' ? 'Key 预算'
     : resource.scope === 'account' ? '套餐额度' : '模型额度';
   const root = el('section', undefined, 'dashboard-account-metric');
@@ -164,7 +169,7 @@ function renderMetric(resource, sections) {
   root.append(heading);
   if (showValue) {
     // Percentage windows do not need a second, redundant remaining-percent line.
-    if (quota && unit !== '%') {
+    if (quota && unit !== '%' && !compact) {
       const remaining = el('p', undefined, 'dashboard-account-value');
       remaining.append(el('strong', `${amount(resource.remaining)} ${unit}`));
       remaining.setAttribute('aria-label', `${kind}剩余 ${amount(resource.remaining)} ${unit}`); root.append(remaining);
@@ -178,7 +183,9 @@ function renderMetric(resource, sections) {
   }
   if (sections.has('reset') && quota) {
     const reset = el('p', resetCountdown(resource.reset_at), 'dashboard-card-note dashboard-account-reset');
-    reset.setAttribute('aria-label', `额度重置：${reset.textContent}`); root.append(reset);
+    reset.setAttribute('aria-label', `额度重置：${reset.textContent}`);
+    if (compact) heading.append(el('small', reset.textContent, 'dashboard-account-reset-inline'));
+    else root.append(reset);
   }
   if (sections.has('details')) {
     const details = el('details', undefined, 'dashboard-account-metric-details'); details.append(el('summary', '指标详情'));
@@ -214,7 +221,7 @@ function renderObservation(observation, sections) {
 }
 
 /** Lightweight renderer. Parent owns refresh/repaint so this node never applies late list snapshots. */
-export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, ownsPage = () => true, embedded = false } = {}) {
+export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, ownsPage = () => true, embedded = false, bounded = false } = {}) {
   const selected = new Set(Array.isArray(sections) ? sections.filter(section => ACCOUNT_SECTIONS.has(section)) : DEFAULT_SECTIONS);
   const root = el('li', undefined, embedded ? 'dashboard-account-card dashboard-account-embedded' : 'project-item dashboard-account-card');
   root.dataset.cardId = row.id; root.dataset.cardType = 'account'; root.dataset.connectionId = row.connection_id;
@@ -255,10 +262,47 @@ export function renderAccountCard(row, { sections = DEFAULT_SECTIONS, refresh, o
     if (selected.has('provenance')) note(content, `所选来源：${row.connection_id}`);
     return root;
   }
-  if (connection.enabled === false) note(content, '来源已停用', true);
-  if (selected.has('provenance')) {
+  if (!bounded && connection.enabled === false) note(content, '来源已停用', true);
+  if (!bounded && selected.has('provenance')) {
     note(content, PROVIDERS[connection.provider] || text(connection.provider, '服务商未知'));
     note(content, `模型端点：${text(connection.endpoint, '端点未知')}`);
+  }
+  if (bounded) {
+    const observation = connection.observation || {};
+    const warnings = [];
+    if (connection.enabled === false) warnings.push('来源已停用');
+    if (observation.status !== 'available') warnings.push(observation.status === 'unknown' ? '观测未知' : STATUSES[observation.status] || '观测未知');
+    if (!successful(observation) && successful(connection.last_success?.observation)) warnings.push('有历史观测（非当前值）');
+    if (warnings.length) {
+      const warning = el('small', warnings.join(' · '), 'dashboard-account-state');
+      warning.dataset.help = warning.textContent; identity.append(warning);
+    }
+    const resources = (successful(observation) && Array.isArray(observation.resources) ? observation.resources : []).filter(resource => ['quota', 'balance'].includes(resource?.kind)
+      && (selected.has(resource.kind) || (resource.kind === 'quota' && selected.has('reset'))));
+    const metrics = el('div', undefined, 'dashboard-account-metrics-bounded'); content.append(metrics);
+    for (let i = 0; i < 2; i++) {
+      const resource = resources[i];
+      const slot = resource ? renderMetric(resource, new Set([...selected].filter(key => !['details', 'history', 'provenance'].includes(key))), true) : el('div');
+      slot.classList.add('dashboard-account-metric-slot');
+      if (!resource) slot.setAttribute('aria-hidden', 'true');
+      metrics.append(slot);
+    }
+    if (successful(observation) && !resources.length && ['quota', 'balance', 'reset'].some(key => selected.has(key))) {
+      const slot = metrics.children[0]; slot.removeAttribute('aria-hidden'); note(slot, '指标未确认', true);
+    }
+    if (resources.length > 2 || ['details', 'history', 'provenance'].some(key => selected.has(key))) {
+      const details = el('button', '详情', 'ghost dashboard-account-details'); details.type = 'button';
+      details.onclick = () => {
+        if (!ownsPage()) return;
+        const body = el('div'); body.append(renderObservation(observation, selected));
+        if (selected.has('history') && successful(connection.last_success?.observation)) {
+          note(body, '历史成功观测（非当前值）', true); body.append(renderObservation(connection.last_success.observation, selected));
+        }
+        if (selected.has('provenance')) { note(body, PROVIDERS[connection.provider] || '服务商未知'); note(body, text(connection.endpoint, '端点未知')); }
+        void formDialog({ title: text(connection.label, '账户详情'), content: body, confirmLabel: '关闭' });
+      }; header.append(details);
+    }
+    return root;
   }
   content.append(renderObservation(connection.observation, selected));
   const previous = connection.last_success;

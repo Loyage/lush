@@ -19,15 +19,22 @@ test('records HTTP endpoint forwards filters and continuation cursors across sto
       f.store.run("INSERT INTO notices(task_id,title,body,status) VALUES (?,?,?,'open')", task.id, 'not answered', 'body');
     });
     const first = await (await httpFetch(f.url + '/api/notices?status=answered&limit=3')).json();
-    expect(first.notices).toHaveLength(3); expect(first.has_more).toBe(true);
+    expect(first.notices).toHaveLength(3); expect(first.has_more).toBe(true); expect(first.total).toBe(7);
     const second = await (await httpFetch(f.url + `/api/notices?status=answered&limit=3&before=${first.cursor}`)).json();
-    expect(second.notices).toHaveLength(3); expect(second.has_more).toBe(true);
+    expect(second.notices).toHaveLength(3); expect(second.has_more).toBe(true); expect(second.total).toBe(7);
     const last = await (await httpFetch(f.url + `/api/notices?status=answered&limit=3&before=${second.cursor}`)).json();
-    expect(last.notices).toHaveLength(1); expect(last.has_more).toBe(false);
+    expect(last.notices).toHaveLength(1); expect(last.has_more).toBe(false); expect(last.total).toBe(7);
     const rows = [...first.notices, ...second.notices, ...last.notices];
     expect(new Set(rows.map(row => row.id)).size).toBe(7);
     expect(rows.every(row => row.status === 'answered')).toBe(true);
     expect(last.notices.at(-1).answer).toBe('decision');
+    const plan = Number(f.store.run("INSERT INTO notices(task_id,title,body,kind,status) VALUES (?,?,?,'plan','answered')",
+      task.id, 'retired plan', 'body').lastInsertRowid);
+    const filtered = await (await httpFetch(f.url + '/api/notices?status=answered&limit=1')).json();
+    expect(filtered).toMatchObject({ notices: [], total: 7, non_plan_total: 7, cursor: plan, has_more: true, limit: 1 });
+    const continued = await (await httpFetch(f.url + `/api/notices?status=answered&limit=1&before=${filtered.cursor}`)).json();
+    expect(continued.notices).toHaveLength(1); expect(continued.total).toBe(7);
+    expect((await (await httpFetch(f.url + '/api/notices?status=all&limit=1')).json()).total).toBe(8);
     expect((await httpFetch(f.url + '/api/notices?status=unknown')).status).toBe(400);
     expect((await httpFetch(f.url + '/api/notices?before=nope')).status).toBe(400);
   } finally { await f.close(); }

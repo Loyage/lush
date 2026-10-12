@@ -1,23 +1,36 @@
 import { PROJECT_COLORS } from './project-colors.js';
 
-const validId = id => typeof id === 'string' && /^(?:accounts|[a-f0-9]{16}|account:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/.test(id);
-const isProjectRow = row => /^[a-f0-9]{16}$/.test(row.id) && (row.type == null || row.type === 'project');
+const validId = id => typeof id === 'string' && /^(?:widget:[a-z0-9][a-z0-9-]{0,79}|accounts|[a-f0-9]{16}|account:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/.test(id);
+const widgetType = row => row.widget_type || row.widget?.type || row.type;
+const widgetSizes = { status: [4, 10], messages: [4, 10], workers: [4, 10], accounts: [6, 14], shortcuts: [4, 8] };
+const isWidget = row => row.id.startsWith('widget:');
+const projectId = row => isWidget(row) ? (/^[a-f0-9]{16}$/.test(row.project_id || '') ? row.project_id : null)
+  : /^[a-f0-9]{16}$/.test(row.id) && (row.type == null || row.type === 'project') ? row.id : null;
+const defaultsFor = row => {
+  const type = widgetType(row);
+  const [w, h] = isWidget(row) ? (Object.hasOwn(widgetSizes, type) ? widgetSizes[type] : [4, 8]) : row.type === 'account' ? [4, 10] : [6, 16];
+  return { id: row.id, w, h, minW: isWidget(row) ? 4 : 1, minH: isWidget(row) ? ['accounts', 'messages', 'status'].includes(type) ? 10 : 8 : 6 };
+};
 const colors = new Set(PROJECT_COLORS.map(color => color.id));
 const copy = layout => layout.map(cell => ({ ...cell }));
 const clamp = (value, min, max, fallback) => Math.max(min, Math.min(max, Number.isFinite(value) ? Math.round(value) : fallback));
 const overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 let boardNumber = 0;
+// Distinguish caller-supplied geometry from our last display output on a reused
+// row, even when a controller remounts a new board with that same model.
+const displayedGeometry = new WeakSet();
 async function readAppearance(url, options) {
   const response = await fetch(url, options);
   if (!response.ok) throw new Error('配色读取失败');
   return response.json();
 }
 function bounded(cell, defaults) {
-  const w = clamp(cell?.w, 1, 12, defaults.w), h = clamp(cell?.h, 6, 80, defaults.h);
+  const w = clamp(cell?.w, defaults.minW || 1, 12, defaults.w), h = clamp(cell?.h, defaults.minH || 6, 80, defaults.h);
   return { id: defaults.id, x: clamp(cell?.x, 0, 12 - w, 0), y: clamp(cell?.y, 0, 4095, 0), w, h };
 }
 // Deterministic downward collision avoidance. Keep the requested column first;
-// only an exhausted grid falls back to another column, then a compact 1x6 cell.
+// only an exhausted column falls back to another column. Reconciliation handles
+// an exhausted coordinate domain without violating a widget's minimum slots.
 function place(cell, occupied, columns = 12, maxY = 4095) {
   const search = (value, x, start) => {
     let y = start;
@@ -33,18 +46,17 @@ function place(cell, occupied, columns = 12, maxY = 4095) {
     const found = search(cell, x, cell.y) || search(cell, x, 0);
     if (found) return found;
   }
-  if (cell.w !== 1 || cell.h !== 6) return place({ ...cell, x: 0, y: 0, w: 1, h: 6 }, occupied, columns, maxY);
   throw new RangeError('卡片网格已满');
 }
 function reconcile(rows, saved, compact = false) {
   const known = new Map();
   for (const cell of Array.isArray(saved) ? saved.slice(0, 300) : []) if (validId(cell?.id) && !known.has(cell.id)) known.set(cell.id, cell);
   const result = [], byId = new Map();
-  const defaultsFor = row => ({ id: row.id, w: row.type === 'account' ? 4 : 6, h: row.type === 'account' ? 10 : 16 });
+  for (const row of rows) if (!known.has(row.id) && row.geometry) known.set(row.id, row.geometry);
   for (const row of rows) if (known.has(row.id)) {
     const desired = bounded(known.get(row.id), defaultsFor(row));
     let cell;
-    try { cell = place(compact ? { ...desired, y: 0, h: 6 } : desired, result); }
+    try { cell = place(compact ? { ...desired, y: 0, h: defaultsFor(row).minH } : desired, result); }
     catch (error) {
       if (!(error instanceof RangeError) || compact) throw error;
       // 300 full-width 80-row cells cannot fit the finite y domain. Compact
@@ -54,8 +66,8 @@ function reconcile(rows, saved, compact = false) {
     result.push(cell); byId.set(row.id, cell);
   }
   for (const row of rows) if (!byId.has(row.id)) {
-    const initial = bounded(null, defaultsFor(row));
-    if (compact) initial.h = 6;
+    const initial = bounded(row.geometry, defaultsFor(row));
+    if (compact) initial.h = defaultsFor(row).minH;
     let candidates;
     try { candidates = Array.from({ length: 13 - initial.w }, (_, x) => place({ ...initial, x }, result)); }
     catch (error) {
@@ -75,12 +87,13 @@ function reconcile(rows, saved, compact = false) {
  * update(rows,{layout}) replaces the device snapshot (including []/null reset).
  * update(rows) preserves this page's layout and reconciles added/removed ids.
  * Only committed pointer/keyboard edits call onLayoutChange with the full array.
- * Intrinsic content heights only expand the display projection and push collisions;
- * they never mutate getLayout() or invoke onLayoutChange. Saved h is a minimum.
+ * Fixed h is authoritative: contents never resize or displace any card.
+ * renderCard receives the full cell; onGeometryChange receives changed display
+ * geometry only (including responsive projection), for caller-owned fixed slots.
  * CSSOM writes below contain numeric grid coordinates only, never CSS text
  * from rows/settings. Individual style properties work under the existing CSP.
  */
-export function createProjectBoard({ ownsPage = () => true, request = readAppearance, renderCard, onLayoutChange }) {
+export function createProjectBoard({ ownsPage = () => true, request = readAppearance, renderCard, onLayoutChange, onGeometryChange }) {
   const owner = document, number = ++boardNumber;
   const node = (tag, text, className) => {
     const element = owner.createElement(tag);
@@ -91,6 +104,18 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
   const root = node('ul', undefined, 'project-board');
   root.setAttribute('aria-label', '工作台卡片');
   let generation = 0, layout = [], entries = new Map(), gesture = null, editing = false, columns = 12, disposed = false;
+  const appearanceCache = new Map(), appearancePending = new Map();
+  async function sourceAppearance(project) {
+    if (appearanceCache.has(project)) return appearanceCache.get(project);
+    // Independent widgets can share one project; coalesce their initial GETs.
+    let pending = appearancePending.get(project);
+    if (!pending) {
+      pending = Promise.resolve(request(`/api/host/projects/${project}/appearance`, { method: 'GET' }));
+      appearancePending.set(project, pending);
+    }
+    try { return await pending; }
+    finally { if (appearancePending.get(project) === pending) appearancePending.delete(project); }
+  }
   const active = () => !disposed && owner === globalThis.document && ownsPage();
   const getLayout = () => copy(layout);
   const setStyle = (item, key, value) => {
@@ -99,32 +124,25 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
   };
   function projection(source) {
     return [...source].sort((a, b) => a.y - b.y || a.x - b.x || a.id.localeCompare(b.id)).map(cell => {
-      const w = columns === 12 ? cell.w : columns === 1 ? 1 : Math.max(1, Math.round(cell.w * columns / 12));
+      // Keep a usable footer and 44px edit controls at the 600px breakpoint.
+      const w = columns === 12 ? cell.w : columns === 1 ? 1 : Math.max(cell.id.startsWith('widget:') ? 3 : 1, Math.round(cell.w * columns / 12));
       return { ...cell, x: Math.min(columns - w, Math.floor(cell.x * columns / 12)), y: columns === 12 ? cell.y : 0, w };
     });
   }
   function paint(source = layout) {
     const projected = projection(source);
-    // Apply every width before reading intrinsic content heights. Content is not
-    // stretched to the grid row: shrinking/closing details can shrink it again.
-    for (const cell of projected) {
-      const entry = entries.get(cell.id);
-      if (entry) setStyle(entry.item, 'grid-column', `${cell.x + 1} / span ${cell.w}`);
-    }
     const occupied = [];
-    for (const cell of projected) {
-      const entry = entries.get(cell.id);
-      if (!entry) continue;
-      const height = entry.content.getBoundingClientRect?.().height;
-      // 6px shell borders + 12px inter-card clearance. Runtime heights are not
-      // bounded by the persisted h<=80/y<=4095 editing contract.
-      cell.h = Math.max(cell.h, Number.isFinite(height) && height > 0 ? Math.ceil((height + 18) / 24) : 0);
-      const placed = place(cell, occupied, columns, Infinity);
-      occupied.push(placed);
-    }
+    for (const cell of projected) occupied.push(place(cell, occupied, columns, Infinity));
     for (const cell of occupied) {
       const entry = entries.get(cell.id);
+      if (!entry) continue;
+      setStyle(entry.item, 'grid-column', `${cell.x + 1} / span ${cell.w}`);
       setStyle(entry.item, 'grid-row', `${cell.y + 1} / span ${cell.h}`);
+      entry.row.geometry = { ...cell }; displayedGeometry.add(entry.row.geometry);
+      if (changed([cell], [entry.geometry])) {
+        entry.geometry = { ...cell };
+        onGeometryChange?.(entry.row, { ...cell }, entry.item);
+      }
     }
     for (const [id, entry] of entries) {
       const cell = source.find(value => value.id === id);
@@ -146,8 +164,7 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
     }
     paint(gesture?.candidate || layout);
   }
-  // Read/write outside observer delivery, coalescing content/width/theme changes.
-  // Idempotent CSSOM writes and intrinsic (not stretched) content prevent loops.
+  // Only board width can change the display projection, never content height.
   let resizeFrame = null, mounted = false;
   function scheduleMeasure() {
     if (!active()) { if (mounted || generation > 0) dispose(); return; }
@@ -157,17 +174,14 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
     resizeFrame = globalThis.requestAnimationFrame(() => { resizeFrame = null; measure(); });
   }
   const observer = typeof globalThis.ResizeObserver === 'function' ? new ResizeObserver(scheduleMeasure) : null;
-  // Also detect content mutations, details toggles, theme changes and removal.
-  // Ignore our grid style attributes, which must never feed back into measuring.
-  const mutations = typeof globalThis.MutationObserver === 'function' ? new MutationObserver(records => {
+  // Watch removal for cleanup only; content mutations never schedule layout.
+  const mutations = typeof globalThis.MutationObserver === 'function' ? new MutationObserver(() => {
     if (!active() || (mounted && !root.isConnected)) { dispose(); return; }
     if (root.isConnected) mounted = true;
-    if (records.some(record => record.target === owner.documentElement || root.contains(record.target))) scheduleMeasure();
   }) : null;
   observer?.observe(root);
   function observeDocument() {
-    if (owner.documentElement) mutations?.observe(owner.documentElement, { subtree: true, childList: true, characterData: true,
-      attributes: true, attributeFilter: ['open', 'hidden', 'data-theme', 'data-reduced-motion'] });
+    if (owner.documentElement) mutations?.observe(owner.documentElement, { subtree: true, childList: true });
   }
   observeDocument();
   function dispose() {
@@ -189,7 +203,6 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
       if (owner !== globalThis.document || !ownsPage() || !root.isConnected) return;
       disposed = false;
       observer?.observe(root);
-      for (const entry of entries.values()) observer?.observe(entry.content);
       observeDocument();
       globalThis.addEventListener?.('pagehide', pagehide);
       scheduleMeasure();
@@ -211,13 +224,13 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
     return candidate.some((cell, at) => ['id', 'x', 'y', 'w', 'h'].some(key => cell[key] !== baseline[at]?.[key]));
   }
   function adjust(id, desired) {
-    const target = bounded(desired, layout.find(cell => cell.id === id));
+    const target = bounded(desired, { ...defaultsFor(entries.get(id).row), ...layout.find(cell => cell.id === id) });
     let result = [target];
     try { for (const cell of layout) if (cell.id !== id) result.push(place(cell, result)); }
     catch (error) {
       if (!(error instanceof RangeError)) throw error;
       result = [target];
-      for (const cell of layout) if (cell.id !== id) result.push(place({ ...cell, y: 0, h: 6 }, result));
+      for (const cell of layout) if (cell.id !== id) result.push(place({ ...cell, y: 0, h: defaultsFor(entries.get(cell.id).row).minH }, result));
     }
     const byId = new Map(result.map(cell => [cell.id, cell]));
     return layout.map(cell => byId.get(cell.id));
@@ -293,15 +306,22 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
   async function update(rows, options = {}) {
     if (!active()) return;
     const epoch = ++generation;
+    // A newer explicit render must not inherit an older in-flight snapshot.
+    appearancePending.clear();
     clearGesture();
     const focused = [...entries.values()].find(entry => entry.controls.includes(owner.activeElement));
     const focusedControl = focused?.controls.indexOf(owner.activeElement);
     const unique = new Map();
     for (const row of rows || []) if (unique.size < 300 && validId(row?.id) && !unique.has(row.id)) unique.set(row.id, row);
-    layout = reconcile([...unique.values()], Object.hasOwn(options, 'layout') ? options.layout : layout);
-    const next = new Map();
+    layout = reconcile([...unique.values()].map(row => ({ ...row,
+      geometry: row.geometry && displayedGeometry.has(row.geometry) ? undefined : row.geometry,
+    })), Object.hasOwn(options, 'layout') ? options.layout : layout);
+    const next = new Map(), displayed = [];
+    for (const cell of projection(layout)) displayed.push(place(cell, displayed, columns, Infinity));
     for (const [id, row] of unique) {
-      const item = renderCard(row);
+      const geometry = { ...displayed.find(cell => cell.id === id) };
+      row.geometry = { ...geometry };
+      const item = renderCard(row, { geometry: { ...geometry } });
       if (item?.tagName !== 'LI') throw new TypeError('renderCard must return a li');
       const previous = entries.get(id);
       if (previous?.item === item) {
@@ -309,9 +329,12 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
         for (const decoration of [...previous.controls, previous.hint, previous.content, previous.feedback]) decoration.remove();
         previous.palette.remove();
       }
-      item.removeAttribute('data-board-color'); item.setAttribute('data-project-id', id); item.classList.add('project-board-card');
-      const project = isProjectRow(row);
-      const name = row.name || (row.type === 'accounts' ? '账户额度'
+      item.removeAttribute('data-board-color'); item.setAttribute('data-board-id', id); item.classList.add('project-board-card');
+      const project = projectId(row);
+      // Keep the historical selector for legacy callers; widget identity is
+      // separate from source identity and never masquerades as a project id.
+      if (project || !isWidget(row)) item.setAttribute('data-project-id', project || id); else item.removeAttribute('data-project-id');
+      const name = row.name || (widgetType(row) === 'accounts' ? '账户额度'
         : row.type === 'account' ? row.connection?.label || '账户来源已删除或不可用' : '未命名项目');
       const content = node('div', undefined, 'project-board-content');
       content.setAttribute('role', 'region'); content.setAttribute('aria-label', `${name}卡片内容`);
@@ -321,33 +344,37 @@ export function createProjectBoard({ ownsPage = () => true, request = readAppear
       const controls = [handle];
       for (const corner of ['east', 'west']) {
         const control = node('button', corner === 'east' ? '↘' : '↙', 'project-board-resize'); control.type = 'button'; control.setAttribute('data-corner', corner);
-        control.setAttribute('data-help', '拖动边角调整卡片宽度和最小高度并避让其他卡片；方向键调整，内容多时自动撑高。触屏先横拖，纵向仍可滚动。'); controls.push(control);
+        control.setAttribute('data-help', '拖动边角调整卡片固定宽度和高度并避让其他卡片；方向键调整。触屏先横拖，纵向仍可滚动。'); controls.push(control);
       }
-      const hint = node('span', '方向键移动；Shift 加方向键或缩放手柄调整宽度和最小高度；Esc 取消拖动。内容多时自动撑高，设备布局始终使用十二列，小屏仅改变显示。', 'project-board-sr');
+      const hint = node('span', '方向键移动；Shift 加方向键或缩放手柄调整固定宽度和高度；Esc 取消拖动。设备布局始终使用十二列，小屏仅改变显示。', 'project-board-sr');
       hint.id = `project-board-${number}-${id}-hint`; for (const control of controls) control.setAttribute('aria-describedby', hint.id);
       const feedback = node('span', '', 'project-board-sr'); feedback.setAttribute('role', 'status'); feedback.setAttribute('aria-live', 'polite'); feedback.setAttribute('aria-atomic', 'true');
       const palette = node('small', project ? '正在确认配色…' : '', 'project-board-palette'); palette.setAttribute('role', 'status'); palette.hidden = !project;
-      content.append(palette); item.append(content, ...controls, hint, feedback);
-      const entry = { id, item, content, handle, controls, hint, palette, feedback, name, project };
+      item.append(content, palette, ...controls, hint, feedback);
+      const entry = { id, row, geometry, item, content, handle, controls, hint, palette, feedback, name, project };
       next.set(id, entry); attach(entry, epoch);
     }
     observer?.disconnect();
-    entries = next; root.replaceChildren(...[...entries.values()].map(entry => entry.item));
+    entries = next;
+    // Assign spans before replacing connected children. A transient one-row
+    // board removes the page scrollbar, crosses width breakpoints, and makes a
+    // content-only refresh change geometry despite identical canonical cells.
+    paint(); root.replaceChildren(...[...entries.values()].map(entry => entry.item));
     observer?.observe(root);
-    for (const entry of entries.values()) observer?.observe(entry.content);
     measure(); scheduleMeasure();
     if (editing && focused && entries.has(focused.id)) entries.get(focused.id).controls[focusedControl].focus({ preventScroll: true });
     await Promise.all([...entries].map(async ([id, entry]) => {
       if (!entry.project) return;
       try {
-        const result = await request(`/api/host/projects/${id}/appearance`, { method: 'GET' });
+        const result = await sourceAppearance(entry.project);
         if (!active() || epoch !== generation || entries.get(id) !== entry) return;
-        if (result?.id !== id || !Object.hasOwn(result, 'appearance')) throw new Error('配色身份未确认');
+        if (result?.id !== entry.project || !Object.hasOwn(result, 'appearance')) throw new Error('配色身份未确认');
         const appearance = result.appearance;
         if (appearance === null) entry.palette.textContent = '尚未设置辨识色';
         else if (appearance?.version === 1 && colors.has(appearance.color)) {
           entry.item.setAttribute('data-board-color', appearance.color); entry.palette.textContent = ''; entry.palette.hidden = true;
         } else throw new Error('配色数据未确认');
+        appearanceCache.set(entry.project, result);
       } catch {
         if (!active() || epoch !== generation || entries.get(id) !== entry) return;
         entry.item.removeAttribute('data-board-color'); entry.palette.textContent = '配色未确认'; entry.palette.hidden = false;

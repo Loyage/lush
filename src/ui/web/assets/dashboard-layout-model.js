@@ -1,3 +1,21 @@
+import { WIDGET_SIZES } from './dashboard-widget-model.js';
+
+/** Read-only projection; only an explicit settings/layout write publishes these cells. */
+export function dashboardWidgetLayout(layout, widgets) {
+  const saved = Array.isArray(layout) ? layout : [];
+  const result = saved.filter(cell => cell.id.startsWith('widget:')).map(cell => ({ ...cell }));
+  for (const widget of widgets) {
+    if (result.some(cell => cell.id === widget.id)) continue;
+    const legacy = widget.project_id ? saved.find(cell => cell.id === widget.project_id)
+      : widget.type === 'accounts' ? saved.find(cell => cell.id === 'accounts') || saved.filter(cell => widget.connection_ids.some(id => cell.id === `account:${id}`)).sort((a, b) => a.y - b.y || a.x - b.x)[0] : null;
+    if (legacy) {
+      const size = WIDGET_SIZES[widget.type];
+      result.push({ id: widget.id, x: Math.min(legacy.x, 12 - size.w), y: legacy.y, ...size });
+    }
+  }
+  return result;
+}
+
 /** Read-only presentation seed; legacy account geometry remains in the device document. */
 export function dashboardAccountLayout(layout, selectedIds, inherited = null) {
   const saved = Array.isArray(layout) ? layout : [];

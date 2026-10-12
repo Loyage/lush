@@ -54,7 +54,7 @@ test('device layout contract, normal display and GET-only project appearance pre
   expect(calls).toEqual([{ url: `/api/host/projects/${ids[0]}/appearance`, options: { method: 'GET' } }]);
   component.setEditing(true); expect(handle(item).hidden).toBe(false); expect(resize(item).hidden).toBe(false);
   expect(handle(item).getAttribute('data-help')).toContain('方向键'); expect(handle(item).getAttribute('aria-describedby')).toBeTruthy();
-  expect(resize(item).getAttribute('data-help')).toContain('最小高度');
+  expect(resize(item).getAttribute('data-help')).toContain('固定宽度和高度');
 });
 
 test('reserved accounts identity defaults to 6x16, never aliases project colors and retains legacy cards', async () => {
@@ -65,7 +65,7 @@ test('reserved accounts identity defaults to 6x16, never aliases project colors 
     { id: 'accounts', type: 'accounts' }, { id: 'accounts:extra', type: 'accounts' }, { id: 'ACCOUNTS', type: 'accounts' }]);
   expect(component.getLayout()).toEqual([cell(ids[0]), cell('accounts', 6), cell(accountId, 0, 16, 4, 10)]);
   expect(reads).toEqual([`/api/host/projects/${ids[0]}/appearance`]);
-  const group = component.root.children[1]; expect(group.dataset.projectId).toBe('accounts');
+  const group = component.root.children[1]; expect(group.dataset.projectId).toBe('accounts'); expect(group.dataset.boardId).toBe('accounts');
   expect(group.dataset.boardColor).toBeUndefined(); expect(group.querySelector('.project-board-palette').hidden).toBe(true);
   expect(handle(group).getAttribute('aria-label')).toContain('账户额度');
   for (const control of group.querySelectorAll('button')) { expect(control.hidden).toBe(true); expect(control.disabled).toBe(true); }
@@ -96,6 +96,82 @@ test('accounts group shares canonical reconciliation, collision edits, resize bo
   await component.update([mixed[0], ...many], { layout: [] });
   expect(component.getLayout()).toHaveLength(300); expect(component.getLayout()[0].id).toBe('accounts');
   expect(component.getLayout().filter(value => value.id === 'accounts')).toHaveLength(1);
+});
+
+test('widgets use fixed defaults, source identities, safe ids, model geometry and cached GET-only appearance', async () => {
+  const calls = [], rendered = [], geometries = [];
+  const component = board({ renderCard: (row, { geometry }) => {
+    expect(row.geometry).toEqual(geometry); rendered.push({ ...geometry }); return renderCard(row);
+  }, request: async (url, options) => { calls.push({ url, options }); return { id: ids[0], appearance: { version: 1, color: 'blue' } }; },
+  onGeometryChange: (row, geometry, item) => { expect(row.geometry).toEqual(geometry); expect(item.tagName).toBe('LI'); geometries.push(geometry); } });
+  const widgets = ['status', 'messages', 'workers', 'accounts', 'shortcuts'].map((type, i) => ({ id: `widget:${type}`, widget_type: type, project_id: i === 0 ? ids[0] : null }));
+  await component.update([...widgets, { id: 'widget:Bad' }, { id: 'widget:a/b' }, { id: 'widget:' + 'a'.repeat(81) }]);
+  expect(rendered.map(({ w, h }) => [w, h])).toEqual([[4, 10], [4, 10], [4, 10], [6, 14], [4, 8]]);
+  expect(calls).toEqual([{ url: `/api/host/projects/${ids[0]}/appearance`, options: { method: 'GET' } }]);
+  expect(component.root.children[0].dataset.projectId).toBe(ids[0]); expect(component.root.children[1].dataset.projectId).toBeUndefined();
+  expect(geometries).toHaveLength(0); component.setEditing(false); expect(geometries).toHaveLength(0);
+  await component.update(widgets); expect(calls).toHaveLength(1); expect(geometries).toHaveLength(0);
+  component.setEditing(true); key(resize(component.root.children[1]), 'ArrowDown'); expect(geometries.length).toBeGreaterThan(0);
+  const count = geometries.length; component.setEditing(false); expect(geometries).toHaveLength(count);
+  component.root.getBoundingClientRect = () => ({ width: 390 }); component.setEditing(false);
+  // Resize observation (not content) drives responsive projection.
+  await component.update(widgets); expect(component.root.style['--board-columns']).toBe('1');
+  expect(component.getLayout()[0].w).toBe(4); expect(widgets[0].geometry.w).toBe(1);
+  const model = board(); await model.update([{ id: 'widget:model', widget: { type: 'workers' }, geometry: cell('widget:model', 2, 3, 5, 12) }]);
+  expect(model.getLayout()).toEqual([cell('widget:model', 2, 3, 5, 12)]);
+  await model.update([{ id: 'widget:tiny', type: 'messages' }], { layout: [cell('widget:tiny', 0, 0, 1, 6)] });
+  expect(model.getLayout()).toEqual([cell('widget:tiny', 0, 0, 4, 10)]);
+  const unknown = board(); await unknown.update([{ id: 'widget:unknown', type: '__proto__' }]);
+  expect(unknown.getLayout()).toEqual([cell('widget:unknown', 0, 0, 4, 8)]);
+  const many = Array.from({ length: 300 }, (_, i) => ({ id: `widget:w-${i}`, type: 'messages' }));
+  await model.update(many, { layout: many.map(row => cell(row.id, 0, 0, 12, 80)) });
+  assertLayout(model.getLayout()); expect(model.getLayout().every(cell => cell.h === 10 && cell.w >= 4)).toBe(true);
+});
+
+test('same-source widgets coalesce the initial appearance GET and reuse the confirmed cache', async () => {
+  const calls = [], component = board({ request: async url => { calls.push(url); return { id: ids[0], appearance: { version: 1, color: 'blue' } }; } });
+  const widgets = ['status', 'messages', 'workers'].map(type => ({ id: `widget:shared-${type}`, type, project_id: ids[0] }));
+  await component.update(widgets);
+  expect(calls).toEqual([`/api/host/projects/${ids[0]}/appearance`]);
+  expect(component.root.children.every(item => item.dataset.boardColor === 'blue')).toBe(true);
+  await component.update(widgets); expect(calls).toHaveLength(1);
+});
+
+test('parent v4 widget schema and fixed board geometry round-trip through the layout-only patch contract', async () => {
+  const { normalizeDashboardPatch } = await import('../../src/core/dashboard-settings.js');
+  const reads = [], edits = [];
+  const widgets = ['status', 'messages', 'workers', 'accounts', 'shortcuts'].map(type => ({
+    id: `widget:${type}`, type, project_id: ['status', 'messages', 'workers'].includes(type) ? ids[0] : null,
+    connection_ids: [], links: [], sections: [],
+  }));
+  const settings = normalizeDashboardPatch({ widgets, layout: widgets.map(row => cell(row.id, 0, 0, 12, 6)) });
+  const component = board({ onLayoutChange: value => edits.push(value), request: async url => {
+    reads.push(url); return { id: ids[0], appearance: null };
+  } });
+  await component.update(settings.widgets, { layout: settings.layout });
+  expect(component.getLayout().map(({ h }) => h)).toEqual([10, 10, 8, 10, 8]);
+  expect(edits).toHaveLength(0); expect(reads.every(url => url === `/api/host/projects/${ids[0]}/appearance`)).toBe(true);
+  const unchanged = component.getLayout(); await component.update(settings.widgets); expect(component.getLayout()).toEqual(unchanged);
+  component.setEditing(true); key(handle(component.root.children[0]), 'ArrowDown'); expect(edits).toHaveLength(1);
+  expect(normalizeDashboardPatch({ layout: edits[0] })).toEqual({ layout: component.getLayout() });
+  const idsBefore = component.getLayout().map(row => row.id);
+  expect(idsBefore).toEqual(widgets.map(row => row.id));
+  await component.update(normalizeDashboardPatch({ widgets: [] }).widgets); expect(component.getLayout()).toEqual([]);
+  expect(edits).toHaveLength(1); // Explicit empty board does not write layout while rendering.
+});
+
+test('account widgets reserve a complete fixed source slot; board preserves mounted renderer hooks and li identity', async () => {
+  const item = renderCard({ id: 'widget:accounts', name: '账户' });
+  const ready = async () => 'ready', geometryChanged = () => {};
+  item.dashboardReady = ready; item.dashboardGeometryChanged = geometryChanged;
+  const component = board({ renderCard: () => item }); document.body.append(component.root);
+  const row = { id: 'widget:accounts', type: 'accounts' };
+  await component.update([row], { layout: [cell(row.id, 0, 0, 4, 8)] });
+  expect(component.getLayout()).toEqual([cell(row.id, 0, 0, 4, 10)]);
+  expect(component.root.children[0]).toBe(item); expect(item.dashboardReady).toBe(ready);
+  expect(item.dashboardGeometryChanged).toBe(geometryChanged); expect(await item.dashboardReady()).toBe('ready');
+  await component.update([row]); expect(component.root.children[0]).toBe(item);
+  expect(item.querySelectorAll('.project-board-content')).toHaveLength(1); expect(item.dashboardReady).toBe(ready);
 });
 
 test('legacy browser order is never read, imported or written, even with denied storage', async () => {
@@ -228,6 +304,16 @@ test('responsive display projection does not mutate or save canonical coordinate
   width = 1200; await component.update(rows.slice(0, 2)); expect(component.root.children[1].style['grid-column']).toBe('7 / span 6'); expect(edits).toHaveLength(0);
 });
 
+test('content refresh paints spans before DOM replacement so transient scrollbar removal cannot cross a breakpoint', async () => {
+  const geometries = [], component = board({ onGeometryChange: (_, geometry) => geometries.push(geometry) });
+  component.root.getBoundingClientRect = () => ({ width: component.root.children.length && component.root.children.every(item => item.style['grid-row']) ? 590 : 610 });
+  await component.update(rows.slice(0, 2)); expect(component.root.style['--board-columns']).toBe('1');
+  const coordinates = () => component.root.children.map(item => [item.style['grid-column'], item.style['grid-row']]);
+  const original = coordinates(), count = geometries.length;
+  await component.update(rows.slice(0, 2)); expect(component.root.style['--board-columns']).toBe('1');
+  expect(coordinates()).toEqual(original); expect(geometries).toHaveLength(count);
+});
+
 test('ResizeObserver defers projection writes, cancels resize-time gestures and disconnects abandoned pages', async () => {
   const savedObserver = globalThis.ResizeObserver, savedFrame = globalThis.requestAnimationFrame;
   const frames = []; let observed, disconnected = 0, owns = true, width = 1200;
@@ -247,24 +333,24 @@ test('ResizeObserver defers projection writes, cancels resize-time gestures and 
   } finally { globalThis.ResizeObserver = savedObserver; globalThis.requestAnimationFrame = savedFrame; }
 });
 
-test('intrinsic heights grow beyond persisted bounds, push only collisions and shrink without saving', async () => {
-  let height = 2400;
+test('content heights never change fixed rows or neighbor coordinates or save', async () => {
+  let height = 2400, contentReads = 0;
   const edits = [], component = board({ onLayoutChange: value => edits.push(value) });
   const saved = [cell(ids[0], 0, 0, 6, 6), cell(ids[1], 6, 0, 6, 6), cell(ids[2], 0, 6, 6, 6)];
   await component.update(rows.slice(0, 3), { layout: saved });
   const first = component.root.children[0];
-  first.querySelector('.project-board-content').getBoundingClientRect = () => ({ height });
+  first.querySelector('.project-board-content').getBoundingClientRect = () => { contentReads++; return { height }; };
   component.setEditing(false);
-  expect(first.style['grid-row']).toBe('1 / span 101');
+  expect(first.style['grid-row']).toBe('1 / span 6');
   expect(component.root.children[1].style['grid-row']).toBe('1 / span 6');
-  expect(component.root.children[2].style['grid-row']).toBe('102 / span 6');
+  expect(component.root.children[2].style['grid-row']).toBe('7 / span 6');
   height = 40; component.setEditing(false);
   expect(first.style['grid-row']).toBe('1 / span 6');
   expect(component.root.children[2].style['grid-row']).toBe('7 / span 6');
-  expect(component.getLayout()).toEqual(saved); expect(edits).toHaveLength(0);
+  expect(component.getLayout()).toEqual(saved); expect(edits).toHaveLength(0); expect(contentReads).toBe(0);
 });
 
-test('content/late observer measurements coalesce, removed nodes unobserve and pagehide cleans every observer', async () => {
+test('only board resize schedules projection; content mutations do not, pagehide cleans every observer', async () => {
   const originals = { ResizeObserver: globalThis.ResizeObserver, MutationObserver: globalThis.MutationObserver,
     requestAnimationFrame: globalThis.requestAnimationFrame, cancelAnimationFrame: globalThis.cancelAnimationFrame };
   let resizeCallback, mutationCallback, resizeDisconnects = 0, mutationDisconnects = 0, cancelled = 0;
@@ -283,11 +369,12 @@ test('content/late observer measurements coalesce, removed nodes unobserve and p
     await component.update(rows.slice(0, 2), { layout: saved }); frames.shift()();
     component.root.contains = node => component.root.querySelectorAll('.project-board-content').includes(node);
     const oldContent = component.root.children[0].querySelector('.project-board-content');
-    expect(watched.has(oldContent)).toBe(true);
-    oldContent.getBoundingClientRect = () => ({ height: 400 });
+    expect(watched.has(oldContent)).toBe(false); expect(watched.has(component.root)).toBe(true);
+    oldContent.getBoundingClientRect = () => { throw new Error('content must not be measured'); };
+    mutationCallback([{ target: oldContent }]); expect(frames).toHaveLength(0);
     resizeCallback(); mutationCallback([{ target: oldContent }]); resizeCallback();
     expect(frames).toHaveLength(1); frames.shift()();
-    expect(component.root.children[1].style['grid-row']).toBe('19 / span 6');
+    expect(component.root.children[1].style['grid-row']).toBe('7 / span 6');
     expect(component.getLayout()).toEqual(saved); expect(edits).toHaveLength(0);
     await component.update([rows[1]]); expect(watched.has(oldContent)).toBe(false);
     resizeCallback([{ target: oldContent }]); expect(frames).toHaveLength(1); frames.shift()();
@@ -298,7 +385,7 @@ test('content/late observer measurements coalesce, removed nodes unobserve and p
     expect(watched.size).toBe(0); frames.shift()(); expect(edits).toHaveLength(0);
     component.root.isConnected = true;
     await dom.fire('pageshow', { persisted: true });
-    expect(watched.size).toBe(2); frames.shift()();
+    expect(watched.size).toBe(1); frames.shift()();
     component.setEditing(true); key(handle(component.root.children[0]), 'ArrowDown');
     expect(edits).toHaveLength(1);
     await dom.fire('pagehide'); expect(watched.size).toBe(0); expect(mutationDisconnects).toBe(2);
@@ -316,14 +403,17 @@ test('accounts skip project colors and caller content remains intact without an 
 
 test('parent dashboard controller saves committed grid drafts explicitly and cancels to the device snapshot', async () => {
   const { createDashboardPanel } = await import('../../src/ui/web/assets/dashboard-panel.js');
-  let config = { version: 2, revision: 'grid-device', cards: [], hidden_projects: [], content: [], layout: [cell(ids[0], 2, 4, 4, 8)] };
+  const widgetId = 'widget:grid-status';
+  const widget = { id: widgetId, type: 'status', project_id: ids[0], connection_ids: [], links: [], sections: ['metrics'] };
+  const legacy = cell(ids[0], 2, 4, 4, 8);
+  let config = { version: 4, revision: 'grid-device', account_view: 'list', widgets: [widget], cards: [], hidden_projects: [], content: [], layout: [legacy, cell(widgetId, 2, 4, 4, 10)] };
   const writes = [];
   globalThis.fetch = async (url, options = {}) => {
     if (url === '/api/host/dashboard') {
       if (options.method === 'POST') {
         const body = JSON.parse(options.body); writes.push(body);
         expect(body.expected_revision).toBe(config.revision);
-        config = { ...config, layout: body.layout, revision: 'grid-saved' };
+        config = { ...config, layout: body.layout, widgets: body.widgets, revision: 'grid-saved' };
       }
       return Response.json(config);
     }
@@ -332,23 +422,23 @@ test('parent dashboard controller saves committed grid drafts explicitly and can
     if (url === `/api/host/projects/${ids[0]}/appearance`) return Response.json({ id: ids[0], appearance: null });
     throw new Error(`unexpected request ${url}`);
   };
-  const panel = createDashboardPanel({ renderProject: renderCard }); document.body.append(panel.root); await panel.ready();
+  const panel = createDashboardPanel(); document.body.append(panel.root); await panel.ready();
   const button = label => panel.root.querySelectorAll('button').find(node => node.textContent === label);
   expect(handle(panel.root.querySelector('.project-board-card')).hidden).toBe(true);
   button('编辑布局').onclick(); key(handle(panel.root.querySelector('.project-board-card')), 'ArrowDown');
   expect(writes).toHaveLength(0); expect(panel.state().layoutDirty).toBe(true);
   await button('保存布局').onclick(); expect(writes).toHaveLength(1);
-  expect(writes[0].layout).toEqual([cell(ids[0], 2, 5, 4, 8)]); expect(panel.state().editing).toBe(false);
+  expect(writes[0].layout).toEqual([legacy, cell(widgetId, 2, 5, 4, 10)]); expect(writes[0].widgets).toEqual([widget]); expect(panel.state().editing).toBe(false);
   button('编辑布局').onclick(); key(handle(panel.root.querySelector('.project-board-card')), 'ArrowDown');
   await button('取消布局').onclick(); expect(writes).toHaveLength(1);
-  expect(panel.root.querySelector('.project-board-card').style['grid-row']).toBe('6 / span 8');
+  expect(panel.root.querySelector('.project-board-card').style['grid-row']).toBe('6 / span 10');
 });
 
 test('appearance failures remain explicit and reject wrong identities, versions and arbitrary colors', async () => {
   let result = { id: ids[0], appearance: { version: 1, color: 'blue' } }; const component = board({ request: async () => result });
   await component.update([rows[0]]); expect(component.root.children[0].dataset.boardColor).toBe('blue');
   for (const bad of [{ id: ids[1], appearance: null }, { id: ids[0] }, { id: ids[0], appearance: { version: 2, color: 'blue' } }, { id: ids[0], appearance: { version: 1, color: '#bad' } }]) {
-    result = bad; await component.update([rows[0]]); expect(component.root.children[0].dataset.boardColor).toBeUndefined(); expect(deepText(component.root)).toContain('配色未确认');
+    result = bad; const fresh = board({ request: async () => result }); await fresh.update([rows[0]]); expect(fresh.root.children[0].dataset.boardColor).toBeUndefined(); expect(deepText(fresh.root)).toContain('配色未确认');
   }
   const calls = []; globalThis.fetch = async (url, options) => { calls.push(options.method); return Response.json({}, { status: 503 }); };
   const fallback = createProjectBoard({ renderCard }); await fallback.update([rows[0]]); expect(calls).toEqual(['GET']); expect(deepText(fallback.root)).toContain('配色未确认');
@@ -360,9 +450,10 @@ test('late appearance responses cannot repaint refresh, removed card, account sw
   pending[2]({ id: ids[0], appearance: { version: 1, color: 'teal' } }); await next;
   pending[0]({ id: ids[0], appearance: { version: 1, color: 'rose' } }); pending[1]({ id: ids[1], appearance: { version: 1, color: 'blue' } }); await old;
   expect(component.root.children[0].dataset.boardColor).toBe('teal'); expect(oldItems[0].dataset.boardColor).toBeUndefined(); expect(oldItems[1].dataset.boardColor).toBeUndefined();
-  const switched = component.update([rows[0]]); await component.update([{ id: ids[0], type: 'account' }]); pending[3]({ id: ids[0], appearance: { version: 1, color: 'rose' } }); await switched;
-  expect(component.root.children[0].dataset.boardColor).toBeUndefined();
-  const abandoned = component.update([rows[0]]); owns = false; pending[4]({ id: ids[0], appearance: { version: 1, color: 'rose' } }); await abandoned; expect(component.root.children[0].dataset.boardColor).toBeUndefined();
+  const fresh = board({ ownsPage: () => owns, request: () => new Promise(resolve => pending.push(resolve)) });
+  const switched = fresh.update([rows[0]]); await fresh.update([{ id: ids[0], type: 'account' }]); pending[3]({ id: ids[0], appearance: { version: 1, color: 'rose' } }); await switched;
+  expect(fresh.root.children[0].dataset.boardColor).toBeUndefined();
+  const abandoned = fresh.update([rows[0]]); owns = false; pending[4]({ id: ids[0], appearance: { version: 1, color: 'rose' } }); await abandoned; expect(fresh.root.children[0].dataset.boardColor).toBeUndefined();
   owns = true;
   const replacement = board({ request: () => new Promise(resolve => pending.push(resolve)) });
   const replaced = replacement.update([rows[0]]); globalThis.document = {}; pending[5]({ id: ids[0], appearance: { version: 1, color: 'rose' } }); await replaced;
@@ -373,10 +464,10 @@ test('reused caller card unwraps content and removes only previous board decorat
   const item = renderCard(rows[0]); let result = { id: ids[0], appearance: { version: 1, color: 'amber' } };
   const component = board({ renderCard: () => item, request: async () => result }); await component.update([rows[0]]); result = { id: ids[0], appearance: null }; await component.update([rows[0]]);
   expect(item.querySelectorAll('a')).toHaveLength(1); expect(item.querySelectorAll('.project-board-content')).toHaveLength(1);
-  expect(item.querySelectorAll('.project-board-palette')).toHaveLength(1); expect(item.querySelectorAll('button')).toHaveLength(3); expect(item.dataset.boardColor).toBeUndefined();
+  expect(item.querySelectorAll('.project-board-palette')).toHaveLength(1); expect(item.querySelectorAll('button')).toHaveLength(3); expect(item.dataset.boardColor).toBe('amber'); // successful appearance is cached
 });
 
-test('palette CSS matches identity colors without semantic overrides; intrinsic content and motion rules exist', async () => {
+test('palette CSS matches identity colors without semantic overrides; fixed shell and motion rules exist', async () => {
   const css = await Bun.file(new URL('../../src/ui/web/assets/styles-project-board.css', import.meta.url)).text();
   const existing = await Bun.file(new URL('../../src/ui/web/assets/styles-appearance.css', import.meta.url)).text();
   for (const color of ['green', 'blue', 'teal', 'amber', 'rose', 'slate']) {
@@ -391,8 +482,10 @@ test('palette CSS matches identity colors without semantic overrides; intrinsic 
   expect(shell).toBeTruthy();
   for (const rule of ['grid-template-columns:minmax(0,1fr)', 'grid-template-rows:minmax(0,1fr)', 'align-items:stretch', 'gap:0', 'overflow:visible', 'padding:0', 'min-height:0']) expect(shell).toContain(rule);
   const viewport = css.split('.project-board-content{')[1]?.split('}')[0];
-  for (const rule of ['box-sizing:border-box', 'align-self:start', 'overflow:visible', 'min-height:0']) expect(viewport).toContain(rule);
+  for (const rule of ['box-sizing:border-box', 'align-self:stretch', 'overflow:visible', 'min-height:0']) expect(viewport).toContain(rule);
   expect(viewport).not.toContain('max-height');
+  const widgetCss = await Bun.file(new URL('../../src/ui/web/assets/styles-dashboard-cards.css', import.meta.url)).text();
+  for (const rule of ['.dashboard-widget-slots', '.dashboard-widget-slot', '.dashboard-widget-pagination', '.dashboard-widget-message', '.dashboard-widget-count', '.dashboard-widget-notice-read', '.dashboard-widget-worker', '.dashboard-widget-links', '.dashboard-account-metrics-bounded', '.dashboard-account-metric-slot', 'grid-auto-rows:88px', 'grid-template-rows:44px 38px']) expect(widgetCss).toContain(rule);
   const workspace = await Bun.file(new URL('../../src/ui/web/assets/styles-workbench.css', import.meta.url)).text();
   for (const rule of ['.project-board .project-development-metric .metric-label{font-size:11px}',
     '.project-board .project-development-distribution .chip{font-size:10px',

@@ -37,7 +37,7 @@ test('two Hosts and a restarted bound Host share only device card identities wit
     const response = await fetch(f.url + route);
     expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('no-store');
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
-    const initial = await response.json(); expect(initial).toMatchObject({ version: 3, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list' });
+    const initial = await response.json(); expect(initial).toMatchObject({ version: 4, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null });
     expect(fs.existsSync(path.join(f.global, 'shared'))).toBe(false);
     const selected = card();
     const save = await post(f.url + route, { cards: [selected, selected], expected_revision: initial.revision });
@@ -47,7 +47,7 @@ test('two Hosts and a restarted bound Host share only device card identities wit
     const customized = await post(second + route, { hidden_projects: [id, id], layout,
       content: [{ id, sections: ['messages', 'shortcuts'] }], expected_revision: next.revision });
     expect(customized.status).toBe(200); next = await customized.json();
-    expect(next).toMatchObject({ version: 3, cards: [selected], hidden_projects: [id], layout, account_view: 'list',
+    expect(next).toMatchObject({ version: 4, cards: [selected], hidden_projects: [id], layout, account_view: 'list', widgets: null,
       content: [{ id, sections: ['messages', 'shortcuts'] }] });
     expect(await (await fetch(f.url + route)).json()).toEqual(next);
     const contentOnly = await post(f.url + route, { content: [{ id, sections: [] }], expected_revision: next.revision });
@@ -60,7 +60,7 @@ test('two Hosts and a restarted bound Host share only device card identities wit
     const unified = await post(f.url + route, { account_view: 'tiles', layout: accountsLayout,
       content: [...next.content, { id: 'accounts', sections: ['quota', 'balance', 'reset'] }], expected_revision: next.revision });
     expect(unified.status).toBe(200); next = await unified.json();
-    expect(next).toMatchObject({ version: 3, cards: [], hidden_projects: [id], layout: accountsLayout, account_view: 'tiles',
+    expect(next).toMatchObject({ version: 4, cards: [], hidden_projects: [id], layout: accountsLayout, account_view: 'tiles', widgets: null,
       content: [{ id, sections: [] }, { id: 'accounts', sections: ['quota', 'balance', 'reset'] }] });
     expect(await (await fetch(second + route)).json()).toEqual(next);
     const switched = await post(second + route, { account_view: 'list', expected_revision: next.revision });
@@ -81,7 +81,7 @@ test('two Hosts and a restarted bound Host share only device card identities wit
   } finally { await f.close(); }
 });
 
-test('HTTP v1 reads do not migrate, inspect credentials or attach a project and explicit v3 save preserves deleted sources', async () => {
+test('HTTP v1 reads do not migrate, inspect credentials or attach a project and explicit v4 save preserves deleted sources', async () => {
   const f = fixture(), selected = card(), home = path.join(f.global, 'shared'), file = path.join(home, 'dashboard.json');
   try {
     fs.mkdirSync(home, { mode: 0o700 });
@@ -93,7 +93,7 @@ test('HTTP v1 reads do not migrate, inspect credentials or attach a project and 
     const before = fs.statSync(file), url = f.url + '/api/host/dashboard';
     const response = await fetch(url); expect(response.status).toBe(200);
     const model = await response.json();
-    expect(model).toMatchObject({ version: 3, cards: [selected], hidden_projects: [], layout: [], content: [], account_view: 'list' });
+    expect(model).toMatchObject({ version: 4, cards: [selected], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null });
     expect(fs.readFileSync(file, 'utf8')).toBe(source);
     expect(fs.statSync(file).ino).toBe(before.ino); expect(fs.statSync(file).mtimeMs).toBe(before.mtimeMs);
     const id = `account:${selected.connection_id}`;
@@ -101,13 +101,13 @@ test('HTTP v1 reads do not migrate, inspect credentials or attach a project and 
       content: [{ id, sections: ['quota', 'balance', 'reset'] }], expected_revision: model.revision });
     expect(saved.status).toBe(200); const next = await saved.json(); expect(next.cards).toEqual([selected]);
     expect(next.content).toEqual([{ id, sections: ['quota', 'balance', 'reset'] }]);
-    expect(JSON.parse(fs.readFileSync(file, 'utf8')).version).toBe(3);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8')).version).toBe(4);
     expect(fs.readFileSync(credentialFile, 'utf8')).toBe('PRIVATE MALFORMED CREDENTIALS');
     expect(f.calls).toEqual([]);
   } finally { await f.close(); }
 });
 
-test('HTTP v2 files retain legacy account layout/content and map read-only to shared v3 views', async () => {
+test('HTTP v2 files retain legacy account layout/content and map read-only to shared v4 views', async () => {
   const f = fixture(), second = f.open(), selected = card(), id = `account:${selected.connection_id}`;
   try {
     const home = path.join(f.global, 'shared'), file = path.join(home, 'dashboard.json');
@@ -117,19 +117,50 @@ test('HTTP v2 files retain legacy account layout/content and map read-only to sh
     const source = JSON.stringify(data); fs.writeFileSync(file, source, { mode: 0o600 });
     const stat = fs.statSync(file), route = '/api/host/dashboard';
     const response = await fetch(f.url + route); expect(response.status).toBe(200);
-    const current = await response.json(); expect(current).toMatchObject({ ...data, version: 3, account_view: 'list' });
+    const current = await response.json(); expect(current).toMatchObject({ ...data, version: 4, account_view: 'list', widgets: null });
     expect(await (await fetch(second + route)).json()).toEqual(current);
     expect(fs.readFileSync(file, 'utf8')).toBe(source);
     expect(fs.statSync(file).mtimeMs).toBe(stat.mtimeMs); expect(fs.statSync(file).ino).toBe(stat.ino);
     const saved = await post(second + route, { account_view: 'tiles', expected_revision: current.revision });
     expect(saved.status).toBe(200); const next = await saved.json();
-    expect(next).toMatchObject({ ...data, version: 3, account_view: 'tiles' });
+    expect(next).toMatchObject({ ...data, version: 4, account_view: 'tiles', widgets: null });
     expect(await (await fetch(f.url + route)).json()).toEqual(next);
-    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ ...data, version: 3, account_view: 'tiles' });
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ ...data, version: 4, account_view: 'tiles', widgets: null });
     const cleared = await post(f.url + route, { cards: [], expected_revision: next.revision });
     expect(cleared.status).toBe(200); const clearedModel = await cleared.json();
     expect(clearedModel).toMatchObject({ ...next, revision: clearedModel.revision, cards: [] });
     expect(await (await fetch(second + route)).json()).toEqual(clearedModel);
+    expect(f.calls).toEqual([]);
+  } finally { await f.close(); }
+});
+
+test('HTTP v4 publishes independent widgets and empty boards without removing old fields or contacting sources', async () => {
+  const f = fixture();
+  try {
+    const route = f.url + '/api/host/dashboard', initial = await (await fetch(route)).json();
+    const connection = randomUUID(), project = '0123456789abcdef';
+    const legacy = { cards: [card()], hidden_projects: [project], content: [{ id: project, sections: ['messages'] }], account_view: 'tiles' };
+    const oldResponse = await post(route, { ...legacy, expected_revision: initial.revision });
+    expect(oldResponse.status).toBe(200); const old = await oldResponse.json();
+    const widgets = [
+      { id: 'widget:account-a', type: 'accounts', project_id: null, connection_ids: [connection.toUpperCase(), connection], links: [], sections: ['quota'] },
+      { id: 'widget:status-a', type: 'status', project_id: project, connection_ids: [], links: [], sections: [] },
+      { id: 'widget:status-b', type: 'status', project_id: project, connection_ids: [], links: [], sections: ['metrics'] },
+      { id: 'widget:links', type: 'shortcuts', project_id: null, connection_ids: [], links: [{ scope: 'global', target: 'docs', project_id: null }], sections: ['shortcuts'] },
+    ];
+    const layout = widgets.map(({ id }) => ({ id, x: 0, y: 0, w: 12, h: 6 }));
+    const response = await post(route, { widgets, layout, expected_revision: old.revision });
+    expect(response.status).toBe(200); const saved = await response.json();
+    expect(saved).toMatchObject({ ...legacy, version: 4, layout });
+    expect(saved.widgets).toEqual(widgets.map((widget, i) => i ? widget : { ...widget, connection_ids: [connection] }));
+    expect(await (await fetch(f.open() + '/api/host/dashboard')).json()).toEqual(saved);
+    expect((await post(route, { widgets: [], expected_revision: old.revision })).status).toBe(400);
+    const emptyResponse = await post(route, { widgets: [], expected_revision: saved.revision });
+    expect(emptyResponse.status).toBe(200); const empty = await emptyResponse.json();
+    expect(empty).toMatchObject({ ...legacy, widgets: [], layout });
+    expect(await (await fetch(route)).json()).toEqual(empty);
+    const projected = await post(route, { widgets: null, expected_revision: empty.revision });
+    expect(projected.status).toBe(200); expect((await projected.json()).widgets).toBeNull();
     expect(f.calls).toEqual([]);
   } finally { await f.close(); }
 });
@@ -148,7 +179,8 @@ test('dashboard HTTP rejects all query, token, unknown field and malformed card 
       expect((await post(url + query, { cards: [], expected_revision: 'v1' })).status).toBe(400);
     }
     const row = { id: '0123456789abcdef', x: 0, y: 0, w: 12, h: 6 };
-    for (const patch of [{}, ...[null, true, 1, '', 'LIST', 'grid', [], {}].map(account_view => ({ account_view })),
+    for (const patch of [{}, { widgets: {} }, { widgets: [null] }, { widgets: Array(101).fill({}) },
+      { widgets: [{ id: 'widget:a', type: 'accounts', project_id: null, connection_ids: [], links: [], sections: [], secret: 'PRIVATE' }] }, ...[null, true, 1, '', 'LIST', 'grid', [], {}].map(account_view => ({ account_view })),
       { layout: [{ ...row, id: 'Accounts' }] }, { hidden_projects: ['accounts'] },
       { content: [{ id: 'accounts', sections: ['metrics'] }] },
       { content: [{ id: 'accounts', sections: [] }, { id: 'accounts', sections: [] }] },
@@ -179,8 +211,8 @@ test('dashboard HTTP rejects all query, token, unknown field and malformed card 
 
 test('dashboard requires login and preserves Origin/Host gates before service reads or writes', async () => {
   const calls = [], f = fixture({ authenticated: true, dashboardService: {
-    get() { calls.push('get'); return { version: 3, revision: dashboardRevision, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list' }; },
-    save(patch) { calls.push('save'); return { version: 3, revision: dashboardRevision, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list', ...patch }; },
+    get() { calls.push('get'); return { version: 4, revision: dashboardRevision, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null }; },
+    save(patch) { calls.push('save'); return { version: 4, revision: dashboardRevision, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null, ...patch }; },
   } });
   try {
     const url = f.url + '/api/host/dashboard';

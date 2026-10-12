@@ -27,6 +27,11 @@ export const handlers = {
     if (status === 'unread') where.push("kind='info' AND status='sent' AND source_event_id IS NOT NULL AND read_at IS NULL");
     else if (status === 'automatic') where.push("status='answered' AND kind IN ('question','questionnaire') AND n.answer_source='lush'");
     else if (status !== 'all') { where.push('status=?'); args.push(status); }
+    // Count the complete status match, not just the cursor window or byte-bounded page.
+    // Web hides historical plans; expose its exact count without changing RPC pagination.
+    const totals = p.store.get(`SELECT COUNT(*) AS total,
+      COALESCE(SUM(CASE WHEN n.kind='plan' THEN 0 ELSE 1 END), 0) AS non_plan_total
+      FROM notices n${where.length ? ` WHERE ${where.join(' AND ')}` : ''}`, ...args);
     if (before !== null) { where.push('id<?'); args.push(before); }
     const rows = p.store.all(`${NOTICE_SELECT}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`, ...args, limit + 1);
     // Bound by bytes too, without dropping the cursor for omitted records.
@@ -36,7 +41,7 @@ export const handlers = {
       if (notices.length && bytes + size > 900000) break;
       notices.push(row); bytes += size;
     }
-    return { notices, cursor: notices.at(-1)?.id ?? null, has_more: rows.length > notices.length, limit };
+    return { notices, cursor: notices.at(-1)?.id ?? null, has_more: rows.length > notices.length, limit, ...totals };
   },
   'notice.post'(p, params, actor) {
     const task = params.task ?? actor;

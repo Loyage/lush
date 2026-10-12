@@ -1,264 +1,150 @@
 import { test, expect, beforeEach, afterAll } from 'bun:test';
 import { installDom, deepText } from '../dom-stub.js';
-const P = 'aaaaaaaaaaaaaaaa', Q = 'bbbbbbbbbbbbbbbb';
-const A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-222222222222';
-let config, projects, connections, requests, intercept, serial = 0;
-const scope = { selected: 'device', source: 'device', project_override: false };
-const clone = value => structuredClone(value);
+const P = 'aaaaaaaaaaaaaaaa', Q = 'bbbbbbbbbbbbbbbb', A = '11111111-1111-4111-8111-111111111111', B = '22222222-2222-4222-8222-222222222222';
+let config, projects, connections, requests, intercept, serial, current, panel;
+const clone = value => structuredClone(value), scope = { selected: 'device', source: 'device', project_override: false };
 const dom = installDom({ fetch: async (url, options = {}) => {
-  const path = String(url), body = options.body ? JSON.parse(options.body) : null;
-  requests.push({ path, method: options.method || 'GET', body });
-  const intercepted = intercept?.(path, options, body); if (intercepted) return intercepted;
-  if (path === '/api/host') return Response.json({ mode: 'bound', projects, restart_supported: false });
-  if (path === '/api/host/projects') return Response.json({ projects: clone(projects) });
+  const path = String(url), body = options.body ? JSON.parse(options.body) : null; requests.push({ path, body, method: options.method || 'GET' });
+  const blocked = intercept?.(path, options, body); if (blocked) return blocked;
+  if (path === '/api/host/projects') return Response.json({ projects });
+  if (/^\/api\/host\/projects\/[a-f0-9]{16}\/appearance$/.test(path)) return Response.json({ id: path.split('/')[4], appearance: { version: 1, color: 'rose' } });
   if (path === '/api/host/dashboard') {
-    if (options.method === 'POST') {
-      if (body.expected_revision !== config.revision) return Response.json({ error: 'revision changed' }, { status: 400 });
-      const { expected_revision, ...patch } = body; config = { account_view: 'list', ...config, ...clone(patch), version: 3, revision: `r${++serial}` };
-    }
+    if (options.method === 'POST') { if (body.expected_revision !== config.revision) return Response.json({ error: 'revision changed' }, { status: 409 }); const { expected_revision, ...patch } = body; config = { ...config, ...clone(patch), version: 4, revision: `r${++serial}` }; }
     return Response.json(clone(config));
   }
-  if (path === '/api/host/settings/agent/connections?scope=device') return Response.json({ connections: clone(connections), configuration_scope: scope });
-  if (path === '/api/host/settings/action') return Response.json({ connections: clone(connections), configuration_scope: scope });
-  if (/^\/api\/host\/projects\/\w+\/appearance$/.test(path)) return Response.json({ id: path.split('/')[4], appearance: null });
-  if (/^\/p\/\w+\/api\/notices\?/.test(path)) return Response.json({ notices: [], has_more: false });
-  return Response.json({ error: `not mocked: ${path}` }, { status: 404 });
+  if (path === '/api/host/settings/agent/connections?scope=device') return Response.json({ connections, configuration_scope: scope });
+  if (path === '/api/host/settings/action') return Response.json({ connections, configuration_scope: scope });
+  if (path.includes('/api/notices?')) return Response.json({ notices: [], total: 0, has_more: false });
+  if (path.includes('/api/workers?')) return Response.json({ tasks: [], has_more: false });
+  return Response.json({ error: path }, { status: 404 });
 } });
 afterAll(() => dom.restore());
-const { openProjectOverview, openProjectManager } = await import('../../src/ui/web/assets/project-picker.js');
-const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
-const { closeDialog } = await import('../../src/ui/web/assets/dialog.js');
+const { createDashboardPanel } = await import('../../src/ui/web/assets/dashboard-panel.js');
+const { newWidget, WIDGET_SIZES } = await import('../../src/ui/web/assets/dashboard-widget-model.js');
+const { closeDialog, formDialog } = await import('../../src/ui/web/assets/dialog.js');
+const { el } = await import('../../src/ui/web/assets/dom.js');
+// Isolate this child's content/revision responsibility from the parallel grid implementation.
+// Real grid/appearance/CSP/320px integration is verified by W234 after both deliveries.
+function createBoard({ renderCard, onLayoutChange, onGeometryChange }) {
+  const root = el('ul', undefined, 'project-board'); let layout = [], currentRows = [];
+  root.changeGeometry = (id, h) => {
+    const geometry = layout.find(cell => cell.id === id); geometry.h = h;
+    const row = currentRows.find(row => row.id === id), item = root.querySelector(`[data-card-id="${id}"]`);
+    onGeometryChange?.(row, { ...geometry }, item);
+  };
+  return { root, getLayout: () => clone(layout), setEditing(value) { root.classList.toggle('project-board-editing', value); },
+    async update(rows, { layout: saved } = {}) {
+      currentRows = rows;
+      layout = rows.map((row, i) => ({ id: row.id, x: 0, y: i * 16, ...WIDGET_SIZES[row.type], ...saved?.find(cell => cell.id === row.id) }));
+      root.replaceChildren(...rows.map(row => {
+        const geometry = layout.find(cell => cell.id === row.id), item = renderCard({ ...row, geometry }, { geometry }); item.classList.add('project-board-card'); item.dataset.boardId = row.id;
+        if (row.project_id) item.dataset.projectId = row.project_id;
+        const content = el('div', undefined, 'project-board-content');
+        for (const child of [...item.childNodes]) { child.remove(); content.append(child); } item.append(content);
+        const handle = el('button', 'move', 'project-board-handle'); handle.onkeydown = event => { if (event.key === 'ArrowDown') { geometry.y++; onLayoutChange(clone(layout)); } }; item.append(handle); return item;
+      }));
+    } };
+}
 const button = label => [...dom.node('modal').querySelectorAll('button'), ...dom.node('detail').querySelectorAll('button')].find(node => node.textContent === label);
-const writes = () => requests.filter(entry => entry.method === 'POST');
-const input = (key, value) => dom.node('modal').querySelectorAll('input').find(node => node.dataset[key] === value);
+const inputs = () => dom.node('modal').querySelectorAll('input');
 const change = (node, checked) => { node.checked = checked; node.onchange(); };
-const observation = { status: 'available', source: 'usage_api', checked_at: '2026-10-01T00:00:00.000Z', resources: [
-  { id: 'cash', kind: 'balance', scope: 'account', label: '现金', unit: 'USD', remaining: 12, total: null, used: null } ] };
+const writes = () => requests.filter(row => row.method === 'POST');
+async function open(real = false) { panel = createDashboardPanel({ ownsPage: () => current, ...(real ? {} : { createBoard }) }); dom.node('detail').replaceChildren(panel.root); await panel.ready(); return panel; }
+async function settings() { await dom.node('detail').querySelector('.dashboard-settings-open').onclick(); }
+const widgets = () => dom.node('detail').querySelectorAll('.dashboard-widget');
 beforeEach(() => {
-  closeDialog();
-  serial = 0; config = { version: 3, account_view: 'list', revision: 'initial', cards: [{ type: 'account', connection_id: A }], hidden_projects: [], layout: [], content: [] };
-  projects = [{ id: P, name: '项目A', project: '/fixture/a', running: true }, { id: Q, name: '项目B', project: '/fixture/b', running: false }];
-  connections = [A, B].map((id, i) => ({ id, label: `账户${i + 1}`, provider: 'deepseek', enabled: true, observation }));
-  requests = []; intercept = null; dom.node('detail').replaceChildren();
+  closeDialog(); dom.node('detail').replaceChildren(); requests = []; intercept = null; serial = 0; current = true;
+  config = { version: 4, revision: 'initial', widgets: null, account_view: 'list', cards: [{ type: 'account', connection_id: A }], hidden_projects: [], layout: [], content: [] };
+  projects = [{ id: P, name: '项目A', project: '/fixture/a', running: true }, { id: Q, name: '项目B', running: false }];
+  connections = [A, B].map(id => ({ id, label: id, enabled: true, observation: { status: 'available', resources: [] } }));
 });
-
-test('总览没有标题与介绍，页面和每卡有设置，进入只读且管理页不读取总览设置', async () => {
-  await openProjectOverview({ push: false }); const panel = dom.node('detail');
-  expect(panel.querySelector('h1')).toBeNull(); expect(dom.node('view-toolbar').hidden).toBe(true);
-  expect(deepText(panel)).not.toContain('YOUR WORKSPACE'); expect(deepText(panel)).not.toContain('全局总览');
-  expect(panel.querySelector('.dashboard-settings-open')).not.toBeNull();
-  expect(panel.querySelectorAll('.dashboard-card-settings')).toHaveLength(3);
-  expect(panel.querySelectorAll('.dashboard-card-settings-host').every(host => host.hidden)).toBe(true);
-  expect(button('刷新全部')).not.toBeUndefined(); expect(writes()).toHaveLength(0);
-  expect(panel.querySelector('.project-order')).toBeNull(); expect(panel.querySelector('.workbench-service-restart')).toBeNull();
-  requests = []; await openProjectManager({ push: false });
-  expect(dom.node('view-toolbar').hidden).toBe(false);
-  expect(dom.node('detail').querySelector('.dashboard-settings-panel')).toBeNull();
-  expect(requests.some(entry => entry.path === '/api/host/dashboard')).toBe(false);
+test('entry is read-only; legacy projection independent status/messages/workers/accounts/shortcuts, true [] empty', async () => {
+  await open(); expect(widgets()).toHaveLength(8); expect(widgets().map(node => node.dataset.widgetType)).toEqual(['status', 'messages', 'workers', 'status', 'messages', 'workers', 'accounts', 'shortcuts']);
+  expect(writes()).toHaveLength(0); expect(config.widgets).toBeNull(); expect(dom.node('detail').querySelector('.project-order')).toBeNull();
+  expect(requests.some(row => row.path.startsWith(`/p/${Q}/api/`))).toBe(false);
+  config.widgets = []; await open(); expect(widgets()).toHaveLength(0); expect(dom.node('detail').querySelector('.workbench-empty').hidden).toBe(false);
 });
-
-test('总览保存项目与账户选择，重进从设备重读；省略布局和内容不被清空', async () => {
-  config.layout = [{ id: P, x: 0, y: 0, w: 4, h: 16 }]; config.content = [{ id: P, sections: ['shortcuts'] }];
-  await openProjectOverview({ push: false }); await dom.node('detail').querySelector('.dashboard-settings-open').onclick();
-  change(input('projectId', Q), false); change(input('connectionId', B), true); await button('保存').onclick();
-  expect(config.hidden_projects).toEqual([Q]); expect(config.cards.map(card => card.connection_id)).toEqual([A, B]);
-  expect(config.layout).toEqual([{ id: P, x: 0, y: 0, w: 4, h: 16 }]); expect(config.content).toEqual([{ id: P, sections: ['shortcuts'] }]);
-  expect(writes()).toHaveLength(1); expect(Object.keys(writes()[0].body).sort()).toEqual(['account_view', 'cards', 'expected_revision', 'hidden_projects']);
-  await openProjectOverview({ push: false });
-  expect(dom.node('detail').querySelectorAll('.project-board-card').map(node => node.dataset.projectId).sort()).toEqual([P, 'accounts'].sort());
+test('add same-type cards/source selection then remove/edit; complete widget save keeps old fields and stable geometry', async () => {
+  config.widgets = [newWidget('status', 'widget:old', P)];
+  config.layout = [{ id: P, x: 0, y: 0, w: 6, h: 16 }]; config.content = [{ id: P, sections: ['recent'] }];
+  const legacy = clone(config); await open(); await settings();
+  const type = dom.node('modal').querySelector('.dashboard-widget-type'); type.value = 'messages'; type.onchange();
+  const source = dom.node('modal').querySelector('.dashboard-widget-add-project'); source.value = Q; source.onchange();
+  await button('添加卡片').onclick(); await button('添加卡片').onclick(); await button('保存').onclick();
+  expect(config.widgets.map(row => row.type)).toEqual(['status', 'messages', 'messages']); expect(config.widgets.slice(1).every(row => row.project_id === Q)).toBe(true);
+  for (const field of ['cards', 'content', 'hidden_projects', 'account_view']) expect(config[field]).toEqual(legacy[field]); expect(config.layout.find(row => row.id === P)).toEqual(legacy.layout[0]);
+  expect(writes()[0].body.expected_revision).toBe('initial'); expect(config.layout.some(row => row.id === 'widget:old')).toBe(true);
+  const ids = config.widgets.map(row => row.id); await open(); expect(widgets().map(node => node.dataset.cardId)).toEqual(ids);
+  await widgets()[1].querySelector('.dashboard-card-settings').onclick(); change(inputs().find(node => node.dataset.section === 'messages'), false); await button('保存').onclick(); expect(config.widgets[1].sections).toEqual([]); expect(config.content).toEqual(legacy.content);
+  await widgets()[1].querySelector('.dashboard-card-settings').onclick(); await button('移除卡片').onclick(); await button('保存').onclick(); expect(config.widgets).toHaveLength(2);
 });
-
-test('每卡内容设置独立共享，空内容保留名称和设置按钮而不保留模块', async () => {
-  await openProjectOverview({ push: false });
-  const card = dom.node('detail').querySelector(`[data-project-id="${P}"]`);
-  await card.querySelector('.dashboard-card-settings').onclick();
-  expect(dom.document.activeElement).toBe(dom.node('modal').querySelector('.dashboard-settings-panel'));
-  expect(button('调整位置与大小')).toBeUndefined();
-  for (const control of dom.node('modal').querySelectorAll('input')) change(control, false);
-  await button('保存').onclick(); expect(config.content).toEqual([{ id: P, sections: [] }]);
-  const next = dom.node('detail').querySelector(`[data-project-id="${P}"]`);
-  expect(deepText(next)).toContain('项目A'); expect(next.querySelector('.project-dashboard-content').children).toHaveLength(0);
-  expect(next.querySelector('.dashboard-card-settings-host').hidden).toBe(true);
-  expect(dom.document.activeElement).toBe(next);
-  await openProjectOverview({ push: false });
-  expect(dom.node('detail').querySelector(`[data-project-id="${P}"]`).querySelector('.project-dashboard-messages')).toBeNull();
+test('account and shortcut selection writes widgets only, real project/global links selected without agent or maintenance actions', async () => {
+  const accounts = newWidget('accounts', 'widget:accounts'); accounts.connection_ids = [A]; const links = newWidget('shortcuts', 'widget:links'); config.widgets = [accounts, links];
+  await open(); await widgets()[0].querySelector('.dashboard-card-settings').onclick(); change(inputs().find(node => node.dataset.connectionId === B), true); await button('保存').onclick(); expect(config.widgets[0].connection_ids).toEqual([A, B]); expect(config.cards).toEqual([{ type: 'account', connection_id: A }]);
+  await widgets()[1].querySelector('.dashboard-card-settings').onclick(); change(inputs().find(node => node.dataset.linkScope === 'global' && node.dataset.linkTarget === 'settings'), true); change(inputs().find(node => node.dataset.linkScope === 'project' && node.dataset.linkTarget === 'workers' && node.dataset.projectId === Q), true); await button('保存').onclick();
+  expect(config.widgets[1].links).toEqual([{ scope: 'global', target: 'settings', project_id: null }, { scope: 'project', target: 'workers', project_id: Q }]); expect(dom.node('detail').querySelector('.agent-call')).toBeNull();
 });
-
-test('设置驻留独立弹窗且不改变看板节点，取消不写入，只有全局布局入口可启用手柄', async () => {
-  await openProjectOverview({ push: false });
-  const panel = dom.node('detail'), board = panel.querySelector('.project-board'), cards = [...board.children];
-  await panel.querySelector('.dashboard-settings-open').onclick();
-  expect(dom.node('modal').hidden).toBe(false); expect(panel.querySelector('.dashboard-settings-panel')).toBeNull();
-  expect(board.children).toEqual(cards); expect(panel.querySelector('.project-board-editing')).toBeNull();
-  change(input('connectionId', B), true); await button('取消').onclick(); await Promise.resolve();
-  expect(writes()).toHaveLength(0); expect(config.cards).toHaveLength(1); expect(board.children).toEqual(cards);
-  await cards[0].querySelector('.dashboard-card-settings').onclick();
-  expect(button('调整位置与大小')).toBeUndefined(); expect(cards[0].querySelector('.project-board-handle').disabled).toBe(true);
-  await button('取消').onclick(); await Promise.resolve();
-  await button('编辑布局').onclick(); expect(cards[0].querySelector('.project-board-handle').disabled).toBe(false);
+test('layout publishes legacy projection and widgets atomically, cancel never writes and layout failures keep draft/revision', async () => {
+  await open(); const legacy = clone(config); await button('编辑布局').onclick(); dom.node('detail').querySelector('.project-board-handle').onkeydown({ key: 'ArrowDown' }); await button('取消布局').onclick(); expect(writes()).toHaveLength(0);
+  await button('编辑布局').onclick(); dom.node('detail').querySelector('.project-board-handle').onkeydown({ key: 'ArrowDown' }); await button('保存布局').onclick(); expect(config.widgets).toHaveLength(8); expect(config.layout).toHaveLength(8); expect(writes()[0].body.expected_revision).toBe(legacy.revision);
+  await button('编辑布局').onclick(); intercept = path => path === '/api/host/dashboard' ? Response.json({ error: 'revision conflict' }, { status: 409 }) : null;
+  await button('保存布局').onclick(); expect(panel.state().editing).toBe(true); expect(panel.state().failedWrite).toBe(true); expect(button('保存布局').disabled).toBe(true);
 });
-
-test('弹窗保存请求在途保留草稿并阻止关闭或重复提交，确认后才关闭', async () => {
-  await openProjectOverview({ push: false }); await dom.node('detail').querySelector('.dashboard-settings-open').onclick();
-  change(input('connectionId', B), true);
-  let release; const deferred = new Promise(resolve => { release = resolve; });
-  intercept = (path, options) => path === '/api/host/dashboard' && options.method === 'POST' ? deferred : null;
-  const pending = button('保存').onclick(); await Promise.resolve();
-  expect(input('connectionId', B).checked).toBe(true); expect(button('保存').disabled).toBe(true);
-  await button('保存').onclick(); await button('取消').onclick();
-  dom.node('modal').onkeydown({ key: 'Escape', preventDefault() {} }); dom.node('modal').onclick({ target: dom.node('modal') });
-  expect(dom.node('modal').hidden).toBe(false); expect(writes()).toHaveLength(1);
-  release(Response.json({ ...config, cards: [A, B].map(connection_id => ({ type: 'account', connection_id })), revision: 'confirmed' }));
-  await pending; expect(dom.node('modal').hidden).toBe(true);
-  expect(deepText(dom.node('detail'))).toContain('已保存');
+test('modal single-flight/close protection, failed ACK keeps form and explicit reread failure retains edits', async () => {
+  await open(); await settings(); const control = inputs().find(node => node.dataset.section === 'metrics'); change(control, false);
+  let release; intercept = (path, options) => path === '/api/host/dashboard' && options.method === 'POST' ? new Promise(resolve => { release = resolve; }) : null;
+  const pending = button('保存').onclick(); await button('保存').onclick(); await button('取消').onclick(); dom.node('modal').onkeydown({ key: 'Escape', preventDefault() {} }); expect(dom.node('modal').hidden).toBe(false); expect(writes()).toHaveLength(1);
+  release(Response.json({ error: 'revision changed' }, { status: 409 })); await pending; expect(control.checked).toBe(false); expect(dom.node('modal').hidden).toBe(false); expect(button('保存').disabled).toBe(true);
+  intercept = path => path === '/api/host/dashboard' ? Response.json({ error: 'read failed' }, { status: 503 }) : null;
+  await button('重新读取设置').onclick(); expect(control.checked).toBe(false); expect(deepText(dom.node('modal'))).toContain('原编辑已保留');
 });
-
-test('全局刷新只查询摆放账户，单卡只查自己，且离线项目不读消息或启动', async () => {
-  await openProjectOverview({ push: false }); expect(writes()).toHaveLength(0);
-  requests = []; await button('刷新全部').onclick();
-  expect(writes().map(entry => entry.body.method)).toEqual(['agent.connections.query']);
-  expect(writes()[0].body.params).toEqual({ id: A, scope: 'device' });
-  expect(requests.some(entry => entry.path.startsWith(`/p/${Q}/api/notices`))).toBe(false);
-  expect(requests.some(entry => /projects\/start|host\/select/.test(entry.path))).toBe(false);
-  expect(requests.at(-1).method).toBe('GET');
-  config.cards.push({ type: 'account', connection_id: B }); await openProjectOverview({ push: false });
-  requests = []; const account = dom.node('detail').querySelector(`[data-card-id="account:${B}"]`);
-  const refresh = account.querySelector('.dashboard-account-refresh'); expect(refresh).not.toBeUndefined();
-  await refresh.onclick(); expect(writes().map(entry => entry.body.params.id)).toEqual([B]);
+test('a save must have complete v4 ACK; legacy ACK is unconfirmed and never clears draft', async () => {
+  await open(); await settings(); intercept = (path, options) => path === '/api/host/dashboard' && options.method === 'POST' ? Response.json({ ...config, version: 3, revision: 'wrong' }) : null;
+  await button('保存').onclick(); expect(panel.state().failedWrite).toBe(true); expect(dom.node('modal').hidden).toBe(false); expect(panel.state().config.revision).toBe('initial');
 });
-
-test('统一额度弹窗选择来源/模式/内容，保留旧逐来源内容；一个外壳参与布局', async () => {
-  config.cards.push({ type: 'account', connection_id: B });
-  config.content = [{ id: `account:${A}`, sections: [] }, { id: `account:${B}`, sections: ['balance'] }, { id: P, sections: ['shortcuts'] }];
-  const legacy = clone(config.content);
-  await openProjectOverview({ push: false });
-  const group = dom.node('detail').querySelector('[data-project-id="accounts"]');
-  expect(dom.node('detail').querySelectorAll('.project-board-card')).toHaveLength(3);
-  expect(group.querySelectorAll('.dashboard-account-card')).toHaveLength(2);
-  expect(group.querySelectorAll('.dashboard-card-settings')).toHaveLength(1);
-  expect(group.querySelector(`[data-card-id="account:${A}"]`).querySelectorAll('.dashboard-account-metric')).toHaveLength(0);
-  expect(group.querySelector(`[data-card-id="account:${B}"]`).querySelectorAll('.dashboard-account-metric')).toHaveLength(1);
-  await group.querySelector('.dashboard-card-settings').onclick();
-  change(input('connectionId', A), false);
-  const mode = dom.node('modal').querySelector('.dashboard-account-view'); mode.value = 'tiles'; mode.onchange();
-  for (const control of dom.node('modal').querySelectorAll('input')) if (control.dataset.section) change(control, control.dataset.section === 'observed');
-  await button('保存').onclick();
-  expect(config.account_view).toBe('tiles'); expect(config.cards).toEqual([{ type: 'account', connection_id: B }]);
-  expect(config.content).toEqual([...legacy, { id: 'accounts', sections: ['observed'] }]);
-  const next = dom.node('detail').querySelector('[data-project-id="accounts"]');
-  expect(next.dataset.accountView).toBe('tiles'); expect(next.querySelectorAll('.dashboard-account-card')).toHaveLength(1);
-  expect(next.querySelectorAll('.dashboard-account-metric')).toHaveLength(0);
-  expect(dom.document.activeElement).toBe(next);
-  expect(requests.filter(entry => entry.path.endsWith('/appearance')).every(entry => !entry.path.includes('accounts'))).toBe(true);
-  requests = []; await next.querySelector('.dashboard-accounts-refresh').onclick();
-  expect(writes().map(entry => entry.body.params.id)).toEqual([B]);
-  await openProjectOverview({ push: false }); expect(dom.node('detail').querySelector('[data-project-id="accounts"]').dataset.accountView).toBe('tiles');
+test('refresh queries only actual widget sources even if old cards disagree; explicit partial refresh restricted to placed accounts', async () => {
+  const account = newWidget('accounts', 'widget:accounts'); account.connection_ids = [B]; config.widgets = [account]; await open(); requests = [];
+  await button('刷新全部').onclick(); expect(writes().map(row => row.body.params.id)).toEqual([B]); expect(writes()[0].body.method).toBe('agent.connections.query'); expect(requests.some(row => /start|select/.test(row.path))).toBe(false);
+  requests = []; await panel.refresh([A]); expect(writes()).toHaveLength(0);
 });
-
-test('旧v2账户位置只读定位统一窗口，避让不改项目；显式布局保存保留旧账户字段', async () => {
-  config.version = 2; delete config.account_view; config.hidden_projects = [Q];
-  config.cards.push({ type: 'account', connection_id: B });
-  config.layout = [{ id: P, x: 0, y: 0, w: 6, h: 10 }, { id: `account:${A}`, x: 9, y: 24, w: 3, h: 8 }, { id: `account:${B}`, x: 0, y: 6, w: 4, h: 8 }];
-  const legacy = clone(config.layout);
-  await openProjectOverview({ push: false });
-  const group = () => dom.node('detail').querySelector('[data-project-id="accounts"]');
-  expect(group().style.getPropertyValue('grid-row')).toBe('11 / span 16');
-  expect(group().style.getPropertyValue('grid-column')).toBe('1 / span 6');
-  expect(config.layout).toEqual(legacy); expect(writes()).toHaveLength(0);
-  await group().querySelector('.dashboard-card-settings').onclick(); change(input('connectionId', B), false);
-  await button('保存').onclick(); expect(group().style.getPropertyValue('grid-row')).toBe('11 / span 16'); expect(config.layout).toEqual(legacy);
-  await button('编辑布局').onclick(); group().querySelector('.project-board-handle').onkeydown({ key: 'ArrowDown', preventDefault() {} });
-  await button('保存布局').onclick();
-  expect(config.layout.find(cell => cell.id === 'accounts')).toEqual({ id: 'accounts', x: 0, y: 11, w: 6, h: 16 });
-  for (const cell of legacy) expect(config.layout.find(item => item.id === cell.id)).toEqual(cell);
-  await openProjectOverview({ push: false }); expect(group().style.getPropertyValue('grid-row')).toBe('12 / span 16');
+test('navigation late save does not close replacement modal or take focus; failed/late reads do not clear current draft', async () => {
+  await open(); await settings(); let release; intercept = (path, options) => path === '/api/host/dashboard' && options.method === 'POST' ? new Promise(resolve => { release = resolve; }) : null;
+  const pending = button('保存').onclick(); current = false; dom.node('detail').replaceChildren(); void formDialog({ title: '新弹窗', content: el('div', 'new') });
+  release(Response.json({ ...config, widgets: [], revision: 'late' })); await pending; expect(deepText(dom.node('modal'))).toContain('新弹窗'); expect(dom.node('modal').hidden).toBe(false); expect(panel.state().config.revision).toBe('initial');
 });
-
-test('群组和单项刷新共用busy门，停用/删除来源仍不可单独查询', async () => {
-  config.cards.push({ type: 'account', connection_id: B }); connections[1].enabled = false;
-  await openProjectOverview({ push: false }); requests = [];
-  const group = dom.node('detail').querySelector('.dashboard-accounts-refresh');
-  const disabled = dom.node('detail').querySelector(`[data-card-id="account:${B}"]`).querySelector('.dashboard-account-refresh');
-  expect(disabled.disabled).toBe(true); await disabled.onclick(); expect(writes()).toHaveLength(0);
-  let release, started; const deferred = new Promise(resolve => { release = resolve; });
-  const querying = new Promise(resolve => { started = resolve; });
-  intercept = path => { if (path === '/api/host/settings/action') { started(); return deferred; } return null; };
-  const pending = dom.node('detail').querySelector(`[data-card-id="account:${A}"]`).querySelector('.dashboard-account-refresh').onclick(); await querying;
-  expect(group.disabled).toBe(true); await group.onclick(); await button('刷新全部').onclick(); expect(writes()).toHaveLength(1);
-  release(Response.json({ connections, configuration_scope: scope })); await pending;
-  expect(dom.node('detail').querySelector('.dashboard-accounts-refresh').disabled).toBe(false);
-  expect(dom.node('detail').querySelector(`[data-card-id="account:${B}"]`).querySelector('.dashboard-account-refresh').disabled).toBe(true);
+test('geometry callback resizes slots in the existing shell, keeps one footer and does not query providers', async () => {
+  const row = newWidget('accounts', 'widget:accounts'); row.connection_ids = [A, B]; config.widgets = [row];
+  await open(); const card = widgets()[0], footer = card.querySelector('.dashboard-widget-pagination');
+  expect(card.querySelectorAll('.dashboard-widget-slot')).toHaveLength(2);
+  dom.node('detail').querySelector('.project-board').changeGeometry(row.id, 10);
+  expect(widgets()[0]).toBe(card); expect(card.querySelectorAll('.dashboard-widget-slot')).toHaveLength(1);
+  expect(card.querySelectorAll('.dashboard-widget-pagination')).toHaveLength(1); expect(card.querySelector('.dashboard-widget-pagination')).toBe(footer);
+  expect(footer.parentNode.classList.contains('project-board-content')).toBe(true); expect(writes()).toHaveLength(0);
 });
-
-test('布局键盘编辑只在保存时写设备，取消恢复且保留隐藏卡片坐标，信息刷新不丢布局草稿', async () => {
-  config.hidden_projects = [Q]; config.layout = [{ id: Q, x: 0, y: 8, w: 4, h: 12 }];
-  await openProjectOverview({ push: false }); await button('编辑布局').onclick();
-  const handle = dom.node('detail').querySelector(`[data-project-id="${P}"]`).querySelector('.project-board-handle');
-  expect(handle.hidden).toBe(false);
-  handle.onkeydown({ key: 'ArrowDown', preventDefault() {} });
-  expect(writes()).toHaveLength(0); await button('取消布局').onclick(); expect(config.layout).toHaveLength(1);
-  await button('编辑布局').onclick();
-  dom.node('detail').querySelector(`[data-project-id="${P}"]`).querySelector('.project-board-handle').onkeydown({ key: 'ArrowDown', preventDefault() {} });
-  await button('刷新全部').onclick(); const before = writes().length;
-  await button('保存布局').onclick(); expect(writes()).toHaveLength(before + 1);
-  expect(config.layout.find(item => item.id === P).y).toBe(1);
-  expect(config.layout.find(item => item.id === Q)).toEqual({ id: Q, x: 0, y: 8, w: 4, h: 12 });
-  expect(dom.node('detail').querySelector(`[data-project-id="${P}"]`).querySelector('.project-board-handle').hidden).toBe(true);
-  await openProjectOverview({ push: false });
-  expect(dom.node('detail').querySelector(`[data-project-id="${P}"]`).style.getPropertyValue('grid-row')).toBe('2 / span 16');
+test('真实网格使用来源配色和独立board-id，modal保存恢复同一卡片焦点，缩放保留LI和一份页脚', async () => {
+  const status = newWidget('status', 'widget:status', P), accounts = newWidget('accounts', 'widget:accounts'); accounts.connection_ids = [A, B];
+  config.widgets = [status, accounts]; await open(true);
+  const card = widgets()[0]; expect(card.dataset.boardId).toBe(status.id); expect(card.dataset.projectId).toBe(P); expect(card.dataset.boardColor).toBe('rose');
+  expect(requests.filter(row => row.path.endsWith('/appearance')).every(row => row.path.includes(P) && !row.path.includes('widget:'))).toBe(true);
+  await card.querySelector('.dashboard-card-settings').onclick(); await button('保存').onclick();
+  expect(dom.document.activeElement).toBe(widgets()[0]);
+  const account = widgets()[1]; expect(account.querySelectorAll('.dashboard-widget-slot')).toHaveLength(2);
+  await button('编辑布局').onclick(); const resize = account.querySelector('.project-board-resize');
+  resize.onkeydown({ key: 'ArrowUp', preventDefault() {} }); resize.onkeydown({ key: 'ArrowUp', preventDefault() {} }); resize.onkeydown({ key: 'ArrowUp', preventDefault() {} });
+  expect(widgets()[1]).toBe(account); expect(account.querySelectorAll('.dashboard-widget-slot')).toHaveLength(1);
+  expect(account.querySelectorAll('.dashboard-widget-pagination')).toHaveLength(1);
 });
-
-test('全局刷新在途禁用单卡及设置按钮，重复点击不重复查询，完成后恢复', async () => {
-  await openProjectOverview({ push: false }); requests = [];
-  let release; const delayed = new Promise(resolve => { release = resolve; });
-  intercept = path => path === '/api/host/settings/action' ? delayed : null;
-  const pending = button('刷新全部').onclick(); await Bun.sleep(0);
-  const control = dom.node('detail').querySelector('.dashboard-account-refresh');
-  expect(control.disabled).toBe(true); expect(control.parentNode.dataset.help).toContain('请等待');
-  expect(dom.node('detail').querySelector('.dashboard-settings-open').disabled).toBe(true);
-  await button('刷新全部').onclick(); expect(writes()).toHaveLength(1);
-  release(Response.json({ connections, configuration_scope: scope })); await pending;
-  expect(dom.node('detail').querySelector('.dashboard-account-refresh').disabled).toBe(false);
+test('shared shell preserves per-card group refresh blockers; empty group cannot query another group source', async () => {
+  const empty = newWidget('accounts', 'widget:empty'), selected = newWidget('accounts', 'widget:selected'); selected.connection_ids = [B]; config.widgets = [empty, selected];
+  await open(); const groups = dom.node('detail').querySelectorAll('.dashboard-accounts-refresh');
+  expect(groups[0].disabled).toBe(true); expect(groups[1].disabled).toBe(false); requests = [];
+  await groups[1].onclick(); expect(writes().map(row => row.body.params.id)).toEqual([B]);
 });
-
-test('冲突保留草稿，失败重读也保留，信息刷新不拿新revision提交旧表单', async () => {
-  await openProjectOverview({ push: false }); await dom.node('detail').querySelector('.dashboard-settings-open').onclick();
-  change(input('connectionId', B), true); config = { ...config, revision: 'other-client', content: [{ id: P, sections: [] }] };
-  await button('刷新全部').onclick();
-  expect(input('connectionId', B).checked).toBe(true);
-  await button('保存').onclick(); expect(config.cards).toHaveLength(1);
-  expect(input('connectionId', B).checked).toBe(true); expect(deepText(dom.node('detail'))).toContain('编辑已保留');
-  const before = writes().length; await button('保存').onclick(); expect(writes()).toHaveLength(before);
-  intercept = path => path === '/api/host/dashboard' ? Response.json({ error: 'broken' }, { status: 500 }) : null;
-  await button('重新读取设置').onclick(); expect(input('connectionId', B).checked).toBe(true);
-  intercept = null; await button('重新读取设置').onclick(); expect(input('connectionId', B).checked).toBe(false);
-  expect(button('保存').disabled).toBe(false);
+test('configuration read failure stays unconfirmed, does not create/write a false empty panel', async () => {
+  intercept = path => path === '/api/host/dashboard' ? Response.json({ error: 'missing config' }, { status: 503 }) : null;
+  await open(); expect(panel.state().config).toBeNull(); expect(writes()).toHaveLength(0);
+  expect(deepText(dom.node('detail'))).toContain('卡片配置读取失败'); expect(dom.node('detail').querySelector('.dashboard-settings-open').disabled).toBe(true);
 });
-
-test('显式取消弹窗后，迟到的只读重读不会重新打开旧设置', async () => {
-  await openProjectOverview({ push: false }); await dom.node('detail').querySelector('.dashboard-settings-open').onclick();
-  let release; const deferred = new Promise(resolve => { release = resolve; });
-  intercept = path => path === '/api/host/dashboard' ? deferred : null;
-  const pending = button('重新读取设置').onclick(); await Promise.resolve();
-  await button('取消').onclick(); await Promise.resolve();
-  release(Response.json(config)); await pending;
-  expect(dom.node('modal').hidden).toBe(true); expect(dom.node('modal').querySelector('.dashboard-settings-panel')).toBeNull();
-  expect(writes()).toHaveLength(0);
-});
-
-test('读取失败明确未知且保留旧项目入口，不展示过期成功账户值；换页晚回复不回填', async () => {
-  await openProjectOverview({ push: false });
-  intercept = path => path === '/api/host/projects' || path === '/api/host/settings/agent/connections?scope=device'
-    ? Response.json({ error: 'offline' }, { status: 503 }) : null;
-  await button('刷新全部').onclick();
-  expect(deepText(dom.node('detail'))).toContain('当前状态未确认');
-  const account = dom.node('detail').querySelector('.dashboard-account-card');
-  expect(account.querySelectorAll('.dashboard-account-metric')).toHaveLength(0);
-  intercept = null;
-  let resolve; const deferred = new Promise(done => { resolve = done; });
-  intercept = path => path === '/api/host/dashboard' ? deferred : null;
-  const pending = button('刷新全部').onclick(); await Bun.sleep(0);
-  activateDetailView({ view: 'settings', push: false }); dom.node('detail').replaceChildren();
-  resolve(Response.json(config)); await pending;
-  expect(dom.node('detail').dataset.view).toBe('settings'); expect(dom.node('detail').querySelector('.project-board')).toBeNull();
+test('refresh while modal open keeps original revision, external change conflicts instead of overwriting old draft', async () => {
+  await open(); await settings(); config.revision = 'external'; await panel.refresh(); await button('保存').onclick(); expect(writes().at(-1).body.expected_revision).toBe('initial'); expect(panel.state().failedWrite).toBe(true);
 });

@@ -474,7 +474,12 @@ export function startWeb(config, port = 4318, options = {}) {
               before: url.searchParams.get('before'),
               limit: Number(url.searchParams.get('limit') ?? 30),
             });
-            return json({ ...page, notices: page.notices.filter(notice => notice.kind !== 'plan') });
+            // Web retires historical plans; RPC totals still include them. Only
+            // a source-provided count for this same projection is exact. Older
+            // daemons retain their cursor/has_more but must not imply a total.
+            const total = Number.isSafeInteger(page.non_plan_total) && page.non_plan_total >= 0
+              ? page.non_plan_total : undefined;
+            return json({ ...page, total, notices: page.notices.filter(notice => notice.kind !== 'plan') });
           }
           if (url.pathname === '/api/inputs') {
             const params = {};

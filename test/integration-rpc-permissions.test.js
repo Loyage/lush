@@ -72,9 +72,10 @@ test('allowed integration reads pass through existing safe handlers without gain
     expect(calls.at(-1)).toEqual(expected);
   }
   p.store.all = (...args) => { calls.push(['all', ...args]); return []; };
+  p.store.get = (...args) => { calls.push(['get', ...args]); return { total: 0, non_plan_total: 0 }; };
   expect(await d.dispatch('notice.list', { _token: 'valid-invocation' })).toEqual([]);
-  expect(await d.dispatch('notice.page', { _token: 'valid-invocation' })).toMatchObject({ notices: [], has_more: false });
-  expect(calls).toHaveLength(cases.length + 2);
+  expect(await d.dispatch('notice.page', { _token: 'valid-invocation' })).toMatchObject({ notices: [], has_more: false, total: 0, non_plan_total: 0 });
+  expect(calls).toHaveLength(cases.length + 3);
 });
 
 test('own Notice and progress stay actor-bound and caller identity fields cannot widen the helper', async () => {
