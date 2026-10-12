@@ -1,6 +1,7 @@
 import { $ } from './dom.js';
 import { api, isReadAbort, loadConnectionNames, loadHistory, projectApi, withReadSignal } from './api.js';
 import { renderDetail, renderDetailError } from './render-detail.js';
+import { loadWorkerRelations } from './render-worker-relations.js';
 import { activateDetailView, setViewChrome, toggleMobileNavigation } from './sidebar-ui.js';
 import { transcriptCache, transcriptOpen, ui } from './state.js';
 import { appendTranscriptSteps, fetchTranscriptAfter, loadTranscript } from './render-transcript.js';
@@ -124,6 +125,7 @@ export async function loadDetail(taskId) {
   const tree = $('tasks').querySelector(`[data-id="${taskId}"]`);
   if (tree) for (const node of $('tasks').children) node.classList.toggle('selected', node === tree);
   const extra = {
+    relations: read(loadWorkerRelations(taskId, { ...options, count: $('detail').querySelector('.worker-relations')?.relationsCount })),
     history: read(loadHistory(taskId, null, options)),
     ...(task.calls ? { usage: read(api(`/api/worker/${taskId}/usage`, options)) } : {}),
     ...(['order', 'child', 'say'].includes(task.task_kind) ? { connections: read(loadConnectionNames(options)) } : {}),

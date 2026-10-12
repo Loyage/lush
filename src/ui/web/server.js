@@ -27,7 +27,7 @@ const QUICK_CHAT_PARAMS = new Map([
 ]);
 const CORE_INPUT_READ = /^\/api\/input\/(draft|input)\/([1-9]\d*)$/;
 const CORE_READS = new Set(['/api/branch-convergence','/api/branch-convergence/defaults','/api/branch-convergence/runs','/api/settings/runtime','/api/settings/migration','/api/quick-explain/config','/api/hooks','/api/hooks/commands/executions','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/worker-lookup','/api/notices','/api/worker-graph','/api/versions','/api/version-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
-const CORE_WORKER_READ = /^\/api\/worker\/\d+(?:\/(?:hooks|history|history-page|reading-page|reading-record|progress-history|run-settings|delete-preview|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
+const CORE_WORKER_READ = /^\/api\/worker\/\d+(?:\/(?:hooks|relations|history|history-page|reading-page|reading-record|progress-history|run-settings|delete-preview|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的 Worker 读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/worker\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
 const CORE_DOC_READ = /^\/api\/docs\/[a-z0-9._-]+$/;
@@ -693,6 +693,16 @@ export function startWeb(config, port = 4318, options = {}) {
           if (url.pathname === '/api/intro/config') return json(await client.request('intro.config'));
           const intro = /^\/api\/intro\/(\d+)$/.exec(url.pathname);
           if (intro) return json(await client.request('intro.get', { id: Number(intro[1]) }));
+          const relations = /^\/api\/worker\/(\d+)\/relations$/.exec(url.pathname);
+          if (relations) {
+            const params = { id: id(relations[1]) };
+            for (const [key, value] of url.searchParams) {
+              check(['after','limit'].includes(key) && !Object.hasOwn(params, key), 'unknown or duplicate Worker relations query parameter');
+              check(/^(0|[1-9]\d*)$/.test(value), 'invalid Worker relations numeric query parameter');
+              params[key] = Number(value);
+            }
+            return json(await client.request('worker.relations', params));
+          }
           const progressHistory = /^\/api\/worker\/(\d+)\/progress-history$/.exec(url.pathname);
           if (progressHistory) return json(await client.request('worker.progress_history', {
             id: Number(progressHistory[1]), before: url.searchParams.get('before'),

@@ -13,6 +13,9 @@ export const handlers = {
   },
   'worker.activity'(p, params, actor) { return p.activity(Number(params.limit ?? 50), params.scope ?? 'work'); },
   'worker.page'(p, params, actor) { return p.taskPage(params.before ?? null, Number(params.limit ?? 50), params.scope ?? 'work'); },
+  'worker.relations'(p, params) { return p.taskRelations(id(params.id), {
+    ...(params.after !== undefined ? { after: params.after } : {}), ...(params.limit !== undefined ? { limit: params.limit } : {}),
+  }); },
   'worker.tree'(p, params, actor) { return p.tree(params.id ?? null); },
   'worker.ladder'(p, params, actor) { return p.ladder(); },
   'worker.inspect': async (p, params) => {

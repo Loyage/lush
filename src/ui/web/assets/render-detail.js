@@ -17,6 +17,7 @@ import { disposeDetailModules, limitDetailModules } from './detail-preview.js';
 import { captureDetailReading, restoreDetailReading } from './detail-reading.js';
 import { linkWorkerNumbers } from './worker-links.js';
 import { renderDiff } from './render-diff.js';
+import { renderWorkerRelations } from './render-worker-relations.js';
 import { deliveryControls } from './render-delivery.js';
 import { workerHooks } from './render-hooks.js';
 import { guardedAction, iterationControls } from './render-iteration.js';
@@ -77,6 +78,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const previousConversation = sameTask ? panel.querySelector('.conversation-panel') : null;
   const previousProgressHistory = sameTask ? panel.querySelector('.progress-history-panel') : null;
   const previousDiff = sameTask ? panel.querySelector('.detail-diff') : null;
+  const previousRelations = sameTask ? panel.querySelector('.worker-relations') : null;
   const historyFocus = previousProgressHistory && [...previousProgressHistory.querySelectorAll('summary'), ...previousProgressHistory.querySelectorAll('button')]
     .find(node => node === document.activeElement);
   const readingPosition = sameTask ? captureDetailReading(panel) : null;
@@ -317,21 +319,10 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   }
   if (task.role === 'verifier' || task.verifications?.length || (task.role === 'worker' && task.status === 'completed' && task.workspace && task.head_commit)) panel.append(renderVerifications(task));
 
-  if (task.children?.length) {
-    const children = block('子 Worker', String(task.children.length));
-    for (const child of task.children) {
-      const row = el('div', undefined, 'row');
-      row.append(el('span', statusOf(child).icon, `dot c-${child.status}`), el('span', workerLabel(child), 'tid'));
-      const jump = button(`${child.goal}`, () => detail(child.id), 'link', { worker: child });
-      row.append(jump, el('span', relative(child.updated_at), 'when'));
-      referenceable(row, [
-        { kind: 'task', target: { task_id: child.id }, label: `Worker ${workerLabel(child)}`, quote: child.goal, location: { view: 'task-detail', task_id: child.id } },
-        { kind: 'task_subtree', target: { task_id: child.id }, label: `Worker 子树 ${workerLabel(child)}`, quote: child.goal, location: { view: 'task-detail', task_id: child.id } },
-      ]);
-      children.append(row);
-    }
-    panel.append(children);
-  }
+  const relationsOptions = { data: progressive?.loaded?.relations, current: progressive?.current ?? (() => true), signal: progressive?.signal };
+  const relations = previousRelations || renderWorkerRelations(task, relationsOptions);
+  if (previousRelations) relations.bindRelations(task, relationsOptions);
+  panel.append(relations);
   const decisions = (task.notices || []).filter(notice => notice.kind === 'questionnaire');
   if (decisions.length) {
     const record = block('决策记录', String(decisions.length));
@@ -397,7 +388,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     }
   }
 
-  // At most four supplemental patches. Never rebuild the page or replace a live form/reader.
+  // Supplemental patches never rebuild the page or replace a live form/reader.
   const pending = new Map();
   let listening = false, observer = null, disposed = false;
   const inside = node => { for (let at = node; at; at = at.parentNode) if (at === panel) return true; return false; };
@@ -442,6 +433,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     update(kind, value, available) {
       if (disposed || !progressive.current()) { dispose(); return; }
       pending.set(kind, () => {
+        if (kind === 'relations') relations.updateRelations(value, available);
         if (kind === 'connections') { connections = value; connectionStatus = available ? 'ready' : 'unavailable'; sourcePatch(); }
         if (kind === 'usage' && agent) {
           const next = renderAgent(task, available ? value : null);

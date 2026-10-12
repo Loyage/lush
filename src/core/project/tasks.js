@@ -248,6 +248,32 @@ export default {
       has_more: hasMore, limit: size, truncated: hasMore };
   },
 
+  /** Bounded local Worker tree; SQL pagination never inherits inspect's child preview cutoff. */
+  taskRelations(taskId, { after = 0, limit = 50 } = {}) {
+    const numeric = value => typeof value === 'number' || (typeof value === 'string' && /^(0|[1-9]\d*)$/.test(value));
+    check(numeric(after) && Number.isSafeInteger(Number(after)) && Number(after) >= 0, 'invalid Worker relations cursor');
+    check(numeric(limit) && Number.isSafeInteger(Number(limit)) && Number(limit) >= 1 && Number(limit) <= PAGE_MAX, 'invalid Worker relations limit');
+    const task = this.store.task(id(taskId));
+    after = Number(after); limit = Number(limit);
+    // Never select private configuration, results, paths, reservations or hook definitions.
+    const select = `SELECT id,worker_number,parent_id,
+      (SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
+      input_id,role,task_kind,layer,substr(goal,1,200) AS goal,display_title,auto_title,
+      status,integration,updated_at,agent_wakes,agent_last_seen_at,interrupt_state FROM tasks`;
+    const parent = task.parent_id ? this.store.get(`${select} WHERE id=?`, task.parent_id) : null;
+    const rows = this.store.all(`${select} WHERE parent_id=? AND id>? ORDER BY id LIMIT ?`, task.id, after, limit + 1);
+    const total = this.store.get('SELECT count(*) AS total FROM tasks WHERE parent_id=?', task.id).total;
+    // Reuse read-only status decoration, but keep this new summary an explicit narrow contract.
+    const fields = ['id','worker_number','parent_id','parent_worker_number','input_id','role','task_kind','layer',
+      'goal','display_title','auto_title','status','integration','updated_at','agent_wakes','agent_last_seen_at','interrupt_state','accepted'];
+    const summaries = this.decorate([...(parent ? [parent] : []), ...rows.slice(0, limit)])
+      .map(row => Object.fromEntries(fields.map(key => [key, row[key] ?? null])));
+    const parentSummary = parent ? summaries.shift() : null;
+    const items = bounded(summaries, 200000);
+    return { parent: parentSummary, children: { items, total, cursor: items.at(-1)?.id ?? after,
+      has_more: rows.length > items.length, limit } };
+  },
+
   inspect(taskId) {
     // retry_profile may contain a replacement system prompt and local resource paths. It is
     // runtime configuration, not part of the task read model (agents can call worker.inspect).

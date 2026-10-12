@@ -38,6 +38,7 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 | `worker lookup NUMBER` | `worker.lookup` | `{number}`；只读 `{id,worker_number}`，把 `W5` / `W5-1` 严格解析成整数身份；用户与 Agent 均可调用。各段必须是正安全整数，`W0`/`W01`/小写/超长一律拒绝；找不到报 not found，不改任何状态，也不让原 `id` 参数接受编号 |
 | —（Web 轮询） | `worker.activity` | `{limit?: 50, scope?: 'work'|'all'}` |
 | —（Web 分页） | `worker.page` | `{before?: null, limit?: 50, scope?: 'work'|'all'}` |
+| —（Web 局部关系） | `worker.relations` | `{id,after?:0,limit?:50}`；用户专属只读，limit 1..200，after 非负安全整数 |
 | `worker spawn 'goal' --parent ID [--name NAME]` | `worker.spawn` | `{parent, goal, name?}`；父必须是 指令/child Worker |
 | `worker rename ID '标题'` | `worker.rename` | `{id,title}`；用户专属，只改展示标题，不改变正文或执行；单行最多 200 字符，空串/null 恢复自动标题；返回 `{id,display_title}` |
 | `worker auto-title '标题'` | `worker.auto_title` | `{title}`；Agent-only，有效 invocation 只写自身 order/child；非空单行最多 60 字符，首次成功后不覆盖或清空；返回 `{id,auto_title,changed}`，Web 不开放写入口 |
@@ -68,6 +69,12 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 标题读面带可空 `display_title` / `auto_title`，展示按用户手动标题 → Agent 自动标题 → 原目标首行。清空手动标题恢复自动标题；追加输入不重命名。自动标题只由当前 Agent 理解目标后调用接口产生，不另起模型请求、不批量回填旧记录；不改变 goal、输入原文、编号或 Git 身份。完整权限和存储边界见[自动标题](../../engineering/core-api.md#agent-自动标题w202决定-d471)。
 
 `worker.activity` / `worker.page` 的 `scope='work'|'all'` 省略时保留旧 work 口径；Web overview 与历史分页显式请求 `all`，继续有界读取，不改Worker实体或存储层级。`GET /api/workers` 透传 scope。
+
+## 局部 Worker 关系
+
+`worker.relations` 返回 `{parent:null|summary,children:{items,total,cursor,has_more,limit}}`。parent 是直接父 Worker（包括 main/owner），items 是全部直接子 Worker 的分页，不包含祖先、兄弟或孙辈，不按状态、归档、层级或历史类型过滤。以内部 id 升序、`id>after` 读取；cursor 为本页最后 id，空页沿用 after，total 是全部直接子总数。子节点摘要每页最多 200,000 UTF-8 字节，达到预算时减少条数并以 has_more/cursor 继续，不沿用 inspect 的子节点预览截断。
+
+summary 白名单提供明确 worker_number、父编号、标题、goal 前 200 字符、真实 status/integration/task_kind/role、更新时间、调用唤醒数、中断意愿与既有只读验收投影；不包含运行配置、env、Hooks、凭证、结果正文、工作区路径或预约定义。不读 Git／会话、不写入或唤醒 Agent；未知参数拒绝，id 必须是存在的正整数。Web 详情主体不等此补充读取，加载失败不冒充没有关系。
 
 ## 规划历史
 

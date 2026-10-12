@@ -17,6 +17,7 @@ const reads = [
   ['worker/7', 'inspect', { id: 7 }],
   ['worker/7/history?after=2', 'history', { id: 7, after: 2 }],
   ['worker/7/history-page?before=9&limit=2', 'history_page', { id: 7, before: 9, limit: 2 }],
+  ['worker/7/relations?after=0&limit=2', 'relations', { id: 7, after: 0, limit: 2 }],
   ['worker/7/delete-preview', 'delete_preview', { id: 7 }],
   ['worker/7/diff', 'diff', { id: 7 }],
   ['worker/7/usage', 'usage', { id: 7 }],
