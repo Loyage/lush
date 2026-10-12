@@ -439,7 +439,7 @@ test('parent dashboard controller saves committed grid drafts explicitly and can
   const widgetId = 'widget:grid-status';
   const widget = { id: widgetId, type: 'status', project_id: ids[0], connection_ids: [], links: [], sections: ['metrics'] };
   const legacy = cell(ids[0], 2, 4, 4, 8);
-  let config = { version: 4, revision: 'grid-device', account_view: 'list', widgets: [widget], cards: [], hidden_projects: [], content: [], layout: [legacy, cell(widgetId, 2, 4, 4, 10)] };
+  let config = { version: 5, diagnostics: false, revision: 'grid-device', account_view: 'list', widgets: [widget], cards: [], hidden_projects: [], content: [], layout: [legacy, cell(widgetId, 2, 4, 4, 10)] };
   const writes = [];
   globalThis.fetch = async (url, options = {}) => {
     if (url === '/api/host/dashboard') {
@@ -467,6 +467,7 @@ test('parent dashboard controller saves committed grid drafts explicitly and can
   button('编辑布局').onclick(); key(handle(panel.root.querySelector('.project-board-card')), 'ArrowDown');
   await button('取消布局').onclick(); expect(writes).toHaveLength(1);
   expect(panel.root.querySelector('.project-board-card').style['grid-row']).toBe('6 / span 10');
+  panel.dispose();
 });
 
 test('appearance failures remain explicit and reject wrong identities, versions and arbitrary colors', async () => {

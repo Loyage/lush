@@ -264,22 +264,22 @@ test('账户内容开关独立控制余额额度重置详细来源与旧值', ()
 test('v2配置保留全部字段，父传双快照无GET，单快照只读缺失资源；v1缺省数组兼容', async () => {
   config = { ...config, version: 2, hidden_projects: ['abcdef0123456789'], layout: [{ id: `account:${ids[0]}`, x: 0, y: 2, w: 4, h: 6 }],
     content: [{ id: `account:${ids[0]}`, sections: [] }] };
-  expect(await readDashboardConfig()).toEqual({ ...config, account_view: 'list' }); expect(await loadDashboardConnections()).toEqual(connections);
+  expect(await readDashboardConfig()).toEqual({ ...config, account_view: 'list', diagnostics: true }); expect(await loadDashboardConnections()).toEqual(connections);
   requests.length = 0;
   expect(await loadAccountCards({ config, connections })).toHaveLength(2); expect(requests).toHaveLength(0);
   await loadAccountCards({ config }); expect(requests.map(entry => entry.url)).toEqual(['/api/host/settings/agent/connections?scope=device']);
   requests.length = 0; await loadAccountCards({ connections }); expect(requests.map(entry => entry.url)).toEqual(['/api/host/dashboard']);
   config = { version: 1, revision: 'old', cards: [] };
-  expect(await readDashboardConfig()).toEqual({ ...config, hidden_projects: [], layout: [], content: [], account_view: 'list' });
+  expect(await readDashboardConfig()).toEqual({ ...config, hidden_projects: [], layout: [], content: [], account_view: 'list', diagnostics: true });
 });
 
 test('保存ACK传value仅本地校验，保留v2字段且不修改原应答；v1缺省数组仍兼容', async () => {
   const ack = { ...config, version: 2, hidden_projects: ['abcdef0123456789'],
     layout: [{ id: `account:${ids[0]}`, x: 1, y: 2, w: 4, h: 6 }], content: [{ id: `account:${ids[0]}`, sections: [] }] };
-  const validated = await readDashboardConfig({ value: ack }); expect(validated).toEqual({ ...ack, account_view: 'list' });
+  const validated = await readDashboardConfig({ value: ack }); expect(validated).toEqual({ ...ack, account_view: 'list', diagnostics: true });
   validated.cards.length = 0; validated.hidden_projects.length = 0; validated.layout[0].x = 9; validated.content[0].sections.push('balance');
   expect(ack.cards).toHaveLength(2); expect(ack.hidden_projects).toHaveLength(1); expect(ack.layout[0].x).toBe(1); expect(ack.content[0].sections).toEqual([]);
-  expect(await readDashboardConfig({ value: config })).toEqual({ ...config, hidden_projects: [], layout: [], content: [], account_view: 'list' });
+  expect(await readDashboardConfig({ value: config })).toEqual({ ...config, hidden_projects: [], layout: [], content: [], account_view: 'list', diagnostics: true });
   expect(requests).toHaveLength(0);
 });
 
@@ -316,7 +316,7 @@ test('固定父v2契约严格校验12列布局和分类型内容键，拒绝旧p
   const valid = { ...config, version: 2, hidden_projects: [],
     layout: [{ id: 'abcdef0123456789', x: 11, y: 4095, w: 1, h: 80 }],
     content: [{ id: 'abcdef0123456789', sections: ['metrics', 'messages'] }, { id: `account:${ids[0]}`, sections: ['quota', 'history'] }] };
-  expect(await readDashboardConfig({ value: valid })).toEqual({ ...valid, account_view: 'list' });
+  expect(await readDashboardConfig({ value: valid })).toEqual({ ...valid, account_view: 'list', diagnostics: true });
   const layout = valid.layout[0];
   for (const item of [{ ...layout, id: 'project:abcdef0123456789' }, { ...layout, x: 12 }, { ...layout, y: 4096 },
     { ...layout, x: 0, w: 13 }, { ...layout, w: 2 }, { ...layout, h: 5 }, { ...layout, h: 81 }, { ...layout, extra: true }]) {

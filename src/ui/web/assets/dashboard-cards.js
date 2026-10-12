@@ -29,7 +29,7 @@ const uniqueIds = rows => new Set(rows.map(row => row?.id)).size === rows.length
 const note = (parent, value, warning = false) => parent.append(el('p', value, warning ? 'dashboard-card-warning' : 'dashboard-card-note'));
 const stalePage = () => new DOMException('账户卡片页面已离开', 'AbortError');
 function validateConfig(value) {
-  if (![1, 2, 3, 4].includes(value?.version) || typeof value.revision !== 'string' || !value.revision || !Array.isArray(value.cards) || value.cards.length > 100
+  if (![1, 2, 3, 4, 5].includes(value?.version) || typeof value.revision !== 'string' || !value.revision || !Array.isArray(value.cards) || value.cards.length > 100
     || value.cards.some(card => !fields(card, ['type', 'connection_id']) || card.type !== 'account' || !uuid(card.connection_id))
     || new Set(value.cards.map(card => card.connection_id)).size !== value.cards.length) {
     throw new Error('卡片配置响应无效；未将其视为无卡片');
@@ -37,7 +37,8 @@ function validateConfig(value) {
   const { hidden_projects = [], layout = [], content = [] } = value;
   if ((value.version >= 2 && !['hidden_projects', 'layout', 'content'].every(key => Array.isArray(value[key])))
     || (value.version >= 3 && !['list', 'tiles'].includes(value.account_view))
-    || (value.version === 4 && !Object.hasOwn(value, 'widgets'))
+    || (value.version >= 4 && !Object.hasOwn(value, 'widgets'))
+    || (value.version === 5 && typeof value.diagnostics !== 'boolean')
     || ![hidden_projects, layout, content].every(Array.isArray)
     || [hidden_projects, layout, content].some(items => items.length > 300)
     || hidden_projects.some(id => !projectId(id))
@@ -51,7 +52,8 @@ function validateConfig(value) {
     throw new Error('卡片配置响应无效；未将其视为无卡片');
   }
   return { version: value.version, revision: value.revision, account_view: value.version >= 3 ? value.account_view : 'list',
-    ...(value.version === 4 ? { widgets: validateWidgets(value.widgets) } : {}),
+    diagnostics: value.version === 5 ? value.diagnostics : true,
+    ...(value.version >= 4 ? { widgets: validateWidgets(value.widgets) } : {}),
     cards: value.cards.map(({ connection_id }) => ({ type: 'account', connection_id })),
     hidden_projects: [...hidden_projects], layout: layout.map(item => ({ ...item })),
     content: content.map(item => ({ ...item, sections: [...item.sections] })) };

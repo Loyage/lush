@@ -16,14 +16,14 @@ function fixture() {
     close() { fs.rmSync(root, { recursive: true, force: true }); } };
 }
 
-test('v1 reads as complete v4 without rewriting bytes or metadata and only explicit save upgrades it', () => {
+test('v1 reads as complete v5 without rewriting bytes or metadata and only explicit save upgrades it', () => {
   const f = fixture(), selected = account();
   try {
     fs.mkdirSync(f.config.deviceHome, { mode: 0o700 });
     const source = JSON.stringify({ version: 1, cards: [selected] }, null, 4) + '\n';
     fs.writeFileSync(f.file, source, { mode: 0o600 });
     const stat = fs.statSync(f.file), model = readDashboardSettings(f.config);
-    expect(model).toMatchObject({ version: 4, cards: [selected], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null });
+    expect(model).toMatchObject({ version: 5, cards: [selected], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null, diagnostics: true });
     expect(readDashboardSettings(f.config)).toEqual(model);
     expect(fs.readFileSync(f.file, 'utf8')).toBe(source);
     const after = fs.statSync(f.file);
@@ -31,7 +31,7 @@ test('v1 reads as complete v4 without rewriting bytes or metadata and only expli
     const upgraded = saveDashboardSettings(f.config, { hidden_projects: [project] }, model.revision);
     expect(upgraded.cards).toEqual([selected]); expect(upgraded.hidden_projects).toEqual([project]);
     expect(upgraded.revision).not.toBe(model.revision);
-    expect(JSON.parse(fs.readFileSync(f.file, 'utf8'))).toEqual({ version: 4, cards: [selected], hidden_projects: [project], layout: [], content: [], account_view: 'list', widgets: null });
+    expect(JSON.parse(fs.readFileSync(f.file, 'utf8'))).toEqual({ version: 5, cards: [selected], hidden_projects: [project], layout: [], content: [], account_view: 'list', widgets: null, diagnostics: true });
     expect(fs.existsSync(f.config.home)).toBe(false);
   } finally { f.close(); }
 });

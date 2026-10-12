@@ -26,7 +26,7 @@ const v3 = () => ({ version: 3, revision: 'r3', account_view: 'list', cards: [{ 
 test('v3完整规范保留统一窗口及旧逐来源布局内容，list/tiles仅本地校验不写回', async () => {
   for (const mode of ['list', 'tiles']) {
     const value = { ...v3(), account_view: mode }, copy = structuredClone(value);
-    expect(await readDashboardConfig({ value })).toEqual(value); expect(value).toEqual(copy);
+    expect(await readDashboardConfig({ value })).toEqual({ ...value, diagnostics: true }); expect(value).toEqual(copy);
     const rows = await loadAccountCards({ config: value, connections: [account(1).connection] });
     expect(rows.map(row => row.id)).toEqual([`account:${id(1)}`]); expect(rows[0].connection.label).toBe('同名来源');
   }
@@ -62,7 +62,7 @@ test('真实v4完整ACK兼容widgets/null/空面板及来源规范化，重复�
   const home = mkdtempSync(join(tmpdir(), 'lush-widget-v4-reader-'));
   try {
     chmodSync(home, 0o700); const device = { home }, initial = readDashboardSettings(device);
-    expect(initial.version).toBe(4); expect((await readDashboardConfig({ value: initial })).widgets).toBeNull();
+    expect(initial.version).toBe(5); expect((await readDashboardConfig({ value: initial })).widgets).toBeNull();
     const accountWidget = newWidget('accounts', 'widget:account'); accountWidget.connection_ids = [id(1).toUpperCase()];
     const links = newWidget('shortcuts', 'widget:links'); links.links = Array.from({ length: 2 }, () => ({ scope: 'global', target: 'settings', project_id: null }));
     const ack = await saveDashboardSettings(device, { widgets: [accountWidget, links], layout: [{ id: accountWidget.id, x: 0, y: 0, w: 6, h: 14 }] }, initial.revision);
@@ -102,9 +102,9 @@ test('真实GET通道读取v3模式及旧v1/v2默认，仅读取配置而不写�
 
 test('v1/v2兼容返回默认list，旧内容与布局不丢失且不初始化设置', async () => {
   const value = v3(), { account_view, ...old } = value;
-  expect(await readDashboardConfig({ value: { ...old, version: 2 } })).toEqual({ ...old, version: 2, account_view: 'list' });
+  expect(await readDashboardConfig({ value: { ...old, version: 2 } })).toEqual({ ...old, version: 2, account_view: 'list', diagnostics: true });
   const v1 = { version: 1, revision: 'old', cards: value.cards };
-  expect(await readDashboardConfig({ value: v1 })).toEqual({ ...v1, account_view: 'list', layout: [], content: [], hidden_projects: [] });
+  expect(await readDashboardConfig({ value: v1 })).toEqual({ ...v1, account_view: 'list', layout: [], content: [], hidden_projects: [], diagnostics: true });
   expect(requests).toHaveLength(0);
 });
 

@@ -27,7 +27,7 @@ const footerButtons = root => root.querySelector('.dashboard-widget-pagination')
 
 test('v4 strict reader keeps legacy fields, null compatibility and genuine empty; invalid or incomplete ACK is never blank', async () => {
   const base = { version: 4, revision: 'r4', account_view: 'list', cards: [], hidden_projects: [], layout: [], content: [], widgets: null };
-  expect(await readDashboardConfig({ value: base })).toEqual(base);
+  expect(await readDashboardConfig({ value: base })).toEqual({ ...base, diagnostics: true });
   expect((await readDashboardConfig({ value: { ...base, widgets: [] } })).widgets).toEqual([]);
   for (const patch of [{ widgets: undefined }, { widgets: [{ id: 'widget:a', type: 'accounts' }] }, { account_view: undefined }, { layout: undefined }]) await expect(readDashboardConfig({ value: { ...base, ...patch } })).rejects.toThrow();
   const widget = newWidget('messages', 'widget:messages', P);

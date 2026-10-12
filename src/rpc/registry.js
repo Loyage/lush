@@ -5,7 +5,7 @@ import { normalizeConfigurationScope } from '../core/device-config.js';
 // Intent/Plan/Candidate and optional services cannot create new work.
 export const PARAMS = {
   'system.status': [], 'system.summary': ['development'], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings','scope'],
-  'system.settings': ['scope'], 'system.interrupt_all': [], 'system.resume_all': [],
+  'system.settings': ['scope'], 'system.diagnostics': [], 'system.interrupt_all': [], 'system.resume_all': [],
   'settings.clear_override': ['kind','target'], 'settings.migration.preview': [], 'settings.migration.apply': ['revision','confirm'],
   'agent.config': ['scope'], 'agent.models': ['agent','scope'], 'agent.resources': ['scope'], 'agent.status': ['scope'], 'agent.configure': ['config','scope'],
   'agent.network': ['scope'], 'agent.network.configure': ['config','scope'],
@@ -74,7 +74,7 @@ export const PARAMS = {
   'graph.get': [],
 };
 export const USER_ONLY = new Set([
-  'system.settings','settings.clear_override','settings.migration.preview','settings.migration.apply',
+  'system.diagnostics','system.settings','settings.clear_override','settings.migration.preview','settings.migration.apply',
   'system.stop','system.stop_if_idle','system.interrupt_all','system.resume_all','system.configure','agent.config','agent.models','agent.resources','agent.configure','agent.status','agent.environment','agent.environment.configure','agent.network','agent.network.configure',
   'branch.history','branch.version_graph','worker.code_state','worker.code_tree','worker.code_file',
   'agent.usage.config','agent.usage.configure','agent.usage.history','agent.selection.resources',

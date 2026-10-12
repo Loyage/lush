@@ -285,6 +285,11 @@ export function startWeb(config, port = 4318, options = {}) {
           }
           return json({ error: 'not found' }, 404);
         }
+        if (url.pathname === '/api/host/diagnostics') {
+          if (request.method !== 'GET') return json({ error: 'not found' }, 404);
+          userQuery(url, []);
+          return json(await projectHost.diagnostics());
+        }
         if (request.method === 'GET' && url.pathname === '/api/host/inbox') {
           const query = userQuery(url, ['status', 'before', 'limit']);
           if (Object.hasOwn(query, 'limit')) {

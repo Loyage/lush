@@ -10,6 +10,10 @@ export const handlers = {
   'sleep.status'(p) { return p.sleepStatus(); },
   'sleep.choices'(p, params) { return p.sleepChoices(params.before, params.limit); },
   'system.usage'(p, params) { return p.usageStatistics(params); },
+  'system.diagnostics'(p, params, actor) {
+    check(actor === null, 'runtime diagnostics requires user approval');
+    return p.runtimeDiagnostics();
+  },
   'system.status'(p, params, actor) { return { ...p.status(actor === null), ...this.identity, pid: process.pid }; },
   // Polling summary has its own indexed/persistent-cursor path and never opens the full Agent profile.
   'system.summary'(p, params, actor) {

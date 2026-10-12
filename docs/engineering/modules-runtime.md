@@ -17,7 +17,7 @@
 | 文件 | 职责 | 导出 / 接入 |
 |---|---|---|
 | `core/device-config.js` | 真实 Config 技术设置只选设备根，显式 project 拒绝；低层选根仅供迁移／独立旧根；保留项目身份、私有权限及跨进程锁 | `settingsConfigurationScope`、`normalizeConfigurationScope`、`configurationHome`、`scopedConfiguration`、`configurationScope`、`documentConfigurationScope`、`validateConfigurationDirectory`、`ensureConfigurationDirectory`、`acquireConfigurationLock`、`withConfigurationWriteLock` |
-| `core/dashboard-settings.js` | 设备共享总览 v3：账户选择、统一额度窗口 list／tiles、项目隐藏、布局及内容；v1/v2 只读兼容、partial patch、revision／共享写锁和私有原子发布，保留旧账户数据，不存余额或凭证、不联网 | `normalizeDashboardCards(cards)`、`normalizeDashboardPatch(patch)`、`readDashboardSettings(config)`、`saveDashboardSettings(config,patchOrCardsArray,expectedRevision)`；[总览契约](dashboard-panel.md) |
+| `core/dashboard-settings.js` | 设备共享总览 v5：账户选择、统一额度窗口、项目隐藏、布局、内容、原始成员及诊断卡显示开关；v1–v4 只读兼容、partial patch、revision／共享写锁和私有原子发布，不存用量、余额或凭证、不联网 | `normalizeDashboardCards(cards)`、`normalizeDashboardPatch(patch)`、`readDashboardSettings(config)`、`saveDashboardSettings(config,patchOrCardsArray,expectedRevision)`；[总览契约](dashboard-panel.md) |
 | `core/device-preferences.js` | 设备偏好白名单、默认、只读模型、canonical values revision 与共享写锁内私有原子保存；不读浏览器缓存 | `PREFERENCE_DEFAULTS`、`readDevicePreferences(config)`、`saveDevicePreferences(config,patch,expectedRevision)` |
 | `core/device-automation.js` | 默认关闭的设备唯一自动选择／未来指令默认流程；同一 settings-write 锁排序授权保存与最终同步答复事务 | `DeviceAutomationSettings(config).get/save/withPolicy` |
 | `core/quick-explanation-policy.js` | Project 与无项目 Host 共用只读配置就绪校验，不联网 | `explanationReadiness(connection,profile,requireModel?)` |
@@ -80,6 +80,7 @@
 | `agent/guide.js` | 旧调用方兼容出口；核心组合由 prompts.js 提供，可选指南由 capabilities.js 固定注册表提供 | `GUIDE` |
 | `core/transcript-reader.js` | 完整Worker会话的流式检索、按类型／工具／失败过滤、步骤分段原文与同会话调用 ID 配对；单行超过 16 MiB 明确报不完整，不受快速视图前 8 MiB 的范围限制 | `searchTranscript(config,taskId,options)`、`transcriptStep(config,taskId,seq,offset)`、`transcriptPage(config,taskId,seq?,offset?)`（连续完整文字，有界分段） |
 | `core/transcript.js` | 兼容快速记录与用量投影；保留调用身份；与全文读面共享步骤投影；`readTranscriptLatest` 另做一次完整的异步流式扫描，尾部不受前 8 MiB 窗口限制，只保留 `limit` 大小的环形窗口与当前 token 批次 | `projectRecord(record,max?)`、`readTranscript`、`readTranscriptLatest(config,taskId,{after,before,limit})`、`readUsage`、`sessionFiles`、`transcriptReadStats` |
+| `core/runtime-diagnostics.js`／`project/diagnostics.js` | 最近用量的有界增量只读采集、单飞缓存、1／5 分钟速率及十秒趋势桶；缺失、截断与 fork 归属保持明确，用户专属 RPC 不修改会话或启动模型 | `RuntimeDiagnostics`、`runtimeDiagnostics()`；[诊断契约](dashboard-panel.md#运行诊断卡) |
 | `core/usage-statistics.js` | 项目完整会话的异步流式只读统计；有限 LRU 精简用量缓存、并发扫描单飞、时间过滤、UTC 分桶、provider/model 汇总与覆盖说明 | `readUsageStatistics(config,options,metadata?)`、`readWorkerResources(config,tasks,runs?,{read_ids?}?)`（自身/子树消耗与工作时长摘要；按需范围外只用有效缓存，否则未知，字段见 modules.md） |
 | `core/usage-attribution.js` | 使用显式身份或唯一 Run 时间区间生成有界 Worker / role / invocation 统计（内部字段仍为 `task`），无法确认时保留 unknown | `usageAttribution(metadata)` |
 

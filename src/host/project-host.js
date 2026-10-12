@@ -2,6 +2,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { Config } from '../config.js';
 import { UIClient } from '../ui/client.js';
+import { HostRuntimeDiagnostics } from './runtime-diagnostics.js';
 import { startProjectDaemon, stopProjectDaemon } from './service-control.js';
 import { check } from '../core/types.js';
 import { readProjectAppearance, saveProjectAppearance } from './project-appearance.js';
@@ -173,8 +174,18 @@ export function createProjectHost(initialConfig = null, options = {}) {
     return { id, name: path.basename(project) || project, project, appearance };
   }
 
+  // Deliberately bypass connect(): read attachment must not run retirement or daemon startup.
+  const diagnostics = new HostRuntimeDiagnostics(() => entries().map(row => ({ id: row.id, name: row.name,
+    async read(signal) {
+      const binding = connections.get(row.project);
+      const config = binding?.config || new Config({ project: row.project, env });
+      if (!binding && !fs.existsSync(config.socket)) return null;
+      return (binding?.client || new UIClient(config)).request('system.diagnostics', {}, { signal });
+    } })), options.diagnosticsOptions);
+
   return {
     launcher,
+    diagnostics() { return diagnostics.read(); },
     appearance(id) { return appearanceMetadata(id); },
     saveAppearance(id, body) { return appearanceMetadata(id, body, true); },
     async status() {

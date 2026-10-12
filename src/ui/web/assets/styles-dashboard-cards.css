@@ -147,3 +147,31 @@
 .project-board .dashboard-widget-body .dashboard-project-navigation-slots{display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:44px;gap:4px;border:0;margin:0;padding:0;min-height:0}
 .project-board .dashboard-project-navigation-slots a{min-width:0;min-height:44px;box-sizing:border-box;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @container dashboard-project-footer (min-width:480px){.project-board:not(.project-board-editing) .dashboard-project-direct-links{display:flex}}
+
+/* Diagnostics is a fixed grid occupant; graphs never resize neighboring cards. */
+.diagnostics-windows{display:grid;gap:4px;min-width:0}
+.diagnostics-window{display:grid;grid-template-columns:36px repeat(3,minmax(0,1fr));gap:5px;align-items:center;height:28px;min-width:0;font-variant-numeric:tabular-nums}
+.diagnostics-period{font-size:10px;color:var(--muted);white-space:nowrap}
+.diagnostics-rate{display:flex;flex-direction:column;min-width:0;line-height:14px}
+.diagnostics-rate>span{color:var(--muted);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.diagnostics-rate>strong{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.diagnostics-note,.diagnostics-coverage{margin:0;min-width:0;font-size:10px;line-height:14px;color:var(--muted)}
+.project-board .diagnostics-coverage,.project-board .diagnostics-note{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.diagnostics-coverage{color:var(--awaiting)}
+.diagnostics-trends{display:grid;gap:4px;min-width:0}
+.diagnostics-trend{display:grid;grid-template-rows:14px 26px;gap:2px;min-width:0;margin:0}
+.diagnostics-trend figcaption{font-size:10px;line-height:14px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.diagnostics-trend-bars{display:grid;grid-template-columns:repeat(60,minmax(0,1fr));gap:1px;height:26px;min-width:0;border-bottom:1px solid var(--line)}
+.diagnostics-trend-slot{display:flex;align-items:flex-end;min-width:0;height:26px;background:var(--panel-2)}
+.diagnostics-trend-bar{display:block;width:100%;background:var(--accent)}
+.diagnostics-trend-output .diagnostics-trend-bar{background:var(--running)}
+.diagnostics-trend-cost .diagnostics-trend-bar{background:var(--awaiting)}
+.diagnostics-trend-slot.unknown{background:repeating-linear-gradient(135deg,var(--line) 0 2px,transparent 2px 5px)}
+.dashboard-diagnostics-card .dashboard-widget-header{padding-right:0}
+.dashboard-diagnostics-refresh[aria-disabled="true"]{opacity:.6;cursor:wait}
+.project-board-editing .dashboard-diagnostics-card .dashboard-widget-header{padding-right:92px}
+.diagnostics-details{display:grid;gap:12px;min-width:0;font-size:12px;overflow-wrap:anywhere}
+.diagnostics-details p{margin:0}
+.diagnostics-details .diagnostics-window{height:auto;min-height:36px}
+.diagnostics-details .diagnostics-rate>span{white-space:normal}
+.diagnostics-sources{margin:0;padding-left:20px}

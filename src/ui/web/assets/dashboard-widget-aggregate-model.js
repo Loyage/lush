@@ -2,7 +2,7 @@ import { newWidget, validateWidgets, GLOBAL_LINKS, PROJECT_LINKS, WIDGET_SECTION
 import { PROJECT_CARD_DEFAULTS } from './project-dashboard-content.js';
 
 export const ACCOUNT_DEFAULTS = ['quota', 'balance', 'reset', 'observed'];
-export const AGGREGATE_SIZES = { project: { w: 6, h: 24 }, accounts: { w: 6, h: 16 } };
+export const AGGREGATE_SIZES = { project: { w: 6, h: 24 }, accounts: { w: 6, h: 16 }, diagnostics: { w: 6, h: 18 } };
 const explicit = config => Array.isArray(config.widgets);
 const unique = values => [...new Set(values)];
 const sameLink = (a, b) => a.scope === b.scope && a.target === b.target && a.project_id === b.project_id;

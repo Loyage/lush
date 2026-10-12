@@ -23,7 +23,7 @@ test('v4 widgets preserve all legacy data and distinguish projection/null from a
   const f = fixture(), connection_id = randomUUID(), oldId = `account:${connection_id}`;
   try {
     let current = readDashboardSettings(f.config);
-    expect(current).toMatchObject({ version: 4, widgets: null });
+    expect(current).toMatchObject({ version: 5, widgets: null, diagnostics: true });
     expect(fs.existsSync(f.config.home)).toBe(false);
     const legacy = { cards: [{ type: 'account', connection_id }], hidden_projects: [project],
       layout: [layout(project), layout(oldId)], content: [{ id: oldId, sections: ['history'] }], account_view: 'tiles' };
@@ -138,7 +138,7 @@ test('legacy v3 remains strict and complete; v4 refuses unsafe or malformed widg
   try {
     const saved = saveDashboardSettings(f.config, { widgets: [widget()] }, readDashboardSettings(f.config).revision);
     const { revision, ...settings } = saved;
-    const { widgets, ...v3 } = settings;
+    const { widgets, diagnostics, ...v3 } = settings;
     const legacy = { ...v3, version: 3 };
     fs.writeFileSync(f.file, JSON.stringify(legacy));
     expect(readDashboardSettings(f.config)).toMatchObject({ ...settings, widgets: null });

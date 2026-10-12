@@ -9,7 +9,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (path === '/api/host/projects') return Response.json({ projects });
   if (/^\/api\/host\/projects\/[a-f0-9]{16}\/appearance$/.test(path)) return Response.json({ id: path.split('/')[4], appearance: { version: 1, color: 'rose' } });
   if (path === '/api/host/dashboard') {
-    if (options.method === 'POST') { if (body.expected_revision !== config.revision) return Response.json({ error: 'revision changed' }, { status: 409 }); const { expected_revision, ...patch } = body; config = { account_view: 'list', hidden_projects: [], content: [], layout: [], ...config, widgets: config.widgets ?? null, ...clone(patch), version: 4, revision: `r${++serial}` }; }
+    if (options.method === 'POST') { if (body.expected_revision !== config.revision) return Response.json({ error: 'revision changed' }, { status: 409 }); const { expected_revision, ...patch } = body; config = { account_view: 'list', hidden_projects: [], content: [], layout: [], ...config, widgets: config.widgets ?? null, diagnostics: config.diagnostics ?? true, ...clone(patch), version: 5, revision: `r${++serial}` }; }
     return Response.json(clone(config));
   }
   if (path === '/api/host/settings/agent/connections?scope=device') return Response.json({ connections, configuration_scope: scope });
@@ -18,7 +18,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (path.includes('/api/workers?')) return Response.json({ tasks: [], has_more: false });
   return Response.json({ error: path }, { status: 404 });
 } });
-afterAll(() => dom.restore());
+afterAll(() => { panel?.dispose(); dom.restore(); });
 const { createDashboardPanel } = await import('../../src/ui/web/assets/dashboard-panel.js');
 const { newWidget } = await import('../../src/ui/web/assets/dashboard-widget-model.js');
 const { AGGREGATE_SIZES, aggregateAccountIds, aggregateLinks } = await import('../../src/ui/web/assets/dashboard-widget-aggregate-model.js');
@@ -52,16 +52,45 @@ const change = (node, checked) => { node.checked = checked; node.onchange(); };
 const writes = () => requests.filter(row => row.method === 'POST');
 const widgets = () => dom.node('detail').querySelectorAll('.dashboard-widget');
 const card = id => widgets().find(node => node.dataset.cardId === id);
-async function open(real = false) { panel = createDashboardPanel({ ownsPage: () => current, ...(real ? {} : { createBoard }) }); dom.node('detail').replaceChildren(panel.root); await panel.ready(); return panel; }
+async function open(real = false) { panel?.dispose(); panel = createDashboardPanel({ ownsPage: () => current, ...(real ? {} : { createBoard }) }); dom.node('detail').replaceChildren(panel.root); await panel.ready(); return panel; }
 async function settings() { await dom.node('detail').querySelector('.dashboard-settings-open').onclick(); }
 async function cardSettings(id = P) { await card(id).querySelector('.dashboard-card-settings').onclick(); }
 const status = () => newWidget('status', 'widget:status', P);
 const account = (id = A, name = 'widget:accounts') => ({ ...newWidget('accounts', name), connection_ids: [id] });
 beforeEach(() => {
-  closeDialog(); dom.node('detail').replaceChildren(); requests = []; intercept = null; serial = 0; current = true;
-  config = { version: 4, revision: 'initial', widgets: null, account_view: 'list', cards: [{ type: 'account', connection_id: A }], hidden_projects: [], layout: [], content: [] };
+  panel?.dispose(); closeDialog(); dom.node('detail').replaceChildren(); requests = []; intercept = null; serial = 0; current = true;
+  config = { version: 5, diagnostics: false, revision: 'initial', widgets: null, account_view: 'list', cards: [{ type: 'account', connection_id: A }], hidden_projects: [], layout: [], content: [] };
   projects = [{ id: P, name: '项目A', project: '/fixture/a', running: true }, { id: Q, name: '项目B', running: false }];
   connections = [A, B].map(id => ({ id, label: id, enabled: true, observation: { status: 'available', resources: [] } }));
+});
+const diagnosticsSnapshot = () => ({ version: 1, generated_at: '2026-10-12T12:00:00Z', currency: 'USD', estimated: true,
+  windows: [60, 300].map(seconds => ({ seconds, input: 600, output: 60, cost: 0.1, requests: 1, input_per_second: 10, output_per_second: 1, cost_per_minute: 0.1, unknown_tokens: 0, unknown_cost: 0, complete: true })),
+  buckets: Array.from({ length: 60 }, () => ({ at: '2026-10-12T12:00:00Z', input: 10, output: 1, cost: 0.01, unknown_tokens: 0, unknown_cost: 0 })),
+  coverage: { projects_total: 1, projects_online: 1, projects_reporting: 1, complete: true }, projects: [{ id: P, name: '项目A', state: 'online', generated_at: '2026-10-12T12:00:00Z' }] });
+test('diagnostics default legacy projection, global toggle and layout save do not materialize or touch membership', async () => {
+  config = { ...config, version: 4 }; delete config.diagnostics;
+  intercept = path => path === '/api/host/diagnostics' ? Response.json(diagnosticsSnapshot()) : null;
+  const before = clone(config); await open(); const diagnostics = card('widget:diagnostics');
+  expect(diagnostics).not.toBeNull(); expect(config).toEqual(before); expect(writes()).toHaveLength(0);
+  expect(requests.filter(row => row.path === '/api/host/diagnostics')).toHaveLength(1);
+  await settings(); change(input({ diagnostics: 'enabled' }), false); await button('保存').onclick();
+  expect(writes().at(-1).body).toEqual({ diagnostics: false, expected_revision: 'initial' }); expect(config.widgets).toBeNull();
+  expect(card('widget:diagnostics')).toBeUndefined(); expect(config.layout).toEqual(before.layout);
+  await settings(); change(input({ diagnostics: 'enabled' }), true); await button('保存').onclick();
+  await button('编辑布局').onclick(); await button('保存布局').onclick(); expect(config.widgets).toBeNull(); expect(config.diagnostics).toBe(true);
+  expect(writes().at(-1).body).not.toHaveProperty('diagnostics'); expect(config.layout.some(cell => cell.id === 'widget:diagnostics')).toBe(true);
+  config.widgets = []; await open(); expect(widgets().map(item => item.dataset.cardId)).toEqual(['widget:diagnostics']);
+});
+test('diagnostic refresh preserves layout/form drafts, original revision, card node and focus without querying accounts', async () => {
+  config.diagnostics = true; intercept = path => path === '/api/host/diagnostics' ? Response.json(diagnosticsSnapshot()) : null;
+  await open(); await button('编辑布局').onclick(); dom.node('detail').querySelector('.project-board-handle').onkeydown({ key: 'ArrowDown' });
+  const diagnostics = card('widget:diagnostics'), refresh = diagnostics.querySelector('.dashboard-diagnostics-refresh'); requests = [];
+  refresh.focus(); await refresh.onclick(); expect(panel.state().editing).toBe(true); expect(panel.state().layoutDirty).toBe(true);
+  expect(panel.state().config.revision).toBe('initial'); expect(card('widget:diagnostics')).toBe(diagnostics); expect(dom.document.activeElement).toBe(refresh);
+  expect(requests.map(row => row.path)).toEqual(['/api/host/diagnostics']); await button('取消布局').onclick();
+  await settings(); const selected = input({ diagnostics: 'enabled' }); change(selected, false);
+  await card('widget:diagnostics').querySelector('.dashboard-diagnostics-refresh').onclick(); expect(selected.checked).toBe(false); expect(dom.node('modal').hidden).toBe(false);
+  expect(panel.state().config.diagnostics).toBe(true); expect(panel.state().config.revision).toBe('initial');
 });
 test('legacy read-only entry restores one project card per source and one quota window; [] is genuinely empty', async () => {
   const before = clone(config); await open();
@@ -148,7 +177,7 @@ test('layout saves are single-flight even through asynchronous local validation'
   const pending = button('保存布局').onclick(); await button('保存布局').onclick(); await Promise.resolve(); expect(writes()).toHaveLength(1);
   release(Response.json({ ...config, revision: 'saved' })); await pending;
 });
-test('a save requires complete v4 ACK; a legacy ACK is unconfirmed and never clears draft', async () => {
+test('a save requires complete v5 ACK; a legacy ACK is unconfirmed and never clears draft', async () => {
   await open(); await settings(); intercept = (path, options) => path === '/api/host/dashboard' && options.method === 'POST' ? Response.json({ ...config, version: 3, revision: 'wrong' }) : null;
   await button('保存').onclick(); expect(panel.state().failedWrite).toBe(true); expect(dom.node('modal').hidden).toBe(false); expect(panel.state().config.revision).toBe('initial');
 });

@@ -12,6 +12,7 @@ import { WIDGET_SECTIONS, GLOBAL_LINKS, PROJECT_LINKS } from './dashboard-widget
 import { aggregateRows, aggregateProjectIds, aggregateAccountIds, aggregateLinks, aggregateSections,
   selectAggregateProject, selectAggregateAccounts, toggleAggregateSection, toggleAggregateLink } from './dashboard-widget-aggregate-model.js';
 import { createAggregateRenderer, dashboardNavigation } from './dashboard-widget-aggregate-render.js';
+import { DIAGNOSTICS_ID, createDiagnosticsController, renderDiagnosticsCard } from './dashboard-diagnostics.js';
 
 const cardName = row => row.name || '未命名项目';
 const plain = value => value && typeof value === 'object' && !Array.isArray(value);
@@ -49,12 +50,18 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   let busy = false, editing = false, layoutDirty = false, layoutDraft = [], failedWrite = false;
   let generation = 0, formSave = null, formSaveHost = null, formControls = [], currentEditor = null, editorStatus = null, editorObserver = null;
   let navigationRevision = null;
-  const active = () => owner === globalThis.document && ownsPage() && root.parentNode != null;
+  let disposed = false;
+  const active = () => !disposed && owner === globalThis.document && ownsPage() && root.parentNode != null;
+  const diagnostics = createDiagnosticsController({ ownsPage: active, onChange: () => {
+    if (active()) for (const card of board.root.querySelectorAll('.dashboard-diagnostics-card')) card.dashboardDiagnosticsChange?.();
+  } });
   const renderer = createAggregateRenderer({ ownsPage: active, canAct: () => active() && !busy && !editing,
     messages: () => messages, refresh: id => updateInformation([id]), refreshAccounts: ids => updateInformation(ids) });
   const board = createBoard({ ownsPage: active, request: api,
     renderCard(row, options = {}) {
-      const item = renderer.render(row, { ...options, mode: config.account_view });
+      const item = row.type === 'diagnostics'
+        ? renderDiagnosticsCard(row, { ...options, state: diagnostics.state, refresh: diagnostics.refresh, ownsPage: active })
+        : renderer.render(row, { ...options, mode: config.account_view });
       const control = el('button', undefined, 'ghost dashboard-card-settings'); control.type = 'button'; control.append(dashboardIcon('settings'));
       control.setAttribute('aria-label', `设置${cardName(row)}卡片`); control.setAttribute('aria-haspopup', 'dialog');
       control.dataset.help = '在弹窗选择此卡片展示的内容；排版使用页面编辑布局按钮，不修改项目或账号运行配置。';
@@ -131,6 +138,8 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   async function paint() {
     if (!active()) return;
     rows = config ? aggregateRows(config, projects, connections) : [];
+    if (config?.diagnostics) rows.push({ id: DIAGNOSTICS_ID, type: 'diagnostics', name: '运行诊断' });
+    diagnostics.setEnabled(!!config?.diagnostics);
     if (rows.length > 300) throw new Error('项目来源超过网格 300 张上限；配置与选择原样保留，请在设置减少展示来源');
     empty.hidden = !config || rows.length > 0;
     const layout = dashboardAggregateLayout(config, rows);
@@ -209,7 +218,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   }
   function settingsPatch(next) {
     const patch = {};
-    for (const key of ['cards', 'hidden_projects', 'content', 'account_view', 'widgets']) if (JSON.stringify(next[key]) !== JSON.stringify(config[key])) patch[key] = next[key];
+    for (const key of ['cards', 'hidden_projects', 'content', 'account_view', 'widgets', 'diagnostics']) if (JSON.stringify(next[key]) !== JSON.stringify(config[key])) patch[key] = next[key];
     // An unchanged explicit save still checks the original revision; it does not materialize widgets.
     return Object.keys(patch).length ? patch : { account_view: next.account_view };
   }
@@ -238,10 +247,14 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
       if (checked) selected.add(id); else selected.delete(id);
     }, { projectId: id });
     editor.insertBefore(choices, actions);
+    let diagnosticsEnabled = config.diagnostics;
+    const diagnosticChoices = el('fieldset'); diagnosticChoices.append(el('legend', '运行诊断'));
+    checkbox(diagnosticChoices, '显示运行诊断卡（只读，分钟级估算）', diagnosticsEnabled, checked => { diagnosticsEnabled = checked; }, { diagnostics: 'enabled' });
+    editor.insertBefore(diagnosticChoices, actions);
     const applyAccounts = accountSettings(actions), navigationChanges = new Map(), navigationChoices = el('div');
     linkChoices(navigationChoices, null, navigationChanges); editor.insertBefore(navigationChoices, actions);
     save.onclick = () => {
-      const next = structuredClone(config);
+      const next = structuredClone(config); next.diagnostics = diagnosticsEnabled;
       for (const id of byId.keys()) selectAggregateProject(next, projects, id, selected.has(id));
       applyAccounts(next);
       for (const change of navigationChanges.values()) toggleAggregateLink(next, projects, change.item, change.selected);
@@ -251,6 +264,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   }
   function openCardSettings(row) {
     if (!config || busy) return;
+    if (row.type === 'diagnostics') { openSettings(); return; }
     const { actions, save, show } = editorFrame(cardName(row)); currentEditor = { kind: 'card', id: row.id };
     const initial = new Set(aggregateSections(config, row.id)), selected = new Set(initial);
     const choices = el('fieldset'); choices.append(el('legend', '展示内容'));
@@ -278,7 +292,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
   async function savePatch(patch, { finishLayout = false } = {}) {
     if (!active() || busy || !config || failedWrite) return false;
     busy = true; syncControls();
-    try { await readDashboardConfig({ value: { ...config, ...patch, version: 4, widgets: Object.hasOwn(patch, 'widgets') ? patch.widgets : config.widgets ?? null } }); }
+    try { await readDashboardConfig({ value: { ...config, ...patch, version: 5, widgets: Object.hasOwn(patch, 'widgets') ? patch.widgets : config.widgets ?? null } }); }
     catch (error) {
       busy = false;
       if (active()) { setStatus(`配置未发送：${error.message}；选择原样保留，请减少来源或入口后保存。`, true); syncControls(); }
@@ -293,7 +307,7 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
       if (!active()) return false;
       // Reuse the same strict read validator without a second HTTP request.
       const acknowledgedConfig = await readDashboardConfig({ value: next });
-      if (acknowledgedConfig.version !== 4) throw new Error('保存响应不是完整 v4 确认');
+      if (acknowledgedConfig.version !== 5) throw new Error('保存响应不是完整 v5 确认');
       config = acknowledgedConfig;
       acknowledged = true;
       if (!active()) return false;
@@ -385,7 +399,10 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
       messages = await loadProjectCardMessages(messageRows, { ownsPage: current });
       renderer.resetWorkers();
       if (!current()) return;
+      diagnostics.setEnabled(!!config?.diagnostics);
+      const diagnosticRead = config?.diagnostics ? diagnostics.refresh() : null;
       await paint();
+      if (current()) await diagnosticRead;
       if (current()) setStatus(errors.join('；'), errors.length > 0);
     } catch (error) { if (current()) setStatus(`刷新未完成：${error.message}`, true); }
     finally { busy = false; if (current()) syncControls(); }
@@ -403,7 +420,16 @@ export function createDashboardPanel({ ownsPage = () => true, createBoard = crea
     setStatus(failedWrite ? '未保存布局已取消；此前保存未确认，请重新读取设置核对。' : '未保存布局已取消', failedWrite);
     edit.focus?.();
   };
+  const removalObserver = typeof globalThis.MutationObserver === 'function' ? new MutationObserver(() => {
+    if (!active()) dispose();
+  }) : null;
+  if (owner?.documentElement) removalObserver?.observe(owner.documentElement, { subtree: true, childList: true });
+  function dispose() {
+    if (disposed) return;
+    disposed = true; ++generation; diagnostics.dispose(); removalObserver?.disconnect(); cardGesture.dispose();
+    editorObserver?.disconnect(); editorObserver = null;
+  }
   syncControls();
-  return { root, ready: () => updateInformation(null, { initial: true }), refresh: updateInformation,
+  return { root, ready: () => updateInformation(null, { initial: true }), refresh: updateInformation, dispose,
     state: () => ({ config, editing, layoutDirty, failedWrite }) };
 }

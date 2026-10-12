@@ -37,7 +37,7 @@ test('two Hosts and a restarted bound Host share only device card identities wit
     const response = await fetch(f.url + route);
     expect(response.status).toBe(200); expect(response.headers.get('cache-control')).toBe('no-store');
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
-    const initial = await response.json(); expect(initial).toMatchObject({ version: 4, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null });
+    const initial = await response.json(); expect(initial).toMatchObject({ version: 5, diagnostics: true, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null });
     expect(fs.existsSync(path.join(f.global, 'shared'))).toBe(false);
     const selected = card();
     const save = await post(f.url + route, { cards: [selected, selected], expected_revision: initial.revision });
@@ -47,7 +47,7 @@ test('two Hosts and a restarted bound Host share only device card identities wit
     const customized = await post(second + route, { hidden_projects: [id, id], layout,
       content: [{ id, sections: ['messages', 'shortcuts'] }], expected_revision: next.revision });
     expect(customized.status).toBe(200); next = await customized.json();
-    expect(next).toMatchObject({ version: 4, cards: [selected], hidden_projects: [id], layout, account_view: 'list', widgets: null,
+    expect(next).toMatchObject({ version: 5, diagnostics: true, cards: [selected], hidden_projects: [id], layout, account_view: 'list', widgets: null,
       content: [{ id, sections: ['messages', 'shortcuts'] }] });
     expect(await (await fetch(f.url + route)).json()).toEqual(next);
     const contentOnly = await post(f.url + route, { content: [{ id, sections: [] }], expected_revision: next.revision });
@@ -60,13 +60,21 @@ test('two Hosts and a restarted bound Host share only device card identities wit
     const unified = await post(f.url + route, { account_view: 'tiles', layout: accountsLayout,
       content: [...next.content, { id: 'accounts', sections: ['quota', 'balance', 'reset'] }], expected_revision: next.revision });
     expect(unified.status).toBe(200); next = await unified.json();
-    expect(next).toMatchObject({ version: 4, cards: [], hidden_projects: [id], layout: accountsLayout, account_view: 'tiles', widgets: null,
+    expect(next).toMatchObject({ version: 5, diagnostics: true, cards: [], hidden_projects: [id], layout: accountsLayout, account_view: 'tiles', widgets: null,
       content: [{ id, sections: [] }, { id: 'accounts', sections: ['quota', 'balance', 'reset'] }] });
     expect(await (await fetch(second + route)).json()).toEqual(next);
     const switched = await post(second + route, { account_view: 'list', expected_revision: next.revision });
     expect(switched.status).toBe(200); const switchedModel = await switched.json();
     expect(switchedModel).toMatchObject({ ...next, account_view: 'list', revision: switchedModel.revision });
     expect(switchedModel.revision).not.toBe(next.revision); next = switchedModel;
+    const diagnosticToggle = await post(second + route, { diagnostics: false, expected_revision: next.revision });
+    expect(diagnosticToggle.status).toBe(200); const toggled = await diagnosticToggle.json();
+    expect(toggled).toEqual({ ...next, diagnostics: false, revision: toggled.revision }); expect(toggled.revision).not.toBe(next.revision);
+    expect(await (await fetch(f.url + route)).json()).toEqual(toggled); next = toggled;
+    const invalidDiagnostic = await post(second + route, { diagnostics: 'false', expected_revision: next.revision });
+    expect(invalidDiagnostic.status).toBe(400); expect(await (await fetch(f.url + route)).json()).toEqual(next);
+    const staleDiagnostic = await post(f.url + route, { diagnostics: true, expected_revision: initial.revision });
+    expect(staleDiagnostic.status).toBe(400); expect(await (await fetch(second + route)).json()).toEqual(next);
     const stale = await post(second + route, { account_view: 'tiles', expected_revision: initial.revision });
     expect(stale.status).toBe(400); const conflict = (await stale.json()).error;
     expect(conflict).toContain('可能版本已变更'); expect(conflict).toContain('重新读取');
@@ -93,7 +101,7 @@ test('HTTP v1 reads do not migrate, inspect credentials or attach a project and 
     const before = fs.statSync(file), url = f.url + '/api/host/dashboard';
     const response = await fetch(url); expect(response.status).toBe(200);
     const model = await response.json();
-    expect(model).toMatchObject({ version: 4, cards: [selected], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null });
+    expect(model).toMatchObject({ version: 5, diagnostics: true, cards: [selected], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null });
     expect(fs.readFileSync(file, 'utf8')).toBe(source);
     expect(fs.statSync(file).ino).toBe(before.ino); expect(fs.statSync(file).mtimeMs).toBe(before.mtimeMs);
     const id = `account:${selected.connection_id}`;
@@ -101,7 +109,7 @@ test('HTTP v1 reads do not migrate, inspect credentials or attach a project and 
       content: [{ id, sections: ['quota', 'balance', 'reset'] }], expected_revision: model.revision });
     expect(saved.status).toBe(200); const next = await saved.json(); expect(next.cards).toEqual([selected]);
     expect(next.content).toEqual([{ id, sections: ['quota', 'balance', 'reset'] }]);
-    expect(JSON.parse(fs.readFileSync(file, 'utf8')).version).toBe(4);
+    expect(JSON.parse(fs.readFileSync(file, 'utf8')).version).toBe(5);
     expect(fs.readFileSync(credentialFile, 'utf8')).toBe('PRIVATE MALFORMED CREDENTIALS');
     expect(f.calls).toEqual([]);
   } finally { await f.close(); }
@@ -117,15 +125,15 @@ test('HTTP v2 files retain legacy account layout/content and map read-only to sh
     const source = JSON.stringify(data); fs.writeFileSync(file, source, { mode: 0o600 });
     const stat = fs.statSync(file), route = '/api/host/dashboard';
     const response = await fetch(f.url + route); expect(response.status).toBe(200);
-    const current = await response.json(); expect(current).toMatchObject({ ...data, version: 4, account_view: 'list', widgets: null });
+    const current = await response.json(); expect(current).toMatchObject({ ...data, version: 5, diagnostics: true, account_view: 'list', widgets: null });
     expect(await (await fetch(second + route)).json()).toEqual(current);
     expect(fs.readFileSync(file, 'utf8')).toBe(source);
     expect(fs.statSync(file).mtimeMs).toBe(stat.mtimeMs); expect(fs.statSync(file).ino).toBe(stat.ino);
     const saved = await post(second + route, { account_view: 'tiles', expected_revision: current.revision });
     expect(saved.status).toBe(200); const next = await saved.json();
-    expect(next).toMatchObject({ ...data, version: 4, account_view: 'tiles', widgets: null });
+    expect(next).toMatchObject({ ...data, version: 5, diagnostics: true, account_view: 'tiles', widgets: null });
     expect(await (await fetch(f.url + route)).json()).toEqual(next);
-    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ ...data, version: 4, account_view: 'tiles', widgets: null });
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ ...data, version: 5, diagnostics: true, account_view: 'tiles', widgets: null });
     const cleared = await post(f.url + route, { cards: [], expected_revision: next.revision });
     expect(cleared.status).toBe(200); const clearedModel = await cleared.json();
     expect(clearedModel).toMatchObject({ ...next, revision: clearedModel.revision, cards: [] });
@@ -151,7 +159,7 @@ test('HTTP v4 publishes independent widgets and empty boards without removing ol
     const layout = widgets.map(({ id }) => ({ id, x: 0, y: 0, w: 12, h: 6 }));
     const response = await post(route, { widgets, layout, expected_revision: old.revision });
     expect(response.status).toBe(200); const saved = await response.json();
-    expect(saved).toMatchObject({ ...legacy, version: 4, layout });
+    expect(saved).toMatchObject({ ...legacy, version: 5, diagnostics: true, layout });
     expect(saved.widgets).toEqual(widgets.map((widget, i) => i ? widget : { ...widget, connection_ids: [connection] }));
     expect(await (await fetch(f.open() + '/api/host/dashboard')).json()).toEqual(saved);
     expect((await post(route, { widgets: [], expected_revision: old.revision })).status).toBe(400);

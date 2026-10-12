@@ -90,6 +90,26 @@ test('v4 Host widget patches normalize before lazy initialization and preserve p
   } finally { await services.close(); }
 });
 
+test('v5 diagnostics preferences validate before initialization and forward only the supplied boolean', async () => {
+  let initialized = 0;
+  const calls = [];
+  const services = createUserServices({}, { env: environment,
+    get dashboardService() { initialized++; return { save(patch, revision) { calls.push([patch, revision]); return patch; } }; } });
+  try {
+    for (const diagnostics of [undefined, null, 'false', 0, [], {}]) {
+      await expect(services.saveDashboard({ diagnostics, expected_revision: dashboardRevision })).rejects.toThrow();
+    }
+    await expect(services.saveDashboard({ diagnostics: false, expected_revision: dashboardRevision, token: 'PRIVATE' })).rejects.toThrow('invalid');
+    await expect(services.saveDashboard({ diagnostics: true, expected_revision: 'old' })).rejects.toThrow('revision');
+    expect(initialized).toBe(0);
+    for (const diagnostics of [false, true]) {
+      expect(await services.saveDashboard({ diagnostics, expected_revision: dashboardRevision })).toEqual({ diagnostics });
+    }
+    expect(calls).toEqual([[{ diagnostics: false }, dashboardRevision], [{ diagnostics: true }, dashboardRevision]]);
+    expect(initialized).toBe(2);
+  } finally { await services.close(); }
+});
+
 test('shutdown during lazy initialization closes the new instance without admitting its operation', async () => {
   const calls = [];
   const services = createUserServices({ hasRoute: () => false }, { env: environment,

@@ -14,11 +14,11 @@ W234／D552 恢复根 `#projects` 的原项目聚合卡片、统一额度窗口�
 
 ## 配置与兼容
 
-`GET /api/host/dashboard` 返回完整设备模型：
+`GET /api/host/dashboard` 返回完整设备 v5 模型：
 
 ```js
 {
-  version: 4, revision, account_view: 'list',
+  version: 5, revision, account_view: 'list', diagnostics: true,
   cards: [{ type: 'account', connection_id }],
   hidden_projects: [project_id],
   layout: [{ id, x, y, w, h }],
@@ -29,9 +29,9 @@ W234／D552 恢复根 `#projects` 的原项目聚合卡片、统一额度窗口�
 { id, type, project_id, connection_ids: [], links: [], sections: [] }
 ```
 
-`POST /api/host/dashboard` 接受 `{expected_revision,cards?,hidden_projects?,layout?,content?,account_view?,widgets?}`，至少一个配置字段。省略字段保持不变；成功返回完整 v4 ACK。乐观锁覆盖整份配置，白名单、结构、数量和 256KiB 总大小在服务构造前校验。设备私有根、写锁、原子发布与路径安全不变。Host 先规范化 patch，不创建伪项目、不查询账户或启动 daemon。
+`POST /api/host/dashboard` 接受 `{expected_revision,cards?,hidden_projects?,layout?,content?,account_view?,widgets?,diagnostics?}`，至少一个配置字段。省略字段保持不变；成功返回完整 v5 ACK。`diagnostics` 仅允许 boolean，控制全局运行诊断卡，不改变项目或额度成员。乐观锁覆盖整份配置，白名单、结构、数量和 256KiB 总大小在服务构造前校验。设备私有根、写锁、原子发布与路径安全不变。Host 先规范化 patch，不创建伪项目、不查询账户或启动 daemon。
 
-- 旧 v1–v3 文件只读映射为 v4、`widgets:null`，不自动改写。前端继承旧可见项目、所选账户、内容和位置；查看和仅布局保存保持 `widgets` 原样。`null` 与有意空数组不可互换，旧 localStorage 顺序不自动导入。
+- 旧 v1–v4 文件只读映射为 v5、`diagnostics:true`，v1–v3 的 `widgets:null` 保持，不自动改写。前端继承旧可见项目、所选账户、内容和位置；查看和仅布局保存保持 `widgets` 原样。`null` 与有意空数组不可互换，旧 localStorage 顺序不自动导入。
 - 保留 v3 的 `cards/hidden_projects/layout/content/account_view`。历史数组保存仅改账户选择，不清空其它字段；`account_view` 仍仅接受 `list/tiles`，不支配聚合展示。旧账户、项目及成员布局／内容不因投影被删除。v4 显式成员决定来源，空 sections、空额度成员、不可用来源和自定义链接仍保留；相关来源／内容／导航显式编辑只改相关成员，导航编辑需要 materialize legacy 时完整保留旧选择与分来源内容。超 100 成员先拒绝保存并保留草稿，不截断、不 POST。
 - `widgets` 最多 100 个完整对象；ID 唯一，格式 `widget:[a-z0-9][a-z0-9-]{0,79}`。类型为上述五种，前三种必须绑定 16 位小写 hex 项目 ID，其余 `project_id:null`。
 - `connection_ids` 仅 accounts 可非空，最多 100 个唯一 UUID；`links` 仅 shortcuts 可非空，最多 24 个完整 `{scope,target,project_id}`。全局目标 `notices/project-management/model-sources/settings/agent-status/automation/docs` 绑定 null，项目目标 `workers/inputs/versions/notices` 绑定项目 ID。
@@ -57,6 +57,18 @@ W234／D552 恢复根 `#projects` 的原项目聚合卡片、统一额度窗口�
 Worker 使用来源 `/api/workers?scope=work&limit=&before=` 有界分页；服务页面内 ID 升序，展示倒序，不能拿三条摘要冒充全部历史。导航指向真实 Worker、历史输入、版本和 Notice；没有独立项目 `#code` 路由。
 
 进入面板只读配置、项目状态、消息和账户缓存，不联网查服务商、不启动离线后台。显式「刷新全部」重读项目／消息并逐账户调用设备 `agent.connections.query {id}`，只查询当前聚合额度窗口所选来源，去重、最多三个并发，不用无 ID 全账户查询。账户单项和额度卡刷新同样只查对应来源，共享在途锁；不调用 Agent／模型、不修改账号配置。逐项失败不阻止其他项，完成后独立重读缓存，整份并发结果不互相覆盖。离页后不回填或启动余下查询；重置到期不代表额度恢复，倒计时仅在重绘计算，不设后台实时计时器。
+
+## 运行诊断卡
+
+诊断卡 ID 为 `widget:diagnostics`，默认显示；总览设置可隐藏／恢复，位置与尺寸沿用共享固定网格。该卡独立于 `widgets` 成员，不因启停诊断迁移旧配置、清空成员或改变项目／账户选择。
+
+卡片显示最近 60／300 秒平均输入、输出 token/s、估算 USD/min 和最近十分钟趋势。输入包含缓存读取／写入，reasoning 不重复叠加；费用只是会话报告的美元估算，不是账户扣款、套餐折算或最终账单。数据主要在响应／回合结束后落账，不承诺生成期间逐 token 实时监控。不同单位分别绘图；更新时间、来源覆盖与未知贡献必须保留。
+
+用户专属无参数 RPC `system.diagnostics` 在各项目只读采集现有会话；Host 的根路径 `GET /api/host/diagnostics` 无参数，只聚合已登记且有权访问的来源。返回 `{version:1,generated_at,currency:'USD',estimated:true,windows,buckets,coverage,projects}`：`windows` 为 60／300 秒的已知输入、输出、费用、请求数及速率，另有 `unknown_tokens`、`unknown_cost` 和 `complete`；`buckets` 为 60 个十秒桶，含起点 `at` 及已知用量／未知贡献计数。`coverage` 包含 `projects_total/projects_online/projects_reporting/complete`；`projects` 带身份、名称、`online/offline/unavailable/unsupported` 状态、来源采样时间与安全诊断。不返回会话正文、凭证或任意 RPC 代理。
+
+未知字段表示未知贡献者计数，不是推测缺失 token 数。离线、不可达、旧后台、不完整会话、缺时间或费用都不能冒充完整零值；保留已知小计并标记不完整。没有登记项目也不是已确认零消耗。fork 中明确属于其它 Worker 的上下文不重复计费。采集使用有界增量读取／缓存与单飞，不高频扫描全部历史；预算不足必须降级为不完整。
+
+诊断自动刷新只在启用卡片且页面可见时运行，通常十秒、省电偏好三十秒；隐藏／离页停止，迟到结果不能覆盖新页面或抢焦点。诊断刷新不查询服务商、不启动离线后台、不调用 Agent，也不自动执行账户刷新。Host 不持有权威运行事实，只做来源只读聚合；单个来源失败不阻塞其余来源。
 
 ## 验证责任
 

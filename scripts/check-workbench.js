@@ -9,6 +9,8 @@ import { projectRouteId } from '../src/host/registry.js';
 import { readProjectAppearance, saveProjectAppearance } from '../src/host/project-appearance.js';
 import { DeviceSettingsService } from '../src/host/device-settings.js';
 import { readDashboardSettings } from '../src/core/dashboard-settings.js';
+import { emptyDiagnostics } from '../src/core/runtime-diagnostics.js';
+import { HostRuntimeDiagnostics } from '../src/host/runtime-diagnostics.js';
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lush-workbench-ui-')));
 let offline = false, richProjects = false;
@@ -29,8 +31,16 @@ function appearance(id, body) {
   return { id, project, name: path.basename(project), appearance: body
     ? saveProjectAppearance(project, body, { projects: entries().map(row => row.project), env: fixtureEnv }) : readProjectAppearance(project) };
 }
+const diagnostics = new HostRuntimeDiagnostics(() => entries().map(row => ({ id: row.id, name: row.name,
+  read: async () => {
+    if (!row.running) return null;
+    const report = emptyDiagnostics(Date.now()); report.coverage.complete = true;
+    for (const window of report.windows) window.complete = true;
+    return report;
+  } })), { throttleMs: 0 });
 const projectHost = {
   launcher: true, rememberCurrent() {},
+  diagnostics: () => diagnostics.read(),
   status: async () => { if (offline) throw new Error('fixture Host offline'); return { mode: 'host', projects: entries(), capabilities: { project_control: true } }; },
   projects: async () => entries(), hasRoute: id => entries().some(row => row.id === id),
   select: async project => { if (![fixtureProject, secondProject].includes(project)) throw new Error('unknown fixture project'); selected.push(project); return project; },
@@ -241,7 +251,7 @@ try {
   for (const id of accountIds) await click(`.dashboard-settings-panel input[data-connection-id="${id}"]`);
   await click('#modal .modal-confirm');
   await until(`document.querySelector('.dashboard-status').textContent==='已保存'&&!document.querySelector('.dashboard-settings-open').disabled`);
-  await until(`document.querySelectorAll('.project-board-card').length===2&&document.querySelector('[data-board-color="rose"]')`);
+  await until(`document.querySelectorAll('.project-board-card').length===3&&document.querySelector('[data-board-color="rose"]')&&document.querySelector('.dashboard-diagnostics-card')`);
   assert(await evaluate(`document.querySelectorAll('.dashboard-account-card').length===2&&document.getElementById('detail').textContent.includes('12.5 USD')&&!document.querySelector('.project-order')&&[...document.querySelectorAll('.project-board-handle')].every(b=>b.hidden&&b.disabled)`), 'dashboard mixed cards or non-editing boundary failed');
   await click('.dashboard-layout-edit');
   const accountHandle = await rpc(`/session/${session}/element`, { using: 'css selector', value: '.dashboard-accounts-group .project-board-resize[data-corner="east"]' });
@@ -275,7 +285,7 @@ try {
   try {
     // This independent session has no primary-session BiDi socket; native desktop sizing suffices.
     await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 }); await login('/#projects');
-    await until(`document.querySelectorAll('.dashboard-account-card').length===2&&document.querySelectorAll('.project-board-card').length===2`);
+    await until(`document.querySelectorAll('.dashboard-account-card').length===2&&document.querySelectorAll('.project-board-card').length===3&&document.querySelector('.dashboard-diagnostics-card')`);
     assert(await evaluate(`document.querySelector('[data-widget-type="accounts"]').style.gridColumn===${JSON.stringify(sharedAccountColumn)}&&localStorage.getItem('lush.host.project-board.order.v1')===null`), 'second browser failed to share device card selection and layout');
     await click('.dashboard-settings-open');
     await until(`document.querySelectorAll('.dashboard-settings-panel input[data-connection-id]').length===2&&!document.querySelector('.dashboard-settings-panel input').disabled`);
@@ -357,7 +367,7 @@ try {
   }
   richProjects = true;
   await resize(1440); await click('#projects-open');
-  await until(`document.querySelectorAll('.project-board-card').length===3&&document.querySelectorAll('.dashboard-account-card').length===1&&document.querySelector('.project-development-metrics')`);
+  await until(`document.querySelectorAll('.project-board-card').length===4&&document.querySelectorAll('.dashboard-account-card').length===1&&document.querySelector('.project-development-metrics')&&document.querySelector('.dashboard-diagnostics-card')`);
   for (const theme of ['light', 'dark']) for (const width of [1440, 900, 390, 320]) {
     await resize(width); await evaluate(`document.documentElement.dataset.theme='${theme}'`);
     assert(await evaluate(`document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth&&[...document.querySelectorAll('.project-board-card,.dashboard-account-header,.dashboard-account-metric')].every(n=>n.scrollWidth<=n.clientWidth+1)&&!document.querySelector('.project-order')&&[...document.querySelectorAll('.project-board-handle')].every(b=>b.hidden&&b.disabled)`), `assembled mixed dashboard overflow or management action at ${theme}/${width}`);

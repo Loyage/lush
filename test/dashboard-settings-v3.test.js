@@ -16,7 +16,7 @@ function fixture() {
     close() { fs.rmSync(root, { recursive: true, force: true }); } };
 }
 
-for (const version of [1, 2, 3]) test(`v${version} maps to a complete v4 model without altering bytes, then explicit save preserves legacy data`, () => {
+for (const version of [1, 2, 3]) test(`v${version} maps to a complete v5 model without altering bytes, then explicit save preserves legacy data`, () => {
   const f = fixture(), selected = card(), legacyId = `account:${selected.connection_id}`;
   try {
     const data = version === 1 ? { version, cards: [selected] } : { version, cards: [selected], hidden_projects: [project],
@@ -27,10 +27,10 @@ for (const version of [1, 2, 3]) test(`v${version} maps to a complete v4 model w
     const source = JSON.stringify(data, null, 4) + '\n';
     fs.writeFileSync(f.file, source, { mode: 0o600 });
     const stat = fs.statSync(f.file), current = readDashboardSettings(f.config);
-    const expected = { version: 4, cards: data.cards, hidden_projects: data.hidden_projects || [],
-      layout: data.layout || [], content: data.content || [], account_view: version === 3 ? 'tiles' : 'list', widgets: null };
+    const expected = { version: 5, cards: data.cards, hidden_projects: data.hidden_projects || [],
+      layout: data.layout || [], content: data.content || [], account_view: version === 3 ? 'tiles' : 'list', widgets: null, diagnostics: true };
     expect(current).toMatchObject(expected);
-    expect(Object.keys(current).sort()).toEqual(['version', 'revision', 'cards', 'hidden_projects', 'layout', 'content', 'account_view', 'widgets'].sort());
+    expect(Object.keys(current).sort()).toEqual(['version', 'revision', 'cards', 'hidden_projects', 'layout', 'content', 'account_view', 'widgets', 'diagnostics'].sort());
     expect(readDashboardSettings(f.config)).toEqual(current);
     expect(fs.readFileSync(f.file, 'utf8')).toBe(source);
     const after = fs.statSync(f.file);
@@ -109,7 +109,7 @@ test('v4 files must contain all fields and reject invalid versions/views without
   try {
     const current = saveDashboardSettings(f.config, { account_view: 'tiles', layout: [row()] }, readDashboardSettings(f.config).revision);
     const { revision, ...settings } = current;
-    const invalid = [null, [], { ...settings, version: 5 }, { ...settings, version: 2 },
+    const invalid = [null, [], { ...settings, version: 6 }, { ...settings, version: 2 },
       { ...settings, account_view: 'PRIVATE' }, { ...settings, account_view: null }, { ...settings, revision: 'PRIVATE' },
       ...Object.keys(settings).map(key => Object.fromEntries(Object.entries(settings).filter(([name]) => name !== key)))];
     for (const data of invalid) {
@@ -150,7 +150,7 @@ test('two lazy Host clients share v3 settings and preserve legacy source identit
       layout: [row(oldId)], content: [{ id: oldId, sections: ['history'] }] };
     const file = path.join(home, 'dashboard.json'), source = JSON.stringify(data); fs.writeFileSync(file, source, { mode: 0o600 });
     const first = await a.readDashboard(); expect(first).toEqual(await b.readDashboard());
-    expect(first).toMatchObject({ ...data, version: 4, account_view: 'list', widgets: null });
+    expect(first).toMatchObject({ ...data, version: 5, account_view: 'list', widgets: null, diagnostics: true });
     expect(fs.readFileSync(file, 'utf8')).toBe(source);
     const next = await a.saveDashboard({ account_view: 'tiles', expected_revision: first.revision });
     expect(await b.readDashboard()).toEqual(next);

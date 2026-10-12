@@ -36,6 +36,7 @@
 | `dashboard-panel.js` | 总览唯一配置 revision／聚合项目与统一额度的来源、内容、导航弹窗／无损设备布局保存，布局只全局按钮开启，显式刷新项目消息及已摆放账户；草稿、ACK、并发与离页保护 | `createDashboardPanel({ownsPage,renderProject})` → `{root,ready,refresh,state}`；[契约](dashboard-panel.md) |
 | `dashboard-widget-aggregate-model.js`／`dashboard-widget-aggregate-render.js`／`dashboard-layout-model.js` | D552 项目聚合与统一额度、legacy/null 和 v4 成员无损投影／相关编辑、140px 固定壳预算与溢出详情／导航；仅布局保存不迁移成员 | `aggregateRows`、`aggregateLinks`、`aggregateBudget`、`createAggregateRenderer`、`dashboardAggregateLayout`；[契约](dashboard-panel.md) |
 | `dashboard-widget-model.js`／`dashboard-widget-render.js`／`dashboard-widget-pagination.js` | v4 成员严格模型与兼容接口；固定消息／Worker 槽位、来源隔离、游标、info 已知身份校验与有界续读、几何回调、迟到保护 | `dashboardWidgets`、`widgetRows`、`widgetSlots`、`createWidgetRenderer`；[契约](dashboard-panel.md) |
+| `dashboard-diagnostics.js` | 固定运行诊断卡、独立单位趋势及来源／未知提示；可见且启用时按偏好只读刷新，单飞、离页／隐藏取消和迟到保护，不触发账户查询或模型 | `createDiagnosticsController`、`renderDiagnosticsCard`；[诊断契约](dashboard-panel.md#运行诊断卡) |
 | `dashboard-accounts-group.js` | 统一额度窗口固定来源槽、分页、缓存可信度／异常及单项刷新；复用账号小面板，无进入页面查询副作用 | `ACCOUNT_GROUP_ID`、`renderAccountGroup(row,options)` |
 | `dashboard-layout-model.js` | 旧所选账户位置只读计算统一窗口的 6×16 初始布局，保存项目与历史字段不改写；内存种子与显式窗口坐标优先 | `dashboardAccountLayout(layout,selectedIds,inherited?)` |
 | `project-dashboard-content.js` | 项目内容开关、语义指标、来源 Notice 最近列表与 Worker／输入／版本快捷链接；在线项目有界只读消息，不已读或答复 | `PROJECT_CARD_SECTIONS`、`PROJECT_CARD_DEFAULTS`、`loadProjectCardMessages(rows,options)`、`projectDashboardContent(row,options)` |
@@ -225,6 +226,7 @@ Agent / 来源两页真实浏览器回归：`bun run check:agent-layout`（`scri
 | `src/ui/web/static-assets.js` | 进程共享静态产物、内容版本/有界私有临时快照、预压缩/编码协商/ETag；调用方先鉴权 | `webStaticAssets()`、`createStaticAssets(options?)`、`staticEncoding(header)` |
 | `src/ui/web/build-assets.js` | 隔离 Bun 浏览器构建、动态拆包、静态闭包预加载及保序 CSS 合并，不读取项目数据 | `buildAssets(assets,outdir,version)`；同文件子进程入口 |
 | `src/host/project-host.js` | 已登记项目连接缓存与身份解析、显式按需启动；列表只探测，显式请求有界开发摘要与维护批次完成证据并白名单投影，保留 maintenance_paused；旧 daemon 参数不支持时只读降级，appearance／saveAppearance 独立管理项目辨识色；单项目启动或首次核验项目绑定时执行快速对话专用数据退役，不枚举其他项目，清理失败只允许显式启动／选择重试 | `createProjectHost()` |
+| `src/host/runtime-diagnostics.js` | 已登记授权项目诊断的有界并发只读聚合、严格字段投影、来源失败隔离与覆盖标识；不持有权威运行事实、不启动离线后台 | `HostRuntimeDiagnostics`、`diagnosticsView`；[诊断契约](dashboard-panel.md#运行诊断卡) |
 | `src/host/user-services.js` | 用户工作台的惰性设备偏好／总览卡片／策略及 Inbox 适配；固定设备根、严格请求白名单、依赖注入和 Host shutdown 收口，不构造项目或模型调用 | `createUserServices(projectHost,options)` → `readPreferences/savePreferences/readDashboard/saveDashboard/readAutomation/saveAutomation/listInbox/getNotice/actionInbox/close`；[工作台契约](user-workspace.md) |
 | `src/host/global-inbox.js` | 已登记／有权项目的全历史增量派生视图、私有有界缓存、来源离线／补齐状态、删除与 epoch reset；动作在线重核并转发原事务，不启动 daemon、不成为答案权威 | `GlobalInboxService(projectHost,options).list/get/action/refresh/close`；[同步契约](user-workspace.md#全局收件箱分区) |
 | `src/host/project-appearance.js` | 项目辨识色私有读写、跨进程分配锁与 revision 冲突；旧 theme 保留但不再允许修改，不启动 daemon 或读取 Worker 事实 | `readProjectAppearance()`、`saveProjectAppearance()`、`validateAppearanceUpdate()` |

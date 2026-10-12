@@ -2,18 +2,18 @@ import { PROJECT_COLORS } from './project-colors.js';
 
 const validId = id => typeof id === 'string' && /^(?:widget:[a-z0-9][a-z0-9-]{0,79}|accounts|[a-f0-9]{16}|account:[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/.test(id);
 const widgetType = row => row.widget_type || row.widget?.type || row.type;
-const widgetSizes = { status: [4, 10], messages: [4, 10], workers: [4, 10], accounts: [6, 14], shortcuts: [4, 8] };
+const widgetSizes = { diagnostics: [6, 18], status: [4, 10], messages: [4, 10], workers: [4, 10], accounts: [6, 14], shortcuts: [4, 8] };
 const isWidget = row => row.id.startsWith('widget:');
 const projectId = row => isWidget(row) ? (/^[a-f0-9]{16}$/.test(row.project_id || '') ? row.project_id : null)
   : /^[a-f0-9]{16}$/.test(row.id) && (row.type == null || row.type === 'project') ? row.id : null;
 const defaultsFor = row => {
   const type = widgetType(row);
   const [w, h] = isWidget(row) ? (Object.hasOwn(widgetSizes, type) ? widgetSizes[type] : [4, 8]) : row.type === 'account' ? [4, 10] : row.id === 'accounts' ? [6, 16] : [6, 24];
-  return { id: row.id, w, h, minW: isWidget(row) ? 4 : 1, minH: isWidget(row) ? ['accounts', 'messages', 'status'].includes(type) ? 10 : 8 : 6 };
+  return { id: row.id, w, h, minW: type === 'diagnostics' ? 1 : isWidget(row) ? 4 : 1, minH: type === 'diagnostics' ? 6 : isWidget(row) ? ['accounts', 'messages', 'status'].includes(type) ? 10 : 8 : 6 };
 };
 // Legacy device cells remain canonical as saved. A fixed display lower bound
 // reserves header/footer and one useful slot, independent of business state.
-const displayMinimum = cell => cell.id.startsWith('widget:') ? { minW: 1, minH: 6 } : { minW: 4, minH: 10 };
+const displayMinimum = cell => cell.id.startsWith('widget:') && cell.id !== 'widget:diagnostics' ? { minW: 1, minH: 6 } : { minW: 4, minH: 10 };
 const colors = new Set(PROJECT_COLORS.map(color => color.id));
 const copy = layout => layout.map(cell => ({ ...cell }));
 const clamp = (value, min, max, fallback) => Math.max(min, Math.min(max, Number.isFinite(value) ? Math.round(value) : fallback));
