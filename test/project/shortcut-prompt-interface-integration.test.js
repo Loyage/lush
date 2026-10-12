@@ -5,7 +5,7 @@ import { repo, git, gate } from '../helpers.js';
 import { setup, fetch } from '../web/harness.js';
 
 const revision = f => f.project.shortcutCommands().revision;
-const drain = f => Promise.all([...f.project.shortcutCommandJobs ?? []]);
+const drain = async f => { await Promise.resolve(); await f.project.hookQueue; };
 async function post(f, method, params, status = 200) {
   const response = await fetch(f.url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }) });
   expect(response.status).toBe(status); return response.json();
@@ -21,7 +21,7 @@ async function register(f, defaultWorkerId) {
 }
 const authorize = (f, item, authorized) => post(f, 'hooks.command_authorize', { id: item.id, version: item.version, authorized, expected_revision: revision(f) });
 
-test('real HTTP/RPC/core prompt definition, pure export, manual and Hook creation share typed identities and the selected parent tip', async () => {
+test('real HTTP/RPC/core prompt management and pure export cannot run manually; Hook creates at its parent tip', async () => {
   const f = await setup(); f.project.kick = () => {}; f.project.scheduleTaskMerge = () => {};
   try {
     await repo(f.root); await f.project.bootstrapMain();
@@ -37,39 +37,43 @@ test('real HTTP/RPC/core prompt definition, pure export, manual and Hook creatio
     expect(exported.markdown).toContain(item.prompt);
     expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(count); expect(revision(f)).toBe(before);
     await authorize(f, item, true);
-    const accepted = await post(f, 'hooks.command_start', { id: item.id, version: 1, worker_id: parent.id, expected_revision: revision(f) });
-    expect(accepted.execution).toMatchObject({ id: accepted.execution_id, kind: 'prompt', worker_id: parent.id, source: 'manual', created_worker_id: null });
-    await drain(f); const manual = await history(f, accepted.execution_id);
-    expect(manual).toMatchObject({ status: 'succeeded', kind: 'prompt', worker_id: parent.id });
-    const created = f.store.task(manual.created_worker_id);
-    expect(created).toMatchObject({ parent_id: parent.id, task_kind: 'order', target_branch: parent.branch, base_commit: tip, status: 'queued', retry_profile: null });
-    expect(manual.created_worker_number).toBe(created.worker_number); expect(manual.input_id).toBe(created.input_id);
-    await post(f, 'hooks.command_run', { id: item.id, version: 1, worker_id: parent.id, expected_revision: revision(f) }, 400);
+    const events = f.store.get('SELECT count(*) AS n FROM events').n;
+    for (const method of ['hooks.command_start', 'hooks.command_run'])
+      await post(f, method, { id: item.id, version: 1, worker_id: parent.id, expected_revision: revision(f) }, 400);
+    expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(1);
+    expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(events);
     await post(f, 'worker.hook_attach', { id: parent.id, expected_revision: f.project.taskHooks(parent.id).revision,
       hook: { name: 'HTTP prompt once', trigger: 'worker.parent_ready', mode: 'once', enabled: true, actions: [{ type: 'prompt_command', command_id: item.id, command_version: 1 }] } });
     await Promise.resolve(); await f.project.hookQueue;
     const hook = f.project.shortcutCommandHistory().items.find(row => row.source === 'hook');
     expect(hook).toMatchObject({ kind: 'prompt', status: 'succeeded', worker_id: parent.id });
     expect(f.store.task(hook.created_worker_id)).toMatchObject({ parent_id: parent.id, target_branch: parent.branch, base_commit: tip, status: 'queued' });
-    expect(hook.created_worker_id).not.toBe(created.id); expect(hook.input_id).not.toBe(manual.input_id);
-    expect(JSON.stringify([manual, hook, f.store.all("SELECT * FROM events WHERE type LIKE 'shortcut.%' OR type LIKE 'hook.%'")])).not.toContain(item.prompt);
+    const created = f.store.task(hook.created_worker_id);
+    expect(created).toMatchObject({ task_kind: 'order', retry_profile: null });
+    expect(hook.created_worker_number).toBe(created.worker_number); expect(hook.input_id).toBe(created.input_id);
+    expect(await history(f, hook.id)).toEqual(hook);
+    expect(JSON.stringify([hook, f.store.all("SELECT * FROM events WHERE type LIKE 'shortcut.%' OR type LIKE 'hook.%'")])).not.toContain(item.prompt);
     f.project.observeTaskHooks(); await f.project.hookQueue;
     expect(f.project.shortcutCommandHistory().items.filter(row => row.source === 'hook')).toHaveLength(1);
   } finally { await f.close(); }
 });
 
-test('real HTTP prompt start returns before Git and rejects revoke/regrant without creating an Input or exposing prompt body', async () => {
+test('real HTTP prompt Hook claims before Git and rejects revoke/regrant without creating an Input or exposing prompt body', async () => {
   const f = await setup(), held = gate(); let queued;
   f.project.kick = () => {}; f.project.scheduleTaskMerge = () => {};
   try {
     await repo(f.root); const main = await f.project.bootstrapMain();
     const item = await register(f, main.id); await authorize(f, item, true);
     queued = f.project.workspaces.exclusive(() => held.promise);
-    const accepted = await post(f, 'hooks.command_start', { id: item.id, version: 1, worker_id: main.id, expected_revision: revision(f) });
-    expect(accepted.execution_id).toBeTruthy(); expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(0);
+    await post(f, 'worker.hook_attach', { id: main.id, expected_revision: f.project.taskHooks(main.id).revision,
+      hook: { name: 'queued prompt', trigger: 'worker.parent_ready', mode: 'once', enabled: true,
+        actions: [{ type: 'prompt_command', command_id: item.id, command_version: 1 }] } });
+    await Promise.resolve();
+    const accepted = f.project.shortcutCommandHistory().items[0];
+    expect(['pending', 'running']).toContain(accepted.status); expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(0);
     await authorize(f, item, false); await authorize(f, item, true);
     held.resolve(); await queued; await drain(f);
-    const failed = await history(f, accepted.execution_id);
+    const failed = await history(f, accepted.id);
     expect(failed).toMatchObject({ kind: 'prompt', status: 'failed', created_worker_id: null, created_worker_number: null, input_id: null });
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(0); expect(JSON.stringify(failed)).not.toContain(item.prompt);
     expect(f.project.shortcutCommands().items.find(row => row.id === item.id).authorized).toBe(true);

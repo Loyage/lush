@@ -71,14 +71,6 @@ export const handlers = {
   'hooks.command_remove'(p, params) {
     return p.removeShortcutCommand(commandId(params.id), revision(params.expected_revision));
   },
-  'hooks.command_run'(p, params) {
-    const expected = revision(params.expected_revision);
-    return p.runShortcutCommand(commandId(params.id), commandVersion(params.version), id(params.worker_id), expected);
-  },
-  'hooks.command_start'(p, params) {
-    const expected = revision(params.expected_revision);
-    return p.startShortcutCommand(commandId(params.id), commandVersion(params.version), id(params.worker_id), expected);
-  },
   'hooks.command_history'(p, params) {
     const options = {};
     if (Object.hasOwn(params, 'before')) {

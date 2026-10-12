@@ -285,7 +285,7 @@ test('直接链接启动复用同一路由，重复 boot 不复制导航', async
     expectSelected(id);
     expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(2);
   }
-  for (const [hash, subpage] of [['#hooks-history', 'history'], ['#hooks', 'settings'], ['#hooks-history', 'history']]) {
+  for (const [hash, subpage] of [['#hooks-history', 'history'], ['#hooks-commands', 'commands'], ['#hooks', 'settings'], ['#hooks-commands', 'commands'], ['#hooks-history', 'history']]) {
     dom.location.hash = hash; await boot(); expectSelected('hooks');
     expect(ui.hooksPage.subpage).toBe(subpage);
     expect(dom.node('detail').querySelector('.page-subnav').querySelector('[aria-current="page"]').dataset.subpage).toBe(subpage);
@@ -345,9 +345,9 @@ test('prompt execution history link opens its created Worker via the real app ha
     return null;
   };
   let owned = true;
-  const component = createShortcutRuns({ model: { version: 1, revision: 'rev', items: [] }, ownsPage: () => owned, busy: () => false, setBusy() {}, onCommands() {} });
+  const component = createShortcutRuns({ ownsPage: () => owned, busy: () => false, setBusy() {} });
   try {
-    dom.node('detail').replaceChildren(component.node, component.history);
+    dom.node('detail').replaceChildren(component.history);
     await until(() => component.history.querySelectorAll('a').length > 0);
     const link = component.history.querySelectorAll('a').find(node => node.textContent.includes('W28'));
     expect(link).toBeTruthy(); expect(deepText(component.history)).toContain('不是 Agent 工作完成');

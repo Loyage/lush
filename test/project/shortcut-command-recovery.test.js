@@ -30,13 +30,15 @@ test('revoke of an already-started single-action Hook preserves its known succes
   } finally { fs.writeFileSync(path.join(f.config.home, 'release'), 'go'); await f.close(); }
 });
 
-test('manual outcome and capability release are persisted before the project write gate drains', async () => {
+test('Hook outcome and capability release are persisted before the project write gate drains', async () => {
   const f = await setup();
   try {
     const item = command(f, 'printf start > .lush/start; while [ ! -f .lush/release ]; do sleep 0.01; done');
     const original = f.project.finishShortcutExecution.bind(f.project); let recordedWithinWrite = false;
     f.project.finishShortcutExecution = (...args) => { recordedWithinWrite = f.project.writing > 0; return original(...args); };
-    const run = f.project.runShortcutCommand(item.id, 1, f.main.id, f.project.shortcutCommands().revision);
+    f.project.attachTaskHook(f.main.id, { name: 'draining Hook', trigger: 'worker.merge_received', mode: 'once', enabled: true,
+      actions: [{ type: 'command', command_id: item.id, command_version: 1 }] }, f.project.taskHooks(f.main.id).revision);
+    f.project.emitTaskHook(f.main.id, 'worker.merge_received'); const run = f.project.hookQueue;
     await until(() => fs.existsSync(path.join(f.config.home, 'start')));
     f.project.clearing = true;
     const drain = f.project.drainWrites().then(() => {
@@ -44,7 +46,7 @@ test('manual outcome and capability release are persisted before the project wri
       expect(f.project.commandHookRunning.has(f.main.id)).toBe(false);
     });
     fs.writeFileSync(path.join(f.config.home, 'release'), 'go'); await run; await drain;
-    expect(recordedWithinWrite).toBe(true); expect(f.project.shortcutCommandJobs.size).toBe(0);
+    expect(recordedWithinWrite).toBe(true); expect(f.project.commandHookRunning.size).toBe(0);
   } finally { f.project.clearing = false; fs.writeFileSync(path.join(f.config.home, 'release'), 'go'); await f.close(); }
 });
 

@@ -15,8 +15,14 @@ const register = (f, value = {}) => {
 const ref = item => ({ type: 'prompt_command', command_id: item.id, command_version: item.version });
 const rule = item => ({ name: 'prompt once', trigger: 'worker.parent_ready', mode: 'once', enabled: true, actions: [ref(item)] });
 const history = (f, executionId) => f.project.shortcutCommandHistory({ execution_id: executionId }).items[0];
-const start = (f, item, parent) => f.project.startShortcutCommand(item.id, item.version, parent.id, revision(f));
-const drain = f => Promise.all([...f.project.shortcutCommandJobs ?? []]);
+const start = (f, item, parent) => {
+  f.project.assertPromptShortcutParent(parent.id);
+  f.project.attachTaskHook(parent.id, rule(item), f.project.taskHooks(parent.id).revision);
+  f.project.emitTaskHook(parent.id, 'worker.parent_ready');
+  const execution = f.project.shortcutCommandHistory().items[0];
+  return { execution_id: execution.id, execution };
+};
+const drain = async f => { await Promise.resolve(); await f.project.hookQueue; };
 async function setup(provider) {
   const f = fixture(provider); f.project.kick = () => {}; f.project.scheduleTaskMerge = () => {};
   await repo(f.root); f.main = await f.project.bootstrapMain(); return f;
@@ -62,7 +68,7 @@ test('legacy read defaults and deterministic Skill export are pure, unprivileged
   } finally { await f.close(); }
 });
 
-test('manual prompt creates a real independent order at the selected running parent tip, without Shell invocation locks', async () => {
+test('prompt Hook creates a real independent order at the mounted running parent tip, without Shell invocation locks', async () => {
   const f = await setup();
   try {
     const parent = (await f.project.order('parent', 'main', [], null, false)).task;
@@ -74,7 +80,7 @@ test('manual prompt creates a real independent order at the selected running par
     const item = register(f), held = gate();
     const queued = f.project.workspaces.exclusive(() => held.promise);
     const accepted = start(f, item, parent);
-    expect(accepted).toMatchObject({ execution: { id: accepted.execution_id, kind: 'prompt', worker_id: parent.id, created_worker_id: null, source: 'manual' } });
+    expect(accepted).toMatchObject({ execution: { id: accepted.execution_id, kind: 'prompt', worker_id: parent.id, created_worker_id: null, source: 'hook' } });
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(1);
     held.resolve(); await queued; await drain(f);
     const result = history(f, accepted.execution_id);
@@ -85,7 +91,8 @@ test('manual prompt creates a real independent order at the selected running par
     expect(result.created_worker_number).toBe(created.worker_number); expect(result.input_id).toBe(created.input_id);
     expect(view(f, item).last_execution).toMatchObject({ id: result.id, kind: 'prompt', status: 'succeeded', created_worker_id: created.id, created_worker_number: created.worker_number, input_id: created.input_id });
     expect(JSON.stringify(f.store.all("SELECT * FROM events WHERE type LIKE 'shortcut.%' OR type LIKE 'hook.%'"))).not.toContain(item.prompt);
-    await expect(f.project.runShortcutCommand(item.id, 1, parent.id, revision(f))).rejects.toThrow('asynchronous');
+    expect(f.project.runShortcutCommand).toBeUndefined(); expect(f.project.startShortcutCommand).toBeUndefined();
+    expect(f.project.startPromptShortcutCommand).toBeUndefined();
   } finally { f.project.running.clear(); f.project.commandHookRunning?.clear(); await f.close(); }
 });
 
@@ -102,7 +109,7 @@ test('created prompt order actually starts the default Agent, success is not its
   } finally { finish.resolve(); await f.close(); }
 });
 
-for (const mutation of ['revoke','reauthorize','edit','delete']) test(`manual prompt refuses ${mutation} while waiting for Git creation`, async () => {
+for (const mutation of ['revoke','reauthorize','edit','delete']) test(`prompt Hook refuses ${mutation} while waiting for Git creation`, async () => {
   const f = await setup(), held = gate(); let queued;
   try {
     const item = register(f); queued = f.project.workspaces.exclusive(() => held.promise);
@@ -202,7 +209,7 @@ test('prompt Hook revoke and reauthorize cannot escape claimed authorization or 
 test('prompt pending/running restart becomes unknown without replay; exact Hook creation receipt recovers success once', async () => {
   const f = await setup(); let next;
   try {
-    const item = register(f), accepted = f.project.acceptPromptShortcutExecution(ref(item), f.main.id, 'manual');
+    const item = register(f), accepted = f.project.acceptPromptShortcutExecution(ref(item), f.main.id);
     next = new Project(f.config, f.store); next.kick = () => {}; next.recoverTaskHooks(); await Promise.resolve(); await next.hookQueue;
     expect(history({ ...f, project: next }, accepted.execution_id)).toMatchObject({ status: 'unknown', created_worker_id: null });
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(0);
@@ -248,17 +255,17 @@ for (const state of ['running','unstarted','waiting']) test(`interrupted prompt 
   } finally { await next?.shutdown(); await f.close(); }
 });
 
-test('shutdown rejects new prompt submissions and drains accepted Git-waiting work to a safe terminal history', async () => {
+test('shutdown rejects new prompt Hook claims and drains Git-waiting work to safe history', async () => {
   const f = await setup(), held = gate(); let queued;
   try {
     const item = register(f); queued = f.project.workspaces.exclusive(() => held.promise);
-    const accepted = start(f, item, f.main); expect(f.project.writing).toBeGreaterThan(0);
+    const accepted = start(f, item, f.main); await Promise.resolve(); expect(f.project.writing).toBeGreaterThan(0);
     const stopped = f.project.shutdown(); let settled = false; stopped.then(() => { settled = true; });
     await Promise.resolve(); expect(settled).toBe(false);
     expect(() => start(f, item, f.main)).toThrow('stopping');
     held.resolve(); await queued; await stopped;
     expect(f.project.writing).toBe(0); expect(history(f, accepted.execution_id).status).toBe('failed');
-    expect(f.project.shortcutCommandJobs.size).toBe(0);
+    expect(f.project.lifecycleHookRunning.size).toBe(0);
   } finally { held.resolve(); await queued; await f.close(); }
 });
 
@@ -296,6 +303,24 @@ test('concurrent prompt Hook claims keep the newest last_execution while each in
     expect(f.project.removeShortcutCommandHistory({ execution_id: latest.id })).toEqual({ removed_count: 1 });
     expect(view(f, item).last_execution).toBeNull();
   } finally { held.resolve(); await f.project.hookQueue; await f.close(); }
+});
+
+test('internal prompt executor rejects a different claim even with a real mounted Hook receipt', async () => {
+  const f = await setup();
+  try {
+    const item = register(f); f.project.scheduleTaskHooks = () => {}; f.project.queueLifecycleTaskHook = () => {};
+    const hook = f.project.attachTaskHook(f.main.id, rule(item), f.project.taskHooks(f.main.id).revision).mounts.at(-1);
+    f.project.emitTaskHook(f.main.id, 'worker.parent_ready');
+    const mount = JSON.parse(f.store.task(f.main.id).hooks).mounts.find(m => m.id === hook.id);
+    const unrelated = f.project.acceptPromptShortcutExecution(ref(item), f.main.id);
+    const receipt = { task_id: f.main.id, hook_id: hook.id, execution_id: mount.last_execution.id, action_index: 0 };
+    await expect(f.project.executePromptShortcutCommand(unrelated, f.main.id, receipt)).rejects.toThrow('创建未完成');
+    expect(history(f, unrelated.execution_id).status).toBe('failed');
+    expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(0);
+    const created = await f.project.executePromptShortcutCommand(mount.prompt_executions[0], f.main.id, receipt);
+    expect(created.task.parent_id).toBe(f.main.id);
+    expect(history(f, mount.prompt_executions[0].execution_id).status).toBe('succeeded');
+  } finally { await f.close(); }
 });
 
 test('historical prompt output sanitizes created identities and never exposes arbitrary secret result fields', async () => {

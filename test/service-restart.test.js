@@ -70,7 +70,7 @@ test('idle stop and maintenance readiness share Hook, synchronization and reclam
     expect(f.project.maintenanceView()).toMatchObject({ paused: false, ready_to_restart: true });
     for (const key of ['commandHookRunning', 'commandHookQueued', 'lifecycleHookRunning', 'lifecycleHookQueued',
       'scheduledHookQueued', 'taskSyncBusy', 'acceptanceBusy', 'workerDeleteIds', 'completionQueued',
-      'completionBusy', 'shortcutCommandJobs']) {
+      'completionBusy']) {
       f.project[key] ??= new Set(); f.project[key].add('test');
       expect(f.project.maintenanceView().ready_to_restart).toBe(false);
       await expect(rpc.dispatch('system.stop_if_idle')).rejects.toThrow('后台操作');

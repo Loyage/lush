@@ -20,7 +20,6 @@ const cases = [
   ['hooks.command_authorize', ['id','version','authorized','expected_revision'], { id: commandId, version: 2, authorized: true, expected_revision: revision }, 'authorizeShortcutCommand', [commandId, 2, true, revision]],
   ['hooks.command_history_remove', ['execution_id','clear'], { execution_id: commandId }, 'removeShortcutCommandHistory', [{ execution_id: commandId }]],
   ['hooks.command_remove', ['id','expected_revision'], { id: commandId, expected_revision: revision }, 'removeShortcutCommand', [commandId, revision]],
-  ['hooks.command_run', ['id','version','worker_id','expected_revision'], { id: commandId, version: 2, worker_id: 7, expected_revision: revision }, 'runShortcutCommand', [commandId, 2, 7, revision]],
   ['hooks.command_import', ['source','expected_revision'], { source: { worker_id: 7, hook_id: 'old-hook' }, expected_revision: revision }, 'importLegacyHookCommands', [{ worker_id: 7, hook_id: 'old-hook' }, revision]],
   ['hooks.auto_select', ['enabled','expected_revision'], { enabled: true, expected_revision: revision }, 'setDaemonAutoSelect', [true, revision]],
   ['hooks.completion_defaults', ['enabled','level','expected_revision'], { enabled: true, level: 'archive', expected_revision: revision }, 'setCompletionDefaults', [true, 'archive', revision]],

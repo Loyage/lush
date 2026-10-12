@@ -382,8 +382,8 @@ async function promptRisk() {
 
 /** Explicit project-local template management, separate from actual Worker attachments. */
 export async function openHooks({ subpage = 'settings' } = {}) {
-  subpage = subpage === 'history' ? 'history' : 'settings';
-  const view = activateDetailView({ view: 'hooks', title: '项目自动化', context: '工作', hint: '快捷指令和 Hook', hash: subpage === 'history' ? '#hooks-history' : '#hooks' });
+  subpage = ['commands', 'history'].includes(subpage) ? subpage : 'settings';
+  const view = activateDetailView({ view: 'hooks', title: '项目自动化', context: '工作', hint: '指令管理与 Hook', hash: subpage === 'history' ? '#hooks-history' : subpage === 'commands' ? '#hooks-commands' : '#hooks' });
   const project = projectApi('/api/hooks'), owner = globalThis.document;
   const ownsPage = () => owner === globalThis.document && ui.view === view && sameProject(project);
   if (ui.hooksPage?.view === view && ui.hooksPage.project === project) {
@@ -395,6 +395,7 @@ export async function openHooks({ subpage = 'settings' } = {}) {
   const root = el('div', undefined, 'hooks-page'); $('detail').replaceChildren(root);
   const subnav = pageSubnav('项目自动化子页面', [
     { id: 'settings', label: '设置', href: '#hooks' },
+    { id: 'commands', label: '指令管理', href: '#hooks-commands' },
     { id: 'history', label: '历史记录', href: '#hooks-history' },
   ], subpage, next => owns() ? openHooks({ subpage: next }) : undefined);
   state.switchSubpage = next => {
@@ -403,9 +404,10 @@ export async function openHooks({ subpage = 'settings' } = {}) {
       const selected = link.dataset.subpage === next;
       link.classList.toggle('active', selected); link.setAttribute('aria-current', selected ? 'page' : 'false');
     }
-    for (const node of state.settingsNodes || []) node.hidden = next === 'history';
+    for (const node of state.settingsNodes || []) node.hidden = next !== 'settings';
     if (state.historyNode) state.historyNode.hidden = next !== 'history';
     state.shortcutNode?.setSubpage?.(next); state.convergenceNode?.setSubpage?.(next);
+    if (state.convergenceNode) state.convergenceNode.hidden = next === 'commands';
   };
   root.append(subnav);
   const editor = el('div', undefined, 'hook-editor');
@@ -492,7 +494,6 @@ export async function openHooks({ subpage = 'settings' } = {}) {
     const commands = preservedCommands || renderShortcutCommands({ catalogue, folds: state.folds, ownsPage: owns, busy: () => state.busy,
       setBusy(value) { state.busy = value; if (owns()) paint(); }, setEditing(value) { state.shortcutEditing = value; },
       onCatalogue(result) { if (owns()) { state.catalogue = result; ui.hookCatalogue = result; paint(); } },
-      onCommands(model) { if (owns() && validCommands(model)) { state.catalogue = { ...state.catalogue, commands: model }; ui.hookCatalogue = state.catalogue; paint(); } },
     });
     state.shortcutNode = commands;
     commands.updateCommands?.(catalogue.commands, catalogue);
@@ -557,7 +558,7 @@ export async function openHooks({ subpage = 'settings' } = {}) {
       const key = card.dataset.hookId || card.dataset.templateId, details = card.querySelector('details');
       if (key && details && state.details.has(key)) details.open = state.details.get(key);
     }
-    const subtitle = el('p', '快捷指令和 Hook', 'hooks-page-subtitle');
+    const subtitle = el('p', '指令管理与 Hook', 'hooks-page-subtitle');
     const introduction = el('p', '模板可复用，实际挂载独立保存。管理此项目的命令授权和实际挂载；设备默认流程与自动选择在独立全局自动化页配置。', 'hint');
     const history = block('Hook、信号与管理记录'); history.classList.add('automation-history');
     history.append(el('p', '这里展示项目目录提供的最近执行快照；快捷指令与归并批次可在各自记录区分页查看。其他 Worker 的完整 Hook 与调用历史仍在其详情中。', 'hint'),
@@ -582,8 +583,8 @@ export async function openHooks({ subpage = 'settings' } = {}) {
       history.append(card);
     }
     if (!observations.length) history.append(el('p', '暂无 Hook、信号与管理记录。', 'hint'));
-    state.settingsNodes = [introduction, hooks, ...signals, controls, templates]; state.historyNode = history;
     const tools = renderAutomationTools(catalogue, state.folds);
+    state.settingsNodes = [introduction, tools, hooks, ...signals, controls, templates]; state.historyNode = history;
     syncChildren(root, [subnav, header, subtitle, introduction, commands, tools, convergence, hooks, ...signals, controls, templates, history]);
     state.switchSubpage(state.subpage);
     // Moving a retained editor/search into a fresh module must not discard keyboard focus or caret.

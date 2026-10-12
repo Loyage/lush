@@ -11,8 +11,6 @@
 | `hooks.command_export` | `{id,version}` | `hooks command export ID --version N` |
 | `hooks.command_authorize` | `{id,version,authorized,expected_revision}` | `hooks command authorize\|revoke ID --version N --revision REV` |
 | `hooks.command_remove` | `{id,expected_revision}` | `hooks command remove ID --revision REV` |
-| `hooks.command_run` | `{id,version,worker_id,expected_revision}` | `hooks command run ID --version N --worker ID --revision REV` |
-| `hooks.command_start` | `{id,version,worker_id,expected_revision}` | `hooks command start ID --version N --worker ID --revision REV` |
 | `hooks.command_history` | `{before?,limit?,execution_id?}` | `hooks command history [--before CURSOR] [--limit N] [--execution UUID]` |
 | `hooks.command_history_remove` | `{execution_id}` 或 `{clear:true}` | 自动化页「运行记录」删除／清空已结束记录 |
 | `hooks.command_import` | `{source,expected_revision}` | `hooks command import --file PATH --revision REV` |
@@ -54,13 +52,13 @@
 
 ## 快捷指令授权
 
-`commands:{version:1,revision,items}` 为当前项目 Shell／提示词目录。每项含 `{id,name,kind,default_worker_id,version,authorized,last_execution}`，以及 description、when_to_use、tags、examples、warnings；正文按 kind 仅返回 command 或 prompt。保存 `command:{id?,name,kind?,command?|prompt?,default_worker_id?,description?,when_to_use?,tags?,examples?,warnings?}`，旧缺省 kind=shell。元数据为可空字符串，tags 为字符串数组；编辑省略元数据保留原值。default_worker_id 为真实 Worker 内部整数或 null，省略保留、null 清空：Shell 预选目录，prompt 预选父 Worker；Hook 不采用此默认。保存不授权，所有编辑递增版本并撤权。不接受路径、authorized、version 或额外参数；两类正文不可混合。保存、授权、删除和执行使用 **commands.revision**，保存返回完整 Hooks 目录。
+`commands:{version:1,revision,items}` 为当前项目 Shell／提示词目录。每项含 `{id,name,kind,default_worker_id,version,authorized,last_execution}`，以及 description、when_to_use、tags、examples、warnings；正文按 kind 仅返回 command 或 prompt。保存 `command:{id?,name,kind?,command?|prompt?,default_worker_id?,description?,when_to_use?,tags?,examples?,warnings?}`，旧缺省 kind=shell。元数据为可空字符串，tags 为字符串数组；编辑省略元数据保留原值。default_worker_id 仅兼容已有配置，为真实 Worker 内部整数或 null，编辑省略保留、null 清空；不参与 Hook 路由，页面不再管理手动默认目标。保存不授权，所有编辑递增版本并撤权。不接受路径、authorized、version 或额外参数；两类正文不可混合。保存、授权和删除使用 **commands.revision**，保存返回完整 Hooks 目录。
 
-同步 `hooks.command_run` 仅支持 Shell，提示词必须用异步 start。worker_id 使用内部整数，CLI `--worker` 可解析 W 编号。执行仅允许当前已授权版本，复用真实工作目录、Git 串行和生命周期门禁，受阻拒绝、不隐式排队重试；返回 `{execution_id,command_result,commands}`，不公开命令原始输出。不是沙箱、不调用 Agent，Shell 具有 daemon 系统用户权限。
+W241／D566 删除 `hooks.command_run`、`hooks.command_start` 与 CLI `hooks command run/start`，Web 不再提供手动运行；不保留兼容执行别名。指令只由已授权的 Hook 引用执行，原有权限、真实目录、Git 串行与生命周期门禁不变。
 
-页面使用异步 `hooks.command_start`，即时返回 `{execution_id,execution,commands}`；pending 表示已接受，running 表示已开始，不等于成功。通过用户专属只读 `GET /api/hooks/commands/executions` 查询每次手动／Hook 运行安全摘要，返回 `{version:1,items,has_more,next_before}`。limit 默认 30、最多 100，before 是正整数事件游标；execution_id 是固定 UUID，不可与 before 同用。历史不保存 Shell 输出；改名、撤权或删除指令不删除已记录运行。断线仅表示结果未确认，不自动重提命令。旧同步 command_run 仍兼容，UIClient 对此调用的等待预算为 75 秒，其他请求仍为 30 秒；推荐 start／history，Git 排队与断线仍可能令同步结果未确认。完整读模型及恢复边界见[异步运行契约](../../engineering/shortcut-command-runs.md)。
+用户专属只读 `GET /api/hooks/commands/executions` 保留 Hook 及旧手动运行安全摘要，返回 `{version:1,items,has_more,next_before}`。limit 默认 30、最多 100，before 为正整数事件游标；execution_id 为固定 UUID，不可与 before 同用。改名、撤权或删除不抹去历史；历史不保存 Shell 输出，断线不代表失败，未知结果不重放。完整读模型与恢复边界见[运行历史契约](../../engineering/shortcut-command-runs.md)。
 
-prompt 的 start.worker_id 是所选父 Worker，仅 main／owner／order 可创建（历史 say 只读兼容），不是已有 Agent 的追加消息。沿用默认设置，创建独立指令 Worker 并启动 Agent，消耗 token。历史与 last_execution 含 kind、created_worker_id、created_worker_number、input_id；prompt 的 succeeded 仅表示创建并提交，不表示 Agent 工作完成，结果从关联 Worker 查看。受阻不改投 main，未知不重放。
+提示词 Hook 以挂载 Worker 为父创建并启动独立指令 Worker，消耗 token，不是追加消息。历史与 last_execution 含 kind、created_worker_id、created_worker_number、input_id；succeeded 仅表示创建并提交，不表示 Agent 工作完成，结果从关联 Worker 查看。受阻不改投 main。
 
 `hooks.command_export {id,version}` 是用户专属只读接口，返回 `{filename,markdown}`；HTTP `GET /api/hooks/commands/export?id=UUID&version=N` 不接受额外／重复参数。导出单条 Skill 风格 Markdown，不安装、不注入、不授权，不开放 Agent 调用能力。
 

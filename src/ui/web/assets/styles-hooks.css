@@ -69,7 +69,7 @@ button.convergence-disable.is-selected { border-color: var(--line); background: 
 .convergence-sha { font-family: monospace; overflow-wrap: anywhere; }
 @media (max-width: 600px) { .convergence-editor { grid-template-columns: minmax(0, 1fr); } }
 .shortcut-commands { min-width: 0; }
-.shortcut-command-editor, .shortcut-run-editor { margin-block: .8rem; }
+.shortcut-command-editor { margin-block: .8rem; }
 .shortcut-commands { display: grid; gap: 1rem; }
 .automation-module { min-width: 0; }
 .automation-module > .section-title { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
@@ -82,13 +82,24 @@ button.convergence-disable.is-selected { border-color: var(--line); background: 
 .hooks-page .help-host[tabindex="0"] { display: inline-flex; max-width: 100%; }
 .hooks-page .help-host:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 600px) { .automation-module button { white-space: normal; max-width: 100%; } }
-.shortcut-command-runs, .shortcut-command-management { min-width: 0; }
+.shortcut-command-management { min-width: 0; }
+.shortcut-command-detail-page { max-width: 1180px; min-width: 0; }
+.shortcut-command-detail-page > .help-host > button { margin-bottom: 1rem; }
+.shortcut-directory .search-field { flex: 2 1 24rem; min-width: 0; }
+.shortcut-directory-description { display: block; margin-top: .3rem; }
+.shortcut-directory-pick:disabled { opacity: .65; }
+.shortcut-directory-list .shortcut-directory-entry { padding: 0; border: 0; }
+.shortcut-directory-entry strong { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; }
 .shortcut-execution-id, .shortcut-execution .hook-mount-head strong { overflow-wrap: anywhere; }
 .shortcut-execution-history { margin-top: 1rem; }
 .shortcut-command pre { font-family: monospace; }
-.shortcut-directory, .shortcut-command-detail, .shortcut-run-detail { min-width: 0; }
+.shortcut-directory, .shortcut-command-detail { min-width: 0; }
 .shortcut-directory-filters { display: flex; flex-wrap: wrap; gap: .7rem; }
 .shortcut-directory-filters .hook-field { flex: 1 1 10rem; min-width: 0; }
+.shortcut-directory-filters select { padding: .45rem .6rem; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; }
+.shortcut-directory .ui-list-tools > .shortcut-directory-filters { flex: 1 1 20rem; }
+.shortcut-command-editor .hook-field input, .shortcut-command-editor .hook-field select, .shortcut-command-editor .hook-field textarea { padding: .6rem; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); font: inherit; }
+.shortcut-command-editor .hook-field .hook-command-input { font-family: monospace; }
 .shortcut-directory-list { display: grid; gap: .35rem; }
 .shortcut-directory-entry { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; padding: .35rem; border-bottom: 1px solid var(--line); min-width: 0; }
 .shortcut-directory-pick { text-align: left; white-space: normal; overflow-wrap: anywhere; max-width: 100%; }

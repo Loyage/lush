@@ -2,7 +2,7 @@ import { test, expect, setDefaultTimeout } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { fixture, repo, gate, until } from '../helpers.js';
+import { fixture, repo, until } from '../helpers.js';
 import { Project } from '../../src/core/project.js';
 
 setDefaultTimeout(20000);
@@ -14,8 +14,15 @@ function register(f, command = 'true') {
   const item = f.project.saveShortcutCommand({ name: 'history', command }, f.project.shortcutCommands().revision).commands.items.at(-1);
   f.project.authorizeShortcutCommand(item.id, 1, true, f.project.shortcutCommands().revision); return item;
 }
-const start = (f, item) => f.project.startShortcutCommand(item.id, 1, f.main.id, f.project.shortcutCommands().revision);
-const drain = f => Promise.all([...f.project.shortcutCommandJobs ?? []]);
+// Historical manual receipts are fixtures, never a callable manual execution path.
+const start = (f, item) => {
+  const execution_id = randomUUID();
+  f.project.claimShortcutExecution(item.id, 1, f.main.id, execution_id, 'manual');
+  f.project.startShortcutExecution(item.id, 1, f.main.id, execution_id, 'manual');
+  f.project.finishShortcutExecution(item.id, execution_id, f.main.id, 'succeeded', { status: 'succeeded', exit_code: 0 });
+  return { execution_id };
+};
+const drain = async f => { await f.project.hookQueue; };
 const lookup = (project, execution) => project.shortcutCommandHistory({ execution_id: execution.execution_id ?? execution }).items;
 const remove = (project, execution) => project.removeShortcutCommandHistory({ execution_id: execution.execution_id ?? execution });
 function audit(f, item, status, source = 'manual') {
@@ -88,24 +95,23 @@ test('strict remove options and protected execution states are rejected without 
   } finally { await f.close(); }
 });
 
-test('real pending and running commands cannot be removed, clear does not interfere with settlement or claims', async () => {
-  const f = await setup(), held = gate(); let release;
+test('real running Hook history cannot be removed and clear does not interfere with settlement', async () => {
+  const f = await setup();
   try {
     const item = register(f, 'printf start > .lush/started; while [ ! -f .lush/release ]; do sleep 0.01; done');
-    release = f.project.workspaces.exclusive(() => held.promise);
-    const execution = start(f, item);
-    expect(() => remove(f.project, execution)).toThrow('cannot be removed');
+    f.project.attachTaskHook(f.main.id, { name: 'running history', trigger: 'worker.merge_received', mode: 'once', enabled: true,
+      actions: [{ type: 'command', command_id: item.id, command_version: 1 }] }, f.project.taskHooks(f.main.id).revision);
+    f.project.emitTaskHook(f.main.id, 'worker.merge_received');
+    await until(() => fs.existsSync(path.join(f.config.home, 'started')));
+    const execution = f.project.shortcutCommandHistory().items[0];
+    expect(execution.status).toBe('running');
+    expect(() => remove(f.project, execution.id)).toThrow('cannot be removed');
     expect(f.project.removeShortcutCommandHistory({ clear: true })).toEqual({ removed_count: 0 });
-    expect(f.project.shortcutCommandClaims.get(f.main.id)).toBe(execution.execution_id);
-    held.resolve(); await release; await until(() => fs.existsSync(path.join(f.config.home, 'started')));
-    expect(lookup(f.project, execution)[0].status).toBe('running');
-    expect(() => remove(f.project, execution)).toThrow('cannot be removed');
-    expect(f.project.removeShortcutCommandHistory({ clear: true })).toEqual({ removed_count: 0 });
+    expect(f.project.commandHookRunning.has(f.main.id)).toBe(true);
     fs.writeFileSync(path.join(f.config.home, 'release'), 'go'); await drain(f);
-    expect(remove(f.project, execution)).toEqual({ removed_count: 1 });
-    expect(f.project.shortcutCommandClaims.size).toBe(0);
+    expect(remove(f.project, execution.id)).toEqual({ removed_count: 1 });
     expect(f.project.commandHookRunning.size).toBe(0);
-  } finally { held.resolve(); fs.writeFileSync(path.join(f.config.home, 'release'), 'go'); await release; await f.close(); }
+  } finally { fs.writeFileSync(path.join(f.config.home, 'release'), 'go'); await f.close(); }
 });
 
 test('removed history stays hidden across restart and recovery still settles all outstanding roots without replay', async () => {
@@ -113,7 +119,6 @@ test('removed history stays hidden across restart and recovery still settles all
   try {
     const item = register(f, 'printf BAD > .lush/replay'), execution = start(f, item); await drain(f);
     expect(remove(f.project, execution)).toEqual({ removed_count: 1 });
-    fs.unlinkSync(path.join(f.config.home, 'replay'));
     const unfinished = [];
     f.store.transaction(() => {
       for (let n = 0; n < 105; n++) unfinished.push(audit(f, item, n % 2 ? 'pending' : 'running', n % 2 ? 'manual' : 'hook'));

@@ -12,24 +12,17 @@ export default {
     return parent;
   },
 
-  acceptPromptShortcutExecution(action, workerId, source = 'hook') {
+  acceptPromptShortcutExecution(action, workerId) {
     const item = this.resolveShortcutCommand({ ...action, type: 'prompt_command' });
     const parent = this.assertPromptShortcutParent(workerId);
     const executionId = randomUUID(), authorizationId = this.shortcutAuthorizationId(item.id);
-    const claim = this.claimShortcutExecution(item.id, item.version, parent.id, executionId, source);
+    const claim = this.claimShortcutExecution(item.id, item.version, parent.id, executionId, 'hook');
     return { command_id: item.id, command_version: item.version, execution_id: executionId,
       authorization_id: authorizationId, ...claim };
   },
 
-  startPromptShortcutCommand(definition, workerId) {
-    const accepted = this.acceptPromptShortcutExecution({ command_id: definition.id, command_version: definition.version }, workerId, 'manual');
-    const job = this.write('create an order from an accepted prompt shortcut', () => this.executePromptShortcutCommand(accepted, workerId));
-    const tracked = job.catch(() => {}).finally(() => this.shortcutCommandJobs.delete(tracked));
-    (this.shortcutCommandJobs ??= new Set()).add(tracked);
-    return { execution_id: accepted.execution_id, execution: { event_id: accepted.event_id, ...accepted.execution }, commands: this.shortcutCommands() };
-  },
-
-  async executePromptShortcutCommand(accepted, workerId, hookReceipt = null) {
+  async executePromptShortcutCommand(accepted, workerId, hookReceipt) {
+    check(hookReceipt && hookReceipt.task_id === workerId, 'prompt shortcut execution requires a Hook receipt');
     const { command_id: commandId, command_version: version, execution_id: executionId } = accepted;
     const parent = this.store.task(id(workerId)), branch = parent.branch;
     const guard = () => {
@@ -38,16 +31,17 @@ export default {
       // Compare durable authorization identity, not a boolean: revoke then grant is a new permission.
       check(this.shortcutAuthorizationId(commandId) === accepted.authorization_id, 'shortcut authorization changed');
       this.resolveShortcutCommand({ type: 'prompt_command', command_id: commandId, command_version: version });
-      if (hookReceipt) {
-        const mount = JSON.parse(this.store.task(parent.id).hooks ?? '{"mounts":[]}').mounts.find(m => m.id === hookReceipt.hook_id);
-        check(mount?.enabled && mount.state === 'running' && mount.last_execution?.id === hookReceipt.execution_id, 'Hook creation authorization changed');
-      }
+      const mount = JSON.parse(this.store.task(parent.id).hooks ?? '{"mounts":[]}').mounts.find(m => m.id === hookReceipt.hook_id);
+      const claim = mount?.prompt_executions?.find(claim => claim.index === hookReceipt.action_index);
+      check(mount?.enabled && mount.state === 'running' && mount.last_execution?.id === hookReceipt.execution_id
+        && claim?.execution_id === executionId && claim.command_id === commandId && claim.command_version === version
+        && claim.authorization_id === accepted.authorization_id, 'Hook creation authorization changed');
     };
     try {
       guard();
       const item = this.resolveShortcutCommand({ type: 'prompt_command', command_id: commandId, command_version: version });
-      this.startShortcutExecution(commandId, version, parent.id, executionId, hookReceipt ? 'hook' : 'manual');
-      const receipt = hookReceipt ? { ...hookReceipt, shortcut_execution_id: executionId, command_id: commandId, command_version: version } : null;
+      this.startShortcutExecution(commandId, version, parent.id, executionId, 'hook');
+      const receipt = { ...hookReceipt, shortcut_execution_id: executionId, command_id: commandId, command_version: version };
       return await this.sendOrder(item.prompt, branch, [], null, true, undefined, null, false, receipt, guard,
         { command_id: commandId, execution_id: executionId, worker_id: parent.id });
     } catch {

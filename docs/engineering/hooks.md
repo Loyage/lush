@@ -4,7 +4,7 @@
 
 ## 快捷指令授权（W151 / 决定 #363）
 
-当前命令动作只接受 `{type:'command',command_id,command_version}`，引用项目快捷指令的明确授权版本。注册、授权、手动执行、版本失效及旧内联显式导入以[快捷指令与 Hook 契约](shortcut-commands.md)为准，覆盖下文旧直接 Shell 定义；其他受控动作不变。旧内联只保留展示和历史，不能执行或启用。自动化小标题为「快捷指令和 Hook」。
+当前命令动作只接受 `{type:'command',command_id,command_version}`，引用项目快捷指令的明确授权版本。注册、授权、Hook 执行、版本失效及旧内联显式导入以[快捷指令与 Hook 契约](shortcut-commands.md)为准，覆盖下文旧直接 Shell 定义；其他受控动作不变。旧内联只保留展示和历史，不能执行或启用。自动化小标题为「指令管理与 Hook」。
 
 ## 通用命令与 main 推送示例（W133 / 用户决定 #319）
 

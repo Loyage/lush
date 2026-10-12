@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { check, id, TERMINAL } from '../types.js';
 import { hookObject, hookRevision, normalizeHook, HOOK_LIMITS } from '../hooks.js';
-import { commandAdmission } from './command-hooks.js';
 import { commandHistory, commandHistoryRemoved, removeCommandHistory, executionSnapshot, recoverCommandHistory, safeCommandResult, safeCreationResult } from './shortcut-command-history.js';
 import { assertTaskAncestorsOpen } from './iteration.js';
 import { normalizeShortcut, shortcutKind, shortcutMetadata, exportShortcut } from '../shortcut-command-definition.js';
@@ -165,9 +164,12 @@ export default {
       let item = data.items.find(item => item.id === value.id);
       check(value.id === undefined || item, 'shortcut command not found');
       const definition = normalized(value, item);
-      const defaultWorkerId = definition.default_worker_id === undefined ? item?.default_worker_id : definition.default_worker_id;
-      if (definition.kind === 'prompt' && defaultWorkerId != null) this.assertInputParent(defaultWorkerId);
-      else if (definition.default_worker_id != null) validateDefaultWorker(this, definition.default_worker_id);
+      // Omitted defaults are inert historical configuration, not an execution target.
+      // Validate only a newly supplied non-null identity; preserve the old value as-is.
+      if (definition.default_worker_id != null) {
+        if (definition.kind === 'prompt') this.assertInputParent(definition.default_worker_id);
+        else validateDefaultWorker(this, definition.default_worker_id);
+      }
       if (item) {
         check(item.version < Number.MAX_SAFE_INTEGER, 'shortcut command version limit reached');
         delete item.command; delete item.prompt;
@@ -226,7 +228,7 @@ export default {
 
   /** Reopen every affected queue after durable settlement, including ancestor acceptance and parent delivery. */
   releaseShortcutCommand(workerId) {
-    this.shortcutCommandClaims?.delete(workerId); this.commandHookRunning?.delete(workerId);
+    this.commandHookRunning?.delete(workerId);
     const task = this.store.task(workerId);
     if (!this.stopping) {
       this.scheduleTaskMerge(workerId); this.scheduleTaskMerge(task.parent_id);
@@ -237,92 +239,8 @@ export default {
     this.kick();
   },
 
-  /** Accept once, durably, without making the HTTP/RPC connection wait for Git or Shell. */
-  startShortcutCommand(commandId, version, workerId, expectedRevision) {
-    this.assertWritable('start a shortcut command');
-    const data = read(this); expected(data, expectedRevision);
-    const definition = structuredClone(record(data, commandId, version)); check(definition.authorized, UNAVAILABLE);
-    if (shortcutKind(definition) === 'prompt') return this.startPromptShortcutCommand(definition, workerId);
-    const task = this.store.task(id(workerId));
-    check(['main','owner','order','child'].includes(task.task_kind) && !TERMINAL.has(task.status), 'Worker cannot execute shortcut commands');
-    check(!this.commandHookRunning?.has(task.id), 'Worker is already executing a shortcut command');
-    const admission = commandAdmission(this, task); check(!admission.wait && !admission.stop, admission.wait ?? admission.stop);
-    const executionId = randomUUID();
-    const authorization = () => this.store.get(`SELECT max(id) AS id FROM events WHERE type IN
-      ('shortcut.command_saved','shortcut.command_authorized','shortcut.command_removed') AND json_extract(data,'$.command_id')=?`, commandId)?.id ?? 0;
-    const authorizationId = authorization();
-    const execution = executionSnapshot(this, definition, task.id, executionId, 'manual', 'pending');
-    let eventId;
-    this.store.transaction(() => {
-      data.items.find(item => item.id === commandId).last_execution = execution;
-      save(this, data);
-      eventId = this.store.event(task.id, 'shortcut.command_pending', { ...execution, execution_id: executionId });
-    });
-    (this.commandHookRunning ??= new Set()).add(task.id);
-    (this.shortcutCommandClaims ??= new Map()).set(task.id, executionId);
-    // write() enters its drain barrier synchronously. Outcomes and lock release happen inside it.
-    const job = this.write('execute an accepted shortcut command', async () => {
-      let started = false;
-      try {
-        const result = await this.workspaces.runHookCommand(task, definition.command, () => {
-          check(this.shortcutCommandClaims.get(task.id) === executionId, 'shortcut claim changed');
-          check(authorization() === authorizationId, UNAVAILABLE);
-          this.resolveShortcutCommand({ command_id: commandId, command_version: version });
-          const gate = commandAdmission(this, this.store.task(task.id), true);
-          check(!gate.wait && !gate.stop, gate.wait ?? gate.stop);
-          return true;
-        }, { ...this.commandHookOptions, started: () => {
-          this.startShortcutExecution(commandId, version, task.id, executionId, 'manual'); started = true;
-        } });
-        this.finishShortcutExecution(commandId, executionId, task.id, result.status, result);
-      } catch {
-        this.finishShortcutExecution(commandId, executionId, task.id, started ? 'unknown' : 'failed',
-          { status: started ? 'unknown' : 'failed', reason: started ? 'interrupted' : 'admission' });
-      } finally {
-        this.releaseShortcutCommand(task.id);
-      }
-    });
-    const tracked = job.catch(() => {}).finally(() => this.shortcutCommandJobs.delete(tracked));
-    (this.shortcutCommandJobs ??= new Set()).add(tracked);
-    return { execution_id: executionId, execution: { event_id: eventId, ...execution }, commands: this.shortcutCommands() };
-  },
-
-  async runShortcutCommand(commandId, version, workerId, expectedRevision) {
-    check(shortcutKind(record(read(this), commandId, version)) !== 'prompt', 'prompt shortcuts require asynchronous startShortcutCommand');
-    const data = read(this); expected(data, expectedRevision);
-    const definition = structuredClone(record(data, commandId, version)); check(definition.authorized, UNAVAILABLE);
-    const task = this.store.task(id(workerId));
-    check(['main','owner','order','child'].includes(task.task_kind) && !TERMINAL.has(task.status), 'Worker cannot execute shortcut commands');
-    check(!this.commandHookRunning?.has(task.id), 'Worker is already executing a shortcut command');
-    const admission = commandAdmission(this, task); check(!admission.wait && !admission.stop, admission.wait ?? admission.stop);
-    const job = this.write('execute a shortcut command', async () => {
-      let executionId = null;
-      try {
-        const result = await this.workspaces.runHookCommand(task, definition.command, () => {
-          expected(read(this), expectedRevision);
-          this.resolveShortcutCommand({ command_id: commandId, command_version: version });
-          check(!this.commandHookRunning?.has(task.id), 'Worker is already executing a shortcut command');
-          const gate = commandAdmission(this, this.store.task(task.id)); check(!gate.wait && !gate.stop, gate.wait ?? gate.stop);
-          return true;
-        }, { ...this.commandHookOptions, started: () => {
-          const startedId = randomUUID();
-          this.startShortcutExecution(commandId, version, task.id, startedId); executionId = startedId;
-          (this.commandHookRunning ??= new Set()).add(task.id);
-        } });
-        this.finishShortcutExecution(commandId, executionId, task.id, result.status, result);
-        return { execution_id: executionId, command_result: safeCommandResult(result), commands: this.shortcutCommands() };
-      } catch {
-        if (executionId) this.finishShortcutExecution(commandId, executionId, task.id, 'unknown');
-        throw new Error(executionId ? '快捷指令执行结果未知；请检查现场，不会自动重放。' : '快捷指令未开始；请重新检查授权版本、Worker 状态与安全门。');
-      } finally {
-        if (executionId) this.releaseShortcutCommand(task.id);
-      }
-    });
-    (this.shortcutCommandJobs ??= new Set()).add(job);
-    try { return await job; } finally { this.shortcutCommandJobs.delete(job); }
-  },
-
-  startShortcutExecution(commandId, version, workerId, executionId, source = 'manual') {
+  // Internal Hook audit receipt only; this does not execute a command.
+  startShortcutExecution(commandId, version, workerId, executionId, source = 'hook') {
     this.store.transaction(() => {
       const data = read(this), item = record(data, commandId, version); check(item.authorized, UNAVAILABLE);
       const pending = this.store.get("SELECT data FROM events WHERE type='shortcut.command_pending' AND json_extract(data,'$.execution_id')=? ORDER BY id LIMIT 1", executionId);

@@ -30,9 +30,8 @@ function file(value) {
 test('shortcut RPC rejects invalid versions, IDs and nested authority before any runtime call', async () => {
   const f = project();
   for (const version of [undefined, null, 0, -1, 1.5, '3', Number.MAX_SAFE_INTEGER + 1, [], {}]) {
-    for (const method of ['hooks.command_authorize','hooks.command_run','hooks.command_start']) {
-      const params = method.endsWith('run') || method.endsWith('start') ? { id: commandId, version, worker_id: 7, expected_revision: revision }
-        : { id: commandId, version, authorized: true, expected_revision: revision };
+    for (const method of ['hooks.command_authorize']) {
+      const params = { id: commandId, version, authorized: true, expected_revision: revision };
       await expect(f.dispatcher.dispatch(method, params)).rejects.toThrow('version');
     }
   }
@@ -79,12 +78,9 @@ test('shortcut RPC supports revoke and both import sources, preserving safe resu
     { name: 'importLegacyHookCommands', args: [{ template_id: 'old-template' }, revision] },
     { name: 'saveShortcutCommand', args: [{ id: commandId, ...command }, revision] },
   ]);
-  const view = { execution_id: 'execution', command_result: { status: 'succeeded', exit_code: 0 }, commands: { revision, items: [{ id: commandId, ...command, version: 3, authorized: true }] } };
-  f.p.runShortcutCommand = () => view;
-  expect(await f.dispatcher.dispatch('hooks.command_run', { id: commandId, version: 3, worker_id: 7, expected_revision: revision })).toEqual(view);
   let attempts = 0;
-  f.p.runShortcutCommand = () => { attempts++; throw new Error('Command revision changed'); };
-  await expect(f.dispatcher.dispatch('hooks.command_run', { id: commandId, version: 3, worker_id: 7, expected_revision: 'stale' })).rejects.toThrow('revision changed');
+  f.p.saveShortcutCommand = () => { attempts++; throw new Error('Command revision changed'); };
+  await expect(f.dispatcher.dispatch('hooks.command_save', { command, expected_revision: 'stale' })).rejects.toThrow('revision changed');
   expect(attempts).toBe(1);
 });
 
@@ -97,7 +93,6 @@ test('shortcut CLI forwards versioned authority and resolves Worker numbers only
     await invoke(['authorize',commandId,'--version','3','--revision',revision]);
     await invoke(['revoke',commandId,'--version','3','--revision',revision]);
     await invoke(['remove',commandId,'--revision',revision]);
-    await invoke(['run',commandId,'--version','3','--worker','W151-1','--revision',revision]);
     await invoke(['import','--file',source.filename,'--revision','worker:revision']);
     expect(c.calls).toEqual([
       { method: 'hooks.list', params: undefined },
@@ -106,12 +101,10 @@ test('shortcut CLI forwards versioned authority and resolves Worker numbers only
       { method: 'hooks.command_authorize', params: { id: commandId, version: 3, authorized: false, expected_revision: revision } },
       { method: 'hooks.command_remove', params: { id: commandId, expected_revision: revision } },
       { method: 'worker.lookup', params: { number: 'W151-1' } },
-      { method: 'hooks.command_run', params: { id: commandId, version: 3, worker_id: 7, expected_revision: revision } },
-      { method: 'worker.lookup', params: { number: 'W151-1' } },
       { method: 'hooks.command_import', params: { source: { worker_id: 7, hook_id: 'legacy' }, expected_revision: 'worker:revision' } },
     ]);
     expect(HELP).toContain('commands.revision');
-    expect(HELP).toContain('hooks command run ID --version N --worker ID --revision REV');
+    expect(HELP).not.toContain('hooks command run ');
   } finally { definition.close(); source.close(); }
 });
 

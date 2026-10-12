@@ -23,16 +23,12 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (path.includes('/api/hooks/commands/export')) return json({ filename: 'review-SKILL.md', markdown: '# 审查\n<script>literal</script>' });
   if (path.includes('/api/hooks/commands/executions')) return json(page(history));
   if (path.endsWith('/api/hooks')) return json(catalogue);
-  if (path.endsWith('/api/input-parents')) return json({ items: [{ id: 1, task_kind: 'main', branch: 'main' }, { id: 42, task_kind: 'order', worker_number: 'W8', branch: 'order' },
-    { id: 43, task_kind: 'order', worker_number: 'W9', branch: 'frozen', freeze: {} }, { id: 44, task_kind: 'child', worker_number: 'W8-1', branch: 'child' }] });
-  if (path.endsWith('/api/snapshot')) return json({ tasks: [{ id: 44, task_kind: 'child', worker_number: 'W8-1', branch: 'child', status: 'waiting' }] });
   if (body?.method === 'hooks.command_save') {
     const definition = body.params.command, old = catalogue.commands.items.find(item => item.id === definition.id);
     const saved = { ...definition, id: old?.id || uuid(4), version: old ? old.version + 1 : 1, authorized: false, last_execution: null };
     catalogue.commands = { version: 1, revision: 'saved', items: old ? catalogue.commands.items.map(item => item.id === old.id ? saved : item) : [...catalogue.commands.items, saved] }; return json(catalogue);
   }
   if (body?.method === 'hooks.command_authorize') { catalogue.commands.revision = 'authorized'; catalogue.commands.items = catalogue.commands.items.map(item => item.id === body.params.id ? { ...item, authorized: body.params.authorized } : item); return json(catalogue); }
-  if (body?.method === 'hooks.command_start') { const item = catalogue.commands.items.find(item => item.id === body.params.id); history = [execution({ kind: item.kind, worker_id: body.params.worker_id })]; return json({ execution_id: uuid(10), execution: history[0], commands: catalogue.commands }); }
   if (body?.method === 'worker.hook_update') { catalogue.command_example.hooks.mounts[0].enabled = body.params.enabled; return json(catalogue.command_example.hooks); }
   throw new Error(`Unexpected ${path} ${body?.method}`);
 } });
@@ -47,9 +43,9 @@ const manager = () => root().querySelector('.shortcut-command-management');
 const runs = () => root().querySelector('.shortcut-run-module');
 const btn = (label, node = root()) => node.querySelectorAll('button').find(item => item.textContent === label);
 const field = (label, node = root()) => node.querySelector(`[aria-label="${label}"]`);
-const pick = async (name, node = manager()) => { await btn(name, node.querySelector('.shortcut-directory')).onclick(); };
+const pick = async (name, node = manager()) => { if (node.querySelector('.shortcut-command-detail-page')?.hidden === false) await btn('返回指令列表', node).onclick(); await node.querySelectorAll('.shortcut-directory-pick').find(item => deepText(item).includes(name)).onclick(); };
 const submitSearch = input => input.listeners.keydown[0]({ key: 'Enter', preventDefault() {} });
-async function ready() { await openHooks(); await until(() => btn('手动执行') && !btn('手动执行').disabled); }
+async function ready() { await openHooks({ subpage: 'commands' }); await pick(catalogue.commands.items[0].name); }
 beforeEach(() => {
   ui.hooksPage?.shortcutNode?.dispose?.(); closeDialog(); calls = []; reads = []; history = []; intercept = null; ui.hooksPage = null; dom.location.pathname = '/'; activateDetailView({ view: 'overview' });
   catalogue = { version: 1, revision: 'hooks-r1', commands: { version: 1, revision: 'commands-r1', items: [shell(), prompt()] },
@@ -60,19 +56,19 @@ beforeEach(() => {
 });
 afterAll(() => { ui.hooksPage?.shortcutNode?.dispose?.(); closeDialog(); dom.restore(); });
 
-test('compact directory shows only one full detail in management and run modules, including safe metadata', async () => {
-  await ready(); expect(manager().querySelectorAll('.shortcut-command')).toHaveLength(1); expect(runs().querySelectorAll('.shortcut-run-command')).toHaveLength(1);
+test('compact directory and separate single detail render safe metadata without a run module', async () => {
+  await ready(); expect(manager().querySelectorAll('.shortcut-command')).toHaveLength(1); expect(runs()).toBeNull();
   expect(manager().querySelectorAll('.shortcut-directory-entry')).toHaveLength(2);
   expect(deepText(manager())).toContain('调用场景：修改完成后'); expect(deepText(manager())).toContain('标签：验证、单元测试');
   await pick('审查提示词'); expect(manager().querySelectorAll('.shortcut-command')).toHaveLength(1);
   expect(deepText(manager())).toContain('风险：可能产生费用'); expect(deepText(manager())).toContain('<img src=x onerror=alert(1)>');
-  expect(manager().querySelector('img')).toBeNull(); expect(deepText(runs())).toContain('printf');
+  expect(manager().querySelector('img')).toBeNull(); expect(manager().querySelector('.shortcut-directory').parentNode.hidden).toBe(true);
 });
 
 test('searches name, description, when_to_use and tags only when submitted; filters do not apply draft terms', async () => {
   await ready(); const input = field('查找管理指令'), type = field('查找管理指令类型');
   input.value = '没有'; type.value = 'prompt'; type.onchange(); expect(manager().querySelectorAll('.shortcut-directory-entry')).toHaveLength(1);
-  expect(btn('审查提示词', manager().querySelector('.shortcut-directory'))).toBeTruthy();
+  expect(deepText(manager().querySelector('.shortcut-directory'))).toContain('审查提示词');
   submitSearch(input); expect(manager().querySelectorAll('.shortcut-directory-entry')).toHaveLength(0); expect(deepText(manager())).toContain('没有匹配');
   type.value = ''; type.onchange();
   for (const query of ['测试 Shell', '执行模块测试', '修改完成后', '单元测试']) { input.value = query; submitSearch(input); expect(manager().querySelectorAll('.shortcut-directory-entry')).toHaveLength(1); }
@@ -81,10 +77,10 @@ test('searches name, description, when_to_use and tags only when submitted; filt
   authorization.value = ''; authorization.onchange(); expect(manager().querySelectorAll('.shortcut-directory-entry')).toHaveLength(2); expect(calls).toHaveLength(0);
 });
 
-test('IME candidate confirmation never submits either directory search', async () => {
+test('IME candidate confirmation never submits directory search', async () => {
   await ready();
-  for (const label of ['查找管理指令', '查找运行指令']) {
-    const input = field(label), directory = input.parentNode.parentNode.parentNode.parentNode;
+  for (const label of ['查找管理指令']) {
+    const input = field(label), directory = manager().querySelector('.shortcut-directory');
     input.value = '没有'; input.listeners.compositionstart[0](); submitSearch(input);
     expect(directory.querySelectorAll('.shortcut-directory-entry')).toHaveLength(2);
     input.listeners.compositionend[0](); input.listeners.keydown[0]({ key: 'Enter', isComposing: true, preventDefault() {} });
@@ -99,7 +95,7 @@ test('modern metadata and prompt save submit only matching body, create unauthed
   field('提示词正文', manager()).value = '检查\n代码'; expect(btn('保存快捷指令').classList.contains('agent-call')).toBe(false);
   await btn('保存快捷指令').onclick();
   expect(calls).toEqual([{ method: 'hooks.command_save', params: { expected_revision: 'commands-r1', command: { id: uuid(2), name: '审查提示词', kind: 'prompt', prompt: '检查\n代码',
-    default_worker_id: null, description: '新的作用', when_to_use: '在发布前', tags: ['审查', '发布'], examples: 'main 下创建', warnings: '<script>花费</script>' } } }]);
+    description: '新的作用', when_to_use: '在发布前', tags: ['审查', '发布'], examples: 'main 下创建', warnings: '<script>花费</script>' } } }]);
   expect(catalogue.commands.items[1]).toMatchObject({ version: 4, authorized: false }); expect(manager().querySelector('.shortcut-command').dataset.commandId).toBe(uuid(2)); expect(root().querySelector('script')).toBeNull();
 });
 
@@ -139,64 +135,42 @@ test('changing type preserves each local body draft but saves only the new type 
   field('Shell 命令').value = 'printf preserved'; const type = field('指令类型'); type.value = 'prompt'; type.onchange();
   field('提示词正文', manager()).value = 'prompt preserved'; type.value = 'shell'; type.onchange(); expect(field('Shell 命令').value).toBe('printf preserved');
   type.value = 'prompt'; type.onchange(); expect(field('提示词正文', manager()).value).toBe('prompt preserved');
-  // An old Shell default still points at an allowed parent; wait for the new parent-only read.
-  await until(() => reads.filter(path => path.endsWith('/api/input-parents')).length >= 4); await Promise.resolve(); await Promise.resolve();
-  field('默认父 Worker').value = ''; await btn('保存快捷指令').onclick();
+  expect(field('默认父 Worker')).toBeNull(); await btn('保存快捷指令').onclick();
   expect(calls[0].params.command).toMatchObject({ id: uuid(1), kind: 'prompt', prompt: 'prompt preserved' }); expect(calls[0].params.command).not.toHaveProperty('command');
 });
 
-test('explicit refresh, module folding, subpages and unrelated revisions retain selection, searches and original draft revision', async () => {
+test('explicit refresh, list return, subpages and unrelated revisions retain selection, searches and original draft revision', async () => {
   await ready(); await pick('审查提示词'); const search = field('查找管理指令'); search.value = '质量'; submitSearch(search);
   await btn('编辑快捷指令').onclick(); const draft = field('提示词正文', manager()); draft.value = '保留草稿'; search.value = '未提交的词';
-  await manager().querySelector('.automation-module-toggle').onclick(); catalogue.commands.revision = 'concurrent';
+  await btn('返回指令列表').onclick(); catalogue.commands.revision = 'concurrent';
   await btn('刷新目录').onclick(); expect(field('查找管理指令')).toBe(search); expect(search.value).toBe('未提交的词'); expect(field('提示词正文', manager())).toBe(draft);
-  expect(manager().moduleOpen).toBe(false); expect(manager().querySelectorAll('.shortcut-directory-entry')).toHaveLength(1);
-  await openHooks({ subpage: 'history' }); await openHooks(); expect(draft.value).toBe('保留草稿');
+  expect(manager().querySelector('.shortcut-command-detail-page').hidden).toBe(true); expect(manager().querySelectorAll('.shortcut-directory-entry')).toHaveLength(1);
+  await openHooks({ subpage: 'history' }); await openHooks({ subpage: 'commands' }); await btn('继续指令编辑').onclick(); expect(draft.value).toBe('保留草稿');
   intercept = (_path, body) => body?.method === 'hooks.command_save' ? failure('revision conflict') : null;
   await btn('保存快捷指令').onclick(); expect(calls[0].params.expected_revision).toBe('commands-r1'); expect(draft.value).toBe('保留草稿'); expect(draft.disabled).toBe(false);
-  expect(btn('测试 Shell', manager().querySelector('.shortcut-directory'))).toBeUndefined(); expect(calls).toHaveLength(1);
+  expect(deepText(manager().querySelector('.shortcut-directory'))).not.toContain('测试 Shell'); expect(calls).toHaveLength(1);
 });
 
 test('authorization pins the displayed prompt version and explains future costs without purple or immediate Agent call', async () => {
   catalogue.commands.items[1].authorized = false; await ready(); await pick('审查提示词');
-  const authorizing = btn('授权当前版本').onclick(); expect(deepText(dom.node('modal'))).toContain('未来手动执行'); expect(deepText(dom.node('modal'))).toContain('token');
+  const authorizing = btn('授权当前版本').onclick(); expect(deepText(dom.node('modal'))).toContain('Hook 触发后'); expect(deepText(dom.node('modal'))).toContain('token');
   expect(dialogButton(dom, '授权此版本').classList.contains('agent-call')).toBe(false); expect(calls).toHaveLength(0);
   await dialogButton(dom, '授权此版本').onclick(); await authorizing;
   expect(calls[0]).toEqual({ method: 'hooks.command_authorize', params: { id: uuid(2), version: 3, authorized: true, expected_revision: 'commands-r1' } });
 });
 
-test('prompt run picker uses creation parents only, has Agent costs at every start confirmation and submits fixed identity', async () => {
-  await ready(); const readStart = reads.length; await pick('审查提示词', runs());
-  const launch = btn('创建并启动 Agent'); expect(launch.classList.contains('agent-call')).toBe(true); expect(launch.getAttribute('data-help')).toContain('token');
-  await launch.onclick(); const parent = field('提示词父 Worker'); expect(parent.children.some(option => option.value === '44')).toBe(false); expect(parent.children.find(option => option.value === '43').disabled).toBe(true);
-  expect(reads.slice(readStart).some(path => path.endsWith('/api/snapshot'))).toBe(false);
-  expect(btn('确认创建并启动').classList.contains('agent-call')).toBe(true); parent.value = '42'; const start = btn('确认创建并启动').onclick();
-  expect(dialogButton(dom, '创建并启动').classList.contains('agent-call')).toBe(true); expect(dialogButton(dom, '创建并启动').getAttribute('data-help')).toContain('token');
-  await dialogButton(dom, '创建并启动').onclick(); await start;
-  expect(calls).toEqual([{ method: 'hooks.command_start', params: { id: uuid(2), version: 3, worker_id: 42, expected_revision: 'commands-r1' } }]);
-  expect(deepText(root())).toContain('等待创建'); expect(btn('确认创建并启动').disabled).toBe(true);
-});
 
 test('created prompt history links real Worker and O input, distinguishes creation success from Agent completion', async () => {
   history = [execution({ status: 'succeeded', created_worker_id: 109, created_worker_number: 'W28', input_id: 87, command_result: { stdout: 'SECRET' } })];
-  await ready(); expect(deepText(root())).toContain('不是 Agent 工作完成'); expect(root().querySelectorAll('a').find(link => link.href === '#worker-109').textContent).toContain('W28');
+  await openHooks({ subpage: 'history' }); await until(() => root().querySelector('.shortcut-execution')); expect(deepText(root())).toContain('不是 Agent 工作完成'); expect(root().querySelectorAll('a').find(link => link.href === '#worker-109').textContent).toContain('W28');
   expect(deepText(root())).toContain('O87'); expect(deepText(root())).not.toContain('退出码'); expect(deepText(root())).not.toContain('SECRET');
 });
 
-test('unknown prompt start preserves chosen parent and does not resend or fall back to legacy execution', async () => {
-  await ready(); await pick('审查提示词', runs()); await btn('创建并启动 Agent').onclick(); field('提示词父 Worker').value = '42';
-  intercept = (_path, body) => body?.method === 'hooks.command_start' ? failure('not found') : null;
-  const start = btn('确认创建并启动').onclick(); await dialogButton(dom, '创建并启动').onclick(); await start;
-  expect(field('提示词父 Worker').value).toBe('42'); expect(btn('确认创建并启动').disabled).toBe(true); await btn('确认创建并启动').onclick();
-  expect(calls).toHaveLength(1); expect(deepText(root())).toContain('请更新后台与界面服务');
-});
-
-test('prompt parent read failure and late response do not guess main or repaint another view', async () => {
-  await ready(); await pick('审查提示词', runs()); intercept = path => path.endsWith('/api/input-parents') ? failure('not found') : null;
-  await btn('创建并启动 Agent').onclick(); expect(field('提示词父 Worker')).toBeNull(); expect(calls).toHaveLength(0);
-  let resolve; intercept = path => path.endsWith('/api/input-parents') ? new Promise(done => { resolve = done; }) : null;
-  const reading = btn('创建并启动 Agent').onclick(); await until(() => resolve); activateDetailView({ view: 'overview' }); const other = document.createElement('p'); root().replaceChildren(other);
-  resolve(json({ items: [] })); await reading; expect(root().children).toEqual([other]);
+test('no manual Shell or prompt entry, hidden worker picker, or execution request survives', async () => {
+  await ready(); await pick('审查提示词'); await btn('编辑快捷指令').onclick();
+  for (const label of ['创建并启动 Agent', '手动执行', '确认创建并启动', '确认执行一次']) expect(btn(label)).toBeUndefined();
+  for (const label of ['默认父 Worker', '默认执行目录 Worker', '提示词父 Worker', '执行目录 Worker']) expect(field(label)).toBeNull();
+  expect(reads.some(path => path.includes('input-parents') || path.includes('snapshot'))).toBe(false); expect(calls).toHaveLength(0);
 });
 
 test('export reads exact version, safely previews text and only offers download, no installation or mutation', async () => {
@@ -230,7 +204,7 @@ test('Hook type filters Shell and prompt versions separately, enforces once/pare
 test('prompt Hook enable is purple with future cost confirmation, Shell-only hooks remain non-Agent', async () => {
   const mount = { ...hook(), editable: true, removable: true, state: 'idle', last_execution: null };
   catalogue.command_example = { worker_id: 1, hook_id: mount.id, hooks: { version: 1, worker_id: 1, revision: 'mount-r1', mounts: [mount] } };
-  await ready(); const enable = btn('启用 Hook', root().querySelector('.command-hook-example'));
+  await openHooks(); const enable = btn('启用 Hook', root().querySelector('.command-hook-example'));
   expect(enable.classList.contains('agent-call')).toBe(true); expect(enable.getAttribute('data-help')).toContain('token');
   const enabling = enable.onclick(); expect(dialogButton(dom, '启用指令 Hook').classList.contains('agent-call')).toBe(true);
   await dialogButton(dom, '启用指令 Hook').onclick(); await until(() => dialogButton(dom, '授权并挂载')); await dialogButton(dom, '授权并挂载').onclick(); await enabling;

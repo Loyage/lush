@@ -11,7 +11,12 @@ async function setup() {
 const revision = f => f.project.shortcutCommands().revision;
 const save = (f, value) => f.project.saveShortcutCommand(value, revision(f)).commands.items.at(-1);
 const authorize = (f, item) => f.project.authorizeShortcutCommand(item.id, item.version, true, revision(f));
-const drain = f => Promise.all([...f.project.shortcutCommandJobs ?? []]);
+async function runHook(f, item, worker) {
+  f.project.attachTaskHook(worker.id, { name: 'mounted directory', trigger: 'worker.merge_received', mode: 'once', enabled: true,
+    actions: [{ type: 'command', command_id: item.id, command_version: item.version }] }, f.project.taskHooks(worker.id).revision);
+  f.project.emitTaskHook(worker.id, 'worker.merge_received'); await f.project.hookQueue;
+  return f.project.shortcutCommandHistory().items[0];
+}
 
 test('default Worker saves project checkout identity, omission preserves it, null clears it and every edit revokes versions', async () => {
   const f = await setup();
@@ -66,29 +71,47 @@ test('default directory rejects invalid IDs, terminal/non-development Workers, m
   } finally { await other.close(); await f.close(); }
 });
 
-test('prompt defaults reject child identities even on kind conversion or omitted-default edits, without silently changing the parent', async () => {
+test('omitted historical child default survives Shell-to-prompt conversion; explicitly supplying it still rejects', async () => {
   const f = await setup();
   try {
     const child = (await f.project.order('shell directory', 'main', [], null, false)).task;
     f.store.run("UPDATE tasks SET task_kind='child' WHERE id=?", child.id);
-    const item = save(f, { name: 'shell child default', command: 'true', default_worker_id: child.id }); authorize(f, item);
+    let item = save(f, { name: 'shell child default', command: 'true', default_worker_id: child.id }); authorize(f, item);
     const convert = { id: item.id, name: item.name, kind: 'prompt', prompt: 'prompt body' };
     const before = revision(f);
-    expect(() => save(f, convert)).toThrow('parent');
+    expect(() => save(f, { ...convert, default_worker_id: child.id })).toThrow('parent');
     expect(() => save(f, { name: 'bad default', kind: 'prompt', prompt: 'body', default_worker_id: child.id })).toThrow('parent');
     expect(revision(f)).toBe(before);
-    expect(f.project.shortcutCommands().items.find(c => c.id === item.id)).toMatchObject({ kind: 'shell', version: 1, authorized: true, default_worker_id: child.id });
-    let prompt = save(f, { ...convert, default_worker_id: null });
-    expect(prompt).toMatchObject({ kind: 'prompt', version: 2, authorized: false, default_worker_id: null });
-    const parent = (await f.project.order('valid prompt parent', 'main', [], null, false)).task;
-    prompt = save(f, { id: item.id, name: item.name, prompt: prompt.prompt, default_worker_id: parent.id });
-    prompt = save(f, { id: item.id, name: 'renamed', prompt: prompt.prompt });
-    expect(prompt).toMatchObject({ kind: 'prompt', version: 4, default_worker_id: parent.id });
-    f.store.update(parent.id, { status: 'cancelled' });
-    const stale = revision(f);
-    expect(() => save(f, { id: item.id, name: 'edit stale default', prompt: prompt.prompt })).toThrow('parent');
-    expect(revision(f)).toBe(stale);
-    expect(save(f, { id: item.id, name: 'clear stale default', prompt: prompt.prompt, default_worker_id: null })).toMatchObject({ version: 5, default_worker_id: null });
+    item = save(f, convert);
+    expect(item).toMatchObject({ kind: 'prompt', version: 2, authorized: false, default_worker_id: child.id });
+    expect(item.command).toBeUndefined(); authorize(f, item);
+    item = save(f, { id: item.id, name: 'renamed', prompt: item.prompt });
+    expect(item).toMatchObject({ version: 3, authorized: false, default_worker_id: child.id });
+    expect(JSON.parse(f.store.get("SELECT value FROM meta WHERE key='shortcut_commands'").value).items.at(-1).default_worker_id).toBe(child.id);
+    expect(save(f, { id: item.id, name: item.name, prompt: item.prompt, default_worker_id: null })).toMatchObject({ version: 4, default_worker_id: null });
+  } finally { await f.close(); }
+});
+
+for (const kind of ['shell', 'prompt']) test(`${kind} edits preserve omitted unavailable historical defaults without revalidating or reauthorizing them`, async () => {
+  const f = await setup();
+  try {
+    const parent = (await f.project.order('old default', 'main', [], null, false)).task;
+    const body = kind === 'shell' ? { command: 'true' } : { prompt: 'prompt body' };
+    let item = save(f, { name: 'old default', kind, ...body, default_worker_id: parent.id });
+    const original = f.store.task(parent.id);
+    const patches = kind === 'shell' ? [{ status: 'cancelled' }, { workspace: path.join(f.root, 'missing-checkout') }, { branch: 'missing-branch' }]
+      : [{ status: 'cancelled' }, { status: 'completed' }];
+    for (const patch of patches) {
+      authorize(f, item);
+      for (const [key, value] of Object.entries(patch)) f.store.run(`UPDATE tasks SET ${key}=? WHERE id=?`, value, parent.id);
+      const before = revision(f), version = item.version;
+      expect(() => save(f, { id: item.id, name: item.name, kind, ...body, default_worker_id: parent.id })).toThrow();
+      expect(revision(f)).toBe(before);
+      item = save(f, { id: item.id, name: 'edited historical default', kind, ...body });
+      expect(item).toMatchObject({ version: version + 1, authorized: false, default_worker_id: parent.id });
+      expect(JSON.parse(f.store.get("SELECT value FROM meta WHERE key='shortcut_commands'").value).items.at(-1).default_worker_id).toBe(parent.id);
+      f.store.run('UPDATE tasks SET status=?,workspace=?,branch=? WHERE id=?', original.status, original.workspace, original.branch, parent.id);
+    }
   } finally { await f.close(); }
 });
 
@@ -102,25 +125,20 @@ test('branch owner defaults resolve an existing linked worktree without storing 
     const item = save(f, { name: 'owner default', command: 'true', default_worker_id: owner.id });
     expect(item.default_worker_id).toBe(owner.id);
     authorize(f, item);
-    const result = await f.project.runShortcutCommand(item.id, 1, owner.id, revision(f));
+    const result = await runHook(f, item, owner);
     expect(result.command_result.status).toBe('succeeded');
     await f.project.workspaces.git(workspace, 'checkout', '--detach');
     expect(() => save(f, { id: item.id, name: item.name, command: item.command, default_worker_id: owner.id })).toThrow('no real executable');
   } finally { await f.close(); }
 });
 
-test('manual directory remains explicit and overrides the convenience default; Hook uses its mounted Worker', async () => {
+test('Hook ignores historical defaults and always uses its mounted Worker', async () => {
   const f = await setup();
   try {
     const { task } = await f.project.order('default target', 'main', [], null, false);
     const item = save(f, { name: 'cwd', command: 'pwd > directory-proof', default_worker_id: task.id }); authorize(f, item);
-    expect(() => f.project.startShortcutCommand(item.id, 1, undefined, revision(f))).toThrow();
-    await expect(f.project.runShortcutCommand(item.id, 1, undefined, revision(f))).rejects.toThrow();
-    f.project.startShortcutCommand(item.id, 1, task.id, revision(f)); await drain(f);
-    expect(fs.readFileSync(path.join(task.workspace, 'directory-proof'), 'utf8').trim()).toBe(task.workspace);
-    await f.project.runShortcutCommand(item.id, 1, f.main.id, revision(f));
-    expect(fs.readFileSync(path.join(f.root, 'directory-proof'), 'utf8').trim()).toBe(f.root);
-    fs.unlinkSync(path.join(f.root, 'directory-proof'));
+    expect(f.project.startShortcutCommand).toBeUndefined(); expect(f.project.runShortcutCommand).toBeUndefined();
+    expect(fs.existsSync(path.join(task.workspace, 'directory-proof'))).toBe(false);
     f.project.attachTaskHook(f.main.id, { name: 'mounted directory', trigger: 'worker.merge_received', mode: 'once', enabled: true,
       actions: [{ type: 'command', command_id: item.id, command_version: 1 }] }, f.project.taskHooks(f.main.id).revision);
     f.project.emitTaskHook(f.main.id, 'worker.merge_received'); await f.project.hookQueue;
@@ -129,33 +147,32 @@ test('manual directory remains explicit and overrides the convenience default; H
   } finally { await f.close(); }
 });
 
-test('expired default never silently falls back to main; explicit override still uses normal safety gates', async () => {
+test('expired historical default does not route execution; Hook remains bound to its mounted identity', async () => {
   const f = await setup();
   try {
     const { task } = await f.project.order('expired', 'main', [], null, false);
     const item = save(f, { name: 'expired', command: 'printf x > directory-proof', default_worker_id: task.id }); authorize(f, item);
     f.store.update(task.id, { status: 'completed' });
-    expect(() => f.project.startShortcutCommand(item.id, 1, task.id, revision(f))).toThrow('cannot execute');
     expect(fs.existsSync(path.join(f.root, 'directory-proof'))).toBe(false);
-    f.project.running.set(f.main.id, {});
-    expect(() => f.project.startShortcutCommand(item.id, 1, f.main.id, revision(f))).toThrow('Agent');
-    f.project.running.clear();
-    f.project.startShortcutCommand(item.id, 1, f.main.id, revision(f)); await drain(f);
+    await runHook(f, item, f.main);
     expect(fs.readFileSync(path.join(f.root, 'directory-proof'), 'utf8')).toBe('x');
     expect(f.project.shortcutCommands().items.at(-1).default_worker_id).toBe(task.id);
   } finally { f.project.running.clear(); await f.close(); }
 });
 
-test('default directory edit revokes a previously accepted command before spawn even after reauthorization', async () => {
+test('default directory edit invalidates the queued Hook version even after reauthorization', async () => {
   const f = await setup(), held = gate(); let release;
   try {
     const { task } = await f.project.order('new default', 'main', [], null, false);
     let item = save(f, { name: 'queued', command: 'printf BAD > forbidden', default_worker_id: f.main.id }); authorize(f, item);
     release = f.project.workspaces.exclusive(() => held.promise);
-    const accepted = f.project.startShortcutCommand(item.id, 1, f.main.id, revision(f));
+    const hook = f.project.attachTaskHook(f.main.id, { name: 'queued directory', trigger: 'worker.merge_received', mode: 'once', enabled: true,
+      actions: [{ type: 'command', command_id: item.id, command_version: 1 }] }, f.project.taskHooks(f.main.id).revision).mounts.at(-1);
+    f.project.emitTaskHook(f.main.id, 'worker.merge_received');
     item = save(f, { id: item.id, name: item.name, command: item.command, default_worker_id: task.id }); authorize(f, item);
-    held.resolve(); await release; await drain(f);
-    expect(f.project.shortcutCommandHistory({ execution_id: accepted.execution_id }).items[0]).toMatchObject({ status: 'failed', command_result: { reason: 'admission' } });
+    held.resolve(); await release; await f.project.hookQueue;
+    expect(f.project.taskHooks(f.main.id).mounts.find(m => m.id === hook.id).enabled).toBe(false);
+    expect(f.project.shortcutCommandHistory().items).toEqual([]);
     expect(fs.existsSync(path.join(f.root, 'forbidden'))).toBe(false);
     expect(fs.existsSync(path.join(task.workspace, 'forbidden'))).toBe(false);
   } finally { held.resolve(); await release; await f.close(); }

@@ -1,61 +1,48 @@
-import { test, expect, setDefaultTimeout } from 'bun:test';
+import { test, expect } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { gate, repo } from '../helpers.js';
+import { repo } from '../helpers.js';
 import { setup, fetch } from '../web/harness.js';
 
-setDefaultTimeout(20000);
-
-// The parent API/CLI and UI consume this exact DTO; exercise real HTTP -> RPC -> Runtime,
-// rather than a mocked Project, while keeping all Shell/Git effects in a temporary project.
-test('real HTTP async execution returns before Git, exposes durable safe results and retains snapshots after revocation/deletion', async () => {
-  const f = await setup(), held = gate(), heldAgain = gate(); let queued, queuedAgain;
-  f.project.kick = () => {}; f.project.scheduleTaskMerge = () => {};
-  const post = async (method, params) => {
-    const response = await fetch(f.url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ method, params }) });
-    expect(response.status).toBe(200); return response.json();
+// Real HTTP -> RPC -> SQLite -> Git/Shell in a temporary project.
+test('retired manual HTTP calls cannot execute; Hook history stays safe, immutable and removable after deletion', async () => {
+  const f = await setup(); f.project.kick = () => {}; f.project.scheduleTaskMerge = () => {};
+  const post = async (method, params, status = 200) => {
+    const response = await fetch(f.url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }) });
+    expect(response.status).toBe(status); return response.json();
   };
   const read = async query => {
     const response = await fetch(f.url + '/api/hooks/commands/executions' + query);
     expect(response.status).toBe(200); return response.json();
   };
   const revision = () => f.project.shortcutCommands().revision;
-  const drain = () => Promise.all([...f.project.shortcutCommandJobs ?? []]);
   try {
     await repo(f.root); const main = await f.project.bootstrapMain();
     const saved = await post('hooks.command_save', { command: { name: 'submitted snapshot', command: 'printf PRIVATE_OUTPUT; printf done > .lush/integration-proof' }, expected_revision: revision() });
     const command = saved.commands.items.at(-1);
     await post('hooks.command_authorize', { id: command.id, version: 1, authorized: true, expected_revision: revision() });
-    queued = f.project.workspaces.exclusive(() => held.promise);
-    const params = () => ({ id: command.id, version: 1, worker_id: main.id, expected_revision: revision() });
-    const accepted = await post('hooks.command_start', params());
-    expect(accepted).toMatchObject({ execution: { id: accepted.execution_id, command_id: command.id,
-      command_name: 'submitted snapshot', command_version: 1, worker_id: main.id, source: 'manual', status: 'pending', finished_at: null } });
-    const pending = await read(`?execution_id=${accepted.execution_id}`);
-    expect(pending.items).toEqual([accepted.execution]);
-    expect(fs.existsSync(path.join(f.config.home, 'integration-proof'))).toBe(false);
+    const params = { id: command.id, version: 1, worker_id: main.id, expected_revision: revision() };
+    const before = f.store.get('SELECT count(*) AS n FROM events').n;
+    for (const method of ['hooks.command_start', 'hooks.command_run']) {
+      const rejected = await post(method, params, 400); expect(rejected.error).toContain('method not allowed');
+    }
+    expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(before);
+    expect(fs.existsSync(path.join(f.config.home, 'integration-proof'))).toBe(false); expect((await read('')).items).toEqual([]);
+    await post('worker.hook_attach', { id: main.id, expected_revision: f.project.taskHooks(main.id).revision,
+      hook: { name: 'HTTP Shell Hook', trigger: 'worker.merge_received', mode: 'once', enabled: true,
+        actions: [{ type: 'command', command_id: command.id, command_version: 1 }] } });
+    f.project.emitTaskHook(main.id, 'worker.merge_received'); await f.project.hookQueue;
+    const succeeded = (await read('')).items[0];
+    expect(succeeded).toMatchObject({ source: 'hook', command_name: command.name, command_version: 1, worker_id: main.id, status: 'succeeded', command_result: { exit_code: 0 } });
+    expect(fs.readFileSync(path.join(f.config.home, 'integration-proof'), 'utf8')).toBe('done'); expect(JSON.stringify(succeeded)).not.toContain('PRIVATE_OUTPUT');
     const count = f.store.get('SELECT count(*) AS n FROM events').n;
-    await read(`?execution_id=${accepted.execution_id}`);
+    expect((await read(`?execution_id=${succeeded.id}`)).items).toEqual([succeeded]);
     expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(count);
-    held.resolve(); await queued; await drain();
-    const succeeded = await read(`?execution_id=${accepted.execution_id}`);
-    expect(succeeded.items[0]).toMatchObject({ event_id: accepted.execution.event_id, status: 'succeeded', command_result: { exit_code: 0 } });
-    expect(fs.readFileSync(path.join(f.config.home, 'integration-proof'), 'utf8')).toBe('done');
-    expect(JSON.stringify(succeeded)).not.toContain('PRIVATE_OUTPUT');
-
-    queuedAgain = f.project.workspaces.exclusive(() => heldAgain.promise);
-    const rejected = await post('hooks.command_start', params());
-    await post('hooks.command_authorize', { id: command.id, version: 1, authorized: false, expected_revision: revision() });
     await post('hooks.command_remove', { id: command.id, expected_revision: revision() });
-    heldAgain.resolve(); await queuedAgain; await drain();
-    const newest = await read('?limit=1');
-    expect(newest.items[0]).toMatchObject({ id: rejected.execution_id, command_name: 'submitted snapshot', status: 'failed', command_result: { reason: 'admission' } });
-    expect(newest.has_more).toBe(true);
-    const older = await read(`?before=${newest.next_before}&limit=1`);
-    expect(older.items[0]).toMatchObject({ id: accepted.execution_id, command_name: 'submitted snapshot', command_version: 1, status: 'succeeded' });
-    expect(older.has_more).toBe(false);
-    expect((await read(`?execution_id=${rejected.execution_id}`)).items[0]).toEqual(newest.items[0]);
-    expect(f.store.all("SELECT id FROM events WHERE type='shortcut.command_started' AND json_extract(data,'$.execution_id')=?", rejected.execution_id)).toEqual([]);
-  } finally { held.resolve(); heldAgain.resolve(); await queued; await queuedAgain; await drain(); await f.close(); }
+    expect((await read(`?execution_id=${succeeded.id}`)).items).toEqual([succeeded]);
+    const audit = f.store.all("SELECT * FROM events WHERE json_extract(data,'$.execution_id')=?", succeeded.id);
+    expect(await post('hooks.command_history_remove', { execution_id: succeeded.id })).toEqual({ removed_count: 1 });
+    expect((await read(`?execution_id=${succeeded.id}`)).items).toEqual([]);
+    for (const row of audit) expect(f.store.get('SELECT * FROM events WHERE id=?', row.id)).toEqual(row);
+  } finally { await f.close(); }
 });

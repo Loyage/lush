@@ -75,7 +75,7 @@ async function openPage(load, open, view, options = {}) {
 const openSettings = () => openPage(() => import('./render-settings.js'), module => module.openSettings(), 'settings');
 const openAgentStatus = () => openPage(() => import('./render-agent-status.js'), module => module.openAgentStatus(), 'agent-status');
 const openVersions = () => openPage(() => import('./render-versions.js'), module => module.openVersions(), 'versions');
-const openHooks = (subpage = 'settings') => openPage(() => import('./render-hooks.js'), module => module.openHooks({ subpage }), 'hooks', { hash: subpage === 'history' ? '#hooks-history' : '#hooks' });
+const openHooks = (subpage = 'settings') => openPage(() => import('./render-hooks.js'), module => module.openHooks({ subpage }), 'hooks', { hash: subpage === 'history' ? '#hooks-history' : subpage === 'commands' ? '#hooks-commands' : '#hooks' });
 const openAutomation = () => openPage(() => import('./render-workspace-automation.js'), module => module.openWorkspaceAutomation(), 'automation');
 const openGlobalInbox = (options = {}) => openPage(() => import('./global-inbox.js'), module => module.openGlobalInbox(options), 'global-inbox',
   { push: options.push, hash: options.projectId && options.noticeId ? `#inbox-notice-${options.projectId}-${options.noticeId}` : options.projectId ? `#notices-project-${options.projectId}${options.status && options.status !== 'all' ? `-${options.status}` : ''}` : options.status === 'automatic' ? '#notices-automatic' : '#notices' });
@@ -128,8 +128,8 @@ function onHashChange() {
     return noProjectView();
   }
   if (!workbenchStatus().projectUsable) return noProjectView();
-  if (hash === '#hooks' || hash === '#hooks-history') {
-    const subpage = hash === '#hooks-history' ? 'history' : 'settings';
+  if (hash === '#hooks' || hash === '#hooks-history' || hash === '#hooks-commands') {
+    const subpage = hash === '#hooks-history' ? 'history' : hash === '#hooks-commands' ? 'commands' : 'settings';
     return ui.view?.id === 'hooks' && ui.hooksPage?.subpage === subpage ? undefined : openHooks(subpage);
   }
   if (hash === '#versions') return ui.view?.id === 'versions' ? undefined : openVersions();

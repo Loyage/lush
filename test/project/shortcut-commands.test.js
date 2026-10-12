@@ -139,14 +139,16 @@ test('revocation while a command is started does not pretend to undo it, but can
   } finally { fs.writeFileSync(path.join(f.config.home, 'release'), 'go'); await f.close(); }
 });
 
-test('manual shortcut execution uses the real Worker cwd and safe receipts, never raw output or invocation credentials', async () => {
+test('Hook shortcut execution uses the real Worker cwd and safe receipts, never raw output or invocation credentials', async () => {
   const f = await setup();
   try {
     const { task } = await f.project.order('manual cwd', 'main', [], null, false);
     Object.assign(f.config.env, { LUSH_AGENT_TOKEN: 'PRIVATE_TOKEN', PI_CODING_AGENT_DIR: '/private', CODEX_HOME: '/private' });
     const item = register(f, 'pwd > actual-cwd; env > actual-env; echo PRIVATE_MANUAL_OUTPUT; echo PRIVATE_STDERR >&2; exit 7');
     const before = f.project.shortcutCommands().revision;
-    const result = await f.project.runShortcutCommand(item.id, 1, task.id, before);
+    attach(f, task, [action(item)]); emit(f, task); await f.project.hookQueue;
+    const execution = itemView(f, item).last_execution;
+    const result = { execution_id: execution.id, command_result: execution.command_result, commands: f.project.shortcutCommands() };
     expect(result).toMatchObject({ command_result: { status: 'failed', exit_code: 7 }, commands: { items: expect.any(Array) } });
     expect(result.execution_id).toBeTruthy(); expect(result.commands.revision).not.toBe(before);
     expect(fs.readFileSync(path.join(task.workspace, 'actual-cwd'), 'utf8').trim()).toBe(task.workspace);
@@ -161,54 +163,35 @@ test('manual shortcut execution uses the real Worker cwd and safe receipts, neve
   } finally { await f.close(); }
 });
 
-test('manual command gates reject rather than queue, and deletion or reauthorization during Git inspection cannot sneak a stale run through', async () => {
+test('manual methods are retired regardless of authorization, while directory reads do not execute', async () => {
   const f = await setup();
   try {
     const item = register(f, 'printf BAD > .lush/manual-gate');
-    const run = () => f.project.runShortcutCommand(item.id, 1, f.main.id, f.project.shortcutCommands().revision);
-    f.project.running.set(f.main.id, {}); await expect(run()).rejects.toThrow('Agent'); f.project.running.clear();
-    f.project.taskSyncBusy = new Set([f.main.id]); await expect(run()).rejects.toThrow('同步'); f.project.taskSyncBusy.clear();
-    f.project.commandHookRunning = new Set([f.main.id]); await expect(run()).rejects.toThrow('already executing'); f.project.commandHookRunning.clear();
-    f.project.clearing = true; await expect(run()).rejects.toThrow('清理'); f.project.clearing = false;
-    const blocker = await f.project.order('blocker', 'main', [], null, false);
-    f.store.update(blocker.task.id, { reservation: JSON.stringify({ version: 1, kind: 'merge', status: 'requested' }) });
-    await expect(run()).rejects.toThrow('冻结'); f.store.update(blocker.task.id, { reservation: null });
+    expect(f.project.runShortcutCommand).toBeUndefined(); expect(f.project.startShortcutCommand).toBeUndefined();
+    const before = f.store.get('SELECT count(*) AS n FROM events').n;
+    f.project.hooksList(); f.project.shortcutCommands(); f.project.shortcutCommandHistory();
+    expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(before);
     expect(itemView(f, item).last_execution).toBeNull();
-    const original = f.project.workspaces.readGuardRef.bind(f.project.workspaces);
-    f.project.workspaces.readGuardRef = async ref => {
-      const head = await original(ref);
-      f.project.authorizeShortcutCommand(item.id, 1, false, f.project.shortcutCommands().revision);
-      f.project.authorizeShortcutCommand(item.id, 1, true, f.project.shortcutCommands().revision);
-      return head;
-    };
-    await expect(run()).rejects.toThrow('未开始');
     expect(fs.existsSync(path.join(f.config.home, 'manual-gate'))).toBe(false);
-    expect(itemView(f, item).last_execution).toBeNull();
-    f.project.workspaces.readGuardRef = original;
-    f.project.workspaces.workspaceForBranch = async branch => {
-      const directory = await f.project.workspaces.constructor.prototype.workspaceForBranch.call(f.project.workspaces, branch);
-      f.project.removeShortcutCommand(item.id, f.project.shortcutCommands().revision); return directory;
-    };
-    await expect(run()).rejects.toThrow('未开始');
-    expect(fs.existsSync(path.join(f.config.home, 'manual-gate'))).toBe(false);
-  } finally { f.project.running.clear(); f.project.clearing = false; await f.close(); }
+  } finally { await f.close(); }
 });
 
-test('manual calls cannot share stale read revisions or overlap an invocation; shutdown drains their bounded work', async () => {
+test('one-shot Hook does not overlap an invocation or repeat a claim; shutdown drains bounded work', async () => {
   const f = await setup(); let workspace;
   try {
     const { task } = await f.project.order('manual lock', 'main', [], null, false); workspace = task.workspace;
     const item = register(f, 'printf started > start; while [ ! -f release ]; do sleep 0.01; done');
-    const rev = f.project.shortcutCommands().revision;
-    const run = f.project.runShortcutCommand(item.id, 1, task.id, rev);
-    const stale = f.project.runShortcutCommand(item.id, 1, task.id, rev).catch(error => error);
+    f.project.attachTaskHook(task.id, { ...sourceRule([action(item)]), mode: 'once' }, f.project.taskHooks(task.id).revision);
+    emit(f, task); const run = f.project.hookQueue;
     await until(() => fs.existsSync(path.join(task.workspace, 'start')));
     f.project.resumeTask(task.id); f.project.pump(); await Promise.resolve();
     expect(f.project.running.has(task.id)).toBe(false); expect(f.store.task(task.id).status).toBe('queued');
     const stop = f.project.shutdown(); let stopped = false; stop.then(() => { stopped = true; });
     await Promise.resolve(); expect(stopped).toBe(false);
     fs.writeFileSync(path.join(task.workspace, 'release'), 'go');
-    expect((await run).command_result.status).toBe('succeeded'); expect((await stale).message).toContain('未开始'); await stop;
+    await run; await stop;
+    expect(itemView(f, item).last_execution.status).toBe('succeeded');
+    expect(f.project.shortcutCommandHistory().items).toHaveLength(1);
     expect(stopped).toBe(true); expect(f.project.commandHookRunning.has(task.id)).toBe(false);
   } finally { if (workspace) fs.writeFileSync(path.join(workspace, 'release'), 'go'); await f.close(); }
 });
@@ -217,7 +200,8 @@ test('manual started-without-result is recovered as unknown without executing or
   const f = await setup(); let next;
   try {
     const item = register(f, 'printf BAD > .lush/manual-restart');
-    f.project.startShortcutExecution(item.id, 1, f.main.id, 'interrupted-execution');
+    // Internal audit-only fixture represents a pre-retirement manual execution.
+    f.project.startShortcutExecution(item.id, 1, f.main.id, 'interrupted-execution', 'manual');
     next = new Project(f.config, f.store); next.kick = () => {}; next.recoverTaskHooks(); await Promise.resolve(); await next.hookQueue;
     expect(next.shortcutCommands().items.find(c => c.id === item.id).last_execution).toMatchObject({ id: 'interrupted-execution', status: 'unknown' });
     expect(fs.existsSync(path.join(f.config.home, 'manual-restart'))).toBe(false);

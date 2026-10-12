@@ -9,8 +9,6 @@ const requests = [
   ['hooks.command_history_remove', { clear: true }, 'removeShortcutCommandHistory'],
   ['hooks.command_authorize', { id, version: 1, authorized: true, expected_revision }, 'authorizeShortcutCommand'],
   ['hooks.command_remove', { id, expected_revision }, 'removeShortcutCommand'],
-  ['hooks.command_run', { id, version: 1, worker_id: 7, expected_revision }, 'runShortcutCommand'],
-  ['hooks.command_start', { id, version: 1, worker_id: 7, expected_revision }, 'startShortcutCommand'],
   ['hooks.command_import', { source: { worker_id: 7, hook_id: 'legacy' }, expected_revision }, 'importLegacyHookCommands'],
 ];
 function mocks(f) {
@@ -37,6 +35,15 @@ test('all shortcut mutations require login and same-origin authorization; no GET
       expect((await fetch(f.url + '/api/hooks/' + method.split('.')[1], { headers: { Cookie } })).status).toBe(404);
     }
     expect(calls).toHaveLength(requests.length);
+    for (const verb of ['run', 'start']) {
+      f.project[verb === 'run' ? 'runShortcutCommand' : 'startShortcutCommand'] = () => { calls.push('retired execution'); };
+      const method = `hooks.command_${verb}`, params = { id, version: 1, worker_id: 7, expected_revision };
+      expect((await post(f.url, method, params)).status).toBe(401);
+      expect((await post(f.url, method, params, { Cookie, Origin: 'https://evil.invalid' })).status).toBe(403);
+      const rejected = await post(f.url, method, params, { Cookie, Origin: f.url });
+      expect(rejected.status).toBe(400); expect((await rejected.json()).error).toContain('method not allowed');
+      expect((await fetch(f.url + `/api/hooks/command_${verb}`, { headers: { Cookie } })).status).toBe(404);
+    }
     expect((await fetch(f.url + '/api/hooks?command_run=' + id, { headers: { Cookie } })).status).toBe(400);
     expect(calls).toHaveLength(requests.length);
   } finally { await f.close(); }
@@ -64,8 +71,8 @@ test('shortcut HTTP rejects nested privilege additions and invalid identities be
       expect((await post(f.url, 'hooks.command_history_remove', params)).status).toBe(400);
     expect(calls).toEqual([]);
     let attempts = 0;
-    f.project.runShortcutCommand = () => { attempts++; check(false, 'Command revision changed'); };
-    const stale = await post(f.url, 'hooks.command_run', { id, version: 1, worker_id: 7, expected_revision: 'stale' });
+    f.project.saveShortcutCommand = () => { attempts++; check(false, 'Command revision changed'); };
+    const stale = await post(f.url, 'hooks.command_save', { command: { name: 'fixture', command: 'true' }, expected_revision: 'stale' });
     expect(stale.status).toBe(400); expect((await stale.json()).error).toContain('revision changed');
     expect(attempts).toBe(1);
   } finally { await f.close(); }

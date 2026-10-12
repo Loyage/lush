@@ -148,13 +148,13 @@ test('accept completion requires actual operation evidence; malformed or absent 
   }
 });
 
-test('project settings and history share tool directory and one target handler, refreshed snapshots do not destroy target drafts', async () => {
+test('project settings own the tool directory while history retains one target handler and drafts', async () => {
   models.get(1).mounts[0].operation = operation('integrate_deliveries', { status: 'unknown', error: '批次落地待核查', run_id: 71 });
   await project(); const module = root().querySelector('.branch-convergence');
   expect(module.querySelectorAll('.delivery-handler')).toHaveLength(1); expect(deepText(module)).toContain('批次落地待核查');
   const input = field('对新交付开启归并'); input.checked = true; input.onchange();
   await openHooks({ subpage: 'history' }); expect(module.querySelector('.convergence-history').hidden).toBe(false);
-  expect(root().querySelector('.automation-tools').hidden).toBe(false); expect(deepText(module)).toContain('批次落地待核查');
+  expect(root().querySelector('.automation-tools').hidden).toBe(true); expect(deepText(module)).toContain('批次落地待核查');
   models.get(1).mounts[0].operation = operation('integrate_deliveries', { status: 'succeeded', strategy: 'converge', run_id: 72 });
   await btn('刷新记录').onclick(); await until(() => deepText(module).includes('目标交付处理完成'));
   await openHooks(); expect(field('对新交付开启归并')).toBe(input); expect(input.checked).toBe(true);

@@ -130,7 +130,7 @@ test('HTTP exact-version edits and disabled copies preserve template separation;
   } finally { await f.close(); }
 });
 
-test('HTTP manual execution uses selected Worker cwd, version edits revoke old Hook references and unsafe attempts have no side effects', async () => {
+test('HTTP manual execution is retired; Hook uses mounted Worker cwd and version edits revoke old references', async () => {
   const f = await prepare();
   try {
     const { task } = await post(f, 'order.submit', { content: 'manual HTTP', branch: 'main', start: false });
@@ -141,13 +141,17 @@ test('HTTP manual execution uses selected Worker cwd, version edits revoke old H
     await updateMount(f, mainId, hookId, { hook: { ...definition(initial, true), actions: [reference(command)] } });
     const revision = (await get(f, '/api/hooks')).commands.revision;
     const params = { id: command.id, version: 1, worker_id: task.id, expected_revision: revision };
-    const result = await post(f, 'hooks.command_run', params);
-    expect(result.command_result).toMatchObject({ status: 'succeeded', exit_code: 0 });
-    expect(result.commands.items.find(c => c.id === command.id).last_execution).toMatchObject({ worker_id: task.id, worker_number: task.worker_number, status: 'succeeded' });
+    await post(f, 'hooks.command_run', params, 400); await post(f, 'hooks.command_start', params, 400);
+    expect(fs.existsSync(path.join(task.workspace, 'manual-result'))).toBe(false);
+    await post(f, 'worker.hook_attach', { id: task.id, expected_revision: f.project.taskHooks(task.id).revision,
+      hook: { name: 'HTTP cwd Hook', trigger: 'worker.merge_received', mode: 'once', enabled: true, actions: [reference(command)] } });
+    f.project.emitTaskHook(task.id, 'worker.merge_received'); await f.project.hookQueue;
+    const result = await get(f, '/api/hooks');
+    expect(result.commands.items.find(c => c.id === command.id).last_execution).toMatchObject({ worker_id: task.id, worker_number: task.worker_number, status: 'succeeded', command_result: { exit_code: 0 } });
     expect(fs.readFileSync(path.join(task.workspace, 'manual-result'), 'utf8')).toBe('old');
     expect(fs.existsSync(path.join(f.root, 'manual-result'))).toBe(false);
     expect(JSON.stringify(result.commands.items.find(c => c.id === command.id).last_execution)).not.toContain('PRIVATE_HTTP_OUTPUT');
-    await post(f, 'hooks.command_run', params, 400); // A receipt changed the read revision: no accidental double submit.
+    await post(f, 'hooks.command_run', params, 400); // Retired regardless of revision.
     const edited = await post(f, 'hooks.command_save', { command: { id: command.id, name: command.name, command: 'printf new > manual-result' }, expected_revision: result.commands.revision });
     const next = edited.commands.items.find(c => c.id === command.id);
     expect(next).toMatchObject({ version: 2, authorized: false });
@@ -159,7 +163,11 @@ test('HTTP manual execution uses selected Worker cwd, version edits revoke old H
     expect(fs.readFileSync(path.join(task.workspace, 'manual-result'), 'utf8')).toBe('old');
     const runNext = async (status = 200) => post(f, 'hooks.command_run', { id: command.id, version: 2, worker_id: task.id, expected_revision: (await get(f, '/api/hooks')).commands.revision }, status);
     f.project.running.set(task.id, {}); await runNext(400); f.project.running.clear();
-    await runNext(); expect(fs.readFileSync(path.join(task.workspace, 'manual-result'), 'utf8')).toBe('new');
+    await runNext(400);
+    await post(f, 'worker.hook_attach', { id: task.id, expected_revision: f.project.taskHooks(task.id).revision,
+      hook: { name: 'new version Hook', trigger: 'worker.merge_received', mode: 'once', enabled: true, actions: [reference(next)] } });
+    f.project.emitTaskHook(task.id, 'worker.merge_received'); await f.project.hookQueue;
+    expect(fs.readFileSync(path.join(task.workspace, 'manual-result'), 'utf8')).toBe('new');
     await authorize(f, next, false); await runNext(400);
     const revoked = await get(f, '/api/hooks');
     await post(f, 'hooks.command_remove', { id: command.id, expected_revision: revoked.commands.revision });
