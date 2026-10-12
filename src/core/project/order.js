@@ -878,7 +878,7 @@ export default {
   },
 
   /** The body of order(); runs under the clear gate so an anchor created before a clear cannot commit after its purge. */
-  async sendOrder(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined, profile = null, defer = false, hookReceipt = null) {
+  async sendOrder(content = undefined, branch = null, references = [], draftId = null, start = true, expectedRevision = undefined, profile = null, defer = false, hookReceipt = null, creationGuard = null, shortcutReceipt = null) {
     // Only explicit deferred draft submission can carry a creation-time run-settings override.
     check(defer || draftId === null || draftId === undefined || profile === null || profile === undefined,
       'a buffered draft cannot carry run settings unless explicit deferred submission is authorized');
@@ -921,6 +921,7 @@ export default {
     // Recheck inside the Git writer queue, not only before waiting to acquire it.
     const { inputId, anchor } = await this.anchorInput(target, () => {
       this.assertWritable('send this order');
+      creationGuard?.();
       this.assertInputParent(parent.id, target);
       assertTaskNotSyncing(this, parent.id);
       this.assertBranchWritable(target, 'create a new worker on it');
@@ -934,6 +935,7 @@ export default {
       this.assertWritable('send this order');
       const result = this.store.transaction(() => {
         const current = this.store.task(parent.id);
+        creationGuard?.();
         this.assertBranchWritable(target, 'create a new worker on it');
         if (buffered) this.assertInputParent(draft.parent_id, target);
         check(!TERMINAL.has(current.status) && current.branch === target, 'parent worker changed while creating the worktree');
@@ -980,7 +982,7 @@ export default {
         if (hookReceipt) {
           const hookOwner = this.store.task(hookReceipt.task_id);
           const mounted = JSON.parse(hookOwner.hooks).mounts.find(m => m.id === hookReceipt.hook_id);
-          check(mounted?.state === 'running' && mounted.last_execution?.id === hookReceipt.execution_id,
+          check(mounted?.enabled && mounted.state === 'running' && mounted.last_execution?.id === hookReceipt.execution_id,
             'Hook creation authorization changed');
           if (mounted.draft_id) {
             const source = this.store.draft(mounted.draft_id);
@@ -990,6 +992,9 @@ export default {
           }
           this.store.event(hookOwner.id, 'hook.worker_created', { ...hookReceipt, worker_id: task.id, input_id: inputId });
         }
+        if (shortcutReceipt) this.finishShortcutExecution(shortcutReceipt.command_id, shortcutReceipt.execution_id,
+          shortcutReceipt.worker_id, 'succeeded', null,
+          { created_worker_id: task.id, created_worker_number: task.worker_number, input_id: inputId });
         this.store.event(task.id, 'input.anchor', { input_id: inputId, branch: anchor.branch, commit: anchor.commit,
           target_branch: target, workspace: anchor.workspace, dirty_source: anchor.dirty_source });
         if (!start) {

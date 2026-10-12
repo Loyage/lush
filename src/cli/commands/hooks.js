@@ -36,8 +36,8 @@ export async function run(command, args, { client }) {
 
 async function runCommand(args, client) {
   const verb = args.shift();
-  check(['list','save','authorize','revoke','remove','run','start','history','import'].includes(verb),
-    'hooks command requires list|save|authorize|revoke|remove|run|start|history|import; run lush help');
+  check(['list','save','authorize','revoke','remove','run','start','history','import','export'].includes(verb),
+    'hooks command requires list|save|authorize|revoke|remove|run|start|history|import|export; run lush help');
   if (verb === 'list') { exact(args, 0); return client.request('hooks.list'); }
   if (verb === 'history') {
     const before = option(args, '--before'), limit = option(args, '--limit'), execution_id = option(args, '--execution');
@@ -55,12 +55,19 @@ async function runCommand(args, client) {
     }
     return client.request('hooks.command_history', params);
   }
+  if (verb === 'export') {
+    const rawVersion = option(args, '--version'); exact(args, 1);
+    check(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(args[0]), 'invalid command id');
+    check(typeof rawVersion === 'string' && /^[1-9]\d*$/.test(rawVersion)
+      && Number.isSafeInteger(Number(rawVersion)), 'provide --version N as a positive integer');
+    return client.request('hooks.command_export', { id: args[0], version: Number(rawVersion) });
+  }
   const expected_revision = readRevision(args);
   if (verb === 'save' || verb === 'import') {
     const file = option(args, '--file'); exact(args, 0);
     check(file, `hooks command ${verb} requires --file PATH`);
     const value = readPrivateJson(file, 'shortcut command');
-    const keys = verb === 'save' ? ['id','name','command','default_worker_id'] : ['template_id','worker_id','hook_id'];
+    const keys = verb === 'save' ? ['id','name','kind','command','prompt','default_worker_id','description','when_to_use','tags','examples','warnings'] : ['template_id','worker_id','hook_id'];
     check(Object.keys(value).every(key => keys.includes(key)), 'unknown shortcut command parameter');
     if (verb === 'import' && Object.hasOwn(value, 'worker_id')) {
       check(!Object.hasOwn(value, 'template_id') && Object.hasOwn(value, 'hook_id'), 'invalid import source');

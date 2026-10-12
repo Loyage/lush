@@ -1,10 +1,10 @@
 # 快捷指令与 Hook 授权契约
 
-本文固定 W151 / 决定 #363 的项目级 Shell 快捷指令接口；答复来源为 Lush 自动选择。设计见 [Worker Hooks](../design/hooks.md)，本契约覆盖旧直接 Shell 动作，其他受控动作及自动链不变。
+本文固定项目级快捷指令的定义、版本授权与执行契约；W228／D534 增加 Skill 风格元数据和提示词类型。设计见 [Worker Hooks](../design/hooks.md)，其他受控动作及自动链不变。
 
 ## 授权与版本
 
-快捷指令是项目 meta 的附属 versioned JSON，不新增核心实体、Host 调度或 Agent 权限。保存 `{id?,name,command,default_worker_id?}`，default_worker_id 为本项目真实 Worker 的正整数内部 ID 或 null，编辑省略保留原值、显式 null 清空；仅作为手动运行预选目录（可明确改选），Hook 始终在挂载 Worker 目录运行，不接受任意路径。普通新增和修改均不授权；内置默认 `git push` 按用户追加要求在初始化时授权，Hook 仍默认停用；修改内容、名称或默认目录递增正整数 `version` 并撤权。单独授权或撤权当前版本。删除使引用不可执行，不复用身份。
+快捷指令是项目 SQLite meta 的附属 versioned JSON，不新增核心实体、Host 调度或 Agent 权限。定义包含 `{id?,name,kind?,command?|prompt?,default_worker_id?,description?,when_to_use?,tags?,examples?,warnings?}`。kind 为 shell 或 prompt，旧缺省为 shell；两类正文互斥。description（作用）、when_to_use（适用场景）、examples（示例）、warnings（风险）为可空字符串，tags 为字符串数组；编辑省略元数据保留原值。default_worker_id 为真实 Worker 内部正整数 ID 或 null，省略保留、null 清空：Shell 预选目录，提示词预选可创建指令的父 Worker。Hook 不采用此默认，Shell 用挂载目录、提示词用挂载父身份，不接受任意路径或静默改投 main。普通新增和修改不授权；内置默认 git push 初始化授权、Hook 仍停用。编辑包括元数据都递增 version 并撤权；删除不复用身份，不删除历史。旧数据读取仅补缺省，不自动重写或重新授权。
 
 Hook Shell 动作新形为 `{type:'command',command_id:UUID,command_version:正整数}`，不得提交内联 command、运行目录、额外参数或 Shell 拼接。保存模板/挂载必须检查引用存在及版本；未授权版本可保存停用配置，但启用、提交及真正 spawn 前必须核验授权与版本。修改后不自动更新已有 Hook 的引用。撤权不承诺取消已开始的副作用，不自动重放旧触发。
 
@@ -12,9 +12,10 @@ Hook Shell 动作新形为 `{type:'command',command_id:UUID,command_version:正�
 
 ## 读面与 Project 方法
 
-`hooks.list` 新增 `commands:{version:1,revision,items:[{id,name,command,default_worker_id,version,authorized,last_execution}]}`。指令正文是用户配置，允许用户专属读面显示，不能放入错误、事件或原始输出。last_execution 可空，否则只含安全执行身份、Worker 整数 ID/持久编号、状态、时间和 command_result。每次变更/领取/收口更新 revision；模板及 Worker 自身 revision 保持独立。
+`hooks.list` 提供 `commands:{version:1,revision,items}`；每项含身份、版本、授权、默认 Worker、kind、上述元数据及 last_execution，正文按类型只返回 command 或 prompt。name 上限 120，command／prompt 上限 16000；description 2000、when_to_use／warnings 4000、examples 8000；tags 最多 32 项、每项 80。字符串拒绝 NUL。指令正文是用户配置，允许用户专属读面显示，不能放入错误、事件或原始输出。last_execution 可空，否则只含安全执行身份、Worker 整数 ID/持久编号、状态、时间和 command_result。每次变更/领取/收口更新 revision；模板及 Worker 自身 revision 保持独立。
 
 - `shortcutCommands()`：只读 commands。
+- `exportShortcutCommand(id,version)`：只读返回 `{filename,markdown}`，导出单条 Skill 风格 frontmatter 与正文；不安装、注入或授权。
 - `saveShortcutCommand(command,expectedRevision)`：保存定义，返回完整 hooksList。
 - `authorizeShortcutCommand(id,version,authorized,expectedRevision)`：当前版本显式授权/撤权，返回完整 hooksList。
 - `removeShortcutCommand(id,expectedRevision)`：删除未来可用授权，保留历史，返回完整 hooksList。
@@ -28,6 +29,7 @@ Hook Shell 动作新形为 `{type:'command',command_id:UUID,command_version:正�
 | RPC | 参数 |
 |---|---|
 | `hooks.command_save` | command, expected_revision |
+| `hooks.command_export` | id, version |
 | `hooks.command_authorize` | id, version, authorized, expected_revision |
 | `hooks.command_remove` | id, expected_revision |
 | `hooks.command_run` | id, version, worker_id, expected_revision |
@@ -35,13 +37,21 @@ Hook Shell 动作新形为 `{type:'command',command_id:UUID,command_version:正�
 
 CLI 使用 `hooks command list`（复用 hooks.list）、`save --file PATH --revision REV`、`authorize|revoke ID --version N --revision REV`、`remove ID --revision REV`、`run ID --version N --worker ID --revision REV`、`import --file PATH --revision REV`。JSON 复用私有文件边界，Worker 编号仅在 CLI 转为整数；版本及 revision 不可省略。
 
+## 提示词执行与 Skill 导出
+
+`startShortcutCommand` 按 kind 路由：Shell 保留原行为；prompt 的 workerId 表示所选父 Worker，仅允许 main／owner／order（历史 say 只读兼容），异步创建并启动独立指令 Worker，沿用默认运行设置与 order 的真实 Git 基线、冻结、同步及生命周期准入。接受、Git 队列内创建、落库前复核确切版本和授权；撤权后重新授权不能复活旧请求。同步 run 不接受 prompt。安全历史记录 kind、新 Worker／Input 关联，succeeded 仅表示创建并提交成功，不代表 Agent 工作完成；任务结果从关联 Worker 查看。未知副作用不重放。
+
+Hook 提示词引用 `{type:'prompt_command',command_id,command_version}`，仅允许 `worker.parent_ready`＋once；挂载 Worker 就是父。复用创建精确收据及恢复去重；同 Hook 不混合 Shell command 与 prompt_command，create_worker／prompt_command 总计最多一个。编辑、撤权及删除使两类未来引用失效，不自动升级。提示词启动和此 Hook 均标明 Agent 费用。
+
+用户可通过 `hooks.command_export {id,version}`、CLI `hooks command export ID --version N` 或只读 `GET /api/hooks/commands/export?id=UUID&version=N` 导出定义。SQLite 仍是权威，Markdown 不是第二份可执行授权；本轮不自动向项目 Skill 注入，也不开放开发 Agent 发现、注册、授权或执行接口。导出不携带运行环境、凭证或历史，不表示已安装可调用 Skill。
+
 ## 旧配置与 git push
 
 旧内联命令保留用于展示、显式导入与历史诊断，但不得再执行或启用。启动接缝停止旧命令未来执行；不得把读取当迁移，不重写历史收据，不重放未知/已发生触发。W151 追加要求：新项目先默认注册并授权内置 `git push` 快捷指令，再保存默认关闭的 main 模板和挂载，引用该指令版本。已有未修改的默认模板／挂载或最初未授权版本在启动初始化时一次性导入／授权，`command_hook_example.version=2` 标记升级已处理；只处理持久登记的内置身份，不处理用户副本或其他命令。用户已撤权、修改或删除的配置不恢复；旧触发全部丢弃，历史与未知收据保留。运行中旧命令先由恢复流程收口为 unknown 后才能导入。读取不执行升级，旧删除 tombstone 仍有效，不重装已删除项。其他旧命令仍需显式导入并授权。
 
 ## 界面与分区
 
-自动化保留 `#hooks` 和主标题，小标题为「快捷指令和 Hook」。快捷指令分为独立可展开／收起的「快捷指令运行」「快捷指令管理」「运行记录」模块：运行模块选择已授权指令与 Worker，自动预选已保存的默认 Worker；管理模块注册、编辑默认目录与正文、授权/撤权和删除；记录模块查询安全历史并显式移除已结束记录（保留审计）。同页重画保留缩放状态、草稿和在途选择，折叠不隐藏必要异常摘要；Hook 编辑器只选择指令及版本，不能填写 Shell。旧命令卡片说明已停止，并提供显式导入入口。授权、执行、删除前说明实际影响；Shell 不是 Agent 调用，不染 Agent 紫色。既有模型/Agent 动作保留统一代价标识。失败保留草稿，迟到响应不覆盖新页面，旧服务缺 commands 保守禁用指令操作。
+自动化保留 `#hooks` 和主标题，小标题为「快捷指令和 Hook」。快捷指令分为独立可展开／收起的「快捷指令运行」「快捷指令管理」「运行记录」模块：运行模块选择已授权指令与 Worker，自动预选已保存的默认 Worker；管理模块提供可搜索紧凑目录与单条详情，按名称、作用、场景和标签过滤，并按类型／授权筛选；一次编辑一条，查看元数据、正文及导出，管理默认 Worker、授权/撤权和删除；记录模块查询安全历史并显式移除已结束记录（保留审计）。同页重画保留缩放状态、草稿和在途选择，折叠不隐藏必要异常摘要；Hook 编辑器只选择指令及版本，不能填写 Shell。旧命令卡片说明已停止，并提供显式导入入口。授权、执行、删除前说明实际影响；Shell 不是 Agent 调用，不染 Agent 紫色。既有模型/Agent 动作保留统一代价标识。失败保留草稿，迟到响应不覆盖新页面，旧服务缺 commands 保守禁用指令操作。
 
 - Runtime 子分区：core/hooks、project/hooks/command-hooks、新 shortcut-commands 模块、Project 装配与必要执行门；test/project 命令测试及纯定义回归。维护 modules-runtime 对应条目，不改 RPC/CLI/assets。
 - Web 子分区：assets Hook 表单/渲染/样式，快捷指令编辑与授权/执行/导入，DOM 回归；维护 modules-web 条目，不改 runtime/API。

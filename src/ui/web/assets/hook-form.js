@@ -4,11 +4,13 @@ import { createProfileForm } from './agent-profile-form.js';
 import { STATUS, INTEGRATION } from './format.js';
 import { workerLabel } from './worker-label.js';
 import { browserTimezone, scheduledWallTime, hookSchedule } from './hook-schedule.js';
-import { COMMAND_WARNING, validCommands, commandReferencesIssue } from './shortcut-command-model.js';
+import { COMMAND_WARNING, PROMPT_WARNING, commandKind, validCommands, commandReferencesIssue } from './shortcut-command-model.js';
 export { COMMAND_WARNING } from './shortcut-command-model.js';
 
 const SCHEDULED = 'time.scheduled';
 const profileAction = type => ['create_worker', 'retry_worker', 'resume_worker'].includes(type);
+const commandAction = type => ['command', 'prompt_command'].includes(type);
+const creationAction = type => ['create_worker', 'prompt_command'].includes(type);
 const targetAction = type => ['message', 'retry_worker', 'resume_worker'].includes(type);
 function field(label, tag = 'input', value = '') {
   const wrap = el('label', label, 'hook-field'), input = el(tag);
@@ -33,7 +35,7 @@ function conditions(label, entries, chosen) {
 }
 
 /** Declarative editor. Trigger/action IDs and compatibility come exclusively from the catalogue. */
-export function createHookForm(catalogue, { initial = {}, ownsPage = () => true, workerId = null, failedSelf = false, copying = false, onChange = () => {} } = {}) {
+export function createHookForm(catalogue, { initial = {}, ownsPage = () => true, workerId = null, workerTaskKind = null, failedSelf = false, copying = false, onChange = () => {} } = {}) {
   const node = el('div', undefined, 'hook-form');
   const name = field('Hook 名称', 'input', initial.name); name.input.maxLength = 120;
   const trigger = select('触发节点', (catalogue.triggers || []).filter(t => !failedSelf || t.id === SCHEDULED).map(t => [t.id, t.label]), initial.trigger);
@@ -55,14 +57,37 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
   const integrations = conditions('合并状态条件（不选表示不限）', { none: '无集成', ...INTEGRATION }, initial.conditions?.integrations);
   const modeHelp = el('p', undefined, 'hint'); node.append(modeHelp, statuses.node, integrations.node);
   const rows = [], actionsNode = el('div', undefined, 'hook-action-list'); node.append(el('h3', '按顺序执行的动作'), actionsNode);
+  const combinationNote = el('p', undefined, 'hint hook-combination-note'); combinationNote.setAttribute('role', 'status'); node.append(combinationNote);
   const error = el('p', undefined, 'error'); error.setAttribute('role', 'alert'); node.append(error);
   let pending = false, disabledBeforeBusy = null;
   const isScheduled = () => trigger.input.value === SCHEDULED;
   const allowed = () => (catalogue.actions || []).filter(a => !a.builtin_only && (!a.triggers?.length || a.triggers.includes(trigger.input.value))
+    && (a.type !== 'prompt_command' || trigger.input.value === 'worker.parent_ready' && workerTaskKind !== 'child')
     && (!failedSelf || ['retry_worker', 'notify'].includes(a.type)));
-  const modesFor = action => action?.modes_by_trigger?.[trigger.input.value] ?? action?.modes
+  const rowChoices = row => {
+    const others = rows.filter(item => item !== row).map(item => item.type.input.value);
+    return allowed().filter(action => !(action.type === 'command' && others.includes('prompt_command'))
+      && !(action.type === 'prompt_command' && others.includes('command'))
+      && !(creationAction(action.type) && others.some(creationAction)));
+  };
+  const combinationIssue = () => {
+    const types = rows.map(row => row.type.input.value);
+    if (types.includes('command') && types.includes('prompt_command')) return '同一 Hook 不能混合 Shell 指令与提示词指令；请显式移除或改选动作，已有正文与引用保留。';
+    if (types.filter(creationAction).length > 1) return '同一 Hook 的创建动作（预约创建 Worker／提示词指令）合计最多一个；请显式移除或改选动作。';
+    return '';
+  };
+  function paintTypeChoices(row) {
+    const value = row.type.input.value, choices = rowChoices(row);
+    row.type.input.replaceChildren(...choices.map(action => { const option = el('option', action.label); option.value = action.type; return option; }));
+    if (value && !choices.some(action => action.type === value)) {
+      const retained = el('option', `${catalogue.actions?.find(action => action.type === value)?.label || value}（组合或节点不兼容，请显式改选）`);
+      retained.value = value; retained.disabled = true; row.type.input.append(retained);
+    }
+    row.type.input.value = value;
+  }
+  const modesFor = action => action?.type === 'prompt_command' ? ['once'] : action?.modes_by_trigger?.[trigger.input.value] ?? action?.modes
     ?? (['create_worker', 'message'].includes(action?.type) ? ['once'] : ['once', 'persistent']);
-  const agentCall = () => rows.some(row => row.type.input.value === 'create_worker' ? row.start.input.checked
+  const agentCall = () => rows.some(row => row.type.input.value === 'prompt_command' ? true : row.type.input.value === 'create_worker' ? row.start.input.checked
     : catalogue.actions?.find(action => action.type === row.type.input.value)?.agent_call === true);
   const collectSchedule = () => {
     // Metadata-only edits preserve an exact existing instant, including milliseconds
@@ -72,10 +97,12 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
     return hookSchedule(kind.input.value, date.input.value, time.input.value, timezone.input.value);
   };
   function addRow(initialAction = {}) {
-    if (rows.length >= 4) return;
+    if (rows.length >= 4 || !initialAction.type && !rowChoices(null).length) return;
     const row = { initial: initialAction, node: el('fieldset', undefined, 'hook-action'), profileForm: null, profilePending: false };
     row.node.append(el('legend', `动作 ${rows.length + 1}`));
-    row.type = select('动作类型', allowed().map(a => [a.type, a.label]), initialAction.type || (failedSelf ? 'retry_worker' : undefined));
+    // Initially load the exact existing type, even for an invalid combination.
+    // Repaint restricts alternatives without silently changing its saved identity.
+    row.type = select('动作类型', (initialAction.type ? allowed() : rowChoices(null)).map(a => [a.type, a.label]), initialAction.type || (failedSelf ? 'retry_worker' : undefined));
     const commands = validCommands(catalogue.commands) ? catalogue.commands.items : [];
     row.command = select('快捷指令版本', [['', '请选择已注册快捷指令版本'], ...commands.map(item =>
       [`${item.id}:${item.version}`, `${item.name} · v${item.version} · ${item.authorized ? '已授权' : '未授权／已撤权'}`])],
@@ -124,7 +151,20 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
     const type = row.type.input.value;
     if (row.paintedType && row.paintedType !== type) { row.profileForm = null; row.profileHost.replaceChildren(); }
     row.paintedType = type;
-    row.command.wrap.hidden = type !== 'command';
+    row.command.wrap.hidden = !commandAction(type);
+    if (commandAction(type) && row.commandType !== type) {
+      const value = row.command.input.value;
+      const commands = validCommands(catalogue.commands) ? catalogue.commands.items.filter(item => commandKind(item) === (type === 'prompt_command' ? 'prompt' : 'shell')) : [];
+      row.command.input.replaceChildren();
+      const blank = el('option', type === 'prompt_command' ? '请选择提示词版本' : '请选择 Shell 版本'); blank.value = ''; row.command.input.append(blank);
+      for (const item of commands) { const option = el('option', `${item.name} · v${item.version} · ${item.authorized ? '已授权' : '未授权／已撤权'}`); option.value = `${item.id}:${item.version}`; row.command.input.append(option); }
+      // Preserve an unavailable exact original reference, never choose the next version.
+      if (value && value === `${row.initial.command_id}:${row.initial.command_version}` && !commands.some(item => `${item.id}:${item.version}` === value)) {
+        const missing = el('option', `原引用 v${row.initial.command_version} 类型不匹配或已不可用；请明确重选`); missing.value = value; missing.disabled = true; row.command.input.append(missing);
+      }
+      row.command.input.value = value && (commands.some(item => `${item.id}:${item.version}` === value) || value === `${row.initial.command_id}:${row.initial.command_version}`) ? value : '';
+      row.commandType = type;
+    }
     row.title.wrap.hidden = type !== 'notify'; row.target.wrap.hidden = !targetAction(type); row.body.wrap.hidden = !['notify', 'message'].includes(type);
     row.target.input.disabled = pending || failedSelf;
     row.content.wrap.hidden = type !== 'create_worker'; row.start.wrap.hidden = type !== 'create_worker'; row.configureHost.hidden = !profileAction(type); row.profileHost.hidden = !profileAction(type);
@@ -134,7 +174,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
     row.configureHost.setAttribute('data-help', row.profilePending ? '运行设置正在读取，请稍后。' : row.profileForm ? '完整运行覆盖已展开，请在下方编辑。' : row.configure.getAttribute('data-help'));
     const description = catalogue.actions?.find(a => a.type === type)?.description || '';
     const preserved = !copying && initial.id && row.initial.type === type;
-    row.note.textContent = type === 'command' ? `${description} ${COMMAND_WARNING} Hook 仅引用明确版本，不接受 Shell 正文；修改指令即撤权，已有引用不会自动升级。${validCommands(catalogue.commands) ? '' : '快捷指令目录不可用，请更新服务并刷新。'}${Object.hasOwn(row.initial, 'command') ? '旧内联命令不能直接保存，请取消并显式导入。' : ''}` : type === 'create_worker' ? `${description} ${preserved
+    row.note.textContent = type === 'prompt_command' ? `${description} ${PROMPT_WARNING} 仅父 Worker 可创建节点、一次性；引用明确提示词版本，不自动升级。` : type === 'command' ? `${description} ${COMMAND_WARNING} Hook 仅引用明确版本，不接受 Shell 正文；修改指令即撤权，已有引用不会自动升级。${validCommands(catalogue.commands) ? '' : '快捷指令目录不可用，请更新服务并刷新。'}${Object.hasOwn(row.initial, 'command') ? '旧内联命令不能直接保存，请取消并显式导入。' : ''}` : type === 'create_worker' ? `${description} ${preserved
       ? '未重新设置且动作位置不变时保留模板已保存的私有运行覆盖；不会回读 Prompt/env。'
       : '未单独设置时，挂载时冻结有效项目默认；不回读已有私有运行覆盖。'}`
       : targetAction(type) ? `${description} 目标：${workerLabel(Number(row.target.input.value), Number(row.target.input.value) === row.initial.target_id ? row.initial.target_worker_number : undefined)}。此处填写内部整数 ID，不把 W 编号当作 ID。${type === 'message'
@@ -147,9 +187,12 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
   const addHost = el('span', undefined, 'help-host'); addHost.append(add); node.append(addHost);
   const addClick = add.onclick; add.onclick = async () => { await addClick(); repaint(); };
   function repaint() {
-    add.disabled = pending || rows.length >= 4;
+    add.disabled = pending || rows.length >= 4 || !rowChoices(null).length;
     addHost.tabIndex = add.disabled ? 0 : -1;
-    addHost.setAttribute('data-help', rows.length >= 4 ? '每条 Hook 最多四个动作；请先移除一个动作。' : add.getAttribute('data-help'));
+    addHost.setAttribute('data-help', rows.length >= 4 ? '每条 Hook 最多四个动作；请先移除一个动作。' : !rowChoices(null).length ? '当前组合没有可添加的动作；Shell 与提示词不能混合，创建动作合计最多一个。' : add.getAttribute('data-help'));
+    const issue = combinationIssue(); combinationNote.textContent = issue || 'Shell 与提示词指令不能在同一 Hook 混合；预约创建 Worker／提示词指令合计最多一个，可组合其他兼容动作。';
+    combinationNote.className = `${issue ? 'error' : 'hint'} hook-combination-note`;
+    for (const row of rows) paintTypeChoices(row);
     triggerHelp.textContent = catalogue.triggers?.find(t => t.id === trigger.input.value)?.description || '';
     scheduleNode.hidden = !isScheduled(); date.wrap.hidden = kind.input.value !== 'once'; time.wrap.hidden = kind.input.value !== 'daily';
     const supported = ['once', 'persistent'].filter(candidate => rows.every(row => modesFor(catalogue.actions?.find(item => item.type === row.type.input.value)).includes(candidate)));
@@ -160,7 +203,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
     mode.input.disabled = pending || isScheduled() || supported.length < 2;
     modeHelp.textContent = isScheduled() ? '一次性或每日由定时周期决定。每条规则最多保留一项待执行动作，受阻不累计补跑；到点提交不等于 Agent 已开始。'
       : rows.some(row => row.type.input.value === 'message') ? '消息动作只允许一次性，避免返回→消息→调用的无限付费循环。'
-        : rows.some(row => row.type.input.value === 'create_worker') ? '预约创建 Worker 只允许一次性，避免重复创建。' : '组合规则只能使用所有动作共同支持的挂载方式。';
+        : rows.some(row => ['create_worker', 'prompt_command'].includes(row.type.input.value)) ? '预约创建 Worker 和提示词指令只允许一次性，避免重复创建。' : '组合规则只能使用所有动作共同支持的挂载方式。';
     for (const row of rows) paintRow(row);
     onChange(enabled.input.checked && agentCall());
   }
@@ -168,7 +211,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
   kind.input.onchange = repaint;
   trigger.input.onchange = () => {
     for (const row of rows) {
-      const previous = row.type.input.value, choices = allowed();
+      const previous = row.type.input.value, choices = rowChoices(row);
       row.type.input.replaceChildren(...choices.map(a => { const option = el('option', a.label); option.value = a.type; return option; }));
       row.type.input.value = choices.some(a => a.type === previous) ? previous : choices[0]?.type ?? '';
       paintRow(row);
@@ -187,6 +230,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
       else if (!rows.length) message = '至少配置一个动作。';
       if (!message && isScheduled()) { try { collectSchedule(); } catch (failure) { message = failure.message; } }
       if (!message && failedSelf && !rows.some(row => row.type.input.value === 'retry_worker')) message = '失败 Worker 只允许定时重试自身，可组合纯告知。';
+      if (!message) message = combinationIssue();
       if (!message) for (const row of rows) {
         const type = row.type.input.value, action = allowed().find(a => a.type === type);
         if (!action) message = '此触发节点不支持所选动作。';
@@ -195,7 +239,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
         else if (targetAction(type) && (!Number.isSafeInteger(Number(row.target.input.value)) || Number(row.target.input.value) < 1
           || (failedSelf && Number(row.target.input.value) !== workerId))) message = '请填写有效目标 Worker 内部整数 ID；失败 Worker 只能重试自身。';
         else if (type === 'message' && !row.body.input.value.trim()) message = '请填写消息正文和有效目标 Worker 内部整数 ID。';
-        else if (type === 'command') {
+        else if (commandAction(type)) {
           const command = catalogue.commands?.items?.find(item => `${item.id}:${item.version}` === row.command.input.value);
           message = Object.hasOwn(row.initial, 'command') ? '旧内联命令须先显式导入快捷指令。'
             : !command ? '请选择当前已注册的快捷指令版本。'
@@ -218,7 +262,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
         ...(isScheduled() ? { schedule: collectSchedule() } : {}),
         conditions: { statuses: statuses.collect(), integrations: integrations.collect() }, actions: rows.map(row => {
           const type = row.type.input.value;
-          if (type === 'command') {
+          if (commandAction(type)) {
             const command = catalogue.commands?.items?.find(item => `${item.id}:${item.version}` === row.command.input.value);
             return { type, command_id: command?.id, command_version: command?.version };
           }

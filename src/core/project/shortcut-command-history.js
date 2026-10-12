@@ -23,8 +23,14 @@ export function safeCommandResult(result) {
     output_truncated: result.output_truncated === true,
   };
 }
+export function safeCreationResult(value) {
+  return { created_worker_id: positive(value?.created_worker_id) ? value.created_worker_id : null,
+    created_worker_number: typeof value?.created_worker_number === 'string' && /^W\d+(?:-\d+)*$/.test(value.created_worker_number) ? value.created_worker_number : null,
+    input_id: positive(value?.input_id) ? value.input_id : null };
+}
 export function executionSnapshot(project, item, workerId, executionId, source, status, createdAt = new Date().toISOString()) {
   return { id: executionId, command_id: item.id, command_name: item.name, command_version: item.version,
+    kind: item.kind === 'prompt' ? 'prompt' : 'shell', ...safeCreationResult(null),
     worker_id: workerId, worker_number: project.store.get('SELECT worker_number FROM tasks WHERE id=?', workerId)?.worker_number ?? null,
     source, status, created_at: createdAt, finished_at: null };
 }
@@ -61,6 +67,7 @@ function views(project, rows) {
     return { event_id: row.id, id: data.execution_id, command_id: commandExecutionUUID(data.command_id) ? data.command_id : null,
       command_name: typeof data.command_name === 'string' && data.command_name.length <= 120 ? data.command_name : null,
       command_version: positive(data.command_version ?? data.version) ? data.command_version ?? data.version : null,
+      kind: data.kind === 'prompt' ? 'prompt' : 'shell', ...safeCreationResult(parsed(tail)),
       worker_id: positive(row.task_id) ? row.task_id : null,
       worker_number: typeof data.worker_number === 'string' && /^W\d+(?:-\d+)*$/.test(data.worker_number) ? data.worker_number : numbers.get(row.task_id) ?? null,
       source: ['manual','hook'].includes(data.source) ? data.source : 'unknown',
@@ -121,8 +128,17 @@ export function recoverCommandHistory(project, finish) {
   for (;;) {
     const rows = rootRows(project, { before, limit: 100, includeRemoved: true }).slice(0, 100);
     if (!rows.length) return;
-    for (const execution of views(project, rows)) if (['pending','running'].includes(execution.status))
-      finish(execution.command_id, execution.id, execution.worker_id, 'unknown', { status: 'unknown', reason: 'interrupted' });
+    for (const execution of views(project, rows)) if (['pending','running'].includes(execution.status)) {
+      const receipt = execution.kind === 'prompt' ? project.store.get(`SELECT data FROM events WHERE task_id=? AND type='hook.worker_created'
+        AND json_extract(data,'$.shortcut_execution_id')=? AND json_extract(data,'$.command_id')=?
+        AND json_extract(data,'$.command_version')=? ORDER BY id DESC LIMIT 1`, execution.worker_id, execution.id, execution.command_id, execution.command_version) : null;
+      const created = receipt ? parsed(receipt) : null;
+      if (positive(created?.worker_id) && positive(created?.input_id)) {
+        const worker = project.store.get('SELECT worker_number FROM tasks WHERE id=?', created.worker_id);
+        finish(execution.command_id, execution.id, execution.worker_id, 'succeeded', null,
+          { created_worker_id: created.worker_id, created_worker_number: worker?.worker_number, input_id: created.input_id });
+      } else finish(execution.command_id, execution.id, execution.worker_id, 'unknown', { status: 'unknown', reason: 'interrupted' });
+    }
     before = rows.at(-1).id;
   }
 }

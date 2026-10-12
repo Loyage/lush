@@ -66,6 +66,32 @@ test('default directory rejects invalid IDs, terminal/non-development Workers, m
   } finally { await other.close(); await f.close(); }
 });
 
+test('prompt defaults reject child identities even on kind conversion or omitted-default edits, without silently changing the parent', async () => {
+  const f = await setup();
+  try {
+    const child = (await f.project.order('shell directory', 'main', [], null, false)).task;
+    f.store.run("UPDATE tasks SET task_kind='child' WHERE id=?", child.id);
+    const item = save(f, { name: 'shell child default', command: 'true', default_worker_id: child.id }); authorize(f, item);
+    const convert = { id: item.id, name: item.name, kind: 'prompt', prompt: 'prompt body' };
+    const before = revision(f);
+    expect(() => save(f, convert)).toThrow('parent');
+    expect(() => save(f, { name: 'bad default', kind: 'prompt', prompt: 'body', default_worker_id: child.id })).toThrow('parent');
+    expect(revision(f)).toBe(before);
+    expect(f.project.shortcutCommands().items.find(c => c.id === item.id)).toMatchObject({ kind: 'shell', version: 1, authorized: true, default_worker_id: child.id });
+    let prompt = save(f, { ...convert, default_worker_id: null });
+    expect(prompt).toMatchObject({ kind: 'prompt', version: 2, authorized: false, default_worker_id: null });
+    const parent = (await f.project.order('valid prompt parent', 'main', [], null, false)).task;
+    prompt = save(f, { id: item.id, name: item.name, prompt: prompt.prompt, default_worker_id: parent.id });
+    prompt = save(f, { id: item.id, name: 'renamed', prompt: prompt.prompt });
+    expect(prompt).toMatchObject({ kind: 'prompt', version: 4, default_worker_id: parent.id });
+    f.store.update(parent.id, { status: 'cancelled' });
+    const stale = revision(f);
+    expect(() => save(f, { id: item.id, name: 'edit stale default', prompt: prompt.prompt })).toThrow('parent');
+    expect(revision(f)).toBe(stale);
+    expect(save(f, { id: item.id, name: 'clear stale default', prompt: prompt.prompt, default_worker_id: null })).toMatchObject({ version: 5, default_worker_id: null });
+  } finally { await f.close(); }
+});
+
 test('branch owner defaults resolve an existing linked worktree without storing an arbitrary path', async () => {
   const f = await setup();
   try {

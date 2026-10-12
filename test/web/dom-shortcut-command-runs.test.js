@@ -246,3 +246,16 @@ test('successful deletion with a failed subsequent reread remains acknowledged a
   expect(root().querySelector('.shortcut-execution')).toBeNull(); expect(deepText(root())).toContain('已持久移除 1 条'); expect(deepText(root())).toContain('运行记录暂不可用');
   expect(writes()).toHaveLength(1); expect(btn('清空已结束记录').disabled).toBe(true);
 });
+
+test('async prompt creation polls exact identity and links created Worker without claiming Agent completion', async () => {
+  model.items = [{ id: 'review', name: '审查', kind: 'prompt', prompt: '检查代码', version: 2, authorized: true }];
+  intercept = (_path, body) => body?.method === 'hooks.command_start' ? json({ execution_id: uuid(1), execution: row({ kind: 'prompt', worker_id: 42, command_name: '审查', command_version: 2, status: 'pending' }), commands: model }) : null;
+  await mount(); await btn('创建并启动 Agent').onclick();
+  const parent = root().querySelector('[aria-label="提示词父 Worker"]'); parent.value = '42';
+  const creating = btn('确认创建并启动').onclick(); await dialogButton(dom, '创建并启动').onclick(); await creating;
+  expect(deepText(root())).toContain('等待创建'); expect(writes()[0].body.params).toEqual({ id: 'review', version: 2, worker_id: 42, expected_revision: 'revision-before' });
+  intercept = path => path.includes('execution_id=') ? json(page([row({ kind: 'prompt', worker_id: 42, command_version: 2, status: 'succeeded', created_worker_id: 99, created_worker_number: 'W10', input_id: 11 })])) : null;
+  await tick();
+  expect(deepText(root())).toContain('不是 Agent 工作完成'); expect(root().querySelectorAll('a').find(link => link.href === '#worker-99').textContent).toContain('W10');
+  expect(deepText(root())).toContain('O11'); expect(timers.size).toBe(0); expect(writes()).toHaveLength(1);
+});

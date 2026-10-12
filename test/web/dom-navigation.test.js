@@ -2,6 +2,8 @@ import { test, expect, afterAll } from 'bun:test';
 import { installDom, deepText } from './project-dom.js';
 import { installDom as installRootDom } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
+import { until } from '../helpers.js';
+import { createShortcutRuns } from '../../src/ui/web/assets/shortcut-command-runs.js';
 
 const world = makeWorld();
 let intercept = null;
@@ -330,6 +332,29 @@ test('Worker 公开深链接使用新地址，内部页面与 DOM 身份不迁�
     }
     expect(ROLE.worker).toBe('执行');
   } finally { intercept = null; }
+});
+
+test('prompt execution history link opens its created Worker via the real app hashchange route', async () => {
+  dom.location.hash = '#hooks'; await boot(); ui.hooksPage?.shortcutNode?.dispose?.();
+  const reads = [], previous = intercept;
+  intercept = url => {
+    reads.push(url);
+    if (url.startsWith('/api/hooks/commands/executions')) return json({ version: 1, has_more: false, next_before: null,
+      items: [{ id: 'dddddddd-0000-4000-8000-000000000010', event_id: 100, command_name: '审查', command_version: 1, kind: 'prompt',
+        worker_id: 42, worker_number: 'W8', created_worker_id: 1, created_worker_number: 'W28', input_id: 87, source: 'manual', status: 'succeeded', created_at: '2026-10-12T00:00:00Z' }] });
+    return null;
+  };
+  let owned = true;
+  const component = createShortcutRuns({ model: { version: 1, revision: 'rev', items: [] }, ownsPage: () => owned, busy: () => false, setBusy() {}, onCommands() {} });
+  try {
+    dom.node('detail').replaceChildren(component.node, component.history);
+    await until(() => component.history.querySelectorAll('a').length > 0);
+    const link = component.history.querySelectorAll('a').find(node => node.textContent.includes('W28'));
+    expect(link).toBeTruthy(); expect(deepText(component.history)).toContain('不是 Agent 工作完成');
+    dom.location.hash = link.href; owned = false; await dom.fire('hashchange');
+    expect(ui.view.id).toBe('task'); expect(ui.selected).toBe(1); expect(dom.node('detail').dataset.taskId).toBe('1');
+    expect(reads).toContain('/api/worker/1'); expectSelected('tasks');
+  } finally { owned = false; component.dispose(); intercept = previous; }
 });
 
 test('编号深链接查找真实身份、缺失时明确报错，迟到查找不抢走当前页面', async () => {

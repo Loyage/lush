@@ -3,19 +3,26 @@ import { api, action } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { workerLabel } from './worker-label.js';
 import { absolute } from './format.js';
-import { COMMAND_WARNING, validCommands, commandWorkers, workerDirectoryReason } from './shortcut-command-model.js';
+import { COMMAND_WARNING, PROMPT_WARNING, commandKind, commandBody, promptParents, validCommands, commandWorkers, workerDirectoryReason } from './shortcut-command-model.js';
+import { commandDirectory, commandDetail } from './shortcut-command-directory.js';
+import { agentHelp } from './help.js';
 import { automationAlerts } from './automation-module.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const statuses = { pending: '已提交，等待执行', running: '执行中', succeeded: '执行成功', failed: '执行失败', unknown: '结果未知' };
 const active = row => ['pending', 'running'].includes(row.status);
 export function commandResultText(result) {
+  if (result?.kind === 'prompt') {
+    const labels = { pending: '已提交，等待创建', running: '正在创建 Worker', succeeded: '已创建／提交 Agent Worker（不是 Agent 工作完成）', failed: 'Worker 创建失败', unknown: '创建结果未知，不自动重试' };
+    return `提示词创建结果：${labels[result.status] || labels.unknown}。`;
+  }
   const reasons = { timeout: '超时（最长 60 秒）', output_limit: '输出超限（64 KiB）', admission: '执行前安全门拒绝', not_started: '未开始执行', interrupted: '运行中断' };
   return `命令结果：${statuses[result?.status] || '结果未知'}${Number.isInteger(result?.exit_code) ? ` · 退出码 ${result.exit_code}` : ''}${reasons[result?.reason] ? ` · ${reasons[result.reason]}` : ''}；原始输出不公开。`;
 }
 function validRow(row) {
   return row && UUID.test(row.id) && Number.isSafeInteger(row.event_id) && row.event_id > 0
     && Object.hasOwn(statuses, row.status) && Number.isSafeInteger(row.worker_id) && row.worker_id > 0
+    && (!row.kind || ['shell', 'prompt'].includes(row.kind))
     && (row.command_name === null || typeof row.command_name === 'string')
     && Number.isSafeInteger(row.command_version) && row.command_version > 0 && typeof row.created_at === 'string';
 }
@@ -45,6 +52,9 @@ export function createShortcutRuns({ model: initial, ownsPage, busy, setBusy, on
   let model = initial, disposed = false, capable = false, reading = false, sequence = 0, timer = null, observer = null;
   let pendingPost = false, pickerSequence = 0, selected = null, before = null, hasMore = false;
   const rows = new Map(), controllers = new Set(), deletedIds = new Set();
+  const directory = commandDirectory({ model: initial, label: '查找运行指令', locked: () => pendingPost || busy(), onSelect() { pickerSequence++; selected = null; editor.replaceChildren(); paintChoices(); } });
+  const choiceDetail = el('div', undefined, 'shortcut-run-detail');
+  choices.append(directory.node, choiceDetail);
   let deleting = false, deleteUncertain = false, removalReceipt = '', statusListener = () => {};
   const removable = row => ['succeeded', 'failed'].includes(row.status);
   const deleteHelp = '仅持久移除运行列表记录，保留安全审计；不撤回命令副作用。只有成功或失败记录可删除，等待、执行中和结果未知的记录必须保留。';
@@ -103,12 +113,16 @@ export function createShortcutRuns({ model: initial, ownsPage, busy, setBusy, on
     records.replaceChildren();
     for (const row of [...rows.values()].sort((a, b) => b.event_id - a.event_id)) {
       const card = el('article', undefined, 'hook-mount shortcut-execution'); card.dataset.executionId = row.id;
-      const head = el('div', undefined, 'hook-mount-head'); head.append(el('strong', row.command_name ?? '旧记录：名称未保存'), badge(`v${row.command_version}`), badge(statuses[row.status]));
+      const head = el('div', undefined, 'hook-mount-head'); head.append(el('strong', row.command_name ?? '旧记录：名称未保存'), badge(`v${row.command_version}`), badge(row.kind === 'prompt' ? ({ pending: '等待创建', running: '正在创建', succeeded: '已创建 Worker', failed: '创建失败', unknown: '创建结果未知' })[row.status] : statuses[row.status]));
       const source = ({ manual: '手动运行', hook: 'Hook 触发' })[row.source] || '旧记录：来源未保存';
       card.append(head, el('p', `${workerLabel(row.worker_id, row.worker_number)} · ${source}`, 'hint'),
         el('p', `开始／提交：${absolute(row.created_at)}${row.finished_at ? ` · 结束：${absolute(row.finished_at)}` : ''}`, 'hint'),
-        el('p', commandResultText({ ...row.command_result, status: row.status }), ['failed', 'unknown'].includes(row.status) ? 'error' : 'hint'),
+        el('p', commandResultText({ ...row.command_result, kind: row.kind, status: row.status }), ['failed', 'unknown'].includes(row.status) ? 'error' : 'hint'),
         el('p', `运行身份：${row.id}`, 'hint shortcut-execution-id'));
+      if (Number.isSafeInteger(row.created_worker_id) && row.created_worker_id > 0) {
+        const link = el('a', `查看创建的 Worker ${workerLabel(row.created_worker_id, row.created_worker_number)}`, 'hook-help-link'); link.href = `#worker-${row.created_worker_id}`; card.append(link);
+      }
+      if (Number.isSafeInteger(row.input_id) && row.input_id > 0) card.append(el('p', `原始输入 O${row.input_id}`, 'hint'));
       const host = el('span', undefined, 'help-host');
       const remove = button('删除运行记录', () => removeHistory({ execution_id: row.id }), 'ghost history-remove', { help: deleteHelp });
       const clicked = remove.onclick; remove.onclick = async () => { await clicked(); syncDelete(remove, host, row); };
@@ -157,39 +171,40 @@ export function createShortcutRuns({ model: initial, ownsPage, busy, setBusy, on
     finally { if (current() && epoch === sequence) { reading = false; paintRecords(); } }
   }
   function paintChoices() {
-    choices.replaceChildren(el('p', '仅执行已授权版本；注册、编辑和授权位于独立「指令管理」模块。保存的默认目录自动预选，可明确改选。', 'hint'));
+    choiceDetail.replaceChildren(); directory.update(model);
     if (!validCommands(model)) return;
-    for (const command of model.items) {
-      const card = el('article', undefined, 'hook-mount shortcut-run-command');
-      const head = el('div', undefined, 'hook-mount-head'); head.append(el('strong', command.name), badge(`v${command.version}`), badge(command.authorized ? '已授权' : '未授权／已撤权'));
-      const preview = el('pre', command.command, 'hook-action-preview'); preview.setAttribute('data-worker-links', 'off');
+    const command = directory.selected();
+    if (command) {
+      const prompt = commandKind(command) === 'prompt';
+      const card = commandDetail(command, 'shortcut-run-command');
       const host = el('span', undefined, 'help-host');
       const reason = !command.authorized ? '此版本未授权，请先在指令管理中授权。' : !capable ? '请先成功读取运行记录；旧后台不支持异步执行时不能运行。' : pendingPost || busy() ? '正在提交或保存，请稍候。' : null;
-      const execute = button('手动执行', () => { if (!reason && current()) return selectWorker(command, model.revision); }, 'ghost hook-button', {
-        help: '选择 Worker 的真实目录并确认异步执行一次；安全门仍须通过，不调用 Agent。' });
+      const execute = button(prompt ? '创建并启动 Agent' : '手动执行', () => { if (!reason && current()) return selectWorker(command, model.revision); }, 'ghost hook-button', {
+        agent: prompt, help: prompt ? agentHelp('选择父 Worker，以此提示词创建独立指令 Worker 并启动；创建成功不是 Agent 完成。') : '选择 Worker 的真实目录并确认异步执行一次；安全门仍须通过，不调用 Agent。' });
       const clicked = execute.onclick;
       execute.onclick = async () => { await clicked(); execute.disabled = !!reason; };
-      execute.disabled = !!reason; host.tabIndex = reason ? 0 : -1; host.setAttribute('data-help', reason || execute.getAttribute('data-help')); host.append(execute);
-      card.append(head, preview, host); choices.append(card);
+      execute.disabled = !!reason; host.tabIndex = reason ? 0 : -1; host.setAttribute('data-help', `${reason || ''} ${execute.getAttribute('data-help')}`); host.append(execute);
+      card.append(el('p', prompt ? PROMPT_WARNING : '仅执行已授权版本；管理与版本授权在独立模块。', 'hint'), host); choiceDetail.append(card);
     }
-    if (!model.items.length) choices.append(el('p', '尚未注册快捷指令，请到指令管理注册并授权。', 'hint'));
+    if (!model.items.length) choiceDetail.append(el('p', '尚未注册快捷指令，请到指令管理注册并授权。', 'hint'));
   }
   async function selectWorker(command, revision) {
     if (!current() || pendingPost || busy()) return;
     const generation = ++pickerSequence; selected = command.id;
+    const prompt = commandKind(command) === 'prompt';
     editor.replaceChildren(el('h3', `手动执行：${command.name} · v${command.version}`), el('p', '正在读取可选 Worker…', 'hint'));
     try {
       // Claim/start/completion advance the command-library revision. Re-read it
       // for each deliberate new run instead of reusing the previous POST's revision.
-      const [parents, activity, catalogue] = await Promise.all([request('/api/input-parents'), request('/api/snapshot'), request('/api/hooks')]);
+      const [parents, activity, catalogue] = await Promise.all([request('/api/input-parents'), prompt ? Promise.resolve(null) : request('/api/snapshot'), request('/api/hooks')]);
       if (!current() || generation !== pickerSequence) return;
-      if (!Array.isArray(parents?.items) || !Array.isArray(activity?.tasks) || !validCommands(catalogue?.commands)) throw new Error('Worker or command list unavailable');
+      if (!Array.isArray(parents?.items) || (!prompt && !Array.isArray(activity?.tasks)) || !validCommands(catalogue?.commands)) throw new Error('Worker or command list unavailable');
       const live = catalogue.commands.items.find(item => item.id === command.id && item.version === command.version && item.authorized);
-      if (!live) throw new Error('selected command authorization changed');
+      if (!live || commandKind(live) !== commandKind(command)) throw new Error('selected command authorization or type changed');
       command = live; revision = catalogue.commands.revision;
       onCommands(catalogue.commands);
-      const candidates = commandWorkers(parents, activity);
-      const worker = field('执行目录 Worker'), blank = el('option', '请选择 Worker 的真实工作目录'); blank.value = ''; worker.input.append(blank);
+      const candidates = prompt ? promptParents(parents) : commandWorkers(parents, activity);
+      const worker = field(prompt ? '提示词父 Worker' : '执行目录 Worker'), blank = el('option', prompt ? '请选择创建指令的父 Worker（不支持 child）' : '请选择 Worker 的真实工作目录'); blank.value = ''; worker.input.append(blank);
       for (const item of candidates) {
         if (!Number.isSafeInteger(item.id) || item.id < 1 || !item.branch) continue;
         const reason = workerDirectoryReason(item), option = el('option', `${workerLabel(item)} · ${item.branch}${reason ? ` · ${reason}` : ''}`);
@@ -202,18 +217,18 @@ export function createShortcutRuns({ model: initial, ownsPage, busy, setBusy, on
       } else worker.input.value = '';
       const error = el('p', defaultId !== null && workerDirectoryReason(candidates.find(item => item.id === defaultId))
         ? '保存的默认目录失效或冻结；已保留目标，不会清空或改投 main。请显式改选有效 Worker。' : undefined, 'hint'); error.setAttribute('role', 'status');
-      const preview = el('pre', command.command, 'hook-action-preview'); preview.setAttribute('data-worker-links', 'off');
+      const preview = el('pre', commandBody(command), 'hook-action-preview'); preview.setAttribute('data-worker-links', 'off');
       let uncertain = false;
       const host = el('span', undefined, 'help-host');
-      const execute = button('确认执行一次', async () => {
+      const execute = button(prompt ? '确认创建并启动' : '确认执行一次', async () => {
         if (!current() || pendingPost || busy() || uncertain || !capable || generation !== pickerSequence) return;
         const target = candidates.find(item => String(item.id) === worker.input.value);
         if (!target || workerDirectoryReason(target)) { error.textContent = '请选择未冻结的有效 Worker；保存目标不可用时拒绝，不会改投 main。'; return; }
         pendingPost = true; setBusy(true); execute.disabled = worker.input.disabled = cancel.disabled = true; paintChoices();
         let submitted = false;
         try {
-          if (!await confirmDialog({ title: '执行已授权快捷指令一次？', message: `${COMMAND_WARNING} 目标：${workerLabel(target)} · ${target.branch}`,
-            detail: command.command, confirmLabel: '执行一次', danger: true, confirmHelp: '以 daemon 用户权限提交所选版本一次；可能产生不可逆副作用，不调用 Agent。' }) || !current()) return;
+          if (!await confirmDialog({ title: prompt ? '以提示词创建并启动独立 Worker？' : '执行已授权快捷指令一次？', message: `${prompt ? PROMPT_WARNING : COMMAND_WARNING} 目标：${workerLabel(target)} · ${target.branch}`,
+            detail: commandBody(command), confirmLabel: prompt ? '创建并启动' : '执行一次', danger: !prompt, agent: prompt, confirmHelp: prompt ? agentHelp('创建独立指令 Worker 并启动，不代表 Agent 已完成工作。') : '以 daemon 用户权限提交所选版本一次；可能产生不可逆副作用，不调用 Agent。' }) || !current()) return;
           submitted = true;
           const result = await action('hooks.command_start', { id: command.id, version: command.version, worker_id: target.id, expected_revision: revision }, { refresh: false });
           if (!current()) return;
@@ -221,7 +236,7 @@ export function createShortcutRuns({ model: initial, ownsPage, busy, setBusy, on
           // A read started before submission must not erase the newly acknowledged UUID.
           sequence++; stopPoll(); reading = false;
           rows.set(result.execution_id, result.execution); onCommands(result.commands);
-          error.textContent = `已提交运行 ${result.execution_id}；${commandResultText({ ...result.execution.command_result, status: result.execution.status })}`;
+          error.textContent = `已提交运行 ${result.execution_id}；${commandResultText({ ...result.execution.command_result, kind: result.execution.kind ?? commandKind(command), status: result.execution.status })}`;
           worker.input.disabled = true; execute.disabled = true; uncertain = true;
           host.setAttribute('data-help', '这次运行已提交，请查看运行记录；此按钮不重复执行同一次请求。'); host.tabIndex = 0;
           paintRecords(); schedule();
@@ -235,14 +250,14 @@ export function createShortcutRuns({ model: initial, ownsPage, busy, setBusy, on
           pendingPost = false; setBusy(false);
           if (current()) { execute.disabled = uncertain; worker.input.disabled = uncertain; cancel.disabled = false; paintChoices(); }
         }
-      }, 'hook-button', { help: '向后台提交明确授权版本一次；即时返回运行身份，再查询结果。不调用 Agent，不自动重试。' });
+      }, 'hook-button', { agent: prompt, help: prompt ? agentHelp('提交已授权提示词版本一次，异步创建独立指令 Worker；不自动重发。') : '向后台提交明确授权版本一次；即时返回运行身份，再查询结果。不调用 Agent，不自动重试。' });
       const clicked = execute.onclick;
       execute.onclick = async () => { await clicked(); execute.disabled = uncertain || pendingPost || busy() || !capable; };
       host.append(execute);
       const cancel = button('关闭手动执行', () => { if (!pendingPost) { pickerSequence++; selected = null; editor.replaceChildren(); } }, 'ghost');
       editor.replaceChildren(el('h3', `手动执行：${command.name} · v${command.version}`), preview, worker.wrap,
-        el('p', '冻结、真实调用尚未退出或其他安全门阻塞时拒绝，不自动排队或重试；离开页面不取消已提交的命令。', 'hint'), error, host, cancel);
-    } catch { if (current() && generation === pickerSequence) editor.replaceChildren(el('p', '读取 Worker 失败；不会改投 main。', 'hint'),
+        el('p', prompt ? `${PROMPT_WARNING} 父级冻结或安全门阻塞时拒绝，不回落 main、不自动重试；离页不取消已提交创建。` : '冻结、真实调用尚未退出或其他安全门阻塞时拒绝，不自动排队或重试；离开页面不取消已提交的命令。', 'hint'), error, host, cancel);
+    } catch { if (current() && generation === pickerSequence) editor.replaceChildren(el('p', '读取 Worker 或指令版本失败；不会改投 main。若后台缺少新接口，请更新后台与界面服务；不会自动回退旧执行接口。', 'hint'),
       button('关闭手动执行', () => { pickerSequence++; selected = null; editor.replaceChildren(); }, 'ghost')); }
   }
   function update(next) { model = next; if (current()) { paintChoices(); for (const card of records.querySelectorAll('.shortcut-execution')) { const control = card.querySelector('.history-remove'); if (control) syncDelete(control, control.parentNode, rows.get(card.dataset.executionId)); } syncDelete(clear, clearHost); } }

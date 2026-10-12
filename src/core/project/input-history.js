@@ -63,7 +63,7 @@ export default {
 
   assertInputParent(parentId, branch = undefined) {
     const parent = this.store.task(id(parentId));
-    check(['main','owner','order'].includes(parent.task_kind) && parent.branch && (branch === undefined || parent.branch === branch)
+    check(['main','owner','order','say'].includes(parent.task_kind) && parent.branch && (branch === undefined || parent.branch === branch)
       && !TERMINAL.has(parent.status), `parent worker ${workerLabel(parent)} is no longer available; select an active parent Worker`);
     const record = this.store.branch(parent.branch);
     check(!record || !['deleted','archived'].includes(record.status), 'parent branch was deleted or archived; select another parent Worker');

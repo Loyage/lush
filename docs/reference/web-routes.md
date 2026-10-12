@@ -111,6 +111,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/agent/network` | 用户专属 `agent.network {}`；项目网络安全投影，不返回代理用户名/密码，不联网，见[出站网络](../engineering/outbound-network.md) |
 | `GET /api/agent/environment?target=common\|ROLE` | 按需读取公共或单角色 env 文件，包含明文值；底层 `agent.environment` 为用户专属，公网模式必须先登录，页面默认遮罩 |
 | `GET /api/quick-explain/config` | 用户专属 `quick_explain.config`，设备共用纯文本对话模型设置，不返回凭证；旧解释历史路由已退役 |
+| `GET /api/hooks/commands/export` | 用户专属 `hooks.command_export`；仅 id UUID＋version 正整数，返回 `{filename,markdown}`；只读导出单条 Skill 风格定义，不授权、不安装、不注入 Agent |
 | `GET /api/hooks/commands/executions` | 用户专属 `hooks.command_history`；before 正整数事件游标、limit 1..100、execution_id UUID（与 before 互斥），返回每次运行持久安全摘要；只读不执行命令 |
 | `GET /api/branch-convergence[?branch=BRANCH]` | 用户专属 `branch.convergence_list` / `branch.convergence`，目标实际挂载／启停，list另含defaults；无 branch 列表，有 branch 精确读取，不安装配置或启动 daemon |
 | `GET /api/branch-convergence/defaults` | 用户专属 `branch.convergence_defaults`，无查询参数；仅未来新order／child挂载与默认启停，同源项目默认、不回写已有 |

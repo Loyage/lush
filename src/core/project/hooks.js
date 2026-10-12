@@ -39,7 +39,7 @@ function scheduledSelfRetry(hook, task) {
     && hook.actions.every(a => a.type === 'notify' || (a.type === 'retry_worker' && a.target_id === task.id));
 }
 function ownerAvailable(project, task, allowFailed = false) {
-  if (!['main','owner','order','child'].includes(task.task_kind) || (TERMINAL.has(task.status)
+  if (!['main','owner','order','say','child'].includes(task.task_kind) || (TERMINAL.has(task.status)
     && !(allowFailed && task.status === 'failed' && ['order','child'].includes(task.task_kind)))) return false;
   if (task.branch && ['archived','deleted'].includes(project.store.branch(task.branch)?.status)) return false;
   try { assertTaskAncestorsOpen(project, task); return true; } catch { return false; }
@@ -59,6 +59,7 @@ function definition(project, raw, task = null) {
   project.validateShortcutHook(value);
   if (task && value.trigger === 'project.interrupted') check(['main','owner'].includes(task.task_kind), 'project interruption Hooks require main/owner');
   value.actions = value.actions.map(action => {
+    if (action.type === 'prompt_command' && task) check(['main','owner','order','say'].includes(task.task_kind), 'this Worker cannot create independent order Workers');
     if (action.type === 'create_worker') {
       if (task) check(['main','owner','order'].includes(task.task_kind), 'this Worker cannot create independent order Workers');
       const references = project.normalizeReferences(action.references);
@@ -146,7 +147,7 @@ export default {
     const task = this.store.task(id(taskId)), data = parse(task), automatic = this.autoMergeView(task);
     const available = ownerAvailable(this, task);
     const mounts = data.mounts.map(m => ({ id: m.id, ...readDefinition(this, m), builtin: Boolean(m.signal_binding), locked: Boolean(m.signal_binding),
-      editable: !m.signal_binding && (available || (ownerAvailable(this, task, true) && (scheduledSelfRetry(m, task) || (m.schedule && m.enabled)))) && m.state !== 'running', removable: (!m.signal_binding || (!m.enabled && ['unknown','skipped'].includes(m.state))) && ['main','owner','order','child'].includes(task.task_kind) && m.state !== 'running', reason: m.state === 'running' ? 'Hook 已领取执行，不能修改' : !available && !(ownerAvailable(this, task, true) && scheduledSelfRetry(m, task)) ? 'Worker 已结束或归档' : this.shortcutHookIssue(m) ?? m.reason ?? null,
+      editable: !m.signal_binding && (available || (ownerAvailable(this, task, true) && (scheduledSelfRetry(m, task) || (m.schedule && m.enabled)))) && m.state !== 'running', removable: (!m.signal_binding || (!m.enabled && ['unknown','skipped'].includes(m.state))) && ['main','owner','order','say','child'].includes(task.task_kind) && m.state !== 'running', reason: m.state === 'running' ? 'Hook 已领取执行，不能修改' : !available && !(ownerAvailable(this, task, true) && scheduledSelfRetry(m, task)) ? 'Worker 已结束或归档' : this.shortcutHookIssue(m) ?? m.reason ?? null,
       state: m.state, last_execution: readExecution(this, m.last_execution),
       ...(hasCommand(m) ? { pending_count: m.command_pending ?? 0 } : {}),
       ...(m.schedule ? { next_run_at: m.next_run_at ?? null, pending_due_at: m.pending_due_at ?? null } : {}),
@@ -227,7 +228,7 @@ export default {
       const data = parse(this.store.task(task.id)), mount = data.mounts.find(m => m.id === hookId); check(mount, 'Hook mount not found');
       check(mount.state !== 'running', 'Hook is executing; wait for its result');
       const command = hasCommand(replacement ?? mount);
-      if (enabled && command) this.validateShortcutHook({ ...(replacement ?? mount), enabled: true });
+      if (enabled) this.validateShortcutHook({ ...(replacement ?? mount), enabled: true });
       const recovering = ['failed','unknown'].includes(mount.state);
       check(!enabled || !recovering || (command && (replacement ?? mount).mode === 'persistent'), 'Hook effects require inspection; mount a new explicitly authorized rule instead of replaying');
       check(!enabled || mount.mode !== 'once' || !['succeeded','skipped'].includes(mount.state), 'one-shot Hook already executed or skipped; mount a new rule instead of replaying');
@@ -271,7 +272,7 @@ export default {
     // Keep this release path available when a cancelled/accepted parent holds a draft.
     this.assertWritable('remove a Hook');
     const task = this.store.task(id(taskId));
-    check(['main','owner','order','child'].includes(task.task_kind), 'this Worker does not support Hooks');
+    check(['main','owner','order','say','child'].includes(task.task_kind), 'this Worker does not support Hooks');
     checkRevision(revision(this, task), expectedRevision);
     check(hookId !== 'auto-merge', 'built-in automatic merge cannot be removed; use its persistent switch');
     this.store.transaction(() => {
@@ -322,6 +323,8 @@ export default {
         mount.state = 'running'; mount.last_source = `${trigger}:${eventId}`;
         mount.last_execution = { id: executionId, trigger, status: 'running', created_at: now(), finished_at: null };
         mount.receipts = []; mount.maintenance_pending = true;
+        mount.prompt_executions = mount.actions.map((action, index) => action.type === 'prompt_command'
+          ? { index, ...this.acceptPromptShortcutExecution(action, task.id) } : null).filter(Boolean);
         // A command submission may have updated the same Worker's JSON earlier in this loop.
         const current = parse(this.store.task(task.id)); Object.assign(current.mounts.find(m => m.id === mount.id), mount); save(this, task.id, current);
         return executionId;
@@ -354,8 +357,10 @@ export default {
       await this.write('execute a Hook', async () => {
         for (let index = 0; ; index += 1) {
           const task = this.store.task(taskId), mount = parse(task).mounts.find(m => m.id === hookId);
-          if (!mount || !mount.enabled || mount.last_execution?.id !== executionId
-            || !['waiting','running'].includes(mount.state)) return;
+          if (!mount || mount.last_execution?.id !== executionId || !['waiting','running'].includes(mount.state)) return;
+          if (!mount.enabled) {
+            this.finishTaskHook(taskId, hookId, executionId, 'failed', 'Hook 授权已撤销；未继续执行。'); return;
+          }
           const action = mount.actions[index]; if (!action) break;
           if (mount.receipts.some(receipt => receipt.index === index)) continue;
           actionType = action.type;
@@ -371,7 +376,13 @@ export default {
           current.last_execution.status = 'running'; current.action_started_index = index;
           save(this, taskId, data);
           let outcome = {};
-          if (action.type === 'create_worker') {
+          if (action.type === 'prompt_command') {
+            const accepted = mount.prompt_executions?.find(value => value.index === index);
+            check(accepted, 'prompt shortcut execution claim is missing');
+            const receipt = { task_id: taskId, hook_id: hookId, execution_id: executionId, action_index: index };
+            const result = await this.executePromptShortcutCommand(accepted, taskId, receipt);
+            outcome = { worker_id: result.task.id, input_id: result.id };
+          } else if (action.type === 'create_worker') {
             const parent = this.assertInputParent(taskId); check(this.hookParentReady(taskId), 'parent no longer ready');
             const receipt = { task_id: taskId, hook_id: hookId, execution_id: executionId, action_index: index };
             const result = await this.sendOrder(action.content, parent.branch, action.references, null, action.start, undefined, action.profile ?? null, false, receipt);
@@ -412,6 +423,11 @@ export default {
     this.store.transaction(() => {
       const data = parse(this.store.task(taskId)), mount = data.mounts.find(m => m.id === hookId);
       if (!mount || mount.last_execution?.id !== executionId) return;
+      for (const accepted of mount.prompt_executions ?? []) if (['failed','unknown'].includes(status)) {
+        const final = this.store.get("SELECT id FROM events WHERE type IN ('shortcut.command_succeeded','shortcut.command_failed','shortcut.command_unknown') AND json_extract(data,'$.execution_id')=?", accepted.execution_id);
+        if (!final) this.finishShortcutExecution(accepted.command_id, accepted.execution_id, taskId, status,
+          { status, reason: status === 'unknown' ? 'interrupted' : 'admission' });
+      }
       mount.state = status; mount.reason = error;
       if (mount.mode === 'once' && status === 'succeeded') mount.enabled = false;
       Object.assign(mount.last_execution, { status, finished_at: now(), ...(error ? { error } : {}) });
@@ -483,13 +499,17 @@ export default {
     // after recovery has preserved its known/unknown result, never replay it.
     this.initializeCommandHookExample();
     for (const task of this.store.all('SELECT * FROM tasks WHERE hooks IS NOT NULL')) {
-      for (const mount of parse(task).mounts) if (mount.state === 'running' && !mount.schedule && !hasCommand(mount)) {
-        // Only an exact durable unstarted-action marker permits continuation.
-        // Old running claims (without this marker) retain unknown-side-effect recovery.
-        if (mount.maintenance_pending && mount.action_started_index === undefined) continue;
-        const created = this.store.get("SELECT data FROM events WHERE task_id=? AND type='hook.worker_created' AND json_extract(data,'$.execution_id')=? ORDER BY id DESC LIMIT 1", task.id, mount.last_execution.id);
+      for (const mount of parse(task).mounts) {
+        if (mount.state === 'waiting' && mount.actions.some(a => a.type === 'prompt_command') && mount.last_execution) {
+          this.finishTaskHook(task.id, mount.id, mount.last_execution.id, 'unknown', '后台中断；提示词创建结果未知，禁止自动重放。'); continue;
+        }
+        if (mount.state !== 'running' || mount.schedule || hasCommand(mount)) continue;
+        // Existing lifecycle actions can resume an exact unstarted marker. Prompt command
+        // claims share command-history recovery: absent an exact creation receipt they never replay.
+        if (mount.maintenance_pending && mount.action_started_index === undefined && !mount.actions.some(a => a.type === 'prompt_command')) continue;
+        const created = this.store.get("SELECT data FROM events WHERE task_id=? AND type='hook.worker_created' AND json_extract(data,'$.execution_id')=? AND json_extract(data,'$.hook_id')=? AND json_extract(data,'$.action_index')=0 ORDER BY id DESC LIMIT 1", task.id, mount.last_execution.id, mount.id);
         // Only a complete single create action is an exact sufficient recovery proof.
-        if (created && mount.actions.length === 1 && mount.actions[0].type === 'create_worker') {
+        if (created && mount.actions.length === 1 && ['create_worker','prompt_command'].includes(mount.actions[0].type)) {
           const result = JSON.parse(created.data);
           this.recordHookAction(task.id, mount.id, mount.last_execution.id, 0, { worker_id: result.worker_id, input_id: result.input_id });
           this.finishTaskHook(task.id, mount.id, mount.last_execution.id, 'succeeded');

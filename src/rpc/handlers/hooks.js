@@ -21,14 +21,25 @@ function commandVersion(value) {
 }
 function commandDefinition(value) {
   check(isPlainObject(value), 'command must be an object');
-  check(Object.keys(value).every(key => ['id','name','command','default_worker_id'].includes(key)), 'unknown command parameter');
+  check(Object.keys(value).every(key => ['id','name','kind','command','prompt','default_worker_id','description','when_to_use','tags','examples','warnings'].includes(key)), 'unknown command parameter');
   if (value.id !== undefined) commandId(value.id);
   if (Object.hasOwn(value, 'default_worker_id')) check(value.default_worker_id === null
     || Number.isSafeInteger(value.default_worker_id) && value.default_worker_id > 0, 'default_worker_id must be a positive integer or null');
   text(value.name, 'command name');
-  check(value.name.length <= 120, 'command name exceeds its size limit');
-  text(value.command, 'Shell command');
-  check(value.command.length <= 16000 && !value.command.includes('\0'), 'invalid Shell command');
+  check(value.name.length <= 120 && !value.name.includes('\0'), 'command name exceeds its size limit or contains NUL');
+  // For edits the runtime preserves the existing kind. Validate the transported
+  // body without forcing a prompt edit to become Shell when kind is omitted.
+  const kind = value.kind ?? (value.id !== undefined && Object.hasOwn(value, 'prompt') ? 'prompt' : 'shell');
+  check(['shell','prompt'].includes(kind), 'invalid shortcut command kind');
+  const body = kind === 'shell' ? 'command' : 'prompt';
+  check(!Object.hasOwn(value, kind === 'shell' ? 'prompt' : 'command'), 'shortcut command bodies are mutually exclusive');
+  text(value[body], kind === 'shell' ? 'Shell command' : 'Agent prompt');
+  check(value[body].length <= 16000 && !value[body].includes('\0'), 'invalid shortcut command body');
+  for (const [key, limit] of Object.entries({ description: 2000, when_to_use: 4000, examples: 8000, warnings: 4000 })) if (Object.hasOwn(value, key)) {
+    check(typeof value[key] === 'string' && value[key].length <= limit && !value[key].includes('\0'), `invalid shortcut command ${key}`);
+  }
+  if (Object.hasOwn(value, 'tags')) check(Array.isArray(value.tags) && value.tags.length <= 32
+    && value.tags.every(tag => typeof tag === 'string' && tag.length <= 80 && !tag.includes('\0')), 'invalid shortcut command tags');
   return value;
 }
 function commandImportSource(value) {
@@ -48,6 +59,9 @@ export const handlers = {
   'hooks.command_save'(p, params) {
     const expected = revision(params.expected_revision);
     return p.saveShortcutCommand(commandDefinition(params.command), expected);
+  },
+  'hooks.command_export'(p, params) {
+    return p.exportShortcutCommand(commandId(params.id), commandVersion(params.version));
   },
   'hooks.command_authorize'(p, params) {
     const expected = revision(params.expected_revision);

@@ -28,6 +28,7 @@ export const HOOK_TRIGGERS = Object.freeze([
 const TRIGGERS = new Set(HOOK_TRIGGERS.map(t => t.id));
 export const HOOK_ACTIONS = Object.freeze([
   { type: 'command', label: '运行快捷指令', description: '仅调用项目中明确授权的快捷指令版本，以 daemon 用户权限在挂载 Worker 的实际检出目录运行；不是沙箱，失败停用未来执行，输出不公开。', triggers: [...TRIGGERS].filter(t => !['time.scheduled','agent.failed','worker.accepted','worker.cancelled','worker.interrupted','project.interrupted'].includes(t)), modes: ['once','persistent'], agent_call: false },
+  { type: 'prompt_command', label: '运行提示词指令', description: '调用明确授权的提示词版本，在挂载父 Worker 下创建并启动独立指令；成功仅表示创建完成，不表示 Agent 工作完成。', triggers: ['worker.parent_ready'], modes: ['once'], agent_call: true },
   { type: 'accept_worker', label: '自动验收', description: '安全校验通过后代替用户确认并归档回收 worktree/ref；保留运行历史，不丢弃脏现场，不调用质量评审 Agent。', triggers: ['delivery.integrated'], modes: ['persistent'], agent_call: false, builtin_only: true },
   { type: 'archive_worker', label: '自动归档', description: '内置串行阶段：已验收后受检归档子树，不丢弃未提交修改。', triggers: ['worker.accepted'], modes: ['persistent'], agent_call: false, builtin_only: true },
   { type: 'request_merge', label: '请求合并', description: '经现有安全检查向直接父队列请求合并。', triggers: ['worker.delivery_ready'], modes: ['once','persistent'], agent_call: true },
@@ -70,7 +71,7 @@ export function normalizeHook(value) {
     const entry = HOOK_ACTIONS.find(a => a.type === action?.type);
     check(entry && !entry.builtin_only && entry.triggers.includes(value.trigger), 'hook action is not allowed at this trigger or is built-in only');
     check((entry.modes_by_trigger?.[value.trigger] ?? entry.modes).includes(value.mode), `${entry.type} hooks must be once to prevent repeated side effects`);
-    if (action.type === 'command') {
+    if (['command','prompt_command'].includes(action.type)) {
       hookObject(action, ['type','command_id','command_version'], 'command action');
       check(typeof action.command_id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(action.command_id)
         && Number.isSafeInteger(action.command_version) && action.command_version > 0, 'invalid shortcut command reference');
@@ -102,7 +103,8 @@ export function normalizeHook(value) {
     return { type: action.type, target_id: id(action.target_id), body: action.body };
   });
   check(Buffer.byteLength(JSON.stringify(normalized)) <= HOOK_LIMITS.bytes, 'hook definition is too large');
-  check(normalized.actions.filter(a => a.type === 'create_worker').length <= 1, 'a hook can create only one Worker');
+  check(normalized.actions.filter(a => ['create_worker','prompt_command'].includes(a.type)).length <= 1, 'a hook can create only one Worker');
+  check(!normalized.actions.some(a => a.type === 'prompt_command') || !normalized.actions.some(a => a.type === 'command'), 'prompt and shell actions cannot share a Hook');
   return normalized;
 }
 export function publicHookDefinition(definition) {

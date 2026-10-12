@@ -82,6 +82,17 @@ button.convergence-disable.is-selected { border-color: var(--line); background: 
 .shortcut-execution-id, .shortcut-execution .hook-mount-head strong { overflow-wrap: anywhere; }
 .shortcut-execution-history { margin-top: 1rem; }
 .shortcut-command pre { font-family: monospace; }
+.shortcut-directory, .shortcut-command-detail, .shortcut-run-detail { min-width: 0; }
+.shortcut-directory-filters { display: flex; flex-wrap: wrap; gap: .7rem; }
+.shortcut-directory-filters .hook-field { flex: 1 1 10rem; min-width: 0; }
+.shortcut-directory-list { display: grid; gap: .35rem; }
+.shortcut-directory-entry { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; padding: .35rem; border-bottom: 1px solid var(--line); min-width: 0; }
+.shortcut-directory-pick { text-align: left; white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
+.shortcut-directory-pick[aria-pressed="true"] { border: 2px solid var(--accent); font-weight: 700; }
+.shortcut-directory-description { color: var(--muted); overflow-wrap: anywhere; }
+.shortcut-command-metadata { white-space: pre-wrap; overflow-wrap: anywhere; }
+.shortcut-command-editor a { overflow-wrap: anywhere; }
+@media (max-width: 600px) { .shortcut-directory-filters { display: grid; grid-template-columns: minmax(0, 1fr); } .shortcut-directory-description { flex-basis: 100%; } }
 .hook-command-input { font-family: monospace; min-height: 7rem; }
 .hook-command-warning { border-left: 3px solid var(--failed); padding-left: .7rem; }
 .hook-action { min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: .8rem; }

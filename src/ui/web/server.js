@@ -26,7 +26,7 @@ const QUICK_CHAT_PARAMS = new Map([
   ['start', ['prompt_id', 'content', 'references']], ['send', ['id', 'content']], ['delete', ['id']],
 ]);
 const CORE_INPUT_READ = /^\/api\/input\/(draft|input)\/([1-9]\d*)$/;
-const CORE_READS = new Set(['/api/branch-convergence','/api/branch-convergence/defaults','/api/branch-convergence/runs','/api/settings/runtime','/api/settings/migration','/api/quick-explain/config','/api/hooks','/api/hooks/commands/executions','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/worker-lookup','/api/notices','/api/worker-graph','/api/versions','/api/version-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
+const CORE_READS = new Set(['/api/branch-convergence','/api/branch-convergence/defaults','/api/branch-convergence/runs','/api/settings/runtime','/api/settings/migration','/api/quick-explain/config','/api/hooks','/api/hooks/commands/executions','/api/hooks/commands/export','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/worker-lookup','/api/notices','/api/worker-graph','/api/versions','/api/version-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
 const CORE_WORKER_READ = /^\/api\/worker\/\d+(?:\/(?:hooks|relations|history|history-page|reading-page|reading-record|progress-history|run-settings|delete-preview|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的 Worker 读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/worker\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
@@ -541,6 +541,13 @@ export function startWeb(config, port = 4318, options = {}) {
           if (url.pathname === '/api/agent/config') return json(await client.request('agent.config'));
           if (url.pathname === '/api/agent/models') return json(await client.request('agent.models', { agent: url.searchParams.get('agent') || '' }));
           if (url.pathname === '/api/agent/resources') return json(await client.request('agent.resources'));
+          if (url.pathname === '/api/hooks/commands/export') {
+            const keys = [...url.searchParams.keys()];
+            check(keys.length === 2 && keys.includes('id') && keys.includes('version'), 'command export requires only id and version');
+            const version = url.searchParams.get('version');
+            check(/^[1-9]\d*$/.test(version) && Number.isSafeInteger(Number(version)), 'command export version must be a positive integer');
+            return json(await client.request('hooks.command_export', { id: url.searchParams.get('id'), version: Number(version) }));
+          }
           if (url.pathname === '/api/hooks/commands/executions') {
             const params = {};
             for (const [key, value] of url.searchParams) {

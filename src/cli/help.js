@@ -22,11 +22,12 @@ lush [--project PATH] [--json] <command>
   worker hook enable|disable|remove ID HOOK_ID --revision REV  启停或撤销未来动作（不撤回已执行动作）
   hooks list                        查看项目触发目录、动作、模板、快捷指令、daemon Hooks、时间信号与管理指令
   hooks command list                查看快捷指令目录（hooks.list.commands，修改使用 commands.revision）
-  hooks command save --file PATH --revision REV  注册/修改 Shell 指令（不授权，修改即撤权）
+  hooks command save --file PATH --revision REV  注册/修改 Shell 或提示词指令及元数据（不授权，修改即撤权）
+  hooks command export ID --version N  只读导出单条 Skill 风格 Markdown（不安装、不授权）
   hooks command authorize|revoke ID --version N --revision REV  授权/撤权指定版本（不是沙箱）
   hooks command remove ID --revision REV  删除未来授权，已有 Hook 引用失效
-  hooks command run ID --version N --worker ID --revision REV  同步执行已授权版本（不调用 Agent；推荐异步 start）
-  hooks command start ID --version N --worker ID --revision REV  异步提交一次，返回持久运行身份，不等 Shell 完成
+  hooks command run ID --version N --worker ID --revision REV  同步执行已授权 Shell 版本（提示词请用 start）
+  hooks command start ID --version N --worker ID --revision REV  异步提交；Shell 选择执行目录，提示词选择父 Worker 并创建/启动 Agent，消耗 token
   hooks command history [--before CURSOR] [--limit N] [--execution UUID]  查看每次运行安全摘要（execution 与 before 互斥）
   hooks command import --file PATH --revision REV  导入旧内联命令并停用源 Hook（用源模板或 Worker Hooks 版本）
   hooks auto-select on|off --revision REV  启停设备全局自动选择（使用 daemon_hooks.revision）

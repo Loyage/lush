@@ -1,4 +1,4 @@
-// Real Firefox -> Host HTTP -> RPC -> SQLite/Git/Shell in an isolated temporary project.
+// Real Firefox -> Host HTTP -> RPC -> SQLite/Git/Shell and prompt creation in an isolated temporary project.
 // Run: bun run test/web/check-shortcut-commands-browser.js
 import fs from 'node:fs';
 import path from 'node:path';
@@ -84,7 +84,8 @@ try {
   await execute(`Array.from(document.querySelectorAll('.shortcut-command-management button')).find(b=>b.textContent==='取消指令编辑').click()`);
   // Exercise directory-only edits through the real form/API: null and main both
   // create new unauthorized versions; authorization remains a separate confirmation.
-  const fastCard = `[data-command-id="${fast.id}"]`;
+  const fastCard = `.shortcut-command-management .shortcut-command-detail [data-command-id="${fast.id}"]`;
+  await click(`.shortcut-command-management .shortcut-directory-pick[data-command-id="${fast.id}"]`);
   await execute(`Array.from(document.querySelector(${JSON.stringify(fastCard)}).querySelectorAll('button')).find(b=>b.textContent==='编辑快捷指令').click()`);
   assert(await wait(`document.querySelector('[aria-label="默认执行目录 Worker"]')?.value===${JSON.stringify(String(main.id))}`), 'saved main default missing in management form');
   await execute(`document.querySelector('[aria-label="默认执行目录 Worker"]').value='';Array.from(document.querySelectorAll('.shortcut-command-editor button')).find(b=>b.textContent==='保存快捷指令').click()`);
@@ -97,14 +98,15 @@ try {
   assert(await wait(`!document.querySelector('.shortcut-command-editor [aria-label="默认执行目录 Worker"]')`), 'main default did not save');
   assert(f.project.shortcutCommands().items.find(item => item.id === fast.id).version === 3 && !f.project.shortcutCommands().items.find(item => item.id === fast.id).authorized, 'main rebind failed to version/revoke');
   await execute(`Array.from(document.querySelector(${JSON.stringify(fastCard)}).querySelectorAll('button')).find(b=>b.textContent==='授权当前版本').click()`);
-  assert(await wait(`document.querySelector('#modal .modal-actions button:last-child')`), 'version authorization confirmation missing'); await click('#modal .modal-actions button:last-child');
+  assert(await wait(`document.querySelector('#modal .modal-confirm')`), 'version authorization confirmation missing'); await click('#modal .modal-confirm');
   assert(await wait(`Array.from(document.querySelector(${JSON.stringify(fastCard)}).querySelectorAll('button')).some(b=>b.textContent==='撤销授权'&&!b.disabled)`), 'new directory version was not separately authorized');
-  await execute(`Array.from(document.querySelectorAll('.shortcut-run-command')).find(c=>c.textContent.includes('35秒真实执行')).querySelector('button').click()`);
+  await click(`.shortcut-run-module .shortcut-directory-pick[data-command-id="${command.id}"]`);
+  await execute(`document.querySelector('.shortcut-run-command button').click()`);
   assert(await wait(`document.querySelector('[aria-label="执行目录 Worker"]')`), 'Worker picker unavailable');
   await execute(`document.querySelector('[aria-label="执行目录 Worker"]').value=${JSON.stringify(String(main.id))};`);
   await execute(`Array.from(document.querySelectorAll('.shortcut-run-editor button')).find(b=>b.textContent==='确认执行一次').click()`);
-  assert(await wait(`document.querySelector('#modal .modal-actions button:last-child')`), 'confirmation unavailable');
-  await click('#modal .modal-actions button:last-child');
+  assert(await wait(`document.querySelector('#modal .modal-confirm')`), 'confirmation unavailable');
+  await click('#modal .modal-confirm');
   assert(await wait(`document.querySelector('.shortcut-execution')?.textContent.includes('执行中')`), 'submission did not return while Shell runs');
   const accepted = f.project.shortcutCommandHistory().items[0];
   assert(accepted?.status === 'running', 'persistent running identity missing');
@@ -115,39 +117,72 @@ try {
   assert(fs.readFileSync(path.join(f.config.home, 'browser-proof'), 'utf8') === 'once', 'mutation executed more than once');
   assert(!JSON.stringify(result).includes('PRIVATE_OUTPUT'), 'history leaked raw output');
   // A second deliberate run must use the revision changed by the first completion.
-  await execute(`Array.from(document.querySelectorAll('.shortcut-run-command')).find(c=>c.textContent.includes('后续运行')).querySelector('button').click()`);
+  await click(`.shortcut-run-module .shortcut-directory-pick[data-command-id="${fast.id}"]`);
+  await execute(`document.querySelector('.shortcut-run-command button').click()`);
   assert(await wait(`document.querySelector('.shortcut-run-editor h3')?.textContent.includes('后续运行')&&document.querySelector('[aria-label="执行目录 Worker"]')`), 'second picker did not refresh directory');
   assert(await execute(`return document.querySelector('[aria-label="执行目录 Worker"]').value===${JSON.stringify(String(main.id))}`), 'saved default directory was not preselected');
   await execute(`Array.from(document.querySelectorAll('.shortcut-run-editor button')).find(b=>b.textContent==='确认执行一次').click();`);
-  assert(await wait(`document.querySelector('#modal .modal-actions button:last-child')`), 'second confirmation unavailable');
-  await click('#modal .modal-actions button:last-child');
+  assert(await wait(`document.querySelector('#modal .modal-confirm')`), 'second confirmation unavailable');
+  await click('#modal .modal-confirm');
   assert(await wait(`Array.from(document.querySelectorAll('.shortcut-execution')).some(c=>c.textContent.includes('后续运行')&&c.textContent.includes('执行成功'))`), 'second deliberate run used a stale revision');
   assert(fs.readFileSync(path.join(f.config.home, 'browser-fast-proof'), 'utf8') === 'once', 'second execution duplicated');
+  // Completion advances the library revision; explicitly reread before starting a new edit.
+  await execute(`return Array.from(document.querySelectorAll('.hooks-page button')).find(b=>b.textContent==='刷新目录').onclick()`);
+  // Register metadata and a prompt through the actual single-item editor.
+  await execute(`Array.from(document.querySelectorAll('.shortcut-command-management button')).find(b=>b.textContent==='注册快捷指令').click()`);
+  await execute(`document.querySelector('[aria-label="快捷指令名称"]').value='交付审查';const type=document.querySelector('[aria-label="指令类型"]');type.value='prompt';type.dispatchEvent(new Event('change'));document.querySelector('[aria-label="提示词正文"]').value='Review project changes';document.querySelector('[aria-label="作用说明"]').value='审查项目变更';document.querySelector('[aria-label="调用场景"]').value='交付前';document.querySelector('[aria-label="标签（每行一个）"]').value='review\\n交付';`);
+  assert(await wait(`Array.from(document.querySelector('[aria-label="默认父 Worker"]')?.options||[]).some(o=>o.value===${JSON.stringify(String(main.id))})`), 'prompt default parent did not load');
+  await execute(`document.querySelector('[aria-label="默认父 Worker"]').value=${JSON.stringify(String(main.id))};Array.from(document.querySelectorAll('.shortcut-command-editor button')).find(b=>b.textContent==='保存快捷指令').click()`);
+  assert(await wait(`!document.querySelector('.shortcut-command-editor [aria-label="快捷指令名称"]')`), 'prompt metadata did not save');
+  const prompt = f.project.shortcutCommands().items.find(item => item.name === '交付审查');
+  assert(prompt?.kind === 'prompt' && prompt.description === '审查项目变更' && prompt.tags.join(',') === 'review,交付' && !prompt.authorized, 'prompt metadata/version authority mismatch');
+  const promptCard = `.shortcut-command-management .shortcut-command-detail [data-command-id="${prompt.id}"]`;
+  await click(`.shortcut-command-management .shortcut-directory-pick[data-command-id="${prompt.id}"]`);
+  await execute(`Array.from(document.querySelector(${JSON.stringify(promptCard)}).querySelectorAll('button')).find(b=>b.textContent==='授权当前版本').click()`);
+  assert(await wait(`document.querySelector('#modal .modal-confirm')`), 'prompt authorization missing'); await click('#modal .modal-confirm');
+  assert(await wait(`Array.from(document.querySelector(${JSON.stringify(promptCard)}).querySelectorAll('button')).some(b=>b.textContent==='撤销授权')`), 'prompt authorization not saved');
+  await execute(`Array.from(document.querySelector(${JSON.stringify(promptCard)}).querySelectorAll('button')).find(b=>b.textContent==='导出 Markdown').click()`);
+  assert(await wait(`document.querySelector('.shortcut-command-editor a[download]')`), 'real export did not load');
+  assert(await execute(`return document.querySelector('.shortcut-command-editor pre').textContent.includes('kind: "prompt"')&&document.querySelector('.shortcut-command-editor a[download]').getAttribute('download')===${JSON.stringify(`shortcut-${prompt.id}-v1.md`)}`), 'version-bound Markdown export mismatch');
+  await execute(`const input=document.querySelector('.shortcut-run-module [aria-label="查找运行指令"]');input.value='review';input.dispatchEvent(new Event('input'));input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));`);
+  assert(await wait(`document.querySelectorAll('.shortcut-run-module .shortcut-directory-pick').length===1`), 'real directory tag search not applied');
+  await click(`.shortcut-run-module .shortcut-directory-pick[data-command-id="${prompt.id}"]`);
+  assert(await execute(`return document.querySelector('.shortcut-run-command button').classList.contains('agent-call')&&document.querySelectorAll('.shortcut-command-detail .shortcut-command').length===1`), 'prompt cost marker or single detail missing');
+  await execute(`document.querySelector('.shortcut-run-command button').click()`);
+  assert(await wait(`document.querySelector('[aria-label="提示词父 Worker"]')?.value===${JSON.stringify(String(main.id))}`), 'saved prompt parent not preselected');
+  await execute(`Array.from(document.querySelectorAll('.shortcut-run-editor button')).find(b=>b.textContent==='确认创建并启动').click()`);
+  assert(await wait(`document.querySelector('#modal .modal-confirm')?.classList.contains('agent-call')`), 'prompt confirmation lacks Agent marker'); await click('#modal .modal-confirm');
+  assert(await wait(`Array.from(document.querySelectorAll('.shortcut-execution')).some(c=>c.textContent.includes('交付审查')&&c.textContent.includes('不是 Agent 工作完成'))`), 'prompt created state not shown');
+  const promptHistory = f.project.shortcutCommandHistory().items.find(row => row.command_id === prompt.id);
+  assert(promptHistory.status === 'succeeded' && promptHistory.created_worker_id > 0 && promptHistory.input_id > 0, 'prompt creation receipt missing');
+  assert(f.store.task(promptHistory.created_worker_id).parent_id === main.id && f.store.task(promptHistory.created_worker_id).status === 'queued', 'prompt did not create independent queued Worker');
+  assert(await execute(`return !!document.querySelector('.shortcut-execution a[href="#worker-${promptHistory.created_worker_id}"]')`), 'created Worker link uses a retired hash');
   await rpc(`/session/${session}/refresh`, {}); await frame();
-  assert(await wait(`document.querySelector('.shortcut-execution')?.textContent.includes('执行成功')`), 'reload lost persistent result');
+  assert(await wait(`Array.from(document.querySelectorAll('.shortcut-execution')).some(c=>c.textContent.includes('执行成功'))&&Array.from(document.querySelectorAll('.shortcut-execution')).some(c=>c.textContent.includes('交付审查'))`), 'reload lost persistent results');
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null });
     await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
     await execute(`document.documentElement.dataset.theme='${theme}';`);
     for (const collapsed of [true, false]) {
       await execute(`document.querySelectorAll('.automation-module-toggle').forEach(button=>{if(button.getAttribute('aria-expanded')==='${collapsed}')button.click();});`);
-      assert(await execute(`return innerWidth===${width}&&document.documentElement.scrollWidth<=innerWidth&&[...document.querySelectorAll('.automation-module-toggle')].every(b=>{const r=b.getBoundingClientRect();return r.width>0&&r.left>=0&&r.right<=innerWidth;})`), `clipped layout ${theme}/${width}/collapsed${collapsed}`);
+      assert(await execute(`return innerWidth===${width}&&document.documentElement.scrollWidth<=innerWidth&&[...document.querySelectorAll('.automation-module-toggle')].filter(b=>b.getClientRects().length).every(b=>{const r=b.getBoundingClientRect();return r.width>0&&r.left>=0&&r.right<=innerWidth;})`), `clipped layout ${theme}/${width}/collapsed${collapsed}`);
     }
+    await execute(`document.querySelector('.shortcut-run-module').scrollIntoView({block:'start',behavior:'instant'});`);
     const image = await rpc(`/session/${session}/screenshot`, undefined, 'GET');
     fs.writeFileSync(path.join(evidence, `${theme}-${width}.png`), Buffer.from(image, 'base64'));
     console.log(`PASS real shortcut modules/history layout ${theme}/${width}px`);
   }
   const count = f.project.shortcutCommandHistory().items.length;
-  assert(count === 2, 'unexpected extra mutations from reload/collapse');
+  assert(count === 3, 'unexpected extra mutations from reload/collapse');
   const audit = f.store.all("SELECT * FROM events WHERE type IN ('shortcut.command_pending','shortcut.command_started','shortcut.command_succeeded')");
   const authorizationRevision = f.project.shortcutCommands().revision;
   await execute(`document.querySelector('.shortcut-execution .history-remove').click()`);
-  assert(await wait(`document.querySelector('#modal .modal-actions button:last-child')`), 'delete confirmation missing');
+  assert(await wait(`document.querySelector('#modal .modal-confirm')`), 'delete confirmation missing');
   assert(await execute(`return document.getElementById('modal').textContent.includes('保留安全审计')`), 'delete audit warning missing');
-  await click('#modal .modal-actions button:last-child');
-  assert(await wait(`document.querySelectorAll('.shortcut-execution').length===1`), 'real history delete did not reread list');
+  await click('#modal .modal-confirm');
+  assert(await wait(`document.querySelectorAll('.shortcut-execution').length===2`), 'real history delete did not reread list');
   await execute(`Array.from(document.querySelectorAll('.shortcut-execution-history button')).find(b=>b.textContent==='清空已结束记录').click()`);
-  assert(await wait(`document.querySelector('#modal .modal-actions button:last-child')`), 'clear confirmation missing'); await click('#modal .modal-actions button:last-child');
+  assert(await wait(`document.querySelector('#modal .modal-confirm')`), 'clear confirmation missing'); await click('#modal .modal-confirm');
   assert(await wait(`document.querySelectorAll('.shortcut-execution').length===0`), 'real history clear did not reread list');
   await rpc(`/session/${session}/refresh`, {}); await frame();
   assert(await wait(`document.querySelector('.shortcut-execution-records')?.textContent.includes('尚无运行记录')`), 'persistently deleted records reappeared on reload');
@@ -156,8 +191,8 @@ try {
   assert(f.project.shortcutCommands().revision === authorizationRevision, 'history removal changed command authorization');
   for (const event of audit) assert(JSON.stringify(f.store.get('SELECT * FROM events WHERE id=?', event.id)) === JSON.stringify(event), 'history removal rewrote safety audit');
   assert(f.store.all("SELECT id FROM events WHERE type='shortcut.command_history_removed'").length === 2, 'removal safety audit missing');
-  assert(f.store.all("SELECT key FROM meta WHERE key LIKE 'shortcut_command_history_removed:%'").length === 2, 'persistent history markers missing');
-  success = true; console.log('PASS real default directory edits/version revocation/authorization/preselection, 35s Shell success, exact-once, UUID history, persistent delete/clear/reload with audit preservation, independent modules, keyboard, draft preservation and safe output');
+  assert(f.store.all("SELECT key FROM meta WHERE key LIKE 'shortcut_command_history_removed:%'").length === 3, 'persistent history markers missing');
+  success = true; console.log('PASS real default directory edits/version revocation/authorization/preselection, 35s Shell success, prompt metadata/search/export/creation identity and Agent costs, exact-once, UUID history, persistent delete/clear/reload with audit preservation, independent modules, keyboard, draft preservation and safe output');
 } catch (error) {
   if (session) {
     try { fs.writeFileSync(path.join(evidence, 'failure-page.json'), JSON.stringify(await execute('return {url:location.href,html:document.documentElement.outerHTML};'))); } catch {}

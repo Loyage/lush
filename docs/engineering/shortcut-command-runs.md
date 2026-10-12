@@ -11,7 +11,7 @@
 - `hooks.command_history_remove {execution_id}` 或 `{clear:true}` → `{removed_count}`，Project `removeShortcutCommandHistory(options={})`。参数严格二选一，逐条或全量移除 succeeded/failed 的公开历史，pending/running/unknown 拒绝；重复 UUID 幂等返回 0。持久隐藏标记保留原 Event，公开分页／精确查询和 commands.last_execution 不再显示移除项，启动恢复与去重仍扫描原审计，不撤回副作用或撤权。
 - Web POST `/api/action` 允许 command_start 及 command_history_remove；GET `/api/hooks/commands/executions` 只读转发 command_history，拒绝未知／重复参数。
 
-每项安全 execution：`{event_id,id,command_id,command_name,command_version,worker_id,worker_number,source,status,created_at,finished_at,command_result?}`。source 为 manual／hook／unknown（旧记录无法确认）；status 为 pending／running／succeeded／failed／unknown。command_name 为提交时名称快照；不包含 Shell 正文、env、原始错误或输出。旧事件缺名称时允许 null，不拿当前名称冒充历史。Worker 优先记录当时持久 worker_number，旧记录可只读关联；无编号才显示 #整数 ID。
+每项安全 execution：`{event_id,id,command_id,command_name,command_version,worker_id,worker_number,source,status,created_at,finished_at,command_result?}`，W228 的新记录另含 `kind,created_worker_id,created_worker_number,input_id`；旧记录按 Shell 兼容，未创建时关联可空。prompt 的 worker_id 是父身份，created_worker_id 是新指令身份；succeeded 仅表示创建并提交成功，Agent 后续结果属于关联 Worker，不以退出码或 Shell 成功口径呈现。提示词执行及精确收据约束见[快捷指令契约](shortcut-commands.md#提示词执行与-skill-导出)。source 为 manual／hook／unknown（旧记录无法确认）；status 为 pending／running／succeeded／failed／unknown。command_name 为提交时名称快照；不包含 Shell 正文、env、原始错误或输出。旧事件缺名称时允许 null，不拿当前名称冒充历史。Worker 优先记录当时持久 worker_number，旧记录可只读关联；无编号才显示 #整数 ID。
 
 接受前检查 revision、授权及原执行门。接受后即时返回持久 pending 身份，不跨 Shell/Git 队列等待；真正执行前再次核验授权及安全门，拒绝后保存安全 failed 诊断，不排队等待安全门、不自动重试。Git 串行等待不同于安全门等待。领取后防止同 Worker 重复提交及 Agent／合并冲入，保持原有命令执行互斥。异步 job 纳入 shutdown 收口，不留下无捕获 rejection；重启未结算 pending/running 为 unknown，不重放副作用。请求断线也不重提。同步 run 保留原返回与异常口径。
 
