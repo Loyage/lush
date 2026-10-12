@@ -128,6 +128,67 @@ test('no-change delegated delivery waits for parent confirmation and is not a hi
   } finally { await f.close(); }
 });
 
+for (const stopped of ['failed', 'cancelled']) for (const changed of [false, true])
+test(`retry of a ${stopped} previously Squashed child ${changed ? 'delivers new code' : 'settles unchanged code and wakes its parent'}`, async () => {
+  const f = setup({ async run({ task, cwd, messages }) {
+    if (task.task_kind === 'order') return 'checked child result';
+    const repair = messages.find(message => message.signal_type === 'merge.repair');
+    if (repair) await git(cwd, 'merge', '--no-edit', JSON.parse(repair.body).payload.parent_commit);
+    else if (changed) await commit(cwd, 'retry.txt', 'new child work\n');
+    return 'retry finished';
+  } });
+  await repo(f.root);
+  try {
+    const { task: parent } = await f.project.order('parent');
+    f.store.update(parent.id, { status: 'waiting' });
+    const child = await f.project.spawn(parent.id, 'child');
+    await commit(child.workspace, 'child.txt', 'first child work\n');
+    f.store.update(child.id, { status: 'waiting', result: 'first child delivery' });
+    await deliver(f, child);
+    const receipt = JSON.parse(f.store.task(child.id).reservation);
+    f.store.run('UPDATE messages SET consumed=1 WHERE task_id=?', parent.id);
+    f.project.cancel(child.id, 'invocation limit reached', stopped);
+    expect(() => f.project.retry(child.id, { agent: 'codex', soft_budget: { responses: 1 } }))
+      .toThrow('supported only by Pi');
+    expect(JSON.parse(f.store.task(child.id).reservation)).toEqual(receipt);
+    f.project.retry(child.id);
+    expect(JSON.parse(f.store.task(child.id).reservation)).toMatchObject({ version: 2, status: 'pending', auto_merge: true });
+    expect(f.store.history(child.id).find(event => event.type === 'task.iteration_started').data)
+      .toMatchObject({ reason: 'explicit retry', previous_reservation: receipt });
+    f.project.stopping = false; f.project.kick();
+    await until(() => f.store.task(child.id).status === 'awaiting_acceptance'
+      && f.store.task(parent.id).calls > 0 && f.store.task(parent.id).status === 'waiting'
+      && !f.project.running.has(parent.id) && !f.project.running.has(child.id), 10000);
+    expect(f.store.task(child.id).integration).toBe('merged');
+    expect(f.store.unread(parent.id)).toHaveLength(0);
+    expect(f.project.reservationWaitReason(f.store.task(parent.id))).toBeNull();
+    expect(f.store.history(child.id).filter(event => event.type === 'task.merge_integrated'))
+      .toHaveLength(changed ? 2 : 1);
+    expect(await git(parent.workspace, 'show', 'HEAD:child.txt')).toBe('first child work');
+    if (changed) expect(await git(parent.workspace, 'show', 'HEAD:retry.txt')).toBe('new child work');
+    else expect(f.store.task(child.id).reservation).toBeNull();
+    expect(fs.existsSync(child.workspace)).toBe(true);
+  } finally { await f.close(); }
+});
+
+test('retry of a delivered order with automatic delivery off settles without enabling the hook', async () => {
+  const f = setup({ async run() { return 'no new work'; } }); await repo(f.root);
+  try {
+    const source = await sourceTask(f);
+    await deliver(f, source);
+    f.project.cancel(source.id);
+    f.project.retry(source.id);
+    expect(f.store.task(source.id).reservation).toBeNull();
+    expect(f.project.autoMergeView(f.store.task(source.id)).enabled).toBe(false);
+    f.project.stopping = false; f.project.kick();
+    await until(() => f.store.task(source.id).status === 'awaiting_acceptance'
+      && !f.project.running.has(source.id));
+    expect(f.store.task(source.id).integration).toBe('merged');
+    expect(f.store.history(source.id).filter(event => event.type === 'task.merge_integrated')).toHaveLength(1);
+    expect(f.store.task(source.id).reservation).toBeNull();
+  } finally { await f.close(); }
+});
+
 test('delivered unaccepted child descendants do not block parent delivery and are accepted with their parent', async () => {
   const f = setup(); await repo(f.root);
   try {

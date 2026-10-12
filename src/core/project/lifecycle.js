@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { check, TERMINAL, bounded } from '../types.js';
-import { assertTaskAncestorsOpen, assertTaskNotSyncing } from './iteration.js';
+import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation } from './iteration.js';
 import { workerLabel } from '../worker-number.js';
 
 /**
@@ -349,12 +349,19 @@ export default {
     }
     const retryProfile = profile === null || profile === undefined ? null : this.agentSettings.retryProfile(task.role, profile);
     const booking = task.reservation ? JSON.parse(task.reservation) : null;
-    this.store.update(task.id, { status: 'queued', error: null, result: null, calls: 0,
-      ...(booking?.version === 2 && booking.status === 'withdrawn' ? { reservation:
-        task.status === 'failed' && booking.retry_status
-          ? JSON.stringify({ version: 2, kind: 'merge', status: 'pending', auto_merge: booking.auto_merge }) : null } : {}),
-      retry_profile: retryProfile ? JSON.stringify(retryProfile)
-        : ['order','say','child'].includes(task.task_kind) ? task.retry_profile : null });
+    this.store.transaction(() => {
+      // Retry starts a new invocation, not another use of the old landing receipt.
+      // Otherwise finish() marks even unchanged Squashed sources pending while the
+      // integrated booking prevents automatic delivery and blocks the parent forever.
+      if (['order','child'].includes(task.task_kind) && [2, 3].includes(booking?.version))
+        consumeIntegratedReservation(this, task, 'explicit retry');
+      this.store.update(task.id, { status: 'queued', error: null, result: null, calls: 0,
+        ...(booking?.version === 2 && booking.status === 'withdrawn' ? { reservation:
+          task.status === 'failed' && booking.retry_status
+            ? JSON.stringify({ version: 2, kind: 'merge', status: 'pending', auto_merge: booking.auto_merge }) : null } : {}),
+        retry_profile: retryProfile ? JSON.stringify(retryProfile)
+          : ['order','say','child'].includes(task.task_kind) ? task.retry_profile : null });
+    });
     this.resumeQueuedTaskMerge(task.id);
     this.store.event(task.id, 'retry', retryProfile ? {
       profile_override: true, agent: retryProfile.agent, model: retryProfile.model || null,
