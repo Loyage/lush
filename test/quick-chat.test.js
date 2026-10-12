@@ -6,6 +6,8 @@ import { Database } from 'bun:sqlite';
 import { QuickChatService } from '../src/host/quick-chat.js';
 import { DeviceSettingsService } from '../src/host/device-settings.js';
 import { saveNetworkConfiguration } from '../src/agent/network.js';
+import { env } from './helpers.js';
+import { quickChatProcess } from './quick-chat-process.js';
 
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const response = text => Response.json({ choices: [{ message: { content: text } }] });
@@ -174,7 +176,7 @@ test('references-only initial turn is a snapshot, no resolver/tools, and prepara
 });
 
 test('C numbering persists across handles and processes; deletion cascades turns but does not reuse either identity', async () => {
-  const f = fixture();
+  const f = fixture(); let child;
   try {
     const a = start(f.service, 'a'); await finish(f.service);
     f.service.action('send', { id: a.id, content: 'second' }); await finish(f.service);
@@ -186,14 +188,14 @@ test('C numbering persists across handles and processes; deletion cascades turns
       const s = new QuickChatService({LUSH_GLOBAL_CONFIG:process.argv[1],LUSH_PROVIDER:'mock'}, {home:process.argv[2],fetch:async()=>Response.json({choices:[{message:{content:'done'}}]})});
       const r=s.action('start',{prompt_id:'explain',content:'subprocess'}); await Promise.all([...s.running.values()].map(x=>x.promise));
       console.log(r.number); await s.close();`;
-    const child = Bun.spawn(['bun', '-e', script, f.root, f.home], { stdout: 'pipe', stderr: 'pipe' });
-    const output = await new Response(child.stdout).text(), stderr = await new Response(child.stderr).text();
-    expect(await child.exited).toBe(0); expect(stderr).toBe(''); expect(output.trim()).toBe('C3');
+    child = quickChatProcess(script, [f.root, f.home], env(f.env), { label: 'C numbering child' });
+    const result = await child.exited();
+    expect(result.code).toBe(0); expect(result.stderr).toBe(''); expect(result.stdout.trim()).toBe('C3');
     const page = b.list({ limit: 1 }); expect(page).toMatchObject({ conversations: [{ number: 'C3' }], has_more: true, next: 3 });
     expect(b.list({ before: page.next, limit: 1 })).toMatchObject({ conversations: [{ number: 'C2' }], has_more: false });
     const db = new Database(f.file, { readonly: true });
     expect(db.query('SELECT count(*) AS n FROM turns WHERE conversation_id=?').get(a.id).n).toBe(0); db.close();
-  } finally { await f.close(); }
+  } finally { try { await child?.stop(); } finally { await f.close(); } }
 });
 
 test('four persistent in-flight claims are shared across services, and same-thread concurrent send/delete is rejected', async () => {
@@ -315,14 +317,14 @@ test('timeout covers preparation and a stalled response body; close aborts owned
 });
 
 test('abruptly exited process requests are failed on reopening, never replayed; still-live foreign requests are not recovered', async () => {
-  const f = fixture();
+  const f = fixture(); let child;
   try {
     const script = `import { QuickChatService } from ${JSON.stringify(path.resolve('src/host/quick-chat.js'))};
       const s = new QuickChatService({LUSH_GLOBAL_CONFIG:process.argv[1],LUSH_PROVIDER:'mock'}, {home:process.argv[2],fetch:()=>new Promise(()=>{})});
       console.log(s.action('start',{prompt_id:'explain',content:'interrupted'}).id); process.exit(0);`;
-    const child = Bun.spawn(['bun', '-e', script, f.root, f.home], { stdout: 'pipe', stderr: 'pipe' });
-    const output = await new Response(child.stdout).text(), stderr = await new Response(child.stderr).text();
-    expect(await child.exited).toBe(0); expect(stderr).toBe(''); const id = Number(output.trim());
+    child = quickChatProcess(script, [f.root, f.home], env(f.env), { label: 'interrupted call child' });
+    const result = await child.exited();
+    expect(result.code).toBe(0); expect(result.stderr).toBe(''); const id = Number(result.stdout.trim());
     expect(f.service.get(id)).toMatchObject({ status: 'failed', turns: [{ error: expect.stringContaining('未自动重试') }] });
     f.service.action('send', { id, content: 'explicitly continue' }); await finish(f.service); expect(f.service.get(id).status).toBe('completed');
     const db = new Database(f.file);
@@ -330,7 +332,7 @@ test('abruptly exited process requests are failed on reopening, never replayed; 
       .run(process.ppid, f.service.get(id).turns.at(-1).id); db.close();
     expect(f.service.get(id).status).toBe('running');
     expect(() => f.service.action('delete', { id })).toThrow('正在');
-  } finally { await f.close(); }
+  } finally { try { await child?.stop(); } finally { await f.close(); } }
 });
 
 test('simultaneous live Host processes share the persistent four-call limit without recovering each other', async () => {
@@ -340,39 +342,39 @@ test('simultaneous live Host processes share the persistent four-call limit with
       const s=new QuickChatService({LUSH_GLOBAL_CONFIG:process.argv[1],LUSH_PROVIDER:'mock'}, {home:process.argv[2],fetch:()=>new Promise(()=>{})});
       const ids=[s.action('start',{prompt_id:'explain',content:'one'}).id,s.action('start',{prompt_id:'explain',content:'two'}).id];
       console.log(JSON.stringify(ids)); await new Response(Bun.stdin.stream()).text(); await s.close();`;
-    for (let i = 0; i < 2; i++) children.push(Bun.spawn(['bun', '-e', script, f.root, f.home], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' }));
-    const ids = (await Promise.all(children.map(async child => {
-      const reader = child.stdout.getReader(); const chunk = await reader.read(); reader.releaseLock();
-      return JSON.parse(new TextDecoder().decode(chunk.value).trim());
-    }))).flat();
+    for (let i = 0; i < 2; i++) children.push(quickChatProcess(script, [f.root, f.home], env(f.env), { label: `shared-limit Host ${i + 1}` }));
+    const reports = await Promise.all(children.map(child => child.jsonLine()));
+    for (const ids of reports) { expect(ids).toHaveLength(2); expect(ids.every(id => Number.isSafeInteger(id) && id > 0)).toBe(true); }
+    const ids = reports.flat();
     expect(new Set(ids).size).toBe(4); expect(f.service.list().conversations).toHaveLength(4);
     for (const id of ids) expect(f.service.get(id).status).toBe('running');
     expect(() => start(f.service, 'fifth')).toThrow('4');
-    for (const child of children) child.stdin.end();
-    for (const child of children) {
-      expect(await child.exited).toBe(0); expect(await new Response(child.stderr).text()).toBe('');
-    }
+    for (const child of children) child.endInput();
+    const exits = await Promise.all(children.map(child => child.exited()));
+    for (const exit of exits) { expect(exit.code).toBe(0); expect(exit.stderr).toBe(''); }
+    console.info('[quick-chat fixture] shared-limit hosts:', exits.map((exit, i) =>
+      `pid=${children[i].child.pid} exit=${exit.code} signal=${exit.signal ?? 'none'}`).join('; '));
     for (const id of ids) expect(f.service.get(id).status).toBe('failed');
   } finally {
-    for (const child of children) { child.stdin.end(); if (child.exitCode === null) child.kill(); await child.exited; }
-    await f.close();
+    try { await Promise.all(children.map(child => child.stop())); }
+    finally { await f.close(); }
   }
 });
 
 test('private SQLite rollback recovery preserves committed history after a writer crashes, without replaying any model call', async () => {
-  const f = fixture();
+  const f = fixture(); let child;
   try {
     const row = start(f.service, 'committed content'); await finish(f.service);
     const script = `import { Database } from 'bun:sqlite'; const db=new Database(process.argv[1]);
       db.exec('PRAGMA cache_size=1; BEGIN IMMEDIATE');
       db.query('UPDATE conversations SET content=? WHERE id=?').run('uncommitted'.repeat(5000),process.argv[2]);
       process.kill(process.pid,'SIGKILL');`;
-    const child = Bun.spawn(['bun', '-e', script, f.file, String(row.id)], { stdout: 'pipe', stderr: 'pipe' });
-    await child.exited;
-    expect(await new Response(child.stderr).text()).toBe('');
+    child = quickChatProcess(script, [f.file, String(row.id)], env(f.env), { label: 'rollback writer child' });
+    const result = await child.exited(null, 'SIGKILL');
+    expect(result.stderr).toBe('');
     expect(f.service.get(row.id)).toMatchObject({ content: 'committed content', status: 'completed', turns: [{ result: '纯文本结果' }] });
     expect(f.service.running.size).toBe(0);
-  } finally { await f.close(); }
+  } finally { try { await child?.stop(); } finally { await f.close(); } }
 });
 
 test('Prompt cap and stored corruption fail safely without rewriting configuration or history', async () => {

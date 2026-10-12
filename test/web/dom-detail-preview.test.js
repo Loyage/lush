@@ -5,9 +5,13 @@ import { limitDetailModules, revealDetailPreview } from '../../src/ui/web/assets
 import { renderDetail } from '../../src/ui/web/assets/render-detail.js';
 import { locateReference, referenceable, clearLocateFlash } from '../../src/ui/web/assets/context-references.js';
 import { registerNavigation } from '../../src/ui/web/assets/navigate.js';
+import { ui } from '../../src/ui/web/assets/state.js';
 
 function fixture(run) {
   const dom = installDom(), previous = globalThis.ResizeObserver, observers = [];
+  // This component fixture supplies the shell identity instead of depending on
+  // a previous file's cached Host session or performing an unrelated bootstrap read.
+  ui.hostSession = { status: 'ready', username: 'fixture-user', pending: null };
   globalThis.ResizeObserver = class {
     constructor(callback) { this.callback = callback; this.targets = new Set(); observers.push(this); }
     observe(node) { this.targets.add(node); }

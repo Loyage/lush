@@ -70,8 +70,10 @@ test('read errors preserve known policy with an explicit offline flag', async ()
 
 test('observer disposal stops reads and never starts project work or asks notification permission', async () => {
   const dispose = automation.startDeviceAutomationObserver({ interval: 100000 });
-  await automation.refreshDeviceAutomation(); dispose();
-  const count = calls.length; await dom.fire('focus'); dom.intervalFor(100000)();
+  await automation.refreshDeviceAutomation();
+  const lateTick = dom.intervalFor(100000); expect(lateTick).toBeInstanceOf(Function);
+  dispose(); expect(dom.intervalFor(100000)).toBeUndefined();
+  const count = calls.length; await dom.fire('focus'); lateTick();
   expect(calls).toHaveLength(count); expect(dom.listeners.focus).toHaveLength(0);
   expect(calls.every(call => !call.options)).toBe(true);
 });

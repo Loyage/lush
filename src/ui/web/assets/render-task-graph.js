@@ -1,7 +1,7 @@
 import { $, badge, button, el, roleBadge } from './dom.js';
 import { workerKind, workerKindLabel } from './worker-kind.js';
-import { api, action } from './api.js';
-import { projectBase } from './route.js';
+import { action } from './api.js';
+import { graphPage, readTaskGraph, paintGraphStatus, graphTail, observeGraphTail } from './task-graph-loading.js';
 import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { bindWorkerPreview } from './entity-preview.js';
@@ -10,7 +10,7 @@ import { show } from './messages.js';
 import { detail } from './navigate.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
-import { devicePreferencesStatus, onDevicePreferences, readPref, saveDevicePreference, writePref } from './prefs.js';
+import { devicePreferencesStatus, onDevicePreferences, onPrefChange, readPref, saveDevicePreference, writePref } from './prefs.js';
 import { taskForest } from './task-graph-layout.js';
 import { resourceSummary } from './task-graph-usage.js';
 import { mergeRelations } from './task-graph-merge.js';
@@ -195,6 +195,9 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   const queueText = inputQueueText(node);
   if (queueText) row.append(el('p', queueText, 'hint worker-input-queue'));
   if (node.result_preview) row.append(el('p', `最近结果：${node.result_preview}${node.result_preview.length >= 320 ? '…' : ''}`, 'task-graph-result'));
+  if (node.details_unavailable) row.append(el('p', '该 Worker 详情过大，图中详情不可用；请打开 Worker 详情单独读取。', 'hint'));
+  else if (node.details_truncated) row.append(el('p', '该 Worker 详情过大，图中摘要已截断；完整内容请打开 Worker 详情。', 'hint'));
+  if (node.graph_cached) row.append(el('p', '旧采样缓存，待更新；本轮刷新仅重新读取首批 Worker。', 'hint'));
   const progress = renderGraphProgress(node.progress, { running: node.status === 'running', status: node.status });
   if (progress) row.append(progress);
 
@@ -220,7 +223,10 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   row.append(facts);
   if (node.integration_error) row.append(el('p', `集成受阻：${node.integration_error}`, 'hint'));
   if (workerKind(node) !== 'order' && node.delivery?.blocked_reason) row.append(el('p', `交付受阻：${node.delivery.blocked_reason}`, 'hint'));
-  if (node.parent_id && !ui.taskGraphIds?.has(node.parent_id)) row.append(el('p', `父 Worker ${workerLabel(node.parent_id)} 不在当前图中`, 'hint'));
+  if (node.parent_id && !ui.taskGraphIds?.has(node.parent_id)
+    && (!Object.hasOwn(node, 'layout_parent_id') || node.layout_parent_id === node.parent_id)) {
+    row.append(el('p', `父 Worker ${workerLabel(node.parent_id)} 不在当前图中`, 'hint'));
+  }
 
   if (node.branch_info && !node.branch_info.archived) {
     const branch = node.branch_info;
@@ -313,6 +319,9 @@ function minimalSummary(node, queueNote, folded = new Set()) {
   line.append(interruptHint ? text : relations || text);
   // Desktop keeps these inline; mobile gives progress and metadata separate rows.
   const meta = el('div', undefined, 'task-graph-minimal-meta');
+  if (node.details_unavailable) meta.append(badge('详情过大不可用', 'warn'));
+  else if (node.details_truncated) meta.append(badge('详情已截断', 'warn'));
+  if (node.graph_cached) meta.append(badge('旧采样 · 待更新'));
   if (node.freeze && node.freeze.task_id !== node.id) meta.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
   if (isArchivedTask(node)) meta.append(badge('已归档'));
   const queueText = inputQueueText(node);
@@ -391,6 +400,7 @@ export function renderTaskGraph(graph) {
   // 被筛掉的中间 Task 不制造孤儿：父指到最近的可见祖先，所以归档 / 状态筛选藏起来的父 Task 不会把子 Task 一起带走。
   // 祖先都不在这一页（被截断 / 真的缺节点）时保留原 parent_id，照旧画成根并写明「父 Task 不在当前图中」。
   const parentInView = node => {
+    if (Object.hasOwn(node, 'layout_parent_id')) return node.layout_parent_id;
     const seen = new Set([node.id]);
     for (let parent = byId.get(node.parent_id); parent && !seen.has(parent.id); parent = byId.get(parent.parent_id)) {
       if (visible.has(parent.id)) return parent.id;
@@ -403,11 +413,11 @@ export function renderTaskGraph(graph) {
   const full = graph; // Local controls must retain hidden intermediates and real parents.
   // 归档 Task 默认不画：它们是收尾后的记录，收进「显示已归档」开关后面，避免压住仍在进行的工作。
   // 过滤在 taskForest 之前完成，所以归档父节点下的未归档子 Task 会顶成根，不会一起消失。
-  const archivedCount = all.filter(isArchivedTask).length;
+  const archivedCount = graph.archived_count ?? all.filter(isArchivedTask).length;
   const listed = ui.taskGraphShowArchived ? all : all.filter(node => !isArchivedTask(node));
   // 状态计数用筛选前的口径：关掉一个状态后它的开关还得留在表头上，否则再也点不回来。
-  const counts = new Map();
-  for (const node of listed) counts.set(node.status, (counts.get(node.status) || 0) + 1);
+  const counts = new Map(Object.entries(graph.counts || {}));
+  if (!graph.counts) for (const node of listed) counts.set(node.status, (counts.get(node.status) || 0) + 1);
   const hidden = hiddenStatuses();
   const nodes = listed.filter(node => !hidden.has(node.status));
   const view = { ...full, nodes };
@@ -431,9 +441,10 @@ export function renderTaskGraph(graph) {
   const hero = el('header', undefined, 'resource-hero task-graph-hero');
   hero.append(el('h1', 'Worker 树'));
   const summary = el('div', undefined, 'task-graph-summary');
-  const active = nodes.filter(node => ACTIVE.has(node.status)).length;
+  const active = graph.counts ? [...counts].reduce((sum, [status, count]) =>
+    sum + (ACTIVE.has(status) && !hidden.has(status) ? count : 0), 0) : nodes.filter(node => ACTIVE.has(node.status)).length;
   const decisions = nodes.reduce((count, node) => count + (node.notice_count || 0), 0);
-  summary.append(badge(`图中 ${nodes.length} / ${graph.total} Worker`), badge(`${active} 活动`));
+  summary.append(badge(`图中 ${nodes.length} / ${graph.matched_total ?? graph.total} Worker`), badge(`${active} 活动`));
   // 状态计数本身兼作图例与开关：点一下隐藏 / 显示该状态，只改显示、不写库、不改任务状态。
   for (const status of STATUS_ORDER) {
     const count = counts.get(status) || 0;
@@ -441,10 +452,11 @@ export function renderTaskGraph(graph) {
     const info = statusOf({ status });
     const off = hidden.has(status);
     const toggle = button(`${info.icon} ${info.label} ${count}`, () => {
+      if (readingProtected()) { show('请先结束编辑、选区或弹层操作，再切换状态筛选。'); return; }
       const next = hiddenStatuses();
       if (next.has(status)) next.delete(status); else next.add(status);
       saveHiddenStatuses(next);
-      renderTaskGraph(full);
+      return reloadGraphFilters(full);
     }, 'badge task-graph-status-toggle', {
       help: off ? `当前隐藏了「${info.label}」的 Worker；点一下重新显示。`
         : `隐藏「${info.label}」的 Worker；只影响这一页的显示，不改 Worker 状态。`,
@@ -457,18 +469,19 @@ export function renderTaskGraph(graph) {
     summary.append(toggle);
   }
   if (hidden.size) summary.append(button('全部状态', () => {
+    if (readingProtected()) { show('请先结束编辑、选区或弹层操作，再切换状态筛选。'); return; }
     saveHiddenStatuses(new Set());
-    renderTaskGraph(full);
+    return reloadGraphFilters(full);
   }, 'ghost task-graph-status-reset', { help: '清除状态筛选，重新显示所有状态的 Worker。' }));
   if (decisions) summary.append(badge(`${decisions} 待决`, 'b-awaiting'));
   if (archivedCount) {
-    const toggle = button(`显示已回收历史（${archivedCount}）`, () => {
-      if (hasPendingInput()) {
+    const toggle = button(`显示已回收历史（${archivedCount}）`, async () => {
+      if (readingProtected()) {
         show('请先提交或清空正在编辑的待决答复，再切换归档显示。');
         return;
       }
       ui.taskGraphShowArchived = !ui.taskGraphShowArchived;
-      renderTaskGraph(full);
+      await reloadGraphFilters(full);
       host.querySelector('[data-graph-focus="show-archived"]')?.focus({ preventScroll: true });
     }, 'badge task-graph-status-toggle task-graph-archived-toggle', {
       help: '点击切换已回收历史的显隐，包含验收即归档或显式清理资源后保留的 Worker 运行历史，以及随父 Worker 归档的历史内部合并队列。资源回收不等于工作成功，也不等于删除运行记录；这里只改变当前页面显示，不写库、不改 Worker 状态，重开页面仍默认隐藏。',
@@ -530,10 +543,10 @@ export function renderTaskGraph(graph) {
     helpHost.setAttribute('data-help', branches.length ? control.getAttribute('data-help') : '当前筛选范围没有可展开或折叠的子 Worker 层级。');
     helpHost.append(control); foldControls.append(helpHost);
   }
-  hero.append(summary, mode, foldControls, button('刷新', () => loadTaskGraph().catch(graphFailure), 'ghost'),
+  hero.append(summary, mode, foldControls, button('刷新', () => loadTaskGraph({ retry: true }).catch(graphFailure), 'ghost'),
     el('p', undefined, 'hint task-graph-load-status'));
   box.append(hero);
-  if (view.truncated) box.append(el('p', `只显示最近及活动的 ${nodes.length} / ${graph.total} 条 Worker；父节点可能在截断范围外。`, 'hint'));
+  if (view.truncated && typeof view.has_more !== 'boolean') box.append(el('p', `只显示最近及活动的 ${nodes.length} / ${graph.total} 条 Worker；父节点可能在截断范围外。`, 'hint'));
   const paint = (node, parent) => {
     const wrap = el('div', undefined, 'task-graph-node');
     wrap.append(taskCard(node, saved, () => renderTaskGraph(full), mergeAllByBranch, mergeQueue.get(node.id) ?? null, minimal, raw));
@@ -545,6 +558,7 @@ export function renderTaskGraph(graph) {
     parent.append(wrap);
   };
   for (const node of forest) paint(node, box);
+  if (typeof graph.has_more === 'boolean') box.append(graphTail(loadNextTaskGraph));
   // Structural identity excludes content/status changes, but includes every visible
   // parent, collapsed/filter preference and width: only actual reorders animate.
   const topology = [...box.querySelectorAll('.task-graph-card')].map(card => {
@@ -565,60 +579,52 @@ export function renderTaskGraph(graph) {
   restoreGraph(host, box, before);
   if (focusKey) (host.querySelector(`[data-graph-focus="${focusKey}"]`)
     || (focusTask && host.querySelector(`[data-graph-focus="title-${focusTask}"]`)))?.focus({ preventScroll: true });
+  observeGraphTail(loadNextTaskGraph, readingProtected);
 }
 
-function graphPage() {
-  const scope = projectBase();
-  if (!ui.taskGraphPage || ui.taskGraphPage.scope !== scope) {
-    ui.taskGraphPage = { scope, graph: null, fetchedAt: 0, sequence: 0, applied: 0, error: null,
-      summaryPending: null, fullPending: null };
-  }
-  return ui.taskGraphPage;
-}
-function paintGraphStatus() {
-  const node = $('detail').querySelector('.task-graph-load-status'), page = ui.taskGraphPage;
-  if (!node || !page || ui.view?.id !== 'task-graph') return;
-  const sampled = page.fetchedAt ? new Date(page.fetchedAt).toLocaleTimeString('zh-CN', { hour12: false }) : '';
-  node.textContent = page.error ? `更新失败：${page.error}；保留上次可用内容，可点刷新重试。`
-    : page.graph?.details_pending ? 'Worker 结构已加载，Git 诊断与累计用量加载中…'
-      : page.fullPending ? `正在更新；显示 ${sampled} 的缓存。`
-        : sampled ? `上次更新 ${sampled}` : '';
-}
 function graphFailure(error) {
   show(`Worker 树更新失败：${error.message}`, 'error');
 }
-export async function loadTaskGraph({ summary = false } = {}) {
-  const view = ui.view, page = graphPage(), slot = summary ? 'summaryPending' : 'fullPending';
-  const current = () => ui.taskGraphPage === page && projectBase() === page.scope;
-  if (!page[slot]) {
-    const sequence = ++page.sequence;
-    page.error = null;
-    const request = (summary ? api('/api/worker-graph?details=0').catch(error => {
-      // A newer Host may be attached to an older daemon. Retrying a read is safe.
-      if (!error.message.includes('unknown parameter')) throw error;
-      return api('/api/worker-graph');
-    }) : api('/api/worker-graph'));
-    page[slot] = request.then(graph => {
-      if (current() && sequence >= page.applied) {
-        page.graph = graph; page.applied = sequence; page.fetchedAt = Date.now(); page.error = null;
-      }
-      return graph;
-    }).catch(error => {
-      if (current() && sequence >= page.applied) page.error = error.message;
-      throw error;
-    }).finally(() => {
-      page[slot] = null;
-      if (current()) paintGraphStatus();
-    });
-    paintGraphStatus();
-  }
-  const graph = await page[slot];
-  if (current() && ui.view === view && page.graph === graph) {
-    ui.taskGraphFetchedAt = page.fetchedAt;
-    if (!hasPendingInput()) renderTaskGraph(graph);
-  }
+export async function loadTaskGraph(options = {}) {
+  const view = ui.view;
+  const graph = await readTaskGraph(options);
+  if (graph && ui.view === view && ui.taskGraphPage?.graph === graph) renderTaskGraph(graph);
   return graph;
 }
+
+function readingProtected() {
+  return hasPendingInput() || hasOpenActions() || Boolean(window.getSelection?.()?.toString())
+    || graphMotionRunning($('detail').querySelector('.task-graph'));
+}
+
+export async function loadNextTaskGraph() {
+  if (ui.view?.id !== 'task-graph' || readingProtected()) return;
+  try { return await loadTaskGraph({ next: !(ui.taskGraphPage?.nextError && !ui.taskGraphPage?.hasMore), retry: true }); }
+  catch { /* The inline tail preserves the cursor and offers an explicit retry. */ }
+}
+
+async function reloadGraphFilters(previous = ui.taskGraphPage?.graph) {
+  const view = ui.view;
+  const page = graphPage();
+  // Keep full-range filter controls while dropping the old filter's node bodies.
+  if (!page.graph && previous) {
+    renderTaskGraph({ ...previous, nodes: [], has_more: false, cursor: null, details_pending: true });
+  }
+  try {
+    const graph = await loadTaskGraph({ summary: true });
+    if (graph && ui.view === view && graph.details_pending) {
+      void loadTaskGraph().catch(error => { if (ui.view === view) graphFailure(error); });
+    }
+  } catch (error) { if (ui.view === view) graphFailure(error); }
+}
+
+onPrefChange('taskGraphStatuses', () => {
+  // Settings reset and externally applied preferences invalidate even unmounted caches.
+  if (!globalThis.document || !ui.taskGraphPage) return;
+  const previous = ui.taskGraphPage.graph, view = ui.view;
+  graphPage();
+  if (view?.id === 'task-graph') void reloadGraphFilters(previous);
+});
 function hasOpenActions() {
   return Boolean($('detail').querySelector('.hook-compact[data-completion-editing="true"]')
     || $('detail').querySelector('.task-graph-actions-popover[data-open="true"]')
@@ -635,11 +641,13 @@ function hasPendingInput() {
   return false;
 }
 export async function openTaskGraph() {
+  if (ui.view?.id !== 'task-graph') ui.taskGraphShowArchived = false;
   const view = activateDetailView({ view: 'task-graph', hash: '#worker-graph' });
   const page = graphPage();
   if (page.graph) {
     renderTaskGraph(page.graph);
     // The cache paints synchronously; never make reopening wait for Git diagnostics.
+    observeGraphTail(loadNextTaskGraph, readingProtected);
     if (Date.now() - page.fetchedAt >= 3000 || page.graph.details_pending) {
       void loadTaskGraph().catch(error => { if (ui.view === view) graphFailure(error); });
     }
@@ -647,7 +655,7 @@ export async function openTaskGraph() {
   }
   try {
     const graph = await loadTaskGraph({ summary: true });
-    if (ui.view === view && graph.details_pending) {
+    if (ui.view === view && graph?.details_pending) {
       void loadTaskGraph().catch(error => { if (ui.view === view) graphFailure(error); });
     }
   } catch (error) {

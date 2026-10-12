@@ -3,6 +3,7 @@ import { iterationViews } from './iteration.js';
 import { branchFreeze } from '../branch-freeze.js';
 import { readWorkerResources } from '../usage-statistics.js';
 import { workerLabel } from '../worker-number.js';
+import { graphOptions, graphPage, packGraph } from './graph-pages.js';
 import { check } from '../types.js';
 
 /** 分支图的规模上限：只读视图不该为了画全图把 daemon 拖垮，超限截断并在结果里说明。 */
@@ -131,10 +132,34 @@ export default {
    * `current` 表示 canonical 项目目录当前检出；`relation` 比较登记父分支与本分支的固定 tip，
    * 与 Task 父子边 / integration 无关（Squash 落地也不改写真实 Git 分歧）。自身归档时为 null。
    */
-  async taskGraph({ details = true } = {}) {
-    check(typeof details === 'boolean', 'details must be boolean');
-    const limit = GRAPH_NODE_LIMIT;
-    const rows = this.store.all(`SELECT id, worker_number, parent_id, input_id, task_kind, role, name, display_title, auto_title, goal, status,
+  async taskGraph(params = {}, projection = null) {
+    const options = graphOptions(params);
+    if (options.details && !projection) {
+      // Select by serialized structure before any sessions or Git diagnostics.
+      // Keep the public details identity so summary/full cursors cannot be mixed.
+      const preview = await this.taskGraph(params, { summary: true });
+      return this.taskGraph(params, { preview: preview.graph.nodes, identity: preview.identity });
+    }
+    const details = options.details && !projection?.summary;
+    const branchRows = this.store.branches();
+    const records = new Map(branchRows.map(row => [row.branch, row]));
+    const metadata = this.store.all(`SELECT id,parent_id,status,task_kind,branch,head_commit,
+      (SELECT p.branch FROM tasks p WHERE p.id=tasks.parent_id) AS parent_branch
+      FROM tasks WHERE task_kind IS NULL OR task_kind!='management'
+      ORDER BY CASE WHEN task_kind IN ('main','owner') THEN 0
+        WHEN status IN ('running','queued','waiting','awaiting') THEN 1 ELSE 2 END, id DESC`);
+    const archivedCandidates = metadata.filter(row => records.get(row.branch)?.status === 'archived'
+      || (row.task_kind === 'merge' && !row.branch && records.get(row.parent_branch)?.status === 'archived'));
+    // Unfinished acceptance remains visible even after partial resource reclamation.
+    const recovery = iterationViews(this.store, archivedCandidates);
+    const archivedIds = new Set(archivedCandidates.filter(row => !recovery.get(row.id)?.acceptance_recovery).map(row => row.id));
+    for (const row of metadata) row.archived = archivedIds.has(row.id);
+    const page = graphPage(this.config.home, metadata, options);
+    if (projection?.identity) check(page.identity === projection.identity, 'Worker graph cursor stale; refresh from first page');
+    const windowIds = projection?.preview
+      ? projection.preview.filter(node => !node.node_truncated).map(node => node.id)
+      : page.filtered.slice(page.offset, page.offset + GRAPH_NODE_LIMIT).map(row => row.id);
+    const rows = windowIds.length ? this.store.all(`SELECT id, worker_number, parent_id, input_id, task_kind, role, name, display_title, auto_title, goal, status,
       integration, integration_error, branch, workspace, target_branch, base_commit, iteration_base_commit, head_commit, resolves_task_id,
       reservation, auto_merge, interrupt_state, progress_plan, created_at, updated_at, calls, agent_wakes,
       (SELECT p.task_kind FROM tasks p WHERE p.id=tasks.parent_id) AS parent_task_kind,
@@ -142,13 +167,14 @@ export default {
       (SELECT p.worker_number FROM tasks p WHERE p.id=tasks.parent_id) AS parent_worker_number,
       CASE WHEN result IS NULL THEN 0 ELSE 1 END AS has_result,
       substr(result, 1, 320) AS result_preview
-      FROM tasks WHERE task_kind IS NULL OR task_kind!='management' ORDER BY CASE WHEN task_kind IN ('main','owner') THEN 0
-        WHEN status IN ('running','queued','waiting','awaiting') THEN 1 ELSE 2 END, id DESC LIMIT ?`, limit + 1);
-    const selected = rows.slice(0, limit);
+      FROM tasks WHERE id IN (${windowIds.map(() => '?').join(',')})`, ...windowIds) : [];
+    const byId = new Map(rows.map(row => [row.id, row]));
+    const selected = windowIds.map(id => byId.get(id));
     const ids = selected.map(row => row.id);
-    const resources = details ? await readWorkerResources(this.config,
+    const resources = details && ids.length ? await readWorkerResources(this.config,
       this.store.all('SELECT id,parent_id,status FROM tasks'),
-      this.store.all('SELECT task_id,started_at,ended_at FROM agent_runs')).catch(() => new Map()) : new Map();
+      this.store.all('SELECT task_id,started_at,ended_at FROM agent_runs'),
+      { read_ids: new Set(ids) }).catch(() => new Map()) : new Map();
     const iterations = iterationViews(this.store, selected);
     const mergeQueues = mergeQueueSummaries(this.store, ids);
     // 一批取回调用区间：任务图上的紧凑进度也要把等待排除在 Agent 工作用时之外。
@@ -174,8 +200,6 @@ export default {
       WHERE consumed=0 AND delivery_hold IN ('frozen','routing') AND task_id IN (${ids.map(() => '?').join(',')})
       GROUP BY task_id`, ...ids).map(row => [row.task_id, row.n]) : []);
     // Task 卡片的合并编排入口只读投影：目标就是这条 Task 自己的分支。只读 store / branches，不碰 git、不写库。
-    const branchRows = this.store.branches();
-    const records = new Map(branchRows.map(row => [row.branch, row]));
     const activeBranches = branchRows.filter(row => row.status === 'active');
     const activeRuns = new Map(this.store.activeBranchMergeRuns().map(({ target, run }) => [target, run]));
     const orderBranches = new Set(this.store.all("SELECT branch FROM tasks WHERE task_kind IN ('order','say') AND branch IS NOT NULL")
@@ -287,12 +311,12 @@ export default {
       const branch = row.branch ? records.get(row.branch) : null;
       // 内部 merge 队列没有自己的分支，归档跟随直接父 Task；从库里读父分支，父节点被截断也不漏掉。
       // 不沿 target_branch 或祖先传播：独立工作子 Task 仍按自己的分支归档事实判断。
-      const archived = !iterations.get(row.id)?.acceptance_recovery && (branch?.status === 'archived' || (row.task_kind === 'merge' && !row.branch
-        && records.get(parent_branch)?.status === 'archived'));
+      const archived = archivedIds.has(row.id);
       // 这条分支下还有多少个 order 子分支：决定卡片上「编排合并全部子 Task」入口是否有意义。
       const subtree_order = row.branch ? countOrderDescendants(row.branch) : 0;
       const mergeRun = row.branch ? activeRuns.get(row.branch) ?? null : null;
-      return { ...row, ...iterations.get(row.id), kind: 'task', archived, title: row.display_title || row.auto_title || summarize(goal) || row.name || `Worker ${workerLabel(row)}`,
+      return { ...row, ...iterations.get(row.id), kind: 'task', archived,
+        layout_parent_id: page.layoutParent(row), title: row.display_title || row.auto_title || summarize(goal) || row.name || `Worker ${workerLabel(row)}`,
         goal_preview: String(goal ?? '').slice(0, 600),
         progress: plan, notice: notice.notice, notice_count: notice.count,
         children_total: child.total, children_active: child.active, waiting_reason,
@@ -317,10 +341,10 @@ export default {
         has_result: Boolean(row.has_result),
         has_rule: fs.existsSync(`${this.config.home}/task-rules/task-${row.id}.mjs`) };
     });
-    const visible = new Set(ids);
-    const edges = nodes.filter(node => visible.has(node.parent_id)).map(node => ({ from: node.parent_id, to: node.id }));
-    return { nodes, edges, ...(!details ? { details_pending: true } : {}), truncated: rows.length > limit,
-      total: this.store.get('SELECT count(*) AS n FROM tasks').n };
+    const projected = projection?.preview
+      ? projection.preview.map(node => node.node_truncated ? node : nodes.find(full => full.id === node.id)) : nodes;
+    const graph = packGraph(projected, page, this.store.get('SELECT count(*) AS n FROM tasks').n, details);
+    return projection?.summary ? { graph, identity: page.identity } : graph;
   },
 
   async graph() {

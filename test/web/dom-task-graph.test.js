@@ -18,6 +18,11 @@ const { ui } = await import('../../src/ui/web/assets/state.js');
 const statusKey = 'lush.taskGraph.hiddenStatuses:aaaaaaaaaaaaaaaa';
 // 此文件由权威设备mock设置完整卡片；默认极简与切换由 dom-task-graph-minimal 覆盖。
 await boot();
+// Fixture bodies are edited between assertions; explicitly sample the server instead
+// of relying on the cache retaining the mock's mutable response-array identity.
+const { loadTaskGraph: refreshFixtureGraph } = await import('../../src/ui/web/assets/render-task-graph.js');
+const openFixtureGraph = dom.node('task-graph-open').onclick;
+dom.node('task-graph-open').onclick = async () => { await openFixtureGraph(); await refreshFixtureGraph(); };
 afterAll(() => dom.restore());
 
 test('Task 图以 Task 为节点；旧 #graph 不再打开分支图', async () => {
@@ -336,7 +341,7 @@ test('Task 图：旧 v2 merge 卡片保留历史标记及状态筛选，空闲�
 
     // 用状态开关关掉「已完成」：merge 卡片与名下已完成的子 Task 一起消失，
     // 剩下的树不受影响，也不会误报「父 Task 不在当前图中」。
-    dom.node('detail').querySelector('.task-graph-status-toggle[data-status="completed"]').onclick();
+    await dom.node('detail').querySelector('.task-graph-status-toggle[data-status="completed"]').onclick();
     expect(card(5)).toBeNull();
     expect(card(6)).toBeNull();
     expect(deepText(dom.node('detail'))).not.toContain('合并队列');
@@ -360,21 +365,21 @@ test('Task 图：表头状态图例即开关，按状态隐藏后可一键恢复
     expect(chip('completed').textContent).toContain('已完成 1');
     expect(chip('completed').getAttribute('aria-pressed')).toBe('true');
     expect(card(7)).toBeTruthy();
-    chip('completed').onclick();
+    await chip('completed').onclick();
     expect(card(7)).toBeNull();
     expect(chip('completed').getAttribute('aria-pressed')).toBe('false');
     expect(JSON.parse(globalThis.localStorage.getItem(statusKey))).toEqual(['completed']);
     // 只按状态筛：不同状态的兄弟 Task 不受影响。
     expect(card(2)).toBeTruthy();
     // 关掉的状态仍留在表头上，点回来即可恢复；「全部状态」一次清空筛选。
-    chip('completed').onclick();
+    await chip('completed').onclick();
     expect(card(7)).toBeTruthy();
-    chip('completed').onclick();
-    dom.node('detail').querySelector('.task-graph-status-reset').onclick();
+    await chip('completed').onclick();
+    await dom.node('detail').querySelector('.task-graph-status-reset').onclick();
     expect(card(7)).toBeTruthy();
     expect(globalThis.localStorage.getItem(statusKey)).toBe('[]');
     // 隐藏父 Task 的状态：子 Task 顶成根（与归档筛选同一口径），不会跟着消失也不会误报父不在图里。
-    chip('waiting').onclick();
+    await chip('waiting').onclick();
     expect(card(1)).toBeNull();
     expect(card(2)).toBeNull();
     expect(card(7)).toBeTruthy();

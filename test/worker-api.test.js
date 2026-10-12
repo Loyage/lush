@@ -4,7 +4,7 @@ import { Dispatcher, HANDLERS } from '../src/rpc/dispatcher.js';
 
 // Strict public namespace; authority stays unchanged when optional profile selection is added.
 const reads = {
-  lookup: ['number'], graph: ['details'], list: ['after','limit'], activity: ['limit','scope'], page: ['before','limit','scope'],
+  lookup: ['number'], graph: ['details','hidden_statuses','include_archived','cursor','scope'], list: ['after','limit'], activity: ['limit','scope'], page: ['before','limit','scope'],
   tree: ['id'], inspect: ['id'], run_settings: ['id'], hooks: ['id'], history: ['id','after'], history_page: ['id','before','limit'],
   progress_history: ['id','before','limit'],
   reading_page: ['id','before_event','before_message','limit','query'], reading_record: ['id','kind','record_id','offset'],

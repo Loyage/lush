@@ -89,6 +89,7 @@ function forgetWorkers(preview) {
   else for (const [key, row] of ui.inputsPage?.items || []) {
     if (row.kind === 'input' && inputIds.has(row.id)) ui.inputsPage.items.delete(key);
   }
+  ui.disposeTaskGraph?.(); ui.taskGraphPage = null;
   ui.overviewKey = null; ui.taskGraphFetchedAt = 0;
 }
 

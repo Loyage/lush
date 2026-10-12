@@ -126,12 +126,12 @@ function rememberResources(file, result) {
   return summary;
 }
 
-async function scan(dir, compact = false) {
+async function scan(dir, compact = false, readIds = null) {
   let names;
   try { names = await fs.promises.readdir(dir); }
   catch (error) { if (error.code === 'ENOENT') return { files: [], codex_threads: 0, codex_ids: [], unreadable: 0 }; throw error; }
   const codexIds = names.map(name => /^codex-task-(\d+)\.json$/.exec(name)).filter(Boolean).map(match => Number(match[1]));
-  const result = { files: [], codex_threads: codexIds.length, codex_ids: codexIds, unreadable: 0 };
+  const result = { files: [], codex_threads: codexIds.length, codex_ids: codexIds, unreadable: 0, skipped_ids: [] };
   const live = new Set(names.filter(name => SESSION.test(name)).map(name => path.join(dir, name)));
   for (const target of [cache, resourceCache]) {
     for (const file of target.keys()) if (path.dirname(file) === dir && !live.has(file)) target.delete(file);
@@ -141,7 +141,14 @@ async function scan(dir, compact = false) {
       const stat = await fs.promises.lstat(file);
       // Do not follow session symlinks into another project or the global agent history.
       if (!stat.isFile()) { result.unreadable++; continue; }
-      result.files.push(await readFile(file, stat, compact));
+      const taskId = Number(file.match(SESSION)[1]);
+      if (readIds && !readIds.has(taskId)) {
+        // Hidden cards must not trigger session-body reads. Only a still-valid,
+        // compact cache entry can contribute known expenditure to visible ancestors.
+        const cached = resourceCache.get(file) ?? cache.get(file);
+        if (cached?.signature === signature(stat)) result.files.push(cached);
+        else result.skipped_ids.push(taskId);
+      } else result.files.push(await readFile(file, stat, compact));
     } catch { result.unreadable++; }
   }
   return result;
@@ -182,10 +189,14 @@ function runMs(runs, now) {
 }
 
 /** Compact lifetime resource summaries, independent of graph/group limits. */
-export async function readWorkerResources(config, tasks, runs = []) {
+export async function readWorkerResources(config, tasks, runs = [], { read_ids = null } = {}) {
   const dir = path.join(config.home, 'sessions');
-  if (!resourcePending.has(dir)) resourcePending.set(dir, scan(dir, true).finally(() => resourcePending.delete(dir)));
-  const source = await resourcePending.get(dir);
+  let source;
+  if (read_ids) source = await scan(dir, true, read_ids);
+  else {
+    if (!resourcePending.has(dir)) resourcePending.set(dir, scan(dir, true).finally(() => resourcePending.delete(dir)));
+    source = await resourcePending.get(dir);
+  }
   const now = Date.now();
   const runsByTask = new Map();
   for (const run of runs) {
@@ -196,6 +207,7 @@ export async function readWorkerResources(config, tasks, runs = []) {
     run_ms: runMs(runsByTask.get(task.id) ?? [], now),
     unknown_tokens: 0, unknown_cost: 0, incomplete: source.unreadable > 0,
     running: task.status === 'running' }]));
+  for (const id of source.skipped_ids ?? []) if (own.has(id)) own.get(id).incomplete = true;
   const observed = new Set();
   for (const file of source.files) {
     const total = own.get(file.task_id);

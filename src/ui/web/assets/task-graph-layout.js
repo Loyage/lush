@@ -28,7 +28,7 @@ export function taskForest(graph = {}) {
   const nodes = Array.isArray(graph.nodes) ? graph.nodes : [];
   const byId = new Map(nodes.map(node => [node.id, { ...node, children: [] }]));
   const roots = [];
-  const parentOf = node => node.layout_parent_id ?? node.parent_id;
+  const parentOf = node => Object.hasOwn(node, 'layout_parent_id') ? node.layout_parent_id : node.parent_id;
   for (const node of byId.values()) {
     let parent = byId.get(parentOf(node));
     // Corrupt cycles must not recursively hang the browser.

@@ -316,7 +316,7 @@ test('Worker 公开深链接使用新地址，内部页面与 DOM 身份不迁�
     expect(dom.node('detail').dataset.view).toBe('task');
     expect(dom.node('tasks')).toBeTruthy();
     expect(reads).toContain('/api/worker/1');
-    expect(reads).toContain('/api/worker-graph?details=0');
+    expect(reads).toContain('/api/worker-graph?details=0&hidden_statuses=%5B%5D&include_archived=0&scope=tree');
     expect(reads.some(url => /^\/api\/tasks?(?:\/|\?|$|-graph)/.test(url))).toBe(false);
     const workerReads = () => reads.filter(url => url.startsWith('/api/worker')).length;
     for (const hash of ['#task-1', '#task-graph', '#tasks']) {

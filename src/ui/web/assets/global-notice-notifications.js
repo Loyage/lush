@@ -62,8 +62,15 @@ export function createGlobalNoticeObserver({
     const controller = new AbortController(); requestController = controller;
     let timeout, onAbort;
     try {
+      const response = read(url, { signal: controller.signal });
+      // An injected/read lifecycle can dispose synchronously, before the abort
+      // listener exists. Do not leave that read waiting for an already-missed abort.
+      if (controller.signal.aborted) {
+        Promise.resolve(response).catch(() => {});
+        throw new DOMException('全局收件箱读取已取消', 'AbortError');
+      }
       return validateInboxPage(await Promise.race([
-        read(url, { signal: controller.signal }),
+        response,
         new Promise((_, reject) => {
           onAbort = () => { cancel(timeout); reject(new DOMException('全局收件箱读取已取消', 'AbortError')); };
           timeout = schedule(() => { reject(new Error('全局收件箱读取超时')); controller.abort(); }, timeoutMs);
@@ -200,7 +207,9 @@ export function createGlobalNoticeObserver({
   function refresh({ baseline = false } = {}) {
     if (disposed) return Promise.reject(new Error('全局提醒观察已停止'));
     if (scan) { if (baseline) scan.suppress = true; return scan.done; }
-    clearTimer(); scan = begin(baseline); void step(); return scan.done;
+    clearTimer(); const current = scan = begin(baseline);
+    // step() may synchronously catch a thrown read and clear scan before it returns.
+    void step(); return current.done;
   }
   function rebaseline() {
     generation++; deliveries.clear();
@@ -224,8 +233,11 @@ export function createGlobalNoticeObserver({
 }
 
 let activeObserver = null;
+export function stopGlobalNoticeObserver() {
+  activeObserver?.dispose(); activeObserver = null;
+}
 export function startGlobalNoticeObserver(options = {}) {
-  activeObserver?.dispose();
+  stopGlobalNoticeObserver();
   const observer = activeObserver = createGlobalNoticeObserver(options);
   void observer.refresh({ baseline: true }).catch(() => {});
   return () => { observer.dispose(); if (activeObserver === observer) activeObserver = null; };

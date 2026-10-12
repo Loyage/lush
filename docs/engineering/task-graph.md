@@ -1,6 +1,6 @@
 # Worker 图与输入规则（增量实现）
 
-Worker 图是 `#worker-graph` / `worker.graph` / `/api/worker-graph` 的有界读面：节点是 Worker（含 main、owner、旧Worker），边来自当前 `parent_id`；当前 version 2 父自有交付队列不创建 merge Worker、不改源 Worker 的 `parent_id`，父子边始终表达委派关系；排队、源侧修复和落地待验收的 Worker 都留在直接父 Worker 下，不靠展示层抬升。旧 version 2 在途重挂仅凭明确预约／审计恢复原父，历史身份与事件保留，不猜父关系。落地不自动归档。卡片显示目标摘要、Agent 类型、分支合并状态（`integration`：待合并 / 已合并 / 合并中等，与Worker详情同源，做成首行标签）、工作/静息与冻结原因、结果预览、计划进度、子 Worker 数、分支/worktree、当前 HEAD、已提交与未提交诊断、交付预约与就地待决；指令交付操作复用Worker详情，普通问答/计划审批使用 `task-graph-parts.js` 的就地处理按钮，问卷跳到Worker详情按完整选项作答。点标题看完整Worker详情；历史独立解分歧 Worker 用父子边挂在负责集成的活动 Worker 下，另以「正在解决 Worker #ID」链接被修复的历史 Worker，不能把后者的终态/父子身份改掉。最多返回 200 条，优先保留分支所有者和活动Worker。画成卡片的只有自己拥有分支/worktree 的 main / owner / 指令 / child，以及**旧 version 2 的历史 merge 队列身份**：已有 `task_kind='merge'` 卡片与类型过滤保留，摘要明确标为历史；空闲记录仍可查看，父 Worker 分支归档后随父归档、默认隐藏，可通过「显示已归档」查看。新请求由父自有队列的 runtime 串行处理，不额外调用父 Agent；按持久入队顺序、代码依赖优先，取得父执行位后才固定父基线。源侧修复期间保留父执行位，挂起释放，恢复重新排队并固定新基线；完整协议见[分支合并](merge.md)。被状态筛选或归档筛掉的父节点不制造孤儿：还在图上的子 Worker 按「最近的可见祖先」上浮，找不到可见祖先时顶成根；当前请求始终保留原父关系；历史在途请求由 runtime 受检恢复，不依赖展示层猜测。只有真的找不到父节点（被截断的那页或数据缺失）才画为根并说明。诊断/正文未知时明示不可用或截断，不能当作零。旧「分支与合并」视图与 `/api/graph` HTTP 路由已删除，旧 `#graph` 回概览；完整谱系与本地未绑定分支绑定保留在 CLI / RPC。Worker 卡片增加真实 Git 父分支、当前检出、领先/落后与一致/分歧/缺失等精简诊断，边仍只表示 Worker 父子关系。历史分支引用保留快照，但 Web 定位入口明确报已移除；Worker 图不新增语义引用，仍可通用选区引用。分支已由用户显式归档的 Worker 默认不画在图上，表头提供「显示已归档（N）」开关，只在当前页面临时显示、不写库、不改Worker状态，重开页面仍默认隐藏；只有无独立分支的历史内部 merge 队列继承直接父 Worker 的归档事实（读模型的 `archived`，父节点被截断时也有效，兼容已归档的历史父 Worker，不写新状态）；其它未归档子 Worker 会顶成根，不会仅因父 Worker 归档而消失。表头的状态计数同时就是筛选开关：点某个状态就隐藏 / 恢复该状态的 Worker，偏好按项目存在 `lush.taskGraph.hiddenStatuses`（`prefs.js` 管理的受管键，会被「恢复默认设置」清空），默认全部显示；筛选与归档开关一样只改这一页的显示，不写库、不改Worker状态。
+Worker 图是 `#worker-graph` / `worker.graph` / `/api/worker-graph` 的有界读面：节点是 Worker（含 main、owner、旧Worker），边来自当前 `parent_id`；当前 version 2 父自有交付队列不创建 merge Worker、不改源 Worker 的 `parent_id`，父子边始终表达委派关系；排队、源侧修复和落地待验收的 Worker 都留在直接父 Worker 下，不靠展示层抬升。旧 version 2 在途重挂仅凭明确预约／审计恢复原父，历史身份与事件保留，不猜父关系。落地不自动归档。卡片显示目标摘要、Agent 类型、分支合并状态（`integration`：待合并 / 已合并 / 合并中等，与Worker详情同源，做成首行标签）、工作/静息与冻结原因、结果预览、计划进度、子 Worker 数、分支/worktree、当前 HEAD、已提交与未提交诊断、交付预约与就地待决；指令交付操作复用Worker详情，普通问答/计划审批使用 `task-graph-parts.js` 的就地处理按钮，问卷跳到Worker详情按完整选项作答。点标题看完整Worker详情；历史独立解分歧 Worker 用父子边挂在负责集成的活动 Worker 下，另以「正在解决 Worker #ID」链接被修复的历史 Worker，不能把后者的终态/父子身份改掉。每批最多返回 200 条，并受真实 JSON UTF-8 字节预算限制；可继续加载全部匹配 Worker，优先返回分支所有者和活动 Worker。画成卡片的只有自己拥有分支/worktree 的 main / owner / 指令 / child，以及**旧 version 2 的历史 merge 队列身份**：已有 `task_kind='merge'` 卡片与类型过滤保留，摘要明确标为历史；空闲记录仍可查看，父 Worker 分支归档后随父归档、默认隐藏，可通过「显示已归档」查看。新请求由父自有队列的 runtime 串行处理，不额外调用父 Agent；按持久入队顺序、代码依赖优先，取得父执行位后才固定父基线。源侧修复期间保留父执行位，挂起释放，恢复重新排队并固定新基线；完整协议见[分支合并](merge.md)。被状态筛选或归档筛掉的父节点不制造孤儿：还在图上的子 Worker 按「最近的可见祖先」上浮，找不到可见祖先时顶成根；当前请求始终保留原父关系；历史在途请求由 runtime 受检恢复，不依赖展示层猜测。只有真的找不到父节点（被截断的那页或数据缺失）才画为根并说明。诊断/正文未知时明示不可用或截断，不能当作零。旧「分支与合并」视图与 `/api/graph` HTTP 路由已删除，旧 `#graph` 回概览；完整谱系与本地未绑定分支绑定保留在 CLI / RPC。Worker 卡片增加真实 Git 父分支、当前检出、领先/落后与一致/分歧/缺失等精简诊断，边仍只表示 Worker 父子关系。历史分支引用保留快照，但 Web 定位入口明确报已移除；Worker 图不新增语义引用，仍可通用选区引用。分支已由用户显式归档的 Worker 默认不画在图上，表头提供「显示已归档（N）」开关，只在当前页面临时显示、不写库、不改Worker状态，重开页面仍默认隐藏；只有无独立分支的历史内部 merge 队列继承直接父 Worker 的归档事实（读模型的 `archived`，父节点被截断时也有效，兼容已归档的历史父 Worker，不写新状态）；其它未归档子 Worker 会顶成根，不会仅因父 Worker 归档而消失。表头的状态计数同时就是筛选开关：点某个状态就隐藏 / 恢复该状态的 Worker，偏好按项目存在 `lush.taskGraph.hiddenStatuses`（`prefs.js` 管理的受管键，会被「恢复默认设置」清空），默认全部显示；筛选与归档开关一样只改这一页的显示，不写库、不改Worker状态。
 
 交付后的 Worker 显示指令「待验收」/ child「待父确认」（`awaiting_acceptance`），使用独立状态色与筛选/计数，不当作已完成。Worker 图与详情通过 `render-iteration.js` 共用单一「验收」、历史继续开发、同步父分支和紫色 Agent 解决同步冲突；追加输入继续当前 Worker，验收表示无异议并安全归档回收开发资源，脏现场阻止，保留运行历史。acceptance_recovery:true 表示持久审计确认有未完成验收，可显示显式续办候选，不按目录缺失猜测；部分回收不得被普通已归档过滤隐藏。已完成回收不重建。详见[持续迭代](task-iteration.md)。
 
@@ -15,13 +15,25 @@ Worker 图是 `#worker-graph` / `worker.graph` / `/api/worker-graph` 的有界�
 
 ## 渐进加载与重开缓存
 
-首次打开先通过 `worker.graph {details:false}` / `/api/worker-graph?details=0` 读取 Worker 结构、状态、待决与交付摘要，成功后立即显示卡片，再后台单飞读取原有完整读面。摘要不执行 Git 或会话扫描，未知字段不冒充零；Git 与用量尚未补齐时明确显示加载状态。默认 RPC 与 HTTP 无参数语义保持完整，旧 Host 忽略查询返回完整结果时不会重复补读；新 Host 连接旧 daemon 的 unknown parameter 仅对只读请求回退完整读取。
+首次打开先通过 `worker.graph {details:false}` / `/api/worker-graph?details=0` 读取 Worker 结构、状态、待决与交付摘要，成功后立即显示卡片，再后台单飞读取 `details:true` 的同筛选批次。摘要不执行 Git 或会话扫描，未知字段不冒充零；Git 与用量尚未补齐时明确显示加载状态。默认 RPC 与 HTTP 无参数仍取完整字段、包含归档记录，但同样分页，不回退无限制完整图。
 
-同项目离页往返先同步显示最近缓存；缓存超过 3 秒或仍未补齐时后台更新，并显示采样时间/更新状态。显式刷新仍重新读取。缓存按项目及 boot 身份隔离，删除过滤、编辑、选区、弹层与阅读位置保护继续生效；迟到响应不得重画其它页面或写入已重置缓存。补充读取失败保留结构或上次完整内容，明确提示重试，不误报整个项目离线。概览轮询不再等待重型图读取。
+### 字节分页与服务端筛选
+
+`worker.graph` 接受 `details:boolean`（默认 true）、`hidden_statuses:string[]`（默认 []）、`include_archived:boolean`（默认 true，Web 显式传 false）、`scope:"all"|"tree"`（默认 all，Web 显式 tree）和不透明 `cursor:string`。tree 仅分页读取 main/owner/order/历史 say/child/历史 merge，all 保留非 management 的历史 RPC/CLI 节点兼容；种类范围不能由归档开关暗中推断。HTTP 同名参数：布尔为 `0/1`，状态数组为 JSON 查询字符串（如 `hidden_statuses=%5B%22completed%22%5D`）；未知、多次出现或非法参数拒绝。每批至多 200 节点，整个响应序列化后严格低于 900000 字节，为 1 MiB RPC 帧预留 envelope 空间，Unicode 和转义按真实字节计算；单节点过大降为身份/状态/布局摘要，带 `node_truncated:true`、`details_unavailable:true` 与有界 `details_unavailable_reason`，不冒充完整或零用量，游标仍继续推进。记录本身不截断、不写库。
+
+响应保留 `nodes/edges/total/truncated/details_pending`，新增 `cursor:string|null`、`has_more:boolean`、`matched_total:number`、`counts:{[status]:number}`、`archived_count:number`。`total` 仍是全库 Worker 行数；`matched_total` 为实际按 scope、状态与归档筛选匹配的节点总数：tree 只计可绘制种类，all 兼容保留历史非 management 行。`counts` 是可绘制种类（main/owner/order/历史 say/child/历史 merge）应用归档开关、但尚未排除隐藏状态的完整计数（含已知状态的零项），状态开关不能因隐藏而消失；`archived_count` 为同一完整可绘制范围的已回收历史数，不受状态/归档开关影响。未完成验收的恢复记录不按归档隐藏。`has_more` 表示可以继续读取，`truncated` 表示本批仍有后续或含异常巨型节点的降级摘要。
+
+真实 `parent_id` 不变；`layout_parent_id` 由轻量父关系求最近满足筛选的祖先，可以指向另一页的 Worker；不存在/成环时 null。`edges` 仍仅包含本批两端都出现的真实父子边，不把布局祖先冒充真实父。隐藏节点不发送正文，也不执行其 Git 诊断/会话正文读取；必要全量轻量父关系、运行区间与 SQL 队列聚合仍用于准确计数。完整字段先按结构摘要的真实字节选批，只有本批候选才执行 Git/会话重型读取，不读取整个匹配范围；已知巨型结构节点直接降级、不扫描其正文。诊断补充后再按完整序列化字节收口，正文膨胀可能使少量已读候选顺延至下一批，游标仅按实际返回节点推进。隐藏及批外后代的用量只复用签名有效的紧凑缓存，缓存缺失/过期时可见祖先 `subtree.incomplete=true`，费用/token 明示未知；运行时长仍来自全量轻量调用记录。
+
+游标分别绑定 canonical 项目身份、details、scope、归档与排序后的状态筛选，以及全量轻量结构版本（ID/父关系/状态/种类/归档）。新增、删除、状态、父关系或归档变化以稳定错误前缀 `Worker graph cursor stale; refresh from first page` 拒绝旧游标，避免 offset 漂移造成漏节点/重复节点；非法格式/范围及项目/筛选不符另行严格拒绝，不冒充结构过期。普通正文或进度更新不使游标失效。页间不是事务级正文快照；客户端只对结构过期最多自动从首批重开一次，不能换筛选继续旧游标，也不能无限重试。
+
+树末端显示已加载数量、加载状态与下一批占位符；用户向下滚动接近末端时单飞续读，也可手动加载或重试。首次可见或折叠后的短树不自动连续读完整历史；离页断开观察器并取消在途读取。状态与已回收历史开关前移服务端，改变筛选即重置分页，不加载隐藏正文；计数来自全量轻量读面。摘要与详情的字节边界可能不同，保留尚未补齐的摘要节点，但只沿详情游标续读。
+
+同项目离页往返先同步显示最近缓存；缓存超过 3 秒或仍未补齐时后台更新，并显示采样时间/更新状态。刷新只重新采样首批，保留滚动加载的历史并标为旧采样/待更新；不能声称已核验整个加载范围。缓存按项目、筛选、页面及 boot 身份隔离，删除过滤、编辑、选区、弹层与阅读位置保护继续生效；迟到响应不得重画其它页面或写入已重置缓存。结构过期清除旧结构并至多自动重开一次，连续过期后停止，手动重试才能开启新链；普通分页失败保留已加载内容与游标供重试。不误报整个项目离线，概览轮询不等待重型图读取。
 
 累计用量使用按文件签名保存的紧凑汇总缓存（有界 4096 项），只重新解析变化文件；不再为了卡片反复遍历历史请求行，也不与统计页面的 128 文件正文行缓存竞争。文件追加、替换、删除和错误/不完整记录仍按真实签名与来源更新；变化文件目前仍完整流式解析，不声称字节级尾部增量。
 
-验证入口：`test/project/graph-loading.test.js`、`test/web/dom-graph-loading.test.js`、`test/worker-resource-cache.test.js`。
+验证入口：`test/project/graph-pages.test.js`、`test/web/graph-pages-api.test.js`（真实 RPC socket）、`test/project/graph-loading.test.js`、`test/web/dom-graph-loading.test.js`、`test/web/dom-graph-pagination.test.js`、`test/web/dom-graph-rpc-pagination.test.js`（DOM→HTTP→真实 RPC）、`test/worker-resource-cache.test.js`。
 
 ## 展示模式
 
@@ -29,7 +41,7 @@ Worker 图是 `#worker-graph` / `worker.graph` / `/api/worker-graph` 的有界�
 
 ## 累计资源消耗
 
-两种模式的卡片均显示 `运行 1 小时 1 分 ↑121k ↓18k $2.24` 一类摘要，整组排在合并状态标签之前：极简模式在第二行、详情模式在首行状态标签之后。运行时间为各轮 Agent 调用的累计时长（不含等待），输入绿色（含缓存读取与写入），输出红色，美元估算为主题正文色。展开显示 Worker 自身累计消耗；收拢显示其与全部后代的合计并加粗，包含隐藏、归档和 200 节点窗口外的后代，不按已加载卡片估算。范围内存在正在运行的 Worker 时轻微闪烁，静息、排队、暂停或停止不闪烁；减少动效设置关闭动画。费用与时长是会话/调用记录的估算，不等于实际账单；缺失/不完整记录和只有线程元数据的 Codex 消耗显示 `—`，不冒充零。悬停、聚焦或长按可查看口径。
+两种模式的卡片均显示 `运行 1 小时 1 分 ↑121k ↓18k $2.24` 一类摘要，整组排在合并状态标签之前：极简模式在第二行、详情模式在首行状态标签之后。运行时间为各轮 Agent 调用的累计时长（不含等待），输入绿色（含缓存读取与写入），输出红色，美元估算为主题正文色。展开显示 Worker 自身累计消耗；收拢显示其与全部后代的合计并加粗，包含隐藏、归档和当前批次外的后代，不按已加载卡片估算；隐藏或批外后代的花费缓存缺失/过期时明示未知，不为了补齐用量读取其会话正文。范围内存在正在运行的 Worker 时轻微闪烁，静息、排队、暂停或停止不闪烁；减少动效设置关闭动画。费用与时长是会话/调用记录的估算，不等于实际账单；缺失/不完整记录和只有线程元数据的 Codex 消耗显示 `—`，不冒充零。悬停、聚焦或长按可查看口径。
 
 ## 合并关系、展示排序与动效
 

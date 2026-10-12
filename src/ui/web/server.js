@@ -15,6 +15,7 @@ import { DeviceSettingsService, DEVICE_SETTINGS_READS, DEVICE_SETTINGS_ACTIONS }
 import { normalizeConfigurationScope } from '../../core/device-config.js';
 import { workerLabel } from '../../cli/worker-number.js';
 import { workerNumber } from '../../core/worker-number.js';
+import { graphOptions } from '../../core/project/graph-pages.js';
 const AUTH_FILE = 'web.json';
 const SESSION_COOKIE = 'lush_session';
 const SESSION_SECONDS = 12 * 60 * 60;
@@ -596,9 +597,19 @@ export function startWeb(config, port = 4318, options = {}) {
           if (url.pathname === '/api/agent/environment') return json(await client.request('agent.environment', { target: url.searchParams.get('target') || '' }));
           // Worker 图的 Git 诊断单独按需取数，不进概览的常规轮询。
           if (url.pathname === '/api/worker-graph') {
-            const details = url.searchParams.get('details');
-            check(details === null || details === '0' || details === '1', 'details must be 0 or 1');
-            return json(await client.request('worker.graph', details === null ? {} : { details: details === '1' }));
+            const params = {};
+            for (const [key, value] of url.searchParams) {
+              check(['details','hidden_statuses','include_archived','cursor','scope'].includes(key) && !(key in params), 'unknown or duplicate Worker graph query parameter');
+              if (key === 'details' || key === 'include_archived') {
+                check(value === '0' || value === '1', `${key} must be 0 or 1`);
+                params[key] = value === '1';
+              } else if (key === 'hidden_statuses') {
+                try { params[key] = JSON.parse(value); } catch { check(false, 'hidden_statuses must be a JSON array'); }
+                check(Array.isArray(params[key]), 'hidden_statuses must be a JSON array');
+              } else params[key] = value;
+            }
+            graphOptions(params);
+            return json(await client.request('worker.graph', params));
           }
           if (url.pathname === '/api/version-graph') {
             const params = {};

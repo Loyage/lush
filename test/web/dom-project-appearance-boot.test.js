@@ -1,26 +1,29 @@
-import { test, expect, afterAll } from 'bun:test';
+import { test, expect, beforeEach, afterEach } from 'bun:test';
 import { installDom } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
 
-const world = makeWorld(), ids = ['abcdef0123456789', '0123456789abcdef'];
+const ids = ['abcdef0123456789', '0123456789abcdef'];
 const projects = ids.map((id, index) => ({ id, name: `project-${index}`, project: `/fixture/project-${index}` }));
-let offline = true, failAppearance = false, bound = false;
-const calls = [];
-const dom = installDom({ fetch: async (url, options) => {
-  const path = String(url); calls.push({ path, options });
-  if (path === '/api/host') return Response.json({ mode: bound ? 'bound' : 'host', projects, project: bound ? projects[0].project : null });
-  if (path === '/api/host/projects') return Response.json({ projects });
-  const match = /^\/api\/host\/projects\/([a-f0-9]{16})\/appearance$/.exec(path);
-  if (match) return failAppearance ? Response.json({ error: 'configuration unavailable' }, { status: 500 }) : Response.json({ id: match[1],
-    appearance: { version: 1, theme: 'dark', color: match[1] === ids[0] ? 'blue' : 'rose', revision: 'initial' } });
-  const inner = path.replace(/^\/p\/[a-f0-9]{16}/, '');
-  if (offline && ['/api/overview', '/api/snapshot'].includes(inner.split('?')[0])) return Response.json({ error: 'daemon offline' }, { status: 500 });
-  return world.fetchImpl(inner, options);
-} });
-dom.location.pathname = `/p/${ids[0]}/`;
-const { boot } = await import('../../src/ui/web/assets/app.js');
-const { initAppearance } = await import('../../src/ui/web/assets/appearance.js');
-afterAll(() => { initAppearance(); dom.restore(); });
+let offline, failAppearance, bound, world, dom, app, calls;
+beforeEach(async () => {
+  world = makeWorld(); calls = []; offline = true; failAppearance = false; bound = false;
+  dom = installDom({ fetch: async (url, options) => {
+    const path = String(url); calls.push({ path, options });
+    if (path === '/api/host') return Response.json({ mode: bound ? 'bound' : 'host', projects, project: bound ? projects[0].project : null });
+    if (path === '/api/host/projects') return Response.json({ projects });
+    const match = /^\/api\/host\/projects\/([a-f0-9]{16})\/appearance$/.exec(path);
+    if (match) return failAppearance ? Response.json({ error: 'configuration unavailable' }, { status: 500 }) : Response.json({ id: match[1],
+      appearance: { version: 1, theme: 'dark', color: match[1] === ids[0] ? 'blue' : 'rose', revision: 'initial' } });
+    const inner = path.replace(/^\/p\/[a-f0-9]{16}/, '');
+    if (offline && ['/api/overview', '/api/snapshot'].includes(inner.split('?')[0])) return Response.json({ error: 'daemon offline' }, { status: 500 });
+    return world.fetchImpl(inner, options);
+  } });
+  dom.location.pathname = `/p/${ids[0]}/`;
+  app ||= await import('../../src/ui/web/assets/app.js');
+  await app.boot(); // The module may already be cached by another DOM test file.
+});
+afterEach(() => dom.restore());
+const boot = () => app.boot();
 
 test('startup applies Host project title and persisted color without waiting for an online daemon', () => {
   expect(dom.document.title).toBe('project-0 · Lush');
@@ -46,7 +49,7 @@ test('switching project boot changes title/color; workbench clears shell color a
 });
 
 test('single-project root remains a device workspace; project color failure does not block device settings', async () => {
-  bound = true; failAppearance = true; const before = calls.length; await boot();
+  bound = true; failAppearance = true; dom.location.pathname = '/'; const before = calls.length; await boot();
   expect(dom.document.title).toBe('Lush');
   expect(dom.node('theme-toggle').disabled).toBe(false);
   expect(dom.document.documentElement.dataset.projectColor).toBeUndefined();

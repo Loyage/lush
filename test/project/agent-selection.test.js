@@ -20,12 +20,32 @@ const profile = { agent: 'pi', model: 'deepseek/deepseek-chat', thinking: 'off',
 const worker = { id: 9, role: 'agent', task_kind: 'order', goal: 'private-goal', retry_profile: 'private-profile', agent_token_hash: 'private-token' };
 
 function runtime(strategy, extra = {}) {
-  const root = temp(), config = new Config({ project: root, env: env(extra) }); config.prepare();
+  const root = temp(), deviceRoot = temp();
+  // Each runtime is a separate temporary device. helpers.env() shares its HOME,
+  // so omitting this root would retain real Manager connections across reruns.
+  const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: deviceRoot, ...extra }) }); config.prepare();
   const store = new Store(path.join(config.home, 'project.db'), root), calls = [];
   const provider = { resolve() { return profile; }, async run(ctx) { calls.push(ctx); return 'done'; } };
   const project = new Project(config, store, provider, { modelSelectionStrategy: strategy });
-  return { root, config, store, project, calls,
-    async close() { await project.shutdown(); store.close(); fs.rmSync(root, { recursive: true, force: true }); } };
+  const invocations = new Map(), invoke = project.invoke.bind(project);
+  project.invoke = (taskId, run) => { invocations.set(taskId, run); return invoke(taskId, run); };
+  return { root, deviceRoot, config, store, project, calls, invocations,
+    async close() {
+      try { await project.shutdown(); }
+      finally { store.close(); fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(deviceRoot, { recursive: true, force: true }); }
+    } };
+}
+
+async function invocationSettled(f, task) {
+  // Admission is observed separately from completion: run.promise includes async
+  // Git finish and branch-observation cleanup. Do not mistake a provider return
+  // or an arbitrary 4-second polling cutoff for the invocation safe point.
+  const run = await until(() => f.invocations.get(task.id));
+  await run.promise; // Still bounded by the project's 20-second single-test budget.
+  await f.project.workspaces.queue;
+  expect(f.project.running.has(task.id)).toBe(false);
+  expect(f.store.task(task.id).status).toBe('waiting');
+  expect(f.store.runsForTask(task.id).at(-1)?.status).toBe('completed');
 }
 
 function serviceFixture(strategy, connections = [managed()]) {
@@ -33,6 +53,33 @@ function serviceFixture(strategy, connections = [managed()]) {
   const service = new AgentSelectionService(f.project, { strategy });
   return { ...f, manager, service };
 }
+
+test('runtime fixtures isolate and reclaim real Manager device storage without retaining a previous fixture connection', async () => {
+  const a = runtime(), b = runtime();
+  try {
+    expect(a.deviceRoot).not.toBe(b.deviceRoot);
+    await a.project.saveAgentConnection({ label: 'Isolated test source', provider: 'openai-compatible',
+      auth_type: 'api_key', enabled: true, endpoint: 'https://custom.invalid/v1', models: ['vendor/chat'] }, { api_key: 'fixture-only-key' });
+    expect(a.project.agentSelection.resources().connections).toHaveLength(1);
+    expect(b.project.agentSelection.resources().connections).toEqual([]);
+  } finally { await Promise.all([a.close(), b.close()]); }
+  for (const f of [a, b]) { expect(fs.existsSync(f.root)).toBe(false); expect(fs.existsSync(f.deviceRoot)).toBe(false); }
+});
+
+test('successful invocation assertions wait for Git finish and branch ownership release after provider return', async () => {
+  const entered = gate(), release = gate(), f = runtime();
+  const finish = f.project.workspaces.finish.bind(f.project.workspaces);
+  f.project.workspaces.finish = async task => { entered.resolve(); await release.promise; return finish(task); };
+  try {
+    await repo(f.root);
+    const task = (await f.project.order('controlled Git completion')).task;
+    await entered.promise;
+    const settled = invocationSettled(f, task);
+    expect(f.calls).toHaveLength(1); expect(f.project.running.has(task.id)).toBe(true);
+    expect(f.store.task(task.id).status).not.toBe('waiting');
+    release.resolve(); await settled;
+  } finally { release.resolve(); await f.close(); }
+});
 
 test('disabled and explicit selection return the original profile without reading any managed credentials', async () => {
   const f = fixture();
@@ -161,19 +208,22 @@ test('real compatible Manager, resource RPC and selection prepare the same isola
       return originalRun(ctx);
     } finally { fs.rmSync(privatePi.dir, { recursive: true, force: true }); }
   };
-  await repo(f.root);
   try {
+    await repo(f.root);
     row = await f.project.saveAgentConnection({ label: 'Real compatible account', provider: 'openai-compatible',
       auth_type: 'api_key', enabled: true, endpoint: 'https://custom.invalid/v1', models: ['vendor/chat'] },
     { api_key: 'REAL-MANAGER-PRIVATE-KEY' });
     await f.project.queryAgentConnections(row.id);
     const rpc = new Dispatcher(f.project, createSignal(), {});
     const resources = await rpc.dispatch('agent.selection.resources', {});
-    expect(resources.connections[0]).toMatchObject({ id: row.id, credential: { status: 'configured' },
-      observation: { status: 'unsupported', resources: [] } });
+    expect(resources.connections).toHaveLength(1);
+    expect(resources.connections[0]).toMatchObject({ id: row.id, provider: 'openai-compatible', endpoint: row.endpoint,
+      models: ['vendor/chat'], supported_agents: ['pi'], credential: { status: 'configured' },
+      observation: { status: 'unsupported', resources: [], source: 'none', error_code: 'unsupported' },
+      model_catalog: { status: 'unknown', source: 'manual', models: [{ id: 'openai-compatible/vendor/chat' }] } });
     expect(JSON.stringify(resources)).not.toContain('REAL-MANAGER-PRIVATE-KEY');
     const task = (await f.project.order('real managed selection')).task;
-    await until(() => f.store.task(task.id).status === 'waiting' && f.project.running.size === 0);
+    await invocationSettled(f, task);
     expect(f.calls).toHaveLength(1);
     expect(f.store.runsForTask(task.id)[0]).toMatchObject({ model: 'openai-compatible/vendor/chat', status: 'completed' });
     expect(requests).toBe(0);
@@ -182,10 +232,11 @@ test('real compatible Manager, resource RPC and selection prepare the same isola
 });
 
 test('constructor-injected selection is frozen into Run, started event and runtime binding before provider execution', async () => {
-  const f = runtime(() => selected); install(f, { manager: new ManagerStub([managed()]) }); await repo(f.root);
+  const f = runtime(() => selected); install(f, { manager: new ManagerStub([managed()]) });
   try {
+    await repo(f.root);
     const task = (await f.project.order('selected invocation')).task;
-    await until(() => f.store.task(task.id).status === 'waiting' && f.project.running.size === 0);
+    await invocationSettled(f, task);
     expect(f.calls).toHaveLength(1);
     expect(f.calls[0].agent).toMatchObject(selected);
     expect(f.calls[0].connectionRuntime.connection.id).toBe(id);
@@ -199,10 +250,11 @@ test('constructor-injected selection is frozen into Run, started event and runti
 
 test('ordinary invocations and null strategy results keep the old profile and never prepare managed credentials', async () => {
   for (const strategy of [undefined, () => null]) {
-    const f = runtime(strategy); await repo(f.root);
+    const f = runtime(strategy);
     try {
+      await repo(f.root);
       const task = (await f.project.order('old profile')).task;
-      await until(() => f.store.task(task.id).status === 'waiting' && f.project.running.size === 0);
+      await invocationSettled(f, task);
       expect(f.calls[0].agent).toEqual(profile);
       expect(f.calls[0].connectionRuntime).toBeNull();
       if (!strategy) expect(f.project.agentConnections.manager).toBeNull();
@@ -212,15 +264,16 @@ test('ordinary invocations and null strategy results keep the old profile and ne
 
 test('explicit Worker retry profile wins over strategy, and retry RPC accepts its existing profile parameter', async () => {
   let selectedCalls = 0;
-  const f = runtime(() => { selectedCalls++; throw new Error('must not select'); }); await repo(f.root);
+  const f = runtime(() => { selectedCalls++; throw new Error('must not select'); });
   try {
+    await repo(f.root);
     f.project.stopping = true;
     const task = (await f.project.order('explicit retry')).task;
     f.project.cancel(task.id, 'fixture failed', 'failed');
     const rpc = new Dispatcher(f.project, createSignal(), {});
     await rpc.dispatch('worker.retry', { id: task.id, profile: { ...profile, model: 'deepseek/explicit' } });
     f.project.stopping = false; f.project.kick();
-    await until(() => f.store.task(task.id).status === 'waiting' && f.project.running.size === 0);
+    await invocationSettled(f, task);
     expect(selectedCalls).toBe(0);
     expect(f.calls[0].agent.model).toBe('deepseek/explicit');
     expect(f.project.agentConnections.manager).toBeNull();
@@ -228,8 +281,9 @@ test('explicit Worker retry profile wins over strategy, and retry RPC accepts it
 });
 
 test('strategy exceptions fail before starting a Run and never persist exception details', async () => {
-  const f = runtime(() => { throw new Error('SECRET strategy stack'); }); await repo(f.root);
+  const f = runtime(() => { throw new Error('SECRET strategy stack'); });
   try {
+    await repo(f.root);
     const task = (await f.project.order('failing strategy')).task;
     await until(() => f.store.task(task.id).status === 'failed' && f.project.running.size === 0);
     expect(f.calls).toHaveLength(0); expect(f.store.runsForTask(task.id)).toEqual([]);
@@ -241,8 +295,9 @@ test('strategy exceptions fail before starting a Run and never persist exception
 test('cancellation releases an uncooperative selection and a late result cannot launch a provider', async () => {
   const entered = gate(), release = gate();
   const f = runtime(async ({ signal }) => { expect(signal).toBeInstanceOf(AbortSignal); entered.resolve(); await release.promise; return selected; });
-  install(f, { manager: new ManagerStub([managed()]) }); await repo(f.root);
+  install(f, { manager: new ManagerStub([managed()]) });
   try {
+    await repo(f.root);
     const task = (await f.project.order('cancel selection')).task;
     await entered.promise; f.project.cancel(task.id, 'cancelled by user');
     await until(() => f.project.running.size === 0);
@@ -253,8 +308,9 @@ test('cancellation releases an uncooperative selection and a late result cannot 
 });
 
 test('invocation timeout bounds a strategy that never resolves, without starting a provider', async () => {
-  const f = runtime(() => new Promise(() => {}), { LUSH_CALL_TIMEOUT: '1' }); await repo(f.root);
+  const f = runtime(() => new Promise(() => {}), { LUSH_CALL_TIMEOUT: '1' });
   try {
+    await repo(f.root);
     const task = (await f.project.order('timeout selection')).task;
     await until(() => f.store.task(task.id).status === 'failed' && f.project.running.size === 0);
     expect(f.calls).toHaveLength(0); expect(f.store.task(task.id).error).toBe('agent invocation timed out after 1 second');
@@ -265,8 +321,9 @@ test('invocation timeout bounds a strategy that never resolves, without starting
 test('pause during selection prevents late launch; explicit resume is selected only on the next invocation', async () => {
   const entered = gate(), release = gate();
   const f = runtime(async () => { entered.resolve(); await release.promise; return selected; });
-  install(f, { manager: new ManagerStub([managed()]) }); await repo(f.root);
+  install(f, { manager: new ManagerStub([managed()]) });
   try {
+    await repo(f.root);
     const task = (await f.project.order('pause selection')).task;
     await entered.promise; f.project.interrupt(task.id); release.resolve();
     await until(() => f.project.running.size === 0 && f.store.task(task.id).status === 'paused');

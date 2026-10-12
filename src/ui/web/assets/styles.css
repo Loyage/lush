@@ -604,6 +604,7 @@ button.agent-call:disabled{opacity:.55;background:var(--violet-ink);color:var(--
 button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 
 /* Task 图：父子连线、Task 卡片与就地 Git 诊断。 */
+.task-graph-page-tail{padding:20px 12px;margin-top:16px;border-top:1px solid var(--line);text-align:center;min-height:100px}.task-graph-page-tail p{margin:6px 0}.task-graph-page-tail button[hidden]{display:none}
 .task-graph{max-width:1200px;margin:auto;overflow-x:auto}.task-graph .resource-hero{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
 .task-graph .resource-hero p{flex-basis:100%}.task-graph-summary{display:flex;flex-wrap:wrap;align-items:center;gap:7px}.task-graph-fold-controls{display:flex;flex-wrap:wrap;gap:8px}
 .task-graph-node{margin:10px 0;min-width:300px}.task-graph-children{margin-left:19px;padding-left:18px;border-left:2px solid var(--line)}

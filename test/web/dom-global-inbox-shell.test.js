@@ -4,7 +4,6 @@ import { until } from '../helpers.js';
 import { makeWorld } from './dom-world.js';
 import { ui } from '../../src/ui/web/assets/state.js';
 import { activateDetailView } from '../../src/ui/web/assets/sidebar-ui.js';
-import { startGlobalNoticeObserver } from '../../src/ui/web/assets/global-notice-notifications.js';
 import { inboxMatches } from '../../src/ui/web/assets/global-inbox-model.js';
 import { setPref } from '../../src/ui/web/assets/prefs.js';
 
@@ -32,13 +31,11 @@ beforeEach(() => {
     return world.fetchImpl(url, options);
   } });
 });
-afterEach(() => {
-  // The shell owns a private disposer. Replace/dispose the singleton so no notifier timer outlives this DOM.
-  const dispose = startGlobalNoticeObserver({ read: async () => ({ version: 1, items: [], projects: [], cursor: null, has_more: false, complete: true }),
-    setTimeout: () => 0, clearTimeout: () => {} }); dispose();
-  dom.restore();
-});
-async function boot() { if (!app) app = await import('../../src/ui/web/assets/app.js'); else await app.boot(); }
+afterEach(() => dom.restore());
+async function boot() {
+  app ||= await import('../../src/ui/web/assets/app.js');
+  await app.boot(); // Always mount this fixture, even when another file imported app.js.
+}
 
 test('real shell and inbox agree on root defaults and every filter survives hash dispatch without extra history', async () => {
   dom.location.hash = '#notices'; await boot();

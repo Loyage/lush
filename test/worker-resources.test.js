@@ -38,7 +38,7 @@ test('lifetime own/subtree totals include all 205 descendants and all sessions, 
     expect(updated.get(1).subtree.running).toBe(false);
   } finally { await f.close(); }
 });
-test('worker.graph exposes complete subtree usage even when the spending child is off-page, without writes', async () => {
+test('worker.graph uses valid cached off-page subtree usage, otherwise marks spend unknown without reading off-page bodies or writing facts', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const main = await f.project.ensureMainTask();
@@ -58,7 +58,12 @@ test('worker.graph exposes complete subtree usage even when the spending child i
     expect(graph.truncated).toBe(true);
     expect(graph.nodes.some(row => row.id === child.id)).toBe(false);
     expect(graph.nodes.find(row => row.id === main.id).resources).toMatchObject({
-      own: { input: 0, cost: 0, run_ms: 0 }, subtree: { input: 35, output: 3, cost: .2, run_ms: 1000 },
+      own: { input: 0, cost: 0, run_ms: 0 }, subtree: { input: 0, run_ms: 1000, incomplete: true },
+    });
+    await readWorkerResources(f.config, f.store.all('SELECT id,parent_id,status FROM tasks'));
+    const cached = await f.project.taskGraph();
+    expect(cached.nodes.find(row => row.id === main.id).resources).toMatchObject({
+      own: { input: 0, cost: 0, run_ms: 0 }, subtree: { input: 35, output: 3, cost: .2, run_ms: 1000, incomplete: false },
     });
     expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(before);
   } finally { await f.close(); }

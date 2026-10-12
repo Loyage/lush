@@ -41,7 +41,7 @@ export const PARAMS = {
   'input.history': ['cursor','limit','q','status','integration'], 'input.get': ['kind','id'], 'input.parents': [],
   'draft.add': ['content','references','branch'], 'draft.update': ['id','content','references','branch','expected_revision'],
   'draft.remove': ['id','expected_revision'],
-  'worker.auto_title': ['title'], 'worker.rename': ['id','title'], 'worker.lookup': ['number'], 'worker.graph': ['details'], 'worker.list': ['after','limit'], 'worker.activity': ['limit','scope'],
+  'worker.auto_title': ['title'], 'worker.rename': ['id','title'], 'worker.lookup': ['number'], 'worker.graph': ['details','hidden_statuses','include_archived','cursor','scope'], 'worker.list': ['after','limit'], 'worker.activity': ['limit','scope'],
   'worker.page': ['before','limit','scope'], 'worker.tree': ['id'], 'worker.inspect': ['id'], 'worker.run_settings': ['id'],
   'worker.progress_history': ['id','before','limit'],
   'worker.reading_page': ['id','before_event','before_message','limit','query'],

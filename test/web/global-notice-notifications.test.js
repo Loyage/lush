@@ -135,6 +135,57 @@ test('refresh requests are single-flight, disposal aborts reads and removes time
   } finally { observer.dispose(); dom.restore(); }
 });
 
+test('synchronous read errors reject the scan Promise and timer retries preserve the original error', async () => {
+  const dom = installDom(), timer = clock(); let calls = 0;
+  const failure = new Error('同步连接失败');
+  const observer = createGlobalNoticeObserver({ read: () => { calls++; throw failure; },
+    setTimeout: timer.schedule, clearTimeout: timer.cancel });
+  try {
+    const done = observer.refresh(); // Must return a Promise, not throw a scan.done TypeError.
+    expect(done).toBeInstanceOf(Promise); await expect(done).rejects.toBe(failure);
+    expect(observer.summary().complete).toBe(false);
+    expect([...timer.timers.values()].map(value => value.ms)).toEqual([6000]);
+    expect(await timer.fire(6000)).toBe(true); expect(calls).toBe(2);
+    expect([...timer.timers.values()].map(value => value.ms)).toEqual([12000]);
+  } finally { observer.dispose(); expect(timer.timers.size).toBe(0); dom.restore(); }
+});
+
+test('a synchronous stale read keeps cached counts and a later successful read notifies only new records', async () => {
+  const dom = installDom(), state = { rows: [row(A, 1)], projects: [project(A)] }, server = backend(state);
+  let failure = null;
+  const fixture = observeFixture(state, { read: url => { if (failure) throw failure; return server.read(url); } });
+  try {
+    await completeScan(fixture.observer, fixture.timer);
+    failure = new Error('旧页面已过期');
+    const done = fixture.observer.refresh(); await expect(done).rejects.toBe(failure);
+    expect(fixture.observer.summary().open).toBe(1); expect(fixture.observer.summary().complete).toBe(false);
+    expect(fixture.observer.summary().projects[0].online).toBe(false); expect(fixture.sent).toEqual([]);
+    failure = null; state.rows.push(row(A, 2));
+    await completeScan(fixture.observer, fixture.timer);
+    expect(fixture.observer.summary().open).toBe(2); expect(fixture.sent).toEqual([[A, 2]]);
+  } finally { fixture.observer.dispose(); dom.restore(); }
+});
+
+test('synchronous read disposal rejects the original Promise without a missed abort timeout or late publication', async () => {
+  const dom = installDom(), timer = clock(), summaries = [], sent = [];
+  let resolve, signal, calls = 0;
+  const response = new Promise(yes => { resolve = yes; });
+  const observer = createGlobalNoticeObserver({ read: (_url, options) => {
+    calls++; signal = options.signal; observer.dispose(); return response;
+  }, onSummary: value => summaries.push(value), send: async value => sent.push(value),
+  setTimeout: timer.schedule, clearTimeout: timer.cancel });
+  try {
+    const done = observer.refresh(); expect(done).toBeInstanceOf(Promise);
+    await expect(done).rejects.toThrow('已停止'); await microtasks();
+    expect(signal.aborted).toBe(true); expect(timer.timers.size).toBe(0);
+    expect(dom.listeners.storage).toHaveLength(0); expect(Object.values(dom.documentListeners).flat()).toHaveLength(0);
+    const before = summaries.length;
+    resolve({ version: 1, items: [row(A)], projects: [project(A)], has_more: false, cursor: null, complete: true });
+    await microtasks(); setPref('noticeNotifications', true);
+    expect(calls).toBe(1); expect(summaries).toHaveLength(before); expect(sent).toEqual([]);
+  } finally { observer.dispose(); dom.restore(); }
+});
+
 test('a repeating pagination cursor and timeout never report truncated results as complete', async () => {
   const dom = installDom(), timer = clock();
   const observer = createGlobalNoticeObserver({ read: async () => ({ version: 1, items: [row(A)], projects: [project(A)], has_more: true, cursor: 'same', complete: true }),

@@ -449,5 +449,10 @@ test('图模式是权威设备偏好，旧项目cache不覆盖它；无localStor
     await refreshDevicePreferences(); await enable(); renderTaskGraph(graph);
     expect(mode().checked).toBe(false);
     await enableDetails(); expect(mode().checked).toBe(true); expect(readPref('taskGraphMinimal')).toBe(false);
-  } finally { globalThis.localStorage = storage; }
+  } finally {
+    globalThis.localStorage = storage;
+    // Reconcile through writable storage so the module's privacy-mode fallback
+    // cannot leak device preference values into a subsequent DOM fixture.
+    await refreshDevicePreferences();
+  }
 });

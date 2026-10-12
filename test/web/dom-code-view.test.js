@@ -306,7 +306,9 @@ test('deactivation aborts requests and obsolete file/scope responses never repai
     f.override(null); await code.setActive(true); expect(code.root.querySelector('.code-hunk')).toBeTruthy();
     const scope = code.root.querySelector('select[aria-label="代码比较范围"]'); scope.value = 'working'; await scope.onchange();
     expect(f.calls.filter(url => url.pathname.endsWith('/code-file')).at(-1).searchParams.get('scope')).toBe('working');
-    code.dispose(); const before = f.calls.length; dom.intervalFor(3000)(); expect(f.calls).toHaveLength(before);
+    const lateTick = dom.intervalFor(3000); expect(lateTick).toBeInstanceOf(Function);
+    code.dispose(); expect(dom.intervalFor(3000)).toBeUndefined();
+    const before = f.calls.length; lateTick(); expect(f.calls).toHaveLength(before);
   } finally { code.dispose(); dom.restore(); }
 });
 

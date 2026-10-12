@@ -5,7 +5,7 @@ import { fetch, pageSource, setup } from './harness.js';
 
 test('worker.graph remains read-only; the branch genealogy RPC remains available without a Web view', () => {
   for (const method of ['worker.graph', 'graph.get']) {
-    expect(PARAMS[method]).toEqual(method === 'worker.graph' ? ['details'] : []);
+    expect(PARAMS[method]).toEqual(method === 'worker.graph' ? ['details','hidden_statuses','include_archived','cursor','scope'] : []);
     expect(USER_ONLY.has(method)).toBe(false);
     expect(AGENT_ONLY.has(method)).toBe(false);
   }
@@ -21,7 +21,7 @@ test('worker.graph is a project-scoped read model', async () => {
     const result = await fetch(f.url + '/api/worker-graph');
     expect(result.status).toBe(200);
     const graph = await result.json();
-    expect(Object.keys(graph).sort()).toEqual(['nodes','edges','truncated','total'].sort());
+    expect(Object.keys(graph).sort()).toEqual(['nodes','edges','truncated','total','cursor','has_more','matched_total','counts','archived_count'].sort());
     expect(graph.nodes).toEqual([]);
     expect(graph.edges).toEqual([]);
     const summary = await (await fetch(f.url + '/api/worker-graph?details=0')).json();

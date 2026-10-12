@@ -12,6 +12,8 @@ const post = (url, method, params, headers = {}) => fetch(url + '/api/action', {
 const reads = [
   ['workers?scope=all&before=9&limit=2', 'page', { scope: 'all', before: 9, limit: 2 }],
   ['worker-graph', 'graph', {}],
+  ['worker-graph?details=0&hidden_statuses=%5B%22failed%22%5D&include_archived=0&cursor=abc&scope=tree', 'graph',
+    { details: false, hidden_statuses: ['failed'], include_archived: false, cursor: 'abc', scope: 'tree' }],
   ['worker/7', 'inspect', { id: 7 }],
   ['worker/7/history?after=2', 'history', { id: 7, after: 2 }],
   ['worker/7/history-page?before=9&limit=2', 'history_page', { id: 7, before: 9, limit: 2 }],
@@ -74,6 +76,18 @@ test('worker HTTP reads forward only the new namespace with unchanged typed para
     expect((await fetch(`${f.url}/api/workers`)).status).toBe(400);
     expect((await fetch(`${f.url}/p/${'0'.repeat(16)}/api/workers`)).status).toBe(400);
     expect(f.calls).toHaveLength(before);
+  } finally { f.close(); }
+});
+
+test('Worker graph HTTP rejects unknown, duplicate and malformed parameters without forwarding', async () => {
+  const f = await hostFixture();
+  try {
+    for (const query of ['bogus=1', 'details=1&details=0', 'scope=all&scope=tree', 'scope=bad', 'scope=', 'include_archived=true', 'hidden_statuses=failed',
+      'hidden_statuses=null', 'hidden_statuses=%5B%22bogus%22%5D', 'hidden_statuses=%5B1%5D',
+      'hidden_statuses=%5B%22failed%22,%22failed%22%5D', 'cursor=', 'cursor=' + 'a'.repeat(1025)]) {
+      expect((await fetch(`${f.urlA}/api/worker-graph?${query}`)).status).toBe(400);
+      expect(f.calls).toHaveLength(0);
+    }
   } finally { f.close(); }
 });
 

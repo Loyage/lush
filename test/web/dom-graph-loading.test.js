@@ -20,16 +20,18 @@ test('first open returns after summary, slow full enrichment does not block cach
     await openTaskGraph();
     expect(deepText(dom.node('detail'))).toContain('立即可读');
     expect(deepText(dom.node('detail'))).toContain('Git 诊断与累计用量加载中');
-    expect(requests).toEqual(['/api/worker-graph?details=0', '/api/worker-graph']);
+    expect(requests).toEqual(['/api/worker-graph?details=0&hidden_statuses=%5B%5D&include_archived=0&scope=tree',
+      '/api/worker-graph?details=1&hidden_statuses=%5B%5D&include_archived=0&scope=tree']);
     ui.view = { id: 'overview' };
     await openTaskGraph();
     expect(deepText(dom.node('detail'))).toContain('立即可读');
-    expect(requests).toHaveLength(2);
+    // Reopening keeps the summary but invalidates the old view's pending enrichment.
+    expect(requests).toHaveLength(3);
     full.resolve(json(graph(false, '补充完成'))); await loadTaskGraph();
     expect(deepText(dom.node('detail'))).toContain('补充完成');
     expect(deepText(dom.node('detail'))).not.toContain('Git 诊断与累计用量加载中');
     ui.view = { id: 'overview' }; await openTaskGraph();
-    expect(requests).toHaveLength(2);
+    expect(requests).toHaveLength(3);
   } finally { full.resolve(json(graph())); resetUiState(); dom.restore(); }
 });
 

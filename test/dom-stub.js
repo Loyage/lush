@@ -3,6 +3,11 @@
  * 让「页面自己变新」和「批量合并」的前端逻辑能在 bun test 里真的跑一遍，而不是只靠读代码。
  * 不是通用 DOM：选择器只支持 tag / .class / [attr="value"] 的组合，够用即可。
  */
+import { stopGlobalNoticeObserver } from '../src/ui/web/assets/global-notice-notifications.js';
+import { initAppearance } from '../src/ui/web/assets/appearance.js';
+import { resetUiState, ui } from '../src/ui/web/assets/state.js';
+
+const intervalHandle = Symbol('DOM fixture interval');
 class StubNode {
   constructor(tag) {
     this.tagName = String(tag).toUpperCase();
@@ -85,6 +90,10 @@ class StubNode {
     this.parentNode = null;
   }
   addEventListener(type, handler) { (this.listeners[type] ||= []).push(handler); }
+  removeEventListener(type, handler) {
+    const at = (this.listeners[type] || []).indexOf(handler);
+    if (at >= 0) this.listeners[type].splice(at, 1);
+  }
   // stub 没有真的焦点系统：focus() 只把 document.activeElement 指过来，够断言「焦点落在哪」与「关完还给谁」。
   focus() { if (globalThis.document) globalThis.document.activeElement = this; }
   // blur() 与 focus() 对称：焦点在自己身上时交还出去（浏览器里 activeElement 会回到 body / 外层元素）。
@@ -145,6 +154,9 @@ export function installDom({ fetch: fetchImpl } = {}) {
   const byId = new Map();
   const listeners = {};
   const intervals = [];
+  const timeouts = new Set();
+  const nativeTimeout = globalThis.setTimeout, nativeClearTimeout = globalThis.clearTimeout;
+  const nativeClearInterval = globalThis.clearInterval;
   const location = { hash: '', pathname: '/' };
   // 浏览器里 pushState / replaceState 都会改地址栏；stub 只关心 hash，两个都实现。区别只在
   // 「后退能不能回到概览」这条浏览器行为上，所以另外记一个压栈次数让测试能断言。
@@ -156,14 +168,21 @@ export function installDom({ fetch: fetchImpl } = {}) {
     open: () => null,
     getSelection: () => ({ isCollapsed: !selectionText, toString: () => selectionText }),
   };
-  const store = new Map();
-  const localStorage = { getItem: key => (store.has(key) ? store.get(key) : null), setItem: (key, value) => store.set(key, String(value)), removeItem: key => store.delete(key) };
+  const makeStorage = () => {
+    const store = new Map();
+    return { getItem: key => store.get(String(key)) ?? null, setItem: (key, value) => store.set(String(key), String(value)),
+      removeItem: key => store.delete(String(key)), clear: () => store.clear() };
+  };
+  const localStorage = makeStorage(), sessionStorage = makeStorage();
+  const documentListeners = {};
   const document = {
     createElement: tag => new StubNode(tag),
     createTextNode: textNode,
     documentElement: new StubNode('html'),
     body: new StubNode('body'),
     getElementById: id => { if (!byId.has(id)) byId.set(id, new StubNode(id === 'input-form' ? 'form' : 'div')); return byId.get(id); },
+    addEventListener: (type, handler) => { (documentListeners[type] ||= []).push(handler); },
+    removeEventListener: (type, handler) => { const at = (documentListeners[type] || []).indexOf(handler); if (at >= 0) documentListeners[type].splice(at, 1); },
     activeElement: null,
   };
   const saved = new Map();
@@ -175,6 +194,7 @@ export function installDom({ fetch: fetchImpl } = {}) {
   assign('window', window);
   assign('location', location);
   assign('localStorage', localStorage);
+  assign('sessionStorage', sessionStorage);
   // 原生弹窗一律封死：它们会被浏览器/内嵌 webview 静默吃掉（confirm 直接返回 false），
   // 页面看到的就是「点了没反应」。Web UI 的确认与输入走 dialog.js 的应用内弹窗，这里报错就是回归。
   const banned = name => () => { throw new Error(`native ${name}() is banned in the Web UI; use dialog.js (confirmDialog / promptDialog) instead`); };
@@ -184,15 +204,40 @@ export function installDom({ fetch: fetchImpl } = {}) {
   assign('fetch', fetchImpl);
   assign('addEventListener', (type, handler) => { (listeners[type] ||= []).push(handler); });
   assign('removeEventListener', (type, handler) => { const at = (listeners[type] || []).indexOf(handler); if (at >= 0) listeners[type].splice(at, 1); });
-  assign('setInterval', (handler, ms) => { intervals.push({ handler, ms }); return intervals.length; });
+  // Cancellable handles must not alias native numeric timer IDs. A later boot can
+  // also cancel an earlier fixture's interval through the handle's owning closure.
+  assign('setInterval', (handler, ms) => {
+    const entry = { handler, ms }; intervals.push(entry);
+    return { [intervalHandle]: () => { const at = intervals.indexOf(entry); if (at >= 0) intervals.splice(at, 1); } };
+  });
+  assign('clearInterval', handle => handle?.[intervalHandle] ? handle[intervalHandle]() : nativeClearInterval(handle));
+  assign('setTimeout', (handler, ms, ...args) => {
+    const handle = nativeTimeout(() => { timeouts.delete(handle); handler(...args); }, ms);
+    timeouts.add(handle); return handle;
+  });
+  assign('clearTimeout', handle => { timeouts.delete(handle); nativeClearTimeout(handle); });
+  let restored = false;
   return {
-    document, window, location, listeners, intervals, byId,
+    document, window, location, listeners, documentListeners, intervals, timeouts, localStorage, sessionStorage, byId,
     pushed: () => pushed,
     setSelection: value => { selectionText = String(value); },
     node: id => document.getElementById(id),
     fire: async (type, event = {}) => { for (const handler of listeners[type] || []) await handler(event); },
     intervalFor: ms => intervals.find(entry => entry.ms === ms)?.handler,
     restore() {
+      if (restored) return; restored = true;
+      if (globalThis.document === document) {
+        // Close the real application readers before replacing globals: late responses
+        // must not use the next fixture's fetch/storage, or leave preference listeners.
+        stopGlobalNoticeObserver();
+        initAppearance().destroy();
+        ui.disposeDetailRequests?.(); ui.disposeDetailRequests = null;
+        resetUiState();
+      }
+      for (const handle of timeouts) nativeClearTimeout(handle);
+      timeouts.clear(); intervals.length = 0;
+      for (const entries of Object.values(listeners)) entries.length = 0;
+      for (const entries of Object.values(documentListeners)) entries.length = 0;
       for (const [name, descriptor] of saved) {
         if (descriptor) Object.defineProperty(globalThis, name, descriptor);
         else delete globalThis[name];

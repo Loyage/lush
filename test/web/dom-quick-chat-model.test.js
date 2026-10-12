@@ -6,6 +6,7 @@ import { makeWorld } from './dom-world.js';
 import { renderChatModel } from '../../src/ui/web/assets/quick-chat-model.js';
 import { ui } from '../../src/ui/web/assets/state.js';
 import { activateDetailView } from '../../src/ui/web/assets/sidebar-ui.js';
+import { refreshGlobalNotices } from '../../src/ui/web/assets/global-notice-notifications.js';
 
 const world = makeWorld(), calls = [];
 let intercept = null;
@@ -26,7 +27,9 @@ beforeEach(async () => {
   world.state.agentConnections.connections = [{ id: '11111111-1111-4111-8111-111111111111', label: '测试 API', provider: 'openai-compatible', auth_type: 'api_key', enabled: true,
     models: ['fixture-model', 'vendor/chat'], endpoint: 'https://models.invalid/v1', credential: { status: 'configured' } }];
   Object.assign(world.state.quickExplanationConfig, { connection_id: world.state.agentConnections.connections[0].id, model: 'fixture-model', ready: true, reason: null });
-  await boot(); calls.length = 0;
+  await boot();
+  // Finish the shell's baseline before measuring the model component's requests.
+  await refreshGlobalNotices(); calls.length = 0;
 });
 afterAll(() => dom.restore());
 
