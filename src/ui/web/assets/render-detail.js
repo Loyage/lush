@@ -107,6 +107,11 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   if (!readOnly) actions.append(workerRenameControl(task, { refresh: () => detail(task.id) }));
   const queueText = inputQueueText(task);
   if (queueText) panel.append(el('p', queueText, 'hint worker-input-queue'));
+  for (const [label, text] of [['错误', task.error], ['合并错误', task.integration_error]]) {
+    if (!text) continue;
+    const value = String(text), snippet = value.slice(0, 240);
+    panel.append(el('p', `${label}：${snippet}${value.length > snippet.length ? '…' : ''}（完整诊断见页末）`, 'error task-error-summary'));
+  }
   const stacked = (task.deps || []).filter(edge => edge.kind === 'code');
   const freeze = freezeOf(task);
   const resolver = resolverOf(task);
@@ -246,9 +251,9 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
 
   // Only reading modules below this point get height-limited previews, never actions/forms above.
   const readingStart = panel.children.length;
-  // Inputs and invocation results share one conversation, ahead of implementation metadata.
+  // Primary modules: automation, plan, timeline, Agent, code, decisions, relations.
+  const supplemental = [];
   const conversation = renderConversation(task, history, previousConversation);
-  if (conversation) panel.append(conversation);
   const endedAt = [...(task.runs || [])].reverse().find(run => run.ended_at)?.ended_at ?? task.updated_at;
   let progress = renderTaskProgress(task.progress, { status: task.status, endedAt });
   const progressHistory = renderProgressHistory(task, previousProgressHistory);
@@ -257,8 +262,9 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     progress.append(progressHistory);
   }
   if (progress) panel.append(progress);
-  if (task.error) { const error = block('错误'); error.classList.add('error-panel'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); panel.append(error); }
-  if (task.integration_error) { const error = block('合并错误'); error.classList.add('error-panel'); error.append(agentText(task.integration_error, { className: 'error', plain: 'pre' })); panel.append(error); }
+  if (conversation) panel.append(conversation);
+  if (task.error) { const error = block('错误'); error.classList.add('error-panel'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); supplemental.push(error); }
+  if (task.integration_error) { const error = block('合并错误'); error.classList.add('error-panel'); error.append(agentText(task.integration_error, { className: 'error', plain: 'pre' })); supplemental.push(error); }
 
   const agent = task.calls ? renderAgent(task, usage) : null;
   if (agent) {
@@ -279,9 +285,9 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     : duration(task.created_at, wallEnd)));
   grid.append(kv('创建', `${absolute(task.created_at)}`, 'mono'));
   grid.append(kv('最后更新', `${absolute(task.updated_at)} · ${relative(task.updated_at)}`));
-  stats.append(grid); panel.append(stats);
-  if (task.specs) panel.append(renderTaskSpecs(task));
-  if ((task.resolutions || []).length) panel.append(renderResolutions(task));
+  stats.append(grid);
+  if (task.specs) supplemental.push(renderTaskSpecs(task));
+  if ((task.resolutions || []).length) supplemental.push(renderResolutions(task));
 
   let diffSection = null, diffBody = null;
   const progressiveDiff = Boolean(progressive?.requestDiff);
@@ -310,12 +316,11 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     }
     panel.append(diffSection);
   }
-  if (task.role === 'verifier' || task.verifications?.length || (task.role === 'worker' && task.status === 'completed' && task.workspace && task.head_commit)) panel.append(renderVerifications(task));
+  if (task.role === 'verifier' || task.verifications?.length || (task.role === 'worker' && task.status === 'completed' && task.workspace && task.head_commit)) supplemental.push(renderVerifications(task));
 
   const relationsOptions = { data: progressive?.loaded?.relations, current: progressive?.current ?? (() => true), signal: progressive?.signal };
   const relations = previousRelations || renderWorkerRelations(task, relationsOptions);
   if (previousRelations) relations.bindRelations(task, relationsOptions);
-  panel.append(relations);
   const decisions = (task.notices || []).filter(notice => notice.kind === 'questionnaire');
   if (decisions.length) {
     const record = block('决策记录', String(decisions.length));
@@ -338,6 +343,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     }
     panel.append(record);
   }
+  panel.append(relations, stats, ...supplemental);
   linkWorkerNumbers(panel);
   limitDetailModules(panel, { taskId: task.id, from: readingStart });
   if (progressHistory && historyFocus && document.activeElement !== historyFocus) historyFocus.focus({ preventScroll: true });

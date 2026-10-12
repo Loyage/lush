@@ -30,13 +30,16 @@ test('unified timeline defaults, colored button counts, stable chronological int
   const root = renderConversation(current, { events });
   expect(root.querySelector('h2').textContent).toBe('时间线');
   expect(root.querySelector('.conversation-filters').querySelectorAll('input')).toHaveLength(0);
-  for (const key of ['input','output','decision','lifecycle','delivery','failure']) expect(toggle(root, key).getAttribute('aria-pressed')).toBe('true');
-  for (const key of ['other','detail']) expect(toggle(root, key).getAttribute('aria-pressed')).toBe('false');
+  for (const key of ['input','output','decision']) expect(toggle(root, key).getAttribute('aria-pressed')).toBe('true');
+  for (const key of ['lifecycle','delivery','failure','other','detail']) expect(toggle(root, key).getAttribute('aria-pressed')).toBe('false');
   expect(toggle(root, 'detail').textContent).toBe('细粒度事件 2');
   expect(toggle(root, 'input').textContent).toBe('用户输入 2');
   expect(toggle(root, 'output').style.color).toBe('var(--queued)');
   expect(root.querySelectorAll('.conversation-output')).toHaveLength(1);
   expect(root.querySelectorAll('.conversation-input')).toHaveLength(2);
+  expect(root.querySelectorAll('.conversation-event')).toHaveLength(1);
+  expect(keys(root)).not.toContain('history:6');
+  for (const key of ['lifecycle','delivery','failure']) await toggle(root, key).onclick();
   expect(root.querySelectorAll('.conversation-event')).toHaveLength(4);
   await findByText(root, '正序').onclick();
   expect(keys(root)).toEqual(['goal','history:1','input:2','run:3','history:4','history:5','history:6']);
@@ -58,6 +61,8 @@ test('event types and safe metadata search explicitly submit text, clear preserv
   const root = renderConversation(task, { events: [event(1, 'merge.enqueued', { commit: 'SearchCommit',
     metadata: { hooks: { token: 'SECRET' }, path: 'src/timeline.js' }, management: 'HIDDEN', huge: 'z'.repeat(50000) }),
     event(2, 'workspace.created', { branch: 'branch-needle' })] });
+  expect(root.querySelector('[data-conversation-key="history:1"]')).toBeNull();
+  await toggle(root, 'delivery').onclick();
   const metadata = root.querySelector('[data-conversation-key="history:1"]').entry.metadata;
   expect(JSON.stringify(metadata)).not.toContain('SECRET'); expect(JSON.stringify(metadata)).not.toContain('HIDDEN');
   expect(metadata.huge.length).toBeLessThanOrEqual(2048); expect(deepText(root)).toContain('附属字段受限');
@@ -109,11 +114,13 @@ test('message/event aliases deduplicate communication and linked decision answer
   expect(await root.revealConversationReference({ kind: 'message', target: { message_id: 23 } })).toBe(answer);
 }));
 
-test('key management activity is visible by default with exact Chinese labels, safe details, failures and event reference reveal', () => fixture(async () => {
+test('management activity is hidden by default, opt-in and reference reveal preserve labels and safe details', () => fixture(async () => {
   const types = ['management.created', 'management.signal_submitted', 'management.invocation_started', 'management.action_submitted',
     'management.action_completed', 'management.settled', 'management.failed', 'management.unknown'];
   const root = renderConversation({ ...task, role: 'manager', task_kind: 'management' }, { events: types.map((type, index) => event(index + 1, type,
     { cwd: '/project/.lush/management/200', reason: type.endsWith('failed') ? '缺少管理模型来源' : '管理运行事实', management: { secret: 'PRIVATE-MANAGEMENT' } })) });
+  expect(root.querySelectorAll('.conversation-event')).toHaveLength(0);
+  await toggle(root, 'lifecycle').onclick(); await toggle(root, 'failure').onclick();
   expect(root.querySelectorAll('.conversation-event')).toHaveLength(8);
   expect(toggle(root, 'lifecycle').textContent).toBe('关键生命周期 6'); expect(toggle(root, 'failure').textContent).toBe('失败与受阻 2');
   expect(deepText(root)).toContain('管理信号已提交待执行'); expect(deepText(root)).toContain('缺少管理模型来源');
@@ -123,7 +130,7 @@ test('key management activity is visible by default with exact Chinese labels, s
   expect(submitted.dataset.ref).toContain('event-2'); expect(submitted.entry.metadata.management).toBeUndefined();
 }));
 
-test('unified automation submissions stay visible as delivery facts and explicit failed or unknown outcomes remain failure facts', () => fixture(async () => {
+test('unified automation outcomes keep delivery/failure categories, default hidden; opt-in and references retain exact facts', () => fixture(async () => {
   const events = [
     event(1, 'automation.operation_submitted', { tool: 'request_merge' }),
     event(2, 'automation.operation_submitted', { tool: 'accept_worker' }),
@@ -138,6 +145,9 @@ test('unified automation submissions stay visible as delivery facts and explicit
   expect(toggle(root, 'delivery').textContent).toBe('交付与合并 5');
   expect(toggle(root, 'failure').textContent).toBe('失败与受阻 2');
   expect(toggle(root, 'detail').textContent).toBe('细粒度事件 1');
+  expect(root.querySelectorAll('.conversation-event')).toHaveLength(0);
+  for (const key of ['delivery', 'failure', 'detail']) expect(toggle(root, key).getAttribute('aria-pressed')).toBe('false');
+  await toggle(root, 'delivery').onclick(); await toggle(root, 'failure').onclick();
   for (let id = 1; id <= 7; id++) {
     const node = root.querySelector(`[data-conversation-key="history:${id}"]`);
     expect(node).toBeTruthy(); expect(node.dataset.timelineCategory).toBe(id <= 5 ? 'delivery' : 'failure');
@@ -153,7 +163,11 @@ test('unified automation submissions stay visible as delivery facts and explicit
   await toggle(root, 'delivery').onclick(); root.updateConversation(task, { events });
   expect(keys(root)).toEqual(['history:7', 'history:6', 'goal']);
   expect(toggle(root, 'delivery').getAttribute('aria-pressed')).toBe('false');
+  await toggle(root, 'failure').onclick(); expect(keys(root)).toEqual(['goal']);
+  const revealed = await root.revealConversationReference({ kind: 'history_event', target: { task_id: 7, event_id: 7 } });
+  expect(revealed.dataset.timelineCategory).toBe('failure'); expect(revealed.expanded).toBe(true);
   expect(toggle(root, 'failure').getAttribute('aria-pressed')).toBe('true');
+  expect(toggle(root, 'delivery').getAttribute('aria-pressed')).toBe('false');
 }));
 
 test('complete known long results deduplicate the latest bubble but independent identical runs remain; user evidence leaves hidden communication category', () => fixture(async () => {
@@ -176,6 +190,8 @@ test('complete known long results deduplicate the latest bubble but independent 
 test('unreadable events render exact failure and incomplete range, not an empty successful scan', () => fixture(async () => {
   const root = renderConversation(task);
   await findByText(root, '查找全部历史').onclick();
+  expect(root.querySelector('[data-conversation-key="history:1"]')).toBeNull();
+  await toggle(root, 'failure').onclick();
   const failed = root.querySelector('[data-conversation-key="history:1"]');
   expect(failed).toBeTruthy(); expect(deepText(failed)).toContain('invalid_event_json');
   expect(failed.querySelector('.conversation-read-more')).toBeNull();

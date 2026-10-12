@@ -148,7 +148,8 @@ try {
     assert(await wait(`document.querySelector('.conversation-panel').classList.contains('detail-preview-long')`), 'long goal not measured');
     assert(await execute(`return (async()=>{const root=document.querySelector('.conversation-panel'),filters=[...root.querySelectorAll('.conversation-filter')];
       const other=root.querySelector('[data-conversation-filter="other"]');
-      if(filters.length!==8||filters.slice(0,6).some(n=>n.getAttribute('aria-pressed')!=='true')||other.getAttribute('aria-pressed')!=='false'||root.querySelector('.conversation-other'))throw new Error('filters '+JSON.stringify(filters.map(n=>[n.textContent,n.getAttribute('aria-pressed')])));
+      if(filters.length!==8||filters.slice(0,3).some(n=>n.getAttribute('aria-pressed')!=='true')||filters.slice(3).some(n=>n.getAttribute('aria-pressed')!=='false')||root.querySelector('.conversation-other')||root.querySelector('[data-conversation-key="history:83"]'))throw new Error('filters '+JSON.stringify(filters.map(n=>[n.textContent,n.getAttribute('aria-pressed')])));
+      await root.querySelector('[data-conversation-filter="failure"]').onclick();
       await other.onclick();const message=root.querySelector('.conversation-other');
       if(!message?.textContent.includes('来自子 Worker 的通信')||!message.textContent.includes('Worker W7-1'))throw new Error('communication '+message?.textContent);
       const failure=root.querySelector('[data-conversation-key="history:83"]');
@@ -157,8 +158,9 @@ try {
       if(getComputedStyle(failure.querySelector('.conversation-event-details')).display==='none')throw new Error('event expand '+failure.className);
       window.paint();if(other.getAttribute('aria-pressed')!=='true'||document.querySelector('.conversation-other')!==message||!failure.classList.contains('conversation-expanded'))throw new Error('refresh '+failure.className);
       await failure.querySelector('.conversation-expand').onclick();
-      await other.onclick();if(root.querySelector('.conversation-other')||!document.querySelector('.decision-record').open)throw new Error('final '+other.getAttribute('aria-pressed')+' '+!!root.querySelector('.conversation-other')+' decision='+document.querySelector('.decision-record').open);return true;
+      await other.onclick();await root.querySelector('[data-conversation-filter="failure"]').onclick();if(root.querySelector('.conversation-other')||!document.querySelector('.decision-record').open)throw new Error('final '+other.getAttribute('aria-pressed')+' '+!!root.querySelector('.conversation-other')+' decision='+document.querySelector('.decision-record').open);return true;
     })();`), 'timeline filters, compact event expansion, private metadata, communication provenance or refresh');
+    assert(await execute(`return [...document.querySelector('#detail').children].filter(n=>n.matches('.block')).map(n=>n.matches('.worker-hooks')?'自动化':n.querySelector('h2')?.textContent).slice(0,7).join('/')==='自动化/计划/时间线/Agent/代码与提交/决策记录/Worker 关系';`), 'primary module order');
     const sizes = await execute(`return [...document.querySelectorAll('.detail-preview')].map(n=>({
       title:n.querySelector('h2').textContent,body:n.querySelector('.detail-preview-body').getBoundingClientRect().height,
       limit:n.querySelector('.detail-preview-limit').getBoundingClientRect().height,

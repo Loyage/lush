@@ -5,7 +5,7 @@ import { resetUiState, ui } from '../../src/ui/web/assets/state.js';
 import { renderConversation } from '../../src/ui/web/assets/render-conversation.js';
 import { projectHistoryEvent } from '../../src/persistence/store/reading.js';
 
-test('automation operation status survives real history and reading projections without hidden failures or completion claims on submission', async () => {
+test('automation status survives real history and reading projections; hidden defaults preserve counts and reference access', async () => {
   const f = await setup();
   const task = f.store.create({ role: 'agent', task_kind: 'order', goal: 'automation timeline integration' });
   const submitted = f.store.event(task.id, 'automation.operation_submitted', { tool: 'request_merge', worker_id: task.id, round: 0 });
@@ -19,11 +19,18 @@ test('automation operation status survives real history and reading projections 
     expect(JSON.stringify(page)).not.toContain('PRIVATE-CONFIG');
     for (const events of [f.store.history(task.id), page.events]) {
       const root = renderConversation(task, { events });
+      expect(root.querySelectorAll('.conversation-event')).toHaveLength(0);
+      expect(root.querySelector('[data-conversation-filter="delivery"]').textContent).toBe('交付与合并 2');
+      expect(root.querySelector('[data-conversation-filter="failure"]').textContent).toBe('失败与受阻 1');
+      await root.querySelector('[data-conversation-filter="delivery"]').onclick();
       expect(root.querySelector(`[data-conversation-key="history:${submitted}"]`).entry.kind).toBe('自动化操作请求已提交');
-      const failure = root.querySelector(`[data-conversation-key="history:${failed}"]`);
+      const failure = await root.revealConversationReference({ kind: 'history_event', target: { task_id: task.id, event_id: failed } });
       expect(failure.dataset.timelineCategory).toBe('failure'); expect(failure.entry.metadata.status).toBe('failed');
-      expect(deepText(failure)).toContain('不自动重放');
+      expect(failure.expanded).toBe(true); expect(deepText(failure)).toContain('不自动重放');
       expect(root.querySelector(`[data-conversation-key="history:${target}"]`).entry.kind).toContain('未新增授权');
+      root.updateConversation(task, { events });
+      expect(root.querySelector(`[data-conversation-key="history:${failed}"]`)).toBe(failure);
+      expect(root.querySelector('[data-conversation-filter="failure"]').getAttribute('aria-pressed')).toBe('true');
     }
     expect(f.store.all('SELECT * FROM events')).toEqual(before); expect(f.project.running.size).toBe(0);
   } finally { resetUiState(); dom.restore(); await f.close(); }
@@ -42,6 +49,8 @@ test('real timeline reads generic long error, full-history metadata/type hits an
   try {
     const initial = projectHistoryEvent(f.store, task.id, errorId), root = renderConversation(task, { events: [initial], truncated: true });
     expect(calls).toHaveLength(0);
+    expect(root.querySelector('.conversation-event')).toBeNull();
+    await root.querySelector('[data-conversation-filter="failure"]').onclick();
     const failure = root.querySelector(`[data-conversation-key="history:${errorId}"]`);
     expect(failure).toBeTruthy(); expect(deepText(failure)).toContain('正文尚未读完');
     expect(deepText(failure)).not.toContain('SecretNeedle'); expect(deepText(failure)).not.toContain('HiddenHookNeedle');

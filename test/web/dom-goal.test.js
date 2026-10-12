@@ -51,7 +51,7 @@ test('colored categories keep communication distinct and retain choices/nodes ac
     const filters = root.querySelectorAll('.conversation-filter');
     const selection = () => filters.map(node => node.getAttribute('aria-pressed') === 'true');
     expect(root.querySelector('.conversation-filters').querySelectorAll('input')).toHaveLength(0);
-    expect(selection()).toEqual([true, true, true, true, true, true, false, false]);
+    expect(selection()).toEqual([true, true, true, false, false, false, false, false]);
     const toggle = (category, checked) => {
       const node = filters.find(node => node.dataset.conversationFilter === category);
       if ((node.getAttribute('aria-pressed') === 'true') !== checked) node.onclick();
@@ -69,13 +69,13 @@ test('colored categories keep communication distinct and retain choices/nodes ac
     await root.querySelector('.conversation-more').onclick();
     expect(deepText(root)).toContain('较早通信');
     renderConversation(current, history, root);
-    expect(selection()).toEqual([false, false, true, true, true, true, true, false]);
+    expect(selection()).toEqual([false, false, true, false, false, false, true, false]);
     expect(root.querySelectorAll('.conversation-other')).toHaveLength(3);
     toggle('other', false); expect(root.querySelectorAll('.conversation-message')).toHaveLength(0);
     toggle('other', true); expect(root.querySelectorAll('.conversation-other')).toContain(communication);
     toggle('input', true); toggle('output', true);
     expect(root.querySelectorAll('.conversation-output')).toContain(result); expect(root.querySelectorAll('.conversation-input')).toContain(user);
-    expect(renderConversation({ id: 8, goal: '另一 Worker' }).querySelectorAll('.conversation-filter').map(node => node.getAttribute('aria-pressed') === 'true')).toEqual([true, true, true, true, true, true, false, false]);
+    expect(renderConversation({ id: 8, goal: '另一 Worker' }).querySelectorAll('.conversation-filter').map(node => node.getAttribute('aria-pressed') === 'true')).toEqual([true, true, true, false, false, false, false, false]);
   } finally { dom.restore(); }
 });
 

@@ -5,9 +5,9 @@ export const TIMELINE_CATEGORIES = [
   ['input', '用户输入', true, 'var(--completed)'],
   ['output', 'Worker 结果', true, 'var(--queued)'],
   ['decision', '决策', true, 'var(--accent)'],
-  ['lifecycle', '关键生命周期', true, 'var(--running)'],
-  ['delivery', '交付与合并', true, 'var(--awaiting)'],
-  ['failure', '失败与受阻', true, 'var(--failed)'],
+  ['lifecycle', '关键生命周期', false, 'var(--running)'],
+  ['delivery', '交付与合并', false, 'var(--awaiting)'],
+  ['failure', '失败与受阻', false, 'var(--failed)'],
   ['other', '系统与 Worker 通信', false, 'var(--muted)'],
   ['detail', '细粒度事件', false, 'var(--muted)'],
 ];
