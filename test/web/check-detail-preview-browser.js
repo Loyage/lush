@@ -11,6 +11,7 @@ const fixture = html.replace('</body>', `<script type="module">
 import { renderDetail } from '/render-detail.js';
 import { revealDetailPreview } from '/detail-preview.js';
 import { ui } from '/state.js';
+import { noticePanel } from '/render-notices.js';
 import { block, el } from '/dom.js';
 import { enhanceModule, observeModules, disposeModules, revealModule } from '/shared-module.js';
 const at='2026-10-08T10:00:00Z';
@@ -36,6 +37,22 @@ window.makeSharedModules=()=>{
   window.sharedStates=new Map();window.sharedReading=enhanceModule(reading,{key:'reading',states:window.sharedStates,summary:'读取失败诊断保留在正文外'});
   window.sharedForm=enhanceModule(form,{key:'form',mode:'fold',states:window.sharedStates,summary:'等待回答 · 副作用未知'});
   window.sharedEditor=editor;window.sharedReveal=revealModule;window.sharedDispose=observeModules(panel,[window.sharedReading,window.sharedForm]);
+};
+window.makeNoticeModule=(kind,scope)=>{
+  // Freeze page-entry transforms before comparing sticky geometry across successive frames.
+  document.documentElement.dataset.reducedMotion='true';
+  disposeModules(document.querySelector('#detail'));ui.noticeModuleStates=new Map();
+  const panel=document.querySelector(scope==='records'?'#resource-panels':'#detail');
+  document.querySelector('#detail').hidden=scope==='records';
+  document.querySelector('#resource-panels').hidden=scope!=='records';
+  document.querySelector('#side-notices').hidden=false;
+  const notice={id:778,task_id:7,task_worker_number:'W7',kind,status:kind==='info'?'sent':'answered',answer_source:'user',
+    created_at:at,title:'已回答决策的长标题与连续标识 '+('LongDecisionTitle'.repeat(12)),
+    body:kind==='info'?long:window.task.notices[0].body,answer:window.task.notices[0].answer};
+  const section=noticePanel(notice),host=scope==='records'?document.querySelector('#side-notices-body'):panel;
+  host.replaceChildren(section);section.querySelector('.module-content').append(el('p',long));
+  const tail=el('div');tail.style.height='1400px';host.append(tail);
+  panel.scrollTop=0;window.scrollTo(0,0);window.noticeFixture={panel,section,head:section.querySelector('.notice-head')};
 };
 window.paint(); window.ready=true;
 </script></body>`);
@@ -314,6 +331,39 @@ try {
     console.log('PASS shared ordinary module geometry, sticky heading, anchor, preview/fold, draft/focus and summaries',width,height,theme);
   }
   await execute(`window.sharedDispose();document.querySelector('#detail').replaceChildren();`);
+  for (const [width,height] of [[1440,900],[390,700],[320,560]]) for (const theme of ['light','dark'])
+    for (const scope of ['records','detail']) for (const kind of ['questionnaire','info']) {
+      await viewport(width,height);
+      await execute(`document.documentElement.dataset.theme='${theme}';window.makeNoticeModule('${kind}','${scope}');`);
+      assert(await execute(`const {panel,section,head}=window.noticeFixture,title=head.querySelector('h3'),meta=head.querySelector('.notice-meta'),toggle=head.querySelector('.module-toggle');
+        const h=head.getBoundingClientRect(),t=title.getBoundingClientRect(),m=meta.getBoundingClientRect(),b=toggle.getBoundingClientRect();
+        return getComputedStyle(head).backgroundColor===getComputedStyle(section).backgroundColor&&
+          getComputedStyle(head).backgroundColor!=='rgba(0, 0, 0, 0)'&&m.bottom<=t.top+1&&t.right<=b.left+1&&
+          t.left>=h.left-1&&t.bottom<=h.bottom+1&&b.right<=h.right+1&&title.scrollWidth<=title.clientWidth+1&&
+          panel.scrollWidth<=panel.clientWidth+1;`),`Notice tint/title geometry ${width}/${theme}/${scope}/${kind}`);
+      await execute(`const {panel,head}=window.noticeFixture;const mobile=matchMedia('(max-width:760px)').matches;
+        const delta=head.getBoundingClientRect().top-(mobile?42:panel.getBoundingClientRect().top)+300;
+        if(mobile)window.scrollBy(0,delta);else panel.scrollTop+=delta;`);
+      await rpc(`/session/${session}/execute/async`,{script:'requestAnimationFrame(()=>requestAnimationFrame(()=>arguments[0](true)));',args:[]});
+      await execute(`const {panel,head}=window.noticeFixture;window.noticeStickyTop=head.getBoundingClientRect().top;
+        if(matchMedia('(max-width:760px)').matches)window.scrollBy(0,200);else panel.scrollTop+=200;`);
+      await rpc(`/session/${session}/execute/async`,{script:'requestAnimationFrame(()=>requestAnimationFrame(()=>arguments[0](true)));',args:[]});
+      assert(await execute(`const {panel,section,head}=window.noticeFixture,style=getComputedStyle(head),box=head.getBoundingClientRect();
+        const mobile=matchMedia('(max-width:760px)').matches;
+        const edge=mobile?parseFloat(style.top):panel.getBoundingClientRect().top;
+        const inset=mobile?2:parseFloat(getComputedStyle(panel).paddingTop);
+        window.noticeStickyDiagnostic={top:box.top,previous:window.noticeStickyTop,edge,inset,bottom:box.bottom,
+          sectionBottom:section.getBoundingClientRect().bottom,scroll:window.scrollY,panelScroll:panel.scrollTop};
+        return style.position==='sticky'&&Math.abs(box.top-window.noticeStickyTop)<2&&box.top>=edge-1&&
+          box.top<=edge+inset&&box.bottom<=section.getBoundingClientRect().bottom+1;`),
+        `Notice sticky edge ${width}/${theme}/${scope}/${kind}: ${JSON.stringify(await execute('return window.noticeStickyDiagnostic;'))}`);
+      await execute(`window.noticeFixture.head.querySelector('.module-toggle').click();`);
+      assert(await execute(`const {section,head}=window.noticeFixture,box=head.getBoundingClientRect();
+        return section.querySelector('.module-body').hidden&&box.bottom>0&&box.top<innerHeight&&head.textContent.includes('LongDecisionTitle');`), 'Notice collapse lost title/control');
+      await execute(`window.noticeFixture.head.querySelector('.module-toggle').click();`);
+      assert(await execute(`return !window.noticeFixture.section.querySelector('.module-body').hidden;`),'Notice failed to re-expand');
+    }
+  console.log('PASS Notice tinted sticky headings, metadata/title wrapping and fold controls: desktop/mobile, light/dark, records/detail, decision/info');
   passed = true;
 } finally {
   if (session) await rpc(`/session/${session}`, undefined, 'DELETE').catch(() => {});

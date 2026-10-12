@@ -1,5 +1,5 @@
 import { test, expect } from 'bun:test';
-import { installDom } from '../dom-stub.js';
+import { installDom, deepText } from '../dom-stub.js';
 import { block, el } from '../../src/ui/web/assets/dom.js';
 import { ui, resetUiState } from '../../src/ui/web/assets/state.js';
 import { pageBlocks, pageModules, disposePageModules } from '../../src/ui/web/assets/page-modules.js';
@@ -69,6 +69,25 @@ test('current questions are explicit folds only; status remains visible and coll
   expect(section.querySelector('.module-body').hidden).toBe(true);
   expect(section.querySelector('.module-summary').hidden).toBe(false); expect(notice.status).toBe('open');
   const rebuilt = noticePanel(notice); expect(rebuilt.querySelector('.module-body').hidden).toBe(true);
+}));
+
+test('answered decision headings separate metadata from title and preserve fold controls', () => fixture(async ({ panel }) => {
+  const notice = { id: 778, task_id: 22, task_worker_number: 'W231', kind: 'questionnaire', status: 'answered',
+    answer_source: 'user', title: '已回答的长决策标题'.repeat(12), created_at: '2026-01-01',
+    body: JSON.stringify({ version: 1, body: '决定背景', questions: [{ header: '范围', question: '选择范围？',
+      options: [{ label: '方案一', description: '当前方案' }, { label: '方案二', description: '候选方案' }] }] }),
+    answer: JSON.stringify({ answers: [{ selected: [0], labels: ['方案一'], custom: '' }] }) };
+  const section = noticePanel(notice); panel.replaceChildren(section);
+  const head = section.querySelector('.notice-head'), title = head.querySelector('h3'), meta = head.querySelector('.notice-meta');
+  expect(title.textContent).toBe(notice.title);
+  expect([...head.children]).toEqual([meta, title, head.querySelector('.module-toggle')]);
+  expect(deepText(meta)).toContain('D778'); expect(deepText(meta)).toContain('W231');
+  expect(deepText(meta)).toContain('已回答'); expect(deepText(meta)).toContain('用户答复');
+  const body = section.querySelector('.module-body');
+  expect(deepText(body)).toContain('方案一');
+  await head.querySelector('.module-toggle').onclick(); expect(body.hidden).toBe(true);
+  expect(head.querySelector('h3')).toBe(title); expect(deepText(meta)).toContain('已回答');
+  await head.querySelector('.module-toggle').onclick(); expect(body.hidden).toBe(false);
 }));
 
 test('folded forms keep live failures outside the hidden body and release summary observers', () => fixture(async ({ panel }) => {

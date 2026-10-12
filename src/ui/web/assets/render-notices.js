@@ -329,7 +329,9 @@ export async function openNotice(noticeId, { record = false } = {}) {
 /** 右侧顶部的 notice：完整正文 + 回复框，下面继续跟它所属任务的详情。 */
 export function noticePanel(notice, task = null) {
   const section = buildNoticePanel(notice, task), head = section.querySelector('.notice-head'), title = section.querySelector('h3');
-  head.classList.add('section-title'); head.insertBefore(title, null);
+  const meta = el('div', undefined, 'notice-meta');
+  for (const node of [...head.childNodes]) meta.insertBefore(node, null);
+  head.classList.add('section-title'); head.replaceChildren(meta); head.insertBefore(title, null);
   ui.noticeModuleStates ||= new Map();
   enhanceModule(section, { key: `notice-${notice.id}`, mode: 'fold', states: ui.noticeModuleStates,
     summary: `${STATUS[notice.status] || notice.status}${notice.status === 'open' && notice.kind !== 'info' ? ' · 等待明确答复，收起不表示已处理' : ''}` });
