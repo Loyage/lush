@@ -30,6 +30,8 @@ const { ui, transcriptCache } = await import('../../src/ui/web/assets/state.js')
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { closeDialog } = await import('../../src/ui/web/assets/dialog.js');
 const { closeTranscriptView } = await import('../../src/ui/web/assets/transcript-view.js');
+const { appendTranscriptSteps, paintTranscript } = await import('../../src/ui/web/assets/render-transcript.js');
+const { setPref, writePref } = await import('../../src/ui/web/assets/prefs.js');
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
 const restoreNavigation = registerNavigation({ refresh: async () => {}, detail: id => { details.push(id); } });
 const root = () => dom.node('detail');
@@ -87,6 +89,45 @@ test('history shows safe receipts, exposes real detail and execution readers, an
   await btn('打开执行详情', history).onclick();
   expect(ui.transcriptView.taskId).toBe(900); expect(reads.some(path => path.includes('/api/worker/900/transcript'))).toBe(true);
   expect(actions).toHaveLength(0);
+});
+
+test('management execution entry renders timing, pagination and sorting independently of Worker selection', async () => {
+  const originalSelection = ui.selected;
+  writePref('transcriptOrder', 'desc');
+  const call = { seq: 3, file: 'manager', kind: 'tool', call_id: 'x', title: 'manager.query', body: '{"id":10}',
+    at: '2026-01-01T00:00:00Z', model_duration_ms: 2500 };
+  const output = { seq: 4, file: 'manager', kind: 'result', call_id: 'x', body: 'paused',
+    at: '2026-01-01T00:00:01.250Z' };
+  const older = { seq: 2, file: 'manager', kind: 'thinking', body: 'inspect first', model_duration_ms: 2500 };
+  const all = [call];
+  intercept = path => path.includes('/api/worker/900/transcript') ? json(path.includes('before=3')
+    ? { steps: [older], oldest: 2, next: 2, has_older: false }
+    : { steps: [...all], files: ['manager'], oldest: 3, next: all.at(-1).seq, has_older: true, has_more: false }) : null;
+  try {
+    ui.selected = null;
+    await openManagement({ subpage: 'history' });
+    const trigger = btn('打开执行详情'); trigger.focus();
+    await trigger.onclick();
+    const holder = ui.transcriptView.holder, item = holder.querySelector('.step');
+    expect(ui.selected).toBeNull();
+    expect(item.querySelector('.step-model-duration').textContent).toBe('模型回复用时 ≈ 2.5 秒（估算）');
+    expect(item.querySelector('.step-duration').textContent).toBe('工具用时未知');
+    all.push(output); transcriptCache.get(900).steps.push(output); appendTranscriptSteps(900, [output]);
+    expect(holder.querySelector('.step')).toBe(item);
+    expect(item.querySelector('.step-duration').textContent).toBe('工具用时 ≈ 1.3 秒（估算）');
+    await holder.querySelector('[data-live="transcript-older"]').onclick();
+    expect(deepText(holder)).toContain('inspect first');
+    expect(holder.querySelector('[data-live="transcript-older"]').hidden).toBe(true);
+    ui.selected = 901; transcriptCache.set(901, { steps: [{ seq: 1, kind: 'text', body: 'wrong Worker' }], files: [] });
+    paintTranscript(901);
+    expect(deepText(holder)).not.toContain('wrong Worker');
+    setPref('transcriptOrder', 'asc');
+    await until(() => transcriptCache.get(900)?.order === 'asc' && holder.querySelector('.step-duration')?.textContent.includes('1.3 秒'));
+    expect(reads.some(path => path.includes('/api/worker/900/transcript?after=0'))).toBe(true);
+    expect(ui.selected).toBe(901);
+    closeTranscriptView(); expect(dom.document.activeElement).toBe(trigger); expect(ui.view.id).toBe('management');
+    expect(actions).toHaveLength(0);
+  } finally { closeTranscriptView(); transcriptCache.delete(901); ui.selected = originalSelection; writePref('transcriptOrder', 'desc'); }
 });
 
 test('missing binding projection still provides read-only detail/execution without inventing authorization', async () => {

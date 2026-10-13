@@ -10,9 +10,9 @@ const fixture = `<!doctype html><html><head><meta charset="utf-8"><meta name="vi
 <script type="module">
 import { openTranscriptView } from '/assets/transcript-view.js';
 import { ui, transcriptCache } from '/assets/state.js';
-const step = seq => ({seq, kind:'text', title:'回答', file:'fixture', body:'needle body '+seq+'\\n'+('long readable line\\n').repeat(40), excerpt:'needle excerpt '+seq});
-const call={seq:2,kind:'tool',tool_name:'functions.bash',file:'fixture',call_id:'fixture-call',at:new Date().toISOString(),body:JSON.stringify({command:'bun run test test/web/dom-transcript-view.test.js'}),tokens:{first:true,exact:true,total:128456}};
-const output={seq:3,kind:'result',file:'fixture',call_id:'fixture-call',is_error:true,body:'error: fixture failure\\nExpected: readable output\\nReceived: failure text',at:new Date().toISOString()};
+const step = seq => ({seq, kind:'text', title:'回答', file:'fixture', model_duration_ms:2500, body:'needle body '+seq+'\\n'+('long readable line\\n').repeat(40), excerpt:'needle excerpt '+seq});
+const call={seq:2,kind:'tool',tool_name:'functions.bash',file:'fixture',call_id:'fixture-call',model_duration_ms:2500,at:'2026-01-01T00:00:00Z',body:JSON.stringify({command:'bun run test test/web/dom-transcript-view.test.js'}),tokens:{first:true,exact:true,total:128456}};
+const output={seq:3,kind:'result',file:'fixture',call_id:'fixture-call',is_error:true,body:'error: fixture failure\\nExpected: readable output\\nReceived: failure text',at:'2026-01-01T00:00:01.250Z'};
 window.searchCalls = 0;
 const originalFetch = window.fetch;
 window.fetch = async (url, opts) => {
@@ -23,7 +23,8 @@ window.fetch = async (url, opts) => {
   if (String(url).includes('/transcript-step')) return Response.json({step:step(Number(new URL(url, location.href).searchParams.get('seq'))), related:[]});
   return originalFetch(url, opts);
 };
-ui.selected = 101;
+// A direct management-page entry need not select a Worker detail first.
+ui.selected = null;
 ui.lastSnapshot={tasks:[{id:101,worker_number:'W165-1-1',status:'running'}]};
 transcriptCache.set(101, {order:'desc', steps:[step(1),call,output], files:['fixture'], next:3, oldest:1});
 window.readerReady = openTranscriptView(101);
@@ -95,7 +96,8 @@ try {
       assert(await execute(`return document.querySelector('.transcript-search-toggle').getAttribute('aria-expanded')==='false' && document.querySelector('.execution-navigation').scrollWidth<=innerWidth && document.querySelector('.transcript-toolbar').scrollWidth<=innerWidth;`), 'mobile toolbar overflow or search opened without request');
     }
     assert(box.body.right <= box.width + 1 && box.body.bottom <= box.height + 1, 'body escaped viewport');
-    console.log(`PASS layout ${width}x${height}`);
+    assert(await execute(`const call=document.querySelector('[data-seq="2"]');return call.querySelector('.step-duration').textContent==='工具用时 ≈ 1.3 秒（估算）' && call.querySelector('.step-model-duration').textContent==='模型回复用时 ≈ 2.5 秒（估算）' && call.querySelector('.step-head').scrollWidth<=call.clientWidth && document.querySelector('.transcript-viewport').scrollWidth<=innerWidth;`), `duration metadata missing or overflowing at ${width}`);
+    console.log(`PASS layout and duration metadata ${width}x${height}`);
   }
   await resize(1440, 900);
   const query = await rpc(`/session/${session}/element`, { using: 'css selector', value: '.search-field-row input' });

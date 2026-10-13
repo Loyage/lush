@@ -21,7 +21,7 @@ test('web exposes the read-only agent transcript and keeps sessions out of the r
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `2026-01-01T00-00-00-000Z_lush-task-${task.id}.jsonl`);
     fs.writeFileSync(file, [
-      JSON.stringify({ type: 'message', timestamp: 1789749049638, message: { role: 'assistant', content: [
+      JSON.stringify({ type: 'message', timestamp: 1789749049638, message: { role: 'assistant', timestamp: 1789749049000, content: [
         { type: 'thinking', thinking: '先看看代码' },
         { type: 'toolCall', name: 'bash', arguments: { command: 'ls' } }] } }),
       JSON.stringify({ type: 'message', timestamp: 1789749049639, message: { role: 'toolResult', toolName: 'bash', isError: false, content: [{ type: 'text', text: 'src\nREADME.md' }] } }),
@@ -30,6 +30,9 @@ test('web exposes the read-only agent transcript and keeps sessions out of the r
     const page = await (await fetch(`${f.url}/api/worker/${task.id}/transcript`)).json();
     expect(page.steps.map(step => [step.kind, step.title])).toEqual([['thinking', '思考'], ['tool', 'bash'], ['result', 'bash']]);
     expect(page.steps[0].body).toBe('先看看代码');
+    expect(page.steps[0].model_duration_ms).toBe(638);
+    expect(page.steps[1].model_duration_ms).toBe(638);
+    expect(page.steps[2].model_duration_ms).toBeUndefined();
     expect(page.has_more).toBe(false);
     expect(fs.readFileSync(file, 'utf8')).toBe(before);
     // 越界游标、未知任务、超限 limit 都是 400，不当成服务器错误

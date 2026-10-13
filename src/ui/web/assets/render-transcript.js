@@ -5,7 +5,7 @@ import { onPrefChange, readPref } from './prefs.js';
 import { transcriptCache, transcriptOpen, ui } from './state.js';
 import { transcriptBody } from './transcript-body.js';
 import { referenceable } from './context-references.js';
-import { callKey, groupSteps, stepSummary } from './transcript-model.js';
+import { callKey, groupSteps, stepSummary, toolDurationMs, stepDurationText } from './transcript-model.js';
 import { transcriptReader, openTranscriptStep } from './transcript-reader.js';
 import { workerLabel } from './worker-label.js';
 
@@ -49,6 +49,39 @@ function sourceBody(taskId, step) {
     quote: step.body, location: { task_id: taskId, section: 'transcript' } });
   return body;
 }
+function durationChip(label, ms, className, help) {
+  const chip = el('span', undefined, className);
+  chip.dataset.help = help;
+  paintDuration(chip, label, ms);
+  return chip;
+}
+function paintDuration(chip, label, ms) {
+  if (chip) chip.textContent = Number.isFinite(ms) && ms >= 0
+    ? `${label} ≈ ${stepDurationText(ms)}（估算）` : `${label}未知`;
+}
+
+// Update only metadata after cross-page pairing. Duplicate identities can arrive
+// later too: revoke the estimate without rebuilding content, focus or fold state.
+function syncToolDurations(list, state) {
+  const counts = new Map(), results = new Map();
+  for (const step of state.steps) {
+    const key = callKey(step);
+    if (!key) continue;
+    if (step.kind === 'tool') counts.set(key, (counts.get(key) || 0) + 1);
+    if (step.kind === 'result') {
+      if (!results.has(key)) results.set(key, []);
+      results.get(key).push(step);
+    }
+  }
+  for (const item of list.children) {
+    const step = item.transcriptStep;
+    if (step?.kind !== 'tool') continue;
+    const key = callKey(step);
+    paintDuration(item.querySelector('.step-duration'), '工具用时', counts.get(key) === 1
+      ? toolDurationMs(step, results.get(key) || []) : null);
+  }
+}
+
 function attachResult(taskId, item, step) {
   const results = item.querySelector('.step-results');
   if (!results || results.querySelector(`[data-result-seq="${step.seq}"]`)) return;
@@ -66,6 +99,7 @@ function attachResult(taskId, item, step) {
 function stepNode(taskId, step) {
   const item = el('li', undefined, `step s-${step.kind}${step.is_error ? ' step-failed' : ''}`);
   item.dataset.seq = String(step.seq);
+  item.transcriptStep = step;
   const head = el('button', undefined, 'step-head');
   head.type = 'button';
   const caret = el('span', '', 'step-caret');
@@ -82,6 +116,14 @@ function stepNode(taskId, step) {
   metadata.append(el('span', `#${step.seq}`, 'step-number'));
   const chip = step.tokens?.first ? tokensChip(step.tokens) : null;
   if (chip) metadata.append(chip);
+  if (['thinking', 'text', 'tool'].includes(step.kind)) {
+    metadata.append(durationChip('模型回复用时', step.model_duration_ms, 'step-model-duration',
+      '按模型回复开始时间到完成记录写入时间估算；同一次回复中的思考、回答和工具调用共享这段用时，不能相加，也不是思考或回答各自的耗时。'));
+  }
+  if (['tool', 'result'].includes(step.kind)) {
+    metadata.append(durationChip('工具用时', toolDurationMs(step), 'step-duration',
+      '按同一会话与调用 ID 的调用记录至结果记录间隔估算，可能包含排队、同批其他工具等待及写入开销，不是精确执行计时；缺少配对、重复身份或无有效时间时未知。'));
+  }
   if (step.at) metadata.append(el('span', relative(step.at), 'when'));
   head.append(metadata);
   item.append(head);
@@ -154,6 +196,7 @@ function insertNewer(taskId, list, state, steps) {
     else if (desc) list.prepend(stepNode(taskId, step));
     else list.append(stepNode(taskId, step));
   }
+  syncToolDurations(list, state);
 }
 
 /** 向旧翻页：一页更早的步骤插到列表顶部（asc）或底部（desc），跨边界配对不重复、不错配。 */
@@ -181,6 +224,7 @@ function insertOlder(taskId, list, state, steps) {
   // desc 列表最新在上，更早的页追加到底部并按倒序排列；asc 列表最早在上，整页前插并保持升序。
   if (state.order === 'desc') list.append(...[...staged.children].reverse());
   else list.prepend(...staged.children);
+  syncToolDurations(list, state);
 }
 
 const transcriptMetaText = state => state.steps.length
@@ -190,17 +234,21 @@ const transcriptMetaText = state => state.steps.length
 /** 全屏打开时只更新其正文，不重建任务页。 */
 const transcriptHolder = taskId => ui.transcriptView?.taskId === taskId
   ? ui.transcriptView.holder : $('detail').querySelector('.transcript');
+// The management page can open a reader without selecting a Worker detail.
+// An open dialog owns its Worker; a stale background selection must not repaint it.
+const transcriptVisible = taskId => ui.transcriptView
+  ? ui.transcriptView.taskId === taskId : ui.selected === taskId;
 
 /** 只替换执行过程区块，避免为了追加一页步骤重建整个详情面板。 */
 export function paintTranscript(taskId) {
-  if (ui.selected !== taskId || (ui.transcriptView?.taskId === taskId && ui.transcriptView.filtered)) return;
+  if (!transcriptVisible(taskId) || (ui.transcriptView?.taskId === taskId && ui.transcriptView.filtered)) return;
   const holder = transcriptHolder(taskId);
   if (holder) { holder.transcriptState = transcriptCache.get(taskId); holder.replaceChildren(...transcriptContent(taskId)); }
 }
 
 /** 只刷新过程区块之外的计数与翻页入口，不重建已渲染节点。 */
 function syncTranscriptChrome(taskId, state) {
-  if (ui.selected !== taskId) return;
+  if (!transcriptVisible(taskId)) return;
   const holder = transcriptHolder(taskId);
   if (!holder) return;
   const meta = holder.querySelector('[data-live="transcript-meta"]');
@@ -287,7 +335,7 @@ function olderButton(taskId, state) {
       state.oldest = page.oldest ?? state.oldest;
       state.has_older = Boolean(page.has_older);
       state.truncated = Boolean(state.truncated || page.truncated);
-      if (ui.selected === taskId) {
+      if (transcriptVisible(taskId)) {
         const holder = transcriptHolder(taskId);
         const list = holder?.querySelector('[data-live="transcript-steps"]');
         if (list) insertOlder(taskId, list, state, page.steps || []);
@@ -303,7 +351,7 @@ function olderButton(taskId, state) {
  * 也不碰用户正在输入的 textarea。列表还没画出来（刚展开/之前没有步骤）时才整体重画那一个区块。
  */
 export function appendTranscriptSteps(taskId, steps) {
-  if (ui.selected !== taskId) return;
+  if (!transcriptVisible(taskId)) return;
   if (ui.transcriptView?.taskId === taskId && ui.transcriptView.filtered) {
     if (steps.length) ui.transcriptView.notice.textContent = '有新记录；重新搜索可更新命中，或返回全部记录查看。';
     return;
@@ -377,7 +425,7 @@ function revealStep({ step, inner }) {
 
 /** 点搜索命中：停在富文本执行过程里定位该步。 */
 export async function locateTranscriptStep(taskId, seq) {
-  if (ui.selected !== taskId) return;
+  if (!transcriptVisible(taskId)) return;
   const holder = transcriptHolder(taskId);
   if (!holder) return;
   const state = transcriptCache.get(taskId);
@@ -413,7 +461,7 @@ export async function loadTranscript(taskId) {
 onPrefChange('transcriptOrder', () => {
   const order = transcriptOrder();
   for (const [id, state] of transcriptCache) if (state.order !== order) transcriptCache.delete(id);
-  const taskId = ui.selected;
+  const taskId = ui.transcriptView?.taskId ?? ui.selected;
   if (taskId !== null && transcriptOpen.has(taskId)) {
     paintTranscript(taskId);
     loadTranscript(taskId).catch(error => {

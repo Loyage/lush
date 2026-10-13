@@ -1,6 +1,26 @@
 const oneLine = value => String(value ?? '').replace(/\s+/g, ' ').trim();
 export const callKey = step => step.call_id ? JSON.stringify([step.file, step.call_id]) : null;
 
+/** Recorded call-to-result interval, not a timer for the tool's actual execution.
+ * Missing/duplicate identities and invalid clocks must not become a zero duration. */
+export function toolDurationMs(step, results = step.results || []) {
+  const key = callKey(step);
+  if (step.kind !== 'tool' || !key || results.length !== 1) return null;
+  const result = results[0];
+  if (result.kind !== 'result' || callKey(result) !== key || result.seq <= step.seq) return null;
+  const start = Date.parse(step.at), end = Date.parse(result.at);
+  return Number.isFinite(start) && Number.isFinite(end) && end >= start ? end - start : null;
+}
+
+export function stepDurationText(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '未知';
+  if (ms < 1000) return `${Math.round(ms)} 毫秒`;
+  if (ms < 60000) return `${Number((ms / 1000).toFixed(1))} 秒`;
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
+  return `${Math.floor(seconds / 3600)} 小时 ${Math.floor(seconds % 3600 / 60)} 分 ${seconds % 60} 秒`;
+}
+
 export function stepSummary(step) {
   if (step.kind === 'tool') {
     let args;

@@ -36,7 +36,7 @@ function clip(value, max = MAX_BODY) {
 
 /** pi writes epoch milliseconds on messages and ISO strings on its own records. */
 function stamp(value) {
-  if (typeof value === 'number' && Number.isFinite(value)) return new Date(value).toISOString();
+  if (typeof value === 'number' && Number.isFinite(new Date(value).getTime())) return new Date(value).toISOString();
   if (typeof value === 'string' && Number.isFinite(Date.parse(value))) return new Date(Date.parse(value)).toISOString();
   return null;
 }
@@ -64,12 +64,18 @@ function fromMessage(record, at, max = MAX_BODY) {
       call_id: message.toolCallId ?? null, tool_name: message.toolName ?? null, is_error: Boolean(message.isError), body: bodyOf(textOf(message.content)) }];
   }
   if (message.role !== 'assistant') return [{ kind: 'meta', title: `消息 ${message.role}`, at, body: bodyOf(textOf(message.content)) }];
+  // Pi's assistant timestamp is captured when the response starts; the enclosing
+  // entry timestamp is captured when the completed message is appended. All parts
+  // share this response interval, not separate thinking/text execution timers.
+  const started = stamp(message.timestamp);
+  const elapsed = started && at ? Date.parse(at) - Date.parse(started) : NaN;
+  const timing = Number.isFinite(elapsed) && elapsed >= 0 ? { model_duration_ms: elapsed } : {};
   return parts(message.content).map(part => {
     if (part.type === 'thinking') return { kind: 'thinking', title: '思考', at, body: bodyOf(part.thinking) };
     if (part.type === 'toolCall') return { kind: 'tool', title: part.name || 'tool', at, call_id: part.id ?? null,
       tool_name: part.name || 'tool', body: bodyOf(part.arguments ?? {}) };
     return { kind: 'text', title: '回答', at, body: bodyOf(part.text) };
-  }).filter(step => step.body || step.kind === 'meta');
+  }).filter(step => step.body || step.kind === 'meta').map(step => ({ ...step, ...timing }));
 }
 
 /** One JSONL record becomes zero or more steps; an unparseable line is skipped, never fatal. */
