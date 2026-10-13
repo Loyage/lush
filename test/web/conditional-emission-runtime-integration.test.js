@@ -8,6 +8,7 @@ import { installDom, deepText, findByText } from '../dom-stub.js';
 import { resetUiState, ui } from '../../src/ui/web/assets/state.js';
 import { initNoticeRecords, openNotice, renderNotices } from '../../src/ui/web/assets/render-notices.js';
 import { registerNavigation } from '../../src/ui/web/assets/navigate.js';
+import { createEmissionConditions } from '../../src/ui/web/assets/emission-form.js';
 
 async function action(f, method, params) {
   const response = await fetch(f.url + '/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, params }) });
@@ -127,6 +128,51 @@ test('standalone Decision approval through DOM/HTTP keeps real management author
     expect(ui.view.id).toBe('notice'); expect(ui.noticePage.id).toBe(receipt.notice_id);
     expect(deepText(dom.node('detail'))).toContain('用户答复');
   } finally { navigation?.(); if (dom) { resetUiState(); dom.restore(); } await f.close(); }
+});
+
+test('shortcut DOM reads real main relations, saves and mounts exact conditions, then actual main delivery unlocks input', async () => {
+  const f = await prepare(); let dom; const requests = [], providerCalls = [];
+  try {
+    const prerequisite = await action(f, 'order.submit', { content: 'shortcut prerequisite', start: false });
+    const main = f.store.task(prerequisite.task.parent_id), autoMerge = f.store.task(prerequisite.task.id).auto_merge;
+    const merged = f.store.create({ parent_id: main.id, goal: 'already merged', role: 'agent', task_kind: 'order', input_id: null });
+    f.store.update(merged.id, { status: 'completed', integration: 'merged' });
+    const grandchild = f.store.create({ parent_id: prerequisite.task.id, goal: 'not a direct child', role: 'agent', task_kind: 'child', input_id: null });
+    f.store.update(grandchild.id, { status: 'cancelled' });
+    const valet = f.store.create({ parent_id: main.id, goal: 'not development', role: 'manager', task_kind: 'management', input_id: null });
+    f.store.update(valet.id, { status: 'completed' });
+    const draft = await action(f, 'draft.add', { content: 'shortcut followup', branch: 'main' });
+    dom = installDom({ fetch: (url, options) => { requests.push({ url, options }); return fetch(f.url + url, options); } });
+    resetUiState();
+    const form = createEmissionConditions();
+    await findByText(form.node, '等当前所有Worker开发完').click();
+    expect(form.collect()).toEqual({ conditions: [{ kind: 'worker_merged', worker_id: prerequisite.task.id }], exclusive: false });
+    expect(requests.every(request => !request.options?.method || request.options.method === 'GET')).toBe(true);
+    expect(requests.some(request => request.url.includes(`/api/worker/${main.id}/relations`))).toBe(true);
+    expect(f.store.task(prerequisite.task.id)).toMatchObject({ integration: 'none', auto_merge: autoMerge });
+    expect(f.project.inputGet('draft', draft.id).conditions).toEqual([]); // Import alone does not persist or authorize.
+    const saved = await action(f, 'draft.update', { id: draft.id, content: draft.content, expected_revision: draft.revision, ...form.collect() });
+    const mounted = await action(f, 'input.emit', { draft_id: saved.id, expected_revision: saved.revision });
+    await drain(f); expect(f.project.inputEmissionResult(mounted.draft_id).dispatch.state).toBe('waiting_conditions');
+    expect(providerCalls).toEqual([]);
+    f.project.provider = { async run(args) {
+      providerCalls.push(args.task.id);
+      fs.writeFileSync(path.join(args.cwd, 'shortcut.txt'), 'actual main prerequisite\n');
+      await git(args.cwd, 'add', '.'); await git(args.cwd, 'commit', '-m', 'shortcut prerequisite');
+      return 'controlled prerequisite complete';
+    } };
+    await action(f, 'worker.resume', { id: prerequisite.task.id }); f.project.pump();
+    await until(() => !f.project.running.has(prerequisite.task.id) && f.store.task(prerequisite.task.id).status === 'waiting');
+    await drain(f); expect(f.project.inputEmissionResult(mounted.draft_id).dispatch.state).toBe('waiting_conditions');
+    await action(f, 'worker.reserve', { id: prerequisite.task.id, kind: 'merge' });
+    await until(() => f.store.task(prerequisite.task.id).integration === 'merged', 10000);
+    await drain(f);
+    const result = f.project.inputEmissionResult(mounted.draft_id);
+    expect(result.dispatch.state).toBe('succeeded'); expect(providerCalls).toEqual([prerequisite.task.id]);
+    const followup = f.store.task(result.dispatch.worker_id);
+    expect(followup.base_commit).toBe(await git(f.root, 'rev-parse', 'main'));
+    expect(fs.readFileSync(path.join(followup.workspace, 'shortcut.txt'), 'utf8')).toBe('actual main prerequisite\n');
+  } finally { if (dom) { resetUiState(); dom.restore(); } await f.close(); }
 });
 
 test('real manager RPC creates a conditional draft, then actual development delivery unlocks it on main', async () => {

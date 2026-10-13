@@ -1,4 +1,4 @@
-.hooks-page, .worker-hooks { min-width: 0; }
+.hooks-page, .worker-hooks, .automation-emission { min-width: 0; }
 .automation-feature-list { list-style: none; padding: 0; margin: 0; }
 .automation-feature-link { display: grid; gap: .65rem; overflow-wrap: anywhere; }
 .automation-feature-head { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; }

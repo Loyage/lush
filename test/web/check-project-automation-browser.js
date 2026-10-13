@@ -81,8 +81,13 @@ try {
   assert(await execute(`return document.querySelector('.emission-conditions').hidden&&Array.from(document.querySelectorAll('.input-actions button')).some(b=>b.textContent==='按条件提交'&&b.classList.contains('agent-call'));`), 'saved draft conditions are intrusive or emission authorization unclear');
   await press('执行条件设置 · 1 项');
   assert(await execute(`return !document.querySelector('.emission-conditions').hidden`), 'explicit condition expansion failed');
-  await press('执行条件设置 · 1 项');
-  assert(await execute(`return document.querySelector('.emission-conditions').hidden&&document.querySelector('[aria-label="等待目标树彻底静息后执行"]').checked`), 'collapse lost saved conditions');
+  await press('等当前所有Worker开发完');
+  assert(await wait(`document.querySelector('.emission-condition-list')?.textContent.includes('本轮成果已合入 main')&&Array.from(document.querySelectorAll('.input-actions button')).some(b=>b.textContent==='执行条件设置 · 2 项')`), 'shortcut did not import actual unmerged main child');
+  assert(await execute(`const b=Array.from(document.querySelectorAll('.emission-conditions button')).find(b=>b.textContent==='等当前所有Worker开发完');return b&&!b.classList.contains('agent-call')&&b.dataset.help.includes('不授权或执行合并')`), 'shortcut cost or mutation marking incorrect');
+  await press('等当前所有Worker开发完');
+  assert(await wait(`document.querySelector('.emission-conditions')?.textContent.includes('已导入 0 个条件')`), 'shortcut duplicated imported conditions');
+  await press('执行条件设置 · 2 项');
+  assert(await execute(`return document.querySelector('.emission-conditions').hidden&&document.querySelector('[aria-label="等待目标树彻底静息后执行"]').checked&&document.querySelectorAll('.emission-condition-row').length===1`), 'collapse lost saved or imported conditions');
   await execute(`const t=document.querySelector('[aria-label="草稿正文"]');t.value='unsaved browser draft';t.dispatchEvent(new Event('input',{bubbles:true}));`);
   await click('.page-subnav [data-subpage="history"]');
   assert(await wait(`Array.from(document.querySelectorAll('.automation-emission .input-row')).some(n=>n.textContent.includes('Browser waiting receipt'))`), 'conditional execution receipts missing');
@@ -110,6 +115,15 @@ try {
       await route(hash);
       const marker = hash === '#hooks' ? '.automation-feature-list' : hash.startsWith('#management') ? '.management-page' : hash.includes('completion') ? '.completion-worker' : hash.includes('push') ? '.automation-push' : hash.includes('convergence') ? '.branch-convergence' : '.automation-emission .input-row';
       assert(await wait(`document.querySelector(${JSON.stringify(marker)})`), `page content missing ${hash}`);
+      if (hash === '#hooks-emission') {
+        await execute(`if(!document.querySelector('.automation-emission [aria-label="草稿正文"]'))Array.from(document.querySelectorAll('.automation-emission .input-row')).find(n=>n.textContent.includes('Browser conditional draft')).click()`);
+        assert(await wait(`document.querySelector('.automation-emission [aria-label="草稿正文"]')`), 'emission editor missing');
+        await execute(`if(document.querySelector('.emission-conditions').hidden)Array.from(document.querySelectorAll('.input-actions button')).find(b=>b.textContent.startsWith('执行条件设置')).click()`);
+        await press('等当前所有Worker开发完');
+        assert(await wait(`document.querySelectorAll('.emission-condition-row').length===1&&!Array.from(document.querySelectorAll('.emission-conditions button')).find(b=>b.textContent==='等当前所有Worker开发完').disabled`), 'shortcut condition not visible');
+        const layout = await execute(`const b=Array.from(document.querySelectorAll('.emission-conditions button')).find(b=>b.textContent==='等当前所有Worker开发完');const r=b.getBoundingClientRect();return {width:innerWidth,left:r.left,right:r.right,height:r.height,ancestors:['.emission-conditions','.input-detail','.inputs-page','.automation-emission','.automation-feature-content'].map(s=>({selector:s,width:document.querySelector(s).getBoundingClientRect().width}))}`);
+        assert(layout.right > layout.left && layout.left >= 0 && layout.right <= layout.width && (width > 760 || layout.height >= 44), `shortcut layout ${theme}/${width}: ${JSON.stringify(layout)}`);
+      }
       assert(await execute(`return innerWidth===${width}&&document.documentElement.scrollWidth<=innerWidth`), `overflow ${theme}/${width}/${hash}`);
       fs.writeFileSync(path.join(evidence, `${theme}-${width}-${hash.slice(1)}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
     }
@@ -117,6 +131,8 @@ try {
   }
   assert(mutations.length === 0, 'read-only navigation unexpectedly submitted a mutation');
   assert(f.store.draft(draft.id).content === 'Browser conditional draft', 'unsaved draft persisted unexpectedly');
+  assert(f.project.inputGet('draft', draft.id).conditions.length === 1, 'shortcut persisted without Save');
+  assert(f.store.task(task.id).integration === 'none' && !JSON.parse(f.store.task(task.id).auto_merge).enabled, 'shortcut authorized a merge');
   assert(errors.length === 0, `HTTP failures: ${errors.join(', ')}`);
   fs.writeFileSync(path.join(evidence, 'checks.json'), JSON.stringify({ mutations, errors }, null, 2));
   success = true; console.log('PASS native directory/search/back, feature deep links/tabs, embedded draft retention, authoritative Worker authorization, safe push evidence, independent management drafts, no execution mutation or Agent call');

@@ -44,6 +44,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
     return json(rows.find(row => row.kind === kind && row.id === Number(id)));
   }
   if (path === '/api/workers') { reads.push(String(url)); return intercept?.(path, body, route) || json({ tasks: [{ id: 901, worker_number: 'W777', goal: '面板重构' }], has_more: false }); }
+  if (/\/api\/worker\/\d+\/relations$/.test(path)) { reads.push(String(url)); return intercept?.(path, body, route) || json({ children: { items: [], has_more: false } }); }
   if (path === '/api/worker-lookup') return json({ id: 901, worker_number: 'W777' });
   if (path === '/api/agent/config') return json(world.state.agentConfig);
   if (/\/api\/worker\/\d+\/hooks$/.test(path)) return intercept?.(path, body, route) || json({ version: 1, revision: 'hooks-v1', mounts: [] });
@@ -51,6 +52,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   return world.fetchImpl(url, options);
 } });
 const { openInputs } = await import('../../src/ui/web/assets/render-inputs.js');
+const { createEmissionConditions } = await import('../../src/ui/web/assets/emission-form.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
@@ -669,6 +671,92 @@ test('多个条件与独占保存同一版本，Worker 目录分页和编号使�
   expect(calls[0].params).toMatchObject({ conditions: [{ kind: 'worker_merged', worker_id: 203 }, { kind: 'worker_settled', worker_id: 203 }, { kind: 'parent_quiet' }], exclusive: true });
   expect(calls[1].params.expected_revision).toBe(4); expect(calls[1].params).not.toHaveProperty('conditions');
   expect(editor()).toBeNull(); expect(deepText(panel())).toContain('W17');
+});
+
+const mainChild = (id, extra = {}) => ({ id, parent_id: 42, worker_number: `W${id + 500}`, task_kind: 'order', status: 'running', integration: 'none', ...extra });
+const mainParents = () => json({ items: [{ id: 42, branch: 'main' }, { id: 900, branch: 'feature/old' }] });
+const childPage = (items, has_more = false) => json({ children: { items, has_more, cursor: items.at(-1)?.id ?? 0 } });
+const importButton = node => btn('等当前所有Worker开发完', node);
+
+test('快捷导入完整 main 直接子项分页，不限运行状态，保留去重条件且不发射或授权合并', async () => {
+  const initial = [{ kind: 'worker_settled', worker_id: 102 }, { kind: 'worker_merged', worker_id: 104 }, { kind: 'parent_quiet' }];
+  rows[0].conditions = initial; rows[0].exclusive = true;
+  await openInputs(); await openDraft(); const conditions = panel().querySelector('.emission-conditions');
+  expect(conditions.hidden).toBe(true); await btn('执行条件设置 · 3 项 · 独占').onclick();
+  intercept = (path, _body, route) => path === '/api/input-parents' ? mainParents()
+    : path === '/api/worker/42/relations' ? (route.searchParams.get('after') === '0'
+      ? childPage([mainChild(101, { integration: 'merged' }), mainChild(102, { status: 'paused' }), mainChild(103, { task_kind: 'management' }), mainChild(104)], true)
+      : childPage(['queued', 'awaiting', 'waiting', 'awaiting_acceptance', 'failed', 'cancelled', 'completed'].map((status, index) => mainChild(105 + index, { status })))) : null;
+  const shortcut = importButton(conditions); expect(shortcut.classList.contains('agent-call')).toBe(false);
+  expect(shortcut.getAttribute('data-help')).toContain('不授权或执行合并');
+  await shortcut.onclick(); expect(calls).toHaveLength(0);
+  expect(reads.at(-1)).toContain('/api/worker/42/relations?after=104&limit=100');
+  expect(reads.some(path => path.includes('/api/workers'))).toBe(false);
+  expect(deepText(conditions)).toContain('W602：本轮成果已合入 main');
+  expect(deepText(conditions)).not.toContain('W601：'); expect(deepText(conditions)).not.toContain('W603：');
+  expect(deepText(conditions)).toContain('已导入 8 个条件');
+  expect(btn('保存').disabled).toBe(false); await shortcut.onclick(); expect(deepText(conditions)).toContain('已导入 0 个条件');
+  await btn('保存').onclick(); expect(calls).toHaveLength(1);
+  expect(calls[0].params).toMatchObject({ exclusive: true, conditions: [initial[0], initial[1], ...[102, 105, 106, 107, 108, 109, 110, 111].map(worker_id => ({ kind: 'worker_merged', worker_id })), initial[2]] });
+  expect(btn('保存').disabled).toBe(true);
+});
+
+test('快捷导入空集合保留条件，16项上限含独占隐含静息，拒绝整批不截断', async () => {
+  const initial = Array.from({ length: 15 }, (_, i) => ({ kind: 'worker_merged', worker_id: 200 + i })); let changes = 0;
+  const form = createEmissionConditions({ conditions: initial, exclusive: true, onChange: () => changes++ });
+  intercept = path => path === '/api/input-parents' ? mainParents() : path === '/api/worker/42/relations' ? childPage([]) : null;
+  await importButton(form.node).onclick(); expect(deepText(form.node)).toContain('当前没有尚未合并');
+  expect(form.collect()).toEqual({ conditions: initial, exclusive: true }); expect(changes).toBe(0);
+  intercept = path => path === '/api/input-parents' ? mainParents() : path === '/api/worker/42/relations' ? childPage([mainChild(100)]) : null;
+  await importButton(form.node).onclick(); expect(deepText(form.node)).toContain('超过 16 项上限，未导入');
+  expect(form.collect()).toEqual({ conditions: initial, exclusive: true }); expect(changes).toBe(0); expect(calls).toHaveLength(0);
+  const append = createEmissionConditions({ conditions: initial, mode: 'append' });
+  await importButton(append.node).onclick(); expect(append.collect().conditions).toHaveLength(16); expect(append.validate()).toBe('');
+  expect(append.collect().exclusive).toBe(false);
+});
+
+test('快捷导入分页失败或不推进、身份不兼容时不保留半份结果且允许重试', async () => {
+  const initial = [{ kind: 'worker_settled', worker_id: 201 }];
+  const form = createEmissionConditions({ conditions: initial });
+  for (const bad of [
+    { ok: false, json: async () => ({ error: 'second page failed' }) },
+    json({ children: { items: [mainChild(101)], has_more: true, cursor: 100 } }),
+    childPage([mainChild(101, { parent_id: 100 })]),
+    childPage([mainChild(101, { integration: null })]),
+  ]) {
+    intercept = (path, _body, route) => path === '/api/input-parents' ? mainParents() : path === '/api/worker/42/relations'
+      ? route.searchParams.get('after') === '0' ? childPage([mainChild(100)], true) : bad : null;
+    await importButton(form.node).onclick(); expect(deepText(form.node)).toContain('导入失败');
+    expect(form.collect().conditions).toEqual(initial); expect(importButton(form.node).disabled).toBe(false);
+  }
+  intercept = path => path === '/api/input-parents' ? json({ items: [{ id: 900, branch: 'feature/old' }] }) : null;
+  await importButton(form.node).onclick(); expect(deepText(form.node)).toContain('无法确认 main'); expect(form.collect().conditions).toEqual(initial);
+  intercept = path => path === '/api/input-parents' ? mainParents() : path === '/api/worker/42/relations' ? childPage([mainChild(100)]) : null;
+  await importButton(form.node).onclick(); expect(form.collect().conditions).toHaveLength(2);
+});
+
+test('快捷导入单飞并保护在途保存、离页和跨项目的迟到结果', async () => {
+  for (const invalidate of ['save', 'leave', 'project']) {
+    const late = deferred(); let active = true, changes = 0;
+    const projectPath = dom.location.pathname;
+    const form = createEmissionConditions({ ownsPage: () => active && dom.location.pathname === projectPath, onChange: () => changes++ });
+    intercept = path => path === '/api/input-parents' ? mainParents() : path === '/api/worker/42/relations' ? late.promise : null;
+    reads.length = 0; const shortcut = importButton(form.node), importing = shortcut.onclick();
+    await until(() => reads.some(path => path.includes('/relations')));
+    expect(shortcut.disabled).toBe(true); expect(shortcut.parentNode.getAttribute('data-help')).toContain('正在读取');
+    await shortcut.onclick(); expect(reads.filter(path => path.includes('/relations'))).toHaveLength(1);
+    expect(form.node.querySelector('[aria-label="等待事件"]').disabled).toBe(true);
+    if (invalidate === 'save') { form.setBusy(true); form.setBusy(false); }
+    if (invalidate === 'leave') active = false;
+    if (invalidate === 'project') dom.location.pathname = '/p/bbbbbbbbbbbbbbbb/';
+    late.resolve(childPage([mainChild(100)])); await importing;
+    expect(form.collect().conditions).toEqual([]); expect(changes).toBe(0); expect(calls).toHaveLength(0);
+    if (invalidate === 'save') expect(deepText(form.node)).toContain('导入已取消');
+    dom.location.pathname = projectPath;
+  }
+  const form = createEmissionConditions(); form.setBusy(true); reads.length = 0;
+  await importButton(form.node).onclick(); expect(reads).toHaveLength(0);
+  expect(importButton(form.node).parentNode.getAttribute('data-help')).toContain('输入已提交');
 });
 
 test('条件设置默认收起，显式展开不发射，收起保留未保存选项并提示条件授权', async () => {
