@@ -38,6 +38,12 @@
 - park / invocation finally / 异常处理 / daemon recover 使用同一判断，既防止空转，也避免父Worker尚未清理时的 lost wakeup。
 - planner 的 Work DAG 仍由确定性的 `compilePlans()` 编译，不恢复旧 scheduler 模型调用；这仅用于读懂历史行，不再由公开入口产生新工作。
 
+### 协作消息的观察口径
+
+显式 `worker message` 是追加工作输入，不是只读进度通道；即使正文仅为“已开始／收到”，仍可能让静息 Worker 排队。`progress.plan/complete` 只更新本 Worker 的里程碑，不给父／子收件箱追加消息。因此优先减少发送端的纯进度与纯确认消息，不新增按正文猜意图的抑制规则；协作指南见 `src/agent/skills/lush-delegation/guide.md`。
+
+复盘时以同一目标／时间范围内“仅核对消息、无新增工作”的已结束 invocation 数作为观察指标：核对其启动消息、执行记录及结果，区分纯进度／确认与实际决策、接口适配、阻塞处理、补验或成果审查。无代码提交不等于无新增工作，必要审查与安全处置不计为浪费；缺记录或正文截断标为未知，不只凭总 calls、消息数量或结果措辞自动分类。这是人工观察口径，不是新增统计接口或已量化的节省结论。
+
 ## Pi 可选软预算
 
 项目默认和角色 profile 可配置 `soft_budget: { responses?, tokens? }`。默认未设置；空对象等同关闭。CLI 示例：

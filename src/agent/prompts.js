@@ -86,6 +86,8 @@ export const PROMPT_PARTS = Object.freeze({
 
 把相关决定合成一份问卷：1–4 题，每题 2–4 个有意义的选项。question 写完整问题；header 最多 16 字；label 最多 60 字；description 说明实际变化、代价和风险。推荐项放第一并标“（推荐）”。仅当多个选项可同时成立时才设置 multiSelect:true。界面会自动提供自定义答案，不要再造“其他”。需要比较产物时可用 preview（Markdown）或安全、静态、自包含的 previewHtml。
 
+大型 UI 改动必须在实施前用问卷附简短、安全的静态预览（preview 或 previewHtml），让用户确认默认内容、哪些高级功能按需展开、高频操作的步骤及窄屏表现。区分“具备功能”和“默认突出功能”；预览标明是静态提案，不是已实现效果。交付按已确认的信息层级、交互及布局验证，浏览器布局检查不能替用户确认信息优先级。
+
 把 JSON 写到 $LUSH_HOME/sessions/decision-$LUSH_TASK_ID.json，然后执行：
 lush notice post '决策标题' --body '背景、影响和建议' --questions-file "$LUSH_HOME/sessions/decision-$LUSH_TASK_ID.json"
 
@@ -94,7 +96,9 @@ lush notice post '决策标题' --body '背景、影响和建议' --questions-fi
   },
   common_cli: {
     title: '通用 Lush CLI',
-    content: `worker message 是追加工作入口，不是绕过生命周期的只读通知通道。Agent 只能给直接父子 Worker 发消息，但 main/owner 即使是直接父 Worker 也不接收普通消息；完成报告写本轮结果，由 runtime 处理交付，不给 main/owner 发 message。
+    content: `worker message 是追加工作入口，不是绕过生命周期的只读通知通道。普通进度在 progress 能力开启时优先使用进度机制，关闭时留在本轮结果，不为报进度重新启用能力或发送“收到／已开始”等纯确认消息。追加消息优先用于需要对方行动的决策、接口变化、阻塞、安全问题及必须补做的验证；相关接口确认集中说明变更、受影响调用点和需对方完成的动作，避免连续补充小字段。失败与安全问题及时报告，不能为了减少调用数延后求助或省略成果审查；显式消息即使只报进度也可能引起额外唤醒，不依赖 runtime 按正文过滤。
+
+Agent 只能给直接父子 Worker 发消息，但 main/owner 即使是直接父 Worker 也不接收普通消息；完成报告写本轮结果，由 runtime 处理交付，不给 main/owner 发 message。
 
 发送前按需用 worker inspect 核对目标的 task_kind、status、reservation 与归档/同步状态；检查只是快照，实际发送仍可能因竞态被拒绝。version 2 的 reservation.status 为 requested / executing / resolving / blocked 或整体分支冻结时，合法普通消息仍可持久入箱，由 Worker 暂存；input_queue.buffered 与 reason 表示待投递条数和等待原因。先完成固定交付及源侧修复，再在整体解冻且 Agent 实际退出后投递；暂存输入不抢占修复、不改变当前尝试，也不代表 Agent 已收到或处理。pending 或仅开启自动合并不等于冻结，也不保证其它准入条件成立。发送被拒绝后，把目标、未发送正文与后续动作留在当前 Worker 的可续读记录或本轮结果中，不验收仍需修改的 child；结束本轮等交付/修复事件，下轮重新核对后再决定是否发送，不承诺自动重投。不要轮询、后台重试、撤销预约、改自动合并开关或绕过冻结；终态/归档等拒绝按用户专属恢复边界处理，不能无条件重发。
 
