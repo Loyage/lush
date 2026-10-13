@@ -64,9 +64,9 @@ function trends(snapshot) {
     const graph = el('figure', undefined, `diagnostics-trend diagnostics-trend-${key}`);
     graph.append(el('figcaption', `${label} · 峰值 ${peak}`));
     const bars = el('div', undefined, 'diagnostics-trend-bars');
-    bars.setAttribute('role', 'img'); bars.setAttribute('aria-label', `${label}，最近10分钟；独立刻度；${incomplete} 个不完整桶；柱高为已知小计，不完整时仅为下界；斜纹为未知或部分数据`);
+    bars.setAttribute('role', 'img'); bars.setAttribute('aria-label', `${label}，最近10分钟；独立刻度；${incomplete} 个不完整桶；柱高为已知小计，不完整时仅为下界；未知值不补零`);
     values.forEach((value, index) => {
-      const slot = el('span', undefined, uncertain[index] ? 'diagnostics-trend-slot unknown' : 'diagnostics-trend-slot');
+      const slot = el('span', undefined, 'diagnostics-trend-slot');
       slot.dataset.known = String(value !== null);
       slot.dataset.complete = String(!uncertain[index]);
       if (value !== null && value > 0) { const bar = el('span', undefined, 'diagnostics-trend-bar'); bar.style.setProperty('height', `${Math.max(0, value / max * 100)}%`); slot.append(bar); }
@@ -74,7 +74,7 @@ function trends(snapshot) {
     });
     graph.append(bars); root.append(graph);
   }
-  root.append(el('p', `10分钟 · 每桶10秒 · ${snapshot.coverage.complete ? '已报告数据' : '仅已报告部分，未覆盖来源不补零'} · 柱=已知小计 · 斜纹=不完整`, 'diagnostics-note'));
+  root.append(el('p', `10分钟 · 每桶10秒 · ${snapshot.coverage.complete ? '已报告数据' : '仅已报告部分，未覆盖来源不补零'} · 柱=已知小计`, 'diagnostics-note'));
   return root;
 }
 function windows(snapshot, compact = false) {

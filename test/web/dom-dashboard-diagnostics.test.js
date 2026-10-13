@@ -60,14 +60,14 @@ test('rates/trends show unknown, independent scales and missing cost without inv
   data.coverage.projects_reporting = 0; expect(diagnosticsRate(data.windows[1], 'input', data.coverage)).toBe('未知'); expect(diagnosticsTrend(data, 'input').every(value => value === null)).toBe(true);
   for (const invalid of [{}, { ...snapshot(), estimated: false }, { ...snapshot(), buckets: [] }, { ...snapshot(), coverage: {} }]) expect(() => validateDiagnostics(invalid)).toThrow('响应无效');
 });
-test('all-uncertain buckets retain positive subtotal bars, hatching and lower-bound peaks in card and details', async () => {
+test('all-uncertain buckets retain plain subtotal bars and lower-bound peaks in card and details', async () => {
   const data = snapshot(); data.coverage.complete = false;
   for (const bucket of data.buckets) { bucket.unknown_tokens = 1; bucket.unknown_cost = 1; }
   const card = renderDiagnosticsCard({ id: 'widget:diagnostics' }, { state: () => ({ snapshot: data }), refresh() {} });
   dom.node('detail').append(card);
   for (const metric of ['input', 'output', 'cost']) {
     const graph = card.querySelector(`.diagnostics-trend-${metric}`), slots = graph.querySelectorAll('.diagnostics-trend-slot');
-    expect(graph.querySelectorAll('.unknown')).toHaveLength(60);
+    expect(graph.querySelectorAll('.unknown')).toHaveLength(0);
     expect(graph.querySelectorAll('.diagnostics-trend-bar')).toHaveLength(59);
     expect(slots[0].dataset.known).toBe('false'); expect(slots[0].dataset.complete).toBe('false');
     expect(slots[59].dataset.known).toBe('true'); expect(slots[59].dataset.complete).toBe('false');
@@ -76,25 +76,30 @@ test('all-uncertain buckets retain positive subtotal bars, hatching and lower-bo
     expect(graph.querySelector('.diagnostics-trend-bars').getAttribute('aria-label')).toContain('60 个不完整桶');
   }
   expect(deepText(card)).toContain('柱=已知小计');
+  expect(deepText(card)).not.toContain('斜纹');
   await card.querySelector('.dashboard-diagnostics-details').onclick();
   expect(dom.node('modal').querySelectorAll('.diagnostics-trend-bar')).toHaveLength(177);
-  expect(dom.node('modal').querySelectorAll('.unknown').filter(slot => slot.querySelector('.diagnostics-trend-bar'))).toHaveLength(177);
+  expect(dom.node('modal').querySelectorAll('.unknown')).toHaveLength(0);
+  expect(dom.node('modal').querySelectorAll('.diagnostics-trend-slot').filter(slot => slot.dataset.complete === 'false')).toHaveLength(180);
+  expect(deepText(dom.node('modal'))).not.toContain('斜纹');
 });
-test('missing cost does not hatch known token bars, and uncertain zeros or absent sources never become bars', () => {
+test('missing cost leaves plain token bars, and uncertain zeros or absent sources never become bars', () => {
   const data = snapshot(); data.coverage.complete = false;
   for (const bucket of data.buckets) { bucket.unknown_cost = 1; bucket.cost = 0; }
   let card = renderDiagnosticsCard({ id: 'widget:diagnostics' }, { state: () => ({ snapshot: data }), refresh() {} });
   expect(card.querySelector('.diagnostics-trend-input').querySelectorAll('.unknown')).toHaveLength(0);
   expect(card.querySelector('.diagnostics-trend-input').querySelectorAll('.diagnostics-trend-bar')).toHaveLength(59);
   expect(deepText(card.querySelector('.diagnostics-trend-input'))).not.toContain('≥');
-  expect(card.querySelector('.diagnostics-trend-cost').querySelectorAll('.unknown')).toHaveLength(60);
+  expect(card.querySelector('.diagnostics-trend-cost').querySelectorAll('.unknown')).toHaveLength(0);
+  expect(card.querySelector('.diagnostics-trend-cost').querySelectorAll('.diagnostics-trend-slot').every(slot => slot.dataset.complete === 'false')).toBe(true);
   expect(card.querySelector('.diagnostics-trend-cost').querySelectorAll('.diagnostics-trend-bar')).toHaveLength(0);
   expect(deepText(card.querySelector('.diagnostics-trend-cost'))).toContain('峰值 未知');
   expect(diagnosticsTrend(data, 'cost').every(value => value === null)).toBe(true);
   data.coverage.projects_reporting = 0;
   card = renderDiagnosticsCard({ id: 'widget:diagnostics' }, { state: () => ({ snapshot: data }), refresh() {} });
   expect(card.querySelectorAll('.diagnostics-trend-bar')).toHaveLength(0);
-  expect(card.querySelectorAll('.unknown')).toHaveLength(180);
+  expect(card.querySelectorAll('.unknown')).toHaveLength(0);
+  expect(card.querySelectorAll('.diagnostics-trend-slot').every(slot => slot.dataset.known === 'false' && slot.dataset.complete === 'false')).toBe(true);
 });
 test('card keeps controls, focus, LI and geometry through reads/resizes; small card summary and complete details', async () => {
   let state = { snapshot: snapshot(), error: null, pending: false }; let reads = 0;
@@ -157,14 +162,16 @@ test('large-session collector → two-project Host → chart keeps subtotals thr
     expect(data.coverage).toEqual({ projects_total: 2, projects_online: 2, projects_reporting: 2, complete: false });
     const card = renderDiagnosticsCard({ id: 'widget:diagnostics' }, { state: () => ({ snapshot: data }), refresh() {} });
     dom.node('detail').append(card);
-    expect(card.querySelectorAll('.unknown')).toHaveLength(180);
+    expect(card.querySelectorAll('.unknown')).toHaveLength(0);
+    expect(card.querySelectorAll('.diagnostics-trend-slot').every(slot => slot.dataset.complete === 'false')).toBe(true);
     expect(card.querySelectorAll('.diagnostics-trend-bar')).toHaveLength(3);
     expect(deepText(card)).toContain('峰值 ≥');
     expect(data.windows[0]).toMatchObject({ input: 45, output: 10, cost: 0.1, requests: 1 });
     fs.appendFileSync(file, JSON.stringify(row) + '\n');
     data = validateDiagnostics(await host.read()); card.dashboardDiagnosticsChange();
     expect(data.coverage.complete).toBe(false); expect(data.windows[0].input).toBe(90);
-    expect(card.querySelectorAll('.unknown')).toHaveLength(180);
+    expect(card.querySelectorAll('.unknown')).toHaveLength(0);
+    expect(card.querySelectorAll('.diagnostics-trend-slot').every(slot => slot.dataset.complete === 'false')).toBe(true);
     data = validateDiagnostics(await host.read()); card.dashboardDiagnosticsChange();
     expect(data.coverage.complete).toBe(true);
     expect(data.windows[0]).toMatchObject({ input: 90, output: 20, cost: 0.2, requests: 2, complete: true });

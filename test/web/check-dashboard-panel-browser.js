@@ -160,25 +160,27 @@ try {
     await settle(); await containment(`diagnostic all-partial ${theme}/${width}`);
     assert(await execute(`return [...document.querySelectorAll('.diagnostics-trend')].every(graph=>{
       const slots=[...graph.querySelectorAll('.diagnostics-trend-slot')],bar=slots[59].querySelector('.diagnostics-trend-bar');
-      return slots.every(slot=>slot.classList.contains('unknown')&&slot.dataset.complete==='false')
+      return slots.every(slot=>!slot.classList.contains('unknown')&&slot.dataset.complete==='false'&&getComputedStyle(slot).backgroundImage==='none')
         &&graph.querySelectorAll('.diagnostics-trend-bar').length===59&&!slots[0].querySelector('.diagnostics-trend-bar')
-        &&bar.getBoundingClientRect().height>0&&getComputedStyle(bar).backgroundImage!=='none'
+        &&bar.getBoundingClientRect().height>0&&getComputedStyle(bar).backgroundImage==='none'
         &&getComputedStyle(bar).backgroundColor!=='rgba(0, 0, 0, 0)'&&graph.textContent.includes('峰值 ≥');
-    })`), 'partial subtotal bars/hatching/lower-bound peak lost');
+    })`), 'plain partial subtotal bars/lower-bound peak lost');
     await execute("document.querySelector('.dashboard-diagnostics-card').scrollIntoView({block:'center'})"); await settle();
     await screenshot(`diagnostics-all-partial-${theme}-${width}`);
-    console.log(`PASS diagnostic all-partial ${theme}/${width}: visible subtotal bars, hatching and lower-bound peaks`);
+    console.log(`PASS diagnostic all-partial ${theme}/${width}: visible plain subtotal bars and lower-bound peaks`);
   }
   diagnosticsState = 'partial';
   // Independent diagnostics reads retain the grid, settings draft, revision, and focused control.
   const beforeDiagnostics = readDashboardSettings(config), queryCount = queries.length, readCount = diagnosticReads;
   await execute("window.diagCard=document.querySelector('.dashboard-diagnostics-card');window.diagRefresh=diagCard.querySelector('.dashboard-diagnostics-refresh');window.diagRects=JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}));diagRefresh.focus({preventScroll:true});diagRefresh.click()");
   assert(await wait("window.diagRefresh.getAttribute('aria-disabled')==='false'"), 'diagnostic refresh timeout');
-  const diagnosticAudit = await execute("return {node:window.diagCard===document.querySelector('.dashboard-diagnostics-card'),focus:document.activeElement===window.diagRefresh,layout:window.diagRects===JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]})),trends:diagCard.querySelectorAll('.diagnostics-trend').length===3,unknown:diagCard.querySelectorAll('.diagnostics-trend-slot.unknown').length===3,partial:diagCard.textContent.includes('≥')&&diagCard.textContent.includes('不完整')}" );
+  const diagnosticAudit = await execute("return {node:window.diagCard===document.querySelector('.dashboard-diagnostics-card'),focus:document.activeElement===window.diagRefresh,layout:window.diagRects===JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]})),trends:diagCard.querySelectorAll('.diagnostics-trend').length===3,plain:diagCard.querySelectorAll('.diagnostics-trend-slot.unknown').length===0&&[...diagCard.querySelectorAll('.diagnostics-trend-slot,.diagnostics-trend-bar')].every(n=>getComputedStyle(n).backgroundImage==='none'),partial:diagCard.textContent.includes('≥')&&diagCard.textContent.includes('不完整')}" );
   assert(Object.values(diagnosticAudit).every(Boolean), 'diagnostic update invariant: ' + JSON.stringify(diagnosticAudit));
   assert(diagnosticReads >= readCount + 1 && queries.length === queryCount && readDashboardSettings(config).revision === beforeDiagnostics.revision, 'diagnostic refresh wrote or queried accounts');
   await execute("document.querySelector('.dashboard-diagnostics-details').click()"); assert(await wait("!document.getElementById('modal').hidden"), 'diagnostic details');
   assert(await execute("return document.getElementById('modal').textContent.includes('估算费用不是账单')&&document.getElementById('modal').textContent.includes('未知费用项')&&document.getElementById('modal').textContent.includes('贡献项计数')&&document.getElementById('modal').textContent.includes('离线')"), 'diagnostic details coverage/estimate missing'); await clickText('关闭');
+  await execute("document.querySelector('.dashboard-diagnostics-details').click()"); assert(await wait("document.querySelector('#modal .diagnostics-trends')"), 'diagnostic details trends');
+  assert(await execute("return [...document.querySelectorAll('#modal .diagnostics-trend-slot,#modal .diagnostics-trend-bar')].every(n=>getComputedStyle(n).backgroundImage==='none')&&!document.getElementById('modal').textContent.includes('斜纹')"), 'diagnostic details still hatched'); await clickText('关闭');
   diagnosticsState = 'error'; await execute("document.querySelector('.dashboard-diagnostics-refresh').click()"); assert(await wait("document.querySelector('.dashboard-diagnostics-card').textContent.includes('更新失败')"), 'diagnostic error hidden'); await containment('diagnostic failure');
   diagnosticsState = 'none'; await execute("document.querySelector('.dashboard-diagnostics-refresh').click()"); assert(await wait("document.querySelector('.dashboard-diagnostics-card').textContent.includes('无登记项目')"), 'no projects shown as zero');
   assert(await execute("return [...document.querySelectorAll('.dashboard-diagnostics-card .diagnostics-rate strong')].every(n=>n.textContent==='未知')"), 'no-project rate fabricated'); diagnosticsState = 'partial';

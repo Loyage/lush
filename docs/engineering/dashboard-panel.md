@@ -66,7 +66,7 @@ Worker 使用来源 `/api/workers?scope=work&limit=&before=` 有界分页；服�
 
 诊断卡 ID 为 `widget:diagnostics`，默认显示；总览设置可隐藏／恢复，位置与尺寸沿用共享固定网格。该卡独立于 `widgets` 成员，不因启停诊断迁移旧配置、清空成员或改变项目／账户选择。
 
-卡片显示最近 60／300 秒平均输入、输出 token/s、估算 USD/min 和最近十分钟趋势。输入包含缓存读取／写入，reasoning 不重复叠加；费用只是会话报告的美元估算，不是账户扣款、套餐折算或最终账单。数据主要在响应／回合结束后落账，不承诺生成期间逐 token 实时监控。不同单位分别绘图；更新时间、来源覆盖与未知贡献必须保留。W252／D597：不完整时间桶仍绘制正的已知小计柱，并在柱与背景保留斜纹；不完整图的峰值以 `≥` 标明下界。未知贡献且已知小计为零的桶只显示斜纹，不冒充确认零消耗；图例与可访问说明区分已知小计和完整统计。
+卡片显示最近 60／300 秒平均输入、输出 token/s、估算 USD/min 和最近十分钟趋势。输入包含缓存读取／写入，reasoning 不重复叠加；费用只是会话报告的美元估算，不是账户扣款、套餐折算或最终账单。数据主要在响应／回合结束后落账，不承诺生成期间逐 token 实时监控。不同单位分别绘图；更新时间、来源覆盖与未知贡献必须保留。W266／A266-1 调整 W252／D597 的展示：不完整时间桶仍绘制正的已知小计柱，但与完整桶统一使用纯色柱和普通背景，不再用斜纹强调缺失；卡片与详情一致。不完整图的峰值仍以 `≥` 标明下界，覆盖提示与未知贡献计数保留。未知贡献且已知小计为零的桶留空，不冒充确认零消耗；可访问说明仍区分已知小计和完整统计。
 
 用户专属无参数 RPC `system.diagnostics` 在各项目只读采集现有会话；Host 的根路径 `GET /api/host/diagnostics` 无参数，只聚合已登记且有权访问的来源。返回 `{version:1,generated_at,currency:'USD',estimated:true,windows,buckets,coverage,projects}`：`windows` 为 60／300 秒的已知输入、输出、费用、请求数及速率，另有 `unknown_tokens`、`unknown_cost` 和 `complete`；`buckets` 为 60 个十秒桶，含起点 `at` 及已知用量／未知贡献计数。`coverage` 包含 `projects_total/projects_online/projects_reporting/complete`；`projects` 带身份、名称、`online/offline/unavailable/unsupported` 状态、来源采样时间与安全诊断。不返回会话正文、凭证或任意 RPC 代理。
 
