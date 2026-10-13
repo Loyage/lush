@@ -17,6 +17,7 @@ import { resourceSummary } from './task-graph-usage.js';
 import { mergeRelations } from './task-graph-merge.js';
 import { captureGraph, restoreGraph, graphMotionRunning } from './task-graph-motion.js';
 import { branchDiagnostics, decisionRow } from './task-graph-parts.js';
+import { graphGitStatus } from './task-graph-git.js';
 import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
 import { workerDeleteControl } from './worker-delete.js';
 import { workerRenameControl } from './worker-rename.js';
@@ -317,7 +318,11 @@ function minimalSummary(node, queueNote, folded = new Set()) {
     : waiting && node.waiting_reason ? node.waiting_reason : queueNote || step);
   const text = el('span', [count, note].filter(Boolean).join(' · '), 'task-graph-minimal-note');
   const relations = mergeRelations(node);
-  line.append(interruptHint ? text : relations || text);
+  const progress = el('div', undefined, 'task-graph-minimal-progress');
+  const git = graphGitStatus(node);
+  if (git) progress.append(git);
+  progress.append(interruptHint ? text : relations || text);
+  line.append(progress);
   // Desktop keeps these inline; mobile gives progress and metadata separate rows.
   const meta = el('div', undefined, 'task-graph-minimal-meta');
   if (node.details_unavailable) meta.append(badge('详情过大不可用', 'warn'));

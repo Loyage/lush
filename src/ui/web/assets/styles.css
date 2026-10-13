@@ -662,6 +662,8 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-minimal .task-graph-head>.task-graph-title{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:48px;font-size:12px}
 .task-graph-minimal .badge{flex:none;padding:1px 4px;font-size:10px}
 .task-graph-minimal-summary{grid-column:1;grid-row:2;display:flex;align-items:center;gap:6px;min-width:0;color:var(--muted);font-size:11px;line-height:20px}
+.task-graph-minimal-progress{display:flex;align-items:baseline;gap:6px;flex:1;min-width:0}
+.task-graph-git-status{display:inline-flex;gap:3px;flex:none;white-space:nowrap}
 .task-graph-minimal-note{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .task-graph-minimal-meta{display:contents}
 /* Delivery phase is separate from Agent activity; shared tree connectors stay static. */
@@ -671,7 +673,7 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
 .task-graph-merge-relations .task-graph-merge-link{display:inline;padding:0 3px;font-size:inherit;line-height:inherit;color:var(--accent);vertical-align:baseline}
 .task-graph-merge-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:4px;animation:task-graph-merge-pulse 2.4s ease-in-out infinite}
 @keyframes task-graph-merge-pulse{50%{opacity:.4}}
-.task-graph-minimal-summary>.task-graph-merge-relations{display:block;flex:1;min-width:0;white-space:nowrap;overflow-x:auto;scrollbar-width:none;margin:0;font-size:11px;line-height:20px}
+.task-graph-minimal-progress>.task-graph-merge-relations{display:block;flex:1;min-width:0;white-space:nowrap;overflow-x:auto;scrollbar-width:none;margin:0;font-size:11px;line-height:20px}
 .task-graph-minimal-summary .task-graph-merge-own+.task-graph-merge-incoming::before{content:' · '}
 .task-graph-more{grid-column:2;grid-row:1/3;align-self:center}
 .task-graph-more-trigger{width:30px;height:36px;padding:0;font-size:20px;line-height:1}
@@ -684,7 +686,8 @@ button.agent-call.ghost:disabled{background:transparent;color:var(--violet-ink)}
   .task-graph-actions-popover{right:16px;bottom:16px}
   .task-graph-minimal .task-graph-card{height:auto;min-height:68px;grid-template-rows:26px auto}
   .task-graph-minimal-summary{flex-direction:column;align-items:stretch;gap:4px}
-  .task-graph-minimal-note,.task-graph-minimal-summary>.task-graph-merge-relations{flex:none;white-space:normal;overflow:visible;overflow-wrap:anywhere}
+  .task-graph-minimal-progress{flex:none}
+  .task-graph-minimal-note,.task-graph-minimal-progress>.task-graph-merge-relations{white-space:normal;overflow:visible;overflow-wrap:anywhere}
   .task-graph-minimal-meta{display:flex;align-items:center;flex-wrap:wrap;gap:4px 6px;min-width:0}
   .task-graph-minimal-meta>.task-graph-usage{flex:0 1 auto;min-width:0;flex-wrap:wrap;gap:0 7px;white-space:normal}
   .task-graph-minimal-meta>.task-graph-usage>span{white-space:nowrap}

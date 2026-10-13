@@ -168,8 +168,8 @@ test('资源消耗在两种模式显示自身，折叠显示后端完整子树�
   const summaryLine = card(2).querySelector('.task-graph-minimal-summary');
   const placed = summaryLine.querySelector('.task-graph-usage');
   expect(placed.parentNode.className).toBe('task-graph-minimal-meta');
-  expect(summaryLine.children[0].className).toBe('task-graph-minimal-note');
-  expect(summaryLine.children[0].textContent).toContain('1/3 · 实现双行');
+  expect(summaryLine.children[0].className).toBe('task-graph-minimal-progress');
+  expect(summaryLine.querySelector('.task-graph-minimal-note').textContent).toContain('1/3 · 实现双行');
   expect(placed.parentNode.querySelector('.task-graph-minimal-note')).toBeNull();
   expect(placed).toBeTruthy();
   const siblings = placed.parentNode.children;
@@ -198,6 +198,50 @@ test('资源消耗在两种模式显示自身，折叠显示后端完整子树�
   renderTaskGraph(graph);
   expect(card(2).querySelector('.task-graph-usage-cost').textContent).toBe('—');
   expect(card(2).querySelector('.task-graph-usage').classList.contains('is-live')).toBe(false);
+});
+
+test('Git 相对进度在第二排计划前，刷新、折叠和交付状态不改变真实含义', async () => {
+  const node = graph.nodes[1];
+  node.parent_relation = { ahead: 3, behind: 2 };
+  node.branch_info = { diagnostics: { working_tree: { status: 'dirty' } } };
+  node.integration = 'merged';
+  renderTaskGraph(graph);
+  const progress = card(2).querySelector('.task-graph-minimal-progress');
+  expect(progress.children[0].classList.contains('task-graph-git-status')).toBe(true);
+  expect(progress.children[1].classList.contains('task-graph-minimal-note')).toBe(true);
+  expect(deepText(progress.children[0])).toBe('* +3 -2');
+  expect(progress.querySelector('.parent-commit-ahead').textContent).toBe('+3');
+  expect(progress.querySelector('.parent-commit-behind').textContent).toBe('-2');
+  expect(progress.children[0].getAttribute('aria-label')).toContain('不代表是否已交付');
+  expect(progress.children[1].textContent).toContain('实现双行');
+  node.parent_relation = { ahead: 0, behind: 0 };
+  node.branch_info.diagnostics.working_tree.status = 'clean';
+  await loadTaskGraph();
+  expect(deepText(card(2).querySelector('.task-graph-git-status'))).toBe('- +0 -0');
+  await card(1).querySelector('button').onclick();
+  await card(1).querySelector('button').onclick();
+  expect(deepText(card(2).querySelector('.task-graph-git-status'))).toBe('- +0 -0');
+});
+
+test('Git 未知不冒充干净或零距离；根、无分支和归档 Worker 不伪造父距离', async () => {
+  const { graphGitStatus } = await import('../../src/ui/web/assets/task-graph-git.js');
+  const node = graph.nodes[1];
+  for (const status of [undefined, 'unknown', 'not_checked_out']) {
+    node.branch_info = { diagnostics: { working_tree: { status } } };
+    for (const parent_relation of [null, { ahead: -1, behind: NaN }, { ahead: 0.5, behind: Infinity }]) {
+      node.parent_relation = parent_relation;
+      const indicator = graphGitStatus(node);
+      expect(deepText(indicator)).toBe('? +? -?');
+      expect(indicator.getAttribute('data-help')).toContain('未知');
+    }
+  }
+  const root = { ...graph.nodes[0], branch_info: { diagnostics: { working_tree: { status: 'clean' } } } };
+  expect(deepText(graphGitStatus(root))).toBe('-');
+  expect(graphGitStatus(root).querySelector('.parent-commit-ahead')).toBeNull();
+  expect(graphGitStatus({ ...node, branch: null })).toBeNull();
+  expect(graphGitStatus({ ...node, archived: true })).toBeNull();
+  expect(graphGitStatus({ ...node, branch_info: { archived: true } })).toBeNull();
+  expect(graphGitStatus({ ...node, details_pending: true }).getAttribute('data-help')).toContain('加载中');
 });
 
 test('Worker 树时长省略前导零单位，最高单位以下全量显示且数字与单位间有空格', () => {

@@ -583,10 +583,16 @@ test('Task Git diagnostics use registered parents, not Task edges or targets, an
       relation: { status: 'ahead', ahead: 1, behind: 0 } });
     expect(nodes.get(duplicate.id).branch_info.relation).toEqual(nodes.get(f.task.id).branch_info.relation);
     expect(graph.edges).toContainEqual({ from: f.task.id, to: alias.id });
+    // Worker distance is separate: these aliases share their direct parent's tip,
+    // even though the registered Git parent is main. Each fixed pair is read once.
+    expect(nodes.get(alias.id).parent_relation).toEqual({ ahead: 0, behind: 0 });
+    expect(nodes.get(duplicate.id).parent_relation).toEqual({ ahead: 0, behind: 0 });
     const comparisons = calls.filter(args => args[0] === 'rev-list');
-    expect(comparisons).toHaveLength(1);
-    expect(comparisons[0]).toEqual(['rev-list', '--left-right', '--count',
-      `${await git(f.root, 'rev-parse', 'main')}...${await git(f.root, 'rev-parse', `refs/heads/${f.task.branch}`)}`, '--']);
+    expect(comparisons).toHaveLength(2);
+    const sourceTip = await git(f.root, 'rev-parse', `refs/heads/${f.task.branch}`);
+    expect(comparisons).toContainEqual(['rev-list', '--left-right', '--count',
+      `${await git(f.root, 'rev-parse', 'main')}...${sourceTip}`, '--']);
+    expect(comparisons).toContainEqual(['rev-list', '--left-right', '--count', `${sourceTip}...${sourceTip}`, '--']);
     expect(calls.filter(args => args[0] === 'for-each-ref')).toHaveLength(1);
     // 当前检出用完整 ref；已有工作区诊断另有检出身份校验，不约束其调用数。
     expect(calls).toContainEqual(['symbolic-ref', '--quiet', 'HEAD']);

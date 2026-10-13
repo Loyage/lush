@@ -29,6 +29,8 @@ HTTP `GET /api/worker/ID/reading-page` / `reading-record` 使用同名查询参�
 
 关系按当前有界 Worker 集合去重，批量读取 refs / 登记谱系，并缓存同一固定提交对的 `rev-list --left-right --count` 结果，不逐 Worker 重读 Git。它只回答真实 Git 祖先关系，不表示是否交付：Squash 已落地的分支仍可能是 `diverged`，`integration:'merged'` 独立记录交付成功；Worker 图边仍只表示 Worker 父子归属。
 
+节点另带 `parent_relation:{ahead,behind}|null`，比较本分支与真实直接父 Worker 分支的实时 tip，与 `branch_info.relation` 的登记谱系口径独立；父节点被筛选或在页外也能比较，不使用存储 head、原始 base 或 target_branch 替代。缺失 ref、父分支已归档、读取失败或计数无效时计数为 null；摘要模式、自身归档、根 Worker 或无分支时整个字段为 null。与登记谱系共享固定提交对采样，不新增 Git 写入。Web 极简树第二排计划信息前显示 `*`（有未提交更改）／`-`（干净）、红色 `+N`（领先）和绿色 `-N`（落后），包括 0；未提交状态复用实时工作区诊断，不缓存磁盘状态，未知显示 `?`。根 Worker 只显示未提交状态，无分支或已归档者不显示；该标记不代表交付状态。
+
 Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`task_kind='order'`）→ 按需派出的子 `agent` Worker。main 是 `task_kind='main'` 的静息根 Worker，其他本地分支需 `branch.bind` 显式绑定 `owner`。历史 `task_kind='say'` 在读取与类型判定边界兼容为指令，已有行、分支和工作区不迁移；新提交只写 `order`、只接受 `order.submit`，见[更名边界](../../engineering/core-api.md#指令更名与历史读取边界)。旧 Intent / Plan / Candidate 与 planner / scheduler 的 `layer` 只用于读懂历史行，不参与新调度。
 
 | CLI | RPC | 参数 |

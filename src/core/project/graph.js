@@ -243,35 +243,44 @@ export default {
     } catch { /* detached HEAD / 无 Git / 读取失败：没有可确认的当前分支。 */ }
     // 同一分支只算一次；不同分支使用同一固定提交对时也共享 rev-list 结果，包括失败。
     const relations = new Map(), commitRelations = new Map();
+    const readRelation = async (name, parent) => {
+      const unknown = { status: 'unknown', ahead: null, behind: null };
+      if (!refsKnown || !parent) return unknown;
+      const childHead = refs.get(name), parentHead = refs.get(parent);
+      if (!childHead || !parentHead) return { ...unknown, status: 'missing' };
+      const key = `${parentHead}...${childHead}`;
+      if (!commitRelations.has(key)) {
+        let result = unknown;
+        try {
+          const output = await this.workspaces.git(this.config.project, 'rev-list', '--left-right', '--count', key, '--');
+          const counts = output.trim().split(/\s+/);
+          if (counts.length === 2 && counts.every(value => /^\d+$/.test(value) && Number.isSafeInteger(Number(value)))) {
+            const [behind, ahead] = counts.map(Number);
+            result = { status: ahead === 0 && behind === 0 ? 'equal'
+              : behind === 0 ? 'ahead' : ahead === 0 ? 'behind' : 'diverged', ahead, behind };
+          }
+        } catch { /* 固定提交不可读时不冒充一致或缺失。 */ }
+        commitRelations.set(key, result);
+      }
+      return commitRelations.get(key);
+    };
     for (const name of details ? branchNames : []) {
       const record = records.get(name);
       if (record?.status === 'archived') { relations.set(name, null); continue; }
       let relation = { status: 'unknown', ahead: null, behind: null };
       if (record?.parent && record.parent_relation === 'recorded') {
         if (records.get(record.parent)?.status === 'archived') relation.status = 'parent_archived';
-        else if (refsKnown) {
-          const childHead = refs.get(name), parentHead = refs.get(record.parent);
-          if (!childHead || !parentHead) relation.status = 'missing';
-          else {
-            const key = `${parentHead}...${childHead}`;
-            if (!commitRelations.has(key)) {
-              let result = { status: 'unknown', ahead: null, behind: null };
-              try {
-                const output = await this.workspaces.git(this.config.project, 'rev-list', '--left-right', '--count', key, '--');
-                const counts = output.trim().split(/\s+/);
-                if (counts.length === 2 && counts.every(value => /^\d+$/.test(value) && Number.isSafeInteger(Number(value)))) {
-                  const [behind, ahead] = counts.map(Number);
-                  result = { status: ahead === 0 && behind === 0 ? 'equal'
-                    : behind === 0 ? 'ahead' : ahead === 0 ? 'behind' : 'diverged', ahead, behind };
-                }
-              } catch { /* 固定提交也可能已不可读，绝不冒充一致或缺失。 */ }
-              commitRelations.set(key, result);
-            }
-            relation = commitRelations.get(key);
-          }
-        }
+        else relation = await readRelation(name, record.parent);
       }
       relations.set(name, relation);
+    }
+    // Worker 父子关系与登记分支谱系独立；父节点不在本页也按真实直接父分支比较。
+    const parentRelations = new Map();
+    if (details) for (const row of selected) {
+      if (!row.branch || !row.parent_id || records.get(row.branch)?.status === 'archived') continue;
+      const { ahead, behind } = records.get(row.parent_branch)?.status === 'archived'
+        ? { ahead: null, behind: null } : await readRelation(row.branch, row.parent_branch);
+      parentRelations.set(row.id, { ahead, behind });
     }
     const candidates = details ? branchNames.filter(name => records.get(name)?.status !== 'archived') : [];
     const diagnostics = candidates.length ? await this.workspaces.branchDiagnostics(candidates
@@ -323,6 +332,7 @@ export default {
         merge_queue: mergeQueues.get(row.id),
         input_queue: this.taskInputQueue({ ...row, reservation }, inputCounts.get(row.id) ?? 0, freezes),
         resources: resources.get(row.id) ?? null, details_pending: !details,
+        parent_relation: parentRelations.get(row.id) ?? null,
         freeze: freeze ? { kind: freeze.kind, task_id: freeze.task_id ?? null, reason: freeze.reason } : null,
         resolves_task_id: row.resolves_task_id ?? resolutions.get(row.id) ?? null,
         auto_merge: this.autoMergeView({ ...row, reservation }),
