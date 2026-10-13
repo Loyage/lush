@@ -38,6 +38,7 @@ test('关系树嵌套为直接父→当前→直接子，显示真实编号、�
   expect(deepText(section)).toContain('W227-1-2'); expect(deepText(section)).toContain('用户标题');
   expect(deepText(rows[0])).toContain('运行中'); expect(deepText(rows[2])).toContain('待父确认'); expect(deepText(rows[2])).toContain('已合并');
   expect(deepText(section)).not.toContain('标题 41');
+  expect(section.querySelector('.worker-relations-count').textContent).toBe('直接子 Worker：1 / 1');
   const opened = [], restore = registerNavigation({ detail: id => opened.push(id) });
   try { await rows[0].querySelector('button').onclick(); await rows[2].querySelector('button').onclick(); }
   finally { restore(); }
@@ -46,7 +47,12 @@ test('关系树嵌套为直接父→当前→直接子，显示真实编号、�
 
 test('根 Worker 与无子节点也显示模块；缺少编号使用内部 ID，不根据 ID 推算', () => {
   const section = renderWorkerRelations(worker(3, { worker_number: null, parent_id: null }), { data: { ...page([]), parent: null } });
-  expect(deepText(section)).toContain('没有直接父 Worker'); expect(deepText(section)).toContain('没有直接子 Worker');
+  expect(deepText(section)).toContain('没有直接父 Worker');
+  for (const text of ['直接子 Worker：0 / 0', '没有直接子 Worker', '本 Worker 依赖', '本 Worker 不依赖其他 Worker', '依赖本 Worker', '没有 Worker 在等它']) {
+    expect(deepText(section)).not.toContain(text);
+  }
+  expect(section.querySelector('.worker-relations-count')).toBeNull();
+  expect(section.querySelectorAll('.worker-relation-dependencies')).toHaveLength(0);
   expect(deepText(section)).toContain('#3'); expect(deepText(section)).not.toContain('W3');
   expect(section.querySelectorAll('.worker-relation-row')).toHaveLength(1);
 });
@@ -58,6 +64,7 @@ test('子节点分页去重，保留失败/取消/已合入状态与节点引用
   await section.querySelector('.worker-relations-more').onclick();
   expect(deepText(section)).toContain('故意读取失败'); expect(deepText(section)).toContain('标题 4');
   expect(section.querySelector('.worker-relations-more')).toBeTruthy();
+  expect(section.querySelector('.worker-relations-count').textContent).toBe('直接子 Worker：1 / 3');
   intercept = () => json(page([worker(4, { status: 'failed' }), worker(5, { status: 'cancelled' }), worker(6, { status: 'completed', integration: 'merged' })], { total: 3 }));
   await section.querySelector('.worker-relations-more').onclick();
   expect(requests.at(-1)[0]).toContain('after=4');
@@ -74,7 +81,9 @@ test('关系读取失败不冒充无父或无子，父节点编号仍可导航�
   expect(deepText(section)).toContain('W227'); expect(deepText(section)).toContain('标题 4');
   expect(deepText(section)).not.toContain('没有直接子 Worker');
   intercept = () => json(page([])); await section.querySelector('.worker-relations-retry').onclick();
-  expect(deepText(section)).toContain('没有直接子 Worker'); expect(deepText(section)).not.toContain('状态不可用');
+  expect(section.querySelector('.worker-relation-children').children).toHaveLength(0);
+  expect(section.querySelector('.worker-relations-count')).toBeNull();
+  expect(deepText(section)).not.toContain('没有直接子 Worker'); expect(deepText(section)).not.toContain('状态不可用');
 });
 
 test('换页、取消或同 Worker 重绑定后，迟到的加载更多不得覆盖当前关系', async () => {

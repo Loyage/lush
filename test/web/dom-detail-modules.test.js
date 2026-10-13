@@ -32,8 +32,17 @@ test('relations groups both dependency directions with real identity, code/contr
     expect(deepText(groups[1])).toContain('依赖本 Worker'); expect(deepText(groups[1])).toContain('W232-3');
     await groups[0].querySelector('button').onclick(); await groups[1].querySelector('button').onclick();
     expect(navigated).toEqual([20, 30]);
+    section.bindRelations(worker(7, { deps: task.deps }), { current: () => true });
+    expect(section.querySelectorAll('.worker-relation-dependencies')).toHaveLength(1);
+    expect(deepText(section)).toContain('本 Worker 依赖'); expect(deepText(section)).not.toContain('依赖本 Worker');
+    section.bindRelations(worker(7, { dependents: task.dependents }), { current: () => true });
+    expect(section.querySelectorAll('.worker-relation-dependencies')).toHaveLength(1);
+    expect(deepText(section)).not.toContain('本 Worker 依赖'); expect(deepText(section)).toContain('依赖本 Worker');
     section.bindRelations(worker(7), { current: () => true });
-    expect(deepText(section)).toContain('本 Worker 不依赖其他 Worker'); expect(deepText(section)).toContain('没有 Worker 在等它');
+    expect(section.querySelectorAll('.worker-relation-dependencies')).toHaveLength(0);
+    for (const text of ['本 Worker 依赖', '本 Worker 不依赖其他 Worker', '依赖本 Worker', '没有 Worker 在等它']) {
+      expect(deepText(section)).not.toContain(text);
+    }
   } finally { restore(); }
 }));
 

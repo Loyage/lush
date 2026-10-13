@@ -42,11 +42,10 @@ function workerRow(worker, relation, current = false) {
   return row;
 }
 
-function dependencyGroup(edges, title, empty) {
+function dependencyGroup(edges, title) {
   const group = el('div', undefined, 'worker-relation-dependencies');
   group.append(el('h3', title));
-  if (!edges?.length) group.append(el('p', empty, 'hint'));
-  for (const edge of edges || []) {
+  for (const edge of edges) {
     const row = workerRow(edge, edge.kind === 'code' ? '代码基线（code）' : '仅顺序（control）');
     group.append(row);
   }
@@ -87,8 +86,7 @@ export function renderWorkerRelations(task, { data = null, current = () => true,
     selected.append(branch); body.append(tree);
     section.relationsCount = state?.children.items.length ?? 0;
     if (state) {
-      body.append(el('p', `直接子 Worker：${children.length} / ${state.children.total}`, 'hint worker-relations-count'));
-      if (!state.children.total) body.append(el('p', '没有直接子 Worker。', 'hint'));
+      if (state.children.total) body.append(el('p', `直接子 Worker：${children.length} / ${state.children.total}`, 'hint worker-relations-count'));
       if (state.children.has_more) body.append(button(loading ? '加载中…' : '加载更多直接子 Worker', more, 'ghost worker-relations-more'));
     } else body.append(el('p', available === false ? '关系读取失败；当前显示详情内的子 Worker 摘要，可能不完整。' : 'Worker 关系加载中…', 'hint'));
     if (error) body.append(el('p', error, 'error worker-relations-error'));
@@ -97,8 +95,8 @@ export function renderWorkerRelations(task, { data = null, current = () => true,
       body.append(button('重试读取关系', retry, 'ghost worker-relations-retry'));
     }
     for (const control of body.querySelectorAll('.worker-relations-more, .worker-relations-retry')) control.disabled = loading;
-    body.append(dependencyGroup(task.deps, '本 Worker 依赖', '本 Worker 不依赖其他 Worker。'),
-      dependencyGroup(task.dependents, '依赖本 Worker', '没有 Worker 在等它。'));
+    if (task.deps?.length) body.append(dependencyGroup(task.deps, '本 Worker 依赖'));
+    if (task.dependents?.length) body.append(dependencyGroup(task.dependents, '依赖本 Worker'));
   };
   async function more() {
     if (loading || !state?.children.has_more) return;
