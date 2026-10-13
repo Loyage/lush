@@ -10,7 +10,11 @@ W234／D552 恢复根 `#projects` 的原项目聚合卡片、统一额度窗口�
 - `dashboard-widget-aggregate-render.js` 渲染原项目指标、消息和 Worker 组合，按几何分配固定槽位；宽卡直接显示所选导航，窄卡／编辑模式以详情或入口弹窗兜底，纯导航项目在正文分页。`dashboard-widget-render.js`／`dashboard-widget-pagination.js` 保留来源隔离的消息、Worker 和固定分页接缝，`dashboard-widget-model.js` 保留 v4 成员校验／兼容接口。`project-dashboard-content.js` 复用语义；`dashboard-cards.js` 读取连接缓存、渲染有界指标与独立详情；`dashboard-accounts-group.js` 负责统一额度来源窗口。
 - `project-board.js` 消费布局，负责网格吸附、避让、响应式投影、拖动、边角缩放和键盘操作。保留调用方原始 `li` 及其属性；`renderCard(row,{geometry})` 与 `row.geometry` 接收显示投影，`onGeometryChange(row,geometry,item)` 仅在几何变化时回调，`getLayout()` 保持规范 12 列坐标。来源配色使用 `project_id`，不把 widget ID 当项目路径。
 
-卡片设置入口由空白处长按 650ms 或聚焦后 Shift+F10 显示；移动、滚动、取消和交互控件不触发。Esc／点击外部收起，关闭弹窗恢复焦点且不滚动页面。布局编辑只有全局按钮开启，查看模式隐藏并禁用手柄；编辑只改内存，保存才写设备，取消恢复确认配置。总览仅提供可配置的项目／全局导航，不增加 Agent 调用或维护动作。
+W253／D587：页面「编辑模式」统一编辑配置与布局，每卡设置常显，查看模式仍隐藏并禁用布局手柄。原空白处长按 650ms／Shift+F10 保留为设置捷径，打开设置也进入同一编辑模式；移动、滚动和交互控件不触发长按。关闭弹窗恢复焦点且不滚动页面。总览仅提供展示设置与项目／全局导航，不增加 Agent 调用或维护动作。
+
+「添加卡片」打开可搜索的已登记项目／统一额度窗口／运行诊断库，已添加来源不能重复选择，空面板也有入口；不在这里新建项目或账号。每卡设置支持适用内容、额度来源、项目导航和移出总览；诊断设置说明固定采样范围并允许移出。移除不删除来源，重新添加使用现有配置模型的默认内容；撤销可恢复移除前的完整草稿。面板设置管理整体选择和全局导航。弹窗「应用到草稿」只修改内存，取消弹窗不修改页面草稿。
+
+撤销／重做覆盖内容、来源、导航和布局；「恢复默认布局」经确认仅重排当前可见卡片，保留内容和旧成员布局，仍可撤销。「保存更改」以进入编辑时的 revision 一次发布相对确认配置的 partial patch；无改动保存只验证 revision，不写入显示投影。「取消编辑」恢复整份确认配置。当前表单或请求未结束时阻止同页离开，未保存修改离开时确认，关闭／刷新页面使用浏览器原生提醒；页面释放注销监听与守卫。
 
 ## 配置与兼容
 
@@ -38,7 +42,7 @@ W234／D552 恢复根 `#projects` 的原项目聚合卡片、统一额度窗口�
 - `sections` 按类型为：status `metrics/distribution/delivery`；messages `messages`；workers `recent`；accounts `quota/balance/reset/observed/details/history/provenance`；shortcuts `shortcuts`。允许空数组，异常与来源占位不被内容开关隐藏。
 - `cards` 最多 100，`hidden_projects/layout/content` 最多 300；layout 支持 widget ID 和旧项目／`accounts`／`account:<UUID>` ID，旧 content 保留原 ID，新内容写 `widgets.sections`。
 
-保存与刷新反馈使用 toast，不用状态行推移看板。确认请求在途禁止重复提交、取消、Escape 和背景关闭；失败保留表单与布局稿，不自动重试。离页或弹窗替换后的迟到 ACK 不关闭新弹窗或抢焦点。显式重读才丢弃草稿，重读失败不清空；写入 ACK 与后续绘制失败分别报告。刷新保留编辑稿及原 revision，不借新 revision 覆盖其他客户端。
+保存与刷新反馈使用 toast，编辑工具栏显示未保存／保存未确认状态，不用业务状态行推移看板。确认请求在途禁止重复提交与取消；失败保留完整草稿和撤销历史，不自动重试。离页或弹窗替换后的迟到 ACK 不关闭新弹窗或抢焦点。保存未确认时锁定再次写入；「重新读取设置」经明确确认、读取成功后才丢弃草稿，读取失败不清空。写入 ACK 与后续绘制失败分别报告。刷新保留编辑稿及原 revision，不借新 revision 覆盖其他客户端。
 
 ## 固定几何与信息密度
 

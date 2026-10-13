@@ -245,11 +245,14 @@ try {
   }
   await setDeviceTheme('dark'); await setProjectColor('rose');
   await rpc(`/session/${session}/window`, { handle: settingsWindow }); await click('#projects-open');
-  await until(`document.querySelector('.dashboard-settings-open')&&!document.querySelector('.dashboard-settings-open').disabled`);
-  await click('.dashboard-settings-open');
+  await until(`document.querySelector('.dashboard-layout-edit')&&!document.querySelector('.dashboard-layout-edit').disabled`);
+  await click('.dashboard-layout-edit'); await click('.dashboard-settings-open');
   await until(`document.querySelectorAll('.dashboard-settings-panel input[data-connection-id]').length===2&&!document.querySelector('.dashboard-settings-panel input').disabled`);
   for (const id of accountIds) await click(`.dashboard-settings-panel input[data-connection-id="${id}"]`);
   await click('#modal .modal-confirm');
+  await until(`document.getElementById('modal').hidden&&!document.querySelector('.dashboard-layout-save').disabled`);
+  assert(readDashboardSettings({ deviceHome: deviceSettings.config.home }).cards.length === 0, 'card settings published before page save');
+  await click('.dashboard-layout-save');
   await until(`document.querySelector('.dashboard-status').textContent==='已保存'&&!document.querySelector('.dashboard-settings-open').disabled`);
   await until(`document.querySelectorAll('.project-board-card').length===3&&document.querySelector('[data-board-color="rose"]')&&document.querySelector('.dashboard-diagnostics-card')`);
   assert(await evaluate(`document.querySelectorAll('.dashboard-account-card').length===2&&document.getElementById('detail').textContent.includes('12.5 USD')&&!document.querySelector('.project-order')&&[...document.querySelectorAll('.project-board-handle')].every(b=>b.hidden&&b.disabled)`), 'dashboard mixed cards or non-editing boundary failed');
@@ -287,9 +290,12 @@ try {
     await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 }); await login('/#projects');
     await until(`document.querySelectorAll('.dashboard-account-card').length===2&&document.querySelectorAll('.project-board-card').length===3&&document.querySelector('.dashboard-diagnostics-card')`);
     assert(await evaluate(`document.querySelector('[data-widget-type="accounts"]').style.gridColumn===${JSON.stringify(sharedAccountColumn)}&&localStorage.getItem('lush.host.project-board.order.v1')===null`), 'second browser failed to share device card selection and layout');
-    await click('.dashboard-settings-open');
+    await click('.dashboard-layout-edit'); await click('.dashboard-settings-open');
     await until(`document.querySelectorAll('.dashboard-settings-panel input[data-connection-id]').length===2&&!document.querySelector('.dashboard-settings-panel input').disabled`);
     await click(`.dashboard-settings-panel input[data-connection-id="${accountIds[1]}"]`); await click('#modal .modal-confirm');
+    await until(`document.getElementById('modal').hidden&&!document.querySelector('.dashboard-layout-save').disabled`);
+    assert(readDashboardSettings({ deviceHome: deviceSettings.config.home }).cards.length === 2, 'second profile published its draft early');
+    await click('.dashboard-layout-save');
     await until(`document.querySelector('.dashboard-status').textContent==='已保存'&&!document.querySelector('.dashboard-settings-open').disabled`);
     await navigate(`${origin}/p/${projectRouteId(fixtureProject)}/`);
     await until(`document.documentElement.dataset.projectColor === 'rose' && document.documentElement.dataset.theme === 'dark'`);

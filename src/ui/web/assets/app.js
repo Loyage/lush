@@ -27,6 +27,7 @@ import { initNoticeRecords, openNotice } from './render-notices.js';
 import { workerNumberTarget, resolveWorkerNumber } from './worker-links.js';
 import { projectRoute, workspaceHref } from './route.js';
 import { configureWorkspaceShell, renderGlobalInboxSummary, workspaceLink } from './workspace-shell.js';
+import { requestPageLeave, resetPageLeaveGuard } from './page-leave-guard.js';
 import { onDeviceAutomation, startDeviceAutomationObserver } from './workspace-automation.js';
 
 function syncSidebarSortSelect() {
@@ -110,6 +111,10 @@ let hashGeneration = 0;
 function onHashChange() {
   const generation = ++hashGeneration; hideHelp();
   const hash = location.hash, project = projectRoute(), doc = docsTarget(hash);
+  // Every hash/back attempt invalidates an older pending click, not only a dashboard destination.
+  return requestPageLeave(hash || '#projects', { leave: () => openHashTarget(hash, project, doc, generation) });
+}
+function openHashTarget(hash, project, doc, generation) {
   if (project && (deviceHash(hash) || (hash === '#projects' || hash === '#project-management') || doc)) return globalPageRedirect(hash);
   if (!project) {
     if (!hash || hash === '#projects') return openProjectOverview({ push: false });
@@ -180,7 +185,7 @@ function initGlobalNavigation() {
 export async function boot() {
   const boot = ++bootGeneration, owner = globalThis.document;
   const active = () => boot === bootGeneration && owner === globalThis.document;
-  ++pageGeneration; ++hashGeneration;
+  ++pageGeneration; ++hashGeneration; resetPageLeaveGuard();
   disposeRefreshPolling?.(); disposeRefreshPolling = null;
   disposePreferences?.(); disposeAutomation?.(); disposeAutomationView?.(); disposeInbox?.(); disposeInboxReady?.();
   disposePreferences = disposeAutomation = disposeAutomationView = disposeInbox = disposeInboxReady = null;

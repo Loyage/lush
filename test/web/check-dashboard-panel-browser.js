@@ -112,7 +112,7 @@ const asyncExecute = script => rpc(`/session/${session}/execute/async`, { script
 const wait = condition => asyncExecute(`const done=arguments[0];let n=0;const check=()=>(${condition})?done(true):++n>180?done(false):setTimeout(check,30);check();`);
 const settle = () => asyncExecute('const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(()=>done(true))));');
 const assert = (value, message) => { if (!value) throw Error(message); };
-const clickText = text => execute(`const b=[...document.querySelectorAll('#modal button,#detail button')].find(b=>b.textContent===${JSON.stringify(text)}&&!b.disabled);if(!b)throw Error('missing button '+${JSON.stringify(text)});b.click();`);
+const clickText = text => execute(`const b=[...document.querySelectorAll('#modal button,#detail button')].find(b=>b.textContent===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length);if(!b)throw Error('missing button '+${JSON.stringify(text)});b.click();`);
 async function frame() { const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#viewport' }); await rpc(`/session/${session}/frame`, { id: element }); }
 async function screenshot(name) { await writeFile(join(output, name + '.png'), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64')); }
 async function ready(count = 5) { assert(await wait(`document.querySelectorAll('.dashboard-widget').length===${count}&&!document.querySelector('.dashboard-settings-open').disabled&&!document.querySelector('[data-card-id="aaaaaaaaaaaaaaaa"]').textContent.includes('读取中')`), 'panel ready timeout'); await settle(); }
@@ -142,11 +142,13 @@ try {
     assert(await execute("const bar=document.querySelector('.diagnostics-trend-output .diagnostics-trend-slot:last-child .diagnostics-trend-bar');return bar.getBoundingClientRect().height>0&&getComputedStyle(bar).backgroundColor!=='rgba(0, 0, 0, 0)'"), 'output trend is invisible');
     await screenshot(`diagnostics-${theme}-${width}`);
     await execute("document.querySelector('.dashboard-toolbar').scrollIntoView({block:'start'})"); await settle();
+    await clickText('编辑模式'); await settle();
+    assert(await execute("return [...document.querySelectorAll('.dashboard-card-settings')].every(b=>b.getClientRects().length&&!b.disabled)"), 'edit mode must reveal every card setting');
     await execute(`window.before=JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}));document.querySelector('.dashboard-settings-open').click()`);
     assert(await execute(`const r=document.querySelector('#modal .modal-card').getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&r.top>=0&&r.bottom<=innerHeight+1&&window.before===JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}))`), 'modal moved grid/overflow'); await clickText('取消');
-    await clickText('编辑布局'); await containment(`${theme}/${width}/editing`);
+    await containment(`${theme}/${width}/editing`);
     assert(await execute("return getComputedStyle(document.querySelector('.dashboard-global-direct-links')).display==='none'&&[...document.querySelectorAll('.dashboard-project-direct-links')].every(n=>getComputedStyle(n).display==='none')"), 'editing navigation must use bounded fallback');
-    await clickText('取消布局');
+    await clickText('取消编辑'); await ready();
     console.log(`PASS assembled ${theme}/${width}: fixed containment, source links, settings and editing`);
   }
   // Independent diagnostics reads retain the grid, settings draft, revision, and focused control.
@@ -161,11 +163,38 @@ try {
   diagnosticsState = 'error'; await execute("document.querySelector('.dashboard-diagnostics-refresh').click()"); assert(await wait("document.querySelector('.dashboard-diagnostics-card').textContent.includes('更新失败')"), 'diagnostic error hidden'); await containment('diagnostic failure');
   diagnosticsState = 'none'; await execute("document.querySelector('.dashboard-diagnostics-refresh').click()"); assert(await wait("document.querySelector('.dashboard-diagnostics-card').textContent.includes('无登记项目')"), 'no projects shown as zero');
   assert(await execute("return [...document.querySelectorAll('.dashboard-diagnostics-card .diagnostics-rate strong')].every(n=>n.textContent==='未知')"), 'no-project rate fabricated'); diagnosticsState = 'partial';
+  await clickText('编辑模式');
   await execute("document.querySelector('.dashboard-settings-open').click();const input=document.querySelector('[data-diagnostics=enabled]');input.checked=false;input.dispatchEvent(new Event('change',{bubbles:true}));document.querySelector('.dashboard-diagnostics-refresh').click()");
   assert(await wait("document.querySelector('.dashboard-diagnostics-refresh').getAttribute('aria-disabled')==='false'"), 'draft diagnostic refresh');
   assert(await execute("return !document.querySelector('[data-diagnostics=enabled]').checked&&!document.getElementById('modal').hidden"), 'diagnostic refresh destroyed settings draft');
-  await clickText('保存'); await ready(4); assert(readDashboardSettings(config).diagnostics === false && JSON.stringify(readDashboardSettings(config).widgets) === JSON.stringify(beforeDiagnostics.widgets), 'diagnostic toggle changed members');
-  await execute("document.querySelector('.dashboard-settings-open').click();const input=document.querySelector('[data-diagnostics=enabled]');input.checked=true;input.dispatchEvent(new Event('change',{bubbles:true}))"); await clickText('保存'); await ready();
+  await clickText('应用到草稿'); await ready(4);
+  assert(readDashboardSettings(config).diagnostics === true, 'card form published instead of staging');
+  await clickText('保存更改'); await ready(4); assert(readDashboardSettings(config).diagnostics === false && JSON.stringify(readDashboardSettings(config).widgets) === JSON.stringify(beforeDiagnostics.widgets), 'diagnostic toggle changed members');
+  await clickText('编辑模式');
+  await execute("document.querySelector('.dashboard-settings-open').click();const input=document.querySelector('[data-diagnostics=enabled]');input.checked=true;input.dispatchEvent(new Event('change',{bubbles:true}))"); await clickText('应用到草稿'); await ready(); await clickText('保存更改'); await ready();
+  // Unified editor: visible settings, searchable library, history, layout reset and whole-page cancellation.
+  const beforeEditor = readDashboardSettings(config), editorSaves = saves.length;
+  await clickText('编辑模式');
+  await execute(`document.querySelector('[data-card-id="${Q}"] .dashboard-card-settings').click();document.querySelector('[data-remove-card="${Q}"]').click()`);
+  await clickText('应用到草稿'); await ready(4);
+  await clickText('撤销'); await ready();
+  await clickText('重做'); await ready(4);
+  await clickText('添加卡片');
+  await execute("const s=document.querySelector('.dashboard-library-search');s.value='项目B';document.querySelector('.dashboard-library-searchbar button').click()");
+  assert(await execute(`return [...document.querySelectorAll('.dashboard-library-item')].filter(e=>!e.hidden).length===1&&!document.querySelector('input[data-library-id="${Q}"]').disabled&&document.querySelector('input[data-library-id="${P}"]').disabled`), 'library search/duplicate guard');
+  await execute(`document.querySelector('input[data-library-id="${Q}"]').click()`);
+  await clickText('应用到草稿'); await ready();
+  await execute(`document.querySelector('[data-card-id="${P}"] .dashboard-card-settings').click();document.querySelector('[data-section="distribution"]').click()`);
+  await clickText('应用到草稿'); await ready();
+  await clickText('恢复默认布局'); await clickText('恢复布局'); await ready(); await containment('reset layout draft');
+  await clickText('撤销'); await ready();
+  await execute("location.hash='#settings'");
+  assert(await wait("document.getElementById('modal').textContent.includes('离开并丢弃未保存更改')&&!document.getElementById('modal').hidden"), 'hash navigation lost draft without confirmation');
+  await clickText('取消'); assert(await wait("location.hash==='#projects'"), 'cancel leave did not restore route');
+  assert(saves.length === editorSaves && readDashboardSettings(config).revision === beforeEditor.revision, 'editor draft/history published implicitly');
+  await clickText('取消编辑'); await ready();
+  assert(await execute("return !document.querySelector('.dashboard-layout-editing')&&document.querySelector('.dashboard-edit-status').hidden"), 'cancel did not leave editor');
+  assert(JSON.stringify(readDashboardSettings(config)) === JSON.stringify(beforeEditor), 'cancel changed shared document');
   // Real account and Worker pages; no implicit writes/provider queries.
   await execute("document.querySelector('[data-card-id=\"accounts\"] .dashboard-widget-pagination > span:nth-child(3) button').click()");
   assert(await wait("document.querySelector('[data-card-id=\"accounts\"]').textContent.includes('账户3')"), 'account next page');
@@ -197,14 +226,14 @@ try {
   }
   assert(queries.every(id => ids.slice(0, 4).includes(id)), 'refresh queried unplaced source');
   // Real controller keyboard geometry save + shared private writer + reload.
-  await rpc(`/session/${session}/frame`, { id: null }); await execute("document.getElementById('viewport').style.width='1440px'"); await frame(); await settle(); await clickText('编辑布局');
+  await rpc(`/session/${session}/frame`, { id: null }); await execute("document.getElementById('viewport').style.width='1440px'"); await frame(); await settle(); await clickText('编辑模式');
   const resize = await rpc(`/session/${session}/element`, { using: 'css selector', value: '[data-card-id="aaaaaaaaaaaaaaaa"] .project-board-resize[data-corner="east"]' });
   const beforeSave = saves.length; await rpc(`/session/${session}/element/${resize['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE015' });
-  assert(saves.length === beforeSave, 'resize saved implicitly'); await clickText('保存布局'); await ready();
+  assert(saves.length === beforeSave, 'resize saved implicitly'); await clickText('保存更改'); await ready();
   assert(saves.length === beforeSave + 1 && readDashboardSettings(config).layout.find(c => c.id === P).h === 25, 'keyboard geometry not saved');
   const diagnosticResize = await rpc(`/session/${session}/element`, { using: 'css selector', value: '[data-card-id="widget:diagnostics"] .project-board-resize[data-corner="east"]' });
-  await clickText('编辑布局'); await rpc(`/session/${session}/element/${diagnosticResize['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE015' });
-  await clickText('保存布局'); await ready(); assert(readDashboardSettings(config).layout.find(c => c.id === 'widget:diagnostics').h === 19, 'diagnostic keyboard resize not saved');
+  await clickText('编辑模式'); await rpc(`/session/${session}/element/${diagnosticResize['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE015' });
+  await clickText('保存更改'); await ready(); assert(readDashboardSettings(config).layout.find(c => c.id === 'widget:diagnostics').h === 19, 'diagnostic keyboard resize not saved');
   await rpc(`/session/${session}/refresh`, {}); await frame(); await ready();
   assert(await execute(`return document.querySelector('[data-card-id="${P}"]').style.gridRow.includes('span 25')&&document.querySelector('.dashboard-diagnostics-card').style.gridRow.includes('span 19')`), 'reload lost geometry');
   assert(JSON.stringify(readDashboardSettings(config).widgets) === JSON.stringify(widgets), 'layout-only changed original v4 members');
@@ -233,7 +262,7 @@ try {
       await execute(`document.documentElement.dataset.theme='${theme}'`); await settle(); await containment(`account state ${state}/${theme}/${width}`);
     }
   }
-  await clickText('编辑布局');
+  await clickText('编辑模式');
   for (const theme of ['light', 'dark']) for (const width of [1440, 1040, 640, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.getElementById('viewport').style.width='${width}px'`); await frame();
     await execute(`document.documentElement.dataset.theme='${theme}'`); await settle(); await containment(`minimum project/accounts ${theme}/${width}`); await screenshot(`minimum-${theme}-${width}`);

@@ -459,13 +459,13 @@ test('parent dashboard controller saves committed grid drafts explicitly and can
   const panel = createDashboardPanel(); document.body.append(panel.root); await panel.ready();
   const button = label => panel.root.querySelectorAll('button').find(node => node.textContent === label);
   expect(handle(panel.root.querySelector('.project-board-card')).hidden).toBe(true);
-  button('编辑布局').onclick(); key(handle(panel.root.querySelector('.project-board-card')), 'ArrowDown');
+  button('编辑模式').onclick(); key(handle(panel.root.querySelector('.project-board-card')), 'ArrowDown');
   expect(writes).toHaveLength(0); expect(panel.state().layoutDirty).toBe(true);
-  await button('保存布局').onclick(); expect(writes).toHaveLength(1);
+  await button('保存更改').onclick(); expect(writes).toHaveLength(1);
   expect(writes[0].layout).toEqual([cell(widgetId, 2, 4, 4, 10), cell(ids[0], 2, 5, 4, 8)]);
   expect(writes[0]).not.toHaveProperty('widgets'); expect(config.widgets).toEqual([widget]); expect(panel.state().editing).toBe(false);
-  button('编辑布局').onclick(); key(handle(panel.root.querySelector('.project-board-card')), 'ArrowDown');
-  await button('取消布局').onclick(); expect(writes).toHaveLength(1);
+  button('编辑模式').onclick(); key(handle(panel.root.querySelector('.project-board-card')), 'ArrowDown');
+  await button('取消编辑').onclick(); expect(writes).toHaveLength(1);
   expect(panel.root.querySelector('.project-board-card').style['grid-row']).toBe('6 / span 10');
   panel.dispose();
 });

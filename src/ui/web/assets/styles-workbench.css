@@ -50,6 +50,15 @@
 #view-toolbar[hidden]{display:none}
 .workbench-view.project-overview{max-width:none;min-width:0;box-sizing:border-box;padding:clamp(8px,1.4vw,18px);gap:10px;font-size:11px;line-height:1.45}
 .dashboard-toolbar{display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.dashboard-layout-editing .dashboard-toolbar{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding-bottom:8px}
+.dashboard-edit-status{margin-right:auto;color:var(--muted);font-size:12px}
+.dashboard-library-searchbar{display:flex;flex-wrap:wrap;gap:8px;min-width:0}
+.dashboard-library-search{flex:1 1 180px;min-width:0;min-height:44px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--text);font:inherit}
+.dashboard-library-list{display:grid;gap:8px;min-width:0}
+.dashboard-library-item{padding:8px;border:1px solid var(--line-soft);border-radius:8px;min-width:0}
+.dashboard-library-item .dashboard-option{border:0;padding:0}
+.dashboard-library-item small{display:block;color:var(--muted);overflow-wrap:anywhere}
+.dashboard-layout-editing .dashboard-diagnostics-card .dashboard-widget-header{padding-right:88px}
 .dashboard-toolbar button,.dashboard-settings-panel button{min-height:44px;white-space:normal}
 /* Keep text and icon controls on the same 44px row, independent of font metrics. */
 .dashboard-toolbar button{display:inline-flex;align-items:center;justify-content:center;flex:none;height:44px}

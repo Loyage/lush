@@ -1,19 +1,21 @@
 import { $ } from './dom.js';
 import { projectRoute, workspaceHref } from './route.js';
+import { requestPageLeave } from './page-leave-guard.js';
 
 /** Keep global navigation outside a project tab. Native links preserve drafts, selection and reading position. */
 export function workspaceLink(id, hash, open) {
   const target = $(id); if (!target) return;
-  const project = projectRoute(), href = workspaceHref(hash);
+  const project = projectRoute(), href = workspaceHref(hash), owner = globalThis.document;
   target.href = href;
   if (project) { target.target = '_blank'; target.rel = 'noopener'; }
   else { target.removeAttribute?.('target'); target.removeAttribute?.('rel'); }
   target.onclick = event => {
+    if (owner !== globalThis.document || project !== projectRoute()) return;
     if (project && target.tagName === 'A') return;
     if (event?.button > 0 || event?.metaKey || event?.ctrlKey || event?.shiftKey || event?.altKey) return;
     event?.preventDefault?.();
     if (project) return globalThis.window?.open?.(href, '_blank', 'noopener');
-    return open();
+    return requestPageLeave(hash, { leave: open });
   };
 }
 export function configureWorkspaceShell() {

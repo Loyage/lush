@@ -430,3 +430,32 @@ test('Worker 详情按本地连接列表显示来源名称，完整响应形状�
     expect(text).not.toContain(id);
   } finally { intercept = null; world.state.agentConnections.connections = original; }
 });
+
+test('root dashboard hash/back navigation asks before discarding unified draft; cancelling restores hash and exact page', async () => {
+  const settings = { version: 5, revision: 'initial', diagnostics: false, widgets: [], cards: [], content: [], hidden_projects: [], layout: [], account_view: 'list' };
+  const rootDom = installRootDom({ fetch: (url, options) => {
+    if (String(url) === '/api/host/dashboard') return Response.json(settings);
+    if (String(url) === '/api/host/projects') return Response.json({ projects: [] });
+    return world.fetchImpl(url, options);
+  } });
+  const click = label => [...rootDom.node('detail').querySelectorAll('button'), ...rootDom.node('modal').querySelectorAll('button')].find(node => node.textContent === label).onclick();
+  try {
+    rootDom.location.hash = '#projects'; await boot();
+    await click('编辑模式'); await click('添加卡片');
+    const checkbox = rootDom.node('modal').querySelectorAll('input').find(node => node.dataset.libraryId === 'widget:diagnostics');
+    checkbox.checked = true; checkbox.onchange(); await click('应用到草稿');
+    const page = rootDom.node('detail').querySelector('.project-overview'), identity = ui.view;
+    rootDom.location.hash = '#settings'; let pending = rootDom.fire('hashchange');
+    await click('取消'); await pending;
+    expect(rootDom.location.hash).toBe('#projects'); expect(ui.view).toBe(identity);
+    expect(rootDom.node('detail').querySelector('.project-overview')).toBe(page); expect(deepText(page)).toContain('有未保存更改');
+    // A click can supersede a pending hash confirmation. Cancelling that newest dialog must
+    // restore the dashboard URL too; the replaced dialog must not restore it a second time.
+    rootDom.location.hash = '#settings'; pending = rootDom.fire('hashchange');
+    const clicked = rootDom.node('docs-open').onclick(); await click('取消'); await Promise.all([pending, clicked]);
+    expect(rootDom.location.hash).toBe('#projects'); expect(ui.view).toBe(identity);
+    expect(rootDom.node('detail').querySelector('.project-overview')).toBe(page);
+    rootDom.location.hash = '#settings'; pending = rootDom.fire('hashchange'); await click('丢弃并离开'); await pending;
+    expect(ui.view.id).toBe('settings'); expect(rootDom.location.hash).toBe('#settings');
+  } finally { rootDom.restore(); await boot(); }
+});

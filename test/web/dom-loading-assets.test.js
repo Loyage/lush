@@ -6,6 +6,7 @@ const world = makeWorld();
 const dom = installDom({ fetch: world.fetchImpl });
 const { boot } = await import('../../src/ui/web/assets/app.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
+const { registerPageLeaveGuard } = await import('../../src/ui/web/assets/page-leave-guard.js');
 await boot();
 afterAll(() => dom.restore());
 
@@ -44,6 +45,55 @@ test('same-route global hash does not strand a pending chunk', async () => {
   await dom.node('projects-open').onclick(); const pending = dom.node('settings-open').onclick();
   await dom.fire('hashchange'); await pending;
   expect(ui.view.id).toBe('settings'); expect(dom.node('detail').querySelector('button.settings-tab')).toBeTruthy();
+});
+
+test('only the latest asynchronous confirmation may announce/open a clicked global destination', async () => {
+  await dom.node('projects-open').onclick(); const identity = ui.view, releases = [];
+  const unregister = registerPageLeaveGuard(() => new Promise(resolve => releases.push(resolve)));
+  try {
+    const first = dom.node('settings-open').onclick(), second = dom.node('agent-status-open').onclick();
+    expect(ui.view).toBe(identity); expect(dom.location.hash).toBe('#projects');
+    releases[1](true); await second; expect(ui.view.id).toBe('agent-status');
+    releases[0](true); await first; expect(ui.view.id).toBe('agent-status'); expect(dom.location.hash).toBe('#agent-status');
+  } finally { unregister(); }
+});
+
+test('late hash confirmation rejection cannot restore projects over a newer accepted click', async () => {
+  await dom.node('projects-open').onclick(); const releases = [];
+  const unregister = registerPageLeaveGuard(() => new Promise(resolve => releases.push(resolve)));
+  try {
+    dom.location.hash = '#settings'; const back = dom.fire('hashchange');
+    const click = dom.node('docs-open').onclick(); releases[1](true); await click;
+    expect(ui.view.id).toBe('docs'); expect(dom.location.hash).toBe('#docs');
+    releases[0](false); await back;
+    expect(ui.view.id).toBe('docs'); expect(dom.location.hash).toBe('#docs');
+  } finally { unregister(); }
+});
+
+test('hash/back invalidates an earlier pending click even when the latest guard immediately stays on projects', async () => {
+  await dom.node('projects-open').onclick(); let release;
+  const unregister = registerPageLeaveGuard(target => target === '#projects' ? false : new Promise(resolve => { release = resolve; }));
+  try {
+    const click = dom.node('model-sources-open').onclick(); dom.location.hash = '#projects';
+    await dom.fire('hashchange'); release(true); await click;
+    expect(ui.view.id).toBe('projects'); expect(dom.location.hash).toBe('#projects');
+  } finally { unregister(); }
+});
+
+test('a pending confirmation cannot survive same-document boot or replacement project boot', async () => {
+  await dom.node('projects-open').onclick(); let release;
+  let unregister = registerPageLeaveGuard(() => new Promise(resolve => { release = resolve; }));
+  try {
+    const pending = dom.node('settings-open').onclick(); await boot(); release(true); await pending;
+    expect(ui.view.id).toBe('projects'); expect(dom.location.hash).toBe('#projects');
+  } finally { unregister(); }
+  unregister = registerPageLeaveGuard(() => new Promise(resolve => { release = resolve; }));
+  const pending = dom.node('settings-open').onclick(), project = installProjectDom({ fetch: world.fetchImpl });
+  try {
+    project.location.hash = '#workers'; await boot(); release(true); await pending;
+    expect(ui.view.id).toBe('tasks'); expect(project.location.hash).toBe('#workers');
+    expect(project.node('detail').querySelector('button.settings-tab')).toBeNull();
+  } finally { unregister(); project.restore(); await boot(); }
 });
 
 test('root boot awaits settings deep link, supports a second DOM, and never starts project timers', async () => {
