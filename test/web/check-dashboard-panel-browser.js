@@ -38,7 +38,7 @@ function diagnosticSnapshot() {
     windows: [60, 300].map(seconds => ({ seconds, input: 12000, output: 1200, cost: 0.12, requests: 2,
       input_per_second: 12000 / seconds, output_per_second: 1200 / seconds, cost_per_minute: 0.12 * 60 / seconds,
       unknown_tokens: 1, unknown_cost: 1, complete: false })),
-    buckets: Array.from({ length: 60 }, (_, i) => ({ at: new Date(Date.now() - (59 - i) * 10000).toISOString(), input: i * 100, output: i * 10, cost: i / 1000, unknown_tokens: i === 20 ? 1 : 0, unknown_cost: i === 10 ? 1 : 0 })),
+    buckets: Array.from({ length: 60 }, (_, i) => ({ at: new Date(Date.now() - (59 - i) * 10000).toISOString(), input: i * 100, output: i * 10, cost: i / 1000, unknown_tokens: diagnosticsState === 'all-partial' || i === 20 ? 1 : 0, unknown_cost: diagnosticsState === 'all-partial' || i === 10 ? 1 : 0 })),
     coverage: { projects_total: unavailable ? 0 : 3, projects_online: unavailable ? 0 : 2, projects_reporting: unavailable ? 0 : 2, complete: false },
     projects: unavailable ? [] : projects.map(project => ({ id: project.id, name: project.name, state: project.running ? 'online' : 'offline', generated_at: project.running ? generated_at : null })) };
 }
@@ -151,6 +151,25 @@ try {
     await clickText('取消编辑'); await ready();
     console.log(`PASS assembled ${theme}/${width}: fixed containment, source links, settings and editing`);
   }
+  // Regression: one uncertain source must not erase positive subtotals in every bucket.
+  diagnosticsState = 'all-partial';
+  for (const theme of ['light', 'dark']) for (const width of [1440, 320]) {
+    await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.getElementById('viewport').style.width='${width}px'`); await frame();
+    await execute(`document.documentElement.dataset.theme='${theme}';document.querySelector('.dashboard-diagnostics-refresh').click()`);
+    assert(await wait("document.querySelector('.dashboard-diagnostics-refresh').getAttribute('aria-disabled')==='false'"), 'all-partial diagnostic refresh');
+    await settle(); await containment(`diagnostic all-partial ${theme}/${width}`);
+    assert(await execute(`return [...document.querySelectorAll('.diagnostics-trend')].every(graph=>{
+      const slots=[...graph.querySelectorAll('.diagnostics-trend-slot')],bar=slots[59].querySelector('.diagnostics-trend-bar');
+      return slots.every(slot=>slot.classList.contains('unknown')&&slot.dataset.complete==='false')
+        &&graph.querySelectorAll('.diagnostics-trend-bar').length===59&&!slots[0].querySelector('.diagnostics-trend-bar')
+        &&bar.getBoundingClientRect().height>0&&getComputedStyle(bar).backgroundImage!=='none'
+        &&getComputedStyle(bar).backgroundColor!=='rgba(0, 0, 0, 0)'&&graph.textContent.includes('峰值 ≥');
+    })`), 'partial subtotal bars/hatching/lower-bound peak lost');
+    await execute("document.querySelector('.dashboard-diagnostics-card').scrollIntoView({block:'center'})"); await settle();
+    await screenshot(`diagnostics-all-partial-${theme}-${width}`);
+    console.log(`PASS diagnostic all-partial ${theme}/${width}: visible subtotal bars, hatching and lower-bound peaks`);
+  }
+  diagnosticsState = 'partial';
   // Independent diagnostics reads retain the grid, settings draft, revision, and focused control.
   const beforeDiagnostics = readDashboardSettings(config), queryCount = queries.length, readCount = diagnosticReads;
   await execute("window.diagCard=document.querySelector('.dashboard-diagnostics-card');window.diagRefresh=diagCard.querySelector('.dashboard-diagnostics-refresh');window.diagRects=JSON.stringify([...document.querySelectorAll('.dashboard-widget')].map(c=>{const r=c.getBoundingClientRect();return [r.x,r.y,r.width,r.height]}));diagRefresh.focus({preventScroll:true});diagRefresh.click()");

@@ -25,6 +25,47 @@ export function emptyDiagnostics(now) {
     coverage: { complete: false } };
 }
 
+// Keep only bounded JSON metadata. Oversized string tokens cannot equal any of the
+// short discriminator/ownership fields used below. Validate every original escape
+// before replacing their content, so a huge tool body can cross read boundaries
+// without pinning that body in memory or laundering malformed JSON as valid.
+const oversizedString = Buffer.from('"__lush_diagnostics_oversize__"');
+function appendJSON(state, bytes, limit) {
+  const json = state.json ??= { quoted: false, escape: false, unicode: 0, invalid: false };
+  if (json.invalid) return;
+  const output = Buffer.alloc(Math.min(limit, state.tail.length + bytes.length + oversizedString.length));
+  state.tail.copy(output); let length = state.tail.length;
+  const put = byte => { if (length < output.length) output[length++] = byte; else { json.invalid = true; json.limited = true; } };
+  const tokenLimit = Math.min(8192, Math.floor(limit / 4));
+  for (const byte of bytes) {
+    if (!json.quoted) {
+      if (byte === 34) { json.quoted = true; json.start = length; json.size = 0; json.overflow = false; }
+      put(byte);
+    } else {
+      let closes = false;
+      if (json.unicode) {
+        if (!(byte >= 48 && byte <= 57 || byte >= 65 && byte <= 70 || byte >= 97 && byte <= 102)) json.invalid = true;
+        json.unicode--;
+      } else if (json.escape) {
+        if (byte === 117) json.unicode = 4;
+        else if (![34, 92, 47, 98, 102, 110, 114, 116].includes(byte)) json.invalid = true;
+        json.escape = false;
+      } else if (byte === 92) json.escape = true;
+      else if (byte === 34) { json.quoted = false; closes = true; }
+      else if (byte < 32) json.invalid = true;
+      if (!json.overflow) {
+        if (!closes && ++json.size > tokenLimit) {
+          length = json.start;
+          for (const part of oversizedString) put(part);
+          json.overflow = true;
+        } else put(byte);
+      }
+    }
+    if (json.invalid) break;
+  }
+  state.tail = json.invalid ? Buffer.from('!') : Buffer.from(output.subarray(0, length));
+}
+
 /** Per-project, read-only and bounded. Parsed rows retain only numbers/attribution;
  * bounded undecoded tails and byte checkpoints support append/rotation detection. */
 export class RuntimeDiagnostics {
@@ -98,10 +139,14 @@ export class RuntimeDiagnostics {
     coverage.skipped_files = Math.max(0, candidates.length - coverage.files - coverage.unreadable_files);
     coverage.budget_exhausted ||= candidates.length > this.maxFiles;
     let retained = 0, tailBytes = 0;
-    for (const state of this.files.values()) { retained += state.rows.length; tailBytes += state.tail.length; }
+    for (const state of this.files.values()) {
+      retained += state.rows.length + (state.recovery?.rows.length ?? 0);
+      tailBytes += state.tail.length + (state.recovery?.tail.length ?? 0);
+    }
     while (this.files.size > this.maxFiles || retained > this.maxRows || tailBytes > this.maxBytes) {
       const oldest = this.files.keys().next().value, state = this.files.get(oldest);
-      retained -= state.rows.length; tailBytes -= state.tail.length; this.files.delete(oldest);
+      retained -= state.rows.length + (state.recovery?.rows.length ?? 0);
+      tailBytes -= state.tail.length + (state.recovery?.tail.length ?? 0); this.files.delete(oldest);
     }
     // A run with no local request expenditure (including Codex) is unknown, not idle zero.
     for (const run of source.rows) {
@@ -150,6 +195,48 @@ export class RuntimeDiagnostics {
     result.coverage = coverage;
     return result;
   }
+  consume(state, buffer, taskId, since, rowLimit, ranges) {
+    let from = 0;
+    for (let newline; (newline = buffer.indexOf(10, from)) >= 0; from = newline + 1) {
+      if (state.skip) { state.skip = false; continue; }
+      appendJSON(state, buffer.subarray(from, newline), this.fileBytes);
+      let record;
+      try {
+        if (state.json?.invalid || state.json?.quoted) throw new Error('invalid JSON string');
+        if (state.tail.length) record = JSON.parse(state.tail.toString('utf8'));
+      } catch {
+        if (state.json?.limited) state.truncated = true;
+        else state.malformed++;
+      }
+      state.tail = Buffer.alloc(0); state.json = null;
+      if (record?.type === 'custom' && record.customType === 'lush.invocation') { state.invocation = record.data; state.trusted = true; }
+      const message = record?.type === 'message' ? record.message : null;
+      if (message?.role !== 'assistant') continue;
+      let attribution = record.lush ?? state.invocation;
+      if (attribution?.task_id != null && attribution.task_id !== taskId) continue;
+      const at = diagnosticsTime(record.timestamp) ?? (diagnosticsNumber(message.timestamp) ? message.timestamp : diagnosticsTime(message.timestamp));
+      if (at === null) { state.undated++; continue; }
+      if (at < since) continue;
+      // Copied context can follow a new invocation marker. Its earlier timestamp
+      // does not become local expenditure merely because replay found that marker.
+      const markedRun = !record.lush && ranges.find(run => run.id === attribution?.run_id);
+      if (markedRun && markedRun.start !== null && at < markedRun.start) continue;
+      if (!state.trusted && attribution?.task_id !== taskId) {
+        // A tail without a marker needs a unique recorded local Pi run; fork context
+        // and an ambiguous/shared start boundary remain unowned until head replay.
+        const matches = ranges.filter(run => run.start !== null && at > run.start && at <= run.end);
+        if (matches.length !== 1 || matches[0].provider !== 'pi') continue;
+        attribution = { task_id: taskId, run_id: matches[0].id };
+      }
+      const u = message.usage ?? {}, num = n => diagnosticsNumber(n) ? n : 0;
+      state.rows.push({ at, run_id: attribution?.task_id === taskId ? attribution.run_id : null,
+        input: num(u.input) + num(u.cacheRead) + num(u.cacheWrite), output: num(u.output), cost: num(u.cost?.total),
+        unknown_tokens: diagnosticsNumber(u.input) && diagnosticsNumber(u.output) ? 0 : 1,
+        unknown_cost: diagnosticsNumber(u.cost?.total) ? 0 : 1 });
+      if (state.rows.length > rowLimit) { state.rows.shift(); state.truncated = true; }
+    }
+    if (!state.skip) appendJSON(state, buffer.subarray(from), this.fileBytes);
+  }
   async readFile(file, stat, taskId, since, coverage, rowLimit, ranges) {
     const fd = await fs.promises.open(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
     try {
@@ -163,63 +250,53 @@ export class RuntimeDiagnostics {
         return buffer.subarray(0, bytesRead);
       };
       const head = await read(0, Math.min(stat.size, 256));
-      let state = this.files.get(file);
+      let state = this.files.get(file), existing = !!state;
       if (state) {
         const guard = await read(Math.max(0, state.offset - state.guard.length), state.guard.length);
+        const recovery = state.recovery;
+        const recoveryGuard = recovery ? await read(Math.max(0, recovery.offset - recovery.guard.length), recovery.guard.length) : null;
         const changed = state.ino !== stat.ino || state.dev !== stat.dev || stat.size < state.offset
           || !head.subarray(0, state.head.length).equals(state.head) || !guard.equals(state.guard)
+          || recovery && !recoveryGuard.equals(recovery.guard)
           || stat.size === state.offset && (stat.mtimeMs !== state.mtime || stat.ctimeMs !== state.ctime);
-        if (changed) state = null;
+        if (changed) { state = null; existing = false; }
       }
+      const parser = () => ({ offset: 0, guard: Buffer.alloc(0), tail: Buffer.alloc(0),
+        invocation: null, trusted: true, skip: false, truncated: false, malformed: 0, undated: 0, rows: [] });
       if (!state) {
         const offset = Math.max(0, stat.size - Math.min(this.fileBytes, this.maxBytes - coverage.bytes_read));
-        state = { ino: stat.ino, dev: stat.dev, offset, head, guard: Buffer.alloc(0), tail: Buffer.alloc(0),
-          invocation: null, trusted: offset === 0, skip: offset > 0, truncated: offset > 0, malformed: 0, undated: 0, rows: [] };
+        state = { ...parser(), ino: stat.ino, dev: stat.dev, offset, head,
+          trusted: offset === 0, skip: offset > 0, truncated: offset > 0, recovery: offset > 0 ? parser() : null };
       }
       state.rows = state.rows.filter(row => row.at >= since);
       if (state.rows.length > rowLimit) { state.rows = state.rows.slice(-rowLimit); state.truncated = true; }
       const length = Math.min(stat.size - state.offset, this.fileBytes, Math.max(0, this.maxBytes - coverage.bytes_read));
-      if (state.offset + length < stat.size) { state.truncated = true; coverage.budget_exhausted = true; }
+      if (state.offset + length < stat.size) coverage.budget_exhausted = true;
       const buffer = await read(state.offset, length);
-      if (buffer.length < length) state.truncated = true;
+      if (buffer.length < length) coverage.budget_exhausted = true;
       state.offset += buffer.length;
-      const data = Buffer.concat([state.tail, buffer]);
-      let from = 0;
-      for (let newline; (newline = data.indexOf(10, from)) >= 0; from = newline + 1) {
-        if (state.skip) { state.skip = false; continue; }
-        const line = data.subarray(from, newline);
-        if (!line.length) continue;
-        let record;
-        try { record = JSON.parse(line.toString('utf8')); } catch { state.malformed++; continue; }
-        if (record?.type === 'custom' && record.customType === 'lush.invocation') { state.invocation = record.data; state.trusted = true; }
-        const message = record?.type === 'message' ? record.message : null;
-        if (message?.role !== 'assistant') continue;
-        let attribution = record.lush ?? state.invocation;
-        if (attribution?.task_id != null && attribution.task_id !== taskId) continue;
-        const at = diagnosticsTime(record.timestamp) ?? (diagnosticsNumber(message.timestamp) ? message.timestamp : diagnosticsTime(message.timestamp));
-        if (at === null) { state.undated++; continue; }
-        if (at < since) continue;
-        if (!state.trusted && attribution?.task_id !== taskId) {
-          // Pi does not annotate each message. When its invocation marker lies before the
-          // bounded tail, recover only rows uniquely inside this Worker's recorded Pi run,
-          // strictly after its start (a shared millisecond is not ownership evidence).
-          // Copied fork context predates the local run; explicit foreign markers above
-          // always win. Missing/ambiguous/budget-limited run metadata is not proof.
-          const matches = ranges.filter(run => run.start !== null && at > run.start && at <= run.end);
-          if (matches.length !== 1 || matches[0].provider !== 'pi') continue;
-          attribution = { task_id: taskId, run_id: matches[0].id };
+      this.consume(state, buffer, taskId, since, rowLimit, ranges);
+      if (existing && state.recovery) {
+        // Tail freshness wins; spend only the remainder of this file's unchanged
+        // read budget on forward, continuous replay. Never merge its rows with the
+        // tail's provisional rows: replace atomically only after catching up.
+        const replay = state.recovery, limit = Math.max(0, rowLimit - state.rows.length);
+        replay.rows = replay.rows.filter(row => row.at >= since);
+        if (replay.rows.length > limit) { replay.rows = limit ? replay.rows.slice(-limit) : []; replay.truncated = true; }
+        const remaining = Math.min(state.offset - replay.offset, this.fileBytes - buffer.length,
+          Math.max(0, this.maxBytes - coverage.bytes_read));
+        const backfill = await read(replay.offset, remaining);
+        replay.offset += backfill.length;
+        this.consume(replay, backfill, taskId, since, limit, ranges);
+        replay.guard = await read(Math.max(0, replay.offset - 128), Math.min(128, replay.offset));
+        if (replay.offset === state.offset) {
+          // A complete byte/JSON replay proves coverage and restores marker-based
+          // attribution. Real malformed/undated/missing or budget-limited data
+          // still survives in the new state and keeps the snapshot incomplete.
+          if (!replay.truncated) Object.assign(state, replay, { recovery: null });
+          else state.recovery = null; // Row/metadata budget loss: keep the tail subtotal and uncertainty.
         }
-        const u = message.usage ?? {}, num = n => diagnosticsNumber(n) ? n : 0;
-        const row = { at, run_id: attribution?.task_id === taskId ? attribution.run_id : null,
-          input: num(u.input) + num(u.cacheRead) + num(u.cacheWrite), output: num(u.output), cost: num(u.cost?.total),
-          unknown_tokens: diagnosticsNumber(u.input) && diagnosticsNumber(u.output) ? 0 : 1,
-          unknown_cost: diagnosticsNumber(u.cost?.total) ? 0 : 1 };
-        state.rows.push(row);
-        if (state.rows.length > rowLimit) { state.rows.shift(); state.truncated = true; }
       }
-      // Copy the small suffix so a one-byte partial line does not pin a whole read buffer.
-      state.tail = Buffer.from(data.subarray(from));
-      if (state.tail.length > this.fileBytes) { state.tail = Buffer.alloc(0); state.skip = true; state.truncated = true; }
       state.guard = await read(Math.max(0, state.offset - 128), Math.min(128, state.offset));
       state.mtime = stat.mtimeMs; state.ctime = stat.ctimeMs;
       this.files.delete(file); this.files.set(file, state);

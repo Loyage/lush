@@ -161,7 +161,222 @@ test('cold-start Pi tails recover uniquely time-attributed own usage after a >51
     fs.appendFileSync(f.file, JSON.stringify(usage(now, 20)) + '\n');
     const appended = await f.reader.read();
     expect(appended.windows[0]).toMatchObject({ input: 70, requests: 2, complete: false });
-    expect(appended.coverage.bytes_read).toBeLessThan(2048);
+    expect(appended.coverage.bytes_read).toBeLessThan(513 * 1024); // append plus bounded head replay
+    const recovered = await f.reader.read();
+    expect(recovered.coverage).toMatchObject({ truncated_files: 0, missing_runs: 0, malformed_lines: 0, complete: true });
+    expect(recovered.windows[0]).toMatchObject({ input: 70, output: 10, cost: 0.2, requests: 2, complete: true });
+    expect(recovered.buckets.every(bucket => !bucket.unknown_tokens && !bucket.unknown_cost)).toBe(true);
+    expect(recovered.coverage.bytes_read).toBeLessThan(513 * 1024);
+    const unchanged = await f.reader.read();
+    expect(unchanged.windows).toEqual(recovered.windows);
+    expect(unchanged.coverage.bytes_read).toBeLessThan(1024);
+  } finally { f.close(); }
+});
+
+async function finishReplay(f, attempts = 32) {
+  let result;
+  for (let i = 0; i < attempts; i++) {
+    result = await f.reader.read();
+    expect(result.coverage.bytes_read).toBeLessThanOrEqual(f.reader.maxBytes);
+    expect(result.coverage.bytes_read).toBeLessThan(f.reader.fileBytes + 1024);
+    if (!f.reader.files.get(f.file)?.recovery) return result;
+  }
+  throw new Error('fixture head replay did not finish');
+}
+const marker = (task_id = 2, run_id = 8) => ({ type: 'custom', customType: 'lush.invocation', data: { task_id, run_id } });
+const largeTool = bytes => ({ type: 'message', message: { role: 'toolResult', content: 'x'.repeat(bytes) } });
+
+test('elapsed time and a newly complete response cannot clear an unparsed prefix', async () => {
+  const f = setup({ fileBytes: 1024 }), started = f.now;
+  f.reader.runs = () => ({ rows: [{ id: 8, task_id: 2, provider: 'pi', started_at: new Date(started - 1000).toISOString(), ended_at: null }], truncated: false });
+  try {
+    f.write([marker(), largeTool(12_000), usage(f.now)]);
+    await f.reader.read();
+    f.now += 601_000;
+    fs.appendFileSync(f.file, JSON.stringify(usage(f.now, 20)) + '\n');
+    const stillUnknown = await f.reader.read();
+    expect(stillUnknown.windows[0]).toMatchObject({ input: 25, requests: 1, complete: false });
+    expect(stillUnknown.coverage.truncated_files).toBe(1);
+    expect(stillUnknown.buckets.every(bucket => bucket.unknown_tokens > 0 && bucket.unknown_cost > 0)).toBe(true);
+    expect(f.reader.files.get(f.file).recovery.offset).toBeLessThan(fs.statSync(f.file).size);
+    const recovered = await finishReplay(f);
+    expect(recovered.windows[0]).toMatchObject({ input: 25, requests: 1, complete: true });
+    expect(recovered.coverage.complete).toBe(true);
+  } finally { f.close(); }
+});
+
+test('a >512KiB assistant body is compacted across reads without losing usage or duplicating it', async () => {
+  const f = setup();
+  try {
+    const message = usage(f.now, 30);
+    message.message.content = '🦊\\\"\n'.repeat(120_000);
+    f.write([marker(), message]);
+    const first = await f.reader.read();
+    expect(first.coverage.complete).toBe(false);
+    const recovered = await finishReplay(f);
+    expect(recovered.windows[0]).toMatchObject({ input: 35, output: 5, cost: 0.1, requests: 1, complete: true });
+    expect(recovered.coverage).toMatchObject({ malformed_lines: 0, partial_files: 0, truncated_files: 0, complete: true });
+    expect((await f.reader.read()).windows[0].input).toBe(35);
+  } finally { f.close(); }
+});
+
+test('head replay recovers multiple invocations and excludes explicit foreign fork context', async () => {
+  const f = setup({ fileBytes: 1024 }), now = f.now;
+  f.reader.runs = () => ({ rows: [
+    { id: 8, task_id: 2, provider: 'pi', started_at: new Date(now - 10_000).toISOString(), ended_at: new Date(now - 5000).toISOString() },
+    { id: 9, task_id: 2, provider: 'pi', started_at: new Date(now - 5000).toISOString(), ended_at: null },
+  ], truncated: false });
+  try {
+    f.write([marker(1, 1), usage(now - 9000, 1000), marker(), usage(now - 6000, 10), largeTool(3000),
+      marker(2, 9), { ...usage(now - 1000, 1000), lush: { task_id: 1, run_id: 1 } }, usage(now - 1000, 20)]);
+    const first = await f.reader.read();
+    expect(first.coverage.missing_runs).toBe(1);
+    const recovered = await finishReplay(f);
+    expect(recovered.windows[0]).toMatchObject({ input: 40, requests: 2, complete: true });
+    expect(recovered.coverage).toMatchObject({ missing_runs: 0, truncated_files: 0, complete: true });
+  } finally { f.close(); }
+});
+
+test('replay removes only truncation uncertainty, retaining malformed, undated, future and missing-cost evidence', async () => {
+  for (const kind of ['malformed', 'undated', 'future', 'cost']) {
+    const f = setup({ fileBytes: 1024 });
+    try {
+      let problem = usage(f.now, 20);
+      if (kind === 'undated') delete problem.timestamp;
+      if (kind === 'future') problem.timestamp = new Date(f.now + 60_000).toISOString();
+      if (kind === 'cost') delete problem.message.usage.cost;
+      f.write([marker(), problem, largeTool(3000), usage(f.now)]);
+      if (kind === 'malformed') fs.writeFileSync(f.file, fs.readFileSync(f.file).toString().replace(JSON.stringify(problem), 'invalid'));
+      await f.reader.read();
+      const recovered = await finishReplay(f);
+      expect(recovered.coverage.truncated_files).toBe(0);
+      expect(recovered.coverage.complete).toBe(false);
+      if (kind === 'malformed') expect(recovered.coverage.malformed_lines).toBe(1);
+      if (kind === 'undated') expect(recovered.coverage.undated_requests).toBe(1);
+      if (kind === 'future') expect(recovered.coverage.future_requests).toBe(1);
+      if (kind === 'cost') expect(recovered.windows[0].unknown_cost).toBe(1);
+    } finally { f.close(); }
+  }
+});
+
+test('discarded oversized strings still validate invalid escapes, unicode and control bytes', async () => {
+  for (const invalid of ['\\q', '\\u12G4', '\t']) {
+    const f = setup({ fileBytes: 1024 });
+    try {
+      const tool = JSON.stringify(largeTool(3000)).replace('x'.repeat(3000), 'x'.repeat(2990) + invalid);
+      fs.writeFileSync(f.file, [JSON.stringify(marker()), tool, JSON.stringify(usage(f.now))].join('\n') + '\n');
+      await f.reader.read();
+      const recovered = await finishReplay(f);
+      expect(recovered.coverage).toMatchObject({ truncated_files: 0, malformed_lines: 1, complete: false });
+      expect(recovered.windows[0].input).toBe(15);
+    } finally { f.close(); }
+  }
+});
+
+test('valid unicode escapes crossing all byte-budget alignments survive string compaction', async () => {
+  for (let alignment = 0; alignment < 6; alignment++) {
+    const f = setup({ fileBytes: 1024 });
+    try {
+      const tool = JSON.stringify(largeTool(1)).replace('"content":"x"', `"content":"${'x'.repeat(alignment)}${'\\u0041'.repeat(800)}"`);
+      fs.writeFileSync(f.file, [JSON.stringify(marker()), tool, JSON.stringify(usage(f.now))].join('\n') + '\n');
+      await f.reader.read();
+      const result = await finishReplay(f);
+      expect(result.windows[0]).toMatchObject({ input: 15, requests: 1, complete: true });
+      expect(result.coverage.malformed_lines).toBe(0);
+    } finally { f.close(); }
+  }
+});
+
+test('large append backlogs and partial giant strings recover by continuous reads without a sticky truncation flag', async () => {
+  const f = setup({ fileBytes: 1024 });
+  try {
+    f.write([marker(), usage(f.now)]); await f.reader.read();
+    const tool = JSON.stringify(largeTool(3500));
+    fs.appendFileSync(f.file, tool.slice(0, 2500));
+    const first = await f.reader.read(); expect(first.coverage.complete).toBe(false);
+    fs.appendFileSync(f.file, tool.slice(2500) + '\n' + JSON.stringify(usage(f.now, 20)) + '\n');
+    let result;
+    for (let i = 0; i < 4; i++) result = await f.reader.read();
+    expect(result.coverage).toMatchObject({ truncated_files: 0, partial_files: 0, malformed_lines: 0, complete: true });
+    expect(result.windows[0]).toMatchObject({ input: 40, requests: 2, complete: true });
+  } finally { f.close(); }
+});
+
+test('replacement, rewrite, truncation and deletion discard incomplete replay checkpoints', async () => {
+  for (const operation of ['replace', 'rewrite', 'truncate', 'delete']) {
+    const f = setup({ fileBytes: 1024 });
+    try {
+      f.write([marker(), largeTool(6000), usage(f.now, 1000)]);
+      await f.reader.read(); await f.reader.read();
+      expect(f.reader.files.get(f.file).recovery.offset).toBeGreaterThan(0);
+      const replacement = JSON.stringify(marker()) + '\n' + JSON.stringify(usage(f.now, 20)) + '\n';
+      if (operation === 'replace') {
+        fs.writeFileSync(f.file + '.replacement', replacement); fs.renameSync(f.file + '.replacement', f.file);
+      } else if (operation === 'rewrite') {
+        fs.writeFileSync(f.file, replacement + JSON.stringify(largeTool(6000)) + '\n');
+      } else if (operation === 'truncate') fs.writeFileSync(f.file, replacement);
+      else fs.unlinkSync(f.file);
+      await f.reader.read();
+      const result = operation === 'delete' ? await f.reader.read() : await finishReplay(f);
+      expect(result.windows[0].input).toBe(operation === 'delete' ? 0 : 25);
+      expect(result.coverage.complete).toBe(true);
+      if (operation === 'delete') expect(f.reader.files.size).toBe(0);
+    } finally { f.close(); }
+  }
+});
+
+test('a row-limited replay cannot replace an already known tail subtotal with dropped duplicate rows', async () => {
+  const f = setup({ fileBytes: 1024, maxRows: 1 });
+  try {
+    f.write([marker(), usage(f.now, 10), largeTool(3000), { ...usage(f.now, 20), lush: { task_id: 2, run_id: 8 } }]);
+    const first = await f.reader.read(); expect(first.windows[0].input).toBe(25);
+    const result = await finishReplay(f);
+    expect(result.windows[0].input).toBe(25);
+    expect(result.coverage).toMatchObject({ truncated_files: 1, complete: false });
+    expect(f.reader.files.get(f.file).rows).toHaveLength(1);
+  } finally { f.close(); }
+});
+
+test('bounded metadata overflow is incomplete, not silently accepted or mislabeled as malformed JSON', async () => {
+  const f = setup({ fileBytes: 1024 });
+  try {
+    f.write([marker(), { type: 'message', message: { role: 'toolResult', content: Array.from({ length: 2000 }, () => 1) } },
+      { ...usage(f.now, 20), lush: { task_id: 2, run_id: 8 } }]);
+    await f.reader.read();
+    const result = await finishReplay(f);
+    expect(result.windows[0].input).toBe(25);
+    expect(result.coverage).toMatchObject({ truncated_files: 1, malformed_lines: 0, complete: false });
+  } finally { f.close(); }
+});
+
+test('a changed head-replay checkpoint invalidates earlier progress even while the tail is appended', async () => {
+  const f = setup({ fileBytes: 1024 });
+  try {
+    f.write([marker(), largeTool(6000), usage(f.now)]);
+    await f.reader.read(); await f.reader.read();
+    const offset = f.reader.files.get(f.file).recovery.offset;
+    const fd = fs.openSync(f.file, 'r+');
+    try { fs.writeSync(fd, Buffer.from('y'), 0, 1, offset - 1); } finally { fs.closeSync(fd); }
+    fs.appendFileSync(f.file, JSON.stringify(usage(f.now, 20)) + '\n');
+    const reset = await f.reader.read();
+    expect(reset.coverage.complete).toBe(false);
+    expect(f.reader.files.get(f.file).recovery.offset).toBe(0);
+    const result = await finishReplay(f);
+    expect(result.windows[0]).toMatchObject({ input: 40, requests: 2, complete: true });
+  } finally { f.close(); }
+});
+
+test('global and row budgets remain incomplete during replay instead of clearing a marker unconditionally', async () => {
+  const f = setup({ fileBytes: 1024, maxBytes: 512, maxRows: 1 });
+  try {
+    f.write([marker(), usage(f.now, 10), largeTool(3000), usage(f.now, 20)]);
+    for (let i = 0; i < 16; i++) {
+      const result = await f.reader.read();
+      expect(result.coverage.bytes_read).toBeLessThanOrEqual(512);
+      expect(result.coverage.complete).toBe(false);
+      expect([...f.reader.files.values()].reduce((n, state) => n + state.rows.length + (state.recovery?.rows.length ?? 0), 0)).toBeLessThanOrEqual(1);
+      expect([...f.reader.files.values()].reduce((n, state) => n + state.tail.length + (state.recovery?.tail.length ?? 0), 0)).toBeLessThanOrEqual(512);
+    }
   } finally { f.close(); }
 });
 

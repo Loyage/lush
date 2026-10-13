@@ -36,10 +36,16 @@ export function diagnosticsRate(window, metric, coverage) {
   const complete = coverage.complete && window.complete && !(metric === 'cost' ? window.unknown_cost : window.unknown_tokens);
   return !complete && value === 0 ? '未知' : `${complete ? '' : '≥'}${format(value, metric === 'cost' ? 6 : 2)}`;
 }
+function unknownBucket(snapshot, bucket, metric) {
+  return !snapshot.coverage.projects_reporting || !number(bucket[metric])
+    || (metric === 'cost' ? bucket.unknown_cost : bucket.unknown_tokens) > 0;
+}
 export function diagnosticsTrend(snapshot, metric) {
   const factor = METRICS.find(([name]) => name === metric)[3];
+  // A positive subtotal remains useful even when another contribution is unknown.
+  // An uncertain zero is not evidence of no consumption.
   return snapshot.buckets.map(bucket => !snapshot.coverage.projects_reporting || !number(bucket[metric])
-    || (metric === 'cost' ? bucket.unknown_cost : bucket.unknown_tokens) > 0 ? null : bucket[metric] * factor);
+    || unknownBucket(snapshot, bucket, metric) && bucket[metric] === 0 ? null : bucket[metric] * factor);
 }
 function coverageText(snapshot) {
   if (!snapshot) return '覆盖情况未知';
@@ -52,19 +58,23 @@ function trends(snapshot) {
   const root = el('section', undefined, 'diagnostics-trends'); root.setAttribute('aria-label', '最近10分钟趋势（10秒桶）');
   for (const [key, label] of METRICS) {
     const values = diagnosticsTrend(snapshot, key), max = Math.max(0, ...values.filter(number));
+    const uncertain = snapshot.buckets.map(bucket => unknownBucket(snapshot, bucket, key));
+    const incomplete = uncertain.filter(Boolean).length;
+    const peak = !values.some(number) || incomplete && max === 0 ? '未知' : `${incomplete ? '≥' : ''}${format(max, key === 'cost' ? 6 : 2)}`;
     const graph = el('figure', undefined, `diagnostics-trend diagnostics-trend-${key}`);
-    graph.append(el('figcaption', `${label} · 峰值 ${values.some(number) ? format(max, key === 'cost' ? 6 : 2) : '未知'}`));
+    graph.append(el('figcaption', `${label} · 峰值 ${peak}`));
     const bars = el('div', undefined, 'diagnostics-trend-bars');
-    bars.setAttribute('role', 'img'); bars.setAttribute('aria-label', `${label}，最近10分钟；独立刻度；${values.filter(value => value === null).length} 个未知桶，斜纹为未知或部分数据`);
-    values.forEach(value => {
-      const slot = el('span', undefined, value === null ? 'diagnostics-trend-slot unknown' : 'diagnostics-trend-slot');
+    bars.setAttribute('role', 'img'); bars.setAttribute('aria-label', `${label}，最近10分钟；独立刻度；${incomplete} 个不完整桶；柱高为已知小计，不完整时仅为下界；斜纹为未知或部分数据`);
+    values.forEach((value, index) => {
+      const slot = el('span', undefined, uncertain[index] ? 'diagnostics-trend-slot unknown' : 'diagnostics-trend-slot');
       slot.dataset.known = String(value !== null);
-      if (value !== null) { const bar = el('span', undefined, 'diagnostics-trend-bar'); bar.style.setProperty('height', `${max ? Math.max(0, value / max * 100) : 0}%`); slot.append(bar); }
+      slot.dataset.complete = String(!uncertain[index]);
+      if (value !== null && value > 0) { const bar = el('span', undefined, 'diagnostics-trend-bar'); bar.style.setProperty('height', `${Math.max(0, value / max * 100)}%`); slot.append(bar); }
       bars.append(slot);
     });
     graph.append(bars); root.append(graph);
   }
-  root.append(el('p', `10分钟 · 每桶10秒 · ${snapshot.coverage.complete ? '已报告数据' : '仅已报告部分，未覆盖来源不补零'} · 斜纹=未知`, 'diagnostics-note'));
+  root.append(el('p', `10分钟 · 每桶10秒 · ${snapshot.coverage.complete ? '已报告数据' : '仅已报告部分，未覆盖来源不补零'} · 柱=已知小计 · 斜纹=不完整`, 'diagnostics-note'));
   return root;
 }
 function windows(snapshot, compact = false) {

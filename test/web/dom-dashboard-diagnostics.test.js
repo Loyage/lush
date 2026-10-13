@@ -1,4 +1,9 @@
 import { test, expect, afterAll, afterEach } from 'bun:test';
+import fs from 'node:fs';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
+import { RuntimeDiagnostics, emptyDiagnostics } from '../../src/core/runtime-diagnostics.js';
+import { HostRuntimeDiagnostics } from '../../src/host/runtime-diagnostics.js';
 import { installDom, deepText } from '../dom-stub.js';
 const dom = installDom();
 const { createDiagnosticsController, renderDiagnosticsCard, validateDiagnostics, diagnosticsRate, diagnosticsTrend } = await import('../../src/ui/web/assets/dashboard-diagnostics.js');
@@ -51,9 +56,45 @@ test('rates/trends show unknown, independent scales and missing cost without inv
   const data = snapshot(); data.windows[0].unknown_cost = 1; data.windows[0].complete = false;
   data.windows[0].cost_per_minute = 0; data.buckets[1].unknown_cost = 1; data.buckets[2].unknown_tokens = 1;
   expect(diagnosticsRate(data.windows[0], 'cost', data.coverage)).toBe('未知'); expect(diagnosticsRate(data.windows[0], 'input', data.coverage)).toBe('≥10');
-  expect(diagnosticsTrend(data, 'cost')[1]).toBeNull(); expect(diagnosticsTrend(data, 'input')[2]).toBeNull(); expect(diagnosticsTrend(data, 'output')[3]).toBeCloseTo(0.3);
+  expect(diagnosticsTrend(data, 'cost')[1]).toBeCloseTo(0.006, 6); expect(diagnosticsTrend(data, 'input')[2]).toBe(2); expect(diagnosticsTrend(data, 'output')[3]).toBeCloseTo(0.3);
   data.coverage.projects_reporting = 0; expect(diagnosticsRate(data.windows[1], 'input', data.coverage)).toBe('未知'); expect(diagnosticsTrend(data, 'input').every(value => value === null)).toBe(true);
   for (const invalid of [{}, { ...snapshot(), estimated: false }, { ...snapshot(), buckets: [] }, { ...snapshot(), coverage: {} }]) expect(() => validateDiagnostics(invalid)).toThrow('响应无效');
+});
+test('all-uncertain buckets retain positive subtotal bars, hatching and lower-bound peaks in card and details', async () => {
+  const data = snapshot(); data.coverage.complete = false;
+  for (const bucket of data.buckets) { bucket.unknown_tokens = 1; bucket.unknown_cost = 1; }
+  const card = renderDiagnosticsCard({ id: 'widget:diagnostics' }, { state: () => ({ snapshot: data }), refresh() {} });
+  dom.node('detail').append(card);
+  for (const metric of ['input', 'output', 'cost']) {
+    const graph = card.querySelector(`.diagnostics-trend-${metric}`), slots = graph.querySelectorAll('.diagnostics-trend-slot');
+    expect(graph.querySelectorAll('.unknown')).toHaveLength(60);
+    expect(graph.querySelectorAll('.diagnostics-trend-bar')).toHaveLength(59);
+    expect(slots[0].dataset.known).toBe('false'); expect(slots[0].dataset.complete).toBe('false');
+    expect(slots[59].dataset.known).toBe('true'); expect(slots[59].dataset.complete).toBe('false');
+    expect(slots[59].querySelector('.diagnostics-trend-bar').style.getPropertyValue('height')).toBe('100%');
+    expect(deepText(graph)).toContain('峰值 ≥');
+    expect(graph.querySelector('.diagnostics-trend-bars').getAttribute('aria-label')).toContain('60 个不完整桶');
+  }
+  expect(deepText(card)).toContain('柱=已知小计');
+  await card.querySelector('.dashboard-diagnostics-details').onclick();
+  expect(dom.node('modal').querySelectorAll('.diagnostics-trend-bar')).toHaveLength(177);
+  expect(dom.node('modal').querySelectorAll('.unknown').filter(slot => slot.querySelector('.diagnostics-trend-bar'))).toHaveLength(177);
+});
+test('missing cost does not hatch known token bars, and uncertain zeros or absent sources never become bars', () => {
+  const data = snapshot(); data.coverage.complete = false;
+  for (const bucket of data.buckets) { bucket.unknown_cost = 1; bucket.cost = 0; }
+  let card = renderDiagnosticsCard({ id: 'widget:diagnostics' }, { state: () => ({ snapshot: data }), refresh() {} });
+  expect(card.querySelector('.diagnostics-trend-input').querySelectorAll('.unknown')).toHaveLength(0);
+  expect(card.querySelector('.diagnostics-trend-input').querySelectorAll('.diagnostics-trend-bar')).toHaveLength(59);
+  expect(deepText(card.querySelector('.diagnostics-trend-input'))).not.toContain('≥');
+  expect(card.querySelector('.diagnostics-trend-cost').querySelectorAll('.unknown')).toHaveLength(60);
+  expect(card.querySelector('.diagnostics-trend-cost').querySelectorAll('.diagnostics-trend-bar')).toHaveLength(0);
+  expect(deepText(card.querySelector('.diagnostics-trend-cost'))).toContain('峰值 未知');
+  expect(diagnosticsTrend(data, 'cost').every(value => value === null)).toBe(true);
+  data.coverage.projects_reporting = 0;
+  card = renderDiagnosticsCard({ id: 'widget:diagnostics' }, { state: () => ({ snapshot: data }), refresh() {} });
+  expect(card.querySelectorAll('.diagnostics-trend-bar')).toHaveLength(0);
+  expect(card.querySelectorAll('.unknown')).toHaveLength(180);
 });
 test('card keeps controls, focus, LI and geometry through reads/resizes; small card summary and complete details', async () => {
   let state = { snapshot: snapshot(), error: null, pending: false }; let reads = 0;
@@ -93,6 +134,45 @@ test('real Host projection fits the frontend contract and preserves partial subt
   expect(deepText(card)).toContain('覆盖 1/2 项目'); expect(deepText(card)).toContain('不完整（离线）');
   await card.querySelector('.dashboard-diagnostics-details').onclick(); const text = deepText(dom.node('modal'));
   expect(text).toContain('未知用量项 1'); expect(text).toContain('未知费用项 2'); expect(text).toContain('在线部分来源 · 在线');
+});
+test('large-session collector → two-project Host → chart keeps subtotals through verified coverage recovery', async () => {
+  const root = fs.mkdtempSync(path.join(tmpdir(), 'lush-diagnostics-chart-'));
+  try {
+    const now = Date.parse('2026-10-12T12:00:00Z'), dir = path.join(root, 'sessions'); fs.mkdirSync(dir);
+    const file = path.join(dir, 'fixture_lush-task-2.jsonl');
+    const row = { type: 'message', timestamp: new Date(now - 1000).toISOString(), message: { role: 'assistant',
+      usage: { input: 40, cacheRead: 5, output: 10, cost: { total: 0.1 } } } };
+    fs.writeFileSync(file, [
+      { type: 'custom', customType: 'lush.invocation', data: { task_id: 2, run_id: 8 } },
+      { type: 'message', message: { role: 'toolResult', content: 'x'.repeat(600 * 1024) } }, row,
+    ].map(JSON.stringify).join('\n') + '\n');
+    const reader = new RuntimeDiagnostics({ home: root }, { now: () => now, throttleMs: 0,
+      runs: () => ({ rows: [{ id: 8, task_id: 2, provider: 'pi', started_at: new Date(now - 5000).toISOString(), ended_at: null }], truncated: false }) });
+    const idle = emptyDiagnostics(now); idle.coverage.complete = true; idle.windows.forEach(window => window.complete = true);
+    const host = new HostRuntimeDiagnostics(() => [
+      { id: 'aaaaaaaaaaaaaaaa', name: '大会话项目', read: () => reader.read() },
+      { id: 'bbbbbbbbbbbbbbbb', name: '空闲项目', read: async () => idle },
+    ], { now: () => now, throttleMs: 0 });
+    let data = validateDiagnostics(await host.read());
+    expect(data.coverage).toEqual({ projects_total: 2, projects_online: 2, projects_reporting: 2, complete: false });
+    const card = renderDiagnosticsCard({ id: 'widget:diagnostics' }, { state: () => ({ snapshot: data }), refresh() {} });
+    dom.node('detail').append(card);
+    expect(card.querySelectorAll('.unknown')).toHaveLength(180);
+    expect(card.querySelectorAll('.diagnostics-trend-bar')).toHaveLength(3);
+    expect(deepText(card)).toContain('峰值 ≥');
+    expect(data.windows[0]).toMatchObject({ input: 45, output: 10, cost: 0.1, requests: 1 });
+    fs.appendFileSync(file, JSON.stringify(row) + '\n');
+    data = validateDiagnostics(await host.read()); card.dashboardDiagnosticsChange();
+    expect(data.coverage.complete).toBe(false); expect(data.windows[0].input).toBe(90);
+    expect(card.querySelectorAll('.unknown')).toHaveLength(180);
+    data = validateDiagnostics(await host.read()); card.dashboardDiagnosticsChange();
+    expect(data.coverage.complete).toBe(true);
+    expect(data.windows[0]).toMatchObject({ input: 90, output: 20, cost: 0.2, requests: 2, complete: true });
+    expect(card.querySelectorAll('.unknown')).toHaveLength(0);
+    expect(card.querySelectorAll('.diagnostics-trend-bar')).toHaveLength(3);
+    expect(deepText(card)).not.toContain('≥');
+    const unchanged = validateDiagnostics(await host.read()); expect(unchanged.windows).toEqual(data.windows);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 test('no projects is explicit unknown, not complete zeros; v5 ACK requires boolean while v1-v4 retain read-only default', async () => {
   const data = snapshot(); data.projects = []; data.coverage = { projects_total: 0, projects_online: 0, projects_reporting: 0, complete: false };
