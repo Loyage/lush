@@ -50,19 +50,20 @@ test('当前项目身份不误称 Host，侧栏不装配跨项目列表轮询', 
   }
 });
 
-test('左栏：两个区块的导航计数与索引、折叠开关、行动任务筛选在真 DOM 上都生效', async () => {
+test('左栏：三个区块的导航计数与索引、折叠开关、开发任务筛选在真 DOM 上都生效', async () => {
   await dom.intervalFor(1500)();
   const nav = dom.node('side-nav');
   const items = nav.querySelectorAll('.nav-item');
-  // 两个区块的导航（待我处理 / 任务列表），计数取自各列表
-  expect(items).toHaveLength(2);
-  expect(items.map(node => node.querySelector('.nav-count').textContent)).toEqual(['0', '3']);
+  // 待我处理 / 工作列表 / 管家列表；计数仅为已读取的各自记录。
+  expect(items).toHaveLength(3);
+  expect(items.map(node => node.querySelector('.nav-count').textContent)).toEqual(['0', '3', '0']);
+  expect(items.map(node => node.querySelector('.nav-label').textContent)).toEqual(['待我处理', '工作列表', '管家列表']);
   // 索引顺序就是区块顺序：第二个是「任务列表」
   await items[1].onclick();
   expect(items[1].classList.contains('selected')).toBe(true);
   // 筛选条与列表容器分离：控件建一次，轮询只重画列表
   const filters = dom.node('task-filters');
-  expect(filters.querySelectorAll('.filter-select')).toHaveLength(2);
+  expect(filters.querySelectorAll('.filter-select')).toHaveLength(1);
   const groups = filters.querySelectorAll('.filter-multi');
   expect(groups).toHaveLength(2);
   const completed = groups[0].querySelector('[data-value="completed"]').querySelector('input');

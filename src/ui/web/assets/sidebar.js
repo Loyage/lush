@@ -17,7 +17,8 @@ import { workType } from './work-type.js';
  */
 export const SIDEBAR_SECTIONS = [
   { id: 'notices', label: '待我处理', long: '待我处理', icon: '◔', description: '提问、答复与提醒' },
-  { id: 'tasks', label: '工作', long: '工作', icon: '✓', description: 'Worker 开发与 Valet 管理记录' },
+  { id: 'tasks', label: '工作列表', long: '工作列表', icon: '✓', description: '开发 Worker 记录' },
+  { id: 'valets', label: '管家列表', long: '管家列表', icon: '◎', description: '持久 Valet 管理记录 · 只读详情' },
 ];
 export const COLLAPSED_KEY = 'lush.sidebar.collapsed';
 export const FILTERS_KEY = 'lush.sidebar.filters';
@@ -27,6 +28,7 @@ export const UNMERGED = new Set(['pending', 'review', 'conflict']);
 
 export const DEFAULT_FILTERS = Object.freeze({
   tasks: { status: 'all', type: 'all', role: 'all', integration: 'all', mine: false, text: '' },
+  valets: { status: 'all', text: '' },
   specs: { status: 'all', planner: 'all', role: 'all', text: '' },
   intents: { gate: 'all', status: 'all', text: '' },
 });
@@ -67,6 +69,7 @@ export function toggleCollapsed(collapsed, id, force) {
 function defaultFilters() {
   return {
     tasks: { ...DEFAULT_FILTERS.tasks },
+    valets: { ...DEFAULT_FILTERS.valets },
     specs: { ...DEFAULT_FILTERS.specs },
     intents: { ...DEFAULT_FILTERS.intents },
   };
@@ -79,14 +82,14 @@ export function parseFilters(raw) {
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return out; }
   if (!parsed || typeof parsed !== 'object') return out;
-  for (const section of ['tasks', 'specs', 'intents']) {
+  for (const section of ['tasks', 'valets', 'specs', 'intents']) {
     const source = parsed[section];
     if (!source || typeof source !== 'object') continue;
     for (const [key, fallback] of Object.entries(DEFAULT_FILTERS[section])) {
       const given = source[key];
       if (section === 'tasks' && key === 'type') {
         if (['all', 'worker', 'valet'].includes(given)) out.tasks.type = given;
-      } else if (section === 'tasks' && (key === 'status' || key === 'role') && Array.isArray(given)) {
+      } else if (['tasks', 'valets'].includes(section) && (key === 'status' || key === 'role') && Array.isArray(given)) {
         out[section][key] = [...new Set(given.filter(value => typeof value === 'string' && value && value !== 'all'))];
       } else if (typeof fallback === 'boolean') { if (typeof given === 'boolean') out[section][key] = given; }
       else if (typeof given === 'string') out[section][key] = given;

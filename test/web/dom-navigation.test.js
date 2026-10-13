@@ -12,6 +12,7 @@ const { ui } = await import('../../src/ui/web/assets/state.js');
 const { openDocs } = await import('../../src/ui/web/assets/docs.js');
 const { detail } = await import('../../src/ui/web/assets/navigate.js');
 const { renderTree } = await import('../../src/ui/web/assets/render-tree.js');
+const { parseFilters } = await import('../../src/ui/web/assets/sidebar.js');
 const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
 const { ROLE } = await import('../../src/ui/web/assets/format.js');
 const json = data => ({ ok: true, json: async () => data?.connections ? { ...data, configuration_scope: { selected: 'device', source: 'device', project_override: false } } : data });
@@ -30,7 +31,7 @@ test('左栏只做导航：任务索引在右侧成为独立页面，任务详�
   expect(dom.node('detail').hidden).toBe(true);
   expect(dom.node('side-tasks').hidden).toBe(false);
   expect(dom.node('side-notices').hidden).toBe(true);
-  expect(dom.node('view-title').textContent).toBe('工作');
+  expect(dom.node('view-title').textContent).toBe('工作列表');
   expect(dom.node('tasks').querySelector('[data-id="1"]')).toBeTruthy();
 
   await dom.node('tasks').querySelector('[data-id="1"]').onclick();
@@ -64,14 +65,14 @@ test('手机菜单开关保留输入与页面，Escape 收起并归还焦点，�
   toggle.onclick();
   await dom.node('side-nav').querySelector('[data-side="tasks"]').onclick();
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
-  expect(dom.node('mobile-view-title').textContent).toBe('工作');
+  expect(dom.node('mobile-view-title').textContent).toBe('工作列表');
   expect(dom.node('input').value).toBe('菜单不能丢掉这条输入');
   dom.node('input').value = '';
 });
 
 test('右侧固定返回按钮在没有原生 history.back 的宿主里安全回落到概览', async () => {
   await dom.node('side-nav').querySelector('[data-side="tasks"]').onclick();
-  expect(dom.node('view-title').textContent).toBe('工作');
+  expect(dom.node('view-title').textContent).toBe('工作列表');
   await dom.node('view-back').onclick();
   expect(dom.node('detail').hidden).toBe(false);
   expect(dom.node('resource-panels').hidden).toBe(true);
@@ -93,7 +94,7 @@ test('项目所有全局入口都在独立根标签打开，保留输入、选�
 });
 
 const navEntries = () => [
-  ...['overview', 'task-graph', 'versions', 'inputs', 'hooks', 'management', 'hook-tools', 'agent-status', 'model-sources', 'settings', 'docs'].map(id => [id, dom.node(`${id}-open`)]),
+  ...['overview', 'task-graph', 'inputs', 'hooks', 'agent-status', 'model-sources', 'settings', 'docs'].map(id => [id, dom.node(`${id}-open`)]),
   ...[...ui.navButtons.entries()],
 ];
 const routeHash = id => id === 'overview' ? '' : `#${id === 'tasks' ? 'workers' : id === 'task-graph' ? 'worker-graph' : id === 'hook-tools' ? 'hooks-commands' : id}`;
@@ -120,7 +121,7 @@ test('所有页面平级、唯一选中；重复点击、hash 后退与轮询保
       if (ui.indexOpen) expect(dom.node(`side-${id}`).hidden).toBe(false);
       else expect(dom.node('detail').dataset.view).toBe(id);
     }
-    for (const id of ['task-graph', 'versions', 'inputs', 'hooks', 'notices', 'tasks', 'overview']) {
+    for (const id of ['task-graph', 'inputs', 'hooks', 'notices', 'tasks', 'valets', 'overview']) {
       dom.location.hash = routeHash(id);
       await dom.fire('hashchange');
       expectSelected(id);
@@ -195,13 +196,14 @@ test('迟到的 Task 图、文档与任务请求不覆盖新页面；文档 A→
   intercept = null;
 });
 
-test('全部现行角色和历史调度类型始终可选，未知类型也不丢失', async () => {
+test('开发记录保留历史角色筛选和未知角色；manager 记录只进入管家列表', async () => {
   await dom.node('overview-open').onclick();
   const snapshot = ui.lastSnapshot;
   const tasks = [...Object.keys(ROLE), 'future-role'].map((role, index) => ({
-    id: 100 + index, parent_id: null, input_id: null, role, goal: `测试 ${role}`,
+    id: 100 + index, parent_id: null, input_id: null, role, task_kind: role === 'manager' ? 'management' : 'order', goal: `测试 ${role}`,
     status: 'completed', integration: 'none', updated_at: new Date().toISOString(),
   }));
+  ui.filters = parseFilters(null);
   ui.lastSnapshot = { ...snapshot, tasks };
   renderTree(ui.lastSnapshot);
   const group = dom.node('task-filters').querySelectorAll('.filter-multi')[1];
@@ -213,7 +215,8 @@ test('全部现行角色和历史调度类型始终可选，未知类型也不�
     const box = group.querySelector(`[data-value="${task.role}"]`).querySelector('input');
     box.checked = true;
     await box.listeners.change[0]();
-    expect(dom.node('tasks').querySelectorAll('.task').map(node => Number(node.dataset.id))).toEqual([task.id]);
+    expect(dom.node('tasks').querySelectorAll('.task').map(node => Number(node.dataset.id))).toEqual(task.role === 'manager' ? [] : [task.id]);
+    if (task.role === 'manager') expect(dom.node('valets').querySelector(`[data-id="${task.id}"]`)).toBeTruthy();
   }
   ui.lastSnapshot = snapshot;
   all.checked = true; await all.listeners.change[0]();
@@ -279,11 +282,11 @@ test('任务列表：角色胶囊带 role-<role> 类，快速路由任务整行�
 });
 
 test('直接链接启动复用同一路由，重复 boot 不复制导航', async () => {
-  for (const id of ['task-graph', 'versions', 'inputs', 'hooks', 'tasks']) {
+  for (const id of ['task-graph', 'inputs', 'hooks', 'tasks', 'valets']) {
     dom.location.hash = routeHash(id);
     await boot();
     expectSelected(id);
-    expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(2);
+    expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(3);
   }
   for (const hash of ['#hooks', '#hooks-history']) {
     dom.location.hash = hash; await boot(); expectSelected('hooks');
@@ -291,20 +294,20 @@ test('直接链接启动复用同一路由，重复 boot 不复制导航', async
     expect(dom.node('detail').querySelectorAll('.automation-feature')).toHaveLength(4);
     expect(dom.node('detail').querySelector('.page-subnav')).toBeNull();
   }
-  for (const [hash, subpage] of [['#hooks-commands', 'commands'], ['#hook-tools-history', 'history'], ['#hook-tools', 'settings'], ['#hooks-commands', 'commands']]) {
-    dom.location.hash = hash; await boot(); expectSelected('hook-tools');
-    expect(ui.hooksPage.subpage).toBe(subpage);
-    expect(dom.node('detail').querySelector('.page-subnav').querySelector('[aria-current="page"]').dataset.subpage).toBe(subpage);
+  for (const hash of ['#hooks-commands', '#hook-tools-history', '#hook-tools']) {
+    dom.location.hash = hash; await boot(); expectSelected('hooks');
+    expect(dom.location.hash).toBe('#hooks');
+    expect(dom.node('detail').querySelector('.hook-form')).toBeNull();
   }
-  for (const [hash, subpage] of [['#management', 'settings'], ['#management-history', 'history']]) {
-    dom.location.hash = hash; await boot(); expectSelected('management');
-    expect(ui.managementPage.subpage).toBe(subpage);
-    expect(dom.node('detail').querySelector('.page-subnav').querySelector('[aria-current="page"]').dataset.subpage).toBe(subpage);
+  for (const hash of ['#management', '#management-history']) {
+    dom.location.hash = hash; await boot(); expectSelected('valets');
+    expect(dom.location.hash).toBe('#valets');
+    expect(dom.node('detail').querySelector('.management-page')).toBeNull();
   }
   for (const hash of ['#settings', '#agent-status', '#model-sources', '#automation', '#docs']) {
     dom.location.hash = hash; await boot(); expect(ui.view.id).toBe('workspace-link');
     expect(dom.node('detail').querySelector('a').href).toBe(`/${hash}`);
-    expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(2);
+    expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(3);
   }
 });
 

@@ -16,6 +16,9 @@ export const handlers = {
   'worker.relations'(p, params) { return p.taskRelations(id(params.id), {
     ...(params.after !== undefined ? { after: params.after } : {}), ...(params.limit !== undefined ? { limit: params.limit } : {}),
   }); },
+  'worker.version_graph'(p, params) { return p.workerVersionGraph(params); },
+  'worker.version_deliveries'(p, params) { return p.workerVersionDeliveries(params); },
+  'worker.version_commit'(p, params) { return p.workerVersionCommit(params); },
   'worker.tree'(p, params, actor) { return p.tree(params.id ?? null); },
   'worker.ladder'(p, params, actor) { return p.ladder(); },
   'worker.inspect': async (p, params) => {

@@ -46,6 +46,8 @@ export const PARAMS = {
   'worker.auto_title': ['title'], 'worker.rename': ['id','title'], 'worker.lookup': ['number'], 'worker.graph': ['details','hidden_statuses','include_archived','cursor','scope'], 'worker.list': ['after','limit'], 'worker.activity': ['limit','scope'],
   'worker.page': ['before','limit','scope'], 'worker.tree': ['id'], 'worker.inspect': ['id'], 'worker.run_settings': ['id'],
   'worker.progress_history': ['id','before','limit'], 'worker.relations': ['id','after','limit'],
+  'worker.version_graph': ['id','delivery','cursor','limit'], 'worker.version_deliveries': ['id','before','limit'],
+  'worker.version_commit': ['id','snapshot','commit'],
   'worker.reading_page': ['id','before_event','before_message','limit','query'],
   'worker.reading_record': ['id','kind','record_id','offset'],
   'worker.history': ['id','after'], 'worker.history_page': ['id','before','limit'], 'worker.diff': ['id'], 'worker.usage': ['id'],
@@ -80,7 +82,7 @@ export const PARAMS = {
 export const USER_ONLY = new Set([
   'system.diagnostics','system.settings','settings.clear_override','settings.migration.preview','settings.migration.apply',
   'system.stop','system.stop_if_idle','system.interrupt_all','system.resume_all','system.configure','agent.config','agent.models','agent.resources','agent.configure','agent.status','agent.environment','agent.environment.configure','agent.network','agent.network.configure',
-  'branch.history','branch.version_graph','worker.code_state','worker.code_tree','worker.code_file',
+  'branch.history','branch.version_graph','worker.version_graph','worker.version_deliveries','worker.version_commit','worker.code_state','worker.code_tree','worker.code_file',
   'agent.usage.config','agent.usage.configure','agent.usage.history','agent.selection.resources',
   'agent.connections.list','agent.connections.save','agent.connections.remove','agent.connections.sampling',
   'agent.connections.query','agent.connections.history','agent.connections.login.start','agent.connections.login.finish',

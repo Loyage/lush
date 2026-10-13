@@ -81,12 +81,21 @@ test('overview counts current and historical orders together without treating ch
   expect(deepText(dom.node('detail'))).toContain('retained-say-branch');
 });
 
-test('historical order content stays verbatim while version summary and CSS use the new name', () => {
-  const input = { id: 9, content: 'say was the original request' };
-  const card = renderVersionCommit({ commit: 'a'.repeat(40), short_commit: 'aaaaaaa', parents: [],
+test('historical order content stays verbatim while compact version cards defer original input to node details', () => {
+  const input = Object.freeze({ id: 9, content: 'say was the original request' });
+  const task = Object.freeze({ ...record('say'), input });
+  const commit = { commit: 'a'.repeat(40), short_commit: 'aaaaaaa', parents: [],
     subject: 'retained commit', author: { name: 'developer' }, committed_at: '2026-10-02T09:00:00Z',
-    association: 'verified', tasks: [{ ...record('say'), input }] });
-  expect(deepText(card)).toMatch(/原始指令\s+O9/);
-  expect(card.querySelector('.record-link').getAttribute('href')).toBe('#input-input-9');
-  expect(card.querySelector('.version-order').textContent).toBe(input.content);
+    association: 'verified', tasks: [task] };
+  const requested = [];
+  const card = renderVersionCommit(commit, { onCommit: value => requested.push(value) });
+  expect(card.querySelector('.version-task-link').getAttribute('href')).toBe('#worker-77');
+  expect(card.querySelector('.version-order')).toBeNull();
+  expect(deepText(card)).not.toContain(input.content);
+  expect(requested).toEqual([]);
+  card.querySelector('.version-node').onclick();
+  expect(requested).toEqual([commit]);
+  expect(task.task_kind).toBe('say');
+  expect(task.input).toBe(input);
+  expect(task.input.content).toBe('say was the original request');
 });

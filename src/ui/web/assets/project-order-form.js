@@ -20,7 +20,7 @@ export function createProjectOrderForm(row, { ownsPage = () => true } = {}) {
   const status = el('div', undefined, 'project-order-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   const actions = el('div', undefined, 'project-order-actions');
   const create = el('button', '提交指令', 'primary agent-call'); create.type = 'button'; create.onclick = submit;
-  create.setAttribute('data-help', agentHelp('提交工作指令并可靠保存执行授权，基于此项目 main 创建新 Worker；安全准入后才创建并开始，不保证立即出现在 Worker 树。'));
+  create.setAttribute('data-help', agentHelp('提交工作指令并可靠保存执行授权，基于此项目 main 创建新 Worker；安全准入后才创建并开始，不保证立即出现在工作树。'));
   const hosts = [create].map(control => { const host = el('span', undefined, 'help-host'); host.append(control); actions.append(host); return host; });
   root.append(label, el('p', '去向：新 Worker · 基于 main；不追加到已有 Worker。Enter 换行，点击按钮提交。未提交文字只保留在当前页面会话，不是持久草稿。', 'hint'), actions, status);
   let currentRow = row;

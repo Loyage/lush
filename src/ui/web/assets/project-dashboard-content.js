@@ -91,7 +91,7 @@ export function projectDashboardContent(row, { sections = PROJECT_CARD_DEFAULTS,
   if (sections.includes('messages')) root.append(messageSection(row, messages));
   if (sections.includes('shortcuts')) {
     const shortcuts = el('nav', undefined, 'project-dashboard-shortcuts'); shortcuts.setAttribute('aria-label', `${row.name || '项目'}快捷入口`);
-    for (const [hash, label] of [['workers', 'Worker'], ['inputs', '历史输入'], ['versions', '版本迭代']]) {
+    for (const [hash, label] of [['workers', '工作列表'], ['inputs', '历史输入']]) {
       const link = el('a', label); link.href = projectHref(row.id, `/#${hash}`); link.target = '_blank'; link.rel = 'noopener'; shortcuts.append(link);
     }
     root.append(shortcuts);

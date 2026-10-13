@@ -76,6 +76,20 @@ export async function workerRead({ url, headers, json }, binding) {
   if (url.pathname === '/api/intro/config') return json(await client.request('intro.config'));
   const intro = /^\/api\/intro\/(\d+)$/.exec(url.pathname);
   if (intro) return json(await client.request('intro.get', { id: Number(intro[1]) }));
+  const versions = /^\/api\/worker\/(\d+)\/(version-graph|version-deliveries|version-commit)$/.exec(url.pathname);
+  if (versions) {
+    const params = { id: id(versions[1]) };
+    const allowed = versions[2] === 'version-graph' ? ['delivery','cursor','limit']
+      : versions[2] === 'version-deliveries' ? ['before','limit'] : ['snapshot','commit'];
+    for (const [key, value] of url.searchParams) {
+      check(allowed.includes(key) && !Object.hasOwn(params, key), 'unknown or duplicate Worker version query parameter');
+      if (['delivery','before','limit'].includes(key)) {
+        check(/^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value)), 'invalid Worker version numeric query parameter');
+        params[key] = Number(value);
+      } else params[key] = value;
+    }
+    return json(await client.request('worker.' + versions[2].replace('-', '_'), params));
+  }
   const relations = /^\/api\/worker\/(\d+)\/relations$/.exec(url.pathname);
   if (relations) {
     const params = { id: id(relations[1]) };

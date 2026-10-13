@@ -12,9 +12,18 @@ function mac(owner, text) {
   if (!secrets.has(owner)) secrets.set(owner, randomBytes(32));
   return createHmac('sha256', secrets.get(owner)).update(text).digest();
 }
-function encode(owner, value) {
+export function encodeGraphToken(owner, value) {
   const text = Buffer.from(JSON.stringify(value)).toString('base64url');
   return `${text}.${mac(owner, text).toString('hex')}`;
+}
+export function decodeGraphToken(owner, cursor) {
+  check(typeof cursor === 'string' && cursor.length <= 12000 && /^[A-Za-z0-9_-]+\.[a-f0-9]{64}$/.test(cursor),
+    'invalid version graph cursor or snapshot; refresh the graph');
+  const [text, signature] = cursor.split('.');
+  check(timingSafeEqual(Buffer.from(signature, 'hex'), mac(owner, text)), 'expired or invalid version graph cursor or snapshot; refresh the graph');
+  let value; try { value = JSON.parse(Buffer.from(text, 'base64url').toString()); } catch {}
+  check(value, 'invalid version graph snapshot');
+  return value;
 }
 function decode(owner, cursor, delivery) {
   check(typeof cursor === 'string' && cursor.length <= 2000 && /^[A-Za-z0-9_-]+\.[a-f0-9]{64}$/.test(cursor),
@@ -30,8 +39,8 @@ function decode(owner, cursor, delivery) {
 
 // Only identity/ref sampling uses the project's Git directory. History runs with a
 // sterile config, no replace refs/grafts/shallow file, no filters, notes or lazy fetch.
-async function reader(workspaces) {
-  const { config } = workspaces, deadline = Date.now() + 15000;
+export async function reader(workspaces, deadline = Date.now() + 15000) {
+  const { config } = workspaces;
   const identity = args => runGit(config, config.project, args, { deadline }).then(out => out.toString('utf8').trim());
   const common = fs.realpathSync(await identity(['rev-parse', '--path-format=absolute', '--git-common-dir']));
   const format = await identity(['rev-parse', '--show-object-format']);
@@ -47,7 +56,7 @@ async function reader(workspaces) {
     return { git, identity, close() { fs.rmSync(root, { recursive: true, force: true }); } };
   } catch (error) { fs.rmSync(root, { recursive: true, force: true }); throw error; }
 }
-function parse(raw) {
+export function parseGraph(raw) {
   const fields = raw.toString('utf8').split('\0'), rows = [];
   for (let i = 0; i + 5 < fields.length; i += 5) {
     const commit = fields[i].replace(/^\n/, ''), parents = fields[i + 1] ? fields[i + 1].split(' ') : [];
@@ -58,9 +67,18 @@ function parse(raw) {
   return rows;
 }
 
+export async function withGraphReader(workspaces, action, deadline) {
+  const active = activeReaders.get(workspaces) ?? 0;
+  check(active < 4, 'version graph reading is busy; retry later');
+  activeReaders.set(workspaces, active + 1);
+  let read;
+  try { read = await reader(workspaces, deadline); return await action(read); }
+  finally { try { read?.close(); } finally { activeReaders.set(workspaces, activeReaders.get(workspaces) - 1); } }
+}
+
 export const methods = {
   /** Internal fixed-object range only; public RPC never accepts these SHA fields. */
-  async versionGraphPage({ delivery = null, tip, base = null, landed, parent_base = null, convergence = null, cursor, limit = 50, event_max = 0 } = {}) {
+  async versionGraphPage({ delivery = null, tip, base = null, landed, parent_base = null, convergence = null, cursor, limit = 50, event_max = 0, deadline } = {}) {
     check(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100, 'version graph limit must be 1..100');
     const snapshot = cursor === undefined ? null : decode(this, cursor, delivery);
     const active = activeReaders.get(this) ?? 0;
@@ -68,7 +86,7 @@ export const methods = {
     activeReaders.set(this, active + 1);
     let read;
     try {
-      read = await reader(this);
+      read = await reader(this, deadline);
       if (delivery === null) {
         if (snapshot) tip = snapshot.tip;
         else {
@@ -85,7 +103,7 @@ export const methods = {
         await read.git(['cat-file', '-e', `${base}^{commit}`]);
         const common = (await read.git(['merge-base', '--all', base, tip])).toString().trim().split('\n');
         check(common.length === 1 && common[0] === base, 'delivery is not traceable: development baseline is not an ancestor');
-        const landing = parse(await read.git(['log', '--no-show-signature', '--no-notes', '--encoding=UTF-8', '--max-count=1',
+        const landing = parseGraph(await read.git(['log', '--no-show-signature', '--no-notes', '--encoding=UTF-8', '--max-count=1',
           '--format=%H%x00%P%x00%s%x00%an%x00%cI%x00', landed, '--']))[0];
         check(landing?.commit === landed, 'delivery landing object is unavailable');
         if (parent_base === null) {
@@ -121,12 +139,12 @@ export const methods = {
         'version graph cursor range changed; refresh the graph');
       const offset = snapshot?.offset ?? 0;
       event_max = snapshot?.event_max ?? event_max;
-      const rows = parse(await read.git(['log', '--topo-order', '--no-show-signature', '--no-notes', '--no-decorate', '--encoding=UTF-8',
+      const rows = parseGraph(await read.git(['log', '--topo-order', '--no-show-signature', '--no-notes', '--no-decorate', '--encoding=UTF-8',
         `--skip=${offset}`, `--max-count=${limit + 1}`, '--format=%H%x00%P%x00%s%x00%an%x00%cI%x00', tip,
         ...exclude.map(sha => `^${sha}`), '--']));
       const has_more = rows.length > limit;
-      return { tip, base, commits: rows.slice(0, limit), event_max,
-        cursor: has_more ? encode(this, { version: 1, delivery, tip, base, exclude, event_max, offset: offset + limit }) : null, has_more };
+      return { tip, base, exclude, commits: rows.slice(0, limit), event_max,
+        cursor: has_more ? encodeGraphToken(this, { version: 1, delivery, tip, base, exclude, event_max, offset: offset + limit }) : null, has_more };
     } finally {
       try { read?.close(); } finally { activeReaders.set(this, activeReaders.get(this) - 1); }
     }

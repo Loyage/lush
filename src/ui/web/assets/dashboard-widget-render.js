@@ -229,6 +229,8 @@ export function createWidgetRenderer({ ownsPage = () => true, canAct = ownsPage,
     if (!onlineDashboardProject(row.source)) { state.pages = []; state.index = 0; state.offline = true; state.error = '来源离线，Worker 未确认'; paint(); }
   }
   function shortcuts(root, body, row, state, geometry, current) {
+    const indexes = row.links.flatMap((item, index) => item.scope === 'project' && item.target === 'versions' ? [] : [index]);
+    row = { ...row, links: indexes.map(index => row.links[index]), linkLabels: indexes.map(index => row.linkLabels?.[index]) };
     let capacity = widgetSlots('shortcuts', geometry);
     reflowWidgetPage(state, capacity);
     const slots = el('nav', undefined, 'dashboard-widget-slots dashboard-widget-links'); body.append(slots);

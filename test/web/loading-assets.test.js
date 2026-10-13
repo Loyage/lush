@@ -193,10 +193,11 @@ test('temporary authenticated Host ships fewer cold modules, compressed immutabl
     const preloads = [...html.matchAll(/<link rel="modulepreload" href="([^"]+)"/g)].map(row => row[1]);
     expect(new Set(preloads)).toEqual(new Set([...cold.keys()].filter(name => !entries.includes(name))));
     const app = [...cold].find(([name]) => name.includes('-app-'))[1];
-    for (const lazy of ['render-settings', 'render-agent-status', 'render-versions', 'render-inputs', 'render-model-sources', 'management-profile-form']) {
+    for (const lazy of ['render-settings', 'render-agent-status', 'render-inputs', 'render-model-sources', 'management-profile-form']) {
       expect(app).toContain(`-${lazy}-`);
       expect([...cold.keys()].some(name => name.includes(`-${lazy}-`))).toBe(false);
     }
+    for (const retired of ['render-versions', 'render-management', 'shortcut-commands']) expect(app).not.toContain(`-${retired}-`);
     expect([...cold.values()].join('\n')).not.toContain('management-profile-form hook-form');
     for (const name of entries) {
       const identity = await fetch(url + name, { headers: { ...headers, 'Accept-Encoding': 'identity' } });

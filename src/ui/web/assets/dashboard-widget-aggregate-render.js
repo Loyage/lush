@@ -14,6 +14,7 @@ export function dashboardNavigation(links, { name = '' } = {}) {
   const root = el('nav', undefined, 'project-dashboard-shortcuts dashboard-navigation-menu');
   const seen = new Set();
   for (const item of links) {
+    if (item.scope === 'project' && item.target === 'versions') continue;
     const key = JSON.stringify([item.scope, item.project_id, item.target]);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -30,6 +31,7 @@ export function createAggregateRenderer({ ownsPage = () => true, canAct = ownsPa
   const widgets = createWidgetRenderer({ ownsPage, canAct, messages, refresh, refreshAccounts });
   const value = number => Number.isSafeInteger(number) ? String(number) : '—';
   function render(row, { geometry = row.geometry, mode = 'list' } = {}) {
+    row = { ...row, links: row.links?.filter(item => !(item.scope === 'project' && item.target === 'versions')) };
     if (row.type === 'accounts') {
       const identity = JSON.stringify(row.connection_ids);
       if (accountState.identity !== identity) { accountState.identity = identity; accountState.index = 0; accountState.error = null; }

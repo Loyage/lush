@@ -135,11 +135,11 @@ test('空图或无子层级禁用批量按钮并提供外层帮助；截断图�
   expect(deepText(dom.node('detail'))).toContain('500');
 });
 
-test('两种模式的 Worker 树表头只保留实时摘要与操作，不常驻静态规则说明', async () => {
+test('两种模式的工作树表头只保留实时摘要与操作，不常驻静态规则说明', async () => {
   for (const details of [false, true]) {
     if (details) await enableDetails();
     const hero = dom.node('detail').querySelector('.task-graph-hero');
-    expect(hero.querySelector('h1').textContent).toBe('Worker 树');
+    expect(hero.querySelector('h1').textContent).toBe('工作树');
     expect(hero.querySelectorAll('p')).toHaveLength(1);
     expect(hero.querySelector('p').classList.contains('task-graph-load-status')).toBe(true);
     expect(deepText(hero)).not.toContain('连线表示');
@@ -317,7 +317,7 @@ test('Git 脏净标记分别使用主题红绿，未知保持中性灰色', () =
   expect(css).toContain('.task-graph-git-pending.is-unknown{color:var(--muted)}');
 });
 
-test('Worker 树时长省略前导零单位，最高单位以下全量显示且数字与单位间有空格', () => {
+test('工作树时长省略前导零单位，最高单位以下全量显示且数字与单位间有空格', () => {
   const cases = [
     [0, '0 s'], [-1000, '0 s'], [999, '0 s'], [1000, '1 s'], [59999, '59 s'],
     [60000, '1 m 0 s'], [61000, '1 m 1 s'], [3599999, '59 m 59 s'],

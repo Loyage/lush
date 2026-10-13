@@ -38,7 +38,8 @@ test('内容开关独立且空数组隐藏所有模块；指标保留项目概�
     'project-development-metric tone-blue', 'project-development-metric tone-violet',
     'project-development-metric tone-violet', 'project-development-metric tone-green']);
   expect(full.querySelector('.project-dashboard-shortcuts').querySelectorAll('a').map(link => link.href)).toEqual([
-    `/p/${A}/#workers`, `/p/${A}/#inputs`, `/p/${A}/#versions`]);
+    `/p/${A}/#workers`, `/p/${A}/#inputs`]);
+  expect(full.querySelectorAll('a').some(link => link.href.endsWith('#versions'))).toBe(false);
   expect(projectDashboardContent(row(A), { sections: [] }).children).toHaveLength(0);
   const recentOnly = projectDashboardContent(row(A), { sections: ['recent'] });
   expect(recentOnly.querySelector('.project-development-metrics')).toBeNull();

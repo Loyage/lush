@@ -149,8 +149,9 @@ test('accept completion requires actual operation evidence; malformed or absent 
   }
 });
 
-test('independent tools own the directory while convergence history retains one target handler and drafts', async () => {
-  await openHookTools(); expect(root().querySelector('.automation-tools')).toBeTruthy();
+test('retired tools redirect while convergence history retains one target handler and drafts', async () => {
+  await openHookTools(); expect(dom.location.hash).toBe('#hooks'); expect(root().querySelector('.automation-tools')).toBeNull();
+  expect(root().querySelectorAll('.automation-feature')).toHaveLength(4); expect(dom.node('error').textContent).toContain('入口已移除');
   models.get(1).mounts[0].operation = operation('integrate_deliveries', { status: 'unknown', error: '批次落地待核查', run_id: 71 });
   await project(); const module = root().querySelector('.branch-convergence');
   expect(module.querySelectorAll('.delivery-handler')).toHaveLength(1); expect(deepText(module)).toContain('批次落地待核查');

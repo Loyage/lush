@@ -28,6 +28,7 @@ const unavailable = new Set([
   'agent.connections.device.start','agent.connections.device.poll','agent.connections.device.cancel',
   'settings.migration.preview','settings.migration.apply','settings.clear_override',
   'worker.run_settings','worker.code_state','worker.code_tree','worker.code_file',
+  'worker.version_graph','worker.version_deliveries','worker.version_commit',
   'worker.reading_page','worker.reading_record','worker.history','worker.history_page',
   'worker.transcript','worker.transcript_latest','worker.transcript_page','worker.transcript_step','worker.transcript_search',
   'worker.runs_page','worker.artifacts_page','worker.artifact', // raw provider/tool material is not a credential-safe read surface

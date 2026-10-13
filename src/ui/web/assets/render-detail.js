@@ -19,6 +19,7 @@ import { disposeDetailModules, limitDetailModules } from './detail-preview.js';
 import { captureDetailReading, restoreDetailReading } from './detail-reading.js';
 import { linkWorkerNumbers } from './worker-links.js';
 import { renderDiff } from './render-diff.js';
+import { renderWorkerVersions, disposeWorkerVersions } from './render-versions.js';
 import { renderWorkerRelations } from './render-worker-relations.js';
 import { deliveryControls } from './render-delivery.js';
 import { workerHooks } from './render-hooks.js';
@@ -72,6 +73,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const previousConversation = sameTask ? panel.querySelector('.conversation-panel') : null;
   const previousProgressHistory = sameTask ? panel.querySelector('.progress-history-panel') : null;
   const previousDiff = sameTask ? panel.querySelector('.detail-diff') : null;
+  const previousVersions = sameTask ? panel.querySelector('.worker-versions') : null;
   const previousRelations = sameTask ? panel.querySelector('.worker-relations') : null;
   const historyFocus = previousProgressHistory && [...previousProgressHistory.querySelectorAll('summary'), ...previousProgressHistory.querySelectorAll('button')]
     .find(node => node === document.activeElement);
@@ -99,7 +101,6 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const readOnly = management || isHistoricalDelivery(task);
   if (management) {
     panel.append(el('p', 'Valet 详情只读：目标、结果、调用与执行记录共用工作阅读器；管理授权与操作收据独立展示，不提供开发动作或连续追加对话。', 'hint management-readonly'));
-    const settings = el('a', 'Valet 设置', 'management-settings-link'); settings.setAttribute('href', '#management'); panel.append(settings);
   }
   const notice = ui.noticeFocus === null ? null : ui.noticeIndex.get(ui.noticeFocus);
   if (!readOnly && notice && notice.task_id === task.id) panel.prepend(noticePanel(notice, task));
@@ -322,6 +323,9 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     }
     panel.append(diffSection);
   }
+  if (!management && (task.branch === 'main' || ['order', 'child'].includes(workerKind(task)))) {
+    panel.append(renderWorkerVersions(task, previousVersions));
+  } else disposeWorkerVersions();
   if (task.role === 'verifier' || task.verifications?.length || (task.role === 'worker' && task.status === 'completed' && task.workspace && task.head_commit)) supplemental.push(renderVerifications(task));
 
   const relationsOptions = { data: progressive?.loaded?.relations, current: progressive?.current ?? (() => true), signal: progressive?.signal };
@@ -478,6 +482,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   return patches;
 }
 export function renderDetailError(taskId, message) {
+  disposeWorkerVersions();
   const panel = $('detail');
   progressivePanels.get(panel)?.dispose(); progressivePanels.delete(panel);
   disposeDetailModules(panel);

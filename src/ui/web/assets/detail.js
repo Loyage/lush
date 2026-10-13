@@ -3,7 +3,8 @@ import { api, isReadAbort, loadConnectionNames, loadHistory, projectApi, withRea
 import { renderDetail, renderDetailError } from './render-detail.js';
 import { loadWorkerRelations } from './render-worker-relations.js';
 import { isValet, workTypeLabel } from './work-type.js';
-import { activateDetailView, setViewChrome, toggleMobileNavigation } from './sidebar-ui.js';
+import { activateDetailView, selectNav, setViewChrome, toggleMobileNavigation } from './sidebar-ui.js';
+import { disposeWorkerVersions } from './render-versions.js';
 import { transcriptCache, transcriptOpen, ui } from './state.js';
 import { appendTranscriptSteps, fetchTranscriptAfter, loadTranscript } from './render-transcript.js';
 import { liveTarget } from './live.js';
@@ -11,7 +12,8 @@ import { workerLabel } from './worker-label.js';
 import { routeContext } from './route.js';
 
 let detailRequest = 0, supplemental = null, lifetime = null, renderedExtras = null;
-export function disposeDetailRequests() {
+export function disposeDetailRequests({ preserveVersions = false } = {}) {
+  if (!preserveVersions) disposeWorkerVersions();
   lifetime?.abort(); lifetime = null;
   supplemental?.dispose(); supplemental = null;
 }
@@ -68,7 +70,7 @@ async function updateOpenTranscript(task, current, signal) {
 export async function loadDetail(taskId) {
   if (ui.deletedWorkerIds.has(taskId)) return false;
   ui.disposeDetailRequests = disposeDetailRequests;
-  disposeDetailRequests();
+  disposeDetailRequests({ preserveVersions: ui.view?.id === 'task' && ui.detailTask === taskId });
   ui.selected = taskId;
   const project = projectApi('/api/');
   const view = activateDetailView({ view: 'task', key: `task-${taskId}`, hash: `#worker-${taskId}`,
@@ -95,6 +97,7 @@ export async function loadDetail(taskId) {
   if (!current()) return false;
   // A fullscreen reader still needs its terminal tail, without repainting the hidden detail.
   if (transcriptOpen.has(taskId)) void updateOpenTranscript(task, current, reads.signal);
+  selectNav(isValet(task) ? 'valets' : 'tasks');
   if (ui.transcriptView) return false;
   setViewChrome(`${workTypeLabel(task)} ${workerLabel(task)}`, '工作', '结果优先，过程与运行信息随后');
   ui.selectedRevision = task.updated_at; ui.detailTask = taskId; ui.detailRenderedAt = Date.now(); ui.detailDirty = false;
@@ -123,8 +126,11 @@ export async function loadDetail(taskId) {
     toggleMobileNavigation(false);
     $('detail').scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }
-  const tree = $('tasks').querySelector(`[data-id="${taskId}"]`);
-  if (tree) for (const node of $('tasks').children) node.classList.toggle('selected', node === tree);
+  for (const container of [$('tasks'), $('valets')]) {
+    if (!container) continue;
+    const selected = container.querySelector(`[data-id="${taskId}"]`);
+    for (const node of container.children) node.classList.toggle('selected', node === selected);
+  }
   const extra = {
     ...(isValet(task) ? {} : { relations: read(loadWorkerRelations(taskId, { ...options, count: $('detail').querySelector('.worker-relations')?.relationsCount })) }),
     history: read(loadHistory(taskId, null, options)),

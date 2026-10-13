@@ -1,8 +1,6 @@
-import { $, el, button, badge, block, syncChildren } from './dom.js';
-import { searchField } from './search-field.js';
+import { el, button, badge, block } from './dom.js';
 import { api, action, projectApi } from './api.js';
 import { ui } from './state.js';
-import { activateDetailView } from './sidebar-ui.js';
 import { detail } from './navigate.js';
 import { confirmDialog } from './dialog.js';
 import { show } from './messages.js';
@@ -13,13 +11,10 @@ import { createHookForm, COMMAND_WARNING } from './hook-form.js';
 import { autoMergeControl, autoCompletionControl, COMPLETION_LEVELS, HOOK_STATES as STATES } from './hook-controls.js';
 import { workerLabel } from './worker-label.js';
 import { hookScheduleSummary, scheduledWallTime } from './hook-schedule.js';
-import { renderShortcutCommands } from './shortcut-commands.js';
 import { workerConvergenceControl } from './convergence-policy-controls.js';
-import { pageSubnav } from './page-subnav.js';
 import { commandReferencesIssue, commandSummary, legacyCommands, validCommands, PROMPT_WARNING } from './shortcut-command-model.js';
 
-import { automationModule } from './automation-module.js';
-import { isDeliveryHandler, hookResultLabel, renderOperation, operationAlert, deliveryHandlerCard, renderAutomationTools } from './automation-tools.js';
+import { isDeliveryHandler, hookResultLabel, renderOperation, operationAlert, deliveryHandlerCard } from './automation-tools.js';
 
 const pending = new Set();
 export function hookHelpLink() {
@@ -376,8 +371,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
     } catch (error) { if (ownsPage()) show(error.message, 'error'); }
     finally { pending.delete(`attach:${task.id}`); attach.disabled = !writable; }
   }, 'ghost hook-button', { help: '打开受控规则编辑器或选择项目模板；打开不调用 Agent，确认挂载前会说明动作代价。' });
-  controls.append(guarded(attach, !writable ? '挂载列表不可用、Worker 已结束或分支已归档；请先处理后刷新。' : null),
-    button('指令与 Hook 工具', () => openHookTools(), 'ghost hook-button', { help: '管理当前项目的快捷指令和可复用模板；不会自动挂载到 Worker。' }));
+  controls.append(guarded(attach, !writable ? '挂载列表不可用、Worker 已结束或分支已归档；请先处理后刷新。' : null));
   management.append(controls, editor); row.append(toggle, management); section.append(row);
   if (handler) { handlerCard = deliveryHandlerCard({ mount: handler, policy: model?.convergence, control: convergence }); section.append(handlerCard); }
   return section;
@@ -394,146 +388,9 @@ export async function openHooks(options = {}) {
   return openProjectAutomation(options);
 }
 
-/** Auxiliary definitions and templates; never part of the feature directory. */
-export async function openHookTools({ subpage = 'settings' } = {}) {
-  subpage = ['commands', 'history'].includes(subpage) ? subpage : 'settings';
-  const view = activateDetailView({ view: 'hook-tools', title: '指令与 Hook 工具', context: '工作', hint: '指令定义与可复用模板', hash: subpage === 'history' ? '#hook-tools-history' : subpage === 'commands' ? '#hooks-commands' : '#hook-tools' });
-  const project = projectApi('/api/hooks'), owner = globalThis.document;
-  const ownsPage = () => owner === globalThis.document && ui.view === view && sameProject(project);
-  if (ui.hooksPage?.view === view && ui.hooksPage.project === project) {
-    ui.hooksPage.switchSubpage(subpage); return ui.hooksPage.pending;
-  }
-  ui.hooksPage?.shortcutNode?.dispose?.();
-  const state = { view, project, subpage, pending: null, catalogue: null, templateEditing: false, busy: false, templateQuery: '', folds: new Map(), details: new Map() }; ui.hooksPage = state;
-  const owns = () => ownsPage() && ui.hooksPage === state;
-  const root = el('div', undefined, 'hooks-page'); $('detail').replaceChildren(root);
-  const subnav = pageSubnav('指令与 Hook 工具子页面', [
-    { id: 'settings', label: 'Hook 模板', href: '#hook-tools' },
-    { id: 'commands', label: '指令管理', href: '#hooks-commands' },
-    { id: 'history', label: '指令运行记录', href: '#hook-tools-history' },
-  ], subpage, next => owns() ? openHookTools({ subpage: next }) : undefined);
-  state.switchSubpage = next => {
-    state.subpage = next;
-    for (const link of subnav.children) {
-      const selected = link.dataset.subpage === next;
-      link.classList.toggle('active', selected); link.setAttribute('aria-current', selected ? 'page' : 'false');
-    }
-    for (const node of state.settingsNodes || []) node.hidden = next !== 'settings';
-    state.shortcutNode?.setSubpage?.(next);
-  };
-  root.append(subnav);
-  const editor = el('div', undefined, 'hook-editor');
-  const searchControl = searchField({ label: '查找 Hook 模板', placeholder: '按名称、触发节点或动作查找模板', scope: '范围：当前项目目录全部模板', onSubmit: value => { state.templateQuery = value; applyTemplateSearch(); } });
-  const search = searchControl.input; search.classList.add('hook-template-search');
-  let applyTemplateSearch = () => {};
-  function edit(initial = {}, copying = false) {
-    if (!owns() || state.busy || state.templateEditing) return;
-    state.folds.set('templates', true);
-    const templates = root.querySelector('[data-module="templates"]'); if (templates) templates.moduleOpen = true;
-    if (legacyCommands(initial)) { show('旧内联命令须先显式导入快捷指令，不直接编辑或复制旧内联命令。', 'error'); return; }
-    state.templateEditing = true;
-    const revision = state.catalogue.revision;
-    const form = createHookForm(state.catalogue, { initial: copying ? { ...initial, name: `${initial.name}（副本）`, enabled: false } : initial, ownsPage: owns, copying });
-    editor.replaceChildren(el('h2', copying ? '复制为新停用模板' : initial.id ? `编辑模板：${initial.name}` : '新建模板'), form.node);
-    if (copying) editor.append(el('p', '复制为新停用模板，不执行、不挂载、不复制执行记录；私有运行覆盖必须显式重新设置。', 'hint'));
-    const save = button(copying ? '保存停用模板副本' : '保存模板', async () => {
-      if (!owns() || state.busy || form.validate()) return;
-      if (form.replacesPrompt() && !await promptRisk()) return;
-      if (!owns()) return;
-      state.busy = true; form.setBusy(true); save.disabled = true;
-      try {
-        const result = await action('hooks.save', { template: { ...(!copying && initial.id ? { id: initial.id } : {}), ...form.collect(), ...(copying ? { enabled: false } : {}) }, expected_revision: revision });
-        if (owns()) { state.catalogue = result; state.templateEditing = false; editor.replaceChildren(); paint(); show('模板已保存；已有实例不变。保存不执行、不挂载，也不调用 Agent。'); }
-      } catch (error) { if (owns()) show(`${error.message}；编辑保留。版本冲突时请复制内容后刷新。`, 'error'); }
-      finally { state.busy = false; if (owns()) { form.setBusy(false); save.disabled = false; paint(); } }
-    }, 'hook-button', { help: '保存可复用项目模板；不挂载到 Worker、不调用 Agent。' });
-    editor.append(save, button('取消编辑', () => { if (!state.busy) { state.templateEditing = false; editor.replaceChildren(); } }, 'ghost'));
-  }
-  async function load() {
-    try { const catalogue = await api('/api/hooks'); if (!owns()) return; state.catalogue = catalogue; ui.hookCatalogue = catalogue; paint(); }
-    catch (error) {
-      if (!owns()) return;
-      if (state.catalogue) show(`读取失败：${error.message}；已加载记录与未保存编辑保留。`, 'error');
-      else root.replaceChildren(subnav, el('h1', '指令与 Hook 工具'), el('p', `读取失败：${error.message}`, 'error'), button('重新读取', load, 'ghost'));
-    }
-  }
-  function paint() {
-    if (!owns()) return;
-    const catalogue = state.catalogue;
-    const focused = document.activeElement, selection = focused && typeof focused.selectionStart === 'number'
-      ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] : null;
-    // Busy changes do not require a full redraw: every mutation checks this shared gate.
-    if (state.paintedCatalogue === catalogue && (state.busy || state.paintedBusy === state.busy)) {
-      state.shortcutNode?.updateCommands?.(catalogue.commands, catalogue);
-      return;
-    }
-    for (const card of root.querySelectorAll('.hook-mount')) {
-      const key = card.dataset.hookId || card.dataset.templateId;
-      if (key) state.details.set(key, card.querySelector('details')?.open === true);
-    }
-    const preservedCommands = state.shortcutNode;
-    const header = el('div', undefined, 'hooks-page-header'); header.append(el('h1', '指令与 Hook 工具'), hookHelpLink());
-    const commands = preservedCommands || renderShortcutCommands({ catalogue, folds: state.folds, ownsPage: owns, busy: () => state.busy,
-      setBusy(value) { state.busy = value; if (owns()) paint(); }, setEditing(value) { state.shortcutEditing = value; },
-      onCatalogue(result) { if (owns()) { state.catalogue = result; ui.hookCatalogue = result; paint(); } },
-    });
-    state.shortcutNode = commands;
-    commands.updateCommands?.(catalogue.commands, catalogue);
-    const controls = el('div', undefined, 'actions'); controls.append(button('新建模板', () => edit(), 'hook-button', { help: '编辑可复用规则，不启动 Agent，也不自动安装到 Worker。' }),
-      button('刷新目录', async () => { if (state.busy) return; if (state.templateEditing && !await confirmDialog({ title: '放弃未保存编辑并刷新？', message: '刷新会读取后台最新项目目录，当前未保存模板编辑会丢失。', confirmLabel: '放弃并刷新' })) return;
-        if (!owns()) return; state.templateEditing = false;
-        // Shortcut drafts retain their original revision across explicit reads.
-        editor.replaceChildren(); state.paintedCatalogue = null; await load(); }, 'ghost hook-button', { help: '显式读取最新目录；快捷指令草稿与选择保留，其他未保存编辑先确认。不执行任何指令。' }));
-    const templates = block('项目模板', String(catalogue.templates?.length || 0));
-    templates.querySelector('.section-title').append(hookHelpLink());
-
-    const cards = [], empty = el('p', '没有匹配的模板。', 'hint'); empty.hidden = true;
-    applyTemplateSearch = () => {
-      const query = searchControl.applied.toLowerCase(); let count = 0;
-      for (const { card, text } of cards) { card.hidden = !text.includes(query); if (!card.hidden) count++; }
-      empty.hidden = count !== 0 || !query;
-    };
-    if (catalogue.templates?.length) templates.append(searchControl.root);
-    if (!catalogue.templates?.length) templates.append(el('p', '还没有模板。自动合并是 Worker 内置 Hook，不需要创建模板。', 'hint'));
-    for (const template of catalogue.templates || []) {
-      const card = projectHookCard(template.name, '模板 · 尚未挂载', 'hook-template'); card.dataset.templateId = template.id;
-      card.append(el('p', `${catalogue.triggers?.find(t => t.id === template.trigger)?.label || template.trigger} · ${template.mode === 'persistent' ? '持续' : '一次性'}`, 'hint'), parameters(template, catalogue));
-      if (legacyCommands(template)) card.append(el('p', '旧内联命令已停止直接执行；请先显式导入，再启用 Hook。', 'error'),
-        importButton({ template_id: template.id }, catalogue.revision, owns, result => {
-          if (owns()) { state.catalogue = result; ui.hookCatalogue = result; paint(); }
-        }, { catalogue, busy: () => state.busy, setEditing(value) { state.busy = value; } }));
-      cards.push({ card, text: [template.name, template.trigger, catalogue.triggers?.find(t => t.id === template.trigger)?.label,
-        ...(template.actions || []).flatMap(item => [item.type, catalogue.actions?.find(action => action.type === item.type)?.label])].filter(Boolean).join(' ').toLowerCase() });
-      const buttons = el('div', undefined, 'actions'); buttons.append(button('编辑模板', () => edit(template), 'ghost hook-button', { help: '只修改可复用模板；已有挂载实例不会改变。' }),
-        button('复制为停用模板', () => edit(template, true), 'ghost hook-button', { help: '保存为新的停用模板，不执行、不挂载，不复制执行记录。' }),
-        button('删除模板', async () => {
-          if (!owns() || state.busy || !await confirmDialog({ title: `删除模板「${template.name}」？`, message: '只删除可复用模板，不移除已挂载到 Worker 的实例。', confirmLabel: '删除模板', confirmHelp: '删除这个模板；实际挂载独立保留。' })) return;
-          if (!owns()) return; state.busy = true;
-          try { const result = await action('hooks.remove', { id: template.id, expected_revision: catalogue.revision });
-            if (owns()) { state.catalogue = result; paint(); show('模板已删除，已挂载实例不变。'); }
-          } catch (error) { if (owns()) show(error.message, 'error'); } finally { state.busy = false; if (owns()) paint(); }
-        }, 'ghost hook-button', { help: '经确认删除模板，不撤销已挂载的规则或执行成果。' })); card.append(buttons); templates.append(card);
-    }
-    applyTemplateSearch(); templates.append(empty, editor);
-    automationModule(templates, 'templates', state.folds, `${catalogue.templates?.length || 0} 个可复用模板；保存不挂载、不执行。${catalogue.templates?.some(legacyCommands) ? '含已停用的旧内联命令，需显式导入。' : ''}`);
-    for (const card of templates.querySelectorAll('.hook-mount')) {
-      const key = card.dataset.hookId || card.dataset.templateId, details = card.querySelector('details');
-      if (key && details && state.details.has(key)) details.open = state.details.get(key);
-    }
-    const introduction = el('p', '模板可复用，实际挂载独立保存。这里管理项目指令定义与可复用模板，不运行指令。', 'hint');
-    const tools = renderAutomationTools(catalogue, state.folds);
-    state.settingsNodes = [introduction, tools, controls, templates];
-    syncChildren(root, [subnav, header, introduction, commands, tools, controls, templates]);
-    state.switchSubpage(state.subpage);
-    // Moving a retained editor/search into a fresh module must not discard keyboard focus or caret.
-    let ancestor = focused;
-    while (ancestor && ancestor !== root) ancestor = ancestor.parentNode;
-    if (ancestor === root && document.activeElement !== focused) {
-      focused.focus({ preventScroll: true });
-      if (selection && focused.setSelectionRange) focused.setSelectionRange(...selection);
-    }
-    state.paintedCatalogue = catalogue; state.paintedBusy = state.busy;
-
-  }
-  state.pending = load(); return state.pending;
+/** Retired compatibility entry; no definition/template editor is reachable from Web. */
+export async function openHookTools() {
+  const { openRetiredTools } = await import('./retired-pages.js');
+  return openRetiredTools();
 }
+

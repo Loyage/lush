@@ -154,14 +154,11 @@ test('editing enabled Hook confirms latest referenced definition; copies remain 
   expect(dom.node('modal').hidden).toBe(true);
 });
 
-test('template edits are isolated; copies save new disabled template without invoking Agent or mounting', async () => {
-  await openHookTools(); await btn('编辑模板').onclick(); field(root().querySelector('.hook-form'), '快捷指令').value = 'tags-command';
-  await btn('保存模板').onclick(); expect(actions.at(-1)).toMatchObject({ method: 'hooks.save', params: { expected_revision: 'template-revision', template: { id: template.id, actions: [{ type: 'command', command_id: 'tags-command' }] } } });
-  expect(catalogue.command_example.hooks.mounts[0].actions).toEqual(command.actions);
-  await btn('复制为停用模板').onclick(); field(root().querySelector('.hook-form'), '启用此 Hook').checked = true;
-  expect(btn('保存停用模板副本').classList.contains('agent-call')).toBe(false); await btn('保存停用模板副本').onclick();
-  expect(actions.at(-1).params.template.enabled).toBe(false); expect(actions.at(-1).params.template).not.toHaveProperty('id');
-  expect(actions.at(-1).params.template).not.toHaveProperty('last_execution'); expect(actions.every(item => item.method === 'hooks.save')).toBe(true);
+test('retired template entry has no edit or copy controls and preserves stored templates and actual mount', async () => {
+  const before = structuredClone(catalogue); await openHookTools();
+  expect(dom.location.hash).toBe('#hooks'); expect(dom.node('error').textContent).toContain('入口已移除');
+  for (const label of ['编辑模板', '保存模板', '复制为停用模板', '保存停用模板副本']) expect(btn(label)).toBeUndefined();
+  expect(root().querySelector('.hook-form')).toBeNull(); expect(actions).toHaveLength(0); expect(catalogue).toEqual(before);
 });
 
 test('enabled command template attachment needs risk confirmation; disabled template saves never do', async () => {

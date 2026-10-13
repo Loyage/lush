@@ -1,525 +1,190 @@
 import { test, expect, beforeEach, afterAll } from 'bun:test';
-import { installDom, deepText, dialogButton } from '../dom-stub.js';
-import { until } from '../helpers.js';
+import { installDom, deepText } from '../dom-stub.js';
+import { gate, until } from '../helpers.js';
 
 const json = value => ({ ok: true, json: async () => structuredClone(value) });
-const daily = { kind: 'daily', time: '00:05', timezone: 'Asia/Shanghai' };
-const signal = { id: 'reset', name: '额度更新时间已到', enabled: true, schedule: daily, next_run_at: '2030-02-02T16:05:00Z', last_due_at: null, last_execution: null };
+const signal = { id: 'reset', name: '额度更新时间已到', enabled: true, schedule: { kind: 'daily', time: '00:05', timezone: 'Asia/Shanghai' }, next_run_at: '2030-02-02T16:05:00Z' };
 const manager = { id: 200, role: 'manager', task_kind: 'management', name: '半夜开始 W10', goal: '开始 W10；重试失败的 W11', status: 'waiting',
   management: { version: 1, revision: 'binding-1', signal_id: signal.id, mode: 'once', enabled: true, state: 'waiting', pending_signal: null, last_execution: null },
   model_selection: { agent: 'pi', config_mode: 'lush', connection_id: 'codex-source', model: 'openai-codex/codex-model', thinking: 'high' } };
-const base = { version: 1, revision: 'templates-1', templates: [], triggers: [{ id: 'agent.failed', label: '调用异常', description: '不重放' }],
-  actions: [{ type: 'notify', label: '告知', modes: ['once', 'persistent'], triggers: [], agent_call: false }],
-  signals: { version: 1, revision: 'signals-1', items: [signal] }, management_workers: [manager] };
 const settings = { default: { agent: 'codex', default_prompt: 'DEVELOPMENT PROMPT MUST NOT BE SHOWN' },
   resolved: { manager: { agent: 'pi', config_mode: 'lush', connection_id: 'codex-source', model: 'openai-codex/codex-model', thinking: 'high',
     default_prompt: 'HIDDEN PRIVATE PROMPT', env: { PRIVATE: 'SECRET' }, extensions: ['/private/extension'], skills: ['/private/skill'] } },
   options: { thinking: { pi: ['', 'low', 'medium', 'high'] }, agents: ['pi', 'codex'] } };
 const source = { id: 'codex-source', label: '我的 Codex', enabled: true, provider: 'openai-codex', models: ['codex-model'],
   auth_type: 'oauth', endpoint: 'https://example.invalid', credential: { status: 'configured' }, default_model: 'codex-model', default_thinking: 'medium' };
-let catalogue, actions, reads, intercept, detailCalls;
+let actions, reads, intercept, detailCalls;
 const dom = installDom({ fetch: async (url, options = {}) => {
   const path = String(url), body = options.body ? JSON.parse(options.body) : null;
   if (body) actions.push(body); else reads.push(path);
   const custom = intercept?.(path, body); if (custom) return custom;
-  if (path.endsWith('/api/hooks')) return json(catalogue);
-  if (path.endsWith('/api/branch-convergence')) return json({ version: 1, items: [], count: 0, truncated: false });
   if (path.endsWith('/api/agent/config')) return json(settings);
   if (path.endsWith('/api/agent/connections')) return json({ version: 1, connections: [source] });
   if (path.includes('/api/agent/connections/models')) return json({ version: 1, status: 'cached', models: [] });
-  if (body?.method.startsWith('hooks.signal_')) return json(catalogue);
-  if (body?.method === 'management.create') return json({ task: { ...manager, id: 201 } });
-  if (body?.method === 'management.binding_update') return json({ ...manager, management: { ...manager.management, enabled: body.params.enabled, revision: 'binding-2' } });
   throw new Error(`unexpected read/action ${path} ${body?.method}`);
 } });
 const { workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
-const { openManagement } = await import('../../src/ui/web/assets/render-management.js');
 const { createSignalForm, createManagementForm } = await import('../../src/ui/web/assets/hook-signals.js');
 const { createManagementProfileForm } = await import('../../src/ui/web/assets/management-profile-form.js');
+const { renderManagementState } = await import('../../src/ui/web/assets/management-state.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
-const { closeDialog } = await import('../../src/ui/web/assets/dialog.js');
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
 const { worktreeLabel, ROLE } = await import('../../src/ui/web/assets/format.js');
 const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
 const { syncComposer } = await import('../../src/ui/web/assets/composer.js');
-const restoreNavigation = registerNavigation({ refresh: async () => {}, detail: id => { detailCalls.push(id); } });
+const restoreNavigation = registerNavigation({ refresh: async () => {}, detail: id => detailCalls.push(id) });
 const root = () => dom.node('detail');
-// Compare actual inline prose, excluding the separate original-text reading control.
-const inlineText = node => node.classList?.contains('message-original') ? ''
-  : node.childNodes.length ? node.childNodes.map(inlineText).join('') : node.textContent;
+const inlineText = node => node.classList?.contains('message-original') ? '' : node.childNodes.length ? node.childNodes.map(inlineText).join('') : node.textContent;
 const btn = (label, node = root()) => node.querySelectorAll('button').find(item => item.textContent === label);
 const input = (label, node = root()) => node.querySelector(`[aria-label="${label}"]`);
-const newManagement = async () => {
-  await openManagement(); await btn('新建管理指令').onclick();
-  input('管理指令名称').value = '自动开跑'; input('管理指令').value = '重试失败的 W11'; input('绑定时间信号').value = signal.id;
-};
-beforeEach(() => { closeDialog(); actions = []; reads = []; intercept = null; detailCalls = []; catalogue = structuredClone(base);
-  dom.location.pathname = '/'; ui.managementPage = null; activateDetailView({ view: 'overview' }); });
-afterAll(() => { closeDialog(); restoreNavigation(); dom.restore(); });
+const fillManagement = form => { input('管理指令名称', form.node).value = '自动开跑'; input('管理指令', form.node).value = '重试失败的 W11'; input('绑定时间信号', form.node).value = signal.id; };
+beforeEach(() => { actions = []; reads = []; intercept = null; detailCalls = []; dom.location.pathname = '/'; activateDetailView({ view: 'overview' }); root().replaceChildren(); });
+afterAll(() => { restoreNavigation(); dom.restore(); });
 
-test('Management page separates time signals and manager instructions from development, with safe source and history projections', async () => {
-  await openManagement();
-  expect(actions).toHaveLength(0); expect(reads).toEqual(['/api/hooks']);
-  expect(deepText(root())).toContain('默认输入框仍用于开发任务');
-  expect(deepText(root())).toContain('不是实际额度已恢复的观测');
-  expect(deepText(root())).toContain('每天 00:05 · Asia/Shanghai');
-  expect(deepText(root())).toContain('2030-02-03 00:05:00 · Asia/Shanghai');
-  expect(deepText(root())).toContain('codex-source');
-  expect(btn('删除时间信号').disabled).toBe(true);
-  expect(btn('删除时间信号').parentNode.getAttribute('data-help')).toContain('先停用绑定');
-  await btn('查看指令、结果与调用历史').onclick(); expect(detailCalls).toEqual([200]); expect(actions).toHaveLength(0);
+// Independent settings-page mutation cases are retired. Core read projections and
+// reusable signal/profile validation below remain covered; backend authorization tests are unchanged.
+test('Valet identity is non-development and shared safe management state never creates an editable Hook surface', () => {
+  const node = renderManagementState(manager); root().append(node);
   expect(workerHooks(manager)).toBeNull(); expect(worktreeLabel({ ...manager, workspace: '/private/management' })).toBe('管理工作目录'); expect(ROLE.manager).toBe('Valet');
-  expect(root().querySelectorAll('button').some(item => ['合并', '验收', '归档'].includes(item.textContent))).toBe(false);
+  expect(node.querySelectorAll('button')).toEqual([]); expect(actions).toEqual([]); expect(reads).toEqual([]);
 });
 
-test('即时管理来源与受控能力收据正确投影，确认不冒充执行，不显示私有参数', async () => {
-  const binding = catalogue.management_workers[0].management;
-  Object.assign(binding, { origin: 'input', signal_id: null, state: 'waiting_actions', pending_signal: {
+test('immediate-source capability receipts show actual confirmation kind, omitted counts and unknown non-replay facts safely', () => {
+  const binding = { ...manager.management, origin: 'input', signal_id: null, state: 'waiting_actions', pending_signal: {
     id: 50, due_at: signal.next_run_at, actions: [], control_calls_count: 4, control_calls_truncated: true,
-    control_calls: [{ method: 'worker.cancel', status: 'pending_confirmation', notice_id: 40, params: { env: { PRIVATE: 'MUST_NOT_DISPLAY' } } },
-      { method: 'input.emit', status: 'unknown' }],
-  } });
-  await openManagement();
-  expect(root().querySelector('.hook-manager')).toBeNull();
-  renderDetail({ ...manager, management: binding, calls: 0 }, null, null, null);
-  const text = deepText(root());
+    control_calls: [{ method: 'worker.cancel', status: 'pending_confirmation', notice_id: 40, params: { env: { PRIVATE: 'MUST_NOT_DISPLAY' } } }, { method: 'input.emit', status: 'unknown' }] } };
+  const node = renderManagementState({ ...manager, management: binding }); root().append(node); const text = deepText(node);
   expect(text).toContain('来源：即时 Valet 输入，不等待时间信号'); expect(text).not.toContain('原信号已移除');
   expect(text).toContain('已提交待处理'); expect(text).toContain('待用户确认（尚未执行）');
-  // Receipt projection does not contain Notice kind: do not infer D from pending_confirmation.
-  expect(root().querySelector('a[href="#notices-40"]').textContent).toBe('N40'); expect(text).not.toContain('D40');
+  expect(text).toContain('确认提醒 N40'); expect(text).not.toContain('D40');
   expect(text).toContain('结果待核验，不自动重放'); expect(text).toContain('管理能力摘要：显示 2 / 4 项');
-  expect(text).not.toContain('MUST_NOT_DISPLAY'); expect(actions).toHaveLength(0);
-  expect(root().querySelector('.management-capabilities-truncated')).toBeTruthy();
+  expect(text).not.toContain('MUST_NOT_DISPLAY'); expect(actions).toEqual([]);
 });
 
-test('受控能力历史独立展示安全状态，无原文或主动调用', async () => {
-  catalogue.management_workers[0].management.last_execution = { actions: [], status: 'succeeded',
-    control_calls: [{ method: 'input.emit', status: 'approved' }, { method: 'worker.cancel', status: 'rejected' },
-      { method: 'worker.delete', status: 'failed' }, { method: 'draft.add', status: 'succeeded' }] };
-  await openManagement(); const text = deepText(root());
+test('capability history preserves safe status meanings without raw parameters or active calls', () => {
+  const node = renderManagementState({ ...manager, management: { ...manager.management, last_execution: { actions: [], status: 'succeeded',
+    control_calls: [{ method: 'input.emit', status: 'approved' }, { method: 'worker.cancel', status: 'rejected' }, { method: 'worker.delete', status: 'failed' }, { method: 'draft.add', status: 'succeeded' }] } } });
+  root().append(node); const text = deepText(node);
   for (const label of ['授权已通过，等待安全点', '未获授权', '未执行，预检或授权已变化', '管理能力 draft.add：已执行']) expect(text).toContain(label);
-  expect(actions).toHaveLength(0);
+  expect(node.querySelectorAll('button')).toEqual([]); expect(actions).toEqual([]);
 });
 
 for (const state of [{ status: 'paused', agent_wakes: 0 }, { status: 'paused', agent_wakes: 1 }, { status: 'failed' },
   { status: 'running' }, { status: 'running', interrupt_state: 'requested' }, { status: 'queued', interrupt_state: 'resuming' }]) {
   test(`management detail is strictly read-only for ${state.status}/${state.interrupt_state || state.agent_wakes || 'idle'}`, async () => {
-    const row = { ...manager, ...state, calls: 1, children: [], deps: [], dependents: [],
-      created_at: '2030-02-02T16:05:00Z', updated_at: '2030-02-02T16:06:00Z', result: '重试请求已提交，等待安全点',
-      error: state.status === 'failed' ? '缺少管理模型来源' : null, workspace: '/project/.lush/management/200',
+    const row = { ...manager, ...state, calls: 1, children: [], deps: [], dependents: [], created_at: '2030-02-02T16:05:00Z', updated_at: '2030-02-02T16:06:00Z',
+      result: '重试请求已提交，等待安全点', error: state.status === 'failed' ? '缺少管理模型来源' : null, workspace: '/project/.lush/management/200',
       branch_archive: { archivable: true }, model_selection: { ...manager.model_selection, explicit: true } };
     activateDetailView({ view: 'task', key: 'task-200' }); ui.selected = 200; ui.composerTask = row;
-    const history = { events: [{ id: 500, type: 'management.signal_submitted', created_at: row.created_at,
-      data: { due_at: row.created_at } }] };
-    renderDetail(row, history, null, null); syncComposer();
-    expect(deepText(root())).toContain('Valet 详情只读'); expect(root().querySelector('.management-settings-link').getAttribute('href')).toBe('#management');
-    const goal = root().querySelector('.conversation-input').querySelector('.conversation-prose');
-    expect(inlineText(goal)).toBe(manager.goal);
-    expect(goal.querySelectorAll('.worker-link').map(node => node.getAttribute('href')))
-      .toEqual(['#worker-number-W10', '#worker-number-W11']);
-    expect(deepText(root())).toContain(row.result);
-    const lifecycle = root().querySelector('[data-conversation-filter="lifecycle"]');
-    expect(lifecycle.getAttribute('aria-pressed')).toBe('false');
-    expect(deepText(root())).not.toContain('管理信号已提交待执行');
-    await lifecycle.onclick();
-    expect(deepText(root())).toContain('管理信号已提交待执行'); expect(deepText(root())).not.toContain('管理工作目录');
+    renderDetail(row, { events: [{ id: 500, type: 'management.signal_submitted', created_at: row.created_at, data: { due_at: row.created_at } }] }, null, null); syncComposer();
+    expect(deepText(root())).toContain('Valet 详情只读');
+    expect(root().querySelector('.management-settings-link')).toBeNull();
+    expect(root().querySelector('.worker-versions')).toBeNull();
+    const goal = root().querySelector('.conversation-input').querySelector('.conversation-prose'); expect(inlineText(goal)).toBe(manager.goal);
+    expect(goal.querySelectorAll('.worker-link').map(node => node.getAttribute('href'))).toEqual(['#worker-number-W10', '#worker-number-W11']);
+    expect(deepText(root())).toContain(row.result); const lifecycle = root().querySelector('[data-conversation-filter="lifecycle"]');
+    expect(lifecycle.getAttribute('aria-pressed')).toBe('false'); expect(deepText(root())).not.toContain('管理信号已提交待执行');
+    await lifecycle.onclick(); expect(deepText(root())).toContain('管理信号已提交待执行'); expect(deepText(root())).not.toContain('管理工作目录');
     expect(root().querySelector('.detail-diff')).toBeNull(); expect(root().querySelector('.worker-relations')).toBeNull();
     expect(root().querySelector('.task-actions').querySelectorAll('button').map(item => item.textContent)).toEqual(['刷新详情']);
-    for (const text of ['开始', '继续', '调整运行设置', '放弃 Worker', '中断', '检查后重试', '追加输入', '删除', '合并', '验收', '归档', '启用管理绑定', '停用管理绑定']) expect(btn(text)).toBeUndefined();
+    for (const label of ['开始', '继续', '调整运行设置', '放弃 Worker', '中断', '检查后重试', '追加输入', '删除', '合并', '验收', '归档', '启用管理绑定', '停用管理绑定']) expect(btn(label)).toBeUndefined();
     expect(root().querySelector('.worker-hooks')).toBeNull(); expect(btn('打开执行详情')).toBeTruthy();
     expect(dom.node('input').disabled).toBe(false); expect(dom.node('input-form').dataset.mode).toBe('create');
-    await btn('刷新详情').onclick(); expect(detailCalls).toEqual([200]); expect(actions).toHaveLength(0);
+    await btn('刷新详情').onclick(); expect(detailCalls).toEqual([200]); expect(actions).toEqual([]);
   });
 }
 
-test('management identity alone fails closed against malformed legacy development projections', () => {
+test('management identity fails closed against malformed legacy development projections', () => {
   for (const identity of [{ role: 'manager', task_kind: 'order' }, { role: 'agent', task_kind: 'management' }]) {
-    renderDetail({ ...manager, ...identity, status: 'paused', calls: 0, children: [], deps: [], dependents: [],
-      created_at: '2030-02-02T16:05:00Z', updated_at: '2030-02-02T16:06:00Z',
+    renderDetail({ ...manager, ...identity, status: 'paused', calls: 0, children: [], deps: [], dependents: [], created_at: '2030-02-02T16:05:00Z', updated_at: '2030-02-02T16:06:00Z',
       integration: 'pending', branch_archive: { archivable: true }, hooks: { version: 1, revision: 'fake', mounts: [] } }, null, null, null);
     expect(root().querySelector('.task-actions').querySelectorAll('button').map(item => item.textContent)).toEqual(['刷新详情']);
     expect(root().querySelector('.worker-hooks')).toBeNull(); expect(root().querySelector('.management-readonly')).toBeTruthy();
   }
-  expect(actions).toHaveLength(0);
+  expect(actions).toEqual([]);
 });
 
 for (const field of ['pending_signal', 'last_execution']) {
-  test(`compact ${field} receipt summaries explicitly disclose omitted instruction and actions`, async () => {
-    catalogue.management_workers[0].goal = '开始 W10；';
-    Object.assign(catalogue.management_workers[0], { goal_truncated: true, goal_length: 32000 });
-    catalogue.management_workers[0].management[field] = { id: 50, due_at: signal.next_run_at, status: 'succeeded',
-      actions_count: 32, actions_truncated: true, actions: [
-        { receipt_id: 1, action: 'start', target_id: 10, target_worker_number: 'W10', status: 'succeeded' },
-        { receipt_id: 2, action: 'retry', target_id: 11, target_worker_number: null, target_worker_number_truncated: true, status: 'waiting' },
-      ] };
-    await openManagement();
-    expect(deepText(root())).toContain('指令仅显示摘要；完整指令请打开下方详情。');
-    expect(deepText(root())).toContain('操作摘要：显示 2 / 32 项；完整记录请查看调用历史。');
-    expect(deepText(root())).toContain('开始／继续 W10：已处理'); expect(deepText(root())).toContain('重试 #11：等待信号或安全点');
-    expect(btn('停用管理绑定').disabled).toBe(false);
-    await btn('查看指令、结果与调用历史').onclick(); expect(detailCalls).toEqual([200]); expect(actions).toHaveLength(0);
+  test(`compact ${field} receipt summary discloses omitted actions and does not invent a missing W number`, () => {
+    const binding = { ...manager.management, [field]: { id: 50, due_at: signal.next_run_at, status: 'succeeded', actions_count: 32, actions_truncated: true,
+      actions: [{ receipt_id: 1, action: 'start', target_id: 10, target_worker_number: 'W10', status: 'succeeded' },
+        { receipt_id: 2, action: 'retry', target_id: 11, target_worker_number: null, target_worker_number_truncated: true, status: 'waiting' }] } };
+    const node = renderManagementState({ ...manager, management: binding }); root().append(node);
+    expect(deepText(node)).toContain('操作摘要：显示 2 / 32 项；完整记录请查看调用历史。');
+    expect(deepText(node)).toContain('开始／继续 W10：已处理'); expect(deepText(node)).toContain('重试 #11：等待信号或安全点');
+    expect(node.querySelectorAll('button')).toEqual([]); expect(actions).toEqual([]);
   });
 }
 
-test('all 64 enabled compact authorizations remain individually visible and revocable without loading full instructions', async () => {
-  catalogue.management_workers = Array.from({ length: 64 }, (_, index) => ({ ...structuredClone(manager), id: 200 + index,
-    goal: '管'.repeat(160), goal_truncated: true, goal_length: 32000,
-    management: { ...structuredClone(manager.management), mode: 'persistent',
-      pending_signal: { id: 50, due_at: signal.next_run_at, actions_count: 32, actions_truncated: true,
-        actions: [{ action: 'start', target_id: 10, target_worker_number: 'W10', status: 'succeeded' },
-          { action: 'retry', target_id: 11, target_worker_number: 'W11', status: 'waiting' }] } } }));
-  await openManagement();
-  expect(root().querySelectorAll('.hook-manager')).toHaveLength(64);
-  expect(root().querySelectorAll('.management-goal-truncated')).toHaveLength(64);
-  expect(root().querySelectorAll('.management-actions-truncated')).toHaveLength(64);
-  expect(root().querySelectorAll('button').filter(item => item.textContent === '停用管理绑定' && !item.disabled)).toHaveLength(64);
-  expect(reads).toEqual(['/api/hooks']); expect(actions).toHaveLength(0);
-  await btn('停用管理绑定').onclick();
-  expect(actions).toEqual([{ method: 'management.binding_update', params: { id: 200, enabled: false, expected_revision: 'binding-1' } }]);
+test('legacy pending summaries retain last-action fallback without guessed totals; complete summaries stay untruncated', () => {
+  const node = renderManagementState({ ...manager, management: { ...manager.management, pending_signal: { id: 51, due_at: signal.next_run_at },
+    last_execution: { id: 50, status: 'succeeded', actions_truncated: true, actions: [{ action: 'retry', target_id: 11, target_worker_number: 'W11', status: 'succeeded' }] } } });
+  expect(deepText(node)).toContain('重试 W11：已处理'); expect(deepText(node)).toContain('操作摘要：仅显示部分'); expect(deepText(node)).not.toContain('undefined');
+  expect(renderManagementState(manager).querySelector('.management-actions-truncated')).toBeNull();
 });
 
-test('legacy pending summaries without receipts retain last-action fallback and do not guess missing totals', async () => {
-  Object.assign(catalogue.management_workers[0].management, {
-    pending_signal: { id: 51, due_at: signal.next_run_at },
-    last_execution: { id: 50, status: 'succeeded', actions_truncated: true,
-      actions: [{ action: 'retry', target_id: 11, target_worker_number: 'W11', status: 'succeeded' }] },
-  });
-  await openManagement(); expect(deepText(root())).toContain('重试 W11：已处理');
-  expect(deepText(root())).toContain('操作摘要：仅显示部分'); expect(deepText(root())).not.toContain('undefined');
-});
-
-test('legacy complete summaries do not invent truncation notices', async () => {
-  await openManagement();
-  expect(root().querySelector('.management-goal-truncated')).toBeNull();
-  expect(root().querySelector('.management-actions-truncated')).toBeNull();
-});
-
-test('management details retain the full instruction while management list uses a truncated preview', () => {
+test('management detail retains full instruction instead of replacing it with the loaded list preview', () => {
   const goal = '管理长指令'.repeat(4000) + '最后一句完整保留';
-  renderDetail({ ...manager, goal, calls: 0, children: [], deps: [], dependents: [],
-    created_at: '2030-02-02T16:05:00Z', updated_at: '2030-02-02T16:06:00Z' }, null, null, null);
+  renderDetail({ ...manager, goal, calls: 0, children: [], deps: [], dependents: [], created_at: '2030-02-02T16:05:00Z', updated_at: '2030-02-02T16:06:00Z' }, null, null, null);
   expect(deepText(root())).toContain(goal); expect(deepText(root())).toContain('Valet 详情只读');
-  expect(root().querySelector('.task-actions').querySelectorAll('button').map(item => item.textContent)).toEqual(['刷新详情']);
-  expect(actions).toHaveLength(0);
+  expect(root().querySelector('.task-actions').querySelectorAll('button').map(item => item.textContent)).toEqual(['刷新详情']); expect(actions).toEqual([]);
 });
 
-test('missing signal capability never falls back to development orders or pretends management is available', async () => {
-  delete catalogue.signals; await openManagement();
-  expect(btn('新建时间信号')).toBeUndefined(); expect(btn('新建管理指令')).toBeUndefined();
-  expect(deepText(root())).toContain('不会回退到开发输入或直接启动'); expect(actions).toHaveLength(0);
-});
-
-test('signal form uses explicit timezone, strict future date conversion and retains exact metadata-only instant', () => {
-  const form = createSignalForm();
-  input('信号名称', form.node).value = '刷新'; input('信号时区（IANA）', form.node).value = 'Asia/Kathmandu';
-  input('信号日期与时间', form.node).value = '2030-02-03T00:05';
+test('retained signal form validates explicit timezone, strict future conversion and exact metadata-only instant', () => {
+  const form = createSignalForm(); input('信号名称', form.node).value = '刷新'; input('信号时区（IANA）', form.node).value = 'Asia/Kathmandu'; input('信号日期与时间', form.node).value = '2030-02-03T00:05';
   expect(form.validate()).toBe(''); expect(form.collect()).toEqual({ name: '刷新', enabled: true, schedule: { kind: 'once', at: '2030-02-02T18:20:00.000Z', timezone: 'Asia/Kathmandu' } });
-  input('信号时区（IANA）', form.node).value = 'Not/AZone'; expect(form.validate()).toContain('IANA');
-  expect(input('信号时区（IANA）', form.node).value).toBe('Not/AZone');
-  input('信号时区（IANA）', form.node).value = 'America/New_York'; input('信号日期与时间', form.node).value = '2030-03-10T02:30';
-  expect(form.validate()).toContain('不存在'); input('信号日期与时间', form.node).value = '2030-11-03T01:30'; expect(form.validate()).toContain('出现两次');
+  input('信号时区（IANA）', form.node).value = 'Not/AZone'; expect(form.validate()).toContain('IANA'); expect(input('信号时区（IANA）', form.node).value).toBe('Not/AZone');
+  input('信号时区（IANA）', form.node).value = 'America/New_York'; input('信号日期与时间', form.node).value = '2030-03-10T02:30'; expect(form.validate()).toContain('不存在');
+  input('信号日期与时间', form.node).value = '2030-11-03T01:30'; expect(form.validate()).toContain('出现两次');
   const ambiguous = { id: 'old', name: '原定', enabled: false, schedule: { kind: 'once', at: '2030-11-03T06:30:00.123Z', timezone: 'America/New_York' } };
-  const preserved = createSignalForm(ambiguous); input('信号名称', preserved.node).value = '新名字';
-  expect(preserved.validate()).toBe(''); expect(preserved.collect().schedule).toEqual(ambiguous.schedule);
+  const preserved = createSignalForm(ambiguous); input('信号名称', preserved.node).value = '新名字'; expect(preserved.validate()).toBe(''); expect(preserved.collect().schedule).toEqual(ambiguous.schedule);
+  expect(actions).toEqual([]);
 });
 
-test('daily signal saves only editable definition with independent signals revision and never calls a Worker', async () => {
-  await openManagement(); await btn('新建时间信号').onclick();
-  input('信号名称').value = '零点'; input('信号周期').value = 'daily'; input('信号周期').onchange();
-  input('信号每日时间').value = '00:05'; input('信号时区（IANA）').value = 'Asia/Shanghai';
-  const save = btn('保存时间信号'); expect(save.classList.contains('agent-call')).toBe(true); expect(save.getAttribute('data-help')).toContain('保存时不立即');
-  await save.onclick(); expect(actions).toEqual([{ method: 'hooks.signal_save', params: { signal: { name: '零点', enabled: true, schedule: daily }, expected_revision: 'signals-1' } }]);
-});
-
-test('signal save failure preserves timezone, date and text edits for revision conflict', async () => {
-  await openManagement(); await btn('新建时间信号').onclick();
-  input('信号名称').value = '新信号'; input('信号日期与时间').value = '2030-02-03T00:05'; input('信号时区（IANA）').value = 'Asia/Shanghai';
-  const form = root().querySelector('.signal-form');
-  intercept = (_path, body) => body?.method === 'hooks.signal_save' ? { ok: false, json: async () => ({ error: 'signal revision conflict' }) } : null;
-  await btn('保存时间信号').onclick();
-  expect(root().querySelector('.signal-form')).toBe(form); expect(input('信号名称').value).toBe('新信号'); expect(input('信号时区（IANA）').value).toBe('Asia/Shanghai');
-  expect(input('信号日期与时间').value).toBe('2030-02-03T00:05'); expect(dom.node('error').textContent).toContain('signal revision conflict');
-  expect(btn('保存时间信号').disabled).toBe(false);
-});
-
-test('signal ticks keep configuration revisions distinct and expose missed or emitted outcomes without replay controls', async () => {
-  catalogue.signals.items = [{ ...signal, id: 'old', name: '错过的半夜', enabled: false, next_run_at: null, schedule: { kind: 'once', at: '2000-01-01T00:05:00Z', timezone: 'UTC' }, last_due_at: '2000-01-01T00:05:00Z',
-    last_execution: { status: 'skipped', due_at: '2000-01-01T00:05:00Z', reason: '停机错过，不补发。' } }];
-  await openManagement(); expect(deepText(root())).toContain('已跳过／错过'); expect(deepText(root())).toContain('停机错过，不补发');
-  expect(btn('启用时间信号').disabled).toBe(true); expect(btn('启用时间信号').parentNode.getAttribute('data-help')).toContain('不重放历史');
-  expect(catalogue.signals.revision).toBe('signals-1'); expect(actions).toHaveLength(0);
-});
-
-test('deleting an unreferenced signal requires confirmation and does not delete management history', async () => {
-  catalogue.management_workers[0].management.enabled = false; await openManagement();
-  const removing = btn('删除时间信号').onclick(); expect(actions).toHaveLength(0);
-  await dialogButton(dom, '删除时间信号').onclick(); await removing;
-  expect(actions).toEqual([{ method: 'hooks.signal_remove', params: { id: 'reset', expected_revision: 'signals-1' } }]);
-  expect(btn('查看指令、结果与调用历史')).toBeTruthy(); expect(btn('新建时间信号').disabled).toBe(false);
-});
-
-test('manager creation defaults to once, explicitly authorizes later invocation and never submits development input', async () => {
-  await newManagement(); expect(input('信号绑定方式').value).toBe('once');
-  expect(deepText(root())).toContain('安全读取、低风险自动执行、用户确认和不可用分级');
-  expect(deepText(root())).toContain('合法追加、开始／继续和重试可自动执行');
-  expect(deepText(root())).not.toContain('首版仅');
-  const save = btn('创建并绑定管理指令'); expect(save.classList.contains('agent-call')).toBe(true); expect(save.getAttribute('data-help')).toContain('不立即调用');
-  const creating = save.onclick(); expect(actions).toHaveLength(0);
-  expect(deepText(dom.node('modal'))).toContain('一次性绑定');
-  const confirm = dialogButton(dom, '授权并创建管理指令'); expect(confirm.classList.contains('agent-call')).toBe(true);
-  await confirm.onclick(); await creating;
-  expect(actions).toEqual([{ method: 'management.create', params: { client_request_id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/), name: '自动开跑', instruction: '重试失败的 W11', signal_id: 'reset', mode: 'once' } }]);
-  expect(reads).toEqual(['/api/hooks']); expect(btn('新建管理指令').disabled).toBe(false);
-  expect(ui.managementPage.catalogue.management_workers.map(item => item.id)).toEqual([201, 200]);
-});
-
-test('persistent manager creation explains repeated fees and cancel keeps draft without any action', async () => {
-  await newManagement(); input('信号绑定方式').value = 'persistent'; const form = root().querySelector('.management-form');
-  const creating = btn('创建并绑定管理指令').onclick(); expect(deepText(dom.node('modal'))).toContain('持续绑定'); expect(deepText(dom.node('modal'))).toContain('每次信号');
-  await dialogButton(dom, '取消').onclick(); await creating;
-  expect(root().querySelector('.management-form')).toBe(form); expect(input('信号绑定方式').value).toBe('persistent'); expect(actions).toHaveLength(0);
-  expect(btn('创建并绑定管理指令').disabled).toBe(false);
-});
-
-test('manager uses its own restricted source form, not development prompt, extensions or the target account', async () => {
-  await newManagement(); await btn('Valet 运行设置').onclick();
-  expect(reads).toContain('/api/agent/config'); expect(reads.some(path => path.includes('/packages') || path.includes('/resources'))).toBe(false);
-  expect(root().querySelector('[data-retry-field="default-prompt"]')).toBeNull();
-  expect(deepText(root())).not.toContain('HIDDEN PRIVATE PROMPT'); expect(deepText(root())).not.toContain('DEVELOPMENT PROMPT'); expect(deepText(root())).not.toContain('/private/extension');
-  await btn('读取项目连接').onclick();
-  input('Valet 思考深度').value = 'high';
-  const creating = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await creating;
-  expect(actions[0]).toMatchObject({ method: 'management.create', params: { profile: { agent: 'pi', config_mode: 'lush', connection_id: 'codex-source', model: 'openai-codex/codex-model', thinking: 'high' } } });
-  for (const key of ['default_prompt', 'append_prompt', 'extensions', 'skills', 'env']) expect(actions[0].params.profile).not.toHaveProperty(key);
-});
-
-test('Pi-default manager profile strips managed fields and validates managed source before accepting', async () => {
-  const form = createManagementProfileForm(settings); expect(form.validate()).toContain('读取项目连接');
-  await btn('读取项目连接', form.node).onclick(); expect(form.validate()).toBe('');
-  input('Valet 配置模式', form.node).value = 'pi'; input('Valet 配置模式', form.node).onchange();
-  expect(form.collect()).toEqual({ agent: 'pi', config_mode: 'pi' }); expect(form.validate()).toBe('');
-  expect(input('Valet 模型名称', form.node).disabled).toBe(true);
-  input('Valet 配置模式', form.node).value = 'lush'; input('Valet 配置模式', form.node).onchange();
-  expect(input('Valet 模型名称', form.node).value).toBe('openai-codex/codex-model'); expect(form.collect().connection_id).toBe('codex-source');
-  input('Valet 模型名称', form.node).value = 'wrong/model'; expect(form.validate()).toContain('匹配');
-});
-
-test('management create failure preserves instruction, persistent mode and selected source without enabling retry loops', async () => {
-  await newManagement(); await btn('Valet 运行设置').onclick(); await btn('读取项目连接').onclick(); input('信号绑定方式').value = 'persistent';
-  const form = root().querySelector('.management-form');
-  intercept = (_path, body) => body?.method === 'management.create' ? { ok: false, json: async () => ({ error: 'creation refused' }) } : null;
-  const creating = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await creating;
-  expect(root().querySelector('.management-form')).toBe(form); expect(input('管理指令').value).toBe('重试失败的 W11'); expect(input('信号绑定方式').value).toBe('persistent');
-  expect(input('Valet 模型来源').value).toBe('codex-source'); expect(dom.node('error').textContent).toContain('creation refused');
-  expect(btn('创建并绑定管理指令').disabled).toBe(false); expect(actions).toHaveLength(1);
-});
-
-test('lost management creation response retries the same form key and recovers its original Worker exactly once', async () => {
-  await newManagement();
-  let originalRequest = null, createdCount = 0;
-  intercept = (_path, body) => {
-    if (body?.method !== 'management.create') return null;
-    if (!originalRequest) {
-      originalRequest = structuredClone(body); createdCount++;
-      return Promise.reject(new Error('connection lost after successful creation'));
-    }
-    expect(body).toEqual(originalRequest);
-    return json({ task: { ...manager, id: 201 } });
-  };
-  const first = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await first;
-  expect(root().querySelector('.management-form')).toBeTruthy(); expect(deepText(root())).toContain('重试使用同一创建标识');
-  expect(dom.node('error').textContent).toContain('先检查已有 Valet');
-  const retry = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await retry;
-  expect(actions).toHaveLength(2); expect(actions[1].params.client_request_id).toBe(actions[0].params.client_request_id);
-  expect(createdCount).toBe(1); expect(ui.managementPage.catalogue.management_workers.map(item => item.id)).toEqual([201, 200]);
-  expect(root().querySelector('.management-form')).toBeNull();
-});
-
-test('editing an already-submitted management instruction keeps the original key and exposes definition conflict', async () => {
-  await newManagement();
-  let originalKey;
-  intercept = (_path, body) => {
-    if (body?.method !== 'management.create') return null;
-    if (!originalKey) { originalKey = body.params.client_request_id; return Promise.reject(new Error('response lost')); }
-    expect(body.params.client_request_id).toBe(originalKey);
-    return { ok: false, json: async () => ({ error: 'client_request_id definition conflict; inspect original Worker' }) };
-  };
-  const first = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await first;
-  input('管理指令').value = '开始 W15';
-  const retry = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await retry;
-  expect(actions).toHaveLength(2); expect(actions[1].params.instruction).toBe('开始 W15');
-  expect(actions[1].params.client_request_id).toBe(actions[0].params.client_request_id);
-  expect(input('管理指令').value).toBe('开始 W15'); expect(dom.node('error').textContent).toContain('definition conflict');
-  expect(dom.node('error').textContent).toContain('勿另建重复指令');
-});
-
-test('receipt recovery is not locally refused after a submitted one-shot signal passes its deadline', () => {
+test('retained management form validates one-shot authorization and stable recovery identity without executing or opening retired settings', () => {
   const clock = Date.now;
   try {
     Date.now = () => Date.parse('2030-02-02T16:04:59Z');
-    const form = createManagementForm([{ ...signal, schedule: { kind: 'once', at: '2030-02-02T16:05:00Z', timezone: 'UTC' } }]);
-    input('管理指令名称', form.node).value = '恢复收据'; input('管理指令', form.node).value = '开始 W10'; input('绑定时间信号', form.node).value = 'reset';
-    expect(form.validate()).toBe(''); const request = form.collect(); form.noteSubmitted();
-    Date.now = () => Date.parse('2030-02-02T16:05:01Z');
-    expect(form.validate()).toBe(''); expect(form.collect()).toEqual(request);
+    const form = createManagementForm([{ ...signal, schedule: { kind: 'once', at: '2030-02-02T16:05:00Z', timezone: 'UTC' } }]); fillManagement(form);
+    expect(input('信号绑定方式', form.node).value).toBe('once'); expect(form.validate()).toBe(''); const request = form.collect(); form.noteSubmitted();
+    Date.now = () => Date.parse('2030-02-02T16:05:01Z'); expect(form.validate()).toBe(''); expect(form.collect()).toEqual(request);
+    const second = createManagementForm([signal]); fillManagement(second); expect(second.collect().client_request_id).not.toBe(request.client_request_id);
+    expect(request.client_request_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(actions).toEqual([]);
   } finally { Date.now = clock; }
 });
 
-test('distinct management forms receive distinct creation keys without affecting other mutations', async () => {
-  await newManagement();
-  const first = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await first;
-  await btn('新建管理指令').onclick(); input('管理指令名称').value = '第二项'; input('管理指令').value = '开始 W20'; input('绑定时间信号').value = 'reset';
-  const second = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await second;
-  expect(actions).toHaveLength(2); expect(actions[0].params.client_request_id).not.toBe(actions[1].params.client_request_id);
-});
-
-test('manager binding toggles use its own revision, preserve selected model and do not recreate any profile', async () => {
-  await openManagement(); expect(btn('停用管理绑定').classList.contains('agent-call')).toBe(false);
-  await btn('停用管理绑定').onclick();
-  expect(actions[0]).toEqual({ method: 'management.binding_update', params: { id: 200, enabled: false, expected_revision: 'binding-1' } });
-  expect(btn('启用管理绑定').classList.contains('agent-call')).toBe(true);
-  const enabling = btn('启用管理绑定').onclick(); await dialogButton(dom, '授权并启用绑定').onclick(); await enabling;
-  expect(actions[1]).toEqual({ method: 'management.binding_update', params: { id: 200, enabled: true, expected_revision: 'binding-2' } });
-  expect(deepText(root())).toContain('openai-codex/codex-model'); expect(reads).toEqual(['/api/hooks']);
-});
-
-test('pending manager requests and unknown effects remain visible, escaped and non-replayable', async () => {
-  Object.assign(catalogue.management_workers[0].management, { enabled: false, can_enable: false, state: 'unknown', reason: '旧调用副作用未知',
-    pending_signal: { id: 50, due_at: '2030-02-02T16:05:00Z', actions: [{ action: 'retry', target_id: 11, target_worker_number: 'W11', status: 'waiting', reason: '分支冻结' }] },
-    last_execution: { status: 'unknown', created_at: '2030-02-02T16:05:00Z', error: '<script>unknown</script>' } });
-  await openManagement(); expect(deepText(root())).toContain('已提交信号 #50'); expect(deepText(root())).toContain('重试 W11：等待信号或安全点 · 分支冻结');
-  expect(deepText(root())).toContain('旧调用副作用未知'); expect(deepText(root())).toContain('<script>unknown</script>'); expect(root().querySelector('script')).toBeNull();
-  expect(btn('启用管理绑定').disabled).toBe(true); expect(btn('启用管理绑定').parentNode.getAttribute('data-help')).toContain('旧调用副作用未知');
-  expect(actions).toHaveLength(0);
-});
-
-test('late manager profile reads remain in their independent editor and cannot paint a different project', async () => {
-  await newManagement(); let resolve;
-  intercept = path => path.endsWith('/api/agent/config') ? new Promise(done => { resolve = done; }) : null;
-  const loading = btn('Valet 运行设置').onclick(); await until(() => resolve);
-  await btn('新建时间信号').onclick(); const form = root().querySelector('.signal-form');
-  input('信号名称', form).value = '保留独立信号草稿';
-  resolve(json(settings)); await loading; expect(root().querySelector('.signal-form')).toBe(form); expect(form.querySelector('.management-profile-form')).toBeNull();
-  expect(root().querySelector('.hook-managers').querySelector('.management-profile-form')).toBeTruthy(); expect(input('信号名称', form).value).toBe('保留独立信号草稿');
-  await btn('取消编辑', root().querySelector('.hook-managers')).onclick();
-  intercept = null; await newManagement();
-  intercept = path => path.endsWith('/api/agent/config') ? new Promise(done => { resolve = done; }) : null;
-  const another = btn('Valet 运行设置').onclick();
-  dom.location.pathname = '/p/2222222222222222/'; await openManagement(); const next = root().querySelector('.management-page');
-  resolve(json(settings)); await another; expect(root().querySelector('.hooks-page')).toBe(next); expect(root().querySelector('.management-profile-form')).toBeNull(); expect(actions).toHaveLength(0);
-});
-
-test('late signal save cannot corrupt a different project catalogue or navigation', async () => {
-  await openManagement(); await btn('新建时间信号').onclick(); input('信号名称').value = 'Late'; input('信号周期').value = 'daily'; input('信号周期').onchange();
-  let resolve; intercept = (_path, body) => body?.method === 'hooks.signal_save' ? new Promise(done => { resolve = done; }) : null;
-  const saving = btn('保存时间信号').onclick(); await until(() => resolve);
-  dom.location.pathname = '/p/2222222222222222/'; await openManagement(); const next = root().querySelector('.management-page');
-  resolve(json({ ...base, signals: { version: 1, revision: 'OLD PROJECT', items: [] } })); await saving;
-  expect(root().querySelector('.management-page')).toBe(next); expect(ui.managementPage.catalogue.signals.revision).toBe('signals-1'); expect(dom.location.hash).toBe('#management');
-});
-
-test('successful manager creation is not misreported when an unrelated overview refresh would fail', async () => {
-  const restore = registerNavigation({ refresh: async () => { throw new Error('overview is unavailable'); }, detail: async () => {} });
+test('one-shot helper validation refuses consumed/past subscriptions but preserves a rescheduled future signal without replaying old history', () => {
+  const clock = Date.now;
   try {
-    await newManagement();
-    const creating = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await creating;
-    expect(actions).toHaveLength(1); expect(ui.managementPage.catalogue.management_workers[0].id).toBe(201);
-    expect(root().querySelector('.management-form')).toBeNull(); expect(dom.node('error').textContent).not.toContain('overview is unavailable');
-  } finally { restore(); }
+    Date.now = () => Date.parse('2030-02-02T16:06:00Z');
+    const consumed = { ...signal, schedule: { kind: 'once', at: '2030-02-02T16:05:00Z', timezone: 'UTC' }, last_due_at: '2030-02-02T16:05:00Z', last_execution: { status: 'emitted', due_at: '2030-02-02T16:05:00Z' } };
+    const unavailable = createManagementForm([consumed]); fillManagement(unavailable); expect(unavailable.validate()).toContain('已发出或错过');
+    const future = { ...consumed, schedule: { kind: 'once', at: '2030-02-03T16:05:00Z', timezone: 'UTC' }, next_run_at: '2030-02-03T16:05:00Z' };
+    const saved = structuredClone(future), ready = createManagementForm([future]); fillManagement(ready); expect(ready.validate()).toBe('');
+    expect(ready.collect()).toMatchObject({ signal_id: signal.id, mode: 'once' }); expect(future).toEqual(saved);
+    const metadata = createSignalForm(future); input('信号名称', metadata.node).value = '未来刷新';
+    expect(metadata.validate()).toBe(''); expect(metadata.collect().schedule).toEqual(future.schedule); expect(actions).toEqual([]);
+  } finally { Date.now = clock; }
 });
 
-test('late management creation result cannot add an old project Worker to a new project page', async () => {
-  await newManagement(); let resolve;
-  intercept = (_path, body) => body?.method === 'management.create' ? new Promise(done => { resolve = done; }) : null;
-  const creating = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await until(() => resolve);
-  dom.location.pathname = '/p/2222222222222222/'; await openManagement(); const next = root().querySelector('.management-page');
-  resolve(json({ task: { ...manager, id: 999 } })); await creating;
-  expect(root().querySelector('.management-page')).toBe(next); expect(ui.managementPage.catalogue.management_workers.map(item => item.id)).toEqual([200]);
-  expect(actions).toHaveLength(1);
+test('retained management profile excludes developer secrets and requires an explicit compatible source', async () => {
+  const form = createManagementProfileForm(settings); expect(form.validate()).toContain('读取项目连接');
+  expect(deepText(form.node)).not.toContain('HIDDEN PRIVATE PROMPT'); expect(deepText(form.node)).not.toContain('DEVELOPMENT PROMPT'); expect(deepText(form.node)).not.toContain('/private/extension');
+  await btn('读取项目连接', form.node).onclick(); expect(form.validate()).toBe('');
+  input('Valet 配置模式', form.node).value = 'pi'; input('Valet 配置模式', form.node).onchange(); expect(form.collect()).toEqual({ agent: 'pi', config_mode: 'pi' });
+  expect(input('Valet 模型名称', form.node).disabled).toBe(true); input('Valet 配置模式', form.node).value = 'lush'; input('Valet 配置模式', form.node).onchange();
+  expect(input('Valet 模型名称', form.node).value).toBe('openai-codex/codex-model'); expect(form.collect().connection_id).toBe('codex-source');
+  for (const key of ['default_prompt', 'append_prompt', 'extensions', 'skills', 'env']) expect(form.collect()).not.toHaveProperty(key);
+  input('Valet 模型名称', form.node).value = 'wrong/model'; expect(form.validate()).toContain('匹配'); expect(actions).toEqual([]);
 });
 
-test('one-shot historical signal cannot be subscribed by a newly created management instruction', async () => {
-  catalogue.signals.items = [{ ...signal, enabled: false, schedule: { kind: 'once', at: '2030-02-02T16:05:00Z', timezone: 'UTC' }, last_due_at: '2030-02-02T16:05:00Z',
-    last_execution: { status: 'emitted', due_at: '2030-02-02T16:05:00Z' } }];
-  await newManagement();
-  expect(input('绑定时间信号').children.find(item => item.value === 'reset').disabled).toBe(true);
-  await btn('创建并绑定管理指令').onclick(); expect(deepText(root())).toContain('这个一次性信号已发出或错过'); expect(actions).toHaveLength(0);
-  await btn('启用时间信号').onclick(); expect(actions).toHaveLength(0);
-});
-
-test('backend can_enable projection distinguishes revoked unstarted work from consumed once authorization', async () => {
-  Object.assign(catalogue.management_workers[0].management, { enabled: false, can_enable: true, state: 'stopped',
-    last_execution: { status: 'skipped', reason: '未开始的信号授权已撤销' } });
-  await openManagement(); expect(btn('启用管理绑定').disabled).toBe(false);
-  const enabling = btn('启用管理绑定').onclick(); await dialogButton(dom, '授权并启用绑定').onclick(); await enabling;
-  expect(actions).toEqual([{ method: 'management.binding_update', params: { id: 200, enabled: true, expected_revision: 'binding-1' } }]);
-});
-
-test('rescheduled one-shot retains historical emission but allows a new future binding', async () => {
-  const rescheduled = { ...signal, schedule: { kind: 'once', at: '2031-02-02T16:05:00Z', timezone: 'UTC' },
-    next_run_at: '2031-02-02T16:05:00Z', last_due_at: '2030-02-02T16:05:00Z',
-    last_execution: { status: 'succeeded', due_at: '2030-02-02T16:05:00Z' } };
-  catalogue.signals.items = [rescheduled];
-  await newManagement();
-  expect(deepText(root())).toContain('最近信号：已发出');
-  expect(input('绑定时间信号').children.find(item => item.value === 'reset').disabled).toBe(false);
-  const creating = btn('创建并绑定管理指令').onclick();
-  await dialogButton(dom, '授权并创建管理指令').onclick(); await creating;
-  expect(actions[0].method).toBe('management.create');
-  const form = createSignalForm({ ...rescheduled, enabled: false });
-  input('启用时间信号', form.node).checked = true;
-  expect(form.validate()).toBe(''); expect(form.collect().schedule).toEqual(rescheduled.schedule);
-});
-
-for (const unavailable of [{ enabled: false }, { next_run_at: null }, { next_run_at: '2000-01-01T00:05:00Z' }]) {
-  test(`new management binding needs an enabled future runtime deadline: ${JSON.stringify(unavailable)}`, async () => {
-    catalogue.signals.items = [{ ...signal, ...unavailable }]; await newManagement();
-    expect(input('绑定时间信号').children.find(item => item.value === 'reset').disabled).toBe(true);
-    await btn('创建并绑定管理指令').onclick();
-    expect(actions).toHaveLength(0); expect(deepText(dom.node('modal'))).not.toContain('授权并创建管理指令');
-  });
-}
-
-for (const state of ['queued', 'running', 'waiting_actions', 'stopped']) {
-  test(`disabled binding with unfinished ${state} occurrence still protects its signal from removal`, async () => {
-    Object.assign(catalogue.management_workers[0].management, { enabled: false, can_enable: false, state,
-      pending_signal: { id: 50, due_at: signal.next_run_at, status: state } });
-    await openManagement();
-    const removing = btn('删除时间信号');
-    expect(removing.disabled).toBe(true); expect(removing.parentNode.getAttribute('data-help')).toContain('等待调用及操作收口');
-    await removing.onclick(); expect(actions).toHaveLength(0);
-    if (state === 'stopped') { expect(deepText(root())).toContain('已停用'); expect(deepText(root())).not.toContain('stopped'); }
-  });
-}
-
-for (const state of ['failed', 'unknown']) {
-  test(`disabled ${state} diagnostic retains history without indefinitely protecting a signal`, async () => {
-    Object.assign(catalogue.management_workers[0].management, { enabled: false, can_enable: false, state,
-      pending_signal: { id: 50, due_at: signal.next_run_at, status: state } });
-    await openManagement(); expect(btn('删除时间信号').disabled).toBe(false);
-    const removing = btn('删除时间信号').onclick();
-    await dialogButton(dom, '删除时间信号').onclick(); await removing;
-    expect(actions[0].method).toBe('hooks.signal_remove');
-    expect(btn('启用管理绑定').disabled).toBe(true); expect(deepText(root())).toContain('已提交信号 #50');
-  });
-}
-
-test('already-consumed once bindings never offer replay, even with a future signal and no unsafe developer actions', async () => {
-  Object.assign(catalogue.management_workers[0].management, { enabled: false, state: 'succeeded', last_execution: { status: 'succeeded', finished_at: '2030-02-02T16:05:00Z' } });
-  await openManagement(); expect(btn('启用管理绑定').disabled).toBe(true); expect(btn('启用管理绑定').parentNode.getAttribute('data-help')).toContain('新建管理指令');
-  expect(deepText(root())).toContain('最近处理：已处理'); expect(actions).toHaveLength(0);
-});
-
-test('signal and manager drafts coexist in their own folding modules across an unrelated signal save', async () => {
-  await newManagement(); const management = root().querySelector('.management-form'); input('管理指令名称').value = '保留管理草稿';
-  await btn('新建时间信号').onclick(); const signalForm = root().querySelector('.signal-form'); input('信号名称').value = '保留时间草稿';
-  expect(btn('新建模板')).toBeUndefined();
-  for (const key of ['signals', 'management']) await root().querySelector(`[data-module="${key}"]`).querySelector('.automation-module-toggle').onclick();
-  await btn('停用时间信号').onclick();
-  expect(root().querySelector('.management-form')).toBe(management); expect(root().querySelector('.signal-form')).toBe(signalForm);
-  expect(input('管理指令名称').value).toBe('保留管理草稿'); expect(input('信号名称').value).toBe('保留时间草稿');
-  for (const key of ['signals', 'management']) expect(root().querySelector(`[data-module="${key}"]`).moduleOpen).toBe(false);
-  const refreshing = btn('刷新目录').onclick(); closeDialog(); await refreshing;
-  expect(input('管理指令名称').value).toBe('保留管理草稿'); expect(input('信号名称').value).toBe('保留时间草稿');
+test('late profile read stays bound to its form owner and cannot populate replacement management controls', async () => {
+  const pending = gate(); let owns = true; intercept = path => path.endsWith('/api/agent/config') ? pending.promise : null;
+  const form = createManagementForm([signal], { ownsPage: () => owns }); root().append(form.node);
+  const loading = btn('Valet 运行设置', form.node).onclick(); await until(() => reads.some(path => path.endsWith('/api/agent/config')));
+  owns = false; const replacement = createManagementForm([signal]); root().replaceChildren(replacement.node);
+  pending.resolve(json(settings)); await loading;
+  expect(root().querySelector('.management-profile-form')).toBeNull(); expect(root().querySelector('.management-form')).toBe(replacement.node); expect(actions).toEqual([]);
 });

@@ -68,14 +68,15 @@ test('minimum geometry detaches overflow rather than hiding focusable content; s
 });
 test('selected shortcuts retain native direct links while cramped cards keep the complete modal fallback', async () => {
   const links = ['workers', 'inputs', 'versions', 'notices'].map(target => ({ scope: 'project', project_id: P, target }));
+  const original = structuredClone(links);
   const root = mount(createAggregateRenderer(), { sections: ['metrics', 'shortcuts'], links: [...links, links[0]] });
   const direct = root.querySelector('.dashboard-project-direct-links');
-  expect(direct.querySelectorAll('a').map(a => a.href)).toEqual(links.map(link => `/p/${P}/#${link.target}`));
+  expect(direct.querySelectorAll('a').map(a => a.href)).toEqual(links.filter(link => link.target !== 'versions').map(link => `/p/${P}/#${link.target}`));
   expect(direct.querySelectorAll('a').every(a => a.target === '_blank' && a.rel === 'noopener' && !a.onclick)).toBe(true);
   root.dashboardGeometryChange({ w: 4, h: 10 });
   await root.querySelector('.dashboard-project-details').onclick();
-  expect(dom.node('modal').querySelector('.dashboard-navigation-menu').querySelectorAll('a')).toHaveLength(4);
-  expect(requests).toHaveLength(0);
+  expect(dom.node('modal').querySelector('.dashboard-navigation-menu').querySelectorAll('a')).toHaveLength(3);
+  expect(links).toEqual(original); expect(requests).toHaveLength(0);
 });
 test('pure navigation cards show bounded direct entries, page them and retain all entries at zero capacity', async () => {
   const links = ['workers', 'inputs', 'versions', 'notices'].map(target => ({ scope: 'project', project_id: P, target }));
@@ -83,11 +84,13 @@ test('pure navigation cards show bounded direct entries, page them and retain al
   const entries = () => root.querySelector('.dashboard-widget-body').querySelectorAll('a').map(a => a.href);
   expect(entries()).toEqual([`/p/${P}/#workers`, `/p/${P}/#inputs`]);
   const forward = next(root); await forward.onclick();
-  expect(entries()).toEqual([`/p/${P}/#versions`, `/p/${P}/#notices`]); expect(next(root)).toBe(forward);
+  expect(entries()).toEqual([`/p/${P}/#notices`]); expect(next(root)).toBe(forward);
   root.dashboardGeometryChange({ w: 4, h: 6 }); expect(entries()).toEqual([]);
   await root.querySelector('.dashboard-project-links').onclick();
-  expect(dom.node('modal').querySelectorAll('a')).toHaveLength(4); closeDialog();
-  root.dashboardGeometryChange({ w: 6, h: 24 }); expect(entries()).toHaveLength(4);
+  expect(dom.node('modal').querySelectorAll('a')).toHaveLength(3); closeDialog();
+  root.dashboardGeometryChange({ w: 6, h: 24 }); expect(entries()).toHaveLength(3);
+  expect(entries().some(href => href.endsWith('#versions'))).toBe(false);
+  expect(links.map(link => link.target)).toEqual(['workers', 'inputs', 'versions', 'notices']);
   expect(root.querySelectorAll('.dashboard-widget-footer')).toHaveLength(1); expect(requests).toHaveLength(0);
 });
 test('project workers paginate source history and geometry keeps before anchor, invalidates stale cursors, preserves native controls', async () => {

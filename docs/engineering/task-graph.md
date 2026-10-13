@@ -4,7 +4,9 @@ Worker 图是 `#worker-graph` / `worker.graph` / `/api/worker-graph` 的有界�
 
 交付后的 Worker 显示指令「待验收」/ child「待父确认」（`awaiting_acceptance`），使用独立状态色与筛选/计数，不当作已完成。Worker 图与详情通过 `render-iteration.js` 共用单一「验收」、历史继续开发、同步父分支和紫色 Agent 解决同步冲突；追加输入继续当前 Worker，验收表示无异议并安全归档回收开发资源，脏现场阻止，保留运行历史。acceptance_recovery:true 表示持久审计确认有未完成验收，可显示显式续办候选，不按目录缺失猜测；部分回收不得被普通已归档过滤隐藏。已完成回收不重建。详见[持续迭代](task-iteration.md)。
 
-## 阅读 Worker 树
+## 阅读工作树
+
+W263／D611 将页面展示名统一为「工作树」；内部 Worker 实体及 `#worker-graph`／RPC／HTTP 身份不更名。
 
 页面表头只保留标题、当前 Worker 数量与状态计数、待决数量、筛选／展示模式和刷新操作，以及采样时间／加载状态。连线、排序与交付机制等读一遍即可理解的固定说明留在文档，不常驻主要使用页面；截断、读取失败等影响当前判断的信息仍就地显示。
 

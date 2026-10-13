@@ -1,8 +1,8 @@
 import { el, button, block } from './dom.js';
 import { api } from './api.js';
 import { detail } from './navigate.js';
-import { mountCard, openHookTools } from './render-hooks.js';
-import { renderShortcutCommandManagement } from './shortcut-commands.js';
+import { mountCard } from './render-hooks.js';
+import { commandDetail } from './shortcut-command-directory.js';
 import { validCommands } from './shortcut-command-model.js';
 import { commandResultText } from './shortcut-command-runs.js';
 import { absolute } from './format.js';
@@ -17,11 +17,11 @@ export function renderPushAutomation({ ownsPage, catalogue: initial }) {
   const node = el('div', undefined, 'automation-push');
   const settings = el('section', undefined, 'push-settings'), history = block('推送 Hook 运行记录');
   history.classList.add('push-history');
-  const mountHost = el('div', undefined, 'command-hook-example'), commandHost = el('div', undefined, 'push-command-editor');
+  const mountHost = el('div', undefined, 'command-hook-example'), commandHost = el('div', undefined, 'push-command-reference');
   const status = el('p', undefined, 'hint'); status.setAttribute('role', 'status');
   const settingsStatus = el('p', undefined, 'hint'); settingsStatus.setAttribute('role', 'status');
   const records = el('div', undefined, 'push-executions');
-  let catalogue = initial, disposed = false, busy = false, mountEditing = false, commandEditing = false, commands = null;
+  let catalogue = initial, disposed = false, mountEditing = false;
   let reading = false, historyRead = false, resumeHistory = false, sequence = 0, cursor = null, hasMore = false, scanned = 0, tab = 'settings';
   const events = new Map(), owns = () => !disposed && ownsPage();
   const mount = () => catalogue?.command_example?.hooks?.mounts?.find(item => item.id === catalogue.command_example.hook_id);
@@ -32,26 +32,20 @@ export function renderPushAutomation({ ownsPage, catalogue: initial }) {
     const current = mount(), source = example(), model = source?.hooks;
     if (current && Number.isSafeInteger(source.worker_id) && model?.worker_id === source.worker_id && typeof model.revision === 'string' && model.revision) {
       mountHost.replaceChildren(mountCard({ id: source.worker_id, task_kind: 'main', status: 'waiting' }, current, model,
-        () => loadCatalogue(), owns, { catalogue, scope: '仅 main Worker', busy: () => busy || commandEditing, setEditing(value) { mountEditing = value; } }));
+        () => loadCatalogue(), owns, { catalogue, scope: '仅 main Worker', busy: () => false, setEditing(value) { mountEditing = value; } }));
       mountHost.append(button('查看 main Worker 自动化', () => owns() ? detail(source.worker_id) : undefined, 'ghost', { worker: source.worker_id }));
-    } else mountHost.replaceChildren(el('p', source ? '挂载已删除或不可用；不会自动重装。已有历史保留，可在指令与 Hook 工具中显式配置规则。' : '推送挂载读面不可用；请更新服务后刷新，不会默认启用或创建。', 'hint'));
-    if (source?.template_id) mountHost.append(button('管理来源模板', () => owns() ? openHookTools() : undefined, 'ghost', { help: '前往独立模板工具；修改模板不会改变 main 上的实际挂载。' }));
+    } else mountHost.replaceChildren(el('p', source ? '挂载已删除或不可用；不会自动重装。已有历史保留，Web 指令／模板设置入口已移除。' : '推送挂载读面不可用；请更新服务后刷新，不会默认启用或创建。', 'hint'));
+
   }
   function paintCommands() {
     if (!owns()) return;
     if (!validCommands(catalogue?.commands)) {
-      if (commands) commands.updateCommands?.(catalogue?.commands, catalogue);
-      else commandHost.replaceChildren(el('p', '快捷指令目录不可用；不能编辑或校验指令引用。', 'error'));
-      return;
+      commandHost.replaceChildren(el('p', '快捷指令目录不可用；不能校验指令引用。', 'error')); return;
     }
-    if (!commands) {
-      commands = renderShortcutCommandManagement({ catalogue, model: catalogue.commands, ownsPage: owns, busy: () => busy || mountEditing,
-        setBusy(value) { busy = value; if (!value && owns()) mountHost.querySelector('.hook-mount')?.resume?.(); },
-        setEditing(value) { commandEditing = value; }, allowCreate: false,
-        filterCommand: command => commandIds().has(command.id), onCatalogue(result) { if (owns()) { catalogue = result; paintMount(); paintCommands(); } } });
-      commandHost.replaceChildren(el('h2', '引用指令编辑'), el('p', '仅列出此挂载引用的指令。编辑影响所有引用的未来执行；已有挂载跟随最新定义，保存不执行，不停用挂载。', 'hint'), commands);
-    }
-    commands.updateCommands?.(catalogue.commands, catalogue); commands.setActive?.(tab === 'settings');
+    const referenced = catalogue.commands.items.filter(command => commandIds().has(command.id));
+    commandHost.replaceChildren(el('h2', '引用指令（只读）'),
+      el('p', 'Web 指令定义编辑入口已移除；已有挂载仍按已授权配置执行最新定义。', 'hint'),
+      ...referenced.map(command => commandDetail(command)));
   }
   async function loadCatalogue() {
     if (!owns()) return;
@@ -101,8 +95,8 @@ export function renderPushAutomation({ ownsPage, catalogue: initial }) {
   const refresh = button('刷新推送记录', () => loadHistory(), 'ghost'), more = button('读取更早运行事件', () => loadHistory(true), 'ghost');
   history.append(el('p', '按持久推送挂载身份读取 main 的执行事件。删除挂载不删除历史；失败不撤销已合并代码，未知结果不自动重跑。', 'hint'), status, records, refresh, more);
   const reload = button('刷新推送设置', async () => {
-    if (!owns() || busy) return;
-    if (mountEditing && !await confirmDialog({ title: '放弃挂载编辑并刷新？', message: '未保存的挂载编辑会丢失，指令草稿保留原 revision。', confirmLabel: '放弃并刷新' })) return;
+    if (!owns()) return;
+    if (mountEditing && !await confirmDialog({ title: '放弃挂载编辑并刷新？', message: '未保存的挂载编辑会丢失；指令定义只读，不会被修改。', confirmLabel: '放弃并刷新' })) return;
     if (!owns()) return; mountEditing = false;
     try { await loadCatalogue(); } catch (error) { if (owns()) settingsStatus.textContent = `设置读取失败：${error.message}`; }
   }, 'ghost');
@@ -110,17 +104,15 @@ export function renderPushAutomation({ ownsPage, catalogue: initial }) {
   node.append(settings, history);
   node.setSubpage = next => {
     tab = next === 'history' ? 'history' : 'settings'; settings.hidden = tab !== 'settings'; history.hidden = tab !== 'history';
-    commands?.setActive?.(tab === 'settings');
     const row = mountHost.querySelector('.hook-mount'); row?.resume?.();
-    if (tab === 'settings' && (row?.needsRefresh || commands?.needsRefresh)) {
+    if (tab === 'settings' && row?.needsRefresh) {
       settingsStatus.textContent = '离开期间有操作结束；不自动重发。草稿保留，请核对最新指令定义和挂载。';
       node.ready = loadCatalogue().catch(error => { if (owns()) settingsStatus.textContent = `设置读取失败：${error.message}；草稿保留，请只读刷新，不要重发。`; });
     }
     if (tab === 'history' && (!historyRead || resumeHistory)) node.ready = loadHistory();
     return node.ready;
   };
-  node.setActive = active => commands?.setActive?.(active && tab === 'settings');
   node.updateCatalogue = result => { catalogue = result; paintMount(); paintCommands(); };
-  node.dispose = () => { disposed = true; ++sequence; commands?.setActive?.(false); };
+  node.dispose = () => { disposed = true; ++sequence; };
   paintMount(); paintCommands(); paintHistory(); node.setSubpage('settings'); node.ready = Promise.resolve(); return node;
 }

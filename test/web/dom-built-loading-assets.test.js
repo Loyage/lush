@@ -90,9 +90,14 @@ test('compiled explicit project owns work chunks while global links preserve its
   const project = installProjectDom({ fetch: world.fetchImpl });
   try {
     await boot(); expect(project.node('detail').dataset.view).toBe('overview');
-    for (const view of ['versions', 'inputs', 'hooks']) {
+    for (const view of ['task-graph', 'inputs', 'hooks']) {
       await project.node(`${view}-open`).onclick(); expect(project.node('detail').dataset.view).toBe(view);
     }
+    for (const view of ['tasks', 'valets']) {
+      await project.node('side-nav').querySelector(`[data-side="${view}"]`).onclick();
+      expect(project.node('detail').dataset.view).toBe(view);
+    }
+    expect(project.node('versions-open').onclick).toBeUndefined();
     project.node('input').value = 'unsent'; project.node('detail').scrollTop = 120;
     const before = project.node('detail').dataset.view;
     await project.node('settings-open').onclick();

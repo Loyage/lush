@@ -59,7 +59,7 @@ export const ui = {
   taskGraphFilesExpanded: new Set(), // 文件明细只记会话内展开，轮询保留。
   lastSnapshot: null,   // 切排序模式要立刻重排，不必等下一次轮询
   taskHistory: [],      // 用户显式加载的历史任务页；有界轮询不会把它们立刻抹掉
-  taskHistoryPage: null,
+  taskHistoryPage: null, taskHistoryPending: null,
   sideNodes: new Map(),      // section id -> 区块 <section>
   sideHeads: new Map(),      // section id -> 标题按钮
   navButtons: new Map(),     // section id -> 导航按钮
@@ -100,7 +100,7 @@ export function resetUiState() {
   ui.intentSignature = null; ui.specSignature = null;
   ui.noticeReadPending = new Map(); ui.noticeReadRows = new Map();
   ui.noticeFocus = null; ui.noticeModuleStates = new Map(); ui.noticeIndex = new Map(); ui.questionDrafts = new Map(); ui.noticeRecords = null; ui.noticePage = null; ui.loadNoticeRecords = null; ui.selectNoticeFilter = null;
-  ui.lastSnapshot = null; ui.taskHistory = []; ui.taskHistoryPage = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
+  ui.lastSnapshot = null; ui.taskHistory = []; ui.taskHistoryPage = null; ui.taskHistoryPending = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
   ui.disposeTaskGraph?.(); ui.disposeTaskGraph = null;
   ui.taskGraphFetchedAt = 0; ui.taskGraphIds = new Set(); ui.taskGraphPage = null; ui.taskGraphShowArchived = false;
   ui.taskGraphFilesExpanded = new Set(); ui.taskGraphMinimal = readPref('taskGraphMinimal');

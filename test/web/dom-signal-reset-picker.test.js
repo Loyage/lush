@@ -37,19 +37,12 @@ beforeEach(() => { connections = [connection()]; reads = []; actions = []; inter
   dom.location.pathname = '/'; ui.managementPage = null; activateDetailView({ view: 'overview' }); });
 afterAll(() => dom.restore());
 
-test('management navigation uses #management; source cache loads only when opening the signal editor and saves a plain exact once schedule', async () => {
-  await openManagement(); expect(dom.location.hash).toBe('#management'); expect(root().querySelector('h1').textContent).toBe('Valet 设置');
-  expect(dom.node('view-title').textContent).toBe('Valet 设置'); expect(reads).toEqual(['/api/hooks']);
-  expect(reads).not.toContain('/api/agent/connections'); expect(actions).toHaveLength(0);
-  await btn('新建时间信号').onclick();
-  await until(() => !input('订阅额度刷新时间').disabled);
-  input('信号名称').value = '额度到点'; input('信号时区（IANA）').value = 'Asia/Kathmandu';
-  choose({ node: root() });
-  expect(input('信号日期与时间').value).toBe('2030-02-03T00:05:00');
-  expect(reads).toEqual(['/api/hooks', '/api/agent/connections']); expect(actions).toHaveLength(0);
-  await btn('保存时间信号').onclick();
-  expect(actions).toEqual([{ method: 'hooks.signal_save', params: { expected_revision: 'signals',
-    signal: { name: '额度到点', enabled: true, schedule: { kind: 'once', at: resetAt, timezone: 'Asia/Kathmandu' } } } }]);
+test('retired management navigation never opens a signal editor or reads subscription cache; stored authorization remains unchanged', async () => {
+  const original = structuredClone(catalogue); await openManagement();
+  expect(dom.location.hash).toBe('#valets'); expect(dom.node('view-title').textContent).toBe('管家列表');
+  expect(dom.node('error').textContent).toContain('设置入口已移除');
+  expect(root().querySelector('.signal-form')).toBeNull(); expect(btn('新建时间信号')).toBeUndefined();
+  expect(reads).toEqual([]); expect(actions).toEqual([]); expect(catalogue).toEqual(original);
 });
 
 test('subscription picker distinguishes accounts and windows, shows cache time and copies only selected instant without changing name or timezone', async () => {
@@ -143,20 +136,20 @@ test('busy signal save disables picker even when a cache read finishes; late old
   choose(form); expect(deepText(replacement.node)).toBe(before); expect(input('信号日期与时间', form.node).value || '').toBe('');
 });
 
-test('cache response from a previous project cannot fill or repaint the new project editor', async () => {
+test('retained cache helper rejects old project/form responses without depending on a retired page entry', async () => {
   let resolve;
-  dom.location.pathname = '/p/1111111111111111/'; await openManagement();
+  dom.location.pathname = '/p/1111111111111111/'; const project = dom.location.pathname;
+  const old = createSignalForm({}, { ownsPage: () => dom.location.pathname === project }); root().replaceChildren(old.node);
   intercept = path => path === '/p/1111111111111111/api/agent/connections' ? new Promise(done => { resolve = done; }) : null;
-  await btn('新建时间信号').onclick(); await until(() => resolve);
-  const old = root().querySelector('.signal-form');
-  dom.location.pathname = '/p/2222222222222222/'; await openManagement(); await btn('新建时间信号').onclick();
-  await until(() => !input('订阅额度刷新时间').disabled); const replacement = root().querySelector('.signal-form');
-  resolve(json({ connections: [connection({ label: '旧项目订阅' })] })); await Promise.resolve(); await Promise.resolve();
-  expect(root().querySelector('.signal-form')).toBe(replacement); expect(deepText(root())).not.toContain('旧项目订阅');
-  choose({ node: old }); expect(input('信号日期与时间').value || '').toBe(''); expect(actions).toHaveLength(0);
+  const loading = old.loadResetTimes(); await until(() => resolve);
+  dom.location.pathname = '/p/2222222222222222/'; const replacement = createSignalForm(); root().replaceChildren(replacement.node);
+  await replacement.loadResetTimes();
+  resolve(json({ connections: [connection({ label: '旧项目订阅' })] })); await loading;
+  expect(root().querySelector('.signal-form')).toBe(replacement.node); expect(deepText(root())).not.toContain('旧项目订阅');
+  choose(old); expect(input('信号日期与时间').value || '').toBe(''); expect(actions).toHaveLength(0);
 });
 
-test('management navigation exits explicit Worker append mode; filling a signal preserves independent-Worker composer draft and destination', async () => {
+test('retired management navigation exits Worker append mode without reading cache or losing composer draft and destination', async () => {
   const { syncComposer, appendToWorker } = await import('../../src/ui/web/assets/composer.js');
   const previousSync = ui.syncComposer;
   try {
@@ -168,9 +161,8 @@ test('management navigation exits explicit Worker append mode; filling a signal 
     await openManagement();
     expect(ui.composerAppendTarget).toBeNull(); expect(dom.node('input-form').dataset.mode).toBe('create');
     expect(dom.node('input').disabled).toBe(false); expect(dom.node('composer-reset').hidden).toBe(true);
-    await btn('新建时间信号').onclick(); await until(() => !input('订阅额度刷新时间').disabled);
-    choose({ node: root() });
+    expect(dom.location.hash).toBe('#valets'); expect(btn('新建时间信号')).toBeUndefined();
     expect(dom.node('input').value).toBe('未发送的开发指令'); expect(dom.node('input-parent').value).toBe('main');
-    expect(dom.node('input-form').dataset.mode).toBe('create'); expect(actions).toHaveLength(0);
+    expect(dom.node('input-form').dataset.mode).toBe('create'); expect(actions).toHaveLength(0); expect(reads).toEqual([]);
   } finally { ui.syncComposer = previousSync; }
 });

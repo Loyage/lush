@@ -1,36 +1,34 @@
-// Firefox + real Git/Project read-model smoke test; no user services or Agent calls.
+// Production Web → RPC → Project → SQLite/Git + Firefox. Only isolated temporary services.
+// Run: bun run scripts/check-versions-layout.js [screenshot-directory]
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
-import { fixture, git, repo } from '../test/helpers.js';
+import { git, repo } from '../test/helpers.js';
+import { setup } from '../test/web/harness.js';
+import { projectRouteId } from '../src/host/registry.js';
 
-const f = fixture(), logs = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-versions-browser-'));
+const logs = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-worker-versions-browser-'));
 const output = path.resolve(process.argv[2] || path.join(logs, 'screenshots'));
 fs.mkdirSync(output, { recursive: true });
-const assets = new URL('../src/ui/web/assets/', import.meta.url).pathname;
-let server, driver, session, base, tree, head, reads = 0, passed = false;
-let delivery, childDelivery, landing, childLanding, task, child, initial, historyCount;
+let f, driver, session, base, passed = false;
 const assert = (condition, message) => { if (!condition) throw new Error(message); };
 async function rpc(route, body, method = 'POST') {
-  // Loopback requests must not inherit outbound proxies.
-  const data = await new Promise((resolve, reject) => {
-    const request = http.request(base + route, { method, headers: { 'Content-Type': 'application/json' } }, response => {
+  const response = await new Promise((resolve, reject) => {
+    const request = http.request(base + route, { method, headers: { 'Content-Type': 'application/json' } }, res => {
       const chunks = []; let bytes = 0;
-      response.on('data', chunk => { bytes += chunk.length; if (bytes > 8 * 1024 * 1024) request.destroy(new Error('WebDriver response too large')); else chunks.push(chunk); });
-      response.on('end', () => resolve({ status: response.statusCode, text: Buffer.concat(chunks).toString() }));
-      response.on('error', reject);
+      res.on('data', chunk => { bytes += chunk.length; if (bytes > 8 * 1024 * 1024) request.destroy(new Error('WebDriver response too large')); else chunks.push(chunk); });
+      res.on('end', () => resolve({ status: res.statusCode, text: Buffer.concat(chunks).toString() })); res.on('error', reject);
     });
     request.on('error', reject); request.setTimeout(30000, () => request.destroy(new Error('WebDriver timeout')));
     request.end(body === undefined ? undefined : JSON.stringify(body));
   });
-  const value = JSON.parse(data.text);
-  if (data.status >= 400) throw new Error(JSON.stringify(value));
-  return value.value;
+  const value = JSON.parse(response.text);
+  if (response.status >= 400) throw new Error(JSON.stringify(value)); return value.value;
 }
 const execute = script => rpc(`/session/${session}/execute/sync`, { script, args: [] });
 async function waitFor(expression) {
-  assert(await rpc(`/session/${session}/execute/async`, { args: [], script: `const done=arguments[0];let n=0;const check=()=>{try{if(${expression})return done(true)}catch{}if(++n>200)return done(false);setTimeout(check,50)};check();` }), `Timed out: ${expression}`);
+  assert(await rpc(`/session/${session}/execute/async`, { args: [], script: `const done=arguments[0];let n=0;const check=()=>{try{if(${expression})return done(true)}catch{}if(++n>300)return done(false);setTimeout(check,30)};check();` }), `Timed out: ${expression}`);
 }
 async function click(selector) {
   const node = await rpc(`/session/${session}/element`, { using: 'css selector', value: selector });
@@ -39,122 +37,133 @@ async function click(selector) {
 async function screenshot(name) {
   fs.writeFileSync(path.join(output, `${name}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
 }
-async function commit(subject) {
-  head = await git(f.root, 'commit-tree', tree, '-p', head, '-m', subject);
-  await git(f.root, 'update-ref', 'refs/heads/main', head);
-  return head;
+async function commit(task, file, message) {
+  fs.writeFileSync(path.join(task.workspace, file), message);
+  await git(task.workspace, 'add', '.'); await git(task.workspace, 'commit', '-m', message);
+  return git(task.workspace, 'rev-parse', 'HEAD');
+}
+async function deliver(task) {
+  f.store.update(task.id, { status: 'waiting', result: '专项验证完成' });
+  f.store.run('UPDATE messages SET consumed=1 WHERE task_id=?', task.id);
+  await f.project.reserveTask(task.id, 'merge'); f.project.stopping = false; await f.project.driveTaskMerge(task.parent_id);
+  assert(f.store.task(task.id).integration === 'merged', `fixture delivery failed ${task.id}`);
+  return f.store.get("SELECT id,data FROM events WHERE task_id=? AND type='task.merge_integrated' ORDER BY id DESC LIMIT 1", task.id);
 }
 try {
-  await repo(f.root); const main = await f.project.bootstrapMain();
-  head = await git(f.root, 'rev-parse', 'HEAD'); tree = await git(f.root, 'rev-parse', 'HEAD^{tree}');
-  task = f.store.create({ role: 'agent', task_kind: 'order', parent_id: main.id, goal: '版本迭代 · 长目标验证 '.repeat(12) });
-  f.store.run('INSERT INTO inputs(id,content,task_id) VALUES (?,?,?)', 1, '原始需求：\n保留换行与 <script>window.injected=true</script>\n' + 'LongText'.repeat(50), task.id);
-  f.store.run('UPDATE tasks SET input_id=1, target_branch=? WHERE id=?', 'main', task.id);
-  for (let i = 1; i <= 52; i++) await commit(`功能交付 ${i}`);
-  const object = (subject, parents) => git(f.root, 'commit-tree', tree, ...parents.flatMap(parent => ['-p', parent]), '-m', subject);
-  const graphBase = head;
-  const mainSide = await object('main 可达侧线提交', [graphBase]);
-  await commit('main 分叉后的主线提交');
-  head = await object('main 真实合并节点', [head, mainSide]); await git(f.root, 'update-ref', 'refs/heads/main', head);
-  const featureBase = head;
-  f.store.update(task.id, { branch: 'browser-feature', base_commit: featureBase });
-  f.store.run('UPDATE tasks SET worker_number=? WHERE id=?', 'W17', task.id);
-  const own = await object('Worker 自身开发提交', [featureBase]);
-  const side = await object('Worker 内部分叉提交', [own]);
-  child = f.store.create({ role: 'agent', task_kind: 'child', parent_id: task.id, goal: '子 Worker 固定交付' });
-  f.store.update(child.id, { branch: 'browser-child', base_commit: own, target_branch: 'browser-feature' });
-  f.store.run('UPDATE tasks SET worker_number=? WHERE id=?', 'W17-1', child.id);
-  const childFirst = await object('子 Worker 开发一', [own]), childSource = await object('子 Worker 开发二', [childFirst]);
-  childLanding = await object('子 Worker Squash 落点', [own]);
-  childDelivery = f.store.event(child.id, 'task.merge_integrated', { commit: childLanding, source_commit: childSource, parent_id: task.id, squash: true });
-  const source = await object(`Worker 最终合并 · ${'long-subject-'.repeat(20)}`, [childLanding, side]);
-  landing = await object('W17 功能交付 · 点击下钻', [head]);
-  await git(f.root, 'update-ref', 'refs/heads/main', landing); head = landing;
-  delivery = f.store.event(task.id, 'task.merge_integrated', { commit: landing, source_commit: source, parent_id: main.id, squash: true });
-  // Fixed receipts must remain usable without live Worker refs.
-  initial = head; historyCount = Number(await git(f.root, 'rev-list', '--count', initial));
-  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <link rel="stylesheet" href="/assets/styles.css"><link rel="stylesheet" href="/assets/styles-core.css"><link rel="stylesheet" href="/assets/styles-versions.css"></head>
-  <body><div id="detail"></div><script type="module">
-  window.browserErrors=[];addEventListener('error',e=>browserErrors.push(e.message));addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));
-  import {openVersions} from '/assets/render-versions.js';import {registerNavigation} from '/assets/navigate.js';
-  registerNavigation({detail:id=>{window.openedTask=id;}});await openVersions();window.ready=true;
-  </script></body></html>`;
-  server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(request) {
-    const url = new URL(request.url);
-    if (url.pathname === '/') return new Response(html, { headers: { 'Content-Type': 'text/html' } });
-    if (/^\/assets\/[\w.-]+\.(js|css)$/.test(url.pathname)) return new Response(Bun.file(path.join(assets, path.basename(url.pathname))));
-    if (url.pathname === '/api/version-graph') {
-      reads++;
-      try { return Response.json(await f.project.branchVersionGraph({ limit: Number(url.searchParams.get('limit')),
-        ...(url.searchParams.has('delivery') ? { delivery: Number(url.searchParams.get('delivery')) } : {}),
-        ...(url.searchParams.has('cursor') ? { cursor: url.searchParams.get('cursor') } : {}) })); }
-      catch (error) { return Response.json({ error: error.message }, { status: 400 }); }
-    }
-    return new Response('not found', { status: 404 });
-  } });
+  f = await setup({ auth: { version: 2, username: 'browser-fixture', password: 'temporary-browser-fixture-password' } });
+  f.project.stopping = true; f.project.kick = () => {}; f.project.scheduleTaskMerge = () => {};
+  await repo(f.root);
+  const { task } = await f.project.order('真实版本详情\n<script>window.injected=true</script>\n' + 'LongInput'.repeat(100));
+  await commit(task, 'first.txt', '第一轮开发\n\n完整提交消息'); const firstDelivery = await deliver(task);
+  await git(task.workspace, 'merge', 'main', '-m', '同步上轮落点');
+  let head = await git(task.workspace, 'rev-parse', 'HEAD'); const tree = await git(task.workspace, 'rev-parse', 'HEAD^{tree}');
+  for (let i = 0; i < 95; i++) head = await git(task.workspace, 'commit-tree', tree, '-p', head, '-m', `本轮已提交开发 ${i}`);
+  await git(task.workspace, 'update-ref', `refs/heads/${task.branch}`, head);
+  // A real fork/join, not association edges fabricated as Git parents.
+  const side = await git(task.workspace, 'commit-tree', tree, '-p', head, '-m', '真实侧线开发');
+  const mainSide = await git(task.workspace, 'commit-tree', tree, '-p', head, '-m', '真实主线开发');
+  head = await git(task.workspace, 'commit-tree', tree, '-p', mainSide, '-p', side, '-m', '真实双父汇合');
+  await git(task.workspace, 'update-ref', `refs/heads/${task.branch}`, head);
+  const child = await f.project.spawn(task.id, '子 Worker 实际交付，保留持久编号');
+  await commit(child, 'child.txt', '子 Worker 开发一');
+  await commit(child, 'child.txt', '子 Worker 开发二\n\n完整消息 <script>window.injected=true</script>');
+  const childDelivery = await deliver(child), childLanding = JSON.parse(childDelivery.data).commit;
+  const fixedTip = await git(task.workspace, 'rev-parse', 'HEAD');
+  const projectPath = `/p/${projectRouteId(f.root)}/`;
   const reservation = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') });
   const port = reservation.port; reservation.stop(true); base = `http://127.0.0.1:${port}`;
   driver = Bun.spawn(['geckodriver', '--host', '127.0.0.1', '--port', String(port)], { env: { ...process.env, MOZ_HEADLESS: '1' }, stdout: Bun.file(path.join(logs, 'driver.log')), stderr: Bun.file(path.join(logs, 'driver.log')) });
   let ready = false;
   for (let i = 0; i < 100; i++) {
     try { await rpc('/status', undefined, 'GET'); ready = true; break; } catch {}
-    if (driver.exitCode !== null) throw new Error('geckodriver exited during startup');
-    await Bun.sleep(100);
+    if (driver.exitCode !== null) throw new Error('geckodriver exited'); await Bun.sleep(100);
   }
   assert(ready, 'WebDriver startup timeout');
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
-  await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${server.port}/` }); await waitFor('window.ready');
-  assert(await execute('return document.querySelectorAll(".version-commit").length===50'), 'first page must contain 50 commits');
-  assert(await execute(`return !document.querySelector('.versions-mode input').checked && document.querySelector('.version-input').hidden && document.querySelector('.version-sha').hidden`), 'default must be compact');
-  const firstReads = reads;
-  const compactHeight = await execute(`return document.querySelector('.versions-list').getBoundingClientRect().height`);
-  await click('.versions-mode input');
-  assert(await execute(`return !document.querySelector('.version-input').hidden && !document.querySelector('.version-sha').hidden`), 'detail mode did not reveal metadata');
-  const detailedHeight = await execute(`return document.querySelector('.versions-list').getBoundingClientRect().height`);
-  assert(compactHeight < detailedHeight * 0.6, `compact history is not dense enough: ${compactHeight}/${detailedHeight}`);
-  await click('.version-input summary'); await click('.version-task-link');
-  assert(await execute(`return window.openedTask===${task.id} && !window.injected && document.querySelector('.version-order').textContent.includes('<script>')`), 'Worker navigation or safe original order rendering failed');
-  for (const theme of ['light', 'dark']) for (const [width, height] of [[1440,900], [900,700], [390,844]]) for (const detailed of [false, true]) {
-    if (await execute(`return document.querySelector('.versions-mode input').checked !== ${detailed}`)) await click('.versions-mode input');
-    await rpc(`/session/${session}/window/rect`, { width, height });
-    await execute(`document.documentElement.dataset.theme='${theme}';document.querySelector('#detail').scrollTop=0;window.scrollTo(0,0);`);
-    const layout = await execute(`const c=document.querySelector('.version-commit'),p=document.querySelector('.versions-page'),r=c.getBoundingClientRect();return {width:innerWidth,left:r.left,right:r.right,card:c.scrollWidth-c.clientWidth,page:p.scrollWidth-p.clientWidth,overflow:document.documentElement.scrollWidth-innerWidth};`);
-    assert(layout.left >= 0 && layout.right <= layout.width + 1 && layout.card <= 1 && layout.page <= 1 && layout.overflow <= 1, `layout overflow ${theme}/${width}: ${JSON.stringify(layout)}`);
-    assert(await execute(`return document.querySelector('.version-input').open && document.querySelector('.version-input').hidden === ${!detailed} && getComputedStyle(document.querySelector('.version-sha')).display ${detailed ? '!==' : '==='} 'none'`), 'detail visibility or original order expansion was lost');
-    await screenshot(`${theme}-${width}-${detailed ? 'detailed' : 'compact'}`); console.log(`PASS versions layout ${theme}/${width}/${detailed ? 'detailed' : 'compact'}`);
+  await rpc(`/session/${session}/url`, { url: `${f.url}/login?next=${encodeURIComponent(projectPath)}` });
+  await execute(`document.querySelector('#username').value='browser-fixture';document.querySelector('#password').value='temporary-browser-fixture-password';`);
+  await click('form button'); await waitFor(`location.pathname==='${projectPath}' && !!document.querySelector('#overview-open')`);
+  // Instrument only reads; all responses still come from the actual production HTTP/RPC bridge.
+  await execute(`window.versionReads=[];window.browserErrors=[];addEventListener('error',e=>browserErrors.push(e.message));addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));const original=window.fetch;window.fetch=(url,options)=>{if(String(url).includes('/version-'))versionReads.push(String(url));return original(url,options)};location.hash='#worker-${task.id}';`);
+  await waitFor(`document.querySelector('.worker-versions')?.dataset.workerId==='${task.id}'`);
+  assert(await execute(`return !versionReads.some(p=>p.includes('/version-graph')) && !versionReads.some(p=>p.includes('/version-deliveries'))`), 'detail entry eagerly read Git or delivery list');
+  await execute(`document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
+  await waitFor('document.querySelectorAll(".version-commit").length===30');
+  assert(await execute(`return document.querySelector('.version-tip').textContent.includes('${fixedTip}') && !document.querySelector('.version-input')`), 'current fixed tip or lazy node contract failed');
+  assert(await execute(`return document.querySelector('.version-commit[data-commit="${childLanding}"] .version-task-link').getAttribute('href')==='#worker-${child.id}' && document.querySelector('.version-task-link').textContent.includes('${child.worker_number}')`), 'child href/number is not persistent');
+  await execute(`document.querySelector('.version-node').focus();`);
+  await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }] }] });
+  await waitFor('!!document.querySelector(".version-node-detail .version-message")');
+  assert(await execute(`return versionReads.filter(p=>p.includes('/version-commit')).length===1 && !window.injected && !!document.querySelector('.version-node-detail .version-sha') && document.activeElement===document.querySelector('.version-node-detail')`), 'keyboard node detail was not lazy, focused or safe');
+  await execute(`document.querySelector('.version-node-detail').scrollIntoView({block:'start'});`);
+  await screenshot('worker-current-node');
+  // Several forward pages and a cache miss on the return path: DOM/data stay bounded.
+  for (let index = 2; index <= 4; index++) {
+    await click('.versions-more'); await waitFor(`document.querySelector('.versions-feedback').textContent.includes('第 ${index} 页')`);
+    assert(await execute(`return document.querySelectorAll('.version-commit').length<=30 && Number(document.querySelector('.worker-versions').dataset.cachedPages)<=3`), 'graph/cache accumulated unbounded nodes');
   }
-  assert(reads === firstReads, 'mode changes must not refetch history');
-  assert(await execute(`return !!document.querySelector('.version-node').getAttribute('aria-label').includes('W17') && document.querySelector('.version-task-link').textContent.includes('W17')`), 'main node lacks explicit Worker number');
-  await click(`.version-commit[data-commit="${landing}"] .version-node`);
-  await waitFor(`document.querySelector('.versions-scope').textContent.includes('W17') && document.querySelectorAll('.version-commit').length===4`);
-  assert(await execute(`return document.querySelector('.version-tip').textContent.includes('${featureBase}') && document.querySelectorAll('.version-lines path').length>4 && document.querySelector('.versions-list').textContent.includes('Worker 内部分叉提交')`), 'fixed Worker source topology or baseline is missing');
-  await screenshot('worker-fixed-delivery');
-  await click(`.version-commit[data-commit="${childLanding}"] .version-node`);
-  await waitFor(`document.querySelector('.versions-scope').textContent.includes('W17-1') && document.querySelectorAll('.version-commit').length===2`);
-  assert(await execute(`return document.querySelector('.versions-list').textContent.includes('子 Worker 开发一') && document.querySelector('.versions-list').textContent.includes('子 Worker 开发二')`), 'nested child source delivery did not open');
+  const fixedTree = await git(task.workspace, 'rev-parse', 'HEAD^{tree}');
+  const advancedTip = await git(task.workspace, 'commit-tree', fixedTree, '-p', fixedTip, '-m', '首次取样后新增提交');
+  await git(task.workspace, 'update-ref', `refs/heads/${task.branch}`, advancedTip);
+  for (let index = 3; index >= 1; index--) { await click('.versions-newer'); await waitFor(`document.querySelector('.versions-feedback').textContent.includes('第 ${index} 页')`); }
+  assert(await execute(`return document.querySelector('.version-tip').textContent.includes('${fixedTip}') && !document.querySelector('.versions-list').textContent.includes('首次取样后新增提交')`), 'return to first page silently re-sampled the advanced current ref');
+  await screenshot('worker-first-page-return');
+  await click(`.version-commit[data-commit="${childLanding}"] .version-delivery-choice`);
+  await waitFor(`document.querySelector('.versions-scope').textContent.includes('Event ${childDelivery.id}') && document.querySelectorAll('.version-commit').length===2`);
+  assert(await execute(`return versionReads.at(-1).includes('/worker/${child.id}/version-graph?limit=30&delivery=${childDelivery.id}') && document.querySelector('.versions-list').textContent.includes('子 Worker 开发一')`), 'real child delivery drilldown failed');
+  await click('.version-node'); await waitFor('!!document.querySelector(".version-input")');
+  assert(await execute(`return document.querySelector('.version-message').textContent.includes('<script>') && !window.injected`), 'full message did not render safely');
+  await execute(`document.querySelector('.version-node-detail').scrollIntoView({block:'start'});`);
   await screenshot('child-fixed-delivery');
-  const nestedReads = reads;
-  await click('.versions-back'); await waitFor('document.querySelectorAll(".version-commit").length===4');
-  await click('.versions-main'); await waitFor('document.querySelectorAll(".version-commit").length===50');
-  assert(reads === nestedReads, 'return navigation refetched cached graphs');
-  assert(await execute(`return document.querySelector('.version-input').open && document.querySelector('.versions-mode input').checked`), 'return lost mode or original order expansion');
-  await commit('new main commit after first page');
-  await click('.versions-more'); await waitFor(`document.querySelectorAll(".version-commit").length===${historyCount}`);
-  assert(await execute(`return document.querySelector('.version-tip').textContent.includes('${initial}') && !document.querySelector('.versions-list').textContent.includes('new main commit') && [...document.querySelectorAll('.version-detail')].every(n=>!n.hidden)`), 'pagination did not preserve initial tip or detail mode');
-  await click('.versions-mode input');
-  await click('.versions-refresh'); await waitFor('document.querySelector(".versions-list").textContent.includes("new main commit")');
-  assert(await execute(`return document.querySelectorAll('.version-commit').length===50 && document.querySelector('.version-tip').textContent.includes('${head}') && !document.querySelector('.versions-mode input').checked && [...document.querySelectorAll('.version-detail')].every(n=>n.hidden)`), 'refresh did not replace snapshot or preserve compact mode');
-  assert((await git(f.root, 'rev-parse', 'HEAD')) === head, 'read changed main');
-  assert(await execute('return window.browserErrors.length===0'), 'browser emitted errors');
-  passed = true; console.log(`PASS real Git topology/paging, fixed tip, nested Squash delivery/return, explicit refresh, safe order and Worker navigation. Screenshots: ${output}`);
+  await click('.versions-back'); await waitFor('document.querySelectorAll(".version-commit").length===30');
+  await click('.version-rounds summary'); await waitFor('!!document.querySelector(".version-round button")');
+  assert(await execute(`return versionReads.filter(p=>p.includes('/version-deliveries')).length===1`), 'delivery selector fetched more than its explicit first page');
+  await click('.version-round button'); await waitFor(`document.querySelector('.versions-scope').textContent.includes('Event ${firstDelivery.id}') && document.querySelectorAll('.version-commit').length===1`);
+  await screenshot('worker-earlier-delivery');
+  await click('.versions-back'); await waitFor('document.querySelectorAll(".version-commit").length===30');
+  await execute(`document.querySelector('.version-rounds').open=false;`);
+  await click('.version-node'); await waitFor('!!document.querySelector(".version-node-detail .version-message")');
+  // Real page layout in both themes, including detail expansion. Firefox has a 500px top-level
+  // minimum, so a same-origin srcdoc clone supplies a genuine 390px browsing context below.
+  for (const theme of ['light', 'dark']) for (const width of [1440, 900, 500]) {
+    await rpc(`/session/${session}/window/rect`, { width, height: 900 });
+    await execute(`document.documentElement.dataset.theme='${theme}';document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
+    const layout = await execute(`const p=document.querySelector('.worker-versions'),r=p.getBoundingClientRect();return {width:innerWidth,left:r.left,right:r.right,module:p.scrollWidth-p.clientWidth,page:document.documentElement.scrollWidth-innerWidth};`);
+    assert(layout.left >= 0 && layout.right <= layout.width + 1 && layout.module <= 1 && layout.page <= 1, `overflow ${theme}/${width}: ${JSON.stringify(layout)}`);
+    await screenshot(`${theme}-${width}-detail`); console.log(`PASS actual Worker detail layout ${theme}/${layout.width}`);
+  }
+  await rpc(`/session/${session}/window/rect`, { width: 600, height: 1000 });
+  for (const theme of ['light', 'dark']) {
+    await execute(`const previous=document.querySelector('#narrow-check');previous?.remove();const frame=document.createElement('iframe');frame.id='narrow-check';frame.width=390;frame.height=844;frame.style.cssText='position:fixed;inset:0;z-index:99999;border:0';document.body.append(frame);const doc=frame.contentDocument;doc.open();doc.write('<!doctype html><html data-theme="${theme}"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:12px"><div id="detail"></div></body></html>');doc.close();for(const sheet of document.querySelectorAll('link[rel="stylesheet"]'))doc.head.append(sheet.cloneNode(true));doc.querySelector('#detail').append(document.querySelector('.worker-versions').cloneNode(true));`);
+    await waitFor(`document.querySelector('#narrow-check').contentDocument.querySelector('.worker-versions').getBoundingClientRect().width>0`);
+    const narrow = await execute(`const frame=document.querySelector('#narrow-check'),d=frame.contentDocument,p=d.querySelector('.worker-versions');return {width:frame.contentWindow.innerWidth,module:p.scrollWidth-p.clientWidth,page:d.documentElement.scrollWidth-frame.contentWindow.innerWidth};`);
+    assert(narrow.width === 390 && narrow.module <= 1 && narrow.page <= 1, `390px overflow ${theme}: ${JSON.stringify(narrow)}`);
+    await screenshot(`${theme}-390-detail`); console.log(`PASS genuine 390px module layout ${theme} (production DOM/CSS clone)`);
+  }
+  await execute(`document.querySelector('#narrow-check').remove();`);
+  // Native href navigation reaches the actual child's inspect reader; no surrogate button callback.
+  await click(`.version-commit[data-commit="${childLanding}"] .version-task-link`);
+  await waitFor(`location.hash==='#worker-${child.id}' && document.querySelector('#detail').dataset.taskId==='${child.id}'`);
+  assert(await execute(`return document.querySelector('.task-hero').textContent.includes('${child.worker_number}')`), 'native child link did not reach real child detail');
+  await screenshot('child-worker-detail-link');
+  // The retired bookmark resolves main from real overview identity and navigates
+  // to its actual detail; it must not rebuild the retired independent version page.
+  await execute(`location.hash='#versions';`);
+  await waitFor(`location.hash==='#worker-${task.parent_id}' && document.querySelector('#detail').dataset.taskId==='${task.parent_id}' && !!document.querySelector('.worker-versions')`);
+  await screenshot('legacy-version-main-detail');
+  const parentRead = await f.project.workerVersionGraph({ id: task.id }); assert(parentRead.tip === advancedTip, 'browser reads wrote Git');
+  assert(await execute('return browserErrors.length===0'), 'browser emitted errors');
+  fs.writeFileSync(path.join(logs, 'evidence.json'), JSON.stringify({ task: task.worker_number, child: child.worker_number, fixedTip, advancedTip, firstDelivery: firstDelivery.id, childDelivery: childDelivery.id,
+    reads: await execute('return versionReads'), browserErrors: await execute('return browserErrors'), screenshots: output }, null, 2));
+  passed = true;
+  console.log(`PASS production Worker detail → 30-node paging/cache return → lazy commit → child fixed delivery → native child detail; delivery selector; double themes/390px. Screenshots: ${output}; logs: ${logs}`);
 } catch (error) {
   if (session) await screenshot('failure').catch(() => {});
-  console.error(`Version browser failure; full logs: ${logs}`); throw error;
+  console.error(`Worker version browser failure; full logs: ${logs}`); throw error;
 } finally {
   if (session) await rpc(`/session/${session}`, undefined, 'DELETE').catch(() => {});
   if (driver) { driver.kill(); await driver.exited; }
-  server?.stop(true); await f.close();
-  if (passed) fs.rmSync(path.join(logs, 'driver.log'), { force: true });
+  await f?.close();
+  console.log(`${passed ? 'PASS' : 'FAIL'} evidence directory: ${logs}`);
 }

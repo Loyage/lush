@@ -257,7 +257,7 @@ export function syncComposer() {
   const description = target.reason || (management
     ? '提交管理指令，创建并安排独立管家（Valet），处理当前项目运行历史、草稿与 Hook 等管理事项；取消、回收、删除和敏感设置等危险操作须用户确认，不提供开发工具。'
     : followup ? `提交追加指令给 ${label}，可靠保存后等待安全准入；不代表 Agent 已收到，冻结不打断交付或源侧修复，暂停中仍需显式继续。`
-      : `提交工作指令，基于 ${label} 创建新 Worker；提交是执行授权，条件满足且安全准入后才创建并开始，不保证立即出现在 Worker 树。`);
+      : `提交工作指令，基于 ${label} 创建新 Worker；提交是执行授权，条件满足且安全准入后才创建并开始，不保证立即出现在工作树。`);
   const help = agentHelp(description);
   $('draft-commit').setAttribute('data-help', help);
   $('input-send-help')?.setAttribute('data-help', help);
@@ -344,7 +344,7 @@ async function submitInput(mode) {
     if (management) {
       if (ui.composerManagementProfile === creationProfile) ui.composerManagementProfile = null;
       ui.composerManagementResult = result.task || null;
-      show(`管理指令已提交${result.task?.id ? ` ${workerLabel(result.task)}` : ''}，等待管家处理；未创建开发 Worker，记录可在「工作」查看，危险操作须确认。`);
+      show(`管理指令已提交${result.task?.id ? ` ${workerLabel(result.task)}` : ''}，等待管家处理；未创建开发 Worker，记录可在「管家列表」查看，危险操作须确认。`);
     } else if (mode === 'buffer') {
       if (target.id != null && untouched) ui.composerAppendTarget = null;
       show(`已暂存为草稿 #${result.id}，尚未提交；可到「历史输入」编辑或提交，未创建 Worker、未调用 Agent。`);

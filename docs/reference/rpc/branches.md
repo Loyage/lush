@@ -4,8 +4,11 @@
 
 | CLI | RPC | 参数 | 权限 |
 |---|---|---|---|
-| 无 CLI 命令；Web「版本迭代」 | `branch.history` | `{cursor?, limit?}`（默认 50，1..100） | 用户专属，只读 |
-| 无 CLI 命令；Web「版本迭代」提交图 | `branch.version_graph` | `{delivery?, cursor?, limit?}`（limit 默认 50，1..100；delivery 为成功交付 Event ID） | 用户专属，只读 |
+| 无 CLI 命令；保留旧读取协议 | `branch.history` | `{cursor?, limit?}`（默认 50，1..100） | 用户专属，只读 |
+| 无 CLI 命令；保留旧固定图协议 | `branch.version_graph` | `{delivery?, cursor?, limit?}`（limit 默认 50，1..100；delivery 为成功交付 Event ID） | 用户专属，只读 |
+| 无 CLI；Worker 详情按需读取 | `worker.version_graph` | `{id,delivery?,cursor?,limit?}`（默认30，1..100） | 用户专属，只读 |
+| 无 CLI；Worker 详情交付选择 | `worker.version_deliveries` | `{id,before?,limit?}`（默认30，1..100） | 用户专属，只读 |
+| 无 CLI；节点详情 | `worker.version_commit` | `{id,snapshot,commit}`（完整 SHA） | 用户专属，只读 |
 | `branch tree [--verbose]` | `branch.tree` | `{}` | 用户与 agent，只读 |
 | `branch show BRANCH\|TASK_ID` | `branch.show` | `{branch}` | 用户与 agent，只读 |
 | `branch bind BRANCH COMMIT` | `branch.bind` | `{branch, commit}`（本地分支的固定 HEAD） | 用户专属 |
@@ -41,6 +44,50 @@ Git 读取共享 15 秒截止时间，stdout 上限 4 MiB；每页最多 100 次
 main 精确关联沿用 history 的目标校验；delivery 图只关联明确交付给该 Worker、且早于本次成功 Event 的记录，不按当前委派关系或标题猜归属。旧 `merged` 仍可精确关联，但其现存格式缺少可靠的固定源／父基线组合，返回不可下钻原因；对象缺失、错误 Event、基线不可信时请求明确失败，不回退当前 HEAD、reservation 或 iteration_base_commit。
 
 签名游标固定图身份、tip、base、排除范围、拓扑偏移与 Event 高水位；main 前进后旧页不重复／漏页，显式刷新读取新图。换范围／项目／实例、修改游标或 daemon 重启均须刷新，旧 history 游标不能复用。Git 使用隔离配置／只读对象库，禁用替换、外部过滤、notes 与 lazy fetch；15 秒共享截止时间、4 MiB stdout、最多 4 个并发读取。每页上限 100 个提交／1000 条关联审计，Worker／Input 文本和 512 KiB 响应上限同 history，超限报错而不裁剪。
+
+## Worker 详情版本读面
+
+三个接口分别对应 `GET /api/worker/ID/version-graph`、`version-deliveries`、`version-commit`。路径 ID 是内部整数，编号只作展示。全部用户专属、只读、no-store；不开放 Agent／管理代理、HTTP action 或 Git 写操作。HTTP 严格拒绝未知／重复字段，数值必须是无前导零的正整数；固定项目、登录、Origin／Host 边界与其它 Worker 读取相同。
+
+### worker.version_graph
+
+默认读取该 Worker **当前已提交开发快照**，不包含未提交工作区。main Worker 保留 main 完整可达图；order／child 的当前图从已登记、归属正确的真实分支 ref 取样，创建基线必须与分支登记一致，直接父身份必须与固定目标一致。开发范围首轮以创建 base_commit 为基线，后轮以最近成功交付的固定源提交为基线（因此交付后尚未新增开发时可为空）；不用 head_commit、iteration_base_commit 或 reservation 猜测。排除开发基线和本次固定父 ref 的全部可达历史，保留同步提交的真实 parents。创建基线、最近成功落点及已有同步／固定父基线审计必须仍在父 ref 历史中；父侧改写导致证据不一致明确失败，不能把父侧功能冒充本轮开发。
+
+指定 `delivery` 只允许属于该 Worker 的成功 Event ID，固定图沿用 `branch.version_graph` 的源／落点／父基线／归并凭据验证。分支已回收或 ref 缺失时，默认范围可以使用**最近一条**成功事件的可靠固定交付，返回 `scope:'delivery'` 与实际 delivery；没有成功事件、最新成功缺证据或对象缺失时明确报错，不跳过坏证据、不猜 HEAD。未登记分支不作为可信当前图。owner 非 main 没有独立开发轮次时同样明确不可读，不擅自读取任意分支。
+
+返回：
+
+```text
+{scope:'current'|'delivery'|'main', branch,
+ worker:{id,worker_number}, delivery:EventID|null, tip:SHA|null, base:SHA|null,
+ snapshot:opaqueString, commits:[...], cursor:opaqueString|null, has_more:boolean}
+commit = {commit,short_commit,parents:[SHA],subject,author:{name},committed_at,
+          association:'verified'|'unassociated',tasks:[... compact associations ...]}
+association = {id,worker_number,task_kind,evidence,delivery_id:EventID|null,
+               delivery_available:boolean,delivery_unavailable_reason:string|null}
+```
+
+首屏不读取／返回 Worker goal 或原始 Input 正文。`parents` 仅为真实 Git 边，tasks 仅为精确交付／源范围关联，不能把子 Worker 关联造为 Git 边。main 目标校验沿用旧图；其它范围只关联明确落在该 Worker 分支上的成功事件。所选固定交付仅关联早于该成功 Event 的子交付；当前图只关联取样 Event 高水位以内的记录。普通源节点用 `evidence:'worker.source'`（当前）或 `'delivery.source'`（固定交付）、`delivery_id:null,delivery_available:false`，可导航当前 Worker，但没有自己的下钻轮次。没有编号时客户端才回退 `#内部ID`，不得按内部 ID 推算 W 编号。
+
+`delivery_available` 表示持久收据结构可追溯，不保证尚未读取的 Git 对象仍存在；展开该交付时仍须处理 Git 核验错误。对子交付的导航使用关联的 `id`，展示使用 `worker_number`；选择该子轮次时转到其 Worker 并传其 `delivery_id`。
+
+### worker.version_deliveries
+
+返回 `{id,deliveries,before,has_more}`。按成功 Event ID 倒序，每项为上述紧凑 association，另带 `delivered_at`（事件时间）、`source_commit:SHA|null`、`commit:SHA|null`。历史 `merged` 成功也保留，缺可靠固定源／父基线则提供不可读原因，不隐藏／伪造轮次；预约 delivery_id 不是轮次身份。
+
+下一页传返回的 `before`；没有更多时为 null。固定 `before` 的 keyset 分页不混入较新的成功事件；刷新省略 before。每次最多读取 limit+1 条持久成功记录及其必要前轮／审计证据，不枚举 Git 或加载目标正文。
+
+### worker.version_commit
+
+`snapshot` 必须来自该 Worker 的 graph 响应，`commit` 必须是其中固定可达范围内的完整 SHA（不必已加载到本地页面）。返回 `{worker:{id,worker_number},scope,delivery,tip,base,commit:{...}}`；commit 保留紧凑节点全部字段，增加完整 `message`，tasks 按需增加 `goal` 与 `input:null|{id,content}`。不返回 Worker 配置／凭证、diff 或任意 Git 对象正文。不接受 ref、路径、短 SHA、revision 表达式；排除范围内、其它图／Worker 的对象和非 commit 对象均拒绝，即使同一对象库可找到它。
+
+### 快照与生命周期
+
+graph 的签名 cursor 固定 Worker、请求 delivery、实际选择轮次、tip、base、排除范围、拓扑偏移和 Event 高水位。下一页必须保留原请求 id／delivery（默认请求的归档 fallback 后仍**省略 delivery**）；切换 Worker／轮次需新请求，不混用 branch/history 游标。snapshot 固定同样身份但不含偏移，整幅图各页返回相同 snapshot，仅供 commit 读取，不能作 cursor。分页和节点详情不重新读取当前 ref，不因分支前进、回收或新增 Event 改变旧图；刷新省略 cursor，重新固定图。
+
+签名只在当前项目／daemon 实例有效，重启、换实例／项目、篡改、scope 混用或对象清理均须显示错误，用户显式刷新；不会创建长期对象保留 pin。客户端应缓存已加载有界页／详情，切换范围、刷新及离开详情时取消或忽略迟到响应；后端不自动扫描完整图、轮询或展开子交付。
+
+所有 Git 命令用共享隔离只读读取器，单次 graph 请求共享15秒截止，单次 commit 读取同为15秒；4 MiB stdout、最多4个并发读取，图／轮次每页上限100、关联审计最多1000条。详情 goal 上限16,384字符、Input／commit message各131,072字符，响应上限512 KiB；超限完整报错而不截断，可降低分页 limit。旧 `branch.version_graph`、`branch.history` 协议保持兼容，不迁移数据。
 
 ## branch.tree / branch.show
 

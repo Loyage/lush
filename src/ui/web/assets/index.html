@@ -55,18 +55,15 @@
   <div class="nav-divider" data-project-navigation><span>项目工作</span></div>
   <nav class="workspace-nav" aria-label="工作概览" data-project-navigation>
     <button type="button" id="overview-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">◈</span><span><strong>项目概览</strong><small>Worker、进展与交付</small></span><span class="nav-arrow">→</span></button>
-    <button type="button" id="task-graph-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">◇</span><span><strong>Worker 树</strong><small>Worker 与工作区</small></span><span class="nav-arrow">→</span></button>
+    <button type="button" id="task-graph-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">◇</span><span><strong>工作树</strong><small>Worker 与工作区</small></span><span class="nav-arrow">→</span></button>
   </nav>
   <nav id="side-nav" class="side-nav" aria-label="工作页面" data-project-navigation></nav>
   <nav class="workspace-nav" aria-label="输入与代码演变" data-project-navigation>
     <button type="button" id="inputs-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">≡</span><span><strong>历史输入</strong><small>草稿、提交状态与原文检索</small></span><span class="nav-arrow">→</span></button>
-    <button type="button" id="versions-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">↗</span><span><strong>版本迭代</strong><small>main 提交图与交付追溯</small></span><span class="nav-arrow">→</span></button>
 
   </nav>
   <nav class="workspace-nav" aria-label="自动动作" data-project-navigation>
     <span class="help-host" data-help="打开可用项目后才能查看自动化功能及其设置和记录。"><button type="button" id="hooks-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">⌁</span><span><strong>项目自动化</strong><small>功能列表、设置与运行记录</small></span><span class="nav-arrow">→</span></button></span>
-    <span class="help-host" data-help="打开可用项目后才能管理本项目的 Valet 绑定与时间信号。"><button type="button" id="management-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">◎</span><span><strong>Valet 设置</strong><small>时间信号与管理绑定</small></span><span class="nav-arrow">→</span></button></span>
-    <span class="help-host" data-help="打开可用项目后才能管理指令定义与 Hook 模板。"><button type="button" id="hook-tools-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">⚒</span><span><strong>指令与 Hook 工具</strong><small>指令定义与可复用模板</small></span><span class="nav-arrow">→</span></button></span>
   </nav>
   <div class="nav-divider" data-global-navigation="true"><span>设备设置与帮助</span></div>
   <nav class="support-nav" aria-label="设备设置与帮助" data-global-navigation="true">
@@ -99,11 +96,19 @@
       </div>
     </section>
     <section class="resource-page side" id="side-tasks" data-side="tasks" hidden>
-      <header class="resource-hero"><span class="resource-kicker">EXECUTION</span><h1>工作</h1><p>统一查看 Worker 开发与 Valet 管理工作，用类型、状态和编号搜索定位；开发委派关系请到「Worker 树」查看。</p></header>
+      <header class="resource-hero"><span class="resource-kicker">EXECUTION</span><h1>工作列表</h1><p>仅查看开发 Worker，用状态和编号搜索定位；开发委派关系请到「工作树」查看。筛选仅覆盖已读取范围。</p></header>
       <div class="resource-tools"><div class="filters" id="task-filters"></div><label class="sort-label help-host" tabindex="0" for="sidebar-sort" data-help="排序为设备统一偏好；等待权威配置读取后可修改。">排序<select id="sidebar-sort" class="sort" aria-label="列表排序方式"></select></label></div>
       <div class="resource-card">
-        <div class="section-title"><button type="button" class="side-head" id="side-head-tasks" data-side="tasks" aria-expanded="true" aria-controls="tasks"><span class="side-name">工作</span><span id="task-count" class="count"></span></button></div>
+        <div class="section-title"><button type="button" class="side-head" id="side-head-tasks" data-side="tasks" aria-expanded="true" aria-controls="tasks"><span class="side-name">工作列表</span><span id="task-count" class="count"></span></button></div>
         <div class="side-body" id="side-tasks-body"><div id="tasks"></div></div>
+      </div>
+    </section>
+    <section class="resource-page side" id="side-valets" data-side="valets" hidden>
+      <header class="resource-hero"><span class="resource-kicker">VALET</span><h1>管家列表</h1><p>查看持久 Valet 管理记录，使用真实 V 编号或 #内部ID 打开既有只读详情；不是绑定快照或全库搜索。</p></header>
+      <div class="resource-tools"><div class="filters" id="valet-filters"></div><p class="hint">沿用设备统一排序（可在工作列表调整）。</p></div>
+      <div class="resource-card">
+        <div class="section-title"><button type="button" class="side-head" id="side-head-valets" data-side="valets" aria-expanded="true" aria-controls="valets"><span class="side-name">管家列表</span><span id="valet-count" class="count"></span></button></div>
+        <div class="side-body" id="side-valets-body"><div id="valets"></div></div>
       </div>
     </section>
     <section class="resource-page side" id="side-intents" data-side="intents" hidden>

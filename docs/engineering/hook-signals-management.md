@@ -4,17 +4,17 @@
 
 ## 产品和授权
 
-Valet 是管理 Lush 的受限管家，与开发 Worker 共享持久执行底座，但不共享开发权限或 Git 交付流程。项目「工作」列表统一查看 Worker／Valet，类型筛选和检索只针对已读取范围；通用详情共享指令、结果、Agent 信息、调用历史和执行阅读器，Valet 另展示绑定与受控操作收据。Worker 树只表达开发委派，管理操作目标不伪造成父子关系。
+Valet 是管理 Lush 的受限管家，与开发 Worker 共享持久执行底座，但不共享开发权限或 Git 交付流程。项目「工作列表」仅查看开发 Worker，「管家列表」仅查看持久 Valet，复用同源有界分页、状态筛选和显式文本搜索，检索只针对已读取范围；通用详情共享指令、结果、Agent 信息、调用历史和执行阅读器，Valet 另展示绑定与受控操作收据。工作树只表达开发委派，管理操作目标不伪造成父子关系。
 
-独立「Valet 设置」页面（保留 `#management`）管理时间信号与绑定；`#management-history` 保留最近触发／处理安全快照及详情入口，不冒充完整工作历史。项目自动化首页不混入 Valet 配置。用户保存具名时间信号（例如「Codex 额度更新时间已到」），创建 Valet，写「开始 Wxx」／「重试失败的 Wxx」，选择信号及一次性／持续绑定。一个信号可绑定多个 Valet。默认一次性；创建、绑定不调用 Agent，信号到来才持久排队，不保证 Agent 准点获得槽。主输入框显式「管理 Lush」通过 `management.submit` 即时新建 Valet，不要求时间信号；不新增向同一 Valet 追加指令的连续对话。开发输入的可靠挂载另见[条件发射](conditional-emission.md)。
+W263／D611 删除独立「Valet 设置」及全部 Web 信号／绑定编辑入口，不迁到其他页面；旧 `#management`／`#management-history` 跳「管家列表」并说明入口已移除。管家列表读取持久 Worker 记录及有界历史，不使用 `hooks.list` 的最多 100 个绑定摘要冒充完整记录。项目自动化首页不混入 Valet 配置；已有时间信号、绑定、授权、API／CLI 与历史保留。用户通过既有管理接口保存具名时间信号（例如「Codex 额度更新时间已到」），创建 Valet，写「开始 Wxx」／「重试失败的 Wxx」，选择信号及一次性／持续绑定。一个信号可绑定多个 Valet。默认一次性；创建、绑定不调用 Agent，信号到来才持久排队，不保证 Agent 准点获得槽。主输入框显式「管理 Lush」通过 `management.submit` 即时新建 Valet，不要求时间信号；不新增向同一 Valet 追加指令的连续对话。开发输入的可靠挂载另见[条件发射](conditional-emission.md)。
 
 信号只说明时间已到，不是实际额度恢复的观测，不自动查询／切换账号，不跨项目、不启动停止的 daemon。管理 Worker 的模型／来源由用户明确选择或创建时冻结项目管理角色有效默认；不把目标 Worker 的 Codex 账号自动当作管理 Agent 的来源。
 
 管理 Agent 可发现全部当前 RPC 能力，但执行权限由 `src/rpc/management-policy.js` 明确分为安全读取、低风险自动执行、用户确认和不可用。查询诊断、有界调用历史、草稿编辑、条件发射、合法追加、开始／继续和重试可自动执行；取消、中断、合并、验收回收、删除、敏感配置及服务操作须持久预检，由用户确认精确请求后经原引擎执行。快捷指令没有预授权，但管理 Agent 调用其保存、删除、导出、旧配置导入或运行历史移除（`hooks.command_save/remove/export/import/history_remove`）仍须用户确认；读取目录和运行历史可安全查询，已删除的 command_authorize 不可调用。普通开发 Agent 不因此扩权，不可复活终态、已归档或祖先关闭的工作。
 
-### 订阅刷新时间填入
+### 历史订阅刷新时间辅助实现
 
-Web 的时间信号编辑器按需 GET `/api/agent/connections`，仅读取当前项目有效模型来源与本地观测，不调用 `query`。候选为当前 `available|partial` 观测中 `kind:'quota',scope:'account'` 的资源；显示账号名称、指标、结构化窗口与刷新时刻，填入后显示 `checked_at`。缺失／无效／已到期 `reset_at` 不可选，失败或 unknown 不从 `last_success` 补候选。不按来源启停推断额度已恢复，停用来源明确标注。
+Web 时间信号设置入口已退休；下述保留辅助函数的缓存、时间与迟到保护语义不代表仍有页面入口，也不迁往其他设置。历史时间信号编辑器按需 GET `/api/agent/connections`，仅读取当前项目有效模型来源与本地观测，不调用 `query`。候选为当前 `available|partial` 观测中 `kind:'quota',scope:'account'` 的资源；显示账号名称、指标、结构化窗口与刷新时刻，填入后显示 `checked_at`。缺失／无效／已到期 `reset_at` 不可选，失败或 unknown 不从 `last_success` 补候选。不按来源启停推断额度已恢复，停用来源明确标注。
 
 显式选择直接改为 `kind:'once'`，保留表单当前 IANA 时区，以缓存明确瞬间转换本地显示；精确 UTC at（含毫秒／DST 重叠中的明确偏移）保存，手改日期或时区后仍走既有无歧义校验。保存参数仍仅信号定义，不新增账号绑定或公开接口，不追踪后续观测。读取失败不阻塞手填；重新读缓存不覆盖已填时间；离页／跨项目／替换表单的迟到响应作废，保存中禁止填入。
 
@@ -63,7 +63,7 @@ Workspace 是项目 .lush 下专属 management 目录，不是 canonical 项目�
 
 受控动作返回 `{status:'succeeded'|'waiting'|'skipped'|'unknown',target_id,target_worker_number,reason?,receipt_id}`（尚未创建新动作的校验失败可拒绝）。成功仅表示生命周期操作已提交／排队，不冒充目标业务成功或额度已恢复。每项操作先记录授权、触发身份和收据，禁用后拒绝新操作。
 
-普通 worker.inspect 及所有公开 RPC/HTTP 出口不得泄漏字符串 management 私有 JSON 或 retry_profile。Valet 使用通用工作详情／历史／执行入口；详情不提供开发追加、运行配置编辑、合并、验收、删除或 Git 操作，不假装有分支可合并。时间信号与绑定启停仍在独立 Valet 设置页面。设置和运行记录标签同页切换保留信号与管理草稿、折叠和原 revision；显式刷新先确认放弃编辑，读取失败保留已有记录，成功 mutation 不依赖概览刷新，也不因刷新失败重做创建。配置 revision 不因时钟 tick 变化而让未改配置的表单失效。页面、项目与 document 身份共同守卫迟到响应，编辑器另核验表单身份，不串页；延迟安排 Agent 的按钮使用 agent-call 与 agentHelp。
+普通 worker.inspect 及所有公开 RPC/HTTP 出口不得泄漏字符串 management 私有 JSON 或 retry_profile。Valet 使用通用工作详情／历史／执行入口；详情不提供开发追加、运行配置编辑、合并、验收、删除或 Git 操作，不假装有分支可合并。Web 时间信号与绑定设置入口已移除；管家列表和详情不会提供重建授权或重放入口。保留 API／CLI 的 revision、去重与失败语义：成功 mutation 不依赖概览刷新，不因刷新失败重做创建，配置 revision 不因时钟 tick 变化而变更。列表分页和执行阅读器继续以页面、项目与 document 身份守卫迟到响应；仍可见的延迟安排 Agent 按钮使用 agent-call 与 agentHelp。
 
 ## 确认、作用域与恢复
 

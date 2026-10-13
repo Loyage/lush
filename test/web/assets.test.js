@@ -36,13 +36,19 @@ test('production startup and lazy module graphs are served with CSP; unknown pat
     expect(cold.size).toBeLessThan(26);
     const preloads = [...html.matchAll(/<link rel="modulepreload" href="([^"\n]+)"/g)].map(row => row[1]);
     expect(new Set([...scripts, ...styles, ...preloads])).toEqual(cold);
-    for (const name of ['render-settings', 'render-agent-status', 'render-versions', 'render-inputs', 'render-model-sources', 'render-project-automation', 'automation-feature-pages', 'management-profile-form']) {
+    for (const name of ['render-settings', 'render-agent-status', 'render-inputs', 'render-model-sources', 'render-project-automation', 'management-profile-form']) {
       const target = [...lazy].find(file => file.includes(`-${name}-`));
       expect(target).toBeTruthy(); expect(cold.has(target)).toBe(false);
     }
+    // Retired standalone pages must not be reachable from the shipped app graph.
+    for (const name of ['render-versions', 'render-management', 'shortcut-commands'])
+      expect([...lazy].some(file => file.includes(`-${name}-`))).toBe(false);
     // Follow the actual generated dynamic graph too: no missing late chunk after navigation.
     while ([...lazy].some(file => !seen.has(file))) { pending.push(...lazy); await collect(); }
     expect(seen.size).toBeGreaterThan(cold.size);
+    // Feature renderer is now a nested lazy import owned by the automation directory.
+    const feature = [...seen.keys()].find(file => file.includes('-automation-feature-pages-'));
+    expect(feature).toBeTruthy(); expect(cold.has(feature)).toBe(false);
     for (const file of ['/live.mjs', '/index.html', '/assets/app.js', '/.secret.js', '/server.js']) {
       const rejected = await fetch(f.url + file);
       expect(rejected.status).toBe(404); expect(rejected.headers.get('cache-control')).toBe('no-store');

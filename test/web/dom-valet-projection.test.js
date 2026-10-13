@@ -44,14 +44,15 @@ test('real Valet projection renders in the shared list and detail with exact con
     });
     const activity = await f.rpc.dispatch('worker.activity', { scope: 'all' });
     ui.workerNumbers = new Map(); ui.deletedWorkerIds = new Set(); ui.filters = parseFilters(null);
-    ui.filters.tasks.type = 'valet'; ui.filters.tasks.text = 'V1'; ui.selected = null;
+    ui.filters.valets.text = 'V1'; ui.selected = null;
     const snapshot = { ...(await (await world.fetchImpl('/api/snapshot')).json()),
       tasks: activity.tasks, task_page: activity.page };
     ui.lastSnapshot = snapshot;
-    activateDetailView({ view: 'tasks' }); renderTree(snapshot);
-    expect(filterTasks(activity.tasks, ui.filters.tasks).map(task => task.id)).toEqual([created.task.id]);
-    expect(dom.node('tasks').querySelectorAll('.task').map(node => Number(node.dataset.id))).toEqual([created.task.id]);
-    expect(deepText(dom.node('tasks'))).toContain('Valet');
+    activateDetailView({ view: 'valets' }); renderTree(snapshot);
+    expect(filterTasks(activity.tasks, { ...ui.filters.valets, type: 'valet' }).map(task => task.id)).toEqual([created.task.id]);
+    expect(dom.node('valets').querySelectorAll('.task').map(node => Number(node.dataset.id))).toEqual([created.task.id]);
+    expect(dom.node('tasks').querySelector(`[data-id="${created.task.id}"]`)).toBeNull();
+    expect(deepText(dom.node('valets'))).toContain('Valet');
     activateDetailView({ view: 'task', key: `task-${inspected.id}` });
     renderDetail(inspected, { events: [] }, null, null);
     const panel = dom.node('detail'), text = deepText(panel);

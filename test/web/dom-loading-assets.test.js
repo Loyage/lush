@@ -34,7 +34,7 @@ test('replacement project boot cancels an old global chunk and owns one live nav
     expect(ui.view.id).toBe('tasks'); expect(project.location.hash).toBe('#workers');
     await boot(); expect(ui.view.id).toBe('tasks'); expect(project.listeners.hashchange).toHaveLength(1);
     expect(typeof project.intervalFor(1500)).toBe('function'); expect(typeof project.intervalFor(3000)).toBe('function');
-    expect(project.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(2);
+    expect(project.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(3);
     project.location.hash = '#settings'; await project.fire('hashchange');
     expect(ui.view.id).toBe('workspace-link'); expect(project.node('detail').querySelector('button.settings-tab')).toBeNull();
     expect(project.node('detail').querySelector('a').href).toBe('/#settings');

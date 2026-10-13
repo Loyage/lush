@@ -23,19 +23,21 @@
 | 根 shell 与项目登记 | `workspace-shell.js`、`project-picker.js` | [工作台](workbench.md)、[用户工作台](user-workspace.md) |
 | 总览与诊断 | `dashboard-panel.js`、`dashboard-diagnostics.js` | [总览面板](dashboard-panel.md) |
 | 输入与历史 | `composer.js`、`render-inputs.js` | [输入接口](input-history.md)、[条件发射](conditional-emission.md) |
-| 工作列表／Worker 图／通用详情 | `render-tree.js`、`render-task-graph.js`、`detail.js` | [Worker 图](task-graph.md)、[Worker RPC](../reference/rpc/tasks.md) |
+| 工作列表／管家列表／工作树／通用详情 | `render-tree.js`、`render-task-graph.js`、`detail.js` | [Worker 图](task-graph.md)、[Worker RPC](../reference/rpc/tasks.md) |
 | 时间线与执行详情 | `render-conversation.js`、`transcript-view.js` | [阅读器](transcript-reader.md) |
 | 代码与差异 | `code-view.js`、`render-diff.js` | [代码阅读器](code-reader.md) |
-| 自动化目录／功能与辅助工具 | `render-project-automation.js`、`automation-features.js`、`render-hooks.js`、`shortcut-commands.js` | [Hooks](hooks.md)、[命令授权](shortcut-commands.md)、[历史](shortcut-command-runs.md) |
+| 自动化目录／功能与 Worker 实例挂载 | `render-project-automation.js`、`automation-features.js`、`render-hooks.js` | [Hooks](hooks.md)、[命令授权](shortcut-commands.md)、[历史](shortcut-command-runs.md) |
 | 交付／验收／删除 | `render-delivery.js`、`render-iteration.js`、`worker-delete.js` | [合并](merge.md)、[验收](worker-acceptance.md)、[删除](../reference/rpc/maintenance.md) |
 | Agent 配置与来源 | `render-agent-status.js`、`render-model-sources.js` | [Web 配置](web-agent-configuration.md)、[账号连接](agent-connections.md) |
 | 设置与设备策略 | `render-settings.js`、`settings-api.js`、`workspace-automation.js` | [设备契约](user-workspace.md) |
 | Notice 与全局收件箱 | `render-notices.js`、`global-inbox.js` | [Notice](../reference/rpc/notices.md)、[全局来源](user-workspace.md#全局收件箱分区) |
 | 维护与重启 | `project-maintenance.js`、`service-restart.js` | [维护](project-maintenance.md)、[中断完成](interrupt-completion.md)、[重启](../reference/web-routes.md#服务重启) |
-| main 版本图 | `render-versions.js` | [版本迭代](version-history.md) |
+| Worker 详情版本图与旧入口兼容 | `render-versions.js`、`retired-pages.js` | [版本迭代](version-history.md) |
 | 文档与全文检索 | `docs.js`、`render-docs.js`、`docs-search.js` | [文档维护与格式](../contributing/documentation.md) |
 
-工作列表平铺 Worker 与 Valet，按类型筛选；Worker 树独立表达开发委派层级。筛选／检索只对明确读取的范围生效，不从局部卡片估算全量。通用详情共享 Agent 与执行记录，Valet 详情展示安全绑定／操作收据而不露出开发、交付、验收、删除或 Git 操作；时间信号与绑定管理保留独立 Valet 设置页（`render-management.js`），权限见[Valet 契约](hook-signals-management.md)。
+W263／D611：「工作列表」仅展示开发 Worker，「管家列表」仅展示持久 Valet，复用 `render-tree.js` 的同源列表与既有详情；「工作树」独立表达开发委派层级。两列表共享 overview 和 `scope=all` 的有界历史分页，状态筛选即时生效、文本搜索显式提交，检索仅覆盖已读取范围；不把 `/api/hooks` 的绑定快照当完整管家历史，也不从局部卡片估算全量。Valet 使用真实 V 编号，旧未编号记录回退 `#内部ID`；详情共享 Agent 与执行记录，展示安全绑定／操作收据，不露出开发、交付、验收、删除或 Git 操作。
+
+独立 Valet 设置与指令／Hook 工具页面及其 Web 配置入口已删除，不迁往其他页面；`render-management.js`、`openHookTools` 只保留退休导航兼容。项目自动化及 Worker 实例挂载管理保留，推送功能引用指令只读；后端 API、CLI、持久配置、授权与历史不删除或迁移。旧 `#versions` 从有界 overview 读取持久 main 身份后跳真实 Worker 详情，无 main 明示不可用，不再挂独立版本页；`render-versions.js` 已由 `render-detail.js` 接入版本模块，滚入时读取有界图页，节点详情与交付轮次按需读取。路由兼容见[Web 路由](../reference/web-routes.md#worker-页面与命名)，权限见[Valet 契约](hook-signals-management.md)。
 
 设置页的 `render-settings.js` 只编排导航，`settings-interface.js`／`settings-system.js` 分别拥有偏好和系统页的请求代次；Agent 编辑从 `settings-agent.js` 进入，profile、包管理和环境编辑器各自维护草稿与缓存。模型来源的 `render-agent-connections.js` 负责选择、批量操作与页面生命周期，`connection-*` 模块分别拥有编辑／登录、历史／采样、提醒和只读展示；迟到响应仍由对应请求所有者作废，秘密不进入公开草稿。浏览器模块保持 assets 平级，构建与兼容资源路由自动发现，不另维护资源登记表。
 

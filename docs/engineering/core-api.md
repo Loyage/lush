@@ -35,7 +35,7 @@ Input（原始输入）、历史输入、Draft（暂存）仍是各自的实体�
 
 ## Worker 自定义标题
 
-用户专属 `worker.rename {id,title}` / Web 同名 action / CLI `worker rename ID '标题'` 只修改 `tasks.display_title` 展示元数据；不改 goal、固定 name、编号、Git 路径、会话、状态或调用，不唤醒 Agent。标题为最多 200 字符的单行文本，去除首尾空白，空串或 null 恢复自动标题。运行、冻结、终态及归档 Worker 均可调整；旧数据不回填，旧报告、输入历史及引用快照不回写。返回 `{id,display_title}`；inspect/list/page/子节点摘要带 display_title，graph.title 优先自定义标题。Web Worker 树两种模式「⋯ → 重命名」及普通详情提供应用内弹窗；管理型／退休详情维持只读。Agent 无写权限。
+用户专属 `worker.rename {id,title}` / Web 同名 action / CLI `worker rename ID '标题'` 只修改 `tasks.display_title` 展示元数据；不改 goal、固定 name、编号、Git 路径、会话、状态或调用，不唤醒 Agent。标题为最多 200 字符的单行文本，去除首尾空白，空串或 null 恢复自动标题。运行、冻结、终态及归档 Worker 均可调整；旧数据不回填，旧报告、输入历史及引用快照不回写。返回 `{id,display_title}`；inspect/list/page/子节点摘要带 display_title，graph.title 优先自定义标题。Web 工作树两种模式「⋯ → 重命名」及普通详情提供应用内弹窗；管理型／退休详情维持只读。Agent 无写权限。
 
 ### Agent 自动标题（W202／决定 D471）
 

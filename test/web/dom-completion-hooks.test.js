@@ -41,6 +41,7 @@ const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.
 const { closeDialog } = await import('../../src/ui/web/assets/dialog.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
 const root = () => dom.node('detail');
+const btn = label => root().querySelectorAll('button').find(node => node.textContent === label);
 const choice = (node, level) => node.querySelector(`[data-level="${level}"]`);
 const click = async (node, level) => {
   const pending = choice(node, level).onclick();
@@ -222,9 +223,9 @@ test('legacy auto-merge fallback stays read-only for children even when old sett
   expect(input.checked).toBe(true); expect(actions).toHaveLength(0);
 });
 
-test('independent Hook tools link to help without duplicating device defaults; builtin-only actions stay excluded from custom editor', async () => {
-  await openHooks(); expect(root().querySelector('.completion-defaults')).toBeNull();
-  expect(root().querySelector('.hooks-page-header').querySelector('.hook-help-link').href).toBe('/#doc-docs-hooks');
+test('retired tools cannot install builtins or duplicate device defaults; the live custom form excludes protected actions', async () => {
+  await openHooks(); expect(dom.location.hash).toBe('#hooks'); expect(root().querySelector('.completion-defaults')).toBeNull();
+  expect(btn('新建模板')).toBeUndefined(); expect(dom.node('error').textContent).toContain('入口已移除');
   expect(root().querySelectorAll('a').some(link => link.href === '/#automation')).toBe(false);
   expect(deepText(root())).not.toContain('仅内置自动链 · 不可自定义安装');
   expect(deepText(root())).not.toContain('只提醒下一人工环节');

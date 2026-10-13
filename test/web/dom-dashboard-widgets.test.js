@@ -33,6 +33,18 @@ test('v4 strict reader keeps legacy fields, null compatibility and genuine empty
   const widget = newWidget('messages', 'widget:messages', P);
   expect((await readDashboardConfig({ value: { ...base, widgets: [widget], layout: [{ id: widget.id, x: 0, y: 0, w: 4, h: 8 }] } })).widgets).toEqual([widget]);
 });
+test('retired version shortcuts remain valid stored ACKs but disappear from read-only widget projection', async () => {
+  const widget = newWidget('shortcuts', 'widget:legacy-versions');
+  widget.links = ['versions', 'workers', 'inputs'].map(target => ({ scope: 'project', project_id: P, target }));
+  const stored = structuredClone(widget);
+  const config = await readDashboardConfig({ value: { version: 4, revision: 'r4', account_view: 'list', cards: [], hidden_projects: [], layout: [], content: [], widgets: [widget] } });
+  expect(config.widgets).toEqual([stored]);
+  const rows = widgetRows(config.widgets, [source(P)], []);
+  expect(rows[0].links.map(link => link.target)).toEqual(['workers', 'inputs']);
+  const root = mount(createWidgetRenderer(), widget, { geometry: { w: 4, h: 10 } });
+  expect(root.querySelectorAll('a').map(link => link.href)).toEqual([`/p/${P}/#workers`, `/p/${P}/#inputs`]);
+  expect(widget).toEqual(stored); expect(config.widgets).toEqual([stored]); expect(requests).toEqual([]);
+});
 test('messages always two single-summary lines, exact totals/full titles/source D/N and W, 0/1/many do not add slots', async () => {
   for (const count of [0, 1, 5]) {
     notices.open = Array.from({ length: count }, (_, i) => notice(30 - i, 'question')); notices.unread = Array.from({ length: count }, (_, i) => notice(20 - i));

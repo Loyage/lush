@@ -7,7 +7,9 @@ test('Web exposes order and worker reads, not legacy mutations or pages', async 
   try {
     const page = await fetch(f.url);
     const html = await page.text();
-    expect(html).toContain('<strong>Worker 树</strong>');
+    expect(html).toContain('<strong>工作树</strong>');
+    expect(html).toContain('<h1>工作列表</h1>'); expect(html).toContain('<h1>管家列表</h1>');
+    for (const id of ['versions-open', 'management-open', 'hook-tools-open']) expect(html).not.toContain(`id="${id}"`);
     expect(html).not.toContain('Task 图');
     const workspaceNav = html.match(/<nav class="workspace-nav"[^>]*>([\s\S]*?)<\/nav>/)[1];
     expect([...workspaceNav.matchAll(/id="([^"]+)-open"/g)].map(match => match[1]))

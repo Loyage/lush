@@ -53,22 +53,28 @@ export function initSidebar() {
   const taskStatus = filterMulti('状态',
     ['queued', 'running', 'waiting', 'awaiting', 'awaiting_acceptance', 'paused', 'completed', 'failed', 'cancelled'].map(statusOption),
     ui.filters.tasks.status, value => { ui.filters.tasks.status = value; applyFilters(); });
-  const taskType = filterSelect('工作类型', [{ value: 'all', label: '全部' }, { value: 'worker', label: 'Worker' }, { value: 'valet', label: 'Valet' }], ui.filters.tasks.type || 'all',
-    value => { ui.filters.tasks.type = value; applyFilters(); });
   const taskRole = filterMulti('历史角色', Object.keys(ROLE).map(roleOption), ui.filters.tasks.role,
     value => { ui.filters.tasks.role = value; applyFilters(); });
   const taskIntegration = filterSelect('合并', [{ value: 'all', label: '全部' }, { value: 'unmerged', label: '待合并' }, { value: 'merged', label: '已合并' }],
     ui.filters.tasks.integration, value => { ui.filters.tasks.integration = value; applyFilters(); });
   const taskMine = filterToggle('只看待我处理', ui.filters.tasks.mine, value => { ui.filters.tasks.mine = value; applyFilters(); });
   const taskText = filterInput(ui.filters.tasks.text, value => { ui.filters.tasks.text = value; applyFilters(); },
-    { label: '搜索工作目标或编号', scope: '范围：overview 已加载工作（Worker / Valet），不是全库' });
-  taskText.input.placeholder = '搜索目标、W / V 编号或 #内部ID';
+    { label: '搜索工作目标或编号', scope: '范围：已读取的开发 Worker；不是全库。更早记录需加载历史。' });
+  taskText.input.placeholder = '搜索目标、W 编号或 #内部ID';
   taskText.input.setAttribute('aria-label', '搜索工作目标或编号');
   const extras = el('div', undefined, 'task-filter-extras');
-  extras.append(taskRole.wrap, taskIntegration.wrap, taskMine.wrap, el('span', '历史角色与工作类型独立；筛选仅覆盖已加载工作，更早记录需继续加载。', 'hint'));
-  $('task-filters').replaceChildren(taskText.wrap, taskType.wrap, taskStatus.wrap, extras);
+  extras.append(taskRole.wrap, taskIntegration.wrap, taskMine.wrap);
+  $('task-filters').replaceChildren(taskText.wrap, taskStatus.wrap, extras);
   filterUi.taskStatus = taskStatus;
   filterUi.taskRole = taskRole;
+  const valetStatus = filterMulti('状态',
+    ['queued', 'running', 'waiting', 'awaiting', 'paused', 'completed', 'failed', 'cancelled'].map(statusOption),
+    ui.filters.valets.status, value => { ui.filters.valets.status = value; applyFilters(); });
+  const valetText = filterInput(ui.filters.valets.text, value => { ui.filters.valets.text = value; applyFilters(); },
+    { label: '搜索管家指令或编号', scope: '范围：已读取的持久 Valet；不是全库或绑定快照。更早记录需加载历史。' });
+  valetText.input.placeholder = '搜索指令、V 编号或 #内部ID';
+  $('valet-filters')?.replaceChildren(valetText.wrap, valetStatus.wrap);
+  filterUi.valetStatus = valetStatus;
   // 规划任务：状态 / planner / 角色 / 关键字
   const specStatus = filterSelect('状态', [{ value: 'all', label: '全部状态' }, specStatusOption('pending'), specStatusOption('planned'), specStatusOption('dropped')],
     ui.filters.specs.status, value => { ui.filters.specs.status = value; applyFilters(); });

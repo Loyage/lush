@@ -33,7 +33,7 @@ export function renderManagementState(task) {
     section.append(el('p', '绑定状态暂不可用；不会默认启用或重放。', 'hint')); return section;
   }
   section.append(el('p', `${stateLabel(binding.state)} · ${binding.enabled ? '授权启用' : '授权停用'} · ${binding.mode === 'persistent' ? '持续绑定' : '一次性'}`));
-  section.append(el('p', binding.origin === 'input' ? '来源：即时 Valet 输入，不等待时间信号。' : `绑定信号：${binding.signal_id || '未知'}；绑定编辑请到 Valet 设置。`, 'hint'));
+  section.append(el('p', binding.origin === 'input' ? '来源：即时 Valet 输入，不等待时间信号。' : `绑定信号：${binding.signal_id || '未知'}；Web 绑定设置入口已移除，已有授权保留。`, 'hint'));
   if (binding.reason) section.append(el('p', binding.reason, ['failed', 'unknown'].includes(binding.state) ? 'error' : 'hint'));
   if (binding.pending_signal) section.append(el('p', `已提交待处理：${absolute(binding.pending_signal.due_at)}；等待槽或安全点，不保证准点开跑。`, 'hint'));
   const last = binding.last_execution;

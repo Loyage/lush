@@ -245,11 +245,9 @@ test('late timer catalogue response cannot open an editor after navigation', asy
   release(json(catalogue)); await loading; expect(section.querySelector('.hook-form')).toBeNull(); expect(actions).toHaveLength(0);
 });
 
-test('saving a timer template never mounts it or advertises an immediate Agent invocation', async () => {
-  await openHooks(); await btn('新建模板').onclick(); const form = root().querySelector('.hook-form');
-  input(form, 'Hook 名称').value = '日常重试'; input(form, '触发节点').value = 'time.scheduled'; input(form, '触发节点').onchange();
-  input(form, '动作类型').value = 'retry_worker'; input(form, '动作类型').onchange();
-  input(form, '目标 Worker 内部 ID（仅当前或直接父子）').value = '20'; input(form, '定时周期').value = 'daily'; input(form, '定时周期').onchange();
-  expect(btn('保存模板').classList.contains('agent-call')).toBe(false); await btn('保存模板').onclick();
-  expect(actions).toHaveLength(1); expect(actions[0]).toMatchObject({ method: 'hooks.save', params: { template: { trigger: 'time.scheduled', mode: 'persistent', schedule: { kind: 'daily' }, actions: [{ type: 'retry_worker', target_id: 20 }] } } });
+test('retired timer-template entry cannot save or mount a rule, while existing schedules remain unchanged', async () => {
+  catalogue.templates = [{ ...initial('retry_worker'), id: 'saved-timer' }]; const before = structuredClone(catalogue.templates);
+  await openHooks(); expect(dom.location.hash).toBe('#hooks');
+  expect(btn('新建模板')).toBeUndefined(); expect(btn('保存模板')).toBeUndefined(); expect(root().querySelector('.hook-form')).toBeNull();
+  expect(catalogue.templates).toEqual(before); expect(actions).toHaveLength(0);
 });

@@ -15,7 +15,7 @@ test('bound project APIs remain scoped, durably mount then dispatch inputs, and 
   const f = await setup(); await repo(f.root);
   try {
     const page = await fetch(`${f.url}/p/${projectRouteId(f.root)}/`); const html = await page.text();
-    expect(html).toContain('<h1>工作</h1>'); expect(html).toContain('id="side-head-tasks"'); expect(html).not.toContain('Worker 列表'); expect(html).not.toContain('Service');
+    expect(html).toContain('<h1>工作列表</h1>'); expect(html).toContain('id="side-head-valets"'); expect(html).not.toContain('id="management-open"'); expect(html).not.toContain('id="hook-tools-open"'); expect(html).toContain('id="side-head-tasks"'); expect(html).not.toContain('Worker 列表'); expect(html).not.toContain('Service');
     expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
     f.project.stopping = true;
     const submit = await fetch(f.url+'/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({method:'order.submit',params:{content:'web request'}})});

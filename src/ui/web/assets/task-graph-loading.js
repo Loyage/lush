@@ -117,7 +117,7 @@ export async function readTaskGraph({ summary = false, next = false, retry = fal
         page.restartRequired = true;
         if (page.staleRestarts >= 1) {
           page.hasMore = false;
-          throw new Error('Worker 树结构连续变化，已停止自动重开；请手动重试。');
+          throw new Error('工作树结构连续变化，已停止自动重开；请手动重试。');
         }
         page.staleRestarts++;
         restart = true;
@@ -173,7 +173,7 @@ export function paintGraphStatus() {
 
 export function graphTail(loadNext) {
   const tail = el('section', undefined, 'task-graph-page-tail');
-  tail.setAttribute('aria-label', 'Worker 树分页');
+  tail.setAttribute('aria-label', '工作树分页');
   tail.append(el('p', undefined, 'task-graph-page-count'));
   const note = el('p', undefined, 'hint task-graph-page-note'); note.setAttribute('role', 'status');
   const control = button('加载下一批', () => loadNext(), 'ghost');

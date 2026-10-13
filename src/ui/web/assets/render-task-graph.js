@@ -445,7 +445,7 @@ export function renderTaskGraph(graph) {
   const focusTask = document.activeElement?.closest?.('.task-graph-card')?.dataset.taskId;
   const box = el('div', undefined, `task-graph${minimal ? ' task-graph-minimal' : ''}`);
   const hero = el('header', undefined, 'resource-hero task-graph-hero');
-  hero.append(el('h1', 'Worker 树'));
+  hero.append(el('h1', '工作树'));
   const summary = el('div', undefined, 'task-graph-summary');
   const active = graph.counts ? [...counts].reduce((sum, [status, count]) =>
     sum + (ACTIVE.has(status) && !hidden.has(status) ? count : 0), 0) : nodes.filter(node => ACTIVE.has(node.status)).length;
@@ -539,7 +539,7 @@ export function renderTaskGraph(graph) {
     save(next); renderTaskGraph(full);
   };
   const foldControls = el('div', undefined, 'task-graph-fold-controls');
-  foldControls.setAttribute('role', 'group'); foldControls.setAttribute('aria-label', 'Worker 树展开与折叠');
+  foldControls.setAttribute('role', 'group'); foldControls.setAttribute('aria-label', '工作树展开与折叠');
   for (const [folded, label, key] of [[false, '全部展开', 'expand-all'], [true, '全部折叠', 'collapse-all']]) {
     const control = button(label, () => bulkFold(folded), 'ghost', {
       help: `${folded ? '折叠' : '展开'}当前已加载树中的全部子 Worker 层级；保留状态筛选、归档显示和详情模式，不改变 Worker 状态或调用 Agent。`,
@@ -589,7 +589,7 @@ export function renderTaskGraph(graph) {
 }
 
 function graphFailure(error) {
-  show(`Worker 树更新失败：${error.message}`, 'error');
+  show(`工作树更新失败：${error.message}`, 'error');
 }
 export async function loadTaskGraph(options = {}) {
   const view = ui.view;
@@ -665,7 +665,7 @@ export async function openTaskGraph() {
       void loadTaskGraph().catch(error => { if (ui.view === view) graphFailure(error); });
     }
   } catch (error) {
-    if (ui.view === view) $('detail').textContent = `Worker 树加载失败：${error.message}`;
+    if (ui.view === view) $('detail').textContent = `工作树加载失败：${error.message}`;
     throw error;
   }
 }

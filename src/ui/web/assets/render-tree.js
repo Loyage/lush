@@ -13,7 +13,7 @@ import { referenceable } from './context-references.js';
 import { progressReportingEnabled, progressStats, refreshProgressDurations, renderCompactProgress } from './render-progress.js';
 import { workerLabel, rememberWorkers } from './worker-label.js';
 import { listEntry } from './list-surface.js';
-import { isValet, workTypeLabel } from './work-type.js';
+import { isDevelopmentWorker, isValet, workTypeLabel } from './work-type.js';
 
 // DOM-owned state is discarded with the node on boot/project changes. Signatures describe
 // rendered dependencies, not updated_at (child status/progress/config can change independently).
@@ -42,8 +42,8 @@ function readingState(container) {
 }
 
 /** Relative clocks are independent of overview revision and never replace reading nodes. */
-export function refreshTreeTimes(container = $('tasks')) {
-  if (!container) return;
+export function refreshTreeTimes(container) {
+  if (!container) { for (const id of ['tasks', 'valets']) { const list = $(id); if (list) refreshTreeTimes(list); } return; }
   for (const node of container.children) {
     const state = rowState.get(node);
     if (state) patchText(state.when, relative(state.updatedAt));
@@ -89,7 +89,14 @@ function whyLine(task, index) {
 /** 兼容旧入口名称；任务列表以平铺方式渲染，关系视图由 render-task-graph.js 负责。 */
 export function renderTree(data) {
   rememberWorkers(data.tasks);
-  const container = $('tasks');
+  renderWorkList(data, 'tasks');
+  renderWorkList(data, 'valets');
+}
+function renderWorkList(data, kind) {
+  const container = $(kind); if (!container) return;
+  const valet = kind === 'valets';
+  const records = data.tasks.filter(valet ? isValet : isDevelopmentWorker);
+  const noun = valet ? '管家' : '开发 Worker';
   const restoreReading = readingState(container);
   const known = new Map([...container.children].map(node => [Number(node.dataset.id), node]));
   let list = listState.get(container);
@@ -110,12 +117,14 @@ export function renderTree(data) {
   // 全类型任务列表包含 planner，计划审批同样属于待我处理。
   const openNoticeIds = new Set((data.notices || []).filter(notice => notice.status === 'open').map(notice => notice.task_id));
   // 平铺列表只保留命中项；父子索引仅用于等待原因，不参与展示或排序。
-  const query = { ...ui.filters.tasks, openNoticeIds };
-  const visible = filterTasks(data.tasks, query);
-  const roles = [...new Set([...Object.keys(ROLE), ...uniqueValues(data.tasks, 'role')])];
-  filterUi.taskRole?.sync(roles.map(roleOption), ui.filters.tasks.role);
-  const statuses = [...new Set([...Object.keys(STATUS), ...uniqueValues(data.tasks, 'status')])];
-  filterUi.taskStatus?.sync(statuses.map(statusOption), ui.filters.tasks.status);
+  const query = { ...(valet ? ui.filters.valets : ui.filters.tasks), type: 'all', openNoticeIds };
+  const visible = filterTasks(records, query);
+  if (!valet) {
+    const roles = [...new Set([...Object.keys(ROLE), ...uniqueValues(records, 'role')])];
+    filterUi.taskRole?.sync(roles.map(roleOption), query.role);
+  }
+  const statuses = [...new Set([...Object.keys(STATUS), ...uniqueValues(records, 'status')])];
+  (valet ? filterUi.valetStatus : filterUi.taskStatus)?.sync(statuses.map(statusOption), query.status);
   const index = { children: taskId => fullByParent.get(taskId) || [] };
   const ordered = [];
   for (const task of orderTasks(visible, { mode: ui.sidebarSortMode, openNoticeIds })) {
@@ -182,23 +191,34 @@ export function renderTree(data) {
     }
     ordered.push(node);
   }
-  if (isFiltering(query) && !visible.length) ordered.push(el('div', data.task_page?.has_more
-    ? '已加载工作中没有符合筛选的条目；更早记录尚未加载，请继续加载历史。'
-    : '没有符合筛选的条目', 'filter-empty'));
+  if (!visible.length) {
+    // Empty lists poll too: retain the node just like populated rows and pagination.
+    list.empty ||= el('div', '', 'filter-empty');
+    patchText(list.empty, data.task_page?.has_more
+      ? `已加载${noun}中没有符合筛选的条目；更早记录尚未加载，请继续加载历史。`
+      : isFiltering(query) ? '没有符合筛选的条目' : `没有${noun}记录`);
+    ordered.push(list.empty);
+  }
   const page = data.task_page;
   if (page) {
-    const pagingKey = JSON.stringify(page);
+    const pagingKey = JSON.stringify([page, records.length]);
     if (list.pagingKey !== pagingKey) {
       const paging = el('div', undefined, 'task-pagination');
-      paging.append(el('span', page.truncated
-        ? `已加载全部 ${page.active} 个活动工作和最近 ${page.shown} / ${page.historical} 个历史工作（列表已截断，筛选仅覆盖已加载范围）`
-        : `已加载全部 ${page.total} 个工作`, 'hint'));
+      paging.append(el('span', `已读取 ${records.length} 个${noun}；共享工作历史${page.has_more ? '仍有更早分页未读取，筛选仅覆盖已加载范围' : '已读完'}。`, 'hint'));
+      const failure = el('p', '', 'error'); failure.hidden = true; paging.append(failure);
       if (page.has_more) {
         const more = button('加载更早 50 个', async () => {
-          more.disabled = true; more.textContent = '加载中…';
+          if (ui.taskHistoryPending) return;
+          const request = {}; ui.taskHistoryPending = request;
+          const view = ui.view, owner = globalThis.document;
+          const current = () => listState.get(container) === list && ui.deletedWorkerIds === list.scope
+            && projectBase() === list.project && ui.view === view && owner === globalThis.document;
+          more.disabled = true; more.textContent = '加载中…'; failure.hidden = true;
           try {
             const next = await api(`/api/workers?scope=all&before=${page.cursor}&limit=50`);
-            if (listState.get(container) !== list || ui.deletedWorkerIds !== list.scope || projectBase() !== list.project) return;
+            if (!current()) return;
+            if (!Array.isArray(next.tasks) || typeof next.has_more !== 'boolean'
+              || (next.has_more && (!Number.isSafeInteger(next.cursor) || next.cursor >= page.cursor))) throw new Error('历史分页读面未确认');
             next.tasks = next.tasks.filter(task => !ui.deletedWorkerIds.has(task.id));
             const loaded = new Map([...ui.taskHistory, ...next.tasks].filter(task => !ui.deletedWorkerIds.has(task.id)).map(task => [task.id, task]));
             ui.taskHistory = [...loaded.values()];
@@ -210,7 +230,12 @@ export function renderTree(data) {
             latest.tasks = [...all.values()].sort((a, b) => a.id - b.id);
             latest.task_page = ui.taskHistoryPage;
             renderTree(latest);
-          } catch (error) { more.disabled = false; more.textContent = '加载更早 50 个'; more.title = error.message; }
+          } catch (error) {
+            if (current()) { failure.textContent = `历史加载失败：${error.message}；可重试，已读取记录保留。`; failure.hidden = false; }
+          } finally {
+            if (ui.taskHistoryPending === request) ui.taskHistoryPending = null;
+            if (listState.get(container) === list && owner === globalThis.document) { more.disabled = false; more.textContent = '加载更早 50 个'; }
+          }
         }, 'ghost');
         more.type = 'button'; paging.append(more);
       }
@@ -220,11 +245,12 @@ export function renderTree(data) {
   } else { list.pagingKey = null; list.paging = null; }
   syncChildren(container, ordered);
   restoreReading();
-  const active = data.tasks.filter(task => HOT.has(task.status)).length;
+  const active = records.filter(task => HOT.has(task.status)).length;
   const matched = visible.length;
   const summary = describeFilters(query);
-  $('task-count').textContent = isFiltering(query)
-    ? `${countText(matched, data.tasks.length)}${summary ? ` · ${summary}` : ''}`
-    : `${data.tasks.length} 个 · ${active} 进行中`;
-  setNavCount('tasks', page?.total ?? data.tasks.length);
+  const count = $(valet ? 'valet-count' : 'task-count');
+  if (count) count.textContent = isFiltering(query)
+    ? `${countText(matched, records.length)}${summary ? ` · ${summary}` : ''}`
+    : `${records.length} 个已读取 · ${active} 进行中`;
+  setNavCount(kind, records.length);
 }

@@ -1,6 +1,7 @@
 import { SIDEBAR_SECTIONS } from './sidebar.js';
 import { ui } from './state.js';
 import { listSurface } from './list-surface.js';
+import { isValet } from './work-type.js';
 
 const RESOURCE_META = new Map(SIDEBAR_SECTIONS.map(section => [section.id, section]));
 const PAGES = {
@@ -11,11 +12,8 @@ const PAGES = {
   'workspace-link': ['独立用户工作台', '项目工作', '全局页面在独立标签打开'],
   unavailable: ['项目不可用', '工作台', '项目离线时仍可使用环境、设置与帮助'],
   overview: ['项目概览', '工作', '需求、执行进展与最新成果'],
-  'task-graph': ['Worker 树', '工作', 'Worker 父子关系 · Agent、分支与 worktree'],
-  versions: ['版本迭代', '工作', 'main Git 提交图 · 固定 Worker 交付追溯'],
+  'task-graph': ['工作树', '工作', 'Worker 父子关系 · Agent、分支与 worktree'],
   hooks: ['项目自动化', '工作', '功能列表 · 设置与运行记录'],
-  management: ['Valet 设置', '工作', '时间信号 · Valet 绑定与设置运行快照'],
-  'hook-tools': ['指令与 Hook 工具', '工作', '指令定义与可复用模板'],
   inputs: ['历史输入', '工作', '草稿与提交状态 · 全库原始指令检索'],
   statistics: ['用量统计', '交付与用量', 'Token 用量与预计花费 · 非实际账单'],
   settings: ['设备设置', '用户工作台', '设备唯一偏好、运行参数与网络'],
@@ -72,7 +70,9 @@ function activate(id, { key = id, title, context, hint, push = true, hash } = {}
   for (const section of SIDEBAR_SECTIONS) {
     const page = node(`side-${section.id}`); if (page) page.hidden = section.id !== id;
   }
-  selectNav(id === 'task' ? 'tasks' : id === 'notice' ? 'notices' : id);
+  const selectedWork = id === 'task' ? ui.lastSnapshot?.tasks?.find(task => task.id === ui.selected)
+    || (ui.composerTask?.id === ui.selected ? ui.composerTask : null) : null;
+  selectNav(id === 'task' ? (isValet(selectedWork) ? 'valets' : 'tasks') : id === 'notice' ? 'notices' : id);
   const meta = resource ? [resource.long, '工作', resource.description] : PAGES[id] || ['项目', '工作', ''];
   setViewChrome(title ?? meta[0], context ?? meta[1], hint ?? meta[2], { root: id === 'overview' || id === 'projects' });
   const route = id === 'tasks' ? 'workers' : id === 'task-graph' ? 'worker-graph' : id;

@@ -12,10 +12,11 @@ const valet = { id: 801, worker_number: 'V12', role: 'manager', task_kind: 'mana
       control_calls: [{ method: 'worker.cancel', status: 'pending_confirmation', notice_id: 82, notice_kind: 'questionnaire', params: { secret: 'PRIVATE_RECEIPT' } }] } },
   model_selection: { config_mode: 'lush', agent: 'pi', connection_id: 'source', model: 'openai/model', thinking: 'high', env: { secret: 'PRIVATE_MODEL' } },
   notices: [{ id: 82, kind: 'questionnaire', status: 'open', title: '确认取消', body: '确认精确请求', task_id: 801 }] };
-let response = valet;
+let response = valet, intercept = null;
 const dom = installDom({ fetch: (url, options = {}) => {
   const path = String(url); requests.push(path);
   if (options.body) actions.push(JSON.parse(options.body));
+  const custom = intercept?.(path, options); if (custom) return custom;
   if (path.includes('/api/worker-lookup')) return json(response);
   if (path.endsWith('/api/worker/801')) return json(response);
   if (path.includes('/api/worker/801/history')) return json({ events: [], next_cursor: null, has_more: false });
@@ -41,7 +42,8 @@ const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.
 beforeEach(() => {
   closeTranscriptView(); ui.disposeDetailRequests?.(); ui.workerNumbers = new Map(); ui.deletedWorkerIds = new Set();
   ui.filters = parseFilters(null); ui.lastSnapshot = { status: {}, tasks: [] }; ui.selected = null; ui.composerTask = null;
-  ui.managementPage = null; ui.detailTask = null; response = structuredClone(valet); requests.length = 0; actions.length = 0;
+  ui.managementPage = null; ui.detailTask = null; response = structuredClone(valet); requests.length = 0; actions.length = 0; intercept = null;
+  ui.taskHistory = []; ui.taskHistoryPage = null; ui.taskHistoryPending = null;
   dom.location.pathname = '/'; activateDetailView({ view: 'overview' }); dom.node('detail').replaceChildren();
 });
 afterAll(() => { closeTranscriptView(); ui.disposeDetailRequests?.(); dom.restore(); });
@@ -80,33 +82,53 @@ test('work type is distinct from historical role, filters are persisted and V se
   expect(parseFilters(JSON.stringify({ tasks: { type: 'valet' } })).tasks.type).toBe('valet');
   expect(parseFilters(JSON.stringify({ tasks: { type: 'manager' } })).tasks.type).toBe('all');
   expect(describeFilters({ type: 'valet' })).toBe('类型：Valet');
-  ui.filters.tasks.type = 'valet'; ui.filters.tasks.text = 'V12';
+  ui.filters.tasks.type = 'valet'; // Historical mixed-list preference cannot turn the development list into Valets.
+  ui.filters.valets.text = 'V12';
   renderTree({ tasks, task_page: { total: 8, active: 3, historical: 5, shown: 0, has_more: true, cursor: 700, truncated: true } });
-  expect(dom.node('tasks').querySelectorAll('.task').map(node => Number(node.dataset.id))).toEqual([801]);
-  expect(deepText(dom.node('tasks'))).toContain('Valet'); expect(deepText(dom.node('tasks'))).not.toContain('待验收');
-  expect(deepText(dom.node('tasks'))).toContain('筛选仅覆盖已加载范围');
-  ui.filters.tasks.text = 'V99'; renderTree({ tasks, task_page: { has_more: true } });
-  expect(deepText(dom.node('tasks'))).toContain('更早记录尚未加载');
+  expect(dom.node('tasks').querySelectorAll('.task').map(node => Number(node.dataset.id))).toEqual([1]);
+  expect(dom.node('valets').querySelectorAll('.task').map(node => Number(node.dataset.id))).toEqual([801]);
+  expect(deepText(dom.node('valets'))).toContain('Valet'); expect(deepText(dom.node('valets'))).not.toContain('待验收');
+  expect(deepText(dom.node('valets'))).toContain('筛选仅覆盖已加载范围');
+  ui.filters.valets.text = 'V99'; renderTree({ tasks, task_page: { has_more: true } });
+  expect(deepText(dom.node('valets'))).toContain('更早记录尚未加载');
 });
 
-test('the live All/Worker/Valet control preserves unsubmitted search drafts and navigation remains unified', async () => {
+test('separate list controls preserve unsubmitted search drafts and actual Valet identity navigation', async () => {
   const snapshot = await (await world.fetchImpl('/api/snapshot')).json();
   snapshot.tasks = [{ id: 1, role: 'research', task_kind: 'child', worker_number: 'W20', goal: '开发', status: 'waiting' }, valet];
   ui.lastSnapshot = snapshot; initSidebar(); renderTree(snapshot);
-  const select = dom.node('task-filters').querySelector('.filter-select');
-  expect(select.children.map(option => option.textContent)).toEqual(['全部', 'Worker', 'Valet']);
-  const keyword = dom.node('task-filters').querySelector('.filter-input'); keyword.value = 'V99';
+  expect(dom.node('task-filters').querySelectorAll('.filter-select')).toHaveLength(1); // Integration only; no mixed type switch.
+  const filters = dom.node('valet-filters'), keyword = filters.querySelector('.filter-input'); keyword.value = 'V99';
   await keyword.listeners.input[0]();
-  select.value = 'valet'; await select.listeners.change[0]();
-  expect(dom.node('tasks').querySelectorAll('.task').map(node => node.dataset.id)).toEqual([801]);
-  expect(keyword.value).toBe('V99'); expect(ui.filters.tasks.text).toBe('');
+  const waiting = filters.querySelector('[data-value="waiting"]').querySelector('input'); waiting.checked = true; await waiting.listeners.change[0]();
+  expect(dom.node('valets').querySelectorAll('.task').map(node => Number(node.dataset.id))).toEqual([801]);
+  expect(keyword.value).toBe('V99'); expect(ui.filters.valets.text).toBe('');
   await keyword.listeners.keydown[0]({ key: 'Enter', preventDefault() {} });
-  expect(dom.node('tasks').querySelectorAll('.task')).toHaveLength(0);
+  expect(dom.node('valets').querySelectorAll('.task')).toHaveLength(0);
   keyword.value = ''; await keyword.listeners.keydown[0]({ key: 'Enter', preventDefault() {} });
-  select.value = 'worker'; await select.listeners.change[0]();
-  expect(dom.node('tasks').querySelectorAll('.task').map(node => node.dataset.id)).toEqual([1]);
-  expect(deepText(dom.node('side-nav'))).toContain('工作');
+  expect(dom.node('tasks').querySelectorAll('.task').map(node => Number(node.dataset.id))).toEqual([1]);
+  expect(dom.node('valets').querySelectorAll('.task').map(node => Number(node.dataset.id))).toEqual([801]);
+  expect(deepText(dom.node('side-nav'))).toContain('工作列表'); expect(deepText(dom.node('side-nav'))).toContain('管家列表');
+  const details = [], restore = (await import('../../src/ui/web/assets/navigate.js')).registerNavigation({ detail: id => details.push(id) });
+  try { await dom.node('valets').querySelector('.task').onclick(); expect(details).toEqual([801]); } finally { restore(); }
   expect(actions).toHaveLength(0);
+});
+
+test('Valet list is not capped by the 100-binding snapshot and explicitly reads another bounded persistent history page', async () => {
+  const records = Array.from({ length: 112 }, (_, index) => ({ ...valet, id: 1000 + index, worker_number: index ? `V${index}` : null, status: 'completed' }));
+  const older = Array.from({ length: 50 }, (_, index) => ({ ...valet, id: 500 + index, worker_number: null, status: 'completed', goal: `更早管理 ${index}` }));
+  const data = { tasks: records, notices: [], task_page: { total: 250, active: 0, historical: 250, shown: 112, cursor: 1000, has_more: true, truncated: true } };
+  ui.lastSnapshot = data; renderTree(data);
+  expect(dom.node('valets').querySelectorAll('.task')).toHaveLength(112); expect(dom.node('tasks').querySelectorAll('.task')).toHaveLength(0);
+  expect(deepText(dom.node('valets'))).toContain('仍有更早分页未读取');
+  expect(dom.node('valet-count').textContent).toContain('112 个已读取');
+  intercept = path => path.includes('/api/workers?') ? json({ tasks: older, cursor: 500, has_more: true }) : null;
+  await dom.node('valets').querySelectorAll('button').find(node => node.textContent === '加载更早 50 个').onclick();
+  expect(requests).toEqual(['/api/workers?scope=all&before=1000&limit=50']);
+  expect(dom.node('valets').querySelectorAll('.task')).toHaveLength(162); expect(ui.taskHistory).toHaveLength(50);
+  expect(deepText(dom.node('valets'))).toContain('#500'); expect(deepText(dom.node('valets'))).not.toContain('V500');
+  expect(dom.node('valet-count').textContent).toContain('162 个已读取'); expect(requests.some(path => path.includes('/api/hooks'))).toBe(false);
+  expect(actions).toEqual([]);
 });
 
 test('Valet core detail reuses goal/result/Agent and record reader without Git or delegation reads', async () => {
@@ -140,13 +162,13 @@ test('legacy unnumbered manager still has Valet reader with no code tab, and mal
   closeTranscriptView(); transcriptCache.delete(801);
 });
 
-test('Valet settings compatibility preserves the settings snapshot route without a second everyday work list', async () => {
+test('Valet settings compatibility redirects to read-only persistent list without reading binding snapshots', async () => {
   await openManagement({ subpage: 'history' });
-  expect(dom.node('view-title').textContent).toBe('Valet 设置'); expect(dom.location.hash).toBe('#management-history');
-  expect(dom.node('detail').querySelector('a[href="#workers"]')).toBeTruthy();
+  expect(dom.node('view-title').textContent).toBe('管家列表'); expect(dom.location.hash).toBe('#valets');
+  expect(ui.indexOpen).toBe('valets'); expect(ui.managementPage).toBeNull();
   expect(dom.node('detail').querySelectorAll('.hook-manager')).toHaveLength(0);
-  expect(deepText(ui.managementPage.historyNode)).toContain('日常 Valet 工作');
-  expect(actions).toHaveLength(0);
+  expect(dom.node('error').textContent).toContain('设置入口已移除');
+  expect(requests).toHaveLength(0); expect(actions).toHaveLength(0);
 });
 
 test('development tree excludes management identity even with a malformed development task kind', () => {

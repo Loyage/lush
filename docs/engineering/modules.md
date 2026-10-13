@@ -181,7 +181,7 @@
 
 [双模式配置](agent-configuration-v2.md)、[账号连接](agent-connections.md)、[软件诊断与旧存档](agent-usage.md)；界面与运行资源分离。
 
-## main 版本迭代
+## Worker 详情版本迭代
 
 [版本图](version-history.md)：真实 Git parents 与固定成功交付证据，不按标题或可变 HEAD 猜归属。
 
