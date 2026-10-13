@@ -7,6 +7,17 @@
 - [模块地图](../engineering/modules.md)：长期职责与必要契约入口，精确导出见源码。
 - [生命周期不变量](../engineering/invariants.md)：修改 runtime 前必须保持的规则。
 
+## 定位文件与复用入口
+
+先用实际文件名或符号定位，再读取命中范围；不要靠模块名称猜路径。源码、测试与文档的只读搜索示例（按主题替换关键词）：
+
+```bash
+rg --files src test scripts docs -g '!vendor/**' -g '!*.min.js' | rg 'notice|questionnaire'
+rg -n 'questionnaire|questions-file' src/cli src/core test/notice-cli.test.js -g '!*.min.js'
+```
+
+长期职责从上面的模块地图进入；问卷示例／预检见[Notice 参考](../reference/rpc/notices.md#结构化问卷)，共享校验以 `src/core/questionnaire.js` 为准。快速集成测试的实际路径与命令用下文的 `bun run test:integration --list` 查询，不另存测试清单或为每类失误增加必读提示。
+
 ## 分层测试与交付
 
 开发阶段必须验证本次改动，不要求每个 Worker、每次提交都跑全量：

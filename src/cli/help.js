@@ -77,7 +77,9 @@ lush [--project PATH] [--json] <command>
                                       开启／重试可能产生 Agent 费用；只影响目标分支，不提高 Worker 自动权限
   branch archive BRANCH [--discard] [--continue]  特殊/失败现场清理资源；--discard 明确丢弃脏现场，--continue 续办后代
   notice list|post|answer|dismiss|read    用户决策与告知已读（显示 D/N 编号，参数仍用整数 ID）
-  notice post '标题' [--worker ID] [--body '正文']  发给指定 Worker（Agent 默认当前 Worker）
+  notice post '标题' [--worker ID] [--body '正文'] [--questions-file FILE]  发布问题（Agent 默认当前 Worker）
+  notice example                    输出可直接保存的问卷 JSON（无需项目/daemon）
+  notice check --questions-file FILE [--body '正文']  本地只读格式/限额预检，不发布、不暂停 Worker
   progress plan|complete             Agent 汇报进度
   skills list|get ID                  内置能力按需指南（支持 --json；无需项目/daemon，不读取设备配置）
   agent show|models|set|reset|prompt|env|init|network  设备 Agent 配置（用户专属）
@@ -96,6 +98,11 @@ lush [--project PATH] [--json] <command>
   config migrate                    预检当前项目旧设置/私有 Markdown 补充；不改文件
   config migrate --confirm --revision REV  按预检确认迁移，保留私有备份与旧 Markdown 原件
   config ... / agent ... --scope device  可选设备 scope；省略仍选设备，project 覆盖已停用
+
+可直接使用的问卷示例（源码仓库）：
+  bun run lush notice example > questions.json
+  bun run lush notice check --questions-file questions.json --body '背景与影响'
+  预检只校验问卷格式与限额，不证明 Worker 权限、状态或预览渲染可用。
 
 Worker／Valet ID 可用原整数或稳定编号 W5 / W5-1 / V1；编号由 daemon 解析，不是整数 ID。
 新 Valet 独立编号 V1、V2…，持续信号复用同一编号；旧管理记录不补号，V 不加入开发树或交付链。

@@ -60,9 +60,9 @@ export async function main(argv = process.argv.slice(2)) {
   }
   const handler = COMMANDS.get(command);
   if (!handler) throw new Error(`unknown command: ${command}; run lush help`);
-  // Built-in guides contain only public code resources. Return before project discovery, settings,
-  // sockets or credentials so this works outside a project and with an offline/malformed device root.
-  if (command === 'skills') {
+  // Guides and local Notice helpers return before project discovery, settings, sockets or
+  // credentials. Notice helpers read only the explicit questions file, never project state.
+  if (command === 'skills' || (command === 'notice' && notice.isLocalCommand(args))) {
     const value = await handler(command, args, { json });
     if (value !== undefined) print(value, json);
     return;

@@ -9,6 +9,8 @@ Notice 共用持久记录，但决策与告知的语义独立。Agent 需要用�
 | Host 来源增量同步（用户专属） | `notice.sync` | `{cursor?: 不透明游标, limit?: 100}` |
 | `notice post 'title' --worker ID --body 'body'` | `notice.post` | `{task, title, body?: '', questions?}` |
 | `notice post 'title' --questions-file FILE` | `notice.post` | 文件为 `{questions:[…]}`，agent 可省略 `--worker` |
+| `notice example` | 无（本地） | 输出可直接保存的问卷 JSON |
+| `notice check --questions-file FILE [--body 'body']` | 无（本地） | 只读校验格式／限额，返回 `{valid:true,question_count}` |
 | `notice answer ID 'answer'` | `notice.answer` | `{id, answer:字符串, expected_identity?:记录身份}`（旧式文字问题） |
 | `notice answer ID --answers-file FILE` | `notice.answer` | `{id, answer:{answers:[…]}, expected_identity?:记录身份}`（结构化问卷） |
 | `notice dismiss ID` | `notice.dismiss` | `{id, expected_identity?:记录身份}` |
@@ -42,19 +44,15 @@ Notice 读面另投影可空 `lifecycle_type`，依据同 Worker 的来源 Event
 
 `questions` 含 1–4 题，每题 2–4 项，结构借鉴 rpiv-ask-user-question，但调用与暂停完全由 Lush 管理，不加载交互式 pi 插件：
 
-```json
-{
-  "questions": [{
-    "header": "导航布局",
-    "question": "设置页面采用哪种导航？",
-    "options": [
-      {"label": "侧栏（推荐）", "description": "分类扩展方便，但占用横向空间。", "previewHtml": "<nav>账户<br>通知<br>安全</nav>"},
-      {"label": "顶部标签", "description": "适合分类较少的页面，内容更宽。", "preview": "账户 | 通知 | 安全"}
-    ],
-    "multiSelect": false
-  }]
-}
+```bash
+bun run lush notice example > questions.json
+# 修改示例中的问题与选项，再使用发布时相同的背景正文预检：
+bun run lush notice check --questions-file questions.json --body '背景、影响和建议'
+# 确认后才发布；Agent 发布必须是本轮最后一个动作：
+bun run lush notice post '决策标题' --questions-file questions.json --body '背景、影响和建议'
 ```
+
+`example` 始终输出 JSON，`check` 支持 `--json`；两者无需项目／daemon，不读取设备配置、不创建 Notice、不暂停 Worker。预检只读取指定的普通 JSON 文件，失败非零退出并提示错误原因及示例入口。CLI 预检和发布前检查均复用 `src/core/questionnaire.js` 的服务端契约；预检通过不证明目标 Worker 的权限／状态、开放问卷数量或预览渲染可用，发布时仍由服务端重新校验。题目字段为 `header/question/options/multiSelect?`，选项字段为 `label/description/preview?/previewHtml?`。示例由 CLI 维护，不在文档另存一份 JSON。
 
 - `header` 最多 16 字，`question` 最多 2000 字；label 最多 60 字，description 最多 2000 字，均不能为空。选项标签不可重复。
 - 推荐项排第一并在 label 标「（推荐）」，默认**不自动选择**。用户显式开启设备全局 [自动选择授权](../../engineering/daemon-auto-select.md) 后，单选固定选择第一项，多选交回 Agent 自行判断；开启也处理已有待答问卷及文字问题。多选仅用于多个选项可以同时成立的题目。
