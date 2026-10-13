@@ -64,6 +64,23 @@ test('final verification belongs to the instruction worktree before main deliver
   expect(builtInPrompt('agent')).toContain('保留原源提交');
 });
 
+test('new capabilities require a real early call chain and quick checks cannot replace final verification', () => {
+  for (const role of developmentRoles) {
+    const prompt = builtInPrompt(role);
+    for (const rule of [
+      '入口 → 注册 → 权限 → 执行 → 返回结果',
+      '使用可控 Provider／CLI 和真实 bridge',
+      '不要求调用付费模型',
+      'mock 专项不能冒充真实链路验证',
+      '复用单一来源',
+      'Provider 实际可调用集合的一致性',
+      '在最终全量前先运行适用组合',
+      '不替代功能专项或最终全量',
+      '不放宽性能或测试预算',
+    ]) expect(prompt).toContain(rule);
+  }
+});
+
 test('reuse and failure reporting require complete evidence for the actual final tree', () => {
   const prompt = PROMPT_PARTS.testing.content;
   for (const rule of [

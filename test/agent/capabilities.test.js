@@ -42,6 +42,20 @@ test('built-in Skill registry has fixed IDs/settings, portable thin entries and 
   for (const id of ['unknown', '../progress/guide.md', '/tmp/a', 'lush-progress']) expect(() => capabilityGuide(id)).toThrow('unknown built-in skill');
 });
 
+test('delegation guide keeps intermediate delivery runnable and names independent/integrated verification owners', () => {
+  const guide = capabilityGuide('delegation').content;
+  for (const rule of [
+    '公共组件的导出／参数', '生命周期', '文件不重叠不代表没有代码依赖',
+    '当前已提交、可运行的父基线', '验证并提交可运行骨架，再派工',
+    '等其实际合入后再创建依赖方', '不提前引用尚未交付的文件',
+    '不伪造兄弟模块、跳过构建或放宽预算',
+    'child 可独立完成的验证', '集成验证', '分别写明范围和负责人',
+    '受阻测试与最终补验负责人', '不能报告通过',
+  ]) expect(guide).toContain(rule);
+  // Optional delegation details stay in the guide, not in the always-on prompt.
+  expect(builtInPrompt('agent')).not.toContain('### 可构建的中间交付');
+});
+
 test('actual prompts inject short triggers, not long optional workflows, and preserve mandatory core', () => {
   const root = temp();
   try {

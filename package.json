@@ -10,6 +10,7 @@
     "test": "bun test --parallel=4 --timeout=20000",
     "test:serial": "bun test --timeout=20000",
     "test:all": "bun test --parallel=4 --timeout=20000",
+    "test:integration": "bun ./scripts/test-integration.js",
     "docs:check": "bun ./scripts/docs-check.js",
     "check:workbench": "bun ./scripts/check-workbench.js",
     "check:agent-layout": "bun ./scripts/check-agent-layout.js",
