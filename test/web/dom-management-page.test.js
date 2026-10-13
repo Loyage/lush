@@ -125,11 +125,11 @@ test('management execution entry renders timing, pagination and sorting independ
     await trigger.onclick();
     const holder = ui.transcriptView.holder, item = holder.querySelector('.step');
     expect(ui.selected).toBeNull();
-    expect(item.querySelector('.step-model-duration').textContent).toBe('模型回复用时 ≈ 2.5 秒（估算）');
-    expect(item.querySelector('.step-duration').textContent).toBe('工具用时未知');
+    expect(item.querySelector('.step-model-duration')).toBeNull();
+    expect(item.querySelector('.step-duration').hidden).toBe(true);
     all.push(output); transcriptCache.get(900).steps.push(output); appendTranscriptSteps(900, [output]);
     expect(holder.querySelector('.step')).toBe(item);
-    expect(item.querySelector('.step-duration').textContent).toBe('工具用时 ≈ 1.3 秒（估算）');
+    expect(item.querySelector('.step-duration').textContent).toBe('time≈1.3s');
     await holder.querySelector('[data-live="transcript-older"]').onclick();
     expect(deepText(holder)).toContain('inspect first');
     expect(holder.querySelector('[data-live="transcript-older"]').hidden).toBe(true);
@@ -137,7 +137,7 @@ test('management execution entry renders timing, pagination and sorting independ
     paintTranscript(901);
     expect(deepText(holder)).not.toContain('wrong Worker');
     setPref('transcriptOrder', 'asc');
-    await until(() => transcriptCache.get(900)?.order === 'asc' && holder.querySelector('.step-duration')?.textContent.includes('1.3 秒'));
+    await until(() => transcriptCache.get(900)?.order === 'asc' && holder.querySelector('.step-duration')?.textContent === 'time≈1.3s');
     expect(reads.some(path => path.includes('/api/worker/900/transcript?after=0'))).toBe(true);
     expect(ui.selected).toBe(901);
     closeTranscriptView(); expect(dom.document.activeElement).toBe(trigger); expect(ui.view.id).toBe('management');

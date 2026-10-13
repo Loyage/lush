@@ -49,15 +49,16 @@ function sourceBody(taskId, step) {
     quote: step.body, location: { task_id: taskId, section: 'transcript' } });
   return body;
 }
-function durationChip(label, ms, className, help) {
-  const chip = el('span', undefined, className);
+function durationChip(ms, help) {
+  const chip = el('span', undefined, 'step-duration');
   chip.dataset.help = help;
-  paintDuration(chip, label, ms);
+  paintDuration(chip, ms);
   return chip;
 }
-function paintDuration(chip, label, ms) {
-  if (chip) chip.textContent = Number.isFinite(ms) && ms >= 0
-    ? `${label} ≈ ${stepDurationText(ms)}（估算）` : `${label}未知`;
+function paintDuration(chip, ms) {
+  if (!chip) return;
+  chip.hidden = !Number.isFinite(ms) || ms < 0;
+  chip.textContent = chip.hidden ? '' : `time≈${stepDurationText(ms)}`;
 }
 
 // Update only metadata after cross-page pairing. Duplicate identities can arrive
@@ -77,7 +78,7 @@ function syncToolDurations(list, state) {
     const step = item.transcriptStep;
     if (step?.kind !== 'tool') continue;
     const key = callKey(step);
-    paintDuration(item.querySelector('.step-duration'), '工具用时', counts.get(key) === 1
+    paintDuration(item.querySelector('.step-duration'), counts.get(key) === 1
       ? toolDurationMs(step, results.get(key) || []) : null);
   }
 }
@@ -116,12 +117,8 @@ function stepNode(taskId, step) {
   metadata.append(el('span', `#${step.seq}`, 'step-number'));
   const chip = step.tokens?.first ? tokensChip(step.tokens) : null;
   if (chip) metadata.append(chip);
-  if (['thinking', 'text', 'tool'].includes(step.kind)) {
-    metadata.append(durationChip('模型回复用时', step.model_duration_ms, 'step-model-duration',
-      '按模型回复开始时间到完成记录写入时间估算；同一次回复中的思考、回答和工具调用共享这段用时，不能相加，也不是思考或回答各自的耗时。'));
-  }
-  if (['tool', 'result'].includes(step.kind)) {
-    metadata.append(durationChip('工具用时', toolDurationMs(step), 'step-duration',
+  if (step.kind === 'tool') {
+    metadata.append(durationChip(toolDurationMs(step),
       '按同一会话与调用 ID 的调用记录至结果记录间隔估算，可能包含排队、同批其他工具等待及写入开销，不是精确执行计时；缺少配对、重复身份或无有效时间时未知。'));
   }
   if (step.at) metadata.append(el('span', relative(step.at), 'when'));

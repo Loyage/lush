@@ -62,8 +62,8 @@ test('tool intervals require a unique session/call result and valid ordered time
 });
 
 test('duration text covers subsecond, seconds, minutes, hours and unknown values', () => {
-  expect([0, 125, 1250, 65000, 3661000].map(stepDurationText)).toEqual([
-    '0 毫秒', '125 毫秒', '1.3 秒', '1 分 5 秒', '1 小时 1 分 1 秒',
+  expect([0, 1, 125, 1000, 1250, 60000, 65000, 3600000, 5400000, 90000000].map(stepDurationText)).toEqual([
+    '0s', '0.001s', '0.125s', '1s', '1.3s', '1m', '1.1m', '1h', '1.5h', '25h',
   ]);
-  expect([null, undefined, NaN, Infinity, -1].map(stepDurationText)).toEqual(Array(5).fill('未知'));
+  expect([null, undefined, NaN, Infinity, -1].map(stepDurationText)).toEqual(Array(5).fill(''));
 });

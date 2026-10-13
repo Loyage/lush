@@ -96,7 +96,7 @@ try {
       assert(await execute(`return document.querySelector('.transcript-search-toggle').getAttribute('aria-expanded')==='false' && document.querySelector('.execution-navigation').scrollWidth<=innerWidth && document.querySelector('.transcript-toolbar').scrollWidth<=innerWidth;`), 'mobile toolbar overflow or search opened without request');
     }
     assert(box.body.right <= box.width + 1 && box.body.bottom <= box.height + 1, 'body escaped viewport');
-    assert(await execute(`const call=document.querySelector('[data-seq="2"]');return call.querySelector('.step-duration').textContent==='工具用时 ≈ 1.3 秒（估算）' && call.querySelector('.step-model-duration').textContent==='模型回复用时 ≈ 2.5 秒（估算）' && call.querySelector('.step-head').scrollWidth<=call.clientWidth && document.querySelector('.transcript-viewport').scrollWidth<=innerWidth;`), `duration metadata missing or overflowing at ${width}`);
+    assert(await execute(`const call=document.querySelector('[data-seq="2"]');return call.querySelector('.step-duration').textContent==='time≈1.3s' && !document.querySelector('.step-model-duration') && call.querySelector('.step-head').scrollWidth<=call.clientWidth && document.querySelector('.transcript-viewport').scrollWidth<=innerWidth;`), `duration metadata missing or overflowing at ${width}`);
     console.log(`PASS layout and duration metadata ${width}x${height}`);
   }
   await resize(1440, 900);
