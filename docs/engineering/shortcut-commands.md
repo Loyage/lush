@@ -48,7 +48,7 @@ CLI `hooks command list/save/export/authorize/revoke/remove/import/history`；sa
 
 ## 界面与分区
 
-`#hooks` 设置／指令管理／历史子页分离，指令列表→详情／编辑复用显式搜索和筛选，提供新增、授权、删除、导出，无手动运行或默认目录编辑。返回／重画保留草稿与原 revision；Hook 编辑只选指令版本，不填写 Shell。授权／删除说明影响，保存不执行；失败／迟到保护，旧服务缺字段保守禁用。具体历史状态／移除见[运行记录](shortcut-command-runs.md)。
+通用管理在独立辅助页面：`#hook-tools` 模板、`#hooks-commands` 指令管理、`#hook-tools-history` 全部指令历史；推送功能页另提供其引用指令的同源版本授权。指令列表→详情／编辑复用显式搜索和筛选，提供新增、授权、删除、导出，无手动运行或默认目录编辑。返回／重画保留草稿与原 revision；Hook 编辑只选指令版本，不填写 Shell。授权／删除说明影响，保存不执行；失败／迟到保护，旧服务缺字段保守禁用。具体历史状态／移除见[运行记录](shortcut-command-runs.md)。
 
 ## W151 验证记录
 

@@ -32,7 +32,8 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (body?.method === 'management.binding_update') return json({ ...manager, management: { ...manager.management, enabled: body.params.enabled, revision: 'binding-2' } });
   throw new Error(`unexpected read/action ${path} ${body?.method}`);
 } });
-const { openHooks, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
+const { workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
+const { openManagement } = await import('../../src/ui/web/assets/render-management.js');
 const { createSignalForm, createManagementForm } = await import('../../src/ui/web/assets/hook-signals.js');
 const { createManagementProfileForm } = await import('../../src/ui/web/assets/management-profile-form.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
@@ -50,16 +51,16 @@ const inlineText = node => node.classList?.contains('message-original') ? ''
 const btn = (label, node = root()) => node.querySelectorAll('button').find(item => item.textContent === label);
 const input = (label, node = root()) => node.querySelector(`[aria-label="${label}"]`);
 const newManagement = async () => {
-  await openHooks(); await btn('新建管理指令').onclick();
+  await openManagement(); await btn('新建管理指令').onclick();
   input('管理指令名称').value = '自动开跑'; input('管理指令').value = '重试失败的 W11'; input('绑定时间信号').value = signal.id;
 };
 beforeEach(() => { closeDialog(); actions = []; reads = []; intercept = null; detailCalls = []; catalogue = structuredClone(base);
-  dom.location.pathname = '/'; ui.hooksPage = null; activateDetailView({ view: 'overview' }); });
+  dom.location.pathname = '/'; ui.managementPage = null; activateDetailView({ view: 'overview' }); });
 afterAll(() => { closeDialog(); restoreNavigation(); dom.restore(); });
 
-test('Hooks page separates time signals and manager instructions from development, with safe source and history projections', async () => {
-  await openHooks();
-  expect(actions).toHaveLength(0); expect(reads).toEqual(['/api/hooks', '/api/branch-convergence']);
+test('Management page separates time signals and manager instructions from development, with safe source and history projections', async () => {
+  await openManagement();
+  expect(actions).toHaveLength(0); expect(reads).toEqual(['/api/hooks']);
   expect(deepText(root())).toContain('默认输入框仍用于开发任务');
   expect(deepText(root())).toContain('不是实际额度已恢复的观测');
   expect(deepText(root())).toContain('每天 00:05 · Asia/Shanghai');
@@ -79,7 +80,7 @@ test('即时管理来源与受控能力收据正确投影，确认不冒充执�
     control_calls: [{ method: 'worker.cancel', status: 'pending_confirmation', notice_id: 40, params: { env: { PRIVATE: 'MUST_NOT_DISPLAY' } } },
       { method: 'input.emit', status: 'unknown' }],
   } });
-  await openHooks(); const text = deepText(root());
+  await openManagement(); const text = deepText(root());
   expect(text).toContain('来源：即时管理输入，不等待时间信号'); expect(text).not.toContain('原信号已移除');
   expect(text).toContain('已提交管理输入 #50'); expect(text).toContain('待用户确认（尚未执行）');
   // Receipt projection does not contain Notice kind: do not infer D from pending_confirmation.
@@ -93,7 +94,7 @@ test('受控能力历史独立展示安全状态，无原文或主动调用', as
   catalogue.management_workers[0].management.last_execution = { actions: [], status: 'succeeded',
     control_calls: [{ method: 'input.emit', status: 'approved' }, { method: 'worker.cancel', status: 'rejected' },
       { method: 'worker.delete', status: 'failed' }, { method: 'draft.add', status: 'succeeded' }] };
-  await openHooks(); const text = deepText(root());
+  await openManagement(); const text = deepText(root());
   for (const label of ['授权已通过，等待安全点', '未获授权', '未执行，预检或授权已变化', '管理能力 draft.add：已执行']) expect(text).toContain(label);
   expect(actions).toHaveLength(0);
 });
@@ -109,7 +110,7 @@ for (const state of [{ status: 'paused', agent_wakes: 0 }, { status: 'paused', a
     const history = { events: [{ id: 500, type: 'management.signal_submitted', created_at: row.created_at,
       data: { due_at: row.created_at } }] };
     renderDetail(row, history, null, null); syncComposer();
-    expect(deepText(root())).toContain('管理指令详情只读'); expect(deepText(root())).toContain('绑定启停仅在自动化页面');
+    expect(deepText(root())).toContain('管理指令详情只读'); expect(deepText(root())).toContain('绑定启停仅在管理 Agent 页面');
     const goal = root().querySelector('.conversation-input').querySelector('.conversation-prose');
     expect(inlineText(goal)).toBe(manager.goal);
     expect(goal.querySelectorAll('.worker-link').map(node => node.getAttribute('href')))
@@ -148,7 +149,7 @@ for (const field of ['pending_signal', 'last_execution']) {
         { receipt_id: 1, action: 'start', target_id: 10, target_worker_number: 'W10', status: 'succeeded' },
         { receipt_id: 2, action: 'retry', target_id: 11, target_worker_number: null, target_worker_number_truncated: true, status: 'waiting' },
       ] };
-    await openHooks();
+    await openManagement();
     expect(deepText(root())).toContain('指令仅显示摘要；完整指令请打开下方详情。');
     expect(deepText(root())).toContain('操作摘要：显示 2 / 32 项；完整操作记录请查看下方详情与调用历史。');
     expect(deepText(root())).toContain('开始／继续 W10：已处理'); expect(deepText(root())).toContain('重试 #11：等待信号或安全点');
@@ -164,12 +165,12 @@ test('all 64 enabled compact authorizations remain individually visible and revo
       pending_signal: { id: 50, due_at: signal.next_run_at, actions_count: 32, actions_truncated: true,
         actions: [{ action: 'start', target_id: 10, target_worker_number: 'W10', status: 'succeeded' },
           { action: 'retry', target_id: 11, target_worker_number: 'W11', status: 'waiting' }] } } }));
-  await openHooks();
+  await openManagement();
   expect(root().querySelectorAll('.hook-manager')).toHaveLength(64);
   expect(root().querySelectorAll('.management-goal-truncated')).toHaveLength(64);
   expect(root().querySelectorAll('.management-actions-truncated')).toHaveLength(64);
   expect(root().querySelectorAll('button').filter(item => item.textContent === '停用管理绑定' && !item.disabled)).toHaveLength(64);
-  expect(reads).toEqual(['/api/hooks', '/api/branch-convergence']); expect(actions).toHaveLength(0);
+  expect(reads).toEqual(['/api/hooks']); expect(actions).toHaveLength(0);
   await btn('停用管理绑定').onclick();
   expect(actions).toEqual([{ method: 'management.binding_update', params: { id: 200, enabled: false, expected_revision: 'binding-1' } }]);
 });
@@ -180,17 +181,17 @@ test('legacy pending summaries without receipts retain last-action fallback and 
     last_execution: { id: 50, status: 'succeeded', actions_truncated: true,
       actions: [{ action: 'retry', target_id: 11, target_worker_number: 'W11', status: 'succeeded' }] },
   });
-  await openHooks(); expect(deepText(root())).toContain('重试 W11：已处理');
+  await openManagement(); expect(deepText(root())).toContain('重试 W11：已处理');
   expect(deepText(root())).toContain('操作摘要：仅显示部分'); expect(deepText(root())).not.toContain('undefined');
 });
 
 test('legacy complete summaries do not invent truncation notices', async () => {
-  await openHooks();
+  await openManagement();
   expect(root().querySelector('.management-goal-truncated')).toBeNull();
   expect(root().querySelector('.management-actions-truncated')).toBeNull();
 });
 
-test('management details retain the full instruction while Hooks uses a truncated preview', () => {
+test('management details retain the full instruction while management list uses a truncated preview', () => {
   const goal = '管理长指令'.repeat(4000) + '最后一句完整保留';
   renderDetail({ ...manager, goal, calls: 0, children: [], deps: [], dependents: [],
     created_at: '2030-02-02T16:05:00Z', updated_at: '2030-02-02T16:06:00Z' }, null, null, null);
@@ -200,7 +201,7 @@ test('management details retain the full instruction while Hooks uses a truncate
 });
 
 test('missing signal capability never falls back to development orders or pretends management is available', async () => {
-  delete catalogue.signals; await openHooks();
+  delete catalogue.signals; await openManagement();
   expect(btn('新建时间信号')).toBeUndefined(); expect(btn('新建管理指令')).toBeUndefined();
   expect(deepText(root())).toContain('不会回退到开发输入或直接启动'); expect(actions).toHaveLength(0);
 });
@@ -220,7 +221,7 @@ test('signal form uses explicit timezone, strict future date conversion and reta
 });
 
 test('daily signal saves only editable definition with independent signals revision and never calls a Worker', async () => {
-  await openHooks(); await btn('新建时间信号').onclick();
+  await openManagement(); await btn('新建时间信号').onclick();
   input('信号名称').value = '零点'; input('信号周期').value = 'daily'; input('信号周期').onchange();
   input('信号每日时间').value = '00:05'; input('信号时区（IANA）').value = 'Asia/Shanghai';
   const save = btn('保存时间信号'); expect(save.classList.contains('agent-call')).toBe(true); expect(save.getAttribute('data-help')).toContain('保存时不立即');
@@ -228,7 +229,7 @@ test('daily signal saves only editable definition with independent signals revis
 });
 
 test('signal save failure preserves timezone, date and text edits for revision conflict', async () => {
-  await openHooks(); await btn('新建时间信号').onclick();
+  await openManagement(); await btn('新建时间信号').onclick();
   input('信号名称').value = '新信号'; input('信号日期与时间').value = '2030-02-03T00:05'; input('信号时区（IANA）').value = 'Asia/Shanghai';
   const form = root().querySelector('.signal-form');
   intercept = (_path, body) => body?.method === 'hooks.signal_save' ? { ok: false, json: async () => ({ error: 'signal revision conflict' }) } : null;
@@ -241,13 +242,13 @@ test('signal save failure preserves timezone, date and text edits for revision c
 test('signal ticks keep configuration revisions distinct and expose missed or emitted outcomes without replay controls', async () => {
   catalogue.signals.items = [{ ...signal, id: 'old', name: '错过的半夜', enabled: false, next_run_at: null, schedule: { kind: 'once', at: '2000-01-01T00:05:00Z', timezone: 'UTC' }, last_due_at: '2000-01-01T00:05:00Z',
     last_execution: { status: 'skipped', due_at: '2000-01-01T00:05:00Z', reason: '停机错过，不补发。' } }];
-  await openHooks(); expect(deepText(root())).toContain('已跳过／错过'); expect(deepText(root())).toContain('停机错过，不补发');
+  await openManagement(); expect(deepText(root())).toContain('已跳过／错过'); expect(deepText(root())).toContain('停机错过，不补发');
   expect(btn('启用时间信号').disabled).toBe(true); expect(btn('启用时间信号').parentNode.getAttribute('data-help')).toContain('不重放历史');
   expect(catalogue.signals.revision).toBe('signals-1'); expect(actions).toHaveLength(0);
 });
 
 test('deleting an unreferenced signal requires confirmation and does not delete management history', async () => {
-  catalogue.management_workers[0].management.enabled = false; await openHooks();
+  catalogue.management_workers[0].management.enabled = false; await openManagement();
   const removing = btn('删除时间信号').onclick(); expect(actions).toHaveLength(0);
   await dialogButton(dom, '删除时间信号').onclick(); await removing;
   expect(actions).toEqual([{ method: 'hooks.signal_remove', params: { id: 'reset', expected_revision: 'signals-1' } }]);
@@ -256,15 +257,17 @@ test('deleting an unreferenced signal requires confirmation and does not delete 
 
 test('manager creation defaults to once, explicitly authorizes later invocation and never submits development input', async () => {
   await newManagement(); expect(input('信号绑定方式').value).toBe('once');
-  expect(deepText(root())).toContain('不创建或追加开发任务');
+  expect(deepText(root())).toContain('安全读取、低风险自动执行、用户确认和不可用分级');
+  expect(deepText(root())).toContain('合法追加、开始／继续和重试可自动执行');
+  expect(deepText(root())).not.toContain('首版仅');
   const save = btn('创建并绑定管理指令'); expect(save.classList.contains('agent-call')).toBe(true); expect(save.getAttribute('data-help')).toContain('不立即调用');
   const creating = save.onclick(); expect(actions).toHaveLength(0);
   expect(deepText(dom.node('modal'))).toContain('一次性绑定');
   const confirm = dialogButton(dom, '授权并创建管理指令'); expect(confirm.classList.contains('agent-call')).toBe(true);
   await confirm.onclick(); await creating;
   expect(actions).toEqual([{ method: 'management.create', params: { client_request_id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/), name: '自动开跑', instruction: '重试失败的 W11', signal_id: 'reset', mode: 'once' } }]);
-  expect(reads).toEqual(['/api/hooks', '/api/branch-convergence']); expect(btn('新建管理指令').disabled).toBe(false);
-  expect(ui.hooksPage.catalogue.management_workers.map(item => item.id)).toEqual([201, 200]);
+  expect(reads).toEqual(['/api/hooks']); expect(btn('新建管理指令').disabled).toBe(false);
+  expect(ui.managementPage.catalogue.management_workers.map(item => item.id)).toEqual([201, 200]);
 });
 
 test('persistent manager creation explains repeated fees and cancel keeps draft without any action', async () => {
@@ -325,7 +328,7 @@ test('lost management creation response retries the same form key and recovers i
   expect(dom.node('error').textContent).toContain('先检查已有管理 Worker');
   const retry = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await retry;
   expect(actions).toHaveLength(2); expect(actions[1].params.client_request_id).toBe(actions[0].params.client_request_id);
-  expect(createdCount).toBe(1); expect(ui.hooksPage.catalogue.management_workers.map(item => item.id)).toEqual([201, 200]);
+  expect(createdCount).toBe(1); expect(ui.managementPage.catalogue.management_workers.map(item => item.id)).toEqual([201, 200]);
   expect(root().querySelector('.management-form')).toBeNull();
 });
 
@@ -368,20 +371,20 @@ test('distinct management forms receive distinct creation keys without affecting
 });
 
 test('manager binding toggles use its own revision, preserve selected model and do not recreate any profile', async () => {
-  await openHooks(); expect(btn('停用管理绑定').classList.contains('agent-call')).toBe(false);
+  await openManagement(); expect(btn('停用管理绑定').classList.contains('agent-call')).toBe(false);
   await btn('停用管理绑定').onclick();
   expect(actions[0]).toEqual({ method: 'management.binding_update', params: { id: 200, enabled: false, expected_revision: 'binding-1' } });
   expect(btn('启用管理绑定').classList.contains('agent-call')).toBe(true);
   const enabling = btn('启用管理绑定').onclick(); await dialogButton(dom, '授权并启用绑定').onclick(); await enabling;
   expect(actions[1]).toEqual({ method: 'management.binding_update', params: { id: 200, enabled: true, expected_revision: 'binding-2' } });
-  expect(deepText(root())).toContain('openai-codex/codex-model'); expect(reads).toEqual(['/api/hooks', '/api/branch-convergence']);
+  expect(deepText(root())).toContain('openai-codex/codex-model'); expect(reads).toEqual(['/api/hooks']);
 });
 
 test('pending manager requests and unknown effects remain visible, escaped and non-replayable', async () => {
   Object.assign(catalogue.management_workers[0].management, { enabled: false, can_enable: false, state: 'unknown', reason: '旧调用副作用未知',
     pending_signal: { id: 50, due_at: '2030-02-02T16:05:00Z', actions: [{ action: 'retry', target_id: 11, target_worker_number: 'W11', status: 'waiting', reason: '分支冻结' }] },
     last_execution: { status: 'unknown', created_at: '2030-02-02T16:05:00Z', error: '<script>unknown</script>' } });
-  await openHooks(); expect(deepText(root())).toContain('已提交信号 #50'); expect(deepText(root())).toContain('重试 W11：等待信号或安全点 · 分支冻结');
+  await openManagement(); expect(deepText(root())).toContain('已提交信号 #50'); expect(deepText(root())).toContain('重试 W11：等待信号或安全点 · 分支冻结');
   expect(deepText(root())).toContain('旧调用副作用未知'); expect(deepText(root())).toContain('<script>unknown</script>'); expect(root().querySelector('script')).toBeNull();
   expect(btn('启用管理绑定').disabled).toBe(true); expect(btn('启用管理绑定').parentNode.getAttribute('data-help')).toContain('旧调用副作用未知');
   expect(actions).toHaveLength(0);
@@ -399,17 +402,17 @@ test('late manager profile reads remain in their independent editor and cannot p
   intercept = null; await newManagement();
   intercept = path => path.endsWith('/api/agent/config') ? new Promise(done => { resolve = done; }) : null;
   const another = btn('管理 Agent 运行设置').onclick();
-  dom.location.pathname = '/p/2222222222222222/'; await openHooks(); const next = root().querySelector('.hooks-page');
+  dom.location.pathname = '/p/2222222222222222/'; await openManagement(); const next = root().querySelector('.management-page');
   resolve(json(settings)); await another; expect(root().querySelector('.hooks-page')).toBe(next); expect(root().querySelector('.management-profile-form')).toBeNull(); expect(actions).toHaveLength(0);
 });
 
 test('late signal save cannot corrupt a different project catalogue or navigation', async () => {
-  await openHooks(); await btn('新建时间信号').onclick(); input('信号名称').value = 'Late'; input('信号周期').value = 'daily'; input('信号周期').onchange();
+  await openManagement(); await btn('新建时间信号').onclick(); input('信号名称').value = 'Late'; input('信号周期').value = 'daily'; input('信号周期').onchange();
   let resolve; intercept = (_path, body) => body?.method === 'hooks.signal_save' ? new Promise(done => { resolve = done; }) : null;
   const saving = btn('保存时间信号').onclick(); await until(() => resolve);
-  dom.location.pathname = '/p/2222222222222222/'; await openHooks(); const next = root().querySelector('.hooks-page');
+  dom.location.pathname = '/p/2222222222222222/'; await openManagement(); const next = root().querySelector('.management-page');
   resolve(json({ ...base, signals: { version: 1, revision: 'OLD PROJECT', items: [] } })); await saving;
-  expect(root().querySelector('.hooks-page')).toBe(next); expect(ui.hooksPage.catalogue.signals.revision).toBe('signals-1'); expect(dom.location.hash).toBe('#hooks');
+  expect(root().querySelector('.management-page')).toBe(next); expect(ui.managementPage.catalogue.signals.revision).toBe('signals-1'); expect(dom.location.hash).toBe('#management');
 });
 
 test('successful manager creation is not misreported when an unrelated overview refresh would fail', async () => {
@@ -417,7 +420,7 @@ test('successful manager creation is not misreported when an unrelated overview 
   try {
     await newManagement();
     const creating = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await creating;
-    expect(actions).toHaveLength(1); expect(ui.hooksPage.catalogue.management_workers[0].id).toBe(201);
+    expect(actions).toHaveLength(1); expect(ui.managementPage.catalogue.management_workers[0].id).toBe(201);
     expect(root().querySelector('.management-form')).toBeNull(); expect(dom.node('error').textContent).not.toContain('overview is unavailable');
   } finally { restore(); }
 });
@@ -426,9 +429,9 @@ test('late management creation result cannot add an old project Worker to a new 
   await newManagement(); let resolve;
   intercept = (_path, body) => body?.method === 'management.create' ? new Promise(done => { resolve = done; }) : null;
   const creating = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await until(() => resolve);
-  dom.location.pathname = '/p/2222222222222222/'; await openHooks(); const next = root().querySelector('.hooks-page');
+  dom.location.pathname = '/p/2222222222222222/'; await openManagement(); const next = root().querySelector('.management-page');
   resolve(json({ task: { ...manager, id: 999 } })); await creating;
-  expect(root().querySelector('.hooks-page')).toBe(next); expect(ui.hooksPage.catalogue.management_workers.map(item => item.id)).toEqual([200]);
+  expect(root().querySelector('.management-page')).toBe(next); expect(ui.managementPage.catalogue.management_workers.map(item => item.id)).toEqual([200]);
   expect(actions).toHaveLength(1);
 });
 
@@ -444,7 +447,7 @@ test('one-shot historical signal cannot be subscribed by a newly created managem
 test('backend can_enable projection distinguishes revoked unstarted work from consumed once authorization', async () => {
   Object.assign(catalogue.management_workers[0].management, { enabled: false, can_enable: true, state: 'stopped',
     last_execution: { status: 'skipped', reason: '未开始的信号授权已撤销' } });
-  await openHooks(); expect(btn('启用管理绑定').disabled).toBe(false);
+  await openManagement(); expect(btn('启用管理绑定').disabled).toBe(false);
   const enabling = btn('启用管理绑定').onclick(); await dialogButton(dom, '授权并启用绑定').onclick(); await enabling;
   expect(actions).toEqual([{ method: 'management.binding_update', params: { id: 200, enabled: true, expected_revision: 'binding-1' } }]);
 });
@@ -478,7 +481,7 @@ for (const state of ['queued', 'running', 'waiting_actions', 'stopped']) {
   test(`disabled binding with unfinished ${state} occurrence still protects its signal from removal`, async () => {
     Object.assign(catalogue.management_workers[0].management, { enabled: false, can_enable: false, state,
       pending_signal: { id: 50, due_at: signal.next_run_at, status: state } });
-    await openHooks();
+    await openManagement();
     const removing = btn('删除时间信号');
     expect(removing.disabled).toBe(true); expect(removing.parentNode.getAttribute('data-help')).toContain('等待调用及操作收口');
     await removing.onclick(); expect(actions).toHaveLength(0);
@@ -490,7 +493,7 @@ for (const state of ['failed', 'unknown']) {
   test(`disabled ${state} diagnostic retains history without indefinitely protecting a signal`, async () => {
     Object.assign(catalogue.management_workers[0].management, { enabled: false, can_enable: false, state,
       pending_signal: { id: 50, due_at: signal.next_run_at, status: state } });
-    await openHooks(); expect(btn('删除时间信号').disabled).toBe(false);
+    await openManagement(); expect(btn('删除时间信号').disabled).toBe(false);
     const removing = btn('删除时间信号').onclick();
     await dialogButton(dom, '删除时间信号').onclick(); await removing;
     expect(actions[0].method).toBe('hooks.signal_remove');
@@ -500,21 +503,19 @@ for (const state of ['failed', 'unknown']) {
 
 test('already-consumed once bindings never offer replay, even with a future signal and no unsafe developer actions', async () => {
   Object.assign(catalogue.management_workers[0].management, { enabled: false, state: 'succeeded', last_execution: { status: 'succeeded', finished_at: '2030-02-02T16:05:00Z' } });
-  await openHooks(); expect(btn('启用管理绑定').disabled).toBe(true); expect(btn('启用管理绑定').parentNode.getAttribute('data-help')).toContain('新建管理指令');
+  await openManagement(); expect(btn('启用管理绑定').disabled).toBe(true); expect(btn('启用管理绑定').parentNode.getAttribute('data-help')).toContain('新建管理指令');
   expect(deepText(root())).toContain('最近处理：已处理'); expect(actions).toHaveLength(0);
 });
 
-test('signal, manager and template drafts coexist in their own folding modules across an unrelated signal save', async () => {
+test('signal and manager drafts coexist in their own folding modules across an unrelated signal save', async () => {
   await newManagement(); const management = root().querySelector('.management-form'); input('管理指令名称').value = '保留管理草稿';
   await btn('新建时间信号').onclick(); const signalForm = root().querySelector('.signal-form'); input('信号名称').value = '保留时间草稿';
-  await btn('新建模板').onclick();
-  const templates = root().querySelector('[data-module="templates"]'), templateEditor = templates.querySelector('.hook-editor');
-  const draft = templateEditor.querySelector('input'); draft.value = '保留模板草稿';
-  for (const key of ['signals', 'management', 'templates']) await root().querySelector(`[data-module="${key}"]`).querySelector('.automation-module-toggle').onclick();
+  expect(btn('新建模板')).toBeUndefined();
+  for (const key of ['signals', 'management']) await root().querySelector(`[data-module="${key}"]`).querySelector('.automation-module-toggle').onclick();
   await btn('停用时间信号').onclick();
   expect(root().querySelector('.management-form')).toBe(management); expect(root().querySelector('.signal-form')).toBe(signalForm);
-  expect(input('管理指令名称').value).toBe('保留管理草稿'); expect(input('信号名称').value).toBe('保留时间草稿'); expect(templateEditor.querySelector('input')).toBe(draft); expect(draft.value).toBe('保留模板草稿');
-  for (const key of ['signals', 'management', 'templates']) expect(root().querySelector(`[data-module="${key}"]`).moduleOpen).toBe(false);
+  expect(input('管理指令名称').value).toBe('保留管理草稿'); expect(input('信号名称').value).toBe('保留时间草稿');
+  for (const key of ['signals', 'management']) expect(root().querySelector(`[data-module="${key}"]`).moduleOpen).toBe(false);
   const refreshing = btn('刷新目录').onclick(); closeDialog(); await refreshing;
   expect(input('管理指令名称').value).toBe('保留管理草稿'); expect(input('信号名称').value).toBe('保留时间草稿');
 });

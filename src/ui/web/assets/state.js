@@ -32,6 +32,7 @@ export const ui = {
   disposeServiceRestart: null, // 项目管理代际结束时取消只读批次观测，不撤销已接受请求。
   inputsPage: null, // 全库输入搜索、分页与本地编辑；不受 overview 轮询影响。
   hooksPage: null, hookCatalogue: null, hookCataloguePending: null,
+  automationPage: null, disposeProjectAutomation: null,
   composerManagement: false, composerManagementProfile: null, composerManagementResult: null, composerConditions: [], composerExclusive: false,
   composerParents: [], composerIdentity: null, composerTask: null, composerAppendTarget: null, composerError: null, syncComposer: null, composerEditRevision: 0, composerReferenceRevision: 0,
   transcriptView: null,
@@ -88,6 +89,7 @@ export function resetUiState() {
   ui.disposePageModules?.(); ui.disposePageModules = null;
   ui.hostSession = { status: 'unread', username: null, pending: null };
   ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null;
+  ui.disposeProjectAutomation?.(); ui.disposeProjectAutomation = null; ui.automationPage = null;
   ui.view = null; ui.inputsPage = null; ui.hooksPage = null; ui.hookCatalogue = null; ui.hookCataloguePending = null; ui.deletedWorkerIds = new Set(); ui.workerNumbers = new Map();
   ui.composerManagement = false; ui.composerManagementProfile = null; ui.composerManagementResult = null; ui.composerConditions = []; ui.composerExclusive = false;
   ui.composerParents = []; ui.composerIdentity = null; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerError = null; ui.syncComposer = null; ui.composerEditRevision = 0; ui.composerReferenceRevision = 0;

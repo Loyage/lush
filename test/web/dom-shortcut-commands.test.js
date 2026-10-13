@@ -27,7 +27,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (body?.method === 'worker.hook_update') { catalogue.commands.revision = 'external-revision'; return json(catalogue.command_example.hooks); }
   throw new Error(`Unexpected request ${path} ${body?.method || ''}`);
 } });
-const { openHooks, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
+const { openHookTools: openHooks, openHooks: openAutomation, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
 const { createHookForm } = await import('../../src/ui/web/assets/hook-form.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
@@ -51,14 +51,14 @@ beforeEach(() => {
 afterAll(() => { ui.hooksPage?.shortcutNode?.dispose?.(); closeDialog(); dom.restore(); });
 
 test('three independent subpages: settings contains no manager or history, commands begins with list only', async () => {
-  await openHooks(); expect(root().querySelector('.hooks-page-subtitle').textContent).toBe('指令管理与 Hook');
-  expect(section().hidden).toBe(true); expect(root().querySelector('.project-hooks').hidden).toBe(false);
-  expect(root().querySelector('.page-subnav').children.map(link => link.textContent)).toEqual(['设置', '指令管理', '历史记录']);
+  await openHooks(); expect(root().querySelector('h1').textContent).toBe('指令与 Hook 工具');
+  expect(section().hidden).toBe(true); expect(root().querySelector('.project-hooks')).toBeNull();
+  expect(root().querySelector('.page-subnav').children.map(link => link.textContent)).toEqual(['Hook 模板', '指令管理', '指令运行记录']);
   expect(reads.some(path => path.includes('executions'))).toBe(false);
   await openHooks({ subpage: 'commands' }); expect(dom.location.hash).toBe('#hooks-commands'); expect(section().hidden).toBe(false);
   expect(manager().querySelector('.shortcut-command')).toBeNull(); expect(manager().querySelector('.shortcut-command-detail-page').hidden).toBe(true);
   expect(manager().querySelector('.ui-list-page')).toBeTruthy(); expect(manager().querySelector('.ui-list-entry')).toBeTruthy();
-  expect(root().querySelector('.project-hooks').hidden).toBe(true); expect(root().querySelector('[data-module="tools"]').hidden).toBe(true);
+  expect(root().querySelector('.project-hooks')).toBeNull(); expect(root().querySelector('[data-module="tools"]').hidden).toBe(true);
   expect(root().querySelector('.shortcut-run-module')).toBeNull(); expect(root().querySelector('.shortcut-command-runs')).toBeNull(); expect(calls).toHaveLength(0);
 });
 
@@ -71,7 +71,7 @@ test('single detail/back preserves filter, selection, scroll position and focus 
 
 test('draft nodes and original revision survive subpages, returning to list, explicit refresh and unrelated Hook mutation', async () => {
   await ready(); await btn('编辑快捷指令').onclick(); const draft = field('Shell 命令'); draft.value = 'echo preserved\ngit push';
-  await openHooks(); await btn('编辑挂载', mainExample()).onclick(); await btn('保存挂载', mainExample()).onclick();
+  catalogue.commands.revision = 'external-revision'; await openHooks(); await btn('刷新目录').onclick();
   expect(ui.hooksPage.catalogue.commands.revision).toBe('external-revision');
   await openHooks({ subpage: 'commands' }); expect(field('Shell 命令')).toBe(draft);
   await btn('返回指令列表').onclick(); await openHooks({ subpage: 'history' }); await openHooks({ subpage: 'commands' }); await btn('继续指令编辑').onclick();
@@ -92,7 +92,7 @@ test('editing omits old default_worker_id, preserves its data, revokes new versi
   catalogue.commands.items[0].authorized = true; await ready(); await btn('编辑快捷指令').onclick(); field('Shell 命令').value = 'git push --tags'; await btn('保存快捷指令').onclick();
   expect(calls[0].params.command).toEqual({ id: 'push-command', name: '推送', command: 'git push --tags' });
   expect(catalogue.commands.items[0]).toMatchObject({ version: 2, authorized: false, default_worker_id: 999 }); expect(catalogue.command_example.hooks.mounts[0].actions[0].command_version).toBe(1);
-  expect(btn('启用 Hook', mainExample()).disabled).toBe(true); expect(field('默认父 Worker')).toBeNull();
+  expect(root().querySelector('.command-hook-example')).toBeNull(); expect(field('默认父 Worker')).toBeNull();
 });
 
 test('authorization and revocation explicitly pin exact version and revision, not the Hook', async () => {
@@ -134,10 +134,10 @@ test('failed authorization preserves unauthed state and never retries', async ()
 
 test('legacy inline imports keep original source revisions, safe receipts and stopped authorization', async () => {
   const mount = catalogue.command_example.hooks.mounts[0]; mount.actions = [{ type: 'command', command: 'git push' }]; mount.last_execution = { id: 8, status: 'unknown', error: '旧执行未知' };
-  await openHooks(); expect(btn('启用 Hook', mainExample()).disabled).toBe(true); expect(btn('编辑挂载', mainExample()).disabled).toBe(true);
+  await openAutomation({ feature: 'push' }); expect(btn('启用 Hook', mainExample()).disabled).toBe(true); expect(btn('编辑挂载', mainExample()).disabled).toBe(true);
   const importing = btn('导入为快捷指令', mainExample()).onclick(); await dialogButton(dom, '确认导入').onclick(); await importing;
   expect(calls[0].params).toEqual({ source: { worker_id: 1, hook_id: 'main-push' }, expected_revision: 'main-revision' }); expect(mount.last_execution.id).toBe(8); expect(btn('启用 Hook', mainExample()).disabled).toBe(true);
-  catalogue.templates[0].actions = [{ type: 'command', command: 'git push' }]; await btn('刷新目录').onclick();
+  catalogue.templates[0].actions = [{ type: 'command', command: 'git push' }]; await openHooks();
   const templateImport = btn('导入为快捷指令', root().querySelector('.hook-template')).onclick(); await dialogButton(dom, '确认导入').onclick(); await templateImport;
   expect(calls[1].params).toEqual({ source: { template_id: 'push-template' }, expected_revision: 'templates-revision' });
 });
@@ -170,7 +170,8 @@ test('missing directory can recover on explicit reread, while initial history re
 });
 
 test('missing old-service command catalogue disables management/import but does not prevent independent history reads', async () => {
-  delete catalogue.commands; catalogue.command_example.hooks.mounts[0].actions = [{ type: 'command', command: 'git push' }]; await openHooks({ subpage: 'commands' });
-  expect(deepText(section())).toContain('请更新后台服务'); expect(btn('注册快捷指令')).toBeUndefined(); const importing = btn('导入为快捷指令', mainExample()); expect(importing.disabled).toBe(true); await importing.onclick();
+  delete catalogue.commands; catalogue.templates[0].actions = [{ type: 'command', command: 'git push' }]; await openHooks({ subpage: 'commands' });
+  expect(deepText(section())).toContain('请更新后台服务'); expect(btn('注册快捷指令')).toBeUndefined();
+  await openHooks(); const importing = btn('导入为快捷指令', root().querySelector('.hook-template')); expect(importing.disabled).toBe(true); await importing.onclick();
   await openHooks({ subpage: 'history' }); await until(() => reads.some(path => path.includes('executions'))); expect(calls).toHaveLength(0);
 });

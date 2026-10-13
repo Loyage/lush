@@ -26,7 +26,7 @@
 | Worker 列表／图／详情 | `render-tree.js`、`render-task-graph.js`、`detail.js` | [Worker 图](task-graph.md)、[Worker RPC](../reference/rpc/tasks.md) |
 | 时间线与执行详情 | `render-conversation.js`、`transcript-view.js` | [阅读器](transcript-reader.md) |
 | 代码与差异 | `code-view.js`、`render-diff.js` | [代码阅读器](code-reader.md) |
-| 自动化与快捷指令 | `render-hooks.js`、`shortcut-commands.js` | [Hooks](hooks.md)、[命令授权](shortcut-commands.md)、[历史](shortcut-command-runs.md) |
+| 自动化目录／功能与辅助工具 | `render-project-automation.js`、`automation-features.js`、`render-hooks.js`、`shortcut-commands.js` | [Hooks](hooks.md)、[命令授权](shortcut-commands.md)、[历史](shortcut-command-runs.md) |
 | 交付／验收／删除 | `render-delivery.js`、`render-iteration.js`、`worker-delete.js` | [合并](merge.md)、[验收](worker-acceptance.md)、[删除](../reference/rpc/maintenance.md) |
 | Agent 配置与来源 | `render-agent-status.js`、`render-model-sources.js` | [Web 配置](web-agent-configuration.md)、[账号连接](agent-connections.md) |
 | 设置与设备策略 | `render-settings.js`、`settings-api.js`、`workspace-automation.js` | [设备契约](user-workspace.md) |
@@ -35,7 +35,7 @@
 | main 版本图 | `render-versions.js` | [版本迭代](version-history.md) |
 | 文档与全文检索 | `docs.js`、`render-docs.js`、`docs-search.js` | [文档维护与格式](../contributing/documentation.md) |
 
-Worker 列表是平铺结果，树独立表达委派层级；筛选／检索只对明确读取的范围生效，不从局部卡片估算全量。管理型 Worker 详情只读，不能露出开发、交付、验收、删除或 Git 操作；绑定管理位于自动化页，权限见[管理契约](hook-signals-management.md)。
+Worker 列表是平铺结果，树独立表达委派层级；筛选／检索只对明确读取的范围生效，不从局部卡片估算全量。管理型 Worker 详情只读，不能露出开发、交付、验收、删除或 Git 操作；时间信号与绑定管理位于独立管理 Agent 页（`render-management.js`），权限见[管理契约](hook-signals-management.md)。
 
 设置页的 `render-settings.js` 只编排导航，`settings-interface.js`／`settings-system.js` 分别拥有偏好和系统页的请求代次；Agent 编辑从 `settings-agent.js` 进入，profile、包管理和环境编辑器各自维护草稿与缓存。模型来源的 `render-agent-connections.js` 负责选择、批量操作与页面生命周期，`connection-*` 模块分别拥有编辑／登录、历史／采样、提醒和只读展示；迟到响应仍由对应请求所有者作废，秘密不进入公开草稿。浏览器模块保持 assets 平级，构建与兼容资源路由自动发现，不另维护资源登记表。
 

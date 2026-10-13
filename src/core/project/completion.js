@@ -55,6 +55,26 @@ export default {
     return { version: 1, ...value.completion_defaults, revision: value.revision };
   },
 
+  /** Bounded actual authorization directory; no active-Worker preview or private configuration escapes. */
+  completionWorkerPage({ before = null, limit = 25 } = {}) {
+    check(before === null || Number.isSafeInteger(before) && before > 0, 'before must be a positive Worker cursor');
+    check(Number.isSafeInteger(limit) && limit >= 1 && limit <= 50, 'limit must be 1..50');
+    const rows = this.store.all(`SELECT id FROM tasks WHERE layer='work' AND task_kind IN ('order','say','child')
+      ${before === null ? '' : 'AND id<?'} ORDER BY id DESC LIMIT ?`, ...(before === null ? [] : [before]), limit + 1);
+    const workers = rows.slice(0, limit).map(({ id: taskId }) => {
+      const task = this.store.task(taskId), hooks = this.taskHooks(taskId);
+      return { id: task.id, worker_number: task.worker_number ?? null, task_kind: task.task_kind,
+        status: task.status, integration: task.integration, goal: task.goal.slice(0, 200),
+        display_title: task.display_title ?? null, auto_title: task.auto_title ?? null,
+        archived: Boolean(task.branch && ['archived','deleted'].includes(this.store.branch(task.branch)?.status)),
+        reservation: booking(task) ? { status: booking(task).status } : null,
+        hooks: { worker_id: task.id, revision: hooks.revision, completion: hooks.completion,
+          mounts: hooks.mounts.filter(mount => ['auto-merge','auto-accept'].includes(mount.id))
+            .map(mount => ({ id: mount.id, actions: mount.actions, operation: mount.operation })) } };
+    });
+    return { version: 1, workers, cursor: workers.at(-1)?.id ?? before, has_more: rows.length > limit, limit };
+  },
+
   setCompletionDefaults(enabled, level, expectedRevision) {
     this.assertWritable('configure device new order completion defaults');
     const value = this.deviceAutomation.save({ completion_defaults: { enabled, level } }, expectedRevision);

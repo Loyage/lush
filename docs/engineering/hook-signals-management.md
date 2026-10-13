@@ -4,7 +4,7 @@
 
 ## 产品和授权
 
-「自动化」页面（沿用 `#hooks`）包含两个独立区域：时间信号、管理指令。用户保存具名时间信号（例如「Codex 额度更新时间已到」），创建管理型 Worker，写「开始 Wxx」／「重试失败的 Wxx」，选择信号及一次性／持续绑定。一个信号可绑定多个管理 Worker。默认一次性；创建、绑定不调用 Agent，信号到来才持久排队，不保证 Agent 准点获得槽。主输入框还可显式切换「管理 Lush」，通过 `management.submit` 即时排队，不要求时间信号；开发输入的可靠挂载另见[条件发射](conditional-emission.md)。
+独立项目「管理 Agent」页面（`#management`）包含时间信号、管理指令两个设置区域；「运行记录」（`#management-history`）展示最近信号与管理调用／受控操作的安全快照，提供真实管理详情、调用历史与执行详情入口，不冒充完整历史分页。项目自动化首页不混入管理功能。用户保存具名时间信号（例如「Codex 额度更新时间已到」），创建管理型 Worker，写「开始 Wxx」／「重试失败的 Wxx」，选择信号及一次性／持续绑定。一个信号可绑定多个管理 Worker。默认一次性；创建、绑定不调用 Agent，信号到来才持久排队，不保证 Agent 准点获得槽。主输入框还可显式切换「管理 Lush」，通过 `management.submit` 即时排队，不要求时间信号；开发输入的可靠挂载另见[条件发射](conditional-emission.md)。
 
 信号只说明时间已到，不是实际额度恢复的观测，不自动查询／切换账号，不跨项目、不启动停止的 daemon。管理 Worker 的模型／来源由用户明确选择或创建时冻结项目管理角色有效默认；不把目标 Worker 的 Codex 账号自动当作管理 Agent 的来源。
 
@@ -18,7 +18,7 @@ Web 的时间信号编辑器按需 GET `/api/agent/connections`，仅读取当�
 
 ## Worker 与执行隔离
 
-管理工作仍用 Worker / Run / Artifact / Message / Event，不新增核心业务实体。新记录 role='manager', task_kind='management'；指令放 goal，不伪造开发 Input，不建立 Git 分支，不加入自动合并／验收链。management Worker 可以没有 worker_number，Hooks 卡片按名称与内部 ID 定位；普通目标的 W 编号解析规则保持不变。
+管理工作仍用 Worker / Run / Artifact / Message / Event，不新增核心业务实体。新记录 role='manager', task_kind='management'；指令放 goal，不伪造开发 Input，不建立 Git 分支，不加入自动合并／验收链。management Worker 可以没有 worker_number，管理页面卡片按名称与内部 ID 定位；普通目标的 W 编号解析规则保持不变。
 
 Workspace 是项目 .lush 下专属 management 目录，不是 canonical 项目或任意开发 worktree。Workspaces.ensure/finish 明确识别此类型，不跑 Git clean/commit。Provider 使用独立 manager 提示词、独立会话，不能继承开发提示词、项目 AGENTS 或分支 checkpoint。管理调用只使用可信的查询／开始／重试／能力目录／安全历史／受控操作工具；不加载用户扩展／skills、不提供 read/bash/write/edit 或任意 Shell 工具，运行时扩展的连接观测／安全停止接缝保留。没有专用受限工具适配的旧 Codex CLI 后端拒绝管理调用；Pi 中使用 Codex 模型／连接不受此限制。mock／可控测试 provider 可用。
 
@@ -61,7 +61,7 @@ Workspace 是项目 .lush 下专属 management 目录，不是 canonical 项目�
 
 受控动作返回 `{status:'succeeded'|'waiting'|'skipped'|'unknown',target_id,target_worker_number,reason?,receipt_id}`（尚未创建新动作的校验失败可拒绝）。成功仅表示生命周期操作已提交／排队，不冒充目标业务成功或额度已恢复。每项操作先记录授权、触发身份和收据，禁用后拒绝新操作。
 
-普通 worker.inspect 及所有公开 RPC/HTTP 出口不得泄漏字符串 management 私有 JSON 或 retry_profile。管理型 Worker 在自动化页面显示历史／结果入口，不假装有分支可合并。配置 revision 不因时钟 tick 变化而让未改配置的表单失效。跨项目迟到响应使用现有自动化页面项目身份守卫，不串页；延迟安排 Agent 的按钮使用 agent-call 与 agentHelp。
+普通 worker.inspect 及所有公开 RPC/HTTP 出口不得泄漏字符串 management 私有 JSON 或 retry_profile。管理型 Worker 在独立管理页面显示详情／历史／执行入口，不假装有分支可合并。设置和运行记录标签同页切换保留信号与管理草稿、折叠和原 revision；显式刷新先确认放弃编辑，读取失败保留已有记录，成功 mutation 不依赖概览刷新，也不因刷新失败重做创建。配置 revision 不因时钟 tick 变化而让未改配置的表单失效。页面、项目与 document 身份共同守卫迟到响应，编辑器另核验表单身份，不串页；延迟安排 Agent 的按钮使用 agent-call 与 agentHelp。
 
 ## 确认、作用域与恢复
 

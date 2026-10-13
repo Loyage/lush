@@ -1,4 +1,13 @@
 .hooks-page, .worker-hooks { min-width: 0; }
+.automation-feature-list { list-style: none; padding: 0; margin: 0; }
+.automation-feature-link { display: grid; gap: .65rem; overflow-wrap: anywhere; }
+.automation-feature-head { display: flex; flex-wrap: wrap; align-items: center; gap: .65rem; }
+.automation-feature-description { color: var(--muted); font-size: .9rem; }
+.automation-feature-open { color: var(--accent); font-size: .85rem; }
+.automation-feature-page, .automation-feature-content, .push-settings, .automation-push { min-width: 0; display: grid; gap: 1rem; }
+.automation-feature-page[hidden], .automation-push [hidden] { display: none; }
+.automation-directory .ui-list-entry { box-sizing: border-box; }
+@media (max-width: 600px) { .automation-feature-head { align-items: flex-start; } .automation-feature-head .badge { white-space: normal; } }
 .hooks-page { display: grid; gap: 1rem; max-width: 1100px; margin-inline: auto; }
 .hooks-page-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .hook-help-link { margin-left: auto; font-size: .85rem; white-space: nowrap; }

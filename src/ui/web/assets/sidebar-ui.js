@@ -13,7 +13,9 @@ const PAGES = {
   overview: ['项目概览', '工作', '需求、执行进展与最新成果'],
   'task-graph': ['Worker 树', '工作', 'Worker 父子关系 · Agent、分支与 worktree'],
   versions: ['版本迭代', '工作', 'main Git 提交图 · 固定 Worker 交付追溯'],
-  hooks: ['项目自动化', '工作', 'Shell 授权 · 时间信号 · 实际挂载 · 项目模板'],
+  hooks: ['项目自动化', '工作', '功能列表 · 设置与运行记录'],
+  management: ['管理 Agent', '工作', '管理指令 · 时间信号与绑定记录'],
+  'hook-tools': ['指令与 Hook 工具', '工作', '定义 · 版本授权与可复用模板'],
   inputs: ['历史输入', '工作', '暂存想法 · 全库原始输入检索与发射'],
   statistics: ['用量统计', '交付与用量', 'Token 用量与预计花费 · 非实际账单'],
   settings: ['设备设置', '用户工作台', '设备唯一偏好、运行参数与网络'],
@@ -42,7 +44,7 @@ export function setViewChrome(title, context = '项目', hint = '', { root = fal
 /** 页面身份是唯一导航状态；旧读标记在此统一投影，面板不得各自设置。 */
 function activate(id, { key = id, title, context, hint, push = true, hash } = {}) {
   const changed = ui.view?.key !== key;
-  if (changed) { ui.disposePageModules?.(); ui.disposeTaskGraph?.(); ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.view = { id, key }; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerError = null; }
+  if (changed) { ui.disposeProjectAutomation?.(); ui.disposeProjectAutomation = null; ui.hooksPage?.shortcutNode?.dispose?.(); ui.disposePageModules?.(); ui.disposeTaskGraph?.(); ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.view = { id, key }; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerError = null; }
   const resource = RESOURCE_META.get(id);
   ui.indexOpen = resource ? id : null;
   ui.docsOpen = id === 'docs';

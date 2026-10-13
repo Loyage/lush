@@ -33,7 +33,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (body) { return json(body.method.startsWith('hooks.') ? catalogue : body.method === 'worker.auto_merge' ? { auto_merge: { ...task.auto_merge, enabled: body.params.enabled } } : model); }
   throw new Error(`unexpected read ${path}`);
 } });
-const { openHooks, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
+const { openHookTools: openHooks, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
 const { openWorkspaceAutomation } = await import('../../src/ui/web/assets/render-workspace-automation.js');
 const { saveDeviceAutomation } = await import('../../src/ui/web/assets/workspace-automation.js');
 const { createHookForm } = await import('../../src/ui/web/assets/hook-form.js');
@@ -51,7 +51,7 @@ afterAll(() => { closeDialog(); dom.restore(); });
 
 test('Hooks page reads catalogue, explains costs and saves templates without mounting or calling an Agent', async () => {
   await openHooks();
-  expect(dom.location.hash).toBe('#hooks'); expect(dom.node('hooks-open').getAttribute('aria-current')).toBe('page');
+  expect(dom.location.hash).toBe('#hook-tools'); expect(ui.view.id).toBe('hook-tools');
   expect(deepText(root())).toContain('模板可复用');
   expect(root().querySelector('.hooks-page-header').querySelector('.hook-help-link').href).toBe('/#doc-docs-hooks');
   expect(deepText(root())).not.toContain('允许的触发节点');
@@ -65,23 +65,17 @@ test('Hooks page reads catalogue, explains costs and saves templates without mou
   expect(actions.some(call => call.method.startsWith('worker.'))).toBe(false);
 });
 
-test('automation history deep link remains selected through a late catalogue read and shows bounded execution diagnostics', async () => {
+test('auxiliary history deep link remains selected through a late catalogue read and excludes management/push modules', async () => {
   let resolve;
   intercept = path => path.endsWith('/api/hooks') ? new Promise(done => { resolve = done; }) : null;
   const loading = openHooks(); await until(() => resolve);
   const switching = root().querySelector('[data-subpage="history"]').onclick({ preventDefault() {} });
-  resolve(json({ ...catalogue, command_example: { worker_id: 1, hook_id: 'main-log', hooks: { worker_id: 1, revision: 'r', mounts: [{ ...model.mounts[1], id: 'main-log' }] } },
-    signals: { version: 1, revision: 's', items: [{ id: 'signal', name: '信号快照', enabled: false, schedule: { kind: 'once', at: '2026-01-01T00:00:00Z', timezone: 'UTC' }, last_execution: { status: 'skipped', created_at: '2026-01-01T00:00:00Z', reason: '已错过' } }] },
-    management_workers: [{ id: 30, worker_number: 'W9', name: '管理快照', goal: '检查项目', management: { version: 1, revision: 'm', enabled: false, state: 'unknown', last_execution: { status: 'unknown', created_at: '2026-01-01T00:00:00Z', error: '<script>未知副作用</script>' } } }],
-  }));
-  await loading; await switching;
-  expect(dom.location.hash).toBe('#hooks-history');
+  resolve(json(catalogue)); await loading; await switching;
+  expect(dom.location.hash).toBe('#hook-tools-history');
   expect(root().querySelector('.page-subnav').querySelector('[aria-current="page"]').dataset.subpage).toBe('history');
-  const history = root().querySelector('.automation-history'); expect(history.hidden).toBe(false);
-  for (const text of ['动作未完成', '信号快照', '已错过', '管理快照', '未知副作用']) expect(deepText(history)).toContain(text);
-  expect(history.querySelector('script')).toBeNull(); expect(history.querySelectorAll('input')).toHaveLength(0);
-  expect(btn('查看指令、结果与调用历史', history).getAttribute('data-preview-text')).toContain('W9');
-  expect(root().querySelector('.project-hooks').hidden).toBe(true); expect(actions).toHaveLength(0);
+  expect(root().querySelector('.shortcut-history-module').hidden).toBe(false);
+  for (const selector of ['.automation-history', '.project-hooks', '.hook-signals', '.hook-managers']) expect(root().querySelector(selector)).toBeNull();
+  expect(actions).toHaveLength(0);
 });
 
 test('automation read failures retain top subpage navigation and read-only retry', async () => {
@@ -90,7 +84,7 @@ test('automation read failures retain top subpage navigation and read-only retry
   expect(root().querySelector('.hooks-page').children[0].classList.contains('page-subnav')).toBe(true);
   expect(deepText(root())).toContain('offline');
   await root().querySelector('[data-subpage="settings"]').onclick({ preventDefault() {} });
-  expect(dom.location.hash).toBe('#hooks'); expect(actions).toHaveLength(0);
+  expect(dom.location.hash).toBe('#hook-tools'); expect(actions).toHaveLength(0);
 });
 
 test('template catalogue scales with search by name, trigger and action while keeping mounts separate', async () => {
@@ -104,7 +98,7 @@ test('template catalogue scales with search by name, trigger and action while ke
   search.value = '规则 49'; search.listeners.input[0](); expect(cards().filter(card => !card.hidden)).toHaveLength(50); submit();
   expect(cards().filter(card => !card.hidden)).toHaveLength(1);
   expect(deepText(cards().find(card => !card.hidden))).toContain('模板 · 尚未挂载');
-  expect(root().querySelector('.project-hooks').querySelectorAll('.project-hook')).toHaveLength(1);
+  expect(root().querySelector('.project-hooks')).toBeNull();
   for (const query of ['agent.failed', 'notify']) {
     search.value = query; submit(); expect(cards().every(card => !card.hidden)).toBe(true);
   }
@@ -113,7 +107,7 @@ test('template catalogue scales with search by name, trigger and action while ke
   await templates.querySelector('.module-toggle').onclick();
   expect(templates.moduleBody.hidden).toBe(true);
   await root().querySelector('[data-subpage="history"]').onclick({ preventDefault() {} });
-  expect(templates.hidden).toBe(true); expect(root().querySelector('.automation-history').hidden).toBe(false);
+  expect(templates.hidden).toBe(true); expect(root().querySelector('.shortcut-history-module').hidden).toBe(false);
   await root().querySelector('[data-subpage="settings"]').onclick({ preventDefault() {} });
   expect(templates.hidden).toBe(false); expect(templates.moduleBody.hidden).toBe(true);
   expect(root().querySelector('[aria-label="查找 Hook 模板"]')).toBe(search); expect(search.value).toBe('尚未提交新词');
@@ -129,7 +123,7 @@ test('template catalogue scales with search by name, trigger and action while ke
 test('legacy project auto-select enabled/failure never becomes device authorization', async () => {
   Object.assign(catalogue.daemon_hooks.mounts[0], { enabled: true, state: 'failed', last_execution: { id: 58, notice_id: 58, status: 'failed', error: '自动答复未完成' } });
   await openHooks(); expect(root().querySelector('.daemon-auto-select')).toBeNull();
-  expect(root().querySelectorAll('a').some(link => link.href === '/#automation' && link.target === '_blank')).toBe(true);
+  expect(root().querySelector('.daemon-auto-select')).toBeNull();
   await openWorkspaceAutomation(); expect(deepText(root())).toContain('已保存：关闭');
   expect(automation.auto_select.enabled).toBe(false); expect(actions).toHaveLength(0);
 });

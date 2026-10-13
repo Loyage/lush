@@ -8,11 +8,13 @@
 
 | RPC | HTTP | 参数 |
 |---|---|---|
-| `input.history` | `GET /api/inputs` | `cursor?`、`limit?`、`q?`、`status?`、`integration?` |
+| `input.history` | `GET /api/inputs` | `cursor?`、`limit?`、`q?`、`status?`、`integration?`、`conditional?` |
 | `input.get` | `GET /api/input/{kind}/{id}` | `kind:'draft'|'input'`、`id` |
 | `input.parents` | `GET /api/input-parents` | 无 |
 
 历史列表返回 `{items,next_cursor}`，默认每页 50 条、最多 100 条，正文预览最多 1000 字并带 `content_truncated`。搜索在服务端针对完整正文进行，不是搜索预览或首页 Worker 窗口。列表包含未发射 Draft 与全部 Input；已创建 order 的草稿通过 `input_id` 保留审计联系，不作为第二条历史记录列出；等待条件／准入与已发送 append 草稿仍展示，不虚构 Input。
+
+条件发射功能使用可选 `conditional:'configured'|'mounted'` 窄读面：`configured` 查询有条件／独占的草稿及保留的条件发射收据，包含尚未发射条目；`mounted` 仅查询保存过条件信号的发射草稿，包含等待、投递中、成功、失败、未知与撤销。此视图保留已经关联真实 Input 的草稿身份与安全 `dispatch`，不将追加收据变成 Input；普通历史不传此参数，仍只列出实际创建后的 Input。过滤在数据库全库分页之前完成，cursor 绑定包括 `conditional` 在内的完整筛选条件，不能跨视图复用。收据是每条保留草稿的最近一次授权状态，不是所有历史修订的执行日志；撤销后再编辑可能改变草稿正文，已保留条件证明仍以 `dispatch.conditions` 为准。读面不提供私有运行参数、请求指纹或信号快照。
 
 条目包含 `kind`、`id`、`content`、`content_truncated`、`created_at`、`task_id`、`parent_id`、`branch`、`status`、`integration`、`merge_status`、`revision`。详情另返回完整正文和 `references`，草稿还返回 `mode,target_id,target_worker_number,conditions,exclusive,dispatch` 和兼容 `hook_mount:{parent_id,hook_id,state}|null`；Input 原文只读。缺失 Worker 的旧输入保留，状态为 `unknown`。
 
@@ -49,7 +51,8 @@
 - `src/core/project/input-history.js`：公共草稿动作、父身份校验、历史详情与列表接缝。
 - `src/persistence/store/input-history.js`：数据库有界分页与状态投影。
 - `src/core/project/input-emissions.js`：持久授权、条件信号、独占及异步准入；`order.js` 保留实际创建原语。
-- `src/ui/web/assets/render-inputs.js` / `styles-inputs.css`：`#inputs` 页面、显式查询与分页、暂存编辑、原文详情。
+- `src/ui/web/assets/render-inputs.js` / `styles-inputs.css`：`#inputs` 页面、显式查询与分页、暂存编辑、原文详情；`createInputBrowser` 提供同一编辑器的嵌入模式，不修改全局页面、地址或详情根。
+- `src/ui/web/assets/automation-emission.js`：`renderEmissionAutomation({ownsPage,catalogue})` 返回功能正文 DOM，`ready` 为初始读取 Promise，`setSubpage('settings'|'history')` 切换正文（默认设置），`dispose()` 释放编辑器并使迟到响应失效；父页面负责标题、返回与标签。标签往返保留未保存编辑，写入沿用单条草稿版本、请求去重与独立授权。
 - `src/ui/web/assets/composer.js`：主输入框快捷键、暂存与直接发送，独立完整父候选读面。
 
 前端显式查询与刷新历史，不随 overview 重画编辑内容；所有异步响应核对页面身份，失败保留编辑，发射按钮单飞。CLI 不恢复旧 draft 命令，也不新增批量提交。
@@ -64,6 +67,7 @@
 
 - `test/project/input-history.test.js`：状态、全库搜索分页、父身份、重开持久化、乐观锁和发射/编辑/删除竞态。
 - `test/web/input-history.test.js`：HTTP 路由与参数白名单。
+- `test/project/conditional-input-history.test.js` / `test/web/dom-automation-emission.test.js`：条件输入全库分页、成功后收据、安全投影与嵌入编辑、分页、标签保留、跨项目／离页迟到保护。
 - `test/web/dom-input-buffer.test.js` / `dom-inputs.test.js`：键盘、输入法、单飞、编辑与迟到响应保护。
 - `test/web/dom-inputs-api.test.js`：真实临时 HTTP/RPC/SQLite/Git 串联暂存、搜索、修订保存、挂载后实际创建及原始引用回看，不连接用户项目。
 - `bun scripts/check-input-history-ui.js`：Firefox/geckodriver 临时 fixture，验证双主题 1440/900/500px 实际视口的等高列表/详情布局、浏览器后退与键盘交互；Firefox 将请求的 390px 窗口限制为 500px 视口，不据此声称验证了 390px。

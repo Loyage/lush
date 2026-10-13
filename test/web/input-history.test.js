@@ -26,9 +26,14 @@ test('HTTP input history/detail/parent reads and versioned draft actions use tas
     expect((await get('/api/inputs')).body.items).toHaveLength(1);
     expect((await get(`/api/input/draft/${d.id}`)).status).toBe(400);
     expect((await post('order.submit', { draft_id: d.id, expected_revision: 2 })).status).toBe(400);
+    const conditional = (await post('draft.add', { content: 'conditional draft', conditions: [{ kind: 'parent_quiet' }] })).body;
+    expect((await get('/api/inputs?conditional=configured&limit=1')).body.items.map(item => item.id)).toEqual([conditional.id]);
+    expect((await get('/api/inputs?conditional=mounted')).body.items).toEqual([]);
+    expect((await post('input.emit', { draft_id: conditional.id, expected_revision: conditional.revision })).status).toBe(200);
+    expect((await get('/api/inputs?conditional=mounted')).body.items[0]).toMatchObject({ id: conditional.id, kind: 'draft', dispatch: { state: 'waiting_conditions' } });
     const second = (await post('draft.add', { content: 'delete me' })).body;
     expect((await post('draft.remove', { id: second.id, expected_revision: second.revision })).status).toBe(200);
-    for (const path of ['/api/inputs?status=all','/api/inputs?limit=0','/api/inputs?q=x&q=y','/api/inputs?alien=1','/api/input-parents?extra=1',`/api/input/input/${sent.body.id}?extra=1`]) expect((await get(path)).status).toBe(400);
+    for (const path of ['/api/inputs?conditional=all','/api/inputs?conditional=configured&conditional=mounted','/api/inputs?status=all','/api/inputs?limit=0','/api/inputs?q=x&q=y','/api/inputs?alien=1','/api/input-parents?extra=1',`/api/input/input/${sent.body.id}?extra=1`]) expect((await get(path)).status).toBe(400);
     expect((await get('/api/input/task/1')).status).toBe(404);
     expect((await post('draft.commit', {})).status).toBe(400);
     expect((await post('input.submit', { content: 'old' })).status).toBe(400);

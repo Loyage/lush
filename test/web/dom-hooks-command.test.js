@@ -24,7 +24,8 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (body?.method === 'hooks.save') return json(catalogue);
   throw new Error(`Unexpected request ${path} ${body?.method || ''}`);
 } });
-const { openHooks, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
+const { openHooks: openAutomation, openHookTools, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
+const openHooks = options => openAutomation({ feature: 'push', ...options });
 const { createHookForm } = await import('../../src/ui/web/assets/hook-form.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { closeDialog } = await import('../../src/ui/web/assets/dialog.js');
@@ -100,14 +101,12 @@ test('example refresh rereads authoritative revision after runtime observation a
   expect(actions.at(-1).params.expected_revision).toBe('observed-revision');
 });
 
-test('command example refresh preserves independent project template draft and never renders legacy project defaults', async () => {
+test('push settings no longer contain template or legacy default editors', async () => {
   catalogue.completion_defaults = { version: 1, enabled: false, level: 'merge', revision: 'defaults-revision' };
-  await openHooks(); await btn('新建模板').onclick(); const form = root().querySelector('.hook-form');
-  field(form, 'Hook 名称').value = '独立模板草稿';
+  await openHooks();
+  expect(btn('新建模板')).toBeUndefined(); expect(root().querySelector('.completion-defaults')).toBeNull();
   const enabling = btn('启用 Hook', example()).onclick(); await dialogButton(dom, '启用指令 Hook').onclick(); await enabling;
-  expect(root().querySelector('.completion-defaults')).toBeNull(); expect(root().querySelector('.hook-form')).toBe(form);
-  expect(field(form, 'Hook 名称').value).toBe('独立模板草稿'); expect(deepText(example())).toContain('git push');
-  expect(actions.some(call => call.method === 'hooks.completion_defaults')).toBe(false);
+  expect(deepText(example())).toContain('git push'); expect(actions.some(call => call.method === 'hooks.completion_defaults')).toBe(false);
 });
 
 test('command result displays safe exit and timeout diagnostics without raw output', async () => {
@@ -156,10 +155,10 @@ test('editing enabled Hook confirms exact authorized version; copies remain disa
 });
 
 test('template edits are isolated; copies save new disabled template without invoking Agent or mounting', async () => {
-  await openHooks(); await btn('编辑来源模板').onclick(); field(root().querySelector('.hook-form'), '快捷指令版本').value = 'tags-command:1';
+  await openHookTools(); await btn('编辑模板').onclick(); field(root().querySelector('.hook-form'), '快捷指令版本').value = 'tags-command:1';
   await btn('保存模板').onclick(); expect(actions.at(-1)).toMatchObject({ method: 'hooks.save', params: { expected_revision: 'template-revision', template: { id: template.id, actions: [{ type: 'command', command_id: 'tags-command', command_version: 1 }] } } });
-  expect(deepText(example())).toContain('git push'); expect(deepText(example())).not.toContain('git push --tags');
-  await btn('复制为停用模板', example()).onclick(); field(root().querySelector('.hook-form'), '启用此 Hook').checked = true;
+  expect(catalogue.command_example.hooks.mounts[0].actions).toEqual(command.actions);
+  await btn('复制为停用模板').onclick(); field(root().querySelector('.hook-form'), '启用此 Hook').checked = true;
   expect(btn('保存停用模板副本').classList.contains('agent-call')).toBe(false); await btn('保存停用模板副本').onclick();
   expect(actions.at(-1).params.template.enabled).toBe(false); expect(actions.at(-1).params.template).not.toHaveProperty('id');
   expect(actions.at(-1).params.template).not.toHaveProperty('last_execution'); expect(actions.every(item => item.method === 'hooks.save')).toBe(true);
@@ -204,7 +203,7 @@ test('safe profile metadata edits omit secrets; copies require explicit full rep
 test('late full edit response does not repaint a new page; template refresh does not discard unsaved example edits silently', async () => {
   await openHooks(); await btn('编辑挂载', example()).onclick(); const form = example().querySelector('.hook-form');
   field(form, '快捷指令版本').value = 'tags-command:1';
-  const refreshing = btn('刷新目录').onclick(); expect(deepText(dom.node('modal'))).toContain('未保存编辑会丢失');
+  const refreshing = btn('刷新推送设置').onclick(); expect(deepText(dom.node('modal'))).toContain('未保存的挂载编辑会丢失');
   closeDialog(); await refreshing; expect(example().querySelector('.hook-form')).toBe(form);
   let resolve; intercept = (_path, body) => body?.method === 'worker.hook_update' ? new Promise(done => { resolve = done; }) : null;
   const saving = btn('保存挂载', example()).onclick(); await until(() => resolve);
@@ -212,13 +211,12 @@ test('late full edit response does not repaint a new page; template refresh does
   resolve(json(model)); await saving; expect(root().children).toEqual([next]);
 });
 
-test('project template save retains unsaved example editor and uses its originally captured optimistic revision', async () => {
-  intercept = (_path, body) => body?.method === 'hooks.save' ? json({ ...catalogue, revision: 'new-template-revision' }) : null;
+test('feature tab switches retain unsaved push editor and its originally captured optimistic revision', async () => {
   await openHooks(); await btn('编辑挂载', example()).onclick(); const form = example().querySelector('.hook-form');
-  field(form, '快捷指令版本').value = 'tags-command:1'; await btn('编辑模板').onclick();
-  await btn('保存模板').onclick(); expect(actions.at(-1).params.expected_revision).toBe('template-revision');
-  expect(ui.hooksPage.catalogue.revision).toBe('new-template-revision');
+  field(form, '快捷指令版本').value = 'tags-command:1';
+  await openHooks({ subpage: 'history' }); await openHooks();
   expect(example().querySelector('.hook-form')).toBe(form); expect(field(form, '快捷指令版本').value).toBe('tags-command:1');
+  await btn('保存挂载', example()).onclick(); expect(actions.at(-1).params.expected_revision).toBe('main-revision');
 });
 
 test('mixed Agent actions retain unified purple help while command-only and disabled saves have no Agent cost', async () => {

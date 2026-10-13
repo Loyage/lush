@@ -93,10 +93,10 @@ test('项目所有全局入口都在独立根标签打开，保留输入、选�
 });
 
 const navEntries = () => [
-  ...['overview', 'task-graph', 'versions', 'inputs', 'hooks', 'agent-status', 'model-sources', 'settings', 'docs'].map(id => [id, dom.node(`${id}-open`)]),
+  ...['overview', 'task-graph', 'versions', 'inputs', 'hooks', 'management', 'hook-tools', 'agent-status', 'model-sources', 'settings', 'docs'].map(id => [id, dom.node(`${id}-open`)]),
   ...[...ui.navButtons.entries()],
 ];
-const routeHash = id => id === 'overview' ? '' : `#${id === 'tasks' ? 'workers' : id === 'task-graph' ? 'worker-graph' : id}`;
+const routeHash = id => id === 'overview' ? '' : `#${id === 'tasks' ? 'workers' : id === 'task-graph' ? 'worker-graph' : id === 'hook-tools' ? 'hooks-commands' : id}`;
 function expectSelected(id) {
   expect(navEntries().filter(([, node]) => node.classList.contains('selected')).map(([key]) => key)).toEqual([id]);
   expect(navEntries().filter(([, node]) => node.getAttribute('aria-current') === 'page').map(([key]) => key)).toEqual([id]);
@@ -285,9 +285,20 @@ test('直接链接启动复用同一路由，重复 boot 不复制导航', async
     expectSelected(id);
     expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(2);
   }
-  for (const [hash, subpage] of [['#hooks-history', 'history'], ['#hooks-commands', 'commands'], ['#hooks', 'settings'], ['#hooks-commands', 'commands'], ['#hooks-history', 'history']]) {
+  for (const hash of ['#hooks', '#hooks-history']) {
     dom.location.hash = hash; await boot(); expectSelected('hooks');
+    expect(ui.automationPage.feature).toBeNull();
+    expect(dom.node('detail').querySelectorAll('.automation-feature')).toHaveLength(4);
+    expect(dom.node('detail').querySelector('.page-subnav')).toBeNull();
+  }
+  for (const [hash, subpage] of [['#hooks-commands', 'commands'], ['#hook-tools-history', 'history'], ['#hook-tools', 'settings'], ['#hooks-commands', 'commands']]) {
+    dom.location.hash = hash; await boot(); expectSelected('hook-tools');
     expect(ui.hooksPage.subpage).toBe(subpage);
+    expect(dom.node('detail').querySelector('.page-subnav').querySelector('[aria-current="page"]').dataset.subpage).toBe(subpage);
+  }
+  for (const [hash, subpage] of [['#management', 'settings'], ['#management-history', 'history']]) {
+    dom.location.hash = hash; await boot(); expectSelected('management');
+    expect(ui.managementPage.subpage).toBe(subpage);
     expect(dom.node('detail').querySelector('.page-subnav').querySelector('[aria-current="page"]').dataset.subpage).toBe(subpage);
   }
   for (const hash of ['#settings', '#agent-status', '#model-sources', '#automation', '#docs']) {

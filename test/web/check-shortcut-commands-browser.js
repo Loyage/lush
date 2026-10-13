@@ -32,7 +32,7 @@ async function click(selector) {
   await rpc(`/session/${session}/element/${node['element-6066-11e4-a52e-4f735466cecf']}/click`, {});
 }
 const press = label => execute(`Array.from(document.querySelectorAll('.hooks-page button')).find(b=>b.textContent===${JSON.stringify(label)}).click()`);
-async function navigate(page) { await click(`.page-subnav [data-subpage="${page}"]`); assert(await wait(`location.hash===${JSON.stringify(page === 'settings' ? '#hooks' : `#hooks-${page}`)}`), 'subpage route missing'); }
+async function navigate(page) { await click(`.page-subnav [data-subpage="${page}"]`); assert(await wait(`location.hash===${JSON.stringify(page === 'commands' ? '#hooks-commands' : page === 'history' ? '#hook-tools-history' : '#hook-tools')}`), 'subpage route missing'); }
 async function frame() { const node = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#viewport' }); await rpc(`/session/${session}/frame`, { id: node }); }
 try {
   await repo(f.root); const main = await f.project.bootstrapMain();

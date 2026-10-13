@@ -18,7 +18,7 @@ export function renderShortcutCommands(options) {
   const section = el('div', undefined, 'shortcut-commands'), folds = options.folds || new Map();
   const introduction = el('p', '先注册并授权指令，再由 Hook 引用明确版本。修改即撤权，已有 Hook 引用不会自动升级。', 'hint'); section.append(introduction);
   let latest = catalogue.commands, subpage = 'settings';
-  let management = validCommands(latest) ? renderManagement({ ...options, model: latest }) : el('div'); management.classList.add('shortcut-command-management');
+  let management = validCommands(latest) ? renderShortcutCommandManagement({ ...options, model: latest }) : el('div'); management.classList.add('shortcut-command-management');
   if (!validCommands(latest)) management.append(el('p', '快捷指令目录暂不可用；请更新后台服务并刷新。不能注册或授权指令。', 'error'));
   const runs = createShortcutRuns({ ownsPage, busy, setBusy, active: false });
   const historyModule = block('运行记录'); historyModule.classList.add('shortcut-history-module'); historyModule.append(runs.history);
@@ -28,16 +28,17 @@ export function renderShortcutCommands(options) {
   section.setSubpage = next => { subpage = next; section.hidden = subpage === 'settings'; for (const child of section.children) child.hidden = child === historyModule ? subpage !== 'history' : subpage !== 'commands'; management.setActive?.(subpage === 'commands'); runs.setActive(subpage === 'history'); };
   section.updateCommands = (next, nextCatalogue = null) => {
     latest = next; runs.update();
-    if (!management.updateCommands && validCommands(next)) { management = renderManagement({ ...options, catalogue: nextCatalogue || catalogue, model: next }); management.classList.add('shortcut-command-management'); section.replaceChildren(introduction, management, historyModule); section.setSubpage(subpage); }
+    if (!management.updateCommands && validCommands(next)) { management = renderShortcutCommandManagement({ ...options, catalogue: nextCatalogue || catalogue, model: next }); management.classList.add('shortcut-command-management'); section.replaceChildren(introduction, management, historyModule); section.setSubpage(subpage); }
     management.updateCommands?.(next, nextCatalogue);
   };
   section.dispose = () => runs.dispose(); return section;
 }
 
-function renderManagement({ catalogue, model: initialModel, ownsPage, busy, setBusy, setEditing, onCatalogue }) {
+export function renderShortcutCommandManagement({ catalogue, model: initialModel, ownsPage, busy, setBusy, setEditing, onCatalogue,
+  filterCommand = () => true, allowCreate = true }) {
   const management = el('div'), detail = el('div', undefined, 'shortcut-command-detail'), editor = el('div', undefined, 'shortcut-command-editor hook-editor');
   const listPage = el('div'), detailPage = el('div', undefined, 'shortcut-command-detail-page'), unavailable = el('p', '指令目录暂不可用；已加载记录只读，草稿保留。请更新后台并刷新后操作。', 'error'); unavailable.hidden = true;
-  let available = true, model = initialModel, editing = false, saving = false, generation = 0, detailVersion = null, active = false, mode = 'list', listScroll = 0;
+  let available = true, model = { ...initialModel, items: initialModel.items.filter(filterCommand) }, editing = false, saving = false, generation = 0, detailVersion = null, active = false, mode = 'list', listScroll = 0;
   const current = () => ownsPage() && active && available;
   function showPage(next) {
     if (mode === 'list' && next === 'detail') listScroll = document.getElementById('detail')?.scrollTop || 0;
@@ -68,8 +69,9 @@ function renderManagement({ catalogue, model: initialModel, ownsPage, busy, setB
       if (confirmation && !await confirmDialog(confirmation) || !current() || epoch !== generation) return;
       const result = await action(method, params, { refresh: false });
       if (current() && epoch === generation) { if (!validCommands(result?.commands)) throw new Error('配置保存响应未确认'); onCatalogue(result); if (method === 'hooks.command_remove') showPage('list'); show('快捷指令配置已保存；已开始的副作用不会撤回。'); }
+      else management.needsRefresh = true;
     } catch (error) { if (current() && epoch === generation) show(`${error.message}；未假定授权已改变，请刷新目录确认。不自动重发。`, 'error'); }
-    finally { saving = false; setBusy(false); if (ownsPage()) syncAll(); }
+    finally { saving = false; setBusy(false); management.needsRefresh ||= !current(); if (ownsPage()) syncAll(); }
   }
   async function edit(initial = null) {
     if (editing || busy()) return;
@@ -111,14 +113,14 @@ function renderManagement({ catalogue, model: initialModel, ownsPage, busy, setB
       saving = true; setBusy(true); for (const input of ['input', 'textarea', 'select', 'button'].flatMap(tag => [...editor.querySelectorAll(tag)])) input.disabled = true; syncAll();
       try {
         const result = await action('hooks.command_save', { command: definition, expected_revision: revision }, { refresh: false });
-        if (!draftActive() || epoch !== generation) return;
+        if (!draftActive() || epoch !== generation) { management.needsRefresh = true; return; }
         if (!validCommands(result?.commands)) throw new Error('保存响应未确认');
         // Select the saved entry without changing the submitted search/filter state.
         const saved = result.commands?.items?.find(item => initial ? item.id === initial.id : !model.items.some(old => old.id === item.id));
         if (saved) directory.select(saved.id);
         closeEditor(); onCatalogue(result); show('快捷指令已保存为未授权版本；请显式授权后使用。');
       } catch (failure) { if (draftActive() && epoch === generation) { error.textContent = `${failure.message}；编辑已保留，版本冲突请核对目录后再保存，不自动重发。`; show(error.textContent, 'error'); } }
-      finally { saving = false; setBusy(false); if (ownsPage() && editing) for (const input of ['input', 'textarea', 'select', 'button'].flatMap(tag => [...editor.querySelectorAll(tag)])) input.disabled = false; if (ownsPage()) syncAll(); }
+      finally { saving = false; setBusy(false); management.needsRefresh ||= !ownsPage() || !active; if (ownsPage() && editing) for (const input of ['input', 'textarea', 'select', 'button'].flatMap(tag => [...editor.querySelectorAll(tag)])) input.disabled = false; if (ownsPage()) syncAll(); }
     }, 'hook-button', { help: '只保存定义，不授权、不执行、不调用 Agent；任何修改升版本并撤权，Hook 不自动升级。' });
     const cancel = button('取消指令编辑', () => { if (!saving) closeEditor(); }, 'ghost');
     editor.replaceChildren(el('h3', initial ? `编辑快捷指令：${initial.name}` : '注册快捷指令'), name.wrap, kind.wrap, ...metadata.map(item => item.wrap), shell.wrap, prompt.wrap,
@@ -157,17 +159,24 @@ function renderManagement({ catalogue, model: initialModel, ownsPage, busy, setB
   }
   const listActions = el('div', undefined, 'actions');
   const resume = button('继续指令编辑', () => { if (current() && editing && !saving) showPage('detail'); }, 'ghost');
-  listActions.append(control('注册快捷指令', () => edit(), '注册当前项目指令；保存不授权也不执行。'), resume);
+  const create = control('注册快捷指令', () => edit(), '注册当前项目指令；保存不授权也不执行。'); create.hidden = !allowCreate;
+  listActions.append(create, resume);
   listPage.append(listActions, directory.node);
   const back = button('返回指令列表', () => { if (current() && !saving && !busy()) showPage('list'); }, 'ghost');
   const backHost = el('span', undefined, 'help-host'); backHost.append(back);
   detailPage.append(backHost, detail, editor); detailPage.hidden = true;
   management.append(el('h2', '指令管理'), unavailable, el('p', '管理定义和版本授权；执行结果在历史记录子页面查看。保存不执行，修改即撤权。', 'hint'), listPage, detailPage);
   controls.push(() => { resume.hidden = !editing; back.disabled = saving || busy(); backHost.tabIndex = back.disabled ? 0 : -1; if (back.disabled) backHost.setAttribute('data-help', '正在确认或保存，请稍候再返回指令列表。'); else backHost.removeAttribute('data-help'); });
-  management.setActive = value => { if (active !== value) generation++; active = value; };
+  management.setActive = value => {
+    if (active !== value) generation++; active = value;
+    if (current()) {
+      if (editing && !saving) for (const input of ['input', 'textarea', 'select', 'button'].flatMap(tag => [...editor.querySelectorAll(tag)])) input.disabled = false;
+      syncAll();
+    }
+  };
   syncAll(); management.updateCommands = (next, nextCatalogue) => {
-    available = validCommands(next); unavailable.hidden = available;
-    if (available) { model = next; modern = modernCommands(nextCatalogue || { commands: next }); directory.update(next); if (!editing && mode === 'detail') paintDetail(); }
+    available = validCommands(next); if (available) management.needsRefresh = false; unavailable.hidden = available;
+    if (available) { model = { ...next, items: next.items.filter(filterCommand) }; modern = modernCommands(nextCatalogue || { commands: next }); directory.update(model); if (!editing && mode === 'detail') paintDetail(); }
     syncAll();
   }; return management;
 }

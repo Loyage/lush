@@ -30,7 +30,8 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   }
   throw new Error(`unexpected ${path} ${body?.method}`);
 } });
-const { openHooks, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
+const { openHooks: openAutomation, openHookTools, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
+const openHooks = options => openAutomation({ feature: 'convergence', ...options });
 const { renderAutomationTools, renderOperation, validOperation } = await import('../../src/ui/web/assets/automation-tools.js');
 const { createHookForm } = await import('../../src/ui/web/assets/hook-form.js');
 const { renderBranchConvergence } = await import('../../src/ui/web/assets/branch-convergence.js');
@@ -148,15 +149,16 @@ test('accept completion requires actual operation evidence; malformed or absent 
   }
 });
 
-test('project settings own the tool directory while history retains one target handler and drafts', async () => {
+test('independent tools own the directory while convergence history retains one target handler and drafts', async () => {
+  await openHookTools(); expect(root().querySelector('.automation-tools')).toBeTruthy();
   models.get(1).mounts[0].operation = operation('integrate_deliveries', { status: 'unknown', error: '批次落地待核查', run_id: 71 });
   await project(); const module = root().querySelector('.branch-convergence');
   expect(module.querySelectorAll('.delivery-handler')).toHaveLength(1); expect(deepText(module)).toContain('批次落地待核查');
   const input = field('对新交付开启归并'); input.checked = true; input.onchange();
   await openHooks({ subpage: 'history' }); expect(module.querySelector('.convergence-history').hidden).toBe(false);
-  expect(root().querySelector('.automation-tools').hidden).toBe(true); expect(deepText(module)).toContain('批次落地待核查');
+  expect(root().querySelector('.automation-tools')).toBeNull(); expect(deepText(module)).toContain('批次落地待核查');
   models.get(1).mounts[0].operation = operation('integrate_deliveries', { status: 'succeeded', strategy: 'converge', run_id: 72 });
-  await btn('刷新记录').onclick(); await until(() => deepText(module).includes('目标交付处理完成'));
+  await btn('刷新归并记录').onclick(); await until(() => deepText(module).includes('目标交付处理完成'));
   await openHooks(); expect(field('对新交付开启归并')).toBe(input); expect(input.checked).toBe(true);
   expect(root().querySelector('.branch-convergence')).toBe(module); expect(deepText(module)).toContain('归并批次 72');
   expect(actions).toHaveLength(0);
@@ -188,7 +190,7 @@ test('late handler response after project disposal cannot paint another project;
   await project(); expect(deepText(root())).toContain('目标操作读取失败'); expect(actions).toHaveLength(0);
   const slow = gate(); intercept = path => path.endsWith('/api/worker/1/hooks') ? slow.promise : null;
   const reading = btn('重新读取分支归并').onclick(); await until(() => reads.filter(path => path.endsWith('/api/worker/1/hooks')).length >= 2);
-  ui.hooksPage.convergenceNode.dispose(); activateDetailView({ view: 'overview' }); dom.location.pathname = '/p/2222222222222222/';
+  ui.automationPage.nodes.get('convergence').dispose(); activateDetailView({ view: 'overview' }); dom.location.pathname = '/p/2222222222222222/';
   const next = document.createElement('article'); root().replaceChildren(next);
   slow.resolve(json(hooks(1, { mounts: [handler({ operation: operation('integrate_deliveries', { status: 'failed', error: 'OLD_PROJECT' }) })] }))); await reading;
   expect(root().children).toEqual([next]); expect(actions).toHaveLength(0);
@@ -220,5 +222,5 @@ test('legacy service retains branch controls without inventing a handler or oper
   await project(); expect(btn('保存分支归并设置')).toBeTruthy(); expect(deepText(root())).toContain('兼容读面');
   expect(root().querySelector('.delivery-handler').dataset.hookId).toBeUndefined();
   expect(root().querySelector('.hook-operation')).toBeNull(); expect(reads.some(path => /\/api\/worker\/\d+\/hooks$/.test(path))).toBe(false);
-  expect(deepText(root())).toContain('不制造新挂载或操作证据'); expect(actions).toHaveLength(0);
+  expect(deepText(root())).toContain('不制造新操作记录'); expect(actions).toHaveLength(0);
 });

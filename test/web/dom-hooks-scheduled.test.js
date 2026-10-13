@@ -31,7 +31,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   throw new Error(`unexpected ${path}`);
 } });
 const { createHookForm } = await import('../../src/ui/web/assets/hook-form.js');
-const { workerHooks, openHooks } = await import('../../src/ui/web/assets/render-hooks.js');
+const { workerHooks, openHookTools: openHooks } = await import('../../src/ui/web/assets/render-hooks.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
 const root = () => dom.node('detail');

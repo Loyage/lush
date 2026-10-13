@@ -14,7 +14,7 @@ const reads = {
   transcript: ['id','after','limit'], transcript_latest: ['id','after','before','limit'],
   transcript_page: ['id','seq','offset'], transcript_step: ['id','seq','offset'],
   transcript_search: ['id','query','kind','tool','errors','after','limit'],
-  runs_page: ['id','before','limit'], artifacts_page: ['id','before','limit'], artifact: ['id'],
+  runs_page: ['id','before','limit'], artifacts_page: ['id','before','limit'], artifact: ['id'], completion_page: ['before','limit'],
 };
 const writes = {
   auto_title: ['title'], rename: ['id','title'], spawn: ['parent','goal','name'], integrate: ['id','commit'], reserve: ['id','kind'], reserve_all: ['branch'],
@@ -27,7 +27,7 @@ const writes = {
   resume: ['id','profile'], configure: ['id','profile','model_selection'], delete: ['id','revision','confirm','force'],
 };
 const userOnly = new Set(['relations','run_settings','code_state','code_tree','code_file','transcript_latest','transcript_page','transcript_step',
-  'transcript_search','runs_page','artifacts_page','artifact','reading_page','reading_record','hooks','hook_attach','hook_update','hook_remove',
+  'transcript_search','runs_page','artifacts_page','artifact','completion_page','reading_page','reading_record','hooks','hook_attach','hook_update','hook_remove',
   'reserve','reserve_all','auto_merge','completion','resolve','resolve_divergence','unreserve','approve_merge',
   'rename','cancel','retry','clear_override','cleanup','interrupt','resume','configure','reopen','sync_parent','resolve_sync','delete_preview','delete']);
 const agentOnly = new Set(['auto_title','integrate','resolve_child_divergence']);

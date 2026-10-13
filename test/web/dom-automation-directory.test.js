@@ -32,7 +32,8 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (body?.method === 'worker.hook_update') { catalogue.command_example.hooks.mounts[0].enabled = body.params.enabled; return json(catalogue.command_example.hooks); }
   throw new Error(`Unexpected ${path} ${body?.method}`);
 } });
-const { openHooks, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
+const { openHookTools: openHooks, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
+const { openProjectAutomation } = await import('../../src/ui/web/assets/render-project-automation.js');
 const { createHookForm } = await import('../../src/ui/web/assets/hook-form.js');
 const { validCommands, commandReferencesIssue } = await import('../../src/ui/web/assets/shortcut-command-model.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
@@ -204,7 +205,7 @@ test('Hook type filters Shell and prompt versions separately, enforces once/pare
 test('prompt Hook enable is purple with future cost confirmation, Shell-only hooks remain non-Agent', async () => {
   const mount = { ...hook(), editable: true, removable: true, state: 'idle', last_execution: null };
   catalogue.command_example = { worker_id: 1, hook_id: mount.id, hooks: { version: 1, worker_id: 1, revision: 'mount-r1', mounts: [mount] } };
-  await openHooks(); const enable = btn('启用 Hook', root().querySelector('.command-hook-example'));
+  await openProjectAutomation({ feature: 'push' }); const enable = btn('启用 Hook', root().querySelector('.command-hook-example'));
   expect(enable.classList.contains('agent-call')).toBe(true); expect(enable.getAttribute('data-help')).toContain('token');
   const enabling = enable.onclick(); expect(dialogButton(dom, '启用指令 Hook').classList.contains('agent-call')).toBe(true);
   await dialogButton(dom, '启用指令 Hook').onclick(); await until(() => dialogButton(dom, '授权并挂载')); await dialogButton(dom, '授权并挂载').onclick(); await enabling;

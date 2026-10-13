@@ -35,7 +35,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   throw new Error(`unexpected request ${path}`);
 } });
 const { autoCompletionControl } = await import('../../src/ui/web/assets/hook-controls.js');
-const { workerHooks, openHooks } = await import('../../src/ui/web/assets/render-hooks.js');
+const { workerHooks, openHookTools: openHooks } = await import('../../src/ui/web/assets/render-hooks.js');
 const { createHookForm } = await import('../../src/ui/web/assets/hook-form.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { closeDialog } = await import('../../src/ui/web/assets/dialog.js');
@@ -222,10 +222,10 @@ test('legacy auto-merge fallback stays read-only for children even when old sett
   expect(input.checked).toBe(true); expect(actions).toHaveLength(0);
 });
 
-test('project Hooks links to chain help instead of repeating documentation; builtin-only actions stay excluded from custom editor', async () => {
+test('independent Hook tools link to help without duplicating device defaults; builtin-only actions stay excluded from custom editor', async () => {
   await openHooks(); expect(root().querySelector('.completion-defaults')).toBeNull();
   expect(root().querySelector('.hooks-page-header').querySelector('.hook-help-link').href).toBe('/#doc-docs-hooks');
-  expect(root().querySelectorAll('a').some(link => link.href === '/#automation' && link.target === '_blank')).toBe(true);
+  expect(root().querySelectorAll('a').some(link => link.href === '/#automation')).toBe(false);
   expect(deepText(root())).not.toContain('仅内置自动链 · 不可自定义安装');
   expect(deepText(root())).not.toContain('只提醒下一人工环节');
   const form = createHookForm(catalogue, { initial: { name: '规则', trigger: 'delivery.integrated' } });

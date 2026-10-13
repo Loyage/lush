@@ -18,12 +18,13 @@ export function checkDraftRevision(draft, expected) {
 }
 
 export default {
-  inputHistory({ cursor, limit = 50, q = '', status, integration } = {}) {
+  inputHistory({ cursor, limit = 50, q = '', status, integration, conditional } = {}) {
     check(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100, 'limit must be an integer from 1 to 100');
     check(typeof q === 'string' && q.length <= 1000, 'q must be text of at most 1000 characters');
     check(status === undefined || STATUSES.has(status), 'invalid input status');
     check(integration === undefined || MERGES.has(integration), 'invalid input integration filter');
-    const filters = { q, status: status ?? null, integration: integration ?? null };
+    check(conditional === undefined || ['configured','mounted'].includes(conditional), 'invalid conditional input filter');
+    const filters = { q, status: status ?? null, integration: integration ?? null, ...(conditional ? { conditional } : {}) };
     let after = null;
     if (cursor !== undefined) {
       check(typeof cursor === 'string' && cursor.length > 0 && cursor.length <= 16384 && /^[A-Za-z0-9_-]+$/.test(cursor), 'invalid input history cursor');
@@ -33,7 +34,7 @@ export default {
         && Number.isSafeInteger(after.id) && after.id > 0
         && JSON.stringify(after.filters) === JSON.stringify(filters), 'invalid input history cursor or changed filters');
     }
-    const rows = this.store.inputHistoryRows({ q, status, integration, cursor: after, limit });
+    const rows = this.store.inputHistoryRows({ q, status, integration, conditional, cursor: after, limit });
     const more = rows.length > limit, items = rows.slice(0, limit), last = items.at(-1);
     const mounts = items.some(item => item.kind === 'draft') ? this.draftHookMountMap() : new Map();
     return { items: items.map(item => item.kind === 'draft' ? { ...item, ...this.draftEmissionView(this.store.draft(item.id)), hook_mount: mounts.get(item.id) ?? null } : item), next_cursor: more ? Buffer.from(JSON.stringify({ version: 1, created_at: last.created_at,

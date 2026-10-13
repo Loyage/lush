@@ -1,7 +1,12 @@
 // SQL projection keeps search/filter/pagination over the whole database, not overview.
 // Missing original Tasks intentionally survive the LEFT JOIN.
 const taskStatuses = "'queued','running','waiting','awaiting','paused','awaiting_acceptance','completed','failed','cancelled'";
-const history = `WITH source AS (
+// Conditional views keep receipt drafts even after an order created its original Input.
+// The ordinary history remains one record per original Input, unchanged.
+const conditionalDefinition = `(coalesce(json_array_length(d.input_options,'$.conditions'),0)>0
+  OR json_extract(d.input_options,'$.exclusive')=1)`;
+const conditionalReceipt = `(d.emission IS NOT NULL AND coalesce(json_array_length(d.emission,'$.signals'),0)>0)`;
+const history = (conditional = undefined) => `WITH source AS (
   SELECT 'input' AS kind,i.id,i.content,i.created_at,t.id AS task_id,t.parent_id,t.worker_number AS task_worker_number,
     (SELECT p.worker_number FROM tasks p WHERE p.id=t.parent_id) AS parent_worker_number,
     coalesce(t.branch,i.anchor_branch) AS branch,
@@ -11,7 +16,7 @@ const history = `WITH source AS (
     coalesce(t.integration,'none') AS integration,NULL AS revision,
     CASE WHEN json_valid(t.reservation) THEN t.reservation ELSE '{}' END AS booking,
     t.id AS original_task_id
-  FROM inputs i LEFT JOIN tasks t ON t.id=i.task_id
+  FROM inputs i LEFT JOIN tasks t ON t.id=i.task_id ${conditional ? 'WHERE 0' : ''}
   UNION ALL
   SELECT 'draft',d.id,d.content,d.created_at,NULL,d.parent_id,NULL,p.worker_number,p.branch,
     CASE json_extract(d.emission,'$.state')
@@ -19,7 +24,8 @@ const history = `WITH source AS (
       WHEN 'dispatching' THEN 'emitted' WHEN 'succeeded' THEN 'sent'
       WHEN 'failed' THEN 'emission_failed' WHEN 'unknown' THEN 'unknown_dispatch' ELSE 'draft' END,
     'none',d.revision,'{}',NULL
-  FROM drafts d LEFT JOIN tasks p ON p.id=d.parent_id WHERE d.input_id IS NULL
+  FROM drafts d LEFT JOIN tasks p ON p.id=d.parent_id WHERE ${conditional === 'mounted' ? conditionalReceipt
+    : conditional === 'configured' ? `(${conditionalDefinition} OR ${conditionalReceipt})` : 'd.input_id IS NULL'}
 ), projected AS (
   SELECT *,CASE
     WHEN json_extract(booking,'$.kind')='merge' AND json_extract(booking,'$.version') IN (1,2)
@@ -45,7 +51,7 @@ const history = `WITH source AS (
 const fields = 'kind,id,created_at,task_id,parent_id,task_worker_number,parent_worker_number,branch,status,integration,merge_status,revision';
 
 export const inputHistory = {
-  inputHistoryRows({ q, status, integration, cursor, limit }) {
+  inputHistoryRows({ q, status, integration, conditional, cursor, limit }) {
     const conditions = [], args = [];
     if (q) { conditions.push('instr(lower(content),lower(?)) > 0'); args.push(q); }
     if (status) { conditions.push('status=?'); args.push(status); }
@@ -54,14 +60,14 @@ export const inputHistory = {
       conditions.push('(created_at,kind,id) < (?,?,?)');
       args.push(cursor.created_at, cursor.kind, cursor.id);
     }
-    return this.all(`${history} SELECT ${fields},substr(content,1,1000) AS content,
+    return this.all(`${history(conditional)} SELECT ${fields},substr(content,1,1000) AS content,
       length(content)>1000 AS content_truncated FROM projected
       ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
       ORDER BY created_at DESC,kind DESC,id DESC LIMIT ?`, ...args, limit + 1)
       .map(row => ({ ...row, content_truncated: !!row.content_truncated }));
   },
   inputHistoryItem(kind, itemId) {
-    const row = this.get(`${history} SELECT ${fields},content FROM projected WHERE kind=? AND id=?`, kind, itemId);
+    const row = this.get(`${history()} SELECT ${fields},content FROM projected WHERE kind=? AND id=?`, kind, itemId);
     return row ? { ...row, content_truncated: false } : null;
   },
 };

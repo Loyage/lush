@@ -154,6 +154,7 @@ export const handlers = {
   'manager.start'(p, params, actor) { return p.requestManagementAction(id(actor), 'start', id(params.id)); },
   'manager.retry'(p, params, actor) { return p.requestManagementAction(id(actor), 'retry', id(params.id)); },
   'worker.hooks'(p, params) { return p.taskHooks(id(params.id)); },
+  'worker.completion_page'(p, params) { return p.completionWorkerPage(params); },
   'worker.completion'(p, params) {
     const expected = revision(params.expected_revision);
     check(typeof params.level === 'string' && ['off','merge','accept','archive'].includes(params.level),

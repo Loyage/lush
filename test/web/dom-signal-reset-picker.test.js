@@ -21,7 +21,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   throw new Error(`Unexpected request ${path}`);
 } });
 const { createSignalForm } = await import('../../src/ui/web/assets/hook-signals.js');
-const { openHooks } = await import('../../src/ui/web/assets/render-hooks.js');
+const { openManagement } = await import('../../src/ui/web/assets/render-management.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
 const root = () => dom.node('detail');
@@ -34,19 +34,19 @@ async function formWithCache(initial = {}) {
   await form.loadResetTimes(); return form;
 }
 beforeEach(() => { connections = [connection()]; reads = []; actions = []; intercept = null;
-  dom.location.pathname = '/'; ui.hooksPage = null; activateDetailView({ view: 'overview' }); });
+  dom.location.pathname = '/'; ui.managementPage = null; activateDetailView({ view: 'overview' }); });
 afterAll(() => dom.restore());
 
-test('automation navigation keeps #hooks; source cache loads only when opening the signal editor and saves a plain exact once schedule', async () => {
-  await openHooks(); expect(dom.location.hash).toBe('#hooks'); expect(root().querySelector('h1').textContent).toBe('项目自动化');
-  expect(dom.node('view-title').textContent).toBe('项目自动化'); expect(reads).toEqual(['/api/hooks', '/api/branch-convergence']);
+test('management navigation uses #management; source cache loads only when opening the signal editor and saves a plain exact once schedule', async () => {
+  await openManagement(); expect(dom.location.hash).toBe('#management'); expect(root().querySelector('h1').textContent).toBe('管理 Agent');
+  expect(dom.node('view-title').textContent).toBe('管理 Agent'); expect(reads).toEqual(['/api/hooks']);
   expect(reads).not.toContain('/api/agent/connections'); expect(actions).toHaveLength(0);
   await btn('新建时间信号').onclick();
   await until(() => !input('订阅额度刷新时间').disabled);
   input('信号名称').value = '额度到点'; input('信号时区（IANA）').value = 'Asia/Kathmandu';
   choose({ node: root() });
   expect(input('信号日期与时间').value).toBe('2030-02-03T00:05:00');
-  expect(reads).toEqual(['/api/hooks', '/api/branch-convergence', '/api/agent/connections']); expect(actions).toHaveLength(0);
+  expect(reads).toEqual(['/api/hooks', '/api/agent/connections']); expect(actions).toHaveLength(0);
   await btn('保存时间信号').onclick();
   expect(actions).toEqual([{ method: 'hooks.signal_save', params: { expected_revision: 'signals',
     signal: { name: '额度到点', enabled: true, schedule: { kind: 'once', at: resetAt, timezone: 'Asia/Kathmandu' } } } }]);
@@ -145,18 +145,18 @@ test('busy signal save disables picker even when a cache read finishes; late old
 
 test('cache response from a previous project cannot fill or repaint the new project editor', async () => {
   let resolve;
-  dom.location.pathname = '/p/1111111111111111/'; await openHooks();
+  dom.location.pathname = '/p/1111111111111111/'; await openManagement();
   intercept = path => path === '/p/1111111111111111/api/agent/connections' ? new Promise(done => { resolve = done; }) : null;
   await btn('新建时间信号').onclick(); await until(() => resolve);
   const old = root().querySelector('.signal-form');
-  dom.location.pathname = '/p/2222222222222222/'; await openHooks(); await btn('新建时间信号').onclick();
+  dom.location.pathname = '/p/2222222222222222/'; await openManagement(); await btn('新建时间信号').onclick();
   await until(() => !input('订阅额度刷新时间').disabled); const replacement = root().querySelector('.signal-form');
   resolve(json({ connections: [connection({ label: '旧项目订阅' })] })); await Promise.resolve(); await Promise.resolve();
   expect(root().querySelector('.signal-form')).toBe(replacement); expect(deepText(root())).not.toContain('旧项目订阅');
   choose({ node: old }); expect(input('信号日期与时间').value || '').toBe(''); expect(actions).toHaveLength(0);
 });
 
-test('automation navigation exits explicit Worker append mode; filling a signal preserves independent-Worker composer draft and destination', async () => {
+test('management navigation exits explicit Worker append mode; filling a signal preserves independent-Worker composer draft and destination', async () => {
   const { syncComposer, appendToWorker } = await import('../../src/ui/web/assets/composer.js');
   const previousSync = ui.syncComposer;
   try {
@@ -165,7 +165,7 @@ test('automation navigation exits explicit Worker append mode; filling a signal 
     activateDetailView({ view: 'task', key: 'task-99' }); ui.selected = 99;
     appendToWorker({ id: 99, worker_number: 'W99', task_kind: 'order', status: 'running', goal: '开发目标', branch: 'feature', workspace: '/tmp/work' });
     expect(dom.node('input-form').dataset.mode).toBe('append');
-    await openHooks();
+    await openManagement();
     expect(ui.composerAppendTarget).toBeNull(); expect(dom.node('input-form').dataset.mode).toBe('create');
     expect(dom.node('input').disabled).toBe(false); expect(dom.node('composer-reset').hidden).toBe(true);
     await btn('新建时间信号').onclick(); await until(() => !input('订阅额度刷新时间').disabled);

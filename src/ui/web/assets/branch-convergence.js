@@ -89,7 +89,7 @@ export function renderBranchConvergence({ ownsPage, catalogue = null, busy = () 
   const list = el('div', undefined, 'convergence-runs');
   const drafts = new Map(), acknowledgedRetries = new Set();
   let disposed = false, generation = 0, listRequest = 0, historyRequest = 0, handlerRequest = 0, selected = '', model = null, draft = null;
-  let loaded = false, loading = false, saving = false, runsLoading = false, cursor = null, hasMore = false, cards = [], defaultsEditing = false;
+  let loaded = false, loading = false, saving = false, runsLoading = false, cursor = null, hasMore = false, cards = [], defaultsEditing = false, resumeRead = false;
   const owns = () => !disposed && ownsPage();
   const current = (target, request) => owns() && target === selected && request === generation;
   const dirtyDraft = value => !!value && (value.enabled !== value.baseEnabled || value.mounted !== value.baseMounted);
@@ -116,6 +116,7 @@ export function renderBranchConvergence({ ownsPage, catalogue = null, busy = () 
     const help = agent ? ENABLE_HELP : DISABLE_HELP; save.setAttribute('data-help', help); saveHost.setAttribute('data-help', `${reason || ''} ${help}`);
     refresh.disabled = saving || busy(); refreshHost.tabIndex = refresh.disabled ? 0 : -1;
     refreshHost.setAttribute('data-help', `${refresh.disabled ? '正在确认或保存，请稍候。' : ''} ${REFRESH_HELP}`);
+    refreshRecords.disabled = !selected || loading || runsLoading || saving || busy();
     more.disabled = runsLoading || saving || busy() || !hasMore; more.hidden = moreHost.hidden = !hasMore;
     moreHost.tabIndex = more.disabled && hasMore ? 0 : -1; moreHost.setAttribute('data-help', `${more.disabled && hasMore ? '正在读取或处理操作，请稍候。' : ''} ${MORE_HELP}`);
     node.setAttribute('aria-busy', String(loading || runsLoading || saving));
@@ -159,7 +160,11 @@ export function renderBranchConvergence({ ownsPage, catalogue = null, busy = () 
     } catch (error) {
       if (current(target, request) && historyId === historyRequest) { historyStatus.textContent = `批次读取失败：${error.message}${cards.length ? '；已加载旧记录保留。' : ''}`; historyStatus.className = 'error convergence-history-status'; }
       return false;
-    } finally { if (current(target, request) && historyId === historyRequest) { runsLoading = false; sync(); } }
+    } finally {
+      if (!disposed && target === selected && request === generation && historyId === historyRequest) {
+        runsLoading = false; resumeRead ||= !owns(); sync();
+      }
+    }
   }
   async function loadHandler(target, request) {
     if (!current(target, request) || !model || !catalogue?.actions?.some(item => item.type === 'integrate_deliveries')) return;
@@ -173,6 +178,7 @@ export function renderBranchConvergence({ ownsPage, catalogue = null, busy = () 
       handlerError = handler ? '' : '目标系统挂载尚未提供，不推断真实操作结果。';
     } catch (error) { if (latest()) handlerError = `目标操作读取失败：${error.message}；不推断成功或重放操作。`; }
     if (latest()) paintPolicy();
+    else if (!disposed && target === selected && request === generation && observation === handlerRequest) resumeRead = true;
   }
   async function selectBranch(target, { reset = false } = {}) {
     if (!owns() || !target) return;
@@ -188,7 +194,11 @@ export function renderBranchConvergence({ ownsPage, catalogue = null, busy = () 
       drafts.set(target, draft); paintPolicy();
       await Promise.all([loadRuns(false, target, request), loadHandler(target, request)]);
     } catch (error) { if (current(target, request)) { feedback.textContent = `配置读取失败：${error.message}；不使用默认值覆盖已有配置。`; feedback.className = 'error convergence-feedback'; } }
-    finally { if (current(target, request)) { loading = false; paintPolicy(); } }
+    finally {
+      if (!disposed && target === selected && request === generation) {
+        loading = false; resumeRead ||= !owns(); if (owns()) paintPolicy();
+      }
+    }
   }
   async function refreshSelected() {
     if (!owns() || saving || busy()) return;
@@ -212,7 +222,7 @@ export function renderBranchConvergence({ ownsPage, catalogue = null, busy = () 
         if (owns() && validPolicy(result, target)) {
           drafts.set(target, newDraft(result));
           if (selected === target) await selectBranch(target, { reset: true });
-        } else if (owns()) drafts.delete(target); // ACK is not permission to replay an obsolete draft.
+        } else if (!disposed) drafts.delete(target); // ACK is not permission to replay an obsolete draft.
         return;
       }
       if (!validPolicy(result, target)) { model = draft = null; drafts.delete(target); throw new Error('保存已确认，但返回配置不兼容，请只读刷新核查，不要重复保存。'); }
@@ -230,7 +240,7 @@ export function renderBranchConvergence({ ownsPage, catalogue = null, busy = () 
         }
       } catch (error) { if (current(target, request)) { feedback.className = 'error convergence-feedback'; feedback.textContent = `设置已保存，但刷新失败：${error.message}；不要重复保存，请重新读取确认。`; show(feedback.textContent, 'error'); } }
     } catch (error) { if (current(target, request)) { feedback.className = 'error convergence-feedback'; feedback.textContent = acknowledged ? `保存已确认，但后续读取失败：${error.message}；请只读刷新核查，不要重复保存。` : `保存失败：${error.message}；分支与选择已保留，版本冲突请先重新读取。`; show(feedback.textContent, 'error'); } }
-    finally { saving = false; setBusy(false); if (owns()) sync(); }
+    finally { saving = false; setBusy(false); resumeRead ||= !owns(); if (owns()) sync(); }
   }
   async function retryRun(run) {
     if (!owns() || saving || busy() || !string(run.revision) || acknowledgedRetries.has(`${run.id}:${run.revision}`) || !['failed', 'awaiting', 'stale'].includes(run.state)) return;
@@ -244,7 +254,7 @@ export function renderBranchConvergence({ ownsPage, catalogue = null, busy = () 
         if (await loadRuns(false, target, request) === false && current(target, request)) show('重试已接受，但批次刷新失败；请只读刷新，不要重发。', 'error');
       }
     } catch (error) { if (current(target, request)) show(acknowledged ? `重试已接受，但刷新失败：${error.message}；请只读刷新，不要重发。` : `重试失败：${error.message}；已有记录保留。`, 'error'); }
-    finally { saving = false; setBusy(false); if (owns()) sync(); }
+    finally { saving = false; setBusy(false); resumeRead ||= !owns(); if (owns()) sync(); }
   }
   async function loadBranches() {
     if (!owns()) return;
@@ -260,6 +270,7 @@ export function renderBranchConvergence({ ownsPage, catalogue = null, busy = () 
       if (!items.length) { status.textContent = '没有可设置归并的活动本地分支。'; branch.disabled = true; sync(); return; }
       await selectBranch(items.find(item => item.branch === selected)?.branch || items[0].branch);
     } catch (error) { if (owns() && request === listRequest) { loaded = false; branch.disabled = true; feedback.textContent = `分支归并读取失败：${error.message}`; feedback.className = 'error convergence-feedback'; status.textContent = '无法确认分支归并策略；不会把缺字段当作默认关闭。'; sync(); } }
+    finally { if (!disposed && request === listRequest) resumeRead ||= !owns(); }
   }
   const save = button('保存分支归并设置', savePolicy, 'hook-button'), saveHost = el('span', undefined, 'help-host'); saveHost.append(save);
   const refresh = button('重新读取分支归并', () => loaded && selected ? refreshSelected() : loadBranches(), 'ghost hook-button', { help: REFRESH_HELP });
@@ -278,7 +289,11 @@ export function renderBranchConvergence({ ownsPage, catalogue = null, busy = () 
   const mountedField = field('在目标分支挂载归并', mounted);
   editor.append(field('目标分支', branch), mountedField, toggle);
   const controls = el('div', undefined, 'actions'); controls.append(saveHost, refreshHost);
-  history.append(el('h3', '当前与历史批次'), historyStatus, list, moreHost);
+  const refreshRecords = button('刷新归并记录', async () => {
+    if (!owns() || saving || busy() || loading || runsLoading) return;
+    await Promise.all([loadRuns(false, selected, generation), loadHandler(selected, generation)]);
+  }, 'ghost');
+  history.append(el('h3', '当前与历史批次'), refreshRecords, historyStatus, list, moreHost);
   const introduction = el('p', '自动化工具 integrate_deliveries 的目标处理策略：普通串行或归并。实际归并挂载与未来默认独立管理；项目页与 Worker 自动化修改同一目标分支策略。不改变自动合并或验收授权。', 'hint');
   const policyNote = el('p', 'main 初始归并挂载关闭，其他未配置 Worker 不挂载归并。关闭或移除归并只选择普通串行处理，不停止合法交付；已固定批次和历史保留，移除后不自动重装。', 'hint');
   node.append(introduction, targetCard, defaults, history);
@@ -286,7 +301,13 @@ export function renderBranchConvergence({ ownsPage, catalogue = null, busy = () 
   node.setSubpage = subpage => {
     const isHistory = subpage === 'history';
     history.hidden = !isHistory;
-    for (const child of [mountedField, toggle, saveHost, introduction, policyNote, defaults]) child.hidden = isHistory;
+    for (const child of [mountedField, toggle, saveHost, refreshHost, introduction, policyNote, defaults]) child.hidden = isHistory;
+    if (owns() && resumeRead && !saving && !loading && !runsLoading) {
+      resumeRead = false;
+      // Only re-read discarded results. Keep local drafts; never replay a write.
+      node.ready = loaded && selected ? selectBranch(selected) : loadBranches();
+    }
+    sync(); return node.ready;
   };
   node.syncControls = sync;
   node.updateCatalogue = value => { const changed = catalogue !== value; catalogue = value;

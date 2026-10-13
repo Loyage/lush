@@ -47,6 +47,9 @@ inspect、graph、worker.hooks 同源。内置挂载为不可移除的 `auto-mer
 ## RPC／CLI／设备默认
 
 - `worker.completion {id,level,expected_revision}` → `setTaskCompletion`，用户专属、严格参数白名单、worker.hooks 的不透明 revision。
+- 项目功能组件 `automation-completion.js` 只管理本项目实际授权，设备默认仍从全局 `/#automation` 管理，无项目覆盖。组件返回 DOM node，提供初读 `ready`、保留节点的 `setSubpage(settings|history)`、`dispose()` 和可选目录更新 `updateCatalogue()`；父页独占导航与标签。父目录保留暂时失活的功能节点；失活期间请求不重画或采纳迟到授权响应，只释放本地忙状态，返回该功能时重新读取被丢弃的 Worker／目录结果与最新授权版本。
+- `worker.completion_page {before?,limit?}` / `GET /api/automation/completion/workers` 为用户专属窄只读目录：默认 25、最多 50 个，按 Worker 内部 ID 倒序，游标严格小于 `before`；涵盖 work 层所有状态的 order（含旧 say）／child，不受常规 Worker 活动预览或终态分页范围限制。返回 `{version:1,workers,cursor,has_more,limit}`，每项只含编号、标题／有界目标、种类、状态、集成、归档布尔、预约状态及同源 `hooks:{worker_id,revision,completion,mounts}`；mounts 仅自动合并／验收的 id、动作类型与安全 operation。无私有配置、路径、原始输出或授权身份，读取不安装、不推进动作。
+- 功能运行记录按同一 Worker 页显示其最近合并／验收真实操作快照，不是按操作时间排列的完整审计。只认同源 operation，不从级别高亮、last_execution 或 Agent 返回推断成功；无记录仅针对本页，后续未读页、读取失败及证据不兼容单独说明。现有 worker.hooks、默认值和历史协议不变。
 - CLI 推荐 `worker completion ID off|merge|accept --revision REV`；旧 archive 兼容等价 accept，不放宽权限、冻结或 stale revision。
 - `worker.auto_merge` 和 auto-merge 挂载旧开关继续相同权限；on 不降级高级授权，off（允许时）关闭未来链，不撤回已发请求。
 - 设备 `completion_defaults:{enabled,level}` 用 Host `/api/host/automation` 保存，关闭记住所选值。只影响之后实际创建的新指令（包括预约／定时发射），不改变已有 Worker 的配置或 child 默认流程。旧 hooks.completion_defaults 用户 API 保留兼容。

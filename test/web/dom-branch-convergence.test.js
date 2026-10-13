@@ -35,7 +35,8 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   throw new Error(`unexpected request ${path} ${body?.method || ''}`);
 } });
 const { renderBranchConvergence, renderConvergenceRun } = await import('../../src/ui/web/assets/branch-convergence.js');
-const { workerHooks, openHooks } = await import('../../src/ui/web/assets/render-hooks.js');
+const { workerHooks, openHooks: openAutomation } = await import('../../src/ui/web/assets/render-hooks.js');
+const openHooks = options => openAutomation({ feature: 'convergence', ...options });
 const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
@@ -59,6 +60,47 @@ beforeEach(() => {
   dom.location.pathname = '/'; ui.hooksPage = null; activateDetailView({ view: 'overview' }); root().replaceChildren();
 });
 afterAll(() => { closeDialog(); dom.restore(); });
+
+test('retained feature re-reads inactive initial list and branch results without replaying writes', async () => {
+  for (const stage of ['list', 'policy', 'runs']) {
+    own = true; let release;
+    intercept = path => {
+      const url = new URL(path, 'http://localhost');
+      const matches = stage === 'list' ? url.pathname.endsWith('/api/branch-convergence') && !url.search
+        : stage === 'policy' ? url.pathname.endsWith('/api/branch-convergence') && !!url.search
+        : url.pathname.endsWith('/api/branch-convergence/runs');
+      return matches ? new Promise(resolve => release = resolve) : null;
+    };
+    const node = renderBranchConvergence({ ownsPage: () => own }); root().replaceChildren(node);
+    await until(() => release);
+    own = false;
+    release(json(stage === 'list' ? { version: 1, items: policies, defaults, count: policies.length, truncated: false }
+      : stage === 'policy' ? policy('main') : { version: 1, branch: 'main', items: [], next_before: null, has_more: false }));
+    await node.ready;
+    own = true; intercept = null; await node.setSubpage('history');
+    expect(field('目标分支', node).value).toBe('main');
+    expect(node.getAttribute('aria-busy')).toBe('false');
+    expect(deepText(node)).toContain('这个分支尚无归并批次');
+    node.dispose();
+  }
+  expect(actions).toHaveLength(0);
+});
+
+test('inactive acknowledged save cannot retain a replayable draft on feature return', async () => {
+  const node = await component();
+  check('在目标分支挂载归并', false);
+  let release;
+  intercept = (_path, body) => body?.method === 'branch.convergence_set' ? new Promise(resolve => release = resolve) : null;
+  const saving = btn('保存分支归并设置').onclick(); await until(() => release);
+  own = false;
+  const saved = policy('main', { mounted: false, revision: 'main-v2' }); policies[1] = saved;
+  release(json(saved)); await saving;
+  own = true; intercept = null; await node.setSubpage('settings');
+  expect(field('在目标分支挂载归并').checked).toBe(false);
+  expect(btn('保存分支归并设置').disabled).toBe(true);
+  expect(node.getAttribute('aria-busy')).toBe('false');
+  expect(actions).toHaveLength(1); node.dispose();
+});
 
 test('project automation has independent actual mounts and future defaults, main directly selected without command catalogue', async () => {
   await openHooks(); await until(() => field('目标分支')?.value === 'main' && !field('对新交付开启归并').disabled);
@@ -104,11 +146,12 @@ test('automation history hides mount and future default editors, retaining both 
 
 test('automation history deep link keeps mount and defaults hidden after delayed branch loading', async () => {
   const pending = gate(); intercept = path => path.endsWith('/api/branch-convergence') ? pending.promise : null;
-  await openHooks({ subpage: 'history' });
+  const opening = openHooks({ subpage: 'history' });
+  await until(() => !!root().querySelector('.branch-convergence'));
   const node = root().querySelector('.branch-convergence');
   expect(node.querySelector('.convergence-defaults').hidden).toBe(true);
   pending.resolve(json({ version: 1, items: policies, defaults, count: policies.length, truncated: false }));
-  await node.ready;
+  await node.ready; await opening;
   expect(field('目标分支').value).toBe('main');
   expect(field('在目标分支挂载归并').parentNode.hidden).toBe(true);
   expect(node.querySelector('.convergence-defaults').hidden).toBe(true);
@@ -309,9 +352,9 @@ test('late list and history reads are discarded after disposal or branch switch'
   expect(root().querySelector('.convergence-run')).toBeNull(); expect(actions).toHaveLength(0);
 });
 
-test('old policy missing mounted or permission fields cannot guess default or block unrelated Hooks', async () => {
+test('old policy missing mounted or permission fields cannot guess defaults or block feature navigation', async () => {
   delete policies[1].mounted; await openHooks(); await until(() => deepText(root()).includes('无法确认分支归并策略'));
-  expect(btn('保存分支归并设置').disabled).toBe(true); expect(btn('新建模板')).not.toBeUndefined(); expect(deepText(root())).not.toContain('main · 已保存：关闭');
+  expect(btn('保存分支归并设置').disabled).toBe(true); expect(btn('← 返回自动化功能列表')).not.toBeUndefined(); expect(deepText(root())).not.toContain('main · 已保存：关闭');
   policies[1] = policy(); delete policies[1].editable; await component(); expect(field('在目标分支挂载归并').disabled).toBe(true); expect(actions).toHaveLength(0);
 });
 

@@ -41,12 +41,12 @@ async function edit(on, endpoint) {
   if (on !== undefined) { enabled().checked = on; enabled().onchange(); }
 }
 
-test('project Hooks retain actual mounts but remove both project-wide editors', async () => {
+test('project automation directory loads neither legacy defaults nor global authorization editors', async () => {
   dom.location.pathname = '/p/1111111111111111/'; await openHooks();
   expect(section()).toBeNull(); expect(button('开启后台自动选择')).toBeUndefined();
-  expect(root().querySelectorAll('a').some(link => link.href === '/#automation' && link.target === '_blank')).toBe(true);
-  expect(root().querySelectorAll('a').some(link => link.href === '/#doc-docs-hooks' && link.target === '_blank')).toBe(true);
-  expect(reads).toEqual(['/p/1111111111111111/api/hooks', '/p/1111111111111111/api/branch-convergence']); expect(posts).toHaveLength(0);
+  expect(root().querySelectorAll('.automation-feature')).toHaveLength(4);
+  expect(root().querySelectorAll('a').some(link => link.getAttribute('href') === '#hooks-completion')).toBe(true);
+  expect(reads).toEqual([]); expect(posts).toHaveLength(0);
 });
 
 test('global defaults load once and draft selection never writes; saved scope is device-wide', async () => {

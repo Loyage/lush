@@ -75,7 +75,9 @@ async function openPage(load, open, view, options = {}) {
 const openSettings = () => openPage(() => import('./render-settings.js'), module => module.openSettings(), 'settings');
 const openAgentStatus = () => openPage(() => import('./render-agent-status.js'), module => module.openAgentStatus(), 'agent-status');
 const openVersions = () => openPage(() => import('./render-versions.js'), module => module.openVersions(), 'versions');
-const openHooks = (subpage = 'settings') => openPage(() => import('./render-hooks.js'), module => module.openHooks({ subpage }), 'hooks', { hash: subpage === 'history' ? '#hooks-history' : subpage === 'commands' ? '#hooks-commands' : '#hooks' });
+const openHooks = (feature = null, subpage = 'settings') => openPage(() => import('./render-project-automation.js'), module => module.openProjectAutomation({ feature, subpage }), 'hooks', { hash: feature ? `#hooks-${feature}${subpage === 'history' ? '-history' : ''}` : '#hooks' });
+const openHookTools = (subpage = 'settings') => openPage(() => import('./automation-feature-pages.js'), module => module.openHookTools({ subpage }), 'hook-tools', { hash: subpage === 'commands' ? '#hooks-commands' : subpage === 'history' ? '#hook-tools-history' : '#hook-tools' });
+const openManagement = (subpage = 'settings') => openPage(() => import('./automation-feature-pages.js'), module => module.openManagement({ subpage }), 'management', { hash: subpage === 'history' ? '#management-history' : '#management' });
 const openAutomation = () => openPage(() => import('./render-workspace-automation.js'), module => module.openWorkspaceAutomation(), 'automation');
 const openGlobalInbox = (options = {}) => openPage(() => import('./global-inbox.js'), module => module.openGlobalInbox(options), 'global-inbox',
   { push: options.push, hash: options.projectId && options.noticeId ? `#inbox-notice-${options.projectId}-${options.noticeId}` : options.projectId ? `#notices-project-${options.projectId}${options.status && options.status !== 'all' ? `-${options.status}` : ''}` : options.status === 'automatic' ? '#notices-automatic' : '#notices' });
@@ -128,10 +130,10 @@ function onHashChange() {
     return noProjectView();
   }
   if (!workbenchStatus().projectUsable) return noProjectView();
-  if (hash === '#hooks' || hash === '#hooks-history' || hash === '#hooks-commands') {
-    const subpage = hash === '#hooks-history' ? 'history' : hash === '#hooks-commands' ? 'commands' : 'settings';
-    return ui.view?.id === 'hooks' && ui.hooksPage?.subpage === subpage ? undefined : openHooks(subpage);
-  }
+  const automation = /^#hooks(?:-(completion|push|convergence|emission)(-history)?)?$/.exec(hash);
+  if (automation || hash === '#hooks-history') return openHooks(automation?.[1] || null, automation?.[2] ? 'history' : 'settings');
+  if (hash === '#hooks-commands' || hash === '#hook-tools' || hash === '#hook-tools-history') return openHookTools(hash === '#hooks-commands' ? 'commands' : hash === '#hook-tools-history' ? 'history' : 'settings');
+  if (hash === '#management' || hash === '#management-history') return openManagement(hash === '#management-history' ? 'history' : 'settings');
   if (hash === '#versions') return ui.view?.id === 'versions' ? undefined : openVersions();
   if (hash === '#inputs') return openInputs({ push: false });
   const input = /^#input-(draft|input)-([1-9]\d*)$/.exec(hash);
@@ -234,13 +236,15 @@ export async function boot() {
     if (projectRoute()) $('home').setAttribute('data-help', '在新标签打开上级用户工作台，当前项目的输入与阅读位置保留。');
     else $('home').removeAttribute('data-help');
   }
-  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'versions-open', 'hooks-open'];
+  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'versions-open', 'hooks-open', 'management-open', 'hook-tools-open'];
   for (const id of projectOnly) { const target = $(id); if (target) { target.disabled = !projectReady; target.setAttribute('aria-disabled', String(!projectReady)); } }
   if ($('composer-shell')) $('composer-shell').hidden = !projectReady;
 
   const composerReady = projectReady ? initComposer() : Promise.resolve();
   if (projectReady) { syncSidebarSortSelect(); $('sidebar-sort').addEventListener('change', onSidebarSortChange); }
   if ($('hooks-open')) $('hooks-open').onclick = () => projectReady ? openHooks() : noProjectView();
+  if ($('management-open')) $('management-open').onclick = () => projectReady ? openManagement() : noProjectView();
+  if ($('hook-tools-open')) $('hook-tools-open').onclick = () => projectReady ? openHookTools('commands') : noProjectView();
   if ($('versions-open')) $('versions-open').onclick = () => projectReady ? openVersions() : noProjectView();
   if ($('inputs-open')) $('inputs-open').onclick = () => projectReady ? openInputs() : noProjectView();
   if ($('input-history')) $('input-history').onclick = () => projectReady ? openInputs() : noProjectView();
