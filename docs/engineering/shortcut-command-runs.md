@@ -22,10 +22,4 @@ Hook 执行仍核验授权、精确版本及安全门，防止与同 Worker 的 
 
 ## W192 验证
 
-两个 child 已合入 W192 并由父检查、验收。父复跑组合专项 60 项通过；修复新 pending 事件中文标签及连续运行目录 revision 后，专项 76 项通过。最终完整 `bun run test --timeout 30000`：**3213 pass / 0 fail**，411 文件；日志 `/tmp/lush-w192-logs/full-final.log`。`bun run docs:check` 通过，保留既有篇幅警告（`docs-final.log`）。
-
-`bun run test/web/check-shortcut-commands-browser.js` 使用临时项目、真实 Firefox、HTTP→RPC→SQLite/Git/Shell：35 秒命令超过原 30 秒等待仍显示成功／退出码 0、执行一次、刷新恢复记录、第二次显式运行重读目录 revision、运行／管理分离、标签切换保留草稿；双主题 × 1440/390/320px 无横向裁剪。日志 `/tmp/lush-w192-logs/browser-final-rerun.log`，截图／driver 日志 `/tmp/lush-shortcut-browser-qwA99n/`。Firefox 外窗最小宽度需要 iframe；仅测试代理把 `frame-ancestors 'none'` 改为 self，其余生产 CSP／资源／接口保持，未放宽生产策略；原始生产 frame-ancestors 仍由 HTTP 安全回归覆盖。
-
-首轮全量 **3210 pass / 1 fail**，原因是 pending 事件缺中文名称，已补标签与语义断言后完整重跑。早期浏览器夹具因生产禁止嵌入策略和窄屏点击未居中失败，修正测试代理与原生点击滚动后完整通过；失败日志为 `full-initial.log`、`browser-{initial,second,third}.log`，均在上述父日志目录，不作为通过证据。
-
-未调用真实模型、真实网络 remote 或重跑 MeshNote 命令，未重启用户 daemon／Host。运行中的服务须在用户确认安全后加载新代码；部署及远程网络断线尚未实测。
+保留历史入口；旧手动运行验收过程与日志留在 Worker／提交记录，不再作为现行操作指南。当前回归定位 `test/shortcut-command-runs-api.test.js` 及对应 Web API／DOM／Hook 集成，覆盖固定执行身份、未知恢复、分页／移除、历史不改写与离页保护。受控 fixture 不证明真实模型、外部 remote 或部署网络可用，不操作用户服务。

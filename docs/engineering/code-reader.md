@@ -95,8 +95,7 @@
 
 ## 实现分工与验收
 
-- 后端：`workspaces/code*.js`、`project/code.js`，对应入口 mixin、RPC registry/handler、Web 路由；更新 runtime/interfaces 地图与 API 参考；只用临时 Git 仓库及 mock Host 测试。
-- 前端：`code-view.js`、文件树/diff 组件及 `transcript-view.js` 生命周期、样式、搜索接缝；更新 Web 地图与执行阅读器文档，DOM 测试自给自足。
+- Workspaces 读取可信工作区／对象，Project 限定 Worker 身份，HTTP 转发不接任意路径；code-view／transcript-view 负责前端按需读取与生命周期，不扩大后端权限。
 - 统一验收：新增/删除/改名、已提交与未提交/撤回、冲突、特殊文件名、链接/内部目录/ignored 拦截、子模块/二进制/超大文件、父同步/多轮基线/归档降级、分页/失效、多项目路由鉴权、搜索往返/状态保留、真实浏览器窄屏/深浅主题。
 
 真实浏览器验证入口 `bun run scripts/check-code-reader-layout.js [截图目录]`：Firefox / geckodriver 驱动真实前端，在明确尺寸的 iframe 中检查实际 1440／900／390／320px viewport（不受桌面最小窗口宽度影响），与临时 Git 项目的 Workspaces 读面通过临时本机 HTTP fixture 对接；覆盖实际文件正文/diff、并排/统一与窄屏布局、路径搜索往返、刷新不抢正文、关闭停止探测。脚本自行清理临时项目/服务/浏览器，失败保留日志；不启动用户 daemon，不冒充生产 Host 鉴权测试（后者由 HTTP/RPC 单测覆盖）。

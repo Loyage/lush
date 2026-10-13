@@ -34,7 +34,7 @@
 
 项目 daemon 用有界可取消定时器，关闭页面不影响执行，停机不自动启动项目或唤醒设备。恢复仅跳过停机期间未提交的过期 occurrence：一次性标 skipped 并停用，每日推进到启动时刻之后；停机前已持久提交、尚未开始动作的 pending 项仍继续等待安全点。已 started 的沿用 unknown/精确收据恢复，不盲目重试。运行期间定时器迟到不冒充停机错过。停用后重新启用不补跑停用期间 occurrence，保留已提交且未执行项；移除仅撤销未来授权，执行中不可移除。API 读取无副作用，shutdown 清计时器并等 Hook 写入收口。
 
-分区：runtime 子 Worker 负责 `src/core/hooks.js`、新增纯时间计算模块及 project Hooks/调度恢复接缝、`test/project/*scheduled*` 和纯计算测试；前端子 Worker 负责 `src/ui/web/assets/` Hooks 表单/渲染/状态与 DOM 测试；父 Worker 负责文档、接口白名单相关必要适配和跨区联调。现有 RPC/CLI 复用定义文件与挂载接口，无新增 RPC。
+定时定义复用既有 RPC／CLI 的文件与挂载接口，不新增 RPC；纯时间计算与 runtime 执行分离。
 
 项目 daemon 的内置自动选择不挂在 Worker 上、不属于模板动作目录；W118 / 决定 #267 的开关、来源与接口见[daemon 自动选择契约](daemon-auto-select.md)。
 
@@ -166,10 +166,7 @@ CLI 的挂载 Worker 身份遵循父侧编号接缝：允许整数或 `Wn(-n)*`�
 
 ## 模块职责
 
-- Runtime：`src/core/hooks.js`、`src/core/project/hooks.js`、Project 装配、base、scheduling/lifecycle/messages/iteration/merge-queue/order/input-history/tasks 及 Store/schema 附属列、`workspaces/worktree.js` 的 anchor guard 小接缝，`test/project/*hooks*` 与受影响 runtime 回归。
-- 接口：RPC registry/handlers、CLI 命令/帮助、Web server 路由，`test/hooks-api.test.js` / `test/web/hooks-api.test.js` 与接口回归；不修改 assets 或 runtime。
-- 前端：新 `render-hooks.js`（`openHooks`、`workerHooks`）、`hook-form.js`（表单）、`styles-hooks.css`，详情/交付/Worker 图、composer/历史暂存、导航/app/index；DOM 测试。前端挂载按钮和模板按钮只用上述契约；自动合并仍走 `worker.auto_merge`。
-- 父 Worker：设计/工程/使用文档、AGENTS 阅读索引、集成验证与跨区必要适配。接口或投影变动先告知父与关联分区，不互改文件。
+纯目录／时间定义、Project 领取／执行／恢复、Git 写边界及用户界面各守自己的职责，精确定位见[模块地图](modules.md)。接口转发不能绕过 runtime，前端只消费安全投影，不复制调度或权限规则。
 
 ## 验证与交付限制
 

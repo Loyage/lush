@@ -1,6 +1,6 @@
 # 用户工作台与设备唯一配置契约
 
-本章落实 W162／用户决定 #402、#408、#411，优先于旧设备继承、项目自动选择与项目新指令默认值描述。目标与反例见[设计理念](../design/user-workspace.md)。下面是本次实现契约，不是验收成功证明。
+本章是设备唯一配置、全局策略及来源收件箱的当前契约；目标与反例见[设计理念](../design/user-workspace.md)。旧项目配置不再活跃，显式迁移见[设备迁移](device-settings.md)。
 
 W210／D492 已移除 Worker 并发额度功能：设备设置、CLI 及状态不再提供并发上限，旧盘上值保留但忽略，旧并发环境变量不生效。无项目或设备槽池，不新增 Host 槽接口；运行时依赖、冻结、维护与实际退出等安全门仍保留，见[移除并发槽](global-slots.md)。
 
@@ -18,15 +18,13 @@ W210／D492 已移除 Worker 并发额度功能：设备设置、CLI 及状态�
 
 根 `#projects` 改为无大标题的可定制面板，全局与每卡设置都在当前页弹窗打开；W234／D552 恢复每项目一张原色彩／字体／边框的聚合卡与统一额度窗口，配置所选来源、动态内容与常用导航；v4 独立成员仅作无损兼容存储，不在查看／布局保存时迁移。固定尺寸与列表槽位不随业务状态增长，超量翻页、详情弹窗；内容、位置及尺寸设备共享，布局仅全局按钮开启，网格吸附和碰撞避让。`#project-management` 仍承接目录登记、后台维护、配色编辑与新建 Worker，不再挂载总览卡片设置。进入面板只读；账户查询仅由单卡或全局刷新显式触发，后者只查已摆放账户。
 
-配置 v4、partial patch、v1–v3 只读兼容投影、消息精确／下界计数与逐条已知、固定布局尺寸、模块分工与验证责任的权威契约见[总览面板](dashboard-panel.md)。此决定优先于 W199／决定 #467、#468 的只读瀑布流、浏览器独立顺序与管理页配置位置；设备私有存储、来源身份、安全读面、失败未知与不启动离线后台的边界保持。
+配置版本兼容、partial patch、消息计数／逐条已知、固定尺寸和验证边界统一见[总览面板](dashboard-panel.md)；不在此复制版本号或历次布局方案。
 
 ## 全局中断完成提醒（W216／D508）
 
 项目维护投影与 Worker／项目两层 Hook 新节点见[中断完成信号](interrupt-completion.md)。Host `/api/host/projects` 为每项附加严格白名单 `summary.maintenance`，保留原 `maintenance_paused`；畸形／旧字段不提供成功证据，不启动离线项目。浏览器只读观察本次确认固定范围与精确批次，全部已完成且当前空闲再提醒，不自动重启／继续，不拥有项目权威事实。来源 info Notice 在项目保存，离页停止观察，关闭页面不承诺推送。
 
 ## 设备配置分区
-
-配置基础 Worker 负责 `src/config.js`、`src/core/device-config.js`、`settings.js`、`device-migration.js`、`src/agent/` 配置／环境／网络／连接／Pi／资源／包模块、`core/agent-connections.js`、project 设置／Agent／包 wrappers、设置类 RPC handlers、CLI scope／config／Agent 接入及相关测试。不改 project 自动化、Host、Web assets、server.js 或 RPC registry。
 
 - 有 `deviceHome` 的真实 Config 只以设备文件为技术设置和连接来源，项目旧文件不参与有效值或来源并集。默认公开 scope 为 device；显式 project scope 拒绝并说明项目覆盖已停用。`settingsConfigurationScope(config,scope)` 负责技术设置的有效作用域，低层 configurationHome/readLocal 选根留给显式迁移与没有 deviceHome 的独立最小测试配置，不能形成生产旁路。
 - 设备技术配置读写均用户专属，包括未显式传 scope 的 agent.config/models/resources；registry 白名单与 handler 二次检查共同守门。Agent 的 system.status 不返回完整设备 profile，安全 Worker 摘要和项目运行事实仍可读。项目采样的生命周期归属不得因为技术scope统一为device而失效。
@@ -50,8 +48,6 @@ W210／D492 已移除 Worker 并发额度功能：设备设置、CLI 及状态�
 
 ## 设备自动化分区
 
-Runtime Worker 负责新增 `src/core/device-automation.js`、project `auto-select.js`／`completion.js`／`hooks.js`／`status.js`、base/lifecycle 的监测生命周期接缝、hooks RPC handler、CLI hooks 及相关 tests。不修改配置分区文件、Host、server.js、assets 或 registry。
-
 `DeviceAutomationSettings(config)` 导出为共享私有文件读写器，设备根同上：
 
 - `get()` → `{version:1,revision,auto_select:{enabled},completion_defaults:{enabled,level}}`；默认关闭、level 默认 merge。
@@ -65,8 +61,6 @@ Runtime Worker 负责新增 `src/core/device-automation.js`、project `auto-sele
 - 用户 summary 的 auto_select 添加设备作用域／策略 revision 安全证据，前端不得用旧 daemon 的缺失字段假称已生效。
 
 ## 全局收件箱分区
-
-Host Inbox Worker 负责新增 `src/host/global-inbox.js`、`src/host/project-host.js` 的窄聚合接缝、Notice 增量只读 RPC／投影和必要持久附属同步元数据、`src/rpc/registry.js` 中仅该新增方法及权限、Notice handlers、对应 backend tests。不改 server.js、assets、设备配置／自动化文件。
 
 `GlobalInboxService(projectHost,{env,...options})` 对外：
 
@@ -83,7 +77,7 @@ Host Inbox Worker 负责新增 `src/host/global-inbox.js`、`src/host/project-ho
 
 ## Host HTTP 与父分区
 
-父 Worker 负责 `src/ui/web/server.js`、`src/host/user-services.js`、新 HTTP／真实多项目组合 tests、架构与使用文档、最终回归。user-services 惰性加载三个分区稳定导出（依赖注入支持权限专项），固定设备根、请求白名单、错误安全投影及关闭期不准入；新路由保持原登录、Host／Origin、JSON／no-store 和白名单边界：
+`src/host/user-services.js` 惰性装配设备偏好／策略和来源收件箱，固定设备根、请求白名单、安全错误及关闭期不准入；`src/ui/web/server.js` 适配 HTTP，保持登录、Host／Origin、JSON／no-store 边界：
 
 - `GET /api/host/preferences` → 偏好读模型；`POST /api/host/preferences` 接受 `{patch,expected_revision}`。
 - `GET /api/host/automation` → 自动化读模型，可附加项目能力／确认状态。
@@ -97,8 +91,6 @@ Host Inbox Worker 负责新增 `src/host/global-inbox.js`、`src/host/project-ho
 
 ## 前端分区
 
-UI Worker 负责 `src/ui/web/assets/`（HTML 入口为 `assets/index.html`）及对应 DOM／独立浏览器 fixture tests，不修改 backend/server.js。
-
 - W171／决定 #421：根 shell 显示完整全局导航；项目 shell 只显示项目内部导航，左上品牌原生链接 `/#projects` 在新标签打开上级空间，不再显示全局页面按钮或全局收件箱顶部摘要。单项目 Host 根也为工作台，用明确项目身份进入工作。
 - `settingsClient` 只接受 device，始终使用 Host 设置 API。删掉活跃项目覆盖／继承编辑，不删除历史记录；设备来源页不伪造全局消费者或历史，项目解释历史仍由项目页提供入口。
 - 根 `#projects` 增强为后台总览：只读已登记项目，安全 summary 可附已验证的正整数 pid；不可达显示未确认状态，不冒充已停止。不再提供每行「处理消息」按钮；全局收件箱的具体消息与系统提醒通过 `/p/<id>/#notices-<notice-id>` 新标签定位来源项目「待我处理」记录（只读导航、不自动已读），告知为蓝色、待决为琥珀色。原全局来源筛选与详情书签保留兼容。新指令表单按需加载 `project-order-form.js`，固定 `/p/<id>/api/action` 的 `order.submit {content,branch:'main',start}`；默认仅创建，显式创建并开始带 Agent 标识。离线／空白禁发送，单飞跨刷新，正文／ACK 按项目与文档隔离，失败保留并提示先核对未知写入结果，不自动重试。刷新保留表单节点和编辑；未发原文为会话内草稿，不持久写项目 Draft。
@@ -107,12 +99,10 @@ UI Worker 负责 `src/ui/web/assets/`（HTML 入口为 `assets/index.html`）及
 - 设备偏好后端权威，缓存首帧、显式写入、跨标签／客户端定期或版本失效同步；启动旧缓存不得写回覆盖新值。请求失败保留编辑并明确未保存。
 - 全局提醒观察所有有权来源，首屏历史不补发，项目＋记录身份／同源锁去重；关闭页面不承诺后台推送。设备总开关不替客户端请求权限，授权只由用户手势触发。
 - 全局模式提示在两种 shell 保持，关闭只修改设备策略，不依赖当前项目在线。启用／可能恢复 Agent 的动作具有 agent-call、agentHelp；非直观及禁用动作遵循 ui-guidance。
-- 页面代际／迟到请求保护，320px／双主题／键盘与减少动效必须覆盖。新前端模块在分区内更新导出地图，不改变公开 Worker API语义。
+- 页面代际／迟到请求保护，320px／双主题／键盘与减少动效必须覆盖，不改变公开 Worker API 语义。
 
 ## 验证与交付
 
 用户决定 #410：Web 首屏资源保留原绝对预算（冷 JS 最多24个，含CSS最多25个），扩展用户工作台采用至少四倍源码静态模块数对照；仍核验共享状态、懒执行、HTTP/CSP 与真实浏览器，不以提高绝对上限或删断言达标。
 
-W171／决定 #421 验证：完整 `bun run test --timeout 30000` 3024 通过、0 失败（391 文件）；真实临时双 daemon／Host 验证 PID 与来源新指令隔离、离线发送不启动后台；Firefox 编译产物 fixture 覆盖双主题 1440/390/320px 的后台表单、刷新保留草稿、Agent 标识及品牌新标签保留项目现场；`check:workbench` 覆盖双浏览器／配色与 1440/900/390px。文档检查通过，既有篇幅警告保留。完整日志 `/tmp/lush-w171-logs/full-final.log`，浏览器与文档日志同目录。首轮专项新增指令导致 Notice 序号不再相等，修正测试顺序；首轮全量受 240 秒执行时限中断，不作为成功证据。未调用真实模型、未扫描未登记项目、未重启用户 daemon／Host。
-
-各分区先实际运行完整专项 tests，报告通过数／日志路径和未验证风险，再提交干净工作区。父在 runtime 合并并检查后确认 child，运行真实临时双 daemon／Host 组合及完整 `bun run test --timeout 30000`、`bun run docs:check`；不以截断／未结束的测试宣称通过。不读取真实凭证，不迁移用户配置，不重启用户 daemon／Host。
+跨项目组合入口为 `test/integration/user-workspace.test.js`，真实浏览器入口 `bun run check:workbench`；临时双 daemon／Host 验证来源动作、设备同步、离线不偷启和草稿保留，不操作真实凭证、配置或服务。mock／DOM 不能证明真实模型或浏览器表现，验证与交付责任见[贡献指南](../contributing/README.md#分层测试与交付)。

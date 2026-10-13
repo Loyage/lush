@@ -61,7 +61,7 @@ inspect、graph、worker.hooks 同源。内置挂载为不可移除的 `auto-mer
 
 ## 验证与分区
 
-W169 Runtime child 负责 core/project、workspaces、device-automation 和 runtime/device tests；UI child 负责 assets 与 DOM；父负责 CLI/RPC/Host、提示词、文档、HTTP/RPC/Git 联调及全量测试，具体边界见[统一验收](worker-acceptance.md)。
+统一验收入口和回收／部分失败以[验收契约](worker-acceptance.md)为准；长期定位见[模块地图](modules.md)，验证责任见[贡献指南](../contributing/README.md#分层测试与交付)。
 
 验证必须覆盖手动／父 Agent／自动验收、无代码回答、旧 accept/archive、历史已验收补办、权限锁定、消息／待决／脏现场／后代／冻结／同步／共享资源阻塞、部分删除失败、重启 unknown、成功静默、单动作 UI 和迟到保护。使用临时项目与设备根，不重启用户服务或调用真实模型。
 

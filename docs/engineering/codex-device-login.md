@@ -26,8 +26,4 @@ Manager 方法 `deviceStart(id)`、`devicePoll(id,login_id)`、`deviceCancel(id,
 
 ## 文件分工
 
-后端 Worker：`src/agent/connections*.js`、`src/core/agent-connections.js`、`src/core/project/agents.js`、`src/rpc/{registry.js,handlers/system.js}`、`src/ui/web/server.js`；对应 Agent/Project/RPC/API 测试。更新 `docs/third-party/agent-connections.md` 中固定源协议审查记录（设备码参考 Pi AI 已安装版本），不引入 SDK 运行时依赖。
-
-Web Worker：`src/ui/web/assets/render-agent-connections.js`、必要连接样式、对应 DOM 测试。不得改 server/RPC/后端或此契约。
-
-父 Worker：工程契约、模块文档、组合回归与验收。真实账号的设备码授权与实际调用尚需用户验收，mock 测试不等于真实登录验证。
+连接管理器负责协议与短期登录状态，项目服务／RPC 转发安全投影，Web 管理当前登录页的计时和离页清理。上游协议依据见[审查记录](../third-party/agent-connections.md)，不引入 SDK 运行时依赖。mock 网络／DOM 不证明真实账号登录或模型调用可用，须用户显式验收。

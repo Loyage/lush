@@ -1,20 +1,18 @@
 # 账号资源连接器（首版实施契约）
 
-用户决定 #124/#126：本轮只做连接器与额度观测，不自动模型路由；Lush 自己管理多个账号的密钥与登录，采用私有 0700 目录/0600 凭证文件（不是静态加密保险箱），固定审查 MIT 核心代码，不直接加载第三方插件或付费探测。首版 DeepSeek/OpenRouter/Z.AI/Kimi API Key 和 Codex OAuth；既有 Agent 状态/用量配置与历史不迁移、不覆盖外部客户端认证。
+本章负责账号连接与安全资源观测：私有 0700 目录／0600 文件不是加密保险箱或 OS 沙箱，不加载未经审查插件、不发付费模型探测。技术配置设备唯一，项目执行／历史隔离，旧源只经[显式迁移](device-settings.md)；当前 scope 以[用户工作台](user-workspace.md#设备配置分区)为准。
 
-W116 / #261 的[设备设置](device-settings.md)优先于首版项目单根描述：来源为设备共享 + 旧本地并集，同 ID 本地优先；device 管理只看共享。`ConnectionManager.forScope(scope)` / `AgentConnectionsService.forScope(scope)` 共用受控生命周期，`storage_scope` 仅公开读字段（save 可忽略合法值，不据此选根），配置读面附 `configuration_scope`。登录、目录和 OAuth refresh 的锁落实际凭证根，stop 涵盖派生 manager/service；无项目 Host 不建项目历史或消费者。显式迁移支持私有备份、持久步骤、重新预检恢复及源端交接 fail-closed，不启动自动迁移。
-
-用户决定 #142 的共享保存、自定义 OpenAI 兼容 API、单 Worker 选择与默认关闭的受信调用前策略接口，由[共享模型选择增补](managed-model-selection.md)规定；该增补优先于本文的首版服务商列表和“本轮不实现”范围描述。
+Manager／Service 的派生作用域共用受控生命周期，登录／目录／OAuth 锁落实际凭证根，stop 包含派生实例，无项目 Host 不建项目历史／消费者。storage_scope 为公开读字段，不能据此授权选根。自定义兼容端点和默认关闭受信策略见[模型选择](managed-model-selection.md)。
 
 ## 用户目标和安全边界
 
-连接是项目 Agent 配置的技术附属项，不是新的顶级业务实体，也不是 Host 的电脑级账号池。连接明确绑定服务商、模型端点、认证和模型范围。同一服务商多个账号不能合并观测；更换凭证/账号后的旧曲线不能冒充新账号。查询失败不等于资源耗尽，不把未知写成零；现金、Key 预算、订阅窗口不可互换。正常模型响应的套餐头可被动采集，普通 RPM/TPM 头不冒充套餐余额。
+连接是设备技术配置的附属项，不是新的顶级业务实体或 Host 跨项目调度账号池。连接明确绑定服务商、模型端点、认证和模型范围。同一服务商多个账号不能合并观测；更换凭证/账号后的旧曲线不能冒充新账号。查询失败不等于资源耗尽，不把未知写成零；现金、Key 预算、订阅窗口不可互换。正常模型响应的套餐头可被动采集，普通 RPM/TPM 头不冒充套餐余额。
 
 所有管理/登录/查询接口用户专属。秘密只通过写入请求进入私有凭证文件，绝不通过读 API 返回（包括掩码前缀）、会话、事件、历史或错误信息泄漏。配置文件不能放在 agent worktree；禁止 symlink 与错误权限，原子写入。失败不静默回写。删除连接只移除对应配置与凭证，不删除旧历史或外部凭证。OAuth 状态、PKCE verifier 和未完成登录只在服务端短期持有；有界生命周期、状态验证和一次性兑换；不在 Agent 中执行登录。网络固定目的地/HTTPS、拒绝重定向、有界响应/超时、无模型探测，代理凭证不送官方账号接口。
 
 ## Provider / 凭证模块
 
-`src/agent/connections.js` 导出 `ConnectionManager(config, options={})`，内部可拆分私有文件/OAuth/查询模块；options 允许 mock fetch/now，不在自动测试中读取真实凭证。凭证与配置存放 `<home>/credentials/agent-connections.json`，文件 version 1。
+`src/agent/connections.js` 导出 `ConnectionManager(config, options={})`，内部可拆分私有文件/OAuth/查询模块；options 允许 mock fetch/now，不在自动测试中读取真实凭证。生产凭证与配置固定存放 `<deviceHome>/credentials/agent-connections.json`，文件 version 1；旧项目文件只供[显式迁移](device-settings.md#显式迁移连接与迁移分区)，不作活跃覆盖。
 
 公开连接字段：
 
@@ -24,8 +22,8 @@ W116 / #261 的[设备设置](device-settings.md)优先于首版项目单根描�
 ```
 
 - id 新建时生成随机 UUID，更新不可改变；label 有界纯文本。
-- provider 是 deepseek/openrouter/zai/kimi-coding/openai-codex；endpoint 是模型端点，默认官方模型端点，必须明确显示；不在 URL 中放秘密。
-- auth_type 为 api_key/oauth；Codex 只支持 oauth，其他只支持 api_key。
+- provider 是 deepseek/openrouter/zai/kimi-coding/openai-codex/openai-compatible；endpoint 是模型端点，默认官方模型端点，必须明确显示；不在 URL 中放秘密。
+- auth_type 为 api_key/oauth；Codex 只支持 oauth，其他只支持 api_key；兼容端点规则见[模型选择](managed-model-selection.md#共享连接)。
 - models 是可空的模型 ID 限制列表（物理 model id，不含 provider 前缀），不声称联网验证可用。
 - default_model / default_thinking 是可空的默认设定：物理模型 ID（非空时必须在 models 范围内）与 Pi 思考等级（`settings.THINKING_LEVELS.pi`）。它们供「运行设置」一键填入；已有 Worker 主动换源时自动填入默认模型的界面规则见[切换来源](../design/agent-model-settings.md#切换来源)。它们不参与连接身份、凭证轮换或额度历史。
 - notify_reset 是布尔本地偏好：用户在「模型来源」勾选后，页面在缓存观测的 `reset_at` 到达时标出该额度；系统通知开关已开启且已授权时另发浏览器通知。它不参与连接身份、凭证轮换或额度缓存命名空间，也不新增 daemon 后台调度。
@@ -41,7 +39,7 @@ Manager 方法：
 - `identity(id)` -> 私密同步 `{account_key,source_key,revision}`，前两项与 query/prepareRuntime 一致；revision 是配置/凭证变动指纹，供迟到与外部更换校验，不经 RPC 返回。
 - `query(id)` -> Promise `{id,account_key,source_key,observation}`；单连接专用额度查询，失败返回安全状态。不创建模型调用。OpenRouter Key 预算和账号 credits 两次查询独立，权限不足不能抹掉成功指标。
 - `prepareRuntime(id)` -> Promise 私密 `{connection,credential,account_key,source_key}`；credential 为 `{type:'api_key',key}` 或 `{type:'oauth',access,refresh,expires,accountId?}`。检查 enabled/可用凭证，必要时协调刷新实际存储根的 Lush 托管 Codex 凭证，多个 daemon 复用同一 refresh 锁；更新/删除在途必须防止旧刷新覆盖新配置。
-- `loginStart(id)` -> `{id,login_id,url,expires_at,redirect_uri,instructions}`；只允许 Codex oauth，固定授权 URL、PKCE/state。首版手动粘贴回调 URL，兼容远端 SSH，不启动不受控浏览器/CLI，也不覆盖外部 auth.json。
+- `loginStart(id)` -> `{id,login_id,url,expires_at,redirect_uri,instructions}`；只允许 Codex oauth，固定授权 URL、PKCE/state。此为手动回调的显式备用路径，默认设备码协议见[设备码登录](codex-device-login.md)，兼容远端 SSH，不启动不受控浏览器/CLI，也不覆盖外部 auth.json。
 - `loginFinish(id,login_id,redirect_url)` -> 公开连接；验证回调 origin/path、state、超时和一次性消费；兑换失败只返回固定安全错误。OAuth refresh 与登录写回协调，不能覆盖已更换/删除的连接。
 - `stop()` 取消未完成登录及在途请求；实现可同步或 Promise。
 
@@ -70,7 +68,7 @@ Manager 方法：
 - `start()` / `stop()`：默认不采样；明确启用才启动 daemon 定时器，关页仍运行、停机不补采样。停止取消/等待在途操作。
 - `prepareRuntime(id)` / `loginStart(id)` / `loginFinish(id,login_id,redirect_url)` 转发 manager 的同名方法；私密 runtime 结果不返回 RPC。
 
-新增专用 Store mixin `store/agent-connections.js` 和附属表，不迁移旧 agent_usage 表。Store 独占 SQL，可自行命名内部方法，提供安全观测/最新成功/历史/清理能力。旧曲线按旧接口继续可读。
+Store 的附属观测表负责项目历史／最新成功／清理，SQL 不进入 Provider 或 Web。不迁移旧 agent_usage 表，旧曲线仍按旧只读接口可查。
 
 RPC（全部 USER_ONLY）：
 
@@ -87,9 +85,9 @@ HTTP GET `/api/agent/connections`、GET `/api/agent/connections/history?id=&days
 
 ## 设备共享最新余额缓存（W152）
 
-设备共享连接的最新观测以 `<deviceHome>/credentials/agent-connection-observations.json` 持久化；项目连接仍沿用项目数据库读面，不自动迁移旧余额或项目覆盖。缓存归连接实际存储根，Manager `cachedObservation(id)` 只读本地文件，`recordObservation(id,account_key,source_key,observation)` 校验当前匿名身份后写入。项目显式查询、启用后的采样、受信被动反馈及无项目 Host 显式查询均更新共享缓存；所有项目和 Host 列表直接重读该文件，无需逐项目联网刷新，不复制进各项目历史。
+设备连接的最新观测以 `<deviceHome>/credentials/agent-connection-observations.json` 持久化，所有生产连接均读同一设备根，不从旧项目凭证或数据库补当前设备值。项目数据库只保留自身观测历史，不自动导入旧余额。缓存归实际设备根，Manager `cachedObservation(id)` 只读本地文件，`recordObservation(id,account_key,source_key,observation)` 校验当前匿名身份后写入。项目显式查询、启用后的采样、受信被动反馈及无项目 Host 显式查询均更新共享缓存；所有项目和 Host 列表直接重读该文件，无需逐项目联网刷新，不复制进各项目历史。
 
-缓存仅保存归一化的最新 `observation` 和 `last_success:{checked_at,observation}|null`。命名空间包括稳定 connection ID、账号与来源（含服务商、端点及模型限制），同服务商/同名不同连接、不同账号和本地同 UUID 阴影不得互用。普通 OAuth token 轮换保留同账号观测，修改标签/默认模型不要求重新查询。最新失败不冒充零余额，旧成功仅作为 `last_success`；按 `checked_at` 单调更新，迟到观测不能覆盖更新值。
+缓存仅保存归一化的最新 `observation` 和 `last_success:{checked_at,observation}|null`。命名空间包括稳定 connection ID、账号与来源（含服务商、端点及模型限制），同服务商／同名不同连接、不同账号及迁移来源的同 UUID 不得互用；旧源不形成活跃阴影。普通 OAuth token 轮换保留同账号观测，修改标签/默认模型不要求重新查询。最新失败不冒充零余额，旧成功仅作为 `last_success`；按 `checked_at` 单调更新，迟到观测不能覆盖更新值。
 
 文件 0600，凭证目录 0700；沿用实际存储根校验、跨进程配置/缓存锁、原子替换、无 symlink/foreign owner/硬链接和有限大小（2 MiB、60 个命名空间，超限淘汰最旧条目）。不保存原始响应、headers、凭证、Worker、消费者或历史曲线。损坏或不安全缓存明确失败，不回退其它项目值或偷偷修复。既有项目数据库样本不自动导入设备缓存；首次使用新缓存需在任一入口刷新一次，之后各项目复用同一观测。
 
@@ -109,21 +107,18 @@ HTTP GET `/api/agent/connections`、GET `/api/agent/connections/history?id=&days
 
 「运行设置」共用表单（`agent-profile-form.js`）在已选托管来源时可一键填入该来源的默认模型（限定为 `provider/model`）与思考深度；只改这两项，未读来源或无默认时给就地提示，不调用 Agent，保存前仍可修改。已有 Worker 主动换源时默认模型的自动填入例外见[切换来源](../design/agent-model-settings.md#切换来源)；思考深度仍不自动改变。
 
-配置页 profile 的 `connection_id` 为后续 Pi 调用必需来源（空不会恢复外部 Pi 认证）；由 parent 实现后端校验与执行绑定。Web可从 list API加载可用连接选项；首版只支持 Pi绑定（Codex执行后端仍走原凭证），明确提示固定物理 provider/model且模型限制必须匹配。配置保存不改变正在运行的 invocation。
+来源／配置模式的选择以[双模式契约](agent-configuration-v2.md#profile-模式)为准；Web 只读本地连接选项，后端核验 Lush Pi 的精确来源及物理 provider/model 范围，Codex CLI 保持自身认证。保存不改变当前 invocation，不把未绑定当成自动切换机器默认 Pi 的授权。
 
 ## Codex 设备码登录追加
 
-用户决定 #135：新增默认设备码登录，原回调 URL 登录保留为显式备用。新增用户专属 `agent.connections.device.start/poll/cancel`，协议、生命周期、Web 自动确认及文件分工见[Codex 设备码登录](codex-device-login.md)。仍只托管本项目凭证，不读取或改写外部 Pi 登录，不调用模型。
+用户决定 #135：新增默认设备码登录，原回调 URL 登录保留为显式备用。新增用户专属 `agent.connections.device.start/poll/cancel`，协议、生命周期、Web 自动确认及文件分工见[Codex 设备码登录](codex-device-login.md)。凭证仍归私有设备根，不读取或改写外部 Pi 登录，不调用模型。
 
 ## Pi 显式绑定与被动观测（parent）
 
-Agent profile 的 connection_id 仅 Pi 允许，所有后续 Pi invocation 必须绑定，未绑定明确失败、不回退外部认证。prepareRuntime 冻结连接与账号并验证物理 provider/model、模型范围。`<home>/pi/` 为 Lush 项目独立基础配置，每次调用使用私有快照经 `PI_CODING_AGENT_DIR` 提供，不复制用户默认 Pi 的设置、模型覆盖、全局 Prompt 或凭证，不改写外部 Pi。秘密不放 argv/上下文/日志。临时 OAuth 认证只携带 access token，不复制 refresh token；长调用过期可能失败，下一次由 Lush 协调刷新，不能让多个 Worker 竞争刷新。`--no-approve` 防项目 `.pi` 重定向端点，项目 AGENTS 和显式扩展/Skills 保留。旧历史不迁移删除；不实现虚拟模型、自动降级或付费切换。Worker 窄更新与安全选择摘要见[共享模型选择](managed-model-selection.md)。
+模式、独立配置、项目上下文和资源隔离只以[双模式契约](agent-configuration-v2.md#profile-模式)为准。本节的托管准备／反馈只用于 Lush Pi：prepareRuntime 固定设备连接／账号与物理模型范围；项目私有调用快照仅携 access token，不复制 refresh token。秘密不进 argv／上下文／日志，令牌过期可使长调用失败，下一次由设备连接管理器协调刷新，多个 Worker 不竞争刷新。旧会话／历史不删除，不实现虚拟模型或隐式付费切换；窄更新与安全选择摘要见[模型选择](managed-model-selection.md)。
 
-正常响应只采集指定套餐头，匹配运行 provider，写入受限临时安全观测文件；daemon 在 invocation退出时吸收观测（不是实时轮询），失败退出也处理。文件不含原始 headers/token；记录后清理。本轮空闲时仍通过专用接口查询。需要跨账号绑定和实际模型请求的真实验证，由用户显式提供测试账号另行进行，不在自动测试中操作真实凭证。
+正常响应只采集指定套餐头，匹配运行 provider，写入受限临时安全观测文件；daemon 在 invocation退出时吸收观测（不是实时轮询），失败退出也处理。文件不含原始 headers/token；记录后清理。显式资源查询使用专用接口，不因 Pi 默认模式而引入托管绑定。需要跨账号绑定和实际模型请求的真实验证，由用户显式提供测试账号另行进行，不在自动测试中操作真实凭证。
 
 ## 并行边界
 
-- Provider child：`src/agent/connections*.js`、`test/agent/connections*.test.js`、新 MIT attribution/LICENSE；不改旧 status/usage，也不改 parent profile/provider。
-- Runtime child：`src/core/agent-connections.js`、Project base/agents/lifecycle、Store新表/mixin、RPC registry/system、Web server路由、新 test/project/persistence/rpc/web-server；不改 provider、settings、Pi extension或Web assets。
-- Web child：Web新 panel/style及 Agent页/设置页/index 接入、新 DOM测试；不改 server/RPC/backend。
-- Parent：本契约与设计理念/索引/模块文档、Agent profile/runtime显式绑定、Pi被动观测、组合验证和全量测试。
+凭证／Provider、项目观测与调用绑定、用户编辑界面分离；长期职责从[模块地图](modules.md)定位。专项与受影响回归使用临时文件／mock 上游；真实账号登录／跨账号模型调用须用户显式提供测试资源，不用配置保存或 mock 证明可用。

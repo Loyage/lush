@@ -22,18 +22,7 @@
 
 ## 2. 模块职责与并行分区（拟议）
 
-| 分区 | 拟议职责/文件 | 接缝 |
-|---|---|---|
-| 纯算法 | 新 `core/delivery-plan.js` | 根据固定成员、入队顺序、依赖与容量生成稳定拓扑；不访问 Git/DB |
-| 持久化 | Store/schema 的 delivery 技术表模块 | 原子领取、成员唯一约束、generation CAS、节点与发布收据、完整统计 |
-| runtime | 新 `project/delivery-convergence.js`，现有 `merge-queue.js` 仅作授权/旧协议适配 | 调度准备/晋级/发布、故障恢复、父互斥、消息释放、Hook 来源 |
-| Git | 新 `workspaces/delivery-objects.js` 与 `delivery-publish.js` | 固定对象归一化/合成，真实发布短写门、精确恢复；不混进 UI |
-| 整合调用 | Agent Prompt/provider/guard 与 runtime 内部工厂 | 固定尝试、注册 scratch 资源、窄 API/写入权限、状态与用量 |
-| 兼容判断 | iteration、task-sync、safety、cleanup/deletion、graph | 多源收据、增量基点、同步与验收/引用判断一起适配 |
-| 接口 | RPC 白名单、CLI 与 Web server | 输入仍走 `worker.reserve/accept` 等授权入口，增加按父/Worker 查询交付详情的只读投影 |
-| 前端 | 独立交付摘要/详情模块，Worker 图仅接轻量投影 | 状态、异常、成员来源、费用、撤回/重试帮助；不复制调度算法 |
-
-这是未来分区建议，不宣称这些文件或新 RPC 已存在。实施前先把精确导出、参数、权限、状态与版本接缝更新到[模块地图](modules.md)，跨区变更由顶层指令整合。
+纯规划、持久领取、隔离对象计算、整合调用、真实发布、生命周期兼容及用户读面须分离；当前职责从[Runtime 地图](merge-convergence-runtime.md)定位，精确导出查源码，不维护拟议文件名／临时派工表。
 
 RPC 不开放“把 A 合入 B”的任意 ref 操作，也不开放 Agent 手工领取批次、推进父分支或修改归并资源所有者。只读接口返回有界成员摘要、完整计数与明确分页，不含 Prompt/env/凭证或任意 stderr；查询不能启动 Agent、daemon 或推动队列。
 
@@ -65,7 +54,7 @@ Git 能力检测必须实际覆盖固定 merge-base、多基点、改名与对�
 
 测试用临时项目、可控 provider/进程与隔离设备根，不使用用户运行中的队列，不调用真实模型。整合模型业务质量与实际浏览器另外验收，mock 成功不能冒充真实语义解决能力。
 
-最终顶层开发指令负责收齐分区成果、检查子交付、跑跨模块集成，并在最终代码树完整执行 `bun run test`（项目统一 20 秒单项默认预算）。子 Worker 只跑专项/受影响回归，影响广泛时说明并扩大；不逐层重复全量、不用自动合并或 CI 替代责任。
+专项／集成与最终全量责任统一遵循[分层测试与交付](../contributing/README.md#分层测试与交付)，不以自动合并或 CI 代替。
 
 ## 5. 怎么证明真的更快
 
@@ -90,10 +79,6 @@ Git 能力检测必须实际覆盖固定 merge-base、多基点、改名与对�
 
 ## 7. 历史方案验证（非首版运行证据）
 
-- `bun run docs:check`：通过，检查 103 篇 Markdown；只有已有长文档警告。
-- `git diff --check`：通过。
-- 本 Worker 执行记录中的 `bun -` 隔离 Git 概念验证：Git 2.55.0，完整运行 **6 项通过／0 失败**，日志 `/tmp/lush-w205-git-proof.log`。验证固定基点合成、同文件非冲突编辑、准备不动 refs、单父批次与来源树不等、Squash 后第二轮保留同伴成果，以及真实冲突隔离；还证明本夹具中朴素历史 merge-base 会重复冲突。临时仓库已清理。
-
-文档检查日志 `/tmp/lush-w205-docs-check.log`。这是最初纯设计轮次的记录，不能充当首版运行验证。首版 W205 已增加 `test/web/branch-convergence-integration.test.js`，用真实认证 HTTP、socket RPC、SQLite、Git 与隔离 Shell 覆盖授权、单批发布、撤权重试、冲突辅助身份、分页和无依赖绕行；模型未被调用。各分区专项与最终 `bun run test` 的实际结果见 W205 交付记录，不在本文把清单推定为通过。实际模型质量、浏览器视觉与大规模吞吐基准尚未验收，不能承诺加速倍数。
+历史概念验证和测试结果见 Worker／Git 记录，不是当前树证据。现行组合入口为 `test/web/branch-convergence-integration.test.js`，用真实 HTTP／RPC／SQLite／Git 与受控上游验证；mock 不证明实际模型语义质量、浏览器视觉或生产吞吐，不能承诺加速倍数。
 
 上一篇：[异常与迭代](merge-convergence-cases.md)；回到[产品总览](../design/merge-convergence.md)。

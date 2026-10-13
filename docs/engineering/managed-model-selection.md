@@ -1,12 +1,6 @@
 # 共享 API 与调用前模型选择
 
-用户决定 #157 的[项目 Agent 双模式配置](agent-configuration-v2.md)优先于本章旧的“所有 Pi 调用必须托管”描述：默认 Lush 模式仍采用本章隔离和显式绑定规则；用户显式选择 Pi 默认模式时使用执行环境 Pi 配置，不混入托管来源，也不参与托管模型选择策略。来源模型目录自动维护及安装资源与启用分离同见该契约。
-
-本章说明共享 API、手动模型选择及未来规则程序的受信扩展接口，面向维护者。用户决定 #142：内置服务商和自定义 OpenAI 兼容 API 均存入当前项目连接库；登录统一托管，按执行后端能力使用；提供项目默认与单 Worker 显式选择；本轮预留安全资源读面与受信调用前策略接口，不实现自动路由规则或用户脚本。
-
-本章增补[账号连接契约](agent-connections.md)。连接仍是项目技术附属配置，不是 Host 的整机账号池。不迁移外部客户端登录，不修改旧观测历史。
-
-用户决定 #152/#154：界面分为「Agent 配置」与「模型来源」；所有 Pi 调用必须绑定 Lush 来源，使用项目独立基础配置与每次调用快照，不再回退或继承用户默认 Pi。配置隔离及窄更新规则见[页面与运行设计](../design/agent-model-settings.md)。这些决定优先于原 #142 的未绑定兼容边界。
+本章规定 OpenAI 兼容端点与默认关闭的受信调用前策略，不实现用户脚本或自动路由规则。连接配置设备唯一、项目执行／历史隔离，见[账号连接](agent-connections.md)。双模式的权威规则见[配置契约](agent-configuration-v2.md)：Lush Pi 必须显式托管绑定；用户选择 Pi 默认模式时不混入托管来源、不参与策略，不以认证失败自动回退。
 
 ## 共享连接
 
@@ -18,11 +12,11 @@
 
 ## 选择与默认兼容
 
-- 项目默认/角色配置保留现有 connection_id + model 字段。Web 从本地连接列表展示匹配模型供选择；可填写内置服务商未限定的模型。
+- 设备默认／角色配置保留现有 connection_id + model 字段。Web 从本地连接列表展示匹配模型供选择；可填写内置服务商未限定的模型。
 - 单 Worker 的暂停配置、继续与失败重试复用既有 profile 接口，补全显式连接选择和匹配模型。保存配置不调用 Agent；继续/重试才调用，必须沿用 agent-call 标识。不切换进行中的 invocation。
-- Worker 的 task-local 覆盖跨交付、验收、无参数重试与合并轮次保留（`config_mode`、来源/模型与其它覆盖）；只有用户显式 `worker.clear_override {id}` 或重新保存完整覆盖才改变，不因交付自动切回项目默认或另一个模式。`worker.inspect.model_selection.explicit` 标明是否存在覆盖，Web 据此显示「清除运行覆盖」入口。该持续语义以[项目 Agent 配置与双模式运行](agent-configuration-v2.md)为准，优先于 #154 的一次调用范围。
+- Worker 的 task-local 覆盖跨交付、验收、无参数重试与合并轮次保留（`config_mode`、来源/模型与其它覆盖）；只有用户显式 `worker.clear_override {id}` 或重新保存完整覆盖才改变，不因交付自动切回项目默认或另一个模式。`worker.inspect.model_selection.explicit` 标明是否存在覆盖，Web 据此显示「清除运行覆盖」入口。该持续语义以[项目 Agent 配置与双模式运行](agent-configuration-v2.md)为准。
 - Lush 模式（`config_mode` 缺省/lush）的 Pi 调用必须绑定托管来源；未绑定时在创建 Run 与启动进程之前被拦截：Worker 保持非终态并写 `invocation.blocked` 与 info 提醒，提示去「Agent 配置」选择来源或在本 Worker 切换为 Pi 默认配置；输入与工作区不丢，不读取外部凭证。`config_mode:'pi'` 不算缺来源，不拦截。
-- Pi 未绑定来源时明确失败并提示选择来源，不读取外部凭证、不隐式联网或回退外部 Pi；调度器在真正启动前拦截并保留输入，而不是先运行一轮再在后续迭代失败。需要执行机器 Pi 默认配置时由用户显式选择 `config_mode:'pi'`，不是自动回退。Codex CLI 仍保留自己的认证。独立 Pi 基础设置在 `<home>/pi/`，运行快照通过 `PI_CODING_AGENT_DIR` 注入，项目 `.pi` 不能重定向托管端点；显式资源与项目上下文保留。
+- Codex CLI 保留自己的认证。Lush Pi 基础设置位于设备 pi/，私有调用快照通过 PI_CODING_AGENT_DIR 注入；项目 .pi 不能重定向托管端点，显式资源与项目上下文保留。
 - `worker.configure {id,model_selection:{connection_id,model}}` 与 `profile` 互斥，仅切换 Pi 来源/模型，后台保留其他完整覆盖，无覆盖时基于有效角色默认建立覆盖。不扩大暂停/请求中断准入，不自动继续、不联网刷新。`worker.inspect.model_selection` 为 `{agent,config_mode,connection_id,model,thinking,explicit}` 无秘密下次选择摘要，不能当作当前实际绑定。
 - 明确设置的 Worker retry_profile 优先，不被自动策略覆盖；项目默认是策略的基线。策略返回空表示保留原配置，不能自动降级或换执行后端。
 
@@ -32,7 +26,7 @@
 - 每次调用只复制 `PI_RUNTIME_SETTINGS` 白名单：thinkingBudgets/modelThinkingLevels/defaultTools/compaction/branchSummary/transport/httpIdleTimeoutMs/websocketConnectTimeoutMs/retry/shellPath/shellCommandPrefix/images/warnings；项目信任固定 never，install telemetry/analytics 关闭、cacheWarming off。后端、来源、模型与思考深度由当前 Lush Profile 明确指定。
 - `<home>/pi/models.json` 仅可为已选 provider/model 补充安全元数据，不复制 apiKey/headers 或其他账号配置；通用兼容端点维持上述保守定义。基础目录的 packages/扩展/Skills/Prompt 不自动带入调用，只发现已安装资源，运行时仅加载显式选择的扩展/Skills 与 Lush 内置 runtime。
 - Pi 模型目录使用 auth-free、禁网络的 SDK 元数据进程；未声明独立元数据或 SDK 不可用时明确显示未验证 presets，不执行 Pi `--list-models`，不猜账号。配置页的 Pi 模型选择只使用已选来源，不显示这些预设。
-- 高级诊断只读 Lush 独立目录；该目录未配置诊断凭证时列表为空，不从托管来源或用户默认 Pi 猜测。托管来源及其余额/套餐在「模型来源」查询。显式自定义 HTTP 额度模板仍可引用用户指定的环境变量，内置账号发现不使用 ambient provider keys。
+- 高级诊断仅检查 Pi／Codex 软件，不读认证或运行配置、不查询账号；旧余额只读存档与退役边界见[软件诊断与历史](agent-usage.md)。
 - OAuth refresh 始终由 Lush 连接管理器协调，调用快照只有 access（refresh 为空）；长调用 access 到期仍可能失败，下一次 invocation 再准备/刷新，不自动重试或换账号。独立目录不是 OS 沙箱，受信扩展/工具仍拥有进程权限。
 
 ## 运行时扩展接口
@@ -49,9 +43,6 @@
 
 ## 并行文件职责
 
-- Provider：src/agent/connections*.js、src/agent/connection-runtime.js；test/agent/connections*.test.js 与 connection-runtime.test.js；负责 generic provider 存储、查询、私有 Pi 模型注册及安全测试。读完整 Pi models/provider 相关官方文档后实现。
-- Runtime：新 src/core/agent-selection.js、Project base/agents/scheduling、src/core/agent-connections.js 的 provider 白名单、Store 必要白名单、RPC/HTTP 接入与对应 tests。不得修改 Provider 或 Web assets。
-- Web：render-agent-connections.js、render-settings.js、Worker profile 编辑/重试/继续模块及对应 DOM tests，必要样式。复用 connection list；不改 RPC/server/core/provider。
-- 文档与集成：本章与设计/模块/用户文档、集成审查、组合测试与提交。
+长期定位：连接模块负责私有凭证和模型注册，agent-selection 负责受信策略，调度器固定选择／调用身份，Web 只编辑明确选择，不参与调用路由。精确文件／签名直接查源码，不维护临时派工清单。
 
 真实自定义端点模型请求和真实 OAuth 账号均需用户显式提供验证账号；自动测试只使用临时项目、mock 网络/CLI，不碰真实凭证。

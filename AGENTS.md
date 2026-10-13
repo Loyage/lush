@@ -1,96 +1,72 @@
 # Lush 开发约定
 
-Lush 是**项目级的多 agent 开发应用**。Bun / JavaScript / SQLite；daemon 与 CLI 零第三方运行时依赖。Web 文档视图内置固定版本的 Mermaid 浏览器资源，仅在文档含图时按需加载。
+Lush 是项目级多 agent 开发应用，Bun / JavaScript / SQLite；daemon 与 CLI 零第三方运行时依赖。Web 文档图表使用固定本地 Mermaid，按需加载。
 
 ## 作用域
 
-- Lush UI（浏览器）↔ 整机入口 Lush Host（`bin/lush-host`）↔ 每项目一个 lushd（`bin/lushd`）。Host 负责登记、鉴权、路由、设备设置与跨项目 Notice 派生读面，不持有 Worker 权威事实、不调度跨项目工作；一个 lushd 对应一个 canonical 项目目录，状态固定在 `<project>/.lush/`。
-- CLI 项目命令默认向上发现 `.lush/project.json` 或 `.git`；用 `--project PATH` 显式选择项目。Web 四条命令无 `--project` / `LUSH_PROJECT` 时进入全局工作台；未选择项目时管理、设置与帮助仍可用。
-- `LUSH_PROJECT` 会传入 agent 子进程，agent 在独立 worktree 中仍连接原项目。
-- `LUSH_HOME` 不许指向独立的全局目录；非空时必须等于 `<project>/.lush`。
-- 实体只有 Input / Worker / Agent / Message / Notice / Event。不要引入电脑级调度。
-- 公开入口全面使用 Worker：CLI `lush worker`、RPC `worker.*`、HTTP `/api/worker/<id>` / `/api/workers` / `/api/worker-graph`，不留旧 Task 别名。存储字段、事件、环境变量与内部路径的保留边界以 `docs/engineering/core-api.md` 为准，不做数据迁移或机械改名。
-
-用户提交统一称 order（指令）：CLI `lush order`、RPC/Web `order.submit`、快捷命令 `bun run order`；旧 say 公开入口无别名。新记录 `task_kind='order'`，历史 `task_kind='say'` 只在读取/类型判定边界兼容，不迁移已有行、分支/worktree 或会话；Input、历史输入、暂存仍保持独立名称。权威边界见 `docs/engineering/core-api.md`。
+- 浏览器 UI ↔ Lush Host ↔ 每 canonical 项目一个 lushd。Host 只负责登记、鉴权、设备配置、路由与来源派生读面，不持有 Worker 权威事实、不跨项目调度。项目状态固定在 `<project>/.lush/`。
+- CLI 向上发现 `.lush/project.json` 或 `.git`；其他项目必须显式 `--project PATH`。Agent worktree 通过固定 `LUSH_PROJECT` 连接原项目；不得更改 `LUSH_PROJECT`／`LUSH_HOME`／`LUSH_TASK_ID`／`LUSH_AGENT_TOKEN`，非空 `LUSH_HOME` 必须等于项目 `.lush`，不是设备全局目录。
+- 核心实体只有 Input / Worker / Agent / Message / Notice / Event，不引入整机调度。公开提交为 order，操作为 worker，不恢复 Task／say 别名；保留内部字段、事件、历史类型和路径，完整兼容边界见[核心 API](docs/engineering/core-api.md)。
 
 ## 命令一律走 bun run
 
 ```bash
-bun run doctor                  # 首先确认项目 / home / daemon 的代码身份
-bun run test
-bun run start                   # 只启动所选项目；已有 daemon 不会换版本
-bun run daemon-restart          # 运行代码、提示词或配置变更后重启
-bun run order '输入'              # 立即提交单条输入，不等开发完成
-# Web 主输入 Enter 暂存；“历史输入”编辑/逐条发射。旧 draft CLI 不再注册。
+bun run doctor                  # 先核对项目 / home / daemon 的代码身份
+bun run test 路径...             # 专项；无路径为完整套件
+bun run docs:check               # 文档改动
+bun run start                   # 只启动所选项目，已有 daemon 不换版本
+bun run daemon-restart          # 用户确认安全空闲后更新 daemon
+bun run order '输入'
 bun run tree
 bun run inspect 3
-bun run lush host start [--project PATH] # 后台启动 Web 工作台；显式打开项目才启动/连接 daemon
-bun run lush host status         # 在不在跑、跑的是不是这份代码、日志在哪
-bun run lush host restart        # 改完 src/ui/web/ 停掉那个后台 Web 再按当前代码起一个新的
-bun run lush host stop           # 停掉后台 Web（只停命令行确实是 Lush Web 的进程）
+bun run lush host start [--project PATH]
+bun run lush host status
+bun run lush host restart
+bun run lush host stop
 bun run stop
 ```
 
-任意入口可加 `--project PATH`；操作其他项目时必须显式指定。`bun run lush <command>` 也遵循同一套项目发现规则，没有默认全局 home 的例外。
-
-**lushd 与 Lush Host 是两个独立进程，改完两端代码两个都要重启。** 无 `--project` 的 Web 工作台会在选定项目后自动启动或连接 daemon；显式 `--project` 的单项目 Web 不替用户启动 daemon。`bun run daemon-restart` 只管当前项目 daemon；`bun run lush host start` 后台起的 Web 进程自己活到被杀为止，不会跟着 daemon 换版本。只重启 daemon 就去刷新页面，会看到旧 Web 进程把**新的** `app.js` 发下来、却对自己不认识的 API 路由（例如后来才加的 `/api/docs`）回 404——页面直接「打开失败」。改 `src/ui/web/` 下任何东西之后，先 `bun run lush host restart` 再看页面：它停掉端口上那个后台 Web（只认命令行确实是 Lush Web 的进程）再按当前代码起一个新的；直接再跑 `bun run lush host start` 只会幂等报告「已在运行」。重启 Web 会清空登录会话，浏览器要重新登录一次；跑的是不是这份代码用 `bun run lush host status` 看（它比的是 Web 自己记下的代码指纹），不用靠猜。`bun run doctor` 只校验 daemon 的 fingerprint，报的是 daemon 的身份，不会告诉你 Web 是不是旧进程。
-
-测试范围与派工责任遵循[分层测试与交付](docs/contributing/README.md#分层测试与交付)：子 Worker 默认专项／受影响回归，顶层开发指令汇总后、交付 main/owner 前负责最终全量；不要求每次提交全量，影响广泛时可扩大验证。`bun run test`／`test:all`／`test:serial` 在 `package.json` 中统一设置 20 秒单项默认预算（全量、专项、串行与 CI 一致），不改变产品超时或性能断言、不自动重试；不要先用原生 5 秒预算跑全量再临时加时重跑。仍超时须保留完整日志并定位原因，诊断可用 `bun run test:serial 路径...`。跑测试时，若测试彼此独立且不会争用共享状态、端口或其他资源，尽量并行运行以缩短等待；有依赖或资源冲突时再串行执行。不要在开发测试时默认操纵用户正在开发的项目。测试用临时项目目录和 mock/可控子进程；测试结束停 daemon 并清理自己的临时文件。
+无 `--project`／`LUSH_PROJECT` 的 Host 进入全局工作台，显式打开项目才启动／连接 daemon；单项目 Host 不替用户启动 daemon。**Host 与 lushd 是独立进程，改两端须分别更新，不能只刷新页面。** `host start` 幂等、不替换旧进程；`doctor` 与 `host status` 分别核对对应进程身份，指纹覆盖 src、bin、package.json。重启须在用户确认的安全点进行，不能默认操纵开发中的项目；Host 重启会清空登录会话。部署／认证／远程网络见[部署索引](docs/deployment/README.md)，Lush 不部署服务器或管理 SSH／隧道。
 
 ## 安全与持久化
 
-- Git 操作通过 `src/core/workspaces.js`，无 shell 插值，所有 Lush Git 变更串行。
-- 每个 worker 独立 worktree / 分支；历史 worker 的合并仍由用户批准。新式 指令/child 的 version 2 交付由父 Worker 自有队列的 runtime 串行 Squash（含 main），不额外调用父 Agent。指令默认关闭自动合并，由用户开启 hook 或显式请求；新 child 默认开启且锁定。分歧由原 Worker 在源侧吸收固定父基线，修复期间保留父执行位；挂起释放，恢复重新排队并固定新基线。落地后默认待验收，分支/worktree 暂时保留供追加输入；验收表示不再有异议，验收即归档，安全回收 worktree/ref，保留完整运行历史。脏现场阻止验收，部分失败须保留诊断并显式续办。用户可为单个 Worker 选择最高自动级别，串行执行合并→安全验收（含资源回收），旧 archive 授权等价 accept；不继承给后代；父 Agent 必须检查 child 成果，但默认不提前验收回收，保留工作区与会话供追加需求，尽量随用户验收父 Worker 一并安全验收已交付的派生 child（不连带验收独立指令，安全门不放宽）。自动验收不调用质量评审 Agent，归档不丢弃脏现场；自动成功只留审计，下一人工环节、失败和待决仍提醒。Agent 不得修改最高级别。
-- 不强制 reset / clean / 删除工作区，不自动提交用户已有改动。失败工作区也有价值。
-- `completed` 不等于 `merged`。保留独立的Worker状态与 integration 状态。
-- 新 Worker 父子关系创建后始终保持委派关系；当前 version 2 交付不创建 merge Worker、不改源 Worker 的 `parent_id`。持久预约是交付事实，Message/Event 仅通知；按入队顺序、代码依赖优先，取得父执行位后才固定尝试基线。旧 version 1 语义不改；旧 version 2 merge 身份和在途重挂只凭明确预约/审计恢复原父，不猜身份、不删历史。终态 Worker 不允许活动后代。依赖边（`task_deps`）只在 spawn 时写入，之后不可变。
-- 依赖只做结构校验（自依赖、祖先、悬空 id、多 code 边、非 worker 上游）；语义冲突由 planner 判断，拿不准就问用户。
-- 输入分 `develop` / `explain` 两类（`inputs.flow`，未判定按 develop）：explain 输入不得派生 worker/coordinator（`Project.spawn` 硬校验），因此了解类输入不产生 worktree 与待合并改动；改判只影响之后的 spawn。
-- `code` 依赖把上游分支当作下游 worktree 的基线，所以合并必须上游先行；当前交付队列也不得越级。
-- 输入缓存在 `drafts` 表：草稿可在提交前删除，提交后行保留并回写 `input_id`；已提交的输入默认不可改写或删除。仅用户基于资源预检明确确认 `worker.delete` 时，随终态子树清除无剩余使用者的 Input 与已发射 Draft；活动调用、共享资源与外部依赖保护，ID 不复用。
-- Agent 等待子Worker或用户时释放 invocation 槽；新输入有独立规划槽。
-- Worker 与 agent 是终身一对一的身份（`<role>#<id>`），但凭证只代表一次 invocation：库里只存 SHA-256，`actor()` 必须同时校验 hash 命中与「仍在 running 且未被 abort」。不要把 token 改成终身有效，否则上一轮逃逸的后台进程会重新变成合法 actor。
-- 消息只在 invocation 之间送达。注意「父Worker刚 park、子Worker刚完成、running Map 还未清理」之间的 lost-wakeup 竞态。
-- 重启不自动重放有未知副作用的调用；不迁移、不覆盖磁盘上已有的数据。
+- 只在 runtime 给定的自身 worktree／分支改代码和提交；不切换或直接推进 main／父分支，不 reset／clean 或提交用户已有改动。提交前核对当前分支。
+- Lush Git 写入只经 `src/core/workspaces.js`，无 shell 插值且串行；固定 refs、清洁度、祖先与落地凭据校验不能绕过。授权分歧修复在源侧合入固定父提交，先审查双方含改名增量和语义迁移，保留原源提交，测试后提交；普通 Worker 不自行同步父分支。详见[Git 边界](docs/engineering/git-boundary.md)与[合并](docs/engineering/merge.md)。
+- 新式指令默认不自动合并，child 默认开启且锁定；父 runtime 队列安全点固定成果、串行交付，不改委派关系。预约是持久事实，通知不等于落地；Worker 状态与 integration 独立，`completed` 不等于 merged。旧 v1 审批与 v2 在途兼容保留，v3 只按授权目标策略执行。
+- 父 Agent 必须检查 child 成果与测试，默认保留待验收现场供追加需求，不因合并成功就提前回收。验收即归档，安全回收 worktree／ref、保留历史；脏现场、未读／暂存输入、待决、活动调用／后代及未交付改动阻止验收。部分失败保留诊断、显式续办，不猜成功；Agent 不修改自动级别。权威约束见[统一验收](docs/engineering/worker-acceptance.md)。
+- 不迁移或覆盖已有数据，重启不重放未知副作用。已提交 Input／Draft 默认不可改写／删除；用户明确预检确认的[彻底删除](docs/reference/rpc/maintenance.md)是专属子树例外，共享资源／外部依赖／main-owner 仍保护，ID 不复用。
+- 终态不允许活动后代。历史依赖只在 spawn 写入、之后不可变；结构校验不证明语义正确，code 基线必须上游先交付。历史 explain 输入不得派生开发 Worker；当前接口不恢复旧 role／deps／spec 派工参数。
+- Worker 与 Agent 终身一对一，token 仅本次 invocation 有效：库只存 SHA-256，actor 必须仍 running 且未 abort。不得把旧 token 变为终身凭证，私有权限不是 OS 沙箱，不公开凭证或原始认证响应。
+- 消息只在 invocation 之间送达；冻结追加先持久暂存，不抢占固定修复。等待用户／子 Worker 时结束本轮，不轮询或后台等待；收尾、恢复须防止 lost-wakeup。详见[invocation](docs/engineering/invocation.md)与[消息准入](docs/reference/rpc/tasks.md#追加消息的准入与失败处理)。
 
 ## 文档维护与阅读
 
-默认不新增或扩写文档，开发优先；必要文档按[分级维护规则](docs/contributing/documentation.md#维护分级与时机)随改动交付，不拖到整个项目结束，也不把每次开发写成文档任务。普通修复、内部调整、测试过程与临时派工保留在代码、测试、提交或 Worker 记录中。内部改名、搬家和签名调整不一律要求先改模块地图；跨 Worker 协作先在派工目标或消息中约定接口与文件范围。
+默认先实现与验证，不为普通修复、内部搬家或临时派工新增文档。必要设计、安全／兼容边界、公共接口与用户操作变化随对应改动交付，一个事实只维护一处；分级规则以[文档写作约定](docs/contributing/documentation.md#维护分级与时机)为准。
 
-按改动范围阅读下列对应理念和关键边界，先定位文件／符号，再读工程文档的相关章节；不因索引或交叉链接而递归通读全部文档。涉及权限、持久化、Git、生命周期或公共接口时，必须读清相关约束，发现冲突或信息不足再扩大调查。
+先定位文件／符号，再按改动范围读对应理念及工程章节；不沿索引或交叉链接递归通读。涉及权限、持久化、Git、生命周期或公共 API，必须读清相应约束；冲突或信息不足再扩大调查。理念指导取舍，不当作已实现功能清单；源码可表达的内部清单不重复维护。长期职责从[模块地图](docs/engineering/modules.md)定位。
 
 ## 模块
 
-修改模块前必须先读 `docs/design/README.md` 中的对应设计理念；执行记录、工具渲染、检索与选区解释必须先读 `docs/design/agent-process.md`；引用、选区引用、引用卡片定位与快照/现状取舍必须先读 `docs/design/references.md`；改 Web 按钮文案、图标、样式，或新增会调用 Agent 的按钮前，必须先读 `docs/design/ui-guidance.md`——所有会调用 Agent 的按钮必须带 `agent-call` 紫色标识与 `agentHelp` 提示，含义不直观的按钮必须带 `data-help`，禁用按钮用外层 `.help-host` 承载。修改输入框、暂存、历史输入检索与状态投影前，必须先读 `docs/design/input-history.md`。修改通知、告知设置、已读与滑动消除交互前，必须先读 `docs/design/notices.md`。理念指导取舍，模块地图规定职责与接口，不得只看功能清单而忽略用户目标。
+修改模块前必须从[设计索引](docs/design/README.md)读对应主题；按以下范围补关键边界：
 
-快速对话、Prompt 库、选区右键模型动作与专用模型配置已整体删除（W235／D555）；不得恢复旧调用或配置入口。专用数据安全清理边界见 `docs/engineering/project-quick-chat.md`；保留正常文本引用、Agent 模型来源／凭证与历史 Worker／执行记录。
+| 改动范围 | 理念／契约 |
+|---|---|
+| 执行记录、工具渲染、检索 | [执行过程](docs/design/agent-process.md)、[阅读器](docs/engineering/transcript-reader.md) |
+| 引用、选区、快照／现状取舍 | [引用](docs/design/references.md) |
+| Web 文案、图标、样式与 Agent 按钮 | [UI 指引](docs/design/ui-guidance.md)：Agent 动作必须紫色 agent-call＋agentHelp；非直观按钮 data-help，禁用用 help-host |
+| 输入、暂存、历史与状态投影 | [输入理念](docs/design/input-history.md)、[接口](docs/engineering/input-history.md) |
+| Notice、分类、已读／滑动消除 | [通知理念](docs/design/notices.md)、[Notice 契约](docs/reference/rpc/notices.md) |
+| Hook、预约、生命周期与自动级别 | [Hook 理念](docs/design/hooks.md)、[契约](docs/engineering/hooks.md)、[自动链](docs/engineering/completion-hooks.md)、[验收](docs/engineering/worker-acceptance.md) |
+| 归并合并 | [归并设计](docs/design/merge-convergence.md)、[当前范围](docs/engineering/merge-convergence-implementation.md)；按需读算法／异常，旧在途不转换，普通 Agent 不创建 integration 或操作其他分支 |
+| 内置能力、Skills／启停 | [能力理念](docs/design/agent-capabilities.md)、[契约](docs/engineering/agent-capabilities.md)；开关不关闭核心安全、权限、调度或已有 child 交付 |
+| 账号、凭证、观测与绑定 | [账号理念](docs/design/account-resources.md)、[连接](docs/engineering/agent-connections.md)、[旧历史](docs/engineering/agent-usage.md) |
+| 全局页面、设备设置／自动化与聚合 | [工作台理念](docs/design/user-workspace.md)、[契约](docs/engineering/user-workspace.md)；旧根显式迁移另读[设备迁移](docs/engineering/device-settings.md) |
+| 启动、项目入口与环境管理 | [工作台理念](docs/design/workbench.md)、[接入契约](docs/engineering/workbench.md)；附着 API 只读，旧页轮询不得启动停止的后台 |
 
-修改 Hook、自动合并开关、预约发射、生命周期触发或挂载/模板界面前，先读 `docs/design/hooks.md` 与 `docs/engineering/hooks.md`，合并／验收最高级别另读 `docs/engineering/completion-hooks.md` 与 `docs/engineering/worker-acceptance.md`（W169／决定 #418，验收即归档；W197／决定 #462，默认保留 child、父级安全批量验收，优先于旧分离语义及收口前逐个验收要求）。Hook 是 Worker 附属能力，不能绕过既有冻结、权限、Git 和调用边界；未知副作用不得因重启自动重放。
+快速对话、Prompt 库、右键模型动作和专用模型配置已删除，不恢复；专用数据清理与正常历史保护见[退役契约](docs/engineering/project-quick-chat.md)。
 
-实施归并合并前，另读 `docs/design/merge-convergence.md` 及其算法、异常、实施交叉链接（W205／D482）。首版按目标分支选择协议 v3，默认关闭；精确接口和未实现愿景以 `docs/engineering/merge-convergence-implementation.md` 为准，模块见 `docs/engineering/merge-convergence-runtime.md`。原 v1/v2 在途不迁移；仅 runtime 工厂可创建绑定固定节点的 `integration` 身份，不授权普通 Agent 创建整合身份、改变交付/验收权限或操作其他分支。
+## 验证与交付
 
-修改 Agent 内置能力、Skills 注入或能力开关前，先读 `docs/design/agent-capabilities.md` 与 `docs/engineering/agent-capabilities.md`：W217／D509 采用薄入口与按需 CLI 指南，设备全局开关仅控制后续注入和主动使用，不关闭核心安全、实际调度或已有子 Worker 交付。
+必须验证新增／修改行为，所选范围实际完整跑完，再提交预期改动并保持工作区干净。子 Worker 默认专项／受影响回归，中间汇总补集成；顶层开发指令在最终代码树交付 main/owner 前负责集成与全量，影响广泛或范围不明须扩大。实际命令、结果、日志、未覆盖风险及全量负责人写交付；中断／仍失败不报通过，代码变化不沿用旧树证据，CI／自动合并不代替验证。证据复用和失败处理以[分层测试与交付](docs/contributing/README.md#分层测试与交付)为准。
 
-修改账号连接、凭证托管、余额/套餐观测、显式连接绑定与被动响应反馈前，先读 `docs/design/account-resources.md`；字段与模块边界见 `docs/engineering/agent-connections.md`，旧状态/历史兼容见 `docs/engineering/agent-usage.md`。私有权限不是沙箱，不得把凭证或原始认证响应放进读 API、会话或错误。
-
-修改全局页面、共享设置、Notice 聚合或设备自动化前，先读 `docs/design/user-workspace.md` 与 `docs/engineering/user-workspace.md`：W162／决定 #402 取消技术设置的项目覆盖、保留 Worker 显式参数，自动选择与未来新指令默认流程设备统一；Host 只聚合／转发来源项目 Notice，不成为权威库或跨项目调度器。旧配置迁移另读 `docs/design/device-settings.md` 与 `docs/engineering/device-settings.md` 的安全边界：`LUSH_HOME` 不改成全局目录，迁移必须显式预检／确认。
-
-修改启动、项目入口、环境管理前，先读 `docs/design/workbench.md` 与 `docs/engineering/workbench.md`：每项目独立浏览器标签，关闭页面不停止任务；项目 API 附着只读，不能由旧页轮询自动启动已停止后台。
-
-远程项目由用户自行在服务器运行 Lush Host；SSH、端口转发、IP/端口、域名、证书和防火墙均由用户配置，Lush 不部署远端或管理隧道。部署说明见 `docs/deployment/remote-host.md` 与 `remote-host-agent.md`。Host 允许 HTTP，但必须提示明文传输风险；推荐 HTTPS 或用户自建 SSH 隧道。
-
-- `src/config.js`：项目发现与不可变绑定。
-- `src/persistence/store.js`：SQLite 事实来源。
-- `src/core/project.js`：Worker树、消息、notice、调度与生命周期。
-- `src/core/workspaces.js`：Git 工作区、人工批准合并、安全清理。
-- `src/agent/`：共享指令、pi 与 mock 后端。
-- `src/rpc/` / `src/daemon/`：通信、装配、锁与退出。
-- `src/ui/client.js`：CLI / Host 连接 lushd 的统一客户端。
-- `src/host/`：整机 Host 的登记、连接和进程生命周期。
-- `src/cli/` / `src/ui/web/`：命令行和浏览器界面；Web server 是 Host 的 HTTP 适配器。
-
-上面是粗粒度分区；职责与跨模块边界从 `docs/engineering/modules.md` 定位，再按需进入 Runtime、Web、CLI / RPC / 测试短章。精确导出与实现细节以源码和测试为准；地图仅在长期职责、关键入口或跨模块契约变化时同步必要内容，不作为逐文件改动日志。
-
-`src/identity.js` 的 fingerprint 覆盖整个 src、bin 和 package.json。相同路径但 fingerprint 不同表示 daemon 仍运行旧代码；重启正确项目才生效。
-
-更多见 `README.md` 与 `docs/README.md`；文档格式、分层、链接与 Mermaid 约定见 `docs/contributing/documentation.md`。
+使用项目测试入口的 20 秒单项默认预算，不改产品／性能预算、不自动重试；独立测试尽量并行，资源冲突才串行诊断。临时项目与 mock／可控进程隔离，退出清理自己的服务／文件，不操作用户项目。详见[测试预算](docs/contributing/README.md#测试超时预算)。

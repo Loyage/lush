@@ -1,131 +1,54 @@
 # 模块地图：CLI、RPC 与测试
 
-本章记录命令行、RPC 分派与测试文件的模块边界。当前可调用的方法以[核心 API 收敛](core-api.md)和 `src/rpc/registry.js` 为准；未列入白名单的 handler 与未挂载的命令模块仍然存在，但不再对外提供服务。
+本章定位命令分派、RPC 权限与测试接缝。公开白名单以 `src/rpc/registry.js`、CLI `help.js` 与[核心 API](core-api.md)为准；内部／退休模块存在不代表可调用。
 
 > 模块地图：[总览](modules.md) → [Runtime 与持久化](modules-runtime.md) → [Web 前端](modules-web.md) → **CLI、RPC 与测试**
 
 ## 设备设置与迁移接缝
 
-[用户工作台契约](user-workspace.md)与[显式迁移](device-settings.md)优先于下面旧的项目配置路径描述。真实 Config 设置 RPC 默认 device，显式 project 拒绝；设备配置读写用户专属，无 scope 不构成 Agent 旁路。用户 `system.settings`、`settings.migration.preview/apply` 由 `handlers/system.js` 转发，旧 `settings.clear_override` 不再清除活跃项目覆盖。迁移固定来源项目，不接收任意路径，confirm 与预检 revision 必需。
-
-`cli/settings-scope.js` 导出 `takeConfigurationScope(args)` / `scopedSettingsClient(client,scope)` / `safeConfigurationScope(value)`；设置命令只接受设备 scope，不污染 Worker／历史参数。`config migrate` 预检，`config migrate --confirm --revision REV` 才修改旧源。`test/device-settings-interfaces.test.js`、`device-settings-read-permissions.test.js` 覆盖默认／显式 scope 和 Agent 拒绝；`test/agent-cli-device-read-permissions.test.js` 防止 CLI prompt/env 直接读取绕过 RPC 用户权限；Host 无项目与固定项目迁移转发在 `test/web/device-settings-api.test.js`。
+技术配置默认 device，显式 project 拒绝；无 scope 不构成 Agent 旁路。当前契约见[用户工作台](user-workspace.md)，旧根预检、confirm／revision 与私有备份见[设备迁移](device-settings.md)。CLI 直接读 Prompt／env 也须核验用户权限，不能因本地文件操作绕过 RPC 限制。
 
 ## CLI：`src/cli/main.js` + `src/cli/`
 
-命令处理器的统一签名：`export async function run(command, args, ctx)`，
-其中 `ctx = { client, json }`；返回 `undefined` 表示「已经自己打印过，主流程不要再 print」。
-`option` / `exact` / `print` 从 `args.js` 直接 import。
+`main.js` 注册当前命令，`commands/` 按主题分派；`help.js` 是命令说明，`args.js`／`print.js` 管理参数和人类／JSON 输出。处理器统一为 `run(command,args,{client,json})`，返回 undefined 表示已打印，主流程不重复输出。
 
-`main.js` 的 `COMMANDS` 表只挂载下面这些名字；`help.js` 的 `HELP` 是当前命令面的权威文本。`agent set TARGET --connection UUID|off` 显式绑定/取消 Pi 连接，要求 qualified 物理模型，不做自动路由。未来策略的安全资源读接口 `agent.selection.resources {}` 也是用户专属，只读本地观测，GET `/api/agent/selection/resources` 不接受查询参数；受信策略接口见[共享模型选择](managed-model-selection.md)。连接管理的 `agent.connections.*` 全部用户专属 RPC，列表/历史通过 GET，秘密写入/登录/显式刷新仅 POST action；见[连接器契约](agent-connections.md)。模型目录只读走 GET `/api/agent/connections/models?id=...`、显式刷新与资源安装只经 POST action，`agent.packages.*` 与目录 RPC 均用户专属；见[模型目录契约](agent-model-catalog.md)。
+- Worker 身份在 `worker-number.js` 经只读 lookup 解析，底层 RPC 仍传整数，见[编号与 CLI](../reference/api.md#用户编号与-cli-身份)。
+- `private-json.js` 集中有界、owner-only、no-follow 文件输入；配置、秘密与完整 Profile 不放进 argv／错误／公开摘要。
+- `native-watch.js`／`native-pi.js` 仅用户显式终端观看时加载 Pi TUI，不创建 AgentSession、不执行工具、不写会话，见[观看器](../native-viewer.md)。
+- `skills` 是无需 daemon 的固定公开指南读取，不接受任意路径，不查询设备开启状态，见[能力契约](agent-capabilities.md)。
 
-| 文件 | 命令 | 导出 |
-|---|---|---|
-| `cli/help.js` | 帮助文本 | `HELP` |
-| `cli/args.js` | 参数解析与两种输出；数组的人类摘要展示持久 Worker 编号、Notice D/N 与原始 Input O 编号；暂存和消息不换号，JSON 保留整数身份 | `option`、`exact`、`print` |
-| `cli/worker-number.js` | 仅 CLI 的严格 Worker 编号解析，经 `worker.lookup` 获取真实整数 ID；格式化保留历史回退，不修改通用 `id()` | `resolveWorkerId(client,value)`、`workerLabel(task,fallback?)`、`inputNumber(inputId)` |
-| `cli/print.js` | 树 / 会话 / 用量 / 分支谱系的渲染 | `printTree`、`printTranscript`、`transcriptStepText`、`printUsage`、`printBranchTree`、`printBranchShow`、`printBranchArchive` |
-| `cli/commands/system.js` | `daemon` / `status` / `doctor` / `log` / `host start|stop|restart|status`；无 `--project` 时使用全局项目启动器，显式项目时保持单项目模式；`doctor` / `host status` 分列磁盘、daemon、Web 身份并只给显式更新提示 | `run` |
-| `cli/commands/intent.js` | `order`（新输入的唯一入口），`--profile-file PATH` 从 owner-only 普通 JSON 文件读取完整运行覆盖 | `run` |
-| `cli/native-watch.js` | 真实终端中的原生 Pi 只读观看器：通过既有 `worker.transcript_page` 连续分段读取，不创建 AgentSession／Pi 子进程、不写会话、不执行工具；有界历史与正文，原生 `TuiAltScreen` / `ScrollView` 全屏滚动、常驻滚动条、阅读锚点、展开／退出、single-flight 跟随与清理 | `watchWorker(client,taskId,options?)`、`WATCH_LIMITS`、`RecordAssembler`、`NativeRecordView`、`sanitizeTerminalText` |
-| `cli/native-pi.js` | 仅显式观看时定位本机 Pi 包并加载公开 TUI／原生消息和内置工具渲染组件；校验随包 `theme.js` 的非包根颜色接缝，保留 system 主题，100ms 有界配色查询／晚响应与切换刷新、对比回退及代码背景；缺失／不兼容明确拒绝，无 daemon 依赖、无自动安装、不加载用户扩展 | `loadNativePi(env?)`、`resolveNativePi(env?)`、`fallbackTerminalColors(env?,scheme?)`、`watchTerminalColors(runtime,ui,onChange,onError?,timers?)` |
-| `cli/commands/task.js` | `worker`（list / tree / inspect / spawn / message / auto-title '标题'（仅活动自身 Agent，一次性） / rename ID '标题'（仅用户） / watch ID（原生只读终端，仅用户） / transcript（单次查询） / history / wait / integrate / auto-merge ID on\|off / reserve / accept / reopen / sync-parent / resolve-sync / resolve / resolve-divergence / resolve-child-divergence / unreserve / approve-merge / cancel / retry / cleanup / delete ID [--force] [--confirm --revision REV]） | `run` |
-| `cli/commands/hooks.js` | 项目 Hook 目录/模板与 Worker 挂载的用户专属 CLI，复用 `cli/private-json.js` 的有界、owner-only、no-follow 文件输入和 revision 校验；`order --defer` 由指令命令授权 | `run`、`runWorkerHook`、`runWorkerCompletion`；新增 `hooks signal save/remove` 与 `hooks management create/enable/disable`，无立即执行管理工具入口（接口以 [Hooks 接缝](hooks.md)、[时间信号与管理](hook-signals-management.md)和[自动链](completion-hooks.md)为准） |
-| `cli/commands/progress.js` | `progress plan KEY[:LABEL]...` / `progress complete KEY`（只写当前 Agent 的 Worker） | `run` |
-| `cli/commands/skills.js` | `skills list` / `skills get ID`（progress、delegation、auto-title、context），文本或 `--json`；只读当前 CLI 固定代码指南，不接受路径、不查询设备启用状态，无项目/daemon/网络可用；main 在构造 Config/UIClient 前分派 | `run(command,args,{json?})`；注册表导出见 Runtime 地图，专项 `test/agent/capabilities.test.js` |
-| `cli/commands/notice.js` | `notice list/post/answer/dismiss/read`（read 仅标已读；选择快照与重选已停用）；`post --worker` 接受整数或稳定 Worker 编号，Notice 的人类摘要显示 D/N 编号（单条 post/answer/dismiss/read 在完整结果前追加摘要，与 list 一致），参数仍只接受整数 | `run` |
-| `cli/commands/branch.js` | `branch tree / show / bind / archive` | `run` |
-| `cli/commands/agent.js` | `agent show/models/set/reset` 配置 profile；用户专属 `prompt/env` 直接文件读取同样核验 token，查看最终组合和脱敏环境来源；`network show/set --file PATH/reset` 管理出站代理（[契约](outbound-network.md)），`init` 创建项目可提交约定，`init --local` 用户专属 create-only 创建设备私有补充；`--prompt` 只作旧版 `--append-prompt` 别名；`--config-mode lush|pi` 显式选择运行配置模式，`sources` / `resources` 分派到 `agent-sources.js`，`packages` 分派到 `agent-packages.js` | `run` |
-| `cli/commands/agent-sources.js` | `agent sources list/show/models ID [--refresh]/refresh [ID]/save --file PATH/remove ID/login ID`（设备码 start/poll/cancel 与备用回调私密文件）与只读 `agent resources`；用户专属，凭证不进 argv/输出 | `runSources(args,client,{json?})`、`runResources(args,client,{json?})`（[目录契约](agent-model-catalog.md)） |
-| `cli/commands/agent-packages.js` | `agent packages list/install SOURCE/remove ID/update ID`；用户专属，安装与启用分离 | `runPackages(args,client)`（兼容 context） |
-| `cli/commands/config.js` | `config show / set / reset`：读 `system.status.settings`、写 `system.configure`；用户专属，agent 调用被拒 | `run` |
-
-Worker 身份参数（含 `spawn --parent`、`notice post --worker`）接受原整数及严格 `Wn(-n)*`。新编号只解析一次，经只读 `worker.lookup {number}` 核验 `{id,worker_number}` 后，既有 RPC 的 id/parent/task 参数仍发送整数；wait/follow 后续读取复用固定整数。分页游标、Notice ID 不接受 Worker 编号，整数调用不产生额外 lookup。列表 `--brief` 同时保留整数 `id` 与可空 `worker_number`，分页仍按整数。原始输入提交的人类输出显示 `O<id>` 与关联 Worker 编号，JSON 不改写身份字段。历史树、分支展示的回退标识保持不变。Notice D/N 的分类只依据明确 kind：question/questionnaire/历史 plan 为 D，info 与未知为 N，不依据标题或状态；人类列表与单条结果都用该口径，`--json` 原样保留整数身份与正文。原始 Input 仍用项目现有序列 O；Draft 与追加 Message 不占用 O 号，也不换展示前缀。未注册的旧命令不机械适配。测试在 `test/worker-number-cli.test.js` 与 `test/record-number-cli.test.js`。
-
-历史命令模块（`draft.js` / `plan.js` / `spec.js` / `candidate.js` / `sleep.js`）仍在源码里，但 `COMMANDS` 不再挂载它们；`lush help` 也不列出，执行会报 `unknown command`。`package.json` 与 `scripts/ops.js` 同样不保留退休快捷入口：draft / drafts、intent / intents、ladder、timeline、usage、merge、clear，以及旧 plan/spec 的 specs / approve / reject / propose 映射。移除快捷入口不删除历史数据；`worker.usage` RPC 等仍按各自白名单提供，不以旧快捷命令存在与否判断。
-
-展示专用 CLI/RPC 模块与预览子进程已删除；`showcase.*` 不再有 handler 或命令实现。历史 DB 列／行不迁移、不重写，旧 `agent.json.roles.showcase` 仅在读取时忽略，不出现在配置选项或 Prompt 中，写入该角色会被拒绝。历史展示 worktree 不走普通 checkout 清理：cleanup 拒绝；关联目录仍存在（或快照损坏而无法确认归属）时 archive 在任何删除前拒绝，即使显式 discard 也不绕过。
+命令与 RPC 的对应关系见[API 参考](../reference/api.md)，不在地图复制注册表；历史命令与快捷入口不恢复别名。
 
 ## RPC：`src/rpc/protocol.js` + `src/rpc/`
 
-处理器的统一签名：`(project, params, actor) => result | Promise<result>`。
+| 入口 | 职责 |
+|---|---|
+| `protocol.js` | framing／帧上限，兼容 re-export Dispatcher |
+| `registry.js` | 方法、参数和权限的唯一 RPC 白名单，未知项拒绝 |
+| `dispatcher.js` | handler 装配查重／查漏、身份校验与安全输出 |
+| `handlers/` | 按主题转发 Project／Store，不替代其生命周期和写门复核 |
+| `public-result.js` | 隔离私有 Profile／Hooks 等；授权配置表面保留合法 env 键，不对普通 mutation 开例外 |
+| `client.js`、`src/ui/client.js` | Unix RPC 与 CLI／Host 统一项目客户端 |
 
-| 文件 | 职责 | 导出 |
-|---|---|---|
-| `rpc/protocol.js` | framing（编码、解析、帧上限）；并 re-export `Dispatcher` 保持旧 import 可用 | `MAX_FRAME`、`encode`、`errorResponse`、`parseRequest`、`Dispatcher` |
-| `rpc/client.js` / `ui/client.js` | Unix RPC 客户端；`request` 可传本地 `{signal}`，取消只关闭客户端连接、清理计时器与监听，不取消 daemon 操作、不重试、不中入线参数；已派发请求仍须核对结果，默认无 signal 行为与调用预算不变 | `RPCClient` / `UIClient`，`request(method,params?,{signal}?)` |
-| `rpc/registry.js` | 方法白名单、参数白名单、权限集合与统一校验。**唯一公开面**：未列入 `PARAMS` 的方法一律 `unknown method`。设备技术配置即使无scope也用户专属（含agent.config/models/resources）；notice.sync用户专属，不改变普通项目Notice／Worker安全摘要权限。含用户专属连接模型目录与资源安装，`order.submit` 可选 `profile` | `PARAMS`、`USER_ONLY`、`AGENT_ONLY`、`MANAGER_METHODS`、`assertAllowed(method, params, actor)` |
-| `rpc/handlers/system.js` | 用户专属无参数 `system.interrupt_all`／`system.resume_all` 分别转发 `Project.interruptAll()`／`resumeAll()`，返回维护安全投影，不重启服务（见[项目维护暂停](project-maintenance.md)）；用户专属 `system.configure`、`system.stop_if_idle`（同步 idle 准入并关闭调度，见[服务重启](../reference/web-routes.md#服务重启)）；只读 `system.status`（兼容完整状态）与 `system.summary`（首页用持久 revision/索引聚合的无 Agent 全配置摘要；可选 `development:boolean` 仅为用户显式总览附加精确开发统计和 3 条最近 Worker，不增加常规轮询查询，用户另有 `auto_select:{enabled,revision,editable,scope,policy_revision,available,error}` 设备策略窄投影；Agent 不调用／返回 Hook 配置，status 排除完整设备 profile）；`graph.get`；`agent.*`（含用户专属配置与环境文件，以及按需读取 version 2 Pi/Codex 软件安装状态的 `agent.status`（无账号查询），不纳入快照）；历史 `sleep.*` / `system.usage` 仍可被内部调用，但不在白名单 | `handlers` |
-| `rpc/handlers/task.js` | `worker.*`：只读 `lookup {number}`（把界面编号解析为 `{id,worker_number}`，不改变原整数入口）/ `graph` / `list` / `activity` / `page` / `tree` / `inspect`（异步附加 指令/child 的实时 `parent_relation:{ahead,behind}` 与 `branch_archive`）/ `history` / `history_page` / `progress_history`（用户与普通 Agent 只读，倒序冻结计划默认10、最多100条）/ `diff` / 用户专属 `code_state` / `code_tree` / `code_file` / `usage` / `transcript*`、`spawn`、agent-only 的 `auto_title {title}`（只写自身一次性自动标题）/ `integrate` / `resolve_child_divergence` / `progress.*`，共享但按身份校验的 `accept`（用户验收指令 / 直接父 Agent 确认 child），以及用户专属的 `rename {id,title}`（展示标题，见[核心 API](core-api.md#worker-自定义标题)）/ `run_settings`（显式读取有效 Worker Profile；不进入普通读面）/ `auto_merge` / `reserve` / `unreserve` / `reopen` / `sync_parent` / `resolve_sync` / `resolve` / `resolve_divergence` / `approve_merge` / `cancel` / `retry` / `cleanup` / `delete_preview` / `delete`（可选 boolean `force`，仅放宽精确命名残留检出的未登记 Git 归属；删除确认与模式匹配 revision 必填） | `handlers` |
-| `rpc/handlers/notice.js` | `notice.list/page/post/answer/dismiss/read` 与用户专属只读 `notice.sync(cursor?,limit?)`；增量全历史初始化／delta／删除及代际reset服务全局Inbox；answer/dismiss/read可携带expected_identity并在源事务核验真实记录身份；list/page分类与read不唤醒语义保持，snapshot/rechoose已退役 | `handlers`；[同步契约](user-workspace.md#全局收件箱分区) |
-| `rpc/handlers/branch.js` | `branch.history/version_graph/tree/show/bind/archive`（history / version_graph / bind / archive 在 `USER_ONLY`）；history 保留第一父链，version_graph 为完整 main 或固定成功交付 Event 的源图 | `handlers` |
-| `rpc/handlers/input.js` | 历史 `input.*` / `draft.*`：源码保留，不在白名单 | `handlers` |
-| `rpc/handlers/spec.js` | 历史 `spec.*` / `plan.*`：源码保留，不在白名单 | `handlers` |
-| `rpc/handlers/candidate.js` | 历史 `candidate.*`：源码保留，不在白名单 | `handlers` |
-| `rpc/dispatcher.js` | 合并 handler 表（查重名、查漏），校验后分派，按 Store 管理身份收窄管理 invocation 能力，统一应用安全输出过滤 | `class Dispatcher` |
-| `rpc/public-result.js` | 递归隔离 Worker 私有 `retry_profile` 与字符串 `hooks` / `auto_merge` / `management` JSON；授权 Agent 配置/env 与显式 `worker.run_settings` 配置表面保留合法同名 env 键，不对普通 mutation 开例外 | `publicResult()` |
+处理器签名 `(project,params,actor) => result | Promise<result>`。身份来自当前有效 invocation，不信任模型参数；管理／integration 的窄白名单分别见[管理](hook-signals-management.md)与[归并权限](../reference/rpc/convergence.md#专用整合-worker-的-rpc-能力)。HTTP 另有[读取与 mutation 白名单](../reference/web-routes.md)，不能只隐藏 UI 或仅登记 RPC。
 
-输入与结果只读接缝（W214／D507）：用户专属 `worker.reading_page {id,before_event?,before_message?,limit?,query?}` 与 `worker.reading_record {id,kind,record_id,offset?}` 由 `handlers/task.js` 直接转发 Store；registry 拒绝 Agent 与未知参数。Web 的 `reading-page` / `reading-record` GET 严格拒绝未知／重复／token 查询字段，固定项目身份、不经 POST 或 overview 自动扫描。Message 额外携带 `input_event:{id,task_id,type,created_at,data:{sender?,message_id,append_number?},input_delivery?}|null`，按完整历史精确 ID 关联，不按正文或当前页猜来源，证据中不重复正文。对应专项为 `test/project/reading.test.js`、`test/web/reading-api.test.js`，合入父 UI 后的真实 HTTP→RPC→Store→DOM 组合专项为 `test/web/reading-conversation-integration.test.js`（几何为 DOM stub，不替代真实浏览器）；精确返回及边界见[Worker RPC](../reference/rpc/tasks.md#输入与结果完整历史读面)。
-
-W173／用户决定 #422：当前项目维护动作 `system.interrupt_all {}` 与 `system.resume_all {}` 在 RPC `PARAMS`、`USER_ONLY` 与 Web `MUTATIONS` 同时注册，普通／管理 Agent 均拒绝。Web 仅在固定项目 `POST /api/action` 上接入，维护动作要求无 query，JSON envelope 只能包含 method／params，params 缺省或空对象；任何 token 字段（含空值）、路径、scope、未知字段或非法 params 拒绝。复用登录／Origin／Host／JSON 与项目登记边界，不提供无项目／跨项目批量入口，不修改既有单 Worker 动作。summary/status 的 maintenance 来自 Runtime，接口不推测暂停或重启就绪。`test/project-maintenance-api.test.js` 与 `test/web/project-maintenance-api.test.js` 使用受控 Project 方法、真实 HTTP→RPC 分派验证权限／转发／安全出口／失败／双项目身份，Runtime 恢复与持久门另由父联调。
-
-`rpc/handlers/hooks.js` 同时承载用户专属时间信号／管理配置与 Agent-only 的 `manager.query/start/retry`；专用方法只转发经 token 核验的 Actor，Project 再检查管理能力。`manager.*` 不进入 Web 动作白名单，接口回归在 `test/management-api.test.js` 与 `test/web/management-api.test.js`，契约见[时间信号与管理](hook-signals-management.md)。
-
-快捷指令用户专属配置／历史接口与旧配置边界以[快捷指令契约](shortcut-commands.md)及[运行历史](shortcut-command-runs.md)为准；registry/handlers/hooks 负责严格白名单、UUID 身份、正整数版本与 revision，Web POST action 仅开放配置与历史移除，GET `/api/hooks/commands/executions` 只读查询。CLI 保留 list/save/export/authorize/revoke/remove/import/history。W241／D566 删除 command_run/command_start 公开入口及 CLI run/start，不保留兼容别名，UIClient 无命令专用超时通道。退役、历史与 Hook 回归见 `test/shortcut-command-api.test.js`、`test/shortcut-command-runs-api.test.js` 及对应 Web API／集成测试。
-
-Hook 新增用户专属 RPC/HTTP 白名单、参数和 Project 映射以 [Hooks 接缝](hooks.md) 为准：`hooks.list/save/remove`、`worker.hooks/hook_attach/hook_update/hook_remove`，只读 GET `/api/hooks` 与 `/api/worker/ID/hooks`；`worker.hook_update` 的完整 `hook` 编辑与 `enabled` 互斥，旧启停签名兼容，命令示例和执行授权见[命令增补](hooks.md#通用命令与-main-推送示例w133--用户决定-319)；`order.submit` 显式 `defer:boolean` 才可转为预约。追加用户专属 `worker.completion` 与 CLI `worker completion`，最高级别、revision 与方法映射见[自动链接缝](completion-hooks.md)。
+客户端本地 `{signal}` 取消只关闭连接、清理监听／计时器，不取消 daemon 已派发操作，不重试、不进入线参数；未知写结果必须核对，不能把断连当失败重发。
 
 ## 开发与构建脚本：`scripts/`
 
-| 文件 | 职责 | 导出 / 命令 |
-|---|---|---|
-| `scripts/check-native-viewer.js` | 显式本机 Pi + POSIX/python3 PTY 集成专项：真实 CLI/Unix RPC、原生组件、滚轮/键盘翻页/代码背景/晚到配色/工具展开/resize、停滞读取退出与 raw mode/主屏/终端模式恢复；仅临时项目/受控 RPC，不启动 daemon/Agent/模型，保留日志，常规全量不依赖全局 Pi | `bun run scripts/check-native-viewer.js` |
-| `scripts/ops.js` | `package.json` 便捷命令分派到现行 CLI；只保留可用别名，不恢复退休命令 | 命令行入口，无导出；其余命令透传 `main` 校验 |
-| `scripts/measure-read-performance.js` | 临时 fixture 的同进程读面 / DOM stub / 事件循环重复采样，逐样本保留既有预算，代码及 OS / Bun / Git 身份与显式 JSON 输出；无 CI / 生产改动 | `parseOptions(args)`、`summarize(values)`、`collectEnvironment(root?,env?)`、`buildReport(samples,environment,startedAt,finishedAt)`、`writeReport(report,output)`、`THRESHOLDS`；`bun run measure:read-performance [--samples N] [--output PATH]`，契约见[本地读取性能报告](../contributing/read-performance.md) |
-
-根 `.gitattributes` 固定 `src/`、`bin/`、`package.json` 的 LF 检出，避免 autocrlf 改变代码身份。Lush 不提供客户端安装包或远端部署产物。
+`package.json` 是当前入口；`scripts/ops.js` 转发现行 CLI，不恢复退休快捷命令。性能测量见[读取性能报告](../contributing/read-performance.md)，原生观看专项见[观看器验证](../native-viewer.md)。Lush 不提供客户端安装包或远端部署产物；代码身份覆盖路径的 LF 检出由根 `.gitattributes` 保证。
 
 ## 测试：`test/`
 
-测试文件必须自给自足（自己的 fixture / world / DOM stub），不要靠别的文件先跑过。
+[贡献指南](../contributing/README.md#分层测试与交付)统一验证责任、完整运行／证据复用、预算与 CI，不在模块地图复制测试流水或逐文件清单。
 
-`bun run test` 并行运行全部现有 Web/core 测试，不使用路径忽略模式；`test:all` 为同一完整入口，`test:serial` 保留原生 `bun test` 供聚焦串行诊断。所有项目入口在 `package.json` 显式传入 `--timeout=20000`，使用 20 秒单项默认预算，不改产品／性能预算、不自动重试；显式单项／文件／追加 CLI 超时仍可覆盖，见[测试超时预算](../contributing/README.md#测试超时预算)。质量 CI 执行测试与文档检查；真实浏览器专项需相应系统浏览器，不能用 DOM stub 代替。
+- 每个测试文件自给自足，fixture／world／DOM stub 不依赖其他文件先运行。规模边界在负责的后端测全，HTTP／DOM 用小数据验证参数、游标与交互；批量造库用事务，不关闭生产安全或持久化。
+- `test/helpers.js`、`test/dom-stub.js` 是共享测试接缝，改签名须兼顾调用方。`helpers.env(extra)`／`git(root,...args)` 隔离 HOME／XDG、全局／系统 Git 配置及继承 GIT_*；自建 spawn 须同样隔离，不修改进程级环境或生产 Git。
+- `test/session-fixture.js` 用纯临时会话文件验证只读投影，不为读取测试无谓创建 SQLite／worktree。
+- Web 资源验证模块可加载、CSP、启动、Agent 标识与减动效契约，不锁定精确颜色／字体／CSS 排版；真实几何、键盘／触摸和浏览器策略不能由 DOM stub 代替。
+- 临时项目／设备根与 mock／可控子进程是默认测试环境；测试退出清理自己的服务和文件，不操作用户开发项目、账号或服务。
 
-数据规模边界只在负责该边界的后端测试完整验证；HTTP / DOM 层用小规模数据验证参数、游标、刷新和交互。批量造库使用测试事务，不关闭生产持久化或安全设置。Web 资源测试只保留模块可加载、CSP、启动落点、Agent 标识与减动效契约，不锁定精确颜色、字体或 CSS 排版。
-
-当前测试按分区落位：
-
-| 分区 | 文件 |
-|---|---|
-| Worker 中心主链 | `test/project/order.test.js`、`merge-queue.test.js`、`parent-delivery.test.js`（父自有队列顺序/执行位/暂停重排/取消与精确恢复）、`delivery-compatibility.test.js`（重复交付/代码依赖/旧 v2 审计与 Git/DB 窗口/源漂移）、`delivery-review.test.js`（拒绝非法 sender 无副作用、busy 挂起/取消真实自动唤醒、父前进后精确恢复读模型）、`task-signals.test.js`、`task-centered-graph.test.js`、`lifecycle.test.js`、`scheduling.test.js`、`preempt.test.js`、`progress.test.js`、`progress-history.test.js`（形状变化/用户输入交付边界/重复与重启/冻结计时/RPC分页与权限）、`test/web/progress-history-api.test.js`（HTTP游标/inspect首屏/关闭开关/窄路由）、`recovery.test.js`、`limits.test.js`、`agents.test.js`、`status.test.js` |
-| Worker 彻底删除入口 | `test/worker-delete-api.test.js`（用户权限、确认/revision 与 CLI 两步预检）、`test/web/worker-delete-api.test.js`（登录/Origin/参数边界与真实临时 Git 项目 HTTP→RPC→资源清理联调）；后端与 DOM 回归由各自分区维护 |
-| 公开面契约 | `test/core-api.test.js`（RPC 白名单）、`test/help-guard.test.js`（帮助与命令面）、`test/web/core-api.test.js`、`test/worker-api.test.js`（Worker 权限/严格参数、迭代 envelope）、`test/worker-cli.test.js`（命令映射/非法参数/帮助）、`test/web/worker-api.test.js`（HTTP→Dispatcher 接缝）、`test/web/dom-iteration.test.js`（共享迭代动作） |
-| Git / worktree | `test/workspaces/{naming,merge,cleanup,genealogy,anchor,archive,branch-diagnostics,branch-first,safety,task-squash}.test.js`（task-squash 核验精确凭据、双 ref 事务、guard、dirty/drift 与失败保留现场）；`safety` 直接验证通用 Git 安全门、历史展示 worktree 保留与 DB 附属数据只读兼容 |
-| 项目维护暂停入口 | `test/project-maintenance-api.test.js`（无参数、用户专属、Agent／管理凭证拒绝、停止准入／失败与安全出口）、`test/web/project-maintenance-api.test.js`（真实 HTTP→RPC 转发、登录／Origin／Host／JSON、严格字段／token、固定双项目身份；受控 Runtime 方法，不证明实际暂停／恢复） |
-| 服务重启 | `test/service-restart.test.js`、`test/web/service-restart.test.js`、`test/integration/service-restart.test.js`（idle 准入、鉴权/路由、真实进程所有权） |
-| main 版本迭代 | `test/workspaces/version-history.test.js`（SHA-256/Unicode/配置与环境隔离）、`test/project/version-history.test.js`（真实第一父链/多轮交付/历史证据/伪标题/分页/安全大小/无 main）、`test/web/version-history-api.test.js`（RPC 权限/窄参数/认证/Origin/多项目隔离）；新增 `test/project/version-graph.test.js`（完整拓扑／固定 Squash／递归子交付／多轮与同步排除／缺证据与对象／范围签名与翻页／大小）、`test/workspaces/version-graph.test.js`（SHA64／隔离配置与替换／跨实例游标／Git 输出上限）、`test/web/version-graph-api.test.js`（窄 API／鉴权／项目身份／真实 HTTP→RPC→SQLite/Git） |
-| Web 读面与安全 | `test/web/{security,assets,read-models,project-route,core-studio,multi-project,launcher}.test.js`；assets 以一次模块图加载冒烟验证资源/CSP，并保留启动与供应资源契约 |
-| Web DOM | `test/web/dom-*.test.js`（各自 `boot()`）；模型来源真实 Firefox 专项：`bun run ./test/web/check-model-sources-browser.js`（1440/900/640/390/320px、双主题、右侧操作列、重置倒计时无裁剪、信息无重叠、详情→编辑→返回）；需 Firefox/geckodriver，仅临时 fixture、不连接用户 daemon |
-| 选择快照停用 | `test/choice-snapshot-api.test.js`（RPC/CLI 不再开放）、`test/web/choice-snapshot-api.test.js`（单项目/工作台拒绝旧入口）、`test/web/choice-snapshot-flow.test.js`（真实 HTTP→RPC→问卷答复不再快照，历史与代码不变）；Runtime 与 DOM 分区覆盖正常问卷及历史资源保护 |
-| 用户工作台后端组合 | `test/integration/user-workspace.test.js`（真实独立双 lushd、生产 Host 与 HTTP/RPC，来源动作隔离、设备偏好／配置、关闭排序后的新问题、Host 停止／显式 daemon 重启、离线读取不启动、移除来源过滤、仅未来指令默认）；所有项目／设备根临时、Agent 为 mock，不替代浏览器或真实账号验收 |
-| Notice 记录与提醒 | `test/project/{notice-page,notice-info,lifecycle-notice,notice-lifecycle-type,questionnaire}.test.js`、`test/web/{notice-records,notice-notifications,lifecycle-notice-api,overview-lifecycle-notices,dom-lifecycle-notices,settings,questionnaire}.test.js`；真实 Firefox 独立临时 fixture：`bun run ./test/web/check-notice-banner-browser.js`（精确桌面/390px 视口、WebDriver 原生触摸）与 `bun run ./test/web/check-notice-interaction.js`（CSP、键盘/PointerEvents）；两者需 Firefox/geckodriver，不连接用户 daemon |
-| 执行详情代码阅读 | `test/workspaces/code-reader.test.js`（真实临时 Git 工作区、基线/净变化、ignored/链接/外部程序/大文件/历史降级、受阻路径明确失败、长转义路径的字节分页及真实 RPC 帧预算）、`test/workspaces/code-posix.test.js`（真实 openat/readlinkat、换链竞态、FD 回收/CLOEXEC 与 Darwin loader 契约）、`test/web/code-reader-api.test.js`（用户权限、窄参数、认证、Origin、多项目路由） |
-| 执行过程阅读 | `test/transcript*.test.js`、`test/web/{transcript-reader,dom-transcript-reader,dom-transcript-view,dom-results}.test.js` |
-| Agent 状态与旧存档 | `test/agent/status.test.js`（假 Pi/Codex 软件版本、路径、安全错误与单飞）；`test/project/{agent-usage,agent-usage-provider,codex-usage-history}.test.js`（退役旧查询/采样、只读存档、配置与历史不改写）；`test/web/{agent-status-api,agent-usage-api,dom-agent-status,dom-agent-usage}.test.js`（用户鉴权/项目路由、version 2 软件诊断、按需只读存档与迟到响应）。旧 `usage-query/usage-settings/codex-usage-parsing/usage-auth-codex` 独立 mock 测试仅验证内部兼容适配，不重新开放旧产品查询 |
-| 项目出站网络 | `test/agent/{network,network-accounts}.test.js`（私有设置、快照、真实 HTTP/HTTPS CONNECT 与 TLS/取消/压缩、全部账号请求链路）、`test/project/network.test.js`（单飞/子进程环境）、`test/web/{network-api,network-cli-flow,dom-agent-network}.test.js` 与 `test/agent-network-cli.test.js`（安全权限/路由、真实 CLI→RPC→HTTP 私有配置联调、仅写认证与迟到保护） |
-| 托管账号连接与设备码登录 | `test/agent/connections{,-device}.test.js`（固定协议、一次兑换、间隔/限流、取消与迟到防护）、`test/project/agent-connections-manager.test.js`（真实私有文件与项目准入）、`test/web/{agent-connections-api,codex-device-login-flow,dom-agent-connections}.test.js`（权限/安全投影、真实 HTTP→RPC→Manager 联调、页面自动确认与离页清理）；上游均 mock，不读取真实账号 |
-| 运行设置与 Agent | `test/runtime-settings.test.js`、`test/config*.test.js`、`test/agent-settings.test.js`、`test/soft-budget.test.js` |
-| 本地性能报告契约 | `test/read-performance.test.js`（参数 / 统计 / 原样本预算 / 输出不覆盖 / Git 身份与降级；不在通用套件重复运行大规模测量） |
-| 通用命令与 main 推送示例 | `test/project/hooks-command.test.js`、`hooks-command-invocation.test.js`（真实临时 bare remote、连续触发、冻结等待、失败/unknown 禁重放、输出/进程组/凭证及 invocation 排他）；`test/web/hooks-command-integration.test.js`（真实 HTTP→RPC→Runtime→临时 Git remote，默认关闭、同源 revision、编辑/副本/模板隔离、失败停用及删除不重装）；`test/web/dom-hooks-command.test.js`（命令授权、同源编辑与安全结果、迟到响应、独立 revision 与停用复制） |
-| 定时信号与管理跨层联调 | `test/web/hooks-management-integration.test.js`：浏览器时间转换→HTTP→真实 RPC→受控 Pi bridge→安全生命周期入口；无 Git/Input 副作用、配置保留、精确重复收据、私有投影与返回后的持久等待。仅临时项目／可控进程，不调用真实模型；接口与 DOM 分别见 `management-api.test.js`、`dom-hooks-management.test.js` |
-| 测试环境隔离 | `test/helpers.test.js`（子进程 HOME/XDG 与全局/系统 Git 配置隔离、合成 hook/签名/环境污染及退出回收；生产 Git 环境不变）；`test/test-budget.test.js`（项目测试入口预算一致性、真实串行／并行子进程超过 5 秒可完成且追加短超时仍失败） |
-| 文档 | `test/docs-check.test.js`、`test/docs-search.test.js`、`test/markdown.test.js`、`test/mermaid-docs.test.js`、`test/web/docs.test.js` |
-| 历史兼容与安全 | `test/project/order-compatibility.test.js` 覆盖旧类型只读投影、父类型、名称/路径/原话不变、混合类型唯一索引、父候选、派生、调度告知、历史落地证据与旧入口拒绝；`test/input-routes.test.js` 仅保留旧配置格式校验；`test/{butler,explainer}-provider.test.js` 保留无工具/无凭证隔离；`test/web/dom-merge.test.js` 保留旧 Notice 审批语义；历史记录读取、删除共享引用与交付恢复由各现行分区覆盖。旧 Candidate 命令、快速路由匹配、休眠批量交付面板和项目统计的成功路径测试已移除；拒绝旧公开入口由 core-api / help-guard 覆盖 |
-
-`.github/workflows/code-reader-posix.yml` 仅手动触发，独立运行代码读取器的 Linux/macOS 聚焦回归，覆盖最低支持 Bun 1.2.0 和当前固定 Bun 1.4.2；无 native 包或编译步骤。触发方式见[贡献指南](../contributing/README.md#ci-触发方式)。Linux 本地通过不等于 macOS 实测，Darwin loader mock 也不能替代 macOS job 的结果。
-
-`test/session-fixture.js` 提供纯文件读取的 `sessionFixture(extra?)` 与 `sessionFile(root,taskId,lines,name?)`，每例独立 Config/临时目录，不初始化 SQLite/Project；会话读取保留 UTF-8、截断、缓存、token 与链接拒绝覆盖。HTTP 执行记录直接创建现行 Worker 行，不为只读投影创建仓库或 worktree。退休流程成功路径与重复接口矩阵已移除，拒绝旧入口、安全权限和真实 Git 交付覆盖仍保留。
-
-`test/helpers.js`、`test/dom-stub.js` 是被多个文件共用的**公共面**：保持公共签名兼容，改签名会同时影响所有分区。`helpers.env(extra)` 与 `git(root,...args)` 为测试子进程隔离 HOME/XDG、全局/系统 Git 配置及继承的 `GIT_*`；`extra` 可显式注入受控配置，不修改进程级环境或生产 Git 行为。直接自建环境/spawn 的测试需自行隔离。
+回归按 `test/project/`、`test/workspaces/`、`test/agent/`、`test/web/`、`test/integration/` 定位；具体长期专项入口留在对应主题契约，精确断言在测试。文档改动运行 `bun run docs:check` 与受影响的文档检索／Web 回归。
 
 ---
 

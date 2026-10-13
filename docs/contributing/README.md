@@ -4,7 +4,7 @@
 
 - [文档写作约定](documentation.md)：格式、层级、链接、流程图和自动检查。
 - [本地读取性能报告](read-performance.md)：重复采样、环境身份、JSON 输出与既有预算；不等同于真实 RPC / 浏览器验收。
-- [模块地图](../engineering/modules.md)：源码与测试的职责边界及导出契约。
+- [模块地图](../engineering/modules.md)：长期职责与必要契约入口，精确导出见源码。
 - [生命周期不变量](../engineering/invariants.md)：修改 runtime 前必须保持的规则。
 
 ## 分层测试与交付
@@ -31,9 +31,9 @@ bun run test            # 顶层开发指令交付前的全量 Web/core 套件�
 
 ### 测试超时预算
 
-`package.json` 的 `test`／`test:all`／`test:serial` 命令统一传入 `--timeout=20000`，设置 **20 秒单项默认测试预算**；默认四进程并行、专项、串行入口及 CI 均使用，无需 Agent 首次失败后再临时追加 `--timeout`。真实 Git／SQLite／daemon fixture 在并行测试和多个 Worker 开发时会竞争 CPU 与磁盘，Bun 原生 5 秒预算容易将负载波动误判为失败。预算是上限，不会让成功测试额外等待，也不启用自动重试或跳过测试。
+`package.json` 的 test／test:all／test:serial 统一 `--timeout=20000`：全量（默认四进程）、专项、串行和 CI 均为 **20 秒单项默认预算**，不自动重试／跳过，不改产品超时、fixture 等待或性能断言。Bun 1.4.2 忽略 bunfig 的 test.timeout，因此用 CLI 参数；不要先用原生 5 秒预算跑全量再临时加时。
 
-此预算不改变产品命令的 60 秒上限、RPC 超时、fixture 等待条件或性能断言。已有单项超时及 `setDefaultTimeout` 仍按测试自身设置执行；诊断时可显式使用 `bun run test:serial 路径 --timeout 5000`，追加参数覆盖入口默认值。当前固定 Bun 1.4.2 不支持 `bunfig.toml` 的 `[test].timeout`（会忽略该字段），因此使用已验证的 CLI 参数；直接 `bun test` 不经过项目入口，仍可能使用原生 5 秒预算。若仍超时，保留完整日志并定位慢步骤／未释放资源／等待条件；不要无限增大预算或反复跑全量碰运气。
+已有单项设置／setDefaultTimeout 保持；诊断可用 `bun run test:serial 路径 --timeout 5000`，追加参数覆盖入口默认值。仍超时须保留完整日志，定位慢步骤、资源释放或等待条件，不无限加预算或反复全量碰运气。
 
 ## CI 触发方式
 

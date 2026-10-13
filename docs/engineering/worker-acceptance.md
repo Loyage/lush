@@ -1,6 +1,6 @@
 # 验收即归档（W169／用户决定 #418）
 
-本文是统一验收、归档语义的实施契约；W197／用户决定 #462 增加父级安全批量验收，优先于旧的父 Agent 收口前逐个确认要求，以及“仅验收／验收并归档”、四档自动链与验收后单独归档描述。本次实际验证见末节，不能将契约或测试冒充用户业务质量验收。
+本文是统一验收、归档与父级安全批量验收的权威契约。验收不是测试或质量证明；父检查 child 默认不提前回收。
 
 ## 用户含义与保留范围
 
@@ -39,26 +39,14 @@ child 的配置仍锁定、默认自动合并，由直接父 Agent 检查成果�
 
 ## 分区与验证
 
-- Runtime child：`src/core/project/iteration.js`、`branches.js`、`completion.js`、`hooks.js`、必要调度接缝、`src/core/workspaces/`、`src/core/hooks.js`、`src/core/device-automation.js` 及对应 runtime／device tests。负责统一入口、串行回收、幂等／部分失败恢复、自动链读面与旧值兼容。不修改 assets、CLI/RPC/Host、文档。
-- UI child：`src/ui/web/assets/` 与 DOM tests；统一验收按钮、清理入口、三档自动链（兼容旧 archive 读值）、设备默认与帮助／授权确认、历史过滤说明。请求仅 worker.accept；不修改 backend 或文档。
-- W169：CLI／RPC／Host 接缝、提示词、文档、真实临时 HTTP/RPC/Git 联调、全量回归与子 Worker 检查验收。分区文件发生接缝需求先消息，不互改。
+统一入口位于 `project/iteration.js`，Git 回收经 Workspaces；Web 共享验收控件只发 worker.accept，不串发 branch.archive。接口与职责定位见[模块地图](modules.md)。
 
 实际验证手动／父 Agent／自动验收、无改动回答、旧 accept/archive、已验收未清理补办、dirty／消息／待决／后代／共享资源／冻结／同步阻塞、删除部分失败及重启 unknown、保留运行会话与结果、UI 单动作失败保护、迟到响应和费用标识。全部测试使用临时项目／设备根，不重启用户 daemon/Host。
 
 ## W169 验证记录
 
-W169-1、W169-2 均由 runtime 合入 W169，并由父 Agent 检查代码、交付事实和测试后确认。Runtime 固定父 `0f46fbb` 的源侧适配保留源提交 `2df9449`，修复 `db4ae2f`；UI 固定父 `15a1255` 的适配保留源提交 `a4288bb`，修复 `d12ef84`。双方未发现改名或架构迁移；旧自动级别／挂载／删除顺序测试已适配为统一语义。
-
-- 最终完整 `bun run test --timeout 30000`：**3010 pass / 0 fail**，389 文件，日志 `/tmp/lush-w169-logs/full-final.log`。
-- 真实 HTTP/RPC/SQLite/Git 与 UI 联调：**27 pass / 0 fail**，日志 `/tmp/lush-w169-logs/acceptance-integrated-final.log`。新增 `test/web/unified-acceptance-runtime-integration.test.js` 验证单次验收无改动回答、dirty 拒绝后再次显式验收、会话／结果／事件保留、已删除根但后代失败的真实恢复标记和图上续办；读取／渲染不发射删除。首轮两个测试误把 history 数组读成 events 对象，修正测试后完整重跑通过，原日志 `/tmp/lush-w169-logs/acceptance-integrated.log`。
-- 父复跑 DOM／事件读面：**992 pass / 0 fail**，日志 `/tmp/lush-w169-logs/ui-integrated-dom.log`。
-- Firefox 工作台 fixture 的源码与真实构建资源均通过双主题、1440/390/320px、CSP、设备默认选择与失败草稿保护等检查，日志 `/tmp/lush-w169-logs/browser-ui-source.log`、`browser-ui-compiled.log`。它不是连接真实模型的业务验收；验收请求及资源回收使用上面的真实临时 HTTP/RPC/Git + DOM 联调。
-- 文档检查通过，仅既有篇幅警告。Runtime 首轮全量曾遇到未改动的 Appearance 跨进程测试时序失败，后续 child 与父各自完整全量均通过；相关外观代码未修改。
-
-未调用真实模型、未回收用户现有 Worker 资源、未重启用户服务；当前 daemon 仍运行旧代码，Agent 确认派生 Worker 在当前 daemon 中仍保留 worktree，不绕过权限另行删除。合入目标分支并在安全空闲点更新 daemon 与 Host 后，新统一验收语义才对实际服务生效。运行历史保留不承诺备份、安全擦除或 Git 对象永久保留。
+保留此历史入口。当前回归入口为 `test/web/unified-acceptance-runtime-integration.test.js` 及 Runtime 验收／恢复、DOM 迭代测试；历史通过数与失败日志留在 Worker／提交记录，不证明当前树。运行历史保留不承诺备份、安全擦除或 Git 对象永久保留。
 
 ### 固定父基线修复（交付 15152／尝试 15155）
 
-W169 源侧合入固定父 `2497d09780845e5c90721eed835d1e68f9b4f59a`，保留原源 `cec27abc8661a5158b3f3ffa581e66dd7c705e4e`；共同祖先为 `edde636`。父侧只新增成功一次性 Hook 挂载退役及对应测试／文档，无改名、公共模型迁移或模块拆分。Git 无文本冲突，语义检查确认验收后通知仍执行且审计保留，自定义一次性挂载删除不影响持久内置 auto-merge／auto-accept；预约创建默认测试同时采用父侧 retiredHook 审计和本需求 accept 规范值。强化 `completion-guards.test.js` 验收后通知退役回归，保留双方意图，不修改父分支。
-
-修复组合专项 **297 pass / 0 fail**，日志 `/tmp/lush-w169-logs/repair-integrated.log`；完整 `bun run test --timeout 30000` **3013 pass / 0 fail**，390 文件，日志 `/tmp/lush-w169-logs/repair-full-final.log`。文档检查通过（既有篇幅警告）。本轮未重跑真实浏览器，父侧无 Web assets 变更；此前 Firefox 源码／构建验证保留。仍未重启用户服务或调用真实模型。
+一次性自定义 Hook 成功退役不影响持久内置合并／验收 Hook，验收后通知仍执行、审计保留；生命周期兼容须由受影响回归验证，不能仅以 Git 无冲突判断。

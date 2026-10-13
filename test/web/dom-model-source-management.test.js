@@ -68,6 +68,21 @@ afterAll(() => dom.restore());
 afterEach(() => { for (const p of panels.splice(0)) p.dispose(); ui.modelSourcesPage?.connections.dispose(); ui.modelSourcesPage = null; dom.document.hidden = false; });
 beforeEach(() => { data = fixture(); current = true; intercept = null; requests.length = 0; ui.view = null; });
 
+test('resource leaf keeps facade exports identical and public write projection excludes read fields and credentials', async () => {
+  const resources = await import('../../src/ui/web/assets/connection-resources.js');
+  const { publicConfig } = await import('../../src/ui/web/assets/connection-view-common.js');
+  expect(renderConnectionResources).toBe(resources.renderConnectionResources);
+  expect(relativeTime).toBe(resources.relativeTime); expect(resetRemaining).toBe(resources.resetRemaining);
+  const connection = source('a', { credential: { status: 'configured', api_key: 'PRIVATE-DO-NOT-PROJECT' },
+    storage_scope: 'device', unexpected: 'not writable' });
+  const before = structuredClone(connection), projected = publicConfig(connection);
+  expect(projected).toEqual({ id: 'a', label: '账号 a', provider: 'openai-codex', endpoint: 'https://chatgpt.com/backend-api/codex',
+    auth_type: 'oauth', enabled: true, models: ['gpt-6.1-sol', 'org/model'], default_model: 'gpt-6.1-sol', default_thinking: 'high', notify_reset: false });
+  renderConnectionResources(connection.observation, { now: () => Date.parse(at) });
+  expect(connection).toEqual(before); expect(JSON.stringify(projected)).not.toContain('PRIVATE-DO-NOT-PROJECT');
+  expect(requests).toHaveLength(0);
+});
+
 test('source filters and refresh use only applied text, clear keeps provider filter, and IME never searches', async () => {
   const p = await panel(), input = field(p.node, 'source-search');
   input.value = '不存在'; input.listeners.input[0]();
@@ -397,4 +412,51 @@ test('page teardown clears password immediately, retains public drafts on return
   await button(p.node, '添加连接').onclick(); expect(field(p.node, 'label').value).toBe('离页公开草稿'); expect(field(p.node, 'api_key').value).toBe('');
   const obsolete = fixture(); obsolete.connections[0].label = 'OBSOLETE-PAGE'; wait.resolve(json(obsolete)); await reading;
   expect(deepText(p.node)).not.toContain('OBSOLETE-PAGE');
+});
+
+test('editor owner rejects a save from before dispose/resume without clearing the restored draft or auto-querying', async () => {
+  const p = await panel(), wait = deferred(); await editSource(p, 'a');
+  change(field(p.node, 'default_model'), 'org/model');
+  intercept = (_url, action) => action?.method === 'agent.connections.save' ? wait.promise : null;
+  const saving = button(p.node, '保存连接').onclick();
+  current = false; p.dispose(); current = true; p.resume(); await p.load(true);
+  await editSource(p, 'a');
+  expect(field(p.node, 'default_model').value).toBe('org/model');
+  const restored = field(p.node, 'default_model'), reads = requests.filter(entry => entry.url === '/api/agent/connections').length;
+  wait.resolve(json(source('obsolete-saved-id'))); await saving;
+  expect(p.selectedConnection()).toBe('a'); expect(field(p.node, 'default_model')).toBe(restored);
+  expect(restored.value).toBe('org/model'); expect(actions('query')).toHaveLength(0);
+  expect(requests.filter(entry => entry.url === '/api/agent/connections')).toHaveLength(reads);
+  expect(deepText(p.node)).not.toContain('连接已保存');
+});
+
+test('archive owner discards a history response after dispose/resume without replacing a new source panel', async () => {
+  const p = await panel(), wait = deferred(); p.selectConnection('a');
+  intercept = url => url.startsWith('/api/agent/connections/history?') ? wait.promise : null;
+  const reading = button(card(p.node, 'a'), '查看历史').onclick();
+  current = false; p.dispose(); current = true; p.resume(); p.selectConnection('b');
+  wait.resolve(json({ version: 1, series: [{ label: 'OBSOLETE-ARCHIVE' }] })); await reading;
+  expect(p.selectedConnection()).toBe('b'); expect(p.node.dataset.sourcePanel).toBe('detail');
+  expect(p.node.querySelector('.agent-connection-history-content').children).toHaveLength(0);
+  expect(deepText(p.node)).not.toContain('OBSOLETE-ARCHIVE');
+});
+
+test('authentication owner cancels its late start after dispose/resume without revealing a code or replacing a draft', async () => {
+  const timers = new Map(), wait = deferred();
+  const p = await panel({ setTimeout: fn => { const id = timers.size + 1; timers.set(id, fn); return id; }, clearTimeout: id => timers.delete(id) });
+  intercept = (_url, action) => {
+    if (action?.method === 'agent.connections.device.start') return wait.promise;
+    if (action?.method === 'agent.connections.device.cancel') return json({ status: 'cancelled' });
+  };
+  const login = button(card(p.node, 'a'), '登录 / 重新登录').onclick();
+  current = false; p.dispose(); current = true; p.resume();
+  await editSource(p, 'b'); change(field(p.node, 'default_model'), 'org/model');
+  const draft = field(p.node, 'default_model');
+  wait.resolve(json({ id: 'a', login_id: 'obsolete-login', verification_uri: 'https://auth.openai.com/codex/device',
+    user_code: 'OLD-CODE', interval_seconds: 5, expires_at: new Date(Date.now() + 60000).toISOString() }));
+  await login;
+  expect(actions('device.cancel').map(action => action.params)).toEqual([{ id: 'a', login_id: 'obsolete-login' }]);
+  expect(actions('device.poll')).toHaveLength(0); expect(timers.size).toBe(0); expect(field(p.node, 'user_code')).toBeNull();
+  expect(field(p.node, 'default_model')).toBe(draft); expect(draft.value).toBe('org/model');
+  expect(deepText(p.node)).not.toContain('OLD-CODE');
 });

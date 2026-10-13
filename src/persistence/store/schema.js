@@ -1,4 +1,4 @@
-/** 全部 DDL 与项目绑定校验：schema 与列名是公共面，改动必须同步 docs/engineering/modules.md。 */
+/** 全部 DDL 与项目绑定校验；影响持久化兼容或公开契约时更新对应权威文档，不重复维护列名清单。 */
 export const SCHEMA = `PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
       -- Keep schema creation atomic and avoid an fsync for each CREATE on a new project.
       BEGIN;

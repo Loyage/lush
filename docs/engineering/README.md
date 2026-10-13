@@ -1,6 +1,6 @@
 # 工程文档
 
-本层面向修改 Lush runtime、持久化、Git 边界和 Web UI 的开发者。先沿短章建立整体模型，再按改动范围进入主题参考。
+本层面向开发者。首次了解可选下列主链路线；修改已有模块从[模块地图](modules.md)定位对应理念和必要契约，不要求沿所有链接通读。
 
 ## 推荐阅读顺序
 
@@ -15,7 +15,7 @@
 - [核心 API 收敛](core-api.md)：当前公开能力与已下线功能边界。
 - [数据流](data-flow.md)
 - [Worker 中心输入](task-centered-input-design.md)：当前指令的设计约束。
-- [已合并 Worker 的持续迭代](task-iteration.md)：验收/归档分离、安全父同步和历史兼容。
+- [已合并 Worker 的持续迭代](task-iteration.md)：合并后追加、安全父同步、验收即归档与历史兼容。
 - [Worker 图与固定输入规则](task-graph.md)：Worker 视角、可信规则执行与读面边界。
 - [一次 invocation 与多级协作](invocation.md)
 - [Token 效率与用量归因](token-efficiency.md)：有界上下文、快速收尾与可选软预算。
@@ -33,9 +33,9 @@
 ## 接口与开发边界
 
 - [模块设计理念](../design/README.md)：修改前先理解长期目标与取舍。
-- [用户工作台与设备唯一配置](user-workspace.md)：独立全局页面、设备策略、跨项目收件箱及本次分区接口。
+- [用户工作台与设备唯一配置](user-workspace.md)：独立全局页面、设备策略与来源收件箱。
 - [界面与传输](interface.md)
-- [执行记录阅读器](transcript-reader.md)：摘要、调用配对、完整翻找与无工具解释 Agent。
+- [执行记录阅读器](transcript-reader.md)：摘要、调用配对、完整翻找与时间线。
 - [快速对话退役](project-quick-chat.md)：已移除功能及专用数据清理的安全边界，不恢复调用入口。
 - [模块地图总览](modules.md)
 - [Runtime 与持久化模块](modules-runtime.md)

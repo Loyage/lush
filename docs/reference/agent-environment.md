@@ -1,6 +1,6 @@
 # Agent 环境与权限
 
-本节管 Pi / Codex 从 daemon 拿到的环境变量与 capability、项目级 Agent 配置与运行设置、用户专属操作与信任边界，以及 `system.status` 里的 agent / 合并字段。
+本节规定 invocation 环境、临时凭证、进度与信任边界；技术配置设备唯一，Worker 显式参数及项目事实仍隔离。配置模式与资源见[配置参考](agent-configuration.md)。
 
 | CLI | RPC | 参数 |
 |---|---|---|
@@ -35,7 +35,9 @@ Pi / Codex 每次 invocation 都从 daemon 获得：
 - `LUSH_AGENT_TOKEN`：当前 invocation 的临时 capability。同一 Worker 每次唤醒重新签发，daemon 只存 SHA-256，invocation 结束或 daemon 重启后即失效；泄漏的旧 token 不能被下一轮使用。
 - `PATH` 前置 daemon 所属 checkout 的 `bin/`。
 
-daemon 环境先整体继承给 Agent，再叠加项目[出站网络设置](../engineering/outbound-network.md)；每次 invocation 随后加载 `.lush/agent/agent.env`，再加载 `.lush/agent/<role>.env`。角色文件覆盖公共文件；自定义 `PATH` 时 Lush `bin/` 仍会前置。env 使用字面量 `NAME=value`，支持引号和 `export` 前缀，不做 shell 展开。所有 `LUSH_*` 保留给 runtime 并拒绝覆盖。Pi 调用另外移除 ambient 模型认证，并固定 Lush 私有快照的 `PI_CODING_AGENT_DIR`，不能用 daemon/env/Profile 覆盖；Codex CLI 自身认证不变。`agent env` 只报告变量名，不暴露值。Web 的 Agent 页可按需把某一个公共/角色文件读入键值表：值默认遮罩、可逐项显示；保存会按变量名排序并规范化为双引号格式，因此原文件注释与排序不会保留。空表会删除对应文件。文件写入使用原子替换、权限 `600`，目录权限 `700`；下一次 invocation 直接生效，无需重启。
+Lush 模式环境按 daemon → 设备[网络设置](../engineering/outbound-network.md) → 设备 common env → 角色 env → Worker profile env 叠加；自定义 PATH 仍前置固定 Lush bin。env 为字面量 NAME=value，支持引号／export，不展开 Shell，所有 LUSH_* 拒绝覆盖。Lush Pi 去掉 ambient 模型认证、固定私有快照 PI_CODING_AGENT_DIR；Pi 默认模式与隔离角色不混入 Lush 工作配置，见[双模式](../engineering/agent-configuration-v2.md)。Codex CLI 自身认证不变。
+
+CLI agent env 只显示变量名，Web 授权编辑默认遮罩；保存排序并规范化双引号，不保留注释／顺序，空表删除文件。owner-only 原子写入，下一次调用生效，不热改当前调用。设备归属见[工作台配置](../engineering/user-workspace.md#设备配置分区)。
 
 CLI 会把 token 放入 RPC params 的 `_token`；daemon 按 hash 反查所属 Worker，并要求该 Worker 仍是活动 invocation（在 `running` 中且未被 abort），否则报 invalid or expired agent token。`worker.spawn` 的 `parent` / `notice.post` 的 `task` 缺省为自己的 Worker，不能伪造其他父Worker；message 只能沿直接父子边。CLI progress 默认只输出短确认，`--json` 保留完整进度对象；RPC 返回不变。进度接口不接受 Worker ID，始终写 token 所属 Worker：`progress plan` 同一次工作整表替换时保留同 key 的完成态与既有计时，`progress complete` 只完成当前计划中已存在的 key。runtime 自动记录当前步骤的 `started_at`，顺序完成时写入 `completed_at` / `duration_ms`，并开始下一条待办的计时。
 
@@ -47,7 +49,9 @@ CLI 会把 token 放入 RPC params 的 `_token`；daemon 按 hash 反查所属 W
 
 存储在库里的已知 `duration_ms` 是墙钟；Worker详情 / Worker树 / 分支图在有 `agent_runs` 时另行投影：Agent 步骤只算真正 running 的调用时长，waiting / awaiting / queued 的静息等待单列成一条 `kind:'wait'` 条目（`wait_ms` / `waiting_since` / `reason`）插在已完成与当前步骤之间，不计入计划完成度，也不占用 Agent 的工作用时。`progress plan` / `complete` 仍只读写 Agent 自己汇报的步骤，等待行由 runtime 生成，不需要 Agent 汇报。
 
-项目级配置固定为 `.lush/agent.json`，含一个 `default` 与 planner / coordinator / worker / research / verifier / merger / explainer / butler 八类角色覆盖（旧 showcase 配置只兼容读取并忽略，不再开放该角色）。每份 profile 是 `{agent, model, thinking, default_prompt, append_prompt, extensions, skills, soft_budget?, connection_id?}`。`connection_id` 是项目托管账号 UUID，仅支持 Pi 的固定物理 `provider/model`；存储仍允许旧配置缺省，但所有后续 Pi 调用必须显式绑定来源，否则明确失败，不回退用户默认 Pi 认证。CLI 用 `--connection UUID|off`，`off` 不等于允许外部认证。下一次 invocation 冻结账号，通过项目 `.lush/pi/` 基础设置生成私有调用快照，不把秘密放入参数，不自动路由或付费降级；完整边界见[账号资源连接器](../engineering/agent-connections.md)。可选软预算默认关闭，仅普通 Pi 支持；CLI 用 `--budget-responses N|off` / `--budget-tokens N|off`，完整语义见[软预算](../engineering/token-efficiency.md#pi-可选软预算)。`default_prompt` 为空时，`PROMPT_PARTS` 按 role 组合内置规则；非空时完整替换内置组合，可能让 Agent 失去Worker API、权限边界、协作和交付协议，因此 Web 保存前会明确警告并再次确认。随后依次追加可提交的 `.lush-agent/common.md` / `<role>.md`、本机 `.lush/agent/common.md` / `<role>.md`，最后追加 `append_prompt`。`lush agent prompt ROLE` 展示这条最终链路及每段来源。`extensions` / `skills` 是从已安装 Pi 资源中选择的路径，只给普通 Pi invocation 显式加载，Codex 不使用；[专用解释 Agent](../engineering/transcript-reader.md)与管家等专用角色禁用工具、扩展、Skills 和自动上下文读取，目前仅支持 Pi（或离线 Mock），不以 Codex 开发权限降级运行。旧版 `prompt` 字段继续按 `append_prompt` 读取。daemon 在每次 invocation 开始前重读文件，所以运行中的调用不变，下一次调用立即生效。每条 `agent_runs` 固化当次实际的 provider / model / thinking，后续改配置不改历史。
+profile、角色兼容、资源安装／启用与双模式统一见[配置契约](../engineering/agent-configuration-v2.md)。Lush 配置和私有补充只从设备读取，项目 AGENTS.md／`.lush-agent/` 保留项目上下文；旧项目私有文件不回退。Prompt 组合、覆盖内置提示的风险与显式资源见[配置参考](agent-configuration.md)，软预算见[Token 效率](../engineering/token-efficiency.md#pi-可选软预算)。下一次 invocation 重读，Run 固化实际 backend／model／thinking，不改历史。
+
+Lush Prompt 顺序为内置组合（非空 default_prompt 则替换）→ 项目 `.lush-agent/common.md`／角色 .md → 设备 `agent/common.md`／角色 .md → append_prompt；旧 prompt 字段只按 append_prompt 读取。`agent prompt ROLE` 展示最终链及来源。替换内置 Prompt 可能失去协作和交付指引，Web 必须警告并确认；这不取消 RPC／runtime 安全门。退休无工具角色保留历史隔离，不用有开发权限的 Codex 降级运行；管理角色另见[隔离契约](../engineering/hook-signals-management.md)。
 
 Worker 待开始或暂停时的「调整运行设置」与失败/取消后的「检查后重试」共用Worker级参数面板。打开时先通过用户专属 `worker.run_settings` 读取已有 Worker Profile（读取失败不回退默认），未修改项保留；配置模式、后端、来源、模型和思考深度直接展示，Prompt、扩展、Skills、预算和环境变量放在默认折叠的高级设置。自动读取现有模型来源及已选来源的本地模型目录缓存，无需先点「读取项目连接」；不联网查询、不自动替换所选来源或模型，读取失败仍可编辑并手动重读。面板同时自动加载角色当前生效的默认 Profile，以及公共和角色环境文件（同名变量依次由公共、角色、Profile 覆盖；不读取 daemon 的整份进程环境）。「加载默认参数」会丢弃表单改动，恢复打开面板时读到的全部默认值，包括模型、思考深度、Prompt、扩展、Skills、软预算和环境变量；该按钮本身不保存也不启动 Agent。环境变量编辑器按 `NAME=value` 分行，含换行、首尾空白或开头双引号的值用 JSON 字符串保留原值。确认后仅保存Worker级 Profile，不写项目配置或环境文件；暂停Worker还需点「开始/继续」才启动 Agent。
 
@@ -57,7 +61,7 @@ Worker 详情统一使用「调整运行设置」选择模型来源，不再提�
 
 `system.status` 的 `agent_config` 返回规范化配置、每类角色的 resolved profile 与 Web 可用选项；`settings` 是运行设置的读写镜像（读自 `system.status`，写走用户专属的 `system.configure`）：`{file, call_timeout:{value,default,overridden}, task_call_limit:{value,default,overridden}, max_depth:{value,default,overridden}, progress_reporting:{value,default:true,overridden}, worker_delegation:{value,default:true,overridden}, worker_auto_title:{value,default:true,overridden}, context_retrieval:{value,default:true,overridden}}`，顶层 `call_timeout` / `task_call_limit` / `max_depth` 仍是生效值，环境变量只提供默认值。`agents` 只列运行中的 agent，并显示该次实际 backend / model / thinking，另有 `agents_total`（每个活动 Worker 一个 Agent）与 `agents_idle`（已 park、未在跑的，含尚未首次唤醒的）。`pending_merges` 以原 worker 为稳定项统计 `integration=pending/review/conflict`，不把它的 resolver 再重复计数；完整交付阶段、实际 `source_task_id` 与 blockers 由内部 `ladder().groups` 读模型投影；旧 `task.ladder` 已下线，不是公开 RPC。`merge_freeze` 列出正被未解决冲突冻结的目标分支。agent 身份本身（id / 唤醒次数 / 上次动手时间）可以跨唤醒读取，但它不是可寻址的执行句柄：用户操作一律按 Worker ID 进行。
 
-以下操作限用户：system.stop、system.configure、agent.configure、agent.environment、agent.environment.configure、agent.network、agent.network.configure、agent.connections.*（包括读取、查询与登录）、order.submit、worker.transcript_latest / transcript_page / transcript_step / transcript_search、worker.auto_merge / reserve / unreserve / resolve / resolve_divergence / approve_merge / cancel / retry / cleanup、notice.answer / dismiss、branch.bind / archive。`agent.environment` 虽是读取接口，但会返回明文密钥，因此同样拒绝 agent token。CLI 另禁止 agent 启动 daemon、Web 或阻塞等待。
+精确用户／Agent 权限以 `src/rpc/registry.js` 和[分项接口](rpc/README.md)为准，不在此复制名单。技术配置即使只读、未给 scope 也限用户；env 可含明文密钥，不接受 Agent token。CLI 另禁止 Agent 启动 daemon／Web 或阻塞等待。
 
 专用整合 Worker（`task_kind='integration'`）另有默认拒绝的 RPC 窄白名单，只允许安全只读和自身 Notice／进度，不能派工、发消息、交付、验收或修改归并策略。身份取自有效 invocation 对应的 Store 事实，不依赖 Prompt；普通 Agent 与管理 Agent 权限不变。精确能力见[分支归并接口](rpc/convergence.md#专用整合-worker-的-rpc-能力)。
 

@@ -26,6 +26,16 @@ bun run lush notice post '问题' --worker W5-1 --body '背景'
 
 CLI 通过只读 `worker.lookup {number}` 找到真实整数 ID 后，再调用原 Worker 操作；`W5` 不意味着内部 `id=5`。RPC/HTTP 的既有 `id`、引用目标、链接、环境变量和磁盘路径仍使用整数。`--json` 保留整数 `id` 和可空 `worker_number`；分页游标与 Notice ID 仍为整数，不接受 W 编号。
 
+### 持久身份边界
+
+`tasks.worker_number` 可空、创建后不可改写，部分唯一索引兜底；同父 child 次序在 `meta.worker_child_high:<parent_id>` 持久递增，不按存活子数重算，不随删除／purge 清除。读面携带明确编号，缺关联时为 null；用户报告回退 `#内部ID`，不得用整数或当前树推算 W 编号。机器身份、排序、权限、合并顺序和引用快照不改。
+
+## 追加输入与 Notice 编号
+
+同一 Input 下明确用户 `worker.message`（sender_id 为 NULL）的追加使用 `A<Input ID>-<seq>`，跨 Worker 共享次序，不占 O 或 child 序号。`Store.appendMessage` 在写锁事务内更新 `meta.input_append_high:<input_id>` 并保存 nullable `messages.append_number`；唯一索引兜底，高水位删除／重启／purge 后不复用，回滚不泄漏编号。内部 `Store.message`、Notice 答复、自动选择、Hook／系统信号及 Agent 通信不分配追加号；无 Input 时为 null。收件箱／inspect／历史与新 Event 携带已有值，冻结释放不重新编号，旧行／事件不回填。
+
+Notice 按明确 kind 展示：question／questionnaire／历史 plan 为 `D<Notice ID>`，info 或未知 kind 为 `N<Notice ID>`。不按标题或状态猜测。D/N/O/A 只用于展示，API、CLI Notice 参数、分页与引用仍用原整数；Draft 不改成 O，历史正文与快照不重写。
+
 ## 速查表
 
 | 命令 | 章节 |

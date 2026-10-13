@@ -29,12 +29,13 @@ const settingsFixture = () => ({
     default_prompt: '内置 Prompt', default_prompts: { agent: '内置 agent Prompt' } },
 });
 
-let actions = [], packagesMode = 'ok', packagesPending = null, resourcesCalls = 0;
+let actions = [], packagesMode = 'ok', packagesPending = null, resourcesCalls = 0, packagesCalls = 0;
 const dom = installDom({ fetch: async (url, options = {}) => {
   const path = String(url).replace('/api/host/settings/', '/api/').replace(/[?&]scope=device$/, '');
   if (path === '/api/agent/connections') return json({ version: 1, connections: [connection] });
   if (path.startsWith('/api/agent/connections/models')) return json(catalog);
   if (path === '/api/agent/packages') {
+    packagesCalls++;
     if (packagesPending) return packagesPending.promise;
     if (packagesMode === 'missing') return notFound();
     return json(packagesFixture());
@@ -249,10 +250,47 @@ test('目录迟到响应不覆盖用户正在填写的安装来源，也不在�
   const block = packagesBlock(root);
   const source = block.querySelector('input[data-package-source]');
   source.value = 'npm:example@9.9.9';
+  const reload = byButton(block, '重新读取') || byButton(block, '读取已安装包');
+  const reading = reload.onclick();
+  expect(reload.textContent).toBe('读取中…');
+  const before = deepText(block);
   current = false;
   pending.resolve(json(packagesFixture())); packagesPending = null;
-  await settle();
+  await reading; await settle();
+  expect(deepText(block)).toBe(before);
   expect(source.value).toBe('npm:example@9.9.9');
+  // A late local read may populate the device cache, but cannot repaint its old owner.
+  const calls = packagesCalls;
+  const next = render(); await settle();
+  expect(packagesCalls).toBe(calls);
+  expect(deepText(packagesBlock(next))).toContain('Example 工具');
+});
+
+test('profile resource drafts are independent while the device package catalog is shared', async () => {
+  actions = []; packagesMode = 'ok'; packagesPending = null;
+  const first = render(); await settle();
+  await reloadPackages(first);
+  const calls = packagesCalls;
+  const second = render(); await settle();
+  expect(packagesCalls).toBe(calls);
+  const card = profile(first), other = profile(second);
+  await click(findByText(card, '读取已安装项'));
+  await click(findByText(other, '读取已安装项'));
+  const extension = card.querySelector('input[data-resource-kind="extensions"]');
+  extension.checked = true; await extension.listeners.change[0]();
+  expect(other.querySelector('input[data-resource-kind="extensions"]').checked).toBe(false);
+  // Switching execution backend keeps a profile's explicit paths without enabling them for Codex.
+  const backend = card.querySelector('[data-agent-field="agent"]');
+  backend.value = 'codex'; await backend.listeners.change[0]();
+  expect(card.querySelector('input[data-resource-kind="extensions"]').disabled).toBe(true);
+  expect(card.querySelector('input[data-resource-kind="extensions"]').checked).toBe(true);
+  backend.value = 'pi'; await backend.listeners.change[0]();
+  const model = card.querySelector('[data-agent-field="model"]');
+  model.value = 'openai-compatible/fixture-model';
+  await click(findByText(card, '保存配置'));
+  expect(actions.at(-1).params.config.default.extensions).toEqual([extension.value]);
+  await click(findByText(other, '保存配置'));
+  expect(actions.at(-1).params.config.default.extensions).toEqual([]);
 });
 
 test('项目默认 Pi 模式：已保存摘要求说明执行机器 Pi，不展示托管来源或模型', async () => {
