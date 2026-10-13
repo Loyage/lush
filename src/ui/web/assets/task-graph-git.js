@@ -8,7 +8,8 @@ export function graphGitStatus(node) {
   const pending = status === 'dirty' ? '有未提交更改' : status === 'clean' ? '无未提交更改'
     : node.details_pending ? '未提交状态加载中' : '未提交状态未知';
   const box = el('span', undefined, 'task-graph-git-status mono');
-  box.append(el('span', mark, 'task-graph-git-pending'));
+  const pendingClass = status === 'dirty' ? 'is-dirty' : status === 'clean' ? 'is-clean' : 'is-unknown';
+  box.append(el('span', mark, `task-graph-git-pending ${pendingClass}`));
   let description = pending;
   if (node.parent_id != null) {
     const { ahead, behind } = node.parent_relation || {};
