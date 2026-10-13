@@ -4,7 +4,7 @@ import { el } from './dom.js';
 export function graphGitStatus(node) {
   if (!node.branch || node.archived || node.branch_info?.archived) return null;
   const status = node.branch_info?.diagnostics?.working_tree?.status;
-  const mark = status === 'dirty' ? '*' : status === 'clean' ? '-' : '?';
+  const mark = status === 'dirty' ? '*' : status === 'clean' ? '\u00a0' : '?';
   const pending = status === 'dirty' ? '有未提交更改' : status === 'clean' ? '无未提交更改'
     : node.details_pending ? '未提交状态加载中' : '未提交状态未知';
   const box = el('span', undefined, 'task-graph-git-status mono');

@@ -224,12 +224,30 @@ test('Git 相对进度在第二排计划前，刷新、折叠和交付状态不�
   node.parent_relation = { ahead: 0, behind: 0 };
   node.branch_info.diagnostics.working_tree.status = 'clean';
   await loadTaskGraph();
-  expect(deepText(card(2).querySelector('.task-graph-git-status'))).toBe('- +0 -0');
+  expect(deepText(card(2).querySelector('.task-graph-git-status'))).toBe('\u00a0 +0 -0');
   expect(card(2).querySelector('.task-graph-git-pending').classList.contains('is-clean')).toBe(true);
   expect(card(2).querySelector('.task-graph-git-pending').classList.contains('is-dirty')).toBe(false);
   await card(1).querySelector('button').onclick();
   await card(1).querySelector('button').onclick();
-  expect(deepText(card(2).querySelector('.task-graph-git-status'))).toBe('- +0 -0');
+  expect(deepText(card(2).querySelector('.task-graph-git-status'))).toBe('\u00a0 +0 -0');
+});
+
+test('Git 干净状态保留一个空白位置，脏状态显示星号', () => {
+  for (const status of ['clean', 'dirty', 'clean']) {
+    for (const node of graph.nodes.slice(0, 2)) {
+      node.branch_info = { diagnostics: { working_tree: { status } } };
+      if (node.parent_id != null) node.parent_relation = { ahead: 3, behind: 2 };
+    }
+    renderTaskGraph(graph);
+    for (const id of [1, 2]) {
+      const indicator = card(id).querySelector('.task-graph-git-status');
+      expect(indicator.querySelector('.task-graph-git-pending').textContent).toBe(status === 'clean' ? '\u00a0' : '*');
+      expect(indicator.getAttribute('aria-label')).toContain(status === 'clean' ? '无未提交更改' : '有未提交更改');
+      expect(indicator.getAttribute('data-help')).toContain(status === 'clean' ? '无未提交更改' : '有未提交更改');
+    }
+    expect(card(2).querySelector('.parent-commit-ahead').textContent).toBe('+3');
+    expect(card(2).querySelector('.parent-commit-behind').textContent).toBe('-2');
+  }
 });
 
 test('Git 未知不冒充干净或零距离；根、无分支和归档 Worker 不伪造父距离', async () => {
@@ -248,7 +266,7 @@ test('Git 未知不冒充干净或零距离；根、无分支和归档 Worker �
     }
   }
   const root = { ...graph.nodes[0], branch_info: { diagnostics: { working_tree: { status: 'clean' } } } };
-  expect(deepText(graphGitStatus(root))).toBe('-');
+  expect(deepText(graphGitStatus(root))).toBe('\u00a0');
   expect(graphGitStatus(root).querySelector('.parent-commit-ahead')).toBeNull();
   expect(graphGitStatus({ ...node, branch: null })).toBeNull();
   expect(graphGitStatus({ ...node, archived: true })).toBeNull();
