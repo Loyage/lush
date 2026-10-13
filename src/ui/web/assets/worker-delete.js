@@ -33,7 +33,7 @@ function previewDetail(preview) {
   const list = (title, rows) => `${title}（${rows.length}）：\n${rows.length ? rows.join('\n') : '无'}`;
   return [
     list('将彻底删除的 Worker（包含全部后代）', preview.workers.map(row => `${workerLabel(row)} [${row.status}] ${row.goal}`)),
-    list('将删除的原始输入及已发射暂存记录', preview.inputs.map(row => `Input ${inputNumber(row.id)}`)),
+    list('将删除的原始指令及已提交草稿记录', preview.inputs.map(row => `Input ${inputNumber(row.id)}`)),
     list('将清理的 worktree', preview.resources.worktrees),
     list('将删除的本地分支', preview.resources.branches),
     list('将删除的专属文件（会话、规则、报告等）', preview.resources.files),

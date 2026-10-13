@@ -299,7 +299,7 @@ function appendTaskActions(row, node, mergeAllByBranch, inputWorkers) {
   if (deletion) row.append(deletion);
   if (['order', 'child'].includes(workerKind(node)) && !ENDED.has(node.status) && !isHistoricalDelivery(node)) {
     row.append(guardedAction(button('追加输入', () => appendToWorker(node), 'ghost', {
-      help: '将底部输入框切换为向该 Worker 追加输入，并保留已输入的正文；现在不发送、不调用 Agent。冻结期间发送的输入由 Worker 暂存，不打断在途交付或源侧修复，解除冻结且 Agent 静息后投递；暂停中仍需点「开始 / 继续」。',
+      help: '将底部输入框切换为向该 Worker 追加输入，并保留已输入的正文；现在不发送、不调用 Agent。冻结期间提交的追加指令可靠入箱，不打断在途交付或源侧修复，解除冻结且 Agent 静息后投递；暂停中仍需点「开始 / 继续」。',
     }), appendInputBlocker(node, inputWorkers)));
   }
 }
@@ -332,7 +332,7 @@ function minimalSummary(node, queueNote, folded = new Set()) {
   if (isArchivedTask(node)) meta.append(badge('已归档'));
   const queueText = inputQueueText(node);
   if (queueText) {
-    const queue = badge(`暂存输入 ${node.input_queue.buffered} 条`, 'b-awaiting worker-input-queue');
+    const queue = badge(`待交付追加 ${node.input_queue.buffered} 条`, 'b-awaiting worker-input-queue');
     queue.setAttribute('data-help', queueText); queue.setAttribute('aria-label', queueText); queue.tabIndex = 0;
     meta.append(queue);
   }

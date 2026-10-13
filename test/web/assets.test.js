@@ -77,9 +77,9 @@ test('HTML ships startup controls, read-only navigation and collapsed composer',
     expect(html).toMatch(/<div id="composer-details"[^>]*hidden/);
     expect(html).toMatch(/id="composer-expand"[^>]*aria-expanded="false"[^>]*aria-controls="composer-details composer-editor-tools composer-shortcuts"/);
     expect(html).toMatch(/id="composer-editor-tools"[^>]*hidden/);
-    expect(html).toMatch(/id="draft-commit"[^>]*class="agent-call">发射/);
+    expect(html).toMatch(/id="draft-commit"[^>]*class="agent-call">提交指令/);
     expect(html).not.toContain('id="input-start"');
-    expect(html).not.toContain('条件发射');
+    expect(html).not.toContain('执行条件设置');
     expect(html).toContain('id="composer-editor-tools"');
     expect(html).toMatch(/id="composer-mode"[^>]*role="status"[^>]*aria-live="polite"/);
     expect(html).toMatch(/id="input"[^>]*aria-describedby="composer-mode-title composer-mode-target composer-mode-behavior"/);

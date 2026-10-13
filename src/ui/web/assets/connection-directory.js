@@ -51,7 +51,7 @@ export function renderConnectionCard(connection, { now, projectHistory, actions 
   note(connectionSection, '密钥由 Lush 设备设置管理，存放在严格权限的私有文件中，不提供静态加密；系统当前用户仍可读取。托管来源可供 Pi 使用，Codex CLI 仍沿用自身认证；托管 Codex 登录不代表 Codex CLI 支持绑定。');
   note(connectionSection, '查询、登录和采样均不调用 Agent 或模型；不自动切换模型，也不自动转用付费资源。');
   note(connectionSection, `额度刷新提醒：${connection.notify_reset === true ? '开启（页面内）' : '关闭'}`);
-  note(connectionSection, `模型列表：${array(connection.models).length ? connection.models.join('、') : '尚未填写；点击“编辑”添加，发射 Worker 时即可从列表选择（留空不限制模型范围）'}`);
+  note(connectionSection, `模型列表：${array(connection.models).length ? connection.models.join('、') : '尚未填写；点击“编辑”添加，提交工作指令时即可从列表选择（留空不限制模型范围）'}`);
   if (array(connection.models).length) note(connectionSection, '由用户填写，供 Worker 运行设置选择；同时限制此来源的模型范围，不代表已联网验证可用。');
   if (connection.provider === 'openai-compatible') note(connectionSection, '自定义 OpenAI Chat Completions 兼容 API；余额查询尚不支持，不代表余额为零。运行时仅供 Pi 显式绑定，不自动切换账号。当前适配按文本/工具调用配置；32K 上下文、4K 输出是本地运行预算，不是已验证的上游限额或价格。');
   note(resourceSection, '以下为缓存观测，不保证当前仍有额度；窗口到期或账号变化后需重新查询。');

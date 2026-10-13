@@ -33,7 +33,7 @@ test('frozen valid main retains editable composer and complete run settings; par
   await overview(); calls.length = 0;
   ui.composerProfile = { agent: 'pi', config_mode: 'pi' };
   input().value = '新的独立工作'; setComposerReferences([reference]); syncComposer();
-  expect(input().disabled).toBe(false); expect(dom.node('draft-commit').textContent).toBe('发射');
+  expect(input().disabled).toBe(false); expect(dom.node('draft-commit').textContent).toBe('提交指令');
   expect(dom.node('draft-commit').classList.contains('hook-button')).toBe(true);
   expect(dom.node('input-send-help').getAttribute('data-help')).toContain('不保证立即');
   expect(dom.node('draft-commit').classList.contains('agent-call')).toBe(true);
@@ -65,9 +65,10 @@ test('keyboard only-create stays explicit; input typed during flight is not clea
 test('detail stays in default creation mode; explicit frozen Worker inbox can save input', () => {
   const root = { id: 100, task_kind: 'main', status: 'waiting', branch: 'main', freeze };
   activateDetailView({ view: 'task', key: 'task-100' }); ui.selected = 100; ui.composerTask = root; input().value = '目标'; syncComposer();
-  expect(input().disabled).toBe(false); expect(dom.node('draft-commit').textContent).toBe('发射');
+  expect(input().disabled).toBe(false); expect(dom.node('draft-commit').textContent).toBe('提交指令');
   ui.composerTask = { ...root, branch_archive: { archived: true } }; syncComposer(); expect(input().disabled).toBe(false);
   ui.composerTask = { ...root, task_kind: 'order', branch: 'feature', workspace: '/tmp/feature' }; appendToWorker(ui.composerTask);
-  expect(input().disabled).toBe(false); expect(input().placeholder).toContain('Ctrl/⌘+Enter 发射');
+  expect(input().disabled).toBe(false); expect(dom.node('composer-mode-behavior').textContent).toContain('Ctrl/⌘+Enter 提交追加');
+  expect(input().placeholder).toBe('补充要求、提供反馈，或说明需要调整的地方…');
   expect(deepText(dom.node('composer-shell'))).not.toContain('改投');
 });

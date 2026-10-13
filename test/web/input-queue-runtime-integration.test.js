@@ -55,17 +55,18 @@ test('HTTP frozen append is persisted, rendered and delivered only after the fix
     const messages = history.filter(event => event.type === 'message');
     expect(messages).toHaveLength(2);
     expect(messages.every(event => event.input_delivery.status === 'pending' && event.input_delivery.at === null)).toBe(true);
-    expect(appendInputAcknowledgement(inspected, second)).toContain('等待投递');
+    expect(appendInputAcknowledgement(inspected, second)).toContain('已入箱给 Worker W1，待交付给 Agent');
     dom = installDom({ fetch: (url, options) => fetch(f.url + url, options) });
     resetUiState(); ui.view = { id: 'task', task: task.id }; ui.selected = task.id;
     renderDetail(inspected, [], history);
-    expect(deepText(dom.node('detail'))).toContain('已暂存 2 条追加输入');
+    expect(deepText(dom.node('detail'))).toContain('已入箱 2 条追加指令');
     const append = [...dom.node('detail').querySelectorAll('button')].find(button => button.textContent === '追加输入');
     expect(append.disabled).toBe(false); // Selecting append mode itself does not call an Agent.
     await append.click();
     expect(dom.node('input').disabled).toBe(false);
-    expect(dom.node('input').placeholder).toContain('Enter 暂存');
-    expect(dom.node('input').placeholder).toContain('等待交付解冻');
+    expect(dom.node('input').placeholder).toBe('补充要求、提供反馈，或说明需要调整的地方…');
+    expect(dom.node('composer-mode-behavior').textContent).toContain('Enter 暂存');
+    expect(dom.node('composer-mode-behavior').textContent).toContain('等待交付解冻');
     resetUiState(); dom.restore(); dom = null;
     landing.resolve(); await received.promise;
     expect(calls).toEqual([['first additional requirement', 'second additional requirement']]);

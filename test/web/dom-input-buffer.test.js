@@ -37,6 +37,46 @@ beforeEach(async () => {
 });
 afterAll(() => { restoreNav(); dom.restore(); });
 
+test('三种模式分离标题、常驻去向和正文提示，提交文案保留真实能力边界', async () => {
+  const assertMode = (title, target, placeholder, contentName, submitLabel) => {
+    expect(dom.node('composer-mode-title').textContent).toBe(title);
+    expect(dom.node('composer-mode-target').textContent).toBe(target);
+    expect(input().placeholder).toBe(placeholder);
+    expect(input().getAttribute('aria-label')).toBe(`${contentName}正文`);
+    expect(dom.node('draft-commit').textContent).toBe(submitLabel);
+    expect(dom.node('draft-commit').getAttribute('data-help')).toContain(contentName);
+    expect(dom.node('draft-commit').getAttribute('data-help')).toContain('token');
+  };
+  assertMode('新建工作', '去向：新 Worker · 基于 main', '描述你希望新 Worker 完成的工作…', '工作指令', '提交指令');
+  dom.node('input-parent').value = 'feature/old-parent'; type('保留输入');
+  expect(dom.node('composer-mode-target').textContent).toContain('去向：新 Worker · 基于 W88');
+  expect(dom.node('composer-mode-target').textContent).toContain('完整列表中的旧父 Worker');
+  expect(dom.node('input-buffer').getAttribute('data-help')).toContain('尚未授权执行');
+  const task = append(); ui.composerTask = { ...task, goal: '命名讨论', freeze: { reason: '等待固定交付结束' } }; syncComposer();
+  assertMode('追加输入', '去向：Worker W15 · 命名讨论', '补充要求、提供反馈，或说明需要调整的地方…', '追加指令', '提交追加');
+  type('继续输入'); await toggleComposerDetails(); await toggleComposerDetails();
+  expect(dom.node('composer-mode-target').textContent).toBe('去向：Worker W15 · 命名讨论');
+  expect(dom.node('composer-mode-behavior').textContent).toContain('等待固定交付结束');
+  expect(dom.node('input-buffer').hidden).toBe(false);
+  await management();
+  assertMode('管理 Lush', '去向：管家 · 当前项目', '描述你希望管家查询、调整或安排的事项…', '管理指令', '提交管理指令');
+  expect(input().value).toBe('继续输入');
+  expect(dom.node('composer-mode-behavior').textContent).toContain('暂不支持暂存');
+  expect(dom.node('input-buffer').hidden).toBe(true); expect(dom.node('input-buffer-help').hidden).toBe(true);
+  await buffer(); expect(calls).toHaveLength(0);
+});
+
+test('草稿确认与提交授权文案不同，ACK 不冒充创建或 Agent 接收', async () => {
+  type('先保存'); await buffer();
+  expect(dom.node('error').textContent).toContain('已暂存为草稿 #9，尚未提交');
+  type('再授权'); await enter({ ctrlKey: true });
+  expect(dom.node('error').textContent).toContain('已提交工作指令');
+  expect(dom.node('error').textContent).toContain('尚不代表 Worker 已创建');
+  append(); type('追加要求'); await enter({ ctrlKey: true });
+  expect(dom.node('error').textContent).toContain('已提交追加指令');
+  expect(dom.node('error').textContent).toContain('尚不代表 Agent 已收到');
+});
+
 test('新建与追加统一 Enter 暂存、Ctrl/Meta Enter 发射；Shift/IME/触屏回车换行', async () => {
   for (const appendMode of [false, true]) {
     if (appendMode) append();
@@ -75,7 +115,7 @@ test('冻结主分支仍能可靠发射；ACK 不宣称已创建、不跳转', a
 test('追加显示暂存入口，冻结等待原因保留，确认后回到新建', async () => {
   const task = append(); ui.composerTask = { ...task, reservation: { status: 'resolving' }, input_queue: { buffered: 2, reason: '等待修复' } }; type('追加要求');
   expect(dom.node('input-buffer').hidden).toBe(false);
-  expect(dom.node('composer-mode-behavior').textContent).toContain('已暂存 2 条');
+  expect(dom.node('composer-mode-behavior').textContent).toContain('已入箱 2 条追加指令');
   await dom.node('input-form').onsubmit({ preventDefault() {} });
   expect(calls[0]).toMatchObject({ method: 'input.emit', params: { mode: 'append', target_id: 126, content: '追加要求' } });
   expect(dom.node('error').textContent).toContain('尚不代表 Agent 已收到'); expect(ui.composerAppendTarget).toBeNull();

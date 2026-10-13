@@ -67,7 +67,7 @@ test('安全投影只认可真实条数，缺字段／错误字段不伪造投�
   const frozen = { ...task, reservation: { status: 'requested' } };
   expect(appendInputAcknowledgement(frozen, {})).toContain('投递状态暂不可用');
   expect(appendInputAcknowledgement(task, { input_queue: { buffered: 0, reason: null } })).toContain('可接收输入时处理');
-  expect(appendInputAcknowledgement(task, messageResult)).toContain('已保存给 Worker W153，等待投递');
+  expect(appendInputAcknowledgement(task, messageResult)).toContain('追加指令已入箱给 Worker W153，待交付给 Agent');
 });
 
 test('详情和两种图模式保留冻结追加入口，明确显示暂存条数和原因且不开放同步', () => {
@@ -79,14 +79,14 @@ test('详情和两种图模式保留冻结追加入口，明确显示暂存条�
     expect(append.disabled).not.toBe(true);
     expect(append.classList.contains('agent-call')).toBe(false); // Mode selection does not invoke an Agent.
     expect(append.getAttribute('data-help')).toContain('解除冻结且 Agent 静息');
-    expect(panel.querySelector('.worker-input-queue').textContent).toContain('已暂存 2 条追加输入');
+    expect(panel.querySelector('.worker-input-queue').textContent).toContain('已入箱 2 条追加指令');
     expect(panel.querySelector('.worker-input-queue').textContent).toContain('等待固定交付结束');
     expect(buttonOf(panel, '同步父分支').disabled).toBe(true);
     for (const minimal of [false, true]) {
       const card = paintGraph(row, minimal), send = buttonOf(card, '追加输入');
       expect(send.disabled).not.toBe(true); expect(send.classList.contains('agent-call')).toBe(false);
       expect(send.getAttribute('data-help')).toContain('不打断在途交付或源侧修复');
-      expect(deepText(card)).toContain(minimal ? '暂存输入 2 条' : '已暂存 2 条追加输入');
+      expect(deepText(card)).toContain(minimal ? '待交付追加 2 条' : '已入箱 2 条追加指令');
       expect(deepText(card)).toContain('等待固定交付结束');
       expect(buttonOf(card, '同步父分支').disabled).toBe(true);
     }
@@ -110,7 +110,7 @@ test('图追加失败保留底部正文及目标，成功确认保存但不冒�
   rejectMessage = true;
   dom.node('input').value = '保住这条需求';
   await buttonOf(card, '追加输入').onclick();
-  expect(dom.node('composer-mode-behavior').textContent).toContain('已暂存 1 条追加输入');
+  expect(dom.node('composer-mode-behavior').textContent).toContain('已入箱 1 条追加指令');
   expect(calls).toHaveLength(0);
   await dom.node('input-form').onsubmit({ preventDefault() {} });
   expect(dom.node('input').value).toBe('保住这条需求');

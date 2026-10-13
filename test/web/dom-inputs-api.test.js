@@ -29,10 +29,12 @@ test('真实 API：详情默认新建，显式追加 Ctrl+Enter 可靠挂载且 
     await loadDetail(task.id);
     const before = ['tasks', 'inputs', 'drafts'].map(table => fixture.store.all(`SELECT * FROM ${table}`).length);
     const input = dom.node('input'); expect(dom.node('input-form').dataset.mode).toBe('create');
-    expect(input.placeholder).toContain('向 main 发射输入');
+    expect(input.placeholder).toBe('描述你希望新 Worker 完成的工作…');
+    expect(dom.node('composer-mode-target').textContent).toBe('去向：新 Worker · 基于 main');
     btn('追加输入').onclick();
-    expect(input.placeholder).toContain(`追加给 Worker ${task.worker_number ?? `#${task.id}`}`);
-    expect(input.placeholder).toContain('需开始 / 继续');
+    expect(input.placeholder).toBe('补充要求、提供反馈，或说明需要调整的地方…');
+    expect(dom.node('composer-mode-target').textContent).toContain(`去向：Worker ${task.worker_number ?? `#${task.id}`}`);
+    expect(dom.node('composer-mode-behavior').textContent).toContain('需开始 / 继续');
     input.value = '后续要求'; input.oninput(); await input.onkeydown({ key: 'Enter', ctrlKey: true, preventDefault() {} });
     expect(input.value).toBe(''); expect(fixture.store.task(task.id).status).toBe('paused');
     // Stopped fixture runtime cannot dispatch: ACK is only a durable mount, not an Agent delivery.
@@ -46,7 +48,7 @@ test('真实 API：详情默认新建，显式追加 Ctrl+Enter 可靠挂载且 
     expect(fixture.store.all('SELECT * FROM drafts')).toHaveLength(before[2] + 2);
     expect(fixture.store.all('SELECT * FROM messages WHERE task_id = ? AND sender_id IS NULL', task.id)).toHaveLength(0);
     expect(dom.node('input-form').dataset.mode).toBe('create');
-    activateDetailView({ view: 'overview' }); expect(input.placeholder).toContain('向 main 发射输入');
+    activateDetailView({ view: 'overview' }); expect(input.placeholder).toBe('描述你希望新 Worker 完成的工作…');
   } finally { restore(); await fixture.close(); }
 });
 
@@ -128,13 +130,13 @@ test('真实 API 串联：Enter 暂存、全库检索、保存修订与挂载、
     const selects = form.querySelectorAll('select'); selects[0].value = 'draft'; await selects[0].onchange();
     expect(deepText(root())).not.toContain('读取失败');
     selects[0].value = ''; form.querySelector('input').value = ''; await form.onsubmit({ preventDefault() {} });
-    await btn('编辑与发射').onclick();
+    await btn('查看草稿与提交状态').onclick();
     const panel = root().querySelector('.input-detail');
     expect(panel.querySelector('textarea').value).toContain('第二行');
     panel.querySelector('textarea').value = '已保存的最终输入';
     await btn('保存', panel).onclick(); expect(deepText(panel)).toContain('已保存。');
     const saved = fixture.store.all('SELECT * FROM drafts')[0]; expect(saved.revision).toBe(2);
-    await btn('发射', panel).onclick(); expect(deepText(panel)).toContain('等待准入');
+    await btn('提交指令', panel).onclick(); expect(deepText(panel)).toContain('等待准入');
     expect(dom.location.hash).toMatch(/^#input-draft-\d+$/);
     expect(panel.querySelector('textarea')).toBe(null); expect(deepText(panel)).toContain('已保存的最终输入');
     expect(deepText(panel)).toContain('引用快照'); expect(deepText(panel)).toContain('捕获时所见');
@@ -143,7 +145,7 @@ test('真实 API 串联：Enter 暂存、全库检索、保存修订与挂载、
     expect(root().querySelectorAll('.input-record')).toHaveLength(1);
     expect(root().querySelector('.input-record').dataset.input).toMatch(/^draft:/);
     await btn('← 返回历史输入').onclick();
-    await btn('编辑与发射').onclick();
+    await btn('查看草稿与提交状态').onclick();
     expect(panel.querySelector('textarea')).toBe(null); expect(deepText(panel)).toContain('已保存的最终输入');
     expect(deepText(panel)).toContain('引用快照'); expect(deepText(panel)).toContain('捕获时所见');
     expect(root().querySelector('img')).toBe(null);

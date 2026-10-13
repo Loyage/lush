@@ -424,7 +424,7 @@ test('极简菜单复用合并、待决入口且冻结时可追加，不内嵌�
   const input = card(2).querySelectorAll('button').find(button => button.textContent === '追加输入');
   expect(input.disabled).toBe(false);
   expect(input.classList.contains('agent-call')).toBe(false);
-  expect(input.getAttribute('data-help')).toContain('冻结期间发送的输入由 Worker 暂存');
+  expect(input.getAttribute('data-help')).toContain('冻结期间提交的追加指令可靠入箱');
 });
 
 test('树菜单直接展开自动链，revision 写入单飞且在途轮询不卸载控件', async () => {

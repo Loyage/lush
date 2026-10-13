@@ -6,7 +6,7 @@ export const AUTOMATION_FEATURES = Object.freeze([
     load: () => import('./automation-feature-pages.js').then(module => module.renderPushAutomation) },
   { id: 'convergence', name: '归并合并', description: '设置目标分支的交付处理策略与未来挂载默认，查看归并批次。', scope: '当前项目 · 目标分支',
     load: () => import('./automation-feature-pages.js').then(module => module.renderBranchConvergence) },
-  { id: 'emission', name: '条件发射', description: '设置每条输入的发射条件与独占选项，查看等待和发射收据。', scope: '当前项目 · 输入授权',
+  { id: 'emission', name: '条件提交', description: '提交每条输入的条件执行授权与独占选项，查看等待状态和提交收据。', scope: '当前项目 · 输入授权',
     load: () => import('./automation-feature-pages.js').then(module => module.renderEmissionAutomation) },
 ]);
 export const automationFeature = id => AUTOMATION_FEATURES.find(feature => feature.id === id);

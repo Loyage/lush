@@ -60,7 +60,7 @@ const root = () => dom.node('detail');
 const text = () => deepText(root());
 const panel = () => root().querySelector('.input-detail');
 const btn = (label, parent = root()) => [...parent.querySelectorAll('button'), ...parent.querySelectorAll('a')].find(node => node.textContent === label || node.getAttribute('aria-label')?.endsWith(`：${label}`));
-const openDraft = () => btn('编辑与发射').onclick();
+const openDraft = () => btn('查看草稿与提交状态').onclick();
 // Module loading may need an event-loop turn before the confirmation appears.
 // Wait for the explicit UI condition, not an arbitrary sleep or an unresolved navigation promise.
 const readyDialogButton = async label => {
@@ -87,12 +87,12 @@ test('已发射却缺少dispatch或版本的草稿保守只读，不提供重复
   for (const change of [{ status: 'emitted' }, { revision: undefined }, { mode: 'management' }]) {
     rows = [fixture('draft', 1, change)]; await openInputs(); await selectStatus(''); await openDraft();
     expect(panel().querySelector('textarea')).toBeNull(); expect(deepText(panel())).toContain('只读待核验');
-    expect(btn('发射', panel())).toBeUndefined(); expect(calls).toHaveLength(0);
+    expect(btn('提交指令', panel())).toBeUndefined(); expect(calls).toHaveLength(0);
   }
 });
 
 test('发射读面的五种新增状态都可显式筛选，不退回未知或当前Worker状态', async () => {
-  const statuses = { waiting_conditions: '等待条件', emitted: '已发射', sent: '已追加', emission_failed: '发射失败', unknown_dispatch: '发射结果待核验' };
+  const statuses = { waiting_conditions: '已提交 · 等待条件', emitted: '已提交 · 等待准入', sent: '追加指令已入箱', emission_failed: '提交后投递失败', unknown_dispatch: '投递结果待核验' };
   rows = Object.keys(statuses).map((status, index) => fixture('draft', index + 1, { status, content: `输入${index}` }));
   await openInputs();
   for (const [status, label] of Object.entries(statuses)) {
@@ -192,16 +192,26 @@ test('追加与管理使用真实编号、只读安全正文和来源跳转；�
   rows = [fixture('message', 4, { append_number: 'A2-1', task_id: 20, task_worker_number: 'W2', content: '<img src=x>用户追加' }),
     fixture('management', 5, { task_id: 5, task_worker_number: 'V3', content: '管理原文' }), fixture('message', 6, { task_id: 20, append_number: null })];
   await openInputs();
-  expect(text()).toContain('追加输入 A2-1'); expect(text()).toContain('管理输入 V3'); expect(text()).toContain('消息 #6');
+  expect(text()).toContain('追加指令 A2-1'); expect(text()).toContain('管理指令 V3'); expect(text()).toContain('消息 #6');
+  expect(form().querySelector('[data-mode="order"]').textContent).toContain('新建工作');
+  for (const [key, content] of [['message:4', '追加指令'], ['management:5', '管理指令']]) {
+    const card = root().querySelector(`[data-input="${key}"]`);
+    expect(card.querySelector('.input-mode-badge').textContent).toBe(content);
+    expect(card.querySelector('.input-row').getAttribute('aria-label')).toContain(content);
+    expect(deepText(card)).not.toContain('工作指令');
+  }
   expect(text()).not.toContain('O4'); expect(text()).not.toContain('O5');
   const routes = [], restore = registerNavigation({ detail: id => routes.push(id) });
   try {
-    for (const [kind, id, label, worker] of [['message', 4, '追加输入 A2-1', 'W2'], ['management', 5, '管理输入 V3', 'V3']]) {
+    for (const [kind, id, label, worker] of [['message', 4, '追加指令 A2-1', 'W2'], ['management', 5, '管理指令 V3', 'V3']]) {
       const row = root().querySelector(`[data-input="${kind}:${id}"]`).querySelector('a');
       expect(row.getAttribute('href')).toBe(`#input-${kind}-${id}`);
       row.onclick({ ctrlKey: true, preventDefault() { throw Error('new tab prevented'); } });
       dom.location.hash = row.getAttribute('href'); await dom.fire('hashchange');
       expect(deepText(panel())).toContain(label); expect(editor()).toBeNull(); expect(panel().querySelector('img')).toBeNull();
+      expect(deepText(panel())).not.toContain('工作指令 O');
+      expect(panel().querySelector('.input-metadata').querySelector('.input-mode-badge').textContent).toBe(kind === 'message' ? '追加指令' : '管理指令');
+      expect(deepText(panel())).toContain(kind === 'message' ? '不创建 O 编号' : '不创建开发 Worker 或 O 编号');
       expect(btn('保存', panel())).toBeUndefined(); await btn(`查看来源 ${worker}`, panel()).onclick();
       await btn('← 返回历史输入').onclick();
     }
@@ -241,7 +251,7 @@ test('独立详情与返回保留筛选、分页、滚动和未保存编辑，�
   const search = form().querySelector('input'); search.value = '想法'; await form().onsubmit({ preventDefault() {} });
   const record = root().querySelector('.input-record'); root().scrollTop = 240;
   await record.querySelector('button').onclick();
-  expect(dom.location.hash).toBe('#input-draft-1'); expect(dom.node('view-title').textContent).toBe('暂存输入 #1');
+  expect(dom.location.hash).toBe('#input-draft-1'); expect(dom.node('view-title').textContent).toBe('草稿 #1');
   expect(root().querySelector('.inputs-browse').hidden).toBe(true); expect(root().querySelector('.input-detail-view').hidden).toBe(false);
   expect(document.activeElement).toBe(panel());
   editor().value = '未保存的本地编辑'; const node = editor(), before = reads.length;
@@ -256,7 +266,7 @@ test('独立详情与返回保留筛选、分页、滚动和未保存编辑，�
 
 test('详情深链接、浏览器后退与迟到读取，切换草稿取消时恢复原路由和编辑', async () => {
   dom.location.hash = '#input-input-2'; await dom.fire('hashchange');
-  expect(deepText(panel())).toContain('原始输入 O2'); expect(panel().hidden).toBe(false);
+  expect(deepText(panel())).toContain('原始指令 O2'); expect(panel().hidden).toBe(false);
   dom.location.hash = '#inputs'; await dom.fire('hashchange'); expect(panel().hidden).toBe(true);
   const late = deferred(); intercept = path => path === '/api/input/draft/1' ? late.promise : null;
   const opening = openDraft(); await btn('← 返回历史输入').onclick();
@@ -264,10 +274,10 @@ test('详情深链接、浏览器后退与迟到读取，切换草稿取消时�
   intercept = null; await openDraft(); editor().value = '不丢弃';
   dom.location.hash = '#input-input-2'; const switching = dom.fire('hashchange');
   await (await readyDialogButton('取消')).onclick(); await switching;
-  expect(dom.location.hash).toBe('#input-draft-1'); expect(editor().value).toBe('不丢弃'); expect(dom.node('view-title').textContent).toBe('暂存输入 #1');
+  expect(dom.location.hash).toBe('#input-draft-1'); expect(editor().value).toBe('不丢弃'); expect(dom.node('view-title').textContent).toBe('草稿 #1');
   dom.location.hash = '#input-input-2'; const confirmed = dom.fire('hashchange');
   await (await readyDialogButton('放弃编辑')).onclick(); await confirmed;
-  expect(dom.location.hash).toBe('#input-input-2'); expect(editor()).toBe(null); expect(deepText(panel())).toContain('原始输入 O2');
+  expect(dom.location.hash).toBe('#input-input-2'); expect(editor()).toBe(null); expect(deepText(panel())).toContain('原始指令 O2');
 });
 
 test('正文全库搜索与状态/合并筛选发到服务端，游标分页与失败重试', async () => {
@@ -302,7 +312,7 @@ test('完整详情修订用于编辑保存，父 Task 来自完整列表，保�
   await btn('移除引用', panel()).onclick(); await btn('保存', panel()).onclick();
   expect(calls).toEqual([{ method: 'draft.update', params: { id: 1, expected_revision: 3, content: '修改后的正文\n保留换行', references: [], branch: 'feature/old', conditions: [], exclusive: false } }]);
   expect(editor().value).toBe('修改后的正文\n保留换行'); expect(deepText(panel())).toContain('已保存');
-  await btn('发射', panel()).onclick();
+  await btn('提交指令', panel()).onclick();
   expect(calls.at(-1)).toMatchObject({ method: 'input.emit', params: { draft_id: 1, expected_revision: 4 } });
   expect(calls.at(-1).params.client_request_id).toBeTruthy();
   expect(editor()).toBeNull(); expect(dom.location.hash).toBe('#input-draft-1');
@@ -312,16 +322,16 @@ test('完整详情修订用于编辑保存，父 Task 来自完整列表，保�
 });
 
 test('发射先保存再以新版本挂载，ACK 不冒充已创建，实际成功刷新后可查看 Worker', async () => {
-  await openInputs(); await openDraft(); editor().value = '新正文'; await btn('发射', panel()).onclick();
+  await openInputs(); await openDraft(); editor().value = '新正文'; await btn('提交指令', panel()).onclick();
   expect(calls.map(call => call.method)).toEqual(['draft.update', 'input.emit']); expect(calls[0].params).not.toHaveProperty('branch');
   expect(calls[1].params).toMatchObject({ draft_id: 1, expected_revision: 4 }); expect(calls[1].params).not.toHaveProperty('start');
   expect(dom.location.hash).toBe('#input-draft-1'); expect(editor()).toBeNull(); expect(deepText(panel())).toContain('新正文');
   expect(deepText(panel())).toContain('当时所见'); expect(deepText(panel())).toContain('不代表 Worker 已创建');
   rows[0].dispatch = { state: 'succeeded', input_id: 3, worker_id: 33, worker_number: 'W33' };
   rows.unshift(fixture('input', 3, { content: '新正文', task_id: 33, task_worker_number: 'W33', status: 'queued' }));
-  await btn('刷新发射状态').onclick(); expect(deepText(panel())).toContain('已投递');
-  await btn('刷新发射状态').onclick();
-  expect(dom.location.hash).toBe('#input-input-3'); expect(text()).toContain('原始输入 O3');
+  await btn('刷新提交状态').onclick(); expect(deepText(panel())).toContain('已投递');
+  await btn('刷新提交状态').onclick();
+  expect(dom.location.hash).toBe('#input-input-3'); expect(text()).toContain('原始指令 O3');
   let opened; const restore = registerNavigation({ detail: async id => { opened = id; } });
   try { await btn('查看 Worker W33', panel()).onclick(); expect(opened).toBe(33); } finally { restore(); }
   expect(calls).toHaveLength(2);
@@ -332,7 +342,7 @@ test('旧草稿或失效父 Task 不回退默认；必须显式重选保存', as
     rows[0] = fixture('draft', 1, { ...identity, revision: null }); activateDetailView({ view: 'overview' }); await openInputs(); await openDraft();
     expect(deepText(panel())).toContain('必须重新选择');
     if (identity.parent_id) expect(parentSelect().value).toBe('missing:555');
-    calls.length = 0; await btn('发射', panel()).onclick(); expect(calls).toHaveLength(0);
+    calls.length = 0; await btn('提交指令', panel()).onclick(); expect(calls).toHaveLength(0);
     parentSelect().value = '1'; await btn('保存', panel()).onclick();
     expect(calls[0].params.branch).toBe('main'); expect(calls[0].params.expected_revision).toBe(null);
   }
@@ -341,8 +351,8 @@ test('旧草稿或失效父 Task 不回退默认；必须显式重选保存', as
 test('编辑/发射单飞，保存失败保留全部本地编辑并且不发射', async () => {
   await openInputs(); await openDraft(); editor().value = '不能丢的编辑'; parentSelect().value = '900'; await btn('移除引用', panel()).onclick();
   const delayed = deferred(); intercept = (_path, body) => body?.method === 'draft.update' ? delayed.promise : null;
-  const first = btn('发射', panel()).onclick();
-  await btn('发射', panel()).onclick(); await btn('保存', panel()).onclick(); await btn('删除草稿', panel()).onclick();
+  const first = btn('提交指令', panel()).onclick();
+  await btn('提交指令', panel()).onclick(); await btn('保存', panel()).onclick(); await btn('删除草稿', panel()).onclick();
   expect(calls).toHaveLength(1); expect(editor().disabled).toBe(true);
   delayed.resolve({ ok: false, json: async () => ({ error: 'revision conflict' }) }); await first;
   expect(editor().value).toBe('不能丢的编辑'); expect(parentSelect().value).toBe('900'); expect(deepText(panel())).toContain('引用快照（0）');
@@ -370,10 +380,10 @@ test('保存 500、离线或远端删除后，轮询与刷新仍保留文字/父
 test('保存成功但发射失败保留更新修订，重试不会重复保存旧内容', async () => {
   await openInputs(); await openDraft(); editor().value = '已经保存的编辑';
   intercept = (_path, body) => body?.method === 'input.emit' ? Promise.reject(new Error('父分支暂时被冻结')) : null;
-  await btn('发射', panel()).onclick();
+  await btn('提交指令', panel()).onclick();
   expect(editor().value).toBe('已经保存的编辑'); expect(calls.map(call => call.method)).toEqual(['draft.update', 'input.emit']);
   const requestId = calls.at(-1).params.client_request_id;
-  intercept = null; await btn('发射', panel()).onclick();
+  intercept = null; await btn('提交指令', panel()).onclick();
   expect(calls.map(call => call.method)).toEqual(['draft.update', 'input.emit', 'input.emit']); expect(calls.at(-1).params.expected_revision).toBe(4);
   expect(calls.at(-1).params.client_request_id).toBe(requestId);
 });
@@ -395,7 +405,7 @@ test('列表查询/详情迟到响应与离页返回身份保护；切换期间�
   intercept = null; await openInputs(); await selectStatus('');
   const late = deferred(); intercept = path => path === '/api/input/draft/1' ? late.promise : null;
   const opening = openDraft(); await btn('查看原文').onclick(); late.resolve(json(fixture())); await opening;
-  expect(deepText(panel())).toContain('原始输入 O2'); expect(editor()).toBe(null);
+  expect(deepText(panel())).toContain('原始指令 O2'); expect(editor()).toBe(null);
   intercept = null; await openDraft();
   const pendingSwitch = deferred(); intercept = path => path === '/api/input/input/2' ? pendingSwitch.promise : null;
   const loading = btn('查看原文').onclick(); editor().value = '请求期间的新编辑';
@@ -420,11 +430,11 @@ test('文本安全、Agent 标识和帮助宿主，静态导航与快捷键提�
   rows[0].content = attack; rows[0].references = [{ ...reference, label: attack, quote: attack }];
   await openInputs(); await openDraft(); expect(editor().value).toBe(attack); expect(deepText(panel())).toContain(attack);
   expect(root().querySelectorAll('img')).toHaveLength(0);
-  const settings = btn('条件发射设置', panel()); expect(settings.classList.contains('agent-call')).toBe(false);
+  const settings = btn('执行条件设置', panel()); expect(settings.classList.contains('agent-call')).toBe(false);
   expect(settings.getAttribute('data-help')).toContain('不调用 Agent');
   expect(settings.parentNode.classList.contains('help-host')).toBe(true);
-  expect(btn('发射', panel()).classList.contains('agent-call')).toBe(true);
-  for (const label of ['发射', '删除草稿', '移除引用']) expect(btn(label, panel()).getAttribute('data-help')).toBeTruthy();
+  expect(btn('提交指令', panel()).classList.contains('agent-call')).toBe(true);
+  for (const label of ['提交指令', '删除草稿', '移除引用']) expect(btn(label, panel()).getAttribute('data-help')).toBeTruthy();
   const html = readFileSync('src/ui/web/assets/index.html', 'utf8');
   expect(html.indexOf('id="inputs-open"')).toBeLessThan(html.indexOf('<span>设备设置与帮助</span>'));
   expect(html).toContain('<kbd>Enter</kbd> 暂存'); expect(html).toContain('<kbd>Shift+Enter</kbd> 换行'); expect(html).toContain('/styles-inputs.css');
@@ -434,9 +444,9 @@ test('冻结父 Worker 的草稿发射挂载一次性 Hook，保留修订与引�
   parents[0].freeze = { reason: '父队列执行中' };
   try {
     await openInputs(); await openDraft();
-    expect(btn('发射').classList.contains('agent-call')).toBe(true);
-    expect(btn('发射').getAttribute('data-help')).toContain('安全准入');
-    await btn('发射').onclick();
+    expect(btn('提交指令').classList.contains('agent-call')).toBe(true);
+    expect(btn('提交指令').getAttribute('data-help')).toContain('安全准入');
+    await btn('提交指令').onclick();
     expect(calls.at(-1)).toMatchObject({ method: 'input.emit', params: { draft_id: 1, expected_revision: 3 } });
     expect(calls.at(-1).params).not.toHaveProperty('defer'); expect(deepText(panel())).toContain('不代表 Worker 已创建');
     expect(rows[0].references).toEqual([reference]); expect(rows[0].revision).toBe(3);
@@ -445,15 +455,15 @@ test('冻结父 Worker 的草稿发射挂载一次性 Hook，保留修订与引�
 
 test('草稿可以显式选择完整运行设置，只在 input.emit 传入配置覆盖，普通保存不写私有参数', async () => {
   await openInputs(); await openDraft();
-  const configuring = btn('运行设置：发射时冻结默认').onclick();
+  const configuring = btn('运行设置：提交时固定默认').onclick();
   try { await until(() => dialogButton(dom, '使用这份设置')); }
   catch (error) { throw new Error(`${error.message}; toast=${dom.node('error').textContent}; modal=${deepText(dom.node('modal'))}`); }
   const mode = dom.node('modal').querySelector('[data-retry-field="config_mode"]'); mode.value = 'pi'; mode.onchange();
   await dialogButton(dom, '使用这份设置').onclick(); await configuring;
   expect(btn('运行设置：Pi 默认配置')).toBeTruthy(); expect(calls).toHaveLength(0);
   expect(btn('保存').disabled).toBe(true);
-  await btn('保存').onclick(); expect(calls).toHaveLength(0); expect(deepText(panel())).toContain('发射时才写入');
-  await btn('发射').onclick();
+  await btn('保存').onclick(); expect(calls).toHaveLength(0); expect(deepText(panel())).toContain('提交时才写入');
+  await btn('提交指令').onclick();
   expect(calls.at(-1)).toMatchObject({ method: 'input.emit', params: { draft_id: 1, expected_revision: 3, profile: { agent: 'pi', config_mode: 'pi' } } });
   expect(calls.at(-1).params).not.toHaveProperty('defer');
 });
@@ -466,12 +476,12 @@ test('已挂载草稿只读且禁止重复发射，取消等待挂载采用最�
     return null;
   };
   await openInputs(); await openDraft(); await until(() => !btn('取消预约挂载').disabled);
-  expect(editor()).toBeNull(); expect(btn('发射')).toBeUndefined(); expect(btn('删除草稿')).toBeUndefined();
-  expect(deepText(panel())).toContain('不可编辑、删除或重复发射');
+  expect(editor()).toBeNull(); expect(btn('提交指令')).toBeUndefined(); expect(btn('删除草稿')).toBeUndefined();
+  expect(deepText(panel())).toContain('不可编辑、删除或重复提交');
   const removing = btn('取消预约挂载').onclick(); await until(() => dialogButton(dom, '取消预约'));
   expect(calls).toHaveLength(0); await dialogButton(dom, '取消预约').onclick(); await removing;
   expect(calls.at(-1)).toEqual({ method: 'worker.hook_remove', params: { id: 1, hook_id: 'draft-mount', expected_revision: 'hooks-live' } });
-  expect(editor().value).toBe('尚未执行的想法'); expect(btn('发射')).toBeTruthy();
+  expect(editor().value).toBe('尚未执行的想法'); expect(btn('提交指令')).toBeTruthy();
 });
 
 test('O 编号原生链接保留新标签手势，直接深链接不受暂存筛选限制且不执行写动作', async () => {
@@ -484,7 +494,7 @@ test('O 编号原生链接保留新标签手势，直接深链接不受暂存筛
   await link.onclick({ button: 0, preventDefault: () => prevented++ });
   expect(prevented).toBe(1); expect(panel().querySelector('.record-link').getAttribute('href')).toBe('#input-input-2');
   activateDetailView({ view: 'overview' }); dom.location.hash = '#input-input-2'; await dom.fire('hashchange');
-  expect(deepText(panel())).toContain('原始输入 O2'); expect(calls).toHaveLength(0);
+  expect(deepText(panel())).toContain('原始指令 O2'); expect(calls).toHaveLength(0);
 });
 
 test('正文撤销只改本页文本，不回退已保存版本、父 Worker 或引用，再保存使用新版本', async () => {
@@ -502,7 +512,7 @@ test('正文撤销只改本页文本，不回退已保存版本、父 Worker 或
   await btn('保存').onclick();
   expect(calls.at(-1)).toEqual({ method: 'draft.update', params: { id: 1, expected_revision: 4, content: '尚未执行的想法', references: [], conditions: [], exclusive: false } });
   expect(rows[0].revision).toBe(5); await redo.onclick(); expect(node.value).toBe('已保存的新正文');
-  await btn('发射').onclick();
+  await btn('提交指令').onclick();
   expect(calls.slice(-2).map(call => call.method)).toEqual(['draft.update', 'input.emit']);
   expect(calls.at(-1).params).toMatchObject({ draft_id: 1, expected_revision: 6 });
   expect(panel().querySelector('.text-editor-controls')).toBeNull();
@@ -522,9 +532,9 @@ test('历史正文撤销在保存忙碌时禁用，失败保留栈和修订；�
   expect(btn('撤销').disabled).toBe(false); await btn('撤销').onclick(); expect(editor().value).toBe('尚未执行的想法');
   await btn('重做').onclick(); expect(editor().value).toBe('失败不能丢');
   intercept = (_path, body) => body?.method === 'input.emit' ? Promise.reject(new Error('发射失败')) : null;
-  await btn('发射').onclick(); expect(calls.map(call => call.method)).toEqual(['draft.update', 'draft.update', 'input.emit']);
+  await btn('提交指令').onclick(); expect(calls.map(call => call.method)).toEqual(['draft.update', 'draft.update', 'input.emit']);
   expect(calls.at(-1).params.expected_revision).toBe(4); expect(btn('撤销').disabled).toBe(false);
-  await btn('撤销').onclick(); intercept = null; await btn('发射').onclick();
+  await btn('撤销').onclick(); intercept = null; await btn('提交指令').onclick();
   expect(calls.at(-2).params.expected_revision).toBe(4); expect(calls.at(-1).params.expected_revision).toBe(5);
   expect(text()).toContain('等待准入'); expect(editor()).toBeNull();
 });
@@ -609,20 +619,20 @@ test('保存快捷键忽略输入法和其他组合，普通 Enter 与发射组�
 });
 
 test('发射 ACK 后状态读取失败保持锁定原文与引用，不重提成功请求', async () => {
-  await openInputs(); await openDraft(); editorInput(editor(), 'ACK 后原文'); await btn('发射').onclick();
+  await openInputs(); await openDraft(); editorInput(editor(), 'ACK 后原文'); await btn('提交指令').onclick();
   intercept = path => path === '/api/input/draft/1' ? Promise.reject(new Error('详情离线')) : null;
-  await btn('刷新发射状态').onclick();
+  await btn('刷新提交状态').onclick();
   expect(dom.location.hash).toBe('#input-draft-1'); expect(editor()).toBeNull();
   expect(deepText(panel())).toContain('ACK 后原文'); expect(deepText(panel())).toContain('当时所见');
   expect(deepText(panel())).toContain('读取失败：详情离线'); expect(deepText(panel())).not.toContain('操作失败');
-  expect(btn('发射')).toBeUndefined(); expect(btn('保存')).toBeUndefined();
+  expect(btn('提交指令')).toBeUndefined(); expect(btn('保存')).toBeUndefined();
   expect(calls.map(call => call.method)).toEqual(['draft.update', 'input.emit']);
 });
 
 test('发射后迟到状态读取不能把返回列表或离页用户拉回来', async () => {
-  await openInputs(); await openDraft(); await btn('发射').onclick(); const late = deferred();
+  await openInputs(); await openDraft(); await btn('提交指令').onclick(); const late = deferred();
   intercept = path => path === '/api/input/draft/1' ? late.promise : null;
-  const loading = btn('刷新发射状态').onclick(); await until(() => reads.filter(path => path.endsWith('/api/input/draft/1')).length === 2);
+  const loading = btn('刷新提交状态').onclick(); await until(() => reads.filter(path => path.endsWith('/api/input/draft/1')).length === 2);
   expect(editor()).toBeNull(); await btn('← 返回历史输入').onclick();
   late.resolve(json(rows[0])); await loading;
   expect(dom.location.hash).toBe('#inputs'); expect(panel().hidden).toBe(true); expect(calls.map(call => call.method)).toEqual(['input.emit']);
@@ -635,15 +645,15 @@ test('追加草稿保持真实目标、暂存版本和条件，不造 O 或静�
   expect(panel().querySelector('[aria-label="独占开发：静息后开始，直到本轮交付收口"]')).toBeNull();
   editorInput(editor(), '追加正文'); await btn('保存').onclick();
   expect(calls.at(-1).params).toMatchObject({ mode: 'append', target_id: 501, expected_revision: 3 });
-  await btn('发射追加').onclick(); expect(calls.at(-1).method).toBe('input.emit'); expect(editor()).toBeNull();
-  expect(deepText(panel())).toContain('追加目标：W99'); expect(deepText(panel())).not.toContain('原始输入 O');
-  rows[0].dispatch = { state: 'succeeded', message_id: 888, append_number: 'A99-2' }; await btn('刷新发射状态').onclick();
+  await btn('提交追加').onclick(); expect(calls.at(-1).method).toBe('input.emit'); expect(editor()).toBeNull();
+  expect(deepText(panel())).toContain('追加目标：W99'); expect(deepText(panel())).not.toContain('原始指令 O');
+  rows[0].dispatch = { state: 'succeeded', message_id: 888, append_number: 'A99-2' }; await btn('刷新提交状态').onclick();
   expect(deepText(panel())).toContain('A99-2'); expect(dom.location.hash).toBe('#input-draft-1');
 });
 
 test('多个条件与独占保存同一版本，Worker 目录分页和编号使用真实身份', async () => {
   await openInputs(); await openDraft(); const conditions = panel().querySelector('.emission-conditions');
-  await btn('条件发射设置').onclick(); expect(conditions.hidden).toBe(false);
+  await btn('执行条件设置').onclick(); expect(conditions.hidden).toBe(false);
   let pages = 0; intercept = (path, _body, route) => path === '/api/workers' ? (++pages === 1
     ? json({ tasks: [{ id: 903, worker_number: 'W230', goal: '第一份' }], has_more: true, cursor: 900 })
     : json({ tasks: [{ id: 203, worker_number: 'W17', goal: '更早重构' }], has_more: false })) : null;
@@ -652,10 +662,10 @@ test('多个条件与独占保存同一版本，Worker 目录分页和编号使�
   const select = conditions.querySelector('[aria-label="条件 Worker"]'); select.value = '203';
   await btn('添加 Worker 条件', conditions).onclick();
   conditions.querySelector('[aria-label="等待事件"]').value = 'worker_settled'; await btn('添加 Worker 条件', conditions).onclick();
-  conditions.querySelector('[aria-label="等待目标树彻底静息后发射"]').checked = true;
+  conditions.querySelector('[aria-label="等待目标树彻底静息后执行"]').checked = true;
   const exclusive = conditions.querySelector('[aria-label="独占开发：静息后开始，直到本轮交付收口"]');
   exclusive.checked = true; exclusive.onchange();
-  await btn('按条件发射').onclick();
+  await btn('按条件提交').onclick();
   expect(calls[0].params).toMatchObject({ conditions: [{ kind: 'worker_merged', worker_id: 203 }, { kind: 'worker_settled', worker_id: 203 }, { kind: 'parent_quiet' }], exclusive: true });
   expect(calls[1].params.expected_revision).toBe(4); expect(calls[1].params).not.toHaveProperty('conditions');
   expect(editor()).toBeNull(); expect(deepText(panel())).toContain('W17');
@@ -663,27 +673,27 @@ test('多个条件与独占保存同一版本，Worker 目录分页和编号使�
 
 test('条件设置默认收起，显式展开不发射，收起保留未保存选项并提示条件授权', async () => {
   await openInputs(); await openDraft();
-  const conditions = panel().querySelector('.emission-conditions'), toggle = btn('条件发射设置');
+  const conditions = panel().querySelector('.emission-conditions'), toggle = btn('执行条件设置');
   expect(conditions.hidden).toBe(true); expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(toggle.getAttribute('aria-controls')).toBe(conditions.id);
   expect(btn('保存').disabled).toBe(true);
   await toggle.onclick(); expect(conditions.hidden).toBe(false); expect(calls).toHaveLength(0);
-  const quiet = conditions.querySelector('[aria-label="等待目标树彻底静息后发射"]'); quiet.checked = true; quiet.onchange();
+  const quiet = conditions.querySelector('[aria-label="等待目标树彻底静息后执行"]'); quiet.checked = true; quiet.onchange();
   expect(btn('保存').disabled).toBe(false); expect(toggle.textContent).toContain('1 项');
-  const emit = btn('按条件发射'); expect(emit.classList.contains('agent-call')).toBe(true); expect(emit.getAttribute('data-help')).toContain('token');
+  const emit = btn('按条件提交'); expect(emit.classList.contains('agent-call')).toBe(true); expect(emit.getAttribute('data-help')).toContain('token');
   await toggle.onclick(); expect(conditions.hidden).toBe(true); expect(quiet.checked).toBe(true); expect(calls).toHaveLength(0);
   await btn('保存').onclick(); expect(calls[0].params.conditions).toEqual([{ kind: 'parent_quiet' }]);
   expect(conditions.hidden).toBe(true); expect(btn('保存').disabled).toBe(true);
-  await toggle.onclick(); quiet.checked = false; quiet.onchange(); expect(btn('发射')).toBeTruthy();
+  await toggle.onclick(); quiet.checked = false; quiet.onchange(); expect(btn('提交指令')).toBeTruthy();
 });
 
 test('已有条件草稿仍默认收起，发射明确遵守已保存条件', async () => {
   rows[0].conditions = [{ kind: 'parent_quiet' }];
   await openInputs(); await openDraft();
   expect(panel().querySelector('.emission-conditions').hidden).toBe(true);
-  expect(btn('条件发射设置 · 1 项').getAttribute('aria-expanded')).toBe('false');
+  expect(btn('执行条件设置 · 1 项').getAttribute('aria-expanded')).toBe('false');
   expect(btn('保存').disabled).toBe(true);
-  await btn('按条件发射').onclick();
+  await btn('按条件提交').onclick();
   expect(calls.map(call => call.method)).toEqual(['input.emit']);
   expect(rows[0].conditions).toEqual([{ kind: 'parent_quiet' }]);
 });
@@ -701,29 +711,29 @@ test('条件数量包含独占隐含的静息，避免授权第17项，错误保
 test('未满足条件可经确认撤销，未知/执行中保守禁用；撤销失败保留原挂载', async () => {
   rows[0].dispatch = { state: 'waiting_conditions', reason: '等待 W777 合入 main' };
   await openInputs(); await openDraft(); expect(editor()).toBeNull(); expect(deepText(panel())).toContain('等待 W777');
-  const cancelling = btn('撤销条件发射').onclick(); await until(() => dialogButton(dom, '撤销条件发射'));
-  await dialogButton(dom, '撤销条件发射').onclick(); await cancelling;
+  const cancelling = btn('撤销提交').onclick(); await until(() => dialogButton(dom, '撤销提交'));
+  await dialogButton(dom, '撤销提交').onclick(); await cancelling;
   expect(calls.at(-1)).toEqual({ method: 'input.emission_cancel', params: { draft_id: 1, expected_revision: 3 } });
   expect(editor().value).toBe(rows[0].content);
   for (const state of ['dispatching','unknown','succeeded']) {
     activateDetailView({ view: 'overview' }); rows[0].dispatch = { state }; await openInputs(); await openDraft();
-    expect(btn('撤销条件发射').disabled).toBe(true); const before = calls.length;
-    await btn('撤销条件发射').onclick(); expect(calls).toHaveLength(before); expect(editor()).toBeNull();
+    expect(btn('撤销提交').disabled).toBe(true); const before = calls.length;
+    await btn('撤销提交').onclick(); expect(calls).toHaveLength(before); expect(editor()).toBeNull();
   }
 });
 
 test('发射收据没有最新revision时必须刷新，不用保存前版本猜测取消CAS', async () => {
-  await openInputs(); await openDraft(); await btn('发射').onclick();
-  expect(btn('撤销条件发射').disabled).toBe(true); expect(btn('撤销条件发射').parentNode.getAttribute('data-help')).toContain('不猜测版本');
-  const before = calls.length; await btn('撤销条件发射').onclick(); expect(calls).toHaveLength(before);
-  await btn('刷新发射状态').onclick(); expect(btn('撤销条件发射').disabled).toBe(false);
+  await openInputs(); await openDraft(); await btn('提交指令').onclick();
+  expect(btn('撤销提交').disabled).toBe(true); expect(btn('撤销提交').parentNode.getAttribute('data-help')).toContain('不猜测版本');
+  const before = calls.length; await btn('撤销提交').onclick(); expect(calls).toHaveLength(before);
+  await btn('刷新提交状态').onclick(); expect(btn('撤销提交').disabled).toBe(false);
 });
 
 test('独占释放仅按安全投影启用；关联Input后仍保持草稿释放入口，不把未知读面当授权', async () => {
   rows[0].exclusive = true; rows[0].dispatch = { state: 'succeeded', input_id: 2 };
   await openInputs(); await openDraft(); expect(btn('释放独占').disabled).toBe(true);
   rows[0].dispatch.exclusive_active = true; rows[0].dispatch.can_release_exclusive = true;
-  await btn('刷新发射状态').onclick(); expect(btn('释放独占').disabled).toBe(false);
+  await btn('刷新提交状态').onclick(); expect(btn('释放独占').disabled).toBe(false);
   const releasing = btn('释放独占').onclick(); await until(() => dialogButton(dom, '释放独占'));
   await dialogButton(dom, '释放独占').onclick(); await releasing;
   expect(calls.at(-1)).toEqual({ method: 'input.exclusive_release', params: { draft_id: 1, expected_revision: 3 } });
@@ -735,7 +745,7 @@ test('独占active不覆盖明确can_release=false，dispatching即使错误投�
     { state: 'dispatching', exclusive_active: true, can_release_exclusive: true }]) {
     rows[0].exclusive = true; rows[0].dispatch = dispatch;
     await openInputs({ item: { kind: 'draft', id: 1 } });
-    await btn('刷新发射状态').onclick(); expect(btn('释放独占').disabled).toBe(true);
+    await btn('刷新提交状态').onclick(); expect(btn('释放独占').disabled).toBe(true);
     await btn('释放独占').onclick(); expect(calls).toHaveLength(0);
   }
 });
@@ -743,10 +753,10 @@ test('独占active不覆盖明确can_release=false，dispatching即使错误投�
 test('独占草稿读取实际Input后保留关联；返回草稿必须读新版本再释放', async () => {
   rows[0].exclusive = true; rows[0].dispatch = { state: 'succeeded', input_id: 2, exclusive_active: true };
   await openInputs(); await openDraft(); await btn('查看已创建原文 O2').onclick();
-  expect(editor()).toBeNull(); expect(deepText(panel())).toContain('此原文关联发射草稿 #1');
-  expect(btn('释放独占')).toBeUndefined(); expect(btn('查看发射草稿 #1 · 条件与独占').classList.contains('agent-call')).toBe(false);
+  expect(editor()).toBeNull(); expect(deepText(panel())).toContain('此原文关联提交草稿 #1');
+  expect(btn('释放独占')).toBeUndefined(); expect(btn('查看提交草稿 #1 · 条件与独占').classList.contains('agent-call')).toBe(false);
   rows[0].revision = 9;
-  await btn('查看发射草稿 #1 · 条件与独占').onclick(); expect(btn('释放独占').disabled).toBe(false);
+  await btn('查看提交草稿 #1 · 条件与独占').onclick(); expect(btn('释放独占').disabled).toBe(false);
   const releasing = btn('释放独占').onclick(); await dialogButton(dom, '释放独占');
   await dialogButton(dom, '释放独占').onclick(); await releasing;
   expect(calls.at(-1)).toEqual({ method: 'input.exclusive_release', params: { draft_id: 1, expected_revision: 9 } });
@@ -755,7 +765,7 @@ test('独占草稿读取实际Input后保留关联；返回草稿必须读新版
 test('只读Input没有已知发射关联时不猜草稿id，不自动扫描历史', async () => {
   await openInputs({ item: { kind: 'input', id: 2 } });
   expect(deepText(panel())).not.toContain('此原文关联');
-  expect(panel().querySelectorAll('button').some(node => node.textContent.includes('发射草稿'))).toBe(false);
+  expect(panel().querySelectorAll('button').some(node => node.textContent.includes('提交草稿'))).toBe(false);
   expect(reads.some(url => /\/api\/input\/draft\//.test(url))).toBe(false); expect(calls).toHaveLength(0);
 });
 

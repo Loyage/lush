@@ -4,7 +4,7 @@ import { createInputBrowser } from './render-inputs.js';
 /** A project-scoped feature body; its parent owns titles, routing and subpage tabs. */
 export function renderEmissionAutomation({ ownsPage, catalogue } = {}) {
   const root = el('section', undefined, 'automation-emission');
-  root.setAttribute('aria-label', '条件发射');
+  root.setAttribute('aria-label', '条件提交');
   let disposed = false, subpage = 'settings';
   const pages = new Map();
   function page(next) {

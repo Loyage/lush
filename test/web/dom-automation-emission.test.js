@@ -65,18 +65,18 @@ test('shared editor saves revision/body/parent/conditions/exclusivity and consum
   const content = panel().querySelector('textarea'); content.value = 'edited'; content.oninput();
   const parent = panel().querySelector('[aria-label="草稿父 Worker"]'); parent.value = '2'; parent.onchange();
   const conditions = panel().querySelector('.emission-conditions'); expect(conditions.hidden).toBe(true);
-  await button('条件发射设置 · 1 项').onclick(); expect(conditions.hidden).toBe(false);
+  await button('执行条件设置 · 1 项').onclick(); expect(conditions.hidden).toBe(false);
   const checks = conditions.querySelectorAll('input').filter(node => node.type === 'checkbox');
   checks[1].checked = true; checks[1].onchange();
   await button('保存').onclick();
   expect(calls[0]).toMatchObject({ method: 'draft.update', params: { id: 1, content: 'edited', branch: 'feature', expected_revision: 2, exclusive: true, conditions: [{ kind: 'parent_quiet' }] } });
-  const emit = button('按条件发射'); expect(emit.classList.contains('agent-call')).toBe(true); expect(emit.getAttribute('data-help')).toContain('token');
+  const emit = button('按条件提交'); expect(emit.classList.contains('agent-call')).toBe(true); expect(emit.getAttribute('data-help')).toContain('token');
   await emit.onclick();
   expect(calls[1]).toMatchObject({ method: 'input.emit', params: { draft_id: 1, expected_revision: 3 } });
   expect(calls[1].params.client_request_id).toBeTruthy(); expect(panel().querySelector('textarea')).toBeNull();
   expect(deepText(panel())).toContain('不代表 Worker 已创建'); expect(dom.location.hash).toBe('#project-automation');
   rows[0].dispatch = { state: 'succeeded', input_id: 42, worker_id: 90, worker_number: 'W42' };
-  await button('刷新发射状态').onclick();
+  await button('刷新提交状态').onclick();
   expect(reads.at(-2).pathname).toBe('/api/input/draft/1');
   expect(deepText(panel())).toContain('查看已创建原文 O42'); expect(deepText(panel())).toContain('W42');
   expect(dom.location.hash).toBe('#project-automation');
@@ -88,7 +88,7 @@ test('history shows exact waiting/dispatching/failed/unknown and append Message/
   await start(); await page.setSubpage('history');
   for (let index = 0; index < rows.length; index++) {
     await open(index + 1); expect(panel().querySelector('textarea')).toBeNull();
-    expect(button('发射')).toBeUndefined(); expect(button('撤销条件发射')).toBeUndefined();
+    expect(button('提交指令')).toBeUndefined(); expect(button('撤销提交')).toBeUndefined();
     if (index === 4) { expect(deepText(panel())).toContain('追加消息 #55 · A9-1'); expect(deepText(panel())).not.toContain('O55'); expect(deepText(panel())).not.toContain('O9'); }
     await button('← 返回条件输入列表').onclick();
   }
@@ -107,10 +107,10 @@ test('append settings edit the explicit target and retain the same retry identit
     return failedRequests.length === 1 ? Promise.resolve({ ok: false, json: async () => ({ error: 'network uncertain' }) })
       : Promise.resolve(json({ emitted: true, draft_id: 1, revision: 3, dispatch: { state: 'unknown', reason: 'inspect before replay' } }));
   };
-  await button('按条件发射').onclick(); expect(panel().querySelector('textarea')).toBeTruthy();
-  await button('按条件发射').onclick();
+  await button('按条件提交').onclick(); expect(panel().querySelector('textarea')).toBeTruthy();
+  await button('按条件提交').onclick();
   expect(failedRequests[1].params.client_request_id).toBe(failedRequests[0].params.client_request_id);
-  expect(panel().querySelector('textarea')).toBeNull(); expect(button('按条件发射')).toBeUndefined();
+  expect(panel().querySelector('textarea')).toBeNull(); expect(button('按条件提交')).toBeUndefined();
   expect(deepText(panel())).toContain('不会自动重放'); expect(deepText(panel())).not.toContain('O20');
   expect(failedRequests).toHaveLength(2);
 });
@@ -139,7 +139,7 @@ test('parent feature directory keeps routing ownership and resumes a retained ed
   await openProjectAutomation({ feature: 'emission' });
   expect(dom.node('detail').querySelector('.automation-emission')).toBe(page);
   expect(panel().querySelector('textarea')).toBe(content); expect(content.disabled).toBe(false);
-  expect(button('按条件发射').disabled).toBe(false); expect(dom.location.hash).toBe('#hooks-emission');
+  expect(button('按条件提交').disabled).toBe(false); expect(dom.location.hash).toBe('#hooks-emission');
   await button('← 返回条件输入列表').onclick(); expect(dom.location.hash).toBe('#hooks-emission');
 });
 
@@ -162,7 +162,7 @@ test('parent history deep link awaits the active receipt read and retains the sa
   page = dom.node('detail').querySelector('.automation-emission');
   expect(dom.location.hash).toBe('#hooks-emission-history');
   expect(active().querySelectorAll('.input-record')).toHaveLength(1);
-  expect(deepText(active())).toContain('执行结果未知');
+  expect(deepText(active())).toContain('投递结果待核验');
   await open(1); expect(panel().querySelector('textarea')).toBeNull();
   await openProjectAutomation({ feature: 'emission', subpage: 'settings' });
   expect(dom.node('detail').querySelector('.automation-emission')).toBe(page);

@@ -81,7 +81,7 @@ async function checkLayout(mode, theme, color, focused) {
     const target=document.querySelector('#composer-mode-target'),targetStyle=getComputedStyle(target);
     const r=band.getBoundingClientRect(),fr=form.getBoundingClientRect(),tr=target.getBoundingClientRect();
     return {mode:form.dataset.mode,viewport:innerWidth,title:document.querySelector('#composer-mode-title').textContent,target:target.textContent,
-      behavior:document.querySelector('#composer-mode-behavior').textContent,fieldStyle:field.borderTopStyle,fieldWidth:field.borderTopWidth,outlineStyle:field.outlineStyle,
+      behavior:document.querySelector('#composer-mode-behavior').textContent,placeholder:box.placeholder,contentLabel:box.getAttribute('aria-label'),submit:document.querySelector('#draft-commit').textContent,bufferHidden:document.querySelector('#input-buffer').hidden,fieldStyle:field.borderTopStyle,fieldWidth:field.borderTopWidth,outlineStyle:field.outlineStyle,
       outerBorderless:[form,icon,target,document.querySelector('.composer-input')].every(n=>['Top','Right','Bottom','Left'].every(edge=>getComputedStyle(n)['border'+edge+'Width']==='0px')),
       regionTint:shell.backgroundColor,fieldBackground:getComputedStyle(document.querySelector('.composer-input')).backgroundColor,targetWeight:targetStyle.fontWeight,targetOwnRow:tr.top>=document.querySelector('#composer-mode-title').getBoundingClientRect().bottom,
       fits:r.width>0 && r.top>=0 && r.bottom<=innerHeight && fr.left>=0 && fr.right<=innerWidth && form.scrollWidth<=form.clientWidth+1
@@ -91,9 +91,15 @@ async function checkLayout(mode, theme, color, focused) {
   assert(layout.mode === mode && layout.fits && layout.described, `clipped/inaccessible ${theme}/${color}/${mode}/${focused}: ${JSON.stringify(layout)}`);
   assert(layout.outerBorderless && layout.fieldWidth === (focused ? '3px' : '2px') && (!focused || layout.outlineStyle === 'none')
     && layout.regionTint !== layout.fieldBackground, `extra frame or missing regional tint/focus: ${JSON.stringify(layout)}`);
-  assert(mode === 'create' ? layout.fieldStyle === 'solid' && layout.title === '新建独立 Worker' && layout.target.includes('父 Worker') && layout.behavior.includes('Enter 暂存')
-    : layout.fieldStyle === 'dashed' && Number(layout.targetWeight) >= 700 && layout.targetOwnRow
-      && layout.title === '继续当前 Worker' && layout.target.includes('W179') && layout.behavior.includes('不创建新 Worker'), `wrong structure/target: ${JSON.stringify(layout)}`);
+  assert(mode === 'create' ? layout.fieldStyle === 'solid' && layout.title === '新建工作' && layout.target.includes('去向：新 Worker · 基于') && layout.behavior.includes('Enter 暂存')
+    : mode === 'append' ? layout.fieldStyle === 'dashed' && Number(layout.targetWeight) >= 700 && layout.targetOwnRow
+      && layout.title === '追加输入' && layout.target.includes('W179') && layout.behavior.includes('不创建新 Worker')
+      : layout.fieldStyle === 'double' && layout.title === '管理 Lush' && layout.target === '去向：管家 · 当前项目'
+        && layout.bufferHidden && layout.behavior.includes('暂不支持暂存'), `wrong structure/target: ${JSON.stringify(layout)}`);
+  const copy = mode === 'create' ? ['描述你希望新 Worker 完成的工作…', '工作指令正文', '提交指令']
+    : mode === 'append' ? ['补充要求、提供反馈，或说明需要调整的地方…', '追加指令正文', '提交追加']
+      : ['描述你希望管家查询、调整或安排的事项…', '管理指令正文', '提交管理指令'];
+  assert(layout.placeholder === copy[0] && layout.contentLabel === copy[1] && layout.submit === copy[2], `wrong input copy: ${JSON.stringify(layout)}`);
   assert(layout.fieldColor === layout.accent && layout.iconColor === layout.accent,
     `mode lost project color ${theme}/${color}: ${JSON.stringify(layout)}`);
   return layout;
@@ -116,7 +122,12 @@ try {
   await execute(`const entry=[...document.querySelectorAll('.task-actions button')].find(n=>n.textContent==='追加输入');if(!entry)throw Error('append entry missing');entry.id='fixture-append';`);
   await click('#fixture-append');
   assert(await waitFor('document.querySelector("#input-form").dataset.mode==="append"'), 'explicit entry did not select Worker');
-  for (const mode of ['append', 'create']) {
+  for (const mode of ['append', 'create', 'management']) {
+    if (mode === 'management') {
+      await execute(`document.querySelector('#input').blur();`);
+      await click('#composer-management');
+      assert(await waitFor('document.querySelector("#input-form").dataset.mode==="management"'), 'management mode missing');
+    }
     if (mode === 'create') {
       // Settle the existing focus-height collapse before WebDriver computes a click coordinate.
       await execute(`document.querySelector('#input').blur();`);
@@ -147,12 +158,12 @@ try {
         fits:target.scrollWidth<=target.clientWidth+1 && r.left>=0 && r.right<=innerWidth,unsafe:target.querySelectorAll('img').length});
     }window.ui.composerTask=original;window.composer.syncComposer();return results;`);
   assert(checks.every(row => row.mode === 'append' && row.target.includes('W179-1') && row.target.includes('<img') && row.fits && !row.unsafe)
-    && !checks[1].disabled && checks[1].behavior.includes('已暂存 2 条') && checks[2].disabled, `long/frozen/blocked target lost: ${JSON.stringify(checks)}`);
+    && !checks[1].disabled && checks[1].behavior.includes('已入箱 2 条追加指令') && checks[2].disabled, `long/frozen/blocked target lost: ${JSON.stringify(checks)}`);
   console.log('PASS long numbered/text-safe targets, frozen wait reason and blocked target retention');
   await setViewport(1440, 900);
   await execute(`const box=document.querySelector('#input');box.value='确认追加给目标';box.dispatchEvent(new Event('input'));box.focus();`);
   await enter();
-  assert(await waitFor('window.calls.some(c=>c.method==="worker.message" && c.params.id===1 && c.params.body==="确认追加给目标") && !window.ui.composerSubmitting && document.querySelector("#input-form").dataset.mode==="create"'), 'Enter append ACK did not restore creation');
+  assert(await waitFor('window.calls.some(c=>c.method==="draft.add" && c.params.mode==="append" && c.params.target_id===1 && c.params.content==="确认追加给目标") && !window.ui.composerSubmitting && document.querySelector("#input-form").dataset.mode==="create"'), 'Enter append draft ACK did not restore creation');
   assert(await execute(`return document.querySelector('#composer-reset').hidden && !document.querySelector('#input-buffer-help').hidden;`), 'auto-reset did not restore new-work controls');
   await execute(`const box=document.querySelector('#input');box.value='新建模式只暂存';box.dispatchEvent(new Event('input'));box.focus();`);
   await enter();
@@ -160,7 +171,7 @@ try {
   assert(await execute(`return !window.calls.some(c=>c.method==='order.submit');`), 'mode reset unexpectedly created Worker');
   await execute(`window.composer.appendToWorker(window.ui.composerTask);location.hash='#workers';`);
   assert(await waitFor('document.querySelector("#input-form").dataset.mode==="create"'), 'navigation retained stale append destination');
-  console.log(`PASS Enter routes to selected inbox, ACK automatically restores create/Enter buffer; manual reset and navigation restore creation. Screenshots: ${output}-*.png`);
+  console.log(`PASS Enter buffers selected append target, ACK restores new-work mode; manual reset and navigation restore creation. Screenshots: ${output}-*.png`);
   passed = true;
 } catch (error) {
   if (session) console.error('Browser diagnostic:', await execute(`return {url:location.href,ready:window.ready,error:document.querySelector('#error')?.textContent,detail:document.querySelector('#detail')?.textContent?.slice(0,1000)};`).catch(() => null));

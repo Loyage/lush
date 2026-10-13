@@ -145,7 +145,7 @@ export const EVENTS = {
   'input.draft': '输入已关联暂存记录', 'input.anchor': '已固定输入代码基线', 'input.route': '输入已按前缀分派',
   'input.emitted': '输入已可靠挂载（不代表已创建）', 'input.condition_satisfied': '输入条件信号已满足',
   'input.dispatch_started': '开始输入准入与派发', 'input.dispatch_succeeded': '输入已成功派发',
-  'input.dispatch_failed': '输入派发失败', 'input.emission_cancelled': '未执行的发射已撤销',
+  'input.dispatch_failed': '输入派发失败', 'input.emission_cancelled': '未执行的输入授权已撤销',
   'input.exclusive_released': '独占开发占用已释放',
   'main.bound': '已绑定主分支', 'branch.bound': '已绑定分支', 'branch.merged': '分支已合并',
   'branch.sync.requested': '请求同步分支', 'branch.caught_up': '分支已追上父分支',

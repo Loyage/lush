@@ -45,7 +45,8 @@ for (const task_kind of ['order', 'say']) {
     expect(dom.node('input-buffer').hidden).toBe(false);
     renderDetail(task, null, null, null);
     buttonOf(dom.node('detail'), '追加输入').onclick();
-    expect(dom.node('input').placeholder).toContain('追加给 Worker #77');
+    expect(dom.node('input').placeholder).toBe('补充要求、提供反馈，或说明需要调整的地方…');
+    expect(dom.node('composer-mode-target').textContent).toContain('去向：Worker #77');
     expect(dom.node('input-buffer').hidden).toBe(false);
     expect(buttonOf(dom.node('detail'), '已解决')).toBeUndefined();
     // Missing answer and Git baseline must not be projected as a no-change acceptance candidate.

@@ -18,20 +18,20 @@ import { inputPreviewText } from './entity-preview.js';
 import { createEmissionConditions, createEmissionWorkerPicker, dispatchText, emissionAcknowledgement, emissionRequestId } from './emission-form.js';
 
 export const INPUT_STATUS = {
-  draft: '暂存', created: '已创建·待开始', queued: '排队中', running: '执行中', waiting: '等待中',
+  draft: '草稿', created: '已创建·待开始', queued: '排队中', running: '执行中', waiting: '等待中',
   awaiting: '待处理', paused: '已暂停', awaiting_acceptance: '待验收', completed: '已完成',
-  failed: '失败', cancelled: '已取消', unknown: '状态未知', waiting_conditions: '等待条件',
-  emitted: '已发射', sent: '已追加', emission_failed: '发射失败', unknown_dispatch: '发射结果待核验',
+  failed: '失败', cancelled: '已取消', unknown: '状态未知', waiting_conditions: '已提交 · 等待条件',
+  emitted: '已提交 · 等待准入', sent: '追加指令已入箱', emission_failed: '提交后投递失败', unknown_dispatch: '投递结果待核验',
 };
 export const INPUT_MERGE = { merging: '合并中', blocked: '合并受阻', merged: '已合并', none: '未合并' };
-const INPUT_MODES = { order: { label: '新建 Worker', icon: '＋', tone: 'running' }, append: { label: '追加输入', icon: '↳', tone: 'waiting' }, management: { label: '管理 Lush', icon: '⚙', tone: 'awaiting' } };
+const INPUT_MODES = { order: { label: '新建工作', content: '工作指令', icon: '＋', tone: 'running' }, append: { label: '追加输入', content: '追加指令', icon: '↳', tone: 'waiting' }, management: { label: '管理 Lush', content: '管理指令', icon: '⚙', tone: 'awaiting' } };
 const keyOf = item => `${item.kind}:${item.id}`;
 const modeOf = item => item.mode || (item.kind === 'message' ? 'append' : item.kind === 'management' ? 'management' : 'order');
 function recordLabel(item) {
   if (item.kind === 'draft') return `草稿 #${item.id}`;
-  if (item.kind === 'message') return `追加输入 ${/^A[1-9]\d*-[1-9]\d*$/.test(item.append_number) ? item.append_number : `消息 #${item.id}`}`;
-  if (item.kind === 'management') return `管理输入 ${workerLabel(item.task_id ?? item.id, item.task_worker_number)}`;
-  return `输入 ${inputNumber(item.id)}`;
+  if (item.kind === 'message') return `追加指令 ${/^A[1-9]\d*-[1-9]\d*$/.test(item.append_number) ? item.append_number : `消息 #${item.id}`}`;
+  if (item.kind === 'management') return `管理指令 ${workerLabel(item.task_id ?? item.id, item.task_worker_number)}`;
+  return `原始指令 ${inputNumber(item.id)}`;
 }
 function controlsButton(label, run, { help, agent = false, className = '' } = {}) {
   // Local handlers own disabled/single-flight state, including after asynchronous completion.
@@ -58,7 +58,10 @@ function recordTime(item) {
 }
 function statusLine(item) {
   const row = el('div', undefined, 'input-metadata');
-  row.append(el('span', recordLabel(item)), ...stateBadges(item), recordTime(item));
+  const mode = INPUT_MODES[modeOf(item)];
+  row.append(el('span', recordLabel(item)));
+  if (mode) row.append(el('span', mode.content, `badge input-mode-badge b-${mode.tone}`));
+  row.append(...stateBadges(item), recordTime(item));
   return linkWorkerNumbers(row);
 }
 function selectField(label, values) {
@@ -92,9 +95,9 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
   const root = el('div', undefined, 'inputs-page resource-page');
   const browse = el('section', undefined, 'inputs-browse');
   const header = el('header', undefined, 'resource-hero');
-  header.append(el('span', 'INPUTS', 'resource-kicker'), el('h1', '历史输入'), el('p', '按输入模式查找原始输入、暂存想法、用户追加消息和管理输入，点开查看原文或编辑草稿。'));
+  header.append(el('span', 'INPUTS', 'resource-kicker'), el('h1', '历史输入'), el('p', '按输入模式查找工作指令、追加指令、管理指令与草稿，点开查看原文、编辑或提交草稿。'));
   const filters = el('form', undefined, 'inputs-filters resource-tools');
-  const searchControl = searchField({ label: '搜索原文', placeholder: '搜索全库输入正文', scope: embedded ? '范围：本项目全部条件输入，服务端分页检索' : '范围：项目全库新建、追加与管理输入；旧无来源证明消息及定时管理不收录', onSubmit: () => searchNow() });
+  const searchControl = searchField({ label: '搜索原文', placeholder: '搜索全库输入正文', scope: embedded ? '范围：本项目全部条件输入，服务端分页检索' : '范围：项目全库新建、追加与管理指令；旧无来源证明消息及定时管理不收录', onSubmit: () => searchNow() });
   const search = searchControl.input;
   const status = selectField('Worker 状态', INPUT_STATUS), merge = selectField('合并状态', INPUT_MERGE);
   status.select.value = '';
@@ -140,14 +143,14 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
   if (!embedded) browse.append(header);
   else browse.append(el('p', readOnly
     ? '运行记录来自本项目已挂载条件输入的持久收据；挂载确认不代表已创建或已投递。结果未知不会自动重放。'
-    : '每条条件输入独立授权，没有项目全局规则。编辑正文、目标、条件与独占后保存或发射；挂载后锁定，可查看状态或撤销未执行授权。', 'hint'));
+    : '每条条件输入独立授权，没有项目全局规则。编辑正文、目标、条件与独占后保存或提交；提交后锁定，可查看状态或撤销未执行授权。', 'hint'));
   browse.append(filters, feedback, listCard, pagination);
   root.append(browse, detailView);
   listSurface({ root, tools: filters, card: listCard, heading: listHead, body: list, pagination });
 
   function renderItem(item) {
     const card = el('li', undefined, 'input-record'); card.dataset.input = keyOf(item);
-    const label = readOnly ? '查看运行收据' : item.kind === 'draft' ? '编辑与发射' : '查看原文';
+    const label = readOnly ? '查看运行收据' : item.kind === 'draft' ? '查看草稿与提交状态' : '查看原文';
     const row = item.kind === 'draft' ? button('', () => openItem(item), 'input-row', { help:
       '打开完整草稿，编辑正文、引用和父 Worker；打开不会调用 Agent。' }) : el('a', undefined, 'input-row');
     if (item.kind !== 'draft') {
@@ -163,7 +166,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     const head = el('span', undefined, 'input-record-head');
     const mode = INPUT_MODES[modeOf(item)];
     head.append(el('span', recordLabel(item), 'tid'));
-    if (mode) head.append(el('span', mode.label, `badge input-mode-badge b-${mode.tone}`));
+    if (mode) head.append(el('span', mode.content, `badge input-mode-badge b-${mode.tone}`));
     head.append(recordTime(item));
     const summary = el('span', undefined, 'input-summary');
     const openLabel = el('span', `${item.content_truncated ? '摘要已截断 · ' : ''}${label} →`, 'input-open-label');
@@ -184,7 +187,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
   function showDetail(item, push = true) {
     if (!state.activeItem) state.listScroll = embedded ? root.scrollTop : $('detail').scrollTop;
     state.activeItem = item; browse.hidden = true; detailView.hidden = false; panel.hidden = false;
-    if (!embedded) activateDetailView({ view: 'inputs', title: item.kind === 'draft' ? `暂存输入 #${item.id}` : item.kind === 'input' ? `原始输入 ${inputNumber(item.id)}` : recordLabel(item),
+    if (!embedded) activateDetailView({ view: 'inputs', title: recordLabel(item),
       hint: '完整原文与引用 · 返回列表保留搜索和已加载记录', hash: `#input-${item.kind}-${item.id}`, push });
   }
   function showList() {
@@ -295,17 +298,17 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     const current = () => ownsPage() && state.editor === editor;
     if (['message', 'management'].includes(record.kind)) {
       panel.replaceChildren(el('h2', recordLabel(record)), statusLine(record), el('pre', record.content, 'input-original'),
-        el('p', record.kind === 'message' ? '用户追加消息只读；不是原始 Order，不创建 O 编号。Worker 状态与合并状态是来源 Worker 的当前投影，不代表这条消息已处理。' : '管理输入原文只读；来自主输入框的 Valet 管理需求，不创建开发 Worker 或 O 编号。', 'hint'));
+        el('p', record.kind === 'message' ? '追加指令原文只读；不是原始工作指令，不创建 O 编号。Worker 状态与合并状态是来源 Worker 的当前投影，不代表这条消息已处理。' : '管理指令原文只读；来自主输入框的 Valet 管理需求，不创建开发 Worker 或 O 编号。', 'hint'));
       if (Number.isSafeInteger(record.task_id) && record.task_id > 0) panel.append(button(
         `查看来源 ${workerLabel(record.task_id, record.task_worker_number)}`, () => detail(record.task_id), 'ghost', { worker: record.task_id }));
       return;
     }
     if (dispatch && (dispatch.state !== 'cancelled' || readOnly)) {
-      panel.replaceChildren(el('h2', `${append ? '追加输入' : '输入'} #${record.id} · ${dispatchText(dispatch)}`), statusLine(record),
+      panel.replaceChildren(el('h2', `草稿 #${record.id} · ${append ? '追加指令' : '工作指令'} · ${dispatchText(dispatch)}`), statusLine(record),
         el('pre', record.content, 'input-original'), el('p', dispatchText(dispatch), 'hint'),
         el('p', dispatch.state === 'cancelled'
-          ? '此授权已撤销，不会继续执行。这里展示保留草稿的最新正文与最近一次发射收据；要编辑须返回设置页。'
-          : '发射已可靠挂载，不代表 Worker 已创建或 Agent 已收到；正文、目标、引用与条件已锁定。结果未知时不会自动重放，请先检查现场。', 'hint'));
+          ? '此授权已撤销，不会继续执行。这里展示保留草稿的最新正文与最近一次提交收据；要编辑须返回设置页。'
+          : '输入已提交并可靠保存执行授权，不代表 Worker 已创建或 Agent 已收到；正文、目标、引用与条件已锁定。结果未知时不会自动重放，请先检查现场。', 'hint'));
       if (embedded) {
         if (dispatch.created_at) panel.append(el('p', `挂载时间：${absolute(dispatch.created_at)}`, 'hint'));
         if (dispatch.finished_at) panel.append(el('p', `收据时间：${absolute(dispatch.finished_at)}`, 'hint'));
@@ -318,7 +321,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       conditionView.setBusy(true); panel.append(conditionView.node);
       const row = el('div', undefined, 'input-actions'); panel.append(row);
       const message = el('p', undefined, 'hint'); message.setAttribute('role', 'status'); panel.append(message);
-      const refresh = controlsButton('刷新发射状态', async () => {
+      const refresh = controlsButton('刷新提交状态', async () => {
         if (!current() || editor.busy) return;
         editor.busy = true; refresh.node.disabled = true;
         try {
@@ -336,7 +339,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
           editor.busy = true; original.node.disabled = true;
           try { await openItem({ kind: 'input', id: inputId }, { allowBusyEditor: editor }); }
           finally { editor.busy = false; if (current()) original.node.disabled = false; }
-        }, { help: '读取真实原始输入；原文详情保留返回此发射草稿的入口，独占状态仍须读取草稿的最新安全投影。' });
+        }, { help: '读取真实原始指令；原文详情保留返回此提交草稿的入口，独占状态仍须读取草稿的最新安全投影。' });
         row.append(original.host);
       }
       const revisionKnown = Number.isSafeInteger(record.revision) && record.revision > 0;
@@ -344,7 +347,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
         dispatch.can_release_exclusive !== false && record.can_release_exclusive !== false &&
         (dispatch.can_release_exclusive === true || dispatch.exclusive_active === true || record.can_release_exclusive === true || record.exclusive_active === true);
       for (const [label, method, allowed, help] of [
-        ['撤销条件发射', 'input.emission_cancel', ['waiting_conditions','queued','failed'].includes(dispatch.state), '仅撤销尚未执行的输入意图与条件 Hook，恢复草稿；不删除已创建 Worker，不撤回已投递消息。'],
+        ['撤销提交', 'input.emission_cancel', ['waiting_conditions','queued','failed'].includes(dispatch.state), '仅撤销尚未执行的输入意图与条件 Hook，恢复草稿；不删除已创建 Worker，不撤回已投递消息。'],
         ['释放独占', 'input.exclusive_release', releaseAllowed, '只释放阻塞其它开发工作的独占意愿，不取消 Worker、不丢弃成果；后续可能并行开发。'],
       ]) {
         if (readOnly || (method === 'input.exclusive_release' && !record.exclusive)) continue;
@@ -363,17 +366,17 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
           finally { editor.busy = false; if (current()) { control.node.disabled = !permitted; refresh.node.disabled = false; } }
         }, { help, className: 'ghost hook-button' });
         control.node.disabled = !permitted; control.host.tabIndex = permitted ? -1 : 0;
-        if (!permitted) control.host.setAttribute('data-help', revisionKnown ? '当前状态未确认可以执行此操作，请刷新状态或检查现场。' : '挂载已确认，但收据未提供最新草稿版本；请先刷新发射状态，不猜测版本执行操作。');
+        if (!permitted) control.host.setAttribute('data-help', revisionKnown ? '当前状态未确认可以执行此操作，请刷新状态或检查现场。' : '挂载已确认，但收据未提供最新草稿版本；请先刷新提交状态，不猜测版本执行操作。');
         row.append(control.host);
       }
       if (Number.isSafeInteger(dispatch.worker_id)) row.append(button(`查看 Worker ${workerLabel(dispatch.worker_id, dispatch.worker_number)}`, () => detail(dispatch.worker_id), 'ghost', { worker: dispatch.worker_id }));
       if (append && Number.isSafeInteger(record.target_id)) row.append(button(`查看追加目标 ${workerLabel(record.target_id, record.target_worker_number)}`, () => detail(record.target_id), 'ghost', { worker: record.target_id }));
-      if (append && dispatch.message_id) panel.append(el('p', `追加消息 #${dispatch.message_id}${dispatch.append_number ? ` · ${dispatch.append_number}` : ''}；消息不是原始 Order。`, 'hint'));
+      if (append && dispatch.message_id) panel.append(el('p', `追加消息 #${dispatch.message_id}${dispatch.append_number ? ` · ${dispatch.append_number}` : ''}；这是追加指令的消息记录，不另占 O 编号。`, 'hint'));
       return;
     }
     if (mounted) {
-      panel.replaceChildren(el('h2', `暂存输入 #${record.id} · 预约已挂载`), statusLine(record), el('pre', record.content, 'input-original'),
-        el('p', `预约状态：${mounted.state || '未知'}。正文、引用和完整运行参数已被授权快照占用；现在不可编辑、删除或重复发射。等待或失败的 Hook 停用后可释放草稿；执行中不可撤销，结果未知时须先检查现场，再移除挂载释放占用。`, 'hint'));
+      panel.replaceChildren(el('h2', `草稿 #${record.id} · 预约已挂载`), statusLine(record), el('pre', record.content, 'input-original'),
+        el('p', `预约状态：${mounted.state || '未知'}。正文、引用和完整运行参数已被授权快照占用；现在不可编辑、删除或重复提交。等待或失败的 Hook 停用后可释放草稿；执行中不可撤销，结果未知时须先检查现场，再移除挂载释放占用。`, 'hint'));
       for (const reference of references) panel.append(el('p', reference.label || '引用', 'hint'), el('pre', reference.quote || '', 'input-quote'));
       if (!Number.isSafeInteger(mounted.parent_id) || mounted.parent_id < 1 || typeof mounted.hook_id !== 'string') {
         panel.append(el('p', '挂载身份格式不兼容；请检查服务版本，不会把草稿当作可编辑。', 'error')); return;
@@ -412,26 +415,26 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     if (editable && ((record.revision !== null && (!Number.isSafeInteger(record.revision) || record.revision <= 0)) ||
         (record.status && !['draft', 'cancelled'].includes(record.status)) ||
         (record.mode && !['order', 'append'].includes(record.mode)))) {
-      panel.replaceChildren(el('h2', `暂存输入 #${record.id} · 只读待核验`), el('pre', record.content, 'input-original'),
-        el('p', '草稿版本、模式或发射投影不完整，不能确认仍可编辑。请返回列表重新读取或检查服务版本；不会重复发射、修改、取消或改投目标。', 'hint'));
+      panel.replaceChildren(el('h2', `草稿 #${record.id} · 只读待核验`), el('pre', record.content, 'input-original'),
+        el('p', '草稿版本、模式或提交状态不完整，不能确认仍可编辑。请返回列表重新读取或检查服务版本；不会重复提交、修改、取消或改投目标。', 'hint'));
       for (const reference of references) panel.append(el('p', reference.label || '引用', 'hint'), el('pre', reference.quote || '', 'input-quote'));
       return;
     }
-    panel.replaceChildren(el('h2', editable ? `暂存输入 #${record.id}` : `原始输入 ${inputNumber(record.id)}`), statusLine(record));
-    const message = el('p', editable ? '编辑只保留在本页；保存后跨设备可见。发射会先保存并可靠挂载，等待安全准入，不保证立即创建或投递。' : '已发送原文只读，不随 Worker 后续追加输入或目标变化。', 'hint');
+    panel.replaceChildren(el('h2', editable ? `草稿 #${record.id}` : `原始指令 ${inputNumber(record.id)}`), statusLine(record));
+    const message = el('p', editable ? '编辑只保留在本页；保存后跨设备可见，尚未授权执行。提交会先保存并可靠挂载执行授权，等待安全准入，不保证立即创建或投递。' : '已发送原文只读，不随 Worker 后续追加输入或目标变化。', 'hint');
     message.setAttribute('role', 'status'); panel.append(message);
     const content = editable ? el('textarea') : el('pre', record.content, 'input-original');
     if (editable) { content.value = record.content; content.rows = 10; content.maxLength = 32000; content.setAttribute('aria-label', '草稿正文'); }
     panel.append(content);
     const sourceId = record.kind === 'input' ? state.emissionSources.get(record.id) : null;
     if (Number.isSafeInteger(sourceId) && sourceId > 0) {
-      const source = controlsButton(`查看发射草稿 #${sourceId} · 条件与独占`, async () => {
+      const source = controlsButton(`查看提交草稿 #${sourceId} · 条件与独占`, async () => {
         if (!current() || editor.busy) return;
         editor.busy = true; source.node.disabled = true;
         try { await openItem({ kind: 'draft', id: sourceId }, { reread: true, allowBusyEditor: editor }); }
         finally { editor.busy = false; if (current()) source.node.disabled = false; }
-      }, { help: '按已知的真实关联重新读取发射草稿与最新版本，检查条件、独占状态及安全释放；只读，不调用 Agent。' });
-      panel.append(el('p', `此原文关联发射草稿 #${sourceId}。独占是否仍有效以草稿最新状态为准，不从已创建或 Worker 状态推断。`, 'hint'), source.host);
+      }, { help: '按已知的真实关联重新读取提交草稿与最新版本，检查条件、独占状态及安全释放；只读，不调用 Agent。' });
+      panel.append(el('p', `此原文关联提交草稿 #${sourceId}。独占是否仍有效以草稿最新状态为准，不从已创建或 Worker 状态推断。`, 'hint'), source.host);
     }
     if (editable) {
       editor.textEditor = attachTextEditor(content, { onChange: () => syncSave() });
@@ -445,7 +448,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     if (editable && !append) {
       const placeholder = el('option', '请选择父 Worker'); placeholder.value = ''; parent.append(placeholder);
       for (const task of parents) {
-        const option = el('option', `${workerLabel(task)} ${task.goal ?? ''} · ${task.branch}${task.freeze ? ' · 冻结，可挂载' : ''}`); option.value = String(task.id); parent.append(option);
+        const option = el('option', `${workerLabel(task)} ${task.goal ?? ''} · ${task.branch}${task.freeze ? ' · 冻结，可提交后等待' : ''}`); option.value = String(task.id); parent.append(option);
       }
       if (record.parent_id && !parents.some(task => task.id === record.parent_id && task.branch === record.branch)) {
         // An archived/missing/rebound parent must never silently fall back to main/current branch.
@@ -479,7 +482,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
           const remove = controlsButton('移除引用', () => {
             if (!current() || editor.busy) return;
             references = references.filter((_ref, at) => at !== index); paintReferences();
-          }, { help: '从本条草稿移除这个引用；保存或发射后才会写入，不改变引用来源。' });
+          }, { help: '从本条草稿移除这个引用；保存或提交后才会写入，不改变引用来源。' });
           referenceControls.push(remove.node); row.append(remove.host);
         }
         refs.append(row);
@@ -517,30 +520,30 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     const launchControls = new Map();
     const paintParent = () => {
       const target = selectedParent(), frozen = target?.freeze;
-      parentHint.textContent = target ? `${frozen ? `父分支冻结：${frozen.reason || '等待安全边界'}。` : ''}发射先可靠挂载；父 runtime 空闲且通过安全准入后创建并开始，代码基线在实际创建时固定。` : '原父 Worker 缺失或不可用，必须重新选择并保存后才能发射。';
+      parentHint.textContent = target ? `${frozen ? `父分支冻结：${frozen.reason || '等待安全边界'}。` : ''}提交先可靠保存执行授权；条件满足且安全准入后创建并开始新 Worker，代码基线在实际创建时固定。` : '原父 Worker 缺失或不可用，必须重新选择并保存后才能提交。';
       const options = conditionsForm?.collect(), conditional = Boolean(options?.conditions.length || options?.exclusive);
       if (conditionsToggle) {
         const summary = conditional ? ` · ${options.conditions.length} 项${options.exclusive ? ' · 独占' : ''}` : '';
-        conditionsToggle.node.textContent = `条件发射设置${summary}`;
+        conditionsToggle.node.textContent = `执行条件设置${summary}`;
       }
       for (const control of launchControls.values()) {
-        control.node.textContent = conditional ? '按条件发射' : append ? '发射追加' : '发射';
+        control.node.textContent = conditional ? '按条件提交' : append ? '提交追加' : '提交指令';
         control.node.classList.toggle('hook-button', Boolean(frozen));
-        const help = agentHelp(conditional ? '保存编辑及全部条件的一次性授权，全部条件满足后发射，再等待安全准入；不保证立即创建 Worker 或投递追加。' : '可靠挂载当前输入；父 runtime 或追加目标安全准入后创建并开始或投递消息；不保证立即执行。');
+        const help = agentHelp(conditional ? '保存编辑并提交一次性执行授权，等待全部条件满足，再等待安全准入；不保证立即创建 Worker 或投递追加。' : '可靠挂载当前输入；父 runtime 或追加目标安全准入后创建并开始或投递消息；不保证立即执行。');
         control.host.setAttribute('data-help', help); control.node.setAttribute('data-help', help);
       }
     };
     parent.onchange = () => { paintParent(); syncSave(); }; paintParent();
     const actions = el('div', undefined, 'input-actions'); panel.append(actions);
     if (editable && !append) {
-      const profile = controlsButton('运行设置：发射时冻结默认', async () => {
+      const profile = controlsButton('运行设置：提交时固定默认', async () => {
         if (!current() || editor.busy) return;
-        const chosen = await chooseCreationProfile({ profile: runProfile, ownsPage: current, title: `草稿 #${saved.id} 的发射运行设置` });
+        const chosen = await chooseCreationProfile({ profile: runProfile, ownsPage: current, title: `草稿 #${saved.id} 的工作运行设置` });
         if (!current() || editor.busy || !chosen.changed) return;
         runProfile = chosen.profile;
-        profile.node.textContent = runProfile ? `运行设置：${runProfile.config_mode === 'pi' ? 'Pi 默认配置' : 'Lush 配置'}` : '运行设置：发射时冻结默认';
-        message.textContent = '运行参数只保留在本页，发射时才写入；普通“保存”只保存草稿正文、明确目标、条件和引用。';
-      }, { className: 'ghost', help: '编辑本次发射的完整运行参数，不调用 Agent，不读取既有挂载的私有参数。只在发射时随授权保存，不写入草稿。' });
+        profile.node.textContent = runProfile ? `运行设置：${runProfile.config_mode === 'pi' ? 'Pi 默认配置' : 'Lush 配置'}` : '运行设置：提交时固定默认';
+        message.textContent = '运行参数只保留在本页，提交时才写入；普通“保存”只保存草稿正文、明确目标、条件和引用。';
+      }, { className: 'ghost', help: '编辑本次工作指令的完整运行参数，不调用 Agent，不读取既有挂载的私有参数。只在提交时随授权保存，不写入草稿。' });
       mutating.push(profile.node); actions.append(profile.host);
     }
     function setBusy(busy) {
@@ -554,9 +557,9 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     async function persist() {
       if (!content.value.trim()) throw new Error('草稿正文不能为空。');
       const target = append ? appendTarget?.value() : selectedParent();
-      if (!target) throw new Error(append ? '请显式选择可用的追加目标 Worker。' : '请选择可用的父 Worker，并保存后再发射。');
+      if (!target) throw new Error(append ? '请显式选择可用的追加目标 Worker。' : '请选择可用的父 Worker，并保存后再提交。');
       const conditionError = conditionsForm?.validate(); if (conditionError) throw new Error(conditionError);
-      if (append && references.length) throw new Error('追加输入暂不支持引用附件，原文和引用已保留；请显式移除引用再提交。');
+      if (append && references.length) throw new Error('追加指令暂不支持引用附件，原文和引用已保留；请显式移除引用再提交。');
       if (saved.revision !== null && !Number.isInteger(saved.revision)) throw new Error('草稿缺少版本号，请先复制编辑内容再刷新页面。');
       if (!contentDirty()) return;
       const updated = await action('draft.update', { id: saved.id, content: content.value, references,
@@ -576,7 +579,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       setBusy(true); message.setAttribute('role', 'status');
       try {
         if (kind === 'remove') {
-          if (!await confirmDialog({ title: `删除暂存输入 #${saved.id}？`, message: '这条未发送草稿及其引用将被删除，无法恢复；不会删除任何已发送输入或 Worker。', confirmLabel: '删除草稿', danger: true,
+          if (!await confirmDialog({ title: `删除草稿 #${saved.id}？`, message: '这条未发送草稿及其引用将被删除，无法恢复；不会删除任何已发送输入或 Worker。', confirmLabel: '删除草稿', danger: true,
             confirmHelp: '永久删除这条未发送草稿与附属引用。' })) return;
           if (!current()) return;
           await action('draft.remove', { id: saved.id, expected_revision: saved.revision }, { refresh: !embedded });
@@ -584,7 +587,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
           await persist();
           if (!current()) return;
           if (kind === 'save') {
-            message.textContent = runProfile ? '草稿已保存；运行参数仍只保留在本页，发射时才写入。' : '已保存。'; state.items.set(keyOf(saved), saved); paintList(); return;
+            message.textContent = runProfile ? '草稿已保存，尚未提交；运行参数仍只保留在本页，提交时才写入。' : '已保存。'; state.items.set(keyOf(saved), saved); paintList(); return;
           }
           // Keep this exact retry identity while the revision/definition remains unchanged.
           const definition = JSON.stringify([saved.id, saved.revision, runProfile]);
@@ -592,10 +595,10 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
           const result = await action('input.emit', { draft_id: saved.id, expected_revision: saved.revision,
             client_request_id: editor.requestId, ...(runProfile ? { profile: runProfile } : {}) }, { refresh: false });
           if (!current()) return;
-          if (result.emitted !== true || result.draft_id !== saved.id) throw new Error('发射响应缺少可靠草稿收据，请核验历史输入与服务版本，不会自动重试。');
+          if (result.emitted !== true || result.draft_id !== saved.id) throw new Error('提交响应缺少可靠草稿收据，请核验历史输入与服务版本，不会自动重试。');
           editor.textEditor.dispose();
           const acknowledged = { ...saved, revision: Number.isSafeInteger(result.revision) && result.revision > 0 ? result.revision : undefined,
-            dispatch: result.dispatch || { state: 'unknown', reason: '返回中缺少发射状态，请核验服务版本。' } };
+            dispatch: result.dispatch || { state: 'unknown', reason: '返回中缺少提交状态，请核验服务版本。' } };
           state.items.set(keyOf(saved), acknowledged); paintList(); renderEditor(acknowledged, parents);
           show(emissionAcknowledgement(result, append)); return;
         }
@@ -609,7 +612,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     }
     if (editable) {
       for (const [label, kind, opts] of [
-        ['发射', 'emit', { agent: true, help: agentHelp('可靠挂载当前输入，安全准入后创建并开始或投递追加；不保证立即执行。') }],
+        ['提交指令', 'emit', { agent: true, help: agentHelp('可靠挂载当前输入，安全准入后创建并开始或投递追加；不保证立即执行。') }],
         ['保存', 'save', { className: 'input-save' }],
         ['删除草稿', 'remove', { help: '经确认后永久删除这条未发送草稿及其引用；已发送输入不可删除。', className: 'danger' }],
       ]) {
@@ -620,11 +623,11 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
           control.node.setAttribute('aria-keyshortcuts', 'Control+s Meta+s');
         }
       }
-      conditionsToggle = controlsButton('条件发射设置', () => {
+      conditionsToggle = controlsButton('执行条件设置', () => {
         if (!current() || editor.busy) return;
         conditionsForm.node.hidden = !conditionsForm.node.hidden;
         conditionsToggle.node.setAttribute('aria-expanded', String(!conditionsForm.node.hidden));
-      }, { className: 'ghost', help: '展开或收起这条草稿的发射条件与独占选项；不发射、不调用 Agent，收起保留设置。' });
+      }, { className: 'ghost', help: '展开或收起这条草稿的执行条件与独占选项；不提交、不调用 Agent，收起保留设置。' });
       conditionsToggle.node.setAttribute('aria-expanded', 'false');
       conditionsToggle.node.setAttribute('aria-controls', conditionsForm.node.id);
       mutating.push(conditionsToggle.node); actions.append(conditionsToggle.host);

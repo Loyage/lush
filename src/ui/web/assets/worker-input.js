@@ -40,14 +40,14 @@ export function inputWaitReason(task) {
 
 export function inputQueueText(task) {
   const queue = inputQueue(task);
-  return queue?.buffered ? `已暂存 ${queue.buffered} 条追加输入，等待投递 · ${inputWaitReason(task)}` : null;
+  return queue?.buffered ? `已入箱 ${queue.buffered} 条追加指令，待交付给 Agent · ${inputWaitReason(task)}` : null;
 }
 
 /** A successful message ACK proves persistence, not receipt by an Agent. */
 export function appendInputAcknowledgement(task, result) {
   const queue = inputQueue(result);
   const label = `Worker ${workerLabel(task)}`;
-  if (queue?.buffered) return `已保存给 ${label}，等待投递；${queue.reason || '等待 Agent 可接收输入的安全点'}。`;
+  if (queue?.buffered) return `追加指令已入箱给 ${label}，待交付给 Agent；${queue.reason || '等待 Agent 可接收输入的安全点'}。`;
   if (!queue && inputWaitReason(task)) return `已追加给 ${label}；投递状态暂不可用，请在 Worker 详情查看。`;
   return `已追加给 ${label}${task.status === 'paused' || result?.status === 'paused' ? '；开始 / 继续后处理' : '；Agent 将在可接收输入时处理'}。`;
 }

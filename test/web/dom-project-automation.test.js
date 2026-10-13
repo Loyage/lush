@@ -31,7 +31,7 @@ test('directory is four native list entries, not the former settings wall; list 
   const entries = root().querySelectorAll('.automation-feature'); expect(entries).toHaveLength(4);
   expect(entries.map(node => node.dataset.feature)).toEqual(['completion', 'push', 'convergence', 'emission']);
   expect(root().querySelector('.automation-browse').classList.contains('ui-list-page')).toBe(true);
-  for (const name of ['开发完成后自动处理', '合并后自动 git push', '归并合并', '条件发射']) expect(deepText(root())).toContain(name);
+  for (const name of ['开发完成后自动处理', '合并后自动 git push', '归并合并', '条件提交']) expect(deepText(root())).toContain(name);
   for (const selector of ['.hook-signals', '.hook-managers', '.hook-template', '.shortcut-commands', '.branch-convergence', '.project-hooks']) expect(root().querySelector(selector)).toBeNull();
   expect(reads).toEqual([]); expect(writes).toEqual([]);
   const link = entries[1].querySelector('a'); expect(link.getAttribute('href')).toBe('#hooks-push');

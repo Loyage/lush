@@ -56,7 +56,7 @@ export async function openComposerRunSettings() {
     const form = createManagementProfileForm(settings, { ownsPage });
     await form.ready;
     if (!ownsPage()) return;
-    const confirmed = await formDialog({ title: 'Valet 运行设置', content: form.node,
+    const confirmed = await formDialog({ title: '管理指令的运行设置', content: form.node,
       confirmLabel: '使用这份管理设置', confirmHelp: '只选择管理调用的模型来源，不加载开发 Prompt、环境变量或扩展。',
       onConfirm: () => { const error = form.validate(); if (error) { show(error, 'error'); return false; } return ownsPage(); } });
     if (!confirmed || !ownsPage()) return;
@@ -77,7 +77,7 @@ export async function openComposerRunSettings() {
   for (;;) {
     requestedDefault = false;
     const confirmed = await formDialog({
-      title: '新建指令的运行设置', message: '默认使用 Lush 托管配置；也可以选择执行机器上用户自己的 Pi 默认配置。',
+      title: '工作指令的运行设置', message: '默认使用 Lush 托管配置；也可以选择执行机器上用户自己的 Pi 默认配置。',
       content, confirmLabel: '使用这份设置', cancelLabel: '取消', agent: false,
       confirmHelp: '把这份运行设置固定给将要创建的那条指令；只保存设置，不调用 Agent、不创建 Worker。',
     });
@@ -188,7 +188,7 @@ export function renderParentOptions() {
   const previous = select.value;
   const placeholder = el('option', 'main（默认父 Worker）'); placeholder.value = '';
   const options = tasks.map(task => {
-    const option = el('option', `${workerLabel(task)} ${taskTitle(task)} · ${task.branch}${task.freeze ? ' · 冻结，可挂载' : ''}`);
+    const option = el('option', `${workerLabel(task)} ${taskTitle(task)} · ${task.branch}${task.freeze ? ' · 冻结，可提交后等待' : ''}`);
     option.value = task.branch; option.dataset.label = `${workerLabel(task)} ${taskTitle(task)}`;
     return option;
   });
@@ -232,33 +232,32 @@ export function syncComposer() {
   $('input-form').dataset.blocked = String(Boolean(target.reason));
   const modeText = {
     'composer-mode-icon': management ? '⚙' : followup ? '↳' : '＋',
-    'composer-mode-title': management ? '管理 Lush · Valet' : followup ? '继续当前 Worker' : '新建独立 Worker',
-    'composer-mode-target': management ? '当前项目 · Valet 管理工作 · 不创建开发 Worker' : followup ? `追加到 ${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}` : `父 Worker：${label}`,
+    'composer-mode-title': management ? '管理 Lush' : followup ? '追加输入' : '新建工作',
+    'composer-mode-target': management ? '去向：管家 · 当前项目' : followup ? `去向：${label}${target.task ? ` · ${taskTitle(target.task)}` : ''}` : `去向：新 Worker · 基于 ${label}`,
     'composer-mode-behavior': target.reason || (management
-      ? '解析管理需求与运行历史 · 危险操作先确认 · Ctrl/⌘+Enter 提交管理'
-      : followup ? `不创建新 Worker · ${enter} 暂存 · Ctrl/⌘+Enter 发射追加 · 成功后回到新建${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
-        : `${enter} 暂存 · 发射先可靠挂载，父 runtime 空闲后创建并开始${target.freeze ? ` · ${target.freeze.reason || '父分支冻结，等待安全边界'}` : ''}`),
+      ? '由管家处理，不直接创建开发 Worker · 危险操作先确认 · Ctrl/⌘+Enter 提交管理指令 · 暂不支持暂存'
+      : followup ? `不创建新 Worker · ${enter} 暂存 · Ctrl/⌘+Enter 提交追加 · 安全点交付，确认后回到新建工作${target.queueText ? ` · ${target.queueText}` : target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 暂停中，需开始 / 继续后处理' : ''}`
+        : `${enter} 暂存 · Ctrl/⌘+Enter 提交指令 · 条件满足且安全准入后创建新 Worker${target.freeze ? ` · ${target.freeze.reason || '父分支冻结，等待安全边界'}` : ''}`),
   };
   // Keep mode/destination visible while typing, without repeating live announcements on every keystroke.
   for (const [id, text] of Object.entries(modeText)) {
     const node = $(id);
     if (node.textContent !== text) node.textContent = text;
   }
-  input.placeholder = target.reason ? `${label}：${target.reason}` : management
-    ? '描述 Lush 管理需求或运行优化诊断 · 不开发项目 · Ctrl/⌘+Enter 提交'
-    : followup ? `追加给 ${label} · ${enter} 暂存 · Ctrl/⌘+Enter 发射 · Shift+Enter 换行${target.wait ? ` · ${target.wait}` : ''}${target.task.status === 'paused' ? ' · 需开始 / 继续后处理' : ''}`
-      : `向 ${label} 发射输入 · ${enter} 暂存 · Ctrl/⌘+Enter 发射 · Shift+Enter 换行`;
-  input.setAttribute('aria-label', input.placeholder);
+  input.placeholder = management ? '描述你希望管家查询、调整或安排的事项…'
+    : followup ? '补充要求、提供反馈，或说明需要调整的地方…'
+      : '描述你希望新 Worker 完成的工作…';
+  input.setAttribute('aria-label', management ? '管理指令正文' : followup ? '追加指令正文' : '工作指令正文');
   input.disabled = Boolean(target.reason);
   const disabled = Boolean(ui.composerSubmitting || target.reason) || !input.value.trim();
   $('draft-commit').disabled = disabled;
   $('draft-commit').classList.add('agent-call');
-  $('draft-commit').textContent = management ? '提交管理需求' : followup ? '发射追加' : '发射';
+  $('draft-commit').textContent = management ? '提交管理指令' : followup ? '提交追加' : '提交指令';
   $('draft-commit').classList.toggle('hook-button', Boolean(!management && target.freeze));
   const description = target.reason || (management
-    ? '创建并安排独立 Valet，分析当前项目运行历史、草稿与 Hook 等管理需求；取消、回收、删除和敏感设置等危险操作须用户确认，不提供开发工具。'
-    : followup ? `将追加输入可靠挂载给 ${label}，安全准入后持久投递；冻结不打断交付或源侧修复，暂停中仍需显式继续。`
-      : `将输入可靠挂载给 ${label}，父 runtime 空闲且通过安全准入时才创建并开始独立 Worker；不保证立即出现在 Worker 树。`);
+    ? '提交管理指令，创建并安排独立管家（Valet），处理当前项目运行历史、草稿与 Hook 等管理事项；取消、回收、删除和敏感设置等危险操作须用户确认，不提供开发工具。'
+    : followup ? `提交追加指令给 ${label}，可靠保存后等待安全准入；不代表 Agent 已收到，冻结不打断交付或源侧修复，暂停中仍需显式继续。`
+      : `提交工作指令，基于 ${label} 创建新 Worker；提交是执行授权，条件满足且安全准入后才创建并开始，不保证立即出现在 Worker 树。`);
   const help = agentHelp(description);
   $('draft-commit').setAttribute('data-help', help);
   $('input-send-help')?.setAttribute('data-help', help);
@@ -266,10 +265,10 @@ export function syncComposer() {
   if ($('input-buffer')) { $('input-buffer').disabled = disabled; $('input-buffer').hidden = management; }
   if ($('input-buffer-help')) {
     $('input-buffer-help').hidden = management;
-    const bufferHelp = followup ? `暂存正文和追加目标 ${label}，不创建 Worker、不投递消息、不调用 Agent；稍后可在历史输入编辑条件并发射。` : '暂存正文、引用和父 Worker，不创建 Worker 或工作区，不调用 Agent；稍后可在草稿页设置条件并发射。';
+    const bufferHelp = followup ? `保存追加指令正文和目标 ${label} 为草稿，尚未授权执行，不创建 Worker、不投递消息、不调用 Agent；稍后可在历史输入编辑条件并提交。` : '保存工作指令正文、引用和父 Worker 为草稿，尚未授权执行，不创建 Worker 或工作区、不调用 Agent；稍后可在草稿页设置条件并提交。';
     $('input-buffer-help').setAttribute('data-help', bufferHelp); $('input-buffer')?.setAttribute('data-help', bufferHelp);
   }
-  if ($('composer-management')) $('composer-management').textContent = management ? '回到开发输入' : '管理 Lush · Valet';
+  if ($('composer-management')) $('composer-management').textContent = management ? '回到新建工作' : '管理 Lush';
   // More also exposes text editing in inbox mode, without showing parent selection.
   $('composer-expand').hidden = false;
   $('composer-reset').hidden = !followup && !management;
@@ -324,7 +323,7 @@ async function submitInput(mode) {
   let update = null;
   ui.composerSubmitting = true; syncComposer();
   try {
-    if ((target.id != null || management) && references.length) throw new Error(`${management ? '管理需求' : '追加输入'}暂不支持引用附件；原文与引用已保留，请先移除引用或回到新建模式。`);
+    if ((target.id != null || management) && references.length) throw new Error(`${management ? '管理指令' : '追加指令'}暂不支持引用附件；原文与引用已保留，请先移除引用或回到新建工作模式。`);
     if (branch && branch !== 'main' && !target.task && !ui.composerParents?.some(task => task.branch === branch)) throw new Error('所选父 Worker 已不可用，请展开输入区重新选择。');
     const params = { content, references, ...(branch ? { branch } : {}),
       ...(target.id != null ? { mode: 'append', target_id: target.id } : {}) };
@@ -336,7 +335,7 @@ async function submitInput(mode) {
     if (management && (result.management !== true || !Number.isSafeInteger(result.task?.id)))
       throw new Error('管理响应缺少可靠记录身份；请核对服务版本与管理历史，不会自动重试。');
     if (!management && mode !== 'buffer' && (result.emitted !== true || !Number.isSafeInteger(result.draft_id)))
-      throw new Error('发射响应缺少可靠挂载收据；请核对服务版本与历史输入，原文保留，不会自动重试。');
+      throw new Error('提交响应缺少可靠挂载收据；请核对服务版本与历史输入，原文保留，不会自动重试。');
     // The composer survives page navigation: consume unchanged submitted content even after a page switch.
     // Still protect edits (including edit-and-undo) and explicit inbox mode changes; view guards below only own navigation.
     const untouched = Boolean(ui.composerManagement) === management && ui.composerAppendTarget === appendTarget && ui.composerEditRevision === editRevision && input.value === value
@@ -345,10 +344,10 @@ async function submitInput(mode) {
     if (management) {
       if (ui.composerManagementProfile === creationProfile) ui.composerManagementProfile = null;
       ui.composerManagementResult = result.task || null;
-      show(`管理需求已提交${result.task?.id ? ` ${workerLabel(result.task)}` : ''}，Valet 将处理；未创建开发 Worker，记录可在「工作」查看，危险操作须确认。`);
+      show(`管理指令已提交${result.task?.id ? ` ${workerLabel(result.task)}` : ''}，等待管家处理；未创建开发 Worker，记录可在「工作」查看，危险操作须确认。`);
     } else if (mode === 'buffer') {
       if (target.id != null && untouched) ui.composerAppendTarget = null;
-      show(`已暂存输入 #${result.id}，可到「历史输入」编辑或发射；未创建 Worker、未调用 Agent。`);
+      show(`已暂存为草稿 #${result.id}，尚未提交；可到「历史输入」编辑或提交，未创建 Worker、未调用 Agent。`);
       ui.inputsPage?.added?.();
     } else {
       if (target.id != null && untouched) ui.composerAppendTarget = null;
@@ -383,14 +382,14 @@ export function initComposer() {
   if (anchor?.parentNode) anchor.parentNode.insertBefore(runSettingsButton, anchor);
   else host?.append(runSettingsButton);
   host?.querySelector?.('.composer-management')?.remove?.();
-  const managementButton = button('管理 Lush · Valet', () => {
+  const managementButton = button('管理 Lush', () => {
     ui.composerManagement = !ui.composerManagement; ui.composerAppendTarget = null; ui.composerEditRevision++; syncComposer(); $('input').focus();
-  }, 'ghost composer-management', { help: '切换为当前项目的独立 Valet 输入；切换不调用 Agent，保留文字与引用。危险操作须用户确认。' });
+  }, 'ghost composer-management', { help: '切换为向当前项目管家提交管理指令；切换不调用 Agent，保留文字与引用。暂不支持暂存或引用附件，危险操作须用户确认。' });
   managementButton.id = 'composer-management'; host?.append(managementButton);
   host?.querySelector?.('.composer-management-result')?.remove?.();
-  managementResultButton = button('查看最近 Valet 工作', () => { if (Number.isSafeInteger(ui.composerManagementResult?.id)) return detail(ui.composerManagementResult.id); }, 'ghost composer-management-result');
+  managementResultButton = button('查看最近管理记录', () => { if (Number.isSafeInteger(ui.composerManagementResult?.id)) return detail(ui.composerManagementResult.id); }, 'ghost composer-management-result');
   managementResultButton.hidden = true; host?.append(managementResultButton);
-  const sendHelp = agentHelp('将输入可靠挂载，父 runtime 空闲且通过安全准入后创建并开始；不保证立即创建。');
+  const sendHelp = agentHelp('提交工作指令并可靠保存执行授权，安全准入后创建并开始新 Worker；不保证立即创建。');
   $('draft-commit').setAttribute('data-help', sendHelp);
   $('input-send-help')?.setAttribute('data-help', sendHelp);
   renderComposerReferences();

@@ -40,7 +40,7 @@ export function createConnectionEditor({ node, panel, operations, selection, sel
     const label = field(form, '连接名称', 'label', 'text', connection?.label || ''); label.maxLength = 120;
     const provider = select(form, '服务商', 'provider', PROVIDERS, connection?.provider || 'deepseek');
     const endpoint = field(form, '模型端点（HTTPS，可留空）', 'endpoint', 'url', connection?.endpoint || '', '留空采用该服务商官方模型端点；代理密钥不能发往官方余额接口。'); endpoint.maxLength = 2048;
-    const models = field(form, '模型列表（模型 ID，逗号分隔）', 'models', 'text', array(connection?.models).join(', '), '在此填写一次，保存后发射 Worker 即可从所选来源的列表选择，无需重复输入。填写物理模型 ID，不加服务商前缀；非空时也限制模型范围，留空不限制，不进行付费可用性探测。'); models.maxLength = 8192;
+    const models = field(form, '模型列表（模型 ID，逗号分隔）', 'models', 'text', array(connection?.models).join(', '), '在此填写一次，保存后提交工作指令即可从所选来源的列表选择，无需重复输入。填写物理模型 ID，不加服务商前缀；非空时也限制模型范围，留空不限制，不进行付费可用性探测。'); models.maxLength = 8192;
     const defaultModel = field(form, '默认模型（可选）', 'default_model', 'text', connection?.default_model || '', '填写物理模型 ID（可留空）；填写了模型列表时须在列表内。已有 Worker 主动换源时自动填入此模型，思考深度不变；其他运行设置可一键填入，不代表已验证可用。');
     defaultModel.maxLength = 256;
     const defaultModelList = el('datalist'); defaultModelList.id = 'connection-default-model-options';

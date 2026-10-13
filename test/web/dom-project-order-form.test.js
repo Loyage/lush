@@ -30,7 +30,7 @@ test('fixed source and main parent, emission schedules Agent without claiming cr
 test('emission uses the explicit source daemon even from another project route', async () => {
   dom.location.pathname = `/p/${B}/`;
   const form = createProjectOrderForm(row()); type(form, '执行需求'); await control(form).onclick();
-  expect(calls[0].url).toBe(`/p/${A}/api/action`); expect(deepText(form.root)).toContain('等待父 runtime');
+  expect(calls[0].url).toBe(`/p/${A}/api/action`); expect(deepText(form.root)).toContain('等待安全准入');
 });
 
 test('offline and blank forms cannot send even by direct handler; offline text survives', async () => {
@@ -48,14 +48,14 @@ test('single-flight persists across refreshed forms; old ACK never clears newer 
   expect(control(refreshed).disabled).toBe(true); expect(calls).toHaveLength(1);
   type(refreshed, '下一条'); pending.resolve(Response.json({ emitted: true, draft_id: 18, dispatch: { state: 'queued' } })); await sending;
   expect(inputOf(refreshed).value).toBe('下一条'); expect(control(refreshed).disabled).toBe(false);
-  expect(refreshed.root.querySelector('a').textContent).toBe('查看发射状态');
+  expect(refreshed.root.querySelector('a').textContent).toBe('查看提交状态');
 });
 
 test('unknown failure preserves text and retry identity, never starts offline daemon or retries automatically', async () => {
   reply = () => Response.json({ error: 'daemon unavailable' }, { status: 503 });
   const form = createProjectOrderForm(row()); type(form, '保留原文'); await control(form).onclick();
   expect(inputOf(form).value).toBe('保留原文'); expect(calls).toHaveLength(1);
-  expect(deepText(form.root)).toContain('未确认发射成功'); expect(form.root.querySelector('a')).toBeNull();
+  expect(deepText(form.root)).toContain('未确认提交成功'); expect(form.root.querySelector('a')).toBeNull();
   const id = calls[0].body.params.client_request_id; await control(form).onclick(); expect(calls[1].body.params.client_request_id).toBe(id);
 });
 
@@ -70,7 +70,7 @@ test('navigation or replacement document blocks old controls/late paint while ac
   const form = createProjectOrderForm(row(), { ownsPage: () => current }); type(form, '已发出'); const sending = control(form).onclick(); current = false;
   pending.resolve(Response.json({ emitted: true, draft_id: 20 })); await sending;
   expect(inputOf(form).value).toBe('已发出'); expect(calls).toHaveLength(1); await control(form).onclick(); expect(calls).toHaveLength(1);
-  const fresh = createProjectOrderForm(row()); expect(inputOf(fresh).value).toBe(''); expect(deepText(fresh.root)).toContain('等待父 runtime');
+  const fresh = createProjectOrderForm(row()); expect(inputOf(fresh).value).toBe(''); expect(deepText(fresh.root)).toContain('等待安全准入');
   const replacement = installDom({ fetch: () => { throw Error('old document wrote to replacement'); } });
   try { await control(fresh).onclick(); expect(calls).toHaveLength(1); } finally { replacement.restore(); }
 });
