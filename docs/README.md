@@ -29,5 +29,6 @@
 - [设备共享设置与迁移](device-settings.md)：用户编辑范围、迁移和中断恢复；[设计理念](design/device-settings.md)解释私有凭证边界；[工程契约](engineering/device-settings.md)保留旧继承方案的兼容与迁移记录。
 - [模块设计理念](design/README.md)：修改相关模块前了解目标与取舍，不当作已实现功能清单。
 - [接口参考](reference/README.md)：CLI / RPC / HTTP / Web；[贡献指南](contributing/README.md)说明开发及文档写法。
+- [开发优化待办](todo.md)：近期 Worker 运行复盘的改进建议、优先级及验收方向，不代表已实现能力。
 
 Web 文档视图读取随当前代码发布的 `README.md` 和 `docs/**/*.md`，不读取被 Lush 开发的目标项目。文档路径经扫描索引，请求只能按已知 ID 命中。
