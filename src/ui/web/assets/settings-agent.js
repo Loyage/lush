@@ -27,11 +27,11 @@ export function renderAgentSettings(settings, repaint, { ownsPage = () => true, 
   content.append(packagesManager(ownsPage, client));
   content.append(profileEditor(settings, settings.default, 'default', '默认 Agent', '所有未单独配置的 Worker 行为都继承这里。', repaint, ownsPage, summary, names));
 
-  const roles = block('按 Worker 行为覆盖'); roles.classList.add('agent-roles-block');
+  const roles = block('按工作类型与行为覆盖'); roles.classList.add('agent-roles-block');
   roles.append(el('p', '只为需要不同模型、思考深度或工作方式的行为建立覆盖；其余保持继承，后续调整默认值时会一起更新。', 'settings-note settings-section-note'));
   const list = el('div', undefined, 'agent-role-list');
-  for (const item of settings.options.roles.filter(item => item.id === 'agent')) {
-    if (settings.roles[item.id]) list.append(profileEditor(settings, settings.roles[item.id], item.id, item.label, `仅用于 ${item.id} 角色。`, repaint, ownsPage, null, names));
+  for (const item of settings.options.roles.filter(item => ['agent', 'manager'].includes(item.id))) {
+    if (settings.roles[item.id]) list.append(profileEditor(settings, settings.roles[item.id], item.id, item.id === 'manager' ? 'Valet' : item.label, `仅用于 ${item.id === 'manager' ? 'Valet 管理工作' : item.id + ' 角色'}。`, repaint, ownsPage, null, names));
     else list.append(inheritedRole(settings, item.id, repaint, names, ownsPage));
   }
   const advanced = el('details', undefined, 'agent-config-advanced'), environmentHost = el('div', undefined, 'agent-env-host');

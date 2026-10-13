@@ -15,8 +15,8 @@ function sameProject(project) {
 export async function openManagement({ subpage = 'settings', push = true } = {}) {
   subpage = subpage === 'history' ? 'history' : 'settings';
   const owner = globalThis.document;
-  const view = activateDetailView({ view: 'management', title: '管理 Agent', context: '工作',
-    hint: '时间信号 · 管理绑定 · 运行记录', push, hash: subpage === 'history' ? '#management-history' : '#management' });
+  const view = activateDetailView({ view: 'management', title: 'Valet 设置', context: '工作',
+    hint: '时间信号 · Valet 绑定 · 设置运行快照', push, hash: subpage === 'history' ? '#management-history' : '#management' });
   const project = projectApi('/api/hooks');
   const previous = ui.managementPage;
   if (previous?.view === view && previous.project === project && previous.owner === owner) {
@@ -27,9 +27,9 @@ export async function openManagement({ subpage = 'settings', push = true } = {})
   ui.managementPage = state;
   const owns = () => owner === globalThis.document && ui.view === view && ui.managementPage === state && sameProject(project);
   const root = el('div', undefined, 'management-page hooks-page'); $('detail').replaceChildren(root);
-  const subnav = pageSubnav('管理 Agent 子页面', [
+  const subnav = pageSubnav('Valet 设置子页面', [
     { id: 'settings', label: '设置', href: '#management' },
-    { id: 'history', label: '运行记录', href: '#management-history' },
+    { id: 'history', label: '绑定运行快照', href: '#management-history' },
   ], subpage, next => owns() ? openManagement({ subpage: next }) : undefined);
   state.switchSubpage = next => {
     state.subpage = next;
@@ -42,9 +42,10 @@ export async function openManagement({ subpage = 'settings', push = true } = {})
     if (next === 'history' && state.catalogue) paintHistory();
   };
   const signalEditor = el('div', undefined, 'hook-editor'), managerEditor = el('div', undefined, 'hook-editor');
-  const header = el('div', undefined, 'hooks-page-header'); header.append(el('h1', '管理 Agent'));
+  const header = el('div', undefined, 'hooks-page-header'); header.append(el('h1', 'Valet 设置'));
   const help = el('a', '使用帮助', 'hook-help-link'); help.href = '/#doc-docs-engineering-hook-signals-management';
   help.target = '_blank'; help.rel = 'noopener'; header.append(help);
+  const workLink = el('a', '查看全部工作与 Valet 记录', 'management-work-link'); workLink.setAttribute('href', '#workers'); header.append(workLink);
   root.append(subnav, header);
 
   async function load() {
@@ -60,7 +61,7 @@ export async function openManagement({ subpage = 'settings', push = true } = {})
   async function refresh() {
     if (!owns() || state.busy) return;
     if ((state.signalsEditing || state.managementEditing) && !await confirmDialog({ title: '放弃未保存编辑并刷新？',
-      message: '刷新会读取后台最新管理绑定和信号目录，当前未保存编辑会丢失。已发出的请求不会撤回；结果不明请先检查已有管理 Worker。',
+      message: '刷新会读取后台最新管理绑定和信号目录，当前未保存编辑会丢失。已发出的请求不会撤回；结果不明请先检查「工作」中的已有 Valet。',
       confirmLabel: '放弃并刷新' })) return;
     if (!owns()) return;
     state.signalsEditing = false; state.managementEditing = false;
@@ -68,8 +69,8 @@ export async function openManagement({ subpage = 'settings', push = true } = {})
   }
   function paintHistory() {
     if (!owns() || state.historyPaintedCatalogue === state.catalogue) return;
-    state.historyNode.replaceChildren(el('h2', '运行记录'),
-      el('p', '展示当前项目时间信号和管理指令的最近执行快照与安全收据，不是完整调用历史。完整指令、结果与历史请打开管理详情，执行过程请打开执行详情。未知副作用不自动重放。', 'hint'),
+    state.historyNode.replaceChildren(el('h2', '绑定运行快照'),
+      el('p', '仅展示时间信号与绑定的设置运行快照，不是完整调用历史。日常 Valet 工作（含即时输入）、目标、结果与调用请从统一「工作」列表查看；未知副作用不自动重放。', 'hint'),
       button('刷新记录', refresh, 'ghost'),
       ...renderSignalManagement({ catalogue: state.catalogue, ownsPage: owns, history: true, folds: state.historyFolds }));
     state.historyPaintedCatalogue = state.catalogue;

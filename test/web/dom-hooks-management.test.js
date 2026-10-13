@@ -69,7 +69,7 @@ test('Management page separates time signals and manager instructions from devel
   expect(btn('删除时间信号').disabled).toBe(true);
   expect(btn('删除时间信号').parentNode.getAttribute('data-help')).toContain('先停用绑定');
   await btn('查看指令、结果与调用历史').onclick(); expect(detailCalls).toEqual([200]); expect(actions).toHaveLength(0);
-  expect(workerHooks(manager)).toBeNull(); expect(worktreeLabel({ ...manager, workspace: '/private/management' })).toBe('管理工作目录'); expect(ROLE.manager).toBe('管理');
+  expect(workerHooks(manager)).toBeNull(); expect(worktreeLabel({ ...manager, workspace: '/private/management' })).toBe('管理工作目录'); expect(ROLE.manager).toBe('Valet');
   expect(root().querySelectorAll('button').some(item => ['合并', '验收', '归档'].includes(item.textContent))).toBe(false);
 });
 
@@ -80,11 +80,14 @@ test('即时管理来源与受控能力收据正确投影，确认不冒充执�
     control_calls: [{ method: 'worker.cancel', status: 'pending_confirmation', notice_id: 40, params: { env: { PRIVATE: 'MUST_NOT_DISPLAY' } } },
       { method: 'input.emit', status: 'unknown' }],
   } });
-  await openManagement(); const text = deepText(root());
-  expect(text).toContain('来源：即时管理输入，不等待时间信号'); expect(text).not.toContain('原信号已移除');
-  expect(text).toContain('已提交管理输入 #50'); expect(text).toContain('待用户确认（尚未执行）');
+  await openManagement();
+  expect(root().querySelector('.hook-manager')).toBeNull();
+  renderDetail({ ...manager, management: binding, calls: 0 }, null, null, null);
+  const text = deepText(root());
+  expect(text).toContain('来源：即时 Valet 输入，不等待时间信号'); expect(text).not.toContain('原信号已移除');
+  expect(text).toContain('已提交待处理'); expect(text).toContain('待用户确认（尚未执行）');
   // Receipt projection does not contain Notice kind: do not infer D from pending_confirmation.
-  expect(text).toContain('确认提醒 N40'); expect(text).not.toContain('D40');
+  expect(root().querySelector('a[href="#notices-40"]').textContent).toBe('N40'); expect(text).not.toContain('D40');
   expect(text).toContain('结果待核验，不自动重放'); expect(text).toContain('管理能力摘要：显示 2 / 4 项');
   expect(text).not.toContain('MUST_NOT_DISPLAY'); expect(actions).toHaveLength(0);
   expect(root().querySelector('.management-capabilities-truncated')).toBeTruthy();
@@ -110,7 +113,7 @@ for (const state of [{ status: 'paused', agent_wakes: 0 }, { status: 'paused', a
     const history = { events: [{ id: 500, type: 'management.signal_submitted', created_at: row.created_at,
       data: { due_at: row.created_at } }] };
     renderDetail(row, history, null, null); syncComposer();
-    expect(deepText(root())).toContain('管理指令详情只读'); expect(deepText(root())).toContain('绑定启停仅在管理 Agent 页面');
+    expect(deepText(root())).toContain('Valet 详情只读'); expect(root().querySelector('.management-settings-link').getAttribute('href')).toBe('#management');
     const goal = root().querySelector('.conversation-input').querySelector('.conversation-prose');
     expect(inlineText(goal)).toBe(manager.goal);
     expect(goal.querySelectorAll('.worker-link').map(node => node.getAttribute('href')))
@@ -120,7 +123,8 @@ for (const state of [{ status: 'paused', agent_wakes: 0 }, { status: 'paused', a
     expect(lifecycle.getAttribute('aria-pressed')).toBe('false');
     expect(deepText(root())).not.toContain('管理信号已提交待执行');
     await lifecycle.onclick();
-    expect(deepText(root())).toContain('管理信号已提交待执行'); expect(deepText(root())).toContain('管理工作目录');
+    expect(deepText(root())).toContain('管理信号已提交待执行'); expect(deepText(root())).not.toContain('管理工作目录');
+    expect(root().querySelector('.detail-diff')).toBeNull(); expect(root().querySelector('.worker-relations')).toBeNull();
     expect(root().querySelector('.task-actions').querySelectorAll('button').map(item => item.textContent)).toEqual(['刷新详情']);
     for (const text of ['开始', '继续', '调整运行设置', '放弃 Worker', '中断', '检查后重试', '追加输入', '删除', '合并', '验收', '归档', '启用管理绑定', '停用管理绑定']) expect(btn(text)).toBeUndefined();
     expect(root().querySelector('.worker-hooks')).toBeNull(); expect(btn('打开执行详情')).toBeTruthy();
@@ -151,7 +155,7 @@ for (const field of ['pending_signal', 'last_execution']) {
       ] };
     await openManagement();
     expect(deepText(root())).toContain('指令仅显示摘要；完整指令请打开下方详情。');
-    expect(deepText(root())).toContain('操作摘要：显示 2 / 32 项；完整操作记录请查看下方详情与调用历史。');
+    expect(deepText(root())).toContain('操作摘要：显示 2 / 32 项；完整记录请查看调用历史。');
     expect(deepText(root())).toContain('开始／继续 W10：已处理'); expect(deepText(root())).toContain('重试 #11：等待信号或安全点');
     expect(btn('停用管理绑定').disabled).toBe(false);
     await btn('查看指令、结果与调用历史').onclick(); expect(detailCalls).toEqual([200]); expect(actions).toHaveLength(0);
@@ -195,7 +199,7 @@ test('management details retain the full instruction while management list uses 
   const goal = '管理长指令'.repeat(4000) + '最后一句完整保留';
   renderDetail({ ...manager, goal, calls: 0, children: [], deps: [], dependents: [],
     created_at: '2030-02-02T16:05:00Z', updated_at: '2030-02-02T16:06:00Z' }, null, null, null);
-  expect(deepText(root())).toContain(goal); expect(deepText(root())).toContain('管理指令详情只读');
+  expect(deepText(root())).toContain(goal); expect(deepText(root())).toContain('Valet 详情只读');
   expect(root().querySelector('.task-actions').querySelectorAll('button').map(item => item.textContent)).toEqual(['刷新详情']);
   expect(actions).toHaveLength(0);
 });
@@ -279,12 +283,12 @@ test('persistent manager creation explains repeated fees and cancel keeps draft 
 });
 
 test('manager uses its own restricted source form, not development prompt, extensions or the target account', async () => {
-  await newManagement(); await btn('管理 Agent 运行设置').onclick();
+  await newManagement(); await btn('Valet 运行设置').onclick();
   expect(reads).toContain('/api/agent/config'); expect(reads.some(path => path.includes('/packages') || path.includes('/resources'))).toBe(false);
   expect(root().querySelector('[data-retry-field="default-prompt"]')).toBeNull();
   expect(deepText(root())).not.toContain('HIDDEN PRIVATE PROMPT'); expect(deepText(root())).not.toContain('DEVELOPMENT PROMPT'); expect(deepText(root())).not.toContain('/private/extension');
   await btn('读取项目连接').onclick();
-  input('管理 Agent 思考深度').value = 'high';
+  input('Valet 思考深度').value = 'high';
   const creating = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await creating;
   expect(actions[0]).toMatchObject({ method: 'management.create', params: { profile: { agent: 'pi', config_mode: 'lush', connection_id: 'codex-source', model: 'openai-codex/codex-model', thinking: 'high' } } });
   for (const key of ['default_prompt', 'append_prompt', 'extensions', 'skills', 'env']) expect(actions[0].params.profile).not.toHaveProperty(key);
@@ -293,21 +297,21 @@ test('manager uses its own restricted source form, not development prompt, exten
 test('Pi-default manager profile strips managed fields and validates managed source before accepting', async () => {
   const form = createManagementProfileForm(settings); expect(form.validate()).toContain('读取项目连接');
   await btn('读取项目连接', form.node).onclick(); expect(form.validate()).toBe('');
-  input('管理 Agent 配置模式', form.node).value = 'pi'; input('管理 Agent 配置模式', form.node).onchange();
+  input('Valet 配置模式', form.node).value = 'pi'; input('Valet 配置模式', form.node).onchange();
   expect(form.collect()).toEqual({ agent: 'pi', config_mode: 'pi' }); expect(form.validate()).toBe('');
-  expect(input('管理 Agent 模型名称', form.node).disabled).toBe(true);
-  input('管理 Agent 配置模式', form.node).value = 'lush'; input('管理 Agent 配置模式', form.node).onchange();
-  expect(input('管理 Agent 模型名称', form.node).value).toBe('openai-codex/codex-model'); expect(form.collect().connection_id).toBe('codex-source');
-  input('管理 Agent 模型名称', form.node).value = 'wrong/model'; expect(form.validate()).toContain('匹配');
+  expect(input('Valet 模型名称', form.node).disabled).toBe(true);
+  input('Valet 配置模式', form.node).value = 'lush'; input('Valet 配置模式', form.node).onchange();
+  expect(input('Valet 模型名称', form.node).value).toBe('openai-codex/codex-model'); expect(form.collect().connection_id).toBe('codex-source');
+  input('Valet 模型名称', form.node).value = 'wrong/model'; expect(form.validate()).toContain('匹配');
 });
 
 test('management create failure preserves instruction, persistent mode and selected source without enabling retry loops', async () => {
-  await newManagement(); await btn('管理 Agent 运行设置').onclick(); await btn('读取项目连接').onclick(); input('信号绑定方式').value = 'persistent';
+  await newManagement(); await btn('Valet 运行设置').onclick(); await btn('读取项目连接').onclick(); input('信号绑定方式').value = 'persistent';
   const form = root().querySelector('.management-form');
   intercept = (_path, body) => body?.method === 'management.create' ? { ok: false, json: async () => ({ error: 'creation refused' }) } : null;
   const creating = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await creating;
   expect(root().querySelector('.management-form')).toBe(form); expect(input('管理指令').value).toBe('重试失败的 W11'); expect(input('信号绑定方式').value).toBe('persistent');
-  expect(input('管理 Agent 模型来源').value).toBe('codex-source'); expect(dom.node('error').textContent).toContain('creation refused');
+  expect(input('Valet 模型来源').value).toBe('codex-source'); expect(dom.node('error').textContent).toContain('creation refused');
   expect(btn('创建并绑定管理指令').disabled).toBe(false); expect(actions).toHaveLength(1);
 });
 
@@ -325,7 +329,7 @@ test('lost management creation response retries the same form key and recovers i
   };
   const first = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await first;
   expect(root().querySelector('.management-form')).toBeTruthy(); expect(deepText(root())).toContain('重试使用同一创建标识');
-  expect(dom.node('error').textContent).toContain('先检查已有管理 Worker');
+  expect(dom.node('error').textContent).toContain('先检查已有 Valet');
   const retry = btn('创建并绑定管理指令').onclick(); await dialogButton(dom, '授权并创建管理指令').onclick(); await retry;
   expect(actions).toHaveLength(2); expect(actions[1].params.client_request_id).toBe(actions[0].params.client_request_id);
   expect(createdCount).toBe(1); expect(ui.managementPage.catalogue.management_workers.map(item => item.id)).toEqual([201, 200]);
@@ -393,7 +397,7 @@ test('pending manager requests and unknown effects remain visible, escaped and n
 test('late manager profile reads remain in their independent editor and cannot paint a different project', async () => {
   await newManagement(); let resolve;
   intercept = path => path.endsWith('/api/agent/config') ? new Promise(done => { resolve = done; }) : null;
-  const loading = btn('管理 Agent 运行设置').onclick(); await until(() => resolve);
+  const loading = btn('Valet 运行设置').onclick(); await until(() => resolve);
   await btn('新建时间信号').onclick(); const form = root().querySelector('.signal-form');
   input('信号名称', form).value = '保留独立信号草稿';
   resolve(json(settings)); await loading; expect(root().querySelector('.signal-form')).toBe(form); expect(form.querySelector('.management-profile-form')).toBeNull();
@@ -401,7 +405,7 @@ test('late manager profile reads remain in their independent editor and cannot p
   await btn('取消编辑', root().querySelector('.hook-managers')).onclick();
   intercept = null; await newManagement();
   intercept = path => path.endsWith('/api/agent/config') ? new Promise(done => { resolve = done; }) : null;
-  const another = btn('管理 Agent 运行设置').onclick();
+  const another = btn('Valet 运行设置').onclick();
   dom.location.pathname = '/p/2222222222222222/'; await openManagement(); const next = root().querySelector('.management-page');
   resolve(json(settings)); await another; expect(root().querySelector('.hooks-page')).toBe(next); expect(root().querySelector('.management-profile-form')).toBeNull(); expect(actions).toHaveLength(0);
 });

@@ -2,6 +2,7 @@ import { test, expect } from 'bun:test';
 import { run as worker } from '../src/cli/commands/task.js';
 import { run as notice } from '../src/cli/commands/notice.js';
 import { run as order } from '../src/cli/commands/intent.js';
+import { run as hooks } from '../src/cli/commands/hooks.js';
 import { resolveWorkerId, workerLabel } from '../src/cli/worker-number.js';
 import { print } from '../src/cli/args.js';
 import { printTree, printBranchShow } from '../src/cli/print.js';
@@ -61,7 +62,7 @@ test('integer identities issue no lookup and deeply nested numbers resolve liter
 test('malformed or unsafe Worker numbers are rejected before any RPC', async () => {
   const client = clientFor();
   for (const value of ['W', 'W0', 'W05', 'W5-0', 'W5-01', 'W5--1', 'W5-', 'W5/1', 'W5-1x', 'w5', 'O5',
-    '#5', ' W5', 'W5 ', 'W9007199254740992', 'W5-9007199254740992']) {
+    '#5', ' W5', 'W5 ', 'W9007199254740992', 'W5-9007199254740992', 'V', 'V0', 'V01', 'V1-1', 'v1', 'V9007199254740992', 'V1\n']) {
     await expect(resolveWorkerId(client, value)).rejects.toThrow();
   }
   expect(client.calls).toEqual([]);
@@ -172,4 +173,24 @@ test('order human output identifies On while its return and JSON keep integer id
     expect(await order('order', ['goal'], { client, json: true })).toBe(result);
   } finally { console.log = original; }
   expect(lines).toEqual(['输入 O5 → Worker W5']);
+});
+
+test('Valet CLI labels and lookup use V metadata while all forwarded IDs stay integers', async () => {
+  const client = clientFor();
+  await worker('worker', ['inspect', 'V1'], { client, json: true });
+  await hooks('hooks', ['management', 'disable', 'V1', '--revision', 'binding:revision'], { client });
+  expect(client.calls).toEqual([
+    { method: 'worker.lookup', params: { number: 'V1' } }, { method: 'worker.inspect', params: { id: 205 } },
+    { method: 'worker.lookup', params: { number: 'V1' } },
+    { method: 'management.binding_update', params: { id: 205, enabled: false, expected_revision: 'binding:revision' } },
+  ]);
+  expect(workerLabel({ id: 205, worker_number: 'V1' })).toBe('V1');
+  expect(workerLabel({ id: 205, worker_number: 'V1-1' })).toBe('#205');
+  const row = { id: 205, worker_number: 'V1', role: 'manager', goal: 'query', status: 'waiting' };
+  expect(capture(() => print([row], false))).toStartWith('V1\twaiting');
+  const result = { management: true, task: row }, lines = [], original = console.log;
+  console.log = (...args) => lines.push(args.join(' '));
+  try { expect(await order('order', ['query', '--management'], { client: clientFor(result), json: false })).toBe(result); }
+  finally { console.log = original; }
+  expect(lines).toEqual(['Valet 指令已提交 → V1（不创建开发 Worker）']);
 });

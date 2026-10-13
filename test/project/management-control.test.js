@@ -27,6 +27,19 @@ async function prepared(invoke = async () => {}) {
 }
 const approve = { answers: [{ selected: [1], custom: '' }] };
 const reject = { answers: [{ selected: [0], custom: '' }] };
+function controlViews(f, manager, phase) {
+  const taskId = manager.task.id;
+  return [f.project.managementView(taskId), f.project.inspect(taskId).management,
+    f.project.hooksList().management_workers.find(row => row.id === taskId).management]
+    .map(view => view[phase].control_calls);
+}
+function expectSafeControlNotice(f, manager, phase, noticeId, kind) {
+  for (const calls of controlViews(f, manager, phase)) {
+    expect(calls[0]).toMatchObject({ notice_id: noticeId, notice_kind: kind });
+    for (const field of ['params','fingerprint','preflight_fingerprint','target_snapshot','request_id','result'])
+      expect(calls[0]).not.toHaveProperty(field);
+  }
+}
 
 test('immediate management input persists a unique authorized occurrence without signal, Git or development Input; replay uses original definition', async () => {
   let calls = 0;
@@ -144,7 +157,10 @@ for (const outcome of ['approve','reject','dismiss','lush','custom','stale']) te
     expect(f.store.task(manager.task.id).status).toBe('awaiting');
     expect(f.state(manager).pending_signal.phase).toBe('returned');
     const notice = f.store.get('SELECT * FROM notices WHERE id=?', receipt.notice_id);
-    expect(JSON.parse(notice.body).body).toContain('worker.cancel');
+    expect(notice.title).toBe('Valet V1 操作确认：worker.cancel');
+    expect(JSON.parse(notice.body).body).toContain('Valet V1 请求执行 worker.cancel');
+    expect(JSON.parse(notice.body).body).toContain(JSON.stringify({ id: f.target.id }, null, 2));
+    expectSafeControlNotice(f, manager, 'pending_signal', notice.id, 'questionnaire');
     let modelWakes = 0;
     const wake = f.project.wake.bind(f.project);
     f.project.wake = targetId => { if (targetId === manager.task.id) modelWakes++; return wake(targetId); };
@@ -154,6 +170,7 @@ for (const outcome of ['approve','reject','dismiss','lush','custom','stale']) te
     else f.project.answer(notice.id, outcome === 'reject' ? reject : outcome === 'custom' ? { answers: [{ selected: [], custom: '同意' }] } : approve);
     await f.confirm(notice.id);
     expect(f.state(manager).control_calls[0].status).toBe(outcome === 'approve' ? 'succeeded' : outcome === 'stale' ? 'failed' : 'rejected');
+    expectSafeControlNotice(f, manager, 'last_execution', notice.id, 'questionnaire');
     expect(f.store.task(f.target.id).status).toBe(outcome === 'approve' ? 'cancelled' : outcome === 'stale' ? 'failed' : 'paused');
     expect(modelWakes).toBe(0);
     expect(f.store.get(`SELECT consumed FROM messages WHERE task_id=?
@@ -161,6 +178,31 @@ for (const outcome of ['approve','reject','dismiss','lush','custom','stale']) te
     const events = f.store.get("SELECT count(*) AS n FROM events WHERE type='management.capability_started'").n;
     await f.confirm(notice.id);
     expect(f.store.get("SELECT count(*) AS n FROM events WHERE type='management.capability_started'").n).toBe(events);
+  } finally { await f.close(); }
+});
+
+test('control notice kinds come only from same-identity Notice facts and missing or unknown kinds stay null', async () => {
+  let receipt;
+  const f = await prepared(async ({ token, rpc }) => {
+    receipt = await rpc.dispatch('manager.call', { method: 'worker.cancel', params: { id: f.target.id }, _token: token });
+  });
+  try {
+    const manager = f.submit(); await f.run();
+    const state = f.state(manager);
+    state.control_calls[0].notice_kind = 'info'; // A stale private cache is not a Notice fact.
+    f.store.update(manager.task.id, { management: JSON.stringify(state) });
+    const before = f.store.task(manager.task.id);
+    for (const kind of ['questionnaire','question','plan','info','unknown']) {
+      f.store.run('UPDATE notices SET kind=? WHERE id=?', kind, receipt.notice_id);
+      expectSafeControlNotice(f, manager, 'pending_signal', receipt.notice_id, kind === 'unknown' ? null : kind);
+    }
+    f.store.run('UPDATE notices SET kind=?,task_id=? WHERE id=?', 'questionnaire', f.target.id, receipt.notice_id);
+    expectSafeControlNotice(f, manager, 'pending_signal', receipt.notice_id, null);
+    f.store.run('UPDATE notices SET task_id=? WHERE id=?', manager.task.id, receipt.notice_id);
+    expectSafeControlNotice(f, manager, 'pending_signal', receipt.notice_id, 'questionnaire');
+    f.store.run('DELETE FROM notices WHERE id=?', receipt.notice_id);
+    expectSafeControlNotice(f, manager, 'pending_signal', receipt.notice_id, null);
+    expect(f.store.task(manager.task.id)).toEqual(before); // Projection never rewrites private receipts.
   } finally { await f.close(); }
 });
 

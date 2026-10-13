@@ -103,13 +103,14 @@ test('history-only plan remains available inside one default-folded module and h
   expect(moduleTitles(panel)).not.toContain('计划');
 }));
 
-test('management with no calls retains only read-only code entry, without development controls or implicit file reads', () => fixture(async (dom, requests) => {
+test('Valet with no calls retains the shared record reader without development code or implicit file reads', () => fixture(async (dom, requests) => {
   renderDetail(worker(7, { role: 'manager', task_kind: 'management', workspace: '/tmp/management/7' }), null, null, null);
   const panel = dom.node('detail');
   expect(panel.querySelector('.management-readonly')).toBeTruthy();
   expect(panel.querySelector('.task-actions').querySelectorAll('button').map(node => node.textContent)).toEqual(['刷新详情']);
-  expect(panel.querySelector('.code-reader-open')).toBeTruthy();
-  expect(deepText(panel)).toContain('目录路径（管理工作目录）');
-  expect(panel.querySelector('.code-reader-open').classList.contains('agent-call')).toBe(false);
+  expect(panel.querySelector('.code-reader-open')).toBeNull();
+  expect(deepText(panel)).not.toContain('目录路径（管理工作目录）');
+  expect(panel.querySelector('.agent-panel')).toBeTruthy();
+  expect(panel.querySelector('.management-state')).toBeTruthy();
   expect(requests.some(url => /code-(?:state|tree|file)|transcript|action/.test(url))).toBe(false);
 }));

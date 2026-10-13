@@ -23,7 +23,7 @@
 | 根 shell 与项目登记 | `workspace-shell.js`、`project-picker.js` | [工作台](workbench.md)、[用户工作台](user-workspace.md) |
 | 总览与诊断 | `dashboard-panel.js`、`dashboard-diagnostics.js` | [总览面板](dashboard-panel.md) |
 | 输入与历史 | `composer.js`、`render-inputs.js` | [输入接口](input-history.md)、[条件发射](conditional-emission.md) |
-| Worker 列表／图／详情 | `render-tree.js`、`render-task-graph.js`、`detail.js` | [Worker 图](task-graph.md)、[Worker RPC](../reference/rpc/tasks.md) |
+| 工作列表／Worker 图／通用详情 | `render-tree.js`、`render-task-graph.js`、`detail.js` | [Worker 图](task-graph.md)、[Worker RPC](../reference/rpc/tasks.md) |
 | 时间线与执行详情 | `render-conversation.js`、`transcript-view.js` | [阅读器](transcript-reader.md) |
 | 代码与差异 | `code-view.js`、`render-diff.js` | [代码阅读器](code-reader.md) |
 | 自动化目录／功能与辅助工具 | `render-project-automation.js`、`automation-features.js`、`render-hooks.js`、`shortcut-commands.js` | [Hooks](hooks.md)、[命令授权](shortcut-commands.md)、[历史](shortcut-command-runs.md) |
@@ -35,7 +35,7 @@
 | main 版本图 | `render-versions.js` | [版本迭代](version-history.md) |
 | 文档与全文检索 | `docs.js`、`render-docs.js`、`docs-search.js` | [文档维护与格式](../contributing/documentation.md) |
 
-Worker 列表是平铺结果，树独立表达委派层级；筛选／检索只对明确读取的范围生效，不从局部卡片估算全量。管理型 Worker 详情只读，不能露出开发、交付、验收、删除或 Git 操作；时间信号与绑定管理位于独立管理 Agent 页（`render-management.js`），权限见[管理契约](hook-signals-management.md)。
+工作列表平铺 Worker 与 Valet，按类型筛选；Worker 树独立表达开发委派层级。筛选／检索只对明确读取的范围生效，不从局部卡片估算全量。通用详情共享 Agent 与执行记录，Valet 详情展示安全绑定／操作收据而不露出开发、交付、验收、删除或 Git 操作；时间信号与绑定管理保留独立 Valet 设置页（`render-management.js`），权限见[Valet 契约](hook-signals-management.md)。
 
 设置页的 `render-settings.js` 只编排导航，`settings-interface.js`／`settings-system.js` 分别拥有偏好和系统页的请求代次；Agent 编辑从 `settings-agent.js` 进入，profile、包管理和环境编辑器各自维护草稿与缓存。模型来源的 `render-agent-connections.js` 负责选择、批量操作与页面生命周期，`connection-*` 模块分别拥有编辑／登录、历史／采样、提醒和只读展示；迟到响应仍由对应请求所有者作废，秘密不进入公开草稿。浏览器模块保持 assets 平级，构建与兼容资源路由自动发现，不另维护资源登记表。
 
@@ -43,7 +43,7 @@ Worker 列表是平铺结果，树独立表达委派层级；筛选／检索只�
 
 `dom.js`／`dom-base.js` 提供基础节点，`list-surface.js` 与 `search-field.js` 统一显式搜索和列表；`shared-module.js`／`module-reading.js` 保留正文节点、引用显露与阅读锚点。它们不改变记录来源、权限或加载范围。
 
-`format.js`／`worker-label.js` 只用服务端明确编号；`worker-links.js` 经 lookup 导航，不从 W 编号猜整数。编号与标题规则见[编号参考](../reference/api.md#用户编号与-cli-身份)、[标题契约](core-api.md#worker-自定义标题)。历史引用快照不回写。
+`format.js`／`worker-label.js` 只用服务端明确编号；`worker-links.js` 经 lookup 导航，不从 W／V 编号猜整数。编号与标题规则见[编号参考](../reference/api.md#用户编号与-cli-身份)、[标题契约](core-api.md#worker-自定义标题)。历史引用快照不回写。
 
 `markdown.js` 的默认 Agent 渲染不执行 Mermaid；文档调用可接管相对链接、GFM 表格并显式开启 diagrams。`mermaid-docs.js` 只在含图的文档按需加载固定本地资源，用 strict 渲染及隔离 blob SVG，失败回退源码、离页回收；不放宽主 CSP。`code-highlight.js` 通过安全 token DOM 按需着色，未知语言／超限／失败保留纯文本。
 

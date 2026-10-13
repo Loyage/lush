@@ -62,7 +62,7 @@ test('左栏：两个区块的导航计数与索引、折叠开关、行动任�
   expect(items[1].classList.contains('selected')).toBe(true);
   // 筛选条与列表容器分离：控件建一次，轮询只重画列表
   const filters = dom.node('task-filters');
-  expect(filters.querySelectorAll('.filter-select')).toHaveLength(1);
+  expect(filters.querySelectorAll('.filter-select')).toHaveLength(2);
   const groups = filters.querySelectorAll('.filter-multi');
   expect(groups).toHaveLength(2);
   const completed = groups[0].querySelector('[data-value="completed"]').querySelector('input');

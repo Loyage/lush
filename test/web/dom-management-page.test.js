@@ -48,7 +48,7 @@ test('management navigation honors push=false and invalid subpages fail back to 
   const pushes = dom.pushed(); dom.location.hash = '#management-history';
   await openManagement({ subpage: 'history', push: false });
   expect(ui.view.id).toBe('management'); expect(dom.pushed()).toBe(pushes);
-  expect(dom.node('view-title').textContent).toBe('管理 Agent');
+  expect(dom.node('view-title').textContent).toBe('Valet 设置');
   expect(ui.managementPage.historyNode.hidden).toBe(false); expect(ui.managementPage.settingsNode.hidden).toBe(true);
   expect(tab('history').getAttribute('aria-current')).toBe('page');
   await openManagement({ subpage: 'commands' });
@@ -89,6 +89,21 @@ test('history shows safe receipts, exposes real detail and execution readers, an
   await btn('打开执行详情', history).onclick();
   expect(ui.transcriptView.taskId).toBe(900); expect(reads.some(path => path.includes('/api/worker/900/transcript'))).toBe(true);
   expect(actions).toHaveLength(0);
+});
+
+test('compact hooks summaries preserve Valet identity without inventing V numbers for legacy rows', async () => {
+  for (const number of [null, 'V9']) {
+    const compact = { ...manager, worker_number: number }; delete compact.role; delete compact.task_kind;
+    catalogue.management_workers = [compact]; ui.managementPage = null; transcriptCache.delete(900);
+    activateDetailView({ view: 'overview' }); await openManagement();
+    const entry = btn('打开执行详情');
+    expect(entry.getAttribute('data-preview-text')).toContain(`Valet ${number || '#900'}`);
+    await entry.onclick();
+    expect(deepText(ui.transcriptView.panel)).toContain(`Valet ${number || '#900'}`);
+    expect(ui.transcriptView.panel.querySelectorAll('[role="tab"]').map(node => node.textContent)).toEqual(['执行记录']);
+    closeTranscriptView();
+  }
+  expect(actions).toHaveLength(0); expect(reads.some(path => path.includes('/code-'))).toBe(false);
 });
 
 test('management execution entry renders timing, pagination and sorting independently of Worker selection', async () => {

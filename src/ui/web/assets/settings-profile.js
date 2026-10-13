@@ -8,9 +8,11 @@ import { settingsClientFor } from './settings-api.js';
 import { draftFingerprint } from './settings-scope.js';
 import { field, selectOptions, thinkingLabel } from './settings-controls.js';
 import { createProfileResources } from './settings-profile-resources.js';
+import { createManagementProfileForm } from './management-profile-form.js';
 
 const modelCatalogs = new Map();
 export function profileEditor(settings, profile, target, title, subtitle, repaint, ownsPage, savedSummary = null, names = new Map()) {
+  if (target === 'manager') return valetProfileEditor(settings, profile, repaint, ownsPage);
   const client = settingsClientFor(settings);
   const card = el('section', undefined, 'agent-profile'); card.dataset.agentTarget = target;
   const head = el('div', undefined, 'agent-profile-head section-title');
@@ -232,6 +234,30 @@ export function profileEditor(settings, profile, target, title, subtitle, repain
   return card;
 }
 
+function valetProfileEditor(settings, profile, repaint, ownsPage) {
+  const client = settingsClientFor(settings);
+  const card = el('section', undefined, 'agent-profile'); card.dataset.agentTarget = 'manager';
+  card.append(el('h3', 'Valet'), el('p', '管理调用的默认来源与模型；使用独立提示词和受限工具，不继承开发 Prompt、扩展或环境变量。已创建的 Valet 保留其固定配置。', 'settings-note'));
+  const form = createManagementProfileForm(settings, { profile, ownsPage, read: client.read });
+  card.append(form.node, button('保存配置', async () => {
+    if (!ownsPage()) return;
+    const issue = form.validate(); if (issue) { show(issue, 'error'); return; }
+    const draft = draftFingerprint(card);
+    const saved = await client.action('agent.configure', { config: { version: 1, default: settings.default,
+      roles: { ...settings.roles, manager: form.collect() } } });
+    if (!ownsPage()) return;
+    show('Valet 默认配置已保存；仅新建管理工作生效。');
+    if (draft === draftFingerprint(card)) repaint(saved);
+    else Object.assign(settings, saved);
+  }), button('恢复继承默认', async () => {
+    if (!ownsPage()) return;
+    const roles = { ...settings.roles }; delete roles.manager;
+    const saved = await client.action('agent.configure', { config: { version: 1, default: settings.default, roles } });
+    if (ownsPage()) repaint(saved);
+  }, 'ghost', { help: '删除 Valet 单独默认配置；已创建的管理工作保持其固定配置。' }));
+  return card;
+}
+
 export function inheritedRole(settings, role, repaint, names = new Map(), ownsPage = () => true) {
   const client = settingsClientFor(settings);
   const meta = settings.options.roles.find(item => item.id === role) || { id: role, label: role };
@@ -242,7 +268,7 @@ export function inheritedRole(settings, role, repaint, names = new Map(), ownsPa
   const source = resolved.agent === 'pi' ? (named ? `来源 ${named}` : '未选择来源') : 'Codex CLI 自身认证';
   const summary = normalizeConfigMode(resolved.config_mode) === 'pi' ? 'Pi 默认配置（执行机器 Pi）'
     : `${resolved.agent} · ${source} · ${resolved.model || (resolved.agent === 'pi' ? '请选择来源内模型' : 'CLI 默认模型')} · ${thinkingLabel(resolved.thinking)}`;
-  copy.append(el('h3', meta.label), el('p', summary, 'settings-note'));
+  copy.append(el('h3', role === 'manager' ? 'Valet' : meta.label), el('p', summary, 'settings-note'));
   card.append(copy, el('span', '继承默认', 'badge b-neutral'), button('单独配置', async () => {
     if (!ownsPage()) return;
     const saved = await client.action('agent.configure', { config: { version: 1, default: settings.default,

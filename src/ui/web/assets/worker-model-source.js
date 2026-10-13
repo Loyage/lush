@@ -4,6 +4,7 @@ import { confirmDialog } from './dialog.js';
 import { TERMINAL_STATUS, isHistoricalDelivery } from './format.js';
 import { normalizeConfigMode } from './agent-config-mode.js';
 import { workerKind } from './worker-kind.js';
+import { isValet } from './work-type.js';
 import { show } from './messages.js';
 import { workerLabel } from './worker-label.js';
 
@@ -41,6 +42,10 @@ export function modelSourceSummary(task, history = [], connections = null) {
   }
   node.append(el('p', `当前调用来源：${current}`, 'hint'));
   const next = task.model_selection;
+  if (isValet(task)) {
+    node.append(el('p', next ? `已固定 Valet 配置：${nextConfigMode(task) === 'pi' ? 'Pi 默认配置（执行机器决定来源与模型）' : [next.agent, next.connection_id ? sourceName(next.connection_id) : '来源未知', next.model || '模型未知', next.thinking].filter(Boolean).join(' → ')}` : 'Valet 配置：未知（后台未提供安全摘要）', 'hint'));
+    return node;
+  }
   node.append(el('p', next && nextConfigMode(task) === 'pi'
     ? `下一次配置：Pi 默认配置（执行机器的 Pi 自行决定来源与模型）· ${next.explicit ? 'Worker 独立覆盖' : '继承项目 / 角色配置'}`
     : next

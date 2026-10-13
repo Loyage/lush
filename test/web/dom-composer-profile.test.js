@@ -146,7 +146,7 @@ test('管理模式使用隔离配置表单，默认沿用manager，不发送开�
   void button().onclick(); await until(() => dialogButton(dom, '使用这份管理设置'));
   const modal = dom.node('modal'); expect(modal.querySelector('[data-retry-field="default_prompt"]')).toBeNull();
   expect(deepText(modal)).toContain('危险操作须用户确认');
-  const mode = modal.querySelector('[aria-label="管理 Agent 配置模式"]'); mode.value = 'pi'; mode.onchange();
+  const mode = modal.querySelector('[aria-label="Valet 配置模式"]'); mode.value = 'pi'; mode.onchange();
   await dialogButton(dom, '使用这份管理设置').onclick();
   dom.node('input').value = '分析运行效率'; dom.node('input').oninput();
   await dom.node('input-form').onsubmit({ preventDefault() {} });

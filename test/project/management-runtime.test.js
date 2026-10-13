@@ -49,7 +49,7 @@ test('saving signals and management instructions is noncalling, revision-stable 
     const signal = f.signal(f.once()); const manager = f.manager(signal);
     const revision = f.project.hookSignals().revision, bindingRevision = f.view(manager).revision;
     expect(manager).toMatchObject({ role: 'manager', task_kind: 'management', status: 'waiting', input_id: null,
-      parent_id: null, branch: null, target_branch: null, worker_number: null, workspace: null });
+      parent_id: null, branch: null, target_branch: null, worker_number: 'V1', workspace: null });
     expect(f.calls()).toBe(0); expect(f.timers.size).toBe(1);
     expect([...f.timers.values()][0].delay).toBeLessThanOrEqual(60000);
     expect(f.project.inspect(manager.id).management).toEqual(f.view(manager));
@@ -238,7 +238,9 @@ test('persistent management reuses one Worker, busy daily signals do not accumul
     expect(f.view(manager)).toMatchObject({ enabled: true, state: 'waiting', pending_signal: null });
     f.advance(86400000); f.flush(); await f.run();
     expect(f.calls()).toBe(2); expect(f.project.hooksList().management_workers).toHaveLength(1);
-    expect(f.store.task(manager.id).agent_wakes).toBe(2);
+    expect(f.project.hooksList().management_workers[0]).toMatchObject({ id: manager.id, worker_number: 'V1' });
+    expect(f.store.task(manager.id)).toMatchObject({ agent_wakes: 2, worker_number: 'V1' });
+    expect(f.store.get("SELECT value FROM meta WHERE key='valet_number_high'").value).toBe('1');
   } finally { release.resolve(); await f.close(); }
 });
 

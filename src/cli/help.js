@@ -9,7 +9,7 @@ lush [--project PATH] [--json] <command>
   order '目标' [--branch NAME] [--profile-file PATH] [--defer]  发射：可靠挂载，父 runtime 空闲时创建并开始；--defer 保留兼容
     [--after-settled ID|Wn] [--after-merged ID|Wn] [--quiet] [--exclusive]  条件全部满足后准入；Worker 条件可重复
     [--append ID|Wn] [--buffer]  追加输入也可暂存或条件发射；--buffer 仅保存，不调用 Agent
-  order '管理需求' --management [--profile-file PATH]  当前项目管理 Agent；危险操作须用户确认，不创建开发 Worker
+  order '管理需求' --management [--profile-file PATH]  当前项目 Valet；危险操作须用户确认，不创建开发 Worker
   worker list|tree|inspect ID         查看 Worker
   worker spawn '目标' --parent ID [--name NAME]  在指令/child 下派 agent 子 Worker
   worker auto-title '标题'           为自身生成一次自动标题（仅活动指令/子 Agent）
@@ -38,8 +38,8 @@ lush [--project PATH] [--json] <command>
   hooks remove TEMPLATE_ID --revision REV  删除模板，不影响已有挂载实例
   hooks signal save --file PATH --revision REV  保存时间信号（使用 signals.revision，不证明额度恢复）
   hooks signal remove SIGNAL_ID --revision REV  删除无启用绑定的信号
-  hooks management create --file PATH  创建并绑定管理指令；到信号时才调用 Agent，可能消耗 token
-  hooks management enable|disable ID --revision REV  启停管理绑定（使用 management.revision）
+  hooks management create --file PATH  创建并绑定 Valet 指令；到信号时才调用 Agent，可能消耗 token
+  hooks management enable|disable ID|Vn --revision REV  启停 Valet 绑定（使用 management.revision）
                                       专用 Agent 仅查询、开始/继续暂停、重试失败；默认一次，不开发、不合并
   worker auto-merge ID on|off         设置 Worker 持久自动合并 hook；派生子 Worker 不可关闭
   worker reserve ID merge            发起一次合并意图（不改变自动合并开关）
@@ -98,7 +98,8 @@ lush [--project PATH] [--json] <command>
   config migrate --confirm --revision REV  按预检确认迁移，保留私有备份与旧 Markdown 原件
   config ... / agent ... --scope device  可选设备 scope；省略仍选设备，project 覆盖已停用
 
-Worker ID 可用原整数或稳定编号 W5 / W5-1；编号由 daemon 解析，不是整数 ID。
+Worker／Valet ID 可用原整数或稳定编号 W5 / W5-1 / V1；编号由 daemon 解析，不是整数 ID。
+新 Valet 独立编号 V1、V2…，持续信号复用同一编号；旧管理记录不补号，V 不加入开发树或交付链。
 实际新建的原始输入显示 O5，对应新指令 W5；挂载未创建及追加不造 O；派生子 Worker 为 W5-1，历史编号不改。
 输入与子 Worker 编号允许跳号且不复用；分页游标、Notice ID 仍为整数。
 

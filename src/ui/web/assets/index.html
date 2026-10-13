@@ -65,7 +65,7 @@
   </nav>
   <nav class="workspace-nav" aria-label="自动动作" data-project-navigation>
     <span class="help-host" data-help="打开可用项目后才能查看自动化功能及其设置和记录。"><button type="button" id="hooks-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">⌁</span><span><strong>项目自动化</strong><small>功能列表、设置与运行记录</small></span><span class="nav-arrow">→</span></button></span>
-    <span class="help-host" data-help="打开可用项目后才能管理本项目的管理 Agent 与时间信号。"><button type="button" id="management-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">◎</span><span><strong>管理 Agent</strong><small>管理指令、时间信号与记录</small></span><span class="nav-arrow">→</span></button></span>
+    <span class="help-host" data-help="打开可用项目后才能管理本项目的 Valet 绑定与时间信号。"><button type="button" id="management-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">◎</span><span><strong>Valet 设置</strong><small>时间信号与管理绑定</small></span><span class="nav-arrow">→</span></button></span>
     <span class="help-host" data-help="打开可用项目后才能管理指令定义、版本授权与 Hook 模板。"><button type="button" id="hook-tools-open" class="workspace-link"><span class="nav-icon" aria-hidden="true">⚒</span><span><strong>指令与 Hook 工具</strong><small>定义、授权与可复用模板</small></span><span class="nav-arrow">→</span></button></span>
   </nav>
   <div class="nav-divider" data-global-navigation="true"><span>设备设置与帮助</span></div>
@@ -99,10 +99,10 @@
       </div>
     </section>
     <section class="resource-page side" id="side-tasks" data-side="tasks" hidden>
-      <header class="resource-hero"><span class="resource-kicker">EXECUTION</span><h1>Worker 列表</h1><p>平铺浏览所有类型的 Worker，用搜索与多选筛选快速定位；父子关系请到「Worker 树」查看。</p></header>
+      <header class="resource-hero"><span class="resource-kicker">EXECUTION</span><h1>工作</h1><p>统一查看 Worker 开发与 Valet 管理工作，用类型、状态和编号搜索定位；开发委派关系请到「Worker 树」查看。</p></header>
       <div class="resource-tools"><div class="filters" id="task-filters"></div><label class="sort-label help-host" tabindex="0" for="sidebar-sort" data-help="排序为设备统一偏好；等待权威配置读取后可修改。">排序<select id="sidebar-sort" class="sort" aria-label="列表排序方式"></select></label></div>
       <div class="resource-card">
-        <div class="section-title"><button type="button" class="side-head" id="side-head-tasks" data-side="tasks" aria-expanded="true" aria-controls="tasks"><span class="side-name">Worker</span><span id="task-count" class="count"></span></button></div>
+        <div class="section-title"><button type="button" class="side-head" id="side-head-tasks" data-side="tasks" aria-expanded="true" aria-controls="tasks"><span class="side-name">工作</span><span id="task-count" class="count"></span></button></div>
         <div class="side-body" id="side-tasks-body"><div id="tasks"></div></div>
       </div>
     </section>

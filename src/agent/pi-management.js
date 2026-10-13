@@ -4,12 +4,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { managementInvocation, validateManagementRPC } from './management-rpc.js';
 import { builtInPrompt } from './prompts.js';
+import { isWorkerNumber } from '../core/worker-number.js';
 
 const HELPER = fileURLToPath(new URL('./management-rpc.js', import.meta.url));
 export const MANAGEMENT_TOOL_NAMES = Object.freeze(['manager_query', 'manager_start', 'manager_retry',
   'manager_catalog', 'manager_history', 'manager_call']);
-const workerSchema = { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'string', pattern: '^W[1-9][0-9]*(?:-[1-9][0-9]*)*$' }],
-  description: '当前项目 Worker 的内部整数 ID 或精确持久编号（如 W117、W117-1），不能猜测编号。' };
+const workerSchema = { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'string', pattern: '^(?:W[1-9][0-9]*(?:-[1-9][0-9]*)*|V[1-9][0-9]*)$' }],
+  description: '当前项目 Worker／Valet 的内部整数 ID 或精确持久编号（如 W117、W117-1、V1）；V 查询不授予开发动作权限，不能猜测编号。' };
 const MAX_OUTPUT = 256 * 1024;
 const UNCONFIRMED = '管理请求被拒绝或未确认完成；副作用可能已经发生，不能换身份或自动重试。';
 
@@ -70,8 +71,8 @@ function validateWorker(params, required) {
   if (params.worker === undefined && !required) return undefined;
   const worker = params.worker;
   if (Number.isSafeInteger(worker) && worker > 0) return worker;
-  if (typeof worker === 'string' && /^W[1-9]\d*(?:-[1-9]\d*)*$/.test(worker)) return worker;
-  throw new Error('worker must be a positive internal ID or a persistent W number');
+  if (isWorkerNumber(worker)) return worker;
+  throw new Error('worker must be a positive internal ID or a persistent W/V number');
 }
 
 export function registerManagementTools(pi, request = managementRPCRequest, env = process.env) {
@@ -83,7 +84,7 @@ export function registerManagementTools(pi, request = managementRPCRequest, env 
     return request(method, params, signal, bound);
   };
   for (const [name, method, label, description] of [
-    ['manager_query', 'manager.query', '查询 Worker', '查询当前项目的有界 Worker 摘要或单目标安全诊断；不读文件、会话或凭证。'],
+    ['manager_query', 'manager.query', '查询 Worker／Valet', '查询当前项目的有界开发 Worker 摘要或 Worker／Valet 单目标安全诊断；不读文件、会话或凭证。'],
     ['manager_start', 'manager.start', '开始／继续 Worker', '只提交开始／继续 paused 的开发 Worker。waiting 由 runtime 持久等待安全点，提交后结束本轮，不轮询。'],
     ['manager_retry', 'manager.retry', '重试失败 Worker', '只提交重试 failed 的开发 Worker，保留已有运行设置。成功不是任务完成或额度恢复；unknown／异常不能自动重试。'],
   ]) {
@@ -95,6 +96,7 @@ export function registerManagementTools(pi, request = managementRPCRequest, env 
       async execute(_toolCallId, params, signal) {
         const selector = validateWorker(params, method !== 'manager.query');
         const target = typeof selector === 'string' ? await call('worker.lookup', { number: selector }, signal) : null;
+        if (typeof selector === 'string' && target?.worker_number !== selector) throw new Error('invalid Worker/Valet lookup response');
         const id = target ? target.id : selector;
         if (selector !== undefined && (!Number.isSafeInteger(id) || id <= 0)) throw new Error('Worker number did not resolve to a current target');
         const result = await call(method, id === undefined ? {} : { id }, signal);
@@ -142,7 +144,7 @@ export function registerManagementTools(pi, request = managementRPCRequest, env 
   });
   // Even a malicious/resumed model tool call cannot reach an inactive built-in or nested tool.
   pi.on('tool_call', event => {
-    if (!MANAGEMENT_TOOL_NAMES.includes(event.toolName)) return { block: true, reason: '管理型 Agent 只允许可信管理工具，不开放文件、Shell 或未审核 RPC。' };
+    if (!MANAGEMENT_TOOL_NAMES.includes(event.toolName)) return { block: true, reason: 'Valet 只允许可信管理工具，不开放文件、Shell 或未审核 RPC。' };
   });
 }
 

@@ -76,6 +76,25 @@ test('trusted tools resolve real W numbers and call only the bound manager metho
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('Valet selectors share strict lookup validation without adding tools or forwarding string IDs', async () => {
+  const root = temp(), calls = [];
+  try {
+    const f = harness(invocation(root), async (method, params) => {
+      calls.push({ method, params });
+      return method === 'worker.lookup' ? { id: 99, worker_number: params.number } : { worker_number: 'V2', available_actions: [] };
+    });
+    await f.tools.get('manager_query').execute('query', { worker: 'V2' });
+    expect(calls).toEqual([{ method: 'worker.lookup', params: { number: 'V2' } }, { method: 'manager.query', params: { id: 99 } }]);
+    for (const number of ['V0', 'V01', 'V2-1', 'V9007199254740992', 'W9007199254740992', 'W1-9007199254740992']) {
+      expect(() => validateManagementRPC('worker.lookup', { number })).toThrow('number');
+      await expect(f.tools.get('manager_query').execute('bad', { worker: number })).rejects.toThrow();
+    }
+    expect(calls).toHaveLength(2);
+    const mismatched = harness(invocation(root), async () => ({ id: 99, worker_number: 'V3' }));
+    await expect(mismatched.tools.get('manager_query').execute('query', { worker: 'V2' })).rejects.toThrow('lookup response');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('reviewed catalogue, history and capability tools keep the bound invocation and reject malformed transport parameters', async () => {
   const root = temp(), calls = [];
   try {

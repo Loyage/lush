@@ -89,7 +89,9 @@ for (const mode of ['lush', 'pi']) test(`manager ${mode} uses an isolated system
     expect(result.env.LUSH_MANAGER_RPC_SOCKET).toBe(f.config.socket);
     expect(JSON.parse(result.env.LUSH_RUNTIME_CONTEXT)).toMatchObject({ role: 'manager', task_kind: 'management', task_id: 50, run_id: 12 });
     const prompt = fs.readFileSync(path.join(f.config.home, 'sessions', 'task-50-system.md'), 'utf8');
-    expect(prompt).toContain('专用管理型 Agent'); expect(prompt).toContain('manager_start');
+    expect(prompt).toContain('角色：manager（Valet：隔离的项目管理 Agent）');
+    expect(prompt).toContain('当前 Lush 项目的 Valet（专用管理型 Agent），不是开发 Agent');
+    expect(prompt).toContain('manager_start');
     expect(prompt).not.toContain('REPLACE WITH DEVELOPER'); expect(prompt).not.toContain('USE BASH');
     expect(prompt).not.toContain('角色：agent'); expect(prompt).not.toContain('lush progress plan');
     if (mode === 'pi') { expect(result.args).not.toContain('--model'); expect(result.args).not.toContain('--thinking'); }
@@ -144,7 +146,8 @@ test('manager Prompt ignores project/common/development overlays and keeps opera
     expect(assembled.customization.project).toEqual([]); expect(assembled.customization.local).toEqual([]);
     expect(assembled.text).not.toContain('UNTRUSTED DEVELOPER OVERLAY');
     for (const wording of ['不能扩大授权', '不证明 Codex 额度恢复', '不盲目重试', '禁止跨项目', 'completed/cancelled', 'waiting', 'unknown',
-      '明确给出的 worker_number', 'target_worker_number', '没有编号时才回退 #内部ID', '不得从 id 或 target_id 推算 W 编号'])
+      'Valet', '独立持久 V 编号', '持续信号多次运行仍是同一身份',
+      '明确给出的 worker_number', 'target_worker_number', '没有编号时才回退 #内部ID', '不得从 id 或 target_id 推算 W/V 编号'])
       expect(assembled.text).toContain(wording);
     expect(builtInPrompt('manager')).toBe(assembled.text);
     const development = agentPrompt(f.config, 'agent', {}, 'order');

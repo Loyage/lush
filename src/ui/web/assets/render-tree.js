@@ -1,4 +1,4 @@
-import { $, button, el, roleBadge, routeBadge, syncChildren } from './dom.js';
+import { $, badge, button, el, roleBadge, routeBadge, syncChildren } from './dom.js';
 import { api } from './api.js';
 import { bindWorkerPreview } from './entity-preview.js';
 import { projectBase } from './route.js';
@@ -13,6 +13,7 @@ import { referenceable } from './context-references.js';
 import { progressReportingEnabled, progressStats, refreshProgressDurations, renderCompactProgress } from './render-progress.js';
 import { workerLabel, rememberWorkers } from './worker-label.js';
 import { listEntry } from './list-surface.js';
+import { isValet, workTypeLabel } from './work-type.js';
 
 // DOM-owned state is discarded with the node on boot/project changes. Signatures describe
 // rendered dependencies, not updated_at (child status/progress/config can change independently).
@@ -64,6 +65,7 @@ function depChips(task) {
 }
 /** 已知等待原因优先；queued 可能受依赖、冻结或安全准入门限制。 */
 function whyLine(task, index) {
+  if (isValet(task)) return task.management?.reason || ({ waiting_actions: '操作已提交，等待安全点', unknown: '结果未知，不自动重放', idle: '等待时间信号', consumed: '一次性授权已用完' }[task.management?.state]) || null;
   const interruptHint = interruptReason(task);
   if (interruptHint) return interruptHint;
   const waiting = waitingDeps(task);
@@ -118,7 +120,7 @@ export function renderTree(data) {
   const ordered = [];
   for (const task of orderTasks(visible, { mode: ui.sidebarSortMode, openNoticeIds })) {
     const node = known.get(task.id) || listEntry(button('', () => { ui.noticeFocus = null; return detail(task.id); }, 'task'));
-    const integration = INTEGRATION[task.integration];
+    const integration = isValet(task) ? null : INTEGRATION[task.integration];
     if (Number(node.dataset.id) !== task.id) node.dataset.id = task.id;
     const className = `task ui-list-entry s-${task.status}${ui.selected === task.id ? ' selected' : ''}${task.route ? ' route-flagged' : ''}`;
     if (node.className !== className) node.className = className;
@@ -134,18 +136,20 @@ export function renderTree(data) {
     // Dependency labels also depend on the project number cache, not just task.deps.
     const depsKey = JSON.stringify(depsOf(task).filter(dep => ['code', 'order'].includes(dep.kind))
       .map(dep => [dep.kind, workerLabel(dep), dep.status, statusOf(dep)]));
-    const rowKey = JSON.stringify([task.status, status, label, task.role, Boolean(task.route), depsKey]);
+    const rowKey = JSON.stringify([task.status, status, label, task.role, task.task_kind, Boolean(task.route), depsKey]);
     if (state.rowKey !== rowKey) {
       state.rowKey = rowKey;
       patchText(state.dot, status.icon); patchText(state.tid, label); patchText(state.status, status.label);
       const dotClass = `dot c-${task.status}`;
       if (state.dot.className !== dotClass) state.dot.className = dotClass;
       if (!Object.hasOwn(state, 'role') || state.role !== task.role) {
-        state.role = task.role; state.roleBadge = task.role === 'agent' ? null : roleBadge(task.role);
+        state.role = task.role; state.roleBadge = task.role === 'agent' || isValet(task) ? null : roleBadge(task.role);
       }
       if (task.route && !state.routeBadge) state.routeBadge = routeBadge();
       if (state.depsKey !== depsKey) { state.depsKey = depsKey; state.deps = depChips(task); }
-      syncChildren(state.row, [state.dot, state.tid, state.status, ...(state.roleBadge ? [state.roleBadge] : []),
+      state.typeBadge ||= badge(''); patchText(state.typeBadge, workTypeLabel(task));
+      state.typeBadge.classList.add('work-type-badge');
+      syncChildren(state.row, [state.dot, state.tid, state.status, state.typeBadge, ...(state.roleBadge ? [state.roleBadge] : []),
         ...(task.route ? [state.routeBadge] : []), ...state.deps, state.when]);
     }
     state.updatedAt = task.updated_at;
@@ -172,14 +176,14 @@ export function renderTree(data) {
     if (state.referenceKey !== referenceKey) {
       state.referenceKey = referenceKey;
       referenceable(node, [
-        { kind: 'task', target: { task_id: task.id }, label: `Worker ${label}`, quote: `${task.goal}\n状态：${status.label} · ${ROLE[task.role] || task.role}`, location: { view: 'task-tree', task_id: task.id } },
-        { kind: 'task_subtree', target: { task_id: task.id }, label: `Worker 子树 ${label}`, quote: `${task.goal}\n从此 Worker 开始的分支`, location: { view: 'task-tree', task_id: task.id } },
+        { kind: 'task', target: { task_id: task.id }, label: `${workTypeLabel(task)} ${label}`, quote: `${task.goal}\n状态：${status.label} · ${ROLE[task.role] || task.role}`, location: { view: 'task-tree', task_id: task.id } },
+        ...(isValet(task) ? [] : [{ kind: 'task_subtree', target: { task_id: task.id }, label: `Worker 子树 ${label}`, quote: `${task.goal}\n从此 Worker 开始的分支`, location: { view: 'task-tree', task_id: task.id } }]),
       ]);
     }
     ordered.push(node);
   }
   if (isFiltering(query) && !visible.length) ordered.push(el('div', data.task_page?.has_more
-    ? '已加载 Worker 中没有符合筛选的条目；更早记录尚未加载，请继续加载历史。'
+    ? '已加载工作中没有符合筛选的条目；更早记录尚未加载，请继续加载历史。'
     : '没有符合筛选的条目', 'filter-empty'));
   const page = data.task_page;
   if (page) {
@@ -187,8 +191,8 @@ export function renderTree(data) {
     if (list.pagingKey !== pagingKey) {
       const paging = el('div', undefined, 'task-pagination');
       paging.append(el('span', page.truncated
-        ? `当前显示全部 ${page.active} 个活动 Worker 和最近 ${page.shown} / ${page.historical} 个历史 Worker（列表已截断）`
-        : `已显示全部 ${page.total} 个 Worker`, 'hint'));
+        ? `已加载全部 ${page.active} 个活动工作和最近 ${page.shown} / ${page.historical} 个历史工作（列表已截断，筛选仅覆盖已加载范围）`
+        : `已加载全部 ${page.total} 个工作`, 'hint'));
       if (page.has_more) {
         const more = button('加载更早 50 个', async () => {
           more.disabled = true; more.textContent = '加载中…';

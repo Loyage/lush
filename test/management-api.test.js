@@ -173,7 +173,7 @@ test('Hooks management CLI refuses Agent configuration, unsafe files, extra fiel
   try {
     const badArgs = [['signal'], ['signal','save','--file',f.filename], ['signal','remove','signal-id'], ['signal','emit','signal-id'],
       ['management'], ['management','start','9'], ['management','create'], ['management','create','--file',f.filename,'extra'],
-      ['management','disable','W17','--revision',revision], ['management','enable','9']];
+      ['management','disable','V1-1','--revision',revision], ['management','enable','9']];
     for (const args of badArgs) await expect(hooks('hooks', [...args], { client: c })).rejects.toThrow();
     for (const args of [['signal','save','--file',f.filename,'--revision',revision], ['management','create','--file',f.filename],
       ['management','disable','9','--revision',revision]]) await expect(hooks('hooks', args, { client: client('agent-token') })).rejects.toThrow('user only');

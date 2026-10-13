@@ -16,11 +16,21 @@ export const tasks = {
   },
   /** Called only inside create's transaction. Meta survives both targeted deletion and purge. */
   allocateWorkerNumber(taskKind, parentId, inputId) {
+    if (taskKind === 'management') {
+      const key = 'valet_number_high';
+      const high = Number(this.get('SELECT value FROM meta WHERE key=?', key)?.value ?? 0);
+      check(Number.isSafeInteger(high) && high >= 0 && high < Number.MAX_SAFE_INTEGER, 'Valet number limit reached');
+      const next = high + 1;
+      this.run('INSERT INTO meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', key, String(next));
+      return workerNumber(`V${next}`);
+    }
     if (taskKind === 'order') return inputId === null || inputId === undefined ? null : workerNumber(`W${id(inputId)}`);
     if (taskKind !== 'child' || parentId === null) return null;
     const parent = this.task(parentId);
+    check(parent.task_kind !== 'management', 'development child requires a W-numbered parent, not a Valet');
     if (parent.worker_number === null) return null;
     workerNumber(parent.worker_number);
+    check(parent.worker_number.startsWith('W'), 'development child requires a W-numbered parent, not a Valet');
     const key = `worker_child_high:${parent.id}`;
     const high = Number(this.get('SELECT value FROM meta WHERE key=?', key)?.value ?? 0);
     check(Number.isSafeInteger(high) && high >= 0 && high < Number.MAX_SAFE_INTEGER, 'Worker child number limit reached');

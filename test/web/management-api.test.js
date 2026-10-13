@@ -4,7 +4,7 @@ import { setup, fetch } from './harness.js';
 const revision = 'signal:a1', signal = { name: '额度更新时间已到', schedule: { kind: 'daily', time: '00:05', timezone: 'Asia/Shanghai' } };
 const request = { name: '夜间重试', instruction: '重试失败的 W17', signal_id: 'signal-id', client_request_id: 'same-dialog-attempt' };
 const management = { version: 1, revision: 'binding:a1', signal_id: 'signal-id', mode: 'once', enabled: true, state: 'waiting' };
-const row = { id: 9, role: 'manager', task_kind: 'management', goal: request.instruction, management,
+const row = { id: 9, worker_number: 'V1', role: 'manager', task_kind: 'management', goal: request.instruction, management,
   retry_profile: JSON.stringify({ env: { SECRET: 'never-public' } }) };
 const view = { version: 1, revision: 'templates:a1', templates: [], actions: [], triggers: [],
   signals: { version: 1, revision, items: [{ id: 'signal-id', ...signal }] }, management_workers: [row] };
@@ -59,6 +59,24 @@ test('HTTP rejects forged tokens, extra fields, missing revisions, manager tools
       expect([400,404]).toContain((await fetch(f.url + url)).status);
     }
     expect(calls).toEqual([]);
+  } finally { await f.close(); }
+});
+
+test('HTTP Valet creation, list, inspect and strict lookup preserve integer endpoint authority', async () => {
+  const f = await setup(); f.project.kick = () => {};
+  try {
+    const definition = { instruction: 'query only', client_request_id: 'http-valet' };
+    const created = await (await post(f, 'management.submit', definition)).json();
+    expect(created.task.worker_number).toBe('V1');
+    expect((await (await post(f, 'management.submit', definition)).json()).task.id).toBe(created.task.id);
+    expect(await (await fetch(f.url + '/api/worker-lookup?number=V1')).json()).toEqual({ id: created.task.id, worker_number: 'V1' });
+    expect((await (await fetch(f.url + '/api/hooks')).json()).management_workers[0].worker_number).toBe('V1');
+    const inspected = await (await fetch(f.url + `/api/worker/${created.task.id}`)).json();
+    expect(inspected.worker_number).toBe('V1'); expect(inspected.retry_profile).toBeUndefined();
+    for (const number of ['V0', 'V01', 'V1-1', 'V9007199254740992', 'V2'])
+      expect((await fetch(f.url + `/api/worker-lookup?number=${number}`)).status).toBe(400);
+    expect((await fetch(f.url + '/api/worker/V1')).status).toBe(404);
+    expect((await post(f, 'management.binding_update', { id: 'V1', enabled: false, expected_revision: created.task.management.revision })).status).toBe(400);
   } finally { await f.close(); }
 });
 

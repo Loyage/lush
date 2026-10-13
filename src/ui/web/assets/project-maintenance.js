@@ -109,7 +109,7 @@ async function change(host, state, key) {
   try {
     if (key === 'pause') {
       const accepted = await confirmDialog({ title: '全部中断当前项目？',
-        message: '暂停当前项目的新 Agent 调用，包括子 Worker 和管理 Agent；当前调用在安全点收尾，不强杀工具，不影响其他项目。',
+        message: '暂停当前项目的新 Agent 调用，包括子 Worker 和 Valet；当前调用在安全点收尾，不强杀工具，不影响其他项目。',
         detail: 'Pi 等本轮工具结束，其他后端等当前调用自然结束。\n消息与工作现场保留；父子 Worker 的等待关系不改变。\n后台重启后仍保持维护暂停，需显式点击“全部继续”。\n只有实际调用和后台操作都退出后才能重启；此按钮不会自动重启后台或界面。',
         confirmLabel: '全部中断', cancelLabel: '取消', confirmHelp: PAUSE_HELP });
       if (!accepted || !owns(host, state) || state.offline || !state.model || (state.pending && !state.pending.model)) return;

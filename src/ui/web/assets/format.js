@@ -1,4 +1,5 @@
-// 标签映射与纯格式化（无 DOM、无共享状态）：谁都能 import，自己不 import 任何人。
+// 标签映射与纯格式化（无 DOM、无共享状态）。
+import { validWorkNumber } from './work-type.js';
 
 /** Only an actual supplied duration; never infer windows from their position. */
 export function usageWindow(seconds) {
@@ -30,7 +31,7 @@ export const worktreeLabel = task => (task?.task_kind === 'management' ? '管理
 /** 已下线交付记录仅供回看，不提供重试、预约或迭代操作。 */
 export const isHistoricalDelivery = task => task.role === 'showcase' || task.task_kind === 'showcase'
   || Boolean(task.reservation?.kind && task.reservation.kind !== 'merge');
-export const ROLE = { planner: '规划', scheduler: '调度', worker: '执行', coordinator: '协调', research: '调研', verifier: '检验', merger: '解冲突', explainer: '执行介绍', butler: '管家', manager: '管理' };
+export const ROLE = { planner: '规划', scheduler: '调度', worker: '执行', coordinator: '协调', research: '调研', verifier: '检验', merger: '解冲突', explainer: '执行介绍', butler: '管家', manager: 'Valet' };
 export const EVENTS = {
   created: '创建 Worker', 'task.auto_titled': 'Agent 生成 Worker 标题', 'task.renamed': '调整 Worker 标题', 'invocation.started': '开始调用', 'invocation.completed': '调用完成',
   'invocation.connection': '绑定账号连接', 'invocation.inputs_delivered': '输入已交给 Agent',
@@ -65,14 +66,14 @@ export const EVENTS = {
   'shortcut.command_failed': '快捷指令执行失败', 'shortcut.command_unknown': '快捷指令结果待核验',
   'hook.signal_saved': '保存时间信号', 'hook.signal_removed': '删除时间信号',
   'hook.signal_emitted': '时间信号已发出', 'hook.signal_missed': '时间信号已错过发出时刻',
-  'management.created': '创建管理型 Worker', 'management.binding_updated': '调整管理信号绑定',
+  'management.created': '创建 Valet', 'management.binding_updated': '调整管理信号绑定',
   'management.signal_skipped': '管理信号已跳过', 'management.signal_submitted': '管理信号已提交待执行',
   'management.input_submitted': '管理输入已提交待调用',
   'management.capability_requested': '管理能力请求已记录',
   'management.capability_confirmation': '管理操作授权已处理（不代表已执行）',
   'management.capability_started': '开始执行管理能力', 'management.capability_completed': '管理能力已执行',
   'management.capability_failed': '管理能力操作未完成',
-  'management.invocation_started': '管理 Agent 开始调用', 'management.action_submitted': '管理操作已提交待安全点',
+  'management.invocation_started': 'Valet 开始调用', 'management.action_submitted': '管理操作已提交待安全点',
   'management.action_skipped': '管理操作已跳过', 'management.action_completed': '管理操作已执行',
   'management.settled': '管理信号处理已收口', 'management.failed': '管理信号处理失败', 'management.unknown': '管理结果未知，待核验',
   'hooks.template_saved': '保存 Hook 模板', 'hooks.template_removed': '删除 Hook 模板',
@@ -186,7 +187,7 @@ export const TERMINAL_STATUS = new Set(['completed', 'failed', 'cancelled']);
 export const short = value => (typeof value === 'string' ? value.slice(0, 7) : '');
 /** 用户编号只是标签；不从 Input 或父子关系推算，也不改变内部整数身份。 */
 export function workerNumber(task) {
-  return typeof task?.worker_number === 'string' && /^W[1-9]\d*(?:-[1-9]\d*)*$/.test(task.worker_number)
+  return validWorkNumber(task?.worker_number)
     ? task.worker_number : `#${task?.id ?? '?'}`;
 }
 /** 只有已经发射的原始 Input 使用 O 编号，Draft 仍是独立暂存身份。 */

@@ -2,6 +2,7 @@ import { $ } from './dom.js';
 import { api, isReadAbort, loadConnectionNames, loadHistory, projectApi, withReadSignal } from './api.js';
 import { renderDetail, renderDetailError } from './render-detail.js';
 import { loadWorkerRelations } from './render-worker-relations.js';
+import { isValet, workTypeLabel } from './work-type.js';
 import { activateDetailView, setViewChrome, toggleMobileNavigation } from './sidebar-ui.js';
 import { transcriptCache, transcriptOpen, ui } from './state.js';
 import { appendTranscriptSteps, fetchTranscriptAfter, loadTranscript } from './render-transcript.js';
@@ -63,7 +64,7 @@ async function updateOpenTranscript(task, current, signal) {
   } catch { /* Keep readable history; the next detail refresh can retry. */ }
 }
 
-/** Show the Worker first; slow supplementary reads must not delay navigation/notice ACK. */
+/** Show the work first; slow supplementary reads must not delay navigation/notice ACK. */
 export async function loadDetail(taskId) {
   if (ui.deletedWorkerIds.has(taskId)) return false;
   ui.disposeDetailRequests = disposeDetailRequests;
@@ -71,7 +72,7 @@ export async function loadDetail(taskId) {
   ui.selected = taskId;
   const project = projectApi('/api/');
   const view = activateDetailView({ view: 'task', key: `task-${taskId}`, hash: `#worker-${taskId}`,
-    title: `Worker ${workerLabel(taskId)}`, context: 'Worker 列表', hint: '结果优先，过程与运行信息随后' });
+    title: `${workerLabel(taskId).startsWith('V') ? 'Valet' : 'Worker'} ${workerLabel(taskId)}`, context: '工作', hint: '结果优先，过程与运行信息随后' });
   const request = ++detailRequest;
   const boot = ui.workerNumbers, ownerDocument = globalThis.document;
   const reads = new AbortController();
@@ -95,7 +96,7 @@ export async function loadDetail(taskId) {
   // A fullscreen reader still needs its terminal tail, without repainting the hidden detail.
   if (transcriptOpen.has(taskId)) void updateOpenTranscript(task, current, reads.signal);
   if (ui.transcriptView) return false;
-  setViewChrome(`Worker ${workerLabel(task)}`, 'Worker 列表', '结果优先，过程与运行信息随后');
+  setViewChrome(`${workTypeLabel(task)} ${workerLabel(task)}`, '工作', '结果优先，过程与运行信息随后');
   ui.selectedRevision = task.updated_at; ui.detailTask = taskId; ui.detailRenderedAt = Date.now(); ui.detailDirty = false;
   let diffPending = null;
   const requestDiff = () => {
@@ -113,7 +114,7 @@ export async function loadDetail(taskId) {
   const cached = values.values;
   const initialHistory = cached.history ? { ...cached.history, onMore: before => loadHistory(taskId, before, options) } : { loading: true, events: [] };
   const patches = renderDetail(task, initialHistory, null, cached.usage ?? null, cached.connections ?? null,
-    { current, requestDiff, signal: reads.signal, loaded: cached });
+    { current, ...(isValet(task) ? {} : { requestDiff }), signal: reads.signal, loaded: cached });
   supplemental = patches;
   ui.composerTask = task; ui.composerError = null; ui.syncComposer?.();
   // Preserve reading moves made while the request was in flight, including the history renderer's anchor correction.
@@ -125,10 +126,10 @@ export async function loadDetail(taskId) {
   const tree = $('tasks').querySelector(`[data-id="${taskId}"]`);
   if (tree) for (const node of $('tasks').children) node.classList.toggle('selected', node === tree);
   const extra = {
-    relations: read(loadWorkerRelations(taskId, { ...options, count: $('detail').querySelector('.worker-relations')?.relationsCount })),
+    ...(isValet(task) ? {} : { relations: read(loadWorkerRelations(taskId, { ...options, count: $('detail').querySelector('.worker-relations')?.relationsCount })) }),
     history: read(loadHistory(taskId, null, options)),
     ...(task.calls ? { usage: read(api(`/api/worker/${taskId}/usage`, options)) } : {}),
-    ...(['order', 'child', 'say'].includes(task.task_kind) ? { connections: read(loadConnectionNames(options)) } : {}),
+    ...(isValet(task) || ['order', 'child', 'say'].includes(task.task_kind) ? { connections: read(loadConnectionNames(options)) } : {}),
   };
   for (const [kind, promise] of Object.entries(extra)) {
     void promise.then(({ value, available }) => {

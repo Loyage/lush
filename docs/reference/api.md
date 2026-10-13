@@ -14,21 +14,24 @@
 
 新原始输入沿用项目次序显示为 `O5`，其直接指令 Worker 为 `W5`；Agent 派生的后代按父级次序显示为 `W5-1`、`W5-1-1`。新指令即使提交到已有 Worker 分支，仍用自身输入编号。失败或删除可能留下空号，编号不复用。历史 Worker 不改编号；未编号的历史父 Worker 新派生后代继续使用旧整数编号。
 
-CLI 的 Worker 身份参数支持原整数或严格的新编号：
+新 Valet 使用项目独立序列 `V1`、`V2`……，保存于共有 `tasks.worker_number` 字段；不依赖 Input 或内部 ID。创建时在事务内更新 `meta.valet_number_high`，删除、purge、重启后不复用；同一 Valet 的多次信号执行保持原编号。历史管理记录不补号，仍按原身份查看。V 编号没有开发子层级。
+
+CLI 的工作身份参数支持原整数或严格的 W／V 编号；身份解析不授予对应类型未具备的操作权限：
 
 ```bash
 bun run lush worker inspect W5-1
+bun run lush worker inspect V1  # Valet 通用只读详情；不是开发 Worker
 bun run lush worker message W5-1 '补充说明'
 bun run lush worker rename W5 '登录修复'  # 仅用户，只改展示标题；空串恢复自动标题
 bun run lush worker spawn '目标' --parent W5 --name child
 bun run lush notice post '问题' --worker W5-1 --body '背景'
 ```
 
-CLI 通过只读 `worker.lookup {number}` 找到真实整数 ID 后，再调用原 Worker 操作；`W5` 不意味着内部 `id=5`。RPC/HTTP 的既有 `id`、引用目标、链接、环境变量和磁盘路径仍使用整数。`--json` 保留整数 `id` 和可空 `worker_number`；分页游标与 Notice ID 仍为整数，不接受 W 编号。
+CLI 通过只读 `worker.lookup {number}` 找到真实整数 ID 后，再调用原接口；`W5` 或 `V5` 均不意味着内部 `id=5`。解析严格接受 `Wn(-n)*` 或 `Vn`，正安全整数、无前导零；`V1-1`、小写、溢出和超长值拒绝。RPC/HTTP 的既有 `id`、引用目标、链接、环境变量和磁盘路径仍使用整数。`--json` 保留整数 `id` 和可空 `worker_number`；分页游标与 Notice ID 仍为整数，不接受 W／V 编号。
 
 ### 持久身份边界
 
-`tasks.worker_number` 可空、创建后不可改写，部分唯一索引兜底；同父 child 次序在 `meta.worker_child_high:<parent_id>` 持久递增，不按存活子数重算，不随删除／purge 清除。读面携带明确编号，缺关联时为 null；用户报告回退 `#内部ID`，不得用整数或当前树推算 W 编号。机器身份、排序、权限、合并顺序和引用快照不改。
+`tasks.worker_number` 可空、创建后不可改写，部分唯一索引兜底；同父 child 次序在 `meta.worker_child_high:<parent_id>` 持久递增，不按存活子数重算，不随删除／purge 清除。读面携带明确编号，缺关联时为 null；用户报告回退 `#内部ID`，不得用整数或当前树推算 W／V 编号。机器身份、排序、权限、合并顺序和引用快照不改。
 
 ## 追加输入与 Notice 编号
 

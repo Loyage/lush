@@ -31,7 +31,7 @@
 
 读取 HTTP：`GET /api/hooks`、`GET /api/worker/ID/hooks`，不接受查询参数。写入通过已登录、同源的 `POST /api/action {method,params}`，不是通用 RPC 代理。
 
-目录返回 `{version:1,revision,triggers,actions,templates,commands,daemon_hooks,completion_defaults,signals,management_workers,command_example}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,completion,convergence,can_attach,mounts}`。CLI 的 Worker 参数接受内部整数或 `Wn(-n)*`，先经 `worker.lookup` 解析；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
+目录返回 `{version:1,revision,triggers,actions,templates,commands,daemon_hooks,completion_defaults,signals,management_workers,command_example}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,completion,convergence,can_attach,mounts}`。CLI 的工作身份参数接受内部整数或 `Wn(-n)*`／`Vn`，先经 `worker.lookup` 解析，目标操作仍按原类型准入；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
 
 `revision` 是不透明字符串，必须先读并随写请求携带；过期返回错误，不覆盖并发修改。模板 `id` 与挂载 `hook_id` 是不同身份。
 
@@ -81,9 +81,9 @@ Shell Hook 引用 `{type:'command',command_id:'UUID',command_version:1}`；提�
 
 `signals:{version:1,revision,items}` 是项目时间信号配置读面；保存／删除使用 **signals.revision**，不使用模板或 daemon 自动选择版本。定义 `{id?,name,enabled?,schedule}` 复用定时 schedule；发出历史、next_run_at、last_due_at 和 last_execution 可读，不把时间到点当作额度恢复。
 
-`management.create` 返回 `{task}`；创建新 role='manager'/task_kind='management' 的无 Git 管理 Worker，保存后等待 signal_id，不立即启动 Agent。默认 mode='once'，可显式 persistent。Web 表单固定 client_request_id 去重；同 key 同定义重试返回原 Worker，同 key 改定义拒绝。key 非空、最多 128 字符、无首尾空白／控制字符；CLI 文件可显式提供，未提供时响应丢失应先检查历史，不盲目重做创建。management_workers 是有界列表，附安全 management 对象和 model_selection；完整 profile 仅写，不回读。启停使用 **management.revision**。已消费一次性／失败／未知不可重新启用重放，需要另建指令。普通 mutation/inspect 出口剔除字符串 management 私有 JSON。
+`management.create` 返回 `{task}`；创建新 role='manager'/task_kind='management' 的无 Git Valet（`worker_number` 保存独立 V 编号，见[编号规则](../api.md#用户编号与-cli-身份)），保存后等待 signal_id，不立即启动 Agent。默认 mode='once'，可显式 persistent。Web 表单固定 client_request_id 去重；同 key 同定义重试返回原 Worker，同 key 改定义拒绝。key 非空、最多 128 字符、无首尾空白／控制字符；CLI 文件可显式提供，未提供时响应丢失应先检查历史，不盲目重做创建。management_workers 是有界列表，附安全 management 对象和 model_selection；完整 profile 仅写，不回读。启停使用 **management.revision**。已消费一次性／失败／未知不可重新启用重放，需要另建指令。普通 mutation/inspect 出口剔除字符串 management 私有 JSON。
 
-专用受限工具使用 Agent-only `manager.query {id?}` / `manager.start {id}` / `manager.retry {id}`，并提供 `manager.catalog {}`、`manager.history {id?,before?,limit?}`、`manager.call {method,params,request_id?}`；均不在 Web POST action 或用户 CLI 管理执行入口开放。能力分级与用户精确确认见[管理契约](../../engineering/hook-signals-management.md)。后端另强制核验当前 invocation 的管理角色、绑定和 occurrence，普通开发 Agent 不能调用。目标是内部整数 ID，工具通过 worker.lookup 解析 W 编号。开始仅处理 paused，重试仅 failed；无 profile 参数、不切账号。受阻返回已持久 waiting，安全点执行，不让模型循环重发。
+专用受限工具使用 Agent-only `manager.query {id?}` / `manager.start {id}` / `manager.retry {id}`，并提供 `manager.catalog {}`、`manager.history {id?,before?,limit?}`、`manager.call {method,params,request_id?}`；均不在 Web POST action 或用户 CLI 管理执行入口开放。能力分级与用户精确确认见[管理契约](../../engineering/hook-signals-management.md)。后端另强制核验当前 invocation 的管理角色、绑定和 occurrence，普通开发 Agent 不能调用。目标是内部整数 ID，工具通过 worker.lookup 解析明确的 W／V 编号；查找不扩大开始／重试等目标准入。开始仅处理 paused，重试仅 failed；无 profile 参数、不切账号。受阻返回已持久 waiting，安全点执行，不让模型循环重发。
 
 产品授权、动作收据和恢复规则见[时间信号与管理契约](../../engineering/hook-signals-management.md)。
 

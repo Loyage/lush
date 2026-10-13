@@ -64,7 +64,7 @@ export async function run(command, args, ctx) {
       value = await client.request('order.submit', { content: args[0], ...(branch ? { branch } : {}), ...(profile ? { profile } : {}), ...(defer ? { defer: true } : {}) });
     }
     if (!ctx.json && value?.emitted) console.log(`输入已挂载（草稿 #${value.draft_id}）；等待条件及 runtime 安全准入，不保证立即创建或调用 Agent。`);
-    else if (!ctx.json && value?.management) console.log(`管理指令已提交 → ${workerLabel(value.task)}（不创建开发 Worker）`);
+    else if (!ctx.json && value?.management) console.log(`Valet 指令已提交 → ${workerLabel(value.task)}（不创建开发 Worker）`);
     else if (!ctx.json && value?.id && value?.task) console.log(`输入 ${inputNumber(value.id)} → Worker ${workerLabel(value.task)}`);
   }
   return value;

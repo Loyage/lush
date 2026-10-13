@@ -16,7 +16,7 @@ export function workerLabel(value, number = undefined) {
   const key = keyOf(id);
   if (!ui.deletedWorkerIds.has(id) && task.worker_number !== undefined) {
     const label = workerNumber(task);
-    if (label.startsWith('W')) {
+    if (/^[WV]/.test(label)) {
       ui.workerNumbers.delete(key); ui.workerNumbers.set(key, label);
       if (ui.workerNumbers.size > LIMIT) ui.workerNumbers.delete(ui.workerNumbers.keys().next().value);
     } else ui.workerNumbers.delete(key);

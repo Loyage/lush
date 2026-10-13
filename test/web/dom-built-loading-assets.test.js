@@ -6,7 +6,7 @@ import { buildAssets } from '../../src/ui/web/build-assets.js';
 import { installDom } from '../dom-stub.js';
 import { installDom as installProjectDom } from './project-dom.js';
 import { makeWorld } from './dom-world.js';
-import { temp } from '../helpers.js';
+import { temp, until } from '../helpers.js';
 const root = temp(), assets = fileURLToPath(new URL('../../src/ui/web/assets/', import.meta.url));
 await buildAssets(assets, root, 'a'.repeat(32));
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
@@ -54,6 +54,36 @@ test('compiled lazy settings and appearance entry share live authoritative prefs
   expect(dom.node('detail').querySelector('input[data-value="light"]').checked).toBe(true);
   await dom.node('detail').querySelector('.notice-notification-control').querySelector('button').onclick();
   expect(world.state.devicePreferences.values.noticeNotifications).toBe(false);
+});
+
+test('compiled Valet profile loads on demand, preserves shared composer state and discards a stale mode', async () => {
+  const project = installProjectDom({ fetch: world.fetchImpl });
+  const writes = world.state.actions.length;
+  try {
+    await boot();
+    const toggle = project.node('composer-shell').querySelector('.composer-management');
+    const settings = project.node('composer-shell').querySelector('.composer-run-settings');
+    await toggle.onclick();
+    const stale = settings.onclick(); await toggle.onclick(); await stale;
+    expect(project.node('modal').querySelector('[role="dialog"]')).toBeNull();
+    expect(settings.textContent).toBe('运行设置：项目默认');
+    expect(world.state.actions).toHaveLength(writes);
+
+    await toggle.onclick(); const opening = settings.onclick();
+    await until(() => project.node('modal').querySelector('.management-profile-form'));
+    const modal = project.node('modal');
+    expect(modal.querySelector('[data-retry-field="default_prompt"]')).toBeNull();
+    const mode = modal.querySelector('[aria-label="Valet 配置模式"]'); mode.value = 'pi'; mode.onchange();
+    await modal.querySelectorAll('button').find(node => node.textContent === '使用这份管理设置').onclick();
+    await opening;
+    expect(settings.textContent).toBe('管理运行设置：本条已选择');
+    expect(world.state.actions).toHaveLength(writes);
+    project.node('input').value = '检查项目管理状态'; project.node('input').oninput();
+    await project.node('input-form').onsubmit({ preventDefault() {} });
+    const sent = world.state.actions.findLast(row => row.method === 'management.submit');
+    expect(sent.params.profile).toEqual({ agent: 'pi', config_mode: 'pi' });
+    expect(sent.params).not.toHaveProperty('env'); expect(sent.params).not.toHaveProperty('default_prompt');
+  } finally { project.restore(); await boot(); }
 });
 
 test('compiled explicit project owns work chunks while global links preserve its input and reading position', async () => {

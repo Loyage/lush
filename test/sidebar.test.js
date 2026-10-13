@@ -132,7 +132,7 @@ test('折叠状态：解析、序列化、切换都是纯函数且容忍坏数�
 
 test('筛选状态：解析出规整对象，类型不符的字段回落成默认值', () => {
   expect(parseFilters(null)).toEqual({
-    tasks: { status: 'all', role: 'all', integration: 'all', mine: false, text: '' },
+    tasks: { status: 'all', type: 'all', role: 'all', integration: 'all', mine: false, text: '' },
     specs: { status: 'all', planner: 'all', role: 'all', text: '' },
     intents: { gate: 'all', status: 'all', text: '' },
   });

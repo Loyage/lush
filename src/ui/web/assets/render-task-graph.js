@@ -1,5 +1,6 @@
 import { $, badge, button, el, roleBadge } from './dom.js';
 import { workerKind, workerKindLabel } from './worker-kind.js';
+import { isValet } from './work-type.js';
 import { action } from './api.js';
 import { graphPage, readTaskGraph, paintGraphStatus, graphTail, observeGraphTail } from './task-graph-loading.js';
 import { confirmDialog } from './dialog.js';
@@ -391,7 +392,7 @@ export function renderTaskGraph(graph) {
   if (hasOpenActions() || hasPendingInput() || window.getSelection?.()?.toString()
     || graphMotionRunning($('detail').querySelector('.task-graph'))) return;
   const minimal = ui.taskGraphMinimal;
-  const raw = (graph.nodes || []).filter(node => !ui.deletedWorkerIds.has(node.id));
+  const raw = (graph.nodes || []).filter(node => !ui.deletedWorkerIds.has(node.id) && !isValet(node));
   rememberWorkers(raw);
   for (const node of raw) rememberWorkers(node.merge_queue?.items);
   const byId = new Map(raw.map(node => [node.id, node]));

@@ -1,6 +1,7 @@
 import { api } from './api.js';
 import { projectBase, routeContext } from './route.js';
 import { workerNumber, taskTitle, statusOf } from './format.js';
+import { validWorkNumber, workTypeLabel } from './work-type.js';
 
 const LIMIT = 256, TTL = 30000;
 const cache = new Map(); // Only bounded, plain-text summaries; never retain inspect payloads.
@@ -14,7 +15,7 @@ export function workerPreviewText(task) {
   const goal = task.goal ?? task.goal_preview;
   const rawTitle = task.display_title || task.auto_title || task.title || taskTitle({ ...task, goal });
   const title = typeof rawTitle === 'string' ? `${rawTitle.slice(0, 120)}${rawTitle.length > 120 ? '…' : ''}` : '';
-  return [`Worker ${workerNumber(task)}${title ? ` · ${title}` : ''}`,
+  return [`${workTypeLabel(task)} ${workerNumber(task)}${title ? ` · ${title}` : ''}`,
     excerpt(goal, task.goal_truncated), task.status ? `状态：${statusOf(task).label}` : ''].filter(Boolean).join('\n');
 }
 export function inputPreviewText(record) {
@@ -50,13 +51,13 @@ export function entityPreviewTarget(node) {
   const base = project ? `/p/${project[1]}` : projectBase();
   let match = /^#worker-([1-9]\d*)$/.exec(url.hash);
   if (match && positive(match[1])) return { kind: 'worker', id: Number(match[1]), base };
-  match = /^#worker-number-(W[1-9]\d*(?:-[1-9]\d*)*)$/.exec(url.hash);
-  if (match && match[1].slice(1).split('-').every(positive)) return { kind: 'worker-number', number: match[1], base };
+  match = /^#worker-number-(.+)$/.exec(url.hash);
+  if (match && validWorkNumber(match[1])) return { kind: 'worker-number', number: match[1], base };
   match = /^#input-input-([1-9]\d*)$/.exec(url.hash);
   return match && positive(match[1]) ? { kind: 'input', id: Number(match[1]), base } : null;
 }
 export function previewPlaceholder(target) {
-  const label = target.kind === 'input' ? `原始指令 O${target.id}` : `Worker ${target.number || `#${target.id}`}`;
+  const label = target.kind === 'input' ? `原始指令 O${target.id}` : `${target.number?.startsWith('V') ? 'Valet' : 'Worker'} ${target.number || `#${target.id}`}`;
   return `${label}\n正在读取简介…`;
 }
 

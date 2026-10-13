@@ -61,7 +61,7 @@ for (const runtime of ['node', 'bun']) for (const mode of ['lush', 'pi']) {
       rpc = new RPCServer(f.config.socket, new ObservedDispatcher(f.project, createSignal(), {}));
       await rpc.start();
       const draft = { method: 'draft.add', params: { content: 'real-tool-chain draft', branch: 'main' } };
-      cli.plan([
+      const plan = [
         { name: 'manager_catalog', params: {} },
         { name: 'manager_history', params: { id: target.id, limit: 1 } },
         { name: 'manager_call', params: draft, callId: 'same-draft-operation' },
@@ -72,7 +72,7 @@ for (const runtime of ['node', 'bun']) for (const mode of ['lush', 'pi']) {
         { name: 'manager_query', params: { worker: target.worker_number } },
         { name: 'manager_start', params: { worker: target.worker_number } },
         { name: 'manager_retry', params: { worker: failed.id } },
-      ]);
+      ];
       // A temporary-device API key is enough to exercise real Lush connection
       // preparation. The CLI never sends a model or account-observation request.
       const connection = mode === 'lush' ? await f.project.agentConnections.forScope('device').save({
@@ -81,6 +81,8 @@ for (const runtime of ['node', 'bun']) for (const mode of ['lush', 'pi']) {
       const manager = f.project.submitManagementInstruction({ instruction: '检查当前项目并保存草稿、开始及重试目标',
         profile: { agent: 'pi', config_mode: mode,
           ...(connection ? { connection_id: connection.id, model: 'deepseek/deepseek-chat' } : {}) } }).task;
+      expect(manager.worker_number).toBe('V1');
+      cli.plan([...plan, { name: 'manager_query', params: { worker: manager.worker_number } }]);
       f.project.pump();
       await Promise.all([...f.project.running.values()].map(run => run.promise));
       const task = f.store.task(manager.id);
@@ -93,7 +95,7 @@ for (const runtime of ['node', 'bun']) for (const mode of ['lush', 'pi']) {
       expect(result.entries).toContainEqual({ type: 'lush.invocation', data: {
         task_id: manager.id, run_id: invocation.context.invocation.run_id, role: 'manager' } });
       const replies = result.replies;
-      expect(replies).toHaveLength(9);
+      expect(replies).toHaveLength(10);
       for (const [index, reply] of replies.entries()) {
         if (index === 5) {
           expect(reply.response).toBeUndefined();
@@ -122,9 +124,11 @@ for (const runtime of ['node', 'bun']) for (const mode of ['lush', 'pi']) {
         expect(replies[index].response.details).toMatchObject({ target_id: id, status: 'succeeded' });
         expect(f.store.task(id).status).toBe('queued');
       }
+      expect(replies[9].response.details).toMatchObject({ id: manager.id, worker_number: manager.worker_number,
+        task_kind: 'management', status: 'running', available_actions: [] });
       expect(calls.every(call => call.authenticated)).toBe(true);
       expect(sorted(new Set(calls.map(call => call.method)))).toEqual(sorted(MANAGER_METHODS));
-      expect(calls.filter(call => call.method === 'worker.lookup')).toHaveLength(2);
+      expect(calls.filter(call => call.method === 'worker.lookup')).toHaveLength(3);
       for (const secret of ['FIXTURE-MANAGED-API-KEY', invocation.token, 'agent_token_hash', 'retry_profile', 'control_calls', 'creation_fingerprint'])
         expect(task.result).not.toContain(secret);
       expect(task.agent_token_hash).toBeNull();

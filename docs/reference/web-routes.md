@@ -8,11 +8,11 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 ## Worker 页面与命名
 
-浏览器的 Worker 详情使用 `#worker-ID`，执行详情仍在详情页显式点击打开，不提供独立 hash；平铺列表使用 `#workers`，父子树使用 `#worker-graph`。HTTP 与 Web 写动作同步使用下文的 `/api/worker/**`、`/api/workers`、`/api/worker-graph` 和 `worker.*`。旧 Task 路由与动作不保留别名；数据字段与历史事件仍可保留 `task`，完整边界见[核心 API 更名说明](../engineering/core-api.md#worker-更名与兼容边界)。
+浏览器的 Worker 详情使用 `#worker-ID`，执行详情仍在详情页显式点击打开，不提供独立 hash；统一「工作」平铺列表仍使用 `#workers`，按 Worker／Valet／全部筛选；开发父子树使用 `#worker-graph`，不把 Valet 的操作目标当作委派子节点。HTTP 与 Web 写动作同步使用下文的 `/api/worker/**`、`/api/workers`、`/api/worker-graph` 和 `worker.*`。旧 Task 路由与动作不保留别名；数据字段与历史事件仍可保留 `task`，完整边界见[核心 API 更名说明](../engineering/core-api.md#worker-更名与兼容边界)。
 
-问卷、通知详情和 Agent 正文中的独立 Worker 用户编号（例如 `W141-1`）自动显示为蓝色下划线链接。链接使用 `#worker-number-W141-1`，打开时通过当前项目只读查找解析真实内部身份，再进入原有 `#worker-ID` 详情；支持键盘与新标签打开，不把 W 编号当作内部 ID，也不在渲染时查询。未知／已删除编号明确报错。代码块、已有链接、编辑区和普通操作按钮不自动改写；选择题选项中的编号链接与选择按钮独立，查看 Worker 不会作答，返回问卷保留未提交草稿。静态 HTML 效果预览仍保持原 sandbox，不注入跳转能力。
+问卷、通知详情和 Agent 正文中的独立 W／V 用户编号（例如 `W141-1`、`V1`）自动显示为蓝色下划线链接。链接使用 `#worker-number-W141-1` 或 `#worker-number-V1`，打开时通过当前项目只读查找解析真实内部身份，再进入原有 `#worker-ID` 通用详情；支持键盘与新标签打开，不把编号当作内部 ID，也不在渲染时查询。未知／已删除编号明确报错。代码块、已有链接、编辑区和普通操作按钮不自动改写；选择题选项中的编号链接与选择按钮独立，查看 Worker 不会作答，返回问卷保留未提交草稿。静态 HTML 效果预览仍保持原 sandbox，不注入跳转能力。
 
-项目自动化 `#hooks` 是功能列表；`#hooks-completion`、`#hooks-push`、`#hooks-convergence`、`#hooks-emission` 分别为完工处理、推送、归并和条件发射设置页，各自追加 `-history` 查看运行记录。旧 `#hooks-history` 返回列表，不再混合不同功能的历史。`#management`／`#management-history` 是独立管理 Agent 设置／记录页。辅助 `#hook-tools` 管理 Hook 模板，既有 `#hooks-commands` 保留指令列表→详情／编辑，`#hook-tools-history` 查看全部快捷指令安全历史；无手动运行入口。实际授权、历史和 Worker 详情原协议不迁移；精确操作入口见[使用指南](../hooks.md#页面入口)。
+项目自动化 `#hooks` 是功能列表；`#hooks-completion`、`#hooks-push`、`#hooks-convergence`、`#hooks-emission` 分别为完工处理、推送、归并和条件发射设置页，各自追加 `-history` 查看运行记录。旧 `#hooks-history` 返回列表，不再混合不同功能的历史。`#management`／`#management-history` 保留为独立 Valet 设置与最近触发记录入口；完整工作详情和历史复用工作列表，不增加平行的 Agent 页面。辅助 `#hook-tools` 管理 Hook 模板，既有 `#hooks-commands` 保留指令列表→详情／编辑，`#hook-tools-history` 查看全部快捷指令安全历史；无手动运行入口。实际授权、历史和 Worker 详情原协议不迁移；精确操作入口见[使用指南](../hooks.md#页面入口)。
 
 ## 宿主级路由
 
@@ -86,7 +86,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/inputs?cursor=&limit=&q=&status=&integration=` | 用户专属 `input.history`，全项目原始输入与未提交草稿搜索/筛选/分页，见[历史输入接口](../engineering/input-history.md) |
 | `GET /api/input/{kind}/{id}` | 用户专属 `input.get`，`kind` 为 `draft` / `input`，完整正文与引用 |
 | `GET /api/input-parents` | 用户专属 `input.parents`，完整可选父 Worker 读面 |
-| `GET /api/worker-lookup?number=Wn(-n)*` | 只读 `worker.lookup {number}`，严格完整用户编号，返回 `{id,worker_number}`；仅当前项目查找，不接受额外或重复参数 |
+| `GET /api/worker-lookup?number=Wn(-n)*` 或 `number=Vn` | 只读 `worker.lookup {number}`，严格完整用户编号，返回 `{id,worker_number}`；仅当前项目查找，不接受额外或重复参数 |
 | `GET /api/workers?scope=&before=&limit=` | `worker.page`，有界Worker分页，`scope` 为 `work` / `all` |
 | `GET /api/notices?status=&before=&limit=` | `notice.page`：全部类型事项与处理结果的按需分页；过滤掉旧 `plan` 类型；参数和留档语义见[待决问题](rpc/notices.md) |
 | `GET /api/worker-graph` | Worker 父子读面（`worker.graph`） |
@@ -151,6 +151,6 @@ Hooks 另开放 `hooks.save/remove/auto_select/signal_save/signal_remove`、`hoo
 
 分支归并另开放 `branch.convergence_set`／`branch.convergence_defaults_set`／`branch.convergence_retry`，仅经当前项目 `POST /api/action`：严格 `{method,params}` envelope，不接受 query、多余字段或任何 `_token` 值，保留登录、Origin、项目身份及 JSON 校验。分支setter携带enabled、读取revision和可选mounted（省略兼容为true）；validation可省略保留旧引用，开启无需命令。defaults setter携带mounted、enabled及其独立revision，只影响之后实际创建的新Worker。retry携带整数运行ID和revision，不自动重放未知落地。只读RPC不进入action白名单，也没有GET修改入口。详见[分支归并接口](rpc/convergence.md)。
 
-管理 Agent 的专用 `manager.query/start/retry/catalog/history/call` RPC 不进入 Web 动作白名单；用户通过独立管理 Agent 页保存信号绑定，或主输入「管理 Lush」即时提交 management.submit，不从 Web 构造管理 Actor。危险请求用用户 Notice 答复固定授权，管理模型和自动选择均不能代签。授权范围见[时间信号与管理契约](../engineering/hook-signals-management.md)。
+管理 Agent 的专用 `manager.query/start/retry/catalog/history/call` RPC 不进入 Web 动作白名单；用户通过独立 Valet 设置页保存信号绑定，或主输入「管理 Lush」即时提交 management.submit 新建 Valet，不从 Web 构造管理 Actor。危险请求用用户 Notice 答复固定授权，管理模型和自动选择均不能代签。授权范围见[时间信号与管理契约](../engineering/hook-signals-management.md)。
 
 任何不在上述白名单的写入（含已下线的批量草稿提交、Candidate 验收、托管模式、展示、旧介绍与旧合并入口）都不再提供 Web 操作。

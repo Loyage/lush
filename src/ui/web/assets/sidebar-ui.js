@@ -14,7 +14,7 @@ const PAGES = {
   'task-graph': ['Worker 树', '工作', 'Worker 父子关系 · Agent、分支与 worktree'],
   versions: ['版本迭代', '工作', 'main Git 提交图 · 固定 Worker 交付追溯'],
   hooks: ['项目自动化', '工作', '功能列表 · 设置与运行记录'],
-  management: ['管理 Agent', '工作', '管理指令 · 时间信号与绑定记录'],
+  management: ['Valet 设置', '工作', '时间信号 · Valet 绑定与设置运行快照'],
   'hook-tools': ['指令与 Hook 工具', '工作', '定义 · 版本授权与可复用模板'],
   inputs: ['历史输入', '工作', '暂存想法 · 全库原始输入检索与发射'],
   statistics: ['用量统计', '交付与用量', 'Token 用量与预计花费 · 非实际账单'],

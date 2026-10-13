@@ -8,6 +8,7 @@
  * 默认（空查询、无折叠）必须与改造前完全一致：三个 filter* 在没有任何条件时原样返回入参数组。
  */
 import { ROLE, workerNumber } from './format.js';
+import { workType } from './work-type.js';
 
 /**
  * 左栏的四个区块：导航条、折叠状态都按这个顺序走，DOM 顺序也必须是同一个顺序。
@@ -16,7 +17,7 @@ import { ROLE, workerNumber } from './format.js';
  */
 export const SIDEBAR_SECTIONS = [
   { id: 'notices', label: '待我处理', long: '待我处理', icon: '◔', description: '提问、答复与提醒' },
-  { id: 'tasks', label: 'Worker 列表', long: 'Worker 列表', icon: '✓', description: '指令、子 Worker 与执行过程' },
+  { id: 'tasks', label: '工作', long: '工作', icon: '✓', description: 'Worker 开发与 Valet 管理记录' },
 ];
 export const COLLAPSED_KEY = 'lush.sidebar.collapsed';
 export const FILTERS_KEY = 'lush.sidebar.filters';
@@ -25,7 +26,7 @@ export const FILTERS_KEY = 'lush.sidebar.filters';
 export const UNMERGED = new Set(['pending', 'review', 'conflict']);
 
 export const DEFAULT_FILTERS = Object.freeze({
-  tasks: { status: 'all', role: 'all', integration: 'all', mine: false, text: '' },
+  tasks: { status: 'all', type: 'all', role: 'all', integration: 'all', mine: false, text: '' },
   specs: { status: 'all', planner: 'all', role: 'all', text: '' },
   intents: { gate: 'all', status: 'all', text: '' },
 });
@@ -83,7 +84,9 @@ export function parseFilters(raw) {
     if (!source || typeof source !== 'object') continue;
     for (const [key, fallback] of Object.entries(DEFAULT_FILTERS[section])) {
       const given = source[key];
-      if (section === 'tasks' && (key === 'status' || key === 'role') && Array.isArray(given)) {
+      if (section === 'tasks' && key === 'type') {
+        if (['all', 'worker', 'valet'].includes(given)) out.tasks.type = given;
+      } else if (section === 'tasks' && (key === 'status' || key === 'role') && Array.isArray(given)) {
         out[section][key] = [...new Set(given.filter(value => typeof value === 'string' && value && value !== 'all'))];
       } else if (typeof fallback === 'boolean') { if (typeof given === 'boolean') out[section][key] = given; }
       else if (typeof given === 'string') out[section][key] = given;
@@ -120,6 +123,7 @@ function noticeIds(value) {
 
 /** 一个任务是否命中筛选条件：同组多选取并集，不同条件取交集。 */
 export function matchTask(task, query = {}) {
+  if (['worker', 'valet'].includes(query.type) && workType(task) !== query.type) return false;
   const statuses = pick(query.status);
   if (statuses.length && !statuses.includes(task.status)) return false;
   const roles = pick(query.role);
@@ -135,7 +139,7 @@ export function matchTask(task, query = {}) {
   }
   const needle = keyword(query.text);
   if (needle) {
-    const hay = `${workerNumber(task)}\n#${task.id}\n${task.id}\n${task.display_title ?? ''}\n${task.auto_title ?? ''}\n${task.goal ?? ''}`.toLowerCase();
+    const hay = `${workerNumber(task)}\n#${task.id}\n${task.id}\n${task.display_title ?? ''}\n${task.auto_title ?? ''}\n${task.name ?? ''}\n${task.goal ?? ''}`.toLowerCase();
     if (!hay.includes(needle)) return false;
   }
   return true;
@@ -165,7 +169,7 @@ export function matchIntent(intent, query = {}) {
 /** 有没有生效中的条件；没有就必须走「与改造前一致」的那条路径。 */
 export function isFiltering(query = {}) {
   if (!query || typeof query !== 'object') return false;
-  return pick(query.status).length > 0 || pick(query.role).length > 0 || pick(query.planner).length > 0
+  return ['worker', 'valet'].includes(query.type) || pick(query.status).length > 0 || pick(query.role).length > 0 || pick(query.planner).length > 0
     || (typeof query.integration === 'string' && query.integration !== '' && query.integration !== 'all')
     || (typeof query.gate === 'string' && query.gate !== '' && query.gate !== 'all')
     || query.mine === true || keyword(query.text) !== '';
@@ -201,6 +205,7 @@ export function countText(matched, total) {
 export function describeFilters(query = {}) {
   if (!query || typeof query !== 'object') return '';
   const parts = [];
+  if (['worker', 'valet'].includes(query.type)) parts.push(`类型：${query.type === 'valet' ? 'Valet' : 'Worker'}`);
   const statuses = pick(query.status);
   if (statuses.length) parts.push(`状态：${statuses.map(value => STATUS_LABEL[value] || SPEC_STATUS_LABEL[value] || value).join('/')}`);
   const roles = pick(query.role);

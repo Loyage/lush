@@ -1,4 +1,4 @@
-import { check, id } from '../../core/types.js';
+import { check } from '../../core/types.js';
 import { resolveWorkerId } from '../worker-number.js';
 import { exact, option } from '../args.js';
 import { readPrivateJson } from '../private-json.js';
@@ -109,7 +109,7 @@ async function runManagement(args, client) {
     return client.request('management.create', request);
   }
   const expected_revision = readRevision(args); exact(args, 1);
-  return client.request('management.binding_update', { id: id(args[0]), enabled: verb === 'enable', expected_revision });
+  return client.request('management.binding_update', { id: await resolveWorkerId(client, args[0]), enabled: verb === 'enable', expected_revision });
 }
 
 /** Highest automatic stage; uses the current worker.hooks read revision. */

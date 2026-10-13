@@ -53,18 +53,20 @@ export function initSidebar() {
   const taskStatus = filterMulti('状态',
     ['queued', 'running', 'waiting', 'awaiting', 'awaiting_acceptance', 'paused', 'completed', 'failed', 'cancelled'].map(statusOption),
     ui.filters.tasks.status, value => { ui.filters.tasks.status = value; applyFilters(); });
-  const taskRole = filterMulti('Worker 类型', Object.keys(ROLE).map(roleOption), ui.filters.tasks.role,
+  const taskType = filterSelect('工作类型', [{ value: 'all', label: '全部' }, { value: 'worker', label: 'Worker' }, { value: 'valet', label: 'Valet' }], ui.filters.tasks.type || 'all',
+    value => { ui.filters.tasks.type = value; applyFilters(); });
+  const taskRole = filterMulti('历史角色', Object.keys(ROLE).map(roleOption), ui.filters.tasks.role,
     value => { ui.filters.tasks.role = value; applyFilters(); });
   const taskIntegration = filterSelect('合并', [{ value: 'all', label: '全部' }, { value: 'unmerged', label: '待合并' }, { value: 'merged', label: '已合并' }],
     ui.filters.tasks.integration, value => { ui.filters.tasks.integration = value; applyFilters(); });
   const taskMine = filterToggle('只看待我处理', ui.filters.tasks.mine, value => { ui.filters.tasks.mine = value; applyFilters(); });
   const taskText = filterInput(ui.filters.tasks.text, value => { ui.filters.tasks.text = value; applyFilters(); },
-    { label: '搜索 Worker 目标或编号', scope: '范围：overview 已加载 Worker，不是全库' });
-  taskText.input.placeholder = '搜索 Worker 目标或 #编号';
-  taskText.input.setAttribute('aria-label', '搜索 Worker 目标或编号');
+    { label: '搜索工作目标或编号', scope: '范围：overview 已加载工作（Worker / Valet），不是全库' });
+  taskText.input.placeholder = '搜索目标、W / V 编号或 #内部ID';
+  taskText.input.setAttribute('aria-label', '搜索工作目标或编号');
   const extras = el('div', undefined, 'task-filter-extras');
-  extras.append(taskIntegration.wrap, taskMine.wrap, el('span', '同组多选；未勾选时显示全部。筛选范围为已加载 Worker。', 'hint'));
-  $('task-filters').replaceChildren(taskText.wrap, taskStatus.wrap, taskRole.wrap, extras);
+  extras.append(taskRole.wrap, taskIntegration.wrap, taskMine.wrap, el('span', '历史角色与工作类型独立；筛选仅覆盖已加载工作，更早记录需继续加载。', 'hint'));
+  $('task-filters').replaceChildren(taskText.wrap, taskType.wrap, taskStatus.wrap, extras);
   filterUi.taskStatus = taskStatus;
   filterUi.taskRole = taskRole;
   // 规划任务：状态 / planner / 角色 / 关键字

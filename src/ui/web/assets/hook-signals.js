@@ -5,7 +5,8 @@ import { openTranscriptView } from './transcript-view.js';
 import { confirmDialog } from './dialog.js';
 import { show, clear } from './messages.js';
 import { agentHelp } from './help.js';
-import { absolute, noticeNumber } from './format.js';
+import { absolute } from './format.js';
+import { managementReceipts } from './management-state.js';
 import { workerLabel } from './worker-label.js';
 import { browserTimezone, hookSchedule, hookScheduleSummary, scheduledWallTime } from './hook-schedule.js';
 import { createManagementProfileForm } from './management-profile-form.js';
@@ -26,9 +27,12 @@ const STATE = { idle: '尚未触发', waiting: '等待信号或安全点', queue
 const label = state => STATE[state] || state || '暂无记录';
 const MANAGEMENT_CAPABILITIES = '管理能力按安全读取、低风险自动执行、用户确认和不可用分级。当前项目查询、草稿编辑、条件发射、合法追加、开始／继续和重试可自动执行；取消、中断、合并、验收回收、删除、Shell 授权、敏感配置及服务操作须预检后由用户确认精确请求。无跨项目、任意文件／Shell 或凭证工具；原权限和安全门不变。';
 function managementLinks(task, ownsPage) {
+  // hooks.list supplies compact management summaries without role/task_kind.
+  // Preserve this known read-surface identity, including unnumbered legacy Valets.
+  const record = { ...task, role: 'manager', task_kind: 'management' };
   const controls = el('div', undefined, 'actions');
-  controls.append(button('查看指令、结果与调用历史', () => ownsPage() ? detail(task.id) : undefined, 'ghost hook-button', { worker: task }),
-    button('打开执行详情', () => ownsPage() ? openTranscriptView(task.id) : undefined, 'ghost hook-button', { worker: task }));
+  controls.append(button('查看指令、结果与调用历史', () => ownsPage() ? detail(task.id) : undefined, 'ghost hook-button', { worker: record }),
+    button('打开执行详情', () => ownsPage() ? openTranscriptView(task.id, undefined, { task: record }) : undefined, 'ghost hook-button', { worker: record }));
   return controls;
 }
 const option = (value, text) => { const node = el('option', text); node.value = value; return node; };
@@ -142,7 +146,7 @@ export function createManagementForm(signals, { ownsPage = () => true } = {}) {
   const error = el('p', undefined, 'error'); const profileHost = el('div', undefined, 'hook-profile');
   const submissionNote = el('p', undefined, 'hint');
   let profile = null, loading = false, busy = false, submitted = false;
-  const configure = button('管理 Agent 运行设置', async () => {
+  const configure = button('Valet 运行设置', async () => {
     if (!ownsPage() || busy || loading || profile) return;
     loading = true; configure.disabled = true;
     try {
@@ -150,10 +154,10 @@ export function createManagementForm(signals, { ownsPage = () => true } = {}) {
       profile = createManagementProfileForm(settings, { ownsPage }); profileHost.replaceChildren(profile.node); await profile.ready;
     } catch (issue) { if (ownsPage()) { error.textContent = `读取管理运行设置失败：${issue.message}`; show(error.textContent, 'error'); } }
     finally { loading = false; if (ownsPage()) configure.disabled = busy || Boolean(profile); }
-  }, 'ghost', { help: '为管理 Agent 选择独立模式、模型来源和思考深度；不改变目标 Worker 的账号，不加载开发扩展，不立即调用 Agent。' });
+  }, 'ghost', { help: '为 Valet 选择独立模式、模型来源和思考深度；不改变目标 Worker 的账号，不加载开发扩展，不立即调用 Agent。' });
   node.append(field('管理指令名称', name), field('管理指令', instruction), field('绑定时间信号', signal), field('信号绑定方式', mode),
     el('p', MANAGEMENT_CAPABILITIES, 'hint'),
-    el('p', '一次绑定处理首个信号后停止；持续绑定复用同一管理 Agent，后续信号会再次产生调用费用。已有调用或操作未收口时不并发、不堆积每日信号；失败或未知副作用不自动重试。', 'hint'),
+    el('p', '一次绑定处理首个信号后停止；持续绑定复用同一 Valet，后续信号会再次产生调用费用。已有调用或操作未收口时不并发、不堆积每日信号；失败或未知副作用不自动重试。', 'hint'),
     el('p', '未展开运行设置时，保存将冻结项目管理角色有效默认；不会借用目标 Worker 的账号或开发提示词。保存与绑定不立即调用 Agent，信号发出后才排队。', 'hint'), configure, profileHost, submissionNote, error);
   return { node, setBusy(value) { busy = value; formBusy(node, value); configure.disabled = busy || loading || Boolean(profile); profile?.setBusy(value); },
     validate() {
@@ -164,7 +168,7 @@ export function createManagementForm(signals, { ownsPage = () => true } = {}) {
     },
     noteSubmitted() {
       submitted = true;
-      submissionNote.textContent = '已发出创建请求。重试使用同一创建标识；如果之前已成功，将返回原管理 Worker，不重复创建。修改已提交内容后会核验冲突，请先检查已有管理 Worker，不要另开表单绕过响应丢失。';
+      submissionNote.textContent = '已发出创建请求。重试使用同一创建标识；如果之前已成功，将返回原 Valet，不重复创建。修改已提交内容后会核验冲突，请先检查已有 Valet，不要另开表单绕过响应丢失。';
     },
     collect: () => ({ client_request_id: requestId, name: name.value.trim(), instruction: instruction.value.trim(), signal_id: signal.value, mode: mode.value,
       ...(profile ? { profile: profile.collect() } : {}) }),
@@ -176,10 +180,10 @@ export function renderSignalManagement({ catalogue, editor, managerEditor = edit
   const model = catalogue.signals;
   const supported = model?.version === 1 && typeof model.revision === 'string' && Array.isArray(model.items);
   const signals = supported ? model.items : [];
-  const managers = Array.isArray(catalogue.management_workers) ? catalogue.management_workers : [];
+  const managers = Array.isArray(catalogue.management_workers) ? catalogue.management_workers.filter(task => task.management?.origin !== 'input') : [];
   const signalSection = block('时间信号', supported ? String(signals.length) : ''); signalSection.classList.add('hook-signals');
-  const managerSection = block('管理型 Agent', String(managers.length)); managerSection.classList.add('hook-managers');
-  signalSection.append(el('p', history ? '最近信号发出、错过与诊断；配置修改不重放历史。' : '用具名时间信号通知绑定的管理 Agent，例如「Codex 额度更新时间已到」。同一信号可绑定多个管理指令；不是实际额度已恢复的观测。', 'hint'));
+  const managerSection = block('Valet 信号绑定', String(managers.length)); managerSection.classList.add('hook-managers');
+  signalSection.append(el('p', history ? '最近信号发出、错过与诊断；配置修改不重放历史。' : '用具名时间信号通知绑定的 Valet，例如「Codex 额度更新时间已到」。同一信号可绑定多个管理指令；不是实际额度已恢复的观测。', 'hint'));
   managerSection.append(el('p', history ? '最近管理调用与受控操作收据；提交、待用户确认和实际执行分别显示。' : '此处创建信号驱动的管理指令；默认输入框仍用于开发任务，也可显式切换「管理 Lush」即时提交。独立管理提示词和受限工具，不进行代码开发或 Git 提交。创建与绑定不立即调用 Agent。', 'hint'));
   if (!history) managerSection.append(el('p', MANAGEMENT_CAPABILITIES, 'hint'));
   function fold() {
@@ -209,7 +213,7 @@ export function renderSignalManagement({ catalogue, editor, managerEditor = edit
         if (ownsForm()) { finishEdit(); onCatalogue(result); show('时间信号已保存；到点才提交，不立即调用 Agent。'); }
       } catch (issue) { if (ownsForm()) show(`${issue.message}；时间信号编辑已保留。版本冲突请复制内容后刷新。`, 'error'); }
       finally { setBusy(false); if (ownsForm()) { form.setBusy(false); save.disabled = false; } }
-    }, 'hook-button', { agent: true, help: agentHelp('保存具名时间信号，允许到点唤醒已绑定的管理 Agent；保存时不立即调用。') });
+    }, 'hook-button', { agent: true, help: agentHelp('保存具名时间信号，允许到点唤醒已绑定的 Valet；保存时不立即调用。') });
     editor.append(save, button('取消编辑', () => { if (ownsForm() && !busy()) finishEdit(); }, 'ghost'));
     void form.loadResetTimes();
   }
@@ -227,9 +231,9 @@ export function renderSignalManagement({ catalogue, editor, managerEditor = edit
       const params = form.collect();
       setBusy(true); form.setBusy(true); save.disabled = true;
       try {
-        if (!await confirmDialog({ title: '授权信号驱动的管理 Agent？',
+        if (!await confirmDialog({ title: '授权信号驱动的 Valet？',
           message: `保存后不会立即调用 Agent；新发出的时间信号将触发管理指令。${MANAGEMENT_CAPABILITIES}${params.mode === 'persistent' ? '这是持续绑定，后续每次信号均可能产生调用费用；请记得停用。' : '这是一次性绑定，首个信号处理后停止。'}时间到点不证明额度恢复，原安全门继续生效。`,
-          confirmLabel: '授权并创建管理指令', agent: true, confirmHelp: agentHelp('创建独立管理 Worker 并绑定未来信号，不立即启动开发或管理调用。') })) return;
+          confirmLabel: '授权并创建管理指令', agent: true, confirmHelp: agentHelp('创建独立 Valet 并绑定未来信号，不立即启动开发或管理调用。') })) return;
         if (!ownsForm()) return;
         form.noteSubmitted();
         const result = await submit('management.create', params); created = true;
@@ -237,7 +241,7 @@ export function renderSignalManagement({ catalogue, editor, managerEditor = edit
           finishEdit(editor); onManagement(result);
           show(`管理指令 ${workerLabel(result.task || result)} 已创建；等待新信号，不立即调用。`);
         }
-      } catch (issue) { if (ownsForm()) show(`${issue.message}；管理指令和运行设置编辑已保留，重试沿用同一创建标识。若内容已修改或结果不明，请先检查已有管理 Worker，勿另建重复指令。`, 'error'); }
+      } catch (issue) { if (ownsForm()) show(`${issue.message}；管理指令和运行设置编辑已保留，重试沿用同一创建标识。若内容已修改或结果不明，请先检查已有 Valet，勿另建重复指令。`, 'error'); }
       finally { setBusy(false); if (ownsForm()) { form.setBusy(false); save.disabled = created; } }
     }, 'hook-button', { agent: true, help: agentHelp('授权未来信号触发管理指令；仅保存绑定，不立即调用 Agent。') });
     editor.append(save, button('取消编辑', () => { if (ownsForm() && !busy()) finishEdit(editor); }, 'ghost'));
@@ -259,7 +263,7 @@ export function renderSignalManagement({ catalogue, editor, managerEditor = edit
         || (deleting && managers.some(item => unfinishedReference(item.management) && item.management.signal_id === signal.id))) return;
       setBusy(true); for (const control of controls.querySelectorAll('button')) control.disabled = true;
       try {
-        if (deleting && !await confirmDialog({ title: `删除时间信号「${signal.name}」？`, message: '仅撤销这个信号的未来发出，不删除管理 Worker、已提交操作或历史。启用中或尚未收口的绑定引用此信号时不可删除。', confirmLabel: '删除时间信号', confirmHelp: '删除信号配置；历史与已产生的 Worker 操作保留。' })) return;
+        if (deleting && !await confirmDialog({ title: `删除时间信号「${signal.name}」？`, message: '仅撤销这个信号的未来发出，不删除 Valet、已提交操作或历史。启用中或尚未收口的绑定引用此信号时不可删除。', confirmLabel: '删除时间信号', confirmHelp: '删除信号配置；历史与已产生的 Worker 操作保留。' })) return;
         if (!ownsPage()) return;
         const result = await submit(deleting ? 'hooks.signal_remove' : 'hooks.signal_save', { ...(deleting ? { id: signal.id } : { signal: { id: signal.id, name: signal.name, schedule: signal.schedule, enabled: !signal.enabled } }), expected_revision: model.revision });
         if (ownsPage()) { onCatalogue(result); show(deleting ? '时间信号已删除；历史与已有操作不变。' : '时间信号启用状态已保存。'); }
@@ -271,7 +275,7 @@ export function renderSignalManagement({ catalogue, editor, managerEditor = edit
       } }
     };
     const toggle = button(signal.enabled ? '停用时间信号' : '启用时间信号', () => mutate(false), 'ghost hook-button', {
-      agent: !signal.enabled, help: signal.enabled ? '停止未来发出，不撤回已经提交的绑定或操作。' : agentHelp('允许未来时刻发出信号并唤醒绑定的管理 Agent；不补发错过的历史。'),
+      agent: !signal.enabled, help: signal.enabled ? '停止未来发出，不撤回已经提交的绑定或操作。' : agentHelp('允许未来时刻发出信号并唤醒绑定的 Valet；不补发错过的历史。'),
     });
     const remove = button('删除时间信号', () => mutate(true), 'ghost hook-button', { help: '仅删除信号配置；启用绑定仍引用时需先停用对应绑定，不删除历史。' });
     const edit = button('编辑时间信号', () => editSignal(signal), 'ghost hook-button');
@@ -285,7 +289,7 @@ export function renderSignalManagement({ catalogue, editor, managerEditor = edit
   for (const task of managers) {
     const binding = task.management;
     const card = el('article', undefined, 'hook-mount hook-manager'); card.dataset.workerId = String(task.id);
-    const head = el('div', undefined, 'hook-mount-head'); head.append(el('strong', task.name || `管理 ${workerLabel(task)}`), badge('管理型 Agent'));
+    const head = el('div', undefined, 'hook-mount-head'); head.append(el('strong', `${workerLabel(task)} · ${task.name || 'Valet'}`), badge('Valet'));
     card.append(head, el('p', task.goal || '', 'hook-action-preview'));
     if (task.goal_truncated) card.append(el('p', '指令仅显示摘要；完整指令请打开下方详情。', 'hint management-goal-truncated'));
     if (!binding || binding.version !== 1 || typeof binding.revision !== 'string') {
@@ -300,26 +304,7 @@ export function renderSignalManagement({ catalogue, editor, managerEditor = edit
     const last = binding.last_execution;
     if (last) card.append(el('p', `最近处理：${label(last.status)} · ${absolute(last.finished_at || last.started_at || last.submitted_at || last.created_at || last.due_at)}`, 'hint'),
       ...(last.reason || last.error ? [el('p', last.reason || last.error, 'hint')] : []));
-    const execution = binding.pending_signal?.actions ? binding.pending_signal : last;
-    const receipts = execution?.actions || [];
-    const displayed = receipts.slice(0, 32);
-    for (const receipt of displayed) {
-      card.append(el('p', `${receipt.action === 'retry' ? '重试' : receipt.action === 'start' ? '开始／继续' : '受控操作'} ${workerLabel(receipt.target_id, receipt.target_worker_number)}：${label(receipt.status)}${receipt.reason ? ` · ${receipt.reason}` : ''}`, 'hint'));
-    }
-    if (execution?.actions_truncated || receipts.length > displayed.length) {
-      const count = Number.isSafeInteger(execution.actions_count) && execution.actions_count >= displayed.length
-        ? `显示 ${displayed.length} / ${execution.actions_count} 项` : '仅显示部分';
-      card.append(el('p', `操作摘要：${count}；完整操作记录请查看下方详情与调用历史。`, 'hint management-actions-truncated'));
-    }
-    const capabilities = execution?.control_calls || [], shownCapabilities = capabilities.slice(0, 32);
-    const capabilityStates = { pending_confirmation: '待用户确认（尚未执行）', approved: '授权已通过，等待安全点',
-      running: '正在执行', succeeded: '已执行', rejected: '未获授权', failed: '未执行，预检或授权已变化', unknown: '结果待核验，不自动重放' };
-    for (const receipt of shownCapabilities) card.append(el('p', `管理能力 ${receipt.method}：${capabilityStates[receipt.status] || '状态未知'}${Number.isSafeInteger(receipt.notice_id) ? ` · 确认提醒 ${noticeNumber({ id: receipt.notice_id })}` : ''}${receipt.reason ? ` · ${receipt.reason}` : ''}`, 'hint'));
-    if (execution?.control_calls_truncated || capabilities.length > shownCapabilities.length) {
-      const count = Number.isSafeInteger(execution.control_calls_count) && execution.control_calls_count >= shownCapabilities.length
-        ? `显示 ${shownCapabilities.length} / ${execution.control_calls_count} 项` : '仅显示部分';
-      card.append(el('p', `管理能力摘要：${count}；完整记录请查看下方详情与调用历史。`, 'hint management-capabilities-truncated'));
-    }
+    card.append(managementReceipts(binding));
     if (task.model_selection) card.append(el('p', `管理调用来源：${task.model_selection.config_mode === 'pi' ? '执行机器 Pi 默认配置' : [task.model_selection.agent, task.model_selection.connection_id && `来源 ${task.model_selection.connection_id}`, task.model_selection.model, task.model_selection.thinking].filter(Boolean).join(' · ') || '已固定角色默认'}`, 'hint'));
     const controls = managementLinks(task, ownsPage);
     if (history) { card.append(controls); managerSection.append(card); continue; }
@@ -327,7 +312,7 @@ export function renderSignalManagement({ catalogue, editor, managerEditor = edit
       if (!ownsPage() || busy() || (!binding.enabled && managementEnableReason(binding))) return;
       setBusy(true); toggle.disabled = true;
       try {
-        if (!binding.enabled && !await confirmDialog({ title: '重新启用管理绑定？', message: '只接收之后新发出的信号，不重放旧信号。后续信号可能启动管理 Agent 并操作允许的项目 Worker；持续绑定可能多次产生调用费用。', confirmLabel: '授权并启用绑定', agent: true, confirmHelp: agentHelp('保存管理指令的未来信号授权，不立即调用 Agent。') })) return;
+        if (!binding.enabled && !await confirmDialog({ title: '重新启用管理绑定？', message: '只接收之后新发出的信号，不重放旧信号。后续信号可能启动 Valet 并操作允许的项目 Worker；持续绑定可能多次产生调用费用。', confirmLabel: '授权并启用绑定', agent: true, confirmHelp: agentHelp('保存管理指令的未来信号授权，不立即调用 Agent。') })) return;
         if (!ownsPage()) return;
         const result = await submit('management.binding_update', { id: task.id, enabled: !binding.enabled, expected_revision: binding.revision });
         if (ownsPage()) { onManagement(result); show(binding.enabled ? '管理绑定已停用；不会撤销已完成操作。' : '管理绑定已启用；只等待新信号。'); }

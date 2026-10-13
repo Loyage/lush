@@ -1,6 +1,7 @@
 /** Trusted Bun-only bridge for Pi's Node extension. Never a user-identity RPC client. */
 import path from 'node:path';
 import { RPCClient } from '../rpc/client.js';
+import { isWorkerNumber } from '../core/worker-number.js';
 
 export const MANAGEMENT_RPC_METHODS = Object.freeze(['manager.query', 'manager.start', 'manager.retry', 'worker.lookup',
   'manager.catalog', 'manager.history', 'manager.call']);
@@ -34,7 +35,7 @@ export function validateManagementRPC(method, params) {
         || params.request_id.length > 128 || params.request_id !== params.request_id.trim() || /[\x00-\x1f\x7f]/.test(params.request_id))
       || Buffer.byteLength(JSON.stringify(params)) > 40000) throw new Error('invalid reviewed capability request');
   } else if (method === 'worker.lookup') {
-    if (keys.length !== 1 || keys[0] !== 'number' || typeof params.number !== 'string' || !/^W[1-9]\d*(?:-[1-9]\d*)*$/.test(params.number))
+    if (keys.length !== 1 || keys[0] !== 'number' || !isWorkerNumber(params.number))
       throw new Error('invalid Worker number');
   } else if (method === 'manager.query' && !keys.length) {
     return;

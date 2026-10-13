@@ -6,6 +6,7 @@ import { ui } from './state.js';
 import { loadHostSession, usernameInitial } from './host-session.js';
 import { loadReadingPage, loadReadingRecord } from './api.js';
 import { referenceable } from './context-references.js';
+import { workTypeLabel, isValet } from './work-type.js';
 import { workerLabel } from './worker-label.js';
 import { renderTaskMessageBody } from './render-task-message.js';
 import { structuredValue } from './structured-value.js';
@@ -43,7 +44,8 @@ export function renderConversation(task, history = {}, previous = null) {
   const visible = {}, toggles = {};
   const filters = el('div', undefined, 'conversation-filters');
   filters.setAttribute('role', 'group'); filters.setAttribute('aria-label', '时间线显示内容');
-  for (const [category, text, initial, color] of TIMELINE_CATEGORIES) {
+  for (const [category, rawText, initial, color] of TIMELINE_CATEGORIES) {
+    const text = isValet(task) ? rawText.replace('Worker', 'Valet') : rawText;
     visible[category] = initial;
     const toggle = button(text, () => { visible[category] = !visible[category]; paint(); }, 'task-graph-status-toggle conversation-filter',
       { help: `显示或隐藏${text}，计数仅指已加载记录；不应用尚未提交的关键词，不调用 Agent。` });
@@ -189,7 +191,7 @@ export function renderConversation(task, history = {}, previous = null) {
     node.querySelector('.conversation-avatar').textContent = entry.side === 'input' ? usernameInitial(username) : entry.side === 'other' ? '信' : entry.side === 'event' ? '·' : '🤖';
     node.querySelector('.conversation-sender').textContent = entry.side === 'input' ? username || '账号名称未知'
       : entry.side === 'other' ? entry.source === 'unknown' ? '来源不明' : entry.senderId != null ? `Worker ${workerLabel(entry.senderId, entry.senderNumber)}`
-        : entry.source === 'user' ? '用户答复' : entry.source === 'lush' ? 'Lush 自动选择' : '系统' : entry.side === 'event' ? entry.kind : `Worker ${workerLabel(current)}`;
+        : entry.source === 'user' ? '用户答复' : entry.source === 'lush' ? 'Lush 自动选择' : '系统' : entry.side === 'event' ? entry.kind : `${workTypeLabel(current)} ${workerLabel(current)}`;
     const number = entry.key === 'goal' ? originalNumber(current.input_id) : entry.appendNumber;
     node.querySelector('.conversation-kind').textContent = entry.side === 'input'
       ? `${entry.kind}${number ? ` · ${number}` : entry.key !== 'goal' ? entry.messageId != null ? ` · 消息 #${entry.messageId}` : ' · 追加编号未知' : ''}` : entry.side === 'event' ? entry.eventType : entry.kind;
@@ -200,13 +202,13 @@ export function renderConversation(task, history = {}, previous = null) {
     else clock.removeAttribute('datetime');
     const refs = [];
     if (entry.key === latestKey) refs.push({ kind: 'result', target: { task_id: current.id, section: 'result' },
-      label: `Worker 结果 ${workerLabel(current)}`, quote: entry.text, location: { view: 'task-detail', task_id: current.id, section: 'result' } });
+      label: `${workTypeLabel(current)} 结果 ${workerLabel(current)}`, quote: entry.text, location: { view: 'task-detail', task_id: current.id, section: 'result' } });
     for (const eventId of new Set([entry.eventId, ...(entry.eventIds || [])].filter(Boolean))) refs.push({ kind: 'history_event', target: { task_id: current.id, event_id: eventId },
       label: `${entry.kind}${entry.eventType ? `（${entry.eventType}）` : ''} ${workerLabel(current)} · 事件 #${eventId}`,
       quote: entry.side === 'event' ? `${entry.kind}（${entry.eventType}）\n${entry.summary}\n${entry.text}` : entry.text,
       location: { view: 'task-detail', task_id: current.id, section: 'history' } });
     if (entry.messageId != null) refs.push({ kind: 'message', target: { task_id: current.id, message_id: entry.messageId },
-      label: `Worker ${workerLabel(current)} 的消息 · ${entry.kind}`, quote: entry.text, location: { view: 'task-detail', task_id: current.id, section: 'messages' } });
+      label: `${workTypeLabel(current)} ${workerLabel(current)} 的消息 · ${entry.kind}`, quote: entry.text, location: { view: 'task-detail', task_id: current.id, section: 'messages' } });
     referenceable(node, refs); return node;
   }
 
@@ -236,7 +238,7 @@ export function renderConversation(task, history = {}, previous = null) {
     const shown = all.filter(entry => visible[entry.category || entry.side] && matches(entry));
     for (const [category, label] of TIMELINE_CATEGORIES) {
       const total = all.filter(entry => (entry.category || entry.side) === category).length;
-      toggles[category].textContent = `${label} ${total}`;
+      toggles[category].textContent = `${isValet(current) ? label.replace('Worker', 'Valet') : label} ${total}`;
       toggles[category].setAttribute('aria-pressed', String(visible[category]));
     }
     syncChildren(list, shown.map(entry => message({ ...entry, kind: entry.key === latestKey ? '最新结果' : entry.kind }, latestKey)));

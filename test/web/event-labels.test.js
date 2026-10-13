@@ -203,7 +203,7 @@ test('时间信号与管理操作有独立中文标签，提交不冒充开始�
   expect(eventLabel({ type: 'hook.signal_missed' })).toContain('错过');
   expect(eventLabel({ type: 'management.signal_submitted' })).toBe('管理信号已提交待执行');
   expect(eventLabel({ type: 'management.action_submitted' })).toBe('管理操作已提交待安全点');
-  expect(eventLabel({ type: 'management.invocation_started' })).toBe('管理 Agent 开始调用');
+  expect(eventLabel({ type: 'management.invocation_started' })).toBe('Valet 开始调用');
   expect(eventLabel({ type: 'management.action_completed' })).toBe('管理操作已执行');
   expect(eventLabel({ type: 'management.failed' })).toContain('失败');
   expect(eventLabel({ type: 'management.unknown' })).toContain('待核验');

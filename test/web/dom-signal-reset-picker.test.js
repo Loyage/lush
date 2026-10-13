@@ -38,8 +38,8 @@ beforeEach(() => { connections = [connection()]; reads = []; actions = []; inter
 afterAll(() => dom.restore());
 
 test('management navigation uses #management; source cache loads only when opening the signal editor and saves a plain exact once schedule', async () => {
-  await openManagement(); expect(dom.location.hash).toBe('#management'); expect(root().querySelector('h1').textContent).toBe('管理 Agent');
-  expect(dom.node('view-title').textContent).toBe('管理 Agent'); expect(reads).toEqual(['/api/hooks']);
+  await openManagement(); expect(dom.location.hash).toBe('#management'); expect(root().querySelector('h1').textContent).toBe('Valet 设置');
+  expect(dom.node('view-title').textContent).toBe('Valet 设置'); expect(reads).toEqual(['/api/hooks']);
   expect(reads).not.toContain('/api/agent/connections'); expect(actions).toHaveLength(0);
   await btn('新建时间信号').onclick();
   await until(() => !input('订阅额度刷新时间').disabled);

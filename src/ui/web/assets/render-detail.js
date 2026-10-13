@@ -1,5 +1,7 @@
 import { $, badge, block, button, el, kv, roleBadge, routeBadge, statusBadge } from './dom.js';
 import { workerKind } from './worker-kind.js';
+import { isValet, workTypeLabel } from './work-type.js';
+import { renderManagementState } from './management-state.js';
 import { action, withReadSignal } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { appendToWorker } from './composer.js';
@@ -78,16 +80,16 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const hookManagementOpen = sameTask && panel.querySelector('.hook-management')?.open === true;
   const previousDecisions = new Map(sameTask ? [...panel.querySelectorAll('.decision-record')].map(node => [node.dataset.noticeId, node]) : []);
   panel.dataset.view = 'task'; panel.dataset.taskId = String(task.id); panel.replaceChildren();
-  referenceable(panel, { kind: 'task', target: { task_id: task.id }, label: `Worker ${workerLabel(task)}`,
+  referenceable(panel, { kind: 'task', target: { task_id: task.id }, label: `${workTypeLabel(task)} ${workerLabel(task)}`,
     quote: `${task.goal}\n状态：${statusOf(task).label} · ${ROLE[task.role] || task.role}`, location: { view: 'task-detail', task_id: task.id } });
   const breadcrumb = el('div', undefined, 'breadcrumb');
-  breadcrumb.append(button('项目概览', () => overview(), 'link'), el('span', '/'), el('span', `${task.role === 'agent' ? 'Worker' : ROLE[task.role] || task.role} ${workerLabel(task)}`));
+  breadcrumb.append(button('项目概览', () => overview(), 'link'), el('span', '/'), el('span', `${workTypeLabel(task)} ${workerLabel(task)}`));
   panel.append(breadcrumb);
   const hero = el('div', undefined, 'task-hero');
   const head = el('div', undefined, 'head');
   head.append(el('span', workerLabel(task), 'tid-lg'), statusBadge(task),
     ...(task.role === 'agent' ? [] : [roleBadge(task.role)]), ...(task.route ? [routeBadge()] : []), intentBadge(task));
-  const management = task.role === 'manager' || task.task_kind === 'management';
+  const management = isValet(task);
   const integration = management ? null : INTEGRATION[task.integration];
   if (integration) head.append(badge(integration, task.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
   if (task.task_kind === 'analysis') head.append(badge('只读分析', 'b-neutral'));
@@ -95,7 +97,10 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   hero.append(head, el('h1', taskTitle(task), 'task-title')); panel.append(hero);
 
   const readOnly = management || isHistoricalDelivery(task);
-  if (management) panel.append(el('p', '管理指令详情只读：查看指令、结果、历史与执行过程。绑定启停仅在管理 Agent 页面管理；不在这里开始、调整开发运行设置、追加输入、合并、验收或删除。', 'hint management-readonly'));
+  if (management) {
+    panel.append(el('p', 'Valet 详情只读：目标、结果、调用与执行记录共用工作阅读器；管理授权与操作收据独立展示，不提供开发动作或连续追加对话。', 'hint management-readonly'));
+    const settings = el('a', 'Valet 设置', 'management-settings-link'); settings.setAttribute('href', '#management'); panel.append(settings);
+  }
   const notice = ui.noticeFocus === null ? null : ui.noticeIndex.get(ui.noticeFocus);
   if (!readOnly && notice && notice.task_id === task.id) panel.prepend(noticePanel(notice, task));
 
@@ -215,7 +220,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   if (deletion) actions.append(deletion);
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
   panel.append(actions);
-  const source = ['order', 'child'].includes(workerKind(task)) ? modelSourceSummary(task, history?.events, connections) : null;
+  const source = management || ['order', 'child'].includes(workerKind(task)) ? modelSourceSummary(task, history?.events, connections) : null;
   if (source) {
     panel.append(source);
     if (progressive && !progressive.loaded?.connections) source.append(el('p', '连接名称加载中…', 'hint detail-connections-status'));
@@ -266,10 +271,11 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   if (task.error) { const error = block('错误'); error.classList.add('error-panel'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); supplemental.push(error); }
   if (task.integration_error) { const error = block('合并错误'); error.classList.add('error-panel'); error.append(agentText(task.integration_error, { className: 'error', plain: 'pre' })); supplemental.push(error); }
 
-  const agent = task.calls ? renderAgent(task, usage) : null;
+  if (management) panel.append(renderManagementState(task));
+  const agent = task.calls || management ? renderAgent(task, usage) : null;
   if (agent) {
     panel.append(agent);
-    if (progressive) agent.append(el('p', progressive.loaded?.usage ? '' : '用量加载中…', 'hint detail-usage-status'));
+    if (progressive) agent.append(el('p', !task.calls ? '尚未调用 Agent。' : progressive.loaded?.usage ? '' : '用量加载中…', 'hint detail-usage-status'));
   }
 
   const stats = block('状态'); stats.classList.add('task-stats');
@@ -298,7 +304,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     if (!diffSection.dataset.signature) diffBody.append(el('p', '改动加载中…', 'hint detail-diff-status'));
     return progressive.requestDiff();
   };
-  {
+  if (!management) {
     // The read-only code reader is independent of invocation count and development actions.
     diffSection = progressiveDiff ? previousDiff || renderDiff(diff, task.id, task, { loading: !diff })
       : renderDiff(diff, task.id, task, { loading: Boolean(progressive && !diff) });
@@ -319,8 +325,8 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   if (task.role === 'verifier' || task.verifications?.length || (task.role === 'worker' && task.status === 'completed' && task.workspace && task.head_commit)) supplemental.push(renderVerifications(task));
 
   const relationsOptions = { data: progressive?.loaded?.relations, current: progressive?.current ?? (() => true), signal: progressive?.signal };
-  const relations = previousRelations || renderWorkerRelations(task, relationsOptions);
-  if (previousRelations) relations.bindRelations(task, relationsOptions);
+  const relations = management ? null : previousRelations || renderWorkerRelations(task, relationsOptions);
+  if (previousRelations && relations) relations.bindRelations(task, relationsOptions);
   const decisions = (task.notices || []).filter(notice => notice.kind === 'questionnaire');
   if (decisions.length) {
     const record = block('决策记录', String(decisions.length));
@@ -335,15 +341,18 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
         const fold = el('details', undefined, 'decision-record');
         fold.open = previous ? previous.open : true;
         fold.dataset.noticeId = String(notice.id); fold.dataset.signature = signature;
-        const label = { open: '历史待决 · 只读', answered: '已回答', dismissed: '已忽略' }[notice.status] || notice.status;
+        const label = { open: management ? '待用户确认（尚未执行）' : '历史待决 · 只读', answered: '已回答', dismissed: '已忽略' }[notice.status] || notice.status;
         fold.append(el('summary', `${noticeNumber(notice)} · ${notice.title} · ${label}`),
           readOnly && notice.status === 'open' ? el('pre', notice.body) : settledDecision(notice));
+        if (management && notice.status === 'open') {
+          const link = el('a', '查看确认请求'); link.setAttribute('href', `#notices-${notice.id}`); fold.append(link);
+        }
         record.append(fold);
       }
     }
     panel.append(record);
   }
-  panel.append(relations, stats, ...supplemental);
+  panel.append(...(relations ? [relations] : []), stats, ...supplemental);
   linkWorkerNumbers(panel);
   limitDetailModules(panel, { taskId: task.id, from: readingStart });
   if (progressHistory && historyFocus && document.activeElement !== historyFocus) historyFocus.focus({ preventScroll: true });
@@ -406,7 +415,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
     update(kind, value, available) {
       if (disposed || !progressive.current()) { dispose(); return; }
       pending.set(kind, () => {
-        if (kind === 'relations') relations.updateRelations(value, available);
+        if (kind === 'relations' && relations) relations.updateRelations(value, available);
         if (kind === 'connections') { connections = value; connectionStatus = available ? 'ready' : 'unavailable'; sourcePatch(); }
         if (kind === 'usage' && agent) {
           const next = renderAgent(task, available ? value : null);

@@ -33,6 +33,14 @@ test('all built-in role prompts call the entity Worker without changing historic
   }
 });
 
+test('Valet naming preserves the internal manager role title and isolated management identity', () => {
+  expect(AGENT_ROLES).toContain('manager');
+  const prompt = builtInPrompt('manager');
+  expect(prompt).toContain('角色：manager（Valet：隔离的项目管理 Agent）');
+  expect(prompt).toContain('当前 Lush 项目的 Valet（专用管理型 Agent），不是开发 Agent');
+  expect(prompt).not.toContain('角色：Valet');
+});
+
 test('agent prompt distinguishes persistent auto-merge hooks from delivery and authorization', () => {
   const prompt = builtInPrompt('agent');
   expect(prompt).toContain('自动合并设置跨追加开发轮次保留');

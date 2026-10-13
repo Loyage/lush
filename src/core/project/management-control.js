@@ -1,6 +1,7 @@
 import { check, id, isPlainObject } from '../types.js';
 import { hookRevision } from '../hooks.js';
 import { questionnaire } from '../questionnaire.js';
+import { workerLabel } from '../worker-number.js';
 import { assertManager } from './management-auth.js';
 import { MANAGEMENT_LIMITS, managementState, saveManagement, managementTime } from './management-data.js';
 import { managementCatalog, validateManagementCall, managementDispatchParams } from '../../rpc/management-policy.js';
@@ -157,12 +158,12 @@ export default {
       state.control_calls ??= []; state.control_calls.push(call);
       if (policy.access === 'confirmation') {
         check(!this.questionPending(task.id), 'another management confirmation is already pending; finish it first');
-        const title = `管理操作确认：${method}`;
+        const title = `Valet ${workerLabel(task)} 操作确认：${method}`;
         const previewText = JSON.stringify(preflight?.summary ?? {}, null, 2);
         check(previewText.length <= 2500 && previewText.length + JSON.stringify(copied, null, 2).length <= 7200,
           'management preflight summary exceeds confirmation limit; use the user interface');
-        const body = questionnaire(`管理指令请求执行 ${method}。确认仅授权以下固定参数；目标发生变化会拒绝执行。\n\n${JSON.stringify(copied, null, 2)}\n\n只读预检：\n${previewText}\n\n资源回收、终态操作、设置或服务变化可能不可逆。`,
-          [{ header: '操作授权', question: `是否授权管理 Agent 执行本次 ${method}？`, options: [
+        const body = questionnaire(`Valet ${workerLabel(task)} 请求执行 ${method}。确认仅授权以下固定参数；目标发生变化会拒绝执行。\n\n${JSON.stringify(copied, null, 2)}\n\n只读预检：\n${previewText}\n\n资源回收、终态操作、设置或服务变化可能不可逆。`,
+          [{ header: '操作授权', question: `是否授权 Valet ${workerLabel(task)} 执行本次 ${method}？`, options: [
             { label: '拒绝此次操作（推荐）', description: '不执行，保留管理诊断及请求收据。' },
             { label: '批准上述精确操作', description: '只执行本次固定参数；仍须通过原生命周期、资源与权限安全门。' },
           ] }]);
