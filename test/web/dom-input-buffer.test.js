@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterAll } from 'bun:test';
-import { installDom, dialogButton, deepText } from '../dom-stub.js';
+import { installDom } from '../dom-stub.js';
 import { until } from '../helpers.js';
 import { editorEvent, editorInput } from './text-editor-events.js';
 
@@ -18,7 +18,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   }
   throw new Error(`Unexpected ${url}`);
 } });
-const { initComposer, buffer, syncComposer, loadComposerParents, appendToWorker, resetComposerMode, conditionallyEmit, toggleComposerDetails } = await import('../../src/ui/web/assets/composer.js');
+const { initComposer, buffer, syncComposer, loadComposerParents, appendToWorker, resetComposerMode, toggleComposerDetails } = await import('../../src/ui/web/assets/composer.js');
 const { setComposerReferences, composerReferences } = await import('../../src/ui/web/assets/context-references.js');
 const { resetUiState, ui } = await import('../../src/ui/web/assets/state.js');
 const { registerNavigation } = await import('../../src/ui/web/assets/navigate.js');
@@ -29,7 +29,6 @@ const type = value => { input().value = value; input().oninput(); };
 const enter = async (options = {}) => { let prevented = false; await input().onkeydown({ key: 'Enter', preventDefault() { prevented = true; }, ...options }); return prevented; };
 const ref = label => ({ version: 1, kind: 'text', target: {}, label, quote: '引用快照', location: {}, captured_at: '2026-10-01T00:00:00Z' });
 const append = () => { const task = { id: 126, worker_number: 'W15', status: 'running', task_kind: 'order', branch: 'lush/126', workspace: '/tmp/126' }; ui.view = { id: 'task' }; ui.selected = task.id; appendToWorker(task); return task; };
-const btn = label => dom.node('modal').querySelectorAll('button').find(node => node.textContent === label);
 const management = () => dom.node('composer-shell').querySelector('.composer-management').onclick();
 beforeEach(async () => {
   resetUiState(); calls.length = 0; intercept = null; opened = null; parentGate = null;
@@ -73,9 +72,9 @@ test('冻结主分支仍能可靠发射；ACK 不宣称已创建、不跳转', a
   expect(ui.view).toBe(view); expect(opened).toBeNull(); expect(document.activeElement).toBe(input());
 });
 
-test('追加也显示暂存与条件入口，冻结等待原因保留，确认后回到新建', async () => {
+test('追加显示暂存入口，冻结等待原因保留，确认后回到新建', async () => {
   const task = append(); ui.composerTask = { ...task, reservation: { status: 'resolving' }, input_queue: { buffered: 2, reason: '等待修复' } }; type('追加要求');
-  expect(dom.node('input-buffer').hidden).toBe(false); expect(dom.node('input-start').hidden).toBe(false);
+  expect(dom.node('input-buffer').hidden).toBe(false);
   expect(dom.node('composer-mode-behavior').textContent).toContain('已暂存 2 条');
   await dom.node('input-form').onsubmit({ preventDefault() {} });
   expect(calls[0]).toMatchObject({ method: 'input.emit', params: { mode: 'append', target_id: 126, content: '追加要求' } });
@@ -134,26 +133,17 @@ test('追加引用暂不支持时明确拒绝，不消费正文附件或改变�
   expect(ui.composerAppendTarget).toEqual({ id: 126 }); expect(dom.node('error').textContent).toContain('暂不支持引用');
 });
 
-test('条件发射允许多个 Worker/静息/独占，全部条件才发射且有费用标识', async () => {
-  type('等面板重构'); const sending = conditionallyEmit(); const root = dom.node('modal');
-  await btn('加载 Worker').onclick(); const select = root.querySelector('[aria-label="条件 Worker"]'); select.value = '700';
-  await btn('添加 Worker 条件').onclick();
-  const kind = root.querySelector('[aria-label="等待事件"]'); kind.value = 'worker_settled'; await btn('添加 Worker 条件').onclick();
-  root.querySelector('[aria-label="等待目标树彻底静息后发射"]').checked = true;
-  root.querySelector('[aria-label="独占开发：静息后开始，直到本轮交付收口"]').checked = true;
-  expect(deepText(root)).toContain('W123'); expect(dialogButton(dom, '条件发射').classList.contains('agent-call')).toBe(true);
-  expect(dialogButton(dom, '条件发射').getAttribute('data-help')).toContain('token');
-  await dialogButton(dom, '条件发射').onclick(); await sending;
-  expect(calls[0].params.conditions).toEqual([{ kind: 'worker_merged', worker_id: 700 }, { kind: 'worker_settled', worker_id: 700 }, { kind: 'parent_quiet' }]);
-  expect(calls[0].params.exclusive).toBe(true); expect(dom.node('error').textContent).toContain('等待全部条件');
-});
-
-test('追加条件对话框没有独占；取消与离页迟到确认不发射', async () => {
-  append(); type('追加等待'); const cancelled = conditionallyEmit();
-  expect(dom.node('modal').querySelector('[aria-label="独占开发：静息后开始，直到本轮交付收口"]')).toBeNull();
-  await dialogButton(dom, '取消').onclick(); await cancelled; expect(calls).toHaveLength(0); expect(input().value).toBe('追加等待');
-  const stale = conditionallyEmit(); ui.view = { id: 'overview' };
-  await dialogButton(dom, '条件发射').onclick(); await stale; expect(calls).toHaveLength(0);
+test('Ctrl/Meta+Shift+Enter 在新建和追加直接发射，不打开条件设置或携带残留条件', async () => {
+  for (const appendMode of [false, true]) for (const modifier of ['ctrlKey', 'metaKey']) {
+    if (appendMode) append();
+    ui.composerConditions = [{ kind: 'parent_quiet' }]; ui.composerExclusive = true;
+    type('直接发射'); await enter({ [modifier]: true, shiftKey: true });
+    const call = calls.at(-1);
+    expect(call.method).toBe('input.emit'); expect(call.params.content).toBe('直接发射');
+    expect(call.params).not.toHaveProperty('conditions'); expect(call.params).not.toHaveProperty('exclusive');
+    if (appendMode) expect(call.params).toMatchObject({ mode: 'append', target_id: 126 });
+    expect(input().value).toBe(''); expect(dom.node('modal').querySelector('.emission-conditions')).toBeNull();
+  }
 });
 
 test('管理是独立输入模式：不创建开发 Worker，危险操作确认，不丢失切换正文', async () => {
@@ -176,9 +166,9 @@ test('管理失败及在途切回开发不会消费编辑；重试身份保持�
   expect(dom.node('input-form').dataset.mode).toBe('create');
 });
 
-test('新发射和条件入口都有 Agent 标识及禁用外宿主，暂存/模式切换不调用 Agent', async () => {
+test('发射入口有 Agent 标识及禁用外宿主，暂存/模式切换不调用 Agent', async () => {
   syncComposer();
-  for (const [id, host] of [['draft-commit','input-send-help'], ['input-start','input-start-help']]) {
+  for (const [id, host] of [['draft-commit','input-send-help']]) {
     expect(dom.node(id).classList.contains('agent-call')).toBe(true); expect(dom.node(id).getAttribute('data-help')).toContain('token');
     expect(dom.node(host).getAttribute('data-help')).toContain('token'); expect(dom.node(id).disabled).toBe(true);
   }

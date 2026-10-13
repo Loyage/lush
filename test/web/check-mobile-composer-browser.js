@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { request } from 'node:http';
 const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
+const composerOnly = process.argv.includes('--composer-only');
 const script = `<script type="module">
 import {initComposer,appendToWorker,syncComposer} from '/composer.js';
 import {ui} from '/state.js';
@@ -19,7 +20,7 @@ window.keyboard=h=>{viewport.height=h;viewport.dispatchEvent(new Event('resize')
 window.calls=[];window.fail=false;window.defer=false;
 window.fetch=async(url,options)=>{if(String(url).endsWith('/api/input-parents'))return Response.json({items:[{id:1,branch:'main'}]});
 const body=JSON.parse(options.body);window.calls.push(body);if(window.defer)await new Promise(r=>window.release=r);
-if(window.fail)return Response.json({error:'fixture failure'},{status:500});return Response.json({id:4,task:{id:8,worker_number:'W8'}});};
+if(window.fail)return Response.json({error:'fixture failure'},{status:500});return Response.json(body.method==='draft.add'?{id:4}:{emitted:true,draft_id:4,dispatch:{state:'queued'}});};
 registerNavigation({refresh:async()=>{},detail:async()=>{}});ui.view={id:'overview'};
 document.documentElement.dataset.lushSpace='project';
 document.querySelector('#project').textContent='手机体验项目';
@@ -76,8 +77,11 @@ try{
     console.log(`PASS focus, compact default/expanded controls, themes ${theme} ${width}x${height}`);
     if(width<=760){
       await execute('window.frozen(true);');
-      assert(await execute(`const r=Array.from(document.querySelectorAll('.composer-actions button')).filter(b=>b.getClientRects().length).map(b=>b.getBoundingClientRect());return r.length===4&&r.every(b=>Math.abs(b.top-r[0].top)<1&&b.left>=0&&b.right<=innerWidth);`),`reservation buttons wrap/overflow ${width}`);
-      await execute('window.frozen(false);document.querySelector("#input").blur();window.scrollTo(0,700);');
+      assert(await execute(`const r=Array.from(document.querySelectorAll('.composer-actions button')).filter(b=>b.getClientRects().length).map(b=>b.getBoundingClientRect());return r.length===4&&r.every(b=>Math.abs(b.top-r[0].top)<1&&b.left>=0&&b.right<=innerWidth);`),`frozen buttons wrap/overflow ${width}`);
+      await execute('window.frozen(false);');
+    }
+    if(width<=760 && !composerOnly){
+      await execute('document.querySelector("#input").blur();window.scrollTo(0,700);');
       assert(await execute(`const r=document.querySelector('.rail-heading').getBoundingClientRect();return Math.abs(document.querySelector('#sidebar').getBoundingClientRect().top)<1&&r.height===52&&document.querySelector('#sidebar-toggle').getBoundingClientRect().right<=innerWidth;`),`header not pinned ${width} ${theme}`);
       await click('#sidebar-toggle');
       assert(await execute(`const buttons=Array.from(document.querySelectorAll('#navigation-menu .workspace-link,#navigation-menu .nav-item')).filter(b=>b.getClientRects().length);return document.querySelector('#sidebar-toggle').getAttribute('aria-expanded')==='true'&&buttons.length===7&&buttons.every(b=>{const r=b.getBoundingClientRect();return r.height===44&&r.width<=innerWidth/2&&r.left>=0&&r.right<=innerWidth;});`),`inconsistent navigation cards ${width} ${theme}`);
@@ -105,20 +109,29 @@ try{
   await click('.text-editor-undo');assert(await execute(`return document.querySelector('#input').value==='ab\\n'&&window.calls.length===0`),'undo submitted or restored wrong text');
   await click('.text-editor-redo');assert(await execute(`return document.querySelector('#input').value==='ab\\nc'`),'redo failed');
   await execute(`window.keyboard(420);document.querySelector('#input').focus();`);
-  assert(await wait(`document.querySelector('#input').getBoundingClientRect().bottom<=420&&document.querySelector('#input-start').getBoundingClientRect().bottom<=420`),'overlay keyboard hides input/actions');
+  assert(await wait(`document.querySelector('#input').getBoundingClientRect().bottom<=420&&document.querySelector('#draft-commit').getBoundingClientRect().bottom<=420`),'overlay keyboard hides input/actions');
   console.log('PASS touch native newline, undo/redo, simulated overlay keyboard');
-  await click('#input-start');assert(await wait(`document.querySelector('#input').value===''`),'start did not release text');
-  assert(await execute(`return window.calls.length===1&&window.calls[0].method==='order.submit'&&window.calls[0].params.start===true&&document.querySelector('.text-editor-undo').disabled`),'start mode or history cleanup failed');
+  assert(await execute(`return !document.querySelector('#input-start,.emission-conditions')`),'composer contains conditional controls');
+  await click('#draft-commit');assert(await wait(`document.querySelector('#input').value===''`),'emit did not release text');
+  assert(await execute(`return window.calls.length===1&&window.calls[0].method==='input.emit'&&!window.calls[0].params.conditions&&document.querySelector('.text-editor-undo').disabled`),'emit mode or history cleanup failed');
   await execute(`window.keyboard(innerHeight);window.frozen(true);document.querySelector('#input').focus();`);await keys(['x']);await click('#draft-commit');
-  assert(await wait(`window.calls.length===2`),'deferred create not submitted');assert(await execute(`return window.calls[1].params.defer===true&&window.calls[1].params.start===false`),'frozen only-create accidentally starts');
+  assert(await wait(`window.calls.length===2`),'frozen input not submitted');assert(await execute(`return window.calls[1].method==='input.emit'&&!('start' in window.calls[1].params)&&!('defer' in window.calls[1].params)`),'frozen input bypasses reliable emission');
   await click('#composer-expand');
   await execute(`window.frozen(false);window.append();`);
   await click('#composer-expand');
   assert(await execute(`return !document.querySelector('#composer-editor-tools').hidden&&document.querySelector('#composer-details').hidden;`),'append more does not expose editor or exposes parent');
   await execute(`document.querySelector('#input').focus();`);await keys(['z','\uE007']);
-  assert(await execute(`return window.calls.length===2&&document.querySelector('#input-start').hidden`),'append enter sends or extra start remains');await click('#draft-commit');
-  assert(await wait(`window.calls.length===3`),'append not submitted');assert(await execute(`return window.calls[2].method==='worker.message'`),'append created worker');
-  console.log('PASS explicit start, only-create reservation, append mode and consumed undo history');
+  assert(await execute(`return window.calls.length===2&&!document.querySelector('#input-start')`),'append enter sends or conditional entry remains');await click('#draft-commit');
+  assert(await wait(`window.calls.length===3`),'append not submitted');assert(await execute(`return window.calls[2].method==='input.emit'&&window.calls[2].params.mode==='append'&&window.calls[2].params.target_id===8`),'append created worker');
+  console.log('PASS direct reliable emission, frozen waiting, append mode and consumed undo history');
+  await resize(1440,900);
+  for(const appendMode of [false,true]){
+    await execute(`window.touch=false;${appendMode?'window.append();':''}document.querySelector('#input').focus();`);await keys(['s']);
+    await rpc(`/session/${session}/actions`,{actions:[{type:'key',id:'keyboard',actions:[{type:'keyDown',value:'\uE009'},{type:'keyDown',value:'\uE008'},{type:'keyDown',value:'\uE007'},{type:'keyUp',value:'\uE007'},{type:'keyUp',value:'\uE008'},{type:'keyUp',value:'\uE009'}]}]});
+    assert(await wait(`document.querySelector('#input').value===''`),'Ctrl+Shift+Enter did not emit');
+    assert(await execute(`return window.calls.at(-1).method==='input.emit'&&Boolean(window.calls.at(-1).params.mode==='append')===${appendMode}&&!window.calls.at(-1).params.conditions&&!document.querySelector('.emission-conditions');`),'shifted shortcut opened conditions or changed destination');
+  }
+  console.log('PASS native Ctrl+Shift+Enter directly emits both new and append inputs');
   passed=true;
 }finally{
   if(session)await rpc(`/session/${session}`,undefined,'DELETE').catch(()=>{});driver.kill();await driver.exited;server.stop(true);

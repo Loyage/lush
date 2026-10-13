@@ -62,7 +62,7 @@ CLI 开关为 `bun run lush hooks auto-select on|off --revision REV`；REV 从 `
 
 ## 条件发射与冻结等待
 
-新输入的「发射」先可靠挂载需求，不保证立刻出现在 Worker 树；父 runtime 真实空闲、安全可写时才创建并开始。冻结自动等待，不必切换另一种预约按钮。Ctrl/⌘+Enter 发射，Ctrl/⌘+Shift+Enter 打开条件选择；桌面 Enter 暂存，新建与追加都支持这套流程。
+新输入的「发射」先可靠挂载需求，不保证立刻出现在 Worker 树；父 runtime 真实空闲、安全可写时才创建并开始。冻结自动等待，不必切换另一种预约按钮。Ctrl/⌘+Enter 与 Ctrl/⌘+Shift+Enter 都直接发射；桌面 Enter 暂存，新建与追加都支持这套流程。主输入框不提供条件发射；先暂存，再到草稿详情主动展开「条件发射设置」。
 
 「条件发射」保存当前版本与全部条件授权，给对应 Worker 挂受保护的信号 Hook：可等待工作安全收尾、本轮成果进入 main 或目标树彻底静息。多个条件全部满足后仍须通过父准入；静息只约束开始，独占还约束后续并行。详情分别提供撤销尚未执行的意图、释放已持有独占的入口；未知结果不自动重试。操作与状态解释见[历史输入与暂存](input-history.md)，精确边界见[条件发射契约](engineering/conditional-emission.md)。
 

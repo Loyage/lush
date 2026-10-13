@@ -31,7 +31,7 @@ test('入口、专属模块与模型调用帮助退役，没有僵尸依赖或 c
   }
   const html = await Bun.file(new URL('index.html', assets)).text();
   expect(html).not.toContain('快速对话');
-  expect(html).toContain('id="input-start"'); expect(html).toContain('id="composer-reset"');
+  expect(html).not.toContain('id="input-start"'); expect(html).toContain('id="composer-reset"');
   expect(Object.hasOwn(ui, 'composerChatMode')).toBe(false);
 });
 

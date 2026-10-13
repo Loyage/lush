@@ -377,7 +377,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       return;
     }
     panel.replaceChildren(el('h2', editable ? `暂存输入 #${record.id}` : `原始输入 ${inputNumber(record.id)}`), statusLine(record));
-    const message = el('p', editable ? '编辑只保留在本页；保存后跨设备可见。发射会先保存并可靠挂载，条件满足后等待安全准入，不保证立即创建或投递。' : '已发送原文只读，不随 Worker 后续追加输入或目标变化。', 'hint');
+    const message = el('p', editable ? '编辑只保留在本页；保存后跨设备可见。发射会先保存并可靠挂载，等待安全准入，不保证立即创建或投递。' : '已发送原文只读，不随 Worker 后续追加输入或目标变化。', 'hint');
     message.setAttribute('role', 'status'); panel.append(message);
     const content = editable ? el('textarea') : el('pre', record.content, 'input-original');
     if (editable) { content.value = record.content; content.rows = 10; content.maxLength = 32000; content.setAttribute('aria-label', '草稿正文'); }
@@ -419,10 +419,13 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     if (appendTarget) panel.append(appendTarget.node, el('p', '追加只投递给这个 Worker，不创建新 Worker；不可用目标必须显式重选，不会改投 main。', 'hint'));
     const conditionsForm = editable ? createEmissionConditions({ conditions: record.conditions || [], exclusive: record.exclusive,
       mode: append ? 'append' : 'order', ownsPage: current, onChange: () => syncSave() }) : null;
-    if (conditionsForm) panel.append(conditionsForm.node);
+    if (conditionsForm) {
+      conditionsForm.node.id = `draft-conditions-${record.id}`;
+      conditionsForm.node.hidden = true;
+    }
     const refs = el('div', undefined, 'input-references'); panel.append(refs);
     const mutating = [], referenceControls = [];
-    let saveControl = null, composing = false;
+    let saveControl = null, conditionsToggle = null, composing = false;
     function paintReferences() {
       referenceControls.length = 0;
       refs.replaceChildren(el('h3', `引用快照（${references.length}）`));
@@ -456,6 +459,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     editor.dirty = () => contentDirty() || runProfile !== null;
     function syncSave() {
       if (!saveControl) return;
+      paintParent();
       saveControl.node.disabled = editor.busy || composing || !contentDirty();
       const reason = editor.busy ? '正在处理，请稍候。' : composing ? '请先完成输入法候选确认。' : !contentDirty() ? '当前内容与已保存的草稿一致。' : '';
       saveControl.host.tabIndex = saveControl.node.disabled ? 0 : -1;
@@ -473,10 +477,15 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     const paintParent = () => {
       const target = selectedParent(), frozen = target?.freeze;
       parentHint.textContent = target ? `${frozen ? `父分支冻结：${frozen.reason || '等待安全边界'}。` : ''}发射先可靠挂载；父 runtime 空闲且通过安全准入后创建并开始，代码基线在实际创建时固定。` : '原父 Worker 缺失或不可用，必须重新选择并保存后才能发射。';
-      for (const [kind, control] of launchControls) {
-        control.node.textContent = kind === 'conditional' ? '条件发射' : append ? '发射追加' : '发射';
-        control.node.classList.toggle('hook-button', kind === 'conditional' || Boolean(frozen));
-        const help = agentHelp(kind === 'conditional' ? '保存编辑及全部条件的一次性授权，全部条件满足后发射，再等待安全准入；不保证立即创建 Worker 或投递追加。' : '可靠挂载当前输入；父 runtime 或追加目标安全准入后创建并开始或投递消息；不保证立即执行。');
+      const options = conditionsForm?.collect(), conditional = Boolean(options?.conditions.length || options?.exclusive);
+      if (conditionsToggle) {
+        const summary = conditional ? ` · ${options.conditions.length} 项${options.exclusive ? ' · 独占' : ''}` : '';
+        conditionsToggle.node.textContent = `条件发射设置${summary}`;
+      }
+      for (const control of launchControls.values()) {
+        control.node.textContent = conditional ? '按条件发射' : append ? '发射追加' : '发射';
+        control.node.classList.toggle('hook-button', Boolean(frozen));
+        const help = agentHelp(conditional ? '保存编辑及全部条件的一次性授权，全部条件满足后发射，再等待安全准入；不保证立即创建 Worker 或投递追加。' : '可靠挂载当前输入；父 runtime 或追加目标安全准入后创建并开始或投递消息；不保证立即执行。');
         control.host.setAttribute('data-help', help); control.node.setAttribute('data-help', help);
       }
     };
@@ -536,8 +545,6 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
           if (kind === 'save') {
             message.textContent = runProfile ? '草稿已保存；运行参数仍只保留在本页，发射时才写入。' : '已保存。'; state.items.set(keyOf(saved), saved); paintList(); return;
           }
-          const options = conditionsForm.collect();
-          if (kind === 'conditional' && !options.conditions.length && !options.exclusive) throw new Error('请先选择至少一个条件，或使用普通发射。');
           // Keep this exact retry identity while the revision/definition remains unchanged.
           const definition = JSON.stringify([saved.id, saved.revision, runProfile]);
           if (editor.requestDefinition !== definition) { editor.requestDefinition = definition; editor.requestId = emissionRequestId(); }
@@ -562,17 +569,25 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     if (editable) {
       for (const [label, kind, opts] of [
         ['发射', 'emit', { agent: true, help: agentHelp('可靠挂载当前输入，安全准入后创建并开始或投递追加；不保证立即执行。') }],
-        ['条件发射', 'conditional', { agent: true, help: agentHelp('保存当前编辑及全部条件的一次性授权，条件满足后发射，再等待安全准入。') }],
         ['保存', 'save', { className: 'input-save' }],
         ['删除草稿', 'remove', { help: '经确认后永久删除这条未发送草稿及其引用；已发送输入不可删除。', className: 'danger' }],
       ]) {
         const control = controlsButton(label, () => mutate(kind), opts); mutating.push(control.node); actions.append(control.host);
-        if (['emit', 'conditional'].includes(kind)) launchControls.set(kind, control);
+        if (kind === 'emit') launchControls.set(kind, control);
         if (kind === 'save') {
           saveControl = control; control.host.className = 'help-host';
           control.node.setAttribute('aria-keyshortcuts', 'Control+s Meta+s');
         }
       }
+      conditionsToggle = controlsButton('条件发射设置', () => {
+        if (!current() || editor.busy) return;
+        conditionsForm.node.hidden = !conditionsForm.node.hidden;
+        conditionsToggle.node.setAttribute('aria-expanded', String(!conditionsForm.node.hidden));
+      }, { className: 'ghost', help: '展开或收起这条草稿的发射条件与独占选项；不发射、不调用 Agent，收起保留设置。' });
+      conditionsToggle.node.setAttribute('aria-expanded', 'false');
+      conditionsToggle.node.setAttribute('aria-controls', conditionsForm.node.id);
+      mutating.push(conditionsToggle.node); actions.append(conditionsToggle.host);
+      panel.append(conditionsForm.node);
       paintParent(); syncSave();
       panel.onkeydown = event => {
         if (!current() || panel.hidden || !state.activeItem || event.defaultPrevented

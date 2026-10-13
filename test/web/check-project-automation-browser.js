@@ -78,6 +78,11 @@ try {
   assert(await wait(`document.querySelector('.automation-emission .input-row')`), 'emission settings missing');
   await execute(`Array.from(document.querySelectorAll('.automation-emission .input-row')).find(n=>n.textContent.includes('Browser conditional draft')).click()`);
   assert(await wait(`document.querySelector('.automation-emission [aria-label="草稿正文"]')`), 'embedded draft editor missing');
+  assert(await execute(`return document.querySelector('.emission-conditions').hidden&&Array.from(document.querySelectorAll('.input-actions button')).some(b=>b.textContent==='按条件发射'&&b.classList.contains('agent-call'));`), 'saved draft conditions are intrusive or emission authorization unclear');
+  await press('条件发射设置 · 1 项');
+  assert(await execute(`return !document.querySelector('.emission-conditions').hidden`), 'explicit condition expansion failed');
+  await press('条件发射设置 · 1 项');
+  assert(await execute(`return document.querySelector('.emission-conditions').hidden&&document.querySelector('[aria-label="等待目标树彻底静息后发射"]').checked`), 'collapse lost saved conditions');
   await execute(`const t=document.querySelector('[aria-label="草稿正文"]');t.value='unsaved browser draft';t.dispatchEvent(new Event('input',{bubbles:true}));`);
   await click('.page-subnav [data-subpage="history"]');
   assert(await wait(`Array.from(document.querySelectorAll('.automation-emission .input-row')).some(n=>n.textContent.includes('Browser waiting receipt'))`), 'conditional execution receipts missing');

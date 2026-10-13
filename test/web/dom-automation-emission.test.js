@@ -64,11 +64,13 @@ test('shared editor saves revision/body/parent/conditions/exclusivity and consum
   await start(); await open(1);
   const content = panel().querySelector('textarea'); content.value = 'edited'; content.oninput();
   const parent = panel().querySelector('[aria-label="草稿父 Worker"]'); parent.value = '2'; parent.onchange();
-  const conditions = panel().querySelector('.emission-conditions'); const checks = conditions.querySelectorAll('input').filter(node => node.type === 'checkbox');
+  const conditions = panel().querySelector('.emission-conditions'); expect(conditions.hidden).toBe(true);
+  await button('条件发射设置 · 1 项').onclick(); expect(conditions.hidden).toBe(false);
+  const checks = conditions.querySelectorAll('input').filter(node => node.type === 'checkbox');
   checks[1].checked = true; checks[1].onchange();
   await button('保存').onclick();
   expect(calls[0]).toMatchObject({ method: 'draft.update', params: { id: 1, content: 'edited', branch: 'feature', expected_revision: 2, exclusive: true, conditions: [{ kind: 'parent_quiet' }] } });
-  const emit = button('条件发射'); expect(emit.classList.contains('agent-call')).toBe(true); expect(emit.getAttribute('data-help')).toContain('token');
+  const emit = button('按条件发射'); expect(emit.classList.contains('agent-call')).toBe(true); expect(emit.getAttribute('data-help')).toContain('token');
   await emit.onclick();
   expect(calls[1]).toMatchObject({ method: 'input.emit', params: { draft_id: 1, expected_revision: 3 } });
   expect(calls[1].params.client_request_id).toBeTruthy(); expect(panel().querySelector('textarea')).toBeNull();
@@ -105,10 +107,10 @@ test('append settings edit the explicit target and retain the same retry identit
     return failedRequests.length === 1 ? Promise.resolve({ ok: false, json: async () => ({ error: 'network uncertain' }) })
       : Promise.resolve(json({ emitted: true, draft_id: 1, revision: 3, dispatch: { state: 'unknown', reason: 'inspect before replay' } }));
   };
-  await button('条件发射').onclick(); expect(panel().querySelector('textarea')).toBeTruthy();
-  await button('条件发射').onclick();
+  await button('按条件发射').onclick(); expect(panel().querySelector('textarea')).toBeTruthy();
+  await button('按条件发射').onclick();
   expect(failedRequests[1].params.client_request_id).toBe(failedRequests[0].params.client_request_id);
-  expect(panel().querySelector('textarea')).toBeNull(); expect(button('条件发射')).toBeUndefined();
+  expect(panel().querySelector('textarea')).toBeNull(); expect(button('按条件发射')).toBeUndefined();
   expect(deepText(panel())).toContain('不会自动重放'); expect(deepText(panel())).not.toContain('O20');
   expect(failedRequests).toHaveLength(2);
 });
@@ -137,7 +139,7 @@ test('parent feature directory keeps routing ownership and resumes a retained ed
   await openProjectAutomation({ feature: 'emission' });
   expect(dom.node('detail').querySelector('.automation-emission')).toBe(page);
   expect(panel().querySelector('textarea')).toBe(content); expect(content.disabled).toBe(false);
-  expect(button('条件发射').disabled).toBe(false); expect(dom.location.hash).toBe('#hooks-emission');
+  expect(button('按条件发射').disabled).toBe(false); expect(dom.location.hash).toBe('#hooks-emission');
   await button('← 返回条件输入列表').onclick(); expect(dom.location.hash).toBe('#hooks-emission');
 });
 

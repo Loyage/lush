@@ -14,7 +14,7 @@ import { createProfileForm } from './agent-profile-form.js';
 import { normalizeConfigMode } from './agent-config-mode.js';
 import { workerLabel } from './worker-label.js';
 import { appendInputBlocker, inputQueueText, inputWaitReason } from './worker-input.js';
-import { createEmissionConditions, emissionAcknowledgement, emissionRequestId } from './emission-form.js';
+import { emissionAcknowledgement, emissionRequestId } from './emission-form.js';
 import { createManagementProfileForm } from './management-profile-form.js';
 
 // 本条指令可选的运行设置：只打开设置，不调用 Agent；派生 Worker 由后端自动继承。
@@ -150,14 +150,14 @@ export function appendToWorker(task) {
   const inDetail = ui.view?.id === 'task' && ui.selected === task.id;
   const inGraph = ui.view?.id === 'task-graph' && ui.taskGraphIds?.has(task.id);
   if (!inDetail && !inGraph) return;
-  ui.composerManagement = false; ui.composerConditions = []; ui.composerExclusive = false;
+  ui.composerManagement = false;
   ui.composerTask = task;
   ui.composerAppendTarget = { id: task.id };
   syncComposer();
   $('input').focus();
 }
 export function resetComposerMode() {
-  ui.composerManagement = false; ui.composerConditions = []; ui.composerExclusive = false;
+  ui.composerManagement = false;
   ui.composerAppendTarget = null;
   syncComposer();
   $('input').focus();
@@ -261,17 +261,11 @@ export function syncComposer() {
   const help = agentHelp(description);
   $('draft-commit').setAttribute('data-help', help);
   $('input-send-help')?.setAttribute('data-help', help);
-  const start = $('input-start'), startHost = $('input-start-help');
-  start.disabled = disabled; start.hidden = management; startHost.hidden = management;
-  start.textContent = '条件发射';
-  start.classList.add('hook-button', 'agent-call');
-  const startHelp = agentHelp(target.reason || '选择多个 Worker 收尾/合入 main、目标树静息或独占条件；全部满足后发射，再等待安全准入。确认时保存一次性授权，不保证立即创建或投递。');
-  start.setAttribute('data-help', startHelp); startHost.setAttribute('data-help', startHelp);
   textEditor?.sync();
   if ($('input-buffer')) { $('input-buffer').disabled = disabled; $('input-buffer').hidden = management; }
   if ($('input-buffer-help')) {
     $('input-buffer-help').hidden = management;
-    const bufferHelp = followup ? `暂存正文和追加目标 ${label}，不创建 Worker、不投递消息、不调用 Agent；稍后可在历史输入编辑条件并发射。` : '暂存正文、引用、父 Worker 与条件，不创建 Worker 或工作区，不调用 Agent。';
+    const bufferHelp = followup ? `暂存正文和追加目标 ${label}，不创建 Worker、不投递消息、不调用 Agent；稍后可在历史输入编辑条件并发射。` : '暂存正文、引用和父 Worker，不创建 Worker 或工作区，不调用 Agent；稍后可在草稿页设置条件并发射。';
     $('input-buffer-help').setAttribute('data-help', bufferHelp); $('input-buffer')?.setAttribute('data-help', bufferHelp);
   }
   if ($('composer-management')) $('composer-management').textContent = management ? '回到开发输入' : '管理 Lush';
@@ -323,8 +317,7 @@ async function submitInput(mode) {
   const target = management ? {} : destination(), branch = target.branch;
   if (target.reason) { show(target.reason, 'error'); return; }
   if (management && mode === 'buffer') return;
-  const conditions = ui.composerConditions || [], exclusive = !management && target.id == null && Boolean(ui.composerExclusive);
-  const requestDefinition = JSON.stringify([content, references, branch, target.id, management, creationProfile, conditions, exclusive]);
+  const requestDefinition = JSON.stringify([content, references, branch, target.id, management, creationProfile]);
   if (identity.requestDefinition !== requestDefinition) { identity.requestDefinition = requestDefinition; identity.requestId = emissionRequestId(); }
   const submission = {}; identity.submission = submission;
   let update = null;
@@ -333,8 +326,7 @@ async function submitInput(mode) {
     if ((target.id != null || management) && references.length) throw new Error(`${management ? '管理需求' : '追加输入'}暂不支持引用附件；原文与引用已保留，请先移除引用或回到新建模式。`);
     if (branch && branch !== 'main' && !target.task && !ui.composerParents?.some(task => task.branch === branch)) throw new Error('所选父 Worker 已不可用，请展开输入区重新选择。');
     const params = { content, references, ...(branch ? { branch } : {}),
-      ...(target.id != null ? { mode: 'append', target_id: target.id } : {}),
-      ...(conditions.length ? { conditions } : {}), ...(exclusive ? { exclusive: true } : {}) };
+      ...(target.id != null ? { mode: 'append', target_id: target.id } : {}) };
     const result = management
       ? await action('management.submit', { instruction: content, client_request_id: identity.requestId, ...(creationProfile ? { profile: creationProfile } : {}) }, { refresh: false })
       : await action(mode === 'buffer' ? 'draft.add' : 'input.emit', mode === 'buffer' ? params
@@ -348,7 +340,7 @@ async function submitInput(mode) {
     // Still protect edits (including edit-and-undo) and explicit inbox mode changes; view guards below only own navigation.
     const untouched = Boolean(ui.composerManagement) === management && ui.composerAppendTarget === appendTarget && ui.composerEditRevision === editRevision && input.value === value
       && ui.composerReferenceRevision === referenceRevision && JSON.stringify(composerReferences()) === signature;
-    if (untouched) { input.value = ''; textEditor?.reset(); setComposerReferences([]); ui.composerConditions = []; ui.composerExclusive = false; identity.requestDefinition = null; }
+    if (untouched) { input.value = ''; textEditor?.reset(); setComposerReferences([]); identity.requestDefinition = null; }
     if (management) {
       if (ui.composerManagementProfile === creationProfile) ui.composerManagementProfile = null;
       ui.composerManagementResult = result.task || null;
@@ -372,30 +364,13 @@ async function submitInput(mode) {
   if (update) void updateAfterSubmit(update);
 }
 export function buffer() { return submitInput('buffer'); }
-export async function conditionallyEmit() {
-  if (ui.composerSubmitting || ui.composerManagement) return;
-  const identity = ui.composerIdentity, view = ui.view, appendTarget = ui.composerAppendTarget;
-  const current = () => ui.composerIdentity === identity && ui.view === view && ui.composerAppendTarget === appendTarget && !ui.composerManagement;
-  const form = createEmissionConditions({ conditions: ui.composerConditions || [], exclusive: ui.composerExclusive,
-    mode: appendTarget ? 'append' : 'order', ownsPage: current });
-  const accepted = await formDialog({ title: '设置条件发射', content: form.node, confirmLabel: '条件发射', agent: true,
-    confirmHelp: agentHelp('保存一次性条件授权；全部满足后可靠发射，再等待父 runtime 或目标 Worker 的安全准入。') });
-  if (!accepted || !current()) return;
-  const error = form.validate(); if (error) { show(error, 'error'); return; }
-  const options = form.collect();
-  if (!options.conditions.length && !options.exclusive) { show('请至少选择一个发射条件，或使用普通发射。', 'error'); return; }
-  ui.composerConditions = options.conditions; ui.composerExclusive = options.exclusive;
-  return submitInput('emit');
-}
-
-/** Enter buffers development/append work; Ctrl+Enter emits, Ctrl+Shift+Enter edits conditions. */
+/** Enter buffers development/append work; Ctrl+Enter and Ctrl+Shift+Enter both emit. */
 export function initComposer() {
   textEditor?.dispose(); disposeViewport?.(); textEditor = null;
   ui.composerIdentity = {}; ui.composerEditRevision = 0; ui.syncComposer = syncComposer;
   const identity = ui.composerIdentity, input = $('input'), editorTools = $('composer-editor-tools');
   editorTools.replaceChildren();
   ui.composerAppendTarget = null; ui.composerManagement = false; ui.composerManagementProfile = null;
-  ui.composerConditions = []; ui.composerExclusive = false;
   // 每次装配（含 boot 重跑）都从项目默认开始，不让上一条指令的运行设置跨会话残留。
   ui.composerProfile = null;
   runSettingsButton = button(runSettingsLabel(), () => openComposerRunSettings(), 'ghost composer-run-settings', { help: RUN_SETTINGS_HELP });
@@ -408,7 +383,7 @@ export function initComposer() {
   else host?.append(runSettingsButton);
   host?.querySelector?.('.composer-management')?.remove?.();
   const managementButton = button('管理 Lush', () => {
-    ui.composerManagement = !ui.composerManagement; ui.composerAppendTarget = null; ui.composerConditions = []; ui.composerExclusive = false; ui.composerEditRevision++; syncComposer(); $('input').focus();
+    ui.composerManagement = !ui.composerManagement; ui.composerAppendTarget = null; ui.composerEditRevision++; syncComposer(); $('input').focus();
   }, 'ghost composer-management', { help: '切换为当前项目的独立管理 Agent 输入；切换不调用 Agent，保留文字与引用。危险操作须用户确认。' });
   managementButton.id = 'composer-management'; host?.append(managementButton);
   host?.querySelector?.('.composer-management-result')?.remove?.();
@@ -421,7 +396,6 @@ export function initComposer() {
   $('composer-expand').onclick = () => toggleComposerDetails();
   $('composer-reset').onclick = resetComposerMode;
   if ($('input-buffer')) $('input-buffer').onclick = buffer;
-  $('input-start').onclick = conditionallyEmit;
   renderParentOptions();
   $('input-parent').onchange = syncComposer;
   $('input-form').onsubmit = event => { event.preventDefault(); return submitInput('create'); };
@@ -443,7 +417,6 @@ export function initComposer() {
     event.preventDefault();
     if (event.repeat) return;
     if (!event.metaKey && !event.ctrlKey) return ui.composerManagement ? undefined : buffer();
-    if (event.shiftKey && !ui.composerManagement) return conditionallyEmit();
     return submitInput('emit');
   };
   // Load the shared editor outside the static startup closure. Initialization

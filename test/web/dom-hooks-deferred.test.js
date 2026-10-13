@@ -37,7 +37,6 @@ test('frozen valid main retains editable composer and complete run settings; par
   expect(dom.node('draft-commit').classList.contains('hook-button')).toBe(true);
   expect(dom.node('input-send-help').getAttribute('data-help')).toContain('不保证立即');
   expect(dom.node('draft-commit').classList.contains('agent-call')).toBe(true);
-  expect(dom.node('input-start').textContent).toBe('条件发射');
   await submit(); await until(() => !ui.composerSubmitting);
   expect(calls[0]).toMatchObject({ method: 'input.emit', params: { content: '新的独立工作', references: [reference], branch: 'main', profile: { agent: 'pi', config_mode: 'pi' } } });
   expect(calls[0].params).not.toHaveProperty('start'); expect(calls[0].params).not.toHaveProperty('defer');

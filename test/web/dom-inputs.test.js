@@ -360,8 +360,9 @@ test('文本安全、Agent 标识和帮助宿主，静态导航与快捷键提�
   rows[0].content = attack; rows[0].references = [{ ...reference, label: attack, quote: attack }];
   await openInputs(); await openDraft(); expect(editor().value).toBe(attack); expect(deepText(panel())).toContain(attack);
   expect(root().querySelectorAll('img')).toHaveLength(0);
-  const start = btn('条件发射', panel()); expect(start.classList.contains('agent-call')).toBe(true); expect(start.getAttribute('data-help')).toContain('token');
-  expect(start.parentNode.classList.contains('help-host')).toBe(true);
+  const settings = btn('条件发射设置', panel()); expect(settings.classList.contains('agent-call')).toBe(false);
+  expect(settings.getAttribute('data-help')).toContain('不调用 Agent');
+  expect(settings.parentNode.classList.contains('help-host')).toBe(true);
   expect(btn('发射', panel()).classList.contains('agent-call')).toBe(true);
   for (const label of ['发射', '删除草稿', '移除引用']) expect(btn(label, panel()).getAttribute('data-help')).toBeTruthy();
   const html = readFileSync('src/ui/web/assets/index.html', 'utf8');
@@ -374,7 +375,7 @@ test('冻结父 Worker 的草稿发射挂载一次性 Hook，保留修订与引�
   try {
     await openInputs(); await openDraft();
     expect(btn('发射').classList.contains('agent-call')).toBe(true);
-    expect(btn('条件发射').getAttribute('data-help')).toContain('安全准入');
+    expect(btn('发射').getAttribute('data-help')).toContain('安全准入');
     await btn('发射').onclick();
     expect(calls.at(-1)).toMatchObject({ method: 'input.emit', params: { draft_id: 1, expected_revision: 3 } });
     expect(calls.at(-1).params).not.toHaveProperty('defer'); expect(deepText(panel())).toContain('不代表 Worker 已创建');
@@ -582,6 +583,7 @@ test('追加草稿保持真实目标、暂存版本和条件，不造 O 或静�
 
 test('多个条件与独占保存同一版本，Worker 目录分页和编号使用真实身份', async () => {
   await openInputs(); await openDraft(); const conditions = panel().querySelector('.emission-conditions');
+  await btn('条件发射设置').onclick(); expect(conditions.hidden).toBe(false);
   let pages = 0; intercept = (path, _body, route) => path === '/api/workers' ? (++pages === 1
     ? json({ tasks: [{ id: 903, worker_number: 'W230', goal: '第一份' }], has_more: true, cursor: 900 })
     : json({ tasks: [{ id: 203, worker_number: 'W17', goal: '更早重构' }], has_more: false })) : null;
@@ -591,11 +593,39 @@ test('多个条件与独占保存同一版本，Worker 目录分页和编号使�
   await btn('添加 Worker 条件', conditions).onclick();
   conditions.querySelector('[aria-label="等待事件"]').value = 'worker_settled'; await btn('添加 Worker 条件', conditions).onclick();
   conditions.querySelector('[aria-label="等待目标树彻底静息后发射"]').checked = true;
-  conditions.querySelector('[aria-label="独占开发：静息后开始，直到本轮交付收口"]').checked = true;
-  await btn('条件发射').onclick();
+  const exclusive = conditions.querySelector('[aria-label="独占开发：静息后开始，直到本轮交付收口"]');
+  exclusive.checked = true; exclusive.onchange();
+  await btn('按条件发射').onclick();
   expect(calls[0].params).toMatchObject({ conditions: [{ kind: 'worker_merged', worker_id: 203 }, { kind: 'worker_settled', worker_id: 203 }, { kind: 'parent_quiet' }], exclusive: true });
   expect(calls[1].params.expected_revision).toBe(4); expect(calls[1].params).not.toHaveProperty('conditions');
   expect(editor()).toBeNull(); expect(deepText(panel())).toContain('W17');
+});
+
+test('条件设置默认收起，显式展开不发射，收起保留未保存选项并提示条件授权', async () => {
+  await openInputs(); await openDraft();
+  const conditions = panel().querySelector('.emission-conditions'), toggle = btn('条件发射设置');
+  expect(conditions.hidden).toBe(true); expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(toggle.getAttribute('aria-controls')).toBe(conditions.id);
+  expect(btn('保存').disabled).toBe(true);
+  await toggle.onclick(); expect(conditions.hidden).toBe(false); expect(calls).toHaveLength(0);
+  const quiet = conditions.querySelector('[aria-label="等待目标树彻底静息后发射"]'); quiet.checked = true; quiet.onchange();
+  expect(btn('保存').disabled).toBe(false); expect(toggle.textContent).toContain('1 项');
+  const emit = btn('按条件发射'); expect(emit.classList.contains('agent-call')).toBe(true); expect(emit.getAttribute('data-help')).toContain('token');
+  await toggle.onclick(); expect(conditions.hidden).toBe(true); expect(quiet.checked).toBe(true); expect(calls).toHaveLength(0);
+  await btn('保存').onclick(); expect(calls[0].params.conditions).toEqual([{ kind: 'parent_quiet' }]);
+  expect(conditions.hidden).toBe(true); expect(btn('保存').disabled).toBe(true);
+  await toggle.onclick(); quiet.checked = false; quiet.onchange(); expect(btn('发射')).toBeTruthy();
+});
+
+test('已有条件草稿仍默认收起，发射明确遵守已保存条件', async () => {
+  rows[0].conditions = [{ kind: 'parent_quiet' }];
+  await openInputs(); await openDraft();
+  expect(panel().querySelector('.emission-conditions').hidden).toBe(true);
+  expect(btn('条件发射设置 · 1 项').getAttribute('aria-expanded')).toBe('false');
+  expect(btn('保存').disabled).toBe(true);
+  await btn('按条件发射').onclick();
+  expect(calls.map(call => call.method)).toEqual(['input.emit']);
+  expect(rows[0].conditions).toEqual([{ kind: 'parent_quiet' }]);
 });
 
 test('条件数量包含独占隐含的静息，避免授权第17项，错误保留草稿', async () => {

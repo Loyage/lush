@@ -94,15 +94,15 @@ test('引用卡片始终可见，1.5s 轮询不改变输入区折叠态', async 
   setComposerReferences([]);
 });
 
-test('⌘/Ctrl+Enter 可靠发射，⌘/Ctrl+Shift+Enter 打开条件发射', async () => {
+test('⌘/Ctrl+Enter 与 ⌘/Ctrl+Shift+Enter 都可靠发射', async () => {
   await overview(); dom.node('input').value = '等待安全准入'; dom.node('input').oninput({});
   await dom.node('input').onkeydown({ key: 'Enter', metaKey: true, preventDefault() {} });
   const last = world.state.actions.findLast(row => row.method === 'input.emit');
   expect(last.params.content).toBe('等待安全准入'); expect(last.params).not.toHaveProperty('start');
-  dom.node('input').value = '条件选择'; dom.node('input').oninput({});
-  const pending = dom.node('input').onkeydown({ key: 'Enter', metaKey: true, shiftKey: true, preventDefault() {} });
-  expect(dialogButton(dom, '条件发射')).toBeTruthy();
-  await dialogButton(dom, '取消').onclick(); await pending; expect(dom.node('input').value).toBe('条件选择');
+  dom.node('input').value = '直接发射'; dom.node('input').oninput({});
+  await dom.node('input').onkeydown({ key: 'Enter', metaKey: true, shiftKey: true, preventDefault() {} });
+  expect(world.state.actions.findLast(row => row.method === 'input.emit').params.content).toBe('直接发射');
+  expect(dom.node('input').value).toBe('');
 });
 
 test('真实 refresh 慢 overview：确认立即清空解锁，继续暂存与输入不被旧创建导航抢走', async () => {
