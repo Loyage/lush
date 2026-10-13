@@ -5,7 +5,8 @@ import { check } from './types.js';
 import { usageAttribution } from './usage-attribution.js';
 
 // Both config modes belong to one Worker even though runtime sessions are isolated.
-const SESSION = /_lush-(?:task|manager)-(\d+)(?:-pi)?\.jsonl$/;
+export const USAGE_SESSION = /_lush-(?:task|manager)-(\d+)(?:-pi)?\.jsonl$/;
+const SESSION = USAGE_SESSION;
 const MAX_LINE = 16 * 1024 * 1024;
 const MAX_BUCKETS = 1500;
 const CACHE_ROWS = 100000;
@@ -18,7 +19,8 @@ const pending = new Map();
 const resourcePending = new Map();
 const validNumber = n => typeof n === 'number' && Number.isFinite(n) && n >= 0;
 const num = n => validNumber(n) ? n : 0;
-const signature = stat => `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+export const usageSignature = stat => `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+const signature = usageSignature;
 
 function timestamp(value) {
   if (typeof value !== 'number' && typeof value !== 'string') return null;
@@ -70,7 +72,8 @@ async function readFile(file, stat, compact = false) {
     return previous;
   }
   const result = { signature: key, task_id: Number(file.match(SESSION)[1]), rows: [], malformed: 0, incomplete: 0,
-    resources: { requests: 0, input: 0, output: 0, cost: 0, unknown_tokens: 0, unknown_cost: 0 } };
+    resources: { requests: 0, input: 0, output: 0, cost: 0, unknown_tokens: 0, unknown_cost: 0,
+      known_tokens: 0, known_cost: 0 } };
   let invocation = null;
   let model = { provider: 'unknown', model: 'unknown' };
   let tail = '', skipping = false;
@@ -89,10 +92,12 @@ async function readFile(file, stat, compact = false) {
       const total = result.resources;
       total.requests++; total.input += row.input + row.cache_read + row.cache_write;
       for (const field of ['output', 'cost', 'unknown_tokens', 'unknown_cost']) total[field] += row[field];
+      total.known_tokens += row.unknown_tokens ? 0 : 1;
+      total.known_cost += row.unknown_cost ? 0 : 1;
     }
   };
   // Snapshot the size: a live agent can keep appending, but one request must still finish.
-  if (stat.size) for await (const chunk of fs.createReadStream(file, { encoding: 'utf8', highWaterMark: 64 * 1024, end: stat.size - 1 })) {
+  if (stat.size) for await (const chunk of fs.createReadStream(file, { encoding: 'utf8', highWaterMark: 64 * 1024, flags: fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW, end: stat.size - 1 })) {
     let offset = 0;
     for (;;) {
       const newline = chunk.indexOf('\n', offset);
@@ -126,7 +131,9 @@ function rememberResources(file, result) {
   return summary;
 }
 
-async function scan(dir, compact = false, readIds = null) {
+export const readCompactUsageFile = (file, stat) => readFile(file, stat, true);
+
+async function scan(dir, compact = false, readIds = null, index = null) {
   let names;
   try { names = await fs.promises.readdir(dir); }
   catch (error) { if (error.code === 'ENOENT') return { files: [], codex_threads: 0, codex_ids: [], unreadable: 0 }; throw error; }
@@ -140,16 +147,21 @@ async function scan(dir, compact = false, readIds = null) {
     try {
       const stat = await fs.promises.lstat(file);
       // Do not follow session symlinks into another project or the global agent history.
-      if (!stat.isFile()) { result.unreadable++; continue; }
+      if (!stat.isFile()) {
+        result.skipped_ids.push(Number(file.match(SESSION)[1])); result.unreadable++; continue;
+      }
       const taskId = Number(file.match(SESSION)[1]);
       if (readIds && !readIds.has(taskId)) {
         // Hidden cards must not trigger session-body reads. Only a still-valid,
         // compact cache entry can contribute known expenditure to visible ancestors.
-        const cached = resourceCache.get(file) ?? cache.get(file);
+        const cached = index ? index.get(file, stat) : resourceCache.get(file) ?? cache.get(file);
         if (cached?.signature === signature(stat)) result.files.push(cached);
         else result.skipped_ids.push(taskId);
-      } else result.files.push(await readFile(file, stat, compact));
-    } catch { result.unreadable++; }
+      } else {
+        const summary = index ? await index.read(file, stat) : await readFile(file, stat, compact);
+        if (summary) result.files.push(summary); else result.skipped_ids.push(taskId);
+      }
+    } catch { result.skipped_ids.push(Number(file.match(SESSION)[1])); result.unreadable++; }
   }
   return result;
 }
@@ -189,10 +201,10 @@ function runMs(runs, now) {
 }
 
 /** Compact lifetime resource summaries, independent of graph/group limits. */
-export async function readWorkerResources(config, tasks, runs = [], { read_ids = null } = {}) {
+export async function readWorkerResources(config, tasks, runs = [], { read_ids = null, index = null } = {}) {
   const dir = path.join(config.home, 'sessions');
   let source;
-  if (read_ids) source = await scan(dir, true, read_ids);
+  if (read_ids || index) source = await scan(dir, true, read_ids, index);
   else {
     if (!resourcePending.has(dir)) resourcePending.set(dir, scan(dir, true).finally(() => resourcePending.delete(dir)));
     source = await resourcePending.get(dir);
@@ -205,9 +217,12 @@ export async function readWorkerResources(config, tasks, runs = [], { read_ids =
   }
   const own = new Map(tasks.map(task => [task.id, { input: 0, output: 0, cost: 0,
     run_ms: runMs(runsByTask.get(task.id) ?? [], now),
-    unknown_tokens: 0, unknown_cost: 0, incomplete: source.unreadable > 0,
+    unknown_tokens: 0, unknown_cost: 0, known_tokens: 0, known_cost: 0, pending_files: 0,
+    incomplete: false,
     running: task.status === 'running' }]));
-  for (const id of source.skipped_ids ?? []) if (own.has(id)) own.get(id).incomplete = true;
+  for (const id of source.skipped_ids ?? []) if (own.has(id)) {
+    own.get(id).incomplete = true; own.get(id).pending_files++;
+  }
   const observed = new Set();
   for (const file of source.files) {
     const total = own.get(file.task_id);
@@ -215,7 +230,7 @@ export async function readWorkerResources(config, tasks, runs = [], { read_ids =
     total.incomplete ||= file.malformed > 0 || file.incomplete > 0;
     // Forked context was excluded while parsing; unchanged files reuse these compact totals.
     if (file.resources.requests) observed.add(file.task_id);
-    for (const field of ['input', 'output', 'cost', 'unknown_tokens', 'unknown_cost']) total[field] += file.resources[field];
+    for (const field of ['input', 'output', 'cost', 'unknown_tokens', 'unknown_cost', 'known_tokens', 'known_cost']) total[field] += file.resources[field];
   }
   // Codex thread metadata does not contain request expenditure.
   for (const id of source.codex_ids) if (own.has(id) && !observed.has(id)) own.get(id).incomplete = true;
@@ -228,7 +243,7 @@ export async function readWorkerResources(config, tasks, runs = [], { read_ids =
     for (let parent = byId.get(task.parent_id); parent && !seen.has(parent.id); parent = byId.get(parent.parent_id)) {
       seen.add(parent.id);
       const total = result.get(parent.id).subtree, row = own.get(task.id);
-      for (const key of ['input', 'output', 'cost', 'run_ms', 'unknown_tokens', 'unknown_cost']) total[key] += row[key];
+      for (const key of ['input', 'output', 'cost', 'run_ms', 'unknown_tokens', 'unknown_cost', 'known_tokens', 'known_cost', 'pending_files']) total[key] += row[key];
       total.incomplete ||= row.incomplete; total.running ||= row.running;
     }
   }

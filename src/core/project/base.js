@@ -2,6 +2,7 @@ import { Workspaces } from '../workspaces.js';
 import { AgentProvider, MockProvider } from '../../agent/provider.js';
 import { AgentSettings } from '../../agent/settings.js';
 import { AgentUsageService } from '../agent-usage.js';
+import { UsageIndex } from '../usage-index.js';
 import { AgentConnectionsService } from '../agent-connections.js';
 import { AgentSelectionService } from '../agent-selection.js';
 import { AgentPackages } from '../../agent/packages.js';
@@ -36,6 +37,7 @@ export class ProjectBase {
     // 一键合并的异步驱动状态：driving 表示某目标正有一轮在跑，避免同目标重复驱动。
     this.mergeRunsDriving = new Set();
     this.agentUsage = new AgentUsageService(this);
+    this.usageIndex = new UsageIndex(config, options.usageIndex);
     this.agentConnections = new AgentConnectionsService(this);
     this.agentSelection = new AgentSelectionService(this, { strategy: options.modelSelectionStrategy ?? null });
     this.agentPackageOptions = options.agentPackages ?? {};

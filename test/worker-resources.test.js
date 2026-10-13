@@ -60,7 +60,7 @@ test('worker.graph uses valid cached off-page subtree usage, otherwise marks spe
     expect(graph.nodes.find(row => row.id === main.id).resources).toMatchObject({
       own: { input: 0, cost: 0, run_ms: 0 }, subtree: { input: 0, run_ms: 1000, incomplete: true },
     });
-    await readWorkerResources(f.config, f.store.all('SELECT id,parent_id,status FROM tasks'));
+    await readWorkerResources(f.config, f.store.all('SELECT id,parent_id,status FROM tasks'), [], { index: f.project.usageIndex });
     const cached = await f.project.taskGraph();
     expect(cached.nodes.find(row => row.id === main.id).resources).toMatchObject({
       own: { input: 0, cost: 0, run_ms: 0 }, subtree: { input: 35, output: 3, cost: .2, run_ms: 1000, incomplete: false },
@@ -82,10 +82,10 @@ test('unknown cost/tokens, malformed or partial records and Codex metadata do no
       { id: 1, parent_id: 2, status: 'waiting' }, { id: 2, parent_id: 1, status: 'waiting' },
       { id: 3, parent_id: null, status: 'waiting' }, { id: 4, status: 'queued' }, { id: 5, status: 'waiting' },
     ]);
-    expect(totals.get(2).own).toMatchObject({ unknown_tokens: 1, unknown_cost: 1, incomplete: true });
+    expect(totals.get(2).own).toMatchObject({ unknown_tokens: 1, unknown_cost: 1, known_tokens: 0, known_cost: 0, pending_files: 0, incomplete: true });
     expect(totals.get(1).subtree.incomplete).toBe(true);
     expect(totals.get(3).own.incomplete).toBe(true);
-    expect(totals.get(5).own).toMatchObject({ input: 35, output: 3, unknown_tokens: 0, unknown_cost: 1, incomplete: false });
+    expect(totals.get(5).own).toMatchObject({ input: 35, output: 3, unknown_tokens: 0, unknown_cost: 1, known_tokens: 1, known_cost: 0, incomplete: false });
     expect(totals.get(4).own).toMatchObject({ input: 0, output: 0, cost: 0, incomplete: false, running: false });
   } finally { await f.close(); }
 });

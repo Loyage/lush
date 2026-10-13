@@ -379,6 +379,7 @@ export default {
     this.recoverMaintenanceBatch();
     this.hookRecoveredWorkers = new Set();
     this.agentUsage.start();
+    this.usageIndex.start();
     this.agentConnections.start();
     this.startRuntimeSettingsMonitor();
     // Legacy automation authorization is retained on disk but is not reactivated.
@@ -496,6 +497,7 @@ export default {
     this.stopRuntimeSettingsMonitor();
     this.stopDeviceAutomationMonitor();
     const usageStopped = this.agentUsage.stop();
+    const usageIndexStopped = this.usageIndex.stop();
     const connectionsStopped = this.agentConnections.stop();
     const packagesStopped = Promise.allSettled([this.agentPackageManager.stop(), this.deviceAgentPackageManager?.stop()]);
     clearInterval(this.sleepTimer); this.sleepTimer = null;
@@ -515,6 +517,7 @@ export default {
     await Promise.allSettled([...(this.convergenceJobs?.values() ?? [])].map(job => job.promise));
     await this.workspaces.queue;
     await usageStopped;
+    await usageIndexStopped;
     await connectionsStopped;
     await packagesStopped;
   }

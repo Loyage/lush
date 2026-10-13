@@ -201,6 +201,42 @@ test('资源消耗在两种模式显示自身，折叠显示后端完整子树�
   expect(card(2).querySelector('.task-graph-usage').classList.contains('is-live')).toBe(false);
 });
 
+test('两种树模式展开显示自身、折叠显示后台已知子树小计，不以可见后代补零', async () => {
+  graph.nodes[0].children_total = 50;
+  graph.nodes[0].resources = {
+    own: { input: 1200, output: 300, cost: 0.24, run_ms: 1000 },
+    subtree: { input: 121000, output: 18000, cost: 2.24, run_ms: 61000,
+      incomplete: true, unknown_tokens: 1, unknown_cost: 2, known_tokens: 3, known_cost: 0, pending_files: 2, running: true },
+  };
+  for (const details of [false, true]) {
+    if (details) await enableDetails();
+    renderTaskGraph(graph);
+    let summary = card(1).querySelector('.task-graph-usage');
+    expect(deepText(summary)).toContain('↑1.2k');
+    expect(deepText(summary)).toContain('$0.24');
+    expect(deepText(summary)).not.toContain('统计不完整');
+    await card(1).querySelector('[data-graph-focus="fold-1"]').onclick();
+    summary = card(1).querySelector('.task-graph-usage');
+    expect(summary.classList.contains('is-aggregate')).toBe(true);
+    expect(summary.classList.contains('is-live')).toBe(true);
+    expect(summary.querySelector('.task-graph-usage-incomplete').textContent).toBe('统计不完整');
+    expect(summary.querySelector('.task-graph-usage-input').textContent).toBe('已知 ↑121.0k');
+    expect(summary.querySelector('.task-graph-usage-output').textContent).toBe('已知 ↓18.0k');
+    expect(summary.querySelector('.task-graph-usage-cost').textContent).toBe('—');
+    expect(summary.getAttribute('data-help')).toContain('后台补齐中');
+    expect(summary.getAttribute('data-help')).toContain('隐藏、归档及图外节点');
+    expect(summary.getAttribute('aria-label')).toContain('子树合计，统计不完整');
+    expect(card(2)).toBeNull();
+    expect(summary.parentNode.className).toBe(details ? 'task-graph-head' : 'task-graph-minimal-meta');
+    // No third row, action or layout wrapper is introduced for partial coverage.
+    expect(card(1).querySelectorAll('.task-graph-usage')).toHaveLength(1);
+    await loadTaskGraph();
+    expect(card(1).querySelector('.task-graph-usage-input').textContent).toBe('已知 ↑121.0k');
+    await card(1).querySelector('[data-graph-focus="fold-1"]').onclick();
+    expect(card(1).querySelector('.task-graph-usage-cost').textContent).toBe('$0.24');
+  }
+});
+
 test('Git 相对进度在第二排计划前，刷新、折叠和交付状态不改变真实含义', async () => {
   const node = graph.nodes[1];
   node.parent_relation = { ahead: 3, behind: 2 };

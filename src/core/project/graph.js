@@ -174,7 +174,7 @@ export default {
     const resources = details && ids.length ? await readWorkerResources(this.config,
       this.store.all('SELECT id,parent_id,status FROM tasks'),
       this.store.all('SELECT task_id,started_at,ended_at FROM agent_runs'),
-      { read_ids: new Set(ids) }).catch(() => new Map()) : new Map();
+      { read_ids: new Set(ids), index: this.usageIndex }).catch(() => new Map()) : new Map();
     const iterations = iterationViews(this.store, selected);
     const mergeQueues = mergeQueueSummaries(this.store, ids);
     // 一批取回调用区间：任务图上的紧凑进度也要把等待排除在 Agent 工作用时之外。
