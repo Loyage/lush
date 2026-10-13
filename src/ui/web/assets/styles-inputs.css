@@ -4,6 +4,10 @@
 .input-search{flex:1 1 240px}.input-filter{flex:0 1 155px}
 .inputs-filters input,.inputs-filters select,.input-detail select{width:100%;max-width:100%;min-width:0;padding:8px 10px;border:1px solid var(--line-soft);border-radius:7px;background:var(--bg);color:var(--text);font-size:12px}
 .inputs-filters input:hover,.inputs-filters select:hover{border-color:var(--accent)}
+.input-mode-filters{display:flex;flex-wrap:wrap;align-items:center;gap:8px;flex-basis:100%}.input-mode-label{font-size:11px;color:var(--muted)}
+.input-mode-toggle{cursor:pointer;min-height:32px;font-size:12px;padding:6px 10px;border:1px solid transparent}
+.input-mode-toggle.is-off{background:var(--panel-2);color:var(--muted);border-color:var(--line-soft);opacity:.65}.input-mode-toggle:hover{opacity:1;filter:brightness(1.1)}
+.input-mode-badge{font-size:10px;white-space:nowrap}.input-record-head>.tid{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .inputs-feedback{margin:0 2px 14px}.inputs-card>.section-title{justify-content:space-between}
 .inputs-list{list-style:none;display:flex;flex-direction:column;gap:7px;margin:0;padding:0;min-width:0}
 .input-record{min-width:0}
@@ -40,6 +44,7 @@ button.input-row:focus-visible,a.input-row:focus-visible{background:var(--accent
   .emission-field input:not([type="checkbox"]),.emission-field select{font-size:16px}.emission-conditions button{min-height:44px}
   .inputs-filters{flex-direction:row;align-items:flex-end;gap:9px}.input-search{flex-basis:100%}.input-filter{flex:1 1 120px}
   .inputs-filters input,.inputs-filters select,.input-detail textarea,.input-detail select{font-size:16px}
+  .input-mode-toggle{min-height:44px}.input-mode-filters{gap:6px}.input-mode-label{flex-basis:100%}.input-record-head{gap:6px}
   .input-detail .text-editor-controls button{min-height:44px;min-width:64px}
   button.input-row,a.input-row{padding-left:10px;padding-right:10px}.input-open-label{font-size:10px}.input-detail h2{font-size:18px}
 }

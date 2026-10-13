@@ -8,15 +8,21 @@
 
 | RPC | HTTP | 参数 |
 |---|---|---|
-| `input.history` | `GET /api/inputs` | `cursor?`、`limit?`、`q?`、`status?`、`integration?`、`conditional?` |
-| `input.get` | `GET /api/input/{kind}/{id}` | `kind:'draft'|'input'`、`id` |
+| `input.history` | `GET /api/inputs` | `cursor?`、`limit?`、`q?`、`status?`、`integration?`、`conditional?`、`modes?:('order'|'append'|'management')[]` |
+| `input.get` | `GET /api/input/{kind}/{id}` | `kind:'draft'|'input'|'message'|'management'`、`id` |
 | `input.parents` | `GET /api/input-parents` | 无 |
 
-历史列表返回 `{items,next_cursor}`，默认每页 50 条、最多 100 条，正文预览最多 1000 字并带 `content_truncated`。搜索在服务端针对完整正文进行，不是搜索预览或首页 Worker 窗口。列表包含未发射 Draft 与全部 Input；已创建 order 的草稿通过 `input_id` 保留审计联系，不作为第二条历史记录列出；等待条件／准入与已发送 append 草稿仍展示，不虚构 Input。
+历史列表返回 `{items,next_cursor}`，默认每页 50 条、最多 100 条，正文预览最多 1000 字并带 `content_truncated`。搜索在服务端针对完整正文进行，不是搜索预览或首页 Worker 窗口。列表按三种去向收录：`order` 包含全部原始 Input 与新建草稿；`append` 包含追加草稿与来源已证明的普通用户追加 Message；`management` 仅包含 `task_kind='management'` 且持久 `management.origin='input'` 的即时主输入框管理目标，不含定时信号绑定。原始 Input 固定 `mode:'order'`，草稿 mode 取 `input_options`（旧草稿默认 order）。已创建 order 的草稿通过 `input_id` 保留审计联系，不作为第二条历史记录列出；等待条件／准入与已发送 append 草稿仍展示，关联的真实 Message 按 `emission.message_id` 与目标身份去重，不按正文去重，不虚构 Input。
 
-条件发射功能使用可选 `conditional:'configured'|'mounted'` 窄读面：`configured` 查询有条件／独占的草稿及保留的条件发射收据，包含尚未发射条目；`mounted` 仅查询保存过条件信号的发射草稿，包含等待、投递中、成功、失败、未知与撤销。此视图保留已经关联真实 Input 的草稿身份与安全 `dispatch`，不将追加收据变成 Input；普通历史不传此参数，仍只列出实际创建后的 Input。过滤在数据库全库分页之前完成，cursor 绑定包括 `conditional` 在内的完整筛选条件，不能跨视图复用。收据是每条保留草稿的最近一次授权状态，不是所有历史修订的执行日志；撤销后再编辑可能改变草稿正文，已保留条件证明仍以 `dispatch.conditions` 为准。读面不提供私有运行参数、请求指纹或信号快照。
+`modes` 省略表示三种全含，空数组返回空列表；未知值、重复值、非数组和非字符串成员严格拒绝。HTTP 用 JSON 数组编码，例如 `/api/inputs?modes=%5B%22append%22%2C%22management%22%5D`，不接受逗号分隔形式或重复 query 参数。模式与正文／状态／合并筛选均在全库 SQL 分页前执行；cursor 绑定规范化的模式集合，模式顺序不同不影响续读，省略与显式三种全选等价，集合改变须重新查询。所有 kind 按 `(created_at,kind,id)` 稳定倒序分页，同时间和跨 kind 同整数 ID 不会互相覆盖。旧的无模式 cursor 须刷新，不改写历史行。
 
-条目包含 `kind`、`id`、`content`、`content_truncated`、`created_at`、`task_id`、`parent_id`、`branch`、`status`、`integration`、`merge_status`、`revision`。详情另返回完整正文和 `references`，草稿还返回 `mode,target_id,target_worker_number,conditions,exclusive,dispatch` 和兼容 `hook_mount:{parent_id,hook_id,state}|null`；Input 原文只读。缺失 Worker 的旧输入保留，状态为 `unknown`。
+Message 来源必须由持久 `append_number` 或明确的用户 message Event 证明，不能仅看 `sender_id IS NULL` 或正文 JSON 外观。新 message Event 保存 `user_append` 以区分无原始 Input 的用户追加与运行时消息；Event 证明须同 Worker、整数 `message_id`、显式 `sender:null`，并有持久追加编号或 `user_append:true`；明确 `user_append:false` 优先排除，即使存在冲突的编号或 true 收据。旧 `sender:null` message Event 单独不构成证明，`task.input_routed/input_buffered` 也不构成证明，因为旧 Hook／plan 与 runtime opt-out 同样可能写这些事件。缺少追加编号且没有明确用户标记的历史消息保守排除，包括编号字段缺失或为 null 的记录；新增标记只增强今后记录，不改投递／生命周期，不回填、迁移或猜测。Worker 通信、Notice 答复、系统信号与 runtime opt-out 不进入列表／详情；用户正文即使看似 Notice JSON 也不改变来源。缺失 Worker 的原始 Input 仍保留。
+
+`kind:'message'` 的 id 是真实 Message ID，`kind:'management'` 的 id 是真实 Valet task ID，均不是 O 编号。详情用与列表同一来源准入，只读返回完整 `content`、`references` 及公共状态／身份；两者目前没有引用附件，返回 `references:[]`。被草稿去重的 Message 仍可按真实身份读取，其来源准入不放宽。`task_id/task_worker_number` 指向来源 Worker／Valet，Message 另带持久 `append_number`（旧缺号为 null，不造 A 编号）；不暴露 management 私有 JSON、模型运行配置、请求 key 或指纹，不新增写入口、表或权限。
+
+条件发射功能使用可选 `conditional:'configured'|'mounted'` 窄读面：`configured` 查询有条件／独占的草稿及保留的条件发射收据，包含尚未发射条目；`mounted` 仅查询保存过条件信号的发射草稿，包含等待、投递中、成功、失败、未知与撤销。此视图保留已经关联真实 Input 的草稿身份与安全 `dispatch`，不将追加收据变成 Input；普通历史不传此参数，已创建 order 仅按实际 Input 展示，追加与管理沿用上述来源范围；`modes` 可进一步筛选这些既有条件草稿，但不将 Message 或管理目标扩入条件视图。过滤在数据库全库分页之前完成，cursor 绑定包括 `conditional` 在内的完整筛选条件，不能跨视图复用。收据是每条保留草稿的最近一次授权状态，不是所有历史修订的执行日志；撤销后再编辑可能改变草稿正文，已保留条件证明仍以 `dispatch.conditions` 为准。读面不提供私有运行参数、请求指纹或信号快照。
+
+条目包含 `kind`、`id`、`mode`、`append_number`（非 Message 为 null）、`content`、`content_truncated`、`created_at`、`task_id`、`parent_id`、`branch`、`status`、`integration`、`merge_status`、`revision`。详情另返回完整正文和 `references`，草稿还返回 `mode,target_id,target_worker_number,conditions,exclusive,dispatch` 和兼容 `hook_mount:{parent_id,hook_id,state}|null`；Input 原文只读。缺失 Worker 的旧输入保留，状态为 `unknown`。
 
 `status` 是历史页的只读投影：`draft`、`created`、`queued`、`running`、`waiting`、`awaiting`、`paused`、`awaiting_acceptance`、`completed`、`failed`、`cancelled`、`unknown`，以及挂载草稿的 `waiting_conditions|emitted|sent|emission_failed|unknown_dispatch`。`created` 区分从未调用 Agent 的 paused Worker；同时检查本轮调用数、终身唤醒数与 Run 记录，避免重试清零 calls 后误报待开始。不会反写 Worker 状态。
 
@@ -66,13 +72,15 @@
 ## 验证入口与边界
 
 - `test/project/input-history.test.js`：状态、全库搜索分页、父身份、重开持久化、乐观锁和发射/编辑/删除竞态。
-- `test/web/input-history.test.js`：HTTP 路由与参数白名单。
+- `test/project/input-history-modes.test.js`：三模式组合、全库混合 kind 同时间分页、游标集合绑定、来源证明／排除、追加去重、只读安全投影与权限。
+- `test/web/input-history.test.js`：HTTP 路由、JSON 模式数组与参数白名单。
 - `test/project/conditional-input-history.test.js` / `test/web/dom-automation-emission.test.js`：条件输入全库分页、成功后收据、安全投影与嵌入编辑、分页、标签保留、跨项目／离页迟到保护。
 - `test/web/dom-input-buffer.test.js` / `dom-inputs.test.js`：键盘、输入法、单飞、编辑与迟到响应保护。
 - `test/web/dom-inputs-api.test.js`：真实临时 HTTP/RPC/SQLite/Git 串联暂存、搜索、修订保存、挂载后实际创建及原始引用回看，不连接用户项目。
+- `bun run scripts/check-input-modes-ui.js`：隔离 Firefox 真实项目页与 iframe，验证双主题 1440/900/390px 三色模式开关、默认全选、单模式／全不选、追加只读详情与无溢出，不连接 daemon／模型。
 - `bun scripts/check-input-history-ui.js`：Firefox/geckodriver 临时 fixture，验证双主题 1440/900/500px 实际视口的等高列表/详情布局、浏览器后退与键盘交互；Firefox 将请求的 390px 窗口限制为 500px 视口，不据此声称验证了 390px。
 - `bun run scripts/check-composer-layout.js`：实际 `/p/<id>/` 项目页和 fixture API；Firefox 验证只有 textarea 区分新建实线／追加虚线，表单／图标／目标条无外框，整个输入区域统一项目色染色、聚焦不叠加描边且保留线型、常驻加粗目标、两种模式均沿用六种项目配色、双主题、聚焦／失焦、长标题、冻结／阻塞目标保留、Enter 真实投递、追加 ACK 自动恢复新建及导航退出。用真实 iframe 浏览上下文绕过 Firefox 顶层最小窗口限制，实际测试 1440/900/390px 视口；不连接 daemon 或模型，运行后清理服务与浏览器进程。
 
 - `bun run test/web/check-mobile-composer-browser.js`：隔离 Firefox fixture，以真实 iframe 验证 320/390/760px 手机与 1440px 桌面、双主题、项目配色下的常驻单行页头、两列 44px 等高导航、事项／Worker 跳转后收起、矮屏全局菜单独立滚动、默认常用按钮单行且无条件发射入口、冻结发射按钮不溢出、展开次要入口及手机回车／撤销／追加／创建语义。软键盘通过 VisualViewport 模拟，不等同于 iOS／Android 真机验收。
 
-缓冲区上限 500 条。无已绑定父 Worker 或 detached HEAD 时，暂存需先明确选择有效父Worker；失败保留输入，不自动新建任意 owner。当前不提供批量发射、任意 Worker 消息的全局全文检索或原始 Input 改写；仅统一流程的追加草稿可在历史中检索。
+缓冲区上限 500 条。无已绑定父 Worker 或 detached HEAD 时，暂存需先明确选择有效父Worker；失败保留输入，不自动新建任意 owner。当前不提供批量发射、任意 Worker 消息的全局全文检索或原始 Input 改写；普通用户追加仅在来源有持久证明时纳入历史检索；不将其它 Worker 消息或信号变成用户输入。

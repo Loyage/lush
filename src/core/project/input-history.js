@@ -5,6 +5,7 @@ import { normalizeInputOptions, inputOptions, emissionLocked, inputEmission } fr
 
 const STATUSES = new Set(['draft','waiting_conditions','emitted','sent','emission_failed','unknown_dispatch','created','queued','running','waiting','awaiting','paused','awaiting_acceptance','completed','failed','cancelled','unknown']);
 const MERGES = new Set(['merging','blocked','merged','none']);
+const MODES = ['order','append','management'];
 const MAX_PARENTS = 2000;
 
 export function expectedRevision(value) {
@@ -18,23 +19,26 @@ export function checkDraftRevision(draft, expected) {
 }
 
 export default {
-  inputHistory({ cursor, limit = 50, q = '', status, integration, conditional } = {}) {
+  inputHistory({ cursor, limit = 50, q = '', status, integration, conditional, modes } = {}) {
     check(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100, 'limit must be an integer from 1 to 100');
     check(typeof q === 'string' && q.length <= 1000, 'q must be text of at most 1000 characters');
     check(status === undefined || STATUSES.has(status), 'invalid input status');
     check(integration === undefined || MERGES.has(integration), 'invalid input integration filter');
     check(conditional === undefined || ['configured','mounted'].includes(conditional), 'invalid conditional input filter');
-    const filters = { q, status: status ?? null, integration: integration ?? null, ...(conditional ? { conditional } : {}) };
+    check(modes === undefined || (Array.isArray(modes) && modes.every(mode => MODES.includes(mode))
+      && new Set(modes).size === modes.length), 'modes must be an array of unique order, append or management values');
+    const selectedModes = modes === undefined ? MODES : MODES.filter(mode => modes.includes(mode));
+    const filters = { q, status: status ?? null, integration: integration ?? null, ...(conditional ? { conditional } : {}), modes: selectedModes };
     let after = null;
     if (cursor !== undefined) {
       check(typeof cursor === 'string' && cursor.length > 0 && cursor.length <= 16384 && /^[A-Za-z0-9_-]+$/.test(cursor), 'invalid input history cursor');
       try { after = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')); } catch { check(false, 'invalid input history cursor'); }
-      check(after?.version === 1 && ['input','draft'].includes(after.kind)
+      check(after?.version === 1 && ['input','draft','message','management'].includes(after.kind)
         && typeof after.created_at === 'string' && after.created_at.length <= 64
         && Number.isSafeInteger(after.id) && after.id > 0
         && JSON.stringify(after.filters) === JSON.stringify(filters), 'invalid input history cursor or changed filters');
     }
-    const rows = this.store.inputHistoryRows({ q, status, integration, conditional, cursor: after, limit });
+    const rows = this.store.inputHistoryRows({ q, status, integration, conditional, modes: selectedModes, cursor: after, limit });
     const more = rows.length > limit, items = rows.slice(0, limit), last = items.at(-1);
     const mounts = items.some(item => item.kind === 'draft') ? this.draftHookMountMap() : new Map();
     return { items: items.map(item => item.kind === 'draft' ? { ...item, ...this.draftEmissionView(this.store.draft(item.id)), hook_mount: mounts.get(item.id) ?? null } : item), next_cursor: more ? Buffer.from(JSON.stringify({ version: 1, created_at: last.created_at,
@@ -42,7 +46,7 @@ export default {
   },
 
   inputGet(kind, itemId) {
-    check(['input','draft'].includes(kind), 'kind must be input or draft');
+    check(['input','draft','message','management'].includes(kind), 'kind must be input, draft, message or management');
     let item = this.store.inputHistoryItem(kind, id(itemId));
     if (!item && kind === 'draft') {
       const draft = this.store.draft(id(itemId));
@@ -52,7 +56,7 @@ export default {
     }
     check(item, `${kind} ${kind === 'input' ? `O${itemId}` : itemId} not found or already submitted`);
     return { ...item, ...(kind === 'draft' ? { ...this.draftEmissionView(this.store.draft(item.id)), hook_mount: this.draftHookMount(item.id) } : {}),
-      references: kind === 'draft' ? this.store.draftReferences(item.id) : this.store.inputReferences(item.id) };
+      references: kind === 'draft' ? this.store.draftReferences(item.id) : kind === 'input' ? this.store.inputReferences(item.id) : [] };
   },
 
   /** Resolve identity when buffering, not the code baseline. No checkout is created here. */

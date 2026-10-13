@@ -87,7 +87,7 @@ export default {
         ? this.store.appendMessage(target.id, body, held ? 'frozen' : null)
         : this.store.message(target.id, body, sender, held ? 'frozen' : null);
       const { append_number } = this.store.get('SELECT append_number FROM messages WHERE id=?', messageId);
-      this.store.event(target.id, 'message', { sender, body, message_id: messageId, append_number });
+      this.store.event(target.id, 'message', { sender, body, message_id: messageId, append_number, user_append: sender === null && userAppend });
       if (held) this.store.event(target.id, 'task.input_buffered', { message_id: messageId });
       else if (sender === null) this.store.event(target.id, 'task.input_routed', { message_id: messageId,
         delivery: routing.decision.delivery, source: routing.decision.source, error: routing.error });

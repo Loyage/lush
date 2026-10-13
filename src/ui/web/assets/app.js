@@ -141,7 +141,7 @@ function openHashTarget(hash, project, doc, generation) {
   if (hash === '#management' || hash === '#management-history') return openManagement(hash === '#management-history' ? 'history' : 'settings');
   if (hash === '#versions') return ui.view?.id === 'versions' ? undefined : openVersions();
   if (hash === '#inputs') return openInputs({ push: false });
-  const input = /^#input-(draft|input)-([1-9]\d*)$/.exec(hash);
+  const input = /^#input-(draft|input|message|management)-([1-9]\d*)$/.exec(hash);
   if (input && Number.isSafeInteger(Number(input[2]))) return openInputs({ item: { kind: input[1], id: Number(input[2]) }, push: false });
   if (hash === '#worker-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
   const recordId = /^#notices-([1-9]\d*)$/.exec(hash)?.[1];

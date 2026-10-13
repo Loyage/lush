@@ -72,21 +72,37 @@ test('真实 API：发射确认留在原页，不伪造已创建告知或 Agent 
   } finally { restore(); await fixture.close(); }
 });
 
-test('真实 API：默认只读暂存，手动切换才显示已提交历史', async () => {
+test('真实 API：默认三模式全部状态，色块多选在全库筛选并打开消息与管理来源', async () => {
   fixture = await setup(); fixture.project.stopping = true; await repo(fixture.root);
   try {
     resetUiState();
     const draft = await fixture.project.addBufferedDraft('待执行想法', [], 'main');
-    await fixture.project.order('已提交指令', 'main', [], null, false);
+    const order = await fixture.project.order('已提交指令', 'main', [], null, false);
+    fixture.project.message(order.task.id, '直接追加真实正文');
+    const message = fixture.store.get('SELECT * FROM messages WHERE task_id=? AND append_number IS NOT NULL', order.task.id);
+    const manager = fixture.project.submitManagementInstruction({ instruction: '真实管理输入' });
     await openInputs();
+    expect(root().querySelectorAll('.input-record')).toHaveLength(4);
+    const form = root().querySelector('.inputs-filters'), mode = value => form.querySelector(`[data-mode="${value}"]`);
+    expect([...form.querySelectorAll('.input-mode-toggle')].every(node => node.getAttribute('aria-pressed') === 'true')).toBe(true);
+    await mode('order').onclick(); await mode('management').onclick();
+    expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual([`message:${message.id}`]);
+    await btn('查看原文').onclick(); expect(deepText(root().querySelector('.input-detail'))).toContain('直接追加真实正文');
+    expect(root().querySelector('.input-detail').querySelector('textarea')).toBeNull();
+    await btn('← 返回历史输入').onclick(); await mode('append').onclick(); await mode('management').onclick();
+    expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual([`management:${manager.task.id}`]);
+    await btn('查看原文').onclick(); expect(deepText(root().querySelector('.input-detail'))).toContain('真实管理输入');
+    expect(deepText(root().querySelector('.input-detail'))).not.toContain(`O${manager.task.id}`);
+    await btn('← 返回历史输入').onclick(); await mode('append').onclick(); await mode('order').onclick();
+    const status = form.querySelector('select');
+    expect(status.value).toBe('');
+    status.value = 'draft'; await status.onchange();
     expect(root().querySelectorAll('.input-record').map(card => card.dataset.input)).toEqual([`draft:${draft.id}`]);
-    const status = root().querySelector('.inputs-filters').querySelector('select');
-    expect(status.value).toBe('draft');
     status.value = 'created'; await status.onchange();
-    expect(root().querySelectorAll('.input-record')).toHaveLength(1);
-    expect(root().querySelector('.input-record').dataset.input).toMatch(/^input:/);
-    status.value = ''; await status.onchange();
     expect(root().querySelectorAll('.input-record')).toHaveLength(2);
+    expect(root().querySelectorAll('.input-record').some(card => card.dataset.input.startsWith('input:'))).toBe(true);
+    status.value = ''; await status.onchange();
+    expect(root().querySelectorAll('.input-record')).toHaveLength(4);
   } finally { await fixture.close(); }
 });
 
@@ -103,8 +119,8 @@ test('真实 API 串联：Enter 暂存、全库检索、保存修订与挂载、
     expect(fixture.store.all("SELECT * FROM tasks WHERE task_kind='order'")).toHaveLength(0);
     await openInputs(); expect(root().querySelectorAll('.input-record')).toHaveLength(1);
     const form = root().querySelector('.inputs-filters');
-    // Default to drafts; choosing all sends no enum restriction, not invalid status='' / integration=''.
-    expect(form.querySelector('select').value).toBe('draft');
+    // Default to all; empty selects send no enum restriction, not invalid status='' / integration=''.
+    expect(form.querySelector('select').value).toBe('');
     await form.onsubmit({ preventDefault() {} });
     expect(deepText(root())).not.toContain('读取失败');
     form.querySelector('input').value = '第二行'; await form.onsubmit({ preventDefault() {} });

@@ -78,7 +78,7 @@ test('real order creation retains generated titles through parent selection and 
     const summary = (await host.projects())[0].summary;
     expect(summary.development.recent_workers.find(row => row.id === task.id)).toMatchObject({ auto_title: '理解后的工作主题', goal: task.goal });
     expect(summary.development.recent_workers.find(row => row.id === task.id)).not.toHaveProperty('agent_token_hash');
-    expect((await rpc.request('input.history')).items.find(row => row.id === task.input_id).content).toBe(task.goal);
+    expect((await rpc.request('input.history')).items.find(row => row.kind === 'input' && row.id === task.input_id).content).toBe(task.goal);
   } finally { f.project.running.clear(); await f.close(); }
 });
 

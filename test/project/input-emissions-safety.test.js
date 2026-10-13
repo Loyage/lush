@@ -152,6 +152,13 @@ test('conditional append waits for sync, blocks acceptance while mounted, and en
     expect(f.project.inputEmissionResult(emission.draft_id).dispatch.state).toBe('succeeded');
     expect(f.store.draftCount()).toBe(0); expect(f.store.openDrafts()).toHaveLength(0);
     expect(f.project.inputHistory({ status: 'sent' }).items[0].dispatch.append_number).toMatch(/^A/);
+    const history = f.project.inputHistory({ modes: ['append'], q: 'future append' }).items;
+    expect(history).toHaveLength(1);
+    expect(history[0]).toMatchObject({ kind: 'draft', id: draft.id, mode: 'append' });
+    expect(f.project.inputGet('message', history[0].dispatch.message_id)).toMatchObject({
+      kind: 'message', mode: 'append', content: 'future append', task_id: target.id,
+      append_number: history[0].dispatch.append_number, references: [],
+    });
   } finally { await f.close(); }
 });
 

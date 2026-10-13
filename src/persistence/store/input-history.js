@@ -1,31 +1,65 @@
 // SQL projection keeps search/filter/pagination over the whole database, not overview.
 // Missing original Tasks intentionally survive the LEFT JOIN.
 const taskStatuses = "'queued','running','waiting','awaiting','paused','awaiting_acceptance','completed','failed','cancelled'";
+const taskStatus = `CASE WHEN t.status='paused' AND t.calls=0 AND coalesce(t.agent_wakes,0)=0
+  AND NOT EXISTS (SELECT 1 FROM agent_runs r WHERE r.task_id=t.id) THEN 'created'
+  WHEN t.status IN (${taskStatuses}) THEN t.status ELSE 'unknown' END`;
+const booking = "CASE WHEN json_valid(t.reservation) THEN t.reservation ELSE '{}' END";
+const safe = column => `CASE WHEN json_valid(${column}) THEN ${column} ELSE '{}' END`;
+const options = safe('d.input_options'), emission = safe('d.emission');
+const draftMode = `coalesce(json_extract(${options},'$.mode'),'order')`;
 // Conditional views keep receipt drafts even after an order created its original Input.
-// The ordinary history remains one record per original Input, unchanged.
-const conditionalDefinition = `(coalesce(json_array_length(d.input_options,'$.conditions'),0)>0
-  OR json_extract(d.input_options,'$.exclusive')=1)`;
-const conditionalReceipt = `(d.emission IS NOT NULL AND coalesce(json_array_length(d.emission,'$.signals'),0)>0)`;
-const history = (conditional = undefined) => `WITH source AS (
+const conditionalDefinition = `(coalesce(json_array_length(${options},'$.conditions'),0)>0
+  OR json_extract(${options},'$.exclusive')=1)`;
+const conditionalReceipt = `(d.emission IS NOT NULL AND coalesce(json_array_length(${emission},'$.signals'),0)>0)`;
+// A NULL sender, legacy message Event or JSON-looking body is not provenance.
+// Require a durable append number or explicit user_append:true; an explicit false
+// on the same Message takes precedence, even if conflicting numbering exists.
+const eventData = safe('e.data');
+const messageEvent = `e.task_id=m.task_id AND e.type='message'
+  AND json_type(${eventData},'$.message_id')='integer' AND json_extract(${eventData},'$.message_id')=m.id
+  AND json_type(${eventData},'$.sender')='null'`;
+const userMessage = `m.sender_id IS NULL AND m.signal_type IS NULL
+  AND NOT EXISTS (SELECT 1 FROM events e WHERE ${messageEvent} AND json_type(${eventData},'$.user_append')='false')
+  AND (m.append_number IS NOT NULL OR EXISTS (
+    SELECT 1 FROM events e WHERE ${messageEvent}
+      AND (json_type(${eventData},'$.user_append')='true' OR json_type(${eventData},'$.append_number')='text')
+  ))`;
+const messageNumber = `coalesce(m.append_number,(SELECT json_extract(${eventData},'$.append_number')
+  FROM events e WHERE e.task_id=m.task_id AND e.type='message'
+    AND json_type(${eventData},'$.message_id')='integer' AND json_extract(${eventData},'$.message_id')=m.id
+    AND json_type(${eventData},'$.sender')='null' AND json_type(${eventData},'$.append_number')='text'
+  ORDER BY e.id LIMIT 1))`;
+const duplicateDraft = `EXISTS (SELECT 1 FROM drafts d WHERE d.input_id IS NULL AND ${draftMode}='append'
+  AND json_type(${emission},'$.message_id')='integer' AND json_extract(${emission},'$.message_id')=m.id
+  AND json_extract(${options},'$.target_id')=m.task_id)`;
+const history = (conditional = undefined, deduplicate = true) => `WITH source AS (
   SELECT 'input' AS kind,i.id,i.content,i.created_at,t.id AS task_id,t.parent_id,t.worker_number AS task_worker_number,
     (SELECT p.worker_number FROM tasks p WHERE p.id=t.parent_id) AS parent_worker_number,
-    coalesce(t.branch,i.anchor_branch) AS branch,
-    CASE WHEN t.status='paused' AND t.calls=0 AND coalesce(t.agent_wakes,0)=0
-      AND NOT EXISTS (SELECT 1 FROM agent_runs r WHERE r.task_id=t.id) THEN 'created'
-      WHEN t.status IN (${taskStatuses}) THEN t.status ELSE 'unknown' END AS status,
-    coalesce(t.integration,'none') AS integration,NULL AS revision,
-    CASE WHEN json_valid(t.reservation) THEN t.reservation ELSE '{}' END AS booking,
-    t.id AS original_task_id
+    coalesce(t.branch,i.anchor_branch) AS branch,${taskStatus} AS status,
+    coalesce(t.integration,'none') AS integration,NULL AS revision,${booking} AS booking,
+    t.id AS original_task_id,'order' AS mode,NULL AS append_number
   FROM inputs i LEFT JOIN tasks t ON t.id=i.task_id ${conditional ? 'WHERE 0' : ''}
   UNION ALL
   SELECT 'draft',d.id,d.content,d.created_at,NULL,d.parent_id,NULL,p.worker_number,p.branch,
-    CASE json_extract(d.emission,'$.state')
+    CASE json_extract(${emission},'$.state')
       WHEN 'waiting_conditions' THEN 'waiting_conditions' WHEN 'queued' THEN 'emitted'
       WHEN 'dispatching' THEN 'emitted' WHEN 'succeeded' THEN 'sent'
       WHEN 'failed' THEN 'emission_failed' WHEN 'unknown' THEN 'unknown_dispatch' ELSE 'draft' END,
-    'none',d.revision,'{}',NULL
+    'none',d.revision,'{}',NULL,${draftMode},NULL
   FROM drafts d LEFT JOIN tasks p ON p.id=d.parent_id WHERE ${conditional === 'mounted' ? conditionalReceipt
     : conditional === 'configured' ? `(${conditionalDefinition} OR ${conditionalReceipt})` : 'd.input_id IS NULL'}
+  UNION ALL
+  SELECT 'message',m.id,m.body,m.created_at,m.task_id,t.parent_id,t.worker_number,
+    (SELECT p.worker_number FROM tasks p WHERE p.id=t.parent_id),t.branch,${taskStatus},
+    coalesce(t.integration,'none'),NULL,${booking},t.id,'append',${messageNumber}
+  FROM messages m LEFT JOIN tasks t ON t.id=m.task_id WHERE ${conditional ? '0' : userMessage}
+    ${!conditional && deduplicate ? `AND NOT ${duplicateDraft}` : ''}
+  UNION ALL
+  SELECT 'management',t.id,t.goal,t.created_at,t.id,t.parent_id,t.worker_number,
+    (SELECT p.worker_number FROM tasks p WHERE p.id=t.parent_id),t.branch,${taskStatus},
+    coalesce(t.integration,'none'),NULL,${booking},t.id,'management',NULL
+  FROM tasks t WHERE ${conditional ? '0' : `t.task_kind='management' AND json_extract(${safe('t.management')},'$.origin')='input'`}
 ), projected AS (
   SELECT *,CASE
     WHEN json_extract(booking,'$.kind')='merge' AND json_extract(booking,'$.version') IN (1,2)
@@ -48,11 +82,15 @@ const history = (conditional = undefined) => `WITH source AS (
     ELSE 'none' END AS merge_status
   FROM source
 )`;
-const fields = 'kind,id,created_at,task_id,parent_id,task_worker_number,parent_worker_number,branch,status,integration,merge_status,revision';
+const fields = 'kind,id,mode,append_number,created_at,task_id,parent_id,task_worker_number,parent_worker_number,branch,status,integration,merge_status,revision';
 
 export const inputHistory = {
-  inputHistoryRows({ q, status, integration, conditional, cursor, limit }) {
+  inputHistoryRows({ q, status, integration, conditional, modes, cursor, limit }) {
     const conditions = [], args = [];
+    if (modes) {
+      conditions.push(modes.length ? `mode IN (${modes.map(() => '?').join(',')})` : '0');
+      args.push(...modes);
+    }
     if (q) { conditions.push('instr(lower(content),lower(?)) > 0'); args.push(q); }
     if (status) { conditions.push('status=?'); args.push(status); }
     if (integration) { conditions.push('merge_status=?'); args.push(integration); }
@@ -67,7 +105,7 @@ export const inputHistory = {
       .map(row => ({ ...row, content_truncated: !!row.content_truncated }));
   },
   inputHistoryItem(kind, itemId) {
-    const row = this.get(`${history()} SELECT ${fields},content FROM projected WHERE kind=? AND id=?`, kind, itemId);
+    const row = this.get(`${history(undefined, false)} SELECT ${fields},content FROM projected WHERE kind=? AND id=?`, kind, itemId);
     return row ? { ...row, content_truncated: false } : null;
   },
 };
