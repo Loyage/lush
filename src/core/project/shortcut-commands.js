@@ -13,8 +13,8 @@ const empty = () => ({ version: 1, generation: 0, items: [] });
 const read = project => JSON.parse(project.store.get('SELECT value FROM meta WHERE key=?', KEY)?.value ?? JSON.stringify(empty()));
 const revision = data => hookRevision(data);
 const now = () => new Date().toISOString();
-const LEGACY = '旧内联 Shell 命令已停止；请显式导入快捷指令并重新授权。';
-const UNAVAILABLE = '快捷指令不存在、版本已变更或未授权；请确认版本并重新授权。';
+const LEGACY = '旧内联 Shell 命令已停止；请显式导入快捷指令。';
+const UNAVAILABLE = '快捷指令不存在或类型不匹配；请检查指令定义。';
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 function save(project, data) {
   data.generation = (data.generation ?? 0) + 1;
@@ -22,10 +22,15 @@ function save(project, data) {
   project.store.run('INSERT INTO meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', KEY, JSON.stringify(data));
 }
 function expected(data, value) { check(typeof value === 'string' && revision(data) === value, 'shortcut command revision changed; reload before editing'); }
-function record(data, commandId, version) {
-  check(uuid(commandId) && Number.isSafeInteger(version) && version > 0, 'invalid shortcut command reference');
+function currentRecord(data, commandId) {
+  check(uuid(commandId), 'invalid shortcut command reference');
   const item = data.items.find(item => item.id === commandId);
-  check(item && item.version === version, UNAVAILABLE); return item;
+  check(item, UNAVAILABLE); return item;
+}
+function record(data, commandId, version) {
+  check(Number.isSafeInteger(version) && version > 0, 'invalid shortcut command reference');
+  const item = currentRecord(data, commandId);
+  check(item.version === version, 'shortcut command definition changed'); return item;
 }
 function normalized(value, previous = null) {
   check(value.id === undefined || uuid(value.id), 'invalid shortcut command id');
@@ -134,22 +139,17 @@ export default {
       kind: shortcutKind(item), ...shortcutMetadata(item),
       ...(shortcutKind(item) === 'prompt' ? { prompt: item.prompt } : { command: item.command }),
       version: item.version, default_worker_id: item.default_worker_id ?? null,
-      authorized: item.authorized === true, last_execution: executionView(this, item.last_execution) })) };
+      last_execution: executionView(this, item.last_execution) })) };
   },
 
   exportShortcutCommand(commandId, version) {
     return exportShortcut(record(read(this), commandId, version));
   },
 
-  shortcutAuthorizationId(commandId) {
-    return this.store.get(`SELECT max(id) AS id FROM events WHERE type IN
-      ('shortcut.command_saved','shortcut.command_authorized','shortcut.command_removed') AND json_extract(data,'$.command_id')=?`, commandId)?.id ?? 0;
-  },
-
   claimShortcutExecution(commandId, version, workerId, executionId, source) {
     let execution, eventId;
     this.store.transaction(() => {
-      const data = read(this), item = record(data, commandId, version); check(item.authorized, UNAVAILABLE);
+      const data = read(this), item = record(data, commandId, version);
       execution = executionSnapshot(this, item, workerId, executionId, source, 'pending');
       item.last_execution = execution; save(this, data);
       eventId = this.store.event(workerId, 'shortcut.command_pending', { ...execution, execution_id: executionId });
@@ -172,20 +172,10 @@ export default {
       }
       if (item) {
         check(item.version < Number.MAX_SAFE_INTEGER, 'shortcut command version limit reached');
-        delete item.command; delete item.prompt;
-        Object.assign(item, definition, { version: item.version + 1, authorized: false }); invalidate(this, item.id);
-      } else { item = { id: randomUUID(), default_worker_id: null, ...definition, version: 1, authorized: false, last_execution: null }; data.items.push(item); }
+        delete item.command; delete item.prompt; delete item.authorized;
+        Object.assign(item, definition, { version: item.version + 1 });
+      } else { item = { id: randomUUID(), default_worker_id: null, ...definition, version: 1, last_execution: null }; data.items.push(item); }
       save(this, data); this.store.event(null, 'shortcut.command_saved', { command_id: item.id, version: item.version });
-    });
-    return this.hooksList();
-  },
-
-  authorizeShortcutCommand(commandId, version, authorized, expectedRevision) {
-    this.assertWritable('authorize a shortcut command'); check(typeof authorized === 'boolean', 'authorized must be boolean');
-    this.store.transaction(() => {
-      const data = read(this); expected(data, expectedRevision); const item = record(data, commandId, version);
-      item.authorized = authorized; if (!authorized) invalidate(this, item.id);
-      save(this, data); this.store.event(null, 'shortcut.command_authorized', { command_id: item.id, version, authorized });
     });
     return this.hooksList();
   },
@@ -200,16 +190,16 @@ export default {
     return this.hooksList();
   },
 
-  resolveShortcutCommand(action, requireAuthorized = true) {
+  resolveShortcutCommand(action) {
     check(action.command === undefined, LEGACY);
-    const item = record(read(this), action.command_id, action.command_version);
-    check(!requireAuthorized || item.authorized, UNAVAILABLE);
+    // Legacy command_version is configuration only. Future claims follow the current definition.
+    const item = currentRecord(read(this), action.command_id);
     check(shortcutKind(item) === (action.type === 'prompt_command' ? 'prompt' : 'shell'), 'shortcut kind does not match action');
     return item;
   },
 
   validateShortcutHook(hook) {
-    for (const action of hook.actions) if (referencesCommand(action)) this.resolveShortcutCommand(action, hook.enabled);
+    for (const action of hook.actions) if (referencesCommand(action)) this.resolveShortcutCommand(action);
   },
 
   shortcutHookIssue(hook) {
@@ -242,7 +232,7 @@ export default {
   // Internal Hook audit receipt only; this does not execute a command.
   startShortcutExecution(commandId, version, workerId, executionId, source = 'hook') {
     this.store.transaction(() => {
-      const data = read(this), item = record(data, commandId, version); check(item.authorized, UNAVAILABLE);
+      const data = read(this), item = record(data, commandId, version);
       const pending = this.store.get("SELECT data FROM events WHERE type='shortcut.command_pending' AND json_extract(data,'$.execution_id')=? ORDER BY id LIMIT 1", executionId);
       const acceptedAt = pending ? JSON.parse(pending.data).created_at : item.last_execution?.id === executionId ? item.last_execution.created_at : undefined;
       const execution = executionSnapshot(this, item, workerId, executionId, source, 'running', acceptedAt);
@@ -293,9 +283,9 @@ export default {
       const commands = read(this);
       const actions = original.actions.map((action, index) => {
         if (action.type !== 'command' || action.command === undefined) return action;
-        const item = { id: randomUUID(), ...normalized({ name: `${original.name.slice(0, 110)} · ${index + 1}`, command: action.command }), version: 1, authorized: false, last_execution: null };
+        const item = { id: randomUUID(), ...normalized({ name: `${original.name.slice(0, 110)} · ${index + 1}`, command: action.command }), version: 1, last_execution: null };
         commands.items.push(item); imported.push(item.id);
-        return { type: 'command', command_id: item.id, command_version: item.version };
+        return { type: 'command', command_id: item.id };
       });
       const { name, trigger, mode, conditions, schedule } = original;
       const replacement = normalizeHook({ name, trigger, mode, enabled: false, conditions, actions, ...(schedule ? { schedule } : {}) });

@@ -10,9 +10,8 @@ async function setup() {
   await repo(f.root); f.main = await f.project.bootstrapMain(); f.sha = await git(f.root, 'rev-parse', 'HEAD');
   return f;
 }
-function command(f, authorized = true) {
+function command(f) {
   const item = f.project.saveShortcutCommand({ name: '组合测试', command: 'echo PRIVATE_COMMAND_BODY' }, f.project.shortcutCommands().revision).commands.items.at(-1);
-  if (authorized) f.project.authorizeShortcutCommand(item.id, item.version, true, f.project.shortcutCommands().revision);
   return { command_id: item.id, command_version: item.version };
 }
 async function branch(f, name, kind = 'owner') {
@@ -63,9 +62,8 @@ test('policy enable accepts legacy references without authorization, persists pe
     await branch(f, 'feature'); const ref = command(f, false), old = await f.project.branchConvergence('main');
     const source = member(f); f.store.update(source.task_id, { reservation: '{"version":2,"kind":"merge","status":"requested"}' });
     const before = f.store.task(source.task_id).reservation;
-    f.project.authorizeShortcutCommand(ref.command_id, ref.command_version, true, f.project.shortcutCommands().revision);
     const set = await f.project.setBranchConvergence('main', true, ref, old.revision);
-    expect(set.validation).toEqual({ ...ref, name: '组合测试', authorized: true }); expect(set.enabled).toBe(true);
+    expect(set.validation).toEqual({ command_id: ref.command_id, name: '组合测试' }); expect(set.enabled).toBe(true);
     expect((await f.project.branchConvergence('feature')).enabled).toBe(false);
     expect(f.store.task(source.task_id).reservation).toBe(before); expect(f.project.convergenceNotifications).toEqual([f.main.id]);
     await expect(f.project.setBranchConvergence('main', false, ref, old.revision)).rejects.toThrow('revision changed');
@@ -77,21 +75,21 @@ test('policy enable accepts legacy references without authorization, persists pe
   } finally { await f.close(); }
 });
 
-test('revocation/edit/delete never upgrades stored versions, but off can retain an obsolete reference', async () => {
+test('policy references follow edited names by ID; deletion remains unavailable and off retains configuration', async () => {
   const f = await setup(); try {
     const ref = command(f), initial = await f.project.branchConvergence('main');
     await f.project.setBranchConvergence('main', true, ref, initial.revision);
-    f.project.authorizeShortcutCommand(ref.command_id, 1, false, f.project.shortcutCommands().revision);
-    let view = await f.project.branchConvergence('main'); expect(view.validation.authorized).toBe(false);
+    let view = await f.project.branchConvergence('main');
+    expect(view.validation).not.toHaveProperty('authorized');
     view = await f.project.setBranchConvergence('main', true, undefined, view.revision);
-    expect(view.validation).toEqual({ ...ref, name: '组合测试', authorized: false });
+    expect(view.validation).toEqual({ command_id: ref.command_id, name: '组合测试' });
     f.project.saveShortcutCommand({ id: ref.command_id, name: '版本二', command: 'true' }, f.project.shortcutCommands().revision);
-    view = await f.project.branchConvergence('main'); expect(view.validation).toEqual({ ...ref, name: null, authorized: false });
-    view = await f.project.setBranchConvergence('main', false, ref, view.revision); expect(view.validation.command_version).toBe(1);
+    view = await f.project.branchConvergence('main'); expect(view.validation).toEqual({ command_id: ref.command_id, name: '版本二' });
+    view = await f.project.setBranchConvergence('main', false, ref, view.revision); expect(view.validation).not.toHaveProperty('command_version');
     f.project.removeShortcutCommand(ref.command_id, f.project.shortcutCommands().revision);
-    const off = await f.project.setBranchConvergence('main', false, ref, view.revision); expect(off.validation.authorized).toBe(false);
+    const off = await f.project.setBranchConvergence('main', false, ref, view.revision); expect(off.validation.name).toBeNull();
     const missing = await f.project.setBranchConvergence('main', true, { command_id: '00000000-0000-0000-0000-000000000001', command_version: 1 }, off.revision);
-    expect(missing.validation.authorized).toBe(false);
+    expect(missing.validation.name).toBeNull();
     expect((await f.project.setBranchConvergence('main', false, null, missing.revision)).validation).toBeNull();
   } finally { await f.close(); }
 });
@@ -133,14 +131,14 @@ test('branch owner changes invalidate revisions and cannot inherit an older owne
 test('setter rechecks live ownership after asynchronous Git admission without requiring command authorization', async () => {
   const f = await setup(); try {
     const ref = command(f), before = await f.project.branchConvergence('main');
-    const original = f.project.workspaces.git.bind(f.project.workspaces); let revoke = true;
+    const original = f.project.workspaces.git.bind(f.project.workspaces); let edit = true;
     f.project.workspaces.git = async (...args) => {
       const value = await original(...args);
-      if (revoke && args.includes('for-each-ref')) { revoke = false; f.project.authorizeShortcutCommand(ref.command_id, 1, false, f.project.shortcutCommands().revision); }
+      if (edit && args.includes('for-each-ref')) { edit = false; f.project.saveShortcutCommand({ id: ref.command_id, name: 'latest', command: 'true' }, f.project.shortcutCommands().revision); }
       return value;
     };
     const enabled = await f.project.setBranchConvergence('main', true, ref, before.revision);
-    expect(enabled).toMatchObject({ mounted: true, enabled: true, validation: { ...ref, authorized: false } });
+    expect(enabled).toMatchObject({ mounted: true, enabled: true, validation: { command_id: ref.command_id, name: 'latest' } });
     f.project.workspaces.git = original; await branch(f, 'feature'); const view = await f.project.branchConvergence('feature');
     const own = f.store.get("SELECT id FROM tasks WHERE branch='feature'"); let closeOwner = true;
     f.project.workspaces.git = async (...args) => {

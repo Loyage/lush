@@ -20,7 +20,6 @@ test('retired manual HTTP calls cannot execute; Hook history stays safe, immutab
     await repo(f.root); const main = await f.project.bootstrapMain();
     const saved = await post('hooks.command_save', { command: { name: 'submitted snapshot', command: 'printf PRIVATE_OUTPUT; printf done > .lush/integration-proof' }, expected_revision: revision() });
     const command = saved.commands.items.at(-1);
-    await post('hooks.command_authorize', { id: command.id, version: 1, authorized: true, expected_revision: revision() });
     const params = { id: command.id, version: 1, worker_id: main.id, expected_revision: revision() };
     const before = f.store.get('SELECT count(*) AS n FROM events').n;
     for (const method of ['hooks.command_start', 'hooks.command_run']) {

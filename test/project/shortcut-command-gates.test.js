@@ -11,7 +11,6 @@ async function setup() {
 }
 async function runningHook(f, worker) {
   const item = f.project.saveShortcutCommand({ name: 'gate command', command: 'mkdir -p .lush; printf start > .lush/hook-start; while [ ! -f .lush/hook-release ]; do sleep 0.01; done' }, f.project.shortcutCommands().revision).commands.items.at(-1);
-  f.project.authorizeShortcutCommand(item.id, 1, true, f.project.shortcutCommands().revision);
   f.project.attachTaskHook(worker.id, { name: 'gate Hook', trigger: 'worker.merge_received', mode: 'once', enabled: true,
     actions: [{ type: 'command', command_id: item.id, command_version: 1 }] }, f.project.taskHooks(worker.id).revision);
   f.project.emitTaskHook(worker.id, 'worker.merge_received');

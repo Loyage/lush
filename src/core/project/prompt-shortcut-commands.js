@@ -15,10 +15,10 @@ export default {
   acceptPromptShortcutExecution(action, workerId) {
     const item = this.resolveShortcutCommand({ ...action, type: 'prompt_command' });
     const parent = this.assertPromptShortcutParent(workerId);
-    const executionId = randomUUID(), authorizationId = this.shortcutAuthorizationId(item.id);
+    const executionId = randomUUID();
     const claim = this.claimShortcutExecution(item.id, item.version, parent.id, executionId, 'hook');
     return { command_id: item.id, command_version: item.version, execution_id: executionId,
-      authorization_id: authorizationId, ...claim };
+      ...claim };
   },
 
   async executePromptShortcutCommand(accepted, workerId, hookReceipt) {
@@ -28,14 +28,12 @@ export default {
     const guard = () => {
       this.assertPromptShortcutParent(parent.id, branch);
       check(!this.store.get("SELECT id FROM events WHERE type IN ('shortcut.command_succeeded','shortcut.command_failed','shortcut.command_unknown') AND json_extract(data,'$.execution_id')=?", executionId), 'prompt shortcut execution already settled');
-      // Compare durable authorization identity, not a boolean: revoke then grant is a new permission.
-      check(this.shortcutAuthorizationId(commandId) === accepted.authorization_id, 'shortcut authorization changed');
-      this.resolveShortcutCommand({ type: 'prompt_command', command_id: commandId, command_version: version });
+      // Bind the claimed body/version throughout asynchronous anchor and DB admission.
+      check(this.resolveShortcutCommand({ type: 'prompt_command', command_id: commandId }).version === version, 'shortcut command definition changed');
       const mount = JSON.parse(this.store.task(parent.id).hooks ?? '{"mounts":[]}').mounts.find(m => m.id === hookReceipt.hook_id);
       const claim = mount?.prompt_executions?.find(claim => claim.index === hookReceipt.action_index);
       check(mount?.enabled && mount.state === 'running' && mount.last_execution?.id === hookReceipt.execution_id
-        && claim?.execution_id === executionId && claim.command_id === commandId && claim.command_version === version
-        && claim.authorization_id === accepted.authorization_id, 'Hook creation authorization changed');
+        && claim?.execution_id === executionId && claim.command_id === commandId && claim.command_version === version, 'Hook creation authorization changed');
     };
     try {
       guard();
@@ -48,7 +46,7 @@ export default {
       // sendOrder commits successful history atomically with Input/Worker and the exact Hook receipt.
       const completed = this.store.get("SELECT id FROM events WHERE type IN ('shortcut.command_succeeded','shortcut.command_failed','shortcut.command_unknown') AND json_extract(data,'$.execution_id')=?", executionId);
       if (!completed) this.finishShortcutExecution(commandId, executionId, parent.id, 'failed', { status: 'failed', reason: 'admission' });
-      throw new Error('提示词指令创建未完成；请检查父 Worker、授权版本和现场，不会自动重试。');
+      throw new Error('提示词指令创建未完成；请检查父 Worker、指令定义和现场，不会自动重试。');
     }
   },
 };

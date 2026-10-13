@@ -2,9 +2,9 @@ import { test, expect, beforeEach, afterAll } from 'bun:test';
 import { installDom, deepText, dialogButton } from '../dom-stub.js';
 import { until } from '../helpers.js';
 
-const json = value => ({ ok: true, json: async () => structuredClone(value) });
-const failure = message => ({ ok: false, json: async () => ({ error: message }) });
-const push = () => ({ id: 'push-command', name: '推送', command: 'git push', version: 1, authorized: false, default_worker_id: 999 });
+const json = value => Response.json(value);
+const failure = message => Response.json({ error: message }, { status: 409 });
+const push = () => ({ id: 'push-command', name: '推送', command: 'git push', version: 1, default_worker_id: 999 });
 const hook = () => ({ id: 'main-push', name: '合并后推送', trigger: 'worker.merge_received', enabled: false, mode: 'persistent', editable: true, removable: true, builtin: false, conditions: {}, state: 'idle', last_execution: null, actions: [{ type: 'command', command_id: 'push-command', command_version: 1 }] });
 let catalogue, calls, reads, intercept;
 const dom = installDom({ fetch: async (url, options = {}) => {
@@ -15,10 +15,10 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (path.endsWith('/api/hooks')) return json(catalogue);
   if (body?.method === 'hooks.command_save') {
     const definition = body.params.command, old = catalogue.commands.items.find(item => item.id === definition.id);
-    const item = { ...old, ...definition, id: old?.id || 'new-command', version: old ? old.version + 1 : 1, authorized: false };
+    const { authorized, ...previous } = old || {};
+    const item = { ...previous, ...definition, id: old?.id || 'new-command', version: old ? old.version + 1 : 1 };
     catalogue.commands = { ...catalogue.commands, revision: 'commands-next', items: old ? catalogue.commands.items.map(entry => entry.id === item.id ? item : entry) : [...catalogue.commands.items, item] }; return json(catalogue);
   }
-  if (body?.method === 'hooks.command_authorize') { catalogue.commands = { ...catalogue.commands, revision: 'authorization-next', items: catalogue.commands.items.map(item => item.id === body.params.id ? { ...item, authorized: body.params.authorized } : item) }; return json(catalogue); }
   if (body?.method === 'hooks.command_remove') { catalogue.commands.items = []; catalogue.commands.revision = 'removed'; return json(catalogue); }
   if (body?.method === 'hooks.command_import') {
     const target = body.params.source.template_id ? catalogue.templates[0] : catalogue.command_example.hooks.mounts[0]; target.actions = hook().actions; target.enabled = false;
@@ -80,32 +80,34 @@ test('draft nodes and original revision survive subpages, returning to list, exp
   await btn('保存快捷指令').onclick(); expect(calls.at(-1).params.expected_revision).toBe('commands-revision'); expect(draft.value).toBe('echo preserved\ngit push'); expect(draft.disabled).toBe(false); expect(deepText(section())).toContain('编辑已保留');
 });
 
-test('adding literal multiline Shell is safe, unauthed and never submits a retired directory or Agent call', async () => {
+test('adding literal multiline Shell is safe and never submits a retired directory or Agent call', async () => {
   await openHooks({ subpage: 'commands' }); await btn('注册快捷指令').onclick(); const text = 'echo "<script>literal</script>"\n# W8\ngit push';
   field('快捷指令名称').value = '新指令'; field('Shell 命令').value = text; expect(btn('保存快捷指令').classList.contains('agent-call')).toBe(false); await btn('保存快捷指令').onclick();
   expect(calls).toEqual([{ method: 'hooks.command_save', params: { command: { name: '新指令', command: text }, expected_revision: 'commands-revision' } }]);
-  expect(deepText(section())).toContain(text); expect(root().querySelector('script')).toBeNull(); expect(catalogue.commands.items.at(-1).authorized).toBe(false);
+  expect(deepText(section())).toContain(text); expect(root().querySelector('script')).toBeNull(); expect(catalogue.commands.items.at(-1)).not.toHaveProperty('authorized');
   expect(field('默认执行目录 Worker')).toBeNull(); expect(reads.some(path => path.includes('input-parents') || path.includes('snapshot'))).toBe(false);
 });
 
-test('editing omits old default_worker_id, preserves its data, revokes new version and does not upgrade Hook', async () => {
+test('editing preserves retired default and Hook identity while references resolve the latest definition', async () => {
   catalogue.commands.items[0].authorized = true; await ready(); await btn('编辑快捷指令').onclick(); field('Shell 命令').value = 'git push --tags'; await btn('保存快捷指令').onclick();
   expect(calls[0].params.command).toEqual({ id: 'push-command', name: '推送', command: 'git push --tags' });
-  expect(catalogue.commands.items[0]).toMatchObject({ version: 2, authorized: false, default_worker_id: 999 }); expect(catalogue.command_example.hooks.mounts[0].actions[0].command_version).toBe(1);
+  expect(catalogue.commands.items[0]).toMatchObject({ version: 2, default_worker_id: 999 }); expect(catalogue.command_example.hooks.mounts[0].actions[0].command_version).toBe(1);
+  const form = createHookForm(catalogue, { initial: { ...hook(), enabled: true } });
+  expect(form.validate()).toBe(''); expect(form.collect().actions).toEqual([{ type: 'command', command_id: 'push-command' }]);
   expect(root().querySelector('.command-hook-example')).toBeNull(); expect(field('默认父 Worker')).toBeNull();
 });
 
-test('authorization and revocation explicitly pin exact version and revision, not the Hook', async () => {
-  await ready(); const authorizing = btn('授权当前版本').onclick(); expect(calls).toHaveLength(0); expect(deepText(dom.node('modal'))).toContain('git push'); expect(dialogButton(dom, '授权此版本').classList.contains('agent-call')).toBe(false);
-  await dialogButton(dom, '授权此版本').onclick(); await authorizing; expect(calls[0]).toEqual({ method: 'hooks.command_authorize', params: { id: 'push-command', version: 1, authorized: true, expected_revision: 'commands-revision' } });
-  const revoking = btn('撤销授权').onclick(); await dialogButton(dom, '确认撤权').onclick(); await revoking;
-  expect(calls[1].params).toEqual({ id: 'push-command', version: 1, authorized: false, expected_revision: 'authorization-next' }); expect(calls.some(item => item.method.startsWith('worker.'))).toBe(false);
-  expect(btn('授权当前版本').classList.contains('command-authorize')).toBe(true);
+for (const authorized of [undefined, false, true]) test(`no authorization controls or badges for legacy authorized=${authorized}`, async () => {
+  if (authorized !== undefined) catalogue.commands.items[0].authorized = authorized;
+  await ready();
+  for (const label of ['授权当前版本', '撤销授权']) expect(btn(label)).toBeUndefined();
+  expect(field('查找管理指令授权')).toBeNull(); expect(deepText(section())).not.toContain('已授权'); expect(deepText(section())).not.toContain('撤权');
+  expect(calls).toHaveLength(0);
 });
 
-for (const exit of ['cancel', 'subpage', 'project']) test(`authorization confirmation ${exit} never submits mutation`, async () => {
-  await ready(); const pending = btn('授权当前版本').onclick();
-  if (exit === 'cancel') closeDialog(); else { if (exit === 'subpage') await openHooks({ subpage: 'history' }); else dom.location.pathname = '/p/2222222222222222/'; await dialogButton(dom, '授权此版本').onclick(); }
+for (const exit of ['cancel', 'subpage', 'project']) test(`deletion confirmation ${exit} never submits mutation`, async () => {
+  await ready(); const pending = btn('删除快捷指令').onclick();
+  if (exit === 'cancel') closeDialog(); else { if (exit === 'subpage') await openHooks({ subpage: 'history' }); else dom.location.pathname = '/p/2222222222222222/'; await dialogButton(dom, '删除指令').onclick(); }
   await pending; expect(calls).toHaveLength(0);
 });
 
@@ -120,23 +122,24 @@ for (const exit of ['view', 'project', 'subpage']) test(`late save after leaving
   else { await openHooks({ subpage: 'commands' }); expect(field('Shell 命令')).toBe(draft); expect(draft.disabled).toBe(false); }
 });
 
-test('delete confirms future authorization scope, retains history and returns to an empty list', async () => {
+test('delete confirms future reference scope, retains history and returns to an empty list', async () => {
   await ready(); const removing = btn('删除快捷指令').onclick(); expect(deepText(dom.node('modal'))).toContain('引用它的 Hook 将不可执行'); expect(calls).toHaveLength(0);
   await dialogButton(dom, '删除指令').onclick(); await removing;
   expect(calls[0]).toEqual({ method: 'hooks.command_remove', params: { id: 'push-command', expected_revision: 'commands-revision' } }); expect(deepText(section())).toContain('尚未注册'); expect(manager().querySelector('.shortcut-command-detail-page').hidden).toBe(true);
 });
 
-test('failed authorization preserves unauthed state and never retries', async () => {
-  await ready(); intercept = (_path, body) => body?.method === 'hooks.command_authorize' ? failure('revision conflict') : null;
-  const authorizing = btn('授权当前版本').onclick(); await dialogButton(dom, '授权此版本').onclick(); await authorizing;
-  expect(calls).toHaveLength(1); expect(btn('授权当前版本').disabled).toBe(false); expect(dom.node('error').textContent).toContain('未假定授权已改变');
+test('failed deletion preserves definition and never retries', async () => {
+  await ready(); intercept = (_path, body) => body?.method === 'hooks.command_remove' ? failure('revision conflict') : null;
+  const removing = btn('删除快捷指令').onclick(); await dialogButton(dom, '删除指令').onclick(); await removing;
+  expect(calls).toHaveLength(1); expect(btn('删除快捷指令').disabled).toBe(false); expect(dom.node('error').textContent).toContain('未假定配置已改变');
+  expect(catalogue.commands.items).toHaveLength(1);
 });
 
-test('legacy inline imports keep original source revisions, safe receipts and stopped authorization', async () => {
+test('legacy inline imports keep original source revisions, safe receipts and disabled mounts', async () => {
   const mount = catalogue.command_example.hooks.mounts[0]; mount.actions = [{ type: 'command', command: 'git push' }]; mount.last_execution = { id: 8, status: 'unknown', error: '旧执行未知' };
   await openAutomation({ feature: 'push' }); expect(btn('启用 Hook', mainExample()).disabled).toBe(true); expect(btn('编辑挂载', mainExample()).disabled).toBe(true);
   const importing = btn('导入为快捷指令', mainExample()).onclick(); await dialogButton(dom, '确认导入').onclick(); await importing;
-  expect(calls[0].params).toEqual({ source: { worker_id: 1, hook_id: 'main-push' }, expected_revision: 'main-revision' }); expect(mount.last_execution.id).toBe(8); expect(btn('启用 Hook', mainExample()).disabled).toBe(true);
+  expect(calls[0].params).toEqual({ source: { worker_id: 1, hook_id: 'main-push' }, expected_revision: 'main-revision' }); expect(mount.last_execution.id).toBe(8); expect(btn('启用 Hook', mainExample()).disabled).toBe(false); expect(mount.enabled).toBe(false);
   catalogue.templates[0].actions = [{ type: 'command', command: 'git push' }]; await openHooks();
   const templateImport = btn('导入为快捷指令', root().querySelector('.hook-template')).onclick(); await dialogButton(dom, '确认导入').onclick(); await templateImport;
   expect(calls[1].params).toEqual({ source: { template_id: 'push-template' }, expected_revision: 'templates-revision' });
@@ -149,10 +152,36 @@ test('Worker inline import forwards only worker_hooks, not full catalogue', asyn
   expect(refreshed).toEqual(model); expect(refreshed).not.toHaveProperty('commands');
 });
 
-test('Hook form blocks enabled unauthed references and inline Shell without weakening stopped saves', () => {
-  const form = createHookForm(catalogue, { initial: hook() }); expect(form.validate()).toBe(''); expect(form.collect().actions).toEqual(hook().actions);
-  form.node.querySelector('[aria-label="启用此 Hook"]').checked = true; expect(form.validate()).toContain('未授权');
+test('Hook form ignores legacy revocation and old version but still blocks inline Shell', () => {
+  catalogue.commands.items[0].authorized = false; catalogue.commands.items[0].version = 7;
+  const form = createHookForm(catalogue, { initial: hook() }); expect(form.validate()).toBe(''); expect(form.collect().actions).toEqual([{ type: 'command', command_id: 'push-command' }]);
+  form.node.querySelector('[aria-label="启用此 Hook"]').checked = true; expect(form.validate()).toBe('');
   expect(createHookForm(catalogue, { initial: { ...hook(), actions: [{ type: 'command', command: 'git push' }] } }).validate()).toContain('先显式导入');
+});
+
+test('push reference editing updates future definition without changing the mounted ID, enable state or old version', async () => {
+  catalogue.commands.items[0].authorized = false; catalogue.command_example.hooks.mounts[0].enabled = true;
+  await openAutomation({ feature: 'push' }); const management = root().querySelector('.push-command-editor').children.at(-1);
+  expect(deepText(root())).toContain('引用指令编辑'); expect(deepText(root())).toContain('编辑影响所有引用的未来执行');
+  expect(root().querySelector('.push-command-authorization')).toBeNull();
+  await management.querySelector('.shortcut-directory-pick').onclick(); await btn('编辑快捷指令', management).onclick();
+  field('Shell 命令').value = 'git push --tags'; await btn('保存快捷指令', management).onclick();
+  expect(calls.map(call => call.method)).toEqual(['hooks.command_save']);
+  expect(catalogue.command_example.hooks.mounts[0]).toMatchObject({ enabled: true, actions: [{ type: 'command', command_id: 'push-command', command_version: 1 }] });
+  expect(deepText(mainExample())).toContain('当前 v2'); expect(deepText(mainExample())).toContain('git push --tags');
+  expect(btn('停用 Hook', mainExample()).disabled).toBe(false); expect(catalogue.commands.items[0]).not.toHaveProperty('authorized');
+});
+
+test('push directory refresh preserves draft and original revision, becoming read-only on incompatible catalogue', async () => {
+  await openAutomation({ feature: 'push' }); const management = root().querySelector('.push-command-editor').children.at(-1);
+  await management.querySelector('.shortcut-directory-pick').onclick(); await btn('编辑快捷指令', management).onclick();
+  const draft = field('Shell 命令'); draft.value = 'preserved push draft';
+  catalogue.commands = null; await btn('刷新推送设置').onclick();
+  expect(field('Shell 命令')).toBe(draft); await btn('保存快捷指令', management).onclick(); expect(calls).toHaveLength(0);
+  expect(deepText(management)).toContain('已加载记录只读');
+  catalogue.commands = { version: 1, revision: 'concurrent', items: [{ ...push(), version: 4 }] }; await btn('刷新推送设置').onclick();
+  expect(field('Shell 命令')).toBe(draft); expect(draft.value).toBe('preserved push draft');
+  await btn('保存快捷指令', management).onclick(); expect(calls[0].params.expected_revision).toBe('commands-revision');
 });
 
 test('malformed refreshed command catalogue retains drafts read-only and can recover without silently changing draft revision', async () => {

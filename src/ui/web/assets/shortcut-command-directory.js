@@ -15,25 +15,23 @@ export function commandDirectory({ model: initial, label, onSelect = () => {}, l
     input.value = ''; input.onchange = () => paint(); wrap.append(input); return { wrap, input };
   }
   const type = filter(`${label}类型`, [['', '全部类型'], ['shell', 'Shell'], ['prompt', '提示词']], '类型');
-  const authorization = filter(`${label}授权`, [['', '全部授权'], ['yes', '已授权'], ['no', '未授权／已撤权']], '授权');
-  const filters = el('div', undefined, 'shortcut-directory-filters'); filters.append(type.wrap, authorization.wrap);
+  const filters = el('div', undefined, 'shortcut-directory-filters'); filters.append(type.wrap);
   const status = el('p', undefined, 'hint'); status.setAttribute('role', 'status');
   tools.append(search.root, filters); card.append(heading, status, list); node.append(tools, card);
   listSurface({ root: node, tools, card, heading, body: list });
   function paint() {
     list.replaceChildren(); const query = search.applied.toLocaleLowerCase();
     const items = model.items.filter(item => (!type.input.value || commandKind(item) === type.input.value)
-      && (!authorization.input.value || item.authorized === (authorization.input.value === 'yes'))
       && [item.name, item.description, item.when_to_use, ...(item.tags || [])].filter(Boolean).join(' ').toLocaleLowerCase().includes(query));
     count.textContent = `${items.length} / ${model.items.length}`;
-    status.textContent = !model.items.length ? '尚未注册快捷指令；可增加指令，再明确授权供 Hook 引用。' : !items.length ? '没有匹配的指令；请调整搜索或筛选。' : `${items.length} 项；选择一条查看详情。`;
+    status.textContent = !model.items.length ? '尚未注册快捷指令；可增加指令供 Hook 引用。' : !items.length ? '没有匹配的指令；请调整搜索或筛选。' : `${items.length} 项；选择一条查看详情。`;
     for (const item of items) {
       const pick = listEntry(button(item.name, () => {
         if (locked()) return; selected = item.id; paint(); onSelect(item);
       }, 'ghost shortcut-directory-pick'));
       pick.dataset.commandId = item.id; pick.setAttribute('aria-pressed', String(item.id === selected));
       pick.disabled = locked(); pick.classList.toggle('selected', item.id === selected);
-      const head = el('span', undefined, 'shortcut-directory-entry'); head.append(el('strong', item.name), badge(commandKind(item) === 'prompt' ? '提示词' : 'Shell'), badge(`v${item.version}`), badge(item.authorized ? '已授权' : '未授权'));
+      const head = el('span', undefined, 'shortcut-directory-entry'); head.append(el('strong', item.name), badge(commandKind(item) === 'prompt' ? '提示词' : 'Shell'), badge(`v${item.version}`));
       pick.replaceChildren(head);
       if (item.description) pick.append(el('span', item.description, 'shortcut-directory-description'));
       if (pick.disabled) { const host = el('span', undefined, 'help-host'); host.tabIndex = 0; host.setAttribute('data-help', '请先保存或取消当前指令草稿；确认或保存期间不能选择另一条指令。'); host.append(pick); list.append(host); }
@@ -48,7 +46,7 @@ export function commandDirectory({ model: initial, label, onSelect = () => {}, l
 }
 export function commandDetail(command, className = 'shortcut-command') {
   const card = el('article', undefined, `hook-mount ${className}`); card.dataset.commandId = command.id;
-  const head = el('div', undefined, 'hook-mount-head'); head.append(el('strong', command.name), badge(commandKind(command) === 'prompt' ? '提示词' : 'Shell'), badge(`v${command.version}`), badge(command.authorized ? '已授权' : '未授权／已撤权'));
+  const head = el('div', undefined, 'hook-mount-head'); head.append(el('strong', command.name), badge(commandKind(command) === 'prompt' ? '提示词' : 'Shell'), badge(`v${command.version}`));
   card.append(head);
   for (const [key, title] of [['description', '作用'], ['when_to_use', '调用场景'], ['tags', '标签'], ['examples', '示例'], ['warnings', '风险']]) {
     card.append(el('p', `${title}：${key === 'tags' ? command.tags?.join('、') || '未填写' : command[key] || '未填写'}`, 'shortcut-command-metadata'));

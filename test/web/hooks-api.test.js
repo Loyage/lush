@@ -16,7 +16,7 @@ const projectView = { version: 1, revision, triggers: [], actions: [], templates
 const workerView = { version: 1, worker_id: 7, revision, mounts: [] };
 const commandId = 'ee2f98f1-fc9a-46b1-a37c-67d8595c0649';
 const shortcut = { name: 'push', command: 'git push' };
-const targets = ['saveShortcutCommand','authorizeShortcutCommand','removeShortcutCommand','importLegacyHookCommands','hooksList','saveHookTemplate','removeHookTemplate','taskHooks','attachTaskHook','updateTaskHook','removeTaskHook','setTaskCompletion','setDaemonAutoSelect','setCompletionDefaults'];
+const targets = ['saveShortcutCommand','removeShortcutCommand','importLegacyHookCommands','hooksList','saveHookTemplate','removeHookTemplate','taskHooks','attachTaskHook','updateTaskHook','removeTaskHook','setTaskCompletion','setDaemonAutoSelect','setCompletionDefaults'];
 function mocks(project) {
   const calls = [];
   for (const method of targets) project[method] = (...args) => {
@@ -39,7 +39,6 @@ const mutations = [
   ['hooks.auto_select', { enabled: true, expected_revision: daemonRevision }, 'setDaemonAutoSelect', [true, daemonRevision], projectView],
   ['hooks.completion_defaults', { enabled: true, level: 'archive', expected_revision: 'defaults-revision' }, 'setCompletionDefaults', [true, 'archive', 'defaults-revision'], projectView],
   ['hooks.command_save', { command: shortcut, expected_revision: revision }, 'saveShortcutCommand', [shortcut, revision], projectView],
-  ['hooks.command_authorize', { id: commandId, version: 2, authorized: true, expected_revision: revision }, 'authorizeShortcutCommand', [commandId, 2, true, revision], projectView],
   ['hooks.command_remove', { id: commandId, expected_revision: revision }, 'removeShortcutCommand', [commandId, revision], projectView],
   ['hooks.command_import', { source: { template_id: 'old-template' }, expected_revision: revision }, 'importLegacyHookCommands', [{ template_id: 'old-template' }, revision], projectView],
 ];

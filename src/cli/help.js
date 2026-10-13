@@ -25,10 +25,9 @@ lush [--project PATH] [--json] <command>
   worker hook enable|disable|remove ID HOOK_ID --revision REV  启停或撤销未来动作（不撤回已执行动作）
   hooks list                        查看项目触发目录、动作、模板、快捷指令、daemon Hooks、时间信号与管理指令
   hooks command list                查看快捷指令目录（hooks.list.commands，修改使用 commands.revision）
-  hooks command save --file PATH --revision REV  注册/修改 Shell 或提示词指令及元数据（不授权，修改即撤权）
-  hooks command export ID --version N  只读导出单条 Skill 风格 Markdown（不安装、不授权）
-  hooks command authorize|revoke ID --version N --revision REV  授权/撤权指定版本（不是沙箱）
-  hooks command remove ID --revision REV  删除未来授权，已有 Hook 引用失效
+  hooks command save --file PATH --revision REV  保存 Shell 或提示词指令；未来自动化跟随最新定义
+  hooks command export ID --version N  只读导出单条 Skill 风格 Markdown（不安装、不执行）
+  hooks command remove ID --revision REV  删除指令，阻止引用它的未来执行
   hooks command history [--before CURSOR] [--limit N] [--execution UUID]  查看每次运行安全摘要（execution 与 before 互斥）
   hooks command import --file PATH --revision REV  导入旧内联命令并停用源 Hook（用源模板或 Worker Hooks 版本）
   hooks auto-select on|off --revision REV  启停设备全局自动选择（使用 daemon_hooks.revision）
@@ -72,7 +71,7 @@ lush [--project PATH] [--json] <command>
   branch convergence mount|remove BRANCH --revision REV  挂载（初始关闭）或移除归并自动化，保留历史
   branch convergence defaults show  读取项目新 Worker 默认与 revision
   branch convergence defaults set --mounted true|false --enabled true|false --revision REV  仅影响之后新建 order/child；未挂载可记住默认启用，实际策略仍关闭
-  开启可兼容 --command UUID --version N 保存旧精确引用；不执行验证命令、不隐式授权
+  开启可用 --command UUID 保存兼容引用；旧 --version N 可接受但不固定未来定义，新交付仍由 Agent 验证
   branch convergence runs BRANCH [--before N --limit N]  查看归并批次（默认20，最多50）
   branch convergence retry RUN_ID --revision REV  显式重试可恢复批次，可能调用整合 Agent；未知落地不重放
                                       开启／重试可能产生 Agent 费用；只影响目标分支，不提高 Worker 自动权限

@@ -37,8 +37,9 @@ export function convergenceVerificationMode(mode, validation) {
     return 'agent';
   }
   const reference = convergenceJSON(validation, false);
-  check(reference && typeof reference.command_id === 'string' && Number.isSafeInteger(reference.command_version)
-    && reference.command_version > 0, 'legacy convergence requires a fixed validation command');
+  check(reference && typeof reference.command_id === 'string'
+    && (reference.command_version === undefined || Number.isSafeInteger(reference.command_version) && reference.command_version > 0),
+  'legacy convergence requires a validation command');
   return 'command';
 }
 

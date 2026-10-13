@@ -104,12 +104,11 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
     // Repaint restricts alternatives without silently changing its saved identity.
     row.type = select('动作类型', (initialAction.type ? allowed() : rowChoices(null)).map(a => [a.type, a.label]), initialAction.type || (failedSelf ? 'retry_worker' : undefined));
     const commands = validCommands(catalogue.commands) ? catalogue.commands.items : [];
-    row.command = select('快捷指令版本', [['', '请选择已注册快捷指令版本'], ...commands.map(item =>
-      [`${item.id}:${item.version}`, `${item.name} · v${item.version} · ${item.authorized ? '已授权' : '未授权／已撤权'}`])],
-    initialAction.command_id ? `${initialAction.command_id}:${initialAction.command_version}` : '');
-    if (initialAction.command_id && !commands.some(item => item.id === initialAction.command_id && item.version === initialAction.command_version)) {
-      const option = el('option', `原引用 v${initialAction.command_version} 已不可用；请明确重选`);
-      option.value = `${initialAction.command_id}:${initialAction.command_version}`; row.command.input.append(option); row.command.input.value = option.value;
+    row.command = select('快捷指令', [['', '请选择已注册快捷指令'], ...commands.map(item =>
+      [item.id, item.name])], initialAction.command_id || '');
+    if (initialAction.command_id && !commands.some(item => item.id === initialAction.command_id)) {
+      const option = el('option', '原引用指令已删除或不存在；请明确重选');
+      option.value = initialAction.command_id; row.command.input.append(option); row.command.input.value = option.value;
     }
     row.command.input.onchange = () => paintRow(row);
     row.body = field('消息或告知正文', 'textarea', initialAction.body); row.body.input.rows = 4;
@@ -156,13 +155,13 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
       const value = row.command.input.value;
       const commands = validCommands(catalogue.commands) ? catalogue.commands.items.filter(item => commandKind(item) === (type === 'prompt_command' ? 'prompt' : 'shell')) : [];
       row.command.input.replaceChildren();
-      const blank = el('option', type === 'prompt_command' ? '请选择提示词版本' : '请选择 Shell 版本'); blank.value = ''; row.command.input.append(blank);
-      for (const item of commands) { const option = el('option', `${item.name} · v${item.version} · ${item.authorized ? '已授权' : '未授权／已撤权'}`); option.value = `${item.id}:${item.version}`; row.command.input.append(option); }
-      // Preserve an unavailable exact original reference, never choose the next version.
-      if (value && value === `${row.initial.command_id}:${row.initial.command_version}` && !commands.some(item => `${item.id}:${item.version}` === value)) {
-        const missing = el('option', `原引用 v${row.initial.command_version} 类型不匹配或已不可用；请明确重选`); missing.value = value; missing.disabled = true; row.command.input.append(missing);
+      const blank = el('option', type === 'prompt_command' ? '请选择提示词指令' : '请选择 Shell 指令'); blank.value = ''; row.command.input.append(blank);
+      for (const item of commands) { const option = el('option', item.name); option.value = item.id; row.command.input.append(option); }
+      // Preserve a missing or mismatched original identity; never silently select another command.
+      if (value && value === row.initial.command_id && !commands.some(item => item.id === value)) {
+        const missing = el('option', '原引用指令类型不匹配或已删除；请明确重选'); missing.value = value; missing.disabled = true; row.command.input.append(missing);
       }
-      row.command.input.value = value && (commands.some(item => `${item.id}:${item.version}` === value) || value === `${row.initial.command_id}:${row.initial.command_version}`) ? value : '';
+      row.command.input.value = value && (commands.some(item => item.id === value) || value === row.initial.command_id) ? value : '';
       row.commandType = type;
     }
     row.title.wrap.hidden = type !== 'notify'; row.target.wrap.hidden = !targetAction(type); row.body.wrap.hidden = !['notify', 'message'].includes(type);
@@ -174,7 +173,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
     row.configureHost.setAttribute('data-help', row.profilePending ? '运行设置正在读取，请稍后。' : row.profileForm ? '完整运行覆盖已展开，请在下方编辑。' : row.configure.getAttribute('data-help'));
     const description = catalogue.actions?.find(a => a.type === type)?.description || '';
     const preserved = !copying && initial.id && row.initial.type === type;
-    row.note.textContent = type === 'prompt_command' ? `${description} ${PROMPT_WARNING} 仅父 Worker 可创建节点、一次性；引用明确提示词版本，不自动升级。` : type === 'command' ? `${description} ${COMMAND_WARNING} Hook 仅引用明确版本，不接受 Shell 正文；修改指令即撤权，已有引用不会自动升级。${validCommands(catalogue.commands) ? '' : '快捷指令目录不可用，请更新服务并刷新。'}${Object.hasOwn(row.initial, 'command') ? '旧内联命令不能直接保存，请取消并显式导入。' : ''}` : type === 'create_worker' ? `${description} ${preserved
+    row.note.textContent = type === 'prompt_command' ? `${description} ${PROMPT_WARNING} 仅父 Worker 可创建节点、一次性；按指令身份引用，未来执行跟随最新定义。` : type === 'command' ? `${description} ${COMMAND_WARNING} Hook 仅引用指令身份，不接受 Shell 正文；未来执行跟随最新定义，保存指令不执行。${validCommands(catalogue.commands) ? '' : '快捷指令目录不可用，请更新服务并刷新。'}${Object.hasOwn(row.initial, 'command') ? '旧内联命令不能直接保存，请取消并显式导入。' : ''}` : type === 'create_worker' ? `${description} ${preserved
       ? '未重新设置且动作位置不变时保留模板已保存的私有运行覆盖；不会回读 Prompt/env。'
       : '未单独设置时，挂载时冻结有效项目默认；不回读已有私有运行覆盖。'}`
       : targetAction(type) ? `${description} 目标：${workerLabel(Number(row.target.input.value), Number(row.target.input.value) === row.initial.target_id ? row.initial.target_worker_number : undefined)}。此处填写内部整数 ID，不把 W 编号当作 ID。${type === 'message'
@@ -183,7 +182,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
     if (copying && profileAction(type)) row.note.textContent += ' 复制不复制私有运行覆盖或执行记录；请显式设置新的完整运行参数。';
     if (row.profileForm) row.note.textContent += ' 已展开的完整运行覆盖将写入此动作；可以显式选择模型来源，不复制凭证。';
   }
-  const add = button('添加动作', () => addRow(), 'ghost hook-button', { help: '最多组合四个目录允许的动作，按此处顺序执行；Shell 命令需要明确授权。' });
+  const add = button('添加动作', () => addRow(), 'ghost hook-button', { help: '最多组合四个目录允许的动作，按此处顺序执行；指令未来执行跟随最新定义。' });
   const addHost = el('span', undefined, 'help-host'); addHost.append(add); node.append(addHost);
   const addClick = add.onclick; add.onclick = async () => { await addClick(); repaint(); };
   function repaint() {
@@ -240,10 +239,9 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
           || (failedSelf && Number(row.target.input.value) !== workerId))) message = '请填写有效目标 Worker 内部整数 ID；失败 Worker 只能重试自身。';
         else if (type === 'message' && !row.body.input.value.trim()) message = '请填写消息正文和有效目标 Worker 内部整数 ID。';
         else if (commandAction(type)) {
-          const command = catalogue.commands?.items?.find(item => `${item.id}:${item.version}` === row.command.input.value);
           message = Object.hasOwn(row.initial, 'command') ? '旧内联命令须先显式导入快捷指令。'
-            : !command ? '请选择当前已注册的快捷指令版本。'
-              : commandReferencesIssue({ actions: [{ type, command_id: command.id, command_version: command.version }] }, catalogue, !copying && enabled.input.checked) || '';
+            : !row.command.input.value ? '请选择当前已注册的快捷指令。'
+              : commandReferencesIssue({ actions: [{ type, command_id: row.command.input.value }] }, catalogue) || '';
         }
         else if (copying && profileAction(type) && !row.profileForm) message = '复制私有运行覆盖动作时，请显式设置新的完整运行参数，不能从安全摘要重建。';
         else if (type === 'create_worker' && !row.content.input.value.trim()) message = '请填写新 Worker 指令。';
@@ -263,8 +261,7 @@ export function createHookForm(catalogue, { initial = {}, ownsPage = () => true,
         conditions: { statuses: statuses.collect(), integrations: integrations.collect() }, actions: rows.map(row => {
           const type = row.type.input.value;
           if (commandAction(type)) {
-            const command = catalogue.commands?.items?.find(item => `${item.id}:${item.version}` === row.command.input.value);
-            return { type, command_id: command?.id, command_version: command?.version };
+            return { type, command_id: row.command.input.value };
           }
           if (type === 'notify') return { type, title: row.title.input.value, body: row.body.input.value };
           if (type === 'message') return { type, target_id: Number(row.target.input.value), body: row.body.input.value };

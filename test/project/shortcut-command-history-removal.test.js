@@ -12,7 +12,7 @@ async function setup() {
 }
 function register(f, command = 'true') {
   const item = f.project.saveShortcutCommand({ name: 'history', command }, f.project.shortcutCommands().revision).commands.items.at(-1);
-  f.project.authorizeShortcutCommand(item.id, 1, true, f.project.shortcutCommands().revision); return item;
+  return item;
 }
 // Historical manual receipts are fixtures, never a callable manual execution path.
 const start = (f, item) => {
@@ -43,7 +43,7 @@ test('single history removal hides exact, paged and last_execution projections, 
     expect(remove(f.project, randomUUID())).toEqual({ removed_count: 0 });
     expect(lookup(f.project, execution)).toEqual([]); expect(f.project.shortcutCommandHistory().items).toEqual([]);
     expect(f.project.shortcutCommands()).toMatchObject({ revision, items: expect.any(Array) });
-    expect(f.project.shortcutCommands().items.at(-1)).toMatchObject({ authorized: true, version: 1, last_execution: null });
+    expect(f.project.shortcutCommands().items.at(-1)).toMatchObject({ version: 1, last_execution: null });
     for (const event of events) expect(f.store.get('SELECT * FROM events WHERE id=?', event.id)).toEqual(event);
     expect(JSON.parse(f.store.get("SELECT value FROM meta WHERE key='shortcut_commands'").value).items.at(-1).last_execution.id).toBe(execution.execution_id);
     expect(f.store.all("SELECT key,value FROM meta WHERE key LIKE 'shortcut_command_history_removed:%'")).toHaveLength(1);
@@ -147,7 +147,7 @@ test('Hook command history can be removed without touching mount receipts, dedup
     expect(lookup(f.project, execution.id)).toEqual([]); expect(f.project.shortcutCommands().items.at(-1).last_execution).toBeNull();
     expect(f.store.task(f.main.id).hooks).toBe(hooks);
     expect(f.project.shortcutCommands().revision).toBe(revision);
-    expect(f.project.shortcutCommands().items.at(-1).authorized).toBe(true);
+    expect(f.project.shortcutCommands().items.at(-1)).not.toHaveProperty('authorized');
     f.project.emitTaskHook(f.main.id, 'worker.merge_received'); await f.project.hookQueue;
     expect(f.store.all("SELECT id FROM events WHERE type='shortcut.command_started'")).toHaveLength(1);
   } finally { await f.close(); }

@@ -4,22 +4,18 @@ import { CONVERGENCE_LIMITS, convergenceBooking, convergenceJSON, convergenceVer
 import { selectConvergenceMembers, convergenceTopology } from '../convergence-plan.js';
 
 const preparing = ['preparing', 'ready'];
-const sameValidation = (a, b) => a?.command_id === b?.command_id && a?.command_version === b?.command_version;
+const sameValidation = (a, b) => a?.command_id === b?.command_id;
 
 /** Formation/preparation own bounded slots, never the parent's publication slot. */
 export default {
-  convergenceAuthorizationStamp(validation) {
-    return this.store.get(`SELECT max(id) AS id FROM events WHERE type IN
-      ('shortcut.command_saved','shortcut.command_authorized','shortcut.command_removed')
-      AND json_extract(data,'$.command_id')=?`, validation?.command_id)?.id ?? 0;
-  },
-
-  assertConvergenceAuthorization(run) {
+  assertConvergenceCommand(run) {
     const data = convergenceJSON(run.data, {});
     if (convergenceVerificationMode(data.verification_mode, run.validation) === 'agent') return null;
     const reference = convergenceJSON(run.validation);
     const command = this.resolveShortcutCommand(reference);
-    check(data.authorization_id === this.convergenceAuthorizationStamp(reference), 'convergence command authorization changed');
+    const claimed = data.validation_execution;
+    if (claimed) check(claimed.command_id === command.id && claimed.command_version === command.version,
+      'convergence command definition changed');
     return command;
   },
 
@@ -107,7 +103,7 @@ export default {
       }
       const ready = selectConvergenceMembers(candidates, dependencies, landed);
       if (!ready.length) return null;
-      // Agent verification and legacy pinned command versions are separate fixed batches.
+      // Agent verification and command verification stay separate; legacy versions no longer pin future claims.
       const selected = ready.filter(member => member.verification_mode === ready[0].verification_mode
         && sameValidation(member.validation, ready[0].validation));
       const baseline = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${parent.branch}^{commit}`);
@@ -125,12 +121,13 @@ export default {
             && task.parent_id === parent.id && task.target_branch === parent.branch && !this.reservationWaitReason(task),
           'fixed delivery changed while forming');
         }
-        const plan = convergenceTopology(selected), validation = selected[0].validation;
+        const plan = convergenceTopology(selected), legacyRef = selected[0].validation;
+        // A newly formed run references identity only; existing bookings/history are not rewritten.
+        const validation = legacyRef === null ? null : { command_id: legacyRef.command_id };
         const run = this.store.createDeliveryRun({ parent_id: parent.id, target_branch: parent.branch, baseline,
           validation: validation === null ? null : JSON.stringify(validation),
           members: selected.map(({ verification_mode, validation, reservation, ...member }) => member),
           data: JSON.stringify({ plan, verification_mode: selected[0].verification_mode,
-            ...(selected[0].verification_mode === 'command' ? { authorization_id: this.convergenceAuthorizationStamp(validation) } : {}),
             baseline_attempts: 0, repair_attempts: 0 }) });
         for (const member of selected) {
           const task = this.store.task(member.task_id), booking = convergenceBooking(task);

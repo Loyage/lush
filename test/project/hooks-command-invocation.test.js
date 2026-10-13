@@ -12,7 +12,6 @@ test('a newly queued invocation cannot overlap Shell execution in the same workt
   try {
     const { task } = await f.project.order('no overlap', 'main', [], null, false); workspace = task.workspace;
     const command = f.project.saveShortcutCommand({ name: 'shell', command: 'id -u > daemon-user; while [ ! -f release ]; do sleep 0.01; done' }, f.project.shortcutCommands().revision).commands.items.at(-1);
-    f.project.authorizeShortcutCommand(command.id, command.version, true, f.project.shortcutCommands().revision);
     const hooks = f.project.attachTaskHook(task.id, { name: 'shell', trigger: 'agent.returned', mode: 'once', enabled: true,
       actions: [{ type: 'command', command_id: command.id, command_version: command.version }] }, f.project.taskHooks(task.id).revision);
     const hook = hooks.mounts.at(-1);

@@ -25,7 +25,7 @@ const STATE = { idle: '尚未触发', waiting: '等待信号或安全点', queue
   skipped: '已跳过／错过', missed: '已错过', failed: '失败', unknown: '结果未知，未自动重放',
   disabled: '已停用', stopped: '已停用', consumed: '一次性授权已用完', completed: '已完成', paused: '已暂停' };
 const label = state => STATE[state] || state || '暂无记录';
-const MANAGEMENT_CAPABILITIES = '管理能力按安全读取、低风险自动执行、用户确认和不可用分级。当前项目查询、草稿编辑、条件发射、合法追加、开始／继续和重试可自动执行；取消、中断、合并、验收回收、删除、Shell 授权、敏感配置及服务操作须预检后由用户确认精确请求。无跨项目、任意文件／Shell 或凭证工具；原权限和安全门不变。';
+const MANAGEMENT_CAPABILITIES = '管理能力按安全读取、低风险自动执行、用户确认和不可用分级。当前项目查询、草稿编辑、条件发射、合法追加、开始／继续和重试可自动执行；取消、中断、合并、验收回收、删除、快捷指令配置、敏感配置及服务操作须预检后由用户确认精确请求。无跨项目、任意文件／Shell 或凭证工具；原权限和安全门不变。';
 function managementLinks(task, ownsPage) {
   // hooks.list supplies compact management summaries without role/task_kind.
   // Preserve this known read-surface identity, including unnumbered legacy Valets.

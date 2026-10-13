@@ -101,11 +101,12 @@ test('legacy command and new agent requests never share a batch, even when ready
     const legacy = await f.project.formConvergenceBatch(f.parentId), agent = await f.project.formConvergenceBatch(f.parentId);
     expect(f.store.deliveryMembers(legacy.id).map(member => member.task_id)).toEqual([legacySource.id]);
     expect(convergenceJSON(legacy.data).verification_mode).toBe('command');
-    expect(convergenceJSON(legacy.validation)).toEqual(reference);
+    expect(convergenceJSON(legacy.validation)).toEqual({ command_id: reference.command_id });
+    expect(convergenceJSON(f.store.task(legacySource.id).reservation).validation).toEqual(reference);
     expect(f.store.deliveryMembers(agent.id).map(member => member.task_id)).toEqual([f.sources[1].id]);
     assertNoCommandEvidence(f, agent);
-    expect(() => f.project.assertConvergenceAuthorization(legacy)).toThrow('must not resolve');
-    expect(f.project.assertConvergenceAuthorization(agent)).toBeNull();
+    expect(() => f.project.assertConvergenceCommand(legacy)).toThrow('must not resolve');
+    expect(f.project.assertConvergenceCommand(agent)).toBeNull();
   } finally { await f.close(); }
 });
 

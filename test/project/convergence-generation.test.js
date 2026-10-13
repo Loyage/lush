@@ -19,12 +19,11 @@ async function fixedOutput() {
   await f.project.workspaces.finish(f.store.task(task.id));
   const source = f.store.task(task.id), baseline = await git(f.root, 'rev-parse', 'main');
   const definition = f.project.saveShortcutCommand({ name: 'test', command: 'true' }, f.project.shortcutCommands().revision).commands.items.at(-1);
-  f.project.authorizeShortcutCommand(definition.id, 1, true, f.project.shortcutCommands().revision);
   const validation = { command_id: definition.id, command_version: 1 };
   const member = { task_id: source.id, delivery_id: 101, enqueue_seq: 101, source_branch: source.branch,
     source_commit: source.head_commit, base_commit: baseline };
   const run = f.store.createDeliveryRun({ parent_id: source.parent_id, target_branch: 'main', baseline, validation,
-    members: [member], data: { plan: convergenceTopology([member]), authorization_id: f.project.convergenceAuthorizationStamp(validation), repair_attempts: 1 } });
+    members: [member], data: { plan: convergenceTopology([member]), repair_attempts: 1 } });
   f.store.update(source.id, { status: 'waiting', reservation: JSON.stringify({ version: 3, kind: 'merge', status: 'requested',
     run_id: run.id, generation: 1, parent_id: source.parent_id, commit: source.head_commit, delivery_id: 101, enqueue_seq: 101 }) });
   const tree = await f.project.workspaces.commitTree(source.head_commit);

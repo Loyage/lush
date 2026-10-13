@@ -37,8 +37,7 @@ async function frame() { const node = await rpc(`/session/${session}/element`, {
 try {
   await repo(f.root); const main = await f.project.bootstrapMain();
   const command = f.project.saveShortcutCommand({ name: 'Hook 专用测试', command: 'printf PRIVATE_OUTPUT', default_worker_id: main.id }, f.project.shortcutCommands().revision).commands.items.at(-1);
-  f.project.authorizeShortcutCommand(command.id, command.version, true, f.project.shortcutCommands().revision);
-  await f.project.attachTaskHook(main.id, { name: '安全历史测试', trigger: 'worker.merge_received', mode: 'persistent', enabled: true, actions: [{ type: 'command', command_id: command.id, command_version: 1 }] }, f.project.taskHooks(main.id).revision);
+  await f.project.attachTaskHook(main.id, { name: '安全历史测试', trigger: 'worker.merge_received', mode: 'persistent', enabled: true, actions: [{ type: 'command', command_id: command.id }] }, f.project.taskHooks(main.id).revision);
   for (let n = 0; n < 2; n++) { f.project.emitTaskHook(main.id, 'worker.merge_received', f.store.event(main.id, 'test.browser_merge', {})); await f.project.hookQueue; }
   const historical = f.project.shortcutCommandHistory().items;
   assert(historical.length === 2 && historical.every(row => row.status === 'succeeded' && row.source === 'hook'), 'Hook history setup failed');
@@ -69,19 +68,24 @@ try {
   await execute(`const s=document.querySelector('[aria-label="查找管理指令"]');s.value='Hook 专用';s.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));`);
   const keyboardPick = await rpc(`/session/${session}/element`, { using: 'css selector', value: pick }); await rpc(`/session/${session}/element/${keyboardPick['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE007' });
   assert(await wait(`!document.querySelector('.shortcut-command-detail-page').hidden`), 'keyboard list selection failed');
-  await press('编辑快捷指令'); await execute(`document.querySelector('[aria-label="Shell 命令"]').value='printf draft';`);
+  await press('编辑快捷指令'); await execute(`document.querySelector('[aria-label="Shell 命令"]').value='printf draft > latest-hook.txt';`);
   await press('返回指令列表'); await navigate('settings'); await navigate('history'); assert(await wait(`document.querySelectorAll('.shortcut-execution').length===2`), 'Hook history missing'); await navigate('commands'); await press('继续指令编辑');
-  assert(await execute(`return document.querySelector('[aria-label="Shell 命令"]').value==='printf draft'&&document.querySelector('[aria-label="查找管理指令"]').value==='Hook 专用'`), 'subpage/list transition lost draft or search');
+  assert(await execute(`return document.querySelector('[aria-label="Shell 命令"]').value==='printf draft > latest-hook.txt'&&document.querySelector('[aria-label="查找管理指令"]').value==='Hook 专用'`), 'subpage/list transition lost draft or search');
   await press('保存快捷指令'); assert(await wait(`!document.querySelector('.shortcut-command-editor [aria-label="Shell 命令"]')`), 'save failed');
   const saved = f.project.shortcutCommands().items.find(item => item.id === command.id);
-  assert(saved.version === 2 && !saved.authorized && saved.default_worker_id === main.id, 'version/revocation or old-default preservation failed');
+  assert(saved.version === 2 && !Object.hasOwn(saved, 'authorized') && saved.default_worker_id === main.id, 'version or old-default preservation failed');
   assert(!mutations.find(call => call.method === 'hooks.command_save').params.command.hasOwnProperty('default_worker_id'), 'retired default sent by UI');
-  await press('授权当前版本'); assert(await wait(`document.querySelector('#modal .modal-confirm')`), 'authorization confirmation missing'); await click('#modal .modal-confirm'); assert(await wait(`Array.from(document.querySelectorAll('.shortcut-command-detail button')).some(b=>b.textContent==='撤销授权'&&!b.disabled)`), 'authorization failed');
-  await press('撤销授权'); assert(await wait(`document.querySelector('#modal .modal-confirm')`), 'revoke confirmation missing'); await click('#modal .modal-confirm'); assert(await wait(`Array.from(document.querySelectorAll('.shortcut-command-detail button')).some(b=>b.textContent==='授权当前版本'&&!b.disabled)`), 'revocation failed');
+  assert(await execute(`return !document.querySelector('.command-authorize,.command-revoke,[aria-label="查找管理指令授权"]')`), 'retired authorization controls remain');
+  assert(f.project.taskHooks(main.id).mounts.find(m => m.name === '安全历史测试').enabled, 'editing disabled the existing Hook');
+  f.project.emitTaskHook(main.id, 'worker.merge_received', f.store.event(main.id, 'test.browser_merge', {})); await f.project.hookQueue;
+  assert(fs.readFileSync(path.join(f.root, 'latest-hook.txt'), 'utf8') === 'draft', 'existing Hook did not execute latest edited body');
+  assert(f.project.shortcutCommandHistory().items[0].command_version === 2, 'actual execution version was not recorded');
+  // Runtime execution updates commands.revision; explicitly refresh before another edit.
+  assert(await rpc(`/session/${session}/execute/async`, { script: "const done=arguments[0];Array.from(document.querySelectorAll('.hooks-page button')).find(b=>b.textContent==='刷新目录').onclick().then(()=>done(true),()=>done(false));", args: [] }), 'directory refresh after execution failed');
   await press('返回指令列表'); await press('注册快捷指令');
   await execute(`document.querySelector('[aria-label="快捷指令名称"]').value='交付审查';const type=document.querySelector('[aria-label="指令类型"]');type.value='prompt';type.dispatchEvent(new Event('change'));document.querySelector('[aria-label="提示词正文"]').value='Review project changes';document.querySelector('[aria-label="作用说明"]').value='审查项目变更';document.querySelector('[aria-label="标签（每行一个）"]').value='review\\n交付';`);
   await press('保存快捷指令'); assert(await wait(`!document.querySelector('.shortcut-command-editor [aria-label="快捷指令名称"]')`), 'prompt save failed');
-  const prompt = f.project.shortcutCommands().items.find(item => item.name === '交付审查'); assert(prompt?.kind === 'prompt' && !prompt.authorized && prompt.tags.join(',') === 'review,交付', 'prompt metadata incorrect');
+  const prompt = f.project.shortcutCommands().items.find(item => item.name === '交付审查'); assert(prompt?.kind === 'prompt' && !Object.hasOwn(prompt, 'authorized') && prompt.tags.join(',') === 'review,交付', 'prompt metadata incorrect');
   await press('导出 Markdown'); assert(await wait(`document.querySelector('.shortcut-command-editor a[download]')`), 'export missing'); assert(await execute(`return document.querySelector('.shortcut-command-editor pre').textContent.includes('kind: "prompt"')&&!document.querySelector('.shortcut-command-detail .agent-call')`), 'export or non-Agent editing incorrect');
   await press('返回指令列表');
   // Text drafts cannot leak into immediate type filters; IME Enter cannot submit.
@@ -103,16 +107,17 @@ try {
     }
     console.log(`PASS list/settings/history layout ${theme}/${width}px`);
   }
-  await press('删除运行记录'); assert(await wait(`document.querySelector('#modal .modal-confirm')`), 'history delete confirmation missing'); await click('#modal .modal-confirm'); assert(await wait(`document.querySelectorAll('.shortcut-execution').length===1`), 'history delete failed');
+  await press('刷新运行记录'); assert(await wait(`document.querySelectorAll('.shortcut-execution').length===3`), 'latest execution missing from refreshed history');
+  await press('删除运行记录'); assert(await wait(`document.querySelector('#modal .modal-confirm')`), 'history delete confirmation missing'); await click('#modal .modal-confirm'); assert(await wait(`document.querySelectorAll('.shortcut-execution').length===2`), 'history delete failed');
   await press('清空已结束记录'); assert(await wait(`document.querySelector('#modal .modal-confirm')`), 'history clear confirmation missing'); await click('#modal .modal-confirm'); assert(await wait(`document.querySelectorAll('.shortcut-execution').length===0`), 'history clear failed');
   await navigate('commands'); await execute(`const type=document.querySelector('[aria-label="查找管理指令类型"]');type.value='';type.dispatchEvent(new Event('change'));`); await click(`.shortcut-directory-pick[data-command-id="${prompt.id}"]`); await press('删除快捷指令'); assert(await wait(`document.querySelector('#modal .modal-confirm')`), 'definition delete confirmation missing'); await click('#modal .modal-confirm'); assert(await wait(`document.querySelector('.shortcut-command-detail-page').hidden`), 'delete did not return to list');
   assert(!f.project.shortcutCommands().items.some(item => item.id === prompt.id), 'definition not removed');
   await rpc(`/session/${session}/refresh`, {}); await frame(); assert(await wait(`document.querySelector('.shortcut-directory-pick')`), 'command deep link did not reload'); await navigate('history'); assert(await wait(`document.querySelector('.shortcut-execution-records')?.textContent.includes('尚无运行记录')`), 'deleted history reappeared');
   assert(f.project.shortcutCommandHistory().items.length === 0, 'history removal not durable');
   for (const event of audit) assert(JSON.stringify(f.store.get('SELECT * FROM events WHERE id=?', event.id)) === JSON.stringify(event), 'safety audit rewritten');
-  assert(!mutations.some(call => ['hooks.command_start', 'hooks.command_run'].includes(call.method)), 'retired manual mutation submitted');
+  assert(!mutations.some(call => ['hooks.command_start', 'hooks.command_run', 'hooks.command_authorize'].includes(call.method)), 'retired manual or authorization mutation submitted');
   fs.writeFileSync(path.join(evidence, 'mutations.json'), JSON.stringify(mutations, null, 2));
-  success = true; console.log('PASS independent command page/list/detail/back, draft/search retention, keyboard/IME, metadata, default data retention, version revocation, authorization/revoke, export/delete, durable Hook history deletion with preserved audit; no manual mutation or Agent call');
+  success = true; console.log('PASS independent command page/list/detail/back, draft/search retention, keyboard/IME, metadata, default data retention, latest-definition execution with actual version history, absent authorization controls, export/delete, durable Hook history deletion with preserved audit; no manual/authorization mutation or Agent call');
 } catch (error) {
   if (session) {
     try { fs.writeFileSync(path.join(evidence, 'failure-page.json'), JSON.stringify(await execute('return {url:location.href,html:document.documentElement.outerHTML};'))); } catch {}

@@ -13,7 +13,6 @@ async function setup(count = 2, command = 'test -z "$LUSH_AGENT_TOKEN" && case "
   try {
   await repo(f.root); await f.project.bootstrapMain();
   const entry = f.project.saveShortcutCommand({ name: '隔离验收', command }, f.project.shortcutCommands().revision).commands.items.at(-1);
-  f.project.authorizeShortcutCommand(entry.id, 1, true, f.project.shortcutCommands().revision);
   const before = await f.project.branchConvergence('main');
   expect(before.enabled).toBe(false);
   await f.project.setBranchConvergence('main', true, { command_id: entry.id, command_version: 1 }, before.revision);
@@ -47,7 +46,7 @@ test('two real fixed deliveries converge, validate exact isolated single-parent 
     expect(run.state).toBe('integrated');
     expect(await git(f.root, 'rev-parse', 'main')).toBe(run.candidate_commit);
     expect((await git(f.root, 'show', '-s', '--format=%P', run.candidate_commit)).split(' ')).toEqual([f.baseline]);
-    expect(convergenceJSON(run.validation_result)).toMatchObject({ state: 'passed', tested_commit: run.candidate_commit, tested_tree: run.candidate_tree });
+    expect(convergenceJSON(run.validation_result)).toMatchObject({ state: 'passed', command_id: f.entry.id, command_version: 1, tested_commit: run.candidate_commit, tested_tree: run.candidate_tree });
     expect(fs.readFileSync(path.join(f.root, 'alpha.txt'), 'utf8')).toBe('source 0\n');
     expect(fs.readFileSync(path.join(f.root, 'beta.txt'), 'utf8')).toBe('source 1\n');
     expect(f.store.get("SELECT count(*) AS n FROM events WHERE task_id=? AND type='worker.merge_received'", run.parent_id).n).toBe(1);
@@ -139,13 +138,13 @@ test('a lost DB finalization reconciles the exact landed batch without replaying
   } finally { await f.close(); }
 });
 
-test('revocation after the real command returns invalidates the attempt, cleans only its exact resource and never publishes', async () => {
+test('editing after the real command returns invalidates the attempt, cleans only its exact resource and never publishes', async () => {
   const f = await setup(1, 'test -f alpha.txt'); try {
     const actual = f.project.workspaces.runConvergenceValidation.bind(f.project.workspaces);
     f.project.workspaces.runConvergenceValidation = async (...args) => {
       const result = await actual(...args);
       expect(result.status).toBe('succeeded');
-      f.project.authorizeShortcutCommand(f.entry.id, 1, false, f.project.shortcutCommands().revision);
+      f.project.saveShortcutCommand({ id: f.entry.id, name: f.entry.name, command: 'true' }, f.project.shortcutCommands().revision);
       return result;
     };
     expect(f.project.startConvergenceJob(f.run.id)).toBe(true);

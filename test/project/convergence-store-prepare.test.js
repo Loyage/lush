@@ -14,7 +14,6 @@ async function setup(count = 2, conflict = false) {
   Object.assign(f.project, queue, prepare, policy);
   f.project.scheduleConvergence = () => {};
   const item = f.project.saveShortcutCommand({ name: '固定验证名称', command: 'true' }, f.project.shortcutCommands().revision).commands.items.at(-1);
-  f.project.authorizeShortcutCommand(item.id, 1, true, f.project.shortcutCommands().revision);
   const validation = { command_id: item.id, command_version: 1 }, sources = [];
   for (let i = 0; i < count; i++) {
     const { task } = await f.project.order(`source ${i}`);

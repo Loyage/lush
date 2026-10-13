@@ -11,10 +11,10 @@ async function setup() {
 }
 function command(f, text) {
   const item = f.project.saveShortcutCommand({ name: 'test', command: text }, f.project.shortcutCommands().revision).commands.items.at(-1);
-  f.project.authorizeShortcutCommand(item.id, 1, true, f.project.shortcutCommands().revision); return item;
+  return item;
 }
 
-test('revoke of an already-started single-action Hook preserves its known successful result while discarding future triggers', async () => {
+test('deletion of an already-started single-action Hook command preserves its known successful result while discarding future triggers', async () => {
   const f = await setup();
   try {
     const item = command(f, 'printf start > .lush/start; while [ ! -f .lush/release ]; do sleep 0.01; done; printf x >> .lush/runs');
@@ -22,7 +22,7 @@ test('revoke of an already-started single-action Hook preserves its known succes
       actions: [{ type: 'command', command_id: item.id, command_version: 1 }] }, f.project.taskHooks(f.main.id).revision).mounts.at(-1);
     f.project.emitTaskHook(f.main.id, 'worker.merge_received'); await until(() => fs.existsSync(path.join(f.config.home, 'start')));
     f.project.emitTaskHook(f.main.id, 'worker.merge_received');
-    f.project.authorizeShortcutCommand(item.id, 1, false, f.project.shortcutCommands().revision);
+    f.project.removeShortcutCommand(item.id, f.project.shortcutCommands().revision);
     fs.writeFileSync(path.join(f.config.home, 'release'), 'go'); await f.project.hookQueue;
     expect(f.project.taskHooks(f.main.id).mounts.find(m => m.id === hook.id)).toMatchObject({ enabled: false, state: 'succeeded', pending_count: 0,
       last_execution: { status: 'succeeded', command_result: { status: 'succeeded' } } });
@@ -64,7 +64,7 @@ test('legacy started effects become unknown on recovery and explicit import neve
     expect(before).toMatchObject({ enabled: false, state: 'unknown', pending_count: 0, last_execution: { status: 'unknown' } });
     const result = next.importLegacyHookCommands({ worker_id: f.main.id, hook_id: hook.id }, next.taskHooks(f.main.id).revision);
     expect(result.worker_hooks.mounts.find(m => m.id === hook.id).last_execution).toEqual(before.last_execution);
-    expect(result.commands.items.at(-1).authorized).toBe(false);
+    expect(result.commands.items.at(-1)).not.toHaveProperty('authorized');
     next.recoverTaskHooks(); await Promise.resolve(); await next.hookQueue;
     expect(fs.existsSync(path.join(f.config.home, 'legacy-unknown'))).toBe(false);
     const record = JSON.parse(f.store.task(f.main.id).hooks).mounts.find(m => m.id === hook.id);

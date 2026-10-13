@@ -400,7 +400,8 @@ export default {
             check(accepted, 'prompt shortcut execution claim is missing');
             const receipt = { task_id: taskId, hook_id: hookId, execution_id: executionId, action_index: index };
             const result = await this.executePromptShortcutCommand(accepted, taskId, receipt);
-            outcome = { worker_id: result.task.id, input_id: result.id };
+            outcome = { worker_id: result.task.id, input_id: result.id, command_id: accepted.command_id,
+              command_version: accepted.command_version, shortcut_execution_id: accepted.execution_id };
           } else if (action.type === 'create_worker') {
             const parent = this.assertInputParent(taskId); check(this.hookParentReady(taskId), 'parent no longer ready');
             const receipt = { task_id: taskId, hook_id: hookId, execution_id: executionId, action_index: index };

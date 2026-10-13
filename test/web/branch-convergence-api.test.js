@@ -67,14 +67,14 @@ test('convergence HTTP rejects unknown/duplicate queries, invalid cursors and re
   } finally { await f.close(); }
 });
 
-test('convergence HTTP setters and retry preserve explicit command version and revisions', async () => {
+test('convergence HTTP setters normalize legacy version references and retain revision gates', async () => {
   const f = await setup(), calls = mocks(f.project);
   try {
     expect(await (await post(f.url, 'branch.convergence_set', mutation)).json()).toEqual(policy);
     expect(await (await post(f.url, 'branch.convergence_set', { ...mutation, enabled: false })).json()).toEqual(policy);
     expect(await (await post(f.url, 'branch.convergence_retry', { id: 9, expected_revision: revision })).json()).toEqual(run);
-    expect(calls).toEqual([{ name: 'setBranchConvergence', args: ['main',true,validation,revision,true] },
-      { name: 'setBranchConvergence', args: ['main',false,validation,revision,true] },
+    expect(calls).toEqual([{ name: 'setBranchConvergence', args: ['main',true,{ command_id: commandId },revision,true] },
+      { name: 'setBranchConvergence', args: ['main',false,{ command_id: commandId },revision,true] },
       { name: 'retryBranchConvergence', args: [9,revision] }]);
   } finally { await f.close(); }
 });
@@ -162,7 +162,7 @@ test('Host convergence APIs stay on explicit projects and never start a daemon t
     expect((await fetch(ub + '/api/branch-convergence/runs?branch=main&limit=1')).status).toBe(200);
     expect((await post(ua, 'branch.convergence_set', mutation)).status).toBe(200);
     expect((await post(ub, 'branch.convergence_retry', { id: 9, expected_revision: revision })).status).toBe(200);
-    expect(ca).toEqual([{ name: 'branchConvergenceList', args: [] }, { name: 'setBranchConvergence', args: ['main',true,validation,revision,true] }]);
+    expect(ca).toEqual([{ name: 'branchConvergenceList', args: [] }, { name: 'setBranchConvergence', args: ['main',true,{ command_id: commandId },revision,true] }]);
     expect(cb).toEqual([{ name: 'branchConvergenceRuns', args: ['main',null,1] }, { name: 'retryBranchConvergence', args: [9,revision] }]);
     for (const base of [url, `${url}/p/${'0'.repeat(16)}`]) {
       expect((await fetch(base + '/api/branch-convergence')).status).toBe(400);

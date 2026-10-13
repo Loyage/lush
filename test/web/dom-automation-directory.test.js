@@ -3,12 +3,12 @@ import { readFileSync } from 'node:fs';
 import { installDom, deepText, dialogButton } from '../dom-stub.js';
 import { until } from '../helpers.js';
 
-const json = value => ({ ok: true, json: async () => structuredClone(value) });
-const failure = message => ({ ok: false, json: async () => ({ error: message }) });
+const json = value => Response.json(value);
+const failure = message => Response.json({ error: message }, { status: 409 });
 const uuid = n => `dddddddd-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const shell = () => ({ id: uuid(1), name: '测试 Shell', kind: 'shell', command: 'printf "<script>literal</script>"', version: 2, authorized: true,
+const shell = () => ({ id: uuid(1), name: '测试 Shell', kind: 'shell', command: 'printf "<script>literal</script>"', version: 2,
   description: '执行模块测试', when_to_use: '修改完成后', tags: ['验证', '单元测试'], examples: '手动选择工作目录', warnings: '会修改文件', default_worker_id: 42, last_execution: null });
-const prompt = () => ({ id: uuid(2), name: '审查提示词', kind: 'prompt', prompt: '检查代码 <img src=x onerror=alert(1)>', version: 3, authorized: true,
+const prompt = () => ({ id: uuid(2), name: '审查提示词', kind: 'prompt', prompt: '检查代码 <img src=x onerror=alert(1)>', version: 3,
   description: '检查代码质量', when_to_use: '准备交付', tags: ['质量', 'review'], examples: '在 order 下审查', warnings: '可能产生费用', default_worker_id: null, last_execution: null });
 const hook = () => ({ id: uuid(8), name: '一次性审查', trigger: 'worker.parent_ready', mode: 'once', enabled: false,
   actions: [{ type: 'prompt_command', command_id: uuid(2), command_version: 3 }] });
@@ -25,17 +25,16 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (path.endsWith('/api/hooks')) return json(catalogue);
   if (body?.method === 'hooks.command_save') {
     const definition = body.params.command, old = catalogue.commands.items.find(item => item.id === definition.id);
-    const saved = { ...definition, id: old?.id || uuid(4), version: old ? old.version + 1 : 1, authorized: false, last_execution: null };
+    const saved = { ...definition, id: old?.id || uuid(4), version: old ? old.version + 1 : 1, last_execution: null };
     catalogue.commands = { version: 1, revision: 'saved', items: old ? catalogue.commands.items.map(item => item.id === old.id ? saved : item) : [...catalogue.commands.items, saved] }; return json(catalogue);
   }
-  if (body?.method === 'hooks.command_authorize') { catalogue.commands.revision = 'authorized'; catalogue.commands.items = catalogue.commands.items.map(item => item.id === body.params.id ? { ...item, authorized: body.params.authorized } : item); return json(catalogue); }
   if (body?.method === 'worker.hook_update') { catalogue.command_example.hooks.mounts[0].enabled = body.params.enabled; return json(catalogue.command_example.hooks); }
   throw new Error(`Unexpected ${path} ${body?.method}`);
 } });
 const { openHookTools: openHooks, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
 const { openProjectAutomation } = await import('../../src/ui/web/assets/render-project-automation.js');
 const { createHookForm } = await import('../../src/ui/web/assets/hook-form.js');
-const { validCommands, commandReferencesIssue } = await import('../../src/ui/web/assets/shortcut-command-model.js');
+const { validCommands, commandReferencesIssue, referencedCommand, commandSummary } = await import('../../src/ui/web/assets/shortcut-command-model.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { closeDialog } = await import('../../src/ui/web/assets/dialog.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
@@ -73,9 +72,10 @@ test('searches name, description, when_to_use and tags only when submitted; filt
   submitSearch(input); expect(manager().querySelectorAll('.shortcut-directory-entry')).toHaveLength(0); expect(deepText(manager())).toContain('没有匹配');
   type.value = ''; type.onchange();
   for (const query of ['测试 Shell', '执行模块测试', '修改完成后', '单元测试']) { input.value = query; submitSearch(input); expect(manager().querySelectorAll('.shortcut-directory-entry')).toHaveLength(1); }
-  const authorization = field('查找管理指令授权'); authorization.value = 'no'; authorization.onchange(); expect(manager().querySelectorAll('.shortcut-directory-entry')).toHaveLength(0);
-  await btn('清空', manager().querySelector('.shortcut-directory')).onclick(); expect(authorization.value).toBe('no'); expect(manager().querySelectorAll('.shortcut-directory-entry')).toHaveLength(0);
-  authorization.value = ''; authorization.onchange(); expect(manager().querySelectorAll('.shortcut-directory-entry')).toHaveLength(2); expect(calls).toHaveLength(0);
+  expect(field('查找管理指令授权')).toBeNull();
+  type.value = 'prompt'; type.onchange();
+  await btn('清空', manager().querySelector('.shortcut-directory')).onclick(); expect(type.value).toBe('prompt'); expect(manager().querySelectorAll('.shortcut-directory-entry')).toHaveLength(1);
+  type.value = ''; type.onchange(); expect(manager().querySelectorAll('.shortcut-directory-entry')).toHaveLength(2); expect(calls).toHaveLength(0);
 });
 
 test('IME candidate confirmation never submits directory search', async () => {
@@ -90,14 +90,14 @@ test('IME candidate confirmation never submits directory search', async () => {
   }
 });
 
-test('modern metadata and prompt save submit only matching body, create unauthed version and never call Agent', async () => {
+test('modern metadata and prompt save submit only matching body, retain version and never call Agent', async () => {
   await ready(); await pick('审查提示词'); await btn('编辑快捷指令').onclick();
   field('作用说明').value = '新的作用'; field('调用场景').value = '在发布前'; field('标签（每行一个）').value = '审查\n发布'; field('调用示例').value = 'main 下创建'; field('风险提醒').value = '<script>花费</script>';
   field('提示词正文', manager()).value = '检查\n代码'; expect(btn('保存快捷指令').classList.contains('agent-call')).toBe(false);
   await btn('保存快捷指令').onclick();
   expect(calls).toEqual([{ method: 'hooks.command_save', params: { expected_revision: 'commands-r1', command: { id: uuid(2), name: '审查提示词', kind: 'prompt', prompt: '检查\n代码',
     description: '新的作用', when_to_use: '在发布前', tags: ['审查', '发布'], examples: 'main 下创建', warnings: '<script>花费</script>' } } }]);
-  expect(catalogue.commands.items[1]).toMatchObject({ version: 4, authorized: false }); expect(manager().querySelector('.shortcut-command').dataset.commandId).toBe(uuid(2)); expect(root().querySelector('script')).toBeNull();
+  expect(catalogue.commands.items[1]).toMatchObject({ version: 4 }); expect(catalogue.commands.items[1]).not.toHaveProperty('authorized'); expect(manager().querySelector('.shortcut-command').dataset.commandId).toBe(uuid(2)); expect(root().querySelector('script')).toBeNull();
 });
 
 const textLimits = [['快捷指令名称', 120], ['提示词正文', 16000], ['作用说明', 2000], ['调用场景', 4000], ['调用示例', 8000], ['风险提醒', 4000]];
@@ -152,12 +152,14 @@ test('explicit refresh, list return, subpages and unrelated revisions retain sel
   expect(deepText(manager().querySelector('.shortcut-directory'))).not.toContain('测试 Shell'); expect(calls).toHaveLength(1);
 });
 
-test('authorization pins the displayed prompt version and explains future costs without purple or immediate Agent call', async () => {
+test('prompt editing explains future costs without purple or immediate Agent call, even for legacy revocation', async () => {
   catalogue.commands.items[1].authorized = false; await ready(); await pick('审查提示词');
-  const authorizing = btn('授权当前版本').onclick(); expect(deepText(dom.node('modal'))).toContain('Hook 触发后'); expect(deepText(dom.node('modal'))).toContain('token');
-  expect(dialogButton(dom, '授权此版本').classList.contains('agent-call')).toBe(false); expect(calls).toHaveLength(0);
-  await dialogButton(dom, '授权此版本').onclick(); await authorizing;
-  expect(calls[0]).toEqual({ method: 'hooks.command_authorize', params: { id: uuid(2), version: 3, authorized: true, expected_revision: 'commands-r1' } });
+  expect(btn('授权当前版本')).toBeUndefined(); expect(btn('撤销授权')).toBeUndefined();
+  await btn('编辑快捷指令').onclick();
+  expect(deepText(manager())).toContain('Hook 触发后'); expect(deepText(manager())).toContain('token');
+  expect(deepText(manager())).toContain('所有引用的未来执行'); expect(deepText(manager())).not.toContain('撤权');
+  expect(btn('保存快捷指令').classList.contains('agent-call')).toBe(false);
+  expect(btn('保存快捷指令').getAttribute('data-help')).toContain('不调用 Agent'); expect(calls).toHaveLength(0);
 });
 
 
@@ -181,6 +183,51 @@ test('export reads exact version, safely previews text and only offers download,
   intercept = path => path.includes('/commands/export') ? failure('not found') : null; await btn('导出 Markdown').onclick(); expect(dom.node('error').textContent).toContain('不自动回退'); expect(calls).toHaveLength(0);
 });
 
+test('export after an authoritative refresh uses the current version, not a legacy Hook version', async () => {
+  await ready(); await pick('审查提示词');
+  catalogue.commands.items[1].version = 9; catalogue.commands.revision = 'edited-elsewhere';
+  await btn('刷新目录').onclick();
+  expect(deepText(manager().querySelector('.shortcut-command'))).toContain('v9');
+  await btn('导出 Markdown').onclick();
+  expect(reads.at(-1)).toContain(`/api/hooks/commands/export?id=${uuid(2)}&version=9`);
+  expect(calls).toHaveLength(0);
+});
+
+for (const authorized of [undefined, false, true, 'obsolete']) test(`latest ID+kind validation ignores authorized=${authorized} and legacy version`, () => {
+  for (const item of catalogue.commands.items) if (authorized !== undefined) item.authorized = authorized;
+  expect(validCommands(catalogue.commands)).toBe(true);
+  for (const [type, item] of [['command', shell()], ['prompt_command', prompt()]]) {
+    for (const version of [undefined, 1, 99]) {
+      const action = { type, command_id: item.id, ...(version === undefined ? {} : { command_version: version }) };
+      const rule = { ...hook(), enabled: true, actions: [action] };
+      expect(commandReferencesIssue(rule, catalogue)).toBeNull(); expect(referencedCommand(action, catalogue)?.version).toBe(item.version);
+      const form = createHookForm(catalogue, { initial: rule });
+      expect(form.validate()).toBe(''); expect(form.collect().actions).toEqual([{ type, command_id: item.id }]);
+      expect(commandSummary(action, catalogue)).toContain(`当前 v${item.version}`);
+      expect(commandSummary(action, catalogue)).toContain('未来执行跟随最新定义');
+    }
+  }
+});
+
+test('deleted or changed-kind references remain explicit and block validation without silent reselection', () => {
+  const initial = { ...hook(), enabled: true };
+  catalogue.commands.items[1] = { ...shell(), id: uuid(2), name: '已改成 Shell' };
+  expect(commandReferencesIssue(initial, catalogue)).toContain('类型不匹配');
+  expect(commandSummary(initial.actions[0], catalogue)).toContain('类型不匹配');
+  const mismatched = createHookForm(catalogue, { initial });
+  expect(field('快捷指令', mismatched.node).value).toBe(uuid(2)); expect(mismatched.validate()).toContain('类型不匹配');
+  catalogue.commands.items = [shell()];
+  expect(commandReferencesIssue(initial, catalogue)).toContain('已删除');
+  expect(commandSummary(initial.actions[0], catalogue)).toContain('不存在');
+  const deleted = createHookForm(catalogue, { initial });
+  expect(field('快捷指令', deleted.node).value).toBe(uuid(2)); expect(deleted.validate()).toContain('已删除');
+  expect(deleted.collect().actions).toEqual([{ type: 'prompt_command', command_id: uuid(2) }]);
+  catalogue.commands = null;
+  expect(commandReferencesIssue(initial, catalogue)).toContain('目录不可用');
+  expect(commandSummary(initial.actions[0], catalogue)).toContain('目录不可用');
+  expect(commandSummary(initial.actions[0], catalogue)).not.toContain('已删除');
+});
+
 test('late export response cannot replace another selected command or an edit draft', async () => {
   await ready(); let resolve; intercept = path => path.includes('/commands/export') ? new Promise(done => { resolve = done; }) : null;
   const exporting = btn('导出 Markdown').onclick(); await until(() => resolve); await pick('审查提示词'); await btn('编辑快捷指令').onclick();
@@ -188,15 +235,15 @@ test('late export response cannot replace another selected command or an edit dr
   expect(field('提示词正文', manager())).toBe(draft); expect(draft.value).toBe('编辑中'); expect(deepText(manager())).not.toContain('LATE');
 });
 
-test('Hook type filters Shell and prompt versions separately, enforces once/parent_ready and retains stale reference', () => {
-  const form = createHookForm(catalogue, { initial: hook() }), versions = field('快捷指令版本', form.node);
-  expect(versions.children.map(item => item.value)).toEqual(['', `${uuid(2)}:3`]); expect(field('挂载方式', form.node).children.map(item => item.value)).toEqual(['once']);
-  expect(form.agentCall()).toBe(true); expect(form.validate()).toBe(''); expect(form.collect().actions).toEqual(hook().actions);
-  const type = field('动作类型', form.node); type.value = 'command'; type.onchange(); expect(versions.children.some(item => item.value === `${uuid(1)}:2`)).toBe(true); expect(form.validate()).toContain('类型不匹配');
-  versions.value = `${uuid(1)}:2`; expect(form.validate()).toBe(''); expect(form.agentCall()).toBe(false);
+test('Hook type filters Shell and prompt IDs separately, enforces once/parent_ready and ignores stale version', () => {
+  const form = createHookForm(catalogue, { initial: hook() }), commands = field('快捷指令', form.node);
+  expect(commands.children.map(item => item.value)).toEqual(['', uuid(2)]); expect(field('挂载方式', form.node).children.map(item => item.value)).toEqual(['once']);
+  expect(form.agentCall()).toBe(true); expect(form.validate()).toBe(''); expect(form.collect().actions).toEqual([{ type: 'prompt_command', command_id: uuid(2) }]);
+  const type = field('动作类型', form.node); type.value = 'command'; type.onchange(); expect(commands.children.some(item => item.value === uuid(1))).toBe(true); expect(form.validate()).toContain('类型不匹配');
+  commands.value = uuid(1); expect(form.validate()).toBe(''); expect(form.agentCall()).toBe(false);
   field('触发节点', form.node).value = 'agent.returned'; field('触发节点', form.node).onchange(); expect(type.children.some(item => item.value === 'prompt_command')).toBe(false);
   const stale = createHookForm(catalogue, { initial: { ...hook(), actions: [{ type: 'prompt_command', command_id: uuid(2), command_version: 2 }] } });
-  expect(field('快捷指令版本', stale.node).value).toBe(`${uuid(2)}:2`); expect(field('快捷指令版本', stale.node).children.at(-1).disabled).toBe(true); expect(stale.validate()).toContain('请选择当前已注册');
+  expect(field('快捷指令', stale.node).value).toBe(uuid(2)); expect(field('快捷指令', stale.node).children.at(-1).disabled).not.toBe(true); expect(stale.validate()).toBe('');
   expect(commandReferencesIssue({ ...hook(), mode: 'persistent' }, catalogue)).toContain('一次性');
   const child = createHookForm(catalogue, { workerId: 44, workerTaskKind: 'child' });
   expect(field('动作类型', child.node).children.some(item => item.value === 'prompt_command')).toBe(false);
@@ -259,26 +306,26 @@ test('Hook alternatives prevent Shell/prompt mixing and multiple creation action
   expect(active(types[1])).toContain('command'); expect(active(types[1])).toContain('create_worker'); expect(active(types[1])).not.toContain('prompt_command');
   types[1].value = 'create_worker'; types[1].onchange(); expect(active(types[0])).not.toContain('prompt_command'); expect(active(types[0])).not.toContain('create_worker');
   const shellAction = { type: 'command', command_id: uuid(1), command_version: 2 };
-  const shells = createHookForm(catalogue, { initial: { ...hook(), actions: [shellAction, shellAction] } }); expect(shells.validate()).toBe(''); expect(shells.collect().actions).toEqual([shellAction, shellAction]);
+  const shells = createHookForm(catalogue, { initial: { ...hook(), actions: [shellAction, shellAction] } }); expect(shells.validate()).toBe(''); expect(shells.collect().actions).toEqual([shellAction, shellAction].map(({ command_version, ...action }) => action));
 });
 
 test('invalid existing Shell/prompt combinations retain exact references, show immediate diagnosis and refuse save until explicitly corrected', () => {
   const shellAction = { type: 'command', command_id: uuid(1), command_version: 2 };
   const initial = { ...hook(), actions: [shellAction, hook().actions[0]] }, form = createHookForm(catalogue, { initial });
-  expect(form.collect().actions).toEqual(initial.actions); expect(deepText(form.node)).toContain('不能混合 Shell 指令与提示词指令');
+  expect(form.collect().actions).toEqual(initial.actions.map(({ command_version, ...action }) => action)); expect(deepText(form.node)).toContain('不能混合 Shell 指令与提示词指令');
   expect(form.validate()).toContain('不能混合');
   const types = form.node.querySelectorAll('[aria-label="动作类型"]');
   for (const type of types) expect(type.children.find(option => option.value === type.value).disabled).toBe(true);
   types[1].value = 'notify'; types[1].onchange(); const row = form.node.querySelectorAll('.hook-action')[1];
   field('告知标题', row).value = '完成'; field('消息或告知正文', row).value = '审查结束';
-  expect(form.validate()).toBe(''); expect(form.collect().actions[0]).toEqual(shellAction);
+  expect(form.validate()).toBe(''); expect(form.collect().actions[0]).toEqual({ type: 'command', command_id: uuid(1) });
 });
 
 for (const creationTypes of [['prompt_command', 'prompt_command'], ['create_worker', 'prompt_command'], ['create_worker', 'create_worker']]) test(`creation limit diagnoses ${creationTypes.join('+')} and preserves source drafts`, async () => {
   catalogue.actions.push({ type: 'create_worker', label: '预约创建 Worker', triggers: ['worker.parent_ready'], modes: ['once'], agent_call: true });
   const actions = creationTypes.map((type, index) => type === 'prompt_command' ? hook().actions[0] : { type, content: `保留创建正文 ${index}`, start: true });
   const form = createHookForm(catalogue, { initial: { ...hook(), actions } });
-  expect(form.collect().actions).toEqual(actions.map(action => action.type === 'create_worker' ? { ...action, references: [] } : action));
+  expect(form.collect().actions).toEqual(actions.map(({ command_version, ...action }) => action.type === 'create_worker' ? { ...action, references: [] } : action));
   expect(form.validate()).toContain('合计最多一个'); expect(form.node.querySelector('.hook-combination-note').classList.contains('error')).toBe(true);
   await btn('移除动作', form.node.querySelectorAll('.hook-action')[1]).onclick(); expect(form.validate()).toBe('');
   if (creationTypes[0] === 'create_worker') expect(field('新 Worker 指令', form.node).value).toBe('保留创建正文 0');

@@ -10,7 +10,7 @@
 |---|---|
 | canonical 项目绑定、每项目一个 daemon、Host 转发边界 | 父队列从逐源串行修复改为隔离归并调度 |
 | 源 Worker 身份、父子关系、独立 worktree、消息与会话 | 批次/节点/成员技术记录、唯一领取与 generation |
-| 指令显式授权、child 锁定、最高自动级别不继承 | `integration` 辅助 Worker 的内部创建、窄授权与产物交付 |
+| 来源交付授权、child 锁定、最高自动级别不继承 | `integration` 辅助 Worker 的内部创建、窄授权与产物交付 |
 | 未知副作用不重放、精确 Git 收据与 CAS | 多源归并映射与单批发布收据 |
 | Git 写串行、真实父 invocation/清洁度/冻结安全门 | 允许有界并行的固定对象计算与隔离验证边界 |
 | 原始分支谱系不可变、代码沿真实直接父目标交付 | 中间 scratch 不属于源分支谱系、不改 source/parent refs |

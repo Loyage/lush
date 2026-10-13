@@ -35,6 +35,6 @@ export function exportShortcut(item) {
   const frontmatter = Object.entries(fields).map(([key, value]) => `${key}: ${scalar(value)}`).join('\n');
   const body = kind === 'shell' ? item.command : item.prompt;
   const longest = Math.max(2, ...(body.match(/`+/g) ?? []).map(s => s.length)), fence = '`'.repeat(longest + 1);
-  const markdown = `---\n${frontmatter}\n---\n\n# 快捷指令\n\n## 说明\n${metadata.description}\n\n## 何时使用\n${metadata.when_to_use}\n\n## 示例\n${metadata.examples}\n\n## 风险\n${metadata.warnings}\n\n导出仅供参考，不授权执行。提示词执行成功仅表示独立指令已创建，不表示 Agent 工作完成。\n\n## 正文\n${fence}${kind === 'shell' ? 'sh' : 'text'}\n${body}\n${fence}\n`;
+  const markdown = `---\n${frontmatter}\n---\n\n# 快捷指令\n\n## 说明\n${metadata.description}\n\n## 何时使用\n${metadata.when_to_use}\n\n## 示例\n${metadata.examples}\n\n## 风险\n${metadata.warnings}\n\n导出仅供参考，不触发自动化执行。提示词执行成功仅表示独立指令已创建，不表示 Agent 工作完成。\n\n## 正文\n${fence}${kind === 'shell' ? 'sh' : 'text'}\n${body}\n${fence}\n`;
   return { filename: `shortcut-${item.id}-v${item.version}.md`, markdown };
 }

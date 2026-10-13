@@ -18,7 +18,7 @@
 
 - `branch` 为精确本地分支名（最多512字符），须有活动 main/owner/order/child 所有者；拒绝 SHA、tag 和 ref 表达式，不隐式解析 `HEAD`。
 - `mounted` 与 `enabled` 必须为 JSON 布尔值，不接受字符串或整数替代。分支 setter 省略 mounted 时兼容为 true；未挂载不能启用。项目 defaults 两字段均必填，mounted:false 可记住 enabled:true，但不执行。
-- `validation` 可省略（保留历史引用），或显式 null／严格 `{command_id,command_version}`：UUID与正安全整数版本。仅兼容保存历史引用；开启不要求验证指令、存在或授权，不隐式创建、执行或升级指令。
+- `validation` 可省略（保留历史引用），或显式 null／严格 `{command_id,command_version?}`：command_id 为 UUID；旧可选 command_version 为正安全整数，仅兼容，不预授权或固定未来版本。保存引用不执行命令；开启仍不要求验证指令存在，新固定 Agent 模式不使用该引用。
 - `expected_revision` 必须为最近读面的非空、不透明 revision（最多256字符）；不可自行拼接、跨分支复用或自动改用新值。过期时拒绝并重新读取。
 - runs 的 `before` 可省略/null，否则为正安全整数运行 ID；`limit` 可省略（20），否则为整数1..50。RPC 数值字段不接受数字字符串。
 - retry 的 `id` 必须为正安全整数，不接受 W 编号或字符串。landing/blocked 的未知现场不得盲重放；是否可恢复由 Runtime 核验。
@@ -29,7 +29,7 @@
 {
   version: 1, branch, owner_id, owner_worker_number: null,
   mounted: false, enabled: false,
-  validation: null, // 仅历史兼容：或 {command_id,command_version,name,authorized}
+  validation: null, // 仅历史兼容：或 {command_id,command_version?,name}，无 authorized
   revision, editable: true, reason: null,
   counts: {
     preparing:0, resolving:0, awaiting:0, validating:0,
@@ -44,7 +44,7 @@ main 在初始化时一次性挂载且关闭；其他未配置 Worker 未挂载�
 
 项目默认读面为 `{version:1,mounted,enabled,revision,editable,reason}`，初始 mounted:false、enabled:false，只在之后实际创建 order／child 时复制，不从父继承、不回写已有；未默认挂载时可以记住开启偏好，实际未挂载实例仍关闭。list.defaults与独立默认读取同源，default revision不能用于分支setter。
 
-新固定预约明确 `verification_mode:'agent', validation:null`，不执行组合验证命令、不制造通过证据；验证由开发／整合Agent负责，顶层全量责任不变。旧已固定command运行保留原授权、隔离验证与精确候选证据门；新旧模式不混批。历史引用authorized只表示当前授权，不自动升级版本；缺失或损坏旧验证引用不能转成免命令授权。
+新固定预约明确 `verification_mode:'agent', validation:null`，不执行组合验证命令、不制造通过证据；验证由开发／整合Agent负责，顶层全量责任不变。旧 command 模式保留隔离验证与精确候选证据门；新旧模式不混批。快捷指令授权字段不再阻塞，未来验证执行跟随最新定义；实际执行开始固定版本，已开始运行的证据不得被目录编辑改写，见[快捷指令契约](../../engineering/shortcut-commands.md#定义与版本)。缺失或损坏旧验证引用不能转成免命令验证，unknown 不重放。
 
 ## 运行摘要
 
@@ -56,13 +56,15 @@ runs 按持久整数 ID 降序分页；`next_before` 用于后续页，`has_more
   baseline: null, commit: null, member_count,
   members: [{id,worker_number:null,title,delivery_id,source_commit}],
   members_truncated: false,
-  validation: null, // 或 {state,command_name,started_at,finished_at,error:null}
+  validation: null, // 或 {state,command_id:null,command_version:null,command_name,started_at,finished_at,error:null}
   integration_worker: null, // 或 {id,worker_number:null,status}
   error: null, created_at, updated_at
 }
 ```
 
 成员每项最多8个，超限显式 `members_truncated`。state 为 preparing/resolving/awaiting/validating/ready/landing/integrated/failed/blocked/withdrawn/stale。未真实落地不能仅凭准备完成展示已合并。成员链接使用真实整数 ID；显示只用返回的 worker_number，没有编号才回退 #ID。
+
+运行摘要的 `validation.command_id` 来自实际执行结果或保存的引用，无法确认时为 null；`command_version` 仅表示实际执行结果记录的版本，未执行或旧结果缺少版本证据时为 null，不用配置中的旧版本或当前目录版本补造。二者是运行证据读面，不是预授权；旧证据不迁移、不改写，未来执行的版本固定见[快捷指令契约](../../engineering/shortcut-commands.md#定义与版本)。
 
 返回值不包含完整 profile、环境、token、原始 Shell 输出或内部堆栈。运行错误不会触发接口层自动重试或回退到其它分支。
 
@@ -92,7 +94,7 @@ bun run lush branch convergence runs main --before 15 --limit 20
 bun run lush branch convergence retry 9 --revision RUN_REV
 ```
 
-支持通用 `--project PATH` / `--json`，输出沿用现有 JSON 约定。命令选项仅对对应子命令有效，未知、重复或缺值选项拒绝。on无需command/version；旧可选 `--command UUID --version N`仅兼容保存引用，不表示执行验证。mount为未挂载目标提供关闭挂载，保留已有挂载的启用状态；remove移除未来挂载但不删历史；off关闭且保持挂载状态／引用。先读取当前策略或defaults获取各自revision，写入竞态拒绝，不静默刷新revision。
+支持通用 `--project PATH` / `--json`，输出沿用现有 JSON 约定。命令选项仅对对应子命令有效，未知、重复或缺值选项拒绝。on无需command/version；可选 `--command UUID` 可单独保存引用，旧 `--version N` 仅兼容，不固定未来版本或表示执行验证。mount为未挂载目标提供关闭挂载，保留已有挂载的启用状态；remove移除未来挂载但不删历史；off关闭且保持挂载状态／引用。先读取当前策略或defaults获取各自revision，写入竞态拒绝，不静默刷新revision。
 
 开启／重试可能调用专用整合 Agent 并产生费用。CLI 同样在本地拒绝 Agent 客户端，包括读取命令。
 

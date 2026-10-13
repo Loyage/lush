@@ -37,7 +37,7 @@ test('old saved policies are actual mounts, retain enabled and obsolete referenc
     const value = { version: 1, owner_id: main.id, enabled: true, validation: { command_id: '00000000-0000-0000-0000-000000000001', command_version: 7 }, generation: 4 };
     f.store.run('INSERT INTO meta(key,value) VALUES (?,?)', CONVERGENCE_POLICY_PREFIX + 'main', JSON.stringify(value));
     const before = await f.project.branchConvergence('main');
-    expect(before).toMatchObject({ mounted: true, enabled: true, validation: { ...value.validation, name: null, authorized: false } });
+    expect(before).toMatchObject({ mounted: true, enabled: true, validation: { ...value.validation, name: null } });
     await f.project.bootstrapMain();
     expect(saved(f, 'main')).toEqual(value); expect((await f.project.branchConvergence('main')).revision).toBe(before.revision);
     const removed = await set(f, 'main', false, false);

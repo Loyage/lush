@@ -7,7 +7,6 @@ const requests = [
   ['hooks.command_save', { command: { name: 'fixture', command: 'printf fixture', default_worker_id: 7 }, expected_revision }, 'saveShortcutCommand'],
   ['hooks.command_history_remove', { execution_id: id }, 'removeShortcutCommandHistory'],
   ['hooks.command_history_remove', { clear: true }, 'removeShortcutCommandHistory'],
-  ['hooks.command_authorize', { id, version: 1, authorized: true, expected_revision }, 'authorizeShortcutCommand'],
   ['hooks.command_remove', { id, expected_revision }, 'removeShortcutCommand'],
   ['hooks.command_import', { source: { worker_id: 7, hook_id: 'legacy' }, expected_revision }, 'importLegacyHookCommands'],
 ];
@@ -35,8 +34,8 @@ test('all shortcut mutations require login and same-origin authorization; no GET
       expect((await fetch(f.url + '/api/hooks/' + method.split('.')[1], { headers: { Cookie } })).status).toBe(404);
     }
     expect(calls).toHaveLength(requests.length);
-    for (const verb of ['run', 'start']) {
-      f.project[verb === 'run' ? 'runShortcutCommand' : 'startShortcutCommand'] = () => { calls.push('retired execution'); };
+    for (const verb of ['run', 'start', 'authorize']) {
+      f.project[{ run: 'runShortcutCommand', start: 'startShortcutCommand', authorize: 'authorizeShortcutCommand' }[verb]] = () => { calls.push('retired operation'); };
       const method = `hooks.command_${verb}`, params = { id, version: 1, worker_id: 7, expected_revision };
       expect((await post(f.url, method, params)).status).toBe(401);
       expect((await post(f.url, method, params, { Cookie, Origin: 'https://evil.invalid' })).status).toBe(403);

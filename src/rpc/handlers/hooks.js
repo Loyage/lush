@@ -63,11 +63,6 @@ export const handlers = {
   'hooks.command_export'(p, params) {
     return p.exportShortcutCommand(commandId(params.id), commandVersion(params.version));
   },
-  'hooks.command_authorize'(p, params) {
-    const expected = revision(params.expected_revision);
-    check(typeof params.authorized === 'boolean', 'authorized must be a boolean');
-    return p.authorizeShortcutCommand(commandId(params.id), commandVersion(params.version), params.authorized, expected);
-  },
   'hooks.command_remove'(p, params) {
     return p.removeShortcutCommand(commandId(params.id), revision(params.expected_revision));
   },

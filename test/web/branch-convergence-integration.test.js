@@ -37,8 +37,8 @@ async function prepare(command = 'test -z "$LUSH_AGENT_TOKEN" && test -f alpha.t
     return { ...f, entry: saved.commands.items.at(-1), baseline: await git(f.root, 'rev-parse', 'main') };
   } catch (error) { await f.close(); throw error; }
 }
-async function authorize(f, authorized) {
-  return post(f, 'hooks.command_authorize', { id: f.entry.id, version: f.entry.version, authorized,
+async function editCommand(f, definition) {
+  return post(f, 'hooks.command_save', { command: { id: f.entry.id, name: f.entry.name, ...definition },
     expected_revision: (await get(f, '/api/hooks')).commands.revision });
 }
 async function configure(f, enabled) {
@@ -141,24 +141,24 @@ test('real HTTP enables a mounted batch without a validation command or changing
   } finally { await f.close(); }
 });
 
-test('real HTTP retains authorization and revision gates for a legacy fixed command-verified delivery', async () => {
+test('real HTTP retains type and revision gates for legacy command verification, then retries the latest restored definition', async () => {
   const f = await prepare();
   f.legacy = true;
   try {
-    await authorize(f, true); await configure(f, true);
+    await configure(f, true);
     const sources = [await source(f, 'alpha.txt', 'alpha'), await source(f, 'beta.txt', 'beta')];
     const batch = await f.project.formConvergenceBatch(sources[0].parent_id);
     const previous = (await runs(f)).items[0];
-    await authorize(f, false);
+    await editCommand(f, { kind: 'prompt', prompt: 'not a validation Shell' });
     expect(f.project.startConvergenceJob(batch.id)).toBe(true);
     await f.project.convergenceJobs.get(batch.id).promise;
     const failed = (await runs(f)).items[0];
     expect(failed.state).toBe('failed'); expect(failed.revision).not.toBe(previous.revision);
-    expect((await policy(f)).validation.authorized).toBe(false);
+    expect((await policy(f)).validation.name).toBeNull();
     expect(await git(f.root, 'rev-parse', 'main')).toBe(f.baseline);
     expect(f.store.deliveryRun(batch.id).landing_receipt).toBeNull();
     await post(f, 'branch.convergence_retry', { id: batch.id, expected_revision: failed.revision }, 400);
-    await authorize(f, true);
+    await editCommand(f, { kind: 'shell', command: f.entry.command });
     await post(f, 'branch.convergence_retry', { id: batch.id, expected_revision: previous.revision }, 400);
     const retry = await post(f, 'branch.convergence_retry', { id: batch.id, expected_revision: failed.revision });
     expect(retry).toMatchObject({ id: batch.id, state: 'preparing' });
@@ -166,7 +166,8 @@ test('real HTTP retains authorization and revision gates for a legacy fixed comm
     expect(f.store.deliveryRun(batch.id).generation).toBe(2);
     await f.project.prepareConvergenceRun(batch.id, 2, new AbortController().signal);
     const integrated = (await runs(f)).items[0];
-    expect(integrated).toMatchObject({ state: 'integrated', validation: { state: 'passed' } });
+    expect(integrated).toMatchObject({ state: 'integrated', validation: { state: 'passed', command_id: f.entry.id, command_version: 3 } });
+    expect(convergenceJSON(f.store.deliveryRun(batch.id).validation)).toEqual({ command_id: f.entry.id }); // Newly formed run uses identity only.
     await post(f, 'branch.convergence_retry', { id: batch.id, expected_revision: integrated.revision }, 400);
     expect(f.store.get("SELECT count(*) AS n FROM events WHERE type='worker.merge_received'").n).toBe(1);
     await unchanged(f, sources);
@@ -176,7 +177,7 @@ test('real HTTP retains authorization and revision gates for a legacy fixed comm
 test('real HTTP shows an isolated conflict helper while a later unrelated ready batch bypasses it', async () => {
   const f = await prepare('test -f independent.txt');
   try {
-    await authorize(f, true); await configure(f, true);
+    await configure(f, true);
     const conflictSources = [await source(f, 'file.txt', 'left'), await source(f, 'file.txt', 'right')];
     const conflict = await f.project.formConvergenceBatch(conflictSources[0].parent_id);
     await f.project.prepareConvergenceRun(conflict.id, 1, new AbortController().signal);

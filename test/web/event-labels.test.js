@@ -155,17 +155,29 @@ test('命令提交、示例初始化和父侧收到合并区分触发与执行�
   expect(eventLabel({ type: 'hook.updated' })).toBe('调整 Hook');
 });
 
-test('快捷指令配置授权与实际执行分开显示，未知不冒充成功', () => {
-  for (const type of ['saved','authorized','removed','pending','started','succeeded','failed','unknown'].map(state => `shortcut.command_${state}`)) {
+test('快捷指令定义、导入、历史授权与实际执行分开显示，未知不冒充成功或改写来源', () => {
+  const types = [...['saved','authorized','removed','pending','started','succeeded','failed','unknown'].map(state => `shortcut.command_${state}`), 'shortcut.commands_imported'];
+  const labels = types.map(type => {
+    const source = Object.freeze({ type, data: Object.freeze({ command_id: 'fixed-command', command_version: 3, authorized: false }) });
+    const original = structuredClone(source), label = eventLabel(source);
     expect(Object.hasOwn(EVENTS, type)).toBe(true);
-    expect(eventLabel({ type })).toMatch(/[\u4e00-\u9fff]/);
+    expect(label).toMatch(/[\u4e00-\u9fff]/);
+    expect(source).toEqual(original);
+    return label;
+  });
+  expect(new Set(labels).size).toBe(types.length);
+  expect(eventLabel({ type: 'shortcut.command_saved' })).toBe('保存快捷指令定义');
+  expect(eventLabel({ type: 'shortcut.commands_imported' })).toBe('导入旧命令为快捷指令');
+  for (const type of ['shortcut.command_saved', 'shortcut.commands_imported']) {
+    for (const claim of ['授权', '执行', '成功']) expect(eventLabel({ type })).not.toContain(claim);
   }
-  expect(eventLabel({ type: 'shortcut.command_saved' })).toContain('未授权');
-  expect(eventLabel({ type: 'shortcut.commands_imported' })).toContain('未授权');
+  expect(eventLabel({ type: 'shortcut.command_authorized' })).toBe('历史：调整快捷指令版本授权');
+  expect(eventLabel({ type: 'shortcut.command_authorized' })).toContain('历史');
   expect(eventLabel({ type: 'shortcut.command_pending' })).toBe('快捷指令已提交待执行');
   expect(eventLabel({ type: 'shortcut.command_pending' })).not.toContain('成功');
   expect(eventLabel({ type: 'shortcut.command_failed' })).toContain('失败');
   expect(eventLabel({ type: 'shortcut.command_unknown' })).toContain('待核验');
+  for (const claim of ['成功', '完成']) expect(eventLabel({ type: 'shortcut.command_unknown' })).not.toContain(claim);
 });
 
 test('运行记录移除的安全审计有中文标签，不冒充指令删除、取消执行或擦除审计', () => {

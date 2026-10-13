@@ -16,17 +16,12 @@ async function post(f, method, params, status = 200) {
 function definition(mount, enabled = mount.enabled) {
   return { name: mount.name, trigger: mount.trigger, mode: mount.mode, enabled, conditions: mount.conditions, actions: mount.actions };
 }
-const reference = item => ({ type: 'command', command_id: item.id, command_version: item.version });
-async function authorize(f, item, authorized = true) {
-  const catalogue = await get(f, '/api/hooks');
-  return post(f, 'hooks.command_authorize', { id: item.id, version: item.version, authorized, expected_revision: catalogue.commands.revision });
-}
-async function register(f, command, authorized = true) {
+const reference = item => ({ type: 'command', command_id: item.id });
+async function register(f, command) {
   const catalogue = await get(f, '/api/hooks');
   const result = await post(f, 'hooks.command_save', { command: { name: 'HTTP command', command }, expected_revision: catalogue.commands.revision });
   const item = result.commands.items.at(-1);
-  expect(item.authorized).toBe(false);
-  if (authorized) await authorize(f, item);
+  expect(item).not.toHaveProperty('authorized');
   return item;
 }
 async function updateMount(f, mainId, hookId, changes) {
@@ -48,7 +43,7 @@ async function deliver(f, mainId, name) {
   expect(f.store.task(task.id).integration).toBe('merged'); return task;
 }
 
-test('HTTP built-in git push is pre-authorized but its Hook stays off until explicitly enabled, then pushes each successful merge', async () => {
+test('HTTP built-in git push needs no version grant but its Hook stays off until explicitly enabled, then pushes each successful merge', async () => {
   const f = await prepare();
   try {
     const remote = path.join(f.config.home, 'http-remote.git');
@@ -58,7 +53,7 @@ test('HTTP built-in git push is pre-authorized but its Hook stays off until expl
     const mainId = example.worker_id, hookId = example.hook_id;
     const command = catalogue.commands.items.find(item => item.command === 'git push');
     const initial = example.hooks.mounts.find(m => m.id === hookId);
-    expect(command).toMatchObject({ authorized: true, version: 1 });
+    expect(command).toMatchObject({ version: 1 }); expect(command).not.toHaveProperty('authorized');
     expect(initial).toMatchObject({ enabled: false, trigger: 'worker.merge_received', actions: [reference(command)] });
     expect(Object.hasOwn(initial.actions[0], 'command')).toBe(false);
     expect(await get(f, `/api/worker/${mainId}/hooks`)).toEqual(example.hooks);
@@ -130,7 +125,7 @@ test('HTTP exact-version edits and disabled copies preserve template separation;
   } finally { await f.close(); }
 });
 
-test('HTTP manual execution is retired; Hook uses mounted Worker cwd and version edits revoke old references', async () => {
+test('HTTP manual execution is retired; enabled Hook uses mounted cwd and follows edited definitions without rebinding', async () => {
   const f = await prepare();
   try {
     const { task } = await post(f, 'order.submit', { content: 'manual HTTP', branch: 'main', start: false });
@@ -154,12 +149,13 @@ test('HTTP manual execution is retired; Hook uses mounted Worker cwd and version
     await post(f, 'hooks.command_run', params, 400); // Retired regardless of revision.
     const edited = await post(f, 'hooks.command_save', { command: { id: command.id, name: command.name, command: 'printf new > manual-result' }, expected_revision: result.commands.revision });
     const next = edited.commands.items.find(c => c.id === command.id);
-    expect(next).toMatchObject({ version: 2, authorized: false });
-    expect(edited.command_example.hooks.mounts.find(m => m.id === hookId).enabled).toBe(false);
+    expect(next).toMatchObject({ version: 2 });
+    expect(edited.command_example.hooks.mounts.find(m => m.id === hookId).enabled).toBe(true);
     await post(f, 'hooks.command_run', { ...params, version: 2, expected_revision: edited.commands.revision }, 400);
-    await authorize(f, next);
-    let hooks = await get(f, `/api/worker/${mainId}/hooks`);
-    await post(f, 'worker.hook_update', { id: mainId, hook_id: hookId, enabled: true, expected_revision: hooks.revision }, 400);
+    // The existing main mount still points to the same ID and follows v2 without a mutation.
+    f.project.emitTaskHook(mainId, 'worker.merge_received'); await f.project.hookQueue;
+    expect(fs.readFileSync(path.join(f.root, 'manual-result'), 'utf8')).toBe('new');
+    expect(f.project.shortcutCommandHistory().items[0]).toMatchObject({ command_version: 2, worker_id: mainId });
     expect(fs.readFileSync(path.join(task.workspace, 'manual-result'), 'utf8')).toBe('old');
     const runNext = async (status = 200) => post(f, 'hooks.command_run', { id: command.id, version: 2, worker_id: task.id, expected_revision: (await get(f, '/api/hooks')).commands.revision }, status);
     f.project.running.set(task.id, {}); await runNext(400); f.project.running.clear();
@@ -168,7 +164,7 @@ test('HTTP manual execution is retired; Hook uses mounted Worker cwd and version
       hook: { name: 'new version Hook', trigger: 'worker.merge_received', mode: 'once', enabled: true, actions: [reference(next)] } });
     f.project.emitTaskHook(task.id, 'worker.merge_received'); await f.project.hookQueue;
     expect(fs.readFileSync(path.join(task.workspace, 'manual-result'), 'utf8')).toBe('new');
-    await authorize(f, next, false); await runNext(400);
+    await runNext(400);
     const revoked = await get(f, '/api/hooks');
     await post(f, 'hooks.command_remove', { id: command.id, expected_revision: revoked.commands.revision });
     await runNext(400);
@@ -176,7 +172,7 @@ test('HTTP manual execution is retired; Hook uses mounted Worker cwd and version
   } finally { f.project.running.clear(); await f.close(); }
 });
 
-test('HTTP explicit legacy import stops old inline execution, preserves source identity/history and requires fresh authorization', async () => {
+test('HTTP explicit legacy import preserves source identity/history and stays disabled until enabled', async () => {
   const f = await prepare();
   try {
     const example = (await get(f, '/api/hooks')).command_example;
@@ -196,9 +192,8 @@ test('HTTP explicit legacy import stops old inline execution, preserves source i
     await post(f, 'hooks.command_import', { source, expected_revision: 'stale' }, 400);
     const imported = await post(f, 'hooks.command_import', { source, expected_revision: catalogue.command_example.hooks.revision });
     const item = imported.commands.items.find(c => c.id === imported.imported_command_ids[0]);
-    expect(item).toMatchObject({ authorized: false, version: 1 });
+    expect(item).toMatchObject({ version: 1 }); expect(item).not.toHaveProperty('authorized');
     expect(imported.worker_hooks.mounts.find(m => m.id === hookId)).toMatchObject({ id: hookId, enabled: false, actions: [reference(item)], last_execution: history });
-    await authorize(f, item);
     await updateMount(f, mainId, hookId, { enabled: true });
     await f.project.hookQueue;
     expect(fs.existsSync(path.join(f.config.home, 'http-import'))).toBe(false);

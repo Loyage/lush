@@ -12,8 +12,8 @@ const UNKNOWN = '后台中断；Shell 命令可能已生效，禁止自动重放
 
 export function commandAdmission(project, task) {
   if (TERMINAL.has(task.status) || !task.branch || ['archived','deleted'].includes(project.store.branch(task.branch)?.status))
-    return { stop: '挂载 Worker 已结束、归档或无分支，命令授权停止。' };
-  try { assertTaskAncestorsOpen(project, task); } catch { return { stop: '挂载 Worker 的祖先已结束，命令授权停止。' }; }
+    return { stop: '挂载 Worker 已结束、归档或无分支，命令执行停止。' };
+  try { assertTaskAncestorsOpen(project, task); } catch { return { stop: '挂载 Worker 的祖先已结束，命令执行停止。' }; }
   if (project.maintenancePaused()) return { wait: '项目维护暂停，等待显式全部继续。' };
   if (project.stopping || project.clearing || project.workerDeleteIds?.size || project.settingsMigrationApplying)
     return { wait: '项目正在停止、清理或迁移，命令等待安全点。' };
@@ -39,10 +39,9 @@ export default {
       const templates = JSON.parse(this.store.get("SELECT value FROM meta WHERE key='hook_templates'")?.value ?? '{"version":1,"templates":[]}');
       const commands = this.saveShortcutCommand({ name: 'git push', command: 'git push' }, this.shortcutCommands().revision).commands;
       const command = commands.items.at(-1);
-      this.authorizeShortcutCommand(command.id, command.version, true, this.shortcutCommands().revision);
       const data = read(main), templateId = randomUUID(), hookId = randomUUID();
       const definition = { name: 'main 合并后 git push', trigger: 'worker.merge_received', mode: 'persistent', enabled: false,
-        conditions: {}, actions: [{ type: 'command', command_id: command.id, command_version: command.version }] };
+        conditions: {}, actions: [{ type: 'command', command_id: command.id }] };
       templates.templates.push({ id: templateId, definition });
       data.mounts.push({ ...structuredClone(definition), id: hookId, state: 'idle', created_at: timestamp(), last_execution: null });
       save(this, main.id, data);
@@ -68,11 +67,8 @@ export default {
       let command = referenced && this.shortcutCommands().items.find(c => c.id === referenced.command_id);
       if (!command && inline.length) command = this.saveShortcutCommand({ name: 'git push', command: 'git push' }, this.shortcutCommands().revision).commands.items.at(-1);
       if (command) {
-        // A user's prior explicit revocation is not superseded by installing this release.
-        const revoked = this.store.get("SELECT id FROM events WHERE type='shortcut.command_authorized' AND json_extract(data,'$.command_id')=? AND json_extract(data,'$.authorized')=0 LIMIT 1", command.id);
-        if (!command.authorized && !revoked) this.authorizeShortcutCommand(command.id, command.version, true, this.shortcutCommands().revision);
         for (const definition of inline) {
-          definition.actions = [{ type: 'command', command_id: command.id, command_version: command.version }];
+          definition.actions = [{ type: 'command', command_id: command.id }];
           definition.enabled = false;
         }
         if (inline.includes(mount)) {
@@ -156,7 +152,7 @@ export default {
             if (!active || active.last_execution?.id !== executionId) { waiting = true; return; }
             const action = active.actions[index]; if (!action) break;
             if (!active.enabled) {
-              if (active.state === 'running') check(false, 'shortcut command authorization stopped');
+              if (active.state === 'running') check(false, 'shortcut command execution stopped');
               waiting = true; return;
             }
             if (active.receipts.some(r => r.index === index)) continue;
@@ -181,12 +177,19 @@ export default {
             };
             let outcome = {};
             if (action.type === 'command') {
-              let result, started = false;
+              let result, command, started = false;
               const shortcutExecutionId = randomUUID();
               try {
-                const command = this.resolveShortcutCommand(action);
-                result = await this.workspaces.runHookCommand(current, command.command, guard, { ...this.commandHookOptions, started: () => {
-                  this.store.transaction(() => { begin(); this.startShortcutExecution(action.command_id, action.command_version, taskId, shortcutExecutionId, 'hook'); });
+                command = this.resolveShortcutCommand(action);
+                // The body passed into the async Git queue and the audit version must match.
+                // An edit/delete/type change before spawn fails safely rather than mixing definitions.
+                const definitionGuard = () => {
+                  if (!guard()) return false;
+                  check(this.resolveShortcutCommand(action).version === command.version, 'shortcut command definition changed');
+                  return true;
+                };
+                result = await this.workspaces.runHookCommand(current, command.command, definitionGuard, { ...this.commandHookOptions, started: () => {
+                  this.store.transaction(() => { begin(); this.startShortcutExecution(command.id, command.version, taskId, shortcutExecutionId, 'hook'); });
                   started = true; (this.commandHookRunning ??= new Set()).add(taskId);
                 } });
                 if (started) this.finishShortcutExecution(action.command_id, shortcutExecutionId, taskId, result.status, result);
@@ -195,7 +198,7 @@ export default {
                 throw error;
               } finally { if (started) this.releaseShortcutCommand(taskId); }
               if (result.status === 'waiting') { waiting = true; return; }
-              outcome = { command_result: result };
+              outcome = { command_result: result, ...(started ? { command_id: command.id, command_version: command.version, shortcut_execution_id: shortcutExecutionId } : {}) };
               this.store.transaction(() => {
                 this.recordHookAction(taskId, hookId, executionId, index, outcome);
                 const snapshot = read(this.store.task(taskId)); delete snapshot.mounts.find(m => m.id === hookId).command_started_index; save(this, taskId, snapshot);

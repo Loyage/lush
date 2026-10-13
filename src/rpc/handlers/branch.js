@@ -58,12 +58,12 @@ function convergenceInteger(value, name, max = Number.MAX_SAFE_INTEGER) {
 function convergenceValidation(value) {
   if (value === undefined || value === null) return value;
   check(isPlainObject(value), 'validation must be null or a command reference');
-  check(Object.keys(value).length === 2 && Object.keys(value).every(key => ['command_id','command_version'].includes(key)),
+  check(Object.keys(value).every(key => ['command_id','command_version'].includes(key)),
     'validation accepts only command_id and command_version');
   check(typeof value.command_id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.command_id),
     'invalid validation command id');
-  convergenceInteger(value.command_version, 'command_version');
-  return value;
+  if (value.command_version !== undefined) convergenceInteger(value.command_version, 'command_version');
+  return { command_id: value.command_id };
 }
 
 /** branch.*：谱系/历史只读；绑定、归档及归并策略遵守各自用户权限，不提供通用 ref 写入口。 */

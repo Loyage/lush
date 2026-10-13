@@ -12,7 +12,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 问卷、通知详情和 Agent 正文中的独立 W／V 用户编号（例如 `W141-1`、`V1`）自动显示为蓝色下划线链接。链接使用 `#worker-number-W141-1` 或 `#worker-number-V1`，打开时通过当前项目只读查找解析真实内部身份，再进入原有 `#worker-ID` 通用详情；支持键盘与新标签打开，不把编号当作内部 ID，也不在渲染时查询。未知／已删除编号明确报错。代码块、已有链接、编辑区和普通操作按钮不自动改写；选择题选项中的编号链接与选择按钮独立，查看 Worker 不会作答，返回问卷保留未提交草稿。静态 HTML 效果预览仍保持原 sandbox，不注入跳转能力。
 
-项目自动化 `#hooks` 是功能列表；`#hooks-completion`、`#hooks-push`、`#hooks-convergence`、`#hooks-emission` 分别为完工处理、推送、归并和条件发射设置页，各自追加 `-history` 查看运行记录。旧 `#hooks-history` 返回列表，不再混合不同功能的历史。`#management`／`#management-history` 保留为独立 Valet 设置与最近触发记录入口；完整工作详情和历史复用工作列表，不增加平行的 Agent 页面。辅助 `#hook-tools` 管理 Hook 模板，既有 `#hooks-commands` 保留指令列表→详情／编辑，`#hook-tools-history` 查看全部快捷指令安全历史；无手动运行入口。实际授权、历史和 Worker 详情原协议不迁移；精确操作入口见[使用指南](../hooks.md#页面入口)。
+项目自动化 `#hooks` 是功能列表；`#hooks-completion`、`#hooks-push`、`#hooks-convergence`、`#hooks-emission` 分别为完工处理、推送、归并和条件发射设置页，各自追加 `-history` 查看运行记录。旧 `#hooks-history` 返回列表，不再混合不同功能的历史。`#management`／`#management-history` 保留为独立 Valet 设置与最近触发记录入口；完整工作详情和历史复用工作列表，不增加平行的 Agent 页面。辅助 `#hook-tools` 管理 Hook 模板，既有 `#hooks-commands` 保留指令列表→详情／编辑，`#hook-tools-history` 查看全部快捷指令安全历史；无手动运行入口。其他自动化授权、历史和 Worker 详情原协议不迁移；精确操作入口见[使用指南](../hooks.md#页面入口)。
 
 ## 宿主级路由
 
@@ -104,12 +104,12 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/agent/resources` | 不执行资源代码地读取当前用户和项目已安装的 Pi 扩展、Skills 与 package 资源 |
 | `GET /api/agent/network` | 用户专属 `agent.network {}`；项目网络安全投影，不返回代理用户名/密码，不联网，见[出站网络](../engineering/outbound-network.md) |
 | `GET /api/agent/environment?target=common\|ROLE` | 按需读取公共或单角色 env 文件，包含明文值；底层 `agent.environment` 为用户专属，公网模式必须先登录，页面默认遮罩 |
-| `GET /api/hooks/commands/export` | 用户专属 `hooks.command_export`；仅 id UUID＋version 正整数，返回 `{filename,markdown}`；只读导出单条 Skill 风格定义，不授权、不安装、不注入 Agent |
+| `GET /api/hooks/commands/export` | 用户专属 `hooks.command_export`；仅 id UUID＋version 正整数，返回 `{filename,markdown}`；只读导出单条精确版本的 Skill 风格定义，不安装、不注入 Agent 或赋予调用能力 |
 | `GET /api/hooks/commands/executions` | 用户专属 `hooks.command_history`；before 正整数事件游标、limit 1..100、execution_id UUID（与 before 互斥），返回每次运行持久安全摘要；只读不执行命令 |
 | `GET /api/branch-convergence[?branch=BRANCH]` | 用户专属 `branch.convergence_list` / `branch.convergence`，目标实际挂载／启停，list另含defaults；无 branch 列表，有 branch 精确读取，不安装配置或启动 daemon |
 | `GET /api/branch-convergence/defaults` | 用户专属 `branch.convergence_defaults`，无查询参数；仅未来新order／child挂载与默认启停，同源项目默认、不回写已有 |
 | `GET /api/branch-convergence/runs?branch=BRANCH&before=N&limit=N` | 用户专属 `branch.convergence_runs`，branch 必填，before 正整数、limit 默认20/最多50；拒绝额外或重复查询参数，见[分支归并接口](rpc/convergence.md) |
-| `GET /api/hooks` | 用户专属 `hooks.list`，节点／动作目录、安全模板、授权版本快捷指令目录 commands、daemon Hooks、时间信号与管理 Worker 投影，不接受查询参数 |
+| `GET /api/hooks` | 用户专属 `hooks.list`，节点／动作目录、安全模板、快捷指令目录 commands（无 authorized）、daemon Hooks、时间信号与管理 Worker 投影，不接受查询参数 |
 | `GET /api/worker/ID/hooks` | 用户专属 `worker.hooks`，安全挂载、修订与最近收据，不接受查询参数 |
 | `GET /api/worker/ID` | `worker.inspect` |
 | `GET /api/worker/ID/relations?after=N&limit=N` | 用户专属 `worker.relations`，直接父及直接子节点分页；拒绝未知／重复查询参数，默认 after=0、limit=50，最多200条；[字段协议](rpc/tasks.md#局部-worker-关系) |
@@ -147,7 +147,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 
 旧 `intro.*` / `explanation.*` / `quick_explain.*` 全部关闭，不保留快速对话或专用模型配置的兼容入口。
 
-Hooks 另开放 `hooks.save/remove/auto_select/signal_save/signal_remove`、`hooks.command_save/command_authorize/command_remove/command_import`（快捷指令注册、授权、删除与旧配置显式导入；手动执行入口已删除，只由 Hook 运行；无 GET 写入口；持久历史只读接口见上表）、`management.create/submit/binding_update`、`worker.hook_attach/hook_update/hook_remove`，均为当前项目用户专属 action；自动选择与新指令默认流程使用同一设备策略 revision，新前端通过上面的 Host 全局接口管理；兼容 hooks mutation 不再保存另一份项目开关，见[用户工作台契约](../engineering/user-workspace.md)。
+Hooks 另开放 `hooks.save/remove/auto_select/signal_save/signal_remove`、`hooks.command_save/command_remove/command_import`（快捷指令注册、编辑、删除与旧配置显式导入，command_authorize 已删除；手动执行入口已删除，只由 Hook 运行；无 GET 写入口；持久历史只读接口见上表）、`management.create/submit/binding_update`、`worker.hook_attach/hook_update/hook_remove`，均为当前项目用户专属 action；自动选择与新指令默认流程使用同一设备策略 revision，新前端通过上面的 Host 全局接口管理；兼容 hooks mutation 不再保存另一份项目开关，见[用户工作台契约](../engineering/user-workspace.md)。
 
 分支归并另开放 `branch.convergence_set`／`branch.convergence_defaults_set`／`branch.convergence_retry`，仅经当前项目 `POST /api/action`：严格 `{method,params}` envelope，不接受 query、多余字段或任何 `_token` 值，保留登录、Origin、项目身份及 JSON 校验。分支setter携带enabled、读取revision和可选mounted（省略兼容为true）；validation可省略保留旧引用，开启无需命令。defaults setter携带mounted、enabled及其独立revision，只影响之后实际创建的新Worker。retry携带整数运行ID和revision，不自动重放未知落地。只读RPC不进入action白名单，也没有GET修改入口。详见[分支归并接口](rpc/convergence.md)。
 

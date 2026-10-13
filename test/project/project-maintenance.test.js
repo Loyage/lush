@@ -496,7 +496,6 @@ test('an already-started Shell Hook completes and its next queued occurrence wai
   try {
     const order = (await f.project.order('seed', 'main', [], null, false)).task, parent = f.store.task(order.parent_id);
     const command = f.project.saveShortcutCommand({ name: 'temporary output', command: 'printf x >> command-runs.txt' }, f.project.shortcutCommands().revision).commands.items.at(-1);
-    f.project.authorizeShortcutCommand(command.id, command.version, true, f.project.shortcutCommands().revision);
     await attach(f, parent, { name: 'queued commands', trigger: 'worker.merge_received', mode: 'persistent', enabled: true,
       actions: [{ type: 'command', command_id: command.id, command_version: command.version }] });
     const run = f.project.workspaces.runHookCommand.bind(f.project.workspaces);

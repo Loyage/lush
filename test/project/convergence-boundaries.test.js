@@ -72,19 +72,20 @@ test('integration identity buffers ordinary additions and cannot issue developme
   } finally { await f.close(); }
 });
 
-test('authorization stamp rejects revoke then reauthorize of the same version', async () => {
+test('command claim follows latest definitions and ignores legacy authorization stamps; an active claim rejects edits', async () => {
   const f = fixture(); f.project.stopping = true;
   try {
     Object.assign(f.project, queue);
     f.project.saveShortcutCommand({ name: 'final', command: 'echo private-command-body' }, f.project.shortcutCommands().revision);
     const command = f.project.shortcutCommands().items[0];
-    f.project.authorizeShortcutCommand(command.id, 1, true, f.project.shortcutCommands().revision);
     const reference = { command_id: command.id, command_version: 1 };
-    const run = { validation: JSON.stringify(reference), data: JSON.stringify({ authorization_id: f.project.convergenceAuthorizationStamp(reference) }) };
-    expect(f.project.assertConvergenceAuthorization(run).name).toBe('final');
-    f.project.authorizeShortcutCommand(command.id, 1, false, f.project.shortcutCommands().revision);
-    f.project.authorizeShortcutCommand(command.id, 1, true, f.project.shortcutCommands().revision);
-    expect(() => f.project.assertConvergenceAuthorization(run)).toThrow('authorization changed');
+    const run = { validation: JSON.stringify(reference), data: JSON.stringify({ authorization_id: -1 }) };
+    expect(f.project.assertConvergenceCommand(run).name).toBe('final');
+    f.project.saveShortcutCommand({ id: command.id, name: 'latest', command: 'true' }, f.project.shortcutCommands().revision);
+    expect(f.project.assertConvergenceCommand(run)).toMatchObject({ version: 2, name: 'latest' });
+    run.data = JSON.stringify({ validation_execution: { command_id: command.id, command_version: 2 } });
+    f.project.saveShortcutCommand({ id: command.id, name: 'next', command: 'true' }, f.project.shortcutCommands().revision);
+    expect(() => f.project.assertConvergenceCommand(run)).toThrow('definition changed');
   } finally { await f.close(); }
 });
 

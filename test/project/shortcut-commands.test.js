@@ -7,11 +7,9 @@ import { hookRevision } from '../../src/core/hooks.js';
 
 setDefaultTimeout(20000);
 const sourceRule = (actions, enabled = true) => ({ name: 'shortcut', trigger: 'worker.merge_received', mode: 'persistent', enabled, conditions: {}, actions });
-const action = item => ({ type: 'command', command_id: item.id, command_version: item.version });
-function register(f, command, authorized = true) {
-  let item = f.project.saveShortcutCommand({ name: 'test shortcut', command }, f.project.shortcutCommands().revision).commands.items.at(-1);
-  if (authorized) item = f.project.authorizeShortcutCommand(item.id, item.version, true, f.project.shortcutCommands().revision).commands.items.find(c => c.id === item.id);
-  return item;
+const action = item => ({ type: 'command', command_id: item.id });
+function register(f, command) {
+  return f.project.saveShortcutCommand({ name: 'test shortcut', command }, f.project.shortcutCommands().revision).commands.items.at(-1);
 }
 const attach = (f, task, actions, enabled = true) => f.project.attachTaskHook(task.id, sourceRule(actions, enabled), f.project.taskHooks(task.id).revision).mounts.at(-1);
 const mount = (f, task, hook) => f.project.taskHooks(task.id).mounts.find(m => m.id === hook.id);
@@ -22,7 +20,7 @@ async function setup() {
   await repo(f.root); const main = await f.project.bootstrapMain(); return { ...f, main };
 }
 
-test('shortcut registry reads are pure and project-local, revisioned mutations revoke exact versions and reject unsafe config', async () => {
+test('shortcut registry reads are pure and project-local, revisioned edits retain versions without authorization fields', async () => {
   const f = fixture(), other = fixture();
   try {
     const rows = f.store.get('SELECT count(*) AS n FROM meta').n;
@@ -30,15 +28,19 @@ test('shortcut registry reads are pure and project-local, revisioned mutations r
     expect(f.store.get('SELECT count(*) AS n FROM meta').n).toBe(rows);
     expect(initial).toMatchObject({ version: 1, items: [] });
     const item = register(f, 'echo PRIVATE_CONFIG', false);
-    expect(item).toMatchObject({ version: 1, authorized: false, last_execution: null });
+    expect(item).toMatchObject({ version: 1, last_execution: null });
+    expect(item).not.toHaveProperty('authorized');
+    expect(JSON.parse(f.store.get("SELECT value FROM meta WHERE key='shortcut_commands'").value).items[0]).not.toHaveProperty('authorized');
+    expect(f.project.authorizeShortcutCommand).toBeUndefined();
+    expect(() => f.project.exportShortcutCommand(item.id)).toThrow('reference');
+    expect(() => f.project.startShortcutExecution(item.id, undefined, 1, 'missing-version')).toThrow('reference');
     expect(other.project.shortcutCommands().items).toEqual([]);
-    expect(() => f.project.authorizeShortcutCommand(item.id, 1, true, initial.revision)).toThrow('revision changed');
-    f.project.authorizeShortcutCommand(item.id, 1, true, f.project.shortcutCommands().revision);
+    expect(() => f.project.saveShortcutCommand({ id: item.id, name: 'stale', command: 'true' }, initial.revision)).toThrow('revision changed');
     const before = f.project.hooksList();
     f.project.saveShortcutCommand({ id: item.id, name: 'renamed', command: item.command }, before.commands.revision);
-    expect(itemView(f, item)).toMatchObject({ version: 2, authorized: false });
+    expect(itemView(f, item)).toMatchObject({ version: 2 });
     expect(f.project.hooksList().revision).toBe(before.revision);
-    expect(() => f.project.authorizeShortcutCommand(item.id, 1, true, f.project.shortcutCommands().revision)).toThrow('版本');
+    expect(() => f.project.exportShortcutCommand(item.id, 1)).toThrow('definition changed');
     for (const value of [{ name: '', command: 'true' }, { name: 'x', command: '' }, { name: 'x', command: 'a\0b' },
       { name: 'x', command: 'x'.repeat(16001) }, { name: 'x', command: 'true', authorized: true }, { name: 'x', command: 'true', cwd: '/' }])
       expect(() => f.project.saveShortcutCommand(value, f.project.shortcutCommands().revision)).toThrow();
@@ -48,22 +50,20 @@ test('shortcut registry reads are pure and project-local, revisioned mutations r
   } finally { await f.close(); await other.close(); }
 });
 
-test('Hooks only accept existing exact-version references and require authorization to enable or submit', async () => {
+test('Hooks accept command IDs and legacy version references; disabled mounts stay off and new enabled mounts run without authorization', async () => {
   const f = await setup();
   try {
     const item = register(f, 'printf x >> .lush/auth', false);
     const saved = f.project.saveHookTemplate(sourceRule([action(item)], false), f.project.hooksList().revision);
     expect(saved.templates.at(-1).actions).toEqual([action(item)]);
     const hook = attach(f, f.main, [action(item)], false);
-    await expect(f.project.updateTaskHook(f.main.id, hook.id, true, f.project.taskHooks(f.main.id).revision)).rejects.toThrow('授权');
-    expect(() => attach(f, f.main, [action(item)])).toThrow('授权');
-    expect(() => attach(f, f.main, [{ ...action(item), command_version: 9 }], false)).toThrow('版本');
+    const legacy = attach(f, f.main, [{ ...action(item), command_version: 9 }], false);
+    expect(legacy.actions).toEqual([action(item)]);
     expect(() => attach(f, f.main, [{ ...action(item), command_id: '12345678-1234-1234-1234-123456789abc' }], false)).toThrow('不存在');
     expect(() => attach(f, f.main, [{ type: 'command', command: 'true' }], false)).toThrow('fields');
     expect(() => f.project.attachTaskHook(f.main.id, { template_id: saved.templates.at(-1).id }, f.project.taskHooks(f.main.id).revision)).not.toThrow();
     emit(f, f.main); await f.project.hookQueue;
     expect(fs.existsSync(path.join(f.config.home, 'auth'))).toBe(false);
-    f.project.authorizeShortcutCommand(item.id, 1, true, f.project.shortcutCommands().revision);
     await f.project.updateTaskHook(f.main.id, hook.id, true, f.project.taskHooks(f.main.id).revision);
     emit(f, f.main); await f.project.hookQueue;
     expect(fs.readFileSync(path.join(f.config.home, 'auth'), 'utf8')).toBe('x');
@@ -71,32 +71,27 @@ test('Hooks only accept existing exact-version references and require authorizat
   } finally { await f.close(); }
 });
 
-test('revoke in the asynchronous workspace check prevents spawn and reauthorization never replays discarded events', async () => {
+test('delete in the asynchronous workspace check prevents spawn and discarded events never replay', async () => {
   const f = await setup();
   try {
     const item = register(f, 'printf x >> .lush/revoked'), hook = attach(f, f.main, [action(item)]);
     const original = f.project.workspaces.workspaceForBranch.bind(f.project.workspaces);
     f.project.workspaces.workspaceForBranch = async branch => {
       const directory = await original(branch);
-      f.project.authorizeShortcutCommand(item.id, 1, false, f.project.shortcutCommands().revision); return directory;
+      f.project.removeShortcutCommand(item.id, f.project.shortcutCommands().revision); return directory;
     };
     emit(f, f.main); await f.project.hookQueue;
     expect(fs.existsSync(path.join(f.config.home, 'revoked'))).toBe(false);
     expect(mount(f, f.main, hook)).toMatchObject({ enabled: false, pending_count: 0 });
-    expect(itemView(f, item).last_execution).toBeNull();
+    expect(itemView(f, item)).toBeUndefined();
     f.project.workspaces.workspaceForBranch = original;
-    f.project.authorizeShortcutCommand(item.id, 1, true, f.project.shortcutCommands().revision);
     f.project.observeTaskHooks(); await f.project.hookQueue;
     expect(fs.existsSync(path.join(f.config.home, 'revoked'))).toBe(false);
-    await f.project.updateTaskHook(f.main.id, hook.id, true, f.project.taskHooks(f.main.id).revision);
-    f.project.observeTaskHooks(); await f.project.hookQueue;
-    expect(fs.existsSync(path.join(f.config.home, 'revoked'))).toBe(false);
-    emit(f, f.main); await f.project.hookQueue;
-    expect(fs.readFileSync(path.join(f.config.home, 'revoked'), 'utf8')).toBe('x');
+    await expect(f.project.updateTaskHook(f.main.id, hook.id, true, f.project.taskHooks(f.main.id).revision)).rejects.toThrow('不存在');
   } finally { await f.close(); }
 });
 
-test('edit before the final asynchronous ref read invalidates pending execution and requires an explicit new version binding', async () => {
+test('edit during asynchronous ref read fails safely; explicit recovery follows the latest body without rebinding', async () => {
   const f = await setup();
   try {
     const item = register(f, 'printf old >> .lush/versioned'), hook = attach(f, f.main, [action(item)]);
@@ -109,17 +104,19 @@ test('edit before the final asynchronous ref read invalidates pending execution 
     };
     emit(f, f.main); await f.project.hookQueue;
     expect(fs.existsSync(path.join(f.config.home, 'versioned'))).toBe(false);
-    expect(itemView(f, item)).toMatchObject({ version: 2, authorized: false });
+    expect(itemView(f, item)).toMatchObject({ version: 2 });
+    expect(mount(f, f.main, hook)).toMatchObject({ state: 'failed', enabled: false });
+    expect(f.project.shortcutCommandHistory().items).toHaveLength(0);
     f.project.workspaces.readGuardRef = original;
-    f.project.authorizeShortcutCommand(item.id, 2, true, f.project.shortcutCommands().revision);
-    await expect(f.project.updateTaskHook(f.main.id, hook.id, true, f.project.taskHooks(f.main.id).revision)).rejects.toThrow('版本');
-    await f.project.updateTaskHook(f.main.id, hook.id, undefined, f.project.taskHooks(f.main.id).revision, sourceRule([action(itemView(f, item))]));
+    await f.project.updateTaskHook(f.main.id, hook.id, true, f.project.taskHooks(f.main.id).revision);
+    f.project.observeTaskHooks(); await f.project.hookQueue;
+    expect(fs.existsSync(path.join(f.config.home, 'versioned'))).toBe(false);
     emit(f, f.main); await f.project.hookQueue;
     expect(fs.readFileSync(path.join(f.config.home, 'versioned'), 'utf8')).toBe('new');
   } finally { await f.close(); }
 });
 
-test('revocation while a command is started does not pretend to undo it, but cancels remaining actions and future queued triggers', async () => {
+test('deletion while a command is started preserves its effects but cancels remaining actions and queued triggers', async () => {
   const f = await setup();
   try {
     const first = register(f, 'printf started > .lush/start; while [ ! -f .lush/release ]; do sleep 0.01; done; printf done > .lush/done');
@@ -127,13 +124,12 @@ test('revocation while a command is started does not pretend to undo it, but can
     const hook = attach(f, f.main, [action(first), action(second)]);
     emit(f, f.main); await until(() => fs.existsSync(path.join(f.config.home, 'start')));
     emit(f, f.main); emit(f, f.main);
-    f.project.authorizeShortcutCommand(first.id, 1, false, f.project.shortcutCommands().revision);
+    f.project.removeShortcutCommand(first.id, f.project.shortcutCommands().revision);
     fs.writeFileSync(path.join(f.config.home, 'release'), 'go'); await f.project.hookQueue;
     expect(fs.readFileSync(path.join(f.config.home, 'done'), 'utf8')).toBe('done');
     expect(fs.existsSync(path.join(f.config.home, 'second'))).toBe(false);
     expect(mount(f, f.main, hook)).toMatchObject({ enabled: false, pending_count: 0, state: 'failed' });
-    expect(itemView(f, first).last_execution.status).toBe('succeeded');
-    f.project.authorizeShortcutCommand(first.id, 1, true, f.project.shortcutCommands().revision);
+    expect(f.project.shortcutCommandHistory().items.find(row => row.command_id === first.id).status).toBe('succeeded');
     f.project.observeTaskHooks(); await f.project.hookQueue;
     expect(fs.existsSync(path.join(f.config.home, 'second'))).toBe(false);
   } finally { fs.writeFileSync(path.join(f.config.home, 'release'), 'go'); await f.close(); }
@@ -230,10 +226,10 @@ test('legacy commands are read-only stopped projections, startup disables future
     expect(() => f.project.importLegacyHookCommands({ worker_id: f.main.id, hook_id: legacy.id }, 'stale')).toThrow('revision');
     const imported = f.project.importLegacyHookCommands({ worker_id: f.main.id, hook_id: legacy.id }, revision);
     const item = imported.commands.items.find(c => c.id === imported.imported_command_ids[0]);
-    expect(item).toMatchObject({ command: 'printf x >> .lush/legacy', version: 1, authorized: false });
+    expect(item).toMatchObject({ command: 'printf x >> .lush/legacy', version: 1 });
+    expect(item).not.toHaveProperty('authorized');
     expect(imported.worker_hooks.mounts.find(m => m.id === legacy.id)).toMatchObject({ id: legacy.id, enabled: false, actions: [action(item)], last_execution: legacy.last_execution });
     expect(() => f.project.importLegacyHookCommands({ worker_id: f.main.id, hook_id: legacy.id }, imported.worker_hooks.revision)).toThrow('no legacy');
-    f.project.authorizeShortcutCommand(item.id, 1, true, f.project.shortcutCommands().revision);
     await f.project.updateTaskHook(f.main.id, legacy.id, true, f.project.taskHooks(f.main.id).revision);
     f.project.observeTaskHooks(); await f.project.hookQueue; expect(fs.existsSync(path.join(f.config.home, 'legacy'))).toBe(false);
     emit(f, f.main); await f.project.hookQueue; expect(fs.readFileSync(path.join(f.config.home, 'legacy'), 'utf8')).toBe('x');
@@ -256,11 +252,11 @@ test('legacy template import preserves private profiles, rejects ambiguous sourc
     const result = f.project.importLegacyHookCommands({ template_id: 'legacy-template' }, initial.revision);
     expect(result.commands.items).toHaveLength(count + 1);
     expect(result.templates.find(t => t.id === 'legacy-template')).toMatchObject({ enabled: false, actions: [
-      { type: 'command', command_id: result.imported_command_ids[0], command_version: 1 }, { type: 'create_worker', content: 'deferred', start: false }] });
+      { type: 'command', command_id: result.imported_command_ids[0] }, { type: 'create_worker', content: 'deferred', start: false }] });
     const stored = JSON.parse(f.store.get("SELECT value FROM meta WHERE key='hook_templates'").value).templates.find(t => t.id === 'legacy-template');
     expect(stored.definition.actions[1].profile).toMatchObject({ append_prompt: 'PRIVATE_PROFILE', env: { KEY: 'PRIVATE_ENV' } });
     expect(JSON.stringify(result)).not.toContain('PRIVATE_PROFILE'); expect(JSON.stringify(result)).not.toContain('PRIVATE_ENV');
-    expect(result.commands.items.at(-1).authorized).toBe(false);
+    expect(result.commands.items.at(-1)).not.toHaveProperty('authorized');
     expect(JSON.stringify(f.store.all('SELECT * FROM events'))).not.toContain('PRIVATE_INLINE');
     expect(result.revision).not.toBe(hookRevision(state));
   } finally { await f.close(); }

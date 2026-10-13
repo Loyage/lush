@@ -14,7 +14,6 @@ export default {
       check(!run.landing_receipt, 'landing effects must be reconciled before changing the baseline');
       check(!run.integration_worker_id || !this.running.has(run.integration_worker_id), 'integration invocation is still exiting');
       const data = convergenceJSON(run.data, {});
-      const mode = convergenceVerificationMode(data.verification_mode, run.validation);
       check(explicit || (data.baseline_attempts ?? 0) < CONVERGENCE_LIMITS.baseline_attempts, 'convergence baseline retry bound reached');
       const baseline = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${parent.branch}^{commit}`);
       for (const member of members) {
@@ -38,12 +37,11 @@ export default {
         const next = this.store.updateDeliveryRun(runId, { generation: nextGeneration, baseline,
           state: 'preparing', candidate_commit: null, candidate_tree: null, validation_result: null,
           integration_worker_id: null, error: null, data: JSON.stringify({ ...data, wait_reason: null,
-            prepared_receipt: null, root_commit: null,
+            prepared_receipt: null, root_commit: null, validation_execution: null,
             ...(refreshPlan ? { plan: refreshPlan, previous_root: { node_id: oldRoot.id, generation, commit: fixedOutput.commit } }
               : explicit ? { plan: convergenceTopology(members), previous_root: null } : {}),
             baseline_attempts: explicit ? 0 : (data.baseline_attempts ?? 0) + 1,
-            ...(explicit ? { repair_attempts: 0,
-              ...(mode === 'command' ? { authorization_id: this.convergenceAuthorizationStamp(convergenceJSON(run.validation)) } : {}) } : {}) }) }, generation);
+            ...(explicit ? { repair_attempts: 0 } : {}) }) }, generation);
         for (const member of members) {
           const task = this.store.task(member.task_id), booking = convergenceBooking(task);
           this.store.update(task.id, { integration_error: null,
@@ -79,7 +77,7 @@ export default {
       const nextGeneration = generation + 1, data = convergenceJSON(run.data, {});
       this.store.updateDeliveryRun(runId, { generation: nextGeneration, state: 'preparing', candidate_commit: null,
         candidate_tree: null, validation_result: null, integration_worker_id: null, error: null,
-        data: JSON.stringify({ ...data, prepared_receipt: null, root_commit: null, wait_reason: null,
+        data: JSON.stringify({ ...data, prepared_receipt: null, root_commit: null, wait_reason: null, validation_execution: null,
           previous_validation: convergenceJSON(run.validation_result), repair_from_generation: generation }) }, generation);
       let repairNode = null;
       for (const node of oldNodes) {
@@ -133,7 +131,7 @@ export default {
   async prepareConvergenceRun(runId, generation, signal) {
     let { run, parent, members } = this.assertConvergenceRun(runId, generation, ['preparing']);
     if (run.integration_worker_id && this.running.has(run.integration_worker_id)) return;
-    this.assertConvergenceAuthorization(run);
+    this.assertConvergenceCommand(run);
     const currentParent = await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${parent.branch}`);
     this.assertConvergenceRun(runId, generation, ['preparing']);
     if (currentParent !== run.baseline) { await this.refreshConvergenceBaseline(runId, generation); return; }
@@ -206,13 +204,13 @@ export default {
         message: `Convergence batch ${runId}/${generation}`, run_id: runId, generation });
       this.assertConvergenceRun(runId, generation, ['preparing']); return value;
     });
-    // The exact single-parent publication object is what the authorized command tests.
+    // The exact single-parent publication object is what the validation command tests.
     this.store.updateDeliveryRun(runId, { candidate_commit: receipt.commit, candidate_tree: receipt.tree,
       data: JSON.stringify({ ...convergenceJSON(run.data, {}), prepared_receipt: receipt, root_commit: output.commit }) }, generation);
     if (convergenceVerificationMode(convergenceJSON(run.data, {}).verification_mode, run.validation) === 'agent') {
       check(!signal?.aborted, 'convergence preparation interrupted');
       this.assertConvergenceRun(runId, generation, ['preparing']);
-      this.assertConvergenceAuthorization(this.store.deliveryRun(runId));
+      this.assertConvergenceCommand(this.store.deliveryRun(runId));
       // Ready means safely prepared for publication, not tested/passed by runtime.
       this.setConvergenceState(runId, generation, 'ready', { error: null });
       await this.publishConvergence(runId);
@@ -223,19 +221,21 @@ export default {
       checkout = await this.workspaces.exclusive(() => this.workspaces.createConvergenceValidationUnsafe({
         id: runId, generation, commit: receipt.commit }));
       this.assertConvergenceRun(runId, generation, ['preparing']);
-      const command = this.assertConvergenceAuthorization(this.store.deliveryRun(runId));
-      const startedAt = now();
-      this.setConvergenceState(runId, generation, 'validating', { validation_result: JSON.stringify({ state: 'running', started_at: startedAt,
-        command_name: command.name, tested_commit: receipt.commit, tested_tree: receipt.tree }) });
+      const live = this.store.deliveryRun(runId), command = this.assertConvergenceCommand(live);
+      const startedAt = now(), actual = { command_id: command.id, command_version: command.version, command_name: command.name };
+      this.setConvergenceState(runId, generation, 'validating', {
+        data: JSON.stringify({ ...convergenceJSON(live.data, {}), validation_execution: actual }),
+        validation_result: JSON.stringify({ state: 'running', started_at: startedAt,
+          ...actual, tested_commit: receipt.commit, tested_tree: receipt.tree }) });
       const result = await this.workspaces.runConvergenceValidation(checkout, command.command, () => {
         this.assertConvergenceRun(runId, generation, ['validating']);
-        this.assertConvergenceAuthorization(this.store.deliveryRun(runId)); return true;
+        this.assertConvergenceCommand(this.store.deliveryRun(runId)); return true;
       }, { ...this.convergenceValidationOptions, signal });
       this.assertConvergenceRun(runId, generation, ['validating']);
-      this.assertConvergenceAuthorization(this.store.deliveryRun(runId));
+      this.assertConvergenceCommand(this.store.deliveryRun(runId));
       const passed = result.status === 'succeeded' || result.state === 'succeeded';
       // Only safe runner scalars are persisted; never command body, env, stdout/stderr or exceptions.
-      const evidence = { state: passed ? 'passed' : 'failed', command_name: command.name, started_at: startedAt,
+      const evidence = { state: passed ? 'passed' : 'failed', ...actual, started_at: startedAt,
         finished_at: now(), tested_commit: receipt.commit, tested_tree: receipt.tree,
         exit_code: Number.isInteger(result.exit_code) ? result.exit_code : null,
         reason: ['timeout', 'output_limit', 'exit', 'spawn', 'aborted', 'identity', 'dirty'].includes(result.reason) ? result.reason : null,

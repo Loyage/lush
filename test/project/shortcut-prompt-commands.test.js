@@ -10,9 +10,9 @@ const revision = f => f.project.shortcutCommands().revision;
 const view = (f, command) => f.project.shortcutCommands().items.find(item => item.id === command.id);
 const register = (f, value = {}) => {
   const item = f.project.saveShortcutCommand({ name: 'prompt shortcut', kind: 'prompt', prompt: 'PRIVATE_PROMPT_BODY', ...value }, revision(f)).commands.items.at(-1);
-  f.project.authorizeShortcutCommand(item.id, item.version, true, revision(f)); return item;
+  return item;
 };
-const ref = item => ({ type: 'prompt_command', command_id: item.id, command_version: item.version });
+const ref = item => ({ type: 'prompt_command', command_id: item.id });
 const rule = item => ({ name: 'prompt once', trigger: 'worker.parent_ready', mode: 'once', enabled: true, actions: [ref(item)] });
 const history = (f, executionId) => f.project.shortcutCommandHistory({ execution_id: executionId }).items[0];
 const start = (f, item, parent) => {
@@ -28,12 +28,12 @@ async function setup(provider) {
   await repo(f.root); f.main = await f.project.bootstrapMain(); return f;
 }
 
-test('structured shortcut metadata preserves omitted edits, revokes versions, changes body types and bounds all fields', async () => {
+test('structured shortcut metadata preserves omitted edits, advances versions, changes body types and bounds all fields', async () => {
   const f = fixture();
   try {
     const item = register(f, { description: 'description', when_to_use: 'when', tags: ['a','b'], examples: 'example', warnings: 'warning' });
     f.project.saveShortcutCommand({ id: item.id, name: 'renamed', prompt: 'new prompt' }, revision(f));
-    expect(view(f, item)).toMatchObject({ kind: 'prompt', version: 2, authorized: false, description: 'description', when_to_use: 'when', tags: ['a','b'], examples: 'example', warnings: 'warning', prompt: 'new prompt' });
+    expect(view(f, item)).toMatchObject({ kind: 'prompt', version: 2, description: 'description', when_to_use: 'when', tags: ['a','b'], examples: 'example', warnings: 'warning', prompt: 'new prompt' });
     f.project.saveShortcutCommand({ id: item.id, name: 'shell now', kind: 'shell', command: 'true', description: '', tags: [] }, revision(f));
     expect(view(f, item)).toMatchObject({ kind: 'shell', version: 3, command: 'true', description: '', tags: [], examples: 'example' });
     expect(view(f, item).prompt).toBeUndefined();
@@ -62,7 +62,7 @@ test('legacy read defaults and deterministic Skill export are pure, unprivileged
     const frontmatter = output.markdown.split('\n---\n')[0];
     expect(frontmatter).toContain('kind: "prompt"'); expect(frontmatter).toContain('description: "x\\n---\\nmalicious: true"');
     expect(output.markdown).toContain('````text\n---\nkind: shell\n```\nbody\n````');
-    expect(view(f, item).authorized).toBe(false); expect(revision(f)).toBe(before);
+    expect(view(f, item)).not.toHaveProperty('authorized'); expect(revision(f)).toBe(before);
     expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(count);
     expect(() => f.project.exportShortcutCommand(item.id, 2)).toThrow();
   } finally { await f.close(); }
@@ -109,17 +109,14 @@ test('created prompt order actually starts the default Agent, success is not its
   } finally { finish.resolve(); await f.close(); }
 });
 
-for (const mutation of ['revoke','reauthorize','edit','delete']) test(`prompt Hook refuses ${mutation} while waiting for Git creation`, async () => {
+for (const mutation of ['edit','delete','type_switch']) test(`prompt Hook refuses ${mutation} while waiting for Git creation`, async () => {
   const f = await setup(), held = gate(); let queued;
   try {
     const item = register(f); queued = f.project.workspaces.exclusive(() => held.promise);
     const accepted = start(f, item, f.main);
     if (mutation === 'edit') f.project.saveShortcutCommand({ id: item.id, name: 'edited', prompt: 'edited' }, revision(f));
     else if (mutation === 'delete') f.project.removeShortcutCommand(item.id, revision(f));
-    else {
-      f.project.authorizeShortcutCommand(item.id, 1, false, revision(f));
-      if (mutation === 'reauthorize') f.project.authorizeShortcutCommand(item.id, 1, true, revision(f));
-    }
+    else f.project.saveShortcutCommand({ id: item.id, name: 'shell now', kind: 'shell', command: 'true' }, revision(f));
     held.resolve(); await queued; await drain(f);
     expect(history(f, accepted.execution_id)).toMatchObject({ status: 'failed', kind: 'prompt', created_worker_id: null, input_id: null });
     expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(0);
@@ -127,14 +124,13 @@ for (const mutation of ['revoke','reauthorize','edit','delete']) test(`prompt Ho
   } finally { held.resolve(); await queued; await drain(f); await f.close(); }
 });
 
-test('prompt revocation after asynchronous anchor creation rolls back only its newly created anchor before SQLite commit', async () => {
+test('prompt edit after asynchronous anchor creation rolls back only its newly created anchor before SQLite commit', async () => {
   const f = await setup();
   try {
     const item = register(f), original = f.project.workspaces.anchor.bind(f.project.workspaces); let anchor;
     f.project.workspaces.anchor = async (...args) => {
       const result = await original(...args); anchor = result;
-      f.project.authorizeShortcutCommand(item.id, 1, false, revision(f));
-      f.project.authorizeShortcutCommand(item.id, 1, true, revision(f)); return result;
+      f.project.saveShortcutCommand({ id: item.id, name: item.name, prompt: 'changed after anchor' }, revision(f)); return result;
     };
     const accepted = start(f, item, f.main); await drain(f);
     expect(history(f, accepted.execution_id).status).toBe('failed');
@@ -190,18 +186,18 @@ test('prompt Hook catalogue enforces exact references, type matching, one-shot f
   } finally { await f.close(); }
 });
 
-test('prompt Hook revoke and reauthorize cannot escape claimed authorization or replay failure', async () => {
+test('prompt Hook type switch cannot mix claimed bodies or replay failure', async () => {
   const f = await setup(), held = gate(); let queued;
   try {
     const item = register(f); queued = f.project.workspaces.exclusive(() => held.promise);
     const hook = f.project.attachTaskHook(f.main.id, rule(item), f.project.taskHooks(f.main.id).revision).mounts.at(-1);
     await Promise.resolve();
     const accepted = f.project.shortcutCommandHistory().items[0]; expect(accepted.kind).toBe('prompt');
-    f.project.authorizeShortcutCommand(item.id, 1, false, revision(f)); f.project.authorizeShortcutCommand(item.id, 1, true, revision(f));
+    f.project.saveShortcutCommand({ id: item.id, name: item.name, kind: 'shell', command: 'true' }, revision(f));
     held.resolve(); await queued; await f.project.hookQueue;
     expect(history(f, accepted.id).status).toBe('failed'); expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(0);
     expect(f.project.taskHooks(f.main.id).mounts.find(m => m.id === hook.id)).toMatchObject({ enabled: false, state: 'failed' });
-    await expect(f.project.updateTaskHook(f.main.id, hook.id, true, f.project.taskHooks(f.main.id).revision)).rejects.toThrow('inspection');
+    await expect(f.project.updateTaskHook(f.main.id, hook.id, true, f.project.taskHooks(f.main.id).revision)).rejects.toThrow();
     f.project.observeTaskHooks(); await f.project.hookQueue; expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(0);
   } finally { held.resolve(); await queued; await f.project.hookQueue; await f.close(); }
 });

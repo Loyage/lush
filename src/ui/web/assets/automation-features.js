@@ -2,7 +2,7 @@
 export const AUTOMATION_FEATURES = Object.freeze([
   { id: 'completion', name: '开发完成后自动处理', description: '管理本项目 Worker 的实际合并、验收授权与最近操作记录。', scope: 'Worker 授权 · 设备默认',
     load: () => import('./automation-feature-pages.js').then(module => module.renderCompletionAutomation) },
-  { id: 'push', name: '合并后自动 git push', description: '管理 main 的推送挂载、明确版本的命令授权与执行记录。', scope: '当前项目 · main',
+  { id: 'push', name: '合并后自动 git push', description: '管理 main 的推送挂载、引用指令的最新定义与执行记录。', scope: '当前项目 · main',
     load: () => import('./automation-feature-pages.js').then(module => module.renderPushAutomation) },
   { id: 'convergence', name: '归并合并', description: '设置目标分支的交付处理策略与未来挂载默认，查看归并批次。', scope: '当前项目 · 目标分支',
     load: () => import('./automation-feature-pages.js').then(module => module.renderBranchConvergence) },

@@ -135,9 +135,10 @@ async function runConvergence(args, client) {
   }
   if (verb === 'on') {
     const command = option(args, '--command'), version = option(args, '--version'); exact(args, 1);
-    check((command === null) === (version === null), 'provide both --command and --version for a legacy reference');
+    check(version === null || command !== null, '--version requires --command');
+    if (version !== null) convergenceNumber(version, 'command version'); // Legacy CLI syntax, no future version pin.
     return client.request('branch.convergence_set', { branch: convergenceBranch(args[0]), enabled: true,
-      ...(command === null ? {} : { validation: { command_id: commandId(command), command_version: convergenceNumber(version, 'command version') } }), expected_revision });
+      ...(command === null ? {} : { validation: { command_id: commandId(command) } }), expected_revision });
   }
   exact(args, 1);
   const branch = convergenceBranch(args[0]);
@@ -150,7 +151,6 @@ async function runConvergence(args, client) {
   check(current.validation === null || current.validation && typeof current.validation === 'object', 'invalid branch convergence validation read');
   const validation = current.validation === null ? null : {
     command_id: commandId(current.validation.command_id),
-    command_version: convergenceNumber(String(current.validation.command_version), 'command version'),
   };
   return client.request('branch.convergence_set', { branch, enabled: false, validation, expected_revision,
     ...(typeof current.mounted === 'boolean' ? { mounted: current.mounted } : {}) });

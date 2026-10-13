@@ -38,7 +38,7 @@ const number = value => typeof value === 'string' && /^W\d+(?:-\d+)*$/.test(valu
 const sha = value => typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value) ? value : null;
 const date = value => typeof value === 'string' && value.length <= 40 && Number.isFinite(Date.parse(value)) ? value : null;
 const ERROR_MESSAGES = {
-  validation_failed: '最终验证失败', authorization_changed: '验证指令已撤权或版本已变更',
+  validation_failed: '最终验证失败', authorization_changed: '验证指令定义已变化',
   source_changed: '固定来源已变化，需核查', baseline_changed: '目标基线连续变化，需重新验证',
   integration_failed: '整合 Worker 未成功交付', interrupted: '执行中断，未取得完整证据',
   unknown_publish: '落地现场未知，禁止自动重放', resource_busy: '归并资源不可用', budget_exhausted: '归并重试预算已用尽',
@@ -50,11 +50,11 @@ export function safeConvergenceError(value) {
 }
 function reference(value) {
   if (value === null) return null;
-  check(isPlainObject(value) && Object.keys(value).length === 2
+  check(isPlainObject(value)
     && Object.keys(value).every(key => ['command_id','command_version'].includes(key))
     && typeof value.command_id === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value.command_id)
-    && positive(value.command_version), 'invalid convergence validation reference');
-  return { command_id: value.command_id, command_version: value.command_version };
+    && (value.command_version === undefined || positive(value.command_version)), 'invalid convergence validation reference');
+  return { command_id: value.command_id, ...(value.command_version === undefined ? {} : { command_version: value.command_version }) };
 }
 function branchName(branch) {
   check(typeof branch === 'string' && branch.length > 0 && branch.length <= 512
@@ -97,8 +97,8 @@ function policyRevision(project, branch, own) {
 function validationView(project, value) {
   if (value === null || value === undefined) return null;
   const ref = reference(value); let current = null;
-  try { current = project.resolveShortcutCommand(ref, false); } catch { /* Retain the exact old reference, never upgrade. */ }
-  return { ...ref, name: label(current?.name), authorized: current?.authorized === true };
+  try { current = project.resolveShortcutCommand(ref); } catch { /* Missing or type-switched definitions remain unavailable. */ }
+  return { ...ref, name: label(current?.name) };
 }
 function counts(project, branch) {
   const out = Object.fromEntries(CONVERGENCE_COUNT_STATES.map(state => [state, 0]));
@@ -130,6 +130,8 @@ export function convergenceRunView(project, run) {
   const validation = ref || run.validation_result ? {
     state: ['pending','running','waiting','validating','succeeded','passed','failed','unknown','cancelled','blocked','not_started'].includes(validationState)
       ? validationState : 'pending',
+    command_id: typeof outcome?.command_id === 'string' ? outcome.command_id : ref?.command_id ?? null,
+    command_version: positive(outcome?.command_version) ? outcome.command_version : null,
     command_name: commandName, started_at: date(outcome?.started_at ?? data?.validation_started_at),
     finished_at: date(outcome?.finished_at ?? data?.validation_finished_at), error: safeConvergenceError(outcome?.error ?? (outcome?.reason ? 'validation_failed' : null)),
   } : null;
@@ -229,7 +231,8 @@ export default {
   async setBranchConvergence(branch, enabled, validation, expectedRevision, mounted = true) {
     branchName(branch); flags(mounted, enabled);
     check(mounted || !enabled, 'enabled convergence must be mounted');
-    const requestedRef = validation === undefined ? undefined : reference(validation);
+    const checkedRef = validation === undefined ? undefined : reference(validation);
+    const requestedRef = checkedRef ? { command_id: checkedRef.command_id } : checkedRef;
     check(typeof expectedRevision === 'string' && expectedRevision.length > 0, 'convergence revision is required');
     return this.write('set branch convergence', () => this.workspaces.exclusive(async () => {
       const own = await target(this, branch);
@@ -238,7 +241,7 @@ export default {
         check(owner(this, branch).id === own.id, 'convergence target owner changed');
         check(policyRevision(this, branch, own) === expectedRevision, 'convergence revision changed; reload before editing');
         const previous = stored(this, branch);
-        // Compatibility metadata only: absent commands and revoked versions cannot block the new policy.
+        // Compatibility metadata only: absent commands cannot block the new agent-verified policy.
         const ref = requestedRef === undefined ? (previous?.owner_id === own.id ? reference(previous.validation) : null) : requestedRef;
         const generation = (previous?.generation ?? 0) + 1;
         check(Number.isSafeInteger(generation), 'convergence policy generation limit reached');

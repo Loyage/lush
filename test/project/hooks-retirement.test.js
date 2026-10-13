@@ -31,7 +31,6 @@ test('command recovery removes a complete one-shot without a later unstarted sib
   try {
     const { task } = await f.project.order('commands', 'main', [], null, false);
     const command = f.project.saveShortcutCommand({ name: 'test', command: 'true' }, f.project.shortcutCommands().revision).commands.items.at(-1);
-    f.project.authorizeShortcutCommand(command.id, command.version, true, f.project.shortcutCommands().revision);
     const attach = name => f.project.attachTaskHook(task.id, { ...rule(name), actions: [{ type: 'command', command_id: command.id, command_version: command.version }] }, f.project.taskHooks(task.id).revision).mounts.at(-1);
     const completed = attach('completed'), waiting = attach('waiting');
     const data = JSON.parse(f.store.task(task.id).hooks);

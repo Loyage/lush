@@ -89,7 +89,7 @@ export default {
         let { parent, members } = this.assertConvergenceRun(runId, run.generation, ['ready', 'landing', 'blocked']);
         let receipt = convergenceJSON(run.landing_receipt);
         if (!receipt) {
-          this.assertConvergenceAuthorization(run);
+          this.assertConvergenceCommand(run);
           if (convergenceVerificationMode(convergenceJSON(run.data, {}).verification_mode, run.validation) === 'command') {
             const evidence = convergenceJSON(run.validation_result);
             check(evidence?.state === 'passed' && evidence.tested_commit === run.candidate_commit
@@ -108,7 +108,7 @@ export default {
           this.store.event(parent.id, 'convergence.landing_prepared', { run_id: runId, generation: run.generation, receipt });
           await this.workspaces.applyConvergencePublishUnsafe(receipt, () => {
             this.assertConvergenceRun(runId, run.generation, ['landing']);
-            this.assertConvergenceAuthorization(this.store.deliveryRun(runId));
+            this.assertConvergenceCommand(this.store.deliveryRun(runId));
             check(this.convergenceCanPublish(this.store.deliveryRun(runId)), 'parent publication gate changed');
           });
         }

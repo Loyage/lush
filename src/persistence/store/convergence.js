@@ -28,7 +28,7 @@ function validation(value) {
   if (value === null) return null;
   const parsed = JSON.parse(json(value)); object(parsed, ['command_id','command_version'], 'validation reference');
   check(typeof parsed.command_id === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(parsed.command_id)
-    && integer(parsed.command_version), 'invalid validation reference'); return JSON.stringify(parsed);
+    && (parsed.command_version === undefined || integer(parsed.command_version)), 'invalid validation reference'); return JSON.stringify(parsed);
 }
 function patchValues(patch) {
   return Object.fromEntries(Object.entries(patch).map(([key, value]) => [key, JSON_COLUMNS.includes(key) ? json(value, key !== 'data') : value]));

@@ -2,7 +2,7 @@ import { test, expect, beforeEach, afterAll } from 'bun:test';
 import { installDom, deepText, dialogButton } from '../dom-stub.js';
 import { until } from '../helpers.js';
 
-const json = value => ({ ok: true, json: async () => structuredClone(value) });
+const json = value => Response.json(value);
 const command = { id: 'push-hook', name: '合并后推送', trigger: 'worker.merge_received', mode: 'persistent', enabled: false,
   builtin: false, editable: true, removable: true, conditions: { statuses: [], integrations: [] },
   actions: [{ type: 'command', command_id: 'push-command', command_version: 1 }], state: 'idle', last_execution: null };
@@ -47,32 +47,32 @@ beforeEach(() => {
     { id: 'agent.failed', label: '调用失败', description: '未知副作用不重放。' },
     { id: 'worker.parent_ready', label: '可创建', description: '安全创建点。' },
   ], actions: [
-    { type: 'command', label: 'Shell 命令', description: '执行用户授权命令。', triggers: ['worker.merge_received', 'agent.failed'], modes: ['once', 'persistent'], agent_call: false },
+    { type: 'command', label: 'Shell 命令', description: '执行所引用指令的最新定义。', triggers: ['worker.merge_received', 'agent.failed'], modes: ['once', 'persistent'], agent_call: false },
     { type: 'notify', label: '告知', triggers: [], modes: ['once', 'persistent'], agent_call: false },
     { type: 'create_worker', label: '创建 Worker', triggers: ['worker.parent_ready'], modes: ['once'], agent_call: true },
     { type: 'message', label: '追加消息', triggers: [], modes: ['once'], agent_call: true },
   ], commands: { version: 1, revision: 'commands-revision', items: [
-    { id: 'push-command', name: 'Git 推送', command: 'git push', version: 1, authorized: true, last_execution: null },
-    { id: 'tags-command', name: '推送标签', command: 'git push --tags', version: 1, authorized: true, last_execution: null },
+    { id: 'push-command', name: 'Git 推送', command: 'git push', version: 1, last_execution: null },
+    { id: 'tags-command', name: '推送标签', command: 'git push --tags', version: 1, last_execution: null },
   ] }, templates: [structuredClone(template)], command_example: { template_id: template.id, worker_id: 1, hook_id: command.id, hooks: model } };
   activateDetailView({ view: 'overview' });
 });
 afterAll(() => { closeDialog(); dom.restore(); });
 
-test('command reference picker is catalogue driven, only emits explicit registered versions and respects trigger compatibility', () => {
+test('command reference picker is catalogue driven, emits IDs and respects trigger compatibility', () => {
   const form = createHookForm(catalogue, { initial: command });
-  field(form.node, '快捷指令版本').value = 'tags-command:1';
+  field(form.node, '快捷指令').value = 'tags-command';
   expect(field(form.node, 'Shell 命令')).toBeNull();
-  expect(field(form.node, '快捷指令版本').tagName).toBe('SELECT');
-  expect(form.validate()).toBe(''); expect(form.collect().actions).toEqual([{ type: 'command', command_id: 'tags-command', command_version: 1 }]);
+  expect(field(form.node, '快捷指令').tagName).toBe('SELECT');
+  expect(form.validate()).toBe(''); expect(form.collect().actions).toEqual([{ type: 'command', command_id: 'tags-command' }]);
   expect(form.agentCall()).toBe(false); expect(field(form.node, '挂载方式').children.map(option => option.value)).toEqual(['once', 'persistent']);
   expect(deepText(form.node)).toContain('不是沙箱'); expect(deepText(form.node)).toContain('daemon 用户权限');
-  field(form.node, '快捷指令版本').value = ''; expect(form.validate()).toContain('请选择当前已注册');
+  field(form.node, '快捷指令').value = ''; expect(form.validate()).toContain('请选择当前已注册');
   field(form.node, '触发节点').value = 'worker.parent_ready'; field(form.node, '触发节点').onchange();
   expect(field(form.node, '动作类型').children.map(option => option.value)).not.toContain('command');
 });
 
-test('example reads real main mount, confirms command authorization and uses mount revision rather than template revision', async () => {
+test('example reads main mount fixture, confirms future execution risk and uses mount revision rather than template revision', async () => {
   await openHooks(); expect(deepText(example())).toContain('停用'); expect(deepText(example())).toContain('仅 main Worker');
   expect(example().querySelector('.hook-help-link').href).toBe('/#doc-docs-hooks');
   expect(deepText(example())).toContain(command.name); expect(deepText(example())).not.toContain('示例');
@@ -125,7 +125,7 @@ test('cancelled enabling and stale project confirmation never grant command exec
 
 test('main and example full edit use hook_update without enabled parameter, retain failed drafts and render literal command text safely', async () => {
   const node = main(); await btn('编辑挂载', node).onclick();
-  const form = node.querySelector('.hook-form'); field(form, '快捷指令版本').value = 'tags-command:1';
+  const form = node.querySelector('.hook-form'); field(form, '快捷指令').value = 'tags-command';
   field(form, 'Hook 名称').value = '自己设计'; field(form, '触发节点').value = 'agent.failed'; field(form, '触发节点').onchange();
   field(form, '挂载方式').value = 'once'; field(form, '静息').checked = true;
   expect(btn('保存挂载', node).classList.contains('agent-call')).toBe(false);
@@ -133,16 +133,16 @@ test('main and example full edit use hook_update without enabled parameter, reta
   await btn('保存挂载', node).onclick();
   expect(actions.at(-1)).toMatchObject({ method: 'worker.hook_update', params: { id: 1, hook_id: 'push-hook', expected_revision: 'main-revision', hook: {
     name: '自己设计', trigger: 'agent.failed', mode: 'once', enabled: false, conditions: { statuses: ['waiting'] },
-    actions: [{ type: 'command', command_id: 'tags-command', command_version: 1 }],
+    actions: [{ type: 'command', command_id: 'tags-command' }],
   } } });
   expect(actions.at(-1).params).not.toHaveProperty('enabled'); expect(node.querySelector('.hook-form')).toBe(form);
-  expect(field(form, '快捷指令版本').value).toBe('tags-command:1'); expect(root().querySelector('script')).toBeNull();
+  expect(field(form, '快捷指令').value).toBe('tags-command'); expect(root().querySelector('script')).toBeNull();
   expect(dom.node('error').textContent).toContain('revision conflict'); expect(node.dataset.hookEditing).toBe('true');
 });
 
-test('editing enabled Hook confirms exact authorized version; copies remain disabled without execution or receipts', async () => {
+test('editing enabled Hook confirms latest referenced definition; copies remain disabled without execution or receipts', async () => {
   model.mounts[0].enabled = true; const node = main(); await btn('编辑挂载', node).onclick();
-  field(node.querySelector('.hook-form'), '快捷指令版本').value = 'tags-command:1';
+  field(node.querySelector('.hook-form'), '快捷指令').value = 'tags-command';
   const saving = btn('保存挂载', node).onclick(); expect(deepText(dom.node('modal'))).toContain('git push --tags');
   await dialogButton(dom, '启用指令 Hook').onclick(); await saving; expect(actions[0].params.hook.enabled).toBe(true);
   main(); await btn('复制为停用挂载').onclick(); const form = root().querySelector('.hook-form');
@@ -150,13 +150,13 @@ test('editing enabled Hook confirms exact authorized version; copies remain disa
   await btn('保存停用副本').onclick();
   const copy = actions.at(-1); expect(copy.method).toBe('worker.hook_attach'); expect(copy.params.hook.enabled).toBe(false);
   expect(copy.params).not.toHaveProperty('hook_id'); expect(copy.params.hook).not.toHaveProperty('id');
-  expect(copy.params.hook).not.toHaveProperty('last_execution'); expect(copy.params.hook.actions).toEqual([{ type: 'command', command_id: 'tags-command', command_version: 1 }]);
+  expect(copy.params.hook).not.toHaveProperty('last_execution'); expect(copy.params.hook.actions).toEqual([{ type: 'command', command_id: 'tags-command' }]);
   expect(dom.node('modal').hidden).toBe(true);
 });
 
 test('template edits are isolated; copies save new disabled template without invoking Agent or mounting', async () => {
-  await openHookTools(); await btn('编辑模板').onclick(); field(root().querySelector('.hook-form'), '快捷指令版本').value = 'tags-command:1';
-  await btn('保存模板').onclick(); expect(actions.at(-1)).toMatchObject({ method: 'hooks.save', params: { expected_revision: 'template-revision', template: { id: template.id, actions: [{ type: 'command', command_id: 'tags-command', command_version: 1 }] } } });
+  await openHookTools(); await btn('编辑模板').onclick(); field(root().querySelector('.hook-form'), '快捷指令').value = 'tags-command';
+  await btn('保存模板').onclick(); expect(actions.at(-1)).toMatchObject({ method: 'hooks.save', params: { expected_revision: 'template-revision', template: { id: template.id, actions: [{ type: 'command', command_id: 'tags-command' }] } } });
   expect(catalogue.command_example.hooks.mounts[0].actions).toEqual(command.actions);
   await btn('复制为停用模板').onclick(); field(root().querySelector('.hook-form'), '启用此 Hook').checked = true;
   expect(btn('保存停用模板副本').classList.contains('agent-call')).toBe(false); await btn('保存停用模板副本').onclick();
@@ -164,7 +164,7 @@ test('template edits are isolated; copies save new disabled template without inv
   expect(actions.at(-1).params.template).not.toHaveProperty('last_execution'); expect(actions.every(item => item.method === 'hooks.save')).toBe(true);
 });
 
-test('enabled command template attachment needs authorization; disabled template saves never do', async () => {
+test('enabled command template attachment needs risk confirmation; disabled template saves never do', async () => {
   catalogue.templates[0].enabled = true; const node = main(); await btn('挂载 Hook', node).onclick();
   const picker = field(node, '挂载模板'); picker.value = template.id; picker.onchange();
   const attaching = btn('原样挂载模板', node).onclick(); expect(actions).toHaveLength(0);
@@ -202,7 +202,7 @@ test('safe profile metadata edits omit secrets; copies require explicit full rep
 
 test('late full edit response does not repaint a new page; template refresh does not discard unsaved example edits silently', async () => {
   await openHooks(); await btn('编辑挂载', example()).onclick(); const form = example().querySelector('.hook-form');
-  field(form, '快捷指令版本').value = 'tags-command:1';
+  field(form, '快捷指令').value = 'tags-command';
   const refreshing = btn('刷新推送设置').onclick(); expect(deepText(dom.node('modal'))).toContain('未保存的挂载编辑会丢失');
   closeDialog(); await refreshing; expect(example().querySelector('.hook-form')).toBe(form);
   let resolve; intercept = (_path, body) => body?.method === 'worker.hook_update' ? new Promise(done => { resolve = done; }) : null;
@@ -213,9 +213,9 @@ test('late full edit response does not repaint a new page; template refresh does
 
 test('feature tab switches retain unsaved push editor and its originally captured optimistic revision', async () => {
   await openHooks(); await btn('编辑挂载', example()).onclick(); const form = example().querySelector('.hook-form');
-  field(form, '快捷指令版本').value = 'tags-command:1';
+  field(form, '快捷指令').value = 'tags-command';
   await openHooks({ subpage: 'history' }); await openHooks();
-  expect(example().querySelector('.hook-form')).toBe(form); expect(field(form, '快捷指令版本').value).toBe('tags-command:1');
+  expect(example().querySelector('.hook-form')).toBe(form); expect(field(form, '快捷指令').value).toBe('tags-command');
   await btn('保存挂载', example()).onclick(); expect(actions.at(-1).params.expected_revision).toBe('main-revision');
 });
 
@@ -228,4 +228,8 @@ test('mixed Agent actions retain unified purple help while command-only and disa
   const enabled = field(node, '启用此 Hook'); enabled.checked = true; enabled.onchange();
   expect(btn('保存挂载', node).classList.contains('agent-call')).toBe(true);
   expect(btn('保存挂载', node).getAttribute('data-help')).toContain('消耗 token');
+  const saving = btn('保存挂载', node).onclick(), confirm = dialogButton(dom, '启用指令 Hook');
+  expect(confirm.classList.contains('agent-call')).toBe(true); expect(confirm.getAttribute('data-help')).toContain('所配置的 Agent 动作');
+  expect(confirm.getAttribute('data-help')).not.toContain('提示词引用'); expect(confirm.getAttribute('data-help')).toContain('消耗 token');
+  closeDialog(); await saving; expect(actions).toHaveLength(0);
 });

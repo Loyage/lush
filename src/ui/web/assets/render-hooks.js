@@ -39,12 +39,14 @@ const hasCommand = hook => hook.actions?.some(item => ['command', 'prompt_comman
 async function authorizeHook(hook, agent = callsAgent(hook), catalogue = null) {
   if (hasCommand(hook)) {
     const directory = catalogue || await api('/api/hooks');
-    const issue = commandReferencesIssue(hook, directory, hook.enabled !== false);
+    const issue = commandReferencesIssue(hook, directory);
     if (issue) { show(issue, 'error'); return false; }
     if (hook.enabled === false) return true;
-    if (!await confirmDialog({ title: '启用已授权快捷指令的 Hook？', message: `${hook.actions.some(item => item.type === 'command') ? COMMAND_WARNING : PROMPT_WARNING} 仅启用所引用的确切版本；本操作不会注册或授予快捷指令权限。`,
+    if (!await confirmDialog({ title: '启用快捷指令 Hook？', message: `${hook.actions.some(item => item.type === 'command') ? COMMAND_WARNING : PROMPT_WARNING} 未来执行跟随所引用指令的最新定义；本操作仅保存挂载启用状态，不立即执行指令。`,
       detail: hook.actions.filter(item => ['command', 'prompt_command'].includes(item.type)).map(item => commandSummary(item, directory)).join('\n\n'),
-      confirmLabel: '启用指令 Hook', danger: true, agent, confirmHelp: agent ? agentHelp('启用已授权提示词引用，在可创建安全点创建并启动独立 Worker。') : '启用对已授权版本的 Hook 引用；后续匹配节点时可能产生不可逆副作用，不改变快捷指令授权。' })) return false;
+      confirmLabel: '启用指令 Hook', danger: true, agent, confirmHelp: agent ? agentHelp(hook.actions.some(item => item.type === 'prompt_command')
+        ? '启用提示词引用，触发后在可创建安全点创建并启动独立 Worker；未来执行跟随最新定义。'
+        : '启用指令 Hook 及所配置的 Agent 动作；触发后按条件和安全门执行，指令跟随最新定义。') : '启用指令 Hook；后续匹配节点时按最新定义执行，可能产生不可逆副作用，启用本身不执行。' })) return false;
   }
   if (hook.enabled === false) return true;
   if (agent && !await confirmDialog({ title: '授权会安排 Agent 调用的 Hook？',
@@ -118,18 +120,18 @@ function parameters(mount, catalogue = ui.hookCatalogue) {
 }
 function importButton(source, revision, ownsPage, refresh, { busy = () => false, setEditing = () => {}, unavailable = null, catalogue = null } = {}) {
   let running = false;
-  const help = '显式将旧 Shell 注册为未授权快捷指令并替换此规则的引用；规则停用，不执行、不承接旧授权或重放触发。';
+  const help = '显式将旧 Shell 注册为快捷指令并替换此规则的引用；规则停用，不执行或重放旧触发。';
   const control = button('导入为快捷指令', async () => {
     if (!ownsPage() || running || busy() || unavailable) return;
     running = true; setEditing(true);
     try {
       const directory = catalogue || await api('/api/hooks');
       if (!ownsPage()) return;
-      if (!validCommands(directory.commands)) { show('快捷指令目录不可用；请更新服务并刷新，不能导入或授权命令。', 'error'); return; }
-      if (!await confirmDialog({ title: '导入旧命令为快捷指令？', message: `${help} 导入后请在快捷指令区逐项授权，再明确启用此 Hook。`,
+      if (!validCommands(directory.commands)) { show('快捷指令目录不可用；请更新服务并刷新，不能导入或校验指令引用。', 'error'); return; }
+      if (!await confirmDialog({ title: '导入旧命令为快捷指令？', message: `${help} 导入后请检查指令定义，再明确启用此 Hook。`,
         confirmLabel: '确认导入', confirmHelp: help }) || !ownsPage()) return;
       const result = await action('hooks.command_import', { source, expected_revision: revision }, { refresh: false });
-      if (ownsPage()) { ui.hookCatalogue = result; setEditing(false); show('已导入未授权快捷指令，Hook 保持停用；不会执行旧触发。'); await refresh(source.worker_id ? result.worker_hooks || result : result); }
+      if (ownsPage()) { ui.hookCatalogue = result; setEditing(false); show('已导入快捷指令，Hook 保持停用；不会执行旧触发。'); await refresh(source.worker_id ? result.worker_hooks || result : result); }
     } catch (error) { if (ownsPage()) show(`${error.message}；旧命令仍不可直接执行，请刷新检查导入结果。`, 'error'); }
     finally { running = false; if (ownsPage()) { setEditing(false); control.disabled = !!unavailable || busy(); } }
   }, 'ghost hook-button', { help });
@@ -203,7 +205,7 @@ export function mountCard(task, mount, model, refresh, ownsPage, { setEditing = 
           const cost = !copy && agent;
           save.classList.toggle('agent-call', cost);
           save.setAttribute('data-help', cost ? agentHelp('保存挂载授权；启用时条件满足即可安排调用。')
-            : copy ? '复制为新停用挂载，不执行、不复制执行记录或私有运行覆盖。' : '保存完整挂载配置；启用命令前须确认执行授权。');
+            : copy ? '复制为新停用挂载，不执行、不复制执行记录或私有运行覆盖。' : '保存完整挂载配置；启用指令 Hook 前须确认未来执行风险。');
         };
         const form = createHookForm(directory, { initial, ownsPage, workerId: task.id, workerTaskKind: task.task_kind, failedSelf: task.status === 'failed', copying: copy, onChange: paintCost });
         editor.replaceChildren(el('h3', copy ? '复制为新停用挂载' : `编辑挂载：${mount.name}`), form.node);
@@ -235,7 +237,7 @@ export function mountCard(task, mount, model, refresh, ownsPage, { setEditing = 
     actions.append(guarded(button('编辑挂载', () => editMount(), 'ghost hook-button', { help: '编辑此实例的命令、节点、条件和模式；不会修改来源模板。' }),
       legacy ? '旧内联命令须先显式导入快捷指令。' : saving || busy() || mount.editable !== true || mount.locked ? mount.reason || '此挂载不可编辑。' : null),
     guarded(button('复制为停用挂载', () => editMount(true), 'ghost hook-button', { help: '复制配置为此 Worker 的新停用挂载，不执行，也不复制执行记录。' }),
-      legacy ? '旧内联命令须先显式导入，不复制旧命令授权。' : model.can_attach === false || ['completed', 'cancelled'].includes(task.status) || task.archived ? '此 Worker 当前不允许新增挂载。' : null));
+      legacy ? '旧内联命令须先显式导入，不复制旧内联命令。' : model.can_attach === false || ['completed', 'cancelled'].includes(task.status) || task.archived ? '此 Worker 当前不允许新增挂载。' : null));
     if (legacy) actions.append(importButton({ worker_id: task.id, hook_id: mount.id }, model.revision, ownsPage, refresh,
       { busy, setEditing, catalogue, unavailable: mount.editable !== true || mount.locked ? mount.reason || '此挂载不可编辑。' : null }));
     for (const control of actions.querySelectorAll('button')) {
@@ -244,7 +246,7 @@ export function mountCard(task, mount, model, refresh, ownsPage, { setEditing = 
     row.append(actions, editor);
   }
   if (mount.reason) row.append(el('p', mount.reason, 'hint'));
-  if (legacyCommands(mount)) row.append(el('p', '旧内联命令已停止直接执行；须显式导入快捷指令并重新授权。', 'error'));
+  if (legacyCommands(mount)) row.append(el('p', '旧内联命令已停止直接执行；须显式导入快捷指令，再启用 Hook。', 'error'));
   row.append(parameters(mount, catalogue || ui.hookCatalogue)); return row;
 }
 
@@ -346,7 +348,7 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
         const paintCost = agent => {
           if (!save) return;
           save.classList.toggle('agent-call', agent);
-          const help = '保存此 Worker 的 Hook 挂载授权；启用时条件满足即可执行。命令需明确授权，停用配置不执行。';
+          const help = '保存此 Worker 的 Hook 挂载授权；启用时条件满足即可执行。指令未来执行跟随最新定义，停用配置不执行。';
           save.setAttribute('data-help', agent ? agentHelp(help) : help);
         };
         const form = template ? null : createHookForm(catalogue, { ownsPage, workerId: task.id, workerTaskKind: task.task_kind, failedSelf, onChange: paintCost });
@@ -392,10 +394,10 @@ export async function openHooks(options = {}) {
   return openProjectAutomation(options);
 }
 
-/** Auxiliary definitions and authorization; never part of the feature directory. */
+/** Auxiliary definitions and templates; never part of the feature directory. */
 export async function openHookTools({ subpage = 'settings' } = {}) {
   subpage = ['commands', 'history'].includes(subpage) ? subpage : 'settings';
-  const view = activateDetailView({ view: 'hook-tools', title: '指令与 Hook 工具', context: '工作', hint: '定义、版本授权与可复用模板', hash: subpage === 'history' ? '#hook-tools-history' : subpage === 'commands' ? '#hooks-commands' : '#hook-tools' });
+  const view = activateDetailView({ view: 'hook-tools', title: '指令与 Hook 工具', context: '工作', hint: '指令定义与可复用模板', hash: subpage === 'history' ? '#hook-tools-history' : subpage === 'commands' ? '#hooks-commands' : '#hook-tools' });
   const project = projectApi('/api/hooks'), owner = globalThis.document;
   const ownsPage = () => owner === globalThis.document && ui.view === view && sameProject(project);
   if (ui.hooksPage?.view === view && ui.hooksPage.project === project) {
@@ -428,7 +430,7 @@ export async function openHookTools({ subpage = 'settings' } = {}) {
     if (!owns() || state.busy || state.templateEditing) return;
     state.folds.set('templates', true);
     const templates = root.querySelector('[data-module="templates"]'); if (templates) templates.moduleOpen = true;
-    if (legacyCommands(initial)) { show('旧内联命令须先显式导入快捷指令，不直接编辑或复制旧授权。', 'error'); return; }
+    if (legacyCommands(initial)) { show('旧内联命令须先显式导入快捷指令，不直接编辑或复制旧内联命令。', 'error'); return; }
     state.templateEditing = true;
     const revision = state.catalogue.revision;
     const form = createHookForm(state.catalogue, { initial: copying ? { ...initial, name: `${initial.name}（副本）`, enabled: false } : initial, ownsPage: owns, copying });
@@ -496,7 +498,7 @@ export async function openHookTools({ subpage = 'settings' } = {}) {
     for (const template of catalogue.templates || []) {
       const card = projectHookCard(template.name, '模板 · 尚未挂载', 'hook-template'); card.dataset.templateId = template.id;
       card.append(el('p', `${catalogue.triggers?.find(t => t.id === template.trigger)?.label || template.trigger} · ${template.mode === 'persistent' ? '持续' : '一次性'}`, 'hint'), parameters(template, catalogue));
-      if (legacyCommands(template)) card.append(el('p', '旧内联命令已停止直接执行；请先显式导入并重新授权。', 'error'),
+      if (legacyCommands(template)) card.append(el('p', '旧内联命令已停止直接执行；请先显式导入，再启用 Hook。', 'error'),
         importButton({ template_id: template.id }, catalogue.revision, owns, result => {
           if (owns()) { state.catalogue = result; ui.hookCatalogue = result; paint(); }
         }, { catalogue, busy: () => state.busy, setEditing(value) { state.busy = value; } }));
@@ -518,7 +520,7 @@ export async function openHookTools({ subpage = 'settings' } = {}) {
       const key = card.dataset.hookId || card.dataset.templateId, details = card.querySelector('details');
       if (key && details && state.details.has(key)) details.open = state.details.get(key);
     }
-    const introduction = el('p', '模板可复用，实际挂载独立保存。这里管理项目指令定义和版本授权，不运行指令。', 'hint');
+    const introduction = el('p', '模板可复用，实际挂载独立保存。这里管理项目指令定义与可复用模板，不运行指令。', 'hint');
     const tools = renderAutomationTools(catalogue, state.folds);
     state.settingsNodes = [introduction, tools, controls, templates];
     syncChildren(root, [subnav, header, introduction, commands, tools, controls, templates]);

@@ -15,7 +15,6 @@ async function setup(provider, command = "test \"$(cat file.txt)\" = 'left plus 
   try {
     await repo(f.root); await f.project.bootstrapMain();
     const entry = f.project.saveShortcutCommand({ name: '组合验证', command }, f.project.shortcutCommands().revision).commands.items.at(-1);
-    f.project.authorizeShortcutCommand(entry.id, 1, true, f.project.shortcutCommands().revision);
     const owner = nested ? (await f.project.order('collect nested sources')).task : null;
     if (owner) f.store.update(owner.id, { status: 'waiting' });
     const target = owner?.branch ?? 'main';

@@ -12,7 +12,7 @@ async function setup() {
 }
 function register(f, command = 'true', name = 'original name') {
   const item = f.project.saveShortcutCommand({ name, command }, f.project.shortcutCommands().revision).commands.items.at(-1);
-  f.project.authorizeShortcutCommand(item.id, 1, true, f.project.shortcutCommands().revision); return item;
+  return item;
 }
 function trigger(f, item, worker = f.main) {
   const hook = f.project.attachTaskHook(worker.id, { name: 'history Hook', trigger: 'worker.merge_received', mode: 'once', enabled: true,
@@ -34,7 +34,6 @@ test('manual Project executors are absent; definition management cannot execute 
     for (const name of ['runShortcutCommand', 'startShortcutCommand', 'startPromptShortcutCommand']) expect(f.project[name]).toBeUndefined();
     const item = register(f, 'printf BAD > .lush/manual-proof');
     const prompt = f.project.saveShortcutCommand({ name: 'prompt', kind: 'prompt', prompt: 'do not create' }, f.project.shortcutCommands().revision).commands.items.at(-1);
-    f.project.authorizeShortcutCommand(prompt.id, 1, true, f.project.shortcutCommands().revision);
     const claim = f.project.acceptPromptShortcutExecution({ type: 'prompt_command', command_id: prompt.id, command_version: 1 }, f.main.id);
     await expect(f.project.executePromptShortcutCommand(claim, f.main.id)).rejects.toThrow('requires a Hook receipt');
     await expect(f.project.executePromptShortcutCommand(claim, f.main.id, { task_id: f.main.id, hook_id: 'forged', execution_id: 1, action_index: 0 })).rejects.toThrow('创建未完成');

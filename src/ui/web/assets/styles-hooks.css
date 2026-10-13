@@ -86,8 +86,8 @@ button.convergence-disable.is-selected { border-color: var(--line); background: 
 .automation-module-body { min-width: 0; }
 .automation-module-summary { margin-block: .5rem; overflow-wrap: anywhere; }
 .automation-module-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.hooks-page button.command-authorize, .hooks-page button.hook-enable:not(.agent-call) { background: var(--green-soft); border: 2px solid var(--completed); color: var(--text); font-weight: 700; }
-.hooks-page button.command-revoke, .hooks-page button.hook-disable:not(.agent-call) { background: var(--red-soft); border: 2px solid var(--failed); color: var(--text); font-weight: 700; }
+.hooks-page button.hook-enable:not(.agent-call) { background: var(--green-soft); border: 2px solid var(--completed); color: var(--text); font-weight: 700; }
+.hooks-page button.hook-disable:not(.agent-call) { background: var(--red-soft); border: 2px solid var(--failed); color: var(--text); font-weight: 700; }
 .hooks-page .help-host[tabindex="0"] { display: inline-flex; max-width: 100%; }
 .hooks-page .help-host:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 600px) { .automation-module button { white-space: normal; max-width: 100%; } }

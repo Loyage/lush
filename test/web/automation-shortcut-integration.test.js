@@ -24,7 +24,7 @@ function historical(f, item, worker, status) {
 const commandView = (model, id) => model.commands.items.find(item => item.id === id);
 
 // Real temporary HTTP -> RPC -> SQLite -> Git/Shell; never touches the user's daemon.
-test('HTTP saves main default, preserves omitted config, revokes changes and keeps Hook execution at its mount', async () => {
+test('HTTP saves main default, preserves omitted config, follows edits and keeps Hook execution at its mount', async () => {
   const f = await setup(); f.project.kick = () => {}; f.project.scheduleTaskMerge = () => {};
   try {
     await repo(f.root); const main = await f.project.bootstrapMain();
@@ -33,16 +33,15 @@ test('HTTP saves main default, preserves omitted config, revokes changes and kee
     const definition = { name: 'directory fixture', command: 'printf proof > shortcut-proof', default_worker_id: main.id };
     let model = await action(f, 'hooks.command_save', { command: definition, expected_revision: (await catalogue(f)).commands.revision });
     const id = model.commands.items.at(-1).id;
-    expect(commandView(model, id)).toMatchObject({ default_worker_id: main.id, version: 1, authorized: false });
-    model = await action(f, 'hooks.command_authorize', { id, version: 1, authorized: true, expected_revision: model.commands.revision });
+    expect(commandView(model, id)).toMatchObject({ default_worker_id: main.id, version: 1 });
+    expect(commandView(model, id)).not.toHaveProperty('authorized');
     for (const method of ['hooks.command_start', 'hooks.command_run'])
       expect((await post(f, method, { id, version: 1, worker_id: main.id, expected_revision: model.commands.revision })).status).toBe(400);
     expect((await history(f)).items).toEqual([]);
     expect(fs.existsSync(path.join(f.root, 'shortcut-proof'))).toBe(false);
     model = await catalogue(f);
     model = await action(f, 'hooks.command_save', { command: { id, name: definition.name, command: definition.command }, expected_revision: model.commands.revision });
-    expect(commandView(model, id)).toMatchObject({ default_worker_id: main.id, version: 2, authorized: false });
-    model = await action(f, 'hooks.command_authorize', { id, version: 2, authorized: true, expected_revision: model.commands.revision });
+    expect(commandView(model, id)).toMatchObject({ default_worker_id: main.id, version: 2 });
     const hook = await action(f, 'worker.hook_attach', { id: worker.id, expected_revision: f.project.taskHooks(worker.id).revision,
       hook: { name: 'mount directory', trigger: 'worker.merge_received', mode: 'persistent', enabled: true,
         actions: [{ type: 'command', command_id: id, command_version: 2 }] } });
@@ -52,7 +51,7 @@ test('HTTP saves main default, preserves omitted config, revokes changes and kee
     expect(f.project.taskHooks(worker.id).mounts.find(item => item.id === hook.mounts.at(-1).id).state).toBe('succeeded');
     model = await catalogue(f);
     model = await action(f, 'hooks.command_save', { command: { id, ...definition, default_worker_id: null }, expected_revision: model.commands.revision });
-    expect(commandView(model, id)).toMatchObject({ default_worker_id: null, version: 3, authorized: false });
+    expect(commandView(model, id)).toMatchObject({ default_worker_id: null, version: 3 });
     expect((await post(f, 'hooks.command_start', { id, version: 1, worker_id: main.id, expected_revision: model.commands.revision })).status).toBe(400);
     expect((await post(f, 'hooks.command_save', { command: { id, ...definition, default_worker_id: 999999 }, expected_revision: model.commands.revision })).status).toBe(400);
   } finally { await drain(f); await f.close(); }
@@ -66,13 +65,11 @@ for (const state of ['cancelled', 'child']) test(`HTTP omitted ${state} historic
     let model = await action(f, 'hooks.command_save', { command: { name: 'old default', command: 'pwd > .lush/http-default-proof', default_worker_id: old.id },
       expected_revision: (await catalogue(f)).commands.revision });
     const id = model.commands.items.at(-1).id;
-    model = await action(f, 'hooks.command_authorize', { id, version: 1, authorized: true, expected_revision: model.commands.revision });
     if (state === 'cancelled') f.project.cancel(old.id);
     else f.store.run("UPDATE tasks SET task_kind='child' WHERE id=?", old.id);
     model = await action(f, 'hooks.command_save', { command: { id, name: 'metadata edit', command: 'pwd > .lush/http-default-proof', description: 'edited' },
       expected_revision: model.commands.revision });
-    expect(commandView(model, id)).toMatchObject({ version: 2, authorized: false, default_worker_id: old.id, description: 'edited' });
-    model = await action(f, 'hooks.command_authorize', { id, version: 2, authorized: true, expected_revision: model.commands.revision });
+    expect(commandView(model, id)).toMatchObject({ version: 2, default_worker_id: old.id, description: 'edited' });
     await action(f, 'worker.hook_attach', { id: main.id, expected_revision: f.project.taskHooks(main.id).revision,
       hook: { name: 'real Shell mount', trigger: 'worker.merge_received', mode: 'once', enabled: true,
         actions: [{ type: 'command', command_id: id, command_version: 2 }] } });
@@ -85,10 +82,9 @@ for (const state of ['cancelled', 'child']) test(`HTTP omitted ${state} historic
     expect((await post(f, 'hooks.command_save', { command: { ...convert, default_worker_id: old.id }, expected_revision: revision })).status).toBe(400);
     expect((await catalogue(f)).commands.revision).toBe(revision); expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(events);
     model = await action(f, 'hooks.command_save', { command: convert, expected_revision: revision });
-    expect(commandView(model, id)).toMatchObject({ kind: 'prompt', version: 3, authorized: false, default_worker_id: old.id, description: 'edited' });
+    expect(commandView(model, id)).toMatchObject({ kind: 'prompt', version: 3, default_worker_id: old.id, description: 'edited' });
     expect(commandView(model, id).command).toBeUndefined();
     expect(JSON.parse(f.store.get("SELECT value FROM meta WHERE key='shortcut_commands'").value).items.find(item => item.id === id).default_worker_id).toBe(old.id);
-    model = await action(f, 'hooks.command_authorize', { id, version: 3, authorized: true, expected_revision: model.commands.revision });
     await action(f, 'worker.hook_attach', { id: main.id, expected_revision: f.project.taskHooks(main.id).revision,
       hook: { name: 'real prompt parent', trigger: 'worker.parent_ready', mode: 'once', enabled: true,
         actions: [{ type: 'prompt_command', command_id: id, command_version: 3 }] } });
@@ -108,7 +104,6 @@ test('HTTP history deletes only settled records, clears beyond loaded pages, ret
     let model = await action(f, 'hooks.command_save', { command: { name: 'safe history', command: 'printf PRIVATE_OUTPUT', default_worker_id: main.id },
       expected_revision: (await catalogue(f)).commands.revision });
     const item = model.commands.items.at(-1);
-    model = await action(f, 'hooks.command_authorize', { id: item.id, version: 1, authorized: true, expected_revision: model.commands.revision });
     const done = historical(f, item, main, 'succeeded');
     await drain(f);
     expect((await history(f, `?execution_id=${done.execution_id}`)).items[0].status).toBe('succeeded');

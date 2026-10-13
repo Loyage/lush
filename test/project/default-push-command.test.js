@@ -31,48 +31,50 @@ function legacy(f, { running = false, custom = false } = {}) {
   return rule.last_execution;
 }
 
-test('built-in git push starts authorized, Hook stays off, and later revocation is not undone by bootstrap', async () => {
+test('built-in git push has no authorization; edits follow latest definitions but never enable an off Hook', async () => {
   const f = await setup();
   try {
-    expect(push(f)).toMatchObject({ command: 'git push', version: 1, authorized: true });
-    expect(mount(f).enabled).toBe(false);
+    const item = push(f);
+    expect(item).toMatchObject({ command: 'git push', version: 1 });
+    expect(item).not.toHaveProperty('authorized'); expect(mount(f).enabled).toBe(false);
+    f.project.saveShortcutCommand({ id: item.id, name: item.name, command: 'git push origin main' }, f.project.shortcutCommands().revision);
+    await f.project.bootstrapMain(); expect(mount(f).enabled).toBe(false);
     await f.project.updateTaskHook(f.main.id, f.example.hook_id, true, f.project.taskHooks(f.main.id).revision);
-    expect(mount(f).enabled).toBe(true);
-    f.project.authorizeShortcutCommand(push(f).id, 1, false, f.project.shortcutCommands().revision);
-    await f.project.bootstrapMain();
-    expect(push(f).authorized).toBe(false); expect(mount(f).enabled).toBe(false);
-    const custom = f.project.saveShortcutCommand({ name: 'user command', command: 'git push' }, f.project.shortcutCommands().revision).commands.items.at(-1);
-    expect(custom.authorized).toBe(false);
+    f.project.saveShortcutCommand({ id: item.id, name: item.name, command: 'git push' }, f.project.shortcutCommands().revision);
+    await f.project.bootstrapMain(); expect(mount(f).enabled).toBe(true);
+    expect(f.project.resolveShortcutCommand(mount(f).actions[0])).toMatchObject({ version: 3, command: 'git push' });
   } finally { await f.close(); }
 });
 
-test('the previous unmodified registered default is granted once; reads never grant and user revocations survive the upgrade', async () => {
-  for (const explicitRevoke of [false, true]) {
+test('legacy ungranted and revoked default booleans are inert; reads and bootstrap preserve storage and Hook off state', async () => {
+  for (const revoked of [false, true]) {
     const f = await setup();
     try {
       previousVersion(f);
-      const item = push(f);
-      f.project.authorizeShortcutCommand(item.id, 1, false, f.project.shortcutCommands().revision);
-      if (!explicitRevoke) f.store.run("DELETE FROM events WHERE type='shortcut.command_authorized' AND json_extract(data,'$.command_id')=?", item.id);
-      expect(push(f).authorized).toBe(false);
-      f.project.hooksList(); expect(push(f).authorized).toBe(false);
-      await f.project.bootstrapMain();
-      expect(push(f).authorized).toBe(!explicitRevoke); expect(mount(f).enabled).toBe(false);
+      const commands = JSON.parse(f.store.get("SELECT value FROM meta WHERE key='shortcut_commands'").value);
+      commands.items[0].authorized = false;
+      const raw = JSON.stringify(commands);
+      f.store.run("UPDATE meta SET value=? WHERE key='shortcut_commands'", raw);
+      if (revoked) f.store.event(null, 'shortcut.command_authorized', { command_id: push(f).id, version: 1, authorized: false });
+      f.project.hooksList(); expect(push(f)).not.toHaveProperty('authorized');
+      await f.project.bootstrapMain(); expect(mount(f).enabled).toBe(false);
+      expect(f.store.get("SELECT value FROM meta WHERE key='shortcut_commands'").value).toBe(raw);
+      expect(f.project.resolveShortcutCommand(mount(f).actions[0]).command).toBe('git push');
       const revision = f.project.shortcutCommands().revision;
       await f.project.bootstrapMain(); expect(f.project.shortcutCommands().revision).toBe(revision);
     } finally { await f.close(); }
   }
 });
 
-test('legacy built-in mount and template import into one authorized command, discard pending triggers and preserve history', async () => {
+test('legacy built-in mount and template import into one command, discard pending triggers and preserve history', async () => {
   const f = await setup();
   try {
     const history = legacy(f, { custom: true });
     f.project.hooksList(); expect(f.project.shortcutCommands().items).toEqual([]);
     await f.project.bootstrapMain();
     const command = push(f), catalogue = f.project.hooksList();
-    expect(catalogue.commands.items).toHaveLength(1); expect(command.authorized).toBe(true);
-    const action = { type: 'command', command_id: command.id, command_version: 1 };
+    expect(catalogue.commands.items).toHaveLength(1); expect(command).not.toHaveProperty('authorized');
+    const action = { type: 'command', command_id: command.id };
     expect(mount(f)).toMatchObject({ enabled: false, pending_count: 0, actions: [action], last_execution: history });
     expect(catalogue.templates.find(t => t.id === f.example.template_id).actions).toEqual([action]);
     const custom = JSON.parse(f.store.task(f.main.id).hooks).mounts.find(m => m.id === 'custom-inline');
@@ -96,7 +98,7 @@ test('deleted built-in identities and edited commands are not restored or grante
       } else f.project.saveShortcutCommand({ id: item.id, name: 'custom push', command: 'git push origin main' }, f.project.shortcutCommands().revision);
       await f.project.bootstrapMain();
       if (change === 'delete') { expect(f.project.shortcutCommands().items).toEqual([]); expect(mount(f)).toBeUndefined(); }
-      else expect(f.project.shortcutCommands().items[0]).toMatchObject({ version: 2, authorized: false, command: 'git push origin main' });
+      else expect(f.project.shortcutCommands().items[0]).toMatchObject({ version: 2, command: 'git push origin main' });
     } finally { await f.close(); }
   }
 });
@@ -107,11 +109,11 @@ test('a legacy started effect must settle as unknown before automatic default im
     legacy(f, { running: true });
     await f.project.bootstrapMain(); expect(f.project.shortcutCommands().items).toEqual([]);
     f.project.recoverTaskHooks(); await f.project.hookQueue;
-    expect(push(f).authorized).toBe(true); // The same startup finishes the deferred upgrade after recovery.
+    expect(push(f)).not.toHaveProperty('authorized'); // Recovery finishes the deferred upgrade without replay.
     expect(mount(f)).toMatchObject({ state: 'unknown', last_execution: { status: 'unknown' } });
     const history = mount(f).last_execution;
     await f.project.bootstrapMain();
-    expect(push(f).authorized).toBe(true);
+    expect(push(f)).not.toHaveProperty('authorized');
     expect(mount(f)).toMatchObject({ enabled: false, pending_count: 0, state: 'unknown', last_execution: history });
     expect(f.store.history(f.main.id).filter(e => e.type === 'shortcut.command_started')).toHaveLength(0);
   } finally { await f.close(); }

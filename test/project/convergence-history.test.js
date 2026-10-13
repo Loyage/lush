@@ -121,7 +121,6 @@ test('independent order deletion and real GC retain shared receipts, survivor sy
     await repo(f.root); await f.project.bootstrapMain();
     const entry = f.project.saveShortcutCommand({ name: '组合验证', command: 'test -f first.txt && test -f second.txt' },
       f.project.shortcutCommands().revision).commands.items.at(-1);
-    f.project.authorizeShortcutCommand(entry.id, 1, true, f.project.shortcutCommands().revision);
     const view = await f.project.branchConvergence('main');
     await f.project.setBranchConvergence('main', true, { command_id: entry.id, command_version: 1 }, view.revision);
     const sources = [];

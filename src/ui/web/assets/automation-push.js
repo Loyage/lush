@@ -12,12 +12,12 @@ const labels = { 'hook.command_submitted': '触发已提交，等待安全执行
   'hook.action_completed': '动作结果', 'hook.execution_succeeded': '执行成功', 'hook.execution_failed': '执行失败',
   'hook.execution_unknown': '结果未知，不自动重放', 'hook.execution_skipped': '已跳过' };
 
-/** The actual main attachment, its referenced command versions, and its own durable events. */
+/** The actual main attachment, its referenced latest command definitions, and its own durable events. */
 export function renderPushAutomation({ ownsPage, catalogue: initial }) {
   const node = el('div', undefined, 'automation-push');
   const settings = el('section', undefined, 'push-settings'), history = block('推送 Hook 运行记录');
   history.classList.add('push-history');
-  const mountHost = el('div', undefined, 'command-hook-example'), commandHost = el('div', undefined, 'push-command-authorization');
+  const mountHost = el('div', undefined, 'command-hook-example'), commandHost = el('div', undefined, 'push-command-editor');
   const status = el('p', undefined, 'hint'); status.setAttribute('role', 'status');
   const settingsStatus = el('p', undefined, 'hint'); settingsStatus.setAttribute('role', 'status');
   const records = el('div', undefined, 'push-executions');
@@ -39,12 +39,17 @@ export function renderPushAutomation({ ownsPage, catalogue: initial }) {
   }
   function paintCommands() {
     if (!owns()) return;
-    if (!validCommands(catalogue?.commands)) { if (!commands) commandHost.replaceChildren(el('p', '快捷指令目录不可用；不能编辑或假定命令已授权。', 'error')); return; }
+    if (!validCommands(catalogue?.commands)) {
+      if (commands) commands.updateCommands?.(catalogue?.commands, catalogue);
+      else commandHost.replaceChildren(el('p', '快捷指令目录不可用；不能编辑或校验指令引用。', 'error'));
+      return;
+    }
     if (!commands) {
       commands = renderShortcutCommandManagement({ catalogue, model: catalogue.commands, ownsPage: owns, busy: () => busy || mountEditing,
-        setBusy(value) { busy = value; }, setEditing(value) { commandEditing = value; }, allowCreate: false,
+        setBusy(value) { busy = value; if (!value && owns()) mountHost.querySelector('.hook-mount')?.resume?.(); },
+        setEditing(value) { commandEditing = value; }, allowCreate: false,
         filterCommand: command => commandIds().has(command.id), onCatalogue(result) { if (owns()) { catalogue = result; paintMount(); paintCommands(); } } });
-      commandHost.replaceChildren(el('h2', '引用指令的版本授权'), el('p', '仅列出此挂载引用的指令。编辑会产生未授权新版本，需明确授权并更新挂载引用；不会自动升级或执行。', 'hint'), commands);
+      commandHost.replaceChildren(el('h2', '引用指令编辑'), el('p', '仅列出此挂载引用的指令。编辑影响所有引用的未来执行；已有挂载跟随最新定义，保存不执行，不停用挂载。', 'hint'), commands);
     }
     commands.updateCommands?.(catalogue.commands, catalogue); commands.setActive?.(tab === 'settings');
   }
@@ -97,18 +102,18 @@ export function renderPushAutomation({ ownsPage, catalogue: initial }) {
   history.append(el('p', '按持久推送挂载身份读取 main 的执行事件。删除挂载不删除历史；失败不撤销已合并代码，未知结果不自动重跑。', 'hint'), status, records, refresh, more);
   const reload = button('刷新推送设置', async () => {
     if (!owns() || busy) return;
-    if (mountEditing && !await confirmDialog({ title: '放弃挂载编辑并刷新？', message: '未保存的挂载编辑会丢失，指令草稿保留原版本。', confirmLabel: '放弃并刷新' })) return;
+    if (mountEditing && !await confirmDialog({ title: '放弃挂载编辑并刷新？', message: '未保存的挂载编辑会丢失，指令草稿保留原 revision。', confirmLabel: '放弃并刷新' })) return;
     if (!owns()) return; mountEditing = false;
     try { await loadCatalogue(); } catch (error) { if (owns()) settingsStatus.textContent = `设置读取失败：${error.message}`; }
   }, 'ghost');
-  settings.append(el('p', '成功收到合并后，由 main 的实际 Hook 执行已授权指令。Git remote、跟踪分支和认证由你的 Git 配置决定；不会自动修改 Git 配置。', 'hint'), settingsStatus, mountHost, commandHost, reload);
+  settings.append(el('p', '成功收到合并后，由 main 的实际启用 Hook 执行所引用指令的最新定义。Git remote、跟踪分支和认证由你的 Git 配置决定；不会自动修改 Git 配置。', 'hint'), settingsStatus, mountHost, commandHost, reload);
   node.append(settings, history);
   node.setSubpage = next => {
     tab = next === 'history' ? 'history' : 'settings'; settings.hidden = tab !== 'settings'; history.hidden = tab !== 'history';
     commands?.setActive?.(tab === 'settings');
     const row = mountHost.querySelector('.hook-mount'); row?.resume?.();
     if (tab === 'settings' && (row?.needsRefresh || commands?.needsRefresh)) {
-      settingsStatus.textContent = '离开期间有操作结束；不自动重发。草稿保留，请核对最新授权和挂载。';
+      settingsStatus.textContent = '离开期间有操作结束；不自动重发。草稿保留，请核对最新指令定义和挂载。';
       node.ready = loadCatalogue().catch(error => { if (owns()) settingsStatus.textContent = `设置读取失败：${error.message}；草稿保留，请只读刷新，不要重发。`; });
     }
     if (tab === 'history' && (!historyRead || resumeHistory)) node.ready = loadHistory();

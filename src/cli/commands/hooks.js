@@ -36,8 +36,8 @@ export async function run(command, args, { client }) {
 
 async function runCommand(args, client) {
   const verb = args.shift();
-  check(['list','save','authorize','revoke','remove','history','import','export'].includes(verb),
-    'hooks command requires list|save|authorize|revoke|remove|history|import|export; run lush help');
+  check(['list','save','remove','history','import','export'].includes(verb),
+    'hooks command requires list|save|remove|history|import|export; run lush help');
   if (verb === 'list') { exact(args, 0); return client.request('hooks.list'); }
   if (verb === 'history') {
     const before = option(args, '--before'), limit = option(args, '--limit'), execution_id = option(args, '--execution');
@@ -75,14 +75,9 @@ async function runCommand(args, client) {
     }
     return client.request(`hooks.command_${verb}`, { [verb === 'save' ? 'command' : 'source']: value, expected_revision });
   }
-  const rawVersion = verb === 'remove' ? null : option(args, '--version');
   exact(args, 1);
   check(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(args[0]), 'invalid command id');
-  if (verb === 'remove') return client.request('hooks.command_remove', { id: args[0], expected_revision });
-  check(typeof rawVersion === 'string' && /^[1-9]\d*$/.test(rawVersion)
-    && Number.isSafeInteger(Number(rawVersion)), 'provide --version N as a positive integer');
-  const version = Number(rawVersion);
-  return client.request('hooks.command_authorize', { id: args[0], version, authorized: verb === 'authorize', expected_revision });
+  return client.request('hooks.command_remove', { id: args[0], expected_revision });
 }
 
 async function runSignal(args, client) {

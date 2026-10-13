@@ -10,17 +10,12 @@ import { executeCommand, commandEnvironment } from '../../src/core/workspaces/co
 setDefaultTimeout(20000);
 const rule = (command = 'true', extra = {}) => ({ name: 'command', trigger: 'worker.merge_received', mode: 'persistent', enabled: true,
   actions: [{ type: 'command', command }], ...extra });
-const authorize = (f, command) => {
+const register = (f, command) => {
   const item = f.project.saveShortcutCommand({ name: 'test command', command }, f.project.shortcutCommands().revision).commands.items.at(-1);
-  f.project.authorizeShortcutCommand(item.id, item.version, true, f.project.shortcutCommands().revision);
-  return { type: 'command', command_id: item.id, command_version: item.version };
+  return { type: 'command', command_id: item.id };
 };
 const registered = (f, hook) => hook.actions ? { ...hook, actions: hook.actions.map(action => action.type === 'command' && action.command !== undefined
-  ? authorize(f, action.command) : action) } : hook;
-const authorizeExample = f => {
-  const action = f.project.hooksList().command_example.hooks.mounts.at(-1).actions[0];
-  f.project.authorizeShortcutCommand(action.command_id, action.command_version, true, f.project.shortcutCommands().revision);
-};
+  ? register(f, action.command) : action) } : hook;
 const attach = (f, task, hook) => f.project.attachTaskHook(task.id, registered(f, hook), f.project.taskHooks(task.id).revision).mounts.at(-1);
 const view = (f, task, hook) => f.project.taskHooks(task.id).mounts.find(m => m.id === hook.id);
 const emit = (f, task, source = null, trigger = 'worker.merge_received') => {
@@ -46,7 +41,7 @@ async function deliver(f, name) {
 test('command actions validate exact references, modes and fields and reject inline Shell', () => {
   const action = { type: 'command', command_id: '12345678-1234-1234-1234-123456789abc', command_version: 1 };
   const hook = extra => rule('', { actions: [action], ...extra });
-  expect(normalizeHook(hook()).actions).toEqual([action]);
+  expect(normalizeHook(hook()).actions).toEqual([{ type: 'command', command_id: action.command_id }]);
   expect(normalizeHook(hook({ mode: 'once' })).mode).toBe('once');
   for (const command of ['', 'git push', 'a\0b', 'a'.repeat(16001)]) expect(() => normalizeHook(rule(command))).toThrow('fields');
   for (const command_version of [0, -1, '1', 1.5]) expect(() => normalizeHook(hook({ actions: [{ ...action, command_version }] }))).toThrow('reference');
@@ -80,8 +75,9 @@ test('startup installs exactly one disabled persistent template/main mount; read
     const initial = f.project.hooksList(), example = initial.command_example;
     expect(example.worker_id).toBe(main.id);
     expect(example.hooks.mounts.find(m => m.id === example.hook_id)).toMatchObject({ enabled: false, mode: 'persistent',
-      actions: [{ type: 'command', command_id: initial.commands.items[0].id, command_version: 1 }], trigger: 'worker.merge_received' });
-    expect(initial.commands.items[0]).toMatchObject({ name: 'git push', command: 'git push', authorized: true });
+      actions: [{ type: 'command', command_id: initial.commands.items[0].id }], trigger: 'worker.merge_received' });
+    expect(initial.commands.items[0]).toMatchObject({ name: 'git push', command: 'git push' });
+    expect(initial.commands.items[0]).not.toHaveProperty('authorized');
     expect(initial.templates.find(t => t.id === example.template_id)).toMatchObject({ enabled: false, mode: 'persistent' });
     await f.project.bootstrapMain(); expect(f.project.hooksList().revision).toBe(initial.revision);
     const history = f.store.history(main.id).length;
@@ -103,7 +99,6 @@ test('a real successful queue landing triggers git push to a temporary bare remo
     await git(f.root, 'init', '--bare', remote); await git(f.root, 'remote', 'add', 'origin', remote);
     await git(f.root, 'push', '-u', 'origin', 'main');
     const example = f.project.hooksList().command_example;
-    authorizeExample(f);
     await f.project.updateTaskHook(f.main.id, example.hook_id, true, example.hooks.revision);
     const first = await deliver(f, 'first');
     const firstTip = await git(f.root, 'rev-parse', 'main');
@@ -167,7 +162,6 @@ test('git push without a remote fails visibly and never installs or changes remo
   const f = await setup();
   try {
     const hook = f.project.hooksList().command_example;
-    authorizeExample(f);
     await f.project.updateTaskHook(f.main.id, hook.hook_id, true, hook.hooks.revision);
     await deliver(f, 'no-remote');
     expect(view(f, f.main, { id: hook.hook_id })).toMatchObject({ state: 'failed', enabled: false });

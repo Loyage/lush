@@ -99,6 +99,14 @@ test('reuse and failure reporting require complete evidence for the actual final
   ]) expect(prompt).toContain(rule);
 });
 
+test('isolated integration explains latest command definitions without restoring preauthorization', () => {
+  const prompt = PROMPT_PARTS.integration.content;
+  expect(prompt).toContain('未来执行跟随最新定义、开始时固定实际版本，无需预先授权指令');
+  expect(prompt).not.toContain('运行已授权命令');
+  expect(prompt).toContain('新请求不执行最终验证快捷指令');
+  expect(prompt).toContain('不可将自己的专项冒充该验证');
+});
+
 test('read-only and isolated roles do not inherit development full-suite responsibility', () => {
   const root = temp();
   try {

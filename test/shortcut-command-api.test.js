@@ -12,7 +12,7 @@ const command = { name: 'safe fixture', command: 'printf fixture' };
 function project() {
   const calls = [];
   const p = { actor: token => token ? 7 : null };
-  for (const name of ['saveShortcutCommand','authorizeShortcutCommand','removeShortcutCommand','runShortcutCommand','startShortcutCommand','shortcutCommandHistory','importLegacyHookCommands'])
+  for (const name of ['saveShortcutCommand','exportShortcutCommand','removeShortcutCommand','shortcutCommandHistory','importLegacyHookCommands'])
     p[name] = (...args) => { calls.push({ name, args }); return { ok: true }; };
   return { p, calls, dispatcher: new Dispatcher(p) };
 }
@@ -27,18 +27,13 @@ function file(value) {
   return { root, filename, close: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
-test('shortcut RPC rejects invalid versions, IDs and nested authority before any runtime call', async () => {
+test('shortcut RPC retires authorization and rejects invalid export versions, IDs and nested authority before runtime', async () => {
   const f = project();
-  for (const version of [undefined, null, 0, -1, 1.5, '3', Number.MAX_SAFE_INTEGER + 1, [], {}]) {
-    for (const method of ['hooks.command_authorize']) {
-      const params = { id: commandId, version, authorized: true, expected_revision: revision };
-      await expect(f.dispatcher.dispatch(method, params)).rejects.toThrow('version');
-    }
-  }
+  await expect(f.dispatcher.dispatch('hooks.command_authorize', { id: commandId, version: 3, authorized: true, expected_revision: revision })).rejects.toThrow('unknown method');
+  for (const version of [undefined, null, 0, -1, 1.5, '3', Number.MAX_SAFE_INTEGER + 1, [], {}])
+    await expect(f.dispatcher.dispatch('hooks.command_export', { id: commandId, version })).rejects.toThrow('version');
   for (const id of [undefined, null, 7, '', 'bad', commandId + ' ', 'a\nb'])
     await expect(f.dispatcher.dispatch('hooks.command_remove', { id, expected_revision: revision })).rejects.toThrow('command id');
-  for (const authorized of [undefined, null, 0, 'true', [], {}])
-    await expect(f.dispatcher.dispatch('hooks.command_authorize', { id: commandId, version: 3, authorized, expected_revision: revision })).rejects.toThrow('authorized');
   for (const worker_id of [undefined, null, 0, -1, 'W151-1', 1.5, [], {}])
     await expect(f.dispatcher.dispatch('hooks.command_run', { id: commandId, version: 3, worker_id, expected_revision: revision })).rejects.toThrow();
   for (const value of [null, [], 'text', {}, { ...command, authorized: true }, { ...command, version: 1 },
@@ -68,13 +63,11 @@ test('default Worker is optional, numeric or null, passed intact by RPC and priv
   }
 });
 
-test('shortcut RPC supports revoke and both import sources, preserving safe result and stale failures', async () => {
+test('shortcut RPC supports imports and revisioned saves, preserving safe result and stale failures', async () => {
   const f = project();
-  await f.dispatcher.dispatch('hooks.command_authorize', { id: commandId, version: 3, authorized: false, expected_revision: revision });
   await f.dispatcher.dispatch('hooks.command_import', { source: { template_id: 'old-template' }, expected_revision: revision });
   await f.dispatcher.dispatch('hooks.command_save', { command: { id: commandId, ...command }, expected_revision: revision });
   expect(f.calls).toEqual([
-    { name: 'authorizeShortcutCommand', args: [commandId, 3, false, revision] },
     { name: 'importLegacyHookCommands', args: [{ template_id: 'old-template' }, revision] },
     { name: 'saveShortcutCommand', args: [{ id: commandId, ...command }, revision] },
   ]);
@@ -84,27 +77,27 @@ test('shortcut RPC supports revoke and both import sources, preserving safe resu
   expect(attempts).toBe(1);
 });
 
-test('shortcut CLI forwards versioned authority and resolves Worker numbers only at the CLI boundary', async () => {
+test('shortcut CLI forwards revisioned edits and resolves Worker numbers only at the CLI boundary', async () => {
   const c = client(), definition = file(command), source = file({ worker_id: 'W151-1', hook_id: 'legacy' });
   try {
     const invoke = args => hooks('hooks', ['command', ...args], { client: c });
     await invoke(['list']);
     await invoke(['save','--file',definition.filename,'--revision',revision]);
-    await invoke(['authorize',commandId,'--version','3','--revision',revision]);
-    await invoke(['revoke',commandId,'--version','3','--revision',revision]);
+    for (const verb of ['authorize','revoke'])
+      await expect(invoke([verb,commandId,'--version','3','--revision',revision])).rejects.toThrow('requires');
     await invoke(['remove',commandId,'--revision',revision]);
     await invoke(['import','--file',source.filename,'--revision','worker:revision']);
     expect(c.calls).toEqual([
       { method: 'hooks.list', params: undefined },
       { method: 'hooks.command_save', params: { command, expected_revision: revision } },
-      { method: 'hooks.command_authorize', params: { id: commandId, version: 3, authorized: true, expected_revision: revision } },
-      { method: 'hooks.command_authorize', params: { id: commandId, version: 3, authorized: false, expected_revision: revision } },
       { method: 'hooks.command_remove', params: { id: commandId, expected_revision: revision } },
       { method: 'worker.lookup', params: { number: 'W151-1' } },
       { method: 'hooks.command_import', params: { source: { worker_id: 7, hook_id: 'legacy' }, expected_revision: 'worker:revision' } },
     ]);
     expect(HELP).toContain('commands.revision');
     expect(HELP).not.toContain('hooks command run ');
+    expect(HELP).not.toContain('hooks command authorize');
+    expect(HELP).not.toContain('修改即撤权');
   } finally { definition.close(); source.close(); }
 });
 
@@ -117,7 +110,7 @@ test('shortcut CLI rejects absent versions/revisions, extra options and unsafe p
       ['authorize',commandId,'--version','3'], ['remove',commandId,'--revision',revision,'--force'],
       ['run',commandId,'--version','3','--worker','W01','--revision',revision]]) await expect(invoke(args)).rejects.toThrow();
     for (const version of ['0','-1','1.5','03','1e3','9007199254740992'])
-      await expect(invoke(['authorize',commandId,'--version',version,'--revision',revision])).rejects.toThrow('version');
+      await expect(invoke(['export',commandId,'--version',version])).rejects.toThrow('version');
     fs.chmodSync(f.filename, 0o644);
     await expect(invoke(['save','--file',f.filename,'--revision',revision])).rejects.toThrow('private shortcut command');
     fs.chmodSync(f.filename, 0o600);

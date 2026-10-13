@@ -7,16 +7,16 @@
 - 归并是接收成果的**目标 Worker／分支策略**，通过统一自动化系统工具 `integrate_deliveries` 处理已授权交付，不是来源 Worker 的自动合并授权。开启 main 只影响之后交付到 main 的新固定成果，不提高任何 Worker 的自动合并／验收级别；关闭或未挂载时目标处理器仍按 `serial` 普通串行处理合法交付。工具与操作身份契约见[Hooks 工程接缝](hooks.md#系统工具与持久操作)。
 - 实际挂载 `mounted` 与启停 `enabled` 分开。未挂载必须关闭；项目页与 Worker 详情「自动化」操作同一策略与 revision，不保存两份状态。main 初始化时一次性挂载且关闭，其他未配置 Worker 不挂载；移除保留墓碑、历史与旧验证引用，不在读取或重启时重装。
 - 项目默认 `{mounted,enabled}` 初始均为 false，只在之后实际创建 order／child 时复制，不从父继承、不回写已有实例。未默认挂载时可以记住开启偏好，但实际实例始终关闭。child 的目标归并策略独立于其锁定的结束自动链。
-- 旧已保存策略没有 mounted 字段时视为已挂载，保留原启停、精确验证引用与历史。不批量修改历史行、分支、会话或交付收据；新所有者不继承旧所有者的授权。
+- 旧已保存策略没有 mounted 字段时视为已挂载，保留原启停、验证引用与历史。不批量修改历史行、分支、会话或交付收据；新所有者不继承旧所有者的授权。
 - 全部策略操作用户专属；只接受具有唯一活动 main／owner／order／child 所有者的真实本地分支，不接受 SHA、tag、ref 表达式或任意路径。setter 经 Project 写门、Git 串行区、真实目标与 revision 乐观锁；读取不安装配置、不启动 daemon、Agent 或命令。
 
 ## 验证责任与在途兼容
 
 新固定 v3 预约明确保存 `verification_mode:'agent', validation:null`，运行 data 保存同一模式。**不要求最终验证快捷指令、不创建命令验证检出、不运行组合 Shell，也不制造 passed 或 tested_commit/tree 证据。** 原开发 Agent 与冲突整合 Agent 负责各自的专项和受影响回归；顶层开发指令的最终集成与全量责任不变。无冲突对象归并不会为了验证额外启动 Agent，准备就绪与落地不能冒充测试通过；来源测试不证明组合语义兼容，这是明确的质量限制。
 
-原有在途 v1／v2 不转换。已经固定的旧 v3 command 请求／运行仍按精确授权指令、撤权／版本戳、隔离检出、最终证据、失败修复与中断恢复门收口；旧引用不会因新挂载默认被静默升级。旧 Shell 上限20分钟、8 MiB输出，只保存安全结果，剥离 invocation/provider 环境；隔离不是 OS 沙箱。
+原有在途 v1／v2 不转换。旧 v3 command 模式仍经隔离检出、最终证据、失败修复与中断恢复门收口；不再核验快捷指令授权，未来验证执行跟随最新定义。执行开始固定实际定义版本，已开始运行的正文与证据不被编辑替换，固定规则见[快捷指令契约](shortcut-commands.md#定义与版本)。旧 Shell 上限20分钟、8 MiB输出，只保存安全结果，剥离 invocation/provider 环境；隔离不是 OS 沙箱。
 
-缺失模式只能按合法旧 command 请求处理，未知模式或缺失／损坏验证引用不得成为免命令授权。新旧模式及不同旧指令版本不混批。关闭／移除只影响之后新固定交付，不撤回已有批次、不重放未知副作用。显式重试核验精确 revision、模式、来源、调用退出与待决；旧模式另核验命令授权，landing／blocked 未知现场不得盲重放。
+缺失模式只能按合法旧 command 请求处理，未知模式或缺失／损坏验证引用不得成为免命令验证。新旧模式不混批。关闭／移除只影响之后新固定交付，不撤回已有批次、不重放未知副作用。显式重试核验精确 revision、模式、来源、调用退出与待决；旧模式仍核验指令存在、类型匹配和精确执行证据，landing／blocked 未知现场不得盲重放。
 
 ## 固定成果与发布
 
@@ -40,7 +40,7 @@ branchConvergenceRuns(branch, before = null, limit = 20)
 retryBranchConvergence(id, expectedRevision)
 ```
 
-分支读面为 `{version:1,branch,owner_id,owner_worker_number,mounted,enabled,validation,revision,editable,reason,counts}`。validation 仅为兼容历史的安全引用；setter省略时保留，显式null可清除，开启不要求授权。list为 `{version:1,items,count,truncated,defaults}`，最多500个活动所有者分支、main优先；完整活动counts来自持久事实，不从有界分页或Worker图推导。
+分支读面为 `{version:1,branch,owner_id,owner_worker_number,mounted,enabled,validation,revision,editable,reason,counts}`。validation 仅为兼容历史的安全引用，不公开 authorized；setter省略时保留，显式null可清除，新引用只需 command_id，旧 command_version 兼容但不固定未来版本。新固定 Agent 模式不执行验证指令。list为 `{version:1,items,count,truncated,defaults}`，最多500个活动所有者分支、main优先；完整活动counts来自持久事实，不从有界分页或Worker图推导。
 
 defaults 为 `{version:1,mounted,enabled,revision,editable,reason}`。`task.hooks.convergence` 保留为同源分支配置安全投影；适用目标的通用 `mounts` 同时包含受保护 `delivery-handler` 和真实操作摘要，目录提供仅系统可用的 `integrate_deliveries`。兼容读面不重复保存策略或授权；非适用、终态或归档身份的 convergence 返回null。同步详情读面不执行Git查询，实际ref被外部删除时保存仍由真实Git目标校验拒绝，不改投其他分支。
 

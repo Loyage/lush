@@ -9,7 +9,6 @@
 | `hooks.list` | `{}` | `hooks list` / `hooks command list` |
 | `hooks.command_save` | `{command,expected_revision}` | `hooks command save --file PATH --revision REV` |
 | `hooks.command_export` | `{id,version}` | `hooks command export ID --version N` |
-| `hooks.command_authorize` | `{id,version,authorized,expected_revision}` | `hooks command authorize\|revoke ID --version N --revision REV` |
 | `hooks.command_remove` | `{id,expected_revision}` | `hooks command remove ID --revision REV` |
 | `hooks.command_history` | `{before?,limit?,execution_id?}` | `hooks command history [--before CURSOR] [--limit N] [--execution UUID]` |
 | `hooks.command_history_remove` | `{execution_id}` 或 `{clear:true}` | 自动化页「运行记录」删除／清空已结束记录 |
@@ -51,29 +50,29 @@
 
 目录新增 `worker.interrupted` 与 main／owner 的 `project.interrupted`，分别为本次用户安全中断真实退出、项目维护批次全部安全收尾；首版仅允许一次性／持续 `notify`，维护期间可执行纯告知，其它动作不可安装。节点不是 RPC，未新增任意事件发射权限；自动挂载及精确来源去重见[中断完成契约](../../engineering/interrupt-completion.md)。
 
-## 快捷指令授权
+## 快捷指令目录
 
-`commands:{version:1,revision,items}` 为当前项目 Shell／提示词目录。每项含 `{id,name,kind,default_worker_id,version,authorized,last_execution}`，以及 description、when_to_use、tags、examples、warnings；正文按 kind 仅返回 command 或 prompt。保存 `command:{id?,name,kind?,command?|prompt?,default_worker_id?,description?,when_to_use?,tags?,examples?,warnings?}`，旧缺省 kind=shell。元数据为可空字符串，tags 为字符串数组；编辑省略元数据保留原值。default_worker_id 仅兼容已有配置，为真实 Worker 内部整数或 null，编辑省略保留、null 清空；不参与 Hook 路由，页面不再管理手动默认目标。保存不授权，所有编辑递增版本并撤权。不接受路径、authorized、version 或额外参数；两类正文不可混合。保存、授权和删除使用 **commands.revision**，保存返回完整 Hooks 目录。
+`commands:{version:1,revision,items}` 为当前项目 Shell／提示词目录。每项含 `{id,name,kind,default_worker_id,version,last_execution}`，以及 description、when_to_use、tags、examples、warnings；正文按 kind 仅返回 command 或 prompt。保存 `command:{id?,name,kind?,command?|prompt?,default_worker_id?,description?,when_to_use?,tags?,examples?,warnings?}`，旧缺省 kind=shell。元数据为可空字符串，tags 为字符串数组；编辑省略元数据保留原值。default_worker_id 仅兼容已有配置，为真实 Worker 内部整数或 null，编辑省略保留、null 清空；不参与 Hook 路由，页面不再管理手动默认目标。commands.items 不公开 authorized；旧授权字段不参与执行准入。所有编辑递增版本但不撤权或停用挂载，已有自动化未来执行跟随最新定义。不接受路径、authorized、version 或额外参数；两类正文不可混合。保存和删除使用 **commands.revision**，保存返回完整 Hooks 目录。`hooks.command_authorize`、Project `authorizeShortcutCommand` 和 CLI `hooks command authorize/revoke` 已删除，UI 不提供授权／撤权或授权筛选。
 
-W241／D566 删除 `hooks.command_run`、`hooks.command_start` 与 CLI `hooks command run/start`，Web 不再提供手动运行；不保留兼容执行别名。指令只由已授权的 Hook 引用执行，原有权限、真实目录、Git 串行与生命周期门禁不变。
+W241／D566 删除 `hooks.command_run`、`hooks.command_start` 与 CLI `hooks command run/start`，Web 不再提供手动运行；不保留兼容执行别名。指令只由启用且通过安全门的 Hook 引用执行，原有权限、真实目录、Git 串行与生命周期门禁不变。
 
-用户专属只读 `GET /api/hooks/commands/executions` 保留 Hook 及旧手动运行安全摘要，返回 `{version:1,items,has_more,next_before}`。limit 默认 30、最多 100，before 为正整数事件游标；execution_id 为固定 UUID，不可与 before 同用。改名、撤权或删除不抹去历史；历史不保存 Shell 输出，断线不代表失败，未知结果不重放。完整读模型与恢复边界见[运行历史契约](../../engineering/shortcut-command-runs.md)。
+用户专属只读 `GET /api/hooks/commands/executions` 保留 Hook 及旧手动运行安全摘要，返回 `{version:1,items,has_more,next_before}`。limit 默认 30、最多 100，before 为正整数事件游标；execution_id 为固定 UUID，不可与 before 同用。编辑或删除不抹去历史；历史不保存 Shell 输出，断线不代表失败，未知结果不重放。完整读模型与恢复边界见[运行历史契约](../../engineering/shortcut-command-runs.md)。
 
 提示词 Hook 以挂载 Worker 为父创建并启动独立指令 Worker，消耗 token，不是追加消息。历史与 last_execution 含 kind、created_worker_id、created_worker_number、input_id；succeeded 仅表示创建并提交，不表示 Agent 工作完成，结果从关联 Worker 查看。受阻不改投 main。
 
-`hooks.command_export {id,version}` 是用户专属只读接口，返回 `{filename,markdown}`；HTTP `GET /api/hooks/commands/export?id=UUID&version=N` 不接受额外／重复参数。导出单条 Skill 风格 Markdown，不安装、不注入、不授权，不开放 Agent 调用能力。
+`hooks.command_export {id,version}` 是用户专属只读接口，返回 `{filename,markdown}`；HTTP `GET /api/hooks/commands/export?id=UUID&version=N` 不接受额外／重复参数。导出单条 Skill 风格 Markdown，不安装、不注入，不开放 Agent 调用能力。版本核验用于精确导出，不是预授权。
 
-`hooks.command_history_remove` 是用户专属写入口，经同源 POST action，参数必须二选一：`{execution_id:UUID}` 逐条移除，或 `{clear:true}` 清空全部已确认成功／失败记录，返回 `{removed_count}`。重复移除同 UUID 返回 0；待执行、执行中、unknown 不可移除。删除持久隐藏历史列表、精确查询与快捷指令 last_execution，不删除原审计、不改变授权或副作用，恢复／去重仍使用原事实。
+`hooks.command_history_remove` 是用户专属写入口，经同源 POST action，参数必须二选一：`{execution_id:UUID}` 逐条移除，或 `{clear:true}` 清空全部已确认成功／失败记录，返回 `{removed_count}`。重复移除同 UUID 返回 0；待执行、执行中、unknown 不可移除。删除持久隐藏历史列表、精确查询与快捷指令 last_execution，不删除原审计、不改变挂载启停或副作用，恢复／去重仍使用原事实。
 
-Shell Hook 引用 `{type:'command',command_id:'UUID',command_version:1}`；提示词用同形 `type:'prompt_command'`，仅 `worker.parent_ready`＋once，以挂载 Worker 为父，标明 Agent 代价；同 Hook 不混合两类指令，最多一个 create_worker／prompt_command。启用、触发和真正创建／执行前复核授权版本。旧内联 Shell 不再执行；显式 `hooks.command_import` 的 source 只能是 `{worker_id,hook_id}` 或 `{template_id}`，使用源 Worker Hooks / 模板目录 revision。导入新建未授权指令、替换源引用并停用规则，保留历史、不重放旧触发；返回完整目录及 imported_command_ids、可选 worker_hooks。CLI import 文件的 worker_id 可用 W 编号，其余 Hook/模板身份不改写。
+Shell Hook 引用 `{type:'command',command_id:'UUID'}`；提示词用同形 `type:'prompt_command'`，仅 `worker.parent_ready`＋once，以挂载 Worker 为父，标明 Agent 代价；同 Hook 不混合两类指令，最多一个 create_worker／prompt_command。旧可选 command_version 为正安全整数，仅兼容，不固定未来版本；执行前核验指令存在与类型匹配，执行开始固定实际定义，编辑竞态不得混用正文与收据。旧内联 Shell 不再执行；显式 `hooks.command_import` 的 source 只能是 `{worker_id,hook_id}` 或 `{template_id}`，使用源 Worker Hooks / 模板目录 revision。导入新建指令、替换源引用并停用规则，保留历史、不重放旧触发；返回完整目录及 imported_command_ids、可选 worker_hooks。CLI import 文件的 worker_id 可用 W 编号，其余 Hook/模板身份不改写。
 
-修改、撤权和删除均不会默默将所有 Hook 改绑新版本，不承诺撤回已经开始的副作用；未知结果禁止重放。完整安全契约见[快捷指令与 Hook](../../engineering/shortcut-commands.md)。
+旧已停用规则不自动启用，不改写历史或重放；删除／类型不匹配仍阻止执行，不承诺撤回已经开始的副作用。完整安全契约见[快捷指令与 Hook](../../engineering/shortcut-commands.md)。
 
 ## 通用命令与 main 示例
 
 `command_example` 为 `{template_id,worker_id,hook_id,hooks}`，无 main 为 null。示例首次初始化为默认关闭的持续模板与 main 挂载；读取不安装，被用户删除不重装。项目页面启停示例时使用 **command_example.hooks.revision**，不是模板 revision。
 
-定义使用 `trigger:'worker.merge_received'`（父 Worker 收到成功合并）和 `actions:[{type:'command',command_id:'UUID',command_version:1}]`；动作支持节点以目录为准。新项目默认注册并授权内置 `git push` 快捷指令，再由停用示例引用；旧项目未修改的默认示例在启动时一次性导入／授权，不恢复用户撤权、修改或删除，不重放旧触发。其他内联命令仍须显式导入并授权。Hook 不配置 remote/upstream/认证，命令业务语义由用户自己决定。Shell 在挂载目录以 daemon 系统用户权限执行，不是沙箱，不调用 Agent；启用前需明确授权，不自动重放失败或未知副作用。
+定义使用 `trigger:'worker.merge_received'`（父 Worker 收到成功合并）和 `actions:[{type:'command',command_id:'UUID'}]`；动作支持节点以目录为准。新项目默认注册内置 `git push` 快捷指令，再由停用示例引用；旧项目导入与停用保留见[兼容契约](../../engineering/shortcut-commands.md#旧配置与-git-push)。Hook 不配置 remote/upstream/认证，命令业务语义由用户自己决定。Shell 在挂载目录以 daemon 系统用户权限执行，不是沙箱，不调用 Agent；启停与原执行安全门不变，不自动重放失败或未知副作用。
 
 完整编辑使用 `worker.hook_update {id,hook_id,hook:{name,trigger,mode,enabled,conditions?,actions,schedule?},expected_revision}`；不得同时提供 enabled。保留挂载 id，同位置省略 profile 保留已存私有覆盖。创建副本用新模板/挂载定义且 enabled=false，不携带原挂载状态或执行记录。示例用户流程见[自动化示例](../../hooks.md#示例main-合并后自动推送)。
 

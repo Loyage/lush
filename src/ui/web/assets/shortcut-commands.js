@@ -1,7 +1,7 @@
 import { el, button, block } from './dom.js';
 import { api, action } from './api.js';
 import { automationModule } from './automation-module.js';
-import { commandKind, commandBody, modernCommands, PROMPT_WARNING, COMMAND_WARNING, validCommands } from './shortcut-command-model.js';
+import { commandKind, modernCommands, PROMPT_WARNING, COMMAND_WARNING, validCommands } from './shortcut-command-model.js';
 import { commandDirectory, commandDetail } from './shortcut-command-directory.js';
 import { confirmDialog } from './dialog.js';
 import { show } from './messages.js';
@@ -16,13 +16,13 @@ function field(label, tag = 'input', value = '') {
 export function renderShortcutCommands(options) {
   const { catalogue, ownsPage, busy, setBusy } = options;
   const section = el('div', undefined, 'shortcut-commands'), folds = options.folds || new Map();
-  const introduction = el('p', '先注册并授权指令，再由 Hook 引用明确版本。修改即撤权，已有 Hook 引用不会自动升级。', 'hint'); section.append(introduction);
+  const introduction = el('p', '注册指令后由 Hook 按身份引用。编辑影响所有引用的未来执行，保存本身不执行。', 'hint'); section.append(introduction);
   let latest = catalogue.commands, subpage = 'settings';
   let management = validCommands(latest) ? renderShortcutCommandManagement({ ...options, model: latest }) : el('div'); management.classList.add('shortcut-command-management');
-  if (!validCommands(latest)) management.append(el('p', '快捷指令目录暂不可用；请更新后台服务并刷新。不能注册或授权指令。', 'error'));
+  if (!validCommands(latest)) management.append(el('p', '快捷指令目录暂不可用；请更新后台服务并刷新。不能注册或编辑指令。', 'error'));
   const runs = createShortcutRuns({ ownsPage, busy, setBusy, active: false });
   const historyModule = block('运行记录'); historyModule.classList.add('shortcut-history-module'); historyModule.append(runs.history);
-  const summary = () => validCommands(latest) ? `${latest.items.length} 项 · ${latest.items.filter(item => item.authorized).length} 已授权；授权和 Hook 启停独立。` : '指令目录不可用；安全历史独立查询。';
+  const summary = () => validCommands(latest) ? `${latest.items.length} 项；Hook 启停独立，未来执行跟随最新定义。` : '指令目录不可用；安全历史独立查询。';
   automationModule(historyModule, 'command-history', folds, summary());
   runs.onHistoryStatus(text => { historyModule.moduleSummary.textContent = text; historyModule.moduleSummary.hidden = !text; }); section.append(management, historyModule);
   section.setSubpage = next => { subpage = next; section.hidden = subpage === 'settings'; for (const child of section.children) child.hidden = child === historyModule ? subpage !== 'history' : subpage !== 'commands'; management.setActive?.(subpage === 'commands'); runs.setActive(subpage === 'history'); };
@@ -70,7 +70,7 @@ export function renderShortcutCommandManagement({ catalogue, model: initialModel
       const result = await action(method, params, { refresh: false });
       if (current() && epoch === generation) { if (!validCommands(result?.commands)) throw new Error('配置保存响应未确认'); onCatalogue(result); if (method === 'hooks.command_remove') showPage('list'); show('快捷指令配置已保存；已开始的副作用不会撤回。'); }
       else management.needsRefresh = true;
-    } catch (error) { if (current() && epoch === generation) show(`${error.message}；未假定授权已改变，请刷新目录确认。不自动重发。`, 'error'); }
+    } catch (error) { if (current() && epoch === generation) show(`${error.message}；未假定配置已改变，请刷新目录确认。不自动重发。`, 'error'); }
     finally { saving = false; setBusy(false); management.needsRefresh ||= !current(); if (ownsPage()) syncAll(); }
   }
   async function edit(initial = null) {
@@ -118,13 +118,13 @@ export function renderShortcutCommandManagement({ catalogue, model: initialModel
         // Select the saved entry without changing the submitted search/filter state.
         const saved = result.commands?.items?.find(item => initial ? item.id === initial.id : !model.items.some(old => old.id === item.id));
         if (saved) directory.select(saved.id);
-        closeEditor(); onCatalogue(result); show('快捷指令已保存为未授权版本；请显式授权后使用。');
+        closeEditor(); onCatalogue(result); show('快捷指令已保存；所有引用的未来执行跟随最新定义，保存本身未执行。');
       } catch (failure) { if (draftActive() && epoch === generation) { error.textContent = `${failure.message}；编辑已保留，版本冲突请核对目录后再保存，不自动重发。`; show(error.textContent, 'error'); } }
       finally { saving = false; setBusy(false); management.needsRefresh ||= !ownsPage() || !active; if (ownsPage() && editing) for (const input of ['input', 'textarea', 'select', 'button'].flatMap(tag => [...editor.querySelectorAll(tag)])) input.disabled = false; if (ownsPage()) syncAll(); }
-    }, 'hook-button', { help: '只保存定义，不授权、不执行、不调用 Agent；任何修改升版本并撤权，Hook 不自动升级。' });
+    }, 'hook-button', { help: '只保存定义，不执行、不调用 Agent；修改升版本，所有引用的未来执行跟随最新定义。' });
     const cancel = button('取消指令编辑', () => { if (!saving) closeEditor(); }, 'ghost');
     editor.replaceChildren(el('h3', initial ? `编辑快捷指令：${initial.name}` : '注册快捷指令'), name.wrap, kind.wrap, ...metadata.map(item => item.wrap), shell.wrap, prompt.wrap,
-      el('p', '保存仅注册内容，不执行、不授权、不调用 Agent；修改名称、元数据或正文会产生新版本并撤销授权。已有 Hook 引用不会自动升级。', 'hint'),
+      el('p', '保存仅更新定义，不执行、不调用 Agent；修改名称、元数据或正文会产生新版本，影响所有引用的未来执行，不停用已有挂载。', 'hint'),
       warning, ...(!editModern ? [el('p', '旧后台仅支持 Shell；元数据、提示词和导出须更新后台后使用，不伪装支持。', 'hint')] : []), error, save, cancel);
   }
   async function exportCommand(command) {
@@ -135,37 +135,33 @@ export function renderShortcutCommandManagement({ catalogue, model: initialModel
       if (typeof result?.markdown !== 'string' || typeof result?.filename !== 'string' || !/^[^/\\]+\.md$/.test(result.filename)) throw new Error('导出响应不可用');
       const preview = el('pre', result.markdown, 'hook-action-preview'); preview.setAttribute('data-worker-links', 'off');
       const download = el('a', `下载 ${result.filename}`, 'hook-help-link'); download.download = result.filename; download.href = `data:text/markdown;charset=utf-8,${encodeURIComponent(result.markdown)}`;
-      editor.replaceChildren(el('p', '只导出所选版本的 Skill 风格 Markdown，不安装、不注入 Agent，也不授予执行权限。', 'hint'), preview, download);
+      editor.replaceChildren(el('p', '只导出所选版本的 Skill 风格 Markdown，不安装、不注入 Agent，也不执行。', 'hint'), preview, download);
     } catch { if (current() && epoch === generation) show('导出接口不可用；请更新后台与界面服务。不自动回退本地拼接，不会安装或注入 Skill。', 'error'); }
   }
   function paintDetail(force = false) {
-    const command = directory.selected(), identity = command ? `${command.id}:${command.version}:${command.authorized}` : '';
+    const command = directory.selected(), identity = command ? `${command.id}:${command.version}` : '';
     if (!force && identity === detailVersion) return; detailVersion = identity;
     if (!editing) { generation++; editor.replaceChildren(); }
     // Controls from discarded details must not accumulate on periodic history updates.
     controls.splice(2); detail.replaceChildren();
-    if (!command) { detail.append(el('p', model.items.length ? '原选择已删除；请明确选择另一条指令。' : '尚未注册快捷指令；先注册并授权，再在 Hook 中选择。', 'hint')); return; }
+    if (!command) { detail.append(el('p', model.items.length ? '原选择已删除；请明确选择另一条指令。' : '尚未注册快捷指令；先注册，再在 Hook 中选择。', 'hint')); return; }
     const prompt = commandKind(command) === 'prompt', warning = prompt ? PROMPT_WARNING : COMMAND_WARNING, card = commandDetail(command);
     card.append(el('p', warning, 'hint hook-command-warning'));
     const buttons = el('div', undefined, 'actions');
-    buttons.append(control('编辑快捷指令', () => edit(command), '修改将产生新版本并撤权；已有 Hook 不会自动升级。'),
-      control(command.authorized ? '撤销授权' : '授权当前版本', () => mutation('hooks.command_authorize', { id: command.id, version: command.version, authorized: !command.authorized, expected_revision: model.revision },
-        { title: command.authorized ? '撤销快捷指令授权？' : `授权快捷指令「${command.name}」v${command.version}？`, message: command.authorized ? '停止此版本未来 Hook 执行；不会撤回已开始的副作用，也不重放旧触发。' : `${warning} 授权仅针对所展示的确切版本，Hook 仍须独立挂载和启用。`,
-          ...(command.authorized ? {} : { detail: commandBody(command) }), confirmLabel: command.authorized ? '确认撤权' : '授权此版本', danger: true, confirmHelp: '保存此版本未来执行授权；授权本身不运行 Shell、不启动 Agent。' }),
-        command.authorized ? '撤销此版本未来执行授权，不撤回已开始的副作用。' : `明确授权此版本供 Hook 引用。${warning}`, command.authorized ? 'command-revoke' : 'command-authorize'),
-      control('删除快捷指令', () => mutation('hooks.command_remove', { id: command.id, expected_revision: model.revision }, { title: `删除快捷指令「${command.name}」？`, message: '删除未来可用的授权，引用它的 Hook 将不可执行；不撤回已开始的副作用，执行历史保留。', confirmLabel: '删除指令', danger: true, confirmHelp: '删除指令，保留执行历史和既有成果。' }), '删除指令使已有 Hook 引用不可执行；历史与成果保留。'),
-      control('导出 Markdown', () => exportCommand(command), '读取此确切版本并导出 Skill 风格 Markdown；不安装、不注入 Agent、不授权。'));
+    buttons.append(control('编辑快捷指令', () => edit(command), '修改将产生新版本，影响所有引用的未来执行；保存不执行，不停用已有挂载。'),
+      control('删除快捷指令', () => mutation('hooks.command_remove', { id: command.id, expected_revision: model.revision }, { title: `删除快捷指令「${command.name}」？`, message: '删除指令定义，引用它的 Hook 将不可执行；不撤回已开始的副作用，执行历史保留。', confirmLabel: '删除指令', danger: true, confirmHelp: '删除指令，保留执行历史和既有成果。' }), '删除指令使已有 Hook 引用不可执行；历史与成果保留。'),
+      control('导出 Markdown', () => exportCommand(command), '读取此确切版本并导出 Skill 风格 Markdown；不安装、不注入 Agent、不执行。'));
     card.append(buttons); detail.append(card);
   }
   const listActions = el('div', undefined, 'actions');
   const resume = button('继续指令编辑', () => { if (current() && editing && !saving) showPage('detail'); }, 'ghost');
-  const create = control('注册快捷指令', () => edit(), '注册当前项目指令；保存不授权也不执行。'); create.hidden = !allowCreate;
+  const create = control('注册快捷指令', () => edit(), '注册当前项目指令；保存不执行、不调用 Agent。'); create.hidden = !allowCreate;
   listActions.append(create, resume);
   listPage.append(listActions, directory.node);
   const back = button('返回指令列表', () => { if (current() && !saving && !busy()) showPage('list'); }, 'ghost');
   const backHost = el('span', undefined, 'help-host'); backHost.append(back);
   detailPage.append(backHost, detail, editor); detailPage.hidden = true;
-  management.append(el('h2', '指令管理'), unavailable, el('p', '管理定义和版本授权；执行结果在历史记录子页面查看。保存不执行，修改即撤权。', 'hint'), listPage, detailPage);
+  management.append(el('h2', '指令管理'), unavailable, el('p', '管理指令定义；版本保留用于详情、导出和实际运行历史。保存不执行，编辑影响所有引用的未来执行。', 'hint'), listPage, detailPage);
   controls.push(() => { resume.hidden = !editing; back.disabled = saving || busy(); backHost.tabIndex = back.disabled ? 0 : -1; if (back.disabled) backHost.setAttribute('data-help', '正在确认或保存，请稍候再返回指令列表。'); else backHost.removeAttribute('data-help'); });
   management.setActive = value => {
     if (active !== value) generation++; active = value;
