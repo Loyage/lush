@@ -5,6 +5,26 @@ import { agentHelp } from './help.js';
 import { show } from './messages.js';
 import { workerLabel } from './worker-label.js';
 import { projectBase, routeContext } from './route.js';
+import { workerKind } from './worker-kind.js';
+
+/** Shared explanations and display policy; never execution authorization. */
+export const AUTOMATION_METADATA = /* @__PURE__ */ Object.freeze([
+  { id: 'completion', name: '成果自动合并与验收', description: '成果就绪后自动合并，可继续安全验收并回收开发资源。', principle: '交付安全点进入父级队列；验收复用安全检查，不调用质量评审 Agent，也不保证业务质量。', scope: '当前项目 · 新用户 Worker 默认' },
+  { id: 'push', name: '合并后自动 git push', description: 'main 成功收到合并后，按已启用挂载执行推送。', principle: '仅 main 的 Hook 执行所引用指令的最新定义；Git 上游和认证由用户配置，不给新开发 Worker 自动推送。', scope: '当前项目 · 仅 main 执行' },
+  { id: 'convergence', name: '归并合并', description: '目标 Worker 可归并处理收到的多项交付。', principle: '目标处理器只处理已授权交付；关闭归并仍串行合并，不提高来源 Worker 的合并或验收授权。', scope: '当前项目 · 目标处理策略' },
+  { id: 'acceptance_notice', name: '待验收告知', description: 'Worker 进入待验收时生成一条告知。', principle: '根据真实进入状态按 Worker／轮次去重；关闭不删历史或屏蔽异常、未知结果及待决，自动验收成功保持静默。', scope: '当前项目 · 新用户 Worker 默认' },
+]);
+export const automationMetadata = id => AUTOMATION_METADATA.find(item => item.id === id);
+export const DISPLAY_PRINCIPLES = /* @__PURE__ */ Object.freeze([
+  { value: 'main', label: '只在 main 默认显示' },
+  { value: 'all', label: '在所有 Worker 默认显示' },
+  { value: 'user', label: '在非 Worker 自动创建的 Worker 显示' },
+]);
+export function automationDefaultShown(id, task, principles) {
+  const policy = principles?.[id] ?? 'all', kind = workerKind(task);
+  return policy === 'all' || policy === 'main' && ['main', 'owner'].includes(kind)
+    || policy === 'user' && ['main', 'owner', 'order'].includes(kind);
+}
 
 const updating = new Set();
 // Historical archive authorization is equivalent to acceptance including reclamation.
@@ -29,24 +49,24 @@ export function completionLevelButtons(label, onSelect, { includeOff = true } = 
 }
 
 /** One-click highest-stage authorization; delegated Worker flow Hooks are read-only. */
-export function autoCompletionControl(task, model, refresh = () => {}, ownsPage = () => true, onEditing = () => {}) {
+export function autoCompletionControl(task, model, refresh = () => {}, ownsPage = () => true, onEditing = () => {}, busy = () => false) {
   const scope = projectBase(), updateKey = `${scope}:${task.id}`;
   const owns = () => ownsPage() && !routeContext().invalid && projectBase() === scope;
   let setting = model?.completion, revision = model?.revision, saved = normalizeLevel(setting?.level);
   const node = el('div', undefined, 'hook-completion-control');
-  const { group, choices } = completionLevelButtons(`Worker ${workerLabel(task)} 完工后自动处理到`, save);
+  const { group, choices } = completionLevelButtons(`Worker ${workerLabel(task)} ${automationMetadata('completion').name}最高环节`, save);
   const status = el('span', undefined, 'hint hook-completion-state'); status.setAttribute('role', 'status');
   const ended = ['failed', 'cancelled'].includes(task.status);
   const delivered = ['completed', 'awaiting_acceptance'].includes(task.status);
   const frozen = ['requested', 'executing', 'resolving', 'blocked', 'suspended'].includes(task.reservation?.status);
   const archived = task.archived || task.branch_archive?.archived;
   const locked = () => task.task_kind === 'child' || setting?.locked === true;
-  const editable = () => owns() && !locked() && setting?.editable === true && rank(saved) >= 0 && typeof revision === 'string'
+  const editable = () => owns() && !busy() && !locked() && setting?.editable === true && rank(saved) >= 0 && typeof revision === 'string'
     && !ended && !frozen && !archived && !['running', 'unknown'].includes(setting.state);
   const allowed = level => rank(level) >= Math.max(0, rank(setting?.min_level)) && (!delivered || rank(level) >= rank(saved));
   const mayCallAgent = () => !delivered && !['accept', 'archive'].includes(setting?.phase);
   const costHelp = (level, help) => level !== 'off' && mayCallAgent() ? agentHelp(help) : help;
-  const reason = () => (locked() ? '父 Worker 派生的子 Worker 流程 Hook 已锁定，用户不能修改自动级别。' : setting?.reason) || (ended ? 'Worker 已结束，不能设置自动链。' : archived ? '分支已归档。'
+  const reason = () => (busy() ? '其他自动化正在编辑或保存，请稍候。' : locked() ? '父 Worker 派生的子 Worker 流程 Hook 已锁定，用户不能修改自动级别。' : setting?.reason) || (ended ? 'Worker 已结束，不能设置自动链。' : archived ? '分支已归档。'
     : frozen ? '合并请求已冻结，不能修改当前自动链。' : setting?.state === 'running' ? '自动动作正在执行，不能修改当前链。'
       : setting?.state === 'unknown' ? '结果未知，请先检查现场；不能通过修改级别重放动作。'
         : !editable() ? '自动链设置或版本暂不可用，请刷新。' : '');
@@ -101,7 +121,7 @@ export function autoCompletionControl(task, model, refresh = () => {}, ownsPage 
     // button() restores its generic enabled state; reapply the authorization gate afterwards.
     const clicked = control.onclick; control.onclick = async () => { await clicked(); paint(); };
   }
-  node.append(el('span', '完工后自动处理到', 'hook-completion-label'), group, status); paint(); return node;
+  node.append(el('span', '自动执行到', 'hook-completion-label'), group, status); paint(); return node;
 }
 
 /** Built-in persistent hook; existing API and locked-child authorization remain unchanged. */

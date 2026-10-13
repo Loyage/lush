@@ -50,7 +50,10 @@ test('HTTP built-in git push needs no version grant but its Hook stays off until
     await git(f.root, 'init', '--bare', remote); await git(f.root, 'remote', 'add', 'origin', remote);
     await git(f.root, 'push', '-u', 'origin', 'main');
     let catalogue = await get(f, '/api/hooks'), example = catalogue.command_example;
-    const mainId = example.worker_id, hookId = example.hook_id;
+    // The Worker projection identifies the exact persisted main mount, never its title or a guessed ID.
+    const mainHooks = await get(f, `/api/worker/${example.worker_id}/hooks`);
+    const { worker_id: mainId, hook_id: hookId } = mainHooks.push;
+    expect(mainHooks.push).toEqual({ worker_id: example.worker_id, hook_id: example.hook_id });
     const command = catalogue.commands.items.find(item => item.command === 'git push');
     const initial = example.hooks.mounts.find(m => m.id === hookId);
     expect(command).toMatchObject({ version: 1 }); expect(command).not.toHaveProperty('authorized');
@@ -60,7 +63,10 @@ test('HTTP built-in git push needs no version grant but its Hook stays off until
     const beforeEvents = f.store.history(mainId).length;
     await get(f, '/api/hooks'); await get(f, `/api/worker/${mainId}/hooks`);
     expect(f.store.history(mainId)).toHaveLength(beforeEvents);
-    await deliver(f, mainId, 'disabled');
+    const disabled = await deliver(f, mainId, 'disabled');
+    const sourceHooks = await get(f, `/api/worker/${disabled.id}/hooks`);
+    expect(sourceHooks.push).toEqual(mainHooks.push);
+    expect(sourceHooks.mounts.some(mount => mount.id === hookId)).toBe(false);
     expect(await git(remote, 'rev-parse', 'main')).not.toBe(await git(f.root, 'rev-parse', 'main'));
 
     example = (await get(f, '/api/hooks')).command_example;

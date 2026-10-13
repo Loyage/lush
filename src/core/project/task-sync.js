@@ -94,7 +94,8 @@ export default {
               status: current.status === 'paused' ? 'paused'
                 : outcome.integration === 'merged' ? 'awaiting_acceptance' : 'waiting' });
             baselinePatch(this, task.id, parent);
-            this.store.event(task.id, 'task.parent_synced', { ...outcome, parent_id: current.parent_id });
+            const event = this.store.event(task.id, 'task.parent_synced', { ...outcome, parent_id: current.parent_id });
+            if (current.status !== 'awaiting_acceptance') this.notifyAcceptanceEntry(task.id, event);
           }
         });
         return { task: this.store.task(task.id), synced: outcome.synced, conflict: outcome.conflict,

@@ -23,7 +23,7 @@ test('lifecycle_type is projected consistently from source Events across list/pa
   try {
     const cases = [
       ['order', 'paused', 'task.start_pending', 'created'],
-      ['order', 'waiting', 'task.idle', 'idle'],
+      ['order', 'awaiting_acceptance', 'task.idle', 'idle'],
       ['order', 'failed', 'failed', 'failed'],
       ['order', 'failed', 'merge.repair_interrupted', 'failed'],
       ['analysis', 'failed', 'analysis.fork_failed', 'failed'],
@@ -33,7 +33,7 @@ test('lifecycle_type is projected consistently from source Events across list/pa
     for (const [kind, status, event, category] of cases) {
       const task = worker(f, kind, status), notice = lifecycle(f, task, event);
       expect(notice.lifecycle_type).toBe(category);
-      expect(f.project.notifyTaskLifecycle(task.id, notice.source_event_id)).toEqual(notice);
+      expect(f.project.notifyTaskLifecycle(task.id, notice.source_event_id)).toEqual(event === 'task.idle' ? null : notice);
       expected.set(notice.id, { category, task });
       // Later invocation, merge, acceptance or failure must not reclassify this historical notice.
       f.store.update(task.id, { status: category === 'failed' ? 'completed' : 'failed', integration: 'merged' });
@@ -103,7 +103,7 @@ test('legacy info, unknown/missing/mismatched source and non-info Notices projec
 test('homepage overview and compatibility snapshot preserve lifecycle_type supplied by Notice pages', async () => {
   const f = fixture(); f.project.stopping = true;
   try {
-    const task = worker(f), notice = lifecycle(f, task, 'task.idle');
+    const task = worker(f, 'order', 'awaiting_acceptance'), notice = lifecycle(f, task, 'task.idle');
     const analysis = worker(f, 'analysis', 'completed');
     const analyzed = lifecycle(f, analysis, 'completed');
     const client = new UIClient(f.config), requests = [];

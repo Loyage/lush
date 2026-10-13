@@ -8,15 +8,54 @@ import { agentHelp } from './help.js';
 import { workerKind } from './worker-kind.js';
 import { isHistoricalDelivery, absolute } from './format.js';
 import { createHookForm, COMMAND_WARNING } from './hook-form.js';
-import { autoMergeControl, autoCompletionControl, COMPLETION_LEVELS, HOOK_STATES as STATES } from './hook-controls.js';
+import { autoMergeControl, autoCompletionControl, COMPLETION_LEVELS, HOOK_STATES as STATES, AUTOMATION_METADATA, automationMetadata, DISPLAY_PRINCIPLES, automationDefaultShown } from './hook-controls.js';
+import { projectBase, routeContext } from './route.js';
 import { workerLabel } from './worker-label.js';
 import { hookScheduleSummary, scheduledWallTime } from './hook-schedule.js';
-import { workerConvergenceControl } from './convergence-policy-controls.js';
+import { workerConvergenceControl, validConvergencePolicy, convergenceDiagnostic, CONVERGENCE_ENABLE_HELP } from './convergence-policy-controls.js';
 import { commandReferencesIssue, commandSummary, legacyCommands, validCommands, PROMPT_WARNING } from './shortcut-command-model.js';
 
 import { isDeliveryHandler, hookResultLabel, renderOperation, operationAlert, deliveryHandlerCard } from './automation-tools.js';
 
+// Re-export via the already-shared renderer to retain the directory's lazy chunk boundary.
+export { AUTOMATION_METADATA, automationMetadata, DISPLAY_PRINCIPLES, automationDefaultShown };
+
 const pending = new Set();
+const workerFeatureStates = new WeakMap();
+function featureStates(document, identity, project, taskId) {
+  let state = workerFeatureStates.get(document);
+  if (!state || state.identity !== identity || state.project !== project || state.taskId !== taskId) {
+    state = { identity, project, taskId, features: new Map(), pushIdentity: null };
+    workerFeatureStates.set(document, state);
+  }
+  return state;
+}
+function workerFeature(item, task, principles, state) {
+  const previous = state.features.get(item.id), section = el('article', undefined, 'worker-automation-feature');
+  section.dataset.feature = item.id;
+  const head = el('div', undefined, 'worker-automation-feature-head');
+  head.append(el('h3', item.name));
+  const body = el('div', undefined, 'worker-automation-feature-body');
+  body.id = `worker-${task.id}-automation-${item.id}`;
+  let explicit = previous?.explicit === true;
+  const toggle = button('收起', () => { explicit = true; section.featureOpen = !section.featureOpen; }, 'ghost worker-feature-toggle');
+  toggle.setAttribute('aria-controls', body.id);
+  Object.defineProperty(section, 'featureOpen', {
+    get: () => !body.hidden,
+    set(value) { body.hidden = !value; toggle.textContent = value ? '收起' : '展开'; toggle.setAttribute('aria-expanded', String(Boolean(value))); },
+  });
+  const principle = el('details', undefined, 'worker-feature-principle');
+  principle.append(el('summary', '原理简介'), el('p', item.principle, 'hint'));
+  principle.open = previous?.principle.open === true;
+  const advanced = el('details', undefined, 'worker-feature-advanced');
+  advanced.append(el('summary', '高级设置与执行记录'));
+  advanced.open = previous?.advanced.open === true;
+  body.append(el('p', item.description, 'worker-feature-description'));
+  section.featureOpen = explicit ? previous.section.featureOpen : automationDefaultShown(item.id, task, principles);
+  head.append(toggle); section.append(head, body);
+  const nodes = { section, body, principle, advanced, get explicit() { return explicit; } };
+  state.features.set(item.id, nodes); return nodes;
+}
 export function hookHelpLink() {
   const link = el('a', '使用帮助', 'hook-help-link'); link.href = '/#doc-docs-hooks'; link.target = '_blank'; link.rel = 'noopener'; return link;
 }
@@ -57,6 +96,73 @@ function guarded(node, reason) {
   node.disabled = true; const host = el('span', undefined, 'help-host'); host.tabIndex = 0;
   host.setAttribute('data-help', `${reason} ${node.getAttribute('data-help') || ''}`); host.append(node); return host;
 }
+function guardedControl(control, reason) {
+  const host = el('span', undefined, 'help-host'); host.append(control);
+  host.sync = () => {
+    const blocked = reason(); control.disabled = Boolean(blocked); host.tabIndex = control.disabled ? 0 : -1;
+    host.setAttribute('data-help', `${blocked || ''} ${control.getAttribute('data-help') || ''}`);
+  };
+  host.sync(); return host;
+}
+/** Independent user switch: child delivery/acceptance authorization remains locked. */
+function acceptanceNoticeControl(task, model, refresh = () => {}, ownsPage = () => true, onEditing = () => {}, busy = () => false) {
+  const scope = projectBase(), owner = globalThis.document, key = `${scope}:${task.id}:acceptance-notice`;
+  const owns = () => ownsPage() && owner === globalThis.document && !routeContext().invalid && projectBase() === scope;
+  const valid = value => typeof value?.enabled === 'boolean' && typeof value.editable === 'boolean'
+    && (value.reason === null || typeof value.reason === 'string');
+  let setting = model?.acceptance_notice, revision = model?.revision, uncertain = false, error = '';
+  const node = el('div', undefined, 'hook-completion-control acceptance-notice-control');
+  const status = el('span', undefined, 'hint acceptance-notice-state'); status.setAttribute('role', 'status');
+  const group = el('div', undefined, 'hook-completion-levels'); group.setAttribute('role', 'group'); group.setAttribute('aria-label', `Worker ${workerLabel(task)} 待验收告知`);
+  const choices = [];
+  const frozen = ['requested', 'executing', 'resolving', 'blocked', 'suspended'].includes(task.reservation?.status);
+  const ended = ['completed', 'failed', 'cancelled'].includes(task.status) || task.archived || task.branch_archive?.archived;
+  const editable = () => owns() && !busy() && valid(setting) && typeof revision === 'string' && revision.length > 0 && setting.editable
+    && ['order', 'say', 'child'].includes(task.task_kind) && !ended && !frozen && !uncertain;
+  function paint() {
+    const reason = pending.has(key) ? '正在保存。' : busy() ? '其他自动化正在编辑或保存，请稍候。' : uncertain ? '保存结果未确认，请只读刷新，不要重复提交。'
+      : !valid(setting) || !revision ? '待验收告知设置不可用，请刷新或更新服务。' : ended ? 'Worker 已结束或归档。'
+        : frozen ? '交付请求已冻结，不能修改告知。' : setting.reason || (!setting.editable ? '此 Worker 当前不可编辑。' : '');
+    for (const { enabled, control, host } of choices) {
+      const selected = valid(setting) && setting.enabled === enabled;
+      control.disabled = !editable() || pending.has(key) || selected;
+      control.setAttribute('aria-pressed', String(selected)); control.classList.toggle('is-selected', selected);
+      const help = enabled ? '仅今后真实进入待验收时生成纯告知；派生 Worker 标为待父确认，不调用 Agent，不改变合并或验收授权，不补发历史。'
+        : '停止未来成功收尾告知，不删除历史，也不隐藏失败、未知结果或待决问题，不改变合并或验收授权。';
+      control.setAttribute('data-help', help); host.setAttribute('data-help', `${reason}${selected && !reason ? '已是当前设置。' : ''} ${help}`); host.tabIndex = control.disabled ? 0 : -1;
+    }
+    status.textContent = error || (pending.has(key) ? '正在保存…' : valid(setting) ? `待验收告知：${setting.enabled ? '开启' : '关闭'}` : '待验收告知状态尚未确认。');
+    status.classList.toggle('error', !!error);
+  }
+  async function save(enabled) {
+    if (!editable() || pending.has(key) || setting.enabled === enabled) return;
+    pending.add(key); onEditing(true); paint(); node.setAttribute('aria-busy', 'true');
+    let acknowledged = false;
+    try {
+      const result = await action('worker.acceptance_notice', { id: task.id, enabled, expected_revision: revision }, { refresh: false });
+      acknowledged = true;
+      if (!owns()) return;
+      if (result?.version !== 1 || result.worker_id !== task.id || typeof result.revision !== 'string' || !result.revision
+        || !Array.isArray(result.mounts) || !valid(result.acceptance_notice) || result.acceptance_notice.enabled !== enabled) {
+        uncertain = true; throw new Error('设置已提交，但未收到匹配的告知状态；请只读刷新，勿重复提交。');
+      }
+      setting = result.acceptance_notice; revision = result.revision; error = '';
+      show(`Worker ${workerLabel(task)} 待验收告知已${enabled ? '开启' : '关闭'}；不补发历史。`);
+    } catch (cause) { if (owns()) { uncertain = true; error = `${cause.message}；请刷新读取最新 Hook 版本，勿重复提交未确认操作。`; show(error, 'error'); } }
+    finally { pending.delete(key); onEditing(false); paint(); node.removeAttribute('aria-busy'); }
+    if (acknowledged && !uncertain && owns()) try { await refresh(); } catch (cause) {
+      if (owns()) { error = `告知设置已保存，但刷新失败：${cause.message}；不要重复提交。`; status.textContent = error; status.classList.add('error'); show(error, 'error'); }
+    }
+  }
+  if (!valid(setting)) { node.append(status); paint(); return node; }
+  for (const enabled of [false, true]) {
+    const control = button(enabled ? '开启告知' : '关闭告知', () => save(enabled), 'hook-completion-level'); control.dataset.noticeEnabled = String(enabled);
+    const host = el('span', undefined, 'help-host'); host.append(control); choices.push({ enabled, control, host }); group.append(host);
+    const clicked = control.onclick; control.onclick = async () => { await clicked(); paint(); };
+  }
+  node.append(group, status); paint(); return node;
+}
+
 function summary(actionItem, catalogue) {
   return ['command', 'prompt_command'].includes(actionItem.type) ? commandSummary(actionItem, catalogue) : actionItem.type === 'create_worker' ? `预约创建 Worker${actionItem.start !== false ? '并开始 Agent' : '（待开始）'}：${actionItem.content || ''}`
     : actionItem.type === 'notify' ? `发送告知：${actionItem.title || ''}`
@@ -272,19 +378,74 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   section.setAttribute('aria-label', 'Worker 自动化');
   const row = el('div', undefined, 'worker-hooks-row');
   row.append(el('strong', '自动化', 'worker-hooks-label'));
-  if (completion) row.append(autoCompletionControl(task, { ...model, completion }, refresh, ownsPage,
-    editing => { section.dataset.completionEditing = String(editing); }));
-  else if (['order', 'child'].includes(workerKind(task))) row.append(autoMergeControl(task, refresh, ownsPage));
+  const ownerDocument = globalThis.document;
+  const featureState = featureStates(ownerDocument, identity, project, task.id);
+  const pushIdentity = model?.push;
+  if (Number.isSafeInteger(pushIdentity?.worker_id) && pushIdentity.worker_id > 0
+    && (pushIdentity.hook_id === null || typeof pushIdentity.hook_id === 'string')) featureState.pushIdentity = { workerId: pushIdentity.worker_id, hookId: pushIdentity.hook_id };
+  const featureList = el('div', undefined, 'worker-automation-features');
+  const featureNodes = new Map(AUTOMATION_METADATA.map(item => [item.id, workerFeature(item, task, model?.automation_settings?.display_principles, featureState)]));
+  const completionFeature = featureNodes.get('completion');
+  if (completion && ['failed', 'unknown'].includes(completion.state)) row.append(el('span',
+    `${AUTOMATION_METADATA.find(item => item.id === 'completion').name}：${completion.last_execution?.error || STATES[completion.state]}`, 'error hook-completion-alert'));
+  if (completion && ['order', 'child'].includes(workerKind(task))) completionFeature.body.append(autoCompletionControl(task, { ...model, completion }, refresh, ownsPage,
+    editing => { section.dataset.completionEditing = String(editing); },
+    () => section.dataset.hookEditing === 'true' || section.dataset.convergenceEditing === 'true'));
+  else if (['order', 'child'].includes(workerKind(task))) {
+    completionFeature.body.append(el('p', '自动链完整状态不可用，保留兼容自动合并入口；请刷新或更新服务。', 'hint'), autoMergeControl(task, refresh, ownsPage));
+  } else completionFeature.body.append(el('p', 'main／分支所有者接收交付，不向父 Worker 自动合并；此功能不适用。', 'hint'));
+  const noticeFeature = featureNodes.get('acceptance_notice');
+  if (['order', 'child'].includes(workerKind(task))) noticeFeature.body.append(acceptanceNoticeControl(task, model, refresh, ownsPage,
+    editing => { section.dataset.hookEditing = String(editing); },
+    () => section.dataset.hookEditing === 'true' || section.dataset.completionEditing === 'true' || section.dataset.convergenceEditing === 'true'));
+  else noticeFeature.body.append(el('p', 'main／分支所有者不进入开发成果待验收状态，此告知不适用。', 'hint'));
+  if (!model?.automation_settings?.display_principles) row.append(el('span', '默认显示原则尚未提供；当前仅展示功能入口，不推断执行授权。', 'hint'));
   let handlerCard;
+  const convergenceAlert = el('span', undefined, 'error hook-convergence-alert');
+  const syncConvergenceAlert = policy => {
+    convergenceAlert.textContent = validConvergencePolicy(policy, task.branch) && policy.owner_id === task.id ? convergenceDiagnostic(policy) : '';
+    convergenceAlert.hidden = !convergenceAlert.textContent;
+  };
+  syncConvergenceAlert(model?.convergence); row.append(convergenceAlert);
   const convergence = workerConvergenceControl(task, { ownsPage, refresh,
-    onPolicyChange(policy) { handlerCard?.updatePolicy(policy); },
+    onPolicyChange(policy) { handlerCard?.updatePolicy(policy); syncConvergenceAlert(policy); },
     onEditing(value) { section.dataset.convergenceEditing = String(value); },
     busy: () => section.dataset.hookEditing === 'true' || section.dataset.completionEditing === 'true' });
   const handler = items.find(isDeliveryHandler);
-  if (convergence && !handler) row.append(convergence);
+  const convergenceFeature = featureNodes.get('convergence');
+  if (convergence) convergenceFeature.body.append(convergence);
+  const policy = model?.convergence;
+  if (!convergence && validConvergencePolicy(policy, task.branch) && policy.owner_id === task.id && !policy.mounted) {
+    const mountedStatus = el('p', '当前目标尚未挂载归并，仍串行处理合法交付。', 'hint');
+    convergenceFeature.body.append(mountedStatus);
+    let mounting = false, uncertain = false, mountHost;
+    const mount = button('挂载并开启归并', async () => {
+      if (!ownsPage() || mounting || uncertain || !policy.editable || section.dataset.hookEditing === 'true' || section.dataset.completionEditing === 'true') return;
+      mounting = true; section.dataset.convergenceEditing = 'true'; mountHost.sync();
+      try {
+        if (!await confirmDialog({ title: `挂载并开启 ${policy.branch} 的归并？`, message: CONVERGENCE_ENABLE_HELP, confirmLabel: '确认挂载并开启', agent: true, confirmHelp: CONVERGENCE_ENABLE_HELP }) || !ownsPage()) return;
+        const result = await action('branch.convergence_set', { branch: policy.branch, mounted: true, enabled: true, expected_revision: policy.revision }, { refresh: false });
+        if (!ownsPage()) return;
+        if (!validConvergencePolicy(result, task.branch) || result.owner_id !== task.id || !result.mounted || !result.enabled) throw new Error('归并保存结果未确认，请只读刷新，不要重复提交。');
+        uncertain = true; mountedStatus.textContent = '当前目标已挂载归并，归并合并：开启。'; handlerCard?.updatePolicy(result);
+        show('归并已挂载并开启，不改变来源合并或验收授权。');
+        section.dataset.convergenceEditing = 'false';
+        try { await refresh(); } catch (error) { if (ownsPage()) show(`归并已保存，但刷新失败：${error.message}；不要重复提交。`, 'error'); }
+      } catch (error) { if (ownsPage()) { uncertain = true; show(`${error.message}；请刷新核对设置，勿重发未确认操作。`, 'error'); } }
+      finally { mounting = false; section.dataset.convergenceEditing = 'false'; mountHost.sync(); }
+    }, 'hook-button', { agent: true, help: CONVERGENCE_ENABLE_HELP });
+    mountHost = guardedControl(mount, () => mounting ? '正在确认或保存。' : uncertain ? '保存结果已提交，请只读刷新，不要重复提交。'
+      : !policy.editable ? policy.reason || '当前目标不能修改归并。' : !ownsPage() ? '已离开此 Worker。' : null);
+    const clicked = mount.onclick; mount.onclick = async () => { await clicked(); mountHost.sync(); };
+    convergenceFeature.body.append(mountHost);
+  }
+  if (handler) {
+    handlerCard = deliveryHandlerCard({ mount: handler, policy });
+    convergenceFeature.advanced.append(handlerCard);
+  }
   for (const mount of items) {
     const diagnostic = operationAlert(mount);
-    if (diagnostic && !isDeliveryHandler(mount)) row.append(el('span', `${mount.name}：${diagnostic}`, 'error hook-operation-alert'));
+    if (diagnostic) row.append(el('span', `${mount.name}：${diagnostic}`, 'error hook-operation-alert'));
   }
   const alerts = items.filter(item => (!BUILTIN_STEPS[item.id] || !completion) && (['running', 'failed', 'unknown', 'skipped'].includes(item.state) || item.pending_due_at));
   for (const mount of alerts) {
@@ -317,7 +478,8 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
     const part = el('section', undefined, 'hook-trigger-group');
     part.append(el('h3', ui.hookCatalogue?.triggers?.find(item => item.id === trigger)?.label || labels[trigger] || trigger));
     for (const mount of group) part.append(mountCard(task, mount, model, refresh, ownsPage,
-      { setEditing(value) { section.dataset.hookEditing = String(value); }, busy: () => section.dataset.hookEditing === 'true' }));
+      { setEditing(value) { section.dataset.hookEditing = String(value); }, busy: () => section.dataset.hookEditing === 'true'
+        || section.dataset.completionEditing === 'true' || section.dataset.convergenceEditing === 'true' }));
     management.append(part);
   }
   const editor = el('div', undefined, 'hook-editor');
@@ -326,7 +488,8 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
   const writable = model && !['completed', 'cancelled'].includes(task.status) && !task.archived && !task.branch_archive?.archived
     && (model.can_attach !== undefined ? model.can_attach === true : !failedSelf);
   const attach = button('挂载 Hook', async () => {
-    if (!ownsPage() || !writable || section.dataset.hookEditing === 'true' || pending.has(`attach:${task.id}`)) return;
+    if (!ownsPage() || !writable || section.dataset.hookEditing === 'true' || section.dataset.completionEditing === 'true'
+      || section.dataset.convergenceEditing === 'true' || pending.has(`attach:${task.id}`)) return;
     management.open = true;
     pending.add(`attach:${task.id}`); attach.disabled = true;
     try {
@@ -372,8 +535,73 @@ export function workerHooks(task, { refresh = () => detail(task.id), compact = f
     finally { pending.delete(`attach:${task.id}`); attach.disabled = !writable; }
   }, 'ghost hook-button', { help: '打开受控规则编辑器或选择项目模板；打开不调用 Agent，确认挂载前会说明动作代价。' });
   controls.append(guarded(attach, !writable ? '挂载列表不可用、Worker 已结束或分支已归档；请先处理后刷新。' : null));
-  management.append(controls, editor); row.append(toggle, management); section.append(row);
-  if (handler) { handlerCard = deliveryHandlerCard({ mount: handler, policy: model?.convergence, control: convergence }); section.append(handlerCard); }
+  management.append(controls, editor); row.append(toggle, management);
+  const pushFeature = featureNodes.get('push'), pushHost = el('div', undefined, 'worker-push-setting');
+  pushFeature.body.append(pushHost);
+  const pushKey = `${project}:${task.id}:push`;
+  let pushControlHost = null;
+  const pushMain = ['main', 'owner'].includes(workerKind(task)) && task.branch === 'main';
+  async function readPush(goToMain = false) {
+    if (!ownsPage() || pending.has(pushKey) || section.dataset.hookEditing === 'true' || section.dataset.completionEditing === 'true' || section.dataset.convergenceEditing === 'true') return;
+    pending.add(pushKey); section.dataset.hookEditing = 'true';
+    try {
+      const directory = await api('/api/hooks'); if (!ownsPage() || ownerDocument !== globalThis.document) return;
+      const source = directory?.command_example;
+      if (!Number.isSafeInteger(source?.worker_id) || source.worker_id < 1) throw new Error('main 推送身份不可用；不会猜测 Worker ID。');
+      if (goToMain) { section.dataset.hookEditing = 'false'; return detail(source.worker_id); }
+      if (source.worker_id !== task.id || source.hooks?.worker_id !== task.id || typeof source.hooks.revision !== 'string') throw new Error('推送挂载与当前 main 身份不匹配。');
+      featureState.pushIdentity = { workerId: source.worker_id, hookId: source.hook_id };
+      paintPush(source.hooks, directory);
+    } catch (error) { if (ownsPage()) show(`推送设置读取失败：${error.message}`, 'error'); }
+    finally { pending.delete(pushKey); section.dataset.hookEditing = 'false'; pushControlHost?.sync(); }
+  }
+  function paintPush(current = model, catalogue = null) {
+    pushHost.replaceChildren(); pushControlHost = null;
+    if (!pushMain) {
+      pushHost.append(el('p', '仅 main 执行推送；本 Worker 不挂载或执行此功能。', 'hint'),
+        button('查看 main 自动化', () => ownsPage() && featureState.pushIdentity?.workerId
+          ? detail(featureState.pushIdentity.workerId) : readPush(true), 'ghost hook-button', { help: '只读定位本项目 main Worker 并打开其自动化；不会推送或开启挂载。' })); return;
+    }
+    const mount = featureState.pushIdentity?.workerId === task.id && current?.mounts?.find(item => item.id === featureState.pushIdentity.hookId);
+    pushFeature.advanced.hidden = !mount;
+    if (mount) {
+      pushHost.append(el('p', `当前 main 推送：${mount.enabled ? '开启' : '关闭'}`, 'hint'));
+      let uncertain = false, controlHost;
+      const control = button(mount.enabled ? '关闭推送' : '开启推送', async () => {
+        if (!ownsPage() || pending.has(pushKey) || uncertain || mount.editable !== true || mount.locked || section.dataset.hookEditing === 'true' || section.dataset.completionEditing === 'true' || section.dataset.convergenceEditing === 'true') return;
+        pending.add(pushKey); section.dataset.hookEditing = 'true'; controlHost.sync();
+        try {
+          if (!mount.enabled && !await authorizeHook({ ...mount, enabled: true }, callsAgent(mount))) return;
+          if (!ownsPage()) return;
+          const result = await action('worker.hook_update', { id: task.id, hook_id: mount.id, enabled: !mount.enabled, expected_revision: current.revision }, { refresh: false });
+          if (!ownsPage()) return;
+          const saved = result?.mounts?.find(item => item.id === mount.id);
+          if (result?.worker_id !== task.id || typeof result.revision !== 'string' || saved?.enabled !== !mount.enabled) throw new Error('推送保存结果未确认，请只读刷新，勿重复提交。');
+          uncertain = true; show(`main 推送已${saved.enabled ? '开启' : '关闭'}；不立即执行或重放旧触发。`);
+          section.dataset.hookEditing = 'false'; paintPush(result, catalogue);
+          try { await refresh(); } catch (error) { if (ownsPage()) show(`推送设置已保存，但刷新失败：${error.message}；不要重复提交。`, 'error'); }
+        } catch (error) { if (ownsPage()) { uncertain = true; show(`${error.message}；请刷新核对挂载，勿重复提交未确认操作。`, 'error'); } }
+        finally { pending.delete(pushKey); section.dataset.hookEditing = 'false'; controlHost.sync(); pushControlHost?.sync(); }
+      }, 'hook-button', { agent: !mount.enabled && callsAgent(mount), help: !mount.enabled && callsAgent(mount) ? agentHelp('开启 main 的未来推送挂载及已配置的 Agent 动作；不立即执行。') : '只修改 main 推送挂载的未来触发，不立即执行、撤回或重放旧推送。' });
+      controlHost = guardedControl(control, () => pending.has(pushKey) ? '正在确认或保存。' : uncertain ? '请只读刷新核对已提交的设置，不要重复提交。'
+        : mount.editable !== true || mount.locked ? mount.reason || '当前推送挂载不可编辑。' : !ownsPage() ? '已离开此 Worker。' : null);
+      pushControlHost = controlHost;
+      const clicked = control.onclick; control.onclick = async () => { await clicked(); controlHost.sync(); pushControlHost?.sync(); };
+      pushHost.append(controlHost);
+      pushFeature.advanced.replaceChildren(el('summary', '高级设置与执行记录'), mountCard(task, mount, current, refresh, ownsPage,
+        { catalogue, scope: '仅 main Worker', setEditing(value) { section.dataset.hookEditing = String(value); }, busy: () => pending.has(pushKey) || section.dataset.hookEditing === 'true' || section.dataset.completionEditing === 'true' || section.dataset.convergenceEditing === 'true' }));
+    } else pushHost.append(el('p', featureState.pushIdentity ? '推送挂载已删除或不可用；不会自动重装。' : '推送挂载身份尚未读取，不推断启用状态。', 'hint'));
+    pushHost.append(button('读取推送设置', () => readPush(), 'ghost hook-button'));
+  }
+  paintPush();
+  for (const nodes of featureNodes.values()) {
+    nodes.body.append(nodes.principle);
+    if (nodes.advanced.children.length > 1) nodes.body.append(nodes.advanced);
+    featureList.append(nodes.section);
+  }
+  // Push settings may acquire an advanced editor only after an explicit identity read.
+  if (pushMain && !pushFeature.advanced.parentNode) pushFeature.body.append(pushFeature.advanced);
+  section.append(row, featureList);
   return section;
 }
 async function promptRisk() {

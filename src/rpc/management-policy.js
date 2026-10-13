@@ -12,7 +12,7 @@ const reads = new Set([
 ]);
 const automatic = new Set(['draft.add','draft.update','draft.remove','input.emit','order.submit','worker.message',
   'input.emission_cancel','input.exclusive_release','worker.resume','worker.retry']);
-export const MANAGEMENT_DEVICE_ALIASES = new Set(['hooks.auto_select','hooks.completion_defaults']);
+export const MANAGEMENT_DEVICE_ALIASES = new Set(['hooks.auto_select']);
 export function managementDispatchParams(method, params) {
   if (!MANAGEMENT_DEVICE_ALIASES.has(method)) return params;
   // scope is management authorization metadata for these device-only legacy aliases,
@@ -21,6 +21,7 @@ export function managementDispatchParams(method, params) {
   return definition;
 }
 const unavailable = new Set([
+  'hooks.automation_settings','worker.acceptance_notice', // user configuration, never model-authorized
   'management.submit','management.create','management.binding_update', // no self-replicating managers/authorization changes
   'worker.spawn','worker.integrate','worker.resolve_child_divergence','notice.post',
   'agent.config','agent.environment','agent.environment.configure','agent.network','agent.network.configure',

@@ -28,6 +28,7 @@ async function invoke(f, task) {
 }
 function idle(f, task) {
   return f.store.transaction(() => {
+    f.store.update(task.id, { status: 'awaiting_acceptance' });
     const eventId = f.store.event(task.id, 'task.idle', {});
     return f.project.notifyTaskLifecycle(task.id, eventId);
   });
@@ -39,7 +40,7 @@ test('new lifecycle notices use Worker terminology without rewriting historical 
     const task = userTask(f);
     const historical = f.project.notify(task.id, '任务已结束', '历史 Task 详情');
     const notice = idle(f, task);
-    expect(notice.title).toStartWith(`Worker #${task.id} 本轮已结束`);
+    expect(notice.title).toStartWith(`Worker #${task.id} · 待验收`);
     expect(notice.body).toContain(`打开 Worker #${task.id} 查看详情`);
     expect(notice.body).not.toContain('任务');
     expect(notice.body).not.toContain('Task');
@@ -49,24 +50,17 @@ test('new lifecycle notices use Worker terminology without rewriting historical 
   } finally { await f.close(); }
 });
 
-test('successful user order invocation emits one unread info, another completed round emits another', async () => {
+test('successful order waiting for delivery does not emit the retired idle success reminder', async () => {
   const f = fixture({ async run() { return '结果'; } });
   try {
     stubGit(f);
     const task = userTask(f);
     await invoke(f, task);
     expect(f.store.task(task.id).status).toBe('waiting');
-    const [notice] = rows(f, task.id);
-    expect(notice).toMatchObject({ kind: 'info', status: 'sent', read_at: null });
-    expect(notice.source_event_id).toBeGreaterThan(0);
-    expect(notice.title).toContain('本轮已结束');
-    expect(notice.body).toContain('结果');
-    expect(notice.body).toContain('不代表 Worker 已验收完成');
-    expect(f.project.notifyTaskLifecycle(task.id, notice.source_event_id).id).toBe(notice.id);
-    expect(rows(f, task.id)).toHaveLength(1);
+    expect(rows(f, task.id)).toHaveLength(0);
     f.store.message(task.id, '继续'); f.project.wake(task.id);
     await until(() => f.store.task(task.id).calls === 2 && !f.project.running.has(task.id));
-    expect(rows(f, task.id)).toHaveLength(2);
+    expect(rows(f, task.id)).toHaveLength(0);
     expect(f.project.status().notices).toBe(0);
   } finally { await f.close(); }
 });
@@ -267,7 +261,9 @@ test('read is user-only, idempotent, retains status and history and never wakes 
 test('unread pagination excludes history/read infos; list keeps older unread before newer historical notices', async () => {
   const f = fixture({ async run() { return 'unused'; } });
   try {
-    const task = userTask(f), older = idle(f, task), newer = idle(f, task);
+    const task = userTask(f), older = idle(f, task);
+    f.store.event(task.id, 'task.iteration_started', {});
+    const newer = idle(f, task);
     f.store.transaction(() => {
       for (let i = 0; i < 210; i++) f.project.notify(task.id, `历史 ${i}`);
     });

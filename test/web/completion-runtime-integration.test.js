@@ -59,7 +59,8 @@ for (const level of ['off', 'merge', 'accept', 'archive']) test(`real HTTP/RPC/G
     expect(allNotices.filter(row => row.lifecycle_type === 'created')).toHaveLength(1);
     // The creation reminder is independent of the later completion chain and remains historical.
     const notices = allNotices.filter(row => row.lifecycle_type !== 'created');
-    expect(notices).toHaveLength(['accept', 'archive'].includes(level) ? 0 : 1);
+    // Off remains waiting for manual delivery; only merge actually reaches an acceptance edge.
+    expect(notices).toHaveLength(level === 'merge' ? 1 : 0);
     if (level === 'merge') expect(notices[0].title).toContain('待验收');
     expect(notices.some(notice => notice.title.includes('待归档'))).toBe(false);
     expect(fs.existsSync(task.workspace)).toBe(!['accept', 'archive'].includes(level));
@@ -68,6 +69,20 @@ for (const level of ['off', 'merge', 'accept', 'archive']) test(`real HTTP/RPC/G
     for (let i = 0; i < 3; i++) { await hooks(f, task.id); await get(f, `/api/worker/${task.id}`); }
     f.project.scheduleTaskCompletion(task.id); await f.project.completionQueue;
     expect(f.store.history(task.id)).toHaveLength(previousCount);
+    if (level === 'off') {
+      await post(f, 'worker.reserve', { id: task.id, kind: 'merge' });
+      await until(() => f.store.task(task.id).status === 'awaiting_acceptance'
+        && !f.project.taskMergeBusy?.size && !f.project.completionQueued?.size, 15000);
+      const delivered = (await get(f, '/api/notices?status=all')).notices.filter(row => row.task_id === task.id && row.kind === 'info');
+      expect(delivered.filter(row => row.lifecycle_type === 'created')).toHaveLength(1);
+      const acceptance = delivered.filter(row => row.lifecycle_type !== 'created');
+      expect(acceptance).toHaveLength(1);
+      expect(acceptance[0].title).toContain('待验收');
+      expect(f.store.get('SELECT type FROM events WHERE id=?', acceptance[0].source_event_id).type).toBe('task.merge_integrated');
+      expect(await git(f.root, 'show', 'main:completion-http.txt')).toBe('controlled result');
+      expect(f.calls).toBe(1);
+      privateAbsent(await hooks(f, task.id));
+    }
   } finally { await f.close(); }
 });
 

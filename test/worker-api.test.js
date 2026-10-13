@@ -1,6 +1,7 @@
 import { test, expect } from 'bun:test';
 import { PARAMS, USER_ONLY, AGENT_ONLY, assertAllowed } from '../src/rpc/registry.js';
 import { Dispatcher, HANDLERS } from '../src/rpc/dispatcher.js';
+import { fixture } from './helpers.js';
 
 // Strict public namespace; authority stays unchanged when optional profile selection is added.
 const reads = {
@@ -19,7 +20,8 @@ const reads = {
 };
 const writes = {
   auto_title: ['title'], rename: ['id','title'], spawn: ['parent','goal','name'], integrate: ['id','commit'], reserve: ['id','kind'], reserve_all: ['branch'],
-  auto_merge: ['id','enabled'], completion: ['id','level','expected_revision'], hook_attach: ['id','hook','expected_revision'],
+  auto_merge: ['id','enabled'], completion: ['id','level','expected_revision'], acceptance_notice: ['id','enabled','expected_revision'],
+  hook_attach: ['id','hook','expected_revision'],
   hook_update: ['id','hook_id','enabled','hook','expected_revision'], hook_remove: ['id','hook_id','expected_revision'],
   resolve: ['id'], resolve_divergence: ['id'], accept: ['id'],
   reopen: ['id'], sync_parent: ['id'], resolve_sync: ['id'], resolve_child_divergence: ['id'],
@@ -29,7 +31,7 @@ const writes = {
 };
 const userOnly = new Set(['version_graph','version_deliveries','version_commit','relations','run_settings','code_state','code_tree','code_file','transcript_latest','transcript_page','transcript_step',
   'transcript_search','runs_page','artifacts_page','artifact','completion_page','reading_page','reading_record','hooks','hook_attach','hook_update','hook_remove',
-  'reserve','reserve_all','auto_merge','completion','resolve','resolve_divergence','unreserve','approve_merge',
+  'reserve','reserve_all','auto_merge','completion','acceptance_notice','resolve','resolve_divergence','unreserve','approve_merge',
   'rename','cancel','retry','clear_override','cleanup','interrupt','resume','configure','reopen','sync_parent','resolve_sync','delete_preview','delete']);
 const agentOnly = new Set(['auto_title','integrate','resolve_child_divergence']);
 const contract = { ...reads, ...writes };
@@ -87,6 +89,7 @@ test('worker lifecycle RPC forwards existing internal methods, actors and persis
     ['clear_override', 'clearTaskProfile', { id: 7 }, [7]],
     ['auto_merge', 'setTaskAutoMerge', { id: 7, enabled: true }, [7, true]],
     ['completion', 'setTaskCompletion', { id: 7, level: 'accept', expected_revision: 'hooks-revision' }, [7, 'accept', 'hooks-revision']],
+    ['acceptance_notice', 'setTaskAcceptanceNotice', { id: 7, enabled: false, expected_revision: 'hooks-revision' }, [7, false, 'hooks-revision']],
     ['retry', 'retry', { id: 7, profile: { agent: 'pi', model: 'deepseek/chat' } }, [7, { agent: 'pi', model: 'deepseek/chat' }]],
     ['configure', 'configureTask', { id: 7, profile: { agent: 'pi', model: 'deepseek/chat' } }, [7, { agent: 'pi', model: 'deepseek/chat' }]],
     ['configure', 'configureTaskModelSelection', { id: 7, model_selection: { connection_id: '11111111-1111-4111-8111-111111111111', model: 'deepseek/chat' } },
@@ -133,6 +136,36 @@ test('worker.auto_merge forwards the strict hook setting and rejects malformed a
   const calls = [], project = { setTaskAutoMerge(...args) { calls.push(args); return result; } };
   expect(await HANDLERS['worker.auto_merge'](project, { id: 7, enabled: true }, null)).toBe(result);
   expect(calls).toEqual([[7, true]]);
+});
+
+test('worker.acceptance_notice strictly validates user-only id/boolean/revision without changing completion authority', async () => {
+  const f = fixture(); f.project.stopping = true;
+  try {
+    const task = f.store.create({ role: 'agent', task_kind: 'order', goal: 'strict notice setting' });
+    const rpc = new Dispatcher(f.project), before = f.project.taskHooks(task.id);
+    const params = { id: task.id, enabled: false, expected_revision: before.revision };
+    expect(PARAMS['worker.acceptance_notice']).toEqual(['id','enabled','expected_revision']);
+    expect(USER_ONLY.has('worker.acceptance_notice')).toBe(true);
+    expect(AGENT_ONLY.has('worker.acceptance_notice')).toBe(false);
+    expect(() => assertAllowed('worker.acceptance_notice', params, 42)).toThrow('requires user approval');
+    const stored = f.store.task(task.id), events = f.store.history(task.id);
+    for (const extra of [{ force: true }, { level: 'accept' }, { locked: false }, { scope: 'device' }])
+      await expect(rpc.dispatch('worker.acceptance_notice', { ...params, ...extra })).rejects.toThrow('unknown parameter');
+    for (const id of [0, 'W1', null, 1.5, Number.MAX_SAFE_INTEGER + 1])
+      await expect(rpc.dispatch('worker.acceptance_notice', { ...params, id })).rejects.toThrow('id must be a positive integer');
+    for (const enabled of [undefined, null, 0, 'false'])
+      await expect(rpc.dispatch('worker.acceptance_notice', { ...params, enabled })).rejects.toThrow('enabled must be boolean');
+    for (const expected_revision of [undefined, null, '', ' padded ', 'bad\u0000revision'])
+      await expect(rpc.dispatch('worker.acceptance_notice', { ...params, expected_revision })).rejects.toThrow('expected_revision');
+    await expect(rpc.dispatch('worker.acceptance_notice', { ...params, expected_revision: 'stale' })).rejects.toThrow('revision changed');
+    expect(f.store.task(task.id)).toEqual(stored);
+    expect(f.store.history(task.id)).toEqual(events);
+    // The common RPC id parser retains its decimal-string compatibility, never W-number coercion.
+    const changed = await rpc.dispatch('worker.acceptance_notice', { ...params, id: String(task.id) });
+    expect(changed).toMatchObject({ worker_id: task.id, acceptance_notice: { enabled: false, editable: true } });
+    expect(changed.completion).toEqual(before.completion);
+    expect(changed.revision).not.toBe(before.revision);
+  } finally { await f.close(); }
 });
 
 test('worker iteration handlers are id-only with accept parent confirmation and conflict envelopes', async () => {

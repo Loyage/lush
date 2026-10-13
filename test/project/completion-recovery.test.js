@@ -60,7 +60,9 @@ test('partial archive records actual outcomes and is not continued automatically
 for (const missing of [false, true]) test(`unknown archive claim preserves the scene and never replays (missing path=${missing})`, async () => {
   const f = await setup(); let restarted;
   try {
-    const { task } = await f.project.order('unknown archive'); await acceptIdle(f, task); await set(f, task, 'archive');
+    const { task } = await f.project.order('unknown archive');
+    f.project.setTaskAcceptanceNotice(task.id, false, f.project.taskHooks(task.id).revision);
+    await acceptIdle(f, task); await set(f, task, 'archive');
     const receipt = claim(f, task, 'archive');
     if (missing) fs.rmSync(task.workspace, { recursive: true }); // own test checkout, not a user's project
     restarted = await restart(f);
@@ -75,6 +77,7 @@ for (const missing of [false, true]) test(`unknown archive claim preserves the s
     expect(f.store.branch(task.branch).status).toBe('active');
     expect(f.store.all("SELECT id FROM notices WHERE task_id=? AND kind='info'", task.id)).toHaveLength(1);
     expect(value(f, task).completion.executions.archive.id).toBe(receipt.id);
+    expect(restarted.taskHooks(task.id).acceptance_notice.enabled).toBe(false); // Closed success reminders never hide unknown diagnostics.
   } finally { if (restarted) await restarted.shutdown(); await f.close(); }
 });
 

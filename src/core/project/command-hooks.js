@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { check, TERMINAL } from '../types.js';
+import { check, isPlainObject, TERMINAL } from '../types.js';
 import { assertTaskAncestorsOpen } from './iteration.js';
 import { hookConditionsMatch } from '../hooks.js';
 
@@ -84,13 +84,23 @@ export default {
     });
   },
 
-  commandHookExample() {
+  /** Read-only identity, independent of taskHooks to avoid recursive projections or lazy installation. */
+  commandHookExampleIdentity() {
     const main = this.store.get("SELECT id FROM tasks WHERE task_kind='main' AND branch='main' ORDER BY id LIMIT 1");
     if (!main) return null;
-    const record = JSON.parse(this.store.get("SELECT value FROM meta WHERE key='command_hook_example'")?.value ?? 'null');
-    const hooks = this.taskHooks(main.id);
-    // Keep the installed identities as a tombstone; callers inspect actual templates/mounts for availability.
-    return { template_id: record?.template_id ?? null, worker_id: main.id, hook_id: record?.hook_id ?? null, hooks };
+    let record;
+    try { record = JSON.parse(this.store.get("SELECT value FROM meta WHERE key='command_hook_example'")?.value ?? 'null'); }
+    catch { record = null; } // Damaged historical metadata cannot identify an unrelated rule.
+    const matches = isPlainObject(record) && [1, 2].includes(record.version) && record.worker_id === main.id;
+    const identity = value => typeof value === 'string' && value.length > 0 && value.length <= 128 && value.trim() === value && !value.includes('\0') ? value : null;
+    // Keep deleted identities as tombstones; only the actual mounts/templates establish availability.
+    return { worker_id: main.id, hook_id: matches ? identity(record.hook_id) : null,
+      template_id: matches ? identity(record.template_id) : null };
+  },
+
+  commandHookExample() {
+    const identity = this.commandHookExampleIdentity();
+    return identity ? { ...identity, hooks: this.taskHooks(identity.worker_id) } : null;
   },
 
   /** Merge success is durable even when shutdown has already closed ordinary lifecycle dispatch. */

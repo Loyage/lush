@@ -192,16 +192,19 @@ test('device policy survives Host shutdown and reaches stopped daemons only on e
     await cli(f.roots[1], ['start'], f.extra);
     expect((await answered(b, restartQuestion.id)).answer_source).toBe('lush');
     expect((await answered(a, closed.id)).answer_source).toBe('lush');
-    policy = await post(base, '/api/host/automation', { patch: { auto_select: { enabled: false },
-      completion_defaults: { enabled: true, level: 'merge' } }, expected_revision: policy.revision });
+    policy = await post(base, '/api/host/automation', { patch: { auto_select: { enabled: false } }, expected_revision: policy.revision });
+    const initialProject = (await a.request('hooks.list')).automation_settings;
+    const projectPolicy = (await a.request('hooks.automation_settings', { patch: { completion_defaults: { enabled: true, level: 'merge' } },
+      expected_revision: initialProject.revision })).automation_settings;
     for (const [client, task] of [[a, old[0]], [b, old[1]]])
       expect((await client.request('worker.hooks', { id: task.id })).completion.level).toBe('off');
     const fresh = await Promise.all([order(a, 'A future'), order(b, 'B future')]);
-    for (const [client, task] of [[a, fresh[0]], [b, fresh[1]]])
-      expect((await client.request('worker.hooks', { id: task.id })).completion.level).toBe('merge');
+    expect((await a.request('worker.hooks', { id: fresh[0].id })).completion.level).toBe('merge');
+    expect((await b.request('worker.hooks', { id: fresh[1].id })).completion.level).toBe('off');
     expect(fs.existsSync(path.join(f.device, 'shared', 'automation.json'))).toBe(true);
     await f.stopHost();
-    for (const client of [a, b]) expect((await client.request('hooks.list')).completion_defaults)
-      .toMatchObject({ enabled: true, level: 'merge', revision: policy.revision });
+    expect((await a.request('hooks.list')).completion_defaults)
+      .toMatchObject({ enabled: true, level: 'merge', revision: projectPolicy.revision });
+    expect((await b.request('hooks.list')).completion_defaults).toMatchObject({ enabled: false, level: 'merge' });
   } finally { await f.close(); }
 }, 30000);

@@ -68,7 +68,7 @@ test('real Host automation routes share project policy without read-side effects
   } finally { await b.close(); await a.close(); }
 }, 15000);
 
-test('Host default writes govern only new orders, and stopping Host does not revoke daemon authority', async () => {
+test('Host rejects retired defaults without partial writes; project defaults and device auto-select remain independent', async () => {
   const f = await setup(); f.project.kick = () => {};
   try {
     await repo(f.root);
@@ -76,15 +76,19 @@ test('Host default writes govern only new orders, and stopping Host does not rev
     const initial = await read(f);
     const saved = await save(f, { completion_defaults: { enabled: true, level: 'archive' },
       auto_select: { enabled: true } }, initial.revision);
-    expect(saved.status).toBe(200);
+    expect(saved.status).toBe(400); expect(saved.value.error).toContain('write retired');
+    expect(await read(f)).toEqual(initial);
+    const active = await save(f, { auto_select: { enabled: true } }, initial.revision);
+    expect(active.status).toBe(200);
+    const project = f.project.setCompletionDefaults(true, 'archive', f.project.completionDefaults().revision);
     expect(f.store.task(old.id).auto_merge).toBe(old.auto_merge);
     const fresh = (await f.project.order('future', null, [], null, false)).task;
-    expect(saved.value.completion_defaults).toMatchObject({ enabled: true, level: 'accept' });
+    expect(project.completion_defaults).toMatchObject({ enabled: true, level: 'accept' });
     expect(JSON.parse(fresh.auto_merge)).toMatchObject({ enabled: true, locked: false, level: 'accept' });
     const child = await f.project.spawn(fresh.id, 'child');
-    expect(JSON.parse(child.auto_merge)).toEqual({ version: 1, enabled: true, locked: true });
+    expect(JSON.parse(child.auto_merge)).toEqual({ version: 1, enabled: true, locked: true, acceptance_notice: { enabled: false } });
     await f.web.stop(true);
-    expect(f.project.deviceAutomation.get()).toEqual(saved.value);
+    expect(f.project.deviceAutomation.get()).toEqual(active.value);
     expect(f.project.stopping).toBe(false);
     const question = pending(f, 'after Host stops');
     await until(() => notice(f, question.id).status === 'answered');

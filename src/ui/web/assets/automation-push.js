@@ -1,118 +1,101 @@
-import { el, button, block } from './dom.js';
-import { api } from './api.js';
+import { el, button } from './dom.js';
+import { api, action } from './api.js';
 import { detail } from './navigate.js';
-import { mountCard } from './render-hooks.js';
-import { commandDetail } from './shortcut-command-directory.js';
-import { validCommands } from './shortcut-command-model.js';
-import { commandResultText } from './shortcut-command-runs.js';
-import { absolute } from './format.js';
 import { confirmDialog } from './dialog.js';
+import { agentHelp } from './help.js';
+import { renderAutomationSettings } from './automation-settings.js';
+import { commandDetail } from './shortcut-command-directory.js';
+import { commandReferencesIssue, commandSummary, validCommands, COMMAND_WARNING, PROMPT_WARNING } from './shortcut-command-model.js';
 
-const labels = { 'hook.command_submitted': '触发已提交，等待安全执行', 'hook.execution_started': '开始执行',
-  'hook.action_completed': '动作结果', 'hook.execution_succeeded': '执行成功', 'hook.execution_failed': '执行失败',
-  'hook.execution_unknown': '结果未知，不自动重放', 'hook.execution_skipped': '已跳过' };
-
-/** The actual main attachment, its referenced latest command definitions, and its own durable events. */
-export function renderPushAutomation({ ownsPage, catalogue: initial }) {
-  const node = el('div', undefined, 'automation-push');
-  const settings = el('section', undefined, 'push-settings'), history = block('推送 Hook 运行记录');
-  history.classList.add('push-history');
-  const mountHost = el('div', undefined, 'command-hook-example'), commandHost = el('div', undefined, 'push-command-reference');
+/** main alone owns the actual push attachment; no run evidence in project settings. */
+export function renderPushAutomation(options) {
+  const node = renderAutomationSettings({ ...options, feature: 'push' });
+  let catalogue = options.catalogue, saving = false, uncertain = false, disposed = false, generation = 0;
+  const owns = () => !disposed && (options.ownsPage?.() ?? true);
+  const current = () => Array.isArray(catalogue?.command_example?.hooks?.mounts)
+    ? catalogue.command_example.hooks.mounts.find(item => item?.id === catalogue.command_example.hook_id) : null;
+  const supported = (mount, source) => Number.isSafeInteger(source?.worker_id) && source.worker_id > 0
+    && source.hooks?.worker_id === source.worker_id && typeof source.hooks?.revision === 'string' && !!source.hooks.revision.trim()
+    && typeof mount?.enabled === 'boolean' && Array.isArray(mount.actions) && mount.actions.every(item => item && typeof item.type === 'string');
+  function enableIssue(mount) {
+    const references = commandReferencesIssue(mount, catalogue);
+    if (references) return references;
+    if (!validCommands(catalogue?.commands)) return '快捷指令目录不可用；请更新服务并重新读取，不能授权执行。';
+    if (!Array.isArray(catalogue?.actions) || mount.actions.some(item => typeof catalogue.actions.find(action => action?.type === item.type)?.agent_call !== 'boolean'))
+      return '动作目录不可用或含未知动作；请到 main 核查，不能猜测 Agent 代价并授权。';
+    return null;
+  }
+  // Use the registered action directory, including the existing no-start creation exception.
+  const callsAgent = mount => Array.isArray(catalogue?.actions) && mount.actions.some(item => catalogue.actions.find(action => action?.type === item.type)?.agent_call === true
+    && (item.type !== 'create_worker' || item.start !== false));
+  const host = el('section', undefined, 'push-main-settings command-hook-example'), advanced = el('div', undefined, 'push-advanced-settings push-command-reference'); advanced.hidden = true;
   const status = el('p', undefined, 'hint'); status.setAttribute('role', 'status');
-  const settingsStatus = el('p', undefined, 'hint'); settingsStatus.setAttribute('role', 'status');
-  const records = el('div', undefined, 'push-executions');
-  let catalogue = initial, disposed = false, mountEditing = false;
-  let reading = false, historyRead = false, resumeHistory = false, sequence = 0, cursor = null, hasMore = false, scanned = 0, tab = 'settings';
-  const events = new Map(), owns = () => !disposed && ownsPage();
-  const mount = () => catalogue?.command_example?.hooks?.mounts?.find(item => item.id === catalogue.command_example.hook_id);
-  const example = () => catalogue?.command_example;
-  const commandIds = () => new Set((mount()?.actions || []).filter(action => ['command', 'prompt_command'].includes(action.type)).map(action => action.command_id));
-  function paintMount() {
-    if (!owns() || mountEditing) return;
-    const current = mount(), source = example(), model = source?.hooks;
-    if (current && Number.isSafeInteger(source.worker_id) && model?.worker_id === source.worker_id && typeof model.revision === 'string' && model.revision) {
-      mountHost.replaceChildren(mountCard({ id: source.worker_id, task_kind: 'main', status: 'waiting' }, current, model,
-        () => loadCatalogue(), owns, { catalogue, scope: '仅 main Worker', busy: () => false, setEditing(value) { mountEditing = value; } }));
-      mountHost.append(button('查看 main Worker 自动化', () => owns() ? detail(source.worker_id) : undefined, 'ghost', { worker: source.worker_id }));
-    } else mountHost.replaceChildren(el('p', source ? '挂载已删除或不可用；不会自动重装。已有历史保留，Web 指令／模板设置入口已移除。' : '推送挂载读面不可用；请更新服务后刷新，不会默认启用或创建。', 'hint'));
-
-  }
-  function paintCommands() {
-    if (!owns()) return;
-    if (!validCommands(catalogue?.commands)) {
-      commandHost.replaceChildren(el('p', '快捷指令目录不可用；不能校验指令引用。', 'error')); return;
-    }
-    const referenced = catalogue.commands.items.filter(command => commandIds().has(command.id));
-    commandHost.replaceChildren(el('h2', '引用指令（只读）'),
-      el('p', 'Web 指令定义编辑入口已移除；已有挂载仍按已授权配置执行最新定义。', 'hint'),
-      ...referenced.map(command => commandDetail(command)));
-  }
-  async function loadCatalogue() {
-    if (!owns()) return;
-    const result = await api('/api/hooks'); if (!owns()) return;
-    catalogue = result; paintMount(); paintCommands(); settingsStatus.textContent = '';
-  }
-  function paintHistory() {
-    records.replaceChildren();
-    for (const event of [...events.values()].sort((a, b) => b.id - a.id)) {
-      const card = el('article', undefined, 'hook-execution push-execution');
-      card.append(el('h3', labels[event.type]), el('p', `${absolute(event.created_at)} · 事件 #${event.id}`, 'hint'));
-      if (event.data.execution_id) card.append(el('p', `运行身份：${event.data.execution_id}`, 'hint'));
-      if (event.data.command_result) card.append(el('p', commandResultText(event.data.command_result), ['failed', 'unknown'].includes(event.data.command_result.status) ? 'error' : 'hint'));
-      if (typeof event.data.error === 'string') card.append(el('p', event.data.error, 'error'));
-      records.append(card);
-    }
-    if (!events.size) records.append(el('p', historyRead ? hasMore ? '已读取范围内尚无该挂载记录，仍有更早事件未读取。' : '尚无该挂载运行记录。' : '尚未读取运行记录。', 'hint'));
-    more.hidden = !hasMore; more.disabled = reading; refresh.disabled = reading;
-  }
-  async function loadHistory(older = false) {
-    const source = example();
-    if (!owns() || reading || older && !hasMore) return;
-    if (!Number.isSafeInteger(source?.worker_id) || source.worker_id < 1 || typeof source.hook_id !== 'string' || !source.hook_id) {
-      status.textContent = '推送挂载身份不可用，不能猜测或混入其他 Hook 的记录。'; return;
-    }
-    const epoch = ++sequence, before = older ? cursor : null; reading = true; resumeHistory = false; paintHistory(); status.textContent = '正在读取推送运行记录…';
+  node.extra.append(el('p', '新 Worker 默认开启：不适用。仅 main 执行推送；新 Worker 只按默认显示原则显示功能，不自动挂载 push。', 'hint'), host);
+  const toggle = button('', async () => {
+    const mount = current(), source = catalogue?.command_example;
+    if (!owns() || saving || uncertain || !supported(mount, source) || mount.editable !== true || mount.locked
+      || !mount.enabled && enableIssue(mount)) return;
+    const enabled = !mount.enabled, request = ++generation, agent = enabled && callsAgent(mount);
+    saving = true; paint(); let submitted = false;
     try {
-      const page = await api(`/api/worker/${source.worker_id}/history-page?limit=100${before ? `&before=${before}` : ''}`);
-      if (!owns() || epoch !== sequence) return;
-      const remaining = page.has_more ?? page.truncated;
-      if (!Array.isArray(page.events) || typeof remaining !== 'boolean' || page.events.some(event => !Number.isSafeInteger(event.id) || event.id < 1 || before && event.id >= before)
-        || remaining && (!Number.isSafeInteger(page.cursor) || page.cursor < 1 || before && page.cursor >= before)) throw new Error('事件分页格式不兼容');
-      if (!older) { events.clear(); scanned = 0; }
-      for (const event of page.events) {
-        let data; try { data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data; } catch { continue; }
-        if (data?.hook_id === source.hook_id && Object.hasOwn(labels, event.type)) events.set(event.id, { ...event, data });
+      if (enabled) {
+        const commands = mount.actions.filter(item => ['command', 'prompt_command'].includes(item.type));
+        if (!await confirmDialog({ title: agent ? '启用指令 Hook？' : '启用 main 自动推送？', danger: true,
+          message: `${commands.some(item => item.type === 'command') ? COMMAND_WARNING : commands.length ? PROMPT_WARNING : ''} 仅授权 main 实际挂载的未来节点；未来节点满足后按实际引用的最新定义执行，不立即执行。Git remote、上游与认证由用户配置。`,
+          detail: commands.map(item => commandSummary(item, catalogue)).join('\n\n'),
+          confirmLabel: agent ? '启用指令 Hook' : '确认启用推送', agent, confirmHelp: agent ? agentHelp('授权 main 挂载所引用指令及未来 Agent 动作；触发后按实际条件和安全门执行。') : '启用 main 实际挂载；保存不立即执行，未来副作用可能不可逆。' }) || !owns()) return;
+        if (agent && !await confirmDialog({ title: '授权会安排 Agent 调用的 Hook？',
+          message: '保存授权后，条件满足时可能启动或唤醒 Agent。定时只保证提交动作，不保证 Agent 准点开始。请到 main 核对节点、条件、目标和运行设置。',
+          confirmLabel: '授权并挂载', agent: true, confirmHelp: agentHelp('允许 main 实际挂载在指定安全节点执行所配置的 Agent 调用。') })) return;
       }
-      scanned += page.events.length; cursor = page.cursor; hasMore = remaining; historyRead = true;
-      status.textContent = `已读取 main 的 ${scanned} 条事件，匹配 ${events.size} 条该推送挂载的运行事件${hasMore ? '；仍可读取更早事件。' : '。'} 不含其他 Hook 或手动指令运行。`;
-    } catch (error) { if (owns() && epoch === sequence) status.textContent = `记录读取失败：${error.message}；已加载记录保留，不代表推送失败，不会重跑。`; }
-    finally {
-      if (!disposed && epoch === sequence) {
-        reading = false; resumeHistory = !owns(); if (owns()) paintHistory();
-      }
-    }
-  }
-  const refresh = button('刷新推送记录', () => loadHistory(), 'ghost'), more = button('读取更早运行事件', () => loadHistory(true), 'ghost');
-  history.append(el('p', '按持久推送挂载身份读取 main 的执行事件。删除挂载不删除历史；失败不撤销已合并代码，未知结果不自动重跑。', 'hint'), status, records, refresh, more);
-  const reload = button('刷新推送设置', async () => {
-    if (!owns()) return;
-    if (mountEditing && !await confirmDialog({ title: '放弃挂载编辑并刷新？', message: '未保存的挂载编辑会丢失；指令定义只读，不会被修改。', confirmLabel: '放弃并刷新' })) return;
-    if (!owns()) return; mountEditing = false;
-    try { await loadCatalogue(); } catch (error) { if (owns()) settingsStatus.textContent = `设置读取失败：${error.message}`; }
+      if (!owns() || enabled && enableIssue(mount)) return;
+      submitted = true;
+      const result = await action('worker.hook_update', { id: source.worker_id, hook_id: mount.id, enabled, expected_revision: source.hooks.revision }, { refresh: false });
+      if (!owns() || request !== generation) { uncertain = true; return; }
+      const next = result?.mounts?.find(item => item.id === mount.id);
+      if (result.worker_id !== source.worker_id || typeof result.revision !== 'string' || !next || next.enabled !== enabled) throw new Error('推送保存响应未确认');
+      catalogue = { ...catalogue, command_example: { ...source, hooks: result } }; status.textContent = 'main 推送授权已保存；未立即执行，不代表执行成功。';
+    } catch (error) { uncertain = submitted; if (owns()) { status.textContent = `${error.message}；原设置保留，请重新读取核查，不自动重发。`; status.className = 'error'; } }
+    finally { saving = false; paint(); }
+  }, 'hook-button');
+  const toggleHost = el('span', undefined, 'help-host'); toggleHost.append(toggle);
+  const reload = button('重新读取推送设置', async () => {
+    if (!owns() || saving) return;
+    const request = ++generation; saving = true; paint();
+    try { const result = await api('/api/hooks'); if (owns() && request === generation) { catalogue = result; uncertain = false; status.textContent = ''; status.className = 'hint'; } }
+    catch (error) { if (owns()) { status.textContent = `推送设置读取失败：${error.message}`; status.className = 'error'; } }
+    finally { saving = false; paint(); }
   }, 'ghost');
-  settings.append(el('p', '成功收到合并后，由 main 的实际启用 Hook 执行所引用指令的最新定义。Git remote、跟踪分支和认证由你的 Git 配置决定；不会自动修改 Git 配置。', 'hint'), settingsStatus, mountHost, commandHost, reload);
-  node.append(settings, history);
-  node.setSubpage = next => {
-    tab = next === 'history' ? 'history' : 'settings'; settings.hidden = tab !== 'settings'; history.hidden = tab !== 'history';
-    const row = mountHost.querySelector('.hook-mount'); row?.resume?.();
-    if (tab === 'settings' && row?.needsRefresh) {
-      settingsStatus.textContent = '离开期间有操作结束；不自动重发。草稿保留，请核对最新指令定义和挂载。';
-      node.ready = loadCatalogue().catch(error => { if (owns()) settingsStatus.textContent = `设置读取失败：${error.message}；草稿保留，请只读刷新，不要重发。`; });
+  const openAdvanced = button('展开推送高级设置', () => { if (!owns()) return; advanced.hidden = !advanced.hidden; openAdvanced.textContent = advanced.hidden ? '展开推送高级设置' : '收起推送高级设置'; openAdvanced.setAttribute('aria-expanded', String(!advanced.hidden)); }, 'ghost');
+  openAdvanced.setAttribute('aria-expanded', 'false');
+  for (const control of [toggle, reload]) { const click = control.onclick; control.onclick = async () => { await click(); paint(); }; }
+  function paint() {
+    if (!owns()) return;
+    const mount = current(), source = catalogue?.command_example, available = supported(mount, source);
+    toggle.textContent = mount?.enabled ? '停用 Hook' : '启用 Hook';
+    const reason = saving ? '正在确认或保存。' : uncertain ? '离开期间或本次保存结果未确认，先重新读取核查。' : !available ? '推送挂载已删除或读面不可用；不会自动重装，历史保留。' : mount.editable !== true || mount.locked ? mount.reason || 'main 挂载当前不可编辑。' : !mount.enabled ? enableIssue(mount) || '' : '';
+    toggle.disabled = !!reason; reload.disabled = saving; toggleHost.tabIndex = toggle.disabled ? 0 : -1;
+    const agent = available && !mount.enabled && callsAgent(mount);
+    toggle.classList.toggle('agent-call', !!agent);
+    const help = agent ? agentHelp('启用 main 实际挂载的未来动作，可能创建或恢复 Agent。') : '仅启停 main 实际推送挂载，不立即运行，不改变新 Worker 默认或合并授权。';
+    toggle.setAttribute('data-help', help); toggleHost.setAttribute('data-help', `${reason} ${help}`);
+    const summary = el('p', available ? `main 当前授权：${mount.enabled ? '开启' : '关闭'}（不是执行结果）。` : reason, available ? 'hint' : 'error');
+    if (available && reason && !saving) summary.append(el('span', ` ${reason}`, 'error'));
+    const mainLink = button('查看 main Worker 自动化', () => owns() && source?.worker_id ? detail(source.worker_id) : undefined, 'ghost', { worker: source?.worker_id });
+    mainLink.disabled = !Number.isSafeInteger(source?.worker_id) || source.worker_id < 1;
+    advanced.replaceChildren(el('h2', '引用指令（只读）'), el('p', '挂载参数编辑及旧内联导入请到 main 自动化。Web 指令定义／模板编辑入口已移除；指令定义可经既有 CLI／API 修改。这里不展示执行收据或运行记录。', 'hint'));
+    if (!validCommands(catalogue?.commands)) advanced.append(el('p', '快捷指令目录不可用；不能校验指令引用。', 'error'));
+    for (const item of Array.isArray(mount?.actions) ? mount.actions.filter(item => item && typeof item.type === 'string') : []) {
+      const command = validCommands(catalogue?.commands) ? catalogue.commands.items.find(command => command.id === item.command_id) : null;
+      if (!command) { if (item.command_id) advanced.append(el('p', '引用指令已删除或目录不可用；请到 main 核查。', 'error')); continue; }
+      advanced.append(commandDetail(command));
     }
-    if (tab === 'history' && (!historyRead || resumeHistory)) node.ready = loadHistory();
-    return node.ready;
-  };
-  node.updateCatalogue = result => { catalogue = result; paintMount(); paintCommands(); };
-  node.dispose = () => { disposed = true; ++sequence; };
-  paintMount(); paintCommands(); paintHistory(); node.setSubpage('settings'); node.ready = Promise.resolve(); return node;
+    const diagnostic = mount && (['failed', 'unknown'].includes(mount.state) || mount.reason);
+    if (diagnostic) summary.append(el('span', ` · 需要核查：${mount.state === 'unknown' ? '结果未知，不自动重放。' : mount.state === 'failed' ? '执行失败。' : ''}${mount.reason || ''} 请到 main Worker 自动化查看诊断。`, 'error'));
+    host.replaceChildren(summary, toggleHost, status, reload, mainLink, openAdvanced, advanced);
+  }
+  const select = node.setSubpage;
+  node.setSubpage = () => { select(); paint(); return node.ready; };
+  const dispose = node.dispose; node.dispose = () => { disposed = true; ++generation; dispose(); };
+  paint(); return node;
 }

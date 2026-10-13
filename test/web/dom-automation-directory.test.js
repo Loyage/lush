@@ -119,7 +119,11 @@ test('prompt Hook enable is purple with future cost confirmation, Shell-only hoo
   await openProjectAutomation({ feature: 'push' }); const enable = btn('启用 Hook', root().querySelector('.command-hook-example'));
   expect(enable.classList.contains('agent-call')).toBe(true); expect(enable.getAttribute('data-help')).toContain('token');
   const enabling = enable.onclick(); expect(dialogButton(dom, '启用指令 Hook').classList.contains('agent-call')).toBe(true);
-  await dialogButton(dom, '启用指令 Hook').onclick(); await until(() => dialogButton(dom, '授权并挂载')); await dialogButton(dom, '授权并挂载').onclick(); await enabling;
+  expect(deepText(dom.node('modal'))).toContain('未来节点满足后');
+  await dialogButton(dom, '启用指令 Hook').onclick(); await until(() => dialogButton(dom, '授权并挂载'));
+  expect(calls).toHaveLength(0); expect(dialogButton(dom, '授权并挂载').classList.contains('agent-call')).toBe(true);
+  expect(dialogButton(dom, '授权并挂载').getAttribute('data-help')).toContain('token');
+  await dialogButton(dom, '授权并挂载').onclick(); await enabling;
   expect(calls).toHaveLength(1); expect(calls[0].params).toMatchObject({ id: 1, enabled: true, expected_revision: 'mount-r1' });
 });
 

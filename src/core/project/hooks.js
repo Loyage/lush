@@ -100,7 +100,7 @@ function eligible(mount) { return mount.enabled && !mount.maintenance_pending &&
 export default {
   hooksList() {
     const data = definitions(this);
-    return { version: 1, revision: hookRevision(data), completion_defaults: this.completionDefaults(),
+    return { version: 1, revision: hookRevision(data), completion_defaults: this.completionDefaults(), automation_settings: this.automationSettings(),
       daemon_hooks: this.daemonHooks(), signals: this.hookSignals(),
       management_workers: this.managementWorkers(), triggers: HOOK_TRIGGERS, actions: HOOK_ACTIONS.filter(action => action.type !== 'archive_worker'),
       commands: this.shortcutCommands(), command_example: this.commandHookExample(), templates: data.templates.map(item => ({ id: item.id, ...readDefinition(this, item.definition) })) };
@@ -192,7 +192,10 @@ export default {
         operation, state: operation?.status ?? 'idle', last_execution: null,
         reason: '目标唯一处理器始终处理合法交付；通过分支归并设置调整未来策略，关闭归并仍串行合并。' });
     }
-    return { version: 1, worker_id: task.id, revision: revision(this, task), completion, convergence, can_attach: ownerAvailable(this, task, true), mounts };
+    const pushIdentity = this.commandHookExampleIdentity();
+    return { version: 1, worker_id: task.id, revision: revision(this, task), completion, convergence,
+      push: pushIdentity ? { worker_id: pushIdentity.worker_id, hook_id: pushIdentity.hook_id } : null,
+      acceptance_notice: this.acceptanceNoticeView(task), automation_settings: { version: 1, display_principles: this.automationSettings().display_principles }, can_attach: ownerAvailable(this, task, true), mounts };
   },
 
   attachTaskHook(taskId, raw, expectedRevision) {

@@ -73,9 +73,11 @@ test('Host preferences and automation are independent of a current project and r
     }
     const saved = await post(`${f.url}/api/host/preferences`, { patch: { theme: 'dark', markdown: false }, expected_revision: 'prefs-v1' });
     expect(saved.status).toBe(200); expect((await saved.json()).values).toEqual({ theme: 'dark', markdown: false });
-    const enabled = await post(`${f.url}/api/host/automation`, { patch: { auto_select: { enabled: true },
+    const retired = await post(`${f.url}/api/host/automation`, { patch: { auto_select: { enabled: true },
       completion_defaults: { enabled: true, level: 'archive' } }, expected_revision: 'auto-v1' });
-    expect(enabled.status).toBe(200); expect((await enabled.json()).completion_defaults).toEqual({ enabled: true, level: 'archive' });
+    expect(retired.status).toBe(400); expect((await retired.json()).error).toContain('write retired');
+    const enabled = await post(`${f.url}/api/host/automation`, { patch: { auto_select: { enabled: true } }, expected_revision: 'auto-v1' });
+    expect(enabled.status).toBe(200); expect((await enabled.json()).auto_select).toEqual({ enabled: true });
     expect(f.calls.some(row => row[0].startsWith('unexpected'))).toBe(false);
     expect(fs.existsSync(path.join(f.global, 'shared'))).toBe(false);
   } finally { await f.close(); }

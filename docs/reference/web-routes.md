@@ -12,7 +12,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 问卷、通知详情和 Agent 正文中的独立 W／V 用户编号（例如 `W141-1`、`V1`）自动显示为蓝色下划线链接。链接使用 `#worker-number-W141-1` 或 `#worker-number-V1`，打开时通过当前项目只读查找解析真实内部身份，再进入原有 `#worker-ID` 通用详情；支持键盘与新标签打开，不把编号当作内部 ID，也不在渲染时查询。未知／已删除编号明确报错。代码块、已有链接、编辑区和普通操作按钮不自动改写；选择题选项中的编号链接与选择按钮独立，查看 Worker 不会作答，返回问卷保留未提交草稿。静态 HTML 效果预览仍保持原 sandbox，不注入跳转能力。
 
-项目自动化 `#hooks` 是功能列表；`#hooks-completion`、`#hooks-push`、`#hooks-convergence`、`#hooks-emission` 分别为完工处理、推送、归并和条件发射设置页，各自追加 `-history` 查看运行记录。旧 `#hooks-history` 返回列表，不再混合不同功能的历史。W263／D611 删除独立 Valet 设置和指令／Hook 工具页面及其 Web 配置入口，不迁到其他页面：`#management`／`#management-history` 跳 `#valets`，`#hook-tools`／`#hooks-commands`／`#hook-tools-history` 及旧命令详情地址跳 `#hooks`，并说明入口已移除。推送页只读引用指令；Worker 实例 Hook 控制、既有后端 API、CLI、授权与历史保持原协议。`#versions` 不再独立渲染，通过有界 overview 核对真实 `task_kind=main` 且 `branch=main` 的持久身份后跳 `#worker-ID`，缺少 main 明示不可用，不从整数 ID 猜编号或身份。旧看板版本快捷链接仅从 Web 投影隐藏，不改已保存配置。精确操作入口见[使用指南](../hooks.md#页面入口)。
+项目自动化 `#hooks` 是四项设置目录；`#hooks-completion`、`#hooks-push`、`#hooks-convergence`、`#hooks-acceptance_notice` 分别为完工默认、推送、归并默认和待验收告知设置页，无运行记录标签。旧功能 `-history` 书签转到对应设置，`#hooks-history` 返回目录；`#hooks-emission` 及其旧记录入口转到输入／草稿，条件发射不属于项目自动化。W263／D611 删除独立 Valet 设置和指令／Hook 工具页面及其 Web 配置入口，不迁到其他页面：`#management`／`#management-history` 跳 `#valets`，`#hook-tools`／`#hooks-commands`／`#hook-tools-history` 及旧命令详情地址跳 `#hooks`，并说明入口已移除。推送页只读引用指令；Worker 实例 Hook 控制、既有后端 API、CLI、授权与历史保持原协议。`#versions` 不再独立渲染，通过有界 overview 核对真实 `task_kind=main` 且 `branch=main` 的持久身份后跳 `#worker-ID`，缺少 main 明示不可用，不从整数 ID 猜编号或身份。旧看板版本快捷链接仅从 Web 投影隐藏，不改已保存配置。精确操作入口见[使用指南](../hooks.md#页面入口)。
 
 ## 宿主级路由
 
@@ -36,8 +36,8 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 |---|---|
 | `GET /api/host/preferences` | 无查询参数；返回 `{version,revision,values}` 的设备权威偏好 |
 | `POST /api/host/preferences` | `{patch,expected_revision}`，严格偏好白名单、非空 patch，过期版本拒绝 |
-| `GET /api/host/automation` | 无查询参数；设备策略 `{version,revision,auto_select,completion_defaults}` |
-| `POST /api/host/automation` | `{patch,expected_revision}`，仅自动选择和未来新指令默认流程，不循环修改项目开关 |
+| `GET /api/host/automation` | 无查询参数；设备策略 `{version,revision,auto_select,completion_defaults}`，completion_defaults 仅历史兼容只读 |
+| `POST /api/host/automation` | `{patch,expected_revision}`，仅设备自动选择；completion_defaults 写入退役，未来默认走项目接口 |
 | `GET /api/host/inbox?status=&before=&limit=` | status 为 all/open/unread/automatic/failed；before 为不透明全局游标，limit 为 1..100（默认30） |
 | `GET /api/host/inbox/notice?project_id=&id=` | 只接受当前有权访问的登记身份及正整数 Notice ID；不同来源的整数ID不可混用 |
 | `POST /api/host/inbox/action` | `{project_id,id,method,answer?,expected_identity?}`；仅 notice.answer/dismiss/read，answer只用于answer；有真实记录身份时新UI携带expected_identity，源事务核验防整数ID复用误答 |
@@ -141,13 +141,13 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 
 ## 用户动作
 
-`POST /api/action` 接受 JSON `{method, params}`，只放行 `MUTATIONS`：`agent.configure`、`agent.environment.configure`、`agent.network.configure`、`agent.usage.configure`、`system.configure`、`system.interrupt_all`、`system.resume_all`、`order.submit`、`input.emit`、`input.emission_cancel`、`input.exclusive_release`、`draft.add`、`draft.update`、`draft.remove`、`worker.spawn`、`worker.message`、`worker.rename`、`worker.auto_merge`、`worker.completion`、`hooks.completion_defaults`、`worker.reserve`、`worker.reserve_all`、`worker.accept`、`worker.reopen`、`worker.sync_parent`、`worker.resolve_sync`、`worker.resolve`、`worker.resolve_divergence`、`worker.unreserve`、`worker.approve_merge`、`worker.cancel`、`worker.retry`、`worker.interrupt`、`worker.resume`、`worker.configure`、`worker.cleanup`、`worker.delete`、`notice.answer`、`notice.dismiss`、`notice.read`、`branch.bind`、`branch.archive`。请求不接受 `_token`，agent 不能借 Web 通道写库。Agent-only `worker.auto_title` 不在 Web 写白名单，页面只读消费生成的 auto_title，用户调整仍经 worker.rename。`agent.usage.configure` 仅保留旧协议接缝，当前明确返回退役错误，不再写入旧配置；正式来源采样仍使用 `agent.connections.sampling`。
+`POST /api/action` 接受 JSON `{method, params}`，只放行 `MUTATIONS`：`agent.configure`、`agent.environment.configure`、`agent.network.configure`、`agent.usage.configure`、`system.configure`、`system.interrupt_all`、`system.resume_all`、`order.submit`、`input.emit`、`input.emission_cancel`、`input.exclusive_release`、`draft.add`、`draft.update`、`draft.remove`、`worker.spawn`、`worker.message`、`worker.rename`、`worker.auto_merge`、`worker.completion`、`worker.acceptance_notice`、`hooks.automation_settings`、`hooks.completion_defaults`、`worker.reserve`、`worker.reserve_all`、`worker.accept`、`worker.reopen`、`worker.sync_parent`、`worker.resolve_sync`、`worker.resolve`、`worker.resolve_divergence`、`worker.unreserve`、`worker.approve_merge`、`worker.cancel`、`worker.retry`、`worker.interrupt`、`worker.resume`、`worker.configure`、`worker.cleanup`、`worker.delete`、`notice.answer`、`notice.dismiss`、`notice.read`、`branch.bind`、`branch.archive`。请求不接受 `_token`，agent 不能借 Web 通道写库。Agent-only `worker.auto_title` 不在 Web 写白名单，页面只读消费生成的 auto_title，用户调整仍经 worker.rename。`agent.usage.configure` 仅保留旧协议接缝，当前明确返回退役错误，不再写入旧配置；正式来源采样仍使用 `agent.connections.sampling`。
 
 账号连接另开放 `agent.connections.save/remove/sampling/query/login.start/login.finish/device.start/device.poll/device.cancel`，均经项目的 `POST /api/action`、登录与 Origin 校验；设备码检查也是显式 action，不新增读取路由。设备授权 ID、OAuth token、回调授权码均不返回读面，不进审计事件或错误。参数和操作见[Agent 账号连接](rpc/agents.md#托管账号连接)。
 
 旧 `intro.*` / `explanation.*` / `quick_explain.*` 全部关闭，不保留快速对话或专用模型配置的兼容入口。
 
-Hooks 另开放 `hooks.save/remove/auto_select/signal_save/signal_remove`、`hooks.command_save/command_remove/command_import`（快捷指令注册、编辑、删除与旧配置显式导入，command_authorize 已删除；手动执行入口已删除，只由 Hook 运行；无 GET 写入口；持久历史只读接口见上表）、`management.create/submit/binding_update`、`worker.hook_attach/hook_update/hook_remove`，均为当前项目用户专属 action；自动选择与新指令默认流程使用同一设备策略 revision，新前端通过上面的 Host 全局接口管理；兼容 hooks mutation 不再保存另一份项目开关，见[用户工作台契约](../engineering/user-workspace.md)。
+Hooks 另开放 `hooks.save/remove/auto_select/signal_save/signal_remove`、`hooks.command_save/command_remove/command_import`（快捷指令注册、编辑、删除与旧配置显式导入，command_authorize 已删除；手动执行入口已删除，只由 Hook 运行；无 GET 写入口；持久历史只读接口见上表）、`management.create/submit/binding_update`、`worker.hook_attach/hook_update/hook_remove`，均为当前项目用户专属 action；自动选择使用设备策略 revision 和 Host 全局接口；项目未来默认、显示原则及待验收告知使用 hooks.automation_settings／worker.acceptance_notice，旧 hooks.completion_defaults 同源项目策略。精确字段与权限见[项目自动化接口](rpc/hooks.md#新指令默认流程)。
 
 分支归并另开放 `branch.convergence_set`／`branch.convergence_defaults_set`／`branch.convergence_retry`，仅经当前项目 `POST /api/action`：严格 `{method,params}` envelope，不接受 query、多余字段或任何 `_token` 值，保留登录、Origin、项目身份及 JSON 校验。分支setter携带enabled、读取revision和可选mounted（省略兼容为true）；validation可省略保留旧引用，开启无需命令。defaults setter携带mounted、enabled及其独立revision，只影响之后实际创建的新Worker。retry携带整数运行ID和revision，不自动重放未知落地。只读RPC不进入action白名单，也没有GET修改入口。详见[分支归并接口](rpc/convergence.md)。
 

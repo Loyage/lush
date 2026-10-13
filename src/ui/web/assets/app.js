@@ -134,8 +134,12 @@ function openHashTarget(hash, project, doc, generation) {
     return noProjectView();
   }
   if (!workbenchStatus().projectUsable) return noProjectView();
-  const automation = /^#hooks(?:-(completion|push|convergence|emission)(-history)?)?$/.exec(hash);
-  if (automation || hash === '#hooks-history') return openHooks(automation?.[1] || null, automation?.[2] ? 'history' : 'settings');
+  if (/^#hooks-emission(?:-history)?$/.test(hash)) {
+    window.history.replaceState(null, '', '#inputs');
+    return openInputs();
+  }
+  const automation = /^#hooks(?:-(completion|push|convergence|acceptance_notice)(-history)?)?$/.exec(hash);
+  if (automation || hash === '#hooks-history') return openHooks(automation?.[1] || null);
   if (/^#(?:hook-tools(?:-history)?|hooks-commands(?:-.+)?|hooks-command-.+|hook-command-.+|command-.+)$/.test(hash)) {
     const owner = globalThis.document, path = location.pathname, opened = openHooks(), view = ui.view;
     return Promise.resolve(opened).then(() => {

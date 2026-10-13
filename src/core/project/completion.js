@@ -16,11 +16,11 @@ const ERROR = {
   archive: '自动验收的历史资源回收未完成；工作区或部分分支可能仍保留，请检查归档记录并显式处理，未自动重试。',
   unknown: '后台中断，自动动作结果未知；保留现场，禁止自动重放，请检查执行与归档记录。',
 };
-function round(project, taskId) {
+export function completionRound(project, taskId) {
   return project.store.get("SELECT max(id) AS id FROM events WHERE task_id=? AND type IN ('task.iteration_started','task.reopened','retry')", taskId)?.id ?? 0;
 }
 function state(project, task) {
-  const value = settings(task), current = round(project, task.id);
+  const value = settings(task), current = completionRound(project, task.id);
   return value.completion?.round === current ? value.completion : { authorization: value.completion?.authorization ?? null, round: current, executions: {}, notices: {} };
 }
 function persist(project, taskId, data) {
@@ -49,9 +49,9 @@ function archiveProof(project, task, receipt) {
 
 /** User-authorized completion, separate from the parent's merge and custom Hook queues. */
 export default {
-  /** One device-user policy for future order creation. Reads never install or advance Hooks. */
+  /** Project policy for future order creation. Reads never install or advance Hooks. */
   completionDefaults() {
-    const value = this.deviceAutomation.get();
+    const value = this.automationSettings();
     return { version: 1, ...value.completion_defaults, revision: value.revision };
   },
 
@@ -76,18 +76,15 @@ export default {
   },
 
   setCompletionDefaults(enabled, level, expectedRevision) {
-    this.assertWritable('configure device new order completion defaults');
-    const value = this.deviceAutomation.save({ completion_defaults: { enabled, level } }, expectedRevision);
-    this.store.event(null, 'hook.completion_defaults_configured', { enabled, level, scope: 'device', policy_revision: value.revision });
-    // Do not arm, schedule or rewrite existing Workers (including already mounted creation Hooks).
-    return this.hooksList();
+    return this.setAutomationSettings({ completion_defaults: { enabled, level } }, expectedRevision);
   },
 
   /** Internal: call inside the actual order creation transaction, never at reservation time. */
   newOrderCompletionConfig() {
-    const value = this.deviceAutomation.get().completion_defaults;
-    if (!value.enabled) return { version: 1, enabled: false, locked: false };
-    return { version: 1, enabled: true, locked: false, level: value.level,
+    const policy = this.automationSettings(), value = policy.completion_defaults;
+    const acceptance_notice = { enabled: policy.acceptance_notice_defaults.enabled };
+    if (!value.enabled) return { version: 1, enabled: false, locked: false, acceptance_notice };
+    return { version: 1, enabled: true, locked: false, level: value.level, acceptance_notice,
       completion: { authorization: randomUUID(), round: 0, executions: {}, notices: {} } };
   },
 
@@ -206,6 +203,7 @@ export default {
   },
 
   recordCompletionDelivery(taskId, sourceId, noChanges = false) {
+    this.notifyAcceptanceEntry(taskId, sourceId);
     const task = this.store.task(taskId); if (levelOf(task) === 'off') return;
     const data = state(this, task);
     data.executions ??= {};
@@ -245,7 +243,7 @@ export default {
     if (this.subtreeTasks(task.id).some(row => this.store.get('SELECT id FROM messages WHERE task_id=? AND consumed=0 AND delivery_hold IS NOT NULL LIMIT 1', row.id))) return;
     if (task.status === 'completed' && this.store.branch(task.branch)?.status === 'archived') return;
     if (rank(level) < rank(phase)) {
-      this.completionNotice(task.id, phase, '成果交付已收口，请检查并验收；验收表示不再有异议，将归档并回收 worktree/ref，保留运行历史。'); return;
+      return; // Success reminders belong exclusively to the live awaiting_acceptance transition.
     }
     let data = state(this, task);
     const previous = data.executions?.[phase];

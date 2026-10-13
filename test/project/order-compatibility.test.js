@@ -85,19 +85,34 @@ test('mixed historical/current branch owners share a unique constraint even with
   } finally { await f.close(); }
 });
 
-test('historical orders resume through the renamed scheduler and retain lifecycle notifications', async () => {
+test('historical orders resume through the renamed scheduler silently while waiting and retain independent failure notifications', async () => {
   const f = fixture(); f.project.stopping = true; await repo(f.root);
   try {
     const old = await historicalOrder(f);
+    const created = f.store.all('SELECT * FROM notices WHERE task_id=?', old.task.id);
+    expect(created).toHaveLength(1);
+    expect(f.store.get('SELECT type FROM events WHERE id=?', created[0].source_event_id).type).toBe('task.start_pending');
     await f.project.resumeTask(old.task.id);
     expect(f.store.task(old.task.id).status).toBe('queued');
     f.project.stopping = false; f.project.kick();
     await until(() => f.store.task(old.task.id).status === 'waiting' && !f.project.running.has(old.task.id));
     expect(f.store.task(old.task.id).calls).toBe(1);
-    expect(f.store.all(`SELECT n.id FROM notices n JOIN events e ON e.id=n.source_event_id
-      WHERE n.task_id=? AND e.type='task.idle'`, old.task.id)).toHaveLength(1);
+    expect(f.store.history(old.task.id).some(event => event.type === 'task.idle')).toBe(true);
+    // A historical order still projects as order, but an idle round is not a delivery edge.
+    expect(f.store.all('SELECT * FROM notices WHERE task_id=?', old.task.id)).toEqual(created);
     expect(raw(f, old.task.id).task_kind).toBe('say');
     expect(await git(old.task.workspace, 'symbolic-ref', '--short', 'HEAD')).toBe(old.task.branch);
+    f.project.provider.run = async () => { throw new Error('historical order controlled failure'); };
+    await f.project.message(old.task.id, '再次进入旧指令');
+    await until(() => f.store.task(old.task.id).status === 'failed' && !f.project.running.has(old.task.id));
+    expect(f.store.task(old.task.id).calls).toBe(2);
+    const failed = f.store.all(`SELECT n.title,n.body FROM notices n JOIN events e ON e.id=n.source_event_id
+      WHERE n.task_id=? AND e.type='failed'`, old.task.id);
+    expect(failed).toHaveLength(1);
+    expect(failed[0].title).toContain('异常停止');
+    expect(failed[0].body).toContain('historical order controlled failure');
+    expect(raw(f, old.task.id).task_kind).toBe('say');
+    expect(f.project.inputGet('input', old.id).content).toBe('历史原话 say 不应改写');
   } finally { await f.close(); }
 });
 

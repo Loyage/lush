@@ -4,15 +4,21 @@ import { ui } from './state.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { listEntry, listSurface } from './list-surface.js';
 import { searchField } from './search-field.js';
-import { pageSubnav } from './page-subnav.js';
 import { AUTOMATION_FEATURES, automationFeature, automationHash } from './automation-features.js';
 
 /** One retained shell and module contract, no scheduling or authorization in the directory. */
 export async function openProjectAutomation({ feature = null, subpage = 'settings', push = true } = {}) {
+  if (feature === 'emission') {
+    const view = ui.view, owner = globalThis.document, project = projectApi('/api/hooks');
+    const { openInputs } = await import('./render-inputs.js');
+    if (ui.view !== view || globalThis.document !== owner || projectApi('/api/hooks') !== project) return;
+    ui.disposeProjectAutomation?.();
+    return openInputs({ push });
+  }
   if (!automationFeature(feature)) feature = null;
-  subpage = subpage === 'history' ? 'history' : 'settings';
+  subpage = 'settings';
   const view = activateDetailView({ view: 'hooks', title: automationFeature(feature)?.name || '项目自动化',
-    hint: feature ? '功能设置与运行记录' : '选择一项自动化功能', hash: automationHash(feature, subpage), push });
+    hint: feature ? '项目设置 · 不含运行记录' : '选择一项自动化功能', hash: automationHash(feature, subpage), push });
   const project = projectApi('/api/hooks'), owner = globalThis.document;
   const existing = ui.automationPage;
   if (existing?.view === view && existing.project === project && existing.owner === owner) return existing.select(feature, subpage);
@@ -23,7 +29,7 @@ export async function openProjectAutomation({ feature = null, subpage = 'setting
   const root = el('div', undefined, 'hooks-page project-automation resource-page');
   const browse = el('section', undefined, 'automation-browse');
   const hero = el('header', undefined, 'resource-hero');
-  hero.append(el('span', 'AUTOMATION', 'resource-kicker'), el('h1', '项目自动化'), el('p', '选择功能，设置其授权并查看运行记录。'));
+  hero.append(el('span', 'AUTOMATION', 'resource-kicker'), el('h1', '项目自动化'), el('p', '只管理功能设置、未来 Worker 默认与默认显示原则；具体授权和运行记录请到对应 Worker 查看。'));
   const entries = [], empty = el('p', '没有匹配的自动化功能。', 'hint'); empty.hidden = true;
   const search = searchField({ label: '查找自动化功能', placeholder: '按功能名称或用途查找', scope: '范围：当前四项自动化功能', onSubmit: value => {
     let count = 0;
@@ -37,7 +43,7 @@ export async function openProjectAutomation({ feature = null, subpage = 'setting
     const row = el('li', undefined, 'automation-feature'); row.dataset.feature = item.id;
     const link = el('a', undefined, 'automation-feature-link'); link.setAttribute('href', automationHash(item.id));
     const head = el('span', undefined, 'automation-feature-head'); head.append(el('strong', item.name), badge(item.scope));
-    link.append(head, el('span', item.description, 'automation-feature-description'), el('span', '设置与运行记录 →', 'automation-feature-open'));
+    link.append(head, el('span', `功能简介：${item.description}`, 'automation-feature-description'), el('span', `原理简介：${item.principle}`, 'automation-feature-description'), el('span', '功能设置 →', 'automation-feature-open'));
     link.onclick = event => {
       if (event?.button > 0 || event?.metaKey || event?.ctrlKey || event?.shiftKey || event?.altKey) return;
       event?.preventDefault?.(); return openProjectAutomation({ feature: item.id });
@@ -60,11 +66,7 @@ export async function openProjectAutomation({ feature = null, subpage = 'setting
     const item = automationFeature(id), content = el('div', undefined, 'automation-feature-content');
     const header = el('header', undefined, 'hooks-page-header'); header.append(el('h1', item.name), badge(item.scope));
     const back = button('← 返回自动化功能列表', () => openProjectAutomation(), 'link');
-    const nav = pageSubnav(`${item.name}子页面`, [
-      { id: 'settings', label: '设置', href: automationHash(id) },
-      { id: 'history', label: '运行记录', href: automationHash(id, 'history') },
-    ], tab, next => owns() ? openProjectAutomation({ feature: id, subpage: next }) : undefined);
-    panel.replaceChildren(back, header, nav, content);
+    panel.replaceChildren(back, header, content);
     const current = () => owns() && state.feature === id && request === state.request;
     let node = state.nodes.get(id);
     if (node) { node.hidden = false; node.setSubpage?.(tab); content.append(node); return node.ready; }
@@ -73,7 +75,7 @@ export async function openProjectAutomation({ feature = null, subpage = 'setting
       try {
         const render = await item.load(); if (!current()) return;
         // Only engines needing the Hook catalogue read it; the directory never loads all modules.
-        const catalogue = ['push', 'convergence'].includes(id) ? await api('/api/hooks') : null;
+        const catalogue = await api('/api/hooks');
         if (!current()) return;
         if (catalogue) ui.hookCatalogue = catalogue;
         node = render({ catalogue, ownsPage: () => owns() && state.feature === id });

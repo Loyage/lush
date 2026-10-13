@@ -14,6 +14,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (body) actions.push(body);
   const custom = intercept?.(path, body); if (custom) return custom;
   if (path.endsWith('/api/hooks')) return json(catalogue);
+  if (path.endsWith('/api/worker/1/hooks')) return json(catalogue.command_example.hooks);
   if (body?.method === 'worker.hook_update') {
     model = { ...model, revision: 'main-revision-2', mounts: model.mounts.map(mount => mount.id !== body.params.hook_id ? mount : {
       ...mount, ...(body.params.hook || { enabled: body.params.enabled }),
@@ -25,15 +26,24 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   throw new Error(`Unexpected request ${path} ${body?.method || ''}`);
 } });
 const { openHooks: openAutomation, openHookTools, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
-const openHooks = options => openAutomation({ feature: 'push', ...options });
+const openProjectPush = options => openAutomation({ feature: 'push', ...options });
+const openHooks = async () => { activateDetailView({ view: 'task', key: 'task-1' }); return drawExample(); };
 const { createHookForm } = await import('../../src/ui/web/assets/hook-form.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const { closeDialog } = await import('../../src/ui/web/assets/dialog.js');
 const { ui } = await import('../../src/ui/web/assets/state.js');
+const { api } = await import('../../src/ui/web/assets/api.js');
+const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
 const root = () => dom.node('detail');
 const btn = (label, node = root()) => node.querySelectorAll('button').find(item => item.textContent === label);
 const field = (node, label) => node.querySelector(`[aria-label="${label}"]`);
-const example = () => root().querySelector('.command-hook-example');
+const example = () => root().querySelector('[data-feature="push"]');
+const exampleTask = () => ({ id: 1, task_kind: 'main', branch: 'main', status: 'waiting', goal: 'main', deps: [], dependents: [], children: [], messages: [], notices: [],
+  hooks: { ...model, push: { worker_id: 1, hook_id: command.id } } });
+function drawExample() {
+  const node = workerHooks(exampleTask(), { async refresh() { model = await api('/api/worker/1/hooks'); drawExample(); } });
+  root().replaceChildren(node); example().querySelector('.worker-feature-advanced').open = true; return node;
+}
 function main() {
   activateDetailView({ view: 'task', key: 'task-1' });
   const node = workerHooks({ id: 1, task_kind: 'main', status: 'waiting', hooks: model }, { refresh() {} });
@@ -42,7 +52,9 @@ function main() {
 beforeEach(() => {
   closeDialog(); intercept = null; actions = []; dom.location.pathname = '/'; ui.hooksPage = null;
   model = structuredClone(baseModel);
-  catalogue = { version: 1, revision: 'template-revision', triggers: [
+  catalogue = { version: 1, revision: 'template-revision', automation_settings: { version: 1, revision: 'automation-r1',
+    completion_defaults: { enabled: false, level: 'merge' }, acceptance_notice_defaults: { enabled: true },
+    display_principles: { completion: 'all', push: 'all', convergence: 'all', acceptance_notice: 'all' } }, triggers: [
     { id: 'worker.merge_received', label: '收到合并', description: '父 Worker 成功收到合并后。' },
     { id: 'agent.failed', label: '调用失败', description: '未知副作用不重放。' },
     { id: 'worker.parent_ready', label: '可创建', description: '安全创建点。' },
@@ -55,7 +67,7 @@ beforeEach(() => {
     { id: 'push-command', name: 'Git 推送', command: 'git push', version: 1, last_execution: null },
     { id: 'tags-command', name: '推送标签', command: 'git push --tags', version: 1, last_execution: null },
   ] }, templates: [structuredClone(template)], command_example: { template_id: template.id, worker_id: 1, hook_id: command.id, hooks: model } };
-  activateDetailView({ view: 'overview' });
+  ui.hookCatalogue = catalogue; activateDetailView({ view: 'overview' });
 });
 afterAll(() => { closeDialog(); dom.restore(); });
 
@@ -73,11 +85,11 @@ test('command reference picker is catalogue driven, emits IDs and respects trigg
 });
 
 test('example reads main mount fixture, confirms future execution risk and uses mount revision rather than template revision', async () => {
-  await openHooks(); expect(deepText(example())).toContain('停用'); expect(deepText(example())).toContain('仅 main Worker');
+  await openHooks(); expect(deepText(example())).toContain('停用'); expect(deepText(example())).toContain('main 成功收到合并');
   expect(example().querySelector('.hook-help-link').href).toBe('/#doc-docs-hooks');
   expect(deepText(example())).toContain(command.name); expect(deepText(example())).not.toContain('示例');
   const enabling = btn('启用 Hook', example()).onclick();
-  expect(actions).toHaveLength(0); expect(deepText(dom.node('modal'))).toContain('git push');
+  expect(actions).toHaveLength(0); await until(() => dialogButton(dom, '启用指令 Hook')); expect(deepText(dom.node('modal'))).toContain('git push');
   const authorize = dialogButton(dom, '启用指令 Hook');
   expect(authorize.classList.contains('agent-call')).toBe(false); expect(btn('启用 Hook', example()).classList.contains('agent-call')).toBe(false);
   await authorize.onclick(); await enabling;
@@ -96,17 +108,21 @@ test('example refresh rereads authoritative revision after runtime observation a
     catalogue.command_example.hooks = { ...response, revision: 'observed-revision' };
     return json(response);
   };
-  const enabling = btn('启用 Hook', example()).onclick(); await dialogButton(dom, '启用指令 Hook').onclick(); await enabling;
+  const enabling = btn('启用 Hook', example()).onclick(); await until(() => dialogButton(dom, '启用指令 Hook')); await dialogButton(dom, '启用指令 Hook').onclick(); await enabling;
   await btn('停用 Hook', example()).onclick();
   expect(actions.at(-1).params.expected_revision).toBe('observed-revision');
 });
 
 test('push settings no longer contain template or legacy default editors', async () => {
   catalogue.completion_defaults = { version: 1, enabled: false, level: 'merge', revision: 'defaults-revision' };
-  await openHooks();
+  await openProjectPush();
   expect(btn('新建模板')).toBeUndefined(); expect(root().querySelector('.completion-defaults')).toBeNull();
-  const enabling = btn('启用 Hook', example()).onclick(); await dialogButton(dom, '启用指令 Hook').onclick(); await enabling;
-  expect(deepText(example())).toContain('git push'); expect(actions.some(call => call.method === 'hooks.completion_defaults')).toBe(false);
+  expect(root().querySelectorAll('.hook-mount').filter(node => node.dataset.hookId)).toHaveLength(0); expect(root().querySelector('.hook-execution')).toBeNull();
+  expect(root().querySelector('.push-command-reference').hidden).toBe(true);
+  expect(root().querySelector('a[href="#hook-tools"]')).toBeNull();
+  const projectSetting = root().querySelector('.command-hook-example');
+  const enabling = btn('启用 Hook', projectSetting).onclick(); await dialogButton(dom, '确认启用推送').onclick(); await enabling;
+  expect(deepText(projectSetting)).toContain('git push'); expect(actions.some(call => call.method === 'hooks.completion_defaults')).toBe(false);
 });
 
 test('command result displays safe exit and timeout diagnostics without raw output', async () => {
@@ -117,9 +133,9 @@ test('command result displays safe exit and timeout diagnostics without raw outp
 });
 
 test('cancelled enabling and stale project confirmation never grant command execution', async () => {
-  await openHooks(); const cancelled = btn('启用 Hook', example()).onclick(); closeDialog(); await cancelled;
+  await openHooks(); const cancelled = btn('启用 Hook', example()).onclick(); await until(() => dialogButton(dom, '启用指令 Hook')); closeDialog(); await cancelled;
   expect(actions).toHaveLength(0); expect(btn('启用 Hook', example()).disabled).toBe(false);
-  const stale = btn('启用 Hook', example()).onclick(); dom.location.pathname = '/p/2222222222222222/';
+  const stale = btn('启用 Hook', example()).onclick(); await until(() => dialogButton(dom, '启用指令 Hook')); dom.location.pathname = '/p/2222222222222222/';
   await dialogButton(dom, '启用指令 Hook').onclick(); await stale; expect(actions).toHaveLength(0);
 });
 
@@ -197,21 +213,26 @@ test('safe profile metadata edits omit secrets; copies require explicit full rep
   expect(copy.collect().actions[0]).not.toHaveProperty('model_selection'); expect(copy.collect().actions[0]).not.toHaveProperty('profile');
 });
 
-test('late full edit response does not repaint a new page; template refresh does not discard unsaved example edits silently', async () => {
+test('late Worker full edit response cannot repaint a new page; explicit reads cannot silently discard a live push editor', async () => {
   await openHooks(); await btn('编辑挂载', example()).onclick(); const form = example().querySelector('.hook-form');
   field(form, '快捷指令').value = 'tags-command';
-  const refreshing = btn('刷新推送设置').onclick(); expect(deepText(dom.node('modal'))).toContain('未保存的挂载编辑会丢失');
-  closeDialog(); await refreshing; expect(example().querySelector('.hook-form')).toBe(form);
+  await btn('读取推送设置').onclick();
+  expect(dom.node('modal').hidden).toBe(true); expect(example().querySelector('.hook-form')).toBe(form);
+  expect(field(form, '快捷指令').value).toBe('tags-command');
   let resolve; intercept = (_path, body) => body?.method === 'worker.hook_update' ? new Promise(done => { resolve = done; }) : null;
   const saving = btn('保存挂载', example()).onclick(); await until(() => resolve);
   activateDetailView({ view: 'overview' }); const next = document.createElement('p'); next.textContent = '新页面'; root().replaceChildren(next);
   resolve(json(model)); await saving; expect(root().children).toEqual([next]);
 });
 
-test('feature tab switches retain unsaved push editor and its originally captured optimistic revision', async () => {
-  await openHooks(); await btn('编辑挂载', example()).onclick(); const form = example().querySelector('.hook-form');
+test('Worker detail polling and advanced folding retain unsaved push edits and their captured optimistic revision', async () => {
+  await openHooks(); renderDetail(exampleTask(), null, null, null);
+  example().querySelector('.worker-feature-advanced').open = true;
+  await btn('编辑挂载', example()).onclick(); const form = example().querySelector('.hook-form');
   field(form, '快捷指令').value = 'tags-command';
-  await openHooks({ subpage: 'history' }); await openHooks();
+  const advanced = example().querySelector('.worker-feature-advanced'); advanced.open = false;
+  renderDetail({ ...exampleTask(), hooks: { ...exampleTask().hooks, revision: 'polled-newer-revision' } }, null, null, null);
+  expect(example().querySelector('.worker-feature-advanced')).toBe(advanced); advanced.open = true;
   expect(example().querySelector('.hook-form')).toBe(form); expect(field(form, '快捷指令').value).toBe('tags-command');
   await btn('保存挂载', example()).onclick(); expect(actions.at(-1).params.expected_revision).toBe('main-revision');
 });

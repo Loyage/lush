@@ -56,6 +56,12 @@ function commandImportSource(value) {
 /** User-only Hook configuration; the runtime owns definition validation and execution. */
 export const handlers = {
   'hooks.list'(p) { return p.hooksList(); },
+  'hooks.automation_settings'(p, params) {
+    return p.setAutomationSettings(params.patch, revision(params.expected_revision));
+  },
+  'worker.acceptance_notice'(p, params) {
+    return p.setTaskAcceptanceNotice(id(params.id), params.enabled, revision(params.expected_revision));
+  },
   'hooks.command_save'(p, params) {
     const expected = revision(params.expected_revision);
     return p.saveShortcutCommand(commandDefinition(params.command), expected);

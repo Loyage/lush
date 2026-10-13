@@ -154,3 +154,11 @@
 .dashboard-global-direct-links a:hover{text-decoration:underline}
 @container dashboard-overview (min-width:1000px){.project-overview:not(.dashboard-layout-editing) .dashboard-global-direct-links{display:flex}.project-overview:not(.dashboard-layout-editing):has(.dashboard-global-direct-links a) .dashboard-navigation-open{display:none}}
 @media(max-width:700px){.dashboard-settings-panel{padding:12px}.dashboard-option{width:100%}.dashboard-settings-actions button{flex:1}.project-dashboard-shortcuts a{min-height:44px;display:flex;align-items:center}.dashboard-toolbar{justify-content:flex-end}}
+/* Project automation is settings-only; retained editors never need a horizontal scroll. */
+.project-automation .automation-settings,.project-automation .automation-settings-controls,.project-automation .automation-settings-extra,.project-automation .push-main-settings{display:grid;gap:12px;min-width:0}
+.project-automation .automation-settings p,.project-automation .automation-settings label,.project-automation .automation-settings button{overflow-wrap:anywhere;white-space:normal}
+.project-automation .automation-settings select{box-sizing:border-box;min-width:0;max-width:100%;width:100%;min-height:44px}
+.project-automation .automation-settings button{min-height:44px;max-width:100%}
+.project-automation .push-advanced-settings[hidden]{display:none}
+.project-automation .push-advanced-settings{display:grid;gap:10px;min-width:0}
+@media(max-width:600px){.project-automation .hook-field{display:grid;grid-template-columns:minmax(0,1fr)}.project-automation .hooks-page-header{flex-wrap:wrap}.project-automation .automation-settings .hook-action-preview{white-space:pre-wrap;overflow-wrap:anywhere}}

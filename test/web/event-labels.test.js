@@ -44,6 +44,14 @@ test('归并准备、辅助产物和资源事件都有中文标签，不冒充�
   expect(eventLabel({ type: 'convergence.helper_cleanup_failed' })).toContain('未完成');
 });
 
+test('项目自动化与告知事件有中文名称，决定记录不冒充告知已发送', () => {
+  expect(eventLabel({ type: 'hook.automation_settings_configured' })).toBe('保存项目自动化设置');
+  expect(eventLabel({ type: 'task.acceptance_notice_changed' })).toBe('调整待验收告知设置');
+  const observed = { type: 'task.acceptance_notice_observed', data: { enabled: false, notice_id: null, round: 2 } };
+  expect(eventLabel(observed)).toBe('记录本轮待验收告知决定');
+  expect(eventLabel(observed)).not.toContain('发送'); expect(observed.data.enabled).toBe(false);
+});
+
 test('项目维护事件只承诺接受请求，不冒充已经停止或运行', () => {
   expect(eventLabel({ type: 'maintenance.interrupted' })).toBe('接受当前项目全部中断请求');
   expect(eventLabel({ type: 'maintenance.resumed' })).toBe('接受当前项目全部继续请求');

@@ -16,6 +16,8 @@ const commandId = 'ee2f98f1-fc9a-46b1-a37c-67d8595c0649';
 const shortcut = { name: 'push', command: 'git push' };
 const cases = [
   ['hooks.list', [], {}, 'hooksList', []],
+  ['hooks.automation_settings', ['patch','expected_revision'], { patch: { acceptance_notice_defaults: { enabled: false } }, expected_revision: revision }, 'setAutomationSettings', [{ acceptance_notice_defaults: { enabled: false } }, revision]],
+  ['worker.acceptance_notice', ['id','enabled','expected_revision'], { id: 7, enabled: true, expected_revision: revision }, 'setTaskAcceptanceNotice', [7, true, revision]],
   ['hooks.command_save', ['command','expected_revision'], { command: shortcut, expected_revision: revision }, 'saveShortcutCommand', [shortcut, revision]],
   ['hooks.command_history_remove', ['execution_id','clear'], { execution_id: commandId }, 'removeShortcutCommandHistory', [{ execution_id: commandId }]],
   ['hooks.command_remove', ['id','expected_revision'], { id: commandId, expected_revision: revision }, 'removeShortcutCommand', [commandId, revision]],

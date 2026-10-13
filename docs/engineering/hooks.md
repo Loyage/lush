@@ -4,7 +4,7 @@
 
 ## 快捷指令引用
 
-当前命令动作使用 `{type:'command',command_id}`，引用项目快捷指令的最新定义，无快捷指令预授权。旧可选 command_version、固定执行证据及内联显式导入以[快捷指令与 Hook 契约](shortcut-commands.md)为准；其他受控动作与安全门不变。旧内联只保留展示和历史，不能执行或启用。项目自动化按功能列表进入设置／记录页，通用指令与模板在独立辅助工具管理，页面入口见[使用指南](../hooks.md#页面入口)。
+当前命令动作使用 `{type:'command',command_id}`，引用项目快捷指令的最新定义，无快捷指令预授权。旧可选 command_version、固定执行证据及内联显式导入以[快捷指令与 Hook 契约](shortcut-commands.md)为准；其他受控动作与安全门不变。旧内联只保留展示和历史，不能执行或启用。项目自动化按功能列表进入设置页，具体授权与记录从对应 Worker 查看，通用指令与模板的 Web 编辑入口已退休，定义管理仍经既有 CLI／API，页面入口见[使用指南](../hooks.md#页面入口)。
 
 ## 通用命令与 main 推送示例（W133 / 用户决定 #319）
 
@@ -95,7 +95,7 @@
 
 持久化采用附属 versioned JSON（如 `tasks.hooks`、项目模板 `meta`），不新增核心业务实体。现有 `tasks.auto_merge` / `tasks.reservation` 保持兼容，自动合并投影为内置挂载 `id:'auto-merge'`，触发为 `worker.delivery_ready`，持续、启用、锁定/可编辑原因复用 `autoMergeView`。派生 child 的合并—验收—归档流程 Hook 整体对用户只读，旧开关及挂载入口也不能修改；其他受控自定义规则保留原权限。此阶段不批量迁移历史行。
 
-Worker 详情展示为「自动化」。来源结束规则与目标交付处理器使用同一工具目录和安全操作读面；`worker.hooks.convergence` 保留为目标分支配置的同源兼容面，不另保存授权。项目页与详情修改同一分支策略，child 的结束流程锁定不变；main 的归并配置初始挂载关闭，未来默认与旧配置兼容见[归并实施契约](merge-convergence-implementation.md)。
+Worker 详情展示为「自动化」。来源结束规则与目标交付处理器使用同一工具目录和安全操作读面；`worker.hooks.convergence` 保留为目标分支配置的同源兼容面，不另保存授权。项目页只管理未来归并默认，详情管理目标当前分支策略，child 的结束流程锁定不变；main 的归并配置初始挂载关闭，未来默认与旧配置兼容见[归并实施契约](merge-convergence-implementation.md)。
 
 ## 系统工具与持久操作
 

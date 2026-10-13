@@ -18,7 +18,9 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   if (body) actions.push(body); else reads.push(path);
   const override = intercept?.(path, body); if (override) return override;
   const parsed = new URL(path, 'http://localhost');
-  if (parsed.pathname.endsWith('/api/hooks')) return json({ version: 1, revision: 'hooks-v1', triggers: [], actions: [], templates: [], commands: null });
+  if (parsed.pathname.endsWith('/api/hooks')) return json({ version: 1, revision: 'hooks-v1', triggers: [], actions: [], templates: [], commands: null,
+    automation_settings: { version: 1, revision: 'automation-v1', completion_defaults: { enabled: false, level: 'merge' }, acceptance_notice_defaults: { enabled: true },
+      display_principles: { completion: 'all', push: 'all', convergence: 'all', acceptance_notice: 'all' } } });
   if (parsed.pathname.endsWith('/api/branch-convergence/defaults')) return json(defaults);
   if (parsed.pathname.endsWith('/api/branch-convergence/runs')) {
     const branch = parsed.searchParams.get('branch'); return json({ version: 1, branch, items: runs.filter(item => item.target_branch === branch), next_before: null, has_more: false });
@@ -102,61 +104,48 @@ test('inactive acknowledged save cannot retain a replayable draft on feature ret
   expect(actions).toHaveLength(1); node.dispose();
 });
 
-test('project automation has independent actual mounts and future defaults, main directly selected without command catalogue', async () => {
-  await openHooks(); await until(() => field('目标分支')?.value === 'main' && !field('对新交付开启归并').disabled);
-  const node = root().querySelector('.branch-convergence');
-  expect(field('目标分支').children.map(item => item.value)).toEqual(['main', 'feature/x']);
-  expect(field('在目标分支挂载归并').checked).toBe(true); expect(field('对新交付开启归并').checked).toBe(false);
-  expect(deepText(node)).toContain('main · 已保存：关闭'); expect(field('最终验证快捷指令')).toBeNull();
-  expect(field('新 Worker 默认挂载归并').checked).toBe(false); expect(field('挂载后默认开启归并').checked).toBe(false);
-  expect(node.querySelectorAll('textarea')).toHaveLength(0); expect(actions).toHaveLength(0);
-  expect(btn('保存分支归并设置').disabled).toBe(true); expect(btn('保存分支归并设置').parentNode.classList.contains('help-host')).toBe(true);
-  expect(reads.some(path => path.includes('/api/host/automation'))).toBe(false);
-});
-
-test('automation history hides mount and future default editors, retaining both unsaved drafts on return', async () => {
-  runs = [run({ state: 'failed' })]; await openHooks();
-  const node = root().querySelector('.branch-convergence'); await node.ready;
-  enable(); check('新 Worker 默认挂载归并'); check('挂载后默认开启归并');
-  const defaultsEditor = node.querySelector('.convergence-defaults');
-  expect(defaultsEditor).not.toBeNull();
-  await openHooks({ subpage: 'history' });
-  expect(node.querySelector('.convergence-history').hidden).toBe(false);
-  expect(field('最终验证快捷指令')).toBeNull();
-  expect(field('在目标分支挂载归并').parentNode.hidden).toBe(true);
-  expect(field('对新交付开启归并').parentNode.hidden).toBe(true);
-  expect(defaultsEditor.hidden).toBe(true);
-  expect(btn('保存分支归并设置').parentNode.hidden).toBe(true);
-  expect(field('目标分支').parentNode.hidden).toBe(false);
-  expect(deepText(node.querySelector('.convergence-runs'))).toContain('失败');
-  const readsBefore = reads.length;
+test('project automation shows only future defaults and display policy, never target authorization or a command catalogue', async () => {
   await openHooks();
-  expect(node.querySelector('.convergence-history').hidden).toBe(true);
-  expect(field('对新交付开启归并').checked).toBe(true);
-  expect(field('在目标分支挂载归并').checked).toBe(true);
-  expect(field('在目标分支挂载归并').parentNode.hidden).toBe(false);
-  expect(field('对新交付开启归并').parentNode.hidden).toBe(false);
-  expect(defaultsEditor.hidden).toBe(false);
-  expect(field('新 Worker 默认挂载归并').checked).toBe(true);
-  expect(field('挂载后默认开启归并').checked).toBe(true);
-  expect(btn('保存分支归并设置').disabled).toBe(false);
-  expect(btn('保存新 Worker 归并默认').disabled).toBe(false);
-  expect(reads).toHaveLength(readsBefore); expect(actions).toHaveLength(0);
+  const node = root().querySelector('.automation-convergence');
+  expect(node).toBeTruthy(); expect(field('目标分支')).toBeNull();
+  expect(field('在目标分支挂载归并')).toBeNull(); expect(field('对新交付开启归并')).toBeNull();
+  expect(field('最终验证快捷指令')).toBeNull(); expect(deepText(node)).toContain('具体 Worker');
+  expect(field('新 Worker 默认挂载归并').checked).toBe(false); expect(field('挂载后默认开启归并').checked).toBe(false);
+  expect(field('默认显示原则').value).toBe('all'); expect(node.querySelectorAll('textarea')).toHaveLength(0);
+  expect(btn('保存分支归并设置')).toBeUndefined(); expect(btn('保存新 Worker 归并默认').disabled).toBe(true);
+  expect(btn('保存新 Worker 归并默认').parentNode.classList.contains('help-host')).toBe(true);
+  expect(reads).toEqual(['/api/hooks', '/api/branch-convergence/defaults']); expect(actions).toHaveLength(0);
+  expect(policies[1].mounted).toBe(true); expect(policies[1].enabled).toBe(false); // Existing main remains untouched.
 });
 
-test('automation history deep link keeps mount and defaults hidden after delayed branch loading', async () => {
-  const pending = gate(); intercept = path => path.endsWith('/api/branch-convergence') ? pending.promise : null;
+test('legacy automation history maps to settings and retains future-default and display drafts without reading batches', async () => {
+  runs = [run({ state: 'failed' })]; await openHooks();
+  const node = root().querySelector('.automation-convergence');
+  check('新 Worker 默认挂载归并'); check('挂载后默认开启归并');
+  const display = field('默认显示原则'); display.value = 'main'; display.onchange();
+  const defaultsEditor = node.querySelector('.convergence-defaults'), readsBefore = reads.length;
+  await openHooks({ subpage: 'history' });
+  expect(dom.location.hash).toBe('#hooks-convergence'); expect(root().querySelector('.automation-convergence')).toBe(node);
+  expect(node.querySelector('.convergence-history')).toBeNull(); expect(node.querySelector('.convergence-runs')).toBeNull(); expect(root().querySelector('.page-subnav')).toBeNull();
+  expect(field('目标分支')).toBeNull(); expect(field('最终验证快捷指令')).toBeNull();
+  expect(defaultsEditor.hidden).not.toBe(true); expect(field('新 Worker 默认挂载归并').checked).toBe(true);
+  expect(field('挂载后默认开启归并').checked).toBe(true); expect(display.value).toBe('main');
+  expect(btn('保存新 Worker 归并默认').disabled).toBe(false); expect(btn('保存项目设置').disabled).toBe(false);
+  await openHooks(); expect(root().querySelector('.automation-convergence')).toBe(node);
+  expect(field('默认显示原则')).toBe(display); expect(reads).toHaveLength(readsBefore); expect(actions).toHaveLength(0);
+});
+
+test('legacy history deep link waits for real future-default data; missing initial data cannot invent editable values', async () => {
+  const pending = gate(); intercept = path => path.endsWith('/api/branch-convergence/defaults') ? pending.promise : null;
   const opening = openHooks({ subpage: 'history' });
-  await until(() => !!root().querySelector('.branch-convergence'));
-  const node = root().querySelector('.branch-convergence');
-  expect(node.querySelector('.convergence-defaults').hidden).toBe(true);
-  pending.resolve(json({ version: 1, items: policies, defaults, count: policies.length, truncated: false }));
-  await node.ready; await opening;
-  expect(field('目标分支').value).toBe('main');
-  expect(field('在目标分支挂载归并').parentNode.hidden).toBe(true);
-  expect(node.querySelector('.convergence-defaults').hidden).toBe(true);
-  expect(node.querySelector('.convergence-history').hidden).toBe(false);
-  expect(actions).toHaveLength(0);
+  await until(() => !!root().querySelector('.automation-convergence'));
+  const node = root().querySelector('.automation-convergence');
+  expect(field('新 Worker 默认挂载归并').disabled).toBe(true); expect(btn('保存新 Worker 归并默认').disabled).toBe(true);
+  expect(field('目标分支')).toBeNull(); expect(node.querySelector('.convergence-history')).toBeNull();
+  pending.resolve(json(defaultsModel({ mounted: true, enabled: true }))); await node.ready; await opening;
+  expect(dom.location.hash).toBe('#hooks-convergence'); expect(field('新 Worker 默认挂载归并').checked).toBe(true);
+  expect(field('挂载后默认开启归并').checked).toBe(true); expect(field('新 Worker 默认挂载归并').disabled).toBe(false);
+  expect(reads).toEqual(['/api/hooks', '/api/branch-convergence/defaults']); expect(actions).toHaveLength(0);
 });
 
 test('enabling requires only full enable, confirms cost and submits no validation or Worker authorization', async () => {
@@ -274,6 +263,8 @@ test('mounted order and child expose convergence without changing child completi
   root().replaceChildren(workerHooks(child)); expect(btn('开启归并').disabled).toBe(true); expect(btn('开启归并').parentNode.classList.contains('help-host')).toBe(true);
   expect(btn('开启归并').parentNode.getAttribute('data-help')).toContain('分支正在发布');
   expect(root().querySelector('.convergence-worker-status').textContent).toContain('失败 2'); expect(deepText(root())).toContain('落地待核查 1');
+  expect(deepText(root())).toContain('在对应 Worker 自动化查看交付处理记录');
+  expect(deepText(root())).not.toContain('在项目自动化查看批次');
   expect(root().querySelector('.hook-management').hidden).toBe(true); expect(actions).toHaveLength(0);
 });
 
@@ -352,9 +343,16 @@ test('late list and history reads are discarded after disposal or branch switch'
   expect(root().querySelector('.convergence-run')).toBeNull(); expect(actions).toHaveLength(0);
 });
 
-test('old policy missing mounted or permission fields cannot guess defaults or block feature navigation', async () => {
-  delete policies[1].mounted; await openHooks(); await until(() => deepText(root()).includes('无法确认分支归并策略'));
-  expect(btn('保存分支归并设置').disabled).toBe(true); expect(btn('← 返回自动化功能列表')).not.toBeUndefined(); expect(deepText(root())).not.toContain('main · 已保存：关闭');
+test('old defaults missing mounted or permission fields cannot guess editable defaults or block settings navigation; actual target safety stays conservative', async () => {
+  for (const key of ['mounted', 'editable']) {
+    ui.disposeProjectAutomation?.(); ui.automationPage = null; activateDetailView({ view: 'overview' });
+    defaults = defaultsModel(); delete defaults[key]; await openHooks();
+    expect(field('新 Worker 默认挂载归并').disabled).toBe(true); expect(btn('保存新 Worker 归并默认').disabled).toBe(true);
+    expect(btn('← 返回自动化功能列表')).not.toBeUndefined(); expect(deepText(root())).toContain('不可用或版本不兼容');
+    expect(field('目标分支')).toBeNull(); expect(actions).toHaveLength(0);
+  }
+  defaults = defaultsModel(); delete policies[1].mounted; await component();
+  expect(btn('保存分支归并设置').disabled).toBe(true); expect(deepText(root())).not.toContain('main · 已保存：关闭');
   policies[1] = policy(); delete policies[1].editable; await component(); expect(field('在目标分支挂载归并').disabled).toBe(true); expect(actions).toHaveLength(0);
 });
 

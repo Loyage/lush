@@ -14,6 +14,13 @@ export const CONVERGENCE_ENABLE_HELP = agentHelp('开启目标分支的新交付
 export const CONVERGENCE_DISABLE_HELP = '关闭未来归并，目标系统工具仍以普通串行处理合法的已授权交付；已固定批次继续收口，不撤回交付或删除历史，不改变 Worker 自动合并或验收授权。';
 export const CONVERGENCE_COMPATIBILITY = '归并自动化数据不可用或版本不兼容，请更新项目后台与界面服务后重新读取。';
 
+/** Non-success facts must remain visible even when display policy folds the feature. */
+export function convergenceDiagnostic(model) {
+  const errors = ['awaiting', 'failed', 'blocked'].filter(key => Number.isSafeInteger(model?.counts?.[key]) && model.counts[key] > 0);
+  const counts = errors.map(key => `${({ awaiting: '待决定', failed: '失败', blocked: '落地待核查' })[key]} ${model.counts[key]}`).join(' · ');
+  return [model?.reason || '', counts ? `${counts}；在对应 Worker 自动化查看交付处理记录。` : ''].filter(Boolean).join(' · ');
+}
+
 /** Same target strategy as the protected delivery handler; completion authorization stays independent. */
 export function workerConvergenceControl(task, { ownsPage, refresh, onEditing = () => {}, onPolicyChange = () => {}, busy = () => false }) {
   const policy = task.hooks?.convergence;
@@ -36,11 +43,9 @@ export function workerConvergenceControl(task, { ownsPage, refresh, onEditing = 
       const help = enabled ? CONVERGENCE_ENABLE_HELP : CONVERGENCE_DISABLE_HELP;
       control.setAttribute('data-help', help); host.setAttribute('data-help', `${reason} ${help}`); host.tabIndex = control.disabled ? 0 : -1;
     }
-    status.textContent = model.reason || (saving ? '正在保存归并设置…' : `归并合并：${model.enabled ? '开启' : '关闭'}`);
-    const counts = model.counts;
-    const errors = ['awaiting', 'failed', 'blocked'].filter(key => Number.isSafeInteger(counts?.[key]) && counts[key] > 0);
-    if (errors.length) status.textContent += ` · ${errors.map(key => `${({ awaiting: '待决定', failed: '失败', blocked: '落地待核查' })[key]} ${counts[key]}`).join(' · ')}；在项目自动化查看批次。`;
-    status.classList.toggle('error', !!model.reason || errors.length > 0);
+    const diagnostic = convergenceDiagnostic(model);
+    status.textContent = diagnostic || (saving ? '正在保存归并设置…' : `归并合并：${model.enabled ? '开启' : '关闭'}`);
+    status.classList.toggle('error', !!diagnostic);
   }
   async function save(enabled) {
     if (!ownsPage() || saving || busy() || acknowledgedUnknown || !model.editable || enabled === model.enabled) return;

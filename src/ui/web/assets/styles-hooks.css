@@ -28,6 +28,19 @@
 .hook-toggle { display: inline-flex; align-items: center; gap: .45rem; }
 .worker-hooks-row { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; min-width: 0; }
 .worker-hooks-label, .hook-completion-label { white-space: nowrap; }
+.worker-automation-features { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; margin-top: .75rem; min-width: 0; }
+.worker-automation-feature { min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: .8rem; background: var(--panel); }
+.worker-automation-feature-head { display: flex; align-items: flex-start; flex-wrap: wrap; gap: .5rem; min-width: 0; }
+.worker-automation-feature-head h3 { margin: 0; flex: 1 1 10rem; min-width: 0; overflow-wrap: anywhere; }
+.worker-feature-toggle { margin-left: auto; }
+.worker-automation-feature-body, .worker-push-setting { min-width: 0; }
+.worker-automation-feature-body p, .worker-feature-principle, .worker-feature-advanced, .acceptance-notice-state { overflow-wrap: anywhere; }
+.worker-automation-feature-body[hidden], .worker-feature-advanced[hidden] { display: none; }
+.worker-feature-description { color: var(--muted); }
+.worker-feature-principle, .worker-feature-advanced { margin-top: .7rem; }
+.worker-feature-principle summary, .worker-feature-advanced summary { cursor: pointer; }
+.worker-feature-toggle:focus-visible, .worker-feature-principle summary:focus-visible, .worker-feature-advanced summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 600px) { .worker-automation-feature { padding: .7rem; } .worker-automation-feature button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; } .worker-automation-feature .hook-completion-label { white-space: normal; overflow-wrap: anywhere; } .worker-automation-feature .hook-completion-levels { flex-wrap: wrap; max-width: 100%; } }
 .hook-completion-control { display: flex; gap: .5rem; align-items: center; min-width: 0; flex-wrap: wrap; }
 .hook-completion-label { color: var(--muted); font-size: .85rem; }
 .hook-completion-levels { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; white-space: nowrap; }

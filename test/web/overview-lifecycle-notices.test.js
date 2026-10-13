@@ -3,17 +3,21 @@ import { fetch, setup } from './harness.js';
 
 function lifecycle(f, kind, status, type) {
   const task = f.store.create({ input_id: null, role: 'agent', task_kind: kind, goal: `${kind} lifecycle` });
-  f.store.update(task.id, { status });
-  const notice = f.store.transaction(() => f.project.notifyTaskLifecycle(task.id, f.store.event(task.id, type, {})));
+  // Projection fixtures retain a matching state/source edge; real delivery is tested in lifecycle-notice-api.
+  const notice = f.store.transaction(() => {
+    f.store.update(task.id, { status });
+    const event = f.store.event(task.id, type, type === 'task.delivered' ? { no_changes: true } : {});
+    return type === 'task.delivered' ? f.project.notifyAcceptanceEntry(task.id, event) : f.project.notifyTaskLifecycle(task.id, event);
+  });
   return { task, notice };
 }
 
 test('overview includes analysis and older lifecycle reminders outside the homepage Worker/history windows', async () => {
   const f = await setup();
   try {
-    const idle = lifecycle(f, 'order', 'waiting', 'task.idle');
+    const delivered = lifecycle(f, 'order', 'awaiting_acceptance', 'task.delivered');
     // The source event remains valid even after the Worker leaves the activity window.
-    f.store.update(idle.task.id, { status: 'completed' });
+    f.store.update(delivered.task.id, { status: 'completed' });
     const analysis = lifecycle(f, 'analysis', 'completed', 'completed');
     const failed = lifecycle(f, 'analysis', 'failed', 'analysis.fork_failed');
     f.store.transaction(() => {
@@ -24,9 +28,9 @@ test('overview includes analysis and older lifecycle reminders outside the homep
       }
     });
     const overview = await (await fetch(f.url + '/api/overview')).json();
-    expect(overview.tasks.some(row => row.id === idle.task.id)).toBe(false);
+    expect(overview.tasks.some(row => row.id === delivered.task.id)).toBe(false);
     expect(overview.tasks.some(row => row.task_kind === 'analysis')).toBe(false);
-    for (const { notice } of [idle, analysis, failed]) {
+    for (const { notice } of [delivered, analysis, failed]) {
       expect(overview.notices.filter(row => row.id === notice.id)).toHaveLength(1);
     }
     const before = f.store.task(analysis.task.id);
@@ -44,7 +48,7 @@ test('overview includes analysis and older lifecycle reminders outside the homep
 test('overview deduplicates unread reminders also present in its historical page', async () => {
   const f = await setup();
   try {
-    const { notice } = lifecycle(f, 'order', 'waiting', 'task.idle');
+    const { notice } = lifecycle(f, 'order', 'awaiting_acceptance', 'task.delivered');
     const snapshot = await (await fetch(f.url + '/api/snapshot')).json();
     expect(snapshot.notices.filter(row => row.id === notice.id)).toHaveLength(1);
   } finally { await f.close(); }

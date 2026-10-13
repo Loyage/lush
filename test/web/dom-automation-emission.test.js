@@ -125,48 +125,14 @@ test('tab switches retain local draft and in-flight saving does not strand the e
   expect(panel().querySelector('textarea')).toBe(content); expect(content.value).toBe('retained'); expect(content.disabled).toBe(false);
 });
 
-test('parent feature directory keeps routing ownership and resumes a retained editor after an inactive save completes', async () => {
-  await openProjectAutomation({ feature: 'emission' });
-  page = dom.node('detail').querySelector('.automation-emission');
+for (const subpage of ['settings', 'history']) test(`retired conditional feature ${subpage} route opens input browser, never project automation or history`, async () => {
+  ui.inputsPage = null;
+  await openProjectAutomation({ feature: 'emission', subpage });
+  expect(dom.location.hash).toBe('#inputs');
+  expect(dom.node('detail').querySelector('.inputs-page')).toBeTruthy();
+  expect(dom.node('detail').querySelector('.automation-emission')).toBeNull();
   expect(reads.filter(route => route.pathname === '/api/inputs')).toHaveLength(1);
-  expect(dom.location.hash).toBe('#hooks-emission');
-  await open(1); const content = panel().querySelector('textarea'); content.value = 'retained by directory'; content.oninput();
-  const delayed = deferred(); intercept = (route, body) => body?.method === 'draft.update' ? delayed.promise : null;
-  const saving = button('保存').onclick();
-  await openProjectAutomation(); expect(dom.location.hash).toBe('#hooks');
-  delayed.resolve(json(draft(1, { content: 'retained by directory', revision: 3 }))); await saving;
-  expect(dom.node('detail').querySelector('.automation-emission')).toBeNull();
-  await openProjectAutomation({ feature: 'emission' });
-  expect(dom.node('detail').querySelector('.automation-emission')).toBe(page);
-  expect(panel().querySelector('textarea')).toBe(content); expect(content.disabled).toBe(false);
-  expect(button('按条件提交').disabled).toBe(false); expect(dom.location.hash).toBe('#hooks-emission');
-  await button('← 返回条件输入列表').onclick(); expect(dom.location.hash).toBe('#hooks-emission');
-});
-
-test('parent directory can reopen an inactive feature after its discarded initial read settles', async () => {
-  const delayed = deferred(); intercept = route => route.pathname === '/api/inputs' ? delayed.promise : null;
-  const opening = openProjectAutomation({ feature: 'emission' });
-  await until(() => ui.automationPage?.nodes.has('emission'));
-  page = ui.automationPage.nodes.get('emission');
-  await openProjectAutomation();
-  delayed.resolve(json({ items: rows, next_cursor: null })); await opening;
-  expect(dom.node('detail').querySelector('.automation-emission')).toBeNull();
-  intercept = null; await openProjectAutomation({ feature: 'emission' });
-  expect(dom.node('detail').querySelector('.automation-emission')).toBe(page);
-  expect(active().querySelectorAll('.input-record')).toHaveLength(1);
-});
-
-test('parent history deep link awaits the active receipt read and retains the same node across tabs', async () => {
-  rows = [draft(1, { dispatch: { state: 'unknown' } })];
-  await openProjectAutomation({ feature: 'emission', subpage: 'history' });
-  page = dom.node('detail').querySelector('.automation-emission');
-  expect(dom.location.hash).toBe('#hooks-emission-history');
-  expect(active().querySelectorAll('.input-record')).toHaveLength(1);
-  expect(deepText(active())).toContain('投递结果待核验');
-  await open(1); expect(panel().querySelector('textarea')).toBeNull();
-  await openProjectAutomation({ feature: 'emission', subpage: 'settings' });
-  expect(dom.node('detail').querySelector('.automation-emission')).toBe(page);
-  expect(dom.location.hash).toBe('#hooks-emission'); expect(calls).toHaveLength(0);
+  expect(calls).toHaveLength(0);
 });
 
 test('failed refresh retains records; disposed, lost ownership or cross-project late responses never repaint or issue follow-up writes', async () => {

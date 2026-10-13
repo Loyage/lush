@@ -80,6 +80,30 @@ test('retired hashes redirect with explicit removal notice; native sidebar and H
   expect(writes).toHaveLength(0);
 });
 
+test('real hash routing keeps new pure settings and conditional input alongside retired tool redirects', async () => {
+  const catalogue = { version: 1, automation_settings: { version: 1, revision: 'project-r',
+    completion_defaults: { enabled: false, level: 'merge' }, acceptance_notice_defaults: { enabled: true },
+    display_principles: { completion: 'all', push: 'all', convergence: 'all', acceptance_notice: 'all' } } };
+  const beforeWrites = writes.length; reads.length = 0;
+  intercept = url => url === '/api/hooks' ? Response.json(catalogue) : null;
+  try {
+    for (const feature of ['completion', 'push', 'acceptance_notice']) {
+      dom.location.hash = `#hooks-${feature}-history`; await dom.fire('hashchange');
+      expect(dom.location.hash).toBe(`#hooks-${feature}`); expect(ui.view.id).toBe('hooks');
+      expect(dom.node('detail').querySelector(`[data-feature-settings="${feature}"]`)).toBeTruthy();
+      expect(dom.node('detail').querySelector('.page-subnav')).toBeNull();
+      expect(dom.node('detail').querySelector('.hook-execution')).toBeNull();
+      expect(dom.node('detail').querySelector('a[href="#hook-tools"]')).toBeNull();
+    }
+    expect(reads.every(url => url === '/api/hooks')).toBe(true);
+    for (const hash of ['#hooks-emission', '#hooks-emission-history']) {
+      dom.location.hash = hash; await dom.fire('hashchange');
+      expect(dom.location.hash).toBe('#inputs'); expect(dom.node('detail').querySelector('.inputs-page')).toBeTruthy();
+    }
+    expect(writes).toHaveLength(beforeWrites);
+  } finally { intercept = null; activateDetailView({ view: 'overview' }); }
+});
+
 test('legacy versions resolves persistent main identity, unavailable/error retry and late response cannot navigate another page', async () => {
   const opened = [], restore = registerNavigation({ detail: id => opened.push(id) });
   try {

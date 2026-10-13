@@ -161,40 +161,40 @@ export default {
    * 也不会让任务停在 awaiting；answer / dismiss 会因为 status 不是 open 而拒绝它。
    * 允许在终态任务上写：这条提醒本来就是结算的产物，结算之后任务不能再被唤醒。
    */
-  notify(taskId, title, body = '') {
+  notify(taskId, title, body = '', sourceEventId = null) {
     const task = this.store.task(taskId); text(title, 'title');
     check(typeof body === 'string' && body.length <= 32000, 'invalid notice body');
-    const row = this.store.run("INSERT INTO notices(task_id,title,body,kind,status) VALUES (?,?,?,'info','sent')", task.id, title, body);
-    this.store.event(task.id, 'notice.opened', { notice_id: Number(row.lastInsertRowid), title, kind: 'info' });
+    const row = this.store.run("INSERT INTO notices(task_id,title,body,kind,status,source_event_id) VALUES (?,?,?,'info','sent',?)", task.id, title, body, sourceEventId);
+    this.store.event(task.id, 'notice.opened', { notice_id: Number(row.lastInsertRowid), title, kind: 'info',
+      ...(sourceEventId === null ? {} : { source_event_id: sourceEventId }) });
     return this.store.get(`${NOTICE_SELECT} WHERE id=?`, Number(row.lastInsertRowid));
   },
 
   /** Built-in lifecycle hook. Caller commits Task state, source Event and Notice together. */
   notifyTaskLifecycle(taskId, sourceEventId) {
     const task = this.store.task(taskId);
+    if (['order','say','child'].includes(task.task_kind) && task.status === 'awaiting_acceptance')
+      return this.notifyAcceptanceEntry(task.id, sourceEventId);
     if (!['order','analysis'].includes(task.task_kind)) return null;
     const event = this.store.get('SELECT * FROM events WHERE id=? AND task_id=?', id(sourceEventId), task.id);
     check(event, 'lifecycle source event does not belong to this Worker');
     const failed = task.status === 'failed' && ['failed','merge.repair_interrupted','analysis.fork_failed'].includes(event.type);
-    const idle = event.type === 'task.idle' && ['waiting','awaiting_acceptance'].includes(task.status);
     const analyzed = task.task_kind === 'analysis' && task.status === 'completed' && event.type === 'completed';
     const created = task.task_kind === 'order' && task.status === 'paused' && !task.calls && !task.agent_wakes
       && event.type === 'task.start_pending';
-    if (!failed && !idle && !analyzed && !created) return null;
-    // A configured automatic stage records success, but only its next manual stage reminds.
-    if (idle && this.autoCompletionView(task)?.level !== 'off' && this.autoCompletionView(task)) return null;
+    // Successful order reminders come only from the awaiting_acceptance edge above.
+    if (!failed && !analyzed && !created) return null;
     if (!failed && (this.hasActionableMessages(task.id)
       || this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", task.id)
       || this.store.children(task.id).some(child => !isSettled(child)))) return null;
     const existing = this.store.get(`${NOTICE_SELECT} WHERE source_event_id=?`, event.id);
     if (existing) return existing;
     const goal = String(task.goal ?? '').trim().split('\n')[0].slice(0, 100);
-    const title = `${task.task_kind === 'analysis' ? '分析' : 'Worker'} ${workerLabel(task)} ${failed ? '异常停止' : analyzed ? '已完成' : created ? '待开始' : '本轮已结束'}：${goal}`;
+    const title = `${task.task_kind === 'analysis' ? '分析' : 'Worker'} ${workerLabel(task)} ${failed ? '异常停止' : analyzed ? '已完成' : '待开始'}：${goal}`;
     const body = [
       failed ? `Worker 异常停止：${String(task.error ?? '没有记录到原因').slice(0, 1200)}`
         : analyzed ? '只读分析已完成，没有分支改动。'
-          : created ? 'Worker 和独立工作区已创建，尚未调用 Agent；可打开 Worker 调整运行设置，再手动开始。'
-          : '本轮工作已收尾，现已静息，等待合并、验收或进一步指示；这不代表 Worker 已验收完成。',
+          : 'Worker 和独立工作区已创建，尚未调用 Agent；可打开 Worker 调整运行设置，再手动开始。',
       task.branch ? `分支：${task.branch}\n父分支：${task.target_branch ?? '（未记录）'}`
         : `分析分支：${task.target_branch ?? '（未记录）'}`,
       task.task_kind === 'analysis' ? '' : task.integration === 'merged'

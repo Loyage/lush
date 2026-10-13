@@ -63,7 +63,7 @@ export function assertTaskAncestorsOpen(project, task) {
 /** Receipts live in Events, not in the single mutable reservation slot. */
 export function consumeIntegratedReservation(project, task, reason) {
   const previous = bookingOf(task);
-  if (previous?.status !== 'integrated' && !(task.task_kind === 'child'
+  if (previous?.status !== 'integrated' && !(['order','child'].includes(task.task_kind)
     && task.status === 'awaiting_acceptance' && !previous)) return false;
   const settings = task.auto_merge ? JSON.parse(task.auto_merge) : null;
   const automatic = settings ? settings.enabled === true : task.task_kind === 'child';
@@ -179,7 +179,7 @@ function acceptanceChildren(rows, rootId) {
 }
 
 /** A partial parent batch must be resumed at its root, never split into child acceptances. */
-function assertNoPartialParentAcceptance(project, taskId) {
+export function assertNoPartialParentAcceptance(project, taskId) {
   const partial = project.store.get(`WITH RECURSIVE ancestors(id,parent_id) AS (
     SELECT id,parent_id FROM tasks WHERE id=?
     UNION SELECT t.id,t.parent_id FROM tasks t JOIN ancestors a ON t.id=a.parent_id
@@ -455,7 +455,8 @@ export default {
         this.store.update(task.id, { status: 'awaiting_acceptance', integration, error: null,
           iteration_base_commit: task.iteration_base_commit ?? head });
         this.store.armAgent(task.id, null);
-        this.store.event(task.id, 'task.reopened', { head_commit: head, previous_status: task.status });
+        const event = this.store.event(task.id, 'task.reopened', { head_commit: head, previous_status: task.status });
+        this.notifyAcceptanceEntry(task.id, event);
       });
       return this.store.task(task.id);
     });

@@ -2,6 +2,7 @@ import { test, expect, setDefaultTimeout } from 'bun:test';
 import { fixture, repo } from '../helpers.js';
 import { workerLabel } from '../../src/core/worker-number.js';
 import { assertTaskAncestorsOpen } from '../../src/core/project/iteration.js';
+import { Dispatcher } from '../../src/rpc/dispatcher.js';
 
 setDefaultTimeout(30000);
 function numberedOrder(f) {
@@ -15,21 +16,24 @@ const child = (f, parent) => f.store.create({ role: 'agent', task_kind: 'child',
   input_id: parent.input_id, goal: 'nested' });
 const noticeFor = (f, task) => f.store.get('SELECT * FROM notices WHERE task_id=? ORDER BY id DESC LIMIT 1', task.id);
 
-test('lifecycle failure and idle notices use the persistent number in title and body, preserving stored history', async () => {
+test('lifecycle failure and acceptance notices use the persistent number in title and body, preserving stored history', async () => {
   const f = fixture(); f.project.stopping = true;
   try {
     const task = numberedOrder(f);
     expect(task.id).not.toBe(task.input_id);
     const historical = f.project.notify(task.id, `Worker #${task.id} old title`, `old body #${task.id}`);
-    f.store.update(task.id, { status: 'waiting' });
-    const event = f.store.event(task.id, 'task.idle', {});
-    const idle = f.project.notifyTaskLifecycle(task.id, event);
-    expect(idle.title).toStartWith(`Worker ${task.worker_number} 本轮已结束`);
-    expect(idle.body).toContain(`打开 Worker ${task.worker_number} 查看详情`);
-    expect(idle.body).not.toContain(`Worker #${task.id}`);
-    expect(idle.task_id).toBe(task.id);
-    expect(idle.task_worker_number).toBe(task.worker_number);
-    expect(f.project.notifyTaskLifecycle(task.id, event).id).toBe(idle.id);
+    const { event, notice } = f.store.transaction(() => {
+      f.store.update(task.id, { status: 'awaiting_acceptance' });
+      const event = f.store.event(task.id, 'task.delivered', { no_changes: true });
+      return { event, notice: f.project.notifyAcceptanceEntry(task.id, event) };
+    });
+    expect(notice.title).toBe(`Worker ${task.worker_number} · 待验收`);
+    expect(notice.body).toContain(`打开 Worker ${task.worker_number} 查看详情`);
+    expect(notice.body).not.toContain(`Worker #${task.id}`);
+    expect(notice.task_id).toBe(task.id);
+    expect(notice.task_worker_number).toBe(task.worker_number);
+    expect(f.project.notifyAcceptanceEntry(task.id, event)).toBeNull();
+    expect(f.store.all('SELECT id FROM notices WHERE source_event_id=?', event)).toEqual([{ id: notice.id }]);
     f.project.finish(task.id, 'failed', null, 'synthetic timeout');
     const failed = noticeFor(f, task);
     expect(failed.title).toStartWith(`Worker ${task.worker_number} 异常停止`);
@@ -37,7 +41,30 @@ test('lifecycle failure and idle notices use the persistent number in title and 
     expect(failed.body).toContain(`打开 Worker ${task.worker_number} 查看详情`);
     expect(f.store.get('SELECT title,body FROM notices WHERE id=?', historical.id))
       .toEqual({ title: historical.title, body: historical.body });
-    expect(f.store.get('SELECT type FROM events WHERE id=?', event).type).toBe('task.idle');
+    expect(f.store.get('SELECT type FROM events WHERE id=?', event).type).toBe('task.delivered');
+  } finally { await f.close(); }
+});
+
+test('child acceptance notice is opt-in and uses its persistent suffix and parent-confirmation title', async () => {
+  const f = fixture(); f.project.stopping = true;
+  try {
+    const root = numberedOrder(f), nested = child(f, root);
+    const before = f.project.taskHooks(nested.id);
+    expect(before.acceptance_notice.enabled).toBe(false);
+    const on = await new Dispatcher(f.project).dispatch('worker.acceptance_notice', {
+      id: nested.id, enabled: true, expected_revision: before.revision });
+    expect(on.acceptance_notice.enabled).toBe(true);
+    expect(on.completion).toEqual(before.completion);
+    expect(on.completion).toMatchObject({ min_level: 'merge', locked: true, editable: false });
+    const notice = f.store.transaction(() => {
+      f.store.update(nested.id, { status: 'awaiting_acceptance' });
+      return f.project.notifyAcceptanceEntry(nested.id, f.store.event(nested.id, 'task.delivered', { no_changes: true }));
+    });
+    expect(notice.title).toBe(`Worker ${nested.worker_number} · 待父确认`);
+    expect(notice.body).toContain(`打开 Worker ${nested.worker_number} 查看详情`);
+    expect(notice.body).not.toContain(`Worker #${nested.id}`);
+    expect(notice.task_id).toBe(nested.id);
+    expect(notice.task_worker_number).toBe(`${root.worker_number}-1`);
   } finally { await f.close(); }
 });
 
@@ -65,11 +92,12 @@ test('historical unnumbered orders and children fall back to #ID without derivin
   const f = fixture(); f.project.stopping = true;
   try {
     const old = f.store.create({ role: 'agent', task_kind: 'order', goal: 'legacy', input_id: null });
-    f.store.update(old.id, { status: 'waiting' });
-    const event = f.store.event(old.id, 'task.idle', {});
-    const idle = f.project.notifyTaskLifecycle(old.id, event);
-    expect(idle.title).toStartWith(`Worker #${old.id} 本轮已结束`);
-    expect(idle.body).toContain(`打开 Worker #${old.id} 查看详情`);
+    const notice = f.store.transaction(() => {
+      f.store.update(old.id, { status: 'awaiting_acceptance' });
+      return f.project.notifyAcceptanceEntry(old.id, f.store.event(old.id, 'task.delivered', { no_changes: true }));
+    });
+    expect(notice.title).toBe(`Worker #${old.id} · 待验收`);
+    expect(notice.body).toContain(`打开 Worker #${old.id} 查看详情`);
     const nested = child(f, child(f, old));
     expect(nested.worker_number).toBeNull();
     f.store.update(nested.id, { status: 'waiting', branch: 'legacy-child' });

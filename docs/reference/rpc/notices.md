@@ -1,6 +1,6 @@
 # 待决问题与告知
 
-Notice 共用持久记录，但决策与告知的语义独立。Agent 需要用户决断时发布问题；普通进度与完成汇报仍写 Worker result。用户直接创建 Worker 的本轮静息或异常停止由 runtime 内置 hook 自动生成纯告知，不需要 Agent 自己发布，也不额外调用模型。
+Notice 共用持久记录，但决策与告知的语义独立。Agent 需要用户决断时发布问题；普通进度与完成汇报仍写 Worker result。用户直接创建 Worker 的待验收（开关开启时）或异常停止由 runtime 内置 hook 自动生成纯告知，不需要 Agent 自己发布，也不额外调用模型。
 
 | CLI | RPC | 参数 |
 |---|---|---|
@@ -30,13 +30,15 @@ Host 全局收件箱使用用户专属 `notice.sync`，不通过首页 200 条�
 
 ## 生命周期告知
 
-内置 hook 只覆盖用户直接创建的 `order` / `analysis`。指令正常完成一轮工作、无待决问题、未处理输入或未结算子Worker后，以 `task.idle` 事件生成“本轮已结束”的告知；它仍可能在等待合并或进一步指示，并不代表验收完成。同步修复的轮末也使用相同事件。超时、调用失败、daemon 中断恢复及分析检出失败保存失败原因。子 Worker 与内部 main/owner/merge 不触发此 hook；等待子Worker、问卷、用户主动暂停/取消和安全抢占不额外告知。
+成功开发告知只在真实进入 `awaiting_acceptance` 的安全交付边缘产生，不把 `waiting` 或 Agent 一轮返回当作交付；手动／自动合并及无代码交付共用独立的“待验收告知”策略。用户新建 order 默认开启、child 默认关闭；child 显式开启时文案为“待父确认”。项目未来默认、Worker 开关、按轮次去重与不补发边界见[告知契约](../../engineering/completion-hooks.md#告知)。关闭该功能不影响失败、未知结果、待决、待开始或自定义告知。
+
+异常停止及只读分析完成仍沿原内置生命周期路径：超时、调用失败、daemon 中断恢复及分析检出失败保存失败原因；内部 main/owner/merge、等待子 Worker、问卷、用户主动暂停／取消和安全抢占不因此额外告知。
 
 指令以 `start:false` 仅创建成功时，在创建事务内以 `task.start_pending` 生成「待开始」告知，提醒尚未调用 Agent，可主动打开 Worker 配置后手动开始。直接正文、草稿及预约 Hook 的真实创建共用该路径；预约仅挂载、立即开始或重启恢复不生成、不补发此告知。发射后前端留在原页，查看由用户主动触发。
 
 告知固定 `kind='info' / status='sent'`，不进入 open 问题口径，不阻塞调度、合并或验收。Notice 的可空 `source_event_id INTEGER` 指向来源 Event，并以唯一索引去重；`read_at TEXT` 保存已读时间。Worker状态、来源事件和告知同事务写入，旧 Notice 的新字段保持 NULL，不回填、不补发历史完成通知。
 
-Notice 读面另投影可空 `lifecycle_type`，依据同 Worker 的来源 Event：`task.start_pending` → `created`，`task.idle` → `idle`，`completed` → `analysis`，`failed` / `merge.repair_interrupted` / `analysis.fork_failed` → `failed`。只对带来源的 info 告知分类，旧普通 info、丢失或未知来源为 NULL；不修改存储、不按标题或当前 Worker 状态猜测。`notice.list/page`、Worker 详情与生命周期生成/已读返回使用相同投影。
+Notice 读面另投影可空 `lifecycle_type`，依据同 Worker 的来源 Event：`task.start_pending` → `created`，`task.idle` → `idle`，`completed` → `analysis`，`failed` / `merge.repair_interrupted` / `analysis.fork_failed` → `failed`。只对带来源的 info 告知分类，旧普通 info、丢失或未知来源为 NULL；新待验收来源可能为 task.delivered、task.merge_integrated、task.parent_synced 等，未在原分类表中的保留 NULL 并保持可见，不凭标题猜类别。不修改存储、不按当前 Worker 状态猜测。`notice.list/page`、Worker 详情与生命周期生成/已读返回使用相同投影。
 
 `notice.read` 用户专属、幂等，只允许 info/sent；首次记录 `notice.read` Event，不产生收件箱消息，不答复问题、批准合并、验收或唤醒 Agent。已读后 Notice 仍是 sent，正文及来源永久保留在历史里。Web 在点击告知并成功加载所属 Worker 后调用它，打开失败不标已读；告知条的「已知」及手机横滑直接调用它，无需打开 Worker，写入失败保留告知并允许重试。
 

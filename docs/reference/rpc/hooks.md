@@ -11,10 +11,12 @@
 | `hooks.command_export` | `{id,version}` | `hooks command export ID --version N` |
 | `hooks.command_remove` | `{id,expected_revision}` | `hooks command remove ID --revision REV` |
 | `hooks.command_history` | `{before?,limit?,execution_id?}` | `hooks command history [--before CURSOR] [--limit N] [--execution UUID]` |
-| `hooks.command_history_remove` | `{execution_id}` 或 `{clear:true}` | 自动化页「运行记录」删除／清空已结束记录 |
+| `hooks.command_history_remove` | `{execution_id}` 或 `{clear:true}` | 既有 API 删除／清空已结束记录；独立 Web 入口已退休 |
 | `hooks.command_import` | `{source,expected_revision}` | `hooks command import --file PATH --revision REV` |
 | `hooks.auto_select` | `{enabled,expected_revision}` | `hooks auto-select on\|off --revision REV` |
-| `hooks.completion_defaults` | `{enabled,level,expected_revision}` | 在自动化页面保存 |
+| `hooks.completion_defaults` | `{enabled,level,expected_revision}` | 项目默认流程兼容入口 |
+| `hooks.automation_settings` | `{patch,expected_revision}` | 项目自动化设置页保存 |
+| `worker.acceptance_notice` | `{id,enabled,expected_revision}` | Worker 自动化内开启／关闭待验收告知 |
 | `hooks.save` | `{template,expected_revision}` | `hooks save --file PATH --revision REV` |
 | `hooks.remove` | `{id,expected_revision}` | `hooks remove TEMPLATE_ID --revision REV` |
 | `hooks.signal_save` | `{signal,expected_revision}` | `hooks signal save --file PATH --revision REV` |
@@ -30,7 +32,7 @@
 
 读取 HTTP：`GET /api/hooks`、`GET /api/worker/ID/hooks`，不接受查询参数。写入通过已登录、同源的 `POST /api/action {method,params}`，不是通用 RPC 代理。
 
-目录返回 `{version:1,revision,triggers,actions,templates,commands,daemon_hooks,completion_defaults,signals,management_workers,command_example}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,completion,convergence,can_attach,mounts}`。CLI 的工作身份参数接受内部整数或 `Wn(-n)*`／`Vn`，先经 `worker.lookup` 解析，目标操作仍按原类型准入；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
+目录返回 `{version:1,revision,triggers,actions,templates,commands,daemon_hooks,completion_defaults,automation_settings,signals,management_workers,command_example}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,completion,convergence,push,acceptance_notice,automation_settings,can_attach,mounts}`；Worker 的 automation_settings 仅提供 version 与安全 display_principles，不泄漏项目默认授权身份。CLI 的工作身份参数接受内部整数或 `Wn(-n)*`／`Vn`，先经 `worker.lookup` 解析，目标操作仍按原类型准入；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
 
 `revision` 是不透明字符串，必须先读并随写请求携带；过期返回错误，不覆盖并发修改。模板 `id` 与挂载 `hook_id` 是不同身份。
 
@@ -70,7 +72,7 @@ Shell Hook 引用 `{type:'command',command_id:'UUID'}`；提示词用同形 `typ
 
 ## 通用命令与 main 示例
 
-`command_example` 为 `{template_id,worker_id,hook_id,hooks}`，无 main 为 null。示例首次初始化为默认关闭的持续模板与 main 挂载；读取不安装，被用户删除不重装。项目页面启停示例时使用 **command_example.hooks.revision**，不是模板 revision。
+`command_example` 为 `{template_id,worker_id,hook_id,hooks}`，无 main 为 null。`worker.hooks.push` 是同源安全身份 `{worker_id,hook_id}`（无 main 为 null），只从真实 main 和匹配的安装 metadata 提取，不按标题或猜整数 ID。缺失／不匹配 metadata 的 hook_id 为 null；删除后保留 tombstone 身份，实际 mount 是否存在决定可用性，不读取时重装。两种读面共用不递归的 identity helper，不公开额外私有 metadata。示例首次初始化为默认关闭的持续模板与 main 挂载；读取不安装，被用户删除不重装。项目页面启停示例时使用 **command_example.hooks.revision**，不是模板 revision。
 
 定义使用 `trigger:'worker.merge_received'`（父 Worker 收到成功合并）和 `actions:[{type:'command',command_id:'UUID'}]`；动作支持节点以目录为准。新项目默认注册内置 `git push` 快捷指令，再由停用示例引用；旧项目导入与停用保留见[兼容契约](../../engineering/shortcut-commands.md#旧配置与-git-push)。Hook 不配置 remote/upstream/认证，命令业务语义由用户自己决定。Shell 在挂载目录以 daemon 系统用户权限执行，不是沙箱，不调用 Agent；启停与原执行安全门不变，不自动重放失败或未知副作用。
 
@@ -88,9 +90,13 @@ Shell Hook 引用 `{type:'command',command_id:'UUID'}`；提示词用同形 `typ
 
 ## 新指令默认流程
 
-`completion_defaults:{version:1,enabled,level,revision}` 是设备唯一的未来新指令默认配置，初始 disabled、level=merge。新配置为 `merge|accept`，旧 archive 等价 accept；验收即归档回收 worktree/ref，保留历史、脏现场阻止。工作台通过 Host `/api/host/automation` 保存，旧用户专属 `hooks.completion_defaults` 接口继续兼容，使用 **completion_defaults.revision** 返回完整目录；关闭仍保留 level。
+项目 `automation_settings` 为 `{version:1,revision,completion_defaults:{enabled,level},acceptance_notice_defaults:{enabled},display_principles:{completion,push,convergence,acceptance_notice}}`。`hooks.automation_settings` 接受上述后三项的非空严格 partial patch，使用 **automation_settings.revision**，返回完整 hooks.list；未知字段、非法值及过期 revision 拒绝。保存只设置未来默认和展示策略，不批量修改现有 Worker。
 
-只有实际创建的新指令（含预约／定时）复制当前默认，不改变已有 Worker 配置，不应用于 child／管理 Worker。用户决定 #418 明确允许原有自动验收授权直接采用回收语义；保存默认不调用 Agent。设备与权限边界见[用户工作台](../../engineering/user-workspace.md)。
+完工默认初始 disabled、level=merge；level 为 `merge|accept`，旧 archive 等价 accept，关闭记住所选环节。只有本项目实际创建的新指令（含预约／定时）复制授权，不应用于 child／管理 Worker。旧 `hooks.completion_defaults` 写同一项目策略，`completion_defaults:{version:1,enabled,level,revision}` 的 revision 与 automation_settings 相同。旧设备配置及旧项目历史 meta 保留，但不自动导入或参与新建默认；Host `/api/host/automation` 的 completion_defaults 写入明确退役。验收回收语义见[自动链契约](../../engineering/completion-hooks.md)。
+
+四项 display_principles 初始均为 `all`，可设 `main|all|user`：main 只在 main/owner 默认展开，all 在所有 Worker 默认展开，user 在 main/owner 及用户指令 order 默认展开，不将 analysis、merge、integration 或 management 等内部类型算作用户指令。仅控制是否须展开才能看到，折叠项仍可找到，不改变启停、权限或执行；当前项目策略即时适用于 Worker 展示。归并未来挂载／启用仍使用 branch.convergence_defaults_set 的唯一配置，推送仍仅 main 挂载，不因显示于所有 Worker 而给开发分支自动 push。
+
+告知默认 enabled=true，只复制给新用户指令；child 创建时默认 false。`worker.acceptance_notice` 使用 **worker.hooks.revision**，返回完整 Worker Hooks；只允许 order/child 等合法开发 Worker，冻结、同步、终态及执行中的安全门仍核验。`acceptance_notice:{enabled,editable,reason}` 是安全读面；child 可以独立改告知，不因此解锁合并／验收级别。已有 Worker 未配置时只读按 order 开启、child 关闭解释，不改写历史。关闭不屏蔽异常，告知去重与不补发边界见[告知契约](../../engineering/completion-hooks.md#告知)。
 
 ## 最高自动级别
 

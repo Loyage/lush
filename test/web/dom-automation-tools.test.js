@@ -30,8 +30,7 @@ const dom = installDom({ fetch: async (url, options = {}) => {
   }
   throw new Error(`unexpected ${path} ${body?.method}`);
 } });
-const { openHooks: openAutomation, openHookTools, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
-const openHooks = options => openAutomation({ feature: 'convergence', ...options });
+const { openHookTools, workerHooks } = await import('../../src/ui/web/assets/render-hooks.js');
 const { renderAutomationTools, renderOperation, validOperation } = await import('../../src/ui/web/assets/automation-tools.js');
 const { createHookForm } = await import('../../src/ui/web/assets/hook-form.js');
 const { renderBranchConvergence } = await import('../../src/ui/web/assets/branch-convergence.js');
@@ -47,7 +46,11 @@ function worker(model, patch = {}, options = {}) {
   const node = workerHooks({ id: model.worker_id, task_kind: 'order', branch: policy(model.worker_id).branch, status: 'waiting', hooks: model, ...patch }, { refresh() {}, ...options });
   root().replaceChildren(node); return node;
 }
-async function project() { await openHooks(); await root().querySelector('.branch-convergence').ready; }
+// Retained legacy evidence reader; it is no longer mounted by the project settings directory.
+async function legacyTargetReader() {
+  const node = renderBranchConvergence({ ownsPage: () => true, catalogue });
+  root().replaceChildren(node); await node.ready; return node;
+}
 beforeEach(() => {
   ui.hooksPage?.convergenceNode?.dispose?.(); ui.hooksPage?.shortcutNode?.dispose?.(); ui.hooksPage = null; closeDialog(); activateDetailView({ view: 'overview' });
   dom.location.pathname = '/'; actions = []; reads = []; intercept = null; policies = [policy(), policy(2)]; models = new Map([[1, hooks(1)], [2, hooks(2)]]);
@@ -114,16 +117,21 @@ test('failure and unknown operation diagnostics remain visible outside collapsed
   }
 });
 
-test('one protected handler card owns ordinary/convergence strategy and remains outside folding', () => {
+test('protected handler evidence is advanced while current target controls stay directly visible', () => {
   const model = hooks(1, { mounts: [handler({ builtin: false, editable: true, removable: true, actions: [{ type: 'integrate_deliveries', strategy: 'converge' }], operation: operation('integrate_deliveries', { strategy: 'converge', status: 'running', run_id: 71, generation: 2 }) })], convergence: policy(1, { enabled: true }) });
   const node = worker(model, { task_kind: 'main' }); const card = node.querySelector('.delivery-handler');
   expect(node.querySelectorAll('.delivery-handler')).toHaveLength(1); expect(node.querySelector('.hook-management').querySelector('.delivery-handler')).toBeNull();
   expect(deepText(card)).toContain('当前处理策略：归并'); expect(deepText(card)).toContain('归并批次 71'); expect(deepText(card)).toContain('不提高来源');
   for (const label of ['编辑挂载', '复制为停用挂载', '移除挂载', '停用 Hook']) expect(btn(label, card)).toBeUndefined();
-  expect(btn('开启归并', card).classList.contains('agent-call')).toBe(true); expect(btn('开启归并', card).parentNode.getAttribute('data-help')).toContain('token');
-  expect(btn('关闭归并', card).classList.contains('agent-call')).toBe(false);
+  const feature = node.querySelector('[data-feature="convergence"]');
+  expect(feature.querySelector('.worker-automation-feature-body').hidden).toBe(false);
+  expect(feature.querySelector('.worker-feature-advanced').open).not.toBe(true);
+  expect(feature.querySelector('.worker-feature-advanced').querySelector('.delivery-handler')).toBe(card);
+  expect(btn('开启归并', feature).classList.contains('agent-call')).toBe(true); expect(btn('开启归并', feature).parentNode.getAttribute('data-help')).toContain('token');
+  expect(btn('关闭归并', feature).classList.contains('agent-call')).toBe(false);
   model.convergence.enabled = false; model.convergence.mounted = false; model.mounts[0].actions[0].strategy = 'serial';
   worker(model, { task_kind: 'main' }); expect(deepText(root().querySelector('.delivery-handler'))).toContain('当前处理策略：普通串行'); expect(btn('开启归并')).toBeUndefined();
+  expect(btn('挂载并开启归并')).toBeTruthy(); expect(btn('挂载并开启归并').getAttribute('data-help')).toContain('token');
 });
 
 test('child completion remains locked while its independent target policy is editable', () => {
@@ -153,14 +161,14 @@ test('retired tools redirect while convergence history retains one target handle
   await openHookTools(); expect(dom.location.hash).toBe('#hooks'); expect(root().querySelector('.automation-tools')).toBeNull();
   expect(root().querySelectorAll('.automation-feature')).toHaveLength(4); expect(dom.node('error').textContent).toContain('入口已移除');
   models.get(1).mounts[0].operation = operation('integrate_deliveries', { status: 'unknown', error: '批次落地待核查', run_id: 71 });
-  await project(); const module = root().querySelector('.branch-convergence');
+  const module = await legacyTargetReader();
   expect(module.querySelectorAll('.delivery-handler')).toHaveLength(1); expect(deepText(module)).toContain('批次落地待核查');
   const input = field('对新交付开启归并'); input.checked = true; input.onchange();
-  await openHooks({ subpage: 'history' }); expect(module.querySelector('.convergence-history').hidden).toBe(false);
+  module.setSubpage('history'); await module.ready; expect(module.querySelector('.convergence-history').hidden).toBe(false);
   expect(root().querySelector('.automation-tools')).toBeNull(); expect(deepText(module)).toContain('批次落地待核查');
   models.get(1).mounts[0].operation = operation('integrate_deliveries', { status: 'succeeded', strategy: 'converge', run_id: 72 });
   await btn('刷新归并记录').onclick(); await until(() => deepText(module).includes('目标交付处理完成'));
-  await openHooks(); expect(field('对新交付开启归并')).toBe(input); expect(input.checked).toBe(true);
+  module.setSubpage('settings'); await module.ready; expect(field('对新交付开启归并')).toBe(input); expect(input.checked).toBe(true);
   expect(root().querySelector('.branch-convergence')).toBe(module); expect(deepText(module)).toContain('归并批次 72');
   expect(actions).toHaveLength(0);
 });
@@ -186,12 +194,12 @@ test('same-target out-of-order operation snapshots keep the newest read and the 
   expect(deepText(node)).not.toContain('OLD_SNAPSHOT'); expect(field('对新交付开启归并')).toBe(input); expect(input.checked).toBe(true);
 });
 
-test('late handler response after project disposal cannot paint another project; failed reads remain explicit', async () => {
+test('late legacy handler response after reader disposal cannot paint another project; failed reads remain explicit', async () => {
   intercept = path => path.endsWith('/api/worker/1/hooks') ? fail('目标读取失败') : null;
-  await project(); expect(deepText(root())).toContain('目标操作读取失败'); expect(actions).toHaveLength(0);
+  const node = await legacyTargetReader(); expect(deepText(root())).toContain('目标操作读取失败'); expect(actions).toHaveLength(0);
   const slow = gate(); intercept = path => path.endsWith('/api/worker/1/hooks') ? slow.promise : null;
   const reading = btn('重新读取分支归并').onclick(); await until(() => reads.filter(path => path.endsWith('/api/worker/1/hooks')).length >= 2);
-  ui.automationPage.nodes.get('convergence').dispose(); activateDetailView({ view: 'overview' }); dom.location.pathname = '/p/2222222222222222/';
+  node.dispose(); activateDetailView({ view: 'overview' }); dom.location.pathname = '/p/2222222222222222/';
   const next = document.createElement('article'); root().replaceChildren(next);
   slow.resolve(json(hooks(1, { mounts: [handler({ operation: operation('integrate_deliveries', { status: 'failed', error: 'OLD_PROJECT' }) })] }))); await reading;
   expect(root().children).toEqual([next]); expect(actions).toHaveLength(0);
@@ -220,7 +228,7 @@ test('event timeline keeps unified request and real-result labels, original type
 
 test('legacy service retains branch controls without inventing a handler or operation or making new reads', async () => {
   catalogue.actions = catalogue.actions.filter(item => item.type !== 'integrate_deliveries');
-  await project(); expect(btn('保存分支归并设置')).toBeTruthy(); expect(deepText(root())).toContain('兼容读面');
+  await legacyTargetReader(); expect(btn('保存分支归并设置')).toBeTruthy(); expect(deepText(root())).toContain('兼容读面');
   expect(root().querySelector('.delivery-handler').dataset.hookId).toBeUndefined();
   expect(root().querySelector('.hook-operation')).toBeNull(); expect(reads.some(path => /\/api\/worker\/\d+\/hooks$/.test(path))).toBe(false);
   expect(deepText(root())).toContain('不制造新操作记录'); expect(actions).toHaveLength(0);

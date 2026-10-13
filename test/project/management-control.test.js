@@ -304,7 +304,7 @@ test('confirmation identification is pure, exact and synchronous while execution
   } finally { await f.close(); }
 });
 
-for (const method of ['hooks.auto_select','hooks.completion_defaults']) test(`device-only legacy alias ${method} requires explicit scope and exact confirmation`, async () => {
+for (const method of ['hooks.auto_select']) test(`device-only legacy alias ${method} requires explicit scope and exact confirmation`, async () => {
   let receipt;
   const f = await prepared(async ({ token, rpc }) => {
     const params = method === 'hooks.auto_select'

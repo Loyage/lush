@@ -30,7 +30,9 @@ function view(value) {
       level: value.completion_defaults.level === 'archive' ? 'accept' : value.completion_defaults.level } };
 }
 function patchPolicy(value, patch) {
-  object(patch, ['auto_select', 'completion_defaults'], 'device automation patch');
+  check(!isPlainObject(patch) || !Object.hasOwn(patch, 'completion_defaults'),
+    'device completion_defaults write retired; configure project automation settings instead');
+  object(patch, ['auto_select'], 'device automation patch');
   check(Object.keys(patch).length > 0, 'device automation patch is empty');
   const next = { ...value, generation: randomUUID() };
   if (Object.hasOwn(patch, 'auto_select')) {
@@ -38,16 +40,6 @@ function patchPolicy(value, patch) {
     check(Object.keys(patch.auto_select).length === 1 && typeof patch.auto_select.enabled === 'boolean',
       'automatic selection enabled must be boolean');
     next.auto_select = { enabled: patch.auto_select.enabled };
-  }
-  if (Object.hasOwn(patch, 'completion_defaults')) {
-    object(patch.completion_defaults, ['enabled', 'level'], 'completion defaults patch');
-    check(Object.keys(patch.completion_defaults).length > 0, 'completion defaults patch is empty');
-    if (Object.hasOwn(patch.completion_defaults, 'enabled'))
-      check(typeof patch.completion_defaults.enabled === 'boolean', 'completion defaults enabled must be boolean');
-    if (Object.hasOwn(patch.completion_defaults, 'level'))
-      check(LEVELS.includes(patch.completion_defaults.level), 'default completion level must be merge, accept or archive');
-    next.completion_defaults = { ...value.completion_defaults, ...patch.completion_defaults };
-    if (next.completion_defaults.level === 'archive') next.completion_defaults.level = 'accept';
   }
   return normalize(next);
 }

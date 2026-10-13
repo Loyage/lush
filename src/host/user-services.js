@@ -101,19 +101,14 @@ export function createUserServices(projectHost, options = {}) {
     async readAutomation() { return invoke(automation, 'get', [], automationError); },
     async saveAutomation(body) {
       fields(body, ['patch', 'expected_revision'], 'automation request', ['patch', 'expected_revision']);
-      fields(body.patch, ['auto_select', 'completion_defaults'], 'automation patch');
+      check(!body.patch || !Object.hasOwn(body.patch, 'completion_defaults'),
+        'device completion_defaults write retired; configure project automation settings instead');
+      fields(body.patch, ['auto_select'], 'automation patch');
       check(Object.keys(body.patch).length > 0, 'automation patch cannot be empty');
       revision(body.expected_revision);
       if (Object.hasOwn(body.patch, 'auto_select')) {
         fields(body.patch.auto_select, ['enabled'], 'auto_select', ['enabled']);
         check(typeof body.patch.auto_select.enabled === 'boolean', 'auto_select enabled must be boolean');
-      }
-      if (Object.hasOwn(body.patch, 'completion_defaults')) {
-        const defaults = body.patch.completion_defaults;
-        fields(defaults, ['enabled', 'level'], 'completion_defaults');
-        check(Object.keys(defaults).length > 0, 'completion_defaults patch cannot be empty');
-        if (Object.hasOwn(defaults, 'enabled')) check(typeof defaults.enabled === 'boolean', 'completion_defaults enabled must be boolean');
-        if (Object.hasOwn(defaults, 'level')) check(['merge', 'accept', 'archive'].includes(defaults.level), 'invalid completion_defaults level');
       }
       return invoke(automation, 'save', [body.patch, body.expected_revision], automationError);
     },

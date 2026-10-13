@@ -59,7 +59,7 @@ test('a Host-style device write reaches two independent project monitors and ans
   } finally { await a.close(); await b.close(); fs.rmSync(shared, { recursive: true, force: true }); }
 }, 10000);
 
-test('global completion defaults affect only actual future orders in both projects and never child/old task authorizations', async () => {
+test('project completion defaults affect only future orders in that project and ignore old device grants', async () => {
   const shared = temp(), a = fixture(undefined, { LUSH_GLOBAL_CONFIG: shared }), b = fixture(undefined, { LUSH_GLOBAL_CONFIG: shared });
   a.project.kick = b.project.kick = () => {};
   try {
@@ -67,18 +67,22 @@ test('global completion defaults affect only actual future orders in both projec
     const old = (await a.project.order('old', null, [], null, false)).task;
     const oldConfig = a.store.task(old.id).auto_merge;
     const settings = new DeviceAutomationSettings({ home: a.config.deviceHome });
-    const enabled = settings.save({ completion_defaults: { enabled: true, level: 'archive' } }, settings.get().revision);
-    expect(b.project.completionDefaults()).toMatchObject({ enabled: true, level: 'accept', revision: enabled.revision });
+    settings.save({ auto_select: { enabled: false } }, settings.get().revision);
+    const file = path.join(a.config.deviceHome, 'automation.json'), legacy = JSON.parse(fs.readFileSync(file, 'utf8'));
+    legacy.completion_defaults = { enabled: true, level: 'archive' }; fs.writeFileSync(file, JSON.stringify(legacy));
+    const enabled = a.project.setCompletionDefaults(true, 'archive', a.project.completionDefaults().revision);
+    expect(b.project.completionDefaults()).toMatchObject({ enabled: false, level: 'merge' });
     const one = (await a.project.order('new A', null, [], null, false)).task;
     const two = (await b.project.order('new B', null, [], null, false)).task;
     expect([one, two].map(worker => JSON.parse(worker.auto_merge))).toMatchObject([
-      { enabled: true, level: 'accept', locked: false }, { enabled: true, level: 'accept', locked: false },
+      { enabled: true, level: 'accept', locked: false }, { enabled: false, locked: false },
     ]);
-    expect(JSON.parse(one.auto_merge).completion.authorization).not.toBe(JSON.parse(two.auto_merge).completion.authorization);
+    expect(JSON.parse(one.auto_merge).completion.authorization).toBeString();
+    expect(JSON.parse(two.auto_merge).completion).toBeUndefined();
     const child = await b.project.spawn(two.id, 'child');
-    expect(JSON.parse(child.auto_merge)).toEqual({ version: 1, enabled: true, locked: true });
+    expect(JSON.parse(child.auto_merge)).toEqual({ version: 1, enabled: true, locked: true, acceptance_notice: { enabled: false } });
     expect(a.store.task(old.id).auto_merge).toBe(oldConfig);
-    settings.save({ completion_defaults: { enabled: false } }, enabled.revision);
+    a.project.setCompletionDefaults(false, 'accept', enabled.completion_defaults.revision);
     expect(a.store.task(one.id).auto_merge).toBe(one.auto_merge);
     expect(b.store.task(two.id).auto_merge).toBe(two.auto_merge);
     expect(JSON.parse((await b.project.order('disabled', null, [], null, false)).task.auto_merge).enabled).toBe(false);
@@ -186,7 +190,7 @@ test('manually settled failures release bounded receipt slots without automatica
   } finally { await f.close(); }
 });
 
-test('corrupted device policy is fail-closed for answers and creation, while the original Notice is retained', async () => {
+test('corrupted device policy is fail-closed for answers but independent of project completion creation, while the original Notice is retained', async () => {
   const f = fixture(); f.project.kick = () => {};
   try {
     configure(f, true);
@@ -196,7 +200,7 @@ test('corrupted device policy is fail-closed for answers and creation, while the
     expect(f.project.refreshDeviceAutomation()).toBe(false);
     expect(f.project.daemonHooks()).toMatchObject({ available: false, mounts: [{ enabled: false, editable: false }] });
     expect(JSON.stringify(f.project.daemonHooks())).not.toContain('secret invalid policy');
-    expect(() => f.project.newOrderCompletionConfig()).toThrow('unavailable or invalid');
+    expect(f.project.newOrderCompletionConfig()).toMatchObject({ enabled: false, acceptance_notice: { enabled: true } }); // Creation no longer reads device completion policy.
     await Promise.resolve(); expect(savedNotice(f, notice).status).toBe('open');
     fs.writeFileSync(file, original);
     f.project.refreshDeviceAutomation();

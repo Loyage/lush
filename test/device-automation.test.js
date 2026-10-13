@@ -28,14 +28,21 @@ test('device automation reads exact defaults without initializing storage or imp
   } finally { f.close(); }
 });
 
-test('partial device policy saves preserve the other policy and use private atomic storage', () => {
+test('device writes reject retired completion defaults and preserve historical policy in private atomic storage', () => {
   const f = setup();
   try {
     const first = auto(f.settings, true);
-    const second = f.settings.save({ completion_defaults: { level: 'archive' } }, first.revision);
-    expect(second).toMatchObject({ auto_select: { enabled: true }, completion_defaults: { enabled: false, level: 'accept' } });
-    const third = f.settings.save({ completion_defaults: { enabled: true }, auto_select: { enabled: false } }, second.revision);
+    const file = path.join(f.home, 'automation.json');
+    const legacy = JSON.parse(fs.readFileSync(file, 'utf8'));
+    legacy.completion_defaults = { enabled: true, level: 'archive' };
+    fs.writeFileSync(file, JSON.stringify(legacy));
+    const second = f.settings.get();
+    for (const patch of [{ completion_defaults: { level: 'accept' } }, { completion_defaults: { enabled: false }, auto_select: { enabled: false } }])
+      expect(() => f.settings.save(patch, second.revision)).toThrow('write retired');
+    expect(f.settings.get()).toEqual(second);
+    const third = auto(f.settings, false);
     expect(third).toMatchObject({ auto_select: { enabled: false }, completion_defaults: { enabled: true, level: 'accept' } });
+    expect(JSON.parse(fs.readFileSync(file, 'utf8')).completion_defaults).toEqual(legacy.completion_defaults);
     expect(new DeviceAutomationSettings({ home: f.home }).get()).toEqual(third);
     expect(fs.statSync(f.home).mode & 0o777).toBe(0o700);
     expect(fs.statSync(path.join(f.home, 'automation.json')).mode & 0o777).toBe(0o600);
@@ -78,7 +85,7 @@ test('shared revision rejects stale, concurrent, ABA and same-value authorizatio
     const initial = f.settings.get();
     const results = await Promise.allSettled([
       Promise.resolve().then(() => f.settings.save({ auto_select: { enabled: true } }, initial.revision)),
-      Promise.resolve().then(() => other.save({ completion_defaults: { enabled: true } }, initial.revision)),
+      Promise.resolve().then(() => other.save({ auto_select: { enabled: false } }, initial.revision)),
     ]);
     expect(results.map(value => value.status)).toEqual(['fulfilled', 'rejected']);
     expect(results[1].reason.message).toContain('revision changed');

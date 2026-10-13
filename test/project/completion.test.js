@@ -32,9 +32,8 @@ for (const level of ['off', 'merge', 'accept', 'archive']) test(`completion ${le
     expect(f.store.task(task.id).status).toBe(level === 'off' ? 'waiting' : level === 'merge' ? 'awaiting_acceptance' : 'completed');
     expect(f.store.task(task.id).integration).toBe(level === 'off' ? 'pending' : 'merged');
     const rows = notices(f, task);
-    expect(rows).toHaveLength(['accept', 'archive'].includes(level) ? 0 : 1);
-    if (level === 'off') expect(rows[0].title).toContain('本轮已结束');
-    else if (level === 'merge') expect(rows[0].title).toContain('待验收');
+    expect(rows).toHaveLength(level === 'merge' ? 1 : 0);
+    if (level === 'merge') expect(rows[0].title).toContain('待验收');
     const events = f.store.history(task.id);
     expect(events.some(row => row.type === 'invocation.target_branch_moved')).toBe(false);
     const merge = events.find(row => row.type === 'task.merge_integrated');
@@ -128,7 +127,7 @@ test('revision, lock and legacy boolean routes cannot conflict with the highest 
     await f.project.setTaskAutoMerge(task.id, true); expect(f.project.autoCompletionView(f.store.task(task.id)).level).toBe('merge');
     await configure(f, task, 'archive');
     const child = await f.project.spawn(task.id, 'default child');
-    expect(config(f, child)).toEqual({ version: 1, enabled: true, locked: true });
+    expect(config(f, child)).toEqual({ version: 1, enabled: true, locked: true, acceptance_notice: { enabled: false } });
     expect(f.project.autoCompletionView(f.store.task(child.id))).toMatchObject({ level: 'merge', min_level: 'merge', locked: true, editable: false });
     const original = f.store.task(child.id), history = f.store.history(child.id);
     for (const level of ['off', 'merge', 'accept', 'archive']) await expect(configure(f, child, level)).rejects.toThrow('锁定');
