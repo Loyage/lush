@@ -25,8 +25,8 @@ test('全局维护与重启按钮分离；项目重启显式身份、帮助宿�
   expect(active.disabled).toBe(false); expect(offline.disabled).toBe(true);
   expect(active.dataset.projectId).toBe(A); expect(offline.parentNode.getAttribute('data-help')).toContain('未运行');
   expect(section.root.querySelector('[data-service-restart="daemon"]')).toBeNull();
-  expect(section.root.querySelectorAll('.help-host')).toHaveLength(4);
-  expect(section.root.querySelectorAll('.agent-call')).toHaveLength(1);
+  expect(section.root.querySelectorAll('.help-host')).toHaveLength(5);
+  expect(section.root.querySelectorAll('.agent-call')).toHaveLength(2);
   expect(active.classList.contains('agent-call')).toBe(false);
   expect(control(section, 'all').parentNode.getAttribute('data-help')).toContain('不支持');
 });

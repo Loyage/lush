@@ -94,7 +94,7 @@ test('全部重启按钮更换后台与Host进程，保留静息Worker且不动�
     const button = section.root.querySelector('[data-service-restart="all"]');
     await until(() => !button.disabled);
     await button.onclick();
-    expect(deepText(section.root)).not.toContain('失败');
+    expect(section.root.querySelector('.settings-error')).toBeNull();
     expect(confirmations).toBe(1); expect(reloads).toBe(1);
     expect(calls).toEqual(['/api/host', '/api/host/projects', '/api/host', `/p/${projectRouteId(root)}/api/service/restart`, '/api/host/restart']);
     expect((await fetch(url + '/api/host').then(r => r.json())).pid).not.toBe(web.pid);

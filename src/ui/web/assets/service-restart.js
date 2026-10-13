@@ -4,6 +4,7 @@ import { confirmDialog } from './dialog.js';
 import { projectHref } from './route.js';
 import { agentHelp } from './help.js';
 import { readPref } from './prefs.js';
+import { safeRestartFlow, safeRestartHelp } from './safe-restart-flow.js';
 
 // One foreground operation, including confirmation, across overview generations.
 let restarting = false;
@@ -50,12 +51,15 @@ function observeBatch(batch, rows) {
 
 // Host probes are deliberately unprefixed, and every request as well as the entire recovery is bounded.
 export async function waitForHostRestart(pid, { fetchHost = () => fetch('/api/host', { signal: AbortSignal.timeout(2000) }),
-  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), now = Date.now, loginRequired = login, timeout = 45000 } = {}) {
+  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)), now = Date.now, loginRequired = login, timeout = 45000, signal } = {}) {
   const deadline = now() + timeout;
   while (now() < deadline) {
+    signal?.throwIfAborted();
     await sleep(500);
+    signal?.throwIfAborted();
     try {
       const response = await fetchHost();
+      signal?.throwIfAborted();
       if (response.status === 401) { loginRequired(); return false; }
       if (!response.ok) continue;
       const host = await response.json();
@@ -71,20 +75,21 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
   schedule = (fn, ms) => setTimeout(fn, ms), unschedule = id => clearTimeout(id), now = Date.now,
   observationTimeout = 15 * 60 * 1000 } = {}) {
   const root = block('服务重启'); root.classList.add('workbench-service-restart');
-  root.append(el('p', '可先全部中断已登记的在线项目；本页只读观测本次固定批次，全部安全中断且当前可重启时提醒，最多观测 15 分钟。离页或刷新页面会停止观测；页面关闭后不承诺推送，来源项目告知可留存。重启与继续仍需分别显式操作，不启动离线项目；继续可能调用 Agent。', 'settings-note'));
+  root.append(el('p', '一键安全重启：中断 → 等待真实安全退出 → 重启全部后台 → 继续本次新暂停的项目 → 重启界面。保留原维护暂停，不启动离线项目。等待最多 15 分钟；失败或未知立即停止，离页停止后续操作，界面重启可能需要重新登录。', 'settings-note'));
   const status = el('p', '正在读取界面服务状态…', 'settings-note');
   status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   const actions = el('div', undefined, 'settings-runtime-actions');
   const entries = new Map();
   let host = null, projects = null, disposed = false, batch = null, timer = null, probe = null, epoch = 0;
-  let observing = false, reading = false, statusTouched = false, operationScope = null;
+  let observing = false, reading = false, statusTouched = false, operationScope = null, observationRead = null;
+  const lifetime = new AbortController();
   const active = () => !disposed && ownsPage();
   const stopObservation = () => {
     ++epoch; observing = false;
     if (timer !== null) unschedule(timer);
     timer = null; probe?.abort(); probe = null;
   };
-  const dispose = () => { disposed = true; stopObservation(); globalThis.removeEventListener?.('pagehide', dispose); };
+  const dispose = () => { disposed = true; lifetime.abort(); stopObservation(); globalThis.removeEventListener?.('pagehide', dispose); };
   globalThis.addEventListener?.('pagehide', dispose);
   const stopped = reason => {
     stopObservation();
@@ -116,14 +121,15 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
     if (reading) { timer = schedule(() => poll(generation), 2000); return; }
     const controller = new AbortController(); probe = controller; reading = true;
     try {
-      const value = await request('/api/host/projects', { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]) });
+      observationRead = request('/api/host/projects', { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]) });
+      const value = await observationRead;
       if (generation !== epoch || !active()) return;
       if (now() >= batch.deadline) { stopped('有界观测已超时，请显式刷新核对'); return; }
       paintObservation(observeBatch(batch, value?.projects));
     } catch (error) {
       if (generation === epoch && active()) stopped(error.message);
       return;
-    } finally { reading = false; if (probe === controller) probe = null; }
+    } finally { reading = false; observationRead = null; if (probe === controller) probe = null; }
     if (generation === epoch && active()) timer = schedule(() => poll(generation), 2000);
   };
   const startObservation = () => {
@@ -143,15 +149,24 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
     button.setAttribute('data-help', help); wrapper.append(button);
     return { wrapper, button };
   };
+  const safeControl = wrap('一键安全重启', 'safe', safeRestartHelp);
+  safeControl.button.className = 'agent-call';
   const hostControl = wrap('重启界面服务', 'host', hostHelp);
   const allControl = wrap('全部重启', 'all', allHelp);
   const pauseControl = wrap('全部中断', 'pause', pauseHelp);
   const resumeControl = wrap('全部继续', 'resume', resumeHelp);
   resumeControl.button.className = 'agent-call';
-  actions.append(pauseControl.wrapper, hostControl.wrapper, allControl.wrapper, resumeControl.wrapper); root.append(actions, status);
+  actions.append(safeControl.wrapper, hostControl.wrapper);
+  const manual = el('details', undefined, 'settings-runtime-manual');
+  manual.append(el('summary', '手动维护'));
+  const manualActions = el('div', undefined, 'settings-runtime-actions');
+  manualActions.append(pauseControl.wrapper, allControl.wrapper, resumeControl.wrapper); manual.append(manualActions);
+  root.append(actions, manual, status);
   const paint = () => {
     const unsupported = host?.restart_supported !== true;
-    hostControl.button.disabled = allControl.button.disabled = restarting || unsupported;
+    hostControl.button.disabled = allControl.button.disabled = safeControl.button.disabled = restarting || unsupported;
+    safeControl.wrapper.setAttribute('data-help', restarting || unsupported ? agentHelp(restarting ? '正在处理后台控制请求，请稍候。' : unsupportedHelp) : safeRestartHelp);
+    safeControl.wrapper.tabIndex = restarting || unsupported ? 0 : -1;
     hostControl.wrapper.setAttribute('data-help', unsupported ? unsupportedHelp : hostHelp);
     allControl.wrapper.setAttribute('data-help', unsupported ? unsupportedHelp : allHelp);
     for (const [control, help] of [[pauseControl, pauseHelp], [resumeControl, resumeHelp]]) {
@@ -260,6 +275,28 @@ export function serviceRestartControls({ request = api, confirm = confirmDialog,
             ? `${projectName(current)} 请求失败或结果未确认；后续 ${planned.length - completed.length - 1} 个项目未执行。`
             : `后续 ${planned.length - completed.length} 个项目未执行。`} ${error.message} 未重启任何服务。${target === 'pause' ? '不能确认全部安全中断且可重启，' : ''}请刷新核对状态，不自动重试或撤销已接受的请求。`
           : `${done} ${failed} ${error.message} 请核对状态后再操作，不要盲目重复重启已完成的后台。`;
+      }
+    } finally { operationScope = null; restarting = false; paint(); paintCurrent(); }
+  };
+  safeControl.button.onclick = async () => {
+    if (!active() || restarting || host?.restart_supported !== true) return;
+    restarting = true; paint(); stopObservation(); statusTouched = true;
+    try {
+      const result = await safeRestartFlow({
+        request: async (route, options) => {
+          // An aborted manual observer must settle before the next source probe starts.
+          if (route === '/api/host/projects' && observationRead) await observationRead.catch(() => {});
+          options.signal.throwIfAborted(); checkPage();
+          const value = await request(route, options);
+          if (active() && !options.signal.aborted && route === '/api/host/projects' && Array.isArray(value?.projects)) projects = value.projects;
+          return value;
+        }, confirm, checkPage, signal: lifetime.signal, recover, reload, now, schedule, unschedule, observationTimeout,
+        onScope: rows => { operationScope = rows; },
+        progress: message => { if (active()) { status.className = 'settings-note'; status.textContent = message; } },
+      });
+      if (active()) {
+        status.className = result.error ? 'settings-error' : 'settings-note';
+        status.textContent = result.cancelled ? '一键安全重启已取消，未执行本次写入；此前已接受的维护请求保留，旧观测已停止，请刷新核对来源状态。' : result.message;
       }
     } finally { operationScope = null; restarting = false; paint(); paintCurrent(); }
   };

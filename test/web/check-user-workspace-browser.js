@@ -1,6 +1,6 @@
 // Independent assembled-app Firefox/CSP fixture; only a temporary, controlled Host mock is served.
-// Run: bun run test/web/check-user-workspace-browser.js [--compiled]
-// --compiled serves the actual buildAssets output over HTTP, with the same controlled Host fixture.
+// Run: bun run test/web/check-user-workspace-browser.js [--compiled] [--restart-only]
+// --compiled serves actual buildAssets output; --restart-only selects the responsive restart checks.
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -8,6 +8,7 @@ import { request } from 'node:http';
 import { makeWorld } from './dom-world.js';
 import { buildAssets } from '../../src/ui/web/build-assets.js';
 const compiled = process.argv.includes('--compiled');
+const restartOnly = process.argv.includes('--restart-only');
 const temp = await mkdtemp(join(tmpdir(), 'lush-user-workspace-browser-'));
 const assets = new URL('../../src/ui/web/assets/', import.meta.url).pathname;
 if (compiled) await buildAssets(assets, temp, 'c'.repeat(32));
@@ -49,6 +50,11 @@ const server = Bun.serve({ hostname: '127.0.0.1', port: 0, async fetch(req) {
     if (req.method === 'POST' && (path.endsWith('/api/service/restart') || path === '/api/host/restart')) {
       restartWrites.push(path);
       return Response.json({ error: 'fixture 后台有活动 Agent，拒绝重启' }, { status: 400 });
+    }
+    if (path === '/api/host/projects') {
+      const response = await world.fetchImpl(path), value = await response.json();
+      return Response.json({ ...value, projects: value.projects.map(row => ({ ...row, summary: { maintenance_paused: false,
+        maintenance: { paused: false, phase: 'running', ready_to_restart: true, batch_id: null, completion_state: null, completion_notice_id: null } } })) });
     }
     if (path === '/api/host/inbox') return Response.json({ version: 1,
       items: url.searchParams.get('status') === 'open' ? [] : inboxNotices, cursor: null, has_more: false, complete: true,
@@ -127,7 +133,17 @@ try {
     assert(await wait(`document.querySelector('[data-service-restart="host"]')&&!document.querySelector('[data-service-restart="host"]').disabled&&!document.querySelector('[data-service-restart="daemon"]').disabled`), 'overview restart controls did not mount');
     assert(await execute(`return document.querySelector('[data-service-restart="daemon"]').closest('.project-item')&&document.querySelector('[data-service-restart="host"]').closest('.workbench-service-restart')&&!document.querySelector('[data-service-restart="all"]').classList.contains('agent-call')&&document.querySelector('[data-service-restart="resume"]').classList.contains('agent-call')&&!document.querySelector('#project-maintenance')&&!Array.from(document.querySelectorAll('#detail a,#detail button')).some(node=>node.textContent==='处理消息')&&document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth`), `restart layout or scope failed at ${width}/${theme}`);
     assert(await execute(`const restart=document.querySelector('.workbench-service-restart'),list=document.querySelector('.project-manager-list'),tools=document.querySelector('.workbench-backend-tools');return restart.parentElement.lastElementChild===restart&&!tools.contains(restart)&&restart.getBoundingClientRect().top>=list.getBoundingClientRect().bottom&&restart.getBoundingClientRect().top>tools.getBoundingClientRect().bottom`), `restart controls are not separated at the bottom at ${width}/${theme}`);
-    const restartBefore = restartWrites.length;
+    const restartBefore = restartWrites.length, actionsBefore = world.state.actions.length;
+    assert(await execute(`const safe=document.querySelector('[data-service-restart="safe"]'),manual=document.querySelector('.settings-runtime-manual');return safe.classList.contains('agent-call')&&safe.dataset.help.includes('token')&&!safe.disabled&&!manual.open&&manual.contains(document.querySelector('[data-service-restart="all"]'))`), 'one-click Agent entry or default manual disclosure is wrong');
+    const safeButton = await rpc(`/session/${session}/element`, { using: 'css selector', value: '[data-service-restart="safe"]' });
+    await rpc(`/session/${session}/element/${safeButton['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE007' });
+    assert(await wait(`document.getElementById('modal').textContent.includes('一键安全重启？')`), 'one-click keyboard confirmation did not open');
+    assert(await execute(`const modal=document.getElementById('modal'),confirm=modal.querySelector('.agent-call');return modal.textContent.includes('/tmp/demo')&&modal.textContent.includes('1 个在线项目')&&modal.textContent.includes('本次暂停')&&confirm.dataset.help.includes('token')`), 'one-click confirmation lost scope or Agent cost');
+    await execute(`Array.from(document.querySelectorAll('#modal button')).find(b=>b.textContent==='取消').click()`);
+    assert(await wait(`!document.querySelector('[data-service-restart="safe"]').disabled`), 'one-click cancellation did not unlock');
+    assert(restartWrites.length === restartBefore && world.state.actions.length === actionsBefore, 'cancelled one-click flow wrote a mutation');
+    await click('.settings-runtime-manual > summary');
+    assert(await execute(`return document.querySelector('.settings-runtime-manual').open&&document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth`), 'manual disclosure did not open or overflowed');
     // A real keyboard activation, not a direct call into the controller.
     const allButton = await rpc(`/session/${session}/element`, { using: 'css selector', value: '[data-service-restart="all"]' });
     await rpc(`/session/${session}/element/${allButton['element-6066-11e4-a52e-4f735466cecf']}/value`, { text: '\uE007' });
@@ -143,8 +159,9 @@ try {
     assert(restartWrites.length === restartBefore + 1 && restartWrites.at(-1) === `/p/${projectId}/api/service/restart`, 'project restart lost fixed identity or retried');
     assert(await execute(`return document.querySelector('.project-order-form textarea').value==='浏览器会话中的独立指令'&&document.documentElement.scrollWidth<=innerWidth&&document.getElementById('detail').scrollWidth<=document.getElementById('detail').clientWidth`), `busy error lost draft or overflowed at ${width}/${theme}`);
     assert(!calls.some(path => /^\/api\/(overview|snapshot|worker\/|stats|transcript)/.test(path)), 'root boot/read attached a project');
-    console.log(`PASS assembled global pages, authoritative theme, restart scopes/keyboard/cancel/busy guard and CSP: ${theme} ${width}px`);
+    console.log(`PASS assembled global pages, authoritative theme, one-click/manual scopes/keyboard/cancel/busy guard and CSP: ${theme} ${width}px`);
   }
+  if (!restartOnly) {
   await execute(`Array.from(document.querySelectorAll('.project-order-form button')).find(b=>b.textContent==='创建 Worker').click()`);
   assert(await wait(`document.querySelector('.project-order-form .project-order-status').textContent.includes('待开始')`), 'source create-only ACK not rendered');
   assert(calls.filter(path => path === `/p/${projectId}/api/action`).length === 1, 'source instruction was sent to the wrong daemon or duplicated');
@@ -235,7 +252,9 @@ try {
   assert(await wait(`location.pathname==='/'&&location.hash==='#projects'&&document.getElementById('detail').dataset.view==='projects'`), 'global tab retained a project identity');
   await rpc(`/session/${session}/window`, undefined, 'DELETE'); await rpc(`/session/${session}/window`, { handle: original });
   assert(await execute(`return document.getElementById('input').value==='未提交输入'&&document.getElementById('detail').dataset.view===before.view&&document.getElementById('detail').scrollTop===before.scroll&&getSelection().toString()===before.quote`), 'native global link destroyed project input, reading position or selection');
-  console.log('PASS independent global tab preserves project identity, draft, selection and reading position'); passed = true;
+  console.log('PASS independent global tab preserves project identity, draft, selection and reading position');
+  }
+  passed = true;
 } catch (error) {
   let snapshot; try { snapshot = await execute(`return {url:location.href,input:document.getElementById('input')?.value,before:window.before,current:{scroll:document.getElementById('detail')?.scrollTop,quote:getSelection().toString(),view:document.getElementById('detail')?.dataset.view},theme:document.documentElement.dataset.theme,themeButton:{disabled:document.getElementById('theme-toggle')?.disabled,rect:document.getElementById('theme-toggle')?.getBoundingClientRect().toJSON()},modalHidden:document.getElementById('modal')?.hidden,active:document.activeElement?.outerHTML?.slice(0,300),count:document.getElementById('global-inbox-count')?.textContent,timers:window.fixtureObserverTimers?.size,stacks:Array.from(window.fixtureObserverTimers?.values()||[]),events:window.fixtureTimerEvents?.slice(-25),sent:window.sentNotifications,error:document.getElementById('error')?.textContent}`); } catch {}
   console.error(`Browser failure; geckodriver log: ${log}; snapshot: ${JSON.stringify(snapshot)}; mock requests: ${JSON.stringify(calls.slice(-15))}`); throw error;
