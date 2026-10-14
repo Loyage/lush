@@ -4,7 +4,7 @@ import { codeIdentity } from '../identity.js';
 import { check } from '../core/types.js';
 import { option, print } from './args.js';
 import { HELP } from './help.js';
-import { COMMAND_MODULES } from './catalog.js';
+import { COMMAND_MODULES, CLI_COMMANDS, cliHelp, commandExecutables, CLI_EXECUTABLES, LUSHC_PATHS } from './catalog.js';
 import { launcherWebConfig } from '../host/registry.js';
 import * as system from './commands/system.js';
 import * as intent from './commands/intent.js';
@@ -34,28 +34,46 @@ for (const [key, names] of Object.entries(COMMAND_MODULES)) {
   }
 }
 
-export async function main(argv = process.argv.slice(2)) {
+export async function main(argv = process.argv.slice(2), { executable = 'lush' } = {}) {
+  check(CLI_EXECUTABLES.includes(executable), 'unknown CLI executable');
   const args = [...argv];
   const projectPath = option(args, '--project');
   const json = args.includes('--json'); if (json) args.splice(args.indexOf('--json'), 1);
   // --help / -h 在任意位置都只印帮助：子命令会把裸 --help 当成必填正文落库（spec add / branch summary / notice post 等）。
   // 必须在构造 Config / UIClient 之前返回，保证不解析命令、不发任何 RPC、不做 fingerprint 提醒。
   if (!args.length || ['help','--help','-h'].includes(args[0]) || args.includes('--help') || args.includes('-h')) {
-    console.log(HELP); return;
+    console.log(cliHelp(executable)); return;
+  }
+  // Resolve the longest registered leaf before project discovery or any handler
+  // side effect. The executable is supplied by the fixed bin, never by argv.
+  const entry = CLI_COMMANDS.filter(item => !item.directory && item.path.split(' ').every((part, index) => args[index] === part))
+    .sort((a, b) => b.path.length - a.path.length)[0];
+  if (entry && !commandExecutables(entry).includes(executable)) {
+    throw new Error(`${executable} ${entry.path} is not available; use ${commandExecutables(entry)[0]} ${entry.path}`);
+  }
+  if (entry && process.env.LUSH_AGENT_TOKEN && !LUSHC_PATHS.has(entry.path)) {
+    throw new Error(`${executable} ${entry.path} is a management command; development Agent invocations must use lushc`);
+  }
+  const root = args[0];
+  const rootAvailable = CLI_COMMANDS.some(item => !item.directory && item.path.split(' ')[0] === root && commandExecutables(item).includes(executable));
+  if (!rootAvailable) {
+    const elsewhere = CLI_COMMANDS.find(item => !item.directory && item.path.split(' ')[0] === root);
+    if (elsewhere) throw new Error(`${executable} ${root} is not available; use ${commandExecutables(elsewhere)[0]} ${root}`);
+    throw new Error(`unknown command: ${root}; run ${executable} help`);
   }
   let command = args.shift();
   if (command === 'host') {
     if (!['start', 'stop', 'restart', 'status'].includes(args[0])) {
-      throw new Error('host requires start|stop|restart|status; run lush help');
+      throw new Error(`host requires start|stop|restart|status; run ${executable} help`);
     }
     command = `host:${args.shift()}`;
   }
   const handler = COMMANDS.get(command);
-  if (!handler) throw new Error(`unknown command: ${command}; run lush help`);
+  if (!handler) throw new Error(`unknown command: ${command}; run ${executable} help`);
   // Guides and local Notice helpers return before project discovery, settings, sockets or
   // credentials. Notice helpers read only the explicit questions file, never project state.
   if (command === 'skills' || (command === 'notice' && notice.isLocalCommand(args))) {
-    const value = await handler(command, args, { json });
+    const value = await handler(command, args, { json, executable });
     if (value !== undefined) print(value, json);
     return;
   }
@@ -64,13 +82,13 @@ export async function main(argv = process.argv.slice(2)) {
   const client = globalWeb
     ? { config: selectedConfig, token: process.env.LUSH_AGENT_TOKEN || null }
     : new UIClient(selectedConfig, process.env.LUSH_AGENT_TOKEN || null);
-  const value = await handler(command, args, { client, json });
+  const value = await handler(command, args, { client, json, executable });
   if (value === undefined) return;
   if (value?.fingerprint) {
     const local = codeIdentity();
     if (value.fingerprint !== local.fingerprint || value.code_dir !== local.code_dir) {
       const project = value.project || selectedConfig.project;
-      console.error(`lush: 项目 ${project} 的 daemon 与当前磁盘代码不一致；确认没有活动 invocation 后运行 bun run daemon-restart --project ${JSON.stringify(project)}`);
+      console.error(`${executable}: 项目 ${project} 的 daemon 与当前磁盘代码不一致；确认没有活动 invocation 后运行 bun run daemon-restart --project ${JSON.stringify(project)}`);
     }
   }
   print(value, json);

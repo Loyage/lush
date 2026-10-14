@@ -17,7 +17,7 @@
 - `native-watch.js`／`native-pi.js` 仅用户显式终端观看时加载 Pi TUI，不创建 AgentSession、不执行工具、不写会话，见[观看器](../native-viewer.md)。
 - `skills` 是无需 daemon 的固定公开指南读取，不接受任意路径，不查询设备开启状态，见[能力契约](agent-capabilities.md)。
 
-命令与 RPC 的对应关系见[API 参考](../reference/api.md)，不在地图复制注册表；历史命令与快捷入口不恢复别名。
+`bin/lush` 固定管理入口，`bin/lushc` 固定开发协作入口；同源命令目录派生两入口的分发、帮助与学习页面，入口名称不能替代后端身份授权。命令与 RPC 的对应关系及迁移见[API 参考](../reference/api.md#开发与管理双入口)，不在地图复制注册表；历史命令与快捷入口不恢复别名。
 
 ## RPC：`src/rpc/protocol.js` + `src/rpc/`
 

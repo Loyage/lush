@@ -1,5 +1,13 @@
 import { PARAMS, USER_ONLY, AGENT_ONLY } from './registry.js';
 import { check, isPlainObject } from '../core/types.js';
+import { CLI_COMMANDS, LUSHC_PATHS, LUSHC_METHODS } from '../cli/catalog.js';
+
+export { LUSHC_METHODS };
+// Classify the actual development catalogue, rather than copying its RPC names.
+const codeEntries = CLI_COMMANDS.filter(entry => LUSHC_PATHS.has(entry.path));
+const codeReads = new Set(codeEntries.filter(entry => entry.kind === 'read').flatMap(entry => entry.rpc));
+const codeConfirmations = new Set(codeEntries.filter(entry => entry.kind === 'destructive').flatMap(entry => entry.rpc)
+  .filter(method => !codeReads.has(method)));
 
 const reads = new Set([
   'manager.catalog','manager.query','manager.history','system.summary','system.status','system.diagnostics','worker.lookup','worker.inspect','worker.list','worker.activity','worker.page','worker.tree',
@@ -35,7 +43,7 @@ const unavailable = new Set([
   'worker.transcript','worker.transcript_latest','worker.transcript_page','worker.transcript_step','worker.transcript_search',
   'worker.runs_page','worker.artifacts_page','worker.artifact', // raw provider/tool material is not a credential-safe read surface
 ]);
-export function managementPolicy(method) {
+function legacyManagementPolicy(method) {
   if (!Object.hasOwn(PARAMS, method)) return { access: 'unavailable', reason: '当前版本没有此公开功能。' };
   if (method === 'system.stop_if_idle') return { access: 'unavailable',
     reason: '管理执行自身占用后台操作位，无法用空闲停机入口；请用户直接安全停机，或明确确认 system.stop 停止当前项目。' };
@@ -45,6 +53,16 @@ export function managementPolicy(method) {
   if (automatic.has(method)) return { access: 'automatic', reason: null };
   if (USER_ONLY.has(method)) return { access: 'confirmation', reason: '必须预检并由用户确认精确操作；模型及自动选择不能授权。' };
   return { access: 'unavailable', reason: '尚未审核为管理能力，不开放泛化 RPC。' };
+}
+
+export function managementPolicy(method) {
+  if (LUSHC_METHODS.has(method)) {
+    if (codeReads.has(method)) return { access: 'read', reason: ['worker.transcript', 'worker.history'].includes(method)
+      ? '管家只读安全元数据与续读游标，不返回原始提示词、工具参数、输出或事件正文。' : null };
+    if (codeConfirmations.has(method)) return { access: 'confirmation', reason: '必须预检并由用户确认精确操作；模型及自动选择不能授权。' };
+    return { access: 'automatic', reason: '仅当前项目的受控代理；自身元数据／决策不冒充开发身份，跨树协作仍通过原安全引擎。' };
+  }
+  return legacyManagementPolicy(method);
 }
 
 export const MANAGEMENT_GROUPS = Object.freeze([
@@ -104,7 +122,8 @@ export function managementAllowedAccess(base, method) {
 // Workers without a snapshot retain the original reviewed policy, never project defaults.
 export function effectiveManagementPolicy(method, snapshot = null) {
   const base = managementPolicy(method);
-  if (!snapshot || method === 'manager.catalog') return base;
+  if (method === 'manager.catalog') return base;
+  if (!snapshot) return legacyManagementPolicy(method);
   const access = Object.hasOwn(snapshot.permissions ?? {}, method) ? snapshot.permissions[method] : 'unavailable';
   if (!managementAllowedAccess(base.access, method).includes(access)) return { access: 'unavailable', reason: '权限快照未授权此功能。' };
   return { access, reason: access === 'unavailable' && base.access !== 'unavailable'
@@ -112,16 +131,18 @@ export function effectiveManagementPolicy(method, snapshot = null) {
 }
 export function managementPermissionMethods(snapshot = null) {
   return Object.keys(PARAMS).map(method => {
-    const base = managementPolicy(method), effective = effectiveManagementPolicy(method, snapshot), group = groupFor(method);
+    const base = managementPolicy(method), effective = snapshot === null ? base : effectiveManagementPolicy(method, snapshot), group = groupFor(method);
     const label = methodLabel(method);
     return { method, group, label,
       description: `${label}（${method}）。${base.reason ?? '仅当前项目，仍通过原入口安全校验。'}`,
       base_access: base.access, ...effective, allowed_access: [...managementAllowedAccess(base.access, method)] };
   });
 }
-export function managementCatalog(snapshot = null) {
+export function managementCatalog(snapshot = null, legacy = false) {
+  const effectiveSnapshot = legacy ? { permissions: Object.fromEntries(Object.keys(PARAMS)
+    .map(method => [method, legacyManagementPolicy(method).access])) } : snapshot;
   return { scope: 'current_project', groups: MANAGEMENT_GROUPS.map(group => ({ ...group })),
-    methods: managementPermissionMethods(snapshot).map(item => ({ ...item,
+    methods: managementPermissionMethods(effectiveSnapshot).map(item => ({ ...item,
       parameters: [...PARAMS[item.method], ...(MANAGEMENT_DEVICE_ALIASES.has(item.method) ? ['scope'] : [])] })),
     limitations: ['无任意 Shell 或文件工具', '不读取凭证、原始会话或私有配置', '不跨项目',
       '设备操作须指令及 scope 参数显式指定', '未知副作用不自动重放'] };

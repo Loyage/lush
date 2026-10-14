@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect } from 'bun:test';
-import { CLI_COMMANDS, COMMAND_MODULES } from '../src/cli/catalog.js';
+import { CLI_COMMANDS, CLI_EXECUTABLES, cliCommands, cliHelp } from '../src/cli/catalog.js';
 import { HELP } from '../src/cli/help.js';
 import { cliCatalog } from '../src/rpc/cli-catalog.js';
 import { HANDLERS } from '../src/rpc/dispatcher.js';
@@ -26,11 +26,13 @@ function tokens(command) {
 test('CLI registration/help/hierarchy and user-visible RPC parameter/permission projection share code-owned sources', () => {
   const catalog = cliCatalog(), commands = catalog.commands;
   expect(new Set(commands.map(item => item.path)).size).toBe(commands.length);
-  expect(commands.filter(item => !item.parent).map(item => item.path).sort()).toEqual([...new Set(Object.values(COMMAND_MODULES).flat().map(command => command.split(':')[0])), 'help'].sort());
+  expect(commands.filter(item => !item.parent).map(item => item.path).sort()).toEqual(CLI_EXECUTABLES.flatMap(executable => cliCommands(executable)
+    .filter(item => !item.parent).map(item => `${executable} ${item.path}`)).sort());
   for (const item of commands) {
     if (item.parent) expect(commands.find(parent => parent.path === item.parent)?.directory).toBe(true);
-    else expect(item.path).not.toContain(' ');
-    if (!item.directory) { expect(HELP).toContain(item.usage.slice(5)); expect(item.example.startsWith(`lush ${item.path}`)).toBe(true); expect(item.risk.length).toBeGreaterThan(10); }
+    else expect(item.command_path).not.toContain(' ');
+    expect(item.path).toBe(`${item.executable} ${item.command_path}`);
+    if (!item.directory) { expect(cliHelp(item.executable)).toContain(item.usage.slice(item.executable.length + 1)); expect(item.example.startsWith(item.path)).toBe(true); expect(item.risk.length).toBeGreaterThan(10); }
     for (const rpc of item.rpc) {
       expect(typeof HANDLERS[rpc.method]).toBe('function'); expect(rpc.parameters).toEqual(PARAMS[rpc.method]);
       const base = managementPolicy(rpc.method); expect(rpc.base_access).toBe(base.access); expect(rpc.reason).toBe(base.reason);
@@ -38,7 +40,7 @@ test('CLI registration/help/hierarchy and user-visible RPC parameter/permission 
       expect(rpc.audience).toBe(USER_ONLY.has(rpc.method) ? 'user' : AGENT_ONLY.has(rpc.method) ? 'agent' : 'user-and-agent');
     }
   }
-  for (const retired of ['task','say','intent','plan','candidate','config route','hooks command run','branch merge-all']) expect(commands.some(item => item.path === retired)).toBe(false);
+  for (const retired of ['task','say','intent','plan','candidate','config route','hooks command run','branch merge-all']) expect(commands.some(item => item.command_path === retired)).toBe(false);
   expect(PARAMS['cli.catalog']).toEqual([]); expect(typeof HANDLERS['cli.catalog']).toBe('function');
   expect(() => assertAllowed('cli.catalog', {}, null)).not.toThrow();
   expect(() => assertAllowed('cli.catalog', { q: 'x' }, null)).toThrow('unknown parameter');
@@ -47,7 +49,7 @@ test('CLI registration/help/hierarchy and user-visible RPC parameter/permission 
 });
 
 test('CLI learning follows Valet serial admission and actual stop/deletion settlement boundaries', () => {
-  const commands = new Map(cliCatalog().commands.map(item => [item.path, item]));
+  const commands = new Map(cliCatalog().commands.filter(item => item.executable === 'lush').map(item => [item.command_path, item]));
   for (const command of ['order', 'hooks management create']) {
     expect(commands.get(command).risk).toContain('当前项目');
     expect(commands.get(command).risk).toContain('未触发');
@@ -79,7 +81,7 @@ test('all RPC-backed CLI examples reach real parser dispatch and emit only their
   };
   const checked = [];
   try {
-    for (const item of CLI_COMMANDS.filter(item => !item.directory && item.rpc.length && handlers[item.path.split(' ')[0]])) {
+    for (const item of CLI_EXECUTABLES.flatMap(executable => cliCommands(executable)).filter(item => !item.directory && item.rpc.length && handlers[item.path.split(' ')[0]])) {
       const argv = tokens(item.example).slice(1), command = argv.shift(), calls = [];
       // No terminal waiting/watch loop: map these read-only local capabilities with
       // the existing worker-watch CLI suite instead of pretending a TTY is an RPC.
@@ -104,7 +106,7 @@ test('all RPC-backed CLI examples reach real parser dispatch and emit only their
           if (method === 'branch.convergence') return { branch: params.branch, revision: 'REV', enabled: false, mounted: true, validation: null };
           return {};
         } };
-      await handlers[command](command, args, { client, json: true }); expect(calls.length).toBeGreaterThan(0); checked.push(item.path);
+      await handlers[command](command, args, { client, json: true, executable: item.executable }); expect(calls.length).toBeGreaterThan(0); checked.push(item.path);
     }
     expect(checked.length).toBeGreaterThan(85);
   } finally { await f.close(); }

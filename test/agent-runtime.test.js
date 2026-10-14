@@ -45,9 +45,9 @@ test('agent prompt distinguishes persistent auto-merge hooks from delivery and a
   const prompt = builtInPrompt('agent');
   expect(prompt).toContain('自动合并设置跨追加开发轮次保留');
   expect(prompt).toContain('默认开启不可关闭的自动合并 hook');
-  expect(prompt).toContain('lush skills get delegation');
-  expect(prompt).not.toContain("lush worker spawn '目标'");
-  expect(prompt).toContain('lush worker accept');
+  expect(prompt).toContain('lushc skills get delegation');
+  expect(prompt).not.toContain("lushc worker spawn '目标'");
+  expect(prompt).toContain('lushc worker accept');
   expect(prompt).toContain('LUSH_TASK_ID');
   expect(prompt).toContain('Worker 数据仍使用 task 字段');
   expect(prompt).not.toMatch(/lush task|\bTask\b|任务/);
@@ -115,8 +115,8 @@ test('message guidance survives role/mode composition and separates admission fr
           '消息与测试、提交命令分开执行',
           '不能因整条工具调用失败就把已成功的消息重发',
         ]) expect(prompt).toContain(rule);
-        expect(prompt).not.toContain('需要修改时先 lush worker message，不确认');
-        if (role !== 'worker') expect(prompt).toContain('仅在目标允许追加工作时先 lush worker message');
+        expect(prompt).not.toContain('需要修改时先 lushc worker message，不确认');
+        if (role !== 'worker') expect(prompt).toContain('仅在目标允许追加工作时先 lushc worker message');
       }
       expect(builtInPrompt(role, { progressReporting: false })).toContain('合法普通消息仍可持久入箱，由 Worker 暂存');
     }

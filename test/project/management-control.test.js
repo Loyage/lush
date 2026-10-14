@@ -68,7 +68,7 @@ test('management catalogue discovers every registered function with real access 
     history = await rpc.dispatch('manager.history', { limit: 1, _token: token });
     for (const request of [
       { method: 'agent.environment', params: { target: 'agent', scope: 'device' } },
-      { method: 'worker.transcript', params: { id: f.target.id } },
+      { method: 'worker.transcript_page', params: { id: f.target.id } },
       { method: 'system.summary', params: { _token: '' } },
       { method: 'worker.message', params: { id: f.target.id, body: 'x', profile: {} } },
       { method: 'agent.connections.remove', params: { id: 'account', scope: 'device' } },

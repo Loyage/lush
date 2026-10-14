@@ -5,10 +5,10 @@
 ## 先定位，再有界读取
 
 ```bash
-lush worker list --brief
-lush worker inspect ID
-lush worker history ID --after 0
-lush worker transcript ID --after 0
+lushc worker list --brief
+lushc worker inspect ID
+lushc worker history ID --after 0
+lushc worker transcript ID --after 0
 ```
 
 ID 可以是明确的内部整数或持久 W 编号，例如 W5-1；不要按内部整数猜 W 编号。list --brief 是有界摘要，游标与截断不是全量无历史证明。inspect 只在确需目标原文、状态或交付事实时使用，history 读事件，transcript 是单次步骤查询。

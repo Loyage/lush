@@ -22,8 +22,8 @@ const prompt = fs.readFileSync(systemFile,'utf8');
 fs.appendFileSync(path.join(process.env.LUSH_HOME,'seen.jsonl'),JSON.stringify({args, cwd:process.cwd(), project:process.env.LUSH_PROJECT, token:!!process.env.LUSH_AGENT_TOKEN, task:context.task, sharedEnv:process.env.TEST_SHARED, promptRole:prompt.includes('角色：'+context.task.role), promptHasWorkerInstructions:prompt.includes('角色：worker')})+'\\n');
 if(context.task.task_kind === 'order') {
  const command = context.task.calls === 1
-   ? ['lush','worker','spawn','delegated via pinned CLI','--name','delegated-work','--json']
-   : ['lush','worker','accept',String(context.children.find(child => child.status === 'awaiting_acceptance').id),'--json'];
+   ? ['lushc','worker','spawn','delegated via pinned CLI','--name','delegated-work','--json']
+   : ['lushc','worker','accept',String(context.children.find(child => child.status === 'awaiting_acceptance').id),'--json'];
  const proc = Bun.spawn(command,{stdout:'pipe',stderr:'pipe'});
  const out = await new Response(proc.stdout).text(), err = await new Response(proc.stderr).text();
  if(await proc.exited) throw new Error(err); console.log(out);

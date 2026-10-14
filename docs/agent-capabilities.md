@@ -28,12 +28,12 @@
 内置指南随 Lush 代码发布，不需要安装第三方包：
 
 ```bash
-bun run lush skills list
-bun run lush skills get delegation
-bun run lush skills get progress --json
+bun run lushc skills list
+bun run lushc skills get delegation
+bun run lushc skills get progress --json
 ```
 
-这些命令只读取当前 CLI 内置指南，无需 daemon 在线或选择项目，不读取账号、设备私密配置或实际开启状态，不调用 Agent。Agent 使用 runtime 在 PATH 固定的 `lush`，指南与运行代码同版本。未知 ID 或文件路径被拒绝，不执行指南中的内容。
+这些命令只读取当前 CLI 内置指南，无需 daemon 在线或选择项目，不读取账号、设备私密配置或实际开启状态，不调用 Agent。Agent 使用 runtime 在 PATH 固定的 `lushc`，指南与运行代码同版本。未知 ID 或文件路径被拒绝，不执行指南中的内容。
 
 Pi 的 Lush 配置与 Pi 默认模式都获得已启用的内置 Skills；不会修改用户 Pi 的设置文件。Codex 使用同一短入口及 CLI 指南，不把 Pi 扩展当作 Codex 工具。
 

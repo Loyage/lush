@@ -8,7 +8,7 @@ Worker 是原 Task 的整体更名，含义仍是持久的 Agent + Process；父
 
 这是**破坏性的公开接口命名变更**，旧入口不保留别名：
 
-- CLI 使用 `lush worker …`；Notice 参数使用 `lush notice post … --worker ID`；运行设置命令使用 `lush config set worker-call-limit N` / `lush config reset worker-call-limit`。旧 `lush task`、`--task`、`task-call-limit` 不再可用。
+- CLI 开发协作使用 `lushc worker …`，管理使用 `lush worker …`，共享查询可双入口；Notice 发布使用 `lushc notice post … --worker ID`；开发专属旧 lush 调用不保留别名，见[双入口](../reference/api.md#开发与管理双入口)。运行设置命令使用 `lush config set worker-call-limit N` / `lush config reset worker-call-limit`。旧 `lush task`、`--task`、`task-call-limit` 不再可用。
 - RPC 使用 `worker.*`，旧公开 `task.*` 方法一律拒绝；`notice.post` 的参数仍叫 `task`，`system.configure` 的设置键仍为 `task_call_limit`。
 - HTTP 使用 `/api/worker/<id>` 及其读取后缀、`/api/workers`、`/api/worker-graph`；旧 `/api/task/<id>`、`/api/tasks`、`/api/task-graph` 返回 404。Web 写动作同样使用 `worker.*`。
 - 浏览器使用 `#worker-ID`、`#workers`、`#worker-graph`；执行详情仍在 Worker 详情中显式点击打开，没有独立 hash；旧 Task hash 不作为兼容入口。全局模式的项目路由前缀 `/p/<project-id>/` 不变。
@@ -39,7 +39,7 @@ Input（原始输入）、历史输入、Draft（暂存）仍是各自的实体�
 
 ### Agent 自动标题（W202／决定 D471）
 
-指令及 child 的当前 Agent 理解目标后调用 Agent-only `worker.auto_title {title}` / CLI `worker auto-title '标题'`，仅从有效 invocation token 确定自身，无目标 ID 参数。非空单行最多 60 字符、去除首尾空白；首次成功写入 nullable `tasks.auto_title`，后续调用返回已有值而不覆盖（`{id,auto_title,changed}`），不能清空。不增加模型请求、调度或 Git 操作，`updated_at` 不变，`task.auto_titled` Event 仅首次写入时记录。项目写门与 order/child、running／非 parked／非 aborted invocation 校验保留；manager、analysis 和用户身份均无此写能力。
+指令及 child 的当前 Agent 理解目标后调用 Agent-only `worker.auto_title {title}` / CLI `worker auto-title '标题'`，仅从有效 invocation token 确定自身，无目标 ID 参数。非空单行最多 60 字符、去除首尾空白；首次成功写入 nullable `tasks.auto_title`，后续调用返回已有值而不覆盖（`{id,auto_title,changed}`），不能清空。不增加模型请求、调度或 Git 操作，`updated_at` 不变，`task.auto_titled` Event 仅首次写入时记录。项目写门与 running／非 parked／非 aborted invocation 校验保留；开发调用仅 order/child，analysis 与用户无写能力。Valet 可经已授权的管理代理为自身生成标题，不借此取得开发分支；详见[Valet 契约](hook-signals-management.md)。
 
 显示优先级为用户 `display_title` → Agent `auto_title` → 原目标首行。清空用户标题恢复该自动标题；手动重命名不被 Agent 覆盖。inspect/list/page/子节点/graph/后台摘要及输入父候选携带 auto_title，CLI/Web 显示和 Worker 检索支持它。原始 Input、goal、name、编号、Git/会话身份与历史报告/引用快照不回写。旧行新增字段为 NULL，不批量生成；标题在有实际 Agent invocation 时产生，暂停未开始、命名失败或自定义替代 Prompt 未调用时仍以原目标兜底。Web 不开放自动标题 mutation，用户 `worker.rename` 权限不变。
 
@@ -51,7 +51,7 @@ Host `/api/host/settings/**` 是窄用户管理入口，不是通用 RPC 代理�
 
 ## 内置 Agent 能力指南（W217／D509）
 
-公开只读 CLI `lush skills list` / `lush skills get progress|delegation|auto-title|context`（可加 `--json`）读取固定随代码指南，不需项目／daemon，不读设备私密配置或实际开启状态，不增加 RPC。未知 ID、路径及多余参数拒绝。设备 `system.settings/configure` 沿用用户专属规则，新增布尔键 worker_delegation、worker_auto_title、context_retrieval，progress_reporting 继续兼容；均默认 true，null 恢复默认。开关只改变后续 Agent 注入及主动使用，不关闭底层权限、真实调度或已有 child 交付。完整契约见[Agent 能力模块](agent-capabilities.md)。
+公开只读 CLI `lushc skills list` / `lushc skills get progress|delegation|auto-title|context`（可加 `--json`）读取固定随代码指南，不需项目／daemon，不读设备私密配置或实际开启状态，不增加 RPC。未知 ID、路径及多余参数拒绝。设备 `system.settings/configure` 沿用用户专属规则，新增布尔键 worker_delegation、worker_auto_title、context_retrieval，progress_reporting 继续兼容；均默认 true，null 恢复默认。开关只改变后续 Agent 注入及主动使用，不关闭底层权限、真实调度或已有 child 交付。完整契约见[Agent 能力模块](agent-capabilities.md)。
 
 ## 核心工作流
 

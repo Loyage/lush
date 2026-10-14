@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { main } from '../src/cli/main.js';
 import { HELP } from '../src/cli/help.js';
+import { cliHelp } from '../src/cli/catalog.js';
+const CODE_HELP = cliHelp('lushc');
 import { run as worker } from '../src/cli/commands/task.js';
 import { run as notice } from '../src/cli/commands/notice.js';
 import { print } from '../src/cli/args.js';
@@ -19,8 +21,9 @@ test('task is rejected instead of registered as a worker alias', async () => {
   for (const args of [['task'], ['task', 'list'], ['task', 'spawn', 'goal'], ['tasks']]) {
     await expect(main(args)).rejects.toThrow(`unknown command: ${args[0]}`);
   }
-  expect(HELP).toContain('Lush — Worker 中心开发');
-  expect(HELP).toContain('worker spawn');
+  expect(HELP).toContain('Lush — 项目管理接口');
+  expect(HELP).not.toContain('worker spawn');
+  expect(CODE_HELP).toContain('worker spawn');
   expect(HELP).not.toMatch(/\btask\b|\bTask\b|任务/);
 });
 
@@ -30,7 +33,7 @@ test('worker main command dispatches and retains LUSH_TASK_ID as the default par
     const script = `import { main } from ${JSON.stringify(path.join(root, 'src/cli/main.js'))};
 import { UIClient } from ${JSON.stringify(path.join(root, 'src/ui/client.js'))};
 UIClient.prototype.request = async function(method, params) { return { method, params }; };
-await main(['worker', 'spawn', 'goal', '--name', 'child-worker', '--json']);`;
+await main(['worker', 'spawn', 'goal', '--name', 'child-worker', '--json'], { executable: 'lushc' });`;
     const proc = Bun.spawn(['bun', '-e', script], { cwd: f.root,
       env: env({ LUSH_PROJECT: f.root, LUSH_TASK_ID: '7' }), stdout: 'pipe', stderr: 'pipe' });
     const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
@@ -61,6 +64,12 @@ test('worker read and lifecycle commands use only worker RPC methods', async () 
   expect(client.calls).toHaveLength(cases.length);
 });
 
+test('embedded worker resolve cannot bypass development acceptance through a management alias', async () => {
+  const client = { ...recordingClient(), token: 'active' };
+  await expect(worker('worker', ['resolve', '7'], { client, json: true })).rejects.toThrow('user-only management alias');
+  expect(client.calls).toEqual([]);
+});
+
 test('worker rename accepts numbered identity and an empty reset title, but rejects Agent calls', async () => {
   const calls = [], client = { async request(method, params) {
     calls.push({ method, params }); return method === 'worker.lookup' ? { id: 302, worker_number: 'W156' } : params;
@@ -85,7 +94,7 @@ test('worker auto-title is Agent-only and has no target identity parameter', asy
   for (const args of [['auto-title'], ['auto-title', '7', 'title'], ['auto-title', 'title', 'extra']])
     await expect(worker('worker', args, { client, json: true })).rejects.toThrow('invalid arguments');
   await expect(worker('worker', ['auto-title', 'title'], { client: recordingClient(), json: true })).rejects.toThrow('Agent invocation');
-  expect(client.calls).toHaveLength(1); expect(HELP).toContain("worker auto-title '标题'");
+  expect(client.calls).toHaveLength(1); expect(CODE_HELP).toContain("worker auto-title '标题'");
 });
 
 test('CLI Worker list and tree prefer user title then generated title without changing original goals', () => {
@@ -119,7 +128,7 @@ test('worker auto-merge is a strict user hook CLI, not a reservation', async () 
 test('worker iteration CLI rejects extra arguments and documents each action', async () => {
   for (const verb of ['accept','reopen','sync-parent','resolve-sync']) {
     const client = { async request() { throw new Error('CLI must reject before RPC'); } };
-    expect(HELP).toContain(`worker ${verb} ID`);
+    expect(verb === 'accept' ? CODE_HELP : HELP).toContain(`worker ${verb} ID`);
     await expect(worker('worker', [verb, '7', 'force'], { client, json: true })).rejects.toThrow();
   }
 });
@@ -145,12 +154,12 @@ test('package and ops expose workers without a tasks shortcut', async () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   expect(pkg.scripts.workers).toBe('bun ./scripts/ops.js workers');
   expect(pkg.scripts.tasks).toBeUndefined();
-  for (const command of ['workers', 'tree', 'inspect', 'transcript', 'message']) {
+  for (const command of ['workers', 'tree', 'inspect', 'transcript', 'message', 'progress']) {
     const proc = Bun.spawn(['bun', path.join(root, 'scripts/ops.js'), command, '--help'], {
       env: env(), stdout: 'pipe', stderr: 'pipe' });
     const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
     expect({ code, err }).toEqual({ code: 0, err: '' });
-    expect(out).toContain(HELP);
+    expect(out).toContain(['message', 'progress'].includes(command) ? CODE_HELP : HELP);
   }
   const proc = Bun.spawn(['bun', path.join(root, 'scripts/ops.js'), 'tasks'], { env: env(), stdout: 'pipe', stderr: 'pipe' });
   const [err, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);

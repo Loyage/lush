@@ -76,7 +76,10 @@ test('HTTP permissions enforce strict parameters/revision and same-Origin authen
     expect((await post(f, 'management.permissions_update', params, { Cookie, Origin: 'https://evil.invalid' })).status).toBe(403);
     for (const extra of [{ _token: 'forged' }, { scope: 'device' }, { extra: true }])
       expect((await post(f, 'management.permissions_update', { ...params, ...extra }, { Cookie })).status).toBe(400);
-    for (const permissions of [{}, { ...value.permissions, unknown: 'read' }, { ...value.permissions, 'worker.transcript': 'read' }])
+    expect(value.permissions['worker.transcript']).toBe('read');
+    expect(value.permissions['worker.accept']).toBe('confirmation');
+    for (const permissions of [{}, { ...value.permissions, unknown: 'read' },
+      { ...value.permissions, 'worker.transcript': 'automatic' }, { ...value.permissions, 'worker.accept': 'automatic' }])
       expect((await post(f, 'management.permissions_update', { ...params, permissions }, { Cookie })).status).toBe(400);
     expect((await post(f, 'management.permissions_update', { permissions: value.permissions }, { Cookie })).status).toBe(400);
     for (const path of ['/api/management/permissions?scope=project','/api/management/permissions?x=1','/api/management/permissions?_token=bad'])

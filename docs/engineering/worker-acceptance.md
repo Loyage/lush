@@ -21,6 +21,8 @@
 
 ## 运行时与失败语义
 
+开发协作 CLI 为 `lushc worker accept ID`；用户与直接父开发 Agent 的原权限不变。Valet 跨树验收必须经过持久预检与用户精确确认，再经同一统一动作入口复核安全门；不能借管家能力自动验收回收，授权与恢复见[Valet 契约](hook-signals-management.md#开发能力的受控代理)。
+
 `acceptTask` 是统一动作的权威入口。Git 操作串行执行，资源检查与删除过程中复核身份、消息和授权；不能在仍活跃的 invocation 中删检出，也不能通过嵌套排队造成 Git gate 死锁。
 
 只有回收成功才宣称此次统一验收完成并发出 `task.accepted`／`worker.accepted`。受检回收使用 `task.acceptance_started`、`task.acceptance_failed` 审计；旧已验收记录补办成功写 `task.acceptance_reclaimed`，不重写旧验收事件。父级批量 `task.acceptance_started` 收据固定 `accepting_task_ids` 与 `rows`，成功子验收带 `via:'parent_acceptance'`、`acceptance_root_id`、`delegator_id` 和共享 `acceptance_execution`，可追溯确认来源但不冒充 child 独立获得自动验收级别。`branch.archive.outcome` 逐资源持久保存 `{acceptance_execution,outcomes}`，`branch.archive.outcomes` 保留原总账；单项回收事实不是整批验收成功。资源删除部分失败时逐资源保留磁盘事实、诊断及可继续的审计，不把 partial/unknown 冒充成功；恢复依据精确持久收据，不靠目录不存在猜测，不因 daemon 重启自动重放未知删除。显式重试须能续办失败范围而不重新删除已完成资源。

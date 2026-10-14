@@ -37,7 +37,7 @@ const btn = text => root().querySelectorAll('button').find(node => node.textCont
 const results = () => root().querySelector('.cli-results');
 const input = () => root().querySelector('input');
 const search = text => { input().value = text; input().oninput({}); };
-const choose = path => root().querySelectorAll('.cli-command-link').find(node => node.dataset.command === path).onclick();
+const choose = path => root().querySelectorAll('.cli-command-link').find(node => node.dataset.command === (path.startsWith('lush') ? path : `lush ${path}`)).onclick();
 const select = method => root().querySelectorAll('.cli-permission-method').find(node => node.dataset.method === method).querySelector('select');
 const change = (method, access) => { const node = select(method); node.value = access; node.onchange(); };
 const save = () => btn('保存管家默认权限');
@@ -51,50 +51,54 @@ test('empty search lists only top-level commands, local live matching/IME and di
   expect(deepText(root().querySelector('.cli-command-detail'))).toContain('lush worker resume ID');
   expect(select('worker.resume').value).toBe('automatic'); change('worker.resume', 'confirmation');
   await btn('返回顶层目录').onclick(); search('继续');
-  const matches = results().querySelectorAll('.cli-command-link').map(node => node.dataset.command); expect(matches).toContain('worker resume');
+  const matches = results().querySelectorAll('.cli-command-link').map(node => node.dataset.command); expect(matches).toContain('lush worker resume');
   input().listeners.compositionstart[0](); input().value = '删除'; input().oninput({ isComposing: true });
   expect(results().querySelectorAll('.cli-command-link').map(node => node.dataset.command)).toEqual(matches);
-  input().listeners.compositionend[0](); expect(results().querySelectorAll('.cli-command-link').map(node => node.dataset.command)).toContain('worker delete');
+  input().listeners.compositionend[0](); expect(results().querySelectorAll('.cli-command-link').map(node => node.dataset.command)).toContain('lush worker delete');
   search('lush worker RESUME'); choose('worker resume'); expect(select('worker.resume').value).toBe('confirmation');
   const heldRoot = root().querySelector('.cli-interfaces-page'); await open(); expect(root().querySelector('.cli-interfaces-page')).toBe(heldRoot); expect(input().value).toBe('lush worker RESUME'); expect(reads.length).toBe(2);
-  await btn('返回搜索结果').onclick(); expect(input().value).toBe('lush worker RESUME'); expect(results().querySelectorAll('.cli-command-link').map(node => node.dataset.command)).toEqual(['worker resume']);
+  await btn('返回搜索结果').onclick(); expect(input().value).toBe('lush worker RESUME'); expect(results().querySelectorAll('.cli-command-link').map(node => node.dataset.command)).toEqual(['lush worker resume']);
   search('没有此命令'); expect(deepText(results())).toContain('没有匹配'); await btn('清空').onclick(); expect(results().querySelectorAll('.cli-command-link').length).toBe(cliCatalog().commands.filter(item => !item.parent).length);
 });
 
-test('compact rows end with truthful permission summaries, stable word-count ordering and a fixed lush prefix', async () => {
+test('compact rows have real executable names, no fixed prefix and stable relative word-count ordering', async () => {
   await open();
-  const prefix = root().querySelector('.cli-search-prefix'); expect(prefix.textContent).toBe('lush'); expect(prefix.tagName).toBe('SPAN');
+  expect(root().querySelector('.cli-search-prefix')).toBeNull();
   const rows = () => results().querySelectorAll('.cli-command-link');
-  const sorted = items => [...items].sort((a, b) => a.path.split(' ').length - b.path.split(' ').length).map(item => item.path);
+  const sorted = items => [...items].sort((a, b) => a.command_path.split(' ').length - b.command_path.split(' ').length).map(item => item.path);
   expect(rows().every(node => node.children.length === 3 && node.children.at(-1).classList.contains('cli-command-access'))).toBe(true);
-  expect(rows().find(node => node.dataset.command === 'worker').children.at(-1).textContent).toBe('分类 · 查看子命令');
-  expect(rows().find(node => node.dataset.command === 'log').children.at(-1).textContent).toBe('本地 · 不可授权');
+  expect(rows().find(node => node.dataset.command === 'lush worker').children.at(-1).textContent).toBe('分类 · 查看子命令');
+  expect(rows().find(node => node.dataset.command === 'lush log').children.at(-1).textContent).toBe('本地 · 不可授权');
+  expect(rows().find(node => node.dataset.command === 'lushc worker').children[0].textContent).toBe('lushc worker');
   search('worker');
   const matching = cliCatalog().commands.filter(item => `${item.path} ${item.name} ${item.description}`.toLocaleLowerCase().includes('worker'));
   expect(rows().map(node => node.dataset.command)).toEqual(sorted(matching));
-  expect(matching.some(item => item.path.split(' ').length === 3)).toBe(true);
-  search(' LUSH   worker '); expect(rows().map(node => node.dataset.command)).toEqual(sorted(matching));
-  search('lush'); expect(rows().map(node => node.dataset.command)).toEqual(sorted(cliCatalog().commands.filter(item => !item.parent)));
-  choose('worker');
+  expect(matching.some(item => item.command_path.split(' ').length === 3)).toBe(true);
+  search(' LUSH   worker '); expect(rows().map(node => node.dataset.command)).toEqual(sorted(cliCatalog().commands.filter(item => item.path.includes('lush worker'))));
+  search('lushc'); expect(rows().map(node => node.dataset.command)).toEqual(sorted(cliCatalog().commands.filter(item => item.executable === 'lushc')));
+  choose('lushc worker');
   expect(root().querySelector('.cli-command-detail').querySelectorAll('.cli-command-link').map(node => node.dataset.command))
-    .toEqual(sorted(cliCatalog().commands.filter(item => item.parent === 'worker')));
+    .toEqual(sorted(cliCatalog().commands.filter(item => item.parent === 'lushc worker')));
+  choose('lushc worker spawn');
+  expect(deepText(root().querySelector('.cli-command-detail'))).toContain("lushc worker spawn '目标'");
+  expect(deepText(root().querySelector('.cli-command-detail'))).not.toContain('lush lushc');
   search('worker resume'); expect(rows()[0].children.at(-1).textContent).toBe('多项权限（2）');
   expect(rows()[0].children.at(-1).getAttribute('data-help')).toContain('worker.resume：自动执行');
-  search('status'); const statusRow = () => rows().find(node => node.dataset.command === 'status');
+  search('status'); const statusRow = () => rows().find(node => node.dataset.command === 'lush status');
   expect(statusRow().children.at(-1).textContent).toBe('只读');
   choose('status'); change('system.status', 'unavailable');
   expect(statusRow().children.at(-1).textContent).toBe('禁止 · 草稿');
   await btn('返回搜索结果').onclick(); expect(statusRow().children.at(-1).textContent).toBe('禁止 · 草稿');
   await save().onclick(); expect(statusRow().children.at(-1).textContent).toBe('禁止');
-  search('order'); const summary = rows().find(node => node.dataset.command === 'order').children.at(-1);
-  expect(summary.textContent).toBe(`多项权限（${cliCatalog().commands.find(item => item.path === 'order').rpc.length}）`);
+  search('order'); const summary = rows().find(node => node.dataset.command === 'lush order').children.at(-1);
+  expect(summary.textContent).toBe(`多项权限（${cliCatalog().commands.find(item => item.path === 'lush order').rpc.length}）`);
   expect(summary.getAttribute('data-help')).toContain('management.submit：固有不可用');
   expect(writes.length).toBe(1);
 });
 
 test('multi-RPC command uses real allowed choices/ceilings, unavailable cannot elevate; complete save preserves unexposed methods', async () => {
   await open(); openOrder();
-  for (const method of cliCatalog().commands.find(item => item.path === 'order').rpc.map(item => item.method)) {
+  for (const method of cliCatalog().commands.find(item => item.path === 'lush order').rpc.map(item => item.method)) {
     expect(select(method).querySelectorAll('option').map(node => node.value)).toEqual(value.methods.find(item => item.method === method).allowed_access);
   }
   expect(select('management.submit').disabled).toBe(true); change('management.submit', 'automatic'); expect(select('management.submit').value).toBe('unavailable');
@@ -130,7 +134,7 @@ test('multi-tab revision conflict preserves draft, blocks replay and explains au
 
 test('read failures allow CLI browsing but not uninitialized edits; reread failure preserves prior draft', async () => {
   intercept = path => path.endsWith('/permissions') ? Promise.reject(Error('offline')) : null;
-  await open(); expect(results().querySelectorAll('.cli-command-link').find(node => node.dataset.command === 'order').children.at(-1).textContent).toBe('权限未读取');
+  await open(); expect(results().querySelectorAll('.cli-command-link').find(node => node.dataset.command === 'lush order').children.at(-1).textContent).toBe('权限未读取');
   openOrder(); expect(save().disabled).toBe(true); expect(select('draft.add').disabled).toBe(true); expect(deepText(root())).toContain('读取失败');
   intercept = null; await btn('重新读取').onclick(); change('draft.add', 'confirmation');
   intercept = () => Promise.reject(Error('still offline')); const reread = btn('重新读取').onclick(); await dialogButton(dom, '放弃并读取').onclick(); await reread;

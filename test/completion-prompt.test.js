@@ -23,6 +23,6 @@ test('delegator reviews delivery but preserves children for revisions until pare
   expect(prompt).toContain('不能把指令 Worker、自己、兄弟或间接后代作为验收目标');
   expect(prompt).toContain('批量验收不能连带确认用户独立创建的指令');
   expect(prompt).not.toContain('父 Worker 收口前确认自己的派生 Worker');
-  expect(prompt).not.toContain('成果符合委派目标且状态为 awaiting_acceptance 时，用 lush worker accept ID');
-  expect(prompt).not.toContain('检查 child 成果后 lush worker accept 确认完成');
+  expect(prompt).not.toContain('成果符合委派目标且状态为 awaiting_acceptance 时，用 lushc worker accept ID');
+  expect(prompt).not.toContain('检查 child 成果后 lushc worker accept 确认完成');
 });

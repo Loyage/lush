@@ -20,7 +20,7 @@ const press = label => run(`const b=[...document.querySelectorAll('button')].fin
 const screenshot = async name => fs.writeFileSync(path.join(evidence, `${name}.png`), Buffer.from(await rpc(`/session/${session}/screenshot`, undefined, 'GET'), 'base64'));
 const select = (method, access) => run(`const s=document.querySelector('[data-method="${method}"] select');s.value='${access}';s.dispatchEvent(new Event('change',{bubbles:true}));`);
 const search = text => run(`const s=document.querySelector('.cli-search input');s.value=${JSON.stringify(text)};s.dispatchEvent(new Event('input',{bubbles:true}));`);
-const choose = command => run(`document.querySelector('.cli-results [data-command="${command}"]').click();`);
+const choose = command => run(`document.querySelector('.cli-results [data-command="${command.startsWith('lush') ? command : `lush ${command}`}"]').click();`);
 const layouts = [], mutations = [];
 try {
   await repo(f.root);
@@ -44,16 +44,16 @@ try {
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${wrapper.port}/fixture` });
   const frame = async () => { const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#viewport' }); await rpc(`/session/${session}/frame`, { id: element }); };
   await frame(); assert(await wait(`document.querySelectorAll('.cli-command-link').length>0`), 'page missing');
-  assert(await run(`return location.hash==='#cli-interfaces'&&[...document.querySelectorAll('.cli-results [data-command]')].every(n=>!n.dataset.command.includes(' '))`), 'empty search must show only roots / old route redirect');
+  assert(await run(`return location.hash==='#cli-interfaces'&&[...document.querySelectorAll('.cli-results [data-command]')].every(n=>n.dataset.command.split(' ').length===2)`), 'empty search must show only roots / old route redirect');
   assert(await run(`return document.querySelector('.cli-search').getBoundingClientRect().top<document.querySelector('.resource-hero').getBoundingClientRect().top`), 'search is not first');
   assert(await run(`return getComputedStyle(document.querySelector('.cli-command-link strong')).color===getComputedStyle(document.querySelector('.cli-interfaces-page')).color`), 'command names are not legible');
-  assert(await run(`return document.querySelector('.cli-search-prefix').textContent==='lush'&&!document.querySelector('.cli-search-prefix input')`), 'lush prefix is not fixed');
+  assert(await run(`return !document.querySelector('.cli-search-prefix')&&[...document.querySelectorAll('.cli-results [data-command]')].some(n=>n.dataset.command.startsWith('lushc '))`), 'fixed prefix was not removed or development entry is missing');
   await screenshot('desktop-directory');
   await search('worker');
-  assert(await run(`const counts=[...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command.split(' ').length);return counts.every((n,i)=>!i||n>=counts[i-1])&&counts.includes(3)`), 'word-count ordering missing');
+  assert(await run(`const counts=[...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command.split(' ').length-1);return counts.every((n,i)=>!i||n>=counts[i-1])&&counts.includes(3)`), 'word-count ordering missing');
   const paths = await run(`return [...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command)`);
   await search('LUSH worker');
-  assert(await run(`return JSON.stringify([...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command))===${JSON.stringify(JSON.stringify(paths))}`), 'full command paste differs from prefix-free search');
+  assert(await run(`return JSON.stringify([...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command))===${JSON.stringify(JSON.stringify(paths.filter(command => command.startsWith('lush worker'))))}`), 'full command paste must select its actual executable');
   for (const width of [1440, 390]) {
     await rpc(`/session/${session}/frame`, { id: null }); await run(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
     const layout = await run(`const rows=[...document.querySelectorAll('.cli-results .cli-command-link')];return {kind:'list',width:innerWidth,documentWidth:document.documentElement.scrollWidth,bodyWidth:document.body.scrollWidth,rows:rows.map(n=>{const r=n.getBoundingClientRect(),name=n.querySelector('strong').getBoundingClientRect(),description=n.querySelector('.cli-command-description').getBoundingClientRect(),permission=n.querySelector('.cli-command-access').getBoundingClientRect();return {height:r.height,display:getComputedStyle(n).display,margin:getComputedStyle(n).marginBottom,last:n.lastElementChild.className,nameRight:name.right,descriptionX:description.x,descriptionRight:description.right,permissionX:permission.x,permissionRight:permission.right};})};`);
@@ -66,7 +66,7 @@ try {
   await run(`const s=document.querySelector('.cli-search input');s.dispatchEvent(new CompositionEvent('compositionstart'));s.value='删除';s.dispatchEvent(new InputEvent('input',{isComposing:true}));`);
   assert(await run(`return document.querySelector('.cli-results').textContent===${JSON.stringify(beforeIME)}`), 'IME intermediate results changed');
   await run(`document.querySelector('.cli-search input').dispatchEvent(new CompositionEvent('compositionend'));`);
-  assert(await run(`return !!document.querySelector('.cli-results [data-command="worker delete"]')`), 'IME final search missing');
+  assert(await run(`return !!document.querySelector('.cli-results [data-command="lush worker delete"]')`), 'IME final search missing');
   await search('order'); await choose('order');
   assert(await run(`return !document.querySelector('.cli-advanced').open&&document.querySelector('.cli-results').hidden`), 'single detail / advanced hierarchy missing');
   await select('draft.add', 'confirmation');
@@ -98,7 +98,7 @@ try {
   assert(await wait(`location.hash==='#cli-interfaces'`), 'cancel did not restore route'); await screenshot('390-leave-guard');
   await run(`location.hash='#valets'`); assert(await wait(`!document.querySelector('#modal').hidden`), 'discard missing'); await press('丢弃并离开');
   await rpc(`/session/${session}/frame`, { id: null }); await run(`document.querySelector('#viewport').src='/#cli-interfaces'`);
-  assert(await wait(`document.querySelector('#viewport').contentWindow.location.pathname==='/'&&document.querySelector('#viewport').contentDocument.querySelector('.cli-results [data-command="order"]')`), 'global catalogue missing');
+  assert(await wait(`document.querySelector('#viewport').contentWindow.location.pathname==='/'&&document.querySelector('#viewport').contentDocument.querySelector('.cli-results [data-command="lush order"]')`), 'global catalogue missing');
   await frame(); await search('order'); await choose('order');
   assert(await run(`return [...document.querySelectorAll('.cli-permission-method select')].every(s=>s.disabled)&&document.querySelector('.cli-permissions-save button').disabled&&document.querySelector('.cli-permissions-save').textContent.includes('当前没有项目')`), 'global permissions not readonly');
   await screenshot('390-global-readonly');

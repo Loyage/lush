@@ -5,6 +5,7 @@ import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
 import { decideTaskInput } from '../task-input-rule.js';
 import { workerLabel } from '../worker-number.js';
 import { noticeNumber } from '../record-number.js';
+import { assertManagementCodeExecution } from './management-code.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation, resumeTaskDelivery } from './iteration.js';
 
 /** Internal shared settlement; provenance is chosen by the runtime, never by RPC input. */
@@ -31,7 +32,9 @@ export function settleNoticeAnswer(project, noticeId, answer, dismiss = false, s
   const managed = project.resolveManagementConfirmation?.(notice.id) === true;
   const owner = project.store.task(notice.task_id);
   if (!managed) {
-    if (dismiss && owner.agent_wakes === 0 && owner.resolves_task_id) project.cancel(owner.id, `user dismissed Notice ${noticeNumber(notice)}: ${notice.title}`);
+    if (owner.task_kind === 'management' && project.resumeManagementQuestion(owner.id, notice.id) === true) {
+      // The recognized own decision resumes only its existing management occurrence.
+    } else if (dismiss && owner.agent_wakes === 0 && owner.resolves_task_id) project.cancel(owner.id, `user dismissed Notice ${noticeNumber(notice)}: ${notice.title}`);
     else project.wake(notice.task_id);
   }
   project.scheduleTaskHooks();
@@ -41,7 +44,7 @@ export function settleNoticeAnswer(project, noticeId, answer, dismiss = false, s
 /** 收件箱、notice、答复。 */
 export default {
   // Runtime-generated Hook/legacy plan messages explicitly opt out of user append numbering.
-  message(taskId, body, sender = null, userAppend = true) {
+  message(taskId, body, sender = null, userAppend = true, managementReceipt = null) {
     const target = this.store.task(taskId); text(body, 'message');
     check(!this.acceptanceBusy?.has(target.id), '验收正在回收开发资源；请等待结果后再处理输入');
     // A parent batch receipt owns the entire participant set. Partial reclamation must
@@ -69,7 +72,10 @@ export default {
     if (sender !== null) {
       const from = this.store.task(sender);
       check(from.task_kind !== 'integration', 'internal integration Workers cannot issue ordinary development messages');
-      check(target.parent_id === from.id || from.parent_id === target.id, 'agents may message only a direct parent or child');
+      if (managementReceipt !== null) {
+        assertManagementCodeExecution(this, sender, managementReceipt, 'worker.message', { id: target.id, body });
+        check(['order','child'].includes(target.task_kind), 'Valet messages require a development Worker');
+      } else check(target.parent_id === from.id || from.parent_id === target.id, 'agents may message only a direct parent or child');
     }
     // Buffer behind the whole freeze, including source repair and parent-side landings.
     // Once a wave is held, later arrivals cannot overtake it while the old Agent exits.
@@ -145,12 +151,12 @@ export default {
       const row = this.store.run('INSERT INTO notices(task_id,title,body,kind) VALUES (?,?,?,?)', task.id, title, body, kind);
       const noticeId = Number(row.lastInsertRowid);
       this.store.event(task.id, 'notice.opened', { notice_id: noticeId, title, kind });
-      if (kind === 'questionnaire') this.parkForQuestion(task.id, noticeId);
+      if (kind === 'questionnaire' || task.task_kind === 'management') this.parkForQuestion(task.id, noticeId);
       this.autoAnswerNotice(noticeId);
       return noticeId;
     });
     // This is a deliberate suspension, not a timeout/failure. Persist before stopping the process.
-    if (kind === 'questionnaire') this.running.get(task.id)?.controller.abort();
+    if (kind === 'questionnaire' || task.task_kind === 'management') this.running.get(task.id)?.controller.abort();
     this.scheduleTaskHooks();
     return this.store.get(`${NOTICE_SELECT} WHERE id=?`, noticeId);
   },

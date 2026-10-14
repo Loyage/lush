@@ -39,8 +39,8 @@ test('collaboration and UI decisions survive configuration modes and disabled op
         progress_reporting: false, worker_delegation: false,
       } });
       for (const rule of [...coreRules, ...uiRules]) expect(disabled).toContain(rule);
-      expect(disabled).not.toContain('lush skills get progress');
-      expect(disabled).not.toContain('lush skills get delegation');
+      expect(disabled).not.toContain('lushc skills get progress');
+      expect(disabled).not.toContain('lushc skills get delegation');
     }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

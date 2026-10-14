@@ -1,6 +1,8 @@
 import { check } from '../core/types.js';
 import { PARAMS, MANAGER_METHODS, INTEGRATION_METHODS, assertAllowed } from './registry.js';
 import { publicResult } from './public-result.js';
+import { LUSHC_METHODS } from './management-policy.js';
+import { assertManagementCapabilityExecution, dispatchManagementCode } from '../core/project/management-code.js';
 import { handlers as systemHandlers } from './handlers/system.js';
 import { handlers as inputHandlers } from './handlers/input.js';
 import { handlers as taskHandlers } from './handlers/task.js';
@@ -28,10 +30,17 @@ export class Dispatcher {
     this.project = project; this.stopping = stopping; this.identity = identity;
     // This trusted callback is never a public RPC. The management engine records
     // reviewed capabilities / exact user confirmations before reaching it.
-    project.managementDispatch = async (method, params) => {
-      assertAllowed(method, params, null);
+    project.managementDispatch = async (method, params, actorId = null, receiptId = null) => {
+      assertAllowed(method, params, LUSHC_METHODS.has(method) ? actorId : null);
       check(!this.stopping?.isRequested?.(), '项目后台正在停止，请稍后再试');
-      return publicResult(await HANDLERS[method].call(this, project, params, null), method);
+      // Legacy user handlers are still governed by reviewed policy and an exact
+      // durable receipt, not merely by reaching this trusted callback.
+      if (!LUSHC_METHODS.has(method)) assertManagementCapabilityExecution(project, actorId, receiptId, method, params);
+      const result = LUSHC_METHODS.has(method)
+        ? await dispatchManagementCode(project, method, params, actorId, receiptId,
+          actor => HANDLERS[method].call(this, project, params, actor))
+        : await HANDLERS[method].call(this, project, params, null);
+      return publicResult(result, method);
     };
   }
   async dispatch(method, params = {}) {

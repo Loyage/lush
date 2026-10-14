@@ -43,7 +43,7 @@ bun run lush order '目标' --profile-file /private/worker-profile.json
 
 ## Lush 内置能力
 
-全局「设置 → 系统 → Agent 能力」可选择进度、子 Worker 委派、自动标题和上下文检索。采用薄 Skill 入口和按需 `lush skills get ID` 指南，设置只影响后续注入与主动使用，不撤销 API 权限或中断已有 child。Pi 两模式与 Codex 的接入、旧进度兼容及限制见[Agent 能力开关](../agent-capabilities.md)。
+全局「设置 → 系统 → Agent 能力」可选择进度、子 Worker 委派、自动标题和上下文检索。采用薄 Skill 入口和按需 `lushc skills get ID` 指南，设置只影响后续注入与主动使用，不撤销 API 权限或中断已有 child。Pi 两模式与 Codex 的接入、旧进度兼容及限制见[Agent 能力开关](../agent-capabilities.md)。
 
 ## 第三方插件与 Skills
 

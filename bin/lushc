@@ -1,0 +1,4 @@
+#!/usr/bin/env bun
+import { main } from '../src/cli/main.js';
+try { await main(process.argv.slice(2), { executable: 'lushc' }); }
+catch (error) { console.error(`lushc: ${error.message}`); process.exitCode = 1; }

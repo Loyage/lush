@@ -74,7 +74,8 @@ export default {
   setTaskAutoTitle(taskId, title) {
     this.assertWritable('set an automatic Worker title');
     const task = this.store.task(id(taskId)), run = this.running.get(task.id);
-    check(['order', 'child'].includes(task.task_kind), 'automatic titles are only for order/child Workers');
+    if (task.task_kind === 'management') this.assertManagementPermission(task.id, 'worker.auto_title');
+    else check(['order', 'child'].includes(task.task_kind), 'automatic titles are only for order/child Workers');
     check(task.status === 'running' && run && !run.parked && !run.controller.signal.aborted,
       'automatic titles require an active Agent invocation');
     check(typeof title === 'string', 'title must be text');

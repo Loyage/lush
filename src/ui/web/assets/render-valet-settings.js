@@ -22,7 +22,8 @@ function validatePermissions(value) {
 function validateCatalog(value) {
   if (value?.version !== 1 || value.source !== 'builtin-cli' || !Array.isArray(value.commands)
     || new Set(value.commands.map(item => item.path)).size !== value.commands.length
-    || value.commands.some(item => typeof item.path !== 'string' || typeof item.description !== 'string'
+    || value.commands.some(item => !['lush', 'lushc'].includes(item.executable) || typeof item.command_path !== 'string'
+      || item.path !== `${item.executable} ${item.command_path}` || typeof item.description !== 'string'
       || typeof item.usage !== 'string' || typeof item.format !== 'string' || typeof item.risk !== 'string' || !Array.isArray(item.rpc)
       || item.rpc.some(rpc => typeof rpc.method !== 'string' || !Array.isArray(rpc.parameters) || !Array.isArray(rpc.allowed_access))
       || item.parent && !value.commands.some(parent => parent.path === item.parent && parent.directory))) {
@@ -48,11 +49,11 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   const root = el('div', undefined, 'cli-interfaces-page');
   const searchBox = el('section', undefined, 'cli-search');
   const searchLabel = el('label', '搜索 CLI 命令、名称或介绍');
-  const search = el('input'); search.type = 'search'; search.placeholder = '例如：worker resume、继续、模型'; search.setAttribute('aria-label', '搜索 CLI 命令、名称或介绍');
+  const search = el('input'); search.type = 'search'; search.placeholder = '例如：lushc worker、lush order、继续'; search.setAttribute('aria-label', '搜索 CLI 命令、名称或介绍');
   const clear = el('button', '清空', 'ghost'); clear.type = 'button'; clear.onclick = () => { if (!owns()) return; search.value = ''; state.query = ''; state.selected = null; paint(); search.focus(); };
   const searchField = el('span', undefined, 'cli-search-field');
-  searchField.append(el('span', 'lush', 'cli-search-prefix'), search);
-  searchLabel.append(searchField); searchBox.append(searchLabel, clear, el('p', '固定 lush 前缀，无需输入 · 实时本地匹配 · 空关键词只显示顶层', 'hint'));
+  searchField.append(search);
+  searchLabel.append(searchField); searchBox.append(searchLabel, clear, el('p', '支持 lush / lushc 完整命令及关键词 · 实时本地匹配 · 空关键词只显示顶层', 'hint'));
   const updateSearch = () => { if (!owns() || state.composing) return; state.query = search.value.trim(); state.selected = null; paint(); };
   search.oninput = event => { if (!event?.isComposing) updateSearch(); };
   search.addEventListener('compositionstart', () => { state.composing = true; });
@@ -104,11 +105,11 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   function commandList(container, commands) {
     const headings = el('div', undefined, 'cli-command-columns'); headings.setAttribute('aria-hidden', 'true');
     headings.append(el('span', '命令'), el('span', '简介'), el('span', '管理 Agent 权限')); container.append(headings);
-    const wordCount = item => item.path.trim().split(/\s+/).length;
+    const wordCount = item => item.command_path.trim().split(/\s+/).length;
     for (const item of [...commands].sort((a, b) => wordCount(a) - wordCount(b))) {
       const node = el('button', undefined, 'cli-command-link'); node.type = 'button'; node.dataset.command = item.path;
       const summary = el('span', undefined, 'cli-command-access'); summaries.set(summary, item);
-      node.append(el('strong', `lush ${item.path}`), el('span', item.description, 'cli-command-description'), summary);
+      node.append(el('strong', item.path), el('span', item.description, 'cli-command-description'), summary);
       node.onclick = () => { if (!owns()) return; state.selected = item.path; paint(); detail.scrollIntoView?.({ block: 'start' }); };
       container.append(node);
     }
@@ -149,8 +150,9 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
     if (previous) { if (previous.open) state.expanded.add(previous.dataset.command); else state.expanded.delete(previous.dataset.command); }
     results.replaceChildren(); detail.replaceChildren(); selects.clear(); diagnostics.clear(); summaries.clear();
     if (!state.catalog) { sync(); return; }
-    const commands = state.catalog.commands, query = state.query.replace(/^lush(?:\s+|$)/i, '').trim().toLocaleLowerCase();
-    const matches = commands.filter(item => query ? `${item.path} ${item.name} ${item.description}`.toLocaleLowerCase().includes(query) : !item.parent);
+    const commands = state.catalog.commands, query = state.query.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+    const matches = commands.filter(item => !query ? !item.parent : ['lush', 'lushc'].includes(query)
+      ? item.executable === query : `${item.path} ${item.name} ${item.description}`.toLocaleLowerCase().includes(query));
     results.hidden = Boolean(state.selected); detail.hidden = !state.selected;
     results.append(el('h2', query ? `匹配结果（${matches.length}）` : '顶层命令目录'));
     if (!matches.length) results.append(el('p', '没有匹配的 CLI 命令，请调整关键词。', 'hint'));
@@ -161,10 +163,10 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
       const back = el('button', query ? '返回搜索结果' : '返回顶层目录', 'ghost'); back.type = 'button';
       back.onclick = () => { if (!owns()) return; state.selected = null; paint(); search.focus(); }; nav.append(back);
       if (item.parent) {
-        const parent = el('button', `上级：lush ${item.parent}`, 'ghost'); parent.type = 'button';
+        const parent = el('button', `上级：${item.parent}`, 'ghost'); parent.type = 'button';
         parent.onclick = () => { if (!owns()) return; state.selected = item.parent; paint(); }; nav.append(parent);
       }
-      detail.append(nav, el('h2', `lush ${item.path}`), el('p', item.description), el('h3', '调用格式'), el('code', item.format, 'cli-command-code'));
+      detail.append(nav, el('h2', item.path), el('p', item.description), el('h3', '调用格式'), el('code', item.format, 'cli-command-code'));
       if (item.example) detail.append(el('h3', '示例（仅说明，不执行）'), el('code', item.example, 'cli-command-code'));
       detail.append(el('h3', '风险与边界'), el('p', item.risk));
       const children = commands.filter(child => child.parent === item.path);

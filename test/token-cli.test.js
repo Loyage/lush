@@ -44,7 +44,7 @@ test('brief workers use bounded rows and retain a continuation cursor; ordinary 
   expect(result).toMatchObject({ has_more: true, next_after: 2 });
   expect(result.tasks).toHaveLength(2); expect(result.tasks[0].goal).toHaveLength(160);
   expect(result.tasks[0].progress).toBeUndefined();
-  expect(result.note).toContain('lush worker inspect ID');
+  expect(result.note).toContain('lushc worker inspect ID');
   expect(await worker('worker', ['list'], { client, json: true })).toEqual(rows);
   await expect(worker('worker', ['list', '--brief', '--limit', '999'], { client })).rejects.toThrow('1..200');
 });

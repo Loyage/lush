@@ -14,7 +14,7 @@ test('real project HTTP -> user-only RPC catalogue has no writes or secrets and 
     const value = await response.json(); expect(value).toEqual(cliCatalog());
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(before);
-    for (const command of value.commands.filter(item => !item.directory)) expect(cliHelp()).toContain(command.usage.slice(5));
+    for (const command of value.commands.filter(item => !item.directory)) expect(cliHelp(command.executable)).toContain(command.usage.slice(command.executable.length + 1));
     const global = await fetch(f.url + '/api/host/cli/catalog'); expect(global.status).toBe(200); expect(await global.json()).toEqual(value);
     for (const route of ['/api/cli/catalog', '/api/host/cli/catalog']) {
       for (const query of ['?q=worker','?scope=device','?_token=secret','?id=1&id=2']) expect((await fetch(f.url + route + query)).status).toBe(400);

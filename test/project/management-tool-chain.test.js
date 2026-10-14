@@ -68,10 +68,17 @@ for (const runtime of ['node', 'bun']) for (const mode of ['lush', 'pi']) {
         { name: 'manager_call', params: draft, callId: 'same-draft-operation' },
         { name: 'manager_call', params: { method: 'worker.inspect', params: { id: target.id } } },
         // Directory visibility is not permission: real policy must deny this call.
-        { name: 'manager_call', params: { method: 'worker.transcript', params: { id: target.id } } },
+        { name: 'manager_call', params: { method: 'worker.transcript_page', params: { id: target.id } } },
         { name: 'manager_query', params: { worker: target.worker_number } },
         { name: 'manager_start', params: { worker: target.worker_number } },
         { name: 'manager_retry', params: { worker: failed.id } },
+        { name: 'manager_call', params: { method: 'worker.transcript', params: { id: target.id } } },
+        { name: 'manager_call', params: { method: 'worker.history', params: { id: target.id } } },
+        { name: 'manager_call', callId: 'bridge-spawn', params: { method: 'worker.spawn', params: { parent: target.id, goal: 'delegated via real bridge', name: 'bridge-child' } } },
+        { name: 'manager_call', callId: 'bridge-message', params: { method: 'worker.message', params: { id: failed.id, body: 'cross-tree bridge message' } } },
+        { name: 'manager_call', callId: 'bridge-plan', params: { method: 'progress.plan', params: { steps: [{ key: 'inspect', label: '核验' }] } } },
+        { name: 'manager_call', callId: 'bridge-complete', params: { method: 'progress.complete', params: { step: 'inspect' } } },
+        { name: 'manager_call', callId: 'bridge-title', params: { method: 'worker.auto_title', params: { title: '可信管家协作' } } },
       ];
       // A temporary-device API key is enough to exercise real Lush connection
       // preparation. The CLI never sends a model or account-observation request.
@@ -95,12 +102,13 @@ for (const runtime of ['node', 'bun']) for (const mode of ['lush', 'pi']) {
       expect(result.entries).toContainEqual({ type: 'lush.invocation', data: {
         task_id: manager.id, run_id: invocation.context.invocation.run_id, role: 'manager' } });
       const replies = result.replies;
-      expect(replies).toHaveLength(10);
+      expect(replies).toHaveLength(17);
       for (const [index, reply] of replies.entries()) {
         if (index === 5) {
           expect(reply.response).toBeUndefined();
           expect(reply.error).toContain('管理请求被拒绝或未确认完成');
         } else {
+          if (reply.error) throw new Error(`unexpected tool error at plan ${index}: ${plan[index]?.params?.method ?? plan[index]?.name}`);
           expect(reply.error).toBeUndefined();
           expect(reply.response.content).toEqual([{ type: 'text', text: JSON.stringify(reply.response.details) }]);
         }
@@ -109,7 +117,8 @@ for (const runtime of ['node', 'bun']) for (const mode of ['lush', 'pi']) {
       expect(sorted(catalog.methods.map(item => item.method))).toEqual(sorted(Object.keys(PARAMS)));
       expect(sorted(catalog.methods.map(item => item.method))).toEqual(sorted(Object.keys(HANDLERS)));
       expect(catalog.methods.find(item => item.method === 'draft.add').access).toBe('automatic');
-      expect(catalog.methods.find(item => item.method === 'worker.transcript').access).toBe('unavailable');
+      expect(catalog.methods.find(item => item.method === 'worker.transcript').access).toBe('read');
+      expect(catalog.methods.find(item => item.method === 'worker.transcript_page').access).toBe('unavailable');
       const history = replies[1].response.details;
       expect(history.items).toMatchObject([{ id: historyRuns[1], task_id: target.id, status: 'completed', model: 'fixture-model' }]);
       expect(history.next_cursor).toBe(historyRuns[1]);
@@ -124,7 +133,16 @@ for (const runtime of ['node', 'bun']) for (const mode of ['lush', 'pi']) {
         expect(replies[index].response.details).toMatchObject({ target_id: id, status: 'succeeded' });
         expect(f.store.task(id).status).toBe('queued');
       }
-      expect(replies[9].response.details).toMatchObject({ id: manager.id, worker_number: manager.worker_number,
+      expect(replies[9].response.details).toMatchObject({ status: 'succeeded', result: { coverage: 'step_metadata_only' } });
+      expect(replies[10].response.details).toMatchObject({ status: 'succeeded', result: { coverage: 'event_metadata_only' } });
+      const child = f.store.task(replies[11].response.details.result.id);
+      expect(child).toMatchObject({ parent_id: target.id, task_kind: 'child' });
+      expect(child.parent_id).not.toBe(manager.id);
+      const message = f.store.get('SELECT sender_id,body,append_number FROM messages WHERE task_id=? ORDER BY id DESC LIMIT 1', failed.id);
+      expect(message).toMatchObject({ sender_id: manager.id, body: 'cross-tree bridge message', append_number: null });
+      expect(JSON.parse(task.progress_plan).items[0].status).toBe('completed');
+      expect(task.auto_title).toBe('可信管家协作');
+      expect(replies[16].response.details).toMatchObject({ id: manager.id, worker_number: manager.worker_number,
         task_kind: 'management', status: 'running', available_actions: [] });
       expect(calls.every(call => call.authenticated)).toBe(true);
       expect(sorted(new Set(calls.map(call => call.method)))).toEqual(sorted(MANAGER_METHODS));

@@ -2,9 +2,9 @@
 import path from 'node:path';
 import { RPCClient } from '../rpc/client.js';
 import { isWorkerNumber } from '../core/worker-number.js';
+import { MANAGER_METHODS } from '../rpc/registry.js';
 
-export const MANAGEMENT_RPC_METHODS = Object.freeze(['manager.query', 'manager.start', 'manager.retry', 'worker.lookup',
-  'manager.catalog', 'manager.history', 'manager.call']);
+export const MANAGEMENT_RPC_METHODS = Object.freeze([...MANAGER_METHODS]);
 
 export function managementInvocation(env = process.env) {
   let context;

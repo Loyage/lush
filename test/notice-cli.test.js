@@ -3,10 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { run } from '../src/cli/commands/notice.js';
 import { questionnaire } from '../src/core/questionnaire.js';
-import { HELP } from '../src/cli/help.js';
+import { cliHelp } from '../src/cli/catalog.js';
+const HELP = cliHelp('lushc');
 import { env, temp } from './helpers.js';
 
-const bin = new URL('../bin/lush', import.meta.url).pathname;
+const bin = new URL('../bin/lushc', import.meta.url).pathname;
 async function cli(root, ...args) {
   const proc = Bun.spawn([process.execPath, bin, ...args], {
     cwd: root, env: env({
@@ -81,7 +82,7 @@ test('notice check and post reject the same invalid envelopes and schema before 
     const failed = await cli(root, 'notice', 'check', '--questions-file', write(root, example.questions));
     expect(failed.code).not.toBe(0);
     expect(failed.err).toContain('Expected {"questions":[...]}');
-    expect(failed.err).toContain('lush notice example');
+    expect(failed.err).toContain('lushc notice example');
     expect(failed.out).toBe('');
     const file = write(root, example);
     for (const verb of ['check', 'post']) {
@@ -95,7 +96,7 @@ test('notice file errors give correction guidance; local arguments fail without 
   const root = temp();
   try {
     for (const file of [path.join(root, 'missing'), root]) {
-      await expect(run('notice', ['check', '--questions-file', file], { client: noRPC })).rejects.toThrow('lush notice example');
+      await expect(run('notice', ['check', '--questions-file', file], { client: noRPC })).rejects.toThrow('lushc notice example');
     }
     const fifo = path.join(root, 'fifo');
     expect(Bun.spawnSync(['mkfifo', fifo]).exitCode).toBe(0);

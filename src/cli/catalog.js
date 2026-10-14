@@ -170,6 +170,45 @@ export const CLI_COMMANDS = Object.freeze(entries.map(entry => {
     rpc: Object.freeze([...new Set([...(entry.rpc ?? []), ...(numbered && !entry.directory ? ['worker.lookup'] : [])])]),
   });
 }));
-export function cliHelp() {
-  return `Lush — Worker 中心开发\n\nlush [--project PATH] [--json] <command>\n${CLI_COMMANDS.filter(entry => !entry.directory).map(entry => `  ${entry.usage.slice(5)}\n    ${entry.description}${entry.advanced ? ` ${entry.advanced}` : ''}`).join('\n')}\n\nconfig show|set|reset 管理设备限额；不向 Agent token 开放私有配置。\n本地问卷示例：bun run lush notice example > questions.json\nWorker／Valet 可用整数或稳定编号 W5 / W5-1 / V1，RPC 身份仍为整数。\n原始输入显示 O5；Notice 显示 D/N，参数仍用整数。\n新指令只走 order；旧 Intent/Plan/Candidate、展示、介绍、托管、旧草稿命令和旧批量合并入口不再提供。\nJSON 配置文件须 owner-only；修改先读 revision，未知副作用不重放。\n`;
+// Public entry-point classification; the management policy consumes the same
+// catalogue-derived RPC set as CLI dispatch/help and browser discovery.
+export const LUSHC_PATHS = new Set([
+  'help', 'status',
+  'worker list', 'worker tree', 'worker inspect', 'worker spawn', 'worker auto-title',
+  'worker message', 'worker transcript', 'worker history', 'worker accept',
+  'branch tree', 'branch show', 'notice list', 'notice post', 'notice example', 'notice check',
+  'progress plan', 'progress complete', 'skills list', 'skills get',
+]);
+export const SHARED_CLI_PATHS = new Set([
+  'help', 'status', 'worker list', 'worker tree', 'worker inspect', 'worker transcript',
+  'worker history', 'branch tree', 'branch show', 'notice list',
+]);
+export const LUSHC_METHODS = new Set(CLI_COMMANDS.filter(entry => LUSHC_PATHS.has(entry.path))
+  .flatMap(entry => entry.rpc));
+
+export const CLI_EXECUTABLES = Object.freeze(['lush', 'lushc']);
+export function commandExecutables(entry) {
+  if (SHARED_CLI_PATHS.has(entry.path)) return CLI_EXECUTABLES;
+  return LUSHC_PATHS.has(entry.path) ? ['lushc'] : ['lush'];
+}
+
+/** Entry-point views share the original relative paths, parameters and handlers. */
+export function cliCommands(executable = 'lush') {
+  if (!CLI_EXECUTABLES.includes(executable)) throw new Error('unknown CLI executable');
+  const leaves = CLI_COMMANDS.filter(entry => !entry.directory && commandExecutables(entry).includes(executable));
+  const paths = new Set(leaves.flatMap(entry => {
+    const parts = entry.path.split(' ');
+    return parts.map((_part, index) => parts.slice(0, index + 1).join(' '));
+  }));
+  return CLI_COMMANDS.filter(entry => paths.has(entry.path)).map(entry => {
+    const qualify = value => value?.replace(/^lush(?=\s|$)/, executable);
+    return Object.freeze({ ...entry, executable, usage: qualify(entry.usage),
+      format: qualify(entry.format), example: qualify(entry.example) });
+  });
+}
+
+export function cliHelp(executable = 'lush') {
+  const development = executable === 'lushc';
+  const commands = cliCommands(executable);
+  return `Lush — ${development ? '开发 Worker 协作接口' : '项目管理接口'}\n\n${executable} [--project PATH] [--json] <command>\n${commands.filter(entry => !entry.directory).map(entry => `  ${entry.usage.slice(executable.length + 1)}\n    ${entry.description}${entry.advanced ? ` ${entry.advanced}` : ''}`).join('\n')}\n\n${development ? 'lushc 提供开发协作；lush 管理项目。入口不替代 invocation、目标与生命周期权限核验。\n本地问卷示例：bun run lushc notice example > questions.json' : 'config show|set|reset 管理设备限额；不向 Agent token 开放管理入口。\n开发协作命令使用 lushc，不保留旧 lush 别名。'}\nWorker／Valet 可用整数或稳定编号 W5 / W5-1 / V1，RPC 身份仍为整数。\n原始输入显示 O5；Notice 显示 D/N，参数仍用整数。\n新指令只走 lush order；旧 Intent/Plan/Candidate、展示、介绍、托管、旧草稿命令和旧批量合并入口不再提供。\nJSON 配置文件须 owner-only；修改先读 revision，未知副作用不重放。\n`;
 }

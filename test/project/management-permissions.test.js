@@ -153,7 +153,9 @@ test('legacy no-snapshot Valets retain original authorization, but missing snaps
     f.store.update(manager.id, { management: JSON.stringify(state) });
     await f.run(); expect(reply.status).toBe('succeeded'); expect(f.store.draftCount()).toBe(1);
     expect(effectiveManagementPolicy('draft.add', { version: 1, permissions: {} }).access).toBe('unavailable');
-    expect(effectiveManagementPolicy('worker.transcript', { permissions: { 'worker.transcript': 'read' } }).access).toBe('unavailable');
+    expect(effectiveManagementPolicy('worker.transcript', { permissions: { 'worker.transcript': 'read' } }).access).toBe('read');
+    expect(effectiveManagementPolicy('worker.transcript', null).access).toBe('unavailable');
+    expect(effectiveManagementPolicy('worker.spawn', null).access).toBe('unavailable');
     expect(effectiveManagementPolicy('future.unknown', { permissions: { 'future.unknown': 'automatic' } }).access).toBe('unavailable');
   } finally { await f.close(); }
 });

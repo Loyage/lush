@@ -26,7 +26,7 @@ test('Host saves drive matching previews and Skills in two projects without star
         const prompt = agentPrompt(config, 'agent', { config_mode }, 'order');
         expect(prompt.builtin_skills).toEqual(expectedSkills);
         for (const entry of AGENT_CAPABILITIES) {
-          const instruction = `lush skills get ${entry.id}`;
+          const instruction = `lushc skills get ${entry.id}`;
           expect(prompt.text.includes(instruction)).toBe(enabledIds.includes(entry.id));
           expect(preview.includes(instruction)).toBe(enabledIds.includes(entry.id));
         }
@@ -74,8 +74,8 @@ test('Agent previews share one capability settings snapshot across all roles', (
     for (const role of AGENT_ROLES) {
       expect(model.options.default_prompts[role]).toBe(builtInPrompt(role, options));
     }
-    expect(model.options.default_prompts.agent).not.toContain('lush skills get delegation');
-    expect(model.options.default_prompts.agent).not.toContain('lush skills get auto-title');
+    expect(model.options.default_prompts.agent).not.toContain('lushc skills get delegation');
+    expect(model.options.default_prompts.agent).not.toContain('lushc skills get auto-title');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

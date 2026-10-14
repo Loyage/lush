@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { assertManagementCodeExecution } from './management-code.js';
 import { check, id, TERMINAL } from '../types.js';
 import { workerLabel } from '../worker-number.js';
 import { descendantsOf } from '../genealogy.js';
@@ -218,6 +219,12 @@ export default {
     const authorize = task => {
       if (options.completion) this.assertCompletionClaim(task.id, options.completion, options.completion.phase ?? 'accept');
       if (actor === null) return;
+      if (options.managementReceipt !== undefined) {
+        assertManagementCodeExecution(this, actor, options.managementReceipt, 'worker.accept', { id: task.id });
+        check(['order','child'].includes(task.task_kind), 'Valet acceptance requires a development Worker');
+        assertTaskAncestorsOpen(this, task);
+        return;
+      }
       const parent = this.store.task(id(actor));
       const run = this.running.get(parent.id);
       check(parent.status === 'running' && run && run === invocation && !run.parked && !run.controller.signal.aborted,

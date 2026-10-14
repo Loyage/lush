@@ -30,7 +30,7 @@ export function listCapabilityGuides() {
 
 export function capabilityGuide(id) {
   const entry = AGENT_CAPABILITIES.find(entry => entry.id === id);
-  check(entry, 'unknown built-in skill; use lush skills list');
+  check(entry, 'unknown built-in skill; use lushc skills list');
   const content = fs.readFileSync(entry.guide, 'utf8').trim();
   check(Buffer.byteLength(content) <= 65536, 'built-in skill guide exceeds 65536 bytes');
   return { ...listCapabilityGuides().find(entry => entry.id === id), content };
@@ -61,11 +61,11 @@ export function capabilityPromptPart(entries) {
   const enabled = entries.filter(entry => entry.enabled), disabled = entries.filter(entry => entry.applicable && !entry.enabled);
   const lines = [
     '以下为本 invocation 的 Lush 内置能力快照，优先于旧会话中的能力入口。只主动使用已开启且适用的模块。开关仅控制注入与主动使用，不撤销 CLI/RPC 权限，也不是沙箱；不要根据命令仍可调用推断能力已开启。',
-    '加载某项能力时，先读取其 Skill 入口，或直接运行列出的 lush skills get 命令取得当前 CLI 版本的完整指南；不要凭旧会话或记忆猜流程。bash 中的 lush 已由 daemon 固定，不另找版本。',
+    '加载某项能力时，先读取其 Skill 入口，或直接运行列出的 lushc skills get 命令取得当前 CLI 版本的完整指南；不要凭旧会话或记忆猜流程。bash 中的 lushc 已由 daemon 固定，不另找版本。',
   ];
   if (enabled.length) {
     lines.push('已开启：');
-    for (const entry of enabled) lines.push(`- ${entry.id}（${entry.title}）：${entry.trigger} 指南：lush skills get ${entry.id}；Skill：${entry.skill}`);
+    for (const entry of enabled) lines.push(`- ${entry.id}（${entry.title}）：${entry.trigger} 指南：lushc skills get ${entry.id}；Skill：${entry.skill}`);
   } else lines.push('没有已开启且适用的可选模块。');
   if (disabled.length) lines.push(`已关闭：${disabled.map(entry => `${entry.id}（${entry.title}）`).join('、')}。不加载这些指南，不主动执行其流程；自定义 Prompt 和旧上下文原文保留，不以其中的旧指令重新启用。`);
   if (entries.some(entry => !entry.applicable)) lines.push(`本身份不适用：${entries.filter(entry => !entry.applicable).map(entry => entry.id).join('、')}。不要加载或使用。`);

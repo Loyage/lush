@@ -11,6 +11,12 @@ import { MANAGEMENT_LIMITS, managementState, saveManagement, managementTime, man
 
 const unknownReason = '管理调用或操作曾中断，副作用未知；绑定已停用，不自动重放。';
 const failedReason = '管理调用未完成；绑定已停用，请检查执行记录后另建管理指令。';
+function revokeOwnQuestion(project, taskId, state) {
+  if (state.pending_signal?.phase !== 'question') return;
+  project.store.run("UPDATE notices SET status='dismissed',answer='management authorization stopped' WHERE id=? AND task_id=? AND status='open'",
+    state.pending_signal.question_notice_id, taskId);
+  state.pending_signal.phase = 'returned'; delete state.pending_signal.question_notice_id;
+}
 // Compare submitted definitions, not runtime defaults. Object key order is not a semantic difference.
 function creationFingerprint(options) {
   function canonical(value, depth = 0) {
@@ -71,6 +77,28 @@ export default {
     check(policy.access !== 'unavailable', policy.reason);
     return { ...actor, policy };
   },
+  /** Own decision questions suspend the existing occurrence, not a new management identity. */
+  holdManagementQuestion(taskId, noticeId) {
+    const task = this.store.task(taskId), state = managementState(task), run = this.running.get(taskId);
+    check(task.task_kind === 'management' && state?.enabled && state.pending_signal?.phase === 'started'
+      && state.pending_signal.run_id === run?.recordId, 'management question requires the current invocation');
+    state.pending_signal.phase = 'question'; state.pending_signal.question_notice_id = noticeId;
+    state.state = 'awaiting_question'; state.reason = '等待用户答复当前管家的决策问题。';
+    saveManagement(this, taskId, state);
+  },
+
+  resumeManagementQuestion(taskId, noticeId) {
+    const task = this.store.task(taskId), state = managementState(task);
+    if (!state?.enabled || state.pending_signal?.phase !== 'question'
+      || state.pending_signal.question_notice_id !== noticeId || ['failed','cancelled','completed'].includes(task.status)) return false;
+    check(!this.store.get("SELECT id FROM notices WHERE task_id=? AND status='open' LIMIT 1", taskId), 'management question is still open');
+    state.pending_signal.phase = 'pending'; delete state.pending_signal.run_id; delete state.pending_signal.started_at;
+    delete state.pending_signal.question_notice_id;
+    state.state = 'queued'; state.reason = '用户已答复管家决策，继续同一个授权事项。';
+    saveManagement(this, taskId, state); this.store.update(taskId, { status: 'queued' }); this.kick();
+    return true;
+  },
+
   managementWorkers() { return managementWorkers(this); },
   managementView(taskOrId) { return managementView(typeof taskOrId === 'object' ? taskOrId : this.store.task(taskOrId), this); },
 
@@ -160,6 +188,7 @@ export default {
     this.store.transaction(() => {
       state.enabled = enabled; state.config_revision += 1;
       if (!enabled) {
+        revokeOwnQuestion(this, task.id, state);
         this.revokeManagementCapabilities(task.id, state);
         for (const receipt of state.receipts) if (receipt.status === 'waiting') {
           receipt.status = 'skipped'; receipt.reason = '用户撤销待执行的管理授权。';
@@ -190,6 +219,7 @@ export default {
       && !(state.control_calls ?? []).some(call => ['pending_confirmation','approved'].includes(call.status))) return this.inspect(task.id);
     this.store.transaction(() => {
       state.enabled = false; state.config_revision += 1;
+      revokeOwnQuestion(this, task.id, state);
       this.revokeManagementCapabilities(task.id, state);
       for (const receipt of state.receipts) if (receipt.status === 'waiting') {
         receipt.status = 'skipped'; receipt.reason = '用户撤销待执行的管理授权。';
@@ -232,6 +262,8 @@ export default {
   managementReady(task) {
     const state = managementState(task);
     return task.role === 'manager' && state?.enabled && state.state === 'queued' && !state.consumed
+      && !this.managementControlOwners?.has(task.id)
+      && !(state.control_calls ?? []).some(call => ['running','unknown'].includes(call.status))
       && state.pending_signal?.phase === 'pending' && this.managementOccupant()?.id === task.id;
   },
 
@@ -246,7 +278,14 @@ export default {
 
   managementContext(task) {
     const state = managementState(task);
-    return { instruction: task.goal, signal: state.pending_signal ? { id: state.pending_signal.id,
+    const decisions = (state.control_calls ?? []).filter(call => call.method === 'notice.post' && call.status === 'succeeded'
+      && call.occurrence_id === state.pending_signal?.id && Number.isSafeInteger(call.result?.id))
+      .map(call => this.store.get('SELECT id,kind,status,answer,answer_source FROM notices WHERE id=? AND task_id=?', call.result.id, task.id))
+      .filter(notice => notice && ['answered','dismissed'].includes(notice.status))
+      .map(notice => ({ notice_id: notice.id, kind: notice.kind, status: notice.status, answer_source: notice.answer_source,
+        answer: String(notice.answer ?? '').slice(0, 4000), text_truncated: String(notice.answer ?? '').length > 4000,
+        total_chars: String(notice.answer ?? '').length }));
+    return { instruction: task.goal, decisions, signal: state.pending_signal ? { id: state.pending_signal.id,
       signal_id: state.pending_signal.signal_id, name: state.pending_signal.name, due_at: state.pending_signal.due_at } : null,
       authorization: { scope: 'current_project', operations: ['query','start','retry','catalog','history','call'],
         dangerous_operations: 'exact_user_confirmation', device_scope: 'explicit_instruction_and_parameter', target_kinds: ['order','child'],
@@ -424,6 +463,15 @@ export default {
           task.id, receipt.receipt_id, state.pending_signal.id, receipt.target_id, receipt.action);
         if (proof) receipt.status = 'succeeded';
         else { receipt.status = 'unknown'; receipt.reason = unknownReason; unknown = true; }
+      }
+      if (state.pending_signal.phase === 'question') {
+        const question = this.store.get('SELECT status FROM notices WHERE id=? AND task_id=?', state.pending_signal.question_notice_id, task.id);
+        if (!question) unknown = true;
+        else if (question.status !== 'open') {
+          if (!unknown && this.resumeManagementQuestion(task.id, state.pending_signal.question_notice_id)) continue;
+          unknown = true;
+        }
+        else this.store.update(task.id, { status: 'awaiting' });
       }
       if (state.pending_signal.phase === 'started') {
         const proof = this.store.get(`SELECT r.id FROM agent_runs r JOIN events e ON e.task_id=r.task_id

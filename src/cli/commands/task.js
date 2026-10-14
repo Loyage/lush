@@ -9,6 +9,9 @@ export async function run(command, args, ctx) {
   let value;
   if (command === 'worker') {
     const verb = args.shift();
+    // The legacy management alias must not bypass the development entry point
+    // or its direct-child acceptance contract, even in embedded CLI use.
+    if (verb === 'resolve') check(!client.token, 'worker resolve is a user-only management alias; use lushc worker accept');
     if (verb === 'list') {
       const brief = args.includes('--brief');
       if (brief) args.splice(args.indexOf('--brief'), 1);
@@ -21,7 +24,7 @@ export async function run(command, args, ctx) {
           display_title: display_title ?? null, auto_title: auto_title ?? null,
           goal: goal.replace(/\s+/g, ' ').slice(0, 160), goal_truncated: goal.length >= 160 }));
         value = { tasks, has_more: value.length > limit, next_after: tasks.at(-1)?.id ?? after,
-          note: '短摘要；完整目标与结果用 lush worker inspect ID。' };
+          note: `短摘要；完整目标与结果用 ${ctx.executable ?? 'lushc'} worker inspect ID。` };
       }
     }
     else if (verb === 'auto-title') {

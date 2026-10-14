@@ -10,7 +10,7 @@ export function isLocalCommand(args) {
 }
 
 function questionsFromFile(file, body) {
-  const hint = 'Expected {"questions":[...]} with 1-4 questions and 2-4 options per question; use lush notice example for a complete JSON template.';
+  const hint = 'Expected {"questions":[...]} with 1-4 questions and 2-4 options per question; use lushc notice example for a complete JSON template.';
   let fd;
   try {
     // Do not block indefinitely on a pipe or attempt to read devices/directories.
@@ -42,7 +42,7 @@ export async function run(command, args, ctx = {}) {
       }] };
     }
     const file = option(args, '--questions-file'), body = option(args, '--body', '');
-    check(file !== null && args.length === 0, 'use lush notice check --questions-file FILE [--body TEXT]');
+    check(file !== null && args.length === 0, 'use lushc notice check --questions-file FILE [--body TEXT]');
     const questions = questionsFromFile(file, body);
     return { valid: true, question_count: questions.length };
   }

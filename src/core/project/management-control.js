@@ -3,7 +3,7 @@ import { hookRevision } from '../hooks.js';
 import { questionnaire } from '../questionnaire.js';
 import { workerLabel } from '../worker-number.js';
 import { assertManager } from './management-auth.js';
-import { MANAGEMENT_LIMITS, managementState, saveManagement, managementTime } from './management-data.js';
+import { MANAGEMENT_LIMITS, MANAGEMENT_READ_ITEMS, managementState, saveManagement, managementTime } from './management-data.js';
 import { managementCatalog, validateManagementCall, managementDispatchParams } from '../../rpc/management-policy.js';
 
 const unresolved = new Set(['pending_confirmation','approved','running']);
@@ -19,7 +19,8 @@ function trackControlJob(project, taskId, job) {
     else project.managementControlOwners.delete(taskId);
     project.managementControlJobs.delete(tracked);
     project.settleManagementOccurrence(taskId);
-    if (!remaining && !managementState(project.store.task(taskId))?.pending_signal) project.kick();
+    const signal = managementState(project.store.task(taskId))?.pending_signal;
+    if (!remaining && (!signal || signal.phase === 'pending')) project.kick();
   });
   project.managementControlJobs.add(tracked);
   tracked.catch(() => {});
@@ -37,7 +38,8 @@ function callView(call) {
     ...(call.result === undefined ? {} : { result: call.result }) };
 }
 async function resourcePreflight(project, method, params) {
-  const root = method.startsWith('worker.') && Number.isSafeInteger(params.id) ? project.store.task(params.id) : null;
+  const targetId = method === 'worker.spawn' ? params.parent : params.id;
+  const root = method.startsWith('worker.') && Number.isSafeInteger(targetId) ? project.store.task(targetId) : null;
   const tasks = root ? project.subtreeTasks(root.id) : [];
   check(tasks.length <= 200, 'management resource preflight exceeds 200 Workers');
   check(!root || root.task_kind !== 'management', 'management agents cannot mutate management identities');
@@ -47,7 +49,9 @@ async function resourcePreflight(project, method, params) {
     if (task.branch) tip = await project.workspaces.git(project.config.project, 'rev-parse', '--verify', `refs/heads/${task.branch}^{commit}`).catch(() => null);
     if (task.workspace) dirty = await project.workspaces.git(task.workspace, 'status', '--porcelain', '--untracked-files=all').catch(() => 'unavailable');
     rows.push({ id: task.id, worker_number: task.worker_number, status: task.status, integration: task.integration,
-      head: task.head_commit, branch: task.branch, tip, dirty,
+      head: task.head_commit, branch: task.branch, target_branch: task.target_branch, workspace: task.workspace,
+      parent_id: task.parent_id, task_kind: task.task_kind, reservation: task.reservation, interrupt: task.interrupt_state,
+      freeze: task.branch ? project.branchFreeze(task.branch) : null, syncing: Boolean(project.taskSyncBusy?.has(task.id)), tip, dirty,
       live: project.running.has(task.id),
       unread: project.store.get('SELECT count(*) AS n FROM messages WHERE task_id=? AND consumed=0', task.id).n,
       open: project.store.get("SELECT count(*) AS n FROM notices WHERE task_id=? AND status='open'", task.id).n });
@@ -65,7 +69,8 @@ async function resourcePreflight(project, method, params) {
     note: '只读预检，不执行回收、不清除脏现场；执行时再次核验并通过原安全引擎。' } };
 }
 function targetSnapshot(project, method, params) {
-  const targetId = method.startsWith('worker.') && Number.isSafeInteger(params.id) ? params.id
+  const targetId = method === 'worker.spawn' && Number.isSafeInteger(params.parent) ? params.parent
+    : method.startsWith('worker.') && Number.isSafeInteger(params.id) ? params.id
     : Number.isSafeInteger(params.worker_id) ? params.worker_id : null;
   if (!targetId) return null;
   const task = project.store.task(targetId);
@@ -74,14 +79,14 @@ function targetSnapshot(project, method, params) {
     updated_at: task.updated_at, calls: task.calls, reservation: task.reservation, interrupt: task.interrupt_state });
 }
 // This is a second, deliberately conservative exit. The ordinary user config APIs are not credential-safe.
-export function managementSafeResult(value) {
+export function managementSafeResult(value, limits = {}) {
   const blocked = new Set(['retry_profile','agent_token','agent_token_hash','token','credential','credentials','authorization',
     'env','values','default_prompt','append_prompt','prompt','agent_config','raw','session_path','session','config']);
   function clean(entry, depth = 0) {
-    if (depth > 20) return null;
-    if (typeof entry === 'string') return entry.slice(0, 4000);
+    if (depth > 20) { limits.truncated = true; return null; }
+    if (typeof entry === 'string') { if (entry.length > 4000) limits.truncated = true; return entry.slice(0, 4000); }
     if (!entry || typeof entry !== 'object') return entry;
-    if (Array.isArray(entry)) return entry.slice(0, 100).map(item => clean(item, depth + 1));
+    if (Array.isArray(entry)) { if (entry.length > MANAGEMENT_READ_ITEMS) limits.truncated = true; return entry.slice(0, MANAGEMENT_READ_ITEMS).map(item => clean(item, depth + 1)); }
     return Object.fromEntries(Object.entries(entry).filter(([key, child]) => !blocked.has(key)
       && !(['hooks','auto_merge','management'].includes(key) && typeof child === 'string'))
       .map(([key, child]) => [key, clean(child, depth + 1)]));
@@ -102,7 +107,7 @@ export default {
 
   managementCapabilityCatalog(actorId) {
     const { state } = assertManager(this, actorId);
-    return managementCatalog(state.permissions_snapshot);
+    return managementCatalog(state.permissions_snapshot, !state.permissions_snapshot);
   },
 
   managementHistory(actorId, options = {}) {
@@ -132,6 +137,15 @@ export default {
     const { task, state: authorization } = assertManager(this, actorId);
     requestKey(requestId);
     const policy = validateManagementCall(method, params, task.goal, authorization.permissions_snapshot);
+    if (method === 'worker.spawn') {
+      check(params.parent !== undefined, 'Valet delegation requires an explicit development parent');
+      check(['order','child'].includes(this.store.task(id(params.parent)).task_kind), 'Valet can only delegate under a development Worker');
+    }
+    if (method === 'worker.message' || method === 'worker.accept') {
+      check(['order','child'].includes(this.store.task(id(params.id)).task_kind), 'Valet collaboration requires a development Worker');
+    }
+    if (method === 'notice.post') check(params.task === undefined || id(params.task) === actorId,
+      'Valet may post decision notices only for itself');
     const lifecycleAction = method === 'worker.resume' ? 'start' : method === 'worker.retry' ? 'retry' : null;
     if (lifecycleAction) check(Object.keys(params).length === 1 && Object.hasOwn(params, 'id'),
       'management start/retry requires only id and preserves saved configuration');
@@ -149,9 +163,11 @@ export default {
         : method === 'manager.catalog' ? this.managementCapabilityCatalog(actorId)
         : method === 'manager.query' ? this.managementQuery(actorId, copied.id)
         : method === 'manager.history' ? this.managementHistory(actorId, copied)
-        : await this.managementDispatch(method, copied);
+        : await this.managementDispatch(method, copied, actorId);
       assertManager(this, actorId);
-      return { status: 'succeeded', method, result: managementSafeResult(result) };
+      const limits = {};
+      return { status: 'succeeded', method, result: managementSafeResult(result, limits),
+        ...(limits.truncated ? { truncated: true, coverage: 'bounded_management_projection' } : {}) };
     }
     let state = managementState(this.store.task(task.id));
     const key = requestId ?? fingerprint;
@@ -311,12 +327,15 @@ export default {
       const action = call.method === 'worker.resume' ? 'start' : call.method === 'worker.retry' ? 'retry' : null;
       const result = await this.write('execute confirmed management capability',
         () => action ? this.submitManagementAction(taskId, action, call.params.id)
-          : this.managementDispatch(call.method, managementDispatchParams(call.method, call.params)));
+          : this.managementDispatch(call.method, managementDispatchParams(call.method, call.params), taskId, receiptId));
       // Another asynchronous tool/confirmation may have appended a receipt while this operation ran.
       state = managementState(this.store.task(taskId)); call = state.control_calls.find(item => item.receipt_id === receiptId);
       call.status = 'succeeded'; call.finished_at = managementTime(this);
       // Mutations return only a narrow receipt, not user-only config or destructive result payloads.
       call.result = { submitted: true, ...(action ? { action: result } : {}), ...(Number.isSafeInteger(result?.id) ? { id: result.id } : {}),
+        ...(Number.isSafeInteger(result?.task_id) ? { task_id: result.task_id } : {}),
+        ...(typeof result?.auto_title === 'string' ? { auto_title: result.auto_title, changed: result.changed } : {}),
+        ...(typeof result?.worker_number === 'string' ? { worker_number: result.worker_number } : {}),
         ...(result?.emitted === true ? { emitted: true, draft_id: result.draft_id } : {}) };
       saveManagement(this, taskId, state);
       this.store.event(taskId, 'management.capability_completed', { receipt_id: receiptId, method: call.method });

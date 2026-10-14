@@ -4,7 +4,7 @@
   "description": "Project-scoped, non-blocking multi-agent development",
   "type": "module",
   "private": true,
-  "bin": { "lush": "./bin/lush", "lush-host": "./bin/lush-host", "lushd": "./bin/lushd", "lush-agent-guard": "./bin/lush-agent-guard" },
+  "bin": { "lush": "./bin/lush", "lushc": "./bin/lushc", "lush-host": "./bin/lush-host", "lushd": "./bin/lushd", "lush-agent-guard": "./bin/lush-agent-guard" },
   "exports": { ".": "./src/index.js" },
   "scripts": {
     "test": "bun test --parallel=4 --timeout=20000",
@@ -18,6 +18,7 @@
     "check:device-settings": "bun ./test/web/check-device-settings.js",
     "measure:read-performance": "bun ./scripts/measure-read-performance.js",
     "lush": "bun ./bin/lush",
+    "lushc": "bun ./bin/lushc",
     "lushd": "bun ./bin/lushd",
     "lush-host": "bun ./bin/lush-host",
     "help": "bun ./scripts/ops.js help",

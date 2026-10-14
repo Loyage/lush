@@ -3,6 +3,9 @@ import { hookRevision } from '../hooks.js';
 import { workerModelSelection } from './internal.js';
 
 export const MANAGEMENT_LIMITS = Object.freeze({ signals: 64, active: 64, actions: 32, bytes: 128 * 1024, readBytes: 512 * 1024 });
+// Typed paginated projections must clip before choosing cursors, using the same
+// array budget as the final generic management safety exit.
+export const MANAGEMENT_READ_ITEMS = 100;
 export const managementState = task => task.management ? JSON.parse(task.management) : null;
 export const managementTime = project => new Date(project.hookClock()).toISOString();
 export const managementRevision = (task, state = managementState(task)) => hookRevision({ id: task.id, revision: state?.config_revision ?? 0 });

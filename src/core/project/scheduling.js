@@ -32,6 +32,7 @@ export default {
     const label = noticeNumber(notice ?? { id: noticeId });
     const result = `等待用户回答待决问题 ${label}。`;
     if (run) {
+      if (this.store.task(taskId).task_kind === 'management') this.holdManagementQuestion(taskId, noticeId);
       run.parked = true;
       for (const message of run.messages || []) this.store.run('UPDATE messages SET consumed=1 WHERE id=?', message.id);
       this.store.event(taskId, 'invocation.completed', { result, suspended: true, notice_id: noticeId });
@@ -703,6 +704,10 @@ export default {
       // 安全抢占：Agent 在本轮工具都结束后自行收尾，不是失败、不是超时也不是取消。
       // 工作区按现状保留，这条输入下一轮就会被读到；不重建、不重放本轮已发生的副作用。
       if (taskId && this.store.task(taskId).task_kind === 'management') {
+        if (run.parked) {
+          if (run.recordId) this.store.finishRun(run.recordId, 'completed', { result: this.store.task(taskId).result });
+          return; // A durable own question is a suspension, not an unknown-effect retry.
+        }
         if (error instanceof AgentPreempted && run.maintenancePreemptRequested && !run.controller.signal.aborted) {
           if (run.recordId) this.store.finishRun(run.recordId, 'preempted', { error: 'project maintenance safe boundary' });
           run.managementPaused = this.pauseManagementInvocation(taskId, run.recordId) === true;

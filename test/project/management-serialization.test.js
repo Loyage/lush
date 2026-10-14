@@ -128,10 +128,12 @@ test('stop cannot revoke an already executing dangerous side effect; deletion an
   try {
     f.target = (await f.project.order('target', 'main', [], null, false)).task;
     const manager = f.submit(); await f.run();
-    const dispatch = f.project.managementDispatch;
-    f.project.managementDispatch = async (method, params) => {
-      if (method === 'worker.cancel') { entered.resolve(); await release.promise; }
-      return dispatch(method, params);
+    // Park inside the real side effect, after the trusted dispatch has checked
+    // actor/receipt/confirmation. Stopping cannot revoke an already entered handler.
+    const cancel = f.project.cancel.bind(f.project);
+    f.project.cancel = async (...args) => {
+      entered.resolve(); await release.promise;
+      return cancel(...args);
     };
     f.project.answer(confirmation.notice_id, approve); await entered.promise;
     f.disable(manager); expect(f.state(manager).control_calls[0].status).toBe('running');
@@ -142,6 +144,27 @@ test('stop cannot revoke an already executing dangerous side effect; deletion an
     expect(f.store.task(f.target.id).status).toBe('cancelled');
     expect(f.project.managementOccupant()).toBeNull();
     expect((await f.project.deleteTaskPreview(manager.id)).can_delete).toBe(true);
+  } finally { release.resolve(); await f.close(); }
+});
+
+test('stopping between durable start and actual legacy dispatch prevents the effect and retains unknown protection', async () => {
+  const entered = gate(), release = gate(); let confirmation;
+  const f = await setup(async ({ token }, f) => {
+    confirmation = await f.rpc.dispatch('manager.call', { method: 'worker.cancel', params: { id: f.target.id }, _token: token });
+    return 'submitted';
+  });
+  try {
+    f.target = (await f.project.order('target', 'main', [], null, false)).task;
+    const manager = f.submit(); await f.run();
+    const dispatch = f.project.managementDispatch;
+    f.project.managementDispatch = async (...args) => { entered.resolve(); await release.promise; return dispatch(...args); };
+    f.project.answer(confirmation.notice_id, approve); await entered.promise;
+    f.disable(manager);
+    release.resolve(); await Promise.all([...(f.project.managementControlJobs ?? [])]);
+    expect(f.state(manager).control_calls[0].status).toBe('unknown');
+    expect(f.store.task(f.target.id).status).not.toBe('cancelled');
+    expect((await f.project.deleteTaskPreview(manager.id)).can_delete).toBe(false);
+    expect(() => f.submit('cannot-replay-unknown')).toThrow('当前项目已有管家');
   } finally { release.resolve(); await f.close(); }
 });
 

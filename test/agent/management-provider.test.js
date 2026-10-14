@@ -93,7 +93,11 @@ for (const mode of ['lush', 'pi']) test(`manager ${mode} uses an isolated system
     expect(prompt).toContain('当前 Lush 项目的 Valet（专用管理型 Agent），不是开发 Agent');
     expect(prompt).toContain('manager_start');
     expect(prompt).not.toContain('REPLACE WITH DEVELOPER'); expect(prompt).not.toContain('USE BASH');
-    expect(prompt).not.toContain('角色：agent'); expect(prompt).not.toContain('lush progress plan');
+    expect(prompt).not.toContain('角色：agent');
+    for (const executable of ['lush', 'lushc']) {
+      expect(prompt).not.toContain(`${executable} progress plan`);
+      expect(prompt).not.toContain(`指南：${executable} skills get`);
+    }
     if (mode === 'pi') { expect(result.args).not.toContain('--model'); expect(result.args).not.toContain('--thinking'); }
     else expect(result.args[result.args.indexOf('--model') + 1]).toBe('openai-codex/gpt-5.4');
   } finally { fs.rmSync(f.root, { recursive: true, force: true }); }

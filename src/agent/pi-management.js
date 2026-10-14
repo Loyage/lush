@@ -2,13 +2,13 @@
 import cp from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { managementInvocation, validateManagementRPC } from './management-rpc.js';
+import { managementInvocation, validateManagementRPC, MANAGEMENT_RPC_METHODS } from './management-rpc.js';
 import { builtInPrompt } from './prompts.js';
 import { isWorkerNumber } from '../core/worker-number.js';
 
 const HELPER = fileURLToPath(new URL('./management-rpc.js', import.meta.url));
-export const MANAGEMENT_TOOL_NAMES = Object.freeze(['manager_query', 'manager_start', 'manager_retry',
-  'manager_catalog', 'manager_history', 'manager_call']);
+export const MANAGEMENT_TOOL_NAMES = Object.freeze(MANAGEMENT_RPC_METHODS.filter(method => method.startsWith('manager.'))
+  .map(method => method.replace('.', '_')));
 const workerSchema = { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'string', pattern: '^(?:W[1-9][0-9]*(?:-[1-9][0-9]*)*|V[1-9][0-9]*)$' }],
   description: '当前项目 Worker／Valet 的内部整数 ID 或精确持久编号（如 W117、W117-1、V1）；V 查询不授予开发动作权限，不能猜测编号。' };
 const MAX_OUTPUT = 256 * 1024;
@@ -125,7 +125,7 @@ export function registerManagementTools(pi, request = managementRPCRequest, env 
     async execute(_id, params, signal) { return resultView(await call('manager.history', params, signal)); },
   });
   pi.registerTool({ name: 'manager_call', label: '提交受控管理操作', exposure: 'model-only',
-    description: '调用目录中经过审核的当前项目管理能力。危险操作只提交精确用户确认请求，不执行授权；模型不可自行批准。设备设置须用户指令和 scope 参数明确指定。返回 unknown 不重放。',
+    description: '调用目录中经过审核的当前项目 lush/lushc 能力。可跨开发树发消息、在显式开发 parent 下派 child、报告自身进度/标题/决策；history/transcript 只返回安全元数据。验收回收等危险操作只提交精确用户确认请求，模型不可自行批准。自身 notice.post 是本轮最后动作，用户答复后续跑同一授权事项。设备设置须用户指令和 scope 参数明确指定。返回 unknown 不重放。',
     parameters: { type: 'object', properties: { method: { type: 'string', maxLength: 128 },
       params: { type: 'object', description: '目录中所选能力的参数；不传 token、凭证、环境变量或私有 Prompt。' },
       request_id: { type: 'string', minLength: 1, maxLength: 128 } }, required: ['method','params'], additionalProperties: false },

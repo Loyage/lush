@@ -11,7 +11,7 @@ import { AgentSettings } from '../../src/agent/settings.js';
 import { env, temp } from '../helpers.js';
 import { managedPiRun } from './managed-runtime-fixture.js';
 
-const cli = fileURLToPath(new URL('../../bin/lush', import.meta.url));
+const cli = fileURLToPath(new URL('../../bin/lushc', import.meta.url));
 const ids = ['progress', 'delegation', 'auto-title', 'context'];
 const flags = Object.fromEntries(AGENT_CAPABILITIES.map(entry => [entry.setting, false]));
 function promptConfig(root, settings = {}) {
@@ -27,18 +27,18 @@ test('built-in Skill registry has fixed IDs/settings, portable thin entries and 
     const skill = fs.readFileSync(entry.skill, 'utf8');
     expect(skill).toStartWith(`---\nname: lush-${entry.id}\ndescription:`);
     expect(Buffer.byteLength(skill)).toBeLessThan(2000);
-    expect(skill).toContain(`lush skills get ${entry.id}`);
+    expect(skill).toContain(`lushc skills get ${entry.id}`);
     const guide = capabilityGuide(entry.id);
     expect(guide).toMatchObject({ id: entry.id, name: entry.name, setting: entry.setting });
     expect(guide.content.length).toBeGreaterThan(500);
     expect(listCapabilityGuides().find(item => item.id === entry.id)).not.toHaveProperty('skill');
     expect(listCapabilityGuides().find(item => item.id === entry.id)).not.toHaveProperty('enabled');
   }
-  expect(capabilityGuide('progress').content).toContain('lush progress plan');
-  expect(capabilityGuide('delegation').content).toContain('lush worker spawn');
-  expect(capabilityGuide('auto-title').content).toContain('lush worker auto-title');
+  expect(capabilityGuide('progress').content).toContain('lushc progress plan');
+  expect(capabilityGuide('delegation').content).toContain('lushc worker spawn');
+  expect(capabilityGuide('auto-title').content).toContain('lushc worker auto-title');
   for (const rule of ['不照抄输入第一行', '首次成功后保持稳定', '不要为了标题另开模型调用', 'changed:false']) expect(capabilityGuide('auto-title').content).toContain(rule);
-  expect(capabilityGuide('context').content).toContain('lush worker transcript');
+  expect(capabilityGuide('context').content).toContain('lushc worker transcript');
   for (const id of ['unknown', '../progress/guide.md', '/tmp/a', 'lush-progress']) expect(() => capabilityGuide(id)).toThrow('unknown built-in skill');
 });
 
@@ -63,8 +63,8 @@ test('actual prompts inject short triggers, not long optional workflows, and pre
     expect(view.builtin_skills).toEqual(AGENT_CAPABILITIES.map(entry => entry.skill));
     expect(view.parts.filter(part => part.name === 'capabilities')).toHaveLength(1);
     expect(view.parts.some(part => ['progress', 'auto_title'].includes(part.name))).toBe(false);
-    for (const id of ids) expect(view.text).toContain(`lush skills get ${id}`);
-    for (const workflow of ['lush progress plan', "lush worker auto-title '简短标题'", "lush worker spawn '目标'", 'lush worker list --brief']) expect(view.text).not.toContain(workflow);
+    for (const id of ids) expect(view.text).toContain(`lushc skills get ${id}`);
+    for (const workflow of ['lushc progress plan', "lushc worker auto-title '简短标题'", "lushc worker spawn '目标'", 'lushc worker list --brief']) expect(view.text).not.toContain(workflow);
     expect(view.text).toContain('开始实质工作前必须加载');
     expect(view.text).toContain('auto_title 为空时');
     for (const rule of ['唯一可写的代码副本', 'LUSH_AGENT_TOKEN', '合法普通消息仍可持久入箱', '必须检查 child 成果',
@@ -79,7 +79,7 @@ test('single-item and all-disabled policies remove Skill paths/active guides, an
       for (const value of [false, { value: false }]) {
         const view = agentPrompt(promptConfig(root, { [entry.setting]: value }), 'agent', {}, 'child');
         expect(view.builtin_skills).not.toContain(entry.skill);
-        expect(view.text).not.toContain(`lush skills get ${entry.id}`);
+        expect(view.text).not.toContain(`lushc skills get ${entry.id}`);
         expect(view.text).not.toContain(entry.skill);
         expect(view.text).toContain(`已关闭：${entry.id}`);
         expect(view.builtin_skills).toHaveLength(3);
@@ -87,7 +87,7 @@ test('single-item and all-disabled policies remove Skill paths/active guides, an
     }
     const closed = agentPrompt(promptConfig(root, flags), 'agent', {}, 'order');
     expect(closed.builtin_skills).toEqual([]);
-    expect(closed.text).not.toContain('指南：lush skills get');
+    expect(closed.text).not.toContain('指南：lushc skills get');
     expect(closed.text).toContain('优先于旧会话中的能力入口');
     expect(closed.text).toContain('不撤销 CLI/RPC 权限');
     expect(closed.text).toContain('不取消已有后代');
@@ -95,8 +95,8 @@ test('single-item and all-disabled policies remove Skill paths/active guides, an
     const restored = agentPrompt(promptConfig(root, {}), 'agent', {}, 'order');
     expect(restored.builtin_skills).toHaveLength(4);
     expect(restored.text).not.toContain('已关闭：');
-    expect(builtInPrompt('agent', { progressReporting: false, capabilities: flags })).not.toContain('指南：lush skills get');
-    expect(builtInPrompt('agent', { capabilities: flags })).not.toContain('指南：lush skills get');
+    expect(builtInPrompt('agent', { progressReporting: false, capabilities: flags })).not.toContain('指南：lushc skills get');
+    expect(builtInPrompt('agent', { capabilities: flags })).not.toContain('指南：lushc skills get');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -112,7 +112,7 @@ test('isolated roles never read capability settings; analysis and legacy roles d
     for (const [role, kind] of [['agent', 'analysis'], ['research', null], ['worker', null], ['planner', null]]) {
       const view = agentPrompt(promptConfig(root), role, {}, kind);
       expect(view.builtin_skills).toEqual(AGENT_CAPABILITIES.filter(entry => ['progress', 'context'].includes(entry.id)).map(entry => entry.skill));
-      expect(view.text).not.toContain('lush skills get delegation'); expect(view.text).not.toContain('lush skills get auto-title');
+      expect(view.text).not.toContain('lushc skills get delegation'); expect(view.text).not.toContain('lushc skills get auto-title');
     }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -155,7 +155,7 @@ test('persisted shared capability settings drive both project invocations and al
       for (const config_mode of ['lush', 'pi']) {
         const view = agentPrompt(config, 'agent', { config_mode }, 'child');
         expect(view.builtin_skills).toEqual([]);
-        expect(view.text).not.toContain('指南：lush skills get');
+        expect(view.text).not.toContain('指南：lushc skills get');
         const preview = new AgentSettings(config).get().options.default_prompts.agent;
         expect(preview).toBe(builtInPrompt('agent', { capabilities: flags }));
       }
@@ -166,8 +166,8 @@ test('persisted shared capability settings drive both project invocations and al
       expect(view.capabilities.filter(entry => entry.enabled).map(entry => entry.id)).toEqual(['auto-title', 'context']);
       expect(view.builtin_skills).toEqual(AGENT_CAPABILITIES.filter(entry => ['auto-title', 'context'].includes(entry.id)).map(entry => entry.skill));
       const preview = new AgentSettings(config).get().options.default_prompts.agent;
-      expect(preview).toContain('lush skills get auto-title'); expect(preview).toContain('lush skills get context');
-      expect(preview).not.toContain('lush skills get delegation'); expect(preview).not.toContain('lush skills get progress');
+      expect(preview).toContain('lushc skills get auto-title'); expect(preview).toContain('lushc skills get context');
+      expect(preview).not.toContain('lushc skills get delegation'); expect(preview).not.toContain('lushc skills get progress');
     }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -214,12 +214,12 @@ test('Codex uses the same thin current policy and public CLI guides, never Pi re
     const provider = new CodexProvider(config);
     await provider.run(options);
     let system = fs.readFileSync(path.join(config.home, 'sessions/task-41-system.md'), 'utf8');
-    expect(reads).toBe(1); expect(system).toContain('lush skills get delegation'); expect(system).not.toContain('lush skills get auto-title');
+    expect(reads).toBe(1); expect(system).toContain('lushc skills get delegation'); expect(system).not.toContain('lushc skills get auto-title');
     expect(JSON.parse(fs.readFileSync(output, 'utf8'))).not.toContain('--skill');
     policy = flags; await provider.run(options);
     expect(reads).toBe(2); expect(JSON.parse(fs.readFileSync(output, 'utf8'))).toContain('resume');
     system = fs.readFileSync(path.join(config.home, 'sessions/task-41-system.md'), 'utf8');
-    expect(system).toContain('优先于旧会话中的能力入口'); expect(system).not.toContain('指南：lush skills get');
+    expect(system).toContain('优先于旧会话中的能力入口'); expect(system).not.toContain('指南：lushc skills get');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

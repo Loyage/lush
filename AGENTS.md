@@ -5,6 +5,7 @@ Lush 是项目级多 agent 开发应用，Bun / JavaScript / SQLite；daemon 与
 ## 作用域
 
 - 浏览器 UI ↔ Lush Host ↔ 每 canonical 项目一个 lushd。Host 只负责登记、鉴权、设备配置、路由与来源派生读面，不持有 Worker 权威事实、不跨项目调度。项目状态固定在 `<project>/.lush/`。
+- `lushc` 是开发协作入口，`lush` 是用户／Valet 的管理入口；从 `lush` 迁出的开发命令不保留别名。Agent 使用 daemon 固定的 `lushc`，不能借管理入口绕过身份与亲缘限制。Valet 的跨树代理与危险确认见[管理契约](docs/engineering/hook-signals-management.md)。
 - CLI 向上发现 `.lush/project.json` 或 `.git`；其他项目必须显式 `--project PATH`。Agent worktree 通过固定 `LUSH_PROJECT` 连接原项目；不得更改 `LUSH_PROJECT`／`LUSH_HOME`／`LUSH_TASK_ID`／`LUSH_AGENT_TOKEN`，非空 `LUSH_HOME` 必须等于项目 `.lush`，不是设备全局目录。
 - 核心实体只有 Input / Worker / Agent / Message / Notice / Event，不引入整机调度。公开提交为 order，操作为 worker，不恢复 Task／say 别名；保留内部字段、事件、历史类型和路径，完整兼容边界见[核心 API](docs/engineering/core-api.md)。
 
@@ -19,6 +20,8 @@ bun run daemon-restart          # 用户确认安全空闲后更新 daemon
 bun run order '输入'
 bun run tree
 bun run inspect 3
+bun run lushc worker message W5 '补充要求'
+bun run lushc help              # 开发协作；bun run help 为管理帮助
 bun run lush host start [--project PATH]
 bun run lush host status
 bun run lush host restart
