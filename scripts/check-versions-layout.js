@@ -1,4 +1,4 @@
-// Production Web → RPC → Project → SQLite/Git + Firefox. Only isolated temporary services.
+// Production Web → RPC → Project → SQLite/Git + Firefox. Isolated temporary services only.
 // Run: bun run scripts/check-versions-layout.js [screenshot-directory]
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,7 +8,7 @@ import { git, repo } from '../test/helpers.js';
 import { setup } from '../test/web/harness.js';
 import { projectRouteId } from '../src/host/registry.js';
 
-const logs = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-worker-versions-browser-'));
+const logs = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-worker-lineage-browser-'));
 const output = path.resolve(process.argv[2] || path.join(logs, 'screenshots'));
 fs.mkdirSync(output, { recursive: true });
 let f, driver, session, base, passed = false;
@@ -31,6 +31,8 @@ async function waitFor(expression) {
   assert(await rpc(`/session/${session}/execute/async`, { args: [], script: `const done=arguments[0];let n=0;const check=()=>{try{if(${expression})return done(true)}catch{}if(++n>300)return done(false);setTimeout(check,30)};check();` }), `Timed out: ${expression}`);
 }
 async function click(selector) {
+  // Native WebDriver interaction, centered away from the app's fixed composer.
+  await execute(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center',behavior:'instant'});`);
   const node = await rpc(`/session/${session}/element`, { using: 'css selector', value: selector });
   await rpc(`/session/${session}/element/${node['element-6066-11e4-a52e-4f735466cecf']}/click`, {});
 }
@@ -47,31 +49,111 @@ async function deliver(task) {
   f.store.run('UPDATE messages SET consumed=1 WHERE task_id=?', task.id);
   await f.project.reserveTask(task.id, 'merge'); f.project.stopping = false; await f.project.driveTaskMerge(task.parent_id);
   assert(f.store.task(task.id).integration === 'merged', `fixture delivery failed ${task.id}`);
-  return f.store.get("SELECT id,data FROM events WHERE task_id=? AND type='task.merge_integrated' ORDER BY id DESC LIMIT 1", task.id);
+  const row = f.store.get("SELECT id,data FROM events WHERE task_id=? AND type='task.merge_integrated' ORDER BY id DESC LIMIT 1", task.id);
+  return { id: row.id, ...JSON.parse(row.data) };
+}
+async function openWorker(id) {
+  await execute(`location.hash='#worker-${id}';`);
+  await waitFor(`document.querySelector('.worker-versions')?.dataset.workerId==='${id}'`);
+  await execute(`document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
+  await waitFor(`document.querySelector('.worker-versions').getAttribute('aria-busy')==='false' && !!document.querySelector('.lineage-origin')`);
+}
+function contrast(a, b) {
+  const lum = value => {
+    const rgb = value.match(/[\d.]+/g).slice(0, 3).map(n => Number(n) / 255).map(n => n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4);
+    return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+  };
+  const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+async function readability(theme) {
+  const colors = await execute(`const p=document.querySelector('.worker-versions'),a=p.querySelector('.lineage-anchor .lineage-node'),s=p.querySelector('.lineage-source .lineage-node'),h=p.querySelector('.lineage-anchor h4');return {background:getComputedStyle(p).backgroundColor,anchor:getComputedStyle(a).color,source:getComputedStyle(s).color,text:getComputedStyle(h).color,card:getComputedStyle(h.closest('.lineage-body')).backgroundColor,filter:getComputedStyle(a).filter};`);
+  const ratios = { anchor: contrast(colors.anchor, colors.background), source: contrast(colors.source, colors.background), text: contrast(colors.text, colors.card) };
+  assert(ratios.anchor >= 3 && ratios.source >= 3 && ratios.text >= 4.5 && colors.filter === 'none', `theme readability ${theme}: ${JSON.stringify({ colors, ratios })}`);
+  return { colors, ratios };
+}
+async function geometry(theme, width) {
+  const value = await execute(`const p=document.querySelector('.worker-versions'),r=p.getBoundingClientRect(),row=p.querySelector('.lineage-row'),a=row.querySelector('.lineage-parent').getBoundingClientRect(),b=row.querySelector('.lineage-worker').getBoundingClientRect();return {width:innerWidth,left:r.left,right:r.right,module:p.scrollWidth-p.clientWidth,page:document.documentElement.scrollWidth-innerWidth,parentWidth:a.width,workerWidth:b.width,dual:a.right<b.left};`);
+  assert(value.left >= 0 && value.right <= value.width + 1 && value.module <= 1 && value.page <= 1 && value.dual && value.parentWidth > 0 && value.workerWidth > 0,
+    `overflow/tracks ${theme}/${width}: ${JSON.stringify(value)}`);
+  return value;
+}
+const settle = () => rpc(`/session/${session}/execute/async`, { args: [], script: 'const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));' });
+async function mappingGeometry(context = 'document') {
+  await settle();
+  const result = await execute(`const d=${context},p=d.querySelector('.worker-versions'),canvas=p.querySelector('.lineage-canvas'),base=canvas.getBoundingClientRect(),paths=[...p.querySelectorAll('.lineage-delivery-edge')],receipts=[...p.querySelectorAll('.lineage-mapping[data-verified="true"]')],pairs=new Set(receipts.map(r=>r.dataset.source+':'+r.dataset.landing));let maxError=0;const errors=[];
+    if(paths.length!==pairs.size)errors.push('pair count');
+    for(const receipt of receipts){const found=paths.filter(e=>e.dataset.source===receipt.dataset.source&&e.dataset.landing===receipt.dataset.landing&&e.dataset.deliveries.split(',').includes(receipt.dataset.delivery));if(found.length!==1)errors.push('Event '+receipt.dataset.delivery)}
+    for(const edge of paths){const a=d.getElementById(edge.dataset.sourceNode),b=d.getElementById(edge.dataset.targetNode);if(!a?.classList.contains('lineage-node')||!b?.classList.contains('lineage-parent-node')){errors.push('missing real marker');continue}const ar=a.getBoundingClientRect(),br=b.getBoundingClientRect(),start=edge.getPointAtLength(0),end=edge.getPointAtLength(edge.getTotalLength()),err=Math.max(Math.hypot(start.x-(ar.left+ar.width/2-base.left),start.y-(ar.top+ar.height/2-base.top)),Math.hypot(end.x-(br.left+br.width/2-base.left),end.y-(br.top+br.height/2-base.top)));maxError=Math.max(maxError,err);const box=edge.getBBox();if(err>1||edge.getTotalLength()<=0||box.x<-1||box.y<-1||box.x+box.width>base.width+1||box.y+box.height>base.height+1||getComputedStyle(edge).strokeDasharray==='none')errors.push(edge.dataset.source+':'+edge.dataset.landing)}return {count:paths.length,maxError,errors,pairs:paths.map(e=>({source:e.dataset.source,landing:e.dataset.landing,events:e.dataset.deliveries,sourceNode:e.dataset.sourceNode,targetNode:e.dataset.targetNode,d:e.getAttribute('d')}))};`);
+  assert(result.errors.length === 0, `mapping endpoints/geometry: ${JSON.stringify(result)}`); return result;
+}
+async function narrowCheck(theme, event, prefix) {
+  await execute(`window.narrowMappings?.dispose();document.querySelector('#narrow-check')?.remove();const frame=document.createElement('iframe');frame.id='narrow-check';frame.width=390;frame.height=844;frame.style.cssText='position:fixed;inset:0;z-index:99999;border:0';document.body.append(frame);const doc=frame.contentDocument;doc.open();doc.write('<!doctype html><html data-theme="${theme}"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:12px"><div id="detail"></div></body></html>');doc.close();for(const sheet of document.querySelectorAll('link[rel="stylesheet"]'))doc.head.append(sheet.cloneNode(true));doc.querySelector('#detail').append(document.querySelector('.worker-versions').cloneNode(true));window.narrowReady=false;
+    import('/version-lineage-mappings.js').then(({createLineageMappings})=>{const p=doc.querySelector('.worker-versions'),canvas=p.querySelector('.lineage-canvas'),original=[...p.querySelectorAll('.lineage-delivery-edge')],origin=p.querySelector('.lineage-origin [data-commit]').dataset.commit,sources=new Map(),targets=new Map(),cells=new Map();for(const marker of p.querySelectorAll('.lineage-node')){const sha=marker.closest('[data-commit]').dataset.commit;sources.set(sha,marker);cells.set(sha,marker.closest('.lineage-row').querySelector('.lineage-worker'))}for(const marker of p.querySelectorAll('.lineage-parent-node')){const card=marker.closest('.lineage-card');targets.set(card.dataset.landing||card.dataset.commit,marker)}const model={origin:{commit:{commit:origin}},connections:original.map(e=>({source:e.dataset.source,landing:e.dataset.landing,events:e.dataset.deliveries.split(',').map(Number)}))};p.querySelector('.lineage-delivery-lines')?.remove();window.narrowMappings=createLineageMappings(p,canvas,()=>frame.isConnected);narrowMappings.present(model,sources,targets,cells);window.narrowReady=true}).catch(e=>browserErrors.push(String(e)));`);
+  await waitFor(`window.narrowReady && [...document.querySelector('#narrow-check').contentDocument.querySelectorAll('link')].every(l=>!!l.sheet)`);
+  const context = "document.querySelector('#narrow-check').contentDocument";
+  const narrow = await execute(`const frame=document.querySelector('#narrow-check'),d=frame.contentDocument,p=d.querySelector('.worker-versions'),row=p.querySelector('.lineage-row'),a=row.querySelector('.lineage-parent').getBoundingClientRect(),b=row.querySelector('.lineage-worker').getBoundingClientRect();return {width:frame.contentWindow.innerWidth,module:p.scrollWidth-p.clientWidth,page:d.documentElement.scrollWidth-frame.contentWindow.innerWidth,dual:a.right<b.left,parentWidth:a.width,workerWidth:b.width};`);
+  assert(narrow.width === 390 && narrow.module <= 1 && narrow.page <= 1 && narrow.dual, `390px overflow/tracks ${theme}: ${JSON.stringify(narrow)}`);
+  narrow.mappings = await mappingGeometry(context); await screenshot(`${prefix}-${theme}-390-dual-track`);
+  if (event) {
+    await execute(`${context}.querySelector('.lineage-mapping[data-delivery="${event}"]').scrollIntoView({block:'center'});`);
+    await screenshot(`${prefix}-${theme}-390-delivery-mapping`);
+  }
+  if (await execute(`return !${context}.querySelector('.version-node-detail').hidden`)) {
+    await execute(`${context}.querySelector('.version-node-detail').scrollIntoView({block:'start'});`); await screenshot(`${prefix}-${theme}-390-node-detail`);
+  }
+  await execute('window.narrowMappings.dispose();document.querySelector("#narrow-check").remove();');
+  console.log(`PASS genuine 390px mapping endpoints ${prefix}/${theme}`); return { theme, ...narrow };
 }
 try {
   f = await setup({ auth: { version: 2, username: 'browser-fixture', password: 'temporary-browser-fixture-password' } });
   f.project.stopping = true; f.project.kick = () => {}; f.project.scheduleTaskMerge = () => {};
   await repo(f.root);
-  const { task } = await f.project.order('真实版本详情\n<script>window.injected=true</script>\n' + 'LongInput'.repeat(100));
-  await commit(task, 'first.txt', '第一轮开发\n\n完整提交消息'); const firstDelivery = await deliver(task);
-  await git(task.workspace, 'merge', 'main', '-m', '同步上轮落点');
-  let head = await git(task.workspace, 'rev-parse', 'HEAD'); const tree = await git(task.workspace, 'rev-parse', 'HEAD^{tree}');
-  for (let i = 0; i < 95; i++) head = await git(task.workspace, 'commit-tree', tree, '-p', head, '-m', `本轮已提交开发 ${i}`);
-  await git(task.workspace, 'update-ref', `refs/heads/${task.branch}`, head);
-  // A real fork/join, not association edges fabricated as Git parents.
-  const side = await git(task.workspace, 'commit-tree', tree, '-p', head, '-m', '真实侧线开发');
-  const mainSide = await git(task.workspace, 'commit-tree', tree, '-p', head, '-m', '真实主线开发');
-  head = await git(task.workspace, 'commit-tree', tree, '-p', mainSide, '-p', side, '-m', '真实双父汇合');
+  const { task } = await f.project.order('真实版本来源链\n<script>window.injected=true</script>\n' + 'LongInput'.repeat(100));
+  const origin = task.base_commit;
+  const c1 = await commit(task, 'first.txt', '第一轮开发一\n\n完整提交消息');
+  const c2 = await commit(task, 'second.txt', '第一轮开发二'); const first = await deliver(task);
+  await git(task.workspace, 'merge', 'main', '-m', '同步上轮落点 · 真实第二父外部边');
+  const syncCommit = await git(task.workspace, 'rev-parse', 'HEAD');
+  let head = syncCommit; const tree = await git(task.workspace, 'rev-parse', 'HEAD^{tree}');
+  for (let i = 0; i < 95; i++) head = await git(task.workspace, 'commit-tree', tree, '-p', head, '-m', `自身来源提交 ${i}`);
   await git(task.workspace, 'update-ref', `refs/heads/${task.branch}`, head);
   const child = await f.project.spawn(task.id, '子 Worker 实际交付，保留持久编号');
   await commit(child, 'child.txt', '子 Worker 开发一');
   await commit(child, 'child.txt', '子 Worker 开发二\n\n完整消息 <script>window.injected=true</script>');
-  const childDelivery = await deliver(child), childLanding = JSON.parse(childDelivery.data).commit;
-  const fixedTip = await git(task.workspace, 'rev-parse', 'HEAD');
-  const secondDelivery = await deliver(task);
-  const { task: undelivered } = await f.project.order('尚未交付但分支有提交');
-  await commit(undelivered, 'unpublished.txt', '未交付提交不作为交付历史');
+  const childDelivery = await deliver(child), childLanding = childDelivery.commit;
+  const second = await deliver(task);
+  const currentTip = await commit(task, 'unpublished.txt', '两次交付后仍有未交付开发\n\n完整消息 <script>window.injected=true</script>');
+  const { task: undelivered } = await f.project.order('完全没有交付但来源链有commit');
+  const unpublished = await commit(undelivered, 'unpublished.txt', '没有交付的自身提交');
+  const { task: empty } = await f.project.order('只有创建起点，没有自身开发');
+  const { task: reclaimed } = await f.project.order('验收回收后仍可恢复全部来源历史');
+  await commit(reclaimed, 'history.txt', '回收前来源一');
+  await commit(reclaimed, 'history.txt', '回收前来源二'); const reclaimedDelivery = await deliver(reclaimed);
+  await f.project.acceptTask(reclaimed.id);
+  assert(f.store.task(reclaimed.id).workspace === null, 'fixture did not reclaim history');
+  // Controlled persistent receipts over real Git objects, as in the core lineage
+  // verifier tests. Runtime-delivered rounds above remain real merge executions.
+  const { task: mapped } = await f.project.order('映射几何：多落点、共享落点与origin无新落点');
+  const mappedOrigin = mapped.base_commit, special = [];
+  let attempt = 90000;
+  const record = (source, landing, baseline) => {
+    const attempt_id = ++attempt;
+    f.store.event(mapped.id, 'merge.baseline_fixed', { attempt_id, baseline });
+    const id = f.store.event(mapped.id, 'task.merge_integrated', { source_commit: source, commit: landing, parent_id: mapped.parent_id, squash: true, attempt_id });
+    special.push({ id, source, landing }); return id;
+  };
+  record(mappedOrigin, mappedOrigin, mappedOrigin);
+  await git(mapped.workspace, 'commit', '--allow-empty', '-m', '映射来源一'); const sourceOne = await git(mapped.workspace, 'rev-parse', 'HEAD');
+  await git(f.root, 'commit', '--allow-empty', '-m', '父侧落点一'); const landingOne = await git(f.root, 'rev-parse', 'HEAD');
+  record(sourceOne, landingOne, mappedOrigin); record(sourceOne, landingOne, mappedOrigin);
+  await git(f.root, 'commit', '--allow-empty', '-m', '父侧落点二'); const landingTwo = await git(f.root, 'rev-parse', 'HEAD');
+  const differentLandingEvent = record(sourceOne, landingTwo, landingOne);
+  await git(mapped.workspace, 'commit', '--allow-empty', '-m', '映射来源二（无树变化）'); const sourceTwo = await git(mapped.workspace, 'rev-parse', 'HEAD');
+  const sharedEvent = record(sourceTwo, landingOne, landingOne);
+  record(sourceTwo, mappedOrigin, mappedOrigin);
+  const invalidEvent = record(sourceTwo, 'f'.repeat(40), mappedOrigin);
+  const mappedRead = await f.project.workerVersionLineage({ id: mapped.id });
+  assert(mappedRead.deliveries.filter(m=>m.delivery_available).length===6 && mappedRead.deliveries.find(m=>m.delivery_id===invalidEvent)?.delivery_available===false, 'special real-object receipt fixture did not pass/fail expected verifier paths');
   const projectPath = `/p/${projectRouteId(f.root)}/`;
   const reservation = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') });
   const port = reservation.port; reservation.stop(true); base = `http://127.0.0.1:${port}`;
@@ -87,98 +169,118 @@ try {
   await rpc(`/session/${session}/url`, { url: `${f.url}/login?next=${encodeURIComponent(projectPath)}` });
   await execute(`document.querySelector('#username').value='browser-fixture';document.querySelector('#password').value='temporary-browser-fixture-password';`);
   await click('form button'); await waitFor(`location.pathname==='${projectPath}' && !!document.querySelector('#overview-open')`);
-  // Instrument only reads; all responses still come from the actual production HTTP/RPC bridge.
-  await execute(`window.versionReads=[];window.browserErrors=[];addEventListener('error',e=>browserErrors.push(e.message));addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));const original=window.fetch;window.fetch=(url,options)=>{if(String(url).includes('/version-'))versionReads.push(String(url));return original(url,options)};location.hash='#worker-${task.id}';`);
+  // Log real read responses without replacing/mocking the production HTTP/RPC bridge.
+  await execute(`window.versionReads=[];window.lineageResponses=[];window.browserErrors=[];addEventListener('error',e=>browserErrors.push(e.message));addEventListener('unhandledrejection',e=>browserErrors.push(String(e.reason)));const original=window.fetch;window.fetch=(url,options)=>{if(String(url).includes('/version-'))versionReads.push(String(url));return original(url,options).then(r=>{if(String(url).includes('/version-lineage?'))r.clone().json().then(data=>lineageResponses.push(data)).catch(()=>{});return r})};location.hash='#worker-${task.id}';`);
   await waitFor(`document.querySelector('.worker-versions')?.dataset.workerId==='${task.id}'`);
-  assert(await execute(`return !versionReads.some(p=>p.includes('/version-graph')) && !versionReads.some(p=>p.includes('/version-deliveries'))`), 'detail entry eagerly read Git or delivery list');
+  assert(await execute(`return !versionReads.some(p=>p.includes('/version-'))`), 'detail entry eagerly read Git');
   await execute(`document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
-  await waitFor('document.querySelectorAll(".version-round").length===2');
-  assert(await execute(`return !versionReads.some(p=>p.includes('/version-graph')) && document.querySelector('.version-round[data-delivery="${secondDelivery.id}"]').dataset.previousDelivery==='${firstDelivery.id}' && !document.querySelector('.version-rounds').hidden`), 'delivery graph did not appear directly from persistent rounds');
-  await screenshot('worker-direct-delivery-iterations');
-  await click(`.version-round[data-delivery="${secondDelivery.id}"] .version-round-choice`);
-  await waitFor('document.querySelectorAll(".version-commit").length===30');
-  assert(await execute(`return versionReads.at(-1).includes('delivery=${secondDelivery.id}') && document.querySelector('.version-tip').textContent.includes('${fixedTip}') && !document.querySelector('.version-input')`), 'fixed round tip or lazy node contract failed');
-  assert(await execute(`return document.querySelector('.version-commit[data-commit="${childLanding}"] .version-task-link').getAttribute('href')==='#worker-${child.id}' && document.querySelector('.version-task-link').textContent.includes('${child.worker_number}')`), 'child href/number is not persistent');
-  await execute(`document.querySelector('.version-node').focus();`);
+  await waitFor('document.querySelectorAll(".lineage-source").length===30');
+  assert(await execute(`return versionReads.filter(p=>p.includes('/version-lineage?')).length===1 && !versionReads.some(p=>p.includes('/version-deliveries')||p.includes('/version-graph')) && document.querySelector('.lineage-origin [data-commit]').dataset.commit==='${origin}' && document.querySelectorAll('.lineage-source')[29].dataset.commit==='${currentTip}' && !!document.querySelector('.lineage-gap') && !document.querySelector('.lineage-fork') && !document.querySelector('.version-input')`), 'direct source/segment semantics failed');
+  assert(await execute(`const m=document.querySelector('.lineage-mapping[data-delivery="${second.id}"]');return m?.dataset.source==='${second.source_commit}' && m.dataset.landing==='${second.commit}' && m.dataset.verified==='true' && !!document.querySelector('.lineage-landing[data-landing="${second.commit}"]') && !document.querySelector('.lineage-source[data-commit="${currentTip}"]').parentNode.querySelector('.lineage-mapping')`), 'current source/landing mapping or unpublished commit is wrong');
+  assert(await execute(`return document.querySelector('.lineage-source[data-commit="${childLanding}"] .version-task-link').getAttribute('href')==='#worker-${child.id}' && document.querySelector('.lineage-source[data-commit="${childLanding}"] .version-task-link').textContent.includes('${child.worker_number}')`), 'child href/number is not persistent');
+  await screenshot('direct-dual-track-lineage');
+  await execute(`document.querySelector('.lineage-mapping[data-delivery="${second.id}"]').scrollIntoView({block:'center'});`);
+  await screenshot('source-to-parent-landing-mapping');
+  // Origin detail is an allowed lineage snapshot node; landing is receipt-only.
+  await click('.lineage-origin .lineage-node'); await waitFor('!!document.querySelector(".version-node-detail .version-message")');
+  assert(await execute(`return versionReads.at(-1).includes('/version-lineage-commit?') && versionReads.at(-1).includes('commit=${origin}') && document.querySelector('.version-node-detail .version-sha').textContent==='${origin}'`), 'origin detail did not use signed lineage API');
+  await click('.version-node-detail button');
+  await execute(`document.querySelector('.lineage-source[data-commit="${currentTip}"] .lineage-node').focus();`);
   await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }] }] });
   await waitFor('!!document.querySelector(".version-node-detail .version-message")');
-  assert(await execute(`return versionReads.filter(p=>p.includes('/version-commit')).length===1 && !window.injected && !!document.querySelector('.version-node-detail .version-sha') && document.activeElement===document.querySelector('.version-node-detail')`), 'keyboard node detail was not lazy, focused or safe');
-  await execute(`document.querySelector('.version-node-detail').scrollIntoView({block:'start'});`);
-  await screenshot('worker-fixed-round-node');
-  // Several forward pages and a cache miss on the return path: DOM/data stay bounded.
-  for (let index = 2; index <= 4; index++) {
-    await click('.versions-more'); await waitFor(`document.querySelector('.versions-feedback').textContent.includes('第 ${index} 页')`);
-    assert(await execute(`return document.querySelectorAll('.version-commit').length<=30 && Number(document.querySelector('.worker-versions').dataset.cachedPages)<=3`), 'graph/cache accumulated unbounded nodes');
-  }
-  const fixedTree = await git(task.workspace, 'rev-parse', 'HEAD^{tree}');
-  const advancedTip = await git(task.workspace, 'commit-tree', fixedTree, '-p', fixedTip, '-m', '首次取样后新增提交');
-  await git(task.workspace, 'update-ref', `refs/heads/${task.branch}`, advancedTip);
-  for (let index = 3; index >= 1; index--) { await click('.versions-newer'); await waitFor(`document.querySelector('.versions-feedback').textContent.includes('第 ${index} 页')`); }
-  assert(await execute(`return document.querySelector('.version-tip').textContent.includes('${fixedTip}') && !document.querySelector('.versions-list').textContent.includes('首次取样后新增提交')`), 'return to first page silently re-sampled the advanced current ref');
-  await screenshot('worker-first-page-return');
-  await click(`.version-commit[data-commit="${childLanding}"] .version-delivery-choice`);
-  await waitFor(`document.querySelector('.versions-scope').textContent.includes('Event ${childDelivery.id}') && document.querySelectorAll('.version-commit').length===2`);
-  assert(await execute(`return versionReads.at(-1).includes('/worker/${child.id}/version-graph?limit=30&delivery=${childDelivery.id}') && document.querySelector('.versions-list').textContent.includes('子 Worker 开发一')`), 'real child delivery drilldown failed');
-  await click('.version-node'); await waitFor('!!document.querySelector(".version-input")');
-  assert(await execute(`return document.querySelector('.version-message').textContent.includes('<script>') && !window.injected`), 'full message did not render safely');
-  await execute(`document.querySelector('.version-node-detail').scrollIntoView({block:'start'});`);
-  await screenshot('child-fixed-delivery');
-  await click('.versions-back'); await waitFor('document.querySelectorAll(".version-commit").length===30');
-  assert(await execute(`return versionReads.filter(p=>p.includes('/version-deliveries')).length===1`), 'delivery graph fetched beyond its first page');
-  await click(`.version-round[data-delivery="${firstDelivery.id}"] .version-round-choice`);
-  await waitFor(`document.querySelector('.versions-scope').textContent.includes('Event ${firstDelivery.id}') && document.querySelectorAll('.version-commit').length===1`);
-  await screenshot('worker-earlier-delivery');
-  await click('.versions-back'); await waitFor('document.querySelector(".version-round-detail").hidden');
-  await click(`.version-round[data-delivery="${secondDelivery.id}"] .version-round-choice`);
-  await waitFor('document.querySelectorAll(".version-commit").length===30');
-  await click('.version-node'); await waitFor('!!document.querySelector(".version-node-detail .version-message")');
-  // Real page layout in both themes, including detail expansion. Firefox has a 500px top-level
-  // minimum, so a same-origin srcdoc clone supplies a genuine 390px browsing context below.
+  assert(await execute(`return document.querySelector('.version-message').textContent.includes('<script>') && !window.injected && !!document.querySelector('.version-input') && !document.querySelector('.version-input').open && document.activeElement===document.querySelector('.version-node-detail')`), 'keyboard source detail was not lazy, focused or safe');
+  await execute(`document.querySelector('.version-node-detail').scrollIntoView({block:'start'});`); await screenshot('lineage-source-node-detail');
+  // Both themes in real top-level page and a genuine 390px iframe using production DOM/CSS.
+  const geometries = [];
   for (const theme of ['light', 'dark']) for (const width of [1440, 900, 500]) {
     await rpc(`/session/${session}/window/rect`, { width, height: 900 });
     await execute(`document.documentElement.dataset.theme='${theme}';document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
-    const layout = await execute(`const p=document.querySelector('.worker-versions'),r=p.getBoundingClientRect();return {width:innerWidth,left:r.left,right:r.right,module:p.scrollWidth-p.clientWidth,page:document.documentElement.scrollWidth-innerWidth};`);
-    assert(layout.left >= 0 && layout.right <= layout.width + 1 && layout.module <= 1 && layout.page <= 1, `overflow ${theme}/${width}: ${JSON.stringify(layout)}`);
-    await screenshot(`${theme}-${width}-detail`); console.log(`PASS actual Worker detail layout ${theme}/${layout.width}`);
+    // Theme transitions must finish before recording colors/screenshots.
+    await rpc(`/session/${session}/execute/async`, { args: [], script: 'const done=arguments[0];requestAnimationFrame(()=>setTimeout(()=>done(true),250));' });
+    geometries.push({ theme, requestedWidth: width, ...await geometry(theme, width), ...await readability(theme), mappings: await mappingGeometry() });
+    await screenshot(`${theme}-${width}-dual-track`);
+    await execute(`document.querySelector('.version-node-detail').scrollIntoView({block:'start'});`);
+    await screenshot(`${theme}-${width}-node-detail`); console.log(`PASS real Worker lineage layout ${theme}/${width}`);
   }
   await rpc(`/session/${session}/window/rect`, { width: 600, height: 1000 });
-  for (const theme of ['light', 'dark']) {
-    await execute(`const previous=document.querySelector('#narrow-check');previous?.remove();const frame=document.createElement('iframe');frame.id='narrow-check';frame.width=390;frame.height=844;frame.style.cssText='position:fixed;inset:0;z-index:99999;border:0';document.body.append(frame);const doc=frame.contentDocument;doc.open();doc.write('<!doctype html><html data-theme="${theme}"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:12px"><div id="detail"></div></body></html>');doc.close();for(const sheet of document.querySelectorAll('link[rel="stylesheet"]'))doc.head.append(sheet.cloneNode(true));doc.querySelector('#detail').append(document.querySelector('.worker-versions').cloneNode(true));`);
-    await waitFor(`document.querySelector('#narrow-check').contentDocument.querySelector('.worker-versions').getBoundingClientRect().width>0`);
-    const narrow = await execute(`const frame=document.querySelector('#narrow-check'),d=frame.contentDocument,p=d.querySelector('.worker-versions');return {width:frame.contentWindow.innerWidth,module:p.scrollWidth-p.clientWidth,page:d.documentElement.scrollWidth-frame.contentWindow.innerWidth};`);
-    assert(narrow.width === 390 && narrow.module <= 1 && narrow.page <= 1, `390px overflow ${theme}: ${JSON.stringify(narrow)}`);
-    await screenshot(`${theme}-390-detail`); console.log(`PASS genuine 390px module layout ${theme} (production DOM/CSS clone)`);
+  for (const theme of ['light', 'dark']) geometries.push(await narrowCheck(theme, second.id, 'lineage'));
+  // Forward pagination replaces a segment instead of accumulating the graph.
+  for (let page = 2; page <= 4; page++) {
+    await click('.versions-more'); await waitFor(`document.querySelector('.versions-feedback').textContent.includes('第 ${page} 页')`);
+    assert(await execute(`return document.querySelectorAll('.lineage-source').length<=30 && Number(document.querySelector('.worker-versions').dataset.cachedPages)<=3`), 'graph/cache accumulated unbounded nodes');
   }
-  await execute(`document.querySelector('#narrow-check').remove();`);
-  // Native href navigation reaches the actual child's inspect reader; no surrogate button callback.
-  await click(`.version-commit[data-commit="${childLanding}"] .version-task-link`);
+  assert(await execute(`const m=document.querySelector('.lineage-mapping[data-delivery="${first.id}"]');return m?.dataset.source==='${c2}' && m.dataset.landing==='${first.commit}' && !!document.querySelector('.lineage-source[data-commit="${c1}"]') && !!document.querySelector('.lineage-fork') && !!document.querySelector('.lineage-git-boundary[data-child="${syncCommit}"][data-parent="${first.commit}"]')`), 'earliest source/first delivery/origin or real sync parent was lost');
+  await rpc(`/session/${session}/window/rect`, { width: 1440, height: 900 });
+  await execute(`document.querySelector('.lineage-mapping[data-delivery="${first.id}"]').scrollIntoView({block:'center'});`);
+  await screenshot('earliest-origin-first-delivery-sync');
+  await execute(`document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
+  await screenshot('earliest-origin-first-real-edge');
+  const advancedTip = await commit(task, 'advanced.txt', '首屏固定后新增来源提交');
+  for (let page = 3; page >= 1; page--) { await click('.versions-newer'); await waitFor(`document.querySelector('.versions-feedback').textContent.includes('第 ${page} 页')`); }
+  assert(await execute(`return document.querySelector('.lineage-source[data-commit="${currentTip}"]') && !document.querySelector('.lineage-source[data-commit="${advancedTip}"]')`), 'return to pinned first page re-sampled moving ref');
+  await click('.versions-refresh'); await waitFor(`!!document.querySelector('.lineage-source[data-commit="${advancedTip}"]')`);
+  assert(await execute(`return lineageResponses.filter(p=>p.tip==='${currentTip}').every(p=>p.snapshot===lineageResponses[0].snapshot) && lineageResponses.at(-1).snapshot!==lineageResponses[0].snapshot`), 'page snapshot identity was not fixed until explicit refresh');
+  await screenshot('explicit-refreshed-first-page');
+  // Native Worker href, not recursive old delivery graph drilldown.
+  await click(`.lineage-source[data-commit="${childLanding}"] .version-task-link`);
   await waitFor(`location.hash==='#worker-${child.id}' && document.querySelector('#detail').dataset.taskId==='${child.id}'`);
-  assert(await execute(`return document.querySelector('.task-hero').textContent.includes('${child.worker_number}')`), 'native child link did not reach real child detail');
-  await screenshot('child-worker-detail-link');
-  // The retired bookmark resolves main from real overview identity and navigates
-  // to its actual detail; it must not rebuild the retired independent version page.
+  await execute(`document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
+  await waitFor('document.querySelectorAll(".lineage-source").length===2');
+  assert(await execute(`return document.querySelector('.task-hero').textContent.includes('${child.worker_number}') && !!document.querySelector('.lineage-mapping[data-delivery="${childDelivery.id}"]') && !document.querySelector('.version-delivery-choice')`), 'native child link did not reach real lineage detail');
+  await screenshot('child-native-lineage-detail');
+  // Retired #versions bookmark resolves the actual main identity; main remains Git graph/link-only.
   await execute(`location.hash='#versions';`);
   await waitFor(`location.hash==='#worker-${task.parent_id}' && document.querySelector('#detail').dataset.taskId==='${task.parent_id}' && !!document.querySelector('.worker-versions')`);
   await execute(`document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
   await waitFor('document.querySelectorAll(".version-commit").length>0');
-  assert(await execute(`return !document.querySelector('.version-delivery-choice') && document.querySelector('.version-task-link').getAttribute('href')==='#worker-${task.id}'`), 'main must keep only native child links');
-  await screenshot('legacy-version-main-detail');
-  const beforeEmpty = await execute(`return versionReads.filter(p=>p.includes('/version-graph')).length`);
-  await execute(`location.hash='#worker-${undelivered.id}';`);
-  await waitFor(`document.querySelector('.worker-versions')?.dataset.workerId==='${undelivered.id}'`);
-  await execute(`document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
-  await waitFor(`document.querySelector('.version-rounds').textContent.includes('暂无成功交付轮次')`);
-  assert(await execute(`return document.querySelectorAll('.version-round').length===0 && versionReads.filter(p=>p.includes('/version-graph')).length===${beforeEmpty}`), 'unpublished branch commits pretended to be deliveries');
-  await screenshot('worker-no-deliveries');
-  const parentRead = await f.project.workerVersionGraph({ id: task.id }); assert(parentRead.tip === advancedTip, 'browser reads wrote Git');
+  assert(await execute(`return !document.querySelector('.lineage-list') && !document.querySelector('.version-delivery-choice') && document.querySelectorAll('.version-task-link').length>0 && [...document.querySelectorAll('.version-task-link')].some(l=>l.getAttribute('href')==='#worker-${task.id}')`), 'main must keep real graph and native links only');
+  await screenshot('legacy-bookmark-main-link-only');
+  await openWorker(undelivered.id);
+  assert(await execute(`return !!document.querySelector('.lineage-source[data-commit="${unpublished}"]') && document.querySelectorAll('.lineage-mapping').length===0 && !document.querySelector('.version-rounds')`), 'unpublished branch commit was hidden behind empty rounds');
+  await screenshot('unpublished-source-without-deliveries');
+  await openWorker(empty.id);
+  assert(await execute(`return document.querySelectorAll('.lineage-source').length===0 && !!document.querySelector('.lineage-origin') && document.querySelector('.versions-feedback').textContent.includes('尚无自身开发')`), 'empty Worker lost creation origin');
+  await screenshot('origin-without-development');
+  await openWorker(reclaimed.id);
+  assert(await execute(`return document.querySelectorAll('.lineage-source').length===2 && document.querySelector('.version-tip').textContent.includes('分支已回收') && !!document.querySelector('.lineage-mapping[data-delivery="${reclaimedDelivery.id}"]')`), 'reclaimed source history was not recovered from exact persistent source');
+  await screenshot('reclaimed-source-history');
+  await openWorker(mapped.id);
+  const expectedPairs = new Set(mappedRead.deliveries.filter(m=>m.delivery_available).map(m=>`${m.source_commit}:${m.commit}`));
+  const specialGeometry = await mappingGeometry();
+  assert(specialGeometry.count === 5 && specialGeometry.pairs.every(p=>expectedPairs.has(`${p.source}:${p.landing}`)) && specialGeometry.pairs.some(p=>p.source===mappedOrigin && p.landing===mappedOrigin), 'shared/multiple/origin target paths not complete');
+  assert(await execute(`return document.querySelectorAll('.lineage-landing').length===2 && document.querySelectorAll('.lineage-source').length===2 && ![...document.querySelectorAll('.lineage-delivery-edge')].some(p=>p.dataset.deliveries.split(',').includes('${invalidEvent}'))`), 'deduplication or untrusted geometry failed');
+  await execute(`document.querySelector('.lineage-mapping[data-delivery="${sharedEvent}"] summary').focus();`);
+  assert(await execute(`return [...document.querySelectorAll('.lineage-delivery-edge.is-active')].some(e=>e.dataset.deliveries.split(',').includes('${sharedEvent}'))`), 'keyboard receipt does not distinguish its shared-target edge');
+  await screenshot('all-pairs-shared-multiple-origin');
+  const beforeExpansion = await execute(`return [...document.querySelectorAll('.lineage-delivery-edge')].find(e=>e.dataset.deliveries.split(',').includes('${sharedEvent}')).getAttribute('d')`);
+  await click(`.lineage-source[data-commit="${sourceOne}"] .lineage-node`); await waitFor('!!document.querySelector(".version-node-detail .version-message")');
+  await execute(`document.querySelector('.lineage-landing-receipts').open=true;`);
+  const expandedMappings = await mappingGeometry();
+  assert(await execute(`return [...document.querySelectorAll('.lineage-delivery-edge')].find(e=>e.dataset.deliveries.split(',').includes('${sharedEvent}')).getAttribute('d')!==${JSON.stringify(beforeExpansion)}`), 'expanding node/receipt failed to remeasure mapping endpoints');
+  const specialGeometries = [{ stage: 'expanded', ...expandedMappings }];
+  for (const theme of ['light', 'dark']) for (const width of [1440, 900, 500]) {
+    await rpc(`/session/${session}/window/rect`, { width, height: 1000 });
+    await execute(`document.documentElement.dataset.theme='${theme}';document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
+    await rpc(`/session/${session}/execute/async`, { args: [], script: 'const done=arguments[0];requestAnimationFrame(()=>setTimeout(()=>done(true),250));' });
+    specialGeometries.push({ theme, width, ...await geometry(theme, width), ...await readability(theme), mappings: await mappingGeometry() });
+    await screenshot(`pairs-${theme}-${width}-expanded`);
+    await execute(`document.querySelector('.lineage-mapping[data-delivery="${differentLandingEvent}"]').scrollIntoView({block:'center'});`);
+    await screenshot(`pairs-${theme}-${width}-multi-target`);
+  }
+  await rpc(`/session/${session}/window/rect`, { width: 600, height: 1000 });
+  for (const theme of ['light', 'dark']) specialGeometries.push(await narrowCheck(theme, sharedEvent, 'pairs'));
+  assert((await f.project.workerVersionLineage({ id: task.id })).tip === advancedTip, 'browser reads wrote Git');
   assert(await execute('return browserErrors.length===0'), 'browser emitted errors');
-  fs.writeFileSync(path.join(logs, 'evidence.json'), JSON.stringify({ task: task.worker_number, child: child.worker_number, fixedTip, advancedTip, firstDelivery: firstDelivery.id, secondDelivery: secondDelivery.id, childDelivery: childDelivery.id,
-    reads: await execute('return versionReads'), browserErrors: await execute('return browserErrors'), screenshots: output }, null, 2));
+  fs.writeFileSync(path.join(logs, 'evidence.json'), JSON.stringify({ task: task.worker_number, child: child.worker_number, origin, c1, c2, currentTip, advancedTip, first, second, childDelivery, reclaimedDelivery,
+    special, mappedOrigin, sourceOne, sourceTwo, landingOne, landingTwo, specialGeometries, geometries, reads: await execute('return versionReads'), browserErrors: await execute('return browserErrors'), screenshots: output }, null, 2));
   passed = true;
-  console.log(`PASS production Worker detail → direct persistent delivery iterations → fixed round → 30-node paging/cache return → lazy commit → child fixed delivery → native child detail; main link-only + empty history; double themes/390px. Screenshots: ${output}; logs: ${logs}`);
+  console.log(`PASS real Web→RPC→SQLite/Git→Firefox: direct dual tracks, full source history/two delivery mappings/unpublished tip; origin/node details; paging/cache/snapshot/refresh; native child/main; no-delivery/empty/reclaimed; every verified shared/multiple/origin-target mapping and expanded-node endpoints; two themes 1440/900/500/390. Screenshots: ${output}; logs: ${logs}`);
 } catch (error) {
-  if (session) await screenshot('failure').catch(() => {});
-  console.error(`Worker version browser failure; full logs: ${logs}`); throw error;
+  if (session) {
+    await screenshot('failure').catch(() => {});
+    fs.writeFileSync(path.join(logs, 'failure.json'), JSON.stringify({ error: String(error), reads: await execute('return window.versionReads || []').catch(() => []), browserErrors: await execute('return window.browserErrors || []').catch(() => []) }, null, 2));
+  }
+  console.error(`Worker lineage browser failure; full logs: ${logs}`); throw error;
 } finally {
   if (session) await rpc(`/session/${session}`, undefined, 'DELETE').catch(() => {});
   if (driver) { driver.kill(); await driver.exited; }

@@ -13,7 +13,7 @@ const projection = `e.id AS event_id, e.type, e.task_id, substr(e.data,1,8193) A
 const joins = `FROM events e JOIN tasks t ON t.id=e.task_id
   LEFT JOIN inputs i ON i.id=t.input_id LEFT JOIN tasks p ON p.id=json_extract(${data},'$.parent_id')`;
 const successTypes = "('task.merge_integrated','merged')";
-function eventData(row) {
+export function eventData(row) {
   check(row.event_data.length <= 8192, 'version graph delivery evidence exceeds safe size');
   try { return JSON.parse(row.event_data); } catch { return {}; }
 }
@@ -30,19 +30,19 @@ function targetMatches(row, scope) {
 
 /** The successful Event ID is the public identity, NOT merge.enqueued.delivery_id.
  * No reservation, current HEAD or mutable iteration baseline is a read fallback. */
-function fixedRange(project, row) {
+export function fixedRange(project, row, creationBase) {
   const receipt = eventData(row);
   if (row.type !== 'task.merge_integrated' || row.parent_type !== 'integer' || row.parent_id <= 0
     || !graphOID(receipt.source_commit) || !graphOID(receipt.commit) || receipt.squash !== true)
     return { reason: '缺少成功交付的固定源提交与 Squash 父侧证据' };
   if (typeof row.branch !== 'string' || row.branch.length === 0 || row.branch.length > 4096)
     return { reason: '缺少 Worker 的记录分支身份' };
-  const prior = project.store.get(`SELECT substr(data,1,8193) AS event_data, type FROM events
-    WHERE task_id=? AND type IN ${successTypes} AND id<? ORDER BY id DESC LIMIT 1`, row.task_id, row.event_id);
+  const prior = creationBase === undefined ? project.store.get(`SELECT substr(data,1,8193) AS event_data, type FROM events
+    WHERE task_id=? AND type IN ${successTypes} AND id<? ORDER BY id DESC LIMIT 1`, row.task_id, row.event_id) : null;
   const priorReceipt = prior ? eventData(prior) : null;
   if (prior && (prior.type !== 'task.merge_integrated' || priorReceipt.squash !== true || !graphOID(priorReceipt.commit)))
     return { reason: '此前成功交付缺少可信的固定源提交证据' };
-  const base = prior ? priorReceipt.source_commit : row.base_commit;
+  const base = creationBase ?? (prior ? priorReceipt.source_commit : row.base_commit);
   if (!graphOID(base)) return { reason: '缺少创建基线或此前成功交付的固定源提交' };
   let parent_base = null;
   if (Number.isSafeInteger(receipt.attempt_id) && receipt.attempt_id > 0) {
@@ -80,18 +80,20 @@ const compactProjection = (projection + ', e.created_at AS delivered_at').replac
 const compactTask = (row, range) => ({ id: row.task_id, worker_number: row.worker_number, task_kind: row.task_kind ?? 'legacy',
   evidence: row.type, delivery_id: row.event_id, delivery_available: range.reason === null,
   delivery_unavailable_reason: range.reason });
-function graphWorker(project, taskId, text = false) {
+export function graphWorker(project, taskId, text = false) {
   const task = project.store.get(`SELECT id,worker_number,task_kind,parent_id,branch,base_commit,target_branch,input_id
     ${text ? ',substr(goal,1,16385) AS goal' : ''} FROM tasks WHERE id=?`, taskId);
   check(task, `Worker #${taskId} not found`);
   return task;
 }
-function bounded(result) {
+export function bounded(result) {
   check(Buffer.byteLength(JSON.stringify(result)) <= 512 * 1024, 'version graph response exceeds safe size; request a smaller page');
   return result;
 }
-function successful(project, taskId, before = Number.MAX_SAFE_INTEGER, limit = 1) {
-  return project.store.all(`SELECT ${compactProjection} ${joins} WHERE e.task_id=? AND e.type IN ${successTypes}
+export function successful(project, taskId, before = Number.MAX_SAFE_INTEGER, limit = 1, includeResults = false) {
+  const types = includeResults ? `(e.type IN ${successTypes} OR (e.type='task.delivered' AND json_type(${data},'$.no_changes')='true'))`
+    : `e.type IN ${successTypes}`;
+  return project.store.all(`SELECT ${compactProjection} ${joins} WHERE e.task_id=? AND ${types}
     AND e.id<? ORDER BY e.id DESC LIMIT ?`, taskId, before, limit);
 }
 function selected(project, taskId, delivery) {
@@ -101,7 +103,7 @@ function selected(project, taskId, delivery) {
   check(range.reason === null, `delivery is not traceable: ${range.reason}`);
   return { row, range };
 }
-function associations(project, value, commits, detail = false) {
+export function associations(project, value, commits, detail = false) {
   const byCommit = new Map(commits.map(row => [row.commit, []]));
   if (byCommit.size) {
     const rows = project.store.all(`SELECT ${detail ? projection : compactProjection} ${joins}

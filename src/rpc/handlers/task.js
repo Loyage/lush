@@ -19,6 +19,8 @@ export const handlers = {
   'worker.version_graph'(p, params) { return p.workerVersionGraph(params); },
   'worker.version_deliveries'(p, params) { return p.workerVersionDeliveries(params); },
   'worker.version_commit'(p, params) { return p.workerVersionCommit(params); },
+  'worker.version_lineage'(p, params) { return p.workerVersionLineage(params); },
+  'worker.version_lineage_commit'(p, params) { return p.workerVersionLineageCommit(params); },
   'worker.tree'(p, params, actor) { return p.tree(params.id ?? null); },
   'worker.ladder'(p, params, actor) { return p.ladder(); },
   'worker.inspect': async (p, params) => {

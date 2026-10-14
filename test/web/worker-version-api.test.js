@@ -10,7 +10,8 @@ import { managementPolicy } from '../../src/rpc/management-policy.js';
 import { startTestWeb } from './auth-fixture.js';
 import { projectRouteId } from '../../src/host/registry.js';
 
-const methods = ['worker.version_graph', 'worker.version_deliveries', 'worker.version_commit'];
+const methods = ['worker.version_graph', 'worker.version_deliveries', 'worker.version_commit', 'worker.version_lineage', 'worker.version_lineage_commit'];
+const paths = methods.map(method => method.slice('worker.'.length).replaceAll('_', '-'));
 const post = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
 test('real HTTP → RPC registration → user permission → SQLite/Git returns compact snapshot and lazy details without writes', async () => {
@@ -33,6 +34,17 @@ test('real HTTP → RPC registration → user permission → SQLite/Git returns 
     expect((await client.request('worker.version_graph', { id: task.id })).tip).toBe(tip);
     expect((await client.request('worker.version_commit', { id: task.id, snapshot: graph.snapshot, commit: tip })).commit.commit).toBe(tip);
     expect(await client.request('worker.version_deliveries', { id: task.id })).toMatchObject({ deliveries: [] });
+    const lineageResponse = await fetch(`${f.url}/api/worker/${task.id}/version-lineage?limit=1`);
+    expect(lineageResponse.status).toBe(200); expect(lineageResponse.headers.get('cache-control')).toBe('no-store');
+    const lineage = await lineageResponse.json();
+    expect(lineage).toMatchObject({ scope: 'lineage', range: 'first-parent', tip, origin: { commit: task.base_commit },
+      parent: { id: task.parent_id, branch: 'main' }, deliveries: [], untraceable_deliveries: [] });
+    expect(lineage.commits[0].commit).toBe(tip); expect(JSON.stringify(lineage)).not.toContain('public order');
+    const lineageDetail = await (await fetch(`${f.url}/api/worker/${task.id}/version-lineage-commit?snapshot=${encodeURIComponent(lineage.snapshot)}&commit=${tip}`)).json();
+    expect(lineageDetail.commit.message).toBe('真实开发\n\nlong body');
+    expect(lineageDetail.commit.tasks[0].input.content).toBe('public order'); expect(JSON.stringify(lineageDetail)).not.toContain('never expose');
+    expect((await client.request('worker.version_lineage', { id: task.id })).tip).toBe(tip);
+    expect((await client.request('worker.version_lineage_commit', { id: task.id, snapshot: lineage.snapshot, commit: tip })).commit.commit).toBe(tip);
     for (const method of methods) {
       expect(USER_ONLY.has(method)).toBe(true); expect(managementPolicy(method).access).toBe('unavailable');
       expect(() => assertAllowed(method, { id: task.id }, task.id)).toThrow('requires user approval');
@@ -50,7 +62,7 @@ test('real HTTP → RPC registration → user permission → SQLite/Git returns 
 
 test('new RPC handlers reject live/expired Agent identity, HTTP rejects unknown/duplicate/type/action/Origin/Host escapes', async () => {
   const f = await setup(), calls = [];
-  for (const [name, method] of [['workerVersionGraph', methods[0]], ['workerVersionDeliveries', methods[1]], ['workerVersionCommit', methods[2]]])
+  for (const [name, method] of [['workerVersionGraph', methods[0]], ['workerVersionDeliveries', methods[1]], ['workerVersionCommit', methods[2]], ['workerVersionLineage', methods[3]], ['workerVersionLineageCommit', methods[4]]])
     f.project[name] = params => { calls.push({ method, params }); return params; };
   try {
     const rpc = new Dispatcher({ actor(token) { if (token === 'live') return 2; if (token) throw new Error('expired token'); return null; } });
@@ -58,7 +70,6 @@ test('new RPC handlers reject live/expired Agent identity, HTTP rejects unknown/
       await expect(rpc.dispatch(method, { id: 2, _token: 'live' })).rejects.toThrow('requires user approval');
       await expect(rpc.dispatch(method, { id: 2, _token: 'expired' })).rejects.toThrow('expired token');
     }
-    const paths = ['version-graph','version-deliveries','version-commit'];
     for (const suffix of paths) {
       const url = `${f.url}/api/worker/2/${suffix}`;
       expect((await fetch(url)).status).toBe(200);
@@ -67,22 +78,22 @@ test('new RPC handlers reject live/expired Agent identity, HTTP rejects unknown/
       expect((await fetch(url, { headers: { Origin: 'https://attacker.invalid' } })).status).toBe(403);
       expect((await fetch(url, { headers: { Host: 'attacker.invalid' } })).status).toBe(403);
       expect((await post(url, {})).status).toBe(404);
-      expect((await post(f.url + '/api/action', { method: 'worker.' + suffix.replace('-', '_'), params: { id: 2 } })).status).toBe(400);
+      expect((await post(f.url + '/api/action', { method: 'worker.' + suffix.replaceAll('-', '_'), params: { id: 2 } })).status).toBe(400);
     }
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(methods.length);
   } finally { await f.close(); }
 });
 
 test('Worker version reads require a logged-in Web session', async () => {
   const f = await setup({ auth: { username: 'owner', password: 'test-only-password' } }); let reads = 0;
-  f.project.workerVersionGraph = f.project.workerVersionDeliveries = f.project.workerVersionCommit = () => { reads++; return {}; };
+  f.project.workerVersionGraph = f.project.workerVersionDeliveries = f.project.workerVersionCommit = f.project.workerVersionLineage = f.project.workerVersionLineageCommit = () => { reads++; return {}; };
   try {
-    for (const suffix of ['version-graph','version-deliveries','version-commit']) expect((await fetch(`${f.url}/api/worker/2/${suffix}`)).status).toBe(401);
+    for (const suffix of paths) expect((await fetch(`${f.url}/api/worker/2/${suffix}`)).status).toBe(401);
     expect(reads).toBe(0);
     const login = await fetch(f.url + '/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'username=owner&password=test-only-password&next=%2F' });
     const cookie = login.headers.get('set-cookie').split(';')[0];
-    for (const suffix of ['version-graph','version-deliveries','version-commit']) expect((await fetch(`${f.url}/api/worker/2/${suffix}`, { headers: { Cookie: cookie } })).status).toBe(200);
-    expect(reads).toBe(3);
+    for (const suffix of paths) expect((await fetch(`${f.url}/api/worker/2/${suffix}`, { headers: { Cookie: cookie } })).status).toBe(200);
+    expect(reads).toBe(methods.length);
   } finally { await f.close(); }
 });
 
@@ -94,11 +105,17 @@ test('Host Worker version routing preserves explicit project identity across tab
   const url = `http://127.0.0.1:${web.port}`;
   try {
     await post(url + '/api/host/select', { project: a }); await post(url + '/api/host/select', { project: b }); calls.length = 0;
-    for (const project of [a, b]) for (const suffix of ['version-graph','version-deliveries','version-commit'])
-      expect(await (await fetch(`${url}/p/${projectRouteId(project)}/api/worker/2/${suffix}`)).json()).toEqual({ project });
-    expect(calls).toHaveLength(6); expect(calls[0]).toEqual({ project: a, method: methods[0], params: { id: 2 } });
-    expect(calls[5]).toEqual({ project: b, method: methods[2], params: { id: 2 } });
+    for (const project of [a, b]) {
+      for (const suffix of paths)
+        expect(await (await fetch(`${url}/p/${projectRouteId(project)}/api/worker/2/${suffix}`)).json()).toEqual({ project });
+      // Both independently added read surfaces must survive the shared allowlist merge.
+      expect(await (await fetch(`${url}/p/${projectRouteId(project)}/api/cli/catalog`)).json()).toEqual({ project });
+    }
+    expect(calls).toHaveLength(2 * (methods.length + 1)); expect(calls[0]).toEqual({ project: a, method: methods[0], params: { id: 2 } });
+    expect(calls.at(-2)).toEqual({ project: b, method: methods.at(-1), params: { id: 2 } });
+    expect(calls.at(-1)).toEqual({ project: b, method: 'cli.catalog', params: undefined });
     expect((await fetch(url + '/api/worker/2/version-graph')).status).toBe(400);
+    expect((await fetch(url + '/api/cli/catalog')).status).toBe(400);
     expect((await fetch(`${url}/p/${'0'.repeat(16)}/api/worker/2/version-deliveries`)).status).toBe(400);
   } finally { web.stop(true); for (const dir of [a, b, global]) fs.rmSync(dir, { recursive: true, force: true }); }
 });

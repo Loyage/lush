@@ -30,7 +30,7 @@ const unavailable = new Set([
   'agent.connections.device.start','agent.connections.device.poll','agent.connections.device.cancel',
   'settings.migration.preview','settings.migration.apply','settings.clear_override',
   'worker.run_settings','worker.code_state','worker.code_tree','worker.code_file',
-  'worker.version_graph','worker.version_deliveries','worker.version_commit',
+  'worker.version_graph','worker.version_deliveries','worker.version_commit','worker.version_lineage','worker.version_lineage_commit',
   'worker.reading_page','worker.reading_record','worker.history','worker.history_page',
   'worker.transcript','worker.transcript_latest','worker.transcript_page','worker.transcript_step','worker.transcript_search',
   'worker.runs_page','worker.artifacts_page','worker.artifact', // raw provider/tool material is not a credential-safe read surface
@@ -80,7 +80,7 @@ const actionLabels = {
   get: '读取', parents: '父工作候选', emit: '条件发射', emission_cancel: '取消发射', exclusive_release: '释放独占', add: '新增',
   auto_title: '自动标题', rename: '重命名', lookup: '解析编号', graph: '关系图', activity: '活动', page: '分页列表',
   tree: '工作树', inspect: '详情', run_settings: '运行设置', progress_history: '进度历史', relations: '关系',
-  version_graph: '版本图', version_deliveries: '交付版本', version_commit: '提交内容', reading_page: '完整历史分页',
+  version_graph: '版本图', version_deliveries: '交付版本', version_commit: '提交内容', version_lineage: '分支历程', version_lineage_commit: '历程提交内容', reading_page: '完整历史分页',
   reading_record: '完整历史记录', history_page: '历史分页', diff: '代码差异', usage: '用量', code_state: '代码状态',
   code_tree: '代码目录', code_file: '代码文件', transcript: '原始执行记录', transcript_latest: '最近执行记录',
   transcript_page: '执行记录分页', transcript_step: '执行步骤', transcript_search: '搜索执行记录', runs_page: '调用分页',

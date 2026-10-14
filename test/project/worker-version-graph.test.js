@@ -151,6 +151,12 @@ test('real multi-source convergence keeps exact member receipts despite shared l
       const fixed = await f.project.workerVersionGraph({ id: task.id, delivery: deliveries.deliveries[0].delivery_id });
       expect(fixed.commits.map(c => c.commit)).toEqual([tip]);
       expect((await f.project.workerVersionCommit({ id: task.id, snapshot: fixed.snapshot, commit: tip })).commit.tasks[0].worker_number).toBe(task.worker_number);
+      const lineage = await f.project.workerVersionLineage({ id: task.id });
+      expect(lineage.origin.commit).toBe(task.base_commit); expect(lineage.commits.map(row => row.commit)).toEqual([tip]);
+      expect(lineage.deliveries[0]).toMatchObject({ delivery_id: deliveries.deliveries[0].delivery_id, source_commit: tip,
+        commit: main.tip, delivery_available: true });
+      expect(lineage.commits[0].parents).toEqual([task.base_commit]);
+      expect((await f.project.workerVersionLineageCommit({ id: task.id, snapshot: lineage.snapshot, commit: tip })).deliveries[0].delivery_available).toBe(true);
     }
   } finally { await f.close(); }
 });

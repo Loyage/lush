@@ -8,24 +8,31 @@ const worker = { id: 71, worker_number: 'W263-7', task_kind: 'order', role: 'age
   created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-02T00:00:00Z' };
 const main = { ...worker, task_kind: 'main', branch: 'main' };
 const association = { id: 93, worker_number: 'W263-7-2', evidence: 'task.merge_integrated', delivery_id: 611, delivery_available: true };
-const round = n => ({ ...association, id: 71, worker_number: worker.worker_number, delivery_id: n,
-  delivered_at: '2026-10-01', source_commit: sha(n), commit: sha(n + 1) });
-const rounds = (items = [round(900), round(800)], extra = {}) => ({ id: 71, deliveries: items, before: null, has_more: false, ...extra });
 const node = n => ({ commit: sha(n), short_commit: sha(n).slice(-7), parents: [sha(n - 1)], subject: `提交 ${n}`,
   committed_at: '2026-10-02T00:00:00Z', author: { name: '作者' }, association: 'verified', tasks: [association] });
-const page = (offset = 0, extra = {}) => ({ worker: { id: 71, worker_number: worker.worker_number }, scope: 'main',
-  branch: 'main', tip: sha(1000), base: null, delivery: null, snapshot: 'fixed-snapshot',
-  commits: Array.from({ length: 30 }, (_, i) => node(1000 - offset * 30 - i)), cursor: `cursor +/${offset + 1}`, has_more: offset < 5, ...extra });
+const graphPage = (offset = 0, extra = {}) => ({ worker: { id: 71 }, scope: 'main', branch: 'main', tip: sha(1000), base: null,
+  delivery: null, snapshot: 'fixed-snapshot', commits: Array.from({ length: 30 }, (_, i) => node(1000 - offset * 30 - i)),
+  cursor: `cursor +/${offset + 1}`, has_more: offset < 5, ...extra });
+const mapping = (delivery_id, source = 998, landing = 3000, extra = {}) => ({ delivery_id, source_commit: sha(source), commit: sha(landing),
+  parent_id: 1, delivered_at: '2026-10-02', evidence: 'task.merge_integrated', delivery_available: true, delivery_unavailable_reason: null, ...extra });
+const lineagePage = (offset = 0, extra = {}) => {
+  const commits = Array.from({ length: 30 }, (_, i) => node(1000 - offset * 30 - i));
+  if (offset === 5) commits.at(-1).parents = [sha(1)];
+  return { worker: { id: 71, worker_number: worker.worker_number }, scope: 'lineage', range: 'first-parent', branch: 'feature',
+    parent: { id: 1, worker_number: 'W111', branch: 'parent' }, origin: { ...node(1), parents: [], tasks: [], association: 'unassociated' },
+    tip: sha(1000), tip_evidence: 'branch.ref', tip_delivery_id: null, snapshot: 'fixed-lineage', commits,
+    deliveries: offset === 0 ? [mapping(903, 1, 3002), mapping(902), mapping(901), mapping(900, 997),
+      mapping(899, 996, 3001, { delivery_available: false, delivery_unavailable_reason: '对象核验失败' })] : [],
+    untraceable_deliveries: [mapping(500, 5, 3005, { source_commit: null, commit: null, delivery_available: false, delivery_unavailable_reason: '缺失固定源' })],
+    cursor: `cursor +/${offset + 1}`, has_more: offset < 5, ...extra };
+};
 const json = value => ({ ok: true, json: async () => value });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const drain = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 let intercept, requests = [], observers = [];
 const defaultResponse = url => {
-  if (url.includes('/version-deliveries')) return rounds();
-  const params = new URL(url, 'http://test').searchParams;
-  const delivery = Number(params.get('delivery')) || null;
-  const offset = params.has('cursor') ? Number(params.get('cursor').split('/')[1]) : 0;
-  return page(offset, delivery ? { scope: 'delivery', branch: 'feature', base: sha(1), delivery } : {});
+  const params = new URL(url, 'http://test').searchParams, offset = params.has('cursor') ? Number(params.get('cursor').split('/')[1]) : 0;
+  return url.includes('/version-lineage') ? lineagePage(offset) : graphPage(offset);
 };
 const dom = installDom({ fetch: (url, options) => {
   requests.push({ url: String(url), signal: options?.signal });
@@ -34,8 +41,7 @@ const dom = installDom({ fetch: (url, options) => {
 dom.document.createElementNS = (_namespace, tag) => dom.document.createElement(tag);
 const prototype = Object.getPrototypeOf(dom.document.createElement('div'));
 Object.defineProperty(prototype, 'isConnected', { configurable: true, get() {
-  for (let at = this; at; at = at.parentNode) if (at === dom.node('detail')) return true;
-  return false;
+  for (let at = this; at; at = at.parentNode) if (at === dom.node('detail')) return true; return false;
 } });
 const oldObserver = globalThis.IntersectionObserver;
 class Observer {
@@ -51,16 +57,15 @@ const { loadDetail } = await import('../../src/ui/web/assets/detail.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
 const panel = dom.node('detail');
 const root = () => panel.querySelector('.worker-versions');
-const query = selector => root().querySelector(selector);
+const query = selector => selector.split(' ').reduce((at, part) => at?.querySelector(part), root());
 const click = selector => query(selector).onclick();
 const graphReads = () => requests.filter(r => r.url.includes('/version-graph'));
-const deliveryReads = () => requests.filter(r => r.url.includes('/version-deliveries'));
-const detailReads = () => requests.filter(r => r.url.includes('/version-commit'));
+const lineageReads = () => requests.filter(r => r.url.includes('/version-lineage?'));
+const detailReads = () => requests.filter(r => r.url.includes('/version-lineage-commit'));
 const mount = (task = worker) => { const module = renderWorkerVersions(task); panel.append(module); return module; };
 const open = async (task = worker) => { mount(task); observers.at(-1).enter(); await drain(); };
-const openRound = async () => { await open(); await click('.version-round-choice'); };
-const detailResult = (commit = node(1000)) => ({ worker: { id: 71 }, commit: { ...commit,
-  message: '<script>evil()</script>\n完整提交消息', tasks: [{ ...association, goal: '<img onerror=evil()>', input: { id: 263, content: '<svg onload=evil()>\n原始输入' } }] } });
+const detailResult = (commit = node(971)) => ({ worker: { id: 71 }, scope: 'lineage', commit: { ...commit,
+  message: '<script>evil()</script>\n完整提交消息', tasks: [{ ...association, goal: '<img onerror=evil()>', input: { id: 263, content: '<svg onload=evil()>\n原始输入' } }] }, deliveries: [] });
 beforeEach(() => {
   disposeWorkerVersions(); resetUiState(); panel.replaceChildren(); delete panel.dataset.taskId;
   ui.view = { id: 'task', key: 'task-71' }; ui.selected = 71; ui.detailTask = 71;
@@ -68,189 +73,259 @@ beforeEach(() => {
 });
 afterAll(() => { disposeWorkerVersions(); globalThis.IntersectionObserver = oldObserver; delete prototype.isConnected; dom.restore(); });
 
-test('滚入即展示真实轮次图，无切换/展开/当前分支读取；每个节点使用Event身份和持久编号', async () => {
-  mount(); expect(requests).toHaveLength(0);
-  observers[0].callback([{ isIntersecting: false }]); expect(requests).toHaveLength(0);
+test('滚入直接GET lineage limit30；双轨旧到新自身commit无需先选轮次，正文不预取', async () => {
+  mount(); expect(requests).toHaveLength(0); observers[0].callback([{ isIntersecting: false }]); expect(requests).toHaveLength(0);
   observers[0].enter(); observers[0].enter(); await drain();
-  expect(deliveryReads()).toHaveLength(1); expect(deliveryReads()[0].url).toBe('/api/worker/71/version-deliveries?limit=30');
+  expect(lineageReads()).toHaveLength(1); expect(lineageReads()[0].url).toBe('/api/worker/71/version-lineage?limit=30');
   expect(graphReads()).toHaveLength(0); expect(detailReads()).toHaveLength(0);
-  expect(query('.version-rounds').tagName).toBe('SECTION'); expect(query('.version-rounds').hidden).toBe(false);
-  expect(query('.version-round-detail').hidden).toBe(true); expect(query('.versions-load').hidden).toBe(true);
-  const nodes = root().querySelectorAll('.version-round'); expect(nodes).toHaveLength(2);
-  expect(nodes[0].dataset.delivery).toBe('900'); expect(nodes[0].dataset.previousDelivery).toBe('800');
-  expect(nodes[1].dataset.previousDelivery).toBeUndefined(); expect(deepText(root())).toContain('不是 Git 父边');
-  expect(deepText(root())).toContain(worker.worker_number); expect(observers[0].disconnected).toBe(true);
+  expect(requests.some(r => r.url.includes('version-deliveries'))).toBe(false);
+  expect(query('.versions-load').hidden).toBe(true); expect(observers[0].disconnected).toBe(true);
+  const nodes = root().querySelectorAll('.lineage-source'); expect(nodes).toHaveLength(30);
+  expect(nodes[0].dataset.commit).toBe(sha(971)); expect(nodes.at(-1).dataset.commit).toBe(sha(1000));
+  expect(query('.lineage-tracks').children[0].textContent).toContain('W111');
+  expect(query('.lineage-tracks').children[1].textContent).toContain(worker.worker_number);
+  expect(query('.versions-feedback').textContent).toContain('从上到下旧到新');
+  expect(deepText(query('.lineage-gap'))).toContain('创建起点与本段之间还有更早分段');
+  expect(query('.lineage-fork')).toBeNull(); expect(query('.version-input')).toBeNull();
+  expect(query('.lineage-source').querySelector('.version-task-link').getAttribute('href')).toBe('#worker-93');
 });
 
-test('同一源SHA多次持久交付仍分成独立轮次；点击才展示源与父侧落点', async () => {
-  intercept = url => url.includes('/version-deliveries') ? json(rounds([{ ...round(900), source_commit: sha(800), commit: sha(801) }, round(800)])) : null;
-  await open(); expect(root().querySelectorAll('.version-round')).toHaveLength(2); expect(graphReads()).toHaveLength(0);
-  expect(query('.version-round-detail').hidden).toBe(true);
-  await click('.version-round-choice'); expect(query('.version-receipt').textContent).toContain(sha(800));
-  expect(query('.version-receipt').textContent).toContain(`父侧落点：${sha(801)}`);
-  expect(graphReads()[0].url).toContain('delivery=900');
+test('相同source多Event、共享landing/no-new-landing保留映射而不重复真实节点或Git边', async () => {
+  await open();
+  expect(root().querySelectorAll('.lineage-mapping')).toHaveLength(5);
+  expect(root().querySelectorAll('.lineage-landing')).toHaveLength(2); // origin-source landing + one shared landing
+  expect(root().querySelectorAll('.lineage-landing').map(n => n.dataset.landing)).toEqual([sha(3002), sha(3000)]);
+  expect(root().querySelectorAll('.lineage-git-edge')).toHaveLength(29);
+  const source = query(`[data-commit="${sha(998)}"]`).parentNode;
+  expect(source.querySelectorAll('.lineage-mapping').map(n => n.dataset.delivery)).toEqual(['901', '902']);
+  const edges = root().querySelectorAll('.lineage-delivery-edge');
+  expect(edges.map(e => [e.dataset.source, e.dataset.landing, e.dataset.deliveries])).toEqual([
+    [sha(1), sha(3002), '903'], [sha(998), sha(3000), '901,902'], [sha(997), sha(3000), '900'],
+  ]);
+  for (const edge of edges) {
+    const nodes = [...root().querySelectorAll('.lineage-node'), ...root().querySelectorAll('.lineage-parent-node')];
+    expect(nodes.some(n => n.id === edge.dataset.sourceNode)).toBe(true);
+    expect(nodes.some(n => n.id === edge.dataset.targetNode)).toBe(true);
+  }
+  expect(edges[1].dataset.targetNode).toBe(edges[2].dataset.targetNode);
+  expect(query('.lineage-mapping').dataset.source).toBe(sha(1)); // origin-source mapping is independent on first page
+  expect(deepText(root())).toContain('持久 Event 收据映射，不是 Git parents');
+  expect(query('.lineage-mapping[data-delivery="899"]').dataset.verified).toBeUndefined();
+  expect(query('.lineage-mapping[data-delivery="899"] summary').textContent).toContain('对象核验失败');
+  expect(query('.lineage-untraceable').hidden).toBe(false); expect(deepText(query('.lineage-untraceable'))).toContain('缺失固定源');
+  expect(query('.lineage-untraceable').querySelectorAll('.lineage-receipt')).toHaveLength(1);
 });
 
-test('没有成功交付或缺固定证据，不回退当前分支，也不隐藏历史成功Event', async () => {
-  intercept = () => json(rounds([])); await open(); expect(deepText(root())).toContain('暂无成功交付轮次');
-  expect(graphReads()).toHaveLength(0); expect(root().querySelectorAll('.version-round')).toHaveLength(0);
-  intercept = () => json(rounds([{ ...round(500), evidence: 'merged', delivery_available: false, delivery_unavailable_reason: '历史证据不足' }]));
-  await click('.version-round-refresh'); expect(query('.version-round-choice')).toBeNull();
-  expect(deepText(root())).toContain('交付 Event 500'); expect(deepText(root())).toContain('历史证据不足'); expect(graphReads()).toHaveLength(0);
+test('同source不同landing、跨source共享landing以及origin目标的每对映射均定位到唯一真实父锚点', async () => {
+  intercept = () => json(lineagePage(0, { deliveries: [mapping(909, 998, 3000), mapping(908, 998, 3003),
+    mapping(907, 997, 3000), mapping(906, 996, 1), mapping(905, 995, 3000, { delivery_available: false, delivery_unavailable_reason: '缺证据' })] }));
+  await open(); const edges = root().querySelectorAll('.lineage-delivery-edge');
+  expect(edges).toHaveLength(4); expect(root().querySelectorAll('.lineage-landing')).toHaveLength(2);
+  for (const event of [906, 907, 908, 909]) expect(edges.filter(e => e.dataset.deliveries === String(event))).toHaveLength(1);
+  const target = event => edges.find(e => e.dataset.deliveries === String(event)).dataset.targetNode;
+  expect(target(906)).toBe(query('.lineage-origin .lineage-node').id); expect(target(907)).toBe(target(909));
+  expect(target(908)).not.toBe(target(909)); expect(edges.some(e => e.dataset.deliveries === '905')).toBe(false);
 });
 
-test('无observer保留键盘可达加载；main只读取main图及原生子Worker链接，不内联子图', async () => {
+test('映射重测几何、收据键盘高亮及RO/RAF/监听离页释放，迟到回调不复活', async () => {
+  const oldRO = globalThis.ResizeObserver, queued = new Map(), cancelled = [], resize = [];
+  let observer, serial = 0;
+  globalThis.ResizeObserver = class {
+    constructor(callback) { this.callback = callback; this.nodes = []; observer = this; }
+    observe(node) { this.nodes.push(node); }
+    disconnect() { this.nodes = []; }
+  };
+  dom.window.requestAnimationFrame = callback => { queued.set(++serial, callback); return serial; };
+  dom.window.cancelAnimationFrame = id => { cancelled.push(id); queued.delete(id); };
+  dom.window.addEventListener = (name, run) => { if (name === 'resize') resize.push(run); };
+  dom.window.removeEventListener = (name, run) => { if (name === 'resize') resize.splice(resize.indexOf(run), 1); };
+  try {
+    await open(); const module = root(), canvas = query('.lineage-canvas'), edge = root().querySelectorAll('.lineage-delivery-edge')[1];
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 500, height: 4000 });
+    let y = 500;
+    for (const cell of root().querySelectorAll('.lineage-worker')) cell.getBoundingClientRect = () => ({ left: 260 });
+    for (const marker of root().querySelectorAll('.lineage-node')) marker.getBoundingClientRect = () => ({ left: 270, top: y, width: 24, height: 48 });
+    for (const marker of root().querySelectorAll('.lineage-parent-node')) marker.getBoundingClientRect = () => ({ left: 10, top: 200, width: 24, height: 48 });
+    const flush = () => { const callbacks = [...queued.values()]; queued.clear(); for (const run of callbacks) run(); };
+    flush(); expect(edge.dataset.sourceY).toBe('524'); expect(edge.dataset.targetY).toBe('224');
+    const oldPath = edge.getAttribute('d'); y = 800; observer.callback(); flush();
+    expect(edge.dataset.sourceY).toBe('824'); expect(edge.getAttribute('d')).not.toBe(oldPath);
+    module.listeners.focusin[0]({ target: query('.lineage-mapping[data-delivery="901"] summary') }); expect(edge.classList.contains('is-active')).toBe(true);
+    module.listeners.toggle[0](); expect(queued.size).toBe(1);
+    const late = observer.callback; disposeWorkerVersions(); expect(observer.nodes).toHaveLength(0); expect(queued.size).toBe(0);
+    expect(cancelled.length).toBeGreaterThan(0); expect(resize).toHaveLength(0);
+    for (const name of ['focusin', 'focusout', 'pointerover', 'pointerout', 'toggle']) expect(module.listeners[name]).toHaveLength(0);
+    late(); expect(queued.size).toBe(0); expect(module.querySelectorAll('.lineage-delivery-edge')).toHaveLength(0);
+  } finally {
+    globalThis.ResizeObserver = oldRO;
+    for (const name of ['requestAnimationFrame', 'cancelAnimationFrame', 'addEventListener', 'removeEventListener']) delete dom.window[name];
+  }
+});
+
+test('完全无开发仍显示引出；无交付的当前commit不会藏成空轮次', async () => {
+  intercept = () => json(lineagePage(0, { commits: [], tip: sha(1), has_more: false, cursor: null, deliveries: [] }));
+  await open(); expect(query('.lineage-origin')).toBeTruthy(); expect(query('.lineage-source')).toBeNull();
+  expect(deepText(root())).toContain('尚无自身开发 commit');
+  intercept = () => json(lineagePage(0, { commits: [{ ...node(2), parents: [sha(1)] }], tip: sha(2), has_more: false, cursor: null, deliveries: [] }));
+  await click('.versions-refresh'); expect(root().querySelectorAll('.lineage-source')).toHaveLength(1);
+  expect(query('.lineage-fork').dataset.child).toBe(sha(2)); expect(query('.lineage-fork').dataset.parent).toBe(sha(1));
+});
+
+test('origin来源无开发的多Event与no-new-landing不制造父侧或Worker重复节点', async () => {
+  intercept = () => json(lineagePage(0, { commits: [], tip: sha(1), has_more: false, cursor: null,
+    deliveries: [mapping(904, 1, 1), mapping(903, 1, 1)] }));
+  await open(); expect(root().querySelectorAll('.lineage-origin')).toHaveLength(1);
+  expect(root().querySelectorAll('.lineage-source')).toHaveLength(0); expect(root().querySelectorAll('.lineage-landing')).toHaveLength(0);
+  expect(root().querySelectorAll('.lineage-mapping').map(n => n.dataset.delivery)).toEqual(['903', '904']);
+  expect(query('.lineage-git-edge')).toBeNull();
+  const edge = query('.lineage-delivery-edge'); expect(edge.dataset.deliveries).toBe('903,904');
+  expect(edge.dataset.sourceNode).toBe(edge.dataset.targetNode);
+  expect(detailReads()).toHaveLength(0);
+});
+
+test('同步merge保留真实第二父虚线边界，不展开父侧外部提交；未交付tip明确存在', async () => {
+  const data = lineagePage(); data.commits[0].parents.push(sha(6000)); intercept = () => json(data); await open();
+  const edge = query(`.lineage-git-boundary[data-parent="${sha(6000)}"]`);
+  expect(edge.dataset.child).toBe(sha(1000)); expect(deepText(edge)).toContain('同步外部父边');
+  expect(query(`[data-commit="${sha(6000)}"]`)).toBeNull();
+  expect(query(`[data-commit="${sha(1000)}"]`).parentNode.querySelector('.lineage-mapping')).toBeNull();
+  expect(query('.version-tip').textContent).toContain('不含未提交改动');
+});
+
+test('来源链内的第二父仍绘制真实实线，无额外节点', async () => {
+  const data = lineagePage(); data.commits[0].parents.push(sha(998)); intercept = () => json(data); await open();
+  const edges = root().querySelectorAll('.lineage-secondary-edge');
+  expect(edges).toHaveLength(3); expect(edges.every(e => e.dataset.child === sha(1000) && e.dataset.parent === sha(998))).toBe(true);
+  expect(root().querySelectorAll('.lineage-source')).toHaveLength(30);
+  expect(query(`.lineage-git-boundary[data-parent="${sha(998)}"]`)).toBeNull();
+});
+
+test('owner沿用旧graph入口，不调用不适用的lineage或轮次接口', async () => {
+  await open({ ...main, task_kind: 'owner' }); expect(graphReads()).toHaveLength(1); expect(lineageReads()).toHaveLength(0);
+  expect(requests.some(r => r.url.includes('version-deliveries'))).toBe(false); expect(query('.lineage-list')).toBeNull();
+});
+
+test('无Observer键盘加载；main真实parents图只保留原生子链接与兼容入口', async () => {
   globalThis.IntersectionObserver = undefined; mount(); await drain(); expect(requests).toHaveLength(0);
-  expect(query('.versions-load').type).toBe('button'); await click('.versions-load'); expect(deliveryReads()).toHaveLength(1);
+  expect(query('.versions-load').type).toBe('button'); await click('.versions-load'); expect(lineageReads()).toHaveLength(1);
   disposeWorkerVersions(); panel.replaceChildren(); mount(main); await click('.versions-load');
   expect(graphReads()[0].url).toBe('/api/worker/71/version-graph?limit=30');
-  expect(query('.version-rounds').hidden).toBe(true); expect(query('.version-round-detail').hidden).toBe(false);
   const link = query('.version-task-link'); expect(link.tagName).toBe('A'); expect(link.getAttribute('href')).toBe('#worker-93');
   expect(link.textContent).toBe('Worker W263-7-2'); expect(query('.version-delivery-choice')).toBeNull();
   expect(root().querySelectorAll('.agent-call')).toHaveLength(0);
+  const unknown = renderVersionCommit({ ...node(2), tasks: [{ ...association, worker_number: null }] });
+  expect(unknown.querySelector('.version-task-link').textContent).toBe('Worker #93');
 });
 
-test('轮次30节点有界分页，失败保留/重试，刷新从最新开始，不累计正文', async () => {
-  intercept = () => json(rounds(Array.from({ length: 30 }, (_, i) => round(900 - i)), { before: 871, has_more: true }));
-  await open(); expect(root().querySelectorAll('.version-round')).toHaveLength(30);
-  expect(query('.version-round-newer').disabled).toBe(true);
-  intercept = () => Promise.reject(new Error('轮次失败')); await click('.version-round-older');
-  expect(root().querySelectorAll('.version-round')).toHaveLength(30); expect(deepText(root())).toContain('轮次失败');
-  intercept = () => json(rounds([round(600)]));
-  await query('.version-rounds').querySelectorAll('button').find(b => b.textContent === '重试交付轮次').onclick();
-  expect(deliveryReads().at(-1).url).toContain('before=871'); expect(root().querySelectorAll('.version-round')).toHaveLength(1);
-  expect(query('.version-round-older').disabled).toBe(true);
-  await click('.version-round-refresh'); expect(deliveryReads().at(-1).url).not.toContain('before=');
-  expect(graphReads()).toHaveLength(0);
-});
-
-test('轮次身份/顺序/页界限校验，不把坏响应当作历史或空状态', async () => {
-  await open(); const nodes = root().querySelectorAll('.version-round');
-  for (const data of [rounds([round(900), round(900)]), rounds([round(500), round(900)]), rounds([{ ...round(900), id: 93 }]),
-    rounds([round(900)], { id: 93 }), rounds(Array.from({ length: 31 }, (_, i) => round(900 - i))),
-    rounds([round(900)], { before: 123, has_more: true }), rounds([{ ...round(900), evidence: 'delivery.source' }])]) {
-    intercept = () => json(data); await click('.version-round-refresh');
-    expect(deepText(root())).toContain('数据格式不兼容'); expect(root().querySelectorAll('.version-round')).toEqual(nodes);
-  }
-  expect(graphReads()).toHaveLength(0);
-});
-
-test('轮次节点一次点击内联固定Event图；返回仍是轮次图，无当前分支读取', async () => {
-  await openRound(); expect(graphReads()).toHaveLength(1);
-  expect(graphReads()[0].url).toBe('/api/worker/71/version-graph?limit=30&delivery=900');
-  expect(query('.version-round-detail').hidden).toBe(false); expect(query('.versions-scope').textContent).toContain('Event 900');
-  expect(query('.version-rounds').hidden).toBe(false); expect(detailReads()).toHaveLength(0);
-  await click('.versions-back'); expect(query('.version-round-detail').hidden).toBe(true);
-  expect(graphReads()).toHaveLength(1); expect(root().querySelectorAll('.version-round')).toHaveLength(2);
-  const unknown = renderVersionCommit({ ...node(2), tasks: [{ ...association, worker_number: null, evidence: 'worker.source' }] });
-  expect(unknown.querySelector('.version-task-link').textContent).toBe('Worker #93'); expect(unknown.querySelector('.version-delivery-choice')).toBeNull();
-});
-
-test('main30节点/三页缓存/固定首屏；长图双向切页不累计，淘汰后cursor读取', async () => {
-  await open(main); expect(query('.versions-newer').disabled).toBe(true);
+test('lineage固定首屏签名、三页缓存和双向分页；淘汰页用原cursor，刷新才重新取样', async () => {
+  await open(); expect(query('.versions-newer').disabled).toBe(true);
   for (let i = 1; i <= 5; i++) {
-    await click('.versions-more'); expect(root().querySelectorAll('.version-commit')).toHaveLength(30);
+    await click('.versions-more'); expect(root().querySelectorAll('.lineage-source')).toHaveLength(30);
     expect(Number(root().dataset.cachedPages)).toBeLessThanOrEqual(3);
+    expect(query('.lineage-untraceable').querySelectorAll('.lineage-receipt')).toHaveLength(1);
   }
+  expect(query('.versions-more').disabled).toBe(true); expect(query('.lineage-fork')).toBeTruthy();
+  const before = lineageReads().length; await click('.versions-newer'); expect(lineageReads()).toHaveLength(before);
+  await click('.versions-newer'); expect(lineageReads()).toHaveLength(before + 1);
+  await click('.versions-newer'); expect(lineageReads().at(-1).url).toContain('cursor=cursor+%2B%2F2');
+  await click('.versions-newer'); const count = lineageReads().length;
+  intercept = () => json(lineagePage(0, { tip: sha(9999), snapshot: 'advanced', commits: [{ ...node(9999), parents: [sha(1)] }], has_more: false, deliveries: [] }));
+  await click('.versions-newer'); expect(lineageReads()).toHaveLength(count); expect(query(`[data-commit="${sha(1000)}"]`)).toBeTruthy();
+  await click('.versions-refresh'); expect(query(`[data-commit="${sha(9999)}"]`)).toBeTruthy();
+  expect(lineageReads().at(-1).url).toBe('/api/worker/71/version-lineage?limit=30');
+});
+
+test('main30节点/三页缓存/固定首屏以及真实边界parents继续保留', async () => {
+  await open(main); expect(query('.versions-newer').disabled).toBe(true);
+  for (let i = 1; i <= 5; i++) { await click('.versions-more'); expect(root().querySelectorAll('.version-commit')).toHaveLength(30); expect(Number(root().dataset.cachedPages)).toBeLessThanOrEqual(3); }
   expect(query('.versions-more').disabled).toBe(true); const before = graphReads().length;
   await click('.versions-newer'); expect(graphReads()).toHaveLength(before);
   await click('.versions-newer'); expect(graphReads()).toHaveLength(before + 1);
   await click('.versions-newer'); expect(graphReads().at(-1).url).toContain('cursor=cursor+%2B%2F2');
   await click('.versions-newer'); const count = graphReads().length;
-  intercept = () => json(page(0, { tip: sha(9999), snapshot: 'advanced' }));
-  await click('.versions-newer'); expect(graphReads()).toHaveLength(count); expect(query('.version-tip').textContent).toContain(sha(1000));
+  intercept = () => json(graphPage(0, { tip: sha(9999), snapshot: 'advanced' })); await click('.versions-newer');
+  expect(graphReads()).toHaveLength(count); expect(query('.version-tip').textContent).toContain(sha(1000));
+  expect(root().querySelectorAll('.version-edge-boundary').length).toBeGreaterThan(0);
 });
 
-test('固定交付分页始终带Event；淘汰的第一页只可重采相同范围并清旧snapshot游标', async () => {
-  await openRound(); for (let i = 0; i < 4; i++) await click('.versions-more');
-  expect(graphReads().every(r => r.url.includes('delivery=900'))).toBe(true);
-  for (let i = 0; i < 3; i++) await click('.versions-newer');
-  intercept = url => json({ ...defaultResponse(url), snapshot: 'new-fixed' }); await click('.versions-newer');
-  expect(query('.versions-feedback').textContent).toContain('第 1 页');
-  intercept = url => url.includes('/version-commit') ? json(detailResult()) : null;
-  await click('.version-node'); expect(detailReads().at(-1).url).toContain('snapshot=new-fixed');
-  expect(deepText(root())).toContain('真实 Git parents'); expect(root().querySelectorAll('.version-edge-boundary').length).toBeGreaterThan(0);
-});
-
-test('节点按需完整消息/安全文本/O链接/历史say；失败可重试，关闭返回焦点', async () => {
-  await openRound(); expect(query('.version-input')).toBeNull(); expect(detailReads()).toHaveLength(0);
-  intercept = url => url.includes('/version-commit') ? Promise.reject(new Error('节点不可用')) : null;
-  const marker = query('.version-node'); await marker.onclick(); expect(deepText(query('.version-node-detail'))).toContain('节点读取失败');
+test('节点完整SHA+lineage snapshot按需读取，内联一次一个，安全文本/原始O折叠/关闭焦点', async () => {
+  await open(); const card = query('.lineage-source'), marker = card.querySelector('.lineage-node');
+  intercept = url => url.includes('version-lineage-commit') ? Promise.reject(new Error('节点不可用')) : null;
+  await marker.onclick(); expect(deepText(query('.version-node-detail'))).toContain('节点读取失败');
   const result = detailResult(); result.commit.tasks[0].task_kind = 'say';
-  intercept = url => url.includes('/version-commit') ? json(result) : null;
+  intercept = url => url.includes('version-lineage-commit') ? json(result) : null;
   await query('.version-node-detail').querySelector('button').onclick();
-  expect(detailReads().at(-1).url).toContain(`commit=${sha(1000)}`); expect(detailReads().at(-1).url).toContain('snapshot=fixed-snapshot');
+  expect(detailReads().at(-1).url).toContain(`commit=${sha(971)}`); expect(detailReads().at(-1).url).toContain('snapshot=fixed-lineage');
   expect(deepText(query('.version-node-detail'))).toContain('<script>evil()</script>');
   expect(root().querySelectorAll('script')).toHaveLength(0); expect(root().querySelectorAll('img')).toHaveLength(0);
-  expect(query('.version-input').open).not.toBe(true); expect(query('.version-input').querySelector('.record-link').getAttribute('href')).toBe('#input-input-263');
-  expect(result.commit.tasks[0].task_kind).toBe('say');
-  expect(query('.version-node-detail').parentNode).toBe(query('.version-commit').querySelector('.version-body'));
-  expect(marker.getAttribute('aria-expanded')).toBe('true'); expect(document.activeElement).toBe(query('.version-node-detail'));
+  expect(query('.version-input').open).not.toBe(true);
+  expect(query('.version-input').querySelector('.record-link').getAttribute('href')).toBe('#input-input-263');
+  expect(query('.version-node-detail').parentNode).toBe(card.querySelector('.lineage-body'));
+  expect(document.activeElement).toBe(query('.version-node-detail')); expect(marker.getAttribute('aria-expanded')).toBe('true');
   await query('.version-node-detail').querySelector('button').onclick(); expect(document.activeElement).toBe(marker);
+  intercept = url => url.includes('version-lineage-commit') ? json(detailResult(lineagePage().origin)) : null;
+  await click('.lineage-origin .lineage-node'); expect(detailReads().at(-1).url).toContain(`commit=${sha(1)}`);
+  expect(root().querySelectorAll('.version-node-detail')).toHaveLength(1);
+  const reads = requests.length; query('.lineage-landing-receipts').open = true; expect(requests).toHaveLength(reads); // no arbitrary landing details API
 });
 
-test('子交付可按需固定读取/返回，失败不回退当前分支；main没有此下钻', async () => {
-  await openRound(); const cards = root().querySelectorAll('.version-commit'), late = deferred();
-  intercept = url => url.includes('/version-commit') ? late.promise : Promise.reject(new Error('子源对象缺失'));
-  const pending = click('.version-node'); await click('.version-delivery-choice'); late.resolve(json(detailResult())); await pending;
-  expect(deepText(root())).toContain('子源对象缺失'); expect(query('.version-node-detail').hidden).toBe(true);
-  expect(graphReads().at(-1).url).toBe('/api/worker/93/version-graph?limit=30&delivery=611');
-  await click('.versions-back'); expect(root().querySelectorAll('.version-commit').map(c => c.dataset.commit)).toEqual(cards.map(c => c.dataset.commit));
-  const noEvidence = renderVersionCommit({ ...node(2), tasks: [{ ...association, evidence: null }] }, { onDelivery: () => {} });
-  expect(noEvidence.querySelector('.version-delivery-choice')).toBeNull();
+test('lineage首读/分页/刷新失败保留成功页，重试目标正确；旧snapshot不能读取节点', async () => {
+  intercept = () => Promise.reject(new Error('Git失败')); await open(); expect(deepText(root())).toContain('Git失败');
+  intercept = null; await click('.versions-retry'); const cards = root().querySelectorAll('.lineage-source');
+  intercept = () => Promise.reject(new Error('Git失败')); await click('.versions-more'); expect(root().querySelectorAll('.lineage-source')).toEqual(cards);
+  await click('.versions-refresh'); const reads = requests.length; await query('.lineage-source .lineage-node').onclick();
+  expect(requests).toHaveLength(reads); expect(query('.versions-more').disabled).toBe(true);
+  intercept = null; await click('.versions-retry'); expect(lineageReads().at(-1).url).toBe('/api/worker/71/version-lineage?limit=30');
 });
 
-test('图首读/分页/刷新失败保留成功页；刷新丢弃snapshot，节点不能使用旧图', async () => {
-  await open(); intercept = () => Promise.reject(new Error('Git失败')); await click('.version-round-choice');
-  expect(deepText(root())).toContain('Git失败'); intercept = null; await click('.versions-retry');
-  const cards = root().querySelectorAll('.version-commit'); intercept = () => Promise.reject(new Error('Git失败'));
-  await click('.versions-more'); expect(root().querySelectorAll('.version-commit')).toEqual(cards);
-  await click('.versions-refresh'); const before = requests.length; await click('.version-node'); expect(requests).toHaveLength(before);
-  expect(query('.versions-more').disabled).toBe(true); intercept = null; await click('.versions-retry');
-  expect(graphReads().at(-1).url).toBe('/api/worker/71/version-graph?limit=30&delivery=900');
+test('lineage响应格式/映射/分页签名核验，不把错图或坏证据当空状态', async () => {
+  await open(); const cards = root().querySelectorAll('.lineage-source');
+  intercept = () => json(lineagePage(1, { snapshot: 'changed' })); await click('.versions-more'); expect(deepText(root())).toContain('分页快照发生变化');
+  const invalid = [lineagePage(0, { worker: { id: 93 } }), lineagePage(0, { commits: [node(2), node(2)] }),
+    lineagePage(0, { commits: [node(2), node(3)] }), lineagePage(0, { commits: Array.from({ length: 31 }, (_, i) => node(100 - i)) }),
+    lineagePage(0, { has_more: true, cursor: null }), lineagePage(0, { deliveries: [mapping(900), mapping(900)] }),
+    lineagePage(0, { deliveries: [mapping(900, 998, 3000, { parent_id: 2 })] }), lineagePage(0, { origin: { ...node(1), parents: ['ref'] } })];
+  for (const data of invalid) { intercept = () => json(data); await click('.versions-refresh'); expect(deepText(root())).toContain('不兼容'); expect(root().querySelectorAll('.lineage-source')).toEqual(cards); }
 });
 
-test('轮次/节点/分页迟到保护，刷新和换Worker取消旧请求不覆盖新页面', async () => {
+test('刷新/分页/节点迟到保护，换Worker或离页取消旧请求不覆盖新模块', async () => {
   const old = deferred(), fresh = deferred(); intercept = () => old.promise; mount(); const reading = click('.versions-load');
-  intercept = () => fresh.promise; const refreshing = click('.version-round-refresh'); expect(deliveryReads()[0].signal.aborted).toBe(true);
-  old.resolve(json(rounds([round(500)]))); await reading; expect(root().getAttribute('aria-busy')).toBe('true');
-  fresh.resolve(json(rounds())); await refreshing; expect(root().querySelectorAll('.version-round')).toHaveLength(2);
-  intercept = null; await click('.version-round-choice');
-  const late = deferred(); intercept = () => late.promise; const nodeRead = click('.version-node');
-  await click('.versions-back'); late.resolve(json(detailResult())); await nodeRead; expect(query('.version-node-detail').hidden).toBe(true);
-  const stale = deferred(); intercept = () => stale.promise; const loading = click('.version-round-refresh'), abandoned = root();
+  intercept = () => fresh.promise; const refreshing = click('.versions-refresh'); expect(lineageReads()[0].signal.aborted).toBe(true);
+  old.resolve(json(lineagePage())); await reading; expect(root().getAttribute('aria-busy')).toBe('true');
+  fresh.resolve(json(lineagePage())); await refreshing;
+  const gate = deferred(); intercept = () => gate.promise; const paging = click('.versions-more');
+  intercept = null; await click('.versions-refresh'); gate.resolve(json(lineagePage(1))); await paging;
+  expect(query('.versions-feedback').textContent).toContain('第 1 页');
+  const late = deferred(); intercept = () => late.promise; const nodeRead = query('.lineage-source .lineage-node').onclick();
+  intercept = null; await click('.versions-more'); late.resolve(json(detailResult())); await nodeRead; expect(query('.version-node-detail').hidden).toBe(true);
+  const stale = deferred(); intercept = () => stale.promise; const loading = click('.versions-refresh'), abandoned = root();
   disposeWorkerVersions(); panel.replaceChildren(); panel.append(renderWorkerVersions({ ...worker, id: 72 }));
-  stale.resolve(json(rounds())); await loading; expect(root().querySelectorAll('.version-round')).toHaveLength(0);
+  stale.resolve(json(lineagePage())); await loading; expect(root().querySelectorAll('.lineage-source')).toHaveLength(0);
   expect(abandoned.querySelector('.versions-load').onclick).toBeNull();
 });
 
-test('图刷新/轮次切换/返回后迟到图响应不能覆盖新图或重开提交详情', async () => {
-  await openRound(); const old = deferred(), fresh = deferred();
-  intercept = url => url.includes('cursor=') ? old.promise : fresh.promise;
-  const paging = click('.versions-more'), refreshing = click('.versions-refresh');
-  expect(graphReads().at(-2).signal.aborted).toBe(true);
-  old.resolve(json(page(1, { scope: 'delivery', delivery: 900 }))); await paging;
-  expect(root().getAttribute('aria-busy')).toBe('true');
-  fresh.resolve(json(page(0, { scope: 'delivery', delivery: 900, snapshot: 'fresh', commits: [node(7)] }))); await refreshing;
-  expect(root().querySelectorAll('.version-commit')).toHaveLength(1);
-  const stale = deferred(); intercept = () => stale.promise; const loading = click('.versions-refresh');
-  await click('.versions-back'); stale.resolve(json(page(0, { scope: 'delivery', delivery: 900 }))); await loading;
-  expect(query('.version-round-detail').hidden).toBe(true); expect(root().querySelectorAll('.version-commit')).toHaveLength(0);
-  const gate = deferred(); intercept = () => gate.promise; const first = click('.version-round-choice');
-  intercept = null; await root().querySelectorAll('.version-round-choice')[1].onclick();
-  gate.resolve(json(page(0, { scope: 'delivery', delivery: 900 }))); await first;
-  expect(query('.versions-scope').textContent).toContain('Event 800');
-  expect(query('.version-round-detail').hidden).toBe(false); expect(graphReads().at(-1).url).toContain('delivery=800');
+test('main刷新取消/签名/错误保留/节点迟到隔离保持覆盖', async () => {
+  await open(main); const cards = root().querySelectorAll('.version-commit');
+  intercept = () => json(graphPage(1, { snapshot: 'bad' })); await click('.versions-more'); expect(deepText(root())).toContain('分页快照发生变化');
+  const old = deferred(); intercept = () => old.promise; const reading = click('.versions-more');
+  intercept = null; await click('.versions-refresh'); expect(graphReads().at(-2).signal.aborted).toBe(true);
+  old.resolve(json(graphPage(1))); await reading; expect(query('.versions-feedback').textContent).toContain('第 1 页');
+  const nodeLate = deferred(); intercept = () => nodeLate.promise; const readingNode = click('.version-node');
+  intercept = null; await click('.versions-more'); nodeLate.resolve(json(detailResult(node(1000)))); await readingNode;
+  expect(query('.version-node-detail').hidden).toBe(true);
+  intercept = () => Promise.reject(new Error('main Git失败')); await click('.versions-refresh');
+  expect(deepText(root())).toContain('main Git失败'); expect(root().querySelectorAll('.version-commit')).toHaveLength(cards.length);
+  const count = requests.length; await click('.version-node'); expect(requests).toHaveLength(count);
 });
 
-test('同Worker首读中重绘延续轮次请求，不重新挂载observer', async () => {
+test('同Worker首读中重绘延续来源请求，无重复挂载Observer', async () => {
   const gate = deferred(); intercept = () => gate.promise; renderDetail(worker, { events: [] }, null, null);
   observers.at(-1).enter(); const module = root(); renderDetail(worker, { events: [] }, null, null);
-  expect(root()).toBe(module); expect(deliveryReads()).toHaveLength(1);
-  gate.resolve(json(rounds())); await drain(); expect(root().querySelectorAll('.version-round')).toHaveLength(2);
+  expect(root()).toBe(module); expect(lineageReads()).toHaveLength(1);
+  gate.resolve(json(lineagePage())); await drain(); expect(root().querySelectorAll('.lineage-source')).toHaveLength(30);
 });
 
-test('project/document/boot/view变更及离页observer隔离轮次响应', async () => {
+test('project/document/boot/view改变与离页Observer隔离来源响应', async () => {
   for (const change of ['project', 'document', 'boot', 'view']) {
     disposeWorkerVersions(); panel.replaceChildren(); dom.location.pathname = '/'; ui.view = { id: 'task' }; mount();
     const gate = deferred(); intercept = () => gate.promise; const pending = click('.versions-load'), original = root(), oldDoc = globalThis.document;
@@ -258,35 +333,35 @@ test('project/document/boot/view变更及离页observer隔离轮次响应', asyn
     if (change === 'document') globalThis.document = { ...oldDoc };
     if (change === 'boot') ui.workerNumbers = new Map();
     if (change === 'view') ui.view = { id: 'overview' };
-    gate.resolve(json(rounds())); await pending; globalThis.document = oldDoc;
-    expect(original.querySelectorAll('.version-round')).toHaveLength(0);
+    gate.resolve(json(lineagePage())); await pending; globalThis.document = oldDoc;
+    expect(original.querySelectorAll('.lineage-source')).toHaveLength(0);
   }
   dom.location.pathname = '/'; ui.view = { id: 'task' }; disposeWorkerVersions(); panel.replaceChildren(); mount();
   const before = requests.length, observer = observers.at(-1); disposeWorkerVersions(); observer.enter(); await drain();
   expect(requests).toHaveLength(before); expect(observer.disconnected).toBe(true);
 });
 
-test('同Worker重绘保留轮次/详情/observer不重读；离页释放；Valet没有Git入口', async () => {
-  intercept = url => /\/api\/worker\/71$/.test(url) ? json(worker) : url.includes('/version-commit') ? json(detailResult())
+test('同Worker常规详情重绘保留节点展开与原始Input；离页释放；Valet无Git入口', async () => {
+  intercept = url => /\/api\/worker\/71$/.test(url) ? json(worker) : url.includes('version-lineage-commit') ? json(detailResult())
     : url.includes('/version-') ? json(defaultResponse(url)) : url.includes('/history') ? json({ events: [] })
     : url.endsWith('/connections') ? json({ connections: [] }) : json({});
   await loadDetail(71); const module = root(); expect(requests.some(r => r.url.includes('/version-'))).toBe(false);
-  observers.at(-1).enter(); await drain(); await click('.version-round-choice'); await click('.version-node');
+  observers.at(-1).enter(); await drain(); await query('.lineage-source .lineage-node').onclick();
   const input = query('.version-input'); input.open = true; const count = requests.filter(r => r.url.includes('/version-')).length;
   await loadDetail(71); await drain(); expect(root()).toBe(module); expect(query('.version-input')).toBe(input); expect(input.open).toBe(true);
   expect(requests.filter(r => r.url.includes('/version-'))).toHaveLength(count);
   activateDetailView({ view: 'overview' }); expect(module.querySelector('.versions-load').onclick).toBeNull();
   renderDetail({ ...worker, task_kind: 'management', work_type: 'valet', management: {} }, { events: [] }, null, null);
-  expect(root()).toBeNull(); expect(panel.querySelector('.management-settings-link')).toBeNull();
+  expect(root()).toBeNull();
 });
 
-test('图格式/snapshot校验失败保留成功页，专用主题窄屏样式及旧导航退休', async () => {
+test('main坏拓扑及重复节点拒绝；双轨窄屏主题样式和旧导航退休契约', async () => {
   await open(main); const cards = root().querySelectorAll('.version-commit');
-  intercept = () => json(page(1, { tip: sha(9999) })); await click('.versions-more'); expect(deepText(root())).toContain('分页快照发生变化');
   for (const commits of [[node(2), node(2)], [{ ...node(2), parents: [] }, { ...node(3), parents: [sha(2)] }], Array.from({ length: 31 }, (_, i) => node(100 - i))]) {
-    intercept = () => json(page(0, { commits })); await click('.versions-refresh'); expect(root().querySelectorAll('.version-commit')).toEqual(cards);
+    intercept = () => json(graphPage(0, { commits })); await click('.versions-refresh'); expect(root().querySelectorAll('.version-commit')).toEqual(cards);
   }
-  const html = fs.readFileSync('src/ui/web/assets/index.html', 'utf8'); expect(html).not.toContain('id="versions-open"');
+  expect(fs.readFileSync('src/ui/web/assets/index.html', 'utf8')).not.toContain('id="versions-open"');
   const css = fs.readFileSync('src/ui/web/assets/styles-versions.css', 'utf8');
-  for (const token of ['var(--panel)', 'var(--bg)', 'overflow-wrap:anywhere', 'minmax(0,1fr)', '@media(max-width:640px)', '.version-node:focus-visible', '.version-round[data-previous-delivery]']) expect(css).toContain(token);
+  for (const token of ['var(--panel)', 'var(--bg)', 'overflow-wrap:anywhere', 'minmax(0,1fr) minmax(0,1fr)', '@media(max-width:640px)', '.lineage-node:focus-visible', '.lineage-git-edge', '.lineage-delivery-edge', 'dashed var(--dim)']) expect(css).toContain(token);
+  expect(css).not.toContain('blur(');
 });

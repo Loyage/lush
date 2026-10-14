@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { check, id } from '../../core/types.js';
 import { workerLabel } from '../../cli/worker-number.js';
 import { previewResponse } from './notice-preview.js';
+import { PARAMS } from '../../rpc/registry.js';
 
 /** 检验报告是 agent 写的自包含 HTML：只允许内联样式/脚本与 data: 图片，禁止任何外部加载与表单提交。
  *  主页面 CSP 不会作用于这个独立文档，所以这里必须自己收紧。 */
@@ -76,11 +77,11 @@ export async function workerRead({ url, headers, json }, binding) {
   if (url.pathname === '/api/intro/config') return json(await client.request('intro.config'));
   const intro = /^\/api\/intro\/(\d+)$/.exec(url.pathname);
   if (intro) return json(await client.request('intro.get', { id: Number(intro[1]) }));
-  const versions = /^\/api\/worker\/(\d+)\/(version-graph|version-deliveries|version-commit)$/.exec(url.pathname);
+  const versions = /^\/api\/worker\/(\d+)\/(version-graph|version-deliveries|version-commit|version-lineage|version-lineage-commit)$/.exec(url.pathname);
   if (versions) {
     const params = { id: id(versions[1]) };
-    const allowed = versions[2] === 'version-graph' ? ['delivery','cursor','limit']
-      : versions[2] === 'version-deliveries' ? ['before','limit'] : ['snapshot','commit'];
+    const method = 'worker.' + versions[2].replaceAll('-', '_');
+    const allowed = PARAMS[method].filter(key => key !== 'id');
     for (const [key, value] of url.searchParams) {
       check(allowed.includes(key) && !Object.hasOwn(params, key), 'unknown or duplicate Worker version query parameter');
       if (['delivery','before','limit'].includes(key)) {
@@ -88,7 +89,7 @@ export async function workerRead({ url, headers, json }, binding) {
         params[key] = Number(value);
       } else params[key] = value;
     }
-    return json(await client.request('worker.' + versions[2].replace('-', '_'), params));
+    return json(await client.request(method, params));
   }
   const relations = /^\/api\/worker\/(\d+)\/relations$/.exec(url.pathname);
   if (relations) {
