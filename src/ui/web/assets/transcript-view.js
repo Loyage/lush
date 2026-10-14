@@ -4,7 +4,7 @@ import { loadTranscript, paintTranscript, transcriptContent, transcriptMatch, lo
 import { api } from './api.js';
 import { transcriptReader, releaseTranscriptReader, pauseTranscriptReader, searchTranscriptPath, openTranscriptStep } from './transcript-reader.js';
 import { createCodeView } from './code-view.js';
-import { devicePreferencesStatus, onDevicePreferences, saveDevicePreference, onPrefChange, TRANSCRIPT_ORDER_MODES } from './prefs.js';
+import { devicePreferencesStatus, onDevicePreferences, saveDevicePreference, onPrefChange } from './prefs.js';
 import { statusOf } from './format.js';
 import { workerLabel } from './worker-label.js';
 
@@ -42,25 +42,34 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
   current = state; ui.transcriptView = state; transcriptOpen.add(taskId);
   const toolbar = el('header', undefined, 'transcript-toolbar');
   const back = button(`返回 ${type}`, closeTranscriptView, 'ghost transcript-back');
-  const order = el('select'); order.setAttribute('aria-label', '执行过程排序');
-  for (const mode of TRANSCRIPT_ORDER_MODES) {
-    const label = mode.id === 'desc' ? '最新在前' : mode.id === 'asc' ? '最早在前' : mode.label;
-    const option = el('option', label); option.value = mode.id; order.append(option);
+  const order = el('div', undefined, 'transcript-order');
+  order.setAttribute('role', 'group'); order.setAttribute('aria-label', '执行过程排序');
+  const orderButtons = new Map();
+  for (const [value, label, help] of [
+    ['asc', '正序', '按时间从早到晚阅读执行记录，并保存设备统一阅读偏好；不改变项目记录，不调用 Agent。'],
+    ['desc', '逆序', '按时间从晚到早阅读执行记录，并保存设备统一阅读偏好；不改变项目记录，不调用 Agent。'],
+  ]) {
+    const control = button(label, () => {}, 'ghost', { help });
+    // Shared preference/search state owns both buttons, not the generic button busy wrapper.
+    control.onclick = async () => {
+      if (control.disabled || value === transcriptOrder()) return;
+      try { await saveDevicePreference('transcriptOrder', value); }
+      catch (error) { if (current === state) state.notice.textContent = `阅读偏好未保存：${error.message}`; }
+      finally { if (current === state) syncOrder(); }
+    };
+    control.dataset.transcriptOrder = value;
+    orderButtons.set(value, control); order.append(control);
   }
-  order.value = transcriptOrder();
   const orderHost = el('span', undefined, 'help-host'); orderHost.tabIndex = 0; orderHost.append(order);
   const syncOrder = () => {
     const device = devicePreferencesStatus();
-    order.disabled = Boolean(state.filtered) || device.saving || !device.ready || Boolean(device.error);
-    orderHost.setAttribute('data-help', state.filtered ? '搜索结果按步骤编号排列，退出搜索后可修改阅读偏好。' : !device.ready || device.error ? `设备偏好当前不可用，不能保存排序。${device.error || '正在读取权威配置。'}` : '设备统一的执行记录阅读顺序，不改变项目记录。');
+    for (const [value, control] of orderButtons) {
+      control.setAttribute('aria-pressed', String(value === transcriptOrder()));
+      control.disabled = Boolean(state.filtered) || device.saving || !device.ready || Boolean(device.error);
+    }
+    orderHost.setAttribute('data-help', state.filtered ? '搜索结果按步骤编号排列，退出搜索后可修改阅读偏好。' : !device.ready || device.error ? `设备偏好当前不可用，不能保存排序。${device.error || '正在读取权威配置。'}` : device.saving ? '正在保存设备阅读偏好，请等待保存完成。' : '设备统一的执行记录阅读顺序，不改变项目记录。');
   };
-  order.onchange = async () => {
-    order.disabled = true;
-    try { await saveDevicePreference('transcriptOrder', order.value); }
-    catch (error) { if (current === state) { order.value = transcriptOrder(); state.notice.textContent = `阅读偏好未保存：${error.message}`; } }
-    finally { if (current === state) syncOrder(); }
-  };
-  state.order = order; state.disposePreference = onDevicePreferences(syncOrder);
+  state.syncOrder = syncOrder; state.disposePreference = onDevicePreferences(syncOrder);
   const taskStatus = el('span', '状态未知', 'badge');
   const heading = el('strong', `${type} ${workerLabel(knownTask || taskId)}`);
   state.paintStatus = task => {
@@ -156,7 +165,7 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
       for (const item of holder.children) item.classList.toggle('step-located', item === card);
     },
     onStart: () => {
-      state.filtered = true; order.disabled = true; notice.textContent = '搜索命中按步骤编号排列；包含配对输入输出。';
+      state.filtered = true; syncOrder(); notice.textContent = '搜索命中按步骤编号排列；包含配对输入输出。';
       holder.replaceChildren(el('p', '正在搜索完整记录…', 'hint'));
       viewport.scrollTop = 0;
     },
@@ -239,4 +248,4 @@ export async function openTranscriptView(taskId, seq, { mode = 'transcript', tas
       button('重试读取', () => loadTranscript(taskId), 'ghost'));
   }
 }
-onPrefChange('transcriptOrder', () => { if (current) current.order.value = transcriptOrder(); });
+onPrefChange('transcriptOrder', () => { current?.syncOrder(); });

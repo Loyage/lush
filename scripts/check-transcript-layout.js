@@ -114,6 +114,7 @@ try {
       const rect = selector => { const r=document.querySelector(selector).getBoundingClientRect(); return {x:r.x,y:r.y,w:r.width,h:r.height,right:r.right,bottom:r.bottom}; };
       return {sidebar:rect('.transcript-sidebar'),body:rect('.transcript-viewport'),query:rect('.search-field-row'),dialog:rect('.transcript-dialog'),width:innerWidth,height:innerHeight,area:getComputedStyle(document.querySelector('.transcript-sidebar')).gridArea};`);
     assert(box.width === width && box.height === height, `wrong test viewport: ${JSON.stringify(box)}`);
+    assert(await execute(`const group=document.querySelector('.transcript-order'),buttons=[...group.querySelectorAll('button')];return group.getAttribute('role')==='group'&&group.getAttribute('aria-label')==='执行过程排序'&&buttons.map(n=>n.textContent).join(',')==='正序,逆序'&&buttons.map(n=>n.getAttribute('aria-pressed')).join(',')==='false,true'&&buttons.every(n=>{const r=n.getBoundingClientRect();return r.width>0&&r.x>=0&&r.right<=innerWidth&&r.bottom<=document.querySelector('.execution-navigation').getBoundingClientRect().bottom;})&&!document.querySelector('.transcript-reading-tools select');`), `sort buttons missing, clipped or incorrectly selected at ${width}`);
     assert(box.area.startsWith('search'), 'sidebar must not inherit app navigation grid-area');
     assert(box.body.w > 0 && box.body.h > 80, `empty reading area at ${width}: ${JSON.stringify(box)}`);
     if (box.width > 760) {
@@ -139,6 +140,7 @@ try {
   await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0]; let tries=0; const check=()=>{if(document.querySelectorAll('.transcript-match [data-seq]').length===12)done(true);else if(++tries>100)done(false);else setTimeout(check,50);}; check();`, args: [] }).then(ready => assert(ready, 'Enter search did not hydrate match bodies'));
   assert(await execute(`return window.searchCalls===1 && document.querySelectorAll('.search-hit').length===12 && document.querySelectorAll('dialog[open]').length===1 && !document.querySelector('.transcript-sidebar .step');`), 'search must stay in one dialog with bodies only in main column');
   await checkCompactMetadata(1440);
+  assert(await execute(`return [...document.querySelectorAll('.transcript-order button')].every(n=>n.disabled)&&document.querySelector('.transcript-order').parentNode.dataset.help.includes('搜索结果按步骤编号排列');`), 'search must disable both sort buttons with an explanation');
   assert(await execute(`const hits=document.querySelectorAll('.search-hit'); hits[5].querySelector('button').click(); return document.querySelectorAll('.step-located').length===1 && document.querySelector('[data-match-seq="15"]').classList.contains('step-located');`), 'hit navigation did not locate corresponding body');
   const queryTop = await execute(`return document.querySelector('.search-field-row').getBoundingClientRect().y;`);
   await execute(`document.querySelector('.transcript-search-results').scrollTop=200; document.querySelector('.transcript-viewport').scrollTop=300;`);
@@ -154,6 +156,7 @@ try {
   for (const theme of ['light', 'dark']) {
     await execute(`document.documentElement.dataset.theme='${theme}';`);
     await resize(390, 844);
+    assert(await execute(`const [asc,desc]=document.querySelectorAll('.transcript-order button');return getComputedStyle(asc).backgroundColor!==getComputedStyle(desc).backgroundColor&&desc.getAttribute('aria-pressed')==='true';`), `sort selection not distinguishable in ${theme} theme`);
     assert(await execute(`return getComputedStyle(document.querySelector('.transcript-sidebar')).display==='none' && document.querySelector('.transcript-viewport').getBoundingClientRect().height>innerHeight*.7;`), `mobile search must start closed in ${theme}`);
     await capture('-mobile-' + theme);
     await execute(`document.querySelector('.transcript-search-toggle').click();`);

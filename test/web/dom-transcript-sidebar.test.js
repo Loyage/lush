@@ -54,7 +54,7 @@ test('fullscreen sidebar and rich match bodies correspond, retain pairing and ra
     expect([...holder.children].map(node => node.dataset.matchSeq)).toEqual(['2', '6']);
     expect(deepText(holder)).toContain('echo needle'); expect(deepText(holder)).toContain('needle output');
     expect(deepText(holder)).not.toContain('unrelated full record'); expect(deepText(holder)).not.toContain('neighbour hidden');
-    expect(panel.querySelector('select').disabled).toBe(true);
+    expect(panel.querySelector('.transcript-order').querySelectorAll('button').map(node => node.disabled)).toEqual([true, true]);
     sidebar.querySelectorAll('.search-hit')[1].querySelector('button').onclick();
     expect(sidebar.querySelectorAll('.search-hit')[1].querySelector('button').getAttribute('aria-current')).toBe('true');
     expect(holder.children[1].classList.contains('step-located')).toBe(true);
@@ -65,7 +65,7 @@ test('fullscreen sidebar and rich match bodies correspond, retain pairing and ra
     expect(deepText(holder)).not.toContain('new unrelated record'); expect(deepText(panel)).toContain('有新记录');
     findByText(sidebar, '返回全部记录').onclick();
     expect(holder.querySelector('.transcript-match')).toBeNull(); expect(deepText(holder)).toContain('new unrelated record');
-    expect(panel.querySelector('select').disabled).toBe(false);
+    expect(panel.querySelector('.transcript-order').querySelectorAll('button').map(node => node.disabled)).toEqual([false, false]);
     expect(inputs.map(node => node.value)).toEqual(['', '', '']); expect(inputs[2].checked).toBe(false);
     expect(form.querySelector('select').value).toBe('');
     expect(sidebar.querySelector('.transcript-reader').getAttribute('aria-busy')).toBe('false');

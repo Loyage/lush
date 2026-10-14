@@ -5,7 +5,7 @@ import { renderAgent } from '../../src/ui/web/assets/render-agent.js';
 import { appendTranscriptSteps } from '../../src/ui/web/assets/render-transcript.js';
 import { openTranscriptStep, resetTranscriptReaders } from '../../src/ui/web/assets/transcript-reader.js';
 import { ui, transcriptCache, transcriptOpen } from '../../src/ui/web/assets/state.js';
-import { setPref, writePref } from '../../src/ui/web/assets/prefs.js';
+import { setPref, writePref, readPref, refreshDevicePreferences } from '../../src/ui/web/assets/prefs.js';
 import { until } from '../helpers.js';
 import { makeWorld } from './dom-world.js';
 
@@ -26,6 +26,7 @@ test('agent opens fullscreen rich details only on click, supports both orders, l
     const agent = renderAgent({ id: taskId }, { files: ['a'], totals: {} }); dom.node('detail').append(agent);
     expect(agent.querySelector('.step')).toBeNull(); expect(requests).toHaveLength(0);
     expect(findByText(agent, '终端模式')).toBeNull();
+    await refreshDevicePreferences();
     const trigger = findByText(agent, '打开执行详情'); trigger.focus(); dom.node('detail').scrollTop = 420;
     await trigger.onclick();
     const panel = dom.document.body.querySelector('.transcript-dialog');
@@ -41,15 +42,68 @@ test('agent opens fullscreen rich details only on click, supports both orders, l
     transcriptCache.get(taskId).steps.push(output); appendTranscriptSteps(taskId, [output]);
     expect(list.children).toHaveLength(2); expect(list.children[0]).toBe(tool); expect(deepText(tool)).toContain('done');
     expect(viewport.scrollTop).toBe(240);
-    const order = panel.querySelector('select'); order.value = 'asc'; await order.onchange();
+    const order = panel.querySelector('.transcript-order'), [asc, desc] = order.querySelectorAll('button');
+    expect(order.getAttribute('role')).toBe('group'); expect(order.getAttribute('aria-label')).toBe('执行过程排序');
+    expect([asc.textContent, desc.textContent]).toEqual(['正序', '逆序']);
+    expect([asc, desc].map(node => node.getAttribute('aria-pressed'))).toEqual(['false', 'true']);
+    expect(panel.querySelector('.transcript-reading-tools').querySelector('select')).toBeNull();
+    const before = requests.length; await desc.onclick(); expect(requests).toHaveLength(before);
+    const saving = asc.onclick(); expect(asc.disabled).toBe(true); expect(desc.disabled).toBe(true); await saving;
     await until(() => panel.querySelector('.steps') && panel.querySelector('.steps') !== list);
     expect([...panel.querySelector('.steps').children].map(node => node.dataset.seq)).toEqual(['1', '2']);
     expect(requests.at(-1)).toContain('/transcript?after=0');
+    expect(readPref('transcriptOrder')).toBe('asc');
+    expect([asc, desc].map(node => node.getAttribute('aria-pressed'))).toEqual(['true', 'false']);
+    expect(asc.disabled).toBe(false); expect(desc.disabled).toBe(false);
+    await desc.onclick();
+    await until(() => transcriptCache.get(taskId)?.order === 'desc' && panel.querySelector('.steps').children[0]?.dataset.seq === '2');
+    expect(requests.at(-1)).toContain('/transcript-latest?limit=100');
+    expect([asc, desc].map(node => node.getAttribute('aria-pressed'))).toEqual(['false', 'true']);
     panel.onkeydown({ key: 'Escape', preventDefault() {} });
     expect(ui.transcriptView).toBeNull(); expect(transcriptOpen.has(taskId)).toBe(false);
     expect(dom.node('project-app').inert).not.toBe(true); expect(dom.document.activeElement).toBe(trigger);
     expect(dom.node('detail').scrollTop).toBe(420);
   } finally { closeTranscriptView(); transcriptCache.delete(taskId); resetTranscriptReaders(); ui.selected = null; writePref('transcriptOrder', 'desc'); dom.restore(); }
+});
+
+test('sort buttons explain unavailable preferences, disable during search/save, and retain confirmed order on save failure', async () => {
+  const world = makeWorld(), requests = [];
+  let rejectSave;
+  const dom = installDom({ fetch: async (url, options) => {
+    requests.push(String(url));
+    if (String(url) === '/api/host/preferences') {
+      if (options?.method === 'POST') return new Promise(resolve => { rejectSave = () => resolve(new Response(JSON.stringify({ error: 'offline' }), { status: 500 })); });
+      return world.fetchImpl(url, options);
+    }
+    return response({ steps: [], files: ['a'], has_more: false });
+  } });
+  const taskId = 993; writePref('transcriptOrder', 'desc'); transcriptCache.set(taskId, { ...page, order: 'desc' });
+  try {
+    await openTranscriptView(taskId);
+    const panel = ui.transcriptView.panel, order = panel.querySelector('.transcript-order'), [asc, desc] = order.querySelectorAll('button');
+    expect(asc.disabled).toBe(true); expect(desc.disabled).toBe(true);
+    expect(order.parentNode.getAttribute('data-help')).toContain('设备偏好当前不可用');
+    await asc.onclick(); expect(requests).toHaveLength(0);
+    await refreshDevicePreferences(); expect(asc.disabled).toBe(false); expect(desc.disabled).toBe(false);
+    const form = panel.querySelector('form'); form.querySelector('input').value = 'needle';
+    form.onsubmit({ preventDefault() {} });
+    await until(() => panel.querySelector('.transcript-reader').getAttribute('aria-busy') === 'false');
+    expect(asc.disabled).toBe(true); expect(desc.disabled).toBe(true);
+    expect(order.parentNode.getAttribute('data-help')).toContain('搜索结果按步骤编号排列');
+    const before = requests.length; await asc.onclick(); expect(requests).toHaveLength(before);
+    await findByText(panel, '返回全部记录').onclick();
+    expect(asc.disabled).toBe(false); expect(desc.disabled).toBe(false);
+    const saving = asc.onclick();
+    expect(asc.disabled).toBe(true); expect(desc.disabled).toBe(true);
+    expect(order.parentNode.getAttribute('data-help')).toContain('正在保存');
+    await until(() => Boolean(rejectSave)); rejectSave(); await saving;
+    expect(readPref('transcriptOrder')).toBe('desc');
+    expect([asc, desc].map(node => node.getAttribute('aria-pressed'))).toEqual(['false', 'true']);
+    expect(deepText(panel)).toContain('阅读偏好未保存：offline');
+    expect(asc.disabled).toBe(true); expect(desc.disabled).toBe(true);
+    expect(order.parentNode.getAttribute('data-help')).toContain('offline');
+    await refreshDevicePreferences(); expect(asc.disabled).toBe(false); expect(desc.disabled).toBe(false);
+  } finally { closeTranscriptView(); transcriptCache.delete(taskId); resetTranscriptReaders(); writePref('transcriptOrder', 'desc'); dom.restore(); }
 });
 
 test('fullscreen failure retries and navigation leaves pending responses off the page', async () => {
@@ -102,6 +156,8 @@ test('obsolete order responses cannot replace a newer fullscreen window', async 
     finishOld(response({ ...page, steps: [{ seq: 9, kind: 'text', body: 'obsolete' }] })); await opening;
     const panel = dom.document.body.querySelector('.transcript-dialog');
     expect(transcriptCache.get(995).order).toBe('asc'); expect(deepText(panel)).not.toContain('obsolete');
+    expect(panel.querySelector('[data-transcript-order="asc"]').getAttribute('aria-pressed')).toBe('true');
+    expect(panel.querySelector('[data-transcript-order="desc"]').getAttribute('aria-pressed')).toBe('false');
   } finally { closeTranscriptView(); transcriptCache.delete(995); resetTranscriptReaders(); ui.selected = null; writePref('transcriptOrder', 'desc'); dom.restore(); }
 });
 
