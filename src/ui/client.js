@@ -17,19 +17,20 @@ export class UIClient {
   /** Compatibility URL for the Web bootstrap; the payload is the same bounded core overview. */
   async snapshot() { return this.overview(); }
 
-  /** Worker-centred homepage: no legacy planner or draft RPC calls. */
+  /** Shared bounded work history; the UI separates development Workers and Valets. */
   async overview(revision = null) {
     const status = await this.request('system.summary');
     check(status.project === this.config.project, 'daemon project mismatch');
     if (revision && revision === status.revision) return { unchanged: true, revision };
     const [activity, page, unread] = await Promise.all([
-      this.request('worker.activity', { limit: 100, scope: 'work' }),
+      this.request('worker.activity', { limit: 100, scope: 'all' }),
       this.request('notice.page', { status: 'all', limit: 100 }),
       // Lifecycle reminders belong to the project, not the homepage Worker window.
       // A separate bounded page also keeps newer read history from crowding them out.
       this.request('notice.page', { status: 'unread', limit: 100 }),
     ]);
-    const tasks = activity.tasks.map(normalizeOrderRecord).filter(task => ['order','child','main','owner'].includes(task.task_kind));
+    const tasks = activity.tasks.map(normalizeOrderRecord)
+      .filter(task => ['order', 'child', 'main', 'owner', 'management'].includes(task.task_kind));
     const ids = new Set(tasks.map(task => task.id));
     return { revision: status.revision, status, tasks, task_page: activity.page,
       notices: [...new Map([...page.notices.filter(notice => ids.has(notice.task_id)), ...unread.notices]

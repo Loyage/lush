@@ -3,6 +3,9 @@ import { fixture, repo } from '../helpers.js';
 import { installDom, deepText } from '../dom-stub.js';
 import { makeWorld } from './dom-world.js';
 import { Dispatcher } from '../../src/rpc/dispatcher.js';
+import { RPCServer } from '../../src/rpc/server.js';
+import { UIClient } from '../../src/ui/client.js';
+import { createSignal } from '../../src/signal.js';
 
 const world = makeWorld();
 const dom = installDom({ fetch: world.fetchImpl });
@@ -16,7 +19,7 @@ const { closeTranscriptView } = await import('../../src/ui/web/assets/transcript
 afterAll(() => { ui.disposeDetailRequests?.(); closeTranscriptView(); dom.restore(); });
 
 test('real Valet projection renders in the shared list and detail with exact confirmation identity and no development controls', async () => {
-  let f, target, receipt;
+  let f, target, receipt, server;
   f = fixture({ async run({ task, token }) {
     if (task.task_kind === 'management') receipt = await f.rpc.dispatch('manager.call', {
       method: 'worker.cancel', params: { id: target.id }, request_id: 'real-valet-confirmation', _token: token,
@@ -26,7 +29,9 @@ test('real Valet projection renders in the shared list and detail with exact con
   f.project.kick = () => {};
   try {
     await repo(f.root);
-    f.rpc = new Dispatcher(f.project);
+    f.rpc = new Dispatcher(f.project, createSignal(), {});
+    server = new RPCServer(f.config.socket, f.rpc); await server.start();
+    const client = new UIClient(f.config);
     target = (await f.project.order('开发目标', 'main', [], null, false)).task;
     const created = await f.rpc.dispatch('management.submit', {
       instruction: `取消 ${target.worker_number}`, client_request_id: 'real-valet-input',
@@ -42,14 +47,13 @@ test('real Valet projection renders in the shared list and detail with exact con
     expect(inspected.management.pending_signal.control_calls[0]).toMatchObject({
       notice_id: actualNotice.id, notice_kind: actualNotice.kind, status: 'pending_confirmation',
     });
-    const activity = await f.rpc.dispatch('worker.activity', { scope: 'all' });
+    const snapshot = await client.overview();
+    expect(snapshot.tasks.some(task => task.id === created.task.id)).toBe(true);
     ui.workerNumbers = new Map(); ui.deletedWorkerIds = new Set(); ui.filters = parseFilters(null);
     ui.filters.valets.text = 'V1'; ui.selected = null;
-    const snapshot = { ...(await (await world.fetchImpl('/api/snapshot')).json()),
-      tasks: activity.tasks, task_page: activity.page };
     ui.lastSnapshot = snapshot;
     activateDetailView({ view: 'valets' }); renderTree(snapshot);
-    expect(filterTasks(activity.tasks, { ...ui.filters.valets, type: 'valet' }).map(task => task.id)).toEqual([created.task.id]);
+    expect(filterTasks(snapshot.tasks, { ...ui.filters.valets, type: 'valet' }).map(task => task.id)).toEqual([created.task.id]);
     expect(dom.node('valets').querySelectorAll('.task').map(node => Number(node.dataset.id))).toEqual([created.task.id]);
     expect(dom.node('tasks').querySelector(`[data-id="${created.task.id}"]`)).toBeNull();
     expect(deepText(dom.node('valets'))).toContain('Valet');
@@ -76,6 +80,6 @@ test('real Valet projection renders in the shared list and detail with exact con
   } finally {
     ui.disposeDetailRequests?.(); closeTranscriptView();
     dom.node('detail').replaceChildren(); ui.lastSnapshot = { tasks: [] }; ui.composerTask = null;
-    await f.close();
+    await server?.close(); await f.close();
   }
 });

@@ -25,7 +25,7 @@ test('bound project APIs remain scoped, durably mount then dispatch inputs, and 
     f.project.stopping = false; await f.project.drainInputEmissions();
     const snapshot = await (await fetch(f.url+'/api/snapshot')).json();
     expect(snapshot.status.project).toBe(f.root);
-    // 概览读模型只投影 order/child/main/owner：旧 inputs / timeline / ladder 都不再下发。
+    // 概览共用有界工作历史；旧 inputs / timeline / ladder 都不再下发。
     const order = snapshot.tasks.find(task => task.task_kind === 'order');
     expect(order.goal).toBe('web request');
     expect(snapshot.inputs).toEqual([]);

@@ -80,6 +80,34 @@ test('HTTP Valet creation, list, inspect and strict lookup preserve integer endp
   } finally { await f.close(); }
 });
 
+test('overview and snapshot include persisted Valets from both layers with bounded shared history and safe profiles', async () => {
+  const f = await setup(); f.project.kick = () => {};
+  try {
+    const records = f.store.transaction(() => Array.from({ length: 106 }, (_, index) => {
+      const task = f.store.create({ role: 'manager', task_kind: 'management', goal: `finished management ${index}` });
+      f.store.update(task.id, { status: 'completed', retry_profile: JSON.stringify({ env: { SECRET: 'private-profile' } }) });
+      return task;
+    }));
+    const active = f.store.create({ role: 'manager', task_kind: 'management', goal: 'legacy control-layer manager' });
+    // Historical control-plane rows must be readable without migrating their persisted layer or identity.
+    f.store.run("UPDATE tasks SET layer='intent',worker_number=NULL WHERE id=?", active.id);
+    for (const endpoint of ['overview', 'snapshot']) {
+      const response = await fetch(`${f.url}/api/${endpoint}`); expect(response.status).toBe(200);
+      const snapshot = await response.json();
+      expect(snapshot.tasks.filter(task => task.task_kind === 'management')).toHaveLength(101);
+      expect(snapshot.tasks.find(task => task.id === active.id)).toMatchObject({ layer: 'intent', worker_number: null });
+      expect(snapshot.tasks.some(task => task.id === records[0].id)).toBe(false);
+      expect(snapshot.tasks.find(task => task.id === records.at(-1).id).worker_number).toBe('V106');
+      expect(snapshot.task_page).toMatchObject({ cursor: records[6].id, has_more: true, historical: 106, shown: 100 });
+      expect(JSON.stringify(snapshot)).not.toContain('private-profile');
+      const older = await (await fetch(`${f.url}/api/workers?scope=all&before=${snapshot.task_page.cursor}&limit=50`)).json();
+      expect(older.tasks.map(task => task.id)).toEqual(records.slice(0, 6).map(task => task.id));
+      expect(older.has_more).toBe(false);
+    }
+    expect(f.store.task(active.id)).toMatchObject({ layer: 'intent', worker_number: null });
+  } finally { await f.close(); }
+});
+
 test('management configuration obeys login and same-Origin user boundary', async () => {
   const f = await setup({ auth: { username: 'owner', password: 'management-test-password' } }), calls = mocks(f.project);
   try {
