@@ -21,6 +21,8 @@
 | `hooks.remove` | `{id,expected_revision}` | `hooks remove TEMPLATE_ID --revision REV` |
 | `hooks.signal_save` | `{signal,expected_revision}` | `hooks signal save --file PATH --revision REV` |
 | `hooks.signal_remove` | `{id,expected_revision}` | `hooks signal remove SIGNAL_ID --revision REV` |
+| `management.permissions` | `{}` | —（Web 管家默认权限读面） |
+| `management.permissions_update` | `{permissions,expected_revision}` | —（Web 同源 POST action） |
 | `management.create` | `{name,instruction,signal_id,mode?,profile?,client_request_id?}` | `hooks management create --file PATH` |
 | `management.submit` | `{instruction,profile?,client_request_id?}` | `order '管理需求' --management`（即时管理，无需时间信号） |
 | `management.binding_update` | `{id,enabled,expected_revision}` | `hooks management enable\|disable ID --revision REV` |
@@ -83,6 +85,8 @@ Shell Hook 引用 `{type:'command',command_id:'UUID'}`；提示词用同形 `typ
 `signals:{version:1,revision,items}` 是项目时间信号配置读面；保存／删除使用 **signals.revision**，不使用模板或 daemon 自动选择版本。定义 `{id?,name,enabled?,schedule}` 复用定时 schedule；发出历史、next_run_at、last_due_at 和 last_execution 可读，不把时间到点当作额度恢复。
 
 `management.create` 返回 `{task}`；创建新 role='manager'/task_kind='management' 的无 Git Valet（`worker_number` 保存独立 V 编号，见[编号规则](../api.md#用户编号与-cli-身份)），保存后等待 signal_id，不立即启动 Agent。默认 mode='once'，可显式 persistent。Web 表单固定 client_request_id 去重；同 key 同定义重试返回原 Worker，同 key 改定义拒绝。key 非空、最多 128 字符、无首尾空白／控制字符；CLI 文件可显式提供，未提供时响应丢失应先检查历史，不盲目重做创建。management_workers 是有界列表，附安全 management 对象和 model_selection；完整 profile 仅写，不回读。启停使用 **management.revision**。已消费一次性／失败／未知不可重新启用重放，需要另建指令。普通 mutation/inspect 出口剔除字符串 management 私有 JSON。
+
+`management.permissions` / `management.permissions_update` 为用户专属的**当前项目**默认权限读写，返回 `{version:1,scope:'project',revision,groups,methods,permissions}`；groups 为 `{id,label,description}`，methods 为 `{method,group,label,description,base_access,access,allowed_access,reason}`。写入必须提交完整 method→access 映射与最新 revision，未知项／缺项／提升原始权限均拒绝。Web GET `/api/management/permissions` 不接受 query；保存走同源 POST `/api/action`。默认值只在新 Valet 创建时冻结，不回写已有即时／等待／持续管家或已提交请求，去重重试保留原快照。无快照历史沿用旧授权；有快照但缺少的新方法不可用。read→read/unavailable，automatic→automatic/confirmation/unavailable，confirmation→confirmation/unavailable，unavailable 不可提升；必要发现 manager.catalog 固定 read。私有快照不进入公开 inspect；完整安全及恢复契约见[管家默认权限](../../engineering/hook-signals-management.md#当前项目管家默认权限w278d632)。
 
 专用受限工具使用 Agent-only `manager.query {id?}` / `manager.start {id}` / `manager.retry {id}`，并提供 `manager.catalog {}`、`manager.history {id?,before?,limit?}`、`manager.call {method,params,request_id?}`；均不在 Web POST action 或用户 CLI 管理执行入口开放。能力分级与用户精确确认见[管理契约](../../engineering/hook-signals-management.md)。后端另强制核验当前 invocation 的管理角色、绑定和 occurrence，普通开发 Agent 不能调用。目标是内部整数 ID，工具通过 worker.lookup 解析明确的 W／V 编号；查找不扩大开始／重试等目标准入。开始仅处理 paused，重试仅 failed；无 profile 参数、不切账号。受阻返回已持久 waiting，安全点执行，不让模型循环重发。
 

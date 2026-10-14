@@ -13,6 +13,7 @@ const PAGES = {
   unavailable: ['项目不可用', '工作台', '项目离线时仍可使用环境、设置与帮助'],
   overview: ['项目概览', '工作', '需求、执行进展与最新成果'],
   'task-graph': ['工作树', '工作', 'Worker 父子关系 · Agent、分支与 worktree'],
+  'valet-settings': ['管家设置', '工作', '本项目新建管家的默认权限 · 只能收紧审核上限'],
   hooks: ['项目自动化', '工作', '功能设置 · 新 Worker 默认与显示原则'],
   inputs: ['历史输入', '工作', '草稿与提交状态 · 全库原始指令检索'],
   statistics: ['用量统计', '交付与用量', 'Token 用量与预计花费 · 非实际账单'],
@@ -42,7 +43,7 @@ export function setViewChrome(title, context = '项目', hint = '', { root = fal
 /** 页面身份是唯一导航状态；旧读标记在此统一投影，面板不得各自设置。 */
 function activate(id, { key = id, title, context, hint, push = true, hash } = {}) {
   const changed = ui.view?.key !== key;
-  if (changed) { ui.disposeProjectAutomation?.(); ui.disposeProjectAutomation = null; ui.hooksPage?.shortcutNode?.dispose?.(); ui.disposePageModules?.(); ui.disposeTaskGraph?.(); ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.view = { id, key }; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerError = null; }
+  if (changed) { ui.disposeValetSettings?.(); ui.disposeValetSettings = null; ui.disposeProjectAutomation?.(); ui.disposeProjectAutomation = null; ui.hooksPage?.shortcutNode?.dispose?.(); ui.disposePageModules?.(); ui.disposeTaskGraph?.(); ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null; ui.disposeDetailRequests?.(); ui.clearSettingsSecrets?.(); ui.view = { id, key }; ui.composerTask = null; ui.composerAppendTarget = null; ui.composerError = null; }
   const resource = RESOURCE_META.get(id);
   ui.indexOpen = resource ? id : null;
   ui.docsOpen = id === 'docs';
@@ -124,4 +125,3 @@ export function selectNav(id) {
     target.setAttribute('aria-current', key === id ? 'page' : 'false');
   }
 }
-export function navTo(id) { return openResource(id); }

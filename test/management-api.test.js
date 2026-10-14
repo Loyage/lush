@@ -70,6 +70,7 @@ test('Dispatcher narrows every manager token to dedicated reviewed methods witho
     actor: token => token ? 9 : null,
     store: { task: id => { expect(id).toBe(9); return identity; },
       lookupWorker: number => { calls.push(['lookup', number]); return { id: 17, worker_number: number }; } },
+    assertManagementPermission: (...args) => { calls.push(['permission', ...args]); },
     managementQuery: actor => { calls.push(['query', actor]); return { tasks: [] }; },
     requestManagementAction: (...args) => { calls.push(['action', ...args]); return { status: 'succeeded' }; },
     reportProgressPlan: (...args) => { calls.push(['progress', ...args]); return { ok: true }; },
@@ -88,7 +89,7 @@ test('Dispatcher narrows every manager token to dedicated reviewed methods witho
   await d.dispatch('manager.start', { id: 17, _token: 'manager-token' });
   await d.dispatch('manager.retry', { id: 17, _token: 'manager-token' });
   await d.dispatch('worker.lookup', { number: 'W17', _token: 'manager-token' });
-  expect(calls).toEqual([['query',9], ['action',9,'start',17], ['action',9,'retry',17], ['lookup','W17']]);
+  expect(calls).toEqual([['query',9], ['action',9,'start',17], ['action',9,'retry',17], ['permission',9,'worker.lookup'], ['lookup','W17']]);
   identity = { role: 'agent', task_kind: 'order' };
   expect(await d.dispatch('progress.plan', { steps: ['inspect'], _token: 'development-token' })).toEqual({ ok: true });
   expect(calls.at(-1)).toEqual(['progress',9,['inspect']]);

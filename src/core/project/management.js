@@ -4,6 +4,8 @@ import { hookRevision } from '../hooks.js';
 import { inheritedRunProfile } from './internal.js';
 import { assertManager } from './management-auth.js';
 import controlMethods, { managementControlPending } from './management-control.js';
+import permissionMethods from './management-permissions.js';
+import { effectiveManagementPolicy } from '../../rpc/management-policy.js';
 import { MANAGEMENT_LIMITS, managementState, saveManagement, managementTime, managementRevision,
   managementView, managementWorkers, managementEnableReason } from './management-data.js';
 
@@ -50,9 +52,11 @@ function receiptView(receipt) {
   return { status: receipt.status, target_id: receipt.target_id, target_worker_number: receipt.target_worker_number ?? null,
     receipt_id: receipt.receipt_id, ...(receipt.reason ? { reason: receipt.reason } : {}) };
 }
-function queryView(project, target) {
+function queryView(project, target, snapshot) {
   const candidate = target.status === 'failed' ? 'retry' : 'start';
   const gate = targetGate(project, target, candidate);
+  const policy = effectiveManagementPolicy(candidate === 'start' ? 'worker.resume' : 'worker.retry', snapshot);
+  if (policy.access === 'unavailable') gate.skip ??= policy.reason;
   return { id: target.id, worker_number: target.worker_number ?? null, name: target.name, task_kind: target.task_kind,
     goal: target.goal.slice(0, 500), status: target.status, integration: target.integration,
     ...(gate.skip ? { available_actions: [], reason: gate.skip } : { available_actions: [candidate], reason: gate.wait ?? null }) };
@@ -60,6 +64,13 @@ function queryView(project, target) {
 
 export default {
   ...controlMethods,
+  ...permissionMethods,
+  assertManagementPermission(actorId, method) {
+    const actor = assertManager(this, actorId);
+    const policy = effectiveManagementPolicy(method, actor.state.permissions_snapshot);
+    check(policy.access !== 'unavailable', policy.reason);
+    return { ...actor, policy };
+  },
   managementWorkers() { return managementWorkers(this); },
   managementView(taskOrId) { return managementView(typeof taskOrId === 'object' ? taskOrId : this.store.task(taskOrId), this); },
 
@@ -100,7 +111,7 @@ export default {
       this.store.update(task.id, { status: immediate ? 'queued' : 'waiting', retry_profile: profile ? JSON.stringify(profile) : null });
       const occurrence = immediate ? this.store.event(task.id, 'management.input_submitted', { mode: 'once' }) : null;
       saveManagement(this, task.id, { version: 1, config_revision: 1, signal_id: signal?.id ?? null, mode, enabled: true,
-        origin: immediate ? 'input' : 'signal',
+        origin: immediate ? 'input' : 'signal', permissions_snapshot: this.managementPermissionsSnapshot(),
         state: immediate ? 'queued' : 'waiting', reason: immediate ? '管理输入已提交，等待运行槽。' : '等待下一信号；不保证 Agent 准点获得运行槽。', consumed: false,
         pending_signal: immediate ? { id: occurrence, signal_id: null, name: '管理输入', due_at: managementTime(this), submitted_at: managementTime(this), phase: 'pending' } : null,
         last_execution: null, receipts: [], control_calls: [],
@@ -191,16 +202,25 @@ export default {
   },
 
   managementQuery(actorId, targetId = undefined) {
-    assertManager(this, actorId);
-    if (targetId !== undefined && targetId !== null) return queryView(this, this.store.task(id(targetId)));
+    const { state } = this.assertManagementPermission(actorId, 'manager.query');
+    if (targetId !== undefined && targetId !== null) return queryView(this, this.store.task(id(targetId)), state.permissions_snapshot);
     return { workers: bounded(this.store.all("SELECT * FROM tasks WHERE task_kind IN ('order','say','child') ORDER BY id DESC LIMIT 100")
-      .map(task => queryView(this, task)), 100000), limit: 100 };
+      .map(task => queryView(this, task, state.permissions_snapshot)), 100000), limit: 100 };
   },
 
   requestManagementAction(actorId, action, targetId) {
     this.assertWritable('request a management operation');
-    const { task, state } = assertManager(this, actorId);
     check(['start','retry'].includes(action), 'management operation is not authorized');
+    const { task, policy } = this.assertManagementPermission(actorId, action === 'start' ? 'worker.resume' : 'worker.retry');
+    if (policy.access === 'confirmation') return this.callManagementCapability(actorId,
+      action === 'start' ? 'worker.resume' : 'worker.retry', { id: id(targetId) });
+    return this.submitManagementAction(task.id, action, targetId);
+  },
+
+  // Trusted execution helper: both dedicated tools and confirmed manager.call
+  // use the original target gates, saved configuration, dedup and waiting engine.
+  submitManagementAction(taskId, action, targetId) {
+    const task = this.store.task(taskId), state = managementState(task);
     const target = this.store.task(id(targetId));
     const previous = state.receipts.find(receipt => receipt.action === action && receipt.target_id === target.id);
     if (previous) return receiptView(previous);

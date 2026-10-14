@@ -2,9 +2,16 @@ import { SIDEBAR_SECTIONS, toggleCollapsed } from './sidebar.js';
 import { $, el } from './dom.js';
 import { filterInput, filterMulti, filterSelect, filterToggle, filterUi, plannerOption, roleOption, specStatusOption, statusOption, syncSelectOptions, withCurrent } from './filters-ui.js';
 import { applyFilters } from './refresh.js';
-import { navTo, paintCollapsed } from './sidebar-ui.js';
+import { openResource, paintCollapsed } from './sidebar-ui.js';
+import { requestPageLeave } from './page-leave-guard.js';
 import { ROLE } from './format.js';
 import { saveCollapsedPref, ui } from './state.js';
+
+// User navigation owns the leave guard; the shared page-activation layer must
+// remain independent so lazy pages do not split the startup singleton closure.
+export function navTo(id) {
+  return requestPageLeave(`#${id === 'tasks' ? 'workers' : id}`, { leave: () => openResource(id) });
+}
 
 /* ---------- 左侧栏：快速导航、可折叠区块、三个列表的筛选 ---------- */
 // 纯逻辑（筛选规则、摘要、折叠 / 筛选状态形态）都在 sidebar.js，这里只负责接到 DOM。

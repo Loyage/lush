@@ -7,6 +7,7 @@ import { installDom } from '../dom-stub.js';
 import { installDom as installProjectDom } from './project-dom.js';
 import { makeWorld } from './dom-world.js';
 import { temp, until } from '../helpers.js';
+import { MANAGEMENT_GROUPS, managementPermissionMethods } from '../../src/rpc/management-policy.js';
 const root = temp(), assets = fileURLToPath(new URL('../../src/ui/web/assets/', import.meta.url));
 await buildAssets(assets, root, 'a'.repeat(32));
 const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
@@ -83,6 +84,35 @@ test('compiled Valet profile loads on demand, preserves shared composer state an
     const sent = world.state.actions.findLast(row => row.method === 'management.submit');
     expect(sent.params.profile).toEqual({ agent: 'pi', config_mode: 'pi' });
     expect(sent.params).not.toHaveProperty('env'); expect(sent.params).not.toHaveProperty('default_prompt');
+  } finally { project.restore(); await boot(); }
+});
+
+test('compiled Valet lazy page shares navigation and preserves its draft through project refresh and repeat entry', async () => {
+  const methods = managementPermissionMethods(), writes = [];
+  let settings = { version: 1, scope: 'project', revision: 'r1', groups: MANAGEMENT_GROUPS, methods,
+    permissions: Object.fromEntries(methods.map(item => [item.method, item.access])) };
+  const project = installProjectDom({ fetch: (url, options = {}) => {
+    if (String(url).endsWith('/api/management/permissions')) return Response.json(settings);
+    const body = options.body && JSON.parse(options.body);
+    if (body?.method === 'management.permissions_update') {
+      writes.push(body); settings = { ...settings, revision: 'r2', permissions: body.params.permissions,
+        methods: settings.methods.map(item => ({ ...item, access: body.params.permissions[item.method] })) };
+      return Response.json(settings);
+    }
+    return world.fetchImpl(url, options);
+  } });
+  try {
+    await boot(); await project.node('valet-settings-open').onclick();
+    expect(project.node('detail').dataset.view).toBe('valet-settings');
+    const root = project.node('detail').querySelector('.valet-settings-page'), details = root.querySelector('details'); details.open = true;
+    const choice = root.querySelectorAll('.valet-permission-method').find(node => node.dataset.method === 'draft.add').querySelector('select');
+    choice.value = 'confirmation'; choice.onchange();
+    await project.node('valet-settings-open').onclick(); expect(project.node('detail').querySelector('.valet-settings-page')).toBe(root);
+    expect(choice.value).toBe('confirmation'); expect(details.open).toBe(true);
+    await root.querySelectorAll('button').find(node => node.textContent === '保存管家默认权限').onclick();
+    expect(writes).toHaveLength(1); expect(writes[0].params.expected_revision).toBe('r1');
+    expect(writes[0].params.permissions['draft.add']).toBe('confirmation');
+    await project.node('side-nav').querySelector('[data-side="valets"]').onclick(); expect(project.node('detail').dataset.view).toBe('valets');
   } finally { project.restore(); await boot(); }
 });
 

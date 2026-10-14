@@ -12,6 +12,16 @@ W263／D611 删除独立「Valet 设置」及全部 Web 信号／绑定编辑入
 
 管理 Agent 可发现全部当前 RPC 能力，但执行权限由 `src/rpc/management-policy.js` 明确分为安全读取、低风险自动执行、用户确认和不可用。查询诊断、有界调用历史、草稿编辑、条件发射、合法追加、开始／继续和重试可自动执行；取消、中断、合并、验收回收、删除、敏感配置及服务操作须持久预检，由用户确认精确请求后经原引擎执行。快捷指令没有预授权，但管理 Agent 调用其保存、删除、导出、旧配置导入或运行历史移除（`hooks.command_save/remove/export/import/history_remove`）仍须用户确认；读取目录和运行历史可安全查询，已删除的 command_authorize 不可调用。普通开发 Agent 不因此扩权，不可复活终态、已归档或祖先关闭的工作。
 
+### 当前项目管家默认权限（W278／D632）
+
+`management.permissions {}` 与 `management.permissions_update {permissions,expected_revision}` 均为用户专属；普通开发 Agent、Valet 及 `manager.call` 都不能读取或修改设置。Web 使用 GET `/api/management/permissions`（不接受 query）及同源 POST `/api/action` 的 `management.permissions_update`。设置只保存于当前项目 meta，不进入设备设置，不改变其它项目。
+
+两个 RPC 都返回 `{version:1,scope:'project',revision,groups,methods,permissions}`。groups 为 `{id,label,description}`；methods 为 `{method,group,label,description,base_access,access,allowed_access,reason}`。目录、分组、原始分级、可选值和实际执行校验均来自 `src/rpc/management-policy.js`。permissions 是**完整** `method -> access` 映射，包含不可用条目；保存不接受 sparse patch、未知方法／顶层字段或缺项，使用当前 revision 防止并发覆盖。初始映射保持原有行为。`read` 只能选择 read／unavailable，`automatic` 只能 automatic／confirmation／unavailable，`confirmation` 只能 confirmation／unavailable，`unavailable` 不可提升。`manager.catalog` 是必要发现能力，固定 read（allowed_access 只有 read），不能禁止；manager.call/start/retry 是传输／兼容入口，不是可独立提升的权限。
+
+即时输入、等待信号和持续绑定均只在**新建** Valet 时保存私有 `permissions_snapshot:{version,scope,revision,permissions}`，不随默认值更新。client_request_id 去重重试仍返回原 Worker、保留原快照。已有未带快照的历史 Valet 继续原始授权；已有快照缺少的新方法默认不可用，即使新版本以后审核开放也不隐式扩权。公开 inspect 不输出私有快照。默认修改不撤回已有调用、等待动作或用户确认；已提交操作沿原固定授权与安全门收口。
+
+`manager.query`、`manager.history` 是独立审核的安全 read 条目；直接工具与 manager.call 使用同一快照检查。worker.lookup 的真实管理 actor 亦需该条目 read 授权。manager.start 对应 worker.resume，manager.retry 对应 worker.retry；两个专用入口和 manager.call 均遵守对应权限。收紧为 confirmation 时发布既有精确用户确认 Notice，用户批准后交给原受控动作引擎，不直接转发普通 resume/retry handler；仍检查目标类型／状态、祖先、冻结、旧调用、配置、去重、等待与 unknown，不允许 profile 覆盖。自动权限也走同一动作引擎，不能借 manager.call 绕过目标门禁。确认收据 succeeded 只表示已提交，result.action 及独立 action receipt 显示 waiting／skipped／succeeded 等实际结果。
+
 ### 历史订阅刷新时间辅助实现
 
 Web 时间信号设置入口已退休；下述保留辅助函数的缓存、时间与迟到保护语义不代表仍有页面入口，也不迁往其他设置。历史时间信号编辑器按需 GET `/api/agent/connections`，仅读取当前项目有效模型来源与本地观测，不调用 `query`。候选为当前 `available|partial` 观测中 `kind:'quota',scope:'account'` 的资源；显示账号名称、指标、结构化窗口与刷新时刻，填入后显示 `checked_at`。缺失／无效／已到期 `reset_at` 不可选，失败或 unknown 不从 `last_success` 补候选。不按来源启停推断额度已恢复，停用来源明确标注。

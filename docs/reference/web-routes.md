@@ -12,7 +12,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 问卷、通知详情和 Agent 正文中的独立 W／V 用户编号（例如 `W141-1`、`V1`）自动显示为蓝色下划线链接。链接使用 `#worker-number-W141-1` 或 `#worker-number-V1`，打开时通过当前项目只读查找解析真实内部身份，再进入原有 `#worker-ID` 通用详情；支持键盘与新标签打开，不把编号当作内部 ID，也不在渲染时查询。未知／已删除编号明确报错。代码块、已有链接、编辑区和普通操作按钮不自动改写；选择题选项中的编号链接与选择按钮独立，查看 Worker 不会作答，返回问卷保留未提交草稿。静态 HTML 效果预览仍保持原 sandbox，不注入跳转能力。
 
-项目自动化 `#hooks` 是四项设置目录；`#hooks-completion`、`#hooks-push`、`#hooks-convergence`、`#hooks-acceptance_notice` 分别为完工默认、推送、归并默认和待验收告知设置页，无运行记录标签。旧功能 `-history` 书签转到对应设置，`#hooks-history` 返回目录；`#hooks-emission` 及其旧记录入口转到输入／草稿，条件发射不属于项目自动化。W263／D611 删除独立 Valet 设置和指令／Hook 工具页面及其 Web 配置入口，不迁到其他页面：`#management`／`#management-history` 跳 `#valets`，`#hook-tools`／`#hooks-commands`／`#hook-tools-history` 及旧命令详情地址跳 `#hooks`，并说明入口已移除。推送页只读引用指令；Worker 实例 Hook 控制、既有后端 API、CLI、授权与历史保持原协议。`#versions` 不再独立渲染，通过有界 overview 核对真实 `task_kind=main` 且 `branch=main` 的持久身份后跳 `#worker-ID`，缺少 main 明示不可用，不从整数 ID 猜编号或身份。旧看板版本快捷链接仅从 Web 投影隐藏，不改已保存配置。精确操作入口见[使用指南](../hooks.md#页面入口)。
+项目自动化 `#hooks` 是四项设置目录；`#hooks-completion`、`#hooks-push`、`#hooks-convergence`、`#hooks-acceptance_notice` 分别为完工默认、推送、归并默认和待验收告知设置页，无运行记录标签。旧功能 `-history` 书签转到对应设置，`#hooks-history` 返回目录；`#hooks-emission` 及其旧记录入口转到输入／草稿，条件发射不属于项目自动化。新 `#valet-settings` 为当前项目「管家设置」，仅读取审核目录并编辑未来新建 Valet 默认权限，不恢复时间信号／绑定编辑；无项目禁用。旧 W263／D611 删除独立 Valet 信号／绑定设置和指令／Hook 工具页面及其 Web 配置入口，不迁到其他页面：`#management`／`#management-history` 跳 `#valets`，`#hook-tools`／`#hooks-commands`／`#hook-tools-history` 及旧命令详情地址跳 `#hooks`，并说明入口已移除。推送页只读引用指令；Worker 实例 Hook 控制、既有后端 API、CLI、授权与历史保持原协议。`#versions` 不再独立渲染，通过有界 overview 核对真实 `task_kind=main` 且 `branch=main` 的持久身份后跳 `#worker-ID`，缺少 main 明示不可用，不从整数 ID 猜编号或身份。旧看板版本快捷链接仅从 Web 投影隐藏，不改已保存配置。精确操作入口见[使用指南](../hooks.md#页面入口)。
 
 ## 宿主级路由
 
@@ -109,6 +109,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/branch-convergence[?branch=BRANCH]` | 用户专属 `branch.convergence_list` / `branch.convergence`，目标实际挂载／启停，list另含defaults；无 branch 列表，有 branch 精确读取，不安装配置或启动 daemon |
 | `GET /api/branch-convergence/defaults` | 用户专属 `branch.convergence_defaults`，无查询参数；仅未来新order／child挂载与默认启停，同源项目默认、不回写已有 |
 | `GET /api/branch-convergence/runs?branch=BRANCH&before=N&limit=N` | 用户专属 `branch.convergence_runs`，branch 必填，before 正整数、limit 默认20/最多50；拒绝额外或重复查询参数，见[分支归并接口](rpc/convergence.md) |
+| `GET /api/management/permissions` | 用户专属 `management.permissions`，当前项目完整默认权限与审核目录；不接受查询参数。保存经 `management.permissions_update {permissions,expected_revision}`，字段和权限见[管家契约](../engineering/hook-signals-management.md#当前项目管家默认权限w278d632) |
 | `GET /api/hooks` | 用户专属 `hooks.list`，节点／动作目录、安全模板、快捷指令目录 commands（无 authorized）、daemon Hooks、时间信号与管理 Worker 投影，不接受查询参数 |
 | `GET /api/worker/ID/hooks` | 用户专属 `worker.hooks`，安全挂载、修订与最近收据，不接受查询参数 |
 | `GET /api/worker/ID` | `worker.inspect` |
@@ -147,10 +148,10 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 
 旧 `intro.*` / `explanation.*` / `quick_explain.*` 全部关闭，不保留快速对话或专用模型配置的兼容入口。
 
-Hooks 另开放 `hooks.save/remove/auto_select/signal_save/signal_remove`、`hooks.command_save/command_remove/command_import`（快捷指令注册、编辑、删除与旧配置显式导入，command_authorize 已删除；手动执行入口已删除，只由 Hook 运行；无 GET 写入口；持久历史只读接口见上表）、`management.create/submit/binding_update`、`worker.hook_attach/hook_update/hook_remove`，均为当前项目用户专属 action；自动选择使用设备策略 revision 和 Host 全局接口；项目未来默认、显示原则及待验收告知使用 hooks.automation_settings／worker.acceptance_notice，旧 hooks.completion_defaults 同源项目策略。精确字段与权限见[项目自动化接口](rpc/hooks.md#新指令默认流程)。
+Hooks 另开放 `hooks.save/remove/auto_select/signal_save/signal_remove`、`hooks.command_save/command_remove/command_import`（快捷指令注册、编辑、删除与旧配置显式导入，command_authorize 已删除；手动执行入口已删除，只由 Hook 运行；无 GET 写入口；持久历史只读接口见上表）、`management.permissions_update/create/submit/binding_update`、`worker.hook_attach/hook_update/hook_remove`，均为当前项目用户专属 action；自动选择使用设备策略 revision 和 Host 全局接口；项目未来默认、显示原则及待验收告知使用 hooks.automation_settings／worker.acceptance_notice，旧 hooks.completion_defaults 同源项目策略。精确字段与权限见[项目自动化接口](rpc/hooks.md#新指令默认流程)。
 
 分支归并另开放 `branch.convergence_set`／`branch.convergence_defaults_set`／`branch.convergence_retry`，仅经当前项目 `POST /api/action`：严格 `{method,params}` envelope，不接受 query、多余字段或任何 `_token` 值，保留登录、Origin、项目身份及 JSON 校验。分支setter携带enabled、读取revision和可选mounted（省略兼容为true）；validation可省略保留旧引用，开启无需命令。defaults setter携带mounted、enabled及其独立revision，只影响之后实际创建的新Worker。retry携带整数运行ID和revision，不自动重放未知落地。只读RPC不进入action白名单，也没有GET修改入口。详见[分支归并接口](rpc/convergence.md)。
 
-管理 Agent 的专用 `manager.query/start/retry/catalog/history/call` RPC 不进入 Web 动作白名单；独立 Valet 设置 Web 入口已退休，用户仍可经既有 CLI／API 保存信号绑定，或主输入「管理 Lush」即时提交 management.submit 新建 Valet，不从 Web 构造管理 Actor。危险请求用用户 Notice 答复固定授权，管理模型和自动选择均不能代签。授权范围见[时间信号与管理契约](../engineering/hook-signals-management.md)。
+管理 Agent 的专用 `manager.query/start/retry/catalog/history/call` RPC 不进入 Web 动作白名单；旧 Valet 时间信号／绑定设置 Web 入口已退休，新「管家设置」只配置项目未来默认权限；用户仍可经既有 CLI／API 保存信号绑定，或主输入「管理 Lush」即时提交 management.submit 新建 Valet，不从 Web 构造管理 Actor。危险请求用用户 Notice 答复固定授权，管理模型和自动选择均不能代签。授权范围见[时间信号与管理契约](../engineering/hook-signals-management.md)。
 
 任何不在上述白名单的写入（含已下线的批量草稿提交、Candidate 验收、托管模式、展示、旧介绍与旧合并入口）都不再提供 Web 操作。

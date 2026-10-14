@@ -27,7 +27,7 @@ import { initNoticeRecords, openNotice } from './render-notices.js';
 import { workerNumberTarget, resolveWorkerNumber } from './worker-links.js';
 import { projectRoute, workspaceHref } from './route.js';
 import { configureWorkspaceShell, renderGlobalInboxSummary, workspaceLink } from './workspace-shell.js';
-import { requestPageLeave, resetPageLeaveGuard } from './page-leave-guard.js';
+import { requestPageLeave, resetPageLeaveGuard, registerPageLeaveGuard } from './page-leave-guard.js';
 import { onDeviceAutomation, startDeviceAutomationObserver } from './workspace-automation.js';
 
 function syncSidebarSortSelect() {
@@ -73,6 +73,7 @@ async function openPage(load, open, view, options = {}) {
   try { const module = await load(); if (current()) return await open(module); }
   catch (error) { if (current()) show(`${error.message}（若界面已更新，请刷新后重试）`, 'error'); }
 }
+const openValetSettings = () => openPage(() => import('./render-valet-settings.js'), module => module.openValetSettings({ registerPageLeaveGuard }), 'valet-settings');
 const openSettings = () => openPage(() => import('./render-settings.js'), module => module.openSettings(), 'settings');
 const openAgentStatus = () => openPage(() => import('./render-agent-status.js'), module => module.openAgentStatus(), 'agent-status');
 const openVersionsRedirect = () => openPage(() => import('./retired-pages.js'), module => module.openLegacyVersions(), 'version-redirect', { push: false, hash: '#versions' });
@@ -146,6 +147,7 @@ function openHashTarget(hash, project, doc, generation) {
       if (generation === hashGeneration && owner === globalThis.document && path === location.pathname && ui.view === view && location.hash === '#hooks') show('指令与 Hook 工具入口已移除；已有自动化、配置、授权与历史保留。');
     });
   }
+  if (hash === '#valet-settings') return openValetSettings();
   if (hash === '#management' || hash === '#management-history') {
     openResource('valets'); show('Valet 设置入口已移除；管家列表仅展示持久管理记录和只读详情。'); return;
   }
@@ -245,29 +247,30 @@ export async function boot() {
   initContextReferences(); initHelp();
   const goOverview = () => projectReady ? overview().catch(report) : projectRoute() ? noProjectView() : openProjectOverview();
   workspaceLink('home', '#projects', () => openProjectOverview());
-  $('overview-open').onclick = goOverview;
+  $('overview-open').onclick = () => requestPageLeave('', { leave: goOverview });
   if ($('home')) {
     $('home').setAttribute('aria-label', 'Lush · 用户工作台');
     if (projectRoute()) $('home').setAttribute('data-help', '在新标签打开上级用户工作台，当前项目的输入与阅读位置保留。');
     else $('home').removeAttribute('data-help');
   }
-  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'hooks-open'];
+  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'hooks-open', 'valet-settings-open'];
   for (const id of projectOnly) { const target = $(id); if (target) { target.disabled = !projectReady; target.setAttribute('aria-disabled', String(!projectReady)); } }
   if ($('composer-shell')) $('composer-shell').hidden = !projectReady;
 
   const composerReady = projectReady ? initComposer() : Promise.resolve();
   if (projectReady) { syncSidebarSortSelect(); $('sidebar-sort').addEventListener('change', onSidebarSortChange); }
-  if ($('hooks-open')) $('hooks-open').onclick = () => projectReady ? openHooks() : noProjectView();
-  if ($('inputs-open')) $('inputs-open').onclick = () => projectReady ? openInputs() : noProjectView();
-  if ($('input-history')) $('input-history').onclick = () => projectReady ? openInputs() : noProjectView();
+  if ($('valet-settings-open')) $('valet-settings-open').onclick = () => requestPageLeave('#valet-settings', { leave: () => projectReady ? openValetSettings() : noProjectView() });
+  if ($('hooks-open')) $('hooks-open').onclick = () => requestPageLeave('#hooks', { leave: () => projectReady ? openHooks() : noProjectView() });
+  if ($('inputs-open')) $('inputs-open').onclick = () => requestPageLeave('#inputs', { leave: () => projectReady ? openInputs() : noProjectView() });
+  if ($('input-history')) $('input-history').onclick = () => requestPageLeave('#inputs', { leave: () => projectReady ? openInputs() : noProjectView() });
   $('sidebar-toggle').onclick = () => toggleMobileNavigation();
   $('sidebar').onkeydown = event => {
     if (event.key === 'Escape' && $('sidebar').classList.contains('mobile-open')) {
       event.preventDefault(); toggleMobileNavigation(false); $('sidebar-toggle').focus();
     }
   };
-  $('task-graph-open').onclick = () => projectReady ? openTaskGraph().catch(report) : noProjectView();
-  $('view-back').onclick = () => { if ($('view-back').disabled) return; if (typeof window.history.back === 'function') return window.history.back(); return goOverview(); };
+  $('task-graph-open').onclick = () => requestPageLeave('#worker-graph', { leave: () => projectReady ? openTaskGraph().catch(report) : noProjectView() });
+  $('view-back').onclick = () => { if ($('view-back').disabled) return; if (typeof window.history.back === 'function') return window.history.back(); return requestPageLeave('', { leave: goOverview }); };
   if (projectReady) { initSidebar(); initNoticeRecords(); disposeRefreshPolling = initRefreshPolling(); }
   hashListener = onHashChange; globalThis.addEventListener?.('hashchange', hashListener);
   const initialView = onHashChange();

@@ -70,6 +70,7 @@ export const EVENTS = {
   'hook.signal_saved': '保存时间信号', 'hook.signal_removed': '删除时间信号',
   'hook.signal_emitted': '时间信号已发出', 'hook.signal_missed': '时间信号已错过发出时刻',
   'management.created': '创建 Valet', 'management.binding_updated': '调整管理信号绑定',
+  'management.permissions_updated': '保存新建管家默认权限',
   'management.signal_skipped': '管理信号已跳过', 'management.signal_submitted': '管理信号已提交待执行',
   'management.input_submitted': '管理输入已提交待调用',
   'management.capability_requested': '管理能力请求已记录',

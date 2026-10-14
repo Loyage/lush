@@ -36,7 +36,7 @@ test('production startup and lazy module graphs are served with CSP; unknown pat
     expect(cold.size).toBeLessThan(26);
     const preloads = [...html.matchAll(/<link rel="modulepreload" href="([^"\n]+)"/g)].map(row => row[1]);
     expect(new Set([...scripts, ...styles, ...preloads])).toEqual(cold);
-    for (const name of ['render-settings', 'render-agent-status', 'render-inputs', 'render-model-sources', 'render-project-automation', 'management-profile-form']) {
+    for (const name of ['render-settings', 'render-agent-status', 'render-inputs', 'render-model-sources', 'render-project-automation', 'render-valet-settings', 'management-profile-form']) {
       const target = [...lazy].find(file => file.includes(`-${name}-`));
       expect(target).toBeTruthy(); expect(cold.has(target)).toBe(false);
     }
@@ -79,6 +79,8 @@ test('HTML ships startup controls, read-only navigation and collapsed composer',
     // Inherit opt-out in both the composer and lazily created text controls.
     expect(html).toMatch(/<body\b[^>]*\bspellcheck="false"/);
     expect(html).not.toMatch(/\bspellcheck="true"/);
+    expect(html).toContain('id="valet-settings-open"');
+    expect(html).toMatch(/<span class="help-host" data-help="打开可用项目后才能设置本项目新建管家的默认权限。"><button[^>]*id="valet-settings-open"/);
     expect(html).toContain('action="/logout"');
     expect(html).toMatch(/<div id="composer-details"[^>]*hidden/);
     expect(html).toMatch(/id="composer-expand"[^>]*aria-expanded="false"[^>]*aria-controls="composer-details composer-editor-tools composer-shortcuts"/);

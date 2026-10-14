@@ -122,6 +122,10 @@ export const handlers = {
     return p.saveHookSignal(params.signal, expected);
   },
   'hooks.signal_remove'(p, params) { return p.removeHookSignal(hookId(params.id), revision(params.expected_revision)); },
+  'management.permissions'(p) { return p.managementPermissions(); },
+  'management.permissions_update'(p, params) {
+    return p.setManagementPermissions(params.permissions, revision(params.expected_revision));
+  },
   async 'management.create'(p, params) {
     const name = text(params.name, 'name'), instruction = text(params.instruction, 'instruction');
     const signal_id = hookId(params.signal_id);

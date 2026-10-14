@@ -43,6 +43,8 @@ export class Dispatcher {
     const actorTask = actor === null || actor === undefined ? null : p.store?.task(actor);
     check(!(actorTask?.role === 'manager' || actorTask?.task_kind === 'management') || MANAGER_METHODS.has(method),
       'management agents can only use their dedicated reviewed management tools');
+    if ((actorTask?.role === 'manager' || actorTask?.task_kind === 'management') && method === 'worker.lookup')
+      p.assertManagementPermission(actor, 'worker.lookup');
     // Capability comes from the authenticated Store identity, not role labels, prompts or caller params.
     // New public methods remain denied until explicitly reviewed for the isolated integration helper.
     check(actorTask?.task_kind !== 'integration' || INTEGRATION_METHODS.has(method),

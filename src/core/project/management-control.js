@@ -84,10 +84,13 @@ export default {
     return { management: true, task };
   },
 
-  managementCapabilityCatalog(actorId) { assertManager(this, actorId); return managementCatalog(); },
+  managementCapabilityCatalog(actorId) {
+    const { state } = assertManager(this, actorId);
+    return managementCatalog(state.permissions_snapshot);
+  },
 
   managementHistory(actorId, options = {}) {
-    assertManager(this, actorId);
+    this.assertManagementPermission(actorId, 'manager.history');
     check(isPlainObject(options) && Object.keys(options).every(key => ['id','before','limit'].includes(key)), 'invalid management history fields');
     const limit = options.limit ?? 30;
     check(Number.isSafeInteger(limit) && limit > 0 && limit <= 100, 'history limit must be 1..100');
@@ -110,9 +113,12 @@ export default {
 
   async callManagementCapability(actorId, method, params = {}, requestId = undefined) {
     this.assertWritable('request a management capability');
-    const { task } = assertManager(this, actorId);
+    const { task, state: authorization } = assertManager(this, actorId);
     requestKey(requestId);
-    const policy = validateManagementCall(method, params, task.goal);
+    const policy = validateManagementCall(method, params, task.goal, authorization.permissions_snapshot);
+    const lifecycleAction = method === 'worker.resume' ? 'start' : method === 'worker.retry' ? 'retry' : null;
+    if (lifecycleAction) check(Object.keys(params).length === 1 && Object.hasOwn(params, 'id'),
+      'management start/retry requires only id and preserves saved configuration');
     if (['notice.answer','notice.dismiss'].includes(method) && Number.isSafeInteger(params.id)) {
       const decision = this.store.get('SELECT n.id,t.task_kind FROM notices n JOIN tasks t ON t.id=n.task_id WHERE n.id=?', params.id);
       check(decision?.task_kind !== 'management', 'management confirmations require the user interface, not another management capability');
@@ -123,7 +129,11 @@ export default {
       'confirmation parameters exceed readable preview limit');
     if (policy.access === 'read') {
       // Do not ask the user-facing status handler for private full configuration.
-      const result = method === 'system.status' ? this.status(false) : await this.managementDispatch(method, copied);
+      const result = method === 'system.status' ? this.status(false)
+        : method === 'manager.catalog' ? this.managementCapabilityCatalog(actorId)
+        : method === 'manager.query' ? this.managementQuery(actorId, copied.id)
+        : method === 'manager.history' ? this.managementHistory(actorId, copied)
+        : await this.managementDispatch(method, copied);
       assertManager(this, actorId);
       return { status: 'succeeded', method, result: managementSafeResult(result) };
     }
@@ -256,7 +266,7 @@ export default {
     this.managementControlBusy.add(receiptId);
     try {
       check(typeof this.managementDispatch === 'function', 'trusted management dispatcher is unavailable');
-      validateManagementCall(call.method, call.params, task.goal);
+      validateManagementCall(call.method, call.params, task.goal, state.permissions_snapshot);
       check(call.fingerprint === hookRevision({ method: call.method, params: canonical(call.params) }), 'fixed management parameters changed');
       check(call.target_snapshot === targetSnapshot(this, call.method, call.params), 'management target changed; request a new confirmation');
       if (call.preflight_fingerprint) {
@@ -271,13 +281,15 @@ export default {
       check(call.target_snapshot === targetSnapshot(this, call.method, call.params), 'management target changed during preflight');
       call.status = 'running'; call.started_at = managementTime(this); saveManagement(this, taskId, state);
       this.store.event(taskId, 'management.capability_started', { receipt_id: receiptId, method: call.method });
+      const action = call.method === 'worker.resume' ? 'start' : call.method === 'worker.retry' ? 'retry' : null;
       const result = await this.write('execute confirmed management capability',
-        () => this.managementDispatch(call.method, managementDispatchParams(call.method, call.params)));
+        () => action ? this.submitManagementAction(taskId, action, call.params.id)
+          : this.managementDispatch(call.method, managementDispatchParams(call.method, call.params)));
       // Another asynchronous tool/confirmation may have appended a receipt while this operation ran.
       state = managementState(this.store.task(taskId)); call = state.control_calls.find(item => item.receipt_id === receiptId);
       call.status = 'succeeded'; call.finished_at = managementTime(this);
       // Mutations return only a narrow receipt, not user-only config or destructive result payloads.
-      call.result = { submitted: true, ...(Number.isSafeInteger(result?.id) ? { id: result.id } : {}),
+      call.result = { submitted: true, ...(action ? { action: result } : {}), ...(Number.isSafeInteger(result?.id) ? { id: result.id } : {}),
         ...(result?.emitted === true ? { emitted: true, draft_id: result.draft_id } : {}) };
       saveManagement(this, taskId, state);
       this.store.event(taskId, 'management.capability_completed', { receipt_id: receiptId, method: call.method });
