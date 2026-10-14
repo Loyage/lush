@@ -10,7 +10,7 @@ import { renderAccountGroup } from './dashboard-accounts-group.js';
 import { WIDGET_NAMES, GLOBAL_LINKS, PROJECT_LINKS, widgetSlots, reflowWidgetPage } from './dashboard-widget-model.js';
 import { onlineDashboardProject, pendingDashboardNotice, loadProjectMessageGroup } from './project-dashboard-content.js';
 
-const link = (text, href, className) => {
+const link = (text, href, className = 'nav-link') => {
   const node = el('a', text, className); node.href = href; node.target = '_blank'; node.rel = 'noopener'; return node;
 };
 /** Transient pages and source-specific write locks survive board geometry repaints. */

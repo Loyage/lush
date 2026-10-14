@@ -45,7 +45,7 @@ function workerFeature(item, state) {
   return { section, body };
 }
 export function hookHelpLink() {
-  const link = el('a', '使用帮助', 'hook-help-link'); link.href = '/#doc-docs-hooks'; link.target = '_blank'; link.rel = 'noopener'; return link;
+  const link = el('a', '使用帮助', 'nav-link hook-help-link'); link.href = '/#doc-docs-hooks'; link.target = '_blank'; link.rel = 'noopener'; return link;
 }
 function projectHookCard(name, scope, className) {
   const card = el('article', undefined, `hook-mount project-hook ${className}`);

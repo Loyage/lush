@@ -65,7 +65,7 @@ export async function openProjectAutomation({ feature = null, subpage = 'setting
     if (!id) { panel.replaceChildren(); return; }
     const item = automationFeature(id), content = el('div', undefined, 'automation-feature-content');
     const header = el('header', undefined, 'hooks-page-header'); header.append(el('h1', item.name), badge(item.scope));
-    const back = button('← 返回自动化功能列表', () => openProjectAutomation(), 'link');
+    const back = button('← 返回自动化功能列表', () => openProjectAutomation(), 'nav-link nav-back');
     panel.replaceChildren(back, header, content);
     const current = () => owns() && state.feature === id && request === state.request;
     let node = state.nodes.get(id);

@@ -87,7 +87,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   referenceable(panel, { kind: 'task', target: { task_id: task.id }, label: `${workTypeLabel(task)} ${workerLabel(task)}`,
     quote: `${task.goal}\n状态：${statusOf(task).label} · ${ROLE[task.role] || task.role}`, location: { view: 'task-detail', task_id: task.id } });
   const breadcrumb = el('div', undefined, 'breadcrumb');
-  breadcrumb.append(button('项目概览', () => overview(), 'link'), el('span', '/'), el('span', `${workTypeLabel(task)} ${workerLabel(task)}`));
+  breadcrumb.append(button('项目概览', () => overview(), 'nav-link'), el('span', '/'), el('span', `${workTypeLabel(task)} ${workerLabel(task)}`));
   panel.append(breadcrumb);
   const hero = el('div', undefined, 'task-hero');
   const head = el('div', undefined, 'head');
@@ -356,7 +356,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
         fold.append(el('summary', `${noticeNumber(notice)} · ${notice.title} · ${label}`),
           readOnly && notice.status === 'open' ? el('pre', notice.body) : settledDecision(notice));
         if (management && notice.status === 'open') {
-          const link = el('a', '查看确认请求'); link.setAttribute('href', `#notices-${notice.id}`); fold.append(link);
+          const link = el('a', '查看确认请求', 'nav-link'); link.setAttribute('href', `#notices-${notice.id}`); fold.append(link);
         }
         record.append(fold);
       }

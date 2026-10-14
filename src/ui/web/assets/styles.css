@@ -57,6 +57,20 @@ button.ghost{background:transparent;color:var(--muted);border-color:var(--line)}
 button.danger{background:var(--red-soft);color:var(--failed);border-color:color-mix(in srgb,var(--failed) 25%,transparent)}button.danger:hover{border-color:var(--failed)}
 .link{background:none;border:0;border-radius:4px;padding:0;color:var(--accent);font:inherit;font-size:13px;cursor:pointer;text-align:left;overflow-wrap:anywhere}
 .link:hover{box-shadow:none;text-decoration:underline;text-underline-offset:3px}
+/* Explicit UI navigation only: prose, automatic references, tabs and whole-card links
+   keep their own hierarchy. The empty CSS arrow is decorative (no spoken glyph or image request). */
+a.nav-link,button.nav-link{display:inline-flex;align-items:center;justify-content:space-between;gap:10px;box-sizing:border-box;min-width:0;max-width:100%;min-height:36px;padding:6px 11px;border:1px solid var(--line);border-radius:8px;background:var(--sidebar);color:var(--accent);font:inherit;font-size:12px;font-weight:600;line-height:1.5;text-align:left;text-decoration:none;white-space:normal;overflow-wrap:anywhere;vertical-align:middle;cursor:pointer}
+.nav-link::after{content:"";flex:none;width:12px;height:12px;background:currentColor;clip-path:polygon(0 44%,72% 44%,41% 13%,50% 4%,96% 50%,50% 96%,41% 87%,72% 56%,0 56%)}
+a.nav-link[target="_blank"]::after{transform:rotate(-45deg)}
+a.nav-link.nav-back::after{order:-1;transform:rotate(180deg)}
+button.nav-link.nav-back::after{display:none} /* Callback back buttons already carry ← in their label. */
+a.nav-link:visited{color:var(--accent)}
+a.nav-link:hover,button.nav-link:hover{background:var(--accent-soft);color:var(--accent);border-color:var(--accent);text-decoration:none;box-shadow:none;filter:none}
+a.nav-link:focus-visible,button.nav-link:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+a.nav-link:active,button.nav-link:active:not(:disabled){background:var(--accent-soft);border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);transform:none}
+a.nav-link[hidden],button.nav-link[hidden]{display:none}
+@media(max-width:760px),(pointer:coarse){a.nav-link,button.nav-link{min-height:44px}}
+@media(forced-colors:active){a.nav-link,button.nav-link{color:LinkText;border-color:LinkText}.nav-link::after{forced-color-adjust:none}a.nav-link:focus-visible,button.nav-link:focus-visible{outline-color:Highlight}}
 a.worker-link,a.record-link{color:var(--running);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 a.worker-link:visited,a.record-link:visited{color:var(--running)}
 a.worker-link:focus-visible,a.record-link:focus-visible{outline:2px solid var(--running);outline-offset:3px;border-radius:2px}
@@ -177,7 +191,7 @@ details.disclosure{border-top:1px solid var(--line);margin-top:22px;padding-top:
 input.pick{flex:none;width:15px;height:15px;accent-color:var(--accent);cursor:pointer}input.pick:disabled{cursor:not-allowed;opacity:.45}
 
 /* Detail: the goal is the title; result and issues precede implementation metadata. */
-.breadcrumb{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--dim);margin-bottom:22px}.breadcrumb .link{font-size:11px;color:var(--muted)}
+.breadcrumb{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:11px;color:var(--dim);margin-bottom:22px}.breadcrumb .link{font-size:11px;color:var(--muted)}
 .head{display:flex;align-items:center;flex-wrap:wrap;gap:8px}.head .tid-lg{font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}.task-hero .tid-lg{font-size:13px;color:var(--dim)}.task-title{font-size:clamp(22px,2.2vw,30px);line-height:1.55;letter-spacing:-.025em;margin:16px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;text-wrap:pretty}
 .task-actions{margin:20px 0 26px;padding-bottom:22px;border-bottom:1px solid var(--line)}.task-actions button{font-size:11px}
 .worker-relation-tree,.worker-relation-tree ul{list-style:none;margin:0;padding:0}.worker-relation-tree ul{margin-left:12px;padding-left:16px;border-left:1px solid var(--line)}.worker-relation-tree li{position:relative;min-width:0}.worker-relation-tree ul>li::before{content:'';position:absolute;left:-16px;top:23px;width:16px;border-top:1px solid var(--line)}.worker-relation-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 8px;min-width:0}.worker-relation-row.is-current{background:var(--accent-soft);border-radius:8px}.worker-relation-label{font-size:11px;color:var(--muted)}.worker-relation-title{flex:1 1 150px;min-width:0;overflow-wrap:anywhere;text-align:left;font-size:12px}.worker-relation-row .badge{flex:none}.worker-relations-count{margin-top:12px}
@@ -304,8 +318,9 @@ button.step-head{display:flex;align-items:center;flex-wrap:wrap;gap:7px;font-siz
 .graph-decision-actions button{font-size:11px}
 
 /* Documentation view: the bundled docs/ tree read in the right pane. */
-.doc-body{max-width:88ch;font-size:14px;line-height:1.85}.doc-body h1,.doc-body h2,.doc-body h3{margin-top:26px}.doc-row .link{flex:1;min-width:0}.doc-row .when{flex:none;max-width:46%;overflow:hidden;text-overflow:ellipsis}.doc-back{margin-left:auto;font-size:12px}.doc-foot{margin-top:18px;padding-top:12px;border-top:1px solid var(--line-soft)}
-.doc-search{display:flex;align-items:center;gap:12px;margin:18px 0 8px}.doc-search input{flex:1;min-width:180px;max-width:720px;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:9px}.doc-search input:focus{outline:2px solid var(--accent);outline-offset:1px}.doc-search-status{flex:none}.doc-search-results{max-width:920px;margin-top:12px}.doc-search-result{padding:14px 0;border-bottom:1px solid var(--line-soft)}.doc-search-result>.link{font-size:14px;font-weight:600}.doc-search-meta{display:flex;align-items:center;gap:8px;margin-top:4px}.doc-search-meta .when{margin-left:0}.doc-search-snippet{margin:7px 0 0;color:var(--muted);font-size:12px;line-height:1.7}.doc-catalog[hidden],.doc-search-results[hidden]{display:none}
+.doc-body{max-width:88ch;font-size:14px;line-height:1.85}.doc-body h1,.doc-body h2,.doc-body h3{margin-top:26px}.doc-row .nav-link{flex:1;min-width:0}.doc-row .when{flex:none;max-width:46%;overflow:hidden;text-overflow:ellipsis}.doc-back{margin-left:auto;font-size:12px}.doc-foot{margin-top:18px;padding-top:12px;border-top:1px solid var(--line-soft)}
+@media(max-width:760px){.doc-row{flex-direction:column;align-items:stretch;gap:5px}.doc-row .nav-link{flex:auto}.doc-row .when{max-width:100%}}
+.doc-search{display:flex;align-items:center;gap:12px;margin:18px 0 8px}.doc-search input{flex:1;min-width:180px;max-width:720px;padding:10px 12px;background:var(--panel);border:1px solid var(--line);border-radius:9px}.doc-search input:focus{outline:2px solid var(--accent);outline-offset:1px}.doc-search-status{flex:none}.doc-search-results{max-width:920px;margin-top:12px}.doc-search-result{padding:14px 0;border-bottom:1px solid var(--line-soft)}.doc-search-result>.nav-link{font-size:14px;font-weight:600}.doc-search-meta{display:flex;align-items:center;gap:8px;margin-top:4px}.doc-search-meta .when{margin-left:0}.doc-search-snippet{margin:7px 0 0;color:var(--muted);font-size:12px;line-height:1.7}.doc-catalog[hidden],.doc-search-results[hidden]{display:none}
 .doc-lead{margin:0 0 4px}
 /* GFM tables: architecture docs are mostly tables. display:block lets a wide table scroll instead of
    blowing out the pane; the rows and cells keep their own table-* display, so the table structure holds. */

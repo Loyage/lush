@@ -103,7 +103,7 @@ export function createShortcutRuns({ ownsPage, busy, setBusy, active: initiallyA
         el('p', commandResultText({ ...row.command_result, kind: row.kind, status: row.status }), ['failed', 'unknown'].includes(row.status) ? 'error' : 'hint'),
         el('p', `运行身份：${row.id}`, 'hint shortcut-execution-id'));
       if (Number.isSafeInteger(row.created_worker_id) && row.created_worker_id > 0) {
-        const link = el('a', `查看创建的 Worker ${workerLabel(row.created_worker_id, row.created_worker_number)}`, 'hook-help-link'); link.href = `#worker-${row.created_worker_id}`; card.append(link);
+        const link = el('a', `查看创建的 Worker ${workerLabel(row.created_worker_id, row.created_worker_number)}`, 'nav-link hook-help-link'); link.href = `#worker-${row.created_worker_id}`; card.append(link);
       }
       if (Number.isSafeInteger(row.input_id) && row.input_id > 0) card.append(el('p', `原始输入 O${row.input_id}`, 'hint'));
       const host = el('span', undefined, 'help-host');

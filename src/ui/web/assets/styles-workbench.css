@@ -151,7 +151,7 @@
 .project-overview{container-type:inline-size;container-name:dashboard-overview}
 .dashboard-global-direct-links{display:none;align-items:center;gap:4px;min-width:0;margin-right:auto}
 .dashboard-global-direct-links a{display:flex;align-items:center;min-height:44px;padding:4px 6px;box-sizing:border-box;white-space:nowrap;color:var(--accent);font-size:11px;text-decoration:none}
-.dashboard-global-direct-links a:hover{text-decoration:underline}
+.dashboard-global-direct-links a:hover{text-decoration:none;background:var(--accent-soft)}
 @container dashboard-overview (min-width:1000px){.project-overview:not(.dashboard-layout-editing) .dashboard-global-direct-links{display:flex}.project-overview:not(.dashboard-layout-editing):has(.dashboard-global-direct-links a) .dashboard-navigation-open{display:none}}
 @media(max-width:700px){.dashboard-settings-panel{padding:12px}.dashboard-option{width:100%}.dashboard-settings-actions button{flex:1}.project-dashboard-shortcuts a{min-height:44px;display:flex;align-items:center}.dashboard-toolbar{justify-content:flex-end}}
 /* Project automation is settings-only; retained editors never need a horizontal scroll. */

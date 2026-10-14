@@ -131,7 +131,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
   listCard.append(listHead, list);
   const detailView = el('section', undefined, 'input-detail-view'); detailView.hidden = true;
   const breadcrumb = el('div', undefined, 'breadcrumb');
-  const back = button(embedded ? '← 返回条件输入列表' : '← 返回历史输入', () => showList(), 'link'); breadcrumb.append(back);
+  const back = button(embedded ? '← 返回条件输入列表' : '← 返回历史输入', () => showList(), 'nav-link nav-back'); breadcrumb.append(back);
   const panel = el('section', undefined, 'input-detail resource-card'); panel.hidden = true; panel.setAttribute('aria-label', '输入原文与编辑'); panel.setAttribute('tabindex', '-1');
   detailView.append(breadcrumb, panel);
   const more = controlsButton('加载更多', () => load(true), { help: '按当前搜索和筛选条件，继续读取更早的输入记录。' }); more.node.hidden = true;

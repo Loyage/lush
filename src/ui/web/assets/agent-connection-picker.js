@@ -26,7 +26,7 @@ export function createAgentConnectionPicker({ backend, model, connectionId = '',
   const note = el('span', undefined, 'settings-note');
   note.setAttribute('role', 'status');
   let cliModels = [];
-  const detailsLink = el('a', '管理模型来源', 'agent-sources-link'); detailsLink.href = '/#model-sources';
+  const detailsLink = el('a', '管理模型来源', 'nav-link agent-sources-link'); detailsLink.href = '/#model-sources';
   if (globalThis.location?.pathname?.startsWith('/p/')) { detailsLink.target = '_blank'; detailsLink.rel = 'noopener'; }
   const entries = new Map();
   // 只保存已读取的目录缓存；不从连接列表里推断，也不在打开表单时联网刷新。

@@ -49,7 +49,7 @@ export function renderAccountGroup(row, { mode = 'list', sections, sectionsForAc
           if (!ownsPage()) return;
           const content = el('ul', undefined, 'dashboard-accounts-details-list');
           for (const account of accounts) content.append(renderAccountCard(account, { sections: sectionsForAccount?.(account) ?? sections }));
-          const more = el('a', '模型来源'); more.href = '/#model-sources'; more.target = '_blank'; more.rel = 'noopener'; content.append(more);
+          const more = el('a', '模型来源', 'nav-link'); more.href = '/#model-sources'; more.target = '_blank'; more.rel = 'noopener'; content.append(more);
           void formDialog({ title: '额度与余额', content, confirmLabel: '关闭' });
         }; footer.append(details);
       }

@@ -93,7 +93,7 @@ function noProjectView() {
   if (ui.view !== identity) return;
   const box = el('div', undefined, 'workbench-view');
   box.append(el('h1', '当前地址没有可用项目'), el('p', '设备设置、全局收件箱、项目入口与帮助仍可使用。', 'hint'));
-  const link = el('a', '打开项目入口', 'ghost'); link.href = '/#project-management'; link.target = '_blank'; link.rel = 'noopener'; box.append(link);
+  const link = el('a', '打开项目入口', 'nav-link'); link.href = '/#project-management'; link.target = '_blank'; link.rel = 'noopener'; box.append(link);
   $('detail').replaceChildren(box);
 }
 /** Old in-project setting bookmarks lead to the real global page; never silently replace the project tab. */
@@ -103,8 +103,8 @@ function globalPageRedirect(hash) {
   if (ui.view !== identity) return;
   const box = el('div', undefined, 'workbench-view');
   box.append(el('h1', '在独立用户工作台打开'), el('p', '设备设置与全局事项不再属于当前项目。新标签打开后，当前项目的输入和现场保留。', 'hint'));
-  const link = el('a', '打开用户工作台页面', 'primary'); link.href = workspaceHref(hash); link.target = '_blank'; link.rel = 'noopener'; box.append(link);
-  const back = el('a', '返回项目概览', 'ghost'); back.href = `\u0023`; box.append(back); $('detail').replaceChildren(box);
+  const link = el('a', '打开用户工作台页面', 'nav-link'); link.href = workspaceHref(hash); link.target = '_blank'; link.rel = 'noopener'; box.append(link);
+  const back = el('a', '返回项目概览', 'nav-link nav-back'); back.href = `\u0023`; box.append(back); $('detail').replaceChildren(box);
 }
 const deviceHash = hash => /^#(?:settings|agent-status|model-sources|model-source-[a-f0-9-]+|automation|notices-(?:all|open|unread|automatic|failed)|notices-project-[a-f0-9]{16}(?:-(?:all|open|unread|automatic|failed))?|inbox-notice-[a-f0-9]{16}-[1-9]\d*)$/.test(hash);
 let hashGeneration = 0;

@@ -33,7 +33,7 @@ function helpHost(control, reason) {
   control.disabled = true; host.append(control); return host;
 }
 function workerLink(item) {
-  const link = el('a', `打开 Worker ${workerLabel(item.notice.task_id, item.notice.task_worker_number)}`, 'ghost global-inbox-worker');
+  const link = el('a', `打开 Worker ${workerLabel(item.notice.task_id, item.notice.task_worker_number)}`, 'nav-link global-inbox-worker');
   link.setAttribute('href', `/p/${item.project_id}/#worker-${item.notice.task_id}`);
   link.setAttribute('target', '_blank'); link.setAttribute('rel', 'noopener');
   link.setAttribute('data-help', '在独立项目标签查看来源 Worker，保留当前页面；仅打开视图，不提交答案或启动 Agent。');

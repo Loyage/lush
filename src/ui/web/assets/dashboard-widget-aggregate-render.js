@@ -19,7 +19,7 @@ export function dashboardNavigation(links, { name = '' } = {}) {
     if (seen.has(key)) continue;
     seen.add(key);
     const label = (item.scope === 'global' ? GLOBAL_LINKS : PROJECT_LINKS).find(([target]) => target === item.target)?.[1] || item.target;
-    const target = el('a', `${name && item.scope === 'project' ? `${name} · ` : ''}${label}`);
+    const target = el('a', `${name && item.scope === 'project' ? `${name} · ` : ''}${label}`, 'nav-link');
     target.href = item.scope === 'global' ? `/#${item.target}` : projectHref(item.project_id, `/#${item.target}`);
     target.target = '_blank'; target.rel = 'noopener'; root.append(target);
   }

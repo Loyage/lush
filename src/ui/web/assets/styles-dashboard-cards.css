@@ -86,7 +86,7 @@
 .project-board .dashboard-widget-source-error{min-width:0;max-width:35%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:var(--failed)}
 .project-board .dashboard-widget-footer{display:flex;align-items:center;justify-content:space-between;gap:4px;min-width:0;min-height:44px;border-top:1px solid var(--line-soft);font-size:11px;color:var(--muted);container-type:inline-size;container-name:dashboard-project-footer}
 .project-board .dashboard-widget-footer a{color:var(--accent);text-decoration:none}
-.project-board .dashboard-widget-footer a:hover{text-decoration:underline}
+.project-board .dashboard-widget-footer a:hover{text-decoration:none;background:var(--accent-soft)}
 .project-board .dashboard-widget-footer button:not(.agent-call){background:var(--panel);color:var(--muted);border:1px solid var(--line);border-radius:8px}
 .project-board .dashboard-widget-footer button:not(.agent-call):hover{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
 .project-board .dashboard-widget-footer a,.project-board .dashboard-widget-footer button{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;max-width:100%;padding:4px 6px;font-size:11px;white-space:nowrap}

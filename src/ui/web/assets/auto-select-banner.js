@@ -12,7 +12,7 @@ function stateFor(host) {
   value.title = el('strong');
   copy.append(value.title, el('p', '此设备的项目后台会自动答复已有和新到的问题。单选选第一项；多选和文字问题交给 Agent 判断，可能继续调用并产生费用。'));
   const actions = el('div', undefined, 'auto-select-actions');
-  const view = el('a', '查看自动问答', 'ghost'); view.href = '/#notices-automatic';
+  const view = el('a', '查看自动问答', 'nav-link'); view.href = '/#notices-automatic';
   if (projectRoute()) { view.target = '_blank'; view.rel = 'noopener'; }
   view.setAttribute('data-help', '在全局收件箱只读查看各项目的原问题、答案及自动答复来源，不调用 Agent。');
   value.control = el('button', '关闭全局自动选择', 'ghost'); value.control.type = 'button';

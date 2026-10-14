@@ -36,7 +36,7 @@ export function createProjectOrderForm(row, { ownsPage = () => true } = {}) {
     }
     status.classList.toggle('error', state.error); status.replaceChildren(el('span', state.message));
     if (state.result) {
-      const link = el('a', '查看提交状态', 'ghost');
+      const link = el('a', '查看提交状态', 'nav-link');
       link.href = projectHref(projectId, `/#input-draft-${state.result.draft_id}`); link.target = '_blank'; link.rel = 'noopener'; status.append(link);
     }
   }

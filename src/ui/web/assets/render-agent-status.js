@@ -42,7 +42,7 @@ export function openAgentStatus() {
   const ownsPage = () => ui.view === view && ui.agentStatusPage === state;
   const page = el('div', undefined, 'agent-status-page'), header = el('header', undefined, 'agent-status-head');
   const copy = el('div'); copy.append(el('h1', 'Agent 配置'), el('p', '决定 Agent 如何工作、默认使用哪个模型来源。保存只影响后续调用，不改变正在运行的调用。账号、API、登录和最新额度请到设备“模型来源”；历史留在来源项目；软件诊断仅在显式点击后检查。', 'hint'));
-  const link = el('a', '管理模型来源', 'agent-sources-link'); link.href = '/#model-sources'; copy.append(link); header.append(copy);
+  const link = el('a', '管理模型来源', 'nav-link agent-sources-link'); link.href = '/#model-sources'; copy.append(link); header.append(copy);
   const host = el('div'), tabs = el('div', undefined, 'settings-tabs'), tabButtons = new Map();
   tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Agent 配置');
   function paneFor(scope) {

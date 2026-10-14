@@ -64,7 +64,7 @@ function messageSection(row, model) {
   root.setAttribute('aria-label', `${row.name || '项目'}待决与未读告知`);
   const heading = el('div', undefined, 'project-dashboard-section-head');
   heading.append(el('h3', '消息'));
-  const more = el('a', '查看全部'); more.href = projectHref(row.id, '/#notices'); more.target = '_blank'; more.rel = 'noopener';
+  const more = el('a', '查看全部', 'nav-link'); more.href = projectHref(row.id, '/#notices'); more.target = '_blank'; more.rel = 'noopener';
   heading.append(more); root.append(heading);
   if (!onlineDashboardProject(row) || model?.offline) root.append(el('p', '后台未运行或不可达，消息未确认。', 'hint'));
   else if (!model) root.append(el('p', '消息尚未读取。', 'hint'));
@@ -92,7 +92,7 @@ export function projectDashboardContent(row, { sections = PROJECT_CARD_DEFAULTS,
   if (sections.includes('shortcuts')) {
     const shortcuts = el('nav', undefined, 'project-dashboard-shortcuts'); shortcuts.setAttribute('aria-label', `${row.name || '项目'}快捷入口`);
     for (const [hash, label] of [['workers', '工作列表'], ['inputs', '历史输入']]) {
-      const link = el('a', label); link.href = projectHref(row.id, `/#${hash}`); link.target = '_blank'; link.rel = 'noopener'; shortcuts.append(link);
+      const link = el('a', label, 'nav-link'); link.href = projectHref(row.id, `/#${hash}`); link.target = '_blank'; link.rel = 'noopener'; shortcuts.append(link);
     }
     root.append(shortcuts);
   }

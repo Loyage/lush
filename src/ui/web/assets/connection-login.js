@@ -70,7 +70,7 @@ export function createConnectionLogin({ node, editorHost, editor, current, post,
       return;
     }
     editor.showLogin(connection.id, 'Codex 设备码登录');
-    const form = el('div', undefined, 'agent-connection-form'), link = el('a', '打开 OpenAI 设备码授权页面');
+    const form = el('div', undefined, 'agent-connection-form'), link = el('a', '打开 OpenAI 设备码授权页面', 'nav-link');
     link.href = login.verification_uri; link.target = '_blank'; link.rel = 'noopener noreferrer';
     link.setAttribute('data-help', '在 OpenAI 官方页面输入下方设备码，完成本人发起的授权；Lush 会自动确认，不需要粘贴回调 URL。');
     note(form, `登录连接：${connection.label} · 设备码到期：${time(login.expires_at)}`); form.append(link);
@@ -147,7 +147,7 @@ export function createConnectionLogin({ node, editorHost, editor, current, post,
         || !login.login_id || !Number.isFinite(Date.parse(login.expires_at)) || Date.parse(login.expires_at) <= Date.now()) throw new Error('invalid OAuth response');
     } catch { if (revision === editor.revision() && loginStamp === loginSequence) message('无法创建安全登录请求，请重试；未改变已有凭证。', true); return; }
     editor.showLogin(connection.id, 'Codex 独立账号登录');
-    const form = el('div', undefined, 'agent-connection-form'), link = el('a', '打开 Codex 授权页面');
+    const form = el('div', undefined, 'agent-connection-form'), link = el('a', '打开 Codex 授权页面', 'nav-link');
     link.href = login.url; link.target = '_blank'; link.rel = 'noopener noreferrer';
     link.setAttribute('data-help', '在 OpenAI 官方授权页登录；授权后复制浏览器地址栏的回调 URL，返回本页完成登录。不会调用 Agent。');
     note(form, `登录连接：${connection.label} · 请求到期：${time(login.expires_at)}`);

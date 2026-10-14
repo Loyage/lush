@@ -240,7 +240,7 @@ function managerForm() {
   input.autocomplete = 'off'; input.spellcheck = false; input.placeholder = '/absolute/path/to/project';
   const submit = el('button', '在新窗口打开', 'primary'); submit.type = 'submit';
   const error = el('p', undefined, 'error'); error.hidden = true; error.setAttribute('role', 'alert');
-  const fallback = el('a', '浏览器阻止了弹出窗口；点此打开项目', 'project-popup-fallback');
+  const fallback = el('a', '浏览器阻止了弹出窗口；点此打开项目', 'nav-link project-popup-fallback');
   fallback.id = 'project-open-fallback'; fallback.target = '_blank'; fallback.rel = 'noopener'; fallback.hidden = true;
   form.onsubmit = event => { event.preventDefault(); void selectProject(input, submit, error); };
   form.append(el('label', '项目目录'), el('div', undefined, 'project-path-row'));

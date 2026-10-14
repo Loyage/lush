@@ -25,7 +25,7 @@ function watchDocumentTheme(doc) {
 
 function docsHead(title, onOpen) {
   const head = el('div', undefined, 'head');
-  head.append(el('span', title, 'tid-lg'), button('← 文档目录', () => onOpen(null), 'link doc-back'));
+  head.append(el('span', title, 'tid-lg'), button('← 文档目录', () => onOpen(null), 'nav-link nav-back doc-back'));
   return head;
 }
 
@@ -57,7 +57,7 @@ export function renderDocsIndex(docs, onOpen, options = {}) {
     const section = block(group.name, String(group.items.length));
     for (const doc of group.items) {
       const row = el('div', undefined, 'row doc-row');
-      row.append(button(doc.title, () => onOpen(doc.id), 'link'), pathHint(doc.path));
+      row.append(button(doc.title, () => onOpen(doc.id), 'nav-link'), pathHint(doc.path));
       section.append(row);
     }
     catalog.append(section);
@@ -82,7 +82,7 @@ export function renderDocsIndex(docs, onOpen, options = {}) {
       status.textContent = matches.length ? `找到 ${matches.length} 篇相关文档` : '没有找到相关文档';
       for (const match of matches) {
         const row = el('article', undefined, 'doc-search-result');
-        const open = button(match.title, () => onOpen(match.id), 'link');
+        const open = button(match.title, () => onOpen(match.id), 'nav-link');
         const meta = el('div', undefined, 'doc-search-meta');
         meta.append(el('span', match.group, 'badge b-neutral'), pathHint(match.path));
         row.append(open, meta);

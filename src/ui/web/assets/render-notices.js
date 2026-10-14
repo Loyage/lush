@@ -315,12 +315,12 @@ export async function openNotice(noticeId, { record = false, push = true } = {})
   if (!reuse) {
     const root = el('div', undefined, 'notice-detail-page');
     const tools = el('div', undefined, 'actions');
-    const back = el('a', '返回待我处理', 'ghost'); back.setAttribute('href', '#notices');
+    const back = el('a', '返回待我处理', 'nav-link nav-back'); back.setAttribute('href', '#notices');
     back.onclick = event => {
       if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button > 0)) return;
       event?.preventDefault(); return openResource('notices');
     };
-    state.worker = el('a', '查看 Worker 上下文', 'ghost'); state.worker.hidden = true;
+    state.worker = el('a', '查看 Worker 上下文', 'nav-link'); state.worker.hidden = true;
     state.worker.onclick = event => {
       if (event && (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button > 0)) return;
       event?.preventDefault(); return detail(state.notice.task_id);

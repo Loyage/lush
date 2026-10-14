@@ -10,7 +10,8 @@
 @media (max-width: 600px) { .automation-feature-head { align-items: flex-start; } .automation-feature-head .badge { white-space: normal; } }
 .hooks-page { display: grid; gap: 1rem; max-width: 1100px; margin-inline: auto; }
 .hooks-page-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-.hook-help-link { margin-left: auto; font-size: .85rem; white-space: nowrap; }
+.hook-help-link { margin-left: auto; font-size: .85rem; }
+.hook-help-link.nav-link { white-space: normal; }
 .project-hooks { display: grid; gap: .75rem; }
 .project-hooks .hook-mount { margin: 0; }
 .project-hook > .hook-mount-head h2 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
