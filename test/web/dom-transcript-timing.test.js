@@ -75,14 +75,15 @@ test('loading the call from an older page adds paired timing without timing stan
   } finally { cleanup(taskId); dom.restore(); }
 });
 
-test('tool timing uses a single s/m/h unit and keeps genuine zero durations', () => {
+test('tool timing uses seconds only and shows time<1s for every valid subsecond duration', () => {
   const dom = installDom(), taskId = 974;
   try {
-    for (const [ms, text] of [[0, '0s'], [125, '0.125s'], [65000, '1.1m'], [5400000, '1.5h']]) {
+    for (const [ms, text] of [[0, 'time<1s'], [43, 'time<1s'], [125, 'time<1s'], [999, 'time<1s'],
+      [1000, 'time≈1s'], [65000, 'time≈65s'], [5400000, 'time≈5400s']]) {
       const match = transcriptMatch(taskId, call, [{ ...result, at: new Date(Date.parse(call.at) + ms).toISOString() }]);
       const chip = match.querySelector('.step-duration');
       expect(chip.hidden).toBe(false);
-      expect(chip.textContent).toBe(`time≈${text}`);
+      expect(chip.textContent).toBe(text);
     }
   } finally { cleanup(taskId); dom.restore(); }
 });

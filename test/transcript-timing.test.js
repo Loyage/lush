@@ -61,9 +61,9 @@ test('tool intervals require a unique session/call result and valid ordered time
   expect(groups.map(step => toolDurationMs(step))).toEqual([2000, 1250]);
 });
 
-test('duration text covers subsecond, seconds, minutes, hours and unknown values', () => {
-  expect([0, 1, 125, 1000, 1250, 60000, 65000, 3600000, 5400000, 90000000].map(stepDurationText)).toEqual([
-    '0s', '0.001s', '0.125s', '1s', '1.3s', '1m', '1.1m', '1h', '1.5h', '25h',
+test('duration text uses seconds only, hides subsecond values and preserves unknown values', () => {
+  expect([0, 1, 43, 125, 999, 1000, 1250, 60000, 65000, 3600000, 5400000, 90000000].map(stepDurationText)).toEqual([
+    '<1s', '<1s', '<1s', '<1s', '<1s', '1s', '1.3s', '60s', '65s', '3600s', '5400s', '90000s',
   ]);
   expect([null, undefined, NaN, Infinity, -1].map(stepDurationText)).toEqual(Array(5).fill(''));
 });

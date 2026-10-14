@@ -58,7 +58,7 @@ function durationChip(ms, help) {
 function paintDuration(chip, ms) {
   if (!chip) return;
   chip.hidden = !Number.isFinite(ms) || ms < 0;
-  chip.textContent = chip.hidden ? '' : `time≈${stepDurationText(ms)}`;
+  chip.textContent = chip.hidden ? '' : `time${ms < 1000 ? '' : '≈'}${stepDurationText(ms)}`;
 }
 
 // Update only metadata after cross-page pairing. Duplicate identities can arrive

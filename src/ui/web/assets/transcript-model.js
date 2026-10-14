@@ -14,9 +14,8 @@ export function toolDurationMs(step, results = step.results || []) {
 
 export function stepDurationText(ms) {
   if (!Number.isFinite(ms) || ms < 0) return '';
-  if (ms < 1000) return `${Number((ms / 1000).toFixed(3))}s`;
-  const [unit, divisor] = ms < 60000 ? ['s', 1000] : ms < 3600000 ? ['m', 60000] : ['h', 3600000];
-  return `${Number((ms / divisor).toFixed(1))}${unit}`;
+  if (ms < 1000) return '<1s';
+  return `${Number((ms / 1000).toFixed(1))}s`;
 }
 
 export function stepSummary(step) {
