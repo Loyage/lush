@@ -97,7 +97,7 @@ test('only newly created order Workers copy defaults; existing, child, owners, m
       level: 'accept', completion: { authorization: expect.any(String), round: 0, executions: {}, notices: {} } });
     expect(settings(f, one).completion.authorization).not.toBe(settings(f, two).completion.authorization);
     const newChild = await f.project.spawn(one.id, 'new child');
-    expect(settings(f, child)).toEqual({ version: 1, enabled: true, locked: true, acceptance_notice: { enabled: false } });
+    expect(settings(f, child)).toEqual({ version: 1, enabled: true, locked: true, mounted_features: { completion: true, acceptance_notice: true }, acceptance_notice: { enabled: false } });
     expect(settings(f, newChild)).toEqual(settings(f, child));
     const childHooks = f.project.taskHooks(newChild.id);
     expect(childHooks.completion).toMatchObject({ level: 'merge', min_level: 'merge', locked: true, editable: false });
@@ -111,7 +111,7 @@ test('only newly created order Workers copy defaults; existing, child, owners, m
     expect([old, child, main, management, one, two, newChild].map(task => f.store.task(task.id))).toEqual(frozen);
     expect(f.store.all('SELECT * FROM events WHERE task_id IS NOT NULL')).toEqual(history);
     expect(settings(f, (await f.project.order('disabled', null, [], null, false)).task))
-      .toEqual({ version: 1, enabled: false, locked: false, acceptance_notice: { enabled: true } });
+      .toEqual({ version: 1, enabled: false, locked: false, mounted_features: { completion: true, acceptance_notice: true }, acceptance_notice: { enabled: true } });
     expect(enabled.completion_defaults.level).toBe('accept');
     expect(JSON.stringify(f.project.hooksList())).not.toContain('authorization');
   } finally { await f.close(); }

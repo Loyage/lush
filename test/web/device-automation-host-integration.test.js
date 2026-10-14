@@ -86,7 +86,7 @@ test('Host rejects retired defaults without partial writes; project defaults and
     expect(project.completion_defaults).toMatchObject({ enabled: true, level: 'accept' });
     expect(JSON.parse(fresh.auto_merge)).toMatchObject({ enabled: true, locked: false, level: 'accept' });
     const child = await f.project.spawn(fresh.id, 'child');
-    expect(JSON.parse(child.auto_merge)).toEqual({ version: 1, enabled: true, locked: true, acceptance_notice: { enabled: false } });
+    expect(JSON.parse(child.auto_merge)).toEqual({ version: 1, enabled: true, locked: true, mounted_features: { completion: true, acceptance_notice: true }, acceptance_notice: { enabled: false } });
     await f.web.stop(true);
     expect(f.project.deviceAutomation.get()).toEqual(active.value);
     expect(f.project.stopping).toBe(false);

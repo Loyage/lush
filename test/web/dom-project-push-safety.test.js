@@ -6,7 +6,8 @@ import { renderPushAutomation } from '../../src/ui/web/assets/automation-push.js
 import { closeDialog } from '../../src/ui/web/assets/dialog.js';
 let dom, catalogue, node, calls, reads, owned, intercept;
 const command = () => ({ id: 'push-command', name: '推送', kind: 'shell', command: 'git push', version: 7, authorized: false });
-const btn = label => node.querySelectorAll('button').find(item => item.textContent === label);
+// Short state labels are shared with Worker detail; confirmations keep full action labels.
+const btn = label => node.querySelectorAll('button').find(item => item.textContent === ({ '启用 Hook': '开启', '停用 Hook': '关闭' }[label] || label));
 const mount = () => catalogue.command_example.hooks.mounts[0];
 beforeEach(() => {
   calls = []; reads = []; owned = true; intercept = null;

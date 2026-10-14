@@ -1,4 +1,5 @@
 import { check, id, TERMINAL } from '../types.js';
+import { builtinAutomationMounted } from '../automation-scopes.js';
 import { assertTaskAncestorsOpen, assertTaskNoCommand, assertTaskNotSyncing, consumeIntegratedReservation, taskDeliveryState,
   resumeTaskDelivery, taskSyncDeliveryPaused } from './iteration.js';
 
@@ -16,7 +17,7 @@ export default {
     const booking = reservationOf(task);
     if (booking && ![2, 3].includes(booking.version)) return null; // historical approval stays historical
     const settings = task.auto_merge ? JSON.parse(task.auto_merge) : null;
-    const enabled = settings?.enabled === true, locked = task.task_kind === 'child' || settings?.locked === true;
+    const enabled = builtinAutomationMounted(task, 'completion') && settings?.enabled === true, locked = task.task_kind === 'child' || settings?.locked === true;
     let reason = null;
     if (locked) reason = '父Worker派生的子Worker自动合并 Hook 已锁定，用户不能关闭或修改';
     else if (TERMINAL.has(task.status) || task.status === 'awaiting_acceptance') reason = '本轮已交付或 Worker 已结束，不能调整自动合并';
@@ -29,7 +30,7 @@ export default {
   /** DB-only arming; never revives ended/delivered tasks or withdrawn historical hooks. */
   armTaskAutoMerge(taskId) {
     const task = this.store.task(taskId);
-    if (!codeTask(task) || !task.auto_merge || !JSON.parse(task.auto_merge).enabled
+    if (!codeTask(task) || !task.auto_merge || !this.autoMergeView(task)?.enabled
       || task.reservation || TERMINAL.has(task.status) || task.status === 'awaiting_acceptance'
       || taskSyncDeliveryPaused(this, task.id)) return false;
     this.store.transaction(() => {
@@ -52,6 +53,7 @@ export default {
     this.store.transaction(() => {
       const config = task.auto_merge ? JSON.parse(task.auto_merge) : {};
       this.store.update(task.id, { auto_merge: JSON.stringify({ ...config, version: 1, enabled, locked: false,
+        ...(enabled ? { mounted_features: { ...config.mounted_features, completion: true } } : {}),
         ...(config.level !== undefined ? { level: enabled ? config.level === 'off' ? 'merge' : config.level : 'off' } : {}) }) });
       this.store.event(task.id, 'task.auto_merge_changed', { enabled, previous: before.enabled });
       const booking = reservationOf(task);

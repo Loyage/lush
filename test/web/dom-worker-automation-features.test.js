@@ -20,7 +20,7 @@ function taskFor(kind = 'order', extra = {}) {
     convergence: { version: 1, branch: task.branch, owner_id: task.id, mounted: true, enabled: false, editable: true, reason: null, revision: 'branch-r1' },
     acceptance_notice: { enabled: kind === 'order', editable: kind !== 'main', reason: kind === 'main' ? '仅指令和派生 Worker 支持' : null },
     automation_settings: { version: 1, display_principles: Object.fromEntries(AUTOMATION_METADATA.map(item => [item.id, 'all'])) },
-    mounts: [] };
+    mounted_features: { completion: kind !== 'main', acceptance_notice: kind !== 'main', convergence: true, push: false }, mounts: [] };
   return task;
 }
 let dom, task, writes, reads, intercept, refreshed;
@@ -44,7 +44,7 @@ afterEach(() => { closeDialog(); dom.restore(); });
 const root = () => dom.node('detail');
 const feature = id => root().querySelector(`[data-feature="${id}"]`);
 const notice = () => feature('acceptance_notice').querySelector('.acceptance-notice-control');
-const btn = (label, node = root()) => node.querySelectorAll('button').find(item => item.textContent === label);
+const btn = (label, node = root()) => (['开启推送', '关闭推送'].includes(label) ? feature('push') : node)?.querySelectorAll('button').find(item => item.textContent === ({ '开启推送': '开启', '关闭推送': '关闭' }[label] || label));
 const draw = (value = task, refresh = () => { refreshed++; }) => { task = value; const node = workerHooks(task, { refresh }); root().replaceChildren(node); return node; };
 const choice = enabled => notice().querySelector(`[data-notice-enabled="${enabled}"]`);
 
@@ -62,40 +62,25 @@ test('shared metadata re-exports keep one source; user display excludes internal
   expect(readFileSync(new URL('../../src/ui/web/assets/automation-features.js', import.meta.url), 'utf8')).not.toContain('export const AUTOMATION_METADATA =');
 });
 
-test('all four known features directly show current controls; principle and records remain opt-in, without speculative reads', () => {
-  draw();
-  expect(root().querySelectorAll('.worker-automation-feature')).toHaveLength(4);
-  for (const item of AUTOMATION_METADATA) {
-    const node = feature(item.id); expect(deepText(node)).toContain(item.name); expect(deepText(node)).toContain(item.description);
-    expect(node.querySelector('.worker-automation-feature-body').hidden).toBe(false);
-    expect(node.querySelector('.worker-feature-principle').open).not.toBe(true);
-    expect(node.querySelector('.worker-feature-principle').querySelector('p').textContent).toBe(item.principle);
-    const toggle = node.querySelector('.worker-feature-toggle'); expect(toggle.tagName).toBe('BUTTON');
-    expect(toggle.getAttribute('aria-controls')).toBe(node.querySelector('.worker-automation-feature-body').id);
-    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+test('only mounted features show compact titles and identical buttons; descriptions use focusable help only', () => {
+  draw(); expect(root().querySelectorAll('.worker-automation-feature')).toHaveLength(3); expect(feature('push')).toBeNull();
+  for (const item of AUTOMATION_METADATA.filter(item => item.id !== 'push')) {
+    const node = feature(item.id), title = node.querySelector('h3');
+    expect(title.textContent).toBe(item.name); expect(title.tabIndex).toBe(0);
+    expect(title.getAttribute('data-help')).toBe(`${item.description} ${item.principle}`); expect(title.getAttribute('title')).toBeNull();
+    expect(deepText(node)).not.toContain(item.description); expect(node.querySelector('details')).toBeNull();
+    expect(node.querySelectorAll('button').map(item => item.textContent)).toEqual(item.id === 'completion' ? ['关闭', '合并', '验收'] : ['关闭', '开启']);
   }
-  expect(btn('查看 main 自动化')).toBeTruthy(); expect(deepText(feature('push'))).toContain('本 Worker 不挂载或执行');
-  expect(choice(true).getAttribute('aria-pressed')).toBe('true'); expect(choice(false).classList.contains('agent-call')).toBe(false);
-  expect(root().querySelector('.hook-management').hidden).toBe(true); expect(reads).toEqual([]); expect(writes).toEqual([]);
+  expect(btn('查看 main 自动化')).toBeUndefined(); expect(choice(true).getAttribute('aria-pressed')).toBe('true');
+  expect(notice().querySelector('.acceptance-notice-state').hidden).toBe(true);
+  expect(root().querySelector('.hook-management').hidden).toBe(true); expect(btn('高级与记录')).toBeTruthy();
+  expect(reads).toEqual([]); expect(writes).toEqual([]);
 });
 
-test('main/all/user fold each feature independently; excluded features retain names and explicit entry, never change authorization', async () => {
-  for (const kind of ['main', 'order', 'child']) {
-    activateDetailView({ view: 'task', key: `${kind}-${Math.random()}` }); task = taskFor(kind);
-    task.hooks.automation_settings.display_principles = { completion: 'main', push: 'all', convergence: 'user', acceptance_notice: 'main' };
-    draw();
-    expect(feature('completion').querySelector('.worker-automation-feature-body').hidden).toBe(kind !== 'main');
-    expect(feature('push').querySelector('.worker-automation-feature-body').hidden).toBe(false);
-    expect(feature('convergence').querySelector('.worker-automation-feature-body').hidden).toBe(kind === 'child');
-    expect(feature('acceptance_notice').querySelector('.worker-automation-feature-body').hidden).toBe(kind !== 'main');
-    if (kind !== 'main') {
-      await feature('completion').querySelector('.worker-feature-toggle').onclick();
-      expect(feature('completion').querySelector('.worker-automation-feature-body').hidden).toBe(false);
-    } else {
-      expect(deepText(feature('completion'))).toContain('此功能不适用'); expect(deepText(feature('acceptance_notice'))).toContain('此告知不适用');
-      expect(feature('acceptance_notice').querySelector('.acceptance-notice-control')).toBeNull();
-    }
-  }
+test('authoritative false removes feature entries regardless of old display or authorization preferences', () => {
+  task.hooks.mounted_features = { completion: false, acceptance_notice: false, convergence: false, push: false };
+  draw(); expect(root().querySelectorAll('.worker-automation-feature')).toHaveLength(0);
+  expect(root().querySelector('.hook-completion-level')).toBeNull(); expect(btn('查看 main 自动化')).toBeUndefined();
   expect(writes).toEqual([]); expect(reads).toEqual([]);
 });
 
@@ -104,24 +89,28 @@ test('main and owner never acquire completion or notice controls from an incompa
     activateDetailView({ view: 'task', key: `inapplicable-${kind}` });
     const value = taskFor(kind); value.hooks.completion = completion();
     draw(value);
-    expect(feature('completion').querySelector('.hook-completion-control')).toBeNull();
-    expect(feature('acceptance_notice').querySelector('.acceptance-notice-control')).toBeNull();
-    expect(deepText(feature('completion'))).toContain('此功能不适用');
-    expect(deepText(feature('acceptance_notice'))).toContain('此告知不适用');
+    expect(feature('completion')).toBeNull(); expect(feature('acceptance_notice')).toBeNull();
   }
   expect(writes).toEqual([]);
 });
 
-test('same-view Worker refresh preserves explicit folding and open principle/records, while untouched features follow fresh policy', async () => {
-  draw(); await feature('completion').querySelector('.worker-feature-toggle').onclick();
-  feature('completion').querySelector('.worker-feature-principle').open = true;
+test('same-view refresh preserves single advanced expansion; a different Worker resets it', async () => {
+  draw(); const title = feature('completion').querySelector('h3'); await btn('高级与记录').onclick();
   const next = structuredClone(task); next.hooks.automation_settings.display_principles.convergence = 'main'; draw(next);
-  expect(feature('completion').querySelector('.worker-automation-feature-body').hidden).toBe(true);
-  expect(feature('completion').querySelector('.worker-feature-principle').open).toBe(true);
-  expect(feature('convergence').querySelector('.worker-automation-feature-body').hidden).toBe(true);
+  expect(root().querySelector('.hook-management').open).toBe(true); expect(feature('convergence')).toBeTruthy();
+  expect(feature('completion').querySelector('h3')).toBe(title);
   activateDetailView({ view: 'task', key: 'task-21' }); next.id = 21; next.hooks.worker_id = 21; draw(next);
-  expect(feature('completion').querySelector('.worker-automation-feature-body').hidden).toBe(false);
-  expect(feature('completion').querySelector('.worker-feature-principle').open).not.toBe(true);
+  expect(root().querySelector('.hook-management').open).toBe(false);
+});
+
+test('detail refresh preserves a focused title help target while removed mounts do not reclaim focus', async () => {
+  const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
+  renderDetail(task, null, null, null); const title = feature('completion').querySelector('h3'); title.focus();
+  renderDetail({ ...task, hooks: { ...task.hooks, revision: 'newer' } }, null, null, null);
+  expect(feature('completion').querySelector('h3')).toBe(title); expect(document.activeElement).toBe(title);
+  document.activeElement = null;
+  renderDetail({ ...task, hooks: { ...task.hooks, mounted_features: { ...task.hooks.mounted_features, completion: false } } }, null, null, null);
+  expect(feature('completion')).toBeNull(); expect(document.activeElement).toBeNull();
 });
 
 test('failure and unknown completion/target evidence remain outside policy-folded cards', () => {
@@ -129,8 +118,8 @@ test('failure and unknown completion/target evidence remain outside policy-folde
   task.hooks.completion = { ...completion(), state: 'unknown', last_execution: { error: '<script>检查现场</script>' } };
   task.hooks.mounts = [{ id: 'delivery-handler', kind: 'delivery_handler', name: '交付处理器', actions: [{ type: 'integrate_deliveries' }],
     operation: { version: 1, id: 'op-1', tool: 'integrate_deliveries', worker_id: 20, status: 'failed', error: '固定落地失败' } }];
-  const node = draw();
-  expect(feature('completion').querySelector('.worker-automation-feature-body').hidden).toBe(true);
+  task.hooks.mounted_features.completion = false;
+  const node = draw(); expect(feature('completion')).toBeNull();
   expect(node.querySelector('.worker-hooks-row').querySelector('.hook-completion-alert').textContent).toContain('检查现场');
   expect(node.querySelector('.worker-hooks-row').querySelector('.hook-operation-alert').textContent).toContain('固定落地失败');
   expect(root().querySelector('script')).toBeNull(); expect(writes).toEqual([]);
@@ -139,8 +128,7 @@ test('failure and unknown completion/target evidence remain outside policy-folde
 test('folded convergence keeps authoritative failure counts and reasons visible without any operation mount', async () => {
   task.hooks.automation_settings.display_principles.convergence = 'main';
   task.hooks.convergence = { ...task.hooks.convergence, reason: '落地现场需要核查', counts: { failed: 2, blocked: 1 } };
-  draw();
-  expect(feature('convergence').querySelector('.worker-automation-feature-body').hidden).toBe(true);
+  task.hooks.mounted_features.convergence = false; draw(); expect(feature('convergence')).toBeNull();
   const diagnostic = root().querySelector('.worker-hooks-row').querySelector('.hook-convergence-alert');
   expect(diagnostic.hidden).toBe(false); expect(diagnostic.textContent).toContain('落地现场需要核查');
   expect(diagnostic.textContent).toContain('失败 2'); expect(diagnostic.textContent).toContain('落地待核查 1');
@@ -162,9 +150,11 @@ test('child notice is independently editable but completion remains locked; exac
 });
 
 test('missing new fields keep old controls and explicitly unknown notice without inventing editable authorization', () => {
-  delete task.hooks.acceptance_notice; delete task.hooks.automation_settings; draw();
-  expect(deepText(notice())).toContain('状态尚未确认'); expect(notice().querySelector('button')).toBeNull();
-  expect(deepText(root())).toContain('默认显示原则尚未提供'); expect(writes).toEqual([]);
+  delete task.hooks.acceptance_notice; delete task.hooks.automation_settings; delete task.hooks.mounted_features; draw();
+  expect(feature('acceptance_notice')).toBeNull(); expect(feature('completion')).toBeNull();
+  expect(deepText(root())).toContain('实际挂载读面不完整'); expect(writes).toEqual([]);
+  task.hooks.mounts = [{ id: 'auto-merge', name: '已有自动合并授权', enabled: true, builtin: true, actions: [{ type: 'request_merge' }] }]; draw();
+  expect(feature('completion')).toBeTruthy(); expect(feature('push')).toBeNull();
 });
 
 test('frozen/ended/archived and server-read-only notice switches keep keyboard-accessible reasons, resisting stale callbacks', async () => {
@@ -232,7 +222,10 @@ test('confirmed notice save and failed refresh are separate facts, with no repea
 });
 
 test('unmounted convergence has a direct explicit authorized mount action, no guessed strategy or custom tool installation', async () => {
-  task.hooks.convergence.mounted = false; draw(); const control = btn('挂载并开启归并');
+  task.hooks.convergence.mounted = false; task.hooks.mounted_features.convergence = false; draw(); const control = btn('挂载并开启归并');
+  expect(feature('convergence')).toBeNull(); expect(root().querySelector('.hook-management').hidden).toBe(true);
+  expect(root().querySelector('.hook-management').querySelectorAll('button')).toContain(control);
+  await btn('高级与记录').onclick();
   expect(control.classList.contains('agent-call')).toBe(true); expect(control.getAttribute('data-help')).toContain('token');
   const cancelled = control.onclick(); await dialogButton(dom, '取消').onclick(); await cancelled; expect(writes).toEqual([]);
   const mounting = control.onclick(); await dialogButton(dom, '确认挂载并开启').onclick(); await mounting;
@@ -243,24 +236,32 @@ test('unmounted convergence has a direct explicit authorized mount action, no gu
 test('main push uses exact stable identity, direct current switch and protected confirmation; deleted identities never re-install', async () => {
   task = taskFor('main'); task.hooks.push = { worker_id: 20, hook_id: 'push-mount' };
   task.hooks.mounts = [{ id: 'push-mount', name: '推送', trigger: 'worker.merge_received', mode: 'persistent', enabled: false, editable: true, removable: true,
-    actions: [{ type: 'command', command_id: commandId }], state: 'idle' }];
-  draw(); expect(reads).toEqual([]); expect(deepText(feature('push'))).toContain('当前 main 推送：关闭');
+    actions: [{ type: 'command', command_id: commandId }], state: 'idle' }]; task.hooks.mounted_features.push = true;
+  draw(); expect(reads).toEqual([]); expect(feature('push').querySelectorAll('button').map(item => item.textContent)).toEqual(['关闭', '开启']);
   expect(btn('开启推送').classList.contains('agent-call')).toBe(false);
   const opening = btn('开启推送').onclick(); await until(() => dialogButton(dom, '启用指令 Hook'));
   await dialogButton(dom, '启用指令 Hook').onclick(); await opening;
   expect(writes).toEqual([{ method: 'worker.hook_update', params: { id: 20, hook_id: 'push-mount', enabled: true, expected_revision: 'r1' } }]);
-  expect(deepText(feature('push'))).toContain('当前 main 推送：开启');
-  task.hooks.mounts = []; draw(); expect(btn('开启推送')).toBeUndefined(); expect(deepText(feature('push'))).toContain('不会自动重装');
+  expect(btn('开启推送').getAttribute('aria-pressed')).toBe('true');
+  task.hooks.mounts = []; task.hooks.mounted_features.push = false; draw(); expect(feature('push')).toBeNull();
 });
 
 test('legacy main explicitly reads push identity and releases the resulting direct switch, without guessing or mounting', async () => {
-  task = taskFor('main');
+  task = taskFor('main'); delete task.hooks.mounted_features;
   task.hooks.mounts = [{ id: 'push-mount', name: '推送', trigger: 'worker.merge_received', mode: 'persistent', enabled: false, editable: true, removable: true,
     actions: [{ type: 'command', command_id: commandId }], state: 'idle' }];
   draw(); expect(btn('开启推送')).toBeUndefined(); expect(reads).toEqual([]);
   await btn('读取推送设置').onclick();
   expect(reads).toEqual(['/api/hooks']); expect(btn('开启推送').disabled).toBe(false); expect(writes).toEqual([]);
-  expect(deepText(feature('push'))).toContain('当前 main 推送：关闭');
+  expect(btn('关闭推送').getAttribute('aria-pressed')).toBe('true');
+});
+
+test('wrong convergence state ACK blocks repeat rather than accepting a different authorization', async () => {
+  draw(); intercept = (_path, body) => body?.method === 'branch.convergence_set' ? json({ ...task.hooks.convergence, revision: 'r2', enabled: false }) : null;
+  const node = feature('convergence'), enable = node.querySelectorAll('button').find(item => item.textContent === '开启');
+  const saving = enable.onclick(); await dialogButton(dom, '确认开启归并').onclick(); await saving;
+  expect(node.querySelectorAll('button').every(item => item.disabled)).toBe(true); expect(dom.node('error').textContent).toContain('保存已确认');
+  await enable.onclick(); expect(writes).toHaveLength(1); expect(refreshed).toBe(0);
 });
 
 test('compact graph still owns only existing highest-stage controls, not new feature editors', () => {
@@ -272,5 +273,5 @@ test('compact graph still owns only existing highest-stage controls, not new fea
 test('narrow-screen feature styles keep single columns, wrapping controls, focus rings and theme tokens', () => {
   const css = readFileSync(new URL('../../src/ui/web/assets/styles-hooks.css', import.meta.url), 'utf8');
   for (const expected of ['.worker-automation-features { display: grid; grid-template-columns: minmax(0, 1fr)', '.worker-automation-feature-body[hidden]',
-    '.worker-automation-feature-head h3', '.worker-feature-toggle:focus-visible', '.worker-automation-feature .hook-completion-levels { flex-wrap: wrap; max-width: 100%; }', 'background: var(--panel)']) expect(css).toContain(expected);
+    '.worker-automation-feature-head h3', '.worker-automation-feature-head h3:focus-visible', '.worker-automation-feature .hook-completion-levels { flex-wrap: wrap; max-width: 100%; }', 'background: var(--panel)']) expect(css).toContain(expected);
 });

@@ -1,4 +1,5 @@
 import { check } from '../../core/types.js';
+import { automationScope } from '../../core/automation-scopes.js';
 import { exact, option } from '../args.js';
 import { printBranchTree, printBranchShow, printBranchImport, printBranchArchive, printBranchSummary, printMergeAllPlan, printMergeAllResult, printMergeCancel, printOrchestratePlan, printOrchestrateResult, printOrchestrateCancel } from '../print.js';
 
@@ -115,9 +116,14 @@ async function runConvergence(args, client) {
     if (action === 'show') { exact(args, 0); return client.request('branch.convergence_defaults'); }
     check(action === 'set', 'branch convergence defaults requires show|set');
     const expected_revision = readConvergenceRevision(args);
-    const mounted = option(args, '--mounted'), enabled = option(args, '--enabled'); exact(args, 0);
+    const mounted = option(args, '--mounted'), enabled = option(args, '--enabled'), scope = option(args, '--scope'); exact(args, 0);
     check(['true','false'].includes(mounted) && ['true','false'].includes(enabled), '--mounted and --enabled must be true|false');
-    return client.request('branch.convergence_defaults_set', { mounted: mounted === 'true', enabled: enabled === 'true', expected_revision });
+    if (scope !== null) {
+      automationScope(scope);
+      check((mounted === 'true') === (scope !== 'none'), 'convergence mounted must match scope');
+    }
+    return client.request('branch.convergence_defaults_set', { mounted: mounted === 'true', enabled: enabled === 'true', expected_revision,
+      ...(scope === null ? {} : { scope }) });
   }
   if (verb === 'list') { exact(args, 0); return client.request('branch.convergence_list'); }
   if (verb === 'show') { exact(args, 1); return client.request('branch.convergence', { branch: convergenceBranch(args[0]) }); }

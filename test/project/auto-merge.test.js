@@ -20,10 +20,10 @@ test('new order hook is off; new delegated child is on and locked through both m
   const f = await setup();
   try {
     const { task } = await f.project.order('parent');
-    expect(settings(f, task.id)).toEqual({ version: 1, enabled: false, locked: false, acceptance_notice: { enabled: true } });
+    expect(settings(f, task.id)).toEqual({ version: 1, enabled: false, locked: false, mounted_features: { completion: true, acceptance_notice: true }, acceptance_notice: { enabled: true } });
     expect(f.store.task(task.id).reservation).toBeNull();
     const child = await f.project.spawn(task.id, 'child');
-    expect(settings(f, child.id)).toEqual({ version: 1, enabled: true, locked: true, acceptance_notice: { enabled: false } });
+    expect(settings(f, child.id)).toEqual({ version: 1, enabled: true, locked: true, mounted_features: { completion: true, acceptance_notice: true }, acceptance_notice: { enabled: false } });
     expect(booking(f, child.id)).toMatchObject({ version: 2, status: 'pending', auto_merge: true });
     const expected = { enabled: true, locked: true, editable: false };
     expect(f.project.inspect(child.id).auto_merge).toMatchObject(expected);

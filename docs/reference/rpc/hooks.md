@@ -32,13 +32,13 @@
 
 读取 HTTP：`GET /api/hooks`、`GET /api/worker/ID/hooks`，不接受查询参数。写入通过已登录、同源的 `POST /api/action {method,params}`，不是通用 RPC 代理。
 
-目录返回 `{version:1,revision,triggers,actions,templates,commands,daemon_hooks,completion_defaults,automation_settings,signals,management_workers,command_example}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,completion,convergence,push,acceptance_notice,automation_settings,can_attach,mounts}`；Worker 的 automation_settings 仅提供 version 与安全 display_principles，不泄漏项目默认授权身份。CLI 的工作身份参数接受内部整数或 `Wn(-n)*`／`Vn`，先经 `worker.lookup` 解析，目标操作仍按原类型准入；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
+目录返回 `{version:1,revision,triggers,actions,templates,commands,daemon_hooks,completion_defaults,automation_settings,signals,management_workers,command_example}`；`daemon_hooks` 是项目内置自动选择的独立挂载读面，含自己的 `version/revision/mounts`。`hooks.auto_select` 必须使用 **daemon_hooks.revision**，布尔开关保存后返回完整目录；启用同时自动答复已有待答问题，详见[daemon 自动选择](../../engineering/daemon-auto-select.md)。Worker 返回 `{version:1,worker_id,revision,mounted_features,completion,convergence,push,acceptance_notice,automation_settings,can_attach,mounts}`；`mounted_features:{completion,push,convergence,acceptance_notice}` 四个布尔值是实际挂载的权威投影，不由显示原则推算。Worker 的 automation_settings 仅提供 version 与兼容 display_principles，不泄漏项目默认授权身份。CLI 的工作身份参数接受内部整数或 `Wn(-n)*`／`Vn`，先经 `worker.lookup` 解析，目标操作仍按原类型准入；RPC/HTTP 的 `id` 与动作 `target_id` 仍是内部整数，不将 W 编号作为外键。消息动作的安全 `target_worker_number` 与创建收据的 `worker_number` 只是读标签，不回传到定义。
 
 `revision` 是不透明字符串，必须先读并随写请求携带；过期返回错误，不覆盖并发修改。模板 `id` 与挂载 `hook_id` 是不同身份。
 
 `hook` 可为新规则定义，或仅 `{template_id:'UUID'}`；后者让后台复制模板的完整私有覆盖。不得用脱敏列表重建原模板挂载。创建动作读取只有安全 `model_selection` 摘要；模板同位置创建动作省略 `profile` 表示编辑时保留原私有覆盖。
 
-挂载含 `trigger`、`mode`、`enabled`、`conditions`、安全动作摘要、`state`、`last_execution`、`editable` 与 `removable`。`removable` 与可启用状态不同：结束的 Worker 可移除未来授权，不能重新启用。`auto-merge`、`auto-accept` 是不可移除的内置挂载（验收包含归档回收，旧 auto-archive 仅历史兼容），通过一份最高级别授权配置；旧 `worker.auto_merge` 开关保留原准入。
+挂载含 `trigger`、`mode`、`enabled`、`conditions`、安全动作摘要、`state`、`last_execution`、`editable` 与 `removable`。`removable` 与可启用状态不同：结束的 Worker 可移除未来授权，不能重新启用。实际挂载完工流程时，`auto-merge`、`auto-accept` 是不可移除的内置挂载（验收包含归档回收，旧 auto-archive 仅历史兼容），通过一份最高级别授权配置；旧 `worker.auto_merge` 开关保留原准入。
 
 ## 系统工具操作读面
 
@@ -90,13 +90,15 @@ Shell Hook 引用 `{type:'command',command_id:'UUID'}`；提示词用同形 `typ
 
 ## 新指令默认流程
 
-项目 `automation_settings` 为 `{version:1,revision,completion_defaults:{enabled,level},acceptance_notice_defaults:{enabled},display_principles:{completion,push,convergence,acceptance_notice}}`。`hooks.automation_settings` 接受上述后三项的非空严格 partial patch，使用 **automation_settings.revision**，返回完整 hooks.list；未知字段、非法值及过期 revision 拒绝。保存只设置未来默认和展示策略，不批量修改现有 Worker。
+项目 `automation_settings` 为 `{version:1,revision,completion_defaults:{enabled,level},acceptance_notice_defaults:{enabled},mount_scopes:{completion,acceptance_notice},display_principles:{completion,push,convergence,acceptance_notice}}`。`hooks.automation_settings` 接受上述四项的非空严格 partial patch，使用 **automation_settings.revision**，返回完整 hooks.list；未知字段、非法值及过期 revision 拒绝。保存只设置未来默认，不批量修改现有 Worker。
 
 完工默认初始 disabled、level=merge；level 为 `merge|accept`，旧 archive 等价 accept，关闭记住所选环节。只有本项目实际创建的新指令（含预约／定时）复制授权，不应用于 child／管理 Worker。旧 `hooks.completion_defaults` 写同一项目策略，`completion_defaults:{version:1,enabled,level,revision}` 的 revision 与 automation_settings 相同。旧设备配置及旧项目历史 meta 保留，但不自动导入或参与新建默认；Host `/api/host/automation` 的 completion_defaults 写入明确退役。验收回收语义见[自动链契约](../../engineering/completion-hooks.md)。
 
-四项 display_principles 初始均为 `all`，可设 `main|all|user`：main 只在 main/owner 默认展开，all 在所有 Worker 默认展开，user 在 main/owner 及用户指令 order 默认展开，不将 analysis、merge、integration 或 management 等内部类型算作用户指令。仅控制是否须展开才能看到，折叠项仍可找到，不改变启停、权限或执行；当前项目策略即时适用于 Worker 展示。归并未来挂载／启用仍使用 branch.convergence_defaults_set 的唯一配置，推送仍仅 main 挂载，不因显示于所有 Worker 而给开发分支自动 push。
+`mount_scopes` 两项初始均为 `all`，允许 `main|all|user|none`：main 匹配 main/owner，all 匹配全部适用类型，user 匹配 main/owner/order，none 不挂载；未来完工／告知仅适用于 order/child，因此 main 作用域不会给新开发 Worker 挂载这两项。实际创建事务冻结偏好，不从父继承；未挂载实例默认关闭，即使项目记住 enabled:true。child 完工流程例外：始终挂载且锁定自动合并，告知按创建时 scope 冻结但默认关闭。
 
-告知默认 enabled=true，只复制给新用户指令；child 创建时默认 false。`worker.acceptance_notice` 使用 **worker.hooks.revision**，返回完整 Worker Hooks；只允许 order/child 等合法开发 Worker，冻结、同步、终态及执行中的安全门仍核验。`acceptance_notice:{enabled,editable,reason}` 是安全读面；child 可以独立改告知，不因此解锁合并／验收级别。已有 Worker 未配置时只读按 order 开启、child 关闭解释，不改写历史。关闭不屏蔽异常，告知去重与不补发边界见[告知契约](../../engineering/completion-hooks.md#告知)。
+旧 `display_principles` 保留 version 1 字段和 `main|all|user` 写兼容，不参与实际挂载或新展示判断。UI 只显示 `mounted_features` 已挂载项；异常及处理器诊断不能因此隐藏。归并未来 scope 仍使用 [branch.convergence_defaults_set](convergence.md) 的唯一持久配置；push 仅从真实 main 的 push identity 与存在的 hook 判定，删除后不重装，不扩大执行范围。
+
+告知默认 enabled=true，只复制给新用户指令；child 创建时默认 false。`worker.acceptance_notice` 使用 **worker.hooks.revision**，返回完整 Worker Hooks；只允许 order/child 等合法开发 Worker，冻结、同步、终态及执行中的安全门仍核验。`acceptance_notice:{enabled,editable,reason}` 是安全读面；child 可以独立改告知，不因此解锁合并／验收级别。已有 order/child 缺少挂载元数据按旧内置能力已挂载解释，告知未配置时按 order 开启、child 关闭解释，不改写历史。历史 say 保留原告知语义并投影已挂载，不新增 say 创建入口；现有 say→order 只读规范化及原完工可用性不变，不额外创建授权。显式启用 `worker.acceptance_notice` 或提高 `worker.completion`／启用旧 `worker.auto_merge` 会在原安全门通过后同时保存真实挂载，避免执行却隐藏；关闭保留已有挂载。Worker revision 包含挂载变化，不受未来默认修改影响。关闭不屏蔽异常，告知去重与不补发边界见[告知契约](../../engineering/completion-hooks.md#告知)。
 
 ## 最高自动级别
 

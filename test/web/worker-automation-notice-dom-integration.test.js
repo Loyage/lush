@@ -64,7 +64,7 @@ test('real main push identity → Worker DOM → HTTP user mutation → persiste
     ui.hookCatalogue = null; activateDetailView({ view: 'task', key: `task-${main.id}` });
     const panel = dom.node('detail'); let refreshed = 0;
     const draw = () => panel.replaceChildren(workerHooks(f.project.inspect(main.id), { refresh() { refreshed++; draw(); } }));
-    const control = label => panel.querySelector('[data-feature="push"]').querySelectorAll('button').find(item => item.textContent === label);
+    const control = label => panel.querySelector('[data-feature="push"]')?.querySelectorAll('button').find(item => item.textContent === ({ '开启推送': '开启', '关闭推送': '关闭' }[label] || label));
     draw(); expect(requests).toEqual([]); expect(control('开启推送').disabled).toBe(false);
     const notices = f.store.all('SELECT * FROM notices'), executions = f.store.history(main.id).filter(item => item.type.startsWith('hook.execution'));
     const enabling = control('开启推送').onclick(); await until(() => dialogButton(dom, '启用指令 Hook'));
@@ -79,7 +79,8 @@ test('real main push identity → Worker DOM → HTTP user mutation → persiste
     f.project.removeTaskHook(main.id, savedId, saved.revision);
     const next = f.project.attachTaskHook(main.id, { name: original.name, trigger: original.trigger, mode: original.mode, enabled: false, actions: original.actions }, f.project.taskHooks(main.id).revision);
     const replacement = next.mounts.find(item => item.name === original.name); expect(replacement.id).not.toBe(savedId);
-    draw(); expect(control('开启推送')).toBeUndefined(); expect(deepText(panel)).toContain('不会自动重装');
+    draw(); expect(control('开启推送')).toBeUndefined(); expect(panel.querySelector('[data-feature="push"]')).toBeNull();
+    expect(f.project.taskHooks(main.id).mounted_features.push).toBe(false);
     expect(f.project.taskHooks(main.id).push.hook_id).toBe(savedId);
     expect(f.project.taskHooks(main.id).mounts.find(item => item.id === replacement.id).enabled).toBe(false);
     expect(requests.filter(item => item.body)).toHaveLength(1);

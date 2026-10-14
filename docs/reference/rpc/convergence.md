@@ -12,12 +12,13 @@
 | `branch.convergence` | `{branch}` | 单分支策略 |
 | `branch.convergence_set` | `{branch,mounted?,enabled,validation?,expected_revision}` | 保存后的单分支策略 |
 | `branch.convergence_defaults` | 无 | 项目新 Worker 默认 |
-| `branch.convergence_defaults_set` | `{mounted,enabled,expected_revision}` | 保存后的项目默认 |
+| `branch.convergence_defaults_set` | `{mounted,enabled,scope?,expected_revision}` | 保存后的项目默认 |
 | `branch.convergence_runs` | `{branch,before?,limit?}` | `{version:1,branch,items,next_before,has_more}` |
 | `branch.convergence_retry` | `{id,expected_revision}` | 更新后的单个运行摘要 |
 
 - `branch` 为精确本地分支名（最多512字符），须有活动 main/owner/order/child 所有者；拒绝 SHA、tag 和 ref 表达式，不隐式解析 `HEAD`。
 - `mounted` 与 `enabled` 必须为 JSON 布尔值，不接受字符串或整数替代。分支 setter 省略 mounted 时兼容为 true；未挂载不能启用。项目 defaults 两字段均必填，mounted:false 可记住 enabled:true，但不执行。
+- defaults 可选 `scope` 为 `main|all|user|none`；显式 scope 要求 mounted === (scope !== 'none')。省略兼容旧 API/CLI：mounted:true 对应 all，false 对应 none。scope 只影响未来真实创建，不修改 main 初始化或现有实例，revision 仍必须核验。
 - `validation` 可省略（保留历史引用），或显式 null／严格 `{command_id,command_version?}`：command_id 为 UUID；旧可选 command_version 为正安全整数，仅兼容，不预授权或固定未来版本。保存引用不执行命令；开启仍不要求验证指令存在，新固定 Agent 模式不使用该引用。
 - `expected_revision` 必须为最近读面的非空、不透明 revision（最多256字符）；不可自行拼接、跨分支复用或自动改用新值。过期时拒绝并重新读取。
 - runs 的 `before` 可省略/null，否则为正安全整数运行 ID；`limit` 可省略（20），否则为整数1..50。RPC 数值字段不接受数字字符串。
@@ -42,7 +43,7 @@ main 在初始化时一次性挂载且关闭；其他未配置 Worker 未挂载�
 
 未配置分支读取不写默认行、不启动 Agent 或运行命令。revision 在未配置时也稳定。counts 来源于完整持久活动事实，不从分页列表或 Worker 图推算。list 最多500个活动所有者分支，main优先，其他稳定按名称排序，超限显式 truncated。
 
-项目默认读面为 `{version:1,mounted,enabled,revision,editable,reason}`，初始 mounted:false、enabled:false，只在之后实际创建 order／child 时复制，不从父继承、不回写已有；未默认挂载时可以记住开启偏好，实际未挂载实例仍关闭。list.defaults与独立默认读取同源，default revision不能用于分支setter。
+项目默认读面为 `{version:1,mounted,enabled,scope,revision,editable,reason}`，新项目初始 mounted:true、scope:user、enabled:false，实际新 order 挂载关闭、新 child 不挂载；main 初始化仍一次挂载关闭。只在之后实际创建 order／child 时按 scope 冻结，不从父继承、不回写已有；旧保存默认缺少 scope 按原 mounted 读为 all/none，保留原 enabled、不改写。未默认挂载时可以记住开启偏好，实际未挂载实例仍关闭。list.defaults与独立默认读取同源，default revision不能用于分支setter。
 
 新固定预约明确 `verification_mode:'agent', validation:null`，不执行组合验证命令、不制造通过证据；验证由开发／整合Agent负责，顶层全量责任不变。旧 command 模式保留隔离验证与精确候选证据门；新旧模式不混批。快捷指令授权字段不再阻塞，未来验证执行跟随最新定义；实际执行开始固定版本，已开始运行的证据不得被目录编辑改写，见[快捷指令契约](../../engineering/shortcut-commands.md#定义与版本)。缺失或损坏旧验证引用不能转成免命令验证，unknown 不重放。
 
@@ -89,7 +90,7 @@ bun run lush branch convergence on main --revision REV
 bun run lush branch convergence off main --revision REV
 bun run lush branch convergence remove main --revision REV
 bun run lush branch convergence defaults show
-bun run lush branch convergence defaults set --mounted true --enabled false --revision DEFAULT_REV
+bun run lush branch convergence defaults set --mounted true --enabled false --scope user --revision DEFAULT_REV
 bun run lush branch convergence runs main --before 15 --limit 20
 bun run lush branch convergence retry 9 --revision RUN_REV
 ```

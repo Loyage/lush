@@ -74,10 +74,10 @@ test('project defaults snapshot only future order and child target mounts, indep
   const f = await fixture();
   try {
     const original = await defaults(f);
-    expect(original).toMatchObject({ mounted: false, enabled: false });
+    expect(original).toMatchObject({ mounted: true, scope: 'user', enabled: false });
     const old = await order(f, 'before automation defaults');
     const oldPolicy = await policy(f, old.branch);
-    expect(oldPolicy).toMatchObject({ mounted: false, enabled: false });
+    expect(oldPolicy).toMatchObject({ mounted: true, enabled: false });
     const enabledDefaults = await action(f, 'branch.convergence_defaults_set', { mounted: true,
       enabled: true, expected_revision: original.revision });
     expect(enabledDefaults).toMatchObject({ mounted: true, enabled: true });

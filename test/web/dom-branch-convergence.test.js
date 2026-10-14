@@ -7,7 +7,7 @@ const fail = error => ({ ok: false, json: async () => ({ error }) });
 const emptyCounts = () => ({ preparing: 0, resolving: 0, awaiting: 0, validating: 0, ready: 0, landing: 0, failed: 0, blocked: 0 });
 const policy = (branch = 'main', patch = {}) => ({ version: 1, branch, owner_id: branch === 'main' ? 1 : 10,
   mounted: branch === 'main', enabled: false, validation: null, revision: `${branch}-v1`, editable: true, reason: null, counts: emptyCounts(), ...patch });
-const defaultsModel = patch => ({ version: 1, mounted: false, enabled: false, revision: 'defaults-v1', editable: true, reason: null, ...patch });
+const defaultsModel = patch => ({ version: 1, mounted: false, scope: patch?.mounted ? 'all' : 'none', enabled: false, revision: 'defaults-v1', editable: true, reason: null, ...patch });
 const run = patch => ({ id: 55, revision: 'run-v1', parent_id: 1, target_branch: 'main', state: 'preparing', baseline: 'a'.repeat(40), commit: 'b'.repeat(40),
   member_count: 2, members: [{ id: 21, worker_number: 'W205-1', title: '来源一', delivery_id: 101, source_commit: 'c'.repeat(40) }, { id: 22, worker_number: null, title: '<script>来源二</script>' }],
   members_truncated: false, validation: null, integration_worker: { id: 23, worker_number: null, status: 'running' }, error: null,
@@ -44,9 +44,22 @@ const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.
 const { ui } = await import('../../src/ui/web/assets/state.js');
 const { closeDialog } = await import('../../src/ui/web/assets/dialog.js');
 const root = () => dom.node('detail');
-const field = (label, node = root()) => node.querySelector(`[aria-label="${label}"]`);
-const btn = (label, node = root()) => node.querySelectorAll('button').find(item => item.textContent === label);
-const check = (label, value = true) => { const input = field(label); input.checked = value; return input.onchange(); };
+// Existing lifecycle tests now exercise the scope select and shared state buttons.
+const field = (label, node = root()) => {
+  if (label === '新 Worker 默认挂载归并') { const select = node.querySelector('[aria-label="挂载范围"]'); return {
+    get checked() { return select.value !== 'none'; }, get disabled() { return select.disabled; },
+  }; }
+  if (label === '挂载后默认开启归并') { const control = node.querySelector('[data-default-enabled="true"]'); return {
+    get checked() { return control.getAttribute('aria-pressed') === 'true'; }, get disabled() { return control.disabled; },
+  }; }
+  return node.querySelector(`[aria-label="${label}"]`);
+};
+const btn = (label, node = root()) => node.querySelectorAll('button').find(item => item.textContent === ({ '开启归并': '开启', '关闭归并': '关闭' }[label] || label));
+const check = (label, value = true) => {
+  if (label === '新 Worker 默认挂载归并') { const scope = root().querySelector('[aria-label="挂载范围"]'); scope.value = value ? 'all' : 'none'; return scope.onchange(); }
+  if (label === '挂载后默认开启归并') return root().querySelector(`[data-default-enabled="${value}"]`).onclick();
+  const input = field(label); input.checked = value; return input.onchange();
+};
 const enable = (value = true) => check('对新交付开启归并', value);
 async function component() {
   const node = renderBranchConvergence({ ownsPage: () => own, busy: () => globalBusy,
@@ -104,14 +117,14 @@ test('inactive acknowledged save cannot retain a replayable draft on feature ret
   expect(actions).toHaveLength(1); node.dispose();
 });
 
-test('project automation shows only future defaults and display policy, never target authorization or a command catalogue', async () => {
+test('project automation has one scope and state defaults editor, never target authorization or duplicate display settings', async () => {
   await openHooks();
   const node = root().querySelector('.automation-convergence');
   expect(node).toBeTruthy(); expect(field('目标分支')).toBeNull();
   expect(field('在目标分支挂载归并')).toBeNull(); expect(field('对新交付开启归并')).toBeNull();
   expect(field('最终验证快捷指令')).toBeNull(); expect(deepText(node)).toContain('具体 Worker');
   expect(field('新 Worker 默认挂载归并').checked).toBe(false); expect(field('挂载后默认开启归并').checked).toBe(false);
-  expect(field('默认显示原则').value).toBe('all'); expect(node.querySelectorAll('textarea')).toHaveLength(0);
+  expect(field('默认显示原则')).toBeNull(); expect(root().querySelectorAll('select')).toHaveLength(1); expect(node.querySelectorAll('textarea')).toHaveLength(0);
   expect(btn('保存分支归并设置')).toBeUndefined(); expect(btn('保存新 Worker 归并默认').disabled).toBe(true);
   expect(btn('保存新 Worker 归并默认').parentNode.classList.contains('help-host')).toBe(true);
   expect(reads).toEqual(['/api/hooks', '/api/branch-convergence/defaults']); expect(actions).toHaveLength(0);
@@ -122,17 +135,17 @@ test('legacy automation history maps to settings and retains future-default and 
   runs = [run({ state: 'failed' })]; await openHooks();
   const node = root().querySelector('.automation-convergence');
   check('新 Worker 默认挂载归并'); check('挂载后默认开启归并');
-  const display = field('默认显示原则'); display.value = 'main'; display.onchange();
+  const display = field('挂载范围'); display.value = 'user'; display.onchange();
   const defaultsEditor = node.querySelector('.convergence-defaults'), readsBefore = reads.length;
   await openHooks({ subpage: 'history' });
   expect(dom.location.hash).toBe('#hooks-convergence'); expect(root().querySelector('.automation-convergence')).toBe(node);
   expect(node.querySelector('.convergence-history')).toBeNull(); expect(node.querySelector('.convergence-runs')).toBeNull(); expect(root().querySelector('.page-subnav')).toBeNull();
   expect(field('目标分支')).toBeNull(); expect(field('最终验证快捷指令')).toBeNull();
   expect(defaultsEditor.hidden).not.toBe(true); expect(field('新 Worker 默认挂载归并').checked).toBe(true);
-  expect(field('挂载后默认开启归并').checked).toBe(true); expect(display.value).toBe('main');
-  expect(btn('保存新 Worker 归并默认').disabled).toBe(false); expect(btn('保存项目设置').disabled).toBe(false);
+  expect(field('挂载后默认开启归并').checked).toBe(true); expect(display.value).toBe('user');
+  expect(btn('保存新 Worker 归并默认').disabled).toBe(false); expect(btn('保存项目设置')).toBeUndefined();
   await openHooks(); expect(root().querySelector('.automation-convergence')).toBe(node);
-  expect(field('默认显示原则')).toBe(display); expect(reads).toHaveLength(readsBefore); expect(actions).toHaveLength(0);
+  expect(field('挂载范围')).toBe(display); expect(reads).toHaveLength(readsBefore); expect(actions).toHaveLength(0);
 });
 
 test('legacy history deep link waits for real future-default data; missing initial data cannot invent editable values', async () => {
@@ -203,7 +216,7 @@ test('ACK with incompatible policy cannot invite another mutation', async () => 
 test('future default retains enabled preference while unmounted, does not mutate any existing policy or start Agent', async () => {
   await component(); check('挂载后默认开启归并'); expect(btn('保存新 Worker 归并默认').classList.contains('agent-call')).toBe(false);
   await btn('保存新 Worker 归并默认').onclick();
-  expect(actions).toEqual([{ method: 'branch.convergence_defaults_set', params: { mounted: false, enabled: true, expected_revision: 'defaults-v1' } }]);
+  expect(actions).toEqual([{ method: 'branch.convergence_defaults_set', params: { mounted: false, scope: 'none', enabled: true, expected_revision: 'defaults-v1' } }]);
   expect(policies[0].mounted).toBe(false); expect(policies[1].enabled).toBe(false); expect(deepText(root())).toContain('仅之后实际创建的新 Worker 生效，不回写已有');
 });
 
@@ -253,7 +266,7 @@ test('main collapsed automation has same branch toggle, project changes and Work
 test('unmounted Worker has no convergence switch, nonapplicable null hides policy, missing old fields never invent main defaults', () => {
   worker(policies[0]); expect(root().querySelector('.worker-convergence-control')).toBeNull(); expect(btn('开启归并')).toBeUndefined();
   const node = workerHooks(task(policies[0], { hooks: { mounts: [], convergence: null } })); root().replaceChildren(node); expect(deepText(node)).not.toContain('归并自动化状态不可用');
-  const old = task(); delete old.hooks.convergence; root().replaceChildren(workerHooks(old)); expect(btn('开启归并')).toBeUndefined(); expect(deepText(root())).toContain('不推断默认挂载');
+  const old = task(); delete old.hooks.convergence; root().replaceChildren(workerHooks(old)); expect(btn('开启归并')).toBeUndefined(); expect(deepText(root())).toContain('不推断默认挂载或执行权限');
   const missing = task(); delete missing.hooks.convergence.mounted; root().replaceChildren(workerHooks(missing)); expect(btn('开启归并')).toBeUndefined(); expect(actions).toHaveLength(0);
 });
 

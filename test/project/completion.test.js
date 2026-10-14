@@ -127,7 +127,7 @@ test('revision, lock and legacy boolean routes cannot conflict with the highest 
     await f.project.setTaskAutoMerge(task.id, true); expect(f.project.autoCompletionView(f.store.task(task.id)).level).toBe('merge');
     await configure(f, task, 'archive');
     const child = await f.project.spawn(task.id, 'default child');
-    expect(config(f, child)).toEqual({ version: 1, enabled: true, locked: true, acceptance_notice: { enabled: false } });
+    expect(config(f, child)).toEqual({ version: 1, enabled: true, locked: true, mounted_features: { completion: true, acceptance_notice: true }, acceptance_notice: { enabled: false } });
     expect(f.project.autoCompletionView(f.store.task(child.id))).toMatchObject({ level: 'merge', min_level: 'merge', locked: true, editable: false });
     const original = f.store.task(child.id), history = f.store.history(child.id);
     for (const level of ['off', 'merge', 'accept', 'archive']) await expect(configure(f, child, level)).rejects.toThrow('锁定');

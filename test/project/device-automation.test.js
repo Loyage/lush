@@ -80,7 +80,7 @@ test('project completion defaults affect only future orders in that project and 
     expect(JSON.parse(one.auto_merge).completion.authorization).toBeString();
     expect(JSON.parse(two.auto_merge).completion).toBeUndefined();
     const child = await b.project.spawn(two.id, 'child');
-    expect(JSON.parse(child.auto_merge)).toEqual({ version: 1, enabled: true, locked: true, acceptance_notice: { enabled: false } });
+    expect(JSON.parse(child.auto_merge)).toEqual({ version: 1, enabled: true, locked: true, mounted_features: { completion: true, acceptance_notice: true }, acceptance_notice: { enabled: false } });
     expect(a.store.task(old.id).auto_merge).toBe(oldConfig);
     a.project.setCompletionDefaults(false, 'accept', enabled.completion_defaults.revision);
     expect(a.store.task(one.id).auto_merge).toBe(one.auto_merge);

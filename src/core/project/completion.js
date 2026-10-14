@@ -2,13 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { workerLabel } from '../worker-number.js';
 import { check, id, TERMINAL } from '../types.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, taskSyncDeliveryPaused } from './iteration.js';
+import { builtinAutomationMounted, scopeMatches } from '../automation-scopes.js';
 
 const LEVELS = ['off', 'merge', 'accept'];
 const normalizeLevel = level => level === 'archive' ? 'accept' : level;
 const rank = level => LEVELS.indexOf(normalizeLevel(level));
 const settings = task => task.auto_merge ? JSON.parse(task.auto_merge) : { version: 1, enabled: false, locked: false };
 const booking = task => task.reservation ? JSON.parse(task.reservation) : null;
-const levelOf = task => { const value = settings(task), level = normalizeLevel(value.level); return value.enabled ? LEVELS.includes(level) && level !== 'off' ? level : 'merge' : 'off'; };
+const levelOf = task => { const value = settings(task), level = normalizeLevel(value.level); return builtinAutomationMounted(task, 'completion') && value.enabled ? LEVELS.includes(level) && level !== 'off' ? level : 'merge' : 'off'; };
 const now = () => new Date().toISOString();
 const ERROR = {
   merge: '自动合并暂不能继续；请查看交付诊断，处理现场或显式恢复。',
@@ -69,7 +70,7 @@ export default {
         archived: Boolean(task.branch && ['archived','deleted'].includes(this.store.branch(task.branch)?.status)),
         reservation: booking(task) ? { status: booking(task).status } : null,
         hooks: { worker_id: task.id, revision: hooks.revision, completion: hooks.completion,
-          mounts: hooks.mounts.filter(mount => ['auto-merge','auto-accept'].includes(mount.id))
+          mounted_features: hooks.mounted_features, mounts: hooks.mounts.filter(mount => ['auto-merge','auto-accept'].includes(mount.id))
             .map(mount => ({ id: mount.id, actions: mount.actions, operation: mount.operation })) } };
     });
     return { version: 1, workers, cursor: workers.at(-1)?.id ?? before, has_more: rows.length > limit, limit };
@@ -82,9 +83,11 @@ export default {
   /** Internal: call inside the actual order creation transaction, never at reservation time. */
   newOrderCompletionConfig() {
     const policy = this.automationSettings(), value = policy.completion_defaults;
-    const acceptance_notice = { enabled: policy.acceptance_notice_defaults.enabled };
-    if (!value.enabled) return { version: 1, enabled: false, locked: false, acceptance_notice };
-    return { version: 1, enabled: true, locked: false, level: value.level, acceptance_notice,
+    const mounted_features = { completion: scopeMatches(policy.mount_scopes.completion, 'order'),
+      acceptance_notice: scopeMatches(policy.mount_scopes.acceptance_notice, 'order') };
+    const acceptance_notice = { enabled: mounted_features.acceptance_notice && policy.acceptance_notice_defaults.enabled };
+    if (!mounted_features.completion || !value.enabled) return { version: 1, enabled: false, locked: false, mounted_features, acceptance_notice };
+    return { version: 1, enabled: true, locked: false, level: value.level, mounted_features, acceptance_notice,
       completion: { authorization: randomUUID(), round: 0, executions: {}, notices: {} } };
   },
 
@@ -130,7 +133,8 @@ export default {
       const config = settings(task), data = state(this, task);
       // A higher level is fresh explicit authorization. Unknown effects cannot get here.
       const next = { ...data, authorization: randomUUID() };
-      this.store.update(task.id, { auto_merge: JSON.stringify({ ...config, enabled: level !== 'off', level, completion: next }) });
+      this.store.update(task.id, { auto_merge: JSON.stringify({ ...config, enabled: level !== 'off', level, completion: next,
+        ...(level !== 'off' ? { mounted_features: { ...config.mounted_features, completion: true } } : {}) }) });
       this.store.event(task.id, 'task.completion_changed', { level, previous: view.level, authorization: next.authorization });
       const intent = booking(task);
       if (level === 'off' && intent?.status === 'pending' && intent.auto_merge) {

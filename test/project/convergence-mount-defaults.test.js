@@ -73,11 +73,11 @@ test('project defaults copy only on new order/child birth, not from parent or to
   const f = await setup();
   try {
     const initial = f.project.branchConvergenceDefaults();
-    expect(initial).toMatchObject({ version: 1, mounted: false, enabled: false, editable: true, reason: null });
+    expect(initial).toMatchObject({ version: 1, mounted: true, scope: 'user', enabled: false, editable: true, reason: null });
     expect((await f.project.branchConvergenceList()).defaults).toEqual(initial);
     expect(f.store.get('SELECT value FROM meta WHERE key=?', 'convergence_defaults:v1')).toBeNull();
     const first = (await f.project.order('first', 'main', [], null, false)).task;
-    expect(f.project.convergencePolicy(first.branch)).toMatchObject({ mounted: false, enabled: false });
+    expect(f.project.convergencePolicy(first.branch)).toMatchObject({ mounted: true, enabled: false });
     await set(f, first.branch, true, true);
     await defaults(f, true, false);
     const child = await f.project.spawn(first.id, 'child');

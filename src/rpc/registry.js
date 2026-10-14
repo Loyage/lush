@@ -77,7 +77,7 @@ export const PARAMS = {
   'branch.archive': ['branch','discard','continue'],
   'branch.convergence': ['branch'], 'branch.convergence_list': [],
   'branch.convergence_set': ['branch','enabled','validation','expected_revision','mounted'],
-  'branch.convergence_defaults': [], 'branch.convergence_defaults_set': ['mounted','enabled','expected_revision'],
+  'branch.convergence_defaults': [], 'branch.convergence_defaults_set': ['mounted','enabled','expected_revision','scope'],
   'branch.convergence_runs': ['branch','before','limit'], 'branch.convergence_retry': ['id','expected_revision'],
   'graph.get': [],
 };

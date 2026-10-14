@@ -1,5 +1,6 @@
 import { check, isPlainObject } from '../../core/types.js';
 import { workerLabel } from '../../core/worker-number.js';
+import { automationScope } from '../../core/automation-scopes.js';
 
 /**
  * 「自己拥有的分支」：agent 只能给自己负责的分支写摘要——
@@ -86,6 +87,11 @@ export const handlers = {
   'branch.convergence_defaults_set'(p, params) {
     check(typeof params.mounted === 'boolean', 'mounted must be a boolean');
     check(typeof params.enabled === 'boolean', 'enabled must be a boolean');
+    if (params.scope !== undefined) {
+      automationScope(params.scope);
+      check(params.mounted === (params.scope !== 'none'), 'convergence mounted must match scope');
+      return p.setBranchConvergenceDefaults(params.mounted, params.enabled, convergenceRevision(params.expected_revision), params.scope);
+    }
     return p.setBranchConvergenceDefaults(params.mounted, params.enabled, convergenceRevision(params.expected_revision));
   },
   'branch.convergence_runs'(p, params) {

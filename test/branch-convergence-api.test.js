@@ -14,7 +14,7 @@ const cases = [
   ['branch.convergence_runs', ['branch','before','limit'], { branch: 'main', before: 15, limit: 3 }, 'branchConvergenceRuns', ['main', 15, 3]],
   ['branch.convergence_retry', ['id','expected_revision'], { id: 9, expected_revision: revision }, 'retryBranchConvergence', [9, revision]],
   ['branch.convergence_defaults', [], {}, 'branchConvergenceDefaults', []],
-  ['branch.convergence_defaults_set', ['mounted','enabled','expected_revision'], { mounted: true, enabled: true, expected_revision: revision }, 'setBranchConvergenceDefaults', [true, true, revision]],
+  ['branch.convergence_defaults_set', ['mounted','enabled','expected_revision','scope'], { mounted: true, enabled: true, expected_revision: revision }, 'setBranchConvergenceDefaults', [true, true, revision]],
 ];
 for (const [method, keys, params, target, expected] of cases) {
   test(`${method}: exact user-only registry and forwarding`, async () => {

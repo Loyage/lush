@@ -1,5 +1,6 @@
 import { check, isPlainObject } from '../types.js';
 import { taskLabel } from '../naming.js';
+import { automationScope, scopeMatches } from '../automation-scopes.js';
 import { CONVERGENCE_COUNT_STATES, CONVERGENCE_POLICY_PREFIX, CONVERGENCE_LIMITS,
   CONVERGENCE_STATES, convergenceRevision, convergenceJSON } from '../convergence-contract.js';
 
@@ -17,15 +18,20 @@ function editable(project) {
 }
 function projectDefaults(project) {
   const raw = project.store.get('SELECT value FROM meta WHERE key=?', DEFAULTS_KEY)?.value;
-  if (raw === undefined) return { version: 1, mounted: false, enabled: false, generation: 0 };
+  if (raw === undefined) return { version: 1, mounted: true, scope: 'user', enabled: false, generation: 0 };
   const value = convergenceJSON(raw);
   check(isPlainObject(value) && value.version === 1 && Number.isSafeInteger(value.generation) && value.generation >= 0,
     'invalid persisted convergence defaults');
-  flags(value.mounted, value.enabled); return value;
+  flags(value.mounted, value.enabled);
+  if (value.scope !== undefined) {
+    automationScope(value.scope);
+    check(value.mounted === (value.scope !== 'none'), 'convergence mounted must match scope');
+  }
+  return value;
 }
 function defaultsView(project) {
   const value = projectDefaults(project);
-  return { version: 1, mounted: value.mounted, enabled: value.enabled,
+  return { version: 1, mounted: value.mounted, enabled: value.enabled, scope: value.scope ?? (value.mounted ? 'all' : 'none'),
     revision: convergenceRevision({ key: DEFAULTS_KEY, value }), ...editable(project) };
 }
 function savePolicy(project, branch, value) {
@@ -168,20 +174,23 @@ export default {
     check(['order','child'].includes(task.task_kind), 'convergence defaults only apply to new order/child Workers');
     const value = projectDefaults(this);
     check(!this.store.get('SELECT value FROM meta WHERE key=?', CONVERGENCE_POLICY_PREFIX + branch), 'new Worker convergence policy already exists');
-    savePolicy(this, branch, { ...defaults(), owner_id: task.id, mounted: value.mounted, enabled: value.mounted && value.enabled });
+    const mounted = value.mounted && scopeMatches(value.scope ?? 'all', task.task_kind);
+    savePolicy(this, branch, { ...defaults(), owner_id: task.id, mounted, enabled: mounted && value.enabled });
   },
 
   branchConvergenceDefaults() { return this.store.transaction(() => defaultsView(this)); },
 
-  async setBranchConvergenceDefaults(mounted, enabled, expectedRevision) {
+  async setBranchConvergenceDefaults(mounted, enabled, expectedRevision, scope = undefined) {
     flags(mounted, enabled);
+    scope = scope === undefined ? (mounted ? 'all' : 'none') : automationScope(scope);
+    check(mounted === (scope !== 'none'), 'convergence mounted must match scope');
     check(typeof expectedRevision === 'string' && expectedRevision.length > 0, 'convergence revision is required');
     return this.write('set convergence defaults', () => this.store.transaction(() => {
       this.assertWritable('set convergence defaults');
       check(defaultsView(this).revision === expectedRevision, 'convergence defaults revision changed; reload before editing');
       const generation = projectDefaults(this).generation + 1;
       check(Number.isSafeInteger(generation), 'convergence defaults generation limit reached');
-      const value = { version: 1, mounted, enabled, generation };
+      const value = { version: 1, mounted, enabled, scope, generation };
       this.store.run('INSERT INTO meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', DEFAULTS_KEY, JSON.stringify(value));
       this.store.event(null, 'branch.convergence_defaults_configured', value);
       return defaultsView(this);

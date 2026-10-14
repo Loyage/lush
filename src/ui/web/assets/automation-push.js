@@ -30,12 +30,12 @@ export function renderPushAutomation(options) {
     && (item.type !== 'create_worker' || item.start !== false));
   const host = el('section', undefined, 'push-main-settings command-hook-example'), advanced = el('div', undefined, 'push-advanced-settings push-command-reference'); advanced.hidden = true;
   const status = el('p', undefined, 'hint'); status.setAttribute('role', 'status');
-  node.extra.append(el('p', '新 Worker 默认开启：不适用。仅 main 执行推送；新 Worker 只按默认显示原则显示功能，不自动挂载 push。', 'hint'), host);
-  const toggle = button('', async () => {
+  node.extra.append(host);
+  const savePush = async enabled => {
     const mount = current(), source = catalogue?.command_example;
-    if (!owns() || saving || uncertain || !supported(mount, source) || mount.editable !== true || mount.locked
+    if (!owns() || saving || uncertain || enabled === mount?.enabled || !supported(mount, source) || mount.editable !== true || mount.locked
       || !mount.enabled && enableIssue(mount)) return;
-    const enabled = !mount.enabled, request = ++generation, agent = enabled && callsAgent(mount);
+    const request = ++generation, agent = enabled && callsAgent(mount);
     saving = true; paint(); let submitted = false;
     try {
       if (enabled) {
@@ -57,8 +57,12 @@ export function renderPushAutomation(options) {
       catalogue = { ...catalogue, command_example: { ...source, hooks: result } }; status.textContent = 'main 推送授权已保存；未立即执行，不代表执行成功。';
     } catch (error) { uncertain = submitted; if (owns()) { status.textContent = `${error.message}；原设置保留，请重新读取核查，不自动重发。`; status.className = 'error'; } }
     finally { saving = false; paint(); }
-  }, 'hook-button');
-  const toggleHost = el('span', undefined, 'help-host'); toggleHost.append(toggle);
+  };
+  const choices = [], group = el('div', undefined, 'hook-completion-levels'); group.setAttribute('role', 'group'); group.setAttribute('aria-label', 'main 自动推送');
+  for (const enabled of [false, true]) {
+    const control = button(enabled ? '开启' : '关闭', () => savePush(enabled), 'hook-completion-level');
+    const host = el('span', undefined, 'help-host'); host.append(control); choices.push({ enabled, control, host }); group.append(host);
+  }
   const reload = button('重新读取推送设置', async () => {
     if (!owns() || saving) return;
     const request = ++generation; saving = true; paint();
@@ -68,17 +72,21 @@ export function renderPushAutomation(options) {
   }, 'ghost');
   const openAdvanced = button('展开推送高级设置', () => { if (!owns()) return; advanced.hidden = !advanced.hidden; openAdvanced.textContent = advanced.hidden ? '展开推送高级设置' : '收起推送高级设置'; openAdvanced.setAttribute('aria-expanded', String(!advanced.hidden)); }, 'ghost');
   openAdvanced.setAttribute('aria-expanded', 'false');
-  for (const control of [toggle, reload]) { const click = control.onclick; control.onclick = async () => { await click(); paint(); }; }
+  for (const control of [...choices.map(item => item.control), reload]) { const click = control.onclick; control.onclick = async () => { await click(); paint(); }; }
   function paint() {
     if (!owns()) return;
     const mount = current(), source = catalogue?.command_example, available = supported(mount, source);
-    toggle.textContent = mount?.enabled ? '停用 Hook' : '启用 Hook';
+
     const reason = saving ? '正在确认或保存。' : uncertain ? '离开期间或本次保存结果未确认，先重新读取核查。' : !available ? '推送挂载已删除或读面不可用；不会自动重装，历史保留。' : mount.editable !== true || mount.locked ? mount.reason || 'main 挂载当前不可编辑。' : !mount.enabled ? enableIssue(mount) || '' : '';
-    toggle.disabled = !!reason; reload.disabled = saving; toggleHost.tabIndex = toggle.disabled ? 0 : -1;
-    const agent = available && !mount.enabled && callsAgent(mount);
-    toggle.classList.toggle('agent-call', !!agent);
-    const help = agent ? agentHelp('启用 main 实际挂载的未来动作，可能创建或恢复 Agent。') : '仅启停 main 实际推送挂载，不立即运行，不改变新 Worker 默认或合并授权。';
-    toggle.setAttribute('data-help', help); toggleHost.setAttribute('data-help', `${reason} ${help}`);
+    reload.disabled = saving;
+    for (const { enabled, control, host } of choices) {
+      const blocked = reason && (!available || saving || uncertain || mount.editable !== true || mount.locked || enabled) ? reason : '';
+      control.disabled = !!blocked || available && enabled === mount.enabled;
+      control.setAttribute('aria-pressed', String(available && enabled === mount.enabled)); control.classList.toggle('is-selected', available && enabled === mount.enabled);
+      const agent = available && enabled && callsAgent(mount); control.classList.toggle('agent-call', !!agent);
+      const help = agent ? agentHelp('启用 main 实际挂载的未来动作，可能创建或恢复 Agent。') : '仅启停 main 实际推送挂载，不立即运行，不改变新 Worker 默认或合并授权。';
+      control.setAttribute('data-help', help); host.setAttribute('data-help', `${blocked} ${help}`); host.tabIndex = control.disabled ? 0 : -1;
+    }
     const summary = el('p', available ? `main 当前授权：${mount.enabled ? '开启' : '关闭'}（不是执行结果）。` : reason, available ? 'hint' : 'error');
     if (available && reason && !saving) summary.append(el('span', ` ${reason}`, 'error'));
     const mainLink = button('查看 main Worker 自动化', () => owns() && source?.worker_id ? detail(source.worker_id) : undefined, 'ghost', { worker: source?.worker_id });
@@ -92,7 +100,8 @@ export function renderPushAutomation(options) {
     }
     const diagnostic = mount && (['failed', 'unknown'].includes(mount.state) || mount.reason);
     if (diagnostic) summary.append(el('span', ` · 需要核查：${mount.state === 'unknown' ? '结果未知，不自动重放。' : mount.state === 'failed' ? '执行失败。' : ''}${mount.reason || ''} 请到 main Worker 自动化查看诊断。`, 'error'));
-    host.replaceChildren(summary, toggleHost, status, reload, mainLink, openAdvanced, advanced);
+    const actions = el('div', undefined, 'actions hook-actions'); actions.append(reload, mainLink, openAdvanced);
+    host.replaceChildren(summary, group, status, actions, advanced);
   }
   const select = node.setSubpage;
   node.setSubpage = () => { select(); paint(); return node.ready; };

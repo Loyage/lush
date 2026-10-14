@@ -8,7 +8,7 @@ import { activateDetailView } from '../../src/ui/web/assets/sidebar-ui.js';
 let dom, reads, writes, intercept, catalogue;
 const json = value => Response.json(value);
 const policy = () => ({ version: 1, revision: 'r1', completion_defaults: { enabled: false, level: 'merge' }, acceptance_notice_defaults: { enabled: true },
-  display_principles: { completion: 'all', push: 'all', convergence: 'all', acceptance_notice: 'all' } });
+  mount_scopes: { completion: 'all', acceptance_notice: 'all' }, display_principles: { completion: 'all', push: 'all', convergence: 'all', acceptance_notice: 'all' } });
 beforeEach(() => {
   reads = []; writes = []; intercept = null;
   catalogue = { version: 1, revision: 'r', automation_settings: policy(), commands: { version: 1, revision: 'c', items: [] },
@@ -18,7 +18,7 @@ beforeEach(() => {
     if (body) writes.push(body); else reads.push(path);
     const custom = intercept?.(path, body); if (custom) return custom;
     if (path.endsWith('/api/hooks')) return json(catalogue);
-    if (path.endsWith('/api/branch-convergence/defaults')) return json({ version: 1, mounted: false, enabled: false, editable: true, reason: null, revision: 'defaults-r' });
+    if (path.endsWith('/api/branch-convergence/defaults')) return json({ version: 1, mounted: false, scope: 'none', enabled: false, editable: true, reason: null, revision: 'defaults-r' });
     if (body?.method === 'worker.hook_update') { catalogue.command_example.hooks.mounts[0].enabled = body.params.enabled; catalogue.command_example.hooks.revision = 'saved'; return json(catalogue.command_example.hooks); }
     if (path.includes('/api/inputs')) return json({ items: [], next_cursor: null });
     throw Error(`unexpected ${path}`);
@@ -27,7 +27,7 @@ beforeEach(() => {
 });
 afterEach(() => { ui.disposeProjectAutomation?.(); dom.restore(); });
 const root = () => dom.node('detail');
-const btn = label => root().querySelectorAll('button').find(node => node.textContent === label);
+const btn = label => root().querySelectorAll('button').find(node => node.textContent === ({ '启用 Hook': '开启', '停用 Hook': '关闭' }[label] || label));
 
 test('four lazy settings entries share name/function/principle; explicit search excludes conditional input', async () => {
   await openProjectAutomation(); const entries = root().querySelectorAll('.automation-feature');
@@ -42,11 +42,11 @@ test('four lazy settings entries share name/function/principle; explicit search 
 
 test('back and feature changes preserve submitted search, draft and original revision without history routes/reads', async () => {
   await openProjectAutomation(); const search = root().querySelector('[aria-label="查找自动化功能"]'); search.value = '尚未提交';
-  await openProjectAutomation({ feature: 'completion' }); const node = root().querySelector('.automation-completion'), choice = node.querySelector('[aria-label="用户新建 Worker 默认开启到"]');
-  choice.value = 'accept'; choice.onchange();
+  await openProjectAutomation({ feature: 'completion' }); const node = root().querySelector('.automation-completion'), choice = node.querySelector('[data-level="accept"]');
+  await choice.onclick();
   await openProjectAutomation({ feature: 'push', subpage: 'history' }); expect(dom.location.hash).toBe('#hooks-push'); expect(root().querySelector('.page-subnav')).toBeNull();
   await btn('← 返回自动化功能列表').onclick(); expect(root().querySelector('[aria-label="查找自动化功能"]')).toBe(search);
-  await openProjectAutomation({ feature: 'completion', subpage: 'history' }); expect(root().querySelector('.automation-completion')).toBe(node); expect(choice.value).toBe('accept');
+  await openProjectAutomation({ feature: 'completion', subpage: 'history' }); expect(root().querySelector('.automation-completion')).toBe(node); expect(choice.getAttribute('aria-pressed')).toBe('true');
   expect(reads.every(path => path.endsWith('/api/hooks'))).toBe(true); expect(writes).toEqual([]);
 });
 
@@ -85,13 +85,13 @@ test('convergence reads future defaults only, without target directory, runs or 
 
 test('inactive convergence default save keeps selection and blocks replay until explicit readonly verification', async () => {
   await openProjectAutomation({ feature: 'convergence' });
-  const mounted = root().querySelector('[aria-label="新 Worker 默认挂载归并"]'); mounted.checked = true; mounted.onchange();
+  const mounted = root().querySelector('[aria-label="挂载范围"]'); mounted.value = 'all'; mounted.onchange();
   let release;
   intercept = (_path, body) => body?.method === 'branch.convergence_defaults_set' ? new Promise(resolve => release = resolve) : null;
   const saving = btn('保存新 Worker 归并默认').onclick(); await until(() => release); await openProjectAutomation();
-  const saved = { version: 1, mounted: true, enabled: false, editable: true, reason: null, revision: 'saved-defaults' };
+  const saved = { version: 1, mounted: true, scope: 'all', enabled: false, editable: true, reason: null, revision: 'saved-defaults' };
   release(json(saved)); await saving; await openProjectAutomation({ feature: 'convergence' });
-  expect(root().querySelector('[aria-label="新 Worker 默认挂载归并"]')).toBe(mounted); expect(mounted.checked).toBe(true);
+  expect(root().querySelector('[aria-label="挂载范围"]')).toBe(mounted); expect(mounted.value).toBe('all');
   expect(btn('保存新 Worker 归并默认').disabled).toBe(true); expect(writes[0].params.expected_revision).toBe('defaults-r');
   const checking = btn('核对归并默认保存结果').onclick(); await dialogButton(dom, '取消').onclick(); await checking;
   expect(btn('保存新 Worker 归并默认').disabled).toBe(true); expect(writes).toHaveLength(1);

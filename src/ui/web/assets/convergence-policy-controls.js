@@ -3,13 +3,15 @@ import { api, action } from './api.js';
 import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
 import { show } from './messages.js';
+import { MOUNT_SCOPES } from './hook-controls.js';
 
 const text = value => typeof value === 'string' && value.length > 0;
 const common = value => value?.version === 1 && typeof value.mounted === 'boolean' && typeof value.enabled === 'boolean'
   && typeof value.editable === 'boolean' && text(value.revision) && (value.reason === null || typeof value.reason === 'string');
 export const validConvergencePolicy = (value, branch = value?.branch) => common(value) && text(branch) && value.branch === branch
   && Number.isSafeInteger(value.owner_id) && value.owner_id > 0 && (value.mounted || !value.enabled);
-export const validConvergenceDefaults = common;
+export const validConvergenceDefaults = value => common(value) && MOUNT_SCOPES.some(item => item.value === value.scope)
+  && value.mounted === (value.scope !== 'none');
 export const CONVERGENCE_ENABLE_HELP = agentHelp('开启目标分支的新交付归并；冲突时可能创建整合 Worker，每批形成一个单父 Squash 提交。不改变 Worker 自动合并或验收授权，不自动运行最终验证快捷指令。');
 export const CONVERGENCE_DISABLE_HELP = '关闭未来归并，目标系统工具仍以普通串行处理合法的已授权交付；已固定批次继续收口，不撤回交付或删除历史，不改变 Worker 自动合并或验收授权。';
 export const CONVERGENCE_COMPATIBILITY = '归并自动化数据不可用或版本不兼容，请更新项目后台与界面服务后重新读取。';
@@ -44,7 +46,8 @@ export function workerConvergenceControl(task, { ownsPage, refresh, onEditing = 
       control.setAttribute('data-help', help); host.setAttribute('data-help', `${reason} ${help}`); host.tabIndex = control.disabled ? 0 : -1;
     }
     const diagnostic = convergenceDiagnostic(model);
-    status.textContent = diagnostic || (saving ? '正在保存归并设置…' : `归并合并：${model.enabled ? '开启' : '关闭'}`);
+    status.textContent = diagnostic || (saving ? '正在保存归并设置…' : acknowledgedUnknown ? '归并保存结果尚未确认，请只读刷新，勿重复提交。' : '');
+    status.hidden = !status.textContent;
     status.classList.toggle('error', !!diagnostic);
   }
   async function save(enabled) {
@@ -57,7 +60,7 @@ export function workerConvergenceControl(task, { ownsPage, refresh, onEditing = 
       const result = await action('branch.convergence_set', { branch: model.branch, mounted: true, enabled, expected_revision: model.revision }, { refresh: false });
       acknowledged = true;
       if (!ownsPage()) return;
-      if (!validConvergencePolicy(result, task.branch) || result.owner_id !== task.id) {
+      if (!validConvergencePolicy(result, task.branch) || result.owner_id !== task.id || !result.mounted || result.enabled !== enabled) {
         acknowledgedUnknown = true; throw new Error('保存已确认，但返回策略不兼容；请只读刷新核查。');
       }
       model = result; onPolicyChange(model); paint(); show('归并设置已保存；不改变自动合并或验收授权。');
@@ -66,30 +69,39 @@ export function workerConvergenceControl(task, { ownsPage, refresh, onEditing = 
     finally { saving = false; onEditing(false); paint(); }
   }
   for (const enabled of [false, true]) {
-    const control = button(enabled ? '开启归并' : '关闭归并', () => save(enabled), `hook-completion-level${enabled ? '' : ' convergence-disable'}`,
+    const control = button(enabled ? '开启' : '关闭', () => save(enabled), 'hook-completion-level',
       { agent: enabled, help: enabled ? CONVERGENCE_ENABLE_HELP : CONVERGENCE_DISABLE_HELP });
     const host = el('span', undefined, 'help-host'); host.append(control); group.append(host); choices.push({ enabled, control, host });
     const click = control.onclick; control.onclick = async () => { await click(); paint(); };
   }
-  node.append(el('span', '归并合并', 'hook-completion-label'), group, status); paint(); return node;
+  node.append(group, status); paint(); return node;
 }
 
 /** Future actual order/child creation defaults. Never applies retroactively to branch policies. */
 export function convergenceDefaultsEditor({ ownsPage, busy = () => false, setBusy = () => {}, setEditing = () => {} }) {
   const node = el('section', undefined, 'convergence-defaults'); node.append(el('h3', '未来新 Worker 默认'));
-  const mounted = el('input'), enabled = el('input'); mounted.type = enabled.type = 'checkbox';
-  const label = (name, input) => { input.setAttribute('aria-label', name); const row = el('label', name, 'hook-field'); row.append(input); return row; };
+  const scope = el('select'); scope.setAttribute('aria-label', '挂载范围');
+  for (const item of MOUNT_SCOPES) { const option = el('option', item.label); option.value = item.value; scope.append(option); }
+  const scopeField = el('label', '挂载范围', 'hook-field'); scopeField.append(scope);
+  const group = el('div', undefined, 'hook-completion-levels'); group.setAttribute('role', 'group'); group.setAttribute('aria-label', '挂载后默认状态');
+  const choices = [];
   const status = el('p', '默认设置尚未成功读取，不推断默认值。', 'hint'); status.setAttribute('role', 'status');
   let model = null, draft = null, saving = false, reading = false, generation = 0, acceptedUnknown = false;
-  const dirty = () => !!draft && (draft.mounted !== model.mounted || draft.enabled !== model.enabled);
-  const help = () => draft?.mounted && draft?.enabled ? agentHelp('给之后实际创建的 order/child 挂载并开启归并，未来冲突时可能启动整合 Agent；不修改已有 Worker 或合并/验收授权。')
+  const dirty = () => !!draft && (draft.scope !== model.scope || draft.enabled !== model.enabled);
+  const help = () => draft?.mounted && draft?.enabled ? agentHelp('按挂载范围给之后实际创建的 Worker 挂载并开启归并，未来冲突时可能启动整合 Agent；不修改已有 Worker 或合并/验收授权。')
     : '只保存之后实际创建的 order/child 的归并挂载默认，不修改已有 Worker。未挂载时记住开启偏好但不执行。';
   const save = button('保存新 Worker 归并默认', saveDefaults, 'hook-button'); const host = el('span', undefined, 'help-host'); host.append(save);
   function paint() {
     if (!ownsPage()) return;
     const reason = saving || reading || busy() ? '正在读取或保存。' : acceptedUnknown ? '保存已确认，请只读刷新，不要重发。' : !model ? CONVERGENCE_COMPATIBILITY : !model.editable ? model.reason || '默认设置当前不可编辑。' : !dirty() ? '默认设置没有变化。' : '';
-    mounted.disabled = enabled.disabled = !model || saving || reading || busy() || !model.editable || acceptedUnknown;
-    mounted.checked = draft?.mounted === true; enabled.checked = draft?.enabled === true;
+    const blocked = !model || saving || reading || busy() || !model.editable || acceptedUnknown;
+    scope.disabled = blocked; scope.value = draft?.scope ?? '';
+    for (const { enabled, control, host } of choices) {
+      control.disabled = blocked; control.setAttribute('aria-pressed', String(draft?.enabled === enabled));
+      control.classList.toggle('is-selected', draft?.enabled === enabled);
+      const help = enabled ? agentHelp('选择未来挂载后的开启默认；保存后归并冲突可能启动整合 Agent，不修改已有目标策略。') : '选择未来挂载后的关闭默认，保存后生效，不改变已有策略或撤回固定批次。';
+      control.setAttribute('data-help', help); host.setAttribute('data-help', `${blocked ? reason : ''} ${help}`); host.tabIndex = control.disabled ? 0 : -1;
+    }
     save.disabled = !!reason; save.classList.toggle('agent-call', draft?.mounted === true && draft?.enabled === true);
     save.setAttribute('data-help', help()); host.setAttribute('data-help', `${reason} ${help()}`); host.tabIndex = save.disabled ? 0 : -1;
     refresh.disabled = saving || reading || busy(); refreshHost.tabIndex = refresh.disabled ? 0 : -1;
@@ -100,8 +112,8 @@ export function convergenceDefaultsEditor({ ownsPage, busy = () => false, setBus
     if (!ownsPage()) return;
     ++generation;
     if (!validConvergenceDefaults(value)) { model = draft = null; status.className = 'error'; status.textContent = CONVERGENCE_COMPATIBILITY; }
-    else { model = value; draft = { mounted: value.mounted, enabled: value.enabled }; acceptedUnknown = false;
-      status.className = value.reason ? 'error' : 'hint'; status.textContent = value.reason || `已保存默认：${value.mounted ? '挂载' : '不挂载'} · 挂载后${value.enabled ? '开启' : '关闭'}；仅之后实际创建的新 Worker 生效，不回写已有。`; }
+    else { model = value; draft = { mounted: value.mounted, scope: value.scope, enabled: value.enabled }; acceptedUnknown = false;
+      status.className = value.reason ? 'error' : 'hint'; status.textContent = value.reason || `已保存默认：${MOUNT_SCOPES.find(item => item.value === value.scope).label} · 挂载后${value.enabled ? '开启' : '关闭'}；仅之后实际创建的新 Worker 生效，不回写已有。`; }
     paint();
   }
   async function reload() {
@@ -121,7 +133,7 @@ export function convergenceDefaultsEditor({ ownsPage, busy = () => false, setBus
       if (!ownsPage() || request !== generation) return;
       const result = await action('branch.convergence_defaults_set', params, { refresh: false }); acknowledged = true;
       if (!ownsPage() || request !== generation) return;
-      if (!validConvergenceDefaults(result)) { acceptedUnknown = true; throw new Error('保存已确认，但默认数据不兼容，请只读刷新，不要重发。'); }
+      if (!validConvergenceDefaults(result) || result.scope !== params.scope || result.mounted !== params.mounted || result.enabled !== params.enabled) { acceptedUnknown = true; throw new Error('保存已确认，但默认数据不兼容，请只读刷新，不要重发。'); }
       receive(result); const readRequest = generation;
       try { const fresh = await api('/api/branch-convergence/defaults'); if (ownsPage() && readRequest === generation) {
         if (!validConvergenceDefaults(fresh)) throw new Error(CONVERGENCE_COMPATIBILITY); receive(fresh);
@@ -130,8 +142,16 @@ export function convergenceDefaultsEditor({ ownsPage, busy = () => false, setBus
     finally { saving = false; setBusy(false); paint(); }
   }
   const refresh = button('重新读取归并默认', reload, 'ghost hook-button'), refreshHost = el('span', undefined, 'help-host'); refreshHost.append(refresh);
-  for (const [input, key] of [[mounted, 'mounted'], [enabled, 'enabled']]) input.onchange = () => { if (!ownsPage() || input.disabled || !draft) return; draft[key] = input.checked; paint(); };
+  scope.onchange = () => { if (!ownsPage() || scope.disabled || !draft) return; draft.scope = scope.value; draft.mounted = scope.value !== 'none'; paint(); };
+  for (const enabled of [false, true]) {
+    const control = button(enabled ? '开启' : '关闭', () => { if (!ownsPage() || !model?.editable || saving || reading || busy() || acceptedUnknown || !draft) return; draft.enabled = enabled; paint(); }, 'hook-completion-level');
+    control.classList.toggle('agent-call', enabled); control.dataset.defaultEnabled = String(enabled);
+    const host = el('span', undefined, 'help-host'); host.append(control); choices.push({ enabled, control, host }); group.append(host);
+    const click = control.onclick; control.onclick = async () => { await click(); paint(); };
+  }
   for (const control of [save, refresh]) { const click = control.onclick; control.onclick = async () => { await click(); paint(); }; }
-  node.append(label('新 Worker 默认挂载归并', mounted), label('挂载后默认开启归并', enabled), status, host, refreshHost);
+  const actions = el('div', undefined, 'actions hook-actions'); actions.append(host, refreshHost);
+  const stateField = el('div', undefined, 'hook-field'); stateField.append(el('span', '挂载后默认状态'), group);
+  node.append(scopeField, stateField, status, actions);
   node.setModel = receive; node.syncControls = paint; paint(); return node;
 }

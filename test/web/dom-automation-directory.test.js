@@ -116,7 +116,7 @@ test('Hook type filters Shell and prompt IDs separately, enforces once/parent_re
 test('prompt Hook enable is purple with future cost confirmation, Shell-only hooks remain non-Agent', async () => {
   const mount = { ...hook(), editable: true, removable: true, state: 'idle', last_execution: null };
   catalogue.command_example = { worker_id: 1, hook_id: mount.id, hooks: { version: 1, worker_id: 1, revision: 'mount-r1', mounts: [mount] } };
-  await openProjectAutomation({ feature: 'push' }); const enable = btn('启用 Hook', root().querySelector('.command-hook-example'));
+  await openProjectAutomation({ feature: 'push' }); const enable = btn('开启', root().querySelector('.command-hook-example'));
   expect(enable.classList.contains('agent-call')).toBe(true); expect(enable.getAttribute('data-help')).toContain('token');
   const enabling = enable.onclick(); expect(dialogButton(dom, '启用指令 Hook').classList.contains('agent-call')).toBe(true);
   expect(deepText(dom.node('modal'))).toContain('未来节点满足后');

@@ -4,16 +4,17 @@ import { hookRevision } from '../hooks.js';
 import { workerLabel } from '../worker-number.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, taskSyncDeliveryPaused, assertNoPartialParentAcceptance } from './iteration.js';
 import { completionRound } from './completion.js';
+import { automationScope, builtinAutomationMounted } from '../automation-scopes.js';
 
 const KEY = 'project_automation_settings';
 const initial = () => ({ version: 1, generation: null, completion_defaults: { enabled: false, level: 'merge' },
-  acceptance_notice_defaults: { enabled: true },
+  acceptance_notice_defaults: { enabled: true }, mount_scopes: { completion: 'all', acceptance_notice: 'all' },
   display_principles: { completion: 'all', push: 'all', convergence: 'all', acceptance_notice: 'all' } });
 function object(value, keys, label) {
   check(isPlainObject(value) && Object.keys(value).length > 0 && Object.keys(value).every(key => keys.includes(key)), `invalid ${label} fields`);
 }
 function patchSettings(value, patch) {
-  object(patch, ['completion_defaults','acceptance_notice_defaults','display_principles'], 'project automation patch');
+  object(patch, ['completion_defaults','acceptance_notice_defaults','display_principles','mount_scopes'], 'project automation patch');
   const next = { ...value, generation: randomUUID() };
   for (const key of ['completion_defaults','acceptance_notice_defaults']) if (Object.hasOwn(patch, key)) {
     object(patch[key], key === 'completion_defaults' ? ['enabled','level'] : ['enabled'], key);
@@ -27,6 +28,11 @@ function patchSettings(value, patch) {
     check(Object.values(patch.display_principles).every(v => ['main','all','user'].includes(v)), 'display principle must be main, all or user');
     next.display_principles = { ...value.display_principles, ...patch.display_principles };
   }
+  if (Object.hasOwn(patch, 'mount_scopes')) {
+    object(patch.mount_scopes, ['completion','acceptance_notice'], 'mount scopes');
+    Object.values(patch.mount_scopes).forEach(automationScope);
+    next.mount_scopes = { ...initial().mount_scopes, ...value.mount_scopes, ...patch.mount_scopes };
+  }
   return next;
 }
 function stored(project) {
@@ -38,7 +44,8 @@ export default {
   automationSettings() {
     const value = stored(this);
     return { version: 1, revision: hookRevision(value), completion_defaults: { ...value.completion_defaults },
-      acceptance_notice_defaults: { ...value.acceptance_notice_defaults }, display_principles: { ...value.display_principles } };
+      acceptance_notice_defaults: { ...value.acceptance_notice_defaults }, display_principles: { ...value.display_principles },
+      mount_scopes: { ...initial().mount_scopes, ...value.mount_scopes } };
   },
 
   setAutomationSettings(patch, expectedRevision) {
@@ -55,7 +62,8 @@ export default {
   },
 
   acceptanceNoticeView(task) {
-    const enabled = config(task).acceptance_notice?.enabled ?? ['order','say'].includes(task.task_kind);
+    const enabled = builtinAutomationMounted(task, 'acceptance_notice')
+      && (config(task).acceptance_notice?.enabled ?? ['order','say'].includes(task.task_kind));
     let reason = null;
     if (!['order','say','child'].includes(task.task_kind)) reason = '仅指令和派生 Worker 支持待验收告知';
     else if (TERMINAL.has(task.status) || ['archived','deleted'].includes(this.store.branch(task.branch)?.status)) reason = 'Worker 已结束或归档';
@@ -76,7 +84,8 @@ export default {
     const view = this.acceptanceNoticeView(task); check(view.editable, view.reason);
     assertTaskNotSyncing(this, task.id);
     this.store.transaction(() => {
-      this.store.update(task.id, { auto_merge: JSON.stringify({ ...config(task), acceptance_notice: { enabled } }) });
+      this.store.update(task.id, { auto_merge: JSON.stringify({ ...config(task), acceptance_notice: { enabled },
+        ...(enabled ? { mounted_features: { ...config(task).mounted_features, acceptance_notice: true } } : {}) }) });
       this.store.event(task.id, 'task.acceptance_notice_changed', { enabled });
     });
     // Configuration never backfills a completed transition.

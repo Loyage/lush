@@ -80,6 +80,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const readingPosition = sameTask ? captureDetailReading(panel) : null;
   const previousHooks = sameTask ? panel.querySelector('.worker-hooks[data-hook-editing="true"]') || panel.querySelector('.worker-hooks[data-completion-editing="true"]') || panel.querySelector('.worker-hooks[data-convergence-editing="true"]') : null;
   const hookManagementOpen = sameTask && panel.querySelector('.hook-management')?.open === true;
+  const automationTitleFocus = sameTask && [...panel.querySelectorAll('.worker-feature-title')].find(node => node === document.activeElement);
   const previousDecisions = new Map(sameTask ? [...panel.querySelectorAll('.decision-record')].map(node => [node.dataset.noticeId, node]) : []);
   panel.dataset.view = 'task'; panel.dataset.taskId = String(task.id); panel.replaceChildren();
   referenceable(panel, { kind: 'task', target: { task_id: task.id }, label: `${workTypeLabel(task)} ${workerLabel(task)}`,
@@ -253,6 +254,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   if (hooks) {
     if (hookManagementOpen) hooks.querySelector('.hook-management').open = true;
     panel.append(hooks);
+    if (automationTitleFocus && [...hooks.querySelectorAll('.worker-feature-title')].includes(automationTitleFocus)) automationTitleFocus.focus({ preventScroll: true });
   }
 
   // Only reading modules below this point get height-limited previews, never actions/forms above.

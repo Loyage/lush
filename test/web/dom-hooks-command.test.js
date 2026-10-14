@@ -35,14 +35,14 @@ const { ui } = await import('../../src/ui/web/assets/state.js');
 const { api } = await import('../../src/ui/web/assets/api.js');
 const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
 const root = () => dom.node('detail');
-const btn = (label, node = root()) => node.querySelectorAll('button').find(item => item.textContent === label);
+const btn = (label, node = root()) => node.querySelectorAll('button').find(item => item.textContent === (node.classList?.contains('command-hook-example') ? { '启用 Hook': '开启', '停用 Hook': '关闭' }[label] || label : label));
 const field = (node, label) => node.querySelector(`[aria-label="${label}"]`);
-const example = () => root().querySelector('[data-feature="push"]');
+const example = () => root().querySelector('.hook-management');
 const exampleTask = () => ({ id: 1, task_kind: 'main', branch: 'main', status: 'waiting', goal: 'main', deps: [], dependents: [], children: [], messages: [], notices: [],
   hooks: { ...model, push: { worker_id: 1, hook_id: command.id } } });
 function drawExample() {
   const node = workerHooks(exampleTask(), { async refresh() { model = await api('/api/worker/1/hooks'); drawExample(); } });
-  root().replaceChildren(node); example().querySelector('.worker-feature-advanced').open = true; return node;
+  root().replaceChildren(node); example().open = true; return node;
 }
 function main() {
   activateDetailView({ view: 'task', key: 'task-1' });
@@ -85,7 +85,7 @@ test('command reference picker is catalogue driven, emits IDs and respects trigg
 });
 
 test('example reads main mount fixture, confirms future execution risk and uses mount revision rather than template revision', async () => {
-  await openHooks(); expect(deepText(example())).toContain('停用'); expect(deepText(example())).toContain('main 成功收到合并');
+  await openHooks(); expect(deepText(example())).toContain('停用'); expect(root().querySelector('[data-feature="push"]').querySelector('h3').getAttribute('data-help')).toContain('main 成功收到合并');
   expect(example().querySelector('.hook-help-link').href).toBe('/#doc-docs-hooks');
   expect(deepText(example())).toContain(command.name); expect(deepText(example())).not.toContain('示例');
   const enabling = btn('启用 Hook', example()).onclick();
@@ -227,12 +227,12 @@ test('late Worker full edit response cannot repaint a new page; explicit reads c
 
 test('Worker detail polling and advanced folding retain unsaved push edits and their captured optimistic revision', async () => {
   await openHooks(); renderDetail(exampleTask(), null, null, null);
-  example().querySelector('.worker-feature-advanced').open = true;
+  example().open = true;
   await btn('编辑挂载', example()).onclick(); const form = example().querySelector('.hook-form');
   field(form, '快捷指令').value = 'tags-command';
-  const advanced = example().querySelector('.worker-feature-advanced'); advanced.open = false;
+  const advanced = example(); advanced.open = false;
   renderDetail({ ...exampleTask(), hooks: { ...exampleTask().hooks, revision: 'polled-newer-revision' } }, null, null, null);
-  expect(example().querySelector('.worker-feature-advanced')).toBe(advanced); advanced.open = true;
+  expect(example()).toBe(advanced); advanced.open = true;
   expect(example().querySelector('.hook-form')).toBe(form); expect(field(form, '快捷指令').value).toBe('tags-command');
   await btn('保存挂载', example()).onclick(); expect(actions.at(-1).params.expected_revision).toBe('main-revision');
 });

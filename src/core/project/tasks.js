@@ -1,5 +1,6 @@
 import { check, id, text, TERMINAL, bounded, isPlainObject } from '../types.js';
 import { taskSlug } from '../naming.js';
+import { scopeMatches } from '../automation-scopes.js';
 import { workerLabel } from '../worker-number.js';
 import { NOTICE_SELECT } from '../../persistence/notice-projection.js';
 import { MESSAGE_SELECT } from '../../persistence/store/messages.js';
@@ -160,7 +161,9 @@ export default {
         // Freeze the parent's effective run settings (mode/source/model/budget) for the child: the
         // current invocation wins, then its task-local override, then the effective default.
         const inherited = inheritedRunProfile(this, liveParent, this.running.get(liveParent.id) ?? null);
-        this.store.update(created.id, { auto_merge: JSON.stringify({ version: 1, enabled: true, locked: true, acceptance_notice: { enabled: false } }),
+        this.store.update(created.id, { auto_merge: JSON.stringify({ version: 1, enabled: true, locked: true,
+          mounted_features: { completion: true, acceptance_notice: scopeMatches(this.automationSettings().mount_scopes.acceptance_notice, 'child') },
+          acceptance_notice: { enabled: false } }),
           reservation: JSON.stringify({ version: 2, kind: 'merge', auto_merge: true,
             status: 'pending', created_at: new Date().toISOString() }),
           ...(inherited ? { retry_profile: JSON.stringify(inherited) } : {}) });

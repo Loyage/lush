@@ -258,8 +258,8 @@ test('detail polling preserves in-flight authorization and open management, whil
     renderDetail(responseTask, null, null, null);
     const section = root().querySelector('.worker-hooks');
     const toggle = section.querySelector('.hook-management-toggle');
-    expect(toggle.textContent).toBe('展开'); expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    await toggle.onclick(); expect(toggle.textContent).toBe('收起'); expect(section.querySelector('.hook-management').hidden).toBe(false);
+    expect(toggle.textContent).toBe('高级与记录'); expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    await toggle.onclick(); expect(toggle.textContent).toBe('收起高级与记录'); expect(section.querySelector('.hook-management').hidden).toBe(false);
     const saving = click(section, 'accept'); await until(() => resolve);
     expect(section.dataset.completionEditing).toBe('true');
     renderDetail({ ...responseTask, hooks: { ...responseTask.hooks, revision: 'mount-v2' } }, null, null, null);
@@ -268,10 +268,10 @@ test('detail polling preserves in-flight authorization and open management, whil
     expect(section.dataset.completionEditing).toBe('false');
     renderDetail(responseTask, null, null, null);
     expect(root().querySelector('.worker-hooks')).not.toBe(section); expect(root().querySelector('.hook-management').open).toBe(true);
-    expect(root().querySelector('.hook-management-toggle').textContent).toBe('收起');
+    expect(root().querySelector('.hook-management-toggle').textContent).toBe('收起高级与记录');
     expect(root().querySelector('.hook-management-toggle').getAttribute('aria-expanded')).toBe('true');
     await root().querySelector('.hook-management-toggle').onclick(); renderDetail(responseTask, null, null, null);
     expect(Boolean(root().querySelector('.hook-management').open)).toBe(false);
-    expect(root().querySelector('.hook-management-toggle').textContent).toBe('展开');
+    expect(root().querySelector('.hook-management-toggle').textContent).toBe('高级与记录');
   } finally { restore(); }
 });

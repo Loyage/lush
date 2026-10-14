@@ -5,6 +5,7 @@ import { assertTaskAncestorsOpen, assertTaskNotSyncing } from './iteration.js';
 import { inheritedRunProfile } from './internal.js';
 import { nextHookRun } from '../hook-schedule.js';
 import { hasCommand } from './command-hooks.js';
+import { builtinAutomationMounted } from '../automation-scopes.js';
 
 const empty = () => ({ version: 1, mounts: [], observed: {} });
 const parse = task => task.hooks ? JSON.parse(task.hooks) : empty();
@@ -19,7 +20,14 @@ function writeDefinitions(project, state) {
   check(Buffer.byteLength(JSON.stringify(state)) <= 4 * HOOK_LIMITS.bytes, 'Hook template library exceeds 512 KiB');
   project.store.run("INSERT INTO meta(key,value) VALUES ('hook_templates',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", JSON.stringify(state));
 }
-function revision(project, task) { return hookRevision({ hooks: task.hooks ?? null, automatic: project.autoMergeView(task), completion: task.auto_merge ?? null,
+function mountedFeatures(project, task, data = parse(task), convergence = project.taskConvergenceView(task)) {
+  const push = project.commandHookExampleIdentity();
+  return { completion: builtinAutomationMounted(task, 'completion'),
+    acceptance_notice: builtinAutomationMounted(task, 'acceptance_notice'),
+    push: task.task_kind === 'main' && push?.worker_id === task.id && Boolean(push.hook_id && data.mounts.some(m => m.id === push.hook_id)),
+    convergence: convergence?.mounted === true };
+}
+function revision(project, task) { return hookRevision({ mounted_features: mountedFeatures(project, task), hooks: task.hooks ?? null, automatic: project.autoMergeView(task), completion: task.auto_merge ?? null,
   handler: project.taskConvergenceView(task)?.revision ?? null }); }
 function readDefinition(project, value) {
   const view = publicHookDefinition(value);
@@ -158,7 +166,7 @@ export default {
       trigger: mount.trigger, mode: 'once', enabled: mount.enabled, builtin: true, locked: true, editable: false, removable: false,
       conditions: {}, actions: mount.actions, state: mount.state, last_execution: mount.last_execution,
       reason: '条件发射信号由输入意图管理；在草稿页撤销待发射输入。' });
-    if (automatic) {
+    if (automatic && builtinAutomationMounted(task, 'completion')) {
       const booking = task.reservation ? JSON.parse(task.reservation) : null;
       mounts.unshift({ id: 'auto-merge', kind: 'rule', operation: this.mergeRequestOperationView(task), name: '自动合并', trigger: 'worker.delivery_ready', mode: 'persistent',
         enabled: automatic.enabled, builtin: true, locked: automatic.locked, editable: automatic.editable, removable: false, reason: automatic.reason,
@@ -173,7 +181,7 @@ export default {
       if (receipt.last_execution) Object.assign(mounts[0], receipt);
       if (completion.locked) mounts[0].reason = completion.reason;
     }
-    if (completion) for (const [phase, name, trigger, type, threshold] of [
+    if (completion && builtinAutomationMounted(task, 'completion')) for (const [phase, name, trigger, type, threshold] of [
       ['accept', '自动验收', 'delivery.integrated', 'accept_worker', 2],
     ]) {
       const status = this.completionMountState(task, phase);
@@ -193,7 +201,7 @@ export default {
         reason: '目标唯一处理器始终处理合法交付；通过分支归并设置调整未来策略，关闭归并仍串行合并。' });
     }
     const pushIdentity = this.commandHookExampleIdentity();
-    return { version: 1, worker_id: task.id, revision: revision(this, task), completion, convergence,
+    return { version: 1, worker_id: task.id, revision: revision(this, task), mounted_features: mountedFeatures(this, task, data, convergence), completion, convergence,
       push: pushIdentity ? { worker_id: pushIdentity.worker_id, hook_id: pushIdentity.hook_id } : null,
       acceptance_notice: this.acceptanceNoticeView(task), automation_settings: { version: 1, display_principles: this.automationSettings().display_principles }, can_attach: ownerAvailable(this, task, true), mounts };
   },

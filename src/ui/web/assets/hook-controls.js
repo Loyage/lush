@@ -15,6 +15,13 @@ export const AUTOMATION_METADATA = /* @__PURE__ */ Object.freeze([
   { id: 'acceptance_notice', name: '待验收告知', description: 'Worker 进入待验收时生成一条告知。', principle: '根据真实进入状态按 Worker／轮次去重；关闭不删历史或屏蔽异常、未知结果及待决，自动验收成功保持静默。', scope: '当前项目 · 新用户 Worker 默认' },
 ]);
 export const automationMetadata = id => AUTOMATION_METADATA.find(item => item.id === id);
+export const MOUNT_SCOPES = /* @__PURE__ */ Object.freeze([
+  { value: 'all', label: '全部适用 Worker' },
+  { value: 'user', label: '用户创建的 Worker（含 main）' },
+  { value: 'main', label: '仅 main／分支所有者' },
+  { value: 'none', label: '不挂载' },
+]);
+// Historical API compatibility only; not a presentation or authorization rule.
 export const DISPLAY_PRINCIPLES = /* @__PURE__ */ Object.freeze([
   { value: 'main', label: '只在 main 默认显示' },
   { value: 'all', label: '在所有 Worker 默认显示' },
@@ -121,7 +128,7 @@ export function autoCompletionControl(task, model, refresh = () => {}, ownsPage 
     // button() restores its generic enabled state; reapply the authorization gate afterwards.
     const clicked = control.onclick; control.onclick = async () => { await clicked(); paint(); };
   }
-  node.append(el('span', '自动执行到', 'hook-completion-label'), group, status); paint(); return node;
+  node.append(group, status); paint(); return node;
 }
 
 /** Built-in persistent hook; existing API and locked-child authorization remain unchanged. */

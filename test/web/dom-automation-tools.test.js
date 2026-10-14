@@ -12,7 +12,7 @@ const handler = (patch = {}) => ({ id: 'delivery-handler', kind: 'delivery_handl
   editable: false, removable: false, mode: 'persistent', state: 'idle', trigger: 'delivery.requested', actions: [{ type: 'integrate_deliveries', strategy: 'serial' }], operation: null, ...patch });
 const merge = patch => ({ id: 'auto-merge', name: '自动合并', builtin: true, enabled: true, trigger: 'worker.delivery_ready', mode: 'persistent', state: 'succeeded',
   actions: [{ type: 'request_merge' }], last_execution: { id: 90, status: 'succeeded', worker_id: 1, created_at: '2026-10-12T00:00:00Z' }, operation: null, ...patch });
-const hooks = (id, patch = {}) => ({ version: 1, worker_id: id, revision: 'hooks-r1', mounts: [handler()], convergence: policy(id), ...patch });
+const hooks = (id, patch = {}) => ({ version: 1, worker_id: id, revision: 'hooks-r1', mounted_features: { completion: !!patch?.completion, acceptance_notice: false, convergence: true, push: false }, mounts: [handler()], convergence: policy(id), ...patch });
 let catalogue, actions, reads, intercept, policies, models;
 const dom = installDom({ fetch: async (url, options = {}) => {
   const path = String(url), body = options.body ? JSON.parse(options.body) : null;
@@ -39,7 +39,7 @@ const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.
 const { ui } = await import('../../src/ui/web/assets/state.js');
 const { closeDialog } = await import('../../src/ui/web/assets/dialog.js');
 const root = () => dom.node('detail');
-const btn = (label, node = root()) => node.querySelectorAll('button').find(item => item.textContent === label);
+const btn = (label, node = root()) => node.querySelectorAll('button').find(item => item.textContent === ({ '开启归并': '开启', '关闭归并': '关闭' }[label] || label));
 const field = label => root().querySelector(`[aria-label="${label}"]`);
 function worker(model, patch = {}, options = {}) {
   activateDetailView({ view: 'task', key: `task-${model.worker_id}` });
@@ -120,16 +120,16 @@ test('failure and unknown operation diagnostics remain visible outside collapsed
 test('protected handler evidence is advanced while current target controls stay directly visible', () => {
   const model = hooks(1, { mounts: [handler({ builtin: false, editable: true, removable: true, actions: [{ type: 'integrate_deliveries', strategy: 'converge' }], operation: operation('integrate_deliveries', { strategy: 'converge', status: 'running', run_id: 71, generation: 2 }) })], convergence: policy(1, { enabled: true }) });
   const node = worker(model, { task_kind: 'main' }); const card = node.querySelector('.delivery-handler');
-  expect(node.querySelectorAll('.delivery-handler')).toHaveLength(1); expect(node.querySelector('.hook-management').querySelector('.delivery-handler')).toBeNull();
+  expect(node.querySelectorAll('.delivery-handler')).toHaveLength(1); expect(node.querySelector('.hook-management').querySelector('.delivery-handler')).toBe(card);
   expect(deepText(card)).toContain('当前处理策略：归并'); expect(deepText(card)).toContain('归并批次 71'); expect(deepText(card)).toContain('不提高来源');
   for (const label of ['编辑挂载', '复制为停用挂载', '移除挂载', '停用 Hook']) expect(btn(label, card)).toBeUndefined();
   const feature = node.querySelector('[data-feature="convergence"]');
   expect(feature.querySelector('.worker-automation-feature-body').hidden).toBe(false);
-  expect(feature.querySelector('.worker-feature-advanced').open).not.toBe(true);
-  expect(feature.querySelector('.worker-feature-advanced').querySelector('.delivery-handler')).toBe(card);
+  expect(feature.querySelector('.worker-feature-advanced')).toBeNull();
+  expect(node.querySelector('.hook-management').open).toBe(false);
   expect(btn('开启归并', feature).classList.contains('agent-call')).toBe(true); expect(btn('开启归并', feature).parentNode.getAttribute('data-help')).toContain('token');
   expect(btn('关闭归并', feature).classList.contains('agent-call')).toBe(false);
-  model.convergence.enabled = false; model.convergence.mounted = false; model.mounts[0].actions[0].strategy = 'serial';
+  model.convergence.enabled = false; model.convergence.mounted = false; model.mounted_features.convergence = false; model.mounts[0].actions[0].strategy = 'serial';
   worker(model, { task_kind: 'main' }); expect(deepText(root().querySelector('.delivery-handler'))).toContain('当前处理策略：普通串行'); expect(btn('开启归并')).toBeUndefined();
   expect(btn('挂载并开启归并')).toBeTruthy(); expect(btn('挂载并开启归并').getAttribute('data-help')).toContain('token');
 });

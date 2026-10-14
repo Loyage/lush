@@ -77,7 +77,9 @@ test('literal latest definition refresh is read-only and retains mount identity,
   expect(reference().hidden).toBe(false); expect(deepText(reference())).toContain(literal); expect(root().querySelector('script')).toBeNull();
   expect(deepText(reference())).toContain('v4'); noDefinitionControls();
   expect(catalogue.command_example.hooks).toEqual(beforeMount); expect(catalogue.commands.items[0].default_worker_id).toBe(999);
-  expect(btn('停用 Hook', mainExample()).disabled).toBe(false); expect(calls).toHaveLength(0);
+  expect(mainExample().querySelectorAll('.hook-completion-level').map(item => item.textContent)).toEqual(['关闭', '开启']);
+  expect(btn('开启', mainExample()).getAttribute('aria-pressed')).toBe('true');
+  expect(btn('关闭', mainExample()).disabled).toBe(false); expect(calls).toHaveLength(0);
 });
 
 test('missing catalogue and failed explicit read remain visible; read-only recovery cannot invent authorization or replay', async () => {
@@ -87,12 +89,13 @@ test('missing catalogue and failed explicit read remain visible; read-only recov
   expect(deepText(root())).toContain('推送设置读取失败：initial offline');
   expect(deepText(reference())).toContain('git push'); expect(catalogue).toEqual(before); noDefinitionControls(); expect(calls).toHaveLength(0);
   intercept = null; catalogue.commands = null; await btn('重新读取推送设置').onclick();
-  expect(deepText(reference())).toContain('快捷指令目录不可用'); expect(btn('启用 Hook', mainExample()).disabled).toBe(true); noDefinitionControls();
+  expect(deepText(reference())).toContain('快捷指令目录不可用'); expect(btn('开启', mainExample()).disabled).toBe(true); noDefinitionControls();
   intercept = path => path.endsWith('/api/hooks') ? failure('offline') : null; await btn('重新读取推送设置').onclick();
   expect(deepText(root())).toContain('推送设置读取失败：offline'); expect(calls).toHaveLength(0);
   intercept = null; catalogue.commands = { version: 1, revision: 'recovered', items: [{ ...push(), version: 7 }] };
   await btn('重新读取推送设置').onclick(); expect(deepText(reference())).toContain('git push'); expect(deepText(reference())).toContain('v7');
-  expect(btn('启用 Hook', mainExample()).disabled).toBe(false); expect(catalogue.command_example.hooks.mounts[0].enabled).toBe(false); expect(calls).toHaveLength(0);
+  expect(btn('开启', mainExample()).disabled).toBe(false); expect(btn('关闭', mainExample()).getAttribute('aria-pressed')).toBe('true');
+  expect(catalogue.command_example.hooks.mounts[0].enabled).toBe(false); expect(calls).toHaveLength(0);
 });
 
 for (const exit of ['view', 'project']) test(`late read-only definition refresh after leaving ${exit} cannot repaint the next page`, async () => {
@@ -107,7 +110,7 @@ for (const exit of ['view', 'project']) test(`late read-only definition refresh 
 
 test('legacy inline import is only in main detail and preserves stable mount, source revision and safe receipt', async () => {
   const mount = catalogue.command_example.hooks.mounts[0]; mount.actions = [{ type: 'command', command: 'git push' }]; mount.last_execution = { id: 8, status: 'unknown', error: '旧执行未知' };
-  await openAutomation({ feature: 'push' }); const enable = btn('启用 Hook', mainExample());
+  await openAutomation({ feature: 'push' }); const enable = btn('开启', mainExample());
   expect(enable.disabled).toBe(true); expect(enable.parentNode.getAttribute('data-help')).toContain('显式导入');
   await enable.onclick(); expect(calls).toHaveLength(0); expect(btn('编辑挂载', mainExample())).toBeUndefined(); expect(btn('导入为快捷指令', mainExample())).toBeUndefined();
   expect(btn('查看 main Worker 自动化')).toBeTruthy(); expect(root().querySelector('.push-history')).toBeNull(); noDefinitionControls();
@@ -117,7 +120,7 @@ test('legacy inline import is only in main detail and preserves stable mount, so
   expect(calls[0].params).toEqual({ source: { worker_id: 1, hook_id: 'main-push' }, expected_revision: 'main-revision' });
   expect(mount.last_execution).toEqual({ id: 8, status: 'unknown', error: '旧执行未知' }); expect(mount.id).toBe('main-push'); expect(mount.enabled).toBe(false);
   expect(btn('启用 Hook').disabled).toBe(false);
-  await openAutomation({ feature: 'push' }); expect(btn('启用 Hook', mainExample()).disabled).toBe(false); expect(calls).toHaveLength(1); noDefinitionControls();
+  await openAutomation({ feature: 'push' }); expect(btn('开启', mainExample()).disabled).toBe(false); expect(calls).toHaveLength(1); noDefinitionControls();
 });
 
 test('Worker inline import forwards only worker_hooks, not full catalogue', async () => {

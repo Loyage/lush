@@ -31,7 +31,7 @@ test('real HTTP and CLI share mounted/defaults policy, revisions and Worker auto
   try {
     const initial = await policy(f), initialDefaults = await defaults(f);
     expect(initial).toMatchObject({ mounted: true, enabled: false });
-    expect(initialDefaults).toMatchObject({ mounted: false, enabled: false });
+    expect(initialDefaults).toMatchObject({ mounted: true, scope: 'user', enabled: false });
     const list = await request(f, '/api/branch-convergence'); expect(list.defaults).toEqual(initialDefaults);
     const on = await cli(['on', 'main', '--revision', initial.revision]);
     expect(on).toMatchObject({ mounted: true, enabled: true, validation: null });

@@ -70,7 +70,7 @@ lush [--project PATH] [--json] <command>
   branch convergence off BRANCH --revision REV  停用但保留挂载与历史，不撤销已开始的归并
   branch convergence mount|remove BRANCH --revision REV  挂载（初始关闭）或移除归并自动化，保留历史
   branch convergence defaults show  读取项目新 Worker 默认与 revision
-  branch convergence defaults set --mounted true|false --enabled true|false --revision REV  仅影响之后新建 order/child；未挂载可记住默认启用，实际策略仍关闭
+  branch convergence defaults set --mounted true|false --enabled true|false [--scope main|all|user|none] --revision REV  仅影响未来创建；省略 scope 兼容旧 all/none
   开启可用 --command UUID 保存兼容引用；旧 --version N 可接受但不固定未来定义，新交付仍由 Agent 验证
   branch convergence runs BRANCH [--before N --limit N]  查看归并批次（默认20，最多50）
   branch convergence retry RUN_ID --revision REV  显式重试可恢复批次，可能调用整合 Agent；未知落地不重放

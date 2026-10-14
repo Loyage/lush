@@ -1,6 +1,6 @@
 # 归并合并：并行准备，单点落地
 
-本文是 W205 的功能设计方案，面向用户与实现者。用户在 D482 明确选择：每批一个目标分支提交、按需创建专用整合 Worker、允许无已知依赖的就绪组合先交付。**归并作为目标 Worker 的自动化挂载，默认仅 main 挂载且关闭，不改变来源 Worker 的合并／验收授权。**
+本文是 W205 的功能设计方案，面向用户与实现者。用户在 D482 明确选择：每批一个目标分支提交、按需创建专用整合 Worker、允许无已知依赖的就绪组合先交付。**归并作为目标 Worker 的自动化挂载，main 初始化挂载关闭；W270／D622 将未来默认改为用户新建 order 挂载关闭、child 不挂载，保留已有实际授权，不改变来源 Worker 的合并／验收授权。**
 
 阅读路线：**产品与理念（本篇）** → [算法与架构](../engineering/merge-convergence-protocol.md) → [异常与迭代](../engineering/merge-convergence-cases.md) → [实施与验证](../engineering/merge-convergence-rollout.md)。默认关闭的旧路径仍见[分支合并](../engineering/merge.md)；首版现状见[实施接缝](../engineering/merge-convergence-implementation.md#限制与验证)。
 

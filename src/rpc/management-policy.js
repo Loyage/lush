@@ -71,10 +71,11 @@ export function validateManagementCall(method, params, instruction = '') {
   };
   visit(params);
   check(Buffer.byteLength(JSON.stringify(params)) <= 32768, 'management parameters exceed limit');
-  if (Object.hasOwn(params, 'scope')) {
+  const projectMountScope = method === 'branch.convergence_defaults_set';
+  if (!projectMountScope && Object.hasOwn(params, 'scope')) {
     check(params.scope === 'device', 'management settings must explicitly select device scope');
     check(/设备|全局|device/i.test(instruction), 'device scope must be explicitly requested in the user instruction');
-  } else if ((PARAMS[method].includes('scope') || MANAGEMENT_DEVICE_ALIASES.has(method)) && method !== 'agent.status') {
+  } else if (!projectMountScope && (PARAMS[method].includes('scope') || MANAGEMENT_DEVICE_ALIASES.has(method)) && method !== 'agent.status') {
     check(false, 'device settings require explicit scope in both user instruction and parameters');
   }
   // Strict registry validation still runs at the trusted dispatch boundary; never accept a replacement actor.

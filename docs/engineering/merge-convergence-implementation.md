@@ -6,7 +6,7 @@
 
 - 归并是接收成果的**目标 Worker／分支策略**，通过统一自动化系统工具 `integrate_deliveries` 处理已授权交付，不是来源 Worker 的自动合并授权。开启 main 只影响之后交付到 main 的新固定成果，不提高任何 Worker 的自动合并／验收级别；关闭或未挂载时目标处理器仍按 `serial` 普通串行处理合法交付。工具与操作身份契约见[Hooks 工程接缝](hooks.md#系统工具与持久操作)。
 - 实际挂载 `mounted` 与启停 `enabled` 分开。未挂载必须关闭；项目页与 Worker 详情「自动化」操作同一策略与 revision，不保存两份状态。main 初始化时一次性挂载且关闭，其他未配置 Worker 不挂载；移除保留墓碑、历史与旧验证引用，不在读取或重启时重装。
-- 项目默认 `{mounted,enabled}` 初始均为 false，只在之后实际创建 order／child 时复制，不从父继承、不回写已有实例。未默认挂载时可以记住开启偏好，但实际实例始终关闭。child 的目标归并策略独立于其锁定的结束自动链。
+- 项目默认 `{mounted:true,scope:'user',enabled:false}` 只在之后实际创建 order／child 时按 scope 冻结，不从父继承、不回写已有实例：新 order 挂载关闭，新 child 不挂载。scope 允许 main/all/user/none，显式保存须 mounted 与 scope 是否非 none 一致；省略 scope 兼容旧 mounted:true→all、false→none。旧保存默认缺少 scope 保留 mounted/enabled，读为 all/none，不改写旧实际策略。未默认挂载时可以记住开启偏好，但实际实例始终关闭。child 的目标归并策略独立于其锁定的结束自动链。
 - 旧已保存策略没有 mounted 字段时视为已挂载，保留原启停、验证引用与历史。不批量修改历史行、分支、会话或交付收据；新所有者不继承旧所有者的授权。
 - 全部策略操作用户专属；只接受具有唯一活动 main／owner／order／child 所有者的真实本地分支，不接受 SHA、tag、ref 表达式或任意路径。setter 经 Project 写门、Git 串行区、真实目标与 revision 乐观锁；读取不安装配置、不启动 daemon、Agent 或命令。
 
@@ -35,20 +35,20 @@ branchConvergence(branch)
 branchConvergenceList()
 setBranchConvergence(branch, enabled, validation, expectedRevision, mounted = true)
 branchConvergenceDefaults()
-setBranchConvergenceDefaults(mounted, enabled, expectedRevision)
+setBranchConvergenceDefaults(mounted, enabled, expectedRevision, scope = undefined)
 branchConvergenceRuns(branch, before = null, limit = 20)
 retryBranchConvergence(id, expectedRevision)
 ```
 
 分支读面为 `{version:1,branch,owner_id,owner_worker_number,mounted,enabled,validation,revision,editable,reason,counts}`。validation 仅为兼容历史的安全引用，不公开 authorized；setter省略时保留，显式null可清除，新引用只需 command_id，旧 command_version 兼容但不固定未来版本。新固定 Agent 模式不执行验证指令。list为 `{version:1,items,count,truncated,defaults}`，最多500个活动所有者分支、main优先；完整活动counts来自持久事实，不从有界分页或Worker图推导。
 
-defaults 为 `{version:1,mounted,enabled,revision,editable,reason}`。`task.hooks.convergence` 保留为同源分支配置安全投影；适用目标的通用 `mounts` 同时包含受保护 `delivery-handler` 和真实操作摘要，目录提供仅系统可用的 `integrate_deliveries`。兼容读面不重复保存策略或授权；非适用、终态或归档身份的 convergence 返回null。同步详情读面不执行Git查询，实际ref被外部删除时保存仍由真实Git目标校验拒绝，不改投其他分支。
+defaults 为 `{version:1,mounted,enabled,scope,revision,editable,reason}`。`task.hooks.convergence` 保留为同源分支配置安全投影；适用目标的通用 `mounts` 同时包含受保护 `delivery-handler` 和真实操作摘要，目录提供仅系统可用的 `integrate_deliveries`。兼容读面不重复保存策略或授权；非适用、终态或归档身份的 convergence 返回null。同步详情读面不执行Git查询，实际ref被外部删除时保存仍由真实Git目标校验拒绝，不改投其他分支。
 
 runs按运行ID倒序分页，默认20、最多50项；成员最多8个、超限明示。状态、辅助身份、候选与落地提交、失败／待决及旧验证结果可查；新运行validation为null，不宣称最终命令通过。读面不含完整profile、Prompt、env、token、原始Shell输出或内部堆栈。
 
 ## Web 与权限
 
-项目「自动化 → 归并合并」只管理未来挂载／启用默认及显示原则；实际目标策略、系统操作与历史在对应 Worker 自动化查看。四项功能初始均默认显示，不适用或未挂载时说明原因并保留显式配置入口。开启及可能安排Agent的重试同时使用 `agent-call` 与 `agentHelp`，禁用帮助由外层宿主承载，说明批次单提交与费用；关闭不冒充撤回。
+项目「自动化 → 归并合并」只管理未来挂载 scope／启用默认；实际目标策略、系统操作与历史在对应 Worker 自动化查看。功能显示遵循真实 `mounted_features`，不从旧 display_principles 推算；交付处理器即使归并未挂载仍串行处理并保留必要诊断。开启及可能安排Agent的重试同时使用 `agent-call` 与 `agentHelp`，禁用帮助由外层宿主承载，说明批次单提交与费用；关闭不冒充撤回。
 
 失败保留草稿与原revision，过期拒绝后显式重新读取；ACK与后续刷新失败区分，切页／换项目／目标后的迟到响应不覆盖新目标、不自动重发mutation。旧服务缺字段时保守禁用，不推断默认或授权。
 

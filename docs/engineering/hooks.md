@@ -138,7 +138,7 @@ Worker 详情展示为「自动化」。来源结束规则与目标交付处理�
 
 `hooks.list` 返回 `{version:1,revision,triggers,actions,templates}`；actions 目录包含 `{type,label,description,triggers,modes,agent_call,builtin_only?,execution?,scope?,strategies?}`，`modes` 是支持的 `once|persistent` 数组，组合规则只能使用全部动作都支持的模式；templates 为 `{id,...安全定义}`。
 
-`worker.hooks` 和所有挂载修改返回 `{version:1,worker_id,revision,mounts}`。每项为 `{id,name,trigger,mode,enabled,builtin,locked,editable,removable,reason,conditions,actions,state,last_execution,model_selection?}`；state 为 `idle|waiting|running|succeeded|failed|unknown`；last_execution 可空，否则为 `{id,trigger,status,created_at,finished_at,error?,worker_id?,worker_number?,input_id?}`，其中 error 仅为安全诊断。revision 为不透明字符串；所有修改要求读面给定的 expected_revision，过期拒绝并保留客户端编辑。
+`worker.hooks` 和所有挂载修改返回包含 `{version:1,worker_id,revision,mounted_features,mounts}` 的同源安全读面；实际挂载与未来 scope 的精确字段见[项目自动化接口](../reference/rpc/hooks.md#新指令默认流程)。每项为 `{id,name,trigger,mode,enabled,builtin,locked,editable,removable,reason,conditions,actions,state,last_execution,model_selection?}`；state 为 `idle|waiting|running|succeeded|failed|unknown`；last_execution 可空，否则为 `{id,trigger,status,created_at,finished_at,error?,worker_id?,worker_number?,input_id?}`，其中 error 仅为安全诊断。revision 为不透明字符串；所有修改要求读面给定的 expected_revision，过期拒绝并保留客户端编辑。
 
 `worker.inspect` 的 `hooks` 是同一读面（不得把私有 JSON 原样展开）；`input.parents` 每项新增 `freeze`（可空）供输入按钮解释预约，不删除有效但冻结的父候选。
 
