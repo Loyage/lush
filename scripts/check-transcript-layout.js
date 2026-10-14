@@ -64,29 +64,30 @@ async function resize(width, height) {
   await rpc(`/session/${session}/window/rect`, { width: Math.max(540, width + 40), height: height + 200 });
   await execute(`const frame=parent.document.querySelector('iframe');frame.style.width='${width}px';frame.style.height='${height}px';parent.scrollTo(0,0);`);
 }
-async function checkMetadataColumns(width) {
+async function checkCompactMetadata(width) {
   const problem = await execute(`
-    const steps=[...document.querySelectorAll('.step')];
-    const columns=new Map();
-    for(const step of steps){
+    for(const step of document.querySelectorAll('.step')){
       const head=step.querySelector('.step-head'), meta=step.querySelector('.step-meta');
       const heading=step.querySelector('.step-title').getBoundingClientRect();
-      if(meta.getBoundingClientRect().top < heading.bottom) return 'metadata must have its own row';
+      if(getComputedStyle(meta).display!=='flex') return 'metadata must be a compact group';
+      if(step.querySelector('.step-title').textContent && heading.width<70) return 'metadata squeezed the tool name into a vertical strip';
       if(head.scrollWidth>head.clientWidth+1) return 'heading overflow';
-      let previousRight=-Infinity;
+      if(innerWidth>=1440 && ['2','6'].includes(step.dataset.seq)){
+        const r=meta.getBoundingClientRect();
+        if(r.top>=heading.bottom || r.bottom<=heading.top) return 'metadata forced onto a new row';
+      }
+      let previous;
       for(const name of ['step-number','step-tokens','step-duration','when']){
         const cell=meta.querySelector('.'+name);
         if(!cell || cell.hidden) continue;
-        const r=cell.getBoundingClientRect(), first=columns.get(name);
-        if(first && (Math.abs(first.x-r.x)>1 || Math.abs(first.width-r.width)>1)) return name+' column shifted';
-        columns.set(name,r);
-        if(r.x<previousRight-1) return name+' overlaps previous column';
+        const r=cell.getBoundingClientRect();
+        if(previous && Math.abs(previous.y-r.y)<1 && Math.abs(r.x-previous.right-8)>1) return name+' is spaced out or overlaps';
         if(cell.scrollWidth>cell.clientWidth+1) return name+' text overflow';
-        previousRight=r.right;
+        previous=r;
       }
     }
     return '';`);
-  assert(!problem, `metadata alignment at ${width}: ${problem}`);
+  assert(!problem, `compact metadata at ${width}: ${problem}`);
 }
 async function readerScreenshot() {
   await rpc(`/session/${session}/frame`, { id: null });
@@ -126,8 +127,8 @@ try {
     assert(box.body.right <= box.width + 1 && box.body.bottom <= box.height + 1, 'body escaped viewport');
     assert(await execute(`const call=document.querySelector('[data-seq="2"]');return call.querySelector('.step-duration').textContent==='time≈1.3s' && !document.querySelector('.step-model-duration') && call.querySelector('.step-head').scrollWidth<=call.clientWidth && document.querySelector('.transcript-viewport').scrollWidth<=innerWidth;`), `duration metadata missing or overflowing at ${width}`);
     assert(await execute(`return document.querySelector('[data-seq="4"] .step-duration').textContent==='time≈5400s' && document.querySelector('[data-seq="6"] .step-duration').textContent==='time<1s';`), `seconds-only timing failed at ${width}`);
-    await checkMetadataColumns(width);
-    console.log(`PASS layout, seconds-only timing and aligned metadata ${width}x${height}`);
+    await checkCompactMetadata(width);
+    console.log(`PASS layout, seconds-only timing and compact metadata ${width}x${height}`);
   }
   await resize(1440, 900);
   const query = await rpc(`/session/${session}/element`, { using: 'css selector', value: '.search-field-row input' });
@@ -137,7 +138,7 @@ try {
   await rpc(`/session/${session}/element/${id}/value`, { text: '\uE007' });
   await rpc(`/session/${session}/execute/async`, { script: `const done=arguments[0]; let tries=0; const check=()=>{if(document.querySelectorAll('.transcript-match [data-seq]').length===12)done(true);else if(++tries>100)done(false);else setTimeout(check,50);}; check();`, args: [] }).then(ready => assert(ready, 'Enter search did not hydrate match bodies'));
   assert(await execute(`return window.searchCalls===1 && document.querySelectorAll('.search-hit').length===12 && document.querySelectorAll('dialog[open]').length===1 && !document.querySelector('.transcript-sidebar .step');`), 'search must stay in one dialog with bodies only in main column');
-  await checkMetadataColumns(1440);
+  await checkCompactMetadata(1440);
   assert(await execute(`const hits=document.querySelectorAll('.search-hit'); hits[5].querySelector('button').click(); return document.querySelectorAll('.step-located').length===1 && document.querySelector('[data-match-seq="15"]').classList.contains('step-located');`), 'hit navigation did not locate corresponding body');
   const queryTop = await execute(`return document.querySelector('.search-field-row').getBoundingClientRect().y;`);
   await execute(`document.querySelector('.transcript-search-results').scrollTop=200; document.querySelector('.transcript-viewport').scrollTop=300;`);
@@ -174,7 +175,7 @@ try {
   await execute(`const button=[...document.querySelectorAll('button')].find(n=>n.textContent==='返回全部记录');button.click();`);
   await resize(390, 844);
   assert(await execute(`const step=document.querySelector('.step-failed');return step?.textContent.includes('fixture failure')&&step.querySelector('.step-meta').textContent.includes('#2')&&step.querySelector('.step-call-status').textContent==='失败'&&document.querySelector('.transcript-viewport').scrollWidth<=innerWidth;`), 'failure command/output or step metadata lost/overflowed');
-  await checkMetadataColumns(390);
+  await checkCompactMetadata(390);
   await capture('-mobile-steps');
   await execute(`document.documentElement.dataset.theme='light';`);
   await resize(1440, 900);
