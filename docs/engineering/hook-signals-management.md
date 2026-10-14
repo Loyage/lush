@@ -14,7 +14,7 @@ W263／D611 删除独立「Valet 设置」及全部 Web 信号／绑定编辑入
 
 ### 当前项目管家默认权限（W278／D632、W279／D635）
 
-W279 将默认权限融入「CLI 接口」页面：通过搜索定位单项接口，在接口详情中就地了解及配置当前项目的管家执行权限，不再保留独立「管家设置」页；旧 `#valet-settings` 入口跳转「CLI 接口」。接口目录仅用于发现和说明，不代表执行授权。此处编辑仍只影响未来新建 Valet 的默认权限，既有私有快照、完整映射与 revision 校验不变；不恢复 Web 时间信号／绑定编辑或重放入口。
+W279 将默认权限融入「CLI 接口」页面：通过搜索定位单项接口，在接口详情中就地了解及配置当前项目的管家执行权限，不再保留独立「管家设置」页；旧 `#valet-settings` 入口跳转「CLI 接口」。接口目录仅用于发现和说明，不代表执行授权。W285／D643 保留顶层分类和逐级进入，改用紧凑命令行及末列管理 Agent 权限摘要；单 RPC 展示当前草稿／默认值，多 RPC 明示多项并在详情逐项配置，无项目仅展示审核上限，读取失败不冒充已读取的项目默认值。此处编辑仍只影响未来新建 Valet 的默认权限，既有私有快照、完整映射与 revision 校验不变；不恢复 Web 时间信号／绑定编辑或重放入口。
 
 `management.permissions {}` 与 `management.permissions_update {permissions,expected_revision}` 均为用户专属；普通开发 Agent、Valet 及 `manager.call` 都不能读取或修改设置。Web 使用 GET `/api/management/permissions`（不接受 query）及同源 POST `/api/action` 的 `management.permissions_update`。设置只保存于当前项目 meta，不进入设备设置，不改变其它项目。
 

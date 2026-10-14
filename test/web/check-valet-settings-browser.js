@@ -47,7 +47,21 @@ try {
   assert(await run(`return location.hash==='#cli-interfaces'&&[...document.querySelectorAll('.cli-results [data-command]')].every(n=>!n.dataset.command.includes(' '))`), 'empty search must show only roots / old route redirect');
   assert(await run(`return document.querySelector('.cli-search').getBoundingClientRect().top<document.querySelector('.resource-hero').getBoundingClientRect().top`), 'search is not first');
   assert(await run(`return getComputedStyle(document.querySelector('.cli-command-link strong')).color===getComputedStyle(document.querySelector('.cli-interfaces-page')).color`), 'command names are not legible');
+  assert(await run(`return document.querySelector('.cli-search-prefix').textContent==='lush'&&!document.querySelector('.cli-search-prefix input')`), 'lush prefix is not fixed');
   await screenshot('desktop-directory');
+  await search('worker');
+  assert(await run(`const counts=[...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command.split(' ').length);return counts.every((n,i)=>!i||n>=counts[i-1])&&counts.includes(3)`), 'word-count ordering missing');
+  const paths = await run(`return [...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command)`);
+  await search('LUSH worker');
+  assert(await run(`return JSON.stringify([...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command))===${JSON.stringify(JSON.stringify(paths))}`), 'full command paste differs from prefix-free search');
+  for (const width of [1440, 390]) {
+    await rpc(`/session/${session}/frame`, { id: null }); await run(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
+    const layout = await run(`const rows=[...document.querySelectorAll('.cli-results .cli-command-link')];return {kind:'list',width:innerWidth,documentWidth:document.documentElement.scrollWidth,bodyWidth:document.body.scrollWidth,rows:rows.map(n=>{const r=n.getBoundingClientRect(),name=n.querySelector('strong').getBoundingClientRect(),description=n.querySelector('.cli-command-description').getBoundingClientRect(),permission=n.querySelector('.cli-command-access').getBoundingClientRect();return {height:r.height,display:getComputedStyle(n).display,margin:getComputedStyle(n).marginBottom,last:n.lastElementChild.className,nameRight:name.right,descriptionX:description.x,descriptionRight:description.right,permissionX:permission.x,permissionRight:permission.right};})};`);
+    assert(layout.documentWidth <= width && layout.bodyWidth <= width, `list horizontal overflow ${width}`);
+    assert(layout.rows.every(row => row.display === 'grid' && row.height >= 44 && row.margin === '0px' && row.last === 'cli-command-access' && row.nameRight <= row.descriptionX && row.descriptionRight <= row.permissionX && row.permissionRight <= width), `not compact aligned rows ${width}`);
+    layouts.push(layout); await screenshot(`${width}-list`);
+  }
+  await rpc(`/session/${session}/frame`, { id: null }); await run(`document.querySelector('#viewport').style.width='1440px'`); await frame();
   await search('继续'); const beforeIME = await run(`return document.querySelector('.cli-results').textContent`);
   await run(`const s=document.querySelector('.cli-search input');s.dispatchEvent(new CompositionEvent('compositionstart'));s.value='删除';s.dispatchEvent(new InputEvent('input',{isComposing:true}));`);
   assert(await run(`return document.querySelector('.cli-results').textContent===${JSON.stringify(beforeIME)}`), 'IME intermediate results changed');
@@ -77,7 +91,7 @@ try {
       assert(layout.rows.every(item => item.columns.split(' ').length === 1), 'mobile permissions not single column');
       assert(layout.navTop >= 56, 'mobile return is hidden under shell header');
     }
-    layouts.push(layout); await screenshot(`${width}-detail`);
+    layouts.push({ kind: 'detail', ...layout }); await screenshot(`${width}-detail`);
   }
   await select('draft.add', 'unavailable'); await run(`location.hash='#valets'`);
   assert(await wait(`!document.querySelector('#modal').hidden`), 'dirty leave did not confirm'); await press('取消');

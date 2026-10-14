@@ -50,7 +50,9 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   const searchLabel = el('label', '搜索 CLI 命令、名称或介绍');
   const search = el('input'); search.type = 'search'; search.placeholder = '例如：worker resume、继续、模型'; search.setAttribute('aria-label', '搜索 CLI 命令、名称或介绍');
   const clear = el('button', '清空', 'ghost'); clear.type = 'button'; clear.onclick = () => { if (!owns()) return; search.value = ''; state.query = ''; state.selected = null; paint(); search.focus(); };
-  searchLabel.append(search); searchBox.append(searchLabel, clear, el('p', '内置完整 CLI 目录 · 实时本地匹配 · 空关键词只显示顶层', 'hint'));
+  const searchField = el('span', undefined, 'cli-search-field');
+  searchField.append(el('span', 'lush', 'cli-search-prefix'), search);
+  searchLabel.append(searchField); searchBox.append(searchLabel, clear, el('p', '固定 lush 前缀，无需输入 · 实时本地匹配 · 空关键词只显示顶层', 'hint'));
   const updateSearch = () => { if (!owns() || state.composing) return; state.query = search.value.trim(); state.selected = null; paint(); };
   search.oninput = event => { if (!event?.isComposing) updateSearch(); };
   search.addEventListener('compositionstart', () => { state.composing = true; });
@@ -67,7 +69,7 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
     ? '仅影响本项目之后新建的 Valet；已有权限快照不变。危险操作始终逐次确认，原有安全门保持。'
     : '当前没有项目：可浏览全部 CLI 说明，但不能编辑或保存管家默认权限。请在可用项目页打开 CLI 接口。', 'hint'), status, save, reload);
   root.append(searchBox, hero, results, detail, footer); $('detail').replaceChildren(root);
-  const selects = new Map(), diagnostics = new Map();
+  const selects = new Map(), diagnostics = new Map(), summaries = new Map();
   function setStatus(text, error = false) { status.textContent = text; status.classList.toggle('error', error); }
   function sync() {
     save.disabled = !state.data || state.busy || state.uncertain || !dirty(); reload.disabled = state.busy;
@@ -75,6 +77,21 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
       const item = state.data?.methods.find(item => item.method === method);
       select.value = state.draft?.[method] ?? select.dataset.base;
       select.disabled = !item || state.busy || item.allowed_access.length < 2;
+    }
+    for (const [node, item] of summaries) {
+      if (item.directory) { node.textContent = '分类 · 查看子命令'; continue; }
+      if (!item.rpc.length) { node.textContent = '本地 · 不可授权'; continue; }
+      if (project && !state.data) { node.textContent = '权限未读取'; continue; }
+      const policies = item.rpc.map(rpc => {
+        const policy = state.data?.methods.find(row => row.method === rpc.method) ?? rpc;
+        const access = state.draft?.[rpc.method] ?? policy.base_access;
+        return `${rpc.method}：${accessLabel(policy, access)}`;
+      });
+      const changed = state.data && item.rpc.some(rpc => state.draft[rpc.method] !== state.data.permissions[rpc.method]);
+      const rpc = item.rpc[0], policy = state.data?.methods.find(row => row.method === rpc.method) ?? rpc;
+      node.textContent = (item.rpc.length > 1 ? `多项权限（${item.rpc.length}）` : accessLabel(policy, state.draft?.[rpc.method] ?? policy.base_access))
+        + (changed ? ' · 草稿' : '');
+      node.setAttribute('data-help', `${policies.join('；')}。点击命令查看详情与审核上限；仅影响未来新管家，不执行命令。`);
     }
     for (const [method, node] of diagnostics) {
       const item = state.data?.methods.find(item => item.method === method);
@@ -85,9 +102,13 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
     }
   }
   function commandList(container, commands) {
-    for (const item of commands) {
-      const node = el('button', undefined, 'cli-command-link resource-card'); node.type = 'button'; node.dataset.command = item.path;
-      node.append(el('strong', `lush ${item.path}`), el('span', item.description));
+    const headings = el('div', undefined, 'cli-command-columns'); headings.setAttribute('aria-hidden', 'true');
+    headings.append(el('span', '命令'), el('span', '简介'), el('span', '管理 Agent 权限')); container.append(headings);
+    const wordCount = item => item.path.trim().split(/\s+/).length;
+    for (const item of [...commands].sort((a, b) => wordCount(a) - wordCount(b))) {
+      const node = el('button', undefined, 'cli-command-link'); node.type = 'button'; node.dataset.command = item.path;
+      const summary = el('span', undefined, 'cli-command-access'); summaries.set(summary, item);
+      node.append(el('strong', `lush ${item.path}`), el('span', item.description, 'cli-command-description'), summary);
       node.onclick = () => { if (!owns()) return; state.selected = item.path; paint(); detail.scrollIntoView?.({ block: 'start' }); };
       container.append(node);
     }
@@ -126,10 +147,10 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   function paint() {
     const previous = detail.querySelector('details');
     if (previous) { if (previous.open) state.expanded.add(previous.dataset.command); else state.expanded.delete(previous.dataset.command); }
-    results.replaceChildren(); detail.replaceChildren(); selects.clear(); diagnostics.clear();
+    results.replaceChildren(); detail.replaceChildren(); selects.clear(); diagnostics.clear(); summaries.clear();
     if (!state.catalog) { sync(); return; }
-    const commands = state.catalog.commands, query = state.query.toLocaleLowerCase();
-    const matches = commands.filter(item => query ? `lush ${item.path} ${item.name} ${item.description}`.toLocaleLowerCase().includes(query) : !item.parent);
+    const commands = state.catalog.commands, query = state.query.replace(/^lush(?:\s+|$)/i, '').trim().toLocaleLowerCase();
+    const matches = commands.filter(item => query ? `${item.path} ${item.name} ${item.description}`.toLocaleLowerCase().includes(query) : !item.parent);
     results.hidden = Boolean(state.selected); detail.hidden = !state.selected;
     results.append(el('h2', query ? `匹配结果（${matches.length}）` : '顶层命令目录'));
     if (!matches.length) results.append(el('p', '没有匹配的 CLI 命令，请调整关键词。', 'hint'));
