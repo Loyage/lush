@@ -77,6 +77,9 @@ test('one shared signal invokes independent managers and each once binding settl
   try {
     const signal = f.signal(f.once()); const first = f.manager(signal), second = f.manager(signal, { name: 'second' });
     f.advance(60000); f.flush(); await f.run();
+    expect(f.calls()).toBe(1); // The first occurrence owns the project lane through actual cleanup.
+    expect(f.store.task(second.id).status).toBe('queued');
+    await f.run();
     expect(f.calls()).toBe(2); expect(seen[0]).toBe(seen[1]);
     for (const manager of [first, second]) {
       expect(f.store.task(manager.id)).toMatchObject({ status: 'completed', branch: null, base_commit: null, head_commit: null, integration: 'none' });
@@ -375,7 +378,10 @@ test('interrupted started models do not replay; exact successful model receipts 
     f.advance(60000); f.flush();
     for (const manager of [unknown, confirmed]) {
       const run = f.store.startRun(f.store.task(manager.id), { agent: 'mock', model: '' });
-      f.project.beginManagementInvocation(manager.id, run.id);
+      // Simulate a legacy pre-serial daemon's persisted in-flight records, not new admission.
+      rewrite(f, manager, state => {
+        state.pending_signal.phase = 'started'; state.pending_signal.run_id = run.id; state.state = 'running';
+      });
       f.store.update(manager.id, { status: 'running' });
       if (manager.id === confirmed.id) {
         f.store.finishRun(run.id, 'completed', { result: 'done' });

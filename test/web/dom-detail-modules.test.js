@@ -107,7 +107,7 @@ test('Valet with no calls retains the shared record reader without development c
   renderDetail(worker(7, { role: 'manager', task_kind: 'management', workspace: '/tmp/management/7' }), null, null, null);
   const panel = dom.node('detail');
   expect(panel.querySelector('.management-readonly')).toBeTruthy();
-  expect(panel.querySelector('.task-actions').querySelectorAll('button').map(node => node.textContent)).toEqual(['刷新详情']);
+  expect(panel.querySelector('.task-actions').querySelectorAll('button').map(node => node.textContent)).toEqual(['停止管家', '删除', '刷新详情']);
   expect(panel.querySelector('.code-reader-open')).toBeNull();
   expect(deepText(panel)).not.toContain('目录路径（管理工作目录）');
   expect(panel.querySelector('.agent-panel')).toBeTruthy();

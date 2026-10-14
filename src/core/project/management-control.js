@@ -9,6 +9,22 @@ import { managementCatalog, validateManagementCall, managementDispatchParams } f
 const unresolved = new Set(['pending_confirmation','approved','running']);
 export const managementControlPending = state => (state.control_calls ?? []).some(call => unresolved.has(call.status));
 const safeFailure = '管理操作未确认完成；检查现场，不自动重放。';
+function trackControlJob(project, taskId, job) {
+  project.managementControlJobs ??= new Set();
+  project.managementControlOwners ??= new Map();
+  project.managementControlOwners.set(taskId, (project.managementControlOwners.get(taskId) ?? 0) + 1);
+  const tracked = job.finally(() => {
+    const remaining = project.managementControlOwners.get(taskId) - 1;
+    if (remaining) project.managementControlOwners.set(taskId, remaining);
+    else project.managementControlOwners.delete(taskId);
+    project.managementControlJobs.delete(tracked);
+    project.settleManagementOccurrence(taskId);
+    if (!remaining && !managementState(project.store.task(taskId))?.pending_signal) project.kick();
+  });
+  project.managementControlJobs.add(tracked);
+  tracked.catch(() => {});
+  return tracked;
+}
 const requestKey = value => check(value === undefined || (typeof value === 'string' && value.length > 0 && value.length <= 128
   && value === value.trim() && !/[\x00-\x1f\x7f]/.test(value)), 'invalid management request_id');
 function canonical(value) {
@@ -188,6 +204,19 @@ export default {
     return callView(managementState(this.store.task(task.id)).control_calls.find(item => item.receipt_id === call.receipt_id));
   },
 
+  /** Withdraw only unstarted effects. Running/unknown receipts remain deletion and lane barriers. */
+  revokeManagementCapabilities(taskId, state) {
+    for (const call of state.control_calls ?? []) if (['pending_confirmation','approved'].includes(call.status)) {
+      call.status = 'rejected'; call.reason = '用户已停止管理授权，未执行的操作已撤销。';
+      if (call.notice_id) {
+        this.store.run("UPDATE notices SET status='dismissed',answer='management authorization stopped' WHERE id=? AND task_id=? AND status='open'", call.notice_id, taskId);
+        this.store.run(`UPDATE messages SET consumed=1 WHERE task_id=? AND sender_id IS NULL AND consumed=0
+          AND CASE WHEN json_valid(body) THEN json_extract(body,'$.notice_id') END=?`, taskId, call.notice_id);
+      }
+      this.store.event(taskId, 'management.capability_revoked', { receipt_id: call.receipt_id, notice_id: call.notice_id ?? null });
+    }
+  },
+
   isManagementConfirmationNotice(noticeId) {
     try {
       const notice = this.store.get(`SELECT n.id,n.task_id,n.kind,n.source_event_id,e.type,e.data,t.task_kind,t.role
@@ -205,6 +234,8 @@ export default {
   // a model to execute a user-confirmed operation. Async ownership stays explicit.
   resolveManagementConfirmation(noticeId) {
     if (!this.isManagementConfirmationNotice(noticeId)) return false;
+    const notice = this.store.get('SELECT task_id,status FROM notices WHERE id=?', noticeId);
+    if (notice.status === 'open') return true; // Await the real user event, not a no-op async job/pump loop.
     const job = this.resolveManagementConfirmationUnsafe(noticeId).catch(() => {
       try {
         const notice = this.store.get('SELECT task_id FROM notices WHERE id=?', noticeId);
@@ -217,8 +248,7 @@ export default {
         }
       } catch { /* Shutdown/closed Store cannot be used to replay an operation. */ }
     });
-    this.managementControlJobs ??= new Set(); this.managementControlJobs.add(job);
-    void job.finally(() => this.managementControlJobs.delete(job)).catch(() => {});
+    trackControlJob(this, notice.task_id, job);
     return true;
   },
 
@@ -249,10 +279,7 @@ export default {
   },
 
   executeManagementCapability(taskId, receiptId) {
-    const job = this.executeManagementCapabilityUnsafe(taskId, receiptId);
-    this.managementControlJobs ??= new Set(); this.managementControlJobs.add(job);
-    void job.finally(() => this.managementControlJobs.delete(job)).catch(() => {});
-    return job;
+    return trackControlJob(this, taskId, this.executeManagementCapabilityUnsafe(taskId, receiptId));
   },
 
   async executeManagementCapabilityUnsafe(taskId, receiptId) {
@@ -260,7 +287,7 @@ export default {
     if (this.managementControlBusy.has(receiptId)) return;
     let task = this.store.task(taskId), state = managementState(task);
     let call = state?.control_calls?.find(item => item.receipt_id === receiptId);
-    if (!state?.enabled || !state.pending_signal || call?.status !== 'approved'
+    if (this.managementOccupant()?.id !== taskId || !state?.enabled || !state.pending_signal || call?.status !== 'approved'
       || call.occurrence_id !== state.pending_signal.id) return;
     if (this.stopping || this.maintenancePaused() || this.clearing || this.workerDeleteIds?.size || this.settingsMigrationApplying) return;
     this.managementControlBusy.add(receiptId);
@@ -295,7 +322,7 @@ export default {
       this.store.event(taskId, 'management.capability_completed', { receipt_id: receiptId, method: call.method });
     } catch {
       state = managementState(this.store.task(taskId)); call = state?.control_calls?.find(item => item.receipt_id === receiptId);
-      if (call) {
+      if (call && call.status !== 'rejected') {
         call.status = call.status === 'running' ? 'unknown' : 'failed';
         call.reason = call.status === 'unknown' ? safeFailure : '固定参数、目标、资源或授权发生变化；操作未开始，请重新预检确认。';
         saveManagement(this, taskId, state);

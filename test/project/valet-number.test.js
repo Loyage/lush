@@ -65,13 +65,16 @@ test('Valet sequence fails closed on corrupt or exhausted high-water without cre
 test('V lookup resolves saved identity only, preserves integer APIs and does not expand manager permissions', async () => {
   const f = fixture(); f.project.kick = () => {}; const rpc = new Dispatcher(f.project);
   try {
-    const first = f.project.submitManagementInstruction({ instruction: 'query only', client_request_id: 'same' }).task;
-    const duplicate = f.project.submitManagementInstruction({ instruction: 'query only', client_request_id: 'same' }).task;
+    const signal = f.project.saveHookSignal({ name: 'number lookup', schedule: { kind: 'once',
+      at: new Date(Date.now() + 3600000).toISOString(), timezone: 'UTC' } }, f.project.hookSignals().revision).signals.items[0];
+    const definition = { name: 'query', instruction: 'query only', signal_id: signal.id, client_request_id: 'same' };
+    const first = f.project.createManagementWorker(definition);
+    const duplicate = f.project.createManagementWorker(definition);
     expect(duplicate).toEqual(first);
     expect(first.worker_number).toBe('V1');
-    expect(() => f.project.submitManagementInstruction({ instruction: 'changed', client_request_id: 'same' })).toThrow('different management definition');
+    expect(() => f.project.createManagementWorker({ ...definition, instruction: 'changed' })).toThrow('different management definition');
     expect(() => f.project.createManagementWorker({ name: 'invalid', instruction: 'manage', signal_id: null, mode: 'persistent' })).toThrow('once only');
-    const second = f.project.submitManagementInstruction({ instruction: 'next' }).task;
+    const second = f.project.createManagementWorker({ name: 'next', instruction: 'next', signal_id: signal.id });
     expect(second.worker_number).toBe('V2');
     expect(f.project.hooksList().management_workers.map(row => row.worker_number)).toEqual(['V2','V1']);
     expect(await rpc.dispatch('worker.lookup', { number: 'V1' })).toEqual({ id: first.id, worker_number: 'V1' });
@@ -88,6 +91,9 @@ test('V lookup resolves saved identity only, preserves integer APIs and does not
     await expect(rpc.dispatch('worker.inspect', { id: 'V1' })).rejects.toThrow('positive integer');
     await expect(rpc.dispatch('management.binding_update', { id: 'V1', enabled: false, expected_revision: first.management.revision })).rejects.toThrow('positive integer');
     const token = 'valet-current';
+    f.project.submitManagementSignal(first.id, { id: f.store.event(first.id, 'test.signal', {}), signal_id: signal.id,
+      name: signal.name, due_at: new Date().toISOString() });
+    expect(() => f.project.submitManagementInstruction({ instruction: 'must not overlap lookup invocation' })).toThrow('当前项目已有管家');
     f.store.update(first.id, { status: 'running' }); f.store.armAgent(first.id, tokenHash(token));
     f.project.running.set(first.id, { controller: new AbortController(), token, recordId: 1 });
     f.project.beginManagementInvocation(first.id, 1);

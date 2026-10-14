@@ -60,15 +60,16 @@ test('project permission directory defaults, strict complete mapping, monotone p
 test('new immediate, waiting and persistent Valets freeze defaults; dedup and restart never replace snapshots; project isolation', async () => {
   const f = await prepared(), isolated = fixture(); let other, store;
   try {
-    const first = f.project.createManagementWorker({ name: 'immediate', instruction: 'a', signal_id: null, client_request_id: 'same' });
     const signals = f.project.saveHookSignal({ name: 'future', schedule: { kind: 'daily', time: '01:00', timezone: 'UTC' } }, f.project.hookSignals().revision).signals;
     const waiting = f.project.createManagementWorker({ name: 'waiting', instruction: 'b', signal_id: signals.items[0].id });
     const persistent = f.project.createManagementWorker({ name: 'persistent', instruction: 'c', signal_id: signals.items[0].id, mode: 'persistent' });
+    const first = f.project.createManagementWorker({ name: 'immediate', instruction: 'a', signal_id: null, client_request_id: 'same' });
     const snapshots = [first, waiting, persistent].map(item => f.state(item).permissions_snapshot);
     const next = f.set({ 'draft.add': 'unavailable', 'worker.resume': 'confirmation' });
     expect(isolated.project.managementPermissions().permissions['draft.add']).toBe('automatic');
     for (const [index, item] of [first, waiting, persistent].entries()) expect(f.state(item).permissions_snapshot).toEqual(snapshots[index]);
     expect(f.project.createManagementWorker({ name: 'immediate', instruction: 'a', signal_id: null, client_request_id: 'same' }).id).toBe(first.id);
+    await f.run(); // Finish the admitted occurrence before another management identity can be created.
     const later = f.project.submitManagementInstruction({ instruction: 'later' }).task;
     expect(f.state(later).permissions_snapshot.permissions).toEqual(next.permissions);
     expect(f.project.inspect(later.id).management).not.toHaveProperty('permissions_snapshot');

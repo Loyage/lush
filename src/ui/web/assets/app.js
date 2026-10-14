@@ -73,7 +73,7 @@ async function openPage(load, open, view, options = {}) {
   try { const module = await load(); if (current()) return await open(module); }
   catch (error) { if (current()) show(`${error.message}（若界面已更新，请刷新后重试）`, 'error'); }
 }
-const openValetSettings = () => openPage(() => import('./render-valet-settings.js'), module => module.openValetSettings({ registerPageLeaveGuard }), 'valet-settings');
+const openCliInterfaces = () => openPage(() => import('./render-valet-settings.js'), module => module.openCliInterfaces({ registerPageLeaveGuard }), 'cli-interfaces');
 const openSettings = () => openPage(() => import('./render-settings.js'), module => module.openSettings(), 'settings');
 const openAgentStatus = () => openPage(() => import('./render-agent-status.js'), module => module.openAgentStatus(), 'agent-status');
 const openVersionsRedirect = () => openPage(() => import('./retired-pages.js'), module => module.openLegacyVersions(), 'version-redirect', { push: false, hash: '#versions' });
@@ -115,6 +115,10 @@ function onHashChange() {
   return requestPageLeave(hash || '#projects', { leave: () => openHashTarget(hash, project, doc, generation) });
 }
 function openHashTarget(hash, project, doc, generation) {
+  if (hash === '#cli-interfaces' || hash === '#valet-settings') {
+    if (hash === '#valet-settings') window.history.replaceState(null, '', '#cli-interfaces');
+    return openCliInterfaces();
+  }
   if (project && (deviceHash(hash) || (hash === '#projects' || hash === '#project-management') || doc)) return globalPageRedirect(hash);
   if (!project) {
     if (!hash || hash === '#projects') return openProjectOverview({ push: false });
@@ -147,9 +151,8 @@ function openHashTarget(hash, project, doc, generation) {
       if (generation === hashGeneration && owner === globalThis.document && path === location.pathname && ui.view === view && location.hash === '#hooks') show('指令与 Hook 工具入口已移除；已有自动化、配置、授权与历史保留。');
     });
   }
-  if (hash === '#valet-settings') return openValetSettings();
   if (hash === '#management' || hash === '#management-history') {
-    openResource('valets'); show('Valet 设置入口已移除；管家列表仅展示持久管理记录和只读详情。'); return;
+    openResource('valets'); show('Valet 信号／绑定设置入口已移除；管家列表提供持久管理记录及详情，详情可停止、停用授权与预检删除。'); return;
   }
   if (hash === '#versions') return openVersionsRedirect();
   if (hash === '#inputs') return openInputs({ push: false });
@@ -253,13 +256,13 @@ export async function boot() {
     if (projectRoute()) $('home').setAttribute('data-help', '在新标签打开上级用户工作台，当前项目的输入与阅读位置保留。');
     else $('home').removeAttribute('data-help');
   }
-  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'hooks-open', 'valet-settings-open'];
+  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'hooks-open'];
   for (const id of projectOnly) { const target = $(id); if (target) { target.disabled = !projectReady; target.setAttribute('aria-disabled', String(!projectReady)); } }
   if ($('composer-shell')) $('composer-shell').hidden = !projectReady;
 
   const composerReady = projectReady ? initComposer() : Promise.resolve();
   if (projectReady) { syncSidebarSortSelect(); $('sidebar-sort').addEventListener('change', onSidebarSortChange); }
-  if ($('valet-settings-open')) $('valet-settings-open').onclick = () => requestPageLeave('#valet-settings', { leave: () => projectReady ? openValetSettings() : noProjectView() });
+  if ($('cli-interfaces-open')) $('cli-interfaces-open').onclick = () => requestPageLeave('#cli-interfaces', { leave: openCliInterfaces });
   if ($('hooks-open')) $('hooks-open').onclick = () => requestPageLeave('#hooks', { leave: () => projectReady ? openHooks() : noProjectView() });
   if ($('inputs-open')) $('inputs-open').onclick = () => requestPageLeave('#inputs', { leave: () => projectReady ? openInputs() : noProjectView() });
   if ($('input-history')) $('input-history').onclick = () => requestPageLeave('#inputs', { leave: () => projectReady ? openInputs() : noProjectView() });

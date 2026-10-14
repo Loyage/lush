@@ -18,7 +18,7 @@ import { workType } from './work-type.js';
 export const SIDEBAR_SECTIONS = [
   { id: 'notices', label: '待我处理', long: '待我处理', icon: '◔', description: '提问、答复与提醒' },
   { id: 'tasks', label: '工作列表', long: '工作列表', icon: '✓', description: '开发 Worker 记录' },
-  { id: 'valets', label: '管家列表', long: '管家列表', icon: '◎', description: '持久 Valet 管理记录 · 只读详情' },
+  { id: 'valets', label: '管家列表', long: '管家列表', icon: '◎', description: '管理记录、执行与安全删除' },
 ];
 export const COLLAPSED_KEY = 'lush.sidebar.collapsed';
 export const FILTERS_KEY = 'lush.sidebar.filters';

@@ -197,6 +197,7 @@ export default {
       return this.cancelConvergenceIntegration(task.id, reason, status);
     }
     check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; cancel individual order Workers instead');
+    if (task.task_kind === 'management') return this.cancelManagementWorker(task.id, reason, status);
     if (TERMINAL.has(task.status)) return task;
     const mergeBooking = task.reservation ? JSON.parse(task.reservation) : null;
     const inbound = this.activeTaskMerge(task.id);

@@ -396,8 +396,10 @@ test('ordinary development actors cannot use manager-only history/call/catalog a
 test('interrupted started capability effects recover as unknown and never re-dispatch; unstarted immediate management occurrence survives recovery', async () => {
   const f = await prepared(); let other, store;
   try {
-    const waiting = f.submit({ client_request_id: 'pending-management' });
+    const signals = f.project.saveHookSignal({ name: 'existing future binding', schedule: { kind: 'daily', time: '01:00', timezone: 'UTC' } }, f.project.hookSignals().revision).signals;
+    const waiting = { task: f.project.createManagementWorker({ name: 'waiting', instruction: 'wait', signal_id: signals.items[0].id, client_request_id: 'pending-management' }) };
     const broken = f.submit({ client_request_id: 'unknown-management' });
+    f.project.submitManagementSignal(waiting.task.id, { id: f.store.event(null, 'test.signal', {}), signal_id: signals.items[0].id, name: 'queued', due_at: new Date().toISOString() });
     const state = f.state(broken);
     state.pending_signal.phase = 'returned'; state.state = 'waiting_actions';
     state.control_calls = [{ receipt_id: 10000, method: 'worker.cancel', params: { id: f.target.id }, status: 'running', occurrence_id: state.pending_signal.id }];

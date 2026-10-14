@@ -155,6 +155,7 @@ export default {
           if (released.interrupt_state === 'requested') this.store.event(task.id, 'task.paused', { run_id: run.recordId });
         });
         this.running.delete(task.id);
+        if (task.task_kind === 'management') this.settleManagementOccurrence(task.id);
         if (!this.stopping) this.drainManagementActions();
         if (!this.stopping && run.recordId) {
           const closedRun = this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId);

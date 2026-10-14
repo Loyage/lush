@@ -9,8 +9,15 @@ import { releaseTranscriptReader } from './transcript-reader.js';
 import { closeTranscriptView } from './transcript-view.js';
 import { inputNumber } from './format.js';
 import { workerLabel, forgetWorkerLabel } from './worker-label.js';
+import { isValet } from './work-type.js';
 
 export const WORKER_DELETE_HELP = '预检这条 Worker 及全部后代的资源，确认后彻底删除专属历史、原始输入、会话、worktree 与本地分支；未提交和未合并代码会丢弃，无法恢复。不会撤销已合并代码或改写 Git 历史。';
+export const VALET_DELETE_HELP = '预检这个管家的专属记录、执行日志、会话及非 Git 目录，确认后永久删除，无法恢复。不删除它创建的开发工作或时间信号，不撤回已执行操作。';
+const deleteReason = task => isValet(task)
+  ? task.agent?.active || ['queued', 'running'].includes(task.status)
+    ? '请先停止管家，并等待调用真实退出及在途操作收口后再预检删除。' : null
+  : !TERMINAL_STATUS.has(task.status) || task.agent?.active
+    ? '请先手动取消这条 Worker 及活动后代，并等待 Agent 完全停止后再删除。' : null;
 const pending = new Set();
 const strings = value => Array.isArray(value) && value.every(item => typeof item === 'string');
 
@@ -98,9 +105,11 @@ function forgetWorkers(preview) {
 /** Shared detail/graph action; final confirmation alone authorizes discarding code. */
 export async function runWorkerDelete(task, { refresh = () => {} } = {}) {
   if (pending.has(task.id) || ui.deletedWorkerIds.has(task.id)) return false;
-  if (['main', 'owner'].includes(task.task_kind) || isHistoricalDelivery(task)) return false;
-  if (!TERMINAL_STATUS.has(task.status) || task.agent?.active) {
-    show('请先手动取消这条 Worker 及活动后代，并等待 Agent 完全停止后再删除。', 'error');
+  if (['main', 'owner'].includes(task.task_kind) || isHistoricalDelivery(task)
+    || isValet(task) && (task.role !== 'manager' || task.task_kind !== 'management')) return false;
+  const reason = deleteReason(task), valet = isValet(task);
+  if (reason) {
+    show(reason, 'error');
     return false;
   }
   const view = ui.view;
@@ -131,10 +140,12 @@ export async function runWorkerDelete(task, { refresh = () => {} } = {}) {
       return false;
     }
     const confirmed = await confirmDialog({
-      title: `${force ? '强制' : '彻底'}删除 Worker ${workerLabel(task)} 及全部后代？`,
-      message: '这不是验收或资源清理（它们会保留运行历史）：Worker、消息、Notice、事件、执行记录及专属会话将永久删除；列出的原始输入也会从历史输入中消失。确认即授权丢弃这些资源中的全部未提交和未合并代码，无法恢复。已合并代码、Git 提交历史和其他记录中的引用快照不会被抹除。',
+      title: valet ? `彻底删除管家 ${workerLabel(task)}？` : `${force ? '强制' : '彻底'}删除 Worker ${workerLabel(task)} 及全部后代？`,
+      message: valet
+        ? '管家记录、消息、Notice、事件、执行日志、会话和所列专属非 Git 目录将永久删除，无法恢复。这不是保留历史的验收或资源清理；不删除其操作创建的开发 Worker 或时间信号，不撤回已执行的操作，不改写其他记录中的引用快照。'
+        : '这不是验收或资源清理（它们会保留运行历史）：Worker、消息、Notice、事件、执行记录及专属会话将永久删除；列出的原始输入也会从历史输入中消失。确认即授权丢弃这些资源中的全部未提交和未合并代码，无法恢复。已合并代码、Git 提交历史和其他记录中的引用快照不会被抹除。',
       detail: previewDetail(preview), confirmLabel: force ? '强制删除' : '彻底删除', cancelLabel: '保留', danger: true,
-      confirmHelp: WORKER_DELETE_HELP,
+      confirmHelp: valet ? VALET_DELETE_HELP : WORKER_DELETE_HELP,
     });
     if (!confirmed || !current()) return false;
     // action() refreshes before returning; delete must evict caches/navigate away FIRST.
@@ -144,7 +155,7 @@ export async function runWorkerDelete(task, { refresh = () => {} } = {}) {
     show(`已彻底删除 ${preview.workers.length} 条 Worker 及其专属资源。`);
     if (!current()) return true;
     const deletedDetail = view?.id === 'task' && ui.deletedWorkerIds.has(ui.selected);
-    if (deletedDetail) resource('tasks');
+    if (deletedDetail) resource(valet ? 'valets' : 'tasks');
     // Refresh failures cannot turn a successful irreversible deletion into a retry.
     try { await refreshOverview(); if (current() && !deletedDetail) await refresh(); }
     catch (error) { show(`删除已完成，刷新失败：${error.message}；请手动刷新。`, 'error'); }
@@ -157,10 +168,10 @@ export async function runWorkerDelete(task, { refresh = () => {} } = {}) {
 
 /** Active records retain a disabled, focusable help host explaining manual cancellation. */
 export function workerDeleteControl(task, options = {}) {
-  if (['main', 'owner'].includes(task.task_kind) || isHistoricalDelivery(task)) return null;
-  const reason = !TERMINAL_STATUS.has(task.status) || task.agent?.active
-    ? '请先手动取消这条 Worker 及活动后代，并等待 Agent 完全停止后再删除。' : null;
-  const node = button('删除', () => {}, 'danger', { help: WORKER_DELETE_HELP });
+  if (['main', 'owner'].includes(task.task_kind) || isHistoricalDelivery(task)
+    || isValet(task) && (task.role !== 'manager' || task.task_kind !== 'management')) return null;
+  const reason = deleteReason(task), help = isValet(task) ? VALET_DELETE_HELP : WORKER_DELETE_HELP;
+  const node = button('删除', () => {}, 'danger', { help });
   // button() normally restores disabled=false; an irreversible success must stay disabled.
   node.onclick = async () => {
     if (node.disabled) return;
@@ -171,6 +182,6 @@ export function workerDeleteControl(task, options = {}) {
   if (!reason) return node;
   node.disabled = true;
   const host = el('span', undefined, 'help-host'); host.tabIndex = 0;
-  host.setAttribute('data-help', `${reason} ${WORKER_DELETE_HELP}`);
+  host.setAttribute('data-help', `${reason} ${help}`);
   host.append(node); return host;
 }

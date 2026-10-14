@@ -9,7 +9,7 @@ import { ui } from './state.js';
 
 export function openRetiredManagement() {
   openResource('valets');
-  show('Valet 设置入口已移除；管家列表仅展示持久管理记录和只读详情。已有配置与授权保留。');
+  show('Valet 信号／绑定设置入口已移除；管家列表提供持久管理记录及详情，详情可停止、停用授权与预检删除。已有配置与授权保留。');
 }
 export async function openRetiredTools() {
   const owner = globalThis.document, project = projectBase();

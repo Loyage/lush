@@ -11,6 +11,18 @@ export function saveManagement(project, taskId, state) {
   check(Buffer.byteLength(encoded) <= MANAGEMENT_LIMITS.bytes, 'management state exceeds 128 KiB');
   project.store.update(taskId, { management: encoded });
 }
+/** Runtime ownership outlives model return, disabling and terminal Worker status. */
+export function managementUnsettled(project, task, state = managementState(task)) {
+  if (project.running.has(task.id) || project.managementControlOwners?.has(task.id)) return true;
+  if (!state) return false;
+  const calls = state.control_calls ?? [], receipts = state.receipts ?? [];
+  if (calls.some(call => project.managementControlBusy?.has(call.receipt_id))) return true;
+  if ([...calls, ...receipts].some(item => ['running','unknown'].includes(item.status))) return true;
+  if (calls.some(call => ['pending_confirmation','approved'].includes(call.status))
+    || receipts.some(receipt => receipt.status === 'waiting')) return true;
+  return Boolean(state.pending_signal && !['failed','unknown'].includes(state.state)
+    && (state.enabled || ['started','returned'].includes(state.pending_signal.phase)));
+}
 export function managementModel(project, task) {
   // A test/offline provider need not have configurable roles. The real role is added by the provider adapter.
   if (!task.retry_profile && project.config.provider === 'mock') return { agent: 'mock', config_mode: 'lush', connection_id: null,

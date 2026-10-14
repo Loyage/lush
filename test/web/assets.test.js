@@ -46,6 +46,16 @@ test('production startup and lazy module graphs are served with CSP; unknown pat
     // Follow the actual generated dynamic graph too: no missing late chunk after navigation.
     while ([...lazy].some(file => !seen.has(file))) { pending.push(...lazy); await collect(); }
     expect(seen.size).toBeGreaterThan(cold.size);
+    // Report actual shipped bytes without introducing or relaxing product budgets.
+    const cliPage = [...lazy].find(file => file.includes('-render-valet-settings-'));
+    const gzipBytes = async file => {
+      const response = await fetch(f.url + file, { headers: { 'Accept-Encoding': 'gzip' } });
+      expect(response.headers.get('content-encoding')).toBe('gzip');
+      return (await response.arrayBuffer()).byteLength;
+    };
+    const coldGzipBytes = (await Promise.all([...cold].map(gzipBytes))).reduce((sum, size) => sum + size, 0);
+    console.info(JSON.stringify({ webAssets: { coldAssets: cold.size, coldBytes: [...cold].reduce((sum, file) => sum + Buffer.byteLength(seen.get(file)), 0), coldGzipBytes,
+      cliPage: { lazy: !cold.has(cliPage), bytes: Buffer.byteLength(seen.get(cliPage)), gzipBytes: await gzipBytes(cliPage) } } }));
     // Feature renderer is now a nested lazy import owned by the automation directory.
     const feature = [...seen.keys()].find(file => file.includes('-automation-feature-pages-'));
     expect(feature).toBeTruthy(); expect(cold.has(feature)).toBe(false);
@@ -79,8 +89,11 @@ test('HTML ships startup controls, read-only navigation and collapsed composer',
     // Inherit opt-out in both the composer and lazily created text controls.
     expect(html).toMatch(/<body\b[^>]*\bspellcheck="false"/);
     expect(html).not.toMatch(/\bspellcheck="true"/);
-    expect(html).toContain('id="valet-settings-open"');
-    expect(html).toMatch(/<span class="help-host" data-help="打开可用项目后才能设置本项目新建管家的默认权限。"><button[^>]*id="valet-settings-open"/);
+    expect(html).toContain('id="cli-interfaces-open"');
+    expect(html).not.toContain('id="valet-settings-open"');
+    expect(html).toContain('搜索命令、学习用途与管家权限');
+    expect(html).toContain('打开管理详情、执行记录与安全删除');
+    expect(html).not.toContain('打开既有只读详情');
     expect(html).toContain('action="/logout"');
     expect(html).toMatch(/<div id="composer-details"[^>]*hidden/);
     expect(html).toMatch(/id="composer-expand"[^>]*aria-expanded="false"[^>]*aria-controls="composer-details composer-editor-tools composer-shortcuts"/);

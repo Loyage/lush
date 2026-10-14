@@ -77,6 +77,7 @@ export const EVENTS = {
   'management.capability_confirmation': '管理操作授权已处理（不代表已执行）',
   'management.capability_started': '开始执行管理能力', 'management.capability_completed': '管理能力已执行',
   'management.capability_failed': '管理能力操作未完成',
+  'management.capability_revoked': '撤销尚未执行的管理授权',
   'management.invocation_started': 'Valet 开始调用', 'management.action_submitted': '管理操作已提交待安全点',
   'management.action_skipped': '管理操作已跳过', 'management.action_completed': '管理操作已执行',
   'management.settled': '管理信号处理已收口', 'management.failed': '管理信号处理失败', 'management.unknown': '管理结果未知，待核验',

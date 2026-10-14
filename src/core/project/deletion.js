@@ -3,6 +3,7 @@ import path from 'node:path';
 import { check, id, TERMINAL } from '../types.js';
 import { workerLabel } from '../worker-number.js';
 import { convergenceResourceReason } from '../convergence-resources.js';
+import { managementState, managementUnsettled } from './management-data.js';
 import { deletionHash, deletionFingerprint, deletionPath, present, workerFiles } from '../deletion-resources.js';
 
 const warnings = ['删除不可撤销；确认即授权丢弃所列工作区中的未提交改动和未合并代码。',
@@ -41,7 +42,12 @@ function databasePlan(project, rootId) {
   for (const record of records) branchNames.add(record.branch);
   for (const task of tasks) {
     if (['main','owner'].includes(task.task_kind) || task.branch === 'main') blockers.push(`${workerLabel(task)}: main/owner Worker cannot be deleted`);
-    if (!TERMINAL.has(task.status)) blockers.push(`${workerLabel(task)}: Worker is ${task.status}; cancel it or finish/accept it before deletion`);
+    if (task.task_kind === 'management') {
+      const state = managementState(task);
+      if (!state) blockers.push(`${workerLabel(task)}: unknown management authorization; inspect before deletion`);
+      if (state?.enabled) blockers.push(`${workerLabel(task)}: management binding is enabled; stop or disable it before deletion`);
+      if (managementUnsettled(project, task, state)) blockers.push(`${workerLabel(task)}: management occurrence, confirmation or controlled effect is unfinished/unknown; stop unstarted authorizations and wait for actual exit`);
+    } else if (!TERMINAL.has(task.status)) blockers.push(`${workerLabel(task)}: Worker is ${task.status}; cancel it or finish/accept it before deletion`);
     if (project.running.has(task.id)) blockers.push(`${workerLabel(task)}: invocation is still exiting; wait before deletion`);
     if (project.commandHookRunning?.has(task.id)) blockers.push(`${workerLabel(task)}: shortcut command is pending or running; wait before deletion`);
     if (project.workspaces.busy.has(task.id)) blockers.push(`${workerLabel(task)}: worktree cleanup is in progress`);

@@ -4,6 +4,7 @@ import { codeIdentity } from '../identity.js';
 import { check } from '../core/types.js';
 import { option, print } from './args.js';
 import { HELP } from './help.js';
+import { COMMAND_MODULES } from './catalog.js';
 import { launcherWebConfig } from '../host/registry.js';
 import * as system from './commands/system.js';
 import * as intent from './commands/intent.js';
@@ -23,18 +24,9 @@ export { HELP };
  * 返回 undefined 表示「命令自己已经打印过」，主流程不再 print，也不做 fingerprint 提醒。
  */
 const COMMANDS = new Map();
-for (const [module, names] of [
-  [system, ['daemon', 'status', 'doctor', 'log', 'host:start', 'host:stop', 'host:restart', 'host:status']],
-  [intent, ['order']],
-  [worker, ['worker']],
-  [progress, ['progress']],
-  [notice, ['notice']],
-  [branch, ['branch']],
-  [agent, ['agent']],
-  [config, ['config']],
-  [hooks, ['hooks']],
-  [skills, ['skills']],
-]) {
+const modules = { system, intent, worker, progress, notice, branch, agent, config, hooks, skills };
+for (const [key, names] of Object.entries(COMMAND_MODULES)) {
+  const module = modules[key];
   for (const name of names) {
     check(!COMMANDS.has(name), `duplicate command handler: ${name}`);
     check(typeof module.run === 'function', `command module for '${name}' does not export run`);

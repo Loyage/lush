@@ -12,7 +12,9 @@ W263／D611 删除独立「Valet 设置」及全部 Web 信号／绑定编辑入
 
 管理 Agent 可发现全部当前 RPC 能力，但执行权限由 `src/rpc/management-policy.js` 明确分为安全读取、低风险自动执行、用户确认和不可用。查询诊断、有界调用历史、草稿编辑、条件发射、合法追加、开始／继续和重试可自动执行；取消、中断、合并、验收回收、删除、敏感配置及服务操作须持久预检，由用户确认精确请求后经原引擎执行。快捷指令没有预授权，但管理 Agent 调用其保存、删除、导出、旧配置导入或运行历史移除（`hooks.command_save/remove/export/import/history_remove`）仍须用户确认；读取目录和运行历史可安全查询，已删除的 command_authorize 不可调用。普通开发 Agent 不因此扩权，不可复活终态、已归档或祖先关闭的工作。
 
-### 当前项目管家默认权限（W278／D632）
+### 当前项目管家默认权限（W278／D632、W279／D635）
+
+W279 将默认权限融入「CLI 接口」页面：通过搜索定位单项接口，在接口详情中就地了解及配置当前项目的管家执行权限，不再保留独立「管家设置」页；旧 `#valet-settings` 入口跳转「CLI 接口」。接口目录仅用于发现和说明，不代表执行授权。此处编辑仍只影响未来新建 Valet 的默认权限，既有私有快照、完整映射与 revision 校验不变；不恢复 Web 时间信号／绑定编辑或重放入口。
 
 `management.permissions {}` 与 `management.permissions_update {permissions,expected_revision}` 均为用户专属；普通开发 Agent、Valet 及 `manager.call` 都不能读取或修改设置。Web 使用 GET `/api/management/permissions`（不接受 query）及同源 POST `/api/action` 的 `management.permissions_update`。设置只保存于当前项目 meta，不进入设备设置，不改变其它项目。
 
@@ -46,7 +48,9 @@ Workspace 是项目 .lush 下专属 management 目录，不是 canonical 项目�
 
 到点事务持久 Event occurrence 并给当时已启用的绑定投递。绑定最多一个未结算 occurrence，忙时后续每日信号不堆积；不同绑定独立。注册／新启用绑定不订阅旧历史。管理调用和受控动作各自有持久身份；同 occurrence、动作、目标去重。持久提交但尚未开始模型的项重启后仍可排队；已启动模型／未知动作不自动重放，留 failed/unknown 诊断并停用绑定。可证明完成的动作使用精确收据收口。
 
-持续绑定每个 occurrence 使用同一个管理 Worker，但不并发启动，等待上轮实际退出与未完成动作收口。一次性绑定执行后停止。失败不以新一天为理由自动重试。停用撤销未开始的未来／待执行授权，不撤销已完成操作；运行中停止绑定不强杀 Agent，但拒绝后续新管理操作。重新启用不重放 consumed / unknown 的 occurrence。
+W279／D635：当前项目的 Valet 共用一个串行执行位，不引入跨项目锁。即时输入从持久排队起占位；信号绑定只等待未来时间、尚未触发时不占位。已触发的既有绑定持久排队，按 occurrence 身份及 Worker ID 公平准入；已准入 occurrence 在模型运行、实际退出清理、危险操作等待用户确认、受控动作等待／执行及完整收口期间都保留执行位。冻结、停用或维护暂停不释放未收口占位；重启仅恢复可证明未开始的队列，不重放未知副作用。占位时所有新建管理身份入口（包括即时 submit 和 signal create）拒绝；同 client_request_id 的精确重试先返回原身份，不受忙碌状态影响。
+
+持续绑定每个 occurrence 使用同一个管理 Worker，完整收口后才可准入下一项。一次性绑定执行后停止。失败不以新一天为理由自动重试。`management.binding_update enabled:false` 撤销未开始的未来／待执行动作及危险操作确认（关闭对应 Notice），不强杀正在运行的 Agent，但立即拒绝新管理操作。`worker.cancel` 同样撤销未执行授权并请求中止模型；返回 cancelled 只表示停止已请求，`running` 真实退出及已开始的受控操作仍须独立收尾。已经完成的操作不撤回，running／unknown 副作用不伪装成已撤销。重新启用不重放 consumed / unknown 的 occurrence。
 
 临时冻结、同步、清理、正在退出的旧目标调用只阻塞受控请求。管理工具返回已提交待安全点，不要求模型等待／轮询；后端持久请求在首个安全点执行，不再次调用模型来重发。目标状态不适用／永久不可用记录 skipped。安全门通过后动作异常不是可自动重试的临时 gate。开始／重试沿用目标已保存配置，不接收 profile、不切账号；仍通过原生命周期入口。
 
@@ -73,7 +77,7 @@ Workspace 是项目 .lush 下专属 management 目录，不是 canonical 项目�
 
 受控动作返回 `{status:'succeeded'|'waiting'|'skipped'|'unknown',target_id,target_worker_number,reason?,receipt_id}`（尚未创建新动作的校验失败可拒绝）。成功仅表示生命周期操作已提交／排队，不冒充目标业务成功或额度已恢复。每项操作先记录授权、触发身份和收据，禁用后拒绝新操作。
 
-普通 worker.inspect 及所有公开 RPC/HTTP 出口不得泄漏字符串 management 私有 JSON 或 retry_profile。Valet 使用通用工作详情／历史／执行入口；详情不提供开发追加、运行配置编辑、合并、验收、删除或 Git 操作，不假装有分支可合并。Web 时间信号与绑定设置入口已移除；管家列表和详情不会提供重建授权或重放入口。保留 API／CLI 的 revision、去重与失败语义：成功 mutation 不依赖概览刷新，不因刷新失败重做创建，配置 revision 不因时钟 tick 变化而变更。列表分页和执行阅读器继续以页面、项目与 document 身份守卫迟到响应；仍可见的延迟安排 Agent 按钮使用 agent-call 与 agentHelp。
+普通 worker.inspect 及所有公开 RPC/HTTP 出口不得泄漏字符串 management 私有 JSON 或 retry_profile。Valet 使用通用工作详情／历史／执行入口；不提供开发追加、运行配置编辑、合并、验收或 Git 操作，不假装有分支可合并。删除复用用户专属 `worker.delete_preview`／`worker.delete` 的精确 revision、confirm 与原安全门。启用绑定、模型未实际退出、未收口 occurrence、危险确认、受控动作 waiting／running／unknown 都阻止删除；用户可先停用或停止，安全撤销尚未开始授权，实际退出且无未知在途副作用后再预检删除。已停用且安全收口的 waiting Valet 无须开发验收即可删除。只清理该身份专属非 Git management 目录、会话／日志及历史，不删除其管理操作创建的独立开发 Worker 或项目时间信号库；共享、符号链接、未知归属及资源变化仍拒绝。Web 时间信号与绑定设置入口已移除；管家列表和详情不会提供重建授权或重放入口。保留 API／CLI 的 revision、去重与失败语义：成功 mutation 不依赖概览刷新，不因刷新失败重做创建，配置 revision 不因时钟 tick 变化而变更。列表分页和执行阅读器继续以页面、项目与 document 身份守卫迟到响应；仍可见的延迟安排 Agent 按钮使用 agent-call 与 agentHelp。
 
 ## 确认、作用域与恢复
 

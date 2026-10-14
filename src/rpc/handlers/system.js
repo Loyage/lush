@@ -1,9 +1,11 @@
 import { check } from '../../core/types.js';
+import { cliCatalog } from '../cli-catalog.js';
 
 const deviceUser = actor => check(actor === null, 'device settings requires user approval');
 
 /** system.* */
 export const handlers = {
+  'cli.catalog'() { return cliCatalog(); },
   'sleep.start'(p, params) { return p.startSleep(params.options, params.confirmed); },
   'sleep.stop'(p) { return p.stopSleep(); },
   'sleep.resume'(p) { return p.resumeSleepDevelopment(); },

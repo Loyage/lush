@@ -123,6 +123,8 @@ test('concurrent duplicate submissions and a fresh SQLite/Project instance reuse
     expect(other.managementView(replies[0].id).pending_signal.id).toBe(occurrence);
     expect(() => other.createManagementWorker({ ...options, instruction: 'different' })).toThrow('different management definition');
     const { client_request_id: _key, ...withoutKey } = options;
+    expect(() => other.createManagementWorker(withoutKey)).toThrow('当前项目已有管家');
+    other.updateManagementBinding(replies[0].id, false, other.managementView(replies[0].id).revision);
     const legacy = [other.createManagementWorker(withoutKey), other.createManagementWorker(withoutKey)];
     expect(legacy[0].id).not.toBe(legacy[1].id);
     expect(otherStore.get("SELECT count(*) AS n FROM tasks WHERE task_kind='management'").n).toBe(3);

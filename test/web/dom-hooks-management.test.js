@@ -72,13 +72,13 @@ test('capability history preserves safe status meanings without raw parameters o
 
 for (const state of [{ status: 'paused', agent_wakes: 0 }, { status: 'paused', agent_wakes: 1 }, { status: 'failed' },
   { status: 'running' }, { status: 'running', interrupt_state: 'requested' }, { status: 'queued', interrupt_state: 'resuming' }]) {
-  test(`management detail is strictly read-only for ${state.status}/${state.interrupt_state || state.agent_wakes || 'idle'}`, async () => {
+  test(`management detail allows safe lifecycle controls without development actions for ${state.status}/${state.interrupt_state || state.agent_wakes || 'idle'}`, async () => {
     const row = { ...manager, ...state, calls: 1, children: [], deps: [], dependents: [], created_at: '2030-02-02T16:05:00Z', updated_at: '2030-02-02T16:06:00Z',
       result: '重试请求已提交，等待安全点', error: state.status === 'failed' ? '缺少管理模型来源' : null, workspace: '/project/.lush/management/200',
       branch_archive: { archivable: true }, model_selection: { ...manager.model_selection, explicit: true } };
     activateDetailView({ view: 'task', key: 'task-200' }); ui.selected = 200; ui.composerTask = row;
     renderDetail(row, { events: [{ id: 500, type: 'management.signal_submitted', created_at: row.created_at, data: { due_at: row.created_at } }] }, null, null); syncComposer();
-    expect(deepText(root())).toContain('Valet 详情只读');
+    expect(deepText(root())).toContain('可停止、停用授权并预检删除');
     expect(root().querySelector('.management-settings-link')).toBeNull();
     expect(root().querySelector('.worker-versions')).toBeNull();
     const goal = root().querySelector('.conversation-input').querySelector('.conversation-prose'); expect(inlineText(goal)).toBe(manager.goal);
@@ -87,8 +87,14 @@ for (const state of [{ status: 'paused', agent_wakes: 0 }, { status: 'paused', a
     expect(lifecycle.getAttribute('aria-pressed')).toBe('false'); expect(deepText(root())).not.toContain('管理信号已提交待执行');
     await lifecycle.onclick(); expect(deepText(root())).toContain('管理信号已提交待执行'); expect(deepText(root())).not.toContain('管理工作目录');
     expect(root().querySelector('.detail-diff')).toBeNull(); expect(root().querySelector('.worker-relations')).toBeNull();
-    expect(root().querySelector('.task-actions').querySelectorAll('button').map(item => item.textContent)).toEqual(['刷新详情']);
-    for (const label of ['开始', '继续', '调整运行设置', '放弃 Worker', '中断', '检查后重试', '追加输入', '删除', '合并', '验收', '归档', '启用管理绑定', '停用管理绑定']) expect(btn(label)).toBeUndefined();
+    expect(root().querySelector('.task-actions').querySelectorAll('button').map(item => item.textContent)).toEqual(
+      ['停用授权', ...(state.status === 'failed' ? [] : ['停止管家']), '删除', '刷新详情']);
+    for (const label of ['停用授权', '删除', ...(state.status === 'failed' ? [] : ['停止管家'])]) {
+      expect(btn(label).classList.contains('agent-call')).toBe(false);
+      expect(btn(label).getAttribute('data-help')).toBeTruthy();
+    }
+    expect(btn('删除').disabled).toBe(['running', 'queued'].includes(state.status));
+    for (const label of ['开始', '继续', '调整运行设置', '放弃 Worker', '中断', '检查后重试', '追加输入', '合并', '验收', '归档', '启用管理绑定', '停用管理绑定']) expect(btn(label)).toBeUndefined();
     expect(root().querySelector('.worker-hooks')).toBeNull(); expect(btn('打开执行详情')).toBeTruthy();
     expect(dom.node('input').disabled).toBe(false); expect(dom.node('input-form').dataset.mode).toBe('create');
     await btn('刷新详情').onclick(); expect(detailCalls).toEqual([200]); expect(actions).toEqual([]);
@@ -127,8 +133,8 @@ test('legacy pending summaries retain last-action fallback without guessed total
 test('management detail retains full instruction instead of replacing it with the loaded list preview', () => {
   const goal = '管理长指令'.repeat(4000) + '最后一句完整保留';
   renderDetail({ ...manager, goal, calls: 0, children: [], deps: [], dependents: [], created_at: '2030-02-02T16:05:00Z', updated_at: '2030-02-02T16:06:00Z' }, null, null, null);
-  expect(deepText(root())).toContain(goal); expect(deepText(root())).toContain('Valet 详情只读');
-  expect(root().querySelector('.task-actions').querySelectorAll('button').map(item => item.textContent)).toEqual(['刷新详情']); expect(actions).toEqual([]);
+  expect(deepText(root())).toContain(goal); expect(deepText(root())).toContain('可停止、停用授权并预检删除');
+  expect(root().querySelector('.task-actions').querySelectorAll('button').map(item => item.textContent)).toEqual(['停用授权', '停止管家', '删除', '刷新详情']); expect(actions).toEqual([]);
 });
 
 test('retained signal form validates explicit timezone, strict future conversion and exact metadata-only instant', () => {

@@ -34,6 +34,7 @@ import { specItem } from './render-specs.js';
 import { renderVerifications } from './render-verify.js';
 import { BRANCH_ARCHIVE_HELP, runBranchArchive } from './branch-archive.js';
 import { workerDeleteControl } from './worker-delete.js';
+import { valetLifecycleControls } from './valet-actions.js';
 import { ui } from './state.js';
 import { agentText } from './text.js';
 import { referenceable } from './context-references.js';
@@ -101,7 +102,9 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
 
   const readOnly = management || isHistoricalDelivery(task);
   if (management) {
-    panel.append(el('p', 'Valet 详情只读：目标、结果、调用与执行记录共用工作阅读器；管理授权与操作收据独立展示，不提供开发动作或连续追加对话。', 'hint management-readonly'));
+    panel.append(el('p', task.role === 'manager' && task.task_kind === 'management'
+      ? 'Valet 的目标、结果、调用与执行记录共用工作阅读器；可停止、停用授权并预检删除，不提供开发动作或连续追加对话。'
+      : 'Valet 身份不一致，仅提供只读记录；请核对持久身份，不开放开发或管理写操作。', 'hint management-readonly'));
   }
   const notice = ui.noticeFocus === null ? null : ui.noticeIndex.get(ui.noticeFocus);
   if (!readOnly && notice && notice.task_id === task.id) panel.prepend(noticePanel(notice, task));
@@ -218,7 +221,9 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   }
   const clearOverride = management ? null : clearOverrideControl(task, () => detail(task.id));
   if (clearOverride) actions.append(clearOverride);
-  const deletion = management ? null : workerDeleteControl(task);
+  const valetControls = management ? valetLifecycleControls(task, { refresh: () => detail(task.id) }) : null;
+  if (valetControls) actions.append(valetControls);
+  const deletion = workerDeleteControl(task);
   if (deletion) actions.append(deletion);
   actions.append(button('刷新详情', () => detail(task.id), 'ghost'));
   panel.append(actions);
