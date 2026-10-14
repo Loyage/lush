@@ -685,8 +685,8 @@ test('快捷导入完整 main 直接子项分页，不限运行状态，保留�
   expect(conditions.hidden).toBe(true); await btn('执行条件设置 · 3 项 · 独占').onclick();
   intercept = (path, _body, route) => path === '/api/input-parents' ? mainParents()
     : path === '/api/worker/42/relations' ? (route.searchParams.get('after') === '0'
-      ? childPage([mainChild(101, { integration: 'merged' }), mainChild(102, { status: 'paused' }), mainChild(103, { task_kind: 'management' }), mainChild(104)], true)
-      : childPage(['queued', 'awaiting', 'waiting', 'awaiting_acceptance', 'failed', 'cancelled', 'completed'].map((status, index) => mainChild(105 + index, { status })))) : null;
+      ? childPage([mainChild(101, { status: 'awaiting_acceptance', integration: 'merged' }), mainChild(102, { status: 'paused' }), mainChild(103, { task_kind: 'management' }), mainChild(104)], true)
+      : childPage(['queued', 'awaiting', 'waiting', 'awaiting_acceptance', 'failed', 'cancelled', 'completed'].map((status, index) => mainChild(105 + index, { status, integration: 'pending' })))) : null;
   const shortcut = importButton(conditions); expect(shortcut.classList.contains('agent-call')).toBe(false);
   expect(shortcut.getAttribute('data-help')).toContain('不授权或执行合并');
   await shortcut.onclick(); expect(calls).toHaveLength(0);
@@ -701,11 +701,25 @@ test('快捷导入完整 main 直接子项分页，不限运行状态，保留�
   expect(btn('保存').disabled).toBe(true);
 });
 
+test('快捷导入排除已合并未验收和无代码已交付，仍保留待合并及新轮开发', async () => {
+  const form = createEmissionConditions();
+  intercept = path => path === '/api/input-parents' ? mainParents() : path === '/api/worker/42/relations' ? childPage([
+    mainChild(101, { status: 'awaiting_acceptance', integration: 'merged' }),
+    mainChild(102, { status: 'awaiting_acceptance' }),
+    mainChild(103, { status: 'completed' }),
+    mainChild(104, { status: 'awaiting_acceptance', integration: 'pending' }),
+    mainChild(105, { status: 'running' }),
+  ]) : null;
+  await importButton(form.node).onclick();
+  expect(form.collect().conditions).toEqual([104, 105].map(worker_id => ({ kind: 'worker_merged', worker_id })));
+  expect(calls).toHaveLength(0);
+});
+
 test('快捷导入空集合保留条件，16项上限含独占隐含静息，拒绝整批不截断', async () => {
   const initial = Array.from({ length: 15 }, (_, i) => ({ kind: 'worker_merged', worker_id: 200 + i })); let changes = 0;
   const form = createEmissionConditions({ conditions: initial, exclusive: true, onChange: () => changes++ });
   intercept = path => path === '/api/input-parents' ? mainParents() : path === '/api/worker/42/relations' ? childPage([]) : null;
-  await importButton(form.node).onclick(); expect(deepText(form.node)).toContain('当前没有尚未合并');
+  await importButton(form.node).onclick(); expect(deepText(form.node)).toContain('当前没有尚未走完合并环节');
   expect(form.collect()).toEqual({ conditions: initial, exclusive: true }); expect(changes).toBe(0);
   intercept = path => path === '/api/input-parents' ? mainParents() : path === '/api/worker/42/relations' ? childPage([mainChild(100)]) : null;
   await importButton(form.node).onclick(); expect(deepText(form.node)).toContain('超过 16 项上限，未导入');
@@ -773,6 +787,43 @@ test('条件设置默认收起，显式展开不发射，收起保留未保存�
   await btn('保存').onclick(); expect(calls[0].params.conditions).toEqual([{ kind: 'parent_quiet' }]);
   expect(conditions.hidden).toBe(true); expect(btn('保存').disabled).toBe(true);
   await toggle.onclick(); quiet.checked = false; quiet.onchange(); expect(btn('提交指令')).toBeTruthy();
+});
+
+test('提交与条件入口相邻同组，次要草稿动作独立且不改变提交保护', async () => {
+  await openInputs(); await openDraft();
+  const group = panel().querySelector('.input-submit-actions');
+  expect(btn('提交指令', group)).toBeTruthy(); expect(btn('执行条件设置', group)).toBeTruthy();
+  expect(group.querySelectorAll('button')).toHaveLength(2);
+  const secondary = panel().querySelector('.input-secondary-actions');
+  expect(btn('保存', secondary)).toBeTruthy(); expect(btn('删除草稿', secondary)).toBeTruthy();
+  expect(deepText(secondary)).toContain('运行设置');
+});
+
+test('已有条件卡片与高级设置保留独占隐含静息，收起、移除及单飞安全', async () => {
+  let changes = 0;
+  const form = createEmissionConditions({ conditions: [{ kind: 'worker_merged', worker_id: 201 }, { kind: 'parent_quiet' }], exclusive: true, onChange: () => changes++ });
+  const settings = form.node.querySelector('.emission-settings'), configured = form.node.querySelector('.emission-configured');
+  const advanced = settings.querySelector('.emission-advanced-body'), toggle = btn('展开高级设置：静息与独占', settings);
+  expect(advanced.hidden).toBe(true); expect(toggle.getAttribute('aria-controls')).toBe(advanced.id);
+  expect(configured.querySelectorAll('.emission-condition-row')).toHaveLength(3);
+  expect(deepText(configured)).toContain('已设条件 · 2 项 · 独占');
+  expect(settings.querySelector('.emission-advanced-summary').textContent).toContain('隐含静息');
+  await toggle.onclick(); expect(advanced.hidden).toBe(false); expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  await toggle.onclick(); expect(advanced.hidden).toBe(true); expect(changes).toBe(0);
+  await btn('移除静息条件', configured).onclick();
+  expect(form.collect()).toEqual({ conditions: [{ kind: 'worker_merged', worker_id: 201 }], exclusive: true });
+  expect(deepText(configured)).toContain('已设条件 · 2 项 · 独占');
+  form.setBusy(true); const close = btn('关闭独占', configured); expect(close.disabled).toBe(true);
+  expect(close.parentNode.getAttribute('data-help')).toContain('条件不能更改');
+  await close.onclick(); expect(form.collect().exclusive).toBe(true);
+  await toggle.onclick(); expect(advanced.hidden).toBe(true);
+  form.setBusy(false); await close.onclick(); expect(form.collect().exclusive).toBe(false);
+  await btn('移除条件', configured).onclick(); expect(deepText(configured)).toContain('尚未设置条件');
+  expect(configured.querySelectorAll('.emission-condition-row')).toHaveLength(0); expect(changes).toBe(3);
+  const append = createEmissionConditions({ mode: 'append', exclusive: true });
+  expect(btn('展开高级设置：静息等待', append.node)).toBeTruthy();
+  expect(append.node.querySelector('.emission-exclusive-card')).toBeNull();
+  expect(append.collect().exclusive).toBe(false);
 });
 
 test('已有条件草稿仍默认收起，发射明确遵守已保存条件', async () => {

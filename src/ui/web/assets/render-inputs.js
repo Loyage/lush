@@ -535,6 +535,9 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     };
     parent.onchange = () => { paintParent(); syncSave(); }; paintParent();
     const actions = el('div', undefined, 'input-actions'); panel.append(actions);
+    const submitActions = el('div', undefined, 'input-submit-actions');
+    const secondaryActions = el('div', undefined, 'input-secondary-actions');
+    if (editable) actions.append(submitActions, secondaryActions);
     if (editable && !append) {
       const profile = controlsButton('运行设置：提交时固定默认', async () => {
         if (!current() || editor.busy) return;
@@ -544,7 +547,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
         profile.node.textContent = runProfile ? `运行设置：${runProfile.config_mode === 'pi' ? 'Pi 默认配置' : 'Lush 配置'}` : '运行设置：提交时固定默认';
         message.textContent = '运行参数只保留在本页，提交时才写入；普通“保存”只保存草稿正文、明确目标、条件和引用。';
       }, { className: 'ghost', help: '编辑本次工作指令的完整运行参数，不调用 Agent，不读取既有挂载的私有参数。只在提交时随授权保存，不写入草稿。' });
-      mutating.push(profile.node); actions.append(profile.host);
+      mutating.push(profile.node); secondaryActions.append(profile.host);
     }
     function setBusy(busy) {
       editor.busy = busy; if (editable) { content.disabled = busy; parent.disabled = busy; editor.textEditor.sync(); conditionsForm?.setBusy(busy); appendTarget?.setBusy(busy); }
@@ -616,7 +619,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
         ['保存', 'save', { className: 'input-save' }],
         ['删除草稿', 'remove', { help: '经确认后永久删除这条未发送草稿及其引用；已发送输入不可删除。', className: 'danger' }],
       ]) {
-        const control = controlsButton(label, () => mutate(kind), opts); mutating.push(control.node); actions.append(control.host);
+        const control = controlsButton(label, () => mutate(kind), opts); mutating.push(control.node); (kind === 'emit' ? submitActions : secondaryActions).append(control.host);
         if (kind === 'emit') launchControls.set(kind, control);
         if (kind === 'save') {
           saveControl = control; control.host.className = 'help-host';
@@ -630,7 +633,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       }, { className: 'ghost', help: '展开或收起这条草稿的执行条件与独占选项；不提交、不调用 Agent，收起保留设置。' });
       conditionsToggle.node.setAttribute('aria-expanded', 'false');
       conditionsToggle.node.setAttribute('aria-controls', conditionsForm.node.id);
-      mutating.push(conditionsToggle.node); actions.append(conditionsToggle.host);
+      mutating.push(conditionsToggle.node); submitActions.append(conditionsToggle.host);
       panel.append(conditionsForm.node);
       paintParent(); syncSave();
       panel.onkeydown = event => {

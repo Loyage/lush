@@ -77,7 +77,9 @@ export function createEmissionWorkerPicker({ ownsPage = () => true, label = '条
     disabledHelp(host, disabled || busy, busy ? '正在读取 Worker，请稍候。' : '当前输入已锁定，不能更改目标。');
   } }
   select.onchange = onChange;
-  node.append(field(label, select), hosts[0], field('Worker 编号', number), hosts[1], feedback);
+  const selection = el('div', undefined, 'emission-picker-row'); selection.append(field(label, select), hosts[0]);
+  const lookupRow = el('div', undefined, 'emission-picker-row'); lookupRow.append(field('Worker 编号', number), hosts[1]);
+  node.append(selection, lookupRow, feedback);
   return { node, select, value: () => workers.get(Number(select.value)) || null, setBusy(value) { disabled = value; sync(); } };
 }
 
@@ -97,7 +99,11 @@ export async function loadUnmergedMainWorkers(ownsPage = () => true) {
     for (const item of page.items) {
       if (!Number.isSafeInteger(item.id) || item.id <= after || item.parent_id !== rootId || typeof item.integration !== 'string')
         throw new Error('Worker 子项身份或合并状态不兼容');
-      if (['order', 'child'].includes(item.task_kind) && item.integration !== 'merged') workers.set(item.id, item);
+      // Awaiting acceptance is not unfinished delivery: no-code results also
+      // settle with integration=none and will never emit a merge receipt.
+      const delivered = item.integration === 'merged' || (item.integration === 'none'
+        && ['awaiting_acceptance', 'completed'].includes(item.status));
+      if (['order', 'child'].includes(item.task_kind) && !delivered) workers.set(item.id, item);
     }
     if (!page.has_more) return [...workers.values()];
     if (!Number.isSafeInteger(page.cursor) || page.cursor <= after || page.cursor !== page.items.at(-1)?.id)
@@ -111,7 +117,21 @@ export async function loadUnmergedMainWorkers(ownsPage = () => true) {
 export function createEmissionConditions({ conditions = [], exclusive = false, mode = 'order', ownsPage = () => true, onChange = () => {} } = {}) {
   let workerConditions = conditions.filter(item => item.kind !== 'parent_quiet').map(item => ({ ...item })), busy = false, importing = false, generation = 0;
   const node = el('section', undefined, 'emission-conditions'); node.setAttribute('aria-label', '执行条件');
-  const list = el('div', undefined, 'emission-condition-list');
+  const list = el('div', undefined, 'emission-condition-list'); list.setAttribute('role', 'list');
+  const configured = el('section', undefined, 'emission-configured'); configured.setAttribute('aria-label', '已设条件');
+  const count = el('h3');
+  const settings = el('section', undefined, 'emission-settings'); settings.setAttribute('aria-label', '设置条件');
+  const advanced = el('div', undefined, 'emission-advanced-body'); advanced.hidden = true; advanced.id = `emission-advanced-${emissionRequestId()}`;
+  const advancedLabel = mode === 'order' ? '展开高级设置：静息与独占' : '展开高级设置：静息等待';
+  const advancedSummary = el('p', undefined, 'hint emission-advanced-summary');
+  const advancedToggle = controlledButton(advancedLabel, () => {
+    if (busy || importing || !ownsPage()) return;
+    advanced.hidden = !advanced.hidden; advancedToggle.setAttribute('aria-expanded', String(!advanced.hidden));
+    advancedToggle.textContent = advanced.hidden ? advancedLabel : '收起高级设置';
+  });
+  advancedToggle.setAttribute('aria-expanded', 'false'); advancedToggle.setAttribute('aria-controls', advanced.id);
+  advancedToggle.setAttribute('data-help', '展开或收起静息等待和独占开发设置；收起保留已选设置，不提交、不调用 Agent。');
+  const advancedHost = el('span', undefined, 'help-host'); advancedHost.append(advancedToggle);
   const quiet = check('等待目标树彻底静息后执行', conditions.some(item => item.kind === 'parent_quiet'));
   const exclusiveControl = check('独占开发：静息后开始，直到本轮交付收口', mode === 'order' && exclusive);
   const picker = createEmissionWorkerPicker({ ownsPage });
@@ -138,45 +158,70 @@ export function createEmissionConditions({ conditions = [], exclusive = false, m
       const added = workers.filter(worker => !workerConditions.some(item => item.kind === 'worker_merged' && item.worker_id === worker.id));
       const count = workerConditions.length + added.length + Number(quiet.input.checked || (mode === 'order' && exclusiveControl.input.checked));
       if (count > 16) {
-        feedback.textContent = `main 有 ${workers.length} 个未合并的直接子开发 Worker；导入后共 ${count} 个条件，超过 16 项上限，未导入，原条件保留。`;
+        feedback.textContent = `main 有 ${workers.length} 个合并环节未结束的直接子开发 Worker；导入后共 ${count} 个条件，超过 16 项上限，未导入，原条件保留。`;
         return;
       }
       rememberWorkers(workers);
       workerConditions.push(...added.map(worker => ({ kind: 'worker_merged', worker_id: worker.id })));
       paint(); if (added.length) onChange();
       feedback.textContent = workers.length ? `已导入 ${added.length} 个条件，${workers.length - added.length} 个已有条件未重复添加；只等待这些 Worker 合入 main，不自动合并，之后新建的 Worker 不会加入。`
-        : 'main 当前没有尚未合并的直接子开发 Worker；原条件保留。';
+        : 'main 当前没有尚未走完合并环节的直接子开发 Worker；原条件保留。';
     } catch (error) {
       if (current()) feedback.textContent = `导入失败：${error.message}；未导入任何条件，原条件保留。`;
     } finally {
       importing = false; if (ownsPage()) sync();
     }
   });
-  importAll.setAttribute('data-help', '将 main 的直接子开发 Worker 中尚未合并的项追加为“本轮成果已合入 main”条件；不含孙级 Worker 或 Valet，不提交草稿，也不授权或执行合并。');
+  importAll.setAttribute('data-help', '将 main 直接子开发 Worker 中尚未走完合并环节的项追加为“本轮成果已合入 main”条件；排除已合并及已安全交付的无代码成果，不以是否验收判断；不含孙级 Worker 或 Valet，不提交草稿，也不授权或执行合并。');
   const importHost = el('span', undefined, 'help-host'); importHost.append(importAll);
   const removals = [];
   function sync() {
     const locked = busy || importing, reason = importing ? '正在读取待导入 Worker，请稍候；原条件保留。' : '输入已提交或正在处理，条件不能更改。';
-    quiet.input.disabled = exclusiveControl.input.disabled = kind.disabled = add.disabled = importAll.disabled = locked;
+    quiet.input.disabled = exclusiveControl.input.disabled = kind.disabled = add.disabled = importAll.disabled = advancedToggle.disabled = locked;
     picker.setBusy(locked);
-    for (const host of [addHost, importHost]) disabledHelp(host, locked, reason);
+    for (const host of [addHost, importHost, advancedHost]) disabledHelp(host, locked, reason);
+    for (const host of [quiet.node, exclusiveControl.node]) disabledHelp(host, locked, reason);
     for (const control of removals) { control.disabled = locked; disabledHelp(control.parentNode, locked, reason); }
+  }
+  function card(title, description, label, run, className = '') {
+    const row = el('div', undefined, `emission-condition-row ${className}`); row.setAttribute('role', 'listitem');
+    const text = el('div', undefined, 'emission-condition-text'); text.append(el('strong', title));
+    if (description) text.append(el('p', description, 'hint'));
+    const remove = controlledButton(label, () => { if (!busy && !importing && ownsPage()) { run(); paint(); onChange(); } });
+    remove.setAttribute('data-help', `${label}只更改本页草稿设置，保存或提交后才写入；不取消 Worker 或其它条件。${description || ''}`);
+    const host = el('span', undefined, 'help-host'); host.append(remove);
+    removals.push(remove); row.append(text, host); list.append(row);
   }
   function paint() {
     removals.length = 0; list.replaceChildren();
-    workerConditions.forEach((item, index) => {
-      const row = el('div', undefined, 'emission-condition-row');
-      row.append(el('span', `${workerLabel(item.worker_id, item.worker_number)}：${item.kind === 'worker_merged' ? '本轮成果已合入 main' : '工作安全收尾'}`));
-      const remove = controlledButton('移除条件', () => { if (!busy && !importing && ownsPage()) { workerConditions.splice(index, 1); paint(); onChange(); } }, 'ghost');
-      const host = el('span', undefined, 'help-host'); host.append(remove);
-      removals.push(remove); row.append(host); list.append(row);
-    });
+    workerConditions.forEach((item, index) => card(
+      `${workerLabel(item.worker_id, item.worker_number)}：${item.kind === 'worker_merged' ? '本轮成果已合入 main' : '工作安全收尾'}`,
+      item.kind === 'worker_merged' ? '等待本轮成果实际进入 main，不自动授权合并。' : '等待本轮工作安全交付，不是一次 Agent 返回。',
+      '移除条件', () => workerConditions.splice(index, 1)));
+    const exclusiveOn = mode === 'order' && exclusiveControl.input.checked;
+    if (quiet.input.checked) card('目标树彻底静息', exclusiveOn ? '显式静息条件；移除后独占仍要求静息才能开始。' : '只约束开始时，不阻止后续其它开发。',
+      '移除静息条件', () => { quiet.input.checked = false; });
+    if (exclusiveOn) card('独占开发', '不是普通等待条件：隐含静息后开始，直到本轮交付收口，暂缓其它开发。',
+      '关闭独占', () => { exclusiveControl.input.checked = false; }, 'emission-exclusive-card');
+    const total = workerConditions.length + Number(quiet.input.checked || exclusiveOn);
+    count.textContent = `已设条件 · ${total} 项${exclusiveOn ? ' · 独占' : ''}`;
+    if (!total) list.append(el('p', '尚未设置条件。可快捷导入或手动添加；无条件提交仍需安全准入。', 'emission-condition-empty hint'));
+    advancedSummary.textContent = exclusiveOn ? `已启用独占开发（隐含静息）${quiet.input.checked ? '及显式静息等待' : ''}。` : quiet.input.checked ? '已启用静息等待。' : mode === 'order' ? '未启用静息等待或独占开发。' : '未启用静息等待。';
     sync();
   }
-  quiet.input.onchange = exclusiveControl.input.onchange = onChange;
-  node.append(el('h3', '执行条件'), el('p', '提交后等待以下条件全部满足，再通过安全准入；不保证立即创建 Worker 或投递追加指令。工作收尾不是一次 Agent 返回，合入 main 不是仅合入直接父 Worker。', 'hint'), importHost, list, picker.node, field('等待事件', kind), addHost, quiet.node);
-  if (mode === 'order') node.append(exclusiveControl.node, el('p', '静息等待仅约束开始时；独占开发还会阻塞后续其它开发调用，允许自己的子 Worker、管理、查询和交付。失败、暂停或待决可能使其它工作长期排队，不自动授权合并。', 'hint'));
-  node.append(feedback); paint();
+  quiet.input.onchange = exclusiveControl.input.onchange = () => { paint(); onChange(); };
+  const shortcut = el('div', undefined, 'emission-setting-block'); shortcut.append(el('h4', '快捷等待'), importHost,
+    el('p', '只导入当前 main 直接子开发 Worker 的未结束合并环节；之后新建的 Worker 不自动加入。', 'hint'));
+  const manual = el('div', undefined, 'emission-setting-block');
+  const eventRow = el('div', undefined, 'emission-picker-row'); eventRow.append(field('等待事件', kind), addHost);
+  manual.append(el('h4', '手动添加'), picker.node, eventRow);
+  advanced.append(quiet.node);
+  if (mode === 'order') advanced.append(exclusiveControl.node, el('p', '静息等待仅约束开始时；独占开发还会阻塞后续其它开发调用，允许自己的子 Worker、管理、查询和交付。失败、暂停或待决可能使其它工作长期排队，不自动授权合并。', 'hint'));
+  const advancedBlock = el('div', undefined, 'emission-setting-block'); advancedBlock.append(advancedHost, advancedSummary, advanced);
+  settings.append(el('h3', '设置条件'), shortcut, manual, advancedBlock, feedback);
+  configured.append(count, el('p', '以下条件必须全部满足，再通过安全准入；不保证立即创建 Worker 或投递追加指令。', 'hint'), list);
+  const layout = el('div', undefined, 'emission-conditions-layout'); layout.append(settings, configured);
+  node.append(el('h3', '执行条件'), layout); paint();
   return { node, collect: () => ({ conditions: [...workerConditions.map(({ kind, worker_id }) => ({ kind, worker_id })), ...(quiet.input.checked ? [{ kind: 'parent_quiet' }] : [])], exclusive: mode === 'order' && exclusiveControl.input.checked }),
     validate: () => workerConditions.length + Number(quiet.input.checked || (mode === 'order' && exclusiveControl.input.checked)) > 16 ? '最多选择 16 个条件（含独占隐含的静息条件）。' : '',
     setBusy(value) { busy = value; if (value) { generation++; if (importing) feedback.textContent = '导入已取消：草稿正在保存或提交；原条件保留。'; } sync(); } };

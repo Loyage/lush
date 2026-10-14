@@ -136,11 +136,21 @@ test('shortcut DOM reads real main relations, saves and mounts exact conditions,
     const prerequisite = await action(f, 'order.submit', { content: 'shortcut prerequisite', start: false });
     const main = f.store.task(prerequisite.task.parent_id), autoMerge = f.store.task(prerequisite.task.id).auto_merge;
     const merged = f.store.create({ parent_id: main.id, goal: 'already merged', role: 'agent', task_kind: 'order', input_id: null });
-    f.store.update(merged.id, { status: 'completed', integration: 'merged' });
+    f.store.update(merged.id, { status: 'awaiting_acceptance', integration: 'merged' });
     const grandchild = f.store.create({ parent_id: prerequisite.task.id, goal: 'not a direct child', role: 'agent', task_kind: 'child', input_id: null });
     f.store.update(grandchild.id, { status: 'cancelled' });
     const valet = f.store.create({ parent_id: main.id, goal: 'not development', role: 'manager', task_kind: 'management', input_id: null });
     f.store.update(valet.id, { status: 'completed' });
+    // Automatic no-code delivery genuinely settles without a Squash receipt;
+    // waiting for its nonexistent merge would block the follow-up forever.
+    const noCode = await action(f, 'order.submit', { content: 'no code answer', start: false });
+    f.store.update(noCode.task.id, { auto_merge: JSON.stringify({ version: 1, enabled: true, locked: false }) });
+    f.project.provider = { async run() { return 'answer without changes'; } };
+    f.project.stopping = false;
+    await action(f, 'worker.resume', { id: noCode.task.id }); f.project.pump();
+    await until(() => f.store.task(noCode.task.id).status === 'awaiting_acceptance');
+    f.project.stopping = true;
+    expect(f.store.task(noCode.task.id).integration).toBe('none');
     const draft = await action(f, 'draft.add', { content: 'shortcut followup', branch: 'main' });
     dom = installDom({ fetch: (url, options) => { requests.push({ url, options }); return fetch(f.url + url, options); } });
     resetUiState();
