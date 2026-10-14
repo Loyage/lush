@@ -49,7 +49,7 @@ export function renderVersionCommit(commit, { onCommit, onDelivery } = {}) {
   if (!tasks.length) body.append(el('p', '未关联 Worker', 'version-unassociated'));
   for (const task of tasks) {
     const entry = el('div', undefined, 'version-task'); entry.append(workerLink(task));
-    if (canDrill(task)) entry.append(button(`交付图 · ${workerLabel(task)}`, () => onDelivery?.(task), 'ghost version-delivery-choice', {
+    if (canDrill(task) && onDelivery) entry.append(button(`交付图 · ${workerLabel(task)}`, () => onDelivery?.(task), 'ghost version-delivery-choice', {
       help: '读取此子交付 Event 固定的源提交图，不是 Worker 当前分支；可返回上层，不调用 Agent。' }));
     body.append(entry);
   }
@@ -98,16 +98,20 @@ export function renderWorkerVersions(task, previous = null) {
   if (previous && mounted?.root === previous && mounted.owns()) return previous;
   disposeWorkerVersions();
   const ownerDocument = document, boot = ui.workerNumbers, project = projectApi('/api/'), view = ui.view;
+  const main = task.task_kind === 'main' && task.branch === 'main';
   const root = el('section', undefined, 'worker-versions versions-page'); root.dataset.workerId = String(task.id);
   const heading = el('div', undefined, 'section-title'); heading.append(el('h2', '版本迭代'));
   const scope = el('h3', undefined, 'versions-scope'); scope.tabIndex = -1;
   const feedback = el('p', '滚入本模块后按需读取，每页最多 30 个节点。', 'versions-feedback hint'); feedback.setAttribute('role', 'status');
   const tip = el('p', undefined, 'version-tip hint');
+  const receipt = el('p', undefined, 'version-receipt hint');
   const list = el('ol', undefined, 'versions-list'); list.setAttribute('aria-label', 'Git 提交图');
   const boundaries = el('details', undefined, 'version-boundaries');
   const nodePanel = el('section', undefined, 'version-node-detail'); nodePanel.hidden = true;
   nodePanel.id = `version-node-detail-${task.id}`; nodePanel.tabIndex = -1;
   nodePanel.setAttribute('aria-label', '按需提交详情');
+  const graphSection = el('section', undefined, 'version-round-detail');
+  graphSection.setAttribute('aria-label', main ? 'main 提交图' : '按需轮次提交详情');
   const cache = new Map();
   let serial = 0, disposed = false, started = false, observer = null;
   let graphRead = null, nodeRead = null, deliveryRead = null, generation = 0;
@@ -120,7 +124,7 @@ export function renderWorkerVersions(task, previous = null) {
   const controller = () => new AbortController();
   const cancelNode = () => {
     nodeRead?.abort(); nodeRead = null; nodePanel.replaceChildren(); nodePanel.hidden = true;
-    nodePanel.setAttribute('aria-busy', 'false'); root.insertBefore(nodePanel, null);
+    nodePanel.setAttribute('aria-busy', 'false'); graphSection.insertBefore(nodePanel, null);
     for (const marker of list.querySelectorAll('.version-node')) marker.setAttribute('aria-expanded', 'false');
   };
   const cancel = () => {
@@ -132,19 +136,23 @@ export function renderWorkerVersions(task, previous = null) {
   const key = (f, index) => `${f.uid}:${index}`;
   const remember = (f, index, data) => {
     const k = key(f, index); cache.delete(k); cache.set(k, data);
-    // The default graph has no cursor for offset zero. Pin its first page so returning
-    // after a long browse never silently re-samples a mutable current/main ref.
+    // main has no cursor for offset zero. Pin its first page so returning after a
+    // long browse never silently re-samples the mutable main ref.
     const pinned = key(frames[0], 0);
     while (cache.size > CACHE_PAGES) cache.delete([...cache.keys()].find(candidate => candidate !== pinned));
   };
   const scopeText = () => active.delivery !== null ? `Worker ${workerLabel(active.worker)} · 固定交付 Event ${active.delivery}`
-    : active.worker.branch === 'main' || (displayedFrame === active && displayed?.scope === 'main') ? 'main 提交图' : `Worker ${workerLabel(active.worker)} · 当前已提交开发`;
+    : main ? 'main 提交图' : `Worker ${workerLabel(task)} · 历史交付轮次`;
   const sync = () => {
     scope.textContent = scopeText(); back.hidden = frames.length < 2;
+    receipt.textContent = [oid(active.worker.source_commit) ? `固定源：${active.worker.source_commit}` : '',
+      oid(active.worker.commit) ? `父侧落点：${active.worker.commit}` : ''].filter(Boolean).join(' · ');
+    receipt.hidden = !receipt.textContent;
     newer.disabled = Boolean(graphRead) || active.index === 0 || !active.snapshot;
     older.disabled = Boolean(graphRead) || !active.snapshot || displayedFrame !== active || !displayed?.has_more;
     start.hidden = started; retry.hidden = !retryTarget;
-    root.setAttribute('aria-busy', String(Boolean(graphRead)));
+    graphSection.hidden = !main && frames.length === 1;
+    root.setAttribute('aria-busy', String(Boolean(graphRead || deliveryRead)));
     root.dataset.cachedPages = String(cache.size);
   };
   const status = (message, error = false) => {
@@ -153,8 +161,8 @@ export function renderWorkerVersions(task, previous = null) {
   };
   const present = (data, f, index) => {
     displayed = data; displayedFrame = f; f.index = index;
-    tip.textContent = `固定 tip：${data.tip || '无提交'}${data.base ? ` · 开发基线：${data.base}` : ''}${f.delivery === null && data.scope === 'delivery' ? ` · 分支已回收，使用最近固定交付 Event ${data.delivery}` : ''}`;
-    const edges = drawGraph(list, data, c => loadCommit(c), t => openDelivery(t));
+    tip.textContent = `固定 tip：${data.tip || '无提交'}${data.base ? ` · 开发基线：${data.base}` : ''}`;
+    const edges = drawGraph(list, data, c => loadCommit(c), main ? undefined : t => openDelivery(t));
     for (const marker of list.querySelectorAll('.version-node')) {
       marker.setAttribute('aria-controls', nodePanel.id); marker.setAttribute('aria-expanded', 'false');
     }
@@ -167,7 +175,7 @@ export function renderWorkerVersions(task, previous = null) {
     sync();
   };
   async function load(index = active.index, refresh = false) {
-    if (!current()) return;
+    if (!current() || (!main && active.delivery === null)) return;
     started = true; observer?.disconnect(); observer = null; cancel();
     const f = active, ticket = generation;
     retryTarget = null;
@@ -182,7 +190,7 @@ export function renderWorkerVersions(task, previous = null) {
     status('正在读取版本图…'); sync();
     try {
       const query = new URLSearchParams({ limit: String(LIMIT) });
-      // Preserve the REQUEST identity, not the fallback response's actual delivery.
+      // Non-main reads always select the persistent Event, never the current ref.
       if (f.delivery !== null) query.set('delivery', String(f.delivery));
       if (f.cursors[index]) query.set('cursor', f.cursors[index]);
       const data = checkedPage(await api(`/api/worker/${f.id}/version-graph?${query}`, { signal: reads.signal }), f);
@@ -208,13 +216,18 @@ export function renderWorkerVersions(task, previous = null) {
     cancel(); active = f; retryTarget = null;
     // No nodes/data from a different graph remain labelled as the new scope.
     displayed = null; displayedFrame = null; list.replaceChildren(); boundaries.hidden = true; tip.textContent = '';
-    scope.focus?.({ preventScroll: true }); return load(f.index);
+    sync(); scope.focus?.({ preventScroll: true }); scope.scrollIntoView?.({ block: 'nearest', behavior: 'auto' }); return load(f.index);
   }
   function openDelivery(association) {
     if (!current() || !canDrill(association)) return;
     const existing = frames.findIndex(f => f.id === association.id && f.delivery === association.delivery_id);
     if (existing >= 0) { frames = frames.slice(0, existing + 1); return activate(frames.at(-1)); }
-    const f = frame(association, association.delivery_id); frames.push(f); return activate(f);
+    const f = frame(association, association.delivery_id);
+    if (association.id === task.id && !main) {
+      for (const k of [...cache.keys()]) if (!k.startsWith(`${frames[0].uid}:`)) cache.delete(k);
+      frames = [frames[0], f];
+    } else frames.push(f);
+    return activate(f);
   }
   async function loadCommit(commit) {
     if (!current() || !active.snapshot || displayedFrame !== active || displayed?.snapshot !== active.snapshot || graphRead) return;
@@ -254,72 +267,100 @@ export function renderWorkerVersions(task, previous = null) {
       nodePanel.replaceChildren(message, button('重试节点详情', () => loadCommit(commit), 'ghost'), button('关闭节点详情', close, 'ghost'));
     } finally { if (valid()) nodePanel.setAttribute('aria-busy', 'false'); }
   }
-  const start = button('加载版本图', () => load(0), 'ghost versions-load');
+  const begin = () => main ? load(0) : loadRounds(0);
+  const start = button(main ? '加载版本图' : '加载交付轮次', begin, 'ghost versions-load');
   const refresh = button('刷新版本图', () => load(0, true), 'ghost versions-refresh', {
     help: '丢弃当前图的旧快照与节点详情，重新读取第一页；不自动轮询、不调用 Agent。' });
   const retry = button('重试版本读取', () => retryTarget && load(retryTarget.index, retryTarget.refresh), 'ghost versions-retry');
-  const back = button('返回上层图', () => { if (!current() || frames.length < 2) return; frames.pop(); return activate(frames.at(-1)); }, 'ghost versions-back');
+  const back = button('返回上层图', () => {
+    if (!current() || frames.length < 2) return;
+    frames.pop();
+    if (!main && frames.length === 1) {
+      cancel(); active = frames[0]; displayed = displayedFrame = null; retryTarget = null;
+      list.replaceChildren(); boundaries.hidden = true; tip.textContent = ''; sync();
+      roundHeading.focus?.({ preventScroll: true }); return;
+    }
+    return activate(frames.at(-1));
+  }, 'ghost versions-back');
   const newer = button('较新版本', () => load(active.index - 1), 'ghost versions-newer');
   const older = button('较早版本', () => load(active.index + 1), 'ghost versions-more');
   const paging = el('nav', undefined, 'versions-footer'); paging.setAttribute('aria-label', '版本图分页');
   for (const control of [newer, older]) {
     const host = el('span', undefined, 'help-host'); host.setAttribute('data-help', '每页最多 30 节点；沿固定快照切换，不累计完整图。无对应页或读取中不可切换。'); host.append(control); paging.append(host);
   }
-  const controls = el('div', undefined, 'versions-controls'); controls.append(start, refresh, retry, back);
-  const rounds = el('details', undefined, 'version-rounds');
-  rounds.append(el('summary', `选择历史交付轮次 · Worker ${workerLabel(task)}`));
-  const roundStatus = el('p', undefined, 'hint'), roundList = el('div', undefined, 'version-round-list');
+  const controls = el('div', undefined, 'versions-controls'); controls.append(refresh, retry, back);
+  const rounds = el('section', undefined, 'version-rounds'); rounds.hidden = main;
+  const roundHeading = el('h3', `Worker ${workerLabel(task)} · 历史交付轮次`, 'version-round-heading'); roundHeading.tabIndex = -1;
+  rounds.append(roundHeading, el('p', '线条表示成功交付轮次的先后，不是 Git 父边。点击轮次按需查看固定提交证据。', 'hint'));
+  const roundStatus = el('p', undefined, 'hint'), roundList = el('ol', undefined, 'version-round-list');
+  roundStatus.setAttribute('role', 'status'); roundList.setAttribute('aria-label', '历史交付轮次迭代图');
   let roundIndex = 0, roundCursors = [null], roundPage = null, roundTarget = 0;
   async function loadRounds(index = 0) {
-    if (!current() || !rounds.open) return;
+    if (!current() || main) return;
+    started = true; observer?.disconnect(); observer = null;
     deliveryRead?.abort(); const reads = deliveryRead = controller(); roundTarget = index;
-    const ticket = generation;
-    const valid = () => current() && ticket === generation && deliveryRead === reads && !reads.signal.aborted && rounds.open;
-    roundStatus.textContent = '交付轮次加载中…'; roundRetry.hidden = true; roundNewer.disabled = roundOlder.disabled = true;
+    const valid = () => current() && deliveryRead === reads && !reads.signal.aborted;
+    roundStatus.textContent = '交付轮次加载中…'; roundStatus.setAttribute('role', 'status');
+    roundRetry.hidden = true; roundNewer.disabled = roundOlder.disabled = true; sync();
     try {
       const query = new URLSearchParams({ limit: String(LIMIT) });
       if (roundCursors[index]) query.set('before', String(roundCursors[index]));
       const data = await api(`/api/worker/${task.id}/version-deliveries?${query}`, { signal: reads.signal });
       if (!valid()) return;
-      if (!Array.isArray(data.deliveries) || data.deliveries.length > LIMIT || typeof data.has_more !== 'boolean'
-        || (data.has_more && (!Number.isSafeInteger(data.before) || data.before <= 0))) throw new Error('交付轮次数据格式不兼容');
-      roundPage = data; roundIndex = index; roundCursors[index + 1] = data.before;
-      roundList.replaceChildren(...data.deliveries.map(t => {
-        const item = el('div', undefined, 'version-round');
-        if (canDrill(t)) item.append(button(`Event ${t.delivery_id} · ${text(t.delivered_at)}`, () => openDelivery(t), 'ghost', {
-          help: '读取该成功 Event 的固定交付图，不改变开发状态，不调用 Agent。' }));
-        else item.append(el('p', `Event ${t.delivery_id} · ${text(t.delivery_unavailable_reason, '缺少固定交付证据，无法追溯')}`, 'hint'));
-        return item;
+      if (data.id !== task.id || !Array.isArray(data.deliveries) || data.deliveries.length > LIMIT || typeof data.has_more !== 'boolean'
+        || (data.has_more && (!Number.isSafeInteger(data.before) || data.before !== data.deliveries.at(-1)?.delivery_id))
+        || data.deliveries.some((t, i) => t.id !== task.id || !Number.isSafeInteger(t.delivery_id) || t.delivery_id <= 0
+          || !['task.merge_integrated', 'merged'].includes(t.evidence)
+          || (i > 0 && t.delivery_id >= data.deliveries[i - 1].delivery_id)
+          || (roundCursors[index] && t.delivery_id >= roundCursors[index]))) throw new Error('交付轮次数据格式不兼容');
+      roundPage = data; roundIndex = index;
+      if (index === 0) roundCursors = [null];
+      roundCursors[index + 1] = data.before;
+      roundList.replaceChildren(...data.deliveries.map((t, i) => {
+        const item = el('li', undefined, 'version-round'); item.dataset.delivery = String(t.delivery_id);
+        // This edge is only the persistent Event order, never a fabricated Git parent.
+        if (i < data.deliveries.length - 1) item.dataset.previousDelivery = String(data.deliveries[i + 1].delivery_id);
+        const rail = el('span', '●', 'version-round-rail'); rail.setAttribute('aria-hidden', 'true');
+        const body = el('div', undefined, 'version-body');
+        body.append(el('h4', `交付 Event ${t.delivery_id}`), el('time', text(t.delivered_at), 'version-metadata'));
+        if (canDrill(t)) body.append(el('span', '可追溯', 'hint'), button('查看轮次详情', () => openDelivery(t), 'ghost version-round-choice', {
+          help: '内联读取该成功 Event 的固定提交图，不读取当前分支，不改变开发状态，不调用 Agent。' }));
+        else body.append(el('p', text(t.delivery_unavailable_reason, '缺少固定交付证据，无法追溯'), 'hint'));
+        item.append(rail, body); return item;
       }));
-      roundStatus.textContent = data.deliveries.length ? `轮次第 ${index + 1} 页` : '暂无成功交付轮次。';
+      roundStatus.textContent = data.deliveries.length ? `轮次第 ${index + 1} 页 · ${data.deliveries.length} 个交付节点${data.has_more ? '，更早轮次尚未加载。' : '，已到最早交付。'}`
+        : '暂无成功交付轮次；当前分支提交不作为交付历史。';
     } catch (error) {
       if (!valid()) return;
-      roundStatus.textContent = `轮次读取失败：${error.message}。保留已读轮次，可重试。`; roundRetry.hidden = false;
+      roundStatus.textContent = `轮次读取失败：${error.message}。保留已读轮次，可重试。`; roundStatus.setAttribute('role', 'alert'); roundRetry.hidden = false;
     } finally {
-      if (valid()) { deliveryRead = null; roundNewer.disabled = roundIndex === 0; roundOlder.disabled = !roundPage?.has_more; }
+      if (valid()) { deliveryRead = null; roundNewer.disabled = roundIndex === 0; roundOlder.disabled = !roundPage?.has_more; sync(); }
     }
   }
   const roundRetry = button('重试交付轮次', () => loadRounds(roundTarget), 'ghost'); roundRetry.hidden = true;
   const roundNewer = button('较新轮次', () => loadRounds(roundIndex - 1), 'ghost'); roundNewer.disabled = true;
   const roundOlder = button('较早轮次', () => loadRounds(roundIndex + 1), 'ghost'); roundOlder.disabled = true;
-  rounds.append(roundStatus, roundList, roundRetry, roundNewer, roundOlder,
-    button('刷新轮次', () => { roundCursors = [null]; return loadRounds(0); }, 'ghost'));
-  rounds.ontoggle = () => {
-    if (rounds.open) { if (!roundPage) return loadRounds(0); }
-    else { deliveryRead?.abort(); deliveryRead = null; roundNewer.disabled = roundIndex === 0; roundOlder.disabled = !roundPage?.has_more; }
-  };
+  const roundPaging = el('nav', undefined, 'versions-footer'); roundPaging.setAttribute('aria-label', '交付轮次分页');
+  roundNewer.classList.add('version-round-newer'); roundOlder.classList.add('version-round-older');
+  for (const control of [roundNewer, roundOlder]) {
+    const host = el('span', undefined, 'help-host'); host.setAttribute('data-help', '每页最多 30 个真实交付轮次，切页不累计正文；没有对应页或读取中不可切换。'); host.append(control); roundPaging.append(host);
+  }
+  const roundRefresh = button('刷新轮次', () => loadRounds(0), 'ghost version-round-refresh');
+  rounds.append(roundRefresh, roundStatus, roundList, roundRetry, roundPaging);
   const dispose = () => {
     if (disposed) return;
     disposed = true; cancel(); deliveryRead?.abort(); deliveryRead = null; observer?.disconnect(); observer = null;
-    rounds.ontoggle = null; cache.clear(); frames = []; displayed = null; roundPage = null;
+    cache.clear(); frames = []; displayed = null; roundPage = null;
     for (const control of root.querySelectorAll('button')) control.onclick = null;
   };
   mounted = { root, owns, dispose };
-  root.append(heading, el('p', '已提交 Git 图 · 线条是真实父边；节点详情与历史交付按需读取，不调用 Agent。', 'hint'), controls, scope, feedback, tip, list, boundaries, nodePanel, paging, rounds);
+  graphSection.append(controls, scope, receipt, feedback, tip, list, boundaries, nodePanel, paging);
+  root.append(heading, el('p', main ? 'main 已提交 Git 图 · 线条是真实父边；子 Worker 历史交付请通过详情链接查看。'
+    : '历史交付迭代图 · 按真实持久交付记录展示，不读取当前分支提交历史。', 'hint'), start, rounds, graphSection);
   sync();
   if (typeof IntersectionObserver === 'function') {
     observer = new IntersectionObserver(entries => {
-      if (current() && !started && entries.some(entry => entry.isIntersecting)) void load(0);
+      if (current() && !started && entries.some(entry => entry.isIntersecting)) void begin();
     }, { threshold: 0 });
     observer.observe(root);
   }

@@ -7,7 +7,7 @@
 | 无 CLI 命令；保留旧读取协议 | `branch.history` | `{cursor?, limit?}`（默认 50，1..100） | 用户专属，只读 |
 | 无 CLI 命令；保留旧固定图协议 | `branch.version_graph` | `{delivery?, cursor?, limit?}`（limit 默认 50，1..100；delivery 为成功交付 Event ID） | 用户专属，只读 |
 | 无 CLI；Worker 详情按需读取 | `worker.version_graph` | `{id,delivery?,cursor?,limit?}`（默认30，1..100） | 用户专属，只读 |
-| 无 CLI；Worker 详情交付选择 | `worker.version_deliveries` | `{id,before?,limit?}`（默认30，1..100） | 用户专属，只读 |
+| 无 CLI；Worker 详情默认交付轮次图 | `worker.version_deliveries` | `{id,before?,limit?}`（默认30，1..100） | 用户专属，只读 |
 | 无 CLI；节点详情 | `worker.version_commit` | `{id,snapshot,commit}`（完整 SHA） | 用户专属，只读 |
 | `branch tree [--verbose]` | `branch.tree` | `{}` | 用户与 agent，只读 |
 | `branch show BRANCH\|TASK_ID` | `branch.show` | `{branch}` | 用户与 agent，只读 |
@@ -72,6 +72,8 @@ association = {id,worker_number,task_kind,evidence,delivery_id:EventID|null,
 `delivery_available` 表示持久收据结构可追溯，不保证尚未读取的 Git 对象仍存在；展开该交付时仍须处理 Git 核验错误。对子交付的导航使用关联的 `id`，展示使用 `worker_number`；选择该子轮次时转到其 Worker 并传其 `delivery_id`。
 
 ### worker.version_deliveries
+
+非 main Worker 详情版本模块默认直接读取此接口，展示成功轮次的迭代先后；提交节点及 Git 父边仍由用户点击轮次后显式指定 Event 调用 `worker.version_graph`。界面默认变化不改变 graph 省略 delivery 的兼容读协议。
 
 返回 `{id,deliveries,before,has_more}`。按成功 Event ID 倒序，每项为上述紧凑 association，另带 `delivered_at`（事件时间）、`source_commit:SHA|null`、`commit:SHA|null`。历史 `merged` 成功也保留，缺可靠固定源／父基线则提供不可读原因，不隐藏／伪造轮次；预约 delivery_id 不是轮次身份。
 

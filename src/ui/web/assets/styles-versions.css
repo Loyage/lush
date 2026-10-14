@@ -1,10 +1,10 @@
 .worker-versions{min-width:0;margin:24px 0;padding:18px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
 .worker-versions .section-title h2{margin:0;font-size:17px}
 .versions-controls,.versions-footer{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:12px 0}
-.versions-scope{margin:12px 0;font-size:14px;overflow-wrap:anywhere}
+.versions-scope,.version-round-heading{margin:12px 0;font-size:14px;overflow-wrap:anywhere}
 .versions-feedback{line-height:1.7}
 .versions-error{color:var(--failed)}
-.version-tip{overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+.version-tip,.version-receipt{overflow-wrap:anywhere;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
 .versions-list{list-style:none;padding:0;margin:16px 0 0}
 .version-commit{position:relative;display:grid;grid-template-columns:clamp(40px,22vw,120px) minmax(0,1fr);min-width:0}
 .version-graph-lanes-1 .version-commit{grid-template-columns:40px minmax(0,1fr)}
@@ -42,7 +42,13 @@
 .version-boundaries p{line-height:1.6}
 .version-boundary-sha{display:block;overflow-wrap:anywhere;font-size:11px}
 .version-rounds{min-width:0;padding-top:12px;border-top:1px solid var(--line)}
-.version-round-list{display:grid;gap:8px;margin:12px 0}
+.version-round-list{list-style:none;padding:0;margin:12px 0}
+.version-round{display:grid;grid-template-columns:32px minmax(0,1fr);min-width:0}
+.version-round-rail{position:relative;text-align:center;padding-top:18px;color:var(--accent)}
+.version-round[data-previous-delivery] .version-round-rail:after{content:"";position:absolute;top:28px;bottom:-20px;left:15px;width:2px;background:var(--accent)}
+.version-round h4{margin:0 0 6px;font-size:14px;overflow-wrap:anywhere}
+.version-round-choice{margin-top:8px}
+.version-round-detail{min-width:0}
 .version-round button,.worker-versions button{max-width:100%;white-space:normal;overflow-wrap:anywhere}
 .worker-versions [hidden]{display:none}
 @media(max-width:640px){.worker-versions{padding:12px}.version-body{padding:10px}.version-node-detail{padding:12px}.version-graph-lanes-3 .version-commit{grid-template-columns:60px minmax(0,1fr)}}

@@ -69,6 +69,9 @@ try {
   await commit(child, 'child.txt', '子 Worker 开发二\n\n完整消息 <script>window.injected=true</script>');
   const childDelivery = await deliver(child), childLanding = JSON.parse(childDelivery.data).commit;
   const fixedTip = await git(task.workspace, 'rev-parse', 'HEAD');
+  const secondDelivery = await deliver(task);
+  const { task: undelivered } = await f.project.order('尚未交付但分支有提交');
+  await commit(undelivered, 'unpublished.txt', '未交付提交不作为交付历史');
   const projectPath = `/p/${projectRouteId(f.root)}/`;
   const reservation = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('') });
   const port = reservation.port; reservation.stop(true); base = `http://127.0.0.1:${port}`;
@@ -89,15 +92,19 @@ try {
   await waitFor(`document.querySelector('.worker-versions')?.dataset.workerId==='${task.id}'`);
   assert(await execute(`return !versionReads.some(p=>p.includes('/version-graph')) && !versionReads.some(p=>p.includes('/version-deliveries'))`), 'detail entry eagerly read Git or delivery list');
   await execute(`document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
+  await waitFor('document.querySelectorAll(".version-round").length===2');
+  assert(await execute(`return !versionReads.some(p=>p.includes('/version-graph')) && document.querySelector('.version-round[data-delivery="${secondDelivery.id}"]').dataset.previousDelivery==='${firstDelivery.id}' && !document.querySelector('.version-rounds').hidden`), 'delivery graph did not appear directly from persistent rounds');
+  await screenshot('worker-direct-delivery-iterations');
+  await click(`.version-round[data-delivery="${secondDelivery.id}"] .version-round-choice`);
   await waitFor('document.querySelectorAll(".version-commit").length===30');
-  assert(await execute(`return document.querySelector('.version-tip').textContent.includes('${fixedTip}') && !document.querySelector('.version-input')`), 'current fixed tip or lazy node contract failed');
+  assert(await execute(`return versionReads.at(-1).includes('delivery=${secondDelivery.id}') && document.querySelector('.version-tip').textContent.includes('${fixedTip}') && !document.querySelector('.version-input')`), 'fixed round tip or lazy node contract failed');
   assert(await execute(`return document.querySelector('.version-commit[data-commit="${childLanding}"] .version-task-link').getAttribute('href')==='#worker-${child.id}' && document.querySelector('.version-task-link').textContent.includes('${child.worker_number}')`), 'child href/number is not persistent');
   await execute(`document.querySelector('.version-node').focus();`);
   await rpc(`/session/${session}/actions`, { actions: [{ type: 'key', id: 'keyboard', actions: [{ type: 'keyDown', value: '\uE007' }, { type: 'keyUp', value: '\uE007' }] }] });
   await waitFor('!!document.querySelector(".version-node-detail .version-message")');
   assert(await execute(`return versionReads.filter(p=>p.includes('/version-commit')).length===1 && !window.injected && !!document.querySelector('.version-node-detail .version-sha') && document.activeElement===document.querySelector('.version-node-detail')`), 'keyboard node detail was not lazy, focused or safe');
   await execute(`document.querySelector('.version-node-detail').scrollIntoView({block:'start'});`);
-  await screenshot('worker-current-node');
+  await screenshot('worker-fixed-round-node');
   // Several forward pages and a cache miss on the return path: DOM/data stay bounded.
   for (let index = 2; index <= 4; index++) {
     await click('.versions-more'); await waitFor(`document.querySelector('.versions-feedback').textContent.includes('第 ${index} 页')`);
@@ -117,12 +124,13 @@ try {
   await execute(`document.querySelector('.version-node-detail').scrollIntoView({block:'start'});`);
   await screenshot('child-fixed-delivery');
   await click('.versions-back'); await waitFor('document.querySelectorAll(".version-commit").length===30');
-  await click('.version-rounds summary'); await waitFor('!!document.querySelector(".version-round button")');
-  assert(await execute(`return versionReads.filter(p=>p.includes('/version-deliveries')).length===1`), 'delivery selector fetched more than its explicit first page');
-  await click('.version-round button'); await waitFor(`document.querySelector('.versions-scope').textContent.includes('Event ${firstDelivery.id}') && document.querySelectorAll('.version-commit').length===1`);
+  assert(await execute(`return versionReads.filter(p=>p.includes('/version-deliveries')).length===1`), 'delivery graph fetched beyond its first page');
+  await click(`.version-round[data-delivery="${firstDelivery.id}"] .version-round-choice`);
+  await waitFor(`document.querySelector('.versions-scope').textContent.includes('Event ${firstDelivery.id}') && document.querySelectorAll('.version-commit').length===1`);
   await screenshot('worker-earlier-delivery');
-  await click('.versions-back'); await waitFor('document.querySelectorAll(".version-commit").length===30');
-  await execute(`document.querySelector('.version-rounds').open=false;`);
+  await click('.versions-back'); await waitFor('document.querySelector(".version-round-detail").hidden');
+  await click(`.version-round[data-delivery="${secondDelivery.id}"] .version-round-choice`);
+  await waitFor('document.querySelectorAll(".version-commit").length===30');
   await click('.version-node'); await waitFor('!!document.querySelector(".version-node-detail .version-message")');
   // Real page layout in both themes, including detail expansion. Firefox has a 500px top-level
   // minimum, so a same-origin srcdoc clone supplies a genuine 390px browsing context below.
@@ -151,13 +159,23 @@ try {
   // to its actual detail; it must not rebuild the retired independent version page.
   await execute(`location.hash='#versions';`);
   await waitFor(`location.hash==='#worker-${task.parent_id}' && document.querySelector('#detail').dataset.taskId==='${task.parent_id}' && !!document.querySelector('.worker-versions')`);
+  await execute(`document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
+  await waitFor('document.querySelectorAll(".version-commit").length>0');
+  assert(await execute(`return !document.querySelector('.version-delivery-choice') && document.querySelector('.version-task-link').getAttribute('href')==='#worker-${task.id}'`), 'main must keep only native child links');
   await screenshot('legacy-version-main-detail');
+  const beforeEmpty = await execute(`return versionReads.filter(p=>p.includes('/version-graph')).length`);
+  await execute(`location.hash='#worker-${undelivered.id}';`);
+  await waitFor(`document.querySelector('.worker-versions')?.dataset.workerId==='${undelivered.id}'`);
+  await execute(`document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
+  await waitFor(`document.querySelector('.version-rounds').textContent.includes('暂无成功交付轮次')`);
+  assert(await execute(`return document.querySelectorAll('.version-round').length===0 && versionReads.filter(p=>p.includes('/version-graph')).length===${beforeEmpty}`), 'unpublished branch commits pretended to be deliveries');
+  await screenshot('worker-no-deliveries');
   const parentRead = await f.project.workerVersionGraph({ id: task.id }); assert(parentRead.tip === advancedTip, 'browser reads wrote Git');
   assert(await execute('return browserErrors.length===0'), 'browser emitted errors');
-  fs.writeFileSync(path.join(logs, 'evidence.json'), JSON.stringify({ task: task.worker_number, child: child.worker_number, fixedTip, advancedTip, firstDelivery: firstDelivery.id, childDelivery: childDelivery.id,
+  fs.writeFileSync(path.join(logs, 'evidence.json'), JSON.stringify({ task: task.worker_number, child: child.worker_number, fixedTip, advancedTip, firstDelivery: firstDelivery.id, secondDelivery: secondDelivery.id, childDelivery: childDelivery.id,
     reads: await execute('return versionReads'), browserErrors: await execute('return browserErrors'), screenshots: output }, null, 2));
   passed = true;
-  console.log(`PASS production Worker detail → 30-node paging/cache return → lazy commit → child fixed delivery → native child detail; delivery selector; double themes/390px. Screenshots: ${output}; logs: ${logs}`);
+  console.log(`PASS production Worker detail → direct persistent delivery iterations → fixed round → 30-node paging/cache return → lazy commit → child fixed delivery → native child detail; main link-only + empty history; double themes/390px. Screenshots: ${output}; logs: ${logs}`);
 } catch (error) {
   if (session) await screenshot('failure').catch(() => {});
   console.error(`Worker version browser failure; full logs: ${logs}`); throw error;
