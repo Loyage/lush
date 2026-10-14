@@ -8,7 +8,7 @@ Web 进程只暴露读取与用户动作，不提供通用 RPC 代理。全局�
 
 ## Worker 页面与命名
 
-浏览器的 Worker 详情使用 `#worker-ID`，执行详情仍在详情页显式点击打开，不提供独立 hash；「工作列表」`#workers` 只含开发 Worker，「管家列表」`#valets` 只含持久 Valet，两列表共享 overview 与 `scope=all` 有界历史分页、即时状态筛选和提交式文本搜索，明确仅检索已读取范围；「工作树」使用 `#worker-graph`，不把 Valet 的操作目标当作委派子节点。Valet 详情保留指令、结果与执行阅读区，另提供「停用授权」「停止管家」及重新预检后确认删除；停止请求不等于实际退出，调用与在途操作收口前不得删除，未知结果不重放。仍无开发、Git、合并、验收或连续追加对话；精确删除保护见[维护接口](rpc/maintenance.md#彻底删除-worker)。HTTP 与 Web 写动作同步使用下文的 `/api/worker/**`、`/api/workers`、`/api/worker-graph` 和 `worker.*`。旧 Task 路由与动作不保留别名；数据字段与历史事件仍可保留 `task`，完整边界见[核心 API 更名说明](../engineering/core-api.md#worker-更名与兼容边界)。
+浏览器的 Worker 详情使用 `#worker-ID`，执行详情仍在详情页显式点击打开，不提供独立 hash；「工作列表」`#workers` 只含开发 Worker，「管家列表」`#valets` 只含持久 Valet，两列表共享 overview 与 `scope=all` 有界历史分页、即时状态筛选和提交式文本搜索，明确仅检索已读取范围；「工作树」使用 `#worker-graph`，不把 Valet 的操作目标当作委派子节点。旁边的只读「交付」使用 `#deliveries`，默认活动 / 异常，`#deliveries-history` 按需分页成功落地历史；入口及页头的“待处理”只显示服务端提供的合法完整计数，旧读面缺字段明示“待处理统计未提供”，不以阶段数或已读分页估算；真实目标下临时分组归并批次、未固定意图与普通串行交付，不复制开发子树或改变父子边。来源卡片可定位本轮交付；`#deliveries[-history]-run-ID[-node-ID][-source-ID]` 与 `#deliveries[-history]-source-ID[-delivery-ID]` 支持批次、节点或来源深链接，`#worker-graph-worker-ID` 返回工作树定位来源。未读分页、筛选隐藏、旧代与截断明示，不能据此认定对象不存在；游标结构失效须显式从首批刷新。高级区按需展开完整 SHA、generation、节点及返回的收据事件证据，点击真实整合 Worker 进入原详情与执行阅读器。整合完成 / 待验收不等于批次落地，页面不提供批次批准、撤回、验收或重试动作；数据与权限见[项目交付视图](rpc/convergence.md#项目交付视图d642)。Valet 详情保留指令、结果与执行阅读区，另提供「停用授权」「停止管家」及重新预检后确认删除；停止请求不等于实际退出，调用与在途操作收口前不得删除，未知结果不重放。仍无开发、Git、合并、验收或连续追加对话；精确删除保护见[维护接口](rpc/maintenance.md#彻底删除-worker)。HTTP 与 Web 写动作同步使用下文的 `/api/worker/**`、`/api/workers`、`/api/worker-graph` 和 `worker.*`。旧 Task 路由与动作不保留别名；数据字段与历史事件仍可保留 `task`，完整边界见[核心 API 更名说明](../engineering/core-api.md#worker-更名与兼容边界)。
 
 问卷、通知详情和 Agent 正文中的独立 W／V 用户编号（例如 `W141-1`、`V1`）自动显示为蓝色下划线链接。链接使用 `#worker-number-W141-1` 或 `#worker-number-V1`，打开时通过当前项目只读查找解析真实内部身份，再进入原有 `#worker-ID` 通用详情；支持键盘与新标签打开，不把编号当作内部 ID，也不在渲染时查询。未知／已删除编号明确报错。代码块、已有链接、编辑区和普通操作按钮不自动改写；选择题选项中的编号链接与选择按钮独立，查看 Worker 不会作答，返回问卷保留未提交草稿。静态 HTML 效果预览仍保持原 sandbox，不注入跳转能力。
 
@@ -90,6 +90,7 @@ Lush 不提供 `/api/environments` 受管 SSH 或 `/e/<environment-id>/` 代理�
 | `GET /api/workers?scope=&before=&limit=` | `worker.page`，有界Worker分页，`scope` 为 `work` / `all` |
 | `GET /api/notices?status=&before=&limit=` | `notice.page`：全部类型事项与处理结果的按需分页；过滤掉旧 `plan` 类型；参数和留档语义见[待决问题](rpc/notices.md) |
 | `GET /api/worker-graph` | Worker 父子读面（`worker.graph`） |
+| `GET /api/worker-delivery-graph` | 用户专属[项目交付视图](rpc/convergence.md#项目交付视图d642)（`worker.delivery_graph`） |
 | `GET /api/versions?cursor=&limit=` | 用户专属只读 `branch.history`，main 第一父链、固定 tip 分页与精确 Worker/原始指令关联；见 [分支 RPC](rpc/branches.md#branchhistory) |
 | `GET /api/version-graph?delivery=&cursor=&limit=` | 用户专属只读 `branch.version_graph`，省略 delivery 读取完整 main 可达图；delivery 为正整数成功交付 Event ID。固定图范围签名分页，未知／重复字段、token、非正整数字段拒绝；沿用登录／Origin／固定项目路由，不接受 POST action，见 [分支 RPC](rpc/branches.md#branchversion_graph) |
 | `GET /api/worker/<id>/run-settings` | `worker.run_settings {id}`；显式读取已有有效 Profile，用户专属/no-store，无查询参数，不含连接凭证 |

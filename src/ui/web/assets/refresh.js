@@ -10,6 +10,7 @@ import { clear, show } from './messages.js';
 import { detail, registerNavigation } from './navigate.js';
 import { syncComposer } from './composer.js';
 import { loadTaskGraph } from './render-task-graph.js';
+import { refreshDeliveryCounts } from './render-delivery-view.js';
 import { paintUsageLast } from './render-agent.js';
 import { renderNotices } from './render-notices.js';
 import { renderNoticeBanner } from './notice-banner.js';
@@ -156,6 +157,7 @@ async function runRefresh(session, currentResponse) {
     }
     // Enabled system reminders continue in hidden tabs, but heavy view reads stay paused.
     if (hidden()) return;
+    void refreshDeliveryCounts();
     // 页面身份决定谁拥有画布，轮询不覆盖其它页面。
     const overviewOpen = ui.view?.id === 'overview';
     if (overviewOpen) renderOverview(data);

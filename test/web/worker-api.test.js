@@ -18,6 +18,8 @@ const reads = [
   ['worker/7/history?after=2', 'history', { id: 7, after: 2 }],
   ['worker/7/history-page?before=9&limit=2', 'history_page', { id: 7, before: 9, limit: 2 }],
   ['worker/7/relations?after=0&limit=2', 'relations', { id: 7, after: 0, limit: 2 }],
+  ['worker/7/version-lineage?cursor=abc&limit=2', 'version_lineage', { id: 7, cursor: 'abc', limit: 2 }],
+  ['worker/7/version-lineage-commit?snapshot=abc&commit=def', 'version_lineage_commit', { id: 7, snapshot: 'abc', commit: 'def' }],
   ['worker/7/delete-preview', 'delete_preview', { id: 7 }],
   ['worker/7/diff', 'diff', { id: 7 }],
   ['worker/7/usage', 'usage', { id: 7 }],
@@ -78,6 +80,22 @@ test('worker HTTP reads forward only the new namespace with unchanged typed para
     const before = f.calls.length;
     expect((await fetch(`${f.url}/api/workers`)).status).toBe(400);
     expect((await fetch(`${f.url}/p/${'0'.repeat(16)}/api/workers`)).status).toBe(400);
+    expect(f.calls).toHaveLength(before);
+  } finally { f.close(); }
+});
+
+test('delivery graph Host read keeps source project, typed query and no unqualified/unknown project fallback', async () => {
+  const f = await hostFixture();
+  try {
+    for (const [base, project] of [[f.urlA, f.a], [f.urlB, f.b]]) {
+      expect((await fetch(`${base}/api/worker-delivery-graph?history=1&limit=3&cursor=abc`)).status).toBe(200);
+      expect(f.calls.at(-1)).toEqual({ project, method: 'worker.delivery_graph', params: { history: true, limit: 3, cursor: 'abc' } });
+    }
+    const before = f.calls.length;
+    for (const route of [`${f.url}/api/worker-delivery-graph`, `${f.url}/p/${'0'.repeat(16)}/api/worker-delivery-graph`])
+      expect((await fetch(route)).status).toBe(400);
+    for (const query of ['history=true','limit=1e2','history=0&history=1','token=secret'])
+      expect((await fetch(`${f.urlA}/api/worker-delivery-graph?${query}`)).status).toBe(400);
     expect(f.calls).toHaveLength(before);
   } finally { f.close(); }
 });

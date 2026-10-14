@@ -9,7 +9,7 @@ import { contentRead } from './server-content-routes.js';
 
 const MUTATIONS = new Set(['settings.clear_override','settings.migration.apply','agent.network.configure','agent.configure','agent.environment.configure','agent.usage.configure','agent.connections.save','agent.connections.remove','agent.connections.sampling','agent.connections.query','agent.connections.models.refresh','agent.connections.login.start','agent.connections.login.finish','agent.connections.device.start','agent.connections.device.cancel','agent.connections.device.poll','agent.packages.install','agent.packages.remove','agent.packages.update','system.configure','system.interrupt_all','system.resume_all','hooks.save','hooks.remove','hooks.command_save','hooks.command_remove','hooks.command_history_remove','hooks.command_import','hooks.auto_select','hooks.completion_defaults','hooks.automation_settings','worker.acceptance_notice','hooks.signal_save','hooks.signal_remove','management.permissions_update','management.create','management.submit','management.binding_update','worker.completion','worker.hook_attach','worker.hook_update','worker.hook_remove','order.submit','input.emit','input.emission_cancel','input.exclusive_release','draft.add','draft.update','draft.remove','worker.spawn','worker.message','worker.rename','worker.auto_merge','worker.reserve','worker.reserve_all','worker.resolve','worker.accept','worker.reopen','worker.sync_parent','worker.resolve_sync','worker.resolve_divergence','worker.unreserve','worker.approve_merge','worker.cancel','worker.retry','worker.clear_override','worker.interrupt','worker.resume','worker.configure','worker.cleanup','worker.delete','notice.answer','notice.dismiss','notice.read','branch.archive','branch.convergence_set','branch.convergence_defaults_set','branch.convergence_retry']);
 const CORE_INPUT_READ = /^\/api\/input\/(draft|input|message|management)\/([1-9]\d*)$/;
-const CORE_READS = new Set(['/api/cli/catalog','/api/management/permissions','/api/automation/completion/workers','/api/branch-convergence','/api/branch-convergence/defaults','/api/branch-convergence/runs','/api/settings/runtime','/api/settings/migration','/api/hooks','/api/hooks/commands/executions','/api/hooks/commands/export','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/worker-lookup','/api/notices','/api/worker-graph','/api/versions','/api/version-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
+const CORE_READS = new Set(['/api/cli/catalog','/api/management/permissions','/api/automation/completion/workers','/api/branch-convergence','/api/branch-convergence/defaults','/api/branch-convergence/runs','/api/settings/runtime','/api/settings/migration','/api/hooks','/api/hooks/commands/executions','/api/hooks/commands/export','/api/inputs','/api/input-parents','/api/overview','/api/snapshot','/api/workers','/api/worker-lookup','/api/notices','/api/worker-graph','/api/worker-delivery-graph','/api/versions','/api/version-graph','/api/agent/config','/api/agent/models','/api/agent/resources','/api/agent/status','/api/agent/usage/config','/api/agent/usage/history','/api/agent/connections','/api/agent/connections/history','/api/agent/connections/models','/api/agent/packages','/api/agent/selection/resources','/api/agent/environment','/api/agent/network','/api/docs','/api/docs/search-index']);
 const CORE_WORKER_READ = /^\/api\/worker\/\d+(?:\/(?:hooks|relations|version-graph|version-deliveries|version-commit|version-lineage|version-lineage-commit|history|history-page|reading-page|reading-record|progress-history|run-settings|delete-preview|diff|code-state|code-tree|code-file|usage|report|transcript|transcript-page|transcript-latest|transcript-step|transcript-search))?$/;
 // 问卷选项的静态 HTML 预览：独立子文档，和报告一样有更严的 CSP，不能被上面的 Worker 读白名单漏掉。
 const CORE_NOTICE_PREVIEW = /^\/api\/worker\/\d+\/notice\/\d+\/preview\/\d+\/\d+$/;
@@ -232,6 +232,19 @@ export async function projectRoutes(context, projectHost, staticAssets) {
       }
       graphOptions(params);
       return json(await client.request('worker.graph', params));
+    }
+    if (url.pathname === '/api/worker-delivery-graph') {
+      const params = {};
+      for (const [key, value] of url.searchParams) {
+        check(['history','cursor','limit'].includes(key) && !(key in params), 'unknown or duplicate delivery graph query parameter');
+        if (key === 'history') {
+          check(value === '0' || value === '1', 'history must be 0 or 1'); params.history = value === '1';
+        } else if (key === 'limit') {
+          check(/^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value)), 'delivery graph limit must be a positive integer');
+          params.limit = Number(value);
+        } else params.cursor = value;
+      }
+      return json(await client.request('worker.delivery_graph', params));
     }
     if (url.pathname === '/api/version-graph') {
       const params = {};

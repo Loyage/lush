@@ -2,6 +2,7 @@ import { $, badge, button, el, roleBadge } from './dom.js';
 import { workerKind, workerKindLabel } from './worker-kind.js';
 import { isValet } from './work-type.js';
 import { action } from './api.js';
+import { projectBase } from './route.js';
 import { graphPage, readTaskGraph, paintGraphStatus, graphTail, observeGraphTail } from './task-graph-loading.js';
 import { confirmDialog } from './dialog.js';
 import { agentHelp } from './help.js';
@@ -23,6 +24,8 @@ import { workerDeleteControl } from './worker-delete.js';
 import { workerRenameControl } from './worker-rename.js';
 import { progressReportingEnabled, progressStats, renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
+import { deliveryLink, sourceDelivery } from './delivery-ui.js';
+import { deliveryHash } from './delivery-model.js';
 import { workerHooks } from './render-hooks.js';
 import { guardedAction, iterationControls } from './render-iteration.js';
 import { appendInputBlocker, inputQueueText } from './worker-input.js';
@@ -183,6 +186,8 @@ function taskCard(node, folded, refresh, mergeAllByBranch = new Map(), queueNote
   if (node.notice_count) head.append(badge(`${node.notice_count} 条待决`, 'b-awaiting'));
   if (!minimal) head.append(taskActionsMenu(node, mergeAllByBranch, inputWorkers));
   row.append(head);
+  const tracking = sourceDelivery(node.delivery_summary);
+  if (tracking) row.append(tracking);
   if (minimal) {
     row.append(minimalSummary(node, queueNote, folded), taskActionsMenu(node, mergeAllByBranch, inputWorkers));
     return row;
@@ -291,7 +296,7 @@ function appendTaskActions(row, node, mergeAllByBranch, inputWorkers) {
     row.append(mergeAllControl(node, mergeAllByBranch.get(node.branch) ?? [], loadTaskGraph));
   const iteration = iterationControls(node, { refresh: loadTaskGraph });
   if (iteration) row.append(iteration);
-  const controls = deliveryControls(node, { refresh: loadTaskGraph });
+  const controls = deliveryControls(node, { refresh: loadTaskGraph, showTracking: false });
   if (controls) row.append(controls);
   const hooks = workerHooks(node, { compact: true, refresh: loadTaskGraph });
   if (hooks) row.append(hooks);
@@ -433,7 +438,7 @@ export function renderTaskGraph(graph) {
   // unless content, local display preferences, the deletion filter or the layout width changed.
   // A stale graph response can still list a just-deleted subtree, so the filter set is part of the key.
   const renderKey = JSON.stringify([graph, minimal, [...saved].sort(), [...hidden].sort(),
-    ui.taskGraphShowArchived, [...ui.taskGraphFilesExpanded].sort(), host.clientWidth,
+    ui.taskGraphShowArchived, ui.taskGraphLocator, [...ui.taskGraphFilesExpanded].sort(), host.clientWidth,
     [...ui.deletedWorkerIds].sort((a, b) => a - b)]);
   if (host.querySelector('.task-graph')?.dataset.renderKey === renderKey) return;
   const before = captureGraph(host);
@@ -551,7 +556,10 @@ export function renderTaskGraph(graph) {
   }
   hero.append(summary, mode, foldControls, button('刷新', () => loadTaskGraph({ retry: true }).catch(graphFailure), 'ghost'),
     el('p', undefined, 'hint task-graph-load-status'));
+  const locatedDelivery = raw.find(node => node.id === ui.taskGraphLocator)?.delivery_summary;
+  hero.append(deliveryLink('交付追踪 →', deliveryHash(locatedDelivery?.locator || { worker_id: ui.taskGraphLocator }, locatedDelivery?.stage === 'integrated')));
   box.append(hero);
+  if (ui.taskGraphLocator) box.append(el('p', '正在定位来源 Worker；若被折叠或筛选隐藏，请展开或调整显示。尚未读到不表示不存在。', 'hint graph-locator-status'));
   if (view.truncated && typeof view.has_more !== 'boolean') box.append(el('p', `只显示最近及活动的 ${nodes.length} / ${graph.total} 条 Worker；父节点可能在截断范围外。`, 'hint'));
   const paint = (node, parent) => {
     const wrap = el('div', undefined, 'task-graph-node');
@@ -586,6 +594,14 @@ export function renderTaskGraph(graph) {
   if (focusKey) (host.querySelector(`[data-graph-focus="${focusKey}"]`)
     || (focusTask && host.querySelector(`[data-graph-focus="title-${focusTask}"]`)))?.focus({ preventScroll: true });
   observeGraphTail(loadNextTaskGraph, readingProtected);
+  if (ui.taskGraphLocator) {
+    const card = host.querySelector(`[data-task-id="${ui.taskGraphLocator}"]`);
+    const status = host.querySelector('.graph-locator-status');
+    if (card) {
+      status.textContent = '已定位来源 Worker（真实开发父子关系未改变）'; card.classList.add('delivery-located');
+      if (!ui.taskGraphLocated) { card.scrollIntoView?.({ block: 'nearest' }); ui.taskGraphLocated = true; }
+    } else status.textContent = graph.has_more ? '来源 Worker 尚未在已读且可见范围；可继续加载分页，或展开 / 调整筛选。' : '已读范围未显示来源 Worker；可能已归档、筛选或折叠。不能据此认定不存在。';
+  }
 }
 
 function graphFailure(error) {
@@ -646,9 +662,10 @@ function hasPendingInput() {
   }
   return false;
 }
-export async function openTaskGraph() {
+export async function openTaskGraph({ workerId = null, push = true } = {}) {
   if (ui.view?.id !== 'task-graph') ui.taskGraphShowArchived = false;
-  const view = activateDetailView({ view: 'task-graph', hash: '#worker-graph' });
+  ui.taskGraphLocator = workerId; ui.taskGraphLocatorBase = projectBase(); ui.taskGraphLocated = false;
+  const view = activateDetailView({ view: 'task-graph', hash: `#worker-graph${workerId ? `-worker-${workerId}` : ''}`, push });
   const page = graphPage();
   if (page.graph) {
     renderTaskGraph(page.graph);

@@ -11,6 +11,8 @@ import { liveInterval } from './live.js';
 import { onDevicePreferences, onPrefChange, pollingIntervals, readPref, saveDevicePreference, startDevicePreferencesSync } from './prefs.js';
 import { liveRefresh, refresh, applySort, applyFilters, initRefreshPolling } from './refresh.js';
 import { openTaskGraph } from './render-task-graph.js';
+import { openDeliveryView } from './render-delivery-view.js';
+import { deliveryTarget, deliveryHash } from './delivery-model.js';
 import { initSidebar } from './sidebar-init.js';
 import { resetProjectMaintenance, renderProjectMaintenance } from './project-maintenance.js';
 import { activateDetailView, openResource, paintCollapsed, toggleMobileNavigation } from './sidebar-ui.js';
@@ -25,7 +27,7 @@ import { ensureProject, openProjectManager, openProjectOverview, workbenchStatus
 import { renderAutoSelectBanner } from './auto-select-banner.js';
 import { initNoticeRecords, openNotice } from './render-notices.js';
 import { workerNumberTarget, resolveWorkerNumber } from './worker-links.js';
-import { projectRoute, workspaceHref } from './route.js';
+import { projectRoute, projectBase, workspaceHref } from './route.js';
 import { configureWorkspaceShell, renderGlobalInboxSummary, workspaceLink } from './workspace-shell.js';
 import { requestPageLeave, resetPageLeaveGuard, registerPageLeaveGuard } from './page-leave-guard.js';
 import { onDeviceAutomation, startDeviceAutomationObserver } from './workspace-automation.js';
@@ -158,7 +160,10 @@ function openHashTarget(hash, project, doc, generation) {
   if (hash === '#inputs') return openInputs({ push: false });
   const input = /^#input-(draft|input|message|management)-([1-9]\d*)$/.exec(hash);
   if (input && Number.isSafeInteger(Number(input[2]))) return openInputs({ item: { kind: input[1], id: Number(input[2]) }, push: false });
-  if (hash === '#worker-graph') return ui.view?.id === 'task-graph' ? undefined : openTaskGraph().catch(report);
+  const delivery = deliveryTarget(hash);
+  if (delivery) return openDeliveryView({ ...delivery, push: false }).catch(report);
+  const graphWorker = /^#worker-graph(?:-worker-([1-9]\d*))?$/.exec(hash);
+  if (graphWorker && (!graphWorker[1] || Number.isSafeInteger(Number(graphWorker[1])))) return openTaskGraph({ workerId: Number(graphWorker[1]) || null, push: false }).catch(report);
   const recordId = /^#notices-([1-9]\d*)$/.exec(hash)?.[1];
   if (recordId && Number.isSafeInteger(Number(recordId))) {
     return openNotice(Number(recordId), { record: true, push: false }).catch(report);
@@ -204,7 +209,7 @@ export async function boot() {
   disposeRefreshPolling?.(); disposeRefreshPolling = null;
   disposePreferences?.(); disposeAutomation?.(); disposeAutomationView?.(); disposeInbox?.(); disposeInboxReady?.();
   disposePreferences = disposeAutomation = disposeAutomationView = disposeInbox = disposeInboxReady = null;
-  ui.disposeDetailRequests?.();
+  ui.disposeDetailRequests?.(); ui.disposeDeliveryView?.(); ui.deliveryCounts?.controller?.abort();
   if (refreshTimer !== null) clearInterval(refreshTimer); if (liveTimer !== null) clearInterval(liveTimer);
   if (hashListener !== null) globalThis.removeEventListener?.('hashchange', hashListener);
   refreshTimer = liveTimer = hashListener = null;
@@ -256,7 +261,7 @@ export async function boot() {
     if (projectRoute()) $('home').setAttribute('data-help', '在新标签打开上级用户工作台，当前项目的输入与阅读位置保留。');
     else $('home').removeAttribute('data-help');
   }
-  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'hooks-open'];
+  const projectOnly = ['overview-open', 'task-graph-open', 'deliveries-open', 'inputs-open', 'hooks-open'];
   for (const id of projectOnly) { const target = $(id); if (target) { target.disabled = !projectReady; target.setAttribute('aria-disabled', String(!projectReady)); } }
   if ($('composer-shell')) $('composer-shell').hidden = !projectReady;
 
@@ -272,7 +277,18 @@ export async function boot() {
       event.preventDefault(); toggleMobileNavigation(false); $('sidebar-toggle').focus();
     }
   };
-  $('task-graph-open').onclick = () => requestPageLeave('#worker-graph', { leave: () => projectReady ? openTaskGraph().catch(report) : noProjectView() });
+  if ($('deliveries-open')) $('deliveries-open').onclick = () => {
+    const workerId = ui.taskGraphLocatorBase === projectBase() ? ui.taskGraphLocator : null;
+    const source = ui.taskGraphPage?.graph?.nodes?.find(node => node.id === workerId)?.delivery_summary;
+    const options = ui.view?.id === 'deliveries' && ui.deliveryPage?.base === projectBase()
+      ? { locator: ui.deliveryPage.locator, history: ui.deliveryPage.history }
+      : { locator: source?.locator || { worker_id: workerId }, history: source?.stage === 'integrated' };
+    return requestPageLeave(deliveryHash(options.locator, options.history), { leave: () => projectReady ? openDeliveryView(options).catch(report) : noProjectView() });
+  };
+  $('task-graph-open').onclick = () => {
+    const workerId = ui.view?.id === 'deliveries' ? ui.deliveryPage?.treeWorker : ui.taskGraphLocatorBase === projectBase() ? ui.taskGraphLocator : null;
+    return requestPageLeave(`#worker-graph${workerId ? `-worker-${workerId}` : ''}`, { leave: () => projectReady ? openTaskGraph({ workerId }).catch(report) : noProjectView() });
+  };
   $('view-back').onclick = () => { if ($('view-back').disabled) return; if (typeof window.history.back === 'function') return window.history.back(); return requestPageLeave('', { leave: goOverview }); };
   if (projectReady) { initSidebar(); initNoticeRecords(); disposeRefreshPolling = initRefreshPolling(); }
   hashListener = onHashChange; globalThis.addEventListener?.('hashchange', hashListener);

@@ -1,4 +1,5 @@
 import { check, isPlainObject, TERMINAL } from '../types.js';
+import { convergenceVerificationMode } from '../convergence-contract.js';
 
 const KEY = /^[a-z][a-z0-9_-]{0,63}$/;
 const MAX_STEPS = 32;
@@ -192,16 +193,24 @@ function decode(raw) {
 const RESERVATION_STATUSES = new Set(['pending','preparing','requested','started','integrated','completed','failed','cancelled']);
 const MERGE_RESERVATION_STATUSES = new Set([...RESERVATION_STATUSES, 'executing', 'resolving', 'suspended', 'blocked', 'withdrawn']);
 
-/** 存储形态解码：version 1 是旧形态（merge / showcase），version 2 是新式 order/child 的合并预约。
- *  两者都要原样交给 UI（`render-delivery.js` 按 `version === 2` 分支已被设计好），
- *  认不出的形态才降级成 `{status:'invalid'}`，让它以「预约状态需检查」的形式可见而不是消失。 */
-function decodeReservation(raw) {
+/** 存储形态解码：保留 v1/v2 兼容；v3 核验固定交付身份及新旧验证模式。
+ * 未知版本、损坏字段或未知模式降级为 invalid，不把缺失旧验证引用解释成免验证。 */
+export function decodeReservation(raw) {
   if (!raw) return null;
   try {
     const value = typeof raw === 'string' ? JSON.parse(raw) : raw;
     if (!isPlainObject(value) || !['merge','showcase'].includes(value.kind)) return { status: 'invalid' };
-    const statuses = value.version === 2 ? MERGE_RESERVATION_STATUSES : value.version === 1 ? RESERVATION_STATUSES : null;
+    const statuses = [2, 3].includes(value.version) ? MERGE_RESERVATION_STATUSES : value.version === 1 ? RESERVATION_STATUSES : null;
     if (!statuses || !statuses.has(value.status)) return { status: 'invalid' };
+    if (value.version === 3) {
+      if (value.kind !== 'merge' || !Number.isSafeInteger(value.parent_id) || value.parent_id <= 0
+        || !Number.isSafeInteger(value.delivery_id) || value.delivery_id <= 0
+        || !Number.isSafeInteger(value.enqueue_seq) || value.enqueue_seq <= 0
+        || typeof value.commit !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value.commit)
+        || (value.run_id !== undefined && (!Number.isSafeInteger(value.run_id) || value.run_id <= 0
+          || !Number.isSafeInteger(value.generation) || value.generation <= 0))) return { status: 'invalid' };
+      convergenceVerificationMode(value.verification_mode, value.validation);
+    }
     return value;
   } catch { return { status: 'invalid' }; }
 }

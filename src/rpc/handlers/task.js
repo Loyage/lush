@@ -6,6 +6,7 @@ export const handlers = {
   'worker.rename'(p, params) { return p.renameTask(id(params.id), params.title); },
   'worker.lookup'(p, params) { return p.store.lookupWorker(params.number); },
   'worker.graph'(p, params) { return p.taskGraph(params); },
+  'worker.delivery_graph'(p, params) { return p.workerDeliveryGraph(params); },
   'worker.list'(p, params, actor) {
     const after = Number(params.after ?? 0), limit = Number(params.limit ?? 200);
     check(Number.isSafeInteger(after) && after >= 0 && Number.isInteger(limit) && limit > 0 && limit <= 1000, 'invalid worker page');

@@ -5,7 +5,7 @@ import { fixture } from './helpers.js';
 
 // Strict public namespace; authority stays unchanged when optional profile selection is added.
 const reads = {
-  lookup: ['number'], graph: ['details','hidden_statuses','include_archived','cursor','scope'], list: ['after','limit'], activity: ['limit','scope'], page: ['before','limit','scope'],
+  delivery_graph: ['history','cursor','limit'], lookup: ['number'], graph: ['details','hidden_statuses','include_archived','cursor','scope'], list: ['after','limit'], activity: ['limit','scope'], page: ['before','limit','scope'],
   tree: ['id'], inspect: ['id'], run_settings: ['id'], hooks: ['id'], history: ['id','after'], history_page: ['id','before','limit'],
   progress_history: ['id','before','limit'], relations: ['id','after','limit'],
   version_graph: ['id','delivery','cursor','limit'], version_deliveries: ['id','before','limit'], version_commit: ['id','snapshot','commit'],
@@ -30,7 +30,7 @@ const writes = {
   cancel: ['id'], retry: ['id','profile'], clear_override: ['id'], cleanup: ['id','keep_branch'], interrupt: ['id'],
   resume: ['id','profile'], configure: ['id','profile','model_selection'], delete: ['id','revision','confirm','force'],
 };
-const userOnly = new Set(['version_graph','version_deliveries','version_commit','version_lineage','version_lineage_commit','relations','run_settings','code_state','code_tree','code_file','transcript_latest','transcript_page','transcript_step',
+const userOnly = new Set(['delivery_graph','version_graph','version_deliveries','version_commit','version_lineage','version_lineage_commit','relations','run_settings','code_state','code_tree','code_file','transcript_latest','transcript_page','transcript_step',
   'transcript_search','runs_page','artifacts_page','artifact','completion_page','reading_page','reading_record','hooks','hook_attach','hook_update','hook_remove',
   'reserve','reserve_all','auto_merge','completion','acceptance_notice','resolve','resolve_divergence','unreserve','approve_merge',
   'rename','cancel','retry','clear_override','cleanup','interrupt','resume','configure','reopen','sync_parent','resolve_sync','delete_preview','delete']);

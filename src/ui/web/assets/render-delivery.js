@@ -8,6 +8,9 @@ import { detail } from './navigate.js';
 import { isHistoricalDelivery } from './format.js';
 import { workerLabel } from './worker-label.js';
 
+import { sourceDelivery } from './delivery-ui.js';
+import { deliveryStage } from './delivery-model.js';
+
 const short = hash => String(hash || '').slice(0, 12);
 /** Landing, acceptance and physical reclamation remain distinct read facts, not separate user actions. */
 function archiveBadge(task) {
@@ -19,17 +22,24 @@ function archiveBadge(task) {
 }
 
 /** Shared new-order delivery controls: the detail page and branch graph use exactly the same authorization path. */
-export function deliveryControls(task, { refresh = () => {} } = {}) {
+export function deliveryControls(task, { refresh = () => {}, showTracking = true } = {}) {
   if (!['order','child'].includes(workerKind(task)) || isHistoricalDelivery(task)) return null;
   const panel = el('div', undefined, 'delivery-controls');
   const reservation = task.reservation;
+  const tracking = sourceDelivery(task.delivery_summary);
+  if (tracking && showTracking) panel.append(tracking);
+  // v3 fixed convergence is read-only here; never fall through to v1 approval or v2 retries.
+  if (reservation && reservation.version !== 1 && reservation.version !== 2) {
+    if (!tracking) panel.append(badge(reservation.version === 3 ? deliveryStage(reservation.status) : '预约版本未知 · 请核查', 'b-awaiting'));
+    return panel.children.length ? panel : null;
+  }
   if (task.task_kind === 'child' || !reservation || reservation.version === 2) {
     const controls = el('div', undefined, 'actions delivery-actions');
     const state = reservation?.version === 2 ? reservation.status : null;
     if (state) {
       // integrated 的说法由分支现状决定，其余状态照旧；不把「还在不在」混进文案表里。
       const merged = state === 'integrated' ? archiveBadge(task) : null;
-      const label = merged ? merged.label : { pending: '等待合并条件', requested: '冻结 · 等待父队列',
+      const label = merged ? merged.label : task.delivery_summary ? deliveryStage(task.delivery_summary.stage, task.delivery_summary.version) : { pending: '等待合并条件', requested: '冻结 · 等待父队列',
         executing: '自动合并中 · 占用父执行位', resolving: reservation.queue_protocol === 1
           ? '源侧修复中 · 保留父执行位' : '历史源侧解分歧 · 原 Worker 已恢复工作',
         suspended: '交付已挂起 · 父执行位已释放', blocked: '交付阻塞 · 保留父侧现场' }[state] || state;

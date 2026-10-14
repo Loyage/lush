@@ -52,7 +52,9 @@ export function assertTaskAncestorsOpen(project, task) {
   let parentId = bookingOf(task)?.parent_id ?? task.parent_id;
   while (parentId && !seen.has(parentId)) {
     seen.add(parentId);
-    const parent = project.store.task(parentId);
+    // This gate is also used by safe inbox read projections; no runtime profile is needed.
+    const parent = project.store.get('SELECT id,worker_number,parent_id,task_kind,status FROM tasks WHERE id=?', parentId);
+    check(parent, `task #${parentId} not found`);
     // A reusable runtime queue can be idle; its original parent is the actual owner.
     check(parent.task_kind === 'merge' || !TERMINAL.has(parent.status),
       `parent has ended (ancestor Worker ${workerLabel(parent)}); reopen or retry the ancestor first`);

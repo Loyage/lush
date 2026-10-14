@@ -69,6 +69,52 @@ runs 按持久整数 ID 降序分页；`next_before` 用于后续页，`has_more
 
 返回值不包含完整 profile、环境、token、原始 Shell 输出或内部堆栈。运行错误不会触发接口层自动重试或回退到其它分支。
 
+## 项目交付视图（D642）
+
+`worker.delivery_graph {history?:boolean,cursor?:string,limit?:number}` / `GET /api/worker-delivery-graph` 是**用户专属只读**入口，不增加 CLI 写动作或模型工具。拒绝 Agent token（包括整合与管理身份）、未知字段；HTTP 沿用登录、Origin、no-store 与固定项目路由，不启动停止的 daemon。`history` 默认 false，RPC 只接受布尔，HTTP 用 `0/1`；`limit` 默认20、整数1..50（HTTP 为正整数字面量）；`cursor` 为非空不透明字符串、最多1024字符。HTTP 重复、未知或非法参数拒绝，读取不在 `/api/action` 白名单。
+
+响应：
+
+```js
+{
+  version:1, history:false,
+  items: [/* 以下三类有界条目 */],
+  counts: {active,history,attention,batches,intents,serial,targets,by_stage:{},sources_by_stage:{}},
+  matched_total, cursor:null, has_more:false, truncated:false
+}
+```
+
+默认只取当前活动与异常，异常优先；`history:true` 单独分页成功落地历史，不把 withdrawn/stale/failed 当成功。counts 是全项目完整持久事实统计，不受分页或 history 筛选影响：active/history 统计条目，batches/intents/serial 统计种类，by_stage 统计各阶段条目，sources_by_stage 统计各阶段来源**成员记录次数**（不是去重 Worker 或去重 delivery_id），targets 统计已知真实目标身份及一个缺失身份组。批次成员计数用全库 SQL，不从返回的 sources/nodes 数量推算。v3 以 delivery_runs/members/nodes 和当前 reservation 为准；v2 当前预约与未固定的有效意图保留，历史以持久 `task.merge_integrated` 收据补充已消耗的 v2 预约，且排除 v3 的同名事件，不用上一轮合并冒充本轮。旧缺证据不补造历史。
+
+`counts.attention` 是完整活动交付条目中需要处理的数量，按 item key 去重，不受 history、分页、成员或最多32项 helper 投影影响。每项 `attention:boolean` 使用相同判定，活动列表按 attention=true 优先排序：stage 为 invalid/failed/blocked/awaiting/stale，或批次当前 generation 关联的真实整合 Worker 为 awaiting/paused/failed/cancelled，或当前 helper 缺失、类型/真实 parent 不符，均计入。多 helper、多来源只计一个批次；正在 resolving 却无当前 helper、需要 helper 的 resolving/awaiting 节点无身份、run 的 helper 指针完全缺少节点归属，也按身份不可核对提示。已知旧 generation 的 current=false helper 不污染本代计数，成功 integrated 历史始终 false。awaiting_acceptance/completed 不因自身状态计入，也不代表批次已合并。此判定及完整等待原因使用无上限的轻量 SQL 聚合，不从有界 helper 卡片推算；因此被截断的异常 helper 仍能使条目 attention=true，并给出真实待决/失败/暂停/身份诊断。attention 改变会使排序结构游标过期，避免跨页漏项。
+
+每条都有稳定 `key/kind/stage/target/locator/attention`：
+
+- `kind:'batch'`、`key:'batch:<run_id>'`：真实 `run_id/generation`、baseline/commit、created_at/updated_at、安全 error、waiting_reason/blocked_code、integration_workers、sources，以及 member_count/members_truncated。`nodes` 只返回当前 generation 的 `{id,key,node_key,state,helper_id,locator}`，带 node_count/nodes_truncated；previous_generation_node_count 明示旧代节点数，绝不把旧代 helper 当当前整合身份。当前 sources 最多8、nodes/helper 引用最多32，超限明示。历史重试 generation 仍使用同一批次 key。
+- `kind:'serial'`、`key:'serial:<worker_id>:<delivery_id>'`：v2 单源或尚未形成批次的固定交付；成功收据另带 commit/created_at 与 event_id 定位。v3 缺失批次也明确显示，不凭空创建批次。
+- `kind:'intent'`、`key:'intent:<worker_id>'`：尚无 delivery_id 的有效意图，或损坏/未知预约诊断；不是已固定交付。损坏显示 stage=invalid，不静默丢弃。
+
+`target` 是 `{id,worker_number,status,title,missing,branch,identity_mismatch,locator:{worker_id}}`，id 是批次或固定预约的真实目标；未固定意图才用真实 parent_id。branch 是保存的目标名，缺失为 null，不做 Git 查询，也不改投当前所有者。来源项为 `{id,worker_number,status,title,missing,parent_id,delivery_summary}`；parent_id 始终来源真实父身份，不是可视分组，不把整合 Worker 变成来源父节点。编号只用明确 worker_number，缺号回退 #ID。
+
+`worker.inspect.delivery_summary` 与 `worker.graph.nodes[].delivery_summary` 复用来源相同投影，无当前预约时为 null：
+
+```js
+{
+  key,kind:'source',version,delivery_id,run_id,generation,attempt_id,
+  stage,attention,reservation_status,current,identity_mismatch,reservation_version_unknown,reservation_truncated,
+  target,source_commit,waiting_reason,blocked_code,
+  integration_workers:{items,total,truncated},
+  input_queue:{buffered,reason},
+  locator:{worker_id,run_id,generation,delivery_id,attempt_id,event_id?}
+}
+```
+
+current 表示成员仍与当前预约的批次/代/交付身份匹配；成功 v2 历史收据固定 false，新增一轮 pending 不借旧收据显示已交付。历史卡片的 input_queue 仍是来源**现在**的输入暂存事实，不是过去一轮的输入快照。不存在来源时 buffered=null，明确未知，不冒充零。输入只含条数与同源等待原因，不含正文；已保存不表示 Agent 已收到。blocked_code/waiting_reason 区分来源尚未静息、子成果/代码依赖、未固定意图、等待组批、整合准入/排队/运行/待决/失败/已交付但未落地、落地安全点与未知落地；等待原因未保存时明确未知，不造队列名次或预计时间。
+
+integration_workers.items 为 `{id,worker_number,status,title,missing,identity_mismatch,node_id,node_key,node_state,generation,current,locator}`；status 来自真实整合 Worker 行，不从节点状态猜。历史已删除为 status=null/missing=true，保留持久快照编号；generation/current 来自节点归属，run 仍引用旧代退出中的 helper 时明确 current=false，不用旧代状态解释本代整合；类型或真实 parent 不匹配明确标 identity_mismatch。整合 Worker 的 awaiting_acceptance/completed **不代表**批次 integrated，只有运行持久落地状态才是已合并。
+
+每页最多50条且整个响应真实 JSON UTF-8 字节严格小于900000（包括转义），超预算停止并从实际返回条目续读。单项异常过大降为身份/stage/locator 与 item_truncated/unavailable_reason；字节预算、成员、节点或 helper 截断都会反映 truncated。游标绑定 canonical 项目、history 与完整轻量交付结构；状态/代/成员关联等结构变化以 `Worker delivery graph cursor stale; refresh from first page` 拒绝，客户端从首批显式刷新；跨项目/筛选、非法格式另行拒绝。页间正文、helper 与输入状态不是事务快照；每页内部一致。文本预览有界，预约超过65536字符时 reservation_truncated 明示无法完整核对，不冒充损坏或修改原记录；SHA/编号白名单、未知 error 用固定安全说明；不读取完整 profile/env/token/Prompt/Shell 输出，不暴露原始错误堆栈。全程只读 SQLite/运行态，无 Git 查询/写入、Agent 调度或历史迁移。
+
 ## 专用整合 Worker 的 RPC 能力
 
 Runtime 内部创建的 `task_kind='integration'` 使用 invocation 临时 token；Dispatcher 从成功认证的 Store Worker 事实识别类型，不能靠 Prompt、角色名称或调用参数取得开发 Agent 权限。`src/rpc/registry.js` 的 `INTEGRATION_METHODS` 是默认拒绝的窄白名单：

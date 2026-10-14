@@ -177,10 +177,17 @@ test('automatic overview polling retries once the failure backoff expires and ke
   intercept = url => String(url).startsWith('/api/overview') ? (fail ? Promise.reject(new Error('offline fixture')) : Response.json({ unchanged: true })) : null;
   await refresh(); const count = calls.length; fail = false;
   await refresh(); expect(calls.length).toBe(count);
+  const overviewReads = () => calls.filter(url => url.startsWith('/api/overview')).length;
+  const deliveryReads = () => calls.filter(url => url.startsWith('/api/worker-delivery-graph')).length;
+  const beforeOverview = overviewReads(), beforeDelivery = deliveryReads();
   const oldNow = Date.now; Date.now = () => oldNow() + 30001;
-  try { await refresh(); expect(calls.length).toBe(count + 1); expect(ui.offline).toBe(false);
-    await refresh(); expect(calls.length).toBe(count + 2); }
-  finally { Date.now = oldNow; }
+  try {
+    await refresh(); expect(overviewReads()).toBe(beforeOverview + 1); expect(ui.offline).toBe(false);
+    expect(deliveryReads()).toBe(beforeDelivery + 1); // The independent count cache also expires.
+    await refresh(); expect(overviewReads()).toBe(beforeOverview + 2);
+    expect(deliveryReads()).toBe(beforeDelivery + 1); // Normal overview cadence must not multiply count reads.
+    expect(calls.length).toBe(count + 3);
+  } finally { Date.now = oldNow; }
 });
 
 test('reference descriptors update original goal/status/number without rebuilding the source row', async () => {

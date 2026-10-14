@@ -48,6 +48,7 @@ export const PARAMS = {
   'draft.update': ['id','content','references','branch','expected_revision','mode','target_id','conditions','exclusive'],
   'draft.remove': ['id','expected_revision'],
   'worker.auto_title': ['title'], 'worker.rename': ['id','title'], 'worker.lookup': ['number'], 'worker.graph': ['details','hidden_statuses','include_archived','cursor','scope'], 'worker.list': ['after','limit'], 'worker.activity': ['limit','scope'],
+  'worker.delivery_graph': ['history','cursor','limit'],
   'worker.page': ['before','limit','scope'], 'worker.tree': ['id'], 'worker.inspect': ['id'], 'worker.run_settings': ['id'],
   'worker.progress_history': ['id','before','limit'], 'worker.relations': ['id','after','limit'],
   'worker.version_graph': ['id','delivery','cursor','limit'], 'worker.version_deliveries': ['id','before','limit'],
@@ -85,7 +86,7 @@ export const PARAMS = {
   'graph.get': [],
 };
 export const USER_ONLY = new Set([
-  'cli.catalog',
+  'cli.catalog','worker.delivery_graph',
   'system.diagnostics','system.settings','settings.clear_override','settings.migration.preview','settings.migration.apply',
   'system.stop','system.stop_if_idle','system.interrupt_all','system.resume_all','system.configure','agent.config','agent.models','agent.resources','agent.configure','agent.status','agent.environment','agent.environment.configure','agent.network','agent.network.configure',
   'branch.history','branch.version_graph','worker.version_graph','worker.version_deliveries','worker.version_commit','worker.version_lineage','worker.version_lineage_commit','worker.code_state','worker.code_tree','worker.code_file',

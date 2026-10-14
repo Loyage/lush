@@ -13,6 +13,7 @@ import specsMethods from './project/specs.js';
 import plansMethods from './project/plans.js';
 import tasksMethods from './project/tasks.js';
 import progressMethods from './project/progress.js';
+import deliveryReadMethods from './project/delivery-read.js';
 import treeMethods from './project/tree.js';
 import timelineMethods from './project/timeline.js';
 import messagesMethods from './project/messages.js';
@@ -70,7 +71,7 @@ import convergenceAcceptanceMethods from './project/convergence-acceptance.js';
  */
 const MIXINS = [
   ['inputEmissions', inputEmissionMethods], ['inputEmissionSafety', inputEmissionSafetyMethods],
-  ['convergencePolicy', convergencePolicyMethods], ['convergenceQueue', convergenceQueueMethods],
+  ['deliveryRead', deliveryReadMethods], ['convergencePolicy', convergencePolicyMethods], ['convergenceQueue', convergenceQueueMethods],
   ['convergencePrepare', convergencePrepareMethods], ['convergenceLand', convergenceLandMethods], ['convergenceSafety', convergenceSafetyMethods],
   ['convergenceWorkers', convergenceWorkerMethods], ['convergenceAcceptance', convergenceAcceptanceMethods],
   ['diagnostics', diagnosticsMethods], ['maintenance', maintenanceMethods], ['sleep', sleepMethods], ['status', statusMethods], ['agents', agentMethods], ['deps', depsMethods], ['inputs', inputsMethods], ['order', orderMethods], ['drafts', draftsMethods], ['references', referencesMethods],
