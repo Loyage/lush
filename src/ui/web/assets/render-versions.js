@@ -8,6 +8,7 @@ import { linkWorkerNumbers } from './worker-links.js';
 import { inputNumber } from './format.js';
 import { versionGraphLayout, versionGraphPath } from './version-graph-layout.js';
 import { createWorkerLineage } from './render-version-lineage.js';
+import { enhanceVersionModule } from './version-module.js';
 
 const LIMIT = 30, CACHE_PAGES = 3;
 function button(label, run, className, { help } = {}) {
@@ -87,20 +88,20 @@ export function renderWorkerVersions(task, previous = null) {
   const root = el('section', undefined, 'worker-versions versions-page'); root.dataset.workerId = String(task.id);
   const heading = el('div', undefined, 'section-title'); heading.append(el('h2', '版本迭代'));
   const scope = el('h3', `${task.branch} 提交图`, 'versions-scope');
-  const feedback = el('p', '滚入本模块后按需读取，每页最多 30 个节点。', 'versions-feedback hint'); feedback.setAttribute('role', 'status');
+  const feedback = el('span', '滚入本模块后按需读取，每页最多 30 个节点。', 'versions-feedback hint'); feedback.setAttribute('role', 'status');
   const tip = el('p', undefined, 'version-tip hint');
   const list = el('ol', undefined, 'versions-list'); list.setAttribute('aria-label', 'Git 提交图');
   const boundaries = el('details', undefined, 'version-boundaries');
   const panel = el('section', undefined, 'version-node-detail'); panel.hidden = true; panel.id = `version-node-detail-${task.id}`; panel.tabIndex = -1;
   panel.setAttribute('aria-label', '按需提交详情');
   const cache = new Map(), cursors = [null];
-  let disposed = false, started = false, observer = null, graphRead = null, nodeRead = null, generation = 0;
+  let module = null, disposed = false, started = false, observer = null, graphRead = null, nodeRead = null, generation = 0;
   let displayed = null, snapshot = null, identity = null, index = 0, retryTarget = null;
   const owns = () => !disposed && document === ownerDocument && ui.workerNumbers === boot && ui.view === view
     && !routeContext().invalid && projectApi('/api/') === project && mounted?.root === root;
   const current = () => owns() && root.isConnected;
   const cancelNode = () => {
-    nodeRead?.abort(); nodeRead = null; panel.replaceChildren(); panel.hidden = true; panel.setAttribute('aria-busy', 'false'); root.insertBefore(panel, null);
+    nodeRead?.abort(); nodeRead = null; panel.replaceChildren(); panel.hidden = true; panel.setAttribute('aria-busy', 'false'); (module?.content || root).insertBefore(panel, null);
     for (const marker of list.querySelectorAll('.version-node')) marker.setAttribute('aria-expanded', 'false');
   };
   const cancel = () => { generation++; graphRead?.abort(); graphRead = null; cancelNode(); };
@@ -113,7 +114,7 @@ export function renderWorkerVersions(task, previous = null) {
     newer.disabled = Boolean(graphRead) || index === 0 || !snapshot;
     older.disabled = Boolean(graphRead) || !snapshot || displayed?.snapshot !== snapshot || !displayed?.has_more;
     start.hidden = started; retry.hidden = !retryTarget;
-    root.setAttribute('aria-busy', String(Boolean(graphRead))); root.dataset.cachedPages = String(cache.size);
+    root.setAttribute('aria-busy', String(Boolean(graphRead))); root.dataset.cachedPages = String(cache.size); module?.measure();
   };
   const status = (message, error = false) => {
     feedback.textContent = message; feedback.className = `versions-feedback ${error ? 'versions-error' : 'hint'}`;
@@ -191,10 +192,11 @@ export function renderWorkerVersions(task, previous = null) {
   for (const control of [newer, older]) { const host = el('span', undefined, 'help-host'); host.setAttribute('data-help', '每页最多 30 节点；沿固定快照切换，不累计完整图。无对应页或读取中不可切换。'); host.append(control); paging.append(host); }
   const controls = el('div', undefined, 'versions-controls'); controls.append(refresh, retry);
   mounted = { root, owns, dispose: () => {
-    if (disposed) return; disposed = true; cancel(); observer?.disconnect(); observer = null; cache.clear(); displayed = null;
+    if (disposed) return; disposed = true; module?.dispose(); cancel(); observer?.disconnect(); observer = null; cache.clear(); displayed = null;
     for (const control of root.querySelectorAll('button')) control.onclick = null;
   } };
   root.append(heading, el('p', `${task.branch} 已提交 Git 图 · 线条是真实父边；子 Worker 来源链请通过详情链接查看。`, 'hint'), start, controls, scope, feedback, tip, list, boundaries, panel, paging);
+  module = enhanceVersionModule(root, feedback);
   sync();
   if (typeof IntersectionObserver === 'function') {
     observer = new IntersectionObserver(entries => { if (current() && !started && entries.some(e => e.isIntersecting)) void load(0); }, { threshold: 0 }); observer.observe(root);

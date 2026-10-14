@@ -11,7 +11,7 @@ const inside = (root, node) => { for (let at = node; at; at = at.parentNode) if 
  * states is page/Worker-owned (true = expanded). Re-enhancing preserves nodes, never nests bodies.
  * Append later content to view.content, and keep summaries/diagnostics in view.summary or outside.
  */
-export function enhanceModule(section, { key, mode = 'preview', states, summary = '', id } = {}) {
+export function enhanceModule(section, { key, mode = 'preview', states, summary, id } = {}) {
   if (!['preview', 'fold'].includes(mode)) throw new Error(`Unknown module mode: ${mode}`);
   modules ||= new WeakMap();
   let view = modules.get(section);
@@ -77,11 +77,19 @@ export function enhanceModule(section, { key, mode = 'preview', states, summary 
       dispose() { this.active = false; for (const callback of [...disposers]) callback(); changes.clear(); },
     };
     // Never leave an invisible keyboard focus target in a clipped reading body.
-    body.addEventListener('focusin', () => { if (view.active && !view.expanded) view.setExpanded(true); });
+    body.addEventListener('focusin', event => {
+      if (!view.active || view.expanded) return;
+      view.setExpanded(true);
+      // Firefox may scroll focus against the old clipped box before expansion.
+      // Reveal the actual destination too, not just its previously hidden ancestors.
+      if (section.classList.contains('module-long')) event?.target?.scrollIntoView?.({ block: 'center', behavior: 'auto' });
+    });
     modules.set(section, view);
   }
   view.active = true; view.key = key ?? view.key ?? view.body.id; view.states = states ?? view.states ?? new Map();
-  view.summary.textContent = summary; view.summary.hidden = !summary;
+  // Re-enhancement must not erase renderer-owned asynchronous diagnostics.
+  if (summary !== undefined) { view.summary.textContent = summary; view.summary.hidden = !summary; }
+  else if (!view.summary.childNodes.length) view.summary.hidden = true;
   view.setExpanded(view.states.get(view.key) ?? (mode === 'fold'), false);
   return view;
 }

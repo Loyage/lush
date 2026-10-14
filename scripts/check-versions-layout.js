@@ -71,11 +71,19 @@ async function readability(theme) {
   assert(ratios.anchor >= 3 && ratios.source >= 3 && ratios.text >= 4.5 && colors.filter === 'none', `theme readability ${theme}: ${JSON.stringify({ colors, ratios })}`);
   return { colors, ratios };
 }
+const geometryScript = (context = 'document') => `const d=${context},p=d.querySelector('.worker-versions'),r=p.getBoundingClientRect(),cards=[...p.querySelectorAll('.lineage-card')],rails=cards.map(c=>c.querySelector('.lineage-rail').getBoundingClientRect()),bodies=cards.map(c=>c.querySelector('.lineage-body').getBoundingClientRect()),a=p.querySelector('.lineage-origin .lineage-node'),b=p.querySelector('.lineage-source .lineage-node');return {width:d.defaultView.innerWidth,left:r.left,right:r.right,module:p.scrollWidth-p.clientWidth,page:d.documentElement.scrollWidth-d.defaultView.innerWidth,gutter:rails[0].width,descriptionWidth:bodies[0].width,aligned:rails.every((x,i)=>Math.abs(x.width-72)<1&&Math.abs(x.right-bodies[i].left)<1&&Math.abs(bodies[i].left-bodies[0].left)<1),dual:a.getBoundingClientRect().right<b.getBoundingClientRect().left,origin:a.textContent,source:b.textContent,landing:p.querySelector('.lineage-landing .lineage-parent-node')?.textContent};`;
 async function geometry(theme, width) {
-  const value = await execute(`const p=document.querySelector('.worker-versions'),r=p.getBoundingClientRect(),row=p.querySelector('.lineage-row'),a=row.querySelector('.lineage-parent').getBoundingClientRect(),b=row.querySelector('.lineage-worker').getBoundingClientRect();return {width:innerWidth,left:r.left,right:r.right,module:p.scrollWidth-p.clientWidth,page:document.documentElement.scrollWidth-innerWidth,parentWidth:a.width,workerWidth:b.width,dual:a.right<b.left};`);
-  assert(value.left >= 0 && value.right <= value.width + 1 && value.module <= 1 && value.page <= 1 && value.dual && value.parentWidth > 0 && value.workerWidth > 0,
-    `overflow/tracks ${theme}/${width}: ${JSON.stringify(value)}`);
+  const value = await execute(geometryScript());
+  assert(value.left >= 0 && value.right <= value.width + 1 && value.module <= 1 && value.page <= 1 && value.dual && value.aligned && value.gutter >= 64 && value.gutter <= 80 && value.descriptionWidth > value.gutter && value.origin === '◇' && value.source === '●' && value.landing === '□',
+    `overflow/unified descriptions ${theme}/${width}: ${JSON.stringify(value)}`);
   return value;
+}
+async function stickyCheck(theme, width, prefix) {
+  await execute(`const p=document.querySelector('.worker-versions'),d=document.querySelector('#detail');if(innerWidth<=760)scrollBy(0,p.getBoundingClientRect().top-53+180);else d.scrollTop+=p.getBoundingClientRect().top-d.getBoundingClientRect().top+180;`);
+  await settle();
+  const value = await execute(`const p=document.querySelector('.worker-versions'),h=p.querySelector('.section-title'),r=h.getBoundingClientRect(),d=document.querySelector('#detail'),b=document.querySelector('.project-banners'),n=document.querySelector('#notice-banner'),s=document.querySelector('#sidebar');return {top:r.top,bottom:r.bottom,expected:innerWidth<=760?s.getBoundingClientRect().bottom+b.getBoundingClientRect().height:d.getBoundingClientRect().top,notice:!n.hidden,noticeBottom:n.hidden?0:n.getBoundingClientRect().bottom,toolbarBottom:document.querySelector('.view-toolbar').getBoundingClientRect().bottom,position:getComputedStyle(h).position};`);
+  assert(value.position==='sticky' && Math.abs(value.top-value.expected)<2 && value.top>=value.noticeBottom-1 && (width<=760||value.top>=value.toolbarBottom-1), `sticky ${theme}/${width}: ${JSON.stringify(value)}`);
+  await screenshot(`${prefix}-${theme}-${width}-sticky`); return value;
 }
 const settle = () => rpc(`/session/${session}/execute/async`, { args: [], script: 'const done=arguments[0];requestAnimationFrame(()=>requestAnimationFrame(()=>done(true)));' });
 async function mappingGeometry(context = 'document') {
@@ -83,16 +91,16 @@ async function mappingGeometry(context = 'document') {
   const result = await execute(`const d=${context},p=d.querySelector('.worker-versions'),canvas=p.querySelector('.lineage-canvas'),base=canvas.getBoundingClientRect(),paths=[...p.querySelectorAll('.lineage-delivery-edge')],receipts=[...p.querySelectorAll('.lineage-mapping[data-verified="true"]')],pairs=new Set(receipts.map(r=>r.dataset.source+':'+r.dataset.landing));let maxError=0;const errors=[];
     if(paths.length!==pairs.size)errors.push('pair count');
     for(const receipt of receipts){const found=paths.filter(e=>e.dataset.source===receipt.dataset.source&&e.dataset.landing===receipt.dataset.landing&&e.dataset.deliveries.split(',').includes(receipt.dataset.delivery));if(found.length!==1)errors.push('Event '+receipt.dataset.delivery)}
-    for(const edge of paths){const a=d.getElementById(edge.dataset.sourceNode),b=d.getElementById(edge.dataset.targetNode);if(!a?.classList.contains('lineage-node')||!b?.classList.contains('lineage-parent-node')){errors.push('missing real marker');continue}const ar=a.getBoundingClientRect(),br=b.getBoundingClientRect(),start=edge.getPointAtLength(0),end=edge.getPointAtLength(edge.getTotalLength()),err=Math.max(Math.hypot(start.x-(ar.left+ar.width/2-base.left),start.y-(ar.top+ar.height/2-base.top)),Math.hypot(end.x-(br.left+br.width/2-base.left),end.y-(br.top+br.height/2-base.top)));maxError=Math.max(maxError,err);const box=edge.getBBox();if(err>1||edge.getTotalLength()<=0||box.x<-1||box.y<-1||box.x+box.width>base.width+1||box.y+box.height>base.height+1||getComputedStyle(edge).strokeDasharray==='none')errors.push(edge.dataset.source+':'+edge.dataset.landing)}return {count:paths.length,maxError,errors,pairs:paths.map(e=>({source:e.dataset.source,landing:e.dataset.landing,events:e.dataset.deliveries,sourceNode:e.dataset.sourceNode,targetNode:e.dataset.targetNode,d:e.getAttribute('d')}))};`);
+    for(const edge of paths){const a=d.getElementById(edge.dataset.sourceNode),b=d.getElementById(edge.dataset.targetNode);if(!a?.classList.contains('lineage-node')||!b?.classList.contains('lineage-parent-node')){errors.push('missing real marker');continue}const ar=a.getBoundingClientRect(),br=b.getBoundingClientRect(),start=edge.getPointAtLength(0),end=edge.getPointAtLength(edge.getTotalLength()),err=Math.max(Math.hypot(start.x-(ar.left+ar.width/2-base.left),start.y-(ar.top+ar.height/2-base.top)),Math.hypot(end.x-(br.left+br.width/2-base.left),end.y-(br.top+br.height/2-base.top)));maxError=Math.max(maxError,err);const box=edge.getBBox();if(err>1||edge.getTotalLength()<=0||box.x<-1||box.y<-1||box.x+box.width>72+1||box.y+box.height>base.height+1||getComputedStyle(edge).strokeDasharray==='none')errors.push(edge.dataset.source+':'+edge.dataset.landing)}for(const edge of p.querySelectorAll('.lineage-git-edge')){const a=d.getElementById(edge.dataset.sourceNode).getBoundingClientRect(),b=d.getElementById(edge.dataset.targetNode).getBoundingClientRect(),start=edge.getPointAtLength(0),end=edge.getPointAtLength(edge.getTotalLength()),err=Math.max(Math.hypot(start.x-(a.left+a.width/2-base.left),start.y-(a.top+a.height/2-base.top)),Math.hypot(end.x-(b.left+b.width/2-base.left),end.y-(b.top+b.height/2-base.top)));if(err>1||getComputedStyle(edge).strokeDasharray!=='none'||edge.getBBox().x+edge.getBBox().width>73)errors.push('real Git '+edge.dataset.child)}return {count:paths.length,maxError,errors,pairs:paths.map(e=>({source:e.dataset.source,landing:e.dataset.landing,events:e.dataset.deliveries,sourceNode:e.dataset.sourceNode,targetNode:e.dataset.targetNode,d:e.getAttribute('d')}))};`);
   assert(result.errors.length === 0, `mapping endpoints/geometry: ${JSON.stringify(result)}`); return result;
 }
 async function narrowCheck(theme, event, prefix) {
   await execute(`window.narrowMappings?.dispose();document.querySelector('#narrow-check')?.remove();const frame=document.createElement('iframe');frame.id='narrow-check';frame.width=390;frame.height=844;frame.style.cssText='position:fixed;inset:0;z-index:99999;border:0';document.body.append(frame);const doc=frame.contentDocument;doc.open();doc.write('<!doctype html><html data-theme="${theme}"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:12px"><div id="detail"></div></body></html>');doc.close();for(const sheet of document.querySelectorAll('link[rel="stylesheet"]'))doc.head.append(sheet.cloneNode(true));doc.querySelector('#detail').append(document.querySelector('.worker-versions').cloneNode(true));window.narrowReady=false;
-    import('/version-lineage-mappings.js').then(({createLineageMappings})=>{const p=doc.querySelector('.worker-versions'),canvas=p.querySelector('.lineage-canvas'),original=[...p.querySelectorAll('.lineage-delivery-edge')],origin=p.querySelector('.lineage-origin [data-commit]').dataset.commit,sources=new Map(),targets=new Map(),cells=new Map();for(const marker of p.querySelectorAll('.lineage-node')){const sha=marker.closest('[data-commit]').dataset.commit;sources.set(sha,marker);cells.set(sha,marker.closest('.lineage-row').querySelector('.lineage-worker'))}for(const marker of p.querySelectorAll('.lineage-parent-node')){const card=marker.closest('.lineage-card');targets.set(card.dataset.landing||card.dataset.commit,marker)}const model={origin:{commit:{commit:origin}},connections:original.map(e=>({source:e.dataset.source,landing:e.dataset.landing,events:e.dataset.deliveries.split(',').map(Number)}))};p.querySelector('.lineage-delivery-lines')?.remove();window.narrowMappings=createLineageMappings(p,canvas,()=>frame.isConnected);narrowMappings.present(model,sources,targets,cells);window.narrowReady=true}).catch(e=>browserErrors.push(String(e)));`);
+    import('/version-lineage-mappings.js').then(({createLineageMappings})=>{const p=doc.querySelector('.worker-versions'),canvas=p.querySelector('.lineage-canvas'),original=[...p.querySelectorAll('.lineage-delivery-edge')],git=[...p.querySelectorAll('.lineage-git-edge')],origin=p.querySelector('.lineage-origin [data-commit]').dataset.commit,sources=new Map(),targets=new Map(),cells=new Map();for(const marker of p.querySelectorAll('.lineage-node')){const sha=marker.closest('[data-commit]').dataset.commit;sources.set(sha,marker);cells.set(sha,marker.closest('.lineage-rail'))}for(const marker of p.querySelectorAll('.lineage-parent-node')){const card=marker.closest('.lineage-card');targets.set(card.dataset.landing||card.dataset.commit,marker)}const model={origin:{commit:{commit:origin}},rows:git.map(e=>({edges:[{child:e.dataset.child,parent:e.dataset.parent}]})),connections:original.map(e=>({source:e.dataset.source,landing:e.dataset.landing,events:e.dataset.deliveries.split(',').map(Number)}))};p.querySelector('.lineage-delivery-lines')?.remove();window.narrowMappings=createLineageMappings(p,canvas,()=>frame.isConnected);narrowMappings.present(model,sources,targets,cells);window.narrowReady=true}).catch(e=>browserErrors.push(String(e)));`);
   await waitFor(`window.narrowReady && [...document.querySelector('#narrow-check').contentDocument.querySelectorAll('link')].every(l=>!!l.sheet)`);
   const context = "document.querySelector('#narrow-check').contentDocument";
-  const narrow = await execute(`const frame=document.querySelector('#narrow-check'),d=frame.contentDocument,p=d.querySelector('.worker-versions'),row=p.querySelector('.lineage-row'),a=row.querySelector('.lineage-parent').getBoundingClientRect(),b=row.querySelector('.lineage-worker').getBoundingClientRect();return {width:frame.contentWindow.innerWidth,module:p.scrollWidth-p.clientWidth,page:d.documentElement.scrollWidth-frame.contentWindow.innerWidth,dual:a.right<b.left,parentWidth:a.width,workerWidth:b.width};`);
-  assert(narrow.width === 390 && narrow.module <= 1 && narrow.page <= 1 && narrow.dual, `390px overflow/tracks ${theme}: ${JSON.stringify(narrow)}`);
+  const narrow = await execute(geometryScript(context));
+  assert(narrow.width === 390 && narrow.module <= 1 && narrow.page <= 1 && narrow.dual && narrow.aligned && narrow.gutter===72 && narrow.descriptionWidth>72, `390px overflow/tracks ${theme}: ${JSON.stringify(narrow)}`);
   narrow.mappings = await mappingGeometry(context); await screenshot(`${prefix}-${theme}-390-dual-track`);
   if (event) {
     await execute(`${context}.querySelector('.lineage-mapping[data-delivery="${event}"]').scrollIntoView({block:'center'});`);
@@ -109,6 +117,7 @@ try {
   f.project.stopping = true; f.project.kick = () => {}; f.project.scheduleTaskMerge = () => {};
   await repo(f.root);
   const { task } = await f.project.order('真实版本来源链\n<script>window.injected=true</script>\n' + 'LongInput'.repeat(100));
+  f.project.notify(task.id, '吸顶避让验证', '隔离项目中的真实未读告知');
   const origin = task.base_commit;
   const c1 = await commit(task, 'first.txt', '第一轮开发一\n\n完整提交消息');
   const c2 = await commit(task, 'second.txt', '第一轮开发二'); const first = await deliver(task);
@@ -178,6 +187,11 @@ try {
   assert(await execute(`return versionReads.filter(p=>p.includes('/version-lineage?')).length===1 && !versionReads.some(p=>p.includes('/version-deliveries')||p.includes('/version-graph')) && document.querySelector('.lineage-origin [data-commit]').dataset.commit==='${origin}' && document.querySelectorAll('.lineage-source')[29].dataset.commit==='${currentTip}' && !!document.querySelector('.lineage-gap') && !document.querySelector('.lineage-fork') && !document.querySelector('.version-input')`), 'direct source/segment semantics failed');
   assert(await execute(`const m=document.querySelector('.lineage-mapping[data-delivery="${second.id}"]');return m?.dataset.source==='${second.source_commit}' && m.dataset.landing==='${second.commit}' && m.dataset.verified==='true' && !!document.querySelector('.lineage-landing[data-landing="${second.commit}"]') && !document.querySelector('.lineage-source[data-commit="${currentTip}"]').parentNode.querySelector('.lineage-mapping')`), 'current source/landing mapping or unpublished commit is wrong');
   assert(await execute(`return document.querySelector('.lineage-source[data-commit="${childLanding}"] .version-task-link').getAttribute('href')==='#worker-${child.id}' && document.querySelector('.lineage-source[data-commit="${childLanding}"] .version-task-link').textContent.includes('${child.worker_number}')`), 'child href/number is not persistent');
+  await waitFor(`document.querySelector('.worker-versions').classList.contains('module-long')`);
+  assert(await execute(`const p=document.querySelector('.worker-versions');return p.classList.contains('detail-preview')&&!p.classList.contains('module-expanded')&&p.querySelectorAll('.module-body').length===1&&p.querySelectorAll('.module-toggle').length===1&&p.querySelector('.versions-feedback').closest('.module-summary')&&!p.querySelector('.module-body .versions-feedback')`), 'lineage not using shared automatic preview/visible diagnostics');
+  await screenshot('direct-lineage-shared-collapsed');
+  await click('.worker-versions .module-toggle');
+  assert(await execute(`return document.querySelectorAll('.lineage-source').length===30&&document.querySelector('.worker-versions').classList.contains('module-expanded')&&versionReads.filter(p=>p.includes('/version-lineage?')).length===1`), 'expansion altered graph or fetched');
   await screenshot('direct-dual-track-lineage');
   await execute(`document.querySelector('.lineage-mapping[data-delivery="${second.id}"]').scrollIntoView({block:'center'});`);
   await screenshot('source-to-parent-landing-mapping');
@@ -190,6 +204,19 @@ try {
   await waitFor('!!document.querySelector(".version-node-detail .version-message")');
   assert(await execute(`return document.querySelector('.version-message').textContent.includes('<script>') && !window.injected && !!document.querySelector('.version-input') && !document.querySelector('.version-input').open && document.activeElement===document.querySelector('.version-node-detail')`), 'keyboard source detail was not lazy, focused or safe');
   await execute(`document.querySelector('.version-node-detail').scrollIntoView({block:'start'});`); await screenshot('lineage-source-node-detail');
+  await execute(`window.savedVersions=document.querySelector('.worker-versions');window.savedBody=savedVersions.querySelector('.module-body');window.savedNode=savedVersions.querySelector('.version-node-detail');window.savedReads=versionReads.length;`);
+  f.store.run('UPDATE tasks SET display_title=?,updated_at=? WHERE id=?', '同 Worker 常规刷新验收', '2099-01-01T00:00:00Z', task.id);
+  await execute(`dispatchEvent(new Event('visibilitychange'));`);
+  await waitFor(`document.querySelector('.task-title')?.textContent==='同 Worker 常规刷新验收'`);
+  const repaint = await execute(`return {root:savedVersions===document.querySelector('.worker-versions'),body:savedBody===savedVersions.querySelector('.module-body'),node:savedNode===savedVersions.querySelector('.version-node-detail'),expanded:savedVersions.classList.contains('module-expanded'),reads:versionReads.length,savedReads};`);
+  assert(repaint.root&&repaint.body&&repaint.node&&repaint.expanded&&repaint.reads===repaint.savedReads, `same-Worker repaint lost expansion, detail, cache or DOM: ${JSON.stringify(repaint)}`);
+  await click('.worker-versions .module-toggle');
+  assert(await execute(`return !savedVersions.classList.contains('module-expanded')&&savedNode===savedVersions.querySelector('.version-node-detail')&&document.querySelectorAll('.lineage-source').length===30`), 'collapse removed graph/detail');
+  await execute(`savedVersions.querySelector('.lineage-source[data-commit="${currentTip}"] .lineage-node').focus();`);
+  await settle();
+  const focusReveal = await execute(`const r=document.activeElement.getBoundingClientRect(),h=savedVersions.querySelector('.section-title').getBoundingClientRect();return {expanded:savedVersions.classList.contains('module-expanded'),reads:versionReads.length,savedReads,top:r.top,bottom:r.bottom,headingBottom:h.bottom,composerTop:document.querySelector('.composer').getBoundingClientRect().top};`);
+  assert(focusReveal.expanded&&focusReveal.reads===focusReveal.savedReads&&focusReveal.top>=focusReveal.headingBottom-1&&focusReveal.bottom<=focusReveal.composerTop+1, `clipped keyboard focus not visibly revealed: ${JSON.stringify(focusReveal)}`);
+
   // Both themes in real top-level page and a genuine 390px iframe using production DOM/CSS.
   const geometries = [];
   for (const theme of ['light', 'dark']) for (const width of [1440, 900, 500]) {
@@ -199,6 +226,15 @@ try {
     await rpc(`/session/${session}/execute/async`, { args: [], script: 'const done=arguments[0];requestAnimationFrame(()=>setTimeout(()=>done(true),250));' });
     geometries.push({ theme, requestedWidth: width, ...await geometry(theme, width), ...await readability(theme), mappings: await mappingGeometry() });
     await screenshot(`${theme}-${width}-dual-track`);
+    geometries.at(-1).sticky = await stickyCheck(theme, width, 'lineage');
+    await click('.worker-versions .module-toggle'); await screenshot(`${theme}-${width}-collapsed`);
+    const beforeFocus = await execute('return versionReads.length');
+    await execute(`document.querySelector('.lineage-source[data-commit="${currentTip}"] .lineage-node').focus();`); await settle();
+    const visibleFocus = await execute(`const r=document.activeElement.getBoundingClientRect(),p=document.querySelector('.worker-versions');return {expanded:p.classList.contains('module-expanded'),top:r.top,bottom:r.bottom,headingBottom:p.querySelector('.section-title').getBoundingClientRect().bottom,composerTop:document.querySelector('.composer').getBoundingClientRect().top,reads:versionReads.length};`);
+    assert(visibleFocus.expanded&&visibleFocus.reads===beforeFocus&&visibleFocus.top>=visibleFocus.headingBottom-1&&visibleFocus.bottom<=visibleFocus.composerTop+1, `visible keyboard reveal ${theme}/${width}: ${JSON.stringify(visibleFocus)}`);
+    geometries.at(-1).focusReveal = visibleFocus;
+    await screenshot(`${theme}-${width}-keyboard-reveal`);
+    await execute(`document.querySelector('.worker-versions').scrollIntoView({block:'start'});`); await screenshot(`${theme}-${width}-expanded`);
     await execute(`document.querySelector('.version-node-detail').scrollIntoView({block:'start'});`);
     await screenshot(`${theme}-${width}-node-detail`); console.log(`PASS real Worker lineage layout ${theme}/${width}`);
   }
@@ -234,7 +270,17 @@ try {
   await execute(`document.querySelector('.worker-versions').scrollIntoView({block:'start'});`);
   await waitFor('document.querySelectorAll(".version-commit").length>0');
   assert(await execute(`return !document.querySelector('.lineage-list') && !document.querySelector('.version-delivery-choice') && document.querySelectorAll('.version-task-link').length>0 && [...document.querySelectorAll('.version-task-link')].some(l=>l.getAttribute('href')==='#worker-${task.id}')`), 'main must keep real graph and native links only');
+  await waitFor(`document.querySelector('.worker-versions').classList.contains('module-long')`);
+  assert(await execute(`const p=document.querySelector('.worker-versions');return p.classList.contains('detail-preview')&&!p.classList.contains('module-expanded')&&p.querySelectorAll('.module-toggle').length===1`), 'main did not join shared automatic preview');
+  await screenshot('main-shared-collapsed'); await click('.worker-versions .module-toggle');
   await screenshot('legacy-bookmark-main-link-only');
+  await stickyCheck('main', 1440, 'main');
+  await click('.worker-versions .module-toggle');
+  await execute(`document.querySelector('.worker-versions .version-node').focus();`);
+  assert(await execute(`return document.querySelector('.worker-versions').classList.contains('module-expanded')`), 'main clipped keyboard focus not revealed');
+  await click('.version-node'); await waitFor(`!!document.querySelector('.version-node-detail .version-message')`);
+  await click('.version-node-detail button');
+  assert(await execute(`return document.querySelector('.version-node-detail').parentElement.classList.contains('module-content')`), 'main cancelNode escaped shared content');
   await openWorker(undelivered.id);
   assert(await execute(`return !!document.querySelector('.lineage-source[data-commit="${unpublished}"]') && document.querySelectorAll('.lineage-mapping').length===0 && !document.querySelector('.version-rounds')`), 'unpublished branch commit was hidden behind empty rounds');
   await screenshot('unpublished-source-without-deliveries');
@@ -264,6 +310,7 @@ try {
     await rpc(`/session/${session}/execute/async`, { args: [], script: 'const done=arguments[0];requestAnimationFrame(()=>setTimeout(()=>done(true),250));' });
     specialGeometries.push({ theme, width, ...await geometry(theme, width), ...await readability(theme), mappings: await mappingGeometry() });
     await screenshot(`pairs-${theme}-${width}-expanded`);
+    specialGeometries.at(-1).sticky = await stickyCheck(theme, width, 'pairs');
     await execute(`document.querySelector('.lineage-mapping[data-delivery="${differentLandingEvent}"]').scrollIntoView({block:'center'});`);
     await screenshot(`pairs-${theme}-${width}-multi-target`);
   }
@@ -272,9 +319,9 @@ try {
   assert((await f.project.workerVersionLineage({ id: task.id })).tip === advancedTip, 'browser reads wrote Git');
   assert(await execute('return browserErrors.length===0'), 'browser emitted errors');
   fs.writeFileSync(path.join(logs, 'evidence.json'), JSON.stringify({ task: task.worker_number, child: child.worker_number, origin, c1, c2, currentTip, advancedTip, first, second, childDelivery, reclaimedDelivery,
-    special, mappedOrigin, sourceOne, sourceTwo, landingOne, landingTwo, specialGeometries, geometries, reads: await execute('return versionReads'), browserErrors: await execute('return browserErrors'), screenshots: output }, null, 2));
+    special, mappedOrigin, sourceOne, sourceTwo, landingOne, landingTwo, specialGeometries, geometries, repaint, focusReveal, reads: await execute('return versionReads'), browserErrors: await execute('return browserErrors'), screenshots: output }, null, 2));
   passed = true;
-  console.log(`PASS real Web→RPC→SQLite/Git→Firefox: direct dual tracks, full source history/two delivery mappings/unpublished tip; origin/node details; paging/cache/snapshot/refresh; native child/main; no-delivery/empty/reclaimed; every verified shared/multiple/origin-target mapping and expanded-node endpoints; two themes 1440/900/500/390. Screenshots: ${output}; logs: ${logs}`);
+  console.log(`PASS real Web→RPC→SQLite/Git→Firefox: direct dual tracks, full source history/two delivery mappings/unpublished tip; origin/node details; paging/cache/snapshot/refresh; native child/main; no-delivery/empty/reclaimed; every verified shared/multiple/origin-target mapping and expanded-node endpoints; unified 72px gutter; shared previews/main, sticky headings, same-Worker repaint and keyboard reveal; two themes 1440/900/500/390. Screenshots: ${output}; logs: ${logs}`);
 } catch (error) {
   if (session) {
     await screenshot('failure').catch(() => {});

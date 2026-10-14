@@ -25,7 +25,7 @@ test('detail primary modules follow the requested order, with full auxiliary dia
   localStorage.setItem('lush.markdown', '0');
   renderDetail(task, { events: [] }, null, null);
   const panel = dom.node('detail');
-  expect(modules(panel)).toEqual(['自动化', '计划', '时间线', 'Agent', '代码与提交', '决策记录', 'Worker 关系', '状态', '错误', '合并错误', '拆解队列']);
+  expect(modules(panel)).toEqual(['自动化', '计划', '时间线', 'Agent', '代码与提交', '版本迭代', '决策记录', 'Worker 关系', '状态', '错误', '合并错误', '拆解队列']);
   const summaries = panel.querySelectorAll('.task-error-summary');
   expect(summaries).toHaveLength(2); expect(summaries[0].textContent).toContain('执行失败');
   expect(summaries[0].textContent.length).toBeLessThan(280); expect(summaries[0].textContent).toContain('完整诊断见页末');
@@ -36,9 +36,9 @@ test('detail primary modules follow the requested order, with full auxiliary dia
   renderDetail(task, { events: [] }, null, null);
   expect(panel.querySelector('.conversation-panel')).toBe(conversation); expect(panel.querySelector('.worker-relations')).toBe(relations);
   expect(panel.querySelector('.decision-record')).toBe(history); expect(history.open).toBe(false);
-  expect(modules(panel)).toEqual(['自动化', '计划', '时间线', 'Agent', '代码与提交', '决策记录', 'Worker 关系', '状态', '错误', '合并错误', '拆解队列']);
+  expect(modules(panel)).toEqual(['自动化', '计划', '时间线', 'Agent', '代码与提交', '版本迭代', '决策记录', 'Worker 关系', '状态', '错误', '合并错误', '拆解队列']);
   renderDetail({ ...worker, calls: 0, progress: null, notices: [] }, { events: [] }, null, null);
-  expect(modules(panel)).toEqual(['自动化', '时间线', '代码与提交', 'Worker 关系', '状态']);
+  expect(modules(panel)).toEqual(['自动化', '时间线', '代码与提交', '版本迭代', 'Worker 关系', '状态']);
   expect(panel.querySelectorAll('.task-error-summary')).toHaveLength(0);
 }));
 

@@ -15,7 +15,7 @@ const svg = (tag, attrs) => {
 export function createLineageMappings(root, canvas, current) {
   let layer = null;
   const host = globalThis.window || globalThis;
-  let disposed = false, frame = null, connections = [], observer = null;
+  let disposed = false, frame = null, connections = [], gitEdges = [], observer = null;
   const active = () => !disposed && current();
   const draw = () => {
     frame = null;
@@ -23,12 +23,13 @@ export function createLineageMappings(root, canvas, current) {
     const base = canvas.getBoundingClientRect();
     if (!base.width || !base.height) return;
     layer.setAttribute('viewBox', `0 0 ${base.width} ${base.height}`);
-    for (const [index, entry] of connections.entries()) {
+    for (const [index, entry] of [...connections, ...gitEdges].entries()) {
       const a = entry.source.getBoundingClientRect(), b = entry.target.getBoundingClientRect();
       const from = { x: a.left + a.width / 2 - base.left, y: a.top + a.height / 2 - base.top };
       const to = { x: b.left + b.width / 2 - base.left, y: b.top + b.height / 2 - base.top };
       const cell = entry.sourceCell.getBoundingClientRect();
-      const channel = entry.origin ? Math.max(2, from.x - 8) : cell.left - base.left - 21 + (index % 7) * 3;
+      const channel = entry.git ? (entry.secondary ? from.x + 8 : from.x)
+        : entry.origin ? Math.max(2, from.x - 8) : cell.left - base.left + 21 + (index % 7) * 3;
       entry.path.setAttribute('d', lineageMappingPath(from, to, channel));
       entry.path.dataset.sourceX = String(from.x); entry.path.dataset.sourceY = String(from.y);
       entry.path.dataset.targetX = String(to.x); entry.path.dataset.targetY = String(to.y);
@@ -54,7 +55,7 @@ export function createLineageMappings(root, canvas, current) {
   host.addEventListener?.('resize', changed);
   if (typeof ResizeObserver === 'function') observer = new ResizeObserver(changed);
   const present = (model, sources, targets, cells) => {
-    cancel(); observer?.disconnect(); connections = [];
+    cancel(); observer?.disconnect(); connections = []; gitEdges = [];
     if (!layer) { layer = svg('svg', { class: 'lineage-delivery-lines', 'aria-label': '持久 Event 交付映射（不是 Git 父边）', role: 'group', focusable: 'false' }); canvas.append(layer); }
     for (const pair of model.connections) {
       const source = sources.get(pair.source), target = targets.get(pair.landing);
@@ -65,13 +66,22 @@ export function createLineageMappings(root, canvas, current) {
       Object.assign(path.dataset, { source: pair.source, landing: pair.landing, deliveries: pair.events.join(','), sourceNode: source.id, targetNode: target.id });
       connections.push({ ...pair, source, target, path, sourceCell: cells.get(pair.source), origin: pair.source === model.origin.commit.commit });
     }
-    layer.replaceChildren(...connections.map(entry => entry.path));
+    for (const row of model.rows || []) row.edges.forEach((edge, index) => {
+      if (edge.boundary || edge.external) return;
+      const source = sources.get(edge.child), target = sources.get(edge.parent);
+      if (!source || !target) throw new Error('真实 Git 父边缺少节点');
+      const path = svg('path', { class: `lineage-git-edge${index ? ' lineage-secondary-edge' : ''}${edge.parent === model.origin.commit.commit ? ' lineage-fork' : ''}`,
+        'vector-effect': 'non-scaling-stroke', 'aria-hidden': 'true' });
+      Object.assign(path.dataset, { child: edge.child, parent: edge.parent, sourceNode: source.id, targetNode: target.id });
+      gitEdges.push({ source, target, path, sourceCell: cells.get(edge.child), git: true, secondary: index > 0 });
+    });
+    layer.replaceChildren(...gitEdges.map(entry => entry.path), ...connections.map(entry => entry.path));
     observer?.observe(canvas);
     for (const row of canvas.querySelectorAll('.lineage-row')) observer?.observe(row);
     changed();
   };
   const dispose = () => {
-    disposed = true; cancel(); observer?.disconnect(); observer = null; connections = [];
+    disposed = true; cancel(); observer?.disconnect(); observer = null; connections = []; gitEdges = [];
     root.removeEventListener('pointerover', enter); root.removeEventListener('focusin', enter);
     root.removeEventListener('pointerout', leave); root.removeEventListener('focusout', leave);
     root.removeEventListener('toggle', changed, true); host.removeEventListener?.('resize', changed);

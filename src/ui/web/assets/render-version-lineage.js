@@ -8,6 +8,7 @@ import { linkWorkerNumbers } from './worker-links.js';
 import { inputNumber } from './format.js';
 import { versionLineageLayout } from './version-lineage-layout.js';
 import { createLineageMappings } from './version-lineage-mappings.js';
+import { enhanceVersionModule } from './version-module.js';
 
 const LIMIT = 30, CACHE_PAGES = 3;
 const oid = v => typeof v === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(v);
@@ -62,7 +63,7 @@ export function createWorkerLineage(task, isMounted) {
   const root = el('section', undefined, 'worker-versions versions-page lineage-page'); root.dataset.workerId = String(task.id);
   const title = el('div', undefined, 'section-title'); title.append(el('h2', '版本迭代'));
   const scope = el('h3', `Worker ${workerLabel(task)} · 完整来源链`, 'versions-scope');
-  const feedback = el('p', '滚入后读取已提交来源链，每段最多 30 个自身 commit。', 'versions-feedback hint'); feedback.setAttribute('role', 'status');
+  const feedback = el('span', '滚入后读取已提交来源链，每段最多 30 个自身 commit。', 'versions-feedback hint'); feedback.setAttribute('role', 'status');
   const tip = el('p', undefined, 'version-tip hint');
   const tracks = el('div', undefined, 'lineage-tracks');
   const list = el('ol', undefined, 'lineage-list'); list.setAttribute('aria-label', '双轨来源链 · 从上到下旧到新');
@@ -71,14 +72,14 @@ export function createWorkerLineage(task, isMounted) {
   const panel = el('section', undefined, 'version-node-detail'); panel.hidden = true; panel.id = `version-node-detail-${task.id}`; panel.tabIndex = -1;
   panel.setAttribute('aria-label', '按需提交详情');
   const cache = new Map(), cursors = [null];
-  let disposed = false, started = false, observer = null, generation = 0, graphRead = null, nodeRead = null;
+  let module = null, disposed = false, started = false, observer = null, generation = 0, graphRead = null, nodeRead = null;
   let snapshot = null, identity = null, displayed = null, index = 0, retryTarget = null;
   const owns = () => !disposed && document === ownerDocument && ui.workerNumbers === boot && ui.view === view
     && projectApi('/api/') === project && !routeContext().invalid && isMounted(root);
   const current = () => owns() && root.isConnected;
   const mappingLines = createLineageMappings(root, canvas, current);
   const cancelNode = () => {
-    nodeRead?.abort(); nodeRead = null; panel.replaceChildren(); panel.hidden = true; panel.setAttribute('aria-busy', 'false'); root.insertBefore(panel, null);
+    nodeRead?.abort(); nodeRead = null; panel.replaceChildren(); panel.hidden = true; panel.setAttribute('aria-busy', 'false'); (module?.content || root).insertBefore(panel, null);
     for (const marker of list.querySelectorAll('.lineage-node')) marker.setAttribute('aria-expanded', 'false');
     mappingLines.changed();
   };
@@ -91,7 +92,7 @@ export function createWorkerLineage(task, isMounted) {
     start.hidden = started; retry.hidden = !retryTarget;
     newer.disabled = Boolean(graphRead) || !snapshot || index === 0;
     older.disabled = Boolean(graphRead) || !snapshot || displayed?.snapshot !== snapshot || !displayed?.has_more;
-    root.dataset.cachedPages = String(cache.size); root.setAttribute('aria-busy', String(Boolean(graphRead)));
+    root.dataset.cachedPages = String(cache.size); root.setAttribute('aria-busy', String(Boolean(graphRead))); module?.measure();
   };
   const remember = (i, data) => {
     cache.delete(i); cache.set(i, data);
@@ -100,20 +101,21 @@ export function createWorkerLineage(task, isMounted) {
   };
   function commitCard(commit, origin = false) {
     const card = el('div', undefined, `lineage-card ${origin ? 'lineage-anchor' : 'lineage-source'}`); card.dataset.commit = commit.commit;
-    const marker = button(origin ? '○' : '●', () => loadCommit(commit, card), 'lineage-node');
+    const marker = button(origin ? '◇' : '●', () => loadCommit(commit, card), 'lineage-node');
     marker.setAttribute('aria-label', `查看${origin ? '引出点' : '提交'} ${short(commit.commit)} 的详情`);
     marker.setAttribute('data-help', '按需读取这个固定来源节点的完整提交消息、作者与关联输入，不调用 Agent。');
     marker.id = `lineage-node-${task.id}-${commit.commit}`;
     if (origin) marker.classList.add('lineage-parent-node');
     marker.setAttribute('aria-controls', panel.id); marker.setAttribute('aria-expanded', 'false');
     const body = el('div', undefined, 'lineage-body');
-    body.append(el('h4', `${origin ? '引出点 · ' : ''}${text(commit.subject, '（无摘要）')}`),
+    body.append(el('span', origin ? '引出点' : '自身提交', 'lineage-kind'), el('h4', text(commit.subject, '（无摘要）')),
       el('code', short(commit.commit), 'version-short-sha'));
     const time = el('time', text(commit.committed_at).replace('T', ' ').slice(0, 16), 'version-metadata');
     if (commit.committed_at) time.setAttribute('datetime', commit.committed_at);
     body.append(time);
     for (const association of commit.association === 'verified' ? commit.tasks || [] : []) body.append(workerLink(association));
-    card.append(marker, body); return card;
+    const rail = el('div', undefined, `lineage-rail ${origin ? 'lineage-parent' : 'lineage-worker'}`);
+    rail.append(marker); card.append(rail, body); return card;
   }
   function present(data, pageIndex) {
     displayed = data; index = pageIndex;
@@ -123,24 +125,21 @@ export function createWorkerLineage(task, isMounted) {
     const rows = [], sources = new Map(), targets = new Map(), cells = new Map();
     const renderRow = row => {
       const item = el('li', undefined, `lineage-row${row.origin ? ' lineage-origin' : ''}`);
-      const parent = el('div', undefined, 'lineage-parent'), source = el('div', undefined, 'lineage-worker');
-      if (row.origin) {
-        const card = commitCard(row.commit, true), marker = card.querySelector('.lineage-node');
-        parent.append(card); sources.set(row.commit.commit, marker); targets.set(row.commit.commit, marker);
-        source.append(el('p', '创建基线 · 从左侧引出', 'hint'));
-      } else {
-        const card = commitCard(row.commit); source.append(card); sources.set(row.commit.commit, card.querySelector('.lineage-node'));
-      }
-      cells.set(row.commit.commit, source);
+      const card = commitCard(row.commit, row.origin), marker = card.querySelector('.lineage-node');
+      const source = card.querySelector('.lineage-body');
+      item.append(card); sources.set(row.commit.commit, marker);
+      if (row.origin) targets.set(row.commit.commit, marker);
+      cells.set(row.commit.commit, card.querySelector('.lineage-rail'));
       for (const landing of row.landings) {
         const anchor = el('div', undefined, 'lineage-card lineage-anchor lineage-landing'); anchor.dataset.landing = landing;
         const body = el('div', undefined, 'lineage-body');
-        body.append(el('h4', '父侧落点'), el('code', short(landing), 'version-short-sha'));
+        body.append(el('span', '父侧落点', 'lineage-kind'), el('h4', '交付锚点'), el('code', short(landing), 'version-short-sha'));
         const receipts = data.deliveries.filter(m => m.delivery_available && m.commit === landing);
         for (const mapping of receipts) body.append(el('p', `Event ${mapping.delivery_id} · 来源 ${short(mapping.source_commit)}`, 'version-metadata'));
         const details = el('details', undefined, 'lineage-landing-receipts'); details.append(el('summary', '查看落点映射收据'), ...receipts.map(receipt)); body.append(details);
-        const marker = el('span', '○', 'lineage-anchor-dot lineage-parent-node'); marker.id = `lineage-parent-${task.id}-${landing}`;
-        targets.set(landing, marker); anchor.append(marker, body); parent.append(anchor);
+        const marker = el('span', '□', 'lineage-anchor-dot lineage-parent-node'); marker.id = `lineage-parent-${task.id}-${landing}`;
+        const rail = el('div', undefined, 'lineage-rail lineage-parent'); rail.append(marker);
+        targets.set(landing, marker); anchor.append(rail, body); item.append(anchor);
       }
       for (const mapping of row.deliveries) {
         const mappingNode = receipt(mapping); mappingNode.classList.add('lineage-mapping');
@@ -154,7 +153,6 @@ export function createWorkerLineage(task, isMounted) {
         boundary.append(el('span', `${edge.external ? '同步外部父边' : '本段之外的真实父边'} · ${short(edge.parent)}`, 'hint'));
         source.append(boundary);
       }
-      item.append(parent, source);
       return item;
     };
     const prior = el('li', undefined, 'lineage-prior'); prior.append(el('p', '⋮ 引出点之前的父轨历史省略', 'hint'));
@@ -164,29 +162,7 @@ export function createWorkerLineage(task, isMounted) {
       const gap = el('li', undefined, 'lineage-gap'); gap.append(el('p', '⋮ 父轨外部历史省略', 'hint'),
         el('p', '⋮ 创建起点与本段之间还有更早分段，已省略；请加载较早版本。', 'hint')); rows.push(gap);
     }
-    for (const row of model.rows) {
-      const item = renderRow(row), previous = rows.at(-1);
-      const edge = row.edges.find(e => !e.external && !e.boundary);
-      if (edge) {
-        const line = el('span', undefined, 'lineage-git-edge'); line.dataset.child = edge.child; line.dataset.parent = edge.parent; line.setAttribute('aria-hidden', 'true');
-        if (edge.parent === data.origin.commit) { line.classList.add('lineage-fork'); originRow.append(line); }
-        else previous.querySelector('.lineage-worker').append(line);
-      }
-      rows.push(item);
-    }
-    // A second Git parent inside this segment is also a real solid edge, not an
-    // external boundary. Route it beside the first-parent rail without extra nodes.
-    for (const row of model.rows) for (const edge of row.edges.slice(1).filter(e => !e.boundary)) {
-      const from = edge.parent === data.origin.commit ? 0 : model.rows.findIndex(r => r.commit.commit === edge.parent) + (model.omitted ? 2 : 1);
-      const to = model.rows.findIndex(r => r.commit.commit === edge.child) + (model.omitted ? 2 : 1);
-      if (from >= to || from < 0) continue;
-      for (let i = from; i <= to; i++) {
-        const line = el('span', undefined, `lineage-secondary-edge lineage-secondary-${i === from ? 'start' : i === to ? 'end' : 'pass'}`);
-        line.dataset.child = edge.child; line.dataset.parent = edge.parent; line.setAttribute('aria-hidden', 'true');
-        if (i === 0) { line.classList.add('lineage-secondary-origin'); rows[i].append(line); }
-        else rows[i].querySelector('.lineage-worker').append(line);
-      }
-    }
+    for (const row of model.rows) rows.push(renderRow(row));
     list.replaceChildren(prior, ...rows);
     mappingLines.present(model, sources, targets, cells);
     // Parent progression is omitted external history, never asserted Git adjacency.
@@ -196,6 +172,8 @@ export function createWorkerLineage(task, isMounted) {
     unavailable.replaceChildren(el('h4', `不可追溯交付 · ${unknown.size}`), ...[...unknown.values()].map(receipt)); unavailable.hidden = !unknown.size;
     status(`第 ${index + 1} 页 · 本段从上到下旧到新 · ${data.commits.length} 个自身 commit${data.has_more ? '；尚有更早分段，创建起点到本段之间省略。' : '；已到创建起点。'}${index > 0 ? ' 本段之后还有较新版本。' : ''}`);
     if (!data.commits.length) sourceEmpty();
+    const missing = [...data.deliveries, ...data.untraceable_deliveries].filter(m => !m.delivery_available || data.untraceable_deliveries.includes(m));
+    if (missing.length) feedback.append(el('span', ` 不可追溯交付 ${missing.length} 条：${[...new Set(missing.map(m => text(m.delivery_unavailable_reason, '来源不在可追溯链中')))].join('；')}。`, 'versions-error'));
     sync();
   }
   function sourceEmpty() { status(`第 ${index + 1} 页 · 从上到下旧到新 · 尚无自身开发 commit，仍保留创建引出点与交付映射。`); }
@@ -267,12 +245,13 @@ export function createWorkerLineage(task, isMounted) {
   }
   root.append(title, scope, el('p', '父轨左 · 当前 Worker 右 · 从上到下旧到新。实线只表示真实 Git 父边；父轨虚线省略外部历史，交付 Event 单独映射。', 'hint'),
     start, controls, feedback, tip, tracks, canvas, unavailable, panel, paging);
+  module = enhanceVersionModule(root, feedback);
   sync();
   if (typeof IntersectionObserver === 'function') {
     observer = new IntersectionObserver(entries => { if (current() && !started && entries.some(e => e.isIntersecting)) void load(0); }, { threshold: 0 }); observer.observe(root);
   }
   const dispose = () => {
-    if (disposed) return; disposed = true; mappingLines.dispose(); cancel(); observer?.disconnect(); observer = null; cache.clear(); displayed = null;
+    if (disposed) return; disposed = true; module?.dispose(); mappingLines.dispose(); cancel(); observer?.disconnect(); observer = null; cache.clear(); displayed = null;
     for (const control of root.querySelectorAll('button')) control.onclick = null;
   };
   return { root, owns, dispose };

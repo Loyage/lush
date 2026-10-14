@@ -50,6 +50,11 @@ test('shared preview is opt-in, moves bare text/editor nodes, stays idempotent a
   await view.toggle.click(); expect(states.get('list')).toBe(true);
   expect(enhanceModule(section, { key: 'list', summary: '新的失败摘要' })).toBe(view);
   expect(view.expanded).toBe(true); expect(view.summary.textContent).toBe('新的失败摘要');
+  const diagnostic = el('span', '异步读取状态'); view.summary.append(diagnostic);
+  enhanceModule(section, { key: 'list', states });
+  expect(diagnostic.parentNode).toBe(view.summary); expect(view.summary.hidden).toBe(false);
+  enhanceModule(section, { summary: '' }); expect(view.summary.hidden).toBe(true);
+  expect(view.summary.textContent).toBe('');
   expect(editor.value).toBe('未保存草稿'); expect(section.querySelectorAll('.module-toggle')).toHaveLength(1);
   measure(view, 150, 200); expect(view.toggle.hidden).toBe(true); expect(view.expanded).toBe(true);
   measure(view, 700, 200); expect(view.toggle.hidden).toBe(false); expect(view.expanded).toBe(true);
@@ -88,9 +93,13 @@ test('focus and detail-compatible reference reveal open every enclosing shared m
   let revealedMessage = false; destination.revealReadingContent = () => { revealedMessage = true; };
   expect(revealDetailPreview(destination)).toBe(true);
   expect(details.open).toBe(true); expect(form.expanded).toBe(true); expect(reading.expanded).toBe(true); expect(revealedMessage).toBe(true);
-  reading.setExpanded(false);
-  for (const listener of reading.body.listeners.focusin) listener();
-  expect(reading.expanded).toBe(true); expect(revealModule(el('p'))).toBe(false);
+  reading.setExpanded(false); let scrolled = false;
+  destination.scrollIntoView = options => { scrolled = true; expect(reading.expanded).toBe(true); expect(options.block).toBe('center'); };
+  for (const listener of reading.body.listeners.focusin) listener({ target: destination });
+  expect(scrolled).toBe(true); expect(reading.expanded).toBe(true); expect(revealModule(el('p'))).toBe(false);
+  reading.setExpanded(false); reading.dispose(); scrolled = false;
+  for (const listener of reading.body.listeners.focusin) listener({ target: destination });
+  expect(scrolled).toBe(false); expect(reading.expanded).toBe(false);
 }));
 
 test('observers compensate layout once, release old subscriptions, skip stale pages and disconnect on view disposal', () => fixture(async ({ panel, resizes, mutations }) => {

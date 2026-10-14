@@ -55,6 +55,8 @@ const { renderWorkerVersions, disposeWorkerVersions, renderVersionCommit } = awa
 const { renderDetail } = await import('../../src/ui/web/assets/render-detail.js');
 const { loadDetail } = await import('../../src/ui/web/assets/detail.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
+const { enhanceModule } = await import('../../src/ui/web/assets/shared-module.js');
+const { limitDetailModules, revealDetailPreview } = await import('../../src/ui/web/assets/detail-preview.js');
 const panel = dom.node('detail');
 const root = () => panel.querySelector('.worker-versions');
 const query = selector => selector.split(' ').reduce((at, part) => at?.querySelector(part), root());
@@ -88,6 +90,73 @@ test('滚入直接GET lineage limit30；双轨旧到新自身commit无需先选�
   expect(deepText(query('.lineage-gap'))).toContain('创建起点与本段之间还有更早分段');
   expect(query('.lineage-fork')).toBeNull(); expect(query('.version-input')).toBeNull();
   expect(query('.lineage-source').querySelector('.version-task-link').getAttribute('href')).toBe('#worker-93');
+});
+
+test('窄双轨只放节点，所有描述统一右侧；引出/自身/落点形状和短标签不同', async () => {
+  await open();
+  expect(query('.lineage-origin .lineage-node').textContent).toBe('◇');
+  expect(query('.lineage-source .lineage-node').textContent).toBe('●');
+  expect(query('.lineage-landing .lineage-parent-node').textContent).toBe('□');
+  for (const card of root().querySelectorAll('.lineage-card')) {
+    expect(card.children[0].classList.contains('lineage-rail')).toBe(true);
+    expect(card.children[0].children).toHaveLength(1);
+    expect(card.children[1].classList.contains('lineage-body')).toBe(true);
+    expect(card.children[1].querySelector('.lineage-kind')).toBeTruthy();
+  }
+  expect(query('.module-summary').querySelector('.versions-feedback')).toBe(query('.versions-feedback'));
+  expect(query('.module-body').querySelector('.versions-feedback')).toBeNull();
+  expect(deepText(query('.module-summary'))).toContain('缺失固定源');
+  expect(deepText(query('.module-summary'))).toContain('对象核验失败');
+});
+
+for (const task of [worker, main]) test(`shared预览不删除图/详情，重绘保留选择、签名和缓存，焦点/引用展开，取消面板归内容区 ${task.task_kind}`, async () => {
+  renderDetail(task, { events: [] }, null, null); observers.at(-1).enter(); await drain();
+  const section = root(), view = enhanceModule(section), body = view.body;
+  view.content.getBoundingClientRect = () => ({ height: 1800 });
+  view.gauge.getBoundingClientRect = () => ({ height: 200 }); view.measure();
+  expect(view.toggle.hidden).toBe(false); expect(view.expanded).toBe(false);
+  const selector = task === worker ? '.lineage-source' : '.version-commit', cards = section.querySelectorAll(selector);
+  const marker = cards[0].querySelector(task === worker ? '.lineage-node' : '.version-node');
+  view.setExpanded(true); view.setExpanded(false); expect(section.querySelectorAll(selector)).toEqual(cards);
+  for (const listener of body.listeners.focusin) listener(); expect(view.expanded).toBe(true);
+  view.setExpanded(false); expect(revealDetailPreview(marker)).toBe(true); expect(view.expanded).toBe(true);
+  intercept = url => url.includes('commit?') ? json({ ...detailResult(task === worker ? node(971) : node(1000)), scope: task === worker ? 'lineage' : 'main' }) : null;
+  await marker.onclick(); const detail = query('.version-node-detail'), input = query('.version-input'); if (input) input.open = true;
+  const reads = requests.length;
+  renderDetail(task, { events: [] }, null, null);
+  expect(root()).toBe(section); expect(query('.module-body')).toBe(body); expect(section.querySelectorAll('.module-body')).toHaveLength(1);
+  expect(section.classList.contains('module-expanded')).toBe(true); expect(query('.version-node-detail')).toBe(detail);
+  if (input) expect(query('.version-input').open).toBe(true);
+  expect(requests).toHaveLength(reads); expect(root().dataset.cachedPages).toBe('1');
+  expect(query('.versions-feedback').parentNode).toBe(view.summary); expect(deepText(view.summary)).toContain('第 1 页');
+  await detail.querySelector('button').onclick(); expect(detail.parentNode).toBe(view.content); expect(detail.hidden).toBe(true);
+  view.setExpanded(false); limitDetailModules(panel, { taskId: task.id, from: [...panel.children].indexOf(section) }); expect(view.expanded).toBe(false);
+  const fail = deferred(); intercept = () => fail.promise; const pending = click('.versions-refresh');
+  expect(detail.parentNode).toBe(view.content);
+  fail.resolve(Promise.reject(new Error('保留诊断'))); await pending;
+  expect(query('.versions-feedback').getAttribute('role')).toBe('alert'); expect(deepText(view.summary)).toContain('保留诊断');
+  expect(section.querySelectorAll(selector)).toEqual(cards); expect(query('.versions-more').disabled).toBe(true);
+  const count = requests.length; await marker.onclick(); expect(requests).toHaveLength(count);
+  disposeWorkerVersions(); for (const listener of body.listeners.focusin) listener(); expect(view.expanded).toBe(false);
+});
+
+test('版本吸顶测量真实Notice父容器高度，离页释放RO且迟到回调不再改旧样式', () => {
+  const old = globalThis.ResizeObserver, registered = [];
+  const banner = document.getElementById('notice-banner'), banners = document.createElement('div');
+  banners.insertBefore(banner, null); let height = 61;
+  banners.getBoundingClientRect = () => ({ height });
+  globalThis.ResizeObserver = class {
+    constructor(callback) { this.callback = callback; registered.push(this); }
+    observe(node) { this.node = node; }
+    disconnect() { this.disconnected = true; }
+  };
+  try {
+    const section = mount(main), observer = registered.find(o => o.node === banners);
+    expect(section.style.getPropertyValue('--versions-banner-height')).toBe('61px');
+    height = 122; observer.callback(); expect(section.style.getPropertyValue('--versions-banner-height')).toBe('122px');
+    disposeWorkerVersions(); expect(observer.disconnected).toBe(true);
+    height = 180; observer.callback(); expect(section.style.getPropertyValue('--versions-banner-height')).toBe('122px');
+  } finally { banner.remove(); globalThis.ResizeObserver = old; }
 });
 
 test('相同source多Event、共享landing/no-new-landing保留映射而不重复真实节点或Git边', async () => {
@@ -143,9 +212,9 @@ test('映射重测几何、收据键盘高亮及RO/RAF/监听离页释放，迟�
     await open(); const module = root(), canvas = query('.lineage-canvas'), edge = root().querySelectorAll('.lineage-delivery-edge')[1];
     canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width: 500, height: 4000 });
     let y = 500;
-    for (const cell of root().querySelectorAll('.lineage-worker')) cell.getBoundingClientRect = () => ({ left: 260 });
-    for (const marker of root().querySelectorAll('.lineage-node')) marker.getBoundingClientRect = () => ({ left: 270, top: y, width: 24, height: 48 });
-    for (const marker of root().querySelectorAll('.lineage-parent-node')) marker.getBoundingClientRect = () => ({ left: 10, top: 200, width: 24, height: 48 });
+    for (const cell of root().querySelectorAll('.lineage-rail')) cell.getBoundingClientRect = () => ({ left: 0 });
+    for (const marker of root().querySelectorAll('.lineage-node')) marker.getBoundingClientRect = () => ({ left: 36, top: y, width: 24, height: 48 });
+    for (const marker of root().querySelectorAll('.lineage-parent-node')) marker.getBoundingClientRect = () => ({ left: 4, top: 200, width: 24, height: 48 });
     const flush = () => { const callbacks = [...queued.values()]; queued.clear(); for (const run of callbacks) run(); };
     flush(); expect(edge.dataset.sourceY).toBe('524'); expect(edge.dataset.targetY).toBe('224');
     const oldPath = edge.getAttribute('d'); y = 800; observer.callback(); flush();
@@ -195,7 +264,8 @@ test('同步merge保留真实第二父虚线边界，不展开父侧外部提交
 test('来源链内的第二父仍绘制真实实线，无额外节点', async () => {
   const data = lineagePage(); data.commits[0].parents.push(sha(998)); intercept = () => json(data); await open();
   const edges = root().querySelectorAll('.lineage-secondary-edge');
-  expect(edges).toHaveLength(3); expect(edges.every(e => e.dataset.child === sha(1000) && e.dataset.parent === sha(998))).toBe(true);
+  expect(edges).toHaveLength(1); expect(edges.every(e => e.dataset.child === sha(1000) && e.dataset.parent === sha(998))).toBe(true);
+  expect(root().querySelectorAll('.lineage-git-edge')).toHaveLength(30);
   expect(root().querySelectorAll('.lineage-source')).toHaveLength(30);
   expect(query(`.lineage-git-boundary[data-parent="${sha(998)}"]`)).toBeNull();
 });
@@ -362,6 +432,6 @@ test('main坏拓扑及重复节点拒绝；双轨窄屏主题样式和旧导航�
   }
   expect(fs.readFileSync('src/ui/web/assets/index.html', 'utf8')).not.toContain('id="versions-open"');
   const css = fs.readFileSync('src/ui/web/assets/styles-versions.css', 'utf8');
-  for (const token of ['var(--panel)', 'var(--bg)', 'overflow-wrap:anywhere', 'minmax(0,1fr) minmax(0,1fr)', '@media(max-width:640px)', '.lineage-node:focus-visible', '.lineage-git-edge', '.lineage-delivery-edge', 'dashed var(--dim)']) expect(css).toContain(token);
+  for (const token of ['var(--panel)', 'var(--bg)', 'overflow-wrap:anywhere', 'grid-template-columns:72px minmax(0,1fr)', '@media(max-width:640px)', '.lineage-node:focus-visible', '.lineage-git-edge', '.lineage-delivery-edge', 'dashed var(--dim)']) expect(css).toContain(token);
   expect(css).not.toContain('blur(');
 });
