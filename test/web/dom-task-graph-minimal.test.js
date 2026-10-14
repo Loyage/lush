@@ -1,5 +1,4 @@
 import { test, expect, beforeEach, afterAll } from 'bun:test';
-import fs from 'node:fs';
 import { installDom, deepText, dialogText } from './project-dom.js';
 import { until } from '../helpers.js';
 import { makeWorld } from './dom-world.js';
@@ -250,9 +249,8 @@ test('Git 相对进度在第二排计划前，刷新、折叠和交付状态不�
   const progress = card(2).querySelector('.task-graph-minimal-progress');
   expect(progress.children[0].classList.contains('task-graph-git-status')).toBe(true);
   expect(progress.children[1].classList.contains('task-graph-minimal-note')).toBe(true);
-  expect(deepText(progress.children[0])).toBe('* +3 -2');
-  expect(progress.querySelector('.task-graph-git-pending').classList.contains('is-dirty')).toBe(true);
-  expect(progress.querySelector('.task-graph-git-pending').classList.contains('is-clean')).toBe(false);
+  expect(deepText(progress.children[0])).toBe('+3 -2');
+  expect(progress.querySelector('.task-graph-git-pending')).toBeNull();
   expect(progress.querySelector('.parent-commit-ahead').textContent).toBe('+3');
   expect(progress.querySelector('.parent-commit-behind').textContent).toBe('-2');
   expect(progress.children[0].getAttribute('aria-label')).toContain('不代表是否已交付');
@@ -260,29 +258,30 @@ test('Git 相对进度在第二排计划前，刷新、折叠和交付状态不�
   node.parent_relation = { ahead: 0, behind: 0 };
   node.branch_info.diagnostics.working_tree.status = 'clean';
   await loadTaskGraph();
-  expect(deepText(card(2).querySelector('.task-graph-git-status'))).toBe('\u00a0 +0 -0');
-  expect(card(2).querySelector('.task-graph-git-pending').classList.contains('is-clean')).toBe(true);
-  expect(card(2).querySelector('.task-graph-git-pending').classList.contains('is-dirty')).toBe(false);
+  expect(deepText(card(2).querySelector('.task-graph-git-status'))).toBe('+0 -0');
+  expect(card(2).querySelector('.task-graph-git-pending')).toBeNull();
   await card(1).querySelector('button').onclick();
   await card(1).querySelector('button').onclick();
-  expect(deepText(card(2).querySelector('.task-graph-git-status'))).toBe('\u00a0 +0 -0');
+  expect(deepText(card(2).querySelector('.task-graph-git-status'))).toBe('+0 -0');
 });
 
-test('Git 干净状态保留一个空白位置，脏状态显示星号', () => {
-  for (const status of ['clean', 'dirty', 'clean']) {
+test('Git 摘要只显示父分支距离，不保留未提交状态占位', () => {
+  for (const status of ['clean', 'dirty', 'unknown', 'clean']) {
     for (const node of graph.nodes.slice(0, 2)) {
       node.branch_info = { diagnostics: { working_tree: { status } } };
       if (node.parent_id != null) node.parent_relation = { ahead: 3, behind: 2 };
     }
     renderTaskGraph(graph);
-    for (const id of [1, 2]) {
-      const indicator = card(id).querySelector('.task-graph-git-status');
-      expect(indicator.querySelector('.task-graph-git-pending').textContent).toBe(status === 'clean' ? '\u00a0' : '*');
-      expect(indicator.getAttribute('aria-label')).toContain(status === 'clean' ? '无未提交更改' : '有未提交更改');
-      expect(indicator.getAttribute('data-help')).toContain(status === 'clean' ? '无未提交更改' : '有未提交更改');
-    }
-    expect(card(2).querySelector('.parent-commit-ahead').textContent).toBe('+3');
-    expect(card(2).querySelector('.parent-commit-behind').textContent).toBe('-2');
+    expect(card(1).querySelector('.task-graph-git-status')).toBeNull();
+    const indicator = card(2).querySelector('.task-graph-git-status');
+    expect(deepText(indicator)).toBe('+3 -2');
+    expect(indicator.children).toHaveLength(2);
+    expect(indicator.querySelector('.task-graph-git-pending')).toBeNull();
+    const pending = status === 'clean' ? '无未提交更改' : status === 'dirty' ? '有未提交更改' : '未提交状态未知';
+    expect(indicator.getAttribute('aria-label')).toContain(pending);
+    expect(indicator.getAttribute('data-help')).toContain(pending);
+    expect(indicator.children[0].textContent).toBe('+3');
+    expect(indicator.children[1].textContent).toBe('-2');
   }
 });
 
@@ -294,27 +293,17 @@ test('Git 未知不冒充干净或零距离；根、无分支和归档 Worker �
     for (const parent_relation of [null, { ahead: -1, behind: NaN }, { ahead: 0.5, behind: Infinity }]) {
       node.parent_relation = parent_relation;
       const indicator = graphGitStatus(node);
-      expect(deepText(indicator)).toBe('? +? -?');
-      expect(indicator.querySelector('.task-graph-git-pending').classList.contains('is-unknown')).toBe(true);
-      expect(indicator.querySelector('.task-graph-git-pending').classList.contains('is-clean')).toBe(false);
-      expect(indicator.querySelector('.task-graph-git-pending').classList.contains('is-dirty')).toBe(false);
+      expect(deepText(indicator)).toBe('+? -?');
+      expect(indicator.querySelector('.task-graph-git-pending')).toBeNull();
       expect(indicator.getAttribute('data-help')).toContain('未知');
     }
   }
   const root = { ...graph.nodes[0], branch_info: { diagnostics: { working_tree: { status: 'clean' } } } };
-  expect(deepText(graphGitStatus(root))).toBe('\u00a0');
-  expect(graphGitStatus(root).querySelector('.parent-commit-ahead')).toBeNull();
+  expect(graphGitStatus(root)).toBeNull();
   expect(graphGitStatus({ ...node, branch: null })).toBeNull();
   expect(graphGitStatus({ ...node, archived: true })).toBeNull();
   expect(graphGitStatus({ ...node, branch_info: { archived: true } })).toBeNull();
   expect(graphGitStatus({ ...node, details_pending: true }).getAttribute('data-help')).toContain('加载中');
-});
-
-test('Git 脏净标记分别使用主题红绿，未知保持中性灰色', () => {
-  const css = fs.readFileSync(new URL('../../src/ui/web/assets/styles.css', import.meta.url), 'utf8');
-  expect(css).toContain('.task-graph-git-pending.is-dirty{color:var(--failed)}');
-  expect(css).toContain('.task-graph-git-pending.is-clean{color:var(--completed)}');
-  expect(css).toContain('.task-graph-git-pending.is-unknown{color:var(--muted)}');
 });
 
 test('工作树时长省略前导零单位，最高单位以下全量显示且数字与单位间有空格', () => {
