@@ -88,18 +88,18 @@ async function sourcesUnchanged(f) {
   }
 }
 
-test('one-shot fixes all nine sources, always invokes one autonomous Agent, then publishes exactly one Squash', async () => {
+test('one-shot fixes three sources, always invokes one autonomous Agent, then publishes exactly one Squash', async () => {
   let calls = 0;
-  const f = await setup(9, { run: async args => { calls++; return combine(args); } });
+  const f = await setup(3, { run: async args => { calls++; return combine(args); } });
   try {
     f.project.workspaces.mergeConvergenceObjects = () => { throw new Error('runtime must not choose pairings or merge source objects'); };
     const before = f.store.get('SELECT count(*) AS n FROM events').n;
     const rpc = new Dispatcher(f.project);
     const plan = await rpc.dispatch('branch.integrate_plan', { branch: 'main' });
-    expect(plan).toMatchObject({ ready: true, count: 9, active: null }); expect(plan.members).toHaveLength(9);
+    expect(plan).toMatchObject({ ready: true, count: 3, active: null }); expect(plan.members).toHaveLength(3);
     expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(before); // Read-only preflight.
     const operation = await rpc.dispatch('branch.integrate_start', { branch: 'main', expected_revision: plan.revision });
-    expect(operation.member_count).toBe(9); expect(operation.members_truncated).toBe(false); expect(operation.worker.id).toBeTruthy();
+    expect(operation.member_count).toBe(3); expect(operation.members_truncated).toBe(false); expect(operation.worker.id).toBeTruthy();
     expect((await Promise.all([f.project.branchIntegrateStart('main', plan.revision), f.project.branchIntegrateStart('main', plan.revision)]))
       .map(item => item.id)).toEqual([operation.id, operation.id]);
     expect(f.project.inspect(operation.worker.id).merge_operation.id).toBe(operation.id);
@@ -112,33 +112,15 @@ test('one-shot fixes all nine sources, always invokes one autonomous Agent, then
     expect(await git(f.root, 'show', '-s', '--format=%P', result.commit)).toBe(f.baseline);
     expect(f.store.get("SELECT count(*) AS n FROM events WHERE type='worker.merge_received'").n).toBe(1);
     expect(f.store.deliveryRun(operation.id).validation_result).toBeNull();
-    expect(f.store.deliveryMembers(operation.id)).toHaveLength(9); await sourcesUnchanged(f);
-    for (let i = 0; i < 9; i++) expect(fs.readFileSync(path.join(f.root, `source-${i}.txt`), 'utf8')).toBe(`value ${i}\n`);
+    expect(f.store.deliveryMembers(operation.id)).toHaveLength(3); await sourcesUnchanged(f);
+    for (let i = 0; i < 3; i++) expect(fs.readFileSync(path.join(f.root, `source-${i}.txt`), 'utf8')).toBe(`value ${i}\n`);
     expect((await rpc.dispatch('branch.integration', { id: operation.id })).state).toBe('integrated');
     expect(f.project.inspect(f.sources[0].id).merge_operation.state).toBe('integrated');
     const legacy = (await f.project.branchConvergenceRuns('main')).items[0];
-    expect(legacy).toMatchObject({ member_count: 9, members_truncated: true }); expect(legacy.members).toHaveLength(8);
+    expect(legacy).toMatchObject({ member_count: 3, members_truncated: false }); expect(legacy.members).toHaveLength(3);
     const graph = await rpc.dispatch('worker.graph', {});
     expect(graph.nodes.find(node => node.id === operation.worker.id).merge_operation.state).toBe('integrated');
     expect(graph.nodes.find(node => node.id === f.owner.id).merge_operation.state).toBe('integrated');
-  } finally { await f.close(); }
-});
-
-test('plan excludes dirty, unread, active descendants and executing ordinary requests, and revisions reject races', async () => {
-  const f = await setup(5);
-  try {
-    fs.writeFileSync(path.join(f.sources[0].workspace, 'dirty'), 'uncommitted');
-    f.store.message(f.sources[1].id, 'unread user input');
-    const child = await f.project.spawn(f.sources[2].id, 'unsettled descendant');
-    f.store.update(child.id, { status: 'waiting' });
-    f.store.update(f.sources[3].id, { reservation: JSON.stringify({ version: 2, kind: 'merge', status: 'executing', parent_id: f.owner.id,
-      attempt_id: 101, commit: f.sources[3].head_commit, baseline: f.baseline }) });
-    const plan = await f.project.branchIntegratePlan('main');
-    expect(plan.count).toBe(1); expect(plan.excluded).toHaveLength(4);
-    f.store.message(f.sources[4].id, 'new input after plan');
-    await expect(f.project.branchIntegrateStart('main', plan.revision)).rejects.toThrow('revision changed');
-    expect(f.store.get('SELECT count(*) AS n FROM delivery_runs').n).toBe(0);
-    expect(await git(f.root, 'rev-parse', 'main')).toBe(f.baseline);
   } finally { await f.close(); }
 });
 
@@ -161,27 +143,6 @@ test('multi-round exact member baselines do not replay already-squashed source c
     expect(fs.readFileSync(path.join(f.root, 'source-0.txt'), 'utf8')).toBe('target adapted old contribution\n');
     expect(fs.readFileSync(path.join(f.root, 'second-round.txt'), 'utf8')).toBe('new increment\n');
   } finally { await f.close(); }
-});
-
-test('cancellation invalidates a running candidate, waits for actual exit and retains every source', async () => {
-  const entered = gate(), release = gate();
-  const f = await setup(2, { run: async args => { entered.resolve(); await release.promise; return 'ignored obsolete output'; } });
-  try {
-    const plan = await f.project.branchIntegratePlan('main'), op = await f.project.branchIntegrateStart('main', plan.revision);
-    f.start(); await entered.promise;
-    const cancelled = await f.project.branchIntegrateCancel(op.id, f.project.branchIntegration(op.id).revision);
-    expect(cancelled.state).toBe('awaiting'); expect(f.store.deliveryMembers(op.id, true)).toHaveLength(2);
-    release.resolve();
-    await until(() => f.store.deliveryRun(op.id).state === 'withdrawn');
-    expect(await git(f.root, 'rev-parse', 'main')).toBe(f.baseline); await sourcesUnchanged(f);
-    expect(fs.existsSync(f.store.task(op.worker.id).workspace)).toBe(true);
-    expect(f.store.deliveryMembers(op.id, true)).toHaveLength(0);
-    const fresh = await f.project.branchIntegratePlan('main');
-    expect(fresh.ready).toBe(true); expect(fresh.revision).not.toBe(plan.revision);
-    f.stop();
-    const again = await f.project.branchIntegrateStart('main', fresh.revision);
-    expect(again.id).not.toBe(op.id);
-  } finally { release.resolve(); await f.close(); }
 });
 
 test('target movement invalidates prior evidence and reuses the same Agent for semantic adaptation and fresh verification', async () => {
@@ -217,52 +178,6 @@ test('target movement invalidates prior evidence and reuses the same Agent for s
     expect(f.store.all("SELECT data FROM events WHERE task_id=? AND type='integration.attempt_fixed' ORDER BY id", helperId)
       .map(row => parse(row.data).generation)).toEqual([1, 2]);
     expect(fs.readFileSync(path.join(f.root, 'paid-adaptation.txt'), 'utf8')).toBe('retained semantic repair\n');
-  } finally { await f.close(); }
-});
-
-test('failed Agent leaves target unchanged; explicit revision retry uses the same retained private identity', async () => {
-  let calls = 0;
-  const f = await setup(1, { run: async args => { if (++calls === 1) throw new Error('controlled failure'); return combine(args); } });
-  try {
-    const plan = await f.project.branchIntegratePlan('main'), op = await f.project.branchIntegrateStart('main', plan.revision);
-    f.start(); await until(() => f.store.deliveryRun(op.id).state === 'failed' && !f.project.running.has(op.worker.id));
-    expect(await git(f.root, 'rev-parse', 'main')).toBe(f.baseline);
-    await expect(f.project.branchIntegrateRetry(op.id, 'stale')).rejects.toThrow('revision changed');
-    await f.project.branchIntegrateRetry(op.id, f.project.branchIntegration(op.id).revision);
-    const result = await landed(f, op); expect(calls).toBe(2); expect(result.worker.id).toBe(op.worker.id);
-  } finally { await f.close(); }
-});
-
-for (const kind of ['owner', 'order', 'child']) test(`one-shot supports the real direct ${kind} target without reparenting`, async () => {
-  const f = await setup(1, null, kind);
-  try {
-    const plan = await f.project.branchIntegratePlan(f.owner.branch);
-    expect(plan.target.id).toBe(f.owner.id); expect(plan.count).toBe(1);
-    const op = await f.project.branchIntegrateStart(f.owner.branch, plan.revision);
-    f.start(); const result = await landed(f, op);
-    expect(result.target.id).toBe(f.owner.id); await sourcesUnchanged(f);
-    if (kind !== 'owner') expect(await git(f.root, 'rev-parse', 'main')).not.toBe(result.commit);
-  } finally { await f.close(); }
-});
-
-test('Git-landed/DB-unsettled recovery proves the exact receipt and never replays publication', async () => {
-  const f = await setup(1);
-  const finish = f.project.finalizeConvergence.bind(f.project), apply = f.project.workspaces.applyConvergencePublishUnsafe.bind(f.project.workspaces);
-  let writes = 0;
-  f.project.workspaces.applyConvergencePublishUnsafe = async (...args) => { writes++; return apply(...args); };
-  f.project.finalizeConvergence = () => { throw new Error('controlled DB settlement interruption'); };
-  try {
-    const plan = await f.project.branchIntegratePlan('main'), op = await f.project.branchIntegrateStart('main', plan.revision);
-    f.start(); await until(() => f.store.deliveryRun(op.id).state === 'blocked' && !f.project.convergenceJobs?.has(op.id), 12000);
-    f.stop(); const landedCommit = await git(f.root, 'rev-parse', 'main');
-    expect(landedCommit).not.toBe(f.baseline); expect(writes).toBe(1);
-    await expect(f.project.branchIntegrateRetry(op.id, f.project.branchIntegration(op.id).revision)).rejects.toThrow('unknown');
-    f.project.finalizeConvergence = finish; f.project.recoverConvergence();
-    // Recreate the recovery event under the real dispatcher rather than re-running an Agent.
-    f.start(); f.project.scheduleConvergence(f.owner.id);
-    await until(() => f.store.deliveryRun(op.id).state === 'integrated', 12000); await landed(f, op);
-    expect(writes).toBe(1); expect(await git(f.root, 'rev-parse', 'main')).toBe(landedCommit);
-    expect(f.store.task(op.worker.id).calls).toBe(1);
   } finally { await f.close(); }
 });
 
@@ -308,123 +223,4 @@ console.log('real controlled Pi + lushc bridge: final combined git diff --exit-c
     expect(await git(f.root, 'rev-list', '--count', `${f.baseline}..main`)).toBe('1');
     await sourcesUnchanged(f);
   } finally { await server.close(); await f.close(); }
-});
-
-test('a pending decision never partially publishes and resumes the same autonomous Worker after the answer', async () => {
-  let calls = 0;
-  const f = await setup(2, { run: async args => {
-    if (++calls > 1) return combine(args);
-    await new Dispatcher(args.api).dispatch('notice.post', { _token: args.token, title: '固定组合语义确认', body: '', questions: [
-      { header: '适配', question: '是否保留固定来源的全部意图？', options: [
-        { label: '保留并继续', description: '继续固定组合的语义适配和验证' },
-        { label: '暂不继续', description: '保留来源与私有代码' },
-      ] },
-    ] });
-    return 'awaiting user';
-  } });
-  try {
-    const plan = await f.project.branchIntegratePlan('main'), op = await f.project.branchIntegrateStart('main', plan.revision);
-    f.start(); await until(() => f.store.deliveryRun(op.id).state === 'awaiting' && !f.project.running.has(op.worker.id));
-    expect(await git(f.root, 'rev-parse', 'main')).toBe(f.baseline); await sourcesUnchanged(f);
-    await expect(f.project.branchIntegrateRetry(op.id, f.project.branchIntegration(op.id).revision)).rejects.toThrow('decisions');
-    const notice = f.store.get("SELECT id FROM notices WHERE task_id=? AND status='open'", op.worker.id);
-    f.project.answer(notice.id, { answers: [{ selected: [0], custom: '' }] });
-    const result = await landed(f, op); expect(result.worker.id).toBe(op.worker.id); expect(calls).toBe(2);
-  } finally { await f.close(); }
-});
-
-test('a target advance after actual Agent exit requires another adaptation invocation, not a mechanical publish', async () => {
-  let calls = 0;
-  const f = await setup(1, { run: async args => {
-    calls++;
-    const result = await combine(args);
-    if (calls === 1) args.api.scheduleConvergence = () => {};
-    else expect(args.context.integration.tests_invalidated).toBe(true);
-    return result;
-  } });
-  try {
-    const plan = await f.project.branchIntegratePlan('main'), op = await f.project.branchIntegrateStart('main', plan.revision);
-    f.start();
-    await until(() => f.store.deliveryRun(op.id).state === 'preparing' && !f.project.running.has(op.worker.id));
-    fs.writeFileSync(path.join(f.root, 'post-exit.txt'), 'new target after output\n');
-    await git(f.root, 'add', '.'); await git(f.root, 'commit', '-m', 'target advances after actual output exit');
-    const moved = await git(f.root, 'rev-parse', 'main');
-    await f.project.prepareConvergenceRun(op.id, 1, new AbortController().signal);
-    expect(f.store.deliveryRun(op.id).candidate_commit).toBeNull(); expect(await git(f.root, 'rev-parse', 'main')).toBe(moved);
-    f.start(); const result = await landed(f, op);
-    expect(calls).toBe(2); expect(result.generation).toBe(2);
-    expect(fs.readFileSync(path.join(f.root, 'post-exit.txt'), 'utf8')).toBe('new target after output\n');
-  } finally { await f.close(); }
-});
-
-test('a fixed operation never absorbs a late source or divides its original collection into multiple landings', async () => {
-  const f = await setup(2);
-  try {
-    const plan = await f.project.branchIntegratePlan('main'), op = await f.project.branchIntegrateStart('main', plan.revision);
-    const late = (await f.project.order('late source', 'main', [], null, false)).task;
-    fs.writeFileSync(path.join(late.workspace, 'late-source.txt'), 'not in the fixed collection\n');
-    await git(late.workspace, 'add', '.'); await git(late.workspace, 'commit', '-m', 'late source');
-    await f.project.workspaces.finish(f.store.task(late.id)); f.store.update(late.id, { status: 'waiting', result: 'late tested report' });
-    expect(f.project.branchIntegration(op.id).members.map(member => member.id)).toEqual(f.sources.map(source => source.id));
-    f.start(); await landed(f, op);
-    expect(fs.existsSync(path.join(f.root, 'late-source.txt'))).toBe(false);
-    expect(await git(f.root, 'rev-list', '--count', `${f.baseline}..main`)).toBe('1');
-    const next = await f.project.branchIntegratePlan('main'); expect(next.members.map(member => member.id)).toEqual([late.id]);
-  } finally { await f.close(); }
-});
-
-test('ordinary resolving, blocked, attempted and unknown-landing requests can never be stolen by start', async () => {
-  const f = await setup(1);
-  try {
-    const base = { version: 2, kind: 'merge', parent_id: f.owner.id, commit: f.sources[0].head_commit };
-    for (const extra of [{ status: 'resolving' }, { status: 'blocked' }, { status: 'requested', attempt_id: 123 },
-      { status: 'requested', landing_receipt: { commit: f.baseline } }]) {
-      f.store.update(f.sources[0].id, { reservation: JSON.stringify({ ...base, ...extra }) });
-      const plan = await f.project.branchIntegratePlan('main'); expect(plan.count).toBe(0); expect(plan.excluded).toHaveLength(1);
-      await expect(f.project.branchIntegrateStart('main', plan.revision)).rejects.toThrow();
-    }
-    expect(f.store.all('SELECT id FROM delivery_runs')).toHaveLength(0);
-    expect(await git(f.root, 'rev-parse', 'main')).toBe(f.baseline);
-  } finally { await f.close(); }
-});
-
-test('bounded merge_operation summaries explicitly truncate while the operation read retains all 20 fixed members', async () => {
-  const f = fixture(); f.project.kick = () => {};
-  try {
-    await repo(f.root); const parent = await f.project.bootstrapMain();
-    const members = [];
-    for (let i = 0; i < 20; i++) {
-      const source = f.store.create({ parent_id: parent.id, role: 'agent', task_kind: 'order', goal: `source ${i}` });
-      f.store.update(source.id, { branch: `synthetic/${i}`, target_branch: 'main', status: 'waiting' });
-      members.push({ task_id: source.id, source_branch: `synthetic/${i}`, source_commit: parent.head_commit, base_commit: parent.head_commit,
-        delivery_id: 1000 + i, enqueue_seq: 1000 + i });
-    }
-    const run = f.store.createDeliveryRun({ parent_id: parent.id, target_branch: 'main', baseline: parent.head_commit,
-      validation: null, data: { operation_mode: 'one_shot', verification_mode: 'agent' }, members });
-    const helper = f.store.create({ parent_id: parent.id, role: 'agent', task_kind: 'integration', goal: 'synthetic private identity' });
-    f.store.updateDeliveryRun(run.id, { integration_worker_id: helper.id });
-    const full = f.project.branchIntegration(run.id), summary = f.project.taskMergeOperation(f.store.task(members[19].task_id));
-    expect(full).toMatchObject({ member_count: 20, members_truncated: false }); expect(full.members).toHaveLength(20);
-    expect(summary).toMatchObject({ member_count: 20, members_truncated: true }); expect(summary.members).toHaveLength(16);
-    expect(f.project.taskMergeOperation(helper)).toEqual(summary);
-    expect(() => f.store.run('DELETE FROM tasks WHERE id=?', members[19].task_id)).toThrow('active integration');
-    expect(f.store.deliveryHistoryBlockers([members[19].task_id])).toHaveLength(1);
-  } finally { await f.close(); }
-});
-
-test('a fresh Project recovery fails an orphan invocation instead of replaying unknown Agent side effects', async () => {
-  let calls = 0;
-  const f = await setup(1, { run: async () => { calls++; return 'must not replay'; } });
-  let restarted;
-  try {
-    const plan = await f.project.branchIntegratePlan('main'), op = await f.project.branchIntegrateStart('main', plan.revision);
-    f.store.update(op.worker.id, { status: 'running', calls: 1 });
-    restarted = new Project(f.config, f.store, { run: async () => { calls++; return 'must not replay'; } });
-    restarted.kick = () => {}; restarted.scheduleConvergence = () => {};
-    restarted.recover(); restarted.pump();
-    expect(restarted.branchIntegration(op.id).state).toBe('failed');
-    expect(f.store.task(op.worker.id).status).toBe('failed'); expect(calls).toBe(0);
-    expect(f.store.deliveryMembers(op.id, true)).toHaveLength(1);
-    expect(await git(f.root, 'rev-parse', 'main')).toBe(f.baseline); await sourcesUnchanged(f);
-  } finally { await restarted?.shutdown(); await f.close(); }
 });

@@ -53,6 +53,6 @@ CLI `hooks command list/save/export/remove/import/history`；save／import 用�
 
 ## 验证入口
 
-当前专项定位 `test/project/shortcut-command*.test.js`、`test/shortcut-command-api.test.js` 与对应 Web API／DOM／集成，验证最新定义跟随、固定执行证据、类型匹配、实际互斥、私有投影、连续 Hook 和 unknown 不重放；使用临时项目、受控命令与本地 bare remote，不接用户账号或服务。内置推送入口为 `test/project/default-push-command.test.js`。
+当前专项定位 `test/project/shortcut-commands.test.js`、`test/project/shortcut-command-runs.test.js`、`test/shortcut-command-api.test.js` 与对应 Web API／DOM／集成，保留定义版本、真实执行目录、安全收据与历史投影等代表路径；使用临时项目、受控命令与本地 bare remote，不接用户账号或服务。真实推送冒烟见 `test/project/hooks-command.test.js`，不再保留完整互斥、异常与兼容矩阵。
 
 快捷指令定义与 Hook 收据保持项目归属，不因设备连接／余额共享而全局化；历史修复记录不替代当前树的回归证据。

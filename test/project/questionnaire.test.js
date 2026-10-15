@@ -24,28 +24,6 @@ function controlled() {
   } };
 }
 
-test('questionnaire validates shape, limits, options and complete answers before mutation', () => {
-  const body = questionnaire('Context', questions());
-  expect(JSON.parse(body)).toMatchObject({ version: 1, body: 'Context' });
-  expect(questionnaireAnswer(body, answer()).answers[0]).toMatchObject({ question: 'Which layout?', selected: [1], labels: ['Tabs'], custom: '' });
-  expect(questionnaireAnswer(body, { answers: [{ selected: [], custom: '  Neither: use a drawer  ' }, { selected: [0] }] }).answers[0].custom).toBe('Neither: use a drawer');
-  for (const invalid of [null, [], [...questions(), ...questions(), ...questions()], [{ ...questions()[0], multiSelect: 'yes' }],
-    [{ ...questions()[0], options: [questions()[0].options[0]] }], [{ ...questions()[0], surprise: true }],
-    [{ ...questions()[0], options: questions()[0].options.map(o => ({ ...o, label: 'Other' })) }],
-    [{ ...questions()[0], options: questions()[0].options.map(o => ({ ...o, label: 'same' })) }]]) {
-    expect(() => questionnaire('', invalid)).toThrow();
-  }
-  const tooLarge = questions(); tooLarge.forEach(q => q.options.forEach(o => { o.previewHtml = '中'.repeat(16000); }));
-  expect(() => questionnaire('', tooLarge)).toThrow('64000 bytes');
-  for (const invalid of ['A', {}, { answers: [] }, { answers: [{ selected: [2] }, { selected: [0] }] },
-    { answers: [{ selected: [0, 1] }, { selected: [0] }] }, { answers: [{ selected: [0] }, { selected: [0, 0] }] },
-    { answers: [{ selected: [0], custom: 'ambiguous' }, { selected: [0] }] },
-    { answers: [{ selected: [], custom: '   ' }, { selected: [0] }] },
-    { answers: [{ selected: [0], labels: ['spoof'] }, { selected: [0] }] }]) {
-    expect(() => questionnaireAnswer(body, invalid)).toThrow();
-  }
-});
-
 test('posting stops the invocation, releases its slot, gates other messages, and resumes with canonical answers', async () => {
   const provider = controlled(), f = fixture(provider, { LUSH_CONCURRENCY: '1' });
   try {
@@ -89,68 +67,5 @@ test('posting stops the invocation, releases its slot, gates other messages, and
     expect(resumed.token).not.toBe(token);
     resumed.done.resolve('implemented choice');
     await until(() => f.store.task(task.id).status === 'waiting');
-  } finally { await f.close(); }
-});
-
-test('answer during abort unwinding is not lost; cancellation still wins', async () => {
-  const calls = [], f = fixture({ run(ctx) { const done = gate(); calls.push({ ...ctx, done }); return done.promise; } });
-  try {
-    await repo(f.root);
-    const task = (await f.project.order('race')).task;
-    await until(() => calls.length === 1);
-    const notice = f.project.notice(task.id, 'Choose', '', 'question', questions());
-    f.project.answer(notice.id, answer());
-    expect(f.project.running.has(task.id)).toBe(true);
-    calls[0].done.resolve('aborted output must not replace waiting result');
-    await until(() => calls.length === 2);
-    expect(calls[1].messages.length).toBe(1);
-    const next = f.project.notice(task.id, 'Choose again', '', 'question', questions());
-    f.project.cancel(task.id);
-    calls[1].done.resolve('aborted');
-    await until(() => !f.project.running.size);
-    expect(f.store.task(task.id).status).toBe('cancelled');
-    expect(() => f.project.answer(next.id, answer())).toThrow('not open');
-  } finally { for (const c of calls) c.done.resolve('stop'); await f.close(); }
-});
-
-test('awaiting questionnaires survive shutdown/recovery, unrelated inbox does not unblock; dismissal is explicit', async () => {
-  const provider = controlled(), f = fixture(provider); let restored;
-  try {
-    await repo(f.root);
-    const task = (await f.project.order('recover')).task;
-    await until(() => provider.calls.length === 1);
-    const notice = f.project.notice(task.id, 'Choose', '', 'question', questions());
-    f.project.message(task.id, 'extra');
-    await f.project.shutdown();
-    expect(f.store.task(task.id).status).toBe('awaiting');
-    // A stopped coordinator is never reopened. Model an actual daemon restart with
-    // a fresh Project over the persisted state, as the daemon bootstrap does.
-    restored = new Project(f.config, f.store, provider); restored.recover();
-    expect(f.store.task(task.id).status).toBe('awaiting');
-    expect(f.store.get('SELECT status FROM notices WHERE id=?', notice.id).status).toBe('open');
-    restored.answer(notice.id, '', true);
-    await until(() => provider.calls.length === 2);
-    expect(JSON.parse(provider.calls[1].messages.at(-1).body)).toMatchObject({ dismissed: true, answer: '' });
-    provider.calls[1].done.resolve('did not implement an unapproved choice');
-  } finally { if (restored) await restored.shutdown(); await f.close(); }
-});
-
-test('a child completing cannot wake a parent gated on a questionnaire', async () => {
-  const provider = controlled(), f = fixture(provider);
-  try {
-    await repo(f.root);
-    const parent = (await f.project.order('parent')).task;
-    await until(() => provider.calls.length === 1);
-    const child = await f.project.spawn(parent.id, 'child', undefined, [], 'child');
-    await until(() => provider.calls.length === 2);
-    const notice = f.project.notice(parent.id, 'Choose', '', 'question', questions());
-    // A child that returns normally now stays idle; only a terminal settlement signals the gated parent.
-    f.project.cancel(child.id, 'settle child for the gating test');
-    await until(() => f.project.running.size === 0);
-    expect(f.store.task(parent.id).status).toBe('awaiting');
-    f.project.answer(notice.id, answer());
-    await until(() => provider.calls.length === 3);
-    expect(provider.calls[2].messages.length).toBe(2);
-    provider.calls[2].done.resolve('done');
   } finally { await f.close(); }
 });

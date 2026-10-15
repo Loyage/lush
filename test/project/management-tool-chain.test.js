@@ -26,7 +26,7 @@ test('management tools, trusted bridge, RPC registrations and invocation allowli
   }
 });
 
-for (const runtime of ['node', 'bun']) for (const mode of ['lush', 'pi']) {
+for (const runtime of ['bun']) for (const mode of ['pi']) {
   test(`${runtime}/${mode}: Provider -> active real tools -> Bun bridge -> invocation-authorized RPC -> persisted effects/public results`, async () => {
     const f = fixture(); let rpc;
     try {

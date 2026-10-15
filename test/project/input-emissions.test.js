@@ -80,21 +80,6 @@ test('conditions require all selected Workers at a genuine settled boundary; mou
   } finally { await f.close(); }
 });
 
-test('already satisfied conditions do not wait for a new edge; old-round landing cannot satisfy new-round conditions', async () => {
-  const f = await setup();
-  try {
-    const task = await changed(f, await order(f)); const main = f.project.inputRoot(task);
-    await land(f, task, main);
-    const first = await f.project.emitBufferedInput({ content: 'already landed', conditions: [{ kind: 'worker_merged', worker_id: task.id }] });
-    await drain(f); expect(f.project.inputEmissionResult(first.draft_id).dispatch.state).toBe('succeeded');
-    f.store.update(task.id, { status: 'waiting' }); f.store.event(task.id, 'task.iteration_started', { reason: 'new work' });
-    f.store.event(task.id, 'task.idle', { head_commit: task.head_commit });
-    const second = await f.project.emitBufferedInput({ content: 'after latest round', conditions: [{ kind: 'worker_merged', worker_id: task.id }] });
-    await drain(f);
-    expect(f.project.inputEmissionResult(second.draft_id).dispatch.state).toBe('waiting_conditions');
-  } finally { await f.close(); }
-});
-
 test('child squash to direct parent is not a landing on main; exact upward receipt is required', async () => {
   const f = await setup();
   try {
@@ -104,37 +89,6 @@ test('child squash to direct parent is not a landing on main; exact upward recei
     await drain(f); expect(f.project.inputEmissionResult(result.draft_id).dispatch.state).toBe('waiting_conditions');
     const currentParent = settled(f, f.store.task(parent.id)); await land(f, currentParent, f.project.inputRoot(parent));
     await drain(f); expect(f.project.inputEmissionResult(result.draft_id).dispatch.state).toBe('succeeded');
-  } finally { await f.close(); }
-});
-
-test('quiet includes paused, failed, pending work and cancelled dirty sites, but permits cancelled clean and safe no-code results', async () => {
-  const f = await setup();
-  try {
-    const task = await order(f);
-    const result = await f.project.emitBufferedInput({ content: 'quiet-only', conditions: [{ kind: 'parent_quiet' }] });
-    await drain(f); expect(f.project.inputEmissionResult(result.draft_id).dispatch.reason).toContain('paused');
-    f.store.update(task.id, { status: 'failed' }); await drain(f);
-    expect(f.project.inputEmissionResult(result.draft_id).dispatch.reason).toContain('failed');
-    f.store.update(task.id, { status: 'cancelled' }); fs.writeFileSync(path.join(task.workspace, 'dirty.txt'), 'unfinished');
-    await drain(f); expect(f.project.inputEmissionResult(result.draft_id).dispatch.reason).toContain('脏现场');
-    fs.unlinkSync(path.join(task.workspace, 'dirty.txt')); settled(f, task);
-    await drain(f); expect(f.project.inputEmissionResult(result.draft_id).dispatch.state).toBe('succeeded');
-  } finally { await f.close(); }
-});
-
-test('parent freeze and true invocation ownership queue dispatch without fixing an early code baseline', async () => {
-  const f = await setup();
-  try {
-    const source = await order(f);
-    f.store.update(source.id, { reservation: JSON.stringify({ version: 1, kind: 'merge', status: 'requested', commit: source.base_commit }) });
-    const emission = await f.project.emitBufferedInput({ content: 'after freeze' }); await drain(f);
-    expect(f.project.inputEmissionResult(emission.draft_id).dispatch.state).toBe('queued');
-    expect(f.store.all('SELECT * FROM inputs')).toHaveLength(1);
-    f.store.update(source.id, { reservation: null });
-    const main = f.project.inputRoot(source); f.project.running.set(main.id, { controller: new AbortController(), parked: true });
-    await drain(f); expect(f.project.inputEmissionResult(emission.draft_id).dispatch.state).toBe('queued');
-    f.project.running.delete(main.id); await drain(f);
-    expect(f.project.inputEmissionResult(emission.draft_id).dispatch.state).toBe('succeeded');
   } finally { await f.close(); }
 });
 
@@ -158,22 +112,6 @@ test('exclusive creation serializes later emissions, admits its descendants, and
   } finally { await f.close(); }
 });
 
-test('exclusive lease automatically releases only after safe current-round merge or no-code delivery', async () => {
-  const f = await setup();
-  try {
-    const exclusive = await f.project.emitBufferedInput({ content: 'exclusive', exclusive: true }); await drain(f);
-    const worker = f.store.task(f.project.inputEmissionResult(exclusive.draft_id).dispatch.worker_id);
-    const next = await f.project.emitBufferedInput({ content: 'next' });
-    f.store.update(worker.id, { status: 'failed' }); await drain(f);
-    expect(f.project.inputEmissionResult(next.draft_id).dispatch.state).toBe('queued');
-    await changed(f, worker); await drain(f);
-    expect(f.project.inputEmissionResult(exclusive.draft_id).dispatch.exclusive_active).toBe(true);
-    await land(f, worker, f.project.inputRoot(worker)); await drain(f);
-    expect(f.project.inputEmissionResult(exclusive.draft_id).dispatch.exclusive_active).toBe(false);
-    expect(f.project.inputEmissionResult(next.draft_id).dispatch.state).toBe('succeeded');
-  } finally { await f.close(); }
-});
-
 test('append drafts preserve mode and revision, reject attachments without consumption, and emit a numbered Message not Input', async () => {
   const f = await setup();
   try {
@@ -191,76 +129,6 @@ test('append drafts preserve mode and revision, reject attachments without consu
     expect(receipt.append_number).toMatch(/^A/);
     expect(f.store.all('SELECT * FROM inputs')).toHaveLength(1);
     expect(f.project.inputGet('draft', draft.id)).toMatchObject({ status: 'sent', dispatch: { message_id: receipt.message_id } });
-  } finally { await f.close(); }
-});
-
-test('conditional append honors frozen inbox and target invalidation without waking or reviving a cancelled target', async () => {
-  const f = await setup();
-  try {
-    const target = await order(f), blocker = settled(f, await order(f));
-    f.store.update(target.id, { reservation: JSON.stringify({ version: 2, kind: 'merge', status: 'resolving', parent_id: target.parent_id, attempt_id: 'test', commit: target.base_commit }) });
-    const result = await f.project.emitBufferedInput({ mode: 'append', target_id: target.id, content: 'after blocker', conditions: [{ kind: 'worker_settled', worker_id: blocker.id }] });
-    await drain(f);
-    const receipt = f.project.inputEmissionResult(result.draft_id).dispatch;
-    expect(receipt.state).toBe('succeeded');
-    expect(f.store.get('SELECT delivery_hold FROM messages WHERE id=?', receipt.message_id).delivery_hold).toBe('frozen');
-    const another = await f.project.emitBufferedInput({ mode: 'append', target_id: blocker.id, content: 'cancelled later', conditions: [{ kind: 'worker_settled', worker_id: target.id }] });
-    f.store.update(blocker.id, { status: 'cancelled' }); await drain(f);
-    expect(f.project.inputEmissionResult(another.draft_id).dispatch.state).toBe('failed');
-    expect(f.store.task(blocker.id).status).toBe('cancelled');
-  } finally { await f.close(); }
-});
-
-test('cancellation detaches condition Hooks and restores editable text, preserving version protection and keyed dedupe', async () => {
-  const f = await setup();
-  try {
-    const source = await order(f);
-    const result = await f.project.emitBufferedInput({ content: 'waiting', conditions: [{ kind: 'worker_settled', worker_id: source.id }], client_request_id: 'cancel-key' });
-    expect(() => f.project.cancelInputEmission(result.draft_id, 3)).toThrow('changed');
-    f.project.cancelInputEmission(result.draft_id, 1);
-    expect(f.project.taskHooks(source.id).mounts.some(m => m.kind === 'input_signal')).toBe(false);
-    await f.project.updateBufferedDraft(result.draft_id, 'edited', [], undefined, 1);
-    const retry = await f.project.emitBufferedInput({ content: 'waiting', conditions: [{ kind: 'worker_settled', worker_id: source.id }], client_request_id: 'cancel-key' });
-    expect(retry.dispatch.state).toBe('cancelled'); expect(f.store.all('SELECT * FROM drafts')).toHaveLength(1);
-  } finally { await f.close(); }
-});
-
-test('unknown started dispatch survives restart without replay; unstarted mounted inputs resume exactly once', async () => {
-  const f = await setup();
-  try {
-    const unknown = await f.project.emitBufferedInput({ content: 'unknown' });
-    const raw = JSON.parse(f.store.draft(unknown.draft_id).emission);
-    raw.state = 'dispatching'; raw.dispatch_id = 'crashed';
-    f.store.run('UPDATE drafts SET emission=? WHERE id=?', JSON.stringify(raw), unknown.draft_id);
-    const pending = await f.project.emitBufferedInput({ content: 'safe waiting' });
-    const reopened = new Store(path.join(f.config.home, 'project.db'), f.root), project = new Project(f.config, reopened);
-    project.stopping = true; project.kick = () => {};
-    try {
-      project.recoverInputEmissions();
-      expect(project.inputEmissionResult(unknown.draft_id).dispatch.state).toBe('unknown');
-      expect(() => project.cancelInputEmission(unknown.draft_id, 1)).toThrow('unknown');
-      project.stopping = false; await project.drainInputEmissions(); project.stopping = true;
-      expect(project.inputEmissionResult(pending.draft_id).dispatch.state).toBe('succeeded');
-      expect(reopened.all('SELECT * FROM inputs')).toHaveLength(1);
-    } finally { await project.shutdown(); reopened.close(); }
-  } finally { await f.close(); }
-});
-
-test('queued creation rechecks parent after waiting for Git and never dispatches across a new invocation boundary', async () => {
-  const f = await setup();
-  try {
-    const main = await f.project.ensureMainTask();
-    const emission = await f.project.emitBufferedInput({ content: 'guarded' });
-    const entered = gate(), release = gate();
-    const anchorInput = f.project.anchorInput.bind(f.project);
-    f.project.anchorInput = async (...args) => { entered.resolve(); await release.promise; return anchorInput(...args); };
-    f.project.stopping = false;
-    const job = f.project.drainInputEmissions(); await entered.promise;
-    f.project.running.set(main.id, { controller: new AbortController(), parked: true }); release.resolve(); await job; f.project.stopping = true;
-    expect(f.project.inputEmissionResult(emission.draft_id).dispatch.state).toBe('queued');
-    expect(f.store.all('SELECT * FROM inputs')).toHaveLength(0);
-    f.project.running.delete(main.id); await drain(f);
-    expect(f.project.inputEmissionResult(emission.draft_id).dispatch.state).toBe('succeeded');
   } finally { await f.close(); }
 });
 

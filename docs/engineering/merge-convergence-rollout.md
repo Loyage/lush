@@ -10,13 +10,12 @@
 
 | 范围 | 主要入口与核验点 |
 |---|---|
-| 一次性核心 | test/project/one-shot-integration.test.js：九来源全集、无冲突也调用 Agent、四种真实父目标、单次 Squash、源身份不变、20 成员摘要截断 |
-| 准入与不可变尝试 | 同文件：脏／未读／后代排除、普通 resolving／未知落地不抢占、重复开始、晚到来源不混入、旧调用不能推进新代 |
-| 迭代与失败 | 同文件：多轮精确增量、目标前进前后重新适配、取消等真实退出、失败重试、待决恢复、Git／DB 中断收据核验、孤儿调用不重放 |
+| 一次性核心 | test/project/one-shot-integration.test.js：三来源真实落地、无冲突也调用 Agent、单次 Squash、源身份不变；不再覆盖超过旧八来源边界及摘要截断 |
+| 迭代 | 同文件：多轮精确增量、目标前进后重新适配与验证；不再保留完整准入、取消、重试及中断矩阵 |
 | 公开适配 | test/branch-integrate-api.test.js、test/web/branch-integrate-api.test.js：RPC／CLI／HTTP、严格参数、revision、用户专属、来源与操作读面 |
 | 权限／Provider | test/integration-rpc-permissions.test.js、test/agent/convergence-provider.test.js；核心专项另覆盖受控 Pi 子进程与真实 lushc bridge |
-| 退休与普通串行 | test/project/convergence-retirement.test.js、convergence-mount-defaults.test.js、automation-operations.test.js，以及 test/integration/automation-mount-runtime.test.js |
-| Git／历史兼容 | test/workspaces/convergence-*.test.js、test/project/convergence-*.test.js：旧模式、成员映射、CAS、脏现场、收据、验收与删除保护 |
+| 普通串行 | test/project/merge-queue.test.js、test/integration/automation-mount-runtime.test.js：普通交付与挂载的代表链路 |
+| Git／历史兼容 | test/workspaces/convergence-publish.test.js：一次真实批量发布与精确收据恢复；其余旧 v3 专项矩阵已删除，不表示产品兼容被移除 |
 | 前端最终组合 | 工作树／Worker 详情的新操作、ACK 与刷新失败、取消／重试、真实状态、Agent 紫色标识／帮助、窄屏与异常；必须在最终前后端树实际验证 |
 
 使用临时项目、隔离设备设置、可控进程及真实 HTTP／RPC／SQLite／Git，不操作用户运行中的队列或服务。选定范围必须完整跑完；日志、命令、被测树、结果与未覆盖风险进入实际交付记录，不在本文长期保存某次测试计数。

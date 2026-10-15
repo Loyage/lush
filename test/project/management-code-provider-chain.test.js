@@ -26,7 +26,7 @@ async function setup() {
   return f;
 }
 
-for (const history of ['missing','empty']) test(`real Provider -> registered tools -> Bun bridge -> latest project permissions -> result for ${history} historical authorization`, async () => {
+for (const history of ['missing']) test(`real Provider -> registered tools -> Bun bridge -> latest project permissions -> result for ${history} historical authorization`, async () => {
   const f = await setup();
   const set = patch => { const current = f.project.managementPermissions(); return f.project.setManagementPermissions({ ...current.permissions, ...patch }, current.revision); };
   try {

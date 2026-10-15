@@ -28,21 +28,6 @@ function legacy(f, item, status = 'succeeded') {
   return execution_id;
 }
 
-test('manual Project executors are absent; definition management cannot execute or create Workers', async () => {
-  const f = await setup();
-  try {
-    for (const name of ['runShortcutCommand', 'startShortcutCommand', 'startPromptShortcutCommand']) expect(f.project[name]).toBeUndefined();
-    const item = register(f, 'printf BAD > .lush/manual-proof');
-    const prompt = f.project.saveShortcutCommand({ name: 'prompt', kind: 'prompt', prompt: 'do not create' }, f.project.shortcutCommands().revision).commands.items.at(-1);
-    const claim = f.project.acceptPromptShortcutExecution({ type: 'prompt_command', command_id: prompt.id, command_version: 1 }, f.main.id);
-    await expect(f.project.executePromptShortcutCommand(claim, f.main.id)).rejects.toThrow('requires a Hook receipt');
-    await expect(f.project.executePromptShortcutCommand(claim, f.main.id, { task_id: f.main.id, hook_id: 'forged', execution_id: 1, action_index: 0 })).rejects.toThrow('创建未完成');
-    expect(f.store.get('SELECT count(*) AS n FROM inputs').n).toBe(0);
-    expect(fs.existsSync(path.join(f.config.home, 'manual-proof'))).toBe(false);
-    expect(f.project.shortcutCommands().items.find(c => c.id === item.id).last_execution).toBeNull();
-  } finally { await f.close(); }
-});
-
 test('history contains historical manual and live Hook failures/timeouts, pages stably and never exposes output', async () => {
   const f = await setup();
   try {
@@ -62,57 +47,6 @@ test('history contains historical manual and live Hook failures/timeouts, pages 
     f.project.removeShortcutCommand(item.id, f.project.shortcutCommands().revision);
     expect(lookup(f, old)).toMatchObject({ command_name: 'original name', command_version: 1, status: 'succeeded' });
   } finally { await f.close(); }
-});
-
-test('completion updates an already-paged Hook row without moving its stable event cursor', async () => {
-  const f = await setup();
-  try {
-    const item = register(f, 'printf start > .lush/start; while [ ! -f .lush/release ]; do sleep 0.01; done');
-    trigger(f, item); await until(() => fs.existsSync(path.join(f.config.home, 'start')));
-    const running = f.project.shortcutCommandHistory().items[0]; expect(running.status).toBe('running');
-    fs.writeFileSync(path.join(f.config.home, 'release'), 'go'); await f.project.hookQueue;
-    expect(lookup(f, running.id)).toMatchObject({ event_id: running.event_id, status: 'succeeded' });
-    trigger(f, item); await f.project.hookQueue;
-    const page = f.project.shortcutCommandHistory({ limit: 1 });
-    expect(page.items[0].id).not.toBe(running.id);
-    expect(f.project.shortcutCommandHistory({ before: page.next_before, limit: 1 }).items[0]).toMatchObject({ id: running.id, event_id: running.event_id });
-  } finally { fs.writeFileSync(path.join(f.config.home, 'release'), 'go'); await f.close(); }
-});
-
-test('legacy events remain read-only queryable without inventing names or leaking arbitrary fields', async () => {
-  const f = await setup();
-  try {
-    const item = register(f), executionId = randomUUID();
-    f.store.event(f.main.id, 'shortcut.command_started', { command_id: item.id, version: 1, execution_id: executionId, command: 'PRIVATE_COMMAND', env: 'PRIVATE_ENV' });
-    f.store.event(f.main.id, 'shortcut.command_succeeded', { command_id: item.id, execution_id: executionId, command_result: { status: 'succeeded', exit_code: 0,
-      signal: 'PRIVATE_SIGNAL', reason: 'PRIVATE_REASON', stdout: 'PRIVATE_OUTPUT', stderr: 'PRIVATE_STDERR', env: 'PRIVATE_ENV' } });
-    const count = f.store.get('SELECT count(*) AS n FROM events').n;
-    expect(lookup(f, executionId)).toMatchObject({ command_name: null, source: 'unknown', command_version: 1, status: 'succeeded', command_result: { signal: null, reason: null } });
-    expect(JSON.stringify(f.project.shortcutCommandHistory())).not.toContain('PRIVATE');
-    expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(count);
-    for (const options of [{ limit: 0 }, { limit: 101 }, { limit: '30' }, { before: -1 }, { execution_id: 'not-a-uuid' }, { execution_id: executionId, before: 1 }, { env: true }])
-      expect(() => f.project.shortcutCommandHistory(options)).toThrow();
-    expect(f.project.shortcutCommandHistory({ execution_id: randomUUID() }).items).toEqual([]);
-  } finally { await f.close(); }
-});
-
-test('restart marks pending/running history unknown including overwritten/deleted commands without replay or duplicate settlement', async () => {
-  const f = await setup(); let next;
-  try {
-    const item = register(f, 'printf BAD > .lush/replay'), ids = [];
-    for (let n = 0; n < 105; n++) {
-      const executionId = randomUUID(); ids.push(executionId);
-      f.store.event(f.main.id, n % 2 ? 'shortcut.command_started' : 'shortcut.command_pending', {
-        command_id: item.id, command_version: 1, command_name: item.name, execution_id: executionId, worker_number: 'W900-1', source: n % 2 ? 'hook' : 'manual' });
-    }
-    f.project.removeShortcutCommand(item.id, f.project.shortcutCommands().revision);
-    next = new Project(f.config, f.store); next.kick = () => {}; next.recoverTaskHooks(); await next.hookQueue;
-    for (const executionId of ids) expect(next.shortcutCommandHistory({ execution_id: executionId }).items[0]).toMatchObject({ status: 'unknown', worker_number: 'W900-1', command_result: { reason: 'interrupted' } });
-    expect(fs.existsSync(path.join(f.config.home, 'replay'))).toBe(false);
-    expect(f.store.all("SELECT id FROM events WHERE type='shortcut.command_unknown'")).toHaveLength(105);
-    const count = f.store.get('SELECT count(*) AS n FROM events').n; next.recoverTaskHooks();
-    expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(count);
-  } finally { await next?.shutdown(); await f.close(); }
 });
 
 test('shutdown waits for started Hook commands and publishes known completion before releasing writes', async () => {

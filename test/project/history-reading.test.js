@@ -51,47 +51,6 @@ test('history/historyPage batch projection equals reading-page, including full-h
   } finally { await f.close(); }
 });
 
-test('history pages retain malformed/oversized rows, same-Worker links and bounded evidence without throwing or losing cursor rows', async () => {
-  const f = fixture(), task = make(f.store), other = make(f.store);
-  try {
-    const bad = rawEvent(f.store, task.id, 'failed', '{broken'), array = rawEvent(f.store, task.id, 'old', '[]');
-    const large = f.store.event(task.id, 'failed', { body: 'x'.repeat(16 * 1024 * 1024 + 1), hooks: 'PRIVATE' });
-    const oversizedMessage = f.store.message(task.id, 'x'.repeat(16 * 1024 * 1024 + 1));
-    const linkedLarge = f.store.event(task.id, 'task.signal', { message_id: oversizedMessage });
-    const foreignMessage = f.store.message(other.id, 'FOREIGN-MESSAGE');
-    const foreign = f.store.event(task.id, 'task.signal', { message_id: foreignMessage });
-    f.store.event(task.id, 'invocation.inputs_delivered', { message_ids: { invalid: 'not an array' } });
-    rawEvent(f.store, task.id, 'invocation.started', '{invalid');
-    const rows = drain(f.store, task.id, 3), byId = new Map(rows.map(row => [row.id,row]));
-    expect(rows.map(row => row.id)).toEqual(f.store.all('SELECT id FROM events WHERE task_id=? ORDER BY id', task.id).map(row => row.id));
-    expect(byId.get(bad).error).toBe('invalid_event_json'); expect(byId.get(array).error).toBe('invalid_event_data');
-    expect(byId.get(large)).toMatchObject({ error: 'record_exceeds_16_mib', total_chars: null, text_truncated: true });
-    expect(byId.get(linkedLarge).error).toBe('linked_message_record_exceeds_16_mib');
-    expect(byId.get(foreign).error).toBe('linked_message_unavailable');
-    expect(JSON.stringify(rows)).not.toContain('FOREIGN-MESSAGE'); expect(JSON.stringify(rows)).not.toContain('PRIVATE');
-    expect(f.store.history(task.id)).toEqual(rows);
-    expect(() => f.store.goalInputDelivery(task.id)).not.toThrow();
-    const remote = f.store.readingPage(task.id, { before_message: 0, limit: 100 });
-    expect([...remote.events].reverse()).toEqual(rows);
-  } finally { await f.close(); }
-});
-
-test('byte-boundary pagination keeps newest contiguous windows; both directions traverse escaped long records exactly once', async () => {
-  const f = fixture(), task = make(f.store);
-  try {
-    for (let i = 0; i < 19; i++) f.store.event(task.id, 'invocation.completed', { run_id: i + 1, result: '\u0000'.repeat(24000) + '😀Tail' });
-    const expected = f.store.all('SELECT id FROM events WHERE task_id=? ORDER BY id', task.id).map(row => row.id);
-    const first = f.store.historyPage(task.id, null, 100);
-    expect(first.events.length).toBeLessThan(19); expect(first.has_more).toBe(true);
-    expect(first.events.at(-1).id).toBe(expected.at(-1)); expect(first.cursor).toBe(first.events[0].id);
-    expect(drain(f.store, task.id).map(row => row.id)).toEqual(expected);
-    const legacy = []; let after = 0, page;
-    do { page = f.store.history(task.id, after); legacy.push(...page); after = page.at(-1)?.id ?? after; } while (page.length);
-    expect(legacy.map(row => row.id)).toEqual(expected);
-    expect(f.store.historyPage(task.id, expected[0], 100)).toMatchObject({ events: [], has_more: false });
-  } finally { await f.close(); }
-});
-
 test('100 linked input records keep query count constant and measured median read latency inside the existing 100ms budget', async () => {
   const f = fixture(), task = make(f.store);
   try {

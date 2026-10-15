@@ -71,10 +71,9 @@ Message 来源必须由持久 `append_number` 或明确的用户 message Event �
 
 ## 验证入口与边界
 
-- `test/project/input-history.test.js`：状态、全库搜索分页、父身份、重开持久化、乐观锁和发射/编辑/删除竞态。
-- `test/project/input-history-modes.test.js`：三模式组合、全库混合 kind 同时间分页、游标集合绑定、来源证明／排除、追加去重、只读安全投影与权限。
+- `test/project/input-history.test.js`：父身份、引用及暂存指令发射的代表路径。
 - `test/web/input-history.test.js`：HTTP 路由、JSON 模式数组与参数白名单。
-- `test/project/conditional-input-history.test.js` / `test/web/dom-automation-emission.test.js`：条件输入全库分页、成功后收据、安全投影与嵌入编辑、分页、标签保留、跨项目／离页迟到保护。
+- `test/web/dom-automation-emission.test.js`：条件输入编辑、收据与页面身份保护；不再保留独立的 Runtime 三模式／条件历史组合矩阵。
 - `test/web/dom-input-buffer.test.js` / `dom-inputs.test.js`：键盘、输入法、单飞、编辑与迟到响应保护。
 - `test/web/dom-inputs-api.test.js`：真实临时 HTTP/RPC/SQLite/Git 串联暂存、搜索、修订保存、挂载后实际创建及原始引用回看，不连接用户项目。
 - `bun run scripts/check-input-modes-ui.js`：隔离 Firefox 真实项目页与 iframe，验证双主题 1440/900/390px 三色模式开关、默认全选、单模式／全不选、追加只读详情与无溢出，不连接 daemon／模型。

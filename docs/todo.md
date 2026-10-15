@@ -59,7 +59,7 @@
 
 验收方向：实施前明确哪些内容默认出现、哪些按需展开；交付按已确认交互及布局验证，不只检查功能是否存在。
 
-落实入口：协作消息取舍与 UI 静态预览要求位于 `src/agent/prompts.js`，进度／接口确认细节沿用对应按需 Skill 指南；提示词回归见 `test/collaboration-prompt.test.js`。`test/project/collaboration-signals.test.js` 验证里程碑不唤醒父 Agent、纯进度显式消息仍可触发调用、成功收据继续聚合及失败／安全消息不被压制。复盘口径见[协作消息的观察口径](engineering/token-efficiency.md#协作消息的观察口径)；未新增正文分类或消息抑制机制，也未量化真实模型节省效果。
+落实入口：协作消息取舍与 UI 静态预览要求位于 `src/agent/prompts.js`，进度／接口确认细节沿用对应按需 Skill 指南；提示词回归见 `test/collaboration-prompt.test.js`。消息与唤醒的代表链路见 `test/project/lifecycle.test.js`、`test/integration/pi.test.js`；不再保留完整协作信号组合专项。复盘口径见[协作消息的观察口径](engineering/token-efficiency.md#协作消息的观察口径)；未新增正文分类或消息抑制机制，也未量化真实模型节省效果。
 
 ## 优先级三：用工具减少记忆负担
 

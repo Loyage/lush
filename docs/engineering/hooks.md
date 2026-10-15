@@ -170,8 +170,8 @@ CLI 的挂载 Worker 身份遵循父侧编号接缝：允许整数或 `Wn(-n)*`�
 
 ## 验证与交付限制
 
-`test/project/hooks*.test.js` 覆盖 runtime、生命周期、模板和恢复；`test/hooks-api.test.js`、`test/web/hooks-api.test.js` 覆盖 RPC/HTTP/CLI、权限、修订和文件入口；`test/rpc-public-result.test.js` / `test/web/rpc-public-result.test.js` 覆盖私有字段出口隔离；`test/web/dom-hooks*.test.js` 与输入 DOM 测试覆盖界面状态。`test/web/hooks-runtime-integration.test.js` 使用真实临时 HTTP、RPC、SQLite 与 Git 联调，验证冻结预约、模板私有覆盖保留及终态父上的草稿释放。
+`test/project/hooks*.test.js` 保留定义、模板、去重、真实命令及定时提交的代表路径；`test/hooks-api.test.js`、`test/web/hooks-api.test.js` 覆盖 RPC/HTTP/CLI、权限、修订和文件入口；`test/rpc-public-result.test.js` / `test/web/rpc-public-result.test.js` 覆盖私有字段出口隔离；`test/web/dom-hooks*.test.js` 与输入 DOM 测试覆盖界面状态。`test/web/hooks-runtime-integration.test.js` 使用真实临时 HTTP、RPC、SQLite 与 Git 联调，验证冻结预约、模板私有覆盖保留及终态父上的草稿释放。
 
-定时补充验证入口：`test/hook-schedule.test.js`（定义、时区与 DST）、`test/project/hooks-scheduled.test.js`（真实／可控定时器、停机跳过、pending 恢复、门禁与去重）、`test/web/dom-hooks-scheduled.test.js`（时间表单、模式目录、运行覆盖与安全提示），以及 `test/web/hooks-scheduled-integration.test.js`（真实 HTTP/RPC/SQLite/Git：自动到点创建、失败重试／暂停继续、私有覆盖保留、冻结待执行与当前 tip、错过一次性禁止回拨重启）。提交、错过、skipped 的中文事件标签由 `test/web/event-labels.test.js` 覆盖。
+定时补充验证入口：`test/hook-schedule.test.js`（定义、时区与 DST）、`test/project/hooks-scheduled.test.js`（真实定时器提交与每日消息去重）、`test/web/dom-hooks-scheduled.test.js`（时间表单、模式目录、运行覆盖与安全提示），以及 `test/web/hooks-scheduled-integration.test.js`（真实 HTTP/RPC/SQLite/Git：自动到点创建、失败重试／暂停继续、私有覆盖保留、冻结待执行与当前 tip、错过一次性禁止回拨重启）。提交、错过、skipped 的中文事件标签由 `test/web/event-labels.test.js` 覆盖。
 
-测试使用临时项目、可控 provider 与 DOM，不重启用户 daemon/Host、不调用真实模型。覆盖：正常返回与交付就绪区别、异常/暂停/冻结边缘、自动合并锁定、冻结期间参数与默认快照、首次安全点、公平与创建恰好一次、重复提交/草稿版本、权限/白名单、禁用/取消、去重及重启 unknown、秘密投影、模板实例隔离、迟到响应与按钮调用标识。真实浏览器和实际模型端点另行验收。
+测试使用临时项目、可控 provider 与 DOM，不重启用户 daemon/Host、不调用真实模型。当前保留主要执行与界面路径，不再保证每种异常、暂停、冻结及重启 unknown 组合都有独立回归；覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。真实浏览器和实际模型端点另行验收。

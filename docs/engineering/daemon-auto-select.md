@@ -60,6 +60,6 @@ Web 使用当前项目已登录、同源的 `POST /api/action`，不接受项目
 
 Runtime 入口为 `src/core/project/auto-select.js`，装配见 `project.js`；Notice 答复在 `project/messages.js`，共享投影在 `persistence/notice-projection.js`。RPC/CLI、Web server 与 assets 只调用该窄契约，分区见[模块地图](modules.md#daemon-自动选择-hook-接缝w118--决定-267)。
 
-新增历史与常驻状态验证入口：`test/project/automatic-notice-history.test.js`、`test/web/dom-auto-select.test.js`、`test/web/auto-select-runtime-integration.test.js`；真实 Firefox 检查 `bun run ./test/web/check-auto-select-browser.js` 使用实际 shell/CSS 和受控 HTTP，覆盖深浅主题、1440/390/320 宽度、移动 sticky、跨页面与只读历史、失败重试及键盘关闭，不操作用户 daemon。
+代表性验证入口：`test/project/auto-select.test.js`、`test/web/dom-auto-select.test.js`、`test/web/auto-select-runtime-integration.test.js`；真实 Firefox 检查 `bun run ./test/web/check-auto-select-browser.js` 使用实际 shell/CSS 和受控 HTTP，覆盖深浅主题、1440/390/320 宽度、移动 sticky、跨页面与只读历史、失败重试及键盘关闭，不操作用户 daemon。
 
-测试应覆盖默认关闭、项目隔离、热更新和持久化、旧问题批次、新问题、混合问卷与文字问答、来源不可伪造、去重、过期 revision、权限、shutdown、真实退出后的恢复，以及页面授权和历史来源展示。不调用真实模型，不重启用户正在工作的 daemon/Host；真实浏览器与实际模型另行验收。
+默认关闭、项目隔离、来源、去重、权限与退出恢复等仍是产品约束；自动测试仅保留代表路径，不保证每种历史与异常组合均有专门回归。不调用真实模型，不重启用户正在工作的 daemon/Host；真实浏览器与实际模型另行验收。

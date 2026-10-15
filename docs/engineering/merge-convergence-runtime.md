@@ -42,4 +42,4 @@ CLI／RPC／Web 只适配公开接口；graph 与 inspect 使用同源 merge_ope
 
 ## 验证定位
 
-新行为以 test/project/one-shot-integration.test.js、test/branch-integrate-api.test.js、test/web/branch-integrate-api.test.js 为入口；旧协议、Git／CAS／映射与权限分别位于 convergence 专项和 test/integration-rpc-permissions.test.js。完整分层责任与限制见[验证范围](merge-convergence-rollout.md)，不把测试文件存在或历史通过记录当作当前树已通过。
+新行为以 test/project/one-shot-integration.test.js、test/branch-integrate-api.test.js、test/web/branch-integrate-api.test.js 为入口；Git 发布兼容冒烟见 test/workspaces/convergence-publish.test.js，权限见 test/integration-rpc-permissions.test.js；其余旧协议／映射异常矩阵不再专门回归。完整分层责任与限制见[验证范围](merge-convergence-rollout.md)，不把测试文件存在或历史通过记录当作当前树已通过。

@@ -29,10 +29,9 @@
 
 ## 验证
 
-- `test/project/target-branch-guard.test.js`：真实临时 Git、可控 provider，覆盖父仍活动／父先结束／子从中间 tip 开始／父多轮调用，真实越界与父结束后的异常移动，以及无关分支、失败写入、对象与快照 ref、合法写入前后的归因缺口。
 - `test/workspaces/ref-guard.test.js`：独立基线、在途收据、失败副作用、数量上限与所有权丢失。
-- `test/workspaces/task-squash.test.js`：检出／未检出父分支的自定义 Squash 精确转移，原有 CAS、取消、未知落地与恢复安全门保持不变。
-- `test/project/completion*.test.js`、`test/project/preempt.test.js`、`test/project/interrupt.test.js`：失败不能进入自动链，生命周期退出与抢占路径。
+- `test/workspaces/task-squash.test.js`：检出／未检出目标的精确 Squash 收据及固定 refs 漂移拒绝。
+- `test/project/completion.test.js`、`test/project/interrupt.test.js`：自动链与安全暂停／继续的代表路径。
 - `test/web/event-labels.test.js`：新观测与未归因名称、旧事件兼容。
 
 测试只使用临时项目，不重启用户 daemon、修改其它 Worker 或恢复旧失败状态。修复合入后须在无活动调用时由用户更新 daemon，已失败 Worker仍由用户显式重试。

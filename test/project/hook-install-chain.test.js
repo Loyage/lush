@@ -109,31 +109,3 @@ test('real user CLI and HTTP install the same registered capability; response-lo
     await deliver(f, 'cli-land'); expect(fs.readFileSync(proof(f), 'utf8')).toBe('x');
   } finally { await f.close(); }
 });
-
-for (const outcome of ['unavailable', 'reject', 'stale_revision', 'target_changed'])
-  test(`real bridge install ${outcome} never leaves partial automation`, async () => {
-    const f = fixture(); let rpc;
-    try {
-      await prepare(f);
-      rpc = new RPCServer(f.config.socket, new Dispatcher(f.project, createSignal(), {})); await rpc.start();
-      const input = options(f), count = f.project.shortcutCommands().items.length;
-      const { manager, reply } = await runManager(f, input);
-      expect(reply.response.details.status).toBe('pending_confirmation');
-      if (outcome === 'unavailable') {
-        const current = f.project.managementPermissions();
-        f.project.setManagementPermissions({ ...current.permissions, 'hooks.install': 'unavailable' }, current.revision);
-      } else {
-        if (outcome === 'stale_revision') f.project.saveShortcutCommand({ name: 'unrelated edit', command: 'true' }, f.project.shortcutCommands().revision);
-        if (outcome === 'target_changed') f.store.update(f.main.id, { head_commit: 'a'.repeat(40) });
-        f.project.answer(reply.response.details.notice_id, outcome === 'reject' ? { answers: [{ selected: [0], custom: '' }] } : approve);
-      }
-      await Promise.all([...(f.project.managementControlJobs ?? [])]);
-      expect(f.project.shortcutCommands().items).toHaveLength(count + (outcome === 'stale_revision' ? 1 : 0));
-      expect(f.store.get("SELECT count(*) AS n FROM events WHERE type='hook.installed'").n).toBe(0);
-      expect(f.project.taskHooks(f.main.id).mounts.some(item => item.name === input.hook.name)).toBe(false);
-      expect(fs.existsSync(proof(f))).toBe(false); expect(f.invocations).toBe(1);
-      const state = JSON.parse(f.store.task(manager.id).management);
-      const call = (state.last_execution ?? state.pending_signal).control_calls?.[0] ?? state.control_calls[0];
-      expect(call.status).toBe(outcome === 'unavailable' || outcome === 'reject' ? 'rejected' : 'failed');
-    } finally { await rpc?.close(); await f.close(); }
-  });

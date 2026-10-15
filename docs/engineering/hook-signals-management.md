@@ -99,4 +99,4 @@ W279／D635：当前项目的 Valet 共用一个串行执行位，不引入跨�
 
 作用域仅当前项目，无跨项目、任意 Shell、read/write/edit 或凭证工具。设备共享设置须指令明确提出设备／全局操作且工具带 `scope:'device'`；device-only 旧别名也要求该授权元数据，不传给普通 handler。私有 env、Prompt、凭证、原始会话正文及需交互认证／设置迁移的能力保留目录但不可用，指向用户界面。管理模型不得创建其它管理身份或改变自身授权。只读结果再次做秘密字段和字节裁剪，公开 inspect 不暴露 control_calls 原参数、预检指纹或私有 JSON。
 
-验证使用临时项目与受控 Provider：`test/project/management-control.test.js` 覆盖权限分级、确认、旧 token、scope、冻结、unknown 和私有投影；Provider/工具测试验证可信工具白名单与隔离；真实 HTTP/RPC/Git 联调覆盖管理草稿到条件发射和用户确认执行。不调用真实模型、不重启用户服务；真实自然语言理解、额度恢复和物理浏览器行为仍需另行验收。
+验证使用临时项目与受控 Provider：`test/project/management-code-provider-chain.test.js` 保留真实工具／bridge、当前权限、固定验收确认与自身待决恢复链路；`test/project/management-live-permissions.test.js` 保留未开始操作的权限重核；Provider/工具测试验证可信工具白名单与隔离。当前仅保留代表场景，不再声称覆盖完整异常矩阵。不调用真实模型、不重启用户服务；真实自然语言理解、额度恢复和物理浏览器行为仍需另行验收。

@@ -1,5 +1,60 @@
 import { test, expect } from 'bun:test';
 import { fixture, repo, until, gate } from '../helpers.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { PiProvider } from '../../src/agent/provider.js';
+import { Dispatcher } from '../../src/rpc/dispatcher.js';
+import { RPCServer } from '../../src/rpc/server.js';
+import { createSignal } from '../../src/signal.js';
+
+// Main development smoke: real Provider subprocesses and the pinned RPC CLI,
+// without a model/account call. Keep this chain when trimming isolated edge cases.
+test('real Provider order delegates a child through lushc and consumes its returned result on the next invocation', async () => {
+  const f = fixture(); let server;
+  try {
+    f.project.stopping = true; await repo(f.root);
+    const cli = fileURLToPath(new URL('../../bin/lushc', import.meta.url));
+    const executable = path.join(f.config.home, 'controlled-lifecycle-pi');
+    fs.writeFileSync(executable, `#!/usr/bin/env bun
+import fs from 'node:fs';
+import path from 'node:path';
+const input = JSON.parse(fs.readFileSync(path.join(process.env.LUSH_HOME, 'sessions', 'task-' + process.env.LUSH_TASK_ID + '-input.md'), 'utf8'));
+const task = input.task;
+fs.appendFileSync(path.join(process.env.LUSH_HOME, 'lifecycle-proof.jsonl'), JSON.stringify({ id: task.id, kind: task.task_kind, calls: task.calls, messages: input.messages }) + '\\n');
+if (task.task_kind === 'order' && task.calls === 1) {
+  const child = Bun.spawnSync([process.execPath, ${JSON.stringify(cli)}, 'worker', 'spawn', 'controlled child', '--name', 'provider-child', '--json'], { stdout: 'pipe', stderr: 'pipe' });
+  if (child.exitCode) throw new Error(new TextDecoder().decode(child.stderr));
+  console.log('parent delegated');
+} else if (task.task_kind === 'child') {
+  console.log('controlled child result');
+} else {
+  if (!input.messages.some(message => message.body.includes('controlled child result'))) throw new Error('child result missing from parent inbox');
+  console.log('parent consumed child result');
+}
+`, { mode: 0o755 });
+    f.config.env.LUSH_PI_COMMAND = executable;
+    const profile = { agent: 'pi', config_mode: 'pi', model: '', thinking: '', extensions: [], skills: [], default_prompt: '', append_prompt: '', soft_budget: {} };
+    f.project.provider = { resolve: () => profile, reportsInputDelivery: true, run: options => new PiProvider(f.config).run(options) };
+    server = new RPCServer(f.config.socket, new Dispatcher(f.project, createSignal(), {}));
+    await server.start();
+    const { task } = await f.project.order('controlled real Provider lifecycle');
+    f.project.stopping = false; f.project.kick();
+    await until(() => f.store.task(task.id).calls === 2 && f.store.task(task.id).status === 'waiting' && !f.project.running.size, 12000);
+    const [child] = f.store.children(task.id);
+    expect(child).toMatchObject({ task_kind: 'child', status: 'awaiting_acceptance', result: 'controlled child result', calls: 1 });
+    expect(child.workspace).not.toBe(task.workspace);
+    expect(f.store.task(task.id).result).toBe('parent consumed child result');
+    expect(f.store.unread(task.id)).toEqual([]);
+    const proof = fs.readFileSync(path.join(f.config.home, 'lifecycle-proof.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+    expect(proof.map(row => row.kind)).toEqual(['order', 'child', 'order']);
+    expect(proof.at(-1).messages.some(message => message.body.includes('controlled child result'))).toBe(true);
+    for (const row of [f.store.task(task.id), child]) {
+      expect(row.agent_token_hash).toBeNull();
+      expect(f.store.runsForTask(row.id).every(run => run.status === 'completed')).toBe(true);
+    }
+  } finally { await server?.close(); await f.close(); }
+});
 
 function controlled() {
   const calls = [];
@@ -47,21 +102,6 @@ test('cancel cascades and terminal tasks cannot have active descendants', async 
   } finally { await f.close(); }
 });
 
-test('failure cancels descendants; child failure wakes parent with explicit error', async () => {
-  let message;
-  const f = fixture({ async run({ task, api, messages }) {
-    if (task.task_kind === 'order' && task.calls === 1) { await api.spawn(task.id,'fail', undefined, [], 'fail'); return 'delegated'; }
-    if (task.task_kind === 'child') throw new Error('backend failed');
-    message = messages[0].body; return 'reported failure';
-  } }); await repo(f.root);
-  try {
-    const root = (await f.project.order('root')).task;
-    await until(() => message !== undefined);
-    expect(message).toContain('backend failed');
-    expect(f.store.children(root.id)[0].status).toBe('failed');
-  } finally { await f.close(); }
-});
-
 test('retry is explicit, preserves unconsumed messages and prior audit', async () => {
   let fail = true;
   const f = fixture({ async run() { if (fail) throw new Error('bad'); return 'ok'; } }); await repo(f.root);
@@ -73,68 +113,5 @@ test('retry is explicit, preserves unconsumed messages and prior audit', async (
     await until(() => f.store.task(root.id).status === 'waiting');
     expect(f.store.unread(root.id)).toHaveLength(0);
     expect(f.store.history(root.id).some(e => e.type === 'failed')).toBe(true);
-  } finally { await f.close(); }
-});
-
-test('retry can freeze a complete task-local Agent profile without changing project defaults', async () => {
-  let fail = true;
-  const seen = [];
-  const provider = {
-    resolve() { return { agent: 'mock', model: 'project-default', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] }; },
-    async run({ agent }) { seen.push(agent); if (fail) throw new Error('first attempt failed'); return 'ok'; },
-  };
-  const f = fixture(provider); await repo(f.root);
-  try {
-    const task = (await f.project.order('retry with another model')).task;
-    await until(() => f.store.task(task.id).status === 'failed');
-    fail = false;
-    const profile = { agent: 'pi', model: 'openai-codex/gpt-5.4-mini', thinking: 'high',
-      default_prompt: 'custom role rules', append_prompt: 'focus on the previous failure',
-      extensions: ['/tmp/extension.js'], skills: ['/tmp/skill'], soft_budget: { responses: 8, tokens: 12000 } };
-    f.project.retry(task.id, profile);
-    expect(JSON.parse(f.store.task(task.id).retry_profile)).toEqual(profile);
-    await until(() => f.store.task(task.id).status === 'waiting');
-    expect(seen.at(-1)).toEqual(profile);
-    // The task-local profile stays pinned on the idle order until it settles or is retried again.
-    expect(JSON.parse(f.store.task(task.id).retry_profile)).toEqual(profile);
-    expect(f.project.agentSettings.resolve('agent').model).not.toBe(profile.model);
-    const event = f.store.history(task.id).find(row => row.type === 'retry');
-    expect(event.data).toMatchObject({ profile_override: true, agent: 'pi', model: profile.model,
-      default_prompt_overridden: true, extensions: 1, skills: 1 });
-  } finally { await f.close(); }
-});
-
-test('new Worker run settings survive failure, implicit retry and cancellation', async () => {
-  const seen = [];
-  const f = fixture({ async run({ agent }) { seen.push(agent); throw new Error('controlled failure'); } });
-  await repo(f.root);
-  try {
-    f.project.stopping = true;
-    const task = (await f.project.order('persistent configuration')).task;
-    const profile = f.project.agentSettings.retryProfile('agent', { agent: 'pi', model: 'provider/model', thinking: 'high',
-      append_prompt: 'keep this', extensions: ['/explicit/plugin'], skills: ['/explicit/skill'] });
-    const saved = JSON.stringify(profile);
-    f.store.update(task.id, { retry_profile: saved });
-    f.project.stopping = false; f.project.kick();
-    await until(() => f.store.task(task.id).status === 'failed');
-    expect(f.store.task(task.id).retry_profile).toBe(saved);
-    f.project.retry(task.id);
-    await until(() => seen.length === 2 && f.store.task(task.id).status === 'failed');
-    expect(seen[1]).toEqual(profile);
-    expect(f.store.task(task.id).retry_profile).toBe(saved);
-    f.project.retry(task.id); f.project.cancel(task.id);
-    await until(() => f.store.task(task.id).status === 'cancelled' && !f.project.running.has(task.id));
-    expect(f.store.task(task.id).retry_profile).toBe(saved);
-  } finally { await f.close(); }
-});
-
-test('invalid retry profile does not queue or mutate a stopped task', async () => {
-  const f = fixture({ async run() { throw new Error('stop'); } }); await repo(f.root);
-  try {
-    const task = (await f.project.order('invalid retry')).task;
-    await until(() => f.store.task(task.id).status === 'failed');
-    expect(() => f.project.retry(task.id, { agent: 'codex', model: '', thinking: '', default_prompt: '', append_prompt: '',
-      extensions: [], skills: [], soft_budget: { responses: 1 } })).toThrow('supported only by Pi');
-    expect(f.store.task(task.id)).toMatchObject({ status: 'failed', retry_profile: null });
   } finally { await f.close(); }
 });

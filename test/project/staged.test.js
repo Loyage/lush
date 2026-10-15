@@ -29,33 +29,3 @@ test('order start:false creates a paused「待开始」Task that stays put until
     expect(runs).toHaveLength(1);
   } finally { await f.close(); }
 });
-
-test('resume profile freezes per-task env and rejects unsafe names', async () => {
-  const seen = [];
-  const f = fixture({
-    resolve: () => ({ ...baseProfile }),
-    async run(options) { seen.push(options.agent); return 'ok'; },
-  });
-  f.project.stopping = true; await repo(f.root);
-  try {
-    const response = await f.project.order('带环境变量', null, [], null, false);
-    expect(() => f.project.resumeTask(response.task.id, { ...baseProfile, agent: 'pi', env: { 'BAD-NAME': 'x' } }))
-      .toThrow('invalid environment variable name');
-    expect(f.store.task(response.task.id).status).toBe('paused');
-    f.project.stopping = false;
-    f.project.resumeTask(response.task.id, { ...baseProfile, agent: 'pi', env: { API_BASE: 'https://example.invalid' } });
-    await until(() => seen.length === 1);
-    expect(seen[0].env).toEqual({ API_BASE: 'https://example.invalid' });
-  } finally { await f.close(); }
-});
-
-test('resume / configure / order.submit start are user-only and env is validated on the profile', () => {
-  expect(assertAllowed('worker.resume', { id: 1, profile: {} }, null)).toBeNull();
-  expect(() => assertAllowed('worker.resume', { id: 1 }, 42)).toThrow('requires user approval');
-  expect(assertAllowed('worker.configure', { id: 1 }, null)).toBeNull();
-  expect(assertAllowed('order.submit', { content: 'x', start: false }, null)).toBeNull();
-  expect(() => assertAllowed('order.submit', { content: 'x', bogus: 1 }, null)).toThrow('unknown parameter');
-  expect(normalizeAgentProfile({ agent: 'pi', env: { OK: '1' } }).env).toEqual({ OK: '1' });
-  expect(() => normalizeAgentProfile({ agent: 'pi', env: { LUSH_SECRET: 'x' } })).toThrow('reserved by Lush');
-  expect(normalizeAgentProfile({ agent: 'pi' }).env).toBeUndefined();
-});

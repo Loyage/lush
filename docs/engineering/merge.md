@@ -37,7 +37,7 @@ Git 写入前再次复核取消、可投递新输入、固定 refs、清洁度�
 
 `reservation.blocked_reason` 可能是 pending 意图上一次安全点留下的诊断；当前准入原因应结合 `merge_readiness.reason`、`input_queue.reason` 与直接子的持久预约核对。单次快照只能证明当时的状态，不能证明未来一定成功。
 
-隔离回归 `test/project/nested-delivery.test.js` 覆盖一个父 Worker、两个子交付、父连续调用、源侧分歧修复及父冻结输入，在单槽和多槽下验证自动续进、落地顺序和最终父唤醒；不操作真实项目或调用真实模型。
+隔离回归 `test/project/merge-queue.test.js` 保留普通队列、无代码交付、脏父拒绝及原源 Agent 修复分歧的代表路径；不操作用户项目或调用付费模型。完整嵌套／冻结组合不再逐项回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。
 
 ### Agent 的语义迁移检查
 
