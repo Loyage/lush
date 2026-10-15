@@ -173,7 +173,7 @@ test('资源消耗在两种模式显示自身，折叠显示后端完整子树�
   expect(placed.parentNode.querySelector('.task-graph-minimal-note')).toBeNull();
   expect(placed).toBeTruthy();
   const siblings = placed.parentNode.children;
-  expect(siblings[siblings.indexOf(placed) + 1].textContent).toContain('待合并');
+  expect(siblings[siblings.indexOf(placed) + 1].textContent).toContain('未合并');
   expect(card(2).querySelector('.task-graph-head').querySelector('.task-graph-usage')).toBeNull();
   expect(card(2).querySelector('.task-graph-usage').classList.contains('is-live')).toBe(true);
   expect(card(3).querySelector('.task-graph-usage-runtime').textContent).toBe('—');
@@ -191,7 +191,7 @@ test('资源消耗在两种模式显示自身，折叠显示后端完整子树�
   // 详情模式：消耗排在首行状态标签之后、合并状态标签之前。
   const detailUsage = card(2).querySelector('.task-graph-head').querySelector('.task-graph-usage');
   const headSiblings = detailUsage.parentNode.children;
-  expect(headSiblings[headSiblings.indexOf(detailUsage) + 1].textContent).toContain('待合并');
+  expect(headSiblings[headSiblings.indexOf(detailUsage) + 1].textContent).toContain('未合并');
   expect(deepText(card(1).querySelector('.task-graph-usage'))).toContain('$2.24');
   graph.nodes[1].resources.own.unknown_cost = 1;
   graph.nodes[1].resources.own.running = false;
@@ -333,7 +333,7 @@ test('默认极简且详情开关未勾选；主动开启详情，取消后回�
   expect(readPref('taskGraphMinimal')).toBe(true);
   expect(dom.node('detail').querySelector('.task-graph-minimal')).toBeTruthy();
   expect(deepText(card(2))).toContain('1/3 · 实现双行');
-  expect(deepText(card(2))).toContain('待合并');
+  expect(deepText(card(2))).toContain('未合并');
   expect(deepText(card(2))).not.toContain('旧的等待原因');
   expect(deepText(card(2))).not.toContain('完整结果正文');
   expect(card(2).querySelector('.task-graph-facts')).toBeNull();

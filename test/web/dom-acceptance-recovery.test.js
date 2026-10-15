@@ -47,7 +47,10 @@ test('audited incomplete acceptance stays visible after root archival in detail 
     expect(btn(root(), '清理资源')).toBeUndefined(); expect(btn(root(), '同步父分支')).toBeUndefined();
     expect(deepText(root())).toContain('精确续办记录');
     expect(deepText(root())).toContain(view === 'detail' ? '已合并 · 验收待续办' : '验收待续办');
-    if (view !== 'detail') expect(deepText(root())).not.toContain('已合并');
+    if (view !== 'detail') {
+      const usage = root().querySelector('.task-graph-usage'), siblings = usage.parentNode.children;
+      expect(siblings[siblings.indexOf(usage) + 1].textContent).toBe('已合并');
+    }
     expect(requests).toHaveLength(0); // A read or rendering must not retry deletion.
     await resume.onclick(); await resume.onclick();
     expect(requests).toEqual([{ method: 'worker.accept', params: { id: 70 } }]);

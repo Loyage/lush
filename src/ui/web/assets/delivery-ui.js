@@ -27,10 +27,10 @@ export function deliveryInput(queue) {
   return `当前暂存输入：${queue?.buffered == null ? '未知' : `${queue.buffered} 条`}（已保存不表示 Agent 已收到）${queue?.reason ? ` · ${queue.reason}` : ''}`;
 }
 /** Existing merge facts only; historical tracking is no longer a current navigation entry. */
-export function sourceDelivery(summary, { showMerged = true, showInputQueue = true } = {}) {
+export function sourceDelivery(summary, { showMerged = true, showInputQueue = true, showStage = true } = {}) {
   if (!summary) return null;
   const row = el('div', undefined, 'source-delivery');
-  if (showMerged || summary.stage !== 'integrated')
+  if (showStage && (showMerged || summary.stage !== 'integrated'))
     row.append(badge(deliveryStage(summary.stage, summary.version), summary.stage === 'integrated' ? 'b-completed' : 'b-awaiting'));
   for (const worker of summary.integration_workers?.items || []) {
     const prefix = worker.current === false ? '旧代整合' : ['completed','awaiting_acceptance'].includes(worker.status) ? '整合工作完成' : worker.status === 'running' ? '整合中' : '等待整合';

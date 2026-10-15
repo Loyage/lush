@@ -8,6 +8,7 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 export const INTEGRATION_GROUPS = Object.freeze({
   page: Object.freeze([
     'test/web/dom-navigation.test.js', // navigation, Worker deep links, back state
+    'test/web/dom-task-graph-clutter.test.js', // inline merge status beside usage, diagnostics and action placement
     'test/web/core-api.test.js', // rendered navigation allowlist and real HTTP action/read routes
     'test/web/dom-loading-assets.test.js', // lazy routes and root deep-link boot
     'test/web/assets.test.js', // startup/lazy resource graphs and CSP

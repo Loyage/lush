@@ -16,9 +16,9 @@ const own={run_ms:93784000,input:121000,output:18000,cost:224.24,running:true};
 window.graph={total:3,nodes:[
 {id:1,worker_number:'W1',title:'main',role:'agent',task_kind:'main',status:'waiting',children_total:2,
 resources:{own,subtree:{...own,input:242000,cost:448.48}}},
-{id:2,parent_id:1,worker_number:'W2',title:'手机进度与消耗分行展示',role:'agent',task_kind:'order',status:'running',integration:'pending',
+{id:2,parent_id:1,worker_number:'W2',title:'手机进度与消耗分行展示',role:'agent',task_kind:'order',status:'running',integration:'pending',delivery_summary:{stage:'pending'},reservation:{version:2,status:'pending'},
 progress:{total:3,completed:1,current:{label:'验证较长的进度说明和移动端布局，不应被消耗信息挤走'}},resources:{own}},
-{id:3,parent_id:2,worker_number:'W2-1',title:'等待中的子 Worker',role:'agent',task_kind:'child',status:'waiting',
+{id:3,parent_id:2,worker_number:'W2-1',title:'等待中的子 Worker',role:'agent',task_kind:'child',status:'waiting',integration:'merged',delivery_summary:{stage:'integrated'},
 waiting_reason:'等待父 Worker 确认接口，保留完整的等待原因',input_queue:{buffered:2},freeze:{task_id:1},resources:{own}}
 ]};
 window.paint=()=>renderTaskGraph(graph);window.paint();window.ready=true;
@@ -84,6 +84,16 @@ try{
     if(width<=390)assert(geometry[1].noteHeight>20,'long progress did not wrap');
     console.log('PASS',theme,width,'progress/usage separation, nesting, long duration, desktop baseline');
   }
+  for(const width of [390,1440]){
+    await resize(width);
+    assert(await execute(`return ['2','3'].every((id,i)=>{
+      const card=document.querySelector('[data-task-id="'+id+'"]'),usage=card.querySelector('.task-graph-usage'),status=usage.nextElementSibling;
+      const u=usage.getBoundingClientRect(),s=status.getBoundingClientRect();
+      return status.textContent===['未合并','已合并'][i]&&!card.querySelector('.source-delivery')
+        &&(innerWidth<=640||(s.left>=u.right&&s.top<u.bottom));
+    });`),'merge status not inline after usage');
+  }
+  console.log('PASS pending/merged status after usage without standalone tracking rows');
   await resize(390);
   await execute(`document.querySelector('[data-graph-focus="fold-1"]').click();`);
   assert(await execute(`const cards=document.querySelectorAll('.task-graph-card'),usage=cards[0].querySelector('.task-graph-usage');return cards.length===1&&usage.classList.contains('is-aggregate')&&usage.textContent.includes('↑242.0k')&&usage.textContent.includes('$448.48');`),'folded subtree totals changed');

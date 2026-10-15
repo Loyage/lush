@@ -97,6 +97,16 @@ function taskVisualState(node) {
   return 'idle';
 }
 
+/** Keep the merge fact beside usage; tracking below retains only diagnostics and relations. */
+function graphMergeStatus(node) {
+  const summary = node.merge_operation ? null : node.delivery_summary;
+  const pending = node.reservation?.status === 'pending' && [2, 3].includes(node.reservation.version);
+  const state = ['pending', 'integrated'].includes(summary?.stage) ? summary.stage
+    : INTEGRATION[node.integration] ? node.integration : pending ? 'pending' : node.integration;
+  const label = state === 'pending' ? '未合并' : state === 'integrated' ? '已合并' : INTEGRATION[state];
+  return label ? badge(label, ['merged', 'integrated'].includes(state) ? 'b-completed' : 'b-awaiting') : null;
+}
+
 function taskCard(node, folded, refresh, queueNote = null, minimal = false, inputWorkers = []) {
   const row = el('article', undefined, 'task-graph-card');
   row.dataset.taskId = String(node.id);
@@ -119,16 +129,15 @@ function taskCard(node, folded, refresh, queueNote = null, minimal = false, inpu
     `b-${node.status}`));
   // 资源消耗紧跟任务状态，排在合并状态标签前面；极简模式的合并标签在第二行，由 minimalSummary 渲染。
   if (!minimal) head.append(resourceSummary(node, folded.has(node.id)));
-  // 只突出仍需处理的合并状态；已合并不再占卡片标签。
-  const merge = node.integration === 'merged' ? null : INTEGRATION[node.integration];
-  if (!minimal && merge) head.append(badge(merge, 'b-awaiting'));
+  const merge = graphMergeStatus(node);
+  if (!minimal && merge) head.append(merge);
   if (!minimal && node.task_kind) head.append(badge(node.task_kind === 'merge' ? 'merge（历史）' : workerKindLabel(node)));
   if (!minimal && node.freeze && node.freeze.task_id !== node.id) head.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
   if (node.notice_count) head.append(badge(`${node.notice_count} 条待决`, 'b-awaiting'));
   if (!minimal) head.append(taskActionsMenu(node, inputWorkers));
   row.append(head);
   const tracking = node.merge_operation ? integrationSummary(node, { showMerged: false })
-    : sourceDelivery(node.delivery_summary, { showMerged: false, showInputQueue: false });
+    : sourceDelivery(node.delivery_summary, { showStage: !['pending', 'integrated'].includes(node.delivery_summary?.stage), showInputQueue: false });
   if (tracking) row.append(tracking);
   if (minimal) {
     row.append(minimalSummary(node, queueNote, folded), taskActionsMenu(node, inputWorkers));
@@ -236,7 +245,7 @@ function archiveControl(node) {
 function appendTaskActions(row, node, inputWorkers) {
   const iteration = iterationControls(node, { refresh: loadTaskGraph });
   if (iteration) row.append(iteration);
-  const controls = deliveryControls(node, { refresh: loadTaskGraph, showTracking: false, showMerged: false });
+  const controls = deliveryControls(node, { refresh: loadTaskGraph, showTracking: false, showMerged: false, showPending: false });
   if (controls) row.append(controls);
   const hooks = workerHooks(node, { compact: true, refresh: loadTaskGraph });
   if (hooks) row.append(hooks);
@@ -283,8 +292,8 @@ function minimalSummary(node, queueNote, folded = new Set()) {
   }
   // 资源消耗排在合并状态标签前面；收拢时这里显示的是整棵子树的合计。
   meta.append(resourceSummary(node, folded.has(node.id)));
-  const merge = node.integration === 'merged' ? null : INTEGRATION[node.integration];
-  if (merge) meta.append(badge(merge, 'b-awaiting'));
+  const merge = graphMergeStatus(node);
+  if (merge) meta.append(merge);
   line.append(meta);
   return line;
 }

@@ -280,22 +280,22 @@ test('Task 图：分支合并状态进卡片首行标签，facts 行不再重复
     graph.nodes[1].integration = 'pending';
     await dom.node('task-graph-open').onclick();
     let card = dom.node('detail').querySelector('[data-task-id="2"]');
-    expect(headBadges(card)).toContain('待合并');
+    expect(headBadges(card)).toContain('未合并');
     // 原来的「集成：…」从下方 facts 行移除，不在两处重复。
     expect(deepText(card.querySelector('.task-graph-facts'))).not.toContain('集成：');
-    expect(deepText(card.querySelector('.task-graph-facts'))).not.toContain('待合并');
+    expect(deepText(card.querySelector('.task-graph-facts'))).not.toContain('未合并');
 
-    // 已合并不再占用工作树卡片的状态标签。
+    // 已合并与未合并同样紧跟用量，不额外占行。
     graph.nodes[1].integration = 'merged';
     await dom.node('task-graph-open').onclick();
     card = dom.node('detail').querySelector('[data-task-id="2"]');
-    expect(headBadges(card)).not.toContain('已合并');
+    expect(headBadges(card)).toContain('已合并');
 
     // none（没有独有提交）不占位，也不再以「集成：none」的形式出现在 facts 行。
     graph.nodes[1].integration = 'none';
     await dom.node('task-graph-open').onclick();
     card = dom.node('detail').querySelector('[data-task-id="2"]');
-    expect(headBadges(card)).not.toContain('待合并');
+    expect(headBadges(card)).not.toContain('未合并');
     expect(deepText(card)).not.toContain('集成：');
     expect(deepText(card)).not.toContain('集成：none');
   } finally {
