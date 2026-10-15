@@ -320,17 +320,23 @@ test('Hooks compact summaries keep all 64 enabled authorizations visible under t
   const f = await setup();
   try {
     const signal = f.signal(f.daily(), { name: '信'.repeat(200) }), goal = '😀'.repeat(16000);
-    for (let i = 0; i < 40; i++) {
-      const old = f.manager(signal, { instruction: goal });
-      f.project.updateManagementBinding(old.id, false, f.view(old).revision);
-    }
-    const managers = Array.from({ length: 64 }, () => f.manager(signal, { name: '管'.repeat(200), instruction: goal, mode: 'persistent' }));
+    // Batch only fixture construction; signal admission and the reads/revocations below
+    // still run outside this transaction against the real committed SQLite state.
+    const managers = f.store.transaction(() => {
+      for (let i = 0; i < 40; i++) {
+        const old = f.manager(signal, { instruction: goal });
+        f.project.updateManagementBinding(old.id, false, f.view(old).revision);
+      }
+      return Array.from({ length: 64 }, () => f.manager(signal, { name: '管'.repeat(200), instruction: goal, mode: 'persistent' }));
+    });
     f.advance(60000); f.flush();
-    for (const manager of managers) rewrite(f, manager, state => {
-      state.receipts = Array.from({ length: 32 }, (_, index) => ({ receipt_id: `receipt-${manager.id}-${index}`, action: 'start',
-        target_id: f.target.id + index, target_worker_number: 'W1' + '-1'.repeat(600), status: 'succeeded', reason: '原'.repeat(100) }));
-      state.last_execution = { ...state.pending_signal, status: 'succeeded', actions: state.receipts };
-      expect(Buffer.byteLength(JSON.stringify(state))).toBeLessThanOrEqual(128 * 1024);
+    f.store.transaction(() => {
+      for (const manager of managers) rewrite(f, manager, state => {
+        state.receipts = Array.from({ length: 32 }, (_, index) => ({ receipt_id: `receipt-${manager.id}-${index}`, action: 'start',
+          target_id: f.target.id + index, target_worker_number: 'W1' + '-1'.repeat(600), status: 'succeeded', reason: '原'.repeat(100) }));
+        state.last_execution = { ...state.pending_signal, status: 'succeeded', actions: state.receipts };
+        expect(Buffer.byteLength(JSON.stringify(state))).toBeLessThanOrEqual(128 * 1024);
+      });
     });
     const list = f.project.hooksList().management_workers;
     const enabled = list.filter(row => row.management.enabled);
