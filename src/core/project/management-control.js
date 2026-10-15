@@ -4,11 +4,28 @@ import { questionnaire } from '../questionnaire.js';
 import { workerLabel } from '../worker-number.js';
 import { assertManager } from './management-auth.js';
 import { MANAGEMENT_LIMITS, MANAGEMENT_READ_ITEMS, managementState, saveManagement, managementTime } from './management-data.js';
-import { managementCatalog, validateManagementCall, managementDispatchParams } from '../../rpc/management-policy.js';
+import { managementCatalog, effectiveManagementPolicy, validateManagementCall, managementDispatchParams } from '../../rpc/management-policy.js';
+import { hasManagementConfirmation } from './management-code.js';
 
 const unresolved = new Set(['pending_confirmation','approved','running']);
 export const managementControlPending = state => (state.control_calls ?? []).some(call => unresolved.has(call.status));
 const safeFailure = '管理操作未确认完成；检查现场，不自动重放。';
+class ManagementPermissionError extends Error {}
+function executionAuthorization(project, task, call) {
+  const authorization = project.managementPermissionsSnapshot();
+  const policy = effectiveManagementPolicy(call.method, authorization);
+  if (policy.access === 'unavailable') throw new ManagementPermissionError('最新项目权限禁止此未开始操作；请调整权限后新建请求，不自动重放。');
+  if (policy.access === 'confirmation' && !hasManagementConfirmation(project, task.id, call))
+    throw new ManagementPermissionError('最新项目权限要求重新精确确认；此操作未开始，请新建请求。');
+  validateManagementCall(call.method, call.params, task.goal, authorization);
+  return { ...authorization, permissions: { [call.method]: policy.access } };
+}
+function closePolicyNotice(project, taskId, call) {
+  if (!call.notice_id) return;
+  project.store.run("UPDATE notices SET status='dismissed',answer='project management permissions changed' WHERE id=? AND task_id=? AND status='open'", call.notice_id, taskId);
+  project.store.run(`UPDATE messages SET consumed=1 WHERE task_id=? AND sender_id IS NULL AND consumed=0
+    AND CASE WHEN json_valid(body) THEN json_extract(body,'$.notice_id') END=?`, taskId, call.notice_id);
+}
 function trackControlJob(project, taskId, job) {
   project.managementControlJobs ??= new Set();
   project.managementControlOwners ??= new Map();
@@ -106,8 +123,8 @@ export default {
   },
 
   managementCapabilityCatalog(actorId) {
-    const { state } = assertManager(this, actorId);
-    return managementCatalog(state.permissions_snapshot, !state.permissions_snapshot);
+    assertManager(this, actorId);
+    return managementCatalog(this.managementPermissionsSnapshot());
   },
 
   managementHistory(actorId, options = {}) {
@@ -134,9 +151,9 @@ export default {
 
   async callManagementCapability(actorId, method, params = {}, requestId = undefined) {
     this.assertWritable('request a management capability');
-    const { task, state: authorization } = assertManager(this, actorId);
+    const { task } = assertManager(this, actorId);
     requestKey(requestId);
-    const policy = validateManagementCall(method, params, task.goal, authorization.permissions_snapshot);
+    let policy = validateManagementCall(method, params, task.goal, this.managementPermissionsSnapshot());
     if (method === 'worker.spawn') {
       check(params.parent !== undefined, 'Valet delegation requires an explicit development parent');
       check(['order','child'].includes(this.store.task(id(params.parent)).task_kind), 'Valet can only delegate under a development Worker');
@@ -182,7 +199,13 @@ export default {
       check(preview.can_delete && copied.revision === preview.revision && copied.confirm === true,
         'delete requires the current resource preview and exact revision with confirm:true');
     }
-    const preflight = policy.access === 'confirmation' ? await resourcePreflight(this, method, copied) : null;
+    let preflight = policy.access === 'confirmation' ? await resourcePreflight(this, method, copied) : null;
+    // Delete/resource preflight can yield across a project permission update.
+    policy = validateManagementCall(method, copied, task.goal, this.managementPermissionsSnapshot());
+    if (policy.access === 'confirmation' && !preflight) preflight = await resourcePreflight(this, method, copied);
+    policy = validateManagementCall(method, copied, task.goal, this.managementPermissionsSnapshot());
+    check(policy.access !== 'confirmation' || JSON.stringify(copied, null, 2).length <= 6500,
+      'confirmation parameters exceed readable preview limit');
     const snapshot = targetSnapshot(this, method, copied);
     assertManager(this, actorId);
     state = managementState(this.store.task(task.id));
@@ -309,7 +332,7 @@ export default {
     this.managementControlBusy.add(receiptId);
     try {
       check(typeof this.managementDispatch === 'function', 'trusted management dispatcher is unavailable');
-      validateManagementCall(call.method, call.params, task.goal, state.permissions_snapshot);
+      executionAuthorization(this, task, call);
       check(call.fingerprint === hookRevision({ method: call.method, params: canonical(call.params) }), 'fixed management parameters changed');
       check(call.target_snapshot === targetSnapshot(this, call.method, call.params), 'management target changed; request a new confirmation');
       if (call.preflight_fingerprint) {
@@ -319,15 +342,25 @@ export default {
       // Async Git preflight may cross a shutdown/maintenance boundary. Leave an
       // unstarted approval durable for the existing timer/recovery gate, not replay.
       if (this.stopping || this.maintenancePaused() || this.clearing || this.workerDeleteIds?.size || this.settingsMigrationApplying) return;
-      state = managementState(this.store.task(taskId)); call = state?.control_calls?.find(item => item.receipt_id === receiptId);
-      check(state?.enabled && call?.status === 'approved', 'management authorization is no longer active');
-      check(call.target_snapshot === targetSnapshot(this, call.method, call.params), 'management target changed during preflight');
-      call.status = 'running'; call.started_at = managementTime(this); saveManagement(this, taskId, state);
-      this.store.event(taskId, 'management.capability_started', { receipt_id: receiptId, method: call.method });
       const action = call.method === 'worker.resume' ? 'start' : call.method === 'worker.retry' ? 'retry' : null;
-      const result = await this.write('execute confirmed management capability',
-        () => action ? this.submitManagementAction(taskId, action, call.params.id)
-          : this.managementDispatch(call.method, managementDispatchParams(call.method, call.params), taskId, receiptId));
+      const result = await this.write('execute confirmed management capability', () => {
+        // Authorization becomes fixed inside the write admission boundary. An
+        // asynchronous preflight or queued writer must not turn stale approval into authority.
+        task = this.store.task(taskId); state = managementState(task);
+        call = state?.control_calls?.find(item => item.receipt_id === receiptId);
+        check(state?.enabled && call?.status === 'approved' && state.pending_signal
+          && call.occurrence_id === state.pending_signal.id && this.managementOccupant()?.id === taskId,
+          'management authorization is no longer active');
+        check(!this.stopping && !this.maintenancePaused(), 'management execution is paused');
+        const authorization = executionAuthorization(this, task, call);
+        check(call.fingerprint === hookRevision({ method: call.method, params: canonical(call.params) }), 'fixed management parameters changed');
+        check(call.target_snapshot === targetSnapshot(this, call.method, call.params), 'management target changed during preflight');
+        call.execution_authorization = authorization;
+        call.status = 'running'; call.started_at = managementTime(this); saveManagement(this, taskId, state);
+        this.store.event(taskId, 'management.capability_started', { receipt_id: receiptId, method: call.method });
+        return action ? this.submitManagementAction(taskId, action, call.params.id, receiptId)
+          : this.managementDispatch(call.method, managementDispatchParams(call.method, call.params), taskId, receiptId);
+      });
       // Another asynchronous tool/confirmation may have appended a receipt while this operation ran.
       state = managementState(this.store.task(taskId)); call = state.control_calls.find(item => item.receipt_id === receiptId);
       call.status = 'succeeded'; call.finished_at = managementTime(this);
@@ -339,11 +372,12 @@ export default {
         ...(result?.emitted === true ? { emitted: true, draft_id: result.draft_id } : {}) };
       saveManagement(this, taskId, state);
       this.store.event(taskId, 'management.capability_completed', { receipt_id: receiptId, method: call.method });
-    } catch {
+    } catch (error) {
       state = managementState(this.store.task(taskId)); call = state?.control_calls?.find(item => item.receipt_id === receiptId);
       if (call && call.status !== 'rejected') {
         call.status = call.status === 'running' ? 'unknown' : 'failed';
-        call.reason = call.status === 'unknown' ? safeFailure : '固定参数、目标、资源或授权发生变化；操作未开始，请重新预检确认。';
+        call.reason = call.status === 'unknown' ? safeFailure : error instanceof ManagementPermissionError ? error.message
+          : '固定参数、目标、资源或授权发生变化；操作未开始，请重新预检确认。';
         saveManagement(this, taskId, state);
         this.store.event(taskId, 'management.capability_failed', { receipt_id: receiptId, method: call.method, status: call.status });
       }
@@ -351,10 +385,22 @@ export default {
   },
 
   drainManagementCapabilities(taskId) {
-    const state = managementState(this.store.task(taskId));
-    for (const call of state?.control_calls ?? []) {
-      if (call.status === 'pending_confirmation') this.resolveManagementConfirmation(call.notice_id);
-      else if (call.status === 'approved') void this.executeManagementCapability(taskId, call.receipt_id).catch(() => {});
+    const ids = (managementState(this.store.task(taskId))?.control_calls ?? []).map(call => call.receipt_id);
+    for (const receiptId of ids) {
+      const state = managementState(this.store.task(taskId)), call = state.control_calls.find(item => item.receipt_id === receiptId);
+      if (call.status === 'pending_confirmation') {
+        const notice = this.store.get('SELECT status FROM notices WHERE id=? AND task_id=?', call.notice_id, taskId);
+        const policy = effectiveManagementPolicy(call.method, this.managementPermissionsSnapshot());
+        if (notice?.status === 'open' && policy.access !== 'confirmation') {
+          call.status = policy.access === 'unavailable' ? 'rejected' : 'approved';
+          call.reason = policy.access === 'unavailable' ? '最新项目权限禁止此未开始操作。' : null;
+          this.store.transaction(() => {
+            closePolicyNotice(this, taskId, call); saveManagement(this, taskId, state);
+            this.store.event(taskId, 'management.capability_policy_rechecked', { receipt_id: call.receipt_id, status: call.status });
+          });
+          if (call.status === 'approved') void this.executeManagementCapability(taskId, call.receipt_id).catch(() => {});
+        } else this.resolveManagementConfirmation(call.notice_id);
+      } else if (call.status === 'approved') void this.executeManagementCapability(taskId, call.receipt_id).catch(() => {});
     }
   },
 

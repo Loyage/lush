@@ -114,7 +114,7 @@ test('compiled Valet lazy page shares navigation and preserves its draft through
     choice.value = 'confirmation'; choice.onchange();
     await project.node('cli-interfaces-open').onclick(); expect(project.node('detail').querySelector('.cli-interfaces-page')).toBe(root);
     expect(choice.value).toBe('confirmation'); expect(details.open).toBe(true);
-    await root.querySelectorAll('button').find(node => node.textContent === '保存管家默认权限').onclick();
+    await root.querySelectorAll('button').find(node => node.textContent === '保存项目管家权限').onclick();
     expect(writes).toHaveLength(1); expect(writes[0].params.expected_revision).toBe('r1');
     expect(writes[0].params.permissions['draft.add']).toBe('confirmation');
     await project.node('side-nav').querySelector('[data-side="valets"]').onclick(); expect(project.node('detail').dataset.view).toBe('valets');

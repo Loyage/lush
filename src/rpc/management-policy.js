@@ -118,16 +118,17 @@ export function managementAllowedAccess(base, method) {
   return { read: ['read','unavailable'], automatic: ['automatic','confirmation','unavailable'],
     confirmation: ['confirmation','unavailable'], unavailable: ['unavailable'] }[base];
 }
-// Snapshots are complete, not overlays: methods introduced later fail closed. Old
-// Workers without a snapshot retain the original reviewed policy, never project defaults.
+// Authorization records are complete, not overlays: absent methods fail closed.
+// Live callers supply current project permissions; null is only the historical
+// fallback for receipts that already started under the original reviewed policy.
 export function effectiveManagementPolicy(method, snapshot = null) {
   const base = managementPolicy(method);
   if (method === 'manager.catalog') return base;
   if (!snapshot) return legacyManagementPolicy(method);
   const access = Object.hasOwn(snapshot.permissions ?? {}, method) ? snapshot.permissions[method] : 'unavailable';
-  if (!managementAllowedAccess(base.access, method).includes(access)) return { access: 'unavailable', reason: '权限快照未授权此功能。' };
+  if (!managementAllowedAccess(base.access, method).includes(access)) return { access: 'unavailable', reason: '授权记录未授权此功能。' };
   return { access, reason: access === 'unavailable' && base.access !== 'unavailable'
-    ? '此管家的权限快照禁止此功能。' : base.reason };
+    ? '最新项目权限禁止此功能。' : base.reason };
 }
 export function managementPermissionMethods(snapshot = null) {
   return Object.keys(PARAMS).map(method => {

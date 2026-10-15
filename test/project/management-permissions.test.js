@@ -57,7 +57,7 @@ test('project permission directory defaults, strict complete mapping, monotone p
   } finally { await f.close(); }
 });
 
-test('new immediate, waiting and persistent Valets freeze defaults; dedup and restart never replace snapshots; project isolation', async () => {
+test('immediate, waiting and persistent Valets retain history only; latest project authority persists across restart and dedup' , async () => {
   const f = await prepared(), isolated = fixture(); let other, store;
   try {
     const signals = f.project.saveHookSignal({ name: 'future', schedule: { kind: 'daily', time: '01:00', timezone: 'UTC' } }, f.project.hookSignals().revision).signals;
@@ -83,13 +83,13 @@ test('new immediate, waiting and persistent Valets freeze defaults; dedup and re
   } finally { await other?.shutdown(); store?.close(); await isolated.close(); await f.close(); }
 });
 
-test('all dedicated reads and manager.call obey the same frozen policy; user settings are unavailable to any Agent', async () => {
+test('all dedicated reads and manager.call obey the same live policy; user settings are unavailable to any Agent', async () => {
   const f = await prepared(async ({ token, rpc, task }) => {
     for (const [method, params] of [['manager.query',{}], ['manager.history',{}], ['worker.lookup',{ number: f.target.worker_number }],
       ['manager.start',{ id: f.target.id }], ['manager.retry',{ id: f.target.id }],
       ['manager.call',{ method: 'draft.add', params: { content: 'no' } }],
       ...['manager.query','manager.history','worker.lookup','worker.resume','worker.retry'].map(method => ['manager.call', { method, params: method === 'worker.lookup' ? { number: f.target.worker_number } : { id: f.target.id } }])])
-      await expect(rpc.dispatch(method, { ...params, _token: token })).rejects.toThrow('权限快照禁止');
+      await expect(rpc.dispatch(method, { ...params, _token: token })).rejects.toThrow('最新项目权限禁止');
     for (const method of ['management.permissions','management.permissions_update']) {
       await expect(rpc.dispatch(method, { ...(method.endsWith('_update') ? { permissions: {}, expected_revision: 'x' } : {}), _token: token })).rejects.toThrow('requires user approval');
       await expect(rpc.dispatch('manager.call', { method, params: {}, _token: token })).rejects.toThrow();
@@ -141,17 +141,21 @@ test('ordinary development invocation cannot read or change management defaults'
   } finally { await f.close(); }
 });
 
-test('legacy no-snapshot Valets retain original authorization, but missing snapshot methods fail closed', async () => {
-  let reply;
+test('legacy no-snapshot Valets use live project authority rather than original authorization', async () => {
+  let checked = false;
   const f = await prepared(async ({ token, rpc }) => {
-    reply = await rpc.dispatch('manager.call', { method: 'draft.add', params: { content: 'legacy works' }, _token: token });
+    await expect(rpc.dispatch('manager.call', { method: 'draft.add', params: { content: 'denied' }, _token: token })).rejects.toThrow('最新项目权限禁止');
+    f.set({ 'draft.add': 'automatic' });
+    const reply = await rpc.dispatch('manager.call', { method: 'draft.add', params: { content: 'legacy works' }, _token: token });
+    expect(reply.status).toBe('succeeded'); checked = true;
   });
   try {
     f.set({ 'draft.add': 'unavailable' });
     const manager = f.project.submitManagementInstruction({ instruction: 'legacy' }).task;
     const state = f.state(manager); delete state.permissions_snapshot;
     f.store.update(manager.id, { management: JSON.stringify(state) });
-    await f.run(); expect(reply.status).toBe('succeeded'); expect(f.store.draftCount()).toBe(1);
+    await f.run(); expect(checked).toBe(true); expect(f.store.draftCount()).toBe(1);
+    expect(f.state(manager)).not.toHaveProperty('permissions_snapshot');
     expect(effectiveManagementPolicy('draft.add', { version: 1, permissions: {} }).access).toBe('unavailable');
     expect(effectiveManagementPolicy('worker.transcript', { permissions: { 'worker.transcript': 'read' } }).access).toBe('read');
     expect(effectiveManagementPolicy('worker.transcript', null).access).toBe('unavailable');
@@ -176,8 +180,6 @@ for (const action of ['start','retry']) for (const entry of ['dedicated','call']
     await f.run();
     expect(receipt).toMatchObject({ method, status: 'pending_confirmation' }); expect(duplicate).toEqual(receipt);
     expect(f.store.task(f.target.id).status).toBe(action === 'start' ? 'paused' : 'failed');
-    // Changing defaults cannot revoke or raise this already-submitted exact operation.
-    f.set({ [method]: 'unavailable' });
     f.project.workspaces.busy.add(f.target.id);
     await f.confirm(receipt.notice_id);
     expect(f.state(manager).control_calls[0].status).toBe('succeeded');

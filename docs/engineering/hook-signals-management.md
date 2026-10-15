@@ -12,17 +12,21 @@ W263／D611 删除独立「Valet 设置」及全部 Web 信号／绑定编辑入
 
 管理 Agent 可发现全部当前 RPC 能力。开发阶段的新默认开放全部 `lushc` RPC 能力，集合从 `src/cli/catalog.js` 的 `LUSHC_METHODS` 派生；执行权限仍由 `src/rpc/management-policy.js` 明确分为安全读取、低风险自动执行、用户确认和不可用。查询诊断、有界调用历史、草稿编辑、条件发射、合法追加、开始／继续和重试可自动执行；取消、中断、合并、验收回收、删除、敏感配置及服务操作须持久预检，由用户确认精确请求后经原引擎执行。快捷指令没有预授权，但管理 Agent 调用其保存、删除、导出、旧配置导入或运行历史移除（`hooks.command_save/remove/export/import/history_remove`）仍须用户确认；读取目录和运行历史可安全查询，已删除的 command_authorize 不可调用。普通开发 Agent 不因此扩权，不可复活终态、已归档或祖先关闭的工作。
 
-### 当前项目管家默认权限（W278／D632、W279／D635）
+### 当前项目管家权限
 
-W279 将默认权限融入「CLI 接口」页面：通过搜索定位单项接口，在接口详情中就地了解及配置当前项目的管家执行权限，不再保留独立「管家设置」页；旧 `#valet-settings` 入口跳转「CLI 接口」。接口目录仅用于发现和说明，不代表执行授权。W285／D643 保留顶层分类和逐级进入，改用紧凑命令行及末列管理 Agent 权限摘要；静态目录沿用 W288／D647 的版本缓存与按需权限读取；当前读写统一搜索与逐级浏览，仅以行内标记区分；点击「读取项目权限」后才显示当前草稿／默认值，多 RPC 明示多项并在详情逐项配置。未读取／无项目／失败时标明权限未知，审核上限独立显示而不是项目授权；缓存边界见[CLI 目录](../hooks.md#cli-目录缓存与权限)。此处编辑仍只影响未来新建 Valet 的默认权限，既有私有快照、完整映射与 revision 校验不变；不恢复 Web 时间信号／绑定编辑或重放入口。
+W279 将默认权限融入「CLI 接口」页面：通过搜索定位单项接口，在接口详情中就地了解及配置当前项目的管家执行权限，不再保留独立「管家设置」页；旧 `#valet-settings` 入口跳转「CLI 接口」。接口目录仅用于发现和说明，不代表执行授权。W285／D643 保留顶层分类和逐级进入，改用紧凑命令行及末列管理 Agent 权限摘要；静态目录沿用 W288／D647 的版本缓存与按需权限读取；当前读写统一搜索与逐级浏览，仅以行内标记区分；点击「读取项目权限」后才显示当前草稿／默认值，多 RPC 明示多项并在详情逐项配置。未读取／无项目／失败时标明权限未知，审核上限独立显示而不是项目授权；缓存边界见[CLI 目录](../hooks.md#cli-目录缓存与权限)。D7 将此处编辑统一为当前项目所有新旧 Valet 的实时权限；不改变完整映射与 revision 校验，不恢复 Web 时间信号／绑定编辑或重放入口。
 
 `management.permissions {}` 与 `management.permissions_update {permissions,expected_revision}` 均为用户专属；普通开发 Agent、Valet 及 `manager.call` 都不能读取或修改设置。Web 使用 GET `/api/management/permissions`（不接受 query）及同源 POST `/api/action` 的 `management.permissions_update`。设置只保存于当前项目 meta，不进入设备设置，不改变其它项目。
 
-两个 RPC 都返回 `{version:1,scope:'project',revision,groups,methods,permissions}`。页面核对动态方法的审核上限及可选值与静态 Host 目录一致，版本不匹配时不开放编辑；不会因目录可缓存而缓存这两个 RPC 的项目事实。groups 为 `{id,label,description}`；methods 为 `{method,group,label,description,base_access,access,allowed_access,reason}`。目录、分组、原始分级、可选值和实际执行校验均来自 `src/rpc/management-policy.js`。permissions 是**完整** `method -> access` 映射，包含不可用条目；保存不接受 sparse patch、未知方法／顶层字段或缺项，使用当前 revision 防止并发覆盖。新默认映射包含全部 `lushc` 方法，按安全读取、自动执行与必须确认分级；既有私有快照不随默认更新扩权。`read` 只能选择 read／unavailable，`automatic` 只能 automatic／confirmation／unavailable，`confirmation` 只能 confirmation／unavailable，`unavailable` 不可提升。`manager.catalog` 是必要发现能力，固定 read（allowed_access 只有 read），不能禁止；manager.call/start/retry 是传输／兼容入口，不是可独立提升的权限。
+两个 RPC 都返回 `{version:1,scope:'project',revision,groups,methods,permissions}`。页面核对动态方法的审核上限及可选值与静态 Host 目录一致，版本不匹配时不开放编辑；不会因目录可缓存而缓存这两个 RPC 的项目事实。groups 为 `{id,label,description}`；methods 为 `{method,group,label,description,base_access,access,allowed_access,reason}`。目录、分组、原始分级、可选值和实际执行校验均来自 `src/rpc/management-policy.js`。permissions 是**完整** `method -> access` 映射，包含不可用条目；保存不接受 sparse patch、未知方法／顶层字段或缺项，使用当前 revision 防止并发覆盖。当前项目映射包含全部 `lushc` 方法，按安全读取、自动执行与必须确认分级；新旧 Valet（包括无快照历史）均使用这一最新映射，不能通过历史快照提升审核上限。`read` 只能选择 read／unavailable，`automatic` 只能 automatic／confirmation／unavailable，`confirmation` 只能 confirmation／unavailable，`unavailable` 不可提升。`manager.catalog` 是必要发现能力，固定 read（allowed_access 只有 read），不能禁止；manager.call/start/retry 是传输／兼容入口，不是可独立提升的权限。
 
-即时输入、等待信号和持续绑定均只在**新建** Valet 时保存私有 `permissions_snapshot:{version,scope,revision,permissions}`，不随默认值更新。client_request_id 去重重试仍返回原 Worker、保留原快照。已有未带快照的历史 Valet 继续原始授权；已有快照缺少的新方法默认不可用，即使新版本以后审核开放也不隐式扩权。公开 inspect 不输出私有快照。默认修改不撤回已有调用、等待动作或用户确认；已提交操作沿原固定授权与安全门收口。
+D7：即时输入、等待信号、持续绑定及已有无快照历史 Valet 均动态读取**当前项目最新权限**，正在运行的模型后续调用也同样检查；持续绑定不冻结下一 occurrence 的权限。`permissions_snapshot:{version,scope,revision,permissions}` 可保留为创建时历史，不回写、不迁移、不作为后续请求授权；快照缺项或无快照不再切换到另一套执行策略。client_request_id 去重仍返回原 Worker，不能因此创建重复身份或恢复旧权限。公开 inspect 不输出私有快照。
 
-`manager.query`、`manager.history` 是独立审核的安全 read 条目；直接工具与 manager.call 使用同一快照检查。worker.lookup 的真实管理 actor 亦需该条目 read 授权。manager.start 对应 worker.resume，manager.retry 对应 worker.retry；两个专用入口和 manager.call 均遵守对应权限。收紧为 confirmation 时发布既有精确用户确认 Notice，用户批准后交给原受控动作引擎，不直接转发普通 resume/retry handler；仍检查目标类型／状态、祖先、冻结、旧调用、配置、去重、等待与 unknown，不允许 profile 覆盖。自动权限也走同一动作引擎，不能借 manager.call 绕过目标门禁。确认收据 succeeded 只表示已提交，result.action 及独立 action receipt 显示 waiting／skipped／succeeded 等实际结果。
+未开始的排队 capability、等待动作及 pending_confirmation 在执行前重新检查最新权限，包括异步资源预检结束后及写入准入边界。变为 unavailable 时不执行：pending_confirmation 记 rejected 并关闭未答 Notice，approved 记 failed，waiting 动作记 skipped。旧 automatic→confirmation 的 approved 请求或 waiting 动作若没有真实用户的精确批准，同样失败／跳过，须重新请求确认，不能把旧 approved 当批准。尚未回答的 pending_confirmation 若放宽为 automatic，关闭原 Notice并继续同一精确请求，仍保留参数、目标、资源和生命周期安全门；已拒绝、失败、取消或 skipped 不因放宽重放。
+
+capability 仅在真正进入执行回调、完成最新权限及精确确认校验后标 running，私有 `execution_authorization` 固定该方法开始时的权限，后续真实 bridge／receipt 校验不因项目权限变化误拦截。已经开始的操作不因之后修改权限被强制中断，完成的副作用不撤销；历史 running 收据保留原开始授权及既有 unknown／精确完成证明恢复规则。开始／重试返回的 waiting 动作仍是**未开始**：capability succeeded 仅表示提交，动作真正执行前还须用最新权限和原精确批准重新核验。
+
+`manager.query`、`manager.history` 是独立审核的安全 read 条目；直接工具与 manager.call 使用同一最新项目权限检查。worker.lookup 的真实管理 actor 亦需该条目 read 授权。manager.start 对应 worker.resume，manager.retry 对应 worker.retry；两个专用入口和 manager.call 均遵守对应权限。收紧为 confirmation 时发布既有精确用户确认 Notice，用户批准后交给原受控动作引擎，不直接转发普通 resume/retry handler；仍检查目标类型／状态、祖先、冻结、旧调用、配置、去重、等待与 unknown，不允许 profile 覆盖。自动权限也走同一动作引擎，不能借 manager.call 绕过目标门禁。确认收据 succeeded 只表示已提交，result.action 及独立 action receipt 显示 waiting／skipped／succeeded 等实际结果。
 
 ### 开发能力的受控代理
 
@@ -46,7 +50,7 @@ Workspace 是项目 .lush 下专属 management 目录，不是 canonical 项目�
 
 管理 Provider 不读取 Lush 公共／角色 env 文件，也不注入继承或显式 profile.env；机器运行环境、项目出站网络策略和所选托管连接的必要管道仍保留。管理提示词忽略开发 Prompt 补充和覆盖，普通开发调用的环境继承不变。
 
-这是工具和 RPC 能力隔离，不声称提供操作系统沙箱。普通开发 Agent 的权限、USER_ONLY 方法以及每轮 token 的 hash / running / abort 核验保持不变。管理方法要求合法 invocation actor 且 role/task_kind/绑定/当前 occurrence 全部通过后端核验，不能靠 Prompt 宣称授权。Dispatcher 按 Store 中真实管理身份把该 token 可调用方法严格限制为 manager.query/start/retry/catalog/history/call 与 worker.lookup，拒绝直接调用普通 Agent 的 notice/progress/message 等方法；已审核 `lushc` 能力须通过 `manager.call` 检查真实管理身份、权限快照、作用域与目标后代理执行。
+这是工具和 RPC 能力隔离，不声称提供操作系统沙箱。普通开发 Agent 的权限、USER_ONLY 方法以及每轮 token 的 hash / running / abort 核验保持不变。管理方法要求合法 invocation actor 且 role/task_kind/绑定/当前 occurrence 全部通过后端核验，不能靠 Prompt 宣称授权。Dispatcher 按 Store 中真实管理身份把该 token 可调用方法严格限制为 manager.query/start/retry/catalog/history/call 与 worker.lookup，拒绝直接调用普通 Agent 的 notice/progress/message 等方法；已审核 `lushc` 能力须通过 `manager.call` 检查真实管理身份、最新项目权限（已开始操作使用固定开始授权）、作用域与目标后代理执行。
 
 ## 数据与时间
 

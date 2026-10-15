@@ -50,7 +50,7 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   search.addEventListener('compositionstart', () => { state.composing = true; });
   search.addEventListener('compositionend', () => { state.composing = false; updateSearch(); });
   const hero = el('header', undefined, 'resource-hero');
-  hero.append(el('h1', 'CLI 接口'), el('p', '说明随版本缓存，查阅不依赖项目后台。项目权限按需读取；浏览与保存不执行 CLI、不调用 Agent，不能提升审核上限。'));
+  hero.append(el('h1', 'CLI 接口'), el('p', '说明随版本缓存，查阅不依赖项目后台。项目权限按需读取；浏览不执行 CLI、不调用 Agent。保存不新建管家操作，不能提升审核上限。'));
   const catalogStatus = el('p', '正在加载静态目录…', 'cli-catalog-status'); catalogStatus.setAttribute('role', 'status');
   const catalogRetry = el('button', '重试读取目录', 'ghost'); catalogRetry.type = 'button'; catalogRetry.hidden = true; catalogRetry.onclick = () => loadCatalog(true);
   const catalogNotice = el('section', undefined, 'cli-catalog-notice'); catalogNotice.append(catalogStatus, catalogRetry);
@@ -58,11 +58,11 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   const detail = el('section', undefined, 'cli-command-detail');
   const footer = el('section', undefined, 'cli-permissions-save resource-card');
   const status = el('p', project ? '项目权限尚未读取；查看命令不需要读取权限。' : '无当前项目，仅可查看说明和审核上限。', 'cli-settings-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
-  const save = el('button', '保存管家默认权限', 'primary'); save.type = 'button'; save.onclick = saveDraft;
+  const save = el('button', '保存项目管家权限', 'primary'); save.type = 'button'; save.onclick = saveDraft;
   const reload = el('button', '读取项目权限', 'ghost'); reload.type = 'button'; reload.onclick = () => loadPermissions(true);
   footer.append(el('h2', '项目权限 · 按需读取与统一保存'), el('p', project
-    ? '仅影响本项目之后新建的 Valet；已有权限快照不变。危险操作始终逐次确认，原有安全门保持。'
-    : '当前没有项目：可浏览全部 CLI 说明，但不能编辑或保存管家默认权限。请在可用项目页打开 CLI 接口。', 'hint'), status, save, reload);
+    ? '保存后，本项目新旧管家统一使用最新权限；排队或待确认但尚未开始的操作，执行前重新检查。已开始的操作不强行中断，已执行的不撤销；不影响其他项目。危险操作仍须逐次确认，权限改变不新建操作；已有未开始的请求可能继续或受阻。'
+    : '当前没有项目：可浏览全部 CLI 说明，但不能编辑或保存项目管家权限。请在可用项目页打开 CLI 接口。', 'hint'), status, save, reload);
   root.append(hero, catalogNotice, searchBox, results, detail, footer); $('detail').replaceChildren(root);
   const selects = new Map(), diagnostics = new Map(), summaries = new Map();
   function setStatus(text, error = false) { status.textContent = text; status.classList.toggle('error', error); }
@@ -88,14 +88,14 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
       const rpc = item.rpc[0], policy = state.data?.methods.find(row => row.method === rpc.method) ?? rpc;
       node.textContent = (state.permissionsStale ? '旧读取 · ' : '') + (item.rpc.length > 1 ? `多项权限（${item.rpc.length}）` : accessLabel(policy, state.draft?.[rpc.method] ?? policy.base_access))
         + (changed ? ' · 草稿' : '');
-      node.setAttribute('data-help', `${policies.join('；')}。点击命令查看详情与审核上限；仅影响未来新管家，不执行命令。`);
+      node.setAttribute('data-help', `${policies.join('；')}。点击命令查看详情与审核上限；保存后对本项目新旧管家生效，不新建操作；已有未开始的请求按最新权限重新检查。`);
     }
     for (const [method, node] of diagnostics) {
       const item = state.data?.methods.find(item => item.method === method);
       const forbidden = item && state.draft[method] === 'unavailable' && item.base_access !== 'unavailable';
       node.hidden = !forbidden;
       node.textContent = forbidden ? state.data.permissions[method] === 'unavailable'
-        ? '当前默认选择禁止此能力。' : '当前草稿禁止此能力；保存后仅对未来新建管家生效。' : '';
+        ? '当前项目权限禁止此能力。' : '当前草稿禁止此能力；保存后对本项目新旧管家生效。' : '';
     }
   }
   function commandList(container, commands) {
@@ -114,7 +114,7 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   }
   function permissions(item) {
     const section = el('section', undefined, 'cli-command-permissions');
-    section.append(el('h3', '未来新管家默认权限'));
+    section.append(el('h3', '当前项目管家权限'));
     if (!item.rpc.length) { section.append(el('p', '本地／终端能力，没有可授予管家的项目 RPC；可学习但不可提权。', 'hint')); return section; }
     section.append(el('p', item.rpc.length > 1
       ? '此命令关联多个 RPC（按参数或读取／写入阶段调用），逐项设置；授权某项不等于开放整条 CLI 命令。Valet 使用受控工具而非 Shell。'
@@ -124,11 +124,11 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
       const row = el('div', undefined, 'cli-permission-method'); row.dataset.method = rpc.method;
       const copy = el('div'); copy.append(el('code', rpc.method), el('p', `审核上限：${accessLabel(policy, policy.base_access)}`, 'hint'));
       // The CLI projection carries the reviewed ceiling reason, while project
-      // methods may carry a snapshot/default restriction. Do not confuse the two.
+      // methods may carry a current project restriction. Do not confuse the two.
       if (rpc.reason) copy.append(el('p', rpc.reason, 'hint'));
       const diagnostic = el('p', undefined, 'cli-permission-diagnostic hint'); diagnostics.set(rpc.method, diagnostic); copy.append(diagnostic);
-      const label = el('label', !project ? '无项目 · 权限未知' : !state.data ? '项目权限尚未读取' : state.permissionsStale ? '旧读取／草稿 · 待核对' : '本项目默认选择');
-      const select = el('select'); select.setAttribute('aria-label', `${rpc.method} 默认策略`);
+      const label = el('label', !project ? '无项目 · 权限未知' : !state.data ? '项目权限尚未读取' : state.permissionsStale ? '旧读取／草稿 · 待核对' : '本项目权限选择');
+      const select = el('select'); select.setAttribute('aria-label', `${rpc.method} 管家权限`);
       if (!state.data) { const unknown = el('option', project ? '未读取项目权限' : '无项目 · 权限未知'); unknown.value = ''; select.append(unknown); }
       for (const access of policy.allowed_access) { const option = el('option', accessLabel(policy, access)); option.value = access; select.append(option); }
       select.onchange = () => {
@@ -138,8 +138,8 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
       };
       selects.set(rpc.method, select); label.append(select);
       const host = el('span', undefined, 'help-host');
-      if (!state.data || state.permissionsStale || policy.allowed_access.length === 1) host.setAttribute('data-help', !project ? '没有当前项目，不能保存项目默认权限。'
-        : !state.data ? '项目默认权限未读取成功，不能编辑。' : state.permissionsStale ? '这是旧读取或保留草稿，重新读取当前项目权限成功后才能编辑。' : rpc.reason || '后台固定审核能力，不可通过设置提权。');
+      if (!state.data || state.permissionsStale || policy.allowed_access.length === 1) host.setAttribute('data-help', !project ? '没有当前项目，不能保存项目管家权限。'
+        : !state.data ? '项目管家权限未读取成功，不能编辑。' : state.permissionsStale ? '这是旧读取或保留草稿，重新读取当前项目权限成功后才能编辑。' : rpc.reason || '后台固定审核能力，不可通过设置提权。');
       host.append(label); row.append(copy, host); section.append(row);
     }
     return section;
@@ -210,7 +210,7 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
         return !actual || actual.base_access !== rpc.base_access || JSON.stringify(actual.allowed_access) !== JSON.stringify(rpc.allowed_access);
       }))) throw Error('Host CLI 目录与项目后台权限版本不一致；请在安全空闲时更新 Host 和项目后台后重新读取。');
       state.data = value; state.draft = { ...value.permissions }; state.uncertain = false; state.permissionsStale = false;
-      paint(); setStatus('已读取当前项目默认权限；仅影响之后新建的管家。');
+      paint(); setStatus('已读取当前项目管家权限；适用于本项目新旧管家。');
     } catch (error) {
       if (owns() && generation === state.generation) {
         state.permissionsStale = Boolean(state.data); paint();
@@ -227,7 +227,7 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
       }) }));
       if (!owns() || generation !== state.generation) return;
       state.data = value; state.draft = { ...value.permissions }; state.uncertain = false;
-      setStatus('已保存。之后新建的管家使用此默认权限，已有管家不变。');
+      setStatus('已保存当前项目管家权限，新旧管家均生效；未开始的操作执行前重新检查，已开始的不强行中断、已执行的不撤销。权限改变不新建操作；已有未开始的请求可能继续或受阻。');
     } catch (error) {
       if (owns() && generation === state.generation) {
         state.uncertain = true;

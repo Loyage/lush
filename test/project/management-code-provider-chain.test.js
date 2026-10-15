@@ -26,6 +26,34 @@ async function setup() {
   return f;
 }
 
+for (const history of ['missing','empty']) test(`real Provider -> registered tools -> Bun bridge -> latest project permissions -> result for ${history} historical authorization`, async () => {
+  const f = await setup();
+  const set = patch => { const current = f.project.managementPermissions(); return f.project.setManagementPermissions({ ...current.permissions, ...patch }, current.revision); };
+  try {
+    f.cli.plan([
+      { name: 'manager_catalog', params: {} },
+      { name: 'manager_query', params: {} },
+      { name: 'manager_call', params: { method: 'draft.add', params: { content: 'bridge must deny' } } },
+      { name: 'manager_call', params: { method: 'worker.auto_title', params: { title: '最新权限真实链路' } } },
+    ]);
+    const manager = f.project.submitManagementInstruction({ instruction: 'check live permission through bridge',
+      profile: { agent: 'pi', config_mode: 'pi' } }).task;
+    const state = f.state(manager);
+    if (history === 'missing') delete state.permissions_snapshot;
+    else state.permissions_snapshot.permissions = {};
+    f.store.update(manager.id, { management: JSON.stringify(state) });
+    set({ 'draft.add': 'unavailable', 'manager.query': 'unavailable' });
+    await f.run();
+    expect(f.store.task(manager.id)).toMatchObject({ status: 'completed', error: null, auto_title: '最新权限真实链路' });
+    const result = JSON.parse(f.store.task(manager.id).result);
+    expect(result.blocked).toEqual([true,true,true,true,true]);
+    expect(result.replies[0].response.details.methods.find(item => item.method === 'draft.add').access).toBe('unavailable');
+    expect(result.replies[1].error).toBeTruthy(); expect(result.replies[2].error).toBeTruthy();
+    expect(result.replies[3].response.details).toMatchObject({ status: 'succeeded', method: 'worker.auto_title' });
+    expect(f.store.draftCount()).toBe(0); expect(f.state(manager).permissions_snapshot).toEqual(state.permissions_snapshot);
+  } finally { await f.rpc.close(); await f.close(); }
+});
+
 test('real Provider -> registered manager_call -> Bun bridge -> fixed acceptance confirmation -> original Git resource reclamation', async () => {
   const f = await setup();
   try {

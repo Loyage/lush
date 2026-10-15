@@ -76,6 +76,8 @@ test('quick groups include navigation/polling and real CLI/permission migration 
   expect(INTEGRATION_GROUPS.page).toContain('test/web/core-api.test.js');
   expect(INTEGRATION_GROUPS.component).toContain('test/web/dom-refresh-performance.test.js');
   expect(INTEGRATION_GROUPS.rpc).toContain('test/web/management-permissions-api.test.js');
+  expect(INTEGRATION_GROUPS.rpc).toContain('test/project/management-live-permissions.test.js');
+  expect(INTEGRATION_GROUPS.rpc).toContain('test/project/management-code-provider-chain.test.js');
   expect(INTEGRATION_GROUPS.rpc).toContain('test/web/runtime-coordinator-integration.test.js');
   for (const file of ['test/cli-entrypoints.test.js', 'test/cli-surfaces.test.js', 'test/cli-catalog.test.js',
     'test/cli-prompt-boundaries.test.js', 'test/integration/pi.test.js', 'test/integration/questionnaire.test.js']) {

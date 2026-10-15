@@ -22,6 +22,7 @@ const edit = () => {
 test('project navigation opens lazy CLI page, selected chrome and repeat hash retains expanded edits during refresh', async () => {
   await btn('cli-interfaces-open').onclick(); expect(dom.location.hash).toBe('#cli-interfaces'); expect(ui.view.id).toBe('cli-interfaces');
   expect(btn('view-title').textContent).toBe('CLI 接口'); expect(btn('cli-interfaces-open').getAttribute('aria-current')).toBe('page');
+  expect(btn('view-hint').textContent).toBe('搜索与学习命令 · 就地设置当前项目新旧管家的权限');
   expect(reads).toBe(0);
   await btn('detail').querySelectorAll('button').find(node => node.textContent === '读取项目权限').onclick();
   edit(); const details = btn('detail').querySelector('details'); details.open = true; const count = reads;
@@ -48,7 +49,7 @@ test('old management routes stay retired and lead to persistent Valet list, not 
   }
 });
 
-test('old settings bookmark redirects; global/no-project CLI browsing never reads project defaults', async () => {
+test('old settings bookmark redirects; global/no-project CLI browsing never reads project permissions', async () => {
   const before = reads; dom.location.pathname = '/'; dom.location.hash = '#valet-settings'; await boot();
   expect(btn('cli-interfaces-open').disabled).toBe(false); expect(ui.view.id).toBe('cli-interfaces'); expect(dom.location.hash).toBe('#cli-interfaces'); expect(reads).toBe(before);
   expect(deepText(btn('detail'))).toContain('当前没有项目');

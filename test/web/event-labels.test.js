@@ -67,8 +67,8 @@ test('项目自动化与告知事件有中文名称，决定记录不冒充告�
   expect(eventLabel(observed)).not.toContain('发送'); expect(observed.data.enabled).toBe(false);
 });
 
-test('管家默认权限事件只说明未来默认保存，不冒充已有管家授权变化', () => {
-  expect(eventLabel({ type: 'management.permissions_updated' })).toBe('保存新建管家默认权限');
+test('管家权限事件说明项目权限保存，不冒充执行或撤销操作', () => {
+  expect(eventLabel({ type: 'management.permissions_updated' })).toBe('保存项目管家权限');
 });
 
 test('项目维护事件只承诺接受请求，不冒充已经停止或运行', () => {

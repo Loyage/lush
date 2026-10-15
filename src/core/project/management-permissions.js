@@ -6,7 +6,7 @@ const KEY = 'management_permissions';
 const initial = () => ({ version: 1, generation: 0, permissions: {} });
 const stored = project => JSON.parse(project.store.get('SELECT value FROM meta WHERE key=?', KEY)?.value ?? JSON.stringify(initial()));
 function view(value) {
-  // Defaults may acquire newly reviewed methods; frozen Worker snapshots never do.
+  // Current project authority may acquire newly reviewed methods. Worker snapshots are history only.
   const methods = managementPermissionMethods().map(item => {
     const access = value.permissions[item.method] ?? item.base_access;
     return { ...item, access: item.allowed_access.includes(access) ? access : 'unavailable' };
@@ -36,6 +36,9 @@ export default {
       this.store.run('INSERT INTO meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', KEY, JSON.stringify(next));
       this.store.event(null, 'management.permissions_updated', { scope: 'project', revision: hookRevision(next) });
     });
+    // Reconcile durable unstarted calls without cancelling running effects or
+    // waking a model to replay a failed/cancelled request.
+    this.drainManagementActions();
     return this.managementPermissions();
   },
 };

@@ -6,6 +6,7 @@ import { assertManager } from './management-auth.js';
 import controlMethods, { managementControlPending } from './management-control.js';
 import permissionMethods from './management-permissions.js';
 import { effectiveManagementPolicy } from '../../rpc/management-policy.js';
+import { hasManagementConfirmation } from './management-code.js';
 import { MANAGEMENT_LIMITS, managementState, saveManagement, managementTime, managementRevision,
   managementView, managementWorkers, managementEnableReason, managementUnsettled } from './management-data.js';
 
@@ -73,7 +74,7 @@ export default {
   ...permissionMethods,
   assertManagementPermission(actorId, method) {
     const actor = assertManager(this, actorId);
-    const policy = effectiveManagementPolicy(method, actor.state.permissions_snapshot);
+    const policy = effectiveManagementPolicy(method, this.managementPermissionsSnapshot());
     check(policy.access !== 'unavailable', policy.reason);
     return { ...actor, policy };
   },
@@ -293,10 +294,11 @@ export default {
   },
 
   managementQuery(actorId, targetId = undefined) {
-    const { state } = this.assertManagementPermission(actorId, 'manager.query');
-    if (targetId !== undefined && targetId !== null) return queryView(this, this.store.task(id(targetId)), state.permissions_snapshot);
+    this.assertManagementPermission(actorId, 'manager.query');
+    const permissions = this.managementPermissionsSnapshot();
+    if (targetId !== undefined && targetId !== null) return queryView(this, this.store.task(id(targetId)), permissions);
     return { workers: bounded(this.store.all("SELECT * FROM tasks WHERE task_kind IN ('order','say','child') ORDER BY id DESC LIMIT 100")
-      .map(task => queryView(this, task, state.permissions_snapshot)), 100000), limit: 100 };
+      .map(task => queryView(this, task, permissions)), 100000), limit: 100 };
   },
 
   requestManagementAction(actorId, action, targetId) {
@@ -310,7 +312,7 @@ export default {
 
   // Trusted execution helper: both dedicated tools and confirmed manager.call
   // use the original target gates, saved configuration, dedup and waiting engine.
-  submitManagementAction(taskId, action, targetId) {
+  submitManagementAction(taskId, action, targetId, capabilityReceipt = null) {
     const task = this.store.task(taskId), state = managementState(task);
     const target = this.store.task(id(targetId));
     const previous = state.receipts.find(receipt => receipt.action === action && receipt.target_id === target.id);
@@ -319,7 +321,7 @@ export default {
     const receipt = this.store.transaction(() => {
       const receiptId = this.store.event(task.id, 'management.action_submitted', { occurrence_id: state.pending_signal.id, action, target_id: target.id });
       const receipt = { receipt_id: receiptId, action, target_id: target.id, target_worker_number: target.worker_number,
-        occurrence_id: state.pending_signal.id, status: 'waiting' };
+        occurrence_id: state.pending_signal.id, status: 'waiting', capability_receipt_id: capabilityReceipt };
       state.receipts.push(receipt); saveManagement(this, task.id, state); return receipt;
     });
     this.executeManagementAction(task.id, receipt.receipt_id);
@@ -334,6 +336,16 @@ export default {
     if (this.managementOccupant()?.id !== taskId || !state?.enabled || !['started','returned'].includes(state.pending_signal?.phase)
       || receipt?.status !== 'waiting' || receipt.occurrence_id !== state.pending_signal.id) return;
     const target = this.store.get('SELECT * FROM tasks WHERE id=?', receipt.target_id), gate = targetGate(this, target, receipt.action);
+    const method = receipt.action === 'start' ? 'worker.resume' : 'worker.retry';
+    const policy = effectiveManagementPolicy(method, this.managementPermissionsSnapshot());
+    const capability = state.control_calls?.find(call => (call.receipt_id === receipt.capability_receipt_id
+      || call.result?.action?.receipt_id === receipt.receipt_id)
+      && call.method === method && call.params.id === receipt.target_id && call.occurrence_id === receipt.occurrence_id);
+    if (policy.access === 'unavailable' || policy.access === 'confirmation' && !hasManagementConfirmation(this, taskId, capability)) {
+      gate.skip = policy.access === 'confirmation' ? '最新项目权限要求重新精确确认；此操作未开始，请新建请求。'
+        : '最新项目权限禁止此未开始操作；请调整权限后新建请求，不自动重放。';
+      delete gate.wait;
+    }
     if (gate.wait) {
       if (receipt.reason !== gate.wait) { receipt.reason = gate.wait; state.reason = gate.wait; saveManagement(this, taskId, state); }
       return;

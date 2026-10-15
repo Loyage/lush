@@ -95,8 +95,9 @@ try {
   await press('返回搜索结果'); assert(await run(`return document.querySelector('.cli-search input').value==='order'`), 'search lost'); await choose('order');
   assert(await run(`return document.querySelector('[data-method="draft.add"] select').value==='confirmation'`), 'draft lost');
   await screenshot('desktop-detail');
-  await press('保存管家默认权限'); assert(await wait(`document.querySelector('.cli-settings-status').textContent.includes('已保存')`), 'save missing');
-  assert(f.project.managementPermissions().permissions['draft.add'] === 'confirmation', 'real defaults not persisted');
+  await press('保存项目管家权限'); assert(await wait(`document.querySelector('.cli-settings-status').textContent.includes('已保存')`), 'save missing');
+  assert(await run(`const text=document.querySelector('.cli-permissions-save').textContent;return text.includes('新旧管家均生效')&&text.includes('未开始的操作执行前重新检查')&&text.includes('已开始的不强行中断')&&text.includes('已执行的不撤销')&&text.includes('权限改变不新建操作')&&text.includes('已有未开始的请求可能继续或受阻')&&text.includes('不影响其他项目')&&!/未来新管家|已有管家不变|已有权限快照不变/.test(text)`), 'project-wide permission copy is missing or stale');
+  assert(f.project.managementPermissions().permissions['draft.add'] === 'confirmation', 'real project permissions not persisted');
   assert(mutations.filter(item => item.method === 'management.permissions_update').length === 1, 'unexpected save replay');
   assert(Object.keys(mutations.find(item => item.method === 'management.permissions_update').params.permissions).length === f.project.managementPermissions().methods.length, 'incomplete mapping');
   await run(`document.querySelector('.cli-advanced').open=true;`);

@@ -9,7 +9,7 @@ const post = (f, method, params, headers = {}) => fetch(f.url + '/api/action', {
   headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ method, params }) });
 const get = f => fetch(f.url + '/api/management/permissions');
 
-test('HTTP settings -> registry -> frozen permissions -> real restricted Provider/tools/bridge -> confirmation -> persisted execution/result', async () => {
+test('HTTP settings -> registry -> live permissions on existing Valet -> real restricted Provider/tools/bridge -> confirmation -> persisted execution/result', async () => {
   const f = await setup(); f.project.kick = () => {};
   try {
     await repo(f.root);
@@ -18,10 +18,6 @@ test('HTTP settings -> registry -> frozen permissions -> real restricted Provide
     const initial = await initialResponse.json();
     const permissions = { ...initial.permissions, 'draft.add': 'confirmation', 'manager.query': 'unavailable',
       'manager.history': 'unavailable', 'worker.lookup': 'unavailable', 'worker.resume': 'unavailable', 'worker.retry': 'unavailable' };
-    const savedResponse = await post(f, 'management.permissions_update', { permissions, expected_revision: initial.revision });
-    expect(savedResponse.status).toBe(200);
-    const saved = await savedResponse.json(); expect(saved.permissions).toEqual(permissions);
-    expect(await (await get(f)).json()).toEqual(saved);
     const cli = managementToolCLI(f.root, 'node'); f.config.env.LUSH_PI_COMMAND = cli.command;
     f.project.provider = new AgentProvider(f.config, f.project.agentSettings);
     cli.plan([
@@ -38,8 +34,14 @@ test('HTTP settings -> registry -> frozen permissions -> real restricted Provide
     const submitted = await post(f, 'management.submit', { instruction: 'bounded permission probe', profile: { agent: 'pi', config_mode: 'pi' } });
     expect(submitted.status).toBe(200);
     const manager = (await submitted.json()).task;
-    // New defaults after submission do not replace the frozen confirmation/read denial.
-    expect((await post(f, 'management.permissions_update', { permissions: initial.permissions, expected_revision: saved.revision })).status).toBe(200);
+    // Apply restrictions after this identity is created. Its historical automatic
+    // permission must neither bypass confirmation nor allow denied direct tools.
+    const historical = JSON.parse(f.store.task(manager.id).management).permissions_snapshot;
+    expect(historical.permissions['draft.add']).toBe('automatic');
+    const savedResponse = await post(f, 'management.permissions_update', { permissions, expected_revision: initial.revision });
+    expect(savedResponse.status).toBe(200);
+    const saved = await savedResponse.json(); expect(saved.permissions).toEqual(permissions);
+    expect(await (await get(f)).json()).toEqual(saved);
     f.project.pump(); await Promise.all([...f.project.running.values()].map(run => run.promise));
     const stored = f.store.task(manager.id), result = JSON.parse(stored.result);
     expect(result.modelActive).toEqual([...MANAGEMENT_TOOL_NAMES]);
@@ -60,6 +62,8 @@ test('HTTP settings -> registry -> frozen permissions -> real restricted Provide
     const inspected = await (await fetch(f.url + `/api/worker/${manager.id}`)).json();
     expect(inspected.management).not.toHaveProperty('permissions_snapshot');
     expect(JSON.stringify(inspected)).not.toContain('permissions_snapshot');
+    expect(JSON.stringify(inspected)).not.toContain('execution_authorization');
+    expect(state.permissions_snapshot).toEqual(historical);
   } finally { await f.close(); }
 });
 

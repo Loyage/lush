@@ -40,11 +40,43 @@ const search = text => { input().value = text; input().oninput({}); };
 const choose = path => root().querySelectorAll('.cli-command-link').find(node => node.dataset.command === (path.startsWith('lush') ? path : `lush ${path}`)).onclick();
 const select = method => root().querySelectorAll('.cli-permission-method').find(node => node.dataset.method === method).querySelector('select');
 const change = (method, access) => { const node = select(method); node.value = access; node.onchange(); };
-const save = () => btn('保存管家默认权限');
+const save = () => btn('保存项目管家权限');
 const loadPermissions = () => (btn('重新读取项目权限') ?? btn('读取项目权限')).onclick();
 const openOrder = () => { search('order'); choose('order'); };
 const sorted = items => [...items].sort((a, b) => a.command_path.split(' ').length - b.command_path.split(' ').length).map(item => item.path);
 const commands = () => cliCatalog().commands;
+
+test('permission copy consistently describes current project new and existing Valets without submitting new operations', async () => {
+  const currentCopy = () => {
+    const text = deepText(root()) + root().querySelectorAll('[data-help]').map(node => node.getAttribute('data-help')).join(' ');
+    expect(text).not.toMatch(/未来新管家|之后新建的管家|已有管家不变|已有权限快照不变|管家默认权限|本项目默认选择|权限改变不会自行执行操作|浏览与保存不执行 CLI/);
+    return text;
+  };
+  await open();
+  const footer = deepText(root().querySelector('.cli-permissions-save'));
+  for (const text of ['本项目新旧管家统一使用最新权限', '排队或待确认但尚未开始的操作，执行前重新检查',
+    '已开始的操作不强行中断', '已执行的不撤销', '不影响其他项目', '危险操作仍须逐次确认', '权限改变不新建操作', '已有未开始的请求可能继续或受阻']) expect(footer).toContain(text);
+  currentCopy(); expect(reads).toHaveLength(1); expect(writes).toEqual([]);
+  await loadPermissions();
+  expect(root().querySelector('.cli-settings-status').textContent).toBe('已读取当前项目管家权限；适用于本项目新旧管家。');
+  search('worker resume');
+  expect(results().querySelector('.cli-command-access').getAttribute('data-help')).toContain('保存后对本项目新旧管家生效，不新建操作；已有未开始的请求按最新权限重新检查');
+  choose('worker resume');
+  expect(deepText(root().querySelector('.cli-command-permissions'))).toContain('当前项目管家权限');
+  expect(select('worker.resume').getAttribute('aria-label')).toBe('worker.resume 管家权限');
+  expect(currentCopy()).toContain('本项目权限选择');
+  change('worker.resume', 'unavailable');
+  expect(currentCopy()).toContain('当前草稿禁止此能力；保存后对本项目新旧管家生效。');
+  expect(writes).toEqual([]);
+  await save().onclick();
+  const status = root().querySelector('.cli-settings-status').textContent;
+  for (const text of ['已保存当前项目管家权限，新旧管家均生效', '未开始的操作执行前重新检查',
+    '已开始的不强行中断', '已执行的不撤销', '权限改变不新建操作', '已有未开始的请求可能继续或受阻']) expect(status).toContain(text);
+  expect(currentCopy()).toContain('当前项目权限禁止此能力。');
+  expect(writes.map(item => item.method)).toEqual(['management.permissions_update']);
+  expect(Object.keys(writes[0].params.permissions)).toEqual(Object.keys(value.permissions));
+  expect(writes[0].params.expected_revision).toBe('r1'); expect(reads).toHaveLength(2);
+});
 
 test('static browsing combines reads and writes at every level without requesting project permissions', async () => {
   await open(); expect(reads).toEqual(['/api/host/cli/catalog']);
@@ -156,7 +188,7 @@ test('multi-tab conflict blocks replay and authoritative reread uses new revisio
   change('draft.add', 'unavailable'); await save().onclick(); expect(writes[1].params.expected_revision).toBe('another-tab');
 });
 
-test('permission read failures and mismatched Host/daemon ceilings never masquerade as current defaults', async () => {
+test('permission read failures and mismatched Host/daemon ceilings never masquerade as current project permissions', async () => {
   intercept = path => path.endsWith('/permissions') ? Promise.reject(Error('offline')) : null;
   await open(); openOrder(); expect(reads).toHaveLength(1); await loadPermissions();
   expect(save().disabled).toBe(true); expect(select('draft.add').disabled).toBe(true); expect(select('draft.add').value).toBe(''); expect(deepText(root())).toContain('项目权限未知');
@@ -182,7 +214,7 @@ test('catalogue loading is independently retryable and does not block leaving', 
   release(Response.json(cliCatalog())); await loading; dom.restore(); dom = old;
 });
 
-test('late catalogue/default responses cannot paint after leave, project switch or document replacement', async () => {
+test('late catalogue/permission responses cannot paint after leave, project switch or document replacement', async () => {
   for (const kind of ['catalogue', 'permissions']) for (const replace of ['leave', 'project', 'document']) {
     // Install an independent document to ensure a cold catalogue for each scenario.
     const outer = dom; dom = installDom({ fetch: async path => String(path).endsWith('/cli/catalog') ? Response.json(cliCatalog()) : Response.json(value) });

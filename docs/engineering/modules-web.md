@@ -26,7 +26,7 @@
 | 工作列表／管家列表／工作树／通用详情 | `render-tree.js`、`render-task-graph.js`、`detail.js` | [Worker 图](task-graph.md)、[Worker RPC](../reference/rpc/tasks.md) |
 | 时间线与执行详情 | `render-conversation.js`、`transcript-view.js` | [阅读器](transcript-reader.md) |
 | 代码与差异 | `code-view.js`、`render-diff.js` | [代码阅读器](code-reader.md) |
-| CLI 学习与管家默认权限 | `render-valet-settings.js`（保留历史文件名）、`cli-catalog.js` | `#cli-interfaces` 静态目录版本缓存、读／写分类与本地搜索、目录／单条详情；项目权限按需读取，跨详情保留草稿，完整映射与 revision、迟到／离页保护；权限来自[Valet 契约](hook-signals-management.md#当前项目管家默认权限w278d632w279d635) |
+| CLI 学习与项目管家权限 | `render-valet-settings.js`（保留历史文件名）、`cli-catalog.js` | `#cli-interfaces` 静态目录版本缓存、读／写分类与本地搜索、目录／单条详情；项目权限按需读取，跨详情保留草稿，完整映射与 revision、迟到／离页保护；保存对当前项目新旧管家统一生效，权限与未开始操作重检边界来自[Valet 契约](hook-signals-management.md) |
 | 自动化目录／功能与 Worker 实例挂载 | `render-project-automation.js`、`automation-features.js`、`render-hooks.js` | [Hooks](hooks.md)、[命令授权](shortcut-commands.md)、[历史](shortcut-command-runs.md) |
 | 交付／验收／删除与管家停止 | `render-delivery.js`、`render-iteration.js`、`worker-delete.js`、`valet-actions.js` | [合并](merge.md)、[验收](worker-acceptance.md)、[删除](../reference/rpc/maintenance.md) |
 | Agent 配置与来源 | `render-agent-status.js`、`render-model-sources.js` | [Web 配置](web-agent-configuration.md)、[账号连接](agent-connections.md) |
@@ -38,7 +38,7 @@
 
 W263／D611：「工作列表」仅展示开发 Worker，「管家列表」仅展示持久 Valet，复用 `render-tree.js` 的同源列表与既有详情；「工作树」独立表达开发委派层级。两列表共享 overview 和 `scope=all` 的有界历史分页，状态筛选即时生效、文本搜索显式提交，检索仅覆盖已读取范围；不把 `/api/hooks` 的绑定快照当完整管家历史，也不从局部卡片估算全量。Valet 使用真实 V 编号，旧未编号记录回退 `#内部ID`；详情共享 Agent 与执行记录，展示安全绑定／操作收据；`render-detail.js` 经 `valet-actions.js` 提供停用授权与停止管家，删除共用 `worker-delete.js` 的预检、revision 及精确确认协议。停止已提交不等于实际退出，调用与在途操作收口后须重新预检；失败或未知不自动重发。仍不提供开发、合并交付、验收、Git 或连续追加对话。
 
-旧独立 Valet 时间信号／绑定设置与指令／Hook 工具页面及其 Web 配置入口已删除（「CLI 接口」仅编辑未来管家默认权限），不迁往其他页面；`render-management.js`、`openHookTools` 只保留退休导航兼容。项目自动化及 Worker 实例挂载管理保留，推送功能引用指令只读；后端 API、CLI、持久配置、授权与历史不删除或迁移。旧 `#versions` 从有界 overview 读取持久 main 身份后跳真实 Worker 详情，无 main 明示不可用，不再挂独立版本页；`render-versions.js` 已由 `render-detail.js` 接入版本模块，滚入时直接读取有界分支提交历程／main 图页，完整节点与交付映射收据按需展开。路由兼容见[Web 路由](../reference/web-routes.md#worker-页面与命名)，权限见[Valet 契约](hook-signals-management.md)。
+旧独立 Valet 时间信号／绑定设置与指令／Hook 工具页面及其 Web 配置入口已删除（「CLI 接口」仅编辑当前项目管家权限），不迁往其他页面；`render-management.js`、`openHookTools` 只保留退休导航兼容。项目自动化及 Worker 实例挂载管理保留，推送功能引用指令只读；后端 API、CLI、持久配置、授权与历史不删除或迁移。旧 `#versions` 从有界 overview 读取持久 main 身份后跳真实 Worker 详情，无 main 明示不可用，不再挂独立版本页；`render-versions.js` 已由 `render-detail.js` 接入版本模块，滚入时直接读取有界分支提交历程／main 图页，完整节点与交付映射收据按需展开。路由兼容见[Web 路由](../reference/web-routes.md#worker-页面与命名)，权限见[Valet 契约](hook-signals-management.md)。
 
 设置页的 `render-settings.js` 只编排导航，`settings-interface.js`／`settings-system.js` 分别拥有偏好和系统页的请求代次；Agent 编辑从 `settings-agent.js` 进入，profile、包管理和环境编辑器各自维护草稿与缓存。模型来源的 `render-agent-connections.js` 负责选择、批量操作与页面生命周期，`connection-*` 模块分别拥有编辑／登录、历史／采样、提醒和只读展示；迟到响应仍由对应请求所有者作废，秘密不进入公开草稿。浏览器模块保持 assets 平级，构建与兼容资源路由自动发现，不另维护资源登记表。
 

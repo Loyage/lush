@@ -7,6 +7,16 @@ import { LUSHC_METHODS, managementDispatchParams, validateManagementCall } from 
 const canonical = value => Array.isArray(value) ? value.map(canonical)
   : isPlainObject(value) ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
 
+export function hasManagementConfirmation(project, actorId, call) {
+  if (!call?.notice_id || call.fingerprint !== hookRevision({ method: call.method, params: canonical(call.params) })
+    || !project.isManagementConfirmationNotice(call.notice_id)) return false;
+  const notice = project.store.get('SELECT task_id,status,answer_source,answer FROM notices WHERE id=?', call.notice_id);
+  let answer; try { answer = JSON.parse(notice?.answer); } catch { answer = null; }
+  const choice = answer?.answers?.[0];
+  return notice?.task_id === actorId && notice.status === 'answered' && notice.answer_source === 'user'
+    && choice?.selected?.length === 1 && choice.selected[0] === 1 && !choice.custom;
+}
+
 /** Internal receipt authority, never an RPC parameter or replacement user actor.
  * Confirmed actions can outlive the model invocation, but not their fixed occurrence. */
 export function assertManagementCapabilityExecution(project, actorId, receiptId, method, params) {
@@ -14,7 +24,7 @@ export function assertManagementCapabilityExecution(project, actorId, receiptId,
   check(actor.role === 'manager' && actor.task_kind === 'management' && state?.enabled
     && state.pending_signal && project.managementOccupant()?.id === actor.id, 'management execution authorization is not active');
   if (receiptId === null || receiptId === undefined) {
-    const policy = validateManagementCall(method, params, actor.goal, state.permissions_snapshot);
+    const policy = validateManagementCall(method, params, actor.goal, project.managementPermissionsSnapshot());
     check(policy.access === 'read', 'management writes require a durable capability receipt');
     assertManager(project, actor.id);
     return { actor, state };
@@ -22,19 +32,15 @@ export function assertManagementCapabilityExecution(project, actorId, receiptId,
   const call = (state.control_calls ?? []).find(item => item.receipt_id === receiptId);
   check(call?.status === 'running' && call.method === method && call.occurrence_id === state.pending_signal.id,
     'management execution must match the running fixed capability receipt');
-  const policy = validateManagementCall(method, call.params, actor.goal, state.permissions_snapshot);
+  // A new receipt fixes authorization only at its actual start, not at submission.
+  // Already-running historical receipts retain their original authorization; never migrate them.
+  const policy = validateManagementCall(method, call.params, actor.goal, call.execution_authorization ?? state.permissions_snapshot);
   check(call.fingerprint === hookRevision({ method, params: canonical(call.params) })
     && hookRevision({ method, params: canonical(params) })
       === hookRevision({ method, params: canonical(managementDispatchParams(method, call.params)) }),
     'management execution must match the running fixed capability receipt');
-  if (policy.access === 'confirmation') {
-    const notice = project.store.get('SELECT task_id,status,answer_source,answer FROM notices WHERE id=?', call.notice_id);
-    let answer; try { answer = JSON.parse(notice?.answer); } catch { answer = null; }
-    const choice = answer?.answers?.[0];
-    check(notice?.task_id === actor.id && notice.status === 'answered' && notice.answer_source === 'user'
-      && choice?.selected?.length === 1 && choice.selected[0] === 1 && !choice.custom,
+  if (policy.access === 'confirmation') check(hasManagementConfirmation(project, actor.id, call),
     'management execution requires exact user confirmation');
-  }
   return { actor, state, call };
 }
 

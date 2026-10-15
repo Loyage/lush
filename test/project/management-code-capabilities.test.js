@@ -34,7 +34,7 @@ async function prepared(invoke = async () => {}) {
 const request = (rpc, token, method, params, request_id) => rpc.dispatch('manager.call', { method, params, _token: token,
   ...(request_id ? { request_id } : {}) });
 
-test('every catalogue-derived lushc RPC is reviewed for new Valets; old missing/denied snapshot entries fail closed', async () => {
+test('every catalogue-derived lushc RPC is reviewed; authorization records fail closed and historical snapshots stay untouched', async () => {
   const f = await prepared();
   try {
     const permissions = f.project.managementPermissions();
@@ -105,7 +105,7 @@ test('legacy delivery RPCs cannot turn a Valet tool or internal callback into an
       const state = f.state(task);
       state.permissions_snapshot.permissions[method] = 'confirmation';
       f.store.update(task.id, { management: JSON.stringify(state) });
-      await expect(request(rpc, token, method, params)).rejects.toThrow('未授权');
+      await expect(request(rpc, token, method, params)).rejects.toThrow('专用身份');
     }
     expect(LUSHC_METHODS.has('worker.resolve')).toBe(false);
     expect(managementPolicy('worker.resolve').access).toBe('confirmation');
@@ -114,13 +114,13 @@ test('legacy delivery RPCs cannot turn a Valet tool or internal callback into an
     const forged = f.state(task);
     forged.permissions_snapshot.permissions['worker.resolve'] = 'automatic';
     f.store.update(task.id, { management: JSON.stringify(forged) });
-    await expect(request(rpc, token, 'worker.resolve', { id: f.other.id })).rejects.toThrow('未授权');
-    forged.permissions_snapshot.permissions['worker.resolve'] = 'confirmation';
-    f.store.update(task.id, { management: JSON.stringify(forged) });
+    // Forging a historical snapshot cannot elevate the current project's reviewed ceiling.
     const receipt = await request(rpc, token, 'worker.resolve', { id: f.other.id });
+    expect(receipt.status).toBe('pending_confirmation');
     await expect(f.project.managementDispatch('worker.resolve', { id: f.other.id }, task.id, receipt.receipt_id)).rejects.toThrow('running fixed capability receipt');
     const state = f.state(task), call = state.control_calls.find(item => item.receipt_id === receipt.receipt_id);
-    call.status = 'running'; f.store.update(task.id, { management: JSON.stringify(state) });
+    call.status = 'running'; call.execution_authorization = f.project.managementPermissionsSnapshot();
+    f.store.update(task.id, { management: JSON.stringify(state) });
     await expect(f.project.managementDispatch('worker.resolve', { id: f.parent.id }, task.id, call.receipt_id)).rejects.toThrow('running fixed capability receipt');
     await expect(f.project.managementDispatch('worker.resolve', call.params, task.id, call.receipt_id)).rejects.toThrow('exact user confirmation');
     call.status = 'pending_confirmation'; f.store.update(task.id, { management: JSON.stringify(state) });
