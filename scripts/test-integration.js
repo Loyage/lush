@@ -8,6 +8,7 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 export const INTEGRATION_GROUPS = Object.freeze({
   page: Object.freeze([
     'test/web/dom-navigation.test.js', // navigation, Worker deep links, back state
+    'test/web/core-api.test.js', // rendered navigation allowlist and real HTTP action/read routes
     'test/web/dom-loading-assets.test.js', // lazy routes and root deep-link boot
     'test/web/assets.test.js', // startup/lazy resource graphs and CSP
     'test/web/dom-built-loading-assets.test.js', // compiled root/project boot and shared state
@@ -20,13 +21,23 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/rpc-public-result.test.js', // Dispatcher public result projection
     'test/web/rpc-public-result.test.js', // HTTP result envelopes and authorized config
     'test/project/management-tool-chain.test.js', // controlled Provider/real tools/bridge/live RPC authorization
+    'test/web/management-permissions-api.test.js', // actual permission defaults, frozen snapshots and confirmation
   ]),
   component: Object.freeze([
     'test/web/settings-module-boundaries.test.js', // entry exports, acyclic imports and built graph
     'test/web/dom-detail-requests.test.js', // leaving/boot cancellation and late-publication guards
+    'test/web/dom-refresh-performance.test.js', // request counts, polling cadence, backoff and retained rows
     'test/web/dom-project-automation.test.js', // retained nodes and state on return
     'test/web/dom-shared-module.test.js', // compatibility wrappers and reading/fold restoration
     'test/web/dom-navigation.test.js', // integrated back navigation and retained input/selection
+  ]),
+  cli: Object.freeze([
+    'test/cli-surfaces.test.js', // CLI capability set derives from the registered catalogue
+    'test/cli-catalog.test.js', // public catalogue and actual parser/RPC dispatch agree
+    'test/cli-entrypoints.test.js', // fixed binaries, migration refusals and source shortcuts -> live RPC
+    'test/cli-prompt-boundaries.test.js', // active prompts/guides do not teach retired CLI aliases
+    'test/integration/pi.test.js', // real daemon -> Provider -> pinned CLI -> delegation and prompt injection
+    'test/integration/questionnaire.test.js', // pinned notice CLI, process exit, restart and answer recovery
   ]),
 });
 

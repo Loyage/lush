@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Config } from '../src/config.js';
 import { PROMPT_PARTS, builtInPrompt, agentPrompt } from '../src/agent/prompts.js';
+import { AGENT_CAPABILITIES } from '../src/agent/capabilities.js';
 import { temp, env } from './helpers.js';
 
 const developmentRoles = ['agent', 'worker', 'coordinator'];
@@ -27,6 +28,37 @@ test('development prompts retain layered testing in both configuration modes and
       const withoutProgress = builtInPrompt(role, { progressReporting: false });
       expect(withoutProgress).not.toContain('## 执行进度');
       expect(withoutProgress).toContain('## 分层测试与验证责任');
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('verification planning and evidence remain core for new orders/children with every optional capability off', () => {
+  const root = temp();
+  const rules = [
+    '实施前简要明确改动行为、受影响调用点、专项／集成范围及最终全量负责人',
+    '小改动一句说明即可，无需额外规划文件',
+    '按风险选择最小充分回归，扩大验证时说明原因',
+    '先核对实际断言是否覆盖本次行为及迁移调用点',
+    '缺项补入现有组合的单一来源',
+    '不把组合通过当作完整覆盖',
+    '被测代码树标识（如 Git tree）及日志路径',
+    '父 Worker 检查子成果时据此核对实际证据',
+  ];
+  try {
+    const config = new Config({ project: root, env: env({ LUSH_GLOBAL_CONFIG: path.join(root, 'device') }) });
+    const flags = Object.fromEntries(AGENT_CAPABILITIES.map(entry => [entry.setting, false]));
+    config.configureRuntime(flags);
+    for (const taskKind of ['order', 'child']) {
+      for (const config_mode of ['lush', 'pi']) {
+        const view = agentPrompt(config, 'agent', { config_mode }, taskKind);
+        expect(view.builtin_skills).toEqual([]);
+        expect(view.parts.filter(part => part.name === 'testing')).toHaveLength(1);
+        const preview = builtInPrompt('agent', { taskKind, capabilities: flags });
+        for (const rule of rules) {
+          expect(view.text).toContain(rule);
+          expect(preview).toContain(rule);
+        }
+      }
     }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

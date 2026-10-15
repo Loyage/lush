@@ -57,7 +57,7 @@ test('types/options are explicit, order preserving and deduplicated; list alone 
 });
 
 test('central groups refer only to existing tests; overlapping groups deduplicate file paths', () => {
-  expect(types).toEqual(['page', 'rpc', 'component']);
+  expect(types).toEqual(['page', 'rpc', 'component', 'cli']);
   for (const group of Object.values(INTEGRATION_GROUPS)) {
     expect(group.length).toBeGreaterThan(0);
     expect(new Set(group).size).toBe(group.length);
@@ -70,6 +70,17 @@ test('central groups refer only to existing tests; overlapping groups deduplicat
   expect(selected).toEqual([...new Set([...INTEGRATION_GROUPS.component, ...INTEGRATION_GROUPS.page])]);
   expect(selected.filter(file => file === 'test/web/dom-navigation.test.js')).toHaveLength(1);
   expect(() => selectIntegrationFiles(['missing'])).toThrow('Unknown integration type');
+});
+
+test('quick groups include navigation/polling and real CLI/permission migration regressions before the full suite', () => {
+  expect(INTEGRATION_GROUPS.page).toContain('test/web/core-api.test.js');
+  expect(INTEGRATION_GROUPS.component).toContain('test/web/dom-refresh-performance.test.js');
+  expect(INTEGRATION_GROUPS.rpc).toContain('test/web/management-permissions-api.test.js');
+  for (const file of ['test/cli-entrypoints.test.js', 'test/cli-surfaces.test.js', 'test/cli-catalog.test.js',
+    'test/cli-prompt-boundaries.test.js', 'test/integration/pi.test.js', 'test/integration/questionnaire.test.js']) {
+    expect(INTEGRATION_GROUPS.cli).toContain(file);
+  }
+  expect(parseIntegrationArgs(['cli', 'rpc', 'cli'])).toEqual({ list: false, types: ['cli', 'rpc'] });
 });
 
 test('list emits the exact one-shot command as JSON without spawning; help does not validate paths', async () => {
@@ -90,6 +101,24 @@ for (const code of [0, 1, 37, 143]) test(`execution delegates once to the existi
   expect(c.calls).toEqual([{ command: [process.execPath, 'run', 'test', ...selectIntegrationFiles(['rpc', 'page'])],
     options: { cwd: ROOT, stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' } }]);
   expect(c.output).toHaveLength(0);
+});
+
+test('CLI migrations and permissions execute in one shared test invocation, with repeated types deduplicated', async () => {
+  const f = scriptFixture();
+  try {
+    const listing = await cli(f.root, ['--list', 'cli', 'rpc', 'cli']);
+    expect(listing.code).toBe(0);
+    const selection = JSON.parse(listing.stdout);
+    expect(selection).toEqual({ types: ['cli', 'rpc'], files: selectIntegrationFiles(['cli', 'rpc']),
+      command: [process.execPath, 'run', 'test', ...selectIntegrationFiles(['cli', 'rpc'])] });
+    expect(fs.existsSync(path.join(f.root, 'runs.jsonl'))).toBe(false);
+    const result = await cli(f.root, ['cli', 'rpc', 'cli']);
+    expect(result.code).toBe(37);
+    expect(result.stdout).toContain('fixture stdout');
+    expect(result.stderr).toContain('fixture stderr');
+    const runs = fs.readFileSync(path.join(f.root, 'runs.jsonl'), 'utf8').trim().split('\n').map(JSON.parse);
+    expect(runs).toEqual([{ cwd: f.root, args: selection.files }]);
+  } finally { f.close(); }
 });
 
 test('invalid input and missing/non-file selections fail before any spawn, even in list mode', async () => {
