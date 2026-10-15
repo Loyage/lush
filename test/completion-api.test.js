@@ -18,7 +18,7 @@ for (const level of levels) {
     expect(calls).toEqual([[7, level, revision]]);
   });
 
-  test(`CLI worker completion ${level} uses the explicit Worker revision without extra reads`, async () => {
+  if (level !== 'archive') test(`CLI worker completion ${level} uses the explicit Worker revision without extra reads`, async () => {
     const calls = [], result = view(level);
     const client = { request(method, params) { calls.push({ method, params }); return result; } };
     expect(await worker('worker', ['completion','7',level,'--revision',revision], { client, json: true })).toBe(result);
@@ -66,19 +66,19 @@ test('completion result retains public stage state while isolating private Hook 
 test('CLI completion resolves a persistent W number exactly once before sending integer identity', async () => {
   const calls = [], client = { request(method, params) {
     calls.push({ method, params });
-    return method === 'worker.lookup' ? { id: 700, worker_number: 'W5-2' } : view('archive');
+    return method === 'worker.lookup' ? { id: 700, worker_number: 'W5-2' } : view('accept');
   } };
-  await worker('worker', ['completion','W5-2','archive','--revision',revision], { client, json: true });
+  await worker('worker', ['completion','W5-2','accept','--revision',revision], { client, json: true });
   expect(calls).toEqual([
     { method: 'worker.lookup', params: { number: 'W5-2' } },
-    { method: 'worker.completion', params: { id: 700, level: 'archive', expected_revision: revision } },
+    { method: 'worker.completion', params: { id: 700, level: 'accept', expected_revision: revision } },
   ]);
 });
 
 test('CLI completion refuses malformed arguments and Agent invocations before any RPC or lookup', async () => {
   const calls = [], client = { request(...args) { calls.push(args); } };
   const invalid = [
-    ['completion','W5-2','archive'], ['completion','W5-2','archive','--revision'],
+    ['completion','W5-2','archive','--revision',revision], ['completion','W5-2','archive'], ['completion','W5-2','archive','--revision'],
     ['completion','W5-2','archive','--revision',''], ['completion','W5-2','archive','--revision',' bad '],
     ['completion','W5-2','archive','--revision','line\nbreak'], ['completion','W5-2','archive','--revision','x'.repeat(257)],
     ['completion','W5-2','archive','--revision',revision,'--revision',revision],
@@ -100,8 +100,8 @@ test('CLI completion propagates stale-revision failure without rereading or lowe
   const calls = [], client = { request(method, params) {
     calls.push({ method, params }); throw new Error('Worker Hooks changed; reload the latest revision');
   } };
-  await expect(worker('worker', ['completion','7','archive','--revision',revision], { client, json: true })).rejects.toThrow('reload');
-  expect(calls).toEqual([{ method: 'worker.completion', params: { id: 7, level: 'archive', expected_revision: revision } }]);
+  await expect(worker('worker', ['completion','7','accept','--revision',revision], { client, json: true })).rejects.toThrow('reload');
+  expect(calls).toEqual([{ method: 'worker.completion', params: { id: 7, level: 'accept', expected_revision: revision } }]);
   expect(HELP).toContain('worker completion ID off|merge|accept --revision REV');
-  expect(HELP).toContain('旧 archive 等价 accept'); expect(HELP).toContain('不调用评审 Agent');
+  expect(HELP).not.toContain('旧 archive 等价 accept'); expect(HELP).toContain('不调用评审 Agent');
 });

@@ -2,16 +2,13 @@ import { check, TERMINAL } from '../../core/types.js';
 import { resolveWorkerId } from '../worker-number.js';
 import { option, exact } from '../args.js';
 import { runWorkerHook, runWorkerCompletion } from './hooks.js';
-import { printTree, printLadder, printTimeline, printMergeMany, printTranscript, printUsage } from '../print.js';
+import { printTree, printTranscript } from '../print.js';
 
 export async function run(command, args, ctx) {
   const { client, json } = ctx;
   let value;
   if (command === 'worker') {
     const verb = args.shift();
-    // The legacy management alias must not bypass the development entry point
-    // or its direct-child acceptance contract, even in embedded CLI use.
-    if (verb === 'resolve') check(!client.token, 'worker resolve is a user-only management alias; use lushc worker accept');
     if (verb === 'list') {
       const brief = args.includes('--brief');
       if (brief) args.splice(args.indexOf('--brief'), 1);
@@ -86,36 +83,24 @@ export async function run(command, args, ctx) {
       while (!TERMINAL.has(value.status));
       if (value.status !== 'completed') process.exitCode = 1;
     } else {
-      check(['inspect','cancel','retry','interrupt','resume','integrate','reserve','reserve-all','auto-merge','resolve','accept','reopen','sync-parent','resolve-sync','clear-override','resolve-divergence','resolve-child-divergence','unreserve','approve-merge','cleanup','delete'].includes(verb), 'unknown worker command');
-      if (verb === 'integrate') {
-        exact(args, 2);
-        value = await client.request('worker.integrate', { id: await resolveWorkerId(client, args[0]), commit: args[1] });
-      } else if (verb === 'reserve') {
-        exact(args, 2);
-        value = await client.request('worker.reserve', { id: await resolveWorkerId(client, args[0]), kind: args[1] });
+      check(['inspect','cancel','retry','interrupt','resume','merge','merge-all','auto-merge','accept','reopen','sync-parent','resolve-sync','clear-override','merge-cancel','cleanup','delete-preview','delete'].includes(verb), 'unknown worker command');
+      if (verb === 'merge') {
+        exact(args, 1);
+        value = await client.request('worker.reserve', { id: await resolveWorkerId(client, args[0]), kind: 'merge' });
       } else if (verb === 'auto-merge') {
         exact(args, 2);
         check(['on','off'].includes(args[1]), 'auto-merge expects on or off');
         value = await client.request('worker.auto_merge', { id: await resolveWorkerId(client, args[0]), enabled: args[1] === 'on' });
-      } else if (verb === 'reserve-all') {
+      } else if (verb === 'merge-all') {
         exact(args, 1);
         value = await client.request('worker.reserve_all', { branch: args[0] });
-      } else if (verb === 'resolve-child-divergence') {
-        exact(args, 1);
-        value = await client.request('worker.resolve_child_divergence', { id: await resolveWorkerId(client, args[0]) });
-      } else if (verb === 'resolve-divergence') {
-        exact(args, 1);
-        value = await client.request('worker.resolve_divergence', { id: await resolveWorkerId(client, args[0]) });
       } else if (verb === 'sync-parent' || verb === 'resolve-sync' || verb === 'clear-override') {
         exact(args, 1);
         value = await client.request(`worker.${verb.replaceAll('-', '_')}`, { id: await resolveWorkerId(client, args[0]) });
-      } else if (verb === 'unreserve') {
+      } else if (verb === 'merge-cancel') {
         exact(args, 1);
         value = await client.request('worker.unreserve', { id: await resolveWorkerId(client, args[0]) });
-      } else if (verb === 'approve-merge') {
-        exact(args, 3);
-        value = await client.request('worker.approve_merge', { id: await resolveWorkerId(client, args[0]), commit: args[1], baseline: args[2] });
-      } else if (verb === 'delete') {
+      } else if (verb === 'delete' || verb === 'delete-preview') {
         check(!client.token, 'Worker deletion is user only, not an agent operation');
         const force = args.includes('--force');
         if (force) args.splice(args.indexOf('--force'), 1);
@@ -123,10 +108,9 @@ export async function run(command, args, ctx) {
         if (confirm) args.splice(args.indexOf('--confirm'), 1);
         const revision = option(args, '--revision');
         exact(args, 1);
-        check(!revision || confirm, '--revision requires --confirm');
-        check(!confirm || (typeof revision === 'string' && revision.length > 0),
-          'first run worker delete ID to inspect resources; then confirm with --confirm --revision REV');
-        value = await client.request(confirm ? 'worker.delete' : 'worker.delete_preview',
+        check(verb === 'delete' ? confirm && typeof revision === 'string' && revision.length > 0 : !confirm && revision === null,
+          'first run worker delete-preview ID; worker delete requires --confirm --revision REV');
+        value = await client.request(verb === 'delete' ? 'worker.delete' : 'worker.delete_preview',
           { id: await resolveWorkerId(client, args[0]), ...(confirm ? { revision, confirm: true } : {}), ...(force ? { force: true } : {}) });
       } else if (verb === 'cleanup') {
         const keepBranch = args.includes('--keep-branch');

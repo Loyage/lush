@@ -50,7 +50,7 @@ bun run lush config set call-timeout 3600
 bun run lush agent show
 bun run lush agent sources list
 bun run lush agent packages list
-bun run lush config migrate --json
+bun run lush config migrate-preview --json
 # 核对项目、条目、所有项目影响、冲突与备份后，原样填入预检 revision：
 bun run lush config migrate --confirm --revision REV --json
 ```

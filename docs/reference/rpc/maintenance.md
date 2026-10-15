@@ -18,12 +18,12 @@ W169／决定 #418：**验收即归档**，`worker.accept` 受检回收分支子
 
 | CLI | RPC | 参数 |
 |---|---|---|
-| `worker delete ID` | `worker.delete_preview` | `{id}`，只读预检 |
+| `worker delete-preview ID` | `worker.delete_preview` | `{id}`，只读预检 |
 | `worker delete ID --confirm --revision REV` | `worker.delete` | `{id,revision,confirm:true}`，确认预检范围 |
-| `worker delete ID --force` | `worker.delete_preview` | `{id,force:true}`，强制删除预检 |
+| `worker delete-preview ID --force` | `worker.delete_preview` | `{id,force:true}`，强制删除预检 |
 | `worker delete ID --force --confirm --revision REV` | `worker.delete` | `{id,force:true,revision,confirm:true}`，确认强制删除范围 |
 
-预检返回 `{id,revision,can_delete,blockers,workers,inputs,resources,warnings}`。`workers` 列出将删除的整棵子树，`inputs` 列出不再被其他 Worker 使用的原始输入，`resources` 分 worktrees / branches / files 展示实际发现的资源。CLI 第一次只预检；检查输出后，把其中的 revision 带入第二条确认命令。范围或资源状态改变时拒绝旧 revision，必须重新预检和确认；不允许只传 ID 绕过确认。
+预检返回 `{id,revision,can_delete,blockers,workers,inputs,resources,warnings}`。`workers` 列出将删除的整棵子树，`inputs` 列出不再被其他 Worker 使用的原始输入，`resources` 分 worktrees / branches / files 展示实际发现的资源。先用 `worker delete-preview` 只读预检；检查输出后，把其中的 revision 带入 `worker delete --confirm --revision REV`。预检入口拒绝确认参数，执行入口不再兼做预检。范围或资源状态改变时拒绝旧 revision，必须重新预检和确认；不允许只传 ID 绕过确认。
 
 ### 强制删除残留检出
 

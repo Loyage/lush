@@ -140,11 +140,10 @@ async function showSource(client, id) {
   return row;
 }
 
-async function modelsFor(client, args) {
-  const id = args.shift();
-  check(typeof id === 'string' && id.length > 0 && id.length <= 80, 'a connection id is required');
-  const refresh = args.includes('--refresh'); if (refresh) args.splice(args.indexOf('--refresh'), 1);
-  exact(args, 0);
+async function modelsFor(client, args, refresh) {
+  exact(args, 1);
+  const id = args[0];
+  check(typeof id === 'string' && id.length > 0 && id.length <= 80 && !id.startsWith('-'), 'a connection id is required');
   return catalogView(await client.request(refresh ? 'agent.connections.models.refresh' : 'agent.connections.models', { id }));
 }
 
@@ -187,7 +186,7 @@ export async function runSources(args, clientRef, options = {}) {
     await client.request('agent.connections.query', id === null ? {} : { id });
     return { ...await listSources(client), queried: id ?? 'all' };
   }
-  if (verb === 'models') return await modelsFor(client, args);
+  if (verb === 'models' || verb === 'models-refresh') return await modelsFor(client, args, verb === 'models-refresh');
   if (verb === 'save') {
     const file = option(args, '--file'); exact(args, 0);
     check(file, 'agent sources save requires --file PATH');
@@ -199,7 +198,7 @@ export async function runSources(args, clientRef, options = {}) {
   }
   if (verb === 'remove') { exact(args, 1); return { removed: text((await client.request('agent.connections.remove', { id: args[0] }))?.removed, 80) }; }
   if (verb === 'login') return await login(client, args);
-  check(false, 'agent sources expects list, show, models, refresh, save, remove or login');
+  check(false, 'agent sources expects list, show, models, models-refresh, refresh, save, remove or login');
 }
 
 export async function runResources(args, clientRef, options = {}) {

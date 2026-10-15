@@ -34,7 +34,7 @@ test('deletion API is user-only, narrow, and requires explicit preview confirmat
 test('CLI defaults to preflight and only deletes with a separately supplied preview revision', async () => {
   const calls = [], result = { id: 7, revision };
   const client = { request: async (method, params) => { calls.push({ method, params }); return result; } };
-  expect(await run('worker', ['delete','7'], { client, json: true })).toBe(result);
+  expect(await run('worker', ['delete-preview','7'], { client, json: true })).toBe(result);
   expect(calls).toEqual([{ method: 'worker.delete_preview', params: { id: 7 } }]);
   expect(await run('worker', ['delete','7','--confirm','--revision',revision], { client, json: true })).toBe(result);
   expect(calls.at(-1)).toEqual({ method: 'worker.delete', params: { id: 7, confirm: true, revision } });
@@ -63,7 +63,7 @@ test('force is a user-only boolean and CLI carries it in both preflight and conf
   await rpc.dispatch('worker.delete', { id: 7, force: true, confirm: true, revision });
   expect(calls).toEqual([['preview', 7, { force: true }], ['delete', 7, { force: true, confirm: true, revision }]]);
   const client = { request: async (method, params) => { calls.push([method, params]); return {}; } };
-  await run('worker', ['delete', '7', '--force'], { client, json: true });
+  await run('worker', ['delete-preview', '7', '--force'], { client, json: true });
   await run('worker', ['delete', '7', '--force', '--confirm', '--revision', revision], { client, json: true });
   expect(calls.slice(2)).toEqual([
     ['worker.delete_preview', { id: 7, force: true }], ['worker.delete', { id: 7, force: true, confirm: true, revision }],

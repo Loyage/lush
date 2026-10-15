@@ -39,7 +39,7 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 |---|---|---|
 | `worker list [--after N] [--limit N] [--brief]` | `worker.list` | `{after?: 0, limit?: 200}`，limit 最大 1000；CLI `--brief` 默认 30 条、最多 200 条短摘要及 `has_more/next_after` |
 | `worker tree [ID]` | `worker.tree` | `{id?}` |
-| `worker lookup NUMBER` | `worker.lookup` | `{number}`；只读 `{id,worker_number}`，把 `W5` / `W5-1` / `V1` 严格解析成整数身份；用户与 Agent 均可调用，解析不扩大目标操作权限。各段必须是正安全整数，`W0`/`W01`/`V0`/`V01`/`V1-1`/小写/超长/溢出一律拒绝；找不到报 not found，不改任何状态，也不让原 `id` 参数接受编号 |
+| —（CLI 内部编号解析） | `worker.lookup` | `{number}`；只读 `{id,worker_number}`，把 `W5` / `W5-1` / `V1` 严格解析成整数身份；用户与 Agent 均可调用，解析不扩大目标操作权限。各段必须是正安全整数，`W0`/`W01`/`V0`/`V01`/`V1-1`/小写/超长/溢出一律拒绝；找不到报 not found，不改任何状态，也不让原 `id` 参数接受编号 |
 | —（Web 轮询） | `worker.activity` | `{limit?: 50, scope?: 'work'|'all'}` |
 | —（Web 分页） | `worker.page` | `{before?: null, limit?: 50, scope?: 'work'|'all'}` |
 | —（Web 局部关系） | `worker.relations` | `{id,after?:0,limit?:50}`；用户专属只读，limit 1..200，after 非负安全整数 |
@@ -47,20 +47,20 @@ Worker 中心路径是 Input → 直接拥有独立分支的 `agent` Worker（`t
 | `worker rename ID '标题'` | `worker.rename` | `{id,title}`；用户专属，只改展示标题，不改变正文或执行；单行最多 200 字符，空串/null 恢复自动标题；返回 `{id,display_title}` |
 | `worker auto-title '标题'` | `worker.auto_title` | `{title}`；Agent-only，有效 invocation 只写自身 order/child；非空单行最多 60 字符，首次成功后不覆盖或清空；返回 `{id,auto_title,changed}`，Web 不开放写入口 |
 | `worker message ID 'body'` | `worker.message` | `{id, body}` |
-| `worker integrate CHILD_ID CHILD_HEAD_COMMIT` | `worker.integrate` | `{id, commit}`；agent-only |
+| —（旧协议后端兼容，CLI 已删除） | `worker.integrate` | `{id, commit}`；agent-only |
 | `worker auto-merge ID on\|off` | `worker.auto_merge` | `{id, enabled:boolean}`；用户专属；设置跨轮保留的自动合并 hook，返回 `{task_id,changed,auto_merge}` |
 | `worker completion ID off\|merge\|accept --revision REV` | `worker.completion` | `{id,level,expected_revision}`；用户专属，串行最高级别与安全投影见 [Hooks 接口](hooks.md#最高自动级别) |
-| `worker reserve ID merge` | `worker.reserve` | `{id, kind:'merge'}`；用户专属；显式请求本轮合并，不修改自动合并设置 |
-| `worker reserve-all BRANCH`（Web「合并所有」） | `worker.reserve_all` | `{branch}`；用户专属；把该分支下所有已静息、待合并的 指令/child 逐条走同一套预约准入并交给父 Worker 自有交付队列的 runtime 串行处理 |
-| `worker unreserve ID` | `worker.unreserve` | `{id}`；用户专属 |
-| `worker approve-merge ID COMMIT BASELINE` | `worker.approve_merge` | `{id, commit, baseline}`；用户专属 |
+| `worker merge ID` | `worker.reserve` | `{id, kind:'merge'}`；用户专属；显式请求本轮合并，不修改自动合并设置 |
+| `worker merge-all BRANCH`（Web「合并所有」） | `worker.reserve_all` | `{branch}`；用户专属；把该分支下所有已静息、待合并的 指令/child 逐条走同一套预约准入并交给父 Worker 自有交付队列的 runtime 串行处理 |
+| `worker merge-cancel ID` | `worker.unreserve` | `{id}`；用户专属 |
+| —（旧协议后端兼容，CLI 已删除） | `worker.approve_merge` | `{id, commit, baseline}`；用户专属 |
 | `worker accept ID` | `worker.accept` | `{id}`；用户验收指令成果（含静息无改动回答，无需先合并）并可一并安全验收已交付派生 child / 运行中的直接父 Agent 可单独验收直接 child（默认保留供追加需求）；返回 Worker；验收即归档，安全回收 worktree/ref 并保留运行历史 |
 | `worker reopen ID` | `worker.reopen` | `{id}`；用户专属；历史已合并Worker显式恢复待验收，返回 Worker，不调用 Agent |
 | `worker sync-parent ID` | `worker.sync_parent` | `{id}`；用户专属；返回 `{task,synced,conflict,source_commit,parent_commit,reason?}`；不调用 Agent |
 | `worker resolve-sync ID` | `worker.resolve_sync` | `{id}`；用户专属；返回 Worker，显式调用 Agent 解决已记录同步冲突 |
-| `worker resolve ID` | `worker.resolve` | `{id}`；用户专属，仅指令；委托 `worker.accept` 的兼容入口，含安全归档回收 |
-| `worker resolve-divergence ID` | `worker.resolve_divergence` | `{id}`；用户专属 |
-| `worker resolve-child-divergence CHILD_ID` | `worker.resolve_child_divergence` | `{id}`；agent-only |
+| —（后端兼容，CLI 统一 accept） | `worker.resolve` | `{id}`；用户专属，仅指令；委托 `worker.accept` 的兼容入口，含安全归档回收 |
+| —（旧协议后端兼容，CLI 已删除） | `worker.resolve_divergence` | `{id}`；用户专属 |
+| —（旧协议后端兼容，CLI 已删除） | `worker.resolve_child_divergence` | `{id}`；agent-only |
 | `worker cancel ID` | `worker.cancel` | `{id}` |
 | `worker retry ID` | `worker.retry` | `{id}` |
 | `worker clear-override ID` | `worker.clear_override` | `{id}`；用户专属；清除本 Worker 的 task-local 运行覆盖（配置模式、来源、模型、Prompt、扩展、预算、环境变量），下一次调用回到项目/角色默认；不启动 Agent |
@@ -133,7 +133,7 @@ Worker 详情的原始目标直接展示预览；长模块点击「展开完整�
 
 `worker.auto_merge {id,enabled}` 只接受布尔值，Agent 不得调用。新指令默认关闭，新派生 child 默认开启且锁定；锁定子Worker不能经 CLI/RPC 关闭，也不能用 `worker.unreserve` 绕过。开关跨 invocation、重启和追加开发轮次保留，历史 Worker 不批量回填或重置已有决定。
 
-`worker.inspect` 与 `worker.graph` 提供 `auto_merge:{enabled,locked,editable,reason}`，不适用的 Worker 为 null。Web 在 Worker 详情的 Hooks 区用最高自动级别配置合并／验收／归档；旧服务回落到「本轮交付就绪」节点的原开关。Worker 图提供同源摘要入口，不另建一份状态。锁定或不可编辑时显示只读状态及原因。Worker已交付就绪、已发请求、已终结或待验收时不能调整开关。关闭开关只移除尚未发出的自动意图，不撤回已发请求，也不取消独立的显式合并意图。旧 version 2 pending 仍保留单次意图，开关不由它推断为开启；Web 明示其仍有效。`worker reserve` 将当前 pending 确认为独立单次意图，后续关闭 hook 不撤销它；非锁定Worker可用 `worker unreserve` 撤销单次意图。开启 hook 的自动意图不能借该命令绕过开关的就绪门禁。
+`worker.inspect` 与 `worker.graph` 提供 `auto_merge:{enabled,locked,editable,reason}`，不适用的 Worker 为 null。Web 在 Worker 详情的 Hooks 区用最高自动级别配置合并／验收／归档；旧服务回落到「本轮交付就绪」节点的原开关。Worker 图提供同源摘要入口，不另建一份状态。锁定或不可编辑时显示只读状态及原因。Worker已交付就绪、已发请求、已终结或待验收时不能调整开关。关闭开关只移除尚未发出的自动意图，不撤回已发请求，也不取消独立的显式合并意图。旧 version 2 pending 仍保留单次意图，开关不由它推断为开启；Web 明示其仍有效。CLI `worker merge ID` 将当前 pending 确认为独立单次意图，后续关闭 hook 不撤销它；非锁定Worker可用 `worker merge-cancel ID` 撤销单次意图。开启 hook 的自动意图不能借该命令绕过开关的就绪门禁。
 
 开启 hook 后，runtime 仍等本轮安全结束、后代结算、待决与消息处理完成，并复核工作区和提交，再复用 version 2 请求与父自有交付队列。包含 main 在内均按现有队列自动准入，不增加父 Agent 或用户审批；分歧仍回原 Worker 处理。显式「合并」调用 `worker.reserve`，只请求本轮交付，不修改持久开关。
 
@@ -159,17 +159,17 @@ Worker 详情的原始目标直接展示预览；长模块点击「展开完整�
 
 ## 历史 version 1 合并预约与批准
 
-`worker.reserve` 持久化互斥意图（当前只支持 `kind='merge'`），同类重复不新增预约、只复查现有 pending/preparing/requested 的准入。`reservation.blocked_reason` / `blocked_code` 记录上次检查未满足的原因，包括调用尚未结束、用户答复/未读信号、活动子 Worker、未提交改动、无有效提交或 Git 分歧；它是上次检查快照，不是实时 Git 诊断。修复外部工作区/分支后可重复执行 `worker reserve ID merge`，Web 用「复查预约」调用同一入口；复查不越过消息投递与固定提交校验，也不自动合并。
+`worker.reserve` 持久化互斥意图（当前只支持 `kind='merge'`），同类重复不新增预约、只复查现有 pending/preparing/requested 的准入。`reservation.blocked_reason` / `blocked_code` 记录上次检查未满足的原因，包括调用尚未结束、用户答复/未读信号、活动子 Worker、未提交改动、无有效提交或 Git 分歧；它是上次检查快照，不是实时 Git 诊断。修复外部工作区/分支后可重复执行 CLI `worker merge ID`，Web 用「复查预约」调用同一入口；复查不越过消息投递与固定提交校验，也不自动合并。
 
 `merge` 预约在指令静息、子Worker结算、工作区干净且源提交能快进到直接父分支时，冻结源 `commit` 和父 `baseline`，事务内发去重的 `merge.requested` 信号。请求**不等于批准**，父分支不因此前进。父为指令时仅执行中的直接父 Agent 可用 `worker.integrate` 确认；父为 main/owner 时须用户提供请求里的两个固定值调用 `worker.approve_merge`。批准前在 Git 串行区复核源 ref、父 ref、工作区和后代，任何漂移拒绝旧批准；提交已落地而 DB 尚未记录时，相同固定值可幂等核对。
 
-已发出的 `requested` 预约支持只读复查：`worker reserve ID merge` 对它不重建、不推进任何 ref，只按当前 Git 事实重写诊断（`source_moved`：源分支顶端不再是固定提交；`contained`：固定提交已在父分支内，可由父 Agent 确认或用户批准幂等关闭；`parent_moved`：父分支已前进；仍可快进则清掉过期诊断），daemon 重启后也对每条 `requested` 预约跑一次同样的复查。Web 在已发出的请求上给「复查请求」按钮（不调用 Agent）。
+已发出的 `requested` 预约支持只读复查：CLI `worker merge ID` 对它不重建、不推进任何 ref，只按当前 Git 事实重写诊断（`source_moved`：源分支顶端不再是固定提交；`contained`：固定提交已在父分支内，可由父 Agent 确认或用户批准幂等关闭；`parent_moved`：父分支已前进；仍可快进则清掉过期诊断），daemon 重启后也对每条 `requested` 预约跑一次同样的复查。Web 在已发出的请求上给「复查请求」按钮（不调用 Agent）。
 
 **交付锁（用户确认的语义）**：请求一旦发出，父分支的基线就被固定；在它解决前 `target_branch` 进入分支写冻结（`status.branch_freeze` / `graph.get` 的 branch 节点 `freeze`，`kind='delivery'`），不再接受任何 Lush 侧写入——新建指令、`worker.retry`、`branch.archive` 等一律被拒，另一个指令的同类请求保持 pending 并记 `blocked_code='parent_locked'`，父为指令时只有锁持有者自己的 `worker.integrate` 能写这条分支。解除只有集成或用户显式撤销两条路：`worker.unreserve` 允许撤销尚未集成的请求（另记 `task.request_withdrawn`），分支、提交与Worker都保留，但这次交付不会自动合入。daemon 挡不住父分支自己的指令 Agent 提交，也不挡外部 git：那种情况下请求会失去快进前提，`noteBranchAdvance` / `worker.approve_merge` 会把同一份诊断写进 `reservation.blocked_code='parent_moved'` 与 `blocked_reason`，此时（一）可撤销请求，（二）可先把该固定提交合入父分支——已在父分支内时 `worker.approve_merge` 退化为幂等记账（不再要求旧 baseline）。同一父分支同时只有一个未集成请求。锁住的是父分支，但源分支也不能被归档：`branch.archive` 拒绝源分支带未集成请求的子树（删了它，父分支的交付锁就永远没有落地对象）。
 
 ## 历史 version 1 源侧解分歧
 
-指令的 pending merge 请求若与直接父分支分歧（`blocked_code='diverged'`），用户可 `worker.resolve_divergence ID` 派一个源侧解分歧子 Worker：它固定源 tip 为工作区基线、固定直接父 tip 为要吸收的提交，不移动任何 ref。已完成但未集成、或失败/取消且仍有活动分支的子Worker返回 `needs_review`（包含原 Worker 和原因），不悄悄新派。完成后由 runtime 校验产物同时包含原源 tip 和固定父 tip，快进源分支并自动发出固定请求（main/owner 仍须用户批准最终合并），不再要求被冻结的源指令 Agent 重新运行。若产物不合格或失败，先检查原子 Worker/工作区；显式 `branch archive BRANCH`（Web Worker 图「归档」）旧分支后，原指令静息且已处理子信号时才能重新 `worker resolve-divergence ID` 派新子Worker。归档删掉旧 ref/worktree、保留 Worker/固定提交事件/会话；脏工作区默认拒绝，只有用户明确 `--discard` 才丢弃未提交文件。该类子 Worker 不支持 `worker retry` 重放未知文件副作用。没有创建分支的失败Worker无需归档，重派仍需通过静息检查。若 Worker 已失败/取消，不能对终态预约直接复查：先检查 Agent/工作区副作用，再显式 `worker retry ID`。
+指令的 pending merge 请求若与直接父分支分歧（`blocked_code='diverged'`），旧后端 `worker.resolve_divergence {id}`（CLI 已删除）可派一个源侧解分歧子 Worker：它固定源 tip 为工作区基线、固定直接父 tip 为要吸收的提交，不移动任何 ref。已完成但未集成、或失败/取消且仍有活动分支的子Worker返回 `needs_review`（包含原 Worker 和原因），不悄悄新派。完成后由 runtime 校验产物同时包含原源 tip 和固定父 tip，快进源分支并自动发出固定请求（main/owner 仍须用户批准最终合并），不再要求被冻结的源指令 Agent 重新运行。若产物不合格或失败，先检查原子 Worker/工作区；显式 `branch archive BRANCH`（Web Worker 图「归档」）旧分支后，原指令静息且已处理子信号时才能通过旧后端 `worker.resolve_divergence {id}` 派新子Worker。归档删掉旧 ref/worktree、保留 Worker/固定提交事件/会话；脏工作区默认拒绝，只有用户明确 `--discard` 才丢弃未提交文件。该类子 Worker 不支持 `worker retry` 重放未知文件副作用。没有创建分支的失败Worker无需归档，重派仍需通过静息检查。若 Worker 已失败/取消，不能对终态预约直接复查：先检查 Agent/工作区副作用，再显式 `worker retry ID`。
 
 ## 无改动回答也走验收
 

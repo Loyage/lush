@@ -56,7 +56,7 @@ test('CLI explicit scope is opt-in and migration confirmation carries the prefli
   expect(calls.pop()).toEqual({ method: 'system.settings', params: { scope: 'device' } });
   await runConfig('config', ['set', 'call-timeout', '3', '--scope', 'device'], { client, json: true });
   expect(calls.pop()).toEqual({ method: 'system.configure', params: { settings: { call_timeout: 3 }, scope: 'device' } });
-  await runConfig('config', ['migrate'], { client, json: true });
+  await runConfig('config', ['migrate-preview'], { client, json: true });
   expect(calls.pop()).toEqual({ method: 'settings.migration.preview', params: undefined });
   await runConfig('config', ['migrate', '--confirm', '--revision', 'fixed-revision'], { client, json: true });
   expect(calls.pop()).toEqual({ method: 'settings.migration.apply', params: { revision: 'fixed-revision', confirm: true } });

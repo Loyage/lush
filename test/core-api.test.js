@@ -24,7 +24,8 @@ test('CLI help documents only the core workflow', () => {
   expect(HELP).toContain("order '目标'");
   expect(HELP).toContain('指令');
   expect(HELP).not.toContain("say '目标'");
-  expect(HELP).toContain('worker approve-merge');
+  expect(HELP).toContain('worker merge ID');
+  expect(HELP).not.toContain('worker approve-merge');
   expect(HELP).not.toContain('candidate prepare');
   expect(HELP).not.toContain('draft commit');
 });

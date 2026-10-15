@@ -26,7 +26,7 @@
 | 工作列表／管家列表／工作树／通用详情 | `render-tree.js`、`render-task-graph.js`、`detail.js` | [Worker 图](task-graph.md)、[Worker RPC](../reference/rpc/tasks.md) |
 | 时间线与执行详情 | `render-conversation.js`、`transcript-view.js` | [阅读器](transcript-reader.md) |
 | 代码与差异 | `code-view.js`、`render-diff.js` | [代码阅读器](code-reader.md) |
-| CLI 学习与管家默认权限 | `render-valet-settings.js`（保留历史文件名） | `#cli-interfaces` 顶部实时本地搜索、目录／单条详情与子命令；跨详情保留草稿，完整映射与 revision、迟到／离页保护；权限来自[Valet 契约](hook-signals-management.md#当前项目管家默认权限w278d632w279d635) |
+| CLI 学习与管家默认权限 | `render-valet-settings.js`（保留历史文件名）、`cli-catalog.js` | `#cli-interfaces` 静态目录版本缓存、读／写分类与本地搜索、目录／单条详情；项目权限按需读取，跨详情保留草稿，完整映射与 revision、迟到／离页保护；权限来自[Valet 契约](hook-signals-management.md#当前项目管家默认权限w278d632w279d635) |
 | 自动化目录／功能与 Worker 实例挂载 | `render-project-automation.js`、`automation-features.js`、`render-hooks.js` | [Hooks](hooks.md)、[命令授权](shortcut-commands.md)、[历史](shortcut-command-runs.md) |
 | 交付／验收／删除与管家停止 | `render-delivery.js`、`render-iteration.js`、`worker-delete.js`、`valet-actions.js` | [合并](merge.md)、[验收](worker-acceptance.md)、[删除](../reference/rpc/maintenance.md) |
 | Agent 配置与来源 | `render-agent-status.js`、`render-model-sources.js` | [Web 配置](web-agent-configuration.md)、[账号连接](agent-connections.md) |
@@ -42,7 +42,7 @@ W263／D611：「工作列表」仅展示开发 Worker，「管家列表」仅�
 
 设置页的 `render-settings.js` 只编排导航，`settings-interface.js`／`settings-system.js` 分别拥有偏好和系统页的请求代次；Agent 编辑从 `settings-agent.js` 进入，profile、包管理和环境编辑器各自维护草稿与缓存。模型来源的 `render-agent-connections.js` 负责选择、批量操作与页面生命周期，`connection-*` 模块分别拥有编辑／登录、历史／采样、提醒和只读展示；迟到响应仍由对应请求所有者作废，秘密不进入公开草稿。浏览器模块保持 assets 平级，构建与兼容资源路由自动发现，不另维护资源登记表。
 
-CLI 目录的代码来源是 `src/cli/catalog.js`，同时生成 CLI help 和顶层分发注册；`src/rpc/cli-catalog.js` 只投影公开命令路径、父子关系、格式、示例、风险及实际一对多 RPC 关联，参数和权限从 registry／management-policy 读取。新用户专属 `cli.catalog {}` / 项目 GET `/api/cli/catalog` 不扩展 Agent 权限；根 GET `/api/host/cli/catalog` 仅返回随代码的说明，无需项目／daemon，不读取项目设置。无项目浏览但不可编辑权限；旧 `#valet-settings` 跳新页，不恢复信号／绑定设置。
+CLI 目录的代码来源是 `src/cli/catalog.js`，同时生成 CLI help 和顶层分发注册；`src/rpc/cli-catalog.js` 只投影公开命令路径、父子关系、格式、示例、风险及实际一对多 RPC 关联，参数和权限从 registry／management-policy 读取。新用户专属 `cli.catalog {}` / 项目 GET `/api/cli/catalog` 不扩展 Agent 权限；根 GET `/api/host/cli/catalog` 仅返回随代码的说明，无需项目／daemon，不读取项目设置。新页面由 HTML 提供内容版本目录资源，`static-assets.js`／`build-assets.js` 用安全投影生成独立不可变 JSON，不把服务端 registry 打入浏览器；`assets/cli-catalog.js` 校验并复用当前 document 的读取，持久复用交给浏览器 HTTP 缓存，不使用 localStorage 存项目事实。无项目／后台停止仍可浏览；权限按需读取，不可编辑未知或版本不匹配的权限，详见[缓存边界](../hooks.md#cli-目录缓存与权限)。旧 `#valet-settings` 跳新页，不恢复信号／绑定设置。
 
 ## 共用阅读与交互
 

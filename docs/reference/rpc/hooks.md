@@ -106,7 +106,7 @@ Shell Hook 引用 `{type:'command',command_id:'UUID'}`；提示词用同形 `typ
 
 ## 最高自动级别
 
-`worker.completion` 推荐 `off|merge|accept`，旧 archive 入参兼容等价 accept，读面规范为 accept；高档包含之前的步骤，验收即归档回收资源，返回更新后的 Worker Hooks。读取当前 revision 后显式保存，不隐式继承给后代。派生 child 的 min_level 为 merge，整组流程 Hook 对用户只读；所有级别设置（含同值）与旧自动合并开关写入均拒绝。用户直接创建的指令仍可配置，即使其父不是 main。
+CLI `worker completion` 仅接受 `off|merge|accept`；后端 RPC `worker.completion` 的旧 archive 入参兼容等价 accept，读面规范为 accept；高档包含之前的步骤，验收即归档回收资源，返回更新后的 Worker Hooks。读取当前 revision 后显式保存，不隐式继承给后代。派生 child 的 min_level 为 merge，整组流程 Hook 对用户只读；所有级别设置（含同值）与旧自动合并开关写入均拒绝。用户直接创建的指令仍可配置，即使其父不是 main。
 
 `completion` 为 `{level,min_level,locked,editable,reason,phase,state,last_execution}`；child 的 locked:true、editable:false 表示整组流程 Hook 锁定，reason 解释用户不可修改；两个内置挂载同样锁定且不可移除。phase 规范为 merge/accept 或 null，last_execution.phase 可保留历史 archive，state 沿用 idle/waiting/running/succeeded/failed/unknown。inspect、graph、Hooks 为同源安全投影，不含私有执行／提醒收据。普通 Worker 出口去除字符串 hooks、auto_merge 和完整 retry_profile，保留安全对象和授权配置/env 字典。
 

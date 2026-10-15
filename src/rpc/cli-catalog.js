@@ -15,7 +15,7 @@ export function cliCatalog() {
   return { version: 1, source: 'builtin-cli', commands: CLI_EXECUTABLES.flatMap(executable => cliCommands(executable).map(entry => ({
     executable, command_path: entry.path,
     path: `${executable} ${entry.path}`, parent: entry.parent ? `${executable} ${entry.parent}` : null, name: entry.path.split(' ').at(-1),
-    directory: entry.directory, description: entry.description,
+    directory: entry.directory, operation: entry.operation, operations: [...entry.operations], description: entry.description,
     usage: entry.usage ?? `${executable} ${entry.path} <子命令>`, format: entry.format ?? `${executable} ${entry.path} <子命令>`, example: entry.example ?? null,
     risk: entry.directory ? '选择子命令查看实际调用与风险；目录本身不执行命令。' : [risks[entry.kind], entry.risk].filter(Boolean).join(' '),
     advanced: entry.advanced ?? '',

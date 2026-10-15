@@ -133,11 +133,11 @@ export async function run(command, args, { client, json }) {
     return client.request('agent.models', { agent: args[0] });
   }
 
-  const current = await client.request('agent.config');
   if (verb === 'reset') {
     exact(args, 1);
     const selectedRole = args[0];
     check(selectedRole !== 'default' && TARGETS.has(selectedRole), 'agent reset requires a role');
+    const current = await client.request('agent.config');
     const roles = { ...current.roles }; delete roles[selectedRole];
     return client.request('agent.configure', { config: { version: 1, default: current.default, roles } });
   }
@@ -149,9 +149,7 @@ export async function run(command, args, { client, json }) {
   const hasAgent = supplied('--agent'), hasModel = supplied('--model'), hasThinking = supplied('--thinking'), hasConnection = supplied('--connection');
   const hasConfigMode = supplied('--config-mode');
   const hasDefaultPrompt = supplied('--default-prompt');
-  const hasExplicitAppend = supplied('--append-prompt'), hasLegacyPrompt = supplied('--prompt');
-  const hasAppendPrompt = hasExplicitAppend || hasLegacyPrompt;
-  check(!(hasExplicitAppend && hasLegacyPrompt), 'use either --append-prompt or the legacy --prompt alias');
+  const hasAppendPrompt = supplied('--append-prompt');
   const configMode = option(args, '--config-mode');
   if (hasConfigMode) check(['lush', 'pi'].includes(configMode), '--config-mode must be lush or pi');
   const backend = option(args, '--agent');
@@ -162,9 +160,10 @@ export async function run(command, args, { client, json }) {
   const budgetTokens = option(args, '--budget-tokens');
   const hasBudget = budgetResponses !== null || budgetTokens !== null;
   const defaultPrompt = option(args, '--default-prompt');
-  const appendPrompt = hasExplicitAppend ? option(args, '--append-prompt') : option(args, '--prompt');
+  const appendPrompt = option(args, '--append-prompt');
   exact(args, 0);
   check(hasAgent || hasConfigMode || hasModel || hasThinking || hasConnection || hasDefaultPrompt || hasAppendPrompt || hasBudget, 'agent set requires at least one setting');
+  const current = await client.request('agent.config');
   const base = target === 'default' ? current.default : (current.roles[target] || current.resolved[target]);
   let next = { ...base };
   if (hasConfigMode) next.config_mode = configMode;

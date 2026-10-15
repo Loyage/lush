@@ -4,6 +4,7 @@ import { ui } from './state.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { projectRoute } from './route.js';
 import { confirmDialog } from './dialog.js';
+import { loadCliCatalog } from './cli-catalog.js';
 
 const labels = { read: '只读', automatic: '自动执行', confirmation: '逐次确认', unavailable: '禁止' };
 const accessLabel = (item, access) => access === 'unavailable' && item.base_access === 'unavailable' ? '固有不可用' : labels[access];
@@ -19,18 +20,6 @@ function validatePermissions(value) {
   }
   return value;
 }
-function validateCatalog(value) {
-  if (value?.version !== 1 || value.source !== 'builtin-cli' || !Array.isArray(value.commands)
-    || new Set(value.commands.map(item => item.path)).size !== value.commands.length
-    || value.commands.some(item => !['lush', 'lushc'].includes(item.executable) || typeof item.command_path !== 'string'
-      || item.path !== `${item.executable} ${item.command_path}` || typeof item.description !== 'string'
-      || typeof item.usage !== 'string' || typeof item.format !== 'string' || typeof item.risk !== 'string' || !Array.isArray(item.rpc)
-      || item.rpc.some(rpc => typeof rpc.method !== 'string' || !Array.isArray(rpc.parameters) || !Array.isArray(rpc.allowed_access))
-      || item.parent && !value.commands.some(parent => parent.path === item.parent && parent.directory))) {
-    throw Error('CLI 目录不完整或不兼容，请重新读取。');
-  }
-  return value;
-}
 
 // Historical filename/state slot retained; the independent settings page is replaced.
 export async function openCliInterfaces({ registerPageLeaveGuard }) {
@@ -40,8 +29,8 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   const existing = ui.valetSettingsPage;
   if (existing?.view === view && existing.owner === owner && existing.project === identity) return existing.ready;
   ui.disposeValetSettings?.();
-  const state = { view, owner, project: identity, disposed: false, generation: 0, catalog: null, data: null,
-    draft: null, busy: false, uncertain: false, selected: null, query: '', composing: false, expanded: new Set() };
+  const state = { view, owner, project: identity, disposed: false, generation: 0, catalogGeneration: 0, catalog: null, data: null,
+    draft: null, busy: false, catalogLoading: false, permissionsStale: false, uncertain: false, operation: 'read', selected: null, query: '', composing: false, expanded: new Set() };
   ui.valetSettingsPage = state;
   const owns = () => !state.disposed && globalThis.document === owner && ui.view === view
     && ui.valetSettingsPage === state && projectApi('/api/management/permissions') === identity;
@@ -58,31 +47,45 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   search.oninput = event => { if (!event?.isComposing) updateSearch(); };
   search.addEventListener('compositionstart', () => { state.composing = true; });
   search.addEventListener('compositionend', () => { state.composing = false; updateSearch(); });
+  const filters = el('section', undefined, 'cli-operation-filters'); filters.setAttribute('aria-label', 'CLI 读写分类');
+  const operationButtons = new Map();
+  for (const [operation, label] of [['read', '读接口'], ['write', '写接口']]) {
+    const button = el('button', label, 'ghost'); button.type = 'button'; button.dataset.operation = operation;
+    button.onclick = () => { if (!owns()) return; state.operation = operation; state.selected = null; paint(); };
+    operationButtons.set(operation, button); filters.append(button);
+  }
+  filters.append(el('p', '读：查看与诊断；写：修改配置、控制进程、提交工作或调用 Agent。危险等级和执行授权仍逐项审核。', 'hint'));
   const hero = el('header', undefined, 'resource-hero');
-  hero.append(el('h1', 'CLI 接口'), el('p', '先了解命令，再就地选择本项目未来新管家的默认权限。浏览与保存不执行 CLI、不调用 Agent；不能提升审核上限。'));
+  hero.append(el('h1', 'CLI 接口'), el('p', '说明随版本缓存，查阅不依赖项目后台。项目权限按需读取；浏览与保存不执行 CLI、不调用 Agent，不能提升审核上限。'));
+  const catalogStatus = el('p', '正在加载静态目录…', 'cli-catalog-status'); catalogStatus.setAttribute('role', 'status');
+  const catalogRetry = el('button', '重试读取目录', 'ghost'); catalogRetry.type = 'button'; catalogRetry.hidden = true; catalogRetry.onclick = () => loadCatalog(true);
+  const catalogNotice = el('section', undefined, 'cli-catalog-notice'); catalogNotice.append(catalogStatus, catalogRetry);
   const results = el('section', undefined, 'cli-results'); results.setAttribute('aria-label', 'CLI 搜索结果');
   const detail = el('section', undefined, 'cli-command-detail');
   const footer = el('section', undefined, 'cli-permissions-save resource-card');
-  const status = el('p', '正在读取目录…', 'cli-settings-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+  const status = el('p', project ? '项目权限尚未读取；查看命令不需要读取权限。' : '无当前项目，仅可查看说明和审核上限。', 'cli-settings-status'); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
   const save = el('button', '保存管家默认权限', 'primary'); save.type = 'button'; save.onclick = saveDraft;
-  const reload = el('button', '重新读取', 'ghost'); reload.type = 'button'; reload.onclick = () => load(true);
-  footer.append(el('h2', '统一保存权限草稿'), el('p', project
+  const reload = el('button', '读取项目权限', 'ghost'); reload.type = 'button'; reload.onclick = () => loadPermissions(true);
+  footer.append(el('h2', '项目权限 · 按需读取与统一保存'), el('p', project
     ? '仅影响本项目之后新建的 Valet；已有权限快照不变。危险操作始终逐次确认，原有安全门保持。'
     : '当前没有项目：可浏览全部 CLI 说明，但不能编辑或保存管家默认权限。请在可用项目页打开 CLI 接口。', 'hint'), status, save, reload);
-  root.append(searchBox, hero, results, detail, footer); $('detail').replaceChildren(root);
+  root.append(searchBox, filters, hero, catalogNotice, results, detail, footer); $('detail').replaceChildren(root);
   const selects = new Map(), diagnostics = new Map(), summaries = new Map();
   function setStatus(text, error = false) { status.textContent = text; status.classList.toggle('error', error); }
   function sync() {
-    save.disabled = !state.data || state.busy || state.uncertain || !dirty(); reload.disabled = state.busy;
+    save.disabled = !state.data || state.busy || state.uncertain || state.permissionsStale || !dirty(); reload.disabled = !project || !state.catalog || state.busy;
+    reload.textContent = state.data || state.uncertain ? '重新读取项目权限' : '读取项目权限';
+    catalogRetry.disabled = state.catalogLoading;
+    for (const [operation, button] of operationButtons) { button.setAttribute('aria-pressed', String(state.operation === operation)); button.classList.toggle('active', state.operation === operation); }
     for (const [method, select] of selects) {
       const item = state.data?.methods.find(item => item.method === method);
-      select.value = state.draft?.[method] ?? select.dataset.base;
-      select.disabled = !item || state.busy || item.allowed_access.length < 2;
+      select.value = state.draft?.[method] ?? '';
+      select.disabled = !item || state.busy || state.permissionsStale || item.allowed_access.length < 2;
     }
     for (const [node, item] of summaries) {
       if (item.directory) { node.textContent = '分类 · 查看子命令'; continue; }
       if (!item.rpc.length) { node.textContent = '本地 · 不可授权'; continue; }
-      if (project && !state.data) { node.textContent = '权限未读取'; continue; }
+      if (!state.data) { node.textContent = project ? '项目权限未读取' : '无项目 · 权限未知'; continue; }
       const policies = item.rpc.map(rpc => {
         const policy = state.data?.methods.find(row => row.method === rpc.method) ?? rpc;
         const access = state.draft?.[rpc.method] ?? policy.base_access;
@@ -90,7 +93,7 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
       });
       const changed = state.data && item.rpc.some(rpc => state.draft[rpc.method] !== state.data.permissions[rpc.method]);
       const rpc = item.rpc[0], policy = state.data?.methods.find(row => row.method === rpc.method) ?? rpc;
-      node.textContent = (item.rpc.length > 1 ? `多项权限（${item.rpc.length}）` : accessLabel(policy, state.draft?.[rpc.method] ?? policy.base_access))
+      node.textContent = (state.permissionsStale ? '旧读取 · ' : '') + (item.rpc.length > 1 ? `多项权限（${item.rpc.length}）` : accessLabel(policy, state.draft?.[rpc.method] ?? policy.base_access))
         + (changed ? ' · 草稿' : '');
       node.setAttribute('data-help', `${policies.join('；')}。点击命令查看详情与审核上限；仅影响未来新管家，不执行命令。`);
     }
@@ -129,18 +132,19 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
       // methods may carry a snapshot/default restriction. Do not confuse the two.
       if (rpc.reason) copy.append(el('p', rpc.reason, 'hint'));
       const diagnostic = el('p', undefined, 'cli-permission-diagnostic hint'); diagnostics.set(rpc.method, diagnostic); copy.append(diagnostic);
-      const label = el('label', project ? '本项目默认选择' : '无项目 · 仅查看审核上限');
-      const select = el('select'); select.dataset.base = policy.base_access; select.setAttribute('aria-label', `${rpc.method} 默认策略`);
+      const label = el('label', !project ? '无项目 · 权限未知' : !state.data ? '项目权限尚未读取' : state.permissionsStale ? '旧读取／草稿 · 待核对' : '本项目默认选择');
+      const select = el('select'); select.setAttribute('aria-label', `${rpc.method} 默认策略`);
+      if (!state.data) { const unknown = el('option', project ? '未读取项目权限' : '无项目 · 权限未知'); unknown.value = ''; select.append(unknown); }
       for (const access of policy.allowed_access) { const option = el('option', accessLabel(policy, access)); option.value = access; select.append(option); }
       select.onchange = () => {
         const actual = state.data?.methods.find(row => row.method === rpc.method);
-        if (!owns() || state.busy || !actual?.allowed_access.includes(select.value)) { sync(); return; }
+        if (!owns() || state.busy || state.permissionsStale || !actual?.allowed_access.includes(select.value)) { sync(); return; }
         state.draft[rpc.method] = select.value; setStatus('草稿已修改，尚未保存。'); sync();
       };
       selects.set(rpc.method, select); label.append(select);
       const host = el('span', undefined, 'help-host');
-      if (!state.data || policy.allowed_access.length === 1) host.setAttribute('data-help', !project ? '没有当前项目，不能保存项目默认权限。'
-        : !state.data ? '项目默认权限未读取成功，不能编辑。' : rpc.reason || '后台固定审核能力，不可通过设置提权。');
+      if (!state.data || state.permissionsStale || policy.allowed_access.length === 1) host.setAttribute('data-help', !project ? '没有当前项目，不能保存项目默认权限。'
+        : !state.data ? '项目默认权限未读取成功，不能编辑。' : state.permissionsStale ? '这是旧读取或保留草稿，重新读取当前项目权限成功后才能编辑。' : rpc.reason || '后台固定审核能力，不可通过设置提权。');
       host.append(label); row.append(copy, host); section.append(row);
     }
     return section;
@@ -150,11 +154,11 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
     if (previous) { if (previous.open) state.expanded.add(previous.dataset.command); else state.expanded.delete(previous.dataset.command); }
     results.replaceChildren(); detail.replaceChildren(); selects.clear(); diagnostics.clear(); summaries.clear();
     if (!state.catalog) { sync(); return; }
-    const commands = state.catalog.commands, query = state.query.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+    const commands = state.catalog.commands.filter(item => item.operations.includes(state.operation)), query = state.query.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
     const matches = commands.filter(item => !query ? !item.parent : ['lush', 'lushc'].includes(query)
       ? item.executable === query : `${item.path} ${item.name} ${item.description}`.toLocaleLowerCase().includes(query));
     results.hidden = Boolean(state.selected); detail.hidden = !state.selected;
-    results.append(el('h2', query ? `匹配结果（${matches.length}）` : '顶层命令目录'));
+    results.append(el('h2', query ? `匹配结果（${matches.length}）` : `${state.operation === 'read' ? '读接口' : '写接口'} · 顶层命令目录`));
     if (!matches.length) results.append(el('p', '没有匹配的 CLI 命令，请调整关键词。', 'hint'));
     commandList(results, matches);
     if (state.selected) {
@@ -181,27 +185,46 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
     }
     sync();
   }
-  async function load(discard = false) {
-    if (!owns() || state.busy) return;
+  async function loadCatalog(retry = false) {
+    if (!owns() || state.catalogLoading) return;
+    const generation = ++state.catalogGeneration; state.catalogLoading = true; sync();
+    catalogStatus.textContent = '正在加载静态目录…'; catalogStatus.classList.remove('error'); catalogRetry.hidden = true;
+    try {
+      const catalog = await loadCliCatalog({ retry });
+      if (!owns() || generation !== state.catalogGeneration) return;
+      state.catalog = catalog; paint(); catalogStatus.textContent = '静态目录随版本缓存；项目权限仅在主动读取后显示。';
+    } catch (error) {
+      if (!owns() || generation !== state.catalogGeneration) return;
+      catalogStatus.textContent = `目录加载失败：${error.message}`; catalogStatus.classList.add('error'); catalogRetry.hidden = false;
+    } finally { if (owns() && generation === state.catalogGeneration) { state.catalogLoading = false; sync(); } }
+  }
+  async function loadPermissions(discard = false) {
+    if (!owns() || !project || !state.catalog || state.busy) return;
     if (discard && (dirty() || state.uncertain)) {
       const accepted = await confirmDialog({ title: '放弃草稿并重新读取？', message: '将用当前项目权威设置替换本地草稿。若上次保存结果未知，只读取核对，不自动重放。', confirmLabel: '放弃并读取', danger: true });
       if (!accepted || !owns() || state.busy) return;
     }
-    const generation = ++state.generation; state.busy = true; sync(); setStatus('正在读取目录与权限…');
-    const catalogRead = api(project ? '/api/cli/catalog' : '/api/host/cli/catalog').then(validateCatalog);
-    const permissionsRead = project ? api('/api/management/permissions').then(validatePermissions) : Promise.resolve(null);
-    const [catalog, defaults] = await Promise.allSettled([catalogRead, permissionsRead]);
-    if (!owns() || generation !== state.generation) return;
-    if (catalog.status === 'fulfilled') state.catalog = catalog.value;
-    if (defaults.status === 'fulfilled' && defaults.value) {
-      state.data = defaults.value; state.draft = { ...defaults.value.permissions }; state.uncertain = false;
-    }
-    state.busy = false; paint();
-    const errors = [catalog, defaults].filter(value => value.status === 'rejected').map(value => value.reason.message);
-    setStatus(errors.length ? `读取失败：${errors.join('；')}。草稿保留，请重新读取。` : project ? '已读取当前项目默认权限。' : '只读 CLI 说明；无当前项目，不能编辑权限。', Boolean(errors.length));
+    const generation = ++state.generation; state.busy = true; sync(); setStatus('正在读取当前项目权限…');
+    try {
+      const value = validatePermissions(await api('/api/management/permissions'));
+      if (!owns() || generation !== state.generation) return;
+      // Host and daemon update independently. A code-owned learning ceiling must
+      // never masquerade as the policy of a mismatched running project daemon.
+      if (state.catalog.commands.some(command => command.rpc.some(rpc => {
+        const actual = value.methods.find(item => item.method === rpc.method);
+        return !actual || actual.base_access !== rpc.base_access || JSON.stringify(actual.allowed_access) !== JSON.stringify(rpc.allowed_access);
+      }))) throw Error('Host CLI 目录与项目后台权限版本不一致；请在安全空闲时更新 Host 和项目后台后重新读取。');
+      state.data = value; state.draft = { ...value.permissions }; state.uncertain = false; state.permissionsStale = false;
+      paint(); setStatus('已读取当前项目默认权限；仅影响之后新建的管家。');
+    } catch (error) {
+      if (owns() && generation === state.generation) {
+        state.permissionsStale = Boolean(state.data); paint();
+        setStatus(`权限读取失败：${error.message}。${state.data ? '显示旧读取与保留草稿，不代表当前权限；重新读取成功前不能编辑或保存。' : '项目权限未知。'}不自动重放写入。`, true);
+      }
+    } finally { if (owns() && generation === state.generation) { state.busy = false; sync(); } }
   }
   async function saveDraft() {
-    if (!owns() || state.busy || state.uncertain || !dirty()) return;
+    if (!owns() || state.busy || state.uncertain || state.permissionsStale || !dirty()) return;
     state.busy = true; sync(); setStatus('正在保存…'); const generation = ++state.generation;
     try {
       const value = validatePermissions(await api('/api/action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
@@ -228,5 +251,5 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   const beforeUnload = event => { if (owns() && (dirty() || state.busy || state.uncertain)) { event.preventDefault?.(); event.returnValue = ''; } };
   globalThis.addEventListener?.('beforeunload', beforeUnload);
   ui.disposeValetSettings = () => { state.disposed = true; ++state.generation; unregister(); globalThis.removeEventListener?.('beforeunload', beforeUnload); if (ui.valetSettingsPage === state) ui.valetSettingsPage = null; };
-  state.ready = load(); return state.ready;
+  state.ready = loadCatalog(); return state.ready;
 }

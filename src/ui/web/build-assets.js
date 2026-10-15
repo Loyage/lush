@@ -1,8 +1,9 @@
 // Isolated Bun builder: startWeb remains synchronous. No project paths/data enter this process.
 import fs from 'node:fs';
 import path from 'node:path';
+import { cliCatalog } from '../../rpc/cli-catalog.js';
 
-export async function buildAssets(assets, outdir, version) {
+export async function buildAssets(assets, outdir, version, catalog = cliCatalog()) {
   const naming = `web-${version}-[name]-[hash].[ext]`;
   const result = await Bun.build({
     entrypoints: [path.join(assets, 'app.js'), path.join(assets, 'appearance.js')],
@@ -52,8 +53,12 @@ export async function buildAssets(assets, outdir, version) {
   }
   const preloads = [...seen].filter(name => name !== entries.app && name !== entries.appearance)
     .map(name => `<link rel="modulepreload" href="/${name}">`).join('\n');
-  html = html.replace('</head>', `${preloads}\n</head>`);
+  // A separate lazy data resource avoids importing server registries into browser
+  // bundles. Its immutable URL is shipped with HTML, requiring no version RPC.
+  const catalogName = `web-${version}-cli-catalog.json`;
+  fs.writeFileSync(path.join(outdir, catalogName), JSON.stringify(catalog));
+  html = html.replace('</head>', `<meta id="cli-catalog-asset" content="/${catalogName}">\n${preloads}\n</head>`);
   fs.writeFileSync(path.join(outdir, 'index.html'), html);
 }
 
-if (import.meta.main) await buildAssets(process.argv[2], process.argv[3], process.argv[4]);
+if (import.meta.main) await buildAssets(process.argv[2], process.argv[3], process.argv[4], JSON.parse(fs.readFileSync(0, 'utf8')));

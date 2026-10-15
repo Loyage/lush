@@ -51,9 +51,11 @@ test('worker read and lifecycle commands use only worker RPC methods', async () 
     [['message', '7', 'follow-up'], 'worker.message', { id: 7, body: 'follow-up' }],
     [['history', '7', '--after', '9'], 'worker.history', { id: 7, after: 9 }],
     [['transcript', '7', '--after', '9'], 'worker.transcript', { id: 7, after: 9 }],
-    [['integrate', '7', 'sha'], 'worker.integrate', { id: 7, commit: 'sha' }],
+    [['merge', '7'], 'worker.reserve', { id: 7, kind: 'merge' }],
+    [['merge-cancel', '7'], 'worker.unreserve', { id: 7 }],
+    [['delete-preview', '7'], 'worker.delete_preview', { id: 7 }],
     [['cleanup', '7', '--keep-branch'], 'worker.cleanup', { id: 7, keep_branch: true }],
-    ...['accept', 'reopen', 'cancel', 'retry', 'interrupt', 'resume', 'resolve', 'sync-parent', 'resolve-sync'].map(verb =>
+    ...['accept', 'reopen', 'cancel', 'retry', 'interrupt', 'resume', 'sync-parent', 'resolve-sync'].map(verb =>
       [[verb, '7'], `worker.${verb.replaceAll('-', '_')}`, { id: 7 }]),
   ];
   for (const [args, method, params] of cases) {
@@ -64,10 +66,12 @@ test('worker read and lifecycle commands use only worker RPC methods', async () 
   expect(client.calls).toHaveLength(cases.length);
 });
 
-test('embedded worker resolve cannot bypass development acceptance through a management alias', async () => {
-  const client = { ...recordingClient(), token: 'active' };
-  await expect(worker('worker', ['resolve', '7'], { client, json: true })).rejects.toThrow('user-only management alias');
-  expect(client.calls).toEqual([]);
+test('removed worker aliases cannot enter legacy handlers even in embedded use', async () => {
+  for (const token of [null, 'active']) for (const verb of ['resolve', 'integrate', 'resolve-child-divergence', 'resolve-divergence', 'approve-merge', 'reserve', 'reserve-all', 'unreserve']) {
+    const client = { ...recordingClient(), token };
+    await expect(worker('worker', [verb, '7'], { client, json: true })).rejects.toThrow('unknown worker command');
+    expect(client.calls).toEqual([]);
+  }
 });
 
 test('worker rename accepts numbered identity and an empty reset title, but rejects Agent calls', async () => {

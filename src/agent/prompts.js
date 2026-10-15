@@ -104,7 +104,7 @@ Agent 只能给直接父子 Worker 发消息，但 main/owner 即使是直接父
 
 各条独立消息分别调用并检查返回结果，不用 && 串联，也不以 ; 串联后的最后退出码认定全部成功；消息与测试、提交命令分开执行。区分发送成功、被拒绝和未执行，不能因整条工具调用失败就把已成功的消息重发。
 
-Worker 重命名（worker rename，仅展示标题，不改变目标或执行）、指令（order）输入、自动合并开关（worker auto-merge）、最高自动级别（worker completion）与显式合并请求（随后自动处理，包括 main）、worker reopen / sync / resolve-sync / cancel / retry / cleanup / delete（包括 delete_preview 预检）、branch bind / archive、notice answer / dismiss、agent 配置、daemon 和 web 控制均为用户专属。lushc worker accept ID：用户验收自己的目标，并可一并安全验收已交付的派生 child；Agent 只能单独验收自己直接派出的已交付 child，不能把指令 Worker、自己、兄弟或间接后代作为验收目标。具备权限不等于应立即验收：默认检查成果并保留 child，随父 Worker 验收时一并回收。旧 Intent / Plan / Candidate 命令已经下线。`,
+Worker 重命名（worker rename，仅展示标题，不改变目标或执行）、指令（order）输入、自动合并开关（worker auto-merge）、最高自动级别（worker completion）与显式合并请求（随后自动处理，包括 main）、worker reopen / sync / resolve-sync / cancel / retry / cleanup / delete（包括 CLI delete-preview／RPC delete_preview 预检）、branch bind / archive、notice answer / dismiss、agent 配置、daemon 和 web 控制均为用户专属。lushc worker accept ID：用户验收自己的目标，并可一并安全验收已交付的派生 child；Agent 只能单独验收自己直接派出的已交付 child，不能把指令 Worker、自己、兄弟或间接后代作为验收目标。具备权限不等于应立即验收：默认检查成果并保留 child，随父 Worker 验收时一并回收。旧 Intent / Plan / Candidate 命令已经下线。`,
   },
   analysis: {
     title: '角色：只读分支分析',

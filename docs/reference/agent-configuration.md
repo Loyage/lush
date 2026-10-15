@@ -20,12 +20,12 @@
 bun run lush --json agent sources list
 bun run lush --json agent sources show ID
 bun run lush --json agent sources models ID
-bun run lush agent sources models ID --refresh
+bun run lush agent sources models-refresh ID
 bun run lush agent sources refresh ID
 bun run lush --json agent resources
 ```
 
-`list/show/models/resources` 只读本地缓存。`models --refresh` 联网更新模型目录，`sources refresh` 联网查询额度；两者都不发付费模型探测。自动目录同步在 daemon 中低频执行，新增/登录成功后延迟调度。没有列表适配器时使用本地元数据或手动范围，明确未验证；模型目录不保证账号当前有额度或请求一定成功。
+`list/show/models/resources` 只读本地缓存。独立写入口 `models-refresh` 联网更新模型目录（只读 `models` 拒绝旧 `--refresh` 选项），`sources refresh` 联网查询额度；两者都不发付费模型探测。自动目录同步在 daemon 中低频执行，新增/登录成功后延迟调度。没有列表适配器时使用本地元数据或手动范围，明确未验证；模型目录不保证账号当前有额度或请求一定成功。
 
 `agent resources --json` 的结构化数据供后续管家使用：连接、支持后端、模型目录、额度及观测时间。不返回凭证。现金、Key 预算和套餐窗口不能互相当作同一“余额”；失败/未知不是零，旧值须看时间。当前没有自动换账号或自动降级。
 

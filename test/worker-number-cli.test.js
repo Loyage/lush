@@ -29,15 +29,14 @@ const cases = [
   [['message', 'W5-1', 'follow-up'], 'worker.message', { id: 205, body: 'follow-up' }],
   [['history', 'W5-1', '--after', '9'], 'worker.history', { id: 205, after: 9 }],
   [['transcript', 'W5-1', '--after', '9'], 'worker.transcript', { id: 205, after: 9 }],
-  [['integrate', 'W5-1', 'sha'], 'worker.integrate', { id: 205, commit: 'sha' }],
-  [['reserve', 'W5-1', 'merge'], 'worker.reserve', { id: 205, kind: 'merge' }],
+  [['merge', 'W5-1'], 'worker.reserve', { id: 205, kind: 'merge' }],
+  [['merge-cancel', 'W5-1'], 'worker.unreserve', { id: 205 }],
   [['auto-merge', 'W5-1', 'on'], 'worker.auto_merge', { id: 205, enabled: true }],
-  [['approve-merge', 'W5-1', 'sha', 'base'], 'worker.approve_merge', { id: 205, commit: 'sha', baseline: 'base' }],
   [['cleanup', 'W5-1', '--keep-branch'], 'worker.cleanup', { id: 205, keep_branch: true }],
-  [['delete', 'W5-1'], 'worker.delete_preview', { id: 205 }],
+  [['delete-preview', 'W5-1'], 'worker.delete_preview', { id: 205 }],
   [['delete', 'W5-1', '--confirm', '--revision', 'rev'], 'worker.delete', { id: 205, revision: 'rev', confirm: true }],
-  ...['accept', 'reopen', 'cancel', 'retry', 'interrupt', 'resume', 'resolve', 'sync-parent', 'resolve-sync',
-    'clear-override', 'resolve-divergence', 'resolve-child-divergence', 'unreserve'].map(verb =>
+  ...['accept', 'reopen', 'cancel', 'retry', 'interrupt', 'resume', 'sync-parent', 'resolve-sync',
+    'clear-override'].map(verb =>
     [[verb, 'W5-1'], `worker.${verb.replaceAll('-', '_')}`, { id: 205 }]),
 ];
 for (const [args, method, params] of cases) {
@@ -111,7 +110,7 @@ test('notice --worker resolves Worker identity but notice IDs remain integers', 
   expect(client.calls).toHaveLength(2);
 });
 
-test('brief lists preserve nullable number and integer cursors; reserve-all is a branch operation', async () => {
+test('brief lists preserve nullable number and integer cursors; merge-all is a branch operation', async () => {
   const client = clientFor([
     { id: 205, worker_number: 'W5-1', parent_id: 190, role: 'agent', status: 'waiting', integration: 'none', goal: 'numbered' },
     { id: 206, parent_id: 190, role: 'agent', status: 'waiting', integration: 'none', goal: 'legacy' },
@@ -123,7 +122,7 @@ test('brief lists preserve nullable number and integer cursors; reserve-all is a
   const page = await worker('worker', ['list', '--brief'], { client, json: true });
   expect(page.tasks[1].worker_number).toBeNull();
   const branch = clientFor();
-  await worker('worker', ['reserve-all', 'W5'], { client: branch, json: true });
+  await worker('worker', ['merge-all', 'W5'], { client: branch, json: true });
   expect(branch.calls).toEqual([{ method: 'worker.reserve_all', params: { branch: 'W5' } }]);
 });
 

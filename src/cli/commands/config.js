@@ -1,6 +1,5 @@
 import { check } from '../../core/types.js';
 import { RUNTIME_SETTINGS_LIMITS } from '../../core/settings.js';
-import { ROUTE_TARGETS, normalizeInputRoutes } from '../../core/input-routes.js';
 import { exact, option } from '../args.js';
 import { takeConfigurationScope, scopedSettingsClient } from '../settings-scope.js';
 
@@ -12,9 +11,6 @@ import { takeConfigurationScope, scopedSettingsClient } from '../settings-scope.
  *
  * 命令面用连字符；RPC / 设置文件里是下划线（call_timeout / task_call_limit / max_depth / input_routes）。
  * 范围与核心共用 `RUNTIME_SETTINGS_LIMITS`，避免两份数字漂移。
- *
- * `config route` 在同一份运行设置上管理快速路由前缀表：读当前生效表后整表写回，校验直接复用
- * `core/input-routes.js` 的 `normalizeInputRoutes`，因此与核心对前缀 / 目标的报错完全一致。
  */
 const FIELDS = [
   { flag: 'call-timeout', key: 'call_timeout', label: '单次调用超时（秒）' },
@@ -54,22 +50,6 @@ function printConfig(settings) {
   if (settings.configuration_scope) console.log(`编辑作用域\t${settings.configuration_scope.selected === 'device' ? '设备共享' : '本项目覆盖'}`);
 }
 
-/** 快速路由读模型：生效表、默认表与来源。`route` 子命令的 --json 输出。 */
-function routeModel(settings) {
-  const entry = settings?.input_routes;
-  check(entry && Array.isArray(entry.value) && Array.isArray(entry.default),
-    'daemon did not return runtime settings; restart this project daemon');
-  return { file: settings.file, overridden: entry.overridden, default: entry.default, routes: entry.value };
-}
-
-/** route 子命令统一出口：--json 给读模型，否则打印生效表后返回 undefined。 */
-function reportRoutes(settings, json) {
-  const model = routeModel(settings);
-  if (json) return model;
-  printRoutes(settings.input_routes);
-  return undefined;
-}
-
 /** 统一出口：--json 返回结构化读模型，否则打印后返回 undefined（主流程不再 print）。 */
 function report(settings, json) {
   check(settings?.input_routes && FIELDS.every(field => settings?.[field.key]),
@@ -83,15 +63,15 @@ export async function run(command, args, { client, json }) {
   const scope = takeConfigurationScope(args);
   client = scopedSettingsClient(client, scope);
   const verb = args.shift() || 'show';
-  check(['show','set','reset','migrate'].includes(verb), 'unknown config command; use show, set, reset or migrate');
-  if (verb === 'migrate') {
+  check(['show','set','reset','migrate-preview','migrate'].includes(verb), 'unknown config command; use show, set, reset, migrate-preview or migrate');
+  if (verb === 'migrate' || verb === 'migrate-preview') {
     check(scope !== 'device', 'migration reads the current project; omit --scope');
     const index = args.indexOf('--confirm'), confirm = index !== -1;
     if (confirm) args.splice(index, 1);
     const revision = option(args, '--revision'); exact(args, 0);
-    check(confirm ? typeof revision === 'string' && revision.length > 0 : revision === null,
-      'config migrate execution requires --confirm --revision REV; omit both to preview');
-    const result = await client.request(confirm ? 'settings.migration.apply' : 'settings.migration.preview',
+    check(verb === 'migrate' ? confirm && typeof revision === 'string' && revision.length > 0 : !confirm && revision === null,
+      'first run config migrate-preview; config migrate requires --confirm --revision REV');
+    const result = await client.request(verb === 'migrate' ? 'settings.migration.apply' : 'settings.migration.preview',
       confirm ? { revision, confirm: true } : undefined);
     if (json) return result;
     console.log(result.already_migrated ? '项目设置已迁移；无需重复导入。' : confirm ? '迁移执行结果：' : '当前项目 → 设备共享设置迁移预检：');
@@ -125,41 +105,4 @@ export async function run(command, args, { client, json }) {
     }
     return report(await client.request('system.configure', { settings }), json);
   }
-  if (verb === 'route') {
-    const action = args.shift() || 'list';
-    if (action === 'list') {
-      exact(args, 0);
-      return reportRoutes((await client.request('system.status')).settings, json);
-    }
-    if (action === 'add') {
-      const prefix = args.shift();
-      check(typeof prefix === 'string' && prefix.length > 0, 'config route add expects a prefix');
-      const target = option(args, '--target', ROUTE_TARGETS[0]);
-      exact(args, 0);
-      const status = await client.request('system.status');
-      const routes = normalizeInputRoutes([...routeModel(status.settings).routes, { prefix, target }]);
-      const settings = await client.request('system.configure', { settings: { input_routes: routes } });
-      return reportRoutes(settings, json);
-    }
-    if (action === 'remove') {
-      const prefix = args.shift();
-      check(typeof prefix === 'string' && prefix.length > 0, 'config route remove expects a prefix');
-      exact(args, 0);
-      const status = await client.request('system.status');
-      const routes = routeModel(status.settings).routes;
-      const folded = prefix.toLowerCase();
-      const index = routes.findIndex(route => route.prefix.toLowerCase() === folded);
-      check(index !== -1, `config route remove: prefix ${prefix} is not configured`);
-      const settings = await client.request('system.configure',
-        { settings: { input_routes: routes.filter((_, i) => i !== index) } });
-      return reportRoutes(settings, json);
-    }
-    if (action === 'reset') {
-      exact(args, 0);
-      const settings = await client.request('system.configure', { settings: { input_routes: null } });
-      return reportRoutes(settings, json);
-    }
-    check(false, 'config route expects list, add, remove or reset');
-  }
-  check(false, 'config expects show, set, reset or route');
 }

@@ -13,7 +13,7 @@ Web 中尚未决定执行的想法可先按 Enter 暂存，Shift+Enter 换行；
 
 ## 合并预约与交付
 
-用户直接创建的指令默认关闭自动合并：可在开发中用 `lush worker auto-merge ID on` 开启跨轮 hook，也可在就绪后用 `lush worker reserve ID merge` 显式请求本轮交付。真实安全点固定源提交，由父 Worker 自有队列的 runtime 串行 Squash（含 main），不创建 merge Worker、不改变父子关系。请求按入队顺序、代码依赖优先；取得父执行位后才固定父基线。分歧回原 Worker 在源侧修复，期间保留父执行位；挂起释放，恢复重新排队并固定新基线。失败保留分支与提交。完整协议见[分支合并](engineering/merge.md)。历史 version 1 固定提交人工确认及旧 version 2 merge 身份仅按兼容路径处理，不猜父身份、不删历史。
+用户直接创建的指令默认关闭自动合并：可在开发中用 `lush worker auto-merge ID on` 开启跨轮 hook，也可在就绪后用 `lush worker merge ID` 显式请求本轮交付。真实安全点固定源提交，由父 Worker 自有队列的 runtime 串行 Squash（含 main），不创建 merge Worker、不改变父子关系。请求按入队顺序、代码依赖优先；取得父执行位后才固定父基线。分歧回原 Worker 在源侧修复，期间保留父执行位；挂起释放，恢复重新排队并固定新基线。失败保留分支与提交。完整协议见[分支合并](engineering/merge.md)。历史 version 1 固定提交人工确认及旧 version 2 merge 身份仅按兼容路径处理，不猜父身份、不删历史。
 
 本轮落地后，原 Worker 保持原父子关系并进入非终态「待验收」（`awaiting_acceptance`），保留分支/worktree/会话。追加 `lushc worker message ID '新要求'` 继续当前 Worker；新提交再次请求交付。用户用 `lushc worker accept ID` 验收自己的指令；派生 child 由直接父 Agent 检查成果但默认保留供追加需求，尽量随用户验收父 Worker 一并安全验收为 completed，无需用户逐个验收；不连带验收用户独立创建的指令。无代码改动的 child 也先交付结果、保留现场，不因本轮检查通过就回收。确认不调用 Agent，但**验收即归档**：安全回收分支子树的 worktree/ref，保留 Worker、会话、消息、结果和审计历史。失败、未决问题、未读输入、脏现场与未交付改动不能视为成功；资源回收失败保留诊断，可显式续办验收，不自动重放未知删除。失败／取消现场另用「清理资源」，不伪装为成果验收。`completed` 的历史结算、`integration='merged'` 的代码落地、实际资源回收仍各有事实依据，不能只凭状态猜资源已删除；进入直接父分支也不代表已经进入 main。见[统一验收](engineering/worker-acceptance.md)。
 

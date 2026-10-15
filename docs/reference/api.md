@@ -8,7 +8,7 @@
 
 入口不授予权限：开发 Agent 的工作区、直接父子协作与后端安全门保持不变，带 Agent token 的 `lush` 管理写入口不能绕过这些限制。Valet 默认获得全部 `lushc` RPC 能力，通过可信管理工具在当前项目内跨树代理；不获得 Shell 或 Git 分支，危险动作仍须精确确认，既有私有授权快照不回写，详见[Valet 契约](../engineering/hook-signals-management.md)。
 
-CLI 学习页面不再固定搜索前缀；目录、格式、示例与搜索使用实际 `lush`／`lushc`。具体命令与关联 RPC 由 `src/cli/catalog.js` 派生，不在这里维护另一份权限名单。
+CLI 学习页面不再固定搜索前缀；目录、格式、示例与搜索使用实际 `lush`／`lushc`。具体命令、读／写分类与关联 RPC 由 `src/cli/catalog.js` 派生，不在这里维护另一份权限名单。读入口不接受写选项，准备阶段包含读取的变更命令仍归写；分类不等于执行授权，现有逐 RPC 权限与确认门不变。
 
 `daemon start/restart` 是客户端工作流，不是 RPC。`doctor` 默认提供简短身份摘要，`--verbose` 才附带完整 daemon 状态（含 Agent 配置）。它检查本地项目配置，并把当前磁盘代码、该项目 daemon、以及该项目状态目录记录的后台 Web 三份身份分别列在 `identities.current/daemon/host`；保留旧的顶层 `fingerprint` / `code_match` 字段供脚本兼容。发现代码不一致时只返回 `update_hints` 并在 stderr 给出带正确 `--project` 的命令，绝不自动重启。项目 `doctor` 不猜测无项目启动器的 Web；诊断全局启动器请运行 `bun run lush host status`。
 
@@ -17,6 +17,24 @@ CLI 学习页面不再固定搜索前缀；目录、格式、示例与搜索使�
 本页是索引：CLI 与 RPC 表格、返回值和错误信息都在下面各章里。若要先理解从输入到交付的实际操作顺序，请读[当前指令流程](../task-flow.md)。
 
 公开实体入口为 `lush worker`／`lushc worker` / RPC `worker.*`，旧 Task 命令与方法不保留别名；`notice --worker` / `config worker-call-limit` 与保留的内部字段之间的映射见[更名边界](../engineering/core-api.md#worker-更名与兼容边界)。
+
+## CLI 精简迁移（D647）
+
+旧 CLI 拼写不保留别名，脚本须更新：
+
+| 旧调用 | 当前调用 |
+|---|---|
+| `worker reserve ID merge` | `worker merge ID` |
+| `worker reserve-all BRANCH` | `worker merge-all BRANCH` |
+| `worker unreserve ID` | `worker merge-cancel ID` |
+| `worker resolve ID` | `lushc worker accept ID` |
+| `worker delete ID`（预检） | `worker delete-preview ID` |
+| `config migrate`（预检） | `config migrate-preview` |
+| `agent sources models ID --refresh` | `agent sources models-refresh ID` |
+| `worker completion ID archive --revision REV` | `worker completion ID accept --revision REV` |
+| `agent set TARGET --prompt TEXT` | `agent set TARGET --append-prompt TEXT` |
+
+`worker delete` 与 `config migrate` 必须提供 `--confirm --revision REV`；强制删除的预检和执行都须 `--force`。旧 `worker integrate/resolve-child-divergence/resolve-divergence/approve-merge` CLI 已删除，历史在途所需后端 RPC 保留，不删除记录或改写交付协议。`branch convergence on` 不再接受旧 `--command/--version` 参数；归并使用当前目标策略。快捷指令、具名信号与 Valet 信号绑定仍可通过 `hooks command/signal/management` 管理。
 
 ## 用户编号与 CLI 身份
 
@@ -52,9 +70,9 @@ Notice 按明确 kind 展示：question／questionnaire／历史 plan 为 `D<Not
 | 命令 | 章节 |
 |---|---|
 | `lush order`（指令；旧 say 无别名） | [一条指令输入如何交付](../task-flow.md) |
-| `lushc worker list/tree/inspect/spawn/message/accept`；`lush worker cancel/retry/reserve/cleanup` 等管理操作 | [Worker、Run 与 Artifact](rpc/tasks.md) |
+| `lushc worker list/tree/inspect/spawn/message/accept`；`lush worker cancel/retry/merge/cleanup` 等管理操作 | [Worker、Run 与 Artifact](rpc/tasks.md) |
 | `lush worker inspect` / `history` / `transcript` / `watch`（[终端内观看](../native-viewer.md)） / `wait`（`worker.diff` / `worker.usage` 仅 RPC） | [审阅与过程读模型](rpc/inspect.md) |
-| `lush worker cleanup [--keep-branch]` / `worker delete ID [--confirm --revision REV]` | [磁盘回收与彻底删除](rpc/maintenance.md) |
+| `lush worker cleanup [--keep-branch]` / `worker delete-preview ID` / `worker delete ID --confirm --revision REV` | [磁盘回收与彻底删除](rpc/maintenance.md) |
 | `lush branch tree` / `show` / `bind` / `archive` | [分支谱系](rpc/branches.md) |
 | `lush branch convergence list/show/on/off/runs/retry` | [按目标分支归并](rpc/convergence.md)（默认关闭，仅用户） |
 | `lushc notice list/post/example/check`；`lush notice answer/dismiss` | [待决问题](rpc/notices.md) |

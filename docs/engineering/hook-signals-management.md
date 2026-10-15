@@ -14,11 +14,11 @@ W263／D611 删除独立「Valet 设置」及全部 Web 信号／绑定编辑入
 
 ### 当前项目管家默认权限（W278／D632、W279／D635）
 
-W279 将默认权限融入「CLI 接口」页面：通过搜索定位单项接口，在接口详情中就地了解及配置当前项目的管家执行权限，不再保留独立「管家设置」页；旧 `#valet-settings` 入口跳转「CLI 接口」。接口目录仅用于发现和说明，不代表执行授权。W285／D643 保留顶层分类和逐级进入，改用紧凑命令行及末列管理 Agent 权限摘要；单 RPC 展示当前草稿／默认值，多 RPC 明示多项并在详情逐项配置，无项目仅展示审核上限，读取失败不冒充已读取的项目默认值。此处编辑仍只影响未来新建 Valet 的默认权限，既有私有快照、完整映射与 revision 校验不变；不恢复 Web 时间信号／绑定编辑或重放入口。
+W279 将默认权限融入「CLI 接口」页面：通过搜索定位单项接口，在接口详情中就地了解及配置当前项目的管家执行权限，不再保留独立「管家设置」页；旧 `#valet-settings` 入口跳转「CLI 接口」。接口目录仅用于发现和说明，不代表执行授权。W285／D643 保留顶层分类和逐级进入，改用紧凑命令行及末列管理 Agent 权限摘要；当前 W288／D647 默认先从版本缓存浏览静态目录，用读／写分类筛选；点击「读取项目权限」后才显示当前草稿／默认值，多 RPC 明示多项并在详情逐项配置。未读取／无项目／失败时标明权限未知，审核上限独立显示而不是项目授权；缓存边界见[CLI 目录](../hooks.md#cli-目录缓存与权限)。此处编辑仍只影响未来新建 Valet 的默认权限，既有私有快照、完整映射与 revision 校验不变；不恢复 Web 时间信号／绑定编辑或重放入口。
 
 `management.permissions {}` 与 `management.permissions_update {permissions,expected_revision}` 均为用户专属；普通开发 Agent、Valet 及 `manager.call` 都不能读取或修改设置。Web 使用 GET `/api/management/permissions`（不接受 query）及同源 POST `/api/action` 的 `management.permissions_update`。设置只保存于当前项目 meta，不进入设备设置，不改变其它项目。
 
-两个 RPC 都返回 `{version:1,scope:'project',revision,groups,methods,permissions}`。groups 为 `{id,label,description}`；methods 为 `{method,group,label,description,base_access,access,allowed_access,reason}`。目录、分组、原始分级、可选值和实际执行校验均来自 `src/rpc/management-policy.js`。permissions 是**完整** `method -> access` 映射，包含不可用条目；保存不接受 sparse patch、未知方法／顶层字段或缺项，使用当前 revision 防止并发覆盖。新默认映射包含全部 `lushc` 方法，按安全读取、自动执行与必须确认分级；既有私有快照不随默认更新扩权。`read` 只能选择 read／unavailable，`automatic` 只能 automatic／confirmation／unavailable，`confirmation` 只能 confirmation／unavailable，`unavailable` 不可提升。`manager.catalog` 是必要发现能力，固定 read（allowed_access 只有 read），不能禁止；manager.call/start/retry 是传输／兼容入口，不是可独立提升的权限。
+两个 RPC 都返回 `{version:1,scope:'project',revision,groups,methods,permissions}`。页面核对动态方法的审核上限及可选值与静态 Host 目录一致，版本不匹配时不开放编辑；不会因目录可缓存而缓存这两个 RPC 的项目事实。groups 为 `{id,label,description}`；methods 为 `{method,group,label,description,base_access,access,allowed_access,reason}`。目录、分组、原始分级、可选值和实际执行校验均来自 `src/rpc/management-policy.js`。permissions 是**完整** `method -> access` 映射，包含不可用条目；保存不接受 sparse patch、未知方法／顶层字段或缺项，使用当前 revision 防止并发覆盖。新默认映射包含全部 `lushc` 方法，按安全读取、自动执行与必须确认分级；既有私有快照不随默认更新扩权。`read` 只能选择 read／unavailable，`automatic` 只能 automatic／confirmation／unavailable，`confirmation` 只能 confirmation／unavailable，`unavailable` 不可提升。`manager.catalog` 是必要发现能力，固定 read（allowed_access 只有 read），不能禁止；manager.call/start/retry 是传输／兼容入口，不是可独立提升的权限。
 
 即时输入、等待信号和持续绑定均只在**新建** Valet 时保存私有 `permissions_snapshot:{version,scope,revision,permissions}`，不随默认值更新。client_request_id 去重重试仍返回原 Worker、保留原快照。已有未带快照的历史 Valet 继续原始授权；已有快照缺少的新方法默认不可用，即使新版本以后审核开放也不隐式扩权。公开 inspect 不输出私有快照。默认修改不撤回已有调用、等待动作或用户确认；已提交操作沿原固定授权与安全门收口。
 

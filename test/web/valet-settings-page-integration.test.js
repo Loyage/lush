@@ -19,8 +19,14 @@ test('page edits real directory and persists defaults used by new Valet and real
     await repo(f.root);
     const host = await (await fetch(f.url + '/api/host/projects')).json();
     const projectId = host.projects.find(item => item.project === f.root).id;
-    dom = installDom({ fetch: (path, options) => fetch(f.url + String(path), options) }); dom.location.pathname = `/p/${projectId}/`;
-    await openValetSettings();
+    const html = await (await fetch(`${f.url}/p/${projectId}/`)).text();
+    const asset = /<meta id="cli-catalog-asset" content="([^\"]+)"/.exec(html)[1];
+    const reads = [];
+    dom = installDom({ fetch: (path, options) => { if (!options?.method) reads.push(String(path)); return fetch(f.url + String(path), options); } }); dom.location.pathname = `/p/${projectId}/`;
+    dom.node('cli-catalog-asset').setAttribute('content', asset);
+    await openValetSettings(); expect(reads).toEqual([asset]);
+    await dom.node('detail').querySelectorAll('button').find(node => node.textContent === '读取项目权限').onclick();
+    dom.node('detail').querySelector('button[data-operation="write"]').onclick();
     const before = f.project.managementPermissions();
     const oldResponse = await post('management.submit', { instruction: 'old permission snapshot' });
     expect(oldResponse.status).toBe(200);

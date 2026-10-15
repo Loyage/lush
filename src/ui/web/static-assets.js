@@ -5,11 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { gzipSync } from 'node:zlib';
+import { cliCatalog } from '../../rpc/cli-catalog.js';
 
 const ASSETS = fileURLToPath(new URL('./assets/', import.meta.url));
 const BUILDER = fileURLToPath(new URL('./build-assets.js', import.meta.url));
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:js|css)$/;
-const VERSIONED = /^web-([a-f0-9]{32})-[A-Za-z0-9._-]+\.(?:js|css)$/;
+const VERSIONED = /^web-([a-f0-9]{32})-[A-Za-z0-9._-]+\.(?:js|css|json)$/;
 const GENERATIONS = 3;
 const MAX_BYTES = 32 * 1024 * 1024;
 let shared;
@@ -32,7 +33,7 @@ function representation(bytes, type, immutable = false) {
   return { bytes, gzip, type, immutable,
     etags: { identity: `"${digest(bytes)}"`, gzip: `"${digest(gzip)}"` } };
 }
-function typeOf(name) { return name.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8'; }
+function typeOf(name) { return name.endsWith('.json') ? 'application/json; charset=utf-8' : name.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8'; }
 
 // Respect explicit q=0 before wildcard; identity is acceptable unless explicitly excluded.
 export function staticEncoding(header = '') {
@@ -58,9 +59,12 @@ export function staticEncoding(header = '') {
  * Once evicted, an old URL is 404/no-store, never substituted with a different version.
  * Legacy basename modules remain no-store for pre-bundle HTML and pinned vendor loaders.
  */
-export function createStaticAssets({ assets = ASSETS, cache = path.join(os.tmpdir(), `lush-web-assets-${process.getuid()}`) } = {}) {
+export function createStaticAssets({ assets = ASSETS, cache = path.join(os.tmpdir(), `lush-web-assets-${process.getuid()}`), catalog = cliCatalog() } = {}) {
   privateDirectory(cache);
-  const hash = createHash('sha256').update(`web-assets-v1:${Bun.version}`);
+  // Freeze a safe, code-owned projection: registry parameters, CLI registration and
+  // reviewed ceilings participate in the asset generation, not project/daemon facts.
+  const catalogJSON = JSON.stringify(catalog);
+  const hash = createHash('sha256').update(`web-assets-v2:${Bun.version}`).update(catalogJSON);
   hash.update(fs.readFileSync(BUILDER));
   hash.update(fs.readFileSync(fileURLToPath(import.meta.url)));
   for (const name of fs.readdirSync(assets).filter(name => NAME.test(name) || name === 'index.html').sort()) {
@@ -91,7 +95,7 @@ export function createStaticAssets({ assets = ASSETS, cache = path.join(os.tmpdi
   if (!current) {
     const outdir = fs.mkdtempSync(path.join(cache, '.build-'));
     try {
-      const result = spawnSync(process.execPath, [BUILDER, assets, outdir, version], { encoding: 'utf8', timeout: 60_000, maxBuffer: 1024 * 1024 });
+      const result = spawnSync(process.execPath, [BUILDER, assets, outdir, version], { input: catalogJSON, encoding: 'utf8', timeout: 60_000, maxBuffer: 1024 * 1024 });
       if (result.error || result.status !== 0) {
         const details = [result.error?.message, result.stderr, result.stdout].filter(Boolean).join('\n').trim();
         throw new Error(`Web asset build failed (exit=${result.status ?? '-'}, signal=${result.signal || '-'}): ${details}`);
@@ -126,7 +130,7 @@ export function createStaticAssets({ assets = ASSETS, cache = path.join(os.tmpdi
     version,
     response(pathname, request, headers) {
       const name = pathname === '/' ? 'index.html' : pathname.slice(1);
-      if (pathname !== '/' && !NAME.test(name)) return null;
+      if (pathname !== '/' && !NAME.test(name) && !VERSIONED.test(name)) return null;
       let asset = files.get(name);
       if (!asset && !VERSIONED.test(name) && name !== 'index.html') {
         asset = legacy.get(name);

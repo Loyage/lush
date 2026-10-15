@@ -466,6 +466,8 @@ test('failed resolution child links back to order and explains archive rather th
   // 修复已完子任务固定提交的解分歧子任务：重试由直接父 Agent 驱动，不是返回指令。
   renderDetail({ ...child, divergence_resolution: { ...child.divergence_resolution, source_task_id: 91 } }, null, null, null);
   expect(deepText(panel)).toContain('再派一个以同一固定提交为基线的解分歧子 Worker');
+  expect(deepText(panel)).toContain('历史兼容 RPC worker.resolve_child_divergence；已无对应 CLI');
+  expect(deepText(panel)).not.toContain('worker resolve-child-divergence');
   expect(deepText(panel)).not.toContain('返回源指令');
 });
 

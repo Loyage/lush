@@ -107,6 +107,8 @@ test('compiled Valet lazy page shares navigation and preserves its draft through
     await boot(); await project.node('cli-interfaces-open').onclick();
     expect(project.node('detail').dataset.view).toBe('cli-interfaces');
     const root = project.node('detail').querySelector('.cli-interfaces-page');
+    await root.querySelectorAll('button').find(node => node.textContent === '读取项目权限').onclick();
+    root.querySelector('button[data-operation="write"]').onclick();
     const input = root.querySelector('input'); input.value = 'order'; input.oninput({}); root.querySelector('.cli-command-link').onclick();
     const details = root.querySelector('details'); details.open = true;
     const choice = root.querySelectorAll('.cli-permission-method').find(node => node.dataset.method === 'draft.add').querySelector('select');

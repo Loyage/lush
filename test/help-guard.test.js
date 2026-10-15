@@ -68,7 +68,7 @@ test('retired CLI commands are rejected without issuing RPCs', async () => {
       for (const command of ['candidate', 'draft', 'plan', 'spec', 'sleep', 'host-start', 'host-stop', 'host-restart', 'host-status']) {
         await expect(main([command, 'list', '--project', f.root])).rejects.toThrow(`unknown command: ${command}`);
       }
-      await expect(main(['host'])).rejects.toThrow('host requires start|stop|restart|status');
+      await expect(main(['host'])).rejects.toThrow('unknown host command; run lush help');
     });
     expect(rpc.calls).toHaveLength(0);
   } finally { rpc.restore(); await f.close(); }

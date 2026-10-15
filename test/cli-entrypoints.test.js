@@ -8,6 +8,7 @@ import { Dispatcher } from '../src/rpc/dispatcher.js';
 import { createSignal } from '../src/signal.js';
 import { tokenHash } from '../src/core/project/internal.js';
 import { fixture, env, temp } from './helpers.js';
+import { install, ManagerStub } from './project/agent-connection-fixture.js';
 
 const bins = Object.fromEntries(CLI_EXECUTABLES.map(executable => [executable, path.resolve(import.meta.dir, `../bin/${executable}`)]));
 async function cli(executable, args, root, extra = {}) {
@@ -45,7 +46,7 @@ test('exclusive leaves reject wrong executable with a migration hint before conf
       const result = await cli('lush', entry.path.split(' '), root, { LUSH_PROJECT: '/missing-project', LUSH_HOME: '/invalid-home' });
       expect(result.code).toBe(1); expect(result.out).toBe(''); expect(result.err).toContain(`use lushc ${entry.path}`);
     }
-    for (const args of [['order', 'goal'], ['worker', 'resolve', '1'], ['agent', 'env', 'agent'], ['host', 'start']]) {
+    for (const args of [['order', 'goal'], ['worker', 'merge', '1'], ['agent', 'env', 'agent'], ['host', 'start']]) {
       const result = await cli('lushc', args, root, { LUSH_PROJECT: '/missing-project', LUSH_HOME: '/invalid-home' });
       expect(result.code).toBe(1); expect(result.out).toBe(''); expect(result.err).toContain('use lush ');
     }
@@ -56,7 +57,7 @@ test('exclusive leaves reject wrong executable with a migration hint before conf
 test('development invocation cannot bypass migrated acceptance via management aliases or executable argv', async () => {
   const root = temp();
   try {
-    for (const args of [['worker', 'resolve', '1'], ['worker', 'integrate', '1', 'sha'], ['order', 'goal'], ['worker', 'cleanup', '1']]) {
+    for (const args of [['worker', 'merge', '1'], ['order', 'goal'], ['worker', 'cleanup', '1']]) {
       const result = await cli('lush', args, root, { LUSH_PROJECT: '/missing-project', LUSH_HOME: '/invalid-home', LUSH_AGENT_TOKEN: 'active' });
       expect(result.code).toBe(1); expect(result.err).toContain('management command'); expect(result.out).toBe('');
     }
@@ -117,6 +118,48 @@ test('bun run progress/message source shortcuts select lushc and complete a real
     expect(f.store.get('SELECT sender_id,body FROM messages WHERE task_id=?', child.id))
       .toEqual({ sender_id: parent.id, body: '来自真实快捷入口的补充' });
   } finally { f.project.running.delete(parent.id); await rpc.close(); await f.close(); }
+});
+
+test('unregistered and retired subcommands fail before project discovery or legacy handlers', async () => {
+  const root = temp();
+  try {
+    for (const args of [
+      ...['integrate', 'resolve-child-divergence', 'resolve-divergence', 'approve-merge', 'resolve', 'reserve', 'reserve-all', 'unreserve', 'unknown'].map(verb => ['worker', verb, '1']),
+      ['branch', 'merge', 'main'], ['config', 'route', 'list'], ['agent', 'unknown'], ['hooks', 'command', 'run', 'id'],
+    ]) {
+      const result = await cli('lush', args, root, { LUSH_PROJECT: '/missing-project', LUSH_HOME: '/invalid-home' });
+      expect(result.code).toBe(1); expect(result.out).toBe(''); expect(result.err).toContain(`unknown ${args[0]} command; run lush help`);
+    }
+    expect(fs.readdirSync(root)).toEqual([]);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('real split model CLI -> registry -> user permission -> connection service returns cached versus refreshed results', async () => {
+  const f = fixture(); f.project.kick = () => {};
+  const manager = new ManagerStub(); let refreshes = 0, cached = null;
+  manager.catalog = () => cached;
+  manager.catalogRefresh = async id => {
+    refreshes++;
+    return cached = { version: 1, id, checked_at: new Date().toISOString(), status: 'fresh', source: 'listing', models: [
+      { id: 'deepseek/deepseek-chat', name: 'chat', thinking_levels: null, context: null, max_output: null, images: null, reasoning: null }], warning: null, error_code: null };
+  };
+  install(f, { manager });
+  const rpc = new RPCServer(f.config.socket, new Dispatcher(f.project, createSignal(), {}));
+  const extra = { ...f.config.env, LUSH_PROJECT: f.root, LUSH_HOME: f.config.home };
+  try {
+    await rpc.start();
+    const read = await cli('lush', ['agent', 'sources', 'models', 'conn-one', '--json'], f.root, extra);
+    expect(read.code).toBe(0); expect(JSON.parse(read.out)).toMatchObject({ id: 'conn-one', status: 'unknown', models: [] }); expect(refreshes).toBe(0);
+    const rejected = await cli('lush', ['agent', 'sources', 'models', 'conn-one', '--refresh', '--json'], f.root, extra);
+    expect(rejected.code).toBe(1); expect(rejected.err).toContain('invalid arguments'); expect(refreshes).toBe(0);
+    const write = await cli('lush', ['agent', 'sources', 'models-refresh', 'conn-one', '--json'], f.root, extra);
+    expect(write.code).toBe(0); expect(JSON.parse(write.out).models[0].id).toBe('deepseek/deepseek-chat'); expect(refreshes).toBe(1);
+    const cachedRead = await cli('lush', ['agent', 'sources', 'models', 'conn-one', '--json'], f.root, extra);
+    expect(cachedRead.code).toBe(0); expect(JSON.parse(cachedRead.out).models).toHaveLength(1); expect(refreshes).toBe(1);
+    const denied = await cli('lush', ['agent', 'sources', 'models-refresh', 'conn-one', '--json'], f.root, { ...extra, LUSH_AGENT_TOKEN: 'not-authorized' });
+    expect(denied.code).toBe(1); expect(denied.err).toContain('management command'); expect(refreshes).toBe(1);
+    expect(write.out + cachedRead.out).not.toContain('test-secret');
+  } finally { await rpc.close(); await f.close(); }
 });
 
 test('public catalogue and per-executable registration are identical including fully-qualified parent links', () => {

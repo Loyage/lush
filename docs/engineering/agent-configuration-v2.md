@@ -32,7 +32,7 @@ USER_ONLY `agent.connections.models {id}` / `agent.connections.models.refresh {i
 
 ## CLI
 
-`agent sources list|show ID|save --file PATH|remove ID|refresh [ID]|models ID [--refresh]|login ID`，登录可提供设备 start/poll/cancel 和回调备用，凭证通过私有输入文件（不放命令行明文），所有输出安全且支持全局 --json。`agent resources` 返回共享模型选择的连接/额度/模型读面（不是已安装资源列表），只读本地。
+`agent sources list|show ID|save --file PATH|remove ID|refresh [ID]|models ID|models-refresh ID|login ID`，其中 `models` 只读缓存，`models-refresh` 是独立联网写入口，不接受旧 `models --refresh`。登录可提供设备 start/poll/cancel 和回调备用，凭证通过私有输入文件（不放命令行明文），所有输出安全且支持全局 --json。`agent resources` 返回共享模型选择的连接/额度/模型读面（不是已安装资源列表），只读本地。
 
 `agent packages list|install SOURCE|remove ID|update ID` 管理设备私有 Lush Pi 安装库，不是 Worker 启用操作。来源、准入、私有读面与精确接口统一见[安装契约](#项目扩展与-skills-安装管理实现契约)。
 

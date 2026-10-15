@@ -112,7 +112,7 @@ export async function runWorkerCompletion(args, client) {
   check(!client.token, 'Hooks configuration is user only, not an agent operation');
   const expected_revision = readRevision(args);
   exact(args, 2);
-  check(['off','merge','accept','archive'].includes(args[1]), 'completion expects off|merge|accept (legacy archive is equivalent to accept)');
+  check(['off','merge','accept'].includes(args[1]), 'completion expects off|merge|accept');
   return client.request('worker.completion', {
     id: await resolveWorkerId(client, args[0]), level: args[1], expected_revision,
   });

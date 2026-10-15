@@ -50,7 +50,7 @@ inspect、graph、worker.hooks 同源。内置挂载为不可移除的 `auto-mer
 - 项目「成果自动合并与验收」只管理未来用户新建 Worker 的项目默认，不列出现有 Worker 授权或运行记录。具体授权及真实操作在对应 Worker 自动化查看；父目录保留功能节点和草稿，迟到响应不能覆盖失活页面或新项目，未知保存结果不得自动重发。
 - `worker.completion_page {before?,limit?}` / `GET /api/automation/completion/workers` 为用户专属窄只读目录：默认 25、最多 50 个，按 Worker 内部 ID 倒序，游标严格小于 `before`；涵盖 work 层所有状态的 order（含旧 say）／child，不受常规 Worker 活动预览或终态分页范围限制。返回 `{version:1,workers,cursor,has_more,limit}`，每项只含编号、标题／有界目标、种类、状态、集成、归档布尔、预约状态及同源 `hooks:{worker_id,revision,mounted_features,completion,mounts}`；mounts 仅自动合并／验收的 id、动作类型与安全 operation。无私有配置、路径、原始输出或授权身份，读取不安装、不推进动作。
 - 上述窄目录 API 继续只读兼容，但项目设置页不再消费它。Worker 内的操作快照只认同源 operation，不从级别高亮、last_execution 或 Agent 返回推断成功；读取失败及证据不兼容必须说明，历史协议不迁移。
-- CLI 推荐 `worker completion ID off|merge|accept --revision REV`；旧 archive 兼容等价 accept，不放宽权限、冻结或 stale revision。
+- CLI 仅接受 `worker completion ID off|merge|accept --revision REV`；旧 archive 仅在后端 RPC／持久历史兼容等价 accept，CLI 已拒绝，不放宽权限、冻结或 stale revision。
 - `worker.auto_merge` 和 auto-merge 挂载旧开关继续相同权限；on 不降级高级授权，off（允许时）关闭未来链，不撤回已发请求。
 - 项目 `completion_defaults:{enabled,level}` 与 `mount_scopes.completion` 用 hooks.automation_settings 保存，旧 hooks.completion_defaults 同源兼容；实际创建事务冻结挂载，未挂载默认不执行，旧缺少挂载字段保留原内置能力，显式开启通过原安全门同时挂载。完整范围与权威投影见[项目自动化接口](../reference/rpc/hooks.md#新指令默认流程)；设备默认写入拒绝。默认只影响未来实际创建的新指令，不改变已有 Worker 或 child 流程；持久化于项目 meta 的 versioned JSON，旧设备及旧项目历史值均不自动导入。
 - 选择验收授权须解释删除分支子树 worktree/ref、完整历史保留、脏现场阻止、自动验收不是质量评审；可能启动分歧 Agent 的配置按钮仍带 Agent 代价标识。

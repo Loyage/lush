@@ -245,7 +245,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
       ? `返回源指令 ${workerLabel(task.divergence_resolution.source_task_id)}，在分歧仍存在且预约可分派时可重新派独立子 Worker。`
       : repairsOrder
         ? '返回源指令，在静息且分歧仍存在时可重新派独立子 Worker。'
-        : `由直接父 Agent ${workerLabel(task.parent_id, task.parent_worker_number)} 再派一个以同一固定提交为基线的解分歧子 Worker（worker resolve-child-divergence）。`;
+        : `由直接父 Agent ${workerLabel(task.parent_id, task.parent_worker_number)} 再派一个以同一固定提交为基线的解分歧子 Worker（历史兼容 RPC worker.resolve_child_divergence；已无对应 CLI）。`;
     panel.append(el('p', archived
       ? `解分歧子 Worker 已归档，Worker、固定提交记录和会话仍保留。${retry}`
       : `解分歧成果尚未集成：先检查工作区和固定提交。需要另试时，在 Worker 树或 Worker 详情显式清理这条子分支资源（删除 ref/worktree；未提交文件会丢失），${retry}不会重放本次 Agent。`,

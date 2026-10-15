@@ -1,7 +1,7 @@
 import { check } from '../../core/types.js';
 import { automationScope } from '../../core/automation-scopes.js';
 import { exact, option } from '../args.js';
-import { printBranchTree, printBranchShow, printBranchImport, printBranchArchive, printBranchSummary, printMergeAllPlan, printMergeAllResult, printMergeCancel, printOrchestratePlan, printOrchestrateResult, printOrchestrateCancel } from '../print.js';
+import { printBranchTree, printBranchShow, printBranchArchive } from '../print.js';
 
 /** branch：分支谱系（谁从谁创建出来），与 Worker 树、commit graph 都是不同维度。 */
 export async function run(command, args, ctx) {
@@ -20,46 +20,9 @@ export async function run(command, args, ctx) {
     exact(args, 1);
     value = await client.request('branch.show', { branch: args[0] });
     if (!json) { printBranchShow(value); return; }
-  } else if (verb === 'import') {
-    exact(args, 0);
-    value = await client.request('branch.import');
-    if (!json) { printBranchImport(value); return; }
   } else if (verb === 'bind') {
     exact(args, 2);
     value = await client.request('branch.bind', { branch: args[0], commit: args[1] });
-  } else if (verb === 'merge') {
-    exact(args, 1);
-    value = await client.request('branch.merge', { branch: args[0] });
-  } else if (verb === 'sync') {
-    exact(args, 1);
-    value = await client.request('branch.sync', { branch: args[0] });
-  } else if (verb === 'catchup') {
-    exact(args, 1);
-    value = await client.request('branch.catchup', { branch: args[0] });
-  } else if (verb === 'merge-plan') {
-    exact(args, 1);
-    value = await client.request('branch.merge_plan', { branch: args[0] });
-    if (!json) { printMergeAllPlan(value); return; }
-  } else if (verb === 'merge-all') {
-    exact(args, 1);
-    value = await client.request('branch.merge_all', { branch: args[0] });
-    if (!json) { printMergeAllResult(value); return; }
-  } else if (verb === 'merge-cancel') {
-    exact(args, 1);
-    value = await client.request('branch.merge_cancel', { branch: args[0] });
-    if (!json) { printMergeCancel(value); return; }
-  } else if (verb === 'orchestrate-plan') {
-    exact(args, 1);
-    value = await client.request('branch.orchestrate_plan', { branch: args[0] });
-    if (!json) { printOrchestratePlan(value); return; }
-  } else if (verb === 'orchestrate') {
-    exact(args, 1);
-    value = await client.request('branch.orchestrate', { branch: args[0] });
-    if (!json) { printOrchestrateResult(value); return; }
-  } else if (verb === 'orchestrate-cancel') {
-    exact(args, 1);
-    value = await client.request('branch.orchestrate_cancel', { branch: args[0] });
-    if (!json) { printOrchestrateCancel(value); return; }
   } else if (verb === 'archive') {
     const discard = args.includes('--discard');
     if (discard) args.splice(args.indexOf('--discard'), 1);
@@ -69,14 +32,6 @@ export async function run(command, args, ctx) {
     exact(args, 1);
     value = await client.request('branch.archive', { branch: args[0], discard, continue: continuing });
     if (!json) { printBranchArchive(value); return; }
-  } else if (verb === 'summary') {
-    // 两种形式：`branch summary "一句话"` 写自己的分支；`branch summary BRANCH "一句话"` 点名分支（用户）。
-    check(args.length === 1 || args.length === 2, 'usage: lush branch summary "一句话" | lush branch summary BRANCH "一句话"');
-    const [summary, branch] = args.length === 2 ? [args[1], args[0]] : [args[0], null];
-    value = await client.request('branch.summary', branch === null ? { summary } : { branch, summary });
-    if (!json) { printBranchSummary(value); return; }
-  } else {
-    check(false, 'unknown branch command; use tree, show, import, bind, merge, sync, catchup, merge-plan, merge-all, merge-cancel, orchestrate-plan, orchestrate, orchestrate-cancel, archive or summary');
   }
   return value;
 }
@@ -140,11 +95,8 @@ async function runConvergence(args, client) {
     return client.request('branch.convergence_retry', { id: convergenceNumber(args[0], 'run id'), expected_revision });
   }
   if (verb === 'on') {
-    const command = option(args, '--command'), version = option(args, '--version'); exact(args, 1);
-    check(version === null || command !== null, '--version requires --command');
-    if (version !== null) convergenceNumber(version, 'command version'); // Legacy CLI syntax, no future version pin.
-    return client.request('branch.convergence_set', { branch: convergenceBranch(args[0]), enabled: true,
-      ...(command === null ? {} : { validation: { command_id: commandId(command) } }), expected_revision });
+    exact(args, 1);
+    return client.request('branch.convergence_set', { branch: convergenceBranch(args[0]), enabled: true, expected_revision });
   }
   exact(args, 1);
   const branch = convergenceBranch(args[0]);

@@ -15,25 +15,19 @@ test('ordinary order submits content and branch without extra flags', async () =
   ]);
 });
 
-test('worker reserve and unreserve pass one explicit order Worker and kind', async () => {
+test('worker merge and merge-cancel use the existing runtime protocol without legacy CLI aliases', async () => {
   const calls = [], client = { request: async (method, params) => { calls.push({ method, params }); return params; } };
-  await worker('worker', ['reserve', '7', 'merge'], { client, json: true });
-  await worker('worker', ['reserve-all', 'main'], { client, json: true });
-  await worker('worker', ['resolve-divergence', '7'], { client, json: true });
-  await worker('worker', ['resolve-child-divergence', '9'], { client, json: true });
-  await worker('worker', ['unreserve', '7'], { client, json: true });
-  await worker('worker', ['approve-merge', '7', 'a'.repeat(40), 'b'.repeat(40)], { client, json: true });
+  await worker('worker', ['merge', '7'], { client, json: true });
+  await worker('worker', ['merge-all', 'main'], { client, json: true });
+  await worker('worker', ['merge-cancel', '7'], { client, json: true });
   expect(calls).toEqual([
     { method: 'worker.reserve', params: { id: 7, kind: 'merge' } },
     { method: 'worker.reserve_all', params: { branch: 'main' } },
-    { method: 'worker.resolve_divergence', params: { id: 7 } },
-    { method: 'worker.resolve_child_divergence', params: { id: 9 } },
     { method: 'worker.unreserve', params: { id: 7 } },
-    { method: 'worker.approve_merge', params: { id: 7, commit: 'a'.repeat(40), baseline: 'b'.repeat(40) } },
   ]);
-  await expect(worker('worker', ['reserve', '7'], { client, json: true })).rejects.toThrow();
-  await expect(worker('worker', ['reserve-all'], { client, json: true })).rejects.toThrow();
-  expect(calls).toHaveLength(6);
+  for (const args of [['merge'], ['merge', '7', 'merge'], ['merge-all'], ['merge-cancel', '7', 'extra'], ['reserve', '7', 'merge'], ['unreserve', '7']])
+    await expect(worker('worker', args, { client, json: true })).rejects.toThrow();
+  expect(calls).toHaveLength(3);
 });
 
 test('brief workers use bounded rows and retain a continuation cursor; ordinary list stays compatible', async () => {

@@ -66,7 +66,7 @@ HTTP：`GET /api/agent/connections/models?id=...` 只读且 `no-store`，缺少 
 
 - `list` / `show ID` / `remove ID`：来源清单与单项；只投影安全字段。
 - `refresh [ID]`：显式刷新额度观测（沿用 `agent.connections.query`），随后重读来源列表。
-- `models ID [--refresh]`：读取或显式刷新缓存目录。
+- `models ID`：只读缓存模型目录，不联网；独立写入口 `models-refresh ID` 显式刷新并保存目录，不再接受旧 `--refresh` 选项。
 - `save --file PATH`：从 owner-only 输入文件读取 `{connection, credential?}`；凭证不经过 argv，也不出现在输出。输入文件按 `O_NOFOLLOW|O_NONBLOCK` 打开并对文件描述符校验 owner、`0600`、链接数、类型与大小，拒绝 symlink、目录、FIFO、越权与超限，失败只返回固定错误，不回显路径或内容。
 - `login ID`（设备码开始）/ `--poll LOGIN_ID` / `--cancel LOGIN_ID` / `--callback`（备用回调开始）/ `--finish LOGIN_ID --url-file PATH`（从同规格 owner-only 文件读取回调 URL，不回显 code）。CLI 输出的嵌套观测、额度资源、历史成功与消费者均按白名单重建，未知字段不会进入 stdout。
 

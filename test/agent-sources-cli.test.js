@@ -33,7 +33,7 @@ test('sources list/show/refresh project only the safe read face and never print 
   expect(f.calls.at(-2)).toEqual({ method: 'agent.connections.query', params: {} });
 });
 
-test('sources models reads the cache and only refreshes with --refresh', async () => {
+test('sources models is read-only and models-refresh explicitly updates the cache', async () => {
   const catalog = { version: 1, id: 'conn-one', checked_at: '2026-01-10T12:00:00.000Z', status: 'fresh', source: 'listing',
     models: [{ id: 'deepseek/deepseek-chat', name: 'chat', thinking_levels: null, context: null, max_output: null, images: null, reasoning: null }],
     warning: null, error_code: null, extra: 'MUST_NOT_PRINT' };
@@ -41,7 +41,9 @@ test('sources models reads the cache and only refreshes with --refresh', async (
   const cached = await runSources(['models', 'conn-one'], f.client);
   expect(f.calls.at(-1)).toEqual({ method: 'agent.connections.models', params: { id: 'conn-one' } });
   expect(cached.models[0].id).toBe('deepseek/deepseek-chat'); expect(JSON.stringify(cached)).not.toContain('MUST_NOT_PRINT');
-  await runSources(['models', 'conn-one', '--refresh'], f.client);
+  await expect(runSources(['models', 'conn-one', '--refresh'], f.client)).rejects.toThrow('invalid arguments');
+  expect(f.calls).toHaveLength(1);
+  await runSources(['models-refresh', 'conn-one'], f.client);
   expect(f.calls.at(-1)).toEqual({ method: 'agent.connections.models.refresh', params: { id: 'conn-one' } });
 });
 

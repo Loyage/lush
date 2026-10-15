@@ -120,16 +120,16 @@ const cli = (args, client) => branch('branch', ['convergence', ...args], { clien
 test('convergence CLI forwards list, show, on, history and retry without creating or authorizing commands', async () => {
   const c = clientStub();
   await cli(['list'], c); await cli(['show','main'], c);
-  await cli(['on','main','--command',commandId,'--version','2','--revision',revision], c);
+  await cli(['on','main','--revision',revision], c);
   await cli(['runs','main'], c); await cli(['runs','main','--before','15','--limit','3'], c);
   await cli(['retry','9','--revision',revision], c);
   expect(c.calls).toEqual([
     { method: 'branch.convergence_list', params: undefined }, { method: 'branch.convergence', params: { branch: 'main' } },
-    { method: 'branch.convergence_set', params: { ...cases[2][2], validation: { command_id: commandId } } }, { method: 'branch.convergence_runs', params: { branch: 'main' } },
+    { method: 'branch.convergence_set', params: { branch: 'main', enabled: true, expected_revision: revision } }, { method: 'branch.convergence_runs', params: { branch: 'main' } },
     { method: 'branch.convergence_runs', params: cases[3][2] }, { method: 'branch.convergence_retry', params: cases[4][2] },
   ]);
   expect(HELP).toContain('branch convergence on BRANCH'); expect(HELP).toContain('挂载且关闭');
-  expect(HELP).toContain('不固定未来定义'); expect(HELP).toContain('整合 Agent');
+  expect(HELP).toContain('不接受旧 command/version 参数'); expect(HELP).toContain('整合 Agent');
 });
 
 test('CLI off preserves only the saved command reference and explicit revision, including an unavailable version', async () => {

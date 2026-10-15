@@ -48,28 +48,24 @@ const workers = [
   ['hooks','ID|Wn','读取实际挂载与修改 revision。','W5','worker.hooks'],
   ['completion','ID|Wn off|merge|accept --revision REV','设置最高自动环节；验收含资源回收。','W5 merge --revision REV','worker.completion','write'],
   ['auto-merge','ID|Wn on|off','设置持久自动合并开关；child 锁定。','W5 on','worker.auto_merge','write'],
-  ['reserve','ID|Wn merge','请求一次合并，不改变持久开关。','W5 merge','worker.reserve','write'],
-  ['reserve-all','BRANCH','将分支下静息待合并 Worker 逐条入队。','main','worker.reserve_all','write'],
-  ['unreserve','ID|Wn','撤销未发出的合并预约。','W5','worker.unreserve','write'],
-  ['integrate','CHILD COMMIT','历史父 Agent 确认固定子提交。','7 COMMIT','worker.integrate','write'],
-  ['resolve-child-divergence','ID|Wn','历史解分歧子 Worker 回复入口。','W5','worker.resolve_child_divergence','write'],
-  ['resolve-divergence','ID|Wn','历史指令解分歧入口。','W5','worker.resolve_divergence','write'],
-  ['approve-merge','ID|Wn COMMIT BASELINE','用户批准历史固定提交与父基线。','W5 COMMIT BASELINE','worker.approve_merge','write'],
+  ['merge','ID|Wn','请求一次合并，不改变持久开关。','W5','worker.reserve','write'],
+  ['merge-all','BRANCH','将分支下静息待合并 Worker 逐条入队。','main','worker.reserve_all','write'],
+  ['merge-cancel','ID|Wn','撤销未发出的单次合并请求。','W5','worker.unreserve','write'],
   ['accept','ID|Wn','验收即归档：安全回收 worktree/ref，保留历史。','W5','worker.accept','destructive'],
   ['reopen','ID|Wn','恢复历史已合并 Worker 待验收，不调用 Agent。','W5','worker.reopen','write'],
   ['sync-parent','ID|Wn','安全同步父提交；冲突仅返回诊断。','W5','worker.sync_parent','write'],
   ['resolve-sync','ID|Wn','调用 Agent 修复已记录的同步冲突。','W5','worker.resolve_sync','agent'],
   ['clear-override','ID|Wn','清除独立运行覆盖，回到设备／角色默认。','W5','worker.clear_override','write'],
-  ['resolve','ID|Wn','验收兼容入口，等同 accept。','W5','worker.resolve','destructive'],
   ['cancel','ID|Wn|Vn','取消开发 Worker，或停止管家并撤销尚未执行的授权。','W5','worker.cancel','destructive'],
   ['retry','ID|Wn','显式重试失败 Worker，可能调用 Agent。','W5','worker.retry','agent'],
   ['interrupt','ID|Wn|Vn','请求在调用安全点暂停。','W5','worker.interrupt','write'],
   ['resume','ID|Wn','开始或继续暂停 Worker，可能调用 Agent。','W5','worker.resume','agent'],
   ['cleanup','ID|Wn [--keep-branch]','安全回收专属工作区。','W5 --keep-branch','worker.cleanup','destructive'],
-  ['delete','ID|Wn|Vn [--force] [--confirm --revision REV]','先预检，精确确认后彻底删除开发子树或管家专属历史与资源。','W5','worker.delete_preview,worker.delete','destructive'],
+  ['delete-preview','ID|Wn|Vn [--force]','只读预检开发子树或管家的彻底删除范围。','W5','worker.delete_preview'],
+  ['delete','ID|Wn|Vn --confirm --revision REV [--force]','精确确认预检范围后，彻底删除开发子树或管家专属历史与资源。','W5 --confirm --revision REV','worker.delete','destructive'],
 ];
 for (const [verb,args,description,example,rpc,kind] of workers) add(`worker ${verb}`,args,description,example,rpc.split(','),kind,
-  '编号通过 worker.lookup 解析，RPC 仍用整数 ID。目标类型、冻结、生命周期与 Git 安全门保持；历史合并入口不适用于新式交付。');
+  '编号通过 worker.lookup 解析，RPC 仍用整数 ID。目标类型、冻结、生命周期与 Git 安全门保持；合并交给父 runtime 队列处理。');
 for (const verb of ['attach','enable','disable','remove']) add(`worker hook ${verb}`, verb === 'attach' ? 'ID|Wn --file PATH --revision REV' : 'ID|Wn HOOK_ID --revision REV',
   { attach: '从私有 JSON 挂载规则。', enable: '启用未来自动动作。', disable: '停用未来动作，不撤回已执行动作。', remove: '移除未来自动化挂载。' }[verb],
   verb === 'attach' ? 'W5 --file hook.json --revision REV' : 'W5 HOOK_ID --revision REV', [`worker.hook_${verb === 'attach' ? 'attach' : verb === 'remove' ? 'remove' : 'update'}`], 'write', '先读 worker hooks 的 revision；child 流程 Hook 整体锁定。');
@@ -98,7 +94,7 @@ add('branch archive','BRANCH [--discard] [--continue]','清理特殊／失败分
 for (const [verb,args,description,example,rpc,kind] of [
   ['list','','读取分支归并挂载与项目默认。','','branch.convergence_list','read'],
   ['show','BRANCH','读取单分支策略与 revision。','main','branch.convergence','read'],
-  ['on','BRANCH --revision REV [--command UUID] [--version N]','挂载并开启未来交付归并。','main --revision REV','branch.convergence_set','write'],
+  ['on','BRANCH --revision REV','挂载并开启未来交付归并。','main --revision REV','branch.convergence_set','write'],
   ['off','BRANCH --revision REV','停用未来归并，保留挂载与历史。','main --revision REV','branch.convergence,branch.convergence_set','write'],
   ['mount','BRANCH --revision REV','挂载归并，保留已有启用状态。','main --revision REV','branch.convergence,branch.convergence_set','write'],
   ['remove','BRANCH --revision REV','移除归并挂载，保留历史。','main --revision REV','branch.convergence_set','write'],
@@ -106,7 +102,7 @@ for (const [verb,args,description,example,rpc,kind] of [
   ['retry','RUN_ID --revision REV','显式重试可恢复批次，可能调用整合 Agent。','1 --revision REV','branch.convergence_retry','agent'],
   ['defaults show','','读取未来 Worker 默认与 revision。','','branch.convergence_defaults','read'],
   ['defaults set','--mounted true|false --enabled true|false [--scope main|all|user|none] --revision REV','设置未来 Worker 归并默认，不回写已有实例。','--mounted false --enabled false --revision REV','branch.convergence_defaults_set','write'],
-]) add(`branch convergence ${verb}`,args,description,example,rpc.split(','),kind,'仅用户，精确本地分支名。默认 main 挂载且关闭，其他分支未挂载。归并不提高来源合并权限；未知落地不重放。旧 command/version 仅兼容，不固定未来定义。');
+]) add(`branch convergence ${verb}`,args,description,example,rpc.split(','),kind,'仅用户，精确本地分支名。默认 main 挂载且关闭，其他分支未挂载。归并不提高来源合并权限；未知落地不重放。不接受旧 command/version 参数；归并使用当前目标策略。');
 for (const [verb,args,description,example,rpc,kind] of [
   ['list','','读取当前通知。','','notice.list','read'], ['post',"'标题' [--worker ID|Wn] [--body TEXT] [--questions-file FILE]",'发布问题或告知。',"'方案确认' --worker W5 --body '背景'",'notice.post','write'],
   ['answer','ID ANSWER | ID --answers-file FILE','答复固定通知，可能恢复 Agent。',"12 '答复'",'notice.answer','agent'],
@@ -127,12 +123,13 @@ for (const [verb,args,description,example,rpc,kind] of [
   ['env','ROLE','本地读取环境键及来源，值脱敏。','agent','','local-read'],
   ['init','[ROLE] [--local]','创建补充约定文件，不覆盖已有文件。','agent','','local-write'],
   ['resources','[--scope device]','读取本地模型、来源与额度缓存，不联网。','','agent.selection.resources','read'],
-]) add(`agent ${verb}`,args,description,example,rpc ? rpc.split(',') : [],kind,'仅用户；设备配置不接受 project scope。TARGET 为 default 或实际角色。Pi 默认模式不混入托管覆盖；legacy --prompt 等价 append-prompt。init --local 创建设备私有补充。');
+]) add(`agent ${verb}`,args,description,example,rpc ? rpc.split(',') : [],kind,'仅用户；设备配置不接受 project scope。TARGET 为 default 或实际角色。Pi 默认模式不混入托管覆盖；补充 Prompt 使用 --append-prompt。init --local 创建设备私有补充。');
 for (const [verb,args,description,example,rpc,kind] of [
   ['list','','读取托管来源安全列表。','','agent.connections.list','read'],
   ['show','ID','从安全列表查看指定来源。','CONNECTION_ID','agent.connections.list','read'],
   ['refresh','[ID]','显式联网查询来源额度，再读取列表。','','agent.connections.query,agent.connections.list','write'],
-  ['models','ID [--refresh]','读取缓存模型目录；refresh 显式联网。','CONNECTION_ID','agent.connections.models,agent.connections.models.refresh','read'],
+  ['models','ID','只读缓存模型目录，不联网刷新。','CONNECTION_ID','agent.connections.models','read'],
+  ['models-refresh','ID','显式联网刷新并保存来源模型目录。','CONNECTION_ID','agent.connections.models.refresh','write'],
   ['save','--file PATH','从私有 JSON 保存连接与凭证，不经 argv 回显。','--file connection.json','agent.connections.save','write'],
   ['remove','ID','删除托管来源，不改历史调用。','CONNECTION_ID','agent.connections.remove','destructive'],
   ['login','ID [--callback | --poll LOGIN_ID | --cancel LOGIN_ID | --finish LOGIN_ID --url-file PATH]','显式设备或回调登录；认证材料仅用户。','CONNECTION_ID','agent.connections.device.start,agent.connections.device.poll,agent.connections.device.cancel,agent.connections.login.start,agent.connections.login.finish','write'],
@@ -146,20 +143,25 @@ for (const verb of ['list','install','remove','update']) add(`agent packages ${v
 add('config show','[--scope device]','读取设备调用／拆解限额。','',['system.status','system.settings'],'read','无 scope 读取 status.settings，显式 scope 读取 system.settings。旧路由只读，不恢复快速路由设置。');
 add('config set','call-timeout|worker-call-limit|max-depth N [--scope device]','保存设备调用或拆解限额。','max-depth 4',['system.configure'],'write','正整数及上限由共享设置契约校验。');
 add('config reset','[call-timeout|worker-call-limit|max-depth|all] [--scope device]','恢复指定或全部限额默认。','max-depth',['system.configure'],'write');
-add('config migrate','[--confirm --revision REV]','先预检旧项目设置，再显式确认迁移设备配置。','',['settings.migration.preview','settings.migration.apply'],'write','保留私有备份及旧 Markdown 原件；不接受 --scope device。未知结果先核对，不重放。');
+add('config migrate-preview','','只读预检旧项目设置到设备共享设置的迁移。','',['settings.migration.preview'],'read','不接受 --scope device；预检不执行迁移。');
+add('config migrate','--confirm --revision REV','显式确认预检范围后迁移旧项目设置。','--confirm --revision REV',['settings.migration.apply'],'write','先运行 config migrate-preview；保留私有备份及旧 Markdown 原件，不接受 --scope device。未知结果先核对，不重放。');
 // Lifecycle learning notes describe runtime safety, not additional RPC permissions.
 const lifecycleNotes = {
   order: '即时 --management 从持久排队起占当前项目串行位；已有管家尚未安全收口时拒绝新建。等待未来信号的未触发绑定不占位。',
   'hooks management create': '当前项目已有管家排队、运行、待确认或未收口操作时拒绝新建绑定；未触发的未来绑定不占位。',
   'hooks management disable': '撤销尚未执行的动作与危险确认，不强杀模型、不撤回已开始操作；真实退出及在途操作收口前仍占串行位。',
   'worker cancel': '停止管家会撤销未执行授权并请求中止模型；cancelled 只表示停止已请求，不证明实际退出，不撤回已执行操作。',
-  'worker completion': '旧 archive 等价 accept；验收不调用评审 Agent，脏工作区阻止自动回收。',
-  'worker delete': '用户先运行 worker delete ID 预检，再用 worker delete ID --confirm --revision REV 精确确认；强制模式两步均须 --force。管家须停用授权、模型真实退出且 occurrence／确认／受控操作安全收口后重新预检；unknown 副作用阻止删除。安全收口的 waiting 管家无需开发验收；仅删除专属非 Git 目录与历史，不删除其创建的开发 Worker 或时间信号。',
+  'worker completion': '验收不调用评审 Agent，脏工作区阻止自动回收；CLI 只接受 off/merge/accept。',
+  'worker delete': '用户先运行 worker delete-preview ID 预检，再用 worker delete ID --confirm --revision REV 精确确认；强制模式两步均须 --force。管家须停用授权、模型真实退出且 occurrence／确认／受控操作安全收口后重新预检；unknown 副作用阻止删除。安全收口的 waiting 管家无需开发验收；仅删除专属非 Git 目录与历史，不删除其创建的开发 Worker 或时间信号。',
 };
+export const CLI_OPERATIONS = Object.freeze(['read', 'write']);
+// Classification describes the whole CLI entry, independently of RPC authorization.
+// Preparatory reads do not make a mutating command read-only.
+const operationFor = entry => ['read', 'local-read'].includes(entry.kind) ? 'read' : 'write';
 export const CLI_COMMANDS = Object.freeze(entries.map(entry => {
-  const numbered = entry.path.startsWith('worker ') && !['worker list','worker auto-title','worker reserve-all'].includes(entry.path)
+  const numbered = entry.path.startsWith('worker ') && !['worker list','worker auto-title','worker merge-all'].includes(entry.path)
     || ['notice post','hooks management enable','hooks management disable'].includes(entry.path);
-  return Object.freeze({ ...entry,
+  return Object.freeze({ ...entry, operation: entry.directory ? null : operationFor(entry),
     advanced: [entry.advanced, lifecycleNotes[entry.path]].filter(Boolean).join(' '),
     risk: lifecycleNotes[entry.path],
     // ID below accepts the stable W/V forms described in shared help and detail notes.
@@ -202,7 +204,10 @@ export function cliCommands(executable = 'lush') {
   }));
   return CLI_COMMANDS.filter(entry => paths.has(entry.path)).map(entry => {
     const qualify = value => value?.replace(/^lush(?=\s|$)/, executable);
-    return Object.freeze({ ...entry, executable, usage: qualify(entry.usage),
+    const operations = entry.directory
+      ? CLI_OPERATIONS.filter(operation => leaves.some(leaf => leaf.path.startsWith(`${entry.path} `) && leaf.operation === operation))
+      : [entry.operation];
+    return Object.freeze({ ...entry, executable, operations: Object.freeze(operations), usage: qualify(entry.usage),
       format: qualify(entry.format), example: qualify(entry.example) });
   });
 }

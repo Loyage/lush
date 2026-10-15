@@ -22,7 +22,7 @@ test('option-dependent multi-RPC mappings are actual CLI branches, not RPC alias
     ['order', ['管理需求', '--management'], ['management.submit']],
     ['order', ['追加', '--append', 'W5', '--after-merged', 'W5'], ['worker.lookup','worker.lookup','input.emit']],
     ['worker delete', ['delete','W5','--confirm','--revision','REV'], ['worker.lookup','worker.delete']],
-    ['agent sources models', ['sources','models',uuid,'--refresh'], ['agent.connections.models.refresh']],
+    ['agent sources models-refresh', ['sources','models-refresh',uuid], ['agent.connections.models.refresh']],
     ['agent sources login', ['sources','login',uuid,'--callback'], ['agent.connections.login.start']],
     ['agent sources login', ['sources','login',uuid,'--poll',uuid], ['agent.connections.device.poll']],
     ['agent sources login', ['sources','login',uuid,'--cancel',uuid], ['agent.connections.device.cancel']],

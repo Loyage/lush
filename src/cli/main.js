@@ -61,6 +61,7 @@ export async function main(argv = process.argv.slice(2), { executable = 'lush' }
     if (elsewhere) throw new Error(`${executable} ${root} is not available; use ${commandExecutables(elsewhere)[0]} ${root}`);
     throw new Error(`unknown command: ${root}; run ${executable} help`);
   }
+  check(entry, `unknown ${root} command; run ${executable} help`);
   let command = args.shift();
   if (command === 'host') {
     if (!['start', 'stop', 'restart', 'status'].includes(args[0])) {
