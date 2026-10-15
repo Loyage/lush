@@ -24,7 +24,6 @@ test('project navigation opens lazy CLI page, selected chrome and repeat hash re
   expect(btn('view-title').textContent).toBe('CLI 接口'); expect(btn('cli-interfaces-open').getAttribute('aria-current')).toBe('page');
   expect(reads).toBe(0);
   await btn('detail').querySelectorAll('button').find(node => node.textContent === '读取项目权限').onclick();
-  btn('detail').querySelector('button[data-operation="write"]').onclick();
   edit(); const details = btn('detail').querySelector('details'); details.open = true; const count = reads;
   await dom.fire('hashchange'); expect(btn('detail').querySelector('details')).toBe(details); expect(details.open).toBe(true); expect(reads).toBe(count);
   await import('../../src/ui/web/assets/refresh.js').then(module => module.refresh()); expect(btn('detail').querySelector('details')).toBe(details);

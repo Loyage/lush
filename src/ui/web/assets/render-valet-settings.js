@@ -30,31 +30,25 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   if (existing?.view === view && existing.owner === owner && existing.project === identity) return existing.ready;
   ui.disposeValetSettings?.();
   const state = { view, owner, project: identity, disposed: false, generation: 0, catalogGeneration: 0, catalog: null, data: null,
-    draft: null, busy: false, catalogLoading: false, permissionsStale: false, uncertain: false, operation: 'read', selected: null, query: '', composing: false, expanded: new Set() };
+    draft: null, busy: false, catalogLoading: false, permissionsStale: false, uncertain: false, selected: null, query: '', composing: false, expanded: new Set() };
   ui.valetSettingsPage = state;
   const owns = () => !state.disposed && globalThis.document === owner && ui.view === view
     && ui.valetSettingsPage === state && projectApi('/api/management/permissions') === identity;
   const dirty = () => state.data && state.data.methods.some(item => state.draft[item.method] !== state.data.permissions[item.method]);
   const root = el('div', undefined, 'cli-interfaces-page');
   const searchBox = el('section', undefined, 'cli-search');
-  const searchLabel = el('label', '搜索 CLI 命令、名称或介绍');
-  const search = el('input'); search.type = 'search'; search.placeholder = '例如：lushc worker、lush order、继续'; search.setAttribute('aria-label', '搜索 CLI 命令、名称或介绍');
+  const searchLabel = el('label', '搜索命令'); searchLabel.htmlFor = 'cli-command-search';
+  const search = el('input'); search.id = 'cli-command-search'; search.type = 'search'; search.placeholder = '搜索 CLI 命令、名称或介绍'; search.setAttribute('aria-label', '搜索 CLI 命令、名称或介绍'); search.setAttribute('aria-describedby', 'cli-search-hint');
   const clear = el('button', '清空', 'ghost'); clear.type = 'button'; clear.onclick = () => { if (!owns()) return; search.value = ''; state.query = ''; state.selected = null; paint(); search.focus(); };
   const searchField = el('span', undefined, 'cli-search-field');
-  searchField.append(search);
-  searchLabel.append(searchField); searchBox.append(searchLabel, clear, el('p', '支持 lush / lushc 完整命令及关键词 · 实时本地匹配 · 空关键词只显示顶层', 'hint'));
+  const searchIcon = el('span', '⌕', 'cli-search-icon'); searchIcon.setAttribute('aria-hidden', 'true');
+  searchField.append(searchIcon, search, clear);
+  const searchHint = el('p', '支持 lush / lushc 完整命令及关键词 · 实时匹配读写接口 · 空关键词显示顶层目录', 'hint'); searchHint.id = 'cli-search-hint';
+  searchBox.append(searchLabel, searchField, searchHint);
   const updateSearch = () => { if (!owns() || state.composing) return; state.query = search.value.trim(); state.selected = null; paint(); };
   search.oninput = event => { if (!event?.isComposing) updateSearch(); };
   search.addEventListener('compositionstart', () => { state.composing = true; });
   search.addEventListener('compositionend', () => { state.composing = false; updateSearch(); });
-  const filters = el('section', undefined, 'cli-operation-filters'); filters.setAttribute('aria-label', 'CLI 读写分类');
-  const operationButtons = new Map();
-  for (const [operation, label] of [['read', '读接口'], ['write', '写接口']]) {
-    const button = el('button', label, 'ghost'); button.type = 'button'; button.dataset.operation = operation;
-    button.onclick = () => { if (!owns()) return; state.operation = operation; state.selected = null; paint(); };
-    operationButtons.set(operation, button); filters.append(button);
-  }
-  filters.append(el('p', '读：查看与诊断；写：修改配置、控制进程、提交工作或调用 Agent。危险等级和执行授权仍逐项审核。', 'hint'));
   const hero = el('header', undefined, 'resource-hero');
   hero.append(el('h1', 'CLI 接口'), el('p', '说明随版本缓存，查阅不依赖项目后台。项目权限按需读取；浏览与保存不执行 CLI、不调用 Agent，不能提升审核上限。'));
   const catalogStatus = el('p', '正在加载静态目录…', 'cli-catalog-status'); catalogStatus.setAttribute('role', 'status');
@@ -69,14 +63,13 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   footer.append(el('h2', '项目权限 · 按需读取与统一保存'), el('p', project
     ? '仅影响本项目之后新建的 Valet；已有权限快照不变。危险操作始终逐次确认，原有安全门保持。'
     : '当前没有项目：可浏览全部 CLI 说明，但不能编辑或保存管家默认权限。请在可用项目页打开 CLI 接口。', 'hint'), status, save, reload);
-  root.append(searchBox, filters, hero, catalogNotice, results, detail, footer); $('detail').replaceChildren(root);
+  root.append(hero, catalogNotice, searchBox, results, detail, footer); $('detail').replaceChildren(root);
   const selects = new Map(), diagnostics = new Map(), summaries = new Map();
   function setStatus(text, error = false) { status.textContent = text; status.classList.toggle('error', error); }
   function sync() {
     save.disabled = !state.data || state.busy || state.uncertain || state.permissionsStale || !dirty(); reload.disabled = !project || !state.catalog || state.busy;
     reload.textContent = state.data || state.uncertain ? '重新读取项目权限' : '读取项目权限';
     catalogRetry.disabled = state.catalogLoading;
-    for (const [operation, button] of operationButtons) { button.setAttribute('aria-pressed', String(state.operation === operation)); button.classList.toggle('active', state.operation === operation); }
     for (const [method, select] of selects) {
       const item = state.data?.methods.find(item => item.method === method);
       select.value = state.draft?.[method] ?? '';
@@ -107,12 +100,14 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   }
   function commandList(container, commands) {
     const headings = el('div', undefined, 'cli-command-columns'); headings.setAttribute('aria-hidden', 'true');
-    headings.append(el('span', '命令'), el('span', '简介'), el('span', '管理 Agent 权限')); container.append(headings);
+    headings.append(el('span', '命令'), el('span', '简介', 'cli-command-description'), el('span', '读写'), el('span', '管家权限')); container.append(headings);
     const wordCount = item => item.command_path.trim().split(/\s+/).length;
     for (const item of [...commands].sort((a, b) => wordCount(a) - wordCount(b))) {
       const node = el('button', undefined, 'cli-command-link'); node.type = 'button'; node.dataset.command = item.path;
       const summary = el('span', undefined, 'cli-command-access'); summaries.set(summary, item);
-      node.append(el('strong', item.path), el('span', item.description, 'cli-command-description'), summary);
+      const operation = el('span', item.operations.length > 1 ? '读／写' : item.operations.includes('write') ? '写' : '读', 'cli-command-operation');
+      operation.dataset.operation = item.operations.length > 1 ? 'mixed' : item.operations[0];
+      node.append(el('strong', item.path), el('span', item.description, 'cli-command-description'), operation, summary);
       node.onclick = () => { if (!owns()) return; state.selected = item.path; paint(); detail.scrollIntoView?.({ block: 'start' }); };
       container.append(node);
     }
@@ -154,11 +149,11 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
     if (previous) { if (previous.open) state.expanded.add(previous.dataset.command); else state.expanded.delete(previous.dataset.command); }
     results.replaceChildren(); detail.replaceChildren(); selects.clear(); diagnostics.clear(); summaries.clear();
     if (!state.catalog) { sync(); return; }
-    const commands = state.catalog.commands.filter(item => item.operations.includes(state.operation)), query = state.query.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+    const commands = state.catalog.commands, query = state.query.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
     const matches = commands.filter(item => !query ? !item.parent : ['lush', 'lushc'].includes(query)
       ? item.executable === query : `${item.path} ${item.name} ${item.description}`.toLocaleLowerCase().includes(query));
     results.hidden = Boolean(state.selected); detail.hidden = !state.selected;
-    results.append(el('h2', query ? `匹配结果（${matches.length}）` : `${state.operation === 'read' ? '读接口' : '写接口'} · 顶层命令目录`));
+    results.append(el('h2', query ? `匹配结果（${matches.length}）` : '顶层命令目录'));
     if (!matches.length) results.append(el('p', '没有匹配的 CLI 命令，请调整关键词。', 'hint'));
     commandList(results, matches);
     if (state.selected) {
@@ -188,11 +183,11 @@ export async function openCliInterfaces({ registerPageLeaveGuard }) {
   async function loadCatalog(retry = false) {
     if (!owns() || state.catalogLoading) return;
     const generation = ++state.catalogGeneration; state.catalogLoading = true; sync();
-    catalogStatus.textContent = '正在加载静态目录…'; catalogStatus.classList.remove('error'); catalogRetry.hidden = true;
+    catalogNotice.hidden = false; catalogStatus.textContent = '正在加载静态目录…'; catalogStatus.classList.remove('error'); catalogRetry.hidden = true;
     try {
       const catalog = await loadCliCatalog({ retry });
       if (!owns() || generation !== state.catalogGeneration) return;
-      state.catalog = catalog; paint(); catalogStatus.textContent = '静态目录随版本缓存；项目权限仅在主动读取后显示。';
+      state.catalog = catalog; paint(); catalogNotice.hidden = true;
     } catch (error) {
       if (!owns() || generation !== state.catalogGeneration) return;
       catalogStatus.textContent = `目录加载失败：${error.message}`; catalogStatus.classList.add('error'); catalogRetry.hidden = false;

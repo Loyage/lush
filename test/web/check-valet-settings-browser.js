@@ -51,7 +51,7 @@ try {
   const frame = async () => { const element = await rpc(`/session/${session}/element`, { using: 'css selector', value: '#viewport' }); await rpc(`/session/${session}/frame`, { id: element }); };
   await frame(); assert(await wait(`document.querySelectorAll('.cli-command-link').length>0`), 'page missing');
   assert(await run(`return location.hash==='#cli-interfaces'&&[...document.querySelectorAll('.cli-results [data-command]')].every(n=>n.dataset.command.split(' ').length===2)`), 'empty search must show only roots / old route redirect');
-  assert(await run(`return document.querySelector('.cli-search').getBoundingClientRect().top<document.querySelector('.resource-hero').getBoundingClientRect().top`), 'search is not first');
+  assert(await run(`const hero=document.querySelector('.resource-hero'),search=document.querySelector('.cli-search'),results=document.querySelector('.cli-results');return hero.getBoundingClientRect().top<search.getBoundingClientRect().top&&search.getBoundingClientRect().bottom<=results.getBoundingClientRect().top&&search.nextElementSibling===results&&!document.querySelector('.cli-operation-filters')&&document.querySelector('.cli-catalog-notice').hidden`), 'title/search/results hierarchy is not compact');
   assert(await run(`return getComputedStyle(document.querySelector('.cli-command-link strong')).color===getComputedStyle(document.querySelector('.cli-interfaces-page')).color`), 'command names are not legible');
   assert(await run(`return !document.querySelector('.cli-search-prefix')&&[...document.querySelectorAll('.cli-results [data-command]')].some(n=>n.dataset.command.startsWith('lushc '))`), 'fixed prefix was not removed or development entry is missing');
   assert(permissionReads === 0 && catalogueRequests.length === 1, 'static browsing requested project permissions or duplicate data');
@@ -67,16 +67,17 @@ try {
   assert(permissionReads === 0 && catalogueRequests.length === 1, 'new document downloaded an unchanged catalogue');
   const cacheEvidence = await run(`return performance.getEntriesByType('resource').filter(n=>n.name.endsWith('-cli-catalog.json')).map(n=>({name:n.name,transferSize:n.transferSize,encodedBodySize:n.encodedBodySize}))`);
   assert(cacheEvidence.length === 1 && cacheEvidence[0].transferSize === 0, 'catalogue did not come from browser HTTP cache');
-  await press('写接口'); await search('worker');
+  await search('worker');
+  assert(await run(`const read=document.querySelector('[data-command="lush worker inspect"] .cli-command-operation'),write=document.querySelector('[data-command="lush worker resume"] .cli-command-operation'),directory=document.querySelector('[data-command="lush worker"] .cli-command-operation');return read.textContent==='读'&&write.textContent==='写'&&directory.textContent==='读／写'`), 'reads/writes are not unified or status is ambiguous');
   assert(await run(`const counts=[...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command.split(' ').length-1);return counts.every((n,i)=>!i||n>=counts[i-1])&&counts.includes(3)`), 'word-count ordering missing');
   const paths = await run(`return [...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command)`);
   await search('LUSH worker');
   assert(await run(`return JSON.stringify([...document.querySelectorAll('.cli-results .cli-command-link')].map(n=>n.dataset.command))===${JSON.stringify(JSON.stringify(paths.filter(command => command.startsWith('lush worker'))))}`), 'full command paste must select its actual executable');
-  for (const width of [1440, 390]) {
+  for (const width of [1440, 768, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null }); await run(`document.querySelector('#viewport').style.width='${width}px'`); await frame();
-    const layout = await run(`const rows=[...document.querySelectorAll('.cli-results .cli-command-link')];return {kind:'list',width:innerWidth,documentWidth:document.documentElement.scrollWidth,bodyWidth:document.body.scrollWidth,rows:rows.map(n=>{const r=n.getBoundingClientRect(),name=n.querySelector('strong').getBoundingClientRect(),description=n.querySelector('.cli-command-description').getBoundingClientRect(),permission=n.querySelector('.cli-command-access').getBoundingClientRect();return {height:r.height,display:getComputedStyle(n).display,margin:getComputedStyle(n).marginBottom,last:n.lastElementChild.className,nameRight:name.right,descriptionX:description.x,descriptionRight:description.right,permissionX:permission.x,permissionRight:permission.right};})};`);
-    assert(layout.documentWidth <= width && layout.bodyWidth <= width, `list horizontal overflow ${width}`);
-    assert(layout.rows.every(row => row.display === 'grid' && row.height >= 44 && row.margin === '0px' && row.last === 'cli-command-access' && row.nameRight <= row.descriptionX && row.descriptionRight <= row.permissionX && row.permissionRight <= width), `not compact aligned rows ${width}`);
+    const layout = await run(`const rows=[...document.querySelectorAll('.cli-results .cli-command-link')];return {kind:'list',width:innerWidth,documentWidth:document.documentElement.scrollWidth,bodyWidth:document.body.scrollWidth,listWidth:document.querySelector('.cli-results').getBoundingClientRect().width,rows:rows.map(n=>{const r=n.getBoundingClientRect(),name=n.querySelector('strong').getBoundingClientRect(),description=n.querySelector('.cli-command-description').getBoundingClientRect(),operation=n.querySelector('.cli-command-operation').getBoundingClientRect(),permission=n.querySelector('.cli-command-access').getBoundingClientRect();return {height:r.height,display:getComputedStyle(n).display,margin:getComputedStyle(n).marginBottom,last:n.lastElementChild.className,nameX:name.x,nameRight:name.right,nameBottom:name.bottom,descriptionX:description.x,descriptionY:description.y,descriptionRight:description.right,operationX:operation.x,permissionX:permission.x,permissionRight:permission.right,gap:getComputedStyle(n).columnGap};})};`);
+    assert(layout.documentWidth <= width && layout.bodyWidth <= width && layout.listWidth <= 800, `list overflow or excessive reading width ${width}`);
+    assert(layout.rows.every(row => row.display === 'grid' && row.height >= 44 && row.margin === '0px' && row.last === 'cli-command-access' && parseFloat(row.gap) <= 12 && row.permissionRight <= width && (width > 760 ? row.nameRight <= row.descriptionX && row.descriptionRight <= row.operationX && row.operationX < row.permissionX : row.descriptionX === row.nameX && row.descriptionY >= row.nameBottom && row.descriptionRight <= row.operationX && row.nameRight <= row.operationX && row.operationX < row.permissionX)), `not compact responsive rows ${width}`);
     layouts.push(layout); await screenshot(`${width}-list`);
   }
   await rpc(`/session/${session}/frame`, { id: null }); await run(`document.querySelector('#viewport').style.width='1440px'`); await frame();
@@ -119,7 +120,7 @@ try {
   await run(`location.hash='#valets'`); assert(await wait(`!document.querySelector('#modal').hidden`), 'discard missing'); await press('丢弃并离开');
   await rpc(`/session/${session}/frame`, { id: null }); await run(`document.querySelector('#viewport').src='/#cli-interfaces'`);
   assert(await wait(`document.querySelector('#viewport').contentWindow.location.pathname==='/'&&document.querySelector('#viewport').contentDocument.querySelector('.cli-results .cli-command-link')`), 'global catalogue missing');
-  await frame(); await press('写接口'); await search('order'); await choose('order');
+  await frame(); await search('order'); await choose('order');
   assert(await run(`return [...document.querySelectorAll('.cli-permission-method select')].every(s=>s.disabled)&&document.querySelector('.cli-permissions-save button').disabled&&document.querySelector('.cli-permissions-save').textContent.includes('当前没有项目')`), 'global permissions not readonly');
   await screenshot('390-global-readonly');
   // Close only the isolated fixture's RPC service: code-owned documentation still

@@ -26,7 +26,6 @@ test('page edits real directory and persists defaults used by new Valet and real
     dom.node('cli-catalog-asset').setAttribute('content', asset);
     await openValetSettings(); expect(reads).toEqual([asset]);
     await dom.node('detail').querySelectorAll('button').find(node => node.textContent === '读取项目权限').onclick();
-    dom.node('detail').querySelector('button[data-operation="write"]').onclick();
     const before = f.project.managementPermissions();
     const oldResponse = await post('management.submit', { instruction: 'old permission snapshot' });
     expect(oldResponse.status).toBe(200);

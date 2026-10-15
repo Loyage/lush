@@ -37,75 +37,81 @@ const btn = text => root().querySelectorAll('button').find(node => node.textCont
 const results = () => root().querySelector('.cli-results');
 const input = () => root().querySelector('input');
 const search = text => { input().value = text; input().oninput({}); };
-const mode = operation => root().querySelectorAll('button').find(node => node.dataset.operation === operation).onclick();
 const choose = path => root().querySelectorAll('.cli-command-link').find(node => node.dataset.command === (path.startsWith('lush') ? path : `lush ${path}`)).onclick();
 const select = method => root().querySelectorAll('.cli-permission-method').find(node => node.dataset.method === method).querySelector('select');
 const change = (method, access) => { const node = select(method); node.value = access; node.onchange(); };
 const save = () => btn('保存管家默认权限');
 const loadPermissions = () => (btn('重新读取项目权限') ?? btn('读取项目权限')).onclick();
-const openOrder = () => { mode('write'); search('order'); choose('order'); };
+const openOrder = () => { search('order'); choose('order'); };
 const sorted = items => [...items].sort((a, b) => a.command_path.split(' ').length - b.command_path.split(' ').length).map(item => item.path);
-const commands = operation => cliCatalog().commands.filter(item => item.operations.includes(operation));
+const commands = () => cliCatalog().commands;
 
-test('static browsing defaults to reads, filters directories and does not request project permissions', async () => {
+test('static browsing combines reads and writes at every level without requesting project permissions', async () => {
   await open(); expect(reads).toEqual(['/api/host/cli/catalog']);
-  expect(results().querySelectorAll('.cli-command-link').map(node => node.dataset.command)).toEqual(sorted(commands('read').filter(item => !item.parent)));
-  expect(root().querySelector('button[data-operation="read"]').getAttribute('aria-pressed')).toBe('true');
+  expect(results().querySelectorAll('.cli-command-link').map(node => node.dataset.command)).toEqual(sorted(commands().filter(item => !item.parent)));
+  expect(root().querySelector('.cli-operation-filters')).toBeNull();
+  const page = root().querySelector('.cli-interfaces-page');
+  expect(page.children[0].classList.contains('resource-hero')).toBe(true);
+  expect(page.children.indexOf(results())).toBe(page.children.indexOf(page.querySelector('.cli-search')) + 1);
+  expect(page.querySelector('.cli-catalog-notice').hidden).toBe(true);
+  expect(page.querySelector('.cli-search-field').children).toEqual([page.querySelector('.cli-search-icon'), input(), btn('清空')]);
   choose('worker'); const children = root().querySelector('.cli-command-detail').querySelectorAll('.cli-command-link').map(node => node.dataset.command);
-  expect(children).toEqual(sorted(commands('read').filter(item => item.parent === 'lush worker')));
-  expect(children).not.toContain('lush worker resume');
+  expect(children).toEqual(sorted(commands().filter(item => item.parent === 'lush worker')));
+  expect(children).toContain('lush worker resume');
+  expect(children).toContain('lush worker inspect');
   search('lush status'); choose('status'); expect(select('system.status').disabled).toBe(true); expect(select('system.status').value).toBe('');
   expect(deepText(root())).toContain('审核上限：只读'); expect(deepText(root())).toContain('项目权限尚未读取');
-  mode('write'); search('继续'); const matches = results().querySelectorAll('.cli-command-link').map(node => node.dataset.command); expect(matches).toContain('lush worker resume');
+  search('继续'); const matches = results().querySelectorAll('.cli-command-link').map(node => node.dataset.command); expect(matches).toContain('lush worker resume');
   input().listeners.compositionstart[0](); input().value = '删除'; input().oninput({ isComposing: true });
   expect(results().querySelectorAll('.cli-command-link').map(node => node.dataset.command)).toEqual(matches);
   input().listeners.compositionend[0](); expect(results().querySelectorAll('.cli-command-link').map(node => node.dataset.command)).toContain('lush worker delete');
   expect(reads).toHaveLength(1); expect(writes).toEqual([]);
 });
 
-test('current CLI migration exposes split reads/writes and new merge names, never retired CLI spellings', async () => {
+test('unified searches expose read/write command pairs and current merge names, never retired CLI spellings', async () => {
   await open();
   const paths = () => results().querySelectorAll('.cli-command-link').map(node => node.dataset.command);
-  search('worker delete'); expect(paths()).toEqual(['lush worker delete-preview']);
-  mode('write'); expect(paths()).toEqual(['lush worker delete']);
-  mode('read'); search('agent sources models'); expect(paths()).toEqual(['lush agent sources models']);
-  mode('write'); expect(paths()).toEqual(['lush agent sources models-refresh']);
-  mode('read'); search('config migrate'); expect(paths()).toEqual(['lush config migrate-preview']);
-  mode('write'); expect(paths()).toEqual(['lush config migrate']);
+  search('worker delete'); expect(paths()).toEqual(['lush worker delete-preview', 'lush worker delete']);
+  search('agent sources models'); expect(paths()).toEqual(['lush agent sources models', 'lush agent sources models-refresh']);
+  search('config migrate'); expect(paths()).toEqual(['lush config migrate-preview', 'lush config migrate']);
   search('lush worker merge'); expect(paths()).toEqual(['lush worker merge', 'lush worker merge-all', 'lush worker merge-cancel']);
   const retired = ['reserve', 'reserve-all', 'unreserve', 'integrate', 'resolve-child-divergence', 'resolve-divergence', 'approve-merge', 'resolve'];
   expect(cliCatalog().commands.some(item => retired.some(name => item.path === `lush worker ${name}`))).toBe(false);
   expect(reads).toEqual(['/api/host/cli/catalog']); expect(writes).toEqual([]);
 });
 
-test('directory/detail navigation preserves query, selected read/write category and loaded permission drafts', async () => {
-  await open(); await loadPermissions(); mode('write'); choose('worker'); choose('worker resume');
+test('unified directory/detail navigation preserves query and loaded permission drafts across reads and writes', async () => {
+  await open(); await loadPermissions(); choose('worker'); choose('worker resume');
   expect(select('worker.resume').value).toBe('automatic'); change('worker.resume', 'confirmation');
   await btn('返回顶层目录').onclick(); search('lush worker RESUME'); choose('worker resume');
   expect(select('worker.resume').value).toBe('confirmation');
   const heldRoot = root().querySelector('.cli-interfaces-page'); await open();
   expect(root().querySelector('.cli-interfaces-page')).toBe(heldRoot); expect(input().value).toBe('lush worker RESUME'); expect(reads.length).toBe(2);
   await btn('返回搜索结果').onclick(); expect(results().querySelectorAll('.cli-command-link').map(node => node.dataset.command)).toEqual(['lush worker resume']);
-  mode('read'); search('status'); choose('status'); change('system.status', 'unavailable');
+  search('status'); choose('status'); change('system.status', 'unavailable');
   openOrder(); expect(select('draft.add').value).toBe('automatic');
   search('worker resume'); choose('worker resume'); expect(select('worker.resume').value).toBe('confirmation');
   search('没有此命令'); expect(deepText(results())).toContain('没有匹配'); await btn('清空').onclick();
-  expect(results().querySelectorAll('.cli-command-link').map(node => node.dataset.command)).toEqual(sorted(commands('write').filter(item => !item.parent)));
+  expect(results().querySelectorAll('.cli-command-link').map(node => node.dataset.command)).toEqual(sorted(commands().filter(item => !item.parent)));
 });
 
 test('compact real executable rows keep stable relative word ordering and distinguish unknown, actual and draft permissions', async () => {
   await open(); expect(root().querySelector('.cli-search-prefix')).toBeNull();
   const rows = () => results().querySelectorAll('.cli-command-link');
-  expect(rows().every(node => node.children.length === 3 && node.children.at(-1).classList.contains('cli-command-access'))).toBe(true);
+  expect(rows().every(node => node.children.length === 4 && node.children.at(-1).classList.contains('cli-command-access'))).toBe(true);
   expect(rows().find(node => node.dataset.command === 'lush worker').children.at(-1).textContent).toBe('分类 · 查看子命令');
   expect(rows().find(node => node.dataset.command === 'lush log').children.at(-1).textContent).toBe('本地 · 不可授权');
-  search('worker'); expect(rows().map(node => node.dataset.command)).toEqual(sorted(commands('read').filter(item => `${item.path} ${item.name} ${item.description}`.toLowerCase().includes('worker'))));
-  mode('write'); search('lushc'); choose('lushc worker'); choose('lushc worker spawn');
+  search('worker'); expect(rows().map(node => node.dataset.command)).toEqual(sorted(commands().filter(item => `${item.path} ${item.name} ${item.description}`.toLowerCase().includes('worker'))));
+  for (const row of rows()) {
+    const item = commands().find(item => item.path === row.dataset.command);
+    expect(row.querySelector('.cli-command-operation').textContent).toBe(item.operations.length > 1 ? '读／写' : item.operations.includes('write') ? '写' : '读');
+  }
+  search('lushc'); choose('lushc worker'); choose('lushc worker spawn');
   expect(deepText(root().querySelector('.cli-command-detail'))).toContain("lushc worker spawn '目标'");
   search('worker resume'); expect(rows()[0].children.at(-1).textContent).toBe('项目权限未读取');
   await loadPermissions(); expect(rows()[0].children.at(-1).textContent).toBe('多项权限（2）');
   expect(rows()[0].children.at(-1).getAttribute('data-help')).toContain('worker.resume：自动执行');
-  mode('read'); search('status'); const statusRow = () => rows().find(node => node.dataset.command === 'lush status');
+  search('status'); const statusRow = () => rows().find(node => node.dataset.command === 'lush status');
   expect(statusRow().children.at(-1).textContent).toBe('只读'); choose('status'); change('system.status', 'unavailable');
   expect(statusRow().children.at(-1).textContent).toBe('禁止 · 草稿'); await btn('返回搜索结果').onclick();
   expect(statusRow().children.at(-1).textContent).toBe('禁止 · 草稿'); await save().onclick(); expect(statusRow().children.at(-1).textContent).toBe('禁止');

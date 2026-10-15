@@ -11,6 +11,9 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-task-graph-clutter.test.js', // inline merge status beside usage, diagnostics and action placement
     'test/web/core-api.test.js', // rendered navigation allowlist and real HTTP action/read routes
     'test/web/dom-loading-assets.test.js', // lazy routes and root deep-link boot
+    'test/web/dom-valet-settings.test.js', // unified CLI discovery, detail navigation and permission drafts
+    'test/web/dom-valet-settings-navigation.test.js', // lazy CLI route, retained state and dirty leave guards
+    'test/web/valet-settings-page-integration.test.js', // CLI page -> real HTTP/RPC/defaults -> restricted Provider bridge
     'test/web/assets.test.js', // startup/lazy resource graphs and CSP
     'test/web/dom-built-loading-assets.test.js', // compiled root/project boot and shared state
     'test/web/loading-assets.test.js', // authenticated Host, cold JS/CSS budgets and compression
