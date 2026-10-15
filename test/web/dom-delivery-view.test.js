@@ -5,7 +5,7 @@ import { gate } from '../helpers.js';
 const world = makeWorld();
 let respond;
 const dom = installDom({ fetch: (url, options) => url.startsWith('/api/worker-delivery-graph') ? respond(url, options) : world.fetchImpl(url, options) });
-const { openDeliveryView, deliveryCard, refreshDeliveryCounts } = await import('../../src/ui/web/assets/render-delivery-view.js');
+const { openDeliveryView, deliveryCard } = await import('../../src/ui/web/assets/render-delivery-view.js');
 const { deliveryControls } = await import('../../src/ui/web/assets/render-delivery.js');
 const { renderTaskGraph } = await import('../../src/ui/web/assets/render-task-graph.js');
 const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
@@ -48,7 +48,7 @@ test('successful history is opt-in and paged; completed helper never makes activ
   expect(deepText(dom.node('detail'))).toContain('非当前预约交付');
   expect(deepText(dom.node('detail'))).toContain('不自动验收或回收');
   const card = deliveryCard({ ...batch, stage: 'ready', integration_workers: { items: [{ id: 90, status: 'completed', current: true }] } });
-  expect(deepText(card)).toContain('整合完成 · 等待落地'); expect(card.querySelector('.delivery-result')).toBeNull();
+  expect(deepText(card)).toContain('工作完成 · 等待合并'); expect(card.querySelector('.delivery-result')).toBeNull();
   expect(card.querySelectorAll('button')).toHaveLength(0);
 });
 
@@ -61,6 +61,8 @@ test('missing/mismatch/old generation and truncation stay explicit; no ghost wor
   for (const version of [3, 99]) for (const kind of ['order','child']) {
     const controls = deliveryControls({ id: 7, task_kind: kind, parent_task_kind: 'main', status: 'waiting', integration: 'pending', reservation: { version, kind: 'merge', status: 'requested' }, delivery_summary: summary });
     expect(controls.querySelectorAll('button')).toHaveLength(0); expect(deepText(controls)).not.toContain('批准固定提交');
+    expect(controls.querySelectorAll('a').some(link => link.href.includes('#deliveries'))).toBe(false);
+    expect(deepText(controls)).not.toContain('本轮交付');
   }
   const serial = deliveryCard({ key: 'serial:7:9', kind: 'serial', stage: 'requested', target: batch.target, sources: [{ ...batch.sources[0], delivery_summary: { ...summary, version: 2, run_id: null } }] });
   expect(deepText(serial)).toContain('不创建虚构整合 Worker');
@@ -118,22 +120,17 @@ test('work tree keeps true parent edges and whitelist; minimal source cards expo
   expect(deepText(root.querySelector('[data-task-id="7"]'))).toContain('等待整合 #90');
 });
 
-test('late sidebar counts cannot overwrite a newer page; existing refresh preserves expanded reading', async () => {
-  resetUiState(); const pending = gate(); let signal, reads = 0;
-  respond = (url, options) => {
-    reads++;
-    if (reads === 1) { signal = options.signal; return pending.promise; }
-    return page([batch]);
-  };
-  const countRead = refreshDeliveryCounts(); await openDeliveryView();
-  expect(signal.aborted).toBe(true);
-  pending.resolve(Response.json({ counts: { ...counts, active: 999 }, items: [] })); await countRead;
-  expect(dom.node('delivery-count').textContent).toContain('活动 3');
+test('legacy view is explicitly historical/read-only and preserves expanded reading on refresh', async () => {
+  resetUiState(); let reads = 0;
+  respond = () => { reads++; return page([batch]); };
+  await openDeliveryView();
+  expect(deepText(dom.node('detail'))).toContain('历史合并记录');
+  expect(deepText(dom.node('detail'))).toContain('旧链接只读兼容');
   const body = dom.node('detail').querySelector('.delivery-view');
-  body.querySelector('details').setAttribute('open', ''); ui.deliveryCounts.at = 0;
-  await refreshDeliveryCounts(); await Promise.resolve();
+  body.querySelector('details').setAttribute('open', '');
+  await ui.deliveryPage.refresh();
   expect(dom.node('detail').querySelector('.delivery-view')).toBe(body);
-  expect(reads).toBe(3);
+  expect(reads).toBe(1);
 });
 
 test('attention count accepts only complete nonnegative server integers, not stages or loaded item totals', async () => {
@@ -145,7 +142,6 @@ test('attention count accepts only complete nonnegative server integers, not sta
     await openDeliveryView();
     const expected = Number.isSafeInteger(attention) && attention >= 0 ? `待处理 ${attention}` : '待处理统计未提供';
     expect(deliveryAttentionText(wireCounts)).toBe(expected);
-    expect(dom.node('delivery-count').textContent).toBe(`活动 3 · ${expected}`);
     expect(dom.node('detail').querySelector('.delivery-count-summary').textContent).toBe(`活动 3 · ${expected} · 已合并历史 2`);
     expect(deepText(dom.node('detail'))).not.toContain('阶段异常');
     expect(dom.node('detail').querySelectorAll('.delivery-card')).toHaveLength(1);

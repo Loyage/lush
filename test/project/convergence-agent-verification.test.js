@@ -3,8 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fixture, repo, git } from '../helpers.js';
 import { convergenceJSON } from '../../src/core/convergence-contract.js';
+import { pinHistoricalConvergence } from '../convergence-fixtures.js';
 
-// Assembled SQL/Git/runtime. Only branch-policy mounting is a fixed seam (owned by a sibling).
+// Assembled SQL/Git/runtime continuing explicit historical v3 fixtures.
 async function setup(count = 2) {
   const f = fixture();
   f.project.kick = () => {};
@@ -22,6 +23,7 @@ async function setup(count = 2) {
       await git(task.workspace, 'add', '.'); await git(task.workspace, 'commit', '-m', `source ${i}`);
       f.store.update(task.id, { status: 'waiting' });
       await f.project.requestTaskMerge(task.id);
+      await pinHistoricalConvergence(f, task.id);
       sources.push(f.store.task(task.id));
       expect(convergenceJSON(sources.at(-1).reservation)).toMatchObject({ version: 3, verification_mode: 'agent', validation: null });
     }
@@ -39,7 +41,7 @@ function assertNoCommandEvidence(f, run) {
   expect(f.store.all("SELECT key FROM meta WHERE key LIKE 'convergence_validation:%'")).toHaveLength(0);
 }
 
-test('new fixed deliveries publish one single-parent batch with no command/catalog/checkout and preserve multi-round increments', async () => {
+test('historical agent deliveries publish one single-parent batch with no command/catalog/checkout and preserve multi-round increments', async () => {
   const f = await setup(); try {
     const run = await f.project.formConvergenceBatch(f.parentId), landed = await prepare(f, run);
     expect(landed.state).toBe('integrated'); assertNoCommandEvidence(f, landed);
@@ -50,6 +52,7 @@ test('new fixed deliveries publish one single-parent batch with no command/catal
     fs.writeFileSync(path.join(source.workspace, 'source-0.txt'), 'round two\n');
     await git(source.workspace, 'add', '.'); await git(source.workspace, 'commit', '-m', 'new increment');
     await f.project.requestTaskMerge(source.id);
+    await pinHistoricalConvergence(f, source.id);
     const next = await f.project.formConvergenceBatch(f.parentId), second = await prepare(f, next);
     expect(second.state).toBe('integrated'); assertNoCommandEvidence(f, second);
     expect(f.store.deliveryMembers(next.id)[0].base_commit).toBe(source.head_commit);
@@ -80,7 +83,7 @@ test('parent change refreshes fixed aggregate on a new generation without repeat
   } finally { await f.close(); }
 });
 
-test('old policy validation version changes and revocation cannot block a new agent delivery or retry', async () => {
+test('old policy validation version changes and revocation cannot block a fixed historical agent delivery or retry', async () => {
   const f = await setup(1); try {
     const run = await f.project.formConvergenceBatch(f.parentId);
     f.project.convergencePolicy = () => ({ enabled: false, generation: 99, validation: { command_id: 'removed', command_version: 2 } });
@@ -93,7 +96,7 @@ test('old policy validation version changes and revocation cannot block a new ag
   } finally { await f.close(); }
 });
 
-test('legacy command and new agent requests never share a batch, even when ready together', async () => {
+test('historical command and agent requests never share a batch, even when ready together', async () => {
   const f = await setup(); try {
     const legacySource = f.sources[0], reference = { command_id: '00000000-0000-4000-8000-000000000001', command_version: 1 };
     const { verification_mode, ...booking } = convergenceJSON(legacySource.reservation);

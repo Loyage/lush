@@ -1,49 +1,45 @@
-# 分支归并首版：Runtime 模块地图
+# 一次性整合与历史归并：Runtime 地图
 
-本篇定位归并的长期职责与安全接缝，不重复内部导出清单。公共参数、当前模式及限制见[实施契约](merge-convergence-implementation.md)，算法取舍见[协议方案](merge-convergence-protocol.md)。Project／Workspaces／Store 沿用 mixin 装配，不新增核心业务实体。
+本篇定位长期职责，不复制内部导出或公共参数。当前行为见[实施接缝](merge-convergence-implementation.md)，公共接口见[接口参考](../reference/rpc/convergence.md)。Project／Workspaces／Store 沿用 mixin 装配，不新增核心业务实体。
 
-> [模块总览](modules.md) → [Runtime 地图](modules-runtime.md) → **归并首版** → [公共接口](../reference/rpc/convergence.md)
+> [模块总览](modules.md) → [Runtime 地图](modules-runtime.md) → **整合** → [公开接口](../reference/rpc/convergence.md)
 
-## 纯规划与持久记录
+## Project 模块
 
-`core/convergence-plan.js` 只按固定入队顺序、依赖和容量规划拓扑，不访问 Git／DB；`convergence-contract.js` 集中内部状态／版本校验。`store/convergence.js` 负责原子领取、成员唯一 active 归属、generation CAS、节点／发布收据与历史删除保护；技术记录归父，成员／helper ID 不是级联删除依据，新编号快照不回填历史。
-
-运行的 preparing／resolving／awaiting／validating／ready／landing／integrated／failed／blocked／withdrawn／stale 与源预约状态分离。预约 v3 使用 requested／executing／blocked／integrated 等安全投影，generation 是尝试而非 Worker 轮次，不能互换状态或身份。
-
-## Project 归并模块
-
-| 入口（`src/core/project/`） | 长期职责 |
+| 入口（src/core/project/） | 职责 |
 |---|---|
-| convergence-policy | 真实目标所有者、挂载／启停／未来默认，revision 与旧验证引用兼容 |
-| convergence-queue | 事件驱动领取／准备、固定来源静息与授权守卫、显式重试 |
-| convergence-prepare | 叶／双项对象、基线刷新与不可变修复新尝试，区分 Agent／旧命令验证 |
-| convergence-land | 新旧队列共用真实父发布门、精确收据、整批结算及一次父 Hook |
-| convergence-workers | 仅内部工厂创建 integration、固定上下文／私有 worktree，真实退出才晋级 |
-| convergence-safety | generation 先失效再撤回／取消，安全退出后释放来源，未知不重放 |
-| convergence-acceptance | 来源全部安全验收后收口 helper、共享资源与部分回收续办 |
+| one-shot-integration | 只读全量计划、原子固定、一个自主 integration 身份、目标变动的新尝试、取消与显式重试、merge_operation 投影 |
+| convergence-policy | 真实目标与历史策略／默认只读兼容、退休 setter、历史运行分页 |
+| convergence-queue | 固定来源守卫、事件驱动晋级与共享调度；旧 v3 组批仅兼容既有固定请求 |
+| convergence-prepare | 分派新自主准备／基线刷新；旧叶子、两两对象和 command 验证继续原协议 |
+| convergence-workers | 私有身份与上下文、有效 invocation、真实退出后的候选接收 |
+| convergence-land | 新旧共用父发布门、精确收据恢复、完整成员结算与一次父 Hook |
+| convergence-safety | generation 失效、取消后真实退出再释放、孤儿调用与未知结果保护 |
+| convergence-acceptance | 来源安全验收后的辅助资源收口、共享引用与部分回收续办 |
 
-入口注册位于 project.js；merge-queue 在真实安全点按目标策略固定 v2／v3，旧请求不转换，关闭策略不撤回已固定交付、不提高合并／验收授权。v3 准备不占父发布执行位，真实／未知发布才冻结父；旧 v2 源侧修复规则不变。
+入口由 project.js 注册。merge-queue 对新普通单项／自动请求只固定 v2 serial，不再按历史目标策略生成新 v3；原 v1/v2/v3 在途不转换。内部旧方法仍存在不表示可从公开入口新建持续归并。
 
-## Git 与隔离验证
+## 持久化与不可变上下文
 
-`workspaces/delivery-objects.js` 只用固定对象、显式等价／真实多基点 merge-tree／commit-tree，冲突种子保留双输入，不写源／父 ref 或 index。`delivery-publish.js` 核验固定成员与对象，持久精确收据后 CAS 更新目标和 evidence ref，并提供只读恢复证明。`delivery-validation.js` 仅旧命令模式登记精确临时检出，隔离环境／授权、取消／超时／输出限额和受检回收。
+store/convergence.js 复用 delivery_runs／delivery_nodes，data.operation_mode 区分 one_shot。新成员存于追加的 integration_members；旧 delivery_members 的八项 CHECK 与历史行原样保留，all_delivery_members 统一读取、计数与引用保护。跨表 active 领取唯一性、事务与 generation CAS 保护同一来源；技术关联不是重挂真实父关系。
 
-Git 创建／回收／真实发布仍串行，Shell 不跨进程持有 Git gate。新请求 `verification_mode:'agent',validation:null`，不造命令 passed 证据；旧 command 的 passed 必须绑定精确候选 SHA／tree，缺损引用不能转免命令路径，不同模式分批。
+每操作只有一个自主节点身份，后续 generation 追加新节点／integration.attempt_fixed 事件，convergence.integration_created 保持初始记录不变。core/convergence-resources.js 为新操作读取最新固定尝试；旧调用的 token 或返回不能推进新代。运行状态、来源预约状态、Worker 状态与实际 integration=merged 各自独立。
 
-receipt 固定 parent／baseline／tree／commit／workspace／run／generation、完整成员与 evidence ref／commit。成员树通常不等于批次树；已落地判断、同步增量基点、验收及删除必须用精确成员映射，不能凭树相等或 patch-id 推断。
+core/convergence-plan.js 的相邻两两规划只服务历史固定 v3；新操作不调用其容量／拓扑决策。源码中的 delivery／convergence 名称属于技术兼容，不恢复独立交付产品模型。
 
-## 既有生命周期与权限接缝
+## Git 与生命周期接缝
 
-- 固定来源冻结，追加持久暂存、不混入固定交付；merge.requested 不唤醒父开发 Agent。仅真实／未知发布冻结父。
-- 版本图复用纯成员收据核验，v3 组合树和单源树分开；旧协议保留树相等门，固定对象读核验落点／证据与来源祖先。
-- 调度／上下文固定 helper 身份与一次性 token；收回 token 和 running 后才接受产物，旧 generation 不推进新尝试。
-- integration 不继承源 checkpoint，仅登记私有 worktree，不回落 canonical。Prompt 不是权限门或 OS 沙箱；RPC 默认拒绝，只允许明确安全只读及自身 Notice／进度，见[归并权限](../reference/rpc/convergence.md#专用整合-worker-的-rpc-能力)。策略接口均用户专属。
-- 成员／helper／共享证据在用时阻止回收。独立来源可单独安全验收或删除，不连带关闭兄弟指令；批次每成员结算不提高验收授权。一批只触发一次父 worker.merge_received。
+workspaces/delivery-publish.js 固定单父候选与完整来源映射，receipt 带 one_shot 标记时不套旧八项上限。发布核验 parent／baseline／tree／commit／workspace／run／generation、成员及 evidence；以 ref transaction／CAS 和受检检出更新真实目标，source refs 只验证不修改。
 
-HTTP／CLI／Web 只适配[公开接口](../reference/rpc/convergence.md)，不复制调度、授权或证据判断。
+workspaces/delivery-objects.js 的固定对象合成与 delivery-validation.js 的隔离命令验证仅为旧在途服务。新组合由 Agent 在登记私有 worktree 完成；runtime 不伪造测试通过，验证责任见[实施接缝](merge-convergence-implementation.md#验证责任与在途兼容)。Git 写入／资源回收仍经 Workspaces 串行，不能跨 Agent 调用持有 Git gate。
 
-## 回归分区
+- 固定来源的普通追加持久暂存，解冻且实际退出后才投递；取消不丢输入或代码。
+- 多轮增量、父同步、版本图、验收与删除共用精确来源映射，不以单源树等于组合树或目录消失猜成功。
+- integration 不继承来源 checkpoint，不回落 canonical；只允许[注册表窄权限](../reference/rpc/convergence.md#专用整合-worker-的-rpc-能力)。这是权限隔离，不是 OS 沙箱。
+- 所有来源安全验收前保留辅助现场；回收不得连带验收独立指令，不提高源自动级别。
 
-纯规划／契约用 `test/convergence-{plan,contract}.test.js`，Runtime 用 `test/project/convergence-*.test.js`，真实 Git／CAS／收据用 `test/workspaces/convergence-*.test.js`；权限用 `test/integration-rpc-permissions.test.js`，跨层组合用 `test/web/branch-convergence-integration.test.js`、`convergence-automation-integration.test.js`，界面用 `dom-branch-convergence.test.js`。临时项目和受控 provider，不操作用户队列。
+CLI／RPC／Web 只适配公开接口；graph 与 inspect 使用同源 merge_operation，历史 delivery 读面保留诊断与截断语义。
 
-分层验证责任见[贡献指南](../contributing/README.md#分层测试与交付)；mock／DOM 不证明实际模型、视觉或吞吐，限制见[首版契约](merge-convergence-implementation.md#限制与验证)。
+## 验证定位
+
+新行为以 test/project/one-shot-integration.test.js、test/branch-integrate-api.test.js、test/web/branch-integrate-api.test.js 为入口；旧协议、Git／CAS／映射与权限分别位于 convergence 专项和 test/integration-rpc-permissions.test.js。完整分层责任与限制见[验证范围](merge-convergence-rollout.md)，不把测试文件存在或历史通过记录当作当前树已通过。

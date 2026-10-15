@@ -43,6 +43,10 @@ export default {
     const task = this.store.task(taskId), booking = convergenceBooking(task);
     check(booking && !['integrated', 'withdrawn'].includes(booking.status), 'fixed convergence delivery is not withdrawable');
     const run = booking.run_id ? this.store.deliveryRun(booking.run_id) : null;
+    if (this.oneShotRun?.(run)) {
+      this.cancelOneShotIntegration(run.id);
+      return { task_id: task.id, changed: true, merge_operation: this.branchIntegration(run.id, 16) };
+    }
     check(!run || (!run.landing_receipt && run.state !== 'landing'), 'publication has started; inspect its exact result before withdrawal');
     if (!run) {
       this.store.transaction(() => {
@@ -83,6 +87,7 @@ export default {
     if (!this.store.deliveryRuns) return;
     for (const run of this.store.deliveryRuns(parentId, ['awaiting'], 1000)) {
       const data = convergenceJSON(run.data, {});
+      if (this.oneShotRun?.(run)) { this.drainOneShotCancellation(run.id); continue; }
       if (data.wait_reason !== 'withdrawing' || this.convergenceJobs?.has(run.id)
         || this.convergenceHelpers(run.id).some(task => this.running.has(task.id))) continue;
       const withdrawing = data.pending_withdrawals ?? [];
@@ -121,6 +126,9 @@ export default {
       if (!parent.id) continue;
       for (const run of this.store.deliveryRuns(parent.id, null, 1000)) {
         if (done.includes(run.state)) continue;
+        if (this.oneShotRun?.(run) && convergenceJSON(run.data, {}).wait_reason === 'one_shot_cancelling') {
+          this.drainOneShotCancellation(run.id); continue;
+        }
         let mode;
         try { mode = convergenceVerificationMode(convergenceJSON(run.data, {}).verification_mode, run.validation); }
         catch {

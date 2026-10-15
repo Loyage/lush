@@ -19,7 +19,8 @@ function credentials(value) {
     && (value.workspace === null || (typeof value.workspace === 'string' && value.workspace))
     && Number.isSafeInteger(value.run_id) && value.run_id > 0
     && Number.isSafeInteger(value.generation) && value.generation > 0
-    && Array.isArray(value.members) && value.members.length > 0 && value.members.length <= CONVERGENCE_LIMITS.members,
+    && Array.isArray(value.members) && value.members.length > 0
+    && (value.operation_mode === 'one_shot' || value.members.length <= CONVERGENCE_LIMITS.members),
   'invalid convergence publish receipt');
   const members = value.members.map(member => {
     check(member && Number.isSafeInteger(member.task_id) && member.task_id > 0
@@ -39,7 +40,7 @@ function credentials(value) {
   }
   return Object.freeze({ parent: value.parent, baseline: value.baseline, tree: value.tree, commit: value.commit,
     workspace: value.workspace, members: Object.freeze(members), run_id: value.run_id, generation: value.generation,
-    ...(evidence ? { evidence } : {}) });
+    ...(evidence ? { evidence } : {}), ...(value.operation_mode === 'one_shot' ? { operation_mode: 'one_shot' } : {}) });
 }
 
 async function objects(workspaces, receipt, members = receipt.members) {
@@ -185,7 +186,7 @@ export async function assertConvergenceMemberReceipt(workspaces, task, event) {
 }
 
 export const methods = {
-  async prepareConvergencePublishUnsafe({ parent, baseline, tree, members, message, run_id, generation, commit = null, evidence = null }) {
+  async prepareConvergencePublishUnsafe({ parent, baseline, tree, members, message, run_id, generation, commit = null, evidence = null, operation_mode = null }) {
     parent = typeof parent === 'string' ? parent : parent?.branch;
     check(oid(baseline) && oid(tree) && typeof message === 'string' && message.trim() && message.length <= 65536,
       'convergence publication requires fixed objects and a bounded message');
@@ -193,7 +194,7 @@ export const methods = {
     const normalized = members.map(member => ({ task_id: member.task_id, delivery_id: member.delivery_id,
       branch: member.source_branch ?? member.branch, source: member.source_commit ?? member.source }));
     // Validate the full structure before creating any objects, even if the caller supplies a commit.
-    const provisional = credentials({ parent, baseline, tree, members: normalized, run_id, generation, evidence,
+    const provisional = credentials({ parent, baseline, tree, members: normalized, run_id, generation, evidence, operation_mode,
       workspace: null, commit: commit ?? baseline });
     const workspace = await this.workspaceForBranch(parent);
     await refsAndCheckout(this, { ...provisional, workspace });

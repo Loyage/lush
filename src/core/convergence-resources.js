@@ -4,7 +4,9 @@ import { convergenceJSON } from './convergence-contract.js';
 export function convergenceHelperContext(store, task) {
   if (task?.task_kind !== 'integration') return null;
   const row = store.get(`SELECT data FROM events WHERE task_id=? AND type='convergence.integration_created' ORDER BY id LIMIT 1`, task.id);
-  const context = convergenceJSON(row?.data);
+  let context = convergenceJSON(row?.data);
+  if (context?.operation_mode === 'one_shot') context = convergenceJSON(store.get(
+    "SELECT data FROM events WHERE task_id=? AND type='integration.attempt_fixed' ORDER BY id DESC LIMIT 1", task.id)?.data);
   return context && Number.isSafeInteger(context.run_id) && Number.isSafeInteger(context.node_id)
     && Number.isSafeInteger(context.generation) ? context : null;
 }

@@ -62,7 +62,7 @@ try {
   await until(`document.querySelector('[data-task-id="${f.sources[0].id}"] .source-delivery')`);
   assert(await execute(`return !document.querySelector('[data-task-id="${f.helper.id}"]') && document.querySelector('[data-task-id="${f.sources[0].id}"] .source-delivery').textContent.includes('暂存输入：1 条')`), 'tree source summary/whitelist incorrect');
   assert(attention === 1, 'real backend must supply complete counts.attention=1');
-  await until(`document.querySelector('#delivery-count').textContent==='活动 26 · 待处理 1'`);
+  assert(await execute(`return !document.querySelector('#delivery-count') && !document.querySelector('#deliveries-open')`), 'retired delivery navigation/count remains');
   await screenshot('tree-desktop');
   for (const width of [390, 320]) {
     await resize(width);
@@ -78,7 +78,7 @@ try {
   assert(await execute(`return document.querySelector('${card}').classList.contains('delivery-exception') && document.querySelector('${card}').textContent.includes('落地待核查') && document.querySelector('${card}').textContent.includes('#${f.helper.id}') && !document.querySelector('${card} button') && !document.querySelector('${card} details').open`), 'real card state or advanced default wrong');
   await click('#task-graph-open');
   await until(`location.hash==='#worker-graph-worker-${f.sources[0].id}' && document.querySelector('[data-task-id="${f.sources[0].id}"].delivery-located')`);
-  await click('#deliveries-open');
+  await execute(`location.hash='#deliveries'`);
   await until(`location.hash==='#deliveries-run-${f.focusRun.id}-source-${f.sources[0].id}' && document.querySelector('${card}')`);
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await resize(width); await execute(`document.documentElement.dataset.theme='${theme}';document.querySelector('#detail').scrollTop=0;`);

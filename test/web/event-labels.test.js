@@ -44,6 +44,21 @@ test('归并准备、辅助产物和资源事件都有中文标签，不冒充�
   expect(eventLabel({ type: 'convergence.helper_cleanup_failed' })).toContain('未完成');
 });
 
+test('一次性整合事件区分固定来源、请求、失效重验和安全取消，不冒充目标落地', () => {
+  for (const type of ['integration.source_fixed', 'integration.started', 'integration.attempt_fixed',
+    'integration.baseline_invalidated', 'integration.cancel_requested', 'integration.cancelled']) {
+    const event = Object.freeze({ type, data: Object.freeze({ run_id: 42, generation: 2 }) });
+    expect(Object.hasOwn(EVENTS, type)).toBe(true); expect(eventLabel(event)).toMatch(/[\u4e00-\u9fff]/);
+    expect(eventLabel(event)).not.toBe(eventLabel({ type: 'task.merge_integrated' }));
+    expect(eventLabel(event)).not.toBe(eventLabel({ type: 'task.accepted' }));
+    expect(event.data.generation).toBe(2);
+  }
+  expect(eventLabel({ type: 'integration.started' })).toContain('未确认落地');
+  expect(eventLabel({ type: 'integration.baseline_invalidated' })).toContain('须重新适配验证');
+  expect(eventLabel({ type: 'integration.cancel_requested' })).toContain('待安全退出');
+  expect(eventLabel({ type: 'integration.cancelled' })).toContain('来源代码保留');
+});
+
 test('项目自动化与告知事件有中文名称，决定记录不冒充告知已发送', () => {
   expect(eventLabel({ type: 'hook.automation_settings_configured' })).toBe('保存项目自动化设置');
   expect(eventLabel({ type: 'task.acceptance_notice_changed' })).toBe('调整待验收告知设置');

@@ -18,7 +18,7 @@ const hooks = (f, id) => get(f, `/api/worker/${id}/hooks`);
 const patch = async (f, value) => post(f, 'hooks.automation_settings', { patch: value, expected_revision: (await get(f)).automation_settings.revision });
 const create = async (f, content) => (await post(f, 'order.submit', { content, start: false })).task;
 
-test('HTTP creation to RPC/SQLite/Git returns authoritative frozen mounts; old authorization and serial handler remain intact', async () => {
+test('HTTP creation to RPC/SQLite/Git preserves frozen mounts and serial handler while retired convergence defaults reject writes', async () => {
   const f = await setup(); f.project.kick = () => {};
   try {
     await repo(f.root); await f.project.bootstrapMain();
@@ -34,8 +34,12 @@ test('HTTP creation to RPC/SQLite/Git returns authoritative frozen mounts; old a
     expect((await hooks(f, old.id)).mounted_features).toEqual(oldHooks.mounted_features);
     expect((await hooks(f, old.id)).revision).toBe(oldHooks.revision);
     const d = await get(f, '/api/branch-convergence/defaults');
-    expect(d).toMatchObject({ mounted: true, scope: 'user', enabled: false });
-    await post(f, 'branch.convergence_defaults_set', { mounted: true, enabled: false, scope: 'main', expected_revision: d.revision });
+    expect(d).toMatchObject({ mounted: false, scope: 'none', enabled: false, retired: true, editable: false });
+    const beforeRetiredWrite = ['meta', 'events'].map(table => f.store.all(`SELECT * FROM ${table}`));
+    expect((await post(f, 'branch.convergence_defaults_set', {
+      mounted: true, enabled: false, scope: 'main', expected_revision: d.revision,
+    }, 400)).error).toContain('retired');
+    expect(['meta', 'events'].map(table => f.store.all(`SELECT * FROM ${table}`))).toEqual(beforeRetiredWrite);
     const fresh = await create(f, 'new unmounted');
     const freshHooks = await hooks(f, fresh.id);
     expect(freshHooks.mounted_features).toEqual({ completion: false, acceptance_notice: false, convergence: false, push: false });
@@ -50,10 +54,12 @@ test('HTTP creation to RPC/SQLite/Git returns authoritative frozen mounts; old a
     const notified = await post(f, 'worker.acceptance_notice', { id: fresh.id, enabled: true, expected_revision: on.revision });
     expect(notified.mounted_features.acceptance_notice).toBe(true); expect(notified.acceptance_notice.enabled).toBe(true);
     const currentD = await get(f, '/api/branch-convergence/defaults');
+    expect(currentD).toEqual(d);
     for (const scope of [null, true, 'device', ''])
       expect((await post(f, 'branch.convergence_defaults_set', { mounted: true, enabled: false, scope, expected_revision: currentD.revision }, 400)).error).toContain('scope');
     expect((await post(f, 'branch.convergence_defaults_set', { mounted: false, enabled: false, scope: 'user', expected_revision: currentD.revision }, 400)).error).toContain('match scope');
-    expect((await post(f, 'branch.convergence_defaults_set', { mounted: true, enabled: false, scope: 'all', expected_revision: d.revision }, 400)).error).toContain('revision');
+    for (const expected_revision of [d.revision, 'stale-revision'])
+      expect((await post(f, 'branch.convergence_defaults_set', { mounted: true, enabled: false, scope: 'all', expected_revision }, 400)).error).toContain('retired');
     for (const mount_scopes of [{ push: 'main' }, { completion: null }, { acceptance_notice: 'device' }, {}])
       expect((await post(f, 'hooks.automation_settings', { patch: { mount_scopes }, expected_revision: policy.automation_settings.revision }, 400)).error).toBeString();
     const snapshot = ['tasks','events','meta','notices'].map(table => f.store.all(`SELECT * FROM ${table}`));

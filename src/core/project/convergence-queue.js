@@ -28,7 +28,7 @@ export default {
       && ['main', 'owner', 'order', 'child'].includes(parent.task_kind), 'convergence parent changed');
     const members = this.store.deliveryMembers(run.id, true);
     const mode = convergenceVerificationMode(convergenceJSON(run.data, {}).verification_mode, run.validation);
-    check(members.length >= 1 && members.length <= CONVERGENCE_LIMITS.members, 'convergence membership changed');
+    check(members.length >= 1 && (this.oneShotRun?.(run) || members.length <= CONVERGENCE_LIMITS.members), 'convergence membership changed');
     for (const member of members) {
       const task = this.store.task(member.task_id), booking = convergenceBooking(task);
       check(booking?.run_id === run.id && booking.generation === generation && booking.delivery_id === member.delivery_id
@@ -149,6 +149,8 @@ export default {
     if (this.convergenceDrivers.has(parentId)) return;
     this.convergenceDrivers.add(parentId); this.convergenceWakePending?.delete(parentId);
     try {
+      for (const cancelling of this.store.deliveryRuns(parentId, ['awaiting'], 1000))
+        this.drainOneShotCancellation?.(cancelling.id);
       if (this.convergenceIntegrationCapacity()) {
         for (const waiting of this.store.deliveryRuns(parentId, ['awaiting'], 1000)) {
           const data = convergenceJSON(waiting.data, {});
@@ -213,6 +215,7 @@ export default {
   async retryBranchConvergence(runId, expectedRevision) {
     return this.write('retry a convergence delivery', async () => {
       const run = this.store.deliveryRun(id(runId)); check(run, 'convergence run not found');
+      check(!this.oneShotRun?.(run), 'one-shot operations must use branch.integrate_retry');
       const view = (await this.branchConvergenceRuns(run.target_branch, run.id + 1, 1)).items[0];
       check(view?.id === run.id && typeof expectedRevision === 'string' && view.revision === expectedRevision,
         'convergence revision changed; reload before retrying');

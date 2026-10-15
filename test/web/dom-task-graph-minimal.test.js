@@ -244,7 +244,7 @@ test('Git 相对进度在第二排计划前，刷新、折叠和交付状态不�
   node.input_queue = { buffered: 2, reason: '冻结，等待安全点' };
   renderTaskGraph(graph);
   const queue = card(2).querySelector('.worker-input-queue');
-  expect(queue.textContent).toBe('待交付追加 2 条');
+  expect(queue.textContent).toBe('待接收追加 2 条');
   expect(queue.getAttribute('data-help')).toContain('已入箱 2 条追加指令，待交付给 Agent');
   const progress = card(2).querySelector('.task-graph-minimal-progress');
   expect(progress.children[0].classList.contains('task-graph-git-status')).toBe(true);
@@ -476,7 +476,7 @@ test('更多操作惰性创建，追加输入定向到底部且保留正文，�
 test('极简菜单复用合并、待决入口且冻结时可追加，不内嵌待决表单', async () => {
   await enable();
   card(1).querySelector('.task-graph-more-trigger').onclick();
-  expect(deepText(card(1).querySelector('.task-graph-actions-popover'))).toContain('合并所有');
+  expect(deepText(card(1).querySelector('.task-graph-actions-popover'))).not.toContain('合并所有');
   card(3).querySelector('.task-graph-more-trigger').onclick();
   expect(deepText(card(3).querySelector('.task-graph-actions-popover'))).toContain('打开待决事项');
   expect(card(3).querySelector('textarea')).toBeNull();

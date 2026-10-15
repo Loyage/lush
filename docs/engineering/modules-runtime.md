@@ -4,9 +4,9 @@
 
 > 模块地图：[总览](modules.md) → **Runtime 与持久化** → [Web 前端](modules-web.md) → [CLI、RPC 与测试](modules-interfaces.md)
 
-## 分支归并首版接缝
+## 一次性整合与历史归并接缝
 
-协议 v3 的职责定位见[归并 Runtime](merge-convergence-runtime.md)，授权、旧在途与未实现项见[首版契约](merge-convergence-implementation.md)。
+自主整合、普通 serial 与历史 v3 的职责定位见[整合 Runtime](merge-convergence-runtime.md)，权限、验证及兼容边界见[实施接缝](merge-convergence-implementation.md)。
 
 ## 设备共享配置接缝
 

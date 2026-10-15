@@ -5,6 +5,7 @@ import { repo, git, gate, until } from '../helpers.js';
 import { setup, fetch } from './harness.js';
 import { RPCClient } from '../../src/rpc/client.js';
 import { PARAMS, USER_ONLY } from '../../src/rpc/registry.js';
+import { historicalConvergencePolicy, pinHistoricalConvergence } from '../convergence-fixtures.js';
 
 async function get(f, route) {
   const response = await fetch(f.url + route);
@@ -21,8 +22,8 @@ async function prepare() {
   f.project.kick = () => {}; f.project.scheduleTaskMerge = () => {}; f.project.scheduleConvergence = () => {};
   f.project.provider = { run() { throw new Error('no paid model'); } };
   await repo(f.root); await f.project.bootstrapMain();
-  const policy = await get(f, '/api/branch-convergence?branch=main');
-  await post(f, 'branch.convergence_set', { branch: 'main', enabled: true, expected_revision: policy.revision });
+  // Historical read compatibility must not revive the retired setter.
+  historicalConvergencePolicy(f, f.store.get("SELECT * FROM tasks WHERE task_kind='main'"));
   return f;
 }
 async function source(f, file, content) {
@@ -30,7 +31,8 @@ async function source(f, file, content) {
   fs.writeFileSync(path.join(task.workspace, file), content + '\n');
   await git(task.workspace, 'add', '.'); await git(task.workspace, 'commit', '-m', content);
   f.store.update(task.id, { status: 'waiting', result: 'ready' });
-  await post(f, 'worker.reserve', { id: task.id, kind: 'merge' }); return f.store.task(task.id);
+  await post(f, 'worker.reserve', { id: task.id, kind: 'merge' });
+  await pinHistoricalConvergence(f, task.id); return f.store.task(task.id);
 }
 const database = f => JSON.stringify(Object.fromEntries(['tasks','events','messages','notices','delivery_runs','delivery_nodes','delivery_members','meta'].map(table => [table, f.store.all(`SELECT * FROM ${table} ORDER BY rowid`)])));
 

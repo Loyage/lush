@@ -1,12 +1,12 @@
 /** One projection for tree, detail and delivery pages. No mutation/permission inference. */
 export const DELIVERY_EXCEPTIONS = new Set(['invalid', 'failed', 'blocked', 'awaiting', 'stale']);
 export function deliveryStage(value, version = null) {
-  if (version === 2 && value === 'resolving') return '串行交付 · 源侧分歧修复';
-  if (version === 2 && value === 'requested') return '冻结 · 等待目标串行交付';
-  return ({ pending: '等待交付条件', requested: '固定交付 · 等待整合', preparing: '准备归并组合', resolving: '归并整合中',
-    awaiting: '等待后续事件 / 待决', validating: '旧流程验证中', ready: '整合完成 · 等待落地', landing: '核验落地中 · 尚未合并',
-    integrated: '已合并', executing: '串行交付执行中 · 尚未合并', suspended: '交付已挂起', blocked: '落地待核查',
-    failed: '交付失败', withdrawn: '本轮交付已撤回', cancelled: '本轮交付已取消', stale: '批次已失效', invalid: '预约不可核对' })[value] || `阶段未知${value ? `（${value}）` : ''}`;
+  if (version === 2 && value === 'resolving') return '合并中 · 源侧分歧修复';
+  if (version === 2 && value === 'requested') return '冻结 · 等待合并';
+  return ({ pending: '等待合并条件', requested: '等待合并', preparing: '准备合并', resolving: '合并中',
+    awaiting: '等待后续事件 / 待决', validating: '旧流程验证中', ready: '工作完成 · 等待合并', landing: '核验落地中 · 尚未合并',
+    integrated: '已合并', executing: '合并中 · 尚未完成', suspended: '合并已挂起', blocked: '落地待核查',
+    failed: '合并失败', withdrawn: '本次合并已撤回', cancelled: '本次合并已取消', stale: '历史批次已失效', invalid: '预约不可核对' })[value] || `阶段未知${value ? `（${value}）` : ''}`;
 }
 export function deliveryExceptional(item) {
   if (typeof item.attention === 'boolean') return item.attention;

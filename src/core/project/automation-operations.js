@@ -33,7 +33,8 @@ export default {
   deliveryHandlerSelection(task) {
     const policy = this.convergencePolicy(task.branch);
     return { policy, revision: hookRevision({ worker_id: task.id, branch: task.branch, policy }),
-      strategy: policy.enabled ? 'converge' : 'serial' };
+      // Historical continuous policies remain readable, but never route new deliveries.
+      strategy: 'serial' };
   },
 
   pinDeliveryHandlerOperation(parent, { selection, deliveryId, sourceId, noChanges = false }) {

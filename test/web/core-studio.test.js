@@ -16,7 +16,8 @@ test('固定项目工作页在核心 API 下可加载、发送指令并打开 Wo
   await boot();
   expect(dom.node('connection').textContent).toBe('已连接');
   expect(deepText(dom.node('detail'))).toContain('项目概览');
-  expect(deepText(dom.node('detail'))).toContain('WORKER / 目标与交付');
+  expect(deepText(dom.node('detail'))).toContain('WORKER / 目标与成果');
+  expect(deepText(dom.node('detail'))).not.toContain('WORKER / 目标与交付');
   expect(deepText(dom.node('detail'))).not.toContain('TASK /');
   expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(3);
   f.project.stopping = true;

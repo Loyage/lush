@@ -79,7 +79,7 @@ function whyLine(task, index) {
     return pending ? `静息 · 等子 Worker：${live} 个在跑 · ${pending} 个未结束` : '静息 · 等待后续事件';
   }
   if (task.status === 'awaiting_acceptance') return task.task_kind === 'child'
-    ? `本轮已交付，等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 确认；无需你验收` : '本轮已交付，待验收；可追加输入继续开发';
+    ? `本轮工作完成，等待父 Worker ${workerLabel(task.parent_id, task.parent_worker_number)} 确认；无需你验收` : '本轮工作完成，待验收；可追加输入继续开发';
   if (task.status === 'awaiting') return '等你决定：有没答复的问题';
   if (task.status === 'paused') return '已暂停：可追加输入或调整运行设置，点「继续」恢复';
   if (task.status === 'completed' && task.integration === 'conflict') return '已完成，合并冲突等你决定';

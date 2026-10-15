@@ -4,6 +4,7 @@ import { ui } from './state.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { listEntry, listSurface } from './list-surface.js';
 import { searchField } from './search-field.js';
+import { show } from './messages.js';
 import { AUTOMATION_FEATURES, automationFeature, automationHash } from './automation-features.js';
 
 /** One retained shell and module contract, no scheduling or authorization in the directory. */
@@ -14,6 +15,11 @@ export async function openProjectAutomation({ feature = null, subpage = 'setting
     if (ui.view !== view || globalThis.document !== owner || projectApi('/api/hooks') !== project) return;
     ui.disposeProjectAutomation?.();
     return openInputs({ push });
+  }
+  const retiredConvergence = feature === 'convergence';
+  if (retiredConvergence) {
+    window.history.replaceState(null, '', '#hooks');
+    show('持续归并设置已退役；普通自动合并与已有历史保留。');
   }
   if (!automationFeature(feature)) feature = null;
   subpage = 'settings';
@@ -29,9 +35,9 @@ export async function openProjectAutomation({ feature = null, subpage = 'setting
   const root = el('div', undefined, 'hooks-page project-automation resource-page');
   const browse = el('section', undefined, 'automation-browse');
   const hero = el('header', undefined, 'resource-hero');
-  hero.append(el('span', 'AUTOMATION', 'resource-kicker'), el('h1', '项目自动化'), el('p', '只管理功能设置、未来 Worker 默认与默认显示原则；具体授权和运行记录请到对应 Worker 查看。'));
+  hero.append(el('span', 'AUTOMATION', 'resource-kicker'), el('h1', '项目自动化'), el('p', '只管理功能设置与未来 Worker 默认；具体授权和运行记录请到对应 Worker 查看。'));
   const entries = [], empty = el('p', '没有匹配的自动化功能。', 'hint'); empty.hidden = true;
-  const search = searchField({ label: '查找自动化功能', placeholder: '按功能名称或用途查找', scope: '范围：当前四项自动化功能', onSubmit: value => {
+  const search = searchField({ label: '查找自动化功能', placeholder: '按功能名称或用途查找', scope: '范围：当前自动化功能', onSubmit: value => {
     let count = 0;
     for (const entry of entries) { entry.node.hidden = !entry.text.includes(value.toLowerCase()); if (!entry.node.hidden) count++; }
     empty.hidden = count !== 0;

@@ -330,6 +330,7 @@ export default {
         progress: plan, notice: notice.notice, notice_count: notice.count,
         children_total: child.total, children_active: child.active, waiting_reason,
         merge_queue: mergeQueues.get(row.id),
+        merge_operation: this.taskMergeOperation(row),
         delivery_summary: this.taskDeliverySummary({ ...row, reservation }, { buffered: inputCounts.get(row.id) ?? 0, freezes }),
         input_queue: this.taskInputQueue({ ...row, reservation }, inputCounts.get(row.id) ?? 0, freezes),
         resources: resources.get(row.id) ?? null, details_pending: !details,

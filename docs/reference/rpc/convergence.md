@@ -1,51 +1,83 @@
-# 分支归并接口
+# 一次性整合与历史归并接口
 
-本篇说明按目标分支保存的归并策略、运行历史与显式重试。实现接缝见[首版实施契约](../../engineering/merge-convergence-implementation.md)；产品取舍见[归并合并方案](../../design/merge-convergence.md)。接口入口不替代 Runtime 的授权、分支所有者、写门或落地核验。
+本篇是一次性整合的 RPC、CLI／HTTP 参数及读面唯一参考，并保留历史归并查询契约。当前安全边界见[实施接缝](../../engineering/merge-convergence-implementation.md)，产品取舍见[一次性整合](../../design/merge-convergence.md)。接口不替代真实直接父、调用退出、写门或精确落地核验。
 
 ## 权限与参数
 
-以下 RPC **全部用户专属**，包括读取；Agent token 不得读取策略、修改开关或重试。所有请求拒绝未知字段，不提供任意 cwd、project、ref、Shell 或 profile 参数。
+本篇分支操作 RPC **全部用户专属**，包括读取。新操作见[一次性整合](#一次性整合)；以下为历史兼容入口。Agent token 不得读取配置、修改开关或重试，不提供任意 cwd、project、ref、Shell 或 profile 参数。
 
 | RPC | 参数 | 返回 |
 |---|---|---|
 | `branch.convergence_list` | 无 | `{version:1,items,count,truncated,defaults}` |
 | `branch.convergence` | `{branch}` | 单分支策略 |
-| `branch.convergence_set` | `{branch,mounted?,enabled,validation?,expected_revision}` | 保存后的单分支策略 |
-| `branch.convergence_defaults` | 无 | 项目新 Worker 默认 |
-| `branch.convergence_defaults_set` | `{mounted,enabled,scope?,expected_revision}` | 保存后的项目默认 |
+| `branch.convergence_set` | `{branch,mounted?,enabled,validation?,expected_revision}` | 退休错误，不写入 |
+| `branch.convergence_defaults` | 无 | 历史默认，只读 |
+| `branch.convergence_defaults_set` | `{mounted,enabled,scope?,expected_revision}` | 退休错误，不写入 |
 | `branch.convergence_runs` | `{branch,before?,limit?}` | `{version:1,branch,items,next_before,has_more}` |
 | `branch.convergence_retry` | `{id,expected_revision}` | 更新后的单个运行摘要 |
 
 - `branch` 为精确本地分支名（最多512字符），须有活动 main/owner/order/child 所有者；拒绝 SHA、tag 和 ref 表达式，不隐式解析 `HEAD`。
-- `mounted` 与 `enabled` 必须为 JSON 布尔值，不接受字符串或整数替代。分支 setter 省略 mounted 时兼容为 true；未挂载不能启用。项目 defaults 两字段均必填，mounted:false 可记住 enabled:true，但不执行。
-- defaults 可选 `scope` 为 `main|all|user|none`；显式 scope 要求 mounted === (scope !== 'none')。省略兼容旧 API/CLI：mounted:true 对应 all，false 对应 none。scope 只影响未来真实创建，不修改 main 初始化或现有实例，revision 仍必须核验。
-- `validation` 可省略（保留历史引用），或显式 null／严格 `{command_id,command_version?}`：command_id 为 UUID；旧可选 command_version 为正安全整数，仅兼容，不预授权或固定未来版本。保存引用不执行命令；开启仍不要求验证指令存在，新固定 Agent 模式不使用该引用。
+- 退休 setter 的 mounted／enabled 仍必须是 JSON 布尔值，不接受字符串或整数；分支省略 mounted 按旧参数校验为 true，未挂载不能启用。历史默认可能保留 mounted=false、enabled=true，但不再应用于新创建。
+- 退休 setter 的旧 scope 为 `main|all|user|none`，显式 scope 仍校验 mounted === (scope !== 'none')；参数合法也只会返回退休错误，不再影响未来创建。
+- 旧 validation 参数仍校验为省略／null／严格 `{command_id,command_version?}`，UUID 与可选正安全整数版本；不重新保存，不预授权未来执行。
 - `expected_revision` 必须为最近读面的非空、不透明 revision（最多256字符）；不可自行拼接、跨分支复用或自动改用新值。过期时拒绝并重新读取。
 - runs 的 `before` 可省略/null，否则为正安全整数运行 ID；`limit` 可省略（20），否则为整数1..50。RPC 数值字段不接受数字字符串。
-- retry 的 `id` 必须为正安全整数，不接受 W 编号或字符串。landing/blocked 的未知现场不得盲重放；是否可恢复由 Runtime 核验。
+- 旧 retry 的 id 必须为正安全整数，不接受 W 编号或字符串，只处理旧运行；one_shot 必须用 branch.integrate_retry。landing/blocked 未知现场不得盲重放。
 
-## 单分支策略
+## 一次性整合
+
+| RPC | 严格参数 | 返回 |
+|---|---|---|
+| `branch.integrate_plan` | `{branch}` | 只读计划 |
+| `branch.integrate_start` | `{branch,expected_revision}` | 操作对象 |
+| `branch.integration` | `{id}` | 操作对象，完整成员 |
+| `branch.integrate_cancel` | `{id,expected_revision}` | 操作对象 |
+| `branch.integrate_retry` | `{id,expected_revision}` | 操作对象 |
+
+全部用户专属，包括读取；普通开发、integration token 均不得调用。branch 是精确本地分支名（最多512字符），要求唯一活动 main／owner／order／child 所有者，拒绝 SHA、tag、ref 表达式、任意路径。id 为正安全整数操作 ID，不接受数字字符串或 W 编号。expected_revision 是最近计划／操作读面给出的非空不透明字符串（最多256字符），不可拼接或自动刷新后重发；未知参数拒绝，不提供任意 cwd、ref、Shell、profile。
+
+计划返回：
 
 ```js
 {
-  version: 1, branch, owner_id, owner_worker_number: null,
-  mounted: false, enabled: false,
-  validation: null, // 仅历史兼容：或 {command_id,command_version?,name}，无 authorized
-  revision, editable: true, reason: null,
-  counts: {
-    preparing:0, resolving:0, awaiting:0, validating:0,
-    ready:0, landing:0, failed:0, blocked:0
-  }
+  version:1, branch, target:{id,worker_number:null,branch}, revision,
+  members:[{id,worker_number:null,title,source_commit,base_commit}],
+  excluded:[{id,worker_number:null,reason}], count,
+  active:null, // 或有界操作摘要
+  ready:true, reason:null
 }
 ```
 
-main 在初始化时一次性挂载且关闭；其他未配置 Worker 未挂载。项目页与 Worker 详情「自动化」修改同一实际策略；已有保存的旧策略视为已挂载，保留启停和引用。移除保留墓碑、历史且不重装。main 开启只影响之后交付到 main 的新固定成果，不提高来源 Worker 自动合并／验收级别；关闭／移除不撤销已固定批次。
+members 是当前全部可准入、具有同一真实直接父的来源，不截为八项。脏、未读／暂存输入、待决、活动后代、已固定普通尝试／未知落地等列入 excluded；无来源或目标受阻时 ready=false。读取不领取、不写 Git、不启动 Agent。start 在写门内重新预检并原子固定完整集合，revision／refs／来源状态变化则拒绝；相同开始 revision 重发返回原操作，避免 ACK 丢失后重复创建。后来完成的来源不加入已开始操作。
 
-未配置分支读取不写默认行、不启动 Agent 或运行命令。revision 在未配置时也稳定。counts 来源于完整持久活动事实，不从分页列表或 Worker 图推算。list 最多500个活动所有者分支，main优先，其他稳定按名称排序，超限显式 truncated。
+操作对象：
 
-项目默认读面为 `{version:1,mounted,enabled,scope,revision,editable,reason}`，新项目初始 mounted:true、scope:user、enabled:false，实际新 order 挂载关闭、新 child 不挂载；main 初始化仍一次挂载关闭。只在之后实际创建 order／child 时按 scope 冻结，不从父继承、不回写已有；旧保存默认缺少 scope 按原 mounted 读为 all/none，保留原 enabled、不改写。未默认挂载时可以记住开启偏好，实际未挂载实例仍关闭。list.defaults与独立默认读取同源，default revision不能用于分支setter。
+```js
+{
+  version:1, id, revision, target_branch, state,
+  worker:null, // 或 {id,worker_number:null,status}
+  member_count, members:[{id,worker_number:null,title,source_commit,base_commit}],
+  members_truncated:false, baseline, commit:null,
+  candidate_commit:null, error:null, generation,
+  target:{id,worker_number:null,branch}, previous_baseline:null, created_at, updated_at
+}
+```
 
-新固定预约明确 `verification_mode:'agent', validation:null`，不执行组合验证命令、不制造通过证据；验证由开发／整合Agent负责，顶层全量责任不变。旧 command 模式保留隔离验证与精确候选证据门；新旧模式不混批。快捷指令授权字段不再阻塞，未来验证执行跟随最新定义；实际执行开始固定版本，已开始运行的证据不得被目录编辑改写，见[快捷指令契约](../../engineering/shortcut-commands.md#定义与版本)。缺失或损坏旧验证引用不能转成免命令验证，unknown 不重放。
+state 为 preparing／resolving／awaiting／ready／landing／integrated／failed／blocked／withdrawn（持久模型另保留 stale 兼容状态）。commit 仅在 integrated 时为最终 Squash；candidate_commit 不能当作已落地。worker.status 来自真实 Worker，awaiting_acceptance 不代表操作 integrated。编号只取返回的 worker_number，缺号回退 #内部ID；不从操作 ID 推 W 编号。
+
+`branch.integration` 返回完整 members；`worker.inspect.merge_operation` 与 `worker.graph.nodes[].merge_operation` 对真实目标、整合 Worker 及所属来源复用同一摘要，默认 null，关联多轮或多种关系时按操作 ID 取最新操作；摘要不改变目标或来源本身的合并／验收状态。摘要最多16名成员，member_count 为完整计数，members_truncated 明示；plan.active 同样有界，不能据摘要重建领取集合。旧历史查询另有八成员摘要上限，不限制新操作集合。
+
+非空操作始终创建一个私有整合 Worker，即使无冲突也调用 Agent；费用与时间由用户启动承担。失败／待决不部分落地。retry 仅接受 failed／awaiting 且无真实调用／准备作业仍在退出、无未知落地的操作，复用身份／私有产物，追加新 generation 并重新适配与验证。待决须先处理；旧 revision、token 或返回不能推进新尝试。
+
+cancel 只在发布开始前使整组失效并请求停止，返回可能仍为 awaiting（取消中）；实际退出后才 withdrawn 并释放来源。原普通请求恢复为 suspended，需显式重新请求，不自动写目标。landing／已有发布收据不允许取消或盲重试；取消不撤销已落地代码。新计划可再次开始已安全取消的集合，旧开始 revision 仍只定位旧操作。源 refs／真实父关系不变，来源验收独立，未知副作用不重放。
+
+## 单分支策略
+
+此节及旧策略表仅为历史兼容。策略返回 `{version:1,branch,owner_id,owner_worker_number,mounted,enabled,validation,revision,retired:true,editable:false,reason,counts}`；counts 仍按完整持久状态统计。未配置分支 mounted=false、enabled=false；main 初始化不再安装策略。旧缺 mounted 视为已挂载，保留原值／引用，不迁移或覆盖历史。
+
+默认返回 `{version:1,mounted,enabled,scope,revision,retired:true,editable:false,reason}`；未配置为 mounted=false、scope=none、enabled=false。旧缺 scope 按 mounted 读为 all／none，历史默认不再应用于新 Worker。list 最多500个活动所有者、main 优先，超限明示；list.defaults 与独立读取同源。读取不写配置或启动 Agent。
+
+branch.convergence_set 与 branch.convergence_defaults_set 仍识别旧严格参数，但始终明确拒绝退休写入，不保存同值或沿用旧 revision 假成功。新普通单项／自动合并无视历史 enabled，始终 serial。旧 v1/v2/v3 不转换；历史 Agent 模式不造命令证据，旧 command 模式继续隔离验证与精确候选门，缺损模式／引用不能转免验证。快捷指令实际版本规则见[契约](../../engineering/shortcut-commands.md#定义与版本)。
 
 ## 运行摘要
 
@@ -63,13 +95,15 @@ runs 按持久整数 ID 降序分页；`next_before` 用于后续页，`has_more
 }
 ```
 
-成员每项最多8个，超限显式 `members_truncated`。state 为 preparing/resolving/awaiting/validating/ready/landing/integrated/failed/blocked/withdrawn/stale。未真实落地不能仅凭准备完成展示已合并。成员链接使用真实整数 ID；显示只用返回的 worker_number，没有编号才回退 #ID。
+历史查询每项最多8名成员，member_count 为完整计数，超限显式 members_truncated；读取到新操作时也只是八项摘要，不限制实际集合。state 为 preparing/resolving/awaiting/validating/ready/landing/integrated/failed/blocked/withdrawn/stale。未真实落地不能仅凭准备完成展示已合并。成员链接使用真实整数 ID；显示只用返回的 worker_number，没有编号才回退 #ID。
 
 运行摘要的 `validation.command_id` 来自实际执行结果或保存的引用，无法确认时为 null；`command_version` 仅表示实际执行结果记录的版本，未执行或旧结果缺少版本证据时为 null，不用配置中的旧版本或当前目录版本补造。二者是运行证据读面，不是预授权；旧证据不迁移、不改写，未来执行的版本固定见[快捷指令契约](../../engineering/shortcut-commands.md#定义与版本)。
 
 返回值不包含完整 profile、环境、token、原始 Shell 输出或内部堆栈。运行错误不会触发接口层自动重试或回退到其它分支。
 
 ## 项目交付视图（D642）
+
+此节保留旧链接／诊断兼容，不再提供独立当前交付导航或持续配置；新操作 UI 使用 merge_operation。底层完整计数通过统一成员视图涵盖新旧记录，八项 sources 摘要不代表新操作八项容量。
 
 `worker.delivery_graph {history?:boolean,cursor?:string,limit?:number}` / `GET /api/worker-delivery-graph` 是**用户专属只读**入口，不增加 CLI 写动作或模型工具。拒绝 Agent token（包括整合与管理身份）、未知字段；HTTP 沿用登录、Origin、no-store 与固定项目路由，不启动停止的 daemon。`history` 默认 false，RPC 只接受布尔，HTTP 用 `0/1`；`limit` 默认20、整数1..50（HTTP 为正整数字面量）；`cursor` 为非空不透明字符串、最多1024字符。HTTP 重复、未知或非法参数拒绝，读取不在 `/api/action` 白名单。
 
@@ -122,34 +156,34 @@ Runtime 内部创建的 `task_kind='integration'` 使用 invocation 临时 token
 - 自身提问／汇报：`notice.post`、`progress.plan`、`progress.complete`。Notice 只能写 token 所属 Worker；进度不接受目标 Worker ID。
 - 只读：`system.status/summary`、`worker.lookup/inspect/diff/history/history_page/transcript`、`branch.tree/show`、`graph.get`、`notice.list/page`。
 
-其它方法一律拒绝，包括 `worker.spawn/integrate/resolve_child_divergence/message/auto_title/accept`、所有策略／合并／验收 mutation、管理工具，以及全部 `branch.convergence*`。新增公开 RPC 不自动扩展整合权限；现有 USER_ONLY / AGENT_ONLY 校验仍先执行，普通开发 Agent 和管理 Agent 权限不变。过期、停驻、中断或已结束 invocation 的 token 不能使用这些允许的方法。
+其它方法一律拒绝，包括 `worker.spawn/integrate/resolve_child_divergence/message/auto_title/accept`、所有策略／合并／验收 mutation、管理工具，以及全部 `branch.convergence*`、`branch.integrate_*` 和 `branch.integration`。新增公开 RPC 不自动扩展整合权限；现有 USER_ONLY / AGENT_ONLY 校验仍先执行，普通开发 Agent 和管理 Agent 权限不变。过期、停驻、中断或已结束 invocation 的 token 不能使用这些允许的方法。
 
 此 RPC 门不是 OS 沙箱，不防止同系统用户的任意本机命令；工作区、固定输入、执行 Prompt 与生命周期隔离由 Runtime 提供。
 
 ## CLI
 
 ```bash
+bun run lush branch integrate plan main
+bun run lush branch integrate start main --revision PLAN_REV
+bun run lush branch integrate show 9
+bun run lush branch integrate cancel 9 --revision OP_REV
+bun run lush branch integrate retry 9 --revision OP_REV
+# 历史兼容
 bun run lush branch convergence list
 bun run lush branch convergence show main
-bun run lush branch convergence mount main --revision REV
-bun run lush branch convergence on main --revision REV
-bun run lush branch convergence off main --revision REV
-bun run lush branch convergence remove main --revision REV
 bun run lush branch convergence defaults show
-bun run lush branch convergence defaults set --mounted true --enabled false --scope user --revision DEFAULT_REV
 bun run lush branch convergence runs main --before 15 --limit 20
-bun run lush branch convergence retry 9 --revision RUN_REV
+bun run lush branch convergence retry 8 --revision RUN_REV
 ```
 
-支持通用 `--project PATH` / `--json`，输出沿用现有 JSON 约定。命令选项仅对对应子命令有效，未知、重复或缺值选项拒绝。on无需command/version；可选 `--command UUID` 可单独保存引用，旧 `--version N` 仅兼容，不固定未来版本或表示执行验证。mount为未挂载目标提供关闭挂载，保留已有挂载的启用状态；remove移除未来挂载但不删历史；off关闭且保持挂载状态／引用。先读取当前策略或defaults获取各自revision，写入竞态拒绝，不静默刷新revision。
-
-开启／重试可能调用专用整合 Agent 并产生费用。CLI 同样在本地拒绝 Agent 客户端，包括读取命令。
+支持通用 --project PATH／--json。未知、重复、缺值或不适用选项拒绝；先读 plan／show 的 revision，不能自动刷新后重发。操作 ID 是整数，不是 Worker 编号。start／retry 可能调用 Agent 并产生费用；CLI 本地也拒绝带 Agent token 的客户端，包括读取。旧 convergence mount/on/off/remove/defaults set 只保留明确退休错误，不再保存配置；CLI 不接受旧 --command／--version，历史验证引用只在后端协议兼容。
 
 ## HTTP
 
-- `GET /api/branch-convergence` 返回 list；加单个 `branch` 查询返回该策略。
-- `GET /api/branch-convergence/defaults` 无查询参数，返回项目默认。
-- `GET /api/branch-convergence/runs?branch=main&before=15&limit=20` 返回运行分页；branch 必填，数字查询须为正整数字面量，limit最多50。
-- 修改只经 `POST /api/action` 的 `branch.convergence_set`／`branch.convergence_defaults_set`／`branch.convergence_retry`；JSON envelope 仅 `{method,params}`，params 必须为对象，禁止 query、多余字段及任何 `_token` 值。
+- `GET /api/branch-integrate-plan?branch=main` 对应 branch.integrate_plan；branch 必填。
+- `GET /api/branch-integration?id=9` 对应 branch.integration；id 必须为正整数字面量及安全整数。
+- 新写入口为当前项目 POST /api/action 的 branch.integrate_start／branch.integrate_cancel／branch.integrate_retry。envelope 严格为 `{method,params}`，params 必须为对象，拒绝 query、多余字段和任何 `_token`。
+- 旧 GET /api/branch-convergence[?branch=...]、/api/branch-convergence/defaults、/api/branch-convergence/runs 保留历史读取；runs 的 branch 必填，before 为正整数、limit 默认20／最多50。
+- 旧 action branch.convergence_set／branch.convergence_defaults_set 明确报退休，branch.convergence_retry 只恢复合法旧在途，不用于新操作。
 
 GET 拒绝未知或重复查询字段；读取 RPC 不在 action 白名单，也无 GET 修改入口。全部复用登录、Origin、no-store 和项目绑定；全局 Host 必须使用 `/p/<project-id>` 前缀，未知身份不回退，读写均不通过此入口拉起已停止 daemon。详见[Web 路由](../web-routes.md)。

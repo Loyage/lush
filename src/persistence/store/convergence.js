@@ -67,7 +67,7 @@ function referencedRuns(store, taskIds) {
   if (!taskIds.length) return [];
   const marks = taskIds.map(() => '?').join(',');
   return store.all(`SELECT * FROM delivery_runs WHERE parent_id IN (${marks}) OR integration_worker_id IN (${marks})
-    OR id IN (SELECT run_id FROM delivery_members WHERE task_id IN (${marks}))
+    OR id IN (SELECT run_id FROM all_delivery_members WHERE task_id IN (${marks}))
     OR id IN (SELECT run_id FROM delivery_nodes WHERE helper_id IN (${marks}))`, ...taskIds,...taskIds,...taskIds,...taskIds);
 }
 
@@ -78,6 +78,34 @@ export function ensureConvergenceColumns(db) {
     const present = new Set(db.query(`PRAGMA table_info(${table})`).all().map(row => row.name));
     for (const column of columns) if (!present.has(column)) db.query(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`).run();
   }
+  // Additive storage: legacy CHECK ordinal<8 and all historical rows remain untouched.
+  db.exec(`CREATE TABLE IF NOT EXISTS integration_members (
+    run_id INTEGER NOT NULL REFERENCES delivery_runs(id) ON DELETE CASCADE,
+    task_id INTEGER NOT NULL, worker_number TEXT, title TEXT,
+    delivery_id INTEGER NOT NULL CHECK(delivery_id>0), enqueue_seq INTEGER NOT NULL CHECK(enqueue_seq>0),
+    source_branch TEXT NOT NULL, source_commit TEXT NOT NULL, base_commit TEXT,
+    ordinal INTEGER NOT NULL CHECK(ordinal>=0), active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    PRIMARY KEY(run_id,delivery_id), UNIQUE(run_id,task_id), UNIQUE(run_id,ordinal));
+    CREATE UNIQUE INDEX IF NOT EXISTS integration_members_active_task ON integration_members(task_id) WHERE active=1;
+    CREATE UNIQUE INDEX IF NOT EXISTS integration_members_active_delivery ON integration_members(delivery_id) WHERE active=1;
+    CREATE INDEX IF NOT EXISTS integration_members_task ON integration_members(task_id,run_id);
+    CREATE VIEW IF NOT EXISTS all_delivery_members AS
+      SELECT run_id,task_id,delivery_id,enqueue_seq,source_branch,source_commit,base_commit,ordinal,active,worker_number,title FROM delivery_members
+      UNION ALL
+      SELECT run_id,task_id,delivery_id,enqueue_seq,source_branch,source_commit,base_commit,ordinal,active,worker_number,title FROM integration_members;
+    CREATE TRIGGER IF NOT EXISTS integration_tasks_delete_guard BEFORE DELETE ON tasks BEGIN
+      SELECT CASE WHEN EXISTS (SELECT 1 FROM integration_members m JOIN delivery_runs r ON r.id=m.run_id
+        WHERE m.task_id=OLD.id AND (m.active=1 OR r.state='landing' OR (r.state='blocked' AND r.landing_receipt IS NOT NULL)))
+      THEN RAISE(ABORT,'active integration references Worker') END;
+    END;
+    CREATE TRIGGER IF NOT EXISTS integration_members_cross_claim BEFORE INSERT ON integration_members WHEN NEW.active=1 BEGIN
+      SELECT CASE WHEN EXISTS (SELECT 1 FROM delivery_members WHERE active=1 AND (task_id=NEW.task_id OR delivery_id=NEW.delivery_id))
+      THEN RAISE(ABORT,'delivery member is already claimed') END;
+    END;
+    CREATE TRIGGER IF NOT EXISTS delivery_members_cross_claim BEFORE INSERT ON delivery_members WHEN NEW.active=1 BEGIN
+      SELECT CASE WHEN EXISTS (SELECT 1 FROM integration_members WHERE active=1 AND (task_id=NEW.task_id OR delivery_id=NEW.delivery_id))
+      THEN RAISE(ABORT,'delivery member is already claimed') END;
+    END;`);
 }
 
 export const convergence = {
@@ -85,8 +113,9 @@ export const convergence = {
     object(value, ['parent_id','target_branch','baseline','validation','members','data'], 'delivery run');
     positive(value.parent_id, 'parent id'); branch(value.target_branch); sha(value.baseline ?? null);
     const valid = validation(value.validation ?? null), data = json(value.data ?? {}, false);
-    check(Array.isArray(value.members) && value.members.length >= 1 && value.members.length <= CONVERGENCE_LIMITS.members,
-      'delivery run requires 1..8 members');
+    const autonomous = JSON.parse(data).operation_mode === 'one_shot';
+    check(Array.isArray(value.members) && value.members.length >= 1 && (autonomous || value.members.length <= CONVERGENCE_LIMITS.members),
+      'delivery run requires members (legacy batches allow 1..8)');
     return this.transaction(() => {
       const parent = this.task(value.parent_id);
       check(parent.branch === value.target_branch, 'delivery target must belong to its real parent');
@@ -103,14 +132,14 @@ export const convergence = {
         const source = this.task(member.task_id);
         check(source.parent_id === parent.id && source.branch === member.source_branch && source.target_branch === parent.branch,
           'delivery member must target its real direct parent');
-        check(!this.get('SELECT run_id FROM delivery_members WHERE active=1 AND (task_id=? OR delivery_id=?)', member.task_id, member.delivery_id),
+        check(!this.get('SELECT run_id FROM all_delivery_members WHERE active=1 AND (task_id=? OR delivery_id=?)', member.task_id, member.delivery_id),
           'delivery member is already claimed');
         return { ...member, worker_number: snapshotNumber(source.worker_number), title: snapshotTitle(source) };
       });
       const result = this.run(`INSERT INTO delivery_runs(parent_id,target_branch,baseline,validation,data) VALUES (?,?,?,?,?)`,
         parent.id, value.target_branch, value.baseline ?? null, valid, data);
       const runId = Number(result.lastInsertRowid);
-      for (const [ordinal, member] of members.entries()) this.run(`INSERT INTO delivery_members
+      for (const [ordinal, member] of members.entries()) this.run(`INSERT INTO ${autonomous ? 'integration_members' : 'delivery_members'}
         (run_id,task_id,delivery_id,enqueue_seq,source_branch,source_commit,base_commit,ordinal,worker_number,title) VALUES (?,?,?,?,?,?,?,?,?,?)`,
       runId, member.task_id, member.delivery_id, member.enqueue_seq, member.source_branch, member.source_commit, member.base_commit ?? null, ordinal,
       member.worker_number, member.title);
@@ -152,13 +181,14 @@ export const convergence = {
 
   deliveryMembers(runId, activeOnly = false) {
     positive(runId, 'delivery run id'); check(typeof activeOnly === 'boolean', 'activeOnly must be boolean');
-    return this.all(`SELECT * FROM delivery_members WHERE run_id=?${activeOnly ? ' AND active=1' : ''} ORDER BY ordinal`, runId);
+    return this.all(`SELECT * FROM all_delivery_members WHERE run_id=?${activeOnly ? ' AND active=1' : ''} ORDER BY ordinal`, runId);
   },
 
   releaseDeliveryMembers(runId, taskId = null) {
     positive(runId, 'delivery run id'); if (taskId !== null) positive(taskId, 'member id');
-    return this.transaction(() => this.run(`UPDATE delivery_members SET active=0 WHERE run_id=? AND active=1${taskId === null ? '' : ' AND task_id=?'}`,
-      runId, ...(taskId === null ? [] : [taskId])).changes);
+    return this.transaction(() => ['delivery_members', 'integration_members'].reduce((total, table) => total + this.run(
+      `UPDATE ${table} SET active=0 WHERE run_id=? AND active=1${taskId === null ? '' : ' AND task_id=?'}`,
+      runId, ...(taskId === null ? [] : [taskId])).changes, 0));
   },
 
   createDeliveryNode(value) {

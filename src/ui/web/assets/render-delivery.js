@@ -26,11 +26,11 @@ export function deliveryControls(task, { refresh = () => {}, showTracking = true
   if (!['order','child'].includes(workerKind(task)) || isHistoricalDelivery(task)) return null;
   const panel = el('div', undefined, 'delivery-controls');
   const reservation = task.reservation;
-  const tracking = sourceDelivery(task.delivery_summary);
+  const tracking = task.merge_operation ? null : sourceDelivery(task.delivery_summary);
   if (tracking && showTracking) panel.append(tracking);
   // v3 fixed convergence is read-only here; never fall through to v1 approval or v2 retries.
   if (reservation && reservation.version !== 1 && reservation.version !== 2) {
-    if (!tracking) panel.append(badge(reservation.version === 3 ? deliveryStage(reservation.status) : '预约版本未知 · 请核查', 'b-awaiting'));
+    if (!tracking && !task.merge_operation) panel.append(badge(reservation.version === 3 ? deliveryStage(reservation.status) : '预约版本未知 · 请核查', 'b-awaiting'));
     return panel.children.length ? panel : null;
   }
   if (task.task_kind === 'child' || !reservation || reservation.version === 2) {
@@ -42,7 +42,7 @@ export function deliveryControls(task, { refresh = () => {}, showTracking = true
       const label = merged ? merged.label : task.delivery_summary ? deliveryStage(task.delivery_summary.stage, task.delivery_summary.version) : { pending: '等待合并条件', requested: '冻结 · 等待父队列',
         executing: '自动合并中 · 占用父执行位', resolving: reservation.queue_protocol === 1
           ? '源侧修复中 · 保留父执行位' : '历史源侧解分歧 · 原 Worker 已恢复工作',
-        suspended: '交付已挂起 · 父执行位已释放', blocked: '交付阻塞 · 保留父侧现场' }[state] || state;
+        suspended: '合并已挂起 · 父执行位已释放', blocked: '合并阻塞 · 保留父侧现场' }[state] || state;
       panel.append(badge(label, merged ? merged.className : 'b-awaiting'));
     }
     if (state === 'pending' && reservation.auto_merge !== true)
@@ -57,24 +57,24 @@ export function deliveryControls(task, { refresh = () => {}, showTracking = true
     }, 'ghost', { agent: true, help: agentHelp('重新检查固定的合并请求；若上次失败，受检重试，绝不重复提交已落地的 Squash；分歧时唤醒原 Agent。') }));
     const active = !['completed','failed','cancelled','awaiting_acceptance'].includes(task.status);
     if (reservation?.queue_protocol === 1 && ['suspended','blocked'].includes(state) && task.status === 'waiting') {
-      controls.append(button(state === 'suspended' ? '恢复交付' : '受检复查落地', async () => {
+      controls.append(button(state === 'suspended' ? '恢复合并' : '受检复查落地', async () => {
         await action('worker.reserve', { id: task.id, kind: 'merge' }); await refresh();
       }, 'ghost', { agent: true, help: agentHelp(state === 'suspended'
-        ? '重新核验源安全点并排队，创建新交付与尝试、固定当前父基线；不复用旧修复回复，分歧时唤醒源 Agent。'
+        ? '重新核验源安全点并排队，重新固定成果与本次尝试、固定当前父基线；不复用旧修复回复，分歧时唤醒源 Agent。'
         : '仅凭精确提交核对落地；未知父侧现场继续阻塞，不重放 Git 写入。确认父分支干净且未写入后才能重排，分歧时可能调用源 Agent。') }));
     }
     const canOffer = !state || state === 'pending' || (state === 'integrated' && active);
     if (canOffer && active && task.merge_readiness?.ready === true) {
       controls.append(button('合并', async () => {
         const confirmed = await confirmDialog({ title: `合并 Worker ${workerLabel(task)}？`,
-          message: '复核本轮交付与 Git 条件后冻结源 Worker 的普通开发，由父 Worker 自有队列的 runtime 按入队顺序串行处理（代码依赖优先），向父分支写入一条 Squash 提交。不创建 merge Worker、不改变父子关系，也不额外调用父 Agent；包括 main 在内无需再次人工批准。取得父执行位后才固定父基线；分歧时自动唤醒原 Worker 在源侧修复并保留该执行位。挂起释放执行位，恢复重新排队并固定新基线。条件不满足时保留本次请求意图并显示原因；不会改变跨轮保留的自动合并设置。成功后进入待验收并暂时保留源分支与 worktree；验收表示不再有异议，同时归档并回收开发资源，保留运行历史。',
+          message: '复核本轮成果与 Git 条件后冻结源 Worker 的普通开发，由父 Worker 自有队列的 runtime 按入队顺序串行处理（代码依赖优先），向父分支写入一条 Squash 提交。不创建 merge Worker、不改变父子关系，也不额外调用父 Agent；包括 main 在内无需再次人工批准。取得父执行位后才固定父基线；分歧时自动唤醒原 Worker 在源侧修复并保留该执行位。挂起释放执行位，恢复重新排队并固定新基线。条件不满足时保留本次请求意图并显示原因；不会改变跨轮保留的自动合并设置。成功后进入待验收并暂时保留源分支与 worktree；验收表示不再有异议，同时归档并回收开发资源，保留运行历史。',
           confirmLabel: '合并', agent: true,
           confirmHelp: agentHelp('请求合并本轮成果；存在分歧时唤醒原 Worker 的 Agent 处理。') });
         if (!confirmed) return;
         const booked = await action('worker.reserve', { id: task.id, kind: 'merge' });
-        show(`Worker ${workerLabel(task)} ${booked.reservation?.status === 'requested' ? '已发起合并请求' : '已提交合并意图，请查看交付状态'}`);
+        show(`Worker ${workerLabel(task)} ${booked.reservation?.status === 'requested' ? '已发起合并请求' : '已提交合并意图，请查看合并状态'}`);
         await refresh();
-      }, 'ghost', { agent: true, help: agentHelp('尝试合并本轮成果；仍须复核 Git 与交付条件，不满足时保留请求意图并显示原因，分歧会唤醒原 Agent。') }));
+      }, 'ghost', { agent: true, help: agentHelp('尝试合并本轮成果；仍须复核 Git 与安全条件，不满足时保留请求意图并显示原因，分歧会唤醒原 Agent。') }));
     }
 
     const protectedAutomaticIntent = reservation?.auto_merge === true && task.auto_merge?.enabled === true;
@@ -111,7 +111,7 @@ export function deliveryControls(task, { refresh = () => {}, showTracking = true
       if (confirmed) await update('worker.reserve', { id: task.id, kind: 'merge' },
         readyToRequestMerge ? `已提交指令 ${workerLabel(task)} 的合并请求意图（请查看请求状态）` : `已预约指令 ${workerLabel(task)} 的合并请求`);
     }, 'ghost', { help: readyToRequestMerge
-      ? '检查交付条件并尝试发出固定提交的合并请求；条件不满足会显示原因，不会自动合入父分支。'
+      ? '检查合并条件并尝试发出固定提交的合并请求；条件不满足会显示原因，不会自动合入父分支。'
       : '条件满足时冻结源提交与父分支基线并发送一次请求；不会自动合并。' }));
   } else if (reservation) {
     const state = {
@@ -176,13 +176,13 @@ export function deliveryControls(task, { refresh = () => {}, showTracking = true
       actions.append(button('撤销请求', async () => {
         const confirmed = await confirmDialog({
           title: `撤销指令 ${workerLabel(task)} 的合并请求？`,
-          message: '撤销只是不再请求把这次固定提交合入父分支：父分支随即解除交付锁。Worker、分支与提交都保留，但这次交付不会自动合入。',
+          message: '撤销只是不再请求把这次固定提交合入父分支：父分支随即解除合并锁。Worker、分支与提交都保留，但这次成果不会自动合入。',
           detail: `源提交：${reservation.commit}\n父分支基线：${reservation.baseline}`,
           confirmLabel: '撤销请求', danger: true,
-          confirmHelp: '撤销未集成的请求并解除父分支的交付锁；不会删除分支或提交，也不会推进父分支。',
+          confirmHelp: '撤销未集成的请求并解除父分支的合并锁；不会删除分支或提交，也不会推进父分支。',
         });
         if (confirmed) await update('worker.unreserve', { id: task.id }, `已撤销指令 ${workerLabel(task)} 的合并请求（未集成，分支与提交保留）`);
-      }, 'ghost', { help: '撤销尚未集成的请求：解除父分支的交付锁，分支与提交保留，但不会合入父分支。' }));
+      }, 'ghost', { help: '撤销尚未集成的请求：解除父分支的合并锁，分支与提交保留，但不会合入父分支。' }));
     }
   }
   if (actions.children.length) panel.append(actions);

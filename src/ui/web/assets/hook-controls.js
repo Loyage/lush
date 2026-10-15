@@ -9,9 +9,8 @@ import { workerKind } from './worker-kind.js';
 
 /** Shared explanations and display policy; never execution authorization. */
 export const AUTOMATION_METADATA = /* @__PURE__ */ Object.freeze([
-  { id: 'completion', name: '成果自动合并与验收', description: '成果就绪后自动合并，可继续安全验收并回收开发资源。', principle: '交付安全点进入父级队列；验收复用安全检查，不调用质量评审 Agent，也不保证业务质量。', scope: '当前项目 · 新用户 Worker 默认' },
+  { id: 'completion', name: '成果自动合并与验收', description: '成果就绪后自动合并，可继续安全验收并回收开发资源。', principle: '工作完成并通过安全检查后进入父级合并队列；验收复用安全检查，不调用质量评审 Agent，也不保证业务质量。', scope: '当前项目 · 新用户 Worker 默认' },
   { id: 'push', name: '合并后自动 git push', description: 'main 成功收到合并后，按已启用挂载执行推送。', principle: '仅 main 的 Hook 执行所引用指令的最新定义；Git 上游和认证由用户配置，不给新开发 Worker 自动推送。', scope: '当前项目 · 仅 main 执行' },
-  { id: 'convergence', name: '归并合并', description: '目标 Worker 可归并处理收到的多项交付。', principle: '目标处理器只处理已授权交付；关闭归并仍串行合并，不提高来源 Worker 的合并或验收授权。', scope: '当前项目 · 目标处理策略' },
   { id: 'acceptance_notice', name: '待验收告知', description: 'Worker 进入待验收时生成一条告知。', principle: '根据真实进入状态按 Worker／轮次去重；关闭不删历史或屏蔽异常、未知结果及待决，自动验收成功保持静默。', scope: '当前项目 · 新用户 Worker 默认' },
 ]);
 export const automationMetadata = id => AUTOMATION_METADATA.find(item => item.id === id);
@@ -86,9 +85,9 @@ export function autoCompletionControl(task, model, refresh = () => {}, ownsPage 
       control.classList.toggle('is-included', level !== 'off' && rank(level) < rank(saved));
       control.classList.toggle('agent-call', level !== 'off' && mayCallAgent());
       const blocked = busy ? '正在保存。' : reason() || (!allowed(level) ? setting?.min_level === 'merge' && level === 'off'
-        ? '父 Worker 派生的 child 至少自动合并，不能关闭。' : '已交付成果只能提高自动级别补办。' : '');
+        ? '父 Worker 派生的 child 至少自动合并，不能关闭。' : '工作完成后只能提高自动级别补办。' : '');
       const consequence = level === 'off' ? '关闭未来自动执行，不撤回已发请求。' : level === 'merge'
-        ? '交付就绪后自动合并；分歧时可能唤醒源 Agent。'
+        ? '工作完成后自动合并；分歧时可能唤醒源 Agent。'
         : '自动合并后验收，表示不再有异议，同时归档并删除分支及后代的 worktree/ref，保留 Worker、会话和运行历史；脏工作区会阻止验收。不调用质量评审 Agent，不保证业务质量。';
       const help = costHelp(level, `${blocked ? `${blocked} ` : ''}${consequence}点击即保存当前 Worker 授权，高档包含前面的环节，设置不继承给子 Worker。`);
       control.setAttribute('data-help', help); host.setAttribute('data-help', help);
@@ -145,7 +144,7 @@ export function autoMergeControl(task, refresh = () => {}, ownsPage = () => true
   const host = el('span', undefined, 'help-host auto-merge-help');
   const paint = () => {
     input.disabled = !editable() || updating.has(updateKey);
-    const reason = setting?.reason || (!setting ? '自动合并设置暂不可用，请刷新或更新服务。' : task.task_kind === 'child' || setting.locked ? '由父 Worker 派生，流程 Hook 已锁定，用户不能修改自动合并。' : ended ? '本轮已结束，当前不可修改自动合并。' : frozen ? '请求已发出，不能调整持续 Hook。' : task.merge_readiness?.ready ? '本轮已交付就绪，请使用合并按钮。' : '');
+    const reason = setting?.reason || (!setting ? '自动合并设置暂不可用，请刷新或更新服务。' : task.task_kind === 'child' || setting.locked ? '由父 Worker 派生，流程 Hook 已锁定，用户不能修改自动合并。' : ended ? '本轮已结束，当前不可修改自动合并。' : frozen ? '请求已发出，不能调整持续 Hook。' : task.merge_readiness?.ready ? '本轮工作已完成，请使用合并按钮。' : '');
     host.setAttribute('data-help', agentHelp(`${reason ? `${reason} ` : ''}持续挂载到“Agent 完成工作后”：调用实际退出、子 Worker、消息和待决均处理完且 Git 条件满足时，冻结源提交并向直接父 Worker 申请合并。父 runtime 串行处理；分歧时可能唤醒原 Agent。关闭只停用未来触发，不撤回已发请求。`));
     host.tabIndex = input.disabled ? 0 : -1;
     if (input.disabled) host.setAttribute('aria-label', `Worker ${workerLabel(task)} 自动合并：${reason || '正在保存'}`);

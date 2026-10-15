@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fixture, repo, git } from '../helpers.js';
 import { convergenceJSON } from '../../src/core/convergence-contract.js';
 import { taskDeliveryState } from '../../src/core/project/iteration.js';
+import { historicalConvergencePolicy, pinHistoricalConvergence } from '../convergence-fixtures.js';
 
 /** Assembled Project/Store/Workspaces, real merge-tree/CAS and real isolated Shell; no helper/provider claim. */
 async function setup(count = 2, command = 'test -z "$LUSH_AGENT_TOKEN" && case "$PWD" in */.lush/convergence-validation/*) test -f alpha.txt && test -f beta.txt ;; *) exit 21 ;; esac', mode = 'command') {
@@ -15,7 +16,7 @@ async function setup(count = 2, command = 'test -z "$LUSH_AGENT_TOKEN" && case "
   const entry = f.project.saveShortcutCommand({ name: '隔离验收', command }, f.project.shortcutCommands().revision).commands.items.at(-1);
   const before = await f.project.branchConvergence('main');
   expect(before.enabled).toBe(false);
-  await f.project.setBranchConvergence('main', true, { command_id: entry.id, command_version: 1 }, before.revision);
+  historicalConvergencePolicy(f, f.store.get("SELECT * FROM tasks WHERE task_kind='main'"), { validation: { command_id: entry.id, command_version: 1 } });
   const sources = [];
   for (let i = 0; i < count; i++) {
     const { task } = await f.project.order(`source ${i}`);
@@ -23,9 +24,9 @@ async function setup(count = 2, command = 'test -z "$LUSH_AGENT_TOKEN" && case "
     await git(task.workspace, 'add', '.'); await git(task.workspace, 'commit', '-m', `source ${i}`);
     f.store.update(task.id, { status: 'waiting' });
     await f.project.requestTaskMerge(task.id);
-    expect(convergenceJSON(f.store.task(task.id).reservation)).toMatchObject({ version: 3, verification_mode: 'agent', validation: null });
-    // Simulate already-fixed historical v3 requests; new booking never chooses command verification.
-    if (mode === 'command') pinLegacy(f, task.id, entry);
+    expect(convergenceJSON(f.store.task(task.id).reservation).version).toBe(2);
+    // Explicit pre-retirement fixtures, not a new v3 write path.
+    await pinHistoricalConvergence(f, task.id, mode === 'command' ? { command_id: entry.id, command_version: 1 } : null);
     sources.push(f.store.task(task.id));
   }
   const baseline = await git(f.root, 'rev-parse', 'main');
@@ -34,10 +35,6 @@ async function setup(count = 2, command = 'test -z "$LUSH_AGENT_TOKEN" && case "
   } catch (error) { await f.close(); throw error; }
 }
 
-function pinLegacy(f, taskId, entry) {
-  const { verification_mode, ...booking } = convergenceJSON(f.store.task(taskId).reservation);
-  f.store.update(taskId, { reservation: JSON.stringify({ ...booking, validation: { command_id: entry.id, command_version: 1 } }) });
-}
 
 test('two real fixed deliveries converge, validate exact isolated single-parent object, land once, and retain source refs', async () => {
   const f = await setup(); try {
@@ -70,7 +67,7 @@ test('two real fixed deliveries converge, validate exact isolated single-parent 
     fs.writeFileSync(path.join(again.workspace, 'alpha.txt'), 'source 0 round two\n');
     await git(again.workspace, 'add', '.'); await git(again.workspace, 'commit', '-m', 'second increment');
     await f.project.requestTaskMerge(again.id);
-    pinLegacy(f, again.id, f.entry);
+    await pinHistoricalConvergence(f, again.id, { command_id: f.entry.id, command_version: 1 });
     const second = await f.project.formConvergenceBatch(run.parent_id);
     expect(second.id).not.toBe(run.id); expect(f.store.deliveryMembers(second.id)).toHaveLength(1);
     expect(f.store.deliveryMembers(second.id)[0].base_commit).toBe(again.head_commit);
@@ -161,14 +158,14 @@ test('editing after the real command returns invalidates the attempt, cleans onl
   } finally { await f.close(); }
 });
 
-test('real v2 and v3 share enqueue priority and parent ownership, while switching off preserves fixed v3 delivery', async () => {
+test('real v2 and historical v3 share enqueue priority and parent ownership despite enabled retired policy', async () => {
   const f = await setup(); try {
     const publish = f.project.publishConvergence.bind(f.project);
     f.project.publishConvergence = async () => false;
     await f.project.prepareConvergenceRun(f.run.id, 1, new AbortController().signal);
     f.project.publishConvergence = publish;
     expect(f.store.deliveryRun(f.run.id).state).toBe('ready');
-    await f.project.setBranchConvergence('main', false, null, (await f.project.branchConvergence('main')).revision);
+    await expect(f.project.setBranchConvergence('main', false, null, (await f.project.branchConvergence('main')).revision)).rejects.toThrow('retired');
     const { task: older } = await f.project.order('ordinary v2 later arrival');
     fs.writeFileSync(path.join(older.workspace, 'gamma.txt'), 'ordinary source\n');
     await git(older.workspace, 'add', '.'); await git(older.workspace, 'commit', '-m', 'ordinary arrival');
@@ -183,12 +180,11 @@ test('real v2 and v3 share enqueue priority and parent ownership, while switchin
     await f.project.driveTaskMerge(f.run.parent_id);
     expect(convergenceJSON(f.store.task(older.id).reservation).status).toBe('resolving');
     expect(f.project.activeTaskMerge(f.run.parent_id).id).toBe(older.id);
-    await f.project.setBranchConvergence('main', true, { command_id: f.entry.id, command_version: 1 }, (await f.project.branchConvergence('main')).revision);
     const next = f.sources[0];
     fs.writeFileSync(path.join(next.workspace, 'alpha.txt'), 'independent next round\n');
     await git(next.workspace, 'add', '.'); await git(next.workspace, 'commit', '-m', 'next fixed round');
     f.store.update(next.id, { status: 'waiting' }); await f.project.requestTaskMerge(next.id);
-    pinLegacy(f, next.id, f.entry);
+    await pinHistoricalConvergence(f, next.id, { command_id: f.entry.id, command_version: 1 });
     const blocked = await f.project.formConvergenceBatch(f.run.parent_id);
     await f.project.prepareConvergenceRun(blocked.id, 1, new AbortController().signal);
     expect(f.store.deliveryRun(blocked.id).state).toBe('ready');

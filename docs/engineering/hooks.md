@@ -95,7 +95,7 @@
 
 持久化采用附属 versioned JSON（如 `tasks.hooks`、项目模板 `meta`），不新增核心业务实体。现有 `tasks.auto_merge` / `tasks.reservation` 保持兼容，自动合并投影为内置挂载 `id:'auto-merge'`，触发为 `worker.delivery_ready`，持续、启用、锁定/可编辑原因复用 `autoMergeView`。派生 child 的合并—验收—归档流程 Hook 整体对用户只读，旧开关及挂载入口也不能修改；其他受控自定义规则保留原权限。此阶段不批量迁移历史行。
 
-Worker 详情展示为「自动化」。来源结束规则与目标交付处理器使用同一工具目录和安全操作读面；`worker.hooks.convergence` 保留为目标分支配置的同源兼容面，不另保存授权。项目页只管理未来归并默认，详情管理目标当前分支策略，child 的结束流程锁定不变；main 的归并配置初始挂载关闭，未来默认与旧配置兼容见[归并实施契约](merge-convergence-implementation.md)。
+Worker 详情展示为「自动化」。来源结束规则与目标内部处理器复用工具目录和安全操作读面；worker.hooks.convergence 只兼容历史配置，不另保存授权。持续归并的挂载／启停／未来默认已退休，新 main／order／child 不安装策略；普通单项与自动合并保持 serial，child 结束流程锁定不变。一次性整合是显式用户操作，不是新 Hook 或持续默认，见[实施接缝](merge-convergence-implementation.md)。
 
 ## 系统工具与持久操作
 
@@ -103,9 +103,9 @@ Worker 详情展示为「自动化」。来源结束规则与目标交付处理�
 
 - `request_merge`：来源本轮交付就绪时提交合并意图；Hook 动作成功只证明请求提交，不证明交付完成。无代码成果仍可合法交付，不制造空 Squash。
 - `accept_worker`：受既有最高级别或显式验收授权约束，仍 `builtin_only:true`；复用统一安全验收，不允许自定义安装、丢弃脏现场或连带验收独立指令。
-- `integrate_deliveries`：`builtin_only:true`、`scope:'target'`，策略目录为 `strategies:['serial','converge']`。仅处理同目标已授权交付，不提高来源自动级别。策略在固定交付事务内复核目标及配置版本；已固定操作不因后续开关变化改路由。
+- integrate_deliveries：builtin_only、scope=target，目录保留 serial／converge 以解释旧记录；新普通请求固定为 serial，不按历史 enabled 分流，不提高来源自动级别。原固定旧请求继续原路由，不转换或重放未知操作。
 
-适用目标的 `mounts` 含不可普通编辑／复制／移除的 `id:'delivery-handler', kind:'delivery_handler'`；动作是 `{type:'integrate_deliveries',strategy}`。处理器持续启用；归并关闭或未挂载时为 `serial`，不是停止所有合并。现有 `branch.convergence*` 与 `worker.completion` 继续作为配置入口，模板不能安装受保护工具。
+适用目标 mounts 仍含不可普通编辑／复制／移除的 delivery-handler，当前动作投影为 serial；operation 可保留原固定 converge 尝试的真实状态。处理器内部兼容不恢复持续归并 UI 或 setter。worker.completion 的来源授权入口不变，模板不能安装受保护工具；新一次性操作使用[整合接口](../reference/rpc/convergence.md)，也不改变来源验收授权。
 
 系统工具挂载的 `operation` 为 null 或以下安全摘要：
 

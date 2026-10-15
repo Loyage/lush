@@ -29,9 +29,9 @@ afterEach(() => { ui.disposeProjectAutomation?.(); dom.restore(); });
 const root = () => dom.node('detail');
 const btn = label => root().querySelectorAll('button').find(node => node.textContent === ({ '启用 Hook': '开启', '停用 Hook': '关闭' }[label] || label));
 
-test('four lazy settings entries share name/function/principle; explicit search excludes conditional input', async () => {
+test('three lazy settings entries exclude retired convergence and conditional input', async () => {
   await openProjectAutomation(); const entries = root().querySelectorAll('.automation-feature');
-  expect(entries.map(item => item.dataset.feature)).toEqual(['completion', 'push', 'convergence', 'acceptance_notice']);
+  expect(entries.map(item => item.dataset.feature)).toEqual(['completion', 'push', 'acceptance_notice']);
   for (const entry of entries) { expect(deepText(entry)).toContain('功能简介：'); expect(deepText(entry)).toContain('原理简介：'); }
   expect(deepText(root())).toContain('成果自动合并与验收'); expect(deepText(root())).not.toContain('条件提交'); expect(reads).toEqual([]);
   const search = root().querySelector('[aria-label="查找自动化功能"]'); search.value = 'push'; search.listeners.input[0]();
@@ -77,27 +77,16 @@ test('feature load failure remains retryable and late project read cannot replac
   release(json(catalogue)); await loading; expect(root().querySelector('.project-automation')).toBe(next); expect(root().querySelector('.automation-completion')).toBeNull();
 });
 
-test('convergence reads future defaults only, without target directory, runs or actual authorization controls', async () => {
-  await openProjectAutomation({ feature: 'convergence' }); expect(root().querySelector('.convergence-defaults')).toBeTruthy();
-  expect(root().querySelector('[aria-label="目标分支"]')).toBeNull(); expect(root().querySelector('.convergence-history')).toBeNull();
-  expect(reads).toEqual(['/p/1111111111111111/api/hooks', '/p/1111111111111111/api/branch-convergence/defaults']);
-});
-
-test('inactive convergence default save keeps selection and blocks replay until explicit readonly verification', async () => {
-  await openProjectAutomation({ feature: 'convergence' });
-  const mounted = root().querySelector('[aria-label="挂载范围"]'); mounted.value = 'all'; mounted.onchange();
-  let release;
-  intercept = (_path, body) => body?.method === 'branch.convergence_defaults_set' ? new Promise(resolve => release = resolve) : null;
-  const saving = btn('保存新 Worker 归并默认').onclick(); await until(() => release); await openProjectAutomation();
-  const saved = { version: 1, mounted: true, scope: 'all', enabled: false, editable: true, reason: null, revision: 'saved-defaults' };
-  release(json(saved)); await saving; await openProjectAutomation({ feature: 'convergence' });
-  expect(root().querySelector('[aria-label="挂载范围"]')).toBe(mounted); expect(mounted.value).toBe('all');
-  expect(btn('保存新 Worker 归并默认').disabled).toBe(true); expect(writes[0].params.expected_revision).toBe('defaults-r');
-  const checking = btn('核对归并默认保存结果').onclick(); await dialogButton(dom, '取消').onclick(); await checking;
-  expect(btn('保存新 Worker 归并默认').disabled).toBe(true); expect(writes).toHaveLength(1);
-  intercept = path => path.endsWith('/api/branch-convergence/defaults') ? json(saved) : null;
-  const confirmed = btn('核对归并默认保存结果').onclick(); await dialogButton(dom, '放弃并读取').onclick(); await confirmed;
-  expect(mounted.disabled).toBe(false); expect(writes).toHaveLength(1);
+test('old convergence settings and history callers reach the directory without reads or ways to enable it', async () => {
+  for (const subpage of ['settings', 'history']) {
+    await openProjectAutomation({ feature: 'convergence', subpage });
+    expect(dom.location.hash).toBe('#hooks');
+    expect(root().querySelectorAll('.automation-feature')).toHaveLength(3);
+    expect(root().querySelector('.convergence-defaults')).toBeNull();
+    expect(root().querySelector('[aria-label="挂载范围"]')).toBeNull();
+    expect(dom.node('error').textContent).toContain('持续归并设置已退役');
+  }
+  expect(reads).toEqual([]); expect(writes).toEqual([]);
 });
 
 test('old feature history bookmarks resolve to settings; conditional bookmarks lead to existing input browser', async () => {

@@ -33,7 +33,7 @@ test('project directory does not read legacy device defaults or global authoriza
   dom.location.pathname = '/p/1111111111111111/'; await openHooks();
   expect(root().querySelector('.completion-defaults')).toBeNull();
   expect(button('开启后台自动选择')).toBeUndefined();
-  expect(root().querySelectorAll('.automation-feature')).toHaveLength(4);
+  expect(root().querySelectorAll('.automation-feature')).toHaveLength(3);
   expect(root().querySelectorAll('a').some(link => link.getAttribute('href') === '#hooks-completion')).toBe(true);
   expect(reads).toEqual([]); expect(posts).toHaveLength(0);
 });

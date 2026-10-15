@@ -19,6 +19,7 @@ function fixedContext(project, task) {
   const events = project.store.all('SELECT data FROM events WHERE task_id=? AND type=? ORDER BY id LIMIT 2', task.id, CREATED);
   check(events.length === 1, 'integration Worker requires one fixed creation receipt');
   const fixed = convergenceJSON(events[0].data);
+  if (fixed?.operation_mode === 'one_shot') return project.oneShotFixedContext(task);
   check(fixed?.version === 1 && fixed.worker_id === task.id && Number.isSafeInteger(fixed.generation)
     && fixed.generation > 0 && Number.isSafeInteger(fixed.run_id) && Number.isSafeInteger(fixed.node_id)
     && SHA.test(fixed.seed_commit) && SHA.test(fixed.left) && SHA.test(fixed.right), 'invalid integration creation receipt');
@@ -146,8 +147,13 @@ export default {
   },
 
   convergenceIntegrationContext(task) {
-    const { fixed } = fixedContext(this, task);
-    return { ...fixed, members: fixed.members.map(member => {
+    const { fixed, run } = fixedContext(this, task);
+    const autonomous = this.oneShotRun?.(run), parent = this.store.task(run.parent_id);
+    return { ...fixed, target: { id: parent.id, worker_number: parent.worker_number ?? null, branch: parent.branch, task_kind: parent.task_kind },
+      ...(autonomous ? { autonomy: 'Agent chooses order, grouping, semantic adaptations and final verification; runtime does not pair sources.',
+        verification_responsibility: ['main', 'owner'].includes(parent.task_kind) ? 'final integration and full project test suite' : 'affected integration and regression',
+        increment_rule: 'Use each exact base_commit..source_commit delta. Previously squashed changes are already represented in the target; do not replay the entire source history.' } : {}),
+      members: fixed.members.map(member => {
       const source = this.store.task(member.task_id);
       const goal = String(source.goal ?? ''), report = String(source.result ?? '');
       return { ...member, worker_number: source.worker_number ?? null,
@@ -172,7 +178,8 @@ export default {
     const cwd = await this.workspaces.ensure(task);
     await this.workspaces.clean(cwd);
     const commit = await this.workspaces.git(cwd, 'rev-parse', 'HEAD');
-    for (const input of [fixed.left, fixed.right, fixed.seed_commit]) check(await this.workspaces.isAncestor(cwd, input, commit),
+    for (const input of [fixed.left, fixed.right, fixed.seed_commit,
+      ...(this.oneShotRun?.(run) ? fixed.members.map(member => member.source_commit) : [])]) check(await this.workspaces.isAncestor(cwd, input, commit),
       'integration output lost a fixed input ancestor');
     const tree = await this.workspaces.git(cwd, 'rev-parse', `${commit}^{tree}`);
     const liveTask = this.store.task(task.id), live = fixedContext(this, liveTask);

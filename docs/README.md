@@ -23,7 +23,7 @@
 - [Worker 图与固定输入规则](engineering/task-graph.md)：实现、可信代码风险与读面边界；[Worker 中心输入](engineering/task-centered-input-design.md)：当前指令的设计约束。
 - [Worker Hooks](design/hooks.md)：触发、挂载与受控动作；[工程契约](engineering/hooks.md)、[自动链](engineering/completion-hooks.md)记录授权与恢复边界。
 - [已合并 Worker 的持续迭代](engineering/task-iteration.md)：追加输入、多轮交付、验收与归档、安全父同步及历史显式恢复。
-- [归并合并功能设计](design/merge-convergence.md)：W205／D482 的固定成果两两归并、每批一个提交、按需隔离整合与阻塞绕行；首版按目标分支开启且默认关闭，附当前接缝、后续愿景与性能验证路线。
+- [一次性整合设计](design/merge-convergence.md)：显式固定来源、由一个 Worker 自主适配与验证后一次合入；普通 serial 保留，持续归并设置退休，附实现与历史兼容边界。
 - [用户工作台](design/user-workspace.md)：设备唯一设置、全局收件箱与自动化、项目工作页分离；[工程契约](engineering/user-workspace.md)固定当前接口。
 - [工作台与开发环境](design/workbench.md)：主体启动、独立项目标签、用户管理的远程网络与后台开关；[工程接缝](engineering/workbench.md)记录接入范围与限制。
 - [设备共享设置与迁移](device-settings.md)：用户编辑范围、迁移和中断恢复；[设计理念](design/device-settings.md)解释私有凭证边界；[工程契约](engineering/device-settings.md)保留旧继承方案的兼容与迁移记录。

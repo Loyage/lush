@@ -27,7 +27,7 @@ export default {
   /** Caller holds Git gate. Failure retains the helper scene and is explicitly resumable via worker.accept. */
   async reclaimConvergenceAfterAcceptanceUnsafe(acceptedIds) {
     if (!acceptedIds.length) return;
-    const rows = this.store.all(`SELECT DISTINCT r.id FROM delivery_runs r JOIN delivery_members m ON m.run_id=r.id
+    const rows = this.store.all(`SELECT DISTINCT r.id FROM delivery_runs r JOIN all_delivery_members m ON m.run_id=r.id
       WHERE m.task_id IN (${acceptedIds.map(() => '?').join(',')}) AND r.state='integrated'
       AND EXISTS (SELECT 1 FROM delivery_nodes n WHERE n.run_id=r.id AND n.helper_id IS NOT NULL) ORDER BY r.id`, ...acceptedIds);
     for (const row of rows) {

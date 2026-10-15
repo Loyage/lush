@@ -77,11 +77,11 @@ test('phase hints show only this Worker state, keeping lifecycle consequences in
   ui.lastSnapshot = null;
   const before = calls.length;
   for (const [fields, phase] of [
-    [{}, '本轮已交付 · 待验收'],
+    [{}, '本轮工作完成 · 待验收'],
     [{ status: 'waiting', reservation: null, result: 'answer' }, '本轮仅回答，无新增提交 · 待验收（无需先请求合并）'],
     [{ status: 'completed', accepted: true }, '历史验收尚未回收开发资源 · 可再次验收补办'],
     [{ acceptance_recovery: true }, '资源回收未完成 · 已保留精确续办记录，请续办验收'],
-    [{ task_kind: 'child', parent_id: 120, parent_worker_number: 'W12' }, '本轮已交付 · 保留供父 Worker W12 追加需求，随父级验收'],
+    [{ task_kind: 'child', parent_id: 120, parent_worker_number: 'W12' }, '本轮工作完成 · 保留供父 Worker W12 追加需求，随父级验收'],
     [{ task_kind: 'child', parent_id: 120, parent_worker_number: 'W12', acceptance_recovery: true }, '资源回收未完成 · 等待父 Worker W12 按持久记录续办验收'],
   ]) {
     const panel = iterationControls({ ...task, ...fields });
@@ -107,7 +107,7 @@ test('detail retains model source and current progress without repeated acceptan
     progress: { version: 1, items: [{ key: 'test', label: '验证改动', status: 'pending' }] },
   }, { events: [] }, null, null, [{ id: sourceId, label: '我的模型来源' }]);
   const panel = dom.node('detail');
-  expect(panel.querySelector('.iteration-phase').textContent).toBe('本轮已交付 · 待验收');
+  expect(panel.querySelector('.iteration-phase').textContent).toBe('本轮工作完成 · 待验收');
   expect(deepText(panel.querySelector('.worker-model-source-summary'))).toContain('我的模型来源');
   expect(deepText(panel.querySelector('.worker-model-source-summary'))).toContain('provider/model');
   expect(deepText(panel.querySelector('.task-progress-panel'))).toContain('验证改动');
@@ -297,7 +297,7 @@ test('delivered children permit parent acceptance in detail and both graph modes
       const accept = buttonOf(panel, '验收');
       expect(accept.disabled).toBe(false);
       expect(accept.classList.contains('agent-call')).toBe(false);
-      expect(accept.getAttribute('data-help')).toContain('一并安全验收已交付的派生 child');
+      expect(accept.getAttribute('data-help')).toContain('一并安全验收已完成的派生 child');
       expect(accept.getAttribute('data-help')).toContain('不连带验收独立指令');
       const before = calls.length; await accept.onclick(); await accept.onclick();
       expect(calls.slice(before)).toEqual([{ method: 'worker.accept', params: { id: task.id } }]);
@@ -308,7 +308,7 @@ test('delivered children permit parent acceptance in detail and both graph modes
     ...['queued', 'running', 'waiting', 'paused'].map(status => ({ task_kind: 'child', status }))]) {
     const accept = buttonOf(render({ ...parent, children: [{ id: 71, ...child }] }), '验收');
     expect(accept.disabled).toBe(true);
-    expect(accept.parentNode.getAttribute('data-help')).toContain('后代尚未交付或有独立指令未验收');
+    expect(accept.parentNode.getAttribute('data-help')).toContain('后代工作尚未完成或有独立指令未验收');
   }
 });
 
@@ -319,7 +319,7 @@ test('detail and graph expose the same awaiting acceptance actions and continuin
   expect(buttonOf(panel, '归档')).toBeUndefined();
   expect(buttonOf(panel, '回收工作区与分支')).toBeUndefined();
   expect(buttonOf(panel, '只回收 worktree（保留分支）')).toBeUndefined();
-  expect(panel.querySelector('.iteration-phase').textContent).toBe('本轮已交付 · 待验收');
+  expect(panel.querySelector('.iteration-phase').textContent).toBe('本轮工作完成 · 待验收');
   expect(buttonOf(panel, '追加输入').classList.contains('agent-call')).toBe(false);
   expect(buttonOf(panel, '验收')).toBeTruthy(); expect(buttonOf(panel, '验收并归档')).toBeUndefined();
   expect(buttonOf(panel, '同步父分支')).toBeTruthy();
@@ -415,7 +415,7 @@ test('delegated Tasks wait for parent confirmation, not user acceptance or mine 
   expect(statusOf(child).label).toBe('待父确认');
   expect(deepText(panel)).toContain('保留供父 Worker #1 追加需求，随父级验收');
   expect(buttonOf(panel, '验收')).toBeUndefined();
-  expect(panel.querySelector('.iteration-phase').textContent).toBe('本轮已交付 · 保留供父 Worker #1 追加需求，随父级验收');
+  expect(panel.querySelector('.iteration-phase').textContent).toBe('本轮工作完成 · 保留供父 Worker #1 追加需求，随父级验收');
   expect(deepText(panel)).not.toContain('归档并回收');
   expect(matchTask(child, { mine: true })).toBe(false);
   expect(matchTask(child, { mine: true, openNoticeIds: [child.id] })).toBe(true);

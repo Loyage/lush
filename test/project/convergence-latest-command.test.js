@@ -3,19 +3,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fixture, repo, git } from '../helpers.js';
 import { convergenceJSON } from '../../src/core/convergence-contract.js';
+import { historicalConvergencePolicy, pinHistoricalConvergence } from '../convergence-fixtures.js';
 
 async function setup() {
   const f = fixture(); f.project.kick = () => {}; f.project.scheduleTaskMerge = () => {}; f.project.scheduleConvergence = () => {};
   await repo(f.root); f.main = await f.project.bootstrapMain();
   f.marker = path.join(f.config.home, 'validation-ran');
   f.command = f.project.saveShortcutCommand({ name: 'old', command: `printf old > '${f.marker}'` }, f.project.shortcutCommands().revision).commands.items.at(-1);
-  await f.project.setBranchConvergence('main', true, { command_id: f.command.id }, (await f.project.branchConvergence('main')).revision);
+  historicalConvergencePolicy(f, f.main, { validation: { command_id: f.command.id } });
   const source = (await f.project.order('fixed source', 'main', [], null, false)).task;
   fs.writeFileSync(path.join(source.workspace, 'source.txt'), 'source'); await git(source.workspace, 'add', '.'); await git(source.workspace, 'commit', '-m', 'source');
   f.store.update(source.id, { status: 'waiting' }); await f.project.requestTaskMerge(source.id);
-  const { verification_mode, ...booking } = convergenceJSON(f.store.task(source.id).reservation);
   f.reference = { command_id: f.command.id, command_version: 1 };
-  f.store.update(source.id, { reservation: JSON.stringify({ ...booking, validation: f.reference }) });
+  await pinHistoricalConvergence(f, source.id, f.reference);
   f.run = await f.project.formConvergenceBatch(f.main.id); f.baseline = await git(f.root, 'rev-parse', 'main');
   return f;
 }

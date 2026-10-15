@@ -15,6 +15,6 @@ test('CLI read/write classification is separate from authorization and shared wi
       expect(browser.operation).toBe(item.operation); expect(browser.operations).toEqual(expected);
     }
   }
-  for (const path of ['help', 'worker inspect', 'skills get']) expect(CLI_COMMANDS.find(row => row.path === path).operation).toBe('read');
-  for (const path of ['worker auto-title', 'order', 'worker accept', 'daemon start']) expect(CLI_COMMANDS.find(row => row.path === path).operation).toBe('write');
+  for (const path of ['help', 'worker inspect', 'skills get', 'branch integrate plan', 'branch integrate show']) expect(CLI_COMMANDS.find(row => row.path === path).operation).toBe('read');
+  for (const path of ['worker auto-title', 'order', 'worker accept', 'daemon start', 'branch integrate start', 'branch integrate cancel', 'branch integrate retry']) expect(CLI_COMMANDS.find(row => row.path === path).operation).toBe('write');
 });

@@ -61,6 +61,7 @@ import convergenceLandMethods from './project/convergence-land.js';
 import convergenceSafetyMethods from './project/convergence-safety.js';
 import convergenceWorkerMethods from './project/convergence-workers.js';
 import convergenceAcceptanceMethods from './project/convergence-acceptance.js';
+import oneShotIntegrationMethods from './project/one-shot-integration.js';
 
 /**
  * Project 由若干职责模块拼装：每个模块（`src/core/project/*.js`）导出一个方法对象，
@@ -73,7 +74,7 @@ const MIXINS = [
   ['inputEmissions', inputEmissionMethods], ['inputEmissionSafety', inputEmissionSafetyMethods],
   ['deliveryRead', deliveryReadMethods], ['convergencePolicy', convergencePolicyMethods], ['convergenceQueue', convergenceQueueMethods],
   ['convergencePrepare', convergencePrepareMethods], ['convergenceLand', convergenceLandMethods], ['convergenceSafety', convergenceSafetyMethods],
-  ['convergenceWorkers', convergenceWorkerMethods], ['convergenceAcceptance', convergenceAcceptanceMethods],
+  ['convergenceWorkers', convergenceWorkerMethods], ['convergenceAcceptance', convergenceAcceptanceMethods], ['oneShotIntegration', oneShotIntegrationMethods],
   ['diagnostics', diagnosticsMethods], ['maintenance', maintenanceMethods], ['sleep', sleepMethods], ['status', statusMethods], ['agents', agentMethods], ['deps', depsMethods], ['inputs', inputsMethods], ['order', orderMethods], ['drafts', draftsMethods], ['references', referencesMethods],
   ['specs', specsMethods], ['plans', plansMethods], ['tasks', tasksMethods], ['progress', progressMethods], ['tree', treeMethods],
   ['timeline', timelineMethods], ['messages', messagesMethods], ['inputQueue', inputQueueMethods], ['choiceSnapshots', choiceSnapshotMethods], ['merge', mergeMethods], ['mergeQueue', mergeQueueMethods], ['mergeAll', mergeAllMethods], ['orchestrate', orchestrateMethods], ['verify', verifyMethods],

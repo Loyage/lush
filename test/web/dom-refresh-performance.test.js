@@ -183,10 +183,10 @@ test('automatic overview polling retries once the failure backoff expires and ke
   const oldNow = Date.now; Date.now = () => oldNow() + 30001;
   try {
     await refresh(); expect(overviewReads()).toBe(beforeOverview + 1); expect(ui.offline).toBe(false);
-    expect(deliveryReads()).toBe(beforeDelivery + 1); // The independent count cache also expires.
+    expect(deliveryReads()).toBe(beforeDelivery); // Retired sidebar counts never fetch in the background.
     await refresh(); expect(overviewReads()).toBe(beforeOverview + 2);
-    expect(deliveryReads()).toBe(beforeDelivery + 1); // Normal overview cadence must not multiply count reads.
-    expect(calls.length).toBe(count + 3);
+    expect(deliveryReads()).toBe(beforeDelivery); // No routine delivery graph/count requests.
+    expect(calls.length).toBe(count + 2);
   } finally { Date.now = oldNow; }
 });
 

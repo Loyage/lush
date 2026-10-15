@@ -8,7 +8,7 @@ test('real Host/HTTP/RPC/SQLite shaped delivery pages reach DOM, counts/paginati
   const f = await deliveryViewFixture();
   const dom = installDom({ projectId: f.projectId, fetch: (url, options) => fetch(f.url + url, options) });
   try {
-    const { openDeliveryView, refreshDeliveryCounts } = await import('../../src/ui/web/assets/render-delivery-view.js');
+    const { openDeliveryView } = await import('../../src/ui/web/assets/render-delivery-view.js');
     const { renderTaskGraph } = await import('../../src/ui/web/assets/render-task-graph.js');
     const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
     const { resetUiState, ui } = await import('../../src/ui/web/assets/state.js'); resetUiState();
@@ -18,14 +18,14 @@ test('real Host/HTTP/RPC/SQLite shaped delivery pages reach DOM, counts/paginati
     expect(wire).toMatchObject({ counts: { attention: 1 }, items: [{ run_id: f.focusRun.id, attention: true }] });
     const attentionText = '待处理 1';
     console.info(`Real Host/RPC delivery count: ${attentionText}`);
-    await refreshDeliveryCounts(); await openDeliveryView({ locator: { run_id: f.focusRun.id, node_id: f.node.id } });
+    await openDeliveryView({ locator: { run_id: f.focusRun.id, node_id: f.node.id } });
     expect(deepText(dom.node('detail'))).toContain('落地待核查');
     expect(deepText(dom.node('detail'))).toContain(`#${f.helper.id}`);
     expect(deepText(dom.node('detail'))).toContain('当前暂存输入：1 条');
     expect(deepText(dom.node('detail'))).not.toContain('BUFFERED_PRIVATE_BODY');
     const count = dom.node('detail').querySelector('.delivery-count-summary'); expect(count.textContent).toContain('活动 26');
     expect(count.textContent).toContain(attentionText);
-    expect(dom.node('delivery-count').textContent).toContain(attentionText);
+    expect(deepText(dom.node('detail'))).toContain('历史合并记录');
     expect(deepText(dom.node('detail'))).not.toContain('阶段异常');
     await dom.node('detail').querySelectorAll('button').find(node => node.textContent === '继续加载').onclick();
     expect(dom.node('detail').querySelectorAll('.delivery-card')).toHaveLength(26);
@@ -52,15 +52,13 @@ test('real attention lifecycle reaches sidebar/page/tree without treating ready 
   const f = await deliveryViewFixture();
   const dom = installDom({ projectId: f.projectId, fetch: (url, options) => fetch(f.url + url, options) });
   try {
-    const { openDeliveryView, refreshDeliveryCounts } = await import('../../src/ui/web/assets/render-delivery-view.js');
+    const { openDeliveryView } = await import('../../src/ui/web/assets/render-delivery-view.js');
     const { renderTaskGraph } = await import('../../src/ui/web/assets/render-task-graph.js');
     const { activateDetailView } = await import('../../src/ui/web/assets/sidebar-ui.js');
     const { resetUiState, ui } = await import('../../src/ui/web/assets/state.js'); resetUiState();
     const verify = async attention => {
       const before = deliveryDatabase(f);
-      activateDetailView({ view: 'overview' }); ui.deliveryCounts = null;
-      await refreshDeliveryCounts();
-      expect(dom.node('delivery-count').textContent).toBe(`活动 26 · 待处理 ${Number(attention)}`);
+      activateDetailView({ view: 'overview' });
       await openDeliveryView({ locator: { run_id: f.focusRun.id } });
       expect(dom.node('detail').querySelector('.delivery-count-summary').textContent).toContain(`待处理 ${Number(attention)}`);
       expect(dom.node('detail').querySelector(`[data-delivery-key="batch:${f.focusRun.id}"]`).classList.contains('delivery-exception')).toBe(attention);

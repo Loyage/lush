@@ -41,7 +41,7 @@ test('real scope defaults → HTTP-created orders/children → mounted projectio
   const f = await setup(); let dom, convergence;
   try {
     await repo(f.root); f.project.kick = () => {}; f.project.scheduleTaskMerge = () => {};
-    const main = await f.project.bootstrapMain(), beforeMain = await f.project.branchConvergence('main');
+    const main = await f.project.bootstrapMain();
     const writes = [];
     dom = installDom({ fetch: async (url, options = {}) => {
       if (options.body) writes.push(JSON.parse(options.body));
@@ -58,20 +58,19 @@ test('real scope defaults → HTTP-created orders/children → mounted projectio
     await btn('保存项目设置').onclick();
     expect(writes.at(-1).params.patch).toEqual({ mount_scopes: { completion: 'none' }, completion_defaults: { enabled: true, level: 'merge' } });
     const excluded = await create('scope excludes completion');
-    expect(f.project.taskHooks(excluded.id)).toMatchObject({ mounted_features: { completion: false, push: false, convergence: true }, completion: { level: 'off' } });
+    expect(f.project.taskHooks(excluded.id)).toMatchObject({ mounted_features: { completion: false, push: false }, completion: { level: 'off' } });
     activateDetailView({ view: 'task', key: `task-${excluded.id}` }); root.replaceChildren(workerHooks(f.project.inspect(excluded.id)));
     expect(root.querySelector('[data-feature="completion"]')).toBeNull(); expect(root.querySelector('[data-feature="push"]')).toBeNull();
     await openProjectAutomation({ feature: 'completion' }); selectScope('user'); await btn('保存项目设置').onclick();
     await openProjectAutomation({ feature: 'acceptance_notice' }); selectScope('user'); await btn('保存项目设置').onclick();
     convergence = renderConvergenceAutomation({ ownsPage: () => true }); root.replaceChildren(convergence); await convergence.ready;
-    selectScope('all'); await btn('保存新 Worker 归并默认').onclick();
-    expect(writes.at(-1).method).toBe('branch.convergence_defaults_set');
-    expect(writes.at(-1).params).toMatchObject({ mounted: true, scope: 'all', enabled: false });
-    expect(await f.project.branchConvergence('main')).toEqual(beforeMain);
+    expect(convergence.textContent).toContain('持续归并设置已退役');
+    expect(convergence.querySelectorAll('button')).toHaveLength(0);
+    expect(writes.some(item => item.method.startsWith('branch.convergence'))).toBe(false);
     const included = await create('scope includes completion');
     f.project.stopping = true; const child = await f.project.spawn(included.id, 'scoped child'); f.project.stopping = false;
     const childHooks = f.project.taskHooks(child.id);
-    expect(childHooks.mounted_features).toEqual({ completion: true, acceptance_notice: false, convergence: true, push: false });
+    expect(childHooks.mounted_features).toMatchObject({ completion: true, acceptance_notice: false, push: false });
     expect(childHooks.completion).toMatchObject({ level: 'merge', locked: true });
     activateDetailView({ view: 'task', key: `task-${child.id}` }); root.replaceChildren(workerHooks(f.project.inspect(child.id)));
     expect(root.querySelector('[data-feature="acceptance_notice"]')).toBeNull();
@@ -80,15 +79,16 @@ test('real scope defaults → HTTP-created orders/children → mounted projectio
     const draw = () => root.replaceChildren(workerHooks(f.project.inspect(included.id), { refresh() { refreshes++; draw(); } }));
     activateDetailView({ view: 'task', key: `task-${included.id}` }); draw();
     const before = f.project.taskHooks(included.id);
-    expect(before.mounted_features).toEqual({ completion: true, acceptance_notice: true, convergence: true, push: false });
-    expect(root.querySelectorAll('.worker-automation-feature')).toHaveLength(3);
+    expect(before.mounted_features).toMatchObject({ completion: true, acceptance_notice: true, push: false });
+    expect(root.querySelectorAll('.worker-automation-feature')).toHaveLength(2);
+    expect(root.querySelector('[data-feature="convergence"]')).toBeNull();
     await root.querySelector('[data-feature="completion"]').querySelector('[data-level="off"]').onclick();
     expect(writes.at(-1)).toEqual({ method: 'worker.completion', params: { id: included.id, level: 'off', expected_revision: before.revision } });
     expect(f.project.taskHooks(included.id).completion.level).toBe('off'); expect(refreshes).toBe(1);
     expect(root.querySelector('[data-level="off"]').getAttribute('aria-pressed')).toBe('true');
     expect(f.project.taskHooks(excluded.id).mounted_features.completion).toBe(false);
     expect(f.project.taskHooks(main.id).mounted_features.push).toBe(true);
-  } finally { convergence?.dispose(); ui.disposeProjectAutomation?.(); dom?.restore(); f.project.stopping = false; await f.close(); }
+  } finally { convergence?.dispose?.(); ui.disposeProjectAutomation?.(); dom?.restore(); f.project.stopping = false; await f.close(); }
 });
 
 test('real project push UI authorizes exact main mount only after confirmation, refuses deleted references and still permits stopping', async () => {

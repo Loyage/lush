@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fixture, repo, git, until, gate } from '../helpers.js';
 import { convergenceJSON } from '../../src/core/convergence-contract.js';
 import { Dispatcher } from '../../src/rpc/dispatcher.js';
+import { historicalConvergencePolicy, pinHistoricalConvergence } from '../convergence-fixtures.js';
 
 /** Fully assembled scheduler/factory/SQL/Git/real validation, in-process controlled provider only. */
 async function setup(provider, command = "test \"$(cat file.txt)\" = 'left plus right'", nested = false, legacy = false) {
@@ -18,18 +19,14 @@ async function setup(provider, command = "test \"$(cat file.txt)\" = 'left plus 
     const owner = nested ? (await f.project.order('collect nested sources')).task : null;
     if (owner) f.store.update(owner.id, { status: 'waiting' });
     const target = owner?.branch ?? 'main';
-    const view = await f.project.branchConvergence(target);
-    await f.project.setBranchConvergence(target, true, { command_id: entry.id, command_version: 1 }, view.revision);
+    historicalConvergencePolicy(f, owner ?? f.store.get("SELECT * FROM tasks WHERE task_kind='main'"), { validation: { command_id: entry.id, command_version: 1 } });
     const sources = [];
     for (const text of ['left', 'right']) {
       const task = owner ? await f.project.spawn(owner.id, text) : (await f.project.order(text)).task;
       fs.writeFileSync(path.join(task.workspace, 'file.txt'), text + '\n');
       await git(task.workspace, 'add', '.'); await git(task.workspace, 'commit', '-m', text);
       f.store.update(task.id, { status: 'waiting' }); await f.project.requestTaskMerge(task.id);
-      if (legacy) {
-        const { verification_mode, ...booking } = convergenceJSON(f.store.task(task.id).reservation);
-        f.store.update(task.id, { reservation: JSON.stringify({ ...booking, validation: { command_id: entry.id, command_version: 1 } }) });
-      }
+      await pinHistoricalConvergence(f, task.id, legacy ? { command_id: entry.id, command_version: 1 } : null);
       sources.push(f.store.task(task.id));
     }
     if (!legacy) {

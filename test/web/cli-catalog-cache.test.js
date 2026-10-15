@@ -67,7 +67,16 @@ test('real login -> HTML version -> static directory never opens a stopped proje
     const page = await get('/p/1111111111111111/', { Cookie }); expect(page.status).toBe(200);
     const name = assetPath(await page.text()); expect(name).toMatch(/^\/web-[a-f0-9]{32}-cli-catalog\.json$/);
     expect((await get(name)).status).toBe(303);
-    const initial = await get(name, { Cookie }); expect(initial.status).toBe(200); expect(await initial.json()).toEqual(cliCatalog());
+    const initial = await get(name, { Cookie }); expect(initial.status).toBe(200);
+    const published = await initial.json(); expect(published).toEqual(cliCatalog());
+    expect(published.commands.find(item => item.path === 'lush branch integrate').operations).toEqual(['read', 'write']);
+    for (const [verb, operation, method] of [['plan', 'read', 'branch.integrate_plan'], ['show', 'read', 'branch.integration'],
+      ['start', 'write', 'branch.integrate_start'], ['cancel', 'write', 'branch.integrate_cancel'], ['retry', 'write', 'branch.integrate_retry']]) {
+      const item = published.commands.find(item => item.path === `lush branch integrate ${verb}`);
+      expect(item.operation).toBe(operation); expect(item.operations).toEqual([operation]);
+      expect(item.rpc.map(rpc => [rpc.method, rpc.audience])).toEqual([[method, 'user']]);
+      expect(published.commands.some(entry => entry.path === `lushc branch integrate ${verb}`)).toBe(false);
+    }
     expect((await get(name, { Cookie, Origin: 'https://attacker.invalid' })).status).toBe(403);
     const etag = initial.headers.get('etag');
     expect((await get(name, { Cookie, 'If-None-Match': etag })).status).toBe(304);

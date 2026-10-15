@@ -46,10 +46,10 @@ function convergenceBranch(value) {
   'branch must be an exact local branch name, not a ref expression');
   return value;
 }
-function convergenceRevision(value) {
+function convergenceRevision(value, kind = 'convergence') {
   check(typeof value === 'string' && value.length > 0 && value.length <= 256
     && value === value.trim() && !/[\x00-\x1f\x7f]/.test(value),
-  'expected_revision must be a convergence read revision');
+  `expected_revision must be a valid ${kind} read revision`);
   return value;
 }
 function convergenceInteger(value, name, max = Number.MAX_SAFE_INTEGER) {
@@ -73,6 +73,17 @@ export const handlers = {
   'branch.version_graph'(p, params, actor) { return p.branchVersionGraph(params); },
   'branch.tree'(p, params, actor) { return p.branchTree(); },
   'branch.show'(p, params, actor) { return p.branchShow(params.branch); },
+  'branch.integrate_plan'(p, params) { return p.branchIntegratePlan(convergenceBranch(params.branch)); },
+  'branch.integrate_start'(p, params) {
+    return p.branchIntegrateStart(convergenceBranch(params.branch), convergenceRevision(params.expected_revision, 'integration'));
+  },
+  'branch.integration'(p, params) { return p.branchIntegration(convergenceInteger(params.id, 'id')); },
+  'branch.integrate_cancel'(p, params) {
+    return p.branchIntegrateCancel(convergenceInteger(params.id, 'id'), convergenceRevision(params.expected_revision, 'integration'));
+  },
+  'branch.integrate_retry'(p, params) {
+    return p.branchIntegrateRetry(convergenceInteger(params.id, 'id'), convergenceRevision(params.expected_revision, 'integration'));
+  },
   'branch.convergence'(p, params) { return p.branchConvergence(convergenceBranch(params.branch)); },
   'branch.convergence_list'(p) { return p.branchConvergenceList(); },
   'branch.convergence_set'(p, params) {

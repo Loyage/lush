@@ -2,7 +2,7 @@ import { AUTOMATION_METADATA, automationMetadata, DISPLAY_PRINCIPLES, automation
 export { AUTOMATION_METADATA, automationMetadata, DISPLAY_PRINCIPLES, automationDefaultShown };
 
 /** UI feature directory only; configuration and execution authority stay in their engines. */
-const renderers = { completion: 'renderCompletionAutomation', push: 'renderPushAutomation', convergence: 'renderConvergenceAutomation', acceptance_notice: 'renderAcceptanceNoticeAutomation' };
+const renderers = { completion: 'renderCompletionAutomation', push: 'renderPushAutomation', acceptance_notice: 'renderAcceptanceNoticeAutomation' };
 export const AUTOMATION_FEATURES = Object.freeze(AUTOMATION_METADATA.map(item => ({ ...item,
   load: () => import('./automation-feature-pages.js').then(module => module[renderers[item.id]]),
 })));

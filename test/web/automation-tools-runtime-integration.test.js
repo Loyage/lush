@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { repo, git, until } from '../helpers.js';
 import { setup, fetch } from './harness.js';
+import { historicalConvergencePolicy, pinHistoricalConvergence } from '../convergence-fixtures.js';
 
 async function get(f, route) {
   const response = await fetch(f.url + route);
@@ -25,7 +26,8 @@ async function completion(f, task, level) {
 }
 async function policy(f, enabled, mounted = true) {
   const previous = await get(f, '/api/branch-convergence?branch=main');
-  return post(f, 'branch.convergence_set', { branch: 'main', enabled, mounted, expected_revision: previous.revision });
+  const result = await post(f, 'branch.convergence_set', { branch: 'main', enabled, mounted, expected_revision: previous.revision }, 400);
+  expect(result.error).toContain('retired'); return result;
 }
 function safe(value, authorization) {
   const json = JSON.stringify(value);
@@ -41,7 +43,7 @@ async function prepared(strategy = 'serial', changes = true, level = 'accept') {
   try {
     await repo(f.root);
     const parent = await f.project.bootstrapMain();
-    if (strategy === 'converge') await policy(f, true);
+    if (strategy === 'converge') historicalConvergencePolicy(f, parent);
     const { task } = await post(f, 'order.submit', { content: 'controlled HTTP automation', start: false });
     await completion(f, task, level);
     if (changes) {
@@ -65,7 +67,7 @@ async function land(f, strategy) {
 }
 
 for (const strategy of ['serial', 'converge']) for (const changes of [true, false]) {
-  test(`HTTP/RPC/Git ${strategy} ${changes ? 'code' : 'no-code'} tools separate submission, delivery and safe acceptance`, async () => {
+  test(`HTTP/RPC/Git ${strategy === 'converge' ? 'historical-enabled policy with serial routing' : strategy} ${changes ? 'code' : 'no-code'} tools separate submission, delivery and safe acceptance`, async () => {
     const f = await prepared(strategy, changes);
     try {
       const catalogue = await get(f, '/api/hooks');
@@ -78,18 +80,18 @@ for (const strategy of ['serial', 'converge']) for (const changes of [true, fals
       const source = operation(await hooks(f, f.task.id), 'auto-merge');
       const target = operation(await hooks(f, f.parent.id), 'delivery-handler');
       expect(source).toMatchObject({ tool: 'request_merge', status: changes ? 'submitted' : 'succeeded' });
-      expect(target).toMatchObject({ tool: 'integrate_deliveries', strategy, status: changes ? 'submitted' : 'succeeded' });
+      expect(target).toMatchObject({ tool: 'integrate_deliveries', strategy: 'serial', status: changes ? 'submitted' : 'succeeded' });
       expect(operation(await hooks(f, f.task.id), 'auto-accept')).toBeNull();
       if (changes) {
         expect(f.store.task(f.task.id).integration).not.toBe('merged');
-        await land(f, strategy);
+        await land(f, 'serial');
       } else f.project.stopping = false;
       f.project.scheduleTaskCompletion(f.task.id);
       await until(() => f.store.task(f.task.id).status === 'completed' && !f.project.completionQueued?.size, 10000);
       const finished = await hooks(f, f.task.id);
       expect(operation(finished, 'auto-merge')).toMatchObject({ id: source.id, status: 'succeeded' });
       expect(operation(finished, 'auto-accept')).toMatchObject({ tool: 'accept_worker', status: 'succeeded' });
-      expect(operation(await hooks(f, f.parent.id), 'delivery-handler')).toMatchObject({ id: target.id, strategy, status: 'succeeded' });
+      expect(operation(await hooks(f, f.parent.id), 'delivery-handler')).toMatchObject({ id: target.id, strategy: 'serial', status: 'succeeded' });
       expect(await git(f.root, 'rev-list', '--count', 'main')).toBe(changes ? '2' : '1');
       expect(fs.existsSync(f.task.workspace)).toBe(false);
       const authorization = JSON.parse(f.store.task(f.task.id).auto_merge).completion.authorization;
@@ -102,13 +104,15 @@ for (const strategy of ['serial', 'converge']) for (const changes of [true, fals
   });
 }
 
-test('HTTP future target strategy changes do not reroute an already fixed convergence operation', async () => {
+test('HTTP retired policy mutation rejects explicitly and does not reroute an already fixed historical operation', async () => {
   const f = await prepared('converge', true, 'merge');
   try {
     await f.project.settleQueuedMerge(f.task.id);
+    await pinHistoricalConvergence(f, f.task.id);
     const pinned = f.store.task(f.task.id).reservation;
     const before = operation(await hooks(f, f.parent.id), 'delivery-handler');
     await policy(f, false, false);
+    historicalConvergencePolicy(f, f.parent, { mounted: false, enabled: false, generation: 2 });
     const current = await hooks(f, f.parent.id);
     expect(current.mounts.filter(mount => mount.id === 'delivery-handler')).toHaveLength(1);
     expect(current.mounts.find(mount => mount.id === 'delivery-handler')).toMatchObject({ enabled: true, actions: [{ type: 'integrate_deliveries', strategy: 'serial' }] });

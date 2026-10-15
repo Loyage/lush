@@ -288,10 +288,10 @@ test('直接链接启动复用同一路由，重复 boot 不复制导航', async
     expectSelected(id);
     expect(dom.node('side-nav').querySelectorAll('.nav-item')).toHaveLength(3);
   }
-  for (const hash of ['#hooks', '#hooks-history']) {
+  for (const hash of ['#hooks', '#hooks-history', '#hooks-convergence', '#hooks-convergence-history']) {
     dom.location.hash = hash; await boot(); expectSelected('hooks');
     expect(ui.automationPage.feature).toBeNull();
-    expect(dom.node('detail').querySelectorAll('.automation-feature')).toHaveLength(4);
+    expect(dom.node('detail').querySelectorAll('.automation-feature')).toHaveLength(3);
     expect(dom.node('detail').querySelector('.page-subnav')).toBeNull();
   }
   for (const hash of ['#hooks-commands', '#hook-tools-history', '#hook-tools']) {

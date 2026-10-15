@@ -55,7 +55,7 @@ export const ui = {
   workerNumbers: new Map(), // 已知用户编号的项目作用域有界缓存，仅展示；不存储业务身份。
   taskGraphFetchedAt: 0, taskGraphIds: new Set(), taskGraphPage: null, disposeTaskGraph: null,
   taskGraphLocator: null, taskGraphLocatorBase: null, taskGraphLocated: false,
-  deliveryPage: null, disposeDeliveryView: null, deliveryCounts: null,
+  deliveryPage: null, disposeDeliveryView: null,
   taskGraphMinimal: readPref('taskGraphMinimal'),
   /** Task 图里是否临时显示已归档 Task（默认隐藏，随页面重开复位）。 */
   taskGraphShowArchived: false,
@@ -106,8 +106,8 @@ export function resetUiState() {
   ui.noticeFocus = null; ui.noticeModuleStates = new Map(); ui.noticeIndex = new Map(); ui.questionDrafts = new Map(); ui.noticeRecords = null; ui.noticePage = null; ui.loadNoticeRecords = null; ui.selectNoticeFilter = null;
   ui.lastSnapshot = null; ui.taskHistory = []; ui.taskHistoryPage = null; ui.taskHistoryPending = null; ui.overviewKey = null; ui.liveBusy = false; ui.lastMergeResult = null;
   ui.disposeTaskGraph?.(); ui.disposeTaskGraph = null;
-  ui.disposeDeliveryView?.(); ui.deliveryCounts?.controller?.abort();
-  ui.deliveryPage = null; ui.disposeDeliveryView = null; ui.deliveryCounts = null;
+  ui.disposeDeliveryView?.();
+  ui.deliveryPage = null; ui.disposeDeliveryView = null;
   ui.taskGraphLocator = null; ui.taskGraphLocatorBase = null; ui.taskGraphLocated = false;
   ui.taskGraphFetchedAt = 0; ui.taskGraphIds = new Set(); ui.taskGraphPage = null; ui.taskGraphShowArchived = false;
   ui.taskGraphFilesExpanded = new Set(); ui.taskGraphMinimal = readPref('taskGraphMinimal');

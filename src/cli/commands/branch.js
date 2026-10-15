@@ -9,7 +9,8 @@ export async function run(command, args, ctx) {
   let value;
   const verb = args.shift();
   if (verb === 'convergence') return runConvergence(args, client);
-  check(['tree','show','bind','archive'].includes(verb), 'unknown branch command; use tree, show, bind, archive or convergence');
+  if (verb === 'integrate') return runIntegrate(args, client);
+  check(['tree','show','bind','archive'].includes(verb), 'unknown branch command; use tree, show, bind, archive, convergence or integrate');
   if (verb === 'tree') {
     const verbose = args.includes('--verbose');
     if (verbose) args.splice(args.indexOf('--verbose'), 1);
@@ -36,11 +37,27 @@ export async function run(command, args, ctx) {
   return value;
 }
 
-function readConvergenceRevision(args) {
+async function runIntegrate(args, client) {
+  check(!client.token, 'branch integrate is user only, not an agent operation');
+  const verb = args.shift();
+  check(['plan','start','show','cancel','retry'].includes(verb), 'branch integrate requires plan|start|show|cancel|retry');
+  const writes = ['start','cancel','retry'].includes(verb);
+  const expected_revision = writes ? readConvergenceRevision(args, 'branch integrate plan/show') : null;
+  exact(args, 1);
+  if (verb === 'plan' || verb === 'start') {
+    const branch = convergenceBranch(args[0]);
+    return client.request(`branch.integrate_${verb}`, writes ? { branch, expected_revision } : { branch });
+  }
+  const id = convergenceNumber(args[0], 'integration id');
+  return client.request(verb === 'show' ? 'branch.integration' : `branch.integrate_${verb}`,
+    writes ? { id, expected_revision } : { id });
+}
+
+function readConvergenceRevision(args, source = 'branch convergence show/runs') {
   const revision = option(args, '--revision');
   check(typeof revision === 'string' && revision.length > 0 && revision.length <= 256
     && revision === revision.trim() && !/[\x00-\x1f\x7f]/.test(revision),
-  'first read branch convergence show/runs, then provide --revision REV');
+  `first read ${source}, then provide --revision REV`);
   return revision;
 }
 function convergenceBranch(value) {

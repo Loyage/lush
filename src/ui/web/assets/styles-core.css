@@ -1,3 +1,16 @@
 @import url('./styles-list-surface.css');
 /* Preserve the studio layout while retiring legacy product entries. */
 #sleep-banner,#side-intents,#side-specs,#draft-panel,#draft-add,#draft-toggle,#statistics-open{display:none!important}
+.integration-control,.integration-summary,.integration-details{min-width:0;max-width:100%;overflow-wrap:anywhere}
+.integration-control{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0}
+.integration-control>.help-host>button{white-space:nowrap}
+.task-graph-minimal .task-graph-card:has(>.integration-summary,>.integration-control){height:auto;grid-template-rows:26px auto auto auto}
+.task-graph-minimal .task-graph-card>.integration-summary{grid-column:1/-1;grid-row:3}
+.task-graph-minimal .task-graph-card>.integration-control{grid-column:1/-1;grid-row:4}
+.task-graph-minimal .task-graph-card:not(:has(>.integration-summary,>.source-delivery))>.integration-control{grid-row:3}
+.integration-summary{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.integration-summary p,.integration-feedback{flex-basis:100%;margin:4px 0}
+.integration-details .integration-sources{display:flex;flex-direction:column;gap:6px;padding-left:20px}
+.integration-details .nav-link{white-space:normal;overflow-wrap:anywhere}
+.integration-evidence .mono{white-space:normal;overflow-wrap:anywhere}
+@media(max-width:600px){.integration-control{display:block}.integration-control>.help-host{width:100%}.integration-control>.help-host>button{width:100%;min-height:44px}.integration-summary{align-items:flex-start}.integration-summary>.nav-link{flex-basis:100%}.integration-actions{flex-direction:column;align-items:stretch}}

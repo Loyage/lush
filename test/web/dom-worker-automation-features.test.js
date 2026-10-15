@@ -63,7 +63,7 @@ test('shared metadata re-exports keep one source; user display excludes internal
 });
 
 test('only mounted features show compact titles and identical buttons; descriptions use focusable help only', () => {
-  draw(); expect(root().querySelectorAll('.worker-automation-feature')).toHaveLength(3); expect(feature('push')).toBeNull();
+  draw(); expect(root().querySelectorAll('.worker-automation-feature')).toHaveLength(2); expect(feature('push')).toBeNull();
   for (const item of AUTOMATION_METADATA.filter(item => item.id !== 'push')) {
     const node = feature(item.id), title = node.querySelector('h3');
     expect(title.textContent).toBe(item.name); expect(title.tabIndex).toBe(0);
@@ -97,7 +97,7 @@ test('main and owner never acquire completion or notice controls from an incompa
 test('same-view refresh preserves single advanced expansion; a different Worker resets it', async () => {
   draw(); const title = feature('completion').querySelector('h3'); await btn('高级与记录').onclick();
   const next = structuredClone(task); next.hooks.automation_settings.display_principles.convergence = 'main'; draw(next);
-  expect(root().querySelector('.hook-management').open).toBe(true); expect(feature('convergence')).toBeTruthy();
+  expect(root().querySelector('.hook-management').open).toBe(true); expect(feature('convergence')).toBeNull();
   expect(feature('completion').querySelector('h3')).toBe(title);
   activateDetailView({ view: 'task', key: 'task-21' }); next.id = 21; next.hooks.worker_id = 21; draw(next);
   expect(root().querySelector('.hook-management').open).toBe(false);
@@ -134,6 +134,17 @@ test('folded convergence keeps authoritative failure counts and reasons visible 
   expect(diagnostic.textContent).toContain('失败 2'); expect(diagnostic.textContent).toContain('落地待核查 1');
   const healthy = structuredClone(task); healthy.hooks.convergence.reason = null; healthy.hooks.convergence.counts = { failed: 0, blocked: 0 };
   draw(healthy); expect(root().querySelector('.hook-convergence-alert').hidden).toBe(true);
+  expect(reads).toEqual([]); expect(writes).toEqual([]);
+});
+
+test('normal retirement is not a red failure, but retained historical exception counts remain visible', () => {
+  task.hooks.convergence = { ...task.hooks.convergence, retired: true, editable: false,
+    reason: 'continuous convergence is retired; use one-shot branch integration', counts: { failed: 0, blocked: 0 } };
+  draw(); expect(root().querySelector('.hook-convergence-alert').hidden).toBe(true);
+  task.hooks.convergence.counts = { failed: 2, blocked: 1 }; draw();
+  const diagnostic = root().querySelector('.hook-convergence-alert');
+  expect(diagnostic.hidden).toBe(false); expect(diagnostic.textContent).toContain('失败 2');
+  expect(diagnostic.textContent).toContain('落地待核查 1'); expect(diagnostic.textContent).not.toContain('retired');
   expect(reads).toEqual([]); expect(writes).toEqual([]);
 });
 
@@ -221,16 +232,12 @@ test('confirmed notice save and failed refresh are separate facts, with no repea
   await choice(false).onclick(); expect(writes).toHaveLength(1);
 });
 
-test('unmounted convergence has a direct explicit authorized mount action, no guessed strategy or custom tool installation', async () => {
-  task.hooks.convergence.mounted = false; task.hooks.mounted_features.convergence = false; draw(); const control = btn('挂载并开启归并');
-  expect(feature('convergence')).toBeNull(); expect(root().querySelector('.hook-management').hidden).toBe(true);
-  expect(root().querySelector('.hook-management').querySelectorAll('button')).toContain(control);
+test('unmounted convergence cannot be mounted again, including from advanced settings', async () => {
+  task.hooks.convergence.mounted = false; task.hooks.mounted_features.convergence = false; draw();
   await btn('高级与记录').onclick();
-  expect(control.classList.contains('agent-call')).toBe(true); expect(control.getAttribute('data-help')).toContain('token');
-  const cancelled = control.onclick(); await dialogButton(dom, '取消').onclick(); await cancelled; expect(writes).toEqual([]);
-  const mounting = control.onclick(); await dialogButton(dom, '确认挂载并开启').onclick(); await mounting;
-  expect(writes).toEqual([{ method: 'branch.convergence_set', params: { branch: 'feature', mounted: true, enabled: true, expected_revision: 'branch-r1' } }]);
-  expect(refreshed).toBe(1);
+  expect(feature('convergence')).toBeNull(); expect(btn('挂载并开启归并')).toBeUndefined();
+  expect(root().querySelector('.worker-convergence-control')).toBeNull();
+  expect(reads).toEqual([]); expect(writes).toEqual([]);
 });
 
 test('main push uses exact stable identity, direct current switch and protected confirmation; deleted identities never re-install', async () => {
@@ -256,12 +263,12 @@ test('legacy main explicitly reads push identity and releases the resulting dire
   expect(btn('关闭推送').getAttribute('aria-pressed')).toBe('true');
 });
 
-test('wrong convergence state ACK blocks repeat rather than accepting a different authorization', async () => {
-  draw(); intercept = (_path, body) => body?.method === 'branch.convergence_set' ? json({ ...task.hooks.convergence, revision: 'r2', enabled: false }) : null;
-  const node = feature('convergence'), enable = node.querySelectorAll('button').find(item => item.textContent === '开启');
-  const saving = enable.onclick(); await dialogButton(dom, '确认开启归并').onclick(); await saving;
-  expect(node.querySelectorAll('button').every(item => item.disabled)).toBe(true); expect(dom.node('error').textContent).toContain('保存已确认');
-  await enable.onclick(); expect(writes).toHaveLength(1); expect(refreshed).toBe(0);
+test('historically mounted convergence no longer exposes persistent switches or strategy cards', async () => {
+  task.hooks.convergence.enabled = true; draw(); await btn('高级与记录').onclick();
+  expect(feature('convergence')).toBeNull(); expect(root().querySelector('.delivery-handler')).toBeNull();
+  expect(root().querySelector('.worker-convergence-control')).toBeNull();
+  expect(deepText(root())).not.toContain('当前处理策略');
+  expect(reads).toEqual([]); expect(writes).toEqual([]);
 });
 
 test('compact graph still owns only existing highest-stage controls, not new feature editors', () => {

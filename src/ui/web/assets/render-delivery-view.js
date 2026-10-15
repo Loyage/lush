@@ -10,33 +10,6 @@ import { deliveryLink, deliveryWorker, deliveryWarnings, deliveryInput } from '.
 function counters(counts) {
   return `活动 ${counts.active} · ${deliveryAttentionText(counts)} · 已合并历史 ${counts.history}`;
 }
-function paintCount(counts, error = null) {
-  const target = $('delivery-count');
-  if (target) target.textContent = counts ? `活动 ${counts.active} · ${deliveryAttentionText(counts)}` : error ? '数量读取失败' : '数量尚未读取';
-}
-function publishCounts(counts, base) {
-  ui.deliveryCounts?.controller?.abort();
-  ui.deliveryCounts = { base, at: Date.now(), counts, pending: false };
-  paintCount(counts);
-}
-/** Called by the existing snapshot refresh, not an extra polling service. */
-export async function refreshDeliveryCounts() {
-  const base = projectBase(), owner = document, boot = ui.workerNumbers;
-  if (!base) return;
-  const previous = ui.deliveryCounts;
-  if (previous?.base === base && (previous.pending || Date.now() - previous.at < 10000)) return;
-  const controller = new AbortController();
-  const entry = ui.deliveryCounts = { base, at: Date.now(), pending: true, controller };
-  previous?.controller?.abort();
-  try {
-    const page = await api('/api/worker-delivery-graph?limit=1', { signal: controller.signal });
-    if (ui.deliveryCounts !== entry || base !== projectBase() || owner !== document || boot !== ui.workerNumbers) return;
-    entry.counts = page.counts; paintCount(page.counts);
-    void ui.deliveryPage?.refresh?.();
-  } catch (error) {
-    if (ui.deliveryCounts === entry && base === projectBase() && owner === document && boot === ui.workerNumbers && !isReadAbort(error)) paintCount(null, error);
-  } finally { entry.pending = false; }
-}
 function advanced(item) {
   const box = el('details', undefined, 'delivery-evidence'); box.append(el('summary', '高级证据：提交、代与节点 / 收据'));
   for (const [label, value] of [['批次', item.run_id], ['generation', item.generation], ['固定基线 SHA', item.baseline],
@@ -109,9 +82,9 @@ export async function openDeliveryView({ history = false, locator = {}, push = t
     const sourceUnverified = match && locator.run_id && locator.worker_id && !match.sources?.some(source => source.id === locator.worker_id);
     const treeWorker = locator.worker_id || match?.sources?.[0]?.id || (ui.taskGraphLocatorBase === session.base ? ui.taskGraphLocator : null);
     session.treeWorker = treeWorker;
-    header.append(el('h1', '项目交付'), deliveryLink('工作树 →', `#worker-graph${treeWorker ? `-worker-${treeWorker}` : ''}`),
-      el('p', session.page ? counters(session.page.counts) : '交付数量尚未读取', 'delivery-count-summary'),
-      el('p', '临时按真实目标分组，不改变开发父子关系。只读追踪；整合 Worker 完成不等于已合并。', 'hint'));
+    header.append(el('h1', '历史合并记录'), deliveryLink('工作树 →', `#worker-graph${treeWorker ? `-worker-${treeWorker}` : ''}`),
+      el('p', session.page ? counters(session.page.counts) : '历史记录数量尚未读取', 'delivery-count-summary'),
+      el('p', '旧链接只读兼容，不提供持续归并设置或操作入口；按真实目标分组，不改变开发父子关系。整合 Worker 完成不等于已合并。', 'hint'));
     const controls = el('div', undefined, 'actions');
     controls.append(deliveryLink('活动与异常', deliveryHash(locator, false)), deliveryLink(`成功历史${session.page ? `（${session.page.counts.history}）` : ''}`, deliveryHash(locator, true)),
       button('从首批刷新', () => read(false), 'ghost'));
@@ -166,7 +139,6 @@ export async function openDeliveryView({ history = false, locator = {}, push = t
       const page = await api(`/api/worker-delivery-graph?${query}`, { signal: session.controller.signal });
       if (!current()) return;
       session.items = [...new Map([...session.items, ...page.items].map(item => [item.key, item])).values()]; session.page = page;
-      publishCounts(page.counts, session.base);
     } catch (error) { if (current() && !isReadAbort(error)) { session.error = error.message; session.stale = /delivery graph cursor|cursor stale|project\/filter\/range mismatch/.test(error.message); } }
     finally { session.loading = false; if (current()) paint(); }
   };

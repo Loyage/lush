@@ -14,7 +14,7 @@ export function validOperation(value, mount = null) {
     && (value.strategy === undefined || ['serial', 'converge'].includes(value.strategy));
 }
 export function hookResultLabel(mount, status) {
-  if (status === 'succeeded' && systemTool(mount) === 'request_merge') return '请求提交完成（非交付完成）';
+  if (status === 'succeeded' && systemTool(mount) === 'request_merge') return '请求提交完成（尚不表示已合并）';
   return null;
 }
 export function operationAlert(mount) {
@@ -32,39 +32,20 @@ export function renderOperation(mount) {
   }
   node.dataset.operationId = operation.id;
   const completed = operation.status === 'succeeded';
-  const result = completed ? ({ request_merge: '本轮交付完成', accept_worker: '安全验收及资源回收完成', integrate_deliveries: '目标交付处理完成' })[operation.tool] : STATUSES[operation.status];
-  node.append(el('p', `真实操作：${result} · ${operation.tool}${operation.strategy ? ` · ${operation.strategy === 'converge' ? '归并' : '普通串行'}` : ''}`, ['failed', 'unknown'].includes(operation.status) ? 'error' : 'hint'));
-  const identifiers = [['交付', operation.delivery_id], ['归并批次', operation.run_id], ['代次', operation.generation], ['轮次', operation.round]]
-    .filter(([, value]) => Number.isSafeInteger(value) && value >= 0).map(([label, value]) => `${label} ${value}`);
-  if (identifiers.length) node.append(el('p', identifiers.join(' · '), 'hint'));
+  const result = completed ? ({ request_merge: '本轮工作收尾完成', accept_worker: '安全验收及资源回收完成', integrate_deliveries: '历史合并处理完成' })[operation.tool] : STATUSES[operation.status];
+  node.append(el('p', `真实操作：${result}`, ['failed', 'unknown'].includes(operation.status) ? 'error' : 'hint'));
   if (operation.created_at || operation.finished_at) node.append(el('p', `提交 ${absolute(operation.created_at)}${operation.finished_at ? ` · 结束 ${absolute(operation.finished_at)}` : ''}`, 'hint'));
   if (typeof operation.error === 'string' && operation.error) node.append(el('p', operation.error, 'error'));
-  if (completed && operation.tool === 'request_merge') node.append(el('p', '交付完成不表示一定产生代码合并；无代码回答也可完成交付，代码合入以对应交付事实为准。', 'hint'));
+  if (completed && operation.tool === 'request_merge') node.append(el('p', '工作完成不表示一定产生代码合并；无代码回答也可正常结束，代码是否合入以实际合并状态为准。', 'hint'));
   if (!completed) node.append(el('p', '提交、等待或执行不代表真实完成；失败或未知不自动重放。', 'hint'));
   return node;
 }
 
-/** Protected system mount, shared by Worker detail and the project target editor. */
-export function deliveryHandlerCard({ mount = null, policy = null, control = null, legacy = false } = {}) {
-  const card = el('article', undefined, 'hook-mount delivery-handler');
-  if (mount) card.dataset.hookId = mount.id;
-  const head = el('div', undefined, 'hook-mount-head');
-  head.append(el('strong', mount?.name || (legacy ? '目标归并策略（兼容读面）' : '处理已授权交付')), badge('目标策略'));
-  if (!legacy) head.append(badge('系统受保护'));
-  card.append(head, el('p', legacy ? '旧服务未提供目标系统工具挂载；保留原归并配置入口，不制造新操作记录。' : '工具：integrate_deliveries · 接收已授权交付（delivery.requested）', 'hint'));
-  const strategy = mount?.actions?.find(item => item.type === 'integrate_deliveries')?.strategy;
-  const strategyNode = el('p', undefined, 'hint delivery-handler-strategy');
-  card.updatePolicy = value => {
-    const selected = value && typeof value.mounted === 'boolean' && typeof value.enabled === 'boolean' ? value.mounted && value.enabled ? 'converge' : 'serial'
-      : ['serial', 'converge'].includes(strategy) ? strategy : null;
-    strategyNode.textContent = selected ? `当前处理策略：${selected === 'converge' ? '归并' : '普通串行'}${legacy ? '（旧策略读面）。' : '；处理器持续启用。'}` : '处理策略尚未确认；请只读刷新，不推断配置。';
-  };
-  card.updatePolicy(policy); card.append(strategyNode);
-  card.append(el('p', '仅处理已授权交付，不提高来源 Worker 的自动合并或验收权限。归并关闭或未挂载时仍以普通串行处理合法交付；策略在固定事务时选定，已有操作不撤回。', 'hint'));
-  if (!legacy) card.append(el('p', '这是系统工具挂载，不可作为普通规则编辑、复制或移除；归并配置仍使用现有目标分支设置。', 'hint'));
-  if (control) card.append(control);
-  if (mount) card.append(renderOperation(mount) || el('p', '操作证据尚未提供。', 'hint'));
-  else card.append(el('p', '系统挂载或操作证据尚未提供；旧服务的目标归并配置仍可使用。', 'hint'));
+/** Old callers may inspect evidence, but cannot restore the retired target editor. */
+export function deliveryHandlerCard({ mount = null } = {}) {
+  const card = el('article', undefined, 'hook-mount legacy-merge-diagnostic');
+  card.append(el('strong', '历史合并记录'));
+  if (mount) card.append(renderOperation(mount));
   if (mount?.reason) card.append(el('p', mount.reason, 'hint'));
   return card;
 }

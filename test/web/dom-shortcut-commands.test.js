@@ -53,7 +53,7 @@ test('retired command and history subpages only redirect, with no catalogue/hist
   const before = structuredClone(catalogue);
   for (const subpage of ['settings', 'commands', 'history']) {
     await openHookTools({ subpage }); expect(dom.location.hash).toBe('#hooks'); expect(ui.view.id).toBe('hooks');
-    expect(root().querySelectorAll('.automation-feature')).toHaveLength(4); noDefinitionControls();
+    expect(root().querySelectorAll('.automation-feature')).toHaveLength(3); noDefinitionControls();
     expect(root().querySelector('.shortcut-history-module')).toBeNull(); expect(dom.node('error').textContent).toContain('入口已移除');
   }
   expect(reads).toHaveLength(0); expect(calls).toHaveLength(0); expect(catalogue).toEqual(before);

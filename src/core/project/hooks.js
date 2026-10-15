@@ -196,9 +196,9 @@ export default {
       const operation = this.deliveryHandlerOperationView(task);
       mounts.splice(automatic ? 2 : 0, 0, { id: 'delivery-handler', kind: 'delivery_handler', name: '交付处理器', trigger: 'delivery.requested', mode: 'persistent',
         enabled: true, builtin: true, locked: true, editable: false, removable: false,
-        conditions: {}, actions: [{ type: 'integrate_deliveries', strategy: convergence.enabled ? 'converge' : 'serial' }],
+        conditions: {}, actions: [{ type: 'integrate_deliveries', strategy: 'serial' }],
         operation, state: operation?.status ?? 'idle', last_execution: null,
-        reason: '目标唯一处理器始终处理合法交付；通过分支归并设置调整未来策略，关闭归并仍串行合并。' });
+        reason: '普通单项与自动合并始终串行处理；持续归并策略已退休，多来源请显式启动一次性整合。' });
     }
     const pushIdentity = this.commandHookExampleIdentity();
     return { version: 1, worker_id: task.id, revision: revision(this, task), mounted_features: mountedFeatures(this, task, data, convergence), completion, convergence,

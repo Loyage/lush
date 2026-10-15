@@ -46,7 +46,7 @@
 
 `actions` 目录中的 `request_merge`、`accept_worker`、`integrate_deliveries` 标 `execution:'operation'`。后两者仅系统挂载；`integrate_deliveries` 另提供 `scope:'target', strategies:['serial','converge']`。这不是任意工具调用 RPC，也不开放 Agent 安装规则或提高自动级别。
 
-适用目标的 `mounts` 包含受保护 `id:'delivery-handler', kind:'delivery_handler'`，节点 `delivery.requested` 表示接收已授权交付，不创建新授权。处理器持续启用，归并关闭／未挂载时为普通串行；目标配置继续使用 `branch.convergence*`，来源授权继续使用 `worker.completion`。
+适用目标的 `mounts` 包含受保护 `id:'delivery-handler', kind:'delivery_handler'`，节点 `delivery.requested` 表示接收已授权交付，不创建新授权。新普通请求始终 serial，历史固定操作可保留 converge 证据；branch.convergence* 仅保留旧读面／在途重试，两个 setter 明确退休。来源授权仍使用 worker.completion，一次性整合不作为 Hook 安装，见[整合接口](convergence.md)。
 
 系统工具挂载可含 `operation:null|{version,id,tool,status,worker_id,delivery_id?,run_id?,generation?,round?,strategy?,created_at?,finished_at?,error?}`。status 为 `submitted|waiting|running|succeeded|failed|unknown`，id 为固定字符串身份，所有关联来自真实收据。Hook 的 request_merge 成功只证明请求提交；对应 operation 成功才证明本轮交付收口，可能是无代码结果交付，不能推断产生了合并提交或测试通过。公开摘要不含授权秘密、完整 profile 或原始错误；读取无副作用，未知结果不自动重放。完整语义见[工具与持久操作](../../engineering/hooks.md#系统工具与持久操作)。
 
@@ -100,7 +100,7 @@ Shell Hook 引用 `{type:'command',command_id:'UUID'}`；提示词用同形 `typ
 
 `mount_scopes` 两项初始均为 `all`，允许 `main|all|user|none`：main 匹配 main/owner，all 匹配全部适用类型，user 匹配 main/owner/order，none 不挂载；未来完工／告知仅适用于 order/child，因此 main 作用域不会给新开发 Worker 挂载这两项。实际创建事务冻结偏好，不从父继承；未挂载实例默认关闭，即使项目记住 enabled:true。child 完工流程例外：始终挂载且锁定自动合并，告知按创建时 scope 冻结但默认关闭。
 
-旧 `display_principles` 保留 version 1 字段和 `main|all|user` 写兼容，不参与实际挂载或新展示判断。UI 只显示 `mounted_features` 已挂载项；异常及处理器诊断不能因此隐藏。归并未来 scope 仍使用 [branch.convergence_defaults_set](convergence.md) 的唯一持久配置；push 仅从真实 main 的 push identity 与存在的 hook 判定，删除后不重装，不扩大执行范围。
+旧 `display_principles` 保留 version 1 字段和 `main|all|user` 写兼容，不参与实际挂载或新展示判断。UI 只显示 `mounted_features` 已挂载项；异常及处理器诊断不能因此隐藏。convergence 字段只兼容历史读面，未来持续归并 scope 写入已退休，新 Worker 不安装该策略，见[整合接口](convergence.md)；push 仅从真实 main 的 push identity 与存在的 hook 判定，删除后不重装，不扩大执行范围。
 
 告知默认 enabled=true，只复制给新用户指令；child 创建时默认 false。`worker.acceptance_notice` 使用 **worker.hooks.revision**，返回完整 Worker Hooks；只允许 order/child 等合法开发 Worker，冻结、同步、终态及执行中的安全门仍核验。`acceptance_notice:{enabled,editable,reason}` 是安全读面；child 可以独立改告知，不因此解锁合并／验收级别。已有 order/child 缺少挂载元数据按旧内置能力已挂载解释，告知未配置时按 order 开启、child 关闭解释，不改写历史。历史 say 保留原告知语义并投影已挂载，不新增 say 创建入口；现有 say→order 只读规范化及原完工可用性不变，不额外创建授权。显式启用 `worker.acceptance_notice` 或提高 `worker.completion`／启用旧 `worker.auto_merge` 会在原安全门通过后同时保存真实挂载，避免执行却隐藏；关闭保留已有挂载。Worker revision 包含挂载变化，不受未来默认修改影响。关闭不屏蔽异常，告知去重与不补发边界见[告知契约](../../engineering/completion-hooks.md#告知)。
 

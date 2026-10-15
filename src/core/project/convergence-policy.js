@@ -1,24 +1,22 @@
 import { check, isPlainObject } from '../types.js';
-import { taskLabel } from '../naming.js';
-import { automationScope, scopeMatches } from '../automation-scopes.js';
+import { automationScope } from '../automation-scopes.js';
 import { CONVERGENCE_COUNT_STATES, CONVERGENCE_POLICY_PREFIX, CONVERGENCE_LIMITS,
   CONVERGENCE_STATES, convergenceRevision, convergenceJSON } from '../convergence-contract.js';
 
 const OWNERS = "task_kind IN ('main','owner','order','say','child') AND status NOT IN ('completed','failed','cancelled')";
 const defaults = () => ({ version: 1, mounted: false, enabled: false, validation: null, generation: 0 });
 const DEFAULTS_KEY = 'convergence_defaults:v1';
-const MAIN_INITIALIZED = 'convergence_main_initialized:v1';
+const RETIRED = 'continuous convergence is retired; use one-shot branch integration';
 function flags(mounted, enabled) {
   check(typeof mounted === 'boolean', 'convergence mounted must be boolean');
   check(typeof enabled === 'boolean', 'convergence enabled must be boolean');
 }
-function editable(project) {
-  const reason = project.clearing ? '项目清理中' : project.settingsMigrationApplying ? '设置迁移中' : project.workerDeleteIds?.size ? 'Worker 删除中' : null;
-  return { editable: reason === null, reason };
+function editable() {
+  return { retired: true, editable: false, reason: RETIRED };
 }
 function projectDefaults(project) {
   const raw = project.store.get('SELECT value FROM meta WHERE key=?', DEFAULTS_KEY)?.value;
-  if (raw === undefined) return { version: 1, mounted: true, scope: 'user', enabled: false, generation: 0 };
+  if (raw === undefined) return { version: 1, mounted: false, scope: 'none', enabled: false, generation: 0 };
   const value = convergenceJSON(raw);
   check(isPlainObject(value) && value.version === 1 && Number.isSafeInteger(value.generation) && value.generation >= 0,
     'invalid persisted convergence defaults');
@@ -33,10 +31,6 @@ function defaultsView(project) {
   const value = projectDefaults(project);
   return { version: 1, mounted: value.mounted, enabled: value.enabled, scope: value.scope ?? (value.mounted ? 'all' : 'none'),
     revision: convergenceRevision({ key: DEFAULTS_KEY, value }), ...editable(project) };
-}
-function savePolicy(project, branch, value) {
-  project.store.run('INSERT INTO meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
-    CONVERGENCE_POLICY_PREFIX + branch, JSON.stringify(value));
 }
 const positive = value => Number.isSafeInteger(value) && value > 0;
 const label = value => typeof value === 'string' ? value.replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) : null;
@@ -127,8 +121,8 @@ export function convergenceRunRevision(store, run) {
 export function convergenceRunView(project, run) {
   check(run, 'convergence run not found');
   const rows = project.store.all(`SELECT m.*,t.worker_number AS live_worker_number,t.display_title,t.auto_title,t.name,substr(t.goal,1,200) AS goal
-    FROM delivery_members m LEFT JOIN tasks t ON t.id=m.task_id WHERE m.run_id=? ORDER BY m.ordinal LIMIT ?`, run.id, CONVERGENCE_LIMITS.members);
-  const memberCount = project.store.get('SELECT count(*) AS n FROM delivery_members WHERE run_id=?', run.id).n;
+    FROM all_delivery_members m LEFT JOIN tasks t ON t.id=m.task_id WHERE m.run_id=? ORDER BY m.ordinal LIMIT ?`, run.id, CONVERGENCE_LIMITS.members);
+  const memberCount = project.store.get('SELECT count(*) AS n FROM all_delivery_members WHERE run_id=?', run.id).n;
   const data = convergenceJSON(run.data, {}), outcome = convergenceJSON(run.validation_result, {});
   const ref = convergenceJSON(run.validation); let commandName = label(outcome?.command_name) || label(data?.validation_name);
   if (!commandName && ref) { try { commandName = label(project.resolveShortcutCommand(reference(ref), false).name); } catch {} }
@@ -158,43 +152,15 @@ export function convergenceRunView(project, run) {
 }
 
 export default {
-  /** Initialization only, never called by read APIs. A removal tombstone is not an invitation to reinstall. */
-  initializeMainConvergence(task) {
-    this.assertWritable('initialize main convergence');
-    this.store.transaction(() => {
-      if (this.store.get('SELECT value FROM meta WHERE key=?', MAIN_INITIALIZED)) return;
-      if (!this.store.get('SELECT value FROM meta WHERE key=?', CONVERGENCE_POLICY_PREFIX + 'main'))
-        savePolicy(this, 'main', { ...defaults(), owner_id: task.id, mounted: true });
-      this.store.run('INSERT INTO meta(key,value) VALUES (?,?)', MAIN_INITIALIZED, 'true');
-    });
-  },
-
-  /** Called inside the birth transaction; the policy belongs to the receiving target, not its delivery chain. */
-  initializeNewWorkerConvergence(task, branch = task.branch ?? `lush/${this.workspaces.namespace}/${taskLabel(task.id, task.name)}`) {
-    check(['order','child'].includes(task.task_kind), 'convergence defaults only apply to new order/child Workers');
-    const value = projectDefaults(this);
-    check(!this.store.get('SELECT value FROM meta WHERE key=?', CONVERGENCE_POLICY_PREFIX + branch), 'new Worker convergence policy already exists');
-    const mounted = value.mounted && scopeMatches(value.scope ?? 'all', task.task_kind);
-    savePolicy(this, branch, { ...defaults(), owner_id: task.id, mounted, enabled: mounted && value.enabled });
-  },
+  // Retired birth hooks intentionally do nothing. Keep callers compatible without
+  // installing policies, writing initialization markers, or touching historical authorization.
+  initializeMainConvergence() {},
+  initializeNewWorkerConvergence() {},
 
   branchConvergenceDefaults() { return this.store.transaction(() => defaultsView(this)); },
 
-  async setBranchConvergenceDefaults(mounted, enabled, expectedRevision, scope = undefined) {
-    flags(mounted, enabled);
-    scope = scope === undefined ? (mounted ? 'all' : 'none') : automationScope(scope);
-    check(mounted === (scope !== 'none'), 'convergence mounted must match scope');
-    check(typeof expectedRevision === 'string' && expectedRevision.length > 0, 'convergence revision is required');
-    return this.write('set convergence defaults', () => this.store.transaction(() => {
-      this.assertWritable('set convergence defaults');
-      check(defaultsView(this).revision === expectedRevision, 'convergence defaults revision changed; reload before editing');
-      const generation = projectDefaults(this).generation + 1;
-      check(Number.isSafeInteger(generation), 'convergence defaults generation limit reached');
-      const value = { version: 1, mounted, enabled, scope, generation };
-      this.store.run('INSERT INTO meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', DEFAULTS_KEY, JSON.stringify(value));
-      this.store.event(null, 'branch.convergence_defaults_configured', value);
-      return defaultsView(this);
-    }));
+  async setBranchConvergenceDefaults() {
+    check(false, RETIRED);
   },
 
   /** Same safe branch read model for Worker automation, without Git writes or generic Hook actions. */
@@ -237,30 +203,8 @@ export default {
     });
   },
 
-  async setBranchConvergence(branch, enabled, validation, expectedRevision, mounted = true) {
-    branchName(branch); flags(mounted, enabled);
-    check(mounted || !enabled, 'enabled convergence must be mounted');
-    const checkedRef = validation === undefined ? undefined : reference(validation);
-    const requestedRef = checkedRef ? { command_id: checkedRef.command_id } : checkedRef;
-    check(typeof expectedRevision === 'string' && expectedRevision.length > 0, 'convergence revision is required');
-    return this.write('set branch convergence', () => this.workspaces.exclusive(async () => {
-      const own = await target(this, branch);
-      const view = this.store.transaction(() => {
-        this.assertWritable('set branch convergence');
-        check(owner(this, branch).id === own.id, 'convergence target owner changed');
-        check(policyRevision(this, branch, own) === expectedRevision, 'convergence revision changed; reload before editing');
-        const previous = stored(this, branch);
-        // Compatibility metadata only: absent commands cannot block the new agent-verified policy.
-        const ref = requestedRef === undefined ? (previous?.owner_id === own.id ? reference(previous.validation) : null) : requestedRef;
-        const generation = (previous?.generation ?? 0) + 1;
-        check(Number.isSafeInteger(generation), 'convergence policy generation limit reached');
-        const value = { version: 1, owner_id: own.id, mounted, enabled, validation: ref, generation };
-        savePolicy(this, branch, value);
-        this.store.event(own.id, 'branch.convergence_configured', { branch, mounted, enabled, validation: ref, generation });
-        return branchView(this, branch, own);
-      });
-      this.scheduleConvergence?.(own.id); return view;
-    }));
+  async setBranchConvergence() {
+    check(false, RETIRED);
   },
 
   async branchConvergenceRuns(branch, before = null, limit = 20) {

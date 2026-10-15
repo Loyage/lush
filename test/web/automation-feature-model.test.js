@@ -1,8 +1,8 @@
 import { test, expect } from 'bun:test';
 import { AUTOMATION_METADATA, DISPLAY_PRINCIPLES, automationMetadata, automationDefaultShown } from '../../src/ui/web/assets/automation-features.js';
 
-test('one shared metadata source describes four settings features, excluding conditional emission', () => {
-  expect(AUTOMATION_METADATA.map(item => item.id)).toEqual(['completion', 'push', 'convergence', 'acceptance_notice']);
+test('one shared metadata source describes three current settings features, excluding conditional emission', () => {
+  expect(AUTOMATION_METADATA.map(item => item.id)).toEqual(['completion', 'push', 'acceptance_notice']);
   for (const feature of AUTOMATION_METADATA) {
     expect(feature.name.length).toBeGreaterThan(0); expect(feature.description.length).toBeGreaterThan(0); expect(feature.principle.length).toBeGreaterThan(0);
     expect(automationMetadata(feature.id)).toBe(feature);

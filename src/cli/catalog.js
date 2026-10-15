@@ -14,7 +14,8 @@ const directories = {
   config: '设备调用限额与显式旧设置迁移。', hooks: '项目自动化模板、快捷指令与时间信号。',
   'worker hook': '管理单个 Worker 的自动化挂载。', 'hooks command': '仅供 Hook 执行的快捷指令目录。',
   'hooks signal': '管理具名时间信号，不证明额度恢复。', 'hooks management': '创建或启停信号绑定的 Valet。',
-  'branch convergence': '管理目标分支归并及未来 Worker 默认。', 'branch convergence defaults': '仅影响未来 Worker 的归并默认。',
+  'branch integrate': '一次性自主整合全部可准入的真实直接来源。',
+  'branch convergence': '读取历史持续归并策略和旧在途。写入口已退休。', 'branch convergence defaults': '读取退休的历史归并默认。',
   'agent sources': '托管模型连接、缓存目录及显式认证。', 'agent network': '设备出站网络代理；认证不回显。',
   'agent packages': '安装或更新插件与 Skills，不自动启用。',
 };
@@ -92,17 +93,24 @@ add('branch show','BRANCH','读取单条分支详情。','main',['branch.show'])
 add('branch bind','BRANCH COMMIT','显式绑定已有本地分支。','feature COMMIT',['branch.bind'],'write');
 add('branch archive','BRANCH [--discard] [--continue]','清理特殊／失败分支资源；discard 丢弃脏现场。','feature',['branch.archive'],'destructive');
 for (const [verb,args,description,example,rpc,kind] of [
-  ['list','','读取分支归并挂载与项目默认。','','branch.convergence_list','read'],
-  ['show','BRANCH','读取单分支策略与 revision。','main','branch.convergence','read'],
-  ['on','BRANCH --revision REV','挂载并开启未来交付归并。','main --revision REV','branch.convergence_set','write'],
-  ['off','BRANCH --revision REV','停用未来归并，保留挂载与历史。','main --revision REV','branch.convergence,branch.convergence_set','write'],
-  ['mount','BRANCH --revision REV','挂载归并，保留已有启用状态。','main --revision REV','branch.convergence,branch.convergence_set','write'],
-  ['remove','BRANCH --revision REV','移除归并挂载，保留历史。','main --revision REV','branch.convergence_set','write'],
-  ['runs','BRANCH [--before N] [--limit N]','读取归并批次，默认20、最多50。','main','branch.convergence_runs','read'],
-  ['retry','RUN_ID --revision REV','显式重试可恢复批次，可能调用整合 Agent。','1 --revision REV','branch.convergence_retry','agent'],
-  ['defaults show','','读取未来 Worker 默认与 revision。','','branch.convergence_defaults','read'],
-  ['defaults set','--mounted true|false --enabled true|false [--scope main|all|user|none] --revision REV','设置未来 Worker 归并默认，不回写已有实例。','--mounted false --enabled false --revision REV','branch.convergence_defaults_set','write'],
-]) add(`branch convergence ${verb}`,args,description,example,rpc.split(','),kind,'仅用户，精确本地分支名。默认 main 挂载且关闭，其他分支未挂载。归并不提高来源合并权限；未知落地不重放。不接受旧 command/version 参数；归并使用当前目标策略。');
+  ['plan','BRANCH','只读预检全部可准入来源与排除原因。','main','branch.integrate_plan','read'],
+  ['start','BRANCH --revision REV','固定完整集合并调用一个自主整合 Agent，最终一次 Squash。','main --revision REV','branch.integrate_start','agent'],
+  ['show','ID','读取操作、完整固定成员及真实状态。','1','branch.integration','read'],
+  ['cancel','ID --revision REV','安全停止整合，保留来源和私有代码。','1 --revision REV','branch.integrate_cancel','write'],
+  ['retry','ID --revision REV','显式重试固定整合，重新适配并验证最终树。','1 --revision REV','branch.integrate_retry','agent'],
+]) add(`branch integrate ${verb}`,args,description,example,[rpc],kind,'仅用户；目标必须是 main/owner/order/child 的真实本地分支。无冲突也调用整合 Agent；整合不改变来源父子关系，未知落地不重放。');
+for (const [verb,args,description,example,rpc,kind] of [
+  ['list','','读取历史归并配置与默认。','','branch.convergence_list','read'],
+  ['show','BRANCH','读取历史单分支策略与 revision。','main','branch.convergence','read'],
+  ['on','BRANCH --revision REV','已退休：拒绝开启持续归并。','main --revision REV','branch.convergence_set','write'],
+  ['off','BRANCH --revision REV','已退休：拒绝修改历史归并启停。','main --revision REV','branch.convergence,branch.convergence_set','write'],
+  ['mount','BRANCH --revision REV','已退休：拒绝挂载持续归并。','main --revision REV','branch.convergence,branch.convergence_set','write'],
+  ['remove','BRANCH --revision REV','已退休：拒绝修改历史归并挂载。','main --revision REV','branch.convergence_set','write'],
+  ['runs','BRANCH [--before N] [--limit N]','读取归并历史，默认20、最多50。','main','branch.convergence_runs','read'],
+  ['retry','RUN_ID --revision REV','仅重试可恢复的旧在途，可能调用整合 Agent。','1 --revision REV','branch.convergence_retry','agent'],
+  ['defaults show','','读取退休的历史归并默认与 revision。','','branch.convergence_defaults','read'],
+  ['defaults set','--mounted true|false --enabled true|false [--scope main|all|user|none] --revision REV','已退休：拒绝修改持续归并默认。','--mounted false --enabled false --revision REV','branch.convergence_defaults_set','write'],
+]) add(`branch convergence ${verb}`,args,description,example,rpc.split(','),kind,'历史兼容只读面和旧在途重试仍可用；持续策略和默认写入口已退休并明确拒绝。新普通合并始终串行，多来源使用 branch integrate。不接受旧 command/version 参数；旧引用仅后端在途兼容。');
 for (const [verb,args,description,example,rpc,kind] of [
   ['list','','读取当前通知。','','notice.list','read'], ['post',"'标题' [--worker ID|Wn] [--body TEXT] [--questions-file FILE]",'发布问题或告知。',"'方案确认' --worker W5 --body '背景'",'notice.post','write'],
   ['answer','ID ANSWER | ID --answers-file FILE','答复固定通知，可能恢复 Agent。',"12 '答复'",'notice.answer','agent'],

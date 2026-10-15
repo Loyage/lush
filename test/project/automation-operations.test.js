@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fixture, repo, git, until } from '../helpers.js';
 import { Project } from '../../src/core/project.js';
 import { normalizeHook } from '../../src/core/hooks.js';
+import { historicalConvergencePolicy, pinHistoricalConvergence } from '../convergence-fixtures.js';
 
 const request = (f, task) => JSON.parse(f.store.task(task.id).reservation ?? 'null');
 const mount = (f, task, name) => f.project.taskHooks(task.id).mounts.find(row => row.id === name);
@@ -11,7 +12,7 @@ async function setup(strategy = 'serial', changes = true, level = 'merge') {
   const f = fixture(); f.project.kick = () => { f.project.scheduleTaskCompletion(); }; f.project.stopping = true;
   try {
     await repo(f.root); const parent = await f.project.bootstrapMain();
-    if (strategy === 'converge') await f.project.setBranchConvergence('main', true, null, (await f.project.branchConvergence('main')).revision);
+    if (strategy === 'converge') historicalConvergencePolicy(f, parent);
     const { task } = await f.project.order('controlled operation', 'main', [], null, false);
     if (level !== 'off') await f.project.setTaskCompletion(task.id, level, f.project.taskHooks(task.id).revision);
     if (changes) {
@@ -45,10 +46,10 @@ for (const strategy of ['serial', 'converge']) for (const changes of [true, fals
       const sourceOp = mount(f, f.task, 'auto-merge').operation;
       const targetOp = mount(f, f.parent, 'delivery-handler').operation;
       expect(sourceOp).toMatchObject({ version: 1, tool: 'request_merge', worker_id: f.task.id, status: changes ? 'submitted' : 'succeeded' });
-      expect(targetOp).toMatchObject({ version: 1, tool: 'integrate_deliveries', strategy, status: changes ? 'submitted' : 'succeeded' });
+      expect(targetOp).toMatchObject({ version: 1, tool: 'integrate_deliveries', strategy: 'serial', status: changes ? 'submitted' : 'succeeded' });
       expect(f.store.task(f.task.id).status).toBe(changes ? 'waiting' : 'awaiting_acceptance');
       expect(mount(f, f.task, 'auto-accept').operation).toBeNull();
-      if (changes) await land(f, strategy);
+      if (changes) await land(f, 'serial');
       else { f.project.stopping = false; f.project.scheduleTaskCompletion(f.task.id); await f.project.completionQueue; }
       await until(() => f.store.task(f.task.id).status === 'completed');
       await f.project.completionQueue;
@@ -84,11 +85,11 @@ test('directory, unique protected handler, compatibility revisions and builtin-o
     for (const [trigger, type] of [['delivery.requested','integrate_deliveries'],['delivery.integrated','accept_worker'],['delivery.requested','notify']]) {
       expect(() => normalizeHook({ name: 'bypass', trigger, mode: 'persistent', enabled: true, actions: [{ type }] })).toThrow('not allowed');
     }
-    await f.project.setBranchConvergence('main', true, null, hooks.convergence.revision);
+    historicalConvergencePolicy(f, f.parent);
     expect(f.project.taskHooks(f.parent.id).revision).not.toBe(hooks.revision);
-    expect(mount(f, f.parent, handler.id).actions[0].strategy).toBe('converge');
-    const view = await f.project.branchConvergence('main');
-    await f.project.setBranchConvergence('main', false, null, view.revision, false);
+    expect(f.project.deliveryHandlerSelection(f.parent).strategy).toBe('serial');
+    await expect(f.project.setBranchConvergence('main', false, null, hooks.convergence.revision, false)).rejects.toThrow('retired');
+    historicalConvergencePolicy(f, f.parent, { mounted: false, enabled: false, generation: 2 });
     expect(mount(f, f.parent, handler.id)).toMatchObject({ enabled: true, actions: [{ type: 'integrate_deliveries', strategy: 'serial' }] });
     const child = await f.project.spawn(f.task.id, 'locked child');
     expect(mount(f, child, 'auto-merge')).toMatchObject({ enabled: true, locked: true });
@@ -122,12 +123,13 @@ test('generic merge Hook and automatic/manual submissions use the same idempoten
   } finally { await f.close(); }
 });
 
-test('fixed routing survives future disabling; policy generation and revision are rechecked atomically', async () => {
+test('historical fixed routing survives retirement; new serial policy snapshot is rechecked atomically', async () => {
   const f = await setup('converge');
   try {
     await f.project.settleQueuedMerge(f.task.id);
-    const pinned = request(f, f.task), policy = await f.project.branchConvergence('main');
-    await f.project.setBranchConvergence('main', false, null, policy.revision, false);
+    const pinned = await pinHistoricalConvergence(f, f.task.id);
+    await expect(f.project.setBranchConvergence('main', false, null, (await f.project.branchConvergence('main')).revision, false)).rejects.toThrow('retired');
+    historicalConvergencePolicy(f, f.parent, { mounted: false, enabled: false, generation: 2 });
     expect(request(f, f.task)).toEqual(pinned);
     expect(mount(f, f.parent, 'delivery-handler').actions[0].strategy).toBe('serial');
     expect(mount(f, f.parent, 'delivery-handler').operation.strategy).toBe('converge');
@@ -136,13 +138,12 @@ test('fixed routing survives future disabling; policy generation and revision ar
   } finally { await f.close(); }
   const race = await setup('converge');
   try {
-    const selection = race.project.deliveryHandlerSelection.bind(race.project), syncBase = race.project.workspaces.taskSyncBase.bind(race.project.workspaces);
-    let changed = false;
+    const selection = race.project.deliveryHandlerSelection.bind(race.project);
+    let calls = 0;
     race.project.deliveryHandlerSelection = task => {
       const value = selection(task);
-      return changed ? { ...value, revision: 'changed revision' } : value;
+      return ++calls > 1 ? { ...value, revision: 'changed revision' } : value;
     };
-    race.project.workspaces.taskSyncBase = async (...args) => { const base = await syncBase(...args); changed = true; return base; };
     await expect(race.project.settleQueuedMerge(race.task.id)).rejects.toThrow('policy changed');
     expect(request(race, race.task).status).toBe('pending');
     expect(race.store.history(race.parent.id).filter(row => row.type === 'delivery.requested')).toHaveLength(0);

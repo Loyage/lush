@@ -4,6 +4,7 @@ import path from 'node:path';
 import { repo, git } from '../helpers.js';
 import { setup, fetch } from './harness.js';
 import { convergenceJSON } from '../../src/core/convergence-contract.js';
+import { historicalConvergencePolicy, pinHistoricalConvergence } from '../convergence-fixtures.js';
 
 // Real authenticated HTTP -> socket RPC -> Project/SQLite -> Git.
 // Only explicitly seeded legacy fixed deliveries retain the isolated Shell gate.
@@ -42,8 +43,9 @@ async function editCommand(f, definition) {
     expected_revision: (await get(f, '/api/hooks')).commands.revision });
 }
 async function configure(f, enabled) {
-  const current = await policy(f);
-  return post(f, 'branch.convergence_set', { branch: 'main', enabled, validation: reference(f.entry), expected_revision: current.revision });
+  // This suite resumes fixed pre-retirement operations; no retired write endpoint is used.
+  historicalConvergencePolicy(f, f.store.get("SELECT * FROM tasks WHERE task_kind='main'"), { enabled, validation: reference(f.entry) });
+  return policy(f);
 }
 async function source(f, file, content) {
   const { task } = await post(f, 'order.submit', { content: `HTTP source ${file}: ${content}`, branch: 'main', start: false });
@@ -51,6 +53,7 @@ async function source(f, file, content) {
   await git(task.workspace, 'add', '.'); await git(task.workspace, 'commit', '-m', `fixed ${file}`);
   f.store.update(task.id, { status: 'waiting', result: 'controlled source ready' });
   await post(f, 'worker.reserve', { id: task.id, kind: 'merge' });
+  await pinHistoricalConvergence(f, task.id);
   const fixed = f.store.task(task.id);
   expect(convergenceJSON(fixed.reservation).version).toBe(3);
   expect(convergenceJSON(fixed.reservation)).toMatchObject({ verification_mode: 'agent', validation: null });
@@ -69,20 +72,21 @@ async function unchanged(f, sources) {
   }
 }
 
-test('real HTTP enables a mounted batch without a validation command or changing Worker automatic permissions', async () => {
+test('real HTTP reads and resumes an already-fixed historical agent-verified batch without running a Shell command', async () => {
   const f = await prepare();
   try {
     // Keeping a historical shortcut reference must not cause execution of that command.
     expect(f.entry.default_worker_id).toBe(f.store.get("SELECT id FROM tasks WHERE task_kind='main'").id);
     const initial = await policy(f);
-    expect(initial).toMatchObject({ mounted: true, enabled: false, validation: null });
+    expect(initial).toMatchObject({ mounted: false, enabled: false, validation: null, retired: true, editable: false });
     const count = f.store.get('SELECT count(*) AS n FROM events').n;
     expect((await get(f, '/api/branch-convergence')).items[0]).toEqual(initial);
     expect((await runs(f)).items).toEqual([]);
     expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(count);
-    const enabled = await post(f, 'branch.convergence_set', { branch: 'main', mounted: true, enabled: true,
-      expected_revision: initial.revision });
-    expect(enabled).toMatchObject({ mounted: true, enabled: true, validation: null });
+    const rejected = await post(f, 'branch.convergence_set', { branch: 'main', mounted: true, enabled: true,
+      expected_revision: initial.revision }, 400);
+    expect(rejected.error).toContain('retired');
+    await configure(f, true);
     const shell = f.project.workspaces.runConvergenceValidation;
     let shellCalls = 0;
     f.project.workspaces.runConvergenceValidation = async () => { ++shellCalls; throw new Error('new deliveries must not run a validation command'); };

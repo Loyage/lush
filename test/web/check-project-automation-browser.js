@@ -83,7 +83,7 @@ try {
   session = (await rpc('/session', { capabilities: { alwaysMatch: { browserName: 'firefox', timeouts: { script: 60000 }, 'moz:firefoxOptions': { args: ['-headless'] } } } })).sessionId;
   await rpc(`/session/${session}/window/rect`, { width: 1600, height: 1100 });
   await rpc(`/session/${session}/url`, { url: `http://127.0.0.1:${wrapper.port}/fixture` }); await frame();
-  assert(await wait(`document.querySelectorAll('.automation-feature').length===4`), 'four setting entries missing');
+  assert(await wait(`document.querySelectorAll('.automation-feature').length===3`), 'current setting entries missing');
   await execute(`const s=document.querySelector('[aria-label="查找自动化功能"]');s.value='告知';s.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));`);
   assert(await execute(`return [...document.querySelectorAll('.automation-feature')].filter(n=>!n.hidden).length===1`), 'explicit search failed');
   await click('.automation-feature:not([hidden]) a'); assert(await wait(`document.querySelector('.automation-acceptance-notice [data-level="off"]')`), 'notice settings missing');
@@ -103,16 +103,13 @@ try {
   await state('off'); await scope('user'); await press('保存项目设置'); assert(await wait(`document.querySelector('.automation-settings-status').textContent.includes('已保存')`), 'notice ACK missing');
   const fresh = (await f.project.order('Browser future Worker', 'main', [], null, false)).task;
   assert(f.project.taskHooks(fresh.id).completion.level === 'accept' && !f.project.taskHooks(fresh.id).acceptance_notice.enabled, 'future order did not freeze defaults');
-  await route('#hooks-convergence', 'convergence');
-  assert(await wait(`document.querySelector('.convergence-defaults select')?.value==='user'`), 'new user convergence default missing');
-  assert(await execute(`return document.querySelectorAll('.automation-settings select').length===1&&!document.querySelector('[aria-label="默认显示原则"]')&&!document.querySelector('.automation-settings input[type="checkbox"]')`), 'duplicate/default state editor');
-  await scope('none'); await press('保存新 Worker 归并默认'); assert(await wait(`document.querySelector('.convergence-defaults [role="status"]')?.textContent.includes('已保存默认：不挂载')`), 'convergence ACK missing');
-  assert(f.project.branchConvergenceDefaults().scope === 'none' && (await f.project.branchConvergence('main')).mounted, 'default save rewrote main');
-  const unmounted = (await f.project.order('Browser excluded Worker', 'main', [], null, false)).task;
-  assert(!f.project.taskHooks(unmounted.id).mounted_features.convergence, 'none still mounted convergence');
+  await execute(`location.hash='#hooks-convergence'`);
+  assert(await wait(`location.hash==='#hooks'&&document.querySelectorAll('.automation-feature').length===3`), 'retired convergence hash did not redirect');
+  assert(await execute(`return !document.querySelector('.convergence-defaults')&&!document.querySelector('[data-feature="convergence"]')`), 'retired settings remain');
+  const unmounted = (await f.project.order('Browser future Worker 2', 'main', [], null, false)).task;
   for (const theme of ['light', 'dark']) for (const width of [1440, 390, 320]) {
     await rpc(`/session/${session}/frame`, { id: null }); await execute(`document.querySelector('#viewport').style.width='${width}px'`); await frame(); await execute(`document.documentElement.dataset.theme='${theme}'`);
-    for (const feature of [null, 'completion', 'push', 'convergence', 'acceptance_notice']) {
+    for (const feature of [null, 'completion', 'push', 'acceptance_notice']) {
       await route(feature ? `#hooks-${feature}` : '#hooks', feature);
       assert(await execute(`return innerWidth===${width}&&document.documentElement.scrollWidth<=innerWidth&&!document.querySelector('.page-subnav')`), `overflow ${theme}/${width}/${feature}`);
       if (feature) assert(await execute(`return [...document.querySelectorAll('.automation-settings .hook-actions button')].every(b=>{const r=b.getBoundingClientRect();return r.width<innerWidth*.8&&r.right<=innerWidth})`), `full-line buttons ${theme}/${width}/${feature}`);
@@ -120,7 +117,7 @@ try {
     }
     for (const worker of [main, old, child, unmounted]) {
       await workerRoute(worker); const facts = f.project.taskHooks(worker.id).mounted_features;
-      const expected = Object.keys(facts).filter(id => facts[id]);
+      const expected = Object.keys(facts).filter(id => facts[id] && id !== 'convergence');
       const layout = await execute(`const root=document.querySelector('.worker-hooks'), heads=[...root.querySelectorAll('.worker-automation-feature-head')];return {features:heads.map(n=>n.parentElement.dataset.feature),height:root.getBoundingClientRect().height,overflow:document.documentElement.scrollWidth>innerWidth,heads:heads.map(n=>{const r=n.getBoundingClientRect();return {left:r.left,right:r.right,height:r.height}}),advancedHidden:root.querySelector('.hook-management').hidden};`);
       layouts.push({ theme, width, worker_id: worker.id, ...layout });
       assert(JSON.stringify(layout.features.sort()) === JSON.stringify(expected.sort()), `non-mounted entries ${worker.id}`);
@@ -147,10 +144,10 @@ try {
   assert(await wait(visibleTitleHelp), 'long-press title help missing'); assert(mutations.length === beforePress, 'help press mutated settings'); await recordHelp('long-press');
   await click('[data-notice-enabled="true"]'); assert(await wait(`document.querySelector('[data-notice-enabled="true"]').getAttribute('aria-pressed')==='true'`), 'Worker notice ACK missing');
   assert(f.project.taskHooks(child.id).acceptance_notice.enabled && f.project.taskHooks(child.id).completion.locked, 'child notice save unlocked completion');
-  await press('高级与记录'); assert(await execute(`return !document.querySelector('.hook-management').hidden&&!!document.querySelector('.delivery-handler')`), 'advanced handler missing');
+  await press('高级与记录'); assert(await execute(`return !document.querySelector('.hook-management').hidden&&!document.querySelector('.delivery-handler')&&!document.querySelector('.worker-convergence-control')`), 'retired handler/settings visible');
   await press('刷新详情'); assert(await wait(`!document.querySelector('.hook-management').hidden`), 'refresh lost advanced expansion');
   assert(!reads.some(url => url.includes('/api/automation/completion/workers') || url.includes('/branch-convergence/runs')), 'project settings loaded execution records');
-  assert(mutations.every(item => ['hooks.automation_settings', 'branch.convergence_defaults_set', 'worker.acceptance_notice'].includes(item.method)), 'unexpected mutation');
+  assert(mutations.every(item => ['hooks.automation_settings', 'worker.acceptance_notice'].includes(item.method)), 'unexpected mutation');
   assert(errors.length === 1 && errors[0].includes('/api/action'), `unexpected failures: ${errors}`);
   fs.writeFileSync(path.join(evidence, 'checks.json'), JSON.stringify({ mutations, errors, reads, layouts, helpChecks, help: ['hover 1200ms', 'keyboard Tab 1200ms', 'mouse long-press 650ms'] }, null, 2));
   success = true; console.log('PASS real defaults/scope saves, frozen future creation, hidden non-mounts, retained draft/stale revision, compact dual-theme layout and title hover/keyboard/long-press help');

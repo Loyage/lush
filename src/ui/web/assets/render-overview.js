@@ -30,7 +30,7 @@ export function renderOverview(data) {
   panel.dataset.view = 'overview'; panel.replaceChildren();
   const hero = el('div', undefined, 'overview-hero');
   const copy = el('div');
-  copy.append(el('span', 'WORKER / 目标与交付', 'eyebrow'), el('h1', '项目概览'),
+  copy.append(el('span', 'WORKER / 目标与成果', 'eyebrow'), el('h1', '项目概览'),
     el('p', open.length ? `${open.length} 个问题等待你的决定。` : active.length ? `${active.length} 个 Worker 正在推进。` : acceptance.length ? `${acceptance.length} 个 Worker 等待验收，可追加输入继续开发。` : parentConfirmation.length ? `${parentConfirmation.length} 个派生 Worker 等待父 Agent 确认，无需你验收。` : '发送一条目标，创建独立 Worker。', 'hero-description'));
   hero.append(copy, el('div', '✳', 'hero-mark')); panel.append(hero, maintenance);
   maintenanceFocus?.focus({ preventScroll: true });

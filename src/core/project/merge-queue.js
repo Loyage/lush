@@ -216,7 +216,6 @@ export default {
         return false;
       }
       const selection = this.deliveryHandlerSelection(originalParent);
-      const deltaBase = selection.strategy === 'converge' ? await this.workspaces.taskSyncBase(task, state.child_head, state.parent_head) : null;
       this.store.transaction(() => {
         const live = this.store.task(task.id), pinned = reservationOf(live);
         check(pinned?.version === 2 && pinned.status === 'pending' && live.status === 'waiting'
@@ -228,14 +227,11 @@ export default {
         const deliveryId = this.store.event(task.id, 'merge.enqueued', { parent_id: originalParent.id, commit: state.child_head });
         const handler = this.dispatchAutomationOperation('integrate_deliveries', originalParent.id,
           { phase: 'pin', selection, deliveryId, sourceId: task.id });
-        const currentPolicy = handler.policy;
-        const version = handler.strategy === 'converge' ? 3 : 2;
-        const request = { ...ready, version, queue_protocol: version === 3 ? 3 : 1,
+        check(handler.strategy === 'serial', 'new ordinary deliveries require serial handling');
+        const request = { ...ready, version: 2, queue_protocol: 1,
           status: 'requested', commit: state.child_head,
           delivery_id: deliveryId, enqueue_seq: deliveryId, parent_id: originalParent.id,
           handler_operation_id: handler.operation_id,
-          ...(version === 3 ? { verification_mode: 'agent', validation: null, base_commit: deltaBase,
-            convergence_policy_generation: currentPolicy.generation } : {}),
           requested_at: new Date().toISOString() };
         // A parent baseline belongs to an attempt, never to an enqueue.
         delete request.baseline; delete request.attempt_id; delete request.landing_receipt;

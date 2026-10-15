@@ -25,36 +25,24 @@ async function prepare(options) {
   await repo(f.root); await f.project.bootstrapMain(); return f;
 }
 
-test('real HTTP and CLI share mounted/defaults policy, revisions and Worker automation projection without command authorization', async () => {
+test('real HTTP and CLI expose read-only retired policy and cannot reinstall mounts or defaults', async () => {
   const f = await prepare();
   const cli = args => branchCLI('branch', ['convergence', ...args], { client: new UIClient(f.config), json: true });
   try {
     const initial = await policy(f), initialDefaults = await defaults(f);
-    expect(initial).toMatchObject({ mounted: true, enabled: false });
-    expect(initialDefaults).toMatchObject({ mounted: true, scope: 'user', enabled: false });
+    expect(initial).toMatchObject({ mounted: false, enabled: false, retired: true, editable: false });
+    expect(initialDefaults).toMatchObject({ mounted: false, scope: 'none', enabled: false, retired: true, editable: false });
     const list = await request(f, '/api/branch-convergence'); expect(list.defaults).toEqual(initialDefaults);
-    const on = await cli(['on', 'main', '--revision', initial.revision]);
-    expect(on).toMatchObject({ mounted: true, enabled: true, validation: null });
-    const removed = await cli(['remove', 'main', '--revision', on.revision]);
-    expect(removed).toMatchObject({ mounted: false, enabled: false });
-    const off = await cli(['off', 'main', '--revision', removed.revision]);
-    expect(off.mounted).toBe(false);
-    await post(f, 'branch.convergence_set', { branch: 'main', enabled: true, expected_revision: off.revision, mounted: false }, 400);
-    await post(f, 'branch.convergence_set', { branch: 'main', enabled: true, expected_revision: initial.revision }, 400);
-    const mounted = await cli(['mount', 'main', '--revision', off.revision]);
-    expect(mounted).toMatchObject({ mounted: true, enabled: false });
-    expect((await request(f, `/api/worker/${mounted.owner_id}/hooks`)).convergence).toEqual(mounted);
-    const configured = await cli(['defaults', 'set', '--mounted', 'true', '--enabled', 'true', '--revision', initialDefaults.revision]);
-    expect(await cli(['defaults', 'show'])).toEqual(configured);
-    await post(f, 'branch.convergence_defaults_set', { mounted: false, enabled: false, expected_revision: initialDefaults.revision }, 400);
-    const { task } = await post(f, 'order.submit', { content: 'new target default', start: false });
-    const hooks = await request(f, `/api/worker/${task.id}/hooks`);
-    expect(hooks.convergence).toMatchObject({ branch: task.branch, mounted: true, enabled: true, validation: null });
-    const remembered = await post(f, 'branch.convergence_defaults_set', { mounted: false, enabled: true, expected_revision: configured.revision });
-    expect(remembered).toMatchObject({ mounted: false, enabled: true });
-    const latest = (await post(f, 'order.submit', { content: 'not mounted despite remembered enable', start: false })).task;
-    expect((await request(f, `/api/worker/${latest.id}/hooks`)).convergence).toMatchObject({ mounted: false, enabled: false });
-    expect((await request(f, `/api/worker/${task.id}/hooks`)).convergence).toEqual(hooks.convergence);
+    const before = f.store.all('SELECT * FROM meta ORDER BY key');
+    for (const verb of ['on','off','mount','remove']) await expect(cli([verb, 'main', '--revision', initial.revision])).rejects.toThrow('retired');
+    expect(await cli(['show', 'main'])).toEqual(initial);
+    expect(await cli(['defaults', 'show'])).toEqual(initialDefaults);
+    await expect(cli(['defaults', 'set', '--mounted', 'true', '--enabled', 'true', '--revision', initialDefaults.revision])).rejects.toThrow('retired');
+    expect((await post(f, 'branch.convergence_set', { branch: 'main', mounted: true, enabled: true, expected_revision: initial.revision }, 400)).error).toContain('retired');
+    expect((await post(f, 'branch.convergence_defaults_set', { mounted: false, enabled: false, expected_revision: initialDefaults.revision }, 400)).error).toContain('retired');
+    expect(f.store.all('SELECT * FROM meta ORDER BY key')).toEqual(before);
+    const { task } = await post(f, 'order.submit', { content: 'no automatic convergence mount', start: false });
+    expect((await request(f, `/api/worker/${task.id}/hooks`)).convergence).toMatchObject({ branch: task.branch, mounted: false, enabled: false, retired: true });
     expect(f.store.all("SELECT * FROM events WHERE type='command.execution_started'")).toHaveLength(0);
   } finally { await f.close(); }
 });
@@ -94,7 +82,7 @@ test('Host defaults routes attach only and never start a stopped daemon or route
   const base = { url: `http://127.0.0.1:${web.port}` }, selected = { url: `${base.url}/p/${projectRouteId(f.root)}` };
   try {
     const current = await defaults(selected);
-    await post(selected, 'branch.convergence_defaults_set', { mounted: true, enabled: true, expected_revision: current.revision });
+    expect((await post(selected, 'branch.convergence_defaults_set', { mounted: true, enabled: true, expected_revision: current.revision }, 400)).error).toContain('retired');
     await request(base, '/api/branch-convergence/defaults', 400);
     await f.rpc.close();
     await request(selected, '/api/branch-convergence/defaults', 400);

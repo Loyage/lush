@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fixture, repo, git } from '../helpers.js';
 import { Workspaces } from '../../src/core/workspaces.js';
+import { historicalConvergencePolicy, pinHistoricalConvergence } from '../convergence-fixtures.js';
 
 async function world() {
   const f = fixture(); f.project.stopping = true; f.project.kick = () => {}; f.project.scheduleTaskMerge = () => {};
@@ -133,12 +134,12 @@ test('real multi-source convergence keeps exact member receipts despite shared l
     await repo(f.root); await f.project.bootstrapMain();
     const command = f.project.saveShortcutCommand({ name: 'combined validation', command: 'test -f first.txt && test -f second.txt' },
       f.project.shortcutCommands().revision).commands.items.at(-1);
-    const config = await f.project.branchConvergence('main');
-    await f.project.setBranchConvergence('main', true, { command_id: command.id, command_version: 1 }, config.revision);
+    historicalConvergencePolicy(f, f.store.get("SELECT * FROM tasks WHERE task_kind='main'"), { validation: { command_id: command.id, command_version: 1 } });
     const sources = [];
     for (const name of ['first', 'second']) {
       const { task } = await f.project.order(name); const tip = await commit(task.workspace, name);
-      f.store.update(task.id, { status: 'waiting' }); await f.project.requestTaskMerge(task.id); sources.push({ task, tip });
+      f.store.update(task.id, { status: 'waiting' }); await f.project.requestTaskMerge(task.id);
+      await pinHistoricalConvergence(f, task.id); sources.push({ task, tip });
     }
     const run = await f.project.formConvergenceBatch(sources[0].task.parent_id);
     await f.project.prepareConvergenceRun(run.id, 1, new AbortController().signal);

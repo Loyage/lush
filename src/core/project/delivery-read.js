@@ -129,7 +129,7 @@ function summary(p, task, options = {}) {
   const liveBooking = bookingOf(task);
   const booking = options.booking ?? liveBooking;
   const run = options.run ?? (booking?.run_id ? readRun(p, booking.run_id) : null);
-  const member = options.member ?? (run && booking?.delivery_id ? p.store.get('SELECT * FROM delivery_members WHERE run_id=? AND task_id=? AND delivery_id=?', run.id, task.id, booking.delivery_id) : null);
+  const member = options.member ?? (run && booking?.delivery_id ? p.store.get('SELECT * FROM all_delivery_members WHERE run_id=? AND task_id=? AND delivery_id=?', run.id, task.id, booking.delivery_id) : null);
   const helpers = options.helpers ?? integrations(p, run);
   const facts = run ? options.facts ?? integrationFacts(p, run.id).get(run.id) : null;
   const deliveryId = member?.delivery_id ?? (positive(booking?.delivery_id) ? booking.delivery_id : null);
@@ -161,8 +161,8 @@ function source(p, task, options) {
 }
 function batch(p, row, facts) {
   const run = readRun(p, row.id), helpers = integrations(p, run);
-  const members = p.store.all('SELECT * FROM delivery_members WHERE run_id=? ORDER BY ordinal LIMIT 8', run.id);
-  const memberCount = p.store.get('SELECT count(*) AS n FROM delivery_members WHERE run_id=?', run.id).n;
+  const members = p.store.all('SELECT * FROM all_delivery_members WHERE run_id=? ORDER BY ordinal LIMIT 8', run.id);
+  const memberCount = p.store.get('SELECT count(*) AS n FROM all_delivery_members WHERE run_id=?', run.id).n;
   const nodeCount = p.store.get('SELECT count(*) AS n FROM delivery_nodes WHERE run_id=? AND generation=?', run.id, run.generation).n;
   const nodes = p.store.all('SELECT id,node_key,state,helper_id FROM delivery_nodes WHERE run_id=? AND generation=? ORDER BY id LIMIT 32', run.id, run.generation)
     .map(node => ({ ...node, node_key: text(node.node_key), key: `node:${node.id}`, locator: { run_id: run.id, generation: run.generation, node_id: node.id } }));
@@ -196,7 +196,7 @@ export default {
         const booking = bookingOf(task);
         if (booking?.kind !== 'merge' && booking?.status !== 'invalid') continue;
         const run = byRun.get(booking?.run_id);
-        if (run && this.store.get('SELECT 1 AS found FROM delivery_members WHERE run_id=? AND task_id=? AND delivery_id=?', run.id, task.id, booking.delivery_id)) continue;
+        if (run && this.store.get('SELECT 1 AS found FROM all_delivery_members WHERE run_id=? AND task_id=? AND delivery_id=?', run.id, task.id, booking.delivery_id)) continue;
         if (booking?.status === 'integrated' && booking.version === 2 && this.store.get(`SELECT id FROM events WHERE task_id=? AND type='task.merge_integrated'
           AND json_valid(data) AND json_extract(data,'$.delivery_id')=? AND json_extract(data,'$.convergence') IS NOT 1 LIMIT 1`, task.id, booking.delivery_id)) continue;
         all.push({ id: task.id, key: positive(booking?.delivery_id) ? `serial:${task.id}:${booking.delivery_id}` : `intent:${task.id}`,
@@ -215,7 +215,7 @@ export default {
       const counts = { active: 0, history: 0, batches: 0, intents: 0, serial: 0, by_stage: {}, sources_by_stage: {},
         attention: new Set(all.filter(row => row.attention).map(row => row.key)).size,
         targets: new Set(all.map(row => row.parent_id ?? null)).size };
-      for (const row of this.store.all(`SELECT r.state,count(*) AS n FROM delivery_members m JOIN delivery_runs r ON r.id=m.run_id GROUP BY r.state`))
+      for (const row of this.store.all(`SELECT r.state,count(*) AS n FROM all_delivery_members m JOIN delivery_runs r ON r.id=m.run_id GROUP BY r.state`))
         counts.sources_by_stage[row.state] = row.n;
       for (const row of all.filter(row => row.kind !== 'batch')) counts.sources_by_stage[row.state] = (counts.sources_by_stage[row.state] ?? 0) + 1;
       for (const row of all) { counts[row.history ? 'history' : 'active']++; counts[row.kind === 'batch' ? 'batches' : row.kind === 'intent' ? 'intents' : 'serial']++;
@@ -223,7 +223,7 @@ export default {
       const filtered = all.filter(row => row.history === history).sort((a, b) =>
         history ? b.id - a.id || a.key.localeCompare(b.key) : Number(b.attention) - Number(a.attention) || a.key.localeCompare(b.key));
       const projectIdentity = convergenceRevision([this.config.project, history]);
-      const structure = convergenceRevision([all, this.store.all('SELECT run_id,task_id,delivery_id,ordinal,active,source_commit FROM delivery_members ORDER BY run_id,ordinal')]);
+      const structure = convergenceRevision([all, this.store.all('SELECT run_id,task_id,delivery_id,ordinal,active,source_commit FROM all_delivery_members ORDER BY run_id,ordinal')]);
       let offset = 0;
       if (cursor !== undefined) {
         let value;

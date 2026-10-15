@@ -85,8 +85,8 @@ test('详情和两种图模式保留冻结追加入口，明确显示暂存条�
     for (const minimal of [false, true]) {
       const card = paintGraph(row, minimal), send = buttonOf(card, '追加输入');
       expect(send.disabled).not.toBe(true); expect(send.classList.contains('agent-call')).toBe(false);
-      expect(send.getAttribute('data-help')).toContain('不打断在途交付或源侧修复');
-      expect(deepText(card)).toContain(minimal ? '待交付追加 2 条' : '已入箱 2 条追加指令');
+      expect(send.getAttribute('data-help')).toContain('不打断在途合并或源侧修复');
+      expect(deepText(card)).toContain(minimal ? '待接收追加 2 条' : '已入箱 2 条追加指令');
       expect(deepText(card)).toContain('等待固定交付结束');
       expect(buttonOf(card, '同步父分支').disabled).toBe(true);
     }

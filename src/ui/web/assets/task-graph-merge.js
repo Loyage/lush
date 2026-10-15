@@ -6,7 +6,7 @@ export const MERGE_PHASES = {
   executing: { label: '合并中', active: true },
   resolving: { label: '分歧处理中', active: true },
   requested: { label: '已请求等待合并' },
-  suspended: { label: '交付挂起', warning: true },
+  suspended: { label: '合并挂起', warning: true },
   blocked: { label: '落地待核验', warning: true },
 };
 
@@ -51,7 +51,7 @@ export function mergeRelations(node) {
     own.setAttribute('data-help', phase === 'resolving'
       ? '源侧分歧处理阶段，保留父执行位；不代表 Agent 此刻正在运行。'
       : phase === 'blocked' ? '落地结果待核验，仍保留父执行位；不代表正在推进合并。'
-      : phase === 'suspended' ? '交付已挂起并释放执行位；恢复后重新排队。'
+      : phase === 'suspended' ? '合并已挂起并释放执行位；恢复后重新排队。'
       : '持久合并请求的处理阶段；不代表 Worker 的 Agent 运行状态。');
     line.append(own);
   }

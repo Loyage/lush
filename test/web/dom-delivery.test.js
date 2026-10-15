@@ -90,8 +90,8 @@ test('ready order uses only 合并 even with a pending intent; requested deliver
 test('parent-owned queue states explain the slot and offer only suspended resume or blocked inspection', async () => {
   const states = {
     requested: '冻结 · 等待父队列', executing: '自动合并中 · 占用父执行位',
-    resolving: '源侧修复中 · 保留父执行位', suspended: '交付已挂起 · 父执行位已释放',
-    blocked: '交付阻塞 · 保留父侧现场',
+    resolving: '源侧修复中 · 保留父执行位', suspended: '合并已挂起 · 父执行位已释放',
+    blocked: '合并阻塞 · 保留父侧现场',
   };
   for (const [status, label] of Object.entries(states)) {
     const reservation = { version: 2, queue_protocol: 1, kind: 'merge', status,
@@ -106,7 +106,7 @@ test('parent-owned queue states explain the slot and offer only suspended resume
       expect(buttonOf(panel, '合并')).toBeUndefined();
       expect(panel.querySelector('.delivery-controls').querySelector('.auto-merge-toggle')).toBeNull();
       expect(buttonOf(panel, '批准固定提交合入父分支')).toBeUndefined();
-      const recovery = buttonOf(panel, status === 'suspended' ? '恢复交付' : '受检复查落地');
+      const recovery = buttonOf(panel, status === 'suspended' ? '恢复合并' : '受检复查落地');
       if (['suspended','blocked'].includes(status)) {
         expect(recovery.classList.contains('agent-call')).toBe(true);
         expect(recovery.getAttribute('data-help')).toContain('消耗 token');
@@ -479,9 +479,9 @@ test('an outstanding request shows its diagnosis and can be withdrawn to release
   expect(deepText(panel)).toContain('请求状态：父分支 main');
   expect(buttonOf(panel, '批准固定提交合入父分支')).toBeTruthy();
   const withdraw = buttonOf(panel, '撤销请求');
-  expect(withdraw.getAttribute('data-help')).toContain('解除父分支的交付锁');
+  expect(withdraw.getAttribute('data-help')).toContain('解除父分支的合并锁');
   const pending = withdraw.onclick();
-  expect(dialogText(dom)).toContain('父分支随即解除交付锁');
+  expect(dialogText(dom)).toContain('父分支随即解除合并锁');
   const beforeWithdraw = world.state.actions.length;
   expect(world.state.actions.slice(beforeWithdraw).some(action => action.method === 'worker.unreserve')).toBe(false);
   await answerDialog(dom, '撤销请求'); await pending;

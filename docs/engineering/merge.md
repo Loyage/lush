@@ -2,6 +2,8 @@
 
 Lush 的合并单位是分支谱系中的一条 `direct child → parent` 边。Worker 提供审阅结果和 agent 审计，代码是否能落地由 Branch + Git commit graph 决定；新指令 / child 的落地只接受**固定提交**，绝不 no-ff、绝不 rebase。
 
+集中处理多个来源另走显式[一次性整合](merge-convergence-implementation.md)，不改变本篇普通 serial：旧持续策略不分流新普通请求，RPC worker.reserve_all（CLI worker merge-all）仍逐项串行，不是一次性整合。新整合也不重挂真实父子关系，最终只发布一次 Squash。
+
 ## 当前 version 2：父 Worker 自有交付队列
 
 新式 指令/child 的预约由父 Worker 自有队列的 runtime 串行 Squash（`queue_protocol=1`），包括 main / owner，不创建 `task_kind='merge'`、不改源 Worker 的 `parent_id`，不额外调用父 Agent 或要求 `worker.integrate`。指令默认关闭自动合并，由用户开启跨轮 hook 或显式请求；新 child 默认开启且锁定。无提交的干净 child 直接交付结果、等父确认，不产生合并提交。

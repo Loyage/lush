@@ -22,6 +22,7 @@ import { renderDiff } from './render-diff.js';
 import { renderWorkerVersions, disposeWorkerVersions } from './render-versions.js';
 import { renderWorkerRelations } from './render-worker-relations.js';
 import { deliveryControls } from './render-delivery.js';
+import { integrationControl, integrationSummary, integrationDetails } from './render-integration.js';
 import { workerHooks } from './render-hooks.js';
 import { guardedAction, iterationControls } from './render-iteration.js';
 import { appendInputBlocker, inputQueueText } from './worker-input.js';
@@ -250,6 +251,15 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
       ? `解分歧子 Worker 已归档，Worker、固定提交记录和会话仍保留。${retry}`
       : `解分歧成果尚未集成：先检查工作区和固定提交。需要另试时，在 Worker 树或 Worker 详情显式清理这条子分支资源（删除 ref/worktree；未提交文件会丢失），${retry}不会重放本次 Agent。`,
     'hint delivery-reason'));
+  }
+  if (!management) {
+    const options = { refresh: () => detail(task.id), signal: progressive?.signal };
+    const integration = integrationDetails(task, options) || integrationSummary(task);
+    if (integration) panel.append(integration);
+    if (['main', 'owner'].includes(workerKind(task)) || task.children_total || task.children?.length) {
+      const control = integrationControl(task, options);
+      if (control) panel.append(control);
+    }
   }
   const iteration = management ? null : iterationControls(task, { refresh: () => detail(task.id), events: history?.events || [], showParentDistance: true });
   if (iteration) panel.append(iteration);

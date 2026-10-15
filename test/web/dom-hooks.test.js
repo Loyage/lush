@@ -49,13 +49,13 @@ beforeEach(() => { closeDialog(); actions = []; reads = []; intercept = null; ca
   dom.location.pathname = '/'; ui.hooksPage = null; activateDetailView({ view: 'overview' }); });
 afterAll(() => { closeDialog(); dom.restore(); });
 
-test('retired auxiliary entry opens only the four-function directory without catalogue reads or template mutations', async () => {
+test('retired auxiliary entry opens only the current three-function directory without catalogue reads or template mutations', async () => {
   catalogue.templates = Array.from({ length: 50 }, (_, id) => ({ id: `old-${id}`, name: `旧模板 ${id}` }));
   const before = structuredClone(catalogue);
   for (const subpage of ['settings', 'commands', 'history']) {
     await openHooks({ subpage });
     expect(dom.location.hash).toBe('#hooks'); expect(ui.view.id).toBe('hooks');
-    expect(root().querySelectorAll('.automation-feature')).toHaveLength(4);
+    expect(root().querySelectorAll('.automation-feature')).toHaveLength(3);
     expect(root().querySelector('.hook-template')).toBeNull(); expect(root().querySelector('.hook-form')).toBeNull();
     expect(btn('新建模板')).toBeUndefined(); expect(btn('保存模板')).toBeUndefined();
     expect(dom.node('error').textContent).toContain('入口已移除');

@@ -22,7 +22,7 @@ beforeEach(() => {
 afterAll(() => dom.restore());
 
 test('phase matrix only trusts matching current protocol; Agent status and Git divergence never promote requests', () => {
-  const labels = { executing: '合并中', resolving: '分歧处理中', requested: '已请求等待合并', suspended: '交付挂起', blocked: '落地待核验' };
+  const labels = { executing: '合并中', resolving: '分歧处理中', requested: '已请求等待合并', suspended: '合并挂起', blocked: '落地待核验' };
   for (const [phase, label] of Object.entries(labels)) {
     for (const minimal of [false, true]) {
       ui.taskGraphMinimal = minimal;

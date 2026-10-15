@@ -9,6 +9,7 @@ const nodeResult = node => convergenceJSON(node.result);
 /** Fixed binary objects and isolated validation; no parent logical writer is acquired here. */
 export default {
   async refreshConvergenceBaseline(runId, generation, explicit = false) {
+    if (this.oneShotRun?.(this.store.deliveryRun(runId))) return this.refreshOneShotBaseline(runId, generation, explicit);
     return this.workspaces.exclusive(async () => {
       const { run, parent, members } = this.assertConvergenceRun(runId, generation);
       check(!run.landing_receipt, 'landing effects must be reconciled before changing the baseline');
@@ -129,6 +130,7 @@ export default {
   },
 
   async prepareConvergenceRun(runId, generation, signal) {
+    if (this.oneShotRun?.(this.store.deliveryRun(runId))) return this.prepareOneShotIntegration(runId, generation, signal);
     let { run, parent, members } = this.assertConvergenceRun(runId, generation, ['preparing']);
     if (run.integration_worker_id && this.running.has(run.integration_worker_id)) return;
     this.assertConvergenceCommand(run);

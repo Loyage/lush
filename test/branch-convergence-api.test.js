@@ -128,8 +128,9 @@ test('convergence CLI forwards list, show, on, history and retry without creatin
     { method: 'branch.convergence_set', params: { branch: 'main', enabled: true, expected_revision: revision } }, { method: 'branch.convergence_runs', params: { branch: 'main' } },
     { method: 'branch.convergence_runs', params: cases[3][2] }, { method: 'branch.convergence_retry', params: cases[4][2] },
   ]);
-  expect(HELP).toContain('branch convergence on BRANCH'); expect(HELP).toContain('挂载且关闭');
-  expect(HELP).toContain('不接受旧 command/version 参数'); expect(HELP).toContain('整合 Agent');
+  expect(HELP).toContain('branch convergence on BRANCH'); expect(HELP).toContain('持续策略和默认写入口已退休');
+  expect(HELP).toContain('不接受旧 command/version 参数'); expect(HELP).toContain('branch integrate start BRANCH --revision REV');
+  expect(HELP).toContain('整合 Agent');
 });
 
 test('CLI off preserves only the saved command reference and explicit revision, including an unavailable version', async () => {

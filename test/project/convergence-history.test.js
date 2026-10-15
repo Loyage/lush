@@ -6,6 +6,7 @@ import { fixture, repo, git, temp } from '../helpers.js';
 import policy from '../../src/core/project/convergence-policy.js';
 import { convergenceJSON } from '../../src/core/convergence-contract.js';
 import { taskDeliveryState } from '../../src/core/project/iteration.js';
+import { historicalConvergencePolicy, pinHistoricalConvergence } from '../convergence-fixtures.js';
 
 const A = 'a'.repeat(40), B = 'b'.repeat(40);
 function setup() {
@@ -78,11 +79,13 @@ test('source/helper snapshots have no live Task FK, while owner lifetime and cre
 test('nullable snapshot columns are added without backfilling old Worker identities or rewriting delivery rows', () => {
   const f = setup(); let other;
   try {
-    f.store.db.exec(`ALTER TABLE delivery_members DROP COLUMN worker_number;
+    // Simulate the pre-snapshot database, which also predates the additive unified view.
+    f.store.db.exec(`DROP VIEW all_delivery_members;
+      ALTER TABLE delivery_members DROP COLUMN worker_number;
       ALTER TABLE delivery_members DROP COLUMN title;
       ALTER TABLE delivery_nodes DROP COLUMN helper_worker_number;
       ALTER TABLE delivery_runs DROP COLUMN integration_worker_number;`);
-    const before = JSON.stringify(f.store.tasks()), members = f.store.deliveryMembers(f.run.id);
+    const before = JSON.stringify(f.store.tasks()), members = f.store.all('SELECT * FROM delivery_members WHERE run_id=? ORDER BY ordinal', f.run.id);
     other = new Store(path.join(f.root, 'project.db'), f.root);
     expect(JSON.stringify(other.tasks())).toBe(before);
     expect(other.deliveryMembers(f.run.id)).toEqual(members.map(row => ({ ...row, worker_number: null, title: null })));
@@ -121,14 +124,14 @@ test('independent order deletion and real GC retain shared receipts, survivor sy
     await repo(f.root); await f.project.bootstrapMain();
     const entry = f.project.saveShortcutCommand({ name: '组合验证', command: 'test -f first.txt && test -f second.txt' },
       f.project.shortcutCommands().revision).commands.items.at(-1);
-    const view = await f.project.branchConvergence('main');
-    await f.project.setBranchConvergence('main', true, { command_id: entry.id, command_version: 1 }, view.revision);
+    historicalConvergencePolicy(f, f.store.get("SELECT * FROM tasks WHERE task_kind='main'"), { validation: { command_id: entry.id, command_version: 1 } });
     const sources = [];
     for (const name of ['first', 'second']) {
       const { task } = await f.project.order(`${name} independent order`);
       fs.writeFileSync(path.join(task.workspace, `${name}.txt`), `${name}\n`);
       await git(task.workspace, 'add', '.'); await git(task.workspace, 'commit', '-m', name);
       f.store.update(task.id, { status: 'waiting' }); await f.project.requestTaskMerge(task.id);
+      await pinHistoricalConvergence(f, task.id);
       sources.push(f.store.task(task.id));
     }
     const [survivor, removed] = sources, run = await f.project.formConvergenceBatch(survivor.parent_id);
@@ -158,6 +161,7 @@ test('independent order deletion and real GC retain shared receipts, survivor sy
     fs.writeFileSync(path.join(survivor.workspace, 'first.txt'), 'second iteration\n');
     await git(survivor.workspace, 'add', '.'); await git(survivor.workspace, 'commit', '-m', 'surviving increment');
     await f.project.requestTaskMerge(survivor.id);
+    await pinHistoricalConvergence(f, survivor.id);
     const next = await f.project.formConvergenceBatch(run.parent_id);
     await f.project.prepareConvergenceRun(next.id, 1, new AbortController().signal);
     expect(f.store.deliveryRun(next.id).state).toBe('integrated');

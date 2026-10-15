@@ -58,7 +58,7 @@ for (const obstacle of [null, 'unread child input', 'independent order']) {
       const controls = iterationControls(before), accept = button(controls);
       dom.node('detail').append(controls);
       expect(accept.classList.contains('agent-call')).toBe(false);
-      expect(accept.getAttribute('data-help')).toContain('一并安全验收已交付的派生 child');
+      expect(accept.getAttribute('data-help')).toContain('一并安全验收已完成的派生 child');
       if (obstacle === 'independent order') {
         expect(accept.disabled).toBe(true); expect(requests).toHaveLength(0);
         expect((await post(f, 'worker.accept', { id: parent.id }, 400)).error).toContain('descendants');

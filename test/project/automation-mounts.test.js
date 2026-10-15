@@ -5,7 +5,9 @@ import { Project } from '../../src/core/project.js';
 
 const patch = (f, value) => f.project.setAutomationSettings(value, f.project.automationSettings().revision);
 const hooks = (f, task) => f.project.taskHooks(task.id);
-const defaults = (f, scope, enabled = false) => f.project.setBranchConvergenceDefaults(scope !== 'none', enabled, f.project.branchConvergenceDefaults().revision, scope);
+// Explicit historical defaults: retirement must not affect other automation birth scopes.
+const defaults = (f, scope, enabled = false) => f.store.run('INSERT INTO meta(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+  'convergence_defaults:v1', JSON.stringify({ version: 1, mounted: scope !== 'none', enabled, scope, generation: 1 }));
 async function setup() {
   const f = fixture(); f.project.kick = () => {}; await repo(f.root); return f;
 }
@@ -18,10 +20,10 @@ for (const scope of ['main','all','user','none']) test(`birth freezes real ${sco
     const order = (await f.project.order('order', null, [], null, false)).task;
     const child = await f.project.spawn(order.id, 'child');
     const orderMounted = ['all','user'].includes(scope), childMounted = scope === 'all';
-    expect(hooks(f, order).mounted_features).toEqual({ completion: orderMounted, acceptance_notice: orderMounted, convergence: orderMounted, push: false });
+    expect(hooks(f, order).mounted_features).toEqual({ completion: orderMounted, acceptance_notice: orderMounted, convergence: false, push: false });
     expect(hooks(f, order).completion.level).toBe(orderMounted ? 'accept' : 'off');
     expect(hooks(f, order).acceptance_notice.enabled).toBe(orderMounted);
-    expect(hooks(f, child).mounted_features).toEqual({ completion: true, acceptance_notice: childMounted, convergence: childMounted, push: false });
+    expect(hooks(f, child).mounted_features).toEqual({ completion: true, acceptance_notice: childMounted, convergence: false, push: false });
     expect(hooks(f, child).completion).toMatchObject({ level: 'merge', locked: true, editable: false });
     expect(hooks(f, child).acceptance_notice.enabled).toBe(false);
     for (const enabled of [false,true]) await expect(f.project.setTaskAutoMerge(child.id, enabled)).rejects.toThrow('锁定');
@@ -91,24 +93,24 @@ test('legacy missing birth metadata and defaults are read without rewriting enab
     patch(f, { mount_scopes: { completion: 'none', acceptance_notice: 'none' } });
     expect(hooks(f, order).revision).toBe(oldRevision);
     const child = await f.project.spawn(order.id, 'legacy defaults all');
-    expect(hooks(f, child).mounted_features.convergence).toBe(true); expect(hooks(f, child).convergence.enabled).toBe(true);
+    expect(hooks(f, child).mounted_features.convergence).toBe(false); expect(hooks(f, child).convergence.enabled).toBe(false);
     f.store.run('UPDATE meta SET value=? WHERE key=?', JSON.stringify({ ...saved, mounted: false }), 'convergence_defaults:v1');
     expect(f.project.branchConvergenceDefaults()).toMatchObject({ scope: 'none', mounted: false, enabled: true });
     expect(f.store.get('SELECT value FROM meta WHERE key=?', 'convergence_defaults:v1').value).toBe(JSON.stringify({ ...saved, mounted: false }));
   } finally { await restarted?.shutdown(); await f.close(); }
 });
 
-test('new project defaults are user mounts disabled; push identity and convergence are real mounts and deletion never reinstalls', async () => {
+test('retired convergence stays unmounted while push identity and deletion never reinstall', async () => {
   const f = await setup();
   try {
-    expect(f.project.branchConvergenceDefaults()).toMatchObject({ mounted: true, scope: 'user', enabled: false });
+    expect(f.project.branchConvergenceDefaults()).toMatchObject({ mounted: false, scope: 'none', enabled: false, retired: true });
     const order = (await f.project.order('new order', null, [], null, false)).task, main = f.store.task(order.parent_id);
     const child = await f.project.spawn(order.id, 'new child');
-    expect(hooks(f, order).mounted_features.convergence).toBe(true);
+    expect(hooks(f, order).mounted_features.convergence).toBe(false);
     expect(hooks(f, child).mounted_features.convergence).toBe(false);
     await f.project.bootstrapMain();
     const initial = hooks(f, main), identity = initial.push;
-    expect(initial.mounted_features).toEqual({ completion: false, acceptance_notice: false, convergence: true, push: true });
+    expect(initial.mounted_features).toEqual({ completion: false, acceptance_notice: false, convergence: false, push: true });
     expect(initial.mounts.find(m => m.id === identity.hook_id).enabled).toBe(false);
     f.project.removeTaskHook(main.id, identity.hook_id, initial.revision);
     const removed = hooks(f, main);
@@ -116,12 +118,10 @@ test('new project defaults are user mounts disabled; push identity and convergen
     expect(removed.revision).not.toBe(initial.revision);
     await f.project.bootstrapMain();
     expect(hooks(f, main).mounted_features.push).toBe(false);
-    const off = await f.project.setBranchConvergence('main', false, undefined, removed.convergence.revision, false);
-    expect(off.mounted).toBe(false); expect(hooks(f, main).mounted_features.convergence).toBe(false);
-    expect(hooks(f, main).revision).not.toBe(removed.revision);
-    const raw = f.store.get('SELECT value FROM meta WHERE key=?', CONVERGENCE_POLICY_PREFIX + 'main').value;
+    await expect(f.project.setBranchConvergence('main', false, undefined, removed.convergence.revision, false)).rejects.toThrow('retired');
+    expect(hooks(f, main).revision).toBe(removed.revision);
     await f.project.ensureMainTask(); f.project.hooksList(); hooks(f, main);
-    expect(f.store.get('SELECT value FROM meta WHERE key=?', CONVERGENCE_POLICY_PREFIX + 'main').value).toBe(raw);
+    expect(f.store.get('SELECT value FROM meta WHERE key=?', CONVERGENCE_POLICY_PREFIX + 'main')).toBeNull();
     const unexpected = f.store.create({ task_kind: 'management', role: 'manager', goal: 'internal' });
     expect(hooks(f, unexpected).mounted_features).toEqual({ completion: false, acceptance_notice: false, convergence: false, push: false });
   } finally { await f.close(); }
@@ -153,19 +153,15 @@ test('strict scopes, consistent mounted flag, CAS and omission preserve old API 
     for (const mount_scopes of [{}, { push: 'all' }, { completion: 'owner' }, { acceptance_notice: null }, { completion: true }])
       expect(() => f.project.setAutomationSettings({ mount_scopes }, initial.revision)).toThrow();
     const d = f.project.branchConvergenceDefaults();
-    for (const scope of [null, false, '', 'owner']) await expect(f.project.setBranchConvergenceDefaults(true, false, d.revision, scope)).rejects.toThrow('scope');
-    await expect(f.project.setBranchConvergenceDefaults(false, false, d.revision, 'user')).rejects.toThrow('match scope');
-    await expect(f.project.setBranchConvergenceDefaults(true, false, d.revision, 'none')).rejects.toThrow('match scope');
-    await defaults(f, 'none');
-    await expect(f.project.setBranchConvergenceDefaults(true, false, d.revision, 'user')).rejects.toThrow('revision');
-    await f.project.setBranchConvergenceDefaults(true, true, f.project.branchConvergenceDefaults().revision);
-    expect(f.project.branchConvergenceDefaults().scope).toBe('all');
+    for (const scope of [null, false, '', 'owner', 'all']) await expect(f.project.setBranchConvergenceDefaults(true, false, d.revision, scope)).rejects.toThrow('retired');
+    await defaults(f, 'all', true);
+    expect(f.project.branchConvergenceDefaults()).toMatchObject({ scope: 'all', retired: true, editable: false });
     const anchor = f.project.anchorInput.bind(f.project);
     f.project.anchorInput = async (...args) => { const value = await anchor(...args); entered.resolve(); await release.promise; return value; };
     const creating = f.project.order('late birth', null, [], null, false); await entered.promise;
     patch(f, { mount_scopes: { completion: 'none', acceptance_notice: 'none' } }); await defaults(f, 'user'); release.resolve();
     const task = (await creating).task;
-    expect(hooks(f, task).mounted_features).toMatchObject({ completion: false, acceptance_notice: false, convergence: true });
+    expect(hooks(f, task).mounted_features).toMatchObject({ completion: false, acceptance_notice: false, convergence: false });
     expect(await git(task.workspace, 'rev-parse', 'HEAD')).toBe(task.base_commit);
   } finally { release.resolve(); await f.close(); }
 });

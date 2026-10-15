@@ -12,7 +12,7 @@ import { onDevicePreferences, onPrefChange, pollingIntervals, readPref, saveDevi
 import { liveRefresh, refresh, applySort, applyFilters, initRefreshPolling } from './refresh.js';
 import { openTaskGraph } from './render-task-graph.js';
 import { openDeliveryView } from './render-delivery-view.js';
-import { deliveryTarget, deliveryHash } from './delivery-model.js';
+import { deliveryTarget } from './delivery-model.js';
 import { initSidebar } from './sidebar-init.js';
 import { resetProjectMaintenance, renderProjectMaintenance } from './project-maintenance.js';
 import { activateDetailView, openResource, paintCollapsed, toggleMobileNavigation } from './sidebar-ui.js';
@@ -209,7 +209,7 @@ export async function boot() {
   disposeRefreshPolling?.(); disposeRefreshPolling = null;
   disposePreferences?.(); disposeAutomation?.(); disposeAutomationView?.(); disposeInbox?.(); disposeInboxReady?.();
   disposePreferences = disposeAutomation = disposeAutomationView = disposeInbox = disposeInboxReady = null;
-  ui.disposeDetailRequests?.(); ui.disposeDeliveryView?.(); ui.deliveryCounts?.controller?.abort();
+  ui.disposeDetailRequests?.(); ui.disposeDeliveryView?.();
   if (refreshTimer !== null) clearInterval(refreshTimer); if (liveTimer !== null) clearInterval(liveTimer);
   if (hashListener !== null) globalThis.removeEventListener?.('hashchange', hashListener);
   refreshTimer = liveTimer = hashListener = null;
@@ -261,7 +261,7 @@ export async function boot() {
     if (projectRoute()) $('home').setAttribute('data-help', '在新标签打开上级用户工作台，当前项目的输入与阅读位置保留。');
     else $('home').removeAttribute('data-help');
   }
-  const projectOnly = ['overview-open', 'task-graph-open', 'deliveries-open', 'inputs-open', 'hooks-open'];
+  const projectOnly = ['overview-open', 'task-graph-open', 'inputs-open', 'hooks-open'];
   for (const id of projectOnly) { const target = $(id); if (target) { target.disabled = !projectReady; target.setAttribute('aria-disabled', String(!projectReady)); } }
   if ($('composer-shell')) $('composer-shell').hidden = !projectReady;
 
@@ -276,14 +276,6 @@ export async function boot() {
     if (event.key === 'Escape' && $('sidebar').classList.contains('mobile-open')) {
       event.preventDefault(); toggleMobileNavigation(false); $('sidebar-toggle').focus();
     }
-  };
-  if ($('deliveries-open')) $('deliveries-open').onclick = () => {
-    const workerId = ui.taskGraphLocatorBase === projectBase() ? ui.taskGraphLocator : null;
-    const source = ui.taskGraphPage?.graph?.nodes?.find(node => node.id === workerId)?.delivery_summary;
-    const options = ui.view?.id === 'deliveries' && ui.deliveryPage?.base === projectBase()
-      ? { locator: ui.deliveryPage.locator, history: ui.deliveryPage.history }
-      : { locator: source?.locator || { worker_id: workerId }, history: source?.stage === 'integrated' };
-    return requestPageLeave(deliveryHash(options.locator, options.history), { leave: () => projectReady ? openDeliveryView(options).catch(report) : noProjectView() });
   };
   $('task-graph-open').onclick = () => {
     const workerId = ui.view?.id === 'deliveries' ? ui.deliveryPage?.treeWorker : ui.taskGraphLocatorBase === projectBase() ? ui.taskGraphLocator : null;
