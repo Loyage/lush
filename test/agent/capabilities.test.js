@@ -51,7 +51,9 @@ test('delegation guide keeps intermediate delivery runnable and names independen
     '不伪造兄弟模块、跳过构建或放宽预算',
     'child 可独立完成的验证', '集成验证', '分别写明范围和负责人',
     '受阻测试与最终补验负责人', '不能报告通过',
-    '分页／截断、计数与权限边界', '用对应边界用例验证后再铺开实现',
+    '分页／截断、异常计数与权限语义', '用对应边界用例验证后再铺开实现',
+    '不依赖未交付代码的准备可并行', '不把准备工作当作集成验证',
+    '集中审查接口兼容、迁移调用点和测试缺口', '失败、安全问题与阻塞仍及时报告',
     '核对被测代码树、命令／范围及日志证据',
   ]) expect(guide).toContain(rule);
   // Optional delegation details stay in the guide, not in the always-on prompt.

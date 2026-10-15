@@ -1,4 +1,4 @@
-import { test, expect } from 'bun:test';
+import { test, expect, describe, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { setup, git } from './convergence-harness.js';
@@ -139,44 +139,64 @@ test('an ancestor-shaped seed still blocks parent while a helper invocation has 
   } finally { f.close(); }
 });
 
-for (const kind of ['missing_guard','async_guard','running','job','active_member','state','node','context','ready','ready_tree','root','keeper','missing_ref','dirty','unknown_head','git_state','notice','message']) {
+async function rejectsHelperProof(f, kind) {
+  if (kind === 'missing_guard') delete f.workspaces.convergenceHelperIdle;
+  if (kind === 'async_guard') f.workspaces.convergenceHelperIdle = async () => true;
+  if (kind === 'running') f.running.add(f.helper.id);
+  if (kind === 'job') f.jobs.add(f.run.id);
+  if (kind === 'active_member') f.store.run('UPDATE delivery_members SET active=1 WHERE run_id=?', f.run.id);
+  if (kind === 'state') f.store.updateDeliveryRun(f.run.id, { state: 'failed' });
+  if (kind === 'node') f.store.run('UPDATE delivery_nodes SET helper_id=NULL WHERE id=?', f.node.id);
+  if (kind === 'context') f.store.run("UPDATE events SET data=? WHERE task_id=? AND type='convergence.integration_created'",
+    JSON.stringify({ run_id: f.run.id, node_id: f.node.id, generation: 2 }), f.helper.id);
+  if (kind === 'ready') f.store.run("UPDATE events SET data=? WHERE task_id=? AND type='convergence.integration_ready'",
+    JSON.stringify({ run_id: f.run.id, node_id: f.node.id, generation: 2, commit: f.output.commit }), f.helper.id);
+  if (kind === 'ready_tree') {
+    const tree = await f.workspaces.commitTree(f.baseline);
+    f.store.updateDeliveryNode(f.node.id, { result: { commit: f.output.commit, tree } }, f.run.generation);
+    f.store.run("UPDATE events SET data=? WHERE task_id=? AND type='convergence.integration_ready'",
+      JSON.stringify({ run_id: f.run.id, node_id: f.node.id, generation: f.run.generation, commit: f.output.commit, tree }), f.helper.id);
+  }
+  if (kind === 'missing_ref') await git(f.root, 'update-ref', '-d', `refs/heads/${f.helper.branch}`, f.output.commit);
+  if (kind === 'root') f.store.updateDeliveryRun(f.run.id, { data: { root_commit: f.members[0].source_commit } });
+  if (kind === 'keeper') await git(f.root, 'update-ref', '-d', f.receipt.evidence.ref, f.receipt.evidence.commit);
+  if (kind === 'dirty') fs.writeFileSync(path.join(f.helper.workspace, 'file.txt'), 'uncommitted valuable data');
+  if (kind === 'unknown_head') {
+    await git(f.helper.workspace, 'commit', '--allow-empty', '-m', 'unknown extra changes');
+    f.store.update(f.helper.id, { head_commit: await git(f.helper.workspace, 'rev-parse', 'HEAD') });
+  }
+  if (kind === 'git_state') fs.writeFileSync(path.join(await git(f.helper.workspace, 'rev-parse', '--absolute-git-dir'), 'MERGE_HEAD'), f.baseline + '\n');
+  if (kind === 'notice') f.store.run("INSERT INTO notices(task_id,kind,title,body) VALUES (?,'question','question','question')", f.helper.id);
+  if (kind === 'message') f.store.message(f.helper.id, 'pending input');
+  expect(await f.state()).toBe('pending');
+  expect((await f.workspaces.branchState(f.parent.branch)).blockers).toContain(f.helper.branch);
+  await expect(f.archive()).rejects.toThrow();
+  expect(fs.existsSync(f.helper.workspace)).toBe(true);
+  if (kind !== 'missing_ref') expect(await git(f.root, 'rev-parse', `refs/heads/${f.helper.branch}`)).toBe(await git(f.helper.workspace, 'rev-parse', 'HEAD'));
+}
+
+// These guards change only SQLite rows or Runtime exit evidence. Keep the real published
+// Git graph, but roll back each case and prove it is usable again; never share Git mutations.
+describe('metadata-only helper rejection cases', () => {
+  let f, idleGuard;
+  beforeAll(async () => { f = await helperFixture(); idleGuard = f.workspaces.convergenceHelperIdle; });
+  beforeEach(() => { f.store.run('SAVEPOINT helper_case'); });
+  afterEach(async () => {
+    try { f.store.run('ROLLBACK TO helper_case'); f.store.run('RELEASE helper_case'); }
+    finally { f.workspaces.convergenceHelperIdle = idleGuard; f.running.clear(); f.jobs.clear(); }
+    expect(await f.state()).toBe('merged');
+    expect(await git(f.root, 'rev-parse', f.parent.branch)).toBe(f.receipt.commit);
+  });
+  afterAll(() => { f?.close(); });
+  for (const kind of ['missing_guard','async_guard','running','job','active_member','state','node','context','ready','ready_tree','root','notice','message']) {
+    test(`helper proof and cleanup fail closed for ${kind}`, () => rejectsHelperProof(f, kind));
+  }
+});
+
+for (const kind of ['keeper','missing_ref','dirty','unknown_head','git_state']) {
   test(`helper proof and cleanup fail closed for ${kind}`, async () => {
     const f = await helperFixture();
-    try {
-      if (kind === 'missing_guard') delete f.workspaces.convergenceHelperIdle;
-      if (kind === 'async_guard') f.workspaces.convergenceHelperIdle = async () => true;
-      if (kind === 'running') f.running.add(f.helper.id);
-      if (kind === 'job') f.jobs.add(f.run.id);
-      if (kind === 'active_member') f.store.run('UPDATE delivery_members SET active=1 WHERE run_id=?', f.run.id);
-      if (kind === 'state') f.store.updateDeliveryRun(f.run.id, { state: 'failed' });
-      if (kind === 'node') f.store.run('UPDATE delivery_nodes SET helper_id=NULL WHERE id=?', f.node.id);
-      if (kind === 'context') f.store.run("UPDATE events SET data=? WHERE task_id=? AND type='convergence.integration_created'",
-        JSON.stringify({ run_id: f.run.id, node_id: f.node.id, generation: 2 }), f.helper.id);
-      if (kind === 'ready') f.store.run("UPDATE events SET data=? WHERE task_id=? AND type='convergence.integration_ready'",
-        JSON.stringify({ run_id: f.run.id, node_id: f.node.id, generation: 2, commit: f.output.commit }), f.helper.id);
-      if (kind === 'ready_tree') {
-        const tree = await f.workspaces.commitTree(f.baseline);
-        f.store.updateDeliveryNode(f.node.id, { result: { commit: f.output.commit, tree } }, f.run.generation);
-        f.store.run("UPDATE events SET data=? WHERE task_id=? AND type='convergence.integration_ready'",
-          JSON.stringify({ run_id: f.run.id, node_id: f.node.id, generation: f.run.generation, commit: f.output.commit, tree }), f.helper.id);
-      }
-      if (kind === 'missing_ref') await git(f.root, 'update-ref', '-d', `refs/heads/${f.helper.branch}`, f.output.commit);
-      if (kind === 'root') f.store.updateDeliveryRun(f.run.id, { data: { root_commit: f.members[0].source_commit } });
-      if (kind === 'keeper') await git(f.root, 'update-ref', '-d', f.receipt.evidence.ref, f.receipt.evidence.commit);
-      if (kind === 'dirty') fs.writeFileSync(path.join(f.helper.workspace, 'file.txt'), 'uncommitted valuable data');
-      if (kind === 'unknown_head') {
-        await git(f.helper.workspace, 'commit', '--allow-empty', '-m', 'unknown extra changes');
-        f.store.update(f.helper.id, { head_commit: await git(f.helper.workspace, 'rev-parse', 'HEAD') });
-      }
-      if (kind === 'git_state') fs.writeFileSync(path.join(await git(f.helper.workspace, 'rev-parse', '--absolute-git-dir'), 'MERGE_HEAD'), f.baseline + '\n');
-      if (kind === 'notice') f.store.run("INSERT INTO notices(task_id,kind,title,body) VALUES (?,'question','question','question')", f.helper.id);
-      if (kind === 'message') f.store.message(f.helper.id, 'pending input');
-      expect(await f.state()).toBe('pending');
-      expect((await f.workspaces.branchState(f.parent.branch)).blockers).toContain(f.helper.branch);
-      await expect(f.archive()).rejects.toThrow();
-      expect(fs.existsSync(f.helper.workspace)).toBe(true);
-      if (kind !== 'missing_ref') expect(await git(f.root, 'rev-parse', `refs/heads/${f.helper.branch}`)).toBe(await git(f.helper.workspace, 'rev-parse', 'HEAD'));
-    } finally { f.close(); }
+    try { await rejectsHelperProof(f, kind); } finally { f.close(); }
   });
 }
 

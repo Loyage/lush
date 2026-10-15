@@ -1,4 +1,4 @@
-import { test, expect, setDefaultTimeout } from 'bun:test';
+import { test, expect, setDefaultTimeout, describe, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fixture, repo, git, gate, until } from '../helpers.js';
@@ -37,6 +37,42 @@ function intact(f) {
     expect(accepts(f, row)).toHaveLength(0);
     expect(f.store.task(row.id).status).not.toBe('completed');
   }
+}
+
+// A stopped Project has no concurrent writer. Metadata-only rejection cases can reuse
+// its real three-worktree graph with SQLite savepoint isolation and explicit Runtime reset.
+// Git-changing, successful reclamation and recovery cases below still get fresh fixtures.
+function rejectionCases(title, cases, check) {
+  describe(title, () => {
+    let f, original;
+    beforeAll(async () => {
+      f = await setup();
+      original = { finish: f.project.workspaces.finish, assertBranchWritable: f.project.assertBranchWritable,
+        taskSyncBusy: f.project.taskSyncBusy, commandHookRunning: f.project.commandHookRunning };
+    });
+    beforeEach(() => { f.store.run('SAVEPOINT acceptance_case'); });
+    afterEach(() => {
+      try { f.store.run('ROLLBACK TO acceptance_case'); f.store.run('RELEASE acceptance_case'); }
+      finally {
+        f.project.workspaces.finish = original.finish;
+        f.project.assertBranchWritable = original.assertBranchWritable;
+        f.project.taskSyncBusy = original.taskSyncBusy; f.project.commandHookRunning = original.commandHookRunning;
+        f.project.running.clear(); f.project.workspaces.busy.clear();
+      }
+      intact(f);
+      expect(f.project.acceptanceBusy?.size ?? 0).toBe(0);
+    });
+    afterAll(async () => {
+      if (!f) return;
+      try {
+        for (const row of f.rows) {
+          expect(await git(row.workspace, 'rev-parse', 'HEAD')).toBe(row.base_commit);
+          expect(await git(row.workspace, 'status', '--porcelain')).toBe('');
+        }
+      } finally { await f.close(); }
+    });
+    for (const value of cases) test(title.replace('%s', value), () => check(f, value));
+  });
 }
 
 test('one user acceptance settles multilevel no-code children, preserving results, sessions, messages and all acceptance hooks', async () => {
@@ -140,10 +176,8 @@ test('Agent target permission remains direct-child-only while acceptance of that
   } finally { f.project.running.clear(); await f.close(); }
 });
 
-for (const status of ['queued', 'running', 'waiting', 'paused', 'awaiting']) test(`a ${status} descendant is never treated as delivered`, async () => {
-  const f = await setup();
-  try { f.store.update(f.grandchild.id, { status }); await expect(batch(f)).rejects.toThrow('descendants'); intact(f); }
-  finally { await f.close(); }
+rejectionCases('a %s descendant is never treated as delivered', ['queued', 'running', 'waiting', 'paused', 'awaiting'], async (f, status) => {
+  f.store.update(f.grandchild.id, { status }); await expect(batch(f)).rejects.toThrow('descendants'); intact(f);
 });
 for (const status of ['failed', 'cancelled']) test(`terminal ${status} compatibility does not fabricate child acceptance or clear errors`, async () => {
   const f = await setup();
@@ -154,55 +188,56 @@ for (const status of ['failed', 'cancelled']) test(`terminal ${status} compatibi
   } finally { await f.close(); }
 });
 
-for (const obstacle of ['actual invocation', 'cleanup', 'sync', 'command', 'message', 'buffered message', 'decision', 'pending reservation', 'requested reservation', 'dirty', 'new commit', 'locked', 'shared user', 'freeze']) {
+async function rejectsPreflight(f, obstacle) {
+  const row = f.grandchild;
+  if (obstacle === 'actual invocation') f.project.running.set(row.id, { controller: new AbortController(), parked: true });
+  if (obstacle === 'cleanup') f.project.workspaces.busy.add(row.id);
+  if (obstacle === 'sync') f.project.taskSyncBusy = new Set([row.id]);
+  if (obstacle === 'command') f.project.commandHookRunning = new Set([row.id]);
+  if (obstacle === 'message' || obstacle === 'buffered message') f.store.message(row.id, 'must process', null, obstacle === 'buffered message' ? 'frozen' : null);
+  if (obstacle === 'decision') f.project.notice(row.id, 'need choice', 'unresolved');
+  if (obstacle.includes('reservation')) f.store.update(row.id, { reservation: JSON.stringify({ version: 2, kind: 'merge', status: obstacle.startsWith('pending') ? 'pending' : 'requested' }) });
+  if (obstacle === 'dirty' || obstacle === 'new commit') {
+    fs.writeFileSync(path.join(row.workspace, 'unreviewed.txt'), 'valuable');
+    if (obstacle === 'new commit') { await git(row.workspace, 'add', '.'); await git(row.workspace, 'commit', '-m', 'undelivered'); }
+  }
+  if (obstacle === 'locked') await git(f.root, 'worktree', 'lock', row.workspace);
+  if (obstacle === 'shared user') f.store.create({ role: 'verifier', goal: 'shared checkout', verifies_task_id: row.id });
+  if (obstacle === 'freeze') {
+    const assert = f.project.assertBranchWritable.bind(f.project);
+    f.project.assertBranchWritable = (branch, ...args) => { if (branch === row.branch) throw new Error('synthetic freeze'); return assert(branch, ...args); };
+  }
+  await expect(batch(f)).rejects.toThrow(); intact(f);
+  if (obstacle === 'locked') await git(f.root, 'worktree', 'unlock', row.workspace);
+}
+rejectionCases('batch preflight preserves every resource for descendant %s',
+  ['actual invocation', 'cleanup', 'sync', 'command', 'message', 'buffered message', 'decision', 'pending reservation', 'requested reservation', 'shared user', 'freeze'], rejectsPreflight);
+for (const obstacle of ['dirty', 'new commit', 'locked']) {
   test(`batch preflight preserves every resource for descendant ${obstacle}`, async () => {
-    const f = await setup(), row = f.grandchild;
-    try {
-      if (obstacle === 'actual invocation') f.project.running.set(row.id, { controller: new AbortController(), parked: true });
-      if (obstacle === 'cleanup') f.project.workspaces.busy.add(row.id);
-      if (obstacle === 'sync') f.project.taskSyncBusy = new Set([row.id]);
-      if (obstacle === 'command') f.project.commandHookRunning = new Set([row.id]);
-      if (obstacle === 'message' || obstacle === 'buffered message') f.store.message(row.id, 'must process', null, obstacle === 'buffered message' ? 'frozen' : null);
-      if (obstacle === 'decision') f.project.notice(row.id, 'need choice', 'unresolved');
-      if (obstacle.includes('reservation')) f.store.update(row.id, { reservation: JSON.stringify({ version: 2, kind: 'merge', status: obstacle.startsWith('pending') ? 'pending' : 'requested' }) });
-      if (obstacle === 'dirty' || obstacle === 'new commit') {
-        fs.writeFileSync(path.join(row.workspace, 'unreviewed.txt'), 'valuable');
-        if (obstacle === 'new commit') { await git(row.workspace, 'add', '.'); await git(row.workspace, 'commit', '-m', 'undelivered'); }
-      }
-      if (obstacle === 'locked') await git(f.root, 'worktree', 'lock', row.workspace);
-      if (obstacle === 'shared user') f.store.create({ role: 'verifier', goal: 'shared checkout', verifies_task_id: row.id });
-      if (obstacle === 'freeze') {
-        const assert = f.project.assertBranchWritable.bind(f.project);
-        f.project.assertBranchWritable = (branch, ...args) => { if (branch === row.branch) throw new Error('synthetic freeze'); return assert(branch, ...args); };
-      }
-      await expect(batch(f)).rejects.toThrow(); intact(f);
-      if (obstacle === 'locked') await git(f.root, 'worktree', 'unlock', row.workspace);
-    } finally { f.project.running.clear(); f.project.workspaces.busy.clear(); f.project.commandHookRunning?.clear(); await f.close(); }
+    const f = await setup();
+    try { await rejectsPreflight(f, obstacle); } finally { await f.close(); }
   });
 }
 
-for (const arrival of ['message', 'buffered message', 'decision', 'status', 'reparent', 'kind', 'invocation', 'sync', 'reservation', 'shared user']) {
-  test(`descendant ${arrival} arriving during asynchronous batch inspection blocks reclamation`, async () => {
-    const f = await setup(), row = f.grandchild;
-    try {
-      const original = f.project.workspaces.finish.bind(f.project.workspaces); let injected = false;
-      f.project.workspaces.finish = async task => {
-        await original(task);
-        if (injected) return; injected = true;
-        if (arrival === 'message' || arrival === 'buffered message') f.store.message(row.id, 'late input', null, arrival === 'buffered message' ? 'frozen' : null);
-        if (arrival === 'decision') f.project.notice(row.id, 'late decision', 'need answer');
-        if (arrival === 'status') f.store.update(row.id, { status: 'queued' });
-        if (arrival === 'reparent') f.store.update(row.id, { parent_id: f.parent.id });
-        if (arrival === 'kind') f.store.update(row.id, { task_kind: 'order' });
-        if (arrival === 'invocation') f.project.running.set(row.id, { controller: new AbortController() });
-        if (arrival === 'sync') f.project.taskSyncBusy = new Set([row.id]);
-        if (arrival === 'reservation') f.store.update(row.id, { reservation: JSON.stringify({ version: 2, kind: 'merge', status: 'requested' }) });
-        if (arrival === 'shared user') f.store.create({ role: 'verifier', goal: 'late user', verifies_task_id: row.id });
-      };
-      await expect(batch(f)).rejects.toThrow(); intact(f);
-    } finally { f.project.running.clear(); await f.close(); }
+rejectionCases('descendant %s arriving during asynchronous batch inspection blocks reclamation',
+  ['message', 'buffered message', 'decision', 'status', 'reparent', 'kind', 'invocation', 'sync', 'reservation', 'shared user'], async (f, arrival) => {
+    const row = f.grandchild;
+    const original = f.project.workspaces.finish.bind(f.project.workspaces); let injected = false;
+    f.project.workspaces.finish = async task => {
+      await original(task);
+      if (injected) return; injected = true;
+      if (arrival === 'message' || arrival === 'buffered message') f.store.message(row.id, 'late input', null, arrival === 'buffered message' ? 'frozen' : null);
+      if (arrival === 'decision') f.project.notice(row.id, 'late decision', 'need answer');
+      if (arrival === 'status') f.store.update(row.id, { status: 'queued' });
+      if (arrival === 'reparent') f.store.update(row.id, { parent_id: f.parent.id });
+      if (arrival === 'kind') f.store.update(row.id, { task_kind: 'order' });
+      if (arrival === 'invocation') f.project.running.set(row.id, { controller: new AbortController() });
+      if (arrival === 'sync') f.project.taskSyncBusy = new Set([row.id]);
+      if (arrival === 'reservation') f.store.update(row.id, { reservation: JSON.stringify({ version: 2, kind: 'merge', status: 'requested' }) });
+      if (arrival === 'shared user') f.store.create({ role: 'verifier', goal: 'late user', verifies_task_id: row.id });
+    };
+    await expect(batch(f)).rejects.toThrow(); intact(f);
   });
-}
 
 test('true reclaim boundary rejects messages to every batch participant, and guards against new decisions before deletion', async () => {
   const f = await setup(), entered = gate(), release = gate();
