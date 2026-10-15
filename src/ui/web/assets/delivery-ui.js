@@ -27,18 +27,23 @@ export function deliveryInput(queue) {
   return `当前暂存输入：${queue?.buffered == null ? '未知' : `${queue.buffered} 条`}（已保存不表示 Agent 已收到）${queue?.reason ? ` · ${queue.reason}` : ''}`;
 }
 /** Existing merge facts only; historical tracking is no longer a current navigation entry. */
-export function sourceDelivery(summary) {
+export function sourceDelivery(summary, { showMerged = true, showInputQueue = true } = {}) {
   if (!summary) return null;
   const row = el('div', undefined, 'source-delivery');
-  row.append(badge(deliveryStage(summary.stage, summary.version), summary.stage === 'integrated' ? 'b-completed' : 'b-awaiting'));
+  if (showMerged || summary.stage !== 'integrated')
+    row.append(badge(deliveryStage(summary.stage, summary.version), summary.stage === 'integrated' ? 'b-completed' : 'b-awaiting'));
   for (const worker of summary.integration_workers?.items || []) {
     const prefix = worker.current === false ? '旧代整合' : ['completed','awaiting_acceptance'].includes(worker.status) ? '整合工作完成' : worker.status === 'running' ? '整合中' : '等待整合';
     row.append(el('span', `${prefix} ${workerLabel({ ...worker, worker_number: worker.worker_number ?? null })} · ${worker.status ? statusOf(worker).label : '状态未知'}`), deliveryWarnings(worker));
   }
   if (summary.current === false) row.append(el('span', '非当前合并请求', 'warn'));
   if (['invalid','failed','blocked','awaiting','stale'].includes(summary.stage) && summary.waiting_reason) row.append(el('span', summary.waiting_reason, 'hint'));
-  const queue = el('span', `暂存输入：${summary.input_queue?.buffered == null ? '未知' : `${summary.input_queue.buffered} 条`}`);
-  queue.setAttribute('data-help', deliveryInput(summary.input_queue));
-  row.append(queue, deliveryWarnings(summary));
-  return row;
+  if (showInputQueue) {
+    const queue = el('span', `暂存输入：${summary.input_queue?.buffered == null ? '未知' : `${summary.input_queue.buffered} 条`}`);
+    queue.setAttribute('data-help', deliveryInput(summary.input_queue));
+    row.append(queue);
+  }
+  const warnings = deliveryWarnings(summary);
+  if (warnings.children.length) row.append(warnings);
+  return row.children.length ? row : null;
 }

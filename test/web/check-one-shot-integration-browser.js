@@ -64,12 +64,19 @@ try {
   await bidi('session.subscribe', { events: ['log.entryAdded', 'network.beforeRequestSent'] });
   await resize(1440); await navigate(`${origin}/login?next=${encodeURIComponent(project + '#worker-graph')}`);
   await execute(`document.querySelector('#username').value='fixture-user';document.querySelector('#password').value='synthetic-test-only-password';`); await click('form button');
-  const main = `[data-task-id="${f.parent.id}"]`, start = `${main} .integration-control button`;
-  await until(`document.querySelector('${start}')`);
-  assert(await execute(`return !document.querySelector('#deliveries-open') && !document.querySelector('.task-graph-merge-all') && document.querySelector('${start}').classList.contains('agent-call') && document.querySelector('${start}').dataset.help.includes('token')`), 'tree entry/retirement/Agent cost help incorrect');
+  const main = `[data-task-id="${f.parent.id}"]`, more = `${main} .task-graph-more-trigger`, panel = `${main} .task-graph-actions-popover`, start = `${panel} .integration-control button`;
+  await until(`document.querySelector('${more}')`);
+  assert(await execute(`return !document.querySelector('#deliveries-open') && !document.querySelector('.task-graph-merge-all') && !document.querySelector('${start}') && !document.querySelector('${main} > .integration-control')`), 'tree entry was not tucked into more actions');
   assert(!network.some(row => row.url.includes('/api/branch-integrate-plan')), 'tree eagerly fetched a plan');
-  for (const width of [1440, 390, 320]) { await resize(width); await layout(main, width, `tree-${width}`); }
-  await click(start); await until(`!document.querySelector('#modal').hidden && document.querySelector('.modal-confirm')`);
+  for (const width of [1440, 390, 320]) {
+    await resize(width); await layout(main, width, `tree-${width}`);
+    await click(more); await until(`document.querySelector('${panel}').matches(':popover-open')`);
+    await layout(panel, width, `menu-${width}`);
+    assert(await execute(`return document.querySelector('${start}').classList.contains('agent-call') && document.querySelector('${start}').dataset.help.includes('token')`), 'menu lost Agent cost help');
+    await execute(`document.querySelector('${panel}').hidePopover()`);
+  }
+  assert(!network.some(row => row.url.includes('/api/branch-integrate-plan')), 'opening menu eagerly fetched a plan');
+  await click(more); await click(start); await until(`!document.querySelector('#modal').hidden && document.querySelector('.modal-confirm')`);
   assert(await execute(`const m=document.querySelector('#modal');return m.textContent.includes('10 个来源') && m.textContent.includes('之后完成的来源不加入') && m.textContent.includes('父子关系保持不变') && document.querySelector('.modal-confirm').classList.contains('agent-call')`), 'preflight lost full scope/cost/stable identity');
   assert(f.store.all('SELECT id FROM delivery_runs').length === 0, 'read-only preflight created an operation');
   for (const width of [1440, 390, 320]) { await resize(width); await layout('#modal .modal-card', width, `confirmation-${width}`); }
@@ -80,7 +87,9 @@ try {
   // The heavy graph has its own slow sampling cadence; use its ordinary read-only refresh.
   await execute(`Array.from(document.querySelectorAll('.task-graph-hero button')).find(node=>node.textContent==='刷新').click()`);
   await until(`document.querySelector('${source} .integration-summary')`);
+  await click(more);
   assert(await execute(`return document.querySelector('${source} .integration-summary').textContent.includes('整合中') && document.querySelector('${start}')?.disabled===true`), 'active summary/start duplicate guard incorrect');
+  await execute(`document.querySelector('${panel}').hidePopover()`);
   assert(await git(f.root, 'rev-parse', 'main') === f.baseline, 'target changed before complete verification');
   await click(`${source} .integration-summary a`);
   await until(`location.hash==='#worker-${run.integration_worker_id}' && document.querySelector('.integration-details')`);

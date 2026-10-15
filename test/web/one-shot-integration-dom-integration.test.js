@@ -17,10 +17,17 @@ test('real tree confirmation -> authenticated HTTP/RPC -> autonomous Agent -> on
     const graph = await (await fetch(f.url + '/api/worker-graph?details=1&scope=tree')).json();
     renderTaskGraph(graph);
     const parent = dom.node('detail').querySelector(`[data-task-id="${f.parent.id}"]`);
-    const start = parent.querySelector('.integration-control').querySelector('button');
+    expect(parent.querySelector('.integration-control')).toBeNull();
+    const more = parent.querySelector('.task-graph-more-trigger');
+    more.onclick();
+    const panel = parent.querySelector('.task-graph-actions-popover');
+    const start = panel.querySelector('.integration-control').querySelector('button');
     expect(start.textContent).toBe('整合全部'); expect(start.classList.contains('agent-call')).toBe(true);
     expect(dom.requests.some(row => row.path.includes('branch-integrate-plan'))).toBe(false);
     const pending = start.onclick(); await until(() => dialogButton(dom, '开始整合'));
+    more.onclick();
+    expect(panel.querySelector('.integration-control').querySelector('button')).toBe(start);
+    expect(start.disabled).toBe(true);
     expect(deepText(dom.node('modal'))).toContain('2 个来源'); expect(f.store.all('SELECT id FROM delivery_runs')).toHaveLength(0);
     await answerDialog(dom, '开始整合'); await pending;
     const run = f.store.get('SELECT * FROM delivery_runs'); expect(run.state).toBe('resolving');

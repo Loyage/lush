@@ -60,7 +60,7 @@ try {
   await execute(`document.querySelector('#username').value='fixture-user'; document.querySelector('#password').value='synthetic-test-only-password';`);
   await click('form button');
   await until(`document.querySelector('[data-task-id="${f.sources[0].id}"] .source-delivery')`);
-  assert(await execute(`return !document.querySelector('[data-task-id="${f.helper.id}"]') && document.querySelector('[data-task-id="${f.sources[0].id}"] .source-delivery').textContent.includes('暂存输入：1 条')`), 'tree source summary/whitelist incorrect');
+  assert(await execute(`return !document.querySelector('[data-task-id="${f.helper.id}"]') && !document.querySelector('[data-task-id="${f.sources[0].id}"] .source-delivery').textContent.includes('暂存输入：')`), 'tree source summary/whitelist incorrect');
   assert(attention === 1, 'real backend must supply complete counts.attention=1');
   assert(await execute(`return !document.querySelector('#delivery-count') && !document.querySelector('#deliveries-open')`), 'retired delivery navigation/count remains');
   await screenshot('tree-desktop');

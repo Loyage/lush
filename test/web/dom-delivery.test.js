@@ -324,7 +324,8 @@ test('integrated delivery distinguishes waiting acceptance, historical incomplet
   const graph = graphFor(reservation, { done: true, status: 'completed' });
   graph.nodes.find(node => node.id === order.id).branch_info = { archived: true, archivable: false };
   ui.taskGraphShowArchived = true; renderGraph(graph);
-  expect(deepText(sourceRow())).toContain('已合并 · 资源已回收');
+  expect(deepText(sourceRow())).toContain('资源已回收');
+  expect(deepText(sourceRow())).not.toContain('已合并');
   expect(deepText(sourceRow())).not.toContain('待归档'); ui.taskGraphShowArchived = false;
 });
 

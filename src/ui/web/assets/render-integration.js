@@ -44,14 +44,15 @@ function notice(root, message, error = false) {
 }
 
 /** Same bounded operation facts on source cards and target cards; no delivery-page dependency. */
-export function integrationSummary(task) {
+export function integrationSummary(task, { showMerged = true } = {}) {
   const operation = task.merge_operation;
   if (!operation) return null;
   const root = el('section', undefined, 'integration-summary');
   if (!valid(operation)) { root.append(el('p', '整合状态不完整，请打开 Worker 详情核查。', 'warn')); return root; }
   root.dataset.integrationId = String(operation.id);
-  root.append(badge(`${ENDED.has(operation.state) ? '上次整合 · ' : ''}${stage(operation)}`, operation.state === 'integrated' ? 'b-completed' : 'b-awaiting'),
-    el('span', `${operation.member_count} 个来源 · ${operation.target_branch}`), linkWorker(operation.worker));
+  if (showMerged || operation.state !== 'integrated')
+    root.append(badge(`${ENDED.has(operation.state) ? '上次整合 · ' : ''}${stage(operation)}`, operation.state === 'integrated' ? 'b-completed' : 'b-awaiting'));
+  root.append(el('span', `${operation.member_count} 个来源 · ${operation.target_branch}`), linkWorker(operation.worker));
   if (operation.error) root.append(el('p', operation.error, 'error integration-error'));
   if (operation.state === 'blocked') root.append(el('p', '落地结果需核查，不得盲目重试或再次开始。', 'error'));
   return root;

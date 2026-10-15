@@ -22,7 +22,7 @@ function archiveBadge(task) {
 }
 
 /** Shared new-order delivery controls: the detail page and branch graph use exactly the same authorization path. */
-export function deliveryControls(task, { refresh = () => {}, showTracking = true } = {}) {
+export function deliveryControls(task, { refresh = () => {}, showTracking = true, showMerged = true } = {}) {
   if (!['order','child'].includes(workerKind(task)) || isHistoricalDelivery(task)) return null;
   const panel = el('div', undefined, 'delivery-controls');
   const reservation = task.reservation;
@@ -30,7 +30,8 @@ export function deliveryControls(task, { refresh = () => {}, showTracking = true
   if (tracking && showTracking) panel.append(tracking);
   // v3 fixed convergence is read-only here; never fall through to v1 approval or v2 retries.
   if (reservation && reservation.version !== 1 && reservation.version !== 2) {
-    if (!tracking && !task.merge_operation) panel.append(badge(reservation.version === 3 ? deliveryStage(reservation.status) : '预约版本未知 · 请核查', 'b-awaiting'));
+    if (!tracking && !task.merge_operation && (showMerged || reservation.status !== 'integrated' || reservation.version !== 3))
+      panel.append(badge(reservation.version === 3 ? deliveryStage(reservation.status) : '预约版本未知 · 请核查', 'b-awaiting'));
     return panel.children.length ? panel : null;
   }
   if (task.task_kind === 'child' || !reservation || reservation.version === 2) {
@@ -43,7 +44,8 @@ export function deliveryControls(task, { refresh = () => {}, showTracking = true
         executing: '自动合并中 · 占用父执行位', resolving: reservation.queue_protocol === 1
           ? '源侧修复中 · 保留父执行位' : '历史源侧解分歧 · 原 Worker 已恢复工作',
         suspended: '合并已挂起 · 父执行位已释放', blocked: '合并阻塞 · 保留父侧现场' }[state] || state;
-      panel.append(badge(label, merged ? merged.className : 'b-awaiting'));
+      // Tree cards omit the redundant merge fact but retain acceptance/recovery diagnostics.
+      panel.append(badge(showMerged ? label : label.replace(/^已合并(?: · )?/, ''), merged ? merged.className : 'b-awaiting'));
     }
     if (state === 'pending' && reservation.auto_merge !== true)
       panel.append(el('p', '本轮单次合并意图仍有效；关闭自动合并不会撤销，条件满足后仍会合并。', 'hint single-merge-intent'));

@@ -119,21 +119,17 @@ function taskCard(node, folded, refresh, queueNote = null, minimal = false, inpu
     `b-${node.status}`));
   // 资源消耗紧跟任务状态，排在合并状态标签前面；极简模式的合并标签在第二行，由 minimalSummary 渲染。
   if (!minimal) head.append(resourceSummary(node, folded.has(node.id)));
-  // 分支合并状态标签：一眼看清这条 Task 的改动合进父分支没有。
-  // 用与任务详情同一份 INTEGRATION 文案与配色；none（没有独有提交）/ 未知值不占位。
-  const merge = INTEGRATION[node.integration];
-  if (!minimal && merge) head.append(badge(merge, node.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
+  // 只突出仍需处理的合并状态；已合并不再占卡片标签。
+  const merge = node.integration === 'merged' ? null : INTEGRATION[node.integration];
+  if (!minimal && merge) head.append(badge(merge, 'b-awaiting'));
   if (!minimal && node.task_kind) head.append(badge(node.task_kind === 'merge' ? 'merge（历史）' : workerKindLabel(node)));
   if (!minimal && node.freeze && node.freeze.task_id !== node.id) head.append(badge(node.status === 'running' ? '安全点后冻结' : '冻结', 'warn'));
   if (node.notice_count) head.append(badge(`${node.notice_count} 条待决`, 'b-awaiting'));
   if (!minimal) head.append(taskActionsMenu(node, inputWorkers));
   row.append(head);
-  const tracking = node.merge_operation ? integrationSummary(node) : sourceDelivery(node.delivery_summary);
+  const tracking = node.merge_operation ? integrationSummary(node, { showMerged: false })
+    : sourceDelivery(node.delivery_summary, { showMerged: false, showInputQueue: false });
   if (tracking) row.append(tracking);
-  if (['main', 'owner'].includes(workerKind(node)) || node.children.length || node.children_total) {
-    const integrate = integrationControl(node, { refresh: loadTaskGraph });
-    if (integrate) row.append(integrate);
-  }
   if (minimal) {
     row.append(minimalSummary(node, queueNote, folded), taskActionsMenu(node, inputWorkers));
     return row;
@@ -240,7 +236,7 @@ function archiveControl(node) {
 function appendTaskActions(row, node, inputWorkers) {
   const iteration = iterationControls(node, { refresh: loadTaskGraph });
   if (iteration) row.append(iteration);
-  const controls = deliveryControls(node, { refresh: loadTaskGraph, showTracking: false });
+  const controls = deliveryControls(node, { refresh: loadTaskGraph, showTracking: false, showMerged: false });
   if (controls) row.append(controls);
   const hooks = workerHooks(node, { compact: true, refresh: loadTaskGraph });
   if (hooks) row.append(hooks);
@@ -287,8 +283,8 @@ function minimalSummary(node, queueNote, folded = new Set()) {
   }
   // 资源消耗排在合并状态标签前面；收拢时这里显示的是整棵子树的合计。
   meta.append(resourceSummary(node, folded.has(node.id)));
-  const merge = INTEGRATION[node.integration];
-  if (merge) meta.append(badge(merge, node.integration === 'merged' ? 'b-completed' : 'b-awaiting'));
+  const merge = node.integration === 'merged' ? null : INTEGRATION[node.integration];
+  if (merge) meta.append(badge(merge, 'b-awaiting'));
   line.append(meta);
   return line;
 }
@@ -306,6 +302,8 @@ function taskActionsMenu(node, inputWorkers) {
   trigger.type = 'button';
   trigger.setAttribute('popovertarget', panel.id);
   bindWorkerPreview(trigger, node);
+  // Reopening the menu must retain an in-flight confirmation or accepted request.
+  let integrate;
   trigger.onclick = () => {
     if (panel.dataset.open === 'true') return;
     const heading = el('strong', `${workerLabel(node)} ${node.title}`, 'task-graph-actions-title');
@@ -317,6 +315,10 @@ function taskActionsMenu(node, inputWorkers) {
       { worker: node }));
     const queueText = inputQueueText(node);
     if (queueText) panel.append(el('p', queueText, 'hint worker-input-queue'));
+    if (['main', 'owner'].includes(workerKind(node)) || node.children.length || node.children_total) {
+      integrate ??= integrationControl(node, { refresh: loadTaskGraph });
+      if (integrate) panel.append(integrate);
+    }
     appendTaskActions(panel, node, inputWorkers);
     const archive = archiveControl(node);
     if (archive) panel.append(archive);

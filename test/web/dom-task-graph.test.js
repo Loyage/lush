@@ -285,14 +285,11 @@ test('Task 图：分支合并状态进卡片首行标签，facts 行不再重复
     expect(deepText(card.querySelector('.task-graph-facts'))).not.toContain('集成：');
     expect(deepText(card.querySelector('.task-graph-facts'))).not.toContain('待合并');
 
-    // 配色与任务详情同源：已合并用完成色，其余用待处理色。
+    // 已合并不再占用工作树卡片的状态标签。
     graph.nodes[1].integration = 'merged';
     await dom.node('task-graph-open').onclick();
     card = dom.node('detail').querySelector('[data-task-id="2"]');
-    expect(headBadges(card)).toContain('已合并');
-    const mergedBadge = [...card.querySelector('.task-graph-head').querySelectorAll('.badge')]
-      .find(node => node.textContent === '已合并');
-    expect(mergedBadge.classList.contains('b-completed')).toBe(true);
+    expect(headBadges(card)).not.toContain('已合并');
 
     // none（没有独有提交）不占位，也不再以「集成：none」的形式出现在 facts 行。
     graph.nodes[1].integration = 'none';
