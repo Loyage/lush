@@ -81,12 +81,7 @@ export default {
   },
 
   kick() {
-    if (this.stopping || this.scheduled) return;
-    this.scheduled = true;
-    queueMicrotask(() => {
-      this.scheduled = false;
-      if (!this.stopping) this.pump();
-    });
+    this.runtimeCoordinator.request('agents');
   },
 
   pump() {

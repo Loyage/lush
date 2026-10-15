@@ -8,8 +8,9 @@ import { AgentSelectionService } from '../agent-selection.js';
 import { AgentPackages } from '../../agent/packages.js';
 import { check } from '../types.js';
 import { DeviceAutomationSettings } from '../device-automation.js';
+import { RuntimeCoordinator } from '../runtime-coordinator.js';
 
-// 构造与实例状态（config / store / provider / workspaces / running / stopping / scheduled / ancestry）。
+// 构造与实例状态（config / store / provider / workspaces / running / stopping / ancestry）。
 /** One project, a persistent Worker tree, and disposable invocations behind safety gates. */
 export class ProjectBase {
   constructor(config, store, provider = null, options = {}) {
@@ -21,7 +22,17 @@ export class ProjectBase {
     this.workspaces.commandBusy = taskId => this.commandHookRunning?.has(taskId) === true;
     // 运行设置写盘后由 Config 回调这里重新检查后续调用准入。
     this.config.onKick = () => this.kick();
-    this.running = new Map(); this.stopping = false; this.scheduled = false; this.ancestry = new Map();
+    this.running = new Map(); this.stopping = false; this.ancestry = new Map();
+    // Fixed internal check registry. Business gates, execution queues and durable receipts
+    // stay with their owners; this coordinator never grants authority or retries effects.
+    this.runtimeCoordinator = new RuntimeCoordinator({
+      agents: () => this.pump(),
+      hooks: () => this.observeTaskHooks(),
+      inputs: () => this.drainInputEmissions(),
+    }, {
+      canRun: () => !this.stopping,
+      onError: (name, error) => console.error(`runtime check ${name}:`, error.message),
+    });
     // Integration acceptance/branch proofs must distinguish a stored return from actual invocation exit.
     this.workspaces.convergenceHelperBusy = taskId => this.running.has(taskId)
       || this.commandHookRunning?.has(taskId) === true;

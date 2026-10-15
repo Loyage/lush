@@ -2,6 +2,7 @@ import { test, expect } from 'bun:test';
 import { fixture, repo, until, gate } from '../helpers.js';
 import { Dispatcher } from '../../src/rpc/protocol.js';
 import { createSignal } from '../../src/signal.js';
+import { Project } from '../../src/core/project.js';
 import { questionnaire, questionnaireAnswer } from '../../src/core/questionnaire.js';
 
 const questions = () => [
@@ -113,7 +114,7 @@ test('answer during abort unwinding is not lost; cancellation still wins', async
 });
 
 test('awaiting questionnaires survive shutdown/recovery, unrelated inbox does not unblock; dismissal is explicit', async () => {
-  const provider = controlled(), f = fixture(provider);
+  const provider = controlled(), f = fixture(provider); let restored;
   try {
     await repo(f.root);
     const task = (await f.project.order('recover')).task;
@@ -122,15 +123,16 @@ test('awaiting questionnaires survive shutdown/recovery, unrelated inbox does no
     f.project.message(task.id, 'extra');
     await f.project.shutdown();
     expect(f.store.task(task.id).status).toBe('awaiting');
-    f.project.recover(); // also exercises the durable gate when no invocation exists
+    // A stopped coordinator is never reopened. Model an actual daemon restart with
+    // a fresh Project over the persisted state, as the daemon bootstrap does.
+    restored = new Project(f.config, f.store, provider); restored.recover();
     expect(f.store.task(task.id).status).toBe('awaiting');
     expect(f.store.get('SELECT status FROM notices WHERE id=?', notice.id).status).toBe('open');
-    f.project.stopping = false;
-    f.project.answer(notice.id, '', true);
+    restored.answer(notice.id, '', true);
     await until(() => provider.calls.length === 2);
     expect(JSON.parse(provider.calls[1].messages.at(-1).body)).toMatchObject({ dismissed: true, answer: '' });
     provider.calls[1].done.resolve('did not implement an unapproved choice');
-  } finally { await f.close(); }
+  } finally { if (restored) await restored.shutdown(); await f.close(); }
 });
 
 test('a child completing cannot wake a parent gated on a questionnaire', async () => {

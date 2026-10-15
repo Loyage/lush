@@ -23,6 +23,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/rpc-public-result.test.js', // HTTP result envelopes and authorized config
     'test/project/management-tool-chain.test.js', // controlled Provider/real tools/bridge/live RPC authorization
     'test/web/management-permissions-api.test.js', // actual permission defaults, frozen snapshots and confirmation
+    'test/web/runtime-coordinator-integration.test.js', // HTTP/RPC -> durable intent -> coordinated checks -> Provider/bound RPC; freeze/cancel/edge preservation
   ]),
   component: Object.freeze([
     'test/web/settings-module-boundaries.test.js', // entry exports, acyclic imports and built graph

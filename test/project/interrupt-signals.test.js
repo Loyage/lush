@@ -395,7 +395,12 @@ test('restart with pending batch marks unknown without success or replay; comple
     restored.resumeAll();
     // Keep the now-queued Worker staged for a no-call completed batch.
     f.store.update(task.id, { status: 'paused' });
-    const completed = restored.interruptAll(); expect(completed.completion_state).toBe('completed');
+    restored.interruptAll();
+    // No Agent is running, but admitted recovery checks must also leave the restart
+    // barrier before this batch can claim completion.
+    await until(() => restored.maintenanceView().completion_state === 'completed');
+    const completed = restored.maintenanceView();
+    expect(f.provider.calls).toHaveLength(1);
     await restored.shutdown(); restored = new Project(f.config, f.store, f.provider); restored.recover();
     expect(restored.maintenanceView()).toMatchObject({ batch_id: completed.batch_id, completion_state: 'completed', completion_notice_id: completed.completion_notice_id });
     restored.observeMaintenanceCompletion(); expect(events(f, 'project.interrupted')).toHaveLength(1);

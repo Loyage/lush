@@ -484,9 +484,7 @@ export default {
   },
 
   scheduleTaskHooks() {
-    if (this.stopping || this.hookScheduled) return;
-    this.hookScheduled = true;
-    queueMicrotask(() => { this.hookScheduled = false; if (!this.stopping) this.observeTaskHooks(); });
+    this.runtimeCoordinator.request('hooks');
   },
 
   /** Runtime state edges, bounded by the number of mounted Workers, not UI polling. */

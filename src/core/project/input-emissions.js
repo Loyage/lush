@@ -125,20 +125,8 @@ export default {
   },
 
   scheduleInputEmissions() {
-    if (this.stopping || this.recoveringHooks) return;
-    if (this.inputEmissionDraining) { this.inputEmissionWakePending = true; return; }
-    if (this.inputEmissionScheduled) return;
-    this.inputEmissionScheduled = true;
-    queueMicrotask(() => {
-      this.inputEmissionScheduled = false;
-      if (this.stopping) return;
-      this.inputEmissionDraining = true;
-      this.inputEmissionQueue = this.drainInputEmissions().catch(error => console.error('input emission drain:', error.message))
-        .finally(() => {
-          this.inputEmissionDraining = false;
-          if (this.inputEmissionWakePending) { this.inputEmissionWakePending = false; this.scheduleInputEmissions(); }
-        });
-    });
+    if (this.recoveringHooks) return;
+    this.runtimeCoordinator.request('inputs');
   },
 
   recordInputDispatch(draftId, dispatchId, outcome) {

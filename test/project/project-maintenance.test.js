@@ -275,6 +275,9 @@ test('safe paused restart retains the durable gate, profiles, staged work and af
     await f.project.shutdown();
     reopened = new Project(f.config, f.store, f.provider); reopened.recover();
     await Promise.resolve(); reopened.pump();
+    // Recovery checks now share a coordinator and count toward the restart barrier;
+    // one microtask is not proof that every admitted check has settled.
+    await until(() => reopened.runtimeCoordinator.pendingCount === 0 && reopened.runtimeCoordinator.runningCount === 0);
     expect(reopened.maintenanceView()).toMatchObject({ paused: true, ready_to_restart: true, affected_count: 1 });
     expect(f.provider.calls).toHaveLength(1);
     reopened.resumeAll(); await until(() => f.provider.calls.length === 2);

@@ -492,6 +492,9 @@ export default {
 
   async shutdown() {
     this.stopping = true;
+    // Close check admission immediately, but let admitted checks settle after invocation
+    // cancellation below. They may still own Git/read work and must not outlive Store.
+    const runtimeStopped = this.runtimeCoordinator.stop();
     for (const job of this.convergenceJobs?.values() ?? []) job.controller.abort(new Error('daemon stopped'));
     this.stopScheduledHookTimer();
     this.stopMaintenanceMonitor();
@@ -510,7 +513,7 @@ export default {
     }
     await Promise.allSettled([...this.running.values()].map(run => run.promise));
     await this.hookQueue;
-    await this.inputEmissionQueue;
+    await runtimeStopped;
     // A confirmed management operation may outlive its model invocation.
     // Keep its Store and private workspace alive until the real effect settles.
     await Promise.allSettled([...(this.managementControlJobs ?? [])]);
