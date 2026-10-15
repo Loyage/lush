@@ -25,6 +25,8 @@ CLI 说明和审核上限随 Host 发布为内容版本固定的静态资源，�
 
 ## 快捷指令：注册后由 Hook 引用
 
+“每次 main 合入新成果后运行 `bun run restart`”可使用 [`hooks install` 原子安装](reference/rpc/hooks.md#原子安装合并后命令)，一次保存命令与挂载；管家走同一接口的精确确认，不需要 Shell 权限。安装不立即执行，也不监听外部 Git 操作。
+
 1. Web 指令定义管理入口已退休。通过既有 CLI／API 注册或编辑名称、正文、作用说明、适用场景及可选标签、示例、风险提示；具体参数见[Hooks 接口](reference/rpc/hooks.md)。保存不执行、不调用 Agent，不恢复授权／撤权或手动运行入口。
 2. 核对正文与风险，再由 Hook 选择指令并启用挂载，无需额外授权指令。Shell 使用挂载 Worker 目录；提示词仅在父可创建节点使用一次性规则，以挂载 Worker 为父创建并启动独立 Worker，消耗 token，不能与 Shell 动作混合。“创建并提交成功”不等于 Agent 已完成，结果从关联 Worker 查看。
 3. 既有 CLI／API 可导出 Skill 风格 Markdown；导出不安装、不注入，也不让开发 Agent 直接调用。

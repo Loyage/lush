@@ -25,6 +25,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/rpc-public-result.test.js', // Dispatcher public result projection
     'test/web/rpc-public-result.test.js', // HTTP result envelopes and authorized config
     'test/project/management-tool-chain.test.js', // controlled Provider/real tools/bridge/live RPC authorization
+    'test/project/hook-install-chain.test.js', // install CLI/HTTP and real management bridge -> exact confirmation -> atomic config -> real merges
     'test/project/management-live-permissions.test.js', // existing Valet, queued/confirmed requests, write-admission races and persisted policy
     'test/project/management-code-provider-chain.test.js', // registered tools -> real Bun bridge -> current project policy and exact confirmation
     'test/web/management-permissions-api.test.js', // project policy persistence, historical receipts and confirmation
@@ -41,6 +42,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
   cli: Object.freeze([
     'test/cli-surfaces.test.js', // CLI capability set derives from the registered catalogue
     'test/cli-catalog.test.js', // public catalogue and actual parser/RPC dispatch agree
+    'test/hook-install-api.test.js', // install parser/registry/schema/user-only gates and safe receipt
     'test/cli-entrypoints.test.js', // fixed binaries, migration refusals and source shortcuts -> live RPC
     'test/cli-prompt-boundaries.test.js', // active prompts/guides do not teach retired CLI aliases
     'test/integration/pi.test.js', // real daemon -> Provider -> pinned CLI -> delegation and prompt injection

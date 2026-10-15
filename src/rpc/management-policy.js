@@ -1,5 +1,6 @@
 import { PARAMS, USER_ONLY, AGENT_ONLY } from './registry.js';
 import { check, isPlainObject } from '../core/types.js';
+import { HOOK_INSTALL_CAPABILITY, validateHookInstallation } from '../core/hook-install.js';
 import { CLI_COMMANDS, LUSHC_PATHS, LUSHC_METHODS } from '../cli/catalog.js';
 
 export { LUSHC_METHODS };
@@ -56,6 +57,7 @@ function legacyManagementPolicy(method) {
 }
 
 export function managementPolicy(method) {
+  if (method === 'hooks.install') return { access: 'confirmation', reason: '安装持续 Shell 自动化必须由用户确认精确命令、目标及触发条件；不立即执行。' };
   if (LUSHC_METHODS.has(method)) {
     if (codeReads.has(method)) return { access: 'read', reason: ['worker.transcript', 'worker.history'].includes(method)
       ? '管家只读安全元数据与续读游标，不返回原始提示词、工具参数、输出或事件正文。' : null };
@@ -78,7 +80,7 @@ const groupFor = method => method.startsWith('hooks.') ? 'automation'
   : /^(input|draft)\./.test(method) ? 'inputs' : /^(branch|graph)\./.test(method) ? 'branches'
   : method.startsWith('notice.') ? 'notices' : method.startsWith('agent.') ? 'agents'
   : /^(worker|order|manager|management|progress)\./.test(method) ? 'workers' : 'system';
-const names = { 'manager.query': '安全工作查询', 'manager.history': '安全调用历史', 'worker.lookup': '解析工作编号',
+const names = { 'hooks.install': '安装合并后命令自动化', 'manager.query': '安全工作查询', 'manager.history': '安全调用历史', 'worker.lookup': '解析工作编号',
   'worker.resume': '开始／继续工作', 'worker.retry': '重试失败工作', 'draft.add': '新增草稿',
   'draft.update': '修改草稿', 'draft.remove': '移除草稿', 'order.submit': '提交开发指令',
   'worker.inspect': '查看工作详情', 'system.diagnostics': '项目运行诊断', 'worker.message': '追加工作消息' };
@@ -144,7 +146,8 @@ export function managementCatalog(snapshot = null, legacy = false) {
     .map(method => [method, legacyManagementPolicy(method).access])) } : snapshot;
   return { scope: 'current_project', groups: MANAGEMENT_GROUPS.map(group => ({ ...group })),
     methods: managementPermissionMethods(effectiveSnapshot).map(item => ({ ...item,
-      parameters: [...PARAMS[item.method], ...(MANAGEMENT_DEVICE_ALIASES.has(item.method) ? ['scope'] : [])] })),
+      parameters: [...PARAMS[item.method], ...(MANAGEMENT_DEVICE_ALIASES.has(item.method) ? ['scope'] : [])],
+      ...(item.method === 'hooks.install' ? HOOK_INSTALL_CAPABILITY : {}) })),
     limitations: ['无任意 Shell 或文件工具', '不读取凭证、原始会话或私有配置', '不跨项目',
       '设备操作须指令及 scope 参数显式指定', '未知副作用不自动重放'] };
 }
@@ -174,6 +177,8 @@ export function validateManagementCall(method, params, instruction = '', snapsho
   } else if (!projectMountScope && (PARAMS[method].includes('scope') || MANAGEMENT_DEVICE_ALIASES.has(method)) && method !== 'agent.status') {
     check(false, 'device settings require explicit scope in both user instruction and parameters');
   }
+  // Validate the complete install before asking for authorization, not after confirmation.
+  if (method === 'hooks.install') validateHookInstallation(params);
   // Strict registry validation still runs at the trusted dispatch boundary; never accept a replacement actor.
   return policy;
 }

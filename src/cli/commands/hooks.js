@@ -2,6 +2,7 @@ import { check } from '../../core/types.js';
 import { resolveWorkerId } from '../worker-number.js';
 import { exact, option } from '../args.js';
 import { readPrivateJson } from '../private-json.js';
+import { validateHookInstallation } from '../../core/hook-install.js';
 
 function readRevision(args) {
   const revision = option(args, '--revision');
@@ -15,10 +16,18 @@ export async function run(command, args, { client }) {
   check(!client.token, 'Hooks configuration is user only, not an agent operation');
   const verb = args.shift();
   if (verb === 'list') { exact(args, 0); return client.request('hooks.list'); }
+  if (verb === 'install') {
+    const file = option(args, '--file'); exact(args, 1);
+    check(file, 'hooks install requires ID --file PATH');
+    const definition = readPrivateJson(file, 'Hook installation');
+    check(!Object.hasOwn(definition, 'id'), 'installation target must be the CLI Worker argument');
+    const params = { ...definition, id: await resolveWorkerId(client, args[0]) };
+    return client.request('hooks.install', validateHookInstallation(params));
+  }
   if (verb === 'command') return runCommand(args, client);
   if (verb === 'signal') return runSignal(args, client);
   if (verb === 'management') return runManagement(args, client);
-  check(['save','remove','auto-select'].includes(verb), 'hooks requires list|save|remove|auto-select|command|signal|management; run lush help');
+  check(['save','remove','auto-select'].includes(verb), 'hooks requires list|install|save|remove|auto-select|command|signal|management; run lush help');
   const expected_revision = readRevision(args);
   if (verb === 'auto-select') {
     exact(args, 1);

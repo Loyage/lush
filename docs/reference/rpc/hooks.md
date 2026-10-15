@@ -7,6 +7,7 @@
 | RPC | 参数 | CLI（加 `bun run lush` 前缀） |
 |---|---|---|
 | `hooks.list` | `{}` | `hooks list` / `hooks command list` |
+| `hooks.install` | `{id,command,hook,expected_revisions,client_request_id}` | `hooks install ID --file PATH` |
 | `hooks.command_save` | `{command,expected_revision}` | `hooks command save --file PATH --revision REV` |
 | `hooks.command_export` | `{id,version}` | `hooks command export ID --version N` |
 | `hooks.command_remove` | `{id,expected_revision}` | `hooks command remove ID --revision REV` |
@@ -71,6 +72,29 @@ W241／D566 删除 `hooks.command_run`、`hooks.command_start` 与 CLI `hooks co
 Shell Hook 引用 `{type:'command',command_id:'UUID'}`；提示词用同形 `type:'prompt_command'`，仅 `worker.parent_ready`＋once，以挂载 Worker 为父，标明 Agent 代价；同 Hook 不混合两类指令，最多一个 create_worker／prompt_command。旧可选 command_version 为正安全整数，仅兼容，不固定未来版本；执行前核验指令存在与类型匹配，执行开始固定实际定义，编辑竞态不得混用正文与收据。旧内联 Shell 不再执行；显式 `hooks.command_import` 的 source 只能是 `{worker_id,hook_id}` 或 `{template_id}`，使用源 Worker Hooks / 模板目录 revision。导入新建指令、替换源引用并停用规则，保留历史、不重放旧触发；返回完整目录及 imported_command_ids、可选 worker_hooks。CLI import 文件的 worker_id 可用 W 编号，其余 Hook/模板身份不改写。
 
 旧已停用规则不自动启用，不改写历史或重放；删除／类型不匹配仍阻止执行，不承诺撤回已经开始的副作用。完整安全契约见[快捷指令与 Hook](../../engineering/shortcut-commands.md)。
+
+## 原子安装合并后命令
+
+`hooks.install` 将**一条新 Shell 快捷指令与一个引用挂载**在同一 SQLite 事务内保存，返回 `{installed:true,worker_id,worker_number,command_id,hook_id}`。不创建模板，不改写已有命令，不执行命令，也不调用 Agent。首版仅支持 `worker.merge_received`，模式可为 once／persistent；目标仍须通过原 Worker 生命周期和容量门禁。
+
+用户 CLI 先读 `hooks list` 和 `worker hooks ID`，再运行 `bun run lush hooks install ID --file automation.json`。ID 使用查询到的 main／目标 Worker 身份，可为内部整数或 W 编号，不能假定 main 的 ID。文件须是 owner-only、非链接、有界 JSON，**不含 id**，例如：
+
+```json
+{
+  "command": { "name": "重启应用", "kind": "shell", "command": "bun run restart" },
+  "hook": { "name": "main 合并后重启", "trigger": "worker.merge_received", "mode": "persistent", "enabled": true },
+  "expected_revisions": { "commands": "填入 hooks.list.commands.revision", "worker_hooks": "填入 worker.hooks.revision" },
+  "client_request_id": "本次安装固定的唯一标识"
+}
+```
+
+RPC／HTTP 另传正整数 `id`。command 仅接受 name、kind（省略为 shell）、command、可选 description／warnings，不接受现有命令 id、提示词、默认目标、目录或凭证；hook 必填 name／trigger／mode／enabled，可带既有 statuses／integrations 条件，不接受 actions。后台生成 `{type:'command',command_id}` 引用，执行仍在挂载 Worker 的真实目录，并跟随该指令最新定义。
+
+两个 revision 必须来自各自读面。任一过期、目标不适用、容量不足或写入失败，命令、挂载和安装收据一起回滚。client_request_id 必填，最多 128 字符，无首尾空白／控制字符；同 key **同完整参数（含 revision）**返回原安装收据，不新建、不重新启用已删除／停用配置，不证明配置目前仍存在；不同参数拒绝。响应丢失可按原参数查询式重试；新安装须新 key 和最新 revision。去重和精确收据持久保留，重启不重放副作用。
+
+Valet 通过 `manager.catalog` 取得同源 schema／示例，使用 `manager.call {method:'hooks.install',params:完整请求}`，不能直接运行用户 CLI。审核上限固定 confirmation，仅可收紧为 unavailable；用户一次确认完整命令、目标、触发条件和版本后，由 runtime 完成两个写入，不恢复模型继续下一步。结果的 command_id／hook_id／worker_id 为安全安装收据，不返回 Shell 正文。纯事务配置中断后由同事务的安装收据证明成功；没有收据且事务已回滚则明确失败，不借重启自动补装。
+
+只订阅安装之后的新合并事件，旧事件不补跑。此节点只覆盖 Lush 落地的合并，不监控外部 Git 操作。实际执行仍须等待冻结／同步等安全门，Shell 的 60 秒／64 KiB、非交互和非沙箱限制不变；失败／unknown 停止未来执行，不撤销已成功合并。
 
 ## 通用命令与 main 示例
 

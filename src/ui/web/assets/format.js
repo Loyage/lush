@@ -59,6 +59,7 @@ export const EVENTS = {
   'hook.execution_succeeded': 'Hook 执行成功', 'hook.execution_failed': 'Hook 执行失败',
   'hook.execution_unknown': 'Hook 结果待核验', 'hook.execution_skipped': 'Hook 动作已跳过',
   'hook.scheduled_submitted': '定时 Hook 已提交待执行动作', 'hook.schedule_missed': '定时 Hook 已错过提交时间',
+  'hook.installed': '命令自动化已安装',
   'worker.merge_received': '此 Worker 已收到合并', 'hook.command_example_installed': '初始化停用的命令 Hook 示例',
   'hook.command_submitted': '命令 Hook 已提交待安全执行',
   'shortcut.command_saved': '保存快捷指令定义', 'shortcut.command_authorized': '历史：调整快捷指令版本授权',

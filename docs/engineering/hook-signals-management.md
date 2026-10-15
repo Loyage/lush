@@ -10,7 +10,7 @@ W263／D611 删除独立「Valet 设置」及全部 Web 信号／绑定编辑入
 
 信号只说明时间已到，不是实际额度恢复的观测，不自动查询／切换账号，不跨项目、不启动停止的 daemon。管理 Worker 的模型／来源由用户明确选择或创建时冻结项目管理角色有效默认；不把目标 Worker 的 Codex 账号自动当作管理 Agent 的来源。
 
-管理 Agent 可发现全部当前 RPC 能力。开发阶段的新默认开放全部 `lushc` RPC 能力，集合从 `src/cli/catalog.js` 的 `LUSHC_METHODS` 派生；执行权限仍由 `src/rpc/management-policy.js` 明确分为安全读取、低风险自动执行、用户确认和不可用。查询诊断、有界调用历史、草稿编辑、条件发射、合法追加、开始／继续和重试可自动执行；取消、中断、合并、验收回收、删除、敏感配置及服务操作须持久预检，由用户确认精确请求后经原引擎执行。快捷指令没有预授权，但管理 Agent 调用其保存、删除、导出、旧配置导入或运行历史移除（`hooks.command_save/remove/export/import/history_remove`）仍须用户确认；读取目录和运行历史可安全查询，已删除的 command_authorize 不可调用。普通开发 Agent 不因此扩权，不可复活终态、已归档或祖先关闭的工作。
+管理 Agent 可发现全部当前 RPC 能力。开发阶段的新默认开放全部 `lushc` RPC 能力，集合从 `src/cli/catalog.js` 的 `LUSHC_METHODS` 派生；执行权限仍由 `src/rpc/management-policy.js` 明确分为安全读取、低风险自动执行、用户确认和不可用。查询诊断、有界调用历史、草稿编辑、条件发射、合法追加、开始／继续和重试可自动执行；取消、中断、合并、验收回收、删除、敏感配置及服务操作须持久预检，由用户确认精确请求后经原引擎执行。合并后 Shell 自动化可用 [`hooks.install`](../reference/rpc/hooks.md#原子安装合并后命令) 一次精确确认并原子安装，目录提供同源嵌套 schema／示例；配置事务的安装收据可证明中断后的完成状态，不依赖模型确认后续跑。快捷指令没有预授权，但管理 Agent 调用其保存、删除、导出、旧配置导入或运行历史移除（`hooks.command_save/remove/export/import/history_remove`）仍须用户确认；读取目录和运行历史可安全查询，已删除的 command_authorize 不可调用。普通开发 Agent 不因此扩权，不可复活终态、已归档或祖先关闭的工作。
 
 ### 当前项目管家权限
 

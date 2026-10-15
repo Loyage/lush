@@ -45,6 +45,7 @@ import inputEmissionSafetyMethods from './project/input-emission-safety.js';
 import agentPackagesMethods from './project/agent-packages.js';
 import deletionMethods from './project/deletion.js';
 import hookMethods from './project/hooks.js';
+import hookInstallMethods from './project/hook-install.js';
 import commandHookMethods from './project/command-hooks.js';
 import shortcutCommandMethods from './project/shortcut-commands.js';
 import scheduledHookMethods from './project/scheduled-hooks.js';
@@ -79,7 +80,7 @@ const MIXINS = [
   ['specs', specsMethods], ['plans', plansMethods], ['tasks', tasksMethods], ['progress', progressMethods], ['tree', treeMethods],
   ['timeline', timelineMethods], ['messages', messagesMethods], ['inputQueue', inputQueueMethods], ['choiceSnapshots', choiceSnapshotMethods], ['merge', mergeMethods], ['mergeQueue', mergeQueueMethods], ['mergeAll', mergeAllMethods], ['orchestrate', orchestrateMethods], ['verify', verifyMethods],
   ['candidates', candidateMethods], ['integration', integrationMethods], ['graph', graphMethods], ['branches', branchesMethods],
-  ['automationSettings', automationSettingsMethods], ['automationOperations', automationOperationMethods], ['autoSelect', autoSelectMethods], ['completion', completionMethods], ['hooks', hookMethods], ['commandHooks', commandHookMethods], ['shortcutCommands', shortcutCommandMethods], ['scheduledHooks', scheduledHookMethods], ['hookSignals', hookSignalMethods], ['management', managementMethods], ['deletion', deletionMethods], ['inputHistory', inputHistoryMethods], ['agentPackages', agentPackagesMethods], ['versionHistory', historyMethods], ['versionGraph', versionGraphMethods], ['versionLineage', versionLineageMethods], ['code', codeMethods], ['transcript', transcriptMethods], ['settings', settingMethods], ['context', contextMethods], ['scheduling', schedulingMethods], ['lifecycle', lifecycleMethods], ['taskSync', taskSyncMethods], ['iteration', iterationMethods],
+  ['automationSettings', automationSettingsMethods], ['automationOperations', automationOperationMethods], ['autoSelect', autoSelectMethods], ['completion', completionMethods], ['hooks', hookMethods], ['hookInstall', hookInstallMethods], ['commandHooks', commandHookMethods], ['shortcutCommands', shortcutCommandMethods], ['scheduledHooks', scheduledHookMethods], ['hookSignals', hookSignalMethods], ['management', managementMethods], ['deletion', deletionMethods], ['inputHistory', inputHistoryMethods], ['agentPackages', agentPackagesMethods], ['versionHistory', historyMethods], ['versionGraph', versionGraphMethods], ['versionLineage', versionLineageMethods], ['code', codeMethods], ['transcript', transcriptMethods], ['settings', settingMethods], ['context', contextMethods], ['scheduling', schedulingMethods], ['lifecycle', lifecycleMethods], ['taskSync', taskSyncMethods], ['iteration', iterationMethods],
 ];
 
 export class Project extends ProjectBase {}

@@ -1,4 +1,5 @@
 import { check, id, isPlainObject, text } from '../../core/types.js';
+import { validateHookInstallation } from '../../core/hook-install.js';
 
 function revision(value) {
   check(typeof value === 'string' && value.length > 0 && value.length <= 256
@@ -56,6 +57,7 @@ function commandImportSource(value) {
 /** User-only Hook configuration; the runtime owns definition validation and execution. */
 export const handlers = {
   'hooks.list'(p) { return p.hooksList(); },
+  'hooks.install'(p, { _token, ...params }) { return p.installCommandHook(validateHookInstallation(params)); },
   'hooks.automation_settings'(p, params) {
     return p.setAutomationSettings(params.patch, revision(params.expected_revision));
   },

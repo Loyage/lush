@@ -6,6 +6,7 @@ import { assertManager } from './management-auth.js';
 import { MANAGEMENT_LIMITS, MANAGEMENT_READ_ITEMS, managementState, saveManagement, managementTime } from './management-data.js';
 import { managementCatalog, effectiveManagementPolicy, validateManagementCall, managementDispatchParams } from '../../rpc/management-policy.js';
 import { hasManagementConfirmation } from './management-code.js';
+import { hookInstallationOutcome } from './hook-install.js';
 
 const unresolved = new Set(['pending_confirmation','approved','running']);
 export const managementControlPending = state => (state.control_calls ?? []).some(call => unresolved.has(call.status));
@@ -56,8 +57,8 @@ function callView(call) {
 }
 async function resourcePreflight(project, method, params) {
   const targetId = method === 'worker.spawn' ? params.parent : params.id;
-  const root = method.startsWith('worker.') && Number.isSafeInteger(targetId) ? project.store.task(targetId) : null;
-  const tasks = root ? project.subtreeTasks(root.id) : [];
+  const root = (method.startsWith('worker.') || method === 'hooks.install') && Number.isSafeInteger(targetId) ? project.store.task(targetId) : null;
+  const tasks = root ? (method === 'hooks.install' ? [root] : project.subtreeTasks(root.id)) : [];
   check(tasks.length <= 200, 'management resource preflight exceeds 200 Workers');
   check(!root || root.task_kind !== 'management', 'management agents cannot mutate management identities');
   const rows = [];
@@ -87,7 +88,7 @@ async function resourcePreflight(project, method, params) {
 }
 function targetSnapshot(project, method, params) {
   const targetId = method === 'worker.spawn' && Number.isSafeInteger(params.parent) ? params.parent
-    : method.startsWith('worker.') && Number.isSafeInteger(params.id) ? params.id
+    : (method.startsWith('worker.') || method === 'hooks.install') && Number.isSafeInteger(params.id) ? params.id
     : Number.isSafeInteger(params.worker_id) ? params.worker_id : null;
   if (!targetId) return null;
   const task = project.store.task(targetId);
@@ -365,7 +366,10 @@ export default {
       state = managementState(this.store.task(taskId)); call = state.control_calls.find(item => item.receipt_id === receiptId);
       call.status = 'succeeded'; call.finished_at = managementTime(this);
       // Mutations return only a narrow receipt, not user-only config or destructive result payloads.
-      call.result = { submitted: true, ...(action ? { action: result } : {}), ...(Number.isSafeInteger(result?.id) ? { id: result.id } : {}),
+      call.result = { submitted: true,
+        ...(call.method === 'hooks.install' ? { installed: result.installed, command_id: result.command_id,
+          hook_id: result.hook_id, worker_id: result.worker_id, worker_number: result.worker_number } : {}),
+        ...(action ? { action: result } : {}), ...(Number.isSafeInteger(result?.id) ? { id: result.id } : {}),
         ...(Number.isSafeInteger(result?.task_id) ? { task_id: result.task_id } : {}),
         ...(typeof result?.auto_title === 'string' ? { auto_title: result.auto_title, changed: result.changed } : {}),
         ...(typeof result?.worker_number === 'string' ? { worker_number: result.worker_number } : {}),
@@ -375,11 +379,16 @@ export default {
     } catch (error) {
       state = managementState(this.store.task(taskId)); call = state?.control_calls?.find(item => item.receipt_id === receiptId);
       if (call && call.status !== 'rejected') {
-        call.status = call.status === 'running' ? 'unknown' : 'failed';
-        call.reason = call.status === 'unknown' ? safeFailure : error instanceof ManagementPermissionError ? error.message
-          : '固定参数、目标、资源或授权发生变化；操作未开始，请重新预检确认。';
+        if (call.status === 'running' && call.method === 'hooks.install')
+          Object.assign(call, hookInstallationOutcome(this, call), { finished_at: managementTime(this) });
+        else {
+          call.status = call.status === 'running' ? 'unknown' : 'failed';
+          call.reason = call.status === 'unknown' ? safeFailure : error instanceof ManagementPermissionError ? error.message
+            : '固定参数、目标、资源或授权发生变化；操作未开始，请重新预检确认。';
+        }
         saveManagement(this, taskId, state);
-        this.store.event(taskId, 'management.capability_failed', { receipt_id: receiptId, method: call.method, status: call.status });
+        this.store.event(taskId, call.status === 'succeeded' ? 'management.capability_completed' : 'management.capability_failed',
+          { receipt_id: receiptId, method: call.method, status: call.status });
       }
     } finally { this.managementControlBusy.delete(receiptId); this.settleManagementOccurrence(taskId); }
   },
@@ -408,8 +417,11 @@ export default {
     const state = managementState(this.store.task(taskId));
     for (const call of state?.control_calls ?? []) if (call.status === 'running') {
       const proof = this.store.get("SELECT id FROM events WHERE task_id=? AND type='management.capability_completed' AND json_extract(data,'$.receipt_id')=? LIMIT 1", taskId, call.receipt_id);
-      call.status = proof ? 'succeeded' : 'unknown';
-      if (!proof) call.reason = safeFailure;
+      if (call.method === 'hooks.install') Object.assign(call, hookInstallationOutcome(this, call), { finished_at: call.finished_at ?? managementTime(this) });
+      else {
+        call.status = proof ? 'succeeded' : 'unknown';
+        if (!proof) call.reason = safeFailure;
+      }
     }
     saveManagement(this, taskId, state);
   },
