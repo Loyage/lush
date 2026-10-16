@@ -94,6 +94,18 @@ try{
     });`),'merge status not inline after usage');
   }
   console.log('PASS pending/merged status after usage without standalone tracking rows');
+  await execute(`window.normalGraph=graph;window.graph={total:1,nodes:[{id:2,worker_number:'W2',title:'交付中的工作',role:'agent',task_kind:'order',status:'waiting',integration:'pending',resources:{own:{run_ms:1000,input:100,output:10,cost:0.01}}}]};`);
+  for(const theme of ['light','dark'])for(const width of [320,390,640,641,1440])for(const stage of ['requested','executing','resolving']){
+    await resize(width);
+    await execute(`document.documentElement.dataset.theme='${theme}';graph.nodes[0].delivery_summary={version:2,stage:'${stage}'};graph.nodes[0].reservation={version:2,status:'${stage}'};window.paint();`);
+    const card=await execute(`const card=document.querySelector('.task-graph-card'),usage=card.querySelector('.task-graph-usage'),status=usage.nextElementSibling;
+      const c=card.getBoundingClientRect(),s=status.getBoundingClientRect();
+      return {height:c.height,text:status.textContent,tracking:!!card.querySelector('.source-delivery'),contained:s.left>=c.left&&s.right<=c.right&&s.bottom<=c.bottom};`);
+    assert(card.height<=(width<=640?72:68)&&!card.tracking&&card.contained,`active delivery adds a row/overflows (${theme}/${width}/${stage}): ${JSON.stringify(card)}`);
+    assert(card.text===({requested:'冻结 · 等待合并',executing:'合并中 · 尚未完成',resolving:'合并中 · 源侧分歧修复'})[stage],'delivery stage lost');
+  }
+  console.log('PASS active delivery stays within two-line cards (desktop 68px/mobile ≤72px) in both themes at 320–1440px');
+  await execute(`window.graph=normalGraph;window.paint();`);
   await resize(390);
   await execute(`document.querySelector('[data-graph-focus="fold-1"]').click();`);
   assert(await execute(`const cards=document.querySelectorAll('.task-graph-card'),usage=cards[0].querySelector('.task-graph-usage');return cards.length===1&&usage.classList.contains('is-aggregate')&&usage.textContent.includes('↑242.0k')&&usage.textContent.includes('$448.48');`),'folded subtree totals changed');

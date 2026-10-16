@@ -1,6 +1,8 @@
 import { test, expect, afterEach } from 'bun:test';
 import { installDom, deepText } from './project-dom.js';
 import { renderTaskGraph } from '../../src/ui/web/assets/render-task-graph.js';
+import { renderDetail } from '../../src/ui/web/assets/render-detail.js';
+import { deliveryStage } from '../../src/ui/web/assets/delivery-model.js';
 import { sourceDelivery } from '../../src/ui/web/assets/delivery-ui.js';
 import { integrationSummary } from '../../src/ui/web/assets/render-integration.js';
 import { activateDetailView } from '../../src/ui/web/assets/sidebar-ui.js';
@@ -31,7 +33,7 @@ for (const minimal of [true, false]) {
     expect(deepText(root)).toContain('1 个来源 · main');
     expect(deepText(root)).toContain('需要核查收据');
     expect(deepText(root)).toContain('预约已截断');
-    expect(deepText(root)).toContain('冲突待处理');
+    expect(deepText(root)).toContain('落地待核查');
     const parent = root.querySelector('[data-task-id="1"]');
     parent.querySelector('.task-graph-more-trigger').onclick();
     const panel = parent.querySelector('.task-graph-actions-popover');
@@ -91,6 +93,48 @@ for (const minimal of [true, false]) test(`无阶段摘要时仍内联待合并�
     }
   }
 });
+
+for (const minimal of [true, false]) for (const version of [2, 3]) {
+  for (const stage of ['requested', 'executing', 'resolving', 'suspended', 'blocked']) {
+    test(`活动交付只在用量旁显示一次（极简=${minimal}，v${version}，${stage}）`, () => {
+      dom = installDom({ fetch: () => Response.json({}) }); resetUiState();
+      activateDetailView({ view: 'task-graph' }); ui.taskGraphMinimal = minimal;
+      renderTaskGraph({ total: 1, nodes: [{ id: 2, task_kind: 'order', status: 'waiting', title: '来源', branch: 'source',
+        integration: 'pending', reservation: { version, kind: 'merge', status: stage },
+        delivery_summary: { version, stage },
+      }] });
+      const card = dom.node('detail').querySelector('[data-task-id="2"]');
+      const usage = card.querySelector('.task-graph-usage'), siblings = usage.parentNode.children;
+      const label = deliveryStage(stage, version);
+      expect(siblings[siblings.indexOf(usage) + 1].textContent).toBe(label);
+      expect(card.querySelector('.source-delivery')).toBeNull();
+      // Opening the same-source controls must not reintroduce a second stage badge.
+      if (minimal) card.querySelector('.task-graph-more-trigger').onclick();
+      expect(card.querySelectorAll('.badge').filter(node => node.textContent === label)).toHaveLength(1);
+    });
+  }
+}
+
+for (const version of [2, 3]) for (const stage of ['requested', 'executing', 'resolving', 'integrated']) {
+  test(`详情交付阶段去重但保留诊断与输入（v${version}，${stage}）`, () => {
+    dom = installDom({ fetch: () => Response.json({}) }); resetUiState();
+    const label = deliveryStage(stage, version);
+    renderDetail({ id: 2, task_kind: 'order', role: 'agent', status: 'waiting', branch: 'source', goal: '来源',
+      reservation: { version, kind: 'merge', status: stage },
+      delivery_summary: { version, stage, current: false, reservation_truncated: true, input_queue: { buffered: 2 } },
+      children: [], messages: [], notices: [],
+    }, null, null, null);
+    const panel = dom.node('detail').querySelector('.delivery-controls');
+    const stages = panel.querySelectorAll('.badge');
+    expect(stages).toHaveLength(1);
+    expect(stages[0].textContent).toBe(version === 2 && stage === 'integrated' ? '已合并 · 待验收' : label);
+    expect(deepText(panel)).toContain('暂存输入：2 条');
+    expect(deepText(panel)).toContain('非当前合并请求');
+    expect(deepText(panel)).toContain('预约已截断');
+    if (version === 2 && stage === 'requested')
+      expect(panel.querySelectorAll('button').some(button => button.textContent === '复查合并队列')).toBe(true);
+  });
+}
 
 test('详情摘要仍保留合并结果和暂存输入，工作树选项不改变默认行为', () => {
   dom = installDom({ fetch: () => Response.json({}) });

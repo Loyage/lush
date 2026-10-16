@@ -22,15 +22,16 @@ function archiveBadge(task) {
 }
 
 /** Shared new-order delivery controls: the detail page and branch graph use exactly the same authorization path. */
-export function deliveryControls(task, { refresh = () => {}, showTracking = true, showMerged = true, showPending = true } = {}) {
+export function deliveryControls(task, { refresh = () => {}, showTracking = true, showMerged = true, showPending = true, showStage = true } = {}) {
   if (!['order','child'].includes(workerKind(task)) || isHistoricalDelivery(task)) return null;
   const panel = el('div', undefined, 'delivery-controls');
   const reservation = task.reservation;
-  const tracking = task.merge_operation ? null : sourceDelivery(task.delivery_summary);
+  // v2 controls own the stage (including acceptance/reclamation facts); tracking owns diagnostics and input.
+  const tracking = task.merge_operation ? null : sourceDelivery(task.delivery_summary, { showStage: showStage && reservation?.version !== 2 });
   if (tracking && showTracking) panel.append(tracking);
   // v3 fixed convergence is read-only here; never fall through to v1 approval or v2 retries.
   if (reservation && reservation.version !== 1 && reservation.version !== 2) {
-    if ((showPending || reservation.version !== 3 || reservation.status !== 'pending') && !tracking && !task.merge_operation && (showMerged || reservation.status !== 'integrated' || reservation.version !== 3))
+    if ((showStage || reservation.version !== 3) && (showPending || reservation.version !== 3 || reservation.status !== 'pending') && !tracking && !task.merge_operation && (showMerged || reservation.status !== 'integrated' || reservation.version !== 3))
       panel.append(badge(reservation.version === 3 ? deliveryStage(reservation.status) : '预约版本未知 · 请核查', 'b-awaiting'));
     return panel.children.length ? panel : null;
   }
@@ -44,8 +45,8 @@ export function deliveryControls(task, { refresh = () => {}, showTracking = true
         executing: '自动合并中 · 占用父执行位', resolving: reservation.queue_protocol === 1
           ? '源侧修复中 · 保留父执行位' : '历史源侧解分歧 · 原 Worker 已恢复工作',
         suspended: '合并已挂起 · 父执行位已释放', blocked: '合并阻塞 · 保留父侧现场' }[state] || state;
-      // Tree cards show pending/merged beside usage, but retain queue and acceptance diagnostics here.
-      if (showPending || state !== 'pending')
+      // Tree cards own the inline stage, but retain queue and acceptance diagnostics here.
+      if ((showStage || merged) && (showPending || state !== 'pending'))
         panel.append(badge(showMerged ? label : label.replace(/^已合并(?: · )?/, ''), merged ? merged.className : 'b-awaiting'));
     }
     if (state === 'pending' && reservation.auto_merge !== true)

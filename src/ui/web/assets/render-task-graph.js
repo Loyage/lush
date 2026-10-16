@@ -22,6 +22,7 @@ import { workerRenameControl } from './worker-rename.js';
 import { progressReportingEnabled, progressStats, renderGraphProgress } from './render-progress.js';
 import { deliveryControls } from './render-delivery.js';
 import { sourceDelivery } from './delivery-ui.js';
+import { deliveryStage } from './delivery-model.js';
 import { integrationControl, integrationSummary } from './render-integration.js';
 import { workerHooks } from './render-hooks.js';
 import { guardedAction, iterationControls } from './render-iteration.js';
@@ -97,9 +98,11 @@ function taskVisualState(node) {
   return 'idle';
 }
 
-/** Keep the merge fact beside usage; tracking below retains only diagnostics and relations. */
+/** Keep every delivery stage beside usage; tracking below retains only diagnostics and relations. */
 function graphMergeStatus(node) {
   const summary = node.merge_operation ? null : node.delivery_summary;
+  if (summary && !['pending', 'integrated'].includes(summary.stage))
+    return badge(deliveryStage(summary.stage, summary.version), 'b-awaiting');
   const pending = node.reservation?.status === 'pending' && [2, 3].includes(node.reservation.version);
   const state = ['pending', 'integrated'].includes(summary?.stage) ? summary.stage
     : INTEGRATION[node.integration] ? node.integration : pending ? 'pending' : node.integration;
@@ -137,7 +140,7 @@ function taskCard(node, folded, refresh, queueNote = null, minimal = false, inpu
   if (!minimal) head.append(taskActionsMenu(node, inputWorkers));
   row.append(head);
   const tracking = node.merge_operation ? integrationSummary(node, { showMerged: false })
-    : sourceDelivery(node.delivery_summary, { showStage: !['pending', 'integrated'].includes(node.delivery_summary?.stage), showInputQueue: false });
+    : sourceDelivery(node.delivery_summary, { showStage: false, showInputQueue: false });
   if (tracking) row.append(tracking);
   if (minimal) {
     row.append(minimalSummary(node, queueNote, folded), taskActionsMenu(node, inputWorkers));
@@ -245,7 +248,7 @@ function archiveControl(node) {
 function appendTaskActions(row, node, inputWorkers) {
   const iteration = iterationControls(node, { refresh: loadTaskGraph });
   if (iteration) row.append(iteration);
-  const controls = deliveryControls(node, { refresh: loadTaskGraph, showTracking: false, showMerged: false, showPending: false });
+  const controls = deliveryControls(node, { refresh: loadTaskGraph, showTracking: false, showMerged: false, showPending: false, showStage: !node.delivery_summary });
   if (controls) row.append(controls);
   const hooks = workerHooks(node, { compact: true, refresh: loadTaskGraph });
   if (hooks) row.append(hooks);
