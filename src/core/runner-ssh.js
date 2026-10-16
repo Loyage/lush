@@ -3,10 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { check } from './types.js';
+import { posixFiles } from './workspaces/code-posix.js';
 
 export const safeSshAlias = value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(value);
 export const SSH_LIMITS = Object.freeze({ files: 32, bytes: 131072, file_bytes: 65536, aliases: 256, entries: 256, depth: 4, timeout_ms: 12000, output_bytes: 16384 });
-const fdPath = fd => `${process.platform === 'linux' ? '/proc/self/fd' : '/dev/fd'}/${fd}`;
 const flags = fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK;
 const owned = stat => stat.uid === process.getuid() && !(stat.mode & 0o022);
 // No expansion, escapes, single quotes or continuations. Double quotes only group literal tokens.
@@ -35,17 +35,21 @@ const quote = value => `"${value}"`;
 export function readSshAliases({ home = os.userInfo().homedir } = {}) {
   const aliases = new Set(), lines = [], seen = new Set();
   let bytes = 0, entries = 0, files = 0, limited = false, status = 'ok', root;
+  // Component-by-component openat from the verified root FD. `/proc/self/fd` path
+  // traversal is Linux-only; on macOS `/dev/fd` cannot be descended into, so reuse
+  // the project POSIX helper for both platforms instead of fd paths.
   function openRelative(relative, directory = false) {
     const parts = relative.split('/');
     if (!parts.length || parts.some(p => !p || p === '.' || p === '..')) throw new Error('unsafe');
-    let dir = fs.dupSync ? fs.dupSync(root) : fs.openSync(fdPath(root), fs.constants.O_RDONLY | fs.constants.O_DIRECTORY);
+    let dir = null; // null means the borrowed root FD, which is never closed here.
     try {
       for (let i = 0; i < parts.length; i++) {
         const isDir = i < parts.length - 1 || directory;
-        const next = fs.openSync(`${fdPath(dir)}/${parts[i]}`, flags | (isDir ? fs.constants.O_DIRECTORY : 0));
+        const next = posixFiles.openAt(dir === null ? root : dir, parts[i], isDir);
         const stat = fs.fstatSync(next);
         if (!owned(stat) || (isDir ? !stat.isDirectory() : !stat.isFile())) { fs.closeSync(next); throw new Error('unsafe'); }
-        fs.closeSync(dir); dir = next;
+        if (dir !== null) fs.closeSync(dir);
+        dir = next;
       }
       const result = dir; dir = null; return result;
     } finally { if (dir !== null) fs.closeSync(dir); }
@@ -63,19 +67,21 @@ export function readSshAliases({ home = os.userInfo().homedir } = {}) {
     if (!/[*?]/.test(leaf)) { read(relative, depth); return; }
     let fd;
     try {
-      fd = parent ? openRelative(parent, true) : fs.openSync(fdPath(root), fs.constants.O_RDONLY | fs.constants.O_DIRECTORY);
-      const dir = fs.opendirSync(fdPath(fd)); const names = [];
-      try {
-        let entry;
-        while ((entry = dir.readSync())) {
-          if (++entries > SSH_LIMITS.entries) { limited = true; break; }
-          names.push(entry.name);
-        }
-      } finally { dir.closeSync(); }
+      const directory = path.join(home, '.ssh', parent);
+      fd = parent ? openRelative(parent, true) : null;
+      // Node cannot readdir by FD. List the real path only when its resolved inode is
+      // the directory just opened by FD; matches are re-opened via the FD walk below.
+      const actual = fs.fstatSync(fd === null ? root : fd, { bigint: true }), listed = fs.statSync(directory, { bigint: true });
+      if (actual.dev !== listed.dev || actual.ino !== listed.ino) { limited = true; return; }
+      const names = [];
+      for (const name of fs.readdirSync(directory)) {
+        if (++entries > SSH_LIMITS.entries) { limited = true; break; }
+        names.push(name);
+      }
       const regex = new RegExp(`^${leaf.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
       for (const name of names.sort()) if (regex.test(name)) read(parent ? `${parent}/${name}` : name, depth);
     } catch { limited = true; }
-    finally { if (fd !== undefined) fs.closeSync(fd); }
+    finally { if (fd) fs.closeSync(fd); }
   }
   // Match blocks are never evaluated and never reach ssh. Include is expanded as text at its location.
   let inMatch = false, inHost = false;

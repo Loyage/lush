@@ -26,6 +26,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ matrix.bun }}
-      # The code reader uses only Bun/Node built-ins and the system libc/Git.
+      # The code reader and SSH config discovery share the same POSIX openat walk and
+      # use only Bun/Node built-ins and the system libc/Git; macOS cannot traverse /dev/fd.
       # Serial entrypoint also works on the minimum supported Bun version.
-      - run: bun run test:serial test/workspaces/code-posix.test.js test/workspaces/code-reader.test.js test/web/code-reader-api.test.js
+      - run: bun run test:serial test/workspaces/code-posix.test.js test/workspaces/code-reader.test.js test/web/code-reader-api.test.js test/runner-ssh.test.js
