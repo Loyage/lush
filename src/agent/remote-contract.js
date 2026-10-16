@@ -1,7 +1,7 @@
 import { PROTOCOL_VERSION } from '../runner/protocol.js';
 
 export const REMOTE_BRIDGE_VERSION = 1;
-export const REMOTE_PI_VERSION = '1.0.4'; // Verified public SDK contract, not a permissive semver guess.
+export const REMOTE_PI_VERSION = '1.3.0'; // Verified public SDK contract, not a permissive semver guess.
 export const REMOTE_IDENTITY_KEYS = Object.freeze(['project_id', 'node_id', 'runner_id', 'worker_id', 'workspace_id', 'generation', 'run_id']);
 export const REMOTE_RUNNER_METHODS = Object.freeze(['file.context', 'file.read', 'file.edit', 'file.write',
   'command.start', 'command.status', 'command.output', 'command.cancel', 'workspace.barrier']);
@@ -31,7 +31,7 @@ export function sameRemoteIdentity(a, b) {
     && Object.keys(a).length === REMOTE_IDENTITY_KEYS.length && Object.keys(b).length === REMOTE_IDENTITY_KEYS.length);
 }
 /** Public, secret-free descriptor accepted ONLY by explicit Provider.run({remote_workspace}).
- * {version:1, runner_protocol:1, pi_version:'1.0.4', socket:absolute local restricted socket,
+ * {version:1, runner_protocol:1, pi_version:'1.3.0', socket:absolute local restricted socket,
  *  identity:{project_id,node_id,runner_id,worker_id,workspace_id,generation,run_id}, path:absolute remote code path}.
  * cwd remains the central control directory. No clients, leases, machine/control/Run secrets here.
  */

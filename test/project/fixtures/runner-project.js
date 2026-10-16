@@ -5,6 +5,7 @@ import { fixture, repo } from '../../helpers.js';
 import { StdioTransport } from '../../../src/runner/index.js';
 import { hash } from '../../../src/runner/protocol.js';
 import { Dispatcher } from '../../../src/rpc/dispatcher.js';
+import { REMOTE_PI_VERSION } from '../../../src/agent/remote-contract.js';
 
 export const remoteProfile = { agent: 'pi', config_mode: 'lush', model: '', thinking: '', default_prompt: '', append_prompt: '', extensions: [], skills: [] };
 /** Project lifecycle + real Dispatcher/Bridge/independent Runner. Controlled Provider does NOT load
@@ -16,7 +17,7 @@ export async function runnerProject(provider, { intercept = null } = {}) {
   try {
     await repo(f.root);
     const sdk = path.join(f.config.home, 'test-sdk'); fs.mkdirSync(sdk, { recursive: true });
-    fs.writeFileSync(path.join(sdk, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-coding-agent', version: '1.0.4', exports: './index.js' }));
+    fs.writeFileSync(path.join(sdk, 'package.json'), JSON.stringify({ name: '@earendil-works/pi-coding-agent', version: REMOTE_PI_VERSION, exports: './index.js' }));
     fs.writeFileSync(path.join(sdk, 'index.js'), 'throw new Error("fixture SDK must not execute");');
     fs.writeFileSync(path.join(sdk, 'pi'), '#!/bin/sh\nexit 99\n', { mode: 0o700 });
     f.config.env.LUSH_PI_COMMAND = path.join(sdk, 'pi');
