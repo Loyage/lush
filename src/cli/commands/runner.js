@@ -19,6 +19,8 @@ export async function run(command, args, { client }) {
     exact(args, 1);
     check(/^[1-9][0-9]*$/.test(args[0]) && typeof revision === 'string' && /^[1-9][0-9]*$/.test(revision), 'Worker id and --expected-revision N are required');
     params = { id: Number(args[0]), expected_revision: Number(revision) };
+  } else if (method === 'runner.ssh.test') {
+    exact(args, 1); params = { ssh_alias: args[0] };
   } else if (method === 'runner.nodes.check') {
     const project_id = option(args, '--project-id');
     exact(args, 1); params = { node_id: args[0], ...(project_id === null ? {} : { project_id }) };

@@ -36,7 +36,7 @@ test('production startup and lazy module graphs are served with CSP; unknown pat
     expect(cold.size).toBeLessThan(26);
     const preloads = [...html.matchAll(/<link rel="modulepreload" href="([^"\n]+)"/g)].map(row => row[1]);
     expect(new Set([...scripts, ...styles, ...preloads])).toEqual(cold);
-    for (const name of ['render-settings', 'render-agent-status', 'render-inputs', 'render-model-sources', 'render-project-automation', 'render-valet-settings', 'management-profile-form']) {
+    for (const name of ['render-settings', 'render-agent-status', 'render-inputs', 'render-model-sources', 'render-runners', 'render-project-automation', 'render-valet-settings', 'management-profile-form']) {
       const target = [...lazy].find(file => file.includes(`-${name}-`));
       expect(target).toBeTruthy(); expect(cold.has(target)).toBe(false);
     }
@@ -82,7 +82,7 @@ test('HTML ships startup controls, read-only navigation and collapsed composer',
     expect(html).toContain(`<script src="${appearance}" type="module"></script>`);
     expect(html.indexOf(appearance)).toBeLessThan(html.indexOf(stylesheet));
     expect(html.indexOf(stylesheet)).toBeLessThan(html.indexOf(app));
-    for (const id of ['sidebar', 'home', 'project', 'connection', 'theme-toggle', 'sidebar-sort', 'settings-open',
+    for (const id of ['sidebar', 'home', 'project', 'connection', 'theme-toggle', 'sidebar-sort', 'settings-open', 'runners-open',
       'notice-banner', 'toast', 'error', 'toast-close', 'modal', 'input-parent', 'draft-commit']) {
       expect(html).toContain(`id="${id}"`);
     }
@@ -90,6 +90,7 @@ test('HTML ships startup controls, read-only navigation and collapsed composer',
     expect(html).toMatch(/<body\b[^>]*\bspellcheck="false"/);
     expect(html).not.toMatch(/\bspellcheck="true"/);
     expect(html).toContain('id="cli-interfaces-open"');
+    expect(html).toMatch(/id="runners-open" href="\/#runners"/);
     expect(html).not.toContain('id="valet-settings-open"');
     expect(html).toContain('搜索命令、学习用途与管家权限');
     expect(html).toContain('打开管理详情、执行记录与安全删除');

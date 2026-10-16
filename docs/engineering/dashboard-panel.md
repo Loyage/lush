@@ -38,7 +38,7 @@ W253／D587：页面「编辑模式」统一编辑配置与布局，每卡设置
 - 旧 v1–v4 文件只读映射为 v5、`diagnostics:true`，v1–v3 的 `widgets:null` 保持，不自动改写。前端继承旧可见项目、所选账户、内容和位置；查看和仅布局保存保持 `widgets` 原样。`null` 与有意空数组不可互换，旧 localStorage 顺序不自动导入。
 - 保留 v3 的 `cards/hidden_projects/layout/content/account_view`。历史数组保存仅改账户选择，不清空其它字段；`account_view` 仍仅接受 `list/tiles`，不支配聚合展示。旧账户、项目及成员布局／内容不因投影被删除。v4 显式成员决定来源，空 sections、空额度成员、不可用来源和自定义链接仍保留；相关来源／内容／导航显式编辑只改相关成员，导航编辑需要 materialize legacy 时完整保留旧选择与分来源内容。超 100 成员先拒绝保存并保留草稿，不截断、不 POST。
 - `widgets` 最多 100 个完整对象；ID 唯一，格式 `widget:[a-z0-9][a-z0-9-]{0,79}`。类型为上述五种，前三种必须绑定 16 位小写 hex 项目 ID，其余 `project_id:null`。
-- `connection_ids` 仅 accounts 可非空，最多 100 个唯一 UUID；`links` 仅 shortcuts 可非空，最多 24 个完整 `{scope,target,project_id}`。全局目标 `notices/project-management/model-sources/settings/agent-status/automation/docs` 绑定 null，项目目标 `workers/inputs/versions/notices` 绑定项目 ID。
+- `connection_ids` 仅 accounts 可非空，最多 100 个唯一 UUID；`links` 仅 shortcuts 可非空，最多 24 个完整 `{scope,target,project_id}`。全局目标 `notices/project-management/model-sources/runners/settings/agent-status/automation/docs` 绑定 null，项目目标 `workers/inputs/versions/notices` 绑定项目 ID。
 - `sections` 按类型为：status `metrics/distribution/delivery`；messages `messages`；workers `recent`；accounts `quota/balance/reset/observed/details/history/provenance`；shortcuts `shortcuts`。允许空数组，异常与来源占位不被内容开关隐藏。
 - `cards` 最多 100，`hidden_projects/layout/content` 最多 300；layout 支持 widget ID 和旧项目／`accounts`／`account:<UUID>` ID，旧 content 保留原 ID，新内容写 `widgets.sections`。
 

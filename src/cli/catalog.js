@@ -10,6 +10,7 @@ export const COMMAND_MODULES = Object.freeze({
 const entries = [];
 const directories = {
   runner: '远端执行节点与项目授权；不安装或迁移工作区。',
+  'runner ssh': '本机 SSH 别名发现与显式登录试连；不检查 Runner。',
   'runner nodes': '设备节点配置与显式诊断。', 'runner credentials': '设备私有控制凭据；只写秘密。',
   'runner project': '当前项目节点授权和默认节点。', 'runner worker': '显式核验当前项目的远端现场，不自动恢复调用。',
   daemon: '项目后台的启动、停止与代码身份。', host: '设备 Web 工作台的启动、停止与身份。',

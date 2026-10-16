@@ -29,6 +29,7 @@ import { initNoticeRecords, openNotice } from './render-notices.js';
 import { workerNumberTarget, resolveWorkerNumber } from './worker-links.js';
 import { projectRoute, projectBase, workspaceHref } from './route.js';
 import { configureWorkspaceShell, renderGlobalInboxSummary, workspaceLink } from './workspace-shell.js';
+import { RUNNERS_PAGE, runnersHash, runnersTarget } from './runner-page-route.js';
 import { requestPageLeave, resetPageLeaveGuard, registerPageLeaveGuard } from './page-leave-guard.js';
 import { onDeviceAutomation, startDeviceAutomationObserver } from './workspace-automation.js';
 
@@ -77,6 +78,7 @@ async function openPage(load, open, view, options = {}) {
 }
 const openCliInterfaces = () => openPage(() => import('./render-valet-settings.js'), module => module.openCliInterfaces({ registerPageLeaveGuard }), 'cli-interfaces');
 const openSettings = () => openPage(() => import('./render-settings.js'), module => module.openSettings(), 'settings');
+const openRunners = (projectId = '') => openPage(() => import('./render-runners.js'), module => module.openRunners({ projectId }), RUNNERS_PAGE, { hash: runnersHash(projectId) });
 const openAgentStatus = () => openPage(() => import('./render-agent-status.js'), module => module.openAgentStatus(), 'agent-status');
 const openVersionsRedirect = () => openPage(() => import('./retired-pages.js'), module => module.openLegacyVersions(), 'version-redirect', { push: false, hash: '#versions' });
 const openHooks = (feature = null, subpage = 'settings') => openPage(() => import('./render-project-automation.js'), module => module.openProjectAutomation({ feature, subpage }), 'hooks', { hash: feature ? `#hooks-${feature}${subpage === 'history' ? '-history' : ''}` : '#hooks' });
@@ -121,10 +123,15 @@ function openHashTarget(hash, project, doc, generation) {
     if (hash === '#valet-settings') window.history.replaceState(null, '', '#cli-interfaces');
     return openCliInterfaces();
   }
-  if (project && (deviceHash(hash) || (hash === '#projects' || hash === '#project-management') || doc)) return globalPageRedirect(hash);
+  const runners = runnersTarget(hash);
+  if (project && (runners || deviceHash(hash) || (hash === '#projects' || hash === '#project-management') || doc)) return globalPageRedirect(runners ? runnersHash(runners.projectId) : hash);
   if (!project) {
     if (!hash || hash === '#projects') return openProjectOverview({ push: false });
     if (hash === '#project-management') return openProjectManager({ push: false });
+    if (runners) {
+      if (hash === '#settings-runners') window.history.replaceState(null, '', runnersHash());
+      return openRunners(runners.projectId);
+    }
     if (hash === '#settings') return ui.settingsOpen ? undefined : openSettings();
     if (hash === '#agent-status') return ui.view?.id === 'agent-status' ? undefined : openAgentStatus();
     if (hash === '#model-sources') return ui.view?.id === 'model-sources' ? undefined : openSources();
@@ -199,6 +206,7 @@ function initGlobalNavigation() {
   workspaceLink('settings-open', '#settings', openSettings);
   workspaceLink('agent-status-open', '#agent-status', openAgentStatus);
   workspaceLink('model-sources-open', '#model-sources', () => openSources());
+  workspaceLink(`${RUNNERS_PAGE}-open`, runnersHash(), () => openRunners());
   workspaceLink('docs-open', '#docs', () => openDocsView());
 }
 /** Repeated boot must dispose global and project polling separately; late imports cannot bind an older DOM. */

@@ -4,7 +4,7 @@
 
 ## 权限与入口
 
-全部 `runner.*` 方法仅用户可用，普通 Agent、整合 Agent、Valet 直调及其受控管理代理均拒绝；不是可通过管理确认解锁的能力。`src/rpc/runner-methods.js` 是 RPC 参数、CLI 命令及 HTTP/Host 允许集的共享来源。读配置不发 SSH；诊断 `runner.nodes.check` 和现场核验 `runner.worker.reconcile` 只在显式调用时连接用户预装的 Runner。生产传输固定使用 SSH alias 和 `lush-runner serve`，不接受自定义传输、命令、安装脚本或远端配置路径。
+全部 `runner.*` 方法仅用户可用，普通 Agent、整合 Agent、Valet 直调及其受控管理代理均拒绝；不是可通过管理确认解锁的能力。`src/rpc/runner-methods.js` 是 RPC 参数、CLI 命令及 HTTP/Host 允许集的共享来源。读配置不发 SSH；`runner.ssh.test` 只测试 SSH 登录、不调用 Runner；诊断 `runner.nodes.check` 和现场核验 `runner.worker.reconcile` 只在显式调用时连接用户预装的 Runner。Runner 生产传输固定使用 SSH alias 和 `lush-runner serve`，不接受自定义传输、命令、安装脚本或远端配置路径。
 
 CLI 使用 `bun run lush runner … --json`，不支持 `lushc runner`。默认经所选项目的 RPC；设备命令加 `--scope device` 时直接使用设备服务，不发现项目、不启动 daemon，也不接受 `--project`。`runner project` 必须使用项目 RPC，不接受 `--scope`。写入使用 `--file PATH`，文件为 owner-only 普通 JSON 文件（拒绝符号链接，最多 128 KiB），包含完整 RPC 参数及 `expected_revision`；不接受秘密 argv 或 stdin。确认结果直接返回，不自动追加读请求或重试突变。
 
@@ -12,6 +12,8 @@ CLI 使用 `bun run lush runner … --json`，不支持 `lushc runner`。默认�
 
 | RPC | 参数 | CLI |
 | --- | --- | --- |
+| `runner.ssh.discover` | `{}` | `runner ssh discover` |
+| `runner.ssh.test` | `{ssh_alias}` | `runner ssh test SSH_ALIAS` |
 | `runner.nodes.get` | `{}` | `runner nodes get` |
 | `runner.nodes.set` | `{nodes,expected_revision}` | `runner nodes set --file PATH` |
 | `runner.nodes.check` | `{node_id,project_id?}` | `runner nodes check NODE_ID [--project-id PROJECT_ID]` |
@@ -30,10 +32,22 @@ CLI 使用 `bun run lush runner … --json`，不支持 `lushc runner`。默认�
 
 未知参数、错误类型、重复授权 ID、超限、陈旧 revision 均拒绝；没有 `force` 或无版本覆盖。保存返回是配置发布的确认，不是工作区回收或远端进程退出的证明。禁用、移除凭据、撤销授权会使新准入失败并通过中央服务请求停止已跟踪 Run；失联／未确认停止保持持久 unknown。设备配置由其它进程更新时，Project 服务的最新准入检查和独立监测负责撤销；Host 不枚举／调度各项目。
 
+## SSH 别名发现与独立试连
+
+`runner.ssh.discover` 返回 `{aliases,status,limited}`：status 为 `ok`、`missing` 或 `unavailable`；limited 表示跳过不支持／不安全配置或达到预算，不代表完整解析。仅读取 **Host 当前系统用户**（不是浏览器用户、项目目录或可传入路径）的 `~/.ssh/config`。只列最长 128 字符、安全的具体 Host 别名，忽略通配／否定项、Match 块及不安全 Host 子句；不返回主机地址、用户名、路径、配置正文、私钥或秘密。读取不联网，不运行 `ssh -G`、Match exec 或其它命令。
+
+Include 仅支持 `.ssh` 内相对路径、`~/.ssh/` 或该目录的绝对路径；只允许末级文件名 `*`／`?`，不支持目录通配、转义、变量／百分号展开、续行、外部路径或符号链接。文件和目录必须属当前用户且不可被组／其它人写入；目录 FD 逐段 no-follow 校验，普通文件有界读取。最多 32 文件、128 KiB 总量、每文件 64 KiB、4 层 Include、256 个目录项和 256 别名；循环、私钥正文及超限会跳过并标 limited。无安全可读配置时明示状态，用户仍可手填别名。
+
+`runner.ssh.test` 不依赖节点登记、Runner 安装、机器／项目控制凭据或项目授权，不保存配置。它重新读取上述文件，生成临时私有安全子集（Host、HostName、User、Port、用户 home 内 IdentityFile、IdentitiesOnly）；**不使用原配置或系统 SSH 配置**，不支持 Match、ProxyJump／ProxyCommand、Include 外部路径或其它扩展。支持普通双引号字面值和 Host 通配／否定继承，保留原有子句顺序；不解释单引号、反斜杠转义或百分号展开。Host／Match 块内的条件 Include 仅供发现，试连不将它静默展平为无条件配置。只要整个用户配置有被跳过／不支持内容或未完整读取（即使位于其它别名块），就保守返回 `config_unsupported`，**不启动 SSH、不忽略后尝试连接到其它目标**；手填别名也不绕过此门。配置不存在时可对手填安全别名使用 SSH 默认解析。依赖不支持功能的连接应由用户另行核验，不能把受限预检拒绝当作原生 SSH 一定不可用。临时文件 0600／目录 0700，结束删除；不读取 IdentityFile 的私钥正文。
+
+通过配置安全门的显式调用只启动一次 SSH，远端命令固定 `true`，禁用交互、首次信任／host key 更新、代理、LocalCommand、KnownHostsCommand、转发、agent 转发、连接复用、密钥自动加入 agent、CanonicalizeHostname、PKCS11Provider 和 SecurityKeyProvider 扩展。严格已有 host key，连接尝试一次，连接超时 10 秒、总截止 12 秒，stdout/stderr 合计超过 16 KiB 即停止；原始输出不返回或记录。没有自动重试、安装、信任变更或失败后回退。服务内单飞；结果 `{ok,reason,checked_at}`，reason 为 `connected`、`not_confirmed`、`timeout`、`output_limit`、`config_unavailable` 或 `config_unsupported`。`ok:false` 是已返回的失败诊断，不是保存失败／未知写入。
+
+**SSH 成功 ≠ Runner 可用**，也不授予项目权限或自动保存节点。新增节点弹窗可选发现的别名或手填，试连是独立可选动作；失败保留填写，输入变更／关闭／离页后的旧响应失效。可信远端的登录 shell 启动文件、SSH 服务端强制命令及认证设施仍由用户负责；固定 `true` 不承诺能阻止远端自己的登录副作用。真实 SSH／系统 OpenSSH 兼容性仍需用户授权实机验证。
+
 ## HTTP
 
-- 项目：`GET /api/runner/nodes`、`/api/runner/credentials`、`/api/runner/project`，不接受查询参数；全局工作台需带现有 `/p/<项目路由ID>/` 前缀。所有写入及显式 check 使用 `POST /api/action`，body 为 `{method,params}`。
-- Host 无项目：`GET /api/host/settings/runner/nodes`、`/api/host/settings/runner/credentials`；可选既有 `scope=device`。设备写入／check 使用 `POST /api/host/settings/action`，相同 body；不提供 project.get/set。Host check 必须显式 project_id，不为此打开或启动项目。
+- 项目：`GET /api/runner/ssh/aliases`、`/api/runner/nodes`、`/api/runner/credentials`、`/api/runner/project`，不接受查询参数；全局工作台需带现有 `/p/<项目路由ID>/` 前缀。所有写入、SSH 试连及显式 check 使用 `POST /api/action`，body 为 `{method,params}`。
+- Host 无项目：`GET /api/host/settings/runner/ssh/aliases`、`/api/host/settings/runner/nodes`、`/api/host/settings/runner/credentials`；可选既有 `scope=device`。设备写入／SSH 试连／check 使用 `POST /api/host/settings/action`，相同 body；不提供 project.get/set。Host check 必须显式 project_id，不为此打开或启动项目。
 - 沿用登录、同源校验、128 KiB 请求限制与 `Cache-Control: no-store`。Runner action 不接受查询参数、额外 envelope 字段、Agent token 或任意路径。公共结果统一白名单投影，原始认证响应不会作为错误或日志返回。HTTP scope 不是跨项目授权。
 
 ## 创建节点选择接缝

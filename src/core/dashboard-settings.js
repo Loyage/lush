@@ -17,7 +17,7 @@ const ACCOUNT_SECTIONS = ['quota', 'balance', 'reset', 'observed', 'details', 'h
 const WIDGET_ID = /^widget:[a-z0-9][a-z0-9-]{0,79}$/;
 const WIDGET_SECTIONS = { status: ['metrics', 'distribution', 'delivery'], messages: ['messages'], workers: ['recent'],
   accounts: ACCOUNT_SECTIONS, shortcuts: ['shortcuts'] };
-const GLOBAL_TARGETS = ['notices', 'project-management', 'model-sources', 'settings', 'agent-status', 'automation', 'docs'];
+const GLOBAL_TARGETS = ['notices', 'project-management', 'model-sources', 'runners', 'settings', 'agent-status', 'automation', 'docs'];
 const PROJECT_TARGETS = ['workers', 'inputs', 'versions', 'notices'];
 const empty = () => ({ version: 5, cards: [], hidden_projects: [], layout: [], content: [], account_view: 'list', widgets: null, diagnostics: true });
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;

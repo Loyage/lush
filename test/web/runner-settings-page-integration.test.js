@@ -3,14 +3,17 @@ import { installDom, deepText } from '../dom-stub.js';
 import { startTestWeb, fetch } from './auth-fixture.js';
 import { DeviceSettingsService } from '../../src/host/device-settings.js';
 import { managementFixture } from '../runner-management-fixture.js';
-import { renderRunnerSettings } from '../../src/ui/web/assets/runner-settings.js';
-import { renderRunnerProjectSettings } from '../../src/ui/web/assets/runner-project-settings.js';
+import { sshFixture } from '../runner-ssh-fixture.js';
+import { openRunners } from '../../src/ui/web/assets/render-runners.js';
+import { ui } from '../../src/ui/web/assets/state.js';
 
 const button = (root, text) => root.querySelectorAll('button').find(node => node.textContent === text);
 const field = (root, name) => root.querySelector(`[data-runner-field="${name}"]`);
 
 test('real Host and fixed-project HTTP → page actions → RPC → persisted Runner settings; explicit independent-process check', async () => {
-  const f = await managementFixture(); let opened = 0;
+  const f = await managementFixture(), ssh = sshFixture(f.root); let opened = 0, discovery;
+  ssh.config('Host lab\n HostName private-fixture.example\n');
+  f.runnerOptions.ssh = ssh.options;
   const device = new DeviceSettingsService(f.config.env, { runner: f.runnerOptions });
   const host = startTestWeb(null, 0, { env: f.config.env, deviceSettingsService: device, openProject: async () => { opened++; throw new Error('must not start'); } });
   const projectWeb = startTestWeb(f.config), requests = [];
@@ -20,17 +23,39 @@ test('real Host and fixed-project HTTP → page actions → RPC → persisted Ru
     const { projects } = await (await fetch(`${projectUrl}/api/host/projects`)).json(), id = projects[0].id;
     dom = installDom({ fetch: (url, options) => {
       requests.push({ url: String(url), method: options?.method || 'GET' });
-      return fetch((String(url).startsWith('/p/') ? projectUrl : hostUrl) + url, options);
+      const pending = fetch((String(url).startsWith('/p/') || url === '/api/host/projects' ? projectUrl : hostUrl) + url, options);
+      if (String(url).includes('/ssh/aliases')) discovery = pending;
+      return pending;
     } });
-    editor = renderRunnerSettings(); dom.node('detail').append(editor.root); await editor.ready;
+    // Exercise the independent global page, using the existing real HTTP editors unchanged.
+    await openRunners(); editor = { root: dom.node('detail').querySelector('.runner-settings') };
     expect(f.connections()).toBe(0); expect(opened).toBe(0);
     const adding = button(editor.root, '新增执行节点').onclick();
-    field(dom.node('modal'), 'name').value = 'Lab node'; field(dom.node('modal'), 'ssh_alias').value = 'lab';
+    await discovery; for (let i = 0; i < 8; i++) await Promise.resolve();
+    const aliases = field(dom.node('modal'), 'ssh_discovered');
+    expect(aliases.querySelectorAll('option').map(row => row.value)).toEqual(['', 'lab']);
+    expect(ssh.calls()).toBe(0);
+    aliases.value = 'lab'; aliases.onchange();
+    field(dom.node('modal'), 'name').value = 'Lab node';
+    // Re-read before execution: stale discovery must not silently drop newly added routing semantics.
+    ssh.config('Host lab\n ProxyJump private-bastion\n');
+    await button(dom.node('modal'), '测试 SSH').onclick();
+    expect(ssh.calls()).toBe(0); expect(deepText(dom.node('modal'))).toContain('未发起 SSH 连接');
+    expect(field(dom.node('modal'), 'name').value).toBe('Lab node');
+    ssh.config('Host lab\n HostName private-fixture.example\n');
+    await button(dom.node('modal'), '测试 SSH').onclick();
+    expect(ssh.calls()).toBe(1); expect(f.connections()).toBe(0);
+    expect(deepText(dom.node('modal'))).toContain('SSH 成功 ≠ Runner 可用');
+    expect((await device.request('runner.nodes.get')).nodes).toEqual([]);
+    expect((await device.request('runner.credentials.get')).nodes).toEqual([]);
     await button(dom.node('modal'), '保存节点').onclick(); await adding;
     let model = await device.request('runner.nodes.get'); const node = model.nodes[0];
     expect(node.name).toBe('Lab node'); expect(node.id).toMatch(/^[a-f0-9-]{36}$/);
     expect(node.expected_runner_id).toBeNull();
-    projectEditor = renderRunnerProjectSettings(id); dom.node('detail').append(projectEditor.root); await projectEditor.ready;
+    await openRunners({ projectId: id });
+    projectEditor = { root: dom.node('detail').querySelector('.runner-project-settings'), reload: () => button(projectEditor.root, '重新读取项目授权').onclick() };
+    expect(dom.node('detail').querySelectorAll('.runner-settings')).toHaveLength(2);
+    expect(deepText(dom.node('detail'))).toContain(`Host ID：${id}`);
     expect(f.store.runnerProject().project_id).toBeNull();
     await button(projectEditor.root, '保存项目授权').onclick();
     const project_id = f.store.runnerProject().project_id; expect(project_id).toBeTruthy();
@@ -57,5 +82,5 @@ test('real Host and fixed-project HTTP → page actions → RPC → persisted Ru
     expect(requests.filter(r => r.method === 'POST').every(r => r.url === '/api/host/settings/action' || r.url === `/p/${id}/api/action`)).toBe(true);
     expect(f.connections()).toBe(1); expect(opened).toBe(0);
     expect(deepText(projectEditor.root)).toContain('ACK');
-  } finally { editor?.dispose(); projectEditor?.dispose(); dom?.restore(); await host.stop(true); await projectWeb.stop(true); await f.close(); }
+  } finally { ui.disposeRunnersPage?.(); dom?.restore(); await host.stop(true); await projectWeb.stop(true); await f.close(); }
 });

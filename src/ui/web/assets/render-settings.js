@@ -4,6 +4,7 @@ import { pageBlocks, replacePageContent } from './page-modules.js';
 import { ui } from './state.js';
 import { createInterfaceSettings } from './settings-interface.js';
 import { createSystemSettings } from './settings-system.js';
+import { runnersLink } from './runner-page-route.js';
 
 // Keep the existing Agent management entry point without a dependency back to this page.
 export { renderAgentSettings } from './settings-agent.js';
@@ -11,10 +12,8 @@ export { renderAgentSettings } from './settings-agent.js';
 const TABS = [
   { id: 'interface', label: '界面', note: '阅读、外观与行为' },
   { id: 'system', label: '系统', note: '运行参数与路径' },
-  { id: 'runners', label: '执行节点', note: '远端设备与控制凭据' },
 ];
 let activeTab = 'interface';
-let runnerEditor = null, runnerEpoch = 0;
 const interfaceSettings = createInterfaceSettings({ renderSettings, isInterface: () => activeTab === 'interface' });
 const systemSettings = createSystemSettings({ isActive: () => activeTab === 'system' });
 
@@ -37,26 +36,13 @@ function tabBar() {
 export function renderSettings() {
   if (!ui.settingsOpen) return; // 保存或读取配置的迟到回调不能抢回其他页面。
   if (activeTab !== 'system') ui.clearSettingsSecrets?.();
-  runnerEditor?.dispose(); runnerEditor = null;
-  const request = ++runnerEpoch;
   const panel = $('detail'); panel.dataset.view = 'settings';
   const view = el('div', undefined, 'settings-view');
   const head = el('div', undefined, 'settings-head');
   const intro = el('div'); intro.append(el('span', 'SYSTEM SETTINGS', 'eyebrow'), el('h1', '设备设置'),
     el('p', '界面偏好与运行配置统一保存在执行机器的同一用户设备设置中，项目不再单独覆盖。项目辨识配色在工作台的项目管理页调整。Agent 配置、模型来源与快捷解释各有独立设备页面。', 'hint'));
-  head.append(intro); view.append(head, tabBar());
-  if (activeTab === 'runners') {
-    const slot = el('div', '正在读取执行节点…', 'settings-tab-panel'); view.append(slot);
-    const identity = ui.view, owner = document;
-    const ownsPage = () => owner === globalThis.document && identity === ui.view && ui.settingsOpen && activeTab === 'runners' && request === runnerEpoch;
-    const pending = import('./runner-settings.js').then(({ renderRunnerSettings }) => {
-      if (!ownsPage()) return;
-      runnerEditor = renderRunnerSettings({ ownsPage }); slot.replaceChildren(runnerEditor.root);
-      ui.clearSettingsSecrets = () => { runnerEditor?.dispose(); runnerEditor = null; };
-      return runnerEditor.ready;
-    }).catch(() => { if (ownsPage()) slot.textContent = '执行节点读取失败，请重新打开此分区。'; });
-    replacePageContent(panel, view); return pending;
-  }
+  const runners = el('a', '执行节点', 'nav-link settings-runners-link'); runners.href = runnersLink(); runners.dataset.settingsTab = 'runners';
+  head.append(intro, runners); view.append(head, tabBar());
   view.append(activeTab === 'interface' ? interfaceSettings.render() : systemSettings.render());
   if (activeTab === 'interface') pageBlocks(view.querySelector('.settings-tab-panel'), 'settings-interface', 'fold');
   replacePageContent(panel, view);

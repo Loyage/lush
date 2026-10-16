@@ -10,7 +10,7 @@ import { createSignal } from '../src/signal.js';
 export async function managementFixture() {
   const f = fixture(); f.project.kick = () => {};
   let connections = 0, files = 0;
-  const runnerOptions = { transport_factory() {
+  const runnerOptions = { ssh: { home: path.join(f.root, 'isolated-os-user') }, transport_factory() {
     connections++;
     return new StdioTransport({ command: process.execPath,
       args: [path.resolve(import.meta.dir, 'runner/fixtures/integration-node.js'), path.join(f.root, 'node.json')],

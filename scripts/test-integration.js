@@ -8,14 +8,15 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 export const INTEGRATION_GROUPS = Object.freeze({
   page: Object.freeze([
     'test/web/runner-choice-page-integration.test.js', // page -> real HTTP/RPC/draft -> independent Runner creation and no fallback
-    'test/web/runner-settings-page-integration.test.js', // real Host/project page actions -> RPC -> config and paired explicit Runner check
+    'test/web/runner-settings-page-integration.test.js', // independent global page -> real Host/project policy, inert reads and explicit Runner check
+    'test/web/dom-runners-page.test.js', // bookmarks, navigation migration, fixed project source, offline/late replies and retained editors
     'test/web/runner-detail-page-integration.test.js', // real HTTP/RPC location projection, unknown/revocation and inert reads
     'test/web/runner-verification-page-integration.test.js', // explicit page -> original receipt recovery, preserved dirty work, no model restart
     'test/web/dom-navigation.test.js', // navigation, Worker deep links, back state
     'test/web/dom-task-graph-clutter.test.js', // inline merge status beside usage, diagnostics and action placement
     'test/web/core-api.test.js', // rendered navigation allowlist and real HTTP action/read routes
     'test/web/dom-loading-assets.test.js', // lazy routes and root deep-link boot
-    'test/web/settings.test.js', // root device tabs include Runner without starting project polling
+    'test/web/settings.test.js', // old device Runner entry navigates to the independent global page without project polling
     'test/web/cli-catalog-api.test.js', // actual Runner command names are public, credential payloads are not
     'test/web/cli-catalog-cache.test.js', // authenticated static Runner catalogue without project startup
     'test/web/dom-valet-settings.test.js', // unified CLI discovery, detail navigation and permission drafts
@@ -35,6 +36,8 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/runner-placement-api.test.js', // creation arguments and actual CLI/RPC -> persisted input selection
     'test/runner-management-api.test.js', // actual user CLI/RPC -> central service -> independent Runner; strict user-only/secret boundaries
     'test/web/runner-management-api.test.js', // authenticated Project/Host API, inert reads and explicit paired diagnostic without project startup
+    'test/runner-ssh.test.js', // safe config/Include budgets and real user CLI/RPC -> controlled SSH process, no Runner credentials
+    'test/web/runner-ssh-api.test.js', // user Host/project HTTP -> shared registry -> controlled SSH; inert discovery, no project startup
     'test/core-api.test.js', // registry/handler parity and public namespace
     'test/worker-api.test.js', // strict spawn placement namespace and unchanged Agent authority
     'test/project/auto-merge.test.js', // local order/child automatic delivery representative paths
@@ -65,6 +68,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-runner-choice-reset.test.js', // D655 null only on draft.update, omitted old fields and ACK revision baseline
     'test/web/dom-runner-choice-legacy.test.js', // legacy draft ACK consumption, failed refresh and stale snapshot guards
     'test/web/dom-runner-settings.test.js', // revisions, secret disposal, explicit pin, fixed source and unknown-write/late response guards
+    'test/web/dom-runner-ssh.test.js', // new-node discovery/manual choice, independent single-flight test and stale dialog/input guards
     'test/web/dom-runner-detail.test.js', // fixed remote identity, visible barriers, local compatibility and expansion retention
     'test/web/dom-runner-verification.test.js', // revision-bound single flight, false ACK, late navigation and post-ACK read failure
     'test/web/settings-module-boundaries.test.js', // entry exports, acyclic imports and built graph
@@ -80,6 +84,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/runner-tool-reconcile.test.js', // user CLI exact binding revision reaches journal verification, never auto-starts a model
     'test/runner-placement-api.test.js', // placement parser and actual CLI/RPC persistence through reliable emission
     'test/runner-management-api.test.js', // management-only executable, private input and real Runner RPC chain
+    'test/runner-ssh.test.js', // real user CLI/RPC -> controlled SSH; discovery never executes config, typed user-only schema
     'test/cli-surfaces.test.js', // CLI capability set derives from the registered catalogue
     'test/cli-catalog.test.js', // public catalogue and actual parser/RPC dispatch agree
     'test/hook-install-api.test.js', // install parser/registry/schema/user-only gates and safe receipt

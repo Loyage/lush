@@ -57,7 +57,7 @@ test('all widget types and whitelisted shortcuts round-trip without looking up p
     const widgets = Object.keys(sections).map(type => widget(type));
     widgets[3].connection_ids = Array.from({ length: 100 }, () => randomUUID());
     widgets[4].links = [
-      ...['notices', 'project-management', 'model-sources', 'settings', 'agent-status', 'automation', 'docs']
+      ...['notices', 'project-management', 'model-sources', 'runners', 'settings', 'agent-status', 'automation', 'docs']
         .map(target => ({ scope: 'global', target, project_id: null })),
       ...['workers', 'inputs', 'versions', 'notices'].map(target => ({ scope: 'project', target, project_id: project })),
     ];

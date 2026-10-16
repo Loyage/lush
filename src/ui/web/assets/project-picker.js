@@ -4,6 +4,7 @@ import { el } from './dom.js';
 import { projectHref, projectRoute } from './route.js';
 import { activateDetailView } from './sidebar-ui.js';
 import { ui } from './state.js';
+import { runnersLink } from './runner-page-route.js';
 
 function node(id) { return globalThis.document?.getElementById?.(id) ?? null; }
 let launcher = false;
@@ -146,23 +147,7 @@ function projectItem(row, repaint, { compact = false, displayOnly = false, order
         finally { openingColor = false; }
       };
       actions.append(color);
-      const runners = el('button', '执行节点', 'ghost project-runner-open'); runners.type = 'button';
-      runners.setAttribute('aria-expanded', 'false');
-      let runnerEditor = null, openingRunner = false, runnerEpoch = 0;
-      runners.onclick = async () => {
-        if (openingRunner) return;
-        if (runnerEditor) { ++runnerEpoch; runnerEditor.dispose(); runnerEditor.root.remove(); runnerEditor = null; runners.setAttribute('aria-expanded', 'false'); return; }
-        const identity = ui.view, owner = globalThis.document, list = item.parentNode, epoch = ++runnerEpoch;
-        const ownsPage = () => epoch === runnerEpoch && owner === globalThis.document && identity === ui.view && item.parentNode === list;
-        openingRunner = true;
-        try {
-          const { renderRunnerProjectSettings } = await import('./runner-project-settings.js');
-          if (!ownsPage()) return;
-          runnerEditor = renderRunnerProjectSettings(row.id, { ownsPage }); item.append(runnerEditor.root);
-          runners.setAttribute('aria-expanded', 'true'); await runnerEditor.ready;
-        } catch { if (ownsPage()) status.textContent = '项目执行节点暂不可用；不会自动启动后台。'; }
-        finally { openingRunner = false; }
-      };
+      const runners = el('a', '执行节点', 'nav-link project-runner-open'); runners.href = runnersLink(row.id);
       actions.append(runners);
     }
     if (renderDevelopment) item.append(renderDevelopment(row));

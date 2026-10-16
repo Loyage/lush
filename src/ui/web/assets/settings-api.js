@@ -1,7 +1,7 @@
 import { api } from './api.js';
 
-const READS = /^\/api\/(?:settings\/runtime|runner\/(?:nodes|credentials)|agent\/(?:config|status|connections|connections\/models|network|environment|models|selection\/resources|packages|resources))$/;
-const ACTIONS = /^(?:runner\.(?:nodes\.(?:set|check)|credentials\.(?:set|remove))|system\.configure|agent\.configure|agent\.(?:network|environment)\.configure|agent\.packages\.(?:install|remove|update)|agent\.connections\.(?:save|remove|query|sampling|models\.refresh|device\.(?:start|poll|cancel)|login\.(?:start|finish)))$/;
+const READS = /^\/api\/(?:settings\/runtime|runner\/(?:nodes|credentials|ssh\/aliases)|agent\/(?:config|status|connections|connections\/models|network|environment|models|selection\/resources|packages|resources))$/;
+const ACTIONS = /^(?:runner\.(?:ssh\.test|nodes\.(?:set|check)|credentials\.(?:set|remove))|system\.configure|agent\.configure|agent\.(?:network|environment)\.configure|agent\.packages\.(?:install|remove|update)|agent\.connections\.(?:save|remove|query|sampling|models\.refresh|device\.(?:start|poll|cancel)|login\.(?:start|finish)))$/;
 
 /** Device configuration always belongs to Host, even when the current project is offline. */
 export function settingsClient(scope = 'device') {

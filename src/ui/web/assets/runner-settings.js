@@ -2,6 +2,7 @@
 import { el } from './dom.js';
 import { formDialog } from './dialog.js';
 import { settingsClient } from './settings-api.js';
+import { runnerSshFields } from './runner-ssh.js';
 import { runnerField, runnerButton, runnerDetails, runnerLifetime, closeRunnerDialog, REVOCATION, UNKNOWN_WRITE } from './runner-settings-controls.js';
 
 const DEFAULT_BUDGETS = { max_commands: 1, timeout_ms: 60000, output_bytes: 1048576 };
@@ -50,6 +51,12 @@ export function renderRunnerSettings({ ownsPage = () => true, client = settingsC
     const name = runnerField(content, 'name', '节点名称', node?.name); name.maxLength = 80;
     const alias = runnerField(content, 'ssh_alias', 'SSH alias（登记后固定）', node?.ssh_alias); alias.maxLength = 128;
     alias.readOnly = Boolean(node);
+    const ssh = node ? null : runnerSshFields(content, alias, { client, current: () => {
+      const modal = globalThis.document?.getElementById('modal');
+      if (!current() || modalContent !== content || modal?.hidden) return false;
+      for (let parent = content.parentNode; parent; parent = parent.parentNode) if (parent === modal) return true;
+      return false;
+    } });
     const enabled = runnerField(content, 'enabled', '设备启用（不等于项目授权）', node?.enabled ?? true, 'checkbox');
     const advanced = runnerDetails('资源配额（执行时仍受节点限额约束）'), budgets = {};
     for (const [key, label, max] of [['max_commands', '并发命令数', 64], ['timeout_ms', '命令超时（毫秒）', 86400000], ['output_bytes', '输出字节上限', 67108864]]) {
@@ -59,7 +66,7 @@ export function renderRunnerSettings({ ownsPage = () => true, client = settingsC
     content.append(advanced, el('p', REVOCATION, 'hint'));
     const error = el('p', '', 'error'); content.append(error); modalContent = content;
     try {
-      await formDialog({ title: node ? '编辑执行节点' : '新增执行节点', content, cardClass: 'runner-dialog', confirmLabel: '保存节点', canConfirm: writable,
+      const dialog = formDialog({ title: node ? '编辑执行节点' : '新增执行节点', content, cardClass: 'runner-dialog', confirmLabel: '保存节点', canConfirm: writable,
         onConfirm: async () => {
           if (!name.value.trim() || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(alias.value)) { error.textContent = '请填写名称与安全的单一 SSH alias。'; return false; }
           const limits = Object.fromEntries(Object.entries(budgets).map(([key, input]) => [key, Number(input.value)]));
@@ -70,7 +77,11 @@ export function renderRunnerSettings({ ownsPage = () => true, client = settingsC
           if (!saved && current()) error.textContent = UNKNOWN_WRITE;
           return saved;
         } });
-    } finally { if (modalContent === content) modalContent = null; }
+      // A long new-node form should open at its first field, not scroll to the save button.
+      if (!node) name.focus?.();
+      void ssh?.start();
+      await dialog;
+    } finally { ssh?.dispose(); if (modalContent === content) modalContent = null; }
   }
   async function editCredentials(node) {
     const content = el('div', undefined, 'runner-form');

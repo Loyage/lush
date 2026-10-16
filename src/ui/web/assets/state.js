@@ -57,6 +57,7 @@ export const ui = {
   taskGraphFetchedAt: 0, taskGraphIds: new Set(), taskGraphPage: null, disposeTaskGraph: null,
   taskGraphLocator: null, taskGraphLocatorBase: null, taskGraphLocated: false,
   deliveryPage: null, disposeDeliveryView: null,
+  runnersPage: null, disposeRunnersPage: null,
   taskGraphMinimal: readPref('taskGraphMinimal'),
   /** Task 图里是否临时显示已归档 Task（默认隐藏，随页面重开复位）。 */
   taskGraphShowArchived: false,
@@ -90,6 +91,7 @@ export const mergeSelection = new Set();
  * 上一个文件留下的哨兵（signature）会让新 DOM 上的第一次轮询直接 return，什么都不画。
  */
 export function resetUiState() {
+  ui.disposeRunnersPage?.(); ui.disposeRunnersPage = null; ui.runnersPage = null;
   ui.disposePageModules?.(); ui.disposePageModules = null;
   ui.hostSession = { status: 'unread', username: null, pending: null };
   ui.disposeServiceRestart?.(); ui.disposeServiceRestart = null;

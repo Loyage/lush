@@ -9,21 +9,23 @@ const evidence = await mkdtemp(join(tmpdir(), 'lush-runner-settings-layout-'));
 const fixture = `
 import { makeWorld } from '/fixture-world.js';
 const world=makeWorld(),id='11111111-1111-4111-8111-111111111111';
-window.runnerCalls=[];
+window.runnerCalls=[];window.sshTrials=0;
 const nodes={revision:'1'.repeat(64),nodes:[{id,name:'可信远端节点 · 长名称用于窄屏换行验证',ssh_alias:'private-alias',enabled:false,expected_runner_id:null,budgets:{max_commands:1,timeout_ms:60000,output_bytes:1048576}}]};
 window.fetch=async(url,options={})=>{
  const parsed=new URL(url,location.href),path=parsed.pathname;
  const json=value=>({ok:true,status:200,json:async()=>structuredClone(value)});
  if(path.includes('/runner/'))window.runnerCalls.push({path});
+ if(path.includes('/runner/ssh/aliases'))return json({aliases:['private-alias','long-host-alias-for-responsive-selection'],status:'ok',limited:false});
  if(path.includes('/runner/nodes'))return json(nodes);
  if(path.includes('/runner/credentials'))return json({revision:'absent',nodes:[]});
  if(path.includes('/runner/project'))return json({revision:1,project_id:'paired-fixture',allowed_node_ids:[],default_node_id:id});
  if(path==='/api/host/projects')return json({projects:[{id:'aaaaaaaaaaaaaaaa',name:'来源项目 A',running:true}]});
+ if(options.method==='POST'&&JSON.parse(options.body)?.method==='runner.ssh.test'){window.sshTrials++;return json({ok:true,reason:'connected',checked_at:new Date().toISOString()});}
  if(options.method==='POST'&&JSON.parse(options.body)?.method?.startsWith('runner.'))throw Error('layout must not mutate');
  return world.fetchImpl(String(url),options);
 };
-window.openDevice=async()=>{const {openSettings}=await import('/render-settings.js');await openSettings({preferenceActions:{}});await document.querySelector('[data-settings-tab="runners"]').onclick();};
-window.openProject=async()=>{const {openProjectManager}=await import('/project-picker.js');await openProjectManager();await [...document.querySelectorAll('.project-item button')].find(n=>n.textContent==='执行节点').onclick();};
+window.openDevice=async()=>{const {openSettings}=await import('/render-settings.js');await openSettings({preferenceActions:{}});const link=document.querySelector('[data-settings-tab="runners"]');window.deviceEntryHeight=link.getBoundingClientRect().height;const {runnersTarget}=await import('/runner-page-route.js');const {openRunners}=await import('/render-runners.js');await openRunners(runnersTarget(new URL(link.href).hash));};
+window.openProject=async()=>{const {openProjectManager}=await import('/project-picker.js');await openProjectManager();const link=document.querySelector('.project-runner-open');window.projectEntryHeight=link.getBoundingClientRect().height;const {runnersTarget}=await import('/runner-page-route.js');const {openRunners}=await import('/render-runners.js');await openRunners(runnersTarget(new URL(link.href).hash));};
 await import('/app.js');
 await window.openDevice();window.ready=true;
 `;
@@ -80,26 +82,37 @@ try {
     assert(await asyncExecute('for(let i=0;i<100;i++){if(window.ready)return true;await new Promise(r=>setTimeout(r,20));}return false;') === true, 'viewport entry did not load');
     await execute(`document.documentElement.dataset.theme='${theme}';document.documentElement.dataset.reducedMotion='true';`);
     const device = await execute(`const root=document.querySelector('.runner-settings'),visible=n=>!!n.getClientRects().length;
-      return {width:innerWidth,entryHeight:document.querySelector('[data-settings-tab="runners"]').getBoundingClientRect().height,overflow:document.documentElement.scrollWidth>innerWidth,buttons:[...root.querySelectorAll('button')].filter(visible).map(n=>n.getBoundingClientRect().height),
+      return {width:innerWidth,entryHeight:window.deviceEntryHeight,overflow:document.documentElement.scrollWidth>innerWidth,buttons:[...root.querySelectorAll('button')].filter(visible).map(n=>n.getBoundingClientRect().height),
       advanced:[...root.querySelectorAll('details')].every(n=>!n.open),warning:visible(root.querySelector('.runner-warning')),alias:root.innerText.includes('private-alias'),
       vertical:innerWidth>600||getComputedStyle(root.querySelector('.runner-actions')).flexDirection==='column'};`);
     assert(device.width === width && device.entryHeight >= 44 && !device.overflow && device.buttons.every(h => h >= 44) && device.advanced && device.warning && !device.alias && device.vertical, `device layout: ${JSON.stringify(device)}`);
     results.push({ page: 'device', theme, requestedWidth: width, ...device }); await screenshot(`device-${theme}-${width}.png`);
+    assert(await execute('return window.sshTrials===0'), 'opening page connected SSH');
+    await execute(`[...document.querySelectorAll('.runner-settings button')].find(n=>n.textContent==='新增执行节点').click();`);
+    assert(await asyncExecute(`for(let i=0;i<100;i++){if(document.querySelector('[data-runner-field="ssh_discovered"]')?.options.length===3)return true;await new Promise(r=>setTimeout(r,20));}return false;`) === true, 'SSH aliases did not populate new-node dialog');
+    assert(await execute(`const card=document.querySelector('.runner-dialog'),name=card.querySelector('[data-runner-field="name"]');return document.activeElement===name&&name.getBoundingClientRect().top>=card.getBoundingClientRect().top;`), 'new-node form did not open at the first field');
+    await execute(`const select=document.querySelector('[data-runner-field="ssh_discovered"]');select.value='private-alias';select.dispatchEvent(new Event('change'));document.querySelector('[data-runner-field="name"]').value='新节点 · 保留填写';[...document.querySelectorAll('.runner-dialog button')].find(n=>n.textContent==='测试 SSH').click();`);
+    assert(await asyncExecute(`for(let i=0;i<100;i++){if(document.querySelector('.runner-dialog')?.textContent.includes('SSH 登录成功'))return true;await new Promise(r=>setTimeout(r,20));}return false;`) === true, 'SSH-only result did not render');
+    const adding = await execute(`const card=document.querySelector('.runner-dialog'),select=card.querySelector('[data-runner-field="ssh_discovered"]');return {width:innerWidth,overflow:card.scrollWidth>card.clientWidth,pageOverflow:document.documentElement.scrollWidth>innerWidth,selectHeight:select.getBoundingClientRect().height,buttons:[...card.querySelectorAll('button')].map(n=>n.getBoundingClientRect().height),advanced:[...card.querySelectorAll('details')].every(n=>!n.open),alias:card.querySelector('[data-runner-field="ssh_alias"]').value,name:card.querySelector('[data-runner-field="name"]').value,trialCount:window.sshTrials,distinction:card.textContent.includes('SSH 成功 ≠ Runner 可用')};`);
+    assert(!adding.overflow && !adding.pageOverflow && adding.selectHeight >= 44 && adding.buttons.every(h=>h>=44) && adding.advanced && adding.alias==='private-alias' && adding.name==='新节点 · 保留填写' && adding.trialCount===1 && adding.distinction, `new-node SSH layout: ${JSON.stringify(adding)}`);
+    results.push({page:'new-node',theme,requestedWidth:width,...adding});await screenshot(`new-node-${theme}-${width}.png`);
+    await execute(`document.querySelector('.modal-cancel').click();`);
     await execute(`document.querySelectorAll('.runner-settings button').forEach(n=>{if(n.textContent==='配置凭据')n.click()});`);
     const credentials = await execute(`const card=document.querySelector('.runner-dialog');return {overflow:card.scrollWidth>card.clientWidth,buttons:[...card.querySelectorAll('button')].map(n=>n.getBoundingClientRect().height),passwords:[...card.querySelectorAll('input')].filter(n=>n.type==='password').length};`);
     assert(!credentials.overflow && credentials.buttons.every(h => h >= 44) && credentials.passwords === 2, `credential layout: ${JSON.stringify(credentials)}`);
     await screenshot(`credentials-${theme}-${width}.png`);
     await execute(`document.querySelector('.modal-cancel').click();`);
     assert(await asyncExecute('await window.openProject();return true;') === true, 'project entry failed');
-    const project = await execute(`const root=document.querySelector('.runner-project-settings');return {width:innerWidth,entryHeight:document.querySelector('.project-runner-open').getBoundingClientRect().height,overflow:document.documentElement.scrollWidth>innerWidth,warning:!!root.querySelector('.runner-warning').getClientRects().length,rows:[...root.querySelectorAll('.runner-choice')].map(n=>n.getBoundingClientRect().height),buttons:[...root.querySelectorAll('button')].map(n=>n.getBoundingClientRect().height)};`);
+    const project = await execute(`const root=document.querySelector('.runner-project-settings');return {width:innerWidth,entryHeight:window.projectEntryHeight,overflow:document.documentElement.scrollWidth>innerWidth,warning:!!root.querySelector('.runner-warning').getClientRects().length,rows:[...root.querySelectorAll('.runner-choice')].map(n=>n.getBoundingClientRect().height),buttons:[...root.querySelectorAll('button')].map(n=>n.getBoundingClientRect().height)};`);
     assert(project.width === width && project.entryHeight >= 44 && !project.overflow && project.warning && project.rows.every(h => h >= 44) && project.buttons.every(h => h >= 44), `project layout: ${JSON.stringify(project)}`);
     results.push({ page: 'project', theme, requestedWidth: width, ...project });
     await execute(`document.querySelector('.runner-project-settings').scrollIntoView({block:'start'});`);
     await screenshot(`project-${theme}-${width}.png`);
     assert(await asyncExecute('await window.openDevice();return true;') === true, 'device return failed');
+    assert(await execute('return window.sshTrials===1'), 'navigation unexpectedly repeated SSH trial');
   }
   await Bun.write(join(evidence, 'layout.json'), JSON.stringify(results, null, 2));
-  console.log(`PASS desktop/narrow light/dark device/project pages, visible anomalies, collapsed diagnostics, credential controls ≥44px. Evidence: ${evidence}`);
+  console.log(`PASS desktop/narrow light/dark global device/project pages and new-node SSH dialog, visible anomalies, explicit-only SSH, collapsed diagnostics, controls ≥44px. Evidence: ${evidence}`);
 } finally {
   if (session) await rpc(`/session/${session}`, undefined, 'DELETE').catch(() => {});
   driver.kill(); await driver.exited; server.stop(true);

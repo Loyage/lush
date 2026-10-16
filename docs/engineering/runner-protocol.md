@@ -64,6 +64,8 @@ hello 同样要求机器凭据加项目 control 凭据，或当前连接有效�
 
 `RunnerClient({transport,identity,auth,expected_runner_id?,budgets?})` 先 `handshake()`，再 `call(method,params,{request_id?,signal?,timeout_ms?})`。返回 result；错误为带 code/details 的 RunnerError。创建客户端不会自动开始模型或命令。`forRun({run_id,run_token})` 复用同一连接的已确认握手；必须先经控制客户端 `lease.grant`。
 
+用户专属 SSH 别名发现／独立试连不是 Runner 协议操作；安全读取和有界子进程由 `src/core/runner-ssh.js` 管理，注册／权限仍复用 `runner-methods.js`。试连使用无 Match／代理执行能力的私有配置子集与固定 `true`，不使用 `SshTransport`，不发送 Runner 认证、不分配节点或安装身份；能力限制见 [SSH 入口边界](../reference/rpc/runners.md#ssh-别名发现与独立试连)。它的通过不能证明下述 Runner 连接可用。
+
 `SshTransport({ssh_alias})` 只接受单一安全别名；argv 禁止交互认证、首次主机信任、转发与 LocalCommand，远端启动字符串恒为 `lush-runner serve`。`StdioTransport({command,args,cwd,env})` 是显式独立进程接缝，env 不自动继承。两者使用有界 NDJSON、并发上限和请求截止；断线或已发送请求取消均为 unknown，关闭管道仅请求远端停止，不冒充停止确认。无自动重试；调用方保存 request_id，以新连接和固定 expected_runner_id 显式查询已登记收据。
 
 `LocalTransport(node)` 复用同一权限／执行协议，仅用于明确创建的节点，不改变原有本地 Worker，也不是 SSH 失败后的回退。`serveConnection(node,{input?,output?})` 管理单条连接，EOF 先撤销授权，再等待已接纳请求及停止服务收尾。

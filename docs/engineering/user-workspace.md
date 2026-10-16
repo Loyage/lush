@@ -8,7 +8,7 @@ W210／D492 已移除 Worker 并发额度功能：设备设置、CLI 及状态�
 
 每项目一个 lushd；`Config.home`、`LUSH_HOME`、Store、Git 和 Worker 身份不改变。设备根沿用 `launcherStateDir(env)/shared`。Host 只管理用户配置、聚合读面与来源转发，不持有 Worker 权威事实、不调度跨项目工作。
 
-项目统一使用 `/p/<project-id>/` 页面；根页面为用户工作台，即便 Host 以单项目模式启动。既有单项目无前缀 API 可保持兼容，但新前端不以根路径冒充项目身份。根 hash 保留 `#projects`、`#notices`、`#settings`、`#agent-status`、`#model-sources`、`#automation` 和文档；项目页旧设备设置 hash 引导独立根页面，不在项目 shell 编辑设置。
+项目统一使用 `/p/<project-id>/` 页面；根页面为用户工作台，即便 Host 以单项目模式启动。既有单项目无前缀 API 可保持兼容，但新前端不以根路径冒充项目身份。根 hash 保留 `#projects`、`#notices`、`#settings`、`#agent-status`、`#model-sources`、`#runners`、`#automation` 和文档；项目页旧设备设置 hash 引导独立根页面，不在项目 shell 编辑设置。
 
 ## 后台总览开发摘要（W186／决定 #446）
 
@@ -94,6 +94,7 @@ W210／D492 已移除 Worker 并发额度功能：设备设置、CLI 及状态�
 - W171／决定 #421：根 shell 显示完整全局导航；项目 shell 只显示项目内部导航，左上品牌原生链接 `/#projects` 在新标签打开上级空间，不再显示全局页面按钮或全局收件箱顶部摘要。单项目 Host 根也为工作台，用明确项目身份进入工作。
 - `settingsClient` 只接受 device，始终使用 Host 设置 API。删掉活跃项目覆盖／继承编辑，不删除历史记录；设备来源页不伪造全局消费者或历史，项目解释历史仍由项目页提供入口。
 - 根 `#projects` 增强为后台总览：只读已登记项目，安全 summary 可附已验证的正整数 pid；不可达显示未确认状态，不冒充已停止。不再提供每行「处理消息」按钮；全局收件箱的具体消息与系统提醒通过 `/p/<id>/#notices-<notice-id>` 新标签定位来源项目「待我处理」记录（只读导航、不自动已读），告知为蓝色、待决为琥珀色。原全局来源筛选与详情书签保留兼容。新指令表单按需加载 `project-order-form.js`，固定 `/p/<id>/api/action` 的 `order.submit {content,branch:'main',start}`；默认仅创建，显式创建并开始带 Agent 标识。离线／空白禁发送，单飞跨刷新，正文／ACK 按项目与文档隔离，失败保留并提示先核对未知写入结果，不自动重试。刷新保留表单节点和编辑；未发原文为会话内草稿，不持久写项目 Draft。
+- `#runners` 独立管理设备执行节点，复用设备编辑器；项目管理行与设备设置旧分区只提供导航，不再重复挂载。`#settings-runners` 兼容到独立页，`#runners-project-<host-project-id>` 固定来源并展开“项目授权与默认节点”；项目 shell 的旧全局书签引导新标签打开根页面。节点列表与异常、常用操作默认可见，身份／预算沿编辑器按需展开。项目授权模块按需读取 Host 已登记项目名与 ID，仅在线来源挂载原项目编辑器；离线、未登记、读取失败禁编辑，不启动后台，不把 Host 列表当授权权威。显式刷新保持仍在线的同一项目表单，切换／离页释放原编辑器、凭据和迟到请求；没有页面自动重渲染。
 - 全局自动化页仅编辑设备自动选择，旧设备完工默认编辑入口退役。项目 hooks 页管理项目未来 Worker 默认及默认显示原则；具体授权／运行记录留在对应 Worker，命令和实际挂载安全边界保持。
 - 全局收件箱可就地答复／已知，来源 Worker 使用完整项目链接；问卷 preview 用来源项目路由，输入草稿和通知去重按项目＋sync_epoch＋sync_identity 隔离。有 sync_identity 的记录提交动作必须携带 expected_identity，缺失字段不能伪造。离线动作禁用及 help-host 解释，ACK与后续刷新失败分开。
 - 设备偏好后端权威，缓存首帧、显式写入、跨标签／客户端定期或版本失效同步；启动旧缓存不得写回覆盖新值。请求失败保留编辑并明确未保存。

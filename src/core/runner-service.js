@@ -3,6 +3,7 @@ import { RunnerSettings } from './runner-settings.js';
 import { RunnerCredentials } from './runner-credentials.js';
 import { RunnerClient, SshTransport } from '../runner/index.js';
 import { check } from './types.js';
+import { RunnerSsh } from './runner-ssh.js';
 
 export const RUNNER_BINDING_KEYS = Object.freeze(['project_id', 'node_id', 'runner_id', 'worker_id', 'workspace_id', 'generation']);
 export function runnerIdentity(binding, context = {}) {
@@ -19,10 +20,16 @@ const connectionVersion = (node, auth) => digest({ id: node.id, ssh_alias: node.
  */
 export class RunnerService {
   #connections = new Set(); #watches = new Map(); #stops = new Map(); #timer; #checking = null; #closed = false;
-  constructor(config, store = null, { transport_factory = node => new SshTransport({ ssh_alias: node.ssh_alias }) } = {}) {
+  constructor(config, store = null, { transport_factory = node => new SshTransport({ ssh_alias: node.ssh_alias }), ssh = {} } = {}) {
     this.config = config; this.store = store;
     this.settings = new RunnerSettings(config); this.credentials = new RunnerCredentials(config);
-    this.transport_factory = transport_factory; this.pending = 0;
+    this.transport_factory = transport_factory; this.pending = 0; this.ssh = new RunnerSsh(ssh);
+  }
+  discoverSsh() { return this.ssh.discover(); }
+  async testSsh(ssh_alias) {
+    check(!this.#closed, 'Runner service is closed');
+    this.pending++;
+    try { return await this.ssh.test(ssh_alias); } finally { this.pending--; }
   }
   readNodes() { return this.settings.read(); }
   readCredentials() { return this.credentials.read(); }

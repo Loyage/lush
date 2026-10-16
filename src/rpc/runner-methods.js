@@ -2,9 +2,12 @@ import { check, isPlainObject, LushError } from '../core/types.js';
 import { LIMITS, CAPABILITIES } from '../runner/protocol.js';
 import { normalizeRunnerNode } from '../core/runner-settings.js';
 import { validateRunnerControlToken } from '../core/runner-credentials.js';
+import { safeSshAlias } from '../core/runner-ssh.js';
 
 // Single registration source for RPC, CLI, HTTP allowlists and Host device-only operations.
 export const RUNNER_METHODS = Object.freeze({
+  'runner.ssh.discover': { params: [], device: true, readPath: 'runner/ssh/aliases', cli: 'runner ssh discover', description: '只读当前系统用户 SSH 配置中的安全具体别名；不联网，不返回配置正文。' },
+  'runner.ssh.test': { params: ['ssh_alias'], device: true, cli: 'runner ssh test', args: 'SSH_ALIAS', example: 'my-node', description: '显式测试 SSH 登录；安全配置子集、严格 host key、固定 true 命令，不保存节点或检查 Runner。' },
   'runner.worker.reconcile': { params: ['id', 'expected_revision'], cli: 'runner worker reconcile', args: 'ID --expected-revision N', example: '5 --expected-revision 3', advanced: '仅用户与所选项目；revision 来自 worker.inspect 的 runner.revision。只核验持久请求和停止证据，不自动 retry/resume，不支持 --scope device。reconciled:false 表示尚未恢复。', description: '核验固定远端现场和已登记工具收据；不重放、不重试或启动 Agent。' },
   'runner.nodes.get': { params: [], device: true, readPath: 'runner/nodes', cli: 'runner nodes get', description: '读取设备执行节点，不连接远端。' },
   'runner.nodes.set': { params: ['nodes', 'expected_revision'], device: true, cli: 'runner nodes set', file: 'runner-nodes.json', description: '按 revision 完整替换节点列表，显式保存安装身份 pin。' },
@@ -22,6 +25,7 @@ export function validateRunnerParams(method, params) {
   const spec = RUNNER_METHODS[method];
   check(spec && isPlainObject(params) && Object.keys(params).every(key => spec.params.includes(key)), 'invalid Runner parameters');
   check(Buffer.byteLength(JSON.stringify(params)) <= 128 * 1024, 'Runner request exceeds its limit');
+  if (method === 'runner.ssh.test') check(safeSshAlias(params.ssh_alias), 'invalid SSH alias');
   if (method === 'runner.worker.reconcile') {
     check(Number.isSafeInteger(params.id) && params.id > 0 && Number.isSafeInteger(params.expected_revision) && params.expected_revision > 0,
       'Worker id and Runner binding expected_revision are required');
@@ -58,6 +62,8 @@ export async function runnerManagement(service, method, params = {}) {
   const { expected_revision, ...value } = params;
   try {
     switch (method) {
+      case 'runner.ssh.discover': return service.discoverSsh();
+      case 'runner.ssh.test': return await service.testSsh(value.ssh_alias);
       case 'runner.nodes.get': return service.readNodes();
       case 'runner.nodes.set': return await service.saveNodes(value, expected_revision);
       case 'runner.nodes.check': return await service.checkNode(value.node_id, value.project_id);
@@ -76,6 +82,11 @@ const pick = (value, keys) => Object.fromEntries(keys.filter(key => Object.hasOw
 const nodeKeys = ['id', 'name', 'ssh_alias', 'expected_runner_id', 'enabled'];
 const policyKeys = ['version', 'project_id', 'revision', 'authorization_version', 'allowed_node_ids', 'default_node_id'];
 export function publicRunnerResult(value, method) {
+  if (method === 'runner.ssh.discover') return { aliases: (value.aliases ?? []).filter(safeSshAlias).slice(0, 256),
+    status: ['ok', 'missing', 'unavailable'].includes(value.status) ? value.status : 'unavailable', limited: value.limited === true };
+  if (method === 'runner.ssh.test') return { ok: value.ok === true,
+    reason: ['connected', 'not_confirmed', 'timeout', 'output_limit', 'config_unavailable', 'config_unsupported'].includes(value.reason) ? value.reason : 'not_confirmed',
+    ...pick(value, ['checked_at']) };
   if (method === 'runner.worker.reconcile') return pick(value, ['worker_id', 'node_id', 'runner_id', 'generation', 'revision', 'state', 'reconciled', 'blocked_reason', 'checked', 'pending']);
   if (method.startsWith('runner.credentials.')) return { ...pick(value, ['version', 'revision']), nodes: (value.nodes ?? []).map(node => ({
     ...pick(node, ['node_id', 'machine_configured']), projects: (node.projects ?? []).map(project => pick(project, ['project_id', 'control_configured'])),
