@@ -4,6 +4,9 @@ import { temp, env, gate } from '../helpers.js';
 import { createProjectHost } from '../../src/host/project-host.js';
 import { projectRouteId, writeLauncherState, readLauncherState } from '../../src/host/registry.js';
 
+/** 不泄漏断言用的哨兵值：不能用字面量 private，macOS 临时目录本身就是 /private/var/...。 */
+const SENTINEL = 'PRIVATE-MUST-NOT-LEAK';
+
 function setup(overrides = {}) {
   const root = temp(), global = temp(), environment = env({ LUSH_GLOBAL_CONFIG: global });
   const calls = [], binding = { config: { project: root, home: `${root}/.lush` }, client: {} };
@@ -107,14 +110,14 @@ test('backend overview publishes validated process PID and safe unreachable diag
 test('Host development projection is bounded, credential-free and does not turn old daemons offline', async () => {
   const f = setup(), calls = [];
   const development = { workers_total: 500, active: 4, agents_running: 1, awaiting_acceptance: 2, parent_confirmation: 7,
-    pending_merges: 130, merging: 1, merge_conflicts: 2, secret: 'private', counts: [{ status: 'paused', count: 4, secret: 'private' }],
+    pending_merges: 130, merging: 1, merge_conflicts: 2, secret: SENTINEL, counts: [{ status: 'paused', count: 4, secret: SENTINEL }],
     recent_workers: Array.from({ length: 10 }, (_, i) => ({ id: i + 1, worker_number: 'W22-1', goal: 'x'.repeat(1000), status: 'waiting',
-      integration: 'none', profile: { env: { secret: 'private' } } })) };
+      integration: 'none', profile: { env: { secret: SENTINEL } } })) };
   let old = false;
   f.binding.client.request = async (method, params) => {
     calls.push([method, params]);
     if (old && params) throw Object.assign(Error('unknown parameter'), { code: -32602 });
-    return { project: f.root, agents: [], maintenance: { paused: true, private: 'private' }, ...(old ? {} : { development }) };
+    return { project: f.root, agents: [], maintenance: { paused: true, [SENTINEL]: SENTINEL }, ...(old ? {} : { development }) };
   };
   try {
     await f.host.start(f.id);
@@ -122,7 +125,7 @@ test('Host development projection is bounded, credential-free and does not turn 
     expect(row.summary.development.workers_total).toBe(500); expect(row.summary.development.pending_merges).toBe(130);
     expect(row.summary.development.recent_workers).toHaveLength(3);
     expect(row.summary.development.recent_workers[0].goal).toHaveLength(200);
-    expect(row.summary.maintenance_paused).toBe(true); expect(JSON.stringify(row)).not.toContain('private');
+    expect(row.summary.maintenance_paused).toBe(true); expect(JSON.stringify(row)).not.toContain(SENTINEL);
     old = true;
     const legacy = (await f.host.projects())[0]; expect(legacy.running).toBe(true); expect(legacy.summary.development).toBeUndefined();
     expect(calls.slice(-2)).toEqual([['system.summary', { development: true }], ['system.summary', undefined]]);
@@ -134,12 +137,12 @@ test('Host maintenance projection retains exact batch evidence and drops invalid
   const f = setup(), batch = '18e1ad01-8e50-4e68-aac5-5aa2c7d43bf9';
   const complete = { paused: true, phase: 'paused', ready_to_restart: true, batch_id: batch,
     completion_state: 'completed', completion_notice_id: 42 };
-  let maintenance = { ...complete, affected: [{ id: 5, token: 'private' }], hooks: 'private', blockers: ['private'] };
+  let maintenance = { ...complete, affected: [{ id: 5, token: SENTINEL }], hooks: SENTINEL, blockers: [SENTINEL] };
   f.binding.client.request = async () => ({ project: f.root, maintenance });
   try {
     await f.host.openRoute(f.id);
     expect((await f.host.projects())[0].summary.maintenance).toEqual(complete);
-    expect(JSON.stringify(await f.host.projects())).not.toContain('private');
+    expect(JSON.stringify(await f.host.projects())).not.toContain(SENTINEL);
     maintenance = { ...complete, ready_to_restart: false, phase: 'pausing' };
     expect((await f.host.projects())[0].summary.maintenance).toMatchObject({ ready_to_restart: false, phase: 'pausing' });
     for (const patch of [{ batch_id: undefined }, { batch_id: '../private' }, { batch_id: 'a'.repeat(10000) },

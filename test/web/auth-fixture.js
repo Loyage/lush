@@ -18,7 +18,8 @@ export const rawFetch = (url, options = {}) => new Promise((resolve, reject) => 
 /** Only provision synthetic credentials under our own temporary project/device roots. */
 export function provisionWebAuth(config) {
   const home = path.resolve(config.home);
-  const relative = path.relative(os.tmpdir(), home);
+  // temp() 取 realpath，macOS 的 os.tmpdir() 仍是 /var 软链接路径；比较前统一 realpath。
+  const relative = path.relative(fs.realpathSync(os.tmpdir()), home);
   if (relative.startsWith('..') || path.isAbsolute(relative) || !relative.split(path.sep)[0].startsWith('lush-test-'))
     throw new Error('Web auth fixture requires an isolated lush-test temporary root');
   fs.mkdirSync(home, { recursive: true, mode: 0o700 });

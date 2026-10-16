@@ -7,12 +7,15 @@ import { check } from '../core/types.js';
 const STATE_FILE = 'launcher.json';
 const STATE_VERSION = 2;
 
-/** 全局启动器状态不属于任何项目，也不是 LUSH_HOME。 */
+/** 全局启动器状态不属于任何项目，也不是 LUSH_HOME。
+ *  显式 HOME 优先于进程实际 home：隔离的运行环境（测试、受控服务）必须能改设备根，
+ *  否则 macOS 分支会落到真实用户目录，把夹具写进用户的设备配置。 */
 export function launcherStateDir(env = process.env, platform = process.platform, homedir = os.homedir()) {
   if (env.LUSH_GLOBAL_CONFIG) return path.resolve(env.LUSH_GLOBAL_CONFIG);
-  if (platform === 'win32') return path.join(env.APPDATA || path.join(homedir, 'AppData', 'Roaming'), 'Lush');
-  if (platform === 'darwin') return path.join(homedir, 'Library', 'Application Support', 'Lush');
-  return path.join(env.XDG_CONFIG_HOME || path.join(homedir, '.config'), 'lush');
+  const home = env.HOME || homedir;
+  if (platform === 'win32') return path.join(env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Lush');
+  if (platform === 'darwin') return path.join(home, 'Library', 'Application Support', 'Lush');
+  return path.join(env.XDG_CONFIG_HOME || path.join(home, '.config'), 'lush');
 }
 
 export function launcherStateFile(env = process.env) {

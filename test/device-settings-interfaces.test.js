@@ -1,9 +1,10 @@
 import { test, expect } from 'bun:test';
 import { Dispatcher } from '../src/rpc/dispatcher.js';
 import { assertAllowed, USER_ONLY } from '../src/rpc/registry.js';
+import { launcherStateDir } from '../src/host/registry.js';
 import { run as runConfig } from '../src/cli/commands/config.js';
 import { run as runAgent } from '../src/cli/commands/agent.js';
-import { fixture, temp } from './helpers.js';
+import { env, fixture, temp } from './helpers.js';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -86,6 +87,20 @@ test('fixtures isolate device storage by default and only share an explicitly se
     expect(fs.existsSync(shared)).toBe(true);
     fs.rmSync(shared, { recursive: true, force: true });
   }
+});
+
+test('device root follows the configured HOME on every platform so isolated runs never write the real user directory', () => {
+  const isolated = { HOME: '/tmp/lush-isolated-home', XDG_CONFIG_HOME: '/tmp/lush-isolated-home' };
+  // 隔离环境改 HOME 必须真的改设备根；darwin 曾忽略 env.HOME，测试夹具因此写进真实用户目录。
+  expect(launcherStateDir(isolated, 'darwin', '/Users/real-user')).toBe('/tmp/lush-isolated-home/Library/Application Support/Lush');
+  expect(launcherStateDir(isolated, 'linux', '/home/real-user')).toBe('/tmp/lush-isolated-home/lush');
+  expect(launcherStateDir(env(), 'darwin', '/Users/real-user').startsWith(env().HOME)).toBe(true);
+  // 未提供 HOME 时仍回退进程 home；显式 LUSH_GLOBAL_CONFIG 始终最优先。
+  expect(launcherStateDir({}, 'darwin', '/Users/real-user')).toBe('/Users/real-user/Library/Application Support/Lush');
+  expect(launcherStateDir({ ...isolated, LUSH_GLOBAL_CONFIG: '/tmp/selected-device' }, 'darwin', '/Users/real-user'))
+    .toBe('/tmp/selected-device');
+  const windows = launcherStateDir({ APPDATA: 'C:\\Users\\real-user\\AppData\\Roaming' }, 'win32', 'C:\\Users\\real-user');
+  expect(windows.endsWith(path.join('Roaming', 'Lush'))).toBe(true);
 });
 
 test('source project migration refuses live calls, Git work, writes and account operations before reading files', async () => {
