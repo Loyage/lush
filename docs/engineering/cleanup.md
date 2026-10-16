@@ -29,6 +29,15 @@
 
 归档不删行、不动后代与父分支的 `parent` 指针，所以谱系仍是历史；它与「删除」只在 `branches.status` 上分开（`active` / `archived` / `deleted`）。详见 [分支谱系](branch-genealogy.md)。
 
+## 远端 Runner 回收
+
+已绑定 Runner 的普通 order／child 不以 `workspace=null` 视为无现场。验收、归档和确认删除先完成整批中央安全检查，再在 Git 串行区外核对节点身份、代次、固定 HEAD、实际无租约／写入和干净状态，最后才执行登记资源回收。只有持久 `cleanup/removed` 收据允许删除中央 refs；停止信号、目录缺失、SSH 离线和旧 merged 状态都不是回收证明。旧本地 Worker 不变。
+
+- `worker.accept` 保留原批量、输入、待决、后代、冻结与交付门。远端资源部分删除后仍保留整批身份及中央 refs；失败显式从原根续办，不可单独验收子 Worker 绕过根批次。成功只清理开发资源，Runner／Run／执行历史仍保留。
+- ACK 丢失查询原请求并核验固定参数。节点明确已知失败／partial 可以在显式续办时登记新子尝试；unknown 不换请求重放，也不因重启自动回收。恢复仍检查原节点安装身份，不能指向另一机器。
+- 当前远端受检回收拒绝脏文件（包括 ignored），`branch.archive --discard` 和 `worker.delete --force` 不突破节点身份／清洁度门。`worker.cleanup --keep-branch` 对远端保留整个登记现场与中央 ref，不销毁仅存的可继续开发副本；本地仍沿用只回收 worktree 的原语义。已移除远端现场不能 reopen 或静默转成本地检出。
+- 删除预检显式查询远端，返回 `resources.runners` 身份、代次、HEAD 与状态，并纳入固定 revision；不可达时不能确认删除。执行再次核验原范围，远端移除后才删除中央资源与 Runner 附属外键记录；保留历史的普通验收不会清这些记录。
+
 ## 与彻底删除的区别
 
 `worker.delete_preview` 先列出完整 Worker 子树、原始输入与实际专属资源，用户用固定 revision 最终确认后 `worker.delete` 才丢弃未交付代码现场并清除专属历史；活动调用、外部依赖、共享资源、冻结和未知路径归属默认均拒绝。W194／D460 新增用户显式 `force:true` 预检与确认，仅放宽项目私有 worktrees 内精确运行时命名的未登记检出 `.git` 归属证明，连同全部残留代码删除；其他保护不放宽，强制/普通 revision 不通用，失败不丢弃 Worker 身份。它不保留仅作历史的专属分支谱系行：有范围外后代指向时先拒绝，绝不留下孤立谱系。归档与 cleanup 的保留行为不变。HTTP / CLI 与失败重试说明见[彻底删除 Worker](../reference/rpc/maintenance.md#彻底删除-worker)。

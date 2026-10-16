@@ -10,6 +10,7 @@ import { workerLabel } from '../worker-number.js';
 export const methods = {
   /** Called within the Git serial queue when a child is born, not deferred to its first invocation. */
   async forkTaskUnsafe(task, parentBranch, commit) {
+    check(!this.store.runnerBinding(task.id), 'remote Worker requires prepareRemoteBranchUnsafe, never a local worktree');
     check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
     const project = this.config.project;
     const branch = `lush/${this.namespace}/${taskLabel(task.id, task.name)}`;
@@ -31,7 +32,7 @@ export const methods = {
    * 先落库再动 git：谱系表示「这条分支确实被创建了」，崩溃重试不会重写它。
    * 失败一律抛错——锚不住就不接受输入。
    */
-  anchor(inputId, requestedBranch = null, guard = undefined) {
+  anchor(inputId, requestedBranch = null, guard = undefined, { remote = false } = {}) {
     return this.exclusive(async () => {
       const project = this.config.project;
       // 不是仓库时 `rev-parse` 自己会抛错，但报错要说清「提交输入需要什么」，不甩一行 git 原始输出。
@@ -52,18 +53,21 @@ export const methods = {
       check(commit, `input parent branch does not exist locally: ${target}`);
       const name = inputLabel(inputId);
       const branch = `lush/${this.namespace}/${name}`;
-      const workspace = path.join(this.config.home, 'worktrees', name);
+      const workspace = remote ? null : path.join(this.config.home, 'worktrees', name);
       check(!(await this.git(project, 'branch', '--list', branch)),
         `${branch} already exists; rename or remove it before submitting`);
       // 未提交改动不进入新分支；若父分支正被检出，把那份差异明确记下来。
       const targetWorkspace = await this.workspaceForBranch(target);
       const source = targetWorkspace ? await this.porcelain(targetWorkspace) : '';
-      check(!fs.existsSync(workspace), `input workspace already exists: ${workspace}; inspect it before submitting`);
+      check(!workspace || !fs.existsSync(workspace), `input workspace already exists: ${workspace}; inspect it before submitting`);
       guard?.(); // Final synchronous admission inside the serialized Git writer boundary.
       this.store.recordBranch({ branch, parent: target, created_from_commit: commit, worktree: workspace });
       try {
-        fs.mkdirSync(path.dirname(workspace), { recursive: true });
-        await this.git(project, 'worktree', 'add', '-b', branch, workspace, commit);
+        if (remote) await this.git(project, 'update-ref', '--no-deref', `refs/heads/${branch}`, commit, '0'.repeat(commit.length));
+        else {
+          fs.mkdirSync(path.dirname(workspace), { recursive: true });
+          await this.git(project, 'worktree', 'add', '-b', branch, workspace, commit);
+        }
       } catch (error) {
         // Only this newly allocated anchor is ours. Never force-clean an unknown checkout.
         try {
@@ -126,6 +130,7 @@ export const methods = {
   },
 
   async ensure(task) {
+    check(!this.store.runnerBinding(task.id), 'remote Worker requires Runner workspace routing; local fallback is forbidden');
     check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
     if (task.task_kind === 'management') {
       check(task.role === 'manager' && !task.branch && !task.target_branch && !task.base_commit, 'management Worker must not own a Git branch');
@@ -310,6 +315,7 @@ export const methods = {
     return { id: input.id, branch: input.anchor_branch, commit: input.anchor_commit, workspace: input.anchor_workspace, target: input.anchor_target_branch };
   },
   async finish(task) {
+    check(!this.store.runnerBinding(task.id), 'remote Worker requires receiveRemoteCommit and its exit barrier');
     if (task.task_kind === 'management') return; // No Git deliverable, clean or commit in a management directory.
     check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
     if (!task.workspace) return;

@@ -1,3 +1,5 @@
+import { RUNNER_METHODS, publicRunnerResult } from './runner-methods.js';
+
 /**
  * Worker rows may escape through old mutation envelopes as well as inspect/list.
  * Filter private Store columns at the single RPC exit, without mutating Store rows.
@@ -5,6 +7,7 @@
  * their authorized settings, including same-named environment-variable keys.
  */
 export function publicResult(value, method = '') {
+  if (Object.hasOwn(RUNNER_METHODS, method)) return publicRunnerResult(value, method);
   const seen = new WeakMap();
   const agentConfig = method === 'agent.config' || method === 'agent.configure' || method === 'worker.run_settings';
   const environment = method === 'agent.environment' || method === 'agent.environment.configure';

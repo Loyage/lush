@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import { assertRunnerIdle, inspectRunnerSafePoint } from './runner-safety.js';
+import { runnerCleanupReceipt } from './runner-reclamation.js';
 import { assertManagementCodeExecution } from './management-code.js';
 import { check, id, TERMINAL } from '../types.js';
 import { workerLabel } from '../worker-number.js';
@@ -191,10 +193,12 @@ export function assertNoPartialParentAcceptance(project, taskId) {
     AND EXISTS (SELECT 1 FROM json_each(e.data,'$.accepting_task_ids') participant WHERE participant.value=?)
     AND NOT EXISTS (SELECT 1 FROM events settled WHERE settled.task_id=e.task_id AND settled.id>e.id
       AND settled.type IN ('task.accepted','task.acceptance_reclaimed','task.iteration_started','task.reopened','retry'))
-    AND EXISTS (SELECT 1 FROM events receipt,json_each(receipt.data,'$.outcomes') outcome
+    AND (EXISTS (SELECT 1 FROM events receipt,json_each(receipt.data,'$.outcomes') outcome
       WHERE receipt.task_id=e.task_id AND receipt.type IN ('branch.archive','branch.archive.outcome')
       AND json_extract(receipt.data,'$.acceptance_execution')=e.id
       AND (json_extract(outcome.value,'$.worktree')='removed' OR json_extract(outcome.value,'$.ref')='deleted'))
+      OR EXISTS (SELECT 1 FROM runner_bindings binding,json_each(e.data,'$.task_ids') participant
+        WHERE binding.worker_id=participant.value AND binding.state='removed'))
     ORDER BY e.id DESC LIMIT 1`, taskId, taskId, taskId);
   check(!partial, `partial parent acceptance must resume at its root Worker ${partial ? workerLabel(project.store.task(partial.task_id)) : ''}`);
 }
@@ -237,12 +241,16 @@ export default {
     authorize(this.store.task(id(taskId)));
     assertNoPartialParentAcceptance(this, id(taskId));
     assertTaskNotSyncing(this, id(taskId));
-    for (const row of this.subtreeTasks(id(taskId))) assertTaskNoCommand(this, row.id);
+    for (const row of this.subtreeTasks(id(taskId))) {
+      assertTaskNoCommand(this, row.id);
+      check(!this.acceptanceBusy?.has(row.id), 'Worker acceptance is already in flight');
+    }
     return this.workspaces.exclusive(async () => {
       let task = this.store.task(id(taskId));
       check(['order', 'child'].includes(task.task_kind), 'only order/child Workers can be accepted');
       authorize(task);
       assertNoPartialParentAcceptance(this, task.id);
+      check(!this.acceptanceBusy?.has(task.id), 'Worker acceptance is already in flight');
       assertTaskNotSyncing(this, task.id); assertTaskNoCommand(this, task.id);
       const historical = task.status === 'completed' && this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.accepted' LIMIT 1", task.id);
       if (historical && this.subtreeTasks(task.id).every(row => TERMINAL.has(row.status)
@@ -285,6 +293,8 @@ export default {
       for (const child of children) check(child.branch && child.head_commit, 'delivered child has no inspectable resource identity');
       for (const row of subtree) {
         const booking = bookingOf(row);
+        const remote = this.store.runnerBinding(row.id);
+        if (remote) assertRunnerIdle(this, row.id, { allow_removed: true, allow_receipts: [runnerCleanupReceipt(this, row.id)?.request_id].filter(Boolean) });
         assertTaskNotSyncing(this, row.id); assertTaskNoCommand(this, row.id);
         waitCheck(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status)
           || (booking.status === 'pending' && taskSyncDeliveryPaused(this, row.id)), 'delivery is still in flight or reserved');
@@ -310,7 +320,7 @@ export default {
             continue;
           }
           const removed = recovered.get(row.branch)?.worktree === 'removed' && attempt?.tips[row.branch] === row.head_commit;
-          check(record?.status === 'active' && (!acceptingIds.has(row.id) || removed || (row.workspace && fs.existsSync(row.workspace))),
+          check(record?.status === 'active' && (!acceptingIds.has(row.id) || removed || remote || (row.workspace && fs.existsSync(row.workspace))),
             'Worker branch/worktree is archived or missing');
           if (row.workspace) {
             try { await this.workspaces.finish(row); }
@@ -395,52 +405,61 @@ export default {
       guard();
       this.acceptanceBusy ??= new Set();
       for (const row of subtree) this.acceptanceBusy.add(row.id);
-      try {
-        const result = await this.archiveBranch(task.branch, { acceptance: { id: started.id, task_id: task.id, task_ids: acceptingIds, tips, guard, completion: options.completion,
-          deletedRefs: new Set([...recovered].filter(([, outcome]) => outcome.ref === 'deleted').map(([branch]) => branch)),
-        } });
-        check(!result.failed.length && !result.remaining.length, 'acceptance resource reclamation incomplete; inspect branch.archive and retry worker.accept explicitly');
-        guard();
-      } catch (error) {
-        this.store.event(task.id, 'task.acceptance_failed', { acceptance_execution: started.id, reason: 'Resource reclamation incomplete; inspect branch.archive before explicitly retrying worker.accept' });
-        throw error;
-      } finally {
-        for (const row of subtree) this.acceptanceBusy.delete(row.id);
-      }
-      // Settle all successful participants together, only after the complete resource tree is reclaimed.
-      // Failed/cancelled/historical descendants keep their original outcomes and acceptance facts.
-      this.store.transaction(() => {
-        for (const rowId of acceptingIds) {
-          const row = this.store.task(rowId), booking = bookingOf(row);
-          if (booking?.status === 'pending') this.store.event(row.id, 'task.unreserved', { reservation: booking, reason: 'accepted after parent sync' });
-          this.store.update(row.id, { status: 'completed', error: null,
-            ...(booking?.status === 'pending' ? { reservation: null } : {}) });
-          this.store.armAgent(row.id, null);
-          this.store.event(row.id, row.task_kind === 'integration' ? 'convergence.helper_reclaimed'
-            : row.id === task.id && historical ? 'task.acceptance_reclaimed' : 'task.accepted', {
-            head_commit: row.head_commit, integration: row.integration,
-            accepted_by: actor === null ? 'user' : 'parent', parent_id: actor, resources_reclaimed: true,
-            acceptance_execution: started.id,
-            ...(row.id !== task.id ? { via: 'parent_acceptance', acceptance_root_id: task.id, delegator_id: row.parent_id } : {}),
-            ...(options.completion ? { via: row.id === task.id ? 'completion_hook' : 'parent_acceptance',
-              completion_execution: options.completion.id, authorization: options.completion.authorization,
-              round: options.completion.round } : {}) });
+      // End the short preflight Git gate before any remote network/reclamation. The
+      // persistent batch plus acceptanceBusy and guard retain admission through completion.
+      const remoteBatch = subtree.some(row => this.store.runnerBinding(row.id));
+      const perform = async () => {
+        try {
+          const result = await this.archiveBranch(task.branch, { acceptance: { id: started.id, task_id: task.id, task_ids: acceptingIds, tips, guard, completion: options.completion, git_gate: !remoteBatch,
+            deletedRefs: new Set([...recovered].filter(([, outcome]) => outcome.ref === 'deleted').map(([branch]) => branch)),
+          } });
+          check(!result.failed.length && !result.remaining.length, 'acceptance resource reclamation incomplete; inspect branch.archive and retry worker.accept explicitly');
+          guard();
+        } catch (error) {
+          this.store.event(task.id, 'task.acceptance_failed', { acceptance_execution: started.id, reason: 'Resource reclamation incomplete; inspect branch.archive before explicitly retrying worker.accept' });
+          throw error;
+        } finally {
+          for (const row of subtree) this.acceptanceBusy.delete(row.id);
         }
-      });
-      for (const rowId of acceptingIds) {
-        if (this.store.task(rowId).task_kind === 'integration') continue;
-        if (rowId !== task.id || !historical) this.emitTaskHook(rowId, 'worker.accepted');
-        this.scheduleTaskCompletion(rowId);
-      }
-      await this.reclaimConvergenceAfterAcceptanceUnsafe([...acceptingIds]);
-      return this.store.task(task.id);
-    });
+        // Settle all successful participants together, only after the complete resource tree is reclaimed.
+        // Failed/cancelled/historical descendants keep their original outcomes and acceptance facts.
+        this.store.transaction(() => {
+          for (const rowId of acceptingIds) {
+            const row = this.store.task(rowId), booking = bookingOf(row);
+            if (booking?.status === 'pending') this.store.event(row.id, 'task.unreserved', { reservation: booking, reason: 'accepted after parent sync' });
+            this.store.update(row.id, { status: 'completed', error: null,
+              ...(booking?.status === 'pending' ? { reservation: null } : {}) });
+            this.store.armAgent(row.id, null);
+            this.store.event(row.id, row.task_kind === 'integration' ? 'convergence.helper_reclaimed'
+              : row.id === task.id && historical ? 'task.acceptance_reclaimed' : 'task.accepted', {
+              head_commit: row.head_commit, integration: row.integration,
+              accepted_by: actor === null ? 'user' : 'parent', parent_id: actor, resources_reclaimed: true,
+              acceptance_execution: started.id,
+              ...(row.id !== task.id ? { via: 'parent_acceptance', acceptance_root_id: task.id, delegator_id: row.parent_id } : {}),
+              ...(options.completion ? { via: row.id === task.id ? 'completion_hook' : 'parent_acceptance',
+                completion_execution: options.completion.id, authorization: options.completion.authorization,
+                round: options.completion.round } : {}) });
+          }
+        });
+        for (const rowId of acceptingIds) {
+          if (this.store.task(rowId).task_kind === 'integration') continue;
+          if (rowId !== task.id || !historical) this.emitTaskHook(rowId, 'worker.accepted');
+          this.scheduleTaskCompletion(rowId);
+        }
+        if (remoteBatch) await this.workspaces.exclusive(() => this.reclaimConvergenceAfterAcceptanceUnsafe([...acceptingIds]));
+        else await this.reclaimConvergenceAfterAcceptanceUnsafe([...acceptingIds]);
+        return this.store.task(task.id);
+      };
+      return remoteBatch ? perform : perform();
+    }).then(result => typeof result === 'function' ? result() : result);
   },
 
   /** Explicit historical recovery; never starts a provider or recreates an archived ref. */
   async reopenTask(taskId) {
     this.assertWritable('reopen a worker');
     assertTaskNotSyncing(this, id(taskId)); assertTaskNoCommand(this, id(taskId));
+    const remote = this.store.runnerBinding(id(taskId));
+    const remoteProof = remote ? await inspectRunnerSafePoint(this, id(taskId), { head_commit: this.store.task(id(taskId)).head_commit }) : null;
     return this.workspaces.exclusive(async () => {
       const task = this.store.task(id(taskId));
       assertTaskNotSyncing(this, task.id); assertTaskNoCommand(this, task.id);
@@ -449,15 +468,18 @@ export default {
       check(!this.running.has(task.id) && !this.workspaces.busy.has(task.id), 'Agent or cleanup is still in flight');
       check(!this.store.get("SELECT id FROM events WHERE task_id=? AND type='task.accepted' LIMIT 1", task.id),
         'explicitly accepted Workers cannot be reopened; start a new Worker');
-      check(task.branch && task.workspace && fs.existsSync(task.workspace)
+      remoteProof?.guard();
+      check(task.branch && (remote ? remote.state === 'ready' : task.workspace && fs.existsSync(task.workspace))
         && this.store.branch(task.branch)?.status === 'active', 'archived or missing branches cannot be reopened');
       check(task.integration === 'merged', 'only historical completed/merged Workers can be reopened');
       this.assertBranchWritable(task.branch, 'reopen it');
       const booking = bookingOf(task);
       check(!booking || ['integrated', 'completed', 'withdrawn'].includes(booking.status), 'outstanding delivery blocks reopen');
-      const head = await this.workspaces.git(task.workspace, 'rev-parse', 'HEAD');
+      const head = remote ? await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`)
+        : await this.workspaces.git(task.workspace, 'rev-parse', 'HEAD');
       check(head === task.head_commit, 'Worker branch moved; inspect before reopening');
-      await this.workspaces.finish(task);
+      if (!remote) await this.workspaces.finish(task);
+      remoteProof?.guard();
       const integration = await taskDeliveryState(this, this.store.task(task.id));
       check(integration !== 'pending', 'historical Worker has undelivered changes; inspect before reopening');
       this.store.transaction(() => {

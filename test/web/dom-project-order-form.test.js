@@ -7,24 +7,41 @@ const row = (id = A, running = true) => ({ id, name: `项目 ${id[0]}`, running 
 let dom, calls, reply;
 beforeEach(() => {
   calls = []; reply = () => Response.json({ emitted: true, draft_id: 17, dispatch: { state: 'queued' } });
-  dom = installDom({ fetch: async (url, options) => { calls.push({ url: String(url), body: JSON.parse(options.body) }); return reply(); } });
+  dom = installDom({ fetch: async (url, options) => {
+    calls.push({ url: String(url), body: options?.body ? JSON.parse(options.body) : null });
+    if (String(url).endsWith('/runner/nodes')) return Response.json({ nodes: [] });
+    if (String(url).endsWith('/runner/project')) return Response.json({ allowed_node_ids: [], default_node_id: 'local' });
+    return reply();
+  } });
 });
 afterEach(() => dom.restore());
 const inputOf = form => form.root.querySelector('textarea');
-const control = form => form.root.querySelector('button');
+const control = form => form.root.querySelector('.project-order-actions').querySelector('button');
 const type = (form, value) => { inputOf(form).value = value; inputOf(form).oninput(); };
 const deferred = () => { let resolve; const promise = new Promise(done => resolve = done); return { promise, resolve }; };
 
 test('fixed source and main parent, emission schedules Agent without claiming creation or leaving global view', async () => {
   const form = createProjectOrderForm(row()); type(form, '独立工作');
   expect(control(form).classList.contains('agent-call')).toBe(true); expect(control(form).getAttribute('data-help')).toContain('token');
-  expect(form.root.querySelectorAll('button')).toHaveLength(1);
+  expect(form.root.querySelector('.project-order-actions').querySelectorAll('button')).toHaveLength(1);
+  expect(form.root.querySelector('.runner-input-choice')).not.toBeNull();
   await control(form).onclick();
   expect(calls[0]).toMatchObject({ url: `/p/${A}/api/action`, body: { method: 'input.emit', params: { content: '独立工作', branch: 'main' } } });
   expect(calls[0].body.params.client_request_id).toBeTruthy(); expect(calls[0].body.params).not.toHaveProperty('start');
   expect(inputOf(form).value).toBe(''); expect(control(form).disabled).toBe(true);
   expect(deepText(form.root)).toContain('尚不代表 Worker 已创建'); expect(form.root.querySelector('a').href).toBe(`/p/${A}/#input-draft-17`);
   expect(dom.location.pathname).toBe('/');
+});
+
+test('expanding execution environment is read-only and does not submit the current input', async () => {
+  const form = createProjectOrderForm(row()); type(form, 'still editing');
+  const change = form.root.querySelectorAll('button').find(node => node.textContent === '更改执行环境');
+  expect(change.classList.contains('agent-call')).toBe(false);
+  await change.onclick();
+  expect(calls.map(call => call.url)).toEqual([`/p/${A}/api/runner/nodes`, `/p/${A}/api/runner/project`]);
+  expect(calls.every(call => call.body === null)).toBe(true);
+  expect(inputOf(form).value).toBe('still editing');
+  expect(form.root.querySelector('.runner-choice-options').hidden).toBe(false);
 });
 
 test('emission uses the explicit source daemon even from another project route', async () => {

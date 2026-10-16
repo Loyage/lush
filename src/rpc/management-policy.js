@@ -1,3 +1,4 @@
+import { RUNNER_METHODS } from './runner-methods.js';
 import { PARAMS, USER_ONLY, AGENT_ONLY } from './registry.js';
 import { check, isPlainObject } from '../core/types.js';
 import { HOOK_INSTALL_CAPABILITY, validateHookInstallation } from '../core/hook-install.js';
@@ -30,6 +31,7 @@ export function managementDispatchParams(method, params) {
   return definition;
 }
 const unavailable = new Set([
+  ...Object.keys(RUNNER_METHODS), // Node and control credentials are strictly user-owned, even after confirmation.
   'cli.catalog', // User learning surface, not a new manager tool; use manager.catalog.
   'hooks.automation_settings','worker.acceptance_notice', // user configuration, never model-authorized
   'management.permissions','management.permissions_update','management.submit','management.create','management.binding_update', // no self-replicating managers/authorization changes

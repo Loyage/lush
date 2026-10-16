@@ -14,6 +14,7 @@ import { createRuntimeConnection, readRuntimeObservations } from './connection-r
 import { defaultPiEnvironment, isolatedPiEnvironment } from './pi-config.js';
 import { MISSING_PI_SOURCE_MESSAGE } from './settings.js';
 import { MANAGEMENT_TOOL_NAMES } from './pi-management.js';
+import { runRemotePi } from './remote-provider.js';
 
 const BIN = fileURLToPath(new URL('../../bin', import.meta.url));
 const GUARD = path.join(BIN, 'lush-agent-guard');
@@ -73,7 +74,7 @@ function takePreemptMark(paths) {
     requested_at: stop.requested_at ?? null, stopped_at: stop.stopped_at ?? null };
 }
 
-function sessionFiles(config, task, context, messages, agent, messagesPage = null) {
+function sessionFiles(config, task, context, messages, agent, messagesPage = null, promptOptions = {}) {
   const sessions = path.join(config.home, 'sessions');
   fs.mkdirSync(sessions, { recursive: true, mode: 0o700 });
   const promptFile = path.join(sessions, `task-${task.id}-input.md`);
@@ -90,7 +91,7 @@ function sessionFiles(config, task, context, messages, agent, messagesPage = nul
   // undelivered originals remain unread in SQLite and arrive on a later invocation.
   fs.writeFileSync(promptFile, JSON.stringify({ task: safeTask, project: config.project, agent: profile, ...context,
     ...(messagesPage ? { messages_page: messagesPage } : {}), messages }, null, 2) + '\n', { mode: 0o600 });
-  const prompt = agentPrompt(config, task.role, agent, task.task_kind ?? null);
+  const prompt = agentPrompt(config, task.role, agent, task.task_kind ?? null, promptOptions);
   fs.writeFileSync(systemFile, prompt.text, { mode: 0o600 });
   // Managers never load development env files or profile overrides. Keep the machine runtime,
   // project network policy and managed connection handling; this is not an OS sandbox.
@@ -167,8 +168,11 @@ export class PiProvider {
   requiresPiSource = true;
   reportsInputDelivery = true;
   async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, onInputDelivered, onPreempt = null, agent, forkPointer = null,
-    connectionRuntime = null, onConnectionObservation = null, choiceFork = null }) {
+    connectionRuntime = null, onConnectionObservation = null, choiceFork = null, remote_workspace = null }) {
     const config = this.config;
+    if (remote_workspace !== null) return runRemotePi(config, { task, context, messages, messagesPage, cwd, token, signal,
+      onSpawn, onInputDelivered, onPreempt, agent, forkPointer, connectionRuntime, onConnectionObservation, choiceFork, remote_workspace },
+    { sessionFiles, spawnAgent });
     const piMode = agent?.config_mode === 'pi';
     if (piMode && agent.agent !== 'pi') throw new Error('Pi default mode requires the Pi backend');
     if (!piMode && !agent?.connection_id) throw new Error(MISSING_PI_SOURCE_MESSAGE);
@@ -273,7 +277,8 @@ function writeThread(file, threadId) {
 export class CodexProvider {
   constructor(config) { this.config = config; }
   reportsInputDelivery = true;
-  async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, onInputDelivered, agent }) {
+  async run({ task, context, messages, messagesPage = null, cwd, token, signal, onSpawn, onInputDelivered, agent, remote_workspace = null }) {
+    if (remote_workspace !== null) throw new Error('Remote workspaces do not support Codex; no local fallback');
     const config = this.config;
     if (managementTask(task)) throw new Error('manager requires Pi restricted management tools; the legacy Codex CLI backend is not supported');
     integrationTask(config, task, context, cwd);

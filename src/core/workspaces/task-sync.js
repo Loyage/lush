@@ -79,8 +79,8 @@ export const methods = {
     return null;
   },
 
-  /** Pure object merge first; content conflicts never touch the user's index/worktree. Caller owns the Git queue. */
-  async syncTaskParentUnsafe(task, source, parent, recheck = () => {}) {
+  /** Pure objects only, shared by local and remote synchronization. Caller owns the Git queue. */
+  async prepareTaskParentSyncUnsafe(task, source, parent, recheck = () => {}) {
     const project = this.config.project;
     const record = this.store.branch(task.branch);
     check(record?.status === 'active' && record.task_id === task.id && record.parent_relation === 'recorded'
@@ -89,10 +89,10 @@ export const methods = {
     const readRef = branch => this.git(project, 'rev-parse', '--verify', `refs/heads/${branch}^{commit}`);
     const verify = async () => {
       recheck();
-      check(await readRef(task.branch) === source && await readRef(record.parent) === parent,
-        'source/parent moved during synchronization; refresh and retry');
+      check(await readRef(task.branch) === source, 'source ref moved during synchronization; refresh and retry');
+      check(await readRef(record.parent) === parent, 'parent ref moved during synchronization; refresh and retry');
       await this.assertCleanBranches([task.branch, record.parent]);
-      await this.taskSyncCheckout(task, source);
+      recheck();
     };
     await verify();
     const base = await this.taskSyncBase(task, source, parent);
@@ -119,15 +119,42 @@ export const methods = {
       commit = await this.git(project, '-c', 'user.name=Lush', '-c', 'user.email=lush@localhost',
         'commit-tree', tree, '-p', source, '-p', parent, '-m', `Sync task #${task.id} with parent ${parent}`);
     }
-    await withParentLock(this, record.parent, parent, async () => {
-      await verify();
-      if (commit !== source) await this.git(task.workspace, '-c', 'core.hooksPath=/dev/null',
-        'merge', '--ff-only', '--no-edit', commit);
-      check(await readRef(task.branch) === commit, 'source changed during synchronization; inspect the worktree');
-      await this.taskSyncCheckout(task, commit);
-    });
+    await verify();
     return { synced: commit !== source, conflict: false, source_commit: source, parent_commit: parent,
       head_commit: commit, base_commit: base,
       integration: tree === await this.git(project, 'rev-parse', `${parent}^{tree}`) ? 'merged' : 'pending' };
+  },
+
+  /** Existing local checkout policy stays local; conflicts never touch its index/worktree. */
+  async syncTaskParentUnsafe(task, source, parent, recheck = () => {}) {
+    await this.taskSyncCheckout(task, source);
+    const outcome = await this.prepareTaskParentSyncUnsafe(task, source, parent, recheck);
+    if (outcome.conflict) { await this.taskSyncCheckout(task, source); recheck(); return outcome; }
+    await withParentLock(this, task.target_branch, parent, async () => {
+      recheck();
+      check(await this.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${task.branch}^{commit}`) === source,
+        'source moved during synchronization');
+      await this.assertCleanBranches([task.branch, task.target_branch]);
+      await this.taskSyncCheckout(task, source);
+      recheck();
+      if (outcome.head_commit !== source) await this.git(task.workspace, '-c', 'core.hooksPath=/dev/null',
+        'merge', '--ff-only', '--no-edit', outcome.head_commit);
+      await this.taskSyncCheckout(task, outcome.head_commit);
+    });
+    return outcome;
+  },
+
+  /** Remote source only: persist the fixed candidate before this central CAS; network stays outside. */
+  async applyRemoteTaskParentSyncUnsafe(task, source, parent, commit, recheck) {
+    check(this.store.runnerBinding(task.id) && task.workspace === null, 'remote synchronization requires its registered source');
+    check(oid(source) && oid(parent) && oid(commit), 'remote synchronization requires fixed commits');
+    check(await this.isAncestor(this.config.project, source, commit) && await this.isAncestor(this.config.project, parent, commit),
+      'synchronization candidate must preserve source and parent history');
+    check(!await this.checkedOut(task.branch), 'remote source has a local checkout');
+    await withParentLock(this, task.target_branch, parent, async () => {
+      recheck();
+      await this.git(this.config.project, 'update-ref', '--no-deref', `refs/heads/${task.branch}`, commit, source);
+    });
+    recheck();
   },
 };

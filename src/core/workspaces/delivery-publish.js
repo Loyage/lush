@@ -76,6 +76,7 @@ async function evidenceRef(workspaces, receipt, required = false) {
 }
 
 function owners(workspaces, receipt) {
+  workspaces.assertLocalBranchOperation([receipt.parent, ...receipt.members.map(member => member.branch)]);
   const parent = workspaces.store.get("SELECT id FROM tasks WHERE branch=? AND task_kind IN ('main','owner','order','say','child')", receipt.parent);
   check(parent, 'convergence target has no Worker owner');
   for (const member of receipt.members) {

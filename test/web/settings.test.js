@@ -47,7 +47,7 @@ test('根设置入口进入 #settings，后退回项目入口，不装配项目�
   expect(panel().dataset.view).toBe('settings');
   expect(dom.node('view-title').textContent).toBe('设备设置');
   expect(panel().querySelector('h1').textContent).toBe('设备设置');
-  expect(panel().querySelectorAll('button.settings-tab').map(node => node.dataset.settingsTab)).toEqual(['interface', 'system']);
+  expect(panel().querySelectorAll('button.settings-tab').map(node => node.dataset.settingsTab)).toEqual(['interface', 'system', 'runners']);
   expect(panel().querySelector('.agent-settings')).toBeNull();
   expect(deepText(panel())).toContain('Markdown 渲染');
   expect(deepText(panel())).toContain('执行过程排序');

@@ -1,4 +1,5 @@
 import { check, id, bounded } from '../../core/types.js';
+import { validateRunnerNodeSelection } from '../runner-methods.js';
 
 /** worker.* (persistent Task data and internal methods keep their names). */
 export const handlers = {
@@ -87,7 +88,9 @@ export const handlers = {
     const parent = params.parent ?? actor;
     check(actor === null || id(parent) === actor, 'agents may delegate only from their own worker');
     check(['order','child'].includes(p.store.task(id(parent)).task_kind), 'only order/child Workers can delegate');
-    return p.spawn(parent, params.goal, 'agent', [], params.name ?? null);
+    const placement = Object.hasOwn(params, 'runner_node_id');
+    if (placement) validateRunnerNodeSelection(params.runner_node_id);
+    return p.spawn(parent, params.goal, 'agent', [], params.name ?? null, ...(placement ? [undefined, params.runner_node_id] : []));
   },
   'worker.integrate'(p, params, actor) { return p.integrateChild(actor, params.id, params.commit); },
   'worker.reserve'(p, params) { check(params.kind === 'merge', 'only merge delivery is supported'); return p.reserveTask(params.id, 'merge'); },

@@ -1,4 +1,7 @@
 import * as types from '../types.js';
+import { assertRunnerIdle, inspectRunnerSafePoint } from './runner-safety.js';
+import { pendingRunnerTaskSync, syncRunnerTaskParent, inspectRunnerResolution } from './runner-parent-sync.js';
+import { reconcileRunnerWorker } from './runner-lifecycle.js';
 const { check, id, TERMINAL } = types;
 const isSettled = task => types.isSettled?.(task) ?? (TERMINAL.has(task.status)
   || (task.status === 'awaiting_acceptance' && task.integration === 'merged'));
@@ -39,7 +42,9 @@ export default {
     check(['waiting', 'paused', 'awaiting_acceptance'].includes(task.status),
       'Worker must be idle and not queued, running, or waiting for a user decision');
     check(!this.running.has(task.id) && !this.commandHookRunning?.has(task.id), 'Worker invocation or shortcut command is still running');
-    check(task.branch && task.workspace && task.target_branch && task.parent_id, 'Worker branch/worktree/direct parent is missing');
+    const remote = this.store.runnerBinding(task.id), pending = remote ? pendingRunnerTaskSync(this, task.id) : null;
+    if (remote) assertRunnerIdle(this, task.id, { allow_receipts: pending ? [pending.request_id] : [] });
+    check(task.branch && (task.workspace || remote) && task.target_branch && task.parent_id, 'Worker branch/worktree/direct parent is missing');
     const booking = bookingOf(task);
     check(!booking || ['pending', 'integrated', 'withdrawn', 'completed', 'failed', 'cancelled'].includes(booking.status),
       'Worker is frozen for delivery or divergence repair');
@@ -49,6 +54,7 @@ export default {
     check(this.subtreeTasks(task.id).every(child => child.id === task.id
       || (isSettled(child) && !this.running.has(child.id) && !this.commandHookRunning?.has(child.id))), 'Worker has active descendants');
     const parent = this.store.task(task.parent_id);
+    assertRunnerIdle(this, parent.id);
     check(['main', 'owner', 'order', 'child'].includes(parent.task_kind) && !TERMINAL.has(parent.status)
       && parent.branch === task.target_branch, 'Worker parent identity no longer matches its fixed Git target');
     check(parent.status !== 'running' && parent.status !== 'queued' && !this.running.has(parent.id) && !this.commandHookRunning?.has(parent.id),
@@ -68,12 +74,23 @@ export default {
   },
 
   async syncTaskParent(taskId) {
-    const task = this.assertTaskSyncable(taskId);
+    const task = this.store.task(id(taskId));
+    check(['order', 'child'].includes(task.task_kind) && task.parent_id, 'only order/child Workers can synchronize their direct parent');
+    check(['waiting', 'paused', 'awaiting_acceptance'].includes(task.status),
+      'Worker must be idle and not queued, running, or waiting for a user decision');
     acquire(this, task.id, task.parent_id);
     try {
+      const pending = pendingRunnerTaskSync(this, task.id);
+      if (pending && this.store.runnerBinding(task.id)?.state === 'unknown'
+        && this.store.runnerReceipt(pending.request_id)?.state === 'acknowledged')
+        await reconcileRunnerWorker(this, task.id, { sync_request_id: pending.request_id });
+      this.assertTaskSyncable(task.id);
+      if (this.store.runnerBinding(task.id)) return await syncRunnerTaskParent(this, task.id);
+      const parentProof = await inspectRunnerSafePoint(this, task.parent_id, { guard: () => this.assertTaskSyncable(task.id) });
       return await this.workspaces.exclusive(async () => {
         const current = this.assertTaskSyncable(task.id);
         const recheck = () => {
+          parentProof.guard();
           const live = this.assertTaskSyncable(task.id);
           check(['parent_id', 'branch', 'workspace', 'target_branch', 'status', 'reservation'].every(key => live[key] === current[key]),
             'Worker changed during synchronization');
@@ -107,8 +124,11 @@ export default {
   /** Explicit user action: wake this Task once with the diagnostic's immutable parent, not a new child. */
   async resolveTaskSync(taskId) {
     const task = this.assertTaskSyncable(taskId);
+    check(!pendingRunnerTaskSync(this, task.id), 'Finish the fixed Runner synchronization before resolving another conflict');
     acquire(this, task.id, task.parent_id);
     try {
+      const sourceProof = await inspectRunnerSafePoint(this, task.id, { guard: () => this.assertTaskSyncable(task.id) });
+      const parentProof = await inspectRunnerSafePoint(this, task.parent_id, { guard: () => this.assertTaskSyncable(task.id) });
       return await this.workspaces.exclusive(async () => {
         const current = this.assertTaskSyncable(task.id);
         const diagnostic = eventOf(this.store, task.id, 'task.parent_sync_conflict');
@@ -123,7 +143,8 @@ export default {
           check(await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${current.target_branch}^{commit}`)
             === diagnostic.parent_commit, 'parent moved since the conflict; synchronize again before resolving');
           await this.workspaces.assertCleanBranches([current.branch, current.target_branch]);
-          await this.workspaces.taskSyncCheckout(current, source);
+          if (!sourceProof.remote) await this.workspaces.taskSyncCheckout(current, source);
+          sourceProof.guard(); parentProof.guard();
           this.assertTaskSyncable(task.id);
           check(await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${current.target_branch}^{commit}`)
             === diagnostic.parent_commit, 'parent moved since the conflict; synchronize again before resolving');
@@ -150,6 +171,7 @@ export default {
     const request = eventOf(this.store, task.id, 'task.sync_resolution_requested');
     const settled = eventOf(this.store, task.id, 'task.sync_resolution_settled');
     if (!request || settled?.request_event_id === request.event_id) return false;
+    const proof = await inspectRunnerResolution(this, task);
     return this.workspaces.exclusive(async () => {
       const current = this.store.task(task.id);
       const parent = this.store.task(current.parent_id);
@@ -161,13 +183,14 @@ export default {
       check(await this.workspaces.isAncestor(this.config.project, request.parent_commit, `refs/heads/${parent.branch}`),
         'fixed synchronization parent is no longer in parent history');
       const commit = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${current.branch}^{commit}`);
-      await this.workspaces.taskSyncCheckout(current, commit);
+      if (proof) { proof.guard(); check(commit === proof.head_commit, 'Runner repair ref drifted'); }
+      else await this.workspaces.taskSyncCheckout(current, commit);
       check(await this.workspaces.isAncestor(this.config.project, request.source_commit, commit)
         && await this.workspaces.isAncestor(this.config.project, request.parent_commit, commit),
         'synchronization repair must preserve both fixed source and parent commits');
       const integration = await this.workspaces.commitTree(commit) === await this.workspaces.commitTree(request.parent_commit)
         ? 'merged' : 'pending';
-      await this.workspaces.taskSyncCheckout(current, commit);
+      if (proof) proof.guard(); else await this.workspaces.taskSyncCheckout(current, commit);
       this.store.transaction(() => {
         this.store.update(task.id, { head_commit: commit, integration, integration_error: null });
         baselinePatch(this, task.id, request.parent_commit);

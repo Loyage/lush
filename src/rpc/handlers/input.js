@@ -1,6 +1,7 @@
 import { check } from '../../core/types.js';
+import { validateRunnerNodeSelection } from '../runner-methods.js';
 
-const DRAFT_OPTIONS = ['mode', 'target_id', 'conditions', 'exclusive'];
+import { INPUT_OPTION_KEYS as DRAFT_OPTIONS } from '../../core/input-option-keys.js';
 function draftOptions(params) {
   return Object.fromEntries(DRAFT_OPTIONS.filter(key => Object.hasOwn(params, key)).map(key => [key, params[key]]));
 }
@@ -19,6 +20,12 @@ export const handlers = {
     check(params.start === undefined || typeof params.start === 'boolean', 'start must be boolean');
     check(params.defer === undefined || typeof params.defer === 'boolean', 'defer must be boolean');
     check(params.profile === undefined || (params.profile !== null && typeof params.profile === 'object' && !Array.isArray(params.profile)), 'invalid profile');
+    const placement = Object.hasOwn(params, 'runner_node_id');
+    if (placement) {
+      validateRunnerNodeSelection(params.runner_node_id);
+      check(params.defer !== true && !Object.hasOwn(params, 'draft_id'),
+        'runner_node_id cannot override a draft or legacy deferred Hook; edit the draft before emitting');
+    }
     if (Object.hasOwn(params, 'draft_id')) {
       check(!['content','references','branch'].some(key => Object.hasOwn(params, key)),
         'draft_id cannot be combined with content, references or branch; edit the draft first');
@@ -30,7 +37,7 @@ export const handlers = {
     check(params.branch === undefined || (typeof params.branch === 'string' && params.branch.trim().length > 0 && params.branch.length <= 512), 'invalid branch');
     if (params.start !== false) return p.emitBufferedInput(emissionOptions(params));
     // Explicit start:false remains a compatibility creation primitive, not emission.
-    return p.order(params.content, params.branch ?? null, params.references === undefined ? [] : params.references, null, params.start !== false, undefined, params.profile, params.defer === true);
+    return p.order(params.content, params.branch ?? null, params.references === undefined ? [] : params.references, null, params.start !== false, undefined, params.profile, params.defer === true, ...(placement ? [params.runner_node_id] : []));
   },
   'input.history'(p, params) { return p.inputHistory(params); },
   'input.get'(p, params) { return p.inputGet(params.kind, params.id); },

@@ -3,6 +3,9 @@ import path from 'node:path';
 import { check, TERMINAL, bounded } from '../types.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation } from './iteration.js';
 import { workerLabel } from '../worker-number.js';
+import { runnerIdentity } from '../runner-service.js';
+import { pendingRunnerTaskSync } from './runner-parent-sync.js';
+import { runnerPendingCount, requestRunnerStop, recordRunnerRecovery, reconcileRunnerWorker } from './runner-lifecycle.js';
 
 /**
  * 结算提醒的文案只由任务事实拼出来：goal 可能很长，只取第一行并截断成「一句话目标」。
@@ -192,13 +195,17 @@ export default {
   cancel(taskId, reason = 'cancelled by user', status = 'cancelled') {
     const task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
+    check(!pendingRunnerTaskSync(this, task.id), 'Runner synchronization must settle its fixed receipt before cancellation');
     if (task.task_kind === 'integration') {
       check(this.cancelConvergenceIntegration, 'integration lifecycle is unavailable; preserve its private worktree');
       return this.cancelConvergenceIntegration(task.id, reason, status);
     }
     check(!['main','owner'].includes(task.task_kind), 'branch owner is a permanent root; cancel individual order Workers instead');
     if (task.task_kind === 'management') return this.cancelManagementWorker(task.id, reason, status);
-    if (TERMINAL.has(task.status)) return task;
+    if (TERMINAL.has(task.status)) {
+      if (!this.recoveringHooks) requestRunnerStop(this, task.id);
+      return task;
+    }
     const mergeBooking = task.reservation ? JSON.parse(task.reservation) : null;
     const inbound = this.activeTaskMerge(task.id);
     check(!this.activeConvergenceLanding?.(task.id), 'convergence may have modified this branch; preserve its publication gate before cancelling');
@@ -241,6 +248,7 @@ export default {
     // Children first; the event loop cannot schedule their parents until this synchronous cascade ends.
     for (const child of this.store.children(task.id)) if (!TERMINAL.has(child.status)) this.cancel(child.id, reason);
     this.running.get(task.id)?.controller.abort(new Error(reason));
+    if (!this.recoveringHooks) requestRunnerStop(this, task.id);
     const result = this.finish(task.id, status, null, reason);
     if (!this.running.has(task.id) && !(this.recoveringHooks && this.hookRecoveredWorkers?.has(task.id)))
       this.emitTaskHook(task.id, status === 'failed' ? 'agent.failed' : 'worker.cancelled');
@@ -260,6 +268,9 @@ export default {
     check(!this.clearing, 'clear is already in progress');
     check(!this.sleepStatus().enabled && !this.sleepTickPromise, '请先关闭托管模式并等待管家操作结束，再清空项目');
     check(this.running.size === 0, 'an agent invocation is still unwinding; clear must wait');
+    check(runnerPendingCount(this) === 0, 'Runner execution, synchronization or cleanup remains active/unknown; clear must wait');
+    check(!this.store.get('SELECT worker_id FROM runner_bindings LIMIT 1'),
+      'Runner binding history remains; use checked worker.delete for each Worker before clearing the project');
     check(this.store.activeBranchMergeRuns().length === 0, 'a one-click merge is in progress; finish or cancel it before clearing');
     check(this.workspaces.busy.size === 0, 'worktree cleanup is in progress; clear must wait');
     check(!this.commandHookRunning?.size, 'shortcut commands are pending or running; clear must wait');
@@ -317,7 +328,24 @@ export default {
   },
 
   retry(taskId, profile = null) {
+    if (this.store.runnerBinding(taskId)) {
+      this.assertWritable('retry a worker');
+      assertTaskNotSyncing(this, taskId);
+      check(this.store.runnerBinding(taskId).state !== 'unknown', 'Runner workspace is unknown; explicitly verify remote state before retry');
+      check(['failed', 'cancelled'].includes(this.store.task(taskId).status), 'only failed/cancelled workers can be retried');
+      return reconcileRunnerWorker(this, taskId).then(() => this.retryAfterRunnerStop(taskId, profile));
+    }
+    return this.retryAfterRunnerStop(taskId, profile);
+  },
+
+  retryAfterRunnerStop(taskId, profile = null) {
     this.assertWritable('retry a worker');
+    const binding = this.store.runnerBinding(taskId);
+    if (binding) {
+      const barriers = this.store.runnerBarriers(taskId);
+      check(!barriers.bindings.length && !barriers.runs.length && !barriers.receipts.length, 'Runner still has unresolved work');
+      this.runners.assertBinding(runnerIdentity(binding, { operation_id: 'retry-admission' }));
+    }
     let task = this.store.task(taskId);
     assertTaskNotSyncing(this, task.id);
     check(['failed','cancelled'].includes(task.status), 'only failed/cancelled workers can be retried');
@@ -374,6 +402,7 @@ export default {
   },
 
   recover() {
+    recordRunnerRecovery(this);
     this.recoverChoiceSnapshots();
     this.scheduledHookRecoveryClock = this.hookClock();
     this.recoveringHooks = true;
@@ -511,7 +540,10 @@ export default {
       if (run.parked) run.controller.abort();
       else this.cancel(taskId, 'daemon stopped; inspect before retrying', 'failed');
     }
+    // Orphan remote leases also require stop attempts; no local invocation is needed to own a barrier.
+    for (const workerId of new Set(this.store.runnerBarriers().runs.map(run => run.worker_id))) requestRunnerStop(this, workerId);
     await Promise.allSettled([...this.running.values()].map(run => run.promise));
+    await Promise.allSettled([...(this.runnerStopJobs ?? [])]);
     await this.hookQueue;
     await runtimeStopped;
     // A confirmed management operation may outlive its model invocation.
@@ -519,10 +551,16 @@ export default {
     await Promise.allSettled([...(this.managementControlJobs ?? [])]);
     await this.completionQueue;
     await Promise.allSettled([...(this.convergenceJobs?.values() ?? [])].map(job => job.promise));
+    // Merge drivers may now be outside the Git queue awaiting remote evidence.
+    // Their continuation/catch must finish before callers can close the Store.
+    await Promise.allSettled([...(this.taskMergeJobs ?? [])]);
     await this.workspaces.queue;
     await usageStopped;
     await usageIndexStopped;
     await connectionsStopped;
     await packagesStopped;
+    await this._runners?.close();
+    const unknown = runnerPendingCount(this) > 0;
+    return { stopped: !unknown, unknown };
   }
 };

@@ -1,5 +1,6 @@
 import { check, isPlainObject, TERMINAL } from '../types.js';
 import { convergenceVerificationMode } from '../convergence-contract.js';
+import { runnerWorkerView } from '../runner-view.js';
 
 const KEY = /^[a-z][a-z0-9_-]{0,63}$/;
 const MAX_STEPS = 32;
@@ -237,7 +238,8 @@ export default {
   progressView(task, runs) {
     const { progress_plan, reservation, hooks: _privateHooks, ...row } = task;
     const progress = this.config.progressReporting === false ? null : decode(progress_plan);
-    return { ...row,
+    const runner = runnerWorkerView(this.store, task.id);
+    return { ...row, ...(runner ? { runner } : {}),
       progress: Array.isArray(runs) ? projectProgress(progress, runs, task.status, Date.now(), task.task_kind) : progress,
       reservation: decodeReservation(reservation) };
   },

@@ -73,6 +73,14 @@
 - diff 为 `{hunks, next_offset, has_more, too_large, reason}`。hunks 为 `{old_start, old_count, new_start, new_count, lines}`；lines 为 `{kind:'context'|'add'|'delete'|'meta', old_line:number|null, new_line:number|null, text}`。行 text 不含 patch 的 +/- 前缀（UI 独立显示），CR 和无末尾换行标记不可偷偷丢失；meta 保留 Git 的无末尾换行等信息。
 - diff 不可计算/超预算时 `too_large` 或 reason 明示，提供分段原文回退，不假装无差异。上下文扩展可提高 context 重读，完整阅读走 content 分段。
 
+## 远端工作区
+
+三个公共 RPC／HTTP 参数和 version 1 返回字段不变。Project 根据持久 `runnerBinding` 路由，而不是猜测 `task.workspace` 路径；远端现场仍标 `source:workspace`，实际 HEAD、净变化、脏状态与分页在节点有界采样。中央固定 Worker 分支、比较基线及已接收 tip，节点核对登记身份和提交祖先；中央在网络返回后再次核对绑定与基线。读取不持全项目 Git 写锁，也不下载整个工作区。
+
+节点仅提供 control-only 的 `workspace.code.read`，不授予 Run 工具／Agent。禁用节点或撤销开发授权后仍可经原控制身份只读观察；有活动／未知写入立即返回忙，采样期间漂移返回 stale／不可用，不无限等待或绕过写门。复用同一文件模型、FD 安全读取、隔离 Git、分页和字节预算；独立仓库不加载项目 Git 配置，拒绝链接化 Git 元数据、外部对象来源和任意 ref／宿主路径。
+
+离线、安装身份变化、preparing／unknown 绑定明确不可用，**不得用中央旧提交冒充现场**。只有绑定已确认为 `removed` 才按中央记录的原始 `task.head_commit` 归档读取；working 不可用，不连节点、不保留未提交内容。旧 Worker 无绑定时保持本地行为。真实链路专项为 `test/workspaces/remote-code-reader.test.js` 和 `test/web/remote-code-reader-api.test.js`，使用独立 stdio Runner／仓库；不等于 SSH／真实 cgroup 实机验收。
+
 ## 生命周期与安全
 
 只在前台且代码页签可见时按现有刷新偏好探测 state（正常约 3 秒、single-flight）；不定时下载全部文件。变更只更新状态/提示，已选文件保留旧正文，用户点加载最新才替换。关闭、切换 Worker/页签会取消/作废请求，迟到响应不能覆盖；当前正文不会因后台探测失去焦点/选区。

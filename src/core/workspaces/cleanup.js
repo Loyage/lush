@@ -12,6 +12,8 @@ export const methods = {
    * 原子删除——检查之后分支被谁动过就拒绝，历史不会丢。
    */
   async dropBranch(task) {
+    const remote = this.store.runnerBinding(task.id);
+    check(!remote || remote.state === 'removed', 'remote resources must be confirmed removed before branch cleanup');
     check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
     const branch = task.branch;
     if (!branch) return { branch: null, status: 'absent', reason: null };
@@ -53,11 +55,16 @@ export const methods = {
   },
 
   /** Internal: caller already owns the Git gate (unified acceptance). */
-  async archiveBranchesUnsafe(branches, { discard_worktree = false, onOutcome = null, guard = null, expectedTips = null } = {}) {
+  async archiveBranchesUnsafe(branches, { discard_worktree = false, onOutcome = null, guard = null, expectedTips = null, preflight_only = false } = {}) {
       if (guard) guard();
       const project = this.config.project;
       const names = [...new Set(branches.map(branch => String(branch ?? '').trim()))];
-      for (const branch of names) check(branch.length > 0 && branch.length <= 512, 'branch name must be non-empty text');
+      for (const branch of names) {
+        check(branch.length > 0 && branch.length <= 512, 'branch name must be non-empty text');
+        const owner = this.store.branch(branch)?.task_id;
+        const remote = owner ? this.store.runnerBinding(owner) : null;
+        check(preflight_only || !remote || remote.state === 'removed', 'remote resources must be confirmed removed before branch archive');
+      }
       // Historical detached worktrees are recovery points, never ordinary branch checkouts.
       // Inspect stored metadata only; malformed snapshots with retained directories fail closed.
       const retainedPaths = new Set();
@@ -109,6 +116,7 @@ export const methods = {
       }
 
       if (guard) guard();
+      if (preflight_only) return plan;
       const outcomes = [];
       const failed = [];
       const remaining = [];
@@ -175,6 +183,9 @@ export const methods = {
    * 任何一步不安全就抛错——cleanup 把它报给用户，clear 记下原因并保留那条任务。
    */
   async release(task, { keepBranch = false } = {}) {
+    const remote = this.store.runnerBinding(task.id);
+    if (remote && remote.state !== 'removed' && keepBranch) return { id: task.id, worktree: 'kept', branch: 'kept', reason: 'Remote keep-branch preserves the registered workspace' };
+    check(!remote || remote.state === 'removed', 'remote resources must be confirmed removed before release');
     check(task.role !== 'showcase' && task.task_kind !== 'showcase', 'legacy showcase workers are unsupported; preserve their worktrees for manual inspection');
     if (task.task_kind === 'management') {
       check(!task.branch && !task.target_branch, 'management Worker must not own a Git branch');
@@ -280,35 +291,67 @@ export const methods = {
     }
     return { id: task.id, worktree, branch: branch.status, reason: branch.reason };
   },
-  /** 用户明确回收：worktree（与对照检出）加任务分支，一次做完。 */
-  async cleanup(taskId, { keepBranch = false } = {}) {
-    check(!this.commandBusy?.(taskId), 'Worker shortcut command is pending or running; wait before cleanup');
-    return this.exclusive(async () => {
-      check(!this.commandBusy?.(taskId), 'Worker shortcut command is pending or running; wait before cleanup');
-      this.busy.add(taskId);
-      try {
-        const task = this.store.task(taskId);
-        check(['completed','failed','cancelled'].includes(task.status), 'worker must have stopped; accept delivered work before cleanup');
-        const active = this.store.get(`WITH RECURSIVE descendants(id,worker_number,status) AS (
-          SELECT id,worker_number,status FROM tasks WHERE parent_id=?
-          UNION ALL SELECT t.id,t.worker_number,t.status FROM tasks t JOIN descendants d ON t.parent_id=d.id
-        ) SELECT id,worker_number FROM descendants WHERE status NOT IN ('completed','failed','cancelled') LIMIT 1`, task.id);
-        check(!active, `descendant Worker ${workerLabel(active)} must be accepted or ended before cleanup`);
-        return { ...this.store.task(task.id), cleanup: await this.release(task, { keepBranch }) };
-      } finally { this.busy.delete(taskId); }
-    });
+  /** Remote cleanup checks committed delivery before any node resource is removed. */
+  async preflightRunnerReleaseUnsafe(task) {
+    const binding = this.store.runnerBinding(task.id);
+    if (!binding || binding.state === 'removed') return;
+    check(['merged','none','superseded'].includes(task.integration), 'unmerged remote work must be kept');
+    check(task.branch && this.store.branch(task.branch)?.status === 'active', 'remote branch registration is missing');
+    const head = await this.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${task.branch}`);
+    check(head === binding.head_commit && head === (task.head_commit ?? task.base_commit), 'remote reviewed HEAD changed');
+    const target = await this.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${task.target_branch}`);
+    check(await this.isAncestor(this.config.project, head, target) || await this.squashedLanded(task.branch, target),
+      'unmerged remote commit must be kept');
   },
-  /** clear 用：逐个回收，一个任务被安全门挡住不影响其余的；返回每条任务的去向与原因。 */
-  reclaim(tasks) {
-    return this.exclusive(async () => {
-      const outcomes = [];
-      for (const snapshot of tasks) {
-        this.busy.add(snapshot.id);
-        try { outcomes.push(await this.release(this.store.task(snapshot.id))); }
-        catch (error) { outcomes.push({ id: snapshot.id, worktree: 'kept', branch: snapshot.branch ? 'kept' : 'absent', reason: error.message }); }
-        finally { this.busy.delete(snapshot.id); }
+
+  /** 用户明确回收：网络始终在 Git 串行区之外，中央删除仍由原 release 安全门执行。 */
+  async cleanup(taskId, { keepBranch = false } = {}) {
+    check(!this.busy.has(taskId), 'Worker cleanup is already in flight');
+    const initial = this.store.task(taskId);
+    const guard = () => {
+      const task = this.store.task(taskId);
+      check(!this.commandBusy?.(taskId), 'Worker shortcut command is pending or running; wait before cleanup');
+      check(['completed','failed','cancelled'].includes(task.status), 'worker must have stopped; accept delivered work before cleanup');
+      check(task.branch === initial.branch && task.head_commit === initial.head_commit && task.reservation === initial.reservation,
+        'Worker changed during cleanup');
+      const active = this.store.get(`WITH RECURSIVE descendants(id,worker_number,status) AS (
+        SELECT id,worker_number,status FROM tasks WHERE parent_id=?
+        UNION ALL SELECT t.id,t.worker_number,t.status FROM tasks t JOIN descendants d ON t.parent_id=d.id
+      ) SELECT id,worker_number FROM descendants WHERE status NOT IN ('completed','failed','cancelled') LIMIT 1`, task.id);
+      check(!active, `descendant Worker ${workerLabel(active)} must be accepted or ended before cleanup`);
+    };
+    guard(); this.busy.add(taskId);
+    try {
+      const remote = this.store.runnerBinding(taskId);
+      if (remote && !keepBranch && remote.state !== 'removed') {
+        check(typeof this.remoteReclaim === 'function', 'Project remote reclamation guard is unavailable');
+        await this.exclusive(async () => { guard(); await this.preflightRunnerReleaseUnsafe(this.store.task(taskId)); guard(); });
+        await this.remoteReclaim([initial], guard);
       }
-      return outcomes;
-    });
+      return await this.exclusive(async () => {
+        guard();
+        const outcome = await this.release(this.store.task(taskId), { keepBranch });
+        if (remote && remote.state !== 'removed' && !keepBranch) outcome.worktree = 'removed';
+        return { ...this.store.task(taskId), cleanup: outcome };
+      });
+    } finally { this.busy.delete(taskId); }
+  },
+  /** clear 用：逐个回收；远端未知现场保留，由 Project 决定是否允许清除历史。 */
+  async reclaim(tasks) {
+    const outcomes = [];
+    for (const snapshot of tasks) {
+      if (this.store.runnerBinding(snapshot.id)) {
+        try { outcomes.push((await this.cleanup(snapshot.id)).cleanup); }
+        catch (error) { outcomes.push({ id: snapshot.id, worktree: 'kept', branch: snapshot.branch ? 'kept' : 'absent', reason: error.message }); }
+        continue;
+      }
+      outcomes.push(await this.exclusive(async () => {
+        this.busy.add(snapshot.id);
+        try { return await this.release(this.store.task(snapshot.id)); }
+        catch (error) { return { id: snapshot.id, worktree: 'kept', branch: snapshot.branch ? 'kept' : 'absent', reason: error.message }; }
+        finally { this.busy.delete(snapshot.id); }
+      }));
+    }
+    return outcomes;
   },
 };

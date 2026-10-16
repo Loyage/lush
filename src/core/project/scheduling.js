@@ -10,6 +10,8 @@ import { MISSING_PI_SOURCE_MESSAGE } from '../../agent/settings.js';
 import { workerLabel } from '../worker-number.js';
 import { noticeNumber } from '../record-number.js';
 import { receivedProgressInput } from './progress.js';
+import { prepareRunnerInvocation } from './runner-invocation.js';
+import { runnerIdentity } from '../runner-service.js';
 
 /** A claimed boundary cannot be cancelled, even while the process is still exiting. */
 function claimedStop(project, taskId, run) {
@@ -134,6 +136,13 @@ export default {
       if (this.questionPending(task.id)) { this.store.update(task.id, { status: 'awaiting' }); continue; }
       // A queued task whose dependencies are not settled stays queued; finish() re-kicks when they are.
       if ((dependencies.get(task.id) || []).some(edge => !TERMINAL.has(edge.status))) continue;
+      const remoteBinding = this.store.runnerBinding(task.id);
+      if (remoteBinding) {
+        const barriers = this.store.runnerBarriers(task.id);
+        if (barriers.runs.length || barriers.receipts.length || barriers.bindings.some(binding => binding.state !== 'preparing')
+          || !['preparing', 'ready'].includes(remoteBinding.state)) continue;
+        try { this.runners.assertBinding(runnerIdentity(remoteBinding)); } catch { continue; }
+      }
       const run = { role: task.role, controller: new AbortController(), token: randomBytes(32).toString('hex'), pid: null, promise: null, recordId: null,
         deliveryAttempt: designatedRepair ? deliveryRepair.attempt_id : null, signalId: randomUUID() };
       this.running.set(task.id, run);
@@ -465,6 +474,10 @@ export default {
       run.agent = agent;
       // Refuse incomplete or incompatible choice routes before ensure() can touch a checkout.
       const choiceFork = this.choiceFork(taskId, agent);
+      if (this.store.runnerBinding(task.id)) {
+        run.remote = await prepareRunnerInvocation(this, task, run, agent);
+        if (run.controller.signal.aborted || this.stopping) throw new Error(abortMessage());
+      }
       // Run identity and admission counters are one durable boundary; a crash cannot leave
       // a newly inserted Run attached to a still-queued Worker.
       const record = this.store.transaction(() => {
@@ -477,7 +490,7 @@ export default {
       // 新一轮拆解：上一轮被驳回的闸门清零，这一轮要不要再请你批准由 planner 自己判断。
       if (task.role === 'planner' && task.plan_gate === 'rejected') this.store.update(taskId, { plan_gate: null });
       this.store.touchAgent(taskId);
-      const cwd = await this.workspaces.ensure(task);
+      const cwd = run.remote ? await run.remote.activate() : await this.workspaces.ensure(task);
       // 已冻结的两端 tip 必须仍成立；父 Agent 的上一轮可能恰在建立冻结前提交，外部 Git 也不受 daemon 控制。
       const fixedEvent = task.task_kind === 'child' ? this.store.get(`SELECT data FROM events WHERE task_id=?
         AND type='task.divergence_resolution_requested' ORDER BY id DESC LIMIT 1`, task.id) : null;
@@ -548,7 +561,7 @@ export default {
           connectionRuntime, onConnectionObservation: connectionRuntime ? observation => this.agentConnections.observe(
             agent.connection_id, connectionRuntime.account_key, connectionRuntime.source_key, observation) : null,
           onSpawn: pid => { run.pid = pid; }, onPreempt: () => { run.boundaryClaimed = true; }, messages, messagesPage, api: this,
-          context, forkPointer, choiceFork,
+          context, forkPointer, choiceFork, ...(run.remote ? { remote_workspace: run.remote.descriptor } : {}),
         });
         run.providerReturned = true;
       } finally {
@@ -557,6 +570,7 @@ export default {
         // Also retain legal own-branch observations on pause/preemption/provider failure.
         // Close before releasing running ownership or processing delivery hooks.
         await this.workspaces.closeOwnedBranch(ownedBranch);
+        if (run.remote) await run.remote.finalize();
       }
       if (TERMINAL.has(this.store.task(taskId).status) || run.parked) return;
       if (run.controller.signal.aborted) throw new Error(timedOut ? timeoutMessage : abortMessage());
@@ -633,7 +647,8 @@ export default {
       if (this.store.children(taskId).some(child => !isSettled(child))) {
         this.store.update(taskId, { status: 'waiting' }); return;
       }
-      await this.workspaces.finish(this.store.task(taskId));
+      if (run.remote) run.remote.finish();
+      else await this.workspaces.finish(this.store.task(taskId));
       // git is asynchronous: input, cancellation or delegation may have arrived meanwhile.
       if (TERMINAL.has(this.store.task(taskId).status) || this.store.task(taskId).status === 'paused'
         || this.store.task(taskId).interrupt_state || run.resumeRequested) return;
@@ -695,6 +710,10 @@ export default {
       this.finish(taskId, 'completed', result);
     } catch (error) {
       run.invocationEnded = true;
+      if (run.remote) {
+        try { await run.remote.finalize(); }
+        catch (failure) { error = failure; } // unknown stop cannot become successful preemption
+      }
       run.invocationFailed = !(error instanceof AgentPreempted);
       // 安全抢占：Agent 在本轮工具都结束后自行收尾，不是失败、不是超时也不是取消。
       // 工作区按现状保留，这条输入下一轮就会被读到；不重建、不重放本轮已发生的副作用。
@@ -731,13 +750,17 @@ export default {
       }
       // Provider adapters may only know that their AbortSignal fired. The scheduler owns the deadline,
       // so normalize that generic interruption into an exact timeout and keep user cancellation distinct.
-      const message = timedOut ? timeoutMessage : run.controller.signal.aborted ? abortMessage() : error.message;
+      // Runner safety may itself abort the signal while stopping an unknown effect. That is
+      // failure, not user cancellation; retain explicit worker.cancel's cancelled history.
+      const remoteFailed = run.remoteStopUnknown && this.store.task(taskId).status !== 'cancelled';
+      const message = timedOut ? timeoutMessage : !remoteFailed && run.controller.signal.aborted ? abortMessage() : error.message;
       if (run.recordId && this.store.get('SELECT status FROM agent_runs WHERE id=?', run.recordId)?.status === 'running') {
-        this.store.finishRun(run.recordId, timedOut ? 'failed' : run.controller.signal.aborted ? 'cancelled' : 'failed', { error: message });
+        this.store.finishRun(run.recordId, timedOut || remoteFailed ? 'failed' : run.controller.signal.aborted ? 'cancelled' : 'failed', { error: message });
       }
       const current = this.store.task(taskId);
       if (!run.parked && !TERMINAL.has(current.status) && current.status !== 'paused') this.cancel(taskId, message, 'failed');
     } finally {
+      if (run.remote) await run.remote.dispose().catch(() => { /* durable Runner barriers remain authoritative */ });
       await this.workspaces.closeOwnedBranch(ownedBranch).catch(error => console.error(`branch observation ${taskId}: ${error.message}`));
       if (targetWatch) this.workspaces.unwatchBranch(targetWatch);
       delete run.connectionBinding;

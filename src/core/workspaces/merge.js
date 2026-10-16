@@ -306,6 +306,7 @@ export const methods = {
    * 校验与落地都在这个串行区间内完成；expected 已经进入 parent 时是幂等成功。
    */
   async mergeBranchUnsafe(child, expected = null, expectedParent = null) {
+    this.assertLocalBranchOperation([child, this.store.branch(child)?.parent]);
     const state = await this.branchState(child);
     if (expectedParent) check(state.parent_head === expectedParent,
       `parent ${state.parent} moved since its fixed baseline; inspect before approving`);
@@ -439,6 +440,7 @@ export const methods = {
 
   /** Historical compatibility: squash a verified child tip into one parent commit. Caller holds the Git queue. */
   async squashBranchUnsafe(child, source, parentHead, message) {
+    this.assertLocalBranchOperation([child, this.store.branch(child)?.parent]);
     const project = this.config.project;
     const state = await this.branchState(child);
     check(state.parent_head === parentHead && state.child_head === source, 'source/target moved before squash');
@@ -518,6 +520,8 @@ export const methods = {
 
   /** Delete only with legacy equivalent-tree proof or an exact settled multi-source member mapping. */
   async archiveSquashedTaskUnsafe(task, source, landed) {
+    const remote = this.store.runnerBinding(task.id);
+    check(!remote || remote.state === 'removed', 'Runner resources must be confirmed removed before archiving their branch');
     if (task.task_kind === 'integration') return this.archiveConvergenceHelperUnsafe(task, source);
     check(task.integration === 'merged' && task.branch && task.target_branch, 'only integrated workers can be archived');
     const project = this.config.project;
@@ -556,6 +560,7 @@ export const methods = {
    * 也不接受非快进的移动。终态 order 吸收解分歧固定提交后重新发合并请求时用到。
    */
   async fastForwardBranchUnsafe(branch, to) {
+    this.assertLocalBranchOperation([branch]);
     const project = this.config.project;
     check(typeof to === 'string' && /^[0-9a-f]{40,64}$/.test(to), 'fast-forward target must be a commit');
     const head = await this.git(project, 'rev-parse', '--verify', `refs/heads/${branch}^{commit}`)
@@ -583,6 +588,7 @@ export const methods = {
    * 子分支领先走 mergeBranch，父子分歧走 branch.sync（父分支上绝不 no-ff，子分支也不 rebase）。
    */
   async catchupBranchUnsafe(child) {
+    this.assertLocalBranchOperation([child, this.store.branch(child)?.parent]);
     const state = await this.branchState(child);
     check(state.status !== 'missing', `cannot catch up ${child}: child or parent branch is missing`);
     check(state.blockers.length === 0, `catch up ${state.child} is blocked by unintegrated child branches: ${state.blockers.join(', ')}`);
@@ -610,6 +616,7 @@ export const methods = {
 
   /** 迁移兼容：旧任务没有 input branch/direct-parent target，继续按旧目标分支语义落地。新任务不走这里。 */
   async legacyMergeUnsafe(task) {
+    this.assertLocalBranchOperation([task.branch, task.target_branch]);
     const project = this.config.project;
     await this.clean(project);
     await this.clean(task.workspace);

@@ -41,6 +41,41 @@ function rewrite(f, task, update) {
 }
 function count(f, type) { return f.store.get('SELECT count(*) AS n FROM events WHERE type=?', type).n; }
 
+for (const failure of [false, true]) test(`management async remote retry holds a tracked receipt until ${failure ? 'unknown failure' : 'success'}`, async () => {
+  const pending = gate(); let started = false, submitted, calls = 0;
+  const f = await setup(({ task, api }, f) => {
+    submitted = api.requestManagementAction(task.id, 'retry', f.target.id);
+    return 'retry submitted, not completed';
+  });
+  const runnerBinding = f.store.runnerBinding.bind(f.store);
+  // Caller-contract test, not a replacement for the independent Runner lifecycle chain.
+  f.store.runnerBinding = id => id === f.target.id ? { worker_id: id } : runnerBinding(id);
+  f.project.retry = async () => {
+    calls++; started = true; expect(f.store.db.inTransaction).toBe(false);
+    await pending.promise;
+    if (failure) throw new Error('remote reconciliation unknown');
+  };
+  try {
+    f.store.update(f.target.id, { status: 'failed' });
+    const signal = f.signal(f.once()), manager = f.manager(signal);
+    f.advance(60000); f.flush(); await f.run();
+    expect(started).toBe(true); expect(submitted.status).toBe('running');
+    expect(stored(f, manager).receipts[0].status).toBe('running');
+    expect(f.project.managementControlJobs.size).toBe(1);
+    expect(f.store.db.inTransaction).toBe(false);
+    // A concurrent state update must survive the eventual asynchronous receipt write.
+    rewrite(f, manager, state => { state.concurrent_marker = 'preserved'; });
+    pending.resolve(); await Promise.all([...f.project.managementControlJobs]);
+    const state = stored(f, manager);
+    expect(state.concurrent_marker).toBe('preserved');
+    const receipt = state.receipts[0] ?? state.last_execution?.actions[0];
+    expect(receipt.status).toBe(failure ? 'unknown' : 'succeeded');
+    expect(f.project.managementControlJobs.size).toBe(0);
+    expect(f.project.managementControlOwners.size).toBe(0);
+    f.project.drainManagementActions(); expect(calls).toBe(1);
+  } finally { pending.resolve(); f.store.runnerBinding = runnerBinding; await f.close(); }
+});
+
 test('saving signals and management instructions is noncalling, revision-stable on ticks, and creates no Input/branch', async () => {
   const f = await setup();
   try {

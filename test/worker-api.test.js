@@ -20,7 +20,7 @@ const reads = {
   runs_page: ['id','before','limit'], artifacts_page: ['id','before','limit'], artifact: ['id'], completion_page: ['before','limit'],
 };
 const writes = {
-  auto_title: ['title'], rename: ['id','title'], spawn: ['parent','goal','name'], integrate: ['id','commit'], reserve: ['id','kind'], reserve_all: ['branch'],
+  auto_title: ['title'], rename: ['id','title'], spawn: ['parent','goal','name','runner_node_id'], integrate: ['id','commit'], reserve: ['id','kind'], reserve_all: ['branch'],
   auto_merge: ['id','enabled'], completion: ['id','level','expected_revision'], acceptance_notice: ['id','enabled','expected_revision'],
   hook_attach: ['id','hook','expected_revision'],
   hook_update: ['id','hook_id','enabled','hook','expected_revision'], hook_remove: ['id','hook_id','expected_revision'],

@@ -83,7 +83,7 @@ test('real login -> HTML version -> static directory never opens a stopped proje
     expect((await get(name, { 'If-None-Match': etag })).status).toBe(303);
     expect(calls).toEqual([]);
     const text = JSON.stringify(await (await get(name, { Cookie })).json());
-    for (const secret of [root, password, Cookie, 'permissions_snapshot', 'credentials']) expect(text).not.toContain(secret);
+    for (const secret of [root, password, Cookie, 'permissions_snapshot', '"credentials":']) expect(text).not.toContain(secret);
     expect((await get('/p/1111111111111111/api/management/permissions', { Cookie })).status).toBe(400);
     expect(calls).toEqual(['open']);
   } finally { await web.stop(true); fs.rmSync(root, { recursive: true, force: true }); }

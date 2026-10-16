@@ -15,11 +15,11 @@
 
 新增用户专属 `input.emit`，Project `emitBufferedInput(options)`：
 
-- 直接路径 `{content,references?,branch?,mode?:'order'|'append',target_id?,conditions?,exclusive?,profile?,client_request_id?}`。
+- 直接路径 `{content,references?,branch?,mode?:'order'|'append',target_id?,conditions?,exclusive?,runner_node_id?,profile?,client_request_id?}`。
 - 版本草稿路径 `{draft_id,expected_revision,profile?,client_request_id?}`；正文、模式、条件和目标从草稿取，不允许覆盖。
 - 返回 `{emitted:true,draft_id,mode,parent_id?,target_id?,dispatch}`，不保证有 `task`。`dispatch` 安全读面至少 `{state,reason?,input_id?,worker_id?,worker_number?,message_id?}`；state 为 `waiting_conditions|queued|dispatching|succeeded|failed|unknown|cancelled`。发射确认只表示挂载成功，不能显示“已创建/已开始”。
 - 新提交即使可立即创建也先给持久挂载收据，由 runtime 异步推进；重复请求、断连重试必须按 `client_request_id` 和版本去重。
-- `draft.add/update` 扩展 `{mode?,target_id?,conditions?,exclusive?}`，旧调用省略保持 order；旧方法可增加末位 options，不破坏现有内部调用。读取 `input.get/history` 的 draft 项提供 `mode,target_id,target_worker_number,conditions,exclusive,dispatch` 安全字段。挂载中不能编辑/删除；增加 `input.emission_cancel {draft_id,expected_revision}` -> `cancelInputEmission(draftId,revision)`，仅撤销尚未执行的意图/条件 Hook。已开始未知不能盲目解除或重放。
+- `draft.add/update` 扩展 `{mode?,target_id?,conditions?,exclusive?,runner_node_id?}`，旧调用省略保持 order；旧方法可增加末位 options，不破坏现有内部调用。读取 `input.get/history` 的 draft 项提供 `mode,target_id,target_worker_number,conditions,exclusive,dispatch` 安全字段。挂载中不能编辑/删除；增加 `input.emission_cancel {draft_id,expected_revision}` -> `cancelInputEmission(draftId,revision)`，仅撤销尚未执行的意图/条件 Hook。已开始未知不能盲目解除或重放。
 - 条件 JSON：`[{kind:'worker_settled',worker_id:整数},{kind:'worker_merged',worker_id:整数},{kind:'parent_quiet'}]`，最多 16 项，无脚本。worker_merged 明确是本轮成果到 main，不把 child 到直接父的合并等同 main。exclusive 为 boolean，仅 order，隐含 parent_quiet；append 不提供独占。
 - 条件等待、发射已挂载、实际创建/追加分别投影；queued/条件等待的草稿不能消失。实际新建关联真实 Input 后，原稿页仍能追踪其原始 Input；追加成果只关联真实 Message/追加编号，不造 O。
 - 旧内部 `order/sendOrder` 继续是创建原语，Hook legacy create_worker 行为不变。公开 `order.submit` 缺省及 start:true 改走 emit；显式 start:false 保留兼容“仅创建”入口但不是发射，Web 新入口不再宣传两种发射。`worker.message` 保留现有 API，新统一 UI 经 input.emit 发送追加。
@@ -37,7 +37,7 @@
 
 ## 持久化与恢复
 
-`drafts.input_options` 保存模式、目标和条件；`drafts.emission` 保存授权快照、请求指纹、条件信号与发射收据。附属 JSON 列为 nullable，不回填历史。条件对应受保护的内置 `input_signal` Hook，不能经自定义 Hook 安装、改写或解除发射占用；撤销入口负责一致地清除信号。多个条件必须全部满足，满足证明含当前轮次与精确向 main 的交付链，不以标题或旧合并状态猜测。
+`drafts.input_options` 保存模式、目标和条件，以及仅 order 可选的 runner_node_id（省略不回填旧记录）；节点持久选择、编辑保留、撤销重检与旧 defer 限制见[Runner 创建接缝](../reference/rpc/runners.md#创建节点选择接缝)。`drafts.emission` 保存授权快照、请求指纹、条件信号与发射收据。附属 JSON 列为 nullable，不回填历史。条件对应受保护的内置 `input_signal` Hook，不能经自定义 Hook 安装、改写或解除发射占用；撤销入口负责一致地清除信号。多个条件必须全部满足，满足证明含当前轮次与精确向 main 的交付链，不以标题或旧合并状态猜测。
 
 先提交挂载收据，再异步准入；跨 Git 等待后重新核验父空闲、冻结、基线、草稿占用和独占门。挂载中拒绝编辑与删除。取消未开始的意图可恢复可编辑草稿；已经开始却无确定结果的发射标记 `unknown`，重启不重放。只释放未知独占仍保留未知收据。已挂载追加阻止目标验收、归档或删除吞掉需求，实际投递仍沿用消息收件箱门禁。
 

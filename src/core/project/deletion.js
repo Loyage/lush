@@ -1,3 +1,5 @@
+import { reclaimRunnerWorkspaces, runnerCleanupReceipt } from './runner-reclamation.js';
+import { assertRunnerIdle } from './runner-safety.js';
 import fs from 'node:fs';
 import path from 'node:path';
 import { check, id, TERMINAL } from '../types.js';
@@ -48,6 +50,10 @@ function databasePlan(project, rootId) {
       if (state?.enabled) blockers.push(`${workerLabel(task)}: management binding is enabled; stop or disable it before deletion`);
       if (managementUnsettled(project, task, state)) blockers.push(`${workerLabel(task)}: management occurrence, confirmation or controlled effect is unfinished/unknown; stop unstarted authorizations and wait for actual exit`);
     } else if (!TERMINAL.has(task.status)) blockers.push(`${workerLabel(task)}: Worker is ${task.status}; cancel it or finish/accept it before deletion`);
+    if (store.runnerBinding(task.id)) {
+      try { assertRunnerIdle(project, task.id, { allow_removed: true, allow_receipts: [runnerCleanupReceipt(project, task.id)?.request_id].filter(Boolean) }); }
+      catch (error) { blockers.push(`${workerLabel(task)}: ${error.message}`); }
+    }
     if (project.running.has(task.id)) blockers.push(`${workerLabel(task)}: invocation is still exiting; wait before deletion`);
     if (project.commandHookRunning?.has(task.id)) blockers.push(`${workerLabel(task)}: shortcut command is pending or running; wait before deletion`);
     if (project.workspaces.busy.has(task.id)) blockers.push(`${workerLabel(task)}: worktree cleanup is in progress`);
@@ -84,6 +90,9 @@ function databasePlan(project, rootId) {
   }
   for (const name of branchNames) { const frozen = project.branchFreeze(name); if (frozen) blockers.push(`branch ${name} is frozen: ${frozen.reason}`); }
   const data = { tasks, inputs, branches: records, contexts, choices, rechoices,
+    runnerBindings: select('runner_bindings', `worker_id IN (${marks})`),
+    runnerRuns: select('runner_runs', `worker_id IN (${marks})`),
+    runnerReceipts: select('runner_receipts', `worker_id IN (${marks})`),
     artifacts: select('artifacts', `task_id IN (${marks})`), runs: select('agent_runs', `task_id IN (${marks})`),
     messages: select('messages', `task_id IN (${marks}) OR sender_id IN (${marks})`, [...ids,...ids]),
     notices: select('notices', `task_id IN (${marks})`), events: select('events', `task_id IN (${marks})`),
@@ -154,7 +163,8 @@ async function deletionPlan(project, rootId, force = false) {
   const snapshot = { data: db.data, git, choiceRefs, files:filePlan, force };
   const preview = { id:rootId, revision:deletionHash(snapshot), can_delete:uniqueBlockers.length === 0, blockers:uniqueBlockers,
     workers:db.tasks.map(task => ({ id:task.id, worker_number:task.worker_number, goal:task.goal.slice(0,400), status:task.status })),
-    inputs:db.inputs.map(input => ({id:input.id})), resources:{ worktrees:git.worktrees.map(tree => tree.path),
+    inputs:db.inputs.map(input => ({id:input.id})), resources:{ runners: db.data.runnerBindings.map(({ worker_id, node_id, runner_id, workspace_id, generation, head_commit, state }) =>
+      ({ worker_id, node_id, runner_id, workspace_id, generation, head_commit, state })), worktrees:git.worktrees.map(tree => tree.path),
       branches:[...git.branches.map(entry => entry.branch), ...choiceRefs.filter(entry => entry.tip).map(entry => entry.ref)], files:filePlan.map(file => file.path) }, warnings: force
         ? [...warnings, ...git.forceCandidates.map(file => `强制删除未登记检出目录（不确认其 Git 归属，全部残留代码会丢弃）：${file}`)] : warnings,
     ...(force ? { force: true } : {}) };
@@ -172,7 +182,17 @@ export default {
     const rootId = id(taskId);
     check(boundedSubtree(this, rootId).every(task => !this.commandHookRunning?.has(task.id)),
       'Worker shortcut command is pending or running; wait before deletion preview');
-    return this.workspaces.exclusive(async () => (await deletionPlan(this,rootId,force)).preview);
+    const plan = await this.workspaces.exclusive(() => deletionPlan(this,rootId,force));
+    if (plan.preview.can_delete && plan.db.data.runnerBindings.length) {
+      try {
+        await reclaimRunnerWorkspaces(this, plan.db.tasks, () => {
+          check(deletionHash(databasePlan(this, rootId).data) === deletionHash(plan.db.data), 'Worker changed during deletion preview');
+        }, { preflight_only: true });
+      } catch (error) {
+        plan.preview.can_delete = false; plan.preview.blockers.push(error.message);
+      }
+    }
+    return plan.preview;
   },
 
   /** Mandatory explicit confirmation + fixed preview. Failures retain identity and ownership metadata for retry. */
@@ -189,16 +209,26 @@ export default {
     this.deletionRoot = rootId; this.workerDeleteIds = new Set(ids);
     try {
       await this.drainWrites();
-      return await this.workspaces.exclusive(async () => {
+      const prepared = await this.workspaces.exclusive(async () => {
         const plan = await deletionPlan(this,rootId,force);
         check(plan.preview.can_delete, plan.preview.blockers.join('; '));
         check(plan.preview.revision === revision, 'deletion scope or resources changed; preview and confirm again');
-        const dbRevision = deletionHash(plan.db.data);
+        // Only this operation's Runner cleanup bookkeeping may advance while resources are removed.
+        // Immutable binding/HEAD is separately checked by the remote resource owner.
+        const historyRevision = data => deletionHash({ ...data, runnerBindings: undefined, runnerReceipts: undefined,
+          events: data.events.filter(event => event.type !== 'runner.cleanup_attempt') });
+        const dbRevision = historyRevision(plan.db.data);
         const guard = () => {
           const live = databasePlan(this,rootId);
           check(live.blockers.length === 0, live.blockers.join('; '));
-          check(deletionHash(live.data) === dbRevision, 'Worker history changed during deletion; preview again');
+          check(historyRevision(live.data) === dbRevision, 'Worker history changed during deletion; preview again');
         };
+        return { plan, guard };
+      });
+      const { plan, guard } = prepared;
+      await reclaimRunnerWorkspaces(this, plan.db.tasks, guard);
+      return await this.workspaces.exclusive(async () => {
+        guard();
         await this.workspaces.deleteWorkerResourcesUnsafe(plan.git,guard);
         for (const entry of plan.choiceRefs) {
           guard();

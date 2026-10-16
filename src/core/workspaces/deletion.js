@@ -24,6 +24,13 @@ export const methods = {
     const paths = new Set(), generatedPaths = new Set();
     const generated = file => { const resolved = path.resolve(file); paths.add(resolved); generatedPaths.add(resolved); };
     for (const task of tasks) {
+      const remote = this.store.runnerBinding(task.id);
+      if (remote) {
+        if (task.workspace || task.baseline_workspace || allWorktrees.some(tree => tree.branch === task.branch))
+          blockers.push(`remote Worker #${task.id} has an unexpected local checkout; inspect ownership`);
+        if (task.branch) branches.add(task.branch);
+        continue;
+      }
       if (task.branch) branches.add(task.branch);
       for (const file of [task.workspace, task.baseline_workspace]) if (file) paths.add(file);
       if (task.task_kind === 'management') {
@@ -91,6 +98,11 @@ export const methods = {
   /** Explicit confirmed abandonment only. No reset, prune, branch -D, or shell interpolation. */
   async deleteWorkerResourcesUnsafe(plan, guard) {
     guard();
+    for (const entry of plan.branches) {
+      const owner = this.store.branch(entry.branch)?.task_id;
+      const remote = owner ? this.store.runnerBinding(owner) : null;
+      check(!remote || remote.state === 'removed', 'remote resources must be confirmed removed before deletion');
+    }
     for (const tree of plan.worktrees) {
       deletionPath(this.config, tree.path);
       check(deletionFingerprint(this.config, tree.path) === tree.fingerprint, `resource changed; preview again: ${tree.path}`);

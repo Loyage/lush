@@ -6,6 +6,15 @@ const treeCaches = new WeakMap();
 
 /** Shared fixed-commit identity and branch cleanliness gates for merge and sync. */
 export const methods = {
+  assertLocalBranchOperation(branches) {
+    for (const branch of branches) {
+      if (!branch) continue;
+      const taskId = this.store.branch(branch)?.task_id;
+      check(!taskId || !this.store.runnerBinding(taskId),
+        'This legacy/integration Git operation does not support remote Runner branches; use ordinary Worker delivery');
+    }
+  },
+
   async commitTree(commit) {
     check(typeof commit === 'string' && /^[0-9a-f]{40,64}$/.test(commit), 'invalid commit');
     let cache = treeCaches.get(this);

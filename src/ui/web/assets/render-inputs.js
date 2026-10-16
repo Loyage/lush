@@ -13,6 +13,7 @@ import { show } from './messages.js';
 import { linkWorkerNumbers } from './worker-links.js';
 import { attachTextEditor } from './text-editor.js';
 import { searchField } from './search-field.js';
+import { createRunnerChoice, runnerChoiceText } from './runner-choice.js';
 import { listEntry, listSurface } from './list-surface.js';
 import { inputPreviewText } from './entity-preview.js';
 import { createEmissionConditions, createEmissionWorkerPicker, dispatchText, emissionAcknowledgement, emissionRequestId } from './emission-form.js';
@@ -316,6 +317,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
           : `${workerLabel(condition.worker_id, condition.worker_number)} · ${condition.kind === 'worker_merged' ? '本轮成果合入 main' : '工作安全收尾'}`}：${condition.satisfied === true ? '已满足' : '等待核验'}`, 'hint'));
       }
       if (append) panel.append(el('p', `追加目标：${workerLabel(record.target_id, record.target_worker_number)}`, 'hint'));
+      else panel.append(el('p', runnerChoiceText(record.runner_node_id), 'hint'));
       for (const reference of references) panel.append(el('p', reference.label || '引用', 'hint'), el('pre', reference.quote || '', 'input-quote'));
       const conditionView = createEmissionConditions({ conditions: readOnly ? dispatch.conditions ?? record.conditions ?? [] : record.conditions || [], exclusive: record.exclusive, mode: append ? 'append' : 'order', ownsPage: current });
       conditionView.setBusy(true); panel.append(conditionView.node);
@@ -457,6 +459,10 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       } else parent.value = record.parent_id ? String(record.parent_id) : '';
       const label = el('label', '父 Worker', 'input-parent-label'); label.append(parent); panel.append(label, parentHint);
     } else if (!append) panel.append(el('p', `父 Worker：${record.parent_id ? workerLabel(record.parent_id, record.parent_worker_number) : '未知'} · 输入分支：${record.branch ?? '未知'}`, 'hint'));
+    const runner = editable && !append ? createRunnerChoice({ value: record.runner_node_id, ownsPage: current,
+      online: () => !ui.offline, onChange: () => syncSave() }) : null;
+    if (runner) panel.append(runner.node);
+    else if (!append && record.kind === 'draft') panel.append(el('p', runnerChoiceText(record.runner_node_id), 'hint'));
     const appendTarget = editable && append ? createEmissionWorkerPicker({ ownsPage: current, label: '追加目标 Worker',
       initial: Number.isSafeInteger(record.target_id) ? { id: record.target_id, worker_number: record.target_worker_number } : null,
       onChange: () => syncSave() }) : null;
@@ -496,9 +502,10 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
     const initialParent = () => !saved.parent_id ? '' : parents.some(task => task.id === saved.parent_id && task.branch === saved.branch)
       ? String(saved.parent_id) : `missing:${saved.parent_id}`;
     const savedOptions = () => ({ conditions: (saved.conditions || []).map(({ kind, worker_id }) => ({ kind, ...(worker_id == null ? {} : { worker_id }) })), exclusive: Boolean(saved.exclusive) });
-    editor.editKey = () => JSON.stringify([saved.revision, content.value, parent.value, appendTarget?.value()?.id, references, runProfile, conditionsForm?.collect()]);
+    editor.editKey = () => JSON.stringify([saved.revision, content.value, parent.value, appendTarget?.value()?.id, references, runProfile, conditionsForm?.collect(), runner?.value()]);
     const contentDirty = () => editable && (content.value !== saved.content || (!append && parent.value !== initialParent())
       || (append && appendTarget?.value()?.id !== saved.target_id) || JSON.stringify(conditionsForm?.collect()) !== JSON.stringify(savedOptions())
+      || (!append && runner?.value() !== saved.runner_node_id)
       || JSON.stringify(references) !== JSON.stringify(saved.references));
     editor.dirty = () => contentDirty() || runProfile !== null;
     function syncSave() {
@@ -550,7 +557,7 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       mutating.push(profile.node); secondaryActions.append(profile.host);
     }
     function setBusy(busy) {
-      editor.busy = busy; if (editable) { content.disabled = busy; parent.disabled = busy; editor.textEditor.sync(); conditionsForm?.setBusy(busy); appendTarget?.setBusy(busy); }
+      editor.busy = busy; if (editable) { content.disabled = busy; parent.disabled = busy; editor.textEditor.sync(); conditionsForm?.setBusy(busy); appendTarget?.setBusy(busy); runner?.setBusy(busy); }
       for (const node of [...mutating, ...referenceControls]) node.disabled = busy;
       syncSave();
     }
@@ -567,7 +574,9 @@ export function createInputBrowser({ view = null, ownsPage: owner, embedded = fa
       if (!contentDirty()) return;
       const updated = await action('draft.update', { id: saved.id, content: content.value, references,
         ...(append ? { mode: 'append', target_id: target.id } : target.id !== saved.parent_id || target.branch !== saved.branch ? { branch: target.branch } : {}),
-        ...conditionsForm.collect(), expected_revision: saved.revision }, { refresh: !embedded });
+        // Only draft.update accepts null; an unchanged absent field stays absent.
+        ...(!append && runner?.value() !== saved.runner_node_id ? { runner_node_id: runner.value() ?? null } : {}),
+        ...conditionsForm.collect(), expected_revision: saved.revision }, { refresh: false });
       // Update the captured revision even if navigation happened; never repaint a different page.
       saved = updated;
       if (current()) {

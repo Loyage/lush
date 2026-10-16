@@ -1,10 +1,13 @@
 import { LushError, check, isPlainObject } from '../core/types.js';
 import { normalizeConfigurationScope } from '../core/device-config.js';
+import { RUNNER_METHODS } from './runner-methods.js';
+import { INPUT_OPTION_KEYS } from '../core/input-option-keys.js';
 import { HOOK_INSTALL_PARAMETERS } from '../core/hook-install.js';
 
 // Public API for the Worker-centred workflow. Historical rows remain on disk, but
 // Intent/Plan/Candidate and optional services cannot create new work.
 export const PARAMS = {
+  ...Object.fromEntries(Object.entries(RUNNER_METHODS).map(([method, spec]) => [method, spec.params])),
   'cli.catalog': [],
   'system.status': [], 'system.summary': ['development'], 'system.stop': [], 'system.stop_if_idle': [], 'system.configure': ['settings','scope'],
   'system.settings': ['scope'], 'system.diagnostics': [], 'system.interrupt_all': [], 'system.resume_all': [],
@@ -42,12 +45,12 @@ export const PARAMS = {
   'worker.hooks': ['id'], 'worker.completion_page': ['before','limit'], 'worker.completion': ['id','level','expected_revision'],
   'worker.hook_attach': ['id','hook','expected_revision'],
   'worker.hook_update': ['id','hook_id','enabled','hook','expected_revision'], 'worker.hook_remove': ['id','hook_id','expected_revision'],
-  'order.submit': ['content','branch','references','start','draft_id','expected_revision','profile','defer'],
+  'order.submit': ['content','branch','references','start','draft_id','expected_revision','profile','defer','runner_node_id'],
   'input.history': ['cursor','limit','q','status','integration','conditional','modes'], 'input.get': ['kind','id'], 'input.parents': [],
-  'input.emit': ['content','references','branch','mode','target_id','conditions','exclusive','profile','client_request_id','draft_id','expected_revision'],
+  'input.emit': ['content','references','branch',...INPUT_OPTION_KEYS,'profile','client_request_id','draft_id','expected_revision'],
   'input.emission_cancel': ['draft_id','expected_revision'], 'input.exclusive_release': ['draft_id','expected_revision'],
-  'draft.add': ['content','references','branch','mode','target_id','conditions','exclusive'],
-  'draft.update': ['id','content','references','branch','expected_revision','mode','target_id','conditions','exclusive'],
+  'draft.add': ['content','references','branch',...INPUT_OPTION_KEYS],
+  'draft.update': ['id','content','references','branch','expected_revision',...INPUT_OPTION_KEYS],
   'draft.remove': ['id','expected_revision'],
   'worker.auto_title': ['title'], 'worker.rename': ['id','title'], 'worker.lookup': ['number'], 'worker.graph': ['details','hidden_statuses','include_archived','cursor','scope'], 'worker.list': ['after','limit'], 'worker.activity': ['limit','scope'],
   'worker.delivery_graph': ['history','cursor','limit'],
@@ -66,7 +69,7 @@ export const PARAMS = {
   'worker.transcript_page': ['id','seq','offset'], 'worker.transcript_step': ['id','seq','offset'],
   'worker.transcript_search': ['id','query','kind','tool','errors','after','limit'],
   'worker.runs_page': ['id','before','limit'], 'worker.artifacts_page': ['id','before','limit'], 'worker.artifact': ['id'],
-  'worker.spawn': ['parent','goal','name'], 'worker.integrate': ['id','commit'],
+  'worker.spawn': ['parent','goal','name','runner_node_id'], 'worker.integrate': ['id','commit'],
   'worker.reserve': ['id','kind'], 'worker.reserve_all': ['branch'], 'worker.auto_merge': ['id','enabled'],
   'worker.resolve': ['id'], 'worker.resolve_divergence': ['id'],
   'worker.accept': ['id'], 'worker.reopen': ['id'], 'worker.sync_parent': ['id'], 'worker.resolve_sync': ['id'],
@@ -90,6 +93,7 @@ export const PARAMS = {
   'graph.get': [],
 };
 export const USER_ONLY = new Set([
+  ...Object.keys(RUNNER_METHODS),
   'cli.catalog','worker.delivery_graph',
   'system.diagnostics','system.settings','settings.clear_override','settings.migration.preview','settings.migration.apply',
   'system.stop','system.stop_if_idle','system.interrupt_all','system.resume_all','system.configure','agent.config','agent.models','agent.resources','agent.configure','agent.status','agent.environment','agent.environment.configure','agent.network','agent.network.configure',

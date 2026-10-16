@@ -1,5 +1,9 @@
 import { check, id, TERMINAL } from '../types.js';
 import { builtinAutomationMounted } from '../automation-scopes.js';
+import { assertRunnerIdle, inspectRunnerSafePoint } from './runner-safety.js';
+import { runnerParentSyncId, prepareRunnerParentSync, recordRunnerParentLanding,
+  synchronizeRunnerParent, assertRunnerDeliveryAcknowledged, provideRunnerRepair,
+  inspectRunnerUnwrittenLanding, rejectRunnerUnwrittenLanding } from './runner-delivery.js';
 import { assertTaskAncestorsOpen, assertTaskNoCommand, assertTaskNotSyncing, consumeIntegratedReservation, taskDeliveryState,
   resumeTaskDelivery, taskSyncDeliveryPaused } from './iteration.js';
 
@@ -85,6 +89,7 @@ export default {
       return { task_id: task.id, changed: false, reservation: previous };
     }
     if (previous?.status === 'blocked' && previous.landing_receipt) {
+      const unwrittenProof = await inspectRunnerUnwrittenLanding(this, task, previous);
       await this.workspaces.exclusive(async () => {
         if (await this.workspaces.verifyTaskSquashUnsafe(previous.landing_receipt)) return;
         await this.workspaces.assertCleanBranches([task.branch, task.target_branch]);
@@ -93,17 +98,30 @@ export default {
         const target = await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.target_branch}`);
         check(target === previous.baseline, 'unknown parent-side landing effects; preserve blocked slot and inspect Git');
         check(this.store.task(task.id).reservation === task.reservation, 'delivery changed during blocked inspection');
-        const { landing_receipt, ...unwritten } = previous;
-        this.store.update(task.id, { reservation: JSON.stringify({ ...unwritten, status: 'suspended',
-          blocked_reason: '显式复核证明父分支未写入；重新排队' }) });
-        this.store.event(task.id, 'merge.unwritten_attempt_released', { attempt_id: previous.attempt_id });
+        const sync = this.store.runnerReceipt(runnerParentSyncId(task.id, previous.attempt_id));
+        if (sync) {
+          check(unwrittenProof && sync.state === 'prepared',
+            'Runner parent synchronization has an unresolved receipt; preserve the execution slot');
+          check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`) === previous.commit,
+            'source changed during unwritten Runner inspection');
+        }
+        this.store.transaction(() => {
+          check(this.store.task(task.id).reservation === task.reservation, 'delivery changed during unwritten inspection');
+          if (sync) rejectRunnerUnwrittenLanding(this, unwrittenProof);
+          const { landing_receipt, ...unwritten } = previous;
+          this.store.update(task.id, { reservation: JSON.stringify({ ...unwritten, status: 'suspended',
+            blocked_reason: '显式复核证明父分支未写入；重新排队' }) });
+          this.store.event(task.id, 'merge.unwritten_attempt_released', { attempt_id: previous.attempt_id });
+        });
       });
       task = this.store.task(task.id); previous = reservationOf(task);
     }
     if (previous?.status === 'integrated' && !TERMINAL.has(task.status)) {
       check(!this.running.has(task.id), 'Agent is still in flight');
+      const proof = await inspectRunnerSafePoint(this, task.id);
       const state = await this.workspaces.exclusive(async () => {
-        await this.workspaces.finish(this.store.task(task.id));
+        proof.guard();
+        if (!proof.remote) await this.workspaces.finish(this.store.task(task.id));
         return taskDeliveryState(this, this.store.task(task.id));
       });
       this.store.update(task.id, { integration: state });
@@ -156,15 +174,24 @@ export default {
       if (reason) this.noteReservationBlocked(taskId, reason);
       return false;
     }
+    // Keep local admission on its original queue boundary. A network proof adds
+    // an async gap only for remote bindings; local late input is handled below
+    // as an ordinary blocked settlement, not a thrown Runner guard failure.
+    const proof = this.store.runnerBinding(taskId) ? await inspectRunnerSafePoint(this, taskId, { guard: () => {
+      check(reservationOf(this.store.task(taskId))?.status === 'pending' && !this.reservationWaitReason(this.store.task(taskId)),
+        'Runner source safe point changed');
+    } }) : { remote: false, guard() {} };
     return this.workspaces.exclusive(async () => {
       if (this.maintenancePaused()) return false;
+      proof.guard();
       let task = this.store.task(taskId);
       if (reservationOf(task)?.status !== 'pending' || taskSyncDeliveryPaused(this, taskId)
         || this.taskSyncBusy?.has(taskId) || this.reservationWaitReason(task) || this.running.has(taskId)
         || this.commandHookRunning?.has(taskId)) return false;
       this.ensureMergeRequestOperation(taskId);
       task = this.store.task(taskId);
-      await this.workspaces.finish(task);
+      if (!proof.remote) await this.workspaces.finish(task);
+      else check(task.head_commit === proof.head_commit, 'Runner source commit has not been centrally received');
       task = this.store.task(taskId);
       const prior = reservationOf(task);
       if (prior?.version !== 2 || prior.status !== 'pending' || this.reservationWaitReason(task)
@@ -184,6 +211,7 @@ export default {
       check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`) === state.child_head,
         'source ref moved during safe-point inspection');
       if (this.commandHookRunning?.has(task.id)) return false;
+      proof.guard();
       if (delivery !== 'pending' && (task.task_kind === 'child' || prior.auto_merge)) {
         // No-change children and automatic follow-ups deliver a result, not an
         // empty Squash. Recheck after Git awaits so new input/disabled hooks win.
@@ -448,6 +476,8 @@ export default {
       && !this.taskSyncBusy?.has(parent.id) && !this.taskSyncBusy?.has(task.id)
       && !this.commandHookRunning?.has(parent.id) && !this.commandHookRunning?.has(task.id), 'delivery invocation/sync/shortcut command still in flight');
     check(!this.reservationWaitReason(task), this.reservationWaitReason(task) || 'source no longer idle');
+    assertRunnerIdle(this, task.id);
+    assertRunnerIdle(this, parent.id, { allow_receipts: [runnerParentSyncId(task.id, attemptId)] });
     const owner = this.activeTaskMerge(parent.id);
     check(owner?.id === task.id, 'parent execution slot changed');
     return { task, request, parent };
@@ -467,6 +497,7 @@ export default {
     let receivedEvent, parentId;
     this.store.transaction(() => {
       const { task, request, parent } = this.assertTaskMergeAttempt(taskId, attemptId, true);
+      assertRunnerDeliveryAcknowledged(this, task, request, parent, landedCommit);
       // 落地进入非终态 awaiting_acceptance，同一 Worker 之后仍会继续开发；这里保留它的
       // task-local 运行配置（含显式模型来源），否则追加输入会静默退回项目默认并在启动时失败。
       // 只有终态结算（finish/accept）或用户显式「清除覆盖」才移除 retry_profile。
@@ -499,13 +530,20 @@ export default {
     this.scheduleTaskHooks();
   },
 
-  async driveTaskMerge(parentId) {
+  driveTaskMerge(parentId) {
+    const job = this.driveTaskMergeOperation(parentId);
+    (this.taskMergeJobs ??= new Set()).add(job);
+    void job.finally(() => this.taskMergeJobs.delete(job)).catch(() => {});
+    return job;
+  },
+
+  async driveTaskMergeOperation(parentId) {
     if (this.stopping || this.maintenancePaused() || !parentId || this.commandHookRunning?.has(parentId)) return;
     this.taskMergeBusy ??= new Set();
     if (this.taskMergeBusy.has(parentId)) return;
     this.taskMergeBusy.add(parentId);
     this.taskMergeWakePending?.delete(parentId); // consume only after actually acquiring the driver
-    let landed = false, taskId = null;
+    let landed = false, taskId = null, selected = null, repair = null, synchronize = null;
     try {
       await this.workspaces.exclusive(async () => {
         if (this.maintenancePaused() || this.activeConvergenceLanding?.(parentId)) return;
@@ -548,6 +586,20 @@ export default {
           this.store.update(task.id, { reservation: JSON.stringify(request) });
           this.observeTaskHooks(); // Capture the frozen edge even for a short, conflict-free attempt.
         }
+        selected = { taskId: task.id, attemptId: request.attempt_id };
+      });
+      if (!selected) return;
+      // The durable attempt owns the parent slot while the global Git queue is free for other Workers.
+      const before = this.assertTaskMergeAttempt(selected.taskId, selected.attemptId, true);
+      const guard = () => this.assertTaskMergeAttempt(selected.taskId, selected.attemptId, true);
+      const sourceProof = await inspectRunnerSafePoint(this, before.task.id, {
+        head_commit: before.request.repair_ready ? before.task.head_commit : before.request.commit, guard });
+      const parentProof = before.request.landing_receipt ? null : await inspectRunnerSafePoint(this, before.parent.id, {
+        head_commit: before.request.baseline ?? undefined, guard,
+        allow_receipts: [runnerParentSyncId(before.task.id, before.request.attempt_id)] });
+      await this.workspaces.exclusive(async () => {
+        let { task, request, parent } = this.assertTaskMergeAttempt(selected.taskId, selected.attemptId, true);
+        sourceProof.guard(); parentProof?.guard();
         if (request.landing_receipt) {
           // Exact Git/DB recovery. Never replay an apply whose side effects are unknown.
           check(await this.workspaces.verifyTaskSquashUnsafe(request.landing_receipt),
@@ -559,8 +611,12 @@ export default {
           check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`) === request.commit,
             'landed source ref drifted during parent reconciliation');
           this.assertTaskMergeAttempt(task.id, request.attempt_id, true);
-          this.finalizeTaskMerge(task.id, request.attempt_id, request.landing_receipt.commit, parentHead);
-          landed = true; return;
+          if (this.store.runnerBinding(parent.id)) {
+            check(parentHead === request.landing_receipt.commit, 'Runner parent ref drifted beyond its fixed landing');
+            recordRunnerParentLanding(this, task, request);
+            synchronize = { taskId: task.id, attemptId: request.attempt_id };
+          } else { this.finalizeTaskMerge(task.id, request.attempt_id, request.landing_receipt.commit, parentHead); landed = true; }
+          return;
         }
         const state = await this.workspaces.branchState(task.branch);
         this.assertTaskMergeAttempt(task.id, request.attempt_id, true);
@@ -585,6 +641,68 @@ export default {
         }
         if (state.status === 'diverged' && !request.repair_run_id) {
           this.assertTaskMergeAttempt(task.id, request.attempt_id);
+          repair = { task, request }; return;
+        }
+        check(state.status === 'fast_forward' || state.status === 'integrated', 'source is not landable after repair');
+        sourceProof.guard(); parentProof?.guard();
+        // Keep the established Squash policy: an equal source/parent tree needs no empty commit.
+        const sourceTree = await this.workspaces.commitTree(request.commit);
+        if (sourceTree === await this.workspaces.commitTree(request.baseline)) {
+          await this.workspaces.assertCleanBranches([task.branch, parent.branch]);
+          check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${parent.branch}`) === request.baseline
+            && await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`) === request.commit,
+            'equal-tree source/target moved during inspection');
+          this.assertTaskMergeAttempt(task.id, request.attempt_id);
+          sourceProof.guard(); parentProof?.guard();
+          this.store.event(task.id, 'merge.tree_already_present', { attempt_id: request.attempt_id, tree: sourceTree,
+            source_commit: request.commit, parent_commit: request.baseline });
+          this.finalizeTaskMerge(task.id, request.attempt_id, request.baseline);
+          landed = true; return;
+        }
+        const receipt = await this.workspaces.prepareTaskSquashUnsafe(task.branch, request.commit, request.baseline,
+          `Merge task #${task.id}: ${task.goal.split('\n')[0].slice(0, 100)} [delivery ${request.delivery_id}, attempt ${request.attempt_id}]`);
+        this.assertTaskMergeAttempt(task.id, request.attempt_id);
+        sourceProof.guard(); parentProof?.guard();
+        this.store.transaction(() => {
+          prepareRunnerParentSync(this, task, request, parent, receipt);
+          request = { ...request, landing_receipt: receipt };
+          this.store.update(task.id, { reservation: JSON.stringify(request) });
+          this.store.event(task.id, 'merge.landing_prepared', { delivery_id: request.delivery_id, attempt_id: request.attempt_id, receipt });
+        });
+        await this.workspaces.applyTaskSquashUnsafe(receipt, () => {
+          this.assertTaskMergeAttempt(task.id, request.attempt_id); sourceProof.guard(); parentProof?.guard();
+        });
+        const parentHead = await this.readTaskMergeParentHead(task, receipt.commit);
+        check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`) === request.commit,
+          'source ref drifted during landing reconciliation');
+        if (this.store.runnerBinding(parent.id)) {
+          check(parentHead === receipt.commit, 'Runner parent ref drifted beyond its fixed landing');
+          recordRunnerParentLanding(this, task, request);
+          synchronize = { taskId: task.id, attemptId: request.attempt_id };
+        } else { this.finalizeTaskMerge(task.id, request.attempt_id, receipt.commit, parentHead); landed = true; }
+      });
+      if (synchronize) {
+        await synchronizeRunnerParent(this, synchronize.taskId, synchronize.attemptId);
+        await this.workspaces.exclusive(async () => {
+          const { task, request } = this.assertTaskMergeAttempt(synchronize.taskId, synchronize.attemptId, true);
+          check(await this.workspaces.verifyTaskSquashUnsafe(request.landing_receipt), 'Runner central landing proof changed during synchronization');
+          check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.target_branch}`) === request.landing_receipt.commit
+            && await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`) === request.commit,
+          'Runner source or parent ref drifted during synchronization');
+          sourceProof.guard();
+          this.finalizeTaskMerge(task.id, request.attempt_id, request.landing_receipt.commit);
+          landed = true;
+        });
+      }
+      if (repair) {
+        await provideRunnerRepair(this, repair.task, repair.request);
+        await this.workspaces.exclusive(async () => {
+          const { task, request } = this.assertTaskMergeAttempt(repair.task.id, repair.request.attempt_id);
+          sourceProof.guard(); parentProof?.guard();
+          check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`) === request.commit
+            && await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.target_branch}`) === request.baseline,
+          'repair source or fixed parent drifted during object transfer');
+          this.assertTaskMergeAttempt(task.id, request.attempt_id);
           const key = `merge-repair:${request.delivery_id}:${request.attempt_id}`;
           const payload = { delivery_id: request.delivery_id, attempt_id: request.attempt_id,
             source_commit: request.original_commit, parent_commit: request.baseline };
@@ -599,36 +717,9 @@ export default {
                   + `交付 ${request.delivery_id} 尝试 ${request.attempt_id}。`, ...payload } }));
             this.store.event(task.id, 'merge.divergence_returned', payload);
           });
-          this.kick(); return;
-        }
-        check(state.status === 'fast_forward' || state.status === 'integrated', 'source is not landable after repair');
-        // Keep the established Squash policy: an equal source/parent tree needs no empty commit.
-        const sourceTree = await this.workspaces.commitTree(request.commit);
-        if (sourceTree === await this.workspaces.commitTree(request.baseline)) {
-          await this.workspaces.assertCleanBranches([task.branch, parent.branch]);
-          check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${parent.branch}`) === request.baseline
-            && await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`) === request.commit,
-            'equal-tree source/target moved during inspection');
-          this.assertTaskMergeAttempt(task.id, request.attempt_id);
-          this.store.event(task.id, 'merge.tree_already_present', { attempt_id: request.attempt_id, tree: sourceTree,
-            source_commit: request.commit, parent_commit: request.baseline });
-          this.finalizeTaskMerge(task.id, request.attempt_id, request.baseline);
-          landed = true; return;
-        }
-        const receipt = await this.workspaces.prepareTaskSquashUnsafe(task.branch, request.commit, request.baseline,
-          `Merge task #${task.id}: ${task.goal.split('\n')[0].slice(0, 100)} [delivery ${request.delivery_id}, attempt ${request.attempt_id}]`);
-        this.assertTaskMergeAttempt(task.id, request.attempt_id);
-        // Persist exact SHA before ANY parent mutation (the Git/DB double-write window).
-        request = { ...request, landing_receipt: receipt };
-        this.store.update(task.id, { reservation: JSON.stringify(request) });
-        this.store.event(task.id, 'merge.landing_prepared', { delivery_id: request.delivery_id, attempt_id: request.attempt_id, receipt });
-        await this.workspaces.applyTaskSquashUnsafe(receipt, () => this.assertTaskMergeAttempt(task.id, request.attempt_id));
-        const parentHead = await this.readTaskMergeParentHead(task, receipt.commit);
-        check(await this.workspaces.git(this.config.project, 'rev-parse', `refs/heads/${task.branch}`) === request.commit,
-          'source ref drifted during landing reconciliation');
-        this.finalizeTaskMerge(task.id, request.attempt_id, receipt.commit, parentHead);
-        landed = true;
-      });
+          this.kick();
+        });
+      }
     } catch (error) {
       if (taskId) {
         const task = this.store.task(taskId), request = reservationOf(task);

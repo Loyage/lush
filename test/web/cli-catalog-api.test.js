@@ -25,7 +25,7 @@ test('real project HTTP -> user-only RPC catalogue has no writes or secrets and 
     expect((await client.request('cli.catalog'))).toEqual(value);
     await expect(client.request('cli.catalog', { arbitrary: 'x' })).rejects.toThrow('unknown parameter');
     expect(JSON.stringify(value)).not.toContain(f.root);
-    for (const secret of ['agent_token_hash','retry_profile','credentials','permissions_snapshot','socket','creation_fingerprint']) expect(JSON.stringify(value)).not.toContain(secret);
+    for (const secret of ['agent_token_hash','retry_profile','"credentials":','permissions_snapshot','socket','creation_fingerprint']) expect(JSON.stringify(value)).not.toContain(secret);
   } finally { await f.close(); }
 });
 

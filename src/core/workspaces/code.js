@@ -2,13 +2,13 @@ import { check } from '../types.js';
 import { LIMITS, CodeReadError, options, isolatedGit, hash, readWorkspace } from './code-io.js';
 import { sample, pending, pageRows, summary, treePage, patch } from './code-model.js';
 
-function envelope(task, opts, io = null, model = null) {
+export function codeEnvelope(task, opts, io = null, model = null) {
   return { version: 1, task_id: task.id, scope: opts.scope, availability: io ? 'available' : 'unavailable',
     reason: io ? !io.base ? '基线对象不可用；只能查看当前文件，不能计算净差异' : io.source === 'commit' ? '工作区已不可用；当前只显示原始已提交版本，不含曾经的未提交内容' : null : null,
     source: io?.source ?? 'none', branch: task.branch ?? null, base_commit: io?.base ?? null, head_commit: io?.head ?? null,
     sampled_at: new Date().toISOString(), revision: model?.revision ?? null, truncated: false };
 }
-function empty(kind, opts) {
+export function emptyCode(kind, opts) {
   if (kind === 'state') return { files: [], next: opts.after, has_more: false,
     summary: { files_total: null, changed_total: null, pending_total: null, added: null, deleted: null, conflicts: null } };
   if (kind === 'tree') return { path: opts.path, query: opts.query, entries: [], next: opts.after, has_more: false };
@@ -19,12 +19,12 @@ const activeReads = new WeakMap();
 async function read(workspaces, task, raw, kind, body) {
   const opts = options(raw, kind === 'file'); let io, model;
   const active = activeReads.get(workspaces) ?? 0;
-  if (active >= 4) return { ...envelope(task, opts), ...empty(kind, opts), reason: '代码读取繁忙，请稍后重试' };
+  if (active >= 4) return { ...codeEnvelope(task, opts), ...emptyCode(kind, opts), reason: '代码读取繁忙，请稍后重试' };
   activeReads.set(workspaces, active + 1);
   try {
-    io = await isolatedGit(workspaces, task, opts.scope); model = await sample(io);
+    io = await (workspaces.openCode ?? isolatedGit)(workspaces, task, opts.scope); model = await sample(io);
     if (opts.revision && opts.revision !== model.revision) throw new CodeReadError('代码采样已变化，请加载最新版本后继续', 'stale');
-    const result = { ...envelope(task, opts, io, model), ...await body(io, model, opts) };
+    const result = { ...codeEnvelope(task, opts, io, model), ...await body(io, model, opts) };
     if (Buffer.byteLength(JSON.stringify(result)) > LIMITS.response) throw new CodeReadError('代码响应超过安全大小上限，请缩小读取范围');
     return result;
   } catch (error) {
@@ -33,7 +33,7 @@ async function read(workspaces, task, raw, kind, body) {
       if (typeof error.code !== 'string') throw error;
       error = new CodeReadError('文件现场读取失败，可能已被移动、替换或无法访问');
     }
-    return { ...envelope(task, opts, io, model), ...empty(kind, opts), availability: error.type,
+    return { ...codeEnvelope(task, opts, io, model), ...emptyCode(kind, opts), availability: error.type,
       reason: error.message, truncated: /上限|超时/.test(error.message) };
   } finally { activeReads.set(workspaces, (activeReads.get(workspaces) ?? 1) - 1); io?.close(); }
 }
@@ -115,3 +115,9 @@ export const methods = {
     });
   },
 };
+
+/** Reuse the public read model with a registered location-specific IO opener, not a fake Store. */
+export function createCodeReader(openCode) {
+  const owner = { openCode };
+  return Object.fromEntries(Object.entries(methods).map(([name, method]) => [name, method.bind(owner)]));
+}

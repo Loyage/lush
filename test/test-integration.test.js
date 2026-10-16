@@ -79,6 +79,10 @@ test('quick groups include navigation/polling and real CLI/permission migration 
   expect(INTEGRATION_GROUPS.rpc).toContain('test/project/management-live-permissions.test.js');
   expect(INTEGRATION_GROUPS.rpc).toContain('test/project/management-code-provider-chain.test.js');
   expect(INTEGRATION_GROUPS.rpc).toContain('test/web/runtime-coordinator-integration.test.js');
+  expect(INTEGRATION_GROUPS.rpc).toContain('test/web/remote-code-reader-api.test.js');
+  expect(INTEGRATION_GROUPS.rpc).toContain('test/project/input-emissions-remote-quiet.test.js');
+  for (const file of ['runner-delivery', 'runner-delivery-chain', 'runner-early-cancel-chain', 'runner-hook-boundary', 'runner-parent-sync', 'runner-connection-guards', 'runner-lifecycle-reclamation', 'runner-tool-reconcile', 'runner-command-reconcile', 'runner-file-reconcile'])
+    expect(INTEGRATION_GROUPS.rpc).toContain(`test/project/${file}.test.js`);
   for (const file of ['test/cli-entrypoints.test.js', 'test/cli-surfaces.test.js', 'test/cli-catalog.test.js',
     'test/cli-prompt-boundaries.test.js', 'test/integration/pi.test.js', 'test/integration/questionnaire.test.js']) {
     expect(INTEGRATION_GROUPS.cli).toContain(file);

@@ -3,6 +3,26 @@ import { check, id } from '../types.js';
 import { workerLabel } from '../worker-number.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing } from './iteration.js';
 import { inputEmission, inputOptions, saveEmission, canReleaseInputExclusive } from './input-emission-data.js';
+import { assertRunnerIdle, inspectRunnerSafePoint } from './runner-safety.js';
+import { RUNNER_BINDING_KEYS } from '../runner-service.js';
+
+// Only checked removal can make a remote resource absent. Keep even removed bindings in
+// scope when a durable Run/receipt/Project settlement barrier remains; reuse Store's rules.
+const retainedWork = `NOT (t.status IN ('completed','cancelled') AND (t.workspace IS NULL OR EXISTS
+  (SELECT 1 FROM branches b WHERE b.branch=t.branch AND b.status IN ('archived','deleted'))))
+  OR EXISTS (SELECT 1 FROM runner_bindings r WHERE r.worker_id=t.id AND r.state!='removed')
+  OR t.id IN (SELECT value FROM json_each(?))`;
+function blockedRunnerWorkers(project) {
+  return JSON.stringify([...new Set(Object.values(project.store.runnerBarriers()).flat().map(row => row.worker_id))]);
+}
+function runnerBusyReason(project, task) {
+  try {
+    if (assertRunnerIdle(project, task.id, { allow_removed: true }))
+      check(!project.store.runnerBarriers(task.id).bindings.length, 'Runner registration has an unresolved barrier');
+    return null;
+  }
+  catch { return `${workerLabel(task)} 远端现场或停止／同步尚未确认`; }
+}
 
 export function roundEvent(project, taskId) {
   return project.store.get(`SELECT max(id) AS id FROM events WHERE task_id=? AND
@@ -34,15 +54,13 @@ export default {
   inputSubtree(rootId) {
     return this.store.all(`WITH RECURSIVE tree(id) AS (SELECT ? UNION SELECT t.id FROM tasks t JOIN tree ON t.parent_id=tree.id)
       SELECT t.* FROM tasks t JOIN tree ON tree.id=t.id
-      WHERE NOT (t.status IN ('completed','cancelled') AND (t.workspace IS NULL OR EXISTS
-        (SELECT 1 FROM branches b WHERE b.branch=t.branch AND b.status IN ('archived','deleted'))))
-      ORDER BY t.id LIMIT 1002`, rootId);
+      WHERE ${retainedWork}
+      ORDER BY t.id LIMIT 1002`, rootId, blockedRunnerWorkers(this));
   },
 
   inputProjectWork() {
-    return this.store.all(`SELECT t.* FROM tasks t WHERE NOT (t.status IN ('completed','cancelled') AND
-      (t.workspace IS NULL OR EXISTS (SELECT 1 FROM branches b WHERE b.branch=t.branch AND b.status IN ('archived','deleted'))))
-      ORDER BY t.id LIMIT 1002`);
+    return this.store.all(`SELECT t.* FROM tasks t WHERE ${retainedWork}
+      ORDER BY t.id LIMIT 1002`, blockedRunnerWorkers(this));
   },
 
   pendingAppendEmission(taskId) {
@@ -52,6 +70,8 @@ export default {
   },
 
   inputWorkerBusyReason(task) {
+    const remote = runnerBusyReason(this, task);
+    if (remote) return remote;
     if (this.running.has(task.id) || ['queued','running','awaiting','paused','failed'].includes(task.status) || task.interrupt_state)
       return `${workerLabel(task)} 尚未静息（${task.status}）`;
     if (this.commandHookRunning?.has(task.id) || this.taskSyncBusy?.has(task.id) || this.taskMergeBusy?.has(task.id)
@@ -72,7 +92,34 @@ export default {
       AND type IN ('task.idle','task.delivered','task.merge_integrated','task.accepted') LIMIT 1`, task.id, after));
   },
 
-  async inputWorkspaceClean(task) {
+  inputWorkspaceProofsCurrent(proofs) {
+    try { for (const guard of proofs) guard(); return true; }
+    catch { return false; }
+  },
+
+  async inputWorkspaceClean(task, proofs = []) {
+    const binding = this.store.runnerBinding(task.id);
+    if (binding) {
+      try {
+        check(!runnerBusyReason(this, task), 'Runner workspace has unresolved activity');
+        let guard;
+        if (binding.state === 'removed') {
+          // Store only publishes removed with exact stopped/clean/resource receipts. No
+          // network required after reclamation, but new durable barriers still invalidate it.
+          guard = () => {
+            check(!runnerBusyReason(this, task), 'Runner removal has an unresolved barrier');
+            const live = this.store.runnerBinding(task.id);
+            check(live?.state === 'removed' && live.revision === binding.revision
+              && RUNNER_BINDING_KEYS.every(key => live[key] === binding[key])
+              && this.store.task(task.id).workspace === null, 'Runner removal evidence changed');
+          };
+        } else {
+          const head_commit = ['completed','cancelled'].includes(task.status) ? binding.head_commit : task.head_commit ?? binding.head_commit;
+          ({ guard } = await inspectRunnerSafePoint(this, task.id, { head_commit, observation: true }));
+        }
+        guard(); proofs.push(guard); return true;
+      } catch { return false; }
+    }
     if (!task.workspace || !fs.existsSync(task.workspace)) return !task.workspace || ['archived','deleted'].includes(this.store.branch(task.branch)?.status);
     try {
       if ((await this.workspaces.git(task.workspace, 'status', '--porcelain')).length) return false;
@@ -84,8 +131,8 @@ export default {
   },
 
   /** Follow exact squash receipts across delegation levels, not source SHA ancestry alone. */
-  async inputWorkerMergedToMain(task, snapshot = 0, rootId = null) {
-    if (!this.inputWorkerSettled(task, snapshot) || !task.head_commit || !await this.inputWorkspaceClean(task)) return false;
+  async inputWorkerMergedToMain(task, snapshot = 0, rootId = null, proofs = []) {
+    if (!this.inputWorkerSettled(task, snapshot) || !task.head_commit || !await this.inputWorkspaceClean(task, proofs)) return false;
     const main = rootId ? this.store.get('SELECT * FROM tasks WHERE id=?', rootId)
       : this.store.get("SELECT * FROM tasks WHERE task_kind='main' AND branch='main'");
     if (!main) return false;
@@ -101,7 +148,8 @@ export default {
         let parentHead;
         try { parentHead = await this.workspaces.git(this.config.project, 'rev-parse', '--verify', `refs/heads/${parent.branch}^{commit}`); }
         catch { return false; }
-        return this.workspaces.isAncestor(this.config.project, receipt.commit, parentHead);
+        return await this.workspaces.isAncestor(this.config.project, receipt.commit, parentHead)
+          && this.inputWorkspaceProofsCurrent(proofs);
       }
       // The parent's later squash must contain the precise child's landing. Never borrow
       // an old parent delivery whose fixed source predates that landing. Its retained
@@ -129,6 +177,8 @@ export default {
         continue;
       }
       if (!['order','child'].includes(task.task_kind)) continue;
+      const remote = runnerBusyReason(this, task);
+      if (remote) return remote;
       if (['cancelled','completed'].includes(task.status)) {
         if (this.running.has(task.id) || this.taskSyncBusy?.has(task.id) || this.commandHookRunning?.has(task.id)
           || this.workspaces.busy.has(task.id) || this.acceptanceBusy?.has(task.id)) return `${workerLabel(task)} 仍在收尾`;
@@ -145,16 +195,17 @@ export default {
     return null;
   },
 
-  async inputParentQuiet(rootId, exceptId = null, projectWide = false) {
+  async inputParentQuiet(rootId, exceptId = null, projectWide = false, proofs = []) {
     let reason = this.inputQuietStateReason(rootId, exceptId, projectWide);
     if (reason) return reason;
     for (const task of projectWide ? this.inputProjectWork() : this.inputSubtree(rootId)) {
       if (task.id === exceptId || !['order','child'].includes(task.task_kind)) continue;
-      if (!await this.inputWorkspaceClean(task)) return `${workerLabel(task)} 留有未处理的脏现场`;
+      if (!await this.inputWorkspaceClean(task, proofs)) return `${workerLabel(task)} 留有未处理的脏现场或远端现场不可确认`;
       if (['cancelled','completed'].includes(task.status)) continue;
       const receipt = lastDelivery(this, task.id, roundEvent(this, task.id));
-      if (receipt && !await this.inputWorkerMergedToMain(task, 0, this.inputRoot(task).id)) return `${workerLabel(task)} 成果尚未到目标根分支`;
+      if (receipt && !await this.inputWorkerMergedToMain(task, 0, this.inputRoot(task).id, proofs)) return `${workerLabel(task)} 成果尚未到目标根分支`;
     }
+    if (!this.inputWorkspaceProofsCurrent(proofs)) return '远端静息检查后现场身份、修订或安全状态发生变化';
     return this.inputQuietStateReason(rootId, exceptId, projectWide);
   },
 

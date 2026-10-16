@@ -124,7 +124,7 @@ export default {
       check(!emissionLocked(draft), 'draft has a mounted input; cancel its emission before editing');
       checkDraftRevision(draft, revision);
       const normalized = references === undefined ? null : this.normalizeReferences(references);
-      const settings = normalizeInputOptions(this, options, inputOptions(draft));
+      const settings = normalizeInputOptions(this, options, inputOptions(draft), { allowRunnerReset: true });
       const target = settings.mode === 'append' ? this.assertAppendInputTarget(settings.target_id) : null;
       const parent = target ? this.inputRoot(target) : branch === undefined ? null : await this.inputParent(branch);
       this.assertWritable('edit a draft');
@@ -156,6 +156,8 @@ export default {
 
   submitBufferedDraft(draftId, revision, start = true, defer = false, profile = null) {
     expectedRevision(revision);
+    check(!Object.hasOwn(inputOptions(this.store.draft(id(draftId))), 'runner_node_id'),
+      'Runner-selected drafts must use input.emit; legacy direct/deferred draft submission does not retain placement');
     return this.order(undefined, null, [], id(draftId), start, revision, profile, defer);
   },
 };

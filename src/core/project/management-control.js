@@ -27,7 +27,7 @@ function closePolicyNotice(project, taskId, call) {
   project.store.run(`UPDATE messages SET consumed=1 WHERE task_id=? AND sender_id IS NULL AND consumed=0
     AND CASE WHEN json_valid(body) THEN json_extract(body,'$.notice_id') END=?`, taskId, call.notice_id);
 }
-function trackControlJob(project, taskId, job) {
+export function trackControlJob(project, taskId, job) {
   project.managementControlJobs ??= new Set();
   project.managementControlOwners ??= new Map();
   project.managementControlOwners.set(taskId, (project.managementControlOwners.get(taskId) ?? 0) + 1);

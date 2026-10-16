@@ -105,6 +105,23 @@ export async function isolatedGit(workspaces, task, scope) {
   if (source === 'commit' && scope === 'working') throw new CodeReadError('工作区已不可用，不能还原未提交内容');
   let base = scope === 'working' ? head : scope === 'iteration' ? task.iteration_base_commit ?? task.base_commit : task.base_commit;
   if (base && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(base)) base = null;
+  return openIsolatedCode({ config, common, format, source, workspace, index, head, base, deadline,
+    async verify() {
+      if (!workspace) return;
+      const stat = fs.existsSync(workspace) ? fs.statSync(workspace, { bigint: true }) : null;
+      if (!stat || `${stat.dev}:${stat.ino}` !== workspaceIdentity || fs.realpathSync(workspace) !== workspace
+        || fs.realpathSync(await identity(workspace, 'rev-parse', '--path-format=absolute', '--git-common-dir')) !== common
+        || await identity(workspace, 'rev-parse', '--verify', 'HEAD') !== head
+        || task.branch && await identity(workspace, 'symbolic-ref', '--quiet', 'HEAD') !== `refs/heads/${task.branch}`) {
+        throw new CodeReadError('工作区在读取期间发生变化，请加载最新版本', 'stale');
+      }
+    }
+  });
+}
+
+/** Shared read-only Git view. Callers must validate repository ownership before opening
+ * and provide a verifier for their registered workspace; no Store or mutable refs are accepted. */
+export async function openIsolatedCode({ config, common, format, source, workspace, index, head, base, deadline, verify }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lush-code-'));
   fs.chmodSync(root, 0o700);
   try {
@@ -118,16 +135,7 @@ export async function isolatedGit(workspaces, task, scope) {
     let baselineMissing = false;
     if (base) { try { await git(['cat-file', '-e', `${base}^{commit}`]); } catch { base = null; baselineMissing = true; } }
     return { root, git, workspace, index, source, head, base, deadline, format, baselineMissing,
-      async verify() {
-        if (!workspace) return;
-        const stat = fs.existsSync(workspace) ? fs.statSync(workspace, { bigint: true }) : null;
-        if (!stat || `${stat.dev}:${stat.ino}` !== workspaceIdentity || fs.realpathSync(workspace) !== workspace
-          || fs.realpathSync(await identity(workspace, 'rev-parse', '--path-format=absolute', '--git-common-dir')) !== common
-          || await identity(workspace, 'rev-parse', '--verify', 'HEAD') !== head
-          || task.branch && await identity(workspace, 'symbolic-ref', '--quiet', 'HEAD') !== `refs/heads/${task.branch}`) {
-          throw new CodeReadError('工作区在读取期间发生变化，请加载最新版本', 'stale');
-        }
-      },
+      verify,
       close() { fs.rmSync(root, { recursive: true, force: true }); } };
   } catch (error) { fs.rmSync(root, { recursive: true, force: true }); throw error; }
 }

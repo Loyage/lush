@@ -1,3 +1,5 @@
+import { RunnerService } from '../core/runner-service.js';
+import { RUNNER_METHODS, runnerManagement, publicRunnerResult } from '../rpc/runner-methods.js';
 import path from 'node:path';
 import { launcherStateDir } from './registry.js';
 import { check, isPlainObject } from '../core/types.js';
@@ -16,6 +18,7 @@ import { assertAllowed } from '../rpc/registry.js';
 
 /** No Project, SQLite, Worker, daemon startup, model calls or cross-project scheduling. */
 export const DEVICE_SETTINGS_READS = new Map([
+  ...Object.entries(RUNNER_METHODS).filter(([, spec]) => spec.device && spec.readPath).map(([method, spec]) => [spec.readPath, [method, []]]),
   ['runtime', ['system.settings', []]], ['agent/config', ['agent.config', []]],
   ['agent/models', ['agent.models', ['agent']]], ['agent/resources', ['agent.resources', []]],
   ['agent/status', ['agent.status', []]], ['agent/environment', ['agent.environment', ['target']]],
@@ -25,6 +28,7 @@ export const DEVICE_SETTINGS_READS = new Map([
   ['agent/packages', ['agent.packages.list', []]],
 ]);
 export const DEVICE_SETTINGS_ACTIONS = new Set([
+  ...Object.entries(RUNNER_METHODS).filter(([, spec]) => spec.device && !spec.readPath).map(([method]) => method),
   'system.configure', 'agent.configure', 'agent.environment.configure', 'agent.network.configure',
   'agent.connections.save', 'agent.connections.remove', 'agent.connections.sampling', 'agent.connections.query',
   'agent.connections.models.refresh', 'agent.connections.login.start', 'agent.connections.login.finish',
@@ -71,6 +75,7 @@ export class DeviceSettingsService {
     return this.view({ ...value, ...Object.fromEntries(RUNTIME_SETTINGS_KEYS.map(key =>
       [key, { ...value[key], source: value[key].overridden ? 'device' : 'default' }])) });
   }
+  getRunners() { return this.runners ??= new RunnerService(this.config, null, this.options.runner); }
   getManager() {
     if (!this.manager) this.manager = new ConnectionManager(this.config, this.options.connections ?? {});
     return this.manager;
@@ -103,6 +108,10 @@ export class DeviceSettingsService {
   }
   async perform(method, p) {
     validateConfigurationDirectory(this.config);
+    if (Object.hasOwn(RUNNER_METHODS, method)) {
+      if (method === 'runner.nodes.check') check(typeof p.project_id === 'string', 'Host Runner checks require explicit project_id');
+      return publicRunnerResult(await runnerManagement(this.getRunners(), method, p), method);
+    }
     switch (method) {
       case 'system.settings': return this.runtimeView(this.runtime.get());
       case 'system.configure':
@@ -159,7 +168,8 @@ export class DeviceSettingsService {
     check(READ_METHODS.has(method) || DEVICE_SETTINGS_ACTIONS.has(method), 'device settings method not allowed');
     check(isPlainObject(params) && !Object.hasOwn(params, '_token'), 'agent tokens are not accepted by Host settings');
     check(params.scope === undefined || params.scope === 'device', 'Host settings only accept device scope');
-    const p = { ...params, scope: 'device' };
+    const { scope, ...definition } = params;
+    const p = Object.hasOwn(RUNNER_METHODS, method) ? definition : { ...params, scope: 'device' };
     assertAllowed(method, p, null);
     const pending = this.perform(method, p); this.pending.add(pending);
     try { return await pending; }
@@ -170,5 +180,6 @@ export class DeviceSettingsService {
     this.closed = true;
     await Promise.allSettled([this.manager?.stop(), this.packages?.stop()]);
     await Promise.allSettled([...this.pending]);
+    await this.runners?.close();
   }
 }

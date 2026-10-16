@@ -3,7 +3,7 @@ import { assertTaskAncestorsOpen } from './iteration.js';
 import { hookRevision } from '../hooks.js';
 import { inheritedRunProfile } from './internal.js';
 import { assertManager } from './management-auth.js';
-import controlMethods, { managementControlPending } from './management-control.js';
+import controlMethods, { managementControlPending, trackControlJob } from './management-control.js';
 import permissionMethods from './management-permissions.js';
 import { effectiveManagementPolicy } from '../../rpc/management-policy.js';
 import { hasManagementConfirmation } from './management-code.js';
@@ -361,6 +361,33 @@ export default {
     // Once begun, an unexpected exception is not a temporary gate. Atomic DB effects and the exact receipt
     // share a second boundary, leaving a conservative started/unknown diagnostic if the process disappears.
     receipt.status = 'running'; delete receipt.reason; saveManagement(this, taskId, state);
+    if (receipt.action === 'retry' && this.store.runnerBinding(target.id)) {
+      // The remote lifecycle has network waits. A durable running receipt and the existing
+      // tracked-control barrier keep shutdown/maintenance honest without holding SQLite open.
+      return trackControlJob(this, taskId, (async () => {
+        try {
+          await this.retry(target.id);
+          this.store.transaction(() => {
+            const current = managementState(this.store.task(taskId));
+            const action = current.receipts.find(item => item.receipt_id === receiptId);
+            check(action?.status === 'running' && action.occurrence_id === receipt.occurrence_id,
+              'management retry receipt changed before settlement');
+            action.status = 'succeeded';
+            saveManagement(this, taskId, current);
+            this.store.event(taskId, 'management.action_completed', { occurrence_id: receipt.occurrence_id, ...action });
+          });
+        } catch {
+          this.store.transaction(() => {
+            const current = managementState(this.store.task(taskId));
+            const action = current.receipts.find(item => item.receipt_id === receiptId);
+            if (action?.status === 'running' && action.occurrence_id === receipt.occurrence_id) {
+              action.status = 'unknown'; action.reason = unknownReason;
+              saveManagement(this, taskId, current); this.failManagementOccurrence(taskId, 'unknown');
+            }
+          });
+        }
+      })());
+    }
     try {
       this.store.transaction(() => {
         if (receipt.action === 'start') this.resumeTask(target.id);

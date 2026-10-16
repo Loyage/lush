@@ -51,6 +51,15 @@ button.input-row:focus-visible,a.input-row:focus-visible{background:var(--accent
 .emission-condition-empty{margin:0;padding:18px 12px;border:1px dashed var(--line);border-radius:9px;background:var(--bg);overflow-wrap:anywhere}.emission-conditions button{max-width:100%;white-space:normal;overflow-wrap:anywhere}
 @media(max-width:1000px){.emission-conditions-layout{grid-template-columns:minmax(0,1fr)}.input-secondary-actions{flex-basis:100%;padding-left:0;padding-top:10px;border-left:0;border-top:1px solid var(--line-soft)}}
 #input-form[data-mode="management"] #input{border-style:double}
+.runner-input-choice{min-width:0;margin:6px 0 10px;font-size:12px;overflow-wrap:anywhere}
+.runner-input-choice[hidden],.runner-choice-options[hidden],.runner-choice-diagnostic[hidden]{display:none}
+.runner-choice-row{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;min-width:0}
+.runner-choice-summary{flex:1 1 240px;min-width:0;color:var(--muted)}
+.runner-choice-options{margin-top:8px}.runner-choice-list{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0;max-height:36dvh;overflow-y:auto}
+.runner-input-choice button{max-width:100%;white-space:normal;overflow-wrap:anywhere;min-height:32px}
+.runner-choice-option{flex:1 1 180px;text-align:left}.runner-choice-option[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--text)}
+.runner-choice-diagnostic{margin:6px 0;color:var(--failed)}
+@media(max-width:760px){.runner-input-choice button{min-height:44px}.runner-choice-list{flex-direction:column}.runner-choice-option{width:100%;flex:auto}.runner-choice-row>button{width:100%}}
 @media(max-width:760px){
   .emission-field input:not([type="checkbox"]),.emission-field select{font-size:16px;min-height:44px}.emission-conditions button,.input-actions button{min-height:44px}
   .emission-conditions{padding:10px}.emission-conditions-layout{gap:14px}.emission-configured{padding:10px}.emission-field:has(input[type="checkbox"]){min-height:44px;line-height:1.6}

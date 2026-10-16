@@ -9,6 +9,7 @@ import { managementModel } from './management-data.js';
 import fs from 'node:fs';
 import { saveInputRule, snapshotPath } from '../task-input-rule.js';
 import { forkCheckpoint } from '../../agent/fork.js';
+import { selectCreationRunner, guardCreationRunner, creationIdentity, captureRunnerParent } from './runner-creation.js';
 import { assertTaskAncestorsOpen, assertTaskNotSyncing, consumeIntegratedReservation, iterationViews } from './iteration.js';
 
 export const DEP_KINDS = new Set(['code', 'order']);
@@ -90,11 +91,11 @@ export default {
   },
 
   /** name is the planner's short slug for the work; it becomes the branch/worktree name and stays fixed for the task's life. */
-  async spawn(parentId, goal, role = undefined, deps = [], name = null, specId = null) {
-    return this.write('fork a worker', () => this.forkChildTask(parentId, goal, role, deps, name, specId));
+  async spawn(parentId, goal, role = undefined, deps = [], name = null, specId = null, runnerNodeId = undefined) {
+    return this.write('fork a worker', () => this.forkChildTask(parentId, goal, role, deps, name, specId, runnerNodeId));
   },
 
-  async forkChildTask(parentId, goal, role = undefined, deps = [], name = null, specId = null) {
+  async forkChildTask(parentId, goal, role = undefined, deps = [], name = null, specId = null, runnerNodeId = undefined) {
     this.assertWritable('delegate a worker');
     const parent = this.store.task(parentId);
     assertTaskNotSyncing(this, parent.id);
@@ -144,7 +145,12 @@ export default {
     const slug = taskSlug(name, goal);
     const parentRule = taskKind && fs.existsSync(snapshotPath(this.config.home, parent.id))
       ? fs.readFileSync(snapshotPath(this.config.home, parent.id), 'utf8') : null;
+    const inherited = inheritedRunProfile(this, parent, this.running.get(parent.id) ?? null);
+    const runnerNode = selectCreationRunner(this, runnerNodeId, { parent, profile: inherited });
+    await captureRunnerParent(this, parent);
     return this.workspaces.exclusive(async () => {
+      this.assertWritable('delegate a worker');
+      guardCreationRunner(this, runnerNode);
       const liveParent = this.store.task(parent.id);
       assertTaskNotSyncing(this, liveParent.id);
       check(!this.inputExclusiveReason(liveParent), this.inputExclusiveReason(liveParent));
@@ -161,7 +167,6 @@ export default {
         this.initializeNewWorkerConvergence(created);
         // Freeze the parent's effective run settings (mode/source/model/budget) for the child: the
         // current invocation wins, then its task-local override, then the effective default.
-        const inherited = inheritedRunProfile(this, liveParent, this.running.get(liveParent.id) ?? null);
         this.store.update(created.id, { auto_merge: JSON.stringify({ version: 1, enabled: true, locked: true,
           mounted_features: { completion: true, acceptance_notice: scopeMatches(this.automationSettings().mount_scopes.acceptance_notice, 'child') },
           acceptance_notice: { enabled: false } }),
@@ -185,7 +190,10 @@ export default {
         throw error;
       }
       try {
-        await this.workspaces.forkTaskUnsafe(task, liveParent.branch, commit);
+        if (runnerNode) await this.workspaces.prepareRemoteBranchUnsafe(task, liveParent.branch, commit, {
+          identity: creationIdentity(this, runnerNode, task.id), guard: () => guardCreationRunner(this, runnerNode),
+        });
+        else await this.workspaces.forkTaskUnsafe(task, liveParent.branch, commit);
         const pointer = this.store.get('SELECT session_path AS session, entry_id AS entry FROM commit_contexts WHERE commit_hash=?', commit);
         if (pointer) forkCheckpoint(this.config.home, { ...pointer, commit });
       } catch (error) {

@@ -26,6 +26,34 @@ async function scheduledFixture() {
 const notice = { type: 'notify', title: 'scheduled-test', body: 'submitted' };
 const countNotices = f => f.store.get("SELECT count(*) AS n FROM notices WHERE title='scheduled-test'").n;
 
+for (const failure of [false, true]) test(`scheduled remote retry awaits outside SQLite and records ${failure ? 'failure' : 'success'} only after completion`, async () => {
+  const f = await scheduledFixture(), pending = gate();
+  const runnerBinding = f.store.runnerBinding.bind(f.store);
+  let started = false, calls = 0;
+  // Caller-contract test: the actual stop/Runner path is exercised by runner lifecycle tests.
+  f.store.runnerBinding = id => id === f.job.id ? { worker_id: id } : runnerBinding(id);
+  f.project.retry = async () => {
+    calls++; started = true; expect(f.store.db.inTransaction).toBe(false);
+    await pending.promise;
+    if (failure) throw new Error('remote stop unknown');
+  };
+  try {
+    f.store.update(f.job.id, { status: 'failed' });
+    const mount = f.attach(f.job, f.once({ type: 'retry_worker', target_id: f.job.id }));
+    f.advance(60000); f.project.observeScheduledTaskHooks();
+    await until(() => started);
+    expect(f.view(f.job, mount).state).toBe('running');
+    expect(JSON.parse(f.store.task(f.job.id).hooks).mounts.find(item => item.id === mount.id).receipts ?? []).toEqual([]);
+    expect(f.store.db.inTransaction).toBe(false);
+    pending.resolve(); await f.project.hookQueue;
+    if (failure) {
+      expect(f.view(f.job, mount)).toMatchObject({ state: 'failed', enabled: false });
+      expect(JSON.parse(f.store.task(f.job.id).hooks).mounts.find(item => item.id === mount.id).receipts ?? []).toEqual([]);
+      await f.flush(); expect(calls).toBe(1);
+    } else retiredHook(f.project, f.job.id, mount.id);
+  } finally { pending.resolve(); f.store.runnerBinding = runnerBinding; await f.close(); }
+});
+
 test('real daemon-side timer automatically submits a future action without UI polling or a manual tick', async () => {
   const f = await scheduledFixture(); let callbacks = 0;
   try {

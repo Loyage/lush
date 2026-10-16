@@ -16,6 +16,7 @@ import { references } from './store/references.js';
 import { agentUsage } from './store/agent-usage.js';
 import { agentConnections } from './store/agent-connections.js';
 import { convergence, ensureConvergenceColumns } from './store/convergence.js';
+import { runner, ensureRunnerSchema } from './store/runner.js';
 
 /**
  * 持久化入口：只做装配，实现按职责住在 src/persistence/store/ 下。
@@ -23,10 +24,10 @@ import { convergence, ensureConvergenceColumns } from './store/convergence.js';
  * 重名＝拆分出错，立刻抛错，不静默覆盖。
  */
 export class Store extends StoreBase {
-  constructor(...args) { super(...args); ensureConvergenceColumns(this.db); }
+  constructor(...args) { super(...args); ensureConvergenceColumns(this.db); ensureRunnerSchema(this.db); }
 }
 
-for (const [module, mixin] of Object.entries({ tasks, specs, deps, messages, events, reading, verification, drafts, inputHistory, references, timeline, branches, runs, candidates, agentUsage, agentConnections, convergence })) {
+for (const [module, mixin] of Object.entries({ tasks, specs, deps, messages, events, reading, verification, drafts, inputHistory, references, timeline, branches, runs, candidates, agentUsage, agentConnections, convergence, runner })) {
   for (const name of Object.keys(mixin)) {
     if (Object.prototype.hasOwnProperty.call(Store.prototype, name)) {
       throw new Error(`duplicate Store method ${name} (${module}.js)`);

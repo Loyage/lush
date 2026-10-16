@@ -1,3 +1,13 @@
+/* Location warnings are never inside a foldable reading module. */
+.worker-runner{min-width:0;overflow-wrap:anywhere;margin:12px 0}
+.worker-runner-summary{font-weight:600;margin:0}
+.worker-runner>.hint,.worker-runner-warning{margin:6px 0}
+.worker-runner-details{min-width:0}
+.worker-runner-details>summary{cursor:pointer;min-height:44px;display:flex;align-items:center;white-space:normal}
+.worker-runner-details>summary::before{content:'▸';margin-right:8px}
+.worker-runner-details[open]>summary::before{content:'▾'}
+.worker-runner-details .grid,.worker-runner-details .kv,.worker-runner-details .kv>span{min-width:0;overflow-wrap:anywhere}
+@media(max-width:760px){.worker-runner-details .grid{grid-template-columns:minmax(0,1fr)}}
 /* Opt-in module foundation. Reading previews and explicit form folds are distinct modes. */
 .module-reading-root{overflow-anchor:none}
 .ui-module{position:relative;min-width:0;--module-preview-height:var(--detail-preview-height,min(400px,50dvh))}

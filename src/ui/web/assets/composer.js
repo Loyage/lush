@@ -27,7 +27,7 @@ export function runSettingsLabel() {
 }
 
 // 动态插入的按钮节点：DOM 测试的 stub 只能按 id 查静态元素，所以这里保留引用并统一经它重画。
-let runSettingsButton = null, managementResultButton = null, textEditor = null, disposeViewport = null;
+let runSettingsButton = null, managementResultButton = null, textEditor = null, disposeViewport = null, runnerChoice = null;
 
 export function paintRunSettings() {
   if (!runSettingsButton) return;
@@ -274,6 +274,7 @@ export function syncComposer() {
   $('composer-reset').hidden = !followup && !management;
   if (management) { $('composer-details').hidden = true; $('composer-shortcuts').hidden = true; }
   if (managementResultButton) managementResultButton.hidden = !management || !Number.isSafeInteger(ui.composerManagementResult?.id);
+  runnerChoice?.setActive(!management && !followup);
   paintRunSettings();
 }
 
@@ -317,7 +318,8 @@ async function submitInput(mode) {
   const target = management ? {} : destination(), branch = target.branch;
   if (target.reason) { show(target.reason, 'error'); return; }
   if (management && mode === 'buffer') return;
-  const requestDefinition = JSON.stringify([content, references, branch, target.id, management, creationProfile]);
+  const runnerNodeId = !management && target.id == null ? ui.composerRunnerNodeId : undefined;
+  const requestDefinition = JSON.stringify([content, references, branch, target.id, management, creationProfile, runnerNodeId]);
   if (identity.requestDefinition !== requestDefinition) { identity.requestDefinition = requestDefinition; identity.requestId = emissionRequestId(); }
   const submission = {}; identity.submission = submission;
   let update = null;
@@ -326,6 +328,7 @@ async function submitInput(mode) {
     if ((target.id != null || management) && references.length) throw new Error(`${management ? '管理指令' : '追加指令'}暂不支持引用附件；原文与引用已保留，请先移除引用或回到新建工作模式。`);
     if (branch && branch !== 'main' && !target.task && !ui.composerParents?.some(task => task.branch === branch)) throw new Error('所选父 Worker 已不可用，请展开输入区重新选择。');
     const params = { content, references, ...(branch ? { branch } : {}),
+      ...(runnerNodeId === undefined ? {} : { runner_node_id: runnerNodeId }),
       ...(target.id != null ? { mode: 'append', target_id: target.id } : {}) };
     const result = management
       ? await action('management.submit', { instruction: content, client_request_id: identity.requestId, ...(creationProfile ? { profile: creationProfile } : {}) }, { refresh: false })
@@ -340,7 +343,10 @@ async function submitInput(mode) {
     // Still protect edits (including edit-and-undo) and explicit inbox mode changes; view guards below only own navigation.
     const untouched = Boolean(ui.composerManagement) === management && ui.composerAppendTarget === appendTarget && ui.composerEditRevision === editRevision && input.value === value
       && ui.composerReferenceRevision === referenceRevision && JSON.stringify(composerReferences()) === signature;
-    if (untouched) { input.value = ''; textEditor?.reset(); setComposerReferences([]); identity.requestDefinition = null; }
+    if (untouched) {
+      input.value = ''; textEditor?.reset(); setComposerReferences([]); identity.requestDefinition = null;
+      if (!management && target.id == null) { ui.composerRunnerNodeId = undefined; runnerChoice?.setValue(undefined); }
+    }
     if (management) {
       if (ui.composerManagementProfile === creationProfile) ui.composerManagementProfile = null;
       ui.composerManagementResult = result.task || null;
@@ -366,13 +372,21 @@ async function submitInput(mode) {
 export function buffer() { return submitInput('buffer'); }
 /** Enter buffers development/append work; Ctrl+Enter and Ctrl+Shift+Enter both emit. */
 export function initComposer() {
-  textEditor?.dispose(); disposeViewport?.(); textEditor = null;
+  textEditor?.dispose(); disposeViewport?.(); runnerChoice?.dispose(); runnerChoice = null; textEditor = null;
   ui.composerIdentity = {}; ui.composerEditRevision = 0; ui.syncComposer = syncComposer;
   const identity = ui.composerIdentity, input = $('input'), editorTools = $('composer-editor-tools');
   editorTools.replaceChildren();
   ui.composerAppendTarget = null; ui.composerManagement = false; ui.composerManagementProfile = null;
   // 每次装配（含 boot 重跑）都从项目默认开始，不让上一条指令的运行设置跨会话残留。
-  ui.composerProfile = null;
+  ui.composerProfile = null; ui.composerRunnerNodeId = undefined;
+  const runnerReady = import('./runner-choice.js').then(({ createRunnerChoice }) => {
+    if (ui.composerIdentity !== identity) return;
+    runnerChoice = createRunnerChoice({ ownsPage: () => ui.composerIdentity === identity, online: () => !ui.offline,
+      onChange: value => { ui.composerRunnerNodeId = value; ui.composerEditRevision++; syncComposer(); } });
+    $('composer-runner-choice')?.replaceChildren(runnerChoice.node);
+    input.onfocus = () => { if (!ui.composerManagement && !ui.composerAppendTarget) void runnerChoice?.load(); };
+    syncComposer();
+  }).catch(error => { if (ui.composerIdentity === identity) show(`执行环境选项加载失败：${error.message}`, 'error'); });
   runSettingsButton = button(runSettingsLabel(), () => openComposerRunSettings(), 'ghost composer-run-settings', { help: RUN_SETTINGS_HELP });
   runSettingsButton.id = 'composer-run-settings'; runSettingsButton.dataset.composerRunSettings = '';
   const anchor = $('input-buffer-help');
@@ -431,5 +445,5 @@ export function initComposer() {
   });
   disposeViewport = attachComposerViewport(input, $('composer-shell'));
   syncComposer();
-  return Promise.all([loadComposerParents(), editorReady]);
+  return Promise.all([loadComposerParents(), editorReady, runnerReady]);
 }

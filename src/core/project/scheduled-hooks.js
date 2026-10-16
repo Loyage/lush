@@ -200,8 +200,18 @@ export default {
               this.recordHookAction(taskId, hookId, executionId, index, { worker_id: result.task.id, input_id: result.id });
               const data = read(this.store.task(taskId)); delete data.mounts.find(m => m.id === hookId).action_started_index; save(this, taskId, data);
             });
+          } else if (action.type === 'retry_worker' && !gate.skip && this.store.runnerBinding(action.target_id)) {
+            // Remote stop/reconciliation may await the network. Persist the start first; never
+            // keep a SQLite transaction open or publish a success receipt before it returns.
+            this.store.transaction(begin);
+            await this.retry(action.target_id, action.profile ?? null);
+            this.store.transaction(() => {
+              this.recordHookAction(taskId, hookId, executionId, index, {});
+              const data = read(this.store.task(taskId));
+              delete data.mounts.find(m => m.id === hookId).action_started_index; save(this, taskId, data);
+            });
           } else {
-            // DB effects, retry/resume authorization, and receipts are atomic. kick() only queues a microtask.
+            // Local DB effects, retry/resume authorization, and receipts are atomic. kick() only queues a microtask.
             this.store.transaction(() => {
               begin(); let outcome = {};
               if (gate.skip) outcome = { skipped: true, reason: gate.skip };

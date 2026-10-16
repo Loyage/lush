@@ -58,7 +58,11 @@ test('后台总览展示真实进程摘要及指令输入，不再提供处理�
   const before = requests.length; await picker.refreshProjectList();
   expect(panel.querySelector('.project-order')).toBe(slot); expect(slot.querySelector('textarea')).toBe(input); expect(input.value).toBe('未发送的工作');
   state.projects[0].running = false; await picker.refreshProjectList();
-  expect(input.value).toBe('未发送的工作'); expect(slot.querySelector('.project-order-form').querySelectorAll('button').every(control => control.disabled)).toBe(true);
+  expect(input.value).toBe('未发送的工作'); expect(slot.querySelector('.project-order-actions').querySelectorAll('button').every(control => control.disabled)).toBe(true);
+  // Offline submission is blocked; expanding local choice UI must not start/read the daemon.
+  const count = requests.length;
+  await slot.querySelector('.runner-input-choice').querySelector('button').onclick();
+  expect(requests).toHaveLength(count); expect(input.value).toBe('未发送的工作');
   expect(requests.slice(before).every(request => !request.options.method || request.options.method === 'GET')).toBe(true);
 });
 

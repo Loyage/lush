@@ -3,6 +3,7 @@ import { PARAMS, MANAGER_METHODS, INTEGRATION_METHODS, assertAllowed } from './r
 import { publicResult } from './public-result.js';
 import { LUSHC_METHODS } from './management-policy.js';
 import { assertManagementCapabilityExecution, dispatchManagementCode } from '../core/project/management-code.js';
+import { handlers as runnerHandlers } from './handlers/runner.js';
 import { handlers as systemHandlers } from './handlers/system.js';
 import { handlers as inputHandlers } from './handlers/input.js';
 import { handlers as taskHandlers } from './handlers/task.js';
@@ -23,11 +24,12 @@ function mergeHandlers(groups) {
   return Object.fromEntries(Object.keys(PARAMS).map(method => [method, table[method]]));
 }
 
-export const HANDLERS = mergeHandlers([systemHandlers, inputHandlers, taskHandlers, specHandlers, noticeHandlers, branchHandlers, candidateHandlers, hookHandlers]);
+export const HANDLERS = mergeHandlers([runnerHandlers, systemHandlers, inputHandlers, taskHandlers, specHandlers, noticeHandlers, branchHandlers, candidateHandlers, hookHandlers]);
 
 export class Dispatcher {
   constructor(project, stopping, identity) {
     this.project = project; this.stopping = stopping; this.identity = identity;
+    project.rpcDispatcher = this; // central restricted Bridge reuses the actual daemon authorization/stop boundary
     // This trusted callback is never a public RPC. The management engine records
     // reviewed capabilities / exact user confirmations before reaching it.
     project.managementDispatch = async (method, params, actorId = null, receiptId = null) => {

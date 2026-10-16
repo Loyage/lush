@@ -7,10 +7,17 @@ const ROOT = fileURLToPath(new URL('../', import.meta.url));
 // Existing regression files only. Keep selection here, not in docs or a second runner.
 export const INTEGRATION_GROUPS = Object.freeze({
   page: Object.freeze([
+    'test/web/runner-choice-page-integration.test.js', // page -> real HTTP/RPC/draft -> independent Runner creation and no fallback
+    'test/web/runner-settings-page-integration.test.js', // real Host/project page actions -> RPC -> config and paired explicit Runner check
+    'test/web/runner-detail-page-integration.test.js', // real HTTP/RPC location projection, unknown/revocation and inert reads
+    'test/web/runner-verification-page-integration.test.js', // explicit page -> original receipt recovery, preserved dirty work, no model restart
     'test/web/dom-navigation.test.js', // navigation, Worker deep links, back state
     'test/web/dom-task-graph-clutter.test.js', // inline merge status beside usage, diagnostics and action placement
     'test/web/core-api.test.js', // rendered navigation allowlist and real HTTP action/read routes
     'test/web/dom-loading-assets.test.js', // lazy routes and root deep-link boot
+    'test/web/settings.test.js', // root device tabs include Runner without starting project polling
+    'test/web/cli-catalog-api.test.js', // actual Runner command names are public, credential payloads are not
+    'test/web/cli-catalog-cache.test.js', // authenticated static Runner catalogue without project startup
     'test/web/dom-valet-settings.test.js', // unified CLI discovery, detail navigation and permission drafts
     'test/web/dom-valet-settings-navigation.test.js', // lazy CLI route, retained state and dirty leave guards
     'test/web/valet-settings-page-integration.test.js', // CLI page -> HTTP/RPC/live project policy -> existing Valet and restricted Provider bridge
@@ -19,12 +26,34 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/loading-assets.test.js', // authenticated Host, cold JS/CSS budgets and compression
   ]),
   rpc: Object.freeze([
+    'test/project/runner-emission-chain.test.js', // actual user CLI -> persisted selection -> Project/leased Bridge -> independent Runner commit
+    'test/project/runner-tool-reconcile.test.js', // lost Bridge ACK -> central restart -> actual user CLI/HTTP verification; no replay or automatic retry
+    'test/project/runner-command-reconcile.test.js', // command admission ACK is not stop proof; original execution and unknown stop
+    'test/project/runner-file-reconcile.test.js', // edit/history digests, Unicode paths and unowned dirty-content refusal
+    'test/project/input-emissions-runner.test.js', // persisted placement, keyed conflicts, latest authorization and no replay after failure
+    'test/project/input-emissions-remote-quiet.test.js', // real Runner cleanliness/removal -> conditional input/exclusive admission and publication guards
+    'test/runner-placement-api.test.js', // creation arguments and actual CLI/RPC -> persisted input selection
+    'test/runner-management-api.test.js', // actual user CLI/RPC -> central service -> independent Runner; strict user-only/secret boundaries
+    'test/web/runner-management-api.test.js', // authenticated Project/Host API, inert reads and explicit paired diagnostic without project startup
     'test/core-api.test.js', // registry/handler parity and public namespace
+    'test/worker-api.test.js', // strict spawn placement namespace and unchanged Agent authority
+    'test/project/auto-merge.test.js', // local order/child automatic delivery representative paths
+    'test/project/runner-merge-shutdown.test.js', // local late admission plus remote merge evidence cannot outlive Store
     'test/integration-rpc-permissions.test.js', // default-deny, actor binding and live authentication
     'test/web/worker-api.test.js', // HTTP forwarding, typed params, login/Origin and mutation allowlist
     'test/rpc-public-result.test.js', // Dispatcher public result projection
     'test/web/rpc-public-result.test.js', // HTTP result envelopes and authorized config
     'test/project/management-tool-chain.test.js', // controlled Provider/real tools/bridge/live RPC authorization
+    'test/agent/remote-bridge.test.js', // remote tools and real collaboration Dispatcher, revocation/questionnaire stop barrier
+    'test/workspaces/remote-bridge-integration.test.js', // Runner Bridge commit -> central receipt -> cross-node child -> guarded cleanup
+    'test/project/runner-delivery.test.js', // registered user-only merge RPC -> Project queue -> remote parent ACK/restart and fixed source repair
+    'test/project/runner-delivery-chain.test.js', // real recursive cross-node spawn/checkpoints -> parent ACK -> batch acceptance
+    'test/project/runner-early-cancel-chain.test.js', // immediate real RPC cancel after command.start, before any READY wait
+    'test/project/runner-hook-boundary.test.js', // remote bindings cannot execute Shell Hooks through an external local checkout
+    'test/web/remote-code-reader-api.test.js', // authenticated user HTTP -> actual Runner sampling, no stale local fallback
+    'test/project/runner-parent-sync.test.js', // sync RPC -> fixed candidate -> remote ACK -> Project settlement and recovery barriers
+    'test/project/runner-connection-guards.test.js', // live connection configuration guards across delivery and reclamation
+    'test/project/runner-lifecycle-reclamation.test.js', // Project delivery/cancel -> checked remote batch acceptance/cleanup/delete
     'test/project/hook-install-chain.test.js', // install CLI/HTTP and real management bridge -> exact confirmation -> atomic config -> real merges
     'test/project/management-live-permissions.test.js', // existing Valet, queued/confirmed requests, write-admission races and persisted policy
     'test/project/management-code-provider-chain.test.js', // registered tools -> real Bun bridge -> current project policy and exact confirmation
@@ -32,7 +61,14 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/runtime-coordinator-integration.test.js', // HTTP/RPC -> durable intent -> coordinated checks -> Provider/bound RPC; freeze/cancel/edge preservation
   ]),
   component: Object.freeze([
+    'test/web/dom-runner-choice.test.js', // lazy reads, mode isolation, fixed selection, fingerprints and late edits
+    'test/web/dom-runner-choice-reset.test.js', // D655 null only on draft.update, omitted old fields and ACK revision baseline
+    'test/web/dom-runner-choice-legacy.test.js', // legacy draft ACK consumption, failed refresh and stale snapshot guards
+    'test/web/dom-runner-settings.test.js', // revisions, secret disposal, explicit pin, fixed source and unknown-write/late response guards
+    'test/web/dom-runner-detail.test.js', // fixed remote identity, visible barriers, local compatibility and expansion retention
+    'test/web/dom-runner-verification.test.js', // revision-bound single flight, false ACK, late navigation and post-ACK read failure
     'test/web/settings-module-boundaries.test.js', // entry exports, acyclic imports and built graph
+    'test/web/event-labels.test.js', // every new persistent Runner event has a truthful public label
     'test/web/dom-detail-requests.test.js', // leaving/boot cancellation and late-publication guards
     'test/web/dom-refresh-performance.test.js', // request counts, polling cadence, backoff and retained rows
     'test/web/dom-project-automation.test.js', // retained nodes and state on return
@@ -40,6 +76,10 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/dom-navigation.test.js', // integrated back navigation and retained input/selection
   ]),
   cli: Object.freeze([
+    'test/project/runner-emission-chain.test.js', // explicit non-default node reaches real creation and received Git objects
+    'test/project/runner-tool-reconcile.test.js', // user CLI exact binding revision reaches journal verification, never auto-starts a model
+    'test/runner-placement-api.test.js', // placement parser and actual CLI/RPC persistence through reliable emission
+    'test/runner-management-api.test.js', // management-only executable, private input and real Runner RPC chain
     'test/cli-surfaces.test.js', // CLI capability set derives from the registered catalogue
     'test/cli-catalog.test.js', // public catalogue and actual parser/RPC dispatch agree
     'test/hook-install-api.test.js', // install parser/registry/schema/user-only gates and safe receipt
@@ -47,6 +87,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/cli-prompt-boundaries.test.js', // active prompts/guides do not teach retired CLI aliases
     'test/integration/pi.test.js', // real daemon -> Provider -> pinned CLI -> delegation and prompt injection
     'test/integration/questionnaire.test.js', // pinned notice CLI, process exit, restart and answer recovery
+    'test/agent/remote-bridge.test.js', // dedicated remote lushc tool -> actual CLI parser/Dispatcher and bounded questionnaire control file
   ]),
 });
 

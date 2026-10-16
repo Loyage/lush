@@ -3,7 +3,7 @@ import { check, id, isPlainObject, text } from '../types.js';
 import { expectedRevision, checkDraftRevision } from './input-history.js';
 import { inheritedRunProfile } from './internal.js';
 import { inputOptions, inputEmission, saveEmission, emissionLocked, normalizeInputOptions, requestKey,
-  definitionHash, attachInputSignal, removeInputSignals, hookData, publicDispatch, INPUT_EMISSION_LIMIT } from './input-emission-data.js';
+  definitionHash, attachInputSignal, removeInputSignals, hookData, publicDispatch, INPUT_EMISSION_LIMIT, INPUT_OPTION_KEYS, assertInputRunner } from './input-emission-data.js';
 import { roundEvent } from './input-emission-safety.js';
 
 function wait(reason) { const error = new Error(reason); error.inputEmissionWait = true; throw error; }
@@ -14,18 +14,20 @@ export default {
     const options = inputOptions(draft), state = inputEmission(draft);
     const target = options.target_id ? this.store.get('SELECT worker_number FROM tasks WHERE id=?', options.target_id) : null;
     return { mode: options.mode, target_id: options.target_id ?? null, target_worker_number: target?.worker_number ?? null,
-      conditions: options.conditions, exclusive: options.exclusive, dispatch: publicDispatch(state) };
+      conditions: options.conditions, exclusive: options.exclusive,
+      ...(Object.hasOwn(options, 'runner_node_id') ? { runner_node_id: options.runner_node_id } : {}), dispatch: publicDispatch(state) };
   },
 
   inputEmissionResult(draftId) {
     const draft = this.store.draft(draftId), options = inputOptions(draft);
     return { emitted: true, draft_id: draft.id, mode: options.mode, parent_id: draft.parent_id,
-      ...(options.target_id ? { target_id: options.target_id } : {}), dispatch: publicDispatch(inputEmission(draft)), revision: draft.revision };
+      ...(options.target_id ? { target_id: options.target_id } : {}),
+      ...(Object.hasOwn(options, 'runner_node_id') ? { runner_node_id: options.runner_node_id } : {}), dispatch: publicDispatch(inputEmission(draft)), revision: draft.revision };
   },
 
   emitBufferedInput(options) {
     return this.write('mount an input', async () => {
-      check(isPlainObject(options) && Object.keys(options).every(key => ['content','references','branch','mode','target_id','conditions','exclusive','profile','client_request_id','draft_id','expected_revision'].includes(key)), 'invalid input emission fields');
+      check(isPlainObject(options) && Object.keys(options).every(key => ['content','references','branch',...INPUT_OPTION_KEYS,'profile','client_request_id','draft_id','expected_revision'].includes(key)), 'invalid input emission fields');
       const key = requestKey(options.client_request_id), hash = definitionHash(options);
       if (key) {
         const prior = this.store.get("SELECT data FROM events WHERE type='input.emitted' AND json_extract(data,'$.request_key')=? ORDER BY id DESC LIMIT 1", key);
@@ -49,9 +51,10 @@ export default {
       } else {
         check(options.expected_revision === undefined, 'expected_revision requires draft_id');
         text(options.content, 'input');
-        const fields = Object.fromEntries(['mode','target_id','conditions','exclusive'].filter(key => options[key] !== undefined).map(key => [key, options[key]]));
+        const fields = Object.fromEntries(INPUT_OPTION_KEYS.filter(key => Object.hasOwn(options, key)).map(key => [key, options[key]]));
         // Validate everything before buffering: failed dispatch authorization must not consume the caller's text.
         const normalized = normalizeInputOptions(this, fields);
+        assertInputRunner(this, normalized);
         const references = this.normalizeReferences(options.references ?? []);
         check(normalized.mode !== 'append' || references.length === 0, 'append references are not supported; retain the text and attachments');
         if (normalized.mode === 'append') this.assertAppendInputTarget(normalized.target_id);
@@ -60,6 +63,7 @@ export default {
         draft = this.store.draft(draft.id);
       }
       const normalized = inputOptions(draft), references = this.store.draftReferences(draft.id);
+      assertInputRunner(this, normalized);
       check(!this.draftHookMount(draft.id), 'draft is already mounted on a legacy Hook');
       check(!emissionLocked(draft), 'draft already has an input emission');
       check(draft.parent_id !== null, 'legacy draft has no saved parent Worker; edit it before emitting');
@@ -87,6 +91,7 @@ export default {
             return this.inputEmissionResult(receipt.draft_id);
           }
         }
+        assertInputRunner(this, normalized, profile);
         checkDraftRevision(this.store.draft(draft.id), draft.revision);
         check(!emissionLocked(this.store.draft(draft.id)), 'draft already has an input emission');
         check(this.store.get("SELECT count(*) AS n FROM drafts WHERE emission IS NOT NULL AND json_extract(emission,'$.state') IN ('waiting_conditions','queued','dispatching')").n < INPUT_EMISSION_LIMIT, 'too many mounted inputs');
@@ -138,10 +143,12 @@ export default {
     this.store.event(draft.parent_id, 'input.dispatch_succeeded', { draft_id: draft.id, dispatch_id: dispatchId, ...outcome });
   },
 
-  assertInputDispatch(draftId, dispatchId) {
+  assertInputDispatch(draftId, dispatchId, proofs = []) {
     const draft = this.store.draft(draftId), state = inputEmission(draft), options = inputOptions(draft);
     check(state?.state === 'dispatching' && state.dispatch_id === dispatchId && state.revision === draft.revision, 'input dispatch authorization changed');
     check(!this.stopping && !this.maintenancePaused(), 'input dispatch stopped before creation');
+    assertInputRunner(this, options, state.profile ?? null);
+    if (!this.inputWorkspaceProofsCurrent(proofs)) wait('远端静息证据已变化，等待重新检查');
     const reason = this.inputCreationReason(draft.parent_id, draft.id);
     if (reason) wait(reason);
     if (options.conditions.some(condition => condition.kind === 'parent_quiet')) {
@@ -150,21 +157,22 @@ export default {
     }
   },
 
-  async satisfyInputSignal(draftId, index) {
+  async satisfyInputSignal(draftId, index, proofs = []) {
     const draft = this.store.draft(draftId), state = inputEmission(draft), signal = state?.signals[index];
     if (!pending(state) || !signal || signal.satisfied || !signal.worker_id) return;
     const task = this.store.get('SELECT * FROM tasks WHERE id=?', signal.worker_id);
     if (!task || task.status === 'cancelled') throw new Error('condition Worker no longer exists or was cancelled');
     const observedRound = roundEvent(this, task.id), observedHead = task.head_commit;
-    const satisfied = signal.kind === 'worker_merged' ? await this.inputWorkerMergedToMain(task, signal.snapshot)
-      : this.inputWorkerSettled(task, signal.snapshot) && await this.inputWorkspaceClean(task);
+    const satisfied = signal.kind === 'worker_merged' ? await this.inputWorkerMergedToMain(task, signal.snapshot, null, proofs)
+      : this.inputWorkerSettled(task, signal.snapshot) && await this.inputWorkspaceClean(task, proofs);
     if (!satisfied) return;
     this.store.transaction(() => {
       const live = this.store.draft(draftId), current = inputEmission(live);
       if (!pending(current) || current.signals[index]?.satisfied) return;
       // Git checks await; do not latch an old round after a new message or invocation arrived.
       const source = this.store.task(signal.worker_id);
-      if (!this.inputWorkerSettled(source, signal.snapshot) || source.head_commit !== observedHead || roundEvent(this, source.id) !== observedRound) return;
+      if (!this.inputWorkspaceProofsCurrent(proofs) || !this.inputWorkerSettled(source, signal.snapshot)
+        || source.head_commit !== observedHead || roundEvent(this, source.id) !== observedRound) return;
       const eventId = this.store.event(source.id, 'input.condition_satisfied', { draft_id: draftId, condition_index: index, kind: signal.kind });
       current.signals[index].satisfied = true; current.signals[index].event_id = eventId;
       saveEmission(this, draftId, current);
@@ -184,9 +192,11 @@ export default {
     for (const exclusive of this.activeInputExclusive()) {
       if (exclusive.state !== 'succeeded' || !exclusive.worker_id) continue;
       const task = this.store.get('SELECT * FROM tasks WHERE id=?', exclusive.worker_id);
-      const delivered = task && this.inputWorkerSettled(task) && await this.inputWorkspaceClean(task)
-        && (await this.inputWorkerMergedToMain(task) || (task.head_commit === task.base_commit && this.inputWorkerSettled(task)));
-      if (delivered) {
+      const proofs = [], observedRound = task ? roundEvent(this, task.id) : null;
+      const delivered = task && this.inputWorkerSettled(task) && await this.inputWorkspaceClean(task, proofs)
+        && (await this.inputWorkerMergedToMain(task, 0, null, proofs) || (task.head_commit === task.base_commit && this.inputWorkerSettled(task)));
+      if (delivered && this.inputWorkspaceProofsCurrent(proofs) && this.inputWorkerSettled(this.store.task(task.id))
+        && this.store.task(task.id).head_commit === task.head_commit && roundEvent(this, task.id) === observedRound) {
         const state = inputEmission(this.store.draft(exclusive.draft_id)); state.exclusive_active = false; state.exclusive_released = true;
         saveEmission(this, exclusive.draft_id, state); this.kick();
       }
@@ -197,7 +207,10 @@ export default {
       let state = inputEmission(this.store.draft(row.id));
       if (!pending(state)) continue;
       try {
-        for (let index = 0; index < state.signals.length; index++) await this.satisfyInputSignal(row.id, index);
+        // Ephemeral proof closures are never persisted/replayed; each drain observes fresh
+        // node state outside Git/SQLite locks, then checks the same evidence at publication.
+        const proofs = [];
+        for (let index = 0; index < state.signals.length; index++) await this.satisfyInputSignal(row.id, index, proofs);
         const draft = this.store.draft(row.id), options = inputOptions(draft);
         state = inputEmission(draft);
         if (!pending(state)) continue;
@@ -207,7 +220,7 @@ export default {
           if (this.taskSyncBusy?.has(target.id) || this.workspaces.busy.has(target.id)) reason = '追加目标正在同步或清理，等待安全点';
         } else this.assertInputParent(draft.parent_id);
         if (state.signals.some(signal => signal.worker_id && !signal.satisfied)) reason = '等待所选 Worker 条件全部满足';
-        if (!reason && state.signals.some(signal => signal.kind === 'parent_quiet')) reason = await this.inputParentQuiet(this.inputRoot(draft.parent_id).id, null, options.exclusive);
+        if (!reason && state.signals.some(signal => signal.kind === 'parent_quiet')) reason = await this.inputParentQuiet(this.inputRoot(draft.parent_id).id, null, options.exclusive, proofs);
         if (!reason && options.mode === 'order') reason = this.inputCreationReason(draft.parent_id, draft.id);
         if (reason) {
           const current = inputEmission(this.store.draft(draft.id));
@@ -230,6 +243,11 @@ export default {
         if (!claim) continue;
         if (options.mode === 'append') {
           this.store.transaction(() => {
+            if (!this.inputWorkspaceProofsCurrent(proofs)) wait('远端静息证据已变化，等待重新检查');
+            if (options.conditions.some(condition => condition.kind === 'parent_quiet')) {
+              const quiet = this.inputQuietStateReason(this.inputRoot(draft.parent_id).id);
+              if (quiet) wait(quiet);
+            }
             const before = this.store.get('SELECT max(id) AS id FROM messages')?.id ?? 0;
             this.message(options.target_id, draft.content);
             const message = this.store.get('SELECT id,append_number FROM messages WHERE task_id=? AND id>? ORDER BY id DESC LIMIT 1', options.target_id, before);
@@ -239,9 +257,10 @@ export default {
           });
         } else {
           const parent = this.assertInputParent(draft.parent_id);
+          assertInputRunner(this, options, claim.profile ?? null);
           await this.write('dispatch mounted input', () => this.sendOrder(draft.content, parent.branch, this.store.draftReferences(draft.id), null, true, undefined,
-            claim.profile ?? null, false, null, () => this.assertInputDispatch(draft.id, claim.dispatch_id), null,
-            { draft_id: draft.id, dispatch_id: claim.dispatch_id }));
+            claim.profile ?? null, false, null, () => this.assertInputDispatch(draft.id, claim.dispatch_id, proofs), null,
+            { draft_id: draft.id, dispatch_id: claim.dispatch_id }, ...(Object.hasOwn(options, 'runner_node_id') ? [options.runner_node_id] : [])));
         }
       } catch (error) {
         const current = inputEmission(this.store.draft(row.id));

@@ -172,6 +172,14 @@ export const tasks = {
         WHERE task_id IN (${marks})`, ...ids);
       drop('choice_rechoices', `notice_id IN (SELECT id FROM notices WHERE task_id IN (${marks}))`, ids);
       drop('choice_snapshots', `task_id IN (${marks})`, ids);
+      // Runner facts intentionally have no cascading delete. Only checked explicit deletion
+      // reaches this point, and every bound resource must have exact completed reclamation.
+      check(!this.get(`SELECT worker_id FROM runner_bindings WHERE worker_id IN (${marks}) AND state!='removed' LIMIT 1`, ...ids),
+        'Runner resources have not been reclaimed');
+      check(!this.get(`SELECT worker_id FROM runner_runs WHERE worker_id IN (${marks}) AND state!='released' LIMIT 1`, ...ids)
+        && !this.get(`SELECT worker_id FROM runner_receipts WHERE worker_id IN (${marks}) AND terminal=0 LIMIT 1`, ...ids),
+        'Runner operations remain unresolved');
+      for (const table of ['runner_receipts','runner_runs','runner_bindings']) drop(table, `worker_id IN (${marks})`, ids);
       for (const table of ['artifacts','agent_runs','notices','events','commit_contexts']) drop(table,`task_id IN (${marks})`,ids);
       drop('messages',`task_id IN (${marks}) OR sender_id IN (${marks})`,[...ids,...ids]);
       drop('task_deps',`task_id IN (${marks}) OR depends_on IN (${marks})`,[...ids,...ids]);

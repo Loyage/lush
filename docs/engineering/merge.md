@@ -39,6 +39,16 @@ Git 写入前再次复核取消、可投递新输入、固定 refs、清洁度�
 
 隔离回归 `test/project/merge-queue.test.js` 保留普通队列、无代码交付、脏父拒绝及原源 Agent 修复分歧的代表路径；不操作用户项目或调用付费模型。完整嵌套／冻结组合不再逐项回归，覆盖取舍见[贡献指南](../contributing/README.md#覆盖取舍)。
 
+### 远端普通交付
+
+远端 order/child 没有中央开发检出，`workspace=null` 不证明现场干净。队列在锁外检查真实 Runner 无 writer、无租约、干净且 HEAD 与固定中央 tip 相同；短 Git 串行区重新检查权威 refs、身份、授权和生命周期。父逻辑执行位贯穿网络步骤，不用全项目 Git 锁等待 SSH。
+
+远端父的 `parent_sync` 在中央 Squash 前固定旧/新 tip 与尝试并持久 prepared；精确中央落地证明后记 landed，远端同步与新鲜检查确认后才 finalize、发送成功信号或运行父 Hook。同步 ACK 丢失保留父执行位和屏障；恢复只核对旧落地凭据并续固定同步，不重复 Squash。仅用户显式重排且中央仍为旧 tip、远端两端已证明干净静息时，可将尚未落地的 prepared 收据记为 rejected 并与释放旧尝试同事务提交；landed/applying/unknown 不可走此路径。中央 refs 漂移、远端脏或未知 HEAD 均保留现场，不 reset/clean。
+
+源侧分歧先通过 Workspaces 下发当前尝试的固定父对象，不推进源 HEAD，再通知原 Worker 修复；仍要求保留两端祖先与语义迁移检查。历史直接合并及集中整合的 Git 写入口拒绝远端分支，不静默绕过上述协议。
+
+`test/project/runner-delivery*.test.js` 覆盖真实 Project 队列、用户专属 RPC、独立 Runner/仓库、跨节点串行修复、ACK 丢失后重建 Project/Store 对账与漂移阻塞。测试显式准备绑定、控制调用调度，不证明完整创建/Provider 调用链或 SSH/cgroup 实机部署；后者由顶层集成验收负责。
+
 ### Agent 的语义迁移检查
 
 `src/agent/prompts.js` 的共享交付提示词要求：在 runtime 明确授权的分歧修复／父同步冲突修复中，Agent 必须先找固定源／父提交的共同祖先，查看双方增量提交及 diff（含改名），识别名称、接口、数据模型及架构迁移，并检查自己的代码、调用点、测试和文档是否需要适配；没有文本冲突也不能跳过。改动限于恢复一致性所必需范围，歧义通过 Notice 问用户，实际测试受影响路径，并在结果中说明参考提交、迁移适配、验证与剩余风险。当前队列的 `merge.repair` 消息再次提醒此步骤。

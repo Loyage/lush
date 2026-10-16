@@ -8,6 +8,7 @@ import { appendToWorker } from './composer.js';
 import { configureTask, retryTask } from './retry-dialog.js';
 import { clearOverrideControl, modelSourceSummary } from './worker-model-source.js';
 import { workerRenameControl } from './worker-rename.js';
+import { renderWorkerRunner } from './worker-runner.js';
 import { INTEGRATION, ROLE, TERMINAL_STATUS, absolute, duration, relative, resolverOf, runWorkMs, statusOf, interruptReason, taskTitle, isHistoricalDelivery } from './format.js';
 import { agentHelp } from './help.js';
 import { freezeBlocker } from './merge-select.js';
@@ -77,6 +78,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   const previousDiff = sameTask ? panel.querySelector('.detail-diff') : null;
   const previousVersions = sameTask ? panel.querySelector('.worker-versions') : null;
   const previousRelations = sameTask ? panel.querySelector('.worker-relations') : null;
+  const previousRunner = sameTask ? panel.querySelector('.worker-runner') : null;
   const historyFocus = previousProgressHistory && [...previousProgressHistory.querySelectorAll('summary'), ...previousProgressHistory.querySelectorAll('button')]
     .find(node => node === document.activeElement);
   const readingPosition = sameTask ? captureDetailReading(panel) : null;
@@ -100,6 +102,16 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   if (task.task_kind === 'analysis') head.append(badge('只读分析', 'b-neutral'));
   if (task.agent) head.append(badge(`agent ${task.agent.id}${task.agent.active ? ` · pid ${task.agent.pid ?? '待上报'}` : ' · 空闲'}`, 'b-neutral'));
   hero.append(head, el('h1', taskTitle(task), 'task-title')); panel.append(hero);
+  // Keep unknown/blocked location facts above the foldable reading modules.
+  if (!management) {
+    const view = ui.view;
+    let location;
+    location = renderWorkerRunner(task, previousRunner, {
+      ownsPage: () => ownerDocument === document && ui.view === view && (!location || panel.querySelector('.worker-runner') === location),
+      refresh: () => detail(task.id),
+    });
+    panel.append(location);
+  }
 
   const readOnly = management || isHistoricalDelivery(task);
   if (management) {

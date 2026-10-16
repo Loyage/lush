@@ -1,7 +1,7 @@
 import { api } from './api.js';
 
-const READS = /^\/api\/(?:settings\/runtime|agent\/(?:config|status|connections|connections\/models|network|environment|models|selection\/resources|packages|resources))$/;
-const ACTIONS = /^(?:system\.configure|agent\.configure|agent\.(?:network|environment)\.configure|agent\.packages\.(?:install|remove|update)|agent\.connections\.(?:save|remove|query|sampling|models\.refresh|device\.(?:start|poll|cancel)|login\.(?:start|finish)))$/;
+const READS = /^\/api\/(?:settings\/runtime|runner\/(?:nodes|credentials)|agent\/(?:config|status|connections|connections\/models|network|environment|models|selection\/resources|packages|resources))$/;
+const ACTIONS = /^(?:runner\.(?:nodes\.(?:set|check)|credentials\.(?:set|remove))|system\.configure|agent\.configure|agent\.(?:network|environment)\.configure|agent\.packages\.(?:install|remove|update)|agent\.connections\.(?:save|remove|query|sampling|models\.refresh|device\.(?:start|poll|cancel)|login\.(?:start|finish)))$/;
 
 /** Device configuration always belongs to Host, even when the current project is offline. */
 export function settingsClient(scope = 'device') {
@@ -34,7 +34,7 @@ export function settingsClient(scope = 'device') {
       if (params.scope !== undefined && params.scope !== 'device') return Promise.reject(new Error('项目设置覆盖已停用'));
       if (Object.hasOwn(params, '_token')) return Promise.reject(new Error('设备设置不接受 Agent token'));
       return api('/api/host/settings/action', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ method, params: { ...params, scope: 'device' } }) });
+        body: JSON.stringify({ method, params: method.startsWith('runner.') ? params : { ...params, scope: 'device' } }) });
     },
   };
 }

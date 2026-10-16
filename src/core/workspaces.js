@@ -1,4 +1,5 @@
 import { WorkspacesBase } from './workspaces/base.js';
+import { methods as remoteMethods } from './workspaces/remote.js';
 import { methods as gitMethods } from './workspaces/git.js';
 import { methods as refGuardMethods } from './workspaces/ref-guard.js';
 import { methods as worktreeMethods } from './workspaces/worktree.js';
@@ -22,6 +23,7 @@ export class Workspaces extends WorkspacesBase {}
 
 // 一个职责一个方法对象，这里只做装配：重名（含与 base 的成员重名）就是拆分出错，立刻抛错。
 for (const [module, mixin] of Object.entries({
+  remote: remoteMethods,
   deliveryObjects: deliveryObjectMethods, deliveryPublish: deliveryPublishMethods, deliveryValidation: deliveryValidationMethods,
   command: commandMethods, refGuard: refGuardMethods, choiceSnapshot: choiceSnapshotMethods, deletion: deletionMethods, git: gitMethods, history: historyMethods, versionGraph: versionGraphMethods, worktree: worktreeMethods, code: codeMethods, diff: diffMethods, merge: mergeMethods, cleanup: cleanupMethods, safety: safetyMethods, taskSync: taskSyncMethods,
 })) {

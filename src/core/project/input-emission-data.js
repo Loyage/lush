@@ -1,5 +1,19 @@
 import { check, id, isPlainObject } from '../types.js';
 import { hookRevision, HOOK_LIMITS } from '../hooks.js';
+import { validateRunnerNodeSelection } from '../runner-selection.js';
+import { selectCreationRunner } from './runner-creation.js';
+
+import { INPUT_OPTION_KEYS } from '../input-option-keys.js';
+export { INPUT_OPTION_KEYS };
+// Before resolving the inherited profile, check only authorization. Once resolved
+// (including null = live default), share the actual creation support matrix.
+export function assertInputRunner(project, options, profile = undefined) {
+  if (!Object.hasOwn(options, 'runner_node_id')) return;
+  validateRunnerNodeSelection(options.runner_node_id);
+  check(options.mode === 'order', 'runner_node_id requires order input mode');
+  if (profile !== undefined) selectCreationRunner(project, options.runner_node_id, { profile });
+  else if (options.runner_node_id !== 'local') project.runners.selectNode(options.runner_node_id);
+}
 
 export const INPUT_EMISSION_LIMIT = 500;
 export const inputOptions = draft => draft.input_options ? JSON.parse(draft.input_options) : { mode: 'order', conditions: [], exclusive: false };
@@ -21,8 +35,8 @@ function canonical(value) {
 }
 export const definitionHash = value => hookRevision(canonical(value));
 
-export function normalizeInputOptions(project, options = {}, previous = null) {
-  check(isPlainObject(options) && Object.keys(options).every(key => ['mode','target_id','conditions','exclusive'].includes(key)), 'invalid draft input options');
+export function normalizeInputOptions(project, options = {}, previous = null, { allowRunnerReset = false } = {}) {
+  check(isPlainObject(options) && Object.keys(options).every(key => INPUT_OPTION_KEYS.includes(key)), 'invalid draft input options');
   const mode = options.mode ?? previous?.mode ?? 'order';
   check(['order','append'].includes(mode), 'input mode must be order or append');
   const exclusive = options.exclusive ?? previous?.exclusive ?? false;
@@ -39,6 +53,14 @@ export function normalizeInputOptions(project, options = {}, previous = null) {
   });
   if (exclusive && !normalized.some(condition => condition.kind === 'parent_quiet')) normalized.push({ kind: 'parent_quiet' });
   const result = { mode, conditions: [...new Map(normalized.map(c => [JSON.stringify(c), c])).values()], exclusive };
+  if (Object.hasOwn(options, 'runner_node_id') || Object.hasOwn(previous ?? {}, 'runner_node_id')) {
+    check(mode === 'order', 'runner_node_id requires order input mode');
+    const selection = Object.hasOwn(options, 'runner_node_id') ? options.runner_node_id : previous.runner_node_id;
+    // Only draft.update may explicitly clear placement. Creation still rejects null,
+    // and omission retains the saved value rather than silently changing its target.
+    if (!(allowRunnerReset && Object.hasOwn(options, 'runner_node_id') && selection === null))
+      result.runner_node_id = validateRunnerNodeSelection(selection);
+  }
   check(result.conditions.length <= 16, 'input requires at most 16 conditions including exclusive quietness');
   if (mode === 'append') result.target_id = id(options.target_id ?? previous?.target_id);
   else check(options.target_id === undefined || options.target_id === null, 'target_id requires append mode');
