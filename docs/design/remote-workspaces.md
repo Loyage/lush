@@ -58,7 +58,7 @@ SSH 与 HTTPS 都可承载此协议。SSH 首版可使用用户预置的受控 R
 - 保留本地模型 Provider，代码 read/edit/write、搜索、图片读取、Shell、Git 均经过统一工作区接口路由到 Runner；不是新增“远端 Provider”。保持工具原有精确性与有界输出，本机文件工具不得偷偷读写同名路径。
 - 使用明确的逻辑工作区身份与远端路径；Agent 的本地进程 cwd 只是受控启动目录，不再冒充代码 worktree。启动 JSON/Prompt 区分中央 project/home、代码工作区、工具 cwd 和只读上下文，不能通过篡改 `LUSH_PROJECT` 等既有绑定来伪装远端项目。
 - AGENTS.md、项目上下文和受支持的项目资源从正确的远端基线加载，嵌套规则与信任处理不得丢失。设备私有配置仍在本地；不自动执行远端 `.pi` 扩展，也不无提示改变现有 Pi 默认模式语义。
-- Lush 协作走本地受限 Bridge。兼容 Shell 中的 `lushc` 时，远端提供固定开发代理，按当前 invocation 身份回到中央；不挂载原始管理 socket，不给无 token 请求用户权限。普通开发权限不扩张；若接入管理代理，沿用[项目管家权限](../engineering/hook-signals-management.md#当前项目管家权限)的最新权限重检与已开始操作收据边界，不以 Worker 创建时快照冻结后续授权。
+- Lush 协作走本地受限 Bridge。兼容 Shell 中的 `lushc` 时，远端提供固定开发代理，按当前 invocation 身份回到中央；不挂载原始管理 socket，不给无 token 请求用户权限。普通开发权限不扩张；若接入管理代理，沿用[全局管家权限](../engineering/hook-signals-management.md#设备全局管家权限)的最新权限重检与已开始操作收据边界，不以 Worker 创建时快照冻结后续授权。
 - 本地启动资料、Skills 指南、问卷 JSON 等控制文件需独立的有界访问/提交通道；`--questions-file` 不得把远端路径当本地文件。不要用命令字符串关键词猜测该本地还是远端执行，也不要对 Agent 开放通用本机 Shell 作为代码工具逃逸后门。
 - 上下文 checkpoint 与会话始终在本地；远端提交观测带当前 Run 的可信关联，由中央校验提交并登记。现有 `bin/git` 直接打开中央 SQLite 的做法不能复制到远端，更不能让节点挂载数据库。
 

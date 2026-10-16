@@ -88,37 +88,38 @@ test('compiled Valet profile loads on demand, preserves shared composer state an
   } finally { project.restore(); await boot(); }
 });
 
-test('compiled Valet lazy page shares navigation and preserves its draft through project refresh and repeat entry', async () => {
+test('compiled global CLI lazy page shares navigation and preserves its draft through refresh and repeat entry', async () => {
   const methods = managementPermissionMethods(), writes = [];
-  let settings = { version: 1, scope: 'project', revision: 'r1', groups: MANAGEMENT_GROUPS, methods,
+  let settings = { version: 1, scope: 'device', configured: true, revision: 'r1', groups: MANAGEMENT_GROUPS, methods,
     permissions: Object.fromEntries(methods.map(item => [item.method, item.access])) };
-  const project = installProjectDom({ fetch: (url, options = {}) => {
+  const global = installDom({ fetch: (url, options = {}) => {
     if (String(url).endsWith('/cli/catalog')) return Response.json(cliCatalog());
-    if (String(url).endsWith('/api/management/permissions')) return Response.json(settings);
-    const body = options.body && JSON.parse(options.body);
-    if (body?.method === 'management.permissions_update') {
-      writes.push(body); settings = { ...settings, revision: 'r2', permissions: body.params.permissions,
-        methods: settings.methods.map(item => ({ ...item, access: body.params.permissions[item.method] })) };
+    if (String(url) === '/api/host/management/permissions') {
+      if (options.method === 'POST') {
+        const body = JSON.parse(options.body); writes.push(body);
+        settings = { ...settings, revision: 'r2', permissions: body.permissions,
+          methods: settings.methods.map(item => ({ ...item, access: body.permissions[item.method] })) };
+      }
       return Response.json(settings);
     }
     return world.fetchImpl(url, options);
   } });
   try {
-    await boot(); await project.node('cli-interfaces-open').onclick();
-    expect(project.node('detail').dataset.view).toBe('cli-interfaces');
-    const root = project.node('detail').querySelector('.cli-interfaces-page');
-    await root.querySelectorAll('button').find(node => node.textContent === '读取项目权限').onclick();
+    await boot(); await global.node('cli-interfaces-open').onclick();
+    expect(global.node('detail').dataset.view).toBe('cli-interfaces');
+    const root = global.node('detail').querySelector('.cli-interfaces-page');
+    await root.querySelectorAll('button').find(node => node.textContent === '读取全局权限').onclick();
     const input = root.querySelector('input'); input.value = 'order'; input.oninput({}); root.querySelector('.cli-command-link').onclick();
     const details = root.querySelector('details'); details.open = true;
     const choice = root.querySelectorAll('.cli-permission-method').find(node => node.dataset.method === 'draft.add').querySelector('select');
     choice.value = 'confirmation'; choice.onchange();
-    await project.node('cli-interfaces-open').onclick(); expect(project.node('detail').querySelector('.cli-interfaces-page')).toBe(root);
+    await global.node('cli-interfaces-open').onclick(); expect(global.node('detail').querySelector('.cli-interfaces-page')).toBe(root);
     expect(choice.value).toBe('confirmation'); expect(details.open).toBe(true);
-    await root.querySelectorAll('button').find(node => node.textContent === '保存项目管家权限').onclick();
-    expect(writes).toHaveLength(1); expect(writes[0].params.expected_revision).toBe('r1');
-    expect(writes[0].params.permissions['draft.add']).toBe('confirmation');
-    await project.node('side-nav').querySelector('[data-side="valets"]').onclick(); expect(project.node('detail').dataset.view).toBe('valets');
-  } finally { project.restore(); await boot(); }
+    await root.querySelectorAll('button').find(node => node.textContent === '保存全局管家权限').onclick();
+    expect(writes).toHaveLength(1); expect(writes[0].expected_revision).toBe('r1');
+    expect(writes[0].permissions['draft.add']).toBe('confirmation');
+    await global.node('projects-open').onclick(); expect(global.node('detail').dataset.view).toBe('projects');
+  } finally { global.restore(); await boot(); }
 });
 
 test('compiled explicit project owns work chunks while global links preserve its input and reading position', async () => {

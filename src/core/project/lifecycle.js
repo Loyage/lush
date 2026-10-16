@@ -516,6 +516,7 @@ export default {
     // Observe device authorization only AFTER orphan invocations, tokens and delivery recovery.
     // This may answer pending questions, but never replays interrupted/unknown invocation effects.
     this.startDeviceAutomationMonitor();
+    this.startManagementPermissionsMonitor();
     // Legacy orchestrations and showcases remain on disk, without resuming their side effects.
   },
 
@@ -529,6 +530,7 @@ export default {
     this.stopMaintenanceMonitor();
     this.stopRuntimeSettingsMonitor();
     this.stopDeviceAutomationMonitor();
+    this.stopManagementPermissionsMonitor();
     const usageStopped = this.agentUsage.stop();
     const usageIndexStopped = this.usageIndex.stop();
     const connectionsStopped = this.agentConnections.stop();

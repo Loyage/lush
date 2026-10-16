@@ -21,7 +21,7 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/cli-catalog-cache.test.js', // authenticated static Runner catalogue without project startup
     'test/web/dom-valet-settings.test.js', // unified CLI discovery, detail navigation and permission drafts
     'test/web/dom-valet-settings-navigation.test.js', // lazy CLI route, retained state and dirty leave guards
-    'test/web/valet-settings-page-integration.test.js', // CLI page -> HTTP/RPC/live project policy -> existing Valet and restricted Provider bridge
+    'test/web/valet-settings-page-integration.test.js', // global CLI page -> Host device policy -> existing Valet and restricted Provider bridge
     'test/web/assets.test.js', // startup/lazy resource graphs and CSP
     'test/web/dom-built-loading-assets.test.js', // compiled root/project boot and shared state
     'test/web/loading-assets.test.js', // authenticated Host, cold JS/CSS budgets and compression
@@ -59,8 +59,11 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/project/runner-lifecycle-reclamation.test.js', // Project delivery/cancel -> checked remote batch acceptance/cleanup/delete
     'test/project/hook-install-chain.test.js', // install CLI/HTTP and real management bridge -> exact confirmation -> atomic config -> real merges
     'test/project/management-live-permissions.test.js', // existing Valet, queued/confirmed requests, write-admission races and persisted policy
-    'test/project/management-code-provider-chain.test.js', // registered tools -> real Bun bridge -> current project policy and exact confirmation
-    'test/web/management-permissions-api.test.js', // project policy persistence, historical receipts and confirmation
+    'test/project/management-code-provider-chain.test.js', // registered tools -> real Bun bridge -> device policy and exact confirmation
+    'test/management-permissions-device.test.js', // first publication, private storage, revisions and shared authorization lock
+    'test/web/management-permissions-host-api.test.js', // root Host policy without projects/daemons, authentication and strict fields
+    'test/integration/management-permissions.test.js', // independent daemons share policy, retain project history and reject retired writes
+    'test/web/management-permissions-api.test.js', // device policy persistence, historical receipts and confirmation
     'test/web/runtime-coordinator-integration.test.js', // HTTP/RPC -> durable intent -> coordinated checks -> Provider/bound RPC; freeze/cancel/edge preservation
   ]),
   component: Object.freeze([

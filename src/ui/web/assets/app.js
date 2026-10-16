@@ -120,6 +120,7 @@ function onHashChange() {
 }
 function openHashTarget(hash, project, doc, generation) {
   if (hash === '#cli-interfaces' || hash === '#valet-settings') {
+    if (project) return globalPageRedirect(hash);
     if (hash === '#valet-settings') window.history.replaceState(null, '', '#cli-interfaces');
     return openCliInterfaces();
   }
@@ -203,6 +204,7 @@ function initGlobalNavigation() {
   workspaceLink('project-management-open', '#project-management', () => openProjectManager());
   workspaceLink('global-inbox-open', '#notices', () => openGlobalInbox());
   workspaceLink('automation-open', '#automation', openAutomation);
+  workspaceLink('cli-interfaces-open', '#cli-interfaces', openCliInterfaces);
   workspaceLink('settings-open', '#settings', openSettings);
   workspaceLink('agent-status-open', '#agent-status', openAgentStatus);
   workspaceLink('model-sources-open', '#model-sources', () => openSources());
@@ -275,7 +277,6 @@ export async function boot() {
 
   const composerReady = projectReady ? initComposer() : Promise.resolve();
   if (projectReady) { syncSidebarSortSelect(); $('sidebar-sort').addEventListener('change', onSidebarSortChange); }
-  if ($('cli-interfaces-open')) $('cli-interfaces-open').onclick = () => requestPageLeave('#cli-interfaces', { leave: openCliInterfaces });
   if ($('hooks-open')) $('hooks-open').onclick = () => requestPageLeave('#hooks', { leave: () => projectReady ? openHooks() : noProjectView() });
   if ($('inputs-open')) $('inputs-open').onclick = () => requestPageLeave('#inputs', { leave: () => projectReady ? openInputs() : noProjectView() });
   if ($('input-history')) $('input-history').onclick = () => requestPageLeave('#inputs', { leave: () => projectReady ? openInputs() : noProjectView() });

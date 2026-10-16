@@ -7,7 +7,10 @@ import { MANAGEMENT_TOOL_NAMES } from '../../src/agent/pi-management.js';
 
 const post = (f, method, params, headers = {}) => fetch(f.url + '/api/action', { method: 'POST',
   headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ method, params }) });
-const get = f => fetch(f.url + '/api/management/permissions');
+const route = '/api/host/management/permissions';
+const get = f => fetch(f.url + route);
+const save = (f, body, headers = {}) => fetch(f.url + route, { method: 'POST',
+  headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
 
 test('HTTP settings -> registry -> live permissions on existing Valet -> real restricted Provider/tools/bridge -> confirmation -> persisted execution/result', async () => {
   const f = await setup(); f.project.kick = () => {};
@@ -38,7 +41,7 @@ test('HTTP settings -> registry -> live permissions on existing Valet -> real re
     // permission must neither bypass confirmation nor allow denied direct tools.
     const historical = JSON.parse(f.store.task(manager.id).management).permissions_snapshot;
     expect(historical.permissions['draft.add']).toBe('automatic');
-    const savedResponse = await post(f, 'management.permissions_update', { permissions, expected_revision: initial.revision });
+    const savedResponse = await save(f, { permissions, expected_revision: initial.revision });
     expect(savedResponse.status).toBe(200);
     const saved = await savedResponse.json(); expect(saved.permissions).toEqual(permissions);
     expect(await (await get(f)).json()).toEqual(saved);
@@ -75,21 +78,25 @@ test('HTTP permissions enforce strict parameters/revision and same-Origin authen
     const login = await fetch(f.url + '/login', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: 'username=owner&password=permissions-password&next=%2F' });
     const Cookie = login.headers.get('set-cookie').split(';')[0];
-    const value = await (await fetch(f.url + '/api/management/permissions', { headers: { Cookie } })).json();
+    const value = await (await fetch(f.url + route, { headers: { Cookie } })).json();
+    expect(value).toMatchObject({ scope: 'device', configured: false });
     const params = { permissions: value.permissions, expected_revision: value.revision };
-    expect((await post(f, 'management.permissions_update', params, { Cookie, Origin: 'https://evil.invalid' })).status).toBe(403);
+    expect((await save(f, params, { Cookie, Origin: 'https://evil.invalid' })).status).toBe(403);
     for (const extra of [{ _token: 'forged' }, { scope: 'device' }, { extra: true }])
-      expect((await post(f, 'management.permissions_update', { ...params, ...extra }, { Cookie })).status).toBe(400);
+      expect((await save(f, { ...params, ...extra }, { Cookie })).status).toBe(400);
     expect(value.permissions['worker.transcript']).toBe('read');
     expect(value.permissions['worker.accept']).toBe('confirmation');
     for (const permissions of [{}, { ...value.permissions, unknown: 'read' },
       { ...value.permissions, 'worker.transcript': 'automatic' }, { ...value.permissions, 'worker.accept': 'automatic' }])
-      expect((await post(f, 'management.permissions_update', { ...params, permissions }, { Cookie })).status).toBe(400);
-    expect((await post(f, 'management.permissions_update', { permissions: value.permissions }, { Cookie })).status).toBe(400);
-    for (const path of ['/api/management/permissions?scope=project','/api/management/permissions?x=1','/api/management/permissions?_token=bad'])
+      expect((await save(f, { ...params, permissions }, { Cookie })).status).toBe(400);
+    expect((await save(f, { permissions: value.permissions }, { Cookie })).status).toBe(400);
+    for (const path of [route + '?scope=project',route + '?x=1',route + '?_token=bad'])
       expect((await fetch(f.url + path, { headers: { Cookie } })).status).toBe(400);
-    expect((await post(f, 'management.permissions_update', params, { Cookie, Origin: f.url })).status).toBe(200);
-    expect((await post(f, 'management.permissions_update', params, { Cookie })).status).toBe(400);
+    const retired = await post(f, 'management.permissions_update', params, { Cookie });
+    expect(retired.status).toBe(400); expect((await retired.json()).error).toContain(route);
+    expect((await (await fetch(f.url + route, { headers: { Cookie } })).json()).configured).toBe(false);
+    expect((await save(f, params, { Cookie, Origin: f.url })).status).toBe(200);
+    expect((await save(f, params, { Cookie })).status).toBe(400);
     expect((await post(f, 'management.permissions', {}, { Cookie })).status).toBe(400);
   } finally { await f.close(); }
 });

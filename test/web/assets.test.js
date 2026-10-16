@@ -92,7 +92,8 @@ test('HTML ships startup controls, read-only navigation and collapsed composer',
     expect(html).toContain('id="cli-interfaces-open"');
     expect(html).toMatch(/id="runners-open" href="\/#runners"/);
     expect(html).not.toContain('id="valet-settings-open"');
-    expect(html).toContain('搜索命令、学习用途与管家权限');
+    expect(html).toContain('学习命令与设备全局管家权限');
+    expect(html).toMatch(/<nav[^>]*aria-label="CLI 接口学习"[^>]*data-global-navigation="true">\s*<a id="cli-interfaces-open" href="\/#cli-interfaces"/);
     expect(html).toContain('打开管理详情、执行记录与安全删除');
     expect(html).not.toContain('打开既有只读详情');
     expect(html).toContain('action="/logout"');

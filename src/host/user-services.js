@@ -56,6 +56,11 @@ export function createUserServices(projectHost, options = {}) {
     const { readDashboardSettings, saveDashboardSettings } = await import('../core/dashboard-settings.js');
     return { get: () => readDashboardSettings(config), save: (patch, expected) => saveDashboardSettings(config, patch, expected) };
   });
+  const managementPermissions = lazy(async () => {
+    if (options.managementPermissionsService) return options.managementPermissionsService;
+    const { readDeviceManagementPermissions, saveDeviceManagementPermissions } = await import('../core/management-permissions.js');
+    return { get: () => readDeviceManagementPermissions(config), save: (permissions, expected) => saveDeviceManagementPermissions(config, permissions, expected) };
+  });
   const automation = lazy(async () => {
     if (options.automationService) return options.automationService;
     const { DeviceAutomationSettings } = await import('../core/device-automation.js');
@@ -78,6 +83,7 @@ export function createUserServices(projectHost, options = {}) {
   const preferenceError = '设备偏好操作未确认，请重新读取设置并检查私有文件权限后重试。';
   const dashboardError = '总览卡片操作未确认，请重新读取设置并检查私有文件权限后重试。';
   const dashboardSaveError = '总览卡片保存操作未确认，可能版本已变更，请保留编辑并重新读取设置、检查私有文件权限后重试。';
+  const managementPermissionsError = '设备管家权限操作未确认，可能版本已变更；请保留草稿，重新读取权限并检查私有文件权限后重试。';
   const automationError = '全局自动化操作未确认，请重新读取策略并检查私有文件权限后重试。';
   const inboxError = '收件箱操作未确认，请刷新记录并检查来源项目的后台状态；已提交的动作不能据此视为未执行。';
   return {
@@ -97,6 +103,14 @@ export function createUserServices(projectHost, options = {}) {
       const normalized = normalizeDashboardPatch(patch);
       check(typeof expected_revision === 'string' && /^[a-f0-9]{64}$/.test(expected_revision), 'dashboard revision is required');
       return invoke(dashboard, 'save', [normalized, expected_revision], dashboardSaveError);
+    },
+    async readManagementPermissions() { return invoke(managementPermissions, 'get', [], managementPermissionsError); },
+    async saveManagementPermissions(body) {
+      fields(body, ['permissions', 'expected_revision'], 'management permissions request', ['permissions', 'expected_revision']);
+      const { normalizeManagementPermissions } = await import('../core/management-permissions.js');
+      const permissions = normalizeManagementPermissions(body.permissions);
+      revision(body.expected_revision);
+      return invoke(managementPermissions, 'save', [permissions, body.expected_revision], managementPermissionsError);
     },
     async readAutomation() { return invoke(automation, 'get', [], automationError); },
     async saveAutomation(body) {
@@ -138,7 +152,7 @@ export function createUserServices(projectHost, options = {}) {
     },
     close() {
       closed = true;
-      return closing ||= Promise.allSettled([preferences.close(), dashboard.close(), automation.close(), inbox.close()]);
+      return closing ||= Promise.allSettled([preferences.close(), dashboard.close(), managementPermissions.close(), automation.close(), inbox.close()]);
     },
   };
 }

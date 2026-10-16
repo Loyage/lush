@@ -15,9 +15,9 @@ class ManagementPermissionError extends Error {}
 function executionAuthorization(project, task, call) {
   const authorization = project.managementPermissionsSnapshot();
   const policy = effectiveManagementPolicy(call.method, authorization);
-  if (policy.access === 'unavailable') throw new ManagementPermissionError('最新项目权限禁止此未开始操作；请调整权限后新建请求，不自动重放。');
+  if (policy.access === 'unavailable') throw new ManagementPermissionError('最新管家权限禁止此未开始操作；请调整权限后新建请求，不自动重放。');
   if (policy.access === 'confirmation' && !hasManagementConfirmation(project, task.id, call))
-    throw new ManagementPermissionError('最新项目权限要求重新精确确认；此操作未开始，请新建请求。');
+    throw new ManagementPermissionError('最新管家权限要求重新精确确认；此操作未开始，请新建请求。');
   validateManagementCall(call.method, call.params, task.goal, authorization);
   return { ...authorization, permissions: { [call.method]: policy.access } };
 }
@@ -177,6 +177,7 @@ export default {
       'confirmation parameters exceed readable preview limit');
     if (policy.access === 'read') {
       // Do not ask the user-facing status handler for private full configuration.
+      this.withManagementPermissionAdmission(() => validateManagementCall(method, copied, task.goal, this.managementPermissionsSnapshot()));
       const result = method === 'system.status' ? this.status(false)
         : method === 'manager.catalog' ? this.managementCapabilityCatalog(actorId)
         : method === 'manager.query' ? this.managementQuery(actorId, copied.id)
@@ -345,20 +346,24 @@ export default {
       if (this.stopping || this.maintenancePaused() || this.clearing || this.workerDeleteIds?.size || this.settingsMigrationApplying) return;
       const action = call.method === 'worker.resume' ? 'start' : call.method === 'worker.retry' ? 'retry' : null;
       const result = await this.write('execute confirmed management capability', () => {
-        // Authorization becomes fixed inside the write admission boundary. An
-        // asynchronous preflight or queued writer must not turn stale approval into authority.
-        task = this.store.task(taskId); state = managementState(task);
-        call = state?.control_calls?.find(item => item.receipt_id === receiptId);
-        check(state?.enabled && call?.status === 'approved' && state.pending_signal
-          && call.occurrence_id === state.pending_signal.id && this.managementOccupant()?.id === taskId,
-          'management authorization is no longer active');
-        check(!this.stopping && !this.maintenancePaused(), 'management execution is paused');
-        const authorization = executionAuthorization(this, task, call);
-        check(call.fingerprint === hookRevision({ method: call.method, params: canonical(call.params) }), 'fixed management parameters changed');
-        check(call.target_snapshot === targetSnapshot(this, call.method, call.params), 'management target changed during preflight');
-        call.execution_authorization = authorization;
-        call.status = 'running'; call.started_at = managementTime(this); saveManagement(this, taskId, state);
-        this.store.event(taskId, 'management.capability_started', { receipt_id: receiptId, method: call.method });
+        this.withManagementPermissionAdmission(() => {
+          // Fix authorization and the durable start under the same cross-process
+          // lock as policy publication, not before an asynchronous/queued boundary.
+          task = this.store.task(taskId); state = managementState(task);
+          call = state?.control_calls?.find(item => item.receipt_id === receiptId);
+          check(state?.enabled && call?.status === 'approved' && state.pending_signal
+            && call.occurrence_id === state.pending_signal.id && this.managementOccupant()?.id === taskId,
+            'management authorization is no longer active');
+          check(!this.stopping && !this.maintenancePaused(), 'management execution is paused');
+          const authorization = executionAuthorization(this, task, call);
+          check(call.fingerprint === hookRevision({ method: call.method, params: canonical(call.params) }), 'fixed management parameters changed');
+          check(call.target_snapshot === targetSnapshot(this, call.method, call.params), 'management target changed during preflight');
+          call.execution_authorization = authorization;
+          call.status = 'running'; call.started_at = managementTime(this); saveManagement(this, taskId, state);
+          this.store.event(taskId, 'management.capability_started', { receipt_id: receiptId, method: call.method });
+        });
+        // Effects may themselves write device settings. Never retain the policy
+        // lock across dispatch/network; their receipt now carries fixed authority.
         return action ? this.submitManagementAction(taskId, action, call.params.id, receiptId)
           : this.managementDispatch(call.method, managementDispatchParams(call.method, call.params), taskId, receiptId);
       });
@@ -402,7 +407,7 @@ export default {
         const policy = effectiveManagementPolicy(call.method, this.managementPermissionsSnapshot());
         if (notice?.status === 'open' && policy.access !== 'confirmation') {
           call.status = policy.access === 'unavailable' ? 'rejected' : 'approved';
-          call.reason = policy.access === 'unavailable' ? '最新项目权限禁止此未开始操作。' : null;
+          call.reason = policy.access === 'unavailable' ? '最新管家权限禁止此未开始操作。' : null;
           this.store.transaction(() => {
             closePolicyNotice(this, taskId, call); saveManagement(this, taskId, state);
             this.store.event(taskId, 'management.capability_policy_rechecked', { receipt_id: call.receipt_id, status: call.status });

@@ -125,8 +125,8 @@ export const handlers = {
   },
   'hooks.signal_remove'(p, params) { return p.removeHookSignal(hookId(params.id), revision(params.expected_revision)); },
   'management.permissions'(p) { return p.managementPermissions(); },
-  'management.permissions_update'(p, params) {
-    return p.setManagementPermissions(params.permissions, revision(params.expected_revision));
+  'management.permissions_update'() {
+    check(false, 'project management permissions writes are retired; explicitly save device permissions at /api/host/management/permissions');
   },
   async 'management.create'(p, params) {
     const name = text(params.name, 'name'), instruction = text(params.instruction, 'instruction');

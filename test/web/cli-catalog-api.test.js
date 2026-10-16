@@ -12,6 +12,10 @@ test('real project HTTP -> user-only RPC catalogue has no writes or secrets and 
     for (const route of ['/api/cli/catalog','/api/host/cli/catalog']) expect((await fetch(f.url + route, { anonymous: true })).status).toBe(401);
     const response = await fetch(f.url + '/api/cli/catalog'); expect(response.status).toBe(200);
     const value = await response.json(); expect(value).toEqual(cliCatalog());
+    for (const verb of ['discover', 'test']) {
+      const command = value.commands.find(item => item.path === `lush runner ssh ${verb}`);
+      expect(command.rpc).toContainEqual(expect.objectContaining({ method: `runner.ssh.${verb}`, base_access: 'unavailable', allowed_access: ['unavailable'] }));
+    }
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(f.store.get('SELECT count(*) AS n FROM events').n).toBe(before);
     for (const command of value.commands.filter(item => !item.directory)) expect(cliHelp(command.executable)).toContain(command.usage.slice(command.executable.length + 1));

@@ -73,10 +73,12 @@ export default {
   ...controlMethods,
   ...permissionMethods,
   assertManagementPermission(actorId, method) {
-    const actor = assertManager(this, actorId);
-    const policy = effectiveManagementPolicy(method, this.managementPermissionsSnapshot());
-    check(policy.access !== 'unavailable', policy.reason);
-    return { ...actor, policy };
+    return this.withManagementPermissionAdmission(() => {
+      const actor = assertManager(this, actorId);
+      const policy = effectiveManagementPolicy(method, this.managementPermissionsSnapshot());
+      check(policy.access !== 'unavailable', policy.reason);
+      return { ...actor, policy };
+    });
   },
   /** Own decision questions suspend the existing occurrence, not a new management identity. */
   holdManagementQuestion(taskId, noticeId) {
@@ -330,6 +332,10 @@ export default {
   },
 
   executeManagementAction(taskId, receiptId) {
+    return this.withManagementPermissionAdmission(() => this.executeManagementActionAdmitted(taskId, receiptId));
+  },
+
+  executeManagementActionAdmitted(taskId, receiptId) {
     if (this.maintenancePaused()) return;
     const task = this.store.task(taskId), state = managementState(task);
     const receipt = state?.receipts.find(item => item.receipt_id === receiptId);
@@ -342,8 +348,8 @@ export default {
       || call.result?.action?.receipt_id === receipt.receipt_id)
       && call.method === method && call.params.id === receipt.target_id && call.occurrence_id === receipt.occurrence_id);
     if (policy.access === 'unavailable' || policy.access === 'confirmation' && !hasManagementConfirmation(this, taskId, capability)) {
-      gate.skip = policy.access === 'confirmation' ? '最新项目权限要求重新精确确认；此操作未开始，请新建请求。'
-        : '最新项目权限禁止此未开始操作；请调整权限后新建请求，不自动重放。';
+      gate.skip = policy.access === 'confirmation' ? '最新管家权限要求重新精确确认；此操作未开始，请新建请求。'
+        : '最新管家权限禁止此未开始操作；请调整权限后新建请求，不自动重放。';
       delete gate.wait;
     }
     if (gate.wait) {

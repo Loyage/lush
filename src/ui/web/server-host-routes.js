@@ -28,11 +28,12 @@ export function createHostRoutes(projectHost, auth, options, env) {
       // Retired paths cannot attach projects or forward to an older daemon.
       if (/^(?:\/p\/[a-z0-9]{16})?\/api\/(?:host\/(?:settings\/)?)?(?:quick-chat|quick-explain)(?:\/|$)/.test(url.pathname)) return json({ error: 'not found' }, 404);
       // ---- 宿主级路由：启动器等不属于任何项目的接口先于项目路由匹配 ----
-      if (['/api/host/preferences', '/api/host/automation', '/api/host/dashboard'].includes(url.pathname)) {
+      if (['/api/host/preferences', '/api/host/automation', '/api/host/dashboard', '/api/host/management/permissions'].includes(url.pathname)) {
         const methods = {
           '/api/host/preferences': ['readPreferences', 'savePreferences'],
           '/api/host/automation': ['readAutomation', 'saveAutomation'],
           '/api/host/dashboard': ['readDashboard', 'saveDashboard'],
+          '/api/host/management/permissions': ['readManagementPermissions', 'saveManagementPermissions'],
         }[url.pathname];
         if (request.method === 'GET') {
           userQuery(url, []);

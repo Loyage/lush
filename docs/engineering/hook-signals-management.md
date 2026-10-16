@@ -12,15 +12,17 @@ W263／D611 删除独立「Valet 设置」及全部 Web 信号／绑定编辑入
 
 管理 Agent 可发现全部当前 RPC 能力。开发阶段的新默认开放全部 `lushc` RPC 能力，集合从 `src/cli/catalog.js` 的 `LUSHC_METHODS` 派生；执行权限仍由 `src/rpc/management-policy.js` 明确分为安全读取、低风险自动执行、用户确认和不可用。查询诊断、有界调用历史、草稿编辑、条件发射、合法追加、开始／继续和重试可自动执行；取消、中断、合并、验收回收、删除、敏感配置及服务操作须持久预检，由用户确认精确请求后经原引擎执行。合并后 Shell 自动化可用 [`hooks.install`](../reference/rpc/hooks.md#原子安装合并后命令) 一次精确确认并原子安装，目录提供同源嵌套 schema／示例；配置事务的安装收据可证明中断后的完成状态，不依赖模型确认后续跑。快捷指令没有预授权，但管理 Agent 调用其保存、删除、导出、旧配置导入或运行历史移除（`hooks.command_save/remove/export/import/history_remove`）仍须用户确认；读取目录和运行历史可安全查询，已删除的 command_authorize 不可调用。普通开发 Agent 不因此扩权，不可复活终态、已归档或祖先关闭的工作。
 
-### 当前项目管家权限
+### 设备全局管家权限
 
-W279 将默认权限融入「CLI 接口」页面：通过搜索定位单项接口，在接口详情中就地了解及配置当前项目的管家执行权限，不再保留独立「管家设置」页；旧 `#valet-settings` 入口跳转「CLI 接口」。接口目录仅用于发现和说明，不代表执行授权。W285／D643 保留顶层分类和逐级进入，改用紧凑命令行及末列管理 Agent 权限摘要；静态目录沿用 W288／D647 的版本缓存与按需权限读取；当前读写统一搜索与逐级浏览，仅以行内标记区分；点击「读取项目权限」后才显示当前草稿／默认值，多 RPC 明示多项并在详情逐项配置。未读取／无项目／失败时标明权限未知，审核上限独立显示而不是项目授权；缓存边界见[CLI 目录](../hooks.md#cli-目录缓存与权限)。D7 将此处编辑统一为当前项目所有新旧 Valet 的实时权限；不改变完整映射与 revision 校验，不恢复 Web 时间信号／绑定编辑或重放入口。
+W302／D659、D660：「CLI 接口」位于全局工作台，命令学习与设备用户所有项目的统一 Valet 权限在同页；不设项目选择，项目侧栏不显示入口。旧项目 `#cli-interfaces`／`#valet-settings` 书签提供原生新标签链接，保留项目现场；根旧书签兼容新入口。目录只是说明，不代表执行授权；交互与缓存见[CLI 目录](../hooks.md#cli-目录缓存与权限)。
 
-`management.permissions {}` 与 `management.permissions_update {permissions,expected_revision}` 均为用户专属；普通开发 Agent、Valet 及 `manager.call` 都不能读取或修改设置。Web 使用 GET `/api/management/permissions`（不接受 query）及同源 POST `/api/action` 的 `management.permissions_update`。设置只保存于当前项目 meta，不进入设备设置，不改变其它项目。
+用户专属根接口 `GET /api/host/management/permissions` 无 query；同路径 `POST` 严格接受 `{permissions,expected_revision}`，复用登录、Origin、JSON 和 no-store。普通开发 Agent、Valet 及 `manager.call` 不能读取或修改设置。接口不依赖项目登记或 daemon 在线，不启动后台。旧 `management.permissions`／项目 GET 仅兼容读取有效权限；`management.permissions_update` 保留注册但拒绝所有写入，引导全局接口，不能建立项目覆盖或隐式首次切换。
 
-两个 RPC 都返回 `{version:1,scope:'project',revision,groups,methods,permissions}`。页面核对动态方法的审核上限及可选值与静态 Host 目录一致，版本不匹配时不开放编辑；不会因目录可缓存而缓存这两个 RPC 的项目事实。groups 为 `{id,label,description}`；methods 为 `{method,group,label,description,base_access,access,allowed_access,reason}`。目录、分组、原始分级、可选值和实际执行校验均来自 `src/rpc/management-policy.js`。permissions 是**完整** `method -> access` 映射，包含不可用条目；保存不接受 sparse patch、未知方法／顶层字段或缺项，使用当前 revision 防止并发覆盖。当前项目映射包含全部 `lushc` 方法，按安全读取、自动执行与必须确认分级；新旧 Valet（包括无快照历史）均使用这一最新映射，不能通过历史快照提升审核上限。`read` 只能选择 read／unavailable，`automatic` 只能 automatic／confirmation／unavailable，`confirmation` 只能 confirmation／unavailable，`unavailable` 不可提升。`manager.catalog` 是必要发现能力，固定 read（allowed_access 只有 read），不能禁止；manager.call/start/retry 是传输／兼容入口，不是可独立提升的权限。
+全局读模型为 `{version:1,scope:'device',configured,revision,groups,methods,permissions}`。`configured:false` 是审核默认草稿，**不代表任何项目实际授权**；首次显式保存前，各项目沿用原 meta 权限。首次保存须在页面确认全部项目影响，此后更新版 daemon 统一使用设备私有 `management-permissions.json`，旧项目值及历史快照保留但不再参与授权，不自动导入或覆盖。离线项目恢复时读取共享权威；旧版本后台不会自动更新，须由用户在安全点分别更新 Host 与各 daemon。无配置读取不创建根；文件不安全／损坏时拒绝授权，不回退旧项目值。
 
-D7：即时输入、等待信号、持续绑定及已有无快照历史 Valet 均动态读取**当前项目最新权限**，正在运行的模型后续调用也同样检查；持续绑定不冻结下一 occurrence 的权限。`permissions_snapshot:{version,scope,revision,permissions}` 可保留为创建时历史，不回写、不迁移、不作为后续请求授权；快照缺项或无快照不再切换到另一套执行策略。client_request_id 去重仍返回原 Worker，不能因此创建重复身份或恢复旧权限。公开 inspect 不输出私有快照。
+页面按需读取全局权限，核对动态审核上限／可选值与静态目录（包括保存 ACK）一致；版本不匹配时禁止编辑。groups 为 `{id,label,description}`；methods 为 `{method,group,label,description,base_access,access,allowed_access,reason}`。目录、分组、原始分级、可选值和执行校验均来自 `src/rpc/management-policy.js`。permissions 是**完整** `method -> access` 映射，包含不可用条目；不接受 sparse patch、未知字段、缺项或提权，使用 revision 防并发覆盖。私有文件原子发布与最终授权／持久开始使用同一跨进程 `settings-write` 锁排序，开始后释放锁再执行副作用；各 daemon 的一秒只读观察在修订变化后协调未开始请求，不重放失败。锁忙保守拒绝，不偷锁。`read` 仅可 read／unavailable，`automatic` 可 automatic／confirmation／unavailable，`confirmation` 可 confirmation／unavailable，`unavailable` 不可提升；必要发现 `manager.catalog` 固定 read。manager.call/start/retry 是传输／兼容入口，不是独立提权项。
+
+即时输入、等待信号、持续绑定及已有无快照历史 Valet 均动态读取**最新有效权限**（首次全局保存前为项目旧值，之后为设备共享值），正在运行的模型后续调用也同样检查；持续绑定不冻结下一 occurrence 的权限。`permissions_snapshot:{version,scope,revision,permissions}` 可保留为创建时历史，不回写、不迁移、不作为后续请求授权；快照缺项或无快照不再切换到另一套执行策略。client_request_id 去重仍返回原 Worker，不能因此创建重复身份或恢复旧权限。公开 inspect 不输出私有快照。
 
 未开始的排队 capability、等待动作及 pending_confirmation 在执行前重新检查最新权限，包括异步资源预检结束后及写入准入边界。变为 unavailable 时不执行：pending_confirmation 记 rejected 并关闭未答 Notice，approved 记 failed，waiting 动作记 skipped。旧 automatic→confirmation 的 approved 请求或 waiting 动作若没有真实用户的精确批准，同样失败／跳过，须重新请求确认，不能把旧 approved 当批准。尚未回答的 pending_confirmation 若放宽为 automatic，关闭原 Notice并继续同一精确请求，仍保留参数、目标、资源和生命周期安全门；已拒绝、失败、取消或 skipped 不因放宽重放。
 

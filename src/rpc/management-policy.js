@@ -123,7 +123,7 @@ export function managementAllowedAccess(base, method) {
     confirmation: ['confirmation','unavailable'], unavailable: ['unavailable'] }[base];
 }
 // Authorization records are complete, not overlays: absent methods fail closed.
-// Live callers supply current project permissions; null is only the historical
+// Live callers supply the current effective policy; null is only the historical
 // fallback for receipts that already started under the original reviewed policy.
 export function effectiveManagementPolicy(method, snapshot = null) {
   const base = managementPolicy(method);
@@ -132,7 +132,7 @@ export function effectiveManagementPolicy(method, snapshot = null) {
   const access = Object.hasOwn(snapshot.permissions ?? {}, method) ? snapshot.permissions[method] : 'unavailable';
   if (!managementAllowedAccess(base.access, method).includes(access)) return { access: 'unavailable', reason: '授权记录未授权此功能。' };
   return { access, reason: access === 'unavailable' && base.access !== 'unavailable'
-    ? '最新项目权限禁止此功能。' : base.reason };
+    ? '最新管家权限禁止此功能。' : base.reason };
 }
 export function managementPermissionMethods(snapshot = null) {
   return Object.keys(PARAMS).map(method => {

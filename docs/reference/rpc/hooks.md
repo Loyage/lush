@@ -22,8 +22,8 @@
 | `hooks.remove` | `{id,expected_revision}` | `hooks remove TEMPLATE_ID --revision REV` |
 | `hooks.signal_save` | `{signal,expected_revision}` | `hooks signal save --file PATH --revision REV` |
 | `hooks.signal_remove` | `{id,expected_revision}` | `hooks signal remove SIGNAL_ID --revision REV` |
-| `management.permissions` | `{}` | —（Web 当前项目管家权限读面） |
-| `management.permissions_update` | `{permissions,expected_revision}` | —（Web 同源 POST action） |
+| `management.permissions` | `{}` | —（兼容读取有效权限；新页面走 Host 全局接口） |
+| `management.permissions_update` | 旧 `{permissions,expected_revision}` 写入已退役并拒绝；改用 Host 根接口 | — |
 | `management.create` | `{name,instruction,signal_id,mode?,profile?,client_request_id?}` | `hooks management create --file PATH` |
 | `management.submit` | `{instruction,profile?,client_request_id?}` | `order '管理需求' --management`（即时管理，无需时间信号） |
 | `management.binding_update` | `{id,enabled,expected_revision}` | `hooks management enable\|disable ID --revision REV` |
@@ -110,9 +110,9 @@ Valet 通过 `manager.catalog` 取得同源 schema／示例，使用 `manager.ca
 
 `management.create` 返回 `{task}`；创建新 role='manager'/task_kind='management' 的无 Git Valet（`worker_number` 保存独立 V 编号，见[编号规则](../api.md#用户编号与-cli-身份)），保存后等待 signal_id，不立即启动 Agent。默认 mode='once'，可显式 persistent。Web 表单固定 client_request_id 去重；同 key 同定义重试返回原 Worker，同 key 改定义拒绝。key 非空、最多 128 字符、无首尾空白／控制字符；CLI 文件可显式提供，未提供时响应丢失应先检查历史，不盲目重做创建。management_workers 是有界列表，附安全 management 对象和 model_selection；完整 profile 仅写，不回读。启停使用 **management.revision**。已消费一次性／失败／未知不可重新启用重放，需要另建指令。普通 mutation/inspect 出口剔除字符串 management 私有 JSON。
 
-`management.permissions` / `management.permissions_update` 为用户专属的**当前项目**管家实时权限读写，返回 `{version:1,scope:'project',revision,groups,methods,permissions}`；groups 为 `{id,label,description}`，methods 为 `{method,group,label,description,base_access,access,allowed_access,reason}`。写入必须提交完整 method→access 映射与最新 revision，未知项／缺项／提升原始权限均拒绝。Web GET `/api/management/permissions` 不接受 query；保存走同源 POST `/api/action`。D7：当前项目所有新旧即时／等待／持续 Valet（含无快照历史）统一使用最新权限；历史 permissions_snapshot 保留但不回写、迁移或用于新操作授权，client_request_id 去重仍返回原身份。直接工具与 manager.call 一致。read→read/unavailable，automatic→automatic/confirmation/unavailable，confirmation→confirmation/unavailable，unavailable 不可提升；必要发现 manager.catalog 固定 read。
+`management.permissions` 为用户专属兼容读取：返回当前项目有效权限，全局首次保存前 `scope:'project'`，之后 `scope:'device'`；旧 `management.permissions_update` 保留注册但拒绝写入，引导 `GET/POST /api/host/management/permissions`。新接口仅 Host 根路径，由用户显式首次保存切换为设备共享权威；读模型、完整映射、revision、审核上限、旧项目值保留与跨进程授权排序统一见[全局管家权限契约](../../engineering/hook-signals-management.md#设备全局管家权限)。历史 permissions_snapshot 不作为新操作授权，client_request_id 去重仍返回原身份；普通开发 Agent、Valet、manager.call 不得读写设置。
 
-未开始的排队／waiting／pending_confirmation 操作在执行前按最新权限复核，异步预检及写入准入等待不能使用旧授权。unavailable 阻止执行；automatic→confirmation 的旧 approved／waiting 若无用户精确批准则 failed／skipped，需重新请求确认。未答 pending_confirmation 放宽为 automatic 时关闭 Notice并继续原精确请求，变 unavailable 时 rejected 并关闭 Notice；参数、目标、资源及原安全门保持。已经 running 的操作固定开始授权，不因后续修改权限强制中断，完成操作不撤销；放宽不重放失败、拒绝、取消或 skipped 请求。私有历史快照与开始授权不进入公开 inspect；完整安全及恢复契约见[管家项目权限](../../engineering/hook-signals-management.md#当前项目管家权限)。
+未开始的排队／waiting／pending_confirmation 操作在执行前按最新权限复核，异步预检及写入准入等待不能使用旧授权。unavailable 阻止执行；automatic→confirmation 的旧 approved／waiting 若无用户精确批准则 failed／skipped，需重新请求确认。未答 pending_confirmation 放宽为 automatic 时关闭 Notice并继续原精确请求，变 unavailable 时 rejected 并关闭 Notice；参数、目标、资源及原安全门保持。已经 running 的操作固定开始授权，不因后续修改权限强制中断，完成操作不撤销；放宽不重放失败、拒绝、取消或 skipped 请求。私有历史快照与开始授权不进入公开 inspect；完整安全及恢复契约见[全局管家权限](../../engineering/hook-signals-management.md#设备全局管家权限)。
 
 专用受限工具使用 Agent-only `manager.query {id?}` / `manager.start {id}` / `manager.retry {id}`，并提供 `manager.catalog {}`、`manager.history {id?,before?,limit?}`、`manager.call {method,params,request_id?}`；均不在 Web POST action 或用户 CLI 管理执行入口开放。能力分级与用户精确确认见[管理契约](../../engineering/hook-signals-management.md)。后端另强制核验当前 invocation 的管理角色、绑定和 occurrence，普通开发 Agent 不能调用。目标是内部整数 ID，工具通过 worker.lookup 解析明确的 W／V 编号；查找不扩大开始／重试等目标准入。开始仅处理 paused，重试仅 failed；无 profile 参数、不切账号。受阻返回已持久 waiting，安全点执行，不让模型循环重发。
 

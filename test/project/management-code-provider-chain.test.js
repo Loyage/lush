@@ -6,6 +6,7 @@ import { AgentProvider } from '../../src/agent/provider.js';
 import { Dispatcher } from '../../src/rpc/dispatcher.js';
 import { RPCServer } from '../../src/rpc/server.js';
 import { createSignal } from '../../src/signal.js';
+import { readDeviceManagementPermissions, saveDeviceManagementPermissions } from '../../src/core/management-permissions.js';
 
 async function setup() {
   const f = fixture(); f.project.kick = () => {}; await repo(f.root);
@@ -28,13 +29,15 @@ async function setup() {
 
 for (const history of ['missing']) test(`real Provider -> registered tools -> Bun bridge -> latest project permissions -> result for ${history} historical authorization`, async () => {
   const f = await setup();
-  const set = patch => { const current = f.project.managementPermissions(); return f.project.setManagementPermissions({ ...current.permissions, ...patch }, current.revision); };
+  const set = patch => { const current = readDeviceManagementPermissions(f.config); return saveDeviceManagementPermissions(f.config, { ...current.permissions, ...patch }, current.revision); };
   try {
     f.cli.plan([
       { name: 'manager_catalog', params: {} },
       { name: 'manager_query', params: {} },
       { name: 'manager_call', params: { method: 'draft.add', params: { content: 'bridge must deny' } } },
       { name: 'manager_call', params: { method: 'worker.auto_title', params: { title: '最新权限真实链路' } } },
+      { name: 'manager_call', params: { method: 'management.permissions', params: {} } },
+      { name: 'manager_call', params: { method: 'management.permissions_update', params: {} } },
     ]);
     const manager = f.project.submitManagementInstruction({ instruction: 'check live permission through bridge',
       profile: { agent: 'pi', config_mode: 'pi' } }).task;
@@ -50,6 +53,7 @@ for (const history of ['missing']) test(`real Provider -> registered tools -> Bu
     expect(result.replies[0].response.details.methods.find(item => item.method === 'draft.add').access).toBe('unavailable');
     expect(result.replies[1].error).toBeTruthy(); expect(result.replies[2].error).toBeTruthy();
     expect(result.replies[3].response.details).toMatchObject({ status: 'succeeded', method: 'worker.auto_title' });
+    expect(result.replies[4].error).toBeTruthy(); expect(result.replies[5].error).toBeTruthy();
     expect(f.store.draftCount()).toBe(0); expect(f.state(manager).permissions_snapshot).toEqual(state.permissions_snapshot);
   } finally { await f.rpc.close(); await f.close(); }
 });

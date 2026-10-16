@@ -8,7 +8,7 @@ W210／D492 已移除 Worker 并发额度功能：设备设置、CLI 及状态�
 
 每项目一个 lushd；`Config.home`、`LUSH_HOME`、Store、Git 和 Worker 身份不改变。设备根沿用 `launcherStateDir(env)/shared`。Host 只管理用户配置、聚合读面与来源转发，不持有 Worker 权威事实、不调度跨项目工作。
 
-项目统一使用 `/p/<project-id>/` 页面；根页面为用户工作台，即便 Host 以单项目模式启动。既有单项目无前缀 API 可保持兼容，但新前端不以根路径冒充项目身份。根 hash 保留 `#projects`、`#notices`、`#settings`、`#agent-status`、`#model-sources`、`#runners`、`#automation` 和文档；项目页旧设备设置 hash 引导独立根页面，不在项目 shell 编辑设置。
+项目统一使用 `/p/<project-id>/` 页面；根页面为用户工作台，即便 Host 以单项目模式启动。既有单项目无前缀 API 可保持兼容，但新前端不以根路径冒充项目身份。根 hash 保留 `#projects`、`#notices`、`#settings`、`#agent-status`、`#model-sources`、`#runners`、`#automation`、`#cli-interfaces` 和文档；项目页旧全局页面 hash 引导独立根页面，不在项目 shell 编辑设置。
 
 ## 后台总览开发摘要（W186／决定 #446）
 
@@ -86,6 +86,7 @@ W210／D492 已移除 Worker 并发额度功能：设备设置、CLI 及状态�
 - `GET /api/host/inbox/notice?project_id=&id=` → get。
 - `POST /api/host/inbox/action` → action。
 - 设备设置仍用 `/api/host/settings/**`，前端始终走该根 API，与当前项目是否在线无关。
+- CLI 接口的设备共享管家权限使用根 `GET/POST /api/host/management/permissions`，不依赖登记项目或 daemon 在线；首次显式保存切换、旧项目值留存和授权锁详见[全局管家权限](hook-signals-management.md#设备全局管家权限)。
 - 显式旧配置迁移使用原固定项目 RPC；全局设置页可选已登记来源并带稳定项目路由预检／确认，不允许请求任意磁盘路径。
 - Host stop 停止聚合服务和在途设置操作，但不停止项目 daemon 或撤销全局策略。
 
