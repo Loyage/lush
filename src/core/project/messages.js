@@ -20,11 +20,14 @@ export function settleNoticeAnswer(project, noticeId, answer, dismiss = false, s
   }
   const stored = typeof answer === 'string' ? answer : JSON.stringify(answer);
   project.store.transaction(() => {
+    const before = project.store.workerPhaseSnapshot(notice.task_id);
     project.store.run('UPDATE notices SET status=?,answer=?,answer_source=? WHERE id=?', dismiss ? 'dismissed' : 'answered', stored || '', source, notice.id);
-    project.store.message(notice.task_id, JSON.stringify({ notice_id: notice.id, notice_kind: notice.kind, title: notice.title, dismissed: dismiss,
+    const messageId = project.store.message(notice.task_id, JSON.stringify({ notice_id: notice.id, notice_kind: notice.kind, title: notice.title, dismissed: dismiss,
       answer: answer || '', answer_source: source,
       ...(source === 'lush' ? { automatic: true, instruction: '此答复由 Lush 自动选择 Hook 生成，不是用户亲自决断；多选或文字答复授权 Agent 自行判断并继续。' } : {}) }));
-    project.store.event(notice.task_id, 'notice.answered', { notice_id: notice.id, answer, dismiss, answer_source: source });
+    project.store.event(notice.task_id, 'notice.answered', { notice_id: notice.id, notice_kind: notice.kind,
+      message_id: messageId, answer, dismiss, answer_source: source });
+    project.store.recordWorkerPhase(notice.task_id, before);
   });
   // Management authorization is consumed by the runtime, never by asking a model
   // to execute the operation again. The resolver recognizes an exact durable receipt
@@ -148,10 +151,12 @@ export default {
       body = questionnaire(body, questions); kind = 'questionnaire';
     }
     const noticeId = this.store.transaction(() => {
+      const before = this.store.workerPhaseSnapshot(task.id);
       const row = this.store.run('INSERT INTO notices(task_id,title,body,kind) VALUES (?,?,?,?)', task.id, title, body, kind);
       const noticeId = Number(row.lastInsertRowid);
       this.store.event(task.id, 'notice.opened', { notice_id: noticeId, title, kind });
       if (kind === 'questionnaire' || task.task_kind === 'management') this.parkForQuestion(task.id, noticeId);
+      this.store.recordWorkerPhase(task.id, before);
       this.autoAnswerNotice(noticeId);
       return noticeId;
     });

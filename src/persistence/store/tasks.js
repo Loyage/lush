@@ -216,8 +216,17 @@ export const tasks = {
   update(taskId, patch) {
     const allowed = ['status','result','error','calls','agent_wakes','workspace','branch','base_commit','iteration_base_commit','head_commit','integration','target_branch','integration_error','baseline_workspace','baseline_commit','plan_gate','review_candidate_id','retry_profile','reservation','auto_merge','interrupt_state','hooks','management'];
     check(Object.keys(patch).every(key => allowed.includes(key)), 'invalid task patch');
-    this.run(`UPDATE tasks SET ${Object.keys(patch).map(key => `${key}=?`).join(',')}, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, ...Object.values(patch), taskId);
-    return this.task(taskId);
+    return this.transaction(() => {
+      const observing = ['status', 'integration', 'calls'].some(key => Object.hasOwn(patch, key));
+      const before = observing ? this.workerPhaseSnapshot(taskId) : null;
+      const task = observing ? this.task(taskId) : null;
+      const parent = task?.parent_id ? this.task(task.parent_id) : null;
+      const parentBefore = parent && ['waiting', 'awaiting'].includes(parent.status) ? this.workerPhaseSnapshot(parent.id) : null;
+      this.run(`UPDATE tasks SET ${Object.keys(patch).map(key => `${key}=?`).join(',')}, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?`, ...Object.values(patch), taskId);
+      if (observing) this.recordWorkerPhase(taskId, before);
+      if (parentBefore) this.recordWorkerPhase(parent.id, parentBefore);
+      return this.task(taskId);
+    });
   },
   /** Agent 计划是 task 附属元数据；Project 层负责校验与保留同 key 的完成态。 */
   setProgressPlan(taskId, value) {
@@ -235,6 +244,8 @@ export const tasks = {
         taskId, parent_id, input_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer, task_kind, worker_number);
       const task = this.task(taskId);
       this.event(task.id, 'created', { parent_id, role, goal, name, verifies_task_id, resolves_task_id, review_candidate_id, layer, worker_number });
+      this.recordWorkerPhase(task.id);
+      if (parent_id !== null && ['waiting', 'awaiting'].includes(this.task(parent_id).status)) this.recordWorkerPhase(parent_id);
       return task;
     });
   },

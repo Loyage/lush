@@ -83,9 +83,10 @@ for (const state of [{ status: 'paused', agent_wakes: 0 }, { status: 'paused', a
     expect(root().querySelector('.worker-versions')).toBeNull();
     const goal = root().querySelector('.conversation-input').querySelector('.conversation-prose'); expect(inlineText(goal)).toBe(manager.goal);
     expect(goal.querySelectorAll('.worker-link').map(node => node.getAttribute('href'))).toEqual(['#worker-number-W10', '#worker-number-W11']);
-    expect(deepText(root())).toContain(row.result); const lifecycle = root().querySelector('[data-conversation-filter="lifecycle"]');
-    expect(lifecycle.getAttribute('aria-pressed')).toBe('false'); expect(deepText(root())).not.toContain('管理信号已提交待执行');
-    await lifecycle.onclick(); expect(deepText(root())).toContain('管理信号已提交待执行'); expect(deepText(root())).not.toContain('管理工作目录');
+    expect(deepText(root())).toContain(row.result); const lifecycle = root().querySelector('.worker-timeline-panel');
+    expect(root().querySelector('[data-conversation-filter="lifecycle"]')).toBeNull();
+    expect(deepText(root().querySelector('.conversation-panel'))).not.toContain('管理信号已提交待执行');
+    expect(deepText(lifecycle)).toContain('管理信号已提交待执行'); expect(deepText(root())).not.toContain('管理工作目录');
     expect(root().querySelector('.detail-diff')).toBeNull(); expect(root().querySelector('.worker-relations')).toBeNull();
     expect(root().querySelector('.task-actions').querySelectorAll('button').map(item => item.textContent)).toEqual(
       ['停用授权', ...(state.status === 'failed' ? [] : ['停止管家']), '删除', '刷新详情']);

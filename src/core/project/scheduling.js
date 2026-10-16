@@ -12,6 +12,7 @@ import { noticeNumber } from '../record-number.js';
 import { receivedProgressInput } from './progress.js';
 import { prepareRunnerInvocation } from './runner-invocation.js';
 import { runnerIdentity } from '../runner-service.js';
+import { invocationInputSources } from './invocation-evidence.js';
 
 /** A claimed boundary cannot be cancelled, even while the process is still exiting. */
 function claimedStop(project, taskId, run) {
@@ -37,7 +38,7 @@ export default {
       if (this.store.task(taskId).task_kind === 'management') this.holdManagementQuestion(taskId, noticeId);
       run.parked = true;
       for (const message of run.messages || []) this.store.run('UPDATE messages SET consumed=1 WHERE id=?', message.id);
-      this.store.event(taskId, 'invocation.completed', { result, suspended: true, notice_id: noticeId });
+      this.store.event(taskId, 'invocation.completed', { result, suspended: true, notice_id: noticeId, run_id: run.recordId ?? null });
     }
     // 用户已主动暂停时不把状态改成 awaiting；待决问题保留，继续时由 pump 重新投影成 awaiting。
     if (this.store.task(taskId).status !== 'paused') this.store.update(taskId, { status: 'awaiting', result });
@@ -502,8 +503,9 @@ export default {
       }
       if (run.controller.signal.aborted) throw new Error('cancelled');
       task = this.store.task(taskId);
-      const hookStart = this.store.event(taskId, 'invocation.started', { call: task.calls, cwd, input_delivery_tracked: true,
-        message_ids: messages.map(message => message.id),
+      const hookStart = this.store.event(taskId, 'invocation.started', { run_id: run.recordId, call: task.calls, cwd, input_delivery_tracked: true,
+        message_ids: messages.map(message => message.id), source_scope: 'delivered_batch',
+        input_sources: invocationInputSources(this.store, taskId, messages), input_sources_truncated: messages.length > 50,
         agent: agent.agent, model: agent.model || null, thinking: agent.thinking || null });
       this.emitTaskHook(taskId, 'agent.started', hookStart);
       if (!timer) armDeadline();

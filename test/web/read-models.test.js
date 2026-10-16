@@ -16,8 +16,8 @@ test('large results do not inflate task listings and event history stays paginat
     const client = new RPCClient(f.config.socket);
     const tasks = await client.request('worker.list'); expect(tasks[0].result).toBeUndefined();
     const first = await client.request('worker.history',{id:task.id});
-    expect(first).toHaveLength(11);
-    const outputs = first.filter(event => event.type === 'output');
+    expect(first).toHaveLength(f.store.get('SELECT count(*) AS n FROM events WHERE task_id=?', task.id).n);
+    const outputs = first.filter(event => event.type === 'output'); expect(outputs).toHaveLength(10);
     expect(outputs.every(event => event.text_truncated && event.total_chars === 250000 && event.data.result.length === 24000)).toBe(true);
     const second = await client.request('worker.history',{id:task.id,after:first.at(-1).id});
     expect(second).toEqual([]);

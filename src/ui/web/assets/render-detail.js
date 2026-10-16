@@ -16,7 +16,8 @@ import { show } from './messages.js';
 import { detail, overview } from './navigate.js';
 import { renderAgent } from './render-agent.js';
 import { renderConversation } from './render-conversation.js';
-import { disposeDetailModules, limitDetailModules } from './detail-preview.js';
+import { renderWorkerTimeline } from './render-worker-timeline.js';
+import { disposeDetailModules, limitDetailModules, revealDetailPreview } from './detail-preview.js';
 import { captureDetailReading, restoreDetailReading } from './detail-reading.js';
 import { linkWorkerNumbers } from './worker-links.js';
 import { renderDiff } from './render-diff.js';
@@ -74,6 +75,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   progressivePanels.delete(panel);
   const sameTask = panel.dataset.taskId === String(task.id);
   const previousConversation = sameTask ? panel.querySelector('.conversation-panel') : null;
+  const previousTimeline = sameTask ? panel.querySelector('.worker-timeline-panel') : null;
   const previousProgressHistory = sameTask ? panel.querySelector('.progress-history-panel') : null;
   const previousDiff = sameTask ? panel.querySelector('.detail-diff') : null;
   const previousVersions = sameTask ? panel.querySelector('.worker-versions') : null;
@@ -286,9 +288,15 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
 
   // Only reading modules below this point get height-limited previews, never actions/forms above.
   const readingStart = panel.children.length;
-  // Primary modules: automation, plan, timeline, Agent, code, decisions, relations.
+  // Primary modules: automation, plan, input/output, lifecycle, Agent, code, decisions, relations.
   const supplemental = [];
   const conversation = renderConversation(task, history, previousConversation);
+  const timeline = renderWorkerTimeline(task, history, previousTimeline, { onOutput: async row => {
+    const node = await conversation?.revealConversationRun?.(row.run_id)
+      || (row.result_event_id ? await conversation?.revealConversationReference?.({ kind: 'history_event', target: { task_id: task.id, event_id: row.result_event_id } }) : null);
+    if (node) { revealDetailPreview(node); node.scrollIntoView?.({ block: 'center' }); }
+    else show('对应回复尚未加载或本轮没有回复；可在输入输出中加载更早内容。', 'info');
+  } });
   const endedAt = [...(task.runs || [])].reverse().find(run => run.ended_at)?.ended_at ?? task.updated_at;
   let progress = renderTaskProgress(task.progress, { status: task.status, endedAt });
   const progressHistory = renderProgressHistory(task, previousProgressHistory);
@@ -298,6 +306,7 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   }
   if (progress) panel.append(progress);
   if (conversation) panel.append(conversation);
+  panel.append(timeline);
   if (task.error) { const error = block('错误'); error.classList.add('error-panel'); error.append(agentText(task.error, { className: 'error', plain: 'pre' })); supplemental.push(error); }
   if (task.integration_error) { const error = block('合并错误'); error.classList.add('error-panel'); error.append(agentText(task.integration_error, { className: 'error', plain: 'pre' })); supplemental.push(error); }
 
@@ -392,9 +401,10 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
   restoreDetailReading(panel, readingPosition);
   if (!progressive) return;
   conversation?.bindConversationLifetime(progressive.signal, progressive.current);
+  timeline.bindTimelineLifetime(progressive.signal, progressive.current);
   // Existing explicit history pagers start their GET synchronously. Bind them to this view,
   // including reused conversation/progress nodes, without changing their write/action contracts.
-  if (progressive.signal) for (const area of [conversation, progressHistory]) {
+  if (progressive.signal) for (const area of [conversation, timeline, progressHistory]) {
     for (const control of area?.querySelectorAll('button') || []) {
       const start = readingHandlers.get(control) || control.onclick;
       if (typeof start !== 'function') continue;
@@ -486,9 +496,11 @@ export function renderDetail(task, history, diff, usage, connections = null, pro
           if (available) {
             history = value;
             conversation?.updateConversation(task, value);
+            timeline.updateTimeline(task, value);
             sourcePatch();
           } else {
             conversation?.updateConversation(task, { events: [], unavailable: true });
+            timeline.updateTimeline(task, { events: [], unavailable: true });
           }
         }
         linkWorkerNumbers(panel);

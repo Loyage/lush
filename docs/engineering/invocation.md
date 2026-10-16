@@ -31,6 +31,45 @@ Worker 的累计 calls / wakes 继续用于兼容读模型，Run 保存每次调
 
 waiting / awaiting / paused 不占 agent 槽，也不运行 sleep/poll 子进程。最终输出是 Worker result；不提供可被 agent 提前调用的 complete 命令。
 
+## 生命周期观察事件（version 1）
+
+新写入的 `invocation.started` 带精确 `run_id` 和兼容累计 `call`；主动问卷暂停的 `invocation.completed` 也带本次 `run_id`。`started` 仅证明已进入启动准备，实际输入交付仍以同 Run 的 `invocation.inputs_delivered` 为准，不把准备失败说成模型已收到输入。
+
+`invocation.started.input_sources` 是本次所选消息批次的有界来源快照（最多 50 项），`source_scope:'delivered_batch'`，不是唯一唤醒者或调用原因。`message_ids` 仍列出所选消息，`input_sources_truncated` 明示超过来源快照上限。每项包含：
+
+```js
+{ message_id: 12, source: 'user', // user | worker | system | unknown
+  sender_id: null, sender_worker_number: null,
+  notice_id: 3, notice_kind: 'questionnaire', evidence_event_id: 45 }
+```
+
+只有同 Worker、精确 `message_id` 的运行事实才能证明来源：普通 `message` 事件的匹配 sender／显式 `user_append:true`，或匹配 Message 类型与 key 的 `task.signal`、精确 child 收据。typed runtime 信号归 `system`，不把 child 自动成功收据冒充 child Agent 亲自发言。`notice.answered` 新增同事务写入的 `message_id` 与 `notice_kind`；通过同 Worker 的 Notice 行和明确 `answer_source:user|lush` 证明用户／系统答复。未知来源保留 `unknown`，`evidence_event_id` 缺省；sender 为空、正文像 JSON、时间相邻均不构成证明，不能从一批交付消息猜唯一发起者。Worker 编号仅用真实持久字段，不从内部 ID 推算。
+
+新建以及 `Store.update` 的状态／调用／集成事实变化，在同一事务记录 `worker.phase_changed`，不影响调度与准入。事件字段：
+
+```js
+{ version: 1, from: 'running', to: 'waiting_children',
+  from_status: 'running', to_status: 'waiting', reason: 'children_unsettled',
+  child_ids: [8], children: [{ id: 8, worker_number: 'W3-1' }],
+  notice_ids: [], notices: [], run_id: 22 }
+```
+
+`from/to` 是观察阶段，不替代 Worker status；首次创建 `from:'unknown'`。阶段／reason 的固定对应：
+
+| 阶段 | reason／已知边界 |
+|---|---|
+| `queued` | `admission_unknown`，不推断容量、冻结或哪一个具体门 |
+| `running` | `invocation`，Run 已持久创建；不等于 Provider 已交付输入 |
+| `waiting_notice` | `questionnaire`（有问卷）或 `notice`，保留当时 open Notice 的 ID/kind |
+| `waiting_children` | `children_unsettled`，保留当时未结算直接 child 的 ID/真实编号 |
+| `idle` | `unknown`，waiting 且没有已知 Notice/未结算 child；可能仍有交付预约，不宣称交付就绪或必在等用户 |
+| `awaiting_acceptance` / `paused` / `completed` / `failed` / `cancelled` | reason 与阶段同名，仅表示真实行状态，不代替验收／交付证明 |
+| `unknown` | `unknown`，不足以分类（如 awaiting 但没有已知等待对象） |
+
+等待对象由转换事务内的真实行快照确定，不用后来的 child／Notice 状态倒推。child 结算复用 `isSettled`：终态，或满足既有集成条件的 awaiting_acceptance；不能把所有 awaiting_acceptance 当结算。child 状态／integration 写入和新 child 创建也在同事务刷新等待中的直接父观察；Notice 打开／答复同样刷新。相同 status 的等待对象或 reason 变化可产生新边界，完全相同的观察只写一次；普通 result、心跳、配置、预约写入和历史读取不制造边界。预约不在观察层解析，不变更消息消费、冻结或交付行为。
+
+`run_id` 通过同 Worker 当前 calls 对应的持久 Run 精确关联；无此行则为 null，不按相邻时间猜测。事件时间只定义本次观察边界，不能推算首条事件之前的阶段起点。历史缺少事件／来源的区间保持未知，不迁移、不回填。`history_page`／`reading_page` 沿用现有安全、有界事件投影；大量来源或等待对象可能触发 `event_metadata_bounded`，完整安全正文仍可经既有 `reading_record` 续读，不能把有界缺项当作没有等待对象。只记录身份、枚举与对象快照，不复制配置、Prompt 或凭证。
+
 ## 两条 admission lane
 
 - control：planner 和兼容历史 scheduler，容量默认 `LUSH_CONTROL_CONCURRENCY`（2）；

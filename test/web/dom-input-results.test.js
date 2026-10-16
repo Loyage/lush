@@ -11,7 +11,7 @@ const page = extra => ({ events: [], messages: [], event_cursor: 0, message_curs
 const incoming = (id, body, extra = {}) => ({ id, task_id: 7, body, sender_id: null, created_at: at, ...extra });
 const userEvent = (id, messageId, body) => ({ id, type: 'message', created_at: at,
   data: { sender: null, message_id: messageId, body }, input_delivery: { status: 'pending', at: null } });
-const showOthers = root => { const toggle = root.querySelector('[data-conversation-filter="other"]'); if (toggle.getAttribute('aria-pressed') !== 'true') toggle.onclick(); };
+const showOthers = root => { const toggle = root.querySelector('[data-conversation-filter="unknown"]'); if (toggle.getAttribute('aria-pressed') !== 'true') toggle.onclick(); };
 const type = (root, text) => { const input = root.querySelector('.conversation-search').querySelector('input'); input.value = text; input.listeners.input[0](); input.listeners.keydown[0]({ key: 'Enter', preventDefault() {} }); };
 const fixture = async (fetch, run) => {
   const dom = installDom({ fetch }); resetUiState(); ui.hostSession = { status: 'ready', username: '测试用户' };
@@ -25,7 +25,7 @@ test('inputs/results contain isolated messages, known user appends, proved decis
     { id: 21, type: 'notice.answered', created_at: at, data: { notice_id: 508, answer: '自动决定', answer_source: 'lush' } },
     { id: 22, type: 'notice.answered', created_at: at, data: { notice_id: 509, answer: '历史决定' } },
   ] });
-  expect(root.querySelector('h2').textContent).toBe('时间线');
+  expect(root.querySelector('h2').textContent).toBe('输入输出');
   expect(root.querySelectorAll('.conversation-other')).toHaveLength(3);
   expect(root.querySelector('[data-conversation-filter="decision"]').getAttribute('aria-pressed')).toBe('true');
   expect(root.querySelectorAll('.conversation-input')).toHaveLength(2);
@@ -50,7 +50,10 @@ test('explicit questionnaire answer retains semantic questions/labels/Notice ide
     { id: 300, type: 'notice.answered', data: { notice_id: 507, answer_source: 'user', answer: JSON.stringify(answer) } },
   ] })); showOthers(root);
   const decision = root.querySelector('[data-conversation-key="other:event:300"]');
-  for (const text of ['用户答复', '已答复决策', '范围决定', 'D507', '选择哪种范围？', '仅详情', '保留历史']) expect(deepText(decision)).toContain(text);
+  for (const text of ['用户答复', '已答复决策', '范围决定', 'D507', '仅详情', '保留历史']) expect(deepText(decision)).toContain(text);
+  expect(decision.querySelector('.message-original')).toBeNull();
+  const details = decision.querySelector('.conversation-decision-details'); details.open = true; for (const listener of details.listeners.toggle || []) listener();
+  expect(deepText(decision)).toContain('选择哪种范围？');
   const original = decision.querySelector('.message-original'); original.open = true; for (const listener of original.listeners.toggle || []) listener();
   expect(original.querySelector('pre').textContent).toBe(JSON.stringify(answer));
 }));
@@ -72,15 +75,16 @@ test('explicit whole-history search batches through empty pages, matches tail pr
   const reads = [];
   return fixture(async url => {
     reads.push(new URL(String(url), 'http://fixture'));
+    if (String(url).includes('reading-record')) return json({ text: '尾部命中', offset: 6, next_offset: 10, has_more: false, total_chars: 10 });
     if (reads.length === 1) return json(page({ event_cursor: 70, message_cursor: 80, has_more_events: true, has_more_messages: true, scanned_events: 50, scanned_messages: 50 }));
-    return json(page({ messages: [incoming(1, '只加载了开头', { sender_id: 8, text_truncated: true, total_chars: 30000 })], scanned_events: 3, scanned_messages: 1 }));
+    return json(page({ messages: [incoming(1, '只加载了开头', { append_number: 'A214-1', text_truncated: true, total_chars: 30000 })], scanned_events: 3, scanned_messages: 1 }));
   }, async () => {
     const root = renderConversation(task); showOthers(root); type(root, '尾部命中');
     expect(reads).toHaveLength(0); await findByText(root, '查找全部历史').onclick();
-    expect(reads).toHaveLength(2); expect(reads[1].searchParams.get('before_event')).toBe('70'); expect(reads[1].searchParams.get('before_message')).toBe('80');
-    expect(reads[0].searchParams.get('query')).toBe('尾部命中'); expect(root.querySelectorAll('.conversation-other')).toHaveLength(1);
+    expect(reads).toHaveLength(3); expect(reads[1].searchParams.get('before_event')).toBe('70'); expect(reads[1].searchParams.get('before_message')).toBe('80');
+    expect(reads[0].searchParams.get('query')).toBe('尾部命中'); expect(root.querySelectorAll('.conversation-input')).toHaveLength(1);
     expect(deepText(root)).toContain('已扫描 53 个事件、51 条消息'); expect(deepText(root)).toContain('历史命中 1 条');
-    root.updateConversation(task); expect(root.querySelectorAll('.conversation-other')).toHaveLength(1);
+    root.updateConversation(task); expect(root.querySelectorAll('.conversation-input')).toHaveLength(1);
     expect(deepText(root)).toContain('正文尚未读完');
   });
 });
@@ -135,7 +139,7 @@ test('message and event reference navigation reads only the precise row and reve
   }, async () => {
     const root = renderConversation(task); type(root, '不存在');
     const message = await root.revealConversationReference({ kind: 'message', target: { task_id: 7, message_id: 101 } });
-    expect(message.dataset.ref).toContain('message-101'); expect(message.expanded).toBe(true); expect(root.querySelector('[data-conversation-filter="other"]').getAttribute('aria-pressed')).toBe('true');
+    expect(message.dataset.ref).toContain('message-101'); expect(message.expanded).toBe(true); expect(root.querySelector('[data-conversation-filter="unknown"]').getAttribute('aria-pressed')).toBe('true');
     expect(root.querySelector('.conversation-search').querySelector('input').value).toBe('');
     const event = await root.revealConversationReference({ kind: 'history_event', target: { task_id: 7, event_id: 202 } });
     expect(event.dataset.ref).toContain('event-202'); expect(reads).toHaveLength(2);
@@ -172,6 +176,49 @@ test('bounded metadata and inconsistent evidence are visible independently of co
   showOthers(root); expect(deepText(root)).toContain('附属字段受限'); expect(deepText(root)).toContain('message_field_bounded');
   expect(root.querySelector('.conversation-other').querySelector('.conversation-sender').textContent).toBe('来源不明');
 }));
+
+test('whole-history candidates do not turn metadata/type-only matches into content hits, including truncated bodies', () => {
+  const reads = [];
+  return fixture(async url => {
+    reads.push(String(url));
+    if (String(url).includes('reading-record')) return json({ text: '正文尾部', offset: 24000, next_offset: 24004, has_more: false, total_chars: 24004 });
+    return json(page({ events: [
+      { ...userEvent(1, 1, 'x'.repeat(24000)), text_truncated: true, total_chars: 24004, data: { sender: null, message_id: 1, body: 'x'.repeat(24000), marker: 'MetadataNeedle' } },
+      { ...userEvent(2, 2, '完整正文'), data: { sender: null, message_id: 2, body: '完整正文', marker: 'MetadataNeedle' } },
+      { id: 3, type: 'merge.failed', data: { error: 'MetadataNeedle' } },
+    ], scanned_events: 3 }));
+  }, async () => {
+    const root = renderConversation(task); type(root, 'MetadataNeedle'); await findByText(root, '查找全部历史').onclick();
+    expect(reads).toHaveLength(2); expect(root.querySelectorAll('.conversation-message')).toHaveLength(0);
+    expect(deepText(root)).toContain('输入输出历史正文无命中'); expect(deepText(root)).toContain('已扫描 3 个事件');
+    expect(root.querySelector('[data-conversation-filter="input"]').textContent).toBe('我的输入 3');
+  });
+});
+
+test('record and text budgets stop explicit history reads without claiming a complete/no-hit range', async () => {
+  for (const response of [page({ messages: Array.from({ length: 5001 }, (_, i) => incoming(i + 1, '短正文')) }),
+    page({ messages: [incoming(1, 'x'.repeat(4 * 1024 * 1024 + 1))] })]) {
+    await fixture(async () => json(response), async () => {
+      const root = renderConversation(task); await findByText(root, '查找全部历史').onclick();
+      expect(deepText(root)).toContain('阅读预算'); expect(deepText(root)).toContain('范围未完成');
+      expect(deepText(root)).not.toContain('查找完成'); expect(root.querySelectorAll('.conversation-message')).toHaveLength(1);
+    });
+  }
+});
+
+test('late segmented full-history validation is cancelled before it can expose a candidate', () => {
+  let resolve, recordReads = 0;
+  return fixture(url => {
+    if (String(url).includes('reading-record')) { recordReads++; return new Promise(done => { resolve = done; }); }
+    return Promise.resolve(json(page({ messages: [incoming(1, 'x'.repeat(24000), { append_number: 'A214-1', text_truncated: true, total_chars: 24004 })] })));
+  }, async () => {
+    const root = renderConversation(task); type(root, '尾部命中'); const pending = findByText(root, '查找全部历史').onclick();
+    for (let i = 0; i < 20 && !recordReads; i++) await Promise.resolve();
+    expect(recordReads).toBe(1); await findByText(root, '取消查找').onclick();
+    resolve(json({ text: '尾部命中', offset: 24000, next_offset: 24004, has_more: false, total_chars: 24004 })); await pending;
+    expect(root.querySelectorAll('.conversation-message')).toHaveLength(0); expect(deepText(root)).toContain('查找已取消');
+  });
+});
 
 test('message evidence projects user input without an event body in the current history window', () => fixture(async () => { throw new Error('no reads'); }, () => {
   const proof = userEvent(300, 100, '历史输入'); delete proof.data.body;

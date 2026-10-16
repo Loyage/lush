@@ -5,77 +5,65 @@ import { resetUiState, ui } from '../../src/ui/web/assets/state.js';
 import { renderConversation } from '../../src/ui/web/assets/render-conversation.js';
 import { projectHistoryEvent } from '../../src/persistence/store/reading.js';
 
-test('automation status survives real history and reading projections; hidden defaults preserve counts and reference access', async () => {
-  const f = await setup();
-  const task = f.store.create({ role: 'agent', task_kind: 'order', goal: 'automation timeline integration' });
+test('real history and reading projections retain all automation facts for the timeline, but input/output never claims their references', async () => {
+  const f = await setup(), calls = [];
+  const task = f.store.create({ role: 'agent', task_kind: 'order', goal: 'automation boundary integration' });
   const submitted = f.store.event(task.id, 'automation.operation_submitted', { tool: 'request_merge', worker_id: task.id, round: 0 });
   const failed = f.store.event(task.id, 'automation.operation_finished', { tool: 'request_merge', operation_id: submitted, status: 'failed', hooks: { private: 'PRIVATE-CONFIG' } });
   const target = f.store.event(task.id, 'delivery.requested', { tool: 'integrate_deliveries', delivery_id: submitted, strategy: 'serial' });
   const before = f.store.all('SELECT * FROM events');
-  const dom = installDom(); resetUiState();
+  const dom = installDom({ fetch: (url, options) => { calls.push(String(url)); return httpFetch(new URL(String(url), f.url).href, options); } }); resetUiState(); ui.hostSession = { status: 'ready', username: '测试用户' };
   try {
     const response = await httpFetch(`${f.url}/api/worker/${task.id}/reading-page?before_message=0`);
     expect(response.status).toBe(200); const page = await response.json();
     expect(JSON.stringify(page)).not.toContain('PRIVATE-CONFIG');
+    expect(page.events.find(event => event.id === failed).data.status).toBe('failed');
+    expect(page.events.find(event => event.id === submitted).data.tool).toBe('request_merge');
+    expect(page.events.find(event => event.id === target).data.strategy).toBe('serial');
     for (const events of [f.store.history(task.id), page.events]) {
       const root = renderConversation(task, { events });
-      expect(root.querySelectorAll('.conversation-event')).toHaveLength(0);
-      expect(root.querySelector('[data-conversation-filter="delivery"]').textContent).toBe('交付与合并 2');
-      expect(root.querySelector('[data-conversation-filter="failure"]').textContent).toBe('失败与受阻 1');
-      await root.querySelector('[data-conversation-filter="delivery"]').onclick();
-      expect(root.querySelector(`[data-conversation-key="history:${submitted}"]`).entry.kind).toBe('自动化操作请求已提交');
-      const failure = await root.revealConversationReference({ kind: 'history_event', target: { task_id: task.id, event_id: failed } });
-      expect(failure.dataset.timelineCategory).toBe('failure'); expect(failure.entry.metadata.status).toBe('failed');
-      expect(failure.expanded).toBe(true); expect(deepText(failure)).toContain('不自动重放');
-      expect(root.querySelector(`[data-conversation-key="history:${target}"]`).entry.kind).toContain('未新增授权');
-      root.updateConversation(task, { events });
-      expect(root.querySelector(`[data-conversation-key="history:${failed}"]`)).toBe(failure);
-      expect(root.querySelector('[data-conversation-filter="failure"]').getAttribute('aria-pressed')).toBe('true');
+      expect(root.querySelectorAll('.conversation-message')).toHaveLength(1); expect(root.querySelector('.conversation-event')).toBeNull();
+      for (const category of ['delivery', 'failure', 'lifecycle']) expect(root.querySelector(`[data-conversation-filter="${category}"]`)).toBeNull();
+      for (const id of [submitted, failed, target]) expect(await root.revealConversationReference({ kind: 'history_event', target: { task_id: task.id, event_id: id } })).toBeNull();
+      root.updateConversation(task, { events }); expect(root.querySelectorAll('.conversation-message')).toHaveLength(1);
     }
-    expect(f.store.all('SELECT * FROM events')).toEqual(before); expect(f.project.running.size).toBe(0);
+    expect(calls).toHaveLength(0); expect(f.store.all('SELECT * FROM events')).toEqual(before); expect(f.project.running.size).toBe(0);
   } finally { resetUiState(); dom.restore(); await f.close(); }
 });
 
-// Real Host -> RPC -> Store -> DOM. First-screen adapter uses the same projection exported for historyPage.
-test('real timeline reads generic long error, full-history metadata/type hits and arbitrary references without external timeline', async () => {
+test('long safe event originals and metadata/type searches remain available to timeline read API, never leaked through content search', async () => {
   const f = await setup(), calls = [];
-  const task = f.store.create({ role: 'agent', task_kind: 'order', goal: 'timeline integration' });
+  const task = f.store.create({ role: 'agent', task_kind: 'order', goal: 'content boundary integration' });
   const errorId = f.store.event(task.id, 'merge.failed', { error: 'x'.repeat(23980) + '😀\nErrorTailNeedle',
     retry_profile: { secret: 'SecretNeedle' }, nested: { hooks: { secret: 'HiddenHookNeedle' }, commit: 'SafeMetadataNeedle' } });
   const detailId = f.store.event(task.id, 'workspace.created', { branch: 'old-branch' });
   for (let i = 0; i < 111; i++) f.store.event(task.id, 'progress.completed', { key: String(i) });
   const dom = installDom({ fetch: (url, options) => { calls.push(String(url)); return httpFetch(new URL(String(url), f.url).href, options); } });
   resetUiState(); ui.hostSession = { status: 'ready', username: '测试用户' };
+  const get = path => httpFetch(`${f.url}/api/worker/${task.id}/${path}`).then(response => response.json());
   try {
     const initial = projectHistoryEvent(f.store, task.id, errorId), root = renderConversation(task, { events: [initial], truncated: true });
-    expect(calls).toHaveLength(0);
-    expect(root.querySelector('.conversation-event')).toBeNull();
-    await root.querySelector('[data-conversation-filter="failure"]').onclick();
-    const failure = root.querySelector(`[data-conversation-key="history:${errorId}"]`);
-    expect(failure).toBeTruthy(); expect(deepText(failure)).toContain('正文尚未读完');
-    expect(deepText(failure)).not.toContain('SecretNeedle'); expect(deepText(failure)).not.toContain('HiddenHookNeedle');
-    await findByText(failure, '继续读取正文').onclick();
-    expect(calls.at(-1)).toContain(`/reading-record?kind=event&record_id=${errorId}&offset=24000`);
-    const original = failure.querySelector('.message-original'); original.open = true;
-    for (const listener of original.listeners.toggle || []) listener();
-    expect(original.querySelector('pre').textContent).toContain('ErrorTailNeedle');
-    expect(original.querySelector('pre').textContent).not.toContain('SecretNeedle');
-    root.updateConversation(task, { events: [initial] });
-    expect(root.querySelector(`[data-conversation-key="history:${errorId}"]`)).toBe(failure);
-    expect(failure.querySelector('.conversation-read-more')).toBeNull(); expect(failure.expanded).toBe(true);
-    const submit = value => { const input = root.querySelector('.conversation-search').querySelector('input'); input.value = value; input.listeners.keydown[0]({ key: 'Enter', preventDefault() {} }); };
-    submit('SafeMetadataNeedle'); await findByText(root, '查找全部历史').onclick();
-    expect(deepText(root)).toContain('查找完成'); expect(deepText(root)).toContain('已扫描 114 个事件');
-    expect(root.querySelectorAll('.conversation-event')).toHaveLength(1); expect(failure.querySelector('.conversation-read-more')).toBeNull();
-    submit('merge.failed'); await findByText(root, '查找全部历史').onclick();
-    expect(root.querySelectorAll('.conversation-event')).toHaveLength(1);
-    submit('SecretNeedle'); await findByText(root, '查找全部历史').onclick();
-    expect(root.querySelectorAll('.conversation-event')).toHaveLength(0); expect(deepText(root)).toContain('历史正文无命中');
-    root.attachReferencedHistoryEvent = () => { throw new Error('external timeline no longer needed'); };
+    expect(initial.text_truncated).toBe(true); expect(calls).toHaveLength(0); expect(root.querySelector('.conversation-event')).toBeNull();
+    const first = await get(`reading-record?kind=event&record_id=${errorId}&offset=0`);
+    const tail = await get(`reading-record?kind=event&record_id=${errorId}&offset=${first.next_offset}`);
+    expect(first.text + tail.text).toContain('ErrorTailNeedle'); expect(tail.has_more).toBe(false);
+    for (const text of ['SecretNeedle', 'HiddenHookNeedle']) expect(first.text + tail.text).not.toContain(text);
+    for (const query of ['SafeMetadataNeedle', 'merge.failed', 'ErrorTailNeedle']) {
+      let cursor = null, scanned = 0, found = [];
+      do {
+        const page = await get(`reading-page?before_message=0&query=${query}${cursor == null ? '' : `&before_event=${cursor}`}`);
+        scanned += page.scanned_events; found.push(...page.events); cursor = page.has_more_events ? page.event_cursor : 0;
+      } while (cursor !== 0);
+      expect(scanned).toBe(f.store.get('SELECT count(*) AS n FROM events WHERE task_id=?', task.id).n); expect(found.map(event => event.id)).toEqual([errorId]);
+      const input = root.querySelector('.conversation-search').querySelector('input'); input.value = query; input.listeners.keydown[0]({ key: 'Enter', preventDefault() {} });
+      await findByText(root, '查找全部历史').onclick(); expect(root.querySelectorAll('.conversation-message')).toHaveLength(0);
+      expect(deepText(root)).toContain('输入输出历史正文无命中'); expect(deepText(root)).toContain(`已扫描 ${scanned} 个事件`);
+    }
+    const secretPage = await get('reading-page?query=SecretNeedle&before_message=0'); expect(secretPage.events).toEqual([]);
     const detail = await root.revealConversationReference({ kind: 'history_event', target: { task_id: task.id, event_id: detailId } });
-    expect(detail.dataset.ref).toContain(`event-${detailId}`); expect(detail.expanded).toBe(true);
-    expect(root.querySelector('[data-conversation-filter="detail"]').getAttribute('aria-pressed')).toBe('true');
-    expect(calls.at(-1)).toContain(`before_event=${detailId + 1}`); expect(calls.at(-1)).toContain('before_message=0'); expect(calls.at(-1)).toContain('limit=1');
-    expect(f.project.running.size).toBe(0);
+    expect(detail).toBeNull(); expect(calls.at(-1)).toContain(`before_event=${detailId + 1}`); expect(calls.at(-1)).toContain('limit=1');
+    const exact = await get(`reading-page?before_event=${detailId + 1}&before_message=0&limit=1`);
+    expect(exact.events[0].id).toBe(detailId); expect(exact.events[0].data.branch).toBe('old-branch');
+    expect(deepText(root)).not.toContain('SafeMetadataNeedle'); expect(f.project.running.size).toBe(0);
   } finally { resetUiState(); dom.restore(); await f.close(); }
 });

@@ -23,14 +23,14 @@ test('timeline shows inputs, results and decisions by default; communication rem
     expect(deepText(conversation)).toContain('原始目标'); expect(conversation.querySelector('strong')).toBeTruthy();
     expect(conversation.querySelectorAll('.conversation-input')).toHaveLength(3);
     expect(conversation.querySelectorAll('.conversation-output')).toHaveLength(1);
-    expect(conversation.querySelectorAll('.conversation-avatar').map(node => node.textContent)).toEqual(['🤖', '?', '?', '?', '信']);
+    expect(conversation.querySelectorAll('.conversation-avatar').map(node => node.textContent)).toEqual(['🤖', '?', '?', '?', '决']);
     expect(deepText(conversation)).toContain('决策答复');
     for (const text of ['Agent 消息', '系统信号', '仅属于收件箱']) expect(deepText(conversation)).not.toContain(text);
     const entries = conversation.querySelectorAll('.conversation-message');
     expect(entries.map(node => node.dataset.conversationKey)).toEqual(['latest', 'input:2', 'input:1', 'goal', 'other:event:4']);
     expect(deepText(entries[1])).toContain('账号名称未知'); expect(deepText(entries[0]).replace(/\s+/g, ' ')).toContain('Worker W182');
     expect(entries[1].dataset.ref).toContain('event-2');
-    expect(conversation.querySelectorAll('.message-original')).toHaveLength(5);
+    expect(conversation.querySelectorAll('.message-original')).toHaveLength(4); // Decision full text is read on demand.
     renderDetail(task, { events: [...history.events, event(6, '新的输入')] }, null, null);
     expect(panel.querySelector('.conversation-panel')).toBe(conversation);
     expect(conversation.querySelectorAll('.conversation-message')[0]).toBe(entries[0]);
@@ -38,44 +38,28 @@ test('timeline shows inputs, results and decisions by default; communication rem
   } finally { dom.restore(); }
 });
 
-test('colored categories keep communication distinct and retain choices/nodes across refresh', async () => {
+test('content categories retain choices/nodes across refresh while communication-only pages advance without bubbles', async () => {
   const dom = installDom({ fetch: async () => new Response(JSON.stringify({ events: [event(8, '较早通信', 9)], messages: [], event_cursor: 0, message_cursor: 0, has_more_events: false, has_more_messages: false })) });
   try {
     const incoming = { id: 43, task_id: 7, sender_id: 8, sender_worker_number: 'W185-1', body: 'Agent 消息', created_at: at };
     const outgoing = { id: 44, task_id: 8, sender_id: 7, body: '发给其他 Worker', created_at: at };
     const history = { events: [event(1, '用户补充'), event(3, 'Agent 消息', 8),
-      { id: 4, type: 'task.signal', message: { id: 45, task_id: 7, sender_id: 8, sender_worker_number: 'W185-1', body: '结算信号', created_at: at } },
+      { id: 4, type: 'task.signal', message: { id: 45, task_id: 7, sender_id: 8, body: '结算信号' } },
       { id: 5, type: 'task.signal', message: outgoing }], cursor: 50, has_more: true };
-    const current = { ...task, messages: [incoming, outgoing] };
-    const root = renderConversation(current, history);
+    const current = { ...task, messages: [incoming, outgoing] }, root = renderConversation(current, history);
     const filters = root.querySelectorAll('.conversation-filter');
     const selection = () => filters.map(node => node.getAttribute('aria-pressed') === 'true');
     expect(root.querySelector('.conversation-filters').querySelectorAll('input')).toHaveLength(0);
-    expect(selection()).toEqual([true, true, true, false, false, false, false, false]);
-    const toggle = (category, checked) => {
-      const node = filters.find(node => node.dataset.conversationFilter === category);
-      if ((node.getAttribute('aria-pressed') === 'true') !== checked) node.onclick();
-    };
+    expect(selection()).toEqual([true, true, true, false]);
     const result = root.querySelector('.conversation-output'), user = root.querySelector('.conversation-input');
-    expect(deepText(root)).not.toContain('Agent 消息');
-    toggle('other', true);
-    expect(root.querySelectorAll('.conversation-other')).toHaveLength(2);
-    const communication = root.querySelectorAll('.conversation-other').find(node => deepText(node).includes('Agent 消息'));
-    expect(deepText(communication)).toContain('Worker W185-1'); expect(deepText(communication)).toContain('通信时间');
-    expect(communication.dataset.ref).toContain('event-3'); expect(communication.dataset.ref).toContain('message-43');
-    expect(deepText(root)).not.toContain('发给其他 Worker');
-    toggle('input', false); toggle('output', false);
-    expect(root.querySelectorAll('.conversation-input')).toHaveLength(0); expect(root.querySelectorAll('.conversation-output')).toHaveLength(0);
-    await root.querySelector('.conversation-more').onclick();
-    expect(deepText(root)).toContain('较早通信');
-    renderConversation(current, history, root);
-    expect(selection()).toEqual([false, false, true, false, false, false, true, false]);
-    expect(root.querySelectorAll('.conversation-other')).toHaveLength(3);
-    toggle('other', false); expect(root.querySelectorAll('.conversation-message')).toHaveLength(0);
-    toggle('other', true); expect(root.querySelectorAll('.conversation-other')).toContain(communication);
-    toggle('input', true); toggle('output', true);
+    for (const category of ['input', 'output']) await root.querySelector(`[data-conversation-filter="${category}"]`).onclick();
+    await root.querySelector('.conversation-more').onclick(); renderConversation(current, history, root);
+    expect(selection()).toEqual([false, false, true, false]); expect(root.querySelectorAll('.conversation-message')).toHaveLength(0);
+    for (const text of ['Agent 消息', '较早通信', '结算信号', '发给其他 Worker']) expect(deepText(root)).not.toContain(text);
+    expect(deepText(root)).toContain('历史已遍历');
+    for (const category of ['input', 'output']) await root.querySelector(`[data-conversation-filter="${category}"]`).onclick();
     expect(root.querySelectorAll('.conversation-output')).toContain(result); expect(root.querySelectorAll('.conversation-input')).toContain(user);
-    expect(renderConversation({ id: 8, goal: '另一 Worker' }).querySelectorAll('.conversation-filter').map(node => node.getAttribute('aria-pressed') === 'true')).toEqual([true, true, true, false, false, false, false, false]);
+    expect(renderConversation({ id: 8, goal: '另一 Worker' }).querySelectorAll('.conversation-filter').map(node => node.getAttribute('aria-pressed') === 'true')).toEqual([true, true, true, false]);
   } finally { dom.restore(); }
 });
 

@@ -85,10 +85,9 @@ test('original O uses actual Input; append A uses durable event/message evidence
       expect(entry(root, `input:${id}`).querySelector('.conversation-kind').textContent).toBe(`追加输入 · ${label}`);
     }
     expect(entry(root, 'input:6')).toBeUndefined();
-    const others = root.querySelector('[data-conversation-filter="other"]');
-    others.onclick();
-    expect(root.querySelector('.conversation-other').querySelector('.conversation-sender').textContent).toBe('系统');
-    expect(root.querySelector('.conversation-other').querySelector('.conversation-avatar').textContent).toBe('信');
+    expect(root.querySelector('[data-conversation-filter="other"]')).toBeNull();
+    expect(root.querySelector('.conversation-other')).toBeNull();
+    expect(await root.revealConversationReference({ kind: 'history_event', target: { event_id: 6 } })).toBeNull();
     const originalProse = entry(root, 'input:3').querySelector('.conversation-prose');
     root.updateConversation({ ...goal, messages: [{ id: 53, append_number: 'A198-99' }] }, {});
     expect(entry(root, 'input:3').querySelector('.conversation-kind').textContent).toContain('A198-99');

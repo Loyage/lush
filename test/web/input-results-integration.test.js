@@ -27,13 +27,14 @@ test('old inbox-only user Event and arbitrary historical Event references load e
     expect(input.querySelector('.conversation-kind').textContent).toContain('A214-7');
     expect(calls).toHaveLength(1); expect(calls[0]).toContain('before_message=0'); expect(calls[0]).toContain(`before_event=${eventId + 1}`);
     const event = await root.revealConversationReference({ kind: 'history_event', target: { task_id: task.id, event_id: reservedId } });
-    expect(event.dataset.ref).toBe(`event-${reservedId}`); expect(deepText(event)).toContain('历史事件准确定位');
-    expect(root.querySelector(`[data-conversation-key="history:${reservedId}"]`)).toBe(event);
-    expect(event.expanded).toBe(true);
+    expect(event).toBeNull(); // The parent timeline, not input/output, owns lifecycle references.
+    expect(root.querySelector(`[data-conversation-key="history:${reservedId}"]`)).toBeNull();
+    const historical = await httpFetch(`${f.url}/api/worker/${task.id}/reading-page?before_event=${reservedId + 1}&before_message=0&limit=1`).then(response => response.json());
+    expect(historical.events[0].id).toBe(reservedId); expect(historical.events[0].data.marker).toBe('历史事件准确定位');
     expect(calls).toHaveLength(2); expect(calls[1]).toContain('limit=1');
     renderDetail({ ...task, display_title: '刷新后的标题' }, initial, null, null);
     expect(panel.querySelector('.conversation-panel')).toBe(root); expect(root.querySelector(`[data-conversation-key="input:${eventId}"]`)).toBe(input);
-    expect(panel.querySelector(`[data-ref="event-${reservedId}"]`)).toBe(event);
+    expect(panel.querySelector(`[data-ref="event-${reservedId}"]`)).toBeNull();
     expect(panel.querySelectorAll('h2').map(node => node.textContent)).not.toContain('事件时间线');
     const fromMessage = await root.revealConversationReference({ kind: 'message', target: { task_id: task.id, message_id: messageId } });
     expect(fromMessage).toBe(input); expect(calls).toHaveLength(2);
@@ -53,23 +54,25 @@ test('whole-history search reaches past 100 records and preview, preserves ungue
   f.store.transaction(() => {
     for (let i = 0; i < 155; i++) { f.store.message(task.id, `无关旧消息 ${i}`); f.store.event(task.id, 'invocation.completed', { run_id: i, result: `无关结果 ${i}` }); }
   });
+  const eventCount = f.store.get('SELECT count(*) AS n FROM events WHERE task_id=?', task.id).n;
   const dom = installDom({ fetch: (url, options) => { calls.push(String(url)); return httpFetch(new URL(String(url), f.url).href, options); } });
   resetUiState(); ui.hostSession = { status: 'ready', username: '测试用户' };
   try {
     const root = renderConversation(task), keyword = root.querySelector('.conversation-search').querySelector('input');
     keyword.value = 'TailNeedle'; keyword.listeners.keydown[0]({ key: 'Enter', preventDefault() {} }); expect(calls).toHaveLength(0);
-    await findByText(root, '查找全部历史').onclick(); expect(calls).toHaveLength(4);
-    expect(deepText(root)).toContain('查找完成'); expect(deepText(root)).toContain('已扫描 158 个事件、157 条消息');
+    await findByText(root, '查找全部历史').onclick(); expect(calls.filter(url => url.includes('reading-page'))).toHaveLength(4);
+    expect(calls.filter(url => url.includes('reading-record'))).toHaveLength(1);
+    expect(deepText(root)).toContain('查找完成'); expect(deepText(root)).toContain(`已扫描 ${eventCount} 个事件、157 条消息`);
     const input = root.querySelector('.conversation-input'); expect(input.dataset.ref).toContain(`event-${inputId}`);
     expect(input.querySelector('.conversation-read-more')).toBeTruthy(); expect(deepText(input)).not.toContain('😀TailNeedle');
     await findByText(input, '继续读取正文').onclick();
     const original = input.querySelector('.message-original'); original.open = true; for (const listener of original.listeners.toggle || []) listener();
     expect(original.querySelector('pre').textContent).toBe(body);
-    const show = root.querySelector('[data-conversation-filter="other"]'); show.onclick();
+    const show = root.querySelector('[data-conversation-filter="unknown"]'); show.onclick();
     expect(root.querySelector(`[data-conversation-key="other:message:${rawId}"]`).querySelector('.conversation-sender').textContent).toBe('来源不明');
     expect(root.querySelector(`[data-conversation-key="other:event:${decisionId}"]`).querySelector('.conversation-sender').textContent).toBe('用户答复');
     keyword.value = '不存在的词'; keyword.listeners.keydown[0]({ key: 'Enter', preventDefault() {} }); await findByText(root, '查找全部历史').onclick();
-    expect(deepText(root)).toContain('历史正文无命中'); expect(deepText(root)).toContain('已扫描 158 个事件、157 条消息');
+    expect(deepText(root)).toContain('历史正文无命中'); expect(deepText(root)).toContain(`已扫描 ${eventCount} 个事件、157 条消息`);
     f.store.run('INSERT INTO events(task_id,type,data) VALUES (?,?,?)', task.id, 'old', '{broken');
     await findByText(root, '查找全部历史').onclick();
     expect(deepText(root)).toContain('invalid_event_json'); expect(deepText(root)).toContain('范围未完成');

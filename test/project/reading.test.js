@@ -46,7 +46,7 @@ test('independent complete scans include >100 rows, orphan/consumed/held message
     expect(result.pages).toHaveLength(5);
     expect(result.events.map(row => row.id)).toEqual(eventIds.reverse());
     expect(result.messages.map(row => row.id)).toEqual(messageIds.reverse());
-    expect(result.pages.reduce((sum, page) => sum + page.scanned_events, 0)).toBe(238);
+    expect(result.pages.reduce((sum, page) => sum + page.scanned_events, 0)).toBe(eventIds.length);
     expect(result.pages.reduce((sum, page) => sum + page.scanned_messages, 0)).toBe(237);
     expect(result.messages.every(row => row.answer_source === null)).toBe(true);
     expect(result.pages.at(-1)).toMatchObject({ event_cursor: 0, message_cursor: 0, has_more_events: false, has_more_messages: false });

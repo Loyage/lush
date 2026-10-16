@@ -11,7 +11,7 @@ const fixture = html.replace('</body>', `<script type="module">
 import { renderDetail } from '/render-detail.js';
 import { revealDetailPreview } from '/detail-preview.js';
 import { ui } from '/state.js';
-import { initNoticeRecords, noticePanel } from '/render-notices.js';
+import { noticePanel } from '/render-notices.js';
 import { activateDetailView } from '/sidebar-ui.js';
 import { block, el } from '/dom.js';
 import { enhanceModule, observeModules, disposeModules, revealModule } from '/shared-module.js';
@@ -46,21 +46,18 @@ window.makeNoticeModule=(kind,scope)=>{
   // Freeze page-entry transforms before comparing sticky geometry across successive frames.
   document.documentElement.dataset.reducedMotion='true';
   disposeModules(document.querySelector('#detail'));ui.noticeModuleStates=new Map();
-  const panel=document.querySelector(scope==='records'?'#resource-panels':'#detail');
-  if(scope==='records'){
-    document.querySelector('#side-notices .side-name').textContent='事项与决策记录';
-    const list=el('div');list.id='notices';document.querySelector('#side-notices-body').replaceChildren(list);
-    initNoticeRecords();
-  }
-  activateDetailView({view:scope==='records'?'notices':'task',push:false});
+  // Settled records now open in the independent detail page, never inside the list.
+  const panel=document.querySelector('#detail');
+  activateDetailView({view:scope==='records'?'notice':'task',push:false});
   const notice={id:778,task_id:7,task_worker_number:'W7',kind,status:kind==='info'?'sent':'answered',answer_source:'user',
     created_at:at,title:'已回答决策的长标题与连续标识 '+('LongDecisionTitle'.repeat(12)),
     body:kind==='info'?long:window.task.notices[0].body,answer:window.task.notices[0].answer};
-  const section=noticePanel(notice),host=scope==='records'?document.querySelector('#notice-record-detail'):panel;
+  const section=noticePanel(notice),host=scope==='records'?el('div',undefined,'notice-record-detail'):panel;
+  if(scope==='records'){host.id='notice-record-detail';const page=el('div',undefined,'notice-detail-page');page.append(host);panel.replaceChildren(page);}
   host.replaceChildren(section);section.querySelector('.module-content').append(el('p',long));
   const tail=el('div');tail.style.height='1400px';host.append(tail);
   panel.scrollTop=0;window.scrollTo(0,0);window.noticeFixture={panel,section,head:section.querySelector('.notice-head'),
-    listHead:scope==='records'?document.querySelector('#side-notices .ui-list-heading'):null};
+    listHead:null};
 };
 window.paint(); window.ready=true;
 </script></body>`);
@@ -151,21 +148,18 @@ try {
     await viewport(width, height);
     await execute(`document.documentElement.dataset.theme='${theme}';window.paint();`);
     assert(await wait(`document.querySelector('.conversation-panel').classList.contains('detail-preview-long')`), 'long goal not measured');
-    assert(await execute(`return (async()=>{const root=document.querySelector('.conversation-panel'),filters=[...root.querySelectorAll('.conversation-filter')];
-      const other=root.querySelector('[data-conversation-filter="other"]');
-      if(filters.length!==8||filters.slice(0,3).some(n=>n.getAttribute('aria-pressed')!=='true')||filters.slice(3).some(n=>n.getAttribute('aria-pressed')!=='false')||root.querySelector('.conversation-other')||root.querySelector('[data-conversation-key="history:83"]'))throw new Error('filters '+JSON.stringify(filters.map(n=>[n.textContent,n.getAttribute('aria-pressed')])));
-      await root.querySelector('[data-conversation-filter="failure"]').onclick();
-      await other.onclick();const message=root.querySelector('.conversation-other');
-      if(!message?.textContent.includes('来自子 Worker 的通信')||!message.textContent.includes('Worker W7-1'))throw new Error('communication '+message?.textContent);
-      const failure=root.querySelector('[data-conversation-key="history:83"]');
-      if(!failure?.textContent.includes('合并失败诊断')||failure.textContent.includes('PRIVATE-TIMELINE')||getComputedStyle(failure.querySelector('.conversation-event-details')).display!=='none')throw new Error('event '+failure?.className+' '+failure?.textContent);
-      await failure.querySelector('.conversation-expand').onclick();
-      if(getComputedStyle(failure.querySelector('.conversation-event-details')).display==='none')throw new Error('event expand '+failure.className);
-      window.paint();if(other.getAttribute('aria-pressed')!=='true'||document.querySelector('.conversation-other')!==message||!failure.classList.contains('conversation-expanded'))throw new Error('refresh '+failure.className);
-      await failure.querySelector('.conversation-expand').onclick();
-      await other.onclick();await root.querySelector('[data-conversation-filter="failure"]').onclick();if(root.querySelector('.conversation-other')||!document.querySelector('.decision-record').open)throw new Error('final '+other.getAttribute('aria-pressed')+' '+!!root.querySelector('.conversation-other')+' decision='+document.querySelector('.decision-record').open);return true;
-    })();`), 'timeline filters, compact event expansion, private metadata, communication provenance or refresh');
-    assert(await execute(`return [...document.querySelector('#detail').children].filter(n=>n.matches('.block')).map(n=>n.matches('.worker-hooks')?'自动化':n.querySelector('h2')?.textContent).slice(0,7).join('/')==='自动化/计划/时间线/Agent/代码与提交/决策记录/Worker 关系';`), 'primary module order');
+    assert(await execute(`return (async()=>{const root=document.querySelector('.conversation-panel'),timeline=document.querySelector('.worker-timeline-panel'),filters=[...root.querySelectorAll('.conversation-filter')];
+      if(filters.length!==4||filters.slice(0,3).some(n=>n.getAttribute('aria-pressed')!=='true')||filters[3].getAttribute('aria-pressed')!=='false'||root.querySelector('[data-conversation-filter="lifecycle"]')||root.textContent.includes('来自子 Worker 的通信'))throw new Error('input/output boundaries');
+      const advanced=timeline.querySelector('.lifecycle-advanced');if(advanced.open)throw new Error('advanced open by default');
+      if(!timeline.querySelector('.lifecycle-current')||!timeline.querySelector('[data-lifecycle-key="point:83"]')?.textContent.includes('合并失败诊断'))throw new Error('lifecycle default facts');
+      const failure=await timeline.revealTimelineReference({kind:'history_event',target:{task_id:7,event_id:83}});
+      if(!advanced.open||!failure.expanded||failure.textContent.includes('PRIVATE-TIMELINE')||failure.querySelector('pre').hidden)throw new Error('safe evidence expansion');
+      const body=failure.querySelector('pre');window.paint();if(document.querySelector('.worker-timeline-panel')!==timeline||timeline.querySelector('[data-lifecycle-record="event:83"]')!==failure||failure.querySelector('pre')!==body||!failure.expanded)throw new Error('lifecycle refresh');
+      advanced.open=false;if(timeline.classList.contains('detail-preview-expanded'))timeline.querySelector('.detail-preview-toggle').click();
+      if(!document.querySelector('.decision-record').open)throw new Error('decision state');return true;
+    })();`), 'separate input/output and lifecycle defaults, safe evidence, exact references and retained nodes');
+    assert(await execute(`const titles=[...document.querySelector('#detail').children].filter(n=>n.matches('.block')).map(n=>n.matches('.worker-hooks')?'自动化':n.querySelector('h2')?.textContent).slice(0,9).join('/');
+      if(titles!=='自动化/计划/输入输出/时间线/Agent/代码与提交/版本迭代/决策记录/Worker 关系')throw new Error('primary order: '+titles);return true;`), 'primary module order');
     const sizes = await execute(`return [...document.querySelectorAll('.detail-preview')].map(n=>({
       title:n.querySelector('h2').textContent,body:n.querySelector('.detail-preview-body').getBoundingClientRect().height,
       limit:n.querySelector('.detail-preview-limit').getBoundingClientRect().height,
@@ -178,7 +172,7 @@ try {
       natural:n.querySelector('.detail-preview-content').getBoundingClientRect().height}));`);
     assert(sizes.length >= 7, 'missing reading modules');
     assert(await execute(`return ![...document.querySelectorAll('#detail h2')].some(n=>n.textContent==='消息')&&
-      document.querySelector('.conversation-panel h2').textContent==='时间线';`), 'independent message module was not integrated');
+      document.querySelector('.conversation-panel h2').textContent==='输入输出'&&document.querySelector('.worker-timeline-panel h2').textContent==='时间线';`), 'independent message module was not integrated');
     for (const size of sizes) {
       const long = size.natural > size.limit + 120;
       assert(size.limit <= 400 && Math.abs(size.body - (long ? size.limit : size.natural)) <= 1,
@@ -244,7 +238,7 @@ try {
     n.revealConversationReference({kind:'message',target:{message_id:20}});
     const last=n.querySelector('[data-ref~="message-20"]');window.reveal(last);
     return n.classList.contains('detail-preview-expanded')&&last.classList.contains('conversation-expanded')&&last.textContent.includes('来源不明');`), 'hidden message reference reveal failed');
-  await execute(`document.querySelector('[data-conversation-filter="other"]').click();`);
+  await execute(`document.querySelector('[data-conversation-filter="unknown"]').click();`);
   await execute(`const short=[...document.querySelectorAll('.detail-preview')].find(n=>n.querySelector('h2').textContent==='状态');
     window.short=short;const extra=document.createElement('p');extra.textContent='新增历史\\n'.repeat(300);extra.style.whiteSpace='pre-wrap';
     short.querySelector('.detail-preview-content').append(extra);`);
@@ -379,11 +373,9 @@ try {
       await execute(`window.noticeFixture.head.querySelector('.module-toggle').click();`);
       assert(await execute(`return !window.noticeFixture.section.querySelector('.module-body').hidden;`),'Notice failed to re-expand');
       if(scope==='records'){
-        await execute(`window.noticeFixture.listHead.querySelector('.side-name').textContent='事项与决策记录 · 标题换行后的记录范围和已加载状态';`);
-        await execute(`const {panel}=window.noticeFixture;if(matchMedia('(max-width:760px)').matches)window.scrollBy(0,300);else panel.scrollTop+=300;`);
-        assert(await wait(`(()=>{const {head,listHead}=window.noticeFixture,h=head.getBoundingClientRect(),p=listHead.getBoundingClientRect();
-          return Math.abs(h.top-p.bottom)<2&&listHead.contains(document.elementFromPoint(p.left+p.width/2,p.top+p.height/2));})()`),
-          `Notice must avoid resized list heading ${width}/${theme}/${kind}`);
+        assert(await execute(`return window.noticeFixture.panel===document.querySelector('#detail')&&
+          !!document.querySelector('#detail #notice-record-detail')&&!document.querySelector('#side-notices #notice-record-detail');`),
+          'record preview must stay on the independent detail page');
       }
     }
   console.log('PASS Notice tinted sticky headings, metadata/title wrapping and fold controls: desktop/mobile, light/dark, records/detail, decision/info');

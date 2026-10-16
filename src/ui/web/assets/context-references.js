@@ -228,7 +228,10 @@ export async function locateReference(reference) {
   catch (error) { show(`定位失败：${error.message}`, 'error'); return false; }
   let revealed = null;
   if (['message', 'history_event', 'result'].includes(reference.kind)) {
-    try { revealed = await root?.querySelector('.conversation-panel')?.revealConversationReference?.(reference); }
+    try {
+      revealed = await root?.querySelector('.conversation-panel')?.revealConversationReference?.(reference);
+      if (!revealed && reference.kind !== 'result') revealed = await root?.querySelector('.worker-timeline-panel')?.revealTimelineReference?.(reference);
+    }
     catch (error) { show(`定位读取失败：${error.message}`, 'error'); return false; }
   }
   const found = revealed || await waitForRef(root, token);

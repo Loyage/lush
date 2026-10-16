@@ -1,5 +1,6 @@
 import { StoreBase } from './store/base.js';
 import { tasks } from './store/tasks.js';
+import { workerPhases } from './store/worker-phases.js';
 import { specs } from './store/specs.js';
 import { deps } from './store/deps.js';
 import { messages } from './store/messages.js';
@@ -27,7 +28,7 @@ export class Store extends StoreBase {
   constructor(...args) { super(...args); ensureConvergenceColumns(this.db); ensureRunnerSchema(this.db); }
 }
 
-for (const [module, mixin] of Object.entries({ tasks, specs, deps, messages, events, reading, verification, drafts, inputHistory, references, timeline, branches, runs, candidates, agentUsage, agentConnections, convergence, runner })) {
+for (const [module, mixin] of Object.entries({ tasks, workerPhases, specs, deps, messages, events, reading, verification, drafts, inputHistory, references, timeline, branches, runs, candidates, agentUsage, agentConnections, convergence, runner })) {
   for (const name of Object.keys(mixin)) {
     if (Object.prototype.hasOwnProperty.call(Store.prototype, name)) {
       throw new Error(`duplicate Store method ${name} (${module}.js)`);

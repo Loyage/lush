@@ -27,6 +27,8 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/loading-assets.test.js', // authenticated Host, cold JS/CSS budgets and compression
   ]),
   rpc: Object.freeze([
+    'test/project/lifecycle-evidence.test.js', // controlled Provider -> durable phases/input provenance -> existing authenticated history APIs
+    'test/web/worker-lifecycle-integration.test.js', // real Project/HTTP facts -> two independent readers and exact source navigation
     'test/project/runner-emission-chain.test.js', // actual user CLI -> persisted selection -> Project/leased Bridge -> independent Runner commit
     'test/project/runner-tool-reconcile.test.js', // lost Bridge ACK -> central restart -> actual user CLI/HTTP verification; no replay or automatic retry
     'test/project/runner-command-reconcile.test.js', // command admission ACK is not stop proof; original execution and unknown stop
@@ -67,6 +69,12 @@ export const INTEGRATION_GROUPS = Object.freeze({
     'test/web/runtime-coordinator-integration.test.js', // HTTP/RPC -> durable intent -> coordinated checks -> Provider/bound RPC; freeze/cancel/edge preservation
   ]),
   component: Object.freeze([
+    'test/web/dom-worker-lifecycle.test.js', // phase intervals, causal evidence, retained reader state and exact reference routing
+    'test/web/worker-lifecycle-model.test.js', // honest legacy/gap/partial-history projection
+    'test/web/dom-detail-layout-preferences.test.js', // confirmed input-output / lifecycle module hierarchy
+    'test/web/dom-detail-progressive.test.js', // cached history/loading state, selection deferral and lifecycle listener cleanup
+    'test/web/dom-task-message.test.js', // communication/raw references now belong to the lifecycle reader
+    'test/web/dom-studio.test.js', // content precedes lifecycle and implementation metadata
     'test/web/dom-runner-choice.test.js', // lazy reads, mode isolation, fixed selection, fingerprints and late edits
     'test/web/dom-runner-choice-reset.test.js', // D655 null only on draft.update, omitted old fields and ACK revision baseline
     'test/web/dom-runner-choice-legacy.test.js', // legacy draft ACK consumption, failed refresh and stale snapshot guards
